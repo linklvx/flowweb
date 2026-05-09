@@ -85,6 +85,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         fitView={false}
+        proOptions={{ hideAttribution: true }}
         className="bg-[#0f0f0f]"
       >
         <Background color="#1a1a1a" gap={24} size={1} />

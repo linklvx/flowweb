@@ -76,6 +76,7 @@ describe('ContentSection', () => {
     });
 
     render(<ContentSection />);
-    expect(screen.getByText('网络错误')).toBeInTheDocument();
+    expect(screen.getByText('内容加载失败')).toBeInTheDocument();
+    expect(screen.getByText('重新加载')).toBeInTheDocument();
   });
 });

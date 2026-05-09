@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flowweb",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@flowweb/web", "dev"],
+      "port": 5173
+    }
+  ]
+}
