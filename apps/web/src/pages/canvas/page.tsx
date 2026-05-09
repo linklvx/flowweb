@@ -1,7 +1,14 @@
+import { ReactFlowProvider } from '@xyflow/react';
+import { NodePalette } from './components/NodePalette';
+import { CanvasView } from './components/CanvasView';
+
 export function CanvasPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0f0f0f]">
-      <p className="text-gray-500 text-lg">Canvas — Phase 2</p>
-    </div>
+    <ReactFlowProvider>
+      <div className="flex h-screen bg-[#0f0f0f]">
+        <NodePalette />
+        <CanvasView projectId="default" />
+      </div>
+    </ReactFlowProvider>
   );
 }
