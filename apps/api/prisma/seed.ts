@@ -111,7 +111,14 @@ async function main() {
     create: { nodeTypeId: textNode.id, modelId: gpt4.id, creditCost: 2 },
   });
 
-  console.log('Seed complete: Phase 1 cards + Phase 3 model configuration');
+  // ====== Phase 4: Default User Balance ======
+  await prisma.userBalance.upsert({
+    where: { userId: 'default-user' },
+    update: {},
+    create: { userId: 'default-user', credits: 100, version: 0 },
+  });
+
+  console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance');
 }
 
 main()
