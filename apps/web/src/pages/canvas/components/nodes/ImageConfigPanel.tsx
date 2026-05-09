@@ -1,10 +1,14 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
 
 const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
-const MODELS = ['SD XL', 'DALL-E 3', 'MJ v6'];
-const RESOLUTIONS = ['512×512', '1024×1024', '2048×2048'];
 const COUNTS = [1, 2, 4];
+
+interface ModelInfo {
+  id: string; name: string;
+  resolutions: { id: string; label: string }[];
+  durations: { id: string; label: string }[];
+}
 
 interface Props {
   nodeId: string;
@@ -14,6 +18,30 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
+
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [creditCost, setCreditCost] = useState<number>(0);
+
+  // Load models on mount
+  useEffect(() => {
+    fetch('/api/node-types/image/models')
+      .then(r => r.json())
+      .then(json => { if (json.code === 0) setModels(json.data); })
+      .catch(() => {});
+  }, []);
+
+  // Calculate price callback
+  const updatePrice = useCallback(async (modelId: string, resolutionId?: string) => {
+    const params = new URLSearchParams({ modelId });
+    if (resolutionId) params.set('resolutionId', resolutionId);
+    try {
+      const res = await fetch(`/api/pricing/calculate?${params}`);
+      const json = await res.json();
+      if (json.code === 0) setCreditCost(json.data);
+    } catch { setCreditCost(0); }
+  }, []);
+
+  const selectedModel = models.find(m => m.id === nodeData?.model);
 
   const handleStyleToggle = useCallback(
     (style: string) => {
@@ -68,21 +96,29 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           <div>
             <div className="text-[10px] text-[#888] mb-1">模型</div>
             <select
-              value={nodeData?.model ?? 'SD XL'}
-              onChange={(e) => updateConfig(nodeId, { model: e.target.value })}
+              value={nodeData?.model ?? ''}
+              onChange={(e) => {
+                updateConfig(nodeId, { model: e.target.value, resolution: '' });
+                updatePrice(e.target.value, undefined);
+              }}
               className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
             >
-              {MODELS.map((m) => <option key={m}>{m}</option>)}
+              <option value="">选择模型</option>
+              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
           <div>
             <div className="text-[10px] text-[#888] mb-1">分辨率</div>
             <select
-              value={nodeData?.resolution ?? '1024×1024'}
-              onChange={(e) => updateConfig(nodeId, { resolution: e.target.value })}
+              value={nodeData?.resolution ?? ''}
+              onChange={(e) => {
+                updateConfig(nodeId, { resolution: e.target.value });
+                updatePrice(nodeData?.model, e.target.value);
+              }}
               className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
             >
-              {RESOLUTIONS.map((r) => <option key={r}>{r}</option>)}
+              <option value="">默认</option>
+              {(selectedModel?.resolutions || []).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
             </select>
           </div>
           <div>
@@ -99,7 +135,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
         {/* Execute button — bottom-right */}
         <div className="flex justify-end items-center gap-3">
-          <span className="text-xs text-[#f59e0b]">消耗积分: 5</span>
+          <span className="text-xs text-[#f59e0b]">消耗积分: {creditCost || '—'}</span>
           <button
             onClick={handleGenerate}
             className="w-9 h-9 bg-[#4ade80] text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md shadow-[#4ade80]/30 hover:bg-[#22c55e] transition-colors"
