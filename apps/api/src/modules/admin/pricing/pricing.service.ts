@@ -46,8 +46,8 @@ export class PricingService {
         where: {
           nodeTypeId_modelId_resolutionId_durationId: {
             nodeTypeId: rule.nodeTypeId, modelId: rule.modelId,
-            resolutionId: rule.resolutionId ?? null,
-            durationId: rule.durationId ?? null,
+            resolutionId: (rule.resolutionId ?? null) as any,
+            durationId: (rule.durationId ?? null) as any,
           },
         },
         update: { creditCost: rule.creditCost },

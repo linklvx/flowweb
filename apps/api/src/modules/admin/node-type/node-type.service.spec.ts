@@ -45,7 +45,8 @@ describe('NodeTypeService', () => {
   it('should find node type by id', async () => {
     prisma.nodeType.findUnique.mockResolvedValue({ id: '1', name: 'text', key: 'text', models: [] });
     const result = await service.findById('1');
-    expect(result.key).toBe('text');
+    expect(result).not.toBeNull();
+    expect(result!.key).toBe('text');
     expect(prisma.nodeType.findUnique).toHaveBeenCalledWith({ where: { id: '1' }, include: { models: true } });
   });
 });
