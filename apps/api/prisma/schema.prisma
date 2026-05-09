@@ -1,0 +1,34 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  strict   = true
+}
+
+model Announcement {
+  id         String    @id @default(cuid())
+  message    String
+  linkUrl    String?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([active])
+}
+
+model ContentCard {
+  id         String    @id @default(cuid())
+  title      String
+  coverUrl   String
+  tags       String[]
+  desc       String
+  sortOrder  Int       @default(0)
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([active, sortOrder])
+}
