@@ -74,7 +74,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         edges={edges}
         onNodesChange={onNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}
-        onConnect={onConnect}
+        onConnect={onConnect as any}
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
