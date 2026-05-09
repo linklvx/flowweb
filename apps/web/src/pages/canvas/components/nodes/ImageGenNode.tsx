@@ -1,5 +1,6 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
@@ -14,6 +15,30 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     e.stopPropagation();
     selectNode(id);
   }, [id, selectNode]);
+
+  useEffect(() => {
+    const socket = io('/execution', { transports: ['websocket', 'polling'] });
+
+    socket.on('connect', () => {
+      socket.emit('join', 'default');
+    });
+
+    socket.on('node:status', (data: any) => {
+      if (data.nodeId !== id) return;
+      if (data.status === 'loading') {
+        useNodeStore.getState().setStatus(id, 'loading');
+      } else if (data.status === 'done' && data.resultUrl) {
+        useNodeStore.getState().setResult(id, data.resultUrl);
+      } else if (data.status === 'error') {
+        useNodeStore.getState().setStatus(id, 'error');
+      }
+      if (data.credits !== undefined) {
+        window.dispatchEvent(new CustomEvent('credits:update', { detail: data.credits }));
+      }
+    });
+
+    return () => { socket.disconnect(); };
+  }, [id]);
 
   return (
     <div onClick={handleClick}>

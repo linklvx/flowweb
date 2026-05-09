@@ -1,5 +1,6 @@
 import { NavActionKey } from '@flowweb/shared';
 import { StarOutlined } from '@ant-design/icons';
+import { useState, useEffect } from 'react';
 
 interface NavAction {
   key: NavActionKey;
@@ -19,11 +20,35 @@ interface Props {
 }
 
 export function Navbar({ onAction }: Props) {
+  const [credits, setCredits] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('/api/credits/balance')
+      .then(r => r.json())
+      .then(json => { if (json.code === 0) setCredits(json.data.credits); })
+      .catch(() => {});
+  }, []);
+
+  // Listen for real-time credit updates from Socket.io
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (typeof ce.detail === 'number') setCredits(ce.detail);
+    };
+    window.addEventListener('credits:update', handler);
+    return () => window.removeEventListener('credits:update', handler);
+  }, []);
+
   return (
     <nav className="h-16 bg-[#1A1A1A] flex items-center justify-between px-6 shadow-md border-b border-[#333]">
       <div className="text-[#4ade80] font-bold text-lg select-none">
         🧠 FlowAI
       </div>
+      {credits !== null && (
+        <div className="text-xs text-[#f59e0b] flex-shrink-0">
+          ⚡ {credits} 积分
+        </div>
+      )}
       <div className="flex gap-3">
         {defaultActions.map((action) => (
           <button

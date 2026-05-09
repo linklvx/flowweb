@@ -1,5 +1,6 @@
 import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
+import { executeWorkflow } from '@/api/executionApi';
 
 const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
 const COUNTS = [1, 2, 4];
@@ -21,6 +22,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
+  const [executing, setExecuting] = useState(false);
 
   // Load models on mount
   useEffect(() => {
@@ -50,8 +52,19 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     [nodeId, updateConfig]
   );
 
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = useCallback(async () => {
+    setExecuting(true);
     setStatus(nodeId, 'loading');
+    try {
+      const result = await executeWorkflow('default', nodeId);
+      if (!result.success) {
+        setStatus(nodeId, 'error');
+      }
+    } catch {
+      setStatus(nodeId, 'error');
+    } finally {
+      setExecuting(false);
+    }
   }, [nodeId, setStatus]);
 
   return (
@@ -138,9 +151,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           <span className="text-xs text-[#f59e0b]">消耗积分: {creditCost || '—'}</span>
           <button
             onClick={handleGenerate}
-            className="w-9 h-9 bg-[#4ade80] text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md shadow-[#4ade80]/30 hover:bg-[#22c55e] transition-colors"
+            disabled={executing}
+            className={`w-9 h-9 text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md transition-colors ${
+              executing ? 'bg-gray-500 cursor-not-allowed' : 'bg-[#4ade80] hover:bg-[#22c55e] shadow-[#4ade80]/30'
+            }`}
           >
-            ▶
+            {executing ? '⏳' : '▶'}
           </button>
         </div>
       </div>
