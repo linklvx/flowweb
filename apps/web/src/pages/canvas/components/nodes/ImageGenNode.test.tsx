@@ -29,7 +29,7 @@ describe('ImageGenNode', () => {
   const renderNode = (selected = false) =>
     render(
       <ReactFlowProvider>
-        <ImageGenNode id="img1" data={{}} selected={selected} />
+        <ImageGenNode id="img1" data={{}} selected={selected} type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
       </ReactFlowProvider>
     );
 

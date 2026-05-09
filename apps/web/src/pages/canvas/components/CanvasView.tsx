@@ -18,9 +18,9 @@ const nodeTypes: NodeTypes = {
   videoGen: VideoGenNode,
 } as any;
 
-const edgeTypes = {
+const edgeTypes: any = {
   default: ConnectionLine,
-} as any;
+};
 
 interface Props {
   projectId: string;
