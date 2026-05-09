@@ -1,0 +1,45 @@
+import { memo, useCallback } from 'react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { ImageConfigPanel } from './ImageConfigPanel';
+
+function ImageGenNodeComponent({ id, selected }: NodeProps) {
+  const selectNode = useCanvasStore((s) => s.selectNode);
+  const nodeData = useNodeStore((s) => s.nodes[id]) as any;
+  const status = nodeData?.status ?? 'idle';
+  const resultUrl = nodeData?.resultUrl;
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    selectNode(id);
+  }, [id, selectNode]);
+
+  return (
+    <div onClick={handleClick}>
+      <div
+        className={`bg-[#1a1a1a] border-2 rounded-xl w-80 transition-all ${selected ? 'border-[#60a5fa] shadow-lg shadow-[#60a5fa]/20' : 'border-[#555]'}`}
+      >
+        <Handle type="target" position={Position.Left} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
+        <div className="bg-[#2a2a2a] px-3 py-2 rounded-t-xl text-xs font-bold text-[#60a5fa] flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
+          🖼 图片生成节点
+        </div>
+        <div className="m-3 h-52 bg-[#0f0f0f] border border-dashed border-[#333] rounded-md flex items-center justify-center overflow-hidden">
+          {resultUrl ? (
+            <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
+          ) : status === 'loading' ? (
+            <span className="text-yellow-400 text-sm">⏳ 生成中...</span>
+          ) : (
+            <span className="text-gray-600 text-sm">🖼 图片预览区</span>
+          )}
+        </div>
+        <Handle type="source" position={Position.Right} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
+      </div>
+      {/* Config panel — only when selected */}
+      {selected && <ImageConfigPanel nodeId={id} />}
+    </div>
+  );
+}
+
+export const ImageGenNode = memo(ImageGenNodeComponent);
