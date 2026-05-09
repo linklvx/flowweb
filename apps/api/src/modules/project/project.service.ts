@@ -5,7 +5,7 @@ interface NodeInput {
   id: string;
   type: string;
   position: { x: number; y: number };
-  data: Record<string, unknown>;
+  data: any;
 }
 
 interface EdgeInput {
