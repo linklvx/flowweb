@@ -32,3 +32,36 @@ model ContentCard {
 
   @@index([active, sortOrder])
 }
+
+model CanvasProject {
+  id        String       @id @default(cuid())
+  name      String
+  viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
+  nodes     CanvasNode[]
+  edges     CanvasEdge[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model CanvasNode {
+  id        String        @id @default(cuid())
+  projectId String
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String
+  position  Json
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([projectId])
+}
+
+model CanvasEdge {
+  id        String        @id @default(cuid())
+  projectId String
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceId  String
+  targetId  String
+
+  @@index([projectId])
+}
