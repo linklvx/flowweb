@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { fetchNodeTypes, type NodeTypeData } from '@/api/adminApi';
 import { NodeTypeTabs } from './components/NodeTypeTabs';
 import { ModelTable } from './components/ModelTable';
+import { PricingRuleTable } from './components/PricingRuleTable';
 
 export function AdminPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
@@ -28,6 +29,11 @@ export function AdminPage() {
       )}
       {activeNodeType && (
         <ModelTable nodeTypeId={activeNodeType.id} nodeTypeKey={activeNodeType.key} />
+      )}
+      {activeNodeType && (
+        <div className="mt-8">
+          <PricingRuleTable nodeTypeId={activeNodeType.id} />
+        </div>
       )}
     </div>
   );
