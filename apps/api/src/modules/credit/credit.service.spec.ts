@@ -24,7 +24,7 @@ describe('CreditService', () => {
   it('should get balance for existing user', async () => {
     prisma.userBalance.findUnique.mockResolvedValue({ userId: 'u1', credits: 85, version: 3 });
     const result = await service.getBalance('u1');
-    expect(result.credits).toBe(85);
+    expect(result!.credits).toBe(85);
   });
 
   it('should create default balance for new user', async () => {

@@ -1,6 +1,6 @@
 import { apiFetch } from './client';
 
-export async function executeWorkflow(projectId: string, nodeId?: string) {
+export async function executeWorkflow(projectId: string, nodeId?: string): Promise<{ success: boolean }> {
   return apiFetch('/execution/execute', {
     method: 'POST',
     body: JSON.stringify({ projectId, nodeId }),
