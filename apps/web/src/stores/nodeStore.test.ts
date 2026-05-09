@@ -69,7 +69,8 @@ describe('nodeStore', () => {
   it('should return node data by id', () => {
     useNodeStore.getState().updateText('n1', 'test');
     const data = useNodeStore.getState().getNodeData('n1');
-    expect(data.type).toBe('text');
+    expect(data).toBeDefined();
+    if (data) expect(data.type).toBe('text');
   });
 
   it('should return undefined for unknown id', () => {
