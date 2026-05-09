@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchNodeTypes, type NodeTypeData } from '@/api/adminApi';
 import { NodeTypeTabs } from './components/NodeTypeTabs';
+import { ModelTable } from './components/ModelTable';
 
 export function AdminPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
@@ -25,9 +26,9 @@ export function AdminPage() {
           onChange={setActiveTab}
         />
       )}
-      <div className="text-[#666] text-sm">
-        {activeNodeType ? `当前节点类型: ${activeNodeType.name}` : '加载中...'}
-      </div>
+      {activeNodeType && (
+        <ModelTable nodeTypeId={activeNodeType.id} nodeTypeKey={activeNodeType.key} />
+      )}
     </div>
   );
 }
