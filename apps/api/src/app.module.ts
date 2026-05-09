@@ -4,8 +4,9 @@ import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
 import { ProjectModule } from './modules/project/project.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CreditModule } from './modules/credit/credit.module';
 
 @Module({
-  imports: [PrismaModule, HealthModule, ContentModule, ProjectModule, AdminModule],
+  imports: [PrismaModule, HealthModule, ContentModule, ProjectModule, AdminModule, CreditModule],
 })
 export class AppModule {}
