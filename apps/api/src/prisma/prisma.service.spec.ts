@@ -6,8 +6,8 @@ describe('PrismaService', () => {
   let service: PrismaService;
 
   beforeEach(async () => {
-    vi.spyOn(PrismaService.prototype, '$connect').mockResolvedValue();
-    vi.spyOn(PrismaService.prototype, '$disconnect').mockResolvedValue();
+    vi.spyOn(PrismaService.prototype, '$connect').mockResolvedValue(undefined);
+    vi.spyOn(PrismaService.prototype, '$disconnect').mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [PrismaService],
