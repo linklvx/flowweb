@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Skill(*)",
+      "Agent(*)",
+      "mcp__*",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ],
+    "deny": [],
+    "defaultMode": "bypassPermissions"
+  }
+}
