@@ -63,7 +63,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       </div>
       {/* Config panel — absolutely positioned below the node, outside flow */}
       {selected && (
-        <div className="absolute top-full left-0 z-50">
+        <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-50">
           <ImageConfigPanel nodeId={id} />
         </div>
       )}
