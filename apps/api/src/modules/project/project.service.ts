@@ -10,8 +10,10 @@ interface NodeInput {
 
 interface EdgeInput {
   id: string;
-  sourceId: string;
-  targetId: string;
+  sourceId?: string;
+  targetId?: string;
+  source?: string;
+  target?: string;
 }
 
 @Injectable()
@@ -62,8 +64,8 @@ export class ProjectService {
       data: edges.map((e) => ({
         id: e.id,
         projectId,
-        sourceId: e.sourceId,
-        targetId: e.targetId,
+        sourceId: e.sourceId || e.source || '',
+        targetId: e.targetId || e.target || '',
       })),
     });
     return this.prisma.canvasEdge.findMany({ where: { projectId } });
