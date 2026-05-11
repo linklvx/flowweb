@@ -27,7 +27,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           value={content}
           onChange={onChange}
           placeholder="输入 Prompt..."
-          className="w-full h-16 bg-[#0f0f0f] border border-[#333] rounded-md p-2 text-xs text-[#ccc] resize-none focus:outline-none focus:border-[#4ade80]"
+          className="w-full h-16 bg-[#0f0f0f] border border-[#333] rounded-md p-2 text-xs text-[#ccc] resize-none focus:outline-none focus:border-[#4ade80] box-border"
         />
       </div>
       <Handle type="source" position={Position.Right} className="!bg-[#4ade80] !border-2 !border-[#0f0f0f] !w-3 !h-3" />
