@@ -82,7 +82,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       <div className="p-4">
         {/* Prompt */}
         <div className="mb-3">
-          <div className="text-xs text-[#888] mb-1.5">Prompt</div>
+          <div className="text-xs text-[#888] mb-1.5">提示词（发送给 AI）</div>
           <textarea
             value={content}
             onChange={(e) => updateText(nodeId, e.target.value)}
