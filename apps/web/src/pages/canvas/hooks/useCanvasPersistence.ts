@@ -7,47 +7,31 @@ const STORAGE_KEY = 'flowweb_canvas';
 export function useCanvasPersistence(projectId: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restore from localStorage on mount
+  // Restore from localStorage on mount (only if store is empty)
   useEffect(() => {
+    const store = useCanvasStore.getState();
+    // Only restore if canvas is empty — prevents duplicates on re-render
+    if (store.nodes.length > 0) return;
+
     const cached = localStorage.getItem(`${STORAGE_KEY}_${projectId}`);
     if (!cached) return;
 
     try {
       const data = JSON.parse(cached);
-      const store = useCanvasStore.getState();
 
       // Restore viewport
       if (data.viewport) {
         store.updateViewport(data.viewport);
       }
 
-      // Restore nodes
+      // Restore nodes — use setState to replace, not add
       if (data.nodes && data.nodes.length > 0) {
-        store.onNodesChange(
-          data.nodes.map((n: any) => ({
-            type: 'add',
-            item: {
-              id: n.id,
-              type: n.type,
-              position: n.position,
-              data: n.data,
-            },
-          }))
-        );
+        useCanvasStore.setState({ nodes: data.nodes });
       }
 
-      // Restore edges
+      // Restore edges — use setState to replace, not add
       if (data.edges && data.edges.length > 0) {
-        store.onEdgesChange(
-          data.edges.map((e: any) => ({
-            type: 'add',
-            item: {
-              id: e.id,
-              source: e.source,
-              target: e.target,
-            },
-          }))
-        );
+        useCanvasStore.setState({ edges: data.edges });
       }
     } catch {
       // Corrupt cache — ignore
