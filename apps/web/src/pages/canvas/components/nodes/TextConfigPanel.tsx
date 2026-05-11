@@ -80,12 +80,12 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       const result = await executeWorkflow('default', nodeId);
       // Update node content with AI response
       if (result?.success) {
-        const nodeResult = result.results?.find((r: any) => r.nodeId === nodeId);
-        if (nodeResult?.content) {
+        const nodeResult = (result.results as any)?.find((r: any) => r.nodeId === nodeId);
+        if ((nodeResult as any)?.content) {
           const latest = useNodeStore.getState();
           const existing = latest.nodes[nodeId] as any;
           useNodeStore.setState({
-            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'text', content: nodeResult.content } },
+            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'text', content: (nodeResult as any).content } },
           });
         }
       }
