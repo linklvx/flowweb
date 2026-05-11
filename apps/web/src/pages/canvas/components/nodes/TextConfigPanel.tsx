@@ -77,8 +77,18 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      await executeWorkflow('default', nodeId);
-      // Restore content after execution (AI result will be set via Socket.io or API response)
+      const result = await executeWorkflow('default', nodeId);
+      // Update node content with AI response
+      if (result?.success) {
+        const nodeResult = result.results?.find((r: any) => r.nodeId === nodeId);
+        if (nodeResult?.content) {
+          const latest = useNodeStore.getState();
+          const existing = latest.nodes[nodeId] as any;
+          useNodeStore.setState({
+            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'text', content: nodeResult.content } },
+          });
+        }
+      }
     } catch {
       setStatus(nodeId, 'error');
     } finally {
