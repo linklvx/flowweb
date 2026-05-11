@@ -76,11 +76,23 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       ]);
 
       const result = await executeWorkflow('default', nodeId);
+      console.log('[execute] API result:', JSON.stringify(result));
       if (!result.success) {
+        console.error('[execute] failed:', result.errors);
         setStatus(nodeId, 'error');
       } else {
         const nodeResult = result.results?.find((r: any) => r.nodeId === nodeId);
+        console.log('[execute] nodeResult for', nodeId, ':', nodeResult);
         if (nodeResult?.resultUrl) {
+          console.log('[execute] setting resultUrl:', nodeResult.resultUrl);
+          // Directly update nodeStore to ensure the image shows
+          const store = useNodeStore.getState();
+          const existing = store.nodes[nodeId] as any;
+          if (existing) {
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, resultUrl: nodeResult.resultUrl, status: 'done' } },
+            });
+          }
           setResult(nodeId, nodeResult.resultUrl);
         } else {
           const updatedNode = (useNodeStore.getState().nodes[nodeId] as any);
