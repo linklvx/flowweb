@@ -103,8 +103,9 @@ export class ApiCallerService {
         const queryJson = await queryRes.json() as any;
 
         if (queryJson.status === 'succeeded' || queryJson.status === 'completed' || queryJson.status === 'done') {
-          const urls = queryJson.results || queryJson.images || [];
-          const resultUrl = Array.isArray(urls) ? urls[0]?.url || urls[0] : urls;
+          const urls = queryJson.data || queryJson.results || queryJson.images || [];
+          const first = Array.isArray(urls) ? urls[0] : urls;
+          const resultUrl = typeof first === 'string' ? first : first?.url || first;
           const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
           return { url: String(resultUrl), width: w || 1024, height: h || 1024 };
         }
