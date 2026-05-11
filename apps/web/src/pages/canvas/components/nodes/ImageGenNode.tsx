@@ -50,7 +50,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           <span className={`w-2 h-2 rounded-full ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
           🖼 图片生成节点
         </div>
-        <div className="m-3 h-52 bg-[#0f0f0f] border border-dashed border-[#333] rounded-md flex items-center justify-center overflow-hidden">
+        <div className="m-3 h-40 bg-[#0f0f0f] border border-dashed border-[#333] rounded-md flex items-center justify-center overflow-hidden">
           {resultUrl ? (
             <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
           ) : status === 'loading' ? (
