@@ -27,11 +27,26 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
 
-  // Load models on mount
+  // Load models on mount + auto-select defaults
   useEffect(() => {
     fetch('/api/node-types/image/models')
       .then(r => r.json())
-      .then(json => { if (json.code === 0) setModels(json.data); })
+      .then(json => {
+        if (json.code === 0) {
+          const list: ModelInfo[] = json.data;
+          setModels(list);
+          // Auto-select highest-priority model if none selected
+          if (!nodeData?.model && list.length > 0) {
+            const topModel = list[0];
+            const topResolution = topModel.resolutions?.[0];
+            updateConfig(nodeId, {
+              model: topModel.id,
+              resolution: topResolution?.id || '',
+            });
+            if (topModel.id) updatePrice(topModel.id, topResolution?.id);
+          }
+        }
+      })
       .catch(() => {});
   }, []);
 
