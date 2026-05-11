@@ -51,7 +51,7 @@ describe('TextInputNode', () => {
 
   it('should show green border when selected', () => {
     const { container } = renderNode({ selected: true });
-    const node = container.firstElementChild;
-    expect(node?.className).toContain('border-[#4ade80]');
+    const node = container.querySelector('.border-\\[\\#4ade80\\]');
+    expect(node).toBeTruthy();
   });
 });
