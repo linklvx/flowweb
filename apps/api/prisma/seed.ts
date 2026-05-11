@@ -84,18 +84,14 @@ async function main() {
   ];
 
   for (const rule of imageRules) {
-    await prisma.pricingRule.upsert({
-      where: {
-        nodeTypeId_modelId_resolutionId_durationId: {
-          nodeTypeId: rule.nodeTypeId,
-          modelId: rule.modelId,
-          resolutionId: rule.resolutionId,
-          durationId: null,
-        },
-      },
-      update: { creditCost: rule.creditCost },
-      create: rule as any,
+    const existing = await prisma.pricingRule.findFirst({
+      where: { nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, resolutionId: rule.resolutionId, durationId: null },
     });
+    if (existing) {
+      await prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: rule.creditCost } });
+    } else {
+      await prisma.pricingRule.create({ data: rule as any });
+    }
   }
 
   // Text model
@@ -105,11 +101,14 @@ async function main() {
     create: { id: 'seed-model-gpt4', nodeTypeId: textNode.id, name: 'GPT-4o', provider: 'OpenAI', apiUrl: 'https://api.openai.com/v1/chat/completions', sortOrder: 1, recommended: true },
   });
 
-  await prisma.pricingRule.upsert({
-    where: { nodeTypeId_modelId_resolutionId_durationId: { nodeTypeId: textNode.id, modelId: gpt4.id, resolutionId: null, durationId: null } },
-    update: { creditCost: 2 },
-    create: { nodeTypeId: textNode.id, modelId: gpt4.id, creditCost: 2 },
+  const textExisting = await prisma.pricingRule.findFirst({
+    where: { nodeTypeId: textNode.id, modelId: gpt4.id, resolutionId: null, durationId: null },
   });
+  if (textExisting) {
+    await prisma.pricingRule.update({ where: { id: textExisting.id }, data: { creditCost: 2 } });
+  } else {
+    await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: gpt4.id, creditCost: 2 } as any });
+  }
 
   // ====== Phase 4: Default User Balance ======
   await prisma.userBalance.upsert({
