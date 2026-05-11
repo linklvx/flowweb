@@ -109,7 +109,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   return (
-    <div className="bg-[#1a1a1a] border-2 border-[#333] rounded-xl w-[420px] shadow-xl">
+    <div className="bg-[#1a1a1a] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[420px] shadow-xl">
       <div className="text-center">
         <div className="inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-b-[8px] border-l-transparent border-r-transparent border-b-[#333]" />
       </div>
