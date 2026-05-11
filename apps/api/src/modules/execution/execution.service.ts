@@ -44,24 +44,51 @@ export class ExecutionService {
 
     // 5. Execute sequentially
     let totalDeducted = 0;
+    const results: any[] = [];
     for (const node of orderedNodes) {
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
 
       try {
-        // Text nodes: pass through
+        // Collect upstream data
+        const upstream = this.topology.collectUpstreamData(node.id, scopeNodes, allEdges);
+        const data = node.data as any;
+        const prompt = upstream.textContents.join(' ') || data?.content || '';
+
+        // Text nodes: call real text API (Kimi)
         if (node.type === 'textInput') {
+          const textResult = await this.apiCaller.callTextGen({
+            prompt: prompt || 'Hello',
+            model: data?.model || 'seed-model-kimi',
+            apiUrl: '',
+          });
+          results.push({ nodeId: node.id, type: 'text', content: textResult.content });
+
+          await this.prisma.canvasNode.update({
+            where: { id: node.id },
+            data: { data: { ...data, content: data.content || prompt, result: textResult.content } },
+          });
+
+          const rule = await this.prisma.pricingRule.findFirst({
+            where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
+          });
+          const cost = rule?.creditCost ?? 0;
+          if (cost > 0) {
+            const deductResult = await this.credit.deduct(userId, cost);
+            if (!deductResult.success) {
+              this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败' });
+              return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
+            }
+            totalDeducted += cost;
+          }
+
           const bal = await this.credit.getBalance(userId);
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: bal?.credits });
           continue;
         }
 
-        // Collect upstream data
-        const upstream = this.topology.collectUpstreamData(node.id, scopeNodes, allEdges);
-        const data = node.data as any;
-        const prompt = upstream.textContents.join(' ') || data?.content || '';
         const imageUrl = upstream.imageUrl;
 
-        // Call API
+        // Call Image API
         const result = await this.apiCaller.callImageGen({
           prompt,
           extraPrompt: data?.extraPrompt,
@@ -70,6 +97,8 @@ export class ExecutionService {
           resolution: data?.resolution,
           imageUrl,
         });
+
+        results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
 
         // Get cost from pricing rule
         const rule = await this.prisma.pricingRule.findFirst({
@@ -110,6 +139,6 @@ export class ExecutionService {
 
     // 6. Complete
     this.gateway.emitExecutionComplete(projectId, { totalCost: totalDeducted });
-    return { success: true, errors: [] };
+    return { success: true, errors: [], results };
   }
 }

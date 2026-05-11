@@ -7,6 +7,10 @@ export interface UpstreamData {
 
 @Injectable()
 export class TopologyService {
+  // Normalize edge field names: support both source/target (xyflow) and sourceId/targetId (Prisma)
+  private src(e: any): string { return e.sourceId || e.source; }
+  private tgt(e: any): string { return e.targetId || e.target; }
+
   /** Kahn's algorithm for topological sort */
   sort(nodes: any[], edges: any[]): any[] {
     const nodeIds = new Set(nodes.map(n => n.id));
@@ -15,10 +19,11 @@ export class TopologyService {
 
     for (const id of nodeIds) { inDegree[id] = 0; adjacency[id] = []; }
     for (const e of edges) {
-      if (nodeIds.has(e.source) && nodeIds.has(e.target)) {
-        adjacency[e.source] = adjacency[e.source] || [];
-        adjacency[e.source].push(e.target);
-        inDegree[e.target] = (inDegree[e.target] || 0) + 1;
+      const s = this.src(e), t = this.tgt(e);
+      if (nodeIds.has(s) && nodeIds.has(t)) {
+        adjacency[s] = adjacency[s] || [];
+        adjacency[s].push(t);
+        inDegree[t] = (inDegree[t] || 0) + 1;
       }
     }
 
@@ -44,7 +49,7 @@ export class TopologyService {
   }
 
   private getUpstreamIds(nodeId: string, edges: any[], visited = new Set<string>()): Set<string> {
-    const parents = edges.filter(e => e.target === nodeId).map(e => e.source);
+    const parents = edges.filter(e => this.tgt(e) === nodeId).map(e => this.src(e));
     for (const p of parents) {
       if (!visited.has(p)) {
         visited.add(p);
@@ -56,19 +61,19 @@ export class TopologyService {
 
   /** Collect output data from all upstream nodes for injection into target node */
   collectUpstreamData(nodeId: string, nodes: any[], edges: any[]): UpstreamData {
-    const upstreamEdges = edges.filter(e => e.target === nodeId);
+    const upstreamEdges = edges.filter(e => this.tgt(e) === nodeId);
     const textContents: string[] = [];
     let imageUrl: string | undefined;
 
     for (const e of upstreamEdges) {
-      const upstream = nodes.find(n => n.id === e.source);
+      const upstream = nodes.find(n => n.id === this.src(e));
       if (!upstream) continue;
       const data = upstream.data as any;
 
       if (upstream.type === 'textInput' && data?.content) {
         textContents.push(data.content);
       } else if ((upstream.type === 'imageGen' || upstream.type === 'videoGen') && data?.resultUrl) {
-        if (!imageUrl) imageUrl = data.resultUrl; // First available image
+        if (!imageUrl) imageUrl = data.resultUrl;
       }
     }
 

@@ -35,7 +35,10 @@ describe('ExecutionService', () => {
       collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hello'], imageUrl: undefined }),
     };
     validation = { validateAll: vi.fn().mockResolvedValue({ valid: true, errors: [], totalCost: 5 }) };
-    apiCaller = { callImageGen: vi.fn().mockResolvedValue({ url: '/mock/test.jpg', width: 1024, height: 1024 }) };
+    apiCaller = {
+      callImageGen: vi.fn().mockResolvedValue({ url: '/mock/test.jpg', width: 1024, height: 1024 }),
+      callTextGen: vi.fn().mockResolvedValue({ content: 'hello' }),
+    };
     credit = {
       deduct: vi.fn().mockResolvedValue({ success: true, newBalance: 95 }),
       getBalance: vi.fn().mockResolvedValue({ credits: 95 }),

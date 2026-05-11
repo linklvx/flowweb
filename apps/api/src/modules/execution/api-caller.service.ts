@@ -83,14 +83,17 @@ export class ApiCallerService {
     // Real API: HY-Image async submit + poll
     if (config && config.type === 'image') {
       // Step 1: Submit
+      const submitBody = JSON.stringify({ model: config.modelName, prompt: params.prompt });
+      console.log('[HY-Image] Submitting to:', `${config.apiUrl}/submit`, 'model:', config.modelName);
       const submitRes = await fetch(`${config.apiUrl}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
-        body: JSON.stringify({ model: config.modelName, prompt: params.prompt }),
+        body: submitBody,
       });
       const submitJson = await submitRes.json() as any;
+      console.log('[HY-Image] Submit response:', JSON.stringify(submitJson).slice(0, 200));
       const taskId = submitJson.id || submitJson.task_id;
-      if (!taskId) throw new Error('Image submit failed: no task ID returned');
+      if (!taskId) throw new Error(`Image submit failed: no task ID, got: ${JSON.stringify(submitJson).slice(0, 100)}`);
 
       // Step 2: Poll until complete (max 30 retries, 2s interval)
       for (let i = 0; i < 30; i++) {
