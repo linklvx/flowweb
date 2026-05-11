@@ -59,10 +59,10 @@ function TextConfigPanelComponent({ nodeId }: Props) {
     try {
       const canvasState = useCanvasStore.getState();
       const nodeState = useNodeStore.getState();
-      const originalContent = nodeState.nodes[nodeId] ? (nodeState.nodes[nodeId] as any).content : '';
       // Inject prompt as content for execution
+      const existing = nodeState.nodes[nodeId] as any;
       useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { type: 'text', ...nodeState.nodes[nodeId], content: prompt } },
+        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, type: 'text', content: prompt } },
       });
       const latestState = useNodeStore.getState();
       const mergedNodes = canvasState.nodes.map((n) => ({
