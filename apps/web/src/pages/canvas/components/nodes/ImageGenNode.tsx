@@ -46,7 +46,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         className={`bg-[#1a1a1a] border-2 rounded-xl w-80 transition-all ${selected ? 'border-[#60a5fa] shadow-lg shadow-[#60a5fa]/20' : 'border-[#555]'}`}
       >
         <Handle type="target" position={Position.Left} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
-        <div className="bg-[#2a2a2a] px-3 py-2 rounded-t-xl text-xs font-bold text-[#60a5fa] flex items-center gap-2">
+        <div className="bg-[#2a2a2a] px-3 py-1 rounded-t-xl text-xs font-bold text-[#60a5fa] flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
           🖼 图片生成节点
         </div>
