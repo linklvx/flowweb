@@ -20,14 +20,21 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
 
     socket.on('connect', () => {
+      console.log('[ImageGenNode] socket connected, joining default');
       socket.emit('join', 'default');
     });
 
+    socket.on('connect_error', (err: any) => {
+      console.error('[ImageGenNode] socket connect error:', err.message);
+    });
+
     socket.on('node:status', (data: any) => {
+      console.log('[ImageGenNode] received node:status:', data);
       if (data.nodeId !== id) return;
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
       } else if (data.status === 'done' && data.resultUrl) {
+        console.log('[ImageGenNode] setting resultUrl:', data.resultUrl);
         useNodeStore.getState().setResult(id, data.resultUrl);
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
