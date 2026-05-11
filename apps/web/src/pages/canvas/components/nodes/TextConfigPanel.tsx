@@ -14,7 +14,6 @@ interface Props {
 
 function TextConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
-  const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
 
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -32,7 +31,11 @@ function TextConfigPanelComponent({ nodeId }: Props) {
           const list: ModelInfo[] = json.data;
           setModels(list);
           if (!nodeData?.model && list.length > 0) {
-            updateConfig(nodeId, { model: list[0].id });
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: list[0].id } },
+            });
           }
         }
       })
@@ -105,8 +108,13 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             <select
               value={model}
               onChange={(e) => {
-                updateConfig(nodeId, { model: e.target.value });
-                updatePrice(e.target.value);
+                const val = e.target.value;
+                const store = useNodeStore.getState();
+                const existing = store.nodes[nodeId] as any;
+                useNodeStore.setState({
+                  nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: val } },
+                });
+                updatePrice(val);
               }}
               className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-2"
             >
