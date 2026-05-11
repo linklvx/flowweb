@@ -109,7 +109,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   return (
-    <div className="mt-2 bg-[#1a1a1a] border-2 border-[#333] rounded-xl w-80 shadow-xl">
+    <div className="bg-[#1a1a1a] border-2 border-[#333] rounded-xl w-[420px] shadow-xl">
       <div className="text-center -mt-2">
         <div className="inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-b-[8px] border-l-transparent border-r-transparent border-b-[#333]" />
       </div>
@@ -187,8 +187,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           </div>
         </div>
 
-        {/* Execute button — bottom-right */}
-        <div className="flex justify-end items-center gap-3">
+        {/* Execute — inline row */}
+        <div className="flex justify-between items-center pt-1">
           <span className="text-xs text-[#f59e0b]">消耗积分: {creditCost || '—'}</span>
           <button
             onClick={handleGenerate}
