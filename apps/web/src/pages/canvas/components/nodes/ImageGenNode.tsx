@@ -41,7 +41,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   }, [id]);
 
   return (
-    <>
+    <div className="relative">
       <div
         className={`bg-[#1a1a1a] border-2 rounded-xl w-80 transition-all ${selected ? 'border-[#60a5fa] shadow-lg shadow-[#60a5fa]/20' : 'border-[#555]'}`}
       >
@@ -61,9 +61,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
         <Handle type="source" position={Position.Right} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
       </div>
-      {/* Config panel — only when selected */}
-      {selected && <ImageConfigPanel nodeId={id} />}
-    </>
+      {/* Config panel — absolutely positioned below the node, outside flow */}
+      {selected && (
+        <div className="absolute top-full left-0 z-50">
+          <ImageConfigPanel nodeId={id} />
+        </div>
+      )}
+    </div>
   );
 }
 
