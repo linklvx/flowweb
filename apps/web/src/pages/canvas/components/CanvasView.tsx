@@ -36,6 +36,15 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const onConnect = useCanvasStore((s) => s.onConnect);
   const updateViewport = useCanvasStore((s) => s.updateViewport);
   const addNode = useCanvasStore((s) => s.addNode);
+  const selectNode = useCanvasStore((s) => s.selectNode);
+
+  const onNodeClick = useCallback((_event: any, node: any) => {
+    selectNode(node.id);
+  }, [selectNode]);
+
+  const onPaneClick = useCallback(() => {
+    selectNode(null);
+  }, [selectNode]);
 
   const isValidConnection = useCallback((connection: Connection) => {
     // No self-connections
@@ -82,6 +91,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onViewportChange={updateViewport}
         onDragOver={onDragOver}
         onDrop={onDrop}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         fitView={false}

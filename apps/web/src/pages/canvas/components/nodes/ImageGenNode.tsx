@@ -1,20 +1,13 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useCanvasStore } from '@/stores/canvasStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
-  const selectNode = useCanvasStore((s) => s.selectNode);
   const nodeData = useNodeStore((s) => s.nodes[id]) as any;
   const status = nodeData?.status ?? 'idle';
   const resultUrl = nodeData?.resultUrl;
-
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    selectNode(id);
-  }, [id, selectNode]);
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -48,7 +41,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   }, [id]);
 
   return (
-    <div onClick={handleClick}>
+    <>
       <div
         className={`bg-[#1a1a1a] border-2 rounded-xl w-80 transition-all ${selected ? 'border-[#60a5fa] shadow-lg shadow-[#60a5fa]/20' : 'border-[#555]'}`}
       >
@@ -70,7 +63,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       </div>
       {/* Config panel — only when selected */}
       {selected && <ImageConfigPanel nodeId={id} />}
-    </div>
+    </>
   );
 }
 
