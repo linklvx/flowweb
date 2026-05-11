@@ -6,7 +6,7 @@ export interface ImageGenParams {
   style?: string;
   model: string;
   resolution?: string;
-  imageUrl?: string; // img2img source
+  imageUrl?: string;
 }
 
 export interface ImageGenResult {
@@ -15,18 +15,111 @@ export interface ImageGenResult {
   height: number;
 }
 
+export interface TextGenParams {
+  prompt: string;
+  model: string;
+  apiUrl: string;
+}
+
+export interface TextGenResult {
+  content: string;
+}
+
+interface ModelConfig {
+  apiUrl: string;
+  apiKey: string;
+  modelName: string;
+  type: 'text' | 'image';
+}
+
+const MODEL_CONFIG: Record<string, ModelConfig> = {
+  'seed-model-kimi': {
+    apiUrl: 'https://api.moonshot.cn/v1',
+    apiKey: 'sk-ExGrYNI3bpflDLRMq3oZWBiJ1LXo8jfiFWoFL4xuxb9FvW4j',
+    modelName: 'kimi-k2.6',
+    type: 'text',
+  },
+  'seed-model-hy-image': {
+    apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/image',
+    apiKey: 'sk-3spY8oRUCrMphKWPwS8I8jKxTGH9LyCaDrxfhucZFpi02y2C',
+    modelName: 'hy-image-v3.0',
+    type: 'image',
+  },
+};
+
 @Injectable()
 export class ApiCallerService {
+
+  async callTextGen(params: TextGenParams): Promise<TextGenResult> {
+    const config = MODEL_CONFIG[params.model];
+    if (!config) {
+      return { content: `[Mock response for: ${params.prompt.slice(0, 50)}...]` };
+    }
+
+    if (config.type === 'text') {
+      const res = await fetch(`${config.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+        body: JSON.stringify({
+          model: config.modelName,
+          messages: [
+            { role: 'system', content: '你是一个AI助手，请根据用户提示词生成内容。' },
+            { role: 'user', content: params.prompt },
+          ],
+          temperature: 1,
+          max_tokens: 1024,
+        }),
+      });
+      const json = await res.json() as any;
+      return { content: json.choices?.[0]?.message?.content ?? '' };
+    }
+
+    return { content: `[Unknown model type]` };
+  }
+
   async callImageGen(params: ImageGenParams): Promise<ImageGenResult> {
-    // Simulate API latency (1-2 seconds)
+    const config = MODEL_CONFIG[params.model];
+
+    // Real API: HY-Image async submit + poll
+    if (config && config.type === 'image') {
+      // Step 1: Submit
+      const submitRes = await fetch(`${config.apiUrl}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+        body: JSON.stringify({ model: config.modelName, prompt: params.prompt }),
+      });
+      const submitJson = await submitRes.json() as any;
+      const taskId = submitJson.id || submitJson.task_id;
+      if (!taskId) throw new Error('Image submit failed: no task ID returned');
+
+      // Step 2: Poll until complete (max 30 retries, 2s interval)
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const queryRes = await fetch(`${config.apiUrl}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+          body: JSON.stringify({ model: config.modelName, id: taskId }),
+        });
+        const queryJson = await queryRes.json() as any;
+
+        if (queryJson.status === 'succeeded' || queryJson.status === 'completed' || queryJson.status === 'done') {
+          const urls = queryJson.results || queryJson.images || [];
+          const resultUrl = Array.isArray(urls) ? urls[0]?.url || urls[0] : urls;
+          const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
+          return { url: String(resultUrl), width: w || 1024, height: h || 1024 };
+        }
+        if (queryJson.status === 'failed' || queryJson.status === 'error') {
+          throw new Error(`Image generation failed: ${queryJson.error || 'unknown error'}`);
+        }
+      }
+      throw new Error('Image generation timeout');
+    }
+
+    // Fallback: mock image
     await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
-
-    const [w, h] = (params.resolution || '1024×1024')
-      .split('×').map(Number);
-
+    const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
     const bgColor = Math.floor(Math.random() * 16777215).toString(16);
     const url = `/mock/generated_${bgColor}_${w}x${h}.jpg`;
-
     return { url, width: w || 1024, height: h || 1024 };
   }
 }

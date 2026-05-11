@@ -48,7 +48,7 @@ export class ModelService {
     return this.findById(model.id);
   }
 
-  async update(id: string, data: { name?: string; provider?: string; apiUrl?: string; sortOrder?: number; recommended?: boolean }) {
+  async update(id: string, data: { name?: string; provider?: string; apiUrl?: string; apiKey?: string; sortOrder?: number; recommended?: boolean }) {
     return this.prisma.aIModel.update({ where: { id }, data });
   }
 

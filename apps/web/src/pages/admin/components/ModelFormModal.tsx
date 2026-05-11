@@ -13,6 +13,7 @@ export function ModelFormModal({ visible, model, nodeTypeKey, onSave, onCancel }
   const [name, setName] = useState('');
   const [provider, setProvider] = useState('');
   const [apiUrl, setApiUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [recommended, setRecommended] = useState(false);
   const [resolutions, setResolutions] = useState<{ label: string; width: number; height: number }[]>([]);
@@ -28,12 +29,13 @@ export function ModelFormModal({ visible, model, nodeTypeKey, onSave, onCancel }
       setName(model.name);
       setProvider(model.provider);
       setApiUrl(model.apiUrl);
+      setApiKey((model as any).apiKey ?? '');
       setSortOrder(model.sortOrder);
       setRecommended(model.recommended);
       setResolutions(model.resolutions?.map(r => ({ label: r.label, width: r.width, height: r.height })) ?? []);
       setDurations(model.durations?.map(d => ({ label: d.label, seconds: d.seconds })) ?? []);
     } else {
-      setName(''); setProvider(''); setApiUrl(''); setSortOrder(0); setRecommended(false);
+      setName(''); setProvider(''); setApiUrl(''); setApiKey(''); setSortOrder(0); setRecommended(false);
       setResolutions([]); setDurations([]);
     }
   }, [model, visible]);
@@ -48,6 +50,7 @@ export function ModelFormModal({ visible, model, nodeTypeKey, onSave, onCancel }
           <input placeholder="模型名称" value={name} onChange={e => setName(e.target.value)} className="bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-2 text-xs text-[#ccc]" />
           <input placeholder="服务商" value={provider} onChange={e => setProvider(e.target.value)} className="bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-2 text-xs text-[#ccc]" />
           <input placeholder="API URL" value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-2 text-xs text-[#ccc]" />
+          <input placeholder="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-2 text-xs text-[#ccc]" />
           <div className="flex gap-3">
             <label className="flex-1">
               <span className="text-[10px] text-[#888]">排序</span>
@@ -84,7 +87,7 @@ export function ModelFormModal({ visible, model, nodeTypeKey, onSave, onCancel }
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={onCancel} className="px-4 py-2 rounded-md text-xs text-[#ccc] border border-[#333]">取消</button>
-          <button onClick={() => onSave({ name, provider, apiUrl, sortOrder, recommended, resolutions, durations })} className="px-4 py-2 rounded-md text-xs bg-[#4ade80] text-black font-bold">保存</button>
+          <button onClick={() => onSave({ name, provider, apiUrl, apiKey, sortOrder, recommended, resolutions, durations })} className="px-4 py-2 rounded-md text-xs bg-[#4ade80] text-black font-bold">保存</button>
         </div>
       </div>
     </div>
