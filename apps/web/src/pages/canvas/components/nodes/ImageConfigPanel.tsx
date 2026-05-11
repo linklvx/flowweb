@@ -59,10 +59,19 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
-      // Sync canvas state to backend before execution
+      // Merge canvasStore (position/type) + nodeStore (content/config) then sync to backend
       const canvasState = useCanvasStore.getState();
+      const nodeState = useNodeStore.getState();
+      const mergedNodes = canvasState.nodes.map((n) => ({
+        id: n.id,
+        type: n.type || 'imageGen',
+        position: n.position,
+        data: nodeState.nodes[n.id] || (n.data as any) || {},
+      }));
+      console.log('[execute] syncing', mergedNodes.length, 'nodes,', canvasState.edges.length, 'edges');
+      console.log('[execute] merged nodes:', JSON.stringify(mergedNodes.map(n => ({ id: n.id, type: n.type, dataKeys: Object.keys(n.data) }))));
       await Promise.all([
-        syncNodes('default', canvasState.nodes),
+        syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
 
