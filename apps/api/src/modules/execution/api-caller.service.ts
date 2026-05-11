@@ -35,7 +35,7 @@ interface ModelConfig {
 const MODEL_CONFIG: Record<string, ModelConfig> = {
   'seed-model-kimi': {
     apiUrl: 'https://api.moonshot.cn/v1',
-    apiKey: 'sk-ExGrYNI3bpflDLRMq3oZWBiJ1LXo8jfiFWoFL4xuxb9FvW4j',
+    apiKey: 'sk-ODTW9ypl2G5G4xcFNR6IJCbr2ZRY07mPEZuNvySYzotpwlFD',
     modelName: 'kimi-k2.6',
     type: 'text',
   },
@@ -67,7 +67,7 @@ export class ApiCallerService {
             { role: 'user', content: params.prompt },
           ],
           temperature: 1,
-          max_tokens: 1024,
+          max_tokens: 4096,
         }),
       });
       const json = await res.json() as any;
