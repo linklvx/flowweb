@@ -151,7 +151,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
         {/* Supplementary Prompt */}
         <div className="mb-3">
-          <div className="text-xs text-[#888] mb-1.5">补充 Prompt（可选）</div>
+          <div className="text-xs text-[#888] mb-1.5">提示词（可选，将追加到上游文本内容后）</div>
           <textarea
             placeholder="对上游Prompt的补充说明..."
             value={nodeData?.extraPrompt ?? ''}

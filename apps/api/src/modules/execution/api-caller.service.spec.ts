@@ -37,4 +37,22 @@ describe('ApiCallerService', () => {
     expect(result.width).toBe(1024);
     expect(result.height).toBe(1024);
   });
+
+  describe('combinePrompt', () => {
+    it('should return prompt only when no extraPrompt', () => {
+      expect((service as any).combinePrompt('高山 流水', undefined)).toBe('高山 流水');
+    });
+
+    it('should return extraPrompt when prompt is empty', () => {
+      expect((service as any).combinePrompt('', '农夫 小孩')).toBe('农夫 小孩');
+    });
+
+    it('should combine prompt and extraPrompt with comma', () => {
+      expect((service as any).combinePrompt('高山 流水', '农夫 小孩')).toBe('高山 流水, 农夫 小孩');
+    });
+
+    it('should return empty when both empty', () => {
+      expect((service as any).combinePrompt('', '')).toBe('');
+    });
+  });
 });

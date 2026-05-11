@@ -50,6 +50,12 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
 @Injectable()
 export class ApiCallerService {
 
+  /** Combine main prompt and extra prompt, ensuring at least one is present */
+  combinePrompt(prompt: string, extraPrompt?: string): string {
+    const parts = [prompt, extraPrompt].filter(Boolean);
+    return parts.join(', ');
+  }
+
   async callTextGen(params: TextGenParams): Promise<TextGenResult> {
     const config = MODEL_CONFIG[params.model];
     if (!config) {
@@ -83,8 +89,9 @@ export class ApiCallerService {
     // Real API: HY-Image async submit + poll
     if (config && config.type === 'image') {
       // Step 1: Submit
-      const submitBody = JSON.stringify({ model: config.modelName, prompt: params.prompt });
-      console.log('[HY-Image] Submitting to:', `${config.apiUrl}/submit`, 'model:', config.modelName);
+      const fullPrompt = this.combinePrompt(params.prompt, params.extraPrompt);
+      const submitBody = JSON.stringify({ model: config.modelName, prompt: fullPrompt });
+      console.log('[HY-Image] Submitting to:', `${config.apiUrl}/submit`, 'model:', config.modelName, 'prompt:', fullPrompt.slice(0, 80));
       const submitRes = await fetch(`${config.apiUrl}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
