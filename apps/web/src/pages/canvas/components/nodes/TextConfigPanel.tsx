@@ -14,15 +14,13 @@ interface Props {
 
 function TextConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
-  const updateText = useNodeStore((s) => s.updateText);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
-
-  const content = nodeData?.content ?? '';
+  const [prompt, setPrompt] = useState('');
   const model = nodeData?.model ?? '';
 
   // Load text models
@@ -55,27 +53,35 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   }, [model]);
 
   const handleGenerate = useCallback(async () => {
+    if (!prompt.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
       const canvasState = useCanvasStore.getState();
       const nodeState = useNodeStore.getState();
+      const originalContent = nodeState.nodes[nodeId] ? (nodeState.nodes[nodeId] as any).content : '';
+      // Inject prompt as content for execution
+      useNodeStore.setState({
+        nodes: { ...nodeState.nodes, [nodeId]: { type: 'text', ...nodeState.nodes[nodeId], content: prompt } },
+      });
+      const latestState = useNodeStore.getState();
       const mergedNodes = canvasState.nodes.map((n) => ({
         id: n.id, type: n.type || 'textInput',
         position: n.position,
-        data: nodeState.nodes[n.id] || (n.data as any) || {},
+        data: latestState.nodes[n.id] || (n.data as any) || {},
       }));
       await Promise.all([
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
       await executeWorkflow('default', nodeId);
+      // Restore content after execution (AI result will be set via Socket.io or API response)
     } catch {
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus]);
+  }, [nodeId, setStatus, prompt]);
 
   return (
     <div className="bg-[#1a1a1a] border-2 border-t-[#4ade80] border-[#444] rounded-xl w-[380px] shadow-xl">
@@ -84,8 +90,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         <div className="mb-3">
           <div className="text-xs text-[#888] mb-1.5">提示词（发送给 AI）</div>
           <textarea
-            value={content}
-            onChange={(e) => updateText(nodeId, e.target.value)}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
             placeholder="输入 Prompt..."
             rows={3}
             className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#4ade80] resize-none box-border"
