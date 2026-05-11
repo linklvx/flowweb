@@ -19,6 +19,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
+  const setResult = useNodeStore((s) => s.setResult);
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
@@ -59,6 +60,16 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       const result = await executeWorkflow('default', nodeId);
       if (!result.success) {
         setStatus(nodeId, 'error');
+      } else {
+        const nodeResult = result.results?.find((r: any) => r.nodeId === nodeId);
+        if (nodeResult?.resultUrl) {
+          setResult(nodeId, nodeResult.resultUrl);
+        } else {
+          const updatedNode = (useNodeStore.getState().nodes[nodeId] as any);
+          if (updatedNode?.status === 'loading') {
+            useNodeStore.getState().setStatus(nodeId, 'idle');
+          }
+        }
       }
     } catch {
       setStatus(nodeId, 'error');

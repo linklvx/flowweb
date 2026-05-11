@@ -104,11 +104,17 @@ async function main() {
     }
   }
 
-  // Text model
+  // Text models
   const gpt4 = await prisma.aIModel.upsert({
     where: { id: 'seed-model-gpt4' },
     update: {},
     create: { id: 'seed-model-gpt4', nodeTypeId: textNode.id, name: 'GPT-4o', provider: 'OpenAI', apiUrl: 'https://api.openai.com/v1/chat/completions', sortOrder: 1, recommended: true },
+  });
+
+  const kimi = await prisma.aIModel.upsert({
+    where: { id: 'seed-model-kimi' },
+    update: {},
+    create: { id: 'seed-model-kimi', nodeTypeId: textNode.id, name: 'Kimi K2.6', provider: 'Moonshot AI', apiUrl: 'https://api.moonshot.cn/v1', sortOrder: 2, recommended: true },
   });
 
   const textExisting = await prisma.pricingRule.findFirst({
@@ -118,6 +124,15 @@ async function main() {
     await prisma.pricingRule.update({ where: { id: textExisting.id }, data: { creditCost: 2 } });
   } else {
     await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: gpt4.id, creditCost: 2 } as any });
+  }
+
+  const kimiExisting = await prisma.pricingRule.findFirst({
+    where: { nodeTypeId: textNode.id, modelId: kimi.id, resolutionId: null, durationId: null },
+  });
+  if (kimiExisting) {
+    await prisma.pricingRule.update({ where: { id: kimiExisting.id }, data: { creditCost: 2 } });
+  } else {
+    await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: kimi.id, creditCost: 2 } as any });
   }
 
   // ====== Phase 4: Default User Balance ======
