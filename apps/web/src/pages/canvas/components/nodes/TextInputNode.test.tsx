@@ -33,13 +33,13 @@ describe('TextInputNode', () => {
 
   it('should render textarea', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/输入 Prompt/i);
+    const textarea = screen.getByPlaceholderText(/输入或显示文本内容/i);
     expect(textarea).toBeInTheDocument();
   });
 
   it('should show content from nodeStore', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/输入 Prompt/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/输入或显示文本内容/i) as HTMLTextAreaElement;
     expect(textarea.value).toBe('一只猫在窗台上');
   });
 
