@@ -137,11 +137,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
         {/* Supplementary Prompt */}
         <div className="mb-3">
           <div className="text-xs text-[#888] mb-1.5">补充 Prompt（可选）</div>
-          <input
+          <textarea
             placeholder="对上游Prompt的补充说明..."
             value={nodeData?.extraPrompt ?? ''}
             onChange={(e) => updateConfig(nodeId, { extraPrompt: e.target.value })}
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#60a5fa]"
+            rows={2}
+            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#60a5fa] resize-none box-border"
           />
         </div>
 
