@@ -1,6 +1,8 @@
 import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow } from '@/api/executionApi';
+import { syncNodes, syncEdges } from '@/api/projectApi';
 
 const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
 const COUNTS = [1, 2, 4];
@@ -57,6 +59,13 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
+      // Sync canvas state to backend before execution
+      const canvasState = useCanvasStore.getState();
+      await Promise.all([
+        syncNodes('default', canvasState.nodes),
+        syncEdges('default', canvasState.edges),
+      ]);
+
       const result = await executeWorkflow('default', nodeId);
       if (!result.success) {
         setStatus(nodeId, 'error');
