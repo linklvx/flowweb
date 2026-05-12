@@ -25,11 +25,12 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const [executing, setExecuting] = useState(false);
 
   const mode = nodeData?.mode ?? 'text-to-video';
-  const model = nodeData?.model ?? '';
+  const currentModel = nodeData?.model ?? '';
   const ratio = nodeData?.ratio ?? '16:9';
   const quality = nodeData?.quality ?? '720P';
   const duration = nodeData?.duration ?? '';
   const audio = nodeData?.audio ?? false;
+  const [prompt, setPrompt] = useState(nodeData?.prompt ?? '');
 
   useEffect(() => {
     fetch('/api/node-types/video/models')
@@ -120,7 +121,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         {/* Model */}
         <div className="mb-3">
           <div className="text-[10px] text-[#888] mb-1">模型</div>
-          <select value={model} onChange={e => { update({ model: e.target.value }); updatePrice(e.target.value); }}
+          <select value={currentModel} onChange={e => { update({ model: e.target.value }); updatePrice(e.target.value); }}
             className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-2">
             {models.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
