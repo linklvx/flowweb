@@ -18,7 +18,6 @@ interface Props { nodeId: string; }
 
 function VideoConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
-  const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
 
   const [models, setModels] = useState<any[]>([]);
@@ -26,7 +25,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const [executing, setExecuting] = useState(false);
 
   const mode = nodeData?.mode ?? 'text-to-video';
-  const prompt = nodeData?.prompt ?? '';
+  const model = nodeData?.model ?? '';
   const ratio = nodeData?.ratio ?? '16:9';
   const quality = nodeData?.quality ?? '720P';
   const duration = nodeData?.duration ?? '';
@@ -34,12 +33,28 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
 
   useEffect(() => {
     fetch('/api/node-types/video/models')
-      .then(r => r.json()).then(j => { if (j.code === 0) setModels(j.data); }).catch(() => {});
+      .then(r => r.json()).then(j => {
+        if (j.code === 0) {
+          const list = j.data;
+          setModels(list);
+          if (!nodeData?.model && list.length > 0) {
+            const top = list[0];
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({ nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'video', model: top.id } } });
+          }
+        }
+      }).catch(() => {});
   }, []);
 
+  // Use direct setState to preserve video fields (NOT updateConfig which forces type:'image')
   const update = useCallback((fields: Record<string, any>) => {
-    updateConfig(nodeId, fields);
-  }, [nodeId, updateConfig]);
+    const store = useNodeStore.getState();
+    const existing = store.nodes[nodeId] as any;
+    useNodeStore.setState({
+      nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'video', ...fields } },
+    });
+  }, [nodeId]);
 
   const updatePrice = useCallback(async (modelId: string) => {
     try {
@@ -101,6 +116,15 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         <textarea placeholder="描述想要生成的视频内容..." value={prompt}
           onChange={e => update({ prompt: e.target.value })}
           rows={2} className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
+
+        {/* Model */}
+        <div className="mb-3">
+          <div className="text-[10px] text-[#888] mb-1">模型</div>
+          <select value={model} onChange={e => { update({ model: e.target.value }); updatePrice(e.target.value); }}
+            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-2">
+            {models.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
 
         {/* Params: ratio / quality / duration / audio */}
         <div className="grid grid-cols-4 gap-2 mb-3">
