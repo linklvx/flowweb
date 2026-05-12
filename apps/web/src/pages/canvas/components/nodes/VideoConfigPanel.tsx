@@ -115,7 +115,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
 
         {/* Prompt */}
         <textarea placeholder="描述想要生成的视频内容..." value={prompt}
-          onChange={e => update({ prompt: e.target.value })}
+          onChange={e => { const v = e.target.value; setPrompt(v); update({ prompt: v }); }}
           rows={2} className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
 
         {/* Model */}
