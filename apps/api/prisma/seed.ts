@@ -141,6 +141,51 @@ async function main() {
     await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: kimi.id, creditCost: 2 } as any });
   }
 
+  // HY-Video model
+  const hyVideo = await prisma.aIModel.upsert({
+    where: { id: 'seed-model-hy-video' },
+    update: {},
+    create: {
+      id: 'seed-model-hy-video', nodeTypeId: videoNode.id,
+      name: 'HY-Video 1.5', provider: 'Tencent Maas',
+      apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/video',
+      sortOrder: 1, recommended: true,
+    },
+  });
+
+  const dur5 = await prisma.modelDuration.upsert({
+    where: { id: 'seed-dur-5' },
+    update: {},
+    create: { id: 'seed-dur-5', modelId: hyVideo.id, label: '5秒', seconds: 5 },
+  });
+  const dur10 = await prisma.modelDuration.upsert({
+    where: { id: 'seed-dur-10' },
+    update: {},
+    create: { id: 'seed-dur-10', modelId: hyVideo.id, label: '10秒', seconds: 10 },
+  });
+  const dur15 = await prisma.modelDuration.upsert({
+    where: { id: 'seed-dur-15' },
+    update: {},
+    create: { id: 'seed-dur-15', modelId: hyVideo.id, label: '15秒', seconds: 15 },
+  });
+
+  const videoPricingRules = [
+    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur5.id, creditCost: 10 },
+    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur10.id, creditCost: 18 },
+    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur15.id, creditCost: 25 },
+  ];
+
+  for (const rule of videoPricingRules) {
+    const existing = await prisma.pricingRule.findFirst({
+      where: { nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, durationId: rule.durationId, resolutionId: null },
+    });
+    if (existing) {
+      await prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: rule.creditCost } });
+    } else {
+      await prisma.pricingRule.create({ data: rule as any });
+    }
+  }
+
   // ====== Phase 4: Default User Balance ======
   await prisma.userBalance.upsert({
     where: { userId: 'default-user' },
@@ -148,7 +193,7 @@ async function main() {
     create: { userId: 'default-user', credits: 100, version: 0 },
   });
 
-  console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance');
+  console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance + Phase 5 video models');
 }
 
 main()
