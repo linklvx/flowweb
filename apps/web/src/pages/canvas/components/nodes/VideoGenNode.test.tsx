@@ -21,7 +21,7 @@ vi.mock('./VideoConfigPanel', () => ({
 
 describe('VideoGenNode', () => {
   const renderNode = (selected = false) =>
-    render(<ReactFlowProvider><VideoGenNode id="v1" data={{}} selected={selected} /></ReactFlowProvider>);
+    render(<ReactFlowProvider><VideoGenNode id="v1" data={{}} selected={selected} type="videoGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} /></ReactFlowProvider>);
 
   it('should render node title', () => {
     renderNode();
