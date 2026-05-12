@@ -76,8 +76,27 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         data: ns.nodes[n.id] || (n.data as any) || {},
       }));
       await Promise.all([syncNodes('default', merged), syncEdges('default', cs.edges)]);
-      await executeWorkflow('default', nodeId);
-    } catch { setStatus(nodeId, 'error'); }
+      const result = await executeWorkflow('default', nodeId);
+      if (result?.success) {
+        const nodeResult = (result.results as any)?.find((r: any) => r.nodeId === nodeId);
+        const videoUrl = nodeResult?.resultUrl;
+        if (videoUrl) {
+          const latest = useNodeStore.getState();
+          const existing = latest.nodes[nodeId] as any;
+          useNodeStore.setState({
+            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'video', videoUrl, status: 'done' } },
+          });
+        } else {
+          setStatus(nodeId, 'error');
+        }
+      } else {
+        console.error('[Video] execution failed:', result?.errors);
+        setStatus(nodeId, 'error');
+      }
+    } catch (e: any) {
+      console.error('[Video] execution error:', e.message);
+      setStatus(nodeId, 'error');
+    }
     finally { setExecuting(false); }
   }, [nodeId, setStatus, prompt]);
 
