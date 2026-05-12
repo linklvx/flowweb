@@ -15,6 +15,24 @@ export interface ImageGenResult {
   height: number;
 }
 
+export interface VideoGenParams {
+  prompt: string;
+  model: string;
+  mode: 'text-to-video' | 'image-to-video' | 'first-last-frame' | 'multi-frame';
+  imageUrl?: string;
+  startImageUrl?: string;
+  endImageUrl?: string;
+  imageUrls?: string[];
+  ratio?: string;
+  quality?: string;
+  duration?: string;
+  audio?: boolean;
+}
+
+export interface VideoGenResult {
+  url: string;
+}
+
 export interface TextGenParams {
   prompt: string;
   model: string;
@@ -29,7 +47,7 @@ interface ModelConfig {
   apiUrl: string;
   apiKey: string;
   modelName: string;
-  type: 'text' | 'image';
+  type: 'text' | 'image' | 'video';
 }
 
 const MODEL_CONFIG: Record<string, ModelConfig> = {
@@ -44,6 +62,12 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     apiKey: 'sk-3spY8oRUCrMphKWPwS8I8jKxTGH9LyCaDrxfhucZFpi02y2C',
     modelName: 'hy-image-v3.0',
     type: 'image',
+  },
+  'seed-model-hy-video': {
+    apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/video',
+    apiKey: 'sk-3spY8oRUCrMphKWPwS8I8jKxTGH9LyCaDrxfhucZFpi02y2C',
+    modelName: 'hy-video-1.5',
+    type: 'video',
   },
 };
 
@@ -132,5 +156,50 @@ export class ApiCallerService {
     const bgColor = Math.floor(Math.random() * 16777215).toString(16);
     const url = `/mock/generated_${bgColor}_${w}x${h}.jpg`;
     return { url, width: w || 1024, height: h || 1024 };
+  }
+
+  async callVideoGen(params: VideoGenParams): Promise<VideoGenResult> {
+    const config = MODEL_CONFIG[params.model];
+    if (!config || config.type !== 'video') {
+      await new Promise(r => setTimeout(r, 1000));
+      return { url: `/mock/video_${Date.now()}.mp4` };
+    }
+
+    // Submit
+    const body: any = { model: config.modelName, prompt: params.prompt };
+    if (params.imageUrl) body.imageUrl = params.imageUrl;
+    if (params.startImageUrl) body.startImageUrl = params.startImageUrl;
+    if (params.endImageUrl) body.endImageUrl = params.endImageUrl;
+    if (params.imageUrls?.length) body.imageUrls = params.imageUrls;
+
+    const submitRes = await fetch(`${config.apiUrl}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+      body: JSON.stringify(body),
+    });
+    const submitJson = await submitRes.json() as any;
+    const taskId = submitJson.id || submitJson.task_id;
+    if (!taskId) throw new Error('Video submit failed: no task ID');
+
+    // Poll (60 retries x 3s = 3 min max)
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const queryRes = await fetch(`${config.apiUrl}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+        body: JSON.stringify({ model: config.modelName, id: taskId }),
+      });
+      const queryJson = await queryRes.json() as any;
+      if (queryJson.status === 'completed' || queryJson.status === 'succeeded' || queryJson.status === 'done') {
+        const urls = queryJson.data || queryJson.results || [];
+        const first = Array.isArray(urls) ? urls[0] : urls;
+        const resultUrl = typeof first === 'string' ? first : first?.url || first;
+        return { url: String(resultUrl) };
+      }
+      if (queryJson.status === 'failed' || queryJson.status === 'error') {
+        throw new Error(`Video generation failed: ${queryJson.error || 'unknown error'}`);
+      }
+    }
+    throw new Error('Video generation timeout');
   }
 }

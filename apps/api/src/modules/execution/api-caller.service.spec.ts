@@ -38,6 +38,22 @@ describe('ApiCallerService', () => {
     expect(result.height).toBe(1024);
   });
 
+  describe('callVideoGen', () => {
+    it('should return mock video URL for unknown model', async () => {
+      const result = await service.callVideoGen({
+        prompt: '一只小狗', model: 'unknown-model', mode: 'text-to-video',
+      });
+      expect(result.url).toContain('/mock/');
+    });
+
+    it('should fallback to mock when model config is not video type', async () => {
+      const result = await service.callVideoGen({
+        prompt: 'test', model: 'seed-model-sdxl', mode: 'text-to-video',
+      });
+      expect(result.url).toContain('/mock/');
+    });
+  });
+
   describe('combinePrompt', () => {
     it('should return prompt only when no extraPrompt', () => {
       expect((service as any).combinePrompt('高山 流水', undefined)).toBe('高山 流水');
