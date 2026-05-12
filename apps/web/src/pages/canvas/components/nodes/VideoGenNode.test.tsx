@@ -1,37 +1,53 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
-describe('VideoGenNode', () => {
-  const defaultProps = { id: 'v1', data: {}, selected: false } as any;
+let mockNodeData: any = { type: 'video', videoUrl: undefined, status: 'idle' };
 
-  const renderNode = (props = {}) =>
-    render(
-      <ReactFlowProvider>
-        <VideoGenNode {...defaultProps} {...props} />
-      </ReactFlowProvider>
-    );
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: vi.fn((selector?: any) => {
+    const state = {
+      nodes: { 'v1': mockNodeData },
+    };
+    if (typeof selector === 'function') return selector(state);
+    return state;
+  }),
+}));
+
+vi.mock('./VideoConfigPanel', () => ({
+  VideoConfigPanel: () => <div>config panel</div>,
+}));
+
+describe('VideoGenNode', () => {
+  const renderNode = (selected = false) =>
+    render(<ReactFlowProvider><VideoGenNode id="v1" data={{}} selected={selected} /></ReactFlowProvider>);
 
   it('should render node title', () => {
     renderNode();
     expect(screen.getByText(/视频生成节点/i)).toBeInTheDocument();
   });
 
-  it('should render Phase 3 placeholder', () => {
+  it('should render preview placeholder when no video', () => {
     renderNode();
-    expect(screen.getByText(/Phase 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/视频预览区/i)).toBeInTheDocument();
+  });
+
+  it('should render video element when videoUrl exists', () => {
+    mockNodeData = { type: 'video', videoUrl: '/test.mp4', status: 'done' };
+    renderNode();
+    const sourceEl = document.querySelector('source');
+    expect(sourceEl).toBeTruthy();
   });
 
   it('should have 2 handles', () => {
+    mockNodeData = { type: 'video', videoUrl: undefined, status: 'idle' };
     const { container } = renderNode();
-    const handles = container.querySelectorAll('.react-flow__handle');
-    expect(handles.length).toBe(2);
+    expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
-  it('should show purple border when selected', () => {
-    const { container } = renderNode({ selected: true });
-    const node = container.firstElementChild;
-    expect(node?.className).toContain('border-[#c084fc]');
+  it('should show config panel when selected', () => {
+    renderNode(true);
+    expect(screen.getByText('config panel')).toBeInTheDocument();
   });
 });
