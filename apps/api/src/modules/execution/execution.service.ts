@@ -86,6 +86,36 @@ export class ExecutionService {
           continue;
         }
 
+        // Video nodes
+        if (node.type === 'videoGen') {
+          const vData = data as any;
+          const result = await this.apiCaller.callVideoGen({
+            prompt: prompt || vData?.prompt || '',
+            model: vData?.model,
+            mode: vData?.mode || 'text-to-video',
+            imageUrl: upstream.imageUrl || vData?.startImageUrl,
+            startImageUrl: vData?.startImageUrl,
+            endImageUrl: vData?.endImageUrl,
+            imageUrls: vData?.imageUrls,
+            ratio: vData?.ratio,
+            quality: vData?.quality,
+            duration: vData?.duration,
+            audio: vData?.audio,
+          });
+
+          await this.prisma.canvasNode.update({
+            where: { id: node.id },
+            data: { data: { ...vData, videoUrl: result.url } },
+          });
+
+          const newBalance = await this.credit.getBalance(userId);
+          this.gateway.emitNodeStatus(projectId, {
+            nodeId: node.id, status: 'done', resultUrl: result.url, credits: newBalance?.credits,
+          });
+          results.push({ nodeId: node.id, type: 'video', resultUrl: result.url });
+          continue;
+        }
+
         const imageUrl = upstream.imageUrl;
 
         // Call Image API

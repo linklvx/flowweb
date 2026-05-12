@@ -38,6 +38,7 @@ describe('ExecutionService', () => {
     apiCaller = {
       callImageGen: vi.fn().mockResolvedValue({ url: '/mock/test.jpg', width: 1024, height: 1024 }),
       callTextGen: vi.fn().mockResolvedValue({ content: 'hello' }),
+      callVideoGen: vi.fn().mockResolvedValue({ url: '/mock/video.mp4' }),
     };
     credit = {
       deduct: vi.fn().mockResolvedValue({ success: true, newBalance: 95 }),
