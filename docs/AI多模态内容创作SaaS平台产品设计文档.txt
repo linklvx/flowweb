@@ -8,7 +8,7 @@ React / React DOM 18.3.1 + TypeScript 5.6.3 + Vite 5.4.14 + Ant Design 5.22.5 + 
 无限画布+节点引擎
 @xyflow/react 12.10.2 + Zustand4.5.5 + Socket.io
 后端技术栈
-Node.js 20.18.3 LTS + NestJS 10.4.18 + Prisma ORM 5.25.3 + PostgreSQL 16.8 + Keycloak Admin SDK 25.0.5
+Node.js 20.18.3 LTS + NestJS 10.4.18 + Prisma ORM 5.25.3 + PostgreSQL 16.8
 中间件技术栈
 Redis 7.2.7 LTS + BullMQ 5.75.1 + MinIO RELEASE.2025-12-18T08-51-09Z LTS + Apache APISIX 3.15.1
 可观测性技术栈
