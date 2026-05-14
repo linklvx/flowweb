@@ -64,8 +64,9 @@ model UserBalance {
 |--------|------|------|-------------|
 | POST | `/api/auth/sign-in` | No | Login |
 | POST | `/api/auth/sign-up` | No | Register |
-| POST | `/api/auth/sign-out` | Yes | Logout + blacklist |
-| GET | `/api/auth/session` | No | Current session |
+| POST | `/api/auth/sign-out` | Yes | Logout + blacklist + clear |
+| POST | `/api/auth/refresh` | Refresh Token | Rotate access token |
+| GET | `/api/auth/session` | Yes | Current user session info |
 
 ## 6. Guards
 
@@ -80,9 +81,13 @@ Global AuthGuard (NestJS)
 
 | Measure | Implementation |
 |---------|---------------|
-| Rate limiting | `@nestjs/throttler` — 5 req/min for sign-in/sign-up |
+| Rate limiting | `@nestjs/throttler` — sign-in/sign-up: 5/min, /refresh: 10/min |
+| Password hashing | Argon2id (OWASP recommended, Better Auth native support) |
+| Cookie path | `path: "/api/auth/refresh"` — refresh token only sent to refresh endpoint |
 | CSRF | Better Auth built-in, `trustedOrigins: ['http://localhost:5173']` |
-| Token rotation | Refresh → new refresh token, old token → Redis blacklist (TTL: original expiry) |
+| Token rotation | Refresh → new refresh token, old → Redis blacklist (TTL = remaining expiry) |
+| Blacklist scope | **Only refresh tokens** (access tokens are short-lived, not worth blacklisting) |
+| Logout flow | 1. Refresh token → Redis blacklist 2. Clear cookie 3. Clear memory accessToken 4. Disconnect all Socket.io |
 | Password strength | Better Auth built-in validation |
 | Social login | Reserved — `account` table schema supports OAuth providers |
 
