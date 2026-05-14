@@ -185,6 +185,12 @@ async function main() {
   }
 
   // ====== Phase 4: Default User Balance ======
+  await prisma.user.upsert({
+    where: { id: 'default-user' },
+    update: {},
+    create: { id: 'default-user', name: 'Default User', email: 'default@flowweb.local', emailVerified: true },
+  });
+
   await prisma.userBalance.upsert({
     where: { userId: 'default-user' },
     update: {},

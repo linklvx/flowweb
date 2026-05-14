@@ -8,6 +8,54 @@ generator client {
   strict   = true
 }
 
+model User {
+  id            String        @id
+  name          String
+  email         String        @unique
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  balance       UserBalance?
+}
+
+model Account {
+  id                String  @id
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 model Announcement {
   id         String    @id @default(cuid())
   message    String
@@ -147,6 +195,7 @@ model PricingRule {
 model UserBalance {
   id        String   @id @default(cuid())
   userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   credits   Int      @default(100)
   version   Int      @default(0)
   createdAt DateTime @default(now())
