@@ -1,7 +1,7 @@
 import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { executeWorkflow } from '@/api/executionApi';
+import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 
 const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
@@ -90,32 +90,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
         syncEdges('default', canvasState.edges),
       ]);
 
-      const result = await executeWorkflow('default', nodeId);
-      console.log('[execute] API result:', JSON.stringify(result));
-      if (!result.success) {
-        console.error('[execute] failed:', result.errors);
-        setStatus(nodeId, 'error');
-      } else {
-        const nodeResult = result.results?.find((r: any) => r.nodeId === nodeId);
-        console.log('[execute] nodeResult for', nodeId, ':', nodeResult);
-        if (nodeResult?.resultUrl) {
-          console.log('[execute] setting resultUrl:', nodeResult.resultUrl);
-          // Directly update nodeStore to ensure the image shows
-          const store = useNodeStore.getState();
-          const existing = store.nodes[nodeId] as any;
-          if (existing) {
-            useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, resultUrl: nodeResult.resultUrl, status: 'done' } },
-            });
-          }
-          setResult(nodeId, nodeResult.resultUrl);
-        } else {
-          const updatedNode = (useNodeStore.getState().nodes[nodeId] as any);
-          if (updatedNode?.status === 'loading') {
-            useNodeStore.getState().setStatus(nodeId, 'idle');
-          }
-        }
-      }
+      const { jobId } = await enqueueWorkflow('default', nodeId);
+      console.log('[ImagePanel] enqueued job:', jobId);
+      // Socket.io will update status → done/error. Keep loading state.
     } catch {
       setStatus(nodeId, 'error');
     } finally {

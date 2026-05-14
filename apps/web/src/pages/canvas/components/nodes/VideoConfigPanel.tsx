@@ -1,7 +1,7 @@
 import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { executeWorkflow } from '@/api/executionApi';
+import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 
 const RATIOS = ['16:9', '9:16', '1:1'];
@@ -76,23 +76,9 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         data: ns.nodes[n.id] || (n.data as any) || {},
       }));
       await Promise.all([syncNodes('default', merged), syncEdges('default', cs.edges)]);
-      const result = await executeWorkflow('default', nodeId);
-      if (result?.success) {
-        const nodeResult = (result.results as any)?.find((r: any) => r.nodeId === nodeId);
-        const videoUrl = nodeResult?.resultUrl;
-        if (videoUrl) {
-          const latest = useNodeStore.getState();
-          const existing = latest.nodes[nodeId] as any;
-          useNodeStore.setState({
-            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'video', videoUrl, status: 'done' } },
-          });
-        } else {
-          setStatus(nodeId, 'error');
-        }
-      } else {
-        console.error('[Video] execution failed:', result?.errors);
-        setStatus(nodeId, 'error');
-      }
+      const { jobId } = await enqueueWorkflow('default', nodeId);
+      console.log('[VideoPanel] enqueued job:', jobId);
+      // Socket.io will update status → done/error with videoUrl
     } catch (e: any) {
       console.error('[Video] execution error:', e.message);
       setStatus(nodeId, 'error');

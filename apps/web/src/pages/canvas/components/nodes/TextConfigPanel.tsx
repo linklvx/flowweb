@@ -1,7 +1,7 @@
 import { memo, useCallback, useState, useEffect } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { executeWorkflow } from '@/api/executionApi';
+import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 
 interface ModelInfo {
@@ -77,18 +77,9 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      const result = await executeWorkflow('default', nodeId);
-      // Update node content with AI response
-      if (result?.success) {
-        const nodeResult = (result.results as any)?.find((r: any) => r.nodeId === nodeId);
-        if ((nodeResult as any)?.content) {
-          const latest = useNodeStore.getState();
-          const existing = latest.nodes[nodeId] as any;
-          useNodeStore.setState({
-            nodes: { ...latest.nodes, [nodeId]: { ...existing, type: 'text', content: (nodeResult as any).content } },
-          });
-        }
-      }
+      const { jobId } = await enqueueWorkflow('default', nodeId);
+      console.log('[TextPanel] enqueued job:', jobId);
+      // Socket.io will update status → done/error with AI response
     } catch {
       setStatus(nodeId, 'error');
     } finally {

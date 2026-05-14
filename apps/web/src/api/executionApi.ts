@@ -7,6 +7,13 @@ export async function executeWorkflow(projectId: string, nodeId?: string): Promi
   });
 }
 
+export async function enqueueWorkflow(projectId: string, nodeId?: string): Promise<{ jobId: string; status: string }> {
+  return apiFetch('/execution/enqueue', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, nodeId }),
+  });
+}
+
 export async function fetchBalance(): Promise<{ credits: number }> {
   return apiFetch('/credits/balance');
 }
