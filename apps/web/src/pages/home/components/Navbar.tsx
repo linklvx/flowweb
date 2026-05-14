@@ -1,6 +1,8 @@
 import { NavActionKey } from '@flowweb/shared';
 import { StarOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/components/AuthProvider';
+import { Link } from 'react-router';
 
 interface NavAction {
   key: NavActionKey;
@@ -12,7 +14,6 @@ interface NavAction {
 const defaultActions: NavAction[] = [
   { key: NavActionKey.Templates, label: '模板广场', variant: 'outline' },
   { key: NavActionKey.Membership, label: '开通会员', variant: 'outline', icon: <StarOutlined /> },
-  { key: NavActionKey.Login, label: '登录', variant: 'ghost' },
 ];
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function Navbar({ onAction }: Props) {
+  const { user, logout } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
@@ -49,7 +51,20 @@ export function Navbar({ onAction }: Props) {
           ⚡ {credits} 积分
         </div>
       )}
-      <div className="flex gap-3">
+      <div className="flex gap-3 items-center">
+        {user ? (
+          <>
+            <span className="text-xs text-[#f59e0b]">⚡ {credits} 积分</span>
+            <span className="text-xs text-[#ccc]">{user.name || user.email}</span>
+            <button onClick={logout} className="px-3 py-1.5 rounded-md text-xs border border-[#888] text-[#ccc] bg-transparent cursor-pointer hover:border-[#ef4444] hover:text-[#ef4444] transition-colors">
+              退出
+            </button>
+          </>
+        ) : (
+          <Link to="/login" className="px-3 py-1.5 rounded-md text-xs border border-[#888] text-[#ccc] no-underline hover:border-[#4ade80] transition-colors">
+            登录
+          </Link>
+        )}
         {defaultActions.map((action) => (
           <button
             key={action.key}

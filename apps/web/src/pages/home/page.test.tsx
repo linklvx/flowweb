@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { HomePage } from './index';
+import { AuthProvider } from '@/components/AuthProvider';
 
 // Mock stores
 vi.mock('@/stores/contentStore', () => ({
@@ -26,7 +27,9 @@ describe('HomePage', () => {
   const renderHomePage = () =>
     render(
       <MemoryRouter>
-        <HomePage />
+        <AuthProvider>
+          <HomePage />
+        </AuthProvider>
       </MemoryRouter>
     );
 
