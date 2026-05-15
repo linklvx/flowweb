@@ -89,6 +89,11 @@ async updateProfile(userId: string, dto: UpdateProfileDto) {
 }
 ```
 
+**越权防护**:
+- `PATCH /me` 不接受任何 userId 参数 — 用户 ID 始终从 `req.user`（AuthGuard 解析的 session token）获取
+- 任何尝试在 body 中传递 userId 的行为均被忽略
+- 测试覆盖：User A 的 token 无法修改 User B 的资料
+
 **Better Auth 优势**:
 - 更新后所有设备上的会话自动刷新
 - 无需手动处理 session 同步
@@ -303,6 +308,7 @@ CanvasTopBar 中用户名改为 `<Link to="/settings">`，点击跳转到个人�
 | PATCH /me with both fields → 200 | ✅ |
 | PATCH /me with empty body `{}` → 200, no changes | ✅ |
 | PATCH /me without cookie → 401 | ✅ |
+| **PATCH /me with User A's token → cannot modify User B (越权防护)** | ✅ |
 | PATCH /me with name > 50 chars → 400 + VALIDATION_ERROR | ✅ |
 | PATCH /me with invalid URL image → 400 | ✅ |
 | PATCH /me with non-whitelisted image host → 400 | ✅ |
