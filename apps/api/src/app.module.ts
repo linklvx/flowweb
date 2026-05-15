@@ -9,6 +9,7 @@ import { ProjectModule } from './modules/project/project.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
+import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
@@ -34,6 +35,7 @@ const env = validateEnv();
     AdminModule,
     CreditModule,
     ExecutionModule,
+    TemplateModule,
     AuthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
