@@ -1,4 +1,4 @@
-import { apiFetch } from './authApi';
+import { apiFetch } from './client';
 
 export interface CreateTemplateDto {
   projectId: string;
