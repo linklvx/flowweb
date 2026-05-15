@@ -20,10 +20,48 @@ interface EdgeInput {
 export class ProjectService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async create(name: string) {
-    return this.prisma.canvasProject.create({
-      data: { name },
+  async create(
+    name: string,
+    userId?: string,
+    nodes?: any[],
+    edges?: any[],
+    viewport?: { x: number; y: number; zoom: number },
+  ) {
+    const viewportData = viewport || { x: 0, y: 0, zoom: 1 };
+    const project = await this.prisma.canvasProject.create({
+      data: {
+        name,
+        userId: userId || null,
+        viewport: viewportData,
+      },
     });
+
+    // If nodes provided, create them
+    if (nodes && nodes.length > 0) {
+      await this.prisma.canvasNode.createMany({
+        data: nodes.map((n: any) => ({
+          id: n.id,
+          projectId: project.id,
+          type: n.type,
+          position: n.position || { x: 0, y: 0 },
+          data: n.data || {},
+        })),
+      });
+    }
+
+    // If edges provided, create them
+    if (edges && edges.length > 0) {
+      await this.prisma.canvasEdge.createMany({
+        data: edges.map((e: any) => ({
+          id: e.id,
+          projectId: project.id,
+          sourceId: e.source || '',
+          targetId: e.target || '',
+        })),
+      });
+    }
+
+    return this.findById(project.id);
   }
 
   async findById(id: string) {

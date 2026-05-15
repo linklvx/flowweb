@@ -40,7 +40,9 @@ describe('ProjectService', () => {
   describe('create', () => {
     it('should create a project with given name', async () => {
       const mockProject = { id: 'p1', name: '未命名项目', viewport: { x: 0, y: 0, zoom: 1 }, createdAt: new Date(), updatedAt: new Date() };
+      const mockProjectFull = { ...mockProject, nodes: [], edges: [] };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProjectFull);
 
       const result = await service.create('未命名项目');
       expect(result.id).toBe('p1');
