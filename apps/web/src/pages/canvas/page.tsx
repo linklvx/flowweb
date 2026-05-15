@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { CanvasView } from './components/CanvasView';
@@ -32,11 +33,20 @@ async function ensureProject(): Promise<string> {
 }
 
 export function CanvasPage() {
+  const [searchParams] = useSearchParams();
   const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
-    ensureProject().then(setProjectId);
-  }, []);
+    const queryProjectId = searchParams.get('projectId');
+    if (queryProjectId) {
+      // Imported template — use the specified projectId directly
+      localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
+      setProjectId(queryProjectId);
+    } else {
+      // Normal flow — ensure project exists
+      ensureProject().then(setProjectId);
+    }
+  }, [searchParams]);
 
   // 等待项目就绪后才渲染
   if (!projectId) {
