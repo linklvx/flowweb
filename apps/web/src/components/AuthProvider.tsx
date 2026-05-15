@@ -1,12 +1,21 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
-interface User { id: string; email: string; name: string; image?: string; }
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  image?: string;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -31,8 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const updateUser = (user: User) => setUser(user);
+
   return (
-    <AuthContext.Provider value={{ user, loading, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, logout, refresh, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
