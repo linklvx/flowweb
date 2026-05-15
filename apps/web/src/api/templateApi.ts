@@ -6,10 +6,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   const json = await res.json();
-  if (!json.success) {
-    throw new Error(json.error?.message || '请求失败');
+  if (json.code !== 0) {
+    throw new Error(json.message || '请求失败');
   }
-  return json.data as T;
+  return json.data.data as T;
 }
 
 export interface CreateTemplateDto {
