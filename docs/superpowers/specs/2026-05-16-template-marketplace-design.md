@@ -226,17 +226,46 @@ POST /api/templates/:id/import (userId)
 
 ### 5.4 官方模板初始化
 
-启动时 seed：使用 `system-official-templates` 作为 userId，upsert 官方模板（category=OFFICIAL, isPublic=true）。
+在应用启动时（`main.ts` bootstrap）作为一次性任务执行：
+
+```typescript
+// main.ts
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  // 初始化官方模板
+  const templateService = app.get(TemplateService);
+  await templateService.initOfficialTemplates();
+  // ...
+  await app.listen(env.PORT);
+}
+```
+
+`initOfficialTemplates()` 使用 `system-official-templates` 作为 userId，upsert 官方模板（category=OFFICIAL, isPublic=true），数据存于 `templateData` JSON 字段。
 
 ### 5.5 列表缓存
 
+缓存 key 必须包含 `userId` 和完整查询参数，避免不同用户看到相同数据：
+
 ```typescript
-private cache = new Map<string, { data: T; timestamp: number }>();
+private cache = new Map<string, { data: any; timestamp: number }>();
 private readonly CACHE_TTL = 5 * 60 * 1000; // 5 min
 
-// findMany: 命中缓存且未过期→直接返回；否则查询并缓存
-// create/update/delete: this.cache.clear()
+async findMany(query: TemplateListQuery, userId: string) {
+  const cacheKey = JSON.stringify({ query, userId });
+  if (this.cache.has(cacheKey)) {
+    const cached = this.cache.get(cacheKey);
+    if (Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+  }
+  // 查询数据库...
+  const data = await this.prisma.template.findMany({ ... });
+  this.cache.set(cacheKey, { data, timestamp: Date.now() });
+  return data;
+}
 ```
+
+写操作（create/update/delete）调用 `this.cache.clear()` 清空全部缓存。
 
 ## 6. 安全审计
 
