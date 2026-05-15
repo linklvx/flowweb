@@ -98,6 +98,8 @@ BullModule.forRoot({
 | `apps/api/src/modules/execution/execution.controller.ts` | 修改 | 删除 require('bull')，改用 @InjectQueue |
 | `apps/api/src/modules/execution/execution.processor.ts` | 修改 | bull→bullmq import，添加 Logger + updateProgress |
 | `apps/api/src/main.ts` | 修改 | 删除内联 Worker 代码块 |
+| `apps/api/src/modules/execution/execution.types.ts` | 新增 | 任务数据类型定义 |
+| `apps/api/src/modules/execution/execution.constants.ts` | 新增 | 队列名/连接名常量 |
 
 ## 5. 关键代码
 
@@ -154,6 +156,8 @@ export class ExecutionModule {}
 ```typescript
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { Req } from '@nestjs/common';
+import { Request } from 'express';
 
 @Controller('api/execution')
 export class ExecutionController {
@@ -162,8 +166,32 @@ export class ExecutionController {
     @InjectQueue('execution') private readonly executionQueue: Queue,
   ) {}
 
-  // execute, enqueue, jobs/:id 端点保持不变
-  // 仅将 executionQueue 从全局变量改为 DI 注入
+  @Post('execute')
+  execute(@Body() body: { projectId: string; nodeId?: string; userId?: string }) {
+    return this.service.execute(body.projectId, body.nodeId, body.userId || 'default-user');
+  }
+
+  @Post('enqueue')
+  async enqueue(@Body() body: { projectId: string; nodeId?: string }, @Req() req: Request) {
+    const job = await this.executionQueue.add('execution', {
+      projectId: body.projectId,
+      nodeId: body.nodeId,
+      userId: (req as any).user?.id,
+    });
+
+    return {
+      jobId: job.id,
+      status: 'queued',
+    };
+  }
+
+  @Get('jobs/:id')
+  async getJob(@Param('id') id: string) {
+    const job = await this.executionQueue.getJob(id);
+    if (!job) return { error: 'Job not found' };
+    const state = await job.getState();
+    return { id: job.id, state, progress: job.progress };
+  }
 }
 ```
 
@@ -174,6 +202,7 @@ import { Processor, Process } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
+import { ExecutionJobData, ExecutionJobResult } from './execution.types';
 
 @Processor('execution')
 export class ExecutionProcessor {
@@ -182,7 +211,7 @@ export class ExecutionProcessor {
   constructor(private readonly executionService: ExecutionService) {}
 
   @Process()
-  async handleExecution(job: Job<{ projectId: string; nodeId?: string; userId: string }>) {
+  async handleExecution(job: Job<ExecutionJobData, ExecutionJobResult>) {
     this.logger.log(`开始处理任务 ${job.id}`);
     await job.updateProgress(10);
 
@@ -202,7 +231,28 @@ export class ExecutionProcessor {
 }
 ```
 
-### 5.5 main.ts
+### 5.5 execution.types.ts (新增)
+
+```typescript
+export interface ExecutionJobData {
+  projectId: string;
+  nodeId?: string;
+  userId: string;
+}
+
+export type ExecutionJobResult = any;
+```
+
+### 5.6 execution.constants.ts (新增)
+
+```typescript
+export const EXECUTION_QUEUE_NAME = 'execution';
+export const EXECUTION_CONNECTION_NAME = 'default';
+```
+
+所有使用队列名称和连接名称的地方引用这些常量，避免硬编码字符串。
+
+### 5.7 main.ts
 
 删除以下代码块（第17-28行）：
 ```typescript
@@ -233,15 +283,20 @@ console.log('[Worker] BullMQ worker started');
 
 ## 7. 验证标准
 
+所有以下项目必须全部通过：
+
 - [ ] `pnpm test` 全部通过
 - [ ] TypeScript 编译无错误 (`tsc --noEmit`)
-- [ ] 代码库中不存在 `require('bull')` 或 `import * as Bull from 'bull'`
-- [ ] 所有队列通过 `@InjectQueue` 注入
-- [ ] Redis 配置完全从 `REDIS_URL` 环境变量读取
-- [ ] `ExecutionProcessor` 已注册为 provider 并自动启动
-- [ ] `POST /api/execution/enqueue` 返回 `{ jobId, status: 'queued' }`
-- [ ] Worker 正常处理任务并更新进度
-- [ ] 任务失败后自动重试（3次指数退避）
+- [ ] 代码库全局搜索：不存在 `require('bull')` 或 `import * as Bull from 'bull'`
+- [ ] 代码库全局搜索：不存在 `new Queue()` 手动创建队列实例
+- [ ] 应用启动日志显示：`BullMQ connected to redis://localhost:6379/0`
+- [ ] `POST /api/execution/enqueue` 返回 `{ jobId: string, status: 'queued' }`
+- [ ] 提交任务后，Redis 中出现 `bull:execution:job:{jobId}` 键
+- [ ] ExecutionProcessor 日志显示："开始处理任务 {jobId}" 和 "任务 {jobId} 完成"
+- [ ] 任务进度从 10% 更新到 100%
+- [ ] 模拟任务失败（如抛出异常），观察日志确认自动重试 3 次
+- [ ] 任务成功完成 1 小时后，自动从 Redis 中删除
+- [ ] 任务失败 7 天后，自动从 Redis 中删除
 
 ## 8. 不在范围内
 
