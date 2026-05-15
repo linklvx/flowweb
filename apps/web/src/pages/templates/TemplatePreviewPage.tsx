@@ -11,8 +11,8 @@ export function TemplatePreviewPage() {
 
   useEffect(() => {
     if (!id) return;
-    getTemplate(id).then((res) => {
-      if (res.success) setTemplate(res.data);
+    getTemplate(id).then((data) => {
+      setTemplate(data);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [id]);
@@ -21,10 +21,8 @@ export function TemplatePreviewPage() {
     if (!id) return;
     setImporting(true);
     try {
-      const res = await importTemplate(id);
-      if (res.success) {
-        navigate(`/canvas?projectId=${res.data.id}`);
-      }
+      const data = await importTemplate(id);
+      navigate(`/canvas?projectId=${data.id}`);
     } catch (e) {
       console.error('Import failed', e);
     } finally {

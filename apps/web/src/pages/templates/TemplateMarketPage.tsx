@@ -17,8 +17,8 @@ export function TemplateMarketPage() {
     try {
       const query: TemplateListQuery = { type: tab, sort, page, limit: 20 };
       if (search.trim()) query.search = search.trim();
-      const res = await getTemplates(query);
-      if (res.success) setData(res.data);
+      const data = await getTemplates(query);
+      setData(data);
     } catch (e) {
       console.error('Failed to fetch templates', e);
     } finally {

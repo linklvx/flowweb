@@ -1,4 +1,16 @@
-import { apiFetch } from './client';
+const BASE = '/api/templates';
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || '请求失败');
+  }
+  return json.data as T;
+}
 
 export interface CreateTemplateDto {
   projectId: string;
@@ -21,52 +33,33 @@ export interface TemplateListQuery {
   limit?: number;
 }
 
-export async function createTemplate(dto: CreateTemplateDto) {
-  const res = await apiFetch('/templates', {
-    method: 'POST',
-    body: JSON.stringify(dto),
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) throw new Error('创建模板失败');
-  return res.json();
+export function createTemplate(dto: CreateTemplateDto) {
+  return request('', { method: 'POST', body: JSON.stringify(dto) });
 }
 
-export async function getTemplates(query: TemplateListQuery) {
+export function getTemplates(query: TemplateListQuery) {
   const params = new URLSearchParams();
   if (query.type) params.set('type', query.type);
   if (query.search) params.set('search', query.search);
   if (query.sort) params.set('sort', query.sort);
   if (query.page) params.set('page', String(query.page));
   if (query.limit) params.set('limit', String(query.limit));
-  const res = await apiFetch(`/templates?${params.toString()}`);
-  if (!res.ok) throw new Error('获取模板列表失败');
-  return res.json();
+  const qs = params.toString();
+  return request<any>(`?${qs}`);
 }
 
-export async function getTemplate(id: string) {
-  const res = await apiFetch(`/templates/${id}`);
-  if (!res.ok) throw new Error('获取模板详情失败');
-  return res.json();
+export function getTemplate(id: string) {
+  return request<any>(`/${id}`);
 }
 
-export async function updateTemplate(id: string, dto: UpdateTemplateDto) {
-  const res = await apiFetch(`/templates/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(dto),
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) throw new Error('更新模板失败');
-  return res.json();
+export function updateTemplate(id: string, dto: UpdateTemplateDto) {
+  return request(`/${id}`, { method: 'PATCH', body: JSON.stringify(dto) });
 }
 
-export async function deleteTemplate(id: string) {
-  const res = await apiFetch(`/templates/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('删除模板失败');
-  return res.json();
+export function deleteTemplate(id: string) {
+  return request(`/${id}`, { method: 'DELETE' });
 }
 
-export async function importTemplate(id: string) {
-  const res = await apiFetch(`/templates/${id}/import`, { method: 'POST' });
-  if (!res.ok) throw new Error('导入模板失败');
-  return res.json();
+export function importTemplate(id: string) {
+  return request(`/${id}/import`, { method: 'POST' });
 }

@@ -11,8 +11,8 @@ export function MyTemplatesPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getTemplates({ type: 'my', limit: 100 });
-      if (res.success) setTemplates(res.data.templates);
+      const data = await getTemplates({ type: 'my', limit: 100 });
+      setTemplates(data.templates);
     } catch (e) {
       console.error(e);
     } finally {
