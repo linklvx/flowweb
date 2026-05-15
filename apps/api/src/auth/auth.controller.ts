@@ -80,7 +80,7 @@ export class AuthController {
       );
       return res.json({
         success: true,
-        data: { user: result.user }
+        data: { user: (result as any).user }
       });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '更新失败';
