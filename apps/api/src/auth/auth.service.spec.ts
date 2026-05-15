@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockSignInEmail, mockSignUpEmail, mockSignOut, mockGetSession } = vi.hoisted(() => ({
+const { mockSignInEmail, mockSignUpEmail, mockSignOut, mockGetSession, mockUpdateUser } = vi.hoisted(() => ({
   mockSignInEmail: vi.fn(),
   mockSignUpEmail: vi.fn(),
   mockSignOut: vi.fn(),
   mockGetSession: vi.fn(),
+  mockUpdateUser: vi.fn(),
 }));
 
 vi.mock('./auth', () => ({
@@ -15,6 +16,7 @@ vi.mock('./auth', () => ({
       signUpEmail: mockSignUpEmail,
       signOut: mockSignOut,
       getSession: mockGetSession,
+      updateUser: mockUpdateUser,
     },
   },
 }));
@@ -62,5 +64,9 @@ describe('AuthService', () => {
   it('should return null when cookie has no valid session token', async () => {
     const result = await service.getSession({ cookie: 'other=value' });
     expect(result).toBeNull();
+  });
+
+  it('should expose updateProfile as a function', () => {
+    expect(typeof service.updateProfile).toBe('function');
   });
 });
