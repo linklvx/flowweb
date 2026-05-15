@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { createTemplate } from '@/api/templateApi';
+import { syncNodes, syncEdges } from '@/api/projectApi';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 interface SaveAsTemplateDialogProps {
   projectId: string;
@@ -22,6 +24,10 @@ export function SaveAsTemplateDialog({ projectId, onClose, onSaved }: SaveAsTemp
     setError('');
     setSaving(true);
     try {
+      // Sync current canvas state to server before saving as template
+      const state = useCanvasStore.getState();
+      await syncNodes(projectId, state.nodes as any);
+      await syncEdges(projectId, state.edges as any);
       await createTemplate({ projectId, name: name.trim(), description: description.trim(), isPublic });
       onSaved();
     } catch (e) {
