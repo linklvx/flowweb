@@ -18,9 +18,14 @@ export class UpdateProfileDto {
     require_tld: process.env.NODE_ENV === 'production',
     protocols: process.env.NODE_ENV === 'production' ? ['https'] : ['http', 'https'],
     allow_underscores: true,
-    host_whitelist: process.env.NODE_ENV === 'production'
-      ? ['flowai.dev', 'cdn.flowai.dev', '*.githubusercontent.com', '*.googleusercontent.com']
-      : ['localhost', '127.0.0.1']
+    // host_whitelist uses exact string matching (Array.includes), not glob patterns.
+    // Use @Matches below for domain validation.
   })
+  @Matches(
+    process.env.NODE_ENV === 'production'
+      ? /^https:\/\/[\w.-]*((flowai\.dev)|(cdn\.flowai\.dev)|(githubusercontent\.com)|(googleusercontent\.com))(\/|$)/
+      : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i,
+    { message: '头像 URL 域名不在允许的白名单中' }
+  )
   image?: string;
 }
