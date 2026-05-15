@@ -34,6 +34,16 @@ export function SettingsLayout() {
           >
             积分余额
           </NavLink>
+          <NavLink
+            to="/settings/templates"
+            className={({ isActive }) =>
+              `px-4 py-2 text-sm no-underline transition-colors ${
+                isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
+              }`
+            }
+          >
+            我的模板
+          </NavLink>
           <div className="mt-auto border-t border-[#333] pt-4">
             <button
               onClick={() => logout()}

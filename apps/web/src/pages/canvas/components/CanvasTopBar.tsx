@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
+import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 
 export function CanvasTopBar() {
   const { user, logout } = useAuth();
+  const { projectId } = useParams<{ projectId: string }>();
   const [credits, setCredits] = useState<number | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   useEffect(() => {
     fetch('/api/credits/balance')
@@ -26,6 +29,14 @@ export function CanvasTopBar() {
     <div className="absolute top-3 right-4 z-50 flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
       {credits !== null && (
         <span className="text-xs text-[#f59e0b] whitespace-nowrap">⚡ {credits} 积分</span>
+      )}
+      {user && (
+        <button
+          onClick={() => setShowSaveDialog(true)}
+          className="text-[#4ade80] text-xs bg-transparent border border-[#4ade80]/30 rounded px-2 py-1 hover:bg-[#4ade80]/10 transition-colors cursor-pointer"
+        >
+          保存为模板
+        </button>
       )}
       {user ? (
         <>
@@ -49,6 +60,13 @@ export function CanvasTopBar() {
         >
           登录
         </Link>
+      )}
+      {showSaveDialog && (
+        <SaveAsTemplateDialog
+          projectId={projectId || 'default'}
+          onClose={() => setShowSaveDialog(false)}
+          onSaved={() => { setShowSaveDialog(false); }}
+        />
       )}
     </div>
   );
