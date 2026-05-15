@@ -21,6 +21,9 @@ describe('TemplateService', () => {
     canvasProject: {
       findFirst: ReturnType<typeof vi.fn>;
     };
+    user: {
+      upsert: ReturnType<typeof vi.fn>;
+    };
   };
   let projectService: {
     findById: ReturnType<typeof vi.fn>;

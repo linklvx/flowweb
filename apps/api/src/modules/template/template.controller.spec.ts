@@ -76,6 +76,6 @@ describe('TemplateController', () => {
     const req = {} as any;
     const result = await controller.create({ projectId: 'p1', name: 'T' }, req);
     expect(result.success).toBe(false);
-    expect(result.error.code).toBe('UNAUTHORIZED');
+    expect(result.error!.code).toBe('UNAUTHORIZED');
   });
 });
