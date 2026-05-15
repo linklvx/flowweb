@@ -28,7 +28,7 @@ export function HomePage() {
       </div>
 
       {/* Hero */}
-      <HeroSection onStartCreate={() => navigate('/canvas')} />
+      <HeroSection onStartCreate={() => { localStorage.removeItem('flowweb_projectId'); navigate('/canvas'); }} />
 
       {/* Content */}
       <ContentSection />
