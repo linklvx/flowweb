@@ -66,7 +66,15 @@ describe('AuthService', () => {
     expect(result).toBeNull();
   });
 
-  it('should expose updateProfile as a function', () => {
-    expect(typeof service.updateProfile).toBe('function');
+  it('should call Better Auth updateUser for updateProfile', async () => {
+    mockUpdateUser.mockResolvedValue({ user: { id: 'u1', name: 'NewName' } });
+
+    const result = await service.updateProfile('flowweb.session_token=tok123', { name: 'NewName' });
+
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      body: { name: 'NewName', image: undefined },
+      headers: expect.any(Headers),
+    });
+    expect(result).toEqual({ user: { id: 'u1', name: 'NewName' } });
   });
 });

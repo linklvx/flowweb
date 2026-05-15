@@ -40,23 +40,11 @@ export class AuthService {
     return exists === 1;
   }
 
-  async updateProfile(userId: string, dto: { name?: string; image?: string }) {
-    const { PrismaClient } = await import('@prisma/client');
-    const p = new PrismaClient();
-    try {
-      const session = await p.session.findFirst({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-      });
-      await p.$disconnect();
-      if (!session) throw new Error('No active session');
-      return auth.api.updateUser({
-        body: { name: dto.name, image: dto.image },
-        headers: new Headers({ cookie: `flowweb.session_token=${session.token}` }),
-      });
-    } finally {
-      await p.$disconnect();
-    }
+  async updateProfile(cookieHeader: string, dto: { name?: string; image?: string }) {
+    return auth.api.updateUser({
+      body: { name: dto.name, image: dto.image },
+      headers: new Headers({ cookie: cookieHeader }),
+    });
   }
 
   async getSession(headers: Record<string, string>) {
