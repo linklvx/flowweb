@@ -41,9 +41,16 @@ export class TemplateService {
       throw new ForbiddenException('无权将此项目保存为模板');
     }
 
+    // Normalize edges: Prisma sourceId/targetId → ReactFlow source/target
+    const edges = (project.edges || []).map((e: any) => ({
+      id: e.id,
+      source: e.sourceId || e.source || '',
+      target: e.targetId || e.target || '',
+    }));
+
     const templateData = {
-      nodes: project.nodes,
-      edges: project.edges,
+      nodes: project.nodes || [],
+      edges,
       viewport: project.viewport,
     };
 
