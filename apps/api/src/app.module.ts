@@ -17,7 +17,7 @@ const env = validateEnv();
 
 @Module({
   imports: [
-    BullModule.forRoot({
+    BullModule.forRoot('default', {
       connection: { url: env.REDIS_URL },
       defaultJobOptions: {
         attempts: 3,
