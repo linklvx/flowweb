@@ -1,16 +1,16 @@
-import { Controller, Post, Get, Body, Param, Inject } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Inject, Req } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
-
-const Queue = require('bull');
-
-const executionQueue = new Queue('execution', {
-  redis: { host: 'localhost', port: 6379 },
-  defaultJobOptions: { attempts: 2, timeout: 300000, removeOnComplete: 50, removeOnFail: 100 },
-});
+import { Request } from 'express';
+import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
 @Controller('api/execution')
 export class ExecutionController {
-  constructor(@Inject(ExecutionService) private readonly service: ExecutionService) {}
+  constructor(
+    @Inject(ExecutionService) private readonly service: ExecutionService,
+    @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
+  ) {}
 
   @Post('execute')
   execute(@Body() body: { projectId: string; nodeId?: string; userId?: string }) {
@@ -18,19 +18,25 @@ export class ExecutionController {
   }
 
   @Post('enqueue')
-  async enqueue(@Body() body: { projectId: string; nodeId?: string; userId?: string }) {
-    const userId = body.userId || 'default-user';
-    try {
-      const job = await executionQueue.add({ projectId: body.projectId, nodeId: body.nodeId, userId });
-      return { jobId: job.id, status: 'queued' };
-    } catch {
-      return this.service.execute(body.projectId, body.nodeId, userId);
-    }
+  async enqueue(
+    @Body() body: { projectId: string; nodeId?: string },
+    @Req() req: Request,
+  ) {
+    const job = await this.executionQueue.add('execution', {
+      projectId: body.projectId,
+      nodeId: body.nodeId,
+      userId: (req as any).user?.id,
+    });
+
+    return {
+      jobId: job.id,
+      status: 'queued',
+    };
   }
 
   @Get('jobs/:id')
   async getJob(@Param('id') id: string) {
-    const job = await executionQueue.getJob(id);
+    const job = await this.executionQueue.getJob(id);
     if (!job) return { error: 'Job not found' };
     const state = await job.getState();
     return { id: job.id, state, progress: job.progress };
