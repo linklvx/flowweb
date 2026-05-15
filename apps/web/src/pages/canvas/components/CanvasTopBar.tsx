@@ -29,7 +29,12 @@ export function CanvasTopBar() {
       )}
       {user ? (
         <>
-          <span className="text-xs text-[#ccc] whitespace-nowrap">{user.name || user.email}</span>
+          <Link
+            to="/settings"
+            className="text-xs text-[#ccc] whitespace-nowrap no-underline hover:text-[#4ade80] transition-colors"
+          >
+            {user.name || user.email}
+          </Link>
           <button
             onClick={logout}
             className="px-2 py-0.5 rounded-full text-xs border border-[#555] text-[#999] bg-transparent cursor-pointer hover:border-[#ef4444] hover:text-[#ef4444] transition-colors"
