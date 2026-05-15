@@ -33,6 +33,7 @@ New files:
   apps/web/src/pages/templates/TemplateCard.tsx
   apps/web/src/pages/settings/MyTemplatesPage.tsx
   apps/web/src/pages/canvas/components/SaveAsTemplateDialog.tsx
+  apps/web/src/pages/settings/EditTemplateDialog.tsx
   apps/api/src/modules/template/seed/official-templates.ts
 
 Modified files:
@@ -79,6 +80,7 @@ model Template {
 
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([name, userId])
   @@index([userId])
   @@index([isPublic])
   @@index([category])
@@ -662,8 +664,17 @@ export class TemplateService {
     const projectData = JSON.parse(JSON.stringify(template.templateData));
     validateTemplateData(projectData);
 
-    // 重名检测：手动构造名称
+    // 完整的重名检测逻辑
     let projectName = `${template.name} (副本)`;
+    let counter = 1;
+
+    while (true) {
+      const existing = await this.prisma.canvasProject.findFirst({
+        where: { name: projectName, userId },
+      });
+      if (!existing) break;
+      projectName = `${template.name} (副本 ${++counter})`;
+    }
 
     const project = await this.projectService.create(
       projectName,
@@ -702,12 +713,11 @@ export class TemplateService {
     ];
 
     for (const tpl of officialTemplates) {
-      const existing = await this.prisma.template.findFirst({
-        where: { name: tpl.name, userId: OFFICIAL_USER_ID },
+      await this.prisma.template.upsert({
+        where: { name_userId: { name: tpl.name, userId: OFFICIAL_USER_ID } },
+        update: {},
+        create: tpl,
       });
-      if (!existing) {
-        await this.prisma.template.create({ data: tpl });
-      }
     }
   }
 
@@ -1442,10 +1452,12 @@ export function TemplatePreviewPage() {
 import { useState, useEffect, useCallback } from 'react';
 import { getTemplates, deleteTemplate, updateTemplate } from '@/api/templateApi';
 import { TemplateCard } from '../templates/TemplateCard';
+import { EditTemplateDialog } from './EditTemplateDialog';
 
 export function MyTemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingTemplate, setEditingTemplate] = useState<any>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1486,6 +1498,12 @@ export function MyTemplatesPage() {
               <TemplateCard {...tpl} />
               <div className="flex gap-2 mt-2 pt-2 border-t border-[#252525]">
                 <button
+                  onClick={() => setEditingTemplate(tpl)}
+                  className="text-xs px-2 py-1 bg-[#252525] text-[#888] rounded hover:text-[#ccc] transition-colors cursor-pointer border-none"
+                >
+                  编辑
+                </button>
+                <button
                   onClick={() => handleTogglePublic(tpl)}
                   className="text-xs px-2 py-1 bg-[#252525] text-[#888] rounded hover:text-[#ccc] transition-colors cursor-pointer border-none"
                 >
@@ -1502,6 +1520,83 @@ export function MyTemplatesPage() {
           ))}
         </div>
       )}
+
+      {editingTemplate && (
+        <EditTemplateDialog
+          template={editingTemplate}
+          onClose={() => setEditingTemplate(null)}
+          onSaved={() => { setEditingTemplate(null); fetchData(); }}
+        />
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4b: Create EditTemplateDialog.tsx**
+
+Create `apps/web/src/pages/settings/EditTemplateDialog.tsx`:
+
+```tsx
+import { useState, useEffect } from 'react';
+import { updateTemplate } from '@/api/templateApi';
+
+interface EditTemplateDialogProps {
+  template: { id: string; name: string; description?: string; isPublic: boolean };
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+export function EditTemplateDialog({ template, onClose, onSaved }: EditTemplateDialogProps) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setName(template.name);
+    setDescription(template.description || '');
+    setIsPublic(template.isPublic);
+  }, [template]);
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await updateTemplate(template.id, { name: name.trim(), description: description.trim(), isPublic });
+      onSaved();
+    } catch (e) {
+      console.error('Update template failed', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">编辑模板</h2>
+        <label className="block text-xs text-[#888] mb-1">模板名称</label>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+          className="w-full px-3 py-2 bg-[#252525] border border-[#333] rounded text-sm text-[#e2e8f0] placeholder-[#555] outline-none focus:border-[#4ade80] mb-3" />
+        <label className="block text-xs text-[#888] mb-1">描述</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
+          className="w-full px-3 py-2 bg-[#252525] border border-[#333] rounded text-sm text-[#e2e8f0] placeholder-[#555] outline-none focus:border-[#4ade80] mb-3 resize-none" />
+        <label className="flex items-center gap-2 text-sm text-[#888] mb-4 cursor-pointer">
+          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="accent-[#4ade80]" />
+          公开到社区
+        </label>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose}
+            className="px-4 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors cursor-pointer bg-transparent">
+            取消
+          </button>
+          <button onClick={handleSave} disabled={saving || !name.trim()}
+            className="px-4 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 transition-colors cursor-pointer border-none">
+            {saving ? '保存中...' : '保存修改'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1601,9 +1696,11 @@ Read `apps/web/src/pages/canvas/components/CanvasTopBar.tsx`. Find the floating 
 
 ```tsx
 import { useState } from 'react';
+import { useParams } from 'react-router';
 import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 
-// Inside CanvasTopBar component, add state:
+// Inside CanvasTopBar component, add:
+const { projectId } = useParams<{ projectId: string }>();
 const [showSaveDialog, setShowSaveDialog] = useState(false);
 
 // Add button in the floating pill (before credits):
@@ -1617,7 +1714,7 @@ const [showSaveDialog, setShowSaveDialog] = useState(false);
 // Add at end of component (before closing tag):
 {showSaveDialog && (
   <SaveAsTemplateDialog
-    projectId="default"
+    projectId={projectId || 'default'}
     onClose={() => setShowSaveDialog(false)}
     onSaved={() => { setShowSaveDialog(false); }}
   />
