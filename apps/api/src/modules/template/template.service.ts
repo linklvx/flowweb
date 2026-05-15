@@ -41,7 +41,10 @@ export class TemplateService {
       throw new ForbiddenException('无权将此项目保存为模板');
     }
 
-    // Normalize edges: Prisma sourceId/targetId → ReactFlow source/target
+    // Normalize nodes and edges: strip Prisma fields, canonical ReactFlow format
+    const nodes = (project.nodes || []).map((n: any) => ({
+      id: n.id, type: n.type, position: n.position, data: n.data,
+    }));
     const edges = (project.edges || []).map((e: any) => ({
       id: e.id,
       source: e.sourceId || e.source || '',
@@ -49,7 +52,7 @@ export class TemplateService {
     }));
 
     const templateData = {
-      nodes: project.nodes || [],
+      nodes,
       edges,
       viewport: project.viewport,
     };
@@ -169,44 +172,68 @@ export class TemplateService {
   }
 
   async import(id: string, userId: string) {
-    const template = await this.findById(id);
+    try {
+      const template = await this.findById(id);
 
-    if (!template.isPublic && template.userId !== userId) {
-      throw new ForbiddenException('无权导入此模板');
-    }
+      if (!template.isPublic && template.userId !== userId) {
+        throw new ForbiddenException('无权导入此模板');
+      }
 
-    if (!template.templateData) {
-      throw new BadRequestException('模板数据为空，无法导入');
-    }
+      if (!template.templateData) {
+        throw new BadRequestException('模板数据为空，无法导入');
+      }
 
-    const projectData = JSON.parse(JSON.stringify(template.templateData));
-    validateTemplateData(projectData);
+      const projectData = JSON.parse(JSON.stringify(template.templateData));
+      validateTemplateData(projectData);
 
-    let projectName = `${template.name} (副本)`;
-    let counter = 1;
+      let projectName = `${template.name} (副本)`;
+      let counter = 1;
 
-    while (true) {
-      const existing = await this.prisma.canvasProject.findFirst({
-        where: { name: projectName, userId },
+      while (true) {
+        const existing = await this.prisma.canvasProject.findFirst({
+          where: { name: projectName, userId },
+        });
+        if (!existing) break;
+        projectName = `${template.name} (副本 ${++counter})`;
+      }
+
+      // Generate fresh IDs to avoid unique constraint conflicts on import
+      const ts = Date.now().toString(36);
+      const idMap = new Map<string, string>();
+      const cleanNodes = (projectData.nodes || []).map((n: any, i: number) => {
+        const newId = `n${ts}_${i}`;
+        idMap.set(n.id, newId);
+        return { id: newId, type: n.type, position: n.position, data: n.data };
       });
-      if (!existing) break;
-      projectName = `${template.name} (副本 ${++counter})`;
+      const cleanEdges = (projectData.edges || []).map((e: any, i: number) => {
+        const oldSource = e.source || e.sourceId || '';
+        const oldTarget = e.target || e.targetId || '';
+        return {
+          id: `e${ts}_${i}`,
+          source: idMap.get(oldSource) || oldSource,
+          target: idMap.get(oldTarget) || oldTarget,
+        };
+      });
+
+      const project = await this.projectService.create(
+        projectName,
+        userId,
+        cleanNodes,
+        cleanEdges,
+        projectData.viewport,
+      );
+
+      await this.prisma.template.update({
+        where: { id },
+        data: { importCount: { increment: 1 } },
+      });
+
+      return project;
+    } catch (e: unknown) {
+      if (e instanceof ForbiddenException || e instanceof BadRequestException) throw e;
+      const message = e instanceof Error ? e.message : '导入失败';
+      throw new BadRequestException(message);
     }
-
-    const project = await this.projectService.create(
-      projectName,
-      userId,
-      projectData.nodes || [],
-      projectData.edges || [],
-      projectData.viewport,
-    );
-
-    await this.prisma.template.update({
-      where: { id },
-      data: { importCount: { increment: 1 } },
-    });
-
-    return project;
   }
 
   async initOfficialTemplates() {

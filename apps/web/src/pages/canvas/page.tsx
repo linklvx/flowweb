@@ -6,11 +6,12 @@ import { CanvasView } from './components/CanvasView';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { useSocket } from '@/hooks/useSocket';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { useNodeStore } from '@/stores/nodeStore';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
 async function ensureProject(): Promise<string> {
-  // Always create a new project — avoids cross-user projectId leaking via localStorage
   const res = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -24,6 +25,27 @@ async function ensureProject(): Promise<string> {
   throw new Error('Failed to create project');
 }
 
+async function loadProjectIntoStore(projectId: string) {
+  const res = await fetch(`/api/projects/${projectId}`);
+  const json = await res.json();
+  if (json.code !== 0 || !json.data) return;
+  const project = json.data;
+  // Restore canvas state from DB project
+  useCanvasStore.setState({
+    nodes: project.nodes || [],
+    edges: (project.edges || []).map((e: any) => ({
+      id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
+    })),
+    viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
+  });
+  // Restore node content
+  const content: Record<string, any> = {};
+  for (const n of project.nodes || []) {
+    content[n.id] = n.data || {};
+  }
+  useNodeStore.setState({ nodes: content });
+}
+
 export function CanvasPage() {
   const [searchParams] = useSearchParams();
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -31,11 +53,11 @@ export function CanvasPage() {
   useEffect(() => {
     const queryProjectId = searchParams.get('projectId');
     if (queryProjectId) {
-      // Imported template — use the specified projectId directly
+      // Imported template — load project from DB into canvas store
       localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
-      setProjectId(queryProjectId);
+      loadProjectIntoStore(queryProjectId).then(() => setProjectId(queryProjectId));
     } else {
-      // Normal flow — ensure project exists
+      // Normal flow — create new project
       ensureProject().then(setProjectId);
     }
   }, [searchParams]);
