@@ -32,8 +32,8 @@ export function SaveAsTemplateDialog({ projectId, onClose, onSaved }: SaveAsTemp
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-start sm:items-center justify-center z-[100] overflow-y-auto py-8" onClick={onClose}>
-      <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6 w-full max-w-md my-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 flex justify-center z-[100] pt-16" onClick={onClose}>
+      <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6 w-full max-w-md h-fit" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">保存为模板</h2>
         <label className="block text-xs text-[#888] mb-1">模板名称 <span className="text-[#ef4444]">*</span></label>
         <input type="text" value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder="输入模板名称"
