@@ -344,8 +344,9 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
+import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
-@Processor('execution')
+@Processor(EXECUTION_QUEUE_NAME)
 export class ExecutionProcessor {
   private readonly logger = new Logger(ExecutionProcessor.name);
 
@@ -513,12 +514,13 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
 import { Request } from 'express';
+import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
 @Controller('api/execution')
 export class ExecutionController {
   constructor(
     @Inject(ExecutionService) private readonly service: ExecutionService,
-    @InjectQueue('execution') private readonly executionQueue: Queue,
+    @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
   ) {}
 
   @Post('execute')
