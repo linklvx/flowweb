@@ -11,6 +11,8 @@ describe('AuthController', () => {
       signUp: vi.fn(),
       signOut: vi.fn(),
       getSession: vi.fn(),
+      getSessionByToken: vi.fn(),
+      updateProfile: vi.fn(),
     };
 
     // Direct construction — bypasses NestJS DI
@@ -129,7 +131,7 @@ describe('AuthController', () => {
     it('should update profile and return user', async () => {
       const req = { user: { id: 'u1' }, headers: { cookie: 'flowweb.session_token=tok' } };
       const mockRes = { json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
-      mockSvc.updateProfile = vi.fn().mockResolvedValue({
+      mockSvc.updateProfile.mockResolvedValue({
         user: { id: 'u1', name: 'NewName', email: 'test@test.com' }
       });
 
@@ -163,7 +165,7 @@ describe('AuthController', () => {
     it('should ignore any userId in body — uses req.user.id only (越权防护)', async () => {
       const req = { user: { id: 'u1' }, headers: { cookie: 'flowweb.session_token=tok' } };
       const mockRes = { json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
-      mockSvc.updateProfile = vi.fn().mockResolvedValue({
+      mockSvc.updateProfile.mockResolvedValue({
         user: { id: 'u1', name: 'X', email: 'test@test.com' }
       });
 

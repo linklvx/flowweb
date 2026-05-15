@@ -82,10 +82,11 @@ export class AuthController {
         success: true,
         data: { user: result.user }
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '更新失败';
       return res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: e?.message || '更新失败' }
+        error: { code: 'VALIDATION_ERROR', message }
       });
     }
   }
