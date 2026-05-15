@@ -10,15 +10,7 @@ import { useSocket } from '@/hooks/useSocket';
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
 async function ensureProject(): Promise<string> {
-  const cached = localStorage.getItem(PROJECT_ID_KEY);
-  if (cached) {
-    const check = await fetch(`/api/projects/${cached}`);
-    if (check.ok) {
-      const json = await check.json();
-      if (json.code === 0) return cached;
-    }
-  }
-  // Create new project
+  // Always create a new project — avoids cross-user projectId leaking via localStorage
   const res = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
