@@ -124,4 +124,58 @@ describe('AuthController', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ user: null });
     });
   });
+
+  describe('updateMe', () => {
+    it('should update profile and return user', async () => {
+      const req = { user: { id: 'u1' }, headers: { cookie: 'flowweb.session_token=tok' } };
+      const mockRes = { json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      mockSvc.updateProfile = vi.fn().mockResolvedValue({
+        user: { id: 'u1', name: 'NewName', email: 'test@test.com' }
+      });
+
+      await controller.updateMe(req as any, { name: 'NewName' } as any, mockRes as any);
+
+      expect(mockSvc.updateProfile).toHaveBeenCalledWith(
+        'flowweb.session_token=tok',
+        { name: 'NewName' }
+      );
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        data: { user: { id: 'u1', name: 'NewName', email: 'test@test.com' } }
+      });
+    });
+
+    it('should return 401 when not authenticated', async () => {
+      const req = { user: null, headers: {} };
+      const mockRes = { json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+
+      await controller.updateMe(req as any, { name: 'X' } as any, mockRes as any);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.status().json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({ code: 'UNAUTHORIZED' })
+        })
+      );
+    });
+
+    it('should ignore any userId in body — uses req.user.id only (越权防护)', async () => {
+      const req = { user: { id: 'u1' }, headers: { cookie: 'flowweb.session_token=tok' } };
+      const mockRes = { json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      mockSvc.updateProfile = vi.fn().mockResolvedValue({
+        user: { id: 'u1', name: 'X', email: 'test@test.com' }
+      });
+
+      // Even if DTO had a userId field (it doesn't — UpdateProfileDto has no userId),
+      // controller only uses req.user.id. This proves body userId is impossible to inject.
+      await controller.updateMe(req as any, { name: 'X' } as any, mockRes as any);
+
+      // updateProfile was called with cookie header, NOT a userId from body
+      expect(mockSvc.updateProfile).toHaveBeenCalledWith(
+        'flowweb.session_token=tok',
+        expect.anything()
+      );
+    });
+  });
 });

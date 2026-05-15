@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Req, Body, Res } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Req, Body, Res, UsePipes, ValidationPipe } from '@nestjs/common';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from './auth.service';
 import type { Response } from 'express';
 
@@ -58,5 +59,34 @@ export class AuthController {
     const session = await this.authService.getSession({ cookie: cookieStr });
     if (!session) return res.json({ user: null });
     return res.json({ user: session.user });
+  }
+
+  @Patch('me')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async updateMe(
+    @Req() req: any,
+    @Body() dto: UpdateProfileDto,
+    @Res() res: Response,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: '未登录' }
+    });
+    try {
+      const result = await this.authService.updateProfile(
+        req.headers.cookie || '',
+        dto
+      );
+      return res.json({
+        success: true,
+        data: { user: result.user }
+      });
+    } catch (e: any) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: e?.message || '更新失败' }
+      });
+    }
   }
 }
