@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { CanvasPage } from './page';
 
@@ -8,7 +8,8 @@ vi.mock('@/components/AuthProvider', () => ({
   AuthProvider: ({ children }: any) => children,
 }));
 
-globalThis.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve({ code: 0, data: { credits: 100 } }) });
+const mockFetch = vi.fn();
+globalThis.fetch = mockFetch;
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
@@ -63,15 +64,35 @@ vi.mock('react-router', async (importOriginal) => {
 });
 
 describe('CanvasPage', () => {
-  it('should render NodePalette items', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockFetch.mockReset();
+    // Mock: first call is project creation (POST /api/projects)
+    // Second call would be GET /api/projects/:id if cached
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', name: '我的画布' } }),
+    });
+  });
+
+  it('should show loading state initially', () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
-    expect(screen.getByText('文本输入')).toBeInTheDocument();
+    expect(screen.getByText('加载画布...')).toBeInTheDocument();
+  });
+
+  it('should render CanvasPage after project creation', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByText('文本输入')).toBeInTheDocument();
+    });
     expect(screen.getByText('图片生成')).toBeInTheDocument();
     expect(screen.getByText('视频生成')).toBeInTheDocument();
   });
 
-  it('should render ReactFlow canvas', () => {
+  it('should render ReactFlow canvas after project creation', async () => {
     const { container } = render(<MemoryRouter><CanvasPage /></MemoryRouter>);
-    expect(container.querySelector('.react-flow')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow')).toBeInTheDocument();
+    });
   });
 });
