@@ -71,6 +71,10 @@ export function CanvasTopBar({ projectId }: Props) {
           onSaved={() => { setShowSaveDialog(false); }}
         />
       )}
+      {/* debug: projectId */}
+      <span className="absolute -bottom-8 right-0 text-[10px] text-[#444] whitespace-nowrap select-all">
+        pid: {projectId}
+      </span>
     </div>
   );
 }
