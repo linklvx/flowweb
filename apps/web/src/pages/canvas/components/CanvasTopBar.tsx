@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
 import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 
-export function CanvasTopBar() {
+interface Props {
+  projectId: string;
+}
+
+export function CanvasTopBar({ projectId }: Props) {
   const { user, logout } = useAuth();
-  const { projectId } = useParams<{ projectId: string }>();
   const [credits, setCredits] = useState<number | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
@@ -63,7 +66,7 @@ export function CanvasTopBar() {
       )}
       {showSaveDialog && (
         <SaveAsTemplateDialog
-          projectId={projectId || 'default'}
+          projectId={projectId}
           onClose={() => setShowSaveDialog(false)}
           onSaved={() => { setShowSaveDialog(false); }}
         />
