@@ -21,7 +21,10 @@ export function HomePage() {
             onClose={dismiss}
           />
         )}
-        <Navbar />
+        <Navbar onAction={(key) => {
+        if (key === 'templates') navigate('/templates');
+        if (key === 'login') navigate('/login');
+      }} />
       </div>
 
       {/* Hero */}
