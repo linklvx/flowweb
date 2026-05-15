@@ -42,6 +42,9 @@ describe('TemplateService', () => {
       canvasProject: {
         findFirst: vi.fn().mockResolvedValue(null),
       },
+      user: {
+        upsert: vi.fn().mockResolvedValue({}),
+      },
     };
     projectService = {
       findById: vi.fn().mockResolvedValue({

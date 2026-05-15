@@ -49,6 +49,7 @@ export class TemplateService {
 
     validateTemplateData(templateData);
 
+    this.clearCache();
     return this.prisma.template.create({
       data: {
         name: input.name,
@@ -197,6 +198,18 @@ export class TemplateService {
   }
 
   async initOfficialTemplates() {
+    // 确保系统用户存在，满足 FK 约束
+    await this.prisma.user.upsert({
+      where: { id: OFFICIAL_USER_ID },
+      update: {},
+      create: {
+        id: OFFICIAL_USER_ID,
+        name: 'Official Templates',
+        email: 'official@flowweb.local',
+        emailVerified: true,
+      },
+    });
+
     const officialTemplates = [
       {
         name: '文生图工作流',
