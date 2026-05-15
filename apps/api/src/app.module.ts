@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
@@ -10,9 +11,31 @@ import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/auth.guard';
+import { validateEnv } from './config/env';
+
+const env = validateEnv();
 
 @Module({
-  imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]), PrismaModule, HealthModule, ContentModule, ProjectModule, AdminModule, CreditModule, ExecutionModule, AuthModule],
+  imports: [
+    BullModule.forRoot({
+      connection: { url: env.REDIS_URL },
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 86400 * 7 },
+      },
+    }),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
+    PrismaModule,
+    HealthModule,
+    ContentModule,
+    ProjectModule,
+    AdminModule,
+    CreditModule,
+    ExecutionModule,
+    AuthModule,
+  ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}
