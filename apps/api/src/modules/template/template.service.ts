@@ -37,7 +37,7 @@ export class TemplateService {
 
   async create(input: CreateTemplateInput, userId: string) {
     const project = await this.projectService.findById(input.projectId);
-    if (project.userId !== userId) {
+    if (project.userId !== null && project.userId !== userId) {
       throw new ForbiddenException('无权将此项目保存为模板');
     }
 

@@ -79,6 +79,14 @@ describe('TemplateService', () => {
         service.create({ projectId: 'p1', name: 'Test' }, 'other-user'),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('should allow saving project with null userId (existing projects)', async () => {
+      projectService.findById.mockResolvedValue({
+        id: 'p1', userId: null, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+      });
+      const result = await service.create({ projectId: 'p1', name: 'Test' }, 'any-user');
+      expect(prisma.template.create).toHaveBeenCalled();
+    });
   });
 
   describe('findMany', () => {
