@@ -41,6 +41,23 @@ export class AuthService {
   }
 
   async getSession(headers: Record<string, string>) {
-    return auth.api.getSession({ headers: new Headers(headers) });
+    // Direct DB lookup — bypasses Better Auth's getSession which fails in NestJS context
+    const cookieStr = headers.cookie || '';
+    const match = cookieStr.match(/flowweb\.session_token=([^;]+)/);
+    if (!match) return null;
+    const token = match[1];
+    try {
+      const { PrismaClient } = await import('@prisma/client');
+      const p = new PrismaClient();
+      const session = await p.session.findUnique({
+        where: { token },
+        include: { user: true },
+      });
+      await p.$disconnect();
+      if (!session || session.expiresAt < new Date()) return null;
+      return { user: session.user };
+    } finally {
+      // ensure disconnect
+    }
   }
 }

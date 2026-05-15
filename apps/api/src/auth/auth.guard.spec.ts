@@ -1,18 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 
-const { mockGetSession } = vi.hoisted(() => ({
-  mockGetSession: vi.fn(),
+const mockFindUnique = vi.fn();
+const mockDisconnect = vi.fn();
+
+vi.mock('@prisma/client', () => ({
+  PrismaClient: vi.fn().mockImplementation(() => ({
+    session: { findUnique: mockFindUnique },
+    $disconnect: mockDisconnect,
+  })),
 }));
 
-vi.mock('./auth', () => ({
-  auth: {
-    api: {
-      getSession: mockGetSession,
-    },
-  },
-}));
-
-import { auth } from './auth';
 import { AuthGuard } from './auth.guard';
 
 describe('AuthGuard', () => {
@@ -35,15 +32,25 @@ describe('AuthGuard', () => {
     });
   });
 
-  it('should reject protected path without valid session', async () => {
-    mockGetSession.mockResolvedValue(null);
+  it('should reject protected path without cookie', async () => {
     const ctx = { switchToHttp: () => ({ getRequest: () => ({ path: '/api/execution/execute', headers: {} }) }) };
     await expect(guard.canActivate(ctx as any)).rejects.toThrow('Unauthorized');
   });
 
-  it('should allow protected path with valid session', async () => {
-    mockGetSession.mockResolvedValue({ user: { id: 'u1', email: 'test@test.com' } });
-    const ctx = { switchToHttp: () => ({ getRequest: () => ({ path: '/api/execution/execute', headers: { cookie: 'valid' } }) }) };
+  it('should reject protected path with invalid session token', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    mockDisconnect.mockResolvedValue(undefined);
+    const ctx = { switchToHttp: () => ({ getRequest: () => ({ path: '/api/execution/execute', headers: { cookie: 'flowweb.session_token=badtoken' } }) }) };
+    await expect(guard.canActivate(ctx as any)).rejects.toThrow('Unauthorized');
+  });
+
+  it('should allow protected path with valid session token', async () => {
+    const user = { id: 'u1', email: 'test@test.com' };
+    mockFindUnique.mockResolvedValue({ user, expiresAt: new Date(Date.now() + 86400000) });
+    mockDisconnect.mockResolvedValue(undefined);
+    const req = { path: '/api/execution/execute', headers: { cookie: 'flowweb.session_token=validtoken' } };
+    const ctx = { switchToHttp: () => ({ getRequest: () => req }) };
     await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
+    expect((req as any).user).toEqual(user);
   });
 });

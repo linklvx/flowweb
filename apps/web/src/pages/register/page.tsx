@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { Link } from 'react-router';
 
 export function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
@@ -18,7 +17,7 @@ export function RegisterPage() {
         credentials: 'include',
       });
       if (!res.ok) { setError('注册失败，邮箱可能已存在'); return; }
-      navigate('/login');
+      window.location.href = '/canvas';
     } catch { setError('网络错误，请重试'); }
   };
 

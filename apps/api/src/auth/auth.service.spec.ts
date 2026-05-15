@@ -54,10 +54,13 @@ describe('AuthService', () => {
     });
   });
 
-  it('should call getSession with provided headers', async () => {
-    mockGetSession.mockResolvedValue({ user: { id: 'u1' } });
-    const headers = { 'x-custom': 'value' };
-    await service.getSession(headers);
-    expect(auth.api.getSession).toHaveBeenCalledWith({ headers: new Headers(headers) });
+  it('should return null when no cookie header provided', async () => {
+    const result = await service.getSession({});
+    expect(result).toBeNull();
+  });
+
+  it('should return null when cookie has no valid session token', async () => {
+    const result = await service.getSession({ cookie: 'other=value' });
+    expect(result).toBeNull();
   });
 });
