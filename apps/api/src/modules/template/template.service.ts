@@ -47,7 +47,12 @@ export class TemplateService {
       viewport: project.viewport,
     };
 
-    validateTemplateData(templateData);
+    try {
+      validateTemplateData(templateData);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '模板数据验证失败';
+      throw new BadRequestException(message);
+    }
 
     this.clearCache();
     return this.prisma.template.create({

@@ -30,8 +30,8 @@ export function SaveAsTemplateDialog({ projectId, onClose, onSaved }: SaveAsTemp
       await syncEdges(projectId, state.edges as any);
       await createTemplate({ projectId, name: name.trim(), description: description.trim(), isPublic });
       onSaved();
-    } catch (e) {
-      console.error('Save template failed', e);
+    } catch (e: any) {
+      setError(e?.message || '保存失败');
     } finally {
       setSaving(false);
     }
