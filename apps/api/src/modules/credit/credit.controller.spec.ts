@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CreditController } from './credit.controller';
 import { CreditService } from './credit.service';
+import { UnauthorizedException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('CreditController', () => {
@@ -13,7 +14,12 @@ describe('CreditController', () => {
 
   beforeEach(async () => {
     service = {
-      getOrCreateBalance: vi.fn().mockResolvedValue({ userId: 'u1', credits: 100, version: 0 }),
+      getOrCreateBalance: vi.fn().mockResolvedValue({
+        userId: 'u1',
+        credits: 100,
+        version: 0,
+        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
       getBalance: vi.fn(),
       deduct: vi.fn(),
     };
@@ -26,16 +32,29 @@ describe('CreditController', () => {
     controller = module.get<CreditController>(CreditController);
   });
 
-  it('should return balance for given userId', async () => {
-    service.getOrCreateBalance.mockResolvedValue({ userId: 'u1', credits: 100, version: 0 });
-    const result = await controller.getBalance('u1');
-    expect(result).toEqual({ credits: 100 });
+  it('should return balance for authenticated user via req.user.id', async () => {
+    service.getOrCreateBalance.mockResolvedValue({
+      userId: 'u1',
+      credits: 100,
+      version: 0,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const req = { user: { id: 'u1' } };
+    const result = await controller.getBalance(req as any);
+    expect(result).toEqual({
+      credits: 100,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
     expect(service.getOrCreateBalance).toHaveBeenCalledWith('u1');
   });
 
-  it('should default userId to default-user when empty', async () => {
-    service.getOrCreateBalance.mockResolvedValue({ userId: 'default-user', credits: 100, version: 0 });
-    const result = await controller.getBalance('default-user');
-    expect(result).toEqual({ credits: 100 });
+  it('should throw UnauthorizedException when req.user is missing', async () => {
+    const req = {} as any;
+    await expect(controller.getBalance(req)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('should throw UnauthorizedException when req.user.id is missing', async () => {
+    const req = { user: {} } as any;
+    await expect(controller.getBalance(req)).rejects.toThrow(UnauthorizedException);
   });
 });
