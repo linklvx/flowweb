@@ -10,8 +10,8 @@ export function ContentSection() {
   }, [fetchCards]);
 
   return (
-    <section className="px-6 py-10 max-w-7xl mx-auto">
-      <h2 className="text-xl font-bold text-[#e2e8f0] mb-6">精选工作流模板</h2>
+    <section className="px-5 md:px-10 lg:px-[120px] py-10 mx-auto max-w-[1640px]">
+      <h2 className="text-xl font-bold text-[#e2e8f0] mb-6 px-0">精选工作流模板</h2>
       {error ? (
         <div className="text-center py-16">
           <p className="text-[#888] text-sm mb-4">内容加载失败</p>

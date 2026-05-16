@@ -1,9 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { Navbar } from './Navbar';
 import { AuthProvider } from '@/components/AuthProvider';
-import { NavActionKey } from '@flowweb/shared';
 
 function renderWithProviders(ui: React.ReactElement) {
   return render(
@@ -19,31 +18,39 @@ describe('Navbar', () => {
     expect(screen.getByText(/FlowAI/i)).toBeInTheDocument();
   });
 
-  it('should render nav action buttons and login link', () => {
+  it('should render nav links: 首页, 模板广场, 文档中心, 我的作品', () => {
     renderWithProviders(<Navbar />);
+    expect(screen.getByText('首页')).toBeInTheDocument();
     expect(screen.getByText('模板广场')).toBeInTheDocument();
-    expect(screen.getByText('开通会员')).toBeInTheDocument();
-    expect(screen.getByText('登录')).toBeInTheDocument();
+    expect(screen.getByText('文档中心')).toBeInTheDocument();
+    expect(screen.getByText('我的作品')).toBeInTheDocument();
   });
 
-  it('should call onAction with correct NavActionKey when templates button is clicked', () => {
-    const onAction = vi.fn();
-    renderWithProviders(<Navbar onAction={onAction} />);
-    fireEvent.click(screen.getByText('模板广场'));
-    expect(onAction).toHaveBeenCalledWith(NavActionKey.Templates);
-  });
-
-  it('should call onAction for membership button', () => {
-    const onAction = vi.fn();
-    renderWithProviders(<Navbar onAction={onAction} />);
-    fireEvent.click(screen.getByText('开通会员'));
-    expect(onAction).toHaveBeenCalledWith(NavActionKey.Membership);
-  });
-
-  it('should render login link when user is not authenticated', () => {
+  it('should link 首页 to /', () => {
     renderWithProviders(<Navbar />);
-    const loginLink = screen.getByText('登录');
+    expect(screen.getByText('首页').closest('a')).toHaveAttribute('href', '/');
+  });
+
+  it('should link 模板广场 to /templates', () => {
+    renderWithProviders(<Navbar />);
+    expect(screen.getByText('模板广场').closest('a')).toHaveAttribute('href', '/templates');
+  });
+
+  it('should link 文档中心 to /docs', () => {
+    renderWithProviders(<Navbar />);
+    expect(screen.getByText('文档中心').closest('a')).toHaveAttribute('href', '/docs');
+  });
+
+  it('should link 我的作品 to /settings/templates', () => {
+    renderWithProviders(<Navbar />);
+    expect(screen.getByText('我的作品').closest('a')).toHaveAttribute('href', '/settings/templates');
+  });
+
+  it('should render login/register link when user is not authenticated', () => {
+    renderWithProviders(<Navbar />);
+    const loginLink = screen.getByText('登录/注册');
     expect(loginLink).toBeInTheDocument();
     expect(loginLink.tagName).toBe('A');
+    expect(loginLink.closest('a')).toHaveAttribute('href', '/login?redirect=/');
   });
 });

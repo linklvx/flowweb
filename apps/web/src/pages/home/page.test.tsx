@@ -58,11 +58,13 @@ describe('HomePage', () => {
     expect(screen.getByText('精选工作流模板')).toBeInTheDocument();
   });
 
-  it('should render nav action buttons', () => {
+  it('should render nav links', () => {
     renderHomePage();
+    expect(screen.getByText('首页')).toBeInTheDocument();
     expect(screen.getByText('模板广场')).toBeInTheDocument();
-    expect(screen.getByText('开通会员')).toBeInTheDocument();
-    expect(screen.getByText('登录')).toBeInTheDocument();
+    expect(screen.getByText('文档中心')).toBeInTheDocument();
+    expect(screen.getByText('我的作品')).toBeInTheDocument();
+    expect(screen.getByText('登录/注册')).toBeInTheDocument();
   });
 
   it('should render AI assistant button', () => {

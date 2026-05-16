@@ -2,7 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "flowweb",
+      "name": "flowweb-api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@flowweb/api", "dev"],
+      "port": 3000,
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "name": "flowweb-web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@flowweb/web", "dev"],
       "port": 5173

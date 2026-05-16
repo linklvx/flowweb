@@ -32,7 +32,6 @@ describe('SettingsLayout', () => {
     expect(screen.getByText('个人资料')).toBeDefined();
     expect(screen.getByText('积分余额')).toBeDefined();
     expect(screen.getByText('退出登录')).toBeDefined();
-    expect(screen.getByText('← 返回画布')).toBeDefined();
   });
 
   it('should render child route via Outlet', () => {

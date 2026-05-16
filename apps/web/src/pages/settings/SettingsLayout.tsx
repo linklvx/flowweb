@@ -1,61 +1,59 @@
-import { NavLink, Outlet, Link } from 'react-router';
+import { NavLink, Outlet } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
+import { Navbar } from '@/pages/home/components/Navbar';
 
 export function SettingsLayout() {
   const { logout } = useAuth();
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
-      <div className="h-12 flex items-center px-4 border-b border-[#333]">
-        <Link to="/canvas" className="text-xs text-[#888] hover:text-[#ccc] no-underline">
-          ← 返回画布
-        </Link>
-        <span className="ml-auto text-[#4ade80] font-bold text-sm">🧠 FlowAI</span>
-      </div>
-      <div className="flex flex-1">
-        <nav className="w-48 bg-[#1A1A1A] border-r border-[#333] flex flex-col py-4">
-          <NavLink
-            to="/settings/profile"
-            className={({ isActive }) =>
-              `px-4 py-2 text-sm no-underline transition-colors ${
-                isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
-              }`
-            }
-          >
-            个人资料
-          </NavLink>
-          <NavLink
-            to="/settings/credits"
-            className={({ isActive }) =>
-              `px-4 py-2 text-sm no-underline transition-colors ${
-                isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
-              }`
-            }
-          >
-            积分余额
-          </NavLink>
-          <NavLink
-            to="/settings/templates"
-            className={({ isActive }) =>
-              `px-4 py-2 text-sm no-underline transition-colors ${
-                isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
-              }`
-            }
-          >
-            我的模板
-          </NavLink>
-          <div className="mt-auto border-t border-[#333] pt-4">
-            <button
-              onClick={() => logout()}
-              className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-[#ef4444] bg-transparent border-none cursor-pointer transition-colors"
+    <div className="min-h-screen bg-[#0f0f0f] flex flex-col overflow-x-hidden">
+      <Navbar />
+      <div className="flex-1 mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] w-full pt-6">
+        <div className="flex h-full min-w-0">
+          <nav className="w-48 flex-shrink-0 bg-[#1A1A1A] border-r border-[#333] flex flex-col py-4">
+            <NavLink
+              to="/settings/profile"
+              className={({ isActive }) =>
+                `px-4 py-2 text-sm no-underline transition-colors ${
+                  isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
+                }`
+              }
             >
-              退出登录
-            </button>
-          </div>
-        </nav>
-        <main className="flex-1 p-8">
-          <Outlet />
-        </main>
+              个人资料
+            </NavLink>
+            <NavLink
+              to="/settings/credits"
+              className={({ isActive }) =>
+                `px-4 py-2 text-sm no-underline transition-colors ${
+                  isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
+                }`
+              }
+            >
+              积分余额
+            </NavLink>
+            <NavLink
+              to="/settings/templates"
+              className={({ isActive }) =>
+                `px-4 py-2 text-sm no-underline transition-colors ${
+                  isActive ? 'text-[#4ade80] bg-[#4ade80]/10 border-r-2 border-[#4ade80]' : 'text-[#888] hover:text-[#ccc]'
+                }`
+              }
+            >
+              我的作品
+            </NavLink>
+            <div className="mt-auto border-t border-[#333] pt-4">
+              <button
+                onClick={() => logout()}
+                className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-[#ef4444] bg-transparent border-none cursor-pointer transition-colors"
+              >
+                退出登录
+              </button>
+            </div>
+          </nav>
+          <main className="flex-1 py-8 pl-8 min-w-0">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   );

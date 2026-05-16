@@ -16,17 +16,19 @@ export function AnnouncementBanner({ message, linkUrl, onClose }: Props) {
   );
 
   return (
-    <div className="h-10 flex items-center justify-center bg-gradient-to-r from-[#1a1a2e] to-[#16213e] text-sm px-4 relative">
-      {content}
-      {onClose && (
-        <button
-          onClick={onClose}
-          className="absolute right-4 text-[#94a3b8] hover:text-white bg-transparent border-none cursor-pointer"
-          aria-label="关闭通知"
-        >
-          <CloseOutlined />
-        </button>
-      )}
+    <div className="h-10 flex items-center justify-center bg-gradient-to-r from-[#1a1a2e] to-[#16213e] text-sm relative">
+      <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] w-full flex items-center justify-center relative">
+        {content}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute right-5 md:right-10 lg:right-[120px] text-[#94a3b8] hover:text-white bg-transparent border-none cursor-pointer"
+            aria-label="关闭通知"
+          >
+            <CloseOutlined />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [searchParams] = useSearchParams();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
@@ -15,7 +16,7 @@ export function LoginPage() {
         credentials: 'include',
       });
       if (!res.ok) { setError('邮箱或密码错误'); return; }
-      window.location.href = '/canvas';
+      window.location.href = searchParams.get('redirect') || '/canvas';
     } catch { setError('网络错误，请重试'); }
   };
 

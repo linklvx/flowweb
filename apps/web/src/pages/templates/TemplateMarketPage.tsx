@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TemplateCard } from './TemplateCard';
 import { getTemplates, TemplateListQuery } from '@/api/templateApi';
+import { Navbar } from '@/pages/home/components/Navbar';
 
 type TabType = 'community' | 'official' | 'my';
 
@@ -31,12 +32,13 @@ export function TemplateMarketPage() {
   const tabs: { key: TabType; label: string }[] = [
     { key: 'community', label: '社区模板' },
     { key: 'official', label: '官方模板' },
-    { key: 'my', label: '我的模板' },
+    { key: 'my', label: '我的作品' },
   ];
 
   return (
     <div className="min-h-screen bg-[#0f0f0f]">
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <Navbar />
+      <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
         <h1 className="text-2xl font-bold text-[#e2e8f0] mb-6">模板广场</h1>
 
         <div className="flex gap-1 mb-6 border-b border-[#333]">

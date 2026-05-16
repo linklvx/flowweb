@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { getTemplate, importTemplate, deleteTemplate } from '@/api/templateApi';
+import { Navbar } from '@/pages/home/components/Navbar';
 
 export function TemplatePreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,7 +42,8 @@ export function TemplatePreviewPage() {
 
   return (
     <div className="min-h-screen bg-[#0f0f0f]">
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <Navbar />
+      <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
         <button onClick={() => navigate('/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
           ← 返回模板广场
         </button>

@@ -37,7 +37,7 @@ export function MyTemplatesPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">我的模板</h2>
+      <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">我的作品</h2>
       {templates.length === 0 ? (
         <p className="text-[#555]">暂无模板，前往画布页面创建。</p>
       ) : (
