@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef, type DragEvent } from 'react';
 import {
   ReactFlow, Background,
+  useReactFlow,
   type Connection,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
 } from '@xyflow/react';
@@ -28,6 +29,7 @@ interface Props {
 
 function CanvasViewComponent({ projectId: _projectId }: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const { screenToFlowPosition } = useReactFlow();
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -63,13 +65,13 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
       const type = event.dataTransfer.getData('application/reactflow');
       if (!type || !reactFlowWrapper.current) return;
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = {
-        x: event.clientX - bounds.left - 125,
-        y: event.clientY - bounds.top - 30,
-      };
-      addNode(type, position);
+      const position = screenToFlowPosition({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      });
+      addNode(type, { x: position.x - 125, y: position.y - 30 });
     },
-    [addNode]
+    [addNode, screenToFlowPosition]
   );
 
   const fitView = useCallback(() => {
@@ -77,7 +79,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   }, [updateViewport]);
 
   return (
-    <div ref={reactFlowWrapper} className="flex-1 h-full">
+    <div ref={reactFlowWrapper} className="w-full h-full">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -95,6 +97,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onPaneClick={onPaneClick}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
+        minZoom={0.2}
+        maxZoom={3}
         fitView={false}
         proOptions={{ hideAttribution: true }}
         className="bg-[#0f0f0f]"

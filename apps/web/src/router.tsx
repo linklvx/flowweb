@@ -29,6 +29,7 @@ export const router = createBrowserRouter([
           { path: 'profile', element: <ProfilePage /> },
           { path: 'credits', element: <CreditsPage /> },
           { path: 'templates', element: <MyTemplatesPage /> },
+          { path: 'templates/:id', element: <TemplatePreviewPage /> },
         ],
       },
     ],

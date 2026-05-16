@@ -109,6 +109,13 @@ export class ProjectService {
     return this.prisma.canvasEdge.findMany({ where: { projectId } });
   }
 
+  async updateName(id: string, name: string) {
+    return this.prisma.canvasProject.update({
+      where: { id },
+      data: { name },
+    });
+  }
+
   async delete(id: string) {
     return this.prisma.canvasProject.delete({ where: { id } });
   }

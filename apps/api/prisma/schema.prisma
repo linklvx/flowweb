@@ -94,6 +94,7 @@ model Template {
   coverUrl     String?
   dataUrl      String?
   templateData Json?
+  projectId    String?
   userId       String
   isPublic     Boolean            @default(false)
   importCount  Int                @default(0)

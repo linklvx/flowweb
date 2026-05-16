@@ -4,6 +4,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { CanvasView } from './components/CanvasView';
 import { CanvasTopBar } from './components/CanvasTopBar';
+import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -11,24 +12,24 @@ import { useNodeStore } from '@/stores/nodeStore';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
-async function ensureProject(): Promise<string> {
+async function ensureProject(): Promise<{ id: string; name: string }> {
   const res = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: '我的画布' }),
+    body: JSON.stringify({ name: '未命名项目' }),
   });
   const json = await res.json();
   if (json.code === 0 && json.data?.id) {
     localStorage.setItem(PROJECT_ID_KEY, json.data.id);
-    return json.data.id;
+    return { id: json.data.id, name: json.data.name || '未命名项目' };
   }
   throw new Error('Failed to create project');
 }
 
-async function loadProjectIntoStore(projectId: string) {
+async function loadProjectIntoStore(projectId: string): Promise<string> {
   const res = await fetch(`/api/projects/${projectId}`);
   const json = await res.json();
-  if (json.code !== 0 || !json.data) return;
+  if (json.code !== 0 || !json.data) return '未命名项目';
   const project = json.data;
   // Restore canvas state from DB project
   useCanvasStore.setState({
@@ -44,21 +45,29 @@ async function loadProjectIntoStore(projectId: string) {
     content[n.id] = n.data || {};
   }
   useNodeStore.setState({ nodes: content });
+  return project.name || '未命名项目';
 }
 
 export function CanvasPage() {
   const [searchParams] = useSearchParams();
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState('未命名项目');
 
   useEffect(() => {
     const queryProjectId = searchParams.get('projectId');
     if (queryProjectId) {
       // Imported template — load project from DB into canvas store
       localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
-      loadProjectIntoStore(queryProjectId).then(() => setProjectId(queryProjectId));
+      loadProjectIntoStore(queryProjectId).then((name) => {
+        setProjectId(queryProjectId);
+        setProjectName(name);
+      });
     } else {
       // Normal flow — create new project
-      ensureProject().then(setProjectId);
+      ensureProject().then(({ id, name }) => {
+        setProjectId(id);
+        setProjectName(name);
+      });
     }
   }, [searchParams]);
 
@@ -72,21 +81,22 @@ export function CanvasPage() {
   }
 
   return (
-    <CanvasPageInner projectId={projectId} />
+    <CanvasPageInner projectId={projectId} projectName={projectName} onNameChange={setProjectName} />
   );
 }
 
 // 内层组件仅在 projectId 就绪后挂载
-function CanvasPageInner({ projectId }: { projectId: string }) {
+function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
   useSocket(projectId);
 
   return (
     <ReactFlowProvider>
-      <div className="flex h-screen bg-[#0f0f0f] relative">
+      <div className="h-screen bg-[#0f0f0f] relative">
+        <ProjectTitle projectId={projectId} projectName={projectName} onNameChange={onNameChange} />
         <NodePalette />
         <CanvasView projectId={projectId} />
-        <CanvasTopBar projectId={projectId} />
+        <CanvasTopBar projectId={projectId} projectName={projectName} />
       </div>
     </ReactFlowProvider>
   );

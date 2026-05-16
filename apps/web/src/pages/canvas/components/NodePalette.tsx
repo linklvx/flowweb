@@ -13,7 +13,7 @@ function NodePaletteComponent() {
   }, []);
 
   return (
-    <div className="w-40 bg-[#1a1a1a] border-r border-[#333] p-3 flex flex-col gap-2 flex-shrink-0">
+    <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-40 bg-[#1a1a1a] border border-[#333] rounded-xl p-3 flex flex-col gap-2 shadow-2xl">
       <div className="text-xs font-bold text-[#e2e8f0] mb-1">节点面板</div>
       {NODE_TYPES.map(({ type, label, icon, color }) => (
         <div

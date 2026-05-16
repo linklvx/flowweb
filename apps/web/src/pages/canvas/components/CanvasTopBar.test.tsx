@@ -26,18 +26,19 @@ describe('CanvasTopBar', () => {
   function renderBar() {
     return render(
       <MemoryRouter>
-        <CanvasTopBar />
+        <CanvasTopBar projectId="test-pid" projectName="未命名项目" />
       </MemoryRouter>,
     );
   }
 
-  it('should display user name when authenticated', () => {
+  it('should display user avatar when authenticated', () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', email: 'u1@flowai.dev', name: 'U1' },
       loading: false,
     });
     renderBar();
-    expect(screen.getByText('U1')).toBeDefined();
+    // Shows first letter avatar "U" from "U1"
+    expect(screen.getByText('U')).toBeInTheDocument();
   });
 
   it('should display credits fetched from API', async () => {

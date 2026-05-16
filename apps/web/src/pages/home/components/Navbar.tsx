@@ -60,7 +60,7 @@ export function Navbar({ onAction: _onAction }: Props) {
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-medium text-[#e2e8f0] truncate">{displayName}</span>
             {credits !== null && (
-              <span className="text-xs text-[#f59e0b]">⚡ {credits} 积分</span>
+              <span className="text-sm text-white">⚡ {credits?.toLocaleString()} 积分</span>
             )}
           </div>
         </div>
@@ -113,8 +113,8 @@ export function Navbar({ onAction: _onAction }: Props) {
             <GiftOutlined className="text-sm" /> 赚积分
           </Link>
           {credits !== null && (
-            <span className="text-xs text-[#f59e0b] flex items-center gap-1 rounded-full bg-gray-800/80 px-4 py-1.5">
-              ⚡ {credits}
+            <span className="text-sm text-white flex items-center gap-1 rounded-full bg-gray-800/80 px-4 py-1.5">
+              ⚡ {credits?.toLocaleString()}
               {!user && <span className="text-[#888]">Free</span>}
             </span>
           )}

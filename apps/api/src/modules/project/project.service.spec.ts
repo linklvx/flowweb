@@ -105,6 +105,17 @@ describe('ProjectService', () => {
     });
   });
 
+  describe('updateName', () => {
+    it('should update project name', async () => {
+      prisma.canvasProject.update.mockResolvedValue({ id: 'p1', name: '新项目名' });
+      await service.updateName('p1', '新项目名');
+      expect(prisma.canvasProject.update).toHaveBeenCalledWith({
+        where: { id: 'p1' },
+        data: { name: '新项目名' },
+      });
+    });
+  });
+
   describe('delete', () => {
     it('should delete project by id', async () => {
       prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });

@@ -65,11 +65,30 @@ export class TemplateService {
     }
 
     this.clearCache();
+
+    // 同一项目已保存过 → 更新而非新建
+    const existing = await this.prisma.template.findFirst({
+      where: { projectId: input.projectId, userId },
+    });
+    if (existing) {
+      return this.prisma.template.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name,
+          description: input.description,
+          isPublic: input.isPublic ?? existing.isPublic,
+          templateData,
+          category: input.isPublic ? 'COMMUNITY' : existing.category,
+        },
+      });
+    }
+
     return this.prisma.template.create({
       data: {
         name: input.name,
         description: input.description,
         isPublic: input.isPublic ?? false,
+        projectId: input.projectId,
         userId,
         templateData,
         category: input.isPublic ? 'COMMUNITY' : undefined,

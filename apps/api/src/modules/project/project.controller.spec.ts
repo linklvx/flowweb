@@ -14,6 +14,7 @@ describe('ProjectController', () => {
       updateViewport: vi.fn().mockResolvedValue({}),
       syncNodes: vi.fn().mockResolvedValue([]),
       syncEdges: vi.fn().mockResolvedValue([]),
+      updateName: vi.fn().mockResolvedValue({ id: 'p1', name: 'updated' }),
       delete: vi.fn().mockResolvedValue({}),
     };
 
@@ -57,6 +58,12 @@ describe('ProjectController', () => {
     const edges = [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }];
     await controller.syncEdges('p1', { edges });
     expect(service.syncEdges).toHaveBeenCalledWith('p1', edges);
+  });
+
+  it('PATCH /api/projects/:id should update project name', async () => {
+    const result = await controller.updateName('p1', { name: '新名字' });
+    expect(result.id).toBe('p1');
+    expect(service.updateName).toHaveBeenCalledWith('p1', '新名字');
   });
 
   it('DELETE /api/projects/:id should delete project', async () => {

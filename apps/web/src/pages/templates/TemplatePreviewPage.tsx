@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useLocation } from 'react-router';
 import { getTemplate, importTemplate, deleteTemplate } from '@/api/templateApi';
 import { Navbar } from '@/pages/home/components/Navbar';
 
 export function TemplatePreviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isEmbedded = location.pathname.startsWith('/settings/');
   const [template, setTemplate] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -34,37 +36,44 @@ export function TemplatePreviewPage() {
   const handleDelete = async () => {
     if (!id || !confirm('确定删除此模板？')) return;
     await deleteTemplate(id);
-    navigate('/templates');
+    navigate(isEmbedded ? '/settings/templates' : '/templates');
   };
 
-  if (loading) return <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center text-[#555]">加载中...</div>;
-  if (!template) return <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center text-[#555]">模板不存在</div>;
+  if (loading) return <div className="flex items-center justify-center py-16 text-[#555]">加载中...</div>;
+  if (!template) return <div className="flex items-center justify-center py-16 text-[#555]">模板不存在</div>;
 
-  return (
-    <div className="min-h-screen bg-[#0f0f0f]">
-      <Navbar />
-      <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
-        <button onClick={() => navigate('/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
-          ← 返回模板广场
-        </button>
+  const content = (
+    <div className={isEmbedded ? '' : 'mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8'}>
+      <button onClick={() => navigate(isEmbedded ? '/settings/templates' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
+        ← 返回{isEmbedded ? '我的作品' : '模板广场'}
+      </button>
 
-        <div className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden">
-          <div className="aspect-video bg-[#252525] flex items-center justify-center text-[#555]">
-            {template.coverUrl ? (
-              <img src={template.coverUrl} alt={template.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-lg">📄 {template.name}</span>
-            )}
+      <div className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden">
+        <div className="aspect-video bg-[#252525] flex items-center justify-center text-[#555]">
+          {template.coverUrl ? (
+            <img src={template.coverUrl} alt={template.name} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-lg">📄 {template.name}</span>
+          )}
+        </div>
+        <div className="p-6">
+          <h1 className="text-xl font-bold text-[#e2e8f0] mb-2">{template.name}</h1>
+          {template.description && <p className="text-sm text-[#888] mb-4">{template.description}</p>}
+          <div className="flex items-center gap-4 text-sm text-[#666] mb-6">
+            <span>⬇ {template.importCount} 次导入</span>
+            {template.category === 'OFFICIAL' && <span className="text-[#4ade80]">官方模板</span>}
           </div>
-          <div className="p-6">
-            <h1 className="text-xl font-bold text-[#e2e8f0] mb-2">{template.name}</h1>
-            {template.description && <p className="text-sm text-[#888] mb-4">{template.description}</p>}
-            <div className="flex items-center gap-4 text-sm text-[#666] mb-6">
-              <span>⬇ {template.importCount} 次导入</span>
-              {template.category === 'OFFICIAL' && <span className="text-[#4ade80]">官方模板</span>}
-            </div>
 
-            <div className="flex gap-3">
+          <div className="flex gap-3">
+            {template.isOwner && template.projectId && (
+              <button
+                onClick={() => navigate(`/canvas?projectId=${template.projectId}`)}
+                className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] transition-colors cursor-pointer border-none"
+              >
+                打开项目
+              </button>
+            )}
+            {!template.isOwner && (
               <button
                 onClick={handleImport}
                 disabled={importing}
@@ -72,26 +81,36 @@ export function TemplatePreviewPage() {
               >
                 {importing ? '导入中...' : '一键导入到画布'}
               </button>
-              {template.isOwner && (
-                <>
-                  <button
-                    onClick={() => navigate(`/settings/templates`)}
-                    className="px-4 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors cursor-pointer bg-transparent"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    className="px-4 py-2 border border-[#333] text-[#ef4444] rounded text-sm hover:border-[#ef4444] transition-colors cursor-pointer bg-transparent"
-                  >
-                    删除
-                  </button>
-                </>
-              )}
-            </div>
+            )}
+            {template.isOwner && (
+              <button
+                onClick={handleImport}
+                disabled={importing}
+                className="px-4 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors cursor-pointer bg-transparent"
+              >
+                {importing ? '导入中...' : '创建副本'}
+              </button>
+            )}
+            {template.isOwner && (
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 border border-[#333] text-[#ef4444] rounded text-sm hover:border-[#ef4444] transition-colors cursor-pointer bg-transparent"
+              >
+                删除
+              </button>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  if (isEmbedded) return content;
+
+  return (
+    <div className="min-h-screen bg-[#0f0f0f]">
+      <Navbar />
+      {content}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject } from '@nestjs/common';
 import { ProjectService } from './project.service';
 
 @Controller('api/projects')
@@ -28,6 +28,11 @@ export class ProjectController {
   @Put(':id/edges')
   syncEdges(@Param('id') id: string, @Body() body: { edges: any[] }) {
     return this.projectService.syncEdges(id, body.edges);
+  }
+
+  @Patch(':id')
+  updateName(@Param('id') id: string, @Body() body: { name: string }) {
+    return this.projectService.updateName(id, body.name);
   }
 
   @Delete(':id')

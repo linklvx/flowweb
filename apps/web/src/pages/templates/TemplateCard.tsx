@@ -8,12 +8,13 @@ interface TemplateCardProps {
   importCount: number;
   isOwner: boolean;
   category?: string;
+  linkPrefix?: string;
 }
 
-export function TemplateCard({ id, name, description, coverUrl, importCount, isOwner, category }: TemplateCardProps) {
+export function TemplateCard({ id, name, description, coverUrl, importCount, isOwner, category, linkPrefix = '/templates' }: TemplateCardProps) {
   return (
     <Link
-      to={`/templates/${id}`}
+      to={`${linkPrefix}/${id}`}
       className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden no-underline hover:border-[#4ade80]/50 transition-colors group"
     >
       <div className="aspect-video bg-[#252525] flex items-center justify-center text-[#555] text-sm">
