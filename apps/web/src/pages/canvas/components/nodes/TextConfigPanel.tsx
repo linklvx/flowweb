@@ -24,6 +24,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [prompt, setPrompt] = useState('');
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt; // Keep ref in sync for recognition callback
   const model = nodeData?.model ?? '';
 
   // Load text models
@@ -70,26 +72,31 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       return;
     }
 
+    const originalPrompt = promptRef.current; // Capture base text before voice input
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
     recognition.continuous = true;
     recognition.interimResults = true;
 
-    recognition.onresult = (event: any) => {
+    recognition.addEventListener('result', (event: any) => {
+      // Rebuild full transcript from ALL results
       let transcript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result && result[0]) {
+          transcript += result[0].transcript;
+        }
       }
-      setPrompt((prev) => prev + transcript);
-    };
+      setPrompt(originalPrompt + transcript);
+    });
 
-    recognition.onerror = () => {
+    recognition.addEventListener('error', () => {
       setListening(false);
-    };
+    });
 
-    recognition.onend = () => {
+    recognition.addEventListener('end', () => {
       setListening(false);
-    };
+    });
 
     recognitionRef.current = recognition;
     recognition.start();

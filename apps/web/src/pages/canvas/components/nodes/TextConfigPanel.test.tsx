@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 // Mock Web Speech API
+const mockListeners: Record<string, Function> = {};
+
 const mockRecognition = {
   start: vi.fn(),
   stop: vi.fn(),
@@ -9,9 +11,10 @@ const mockRecognition = {
   continuous: false,
   interimResults: false,
   lang: '',
-  onresult: null as any,
-  onerror: null as any,
-  onend: null as any,
+  addEventListener: vi.fn((event: string, handler: Function) => {
+    mockListeners[event] = handler;
+  }),
+  removeEventListener: vi.fn(),
 };
 
 const MockSpeechRecognition = vi.fn(() => mockRecognition);
