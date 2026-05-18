@@ -1,5 +1,7 @@
-import { memo, useCallback, useState, useRef } from 'react';
+import { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
@@ -9,6 +11,31 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]) as { type: 'text'; content: string } | undefined;
   const content = nodeData?.content ?? '';
 
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+      }),
+    ],
+    content: content,
+    editorProps: {
+      attributes: {
+        class: 'nodrag tiptap-content focus:outline-none',
+      },
+    },
+    onUpdate: ({ editor }) => {
+      updateText(id, editor.getHTML());
+    },
+  });
+
+  // Destroy editor on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      editor?.destroy();
+    };
+  }, [editor]);
+
+  // Title editing (unchanged from markdown version)
   const [label, setLabel] = useState('文本输入');
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,13 +55,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
     draftRef.current = label;
   }, [label]);
 
-  const onChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      updateText(id, e.target.value);
-    },
-    [id, updateText]
-  );
-
   const titleText = label || '文本输入';
 
   return (
@@ -42,9 +62,10 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
-          <TextNodeToolbar nodeId={id} />
+          <TextNodeToolbar nodeId={id} editor={editor} />
         </div>
       )}
+
       {/* Title bar — below toolbar, above card body */}
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 w-[360px] overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
@@ -88,6 +109,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           />
         </div>
       </div>
+
       {/* Card body */}
       <div
         className={`bg-[#222222] border rounded-lg w-[360px] transition-colors ${
@@ -96,15 +118,14 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       >
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="p-3">
-          <textarea
-            value={content}
-            onChange={onChange}
-            placeholder="点击输入文本..."
-            className="nodrag w-full h-[186px] bg-transparent border-0 rounded-md p-2 text-xs text-[#ccc] placeholder-[#666] resize-none focus:outline-none box-border transition-colors"
-          />
+          {/* Tiptap EditorContent replaces textarea */}
+          <div className="w-full h-[186px] overflow-y-auto">
+            <EditorContent editor={editor} />
+          </div>
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
       </div>
+
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <TextConfigPanel nodeId={id} />
