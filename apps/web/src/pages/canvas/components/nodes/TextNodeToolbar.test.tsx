@@ -143,7 +143,7 @@ describe('TextNodeToolbar (Tiptap)', () => {
     const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
     const toolbar = container.querySelector('[class*="nodrag"]') as HTMLElement;
 
-    const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true });
+    const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     fireEvent(toolbar, mouseDownEvent);
     // onMouseDown calls e.preventDefault(), so default should be prevented
     expect(mouseDownEvent.defaultPrevented).toBe(true);
