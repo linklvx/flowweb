@@ -1,41 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { NodePalette } from './NodePalette';
-import { ReactFlowProvider } from '@xyflow/react';
-
-// Mock canvasStore
+// Mock canvasStore with viewport
 const mockAddNode = vi.fn();
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: vi.fn((selector?: any) => {
     const state = {
       addNode: mockAddNode,
+      viewport: { x: 0, y: 0, zoom: 1 },
     };
     if (typeof selector === 'function') return selector(state);
     return state;
   }),
 }));
 
-// Mock useReactFlow for screenToFlowPosition
-vi.mock('@xyflow/react', async () => {
-  const actual = await vi.importActual('@xyflow/react');
-  return {
-    ...actual,
-    useReactFlow: () => ({
-      screenToFlowPosition: (p: { x: number; y: number }) => ({
-        x: p.x * 2,
-        y: p.y * 2,
-      }),
-    }),
-  };
-});
-
 describe('NodePalette', () => {
   const renderPalette = () =>
-    render(
-      <ReactFlowProvider>
-        <NodePalette />
-      </ReactFlowProvider>
-    );
+    render(<NodePalette />);
 
   beforeEach(() => {
     mockAddNode.mockClear();

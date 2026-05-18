@@ -1,5 +1,4 @@
 import { memo, useCallback, type DragEvent } from 'react';
-import { useReactFlow } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 const NODE_TYPES = [
@@ -10,7 +9,7 @@ const NODE_TYPES = [
 
 function NodePaletteComponent() {
   const addNode = useCanvasStore((s) => s.addNode);
-  const { screenToFlowPosition } = useReactFlow();
+  const viewport = useCanvasStore((s) => s.viewport);
 
   const onDragStart = useCallback((event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
@@ -19,13 +18,12 @@ function NodePaletteComponent() {
 
   const onClickAdd = useCallback(
     (nodeType: string) => {
-      const position = screenToFlowPosition({
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-      });
-      addNode(nodeType, { x: position.x - 125, y: position.y - 30 });
+      // Calculate flow position at screen center based on current viewport
+      const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
+      const centerY = (window.innerHeight / 2 - viewport.y) / viewport.zoom;
+      addNode(nodeType, { x: centerX - 125, y: centerY - 30 });
     },
-    [addNode, screenToFlowPosition],
+    [addNode, viewport],
   );
 
   return (
