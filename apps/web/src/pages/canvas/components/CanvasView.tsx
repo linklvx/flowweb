@@ -118,6 +118,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         fitView={false}
         zoomOnScroll={false}
         panOnScroll={true}
+        noWheelClassName="nowheel"
         proOptions={{ hideAttribution: true }}
         className="bg-[#000000]"
       >

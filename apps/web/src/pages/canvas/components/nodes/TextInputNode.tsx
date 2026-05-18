@@ -133,7 +133,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         <div className="p-3">
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
-            <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll" style={{ backgroundColor: bgColor || 'transparent' }}>
+            <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll nowheel" style={{ backgroundColor: bgColor || 'transparent' }}>
               <EditorContent editor={editor} />
             </div>
           )}
