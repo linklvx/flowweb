@@ -85,7 +85,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
     <div
       role="dialog"
       aria-label="全屏编辑"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-hidden"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
