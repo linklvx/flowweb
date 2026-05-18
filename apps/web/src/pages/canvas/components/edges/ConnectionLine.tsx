@@ -40,15 +40,17 @@ export function ConnectionLine({
           strokeWidth: selected ? 3 : 2,
         }}
       />
-      <EdgeLabelRenderer>
-        <button
-          onClick={onDeleteEdge}
-          className="absolute text-[10px] bg-[#333] text-[#ccc] rounded-full w-5 h-5 flex items-center justify-center border border-[#555] cursor-pointer hover:bg-[#ef4444] hover:text-white hover:border-[#ef4444] transition-colors"
-          style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`, pointerEvents: 'all' }}
-        >
-          ×
-        </button>
-      </EdgeLabelRenderer>
+      {selected && (
+        <EdgeLabelRenderer>
+          <button
+            onClick={onDeleteEdge}
+            className="absolute text-[10px] bg-[#333] text-[#ccc] rounded-full w-5 h-5 flex items-center justify-center border border-[#555] cursor-pointer hover:bg-[#ef4444] hover:text-white hover:border-[#ef4444] transition-colors"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`, pointerEvents: 'all' }}
+          >
+            ×
+          </button>
+        </EdgeLabelRenderer>
+      )}
     </>
   );
 }
