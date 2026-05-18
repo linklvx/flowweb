@@ -18,9 +18,10 @@ interface Props {
   editor: Editor | null;
   onBgColorChange?: (color: string | null) => void;
   currentBgColor?: string | null;
+  onFullscreen?: () => void;
 }
 
-function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgColor }: Props) {
+function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgColor, onFullscreen }: Props) {
   const { zoom } = useViewport();
 
   // Force re-render when editor selection/state changes (memo prevents re-render otherwise)
@@ -136,8 +137,8 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
   // Fullscreen
   const handleFullscreen = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('node:fullscreen', { detail: { nodeId } }));
-  }, [nodeId]);
+    onFullscreen?.();
+  }, [onFullscreen]);
 
   // Button base class + active state
   const btnClass = (active = false) =>

@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
+import { TextNodeFullscreen } from './TextNodeFullscreen';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
@@ -38,6 +39,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   // Background color for editor area
   const [bgColor, setBgColor] = useState<string | null>(null);
 
+  // Fullscreen state
+  const [fullscreen, setFullscreen] = useState(false);
+
   // Title editing (unchanged from markdown version)
   const [label, setLabel] = useState('文本输入');
   const [draft, setDraft] = useState(label);
@@ -65,7 +69,13 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
-          <TextNodeToolbar nodeId={id} editor={editor} onBgColorChange={setBgColor} currentBgColor={bgColor} />
+          <TextNodeToolbar
+            nodeId={id}
+            editor={editor}
+            onBgColorChange={setBgColor}
+            currentBgColor={bgColor}
+            onFullscreen={() => setFullscreen(true)}
+          />
         </div>
       )}
 
@@ -121,10 +131,12 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       >
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="p-3">
-          {/* Tiptap EditorContent replaces textarea */}
-          <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll" style={{ backgroundColor: bgColor || 'transparent' }}>
-            <EditorContent editor={editor} />
-          </div>
+          {/* Tiptap EditorContent — hidden when fullscreen is open */}
+          {!fullscreen && (
+            <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll" style={{ backgroundColor: bgColor || 'transparent' }}>
+              <EditorContent editor={editor} />
+            </div>
+          )}
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
       </div>
@@ -134,6 +146,13 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           <TextConfigPanel nodeId={id} />
         </div>
       )}
+
+      {/* Fullscreen dialog */}
+      <TextNodeFullscreen
+        editor={editor}
+        open={fullscreen}
+        onClose={() => setFullscreen(false)}
+      />
     </div>
   );
 }
