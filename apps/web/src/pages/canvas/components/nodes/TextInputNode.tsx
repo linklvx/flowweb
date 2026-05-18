@@ -122,7 +122,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="p-3">
           {/* Tiptap EditorContent replaces textarea */}
-          <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors" style={{ backgroundColor: bgColor || 'transparent' }}>
+          <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll" style={{ backgroundColor: bgColor || 'transparent' }}>
             <EditorContent editor={editor} />
           </div>
         </div>
