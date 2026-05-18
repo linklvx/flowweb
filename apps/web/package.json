@@ -13,6 +13,8 @@
   "dependencies": {
     "@ant-design/icons": "^5.5.0",
     "@flowweb/shared": "workspace:*",
+    "@tiptap/react": "2.10.0",
+    "@tiptap/starter-kit": "2.10.0",
     "@xyflow/react": "^12.0.0",
     "antd": "5.22.5",
     "react": "18.3.1",
