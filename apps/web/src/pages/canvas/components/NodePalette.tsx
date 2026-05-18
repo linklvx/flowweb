@@ -1,4 +1,6 @@
 import { memo, useCallback, type DragEvent } from 'react';
+import { useReactFlow } from '@xyflow/react';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 const NODE_TYPES = [
   { type: 'text', label: '文本输入', icon: '\u{1F4DD}', color: '#4ade80' },
@@ -7,10 +9,24 @@ const NODE_TYPES = [
 ];
 
 function NodePaletteComponent() {
+  const addNode = useCanvasStore((s) => s.addNode);
+  const { screenToFlowPosition } = useReactFlow();
+
   const onDragStart = useCallback((event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.effectAllowed = 'move';
   }, []);
+
+  const onClickAdd = useCallback(
+    (nodeType: string) => {
+      const position = screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+      addNode(nodeType, { x: position.x - 125, y: position.y - 30 });
+    },
+    [addNode, screenToFlowPosition],
+  );
 
   return (
     <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-28 bg-[#1a1a1a] border border-[#333] rounded-xl p-2.5 flex flex-col gap-1.5 shadow-2xl">
@@ -20,6 +36,7 @@ function NodePaletteComponent() {
           key={type}
           draggable
           onDragStart={(e) => onDragStart(e, type)}
+          onClick={() => onClickAdd(type)}
           className="bg-[#252525] border rounded-lg p-2 text-center cursor-grab active:cursor-grabbing hover:border-[#888] transition-colors"
           style={{ borderColor: color }}
         >
@@ -28,7 +45,7 @@ function NodePaletteComponent() {
         </div>
       ))}
       <div className="mt-auto text-[9px] text-[#666] text-center pt-1">
-        拖拽到画布
+        点击或拖拽到画布
       </div>
     </div>
   );
