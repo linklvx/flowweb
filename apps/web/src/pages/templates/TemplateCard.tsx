@@ -15,7 +15,7 @@ export function TemplateCard({ id, name, description, coverUrl, importCount, isO
   return (
     <Link
       to={`${linkPrefix}/${id}`}
-      className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden no-underline hover:border-[#4ade80]/50 transition-colors group"
+      className="bg-[#1A1A1A] border-0 rounded-lg overflow-hidden no-underline transition-colors group"
     >
       <div className="aspect-video bg-[#252525] flex items-center justify-center text-[#555] text-sm">
         {coverUrl ? (

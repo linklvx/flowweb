@@ -1,6 +1,6 @@
 import { memo, useCallback, useRef, type DragEvent } from 'react';
 import {
-  ReactFlow, Background,
+  ReactFlow, Background, BackgroundVariant,
   useReactFlow,
   type Connection,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
@@ -101,9 +101,9 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         maxZoom={3}
         fitView={false}
         proOptions={{ hideAttribution: true }}
-        className="bg-[#0f0f0f]"
+        className="bg-[#000000]"
       >
-        <Background color="#1a1a1a" gap={24} size={1} />
+        <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} />
         <CanvasToolbar zoom={viewport.zoom} onFitView={fitView} />
       </ReactFlow>
     </div>

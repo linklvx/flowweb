@@ -43,7 +43,7 @@ export function MyTemplatesPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {templates.map((tpl) => (
-            <div key={tpl.id} className="bg-[#1A1A1A] border border-[#333] rounded-lg p-3">
+            <div key={tpl.id} className="bg-[#1A1A1A] border-0 rounded-lg p-3">
               <TemplateCard {...tpl} linkPrefix="/settings/templates" />
               <div className="flex gap-2 mt-2 pt-2 border-t border-[#252525]">
                 <button

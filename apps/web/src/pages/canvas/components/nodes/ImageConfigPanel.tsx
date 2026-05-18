@@ -101,7 +101,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   return (
-    <div className="bg-[#1a1a1a] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[420px] shadow-xl">
+    <div className="nodrag bg-[#222222] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[420px]">
       <div className="text-center">
         <div className="inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-b-[8px] border-l-transparent border-r-transparent border-b-[#333]" />
       </div>
@@ -117,7 +117,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                 className={`px-2.5 py-1 rounded-full text-[10px] border cursor-pointer transition-colors ${
                   nodeData?.style === s
                     ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#60a5fa]'
-                    : 'bg-[#252525] border-[#444] text-[#888] hover:border-[#60a5fa]'
+                    : 'bg-transparent border-[#444] text-[#888] hover:border-[#60a5fa]'
                 }`}
               >
                 {s}
@@ -134,7 +134,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             value={nodeData?.extraPrompt ?? ''}
             onChange={(e) => updateConfig(nodeId, { extraPrompt: e.target.value })}
             rows={2}
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#60a5fa] resize-none box-border"
+            className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#60a5fa] resize-none box-border"
           />
         </div>
 
@@ -148,7 +148,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                 updateConfig(nodeId, { model: e.target.value, resolution: '' });
                 updatePrice(e.target.value, undefined);
               }}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
             >
               <option value="">选择模型</option>
               {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -162,7 +162,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                 updateConfig(nodeId, { resolution: e.target.value });
                 updatePrice(nodeData?.model, e.target.value);
               }}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
             >
               <option value="">默认</option>
               {(selectedModel?.resolutions || []).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
@@ -173,7 +173,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             <select
               value={nodeData?.count ?? 1}
               onChange={(e) => updateConfig(nodeId, { count: Number(e.target.value) })}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
             >
               {COUNTS.map((c) => <option key={c} value={c}>{c}张</option>)}
             </select>

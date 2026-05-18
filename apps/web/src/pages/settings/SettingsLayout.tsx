@@ -1,9 +1,16 @@
-import { NavLink, Outlet } from 'react-router';
+import { NavLink, Outlet, useNavigate } from 'react-router';
+import { useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Navbar } from '@/pages/home/components/Navbar';
 
 export function SettingsLayout() {
   const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = useCallback(async () => {
+    navigate('/');
+    await logout();
+  }, [logout, navigate]);
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col overflow-x-hidden">
@@ -43,7 +50,7 @@ export function SettingsLayout() {
             </NavLink>
             <div className="mt-auto border-t border-[#333] pt-4">
               <button
-                onClick={() => logout()}
+                onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-[#ef4444] bg-transparent border-none cursor-pointer transition-colors"
               >
                 退出登录

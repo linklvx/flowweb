@@ -42,26 +42,29 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   return (
     <div className="relative">
-      <div
-        className={`bg-[#1a1a1a] border-2 rounded-xl w-80 transition-all ${selected ? 'border-[#60a5fa] shadow-lg shadow-[#60a5fa]/20' : 'border-[#555]'}`}
-      >
-        <Handle type="target" position={Position.Left} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
-        <div className="bg-[#2a2a2a] px-3 py-1 rounded-t-xl text-xs font-bold text-[#60a5fa] flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
-          🖼 图片生成节点
-        </div>
-        <div style={{ height: 160 }} className="m-2 bg-[#0f0f0f] border border-dashed border-[#333] rounded-md flex items-center justify-center overflow-hidden">
-          {resultUrl ? (
-            <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
-          ) : status === 'loading' ? (
-            <span className="text-yellow-400 text-sm">⏳ 生成中...</span>
-          ) : (
-            <span className="text-gray-600 text-sm">🖼 图片预览区</span>
-          )}
-        </div>
-        <Handle type="source" position={Position.Right} className={`!border-2 !border-[#0f0f0f] !w-3 !h-3 ${selected ? '!bg-[#60a5fa] shadow-[0_0_8px_#60a5fa]' : '!bg-[#60a5fa]'}`} />
+      <div className="absolute -top-[18px] left-0 w-80 text-[11px] text-[#999] font-medium flex items-center gap-1.5">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
+        图片生成
       </div>
-      {/* Config panel — absolutely positioned below the node, outside flow */}
+      <div
+        className={`bg-[#222222] border rounded-lg w-80 transition-colors ${
+          selected ? 'border-[#60a5fa]' : 'border-[#3a3a3a]'
+        }`}
+      >
+        <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
+        <div className="p-3">
+          <div className="h-[160px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
+            {resultUrl ? (
+              <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
+            ) : status === 'loading' ? (
+              <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
+            ) : (
+              <span className="text-[#666] text-xs">图片预览区</span>
+            )}
+          </div>
+        </div>
+        <Handle type="source" position={Position.Right} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
+      </div>
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <ImageConfigPanel nodeId={id} />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TextInputNode } from './TextInputNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -28,18 +28,52 @@ describe('TextInputNode', () => {
 
   it('should render node title', () => {
     renderNode();
-    expect(screen.getByText(/文本输入节点/)).toBeInTheDocument();
+    expect(screen.getByText(/文本输入/)).toBeInTheDocument();
+  });
+
+  it('should enter edit mode when title is clicked', () => {
+    renderNode();
+    fireEvent.click(screen.getByText(/文本输入/));
+    const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+  });
+
+  it('should save title on Enter key', () => {
+    renderNode();
+    fireEvent.click(screen.getByText(/文本输入/));
+    const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '我的节点' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('我的节点')).toBeInTheDocument();
+  });
+
+  it('should save title on blur', () => {
+    renderNode();
+    fireEvent.click(screen.getByText(/文本输入/));
+    const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '新标题' } });
+    fireEvent.blur(input);
+    expect(screen.getByText('新标题')).toBeInTheDocument();
+  });
+
+  it('should cancel edit on Escape', () => {
+    renderNode();
+    fireEvent.click(screen.getByText(/文本输入/));
+    const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '取消' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByText(/文本输入/)).toBeInTheDocument();
   });
 
   it('should render textarea', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/输入或显示文本内容/i);
+    const textarea = screen.getByPlaceholderText(/点击输入文本/i);
     expect(textarea).toBeInTheDocument();
   });
 
   it('should show content from nodeStore', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/输入或显示文本内容/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/点击输入文本/i) as HTMLTextAreaElement;
     expect(textarea.value).toBe('一只猫在窗台上');
   });
 

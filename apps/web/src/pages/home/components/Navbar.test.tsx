@@ -46,11 +46,10 @@ describe('Navbar', () => {
     expect(screen.getByText('我的作品').closest('a')).toHaveAttribute('href', '/settings/templates');
   });
 
-  it('should render login/register link when user is not authenticated', () => {
+  it('should render login/register button when user is not authenticated', () => {
     renderWithProviders(<Navbar />);
-    const loginLink = screen.getByText('登录/注册');
-    expect(loginLink).toBeInTheDocument();
-    expect(loginLink.tagName).toBe('A');
-    expect(loginLink.closest('a')).toHaveAttribute('href', '/login?redirect=/');
+    const loginBtn = screen.getByText('登录/注册');
+    expect(loginBtn).toBeInTheDocument();
+    expect(loginBtn.tagName).toBe('BUTTON');
   });
 });

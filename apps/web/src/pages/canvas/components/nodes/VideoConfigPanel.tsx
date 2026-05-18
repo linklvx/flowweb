@@ -87,13 +87,13 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus, prompt]);
 
   return (
-    <div className="bg-[#1a1a1a] border-2 border-t-[#c084fc] border-[#444] rounded-xl w-[420px] shadow-xl">
+    <div className="nodrag bg-[#222222] border-2 border-t-[#c084fc] border-[#444] rounded-xl w-[420px]">
       <div className="p-4">
         {/* Mode tabs */}
         <div className="flex gap-1 mb-3 flex-wrap">
           {MODES.map(m => (
             <button key={m.key} onClick={() => update({ mode: m.key })}
-              className={`px-2 py-1 rounded text-[10px] border transition-colors ${mode === m.key ? 'bg-[#c084fc]/20 border-[#c084fc] text-[#c084fc]' : 'bg-[#252525] border-[#444] text-[#888] hover:border-[#c084fc]'}`}>
+              className={`px-2 py-1 rounded text-[10px] border transition-colors ${mode === m.key ? 'bg-[#c084fc]/20 border-[#c084fc] text-[#c084fc]' : 'bg-transparent border-[#444] text-[#888] hover:border-[#c084fc]'}`}>
               {m.label}
             </button>
           ))}
@@ -102,32 +102,32 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         {/* Image URL — mode-dependent */}
         {mode === 'image-to-video' && (
           <input placeholder="开始帧图片URL" value={nodeData?.startImageUrl ?? ''} onChange={e => update({ startImageUrl: e.target.value })}
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3" />
+            className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3" />
         )}
         {mode === 'first-last-frame' && (
           <div className="flex gap-2 mb-3">
             <input placeholder="开始帧URL" value={nodeData?.startImageUrl ?? ''} onChange={e => update({ startImageUrl: e.target.value })}
-              className="flex-1 bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
+              className="flex-1 bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
             <input placeholder="结束帧URL" value={nodeData?.endImageUrl ?? ''} onChange={e => update({ endImageUrl: e.target.value })}
-              className="flex-1 bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
+              className="flex-1 bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
           </div>
         )}
         {mode === 'multi-frame' && (
           <textarea placeholder="输入2-10个图片URL，每行一个" value={(nodeData?.imageUrls ?? []).join('\n')}
             onChange={e => update({ imageUrls: e.target.value.split('\n').filter(Boolean) })}
-            rows={3} className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
+            rows={3} className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
         )}
 
         {/* Prompt */}
         <textarea placeholder="描述想要生成的视频内容..." value={prompt}
           onChange={e => { const v = e.target.value; setPrompt(v); update({ prompt: v }); }}
-          rows={2} className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
+          rows={2} className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
 
         {/* Model */}
         <div className="mb-3">
           <div className="text-[10px] text-[#888] mb-1">模型</div>
           <select value={currentModel} onChange={e => { update({ model: e.target.value }); updatePrice(e.target.value); }}
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-2">
+            className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-2">
             {models.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
@@ -137,21 +137,21 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
           <div>
             <div className="text-[10px] text-[#888] mb-1">比例</div>
             <select value={ratio} onChange={e => update({ ratio: e.target.value })}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
               {RATIOS.map(r => <option key={r}>{r}</option>)}
             </select>
           </div>
           <div>
             <div className="text-[10px] text-[#888] mb-1">清晰度</div>
             <select value={quality} onChange={e => update({ quality: e.target.value })}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
               {QUALITIES.map(q => <option key={q}>{q}</option>)}
             </select>
           </div>
           <div>
             <div className="text-[10px] text-[#888] mb-1">时长</div>
             <select value={duration} onChange={e => update({ duration: e.target.value })}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
+              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1 py-1.5">
               <option value="">选择</option>
               {DURATIONS.map(d => <option key={d}>{d}</option>)}
             </select>
@@ -159,7 +159,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
           <div>
             <div className="text-[10px] text-[#888] mb-1">音频</div>
             <button onClick={() => update({ audio: !audio })}
-              className={`w-full py-1.5 rounded-md text-[10px] border ${audio ? 'bg-[#c084fc]/20 border-[#c084fc] text-[#c084fc]' : 'bg-[#252525] border-[#444] text-[#888]'}`}>
+              className={`w-full py-1.5 rounded-md text-[10px] border ${audio ? 'bg-[#c084fc]/20 border-[#c084fc] text-[#c084fc]' : 'bg-transparent border-[#444] text-[#888]'}`}>
               {audio ? '开' : '关'}
             </button>
           </div>

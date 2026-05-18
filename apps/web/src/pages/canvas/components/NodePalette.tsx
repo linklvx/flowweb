@@ -13,22 +13,22 @@ function NodePaletteComponent() {
   }, []);
 
   return (
-    <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-40 bg-[#1a1a1a] border border-[#333] rounded-xl p-3 flex flex-col gap-2 shadow-2xl">
-      <div className="text-xs font-bold text-[#e2e8f0] mb-1">节点面板</div>
+    <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-28 bg-[#1a1a1a] border border-[#333] rounded-xl p-2.5 flex flex-col gap-1.5 shadow-2xl">
+      <div className="text-[10px] font-bold text-[#e2e8f0] mb-0.5 text-center">节点面板</div>
       {NODE_TYPES.map(({ type, label, icon, color }) => (
         <div
           key={type}
           draggable
           onDragStart={(e) => onDragStart(e, type)}
-          className="bg-[#252525] border rounded-lg p-3 text-center cursor-grab active:cursor-grabbing hover:border-[#888] transition-colors"
+          className="bg-[#252525] border rounded-lg p-2 text-center cursor-grab active:cursor-grabbing hover:border-[#888] transition-colors"
           style={{ borderColor: color }}
         >
-          <div className="text-lg mb-1">{icon}</div>
+          <div className="text-base mb-0.5">{icon}</div>
           <div className="text-[10px] text-[#ccc]">{label}</div>
         </div>
       ))}
-      <div className="mt-auto text-[9px] text-[#666] text-center pt-2">
-        拖拽节点到画布
+      <div className="mt-auto text-[9px] text-[#666] text-center pt-1">
+        拖拽到画布
       </div>
     </div>
   );

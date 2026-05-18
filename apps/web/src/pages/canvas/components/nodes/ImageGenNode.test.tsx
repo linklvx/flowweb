@@ -35,7 +35,7 @@ describe('ImageGenNode', () => {
 
   it('should render node title', () => {
     renderNode();
-    expect(screen.getByText(/图片生成节点/i)).toBeInTheDocument();
+    expect(screen.getByText(/图片生成/)).toBeInTheDocument();
   });
 
   it('should render preview area when no result', () => {

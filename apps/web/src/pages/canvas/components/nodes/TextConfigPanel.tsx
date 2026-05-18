@@ -1,4 +1,5 @@
 import { memo, useCallback, useState, useEffect } from 'react';
+import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
@@ -15,6 +16,7 @@ interface Props {
 function TextConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
   const setStatus = useNodeStore((s) => s.setStatus);
+  const { zoom } = useViewport();
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
@@ -88,50 +90,48 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus, prompt]);
 
   return (
-    <div className="bg-[#1a1a1a] border-2 border-t-[#4ade80] border-[#444] rounded-xl w-[380px] shadow-xl">
-      <div className="p-4">
+    <div
+      className="nodrag bg-[#222222] border-2 border-t-[#4ade80] border-[#444] rounded-xl w-[650px] h-[140px] shadow-xl"
+      style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top center' }}
+    >
+      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
         {/* Prompt */}
-        <div className="mb-3">
-          <div className="text-xs text-[#888] mb-1.5">提示词（发送给 AI）</div>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="输入 Prompt..."
-            rows={3}
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#4ade80] resize-none box-border"
-          />
-        </div>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
+          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none resize-none box-border"
+        />
 
-        {/* Model + Execute */}
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <div className="text-[10px] text-[#888] mb-1">模型</div>
-            <select
-              value={model}
-              onChange={(e) => {
-                const val = e.target.value;
-                const store = useNodeStore.getState();
-                const existing = store.nodes[nodeId] as any;
-                useNodeStore.setState({
-                  nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: val } },
-                });
-                updatePrice(val);
-              }}
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-md text-[10px] text-[#ccc] px-1.5 py-2"
-            >
-              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
+        {/* Model (left) + Credits + Execute (right) */}
+        <div className="flex items-center justify-between">
+          <select
+            value={model}
+            onChange={(e) => {
+              const val = e.target.value;
+              const store = useNodeStore.getState();
+              const existing = store.nodes[nodeId] as any;
+              useNodeStore.setState({
+                nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: val } },
+              });
+              updatePrice(val);
+            }}
+            className="w-32 bg-white/10 border-0 rounded-lg text-[10px] text-[#f7f7f7] px-2 py-1 h-8 outline-none transition-colors cursor-pointer"
+          >
+            {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-[#f59e0b] whitespace-nowrap">{creditCost || '—'} 积分</span>
+            <span className="text-[10px] text-[#f59e0b] whitespace-nowrap">{creditCost || '—'} 积分</span>
             <button
               onClick={handleGenerate}
               disabled={executing}
-              className={`w-9 h-9 text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md transition-colors ${
-                executing ? 'bg-gray-500 cursor-not-allowed' : 'bg-[#4ade80] hover:bg-[#22c55e] shadow-[#4ade80]/30'
-              }`}
+              className="size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {executing ? '⏳' : '▶'}
+              {executing ? '⏳' : (
+                <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-3 text-[#999]" width="12" height="12" viewBox="0 0 18 18">
+                  <path d="M8.29289 0.292893C8.68342 -0.0976311 9.31658 -0.0976311 9.70711 0.292893L17.7071 8.29289C18.0976 8.68342 18.0976 9.31658 17.7071 9.70711C17.3166 10.0976 16.6834 10.0976 16.2929 9.70711L10 3.41421V17C10 17.5523 9.55229 18 9 18C8.44772 18 8 17.5523 8 17V3.41421L1.70711 9.70711C1.31658 10.0976 0.683418 10.0976 0.292893 9.70711C-0.0976311 9.31658 -0.0976311 8.68342 0.292893 8.29289L8.29289 0.292893Z" fill="currentColor" />
+                </svg>
+              )}
             </button>
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
 import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 import { Dropdown, ConfigProvider } from 'antd';
@@ -15,6 +15,12 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
   const { user, logout } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLogout = useCallback(async () => {
+    navigate('/');
+    await logout();
+  }, [logout, navigate]);
 
   useEffect(() => {
     fetch('/api/credits/balance')
@@ -77,7 +83,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: <span className="text-red-400">退出登录</span>,
-      onClick: logout,
+      onClick: handleLogout,
     },
   ];
 

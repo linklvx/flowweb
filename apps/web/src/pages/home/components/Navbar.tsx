@@ -1,9 +1,10 @@
 import { useAuth } from '@/components/AuthProvider';
-import { Link, useLocation } from 'react-router';
-import { useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
+import { useState, useEffect, useCallback } from 'react';
 import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { GiftOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { AuthModal } from '@/components/AuthModal';
 
 interface NavLink {
   label: string;
@@ -24,14 +25,25 @@ interface Props {
 export function Navbar({ onAction: _onAction }: Props) {
   const { user, logout } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = useCallback(async () => {
+    navigate('/');
+    await logout();
+  }, [logout, navigate]);
 
   useEffect(() => {
+    if (!user) {
+      setCredits(null);
+      return;
+    }
     fetch('/api/credits/balance')
       .then(r => r.json())
       .then(json => { if (json.code === 0) setCredits(json.data.credits); })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   const displayName = user?.name || user?.email || '?';
   const firstLetter = displayName.charAt(0).toUpperCase();
@@ -83,7 +95,7 @@ export function Navbar({ onAction: _onAction }: Props) {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: <span className="text-red-400">退出登录</span>,
-      onClick: logout,
+      onClick: handleLogout,
     },
   ];
 
@@ -144,12 +156,16 @@ export function Navbar({ onAction: _onAction }: Props) {
               </Dropdown>
             </ConfigProvider>
           ) : (
-            <Link to="/login?redirect=/" className="rounded-full bg-gray-700 px-3 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-600 transition-colors">
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="rounded-full bg-gray-700 px-3 py-1.5 text-xs text-[#ccc] hover:bg-gray-600 transition-colors border-none cursor-pointer"
+            >
               登录/注册
-            </Link>
+            </button>
           )}
         </div>
       </div>
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </nav>
   );
 }

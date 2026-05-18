@@ -25,7 +25,7 @@ describe('VideoGenNode', () => {
 
   it('should render node title', () => {
     renderNode();
-    expect(screen.getByText(/视频生成节点/i)).toBeInTheDocument();
+    expect(screen.getByText(/视频生成/)).toBeInTheDocument();
   });
 
   it('should render preview placeholder when no video', () => {
