@@ -23,10 +23,20 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [executing, setExecuting] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [listening, setListening] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
   const promptRef = useRef(prompt);
   promptRef.current = prompt; // Keep ref in sync for recognition callback
   const model = nodeData?.model ?? '';
+  const selectedModel = models.find((m) => m.id === model);
+
+  // Close model dropdown on outside click
+  useEffect(() => {
+    if (!modelOpen) return;
+    const handler = (e: MouseEvent) => setModelOpen(false);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [modelOpen]);
 
   // Load text models
   useEffect(() => {
@@ -60,6 +70,19 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   useEffect(() => {
     if (model) updatePrice(model);
   }, [model]);
+
+  const handleModelSelect = useCallback(
+    (modelId: string) => {
+      const store = useNodeStore.getState();
+      const existing = store.nodes[nodeId] as any;
+      useNodeStore.setState({
+        nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: modelId } },
+      });
+      updatePrice(modelId);
+      setModelOpen(false);
+    },
+    [nodeId, updatePrice],
+  );
 
   // Voice input via Web Speech API
   const toggleVoice = useCallback(() => {
@@ -151,21 +174,39 @@ function TextConfigPanelComponent({ nodeId }: Props) {
 
         {/* Model (left) + Credits + Execute (right) */}
         <div className="flex items-center justify-between">
-          <select
-            value={model}
-            onChange={(e) => {
-              const val = e.target.value;
-              const store = useNodeStore.getState();
-              const existing = store.nodes[nodeId] as any;
-              useNodeStore.setState({
-                nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: val } },
-              });
-              updatePrice(val);
-            }}
-            className="w-32 bg-white/10 border-0 rounded-lg text-[10px] text-[#f7f7f7] px-2 py-1 h-8 outline-none transition-colors cursor-pointer"
-          >
-            {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          {/* Model selector — styled button + dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="canvas-node-text-model-select"
+              onClick={(e) => { e.stopPropagation(); setModelOpen((v) => !v); }}
+              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0">
+                <path d="M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.21841 15.0029 8.76562C15.2029 8.8518 15.4064 8.9289 15.6113 9.00195C14.0914 9.54303 12.7055 10.4153 11.5576 11.5605L11.5566 11.5615C10.412 12.7102 9.5406 14.0963 8.99902 15.6162C8.45764 14.0958 7.58633 12.7095 6.44043 11.5615L6.43945 11.5605L6.17578 11.3066C5.08059 10.2858 3.78911 9.50275 2.38281 9.00195C3.90333 8.45997 5.29032 7.58857 6.43945 6.44336L6.44043 6.44238C7.58587 5.29322 8.45678 3.90579 8.99805 2.38477Z" stroke="#A3A3A3" strokeWidth="1.33" />
+              </svg>
+              <span className="whitespace-nowrap text-xs">{selectedModel?.name || '选择模型'}</span>
+            </button>
+            {modelOpen && (
+              <div
+                className="absolute left-0 bottom-full mb-1 bg-[#2a2a2a] border border-white/[0.1] rounded-lg py-1 shadow-xl z-50 min-w-[160px]"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {models.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleModelSelect(m.id)}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer ${
+                      m.id === model ? 'text-[#4ade80]' : 'text-[#ccc]'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             {/* Voice input */}
             <button
