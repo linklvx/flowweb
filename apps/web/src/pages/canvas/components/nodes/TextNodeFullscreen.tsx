@@ -176,9 +176,9 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
           </button>
         </div>
 
-        {/* Editor content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden editor-scroll">
-          <div className="max-w-full min-h-full px-4 py-2">
+        {/* Editor content — min-h-0 allows flex child to shrink below content min-height */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden editor-scroll">
+          <div className="max-w-full min-h-0 px-4 py-2">
             <EditorContent editor={editor} />
           </div>
         </div>
