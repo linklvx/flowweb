@@ -1,14 +1,26 @@
-import { memo, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import type { Editor } from '@tiptap/react';
 import '@tiptap/starter-kit'; // Type augmentation for chain commands (tree-shaken at build)
 
+const BG_COLORS = [
+  { label: '红色', color: '#964243' },
+  { label: '橙色', color: '#834915' },
+  { label: '黄色', color: '#8F8030' },
+  { label: '绿色', color: '#3D7344' },
+  { label: '青色', color: '#337282' },
+  { label: '蓝色', color: '#2B5284' },
+  { label: '紫色', color: '#763886' },
+];
+
 interface Props {
   nodeId: string;
   editor: Editor | null;
+  onBgColorChange?: (color: string | null) => void;
+  currentBgColor?: string | null;
 }
 
-function TextNodeToolbarComponent({ nodeId, editor }: Props) {
+function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgColor }: Props) {
   const { zoom } = useViewport();
 
   // Force re-render when editor selection/state changes (memo prevents re-render otherwise)
@@ -23,6 +35,30 @@ function TextNodeToolbarComponent({ nodeId, editor }: Props) {
       editor.off('transaction', update);
     };
   }, [editor]);
+
+  // Background color dropdown state
+  const [colorOpen, setColorOpen] = useState(false);
+  const colorRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (colorRef.current && !colorRef.current.contains(e.target as Node)) {
+        setColorOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [colorOpen]);
+
+  const handleColorSelect = useCallback(
+    (color: string | null) => {
+      onBgColorChange?.(color);
+      setColorOpen(false);
+    },
+    [onBgColorChange],
+  );
 
   // Safe execution: guard against null editor (useEditor returns null on first render)
   const exec = useCallback(
@@ -118,6 +154,48 @@ function TextNodeToolbarComponent({ nodeId, editor }: Props) {
       }}
       onMouseDown={(e) => e.preventDefault()}
     >
+      {/* Group 0: Background Color (leftmost) */}
+      <div className="relative" ref={colorRef}>
+        <button
+          onClick={() => setColorOpen((v) => !v)}
+          aria-label="背景颜色"
+          className={btnClass()}
+          title="背景颜色"
+        >
+          <span
+            className="size-[14px] rounded-full border border-white/30 cursor-pointer"
+            style={{ backgroundColor: currentBgColor || '#3a3a3a' }}
+          />
+        </button>
+        {colorOpen && (
+          <div
+            className="absolute left-0 top-full mt-2 flex flex-col gap-3 px-3 py-4 bg-black/60 backdrop-blur-[16px] rounded-xl border border-white/[0.15] z-50"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            {/* Reset button */}
+            <button
+              aria-label="重置颜色"
+              className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110 bg-[#3a3a3a] relative cursor-pointer before:content-[''] before:absolute before:inset-0 before:m-auto before:w-[14px] before:h-[1.5px] before:bg-white/50 before:rotate-45"
+              onClick={() => handleColorSelect(null)}
+              title="重置颜色"
+            />
+            {/* Color swatches */}
+            {BG_COLORS.map(({ label, color }) => (
+              <button
+                key={color}
+                aria-label={label}
+                className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110 cursor-pointer"
+                style={{ backgroundColor: color }}
+                onClick={() => handleColorSelect(color)}
+                title={label}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="w-px h-[18px] bg-white/10" />
+
       {/* Group 1: Headings */}
       <div className="flex items-center gap-[2px]">
         <button onClick={handleH1} aria-label="H1" className={btnClass(isActive('heading', { level: 1 }))} title="标题1">

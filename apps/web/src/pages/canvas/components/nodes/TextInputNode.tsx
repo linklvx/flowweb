@@ -35,6 +35,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
     };
   }, [editor]);
 
+  // Background color for editor area
+  const [bgColor, setBgColor] = useState<string | null>(null);
+
   // Title editing (unchanged from markdown version)
   const [label, setLabel] = useState('文本输入');
   const [draft, setDraft] = useState(label);
@@ -62,7 +65,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
-          <TextNodeToolbar nodeId={id} editor={editor} />
+          <TextNodeToolbar nodeId={id} editor={editor} onBgColorChange={setBgColor} currentBgColor={bgColor} />
         </div>
       )}
 
@@ -119,7 +122,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="p-3">
           {/* Tiptap EditorContent replaces textarea */}
-          <div className="w-full h-[186px] overflow-y-auto">
+          <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors" style={{ backgroundColor: bgColor || 'transparent' }}>
             <EditorContent editor={editor} />
           </div>
         </div>

@@ -128,6 +128,54 @@ describe('TextNodeToolbar (Tiptap)', () => {
     expect(h1Btn.className).toContain('bg-white/20');
   });
 
+  it('should render background color button at leftmost', () => {
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    expect(screen.getByLabelText('背景颜色')).toBeInTheDocument();
+  });
+
+  it('should open color dropdown on background color button click', () => {
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    const btn = screen.getByLabelText('背景颜色');
+    fireEvent.click(btn);
+    // Dropdown should appear with color options
+    expect(screen.getByLabelText('重置颜色')).toBeInTheDocument();
+  });
+
+  it('should show 7 color options in dropdown', () => {
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    fireEvent.click(screen.getByLabelText('背景颜色'));
+    // 7 colors from reference: red, orange, yellow, green, cyan, blue, purple
+    const colors = ['红色', '橙色', '黄色', '绿色', '青色', '蓝色', '紫色'];
+    colors.forEach((label) => {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    });
+  });
+
+  it('should call onBgColorChange with color when a color is selected', () => {
+    const onBgColorChange = vi.fn();
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} onBgColorChange={onBgColorChange} />);
+    fireEvent.click(screen.getByLabelText('背景颜色'));
+    fireEvent.click(screen.getByLabelText('红色'));
+    expect(onBgColorChange).toHaveBeenCalledWith('#964243');
+  });
+
+  it('should call onBgColorChange with null when reset is clicked', () => {
+    const onBgColorChange = vi.fn();
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} onBgColorChange={onBgColorChange} />);
+    fireEvent.click(screen.getByLabelText('背景颜色'));
+    fireEvent.click(screen.getByLabelText('重置颜色'));
+    expect(onBgColorChange).toHaveBeenCalledWith(null);
+  });
+
+  it('should close dropdown after color selection', () => {
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    fireEvent.click(screen.getByLabelText('背景颜色'));
+    expect(screen.getByLabelText('红色')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('红色'));
+    // Dropdown should close, color options should not be visible
+    expect(screen.queryByLabelText('红色')).toBeNull();
+  });
+
   it('should have onMouseDown handler to prevent focus loss', () => {
     const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
     const toolbar = container.querySelector('[class*="nodrag"]') as HTMLElement;
