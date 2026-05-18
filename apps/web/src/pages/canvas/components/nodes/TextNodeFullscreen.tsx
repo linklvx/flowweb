@@ -95,7 +95,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Top toolbar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-white/[0.08] shrink-0 overflow-x-hidden">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-white/[0.08] shrink-0">
           {/* Left: Copy */}
           <button aria-label="复制" className={btnBase} onClick={handleCopy} title="复制">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -177,8 +177,8 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
         </div>
 
         {/* Editor content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden editor-scroll">
-          <div className="w-full h-full max-w-full px-4 py-2">
+        <div className="flex-1 overflow-y-auto editor-scroll">
+          <div className="w-full h-full px-4 py-2">
             <EditorContent editor={editor} />
           </div>
         </div>
