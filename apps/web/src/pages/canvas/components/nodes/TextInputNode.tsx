@@ -21,7 +21,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
     content: content,
     editorProps: {
       attributes: {
-        class: 'nodrag tiptap-content focus:outline-none',
+        class: 'nodrag tiptap-content focus:outline-none w-full max-w-full box-border',
       },
     },
     onUpdate: ({ editor }) => {

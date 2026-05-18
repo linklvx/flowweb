@@ -177,8 +177,8 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
         </div>
 
         {/* Editor content */}
-        <div className="flex-1 overflow-y-auto editor-scroll">
-          <div className="w-full h-full px-4 py-2">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden editor-scroll">
+          <div className="max-w-full h-full px-4 py-2">
             <EditorContent editor={editor} />
           </div>
         </div>
