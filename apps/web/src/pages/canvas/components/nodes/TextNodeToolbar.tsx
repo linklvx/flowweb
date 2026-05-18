@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
 import type { Editor } from '@tiptap/react';
 import '@tiptap/starter-kit'; // Type augmentation for chain commands (tree-shaken at build)
@@ -10,6 +10,19 @@ interface Props {
 
 function TextNodeToolbarComponent({ nodeId, editor }: Props) {
   const { zoom } = useViewport();
+
+  // Force re-render when editor selection/state changes (memo prevents re-render otherwise)
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => setTick((t) => t + 1);
+    editor.on('selectionUpdate', update);
+    editor.on('transaction', update);
+    return () => {
+      editor.off('selectionUpdate', update);
+      editor.off('transaction', update);
+    };
+  }, [editor]);
 
   // Safe execution: guard against null editor (useEditor returns null on first render)
   const exec = useCallback(
@@ -41,20 +54,46 @@ function TextNodeToolbarComponent({ nodeId, editor }: Props) {
   const handleOl = useCallback(() => exec((e) => e.chain().focus().toggleOrderedList().run()), [exec]);
   const handleHr = useCallback(() => exec((e) => e.chain().focus().setHorizontalRule().run()), [exec]);
 
-  // Copy: rich text clipboard (HTML + plain text)
+  // Copy: rich text clipboard with HTML + plain text
   const handleCopy = useCallback(async () => {
     if (!editor) return;
-    const text = editor.getText();
     const html = editor.getHTML();
+    const text = editor.getText();
+
+    // Method 1: ClipboardItem API (Chrome/Edge)
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
-          'text/plain': new Blob([text], { type: 'text/plain' }),
           'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
         }),
       ]);
+      return;
     } catch {
-      // Fallback: plain text only
+      // Fall through to fallback
+    }
+
+    // Method 2: execCommand with temp element (Firefox/Safari fallback)
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      container.style.position = 'fixed';
+      container.style.left = '-9999px';
+      container.setAttribute('contenteditable', 'true');
+      document.body.appendChild(container);
+
+      const range = document.createRange();
+      range.selectNodeContents(container);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+
+      document.execCommand('copy');
+
+      sel?.removeAllRanges();
+      document.body.removeChild(container);
+    } catch {
+      // Method 3: plain text only
       await navigator.clipboard.writeText(text);
     }
   }, [editor]);

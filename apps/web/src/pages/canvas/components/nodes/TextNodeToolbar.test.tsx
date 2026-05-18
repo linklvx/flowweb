@@ -37,6 +37,8 @@ const createMockEditor = (overrides: Partial<Editor> = {}): Editor => {
     getHTML: vi.fn().mockReturnValue('<p>test</p>'),
     getText: vi.fn().mockReturnValue('test'),
     destroy: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
     ...overrides,
   } as unknown as Editor;
 };

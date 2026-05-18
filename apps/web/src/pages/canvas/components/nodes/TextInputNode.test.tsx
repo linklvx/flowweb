@@ -22,6 +22,8 @@ const buildChain = () => {
     getHTML: mockEditorGetHTML,
     getText: mockEditorGetText,
     destroy: mockEditorDestroy,
+    on: vi.fn(),
+    off: vi.fn(),
   };
 };
 
