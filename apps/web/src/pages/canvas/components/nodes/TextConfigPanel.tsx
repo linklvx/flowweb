@@ -167,7 +167,6 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[#f59e0b] whitespace-nowrap">{creditCost || '—'} 积分</span>
             {/* Voice input */}
             <button
               aria-label="语音输入"
@@ -181,6 +180,9 @@ function TextConfigPanelComponent({ nodeId }: Props) {
                 <path d="M8.00052 12.2041V14.0048M8.00052 12.2041C9.11488 12.2041 10.1836 11.7614 10.9716 10.9735C11.7595 10.1855 12.2022 9.11678 12.2022 8.00242V6.80193M8.00052 12.2041C6.88616 12.2041 5.81745 11.7614 5.02948 10.9735C4.24151 10.1855 3.79883 9.11678 3.79883 8.00242V6.80193M8.00052 2C8.99503 2 9.80125 2.80621 9.80125 3.80073V8.00242C9.80125 8.99693 8.99503 9.80314 8.00052 9.80314C7.00601 9.80314 6.1998 8.99693 6.1998 8.00242V3.80073C6.1998 2.80621 7.00601 2 8.00052 2Z" stroke="currentColor" strokeOpacity="0.9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+            {/* Divider */}
+            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <span className="text-[10px] text-[#f59e0b] whitespace-nowrap">{creditCost || '—'} 积分</span>
             <button
               onClick={handleGenerate}
               disabled={executing}

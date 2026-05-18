@@ -76,6 +76,12 @@ describe('TextConfigPanel', () => {
     expect(container.querySelector('[aria-label="语音输入"]')).toBeInTheDocument();
   });
 
+  it('should render divider between voice button and credits', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const divider = container.querySelector('.w-px.h-4');
+    expect(divider).toBeInTheDocument();
+  });
+
   it('should start listening on voice button click', () => {
     render(<TextConfigPanel nodeId="n1" />);
     const btn = document.querySelector('[aria-label="语音输入"]')!;
