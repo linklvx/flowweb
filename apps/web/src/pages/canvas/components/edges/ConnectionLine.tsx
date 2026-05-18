@@ -36,7 +36,7 @@ export function ConnectionLine({
         path={edgePath}
         style={{
           ...style,
-          stroke: selected ? '#f59e0b' : '#4ade80',
+          stroke: selected ? '#f59e0b' : '#888',
           strokeWidth: selected ? 3 : 2,
         }}
       />

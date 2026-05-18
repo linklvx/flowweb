@@ -42,18 +42,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   return (
     <div className="relative">
-      <div className="absolute -top-[18px] left-0 w-80 text-[11px] text-[#999] font-medium flex items-center gap-1.5">
+      <div className="absolute -top-[18px] left-0 w-[580px] text-[11px] text-[#999] font-medium flex items-center gap-1.5">
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
         图片生成
       </div>
       <div
-        className={`bg-[#222222] border rounded-lg w-80 transition-colors ${
+        className={`bg-[#222222] border rounded-lg w-[580px] transition-colors ${
           selected ? 'border-[#60a5fa]' : 'border-[#3a3a3a]'
         }`}
       >
         <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
         <div className="p-3">
-          <div className="h-[160px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
+          <div className="h-[306px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
             {resultUrl ? (
               <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
             ) : status === 'loading' ? (

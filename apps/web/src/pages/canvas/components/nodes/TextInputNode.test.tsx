@@ -28,41 +28,41 @@ describe('TextInputNode', () => {
 
   it('should render node title', () => {
     renderNode();
-    expect(screen.getByText(/文本输入/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/文本输入/)).toBeInTheDocument();
   });
 
-  it('should enter edit mode when title is clicked', () => {
+  it('should render always-visible title input', () => {
     renderNode();
-    fireEvent.click(screen.getByText(/文本输入/));
     const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
     expect(input).toBeInTheDocument();
+    expect(input.value).toBe('文本输入');
   });
 
   it('should save title on Enter key', () => {
     renderNode();
-    fireEvent.click(screen.getByText(/文本输入/));
     const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '我的节点' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.getByText('我的节点')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('我的节点')).toBeInTheDocument();
   });
 
   it('should save title on blur', () => {
     renderNode();
-    fireEvent.click(screen.getByText(/文本输入/));
     const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '新标题' } });
     fireEvent.blur(input);
-    expect(screen.getByText('新标题')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('新标题')).toBeInTheDocument();
   });
 
   it('should cancel edit on Escape', () => {
     renderNode();
-    fireEvent.click(screen.getByText(/文本输入/));
     const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '取消' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.getByText(/文本输入/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('文本输入')).toBeInTheDocument();
   });
 
   it('should render textarea', () => {
@@ -83,9 +83,9 @@ describe('TextInputNode', () => {
     expect(handles.length).toBe(2);
   });
 
-  it('should show green border when selected', () => {
+  it('should show white border ring when selected', () => {
     const { container } = renderNode({ selected: true });
-    const node = container.querySelector('.border-\\[\\#4ade80\\]');
-    expect(node).toBeTruthy();
+    const html = container.innerHTML;
+    expect(html).toContain('border-white/40');
   });
 });

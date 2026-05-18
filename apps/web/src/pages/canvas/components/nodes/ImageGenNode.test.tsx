@@ -62,4 +62,11 @@ describe('ImageGenNode', () => {
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
+
+  it('should render card with 580px width', () => {
+    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', resultUrl: undefined };
+    const { container } = renderNode();
+    const html = container.innerHTML;
+    expect(html).toContain('w-[580px]');
+  });
 });

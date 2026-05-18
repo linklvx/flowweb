@@ -1,0 +1,238 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  strict   = true
+}
+
+model User {
+  id             String           @id
+  name           String
+  email          String           @unique
+  emailVerified  Boolean
+  image          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  balance        UserBalance?
+  templates      Template[]
+  canvasProjects CanvasProject[]
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  password              String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Announcement {
+  id         String    @id @default(cuid())
+  message    String
+  linkUrl    String?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([active])
+}
+
+model ContentCard {
+  id         String    @id @default(cuid())
+  title      String
+  coverUrl   String
+  tags       String[]
+  desc       String
+  sortOrder  Int       @default(0)
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+enum TemplateCategory {
+  OFFICIAL
+  COMMUNITY
+}
+
+model Template {
+  id           String             @id @default(cuid())
+  name         String
+  description  String?
+  coverUrl     String?
+  dataUrl      String?
+  templateData Json?
+  projectId    String?
+  userId       String
+  isPublic     Boolean            @default(false)
+  importCount  Int                @default(0)
+  category     TemplateCategory?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@index([isPublic])
+  @@index([category])
+  @@index([importCount])
+}
+
+model CanvasProject {
+  id        String       @id @default(cuid())
+  name      String
+  userId    String?
+  viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
+  nodes     CanvasNode[]
+  edges     CanvasEdge[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CanvasNode {
+  id        String        @id @default(cuid())
+  projectId String
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String
+  position  Json
+  data      Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([projectId])
+}
+
+model CanvasEdge {
+  id        String        @id @default(cuid())
+  projectId String
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceId  String
+  targetId  String
+
+  @@index([projectId])
+}
+
+model NodeType {
+  id          String     @id @default(cuid())
+  name        String
+  key         String     @unique
+  description String?
+  active      Boolean    @default(true)
+  models      AIModel[]
+  pricingRules PricingRule[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model AIModel {
+  id          String     @id @default(cuid())
+  nodeTypeId  String
+  nodeType    NodeType   @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+  name        String
+  provider    String
+  apiUrl      String
+  apiKey      String?
+  sortOrder   Int        @default(0)
+  recommended Boolean    @default(false)
+  active      Boolean    @default(true)
+  resolutions ModelResolution[]
+  durations   ModelDuration[]
+  pricingRules PricingRule[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([nodeTypeId, active])
+  @@index([nodeTypeId, sortOrder])
+}
+
+model ModelResolution {
+  id        String      @id @default(cuid())
+  modelId   String
+  model     AIModel     @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  label     String
+  width     Int
+  height    Int
+  pricingRules PricingRule[]
+  createdAt DateTime    @default(now())
+
+  @@index([modelId])
+}
+
+model ModelDuration {
+  id        String      @id @default(cuid())
+  modelId   String
+  model     AIModel     @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  label     String
+  seconds   Int
+  pricingRules PricingRule[]
+  createdAt DateTime    @default(now())
+
+  @@index([modelId])
+}
+
+model PricingRule {
+  id           String          @id @default(cuid())
+  nodeTypeId   String
+  nodeType     NodeType        @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+  modelId      String
+  model        AIModel         @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  resolutionId String?
+  resolution   ModelResolution? @relation(fields: [resolutionId], references: [id])
+  durationId   String?
+  duration     ModelDuration?   @relation(fields: [durationId], references: [id])
+  creditCost   Int
+  active       Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([nodeTypeId, modelId, resolutionId, durationId])
+  @@index([nodeTypeId])
+  @@index([modelId])
+}
+
+model UserBalance {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credits   Int      @default(100)
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

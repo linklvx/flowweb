@@ -1,4 +1,5 @@
 import { memo, useCallback, useState, useEffect } from 'react';
+import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
@@ -18,6 +19,7 @@ interface Props {
 }
 
 function ImageConfigPanelComponent({ nodeId }: Props) {
+  const { zoom } = useViewport();
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
@@ -101,11 +103,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   return (
-    <div className="nodrag bg-[#222222] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[420px]">
-      <div className="text-center">
-        <div className="inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-b-[8px] border-l-transparent border-r-transparent border-b-[#333]" />
-      </div>
-      <div className="p-4">
+    <div className="nodrag bg-[#222222] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[680px] h-[200px] box-border"
+      style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top center' }}>
+      <div className="p-3">
         {/* Style tags */}
         <div className="mb-3">
           <div className="text-xs text-[#888] mb-2">风格标签</div>

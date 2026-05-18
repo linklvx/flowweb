@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ImageConfigPanel } from './ImageConfigPanel';
 
+vi.mock('@xyflow/react', () => ({
+  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+  Handle: () => null,
+  Position: { Left: 'left', Right: 'right' },
+}));
+
 const mockUpdateConfig = vi.fn();
 const mockSetStatus = vi.fn();
 
