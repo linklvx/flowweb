@@ -1,6 +1,7 @@
 import { memo, useCallback } from 'react';
 import { useViewport } from '@xyflow/react';
 import type { Editor } from '@tiptap/react';
+import '@tiptap/starter-kit'; // Type augmentation for chain commands (tree-shaken at build)
 
 interface Props {
   nodeId: string;

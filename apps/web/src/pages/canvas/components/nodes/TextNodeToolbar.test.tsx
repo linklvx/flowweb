@@ -7,19 +7,6 @@ vi.mock('@xyflow/react', () => ({
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
 }));
 
-// Mock nodeStore
-const mockUpdateText = vi.fn();
-vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: { n1: { type: 'text', content: '<p>test content</p>' } },
-      updateText: mockUpdateText,
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
-}));
-
 // Build a mock editor with chain pattern
 const createMockEditor = (overrides: Partial<Editor> = {}): Editor => {
   const chainFns: Record<string, any> = {};
