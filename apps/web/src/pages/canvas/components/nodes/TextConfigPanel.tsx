@@ -190,7 +190,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             {modelOpen && (
               <div
                 className="absolute left-0 bottom-full mb-1 bg-[#2a2a2a] border border-white/[0.1] rounded-lg py-1 shadow-xl z-50 min-w-[160px]"
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.stopPropagation()}
               >
                 {models.map((m) => (
                   <button
