@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
 import '@tiptap/starter-kit';
@@ -80,7 +81,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
   const btnActive = (active: boolean) =>
     `${btnBase} ${active ? 'bg-white/20' : ''}`;
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-label="全屏编辑"
@@ -90,7 +91,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
       }}
     >
       <div
-        className="w-full max-w-2xl xl:max-w-4xl 2xl:max-w-5xl h-[calc(100vh-100px)] flex flex-col gap-0 rounded-xl overflow-hidden border-2 border-[#3F3F46] bg-[#272729] shadow-2xl"
+        className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl h-[calc(100vh-100px)] flex flex-col gap-0 rounded-xl overflow-hidden border-2 border-[#3F3F46] bg-[#272729] shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Top toolbar */}
@@ -182,7 +183,8 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
