@@ -197,8 +197,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
                     key={m.id}
                     type="button"
                     onClick={() => handleModelSelect(m.id)}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer ${
-                      m.id === model ? 'text-[#4ade80]' : 'text-[#ccc]'
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${
+                      m.id === model ? 'bg-white/10' : ''
                     }`}
                   >
                     {m.name}
