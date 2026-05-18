@@ -1,14 +1,45 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { TextInputNode } from './TextInputNode';
 import { ReactFlowProvider } from '@xyflow/react';
+
+// Mock Tiptap
+const mockChainRun = vi.fn();
+const mockEditorIsActive = vi.fn().mockReturnValue(false);
+const mockEditorGetHTML = vi.fn().mockReturnValue('<p>test</p>');
+const mockEditorGetText = vi.fn().mockReturnValue('test');
+const mockEditorDestroy = vi.fn();
+
+// Build chain pattern: editor.chain().focus().toggleBold().run()
+const buildChain = () => {
+  const focused: Record<string, any> = {};
+  ['toggleBold', 'toggleItalic', 'toggleHeading', 'setParagraph',
+   'toggleBulletList', 'toggleOrderedList', 'setHorizontalRule'].forEach((method) => {
+    focused[method] = (...args: any[]) => ({ run: mockChainRun });
+  });
+  return {
+    chain: () => ({ focus: () => focused }),
+    isActive: mockEditorIsActive,
+    getHTML: mockEditorGetHTML,
+    getText: mockEditorGetText,
+    destroy: mockEditorDestroy,
+  };
+};
+
+vi.mock('@tiptap/react', () => ({
+  useEditor: () => buildChain(),
+  EditorContent: ({ editor }: any) => (
+    <div data-testid="tiptap-editor" className="tiptap-content">
+      <p>rendered content</p>
+    </div>
+  ),
+}));
 
 // Mock nodeStore
 const mockUpdateText = vi.fn();
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
-      nodes: { 'n1': { type: 'text', content: '一只猫在窗台上' } },
+      nodes: { n1: { type: 'text', content: '<p>一只猫在窗台上</p>' } },
       updateText: mockUpdateText,
     };
     if (typeof selector === 'function') return selector(state);
@@ -16,7 +47,9 @@ vi.mock('@/stores/nodeStore', () => ({
   }),
 }));
 
-describe('TextInputNode', () => {
+import { TextInputNode } from './TextInputNode';
+
+describe('TextInputNode (Tiptap)', () => {
   const defaultProps = { id: 'n1', data: { content: 'initial' }, selected: false } as any;
 
   const renderNode = (props = {}) =>
@@ -25,6 +58,13 @@ describe('TextInputNode', () => {
         <TextInputNode {...defaultProps} {...props} />
       </ReactFlowProvider>
     );
+
+  beforeEach(() => {
+    mockChainRun.mockClear();
+    mockEditorIsActive.mockClear();
+    mockEditorIsActive.mockReturnValue(false);
+    mockUpdateText.mockClear();
+  });
 
   it('should render node title', () => {
     renderNode();
@@ -65,16 +105,17 @@ describe('TextInputNode', () => {
     expect(screen.getByDisplayValue('文本输入')).toBeInTheDocument();
   });
 
-  it('should render textarea', () => {
+  it('should render Tiptap EditorContent instead of textarea', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/点击输入文本/i);
-    expect(textarea).toBeInTheDocument();
+    // EditorContent is rendered (data-testid from mock)
+    expect(screen.getByTestId('tiptap-editor')).toBeInTheDocument();
+    // Textarea should NOT exist
+    expect(screen.queryByPlaceholderText(/点击输入文本/i)).toBeNull();
   });
 
-  it('should show content from nodeStore', () => {
+  it('should show content from nodeStore in EditorContent', () => {
     renderNode();
-    const textarea = screen.getByPlaceholderText(/点击输入文本/i) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('一只猫在窗台上');
+    expect(screen.getByTestId('tiptap-editor')).toBeInTheDocument();
   });
 
   it('should have input and output handles', () => {
@@ -83,9 +124,19 @@ describe('TextInputNode', () => {
     expect(handles.length).toBe(2);
   });
 
-  it('should show white border ring when selected', () => {
+  it('should show white border when selected', () => {
     const { container } = renderNode({ selected: true });
-    const html = container.innerHTML;
-    expect(html).toContain('border-white/40');
+    expect(container.innerHTML).toContain('border-white/40');
+  });
+
+  it('should show toolbar when selected', () => {
+    renderNode({ selected: true });
+    // Toolbar should be rendered (passes editor prop from useEditor mock)
+    expect(screen.getByLabelText('加粗')).toBeInTheDocument();
+  });
+
+  it('should not show toolbar when not selected', () => {
+    renderNode({ selected: false });
+    expect(screen.queryByLabelText('加粗')).toBeNull();
   });
 });
