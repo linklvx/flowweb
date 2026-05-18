@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, type DragEvent } from 'react';
+import { memo, useCallback, useRef, type DragEvent, type WheelEvent } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant,
   useReactFlow,
@@ -29,7 +29,7 @@ interface Props {
 
 function CanvasViewComponent({ projectId: _projectId }: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, zoomIn, zoomOut } = useReactFlow();
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -74,12 +74,28 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     [addNode, screenToFlowPosition]
   );
 
+  // Ctrl/Cmd + wheel → zoom; regular wheel → pan
+  const onWheel = useCallback(
+    (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.deltaY < 0) {
+          zoomIn({ duration: 100 });
+        } else {
+          zoomOut({ duration: 100 });
+        }
+      }
+    },
+    [zoomIn, zoomOut],
+  );
+
   const fitView = useCallback(() => {
     updateViewport({ x: 0, y: 0, zoom: 1 });
   }, [updateViewport]);
 
   return (
-    <div ref={reactFlowWrapper} className="w-full h-full">
+    <div ref={reactFlowWrapper} className="w-full h-full" onWheelCapture={onWheel}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -100,6 +116,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         minZoom={0.2}
         maxZoom={3}
         fitView={false}
+        zoomOnScroll={false}
+        panOnScroll={true}
         proOptions={{ hideAttribution: true }}
         className="bg-[#000000]"
       >
