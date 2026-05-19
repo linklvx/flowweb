@@ -4,6 +4,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
+import { FileUpload } from '@/components/FileUpload';
 
 const RATIOS = ['16:9', '9:16', '1:1'];
 const QUALITIES = ['720P', '1080P'];
@@ -110,21 +111,39 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
 
         {/* Image URL — mode-dependent */}
         {mode === 'image-to-video' && (
-          <input placeholder="开始帧图片URL" value={nodeData?.startImageUrl ?? ''} onChange={e => update({ startImageUrl: e.target.value })}
-            className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3" />
+          <div className="mb-3">
+            <div className="text-[10px] text-[#888] mb-1">开始帧图片</div>
+            <FileUpload
+              accept="image/*"
+              hint="JPG/PNG ≤20MB"
+              onUploadComplete={(fileId) => update({ startImageFileId: fileId })}
+            />
+          </div>
         )}
         {mode === 'first-last-frame' && (
           <div className="flex gap-2 mb-3">
-            <input placeholder="开始帧URL" value={nodeData?.startImageUrl ?? ''} onChange={e => update({ startImageUrl: e.target.value })}
-              className="flex-1 bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
-            <input placeholder="结束帧URL" value={nodeData?.endImageUrl ?? ''} onChange={e => update({ endImageUrl: e.target.value })}
-              className="flex-1 bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2" />
+            <div className="flex-1">
+              <div className="text-[10px] text-[#888] mb-1">开始帧</div>
+              <FileUpload
+                accept="image/*"
+                hint="JPG/PNG"
+                onUploadComplete={(fileId) => update({ startFrameFileId: fileId })}
+              />
+            </div>
+            <div className="flex-1">
+              <div className="text-[10px] text-[#888] mb-1">结束帧</div>
+              <FileUpload
+                accept="image/*"
+                hint="JPG/PNG"
+                onUploadComplete={(fileId) => update({ endFrameFileId: fileId })}
+              />
+            </div>
           </div>
         )}
         {mode === 'multi-frame' && (
-          <textarea placeholder="输入2-10个图片URL，每行一个" value={(nodeData?.imageUrls ?? []).join('\n')}
-            onChange={e => update({ imageUrls: e.target.value.split('\n').filter(Boolean) })}
-            rows={3} className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 mb-3 resize-none box-border" />
+          <div className="mb-3">
+            <div className="text-[10px] text-[#666] mb-1">多帧上传功能即将推出</div>
+          </div>
         )}
 
         {/* Prompt */}
