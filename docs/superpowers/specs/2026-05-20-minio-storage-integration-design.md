@@ -474,13 +474,23 @@ this.s3Client = new S3Client({
 
 **MinIO 启动与 Bucket 创建**:
 ```bash
-# 方式一：启动时自动创建 bucket（推荐）
+# 启动 MinIO (API :9000, Console :9001)
 minio.exe server D:\minio-data --console-address :9001
 
-# 方式二：手动创建
+# 手动创建 bucket
 mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin
 mc mb myminio/flowai
 ```
+
+**⚠️ 重要注意事项**:
+- **端口区分**: MinIO API 端口为 `9000`（上传下载），控制台端口为 `9001`（管理界面），请勿混淆。浏览器访问 `http://127.0.0.1:9001` 可打开管理控制台（用户名/密码: minioadmin/minioadmin）
+- **ENDPOINT 末尾不加斜杠**: `MINIO_ENDPOINT=http://127.0.0.1:9000`（不是 `http://127.0.0.1:9000/`）
+- **Windows 路径限制**: 数据目录必须使用纯英文路径，不能包含中文和空格。正确: `D:\minio\data`，错误: `D:\我的项目\minio-data`、`D:\Program Files\minio-data`
+- **预签名 URL 格式**: 正确 → `http://127.0.0.1:9000/flowai/uploads/...?X-Amz-...`（路径风格）；错误 → `http://flowai.127.0.0.1:9000/uploads/...`（虚拟主机风格，说明缺少 `forcePathStyle: true`）
+
+**预签名 POST 上传 — 前端关键约束**:
+- FormData 中的 `key` 必须**原样使用**后端返回的 `fields.key`，禁止前端自行拼接 key
+- FormData 中先 append `fields` 中的所有字段，最后 append 文件（`formData.append('file', file)`）
 
 > **注意**: MinIO 不会自动创建 bucket。首次部署前必须手动执行 `mc mb` 或在启动配置中创建。
 
