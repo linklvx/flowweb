@@ -3,11 +3,13 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]) as any;
   const status = nodeData?.status ?? 'idle';
-  const resultUrl = nodeData?.resultUrl;
+  const fileId = nodeData?.fileId;
+  const { url: resultUrl } = useMediaUrl(fileId);
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -26,9 +28,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       if (data.nodeId !== id) return;
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
-      } else if (data.status === 'done' && data.resultUrl) {
-        console.log('[ImageGenNode] setting resultUrl:', data.resultUrl);
-        useNodeStore.getState().setResult(id, data.resultUrl);
+      } else if (data.status === 'done' && data.fileId) {
+        console.log('[ImageGenNode] setting fileId:', data.fileId);
+        useNodeStore.getState().setFileResult(id, data.fileId);
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
       }

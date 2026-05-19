@@ -3,7 +3,14 @@ import { render, screen } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
-let mockNodeData: any = { type: 'video', videoUrl: undefined, status: 'idle' };
+let mockNodeData: any = { type: 'video', fileId: undefined, status: 'idle' };
+
+vi.mock('@/hooks/useMediaUrl', () => ({
+  useMediaUrl: (fileId: string | null | undefined) => {
+    if (fileId) return { url: `http://media/${fileId}`, loading: false, error: null };
+    return { url: null, loading: false, error: null };
+  },
+}));
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
@@ -34,14 +41,15 @@ describe('VideoGenNode', () => {
   });
 
   it('should render video element when videoUrl exists', () => {
-    mockNodeData = { type: 'video', videoUrl: '/test.mp4', status: 'done' };
+    mockNodeData = { type: 'video', fileId: 'test-file-id', status: 'done' };
     renderNode();
     const sourceEl = document.querySelector('source');
     expect(sourceEl).toBeTruthy();
+    expect(sourceEl).toHaveAttribute('src', 'http://media/test-file-id');
   });
 
   it('should have 2 handles', () => {
-    mockNodeData = { type: 'video', videoUrl: undefined, status: 'idle' };
+    mockNodeData = { type: 'video', fileId: undefined, status: 'idle' };
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });

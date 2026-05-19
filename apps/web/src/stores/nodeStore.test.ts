@@ -76,4 +76,12 @@ describe('nodeStore', () => {
   it('should return undefined for unknown id', () => {
     expect(useNodeStore.getState().getNodeData('does-not-exist')).toBeUndefined();
   });
+
+  it('should set fileId and mark done via setFileResult', () => {
+    useNodeStore.getState().updateConfig('img1', {});
+    useNodeStore.getState().setFileResult('img1', 'file-abc-123');
+    const data = useNodeStore.getState().nodes['img1'] as any;
+    expect(data.fileId).toBe('file-abc-123');
+    expect(data.status).toBe('done');
+  });
 });

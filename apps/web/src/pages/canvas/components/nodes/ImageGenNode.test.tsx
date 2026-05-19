@@ -4,8 +4,15 @@ import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
 let mockNodeData: any = {
-  type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', resultUrl: undefined,
+  type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined,
 };
+
+vi.mock('@/hooks/useMediaUrl', () => ({
+  useMediaUrl: (fileId: string | null | undefined) => {
+    if (fileId) return { url: `http://media/${fileId}`, loading: false, error: null };
+    return { url: null, loading: false, error: null };
+  },
+}));
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
@@ -50,21 +57,21 @@ describe('ImageGenNode', () => {
   });
 
   it('should render result image when available', () => {
-    mockNodeData = { ...mockNodeData, status: 'done', resultUrl: '/cat.jpg' };
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id' };
     renderNode();
     const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', '/cat.jpg');
+    expect(img).toHaveAttribute('src', 'http://media/cat-file-id');
   });
 
   it('should have 2 handles (input + output)', () => {
     // Reset to default
-    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', resultUrl: undefined };
+    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined };
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
   it('should render card with 580px width', () => {
-    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', resultUrl: undefined };
+    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined };
     const { container } = renderNode();
     const html = container.innerHTML;
     expect(html).toContain('w-[580px]');

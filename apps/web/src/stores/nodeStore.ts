@@ -13,6 +13,7 @@ interface ImageNodeData {
   resolution: string;
   count: number;
   resultUrl?: string;
+  fileId?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
 }
 
@@ -33,6 +34,7 @@ interface NodeState {
   updateConfig: (id: string, config: ImageConfig) => void;
   setStatus: (id: string, status: ImageNodeData['status']) => void;
   setResult: (id: string, url: string) => void;
+  setFileResult: (id: string, fileId: string) => void;
   getNodeData: (id: string) => NodeData | undefined;
 }
 
@@ -58,6 +60,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           resolution: config.resolution ?? existing?.resolution ?? '1024×1024',
           count: config.count ?? existing?.count ?? 1,
           resultUrl: existing?.resultUrl,
+          fileId: existing?.fileId,
           status: existing?.status ?? 'idle',
         } as ImageNodeData,
       },
@@ -77,6 +80,14 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     if (!existing) return;
     set((s) => ({
       nodes: { ...s.nodes, [id]: { ...existing, resultUrl: url, status: 'done' as const } },
+    }));
+  },
+
+  setFileResult: (id, fileId) => {
+    const existing = get().nodes[id] as ImageNodeData;
+    if (!existing) return;
+    set((s) => ({
+      nodes: { ...s.nodes, [id]: { ...existing, fileId, status: 'done' as const } },
     }));
   },
 
