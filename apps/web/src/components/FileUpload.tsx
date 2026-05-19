@@ -28,12 +28,17 @@ export function FileUpload({ onUploadComplete, accept, hint }: FileUploadProps) 
         type: 'uploaded',
       });
 
-      // 2. Build FormData and upload to MinIO
+      // 2. Build FormData and upload to MinIO (via Vite proxy to avoid CORS)
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      await axios.post(uploadUrl, formData, {
+      // Rewrite presigned URL through Vite proxy to avoid CORS issues
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+
+      await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
           if (e.total) setProgress(Math.round((e.loaded / e.total) * 100));
