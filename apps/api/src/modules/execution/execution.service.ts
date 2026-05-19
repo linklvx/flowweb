@@ -1,13 +1,17 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { CreditService } from '../credit/credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class ExecutionService {
+  private readonly logger = new Logger(ExecutionService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TopologyService) private readonly topology: TopologyService,
@@ -15,6 +19,7 @@ export class ExecutionService {
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(CreditService) private readonly credit: CreditService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
 
   async execute(projectId: string, nodeId: string | undefined, userId: string) {
@@ -109,8 +114,22 @@ export class ExecutionService {
           });
 
           const newBalance = await this.credit.getBalance(userId);
+
+          // Enqueue AI result download for MinIO storage
+          if (result.url) {
+            await this.downloadQueue.add('ai-result-download', {
+              userId,
+              projectId,
+              nodeId: node.id,
+              taskId: `task-${Date.now()}`,
+              resultUrl: result.url,
+              mimeType: 'video/mp4',
+            });
+            this.logger.log(`Enqueued AI result download for node ${node.id}`);
+          }
+
           this.gateway.emitNodeStatus(projectId, {
-            nodeId: node.id, status: 'done', resultUrl: result.url, credits: newBalance?.credits,
+            nodeId: node.id, status: 'done', credits: newBalance?.credits,
           });
           results.push({ nodeId: node.id, type: 'video', resultUrl: result.url });
           continue;
@@ -157,8 +176,22 @@ export class ExecutionService {
         });
 
         const newBalance = await this.credit.getBalance(userId);
+
+        // Enqueue AI result download for MinIO storage
+        if (result.url) {
+          await this.downloadQueue.add('ai-result-download', {
+            userId,
+            projectId,
+            nodeId: node.id,
+            taskId: `task-${Date.now()}`,
+            resultUrl: result.url,
+            mimeType: 'image/png',
+          });
+          this.logger.log(`Enqueued AI result download for node ${node.id}`);
+        }
+
         this.gateway.emitNodeStatus(projectId, {
-          nodeId: node.id, status: 'done', resultUrl: result.url, credits: newBalance?.credits,
+          nodeId: node.id, status: 'done', credits: newBalance?.credits,
         });
 
       } catch (err: any) {

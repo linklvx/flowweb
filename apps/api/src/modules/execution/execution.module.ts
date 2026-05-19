@@ -17,6 +17,9 @@ import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.con
       name: EXECUTION_QUEUE_NAME,
       configKey: EXECUTION_CONNECTION_NAME,
     }),
+    BullModule.registerQueue({
+      name: 'ai-result-download',
+    }),
   ],
   controllers: [ExecutionController],
   providers: [

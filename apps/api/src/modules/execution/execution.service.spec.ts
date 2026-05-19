@@ -16,6 +16,7 @@ describe('ExecutionService', () => {
   let apiCaller: any;
   let credit: any;
   let gateway: any;
+  let mockDownloadQueue: any;
 
   beforeEach(async () => {
     prisma = {
@@ -45,6 +46,9 @@ describe('ExecutionService', () => {
       getBalance: vi.fn().mockResolvedValue({ credits: 95 }),
     };
     gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+    mockDownloadQueue = {
+      add: vi.fn().mockResolvedValue({ id: 'download-job-1' }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -55,6 +59,7 @@ describe('ExecutionService', () => {
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: CreditService, useValue: credit },
         { provide: ExecutionGateway, useValue: gateway },
+        { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);
@@ -102,5 +107,25 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'u1');
     expect(result.success).toBe(false);
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));
+  });
+
+  it('should enqueue ai-result-download after AI returns resultUrl', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({
+      id: 'p1', nodes: [], edges: [], viewport: {},
+    });
+    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+
+    const result = await service.execute('p1', 'n2', 'default-user');
+    expect(result.success).toBe(true);
+    expect(mockDownloadQueue.add).toHaveBeenCalledWith(
+      'ai-result-download',
+      expect.objectContaining({
+        userId: 'default-user',
+        projectId: 'p1',
+        nodeId: 'n2',
+        resultUrl: '/mock/test.jpg',
+        mimeType: 'image/png',
+      }),
+    );
   });
 });
