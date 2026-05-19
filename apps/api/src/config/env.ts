@@ -4,6 +4,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(3000),
   REDIS_URL: z.string().default('redis://localhost:6379/0'),
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
 });
 
 export type Env = z.infer<typeof envSchema>;
