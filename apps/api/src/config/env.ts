@@ -5,6 +5,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   REDIS_URL: z.string().default('redis://localhost:6379/0'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  MINIO_ENDPOINT: z.string().url(),
+  MINIO_ACCESS_KEY: z.string().min(3),
+  MINIO_SECRET_KEY: z.string().min(8),
+  MINIO_BUCKET: z.string().default('flowai'),
+  MINIO_USE_SSL: z.coerce.boolean().default(false),
 });
 
 export type Env = z.infer<typeof envSchema>;
