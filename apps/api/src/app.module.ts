@@ -11,6 +11,7 @@ import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
 import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
+import { MinioModule } from './modules/minio/minio.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -35,6 +36,7 @@ const env = validateEnv();
     AdminModule,
     CreditModule,
     ExecutionModule,
+    MinioModule,
     TemplateModule,
     AuthModule,
   ],
