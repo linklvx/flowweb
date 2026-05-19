@@ -81,9 +81,12 @@ describe('AiDownloadProcessor', () => {
       }),
     );
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-      'node1',
-      'done',
-      expect.objectContaining({ fileId: 'media-new' }),
+      'proj1',
+      expect.objectContaining({
+        nodeId: 'node1',
+        status: 'done',
+        fileId: 'media-new',
+      }),
     );
   });
 });

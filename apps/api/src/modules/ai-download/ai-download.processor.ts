@@ -82,9 +82,10 @@ export class AiDownloadProcessor extends WorkerHost {
     });
 
     // 4. Push fileId via Socket
-    this.gateway.emitNodeStatus(nodeId, 'done', {
-      fileId: media.id,
+    this.gateway.emitNodeStatus(projectId, {
+      nodeId,
       status: 'done',
+      fileId: media.id,
     });
 
     this.logger.log(`AI result stored: ${media.id}`);

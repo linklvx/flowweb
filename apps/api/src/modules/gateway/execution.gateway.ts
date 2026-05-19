@@ -44,6 +44,7 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
     nodeId: string;
     status: 'loading' | 'done' | 'error';
     resultUrl?: string;
+    fileId?: string;
     error?: string;
     credits?: number;
   }) {
