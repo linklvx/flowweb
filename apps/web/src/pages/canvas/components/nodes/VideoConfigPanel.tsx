@@ -1,4 +1,5 @@
 import { memo, useCallback, useState, useEffect } from 'react';
+import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
@@ -17,6 +18,7 @@ const MODES = [
 interface Props { nodeId: string; }
 
 function VideoConfigPanelComponent({ nodeId }: Props) {
+  const { zoom } = useViewport();
   const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
   const setStatus = useNodeStore((s) => s.setStatus);
 
@@ -87,7 +89,14 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus, prompt]);
 
   return (
-    <div className="nodrag bg-[#222222] border-2 border-t-[#c084fc] border-[#444] rounded-xl w-[420px]">
+    <div
+      className="nodrag bg-[#222222] rounded-xl w-[420px]"
+      style={{
+        transform: `scale(${1 / zoom})`,
+        transformOrigin: 'top center',
+        border: '1px solid #3F3F46',
+      }}
+    >
       <div className="p-4">
         {/* Mode tabs */}
         <div className="flex gap-1 mb-3 flex-wrap">

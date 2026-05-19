@@ -81,6 +81,11 @@ body {
   pointer-events: none;
 }
 
+/* React Flow node selected state override — remove default glow, use border only */
+.react-flow__node.selected {
+  box-shadow: none !important;
+}
+
 /* Thin transparent scrollbar for editor */
 .editor-scroll {
   scrollbar-width: thin;

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { ReactFlowProvider } from '@xyflow/react';
 import { VideoConfigPanel } from './VideoConfigPanel';
 
 const mockUpdateConfig = vi.fn();
@@ -23,13 +24,20 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: vi.fn(() => ({ nodes: [], edges: [], getState: () => ({ nodes: [], edges: [] }) })),
 }));
 
+const renderPanel = () =>
+  render(
+    <ReactFlowProvider>
+      <VideoConfigPanel nodeId="v1" />
+    </ReactFlowProvider>
+  );
+
 describe('VideoConfigPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('should render 4 mode tabs', () => {
-    render(<VideoConfigPanel nodeId="v1" />);
+    renderPanel();
     expect(screen.getByText('文生视频')).toBeInTheDocument();
     expect(screen.getByText('单图生视频')).toBeInTheDocument();
     expect(screen.getByText('首尾帧生视频')).toBeInTheDocument();
@@ -37,17 +45,17 @@ describe('VideoConfigPanel', () => {
   });
 
   it('should render prompt input', () => {
-    render(<VideoConfigPanel nodeId="v1" />);
+    renderPanel();
     expect(screen.getByPlaceholderText(/描述想要生成的视频/i)).toBeInTheDocument();
   });
 
   it('should render execute button', () => {
-    render(<VideoConfigPanel nodeId="v1" />);
+    renderPanel();
     expect(screen.getByText('▶')).toBeInTheDocument();
   });
 
   it('should show ratio/quality/duration/audio controls', () => {
-    render(<VideoConfigPanel nodeId="v1" />);
+    renderPanel();
     expect(screen.getByText('比例')).toBeInTheDocument();
     expect(screen.getByText('清晰度')).toBeInTheDocument();
     expect(screen.getByText('时长')).toBeInTheDocument();
@@ -55,7 +63,7 @@ describe('VideoConfigPanel', () => {
   });
 
   it('should call setStatus when execute button clicked', () => {
-    render(<VideoConfigPanel nodeId="v1" />);
+    renderPanel();
     fireEvent.click(screen.getByText('▶'));
     expect(mockSetStatus).toHaveBeenCalledWith('v1', 'loading');
   });

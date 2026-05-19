@@ -16,8 +16,13 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       </div>
       <div
         className={`bg-[#222222] border rounded-lg w-80 transition-colors ${
-          selected ? 'border-[#c084fc]' : 'border-[#3a3a3a]'
+          selected ? '' : 'border-white/10'
         }`}
+        style={
+          selected
+            ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
+            : undefined
+        }
       >
         <Handle type="target" position={Position.Left} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
         <div className="p-3">

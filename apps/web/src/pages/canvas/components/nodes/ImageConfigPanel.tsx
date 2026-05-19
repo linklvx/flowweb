@@ -103,8 +103,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   return (
-    <div className="nodrag bg-[#222222] border-2 border-t-[#60a5fa] border-[#444] rounded-xl w-[680px] h-[200px] box-border"
-      style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top center' }}>
+    <div className="nodrag bg-[#222222] rounded-xl w-[680px] h-[200px] box-border"
+      style={{
+        transform: `scale(${1 / zoom})`,
+        transformOrigin: 'top center',
+        border: '1px solid #3F3F46',
+      }}>
       <div className="p-3">
         {/* Style tags */}
         <div className="mb-3">

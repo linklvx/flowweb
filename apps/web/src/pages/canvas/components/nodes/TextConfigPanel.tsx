@@ -160,8 +160,12 @@ function TextConfigPanelComponent({ nodeId }: Props) {
 
   return (
     <div
-      className="nodrag bg-[#222222] border-2 border-t-[#4ade80] border-[#444] rounded-xl w-[650px] h-[140px] shadow-xl"
-      style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top center' }}
+      className="nodrag bg-[#222222] rounded-xl w-[650px] h-[140px] shadow-xl"
+      style={{
+        transform: `scale(${1 / zoom})`,
+        transformOrigin: 'top center',
+        border: '1px solid #3F3F46',
+      }}
     >
       <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
         {/* Prompt */}

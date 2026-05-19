@@ -48,8 +48,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       </div>
       <div
         className={`bg-[#222222] border rounded-lg w-[580px] transition-colors ${
-          selected ? 'border-[#60a5fa]' : 'border-[#3a3a3a]'
+          selected ? '' : 'border-white/10'
         }`}
+        style={
+          selected
+            ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
+            : undefined
+        }
       >
         <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
         <div className="p-3">

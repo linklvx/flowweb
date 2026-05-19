@@ -148,10 +148,11 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
   return (
     <div
-      className="nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg border border-[#555] text-white/90"
+      className="nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg text-white/90"
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'bottom center',
+        border: '1px solid #3F3F46',
       }}
       onMouseDown={(e) => e.preventDefault()}
     >
