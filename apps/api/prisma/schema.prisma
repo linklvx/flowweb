@@ -236,3 +236,34 @@ model UserBalance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Media {
+  id           String    @id @default(uuid())
+  userId       String
+
+  // 存储信息
+  bucket       String    @default("flowai")
+  key          String    // MinIO 对象键
+  originalName String    // 原始文件名
+  mimeType     String
+  size         Int       // 字节数
+
+  // 业务关联
+  projectId    String?
+  nodeId       String?
+  taskId       String?
+
+  // 状态与类型
+  status       String    @default("pending")  // pending | completed | failed
+  type         String    // uploaded | generated | temp
+
+  // 时间戳
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime? // 临时文件过期时间
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([nodeId])
+  @@index([taskId])
+  @@index([expiresAt])
+}
