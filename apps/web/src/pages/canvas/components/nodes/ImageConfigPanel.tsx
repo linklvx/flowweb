@@ -4,6 +4,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
+import { FileUpload } from '@/components/FileUpload';
 
 const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
 const COUNTS = [1, 2, 4];
@@ -110,6 +111,18 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
         border: '1px solid #3F3F46',
       }}>
       <div className="p-3">
+        {/* Reference Image Upload */}
+        <div className="mb-3">
+          <div className="text-xs text-[#888] mb-2">参考图片（可选）</div>
+          <FileUpload
+            accept="image/*"
+            hint="JPG/PNG/WebP ≤20MB"
+            onUploadComplete={(fileId) => {
+              updateConfig(nodeId, { referenceImage: fileId });
+            }}
+          />
+        </div>
+
         {/* Style tags */}
         <div className="mb-3">
           <div className="text-xs text-[#888] mb-2">风格标签</div>

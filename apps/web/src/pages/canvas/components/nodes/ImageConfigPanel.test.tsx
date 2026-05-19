@@ -11,6 +11,14 @@ vi.mock('@xyflow/react', () => ({
 const mockUpdateConfig = vi.fn();
 const mockSetStatus = vi.fn();
 
+vi.mock('@/components/FileUpload', () => ({
+  FileUpload: ({ onUploadComplete, accept, hint }: any) => (
+    <div data-testid="file-upload" data-accept={accept} data-hint={hint}>
+      点击或拖拽上传
+    </div>
+  ),
+}));
+
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
@@ -68,5 +76,11 @@ describe('ImageConfigPanel', () => {
     render(<ImageConfigPanel nodeId="img1" />);
     fireEvent.click(screen.getByText('▶'));
     expect(mockSetStatus).toHaveBeenCalledWith('img1', 'loading');
+  });
+
+  it('should show reference image upload area', () => {
+    const { container } = render(<ImageConfigPanel nodeId="img1" />);
+    // FileUpload renders "点击或拖拽上传" text
+    expect(container.innerHTML).toContain('点击或拖拽上传');
   });
 });
