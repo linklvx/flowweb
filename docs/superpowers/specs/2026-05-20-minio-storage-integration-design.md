@@ -1,6 +1,6 @@
 # MinIO 对象存储集成 — 设计文档
 
-**版本**: 1.0  
+**版本**: 1.1  
 **日期**: 2026-05-20  
 **MinIO 版本**: RELEASE.2025-12-18T08-51-09Z LTS  
 **状态**: MVP 设计
@@ -33,7 +33,7 @@
 ### 2.1 整体架构
 
 ```
-┌─────────────┐     presigned PUT     ┌───────────┐
+┌─────────────┐     presigned POST    ┌───────────┐
 │   前端 Vite  │ ──────────────────→  │   MinIO    │
 │   :5173     │                       │   :9000    │
 └──────┬──────┘                       └─────┬─────┘
@@ -102,7 +102,10 @@ model Media {
 
 **关键设计**:
 - 前端 node data 只存 `fileId`（如 `{ referenceImage: "abc-123" }`），不存原始 URL
-- `status` 字段追踪上传状态: `pending` → `completed` / `failed`
+- `status` 字段追踪上传状态:
+  - `uploaded` 类型: `pending` → `completed` / `failed`（两阶段: presign → confirm）
+  - `generated` 类型: 直接 `completed`（后端同步上传完成后创建）
+  - `temp` 类型: `pending`（临时文件不需要 confirm）
 - `expiresAt` 用于 temp 类型文件的自动清理
 
 ---
@@ -118,12 +121,13 @@ model Media {
 POST /api/storage/presign
   Body: { fileName, fileSize, fileType, type: "uploaded" }
   → 后端创建 Media 记录 (status=pending)
-  → 生成带安全限制的 presigned PUT URL
-  ← { fileId, uploadUrl, key }
+  → 生成带安全限制的 presigned POST URL (CreatePresignedPostCommand)
+  ← { fileId, uploadUrl, key, fields }
   │
   ▼
-前端 PUT uploadUrl → MinIO
-  (浏览器直传，带 upload progress)
+前端 POST uploadUrl → MinIO (FormData)
+  将 fields 和 file 拼入 FormData
+  浏览器直传，axios onUploadProgress 监控进度
   │
   ▼
 POST /api/storage/confirm
@@ -134,6 +138,20 @@ POST /api/storage/confirm
   │
   ▼
 前端将 fileId 写入节点 data
+```
+
+**前端 POST 上传代码关键点**:
+```typescript
+const formData = new FormData();
+// 先 append presigned fields (key, policy, signature, etc.)
+Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+// 最后 append 文件
+formData.append('file', file);
+
+await axios.post(uploadUrl, formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  onUploadProgress: (e) => { /* 进度回调 */ },
+});
 ```
 
 ### 3.2 AI 生成结果存储流程
@@ -215,7 +233,7 @@ Cron: 0 2 * * * (每天凌晨 2 点)
 
 ### 4.1 POST /api/storage/presign
 
-生成预签名上传 URL。
+生成预签名上传 URL（使用 `CreatePresignedPostCommand`，基于 POST 表单上传）。
 
 **Request** (Auth required):
 ```json
@@ -233,17 +251,38 @@ Cron: 0 2 * * * (每天凌晨 2 点)
   "code": 0,
   "data": {
     "fileId": "uuid",
-    "uploadUrl": "http://127.0.0.1:9000/flowai/uploads/...?...",
-    "key": "uploads/userId/2026-05-20/uuid.png"
+    "uploadUrl": "http://127.0.0.1:9000/flowai",
+    "key": "uploads/userId/2026-05-20/uuid.png",
+    "fields": {
+      "key": "uploads/userId/2026-05-20/uuid.png",
+      "Policy": "...",
+      "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+      "X-Amz-Credential": "...",
+      "X-Amz-Date": "...",
+      "X-Amz-Signature": "..."
+    }
   }
 }
 ```
 
-**安全限制** (在生成 presigned URL 时):
+**安全限制** (在生成 presigned POST 时，通过 `Conditions` 参数):
 ```
 Conditions:
   - content-length-range: [fileSize - 1024, fileSize + 1024]
   - eq $Content-Type: fileType
+```
+
+**S3Client 初始化关键配置**:
+```typescript
+this.s3Client = new S3Client({
+  region: 'us-east-1',
+  endpoint: 'http://127.0.0.1:9000',
+  credentials: {
+    accessKeyId: '...',
+    secretAccessKey: '...',
+  },
+  forcePathStyle: true,  // ★ 必须！MinIO 使用路径风格 URL
+});
 ```
 
 ### 4.2 POST /api/storage/confirm
@@ -351,7 +390,7 @@ GET /api/media/abc-123/url
       "http://127.0.0.1:5173",
       "https://flowai.nat100.top"
     ],
-    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedMethods": ["GET", "PUT", "POST", "HEAD", "OPTIONS"],
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["ETag"],
     "MaxAgeSeconds": 3600
@@ -399,8 +438,9 @@ GET /api/media/abc-123/url
 - 每次最多处理 1000 条
 - 先删 MinIO 文件，再删 DB 记录
 
-### 7.2 环境变量
+### 7.2 环境变量与配置
 
+**环境变量** (`.env`):
 ```env
 # MinIO
 MINIO_ENDPOINT=http://127.0.0.1:9000
@@ -409,6 +449,40 @@ MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=flowai
 MINIO_USE_SSL=false
 ```
+
+**Zod 类型校验** (添加到 `apps/api/src/config/env.ts`):
+```typescript
+MINIO_ENDPOINT: z.string().url(),
+MINIO_ACCESS_KEY: z.string().min(3),
+MINIO_SECRET_KEY: z.string().min(8),
+MINIO_BUCKET: z.string().default('flowai'),
+MINIO_USE_SSL: z.coerce.boolean().default(false),
+```
+
+**S3Client 初始化** (关键: `forcePathStyle: true`):
+```typescript
+this.s3Client = new S3Client({
+  region: 'us-east-1',
+  endpoint: config.get('MINIO_ENDPOINT'),
+  credentials: {
+    accessKeyId: config.get('MINIO_ACCESS_KEY'),
+    secretAccessKey: config.get('MINIO_SECRET_KEY'),
+  },
+  forcePathStyle: true,  // ★ MinIO 必须使用路径风格 URL
+});
+```
+
+**MinIO 启动与 Bucket 创建**:
+```bash
+# 方式一：启动时自动创建 bucket（推荐）
+minio.exe server D:\minio-data --console-address :9001
+
+# 方式二：手动创建
+mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin
+mc mb myminio/flowai
+```
+
+> **注意**: MinIO 不会自动创建 bucket。首次部署前必须手动执行 `mc mb` 或在启动配置中创建。
 
 ### 7.3 监控建议（设计阶段记录，后续实施）
 
@@ -425,37 +499,73 @@ MINIO_USE_SSL=false
 
 | 模块 | 内容 |
 |------|------|
-| MinIO SDK 封装 | Service: upload, delete, presignGet, presignPut, statObject |
-| StorageModule | Controller: POST /presign, POST /confirm |
-| MediaModule | Controller: GET /:fileId/url; Service: getMediaUrl (Redis 缓存) |
+| MinIO SDK 封装 | Service: upload, delete, presignGet, presignPost, statObject; **S3Client 必须配置 `forcePathStyle: true`** |
+| StorageModule | Controller: POST /presign (CreatePresignedPostCommand), POST /confirm |
+| MediaModule | Controller: GET /:fileId/url; Service: getMediaUrl (Redis 缓存, key=`media:url:{userId}:{fileId}`) |
 | Media Prisma Model | schema.prisma + migration |
-| AI Download Worker | BullMQ processor: 下载 AI 结果 → 上传 MinIO → 创建 Media |
-| Temp Cleanup Worker | BullMQ repeatable job: 每天清理过期 temp |
-| Env Schema | 新增 MINIO_* 变量到 Zod schema |
+| AI Download Worker | BullMQ processor: axios-retry 下载 AI 结果 → MinIO SDK 上传 → 创建 Media (status=completed) |
+| Temp Cleanup Worker | BullMQ repeatable job: 每天凌晨 2 点清理过期 temp |
+| Env Schema | 新增 MINIO_* 变量到 Zod schema（含类型校验） |
 
 ### 前端 (Vite + React)
 
 | 组件/功能 | 内容 |
 |------|------|
-| FileUpload 组件 | 拖拽/点击上传，进度条，支持图片/视频格式限制 |
+| FileUpload 组件 | 拖拽/点击上传，进度条，支持图片/视频格式限制；POST FormData 上传 |
 | ImageConfigPanel | 新增参考图上传（替换无参考图现状） |
 | VideoConfigPanel | 替换 URL 输入框为上传组件（start/end/multi-frame） |
-| Media URL hook | `useMediaUrl(fileId)` → 调用 `/api/media/:id/url` → 返回 URL |
+| `useMediaUrl(fileId)` hook | 三态返回 `{ url, loading, error }`；调用 `/api/media/:id/url` → 返回 URL |
 | Node data 适配 | 将所有 `resultUrl/videoUrl/startImageUrl` 改为 `fileId` |
+
+**useMediaUrl hook 关键设计**:
+```typescript
+export function useMediaUrl(fileId: string | null | undefined) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!fileId) { setUrl(null); return; }
+    setLoading(true);
+    setError(null);
+    api.get(`/api/media/${fileId}/url`)
+      .then(res => setUrl(res.data.data.url))
+      .catch(err => setError(err))
+      .finally(() => setLoading(false));
+  }, [fileId]);
+
+  return { url, loading, error };
+}
+```
 
 ### 依赖
 
 | 包 | 用途 |
 |------|------|
-| `minio` (npm) | MinIO JavaScript SDK |
-| `@aws-sdk/client-s3` | minio SDK 的底层依赖 |
-| `@aws-sdk/s3-request-presigner` | 预签名 URL 生成 |
-| `axios` | HTTP 客户端（AI 结果下载） |
+| `@aws-sdk/client-s3` | S3 兼容客户端（MinIO 使用 AWS SDK v3） |
+| `@aws-sdk/s3-request-presigner` | 预签名 URL 生成 (`getSignedUrl`) |
+| `@aws-sdk/s3-presigned-post` | 预签名 POST 上传 (`createPresignedPost`) |
+| `axios` | HTTP 客户端（AI 结果下载 + 前端上传进度） |
 | `axios-retry` | 指数退避重试 |
 
 ### MinIO 部署
 
-Windows 二进制: `minio.exe server D:\minio-data --console-address :9001`
+```bash
+# 下载 MinIO Windows 二进制 (LTS)
+# https://dl.min.io/server/minio/release/windows-amd64/minio.exe
+
+# 启动 (API :9000, Console :9001)
+minio.exe server D:\minio-data --console-address :9001
+
+# 首次部署：创建 bucket
+mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin
+mc mb myminio/flowai
+
+# 配置 CORS
+mc admin config set myminio cors <<EOF
+{...}
+EOF
+```
 
 ---
 
@@ -476,10 +586,14 @@ Windows 二进制: `minio.exe server D:\minio-data --console-address :9001`
 | 决策 | 理由 |
 |------|------|
 | 预签名直传 vs 后端中转 | 大文件不消耗 NestJS 带宽，MinIO 原生支持 |
+| POST (FormData) vs PUT | POST 支持更严格的 Conditions 限制，安全性更好 |
+| forcePathStyle: true | MinIO 默认路径风格 URL，AWS SDK 默认虚拟主机风格，必须显式指定 |
 | fileId vs 直接 URL | 解耦存储和展示，未来加 CDN/迁移只改一处 |
 | 日期分区 | 低成本防止单目录文件膨胀 |
 | Redis 缓存 14 分钟 | 比 URL 有效期短 1 分钟，消除缓存过期窗口 |
+| Redis key 含 userId | 防止跨用户缓存污染，零性能损失 |
 | BullMQ 定时清理 | 复用已有基础设施，不引入 cron 框架 |
+| generated 类型直接 completed | 后端同步上传，无需两阶段确认 |
 | 暂不加 tenantId | 无多租户需求，userId 隔离足够 |
 | 暂不加 CDN | 无 CDN 服务，保留 `/api/media/:id/url` 扩展点 |
-| 暂不加分片上传 | 500MB 内 presigned PUT 足够 |
+| 暂不加分片上传 | 500MB 内 presigned POST 足够 |
