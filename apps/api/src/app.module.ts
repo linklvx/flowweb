@@ -15,6 +15,7 @@ import { AuthModule } from './auth/auth.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
+import { AiDownloadModule } from './modules/ai-download/ai-download.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -44,6 +45,7 @@ const env = validateEnv();
     TemplateModule,
     AuthModule,
     MediaModule,
+    AiDownloadModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
