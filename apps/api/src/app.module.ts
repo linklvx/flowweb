@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
+import Redis from 'ioredis';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
@@ -13,6 +14,7 @@ import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { MediaModule } from './modules/media/media.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -41,7 +43,14 @@ const env = validateEnv();
     StorageModule,
     TemplateModule,
     AuthModule,
+    MediaModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      provide: 'REDIS_CLIENT',
+      useFactory: () => new Redis(env.REDIS_URL),
+    },
+  ],
 })
 export class AppModule {}
