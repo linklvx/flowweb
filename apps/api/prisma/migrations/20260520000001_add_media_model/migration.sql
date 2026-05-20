@@ -32,14 +32,3 @@ CREATE INDEX "Media_taskId_idx" ON "Media"("taskId");
 
 -- CreateIndex
 CREATE INDEX "Media_expiresAt_idx" ON "Media"("expiresAt");
-
-┌─────────────────────────────────────────────────────────┐
-│  Update available 5.22.0 -> 7.8.0                       │
-│                                                         │
-│  This is a major update - please follow the guide at    │
-│  https://pris.ly/d/major-version-upgrade                │
-│                                                         │
-│  Run the following to update                            │
-│    npm i --save-dev prisma@latest                       │
-│    npm i @prisma/client@latest                          │
-└─────────────────────────────────────────────────────────┘
