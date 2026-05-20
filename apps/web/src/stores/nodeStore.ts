@@ -14,6 +14,7 @@ interface ImageNodeData {
   count: number;
   resultUrl?: string;
   fileId?: string;
+  referenceImage?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
 }
 
@@ -25,6 +26,7 @@ interface ImageConfig {
   model?: string;
   resolution?: string;
   count?: number;
+  referenceImage?: string;
 }
 
 interface NodeState {
@@ -61,6 +63,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           count: config.count ?? existing?.count ?? 1,
           resultUrl: existing?.resultUrl,
           fileId: existing?.fileId,
+          referenceImage: config.referenceImage ?? existing?.referenceImage,
           status: existing?.status ?? 'idle',
         } as ImageNodeData,
       },
