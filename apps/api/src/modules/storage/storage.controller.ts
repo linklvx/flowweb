@@ -11,13 +11,11 @@ export class StorageController {
 
   @Post('presign')
   async presign(@Req() req: any, @Body() body: PresignUploadDto) {
-    const data = await this.storageService.presignUpload(req.user.id, body);
-    return { code: 0, data };
+    return this.storageService.presignUpload(req.user.id, body);
   }
 
   @Post('confirm')
   async confirm(@Req() req: any, @Body() body: ConfirmUploadDto) {
-    const data = await this.storageService.confirmUpload(req.user.id, body);
-    return { code: 0, data };
+    return this.storageService.confirmUpload(req.user.id, body);
   }
 }

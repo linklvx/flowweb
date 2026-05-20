@@ -12,6 +12,6 @@ export class MediaController {
   @Get(':fileId/url')
   async getUrl(@Req() req: any, @Param('fileId') fileId: string) {
     const url = await this.mediaService.getMediaUrl(fileId, req.user.id);
-    return { code: 0, data: { url } };
+    return { url };
   }
 }
