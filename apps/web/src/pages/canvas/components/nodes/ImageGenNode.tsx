@@ -1,9 +1,34 @@
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useState, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+
+const MAX_WIDTH = 548;
+const MAX_HEIGHT = 500;
+const MIN_WIDTH = 200;
+const MIN_HEIGHT = 100;
+
+function calcConstrainedSize(naturalW: number, naturalH: number) {
+  let w = naturalW;
+  let h = naturalH;
+
+  // Scale down to max dimensions maintaining aspect ratio
+  if (w > MAX_WIDTH) {
+    h = Math.round(h * (MAX_WIDTH / w));
+    w = MAX_WIDTH;
+  }
+  if (h > MAX_HEIGHT) {
+    w = Math.round(w * (MAX_HEIGHT / h));
+    h = MAX_HEIGHT;
+  }
+  // Enforce minimum dimensions
+  if (w < MIN_WIDTH) w = MIN_WIDTH;
+  if (h < MIN_HEIGHT) h = MIN_HEIGHT;
+
+  return { w, h };
+}
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]) as any;
@@ -12,6 +37,25 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const referenceImage = nodeData?.referenceImage;
   const { url: resultUrl } = useMediaUrl(fileId);
   const { url: refPreviewUrl } = useMediaUrl(referenceImage);
+
+  const displayUrl = resultUrl || refPreviewUrl;
+
+  // Dynamic sizing based on image aspect ratio
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+    setImgSize(size);
+  }, []);
+
+  // Reset dimensions when image URL changes
+  useEffect(() => {
+    setImgSize(null);
+  }, [displayUrl]);
+
+  const containerWidth = imgSize ? imgSize.w : 548;
+  const containerHeight = imgSize ? imgSize.h : 306;
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -46,27 +90,37 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   return (
     <div className="relative">
-      <div className="absolute -top-[18px] left-0 w-[580px] text-[11px] text-[#999] font-medium flex items-center gap-1.5">
+      <div
+        className="absolute -top-[18px] left-0 text-[11px] text-[#999] font-medium flex items-center gap-1.5"
+        style={{ width: containerWidth }}
+      >
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status === 'loading' ? 'bg-yellow-400 animate-pulse' : status === 'done' ? 'bg-[#4ade80]' : status === 'error' ? 'bg-red-400' : 'bg-gray-500'}`} />
         图片生成
       </div>
       <div
-        className={`bg-[#222222] border rounded-lg w-[580px] transition-colors ${
+        className={`bg-[#222222] border rounded-lg transition-colors ${
           selected ? '' : 'border-white/10'
         }`}
-        style={
-          selected
+        style={{
+          width: containerWidth,
+          ...(selected
             ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
-            : undefined
-        }
+            : undefined),
+        }}
       >
         <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
         <div className="p-3">
-          <div className="h-[306px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
-            {resultUrl ? (
-              <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
-            ) : refPreviewUrl ? (
-              <img src={refPreviewUrl} alt="reference" className="w-full h-full object-cover" />
+          <div
+            className="bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden transition-all duration-300"
+            style={{ width: containerWidth - 24, height: containerHeight }}
+          >
+            {displayUrl ? (
+              <img
+                src={displayUrl}
+                alt="preview"
+                className="max-w-full max-h-full object-contain"
+                onLoad={handleImageLoad}
+              />
             ) : status === 'loading' ? (
               <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
             ) : (
