@@ -109,24 +109,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }}
       >
         <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
-        <div className="p-3">
-          <div
-            className="bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden transition-all duration-300"
-            style={{ width: containerWidth - 24, height: containerHeight }}
-          >
-            {displayUrl ? (
-              <img
-                src={displayUrl}
-                alt="preview"
-                className="max-w-full max-h-full object-contain"
-                onLoad={handleImageLoad}
-              />
-            ) : status === 'loading' ? (
-              <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
-            ) : (
-              <span className="text-[#666] text-xs">图片预览区</span>
-            )}
-          </div>
+        <div
+          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300"
+          style={{ width: containerWidth, height: containerHeight }}
+        >
+          {displayUrl ? (
+            <img
+              src={displayUrl}
+              alt="preview"
+              className="max-w-full max-h-full object-contain"
+              onLoad={handleImageLoad}
+            />
+          ) : status === 'loading' ? (
+            <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
+          ) : (
+            <span className="text-[#666] text-xs">图片预览区</span>
+          )}
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
       </div>
