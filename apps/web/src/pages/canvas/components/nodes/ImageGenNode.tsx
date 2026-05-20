@@ -9,7 +9,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]) as any;
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
+  const referenceImage = nodeData?.referenceImage;
   const { url: resultUrl } = useMediaUrl(fileId);
+  const { url: refPreviewUrl } = useMediaUrl(referenceImage);
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -63,6 +65,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           <div className="h-[306px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
             {resultUrl ? (
               <img src={resultUrl} alt="generated" className="w-full h-full object-cover" />
+            ) : refPreviewUrl ? (
+              <img src={refPreviewUrl} alt="reference" className="w-full h-full object-cover" />
             ) : status === 'loading' ? (
               <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
             ) : (
