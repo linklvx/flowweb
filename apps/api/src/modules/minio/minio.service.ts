@@ -70,7 +70,9 @@ export class MinioService {
       Expires: expiresIn,
       Conditions: [
         ['content-length-range', fileSize - 1024, fileSize + 1024],
-        ['eq', '$Content-Type', contentType],
+        // Note: NOT enforcing $Content-Type here because FormData POST
+        // always sends multipart/form-data, not the file's actual MIME type.
+        // MIME type validation is done server-side after upload.
       ],
     });
   }
