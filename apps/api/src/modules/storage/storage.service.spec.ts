@@ -14,6 +14,7 @@ describe('StorageService', () => {
       media: {
         create: vi.fn().mockResolvedValue({ id: 'media-1', key: 'uploads/u1/2026-01-01/a.png', status: 'pending' }),
         update: vi.fn().mockResolvedValue({ id: 'media-1', status: 'completed' }),
+        findFirst: vi.fn(),
         findUnique: vi.fn(),
         delete: vi.fn().mockResolvedValue({}),
       },
@@ -66,7 +67,7 @@ describe('StorageService', () => {
   });
 
   it('should confirm upload and update status to completed', async () => {
-    prisma.media.findUnique = vi.fn().mockResolvedValue({ id: 'media-1', status: 'pending', key: 'uploads/u1/test.png' });
+    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', status: 'pending', key: 'uploads/u1/test.png' });
     const result = await service.confirmUpload('user1', {
       fileId: 'media-1',
       key: 'uploads/u1/test.png',
@@ -75,13 +76,14 @@ describe('StorageService', () => {
     expect(result.fileId).toBe('media-1');
     expect(prisma.media.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'media-1', userId: 'user1' },
+        where: { id: 'media-1' },
         data: expect.objectContaining({ status: 'completed' }),
       }),
     );
   });
 
   it('should reject confirm if fileSize mismatch', async () => {
+    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', status: 'pending', key: 'uploads/u1/test.png' });
     minio.statObject = vi.fn().mockResolvedValue({ ContentLength: 999 });
     await expect(
       service.confirmUpload('user1', {

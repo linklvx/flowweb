@@ -48,6 +48,14 @@ export class StorageService {
   }
 
   async confirmUpload(userId: string, dto: ConfirmUploadDto) {
+    // Verify ownership — findFirst checks both id AND userId (id alone is PK but we need userId check too)
+    const media = await this.prisma.media.findFirst({
+      where: { id: dto.fileId, userId },
+    });
+    if (!media) {
+      throw new BadRequestException('文件记录不存在');
+    }
+
     // Verify file exists in MinIO
     const stats = await this.minio.statObject(dto.key);
 
@@ -55,15 +63,13 @@ export class StorageService {
     const actualSize = stats.ContentLength ?? 0;
     if (Math.abs(actualSize - dto.fileSize) > 1024) {
       await this.minio.delete(dto.key);
-      await this.prisma.media.delete({
-        where: { id: dto.fileId, userId },
-      });
+      await this.prisma.media.delete({ where: { id: dto.fileId } });
       throw new BadRequestException('文件大小不匹配，请重新上传');
     }
 
-    // Update Media status
+    // Update Media status (id is unique PK, safe to use alone after ownership verified)
     await this.prisma.media.update({
-      where: { id: dto.fileId, userId },
+      where: { id: dto.fileId },
       data: { status: 'completed', size: actualSize },
     });
 
