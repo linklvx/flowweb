@@ -5,7 +5,7 @@ import { VideoConfigPanel } from './VideoConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 
 function VideoGenNodeComponent({ id, selected }: NodeProps) {
-  const nodeData = useNodeStore((s) => s.nodes[id]) as any;
+  const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const { url: videoUrl } = useMediaUrl(fileId);

@@ -2,15 +2,15 @@ import { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
-  const nodeData = useNodeStore((s) => s.nodes[id]) as { type: 'text'; content: string } | undefined;
-  const content = nodeData?.content ?? '';
+  const appNode = useNodeStore((s) => s.nodes[id]);
+  const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
   const editor = useEditor({
     extensions: [

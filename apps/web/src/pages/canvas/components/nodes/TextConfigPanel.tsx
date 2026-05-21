@@ -14,7 +14,7 @@ interface Props {
 }
 
 function TextConfigPanelComponent({ nodeId }: Props) {
-  const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
+  const nodeData = useNodeStore((s) => s.nodes[nodeId]?.data) as any;
   const setStatus = useNodeStore((s) => s.setStatus);
   const { zoom } = useViewport();
 
@@ -50,7 +50,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             const store = useNodeStore.getState();
             const existing = store.nodes[nodeId] as any;
             useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: list[0].id } },
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
             });
           }
         }
@@ -76,7 +76,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       const store = useNodeStore.getState();
       const existing = store.nodes[nodeId] as any;
       useNodeStore.setState({
-        nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'text', model: modelId } },
+        nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: modelId } } },
       });
       updatePrice(modelId);
       setModelOpen(false);
@@ -136,13 +136,13 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       // Inject prompt as content for execution
       const existing = nodeState.nodes[nodeId] as any;
       useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, type: 'text', content: prompt } },
+        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: prompt } } },
       });
       const latestState = useNodeStore.getState();
       const mergedNodes = canvasState.nodes.map((n) => ({
         id: n.id, type: n.type || 'textInput',
         position: n.position,
-        data: latestState.nodes[n.id] || (n.data as any) || {},
+        data: latestState.nodes[n.id]?.data || (n.data as any) || {},
       }));
       await Promise.all([
         syncNodes('default', mergedNodes),

@@ -20,7 +20,7 @@ interface Props { nodeId: string; }
 
 function VideoConfigPanelComponent({ nodeId }: Props) {
   const { zoom } = useViewport();
-  const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
+  const nodeData = useNodeStore((s) => s.nodes[nodeId]?.data) as any;
   const setStatus = useNodeStore((s) => s.setStatus);
 
   const [models, setModels] = useState<any[]>([]);
@@ -45,7 +45,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
             const top = list[0];
             const store = useNodeStore.getState();
             const existing = store.nodes[nodeId] as any;
-            useNodeStore.setState({ nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'video', model: top.id } } });
+            useNodeStore.setState({ nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: top.id } } } });
           }
         }
       }).catch(() => {});
@@ -56,7 +56,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     const store = useNodeStore.getState();
     const existing = store.nodes[nodeId] as any;
     useNodeStore.setState({
-      nodes: { ...store.nodes, [nodeId]: { ...existing, type: 'video', ...fields } },
+      nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, ...fields } } },
     });
   }, [nodeId]);
 
@@ -76,7 +76,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       const ns = useNodeStore.getState();
       const merged = cs.nodes.map(n => ({
         id: n.id, type: n.type, position: n.position,
-        data: ns.nodes[n.id] || (n.data as any) || {},
+        data: ns.nodes[n.id]?.data || (n.data as any) || {},
       }));
       await Promise.all([syncNodes('default', merged), syncEdges('default', cs.edges)]);
       const { jobId } = await enqueueWorkflow('default', nodeId);

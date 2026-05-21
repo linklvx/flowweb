@@ -4,7 +4,7 @@ import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
 let mockNodeData: any = {
-  type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined,
+  status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] }
 };
 
 vi.mock('@/hooks/useMediaUrl', () => ({
@@ -17,7 +17,8 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
-      nodes: { 'img1': mockNodeData },
+      nodes: { 'img1': { id: 'img1', type: 'image', position: { x: 0, y: 0 }, data: mockNodeData } },
+      updateConfig: vi.fn(),
     };
     if (typeof selector === 'function') return selector(state);
     return state;
@@ -30,6 +31,22 @@ vi.mock('@/stores/canvasStore', () => ({
     if (typeof selector === 'function') return selector(state);
     return state;
   }),
+}));
+
+vi.mock('@/api/storageApi', () => ({
+  presignUpload: vi.fn(),
+  confirmUpload: vi.fn(),
+}));
+
+vi.mock('axios', () => ({
+  default: {
+    post: vi.fn().mockResolvedValue({}),
+  },
+}));
+
+// Mock ImageThumbnailBar to avoid dnd-kit dependency in tests
+vi.mock('./prompt-input/ImageThumbnailBar', () => ({
+  ImageThumbnailBar: () => null,
 }));
 
 describe('ImageGenNode', () => {
@@ -65,16 +82,38 @@ describe('ImageGenNode', () => {
 
   it('should have 2 handles (input + output)', () => {
     // Reset to default
-    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
   it('should render card with dynamic width', () => {
-    mockNodeData = { type: 'image', status: 'idle', style: '写实', model: 'SD XL', resolution: '1024×1024', count: 1, extraPrompt: '', fileId: undefined };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
     const html = container.innerHTML;
     // Width is now dynamic (inline style), default is 548px
     expect(html).toContain('width: 548px');
+  });
+
+  // ---- New tests for floating upload button ----
+
+  it('should show floating upload button when selected', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    expect(screen.getByText('上传')).toBeInTheDocument();
+  });
+
+  it('should not show floating upload button when not selected', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    renderNode(false);
+    expect(screen.queryByText('上传')).not.toBeInTheDocument();
+  });
+
+  it('floating upload button should have nodrag and nopan classes', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    const btn = screen.getByText('上传').closest('button');
+    expect(btn).toHaveClass('nodrag');
+    expect(btn).toHaveClass('nopan');
   });
 });

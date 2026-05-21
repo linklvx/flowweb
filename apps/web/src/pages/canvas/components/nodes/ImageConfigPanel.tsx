@@ -1,213 +1,113 @@
-import { memo, useCallback, useState, useEffect } from 'react';
+import { memo, useRef, useCallback } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore } from '@/stores/nodeStore';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
-import { syncNodes, syncEdges } from '@/api/projectApi';
-import { FileUpload } from '@/components/FileUpload';
-
-const STYLES = ['写实', '动漫', '油画', '3D渲染', '水彩', '复古', '像素', '赛博朋克'];
-const COUNTS = [1, 2, 4];
-
-interface ModelInfo {
-  id: string; name: string;
-  resolutions: { id: string; label: string }[];
-  durations: { id: string; label: string }[];
-}
+import { useNodeStore, type ImageNodeData } from '@/stores/nodeStore';
+import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
+import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
+import { useImageUpload } from './prompt-input/useImageUpload';
+import type { CommandItem } from './prompt-input/types';
 
 interface Props {
   nodeId: string;
 }
 
 function ImageConfigPanelComponent({ nodeId }: Props) {
-  const { zoom } = useViewport();
-  const nodeData = useNodeStore((s) => s.nodes[nodeId]) as any;
+  // ── ALL hooks must be called before any conditional return ──
+  const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const setStatus = useNodeStore((s) => s.setStatus);
-  const setResult = useNodeStore((s) => s.setResult);
+  const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
+  const { zoom } = useViewport();
+  const promptRef = useRef<PromptInputRef>(null);
+  const { uploadSingleImage } = useImageUpload(nodeId);
 
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [creditCost, setCreditCost] = useState<number>(0);
-  const [executing, setExecuting] = useState(false);
+  const nodeData = (node?.type === 'image' ? node.data : undefined) as ImageNodeData | undefined;
+  const model = nodeData?.model ?? 'sdxl';
+  const ratio = nodeData?.ratio ?? '1:1';
+  const quality = nodeData?.quality ?? 'standard';
+  const status = nodeData?.status ?? 'idle';
+  const prompt = nodeData?.prompt ?? { text: '', allImages: [], referencedImageIds: [] };
 
-  // Load models on mount + auto-select defaults
-  useEffect(() => {
-    fetch('/api/node-types/image/models')
-      .then(r => r.json())
-      .then(json => {
-        if (json.code === 0) {
-          const list: ModelInfo[] = json.data;
-          setModels(list);
-          // Auto-select highest-priority model if none selected
-          if (!nodeData?.model && list.length > 0) {
-            const topModel = list[0];
-            const topResolution = topModel.resolutions?.[0];
-            updateConfig(nodeId, {
-              model: topModel.id,
-              resolution: topResolution?.id || '',
-            });
-            if (topModel.id) updatePrice(topModel.id, topResolution?.id);
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Calculate price callback
-  const updatePrice = useCallback(async (modelId: string, resolutionId?: string) => {
-    const params = new URLSearchParams({ modelId });
-    if (resolutionId) params.set('resolutionId', resolutionId);
-    try {
-      const res = await fetch(`/api/pricing/calculate?${params}`);
-      const json = await res.json();
-      if (json.code === 0) setCreditCost(json.data);
-    } catch { setCreditCost(0); }
-  }, []);
-
-  const selectedModel = models.find(m => m.id === nodeData?.model);
-
-  const handleStyleToggle = useCallback(
-    (style: string) => {
-      updateConfig(nodeId, { style });
-    },
-    [nodeId, updateConfig]
-  );
+  const handleCommandSelect = useCallback((command: CommandItem) => {
+    switch (command.category) {
+      case 'model': updateConfig(nodeId, { model: command.value }); break;
+      case 'ratio': updateConfig(nodeId, { ratio: command.value }); break;
+      case 'quality': updateConfig(nodeId, { quality: command.value }); break;
+    }
+  }, [nodeId, updateConfig]);
 
   const handleGenerate = useCallback(async () => {
-    setExecuting(true);
-    setStatus(nodeId, 'loading');
+    promptRef.current?.forceSync();
+    updateConfig(nodeId, { status: 'loading' });
     try {
-      // Merge canvasStore (position/type) + nodeStore (content/config) then sync to backend
-      const canvasState = useCanvasStore.getState();
-      const nodeState = useNodeStore.getState();
-      const mergedNodes = canvasState.nodes.map((n) => ({
-        id: n.id,
-        type: n.type || 'imageGen',
-        position: n.position,
-        data: nodeState.nodes[n.id] || (n.data as any) || {},
-      }));
-      console.log('[execute] syncing', mergedNodes.length, 'nodes,', canvasState.edges.length, 'edges');
-      console.log('[execute] merged nodes:', JSON.stringify(mergedNodes.map(n => ({ id: n.id, type: n.type, dataKeys: Object.keys(n.data) }))));
-      await Promise.all([
-        syncNodes('default', mergedNodes),
-        syncEdges('default', canvasState.edges),
-      ]);
-
-      const { jobId } = await enqueueWorkflow('default', nodeId);
-      console.log('[ImagePanel] enqueued job:', jobId);
-      // Socket.io will update status → done/error. Keep loading state.
-    } catch {
-      setStatus(nodeId, 'error');
-    } finally {
-      setExecuting(false);
+      console.log('Generate:', { nodeId, prompt: prompt.text, model, ratio, quality });
+    } catch (err) {
+      console.error('[ImageConfigPanel] generate error:', err);
+      updateConfig(nodeId, { status: 'error' });
     }
-  }, [nodeId, setStatus]);
+  }, [nodeId, updateConfig, prompt.text, model, ratio, quality]);
+
+  const handlePasteImage = useCallback(async (file: File) => {
+    if (prompt.allImages.length >= 9) return;
+    const uploaded = await uploadSingleImage(file);
+    if (uploaded) promptRef.current?.insertImage(uploaded.url);
+  }, [prompt.allImages.length, uploadSingleImage]);
+
+  // Conditional return AFTER all hooks
+  if (!node || node.type !== 'image') return null;
 
   return (
-    <div className="nodrag bg-[#222222] rounded-xl w-[680px] h-[200px] box-border"
+    <div
+      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl"
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
         border: '1px solid #3F3F46',
-      }}>
-      <div className="p-3">
-        {/* Reference Image Upload */}
-        <div className="mb-3">
-          <div className="text-xs text-[#888] mb-2">参考图片（可选）</div>
-          <FileUpload
-            accept="image/*"
-            hint="JPG/PNG/WebP ≤20MB"
-            onUploadComplete={(fileId) => {
-              updateConfig(nodeId, { referenceImage: fileId });
-            }}
-          />
+      }}
+    >
+      <div className="p-3 flex flex-col gap-3">
+        {/* ImageThumbnailBar */}
+        <ImageThumbnailBar
+          nodeId={nodeId}
+          images={prompt.allImages}
+          onChange={(allImages) => updatePromptImages(nodeId, allImages)}
+          onImageClick={(imageId) => {
+            const img = prompt.allImages.find((i) => i.id === imageId);
+            if (img) promptRef.current?.insertImage(img.url);
+          }}
+          onImageUploaded={(imageId) => {
+            const img = prompt.allImages.find((i) => i.id === imageId);
+            if (img) promptRef.current?.insertImage(img.url);
+          }}
+          disabled={status === 'loading'}
+        />
+
+        {/* PromptInput */}
+        <PromptInput
+          ref={promptRef}
+          nodeId={nodeId}
+          value={prompt}
+          allImages={prompt.allImages}
+          onPasteImage={handlePasteImage}
+          onChange={(newPrompt) => updateConfig(nodeId, { prompt: newPrompt })}
+          onCommandSelect={handleCommandSelect}
+          onGenerate={handleGenerate}
+          disabled={status === 'loading'}
+        />
+
+        {/* Settings bar */}
+        <div className="flex items-center gap-4 text-[10px] text-[#888]">
+          <span>{model}</span>
+          <span>{ratio}</span>
+          <span>{quality}</span>
         </div>
 
-        {/* Style tags */}
-        <div className="mb-3">
-          <div className="text-xs text-[#888] mb-2">风格标签</div>
-          <div className="flex gap-1.5 flex-wrap">
-            {STYLES.map((s) => (
-              <button
-                key={s}
-                onClick={() => handleStyleToggle(s)}
-                className={`px-2.5 py-1 rounded-full text-[10px] border cursor-pointer transition-colors ${
-                  nodeData?.style === s
-                    ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#60a5fa]'
-                    : 'bg-transparent border-[#444] text-[#888] hover:border-[#60a5fa]'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Supplementary Prompt */}
-        <div className="mb-3">
-          <div className="text-xs text-[#888] mb-1.5">提示词（可选，将追加到上游文本内容后）</div>
-          <textarea
-            placeholder="对上游Prompt的补充说明..."
-            value={nodeData?.extraPrompt ?? ''}
-            onChange={(e) => updateConfig(nodeId, { extraPrompt: e.target.value })}
-            rows={2}
-            className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none focus:border-[#60a5fa] resize-none box-border"
-          />
-        </div>
-
-        {/* Params */}
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div>
-            <div className="text-[10px] text-[#888] mb-1">模型</div>
-            <select
-              value={nodeData?.model ?? ''}
-              onChange={(e) => {
-                updateConfig(nodeId, { model: e.target.value, resolution: '' });
-                updatePrice(e.target.value, undefined);
-              }}
-              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
-            >
-              <option value="">选择模型</option>
-              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="text-[10px] text-[#888] mb-1">分辨率</div>
-            <select
-              value={nodeData?.resolution ?? ''}
-              onChange={(e) => {
-                updateConfig(nodeId, { resolution: e.target.value });
-                updatePrice(nodeData?.model, e.target.value);
-              }}
-              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
-            >
-              <option value="">默认</option>
-              {(selectedModel?.resolutions || []).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="text-[10px] text-[#888] mb-1">生成数量</div>
-            <select
-              value={nodeData?.count ?? 1}
-              onChange={(e) => updateConfig(nodeId, { count: Number(e.target.value) })}
-              className="w-full bg-transparent border border-[#3a3a3a] rounded-md text-[10px] text-[#ccc] px-1.5 py-1.5"
-            >
-              {COUNTS.map((c) => <option key={c} value={c}>{c}张</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Execute — inline row */}
-        <div className="flex justify-between items-center pt-1">
-          <span className="text-xs text-[#f59e0b]">消耗积分: {creditCost || '—'}</span>
+        {/* Generate button */}
+        <div className="flex justify-end">
           <button
             onClick={handleGenerate}
-            disabled={executing}
-            className={`w-9 h-9 text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md transition-colors ${
-              executing ? 'bg-gray-500 cursor-not-allowed' : 'bg-[#4ade80] hover:bg-[#22c55e] shadow-[#4ade80]/30'
-            }`}
+            disabled={status === 'loading' || !prompt.text.trim()}
+            className="w-9 h-9 text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md transition-colors bg-[#4ade80] hover:bg-[#22c55e] shadow-[#4ade80]/30 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:shadow-none"
           >
-            {executing ? '⏳' : '▶'}
+            {status === 'loading' ? '⏳' : '▶'}
           </button>
         </div>
       </div>

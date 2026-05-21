@@ -1,32 +1,63 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import React from 'react';
 import { ImageConfigPanel } from './ImageConfigPanel';
 
-vi.mock('@xyflow/react', () => ({
-  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-  Handle: () => null,
-  Position: { Left: 'left', Right: 'right' },
+// Mock PromptInput — don't render the real Tiptap editor
+vi.mock('./prompt-input/PromptInput', () => ({
+  default: React.forwardRef((props: any, ref: any) => {
+    React.useImperativeHandle(ref, () => ({
+      forceSync: vi.fn(),
+      focus: vi.fn(),
+      clear: vi.fn(),
+      insertImage: vi.fn(),
+    }));
+    return <div data-testid="prompt-input">PromptInput</div>;
+  }),
 }));
 
-const mockUpdateConfig = vi.fn();
-const mockSetStatus = vi.fn();
-
-vi.mock('@/components/FileUpload', () => ({
-  FileUpload: ({ onUploadComplete, accept, hint }: any) => (
-    <div data-testid="file-upload" data-accept={accept} data-hint={hint}>
-      点击或拖拽上传
+// Mock ImageThumbnailBar — don't render the real dnd-kit component
+vi.mock('./prompt-input/ImageThumbnailBar', () => ({
+  ImageThumbnailBar: (props: any) => (
+    <div data-testid="thumbnail-bar">
+      {props.images.map((img: any) => (
+        <div key={img.id} data-testid={`thumb-${img.id}`}>{img.name}</div>
+      ))}
     </div>
   ),
 }));
+
+// Mock @xyflow/react for useViewport
+vi.mock('@xyflow/react', () => ({
+  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+  Handle: () => null,
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+}));
+
+// Mock nodeStore with AppNode nested structure
+const mockUpdateConfig = vi.fn();
+let mockNodeData: any = {
+  style: '写实',
+  model: 'sdxl',
+  quality: 'standard',
+  ratio: '1:1',
+  status: 'idle',
+  prompt: { text: '', allImages: [], referencedImageIds: [] },
+};
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
       nodes: {
-        'img1': { type: 'image', status: 'idle', style: '写实', extraPrompt: '', model: 'SD XL', resolution: '1024×1024', count: 1 },
+        img1: {
+          id: 'img1',
+          type: 'image',
+          position: { x: 0, y: 0 },
+          data: mockNodeData,
+        },
       },
       updateConfig: mockUpdateConfig,
-      setStatus: mockSetStatus,
+      updatePromptImages: vi.fn(),
     };
     if (typeof selector === 'function') return selector(state);
     return state;
@@ -36,51 +67,68 @@ vi.mock('@/stores/nodeStore', () => ({
 describe('ImageConfigPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockNodeData = {
+      style: '写实',
+      model: 'sdxl',
+      quality: 'standard',
+      ratio: '1:1',
+      status: 'idle',
+      prompt: { text: '', allImages: [], referencedImageIds: [] },
+    };
   });
 
-  it('should render style tag buttons', () => {
+  it('renders PromptInput', () => {
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText('写实')).toBeInTheDocument();
-    expect(screen.getByText('动漫')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
 
-  it('should render section labels', () => {
+  it('displays model/ratio/quality from store', () => {
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText('模型')).toBeInTheDocument();
-    expect(screen.getByText('分辨率')).toBeInTheDocument();
-    expect(screen.getByText('生成数量')).toBeInTheDocument();
+    expect(screen.getByText('sdxl')).toBeTruthy();
+    expect(screen.getByText('1:1')).toBeTruthy();
+    expect(screen.getByText('standard')).toBeTruthy();
   });
 
-  it('should render execute button with ▶ symbol', () => {
+  it('generate button is disabled when status is loading', () => {
+    mockNodeData = {
+      ...mockNodeData,
+      status: 'loading',
+      prompt: { text: 'test', allImages: [], referencedImageIds: [] },
+    };
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText('▶')).toBeInTheDocument();
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
   });
 
-  it('should render credit display', () => {
+  it('generate button is disabled when prompt text is empty', () => {
+    mockNodeData = {
+      ...mockNodeData,
+      status: 'idle',
+      prompt: { text: '', allImages: [], referencedImageIds: [] },
+    };
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText(/消耗积分/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
   });
 
-  it('should render supplementary prompt input', () => {
+  it('generate button is enabled when prompt has text and status is idle', () => {
+    mockNodeData = {
+      ...mockNodeData,
+      status: 'idle',
+      prompt: { text: 'test prompt', allImages: [], referencedImageIds: [] },
+    };
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByPlaceholderText(/补充说明/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button');
+    expect(btn).not.toBeDisabled();
   });
 
-  it('should call updateConfig when style tag clicked', () => {
+  it('shows loading indicator (⏳) when status is loading', () => {
+    mockNodeData = {
+      ...mockNodeData,
+      status: 'loading',
+      prompt: { text: 'test', allImages: [], referencedImageIds: [] },
+    };
     render(<ImageConfigPanel nodeId="img1" />);
-    fireEvent.click(screen.getByText('动漫'));
-    expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { style: '动漫' });
-  });
-
-  it('should call setStatus when execute button clicked', () => {
-    render(<ImageConfigPanel nodeId="img1" />);
-    fireEvent.click(screen.getByText('▶'));
-    expect(mockSetStatus).toHaveBeenCalledWith('img1', 'loading');
-  });
-
-  it('should show reference image upload area', () => {
-    const { container } = render(<ImageConfigPanel nodeId="img1" />);
-    // FileUpload renders "点击或拖拽上传" text
-    expect(container.innerHTML).toContain('点击或拖拽上传');
+    expect(screen.getByText('⏳')).toBeTruthy();
   });
 });

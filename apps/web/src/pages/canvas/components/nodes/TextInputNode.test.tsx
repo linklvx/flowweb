@@ -39,14 +39,17 @@ vi.mock('@tiptap/react', () => ({
 // Mock nodeStore
 const mockUpdateText = vi.fn();
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: { n1: { type: 'text', content: '<p>一只猫在窗台上</p>' } },
-      updateText: mockUpdateText,
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useNodeStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = {
+        nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>' } } },
+        updateText: mockUpdateText,
+      };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+  ),
+  isTextNode: (node: any) => node?.type === 'text',
 }));
 
 import { TextInputNode } from './TextInputNode';

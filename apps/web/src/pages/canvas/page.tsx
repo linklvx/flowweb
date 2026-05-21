@@ -39,10 +39,15 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
     })),
     viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
   });
-  // Restore node content
+  // Restore node content as AppNode structure
   const content: Record<string, any> = {};
   for (const n of project.nodes || []) {
-    content[n.id] = n.data || {};
+    content[n.id] = {
+      id: n.id,
+      type: n.type,
+      position: n.position || { x: 0, y: 0 },
+      data: n.data || {},
+    };
   }
   useNodeStore.setState({ nodes: content });
   return project.name || '未命名项目';

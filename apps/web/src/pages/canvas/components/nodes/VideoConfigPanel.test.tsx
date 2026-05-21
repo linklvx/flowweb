@@ -15,7 +15,7 @@ vi.mock('@/components/FileUpload', () => ({
 const { mockStoreState } = vi.hoisted(() => {
   const state: any = {
     nodes: {
-      'v1': { type: 'video', mode: 'text-to-video', prompt: 'test video prompt', model: '', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' },
+      'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: { model: '', mode: 'text-to-video', prompt: 'test video prompt', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' } },
     },
     updateConfig: vi.fn(),
     setStatus: vi.fn(),
@@ -54,7 +54,7 @@ describe('VideoConfigPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStoreState.nodes = {
-      'v1': { type: 'video', mode: 'text-to-video', prompt: 'test video prompt', model: '', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' },
+      'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: { model: '', mode: 'text-to-video', prompt: 'test video prompt', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' } },
     };
   });
 
@@ -91,13 +91,13 @@ describe('VideoConfigPanel', () => {
   });
 
   it('should show upload for image-to-video mode', () => {
-    mockStoreState.nodes['vid-1'] = { type: 'video', mode: 'image-to-video' };
+    mockStoreState.nodes['vid-1'] = { id: 'vid-1', type: 'video', position: { x: 0, y: 0 }, data: { mode: 'image-to-video', model: '' } };
     const { container } = renderPanel('vid-1');
     expect(container.innerHTML).toContain('点击或拖拽上传');
   });
 
   it('should show dual upload for first-last-frame mode', () => {
-    mockStoreState.nodes['vid-1'] = { type: 'video', mode: 'first-last-frame' };
+    mockStoreState.nodes['vid-1'] = { id: 'vid-1', type: 'video', position: { x: 0, y: 0 }, data: { mode: 'first-last-frame', model: '' } };
     const { container } = renderPanel('vid-1');
     expect(container.textContent).toContain('开始帧');
     expect(container.textContent).toContain('结束帧');

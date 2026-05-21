@@ -1,0 +1,175 @@
+/* PromptInput — component-scoped styles */
+
+/* /command popup (rendered into document.body via createRoot) */
+.command-popup {
+  background-color: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  max-height: 300px;
+  overflow-y: auto;
+  min-width: 220px;
+}
+
+.command-category {
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 500;
+  text-transform: uppercase;
+  border-bottom: 1px solid #374151;
+}
+
+.command-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  color: #d1d5db;
+}
+
+.command-item:hover,
+.command-item.selected {
+  background-color: #374151;
+}
+
+.command-item.selected {
+  color: #fff;
+}
+
+.command-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.command-info {
+  flex: 1;
+}
+
+.command-name {
+  color: #e5e7eb;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.command-desc {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+/* Tiptap editor */
+.prompt-editor {
+  min-height: 40px;
+  line-height: 1.6;
+  font-size: 14px;
+  color: #e5e7eb;
+  word-break: break-word;
+}
+
+.prompt-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #6b7280;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* /command chip inside editor */
+.command-chip {
+  display: inline;
+  background-color: #2563eb;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  margin: 0 2px;
+}
+
+/* ImageThumbnailBar — horizontal scrolling with hidden scrollbar */
+.thumbnail-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none; /* Firefox */
+}
+.thumbnail-bar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+/* Individual thumbnail */
+.thumbnail-item {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  border: 1px solid #2A2A34;
+  cursor: pointer;
+}
+
+/* Upload progress overlay */
+.thumbnail-progress {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Error overlay */
+.thumbnail-error {
+  position: absolute;
+  inset: 0;
+  background: rgba(239, 68, 68, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+/* Delete button on thumbnail */
+.thumbnail-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Add upload button */
+.thumbnail-add {
+  width: 64px;
+  height: 64px;
+  border: 1px dashed #3F3F46;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #6b7280;
+  transition: border-color 0.2s;
+  font-size: 24px;
+}
+.thumbnail-add:hover {
+  border-color: #52525B;
+}

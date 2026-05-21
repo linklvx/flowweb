@@ -27,17 +27,25 @@ vi.mock('@xyflow/react', () => ({
 }));
 
 // Mock stores
+const { mockNodeStoreState } = vi.hoisted(() => {
+  const state: any = {
+    nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', model: 'm1' } } },
+    setStatus: vi.fn(),
+  };
+  return { mockNodeStoreState: state };
+});
+
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: { n1: { type: 'text', content: '', model: 'm1' } },
-      setStatus: vi.fn(),
-      getState: () => state,
-      setState: vi.fn(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useNodeStore: Object.assign(
+    vi.fn((selector?: any) => {
+      if (typeof selector === 'function') return selector(mockNodeStoreState);
+      return mockNodeStoreState;
+    }),
+    {
+      getState: () => mockNodeStoreState,
+      setState: (partial: any) => { Object.assign(mockNodeStoreState, partial); },
+    }
+  ),
 }));
 
 vi.mock('@/stores/canvasStore', () => ({

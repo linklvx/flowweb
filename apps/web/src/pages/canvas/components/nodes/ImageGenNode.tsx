@@ -1,9 +1,11 @@
-import { memo, useEffect, useState, useCallback } from 'react';
+import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
+import axios from 'axios';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -31,7 +33,8 @@ function calcConstrainedSize(naturalW: number, naturalH: number) {
 }
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
-  const nodeData = useNodeStore((s) => s.nodes[id]) as any;
+  const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
+  const updateConfig = useNodeStore((s) => s.updateConfig);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -88,8 +91,89 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     return () => { socket.disconnect(); };
   }, [id]);
 
+  // ---- Floating upload button ----
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    setUploading(true);
+    setUploadProgress(0);
+
+    try {
+      const { fileId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        type: 'uploaded',
+      });
+
+      const formData = new FormData();
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+      formData.append('file', file);
+
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+
+      await axios.post(proxyUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (e.total) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        },
+      });
+
+      await confirmUpload({ fileId, key, fileSize: file.size });
+
+      updateConfig(id, { referenceImage: fileId });
+    } catch (err: any) {
+      console.error('[ImageGenNode] upload error:', err.message);
+    } finally {
+      setUploading(false);
+    }
+  }, [id, updateConfig]);
+
   return (
     <div className="relative">
+      {/* Floating upload button — only when selected */}
+      {selected && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadFile(file);
+            }}
+          />
+          <button
+            className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
+            style={{ bottom: 'calc(100% + 28px)' }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <>
+                <span className="inline-block w-3.5 h-3.5 border-2 border-[#ccc] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">{uploadProgress}%</span>
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                  <path d="M7 9l5 -5l5 5" />
+                  <path d="M12 4l0 12" />
+                </svg>
+                <span className="text-sm">上传</span>
+              </>
+            )}
+          </button>
+        </>
+      )}
+
       <div
         className="absolute -top-[18px] left-0 text-[11px] text-[#999] font-medium flex items-center gap-1.5"
         style={{ width: containerWidth }}

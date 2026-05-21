@@ -1,98 +1,258 @@
 import { create } from 'zustand';
 
-interface TextNodeData {
-  type: 'text';
+// ========== Prompt-related types (defined inline for now) ==========
+
+export interface ImageItem {
+  id: string;
+  url: string;
+  name: string;
+  status: 'uploading' | 'success' | 'error';
+  progress?: number;
+}
+
+export interface PromptValue {
+  text: string;
+  allImages: ImageItem[];
+  referencedImageIds: string[];
+}
+
+// ========== Node data types ==========
+
+export interface TextNodeData {
   content: string;
 }
 
-interface ImageNodeData {
-  type: 'image';
+export interface ImageNodeData {
   style: string;
-  extraPrompt: string;
   model: string;
-  resolution: string;
-  count: number;
-  resultUrl?: string;
+  quality: string;
+  ratio: string;
   fileId?: string;
   referenceImage?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
+  prompt: PromptValue;
 }
 
-type NodeData = TextNodeData | ImageNodeData;
-
-interface ImageConfig {
-  style?: string;
-  extraPrompt?: string;
-  model?: string;
-  resolution?: string;
-  count?: number;
-  referenceImage?: string;
+export interface VideoNodeData {
+  model: string;
+  status: 'idle' | 'loading' | 'done' | 'error';
+  fileId?: string;
 }
+
+export type NodeData = TextNodeData | ImageNodeData | VideoNodeData;
+
+// ========== AppNode (React Flow aligned) ==========
+
+export interface AppNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  selected?: boolean;
+  dragging?: boolean;
+  data: NodeData;
+}
+
+// ========== Type guards ==========
+
+export function isImageNode(node: AppNode): node is AppNode & { data: ImageNodeData } {
+  return node.type === 'image';
+}
+
+export function isTextNode(node: AppNode): node is AppNode & { data: TextNodeData } {
+  return node.type === 'text';
+}
+
+// ========== Private helpers ==========
+
+function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | undefined {
+  return nodes[nodeId];
+}
+
+function makeImageData(
+  overrides: Partial<ImageNodeData>,
+  existing?: ImageNodeData
+): ImageNodeData {
+  return {
+    style: overrides.style ?? existing?.style ?? '写实',
+    model: overrides.model ?? existing?.model ?? 'sdxl',
+    quality: overrides.quality ?? existing?.quality ?? 'standard',
+    ratio: overrides.ratio ?? existing?.ratio ?? '1:1',
+    fileId: overrides.fileId ?? existing?.fileId,
+    referenceImage: overrides.referenceImage ?? existing?.referenceImage,
+    status: existing?.status ?? 'idle',
+    prompt: existing?.prompt ?? {
+      text: '',
+      allImages: [],
+      referencedImageIds: [],
+    },
+  };
+}
+
+// ========== Store interface ==========
 
 interface NodeState {
-  nodes: Record<string, NodeData>;
+  nodes: Record<string, AppNode>;
+
+  addNode: (node: AppNode) => void;
+  updateNodeData: <T>(nodeId: string, data: Partial<T>) => void;
+  deleteNode: (nodeId: string) => Promise<void>;
 
   updateText: (id: string, content: string) => void;
-  updateConfig: (id: string, config: ImageConfig) => void;
+  updateConfig: (id: string, config: Partial<ImageNodeData>) => void;
   setStatus: (id: string, status: ImageNodeData['status']) => void;
-  setResult: (id: string, url: string) => void;
   setFileResult: (id: string, fileId: string) => void;
-  getNodeData: (id: string) => NodeData | undefined;
+  updatePromptImages: (nodeId: string, allImages: ImageItem[]) => void;
+  getNodeData: <T>(id: string) => T | undefined;
 }
+
+// ========== Store ==========
 
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
 
-  updateText: (id, content) => {
+  addNode: (node) => {
     set((s) => ({
-      nodes: { ...s.nodes, [id]: { type: 'text', content } as TextNodeData },
+      nodes: {
+        ...s.nodes,
+        [node.id]: {
+          ...node,
+          position: node.position ?? { x: 0, y: 0 },
+        },
+      },
     }));
   },
 
+  updateNodeData: <T>(nodeId: string, data: Partial<T>) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: {
+            ...existing.data,
+            ...(data as Record<string, unknown>),
+          } as NodeData,
+        },
+      },
+    }));
+  },
+
+  deleteNode: async (nodeId: string) => {
+    const node = getNode(get().nodes, nodeId);
+    if (node && isImageNode(node)) {
+      const imgData = node.data;
+      const deleteRefs = imgData.prompt.allImages.map((img) =>
+        fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
+      );
+      await Promise.allSettled(deleteRefs);
+      if (imgData.fileId) {
+        await fetch(`/api/storage/files/${imgData.fileId}`, { method: 'DELETE' }).catch(() => {});
+      }
+    }
+
+    const newNodes = { ...get().nodes };
+    delete newNodes[nodeId];
+    set({ nodes: newNodes });
+  },
+
+  updateText: (id, content) => {
+    const existing = getNode(get().nodes, id);
+    if (existing) {
+      set((s) => ({
+        nodes: {
+          ...s.nodes,
+          [id]: {
+            ...existing,
+            data: { ...existing.data, content },
+          },
+        },
+      }));
+    } else {
+      set((s) => ({
+        nodes: {
+          ...s.nodes,
+          [id]: {
+            id,
+            type: 'text',
+            position: { x: 0, y: 0 },
+            data: { content },
+          },
+        },
+      }));
+    }
+  },
+
   updateConfig: (id, config) => {
-    const existing = get().nodes[id] as ImageNodeData | undefined;
+    const existing = getNode(get().nodes, id);
+    const existingData: ImageNodeData | undefined =
+      existing && isImageNode(existing) ? existing.data : undefined;
+
     set((s) => ({
       nodes: {
         ...s.nodes,
         [id]: {
+          id,
           type: 'image',
-          style: config.style ?? existing?.style ?? '写实',
-          extraPrompt: config.extraPrompt ?? existing?.extraPrompt ?? '',
-          model: config.model ?? existing?.model ?? 'SD XL',
-          resolution: config.resolution ?? existing?.resolution ?? '1024×1024',
-          count: config.count ?? existing?.count ?? 1,
-          resultUrl: existing?.resultUrl,
-          fileId: existing?.fileId,
-          referenceImage: config.referenceImage ?? existing?.referenceImage,
-          status: existing?.status ?? 'idle',
-        } as ImageNodeData,
+          position: existing?.position ?? { x: 0, y: 0 },
+          selected: existing?.selected,
+          dragging: existing?.dragging,
+          data: makeImageData(config, existingData),
+        },
       },
     }));
   },
 
   setStatus: (id, status) => {
-    const existing = get().nodes[id] as ImageNodeData;
+    const existing = getNode(get().nodes, id);
     if (!existing) return;
     set((s) => ({
-      nodes: { ...s.nodes, [id]: { ...existing, status } },
-    }));
-  },
-
-  setResult: (id, url) => {
-    const existing = get().nodes[id] as ImageNodeData;
-    if (!existing) return;
-    set((s) => ({
-      nodes: { ...s.nodes, [id]: { ...existing, resultUrl: url, status: 'done' as const } },
+      nodes: {
+        ...s.nodes,
+        [id]: {
+          ...existing,
+          data: { ...existing.data, status },
+        },
+      },
     }));
   },
 
   setFileResult: (id, fileId) => {
-    const existing = get().nodes[id] as ImageNodeData;
+    const existing = getNode(get().nodes, id);
     if (!existing) return;
     set((s) => ({
-      nodes: { ...s.nodes, [id]: { ...existing, fileId, status: 'done' as const } },
+      nodes: {
+        ...s.nodes,
+        [id]: {
+          ...existing,
+          data: { ...existing.data, fileId, status: 'done' as const },
+        },
+      },
     }));
   },
 
-  getNodeData: (id) => get().nodes[id],
+  updatePromptImages: (nodeId, allImages) => {
+    set((state) => {
+      const node = state.nodes[nodeId];
+      if (!node || node.type !== 'image') return state;
+      return {
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...node,
+            data: {
+              ...node.data,
+              prompt: { ...node.data.prompt, allImages },
+            },
+          },
+        },
+      };
+    });
+  },
+
+  getNodeData: <T>(id: string): T | undefined => {
+    return getNode(get().nodes, id)?.data as T | undefined;
+  },
 }));
