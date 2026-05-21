@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
 
 describe('canvasStore', () => {
   beforeEach(() => {
     useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null });
+    useNodeStore.setState({ nodes: {} });
   });
 
   it('should initialize with empty canvas', () => {
@@ -84,5 +86,13 @@ describe('canvasStore', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].source).toBe('n1');
     expect(edges[0].target).toBe('n2');
+  });
+
+  it('addNode should also populate nodeStore so ImageConfigPanel can read node data', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 50, y: 60 });
+    const node = useNodeStore.getState().nodes[nodeId];
+    expect(node).toBeDefined();
+    expect(node.type).toBe('imageGen');
+    expect(node.position).toEqual({ x: 50, y: 60 });
   });
 });

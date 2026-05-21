@@ -17,7 +17,7 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
-      nodes: { 'img1': { id: 'img1', type: 'image', position: { x: 0, y: 0 }, data: mockNodeData } },
+      nodes: { 'img1': { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: mockNodeData } },
       updateConfig: vi.fn(),
     };
     if (typeof selector === 'function') return selector(state);

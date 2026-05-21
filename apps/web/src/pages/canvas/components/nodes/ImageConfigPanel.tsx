@@ -19,7 +19,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const promptRef = useRef<PromptInputRef>(null);
   const { uploadSingleImage } = useImageUpload(nodeId);
 
-  const nodeData = (node?.type === 'image' ? node.data : undefined) as ImageNodeData | undefined;
+  const nodeData = (node?.type === 'imageGen' ? node.data : undefined) as ImageNodeData | undefined;
   const model = nodeData?.model ?? 'sdxl';
   const ratio = nodeData?.ratio ?? '1:1';
   const quality = nodeData?.quality ?? 'standard';
@@ -52,7 +52,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [prompt.allImages.length, uploadSingleImage]);
 
   // Conditional return AFTER all hooks
-  if (!node || node.type !== 'image') return null;
+  if (!node || node.type !== 'imageGen') return null;
 
   return (
     <div

@@ -55,7 +55,7 @@ export interface AppNode {
 // ========== Type guards ==========
 
 export function isImageNode(node: AppNode): node is AppNode & { data: ImageNodeData } {
-  return node.type === 'image';
+  return node.type === 'imageGen';
 }
 
 export function isTextNode(node: AppNode): node is AppNode & { data: TextNodeData } {
@@ -80,7 +80,7 @@ function makeImageData(
     fileId: overrides.fileId ?? existing?.fileId,
     referenceImage: overrides.referenceImage ?? existing?.referenceImage,
     status: existing?.status ?? 'idle',
-    prompt: existing?.prompt ?? {
+    prompt: overrides.prompt ?? existing?.prompt ?? {
       text: '',
       allImages: [],
       referencedImageIds: [],
@@ -195,7 +195,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         ...s.nodes,
         [id]: {
           id,
-          type: 'image',
+          type: 'imageGen',
           position: existing?.position ?? { x: 0, y: 0 },
           selected: existing?.selected,
           dragging: existing?.dragging,
@@ -236,7 +236,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   updatePromptImages: (nodeId, allImages) => {
     set((state) => {
       const node = state.nodes[nodeId];
-      if (!node || node.type !== 'image') return state;
+      if (!node || node.type !== 'imageGen') return state;
       return {
         nodes: {
           ...state.nodes,

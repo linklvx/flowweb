@@ -21,7 +21,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(() => nodeData?.content || '');
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -171,7 +171,15 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         {/* Prompt */}
         <textarea
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => {
+            setPrompt(e.target.value);
+            // Persist to nodeStore immediately so text survives panel hide/show
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: e.target.value } } },
+            });
+          }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
           className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none resize-none box-border"
         />

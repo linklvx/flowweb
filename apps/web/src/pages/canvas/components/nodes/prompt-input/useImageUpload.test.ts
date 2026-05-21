@@ -19,7 +19,7 @@ const {
   const nodes: Record<string, any> = {};
 
   const updateFn = vi.fn((nodeId: string, allImages: ImageItem[]) => {
-    if (nodes[nodeId]?.type === 'image') {
+    if (nodes[nodeId]?.type === 'imageGen') {
       nodes[nodeId] = {
         ...nodes[nodeId],
         data: {
@@ -90,7 +90,7 @@ import { useImageUpload } from './useImageUpload';
 function makeImageNode(id: string, allImages: ImageItem[] = []): Record<string, any> {
   return {
     id,
-    type: 'image',
+    type: 'imageGen',
     position: { x: 0, y: 0 },
     data: {
       style: '写实',

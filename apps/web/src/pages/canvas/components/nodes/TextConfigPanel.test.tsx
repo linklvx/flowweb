@@ -118,7 +118,16 @@ describe('TextConfigPanel', () => {
     render(<TextConfigPanel nodeId="n1" />);
     const btn = document.querySelector('[aria-label="语音输入"]')!;
     fireEvent.click(btn);
-    // Button should have active styling (bg-white/20)
     expect(btn.className).toContain('bg-white/20');
+  });
+
+  it('should restore persisted prompt from nodeStore on mount', () => {
+    // Set stored content in mock nodeStore
+    mockNodeStoreState.nodes.n1.data.content = 'saved text';
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const textarea = container.querySelector('textarea');
+    expect(textarea?.value).toBe('saved text');
+    // Cleanup
+    mockNodeStoreState.nodes.n1.data.content = '';
   });
 });

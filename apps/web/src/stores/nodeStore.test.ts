@@ -41,7 +41,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('addNode should add image node with all defaults', () => {
     const imageNode: AppNode = {
       id: 'img1',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',
@@ -57,7 +57,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const stored = useNodeStore.getState().nodes['img1'];
 
     expect(stored).toBeDefined();
-    expect(stored.type).toBe('image');
+    expect(stored.type).toBe('imageGen');
     const imgData = stored.data as ImageNodeData;
     expect(imgData.style).toBe('写实');
     expect(imgData.model).toBe('sdxl');
@@ -99,7 +99,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('should partial-merge without overwriting other fields', () => {
     const node: AppNode = {
       id: 'img1',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',
@@ -128,7 +128,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('should update image node model/ratio/quality', () => {
     const node: AppNode = {
       id: 'img2',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '动漫',
@@ -201,6 +201,15 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.ratio).toBe('1:1');
     expect(imgData.status).toBe('idle');
     expect(imgData.prompt).toEqual({ text: '', allImages: [], referencedImageIds: [] });
+  });
+
+  it('should persist prompt text via updateConfig', () => {
+    useNodeStore.getState().updateConfig('img9', {
+      prompt: { text: 'hello world', allImages: [], referencedImageIds: [] },
+    });
+    const stored = useNodeStore.getState().nodes['img9'];
+    const imgData = stored.data as ImageNodeData;
+    expect(imgData.prompt.text).toBe('hello world');
   });
 
   // 10. setStatus should update status field
@@ -277,7 +286,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     const imageNode: AppNode = {
       id: 'img-cleanup',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',
@@ -325,7 +334,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('should correctly narrow via isImageNode type guard', () => {
     const imageNode: AppNode = {
       id: 'img-guard',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',
@@ -383,7 +392,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     // Negative test — image node is not text
     const imageNode: AppNode = {
       id: 'img-guard-2',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',
@@ -404,7 +413,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('should update allImages without overwriting other prompt fields', () => {
     const node: AppNode = {
       id: 'img-prompt',
-      type: 'image',
+      type: 'imageGen',
       position: { x: 0, y: 0 },
       data: {
         style: '写实',

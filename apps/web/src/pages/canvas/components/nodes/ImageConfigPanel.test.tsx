@@ -51,7 +51,7 @@ vi.mock('@/stores/nodeStore', () => ({
       nodes: {
         img1: {
           id: 'img1',
-          type: 'image',
+          type: 'imageGen',
           position: { x: 0, y: 0 },
           data: mockNodeData,
         },

@@ -4,6 +4,7 @@ import {
   applyNodeChanges, applyEdgeChanges,
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
+import { useNodeStore } from './nodeStore';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -40,13 +41,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addNode: (type, position) => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
+    const nodeData = resolvedType === 'textInput' ? { content: '' } : {};
     const node: Node = {
       id,
       type: resolvedType,
       position,
-      data: resolvedType === 'textInput' ? { content: '' } : {},
+      data: nodeData,
     };
     set((s) => ({ nodes: [...s.nodes, node] }));
+    // Also populate nodeStore so ImageGenNode/ImageConfigPanel can read node data
+    useNodeStore.getState().addNode({
+      id,
+      type: resolvedType,
+      position,
+      data: nodeData as any,
+    });
     return id;
   },
 

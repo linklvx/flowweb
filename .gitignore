@@ -9,3 +9,4 @@ dist/
 *.tsbuildinfo
 services/
 .claude/worktrees/
+.data/

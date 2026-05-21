@@ -431,9 +431,13 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       [forceSync, focus, clear, insertImage],
     );
 
-    // ---- 5. Cleanup editor on unmount ----
+    // ---- 5. Cleanup: flush pending writes + destroy on unmount ----
+    const forceSyncRef = useRef(forceSync);
+    forceSyncRef.current = forceSync;
+
     useEffect(() => {
       return () => {
+        forceSyncRef.current();
         editor?.destroy();
       };
     }, [editor]);

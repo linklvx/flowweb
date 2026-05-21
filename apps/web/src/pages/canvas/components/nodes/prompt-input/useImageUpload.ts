@@ -22,7 +22,7 @@ export function useImageUpload(nodeId: string) {
     onProgress?: (p: number) => void,
   ): Promise<ImageItem | null> {
     // Type guard: must be an image node
-    if (!node || node.type !== 'image') return null;
+    if (!node || node.type !== 'imageGen') return null;
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const tempUrl = URL.createObjectURL(file);
@@ -132,7 +132,7 @@ export function useImageUpload(nodeId: string) {
     files: File[],
     maxCount?: number,
   ): Promise<ImageItem[]> {
-    if (!node || node.type !== 'image') return [];
+    if (!node || node.type !== 'imageGen') return [];
 
     // Get existing images to calculate remaining slots
     const existingImages = getLatestAllImages();

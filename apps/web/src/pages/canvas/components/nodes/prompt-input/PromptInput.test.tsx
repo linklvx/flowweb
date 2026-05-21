@@ -236,4 +236,35 @@ describe('PromptInput', () => {
       });
     }).not.toThrow();
   });
+
+  // ---- 8. unmount flushes pending debounced writes ----
+  it('8. flushes pending debounced onChange on unmount so content is not lost', () => {
+    vi.useFakeTimers();
+    const { unmount } = renderPromptInput();
+
+    mockGetTextResult.current = 'typed before deselection';
+
+    // Simulate user typing — triggers debounced onUpdate
+    act(() => {
+      capturedEditorConfig.current!.onUpdate({ editor: mockEditor } as any);
+    });
+
+    // onChange NOT yet called (debounce pending)
+    expect(defaultOnChange).not.toHaveBeenCalled();
+
+    // Unmount (simulates panel hiding when node deselected)
+    unmount();
+
+    // After unmount, onChange should have been called with the latest text
+    expect(defaultOnChange).toHaveBeenCalledWith({
+      text: 'typed before deselection',
+      allImages: [],
+      referencedImageIds: [],
+    });
+
+    // Editor should be destroyed
+    expect(mockEditor.destroy).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
 });
