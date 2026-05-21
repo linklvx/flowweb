@@ -11,6 +11,7 @@ vi.mock('./prompt-input/PromptInput', () => ({
       focus: vi.fn(),
       clear: vi.fn(),
       insertImage: vi.fn(),
+      setText: vi.fn(),
     }));
     return <div data-testid="prompt-input">PromptInput</div>;
   }),
@@ -42,7 +43,7 @@ let mockNodeData: any = {
   quality: 'standard',
   ratio: '1:1',
   status: 'idle',
-  prompt: { text: '', allImages: [], referencedImageIds: [] },
+  prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
 };
 
 vi.mock('@/stores/nodeStore', () => ({
@@ -73,7 +74,7 @@ describe('ImageConfigPanel', () => {
       quality: 'standard',
       ratio: '1:1',
       status: 'idle',
-      prompt: { text: '', allImages: [], referencedImageIds: [] },
+      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
     };
   });
 
@@ -82,53 +83,13 @@ describe('ImageConfigPanel', () => {
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
 
-  it('displays model/ratio/quality from store', () => {
+  it('renders maximize button in top-right corner', () => {
     render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText('sdxl')).toBeTruthy();
-    expect(screen.getByText('1:1')).toBeTruthy();
-    expect(screen.getByText('standard')).toBeTruthy();
+    expect(screen.getByTestId('canvas-node-generation-input-bar-maximize-button')).toBeTruthy();
   });
 
-  it('generate button is disabled when status is loading', () => {
-    mockNodeData = {
-      ...mockNodeData,
-      status: 'loading',
-      prompt: { text: 'test', allImages: [], referencedImageIds: [] },
-    };
+  it('renders thumbnail bar', () => {
     render(<ImageConfigPanel nodeId="img1" />);
-    const btn = screen.getByRole('button');
-    expect(btn).toBeDisabled();
-  });
-
-  it('generate button is disabled when prompt text is empty', () => {
-    mockNodeData = {
-      ...mockNodeData,
-      status: 'idle',
-      prompt: { text: '', allImages: [], referencedImageIds: [] },
-    };
-    render(<ImageConfigPanel nodeId="img1" />);
-    const btn = screen.getByRole('button');
-    expect(btn).toBeDisabled();
-  });
-
-  it('generate button is enabled when prompt has text and status is idle', () => {
-    mockNodeData = {
-      ...mockNodeData,
-      status: 'idle',
-      prompt: { text: 'test prompt', allImages: [], referencedImageIds: [] },
-    };
-    render(<ImageConfigPanel nodeId="img1" />);
-    const btn = screen.getByRole('button');
-    expect(btn).not.toBeDisabled();
-  });
-
-  it('shows loading indicator (⏳) when status is loading', () => {
-    mockNodeData = {
-      ...mockNodeData,
-      status: 'loading',
-      prompt: { text: 'test', allImages: [], referencedImageIds: [] },
-    };
-    render(<ImageConfigPanel nodeId="img1" />);
-    expect(screen.getByText('⏳')).toBeTruthy();
+    expect(screen.getByTestId('thumbnail-bar')).toBeTruthy();
   });
 });

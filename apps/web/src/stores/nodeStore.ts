@@ -82,6 +82,7 @@ function makeImageData(
     status: existing?.status ?? 'idle',
     prompt: overrides.prompt ?? existing?.prompt ?? {
       text: '',
+      html: '',
       allImages: [],
       referencedImageIds: [],
     },

@@ -23,6 +23,7 @@ export interface PromptInputRef {
   focus: () => void;
   clear: () => void;
   insertImage: (src: string) => void;
+  setText: (text: string) => void;
 }
 
 interface PromptInputProps {
@@ -326,18 +327,18 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
           },
         }),
       ],
-      content: value.text,
+      content: value.html || value.text,
       editable: !disabled,
       editorProps: {
         attributes: {
           class: 'prompt-editor outline-none',
-          style: `max-height: ${maxHeight}px; overflow-y: auto;`,
+          style: `min-height: 80px; max-height: ${maxHeight}px; overflow-y: auto; font-size: 14px; line-height: 24px; color: rgb(245, 245, 245);`,
         },
       },
       onUpdate: ({ editor: ed }) => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
-          onChange({ ...valueRef.current, text: ed.getText() });
+          onChange({ ...valueRef.current, text: ed.getText(), html: ed.getHTML() });
         }, debounceMs);
       },
     });
@@ -407,7 +408,7 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
         clearTimeout(debounceTimerRef.current);
       }
       if (editor) {
-        onChange({ ...valueRef.current, text: editor.getText() });
+        onChange({ ...valueRef.current, text: editor.getText(), html: editor.getHTML() });
       }
     }, [editor, onChange]);
 
@@ -425,16 +426,24 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       [editor],
     );
 
+    const setText = useCallback(
+      (text: string) => {
+        editor?.commands.setContent(text);
+      },
+      [editor],
+    );
+
     useImperativeHandle(
       ref,
-      () => ({ forceSync, focus, clear, insertImage }),
-      [forceSync, focus, clear, insertImage],
+      () => ({ forceSync, focus, clear, insertImage, setText }),
+      [forceSync, focus, clear, insertImage, setText],
     );
 
     // ---- 5. Cleanup: flush pending writes + destroy on unmount ----
     const forceSyncRef = useRef(forceSync);
     forceSyncRef.current = forceSync;
 
+    // ---- 5b. Cleanup: flush pending writes + destroy on unmount ----
     useEffect(() => {
       return () => {
         forceSyncRef.current();

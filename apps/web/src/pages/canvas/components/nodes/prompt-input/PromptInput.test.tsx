@@ -10,6 +10,7 @@ const {
   mockUnmount,
   capturedEditorConfig,
   mockGetTextResult,
+  mockGetHTMLResult,
   mockEditor,
 } = vi.hoisted(() => {
   const mockCreateRootFn = vi.fn(() => ({
@@ -20,9 +21,11 @@ const {
   const mockUnmountFn = vi.fn();
   const capturedEditorConfigHolder: { current: Record<string, any> | null } = { current: null };
   const mockGetTextResultHolder: { current: string } = { current: 'test text' };
+  const mockGetHTMLResultHolder: { current: string } = { current: '<p>test text</p>' };
 
   const mockEditorObj = {
     getText: vi.fn(() => mockGetTextResultHolder.current),
+    getHTML: vi.fn(() => mockGetHTMLResultHolder.current),
     commands: {
       focus: vi.fn(),
       clearContent: vi.fn(),
@@ -46,6 +49,7 @@ const {
     mockUnmount: mockUnmountFn,
     capturedEditorConfig: capturedEditorConfigHolder,
     mockGetTextResult: mockGetTextResultHolder,
+    mockGetHTMLResult: mockGetHTMLResultHolder,
     mockEditor: mockEditorObj,
   };
 });
@@ -94,6 +98,7 @@ describe('PromptInput', () => {
   const defaultOnGenerate = vi.fn();
   const defaultValue: PromptValue = {
     text: '',
+    html: '',
     allImages: [],
     referencedImageIds: [],
   };
@@ -145,6 +150,7 @@ describe('PromptInput', () => {
     expect(capturedEditorConfig.current!.onUpdate).toBeDefined();
 
     mockGetTextResult.current = 'hello world';
+    mockGetHTMLResult.current = '<p>hello world</p>';
 
     // Simulate Tiptap's onUpdate callback
     act(() => {
@@ -161,6 +167,7 @@ describe('PromptInput', () => {
     expect(defaultOnChange).toHaveBeenCalledTimes(1);
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'hello world',
+      html: '<p>hello world</p>',
       allImages: [],
       referencedImageIds: [],
     });
@@ -180,6 +187,7 @@ describe('PromptInput', () => {
     const { ref } = renderPromptInput();
 
     mockGetTextResult.current = 'forced text';
+    mockGetHTMLResult.current = '<p>forced text</p>';
 
     // Trigger debounced onUpdate
     act(() => {
@@ -194,6 +202,7 @@ describe('PromptInput', () => {
     // onChange must be called synchronously (not after debounce delay)
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'forced text',
+      html: '<p>forced text</p>',
       allImages: [],
       referencedImageIds: [],
     });
@@ -243,6 +252,7 @@ describe('PromptInput', () => {
     const { unmount } = renderPromptInput();
 
     mockGetTextResult.current = 'typed before deselection';
+    mockGetHTMLResult.current = '<p>typed before deselection</p>';
 
     // Simulate user typing — triggers debounced onUpdate
     act(() => {
@@ -258,6 +268,7 @@ describe('PromptInput', () => {
     // After unmount, onChange should have been called with the latest text
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'typed before deselection',
+      html: '<p>typed before deselection</p>',
       allImages: [],
       referencedImageIds: [],
     });

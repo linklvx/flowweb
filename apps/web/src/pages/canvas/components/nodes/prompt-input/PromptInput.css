@@ -62,11 +62,11 @@
 
 /* Tiptap editor */
 .prompt-editor {
-  min-height: 40px;
-  line-height: 1.6;
-  font-size: 14px;
-  color: #e5e7eb;
   word-break: break-word;
+}
+
+.prompt-editor p {
+  margin: 0;
 }
 
 .prompt-editor p.is-editor-empty:first-child::before {

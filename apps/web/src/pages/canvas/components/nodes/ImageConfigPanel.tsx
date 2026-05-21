@@ -1,10 +1,17 @@
-import { memo, useRef, useCallback } from 'react';
+import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore, type ImageNodeData } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
 import { useImageUpload } from './prompt-input/useImageUpload';
+import { enqueueWorkflow } from '@/api/executionApi';
+import { syncNodes, syncEdges } from '@/api/projectApi';
 import type { CommandItem } from './prompt-input/types';
+
+interface ModelInfo {
+  id: string; name: string;
+}
 
 interface Props {
   nodeId: string;
@@ -15,6 +22,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
+  const setStatus = useNodeStore((s) => s.setStatus);
   const { zoom } = useViewport();
   const promptRef = useRef<PromptInputRef>(null);
   const { uploadSingleImage } = useImageUpload(nodeId);
@@ -24,7 +32,115 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const ratio = nodeData?.ratio ?? '1:1';
   const quality = nodeData?.quality ?? 'standard';
   const status = nodeData?.status ?? 'idle';
-  const prompt = nodeData?.prompt ?? { text: '', allImages: [], referencedImageIds: [] };
+  const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
+
+  // Model selector state
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [creditCost, setCreditCost] = useState<number>(0);
+  const [executing, setExecuting] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const voiceBaseRef = useRef('');
+  const selectedModel = models.find((m) => m.id === model);
+
+  // Close model dropdown on outside click
+  useEffect(() => {
+    if (!modelOpen) return;
+    const handler = () => setModelOpen(false);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [modelOpen]);
+
+  // Load image models
+  useEffect(() => {
+    fetch('/api/node-types/image/models')
+      .then(r => r.json())
+      .then(json => {
+        if (json.code === 0) {
+          const list: ModelInfo[] = json.data;
+          setModels(list);
+          if (!nodeData?.model && list.length > 0) {
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
+            });
+          }
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Calculate price
+  const updatePrice = useCallback(async (modelId: string) => {
+    try {
+      const res = await fetch(`/api/pricing/calculate?modelId=${modelId}`);
+      const json = await res.json();
+      if (json.code === 0) setCreditCost(json.data);
+    } catch { setCreditCost(0); }
+  }, []);
+
+  useEffect(() => {
+    if (model) updatePrice(model);
+  }, [model, updatePrice]);
+
+  const handleModelSelect = useCallback(
+    (modelId: string) => {
+      updateConfig(nodeId, { model: modelId } as any);
+      updatePrice(modelId);
+      setModelOpen(false);
+    },
+    [nodeId, updateConfig, updatePrice],
+  );
+
+  // Voice input via Web Speech API
+  const toggleVoice = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    // Capture current text before voice input starts
+    promptRef.current?.forceSync();
+    const currentText = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
+    voiceBaseRef.current = currentText;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.addEventListener('result', (event: any) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result && result[0]) {
+          transcript += result[0].transcript;
+        }
+      }
+      promptRef.current?.setText(voiceBaseRef.current + transcript);
+    });
+
+    recognition.addEventListener('error', () => {
+      setListening(false);
+    });
+
+    recognition.addEventListener('end', () => {
+      setListening(false);
+    });
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }, [listening, nodeId]);
+
+  // ── Command + Generate handlers ──
 
   const handleCommandSelect = useCallback((command: CommandItem) => {
     switch (command.category) {
@@ -36,14 +152,35 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
   const handleGenerate = useCallback(async () => {
     promptRef.current?.forceSync();
-    updateConfig(nodeId, { status: 'loading' });
+    const latestPrompt = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
+    if (!latestPrompt.trim()) return;
+    setExecuting(true);
+    setStatus(nodeId, 'loading');
     try {
-      console.log('Generate:', { nodeId, prompt: prompt.text, model, ratio, quality });
-    } catch (err) {
-      console.error('[ImageConfigPanel] generate error:', err);
-      updateConfig(nodeId, { status: 'error' });
+      const canvasState = useCanvasStore.getState();
+      const nodeState = useNodeStore.getState();
+      const existing = nodeState.nodes[nodeId] as any;
+      useNodeStore.setState({
+        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: { ...existing?.data?.prompt, text: latestPrompt } } } },
+      });
+      const latestState = useNodeStore.getState();
+      const mergedNodes = canvasState.nodes.map((n) => ({
+        id: n.id, type: n.type || 'imageGen',
+        position: n.position,
+        data: latestState.nodes[n.id]?.data || (n.data as any) || {},
+      }));
+      await Promise.all([
+        syncNodes('default', mergedNodes),
+        syncEdges('default', canvasState.edges),
+      ]);
+      const { jobId } = await enqueueWorkflow('default', nodeId);
+      console.log('[ImagePanel] enqueued job:', jobId);
+    } catch {
+      setStatus(nodeId, 'error');
+    } finally {
+      setExecuting(false);
     }
-  }, [nodeId, updateConfig, prompt.text, model, ratio, quality]);
+  }, [nodeId, setStatus]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     if (prompt.allImages.length >= 9) return;
@@ -56,14 +193,33 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
   return (
     <div
-      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl"
+      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative"
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
         border: '1px solid #3F3F46',
       }}
     >
-      <div className="p-3 flex flex-col gap-3">
+      {/* Maximize / Restore button — top-right corner */}
+      <button
+        type="button"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none cursor-pointer p-1 bg-transparent text-white/60 border-none shadow-none outline-none"
+        data-testid="canvas-node-generation-input-bar-maximize-button"
+        data-state={maximized ? 'open' : 'closed'}
+        onClick={() => setMaximized((v) => !v)}
+      >
+        {maximized ? (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12.9811 2.31442C13.1763 2.11915 13.4928 2.11915 13.6881 2.31442C13.8834 2.50968 13.8834 2.82618 13.6881 3.02145L10.5416 6.16793H12.0013C12.2774 6.16793 12.5013 6.39179 12.5013 6.66793C12.5013 6.94407 12.2774 7.16793 12.0013 7.16793H9.3346C9.05845 7.16793 8.8346 6.94407 8.8346 6.66793V4.00126C8.8346 3.72512 9.05845 3.50126 9.3346 3.50126C9.61074 3.50126 9.8346 3.72512 9.8346 4.00126V5.4609L12.9811 2.31442ZM7.16793 12.0013C7.16793 12.2774 6.94407 12.5013 6.66793 12.5013C6.39179 12.5013 6.16793 12.2774 6.16793 12.0013V10.5416L3.02145 13.6881C2.82618 13.8834 2.50968 13.8834 2.31442 13.6881C2.11915 13.4928 2.11915 13.1763 2.31442 12.9811L5.4609 9.8346H4.00126C3.72512 9.8346 3.50126 9.61074 3.50126 9.3346C3.50126 9.05845 3.72512 8.8346 4.00126 8.8346H6.66793C6.94407 8.8346 7.16793 9.05845 7.16793 9.3346V12.0013Z" fill="currentColor" fillOpacity="0.9" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path fillRule="evenodd" clipRule="evenodd" d="M6.47949 8.81348C6.67475 8.61821 6.99126 8.61821 7.18652 8.81348C7.38179 9.00874 7.38179 9.32525 7.18652 9.52051L3.95703 12.75H6.25C6.52614 12.75 6.75 12.9739 6.75 13.25C6.75 13.5261 6.52614 13.75 6.25 13.75H2.75C2.47386 13.75 2.25 13.5261 2.25 13.25V9.75C2.25 9.47386 2.47386 9.25 2.75 9.25C3.02614 9.25 3.25 9.47386 3.25 9.75V12.043L6.47949 8.81348ZM13.25 2.25C13.5261 2.25 13.75 2.47386 13.75 2.75V6.25C13.75 6.52614 13.5261 6.75 13.25 6.75C12.9739 6.75 12.75 6.52614 12.75 6.25V3.95703L9.52051 7.18652C9.32525 7.38179 9.00874 7.38179 8.81348 7.18652C8.61821 6.99126 8.61821 6.67475 8.81348 6.47949L12.043 3.25H9.75C9.47386 3.25 9.25 3.02614 9.25 2.75C9.25 2.47386 9.47386 2.25 9.75 2.25H13.25Z" fill="currentColor" fillOpacity="0.9" />
+          </svg>
+        )}
+      </button>
+
+      <div className="p-3 flex flex-col gap-0">
         {/* ImageThumbnailBar */}
         <ImageThumbnailBar
           nodeId={nodeId}
@@ -91,24 +247,80 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           onCommandSelect={handleCommandSelect}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}
+          maxHeight={80}
         />
 
-        {/* Settings bar */}
-        <div className="flex items-center gap-4 text-[10px] text-[#888]">
-          <span>{model}</span>
-          <span>{ratio}</span>
-          <span>{quality}</span>
-        </div>
-
-        {/* Generate button */}
-        <div className="flex justify-end">
-          <button
-            onClick={handleGenerate}
-            disabled={status === 'loading' || !prompt.text.trim()}
-            className="w-9 h-9 text-black font-bold text-lg rounded-full flex items-center justify-center cursor-pointer border-none shadow-md transition-colors bg-[#4ade80] hover:bg-[#22c55e] shadow-[#4ade80]/30 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:shadow-none"
-          >
-            {status === 'loading' ? '⏳' : '▶'}
-          </button>
+        {/* Bottom bar: Model (left) + Voice + Credits + Execute (right) */}
+        <div className="flex items-center justify-between mt-2">
+          {/* Model selector */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="canvas-node-image-model-select"
+              onClick={(e) => { e.stopPropagation(); setModelOpen((v) => !v); }}
+              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0">
+                <path d="M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.21841 15.0029 8.76562C15.2029 8.8518 15.4064 8.9289 15.6113 9.00195C14.0914 9.54303 12.7055 10.4153 11.5576 11.5605L11.5566 11.5615C10.412 12.7102 9.5406 14.0963 8.99902 15.6162C8.45764 14.0958 7.58633 12.7095 6.44043 11.5615L6.43945 11.5605L6.17578 11.3066C5.08059 10.2858 3.78911 9.50275 2.38281 9.00195C3.90333 8.45997 5.29032 7.58857 6.43945 6.44336L6.44043 6.44238C7.58587 5.29322 8.45678 3.90579 8.99805 2.38477Z" stroke="#A3A3A3" strokeWidth="1.33" />
+              </svg>
+              <span className="whitespace-nowrap text-xs">{selectedModel?.name || '选择模型'}</span>
+            </button>
+            {modelOpen && (
+              <div
+                className="absolute left-0 bottom-full mb-1 bg-[#2a2a2a] border border-white/[0.1] rounded-lg py-1 shadow-xl z-50 min-w-[160px]"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {models.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleModelSelect(m.id)}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${
+                      m.id === model ? 'bg-white/10' : ''
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Voice input */}
+            <button
+              aria-label="语音输入"
+              onClick={toggleVoice}
+              className={`size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none transition-colors hover:bg-white/10 active:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed ${
+                listening ? 'bg-white/20 text-[#4ade80]' : 'bg-transparent text-white/70'
+              }`}
+              title={listening ? '停止录音' : '语音输入'}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8.00052 12.2041V14.0048M8.00052 12.2041C9.11488 12.2041 10.1836 11.7614 10.9716 10.9735C11.7595 10.1855 12.2022 9.11678 12.2022 8.00242V6.80193M8.00052 12.2041C6.88616 12.2041 5.81745 11.7614 5.02948 10.9735C4.24151 10.1855 3.79883 9.11678 3.79883 8.00242V6.80193M8.00052 2C8.99503 2 9.80125 2.80621 9.80125 3.80073V8.00242C9.80125 8.99693 8.99503 9.80314 8.00052 9.80314C7.00601 9.80314 6.1998 8.99693 6.1998 8.00242V3.80073C6.1998 2.80621 7.00601 2 8.00052 2Z" stroke="currentColor" strokeOpacity="0.9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {/* Divider */}
+            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <span className="flex shrink-0 items-center gap-[2px] text-[#919191]">
+              <svg width="10" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="pointer-events-none">
+                <g transform="translate(2.2857 0) scale(0.933347)">
+                  <path d="M6.79577 0.652118C7.72979 -0.427779 8.49498 -0.136386 8.49498 1.30348V7.47438H11.0956C12.2734 7.47448 12.6016 8.21128 11.8192 9.1111L5.44909 16.491C4.51536 17.5703 3.74914 17.2787 3.74889 15.8396V9.66872H1.14928C-0.0287394 9.66872 -0.356821 8.9309 0.425648 8.03102L6.79577 0.652118Z" fill="currentColor" />
+                </g>
+              </svg>
+              <span className="min-w-5 text-center text-[12px] font-normal leading-[15px]">{creditCost || '—'}</span>
+            </span>
+            <button
+              onClick={handleGenerate}
+              disabled={executing}
+              className="size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {executing ? '⏳' : (
+                <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-3 text-[#999]" width="12" height="12" viewBox="0 0 18 18">
+                  <path d="M8.29289 0.292893C8.68342 -0.0976311 9.31658 -0.0976311 9.70711 0.292893L17.7071 8.29289C18.0976 8.68342 18.0976 9.31658 17.7071 9.70711C17.3166 10.0976 16.6834 10.0976 16.2929 9.70711L10 3.41421V17C10 17.5523 9.55229 18 9 18C8.44772 18 8 17.5523 8 17V3.41421L1.70711 9.70711C1.31658 10.0976 0.683418 10.0976 0.292893 9.70711C-0.0976311 9.31658 -0.0976311 8.68342 0.292893 8.29289L8.29289 0.292893Z" fill="currentColor" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

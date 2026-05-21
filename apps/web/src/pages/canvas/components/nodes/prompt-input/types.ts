@@ -8,6 +8,7 @@ export interface ImageItem {
 
 export interface PromptValue {
   text: string;
+  html: string;
   allImages: ImageItem[];
   referencedImageIds: string[];
 }

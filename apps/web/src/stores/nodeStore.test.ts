@@ -49,7 +49,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', allImages: [], referencedImageIds: [] },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
 
@@ -64,7 +64,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('1:1');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', allImages: [], referencedImageIds: [] });
+    expect(imgData.prompt).toEqual({ text: '', html: '', allImages: [], referencedImageIds: [] });
   });
 
   // 4. addNode should store id/type/position metadata at node level
@@ -107,7 +107,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', allImages: [], referencedImageIds: [] },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
 
@@ -200,7 +200,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('1:1');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', allImages: [], referencedImageIds: [] });
+    expect(imgData.prompt).toEqual({ text: '', html: '', allImages: [], referencedImageIds: [] });
   });
 
   it('should persist prompt text via updateConfig', () => {
@@ -342,7 +342,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: '2k',
         ratio: '16:9',
         status: 'idle',
-        prompt: { text: '', allImages: [], referencedImageIds: [] },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
 
@@ -400,7 +400,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', allImages: [], referencedImageIds: [] },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
 

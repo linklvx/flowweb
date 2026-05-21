@@ -100,6 +100,7 @@ function makeImageNode(id: string, allImages: ImageItem[] = []): Record<string, 
       status: 'idle',
       prompt: {
         text: '',
+        html: '',
         allImages,
         referencedImageIds: [],
       },

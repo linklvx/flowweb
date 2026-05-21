@@ -4,7 +4,7 @@ import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
 let mockNodeData: any = {
-  status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] }
+  status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] }
 };
 
 vi.mock('@/hooks/useMediaUrl', () => ({
@@ -82,13 +82,13 @@ describe('ImageGenNode', () => {
 
   it('should have 2 handles (input + output)', () => {
     // Reset to default
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
   it('should render card with dynamic width', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
     const html = container.innerHTML;
     // Width is now dynamic (inline style), default is 548px
@@ -98,19 +98,19 @@ describe('ImageGenNode', () => {
   // ---- New tests for floating upload button ----
 
   it('should show floating upload button when selected', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode(true);
     expect(screen.getByText('上传')).toBeInTheDocument();
   });
 
   it('should not show floating upload button when not selected', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
   });
 
   it('floating upload button should have nodrag and nopan classes', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode(true);
     const btn = screen.getByText('上传').closest('button');
     expect(btn).toHaveClass('nodrag');

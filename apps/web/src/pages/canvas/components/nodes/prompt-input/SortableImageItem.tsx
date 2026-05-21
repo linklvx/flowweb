@@ -92,7 +92,7 @@ export function SortableImageItem({ image, onDelete, onClick }: SortableImageIte
       style={style}
       {...attributes}
       {...listeners}
-      className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative"
+      className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative"
     >
       <img
         src={url}
