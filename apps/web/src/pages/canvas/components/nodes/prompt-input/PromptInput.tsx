@@ -346,10 +346,11 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
     // ---- 2. Command chip deletion sync ----
     useCommandChipSync(editor, onCommandSelect);
 
-    // ---- 2a. Sync maxHeight to CSS custom property (bypasses Tiptap useEditor staleness) ----
+    // ---- 2a. Sync maxHeight/minHeight to CSS + DOM (bypasses Tiptap useEditor staleness) ----
     useEffect(() => {
       if (editor) {
         editor.view.dom.style.setProperty('--prompt-maxh', `${maxHeight}px`);
+        editor.view.dom.style.minHeight = `${maxHeight}px`;
       }
     }, [editor, maxHeight]);
 
