@@ -332,7 +332,7 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       editorProps: {
         attributes: {
           class: 'prompt-editor outline-none',
-          style: `min-height: 80px; max-height: ${maxHeight}px; overflow-y: auto; font-size: 14px; line-height: 24px; color: rgb(245, 245, 245);`,
+          style: `min-height: 80px; max-height: var(--prompt-maxh, 80px); overflow-y: auto; font-size: 14px; line-height: 24px; color: rgb(245, 245, 245);`,
         },
       },
       onUpdate: ({ editor: ed }) => {
@@ -345,6 +345,22 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
     // ---- 2. Command chip deletion sync ----
     useCommandChipSync(editor, onCommandSelect);
+
+    // ---- 2a. Sync maxHeight to CSS custom property (bypasses Tiptap useEditor staleness) ----
+    useEffect(() => {
+      if (editor) {
+        editor.view.dom.style.setProperty('--prompt-maxh', `${maxHeight}px`);
+      }
+    }, [editor, maxHeight]);
+
+    // ---- 2b. Prevent wheel events from bubbling to React Flow canvas ----
+    useEffect(() => {
+      if (!editor) return;
+      const el = editor.view.dom;
+      const onWheel = (e: WheelEvent) => { e.stopPropagation(); };
+      el.addEventListener('wheel', onWheel);
+      return () => el.removeEventListener('wheel', onWheel);
+    }, [editor]);
 
     // ---- 2b. Clipboard paste handler ----
     useEffect(() => {

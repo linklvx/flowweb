@@ -247,7 +247,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           onCommandSelect={handleCommandSelect}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}
-          maxHeight={80}
+          maxHeight={maximized ? 350 : 80}
         />
 
         {/* Bottom bar: Model (left) + Voice + Credits + Execute (right) */}

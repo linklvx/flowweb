@@ -25,6 +25,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef(prompt);
   promptRef.current = prompt; // Keep ref in sync for recognition callback
   const model = nodeData?.model ?? '';
@@ -37,6 +38,15 @@ function TextConfigPanelComponent({ nodeId }: Props) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [modelOpen]);
+
+  // Prevent wheel events on textarea from bubbling to React Flow canvas
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => { e.stopPropagation(); };
+    el.addEventListener('wheel', onWheel);
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   // Load text models
   useEffect(() => {
@@ -170,6 +180,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
         {/* Prompt */}
         <textarea
+          ref={textareaRef}
           value={prompt}
           onChange={(e) => {
             setPrompt(e.target.value);
@@ -181,7 +192,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             });
           }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
-          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none resize-none box-border"
+          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] px-2.5 py-2 focus:outline-none resize-none box-border scrollbar-dark"
         />
 
         {/* Model (left) + Credits + Execute (right) */}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -57,9 +57,29 @@ describe('ImageGenNode', () => {
       </ReactFlowProvider>
     );
 
-  it('should render node title', () => {
+  it('should render editable node title with default value', () => {
     renderNode();
-    expect(screen.getByText(/图片生成/)).toBeInTheDocument();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    expect(input.value).toBe('图片生成');
+  });
+
+  it('should save title on blur', () => {
+    renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '我的图片' } });
+    fireEvent.blur(input);
+    expect(screen.getByDisplayValue('我的图片')).toBeInTheDocument();
+  });
+
+  it('should cancel edit on Escape', () => {
+    renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '取消' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByDisplayValue('图片生成')).toBeInTheDocument();
   });
 
   it('should render preview area when no result', () => {

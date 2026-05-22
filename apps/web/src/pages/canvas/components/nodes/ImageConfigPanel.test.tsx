@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { ImageConfigPanel } from './ImageConfigPanel';
+
+// Track the maxHeight prop passed to PromptInput
+let capturedMaxHeight: number = 80;
 
 // Mock PromptInput — don't render the real Tiptap editor
 vi.mock('./prompt-input/PromptInput', () => ({
   default: React.forwardRef((props: any, ref: any) => {
+    capturedMaxHeight = props.maxHeight;
     React.useImperativeHandle(ref, () => ({
       forceSync: vi.fn(),
       focus: vi.fn(),
@@ -13,7 +17,7 @@ vi.mock('./prompt-input/PromptInput', () => ({
       insertImage: vi.fn(),
       setText: vi.fn(),
     }));
-    return <div data-testid="prompt-input">PromptInput</div>;
+    return <div data-testid="prompt-input" data-max-height={props.maxHeight}>PromptInput</div>;
   }),
 }));
 
@@ -91,5 +95,41 @@ describe('ImageConfigPanel', () => {
   it('renders thumbnail bar', () => {
     render(<ImageConfigPanel nodeId="img1" />);
     expect(screen.getByTestId('thumbnail-bar')).toBeTruthy();
+  });
+
+  it('maximize button toggles data-state between closed and open on click', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-generation-input-bar-maximize-button');
+    // Initial state: closed (not maximized)
+    expect(btn.getAttribute('data-state')).toBe('closed');
+    // Click to maximize
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('open');
+    // Click to collapse
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('closed');
+  });
+
+  it('passes maxHeight=80 to PromptInput before maximizing', () => {
+    capturedMaxHeight = 0;
+    render(<ImageConfigPanel nodeId="img1" />);
+    expect(capturedMaxHeight).toBe(80);
+  });
+
+  it('passes maxHeight=350 to PromptInput after maximizing', () => {
+    capturedMaxHeight = 0;
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-generation-input-bar-maximize-button');
+    fireEvent.click(btn);
+    expect(capturedMaxHeight).toBe(350);
+  });
+
+  it('restores maxHeight=80 to PromptInput after collapsing', () => {
+    capturedMaxHeight = 0;
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-generation-input-bar-maximize-button');
+    fireEvent.click(btn); // maximize
+    fireEvent.click(btn); // collapse
+    expect(capturedMaxHeight).toBe(80);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -30,9 +30,29 @@ describe('VideoGenNode', () => {
   const renderNode = (selected = false) =>
     render(<ReactFlowProvider><VideoGenNode id="v1" data={{}} selected={selected} type="videoGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} /></ReactFlowProvider>);
 
-  it('should render node title', () => {
+  it('should render editable node title with default value', () => {
     renderNode();
-    expect(screen.getByText(/视频生成/)).toBeInTheDocument();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    expect(input.value).toBe('视频生成');
+  });
+
+  it('should save title on blur', () => {
+    renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '我的视频' } });
+    fireEvent.blur(input);
+    expect(screen.getByDisplayValue('我的视频')).toBeInTheDocument();
+  });
+
+  it('should cancel edit on Escape', () => {
+    renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '取消' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByDisplayValue('视频生成')).toBeInTheDocument();
   });
 
   it('should render preview placeholder when no video', () => {

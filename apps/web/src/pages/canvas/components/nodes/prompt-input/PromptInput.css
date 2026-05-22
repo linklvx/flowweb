@@ -77,6 +77,44 @@
   height: 0;
 }
 
+/* Dark scrollbar for PromptInput (Tiptap editor) */
+.prompt-editor {
+  scrollbar-width: thin;
+  scrollbar-color: #3F3F46 transparent;
+}
+.prompt-editor::-webkit-scrollbar {
+  width: 6px;
+}
+.prompt-editor::-webkit-scrollbar-track {
+  background: transparent;
+}
+.prompt-editor::-webkit-scrollbar-thumb {
+  background: #3F3F46;
+  border-radius: 3px;
+}
+.prompt-editor::-webkit-scrollbar-thumb:hover {
+  background: #52525B;
+}
+
+/* Dark scrollbar for textarea (TextConfigPanel) */
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #3F3F46 transparent;
+}
+.scrollbar-dark::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #3F3F46;
+  border-radius: 3px;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: #52525B;
+}
+
 /* /command chip inside editor */
 .command-chip {
   display: inline;

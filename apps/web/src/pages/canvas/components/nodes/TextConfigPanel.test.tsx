@@ -130,4 +130,10 @@ describe('TextConfigPanel', () => {
     // Cleanup
     mockNodeStoreState.nodes.n1.data.content = '';
   });
+
+  it('should have dark scrollbar class on textarea', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const textarea = container.querySelector('textarea');
+    expect(textarea?.className).toContain('scrollbar-dark');
+  });
 });
