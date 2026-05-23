@@ -132,7 +132,7 @@ describe('TextInputNode (Tiptap)', () => {
   it('should show highlight border when selected (inline style)', () => {
     const { container } = renderNode({ selected: true });
     // Should NOT have subtle border class
-    expect(container.innerHTML).not.toContain('border-white/10');
+    expect(container.innerHTML).not.toContain('border-[#3F3F46]');
     // Should have inline border style on card body (not toolbar)
     const card = container.querySelector('[style*="border-color"]');
     expect(card).not.toBeNull();
@@ -143,7 +143,7 @@ describe('TextInputNode (Tiptap)', () => {
 
   it('should show subtle border when not selected', () => {
     const { container } = renderNode({ selected: false });
-    expect(container.innerHTML).toContain('border-white/10');
+    expect(container.innerHTML).toContain('border-[#3F3F46]');
   });
 
   it('should show toolbar when selected', () => {

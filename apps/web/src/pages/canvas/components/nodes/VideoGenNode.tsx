@@ -210,7 +210,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       {/* Node body */}
       <div
         className={`bg-[#222222] border rounded-lg transition-colors ${
-          selected ? '' : 'border-white/10'
+          selected ? '' : 'border-[#3F3F46]'
         }`}
         style={{
           width: containerWidth,

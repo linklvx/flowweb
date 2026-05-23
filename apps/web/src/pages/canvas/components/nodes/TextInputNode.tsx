@@ -126,7 +126,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Card body */}
       <div
         className={`bg-[#222222] border rounded-lg w-[360px] transition-colors ${
-          selected ? '' : 'border-white/10'
+          selected ? '' : 'border-[#3F3F46]'
         }`}
         style={
           selected
