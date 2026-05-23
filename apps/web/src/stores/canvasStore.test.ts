@@ -43,14 +43,18 @@ describe('canvasStore', () => {
     expect(useCanvasStore.getState().selectedId).toBe(nodeId);
   });
 
-  it('should auto-select newly added node', () => {
+  it('should auto-select newly added node (selectedId + selected flag)', () => {
     const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
-    expect(useCanvasStore.getState().selectedId).toBe(nodeId);
+    const s = useCanvasStore.getState();
+    expect(s.selectedId).toBe(nodeId);
+    expect(s.nodes[0].selected).toBe(true);
   });
 
   it('should auto-select newly added video node', () => {
     const nodeId = useCanvasStore.getState().addNode('video', { x: 20, y: 20 });
-    expect(useCanvasStore.getState().selectedId).toBe(nodeId);
+    const s = useCanvasStore.getState();
+    expect(s.selectedId).toBe(nodeId);
+    expect(s.nodes[0].selected).toBe(true);
   });
 
   it('should deselect when id is null', () => {
