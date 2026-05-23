@@ -66,7 +66,7 @@ describe('VideoGenNode', () => {
     renderNode();
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
     expect(input).toBeInTheDocument();
-    expect(input.value).toBe('视频生成');
+    expect(input.value).toBe('Video');
   });
 
   it('should save title on blur', () => {
@@ -84,7 +84,16 @@ describe('VideoGenNode', () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '取消' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.getByDisplayValue('视频生成')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Video')).toBeInTheDocument();
+  });
+
+  it('should grow ghost sizer span as user types longer title', () => {
+    const { container } = renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'A very long video title' } });
+    const ghost = container.querySelector('[aria-hidden="true"]') as HTMLSpanElement;
+    expect(ghost.textContent).toBe('A very long video title ');
   });
 
   // ---- Preview tests ----

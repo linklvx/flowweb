@@ -42,13 +42,13 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   // Fullscreen state
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Title editing (unchanged from markdown version)
-  const [label, setLabel] = useState('文本输入');
+  // Editable title (same pattern as ImageGenNode)
+  const [label, setLabel] = useState('Text');
   const [draft, setDraft] = useState(label);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
 
-  const save = useCallback(() => {
+  const saveTitle = useCallback(() => {
     const trimmed = draftRef.current.trim();
     if (trimmed) setLabel(trimmed);
     else {
@@ -62,7 +62,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
     draftRef.current = label;
   }, [label]);
 
-  const titleText = label || '文本输入';
+  const titleText = label || 'Text';
 
   return (
     <div className="relative">
@@ -79,10 +79,10 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         </div>
       )}
 
-      {/* Title bar — below toolbar, above card body */}
+      {/* Title bar */}
       <div
-        className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 w-[360px] overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
-        style={{ lineHeight: '18px' }}
+        className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
+        style={{ width: 360, lineHeight: '18px' }}
       >
         <span className="shrink-0 flex items-center" style={{ width: 12, height: 12 }}>
           <svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -95,23 +95,23 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             aria-hidden="true"
             style={{ fontSize: 12, lineHeight: '18px' }}
           >
-            {titleText}
+            {(draft || titleText) + ' '}
           </span>
           <input
-            ref={inputRef}
+            ref={titleInputRef}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
               draftRef.current = e.target.value;
             }}
             onFocus={startEdit}
-            onBlur={save}
+            onBlur={saveTitle}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') inputRef.current?.blur();
+              if (e.key === 'Enter') titleInputRef.current?.blur();
               if (e.key === 'Escape') {
                 setDraft(label);
                 draftRef.current = label;
-                inputRef.current?.blur();
+                titleInputRef.current?.blur();
               }
             }}
             placeholder="请输入标题"
@@ -128,12 +128,12 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         className="bg-[#222222] rounded-lg w-[360px] transition-colors"
         style={
           selected
-            ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
+            ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }
         }
       >
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
-        <div className="p-3">
+        <div className="p-3 rounded-lg transition-colors" style={{ backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
             <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll nowheel" style={{ backgroundColor: bgColor || 'transparent' }}>

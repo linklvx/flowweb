@@ -47,7 +47,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
   // Editable title (same pattern as TextInputNode)
-  const [label, setLabel] = useState('图片生成');
+  const [label, setLabel] = useState('Image');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
@@ -66,7 +66,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     draftRef.current = label;
   }, [label]);
 
-  const titleText = label || '图片生成';
+  const titleText = label || 'Image';
 
   const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -215,7 +215,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             aria-hidden="true"
             style={{ fontSize: 12, lineHeight: '18px' }}
           >
-            {titleText}
+            {(draft || titleText) + ' '}
           </span>
           <input
             ref={titleInputRef}
@@ -247,7 +247,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         style={{
           width: containerWidth,
           ...(selected
-            ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
+            ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >

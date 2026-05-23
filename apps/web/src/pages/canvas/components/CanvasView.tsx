@@ -1,6 +1,6 @@
-import { memo, useCallback, useRef, useEffect, type DragEvent } from 'react';
+import { memo, useCallback, useRef, useState, useEffect, type DragEvent } from 'react';
 import {
-  ReactFlow, Background, BackgroundVariant,
+  ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow,
   type Connection,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
@@ -29,7 +29,9 @@ interface Props {
 
 function CanvasViewComponent({ projectId: _projectId }: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, zoomIn, zoomOut } = useReactFlow();
+  const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow();
+  const [minimapOpen, setMinimapOpen] = useState(false);
+  const [snapEnabled, setSnapEnabled] = useState(false);
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -90,9 +92,9 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     return () => el.removeEventListener('wheel', onWheel);
   }, [zoomIn, zoomOut]);
 
-  const fitView = useCallback(() => {
-    updateViewport({ x: 0, y: 0, zoom: 1 });
-  }, [updateViewport]);
+  const handleFitView = useCallback(() => {
+    fitView({ duration: 300, padding: 0.2 });
+  }, [fitView]);
 
   return (
     <div ref={reactFlowWrapper} className="w-full h-full">
@@ -118,12 +120,36 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         fitView={false}
         zoomOnScroll={false}
         panOnScroll={true}
+        snapToGrid={snapEnabled}
+        snapGrid={[20, 20]}
         noWheelClassName="nowheel"
         proOptions={{ hideAttribution: true }}
         className="bg-[#000000]"
       >
         <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} />
-        <CanvasToolbar zoom={viewport.zoom} onFitView={fitView} onZoomIn={() => zoomIn({ duration: 100 })} onZoomOut={() => zoomOut({ duration: 100 })} />
+        {minimapOpen && (
+  <MiniMap
+    style={{
+      width: 160,
+      height: 120,
+      backgroundColor: 'rgb(50, 50, 50)',
+      border: '0.5px solid rgb(70, 70, 70)',
+      borderRadius: '8px',
+    }}
+    nodeColor={() => 'rgb(160, 160, 160)'}
+    maskColor="rgba(0, 0, 0, 0.35)"
+  />
+)}
+        <CanvasToolbar
+          zoom={viewport.zoom}
+          onFitView={handleFitView}
+          onZoomIn={() => zoomIn({ duration: 100 })}
+          onZoomOut={() => zoomOut({ duration: 100 })}
+          minimapOpen={minimapOpen}
+          onToggleMinimap={() => setMinimapOpen((v) => !v)}
+          snapEnabled={snapEnabled}
+          onToggleSnap={() => setSnapEnabled((v) => !v)}
+        />
       </ReactFlow>
     </div>
   );

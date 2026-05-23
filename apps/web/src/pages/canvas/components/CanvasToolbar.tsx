@@ -1,35 +1,61 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 
 interface Props {
   zoom: number;
   onFitView: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  minimapOpen: boolean;
+  onToggleMinimap: () => void;
+  snapEnabled: boolean;
+  onToggleSnap: () => void;
 }
 
 const BTN = 'flex items-center justify-center appearance-none border-0 transition-opacity hover:opacity-80';
 const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
+const BTN_BG_ACTIVE: React.CSSProperties = { backgroundColor: 'rgb(58, 58, 58)' };
 const ICON_WRAP = 'flex items-center justify-center overflow-hidden';
 
-function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props) {
+function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut, minimapOpen, onToggleMinimap, snapEnabled, onToggleSnap }: Props) {
   const pct = Math.round(zoom * 100);
-  const [minimapOpen, setMinimapOpen] = useState(false);
 
   return (
-    <div
-      className="nodrag nopan absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-xl p-1.5"
-      style={{
-        backgroundColor: 'rgb(38, 38, 38)',
-        border: '0.5px solid rgb(54, 54, 54)',
-        backdropFilter: 'blur(8px)',
-        boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',
-        userSelect: 'none',
-      }}
-    >
+    <>
+      <style>{`
+        [data-tooltip] {
+          position: relative;
+        }
+        [data-tooltip]:hover::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          bottom: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: rgba(0, 0, 0, 0.85);
+          color: rgb(220, 220, 220);
+          font-size: 11px;
+          white-space: nowrap;
+          pointer-events: none;
+          z-index: 100;
+        }
+      `}</style>
+      <div
+        className="nodrag nopan absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-xl p-1.5"
+        style={{
+          backgroundColor: 'rgb(38, 38, 38)',
+          border: '0.5px solid rgb(54, 54, 54)',
+          backdropFilter: 'blur(8px)',
+          boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',
+          userSelect: 'none',
+        }}
+      >
       {/* Fit view */}
       <button
         className={BTN}
         aria-label="整理画布"
+        data-tooltip="适应画布"
         style={{ ...BTN_BG, width: 28, height: 28 }}
         onClick={onFitView}
       >
@@ -46,9 +72,10 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={BTN}
         aria-label="切换小地图"
+        data-tooltip="画布小地图"
         aria-pressed={minimapOpen}
-        style={{ ...BTN_BG, width: 28, height: 28 }}
-        onClick={() => setMinimapOpen((v) => !v)}
+        style={{ ...(minimapOpen ? BTN_BG_ACTIVE : BTN_BG), width: 28, height: 28 }}
+        onClick={onToggleMinimap}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 22 22" style={{ color: 'rgb(160, 160, 160)' }}>
@@ -57,11 +84,14 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
         </span>
       </button>
 
-      {/* Snap to grid (placeholder) */}
+      {/* Snap to grid */}
       <button
         className={BTN}
         aria-label="网格吸附"
-        style={{ ...BTN_BG, width: 28, height: 28 }}
+        data-tooltip="网格吸附"
+        aria-pressed={snapEnabled}
+        style={{ ...(snapEnabled ? BTN_BG_ACTIVE : BTN_BG), width: 28, height: 28 }}
+        onClick={onToggleSnap}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" style={{ color: 'rgb(160, 160, 160)' }}>
@@ -79,7 +109,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 16 16" style={{ color: 'rgb(160, 160, 160)' }}>
-            <path d="M17.6 0c.11 0 .2.09.2.2v1.4c0 .11-.09.2-.2.2H.2C.09 1.8 0 1.71 0 1.6V.2C0 .09.09 0 .2 0z" fill="currentColor" />
+            <rect x="3" y="7" width="10" height="2" rx="1" fill="currentColor" />
           </svg>
         </span>
       </button>
@@ -106,7 +136,8 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
           </svg>
         </span>
       </button>
-    </div>
+      </div>
+    </>
   );
 }
 

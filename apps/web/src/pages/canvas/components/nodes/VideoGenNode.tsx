@@ -57,7 +57,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const containerHeight = vidSize ? vidSize.h : 306;
 
   // Editable title
-  const [label, setLabel] = useState('视频生成');
+  const [label, setLabel] = useState('Video');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
@@ -76,7 +76,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     draftRef.current = label;
   }, [label]);
 
-  const titleText = label || '视频生成';
+  const titleText = label || 'Video';
 
   // ---- Floating upload button ----
 
@@ -179,7 +179,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             aria-hidden="true"
             style={{ fontSize: 12, lineHeight: '18px' }}
           >
-            {titleText}
+            {(draft || titleText) + ' '}
           </span>
           <input
             ref={titleInputRef}
@@ -213,7 +213,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         style={{
           width: containerWidth,
           ...(selected
-            ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
+            ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >

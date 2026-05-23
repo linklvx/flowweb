@@ -61,7 +61,7 @@ describe('ImageGenNode', () => {
     renderNode();
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
     expect(input).toBeInTheDocument();
-    expect(input.value).toBe('图片生成');
+    expect(input.value).toBe('Image');
   });
 
   it('should save title on blur', () => {
@@ -79,7 +79,16 @@ describe('ImageGenNode', () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '取消' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.getByDisplayValue('图片生成')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Image')).toBeInTheDocument();
+  });
+
+  it('should grow ghost sizer span as user types longer title', () => {
+    const { container } = renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'A very long title for testing' } });
+    const ghost = container.querySelector('[aria-hidden="true"]') as HTMLSpanElement;
+    expect(ghost.textContent).toBe('A very long title for testing ');
   });
 
   it('should render preview area when no result', () => {

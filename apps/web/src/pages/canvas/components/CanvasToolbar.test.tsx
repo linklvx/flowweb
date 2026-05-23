@@ -8,6 +8,10 @@ describe('CanvasToolbar', () => {
     onFitView: vi.fn(),
     onZoomIn: vi.fn(),
     onZoomOut: vi.fn(),
+    minimapOpen: false,
+    onToggleMinimap: vi.fn(),
+    snapEnabled: false,
+    onToggleSnap: vi.fn(),
   };
 
   it('should display zoom percentage', () => {
@@ -46,14 +50,32 @@ describe('CanvasToolbar', () => {
     expect(screen.getByLabelText('切换小地图')).toBeInTheDocument();
   });
 
-  it('should toggle minimap state on click', () => {
-    render(<CanvasToolbar {...defaultProps} />);
-    const btn = screen.getByLabelText('切换小地图');
-    expect(btn.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(btn);
-    expect(btn.getAttribute('aria-pressed')).toBe('true');
-    fireEvent.click(btn);
-    expect(btn.getAttribute('aria-pressed')).toBe('false');
+  it('should reflect minimap open state via aria-pressed', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
+    expect(screen.getByLabelText('切换小地图').getAttribute('aria-pressed')).toBe('false');
+    rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
+    expect(screen.getByLabelText('切换小地图').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('should call onToggleMinimap when minimap button clicked', () => {
+    const onToggleMinimap = vi.fn();
+    render(<CanvasToolbar {...defaultProps} onToggleMinimap={onToggleMinimap} />);
+    fireEvent.click(screen.getByLabelText('切换小地图'));
+    expect(onToggleMinimap).toHaveBeenCalledOnce();
+  });
+
+  it('should reflect snap enabled state via aria-pressed', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} snapEnabled={false} />);
+    expect(screen.getByLabelText('网格吸附').getAttribute('aria-pressed')).toBe('false');
+    rerender(<CanvasToolbar {...defaultProps} snapEnabled={true} />);
+    expect(screen.getByLabelText('网格吸附').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('should call onToggleSnap when snap button clicked', () => {
+    const onToggleSnap = vi.fn();
+    render(<CanvasToolbar {...defaultProps} onToggleSnap={onToggleSnap} />);
+    fireEvent.click(screen.getByLabelText('网格吸附'));
+    expect(onToggleSnap).toHaveBeenCalledOnce();
   });
 
   it('should set all buttons background to container color', () => {
@@ -83,5 +105,40 @@ describe('CanvasToolbar', () => {
       expect(btn.classList.contains('appearance-none')).toBe(true);
       expect(btn.classList.contains('border-0')).toBe(true);
     }
+  });
+
+  it('should show custom tooltip data on first 3 buttons', () => {
+    render(<CanvasToolbar {...defaultProps} />);
+    expect(screen.getByLabelText('整理画布').getAttribute('data-tooltip')).toBe('适应画布');
+    expect(screen.getByLabelText('切换小地图').getAttribute('data-tooltip')).toBe('画布小地图');
+    expect(screen.getByLabelText('网格吸附').getAttribute('data-tooltip')).toBe('网格吸附');
+  });
+
+  it('should NOT have native title on first 3 buttons', () => {
+    render(<CanvasToolbar {...defaultProps} />);
+    expect(screen.getByLabelText('整理画布').getAttribute('title')).toBeNull();
+    expect(screen.getByLabelText('切换小地图').getAttribute('title')).toBeNull();
+    expect(screen.getByLabelText('网格吸附').getAttribute('title')).toBeNull();
+  });
+
+  it('should highlight minimap button background when active', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
+    rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
+  });
+
+  it('should highlight snap button background when active', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} snapEnabled={false} />);
+    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(38, 38, 38)');
+    rerender(<CanvasToolbar {...defaultProps} snapEnabled={true} />);
+    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(58, 58, 58)');
+  });
+
+  it('should revert minimap button background when deactivated', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
+    rerender(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
   });
 });

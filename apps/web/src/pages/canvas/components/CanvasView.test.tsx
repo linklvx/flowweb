@@ -5,6 +5,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 
 const mockZoomIn = vi.fn();
 const mockZoomOut = vi.fn();
+const mockFitView = vi.fn();
 
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual('@xyflow/react');
@@ -14,6 +15,7 @@ vi.mock('@xyflow/react', async () => {
       ...(actual as any).useReactFlow?.(),
       zoomIn: mockZoomIn,
       zoomOut: mockZoomOut,
+      fitView: mockFitView,
       screenToFlowPosition: (p: { x: number; y: number }) => p,
     }),
   };
@@ -104,5 +106,47 @@ describe('CanvasView', () => {
     fireEvent.wheel(wrapper, { deltaY: -100 });
     expect(mockZoomIn).not.toHaveBeenCalled();
     expect(mockZoomOut).not.toHaveBeenCalled();
+  });
+
+  it('should use fitView from React Flow on fit view click', () => {
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const fitBtn = document.querySelector('[aria-label="整理画布"]');
+    fireEvent.click(fitBtn!);
+    expect(mockFitView).toHaveBeenCalled();
+  });
+
+  it('should render MiniMap with visible dark theme when toggled', () => {
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    // Initially MiniMap should not be present
+    expect(document.querySelector('.react-flow__minimap')).toBeNull();
+    // Click minimap toggle
+    fireEvent.click(document.querySelector('[aria-label="切换小地图"]')!);
+    // MiniMap should be rendered with lighter background
+    const minimap = document.querySelector('.react-flow__minimap')!;
+    expect(minimap).toBeInTheDocument();
+    const styleAttr = minimap.getAttribute('style') || '';
+    expect(styleAttr).toContain('background');
+    // Background should be lighter than the old rgb(28,28,28) — use rgb(50,50,50)
+    expect(styleAttr).toContain('rgb(50, 50, 50)');
+  });
+
+  it('should enable snap to grid when snap button toggled', () => {
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    // Click snap toggle
+    fireEvent.click(document.querySelector('[aria-label="网格吸附"]')!);
+    // Verify the snap button reflects enabled state
+    expect(document.querySelector('[aria-label="网格吸附"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 });

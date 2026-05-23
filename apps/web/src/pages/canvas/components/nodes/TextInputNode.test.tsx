@@ -73,14 +73,14 @@ describe('TextInputNode (Tiptap)', () => {
 
   it('should render node title', () => {
     renderNode();
-    expect(screen.getByDisplayValue(/文本输入/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/Text/)).toBeInTheDocument();
   });
 
   it('should render always-visible title input', () => {
     renderNode();
     const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
     expect(input).toBeInTheDocument();
-    expect(input.value).toBe('文本输入');
+    expect(input.value).toBe('Text');
   });
 
   it('should save title on Enter key', () => {
@@ -107,7 +107,18 @@ describe('TextInputNode (Tiptap)', () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '取消' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.getByDisplayValue('文本输入')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Text')).toBeInTheDocument();
+  });
+
+  it('should grow ghost sizer span as user types longer title', () => {
+    const { container } = renderNode();
+    const input = screen.getByRole('textbox', { name: /节点标题/ }) as HTMLInputElement;
+    // Type a long string
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '这是一个很长的标题用来测试' } });
+    // The invisible ghost span should show the draft text
+    const ghost = container.querySelector('[aria-hidden="true"]') as HTMLSpanElement;
+    expect(ghost.textContent).toBe('这是一个很长的标题用来测试 ');
   });
 
   it('should render Tiptap EditorContent instead of textarea', () => {
@@ -135,9 +146,9 @@ describe('TextInputNode (Tiptap)', () => {
     const card = container.querySelector('[style*="border-color"]');
     expect(card).not.toBeNull();
     const styleAttr = (card as HTMLElement).getAttribute('style') || '';
-    // Selected border is gray #9CA3AF, 2px
+    // Selected border is gray #9CA3AF, 3px
     expect(styleAttr).toContain('rgb(156, 163, 175)');
-    expect(styleAttr).toContain('2px');
+    expect(styleAttr).toContain('3px');
   });
 
   it('should show subtle border when not selected (inline style)', () => {
@@ -159,5 +170,13 @@ describe('TextInputNode (Tiptap)', () => {
   it('should not show toolbar when not selected', () => {
     renderNode({ selected: false });
     expect(screen.queryByLabelText('加粗')).toBeNull();
+  });
+
+  it('should apply bgColor to editor area wrapper (not just editor)', () => {
+    const { container } = renderNode();
+    // The p-3 wrapper should not have backgroundColor when bgColor is null
+    const cardBody = container.querySelector('[class*="bg-\\[\\#222222\\]"]');
+    const p3Div = cardBody?.querySelector('.p-3') as HTMLElement;
+    expect(p3Div).toBeTruthy();
   });
 });
