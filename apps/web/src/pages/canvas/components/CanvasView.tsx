@@ -123,7 +123,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         className="bg-[#000000]"
       >
         <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} />
-        <CanvasToolbar zoom={viewport.zoom} onFitView={fitView} />
+        <CanvasToolbar zoom={viewport.zoom} onFitView={fitView} onZoomIn={() => zoomIn({ duration: 100 })} onZoomOut={() => zoomOut({ duration: 100 })} />
       </ReactFlow>
     </div>
   );
