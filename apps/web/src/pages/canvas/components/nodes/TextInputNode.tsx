@@ -125,13 +125,11 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
       {/* Card body */}
       <div
-        className={`bg-[#222222] border rounded-lg w-[360px] transition-colors ${
-          selected ? '' : 'border-[#3F3F46]'
-        }`}
+        className="bg-[#222222] rounded-lg w-[360px] transition-colors"
         style={
           selected
             ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
-            : undefined
+            : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }
         }
       >
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
