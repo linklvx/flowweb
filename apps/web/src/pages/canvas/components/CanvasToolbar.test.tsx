@@ -55,4 +55,33 @@ describe('CanvasToolbar', () => {
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
+
+  it('should set all buttons background to container color', () => {
+    render(<CanvasToolbar {...defaultProps} />);
+    const buttons = [
+      screen.getByLabelText('整理画布'),
+      screen.getByLabelText('切换小地图'),
+      screen.getByLabelText('网格吸附'),
+      screen.getByLabelText('缩小'),
+      screen.getByLabelText('放大'),
+    ];
+    for (const btn of buttons) {
+      expect(btn.style.backgroundColor).toBe('rgb(38, 38, 38)');
+    }
+  });
+
+  it('should reset browser button styling on all buttons (flat style)', () => {
+    render(<CanvasToolbar {...defaultProps} />);
+    const buttons = [
+      screen.getByLabelText('整理画布'),
+      screen.getByLabelText('切换小地图'),
+      screen.getByLabelText('网格吸附'),
+      screen.getByLabelText('缩小'),
+      screen.getByLabelText('放大'),
+    ];
+    for (const btn of buttons) {
+      expect(btn.classList.contains('appearance-none')).toBe(true);
+      expect(btn.classList.contains('border-0')).toBe(true);
+    }
+  });
 });

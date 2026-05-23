@@ -7,7 +7,8 @@ interface Props {
   onZoomOut: () => void;
 }
 
-const BTN = 'flex items-center justify-center transition-opacity hover:opacity-80';
+const BTN = 'flex items-center justify-center appearance-none border-0 transition-opacity hover:opacity-80';
+const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
 const ICON_WRAP = 'flex items-center justify-center overflow-hidden';
 
 function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props) {
@@ -29,7 +30,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={BTN}
         aria-label="整理画布"
-        style={{ width: 28, height: 28 }}
+        style={{ ...BTN_BG, width: 28, height: 28 }}
         onClick={onFitView}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
@@ -46,7 +47,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
         className={BTN}
         aria-label="切换小地图"
         aria-pressed={minimapOpen}
-        style={{ width: 28, height: 28 }}
+        style={{ ...BTN_BG, width: 28, height: 28 }}
         onClick={() => setMinimapOpen((v) => !v)}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
@@ -60,7 +61,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={BTN}
         aria-label="网格吸附"
-        style={{ width: 28, height: 28 }}
+        style={{ ...BTN_BG, width: 28, height: 28 }}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" style={{ color: 'rgb(160, 160, 160)' }}>
@@ -73,7 +74,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={BTN}
         aria-label="缩小"
-        style={{ width: 28, height: 28 }}
+        style={{ ...BTN_BG, width: 28, height: 28 }}
         onClick={onZoomOut}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
@@ -87,7 +88,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={`${BTN} px-1 text-[13px] leading-normal`}
         aria-label="缩放选项"
-        style={{ height: 28, color: 'rgb(180, 180, 180)' }}
+        style={{ ...BTN_BG, height: 28, color: 'rgb(180, 180, 180)' }}
       >
         {pct}%
       </button>
@@ -96,7 +97,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
       <button
         className={BTN}
         aria-label="放大"
-        style={{ width: 28, height: 28 }}
+        style={{ ...BTN_BG, width: 28, height: 28 }}
         onClick={onZoomIn}
       >
         <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
