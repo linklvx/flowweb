@@ -49,7 +49,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       data: nodeData,
       selected: true,
     };
-    set((s) => ({ nodes: [...s.nodes, node], selectedId: id }));
+    set((s) => ({
+      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), node],
+      selectedId: id,
+    }));
     // Also populate nodeStore so ImageGenNode/ImageConfigPanel can read node data
     useNodeStore.getState().addNode({
       id,

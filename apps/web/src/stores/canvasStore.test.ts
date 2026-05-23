@@ -57,6 +57,21 @@ describe('canvasStore', () => {
     expect(s.nodes[0].selected).toBe(true);
   });
 
+  it('should deselect previous node when adding a new one (only newest is selected)', () => {
+    useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
+    useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+
+    const s = useCanvasStore.getState();
+    expect(s.nodes).toHaveLength(2);
+
+    // First node should NOT be selected
+    expect(s.nodes[0].selected).toBeFalsy();
+    // Second node (latest) should be selected
+    expect(s.nodes[1].selected).toBe(true);
+    // selectedId points to the latest
+    expect(s.selectedId).toBe(s.nodes[1].id);
+  });
+
   it('should deselect when id is null', () => {
     useCanvasStore.getState().selectNode(null);
     expect(useCanvasStore.getState().selectedId).toBeNull();
