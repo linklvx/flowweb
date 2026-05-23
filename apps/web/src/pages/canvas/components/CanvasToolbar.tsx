@@ -16,14 +16,8 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props)
 
   return (
     <div
-      className="nodrag nopan absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-xl p-1.5"
-      style={{
-        backgroundColor: 'rgb(38, 38, 38)',
-        border: '0.5px solid rgb(54, 54, 54)',
-        backdropFilter: 'blur(8px)',
-        boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',
-        userSelect: 'none',
-      }}
+      className="nodrag nopan absolute bottom-3 left-3 z-10 flex items-center gap-1 p-1.5"
+      style={{ userSelect: 'none' }}
     >
       {/* Fit view */}
       <button
