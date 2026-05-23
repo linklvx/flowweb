@@ -7,7 +7,7 @@ interface Props {
   onZoomOut: () => void;
 }
 
-const BTN = 'flex items-center justify-center rounded-lg transition-colors hover:bg-white/10';
+const BTN = 'flex items-center justify-center transition-opacity hover:opacity-80';
 const ICON_WRAP = 'flex items-center justify-center overflow-hidden';
 
 function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut }: Props) {
