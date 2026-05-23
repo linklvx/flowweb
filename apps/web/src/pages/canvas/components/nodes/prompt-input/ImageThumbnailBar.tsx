@@ -23,6 +23,7 @@ interface ImageThumbnailBarProps {
   onChange: (images: ImageItem[]) => void;
   onImageClick: (imageId: string) => void;
   onImageUploaded: (imageId: string) => void;
+  onBeforeImageDelete?: (imageId: string) => void;
   maxCount?: number;
   disabled?: boolean;
 }
@@ -33,6 +34,7 @@ export function ImageThumbnailBar({
   onChange,
   onImageClick,
   onImageUploaded,
+  onBeforeImageDelete,
   maxCount = 9,
   disabled = false,
 }: ImageThumbnailBarProps) {
@@ -82,6 +84,11 @@ export function ImageThumbnailBar({
     await processUpload(Array.from(e.target.files));
   };
 
+  const handleDeleteImage = (imageId: string) => {
+    onBeforeImageDelete?.(imageId);
+    deleteImage(imageId);
+  };
+
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -106,7 +113,7 @@ export function ImageThumbnailBar({
             <SortableImageItem
               key={image.id}
               image={image}
-              onDelete={disabled ? () => {} : deleteImage}
+              onDelete={disabled ? () => {} : handleDeleteImage}
               onClick={disabled ? () => {} : onImageClick}
             />
           ))}

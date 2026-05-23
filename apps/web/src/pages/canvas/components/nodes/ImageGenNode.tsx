@@ -156,44 +156,46 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, updateConfig]);
 
+  const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
+
   return (
     <div className="relative">
+      {/* Hidden file input — shared by floating upload + replace buttons */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleUploadFile(file);
+        }}
+      />
+
       {/* Floating upload button — only when selected */}
       {selected && (
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleUploadFile(file);
-            }}
-          />
-          <button
-            className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
-            style={{ bottom: 'calc(100% + 28px)' }}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <>
-                <span className="inline-block w-3.5 h-3.5 border-2 border-[#ccc] border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm">{uploadProgress}%</span>
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
-                  <path d="M7 9l5 -5l5 5" />
-                  <path d="M12 4l0 12" />
-                </svg>
-                <span className="text-sm">上传</span>
-              </>
-            )}
-          </button>
-        </>
+        <button
+          className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
+          style={{ bottom: 'calc(100% + 28px)' }}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <>
+              <span className="inline-block w-3.5 h-3.5 border-2 border-[#ccc] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">{uploadProgress}%</span>
+            </>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                <path d="M7 9l5 -5l5 5" />
+                <path d="M12 4l0 12" />
+              </svg>
+              <span className="text-sm">上传</span>
+            </>
+          )}
+        </button>
       )}
 
       <div
@@ -253,7 +255,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       >
         <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
         <div
-          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300"
+          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: containerWidth, height: containerHeight }}
         >
           {displayUrl ? (
@@ -267,6 +269,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
           ) : (
             <span className="text-[#666] text-xs">图片预览区</span>
+          )}
+
+          {/* Replace button — only for user-uploaded images (not AI-generated) */}
+          {showReplaceButton && (
+            <button
+              className="nodrag nopan absolute top-2 right-2 z-5 flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 cursor-pointer border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                <path d="M7 9l5 -5l5 5" />
+                <path d="M12 4l0 12" />
+              </svg>
+              替换
+            </button>
           )}
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />

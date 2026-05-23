@@ -136,4 +136,16 @@ describe('ImageGenNode', () => {
     expect(btn).toHaveClass('nodrag');
     expect(btn).toHaveClass('nopan');
   });
+
+  it('shows replace button when image is user-uploaded (referenceImage set, no fileId)', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode();
+    expect(screen.getByText('替换')).toBeInTheDocument();
+  });
+
+  it('does not show replace button when image is AI-generated (fileId set)', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode();
+    expect(screen.queryByText('替换')).not.toBeInTheDocument();
+  });
 });

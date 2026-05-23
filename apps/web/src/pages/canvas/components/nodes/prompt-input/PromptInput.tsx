@@ -23,6 +23,7 @@ export interface PromptInputRef {
   focus: () => void;
   clear: () => void;
   insertImage: (src: string) => void;
+  removeImage: (src: string) => void;
   setText: (text: string) => void;
 }
 
@@ -443,6 +444,27 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       [editor],
     );
 
+    const removeImage = useCallback(
+      (src: string) => {
+        if (!editor) return;
+        const positions: { from: number; to: number }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === 'image' && node.attrs.src === src) {
+            positions.push({ from: pos, to: pos + node.nodeSize });
+          }
+          return true;
+        });
+        if (positions.length === 0) return;
+        // Delete all in single transaction, back-to-front to preserve positions
+        editor.chain().command(({ tr }) => {
+          const sorted = positions.sort((a, b) => b.from - a.from);
+          sorted.forEach(({ from, to }) => tr.delete(from, to));
+          return true;
+        }).run();
+      },
+      [editor],
+    );
+
     const setText = useCallback(
       (text: string) => {
         editor?.commands.setContent(text);
@@ -452,8 +474,8 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
     useImperativeHandle(
       ref,
-      () => ({ forceSync, focus, clear, insertImage, setText }),
-      [forceSync, focus, clear, insertImage, setText],
+      () => ({ forceSync, focus, clear, insertImage, removeImage, setText }),
+      [forceSync, focus, clear, insertImage, removeImage, setText],
     );
 
     // ---- 5. Cleanup: flush pending writes + destroy on unmount ----

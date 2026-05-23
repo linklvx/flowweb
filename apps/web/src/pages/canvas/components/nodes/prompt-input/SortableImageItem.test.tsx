@@ -119,6 +119,27 @@ describe('SortableImageItem', () => {
     expect(onDelete).toHaveBeenCalledWith(baseImage.id);
   });
 
+  it('8. shows preview popup on hover via portal with aspect ratio', () => {
+    const { container } = render(
+      <SortableImageItem image={baseImage} onDelete={onDelete} onClick={onClick} />,
+    );
+    // Preview not visible initially
+    expect(screen.queryByTestId('image-preview')).toBeNull();
+    // Fire mouseOver on the thumbnail container (fires both native + React)
+    const thumbContainer = container.firstChild as HTMLElement;
+    fireEvent.mouseOver(thumbContainer);
+    // Preview rendered via portal to document.body
+    const preview = screen.getByTestId('image-preview');
+    expect(preview).toBeInTheDocument();
+    const previewImg = preview.querySelector('img');
+    expect(previewImg).toHaveAttribute('src', baseImage.url);
+    // Has object-cover and fixed height styling
+    expect(previewImg).toHaveClass('object-cover');
+    // mouseOut hides preview
+    fireEvent.mouseOut(thumbContainer);
+    expect(screen.queryByTestId('image-preview')).toBeNull();
+  });
+
   it('8. does not crash with minimal image data', () => {
     const minimalImage: ImageItem = {
       id: 'minimal',

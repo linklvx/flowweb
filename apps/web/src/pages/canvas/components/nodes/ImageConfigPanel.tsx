@@ -233,6 +233,10 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             const img = prompt.allImages.find((i) => i.id === imageId);
             if (img) promptRef.current?.insertImage(img.url);
           }}
+          onBeforeImageDelete={(imageId) => {
+            const img = prompt.allImages.find((i) => i.id === imageId);
+            if (img) promptRef.current?.removeImage(img.url);
+          }}
           disabled={status === 'loading'}
         />
 

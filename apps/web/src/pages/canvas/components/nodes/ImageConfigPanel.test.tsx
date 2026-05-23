@@ -15,6 +15,7 @@ vi.mock('./prompt-input/PromptInput', () => ({
       focus: vi.fn(),
       clear: vi.fn(),
       insertImage: vi.fn(),
+      removeImage: vi.fn(),
       setText: vi.fn(),
     }));
     return <div data-testid="prompt-input" data-max-height={props.maxHeight}>PromptInput</div>;
@@ -24,7 +25,7 @@ vi.mock('./prompt-input/PromptInput', () => ({
 // Mock ImageThumbnailBar — don't render the real dnd-kit component
 vi.mock('./prompt-input/ImageThumbnailBar', () => ({
   ImageThumbnailBar: (props: any) => (
-    <div data-testid="thumbnail-bar">
+    <div data-testid="thumbnail-bar" data-before-delete={!!props.onBeforeImageDelete}>
       {props.images.map((img: any) => (
         <div key={img.id} data-testid={`thumb-${img.id}`}>{img.name}</div>
       ))}
