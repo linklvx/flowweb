@@ -1,16 +1,62 @@
-import { memo, useState, useRef, useCallback } from 'react';
+import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
+import axios from 'axios';
+
+const MAX_WIDTH = 548;
+const MAX_HEIGHT = 500;
+const MIN_WIDTH = 200;
+const MIN_HEIGHT = 100;
+
+function calcConstrainedSize(naturalW: number, naturalH: number) {
+  let w = naturalW;
+  let h = naturalH;
+
+  if (w > MAX_WIDTH) {
+    h = Math.round(h * (MAX_WIDTH / w));
+    w = MAX_WIDTH;
+  }
+  if (h > MAX_HEIGHT) {
+    w = Math.round(w * (MAX_HEIGHT / h));
+    h = MAX_HEIGHT;
+  }
+  if (w < MIN_WIDTH) w = MIN_WIDTH;
+  if (h < MIN_HEIGHT) h = MIN_HEIGHT;
+
+  return { w, h };
+}
 
 function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
+  const updateConfig = useNodeStore((s) => s.updateConfig);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
-  const { url: videoUrl } = useMediaUrl(fileId);
+  const referenceVideo = nodeData?.referenceVideo;
+  const { url: resultUrl } = useMediaUrl(fileId);
+  const { url: refVideoUrl } = useMediaUrl(referenceVideo);
 
-  // Editable title (same pattern as TextInputNode)
+  const displayUrl = resultUrl || refVideoUrl;
+
+  // Dynamic sizing based on video aspect ratio (same as image node)
+  const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
+
+  const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const vid = e.currentTarget;
+    const size = calcConstrainedSize(vid.videoWidth || 548, vid.videoHeight || 306);
+    setVidSize(size);
+  }, []);
+
+  useEffect(() => {
+    setVidSize(null);
+  }, [displayUrl]);
+
+  const containerWidth = vidSize ? vidSize.w : 548;
+  const containerHeight = vidSize ? vidSize.h : 306;
+
+  // Editable title
   const [label, setLabel] = useState('视频生成');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -32,11 +78,93 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || '视频生成';
 
+  // ---- Floating upload button ----
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    setUploading(true);
+    setUploadProgress(0);
+
+    try {
+      const { fileId: fid, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        type: 'uploaded',
+      });
+
+      const formData = new FormData();
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+      formData.append('file', file);
+
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+
+      await axios.post(proxyUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (e.total) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        },
+      });
+
+      await confirmUpload({ fileId: fid, key, fileSize: file.size });
+
+      updateConfig(id, { referenceVideo: fid });
+    } catch (err: any) {
+      console.error('[VideoGenNode] upload error:', err.message);
+    } finally {
+      setUploading(false);
+    }
+  }, [id, updateConfig]);
+
   return (
     <div className="relative">
+      {/* Hidden file input — for uploading reference video */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleUploadFile(file);
+        }}
+      />
+
+      {/* Floating upload button — only when selected */}
+      {selected && (
+        <button
+          className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
+          style={{ bottom: 'calc(100% + 28px)' }}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <>
+              <span className="inline-block w-3.5 h-3.5 border-2 border-[#ccc] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">{uploadProgress}%</span>
+            </>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                <path d="M7 9l5 -5l5 5" />
+                <path d="M12 4l0 12" />
+              </svg>
+              <span className="text-sm">上传</span>
+            </>
+          )}
+        </button>
+      )}
+
+      {/* Title bar */}
       <div
-        className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 w-80 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
-        style={{ lineHeight: '18px' }}
+        className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
+        style={{ width: containerWidth, lineHeight: '18px' }}
       >
         <span className="shrink-0 flex items-center" style={{ width: 12, height: 12 }}>
           <svg width="12" height="12" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -78,32 +206,57 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
           />
         </div>
       </div>
+
+      {/* Node body */}
       <div
-        className={`bg-[#222222] border rounded-lg w-80 transition-colors ${
+        className={`bg-[#222222] border rounded-lg transition-colors ${
           selected ? '' : 'border-white/10'
         }`}
-        style={
-          selected
+        style={{
+          width: containerWidth,
+          ...(selected
             ? { borderColor: '#9CA3AF', borderWidth: '2px', borderStyle: 'solid' }
-            : undefined
-        }
+            : undefined),
+        }}
       >
         <Handle type="target" position={Position.Left} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
-        <div className="p-3">
-          <div className="h-[200px] bg-transparent border border-[#3a3a3a] rounded-md flex items-center justify-center overflow-hidden">
-            {videoUrl ? (
-              <video controls className="w-full h-full object-contain">
-                <source src={videoUrl} type="video/mp4" />
-              </video>
-            ) : status === 'loading' ? (
-              <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
-            ) : (
-              <span className="text-[#666] text-xs">视频预览区</span>
-            )}
-          </div>
+        <div
+          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
+          style={{ width: containerWidth, height: containerHeight }}
+        >
+          {displayUrl ? (
+            <video
+              src={displayUrl}
+              controls
+              className="max-w-full max-h-full object-contain"
+              onLoadedMetadata={handleVideoLoad}
+            />
+          ) : status === 'loading' ? (
+            <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
+          ) : (
+            <span className="text-[#666] text-xs">视频预览区</span>
+          )}
+
+          {/* Replace button — only for user-uploaded videos (not AI-generated) */}
+          {!resultUrl && !!referenceVideo && !!displayUrl && (
+            <button
+              className="nodrag nopan absolute top-2 right-2 z-5 flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 cursor-pointer border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                <path d="M7 9l5 -5l5 5" />
+                <path d="M12 4l0 12" />
+              </svg>
+              替换
+            </button>
+          )}
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
       </div>
+
+      {/* Bottom config panel */}
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <VideoConfigPanel nodeId={id} />

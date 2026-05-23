@@ -441,8 +441,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.prompt.referencedImageIds).toEqual(['ref-1']);
   });
 
-  // 20. updatePromptImages should noop for non-image nodes
-  it('should noop for non-image nodes', () => {
+  // 20. updatePromptImages should noop for text nodes (text nodes have no prompt)
+  it('should noop for text nodes', () => {
     const textNode: AppNode = {
       id: 'txt-prompt',
       type: 'text',
@@ -460,10 +460,53 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(stored.data).not.toHaveProperty('prompt');
   });
 
+  // 20b. updatePromptImages should work for videoGen nodes (independent from imageGen)
+  it('should update prompt images for videoGen nodes', () => {
+    const videoNode: AppNode = {
+      id: 'vid-prompt',
+      type: 'videoGen',
+      position: { x: 100, y: 100 },
+      data: { model: '', status: 'idle' as const },
+    };
+    useNodeStore.getState().addNode(videoNode);
+
+    const newImages: ImageItem[] = [
+      { id: 'vid-img-1', url: '/api/storage/files/vid-img-1', name: 'frame1.png', status: 'success' },
+    ];
+    useNodeStore.getState().updatePromptImages('vid-prompt', newImages);
+
+    const stored = useNodeStore.getState().nodes['vid-prompt'];
+    expect(stored.data.prompt).toBeDefined();
+    expect(stored.data.prompt.allImages).toEqual(newImages);
+  });
+
   // 21. updatePromptImages should noop for non-existent node
   it('should noop for non-existent node', () => {
     expect(() => {
       useNodeStore.getState().updatePromptImages('no-exist', []);
     }).not.toThrow();
+  });
+
+  // 22. updateConfig should preserve videoGen node type (not overwrite to imageGen)
+  it('should preserve videoGen type when updateConfig called on video node', () => {
+    const videoNode: AppNode = {
+      id: 'vid-config',
+      type: 'videoGen',
+      position: { x: 100, y: 100 },
+      data: { model: '', status: 'idle' as const },
+    };
+    useNodeStore.getState().addNode(videoNode);
+
+    // Simulate VideoConfigPanel saving a prompt
+    useNodeStore.getState().updateConfig('vid-config', {
+      prompt: { text: 'a sunset', allImages: [], referencedImageIds: [] },
+    });
+
+    const stored = useNodeStore.getState().nodes['vid-config'];
+    expect(stored).toBeDefined();
+    // Must preserve videoGen type — NOT overwrite to imageGen
+    expect(stored.type).toBe('videoGen');
+    // Data must include the updated prompt
+    expect(stored.data.prompt.text).toBe('a sunset');
   });
 });

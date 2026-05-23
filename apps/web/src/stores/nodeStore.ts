@@ -68,25 +68,31 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
   return nodes[nodeId];
 }
 
-function makeImageData(
-  overrides: Partial<ImageNodeData>,
-  existing?: ImageNodeData
-): ImageNodeData {
-  return {
-    style: overrides.style ?? existing?.style ?? '写实',
-    model: overrides.model ?? existing?.model ?? 'sdxl',
-    quality: overrides.quality ?? existing?.quality ?? 'standard',
-    ratio: overrides.ratio ?? existing?.ratio ?? '1:1',
-    fileId: overrides.fileId ?? existing?.fileId,
-    referenceImage: overrides.referenceImage ?? existing?.referenceImage,
-    status: existing?.status ?? 'idle',
-    prompt: overrides.prompt ?? existing?.prompt ?? {
-      text: '',
-      html: '',
-      allImages: [],
-      referencedImageIds: [],
-    },
+/**
+ * Merge node config — type-agnostic, works for image/video/text nodes.
+ * Preserves all existing fields, applies overrides, fills missing defaults.
+ */
+function mergeNodeData(existing: Record<string, any> | undefined, overrides: Record<string, any>): Record<string, any> {
+  const defaults: Record<string, any> = {
+    status: 'idle',
+    style: '写实',
+    model: 'sdxl',
+    quality: 'standard',
+    ratio: '1:1',
+    prompt: { text: '', html: '', allImages: [] as ImageItem[], referencedImageIds: [] as string[] },
   };
+
+  const merged = { ...(existing ?? {}) };
+
+  for (const [key, value] of Object.entries(overrides)) {
+    merged[key] = value;
+  }
+
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!(key in merged)) merged[key] = value;
+  }
+
+  return merged;
 }
 
 // ========== Store interface ==========
@@ -188,19 +194,18 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   updateConfig: (id, config) => {
     const existing = getNode(get().nodes, id);
-    const existingData: ImageNodeData | undefined =
-      existing && isImageNode(existing) ? existing.data : undefined;
 
     set((s) => ({
       nodes: {
         ...s.nodes,
         [id]: {
           id,
-          type: 'imageGen',
+          // Preserve node type — never overwrite (image/video/text each own their type)
+          type: existing?.type ?? 'imageGen',
           position: existing?.position ?? { x: 0, y: 0 },
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: makeImageData(config, existingData),
+          data: mergeNodeData(existing?.data, config),
         },
       },
     }));
@@ -237,7 +242,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   updatePromptImages: (nodeId, allImages) => {
     set((state) => {
       const node = state.nodes[nodeId];
-      if (!node || node.type !== 'imageGen') return state;
+      // text nodes have no prompt — noop. image/video nodes share prompt shape.
+      if (!node || node.type === 'text') return state;
       return {
         nodes: {
           ...state.nodes,

@@ -19,7 +19,7 @@ const {
   const nodes: Record<string, any> = {};
 
   const updateFn = vi.fn((nodeId: string, allImages: ImageItem[]) => {
-    if (nodes[nodeId]?.type === 'imageGen') {
+    if (nodes[nodeId]?.type === 'imageGen' || nodes[nodeId]?.type === 'videoGen' || nodes[nodeId]?.type === 'video') {
       nodes[nodeId] = {
         ...nodes[nodeId],
         data: {
@@ -110,6 +110,19 @@ function makeImageNode(id: string, allImages: ImageItem[] = []): Record<string, 
 
 function makeTextNode(id: string): Record<string, any> {
   return { id, type: 'text', position: { x: 0, y: 0 }, data: { content: 'hello' } };
+}
+
+function makeVideoNode(id: string, allImages: ImageItem[] = []): Record<string, any> {
+  return {
+    id,
+    type: 'videoGen',
+    position: { x: 0, y: 0 },
+    data: {
+      model: '',
+      status: 'idle',
+      prompt: { text: '', html: '', allImages, referencedImageIds: [] },
+    },
+  };
 }
 
 // ========== Tests ==========
@@ -429,6 +442,31 @@ describe('useImageUpload', () => {
         call[0] === 'node-1' && call[1].some((img) => img.status === 'error'),
     );
     expect(lastCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ================================================================
+  // 4b. uploadSingleImage — video node MUST succeed (independent from image)
+  // ================================================================
+  it('4b. uploadSingleImage — works for videoGen nodes (not just imageGen)', async () => {
+    mockNodes['vid-1'] = makeVideoNode('vid-1');
+
+    const { result } = renderHook(() => useImageUpload('vid-1'));
+    const file = new File(['video-ref'], 'frame.png', { type: 'image/png' });
+
+    let image: ImageItem | null = null;
+    await act(async () => {
+      image = await result.current.uploadSingleImage(file);
+    });
+
+    expect(image).not.toBeNull();
+    expect(image!.status).toBe('success');
+    expect(image!.name).toBe('frame.png');
+
+    // Store should have been updated via updatePromptImages
+    const calls = mockUpdatePromptImagesFn.mock.calls.filter(
+      (call: [string, ImageItem[]]) => call[0] === 'vid-1',
+    );
+    expect(calls.length).toBeGreaterThan(0);
   });
 
   // ================================================================

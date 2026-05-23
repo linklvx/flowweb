@@ -1,105 +1,155 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ReactFlowProvider } from '@xyflow/react';
+import React from 'react';
 import { VideoConfigPanel } from './VideoConfigPanel';
 
-vi.mock('@/components/FileUpload', () => ({
-  FileUpload: ({ onUploadComplete, accept, hint }: any) => (
-    <div data-testid="file-upload">
-      <span>点击或拖拽上传</span>
-      {hint && <span>{hint}</span>}
+// Track the maxHeight prop passed to PromptInput
+let capturedMaxHeight = 80;
+
+// Mock PromptInput
+vi.mock('./prompt-input/PromptInput', () => ({
+  default: React.forwardRef((props: any, ref: any) => {
+    capturedMaxHeight = props.maxHeight;
+    React.useImperativeHandle(ref, () => ({
+      forceSync: vi.fn(),
+      focus: vi.fn(),
+      clear: vi.fn(),
+      insertImage: vi.fn(),
+      removeImage: vi.fn(),
+      setText: vi.fn(),
+    }));
+    return <div data-testid="prompt-input" data-max-height={props.maxHeight}>PromptInput</div>;
+  }),
+}));
+
+// Mock ImageThumbnailBar
+vi.mock('./prompt-input/ImageThumbnailBar', () => ({
+  ImageThumbnailBar: (props: any) => (
+    <div data-testid="thumbnail-bar">
+      {props.images.map((img: any) => (
+        <div key={img.id} data-testid={`thumb-${img.id}`}>{img.name}</div>
+      ))}
     </div>
   ),
 }));
 
-const { mockStoreState } = vi.hoisted(() => {
-  const state: any = {
-    nodes: {
-      'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: { model: '', mode: 'text-to-video', prompt: 'test video prompt', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' } },
-    },
-    updateConfig: vi.fn(),
-    setStatus: vi.fn(),
-  };
-  return { mockStoreState: state };
-});
+// Mock @xyflow/react
+vi.mock('@xyflow/react', () => ({
+  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+  Handle: () => null,
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+}));
 
-const mockUpdateConfig = mockStoreState.updateConfig;
-const mockSetStatus = mockStoreState.setStatus;
+// Mock stores
+const mockUpdateConfig = vi.fn();
+const mockUpdatePromptImages = vi.fn();
+let mockNodeData: any = {
+  model: 'video-model-1',
+  status: 'idle',
+  prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+};
 
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: Object.assign(
-    vi.fn((selector?: any) => {
-      if (typeof selector === 'function') return selector(mockStoreState);
-      return mockStoreState;
-    }),
-    {
-      getState: () => mockStoreState,
-      setState: (partial: any) => { Object.assign(mockStoreState, partial); },
-    }
-  ),
+  useNodeStore: vi.fn((selector?: any) => {
+    const state = {
+      nodes: {
+        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: mockNodeData },
+      },
+      updateConfig: mockUpdateConfig,
+      updatePromptImages: mockUpdatePromptImages,
+      setStatus: vi.fn(),
+    };
+    if (typeof selector === 'function') return selector(state);
+    return state;
+  }),
 }));
 
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: vi.fn(() => ({ nodes: [], edges: [], getState: () => ({ nodes: [], edges: [] }) })),
+  useCanvasStore: {
+    getState: () => ({ nodes: [], edges: [] }),
+  },
 }));
 
-const renderPanel = (nodeId?: string) =>
-  render(
-    <ReactFlowProvider>
-      <VideoConfigPanel nodeId={nodeId ?? 'v1'} />
-    </ReactFlowProvider>
-  );
+vi.mock('@/api/executionApi', () => ({
+  enqueueWorkflow: vi.fn(),
+}));
+
+vi.mock('@/api/projectApi', () => ({
+  syncNodes: vi.fn(),
+  syncEdges: vi.fn(),
+}));
 
 describe('VideoConfigPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockStoreState.nodes = {
-      'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: { model: '', mode: 'text-to-video', prompt: 'test video prompt', ratio: '16:9', quality: '720P', duration: '', audio: false, status: 'idle' } },
+    mockNodeData = {
+      model: 'video-model-1',
+      status: 'idle',
+      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
     };
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no fetch in test'));
   });
 
-  it('should render 4 mode tabs', () => {
-    renderPanel();
-    expect(screen.getByText('文生视频')).toBeInTheDocument();
-    expect(screen.getByText('单图生视频')).toBeInTheDocument();
-    expect(screen.getByText('首尾帧生视频')).toBeInTheDocument();
-    expect(screen.getByText('多帧参考生视频')).toBeInTheDocument();
+  it('renders PromptInput', () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
 
-  it('should render prompt input', () => {
-    renderPanel();
-    expect(screen.getByPlaceholderText(/描述想要生成的视频/i)).toBeInTheDocument();
+  it('renders thumbnail bar', () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    expect(screen.getByTestId('thumbnail-bar')).toBeTruthy();
   });
 
-  it('should render execute button', () => {
-    renderPanel();
-    expect(screen.getByText('▶')).toBeInTheDocument();
+  it('renders maximize button', () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    expect(screen.getByTestId('canvas-node-generation-input-bar-maximize-button')).toBeTruthy();
   });
 
-  it('should show ratio/quality/duration/audio controls', () => {
-    renderPanel();
-    expect(screen.getByText('比例')).toBeInTheDocument();
-    expect(screen.getByText('清晰度')).toBeInTheDocument();
-    expect(screen.getByText('时长')).toBeInTheDocument();
-    expect(screen.getByText('音频')).toBeInTheDocument();
+  it('renders video model select button', () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    expect(screen.getByTestId('canvas-node-video-model-select')).toBeTruthy();
   });
 
-  it('should call setStatus when execute button clicked', () => {
-    renderPanel();
-    fireEvent.click(screen.getByText('▶'));
-    expect(mockSetStatus).toHaveBeenCalledWith('v1', 'loading');
+  it('renders voice input button', () => {
+    const { container } = render(<VideoConfigPanel nodeId="v1" />);
+    expect(container.querySelector('[aria-label="语音输入"]')).toBeInTheDocument();
   });
 
-  it('should show upload for image-to-video mode', () => {
-    mockStoreState.nodes['vid-1'] = { id: 'vid-1', type: 'video', position: { x: 0, y: 0 }, data: { mode: 'image-to-video', model: '' } };
-    const { container } = renderPanel('vid-1');
-    expect(container.innerHTML).toContain('点击或拖拽上传');
+  it('maximize button toggles data-state', () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    const btn = screen.getByTestId('canvas-node-generation-input-bar-maximize-button');
+    expect(btn.getAttribute('data-state')).toBe('closed');
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('open');
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('closed');
   });
 
-  it('should show dual upload for first-last-frame mode', () => {
-    mockStoreState.nodes['vid-1'] = { id: 'vid-1', type: 'video', position: { x: 0, y: 0 }, data: { mode: 'first-last-frame', model: '' } };
-    const { container } = renderPanel('vid-1');
-    expect(container.textContent).toContain('开始帧');
-    expect(container.textContent).toContain('结束帧');
+  it('passes maxHeight=80 to PromptInput initially, 350 after maximize', () => {
+    capturedMaxHeight = 0;
+    render(<VideoConfigPanel nodeId="v1" />);
+    expect(capturedMaxHeight).toBe(80);
+
+    const btn = screen.getByTestId('canvas-node-generation-input-bar-maximize-button');
+    fireEvent.click(btn);
+    expect(capturedMaxHeight).toBe(350);
+
+    fireEvent.click(btn);
+    expect(capturedMaxHeight).toBe(80);
+  });
+
+  it('returns null when node not in store', () => {
+    const { container } = render(<VideoConfigPanel nodeId="nonexistent" />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('renders correctly with images in prompt', () => {
+    mockNodeData.prompt.allImages = [
+      { id: 'img1', url: '/u', name: 'x.png', status: 'success' },
+      { id: 'img2', url: '/u', name: 'y.png', status: 'success' },
+    ];
+    const { container } = render(<VideoConfigPanel nodeId="v1" />);
+    expect(screen.getByTestId('prompt-input')).toBeTruthy();
+    expect(container.querySelectorAll('[data-testid^="thumb-"]').length).toBe(2);
   });
 });

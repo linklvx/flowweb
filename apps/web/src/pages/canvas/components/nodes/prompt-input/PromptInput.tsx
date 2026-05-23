@@ -241,6 +241,10 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
     const valueRef = useRef(value);
     valueRef.current = value;
 
+    // Same pattern for allImages — @mention callback must see latest images after upload
+    const allImagesRef = useRef(allImages);
+    allImagesRef.current = allImages;
+
     // ---- 1. Tiptap Editor Setup ----
     const editor = useEditor({
       extensions: [
@@ -314,7 +318,8 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
           suggestion: {
             char: '@',
             items: ({ query }: { query: string }) => {
-              return allImages
+              const latest = allImagesRef.current;
+              return latest
                 .filter((img) => img.status === 'success' && img.name.toLowerCase().includes(query.toLowerCase()))
                 .slice(0, 8);
             },
