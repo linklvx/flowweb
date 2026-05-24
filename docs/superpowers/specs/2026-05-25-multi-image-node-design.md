@@ -1,8 +1,8 @@
 # MultiImageNode 多图堆叠节点 — 功能规格说明书
 
-**版本**: 1.2
+**版本**: 1.3
 **日期**: 2026-05-25
-**状态**: 待确认（实现细节补充）
+**状态**: 待确认（移除 Undo/Redo）
 
 ---
 
@@ -66,15 +66,6 @@ export interface ImageItem {
 | `updateMultiImageNodeStatus` | `(nodeId, status: MultiImageNodeData['nodeStatus'])` | 更新节点状态 |
 
 `deleteNode` 现有逻辑已处理 ImageItem 清理，复用即可。
-
-### 2.5 Undo/Redo 支持
-
-所有新增 Store Actions 需支持撤销/重做。当前项目无 `undoable` middleware，需在实现时：
-
-- **方案 A（优先）**: 创建 `@/stores/middleware/undoable.ts`，实现 Zustand 的 undo 中间件，将 `updateMultiImageImages`、`setMainImageIndex`、`toggleExpanded`、`updateMultiImageNodeStatus` 纳入 `include` 列表
-- **方案 B**: 若 undoable 中间件创建工作量过大，记 TODO 标记，先用基础 set/get 实现，后续补充
-
-**判断标准**: 在 Plan 阶段评估 undoable middleware 的复杂度。若超过 50 行且与其他 store action 耦合，先方案 B。
 
 ### 2.4 类型守卫
 
