@@ -138,6 +138,8 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
             overflow: 'hidden',
             position: 'relative',
           }}
+          onMouseEnter={() => setIsPlayheadHovered(true)}
+          onMouseLeave={() => setIsPlayheadHovered(false)}
         >
           {/* Hidden wavesurfer container (audio engine only) */}
           <div ref={containerRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '100%', height: '100%' }} />
@@ -193,8 +195,6 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
               pointerEvents: 'none',
               zIndex: 30,
             }}
-            onMouseEnter={() => setIsPlayheadHovered(true)}
-            onMouseLeave={() => setIsPlayheadHovered(false)}
           >
             {/* Triangle arrow */}
             <svg width="10" height="6" className="shrink-0" style={{ pointerEvents: 'none' }}>
