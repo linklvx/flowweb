@@ -1,8 +1,8 @@
 # MultiImageNode 多图堆叠节点 — 功能规格说明书
 
-**版本**: 1.1
+**版本**: 1.2
 **日期**: 2026-05-25
-**状态**: 待确认（已修正）
+**状态**: 待确认（实现细节补充）
 
 ---
 
@@ -66,6 +66,15 @@ export interface ImageItem {
 | `updateMultiImageNodeStatus` | `(nodeId, status: MultiImageNodeData['nodeStatus'])` | 更新节点状态 |
 
 `deleteNode` 现有逻辑已处理 ImageItem 清理，复用即可。
+
+### 2.5 Undo/Redo 支持
+
+所有新增 Store Actions 需支持撤销/重做。当前项目无 `undoable` middleware，需在实现时：
+
+- **方案 A（优先）**: 创建 `@/stores/middleware/undoable.ts`，实现 Zustand 的 undo 中间件，将 `updateMultiImageImages`、`setMainImageIndex`、`toggleExpanded`、`updateMultiImageNodeStatus` 纳入 `include` 列表
+- **方案 B**: 若 undoable 中间件创建工作量过大，记 TODO 标记，先用基础 set/get 实现，后续补充
+
+**判断标准**: 在 Plan 阶段评估 undoable middleware 的复杂度。若超过 50 行且与其他 store action 耦合，先方案 B。
 
 ### 2.4 类型守卫
 
@@ -272,7 +281,41 @@ const nodeTypes: NodeTypes = {
 
 ---
 
-## 9. 测试策略
+## 9. 实现细节
+
+### 9.1 图片加载失败处理：ImageWithFallback
+
+创建通用组件 `apps/web/src/components/common/ImageWithFallback.tsx`：
+
+```tsx
+interface ImageWithFallbackProps {
+  src: string;
+  alt: string;
+  className?: string;
+}
+```
+
+- 正常加载：渲染 `<img>` 标签，`loading="lazy"` 懒加载
+- 加载失败：`onError` 触发 `useState` → 切换为破损图标 SVG（灰色 #555，居中显示在容器内）
+- 用于 MultiImageNode 的所有图片展示位置（主图、网格图、配置面板缩略图）
+
+### 9.2 配置面板拖拽排序：dnd-kit
+
+项目已有依赖：`@dnd-kit/core ^6.3.1`、`@dnd-kit/sortable ^10.0.0`、`@dnd-kit/utilities ^3.2.2`。
+
+实现要点：
+- 使用 `DndContext` + `SortableContext`（`verticalListSortingStrategy`）
+- `PointerSensor` 激活距离设为 5px（避免误触拖拽）
+- `onDragEnd` 中使用 `arrayMove` 重排数组
+- **主图索引联动**：
+  - 拖拽的是主图 → `mainImageIndex` 更新为目标位置
+  - 主图被其他图片跨过 → `mainImageIndex` 相应调整（±1）
+- 排序后调用 `updateMultiImageImages` 持久化
+- 每个 `SortableImageItem` 添加 `nodrag` 类名（防止拖拽排序触发 React Flow 画布拖拽）
+
+---
+
+## 10. 测试策略
 
 ### 9.1 单元测试（MultiImageNode.test.tsx）
 
