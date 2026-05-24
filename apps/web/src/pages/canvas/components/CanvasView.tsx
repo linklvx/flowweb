@@ -11,6 +11,7 @@ import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { VideoGenNode } from './nodes/VideoGenNode';
 import { AudioGenNode } from './nodes/AudioGenNode';
+import { MultiImageNode } from './nodes/MultiImageNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 
@@ -19,6 +20,7 @@ const nodeTypes: NodeTypes = {
   imageGen: ImageGenNode,
   videoGen: VideoGenNode,
   audioGen: AudioGenNode,
+  multiImageGen: MultiImageNode,
 } as any;
 
 const edgeTypes: any = {
