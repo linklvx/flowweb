@@ -4,7 +4,7 @@ import { useDragSeek } from './useDragSeek';
 
 describe('useDragSeek', () => {
   let canvas: HTMLCanvasElement;
-  let wavesurfer: { seekTo: ReturnType<typeof vi.fn> };
+  let wavesurfer: { seekTo: ReturnType<typeof vi.fn>; getCurrentTime: ReturnType<typeof vi.fn> };
   let windowRemoveSpy: ReturnType<typeof vi.spyOn>;
   let windowListeners: Map<string, EventListener>;
 
@@ -14,7 +14,7 @@ describe('useDragSeek', () => {
       value: vi.fn(() => ({ left: 50, top: 100, width: 1000, height: 120 })),
     });
 
-    wavesurfer = { seekTo: vi.fn() };
+    wavesurfer = { seekTo: vi.fn(), getCurrentTime: vi.fn(() => 60) };
 
     windowListeners = new Map();
     vi.spyOn(window, 'addEventListener').mockImplementation(
@@ -36,7 +36,7 @@ describe('useDragSeek', () => {
   it('should set isDragging true on mousedown', () => {
     const canvasRef = { current: canvas };
     const { result } = renderHook(() =>
-      useDragSeek(canvasRef, wavesurfer as any, true, 120)
+      useDragSeek(canvasRef, wavesurfer as any, true, 120, 340)
     );
 
     act(() => {
@@ -50,7 +50,7 @@ describe('useDragSeek', () => {
 
   it('should call stopPropagation on mousedown', () => {
     const canvasRef = { current: canvas };
-    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120));
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
     const stopPropSpy = vi.spyOn(MouseEvent.prototype, 'stopPropagation');
 
@@ -66,7 +66,7 @@ describe('useDragSeek', () => {
 
   it('should seek on mousemove during drag', () => {
     const canvasRef = { current: canvas };
-    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120));
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {
@@ -85,7 +85,7 @@ describe('useDragSeek', () => {
   it('should set isDragging false on mouseup', () => {
     const canvasRef = { current: canvas };
     const { result } = renderHook(() =>
-      useDragSeek(canvasRef, wavesurfer as any, true, 120)
+      useDragSeek(canvasRef, wavesurfer as any, true, 120, 340)
     );
 
     act(() => {
@@ -104,11 +104,12 @@ describe('useDragSeek', () => {
 
   it('should clamp seek to 0% minimum', () => {
     const canvasRef = { current: canvas };
-    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120));
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
+    // Click far left: offsetFromCenter = -2050 < -1000 → time clamped to 0
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true, clientX: 0 + 50,
+        bubbles: true, clientX: -2000,
       }));
     });
 
@@ -117,11 +118,12 @@ describe('useDragSeek', () => {
 
   it('should clamp seek to 100% maximum', () => {
     const canvasRef = { current: canvas };
-    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120));
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
+    // Click far right: offsetFromCenter = 4830 → time clamped to duration
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true, clientX: 2000 + 50,
+        bubbles: true, clientX: 5000,
       }));
     });
 
@@ -131,7 +133,7 @@ describe('useDragSeek', () => {
   it('should stop dragging on window blur', () => {
     const canvasRef = { current: canvas };
     const { result } = renderHook(() =>
-      useDragSeek(canvasRef, wavesurfer as any, true, 120)
+      useDragSeek(canvasRef, wavesurfer as any, true, 120, 340)
     );
 
     act(() => {
@@ -151,7 +153,7 @@ describe('useDragSeek', () => {
   it('should remove window listeners on unmount', () => {
     const canvasRef = { current: canvas };
     const { unmount } = renderHook(() =>
-      useDragSeek(canvasRef, wavesurfer as any, true, 120)
+      useDragSeek(canvasRef, wavesurfer as any, true, 120, 340)
     );
 
     unmount();
@@ -164,7 +166,7 @@ describe('useDragSeek', () => {
 
   it('should not seek when not ready', () => {
     const canvasRef = { current: canvas };
-    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, false, 120));
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, false, 120, 340));
 
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {

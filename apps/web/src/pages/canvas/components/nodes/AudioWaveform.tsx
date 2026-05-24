@@ -91,7 +91,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
   // Custom hooks
   const peaks = useWaveformPeaks(wavesurfer, audioUrl, 250, isReady);
   useCanvasRenderer(canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth);
-  const { isDragging } = useDragSeek(canvasRef, wavesurfer, isReady, duration);
+  const { isDragging } = useDragSeek(canvasRef, wavesurfer, isReady, duration, visibleWidth);
 
   // Playhead hover state
   const [isPlayheadHovered, setIsPlayheadHovered] = useState(false);
@@ -141,8 +141,8 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
           onMouseEnter={() => setIsPlayheadHovered(true)}
           onMouseLeave={() => setIsPlayheadHovered(false)}
         >
-          {/* Hidden wavesurfer container (audio engine only) */}
-          <div ref={containerRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '100%', height: '100%' }} />
+          {/* Hidden wavesurfer container (audio engine only, behind canvas) */}
+          <div ref={containerRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: -1 }} />
 
           {/* Waveform canvas */}
           <canvas
@@ -153,6 +153,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
               position: 'absolute',
               top: 0,
               left: 0,
+              zIndex: 1,
             }}
           />
 

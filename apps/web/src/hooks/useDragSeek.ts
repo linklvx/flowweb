@@ -20,7 +20,10 @@ export function useDragSeek(
   wavesurfer: WaveSurfer | null,
   isReady: boolean,
   duration: number,
+  visibleWidth: number,
 ): { isDragging: boolean } {
+  const TOTAL_BAR_STEP = 4; // BAR_WIDTH + BAR_GAP
+  const totalBarsWidth = 250 * TOTAL_BAR_STEP; // 1000
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
 
@@ -37,9 +40,14 @@ export function useDragSeek(
       if (!wavesurfer || !isReady || duration <= 0) return;
       const rect = canvas.getBoundingClientRect();
       const offsetX = e.clientX - rect.left;
-      const canvasWidth = rect.width || 1;
-      const progress = Math.max(0, Math.min(1, offsetX / canvasWidth));
-      wavesurfer.seekTo(progress);
+      // Mode B: waveform scrolls, playhead at viewport center.
+      // Click offset from center → time offset from currentTime.
+      const offsetFromCenter = offsetX - visibleWidth / 2;
+      const timeOffset = (offsetFromCenter / totalBarsWidth) * duration;
+      const currentTime = wavesurfer.getCurrentTime();
+      const newTime = Math.max(0, Math.min(duration, currentTime + timeOffset));
+      const progress = duration > 0 ? newTime / duration : 0;
+      wavesurfer.seekTo(Math.max(0, Math.min(1, progress)));
     };
 
     const throttledSeek = throttle(handleSeek, 10);
