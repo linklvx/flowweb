@@ -3,12 +3,13 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { AudioConfigPanel } from './AudioConfigPanel';
+import { AudioWaveform } from './AudioWaveform';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
 
-const NODE_WIDTH = 380;
-const NODE_HEIGHT = 170;
+const NODE_WIDTH = 400;
+const NODE_HEIGHT = 260;
 
 function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
@@ -80,6 +81,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [useFallback, setUseFallback] = useState(false);
 
   const handleUploadFile = useCallback(async (file: File) => {
     setUploading(true);
@@ -221,7 +223,14 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
         >
-          {displayUrl ? (
+          {displayUrl && !useFallback ? (
+            <AudioWaveform
+              nodeId={id}
+              audioUrl={displayUrl}
+              waveformUrl={undefined}
+              onError={() => setUseFallback(true)}
+            />
+          ) : displayUrl ? (
             <audio
               src={displayUrl}
               controls

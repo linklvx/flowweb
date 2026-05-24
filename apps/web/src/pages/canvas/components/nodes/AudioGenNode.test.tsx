@@ -77,6 +77,15 @@ vi.mock('./AudioConfigPanel', () => ({
   AudioConfigPanel: () => <div>audio config panel</div>,
 }));
 
+vi.mock('./AudioWaveform', () => ({
+  AudioWaveform: vi.fn(({ nodeId, onError }: { nodeId: string; audioUrl: string; onError?: (err: Error) => void }) => (
+    <div data-testid="audio-waveform">
+      <button data-testid="trigger-error" onClick={() => onError?.(new Error('test'))}>trigger error</button>
+      waveform-{nodeId}
+    </div>
+  )),
+}));
+
 describe('AudioGenNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -123,11 +132,11 @@ describe('AudioGenNode', () => {
 
   // ─── Fixed size 380×170 ───
 
-  it('should render card with fixed size 380×170', () => {
+  it('should render card with fixed size 400×260', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
     const { container } = renderNode();
-    expect(container.innerHTML).toContain('width: 380px');
-    expect(container.innerHTML).toContain('height: 170px');
+    expect(container.innerHTML).toContain('width: 400px');
+    expect(container.innerHTML).toContain('height: 260px');
   });
 
   // ─── Handles ───
@@ -160,12 +169,10 @@ describe('AudioGenNode', () => {
 
   // ─── Audio preview ───
 
-  it('should render audio element when fileId exists', () => {
+  it('should render AudioWaveform when fileId exists', () => {
     setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
     renderNode();
-    const audioEl = document.querySelector('audio');
-    expect(audioEl).toBeTruthy();
-    expect(audioEl).toHaveAttribute('src', 'http://media/test-audio-id');
+    expect(screen.getByTestId('audio-waveform')).toBeTruthy();
   });
 
   // ─── Config panel ───
@@ -259,5 +266,26 @@ describe('AudioGenNode', () => {
     renderNode();
     statusHandler!({ nodeId: 'a1', status: 'done', fileId: 'gen-audio-001' });
     expect(getStoreSetFileResult()).toHaveBeenCalledWith('a1', 'gen-audio-001');
+  });
+
+  // ─── AudioWaveform integration ───
+
+  it('should render AudioWaveform when displayUrl exists', () => {
+    setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
+    renderNode();
+    expect(screen.getByTestId('audio-waveform')).toBeTruthy();
+  });
+
+  it('should fall back to native audio element when AudioWaveform errors', () => {
+    setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
+    renderNode();
+    // Verify AudioWaveform is shown first
+    expect(screen.getByTestId('audio-waveform')).toBeTruthy();
+    // Trigger error to switch to fallback
+    fireEvent.click(screen.getByTestId('trigger-error'));
+    // After error, native audio should be shown instead
+    const audioEl = document.querySelector('audio');
+    expect(audioEl).toBeTruthy();
+    expect(audioEl).toHaveAttribute('src', 'http://media/test-audio-id');
   });
 });
