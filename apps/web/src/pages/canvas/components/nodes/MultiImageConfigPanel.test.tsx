@@ -68,4 +68,20 @@ describe('MultiImageConfigPanel', () => {
     const clearBtn = screen.getByText('清空全部');
     expect(clearBtn).toBeInTheDocument();
   });
+
+  it('should render delete button for each image', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    renderPanel();
+    const deleteBtns = screen.getAllByText('✕');
+    expect(deleteBtns.length).toBe(1);
+  });
+
+  it('should clear images on clear all confirm', () => {
+    window.confirm = vi.fn(() => true);
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    renderPanel();
+    const clearBtn = screen.getByText('清空全部');
+    fireEvent.click(clearBtn);
+    expect(window.confirm).toHaveBeenCalled();
+  });
 });

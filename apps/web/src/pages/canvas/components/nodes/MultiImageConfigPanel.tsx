@@ -2,10 +2,59 @@ import { useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import axios from 'axios';
 
 interface Props {
   nodeId: string;
+}
+
+function SortableImageItem({ id, img, nodeId }: { id: string; img: any; index: number; nodeId: string }) {
+  const updateMultiImageImages = useNodeStore((s) => s.updateMultiImageImages);
+  const nodeData = useNodeStore((s) => s.nodes[nodeId]?.data) as any;
+  const images: any[] = nodeData?.images ?? [];
+
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const currentIndex = images.findIndex((img2: any) => img2.id === id);
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="nodrag flex items-center gap-2 text-xs text-[#999] cursor-grab active:cursor-grabbing">
+      <div className="w-8 h-8 rounded bg-[#1a1a2e] flex items-center justify-center overflow-hidden shrink-0">
+        <img
+          src={img.url || `/api/media/${img.id}`}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      </div>
+      <span className="truncate flex-1">{img.name}</span>
+      <button
+        className="text-[#666] hover:text-red-400 shrink-0"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          const newImages = images.filter((_: any, j: number) => j !== currentIndex);
+          updateMultiImageImages(nodeId, newImages);
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  );
 }
 
 export function MultiImageConfigPanel({ nodeId }: Props) {
@@ -14,6 +63,35 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
   const updateMultiImageImages = useNodeStore((s) => s.updateMultiImageImages);
 
   const images: any[] = nodeData?.images ?? [];
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = images.findIndex((img: any) => img.id === active.id);
+    const newIndex = images.findIndex((img: any) => img.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newImages = arrayMove(images, oldIndex, newIndex);
+    updateMultiImageImages(nodeId, newImages);
+
+    // 主图索引联动调整（Spec §9.2 要求）
+    const mainImageIndex = nodeData?.mainImageIndex ?? 0;
+    const setMainImageIndex = useNodeStore.getState().setMainImageIndex;
+
+    if (oldIndex === mainImageIndex) {
+      setMainImageIndex(nodeId, newIndex);
+    } else if (oldIndex < mainImageIndex && newIndex >= mainImageIndex) {
+      setMainImageIndex(nodeId, mainImageIndex - 1);
+    } else if (oldIndex > mainImageIndex && newIndex <= mainImageIndex) {
+      setMainImageIndex(nodeId, mainImageIndex + 1);
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,30 +168,15 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
       </button>
 
       {images.length > 0 && (
-        <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-          {images.map((img: any, i: number) => (
-            <div key={img.id} className="flex items-center gap-2 text-xs text-[#999]">
-              <div className="w-8 h-8 rounded bg-[#1a1a2e] flex items-center justify-center overflow-hidden shrink-0">
-                <img
-                  src={img.url || `/api/media/${img.id}`}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              </div>
-              <span className="truncate flex-1">{img.name}</span>
-              <button
-                className="text-[#666] hover:text-red-400 shrink-0"
-                onClick={() => {
-                  const newImages = images.filter((_: any, j: number) => j !== i);
-                  updateMultiImageImages(nodeId, newImages);
-                }}
-              >
-                ✕
-              </button>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={images.map((img: any) => img.id)} strategy={verticalListSortingStrategy}>
+            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+              {images.map((img: any, i: number) => (
+                <SortableImageItem key={img.id} id={img.id} img={img} index={i} nodeId={nodeId} />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       {images.length > 0 && (
