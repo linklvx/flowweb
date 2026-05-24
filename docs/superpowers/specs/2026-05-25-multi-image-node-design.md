@@ -1,8 +1,8 @@
 # MultiImageNode 多图堆叠节点 — 功能规格说明书
 
-**版本**: 1.0
+**版本**: 1.1
 **日期**: 2026-05-25
-**状态**: 待确认
+**状态**: 待确认（已修正）
 
 ---
 
@@ -32,10 +32,14 @@
 ```typescript
 // 新增到 nodeStore.ts NodeData 联合类型
 export interface MultiImageNodeData {
+  label?: string;               // 可编辑标题，与其他节点保持一致
   images: ImageItem[];          // 复用现有 ImageItem 类型
-  mainImageIndex: number;       // 主图索引，默认 0
+  mainImageIndex: number;       // 主图索引，默认 0，无图时为 -1
   expanded: boolean;            // 是否展开网格
-  status: 'idle' | 'loading' | 'done' | 'error';
+  nodeStatus: 'idle' | 'loading' | 'done' | 'error'; // nodeStatus 避免与 ImageItem.status 混淆
+  // 预留字段（不在本版本实现）
+  generationBatchId?: string;   // 批量生成批次 ID
+  prompt?: string;              // 生成所用的 prompt
 }
 ```
 
@@ -59,6 +63,7 @@ export interface ImageItem {
 | `updateMultiImageImages` | `(nodeId, images: ImageItem[])` | 替换整个 images 数组 |
 | `setMainImageIndex` | `(nodeId, index: number)` | 设置主图索引 |
 | `toggleExpanded` | `(nodeId)` | 切换展开/收起 |
+| `updateMultiImageNodeStatus` | `(nodeId, status: MultiImageNodeData['nodeStatus'])` | 更新节点状态 |
 
 `deleteNode` 现有逻辑已处理 ImageItem 清理，复用即可。
 
@@ -103,7 +108,8 @@ export function isMultiImageNode(node: AppNode): node is AppNode & { data: Multi
 ### 3.2 堆叠视图（默认状态）
 
 - 显示主图（`images[mainImageIndex]`），`object-cover`，圆角 12px
-- 主图后方显示最多 3 层偏移背景：
+- 主图后方显示最多 3 层偏移背景（z-index 从高到低排列）：
+  - 主图: z-index 4（最上层，确保不被背景层覆盖）
   - 层 1: `scale(0.97) rotate(5deg) translateX(12px)`，z-index 3
   - 层 2: `scale(0.94) rotate(10deg) translateX(24px)`，z-index 2
   - 层 3: `scale(0.91) rotate(15deg) translateX(36px)`，z-index 1
@@ -247,12 +253,13 @@ const nodeTypes: NodeTypes = {
 | 3 张图 | 1 主图 + 2 背景层，有徽章 |
 | 4 张图 | 1 主图 + 3 背景层（全部），有徽章 |
 | 5+ 张图 | 1 主图 + 3 背景层，有徽章。展开为 3 列 |
-| 9 张上限 | 上传时阻止超过 9 张 |
-| 上传中 | 显示上传进度，状态 `loading` |
+| 9 张上限 | 选择超过 9 张时，`message.warning('最多支持上传9张图片')`，只取前 9 张 |
+| 上传中 | 显示上传进度，`nodeStatus` 为 `loading` |
 | 上传失败 | 单张标记 `error`，不影响其他图片 |
-| 删除主图 | 自动将 `mainImageIndex` 设为 0 |
-| 全部删除 | 回到空状态（占位 SVG） |
-| 图片加载失败 | `object-cover` 区域显示破损图标 |
+| 删除主图 | 自动将 `mainImageIndex` 设为剩余第一张的索引 |
+| 删除最后一张图 | `mainImageIndex` 设为 -1，`nodeStatus` 回到 `idle` |
+| 全部删除 | 回到空状态（占位 SVG），`nodeStatus` 为 `idle` |
+| 图片加载失败 | `<img>` 的 `onError` 事件中替换为破损图标 SVG，居中显示 |
 
 ---
 
@@ -286,6 +293,9 @@ const nodeTypes: NodeTypes = {
 | 13 | 悬浮上传按钮 | selected 时显示，未选隐藏 |
 | 14 | 2 个 Handle | target + source 各 1 个 |
 | 15 | 选中边框 | selected 时渲染橙色边框 |
+| 16 | 删除最后一张图 | mainImageIndex=-1，nodeStatus=idle |
+| 17 | 上传超 9 张 | message.warning 提示，只取前 9 张 |
+| 18 | 图片加载失败 | onError 替换为破损 SVG 图标 |
 
 ### 9.2 ConfigPanel 测试
 
