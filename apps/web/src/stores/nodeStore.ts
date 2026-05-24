@@ -47,7 +47,17 @@ export interface AudioNodeData {
   referenceAudio?: string;
 }
 
-export type NodeData = TextNodeData | ImageNodeData | VideoNodeData | AudioNodeData;
+export interface MultiImageNodeData {
+  label?: string;
+  images: ImageItem[];
+  mainImageIndex: number;
+  expanded: boolean;
+  nodeStatus: 'idle' | 'loading' | 'done' | 'error';
+  generationBatchId?: string;
+  prompt?: string;
+}
+
+export type NodeData = TextNodeData | ImageNodeData | VideoNodeData | AudioNodeData | MultiImageNodeData;
 
 // ========== AppNode (React Flow aligned) ==========
 
@@ -68,6 +78,10 @@ export function isImageNode(node: AppNode): node is AppNode & { data: ImageNodeD
 
 export function isTextNode(node: AppNode): node is AppNode & { data: TextNodeData } {
   return node.type === 'text';
+}
+
+export function isMultiImageNode(node: AppNode): node is AppNode & { data: MultiImageNodeData } {
+  return node.type === 'multiImageGen';
 }
 
 // ========== Private helpers ==========
@@ -117,6 +131,10 @@ interface NodeState {
   setStatus: (id: string, status: ImageNodeData['status']) => void;
   setFileResult: (id: string, fileId: string) => void;
   updatePromptImages: (nodeId: string, allImages: ImageItem[]) => void;
+  updateMultiImageImages: (nodeId: string, images: ImageItem[]) => void;
+  setMainImageIndex: (nodeId: string, index: number) => void;
+  toggleExpanded: (nodeId: string) => void;
+  updateMultiImageNodeStatus: (nodeId: string, status: MultiImageNodeData['nodeStatus']) => void;
   getNodeData: <T>(id: string) => T | undefined;
 }
 
@@ -166,6 +184,13 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       if (imgData.fileId) {
         await fetch(`/api/storage/files/${imgData.fileId}`, { method: 'DELETE' }).catch(() => {});
       }
+    }
+    if (node && isMultiImageNode(node)) {
+      const imgData = node.data;
+      const deleteRefs = imgData.images.map((img) =>
+        fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
+      );
+      await Promise.allSettled(deleteRefs);
     }
 
     const newNodes = { ...get().nodes };
@@ -265,6 +290,67 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         },
       };
     });
+  },
+
+  updateMultiImageImages: (nodeId, images) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: {
+            ...existing.data,
+            images,
+            ...(images.length === 0 ? { mainImageIndex: -1, nodeStatus: 'idle' as const } : {}),
+            ...(images.length > 0 && 'mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length ? { mainImageIndex: 0 } : {}),
+          },
+        },
+      },
+    }));
+  },
+
+  setMainImageIndex: (nodeId, index) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing || !isMultiImageNode(existing)) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, mainImageIndex: index },
+        },
+      },
+    }));
+  },
+
+  toggleExpanded: (nodeId) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, expanded: !(existing.data as any).expanded },
+        },
+      },
+    }));
+  },
+
+  updateMultiImageNodeStatus: (nodeId, status) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, nodeStatus: status },
+        },
+      },
+    }));
   },
 
   getNodeData: <T>(id: string): T | undefined => {
