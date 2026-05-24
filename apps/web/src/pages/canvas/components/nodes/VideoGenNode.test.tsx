@@ -61,6 +61,18 @@ describe('VideoGenNode', () => {
   const renderNode = (selected = false) =>
     render(<ReactFlowProvider><VideoGenNode {...baseNodeProps} selected={selected} /></ReactFlowProvider>);
 
+  // ---- Title icon test ----
+  it('should render play button icon next to title', () => {
+    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    const { container } = renderNode();
+    const titleBar = container.querySelector('[class*="-translate-y-full"]');
+    const svg = titleBar?.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 16 16');
+    const path = svg?.querySelector('path');
+    expect(path?.getAttribute('d')).toContain('M4.66699');
+  });
+
   // ---- Title tests ----
   it('should render editable node title with default value', () => {
     renderNode();
@@ -97,9 +109,20 @@ describe('VideoGenNode', () => {
   });
 
   // ---- Preview tests ----
-  it('should render preview placeholder when no video', () => {
-    renderNode();
-    expect(screen.getByText(/视频预览区/i)).toBeInTheDocument();
+  it('should render play button SVG placeholder when no video', () => {
+    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    const { container } = renderNode();
+    // The placeholder should be a play icon SVG, not text
+    expect(screen.queryByText(/视频预览区/i)).not.toBeInTheDocument();
+    // Find the preview container (flex items-center justify-center)
+    const previewContainer = container.querySelector('.flex.items-center.justify-center.overflow-hidden');
+    const svg = previewContainer?.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 16 16');
+    expect(svg?.getAttribute('width')).toBe('64');
+    expect(svg?.getAttribute('height')).toBe('64');
+    const path = svg?.querySelector('path');
+    expect(path?.getAttribute('d')).toContain('M4.66699');
   });
 
   it('should render video element when videoUrl exists', () => {

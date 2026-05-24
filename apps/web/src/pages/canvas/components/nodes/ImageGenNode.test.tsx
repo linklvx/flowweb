@@ -91,9 +91,21 @@ describe('ImageGenNode', () => {
     expect(ghost.textContent).toBe('A very long title for testing ');
   });
 
-  it('should render preview area when no result', () => {
-    renderNode();
-    expect(screen.getByText(/图片预览区/i)).toBeInTheDocument();
+  it('should render camera SVG placeholder when no result image', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    const { container } = renderNode();
+    // The placeholder should be an SVG icon, not text
+    expect(screen.queryByText(/图片预览区/i)).not.toBeInTheDocument();
+    const previewContainer = container.querySelector('.flex.items-center.justify-center.overflow-hidden');
+    const svg = previewContainer?.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 48 48');
+    expect(svg?.getAttribute('width')).toBe('72');
+    expect(svg?.getAttribute('height')).toBe('72');
+    const g = svg?.querySelector('g');
+    expect(g?.getAttribute('opacity')).toBe('0.35');
+    const path = svg?.querySelector('path');
+    expect(path?.getAttribute('d')).toContain('M31.7998');
   });
 
   it('should render loading state', () => {
@@ -116,11 +128,11 @@ describe('ImageGenNode', () => {
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
-  it('should render card with dynamic width', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+  it('should render card with dynamic width based on ratio', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
     const html = container.innerHTML;
-    // Width is now dynamic (inline style), default is 548px
+    // Width is dynamic (inline style), 16:9 ratio gives 548px wide
     expect(html).toContain('width: 548px');
   });
 
@@ -156,5 +168,29 @@ describe('ImageGenNode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode();
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
+  });
+
+  // ---- Ratio-based container dimensions (when no image loaded) ----
+  it('should use square dimensions for 1:1 ratio when no image', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    const { container } = renderNode();
+    // Container should be square (width ≈ height) within max constraints
+    expect(container.innerHTML).toContain('width: 500px');
+    expect(container.innerHTML).toContain('height: 500px');
+  });
+
+  it('should use wide dimensions for 16:9 ratio when no image', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    const { container } = renderNode();
+    // 16:9 → wider than tall, max width 548, height ~309
+    expect(container.innerHTML).toContain('width: 548px');
+    expect(container.innerHTML).toContain('height: 309px');
+  });
+
+  it('should use tall dimensions for 9:16 ratio when no image', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '9:16', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    const { container } = renderNode();
+    // 9:16 → taller than wide, max height 500, width ~281
+    expect(container.innerHTML).toContain('height: 500px');
   });
 });

@@ -136,4 +136,65 @@ describe('TextConfigPanel', () => {
     const textarea = container.querySelector('textarea');
     expect(textarea?.className).toContain('scrollbar-dark');
   });
+
+  // ── Maximize / Restore button ──
+
+  it('should render maximize button in top-right corner', () => {
+    render(<TextConfigPanel nodeId="n1" />);
+    expect(screen.getByTestId('canvas-node-text-config-panel-maximize-button')).toBeTruthy();
+  });
+
+  it('should have data-state closed initially', () => {
+    render(<TextConfigPanel nodeId="n1" />);
+    const btn = screen.getByTestId('canvas-node-text-config-panel-maximize-button');
+    expect(btn.getAttribute('data-state')).toBe('closed');
+  });
+
+  it('should toggle data-state to open on click', () => {
+    render(<TextConfigPanel nodeId="n1" />);
+    const btn = screen.getByTestId('canvas-node-text-config-panel-maximize-button');
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('open');
+  });
+
+  it('should toggle data-state back to closed on second click', () => {
+    render(<TextConfigPanel nodeId="n1" />);
+    const btn = screen.getByTestId('canvas-node-text-config-panel-maximize-button');
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(btn.getAttribute('data-state')).toBe('closed');
+  });
+
+  it('should have h-[140px] class before maximizing', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toContain('h-[140px]');
+    expect(panel.className).not.toContain('h-[350px]');
+  });
+
+  it('should change to h-[350px] after maximizing', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const btn = screen.getByTestId('canvas-node-text-config-panel-maximize-button');
+    fireEvent.click(btn);
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toContain('h-[350px]');
+    expect(panel.className).not.toContain('h-[140px]');
+  });
+
+  it('should have pr-4 right padding on textarea to avoid overlap with maximize button', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const textarea = container.querySelector('textarea');
+    expect(textarea?.className).toContain('pr-4');
+    expect(textarea?.className).not.toContain('px-2.5');
+  });
+
+  it('should restore h-[140px] after collapsing', () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const btn = screen.getByTestId('canvas-node-text-config-panel-maximize-button');
+    fireEvent.click(btn); // maximize
+    fireEvent.click(btn); // collapse
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toContain('h-[140px]');
+    expect(panel.className).not.toContain('h-[350px]');
+  });
 });

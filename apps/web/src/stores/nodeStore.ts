@@ -78,7 +78,7 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     style: '写实',
     model: 'sdxl',
     quality: 'standard',
-    ratio: '1:1',
+    ratio: '16:9',
     prompt: { text: '', html: '', allImages: [] as ImageItem[], referencedImageIds: [] as string[] },
   };
 

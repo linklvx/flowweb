@@ -152,4 +152,10 @@ describe('VideoConfigPanel', () => {
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
     expect(container.querySelectorAll('[data-testid^="thumb-"]').length).toBe(2);
   });
+
+  it('should render 2 dividers: after model selector and between voice/credits', () => {
+    const { container } = render(<VideoConfigPanel nodeId="v1" />);
+    const dividers = container.querySelectorAll('.w-px.h-4');
+    expect(dividers.length).toBe(2);
+  });
 });

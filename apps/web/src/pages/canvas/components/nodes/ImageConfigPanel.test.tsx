@@ -47,6 +47,7 @@ let mockNodeData: any = {
   model: 'sdxl',
   quality: 'standard',
   ratio: '1:1',
+  resolution: '2K',
   status: 'idle',
   prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
 };
@@ -132,5 +133,79 @@ describe('ImageConfigPanel', () => {
     fireEvent.click(btn); // maximize
     fireEvent.click(btn); // collapse
     expect(capturedMaxHeight).toBe(80);
+  });
+
+  it('should render divider next to model selector', () => {
+    const { container } = render(<ImageConfigPanel nodeId="img1" />);
+    // There should be 2 dividers: one after model selector, one between voice and credits
+    const dividers = container.querySelectorAll('.w-px.h-4');
+    expect(dividers.length).toBe(2);
+  });
+
+  it('should render ratio+resolution button with ratio and resolution text', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-ratio-select');
+    expect(btn).toBeTruthy();
+    // Should display ratio and resolution: e.g. "1:1 · 2K"
+    expect(btn.textContent).toContain('1:1');
+    expect(btn.textContent).toContain('2K');
+    // Should contain a rectangle icon (aspect ratio visual)
+    const icon = btn.querySelector('[style*="border: 1.5px solid"]');
+    expect(icon).toBeTruthy();
+  });
+
+  it('should open ratio popup on button click', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-ratio-select');
+    fireEvent.click(btn);
+    // Popup should render with resolution and ratio labels
+    expect(screen.getByText('分辨率')).toBeTruthy();
+    expect(screen.getByText('比例')).toBeTruthy();
+  });
+
+  it('should show resolution options 2K and 4K in popup', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
+    expect(screen.getByText('2K')).toBeTruthy();
+    expect(screen.getByText('4K')).toBeTruthy();
+  });
+
+  it('should show ratio grid options in popup', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
+    // Should show ratio options in popup (use exact:false since button shows "1:1 · 2K")
+    const ratioOptions = screen.getAllByText('1:1', { exact: false });
+    expect(ratioOptions.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('16:9')).toBeTruthy();
+    expect(screen.getByText('9:16')).toBeTruthy();
+  });
+
+  it('should NOT close popup when selecting a ratio option', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-ratio-select');
+    fireEvent.click(btn);
+    expect(screen.getByText('分辨率')).toBeTruthy();
+    // Click a ratio option
+    fireEvent.click(screen.getByText('16:9'));
+    // Popup should still be open
+    expect(screen.getByText('分辨率')).toBeTruthy();
+  });
+
+  it('should close popup when clicking the button again (toggle)', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-ratio-select');
+    fireEvent.click(btn); // open
+    expect(screen.getByText('分辨率')).toBeTruthy();
+    fireEvent.click(btn); // close
+    expect(screen.queryByText('分辨率')).not.toBeInTheDocument();
+  });
+
+  it('should close ratio popup on outside click', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
+    expect(screen.getByText('分辨率')).toBeTruthy();
+    // Click outside
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('分辨率')).not.toBeInTheDocument();
   });
 });

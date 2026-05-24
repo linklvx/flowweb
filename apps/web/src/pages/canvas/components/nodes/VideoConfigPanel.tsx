@@ -239,6 +239,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         />
 
         <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-3">
           <div className="relative">
             <button
               type="button"
@@ -270,6 +271,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                 ))}
               </div>
             )}
+          </div>
+          <div className="w-px h-4 bg-white/10 shrink-0" />
           </div>
           <div className="flex items-center gap-3">
             <button

@@ -198,7 +198,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.style).toBe('写实');
     expect(imgData.model).toBe('sdxl');
     expect(imgData.quality).toBe('standard');
-    expect(imgData.ratio).toBe('1:1');
+    expect(imgData.ratio).toBe('16:9');
     expect(imgData.status).toBe('idle');
     expect(imgData.prompt).toEqual({ text: '', html: '', allImages: [], referencedImageIds: [] });
   });

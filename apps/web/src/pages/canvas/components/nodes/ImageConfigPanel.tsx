@@ -17,6 +17,21 @@ interface Props {
   nodeId: string;
 }
 
+const RATIO_OPTIONS = [
+  { label: '1:1', w: 12, h: 12 },
+  { label: '9:16', w: 9, h: 16 },
+  { label: '16:9', w: 16, h: 9 },
+  { label: '3:4', w: 9, h: 12 },
+  { label: '4:3', w: 12, h: 9 },
+  { label: '3:2', w: 12, h: 8 },
+  { label: '2:3', w: 9, h: 12 },
+];
+
+function ratioIcon(r: string) {
+  const found = RATIO_OPTIONS.find((o) => o.label === r);
+  return found ? { w: found.w, h: found.h } : { w: 12, h: 12 };
+}
+
 function ImageConfigPanelComponent({ nodeId }: Props) {
   // ── ALL hooks must be called before any conditional return ──
   const node = useNodeStore((s) => s.nodes[nodeId]);
@@ -29,7 +44,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
   const nodeData = (node?.type === 'imageGen' ? node.data : undefined) as ImageNodeData | undefined;
   const model = nodeData?.model ?? 'sdxl';
-  const ratio = nodeData?.ratio ?? '1:1';
+  const ratio = nodeData?.ratio ?? '16:9';
+  const resolution = nodeData?.resolution ?? '2K';
   const quality = nodeData?.quality ?? 'standard';
   const status = nodeData?.status ?? 'idle';
   const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
@@ -41,6 +57,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [ratioOpen, setRatioOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
   const voiceBaseRef = useRef('');
   const selectedModel = models.find((m) => m.id === model);
@@ -52,6 +69,14 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [modelOpen]);
+
+  // Close ratio popup on outside click
+  useEffect(() => {
+    if (!ratioOpen) return;
+    const handler = () => setRatioOpen(false);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [ratioOpen]);
 
   // Load image models
   useEffect(() => {
@@ -256,6 +281,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
         {/* Bottom bar: Model (left) + Voice + Credits + Execute (right) */}
         <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-3">
           {/* Model selector */}
           <div className="relative">
             <button
@@ -288,6 +314,67 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                 ))}
               </div>
             )}
+          </div>
+          <div className="w-px h-4 bg-white/10 shrink-0" />
+          <div className="relative">
+          <button
+            type="button"
+            data-testid="canvas-node-image-ratio-select"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); setRatioOpen((v) => !v); }}
+            className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+          >
+            <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
+              <div className="rounded-[2px]" style={{ width: ratioIcon(ratio).w, height: ratioIcon(ratio).h, border: '1.5px solid currentColor' }} />
+            </div>
+            <span className="whitespace-nowrap text-xs">{ratio} · {resolution}</span>
+          </button>
+          {ratioOpen && (
+            <div
+              className="absolute bottom-full mb-2 left-0 z-[300] w-[340px] flex flex-col gap-2 rounded-2xl p-3 border border-[#363636] shadow-[0_4px_10px_rgba(0,0,0,0.25),0_2px_4px_rgba(0,0,0,0.3)]"
+              style={{ backgroundColor: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)', backdropFilter: 'blur(32px)' }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {/* Resolution section */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>分辨率</span></div>
+                <div className="flex gap-2">
+                  {['2K', '4K'].map((res) => (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => updateConfig(nodeId, { resolution: res } as any)}
+                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
+                        resolution === res ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
+                      }`}
+                    >{res}</button>
+                  ))}
+                </div>
+              </div>
+              {/* Ratio section */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>比例</span></div>
+                <div className="grid grid-cols-5 gap-2">
+                  {RATIO_OPTIONS.map((r) => (
+                    <button
+                      key={r.label}
+                      type="button"
+                      onClick={() => { updateConfig(nodeId, { ratio: r.label } as any); }}
+                      className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 cursor-pointer ${
+                        ratio === r.label ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
+                      }`}
+                    >
+                      <span className="flex size-[17px] items-center justify-center">
+                        <span className="flex-none rounded-[2px] border-[1.5px] border-solid border-current" style={{ width: r.w, height: r.h }} />
+                      </span>
+                      <span className="text-xs">{r.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          </div>
           </div>
           <div className="flex items-center gap-3">
             {/* Voice input */}
