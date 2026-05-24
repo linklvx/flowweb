@@ -8,8 +8,8 @@ import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
 
-const NODE_WIDTH = 400;
-const NODE_HEIGHT = 180;
+const NODE_WIDTH = 548;
+const NODE_HEIGHT = 220;
 
 function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
