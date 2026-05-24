@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useWaveSurfer } from '@wavesurfer/react';
-import { useReactFlow } from '@xyflow/react';
+import { useWavesurfer } from '@wavesurfer/react';
+import { useViewport } from '@xyflow/react';
 import { useAudioStore } from '@/stores/audioStore';
 import { formatDuration } from '@/utils/date';
 
@@ -14,7 +14,7 @@ export interface AudioWaveformProps {
 export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onError }: AudioWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { registerNode, unregisterNode, setWavesurfer, togglePlay, updateNodeState } = useAudioStore();
-  const { viewport } = useReactFlow();
+  const viewport = useViewport();
   const [useFallback, setUseFallback] = useState(false);
 
   // Register/unregister lifecycle
@@ -23,8 +23,8 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
     return () => { unregisterNode(nodeId); };
   }, [nodeId, registerNode, unregisterNode]);
 
-  const { wavesurfer, isReady, isPlaying, currentTime, duration, error } = useWaveSurfer({
-    container: containerRef.current,
+  const { wavesurfer, isReady, isPlaying, currentTime } = useWavesurfer({
+    container: containerRef,
     url: audioUrl,
     waveColor: '#ffffff',
     progressColor: '#ff3333',
@@ -35,7 +35,6 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
     barRadius: 2,
     height: 120,
     backend: 'WebAudio',
-    responsive: true,
     normalize: true,
     autoplay: false,
     autoScroll: false,
@@ -50,6 +49,9 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
     }
   }, [wavesurfer, nodeId, setWavesurfer]);
 
+  // Derive duration from wavesurfer (useWavesurfer hook doesn't expose it)
+  const duration = wavesurfer?.getDuration() ?? 0;
+
   // Sync playback state to store
   useEffect(() => {
     updateNodeState(nodeId, { isPlaying, currentTime, duration });
@@ -58,7 +60,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
   // Resize on viewport zoom change
   useEffect(() => {
     if (wavesurfer && containerRef.current) {
-      wavesurfer.resize();
+      (wavesurfer as any).resize?.();
     }
   }, [viewport.zoom, wavesurfer]);
 
@@ -71,15 +73,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
     return () => { (unsub as (() => void) | undefined)?.(); };
   }, [wavesurfer, nodeId]);
 
-  // Error handling — useWaveSurfer error + wavesurfer load error
-  useEffect(() => {
-    if (error) {
-      console.error('AudioWaveform error:', nodeId, error);
-      setUseFallback(true);
-      onError?.(error);
-    }
-  }, [error, nodeId, onError]);
-
+  // Error handling — wavesurfer load error
   useEffect(() => {
     if (!wavesurfer) return;
     const unsub = wavesurfer.on('error', (err: unknown) => {

@@ -1,32 +1,32 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { AudioWaveform } from './AudioWaveform';
 import { useAudioStore } from '@/stores/audioStore';
 
 // Hoisted mock state for @wavesurfer/react
-const { mockUseWaveSurferReturn } = vi.hoisted(() => {
+const { mockUseWavesurferReturn } = vi.hoisted(() => {
   return {
-    mockUseWaveSurferReturn: {
-      wavesurfer: { on: vi.fn(), resize: vi.fn() },
+    mockUseWavesurferReturn: {
+      wavesurfer: { on: vi.fn(), resize: vi.fn(), getDuration: vi.fn(() => 120) },
       isReady: true,
       isPlaying: false,
       currentTime: 0,
-      duration: 120,
-      error: null,
     },
   };
 });
 
 vi.mock('@wavesurfer/react', () => ({
-  useWaveSurfer: vi.fn(() => mockUseWaveSurferReturn),
+  useWavesurfer: vi.fn(() => mockUseWavesurferReturn),
 }));
 
-// Mock useReactFlow for viewport
-vi.mock('@xyflow/react', () => ({
-  useReactFlow: vi.fn(() => ({
-    viewport: { zoom: 1, x: 0, y: 0 },
-  })),
-}));
+// Mock useViewport for zoom changes
+vi.mock('@xyflow/react', async () => {
+  const actual = await vi.importActual('@xyflow/react');
+  return {
+    ...actual,
+    useViewport: vi.fn(() => ({ zoom: 1, x: 0, y: 0 })),
+  };
+});
 
 describe('AudioWaveform', () => {
   beforeEach(() => {
@@ -37,12 +37,10 @@ describe('AudioWaveform', () => {
       isGlobalPlaying: false,
     });
     useAudioStore.getState().registerNode('test-node');
-    mockUseWaveSurferReturn.wavesurfer = { on: vi.fn(), resize: vi.fn() };
-    mockUseWaveSurferReturn.isReady = true;
-    mockUseWaveSurferReturn.isPlaying = false;
-    mockUseWaveSurferReturn.currentTime = 0;
-    mockUseWaveSurferReturn.duration = 120;
-    mockUseWaveSurferReturn.error = null;
+    mockUseWavesurferReturn.wavesurfer = { on: vi.fn(), resize: vi.fn(), getDuration: vi.fn(() => 120) };
+    mockUseWavesurferReturn.isReady = true;
+    mockUseWavesurferReturn.isPlaying = false;
+    mockUseWavesurferReturn.currentTime = 0;
   });
 
   afterEach(() => {
@@ -57,7 +55,6 @@ describe('AudioWaveform', () => {
 
   it('should render the waveform container', () => {
     const { container } = renderComponent();
-    // jsdom normalizes #2d2d2d to rgb(45, 45, 45) in the style attribute
     const waveformDiv = container.querySelector('[style*="background-color: rgb(45, 45, 45)"]');
     expect(waveformDiv).toBeTruthy();
   });
@@ -65,23 +62,23 @@ describe('AudioWaveform', () => {
   // ─── Loading state ───
 
   it('should show loading overlay when wavesurfer is not ready', () => {
-    mockUseWaveSurferReturn.isReady = false;
-    mockUseWaveSurferReturn.wavesurfer = null;
+    mockUseWavesurferReturn.isReady = false;
+    mockUseWavesurferReturn.wavesurfer = { on: vi.fn(), resize: vi.fn(), getDuration: vi.fn(() => 0) };
     renderComponent();
     expect(screen.getByTestId('waveform-loading')).toBeTruthy();
-    mockUseWaveSurferReturn.isReady = true;
+    mockUseWavesurferReturn.isReady = true;
   });
 
   // ─── Play/Pause button ───
 
   it('should render play button when paused', () => {
-    mockUseWaveSurferReturn.isPlaying = false;
+    mockUseWavesurferReturn.isPlaying = false;
     renderComponent();
     expect(screen.getByLabelText('播放')).toBeTruthy();
   });
 
   it('should render pause button when playing', () => {
-    mockUseWaveSurferReturn.isPlaying = true;
+    mockUseWavesurferReturn.isPlaying = true;
     renderComponent();
     expect(screen.getByLabelText('暂停')).toBeTruthy();
   });
@@ -89,8 +86,7 @@ describe('AudioWaveform', () => {
   // ─── Time display ───
 
   it('should display formatted currentTime and duration', () => {
-    mockUseWaveSurferReturn.currentTime = 65;
-    mockUseWaveSurferReturn.duration = 120;
+    mockUseWavesurferReturn.currentTime = 65;
     renderComponent();
     expect(screen.getByText('01:05 / 02:00')).toBeTruthy();
   });
@@ -103,7 +99,6 @@ describe('AudioWaveform', () => {
 
     const stopPropagation = vi.spyOn(Event.prototype, 'stopPropagation');
 
-    // mouseleave does NOT bubble natively, so it can't be dispatched to React's delegation
     ['mousedown', 'mousemove', 'mouseup'].forEach((eventType) => {
       root.dispatchEvent(new MouseEvent(eventType, { bubbles: true }));
     });
@@ -128,19 +123,37 @@ describe('AudioWaveform', () => {
 
   // ─── Error fallback ───
 
-  it('should render fallback audio element on error', () => {
-    mockUseWaveSurferReturn.error = new Error('Decode failed');
+  it('should render fallback audio element on wavesurfer error event', async () => {
+    let errorHandler: ((err: unknown) => void) | undefined;
+    const mockWs = {
+      on: vi.fn((event: string, handler: (err: unknown) => void) => {
+        if (event === 'error') errorHandler = handler;
+        return vi.fn();
+      }),
+      resize: vi.fn(),
+      getDuration: vi.fn(() => 120),
+    };
+    mockUseWavesurferReturn.wavesurfer = mockWs;
+
     renderComponent();
-    const audioEl = document.querySelector('audio');
-    expect(audioEl).toBeTruthy();
-    expect(audioEl).toHaveAttribute('src', 'http://example.com/audio.mp3');
-    mockUseWaveSurferReturn.error = null;
+
+    // Trigger the error handler in act to flush state updates
+    expect(errorHandler).toBeDefined();
+    await act(async () => {
+      errorHandler!(new Error('Decode failed'));
+    });
+
+    // Wait for re-render with fallback audio element
+    await waitFor(() => {
+      const audioEl = document.querySelector('audio');
+      expect(audioEl).toBeTruthy();
+      expect(audioEl).toHaveAttribute('src', 'http://example.com/audio.mp3');
+    });
   });
 
   // ─── Register/unregister node ───
 
   it('should register the node on mount', () => {
-    // Clean first
     useAudioStore.getState().unregisterNode('test-node');
     expect(useAudioStore.getState().nodes.has('test-node')).toBe(false);
     renderComponent();
@@ -172,7 +185,6 @@ describe('AudioWaveform', () => {
   // ─── Finish event ───
 
   it('should reset isPlaying on finish event', () => {
-    // Set up to capture the finish event handler when wavesurfer.on is called
     let finishHandler: (() => void) | undefined;
     const mockWs = {
       on: vi.fn((event: string, handler: () => void) => {
@@ -180,17 +192,16 @@ describe('AudioWaveform', () => {
         return vi.fn();
       }),
       resize: vi.fn(),
+      getDuration: vi.fn(() => 120),
     };
-    mockUseWaveSurferReturn.wavesurfer = mockWs;
-    mockUseWaveSurferReturn.isPlaying = true;
+    mockUseWavesurferReturn.wavesurfer = mockWs;
+    mockUseWavesurferReturn.isPlaying = true;
 
     renderComponent();
 
-    // Simulate finish event
     expect(finishHandler).toBeDefined();
     finishHandler!();
 
-    // Verify isPlaying was reset
     expect(useAudioStore.getState().nodes.get('test-node')?.isPlaying).toBe(false);
   });
 });
