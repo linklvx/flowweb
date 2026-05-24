@@ -264,16 +264,24 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
       <div className="flex items-center justify-center gap-3 py-1.5">
         <button
           aria-label={isPlaying ? '暂停' : '播放'}
-          className="text-white hover:text-[#38bdf8] transition-colors"
-          style={{ fontSize: 40, lineHeight: '40px', width: 40, height: 40 }}
+          className="flex items-center justify-center rounded-full transition-colors"
+          style={{
+            width: 40,
+            height: 40,
+            padding: 0,
+            backgroundColor: '#3a3a3a',
+            color: '#e5e5e5',
+            border: 'none',
+            cursor: 'pointer',
+          }}
           onClick={handleTogglePlay}
         >
           {isPlaying ? (
-            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
               <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
             </svg>
           ) : (
-            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
               <path d="M8 5v14l11-7z" />
             </svg>
           )}
