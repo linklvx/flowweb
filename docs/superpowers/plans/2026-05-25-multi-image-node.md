@@ -1449,6 +1449,21 @@ const handleDragEnd = (event: DragEndEvent) => {
 
   const newImages = arrayMove(images, oldIndex, newIndex);
   updateMultiImageImages(nodeId, newImages);
+
+  // 主图索引联动调整（Spec §9.2 要求）
+  const mainImageIndex = nodeData?.mainImageIndex ?? 0;
+  const setMainImageIndex = useNodeStore.getState().setMainImageIndex;
+
+  if (oldIndex === mainImageIndex) {
+    // 拖拽的是主图 → 主图索引更新到新位置
+    setMainImageIndex(nodeId, newIndex);
+  } else if (oldIndex < mainImageIndex && newIndex >= mainImageIndex) {
+    // 主图被后面的图片跨过 → 索引减1
+    setMainImageIndex(nodeId, mainImageIndex - 1);
+  } else if (oldIndex > mainImageIndex && newIndex <= mainImageIndex) {
+    // 主图被前面的图片跨过 → 索引加1
+    setMainImageIndex(nodeId, mainImageIndex + 1);
+  }
 };
 ```
 
