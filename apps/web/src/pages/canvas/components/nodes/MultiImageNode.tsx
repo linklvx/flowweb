@@ -117,7 +117,6 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   }, [id, images, updateMultiImageImages, updateMultiImageNodeStatus]);
 
   const stackLayerCount = Math.min(images.length - 1, 3);
-  const firstNonMainIndex = images.findIndex((_: any, i: number) => i !== mainImageIndex);
 
   return (
     <div className="relative">
@@ -247,6 +246,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   >
                     <ImageWithFallback
                       src={img.url || `/api/media/${img.id}`}
+                      alt={img.name || ''}
                       className="w-full h-full object-cover"
                     />
                     {i === mainImageIndex && (
@@ -254,14 +254,14 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                         ✓
                       </div>
                     )}
-                    {i !== mainImageIndex && i === firstNonMainIndex && (
+                    {i !== mainImageIndex && (
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <button
                           className="nodrag nopan bg-[#f59e0b] text-white text-xs px-2 py-1 rounded"
                           onClick={(e) => {
                             e.stopPropagation();
                             setMainImageIndexStore(id, i);
-                            toggleExpanded(id);
+                            useNodeStore.getState().updateNodeData(id, { expanded: false } as any);
                           }}
                         >
                           设为主图
@@ -306,6 +306,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
               >
                 <ImageWithFallback
                   src={images[mainImageIndex]?.url || `/api/media/${images[mainImageIndex]?.id}`}
+                  alt={images[mainImageIndex]?.name || ''}
                   className="w-full h-full object-cover"
                 />
               </div>

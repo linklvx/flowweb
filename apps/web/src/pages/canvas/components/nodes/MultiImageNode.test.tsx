@@ -24,19 +24,24 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   },
 }));
 
+const mockUpdateNodeData = vi.fn();
+
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: {
-        'mimg1': { id: 'mimg1', type: 'multiImageGen', position: { x: 0, y: 0 }, data: getMockNodeData() },
-      },
-      updateMultiImageImages: getStoreUpdateMultiImageImages(),
-      setMainImageIndex: getStoreSetMainImageIndex(),
-      toggleExpanded: getStoreToggleExpanded(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useNodeStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = {
+        nodes: {
+          'mimg1': { id: 'mimg1', type: 'multiImageGen', position: { x: 0, y: 0 }, data: getMockNodeData() },
+        },
+        updateMultiImageImages: getStoreUpdateMultiImageImages(),
+        setMainImageIndex: getStoreSetMainImageIndex(),
+        toggleExpanded: getStoreToggleExpanded(),
+      };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    { getState: () => ({ updateNodeData: mockUpdateNodeData }) },
+  ),
   isMultiImageNode: () => true,
 }));
 
@@ -73,6 +78,7 @@ const baseProps = {
   id: 'mimg1', data: {}, selected: false, type: 'multiImageGen' as any,
   draggable: true as const, dragging: false as const,
   selectable: true as const, deletable: true as const, zIndex: 0,
+  isConnectable: true as const, positionAbsoluteX: 0, positionAbsoluteY: 0,
 };
 
 describe('MultiImageNode', () => {
@@ -203,12 +209,12 @@ describe('MultiImageNode', () => {
       mainImageIndex: 0, expanded: true, nodeStatus: 'done',
     });
     const setMainSpy = getStoreSetMainImageIndex();
-    const toggleSpy = getStoreToggleExpanded();
     renderNode();
-    const setMainBtn = screen.getByText('设为主图');
-    fireEvent.click(setMainBtn);
+    const setMainBtns = screen.getAllByText('设为主图');
+    expect(setMainBtns.length).toBe(2); // 2 non-main images
+    fireEvent.click(setMainBtns[0]);
     expect(setMainSpy).toHaveBeenCalledWith('mimg1', expect.any(Number));
-    expect(toggleSpy).toHaveBeenCalledWith('mimg1');
+    expect(mockUpdateNodeData).toHaveBeenCalledWith('mimg1', { expanded: false });
   });
 
   it('should show floating upload button when selected', () => {
@@ -238,7 +244,8 @@ describe('MultiImageNode', () => {
 
   it('should reset to idle state when all images deleted', () => {
     setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
-    renderNode(false);
+    const { unmount } = renderNode(false);
+    unmount();
     setMockNodeData({ images: [], mainImageIndex: -1, expanded: false, nodeStatus: 'idle' });
     renderNode(false);
     const imgs = document.querySelectorAll('img[alt]');
