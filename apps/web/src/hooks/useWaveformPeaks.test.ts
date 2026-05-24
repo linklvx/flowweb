@@ -116,4 +116,46 @@ describe('useWaveformPeaks', () => {
       expect(peak).toBeGreaterThanOrEqual(0.05);
     }
   });
+
+  // ─── getDecodedData returning null (wavesurfer exists but not loaded) ───
+
+  it('should return empty array when getDecodedData returns null', () => {
+    const ws = {
+      getDecodedData: vi.fn(() => null),
+    };
+    const { result } = renderHook(() => useWaveformPeaks(ws as any, 'null-data-url', 250));
+    expect(result.current).toEqual([]);
+  });
+
+  // ─── LRU eviction ───
+
+  it('should evict least recently used entries when cache exceeds max size', () => {
+    const samples = new Float32Array(1000);
+    for (let i = 0; i < 1000; i++) samples[i] = 0.5;
+    const ws = createFakeWavesurfer([samples]);
+
+    // Fill cache with MAX_CACHE_SIZE entries
+    for (let i = 0; i < 50; i++) {
+      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250));
+    }
+
+    // Touch lru-0 to mark it as recently used
+    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250));
+
+    // Add more entries to trigger eviction of untouched entries
+    // Adding 10 entries evicts lru-1..lru-10 but keeps recently touched lru-0
+    for (let i = 50; i < 60; i++) {
+      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250));
+    }
+
+    // lru-0 was recently touched, should still be cached
+    const baseCalls = ws.getDecodedData.mock.calls.length;
+    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250));
+    expect(ws.getDecodedData.mock.calls.length).toBe(baseCalls);
+
+    // lru-1 was never touched after initial add, should be evicted
+    const baseCalls2 = ws.getDecodedData.mock.calls.length;
+    renderHook(() => useWaveformPeaks(ws, 'lru-1', 250));
+    expect(ws.getDecodedData.mock.calls.length).toBeGreaterThan(baseCalls2);
+  });
 });

@@ -4,6 +4,9 @@ import type WaveSurfer from 'wavesurfer.js';
 const peaksCache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 50;
 
+/** Minimum peak value to ensure silent regions are still visible */
+const MIN_PEAK = 0.05;
+
 /**
  * Extract fixed-count (default 250) normalized peaks from wavesurfer's decoded AudioBuffer.
  * Returns 0~1 values with minimum 0.05 for silent regions.
@@ -20,7 +23,12 @@ export function useWaveformPeaks(
     // Cache hit: return cached peaks (keyed by audioUrl + count)
     const cacheKey = `${audioUrl}__${count}`;
     const cached = peaksCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      // LRU touch: re-insert to mark as recently used
+      peaksCache.delete(cacheKey);
+      peaksCache.set(cacheKey, cached);
+      return cached;
+    }
 
     // Cache miss: compute peaks from decoded data
     const decoded = wavesurfer.getDecodedData();
@@ -28,10 +36,10 @@ export function useWaveformPeaks(
 
     const channelData = decoded.getChannelData(0);
     const totalSamples = channelData.length;
-    if (totalSamples === 0) return new Array(count).fill(0.05);
+    if (totalSamples === 0) return new Array(count).fill(MIN_PEAK);
 
     const segmentSize = Math.floor(totalSamples / count);
-    if (segmentSize === 0) return new Array(count).fill(0.05); // extreme short audio fallback
+    if (segmentSize === 0) return new Array(count).fill(MIN_PEAK); // extreme short audio fallback
 
     // Find global max for normalization
     let globalMax = 0;
@@ -50,7 +58,7 @@ export function useWaveformPeaks(
         if (abs > max) max = abs;
       }
       // Normalize and floor to minimum
-      peaks[i] = globalMax > 0 ? Math.max(max / globalMax, 0.05) : 0.05;
+      peaks[i] = globalMax > 0 ? Math.max(max / globalMax, MIN_PEAK) : MIN_PEAK;
     }
 
     // LRU eviction
