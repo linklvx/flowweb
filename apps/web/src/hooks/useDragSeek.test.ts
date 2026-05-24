@@ -5,7 +5,6 @@ import { useDragSeek } from './useDragSeek';
 describe('useDragSeek', () => {
   let canvas: HTMLCanvasElement;
   let wavesurfer: { seekTo: ReturnType<typeof vi.fn> };
-  let windowAddSpy: ReturnType<typeof vi.spyOn>;
   let windowRemoveSpy: ReturnType<typeof vi.spyOn>;
   let windowListeners: Map<string, EventListener>;
 
@@ -18,7 +17,7 @@ describe('useDragSeek', () => {
     wavesurfer = { seekTo: vi.fn() };
 
     windowListeners = new Map();
-    windowAddSpy = vi.spyOn(window, 'addEventListener').mockImplementation(
+    vi.spyOn(window, 'addEventListener').mockImplementation(
       (event: string, handler: EventListener) => {
         windowListeners.set(event, handler);
       }
@@ -47,6 +46,22 @@ describe('useDragSeek', () => {
     });
 
     expect(result.current.isDragging).toBe(true);
+  });
+
+  it('should call stopPropagation on mousedown', () => {
+    const canvasRef = { current: canvas };
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120));
+
+    const stopPropSpy = vi.spyOn(MouseEvent.prototype, 'stopPropagation');
+
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, clientX: 250,
+      }));
+    });
+
+    expect(stopPropSpy).toHaveBeenCalled();
+    stopPropSpy.mockRestore();
   });
 
   it('should seek on mousemove during drag', () => {

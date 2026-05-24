@@ -59,6 +59,7 @@ export function useDragSeek(
 
     // Capture-phase mousedown: prevents React Flow from receiving the event
     const onMouseDown = (e: MouseEvent) => {
+      if (!isReady) return;
       e.stopPropagation();
       isDraggingRef.current = true;
       setIsDragging(true);
@@ -75,6 +76,7 @@ export function useDragSeek(
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onBlur);
+      isDraggingRef.current = false;
     };
   }, [canvasRef, wavesurfer, isReady, duration, stopDrag]);
 
