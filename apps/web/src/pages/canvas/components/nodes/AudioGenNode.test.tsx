@@ -132,11 +132,11 @@ describe('AudioGenNode', () => {
 
   // ─── Fixed size 380×170 ───
 
-  it('should render card with fixed size 548×220', () => {
+  it('should render card with fixed size 548×280', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
     const { container } = renderNode();
     expect(container.innerHTML).toContain('width: 548px');
-    expect(container.innerHTML).toContain('height: 220px');
+    expect(container.innerHTML).toContain('height: 280px');
   });
 
   // ─── Handles ───

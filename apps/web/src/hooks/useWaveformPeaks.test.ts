@@ -22,7 +22,7 @@ describe('useWaveformPeaks', () => {
   // ─── Basic functionality ───
 
   it('should return empty array when wavesurfer is null', () => {
-    const { result } = renderHook(() => useWaveformPeaks(null, 'test-url'));
+    const { result } = renderHook(() => useWaveformPeaks(null, 'test-url', 250, true));
     expect(result.current).toEqual([]);
   });
 
@@ -32,7 +32,7 @@ describe('useWaveformPeaks', () => {
       samples[i] = Math.sin(2 * Math.PI * 440 * i / 44100);
     }
     const ws = createFakeWavesurfer([samples]);
-    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250));
+    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250, true));
     expect(result.current).toHaveLength(250);
   });
 
@@ -44,7 +44,7 @@ describe('useWaveformPeaks', () => {
       samples[i] = (i % 2 === 0) ? 0.5 : -0.5;
     }
     const ws = createFakeWavesurfer([samples]);
-    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250));
+    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250, true));
     for (const peak of result.current) {
       expect(peak).toBeGreaterThanOrEqual(0);
       expect(peak).toBeLessThanOrEqual(1);
@@ -56,7 +56,7 @@ describe('useWaveformPeaks', () => {
   it('should floor silent audio to 0.05 minimum', () => {
     const samples = new Float32Array(1000); // all zeros
     const ws = createFakeWavesurfer([samples]);
-    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250));
+    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250, true));
     for (const peak of result.current) {
       expect(peak).toBeGreaterThanOrEqual(0.05);
     }
@@ -70,7 +70,7 @@ describe('useWaveformPeaks', () => {
     const ws = createFakeWavesurfer([samples]);
 
     const { result: r1, rerender: rr1 } = renderHook(
-      ({ url }) => useWaveformPeaks(ws, url, 250),
+      ({ url }) => useWaveformPeaks(ws, url, 250, true),
       { initialProps: { url: 'cache-test-url' } }
     );
     expect(r1.current).toHaveLength(250);
@@ -86,7 +86,7 @@ describe('useWaveformPeaks', () => {
     const ws = createFakeWavesurfer([samples]);
 
     const { rerender } = renderHook(
-      ({ url }) => useWaveformPeaks(ws, url, 250),
+      ({ url }) => useWaveformPeaks(ws, url, 250, true),
       { initialProps: { url: 'url-1' } }
     );
 
@@ -101,7 +101,7 @@ describe('useWaveformPeaks', () => {
     const samples = new Float32Array(1000);
     for (let i = 0; i < 1000; i++) samples[i] = 0.3;
     const ws = createFakeWavesurfer([samples]);
-    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 100));
+    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 100, true));
     expect(result.current).toHaveLength(100);
   });
 
@@ -110,7 +110,7 @@ describe('useWaveformPeaks', () => {
   it('should return uniform peaks for extremely short audio', () => {
     const samples = new Float32Array(10); // too short for 250 segments
     const ws = createFakeWavesurfer([samples]);
-    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250));
+    const { result } = renderHook(() => useWaveformPeaks(ws, 'test-url', 250, true));
     expect(result.current).toHaveLength(250);
     for (const peak of result.current) {
       expect(peak).toBeGreaterThanOrEqual(0.05);
@@ -123,7 +123,7 @@ describe('useWaveformPeaks', () => {
     const ws = {
       getDecodedData: vi.fn(() => null),
     };
-    const { result } = renderHook(() => useWaveformPeaks(ws as any, 'null-data-url', 250));
+    const { result } = renderHook(() => useWaveformPeaks(ws as any, 'null-data-url', 250, true));
     expect(result.current).toEqual([]);
   });
 
@@ -136,26 +136,26 @@ describe('useWaveformPeaks', () => {
 
     // Fill cache with MAX_CACHE_SIZE entries
     for (let i = 0; i < 50; i++) {
-      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250));
+      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250, true));
     }
 
     // Touch lru-0 to mark it as recently used
-    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250));
+    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250, true));
 
     // Add more entries to trigger eviction of untouched entries
     // Adding 10 entries evicts lru-1..lru-10 but keeps recently touched lru-0
     for (let i = 50; i < 60; i++) {
-      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250));
+      renderHook(() => useWaveformPeaks(ws, `lru-${i}`, 250, true));
     }
 
     // lru-0 was recently touched, should still be cached
     const baseCalls = ws.getDecodedData.mock.calls.length;
-    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250));
+    renderHook(() => useWaveformPeaks(ws, 'lru-0', 250, true));
     expect(ws.getDecodedData.mock.calls.length).toBe(baseCalls);
 
     // lru-1 was never touched after initial add, should be evicted
     const baseCalls2 = ws.getDecodedData.mock.calls.length;
-    renderHook(() => useWaveformPeaks(ws, 'lru-1', 250));
+    renderHook(() => useWaveformPeaks(ws, 'lru-1', 250, true));
     expect(ws.getDecodedData.mock.calls.length).toBeGreaterThan(baseCalls2);
   });
 });

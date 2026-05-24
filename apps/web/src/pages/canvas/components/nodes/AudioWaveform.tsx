@@ -89,7 +89,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
   }, [wavesurfer, nodeId, onError]);
 
   // Custom hooks
-  const peaks = useWaveformPeaks(wavesurfer, audioUrl, 250);
+  const peaks = useWaveformPeaks(wavesurfer, audioUrl, 250, isReady);
   useCanvasRenderer(canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth);
   const { isDragging } = useDragSeek(canvasRef, wavesurfer, isReady, duration);
 

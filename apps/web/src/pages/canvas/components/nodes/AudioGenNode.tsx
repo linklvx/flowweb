@@ -9,7 +9,7 @@ import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
 
 const NODE_WIDTH = 548;
-const NODE_HEIGHT = 220;
+const NODE_HEIGHT = 280;
 
 function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;

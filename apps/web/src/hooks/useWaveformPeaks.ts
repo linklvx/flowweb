@@ -16,9 +16,10 @@ export function useWaveformPeaks(
   wavesurfer: WaveSurfer | null,
   audioUrl: string,
   count: number = 250,
+  isReady: boolean = false,
 ): number[] {
   return useMemo(() => {
-    if (!wavesurfer) return [];
+    if (!wavesurfer || !isReady) return [];
 
     // Cache hit: return cached peaks (keyed by audioUrl + count)
     const cacheKey = `${audioUrl}__${count}`;
@@ -69,5 +70,5 @@ export function useWaveformPeaks(
     peaksCache.set(cacheKey, peaks);
 
     return peaks;
-  }, [wavesurfer, audioUrl, count]);
+  }, [wavesurfer, audioUrl, count, isReady]);
 }
