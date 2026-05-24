@@ -77,6 +77,7 @@ export function useDragSeek(
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onBlur);
       isDraggingRef.current = false;
+      stopDrag();
     };
   }, [canvasRef, wavesurfer, isReady, duration, stopDrag]);
 

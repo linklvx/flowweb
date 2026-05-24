@@ -116,7 +116,7 @@ describe('AudioWaveform', () => {
       on: vi.fn(),
       getDuration: vi.fn(() => 0),
       getCurrentTime: vi.fn(() => 0),
-      getDecodedData: vi.fn(() => null),
+      getDecodedData: vi.fn(() => null) as any,
     };
     renderComponent();
     expect(screen.getByTestId('waveform-loading')).toBeTruthy();

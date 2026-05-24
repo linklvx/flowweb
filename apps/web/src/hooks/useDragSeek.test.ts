@@ -18,7 +18,7 @@ describe('useDragSeek', () => {
 
     windowListeners = new Map();
     vi.spyOn(window, 'addEventListener').mockImplementation(
-      (event: string, handler: EventListener) => {
+      (event: string, handler: EventListenerOrEventListenerObject) => {
         windowListeners.set(event, handler);
       }
     );

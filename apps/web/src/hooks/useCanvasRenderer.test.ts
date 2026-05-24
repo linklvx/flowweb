@@ -26,7 +26,7 @@ function createMockCanvas(ctx: any): HTMLCanvasElement {
   return canvas;
 }
 
-let rafCallbacks: Array<() => void> = [];
+let rafCallbacks: Array<(time: number) => void> = [];
 const originalRAF = globalThis.requestAnimationFrame;
 const originalCAF = globalThis.cancelAnimationFrame;
 
@@ -131,7 +131,7 @@ describe('useCanvasRenderer', () => {
 
     const initialCalls = ctx.clearRect.mock.calls.length;
     currentTime = 10; // significant change for 120s duration
-    rafCallbacks[0]?.();
+    rafCallbacks[0]?.(0);
 
     expect(ctx.clearRect.mock.calls.length).toBeGreaterThan(initialCalls);
   });
