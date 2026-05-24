@@ -85,6 +85,9 @@ describe('audioStore', () => {
     useAudioStore.getState().togglePlay('n2');
     expect(pause1).toHaveBeenCalled();
     expect(play2).toHaveBeenCalled();
+    // Verify isPlaying flags are consistent
+    expect(useAudioStore.getState().nodes.get('n1')!.isPlaying).toBe(false);
+    expect(useAudioStore.getState().nodes.get('n2')!.isPlaying).toBe(true);
   });
 
   it('should pause the active node when toggling it off', () => {

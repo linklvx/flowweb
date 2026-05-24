@@ -86,14 +86,17 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
 
     if (node.isPlaying) {
       node.wavesurfer.pause();
+      node.isPlaying = false;
       set({ isGlobalPlaying: false });
     } else {
       // Pause all other playing nodes first
       state.nodes.forEach((n, id) => {
         if (id !== nodeId && n.isPlaying) {
           n.wavesurfer?.pause();
+          n.isPlaying = false;
         }
       });
+      node.isPlaying = true;
       node.wavesurfer.play();
       set({ activeNodeId: nodeId, isGlobalPlaying: true });
     }
