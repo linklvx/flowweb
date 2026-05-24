@@ -147,6 +147,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: 2.10.0
         version: 2.10.0
+      '@wavesurfer/react':
+        specifier: ^1.0.8
+        version: 1.0.12(react@18.3.1)(wavesurfer.js@7.12.7)
       '@xyflow/react':
         specifier: ^12.0.0
         version: 12.10.2(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -171,6 +174,9 @@ importers:
       socket.io-client:
         specifier: ^4.8.3
         version: 4.8.3
+      wavesurfer.js:
+        specifier: ^7.8.1
+        version: 7.12.7
       zustand:
         specifier: 4.5.5
         version: 4.5.5(@types/react@18.3.28)(react@18.3.1)
@@ -1769,6 +1775,12 @@ packages:
 
   '@vitest/utils@2.1.9':
     resolution: {integrity: sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ==}
+
+  '@wavesurfer/react@1.0.12':
+    resolution: {integrity: sha512-BNHpz2ryKNVvJdxB47pCPUsNCsjb2pZRysg82M5djIiw0vsiSJwdlt5jaAfDo3vd5IWrcoK9OiPQKO9ZEVNpDQ==}
+    peerDependencies:
+      react: ^18.2.0 || ^19.0.0
+      wavesurfer.js: '>=7.7.14'
 
   '@webassemblyjs/ast@1.14.1':
     resolution: {integrity: sha512-nuBEDgQfm1ccRp/8bCQrx1frohyufl4JlbMMZ4P1wpeOfDhF6FQkxZJ1b/e+PLwr6X1Nhw6OLme5usuBWYBvuQ==}
@@ -4255,6 +4267,9 @@ packages:
     resolution: {integrity: sha512-Zn5uXdcFNIA1+1Ei5McRd+iRzfhENPCe7LeABkJtNulSxjma+l7ltNx55BWZkRlwRnpOgHqxnjyaDgJnNXnqzg==}
     engines: {node: '>=10.13.0'}
 
+  wavesurfer.js@7.12.7:
+    resolution: {integrity: sha512-TIe7hB6OCZysNOZ2cn2NR8Qpko22POWel6rauNcqOammFoH65NYQUM35unNLLMIlUMVYvjJ6w/TTl/G/m+w0nA==}
+
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
 
@@ -6006,6 +6021,11 @@ snapshots:
       '@vitest/pretty-format': 2.1.9
       loupe: 3.2.1
       tinyrainbow: 1.2.0
+
+  '@wavesurfer/react@1.0.12(react@18.3.1)(wavesurfer.js@7.12.7)':
+    dependencies:
+      react: 18.3.1
+      wavesurfer.js: 7.12.7
 
   '@webassemblyjs/ast@1.14.1':
     dependencies:
@@ -8759,6 +8779,8 @@ snapshots:
     dependencies:
       glob-to-regexp: 0.4.1
       graceful-fs: 4.2.11
+
+  wavesurfer.js@7.12.7: {}
 
   wcwidth@1.0.1:
     dependencies:
