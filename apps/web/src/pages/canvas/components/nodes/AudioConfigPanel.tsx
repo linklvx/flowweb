@@ -1,13 +1,9 @@
-import { memo, useRef, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
-import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
-import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
-import type { CommandItem } from './prompt-input/types';
 
 interface ModelInfo {
   id: string; name: string;
@@ -17,51 +13,31 @@ interface Props {
   nodeId: string;
 }
 
-const RATIO_OPTIONS = [
-  { label: '1:1', w: 12, h: 12 },
-  { label: '9:16', w: 9, h: 16 },
-  { label: '16:9', w: 16, h: 9 },
-  { label: '3:4', w: 9, h: 12 },
-  { label: '4:3', w: 12, h: 9 },
-  { label: '3:2', w: 12, h: 8 },
-  { label: '2:3', w: 9, h: 12 },
-];
-
-function ratioIcon(r: string) {
-  const found = RATIO_OPTIONS.find((o) => o.label === r);
-  return found ? { w: found.w, h: found.h } : { w: 12, h: 12 };
-}
-
-function VideoConfigPanelComponent({ nodeId }: Props) {
+function AudioConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
   const setStatus = useNodeStore((s) => s.setStatus);
   const { zoom } = useViewport();
-  const promptRef = useRef<PromptInputRef>(null);
-  const { uploadSingleImage } = useImageUpload(nodeId);
 
   const nodeData = node?.data as any;
   const model = nodeData?.model ?? '';
-  const ratio = nodeData?.ratio ?? '16:9';
-  const resolution = nodeData?.resolution ?? '1080p';
-  const duration = nodeData?.duration ?? 5;
-  const audio = nodeData?.audio ?? true;
   const status = nodeData?.status ?? 'idle';
-  const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
 
-  // ── Model selector state ──
+  // ── State ──
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
+  const [prompt, setPrompt] = useState(() => nodeData?.content || '');
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const [configOpen, setConfigOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
-  const voiceBaseRef = useRef('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const selectedModel = models.find((m) => m.id === model);
 
+  // Close model dropdown on outside click
   useEffect(() => {
     if (!modelOpen) return;
     const handler = () => setModelOpen(false);
@@ -69,24 +45,29 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     return () => document.removeEventListener('mousedown', handler);
   }, [modelOpen]);
 
-  // Close config popup on outside click
+  // Prevent wheel events on textarea from bubbling to React Flow canvas
   useEffect(() => {
-    if (!configOpen) return;
-    const handler = () => setConfigOpen(false);
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [configOpen]);
+    const el = textareaRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => { e.stopPropagation(); };
+    el.addEventListener('wheel', onWheel);
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
-  // Load video models
+  // Load audio models
   useEffect(() => {
-    fetch('/api/node-types/video/models')
+    fetch('/api/node-types/audio/models')
       .then(r => r.json())
       .then(json => {
         if (json.code === 0) {
           const list: ModelInfo[] = json.data;
           setModels(list);
           if (!nodeData?.model && list.length > 0) {
-            updateConfig(nodeId, { model: list[0].id } as any);
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
+            });
           }
         }
       })
@@ -108,14 +89,18 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
 
   const handleModelSelect = useCallback(
     (modelId: string) => {
-      updateConfig(nodeId, { model: modelId } as any);
+      const store = useNodeStore.getState();
+      const existing = store.nodes[nodeId] as any;
+      useNodeStore.setState({
+        nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: modelId } } },
+      });
       updatePrice(modelId);
       setModelOpen(false);
     },
-    [nodeId, updateConfig, updatePrice],
+    [nodeId, updatePrice],
   );
 
-  // Voice input
+  // Voice input via Web Speech API
   const toggleVoice = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -126,10 +111,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       return;
     }
 
-    promptRef.current?.forceSync();
-    const currentText = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
-    voiceBaseRef.current = currentText;
-
+    const originalPrompt = promptRef.current;
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
     recognition.continuous = true;
@@ -143,7 +125,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
           transcript += result[0].transcript;
         }
       }
-      promptRef.current?.setText(voiceBaseRef.current + transcript);
+      setPrompt(originalPrompt + transcript);
     });
 
     recognition.addEventListener('error', () => setListening(false));
@@ -152,33 +134,23 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     recognitionRef.current = recognition;
     recognition.start();
     setListening(true);
-  }, [listening, nodeId]);
-
-  // Command handler
-  const handleCommandSelect = useCallback((command: CommandItem) => {
-    switch (command.category) {
-      case 'model': updateConfig(nodeId, { model: command.value }); break;
-    }
-  }, [nodeId, updateConfig]);
+  }, [listening]);
 
   // Generate
   const handleGenerate = useCallback(async () => {
-    promptRef.current?.forceSync();
-    const latestText = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
-    if (!latestText.trim()) return;
+    if (!prompt.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
       const canvasState = useCanvasStore.getState();
       const nodeState = useNodeStore.getState();
       const existing = nodeState.nodes[nodeId] as any;
-      const currentPrompt = existing?.data?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
       useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: { ...currentPrompt, text: latestText } } } },
+        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: prompt } } },
       });
       const latestState = useNodeStore.getState();
       const mergedNodes = canvasState.nodes.map((n) => ({
-        id: n.id, type: n.type || 'videoGen',
+        id: n.id, type: n.type || 'audioGen',
         position: n.position,
         data: latestState.nodes[n.id]?.data || (n.data as any) || {},
       }));
@@ -187,37 +159,31 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         syncEdges('default', canvasState.edges),
       ]);
       const { jobId } = await enqueueWorkflow('default', nodeId);
-      console.log('[VideoPanel] enqueued job:', jobId);
+      console.log('[AudioPanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus]);
+  }, [nodeId, setStatus, prompt]);
 
-  const handlePasteImage = useCallback(async (file: File) => {
-    if (prompt.allImages.length >= 9) return;
-    const uploaded = await uploadSingleImage(file);
-    if (uploaded) promptRef.current?.insertImage(uploaded.url);
-  }, [prompt.allImages.length, uploadSingleImage]);
-
-  // VideoConfigPanel is rendered inside VideoGenNode which already
-  // guarantees video context. Only render for videoGen (and legacy 'video') nodes.
-  if (!node || (node.type !== 'videoGen' && node.type !== 'video')) return null;
+  // Type guard — only render for audioGen
+  if (!node || node.type !== 'audioGen') return null;
 
   return (
     <div
-      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative"
+      className={`nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative ${maximized ? 'h-[350px]' : 'h-[140px]'}`}
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
         border: '1px solid #3F3F46',
       }}
     >
+      {/* Maximize / Restore button — top-right corner */}
       <button
         type="button"
         className="absolute top-2 right-2 shrink-0 focus:outline-none cursor-pointer p-1 bg-transparent text-white/60 border-none shadow-none outline-none"
-        data-testid="canvas-node-generation-input-bar-maximize-button"
+        data-testid="canvas-node-audio-config-panel-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}
       >
@@ -232,45 +198,30 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         )}
       </button>
 
-      <div className="p-3 flex flex-col gap-0">
-        <ImageThumbnailBar
-          nodeId={nodeId}
-          images={prompt.allImages}
-          onChange={(allImages) => updatePromptImages(nodeId, allImages)}
-          onImageClick={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.insertImage(img.url);
-          }}
-          onImageUploaded={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.insertImage(img.url);
-          }}
-          onBeforeImageDelete={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.removeImage(img.url);
-          }}
-          disabled={status === 'loading'}
-        />
-
-        <PromptInput
-          ref={promptRef}
-          nodeId={nodeId}
+      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
+        {/* Prompt textarea */}
+        <textarea
+          ref={textareaRef}
           value={prompt}
-          allImages={prompt.allImages}
-          onPasteImage={handlePasteImage}
-          onChange={(newPrompt) => updateConfig(nodeId, { prompt: newPrompt })}
-          onCommandSelect={handleCommandSelect}
-          onGenerate={handleGenerate}
-          disabled={status === 'loading'}
-          maxHeight={maximized ? 350 : 80}
+          onChange={(e) => {
+            setPrompt(e.target.value);
+            const store = useNodeStore.getState();
+            const existing = store.nodes[nodeId] as any;
+            useNodeStore.setState({
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: e.target.value } } },
+            });
+          }}
+          placeholder="描述你要生成的音频内容。例如：一段轻快的钢琴曲，带有雨声背景。"
+          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none box-border scrollbar-dark"
         />
 
-        <div className="flex items-center justify-between mt-2">
-          <div className="flex items-center gap-3">
+        {/* Bottom bar: Model (left) + Voice + Credits + Execute (right) */}
+        <div className="flex items-center justify-between">
+          {/* Model selector — styled button + dropdown */}
           <div className="relative">
             <button
               type="button"
-              data-testid="canvas-node-video-model-select"
+              data-testid="canvas-node-audio-model-select"
               onClick={(e) => { e.stopPropagation(); setModelOpen((v) => !v); }}
               className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
             >
@@ -299,114 +250,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
               </div>
             )}
           </div>
-          <div className="w-px h-4 bg-white/10 shrink-0" />
-          <div className="relative">
-          <button
-            type="button"
-            data-testid="canvas-node-video-config-select"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); setConfigOpen((v) => !v); }}
-            className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
-          >
-            <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
-              <div className="rounded-[2px]" style={{ width: ratioIcon(ratio).w, height: ratioIcon(ratio).h, border: '1.5px solid currentColor' }} />
-            </div>
-            <span className="whitespace-nowrap text-xs">{ratio} · {resolution} · {duration}s</span>
-            {/* Volume icon — Up when audio on, Mute (strikethrough) when off */}
-            {audio ? (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-              </svg>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                <path d="M3 9v6h4l5 5V4L7 9H3z" />
-                <path d="M22 2L2 22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            )}
-          </button>
-          {configOpen && (
-            <div
-              className="absolute bottom-full mb-2 left-0 z-[300] w-[340px] flex flex-col gap-2 rounded-2xl p-3 border border-[#363636] shadow-[0_4px_10px_rgba(0,0,0,0.25),0_2px_4px_rgba(0,0,0,0.3)]"
-              style={{ backgroundColor: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)', backdropFilter: 'blur(32px)' }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              {/* Resolution section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>清晰度</span></div>
-                <div className="flex gap-2">
-                  {['1080p', '4K'].map((res) => (
-                    <button
-                      key={res}
-                      type="button"
-                      onClick={() => updateConfig(nodeId, { resolution: res } as any)}
-                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
-                        resolution === res ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
-                      }`}
-                    >{res}</button>
-                  ))}
-                </div>
-              </div>
-              {/* Ratio section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>比例</span></div>
-                <div className="grid grid-cols-5 gap-2">
-                  {RATIO_OPTIONS.map((r) => (
-                    <button
-                      key={r.label}
-                      type="button"
-                      onClick={() => { updateConfig(nodeId, { ratio: r.label } as any); }}
-                      className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 cursor-pointer ${
-                        ratio === r.label ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
-                      }`}
-                    >
-                      <span className="flex size-[17px] items-center justify-center">
-                        <span className="flex-none rounded-[2px] border-[1.5px] border-solid border-current" style={{ width: r.w, height: r.h }} />
-                      </span>
-                      <span className="text-xs">{r.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Duration section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>时长</span></div>
-                <div className="flex gap-2">
-                  {[5, 10, 15].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => updateConfig(nodeId, { duration: d } as any)}
-                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
-                        duration === d ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
-                      }`}
-                    >{d}s</button>
-                  ))}
-                </div>
-              </div>
-              {/* Audio section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>声音</span></div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    data-testid="canvas-node-video-audio-toggle"
-                    onClick={() => updateConfig(nodeId, { audio: !audio } as any)}
-                    className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
-                      audio ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
-                    }`}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-                    </svg>
-                    <span>{audio ? '开' : '关'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          </div>
-          </div>
           <div className="flex items-center gap-3">
+            {/* Voice input */}
             <button
               aria-label="语音输入"
               onClick={toggleVoice}
@@ -419,6 +264,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                 <path d="M8.00052 12.2041V14.0048M8.00052 12.2041C9.11488 12.2041 10.1836 11.7614 10.9716 10.9735C11.7595 10.1855 12.2022 9.11678 12.2022 8.00242V6.80193M8.00052 12.2041C6.88616 12.2041 5.81745 11.7614 5.02948 10.9735C4.24151 10.1855 3.79883 9.11678 3.79883 8.00242V6.80193M8.00052 2C8.99503 2 9.80125 2.80621 9.80125 3.80073V8.00242C9.80125 8.99693 8.99503 9.80314 8.00052 9.80314C7.00601 9.80314 6.1998 8.99693 6.1998 8.00242V3.80073C6.1998 2.80621 7.00601 2 8.00052 2Z" stroke="currentColor" strokeOpacity="0.9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+            {/* Divider */}
             <div className="w-px h-4 bg-white/10 shrink-0" />
             <span className="flex shrink-0 items-center gap-[2px] text-[#919191]">
               <svg width="10" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="pointer-events-none">
@@ -446,4 +292,4 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   );
 }
 
-export const VideoConfigPanel = memo(VideoConfigPanelComponent);
+export const AudioConfigPanel = memo(AudioConfigPanelComponent);

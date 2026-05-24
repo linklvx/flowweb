@@ -1,75 +1,28 @@
-import { memo, useEffect, useState, useRef, useCallback } from 'react';
+import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
-import { VideoConfigPanel } from './VideoConfigPanel';
+import { AudioConfigPanel } from './AudioConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
 
-const MAX_WIDTH = 548;
-const MAX_HEIGHT = 500;
-const MIN_WIDTH = 200;
-const MIN_HEIGHT = 100;
+const NODE_WIDTH = 380;
+const NODE_HEIGHT = 170;
 
-function calcConstrainedSize(naturalW: number, naturalH: number) {
-  let w = naturalW;
-  let h = naturalH;
-
-  if (w > MAX_WIDTH) {
-    h = Math.round(h * (MAX_WIDTH / w));
-    w = MAX_WIDTH;
-  }
-  if (h > MAX_HEIGHT) {
-    w = Math.round(w * (MAX_HEIGHT / h));
-    h = MAX_HEIGHT;
-  }
-  if (w < MIN_WIDTH) w = MIN_WIDTH;
-  if (h < MIN_HEIGHT) h = MIN_HEIGHT;
-
-  return { w, h };
-}
-
-function ratioDimensions(ratio: string) {
-  const [rw, rh] = ratio.split(':').map(Number);
-  if (!rw || !rh) return { w: 548, h: 309 };
-  const base = 1000;
-  const w = rw >= rh ? base : Math.round(base * (rw / rh));
-  const h = rh >= rw ? base : Math.round(base * (rh / rw));
-  return calcConstrainedSize(w, h);
-}
-
-function VideoGenNodeComponent({ id, selected }: NodeProps) {
+function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
-  const referenceVideo = nodeData?.referenceVideo;
+  const referenceAudio = nodeData?.referenceAudio;
   const { url: resultUrl } = useMediaUrl(fileId);
-  const { url: refVideoUrl } = useMediaUrl(referenceVideo);
+  const { url: refAudioUrl } = useMediaUrl(referenceAudio);
 
-  const displayUrl = resultUrl || refVideoUrl;
-
-  // Dynamic sizing based on video aspect ratio (same as image node)
-  const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
-
-  const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const vid = e.currentTarget;
-    const size = calcConstrainedSize(vid.videoWidth || 548, vid.videoHeight || 306);
-    setVidSize(size);
-  }, []);
-
-  useEffect(() => {
-    setVidSize(null);
-  }, [displayUrl]);
-
-  const ratio = nodeData?.ratio ?? '16:9';
-  const ratioSize = ratioDimensions(ratio);
-  const containerWidth = vidSize ? vidSize.w : ratioSize.w;
-  const containerHeight = vidSize ? vidSize.h : ratioSize.h;
+  const displayUrl = resultUrl || refAudioUrl;
 
   // Editable title
-  const [label, setLabel] = useState('Video');
+  const [label, setLabel] = useState('Audio');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
@@ -88,28 +41,28 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     draftRef.current = label;
   }, [label]);
 
-  const titleText = label || 'Video';
+  const titleText = label || 'Audio';
 
-  // Socket.io for real-time video generation status updates
+  // Socket.io for real-time audio generation status updates
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
 
     socket.on('connect', () => {
-      console.log('[VideoGenNode] socket connected, joining default');
+      console.log('[AudioGenNode] socket connected, joining default');
       socket.emit('join', 'default');
     });
 
     socket.on('connect_error', (err: any) => {
-      console.error('[VideoGenNode] socket connect error:', err.message);
+      console.error('[AudioGenNode] socket connect error:', err.message);
     });
 
     socket.on('node:status', (data: any) => {
-      console.log('[VideoGenNode] received node:status:', data);
+      console.log('[AudioGenNode] received node:status:', data);
       if (data.nodeId !== id) return;
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
       } else if (data.status === 'done' && data.fileId) {
-        console.log('[VideoGenNode] setting fileId:', data.fileId);
+        console.log('[AudioGenNode] setting fileId:', data.fileId);
         useNodeStore.getState().setFileResult(id, data.fileId);
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
@@ -157,23 +110,23 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
       await confirmUpload({ fileId: fid, key, fileSize: file.size });
 
-      updateConfig(id, { referenceVideo: fid });
+      updateConfig(id, { referenceAudio: fid });
     } catch (err: any) {
-      console.error('[VideoGenNode] upload error:', err.message);
+      console.error('[AudioGenNode] upload error:', err.message);
     } finally {
       setUploading(false);
     }
   }, [id, updateConfig]);
 
-  const showReplaceButton = !resultUrl && !!referenceVideo && !!displayUrl;
+  const showReplaceButton = !resultUrl && !!referenceAudio && !!displayUrl;
 
   return (
     <div className="relative">
-      {/* Hidden file input — for uploading reference video */}
+      {/* Hidden file input — for uploading audio */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/*"
+        accept="audio/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -210,11 +163,13 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       {/* Title bar */}
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
-        style={{ width: containerWidth, lineHeight: '18px' }}
+        style={{ width: NODE_WIDTH, lineHeight: '18px' }}
       >
         <span className="shrink-0 flex items-center" style={{ width: 12, height: 12 }}>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4.66699 2.64248C4.66717 1.82358 5.59736 1.35167 6.25781 1.83584L13.5674 7.19619C14.1117 7.59579 14.1118 8.40897 13.5674 8.8085L6.25781 14.1688C5.59734 14.6528 4.6671 14.1811 4.66699 13.3622V2.64248Z" fill="currentColor" />
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M9 18V5l12-2v13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="2" />
+            <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="2" />
           </svg>
         </span>
         <div className="relative min-w-0 max-w-full w-max shrink">
@@ -255,35 +210,36 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       <div
         className="bg-[#222222] rounded-lg transition-colors"
         style={{
-          width: containerWidth,
+          width: NODE_WIDTH,
           ...(selected
             ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
+        <Handle type="target" position={Position.Left} className="!bg-[#4ade80] !border-0 !w-2 !h-2" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
-          style={{ width: containerWidth, height: containerHeight }}
+          style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
         >
           {displayUrl ? (
-            <video
+            <audio
               src={displayUrl}
               controls
-              className="max-w-full max-h-full object-contain"
-              onLoadedMetadata={handleVideoLoad}
+              className="max-w-[90%]"
             />
           ) : status === 'loading' ? (
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
           ) : (
-            <div className="mb-4 text-[#666]">
-              <svg width="64" height="64" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4.66699 2.64248C4.66717 1.82358 5.59736 1.35167 6.25781 1.83584L13.5674 7.19619C14.1117 7.59579 14.1118 8.40897 13.5674 8.8085L6.25781 14.1688C5.59734 14.6528 4.6671 14.1811 4.66699 13.3622V2.64248Z" fill="currentColor" />
-              </svg>
-            </div>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#888]">
+              <g opacity="0.35">
+                <path d="M9 18V5l12-2v13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="2" />
+                <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="2" />
+              </g>
+            </svg>
           )}
 
-          {/* Replace button — only for user-uploaded videos (not AI-generated) */}
+          {/* Replace button — only for user-uploaded audio (not AI-generated) */}
           {showReplaceButton && (
             <button
               className="nodrag nopan absolute top-2 right-2 z-5 flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 cursor-pointer border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
@@ -299,17 +255,17 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
+        <Handle type="source" position={Position.Right} className="!bg-[#4ade80] !border-0 !w-2 !h-2" />
       </div>
 
       {/* Bottom config panel */}
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
-          <VideoConfigPanel nodeId={id} />
+          <AudioConfigPanel nodeId={id} />
         </div>
       )}
     </div>
   );
 }
 
-export const VideoGenNode = memo(VideoGenNodeComponent);
+export const AudioGenNode = memo(AudioGenNodeComponent);

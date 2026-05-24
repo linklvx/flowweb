@@ -39,7 +39,15 @@ export interface VideoNodeData {
   fileId?: string;
 }
 
-export type NodeData = TextNodeData | ImageNodeData | VideoNodeData;
+export interface AudioNodeData {
+  model: string;
+  content: string;
+  status: 'idle' | 'loading' | 'done' | 'error';
+  fileId?: string;
+  referenceAudio?: string;
+}
+
+export type NodeData = TextNodeData | ImageNodeData | VideoNodeData | AudioNodeData;
 
 // ========== AppNode (React Flow aligned) ==========
 

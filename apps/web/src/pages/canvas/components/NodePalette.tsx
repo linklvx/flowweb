@@ -5,6 +5,7 @@ const NODE_TYPES = [
   { type: 'text', label: '文本输入', icon: '\u{1F4DD}', color: '#4ade80' },
   { type: 'image', label: '图片生成', icon: '\u{1F5BC}', color: '#60a5fa' },
   { type: 'video', label: '视频生成', icon: '\u{1F3AC}', color: '#c084fc' },
+  { type: 'audio', label: '音频生成', icon: '\u{1F3B5}', color: '#4ade80' },
 ];
 
 function NodePaletteComponent() {

@@ -1,9 +1,28 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
+import { io } from 'socket.io-client';
 
-let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+// All shared state must be hoisted for vi.mock factories
+const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
+  const mockSocket = {
+    on: vi.fn().mockReturnThis(),
+    emit: vi.fn().mockReturnThis(),
+    disconnect: vi.fn(),
+  };
+  let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+  let storeSetStatus = vi.fn();
+  let storeSetFileResult = vi.fn();
+
+  return {
+    mockSocket,
+    getMockNodeData: () => mockNodeData,
+    setMockNodeData: (d: any) => { mockNodeData = d; },
+    getStoreSetStatus: () => storeSetStatus,
+    getStoreSetFileResult: () => storeSetFileResult,
+  };
+});
 
 const mockUpdateConfig = vi.fn();
 
@@ -15,14 +34,29 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 }));
 
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: mockNodeData } },
-      updateConfig: mockUpdateConfig,
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useNodeStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = {
+        nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
+        updateConfig: mockUpdateConfig,
+        setStatus: getStoreSetStatus(),
+        setFileResult: getStoreSetFileResult(),
+      };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    {
+      getState: () => ({
+        nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
+        setStatus: getStoreSetStatus(),
+        setFileResult: getStoreSetFileResult(),
+      }),
+    },
+  ),
+}));
+
+vi.mock('socket.io-client', () => ({
+  io: vi.fn(() => mockSocket),
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -44,6 +78,14 @@ vi.mock('./VideoConfigPanel', () => ({
 }));
 
 describe('VideoGenNode', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    // Restore mockSocket.on default behavior after clearAllMocks
+    mockSocket.on.mockReturnThis();
+    mockSocket.emit.mockReturnThis();
+  });
+
   const baseNodeProps = {
     id: 'v1',
     data: {},
@@ -63,7 +105,7 @@ describe('VideoGenNode', () => {
 
   // ---- Title icon test ----
   it('should render play button icon next to title', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     const { container } = renderNode();
     const titleBar = container.querySelector('[class*="-translate-y-full"]');
     const svg = titleBar?.querySelector('svg');
@@ -110,7 +152,7 @@ describe('VideoGenNode', () => {
 
   // ---- Preview tests ----
   it('should render play button SVG placeholder when no video', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     const { container } = renderNode();
     // The placeholder should be a play icon SVG, not text
     expect(screen.queryByText(/视频预览区/i)).not.toBeInTheDocument();
@@ -126,7 +168,7 @@ describe('VideoGenNode', () => {
   });
 
   it('should render video element when videoUrl exists', () => {
-    mockNodeData = { fileId: 'test-file-id', status: 'done', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: 'test-file-id', status: 'done', model: '', referenceVideo: undefined });
     renderNode();
     const videoEl = document.querySelector('video');
     expect(videoEl).toBeTruthy();
@@ -134,14 +176,14 @@ describe('VideoGenNode', () => {
   });
 
   it('should render loading state', () => {
-    mockNodeData = { fileId: undefined, status: 'loading', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
   });
 
   // ---- Handles ----
   it('should have 2 handles', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
@@ -153,41 +195,41 @@ describe('VideoGenNode', () => {
   });
 
   it('should not show config panel when not selected', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     renderNode(false);
     expect(screen.queryByText('config panel')).not.toBeInTheDocument();
   });
 
   // ---- Floating upload button ----
   it('should show floating upload button when selected', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     renderNode(true);
     expect(screen.getByText('上传')).toBeInTheDocument();
   });
 
   it('should not show floating upload button when not selected', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
   });
 
   it('should have hidden file input accepting video/*', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     renderNode();
     const fileInput = document.querySelector('input[type="file"][accept="video/*"]') as HTMLInputElement;
     expect(fileInput).toBeTruthy();
   });
 
-  // ---- 1. Default size same as image node (548×306) ----
+  // ---- Default size same as image node ----
   it('should default to 548 width in card (same as image node)', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     const { container } = renderNode();
     expect(container.innerHTML).toContain('width: 548px');
   });
 
-  // ---- 2. Dynamic sizing by video aspect ratio ----
+  // ---- Dynamic sizing by video aspect ratio ----
   it('should resize container based on video dimensions after load', () => {
-    mockNodeData = { fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined };
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
     renderNode();
     const video = document.querySelector('video');
     expect(video).toBeTruthy();
@@ -196,16 +238,100 @@ describe('VideoGenNode', () => {
     expect(parent).toBeTruthy();
   });
 
-  // ---- 3. Replace button on hover for user-uploaded videos ----
+  // ---- Replace button on hover for user-uploaded videos ----
   it('shows replace button when video is user-uploaded (referenceVideo set, no fileId)', () => {
-    mockNodeData = { fileId: undefined, status: 'idle', referenceVideo: 'ref-123', model: '' };
+    setMockNodeData({ fileId: undefined, status: 'idle', referenceVideo: 'ref-123', model: '' });
     renderNode();
     expect(screen.getByText('替换')).toBeInTheDocument();
   });
 
   it('does not show replace button when video is AI-generated (fileId set)', () => {
-    mockNodeData = { fileId: 'vid-123', status: 'done', referenceVideo: 'ref-123', model: '' };
+    setMockNodeData({ fileId: 'vid-123', status: 'done', referenceVideo: 'ref-123', model: '' });
     renderNode();
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
+  });
+
+  // ─── Socket.io real-time status updates ───
+
+  it('should connect to socket.io on mount and join default room', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    let connectHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'connect') connectHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    // Simulate socket connect event
+    connectHandler!();
+    expect(io).toHaveBeenCalledWith('/execution', expect.objectContaining({ transports: expect.any(Array) }));
+    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'default');
+  });
+
+  it('should disconnect socket.io on unmount', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    const { unmount } = renderNode();
+    unmount();
+    expect(mockSocket.disconnect).toHaveBeenCalled();
+  });
+
+  it('should update node status to loading when socket emits node:status loading', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    // Capture the 'node:status' handler
+    let statusHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'node:status') statusHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    expect(statusHandler).not.toBeNull();
+    // Simulate status event for this node
+    statusHandler!({ nodeId: 'v1', status: 'loading' });
+    expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'loading');
+  });
+
+  it('should update fileId and set done when socket emits node:status done', () => {
+    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
+    let statusHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'node:status') statusHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    statusHandler!({ nodeId: 'v1', status: 'done', fileId: 'gen-vid-456' });
+    expect(getStoreSetFileResult()).toHaveBeenCalledWith('v1', 'gen-vid-456');
+  });
+
+  it('should set status to error when socket emits node:status error', () => {
+    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
+    let statusHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'node:status') statusHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    statusHandler!({ nodeId: 'v1', status: 'error' });
+    expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'error');
+  });
+
+  it('should ignore socket events for other nodes', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    let statusHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'node:status') statusHandler = handler;
+      return mockSocket;
+    });
+    getStoreSetStatus().mockClear();
+    renderNode();
+    statusHandler!({ nodeId: 'other-node', status: 'loading' });
+    expect(getStoreSetStatus()).not.toHaveBeenCalled();
+  });
+
+  // ─── Ratio-based default sizing ───
+
+  it('should use 16:9 ratio for default container (548×309 same as image node)', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    const { container } = renderNode();
+    expect(container.innerHTML).toContain('width: 548px');
+    expect(container.innerHTML).toContain('height: 309px');
   });
 });

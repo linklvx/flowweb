@@ -15,6 +15,7 @@ const nodeTypeMap: Record<string, string> = {
   text: 'textInput',
   image: 'imageGen',
   video: 'videoGen',
+  audio: 'audioGen',
 };
 
 interface CanvasState {

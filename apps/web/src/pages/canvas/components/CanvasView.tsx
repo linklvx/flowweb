@@ -10,6 +10,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { VideoGenNode } from './nodes/VideoGenNode';
+import { AudioGenNode } from './nodes/AudioGenNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 
@@ -17,6 +18,7 @@ const nodeTypes: NodeTypes = {
   textInput: TextInputNode,
   imageGen: ImageGenNode,
   videoGen: VideoGenNode,
+  audioGen: AudioGenNode,
 } as any;
 
 const edgeTypes: any = {
