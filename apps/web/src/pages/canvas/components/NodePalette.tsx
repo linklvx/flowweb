@@ -6,6 +6,7 @@ const NODE_TYPES = [
   { type: 'image', label: '图片生成', icon: '\u{1F5BC}', color: '#60a5fa' },
   { type: 'video', label: '视频生成', icon: '\u{1F3AC}', color: '#c084fc' },
   { type: 'audio', label: '音频生成', icon: '\u{1F3B5}', color: '#4ade80' },
+  { type: 'multiImage', label: '多图堆叠', icon: '\u{1F5BC}', color: '#f59e0b' },
 ];
 
 function NodePaletteComponent() {

@@ -22,11 +22,13 @@ describe('NodePalette', () => {
     mockAddNode.mockClear();
   });
 
-  it('should render three node types', () => {
+  it('should render five node types', () => {
     renderPalette();
     expect(screen.getByText('文本输入')).toBeInTheDocument();
     expect(screen.getByText('图片生成')).toBeInTheDocument();
     expect(screen.getByText('视频生成')).toBeInTheDocument();
+    expect(screen.getByText('音频生成')).toBeInTheDocument();
+    expect(screen.getByText('多图堆叠')).toBeInTheDocument();
   });
 
   it('should render draggable items', () => {
@@ -59,6 +61,12 @@ describe('NodePalette', () => {
     renderPalette();
     fireEvent.click(screen.getByText('视频生成'));
     expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
+  });
+
+  it('should add multiImage node on click', () => {
+    renderPalette();
+    fireEvent.click(screen.getByText('多图堆叠'));
+    expect(mockAddNode).toHaveBeenCalledWith('multiImage', expect.any(Object));
   });
 
   it('should still support drag (draggable attribute preserved)', () => {
