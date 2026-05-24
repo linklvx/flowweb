@@ -32,7 +32,7 @@ const originalCAF = globalThis.cancelAnimationFrame;
 
 beforeEach(() => {
   rafCallbacks = [];
-  globalThis.requestAnimationFrame = vi.fn((cb: () => void) => {
+  globalThis.requestAnimationFrame = vi.fn((cb: (time: number) => void) => {
     const id = rafCallbacks.length + 1;
     rafCallbacks.push(cb);
     return id;

@@ -12,7 +12,7 @@ const CANVAS_CSS_HEIGHT = 120;
  * Manages Canvas 2D rendering of waveform bars with a rAF scroll loop during playback.
  *
  * - 1000x120 CSS pixels, scaled by devicePixelRatio for sharp rendering.
- * - Draws 250 vertical bars (3px wide, 1px gap, 2px border-radius).
+ * - Draws vertical bars from peaks array (3px wide, 1px gap, 2px border-radius).
  * - Color split at viewport center: left (played) = cyan #38bdf8, right (unplayed) = white.
  * - rAF loop during playback updates translateX from currentTime/duration.
  * - Skips redraw if progress hasn't changed by >0.001.
