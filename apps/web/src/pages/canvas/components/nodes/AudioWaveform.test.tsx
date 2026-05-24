@@ -30,6 +30,7 @@ vi.mock('@xyflow/react', () => ({
 
 describe('AudioWaveform', () => {
   beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     useAudioStore.setState({
       nodes: new Map(),
       activeNodeId: null,
@@ -166,5 +167,30 @@ describe('AudioWaveform', () => {
   it('should accept waveformUrl prop without error', () => {
     const { container } = renderComponent({ waveformUrl: undefined });
     expect(container.querySelector('[style*="background-color: rgb(45, 45, 45)"]')).toBeTruthy();
+  });
+
+  // ─── Finish event ───
+
+  it('should reset isPlaying on finish event', () => {
+    // Set up to capture the finish event handler when wavesurfer.on is called
+    let finishHandler: (() => void) | undefined;
+    const mockWs = {
+      on: vi.fn((event: string, handler: () => void) => {
+        if (event === 'finish') finishHandler = handler;
+        return vi.fn();
+      }),
+      resize: vi.fn(),
+    };
+    mockUseWaveSurferReturn.wavesurfer = mockWs;
+    mockUseWaveSurferReturn.isPlaying = true;
+
+    renderComponent();
+
+    // Simulate finish event
+    expect(finishHandler).toBeDefined();
+    finishHandler!();
+
+    // Verify isPlaying was reset
+    expect(useAudioStore.getState().nodes.get('test-node')?.isPlaying).toBe(false);
   });
 });

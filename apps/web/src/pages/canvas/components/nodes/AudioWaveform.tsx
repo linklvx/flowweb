@@ -90,15 +90,6 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
     return () => { (unsub as (() => void) | undefined)?.(); };
   }, [wavesurfer, nodeId, onError]);
 
-  // Cleanup: destroy wavesurfer on unmount (belt-and-suspenders with audioStore)
-  useEffect(() => {
-    return () => {
-      if (wavesurfer) {
-        try { wavesurfer.destroy(); } catch (_e) { /* ignore */ }
-      }
-    };
-  }, [wavesurfer]);
-
   // Play/pause handler with ready check
   const handleTogglePlay = useCallback(() => {
     if (!isReady) return;
