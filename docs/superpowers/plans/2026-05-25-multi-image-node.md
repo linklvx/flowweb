@@ -784,11 +784,12 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const handleUploadFiles = useCallback(async (files: FileList) => {
     const fileArray = Array.from(files);
     // Cap at 9 images
-    if (fileArray.length + images.length > 9) {
-      // Use dynamic import for antd message to avoid hard dependency
-      import('antd').then(({ message }) => message.warning('最多支持上传9张图片')).catch(() => {});
+    const maxCount = 9;
+    const currentCount = images.length;
+    if (currentCount + fileArray.length > maxCount) {
+      alert(`最多支持上传${maxCount}张图片`);
     }
-    const toUpload = fileArray.slice(0, Math.max(0, 9 - images.length));
+    const toUpload = fileArray.slice(0, maxCount - currentCount);
 
     setUploading(true);
     updateMultiImageNodeStatus(id, 'loading');
@@ -986,7 +987,8 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                           onClick={(e) => {
                             e.stopPropagation();
                             setMainImageIndexStore(id, i);
-                            toggleExpanded(id); // auto-close
+                            // 自动收起（规格要求：设为主图后回到堆叠视图）
+                            useNodeStore.getState().updateNodeData(id, { expanded: false } as any);
                           }}
                         >
                           设为主图
@@ -1216,9 +1218,11 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
 
   const handleUpload = async (files: FileList) => {
     const fileArray = Array.from(files);
-    const toUpload = fileArray.slice(0, Math.max(0, 9 - images.length));
-    if (fileArray.length + images.length > 9) {
-      import('antd').then(({ message }) => message.warning('最多支持上传9张图片')).catch(() => {});
+    const maxCount = 9;
+    const currentCount = images.length;
+    const toUpload = fileArray.slice(0, maxCount - currentCount);
+    if (currentCount + fileArray.length > maxCount) {
+      alert(`最多支持上传${maxCount}张图片`);
     }
 
     const newImages = [...images];
