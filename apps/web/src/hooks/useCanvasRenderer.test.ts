@@ -55,7 +55,7 @@ describe('useCanvasRenderer', () => {
     const peaks = new Array(250).fill(0.5);
 
     renderHook(() =>
-      useCanvasRenderer(canvasRef, peaks, null, false, 0, 340),
+      useCanvasRenderer(canvasRef, peaks, null, false, 0, 340, false),
     );
 
     expect(canvas.width).toBe(2000);
@@ -74,7 +74,7 @@ describe('useCanvasRenderer', () => {
 
     const { rerender } = renderHook(
       ({ isPlaying }) =>
-        useCanvasRenderer(canvasRef, peaks, wavesurfer as any, isPlaying, 120, 340),
+        useCanvasRenderer(canvasRef, peaks, wavesurfer as any, isPlaying, 120, 340, false),
       { initialProps: { isPlaying: false } },
     );
 
@@ -92,7 +92,7 @@ describe('useCanvasRenderer', () => {
 
     const { rerender } = renderHook(
       ({ isPlaying }) =>
-        useCanvasRenderer(canvasRef, peaks, wavesurfer as any, isPlaying, 120, 340),
+        useCanvasRenderer(canvasRef, peaks, wavesurfer as any, isPlaying, 120, 340, false),
       { initialProps: { isPlaying: true } },
     );
 
@@ -108,7 +108,7 @@ describe('useCanvasRenderer', () => {
     const wavesurfer = { getCurrentTime: vi.fn(() => 0) };
 
     const { unmount } = renderHook(() =>
-      useCanvasRenderer(canvasRef, peaks, wavesurfer as any, true, 120, 340),
+      useCanvasRenderer(canvasRef, peaks, wavesurfer as any, true, 120, 340, false),
     );
 
     unmount();
@@ -126,7 +126,7 @@ describe('useCanvasRenderer', () => {
     };
 
     renderHook(() =>
-      useCanvasRenderer(canvasRef, peaks, wavesurfer as any, true, 120, 340),
+      useCanvasRenderer(canvasRef, peaks, wavesurfer as any, true, 120, 340, false),
     );
 
     const initialCalls = ctx.clearRect.mock.calls.length;
@@ -134,5 +134,26 @@ describe('useCanvasRenderer', () => {
     rafCallbacks[0]?.(0);
 
     expect(ctx.clearRect.mock.calls.length).toBeGreaterThan(initialCalls);
+  });
+
+  it('should start rAF loop during drag even when paused', () => {
+    const ctx = createMockContext();
+    const canvas = createMockCanvas(ctx);
+    const canvasRef = { current: canvas };
+    const peaks = new Array(250).fill(0.5);
+    const wavesurfer = { getCurrentTime: vi.fn(() => 0) };
+
+    // paused + not dragging → no rAF
+    const { rerender } = renderHook(
+      ({ isDragging }) =>
+        useCanvasRenderer(canvasRef, peaks, wavesurfer as any, false, 120, 340, isDragging),
+      { initialProps: { isDragging: false } },
+    );
+
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+
+    // Start dragging → rAF should kick in
+    rerender({ isDragging: true });
+    expect(requestAnimationFrame).toHaveBeenCalled();
   });
 });

@@ -26,6 +26,9 @@ export function useDragSeek(
   const totalBarsWidth = 250 * TOTAL_BAR_STEP; // 1000
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
+  const baseTimeRef = useRef(0);
+  const wasPlayingRef = useRef(false);
+  const mouseDownXRef = useRef(0);
 
   const stopDrag = useCallback(() => {
     isDraggingRef.current = false;
@@ -40,12 +43,10 @@ export function useDragSeek(
       if (!wavesurfer || !isReady || duration <= 0) return;
       const rect = canvas.getBoundingClientRect();
       const offsetX = e.clientX - rect.left;
-      // Mode B: waveform scrolls, playhead at viewport center.
-      // Click offset from center → time offset from currentTime.
-      const offsetFromCenter = offsetX - visibleWidth / 2;
-      const timeOffset = (offsetFromCenter / totalBarsWidth) * duration;
-      const currentTime = wavesurfer.getCurrentTime();
-      const newTime = Math.max(0, Math.min(duration, currentTime + timeOffset));
+      // Delta from mousedown position: drag right → seek forward, drag left → seek backward
+      const deltaX = offsetX - mouseDownXRef.current;
+      const timeOffset = (deltaX / totalBarsWidth) * duration;
+      const newTime = Math.max(0, Math.min(duration, baseTimeRef.current + timeOffset));
       const progress = duration > 0 ? newTime / duration : 0;
       wavesurfer.seekTo(Math.max(0, Math.min(1, progress)));
     };
@@ -57,13 +58,19 @@ export function useDragSeek(
       throttledSeek(e);
     };
 
-    const onMouseUp = () => {
-      if (isDraggingRef.current) stopDrag();
+    const finishDrag = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      if (wasPlayingRef.current) {
+        wasPlayingRef.current = false;
+        wavesurfer?.play();
+      }
     };
 
-    const onBlur = () => {
-      if (isDraggingRef.current) stopDrag();
-    };
+    const onMouseUp = () => finishDrag();
+
+    const onBlur = () => finishDrag();
 
     // Capture-phase mousedown: prevents React Flow from receiving the event
     const onMouseDown = (e: MouseEvent) => {
@@ -71,23 +78,27 @@ export function useDragSeek(
       e.stopPropagation();
       isDraggingRef.current = true;
       setIsDragging(true);
-      handleSeek(e);
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
-      window.addEventListener('blur', onBlur);
+      baseTimeRef.current = wavesurfer?.getCurrentTime() ?? 0;
+      wasPlayingRef.current = wavesurfer?.isPlaying() ?? false;
+      const rect = canvas.getBoundingClientRect();
+      mouseDownXRef.current = e.clientX - rect.left;
+      if (wasPlayingRef.current) wavesurfer?.pause();
+      window.addEventListener('mousemove', onMouseMove, true);
+      window.addEventListener('mouseup', onMouseUp, true);
+      window.addEventListener('blur', onBlur, true);
     };
 
     canvas.addEventListener('mousedown', onMouseDown, true);
 
     return () => {
       canvas.removeEventListener('mousedown', onMouseDown, true);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('mousemove', onMouseMove, true);
+      window.removeEventListener('mouseup', onMouseUp, true);
+      window.removeEventListener('blur', onBlur, true);
       isDraggingRef.current = false;
       stopDrag();
     };
-  }, [canvasRef, wavesurfer, isReady, duration, stopDrag]);
+  }, [canvasRef, wavesurfer, isReady, duration, visibleWidth, stopDrag]);
 
   return { isDragging };
 }

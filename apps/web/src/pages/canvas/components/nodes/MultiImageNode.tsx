@@ -2,7 +2,8 @@ import { memo, useState, useCallback, useRef } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { ImageWithFallback } from '@/components/common/ImageWithFallback';
+import { getMediaUrl } from '@/api/mediaApi';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { MultiImageConfigPanel } from './MultiImageConfigPanel';
 import axios from 'axios';
 
@@ -17,6 +18,38 @@ const STACK_LAYERS = [
   { scale: 0.94, rotate: 10, translateX: 24, zIndex: 2 },
   { scale: 0.91, rotate: 15, translateX: 36, zIndex: 1 },
 ];
+
+interface MediaImageProps {
+  fileId: string;
+  alt: string;
+  className?: string;
+}
+
+function MediaImage({ fileId, alt, className }: MediaImageProps) {
+  const { url, loading, error } = useMediaUrl(fileId);
+
+  if (loading) {
+    return (
+      <div className={`flex items-center justify-center bg-[#1a1a2e] ${className ?? ''}`}>
+        <div className="w-6 h-6 border-2 border-[#555] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !url) {
+    return (
+      <div className={`flex items-center justify-center bg-[#1a1a2e] ${className ?? ''}`}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      </div>
+    );
+  }
+
+  return <img src={url} alt={alt} className={className} loading="lazy" />;
+}
 
 function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
@@ -105,7 +138,9 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
 
         await confirmUpload({ fileId, key, fileSize: file.size });
 
-        newImages.push({ id: fileId, url: '', name: file.name, status: 'success' as const });
+        const { url: realUrl } = await getMediaUrl(fileId);
+
+        newImages.push({ id: fileId, url: realUrl, name: file.name, status: 'success' as const });
       } catch (err: any) {
         console.error('[MultiImageNode] upload error:', err.message);
       }
@@ -244,8 +279,8 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                       aspectRatio: '1/1',
                     }}
                   >
-                    <ImageWithFallback
-                      src={img.url || `/api/media/${img.id}`}
+                    <MediaImage
+                      fileId={img.id}
                       alt={img.name || ''}
                       className="w-full h-full object-cover"
                     />
@@ -304,8 +339,8 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   height: 'calc(100% - 12px)',
                 }}
               >
-                <ImageWithFallback
-                  src={images[mainImageIndex]?.url || `/api/media/${images[mainImageIndex]?.id}`}
+                <MediaImage
+                  fileId={images[mainImageIndex]?.id}
                   alt={images[mainImageIndex]?.name || ''}
                   className="w-full h-full object-cover"
                 />

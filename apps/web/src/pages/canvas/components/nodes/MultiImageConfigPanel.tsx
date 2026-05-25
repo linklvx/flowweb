@@ -2,6 +2,8 @@ import { useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { getMediaUrl } from '@/api/mediaApi';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -15,6 +17,27 @@ import axios from 'axios';
 
 interface Props {
   nodeId: string;
+}
+
+function ThumbImage({ fileId }: { fileId: string }) {
+  const { url, loading } = useMediaUrl(fileId);
+
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-[#1a1a2e]">
+        <div className="w-3 h-3 border-2 border-[#555] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={url || ''}
+      alt=""
+      className="w-full h-full object-cover"
+      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+    />
+  );
 }
 
 function SortableImageItem({ id, img, nodeId }: { id: string; img: any; index: number; nodeId: string }) {
@@ -34,12 +57,7 @@ function SortableImageItem({ id, img, nodeId }: { id: string; img: any; index: n
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="nodrag flex items-center gap-2 text-xs text-[#999] cursor-grab active:cursor-grabbing">
       <div className="w-8 h-8 rounded bg-[#1a1a2e] flex items-center justify-center overflow-hidden shrink-0">
-        <img
-          src={img.url || `/api/media/${img.id}`}
-          alt=""
-          className="w-full h-full object-cover"
-          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-        />
+        <ThumbImage fileId={img.id} />
       </div>
       <span className="truncate flex-1">{img.name}</span>
       <button
@@ -123,7 +141,8 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         await confirmUpload({ fileId, key, fileSize: file.size });
-        newImages.push({ id: fileId, url: '', name: file.name, status: 'success' as const });
+        const { url: realUrl } = await getMediaUrl(fileId);
+        newImages.push({ id: fileId, url: realUrl, name: file.name, status: 'success' as const });
       } catch (err: any) {
         console.error('[MultiImageConfigPanel] upload error:', err.message);
       }

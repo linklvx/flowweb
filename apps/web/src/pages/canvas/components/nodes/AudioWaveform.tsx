@@ -26,7 +26,7 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
   // Dynamic visible width from container
   useEffect(() => {
     const el = waveformAreaRef.current;
-    if (el) setVisibleWidth(el.clientWidth * 0.85);
+    if (el) setVisibleWidth(el.clientWidth);
   }, []);
 
   // Register/unregister lifecycle
@@ -90,8 +90,8 @@ export function AudioWaveform({ nodeId, audioUrl, waveformUrl: _waveformUrl, onE
 
   // Custom hooks
   const peaks = useWaveformPeaks(wavesurfer, audioUrl, 250, isReady);
-  useCanvasRenderer(canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth);
   const { isDragging } = useDragSeek(canvasRef, wavesurfer, isReady, duration, visibleWidth);
+  useCanvasRenderer(canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth, isDragging);
 
   // Playhead hover state
   const [isPlayheadHovered, setIsPlayheadHovered] = useState(false);

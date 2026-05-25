@@ -14,7 +14,13 @@ describe('useDragSeek', () => {
       value: vi.fn(() => ({ left: 50, top: 100, width: 1000, height: 120 })),
     });
 
-    wavesurfer = { seekTo: vi.fn(), getCurrentTime: vi.fn(() => 60) };
+    wavesurfer = {
+      seekTo: vi.fn(),
+      getCurrentTime: vi.fn(() => 60),
+      isPlaying: vi.fn(() => false),
+      pause: vi.fn(),
+      play: vi.fn(),
+    };
 
     windowListeners = new Map();
     vi.spyOn(window, 'addEventListener').mockImplementation(
@@ -106,11 +112,17 @@ describe('useDragSeek', () => {
     const canvasRef = { current: canvas };
     renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
-    // Click far left: offsetFromCenter = -2050 < -1000 → time clamped to 0
+    // Start drag
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true, clientX: -2000,
+        bubbles: true, clientX: 300,
       }));
+    });
+
+    // Drag far left: offsetFromCenter → time clamped to 0
+    act(() => {
+      const handler = windowListeners.get('mousemove') as EventListener;
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: -2000 }));
     });
 
     expect(wavesurfer.seekTo).toHaveBeenCalledWith(0);
@@ -120,11 +132,17 @@ describe('useDragSeek', () => {
     const canvasRef = { current: canvas };
     renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
 
-    // Click far right: offsetFromCenter = 4830 → time clamped to duration
+    // Start drag
     act(() => {
       canvas.dispatchEvent(new MouseEvent('mousedown', {
-        bubbles: true, clientX: 5000,
+        bubbles: true, clientX: 300,
       }));
+    });
+
+    // Drag far right: offsetFromCenter → time clamped to duration
+    act(() => {
+      const handler = windowListeners.get('mousemove') as EventListener;
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: 5000 }));
     });
 
     expect(wavesurfer.seekTo).toHaveBeenCalledWith(1);
@@ -162,6 +180,98 @@ describe('useDragSeek', () => {
     expect(calls).toContain('mousemove');
     expect(calls).toContain('mouseup');
     expect(calls).toContain('blur');
+  });
+
+  it('should use delta from mousedown, not accumulating on each mousemove', () => {
+    // Simulate wavesurfer updating its internal time after each seekTo
+    let internalTime = 60;
+    wavesurfer.getCurrentTime = vi.fn(() => internalTime);
+    wavesurfer.seekTo = vi.fn((progress: number) => {
+      internalTime = progress * 120; // duration = 120
+    });
+
+    const canvasRef = { current: canvas };
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
+
+    // mousedown at center (clientX=220, rect.left=50 → mouseDownX=170)
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, clientX: 220,
+      }));
+    });
+
+    // Drag 100px right: deltaX=100, timeOffset=(100/1000)*120=12, baseTime=60→72, progress=0.6
+    act(() => {
+      const handler = windowListeners.get('mousemove') as EventListener;
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: 320 }));
+    });
+
+    // Verify correct seek based on delta from mousedown
+    expect(wavesurfer.seekTo).toHaveBeenCalledWith(expect.closeTo(0.6, 2));
+
+    // Same position again: deltaX still 100, should NOT drift
+    // Bug would be: internalTime=72, delta=100, 72+12=84 (0.7)
+    // Fix: baseTime=60, delta=100, 60+12=72 (0.6)
+    act(() => {
+      const handler = windowListeners.get('mousemove') as EventListener;
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: 320 }));
+    });
+
+    const lastCall = wavesurfer.seekTo.mock.calls[wavesurfer.seekTo.mock.calls.length - 1];
+    expect(lastCall[0]).toBeCloseTo(0.6, 2);
+  });
+
+  it('should pause on mousedown when playing', () => {
+    wavesurfer.isPlaying = vi.fn(() => true);
+
+    const canvasRef = { current: canvas };
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
+
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, clientX: 300,
+      }));
+    });
+
+    expect(wavesurfer.pause).toHaveBeenCalled();
+  });
+
+  it('should resume playback on mouseup after drag when was playing', () => {
+    wavesurfer.isPlaying = vi.fn(() => true);
+
+    const canvasRef = { current: canvas };
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
+
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, clientX: 300,
+      }));
+    });
+
+    act(() => {
+      const handler = windowListeners.get('mouseup') as EventListener;
+      handler(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    expect(wavesurfer.play).toHaveBeenCalled();
+  });
+
+  it('should not resume playback on mouseup if was not playing', () => {
+    const canvasRef = { current: canvas };
+    renderHook(() => useDragSeek(canvasRef, wavesurfer as any, true, 120, 340));
+
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, clientX: 300,
+      }));
+    });
+
+    act(() => {
+      const handler = windowListeners.get('mouseup') as EventListener;
+      handler(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    expect(wavesurfer.play).not.toHaveBeenCalled();
   });
 
   it('should not seek when not ready', () => {

@@ -25,6 +25,7 @@ export function useCanvasRenderer(
   isPlaying: boolean,
   duration: number,
   visibleWidth: number,
+  isDragging: boolean,
 ): void {
   const rafRef = useRef<number | null>(null);
   const lastProgressRef = useRef(-1);
@@ -53,13 +54,15 @@ export function useCanvasRenderer(
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const shouldLoop = (isPlaying || isDragging) && wavesurfer;
+
     const draw = () => {
       const currentTime = wavesurfer?.getCurrentTime() ?? 0;
       const progress = duration > 0 ? currentTime / duration : 0;
 
       // Skip redraw if progress hasn't changed significantly
       if (Math.abs(progress - lastProgressRef.current) < 0.001) {
-        if (isPlaying && wavesurfer) {
+        if (shouldLoop) {
           rafRef.current = requestAnimationFrame(draw);
         }
         return;
@@ -91,7 +94,7 @@ export function useCanvasRenderer(
 
       ctx.restore();
 
-      if (isPlaying && wavesurfer) {
+      if (shouldLoop) {
         rafRef.current = requestAnimationFrame(draw);
       }
     };
@@ -99,7 +102,7 @@ export function useCanvasRenderer(
     // Force a full redraw on effect re-run (e.g., when peaks or duration change)
     lastProgressRef.current = -1;
 
-    if (isPlaying && wavesurfer) {
+    if (shouldLoop) {
       rafRef.current = requestAnimationFrame(draw);
     } else {
       draw();
@@ -111,5 +114,5 @@ export function useCanvasRenderer(
         rafRef.current = null;
       }
     };
-  }, [canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth]);
+  }, [canvasRef, peaks, wavesurfer, isPlaying, duration, visibleWidth, isDragging]);
 }

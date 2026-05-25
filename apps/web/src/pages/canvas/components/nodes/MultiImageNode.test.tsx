@@ -58,6 +58,12 @@ vi.mock('@/api/storageApi', () => ({
   confirmUpload: vi.fn(),
 }));
 
+vi.mock('@/api/mediaApi', () => ({
+  getMediaUrl: vi.fn((fileId: string) =>
+    Promise.resolve({ url: `http://media/${fileId}` }),
+  ),
+}));
+
 vi.mock('axios', () => ({
   default: { post: vi.fn().mockResolvedValue({}) },
 }));
