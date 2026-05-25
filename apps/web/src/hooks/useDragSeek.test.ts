@@ -119,10 +119,10 @@ describe('useDragSeek', () => {
       }));
     });
 
-    // Drag far left: offsetFromCenter → time clamped to 0
+    // Drag far right → deltaX negative → time clamped to 0
     act(() => {
       const handler = windowListeners.get('mousemove') as EventListener;
-      handler(new MouseEvent('mousemove', { bubbles: true, clientX: -2000 }));
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: 5000 }));
     });
 
     expect(wavesurfer.seekTo).toHaveBeenCalledWith(0);
@@ -139,10 +139,10 @@ describe('useDragSeek', () => {
       }));
     });
 
-    // Drag far right: offsetFromCenter → time clamped to duration
+    // Drag far left → deltaX positive → time clamped to duration
     act(() => {
       const handler = windowListeners.get('mousemove') as EventListener;
-      handler(new MouseEvent('mousemove', { bubbles: true, clientX: 5000 }));
+      handler(new MouseEvent('mousemove', { bubbles: true, clientX: -2000 }));
     });
 
     expect(wavesurfer.seekTo).toHaveBeenCalledWith(1);
@@ -200,25 +200,23 @@ describe('useDragSeek', () => {
       }));
     });
 
-    // Drag 100px right: deltaX=100, timeOffset=(100/1000)*120=12, baseTime=60→72, progress=0.6
+    // Drag 100px right: deltaX=-100, timeOffset=-12, baseTime=60→48, progress=0.4
     act(() => {
       const handler = windowListeners.get('mousemove') as EventListener;
       handler(new MouseEvent('mousemove', { bubbles: true, clientX: 320 }));
     });
 
     // Verify correct seek based on delta from mousedown
-    expect(wavesurfer.seekTo).toHaveBeenCalledWith(expect.closeTo(0.6, 2));
+    expect(wavesurfer.seekTo).toHaveBeenCalledWith(expect.closeTo(0.4, 2));
 
-    // Same position again: deltaX still 100, should NOT drift
-    // Bug would be: internalTime=72, delta=100, 72+12=84 (0.7)
-    // Fix: baseTime=60, delta=100, 60+12=72 (0.6)
+    // Same position again: deltaX=-100, should NOT drift
     act(() => {
       const handler = windowListeners.get('mousemove') as EventListener;
       handler(new MouseEvent('mousemove', { bubbles: true, clientX: 320 }));
     });
 
     const lastCall = wavesurfer.seekTo.mock.calls[wavesurfer.seekTo.mock.calls.length - 1];
-    expect(lastCall[0]).toBeCloseTo(0.6, 2);
+    expect(lastCall[0]).toBeCloseTo(0.4, 2);
   });
 
   it('should pause on mousedown when playing', () => {

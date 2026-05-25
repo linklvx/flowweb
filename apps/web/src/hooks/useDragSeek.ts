@@ -43,8 +43,8 @@ export function useDragSeek(
       if (!wavesurfer || !isReady || duration <= 0) return;
       const rect = canvas.getBoundingClientRect();
       const offsetX = e.clientX - rect.left;
-      // Delta from mousedown position: drag right → seek forward, drag left → seek backward
-      const deltaX = offsetX - mouseDownXRef.current;
+      // Delta from mousedown position: drag right → waveform moves right (seek backward)
+      const deltaX = mouseDownXRef.current - offsetX;
       const timeOffset = (deltaX / totalBarsWidth) * duration;
       const newTime = Math.max(0, Math.min(duration, baseTimeRef.current + timeOffset));
       const progress = duration > 0 ? newTime / duration : 0;
