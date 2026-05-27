@@ -143,7 +143,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           color="#9CA3AF"
         />
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
-        <div className="p-3 rounded-lg transition-colors flex flex-col" style={{ height: '100%', backgroundColor: bgColor || undefined }}>
+        <div className="py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col" style={{ height: '100%', backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
             <div
