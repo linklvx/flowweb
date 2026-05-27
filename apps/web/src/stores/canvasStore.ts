@@ -53,8 +53,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selected: true,
     };
     if (resolvedType === 'textInput') {
-      node.width = 360;
-      node.height = 186;
+      node.width = 250;
+      node.height = 250;
     }
     set((s) => ({
       nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), node],

@@ -13,8 +13,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
   const { getNodes } = useReactFlow();
-  const nodeWidth = appNode?.width ?? 360;
-  const nodeHeight = appNode?.height ?? 186;
+  const nodeWidth = appNode?.width ?? 250;
+  const nodeHeight = appNode?.height ?? 250;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
 
   const editor = useEditor({
@@ -134,8 +134,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
         <NodeResizer
-          minWidth={360}
-          minHeight={186}
+          minWidth={250}
+          minHeight={250}
           maxWidth={2000}
           maxHeight={1500}
           isVisible={isSingleSelected}
