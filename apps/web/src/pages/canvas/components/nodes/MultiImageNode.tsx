@@ -279,7 +279,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           height: containerHeight,
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
+        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
 
         <div className="w-full h-full rounded-lg relative">
           {expanded && images.length > 0 ? (
@@ -399,7 +399,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           )}
         </div>
 
-        <Handle type="source" position={Position.Right} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
+        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
 
         {/* Border overlay — rendered above all internal content (shadows, image, badge) */}
         <div
@@ -407,7 +407,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           className="absolute inset-0 rounded-lg pointer-events-none"
           style={{
             zIndex: 20,
-            border: selected ? '3px solid #f59e0b' : '1px solid #3F3F46',
+            border: selected ? '3px solid #9CA3AF' : '1px solid #3F3F46',
           }}
         />
       </div>

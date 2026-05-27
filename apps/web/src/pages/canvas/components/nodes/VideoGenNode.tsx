@@ -261,7 +261,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
+        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: containerWidth, height: containerHeight }}
@@ -299,7 +299,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-[#c084fc] !border-0 !w-2 !h-2" />
+        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
       </div>
 
       {/* Bottom config panel */}
