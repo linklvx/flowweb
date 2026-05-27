@@ -35,8 +35,8 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
   useCanvasStore.setState({
     nodes: (project.nodes || []).map((n: any) => ({
       ...n,
-      width: n.width ?? 250,
-      height: n.height ?? 250,
+      width: n.width ?? 300,
+      height: n.height ?? 300,
     })),
     edges: (project.edges || []).map((e: any) => ({
       id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
@@ -51,8 +51,8 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
       type: n.type,
       position: n.position || { x: 0, y: 0 },
       data: n.data || {},
-      width: n.width ?? 250,
-      height: n.height ?? 250,
+      width: n.width ?? 300,
+      height: n.height ?? 300,
     };
   }
   useNodeStore.setState({ nodes: content });

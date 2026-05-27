@@ -188,12 +188,12 @@ describe('TextInputNode (Tiptap)', () => {
   });
 
   // === Resize (Task 4) ===
-  it('should use default dimensions 250x250 when node has no width/height', () => {
+  it('should use default dimensions 300x300 when node has no width/height', () => {
     const { container } = renderNode();
     const card = container.querySelector('[class*="bg-\\[\\#222222\\]"]') as HTMLElement;
     const style = card?.getAttribute('style') || '';
-    expect(style).toContain('width: 250px');
-    expect(style).toContain('height: 250px');
+    expect(style).toContain('width: 300px');
+    expect(style).toContain('height: 300px');
   });
 
   it('should not show resize handles when not selected', () => {
