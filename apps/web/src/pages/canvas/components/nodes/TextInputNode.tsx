@@ -132,9 +132,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
 
-      {/* Left handle — center at card edge, SVG offset outward */}
-      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0 transition-opacity" style={{ left: 0, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginLeft: -6 }}>
+      {/* Left handle — outside card body */}
+      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0 transition-opacity" style={{ left: -10, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginLeft: -4 }}>
           <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
           <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
@@ -176,9 +176,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         />
       </div>
 
-      {/* Right handle — center at card edge, SVG offset outward */}
-      <Handle type="source" position={Position.Right} className="!bg-transparent !border-0 transition-opacity" style={{ right: 0, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: -6 }}>
+      {/* Right handle — outside card body */}
+      <Handle type="source" position={Position.Right} className="!bg-transparent !border-0 transition-opacity" style={{ right: -10, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: -4 }}>
           <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
           <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
