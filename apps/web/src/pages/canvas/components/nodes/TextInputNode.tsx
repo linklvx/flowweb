@@ -13,6 +13,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const appNode = useNodeStore((s) => s.nodes[id]);
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
+  const [hovered, setHovered] = useState(false);
+  const showHandles = selected || hovered;
+
   const { getNodes } = useReactFlow();
   const nodeWidth = appNode?.width ?? 300;
   const nodeHeight = appNode?.height ?? 300;
@@ -71,7 +74,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const titleText = label || 'Text';
 
   return (
-    <div className="relative">
+    <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
@@ -130,7 +133,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Left handle — outside card body */}
-      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0" style={{ left: -14, top: '50%', width: 20, height: 20 }}>
+      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0 transition-opacity" style={{ left: -14, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
           <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
@@ -174,7 +177,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Right handle — outside card body */}
-      <Handle type="source" position={Position.Right} className="!bg-transparent !border-0" style={{ right: -14, top: '50%', width: 20, height: 20 }}>
+      <Handle type="source" position={Position.Right} className="!bg-transparent !border-0 transition-opacity" style={{ right: -14, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
           <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
