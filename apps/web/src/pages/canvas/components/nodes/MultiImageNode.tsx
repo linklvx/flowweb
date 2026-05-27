@@ -28,9 +28,9 @@ function calcConstrainedSize(naturalW: number, naturalH: number) {
 }
 
 const STACK_LAYERS = [
-  { scale: 0.97, rotate: 5, translateX: 12, zIndex: 3 },
-  { scale: 0.94, rotate: 10, translateX: 24, zIndex: 2 },
-  { scale: 0.91, rotate: 15, translateX: 36, zIndex: 1 },
+  { rotate: 5, scale: 0.965, left: 12, top: 4, zIndex: 3 },
+  { rotate: 10, scale: 0.93, left: 24, top: 8, zIndex: 2 },
+  { rotate: 15, scale: 0.895, left: 36, top: 12, zIndex: 1 },
 ];
 
 interface MediaImageProps {
@@ -270,20 +270,18 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
 
-      {/* Card body */}
+      {/* Card body — isolation creates stacking context for internal z-index layers */}
       <div
         className="bg-[#222222] rounded-lg transition-colors"
         style={{
+          isolation: 'isolate',
           width: containerWidth,
           height: containerHeight,
-          ...(selected
-            ? { borderColor: '#f59e0b', borderWidth: '3px', borderStyle: 'solid' }
-            : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
         <Handle type="target" position={Position.Left} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
 
-        <div className="w-full h-full overflow-hidden rounded-lg relative">
+        <div className="w-full h-full rounded-lg relative">
           {expanded && images.length > 0 ? (
             /* --- EXPANDED MODE --- */
             <div className="w-full h-full p-3 overflow-auto">
@@ -355,14 +353,17 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
               {STACK_LAYERS.slice(0, stackLayerCount).map((layer, i) => (
                 <div
                   key={i}
-                  className="absolute rounded-xl border border-[#3a3a4a] bg-[#2a2a3a]"
+                  className="absolute rounded-xl border border-white/[0.06]"
                   style={{
-                    left: '50%',
-                    top: '50%',
-                    transform: `translate(-50%, -50%) scale(${layer.scale}) rotate(${layer.rotate}deg) translateX(${layer.translateX}px)`,
+                    left: layer.left,
+                    top: layer.top,
+                    transform: `rotate(${layer.rotate}deg) scale(${layer.scale})`,
                     zIndex: layer.zIndex,
-                    width: '100%',
-                    height: '100%',
+                    minWidth: '100%',
+                    minHeight: '100%',
+                    background: 'rgba(255,255,255,0.03)',
+                    backdropFilter: 'blur(12px)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3)',
                   }}
                 />
               ))}
@@ -375,6 +376,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   width: '100%',
                   height: '100%',
                   transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
                 }}
               >
                 <MediaImage
@@ -398,6 +400,16 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         </div>
 
         <Handle type="source" position={Position.Right} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
+
+        {/* Border overlay — rendered above all internal content (shadows, image, badge) */}
+        <div
+          data-testid="border-overlay"
+          className="absolute inset-0 rounded-lg pointer-events-none"
+          style={{
+            zIndex: 20,
+            border: selected ? '3px solid #f59e0b' : '1px solid #3F3F46',
+          }}
+        />
       </div>
 
       {selected && (

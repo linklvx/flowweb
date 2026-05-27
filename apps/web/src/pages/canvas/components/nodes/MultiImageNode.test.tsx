@@ -242,10 +242,12 @@ describe('MultiImageNode', () => {
     expect(handles.length).toBe(2);
   });
 
-  it('should render orange border when selected', () => {
+  it('should render orange selection border on overlay when selected', () => {
     renderNode(true);
-    const card = document.querySelector('.transition-colors');
-    expect(card).toBeInTheDocument();
+    const overlay = document.querySelector('[data-testid="border-overlay"]') as HTMLElement;
+    expect(overlay).toBeInTheDocument();
+    const style = overlay.getAttribute('style')!;
+    expect(style).toContain('border: 3px solid');
   });
 
   it('should reset to idle state when all images deleted', () => {
@@ -293,20 +295,27 @@ describe('MultiImageNode', () => {
     expect(style).toContain('padding-bottom');
   });
 
-  // === Optimization 2: Stacked layer centering ===
-  it('stacked background layers should be centered without inset-0', () => {
+  // === Optimization 2: Stacked layer positioning ===
+  it('stacked background layers should use top-left positioning with rotate+scale', () => {
     setMockNodeData({ images: [makeImage('a'), makeImage('b')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
     const { container } = renderNode();
-    // Find stacked background layers (divs with bg-[#2a2a3a])
-    const bgLayer = container.querySelector('.bg-\\[\\#2a2a3a\\]') as HTMLElement;
+    const bgLayer = container.querySelector('.border-white\\/\\[0\\.06\\]') as HTMLElement;
     expect(bgLayer).toBeInTheDocument();
-    expect(bgLayer.className).not.toContain('inset-0');
     const layerStyle = bgLayer.getAttribute('style')!;
-    expect(layerStyle).toContain('translate(-50%, -50%)');
-    expect(layerStyle).toContain('left: 50%');
-    expect(layerStyle).toContain('top: 50%');
-    expect(layerStyle).toContain('width: 100%');
-    expect(layerStyle).toContain('height: 100%');
+    // Uses pixel left/top offsets (not centering)
+    expect(layerStyle).toContain('left:');
+    expect(layerStyle).toContain('top:');
+    // Uses rotate + scale transform (not translate-based centering)
+    expect(layerStyle).toContain('rotate(');
+    expect(layerStyle).toContain('scale(');
+    // Uses min-width/min-height
+    expect(layerStyle).toContain('min-width: 100%');
+    expect(layerStyle).toContain('min-height: 100%');
+    // Frosted glass and shadow
+    expect(layerStyle).toContain('box-shadow');
+    expect(layerStyle).toContain('rgba(255, 255, 255, 0.03)');
+    const layerImg = bgLayer.querySelector('img');
+    expect(layerImg).not.toBeInTheDocument();
   });
 
   it('main image wrapper should be centered in stacked mode', () => {
@@ -347,8 +356,13 @@ describe('MultiImageNode', () => {
   it('should reset container dimensions when main image changes', () => {
     setMockNodeData({ images: [makeImage('a'), makeImage('b')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
     const { container } = renderNode();
-    // Load first image
-    const img = container.querySelector('img[src*="/media/"]') as HTMLImageElement;
+    // Find main image wrapper (the one with z-index: 4) and its img
+    const wrappers = container.querySelectorAll('.absolute.rounded-xl.overflow-hidden');
+    const mainWrapper = Array.from(wrappers).find((w) => {
+      const s = (w as HTMLElement).getAttribute('style') || '';
+      return s.includes('z-index: 4');
+    }) as HTMLElement;
+    const img = mainWrapper.querySelector('img') as HTMLImageElement;
     Object.defineProperty(img, 'naturalWidth', { value: 800, configurable: true });
     Object.defineProperty(img, 'naturalHeight', { value: 600, configurable: true });
     fireEvent.load(img);
