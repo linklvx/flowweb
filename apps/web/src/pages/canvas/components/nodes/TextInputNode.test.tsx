@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 
+vi.mock('./TextInputNode.module.css', () => ({
+  default: {
+    textInputNode: 'textInputNode',
+    selected: 'selected',
+    handleIcon: 'handleIcon',
+    handleIconSource: 'handleIconSource',
+    handleIconTarget: 'handleIconTarget',
+  },
+}));
+
 // Mock Tiptap
 const mockChainRun = vi.fn();
 const mockEditorIsActive = vi.fn().mockReturnValue(false);
@@ -144,10 +154,21 @@ describe('TextInputNode (Tiptap)', () => {
     expect(screen.getByTestId('tiptap-editor')).toBeInTheDocument();
   });
 
-  it('should have input and output handles', () => {
+  it('should have input and output handles with circle-plus SVG icons', () => {
     const { container } = renderNode();
     const handles = container.querySelectorAll('.react-flow__handle');
     expect(handles.length).toBe(2);
+    handles.forEach((handle) => {
+      const svg = handle.querySelector('svg');
+      expect(svg).not.toBeNull();
+      expect(svg?.getAttribute('class')).toContain('handleIcon');
+    });
+  });
+
+  it('should have data-testid on source and target handles', () => {
+    const { container } = renderNode();
+    expect(container.querySelector('[data-testid="source-handle"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="target-handle"]')).not.toBeNull();
   });
 
   it('should show highlight border on overlay when selected', () => {
@@ -183,7 +204,7 @@ describe('TextInputNode (Tiptap)', () => {
     const { container } = renderNode();
     // The p-3 wrapper should not have backgroundColor when bgColor is null
     const cardBody = container.querySelector('[class*="bg-\\[\\#222222\\]"]');
-    const p3Div = cardBody?.querySelector('.py-3.pl-3.pr-0') as HTMLElement;
+    const p3Div = cardBody?.querySelector('[class*="py-3"][class*="pl-3"]') as HTMLElement;
     expect(p3Div).toBeTruthy();
   });
 

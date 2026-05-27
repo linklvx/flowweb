@@ -1,14 +1,42 @@
-.border-overlay {
-  position: absolute;
-  inset: 0;
-  border-radius: 8px;
-  z-index: 10;
-  pointer-events: none;
+.textInputNode :global(.react-flow__handle) {
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  z-index: 30 !important;
 }
 
-:global(.react-flow__resize-control) {
-  background: transparent !important;
-  border-color: transparent !important;
-  opacity: 0 !important;
-  pointer-events: auto;
+.textInputNode:hover .handleIcon,
+.textInputNode.selected .handleIcon,
+:global(.react-flow__connection-indicator) .handleIcon {
+  opacity: 1;
+}
+
+.handleIcon {
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.handleIcon:hover {
+  transform: scale(1.1);
+}
+
+.handleIcon:hover circle {
+  stroke: var(--canvas-handle-hover-bg);
+}
+
+.handleIcon:hover path {
+  stroke: var(--canvas-handle-hover-icon);
+}
+
+.handleIconSource {
+  margin-left: 0;
+}
+
+.handleIconTarget {
+  margin-left: -20px;
 }

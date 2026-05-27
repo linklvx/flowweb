@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Canvas handle color tokens */
+:root {
+  --canvas-handle-bg: #9CA3AF;
+  --canvas-handle-icon: #6B7280;
+  --canvas-handle-hover-bg: #FFFFFF;
+  --canvas-handle-hover-icon: #FFFFFF;
+}
+
 body {
   margin: 0;
   background: #0f0f0f;

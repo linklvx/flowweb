@@ -6,7 +6,7 @@ import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
-import './TextInputNode.module.css';
+import styles from './TextInputNode.module.css';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
@@ -71,7 +71,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const titleText = label || 'Text';
 
   return (
-    <div className="relative">
+    <div className={`relative ${styles.textInputNode} ${selected ? styles.selected : ''}`}>
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
@@ -129,9 +129,22 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
 
+      {/* Target handle — outside overflow-hidden */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        data-testid="target-handle"
+      >
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 cursor-crosshair" />
+        <svg className={`absolute left-1/2 top-1/2 ${styles.handleIcon} ${styles.handleIconTarget}`} viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="9" stroke="var(--canvas-handle-bg)" strokeWidth="2" fill="transparent" />
+          <path d="M10 6V14M6 10H14" stroke="var(--canvas-handle-icon)" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </Handle>
+
       {/* Card body */}
       <div
-        className="bg-[#222222] rounded-lg transition-colors overflow-hidden"
+        className="relative z-0 bg-[#222222] rounded-lg transition-colors overflow-hidden"
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
         <NodeResizer
@@ -142,8 +155,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           isVisible={isSingleSelected}
           color="#9CA3AF"
         />
-        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
-        <div className="py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col" style={{ height: '100%', backgroundColor: bgColor || undefined }}>
+        <div className="absolute inset-0 py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col overflow-hidden" style={{ backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
             <div
@@ -154,8 +166,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             </div>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
-
         {/* Border overlay — above all content including resize handles */}
         <div
           data-testid="border-overlay"
@@ -166,6 +176,19 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           }}
         />
       </div>
+
+      {/* Source handle — outside card body to avoid overflow clipping */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        data-testid="source-handle"
+      >
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 cursor-crosshair" />
+        <svg className={`absolute left-1/2 top-1/2 ${styles.handleIcon} ${styles.handleIconSource}`} viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="9" stroke="var(--canvas-handle-bg)" strokeWidth="2" fill="transparent" />
+          <path d="M10 6V14M6 10H14" stroke="var(--canvas-handle-icon)" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </Handle>
 
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
