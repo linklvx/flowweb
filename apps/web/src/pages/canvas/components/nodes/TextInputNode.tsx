@@ -16,8 +16,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const nodeWidth = appNode?.width ?? 360;
   const nodeHeight = appNode?.height ?? 186;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
-  const editorMinHeight = 80;
-  const editorHeight = Math.max(editorMinHeight, nodeHeight - 40);
 
   const editor = useEditor({
     extensions: [
@@ -136,20 +134,20 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
         <NodeResizer
-          minWidth={280}
-          minHeight={120}
+          minWidth={360}
+          minHeight={186}
           maxWidth={2000}
           maxHeight={1500}
           isVisible={isSingleSelected}
           color="#9CA3AF"
         />
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
-        <div className="p-3 rounded-lg transition-colors" style={{ backgroundColor: bgColor || undefined }}>
+        <div className="p-3 rounded-lg transition-colors flex flex-col" style={{ height: '100%', backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
             <div
-              className="w-full overflow-y-auto rounded-md transition-colors editor-scroll nowheel"
-              style={{ minHeight: editorHeight, backgroundColor: bgColor || 'transparent' }}
+              className="w-full overflow-y-auto rounded-md transition-colors editor-scroll nowheel flex-1 min-h-0"
+              style={{ backgroundColor: bgColor || 'transparent' }}
             >
               <EditorContent editor={editor} />
             </div>
