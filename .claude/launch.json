@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["turbo", "run", "dev", "--filter=web"],
+      "runtimeArgs": ["turbo", "run", "dev", "--filter=@flowweb/web"],
       "port": 5173,
       "cwd": "D:\\flowweb"
     }
