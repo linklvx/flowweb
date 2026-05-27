@@ -130,7 +130,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
       {/* Card body */}
       <div
-        className="bg-[#222222] rounded-lg transition-colors"
+        className="bg-[#222222] rounded-lg transition-colors overflow-hidden"
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
         <NodeResizer
