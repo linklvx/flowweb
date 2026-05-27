@@ -192,8 +192,8 @@ describe('TextInputNode (Tiptap)', () => {
     const { container } = renderNode();
     const card = container.querySelector('[class*="bg-\\[\\#222222\\]"]') as HTMLElement;
     const style = card?.getAttribute('style') || '';
-    expect(style).toContain('width: 280px');
-    expect(style).toContain('height: 120px');
+    expect(style).toContain('width: 360px');
+    expect(style).toContain('height: 186px');
   });
 
   it('should not show resize handles when not selected', () => {

@@ -13,8 +13,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
   const { getNodes } = useReactFlow();
-  const nodeWidth = appNode?.width ?? 280;
-  const nodeHeight = appNode?.height ?? 120;
+  const nodeWidth = appNode?.width ?? 360;
+  const nodeHeight = appNode?.height ?? 186;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
   const editorMinHeight = 80;
   const editorHeight = Math.max(editorMinHeight, nodeHeight - 40);

@@ -126,18 +126,18 @@ describe('canvasStore', () => {
   });
 
   // Task 3: Resize — text node default dimensions
-  it('addNode text should set default width=280 height=120', () => {
+  it('addNode text should set default width=360 height=186', () => {
     const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId)!;
-    expect(node.width).toBe(280);
-    expect(node.height).toBe(120);
+    expect(node.width).toBe(360);
+    expect(node.height).toBe(186);
   });
 
   it('addNode text should also populate nodeStore with width/height', () => {
     const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     const nsNode = useNodeStore.getState().nodes[nodeId];
-    expect(nsNode.width).toBe(280);
-    expect(nsNode.height).toBe(120);
+    expect(nsNode.width).toBe(360);
+    expect(nsNode.height).toBe(186);
   });
 
   it('copyNode should copy width and height from original node', () => {
