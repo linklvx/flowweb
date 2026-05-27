@@ -29,7 +29,7 @@ vi.mock('@xyflow/react', () => ({
 // Mock stores
 const { mockNodeStoreState } = vi.hoisted(() => {
   const state: any = {
-    nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', model: 'm1' } } },
+    nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', prompt: '', model: 'm1' } } },
     setStatus: vi.fn(),
   };
   return { mockNodeStoreState: state };
@@ -123,12 +123,11 @@ describe('TextConfigPanel', () => {
 
   it('should restore persisted prompt from nodeStore on mount', () => {
     // Set stored content in mock nodeStore
-    mockNodeStoreState.nodes.n1.data.content = 'saved text';
+    mockNodeStoreState.nodes.n1.data.prompt = 'saved text';
     const { container } = render(<TextConfigPanel nodeId="n1" />);
     const textarea = container.querySelector('textarea');
     expect(textarea?.value).toBe('saved text');
-    // Cleanup
-    mockNodeStoreState.nodes.n1.data.content = '';
+    mockNodeStoreState.nodes.n1.data.prompt = '';
   });
 
   it('should have dark scrollbar class on textarea', () => {

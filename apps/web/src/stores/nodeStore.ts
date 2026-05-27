@@ -20,6 +20,7 @@ export interface PromptValue {
 
 export interface TextNodeData {
   content: string;
+  prompt?: string;
 }
 
 export interface ImageNodeData {

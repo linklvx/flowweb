@@ -21,7 +21,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
-  const [prompt, setPrompt] = useState(() => nodeData?.content || '');
+  const [prompt, setPrompt] = useState(() => nodeData?.prompt || '');
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -209,7 +209,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             const store = useNodeStore.getState();
             const existing = store.nodes[nodeId] as any;
             useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: e.target.value } } },
+              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: e.target.value } } },
             });
           }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
