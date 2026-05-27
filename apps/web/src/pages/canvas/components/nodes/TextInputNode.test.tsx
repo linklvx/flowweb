@@ -183,7 +183,7 @@ describe('TextInputNode (Tiptap)', () => {
     const { container } = renderNode();
     // The p-3 wrapper should not have backgroundColor when bgColor is null
     const cardBody = container.querySelector('[class*="bg-\\[\\#222222\\]"]');
-    const p3Div = cardBody?.querySelector('.py-3.pl-3.pr-0') as HTMLElement;
+    const p3Div = cardBody?.querySelector('.py-3.pl-3') as HTMLElement;
     expect(p3Div).toBeTruthy();
   });
 
