@@ -6,6 +6,7 @@ import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
+import './TextInputNode.module.css';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
