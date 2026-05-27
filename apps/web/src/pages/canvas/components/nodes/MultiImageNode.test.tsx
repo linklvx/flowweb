@@ -278,4 +278,86 @@ describe('MultiImageNode', () => {
     const panel = screen.getByTestId('config-panel');
     expect(panel).toBeInTheDocument();
   });
+
+  // === Optimization 1: Grid padding ===
+  it('should have right and bottom padding on grid in expanded mode', () => {
+    setMockNodeData({
+      images: [makeImage('a'), makeImage('b')],
+      mainImageIndex: 0, expanded: true, nodeStatus: 'done',
+    });
+    renderNode();
+    const grid = document.querySelector('.grid') as HTMLElement;
+    expect(grid).toBeInTheDocument();
+    const style = grid.getAttribute('style')!;
+    expect(style).toContain('padding-right');
+    expect(style).toContain('padding-bottom');
+  });
+
+  // === Optimization 2: Stacked layer centering ===
+  it('stacked background layers should be centered without inset-0', () => {
+    setMockNodeData({ images: [makeImage('a'), makeImage('b')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode();
+    // Find stacked background layers (divs with bg-[#2a2a3a])
+    const bgLayer = container.querySelector('.bg-\\[\\#2a2a3a\\]') as HTMLElement;
+    expect(bgLayer).toBeInTheDocument();
+    expect(bgLayer.className).not.toContain('inset-0');
+    const layerStyle = bgLayer.getAttribute('style')!;
+    expect(layerStyle).toContain('translate(-50%, -50%)');
+    expect(layerStyle).toContain('left: 50%');
+    expect(layerStyle).toContain('top: 50%');
+    expect(layerStyle).toContain('width: 100%');
+    expect(layerStyle).toContain('height: 100%');
+  });
+
+  it('main image wrapper should be centered in stacked mode', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode();
+    // Main image is inside a wrapper div with zIndex: 4
+    const imgEl = container.querySelector('img[src*="/media/"]');
+    expect(imgEl).toBeInTheDocument();
+    const wrapper = imgEl!.parentElement as HTMLElement;
+    expect(wrapper).toBeInTheDocument();
+    const style = wrapper.getAttribute('style')!;
+    expect(style).toContain('z-index: 4');
+    expect(style).toContain('translate(-50%, -50%)');
+  });
+
+  // === Optimization 3: Dynamic aspect ratio ===
+  it('should use default 400x300 in stacked mode when image not loaded', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode();
+    // The card body has inline styles with width/height
+    expect(container.innerHTML).toContain('width: 400px');
+    expect(container.innerHTML).toContain('height: 300px');
+  });
+
+  it('should update container dimensions after main image loads', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode();
+    const img = container.querySelector('img[src*="/media/"]') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    // Simulate a 800x600 image load → constrained to 450x338
+    Object.defineProperty(img, 'naturalWidth', { value: 800, configurable: true });
+    Object.defineProperty(img, 'naturalHeight', { value: 600, configurable: true });
+    fireEvent.load(img);
+    expect(container.innerHTML).toContain('width: 450px');
+    expect(container.innerHTML).toContain('height: 338px');
+  });
+
+  it('should reset container dimensions when main image changes', () => {
+    setMockNodeData({ images: [makeImage('a'), makeImage('b')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode();
+    // Load first image
+    const img = container.querySelector('img[src*="/media/"]') as HTMLImageElement;
+    Object.defineProperty(img, 'naturalWidth', { value: 800, configurable: true });
+    Object.defineProperty(img, 'naturalHeight', { value: 600, configurable: true });
+    fireEvent.load(img);
+    expect(container.innerHTML).toContain('width: 450px');
+    // Change main image to index 1 (different fileId 'b')
+    setMockNodeData({ images: [makeImage('a'), makeImage('b')], mainImageIndex: 1, expanded: false, nodeStatus: 'done' });
+    const { container: container2 } = renderNode();
+    // Should reset to default (new image not loaded yet)
+    expect(container2.innerHTML).toContain('width: 400px');
+    expect(container2.innerHTML).toContain('height: 300px');
+  });
 });

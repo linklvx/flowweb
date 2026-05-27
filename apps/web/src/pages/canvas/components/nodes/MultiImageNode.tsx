@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useRef } from 'react';
+import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -9,9 +9,23 @@ import axios from 'axios';
 
 const STACKED_W = 400;
 const STACKED_H = 300;
+const STACKED_MAX_W = 450;
+const STACKED_MAX_H = 450;
+const STACKED_MIN_W = 150;
+const STACKED_MIN_H = 100;
 const MAX_WIDTH = 548;
 const CELL_SIZE = 150;
 const GAP = 8;
+
+function calcConstrainedSize(naturalW: number, naturalH: number) {
+  let w = naturalW;
+  let h = naturalH;
+  if (w > STACKED_MAX_W) { h = Math.round(h * (STACKED_MAX_W / w)); w = STACKED_MAX_W; }
+  if (h > STACKED_MAX_H) { w = Math.round(w * (STACKED_MAX_H / h)); h = STACKED_MAX_H; }
+  if (w < STACKED_MIN_W) w = STACKED_MIN_W;
+  if (h < STACKED_MIN_H) h = STACKED_MIN_H;
+  return { w, h };
+}
 
 const STACK_LAYERS = [
   { scale: 0.97, rotate: 5, translateX: 12, zIndex: 3 },
@@ -23,9 +37,10 @@ interface MediaImageProps {
   fileId: string;
   alt: string;
   className?: string;
+  onImageLoad?: (e: React.SyntheticEvent<HTMLImageElement>) => void;
 }
 
-function MediaImage({ fileId, alt, className }: MediaImageProps) {
+function MediaImage({ fileId, alt, className, onImageLoad }: MediaImageProps) {
   const { url, loading, error } = useMediaUrl(fileId);
 
   if (loading) {
@@ -48,7 +63,7 @@ function MediaImage({ fileId, alt, className }: MediaImageProps) {
     );
   }
 
-  return <img src={url} alt={alt} className={className} loading="lazy" />;
+  return <img src={url} alt={alt} className={className} loading="lazy" onLoad={onImageLoad} />;
 }
 
 function MultiImageNodeComponent({ id, selected }: NodeProps) {
@@ -82,6 +97,20 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || 'Multi-Image';
 
+  // ---------- Dynamic image size ----------
+  const mainImageFileId = images[mainImageIndex]?.id;
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    setImgSize(null);
+  }, [mainImageFileId]);
+
+  const handleMainImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+    setImgSize(size);
+  }, []);
+
   // ---------- Computed sizes ----------
   const imageCount = images.length;
   const gridCols = imageCount <= 4 ? 2 : 3;
@@ -89,8 +118,10 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const expandedW = Math.min(gridCols * CELL_SIZE + (gridCols - 1) * GAP + 24, MAX_WIDTH);
   const expandedH = gridRows * CELL_SIZE + (gridRows - 1) * GAP + 48;
 
-  const containerWidth = expanded ? expandedW : STACKED_W;
-  const containerHeight = expanded ? expandedH : STACKED_H;
+  const stackedW = imgSize ? imgSize.w : STACKED_W;
+  const stackedH = imgSize ? imgSize.h : STACKED_H;
+  const containerWidth = expanded ? expandedW : stackedW;
+  const containerHeight = expanded ? expandedH : stackedH;
 
   // ---------- Upload ----------
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -268,6 +299,8 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
                   gap: GAP,
                   paddingTop: 20,
+                  paddingRight: 20,
+                  paddingBottom: 20,
                 }}
               >
                 {images.map((img: any, i: number) => (
@@ -322,12 +355,14 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
               {STACK_LAYERS.slice(0, stackLayerCount).map((layer, i) => (
                 <div
                   key={i}
-                  className="absolute inset-0 rounded-xl border border-[#3a3a4a] bg-[#2a2a3a]"
+                  className="absolute rounded-xl border border-[#3a3a4a] bg-[#2a2a3a]"
                   style={{
-                    transform: `scale(${layer.scale}) rotate(${layer.rotate}deg) translateX(${layer.translateX}px)`,
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(-50%, -50%) scale(${layer.scale}) rotate(${layer.rotate}deg) translateX(${layer.translateX}px)`,
                     zIndex: layer.zIndex,
-                    width: 'calc(100% - 16px)',
-                    height: 'calc(100% - 16px)',
+                    width: '100%',
+                    height: '100%',
                   }}
                 />
               ))}
@@ -335,14 +370,18 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                 className="absolute rounded-xl overflow-hidden"
                 style={{
                   zIndex: 4,
-                  width: 'calc(100% - 12px)',
-                  height: 'calc(100% - 12px)',
+                  left: '50%',
+                  top: '50%',
+                  width: '100%',
+                  height: '100%',
+                  transform: 'translate(-50%, -50%)',
                 }}
               >
                 <MediaImage
                   fileId={images[mainImageIndex]?.id}
                   alt={images[mainImageIndex]?.name || ''}
                   className="w-full h-full object-cover"
+                  onImageLoad={handleMainImageLoad}
                 />
               </div>
               {imageCount > 1 && (
