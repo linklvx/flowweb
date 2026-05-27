@@ -44,8 +44,6 @@ function ratioDimensions(ratio: string) {
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
-  const [hovered, setHovered] = useState(false);
-  const showHandles = selected || hovered;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
@@ -173,7 +171,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
 
   return (
-    <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="relative">
       {/* Hidden file input — shared by floating upload + replace buttons */}
       <input
         ref={fileInputRef}
@@ -265,12 +263,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
-      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0 transition-opacity" style={{ left: -14, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="10" cy="10" r="9" fill="#222222" stroke="#60a5fa" strokeWidth="1.5" />
-          <path d="M6 10h8M10 6v8" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </Handle>
+        <Handle type="target" position={Position.Left} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: containerWidth, height: containerHeight }}
@@ -308,12 +301,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-transparent !border-0 transition-opacity" style={{ right: -14, top: '50%', width: 20, height: 20, opacity: showHandles ? 1 : 0 }}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="10" cy="10" r="9" fill="#222222" stroke="#60a5fa" strokeWidth="1.5" />
-            <path d="M6 10h8M10 6v8" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </Handle>
+        <Handle type="source" position={Position.Right} className="!bg-[#60a5fa] !border-0 !w-2 !h-2" />
       </div>
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
