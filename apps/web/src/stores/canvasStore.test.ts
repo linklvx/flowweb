@@ -124,4 +124,60 @@ describe('canvasStore', () => {
     expect(node.type).toBe('imageGen');
     expect(node.position).toEqual({ x: 50, y: 60 });
   });
+
+  // Task 3: Resize — text node default dimensions
+  it('addNode text should set default width=280 height=120', () => {
+    const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
+    const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId)!;
+    expect(node.width).toBe(280);
+    expect(node.height).toBe(120);
+  });
+
+  it('addNode text should also populate nodeStore with width/height', () => {
+    const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
+    const nsNode = useNodeStore.getState().nodes[nodeId];
+    expect(nsNode.width).toBe(280);
+    expect(nsNode.height).toBe(120);
+  });
+
+  it('copyNode should copy width and height from original node', () => {
+    const id1 = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
+    // Manually set custom dimensions to simulate a resized node
+    useCanvasStore.setState(s => ({
+      nodes: s.nodes.map(n => n.id === id1 ? { ...n, width: 500, height: 300 } : n),
+    }));
+    // copyNode must exist on the store
+    const { copyNode } = useCanvasStore.getState() as any;
+    expect(typeof copyNode).toBe('function');
+    const id2 = copyNode(id1);
+    const copied = useCanvasStore.getState().nodes.find((n: any) => n.id === id2)!;
+    expect(copied.width).toBe(500);
+    expect(copied.height).toBe(300);
+  });
+
+  it('copyNode should pass width/height to nodeStore', () => {
+    const id1 = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
+    useCanvasStore.setState(s => ({
+      nodes: s.nodes.map(n => n.id === id1 ? { ...n, width: 600, height: 400 } : n),
+    }));
+    const { copyNode } = useCanvasStore.getState() as any;
+    const id2 = copyNode(id1);
+    const nsNode = useNodeStore.getState().nodes[id2];
+    expect(nsNode.width).toBe(600);
+    expect(nsNode.height).toBe(400);
+  });
+
+  it('onNodesChange should apply dimensions changes with setAttributes', () => {
+    const { addNode, onNodesChange } = useCanvasStore.getState();
+    const nodeId = addNode('text', { x: 0, y: 0 });
+    onNodesChange([{
+      type: 'dimensions',
+      id: nodeId,
+      dimensions: { width: 400, height: 250 },
+      setAttributes: true,
+    } as any]);
+    const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId)!;
+    expect(node.width).toBe(400);
+    expect(node.height).toBe(250);
+  });
 });

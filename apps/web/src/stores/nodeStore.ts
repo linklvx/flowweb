@@ -67,6 +67,8 @@ export interface AppNode {
   position: { x: number; y: number };
   selected?: boolean;
   dragging?: boolean;
+  width?: number;
+  height?: number;
   data: NodeData;
 }
 

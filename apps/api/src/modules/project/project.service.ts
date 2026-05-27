@@ -84,15 +84,30 @@ export class ProjectService {
     await this.prisma.canvasNode.deleteMany({ where: { projectId } });
     if (nodes.length === 0) return [];
     await this.prisma.canvasNode.createMany({
-      data: nodes.map((n) => ({
+      data: nodes.map((n: any) => ({
         id: n.id,
         projectId,
         type: n.type,
         position: n.position,
         data: n.data,
+        width: n.width ?? 280,
+        height: n.height ?? 120,
       })),
     });
     return this.prisma.canvasNode.findMany({ where: { projectId } });
+  }
+
+  async updateDimensions(
+    projectId: string,
+    dto: { id: string; width: number; height: number }[],
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      await Promise.all(
+        dto.map(({ id, width, height }) =>
+          tx.canvasNode.update({ where: { id }, data: { width, height } }),
+        ),
+      );
+    });
   }
 
   async syncEdges(projectId: string, edges: EdgeInput[]) {

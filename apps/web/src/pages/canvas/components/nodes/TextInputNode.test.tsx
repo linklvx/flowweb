@@ -27,6 +27,16 @@ const buildChain = () => {
   };
 };
 
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@xyflow/react')>();
+  return {
+    ...mod,
+    useReactFlow: () => ({
+      getNodes: () => [{ id: 'n1', selected: true }],
+    }),
+  };
+});
+
 vi.mock('@tiptap/react', () => ({
   useEditor: () => buildChain(),
   EditorContent: ({ editor }: any) => (
@@ -140,23 +150,20 @@ describe('TextInputNode (Tiptap)', () => {
     expect(handles.length).toBe(2);
   });
 
-  it('should show highlight border when selected (inline style)', () => {
-    const { container } = renderNode({ selected: true });
-    // Should have inline border style on card body
-    const card = container.querySelector('[style*="border-color"]');
-    expect(card).not.toBeNull();
-    const styleAttr = (card as HTMLElement).getAttribute('style') || '';
-    // Selected border is gray #9CA3AF, 3px
+  it('should show highlight border on overlay when selected', () => {
+    renderNode({ selected: true });
+    const overlay = document.querySelector('[data-testid="border-overlay"]');
+    expect(overlay).not.toBeNull();
+    const styleAttr = (overlay as HTMLElement).getAttribute('style') || '';
     expect(styleAttr).toContain('rgb(156, 163, 175)');
     expect(styleAttr).toContain('3px');
   });
 
-  it('should show subtle border when not selected (inline style)', () => {
-    const { container } = renderNode({ selected: false });
-    const card = container.querySelector('[style*="border-color"]');
-    expect(card).not.toBeNull();
-    const styleAttr = (card as HTMLElement).getAttribute('style') || '';
-    // Unselected border is #3F3F46 (rgb(63,63,70)), 1px
+  it('should show subtle border on overlay when not selected', () => {
+    renderNode({ selected: false });
+    const overlay = document.querySelector('[data-testid="border-overlay"]');
+    expect(overlay).not.toBeNull();
+    const styleAttr = (overlay as HTMLElement).getAttribute('style') || '';
     expect(styleAttr).toContain('rgb(63, 63, 70)');
     expect(styleAttr).toContain('1px');
   });
@@ -178,5 +185,38 @@ describe('TextInputNode (Tiptap)', () => {
     const cardBody = container.querySelector('[class*="bg-\\[\\#222222\\]"]');
     const p3Div = cardBody?.querySelector('.p-3') as HTMLElement;
     expect(p3Div).toBeTruthy();
+  });
+
+  // === Resize (Task 4) ===
+  it('should use default dimensions 280x120 when node has no width/height', () => {
+    const { container } = renderNode();
+    const card = container.querySelector('[class*="bg-\\[\\#222222\\]"]') as HTMLElement;
+    const style = card?.getAttribute('style') || '';
+    expect(style).toContain('width: 280px');
+    expect(style).toContain('height: 120px');
+  });
+
+  it('should not show resize handles when not selected', () => {
+    const { container } = renderNode({ selected: false });
+    const handles = container.querySelectorAll('[class*="resize-control"]');
+    expect(handles.length).toBe(0);
+  });
+
+  it('should show resize handles when single selected', () => {
+    const { container } = renderNode({ selected: true });
+    const handles = container.querySelectorAll('[class*="resize-control"]');
+    expect(handles.length).toBeGreaterThan(0);
+  });
+
+  it('should show border overlay with data-testid when selected', () => {
+    renderNode({ selected: true });
+    const overlay = document.querySelector('[data-testid="border-overlay"]');
+    expect(overlay).toBeInTheDocument();
+  });
+
+  it('should render 8 NodeResizer controls when single selected', () => {
+    const { container } = renderNode({ selected: true });
+    const controls = container.querySelectorAll('.react-flow__resize-control');
+    expect(controls.length).toBe(8);
   });
 });

@@ -193,6 +193,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
         id: n.id, type: n.type || 'imageGen',
         position: n.position,
         data: latestState.nodes[n.id]?.data || (n.data as any) || {},
+        width: n.width, height: n.height,
       }));
       await Promise.all([
         syncNodes('default', mergedNodes),

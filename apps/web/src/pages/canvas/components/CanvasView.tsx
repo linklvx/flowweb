@@ -1,12 +1,14 @@
-import { memo, useCallback, useRef, useState, useEffect, type DragEvent } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, useEffect, type DragEvent } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow,
   type Connection,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
+  type NodeChange, type NodeDimensionChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { debounce } from '@/utils/debounce';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { VideoGenNode } from './nodes/VideoGenNode';
@@ -45,6 +47,47 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const updateViewport = useCanvasStore((s) => s.updateViewport);
   const addNode = useCanvasStore((s) => s.addNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
+
+  // Debounced dimension sync
+  const syncNodeDimensions = useMemo(
+    () => debounce(async (changes: NodeChange[]) => {
+      const dimChanges = changes.filter(
+        (c): c is NodeDimensionChange => c.type === 'dimensions',
+      );
+      if (dimChanges.length === 0) return;
+
+      const data = dimChanges.map((c) => ({
+        id: c.id,
+        width: c.dimensions!.width,
+        height: c.dimensions!.height,
+      }));
+
+      for (let i = 0; i < 3; i++) {
+        try {
+          const res = await fetch(`/api/projects/${_projectId}/nodes/dimensions`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) throw new Error('HTTP error');
+          return;
+        } catch (error) {
+          if (i === 2) console.error('节点尺寸同步失败，将在项目保存时重试', error);
+          await new Promise((r) => setTimeout(r, 100 * Math.pow(2, i)));
+        }
+      }
+    }, 500),
+    [_projectId],
+  );
+
+  useEffect(() => {
+    return () => { syncNodeDimensions.cancel(); };
+  }, [syncNodeDimensions]);
+
+  const wrappedOnNodesChange = useCallback((changes: NodeChange[]) => {
+    onNodesChange(changes);
+    syncNodeDimensions(changes);
+  }, [onNodesChange, syncNodeDimensions]);
 
   const onNodeClick = useCallback((_event: any, node: any) => {
     selectNode(node.id);
@@ -105,7 +148,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange as OnNodesChange}
+        onNodesChange={wrappedOnNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}
         onConnect={onConnect as any}
         isValidConnection={isValidConnection as any}

@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject, ValidationPipe } from '@nestjs/common';
 import { ProjectService } from './project.service';
+import { UpdateNodeDimensionsDto } from './dto/update-node-dimensions.dto';
 
 @Controller('api/projects')
 export class ProjectController {
@@ -28,6 +29,14 @@ export class ProjectController {
   @Put(':id/edges')
   syncEdges(@Param('id') id: string, @Body() body: { edges: any[] }) {
     return this.projectService.syncEdges(id, body.edges);
+  }
+
+  @Patch(':id/nodes/dimensions')
+  updateDimensions(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) dto: UpdateNodeDimensionsDto[],
+  ) {
+    return this.projectService.updateDimensions(id, dto);
   }
 
   @Patch(':id')

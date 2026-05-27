@@ -33,7 +33,11 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
   const project = json.data;
   // Restore canvas state from DB project
   useCanvasStore.setState({
-    nodes: project.nodes || [],
+    nodes: (project.nodes || []).map((n: any) => ({
+      ...n,
+      width: n.width ?? 280,
+      height: n.height ?? 120,
+    })),
     edges: (project.edges || []).map((e: any) => ({
       id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
     })),
@@ -47,6 +51,8 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
       type: n.type,
       position: n.position || { x: 0, y: 0 },
       data: n.data || {},
+      width: n.width ?? 280,
+      height: n.height ?? 120,
     };
   }
   useNodeStore.setState({ nodes: content });

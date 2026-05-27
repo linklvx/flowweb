@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { NodeResizer, useReactFlow, Handle, Position, type NodeProps } from '@xyflow/react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
@@ -11,6 +11,13 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
   const appNode = useNodeStore((s) => s.nodes[id]);
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
+
+  const { getNodes } = useReactFlow();
+  const nodeWidth = appNode?.width ?? 280;
+  const nodeHeight = appNode?.height ?? 120;
+  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const editorMinHeight = 80;
+  const editorHeight = Math.max(editorMinHeight, nodeHeight - 40);
 
   const editor = useEditor({
     extensions: [
@@ -82,7 +89,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Title bar */}
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
-        style={{ width: 360, lineHeight: '18px' }}
+        style={{ width: nodeWidth, lineHeight: '18px' }}
       >
         <span className="shrink-0 flex items-center" style={{ width: 12, height: 12 }}>
           <svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -125,23 +132,40 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
       {/* Card body */}
       <div
-        className="bg-[#222222] rounded-lg w-[360px] transition-colors"
-        style={
-          selected
-            ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
-            : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }
-        }
+        className="bg-[#222222] rounded-lg transition-colors"
+        style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
+        <NodeResizer
+          minWidth={280}
+          minHeight={120}
+          maxWidth={2000}
+          maxHeight={1500}
+          isVisible={isSingleSelected}
+          color="#9CA3AF"
+        />
         <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="p-3 rounded-lg transition-colors" style={{ backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
-            <div className="w-full h-[186px] overflow-y-auto rounded-md transition-colors editor-scroll nowheel" style={{ backgroundColor: bgColor || 'transparent' }}>
+            <div
+              className="w-full overflow-y-auto rounded-md transition-colors editor-scroll nowheel"
+              style={{ minHeight: editorHeight, backgroundColor: bgColor || 'transparent' }}
+            >
               <EditorContent editor={editor} />
             </div>
           )}
         </div>
         <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
+
+        {/* Border overlay — above all content including resize handles */}
+        <div
+          data-testid="border-overlay"
+          className="absolute inset-0 rounded-lg pointer-events-none"
+          style={{
+            zIndex: 10,
+            border: selected ? '3px solid #9CA3AF' : '1px solid #3F3F46',
+          }}
+        />
       </div>
 
       {selected && (

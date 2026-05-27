@@ -26,6 +26,7 @@ interface CanvasState {
   selectedId: string | null;
 
   addNode: (type: string, position: XYPosition) => string;
+  copyNode: (id: string) => string | null;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
@@ -51,6 +52,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       data: nodeData,
       selected: true,
     };
+    if (resolvedType === 'textInput') {
+      node.width = 280;
+      node.height = 120;
+    }
     set((s) => ({
       nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), node],
       selectedId: id,
@@ -61,6 +66,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       type: resolvedType,
       position,
       data: nodeData as any,
+      width: node.width,
+      height: node.height,
     });
     return id;
   },
@@ -71,6 +78,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
     }));
+  },
+
+  copyNode: (nodeId) => {
+    const node = get().nodes.find((n) => n.id === nodeId);
+    if (!node) return null;
+    const id = getId('node');
+    const newNode: Node = {
+      ...node,
+      id,
+      position: { x: node.position.x + 50, y: node.position.y + 50 },
+      width: node.width,
+      height: node.height,
+      selected: true,
+    };
+    set((s) => ({
+      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
+      selectedId: id,
+    }));
+    useNodeStore.getState().addNode({
+      id,
+      type: node.type!,
+      position: newNode.position,
+      data: node.data as any,
+      width: node.width,
+      height: node.height,
+    });
+    return id;
   },
 
   selectNode: (id) => set({ selectedId: id }),

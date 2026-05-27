@@ -133,6 +133,8 @@ model CanvasNode {
   type      String
   position  Json
   data      Json
+  width     Float         @default(280)
+  height    Float         @default(120)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
