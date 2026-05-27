@@ -112,7 +112,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   updateViewport: (vp) => set({ viewport: vp }),
 
   onNodesChange: (changes) => {
-    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) as Node[] }));
+    set((s) => {
+      const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
+      // Sync dimension changes to nodeStore so components read updated width/height
+      for (const change of changes) {
+        if (change.type === 'dimensions' && 'dimensions' in change && (change as any).setAttributes) {
+          const nodeStore = useNodeStore.getState();
+          const existing = nodeStore.nodes[change.id];
+          if (existing) {
+            const dc = change as any;
+            useNodeStore.setState({
+              nodes: {
+                ...nodeStore.nodes,
+                [change.id]: { ...existing, width: dc.dimensions.width, height: dc.dimensions.height },
+              },
+            });
+          }
+        }
+      }
+      return { nodes: nextNodes };
+    });
   },
 
   onEdgesChange: (changes) => {
