@@ -129,14 +129,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
 
-      {/* Left handle — outside card body */}
-      <Handle type="target" position={Position.Left} className="!bg-transparent !border-0" style={{ left: -14, top: '50%', width: 20, height: 20 }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
-          <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </Handle>
-
       {/* Card body */}
       <div
         className="bg-[#222222] rounded-lg transition-colors overflow-hidden"
@@ -150,6 +142,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           isVisible={isSingleSelected}
           color="#9CA3AF"
         />
+        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
         <div className="py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col" style={{ height: '100%', backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
@@ -161,6 +154,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             </div>
           )}
         </div>
+        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
 
         {/* Border overlay — above all content including resize handles */}
         <div
@@ -172,14 +166,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           }}
         />
       </div>
-
-      {/* Right handle — outside card body */}
-      <Handle type="source" position={Position.Right} className="!bg-transparent !border-0" style={{ right: -14, top: '50%', width: 20, height: 20 }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="10" cy="10" r="9" fill="#222222" stroke="#555" strokeWidth="1.5" />
-          <path d="M6 10h8M10 6v8" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </Handle>
 
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">

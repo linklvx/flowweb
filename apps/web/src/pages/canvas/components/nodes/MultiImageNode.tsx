@@ -279,7 +279,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           height: containerHeight,
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#f59e0b] !border-0 !w-2 !h-2 !z-10" />
+        <Handle type="target" position={Position.Left} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
 
         <div className="w-full h-full rounded-lg relative">
           {expanded && images.length > 0 ? (
@@ -353,7 +353,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
               {STACK_LAYERS.slice(0, stackLayerCount).map((layer, i) => (
                 <div
                   key={i}
-                  className="absolute rounded-xl border border-white/[0.06] pointer-events-none"
+                  className="absolute rounded-xl border border-white/[0.06]"
                   style={{
                     left: layer.left,
                     top: layer.top,
@@ -399,7 +399,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           )}
         </div>
 
-        <Handle type="source" position={Position.Right} className="!bg-[#f59e0b] !border-0 !w-2 !h-2 !z-10" />
+        <Handle type="source" position={Position.Right} className="!bg-[#f59e0b] !border-0 !w-2 !h-2" />
 
         {/* Border overlay — rendered above all internal content (shadows, image, badge) */}
         <div
