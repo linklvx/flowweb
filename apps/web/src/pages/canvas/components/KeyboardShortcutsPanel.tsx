@@ -287,7 +287,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
                 <div className="flex flex-col gap-3">
                   {section.items.map((item) => (
                     <div key={item.label} className="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
-                      <span className="text-sm text-[#bbb] leading-snug md:min-w-0 md:flex-1 md:pr-2">{item.label}</span>
+                      <span className="text-sm text-[#bbb] leading-snug shrink-0 pr-2">{item.label}</span>
                       <div className="flex items-center gap-2 text-sm md:shrink-0 md:justify-end">
                         {item.keys.flatMap((key, ki) => {
                           const els: React.ReactNode[] = [];
