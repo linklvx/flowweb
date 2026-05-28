@@ -142,7 +142,7 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: '移动画布',
-    width: 'md:w-44 lg:w-[200px]',
+    width: 'md:w-48 lg:w-[220px]',
     items: [
       { label: '键盘', keys: ['Space', { icon: 'keyboardPan' }] },
       { label: '触控板', keys: [{ icon: 'touchpadPan' }] },
@@ -152,7 +152,7 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: '其他',
-    width: 'md:w-32 lg:w-[160px]',
+    width: 'md:w-40 lg:w-[180px]',
     items: [
       { label: '撤销', keys: ['Ctrl', 'Z'] },
       { label: '重做', keys: ['Ctrl', 'Shift', 'Z'] },
