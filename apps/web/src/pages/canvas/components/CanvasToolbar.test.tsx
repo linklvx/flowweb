@@ -88,7 +88,7 @@ describe('CanvasToolbar', () => {
       screen.getByLabelText('放大'),
     ];
     for (const btn of buttons) {
-      expect(btn.style.backgroundColor).toBe('rgb(48, 48, 48)');
+      expect(btn.style.backgroundColor).toBe('rgb(38, 38, 38)');
     }
   });
 
@@ -123,14 +123,14 @@ describe('CanvasToolbar', () => {
 
   it('should highlight minimap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(48, 48, 48)');
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
   });
 
   it('should highlight snap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} snapEnabled={false} />);
-    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(48, 48, 48)');
+    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(38, 38, 38)');
     rerender(<CanvasToolbar {...defaultProps} snapEnabled={true} />);
     expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(58, 58, 58)');
   });
@@ -139,6 +139,6 @@ describe('CanvasToolbar', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(48, 48, 48)');
+    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
   });
 });

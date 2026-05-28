@@ -12,7 +12,7 @@ interface Props {
 }
 
 const BTN = 'tb-btn flex items-center justify-center appearance-none border-0 cursor-pointer rounded-lg transition-colors';
-const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(48, 48, 48)' };
+const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
 const BTN_BG_ACTIVE: React.CSSProperties = { backgroundColor: 'rgb(58, 58, 58)' };
 const ICON_WRAP = 'flex items-center justify-center overflow-hidden';
 
@@ -41,7 +41,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut, minimapO
           z-index: 100;
         }
         .tb-btn:hover {
-          background-color: rgb(58, 58, 58) !important;
+          background-color: rgb(78, 78, 78) !important;
         }
       `}</style>
       <div
