@@ -57,7 +57,7 @@ describe('KeyboardShortcutsPanel', () => {
   it('should call onClose when clicking outside the panel', () => {
     const onClose = vi.fn();
     render(<KeyboardShortcutsPanel isOpen={true} onClose={onClose} />);
-    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -65,7 +65,7 @@ describe('KeyboardShortcutsPanel', () => {
     const onClose = vi.fn();
     render(<KeyboardShortcutsPanel isOpen={true} onClose={onClose} />);
     const panel = screen.getByText('创作').closest('[data-panel]');
-    fireEvent.mouseDown(panel!);
+    fireEvent.click(panel!);
     expect(onClose).not.toHaveBeenCalled();
   });
 

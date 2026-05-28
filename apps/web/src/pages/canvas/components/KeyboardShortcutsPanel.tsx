@@ -240,8 +240,8 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
         onClose();
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
   }, [visible, onClose]);
 
   if (!visible) return null;
