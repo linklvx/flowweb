@@ -78,4 +78,18 @@ describe('KeyboardShortcutsPanel', () => {
     expect(screen.getByText('Tab')).toBeInTheDocument();
     expect(screen.getByText('Enter')).toBeInTheDocument();
   });
+
+  it('should call onClose when Escape key is pressed', () => {
+    const onClose = vi.fn();
+    render(<KeyboardShortcutsPanel isOpen={true} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not call onClose when Escape key is pressed and panel is closed', () => {
+    const onClose = vi.fn();
+    render(<KeyboardShortcutsPanel isOpen={false} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
