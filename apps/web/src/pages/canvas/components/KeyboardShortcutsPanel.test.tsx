@@ -36,6 +36,14 @@ describe('KeyboardShortcutsPanel', () => {
     expect(screen.getByText('撤销')).toBeInTheDocument();
     expect(screen.getByText('重做')).toBeInTheDocument();
     expect(screen.getByText('删除')).toBeInTheDocument();
+    // Labels that appear in multiple sections
+    const trackpadItems = screen.getAllByText('触控板');
+    expect(trackpadItems.length).toBe(2); // 缩放 + 移动画布
+    const mouseItems = screen.getAllByText('鼠标');
+    expect(mouseItems.length).toBe(2); // 缩放 + 移动画布
+    // Labels that appear once
+    expect(screen.getByText('键盘')).toBeInTheDocument();
+    expect(screen.getByText('整理画布')).toBeInTheDocument();
   });
 
   it('should call onClose when close button is clicked', () => {

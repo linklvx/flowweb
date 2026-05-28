@@ -82,6 +82,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (isOpen) {
       setVisible(true);
+      setClosing(true);
       requestAnimationFrame(() => setClosing(false));
     } else if (visible) {
       setClosing(true);
