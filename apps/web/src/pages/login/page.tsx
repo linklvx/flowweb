@@ -23,7 +23,7 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
       <form onSubmit={handleSubmit} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-8 w-96">
-        <h1 className="text-xl font-bold text-[#e2e8f0] mb-6">登录 FlowAI</h1>
+        <h1 className="text-xl font-bold text-[#e2e8f0] mb-6">登录 Flow123</h1>
         {error && <p className="text-red-400 text-xs mb-4">{error}</p>}
         <input type="email" placeholder="邮箱" value={email} onChange={e => setEmail(e.target.value)}
           className="w-full bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-3 text-sm text-[#ccc] mb-3" required />

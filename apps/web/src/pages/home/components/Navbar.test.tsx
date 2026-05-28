@@ -15,7 +15,7 @@ function renderWithProviders(ui: React.ReactElement) {
 describe('Navbar', () => {
   it('should render brand logo text', () => {
     renderWithProviders(<Navbar />);
-    expect(screen.getByText(/FlowAI/i)).toBeInTheDocument();
+    expect(screen.getByText(/Flow123/i)).toBeInTheDocument();
   });
 
   it('should render nav links: 首页, 模板广场, 文档中心, 我的作品', () => {

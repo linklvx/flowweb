@@ -5,7 +5,7 @@ describe('announcementStore', () => {
   beforeEach(() => {
     useAnnouncementStore.setState({
       visible: true,
-      message: '欢迎来到 FlowAI',
+      message: '欢迎来到 Flow123',
       linkUrl: '/promo',
     });
   });
@@ -13,7 +13,7 @@ describe('announcementStore', () => {
   it('should initialize with default state', () => {
     const state = useAnnouncementStore.getState();
     expect(state.visible).toBe(true);
-    expect(state.message).toBe('欢迎来到 FlowAI');
+    expect(state.message).toBe('欢迎来到 Flow123');
   });
 
   it('should dismiss announcement', () => {

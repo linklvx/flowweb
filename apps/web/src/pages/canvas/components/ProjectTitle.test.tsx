@@ -16,7 +16,7 @@ describe('ProjectTitle', () => {
 
   it('should render logo and project name', () => {
     render(<ProjectTitle projectId="p1" projectName="未命名项目" />);
-    expect(screen.getByText(/FlowAI/)).toBeInTheDocument();
+    expect(screen.getByText(/Flow123/)).toBeInTheDocument();
     expect(screen.getByText('未命名项目')).toBeInTheDocument();
   });
 

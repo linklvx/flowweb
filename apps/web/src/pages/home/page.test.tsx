@@ -40,7 +40,7 @@ describe('HomePage', () => {
 
   it('should render brand logo', () => {
     renderHomePage();
-    expect(screen.getByText(/FlowAI/i)).toBeInTheDocument();
+    expect(screen.getByText(/Flow123/i)).toBeInTheDocument();
   });
 
   it('should render hero title', () => {
