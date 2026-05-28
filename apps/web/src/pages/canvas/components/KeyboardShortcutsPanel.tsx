@@ -15,6 +15,8 @@ interface ShortcutItem {
 interface ShortcutSection {
   title: string;
   items: ShortcutItem[];
+  /** Tailwind width classes — 创作 needs more room for long key combos */
+  width: string;
 }
 
 /* ---------- SVG icon components ---------- */
@@ -114,6 +116,7 @@ const DeleteKeyIcon = () => (
 const SECTIONS: ShortcutSection[] = [
   {
     title: '创作',
+    width: 'md:w-56 lg:w-[280px]',
     items: [
       { label: '成组', keys: ['Ctrl/Alt', 'G'] },
       { label: '合并分镜组', keys: ['Ctrl', 'Alt', 'G'] },
@@ -128,6 +131,7 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: '缩放',
+    width: 'md:w-44 lg:w-[200px]',
     items: [
       { label: '放大', keys: ['Ctrl', { icon: 'zoomIn' }] },
       { label: '缩小', keys: ['Ctrl', { icon: 'zoomOut' }] },
@@ -138,6 +142,7 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: '移动画布',
+    width: 'md:w-44 lg:w-[200px]',
     items: [
       { label: '键盘', keys: ['Space', { icon: 'keyboardPan' }] },
       { label: '触控板', keys: [{ icon: 'touchpadPan' }] },
@@ -147,6 +152,7 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: '其他',
+    width: 'md:w-32 lg:w-[160px]',
     items: [
       { label: '撤销', keys: ['Ctrl', 'Z'] },
       { label: '重做', keys: ['Ctrl', 'Shift', 'Z'] },
@@ -276,7 +282,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
               {si > 0 && (
                 <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />
               )}
-              <section className="flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:w-56 md:shrink-0 md:border-b-0 md:pb-0 lg:w-[280px]">
+              <section className={`flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:shrink-0 md:border-b-0 md:pb-0 ${section.width}`}>
                 <h3 className="text-sm font-medium text-[#09CAF5]">{section.title}</h3>
                 <div className="flex flex-col gap-3">
                   {section.items.map((item) => (
