@@ -276,7 +276,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
               {si > 0 && (
                 <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />
               )}
-              <section className="flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:w-52 md:shrink-0 md:border-b-0 md:pb-0 lg:w-[239px]">
+              <section className="flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:w-56 md:shrink-0 md:border-b-0 md:pb-0 lg:w-[280px]">
                 <h3 className="text-sm font-medium text-[#09CAF5]">{section.title}</h3>
                 <div className="flex flex-col gap-3">
                   {section.items.map((item) => (
