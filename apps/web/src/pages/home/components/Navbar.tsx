@@ -104,7 +104,7 @@ export function Navbar({ onAction: _onAction }: Props) {
       <div className="h-full mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] flex items-center justify-between">
         <div className="flex items-center gap-12">
           <div className="text-[#4ade80] font-bold text-lg select-none">
-            🧠 Flow123
+            💦 Flow123
           </div>
           <div className="flex gap-1">
             {navLinks.map((link) => (

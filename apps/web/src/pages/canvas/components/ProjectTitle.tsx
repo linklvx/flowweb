@@ -53,7 +53,7 @@ export function ProjectTitle({ projectId, projectName: initialName, onNameChange
   return (
     <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
       <span className="text-[#4ade80] font-bold text-sm select-none">
-        🧠 Flow123
+        💦 Flow123
       </span>
       <span className="text-[#555] select-none">/</span>
       {editing ? (
