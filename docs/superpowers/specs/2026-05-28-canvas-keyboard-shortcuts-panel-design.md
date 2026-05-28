@@ -22,7 +22,10 @@
   - 阴影：`box-shadow: 0px 4px 20px rgba(0,0,0,0.4)`
 - 布局：4 列水平排列（创作 / 缩放 / 移动画布 / 其他），列间分割线
 - 关闭：右上角 ✕ 按钮 + 点击面板外部关闭
-- 动画：从底部滑入（`translateY(10px) → translateY(0)` + `opacity 0 → 1`，过渡 200ms）
+- 打开动画：从底部滑入（`translateY(10px) → translateY(0)` + `opacity 0 → 1`，过渡 200ms）
+- 关闭动画：向底部滑出（`translateY(0) → translateY(10px)` + `opacity 1 → 0`，过渡 200ms）
+  - 实现方式：使用 CSS `transition` + 动态 class（`is-open` / `is-closing`），而非条件渲染直接卸载
+  - 关闭动画播放完毕后（`transitionend` 事件）再从 DOM 移除/hide
 
 ### 快捷键列表（4 列）
 
