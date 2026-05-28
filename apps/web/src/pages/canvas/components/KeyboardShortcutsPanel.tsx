@@ -22,7 +22,7 @@ interface ShortcutSection {
 /* ---------- SVG icon components ---------- */
 
 const ZoomInIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <g clipPath="url(#zoomin_clip)">
         <path d="M7.59985 0.667969C7.45261 0.668004 7.33325 0.787316 7.33325 0.93457V7.33789H0.932861C0.785765 7.3381 0.66626 7.45735 0.66626 7.60449V8.4043C0.66626 8.55144 0.785765 8.67069 0.932861 8.6709H7.33325V15.0684C7.33351 15.2154 7.45276 15.3349 7.59985 15.335H8.39966C8.54678 15.335 8.66601 15.2154 8.66626 15.0684V8.6709H15.0667C15.2139 8.67086 15.3333 8.55155 15.3333 8.4043V7.60449C15.3333 7.45724 15.2139 7.33793 15.0667 7.33789H8.66626V0.93457C8.66626 0.787294 8.54693 0.667969 8.39966 0.667969H7.59985Z" fill="#999" />
@@ -37,7 +37,7 @@ const ZoomInIcon = () => (
 );
 
 const ZoomOutIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M1.96582 7.39844C1.89218 7.39844 1.83203 7.45859 1.83203 7.53223V8.46582C1.83214 8.53937 1.89225 8.59863 1.96582 8.59863H13.5654C13.639 8.59863 13.6991 8.53937 13.6992 8.46582V7.53223C13.6992 7.45859 13.6391 7.39844 13.5654 7.39844H1.96582Z" fill="#999" />
     </svg>
@@ -104,7 +104,7 @@ const MousePanIcon = () => (
 );
 
 const DeleteKeyIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M7.33325 5.9987L11.3333 9.9987M11.3333 5.9987L7.33325 9.9987M5.33321 3.33203C5.00194 3.33205 4.68253 3.45539 4.43721 3.67803L1.55188 7.5047C1.48303 7.56719 1.42801 7.64339 1.39035 7.72841C1.3527 7.81343 1.33325 7.90538 1.33325 7.99836C1.33325 8.09135 1.3527 8.1833 1.39035 8.26832C1.42801 8.35334 1.48303 8.42954 1.55188 8.49203L4.43721 12.3194C4.68253 12.542 5.00194 12.6653 5.33321 12.6654H13.3332C13.6868 12.6654 14.026 12.5249 14.276 12.2748C14.5261 12.0248 14.6665 11.6857 14.6665 11.332V4.66536C14.6665 4.31174 14.5261 3.9726 14.276 3.72256C14.026 3.47251 13.6868 3.33203 13.3332 3.33203H5.33321Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -179,8 +179,8 @@ const iconMap: Record<string, React.ReactNode> = {
 function Kbd({ children }: { children: string }) {
   return (
     <span
-      className="flex h-7 min-w-7 shrink-0 items-center justify-center px-1 font-sans text-sm"
-      style={{ borderRadius: 8, border: '0.5px solid #444' }}
+      className="flex h-6 min-w-6 shrink-0 items-center justify-center px-0.5 font-sans text-xs"
+      style={{ borderRadius: 6, border: '0.5px solid #444' }}
     >
       {children}
     </span>
