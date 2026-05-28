@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 interface Props {
   isOpen: boolean;
@@ -282,13 +282,13 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
                   {section.items.map((item) => (
                     <div key={item.label} className="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
                       <span className="text-sm text-[#bbb] leading-snug md:min-w-0 md:flex-1 md:pr-2">{item.label}</span>
-                      <div className="flex flex-wrap items-center gap-2 text-sm md:shrink-0 md:justify-end">
-                        {item.keys.map((key, ki) => (
-                          <span key={ki}>
-                            {ki > 0 && <span className="text-[#888] text-sm mr-1">+</span>}
-                            {renderKey(key, ki)}
-                          </span>
-                        ))}
+                      <div className="flex items-center gap-2 text-sm md:shrink-0 md:justify-end">
+                        {item.keys.flatMap((key, ki) => {
+                          const els: React.ReactNode[] = [];
+                          if (ki > 0) els.push(<span key={`sep-${item.label}-${ki}`} className="text-[#888] text-sm">+</span>);
+                          els.push(<span key={`k-${item.label}-${ki}`}>{renderKey(key, ki)}</span>);
+                          return els;
+                        })}
                       </div>
                     </div>
                   ))}
