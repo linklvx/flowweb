@@ -136,7 +136,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
         ref={panelRef}
         data-panel
         onTransitionEnd={handleTransitionEnd}
-        className={`pointer-events-auto relative box-border rounded-2xl p-5 mx-4 mb-6 max-w-[960px] w-auto backdrop-blur-xl transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
+        className={`pointer-events-auto relative box-border rounded-2xl p-5 mx-4 mb-6 backdrop-blur-xl transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
         style={{
           background: 'rgba(38, 38, 38, 0.96)',
           border: '0.5px solid #363636',
@@ -159,13 +159,13 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
           {SECTIONS.map((section, si) => (
             <div key={section.title} className="flex md:flex-row gap-0">
               {si > 0 && <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />}
-              <section className="flex w-full min-w-0 flex-col gap-2 md:w-[160px] lg:w-[190px] shrink-0">
+              <section className="flex w-full min-w-0 flex-col gap-2 md:w-[200px] lg:w-[240px] shrink-0">
                 <h3 className="text-sm font-medium text-[#09CAF5]">{section.title}</h3>
                 <div className="flex flex-col gap-2">
                   {section.items.map((item) => (
                     <div key={item.label} className="flex w-full items-center justify-between gap-3">
-                      <span className="text-sm text-[#bbb] leading-snug">{item.label}</span>
-                      <div className="flex flex-wrap items-center justify-end gap-1.5 text-sm shrink-0">
+                      <span className="text-sm text-[#bbb] leading-snug shrink-0">{item.label}</span>
+                      <div className="flex items-center gap-1.5 text-sm shrink-0">
                         {item.keys.reduce<React.ReactNode[]>((acc, key, ki) => {
                           if (ki > 0) acc.push(<span key={`sep-${item.label}-${ki}`} className="text-[#888] text-sm leading-none">+</span>);
                           acc.push(<Kbd key={`kbd-${item.label}-${ki}`}>{key}</Kbd>);
