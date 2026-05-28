@@ -88,7 +88,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
     } else if (visible) {
       setAnimating(true);
     }
-  }, [isOpen, visible]);
+  }, [isOpen]);
 
   const handleTransitionEnd = useCallback(() => {
     if (animating) {
