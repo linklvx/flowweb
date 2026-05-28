@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { CanvasPage } from './page';
 
@@ -93,6 +93,36 @@ describe('CanvasPage', () => {
     const { container } = render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
       expect(container.querySelector('.react-flow')).toBeInTheDocument();
+    });
+  });
+
+  it('should render shortcuts button in NodePalette after load', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByText('快捷键')).toBeInTheDocument();
+    });
+  });
+
+  it('should show shortcuts panel when button is clicked', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByText('快捷键')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('快捷键'));
+    expect(screen.getByText('创作')).toBeInTheDocument();
+    expect(screen.getByText('缩放')).toBeInTheDocument();
+  });
+
+  it('should close shortcuts panel when close button is clicked', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByText('快捷键')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('快捷键'));
+    expect(screen.getByText('创作')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('关闭快捷键面板'));
+    await waitFor(() => {
+      expect(screen.queryByText('创作')).not.toBeInTheDocument();
     });
   });
 });

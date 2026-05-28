@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
+import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
@@ -100,14 +101,19 @@ export function CanvasPage() {
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
   useSocket(projectId);
+  const [isShortcutsOpen, setShortcutsOpen] = useState(false);
 
   return (
     <ReactFlowProvider>
       <div className="h-screen bg-[#0f0f0f] relative">
         <ProjectTitle projectId={projectId} projectName={projectName} onNameChange={onNameChange} />
-        <NodePalette />
+        <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />
         <CanvasTopBar projectId={projectId} projectName={projectName} />
+        <KeyboardShortcutsPanel
+          isOpen={isShortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
+        />
       </div>
     </ReactFlowProvider>
   );

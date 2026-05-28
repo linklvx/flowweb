@@ -97,6 +97,17 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
     }
   }, [animating]);
 
+  // Fallback: timer-based cleanup for environments where CSS transitionend doesn't fire (e.g. jsdom)
+  useEffect(() => {
+    if (animating && !isOpen) {
+      const timer = setTimeout(() => {
+        setVisible(false);
+        setAnimating(false);
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [animating, isOpen]);
+
   useEffect(() => {
     if (!visible) return;
     const handler = (e: KeyboardEvent) => {
