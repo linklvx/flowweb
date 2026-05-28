@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type KeyDef = string | { icon: string };
+
 interface ShortcutItem {
   label: string;
-  keys: string[];
+  keys: KeyDef[];
 }
 
 interface ShortcutSection {
@@ -15,13 +17,107 @@ interface ShortcutSection {
   items: ShortcutItem[];
 }
 
+/* ---------- SVG icon components ---------- */
+
+const ZoomInIcon = () => (
+  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <g clipPath="url(#zoomin_clip)">
+        <path d="M7.59985 0.667969C7.45261 0.668004 7.33325 0.787316 7.33325 0.93457V7.33789H0.932861C0.785765 7.3381 0.66626 7.45735 0.66626 7.60449V8.4043C0.66626 8.55144 0.785765 8.67069 0.932861 8.6709H7.33325V15.0684C7.33351 15.2154 7.45276 15.3349 7.59985 15.335H8.39966C8.54678 15.335 8.66601 15.2154 8.66626 15.0684V8.6709H15.0667C15.2139 8.67086 15.3333 8.55155 15.3333 8.4043V7.60449C15.3333 7.45724 15.2139 7.33793 15.0667 7.33789H8.66626V0.93457C8.66626 0.787294 8.54693 0.667969 8.39966 0.667969H7.59985Z" fill="#999" />
+      </g>
+      <defs>
+        <clipPath id="zoomin_clip">
+          <rect width="16" height="16" fill="white" transform="matrix(-1 0 0 1 16 0)" />
+        </clipPath>
+      </defs>
+    </svg>
+  </span>
+);
+
+const ZoomOutIcon = () => (
+  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M1.96582 7.39844C1.89218 7.39844 1.83203 7.45859 1.83203 7.53223V8.46582C1.83214 8.53937 1.89225 8.59863 1.96582 8.59863H13.5654C13.639 8.59863 13.6991 8.53937 13.6992 8.46582V7.53223C13.6992 7.45859 13.6391 7.39844 13.5654 7.39844H1.96582Z" fill="#999" />
+    </svg>
+  </span>
+);
+
+const TouchpadZoomIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+    <path d="M19 13.7747V6.77778C19 5.79594 18.2041 5 17.2222 5C16.2403 5 15.4444 5.79594 15.4444 6.77778V16.8182L14.726 16.0947C14.0414 15.3946 13.1036 15 12.1245 15H12.0071C11.384 15 10.8153 15.355 10.5417 15.9148C10.2709 16.4686 10.3355 17.1279 10.7087 17.6186L15.2571 23.5849C15.9351 24.4765 16.9909 25 18.111 25H19.931C23.3441 25 26 22.2331 26 18.82V16.9374C26 15.75 25.3291 14.6646 24.2671 14.1336L22 13V6.52539C22 5.68294 21.3171 5 20.4746 5C19.6322 5 18.9492 5.68294 18.9492 6.52539V12.9979" stroke="#999" strokeWidth="1.2" />
+    <path d="M6.00012 2.00391L6.00012 10.0039" stroke="#5DDCFF" strokeLinecap="round" />
+    <path d="M4.5 3L6 1.5L7.5 3" stroke="#5DDCFF" />
+    <path d="M9 4.5L10.5 6.00378L9 7.5" stroke="#5DDCFF" />
+    <path d="M2.99988 4.5L1.5 5.99988L2.99988 7.5" stroke="#5DDCFF" />
+    <path d="M4.5 9L6.00024 10.5039L7.5 9" stroke="#5DDCFF" />
+    <path d="M10.0051 5.99609L2.00513 5.99609" stroke="#5DDCFF" strokeLinecap="round" />
+  </svg>
+);
+
+const MouseZoomIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <path d="M12 6V10" stroke="#5DDCFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M19 9C19 5.13401 15.866 2 12 2C8.13401 2 5 5.13401 5 9V15C5 18.866 8.13401 22 12 22C15.866 22 19 18.866 19 15V9Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const KeyboardPanIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <path d="M19 9C19 5.13401 15.866 2 12 2C8.13401 2 5 5.13401 5 9V15C5 18.866 8.13401 22 12 22C15.866 22 19 18.866 19 15V9Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M7 8.16667C7 5.86548 8.86548 4 11.1667 4C11.6269 4 12 4.3731 12 4.83333V11C12 11.5523 11.5523 12 11 12H8C7.44772 12 7 11.5523 7 11V8.16667Z" fill="#5DDCFF" />
+  </svg>
+);
+
+const TouchpadPanIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+    <g clipPath="url(#tpan_clip)">
+      <path d="M23 11C23 7.13401 19.866 4 16 4C12.134 4 9 7.13401 9 11V17C9 20.866 12.134 24 16 24C19.866 24 23 20.866 23 17V11Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 9V11" stroke="#5DDCFF" strokeOpacity="0.3" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 9V11" stroke="#5DDCFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5.00024 1.00391L5.00024 9.00391" stroke="#5DDCFF" strokeLinecap="round" />
+      <path d="M3.5 2L5 0.5L6.5 2" stroke="#5DDCFF" />
+      <path d="M8 3.5L9.5 5.00378L8 6.5" stroke="#5DDCFF" />
+      <path d="M1.99988 3.5L0.5 4.99988L1.99988 6.5" stroke="#5DDCFF" />
+      <path d="M3.5 8L5.00024 9.50391L6.5 8" stroke="#5DDCFF" />
+      <path d="M9.00513 4.99609L1.00513 4.99609" stroke="#5DDCFF" strokeLinecap="round" />
+    </g>
+    <defs>
+      <clipPath id="tpan_clip">
+        <rect width="28" height="28" fill="white" />
+      </clipPath>
+    </defs>
+  </svg>
+);
+
+const MousePanIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+    <path d="M15.8889 12.9979V6.77778C15.8889 5.79594 15.093 5 14.1111 5C13.1293 5 12.3333 5.79594 12.3333 6.77778V16.8182L11.626 16.0947C10.9414 15.3946 10.0036 15 9.02447 15H8.90712C8.28401 15 7.71535 15.355 7.44167 15.9148C7.17089 16.4686 7.23552 17.1279 7.60873 17.6186L12.1461 23.5849C12.8241 24.4765 13.8799 25 15 25H16.82C20.2331 25 23 22.2331 23 18.82V16.9374C23 15.75 22.3291 14.6646 21.2671 14.1336L19 13V6.52539C19 5.68294 18.3171 5 17.4746 5C16.6322 5 15.9492 5.68294 15.9492 6.52539V12.9979" stroke="#999" strokeWidth="1.2" />
+    <path d="M6.00012 2.00391L6.00012 10.0039" stroke="#5DDCFF" strokeLinecap="round" />
+    <path d="M4.5 3L6 1.5L7.5 3" stroke="#5DDCFF" />
+    <path d="M9 4.5L10.5 6.00378L9 7.5" stroke="#5DDCFF" />
+    <path d="M2.99988 4.5L1.5 5.99988L2.99988 7.5" stroke="#5DDCFF" />
+    <path d="M4.5 9L6.00024 10.5039L7.5 9" stroke="#5DDCFF" />
+    <path d="M10.0051 5.99609L2.00513 5.99609" stroke="#5DDCFF" strokeLinecap="round" />
+  </svg>
+);
+
+const DeleteKeyIcon = () => (
+  <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444]">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M7.33325 5.9987L11.3333 9.9987M11.3333 5.9987L7.33325 9.9987M5.33321 3.33203C5.00194 3.33205 4.68253 3.45539 4.43721 3.67803L1.55188 7.5047C1.48303 7.56719 1.42801 7.64339 1.39035 7.72841C1.3527 7.81343 1.33325 7.90538 1.33325 7.99836C1.33325 8.09135 1.3527 8.1833 1.39035 8.26832C1.42801 8.35334 1.48303 8.42954 1.55188 8.49203L4.43721 12.3194C4.68253 12.542 5.00194 12.6653 5.33321 12.6654H13.3332C13.6868 12.6654 14.026 12.5249 14.276 12.2748C14.5261 12.0248 14.6665 11.6857 14.6665 11.332V4.66536C14.6665 4.31174 14.5261 3.9726 14.276 3.72256C14.026 3.47251 13.6868 3.33203 13.3332 3.33203H5.33321Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  </span>
+);
+
+/* ---------- Data ---------- */
+
 const SECTIONS: ShortcutSection[] = [
   {
     title: '创作',
     items: [
-      { label: '成组', keys: ['Ctrl', 'G'] },
+      { label: '成组', keys: ['Ctrl/Alt', 'G'] },
       { label: '合并分镜组', keys: ['Ctrl', 'Alt', 'G'] },
-      { label: '解组', keys: ['Ctrl', 'Shift', 'G'] },
+      { label: '解组', keys: ['Ctrl/Alt', 'Shift', 'G'] },
       { label: '连线', keys: ['Ctrl', 'L'] },
       { label: '复制整组', keys: ['Ctrl', 'Shift', 'C'] },
       { label: '生成', keys: ['Ctrl', 'Enter'] },
@@ -33,19 +129,19 @@ const SECTIONS: ShortcutSection[] = [
   {
     title: '缩放',
     items: [
-      { label: '放大', keys: ['Ctrl', '+'] },
-      { label: '缩小', keys: ['Ctrl', '-'] },
+      { label: '放大', keys: ['Ctrl', { icon: 'zoomIn' }] },
+      { label: '缩小', keys: ['Ctrl', { icon: 'zoomOut' }] },
       { label: '适应画布', keys: ['Ctrl', '0'] },
-      { label: '触控板', keys: ['双指捏合'] },
-      { label: '鼠标', keys: ['Ctrl', '滚轮'] },
+      { label: '触控板', keys: [{ icon: 'touchpadZoom' }] },
+      { label: '鼠标', keys: ['Ctrl', { icon: 'mouseZoom' }] },
     ],
   },
   {
     title: '移动画布',
     items: [
-      { label: '键盘', keys: ['Space', '拖动'] },
-      { label: '触控板', keys: ['双指拖动'] },
-      { label: '鼠标', keys: ['中键拖动'] },
+      { label: '键盘', keys: ['Space', { icon: 'keyboardPan' }] },
+      { label: '触控板', keys: [{ icon: 'touchpadPan' }] },
+      { label: '鼠标', keys: [{ icon: 'mousePan' }] },
       { label: '整理画布', keys: ['Alt', 'Shift', 'F'] },
     ],
   },
@@ -54,25 +150,45 @@ const SECTIONS: ShortcutSection[] = [
     items: [
       { label: '撤销', keys: ['Ctrl', 'Z'] },
       { label: '重做', keys: ['Ctrl', 'Shift', 'Z'] },
-      { label: '删除', keys: ['⌫'] },
+      { label: '删除', keys: [{ icon: 'delete' }] },
     ],
   },
 ];
 
+/* ---------- Icon resolver ---------- */
+
+const iconMap: Record<string, React.ReactNode> = {
+  zoomIn: <ZoomInIcon />,
+  zoomOut: <ZoomOutIcon />,
+  touchpadZoom: <TouchpadZoomIcon />,
+  mouseZoom: <MouseZoomIcon />,
+  keyboardPan: <KeyboardPanIcon />,
+  touchpadPan: <TouchpadPanIcon />,
+  mousePan: <MousePanIcon />,
+  delete: <DeleteKeyIcon />,
+};
+
+/* ---------- Kbd key cap ---------- */
+
 function Kbd({ children }: { children: string }) {
-  if (children === '+' || children === '-' || children === '⌫') {
-    return (
-      <span className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg border border-[#444] text-sm">
-        {children}
-      </span>
-    );
-  }
   return (
-    <span className="flex h-7 min-w-7 shrink-0 items-center justify-center px-1.5 font-sans text-sm rounded-lg border-[0.5px] border-[#444]">
+    <span
+      className="flex h-7 min-w-7 shrink-0 items-center justify-center px-1 font-sans text-sm"
+      style={{ borderRadius: 8, border: '0.5px solid #444' }}
+    >
       {children}
     </span>
   );
 }
+
+function renderKey(key: KeyDef, idx: number): React.ReactNode {
+  if (typeof key === 'string') {
+    return <Kbd key={idx}>{key}</Kbd>;
+  }
+  return <span key={idx}>{iconMap[key.icon]}</span>;
+}
+
+/* ---------- Panel component ---------- */
 
 export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
   const [visible, setVisible] = useState(false);
@@ -97,7 +213,6 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
     }
   }, [animating]);
 
-  // Fallback: timer-based cleanup for environments where CSS transitionend doesn't fire (e.g. jsdom)
   useEffect(() => {
     if (animating && !isOpen) {
       const timer = setTimeout(() => {
@@ -136,11 +251,11 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
         ref={panelRef}
         data-panel
         onTransitionEnd={handleTransitionEnd}
-        className={`pointer-events-auto relative box-border rounded-2xl p-5 mx-4 mb-6 backdrop-blur-xl transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
+        className={`pointer-events-auto relative box-border rounded-2xl p-4 md:p-6 mx-4 mb-6 backdrop-blur-lg transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
         style={{
-          background: 'rgba(38, 38, 38, 0.96)',
-          border: '0.5px solid #363636',
-          boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.4), 0px 2px 8px rgba(0, 0, 0, 0.3)',
+          background: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)',
+          border: '0.444px solid #363636',
+          boxShadow: 'rgba(0, 0, 0, 0.25) 0px 4px 10px 0px, rgba(0, 0, 0, 0.3) 0px 2px 4px 0px',
         }}
       >
         <header className="absolute right-3 top-3">
@@ -155,22 +270,25 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
             </svg>
           </button>
         </header>
-        <div className="flex flex-col gap-4 md:flex-row md:gap-5 lg:gap-6 md:items-stretch max-h-[80vh] overflow-y-auto">
+        <div className="flex max-h-[80vh] flex-col gap-0 overflow-y-auto md:max-h-none md:flex-row md:items-stretch md:gap-5 md:overflow-visible lg:gap-6">
           {SECTIONS.map((section, si) => (
             <div key={section.title} className="flex md:flex-row gap-0">
-              {si > 0 && <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />}
-              <section className="flex w-full min-w-0 flex-col gap-2 md:w-[200px] lg:w-[240px] shrink-0">
+              {si > 0 && (
+                <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />
+              )}
+              <section className="flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:w-52 md:shrink-0 md:border-b-0 md:pb-0 lg:w-[239px]">
                 <h3 className="text-sm font-medium text-[#09CAF5]">{section.title}</h3>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                   {section.items.map((item) => (
-                    <div key={item.label} className="flex w-full items-center justify-between gap-3">
-                      <span className="text-sm text-[#bbb] leading-snug shrink-0">{item.label}</span>
-                      <div className="flex items-center gap-1.5 text-sm shrink-0">
-                        {item.keys.reduce<React.ReactNode[]>((acc, key, ki) => {
-                          if (ki > 0) acc.push(<span key={`sep-${item.label}-${ki}`} className="text-[#888] text-sm leading-none">+</span>);
-                          acc.push(<Kbd key={`kbd-${item.label}-${ki}`}>{key}</Kbd>);
-                          return acc;
-                        }, [])}
+                    <div key={item.label} className="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+                      <span className="text-sm text-[#bbb] leading-snug md:min-w-0 md:flex-1 md:pr-2">{item.label}</span>
+                      <div className="flex flex-wrap items-center gap-2 text-sm md:shrink-0 md:justify-end">
+                        {item.keys.map((key, ki) => (
+                          <span key={ki}>
+                            {ki > 0 && <span className="text-[#888] text-sm mr-1">+</span>}
+                            {renderKey(key, ki)}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   ))}
