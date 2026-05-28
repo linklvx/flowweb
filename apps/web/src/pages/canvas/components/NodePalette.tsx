@@ -9,7 +9,11 @@ const NODE_TYPES = [
   { type: 'multiImage', label: '多图堆叠', icon: '\u{1F5BC}', color: '#f59e0b' },
 ];
 
-function NodePaletteComponent() {
+interface NodePaletteProps {
+  onToggleShortcuts?: () => void;
+}
+
+function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   const addNode = useCanvasStore((s) => s.addNode);
   const viewport = useCanvasStore((s) => s.viewport);
 
@@ -44,6 +48,18 @@ function NodePaletteComponent() {
           <div className="text-[10px] text-[#ccc]">{label}</div>
         </div>
       ))}
+      <div className="border-t border-[#333] mx-0.5" />
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleShortcuts?.();
+        }}
+        className="bg-[#252525] border rounded-lg p-2 text-center cursor-pointer hover:border-[#888] transition-colors"
+        style={{ borderColor: '#09CAF5' }}
+      >
+        <div className="text-base mb-0.5">{'⌨️'}</div>
+        <div className="text-[10px] text-[#09CAF5] font-bold">快捷键</div>
+      </div>
       <div className="mt-auto text-[9px] text-[#666] text-center pt-1">
         点击或拖拽到画布
       </div>

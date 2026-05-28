@@ -78,4 +78,24 @@ describe('NodePalette', () => {
       expect(parent?.getAttribute('draggable')).toBe('true');
     });
   });
+
+  describe('shortcuts button', () => {
+    it('should render shortcuts button at the bottom', () => {
+      renderPalette();
+      expect(screen.getByText('快捷键')).toBeInTheDocument();
+    });
+
+    it('should call onToggleShortcuts when shortcuts button is clicked', () => {
+      const onToggle = vi.fn();
+      render(<NodePalette onToggleShortcuts={onToggle} />);
+      fireEvent.click(screen.getByText('快捷键'));
+      expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('should render shortcuts button without onToggleShortcuts prop (optional)', () => {
+      renderPalette();
+      fireEvent.click(screen.getByText('快捷键'));
+      // Should not throw
+    });
+  });
 });
