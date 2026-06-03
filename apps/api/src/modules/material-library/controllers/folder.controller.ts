@@ -3,7 +3,7 @@ import { FolderService } from '../services/folder.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
 
-@Controller('material/folders')
+@Controller('api/material/folders')
 export class FolderController {
   constructor(@Inject(FolderService) private readonly folderService: FolderService) {}
 

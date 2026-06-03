@@ -2,7 +2,7 @@ import { Controller, Get, Put, Delete, Param, Body, Req, Query, Inject } from '@
 import { MaterialService } from '../services/material.service';
 import { MoveFileDto } from '../dto/move-file.dto';
 
-@Controller('material/files')
+@Controller('api/material/files')
 export class FileController {
   constructor(@Inject(MaterialService) private readonly materialService: MaterialService) {}
 

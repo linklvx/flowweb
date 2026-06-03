@@ -2,6 +2,7 @@ import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
+import { DEFAULT_FOLDER_NAMES } from '../constants/material-library.constants';
 
 @Injectable()
 export class FolderService {
@@ -26,10 +27,28 @@ export class FolderService {
   }
 
   async findAllByUserId(userId: string) {
-    return this.prisma.materialFolder.findMany({
+    const folders = await this.prisma.materialFolder.findMany({
       where: { userId, deletedAt: null },
       orderBy: { sortOrder: 'asc' },
     });
+
+    // Lazy creation: if user has no folders (e.g., account created before this feature), create defaults
+    if (folders.length === 0) {
+      await this.prisma.materialFolder.createMany({
+        data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
+          name,
+          userId,
+          isDefault: true,
+          sortOrder: index,
+        })),
+      });
+      return this.prisma.materialFolder.findMany({
+        where: { userId, deletedAt: null },
+        orderBy: { sortOrder: 'asc' },
+      });
+    }
+
+    return folders;
   }
 
   async update(id: string, dto: UpdateFolderDto, userId: string) {
