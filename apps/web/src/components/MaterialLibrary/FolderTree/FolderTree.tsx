@@ -1,3 +1,4 @@
+import React from 'react';
 import { Tree } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
@@ -27,33 +28,52 @@ export function canDrop(
   return true;
 }
 
-/** Compute parentId and afterId from drag-and-drop event data */
+/**
+ * Compute parentId and afterId from drag-and-drop event data.
+ *
+ * Uses mouse position relative to the target DOM element to determine
+ * whether the drop is "into" (middle 50%), "above" (top 25%), or "below" (bottom 25%).
+ * This bypasses rc-tree's complex dropPosition logic which doesn't reliably detect
+ * "drop into" for folders without children.
+ */
 export function computeDropParams(
   folders: MaterialFolder[],
   dragKey: string,
   targetKey: string,
-  dropPosition: -1 | 0 | 1,
-  dropToGap: boolean,
+  event: { clientY: number; target: EventTarget | null },
 ): { parentId: string | null; afterId: string | null } {
-  if (!dropToGap && dropPosition === 0) {
-    // Drop INTO a folder: becomes child, append at end
-    return { parentId: targetKey, afterId: null };
+  const targetEl = (event.target as HTMLElement)?.getBoundingClientRect?.();
+  const clientY = event.clientY;
+
+  if (targetEl && clientY !== undefined) {
+    const relativeY = clientY - targetEl.top;
+    const ratio = relativeY / targetEl.height;
+
+    // Middle 50% → drop INTO the folder (make it a child)
+    if (ratio > 0.25 && ratio < 0.75) {
+      return { parentId: targetKey, afterId: null };
+    }
+
+    // Top 25% → drop ABOVE the target
+    if (ratio <= 0.25) {
+      const targetFolder = folders.find((f) => f.id === targetKey);
+      const parentId = targetFolder?.parentId ?? null;
+      const siblings = folders
+        .filter((f) => f.parentId === parentId)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      const targetIdx = siblings.findIndex((f) => f.id === targetKey);
+      return { parentId, afterId: targetIdx > 0 ? siblings[targetIdx - 1].id : null };
+    }
   }
 
-  // Drop above/below a sibling
+  // Bottom 25% (or fallback) → drop BELOW the target
   const targetFolder = folders.find((f) => f.id === targetKey);
   const parentId = targetFolder?.parentId ?? null;
   const siblings = folders
     .filter((f) => f.parentId === parentId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const targetIdx = siblings.findIndex((f) => f.id === targetKey);
-
-  if (dropPosition === -1) {
-    // Above: afterId = the sibling just before target
-    return { parentId, afterId: targetIdx > 0 ? siblings[targetIdx - 1].id : null };
-  }
-  // Below: afterId = target itself
-  return { parentId, afterId: targetKey };
+  return { parentId, afterId: targetIdx >= 0 ? siblings[targetIdx]?.id ?? targetKey : targetKey };
 }
 
 export default function FolderTree() {
@@ -62,6 +82,47 @@ export default function FolderTree() {
   const setSelectedFolder = useMaterialLibraryStore((s) => s.setSelectedFolder);
 
   const treeData = buildTree(folders);
+
+  // Track drag-over state for visual feedback
+  const dragStateRef = React.useRef<{
+    targetEl: HTMLElement | null;
+    cleanup: (() => void) | null;
+  }>({ targetEl: null, cleanup: null });
+
+  const handleDragOver = React.useCallback((info: any) => {
+    const { event } = info;
+    // Find the treenode DOM element
+    const treenodeEl = (event.target as HTMLElement)?.closest?.('.ant-tree-treenode') as HTMLElement | null;
+    if (!treenodeEl) return;
+
+    const rect = treenodeEl.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const ratio = relativeY / rect.height;
+    const isIntoZone = ratio > 0.25 && ratio < 0.75;
+
+    // Clean up previous state if hovering a different node
+    if (dragStateRef.current.targetEl !== treenodeEl) {
+      dragStateRef.current.cleanup?.();
+      dragStateRef.current.targetEl = treenodeEl;
+      dragStateRef.current.cleanup = null;
+    }
+
+    if (isIntoZone) {
+      if (!dragStateRef.current.cleanup) {
+        treenodeEl.classList.add('drop-into-highlight');
+        dragStateRef.current.cleanup = () => treenodeEl.classList.remove('drop-into-highlight');
+      }
+    } else {
+      dragStateRef.current.cleanup?.();
+      dragStateRef.current.cleanup = null;
+    }
+  }, []);
+
+  const handleDragEnd = React.useCallback(() => {
+    dragStateRef.current.cleanup?.();
+    dragStateRef.current.cleanup = null;
+    dragStateRef.current.targetEl = null;
+  }, []);
 
   return (
     <div className="folder-tree-container">
@@ -78,16 +139,31 @@ export default function FolderTree() {
         showLine
         defaultExpandAll
         draggable
-        onDrop={({ node, dragNode, dropPosition, dropToGap }) => {
+        allowDrop={({ dragNode, dropNode, dropPosition }) =>
+          canDrop(folders, dragNode.key as string, dropNode.key as string, dropPosition)
+        }
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDrop={(info) => {
+          // Clean up highlight
+          handleDragEnd();
+          // eslint-disable-next-line no-console
+          console.log('[FolderTree onDrop]', {
+            dragKey: info.dragNode.key,
+            targetKey: info.node.key,
+            dragName: (info.dragNode as any).title,
+            targetName: (info.node as any).title,
+          });
           const params = computeDropParams(
             folders,
-            dragNode.key as string,
-            node.key as string,
-            dropPosition,
-            dropToGap,
+            info.dragNode.key as string,
+            info.node.key as string,
+            info.event,
           );
+          // eslint-disable-next-line no-console
+          console.log('[FolderTree onDrop] computed params:', params);
           useMaterialLibraryStore.getState().moveFolder(
-            dragNode.key as string,
+            info.dragNode.key as string,
             params,
           );
         }}
