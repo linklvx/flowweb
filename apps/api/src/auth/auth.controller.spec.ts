@@ -16,7 +16,8 @@ describe('AuthController', () => {
     };
 
     // Direct construction — bypasses NestJS DI
-    controller = new AuthController(mockSvc as any);
+    const mockPrisma = { materialFolder: { createMany: vi.fn() } } as any;
+    controller = new AuthController(mockSvc as any, mockPrisma);
   });
 
   describe('signIn', () => {

@@ -17,6 +17,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
 import { AiDownloadModule } from './modules/ai-download/ai-download.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
+import { MaterialLibraryModule } from './modules/material-library/material-library.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -48,6 +49,7 @@ const env = validateEnv();
     MediaModule,
     AiDownloadModule,
     TempCleanupModule,
+    MaterialLibraryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

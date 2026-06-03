@@ -1,6 +1,8 @@
 import { Controller, Post, Get, Patch, Req, Body, Res, UsePipes, ValidationPipe } from '@nestjs/common';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from './auth.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_FOLDER_NAMES } from '../modules/material-library/constants/material-library.constants';
 import type { Response } from 'express';
 
 const COOKIE_OPTIONS = {
@@ -12,7 +14,10 @@ const COOKIE_OPTIONS = {
 
 @Controller('api/auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('sign-in')
   async signIn(
@@ -35,6 +40,21 @@ export class AuthController {
   ) {
     try {
       const result = await this.authService.signUp(body.email, body.password, body.name);
+
+      // Create default material folders
+      try {
+        await this.prisma.materialFolder.createMany({
+          data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
+            name,
+            userId: result.user.id,
+            isDefault: true,
+            sortOrder: index,
+          })),
+        });
+      } catch {
+        // Non-fatal — user can still use the app, folders can be created later
+      }
+
       res.cookie('flowweb.session_token', result.token, COOKIE_OPTIONS);
       return res.json({ user: result.user });
     } catch {
