@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Readable } from 'stream';
 import {
   S3Client,
   PutObjectCommand,
@@ -84,6 +85,16 @@ export class MinioService {
       Key: key,
     });
     return getSignedUrl(this.s3Client, command, { expiresIn });
+  }
+
+  /** Download object stream from MinIO */
+  async getObject(key: string): Promise<Readable> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    const response = await this.s3Client.send(command);
+    return response.Body as Readable;
   }
 
   /** Upload file buffer to MinIO */

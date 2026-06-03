@@ -39,4 +39,8 @@ describe('MinioService', () => {
     const key = service.buildKey('temp', 'user1', { ext: 'bin' });
     expect(key).toMatch(/^temp\/user1\/\d{4}-\d{2}-\d{2}\/[a-f0-9-]+\.bin$/);
   });
+
+  it('should have getObject method', () => {
+    expect(typeof service.getObject).toBe('function');
+  });
 });
