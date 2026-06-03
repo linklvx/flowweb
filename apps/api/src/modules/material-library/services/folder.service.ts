@@ -130,10 +130,11 @@ export class FolderService {
       if (visited.has(currentId)) return false;
       visited.add(currentId);
 
-      const folder = await this.prisma.materialFolder.findFirst({
-        where: { id: currentId, userId, deletedAt: null },
-        select: { parentId: true },
-      });
+      const folder: { parentId: string | null } | null =
+        await this.prisma.materialFolder.findFirst({
+          where: { id: currentId, userId, deletedAt: null },
+          select: { parentId: true },
+        });
       currentId = folder?.parentId ?? null;
     }
     return false;
@@ -149,10 +150,11 @@ export class FolderService {
     let currentId: string | null = folderId;
 
     while (currentId !== null) {
-      const folder = await this.prisma.materialFolder.findFirst({
-        where: { id: currentId, userId, deletedAt: null },
-        select: { parentId: true },
-      });
+      const folder: { parentId: string | null } | null =
+        await this.prisma.materialFolder.findFirst({
+          where: { id: currentId, userId, deletedAt: null },
+          select: { parentId: true },
+        });
       currentId = folder?.parentId ?? null;
       if (currentId) depth++;
     }
