@@ -35,7 +35,11 @@ export default function FolderTree() {
         showLine
         defaultExpandAll
         selectedKeys={selectedFolderId ? [selectedFolderId] : []}
-        onSelect={(keys) => setSelectedFolder(keys[0] as string || null)}
+        onSelect={(keys) => {
+          const folderId = keys[0] as string || null;
+          setSelectedFolder(folderId);
+          useMaterialLibraryStore.getState().loadFiles();
+        }}
         treeData={treeData}
       />
     </div>

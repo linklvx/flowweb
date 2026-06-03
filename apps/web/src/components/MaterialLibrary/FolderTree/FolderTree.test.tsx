@@ -2,9 +2,10 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import FolderTree from './FolderTree';
 
-const { setSelectedFolder, createFolder } = vi.hoisted(() => ({
+const { setSelectedFolder, createFolder, loadFiles } = vi.hoisted(() => ({
   setSelectedFolder: vi.fn(),
   createFolder: vi.fn(),
+  loadFiles: vi.fn(),
 }));
 
 const mockStore = vi.hoisted(() => {
@@ -19,7 +20,7 @@ const mockStore = vi.hoisted(() => {
     };
     return selector ? selector(state) : state;
   });
-  (fn as any).getState = vi.fn(() => ({ createFolder }));
+  (fn as any).getState = vi.fn(() => ({ createFolder, loadFiles }));
   return fn;
 });
 
@@ -41,5 +42,13 @@ describe('FolderTree', () => {
   it('should show new folder button', () => {
     render(<FolderTree />);
     expect(screen.getByText('+ 新建文件夹')).toBeInTheDocument();
+  });
+
+  it('should call loadFiles when folder is selected', () => {
+    render(<FolderTree />);
+    const folderNode = screen.getByText('角色');
+    folderNode.click();
+    expect(setSelectedFolder).toHaveBeenCalledWith('1');
+    expect(loadFiles).toHaveBeenCalled();
   });
 });
