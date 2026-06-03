@@ -67,8 +67,8 @@ describe('canDrop', () => {
     expect(canDrop(mockFolders, '1', '3', -1)).toBe(false);
   });
 
-  it('should not allow dropping into default folder interior', () => {
-    expect(canDrop(mockFolders, '3', '1', 0)).toBe(false);
+  it('should allow dropping into default folder', () => {
+    expect(canDrop(mockFolders, '3', '1', 0)).toBe(true);
   });
 
   it('should allow dropping above/below default folder', () => {
@@ -78,6 +78,7 @@ describe('canDrop', () => {
 
   it('should allow normal drop', () => {
     expect(canDrop(mockFolders, '3', '2', 1)).toBe(true);
+    expect(canDrop(mockFolders, '3', '2', 0)).toBe(true);
   });
 });
 

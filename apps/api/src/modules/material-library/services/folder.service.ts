@@ -175,7 +175,6 @@ export class FolderService {
         where: { id: targetParentId, userId, deletedAt: null },
       });
       if (!parent) throw new BadRequestException('目标父文件夹不存在');
-      if (parent.isDefault) throw new BadRequestException('不能将文件夹移入系统默认文件夹');
 
       // 3-level nesting depth limit
       const targetDepth = await this.getFolderDepth(targetParentId, userId);

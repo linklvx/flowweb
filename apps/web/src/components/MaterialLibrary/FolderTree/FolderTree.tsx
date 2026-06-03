@@ -24,11 +24,8 @@ export function canDrop(
   if (dragKey === dropKey) return false;
   const draggedFolder = folders.find((f) => f.id === dragKey);
   if (draggedFolder?.isDefault) return false;
-  // If dropping INSIDE a node (making it a child), reject if target is default
-  if (dropPosition === 0) {
-    const targetFolder = folders.find((f) => f.id === dropKey);
-    if (targetFolder?.isDefault) return false;
-  }
+  // All non-default folders can be dropped anywhere
+  void dropPosition;
   return true;
 }
 
