@@ -64,7 +64,20 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       const { data } = await axios.get('/api/material/files', {
         params: { folderId: selectedFolderId },
       });
-      if (data.data?.success) set({ files: data.data.data });
+      if (data.data?.success) {
+        // Rewrite presigned GET URLs through Vite proxy to avoid CORS/network issues
+        // Same pattern as upload: http://127.0.0.1:9000/flowai/... -> /minio-storage/...
+        const files = (data.data.data as any[]).map((f: any) => ({
+          ...f,
+          url: import.meta.env.DEV
+            ? (f.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
+            : f.url,
+          thumbnailUrl: f.thumbnailUrl && import.meta.env.DEV
+            ? (f.thumbnailUrl as string).replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
+            : f.thumbnailUrl,
+        }));
+        set({ files });
+      }
     } catch {
       // silently handle error
     } finally {

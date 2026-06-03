@@ -49,4 +49,51 @@ describe('materialLibraryStore', () => {
     await useMaterialLibraryStore.getState().loadFolders();
     expect(useMaterialLibraryStore.getState().loading).toBe(false);
   });
+
+  it('should rewrite presigned GET URLs through Vite proxy in loadFiles', async () => {
+    (axios.get as any).mockResolvedValue({
+      data: {
+        code: 0,
+        data: {
+          success: true,
+          data: [
+            {
+              id: 'file-1',
+              originalName: 'test.png',
+              mimeType: 'image/png',
+              url: 'http://127.0.0.1:9000/flowai/uploads/user1/2026-06-03/uuid.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+              thumbnailUrl: null,
+            },
+          ],
+        },
+      },
+    });
+    await useMaterialLibraryStore.getState().loadFiles();
+    const files = useMaterialLibraryStore.getState().files;
+    expect(files[0].url).toBe('/minio-storage/uploads/user1/2026-06-03/uuid.png?X-Amz-Algorithm=AWS4-HMAC-SHA256');
+  });
+
+  it('should rewrite thumbnailUrl through Vite proxy in loadFiles', async () => {
+    (axios.get as any).mockResolvedValue({
+      data: {
+        code: 0,
+        data: {
+          success: true,
+          data: [
+            {
+              id: 'file-2',
+              originalName: 'test.mp4',
+              mimeType: 'video/mp4',
+              url: 'http://127.0.0.1:9000/flowai/uploads/user1/2026-06-03/vid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+              thumbnailUrl: 'http://127.0.0.1:9000/flowai/thumbnails/user1/thumb.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+            },
+          ],
+        },
+      },
+    });
+    await useMaterialLibraryStore.getState().loadFiles();
+    const files = useMaterialLibraryStore.getState().files;
+    expect(files[0].url).toBe('/minio-storage/uploads/user1/2026-06-03/vid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256');
+    expect(files[0].thumbnailUrl).toBe('/minio-storage/thumbnails/user1/thumb.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256');
+  });
 });
