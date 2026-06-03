@@ -55,7 +55,7 @@ export class FolderService {
         data: { deletedAt: new Date() },
       }),
       this.prisma.materialFolder.updateMany({
-        where: { parentId: id, userId },
+        where: { parentId: id, userId, deletedAt: null },
         data: { parentId: null },
       }),
       this.prisma.media.updateMany({
@@ -70,6 +70,7 @@ export class FolderService {
       where: { id, userId, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
+    if (folder.isDefault) throw new BadRequestException('系统默认文件夹不可移动');
 
     const previousFolder = await this.prisma.materialFolder.findFirst({
       where: {

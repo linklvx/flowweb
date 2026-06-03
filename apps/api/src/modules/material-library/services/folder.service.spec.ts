@@ -108,10 +108,15 @@ describe('FolderService', () => {
         service.update('f-1', { name: 'New' }, 'user-1')
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should throw if folder not found', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+      await expect(service.update('f-99', { name: 'X' }, 'u1')).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('remove', () => {
-    it('should soft-delete and move children to root', async () => {
+    it('should soft-delete and move children/medias to root', async () => {
       prisma.materialFolder.findFirst.mockResolvedValue({
         id: 'f-1', name: 'Test', isDefault: false, userId: 'user-1',
       });
@@ -125,6 +130,61 @@ describe('FolderService', () => {
         where: { id: 'f-1' },
         data: { deletedAt: expect.any(Date) },
       });
+      expect(prisma.materialFolder.updateMany).toHaveBeenCalledWith({
+        where: { parentId: 'f-1', userId: 'user-1', deletedAt: null },
+        data: { parentId: null },
+      });
+      expect(prisma.media.updateMany).toHaveBeenCalledWith({
+        where: { folderId: 'f-1', userId: 'user-1' },
+        data: { folderId: null },
+      });
+    });
+
+    it('should throw if folder is default', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({
+        id: 'f-1', name: '角色', isDefault: true, userId: 'u1',
+      });
+      await expect(service.remove('f-1', 'u1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw if folder not found', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+      await expect(service.remove('f-99', 'u1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('moveUp', () => {
+    it('should swap sortOrder with previous folder', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-2', sortOrder: 2, parentId: null, isDefault: false })
+        .mockResolvedValueOnce({ id: 'f-1', sortOrder: 1, parentId: null });
+      prisma.materialFolder.update.mockResolvedValue({});
+
+      await service.moveUp('f-2', 'u1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('should do nothing when already first', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-1', sortOrder: 0, parentId: null, isDefault: false })
+        .mockResolvedValueOnce(null); // no previous folder
+
+      await service.moveUp('f-1', 'u1');
+
+      expect(prisma.materialFolder.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw if folder not found', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+      await expect(service.moveUp('f-99', 'u1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw if folder is default', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({
+        id: 'f-1', name: '角色', isDefault: true, userId: 'u1',
+      });
+      await expect(service.moveUp('f-1', 'u1')).rejects.toThrow(BadRequestException);
     });
   });
 });
