@@ -281,9 +281,8 @@ model Media {
   @@index([nodeId])
   @@index([taskId])
   @@index([expiresAt])
-  @@index([userId, folderId])
+  @@index([userId, folderId, createdAt])
   @@index([userId, isFavorite])
-  @@index([userId, createdAt])
 }
 
 // 素材文件夹表
