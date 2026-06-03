@@ -13,3 +13,15 @@
 .file-group { margin-bottom: 24px; }
 .file-grid { display: grid; gap: 16px; }
 .file-grid-loading, .file-grid-empty { display: flex; justify-content: center; align-items: center; height: 200px; color: #71717a; }
+
+/* Folder tree drag-and-drop */
+.draggable-folder-tree .ant-tree-node-content-wrapper {
+  cursor: grab;
+}
+.draggable-folder-tree .ant-tree-node-content-wrapper:active {
+  cursor: grabbing;
+}
+.draggable-folder-tree .ant-tree-drop-indicator {
+  background-color: #3b82f6;
+  height: 2px;
+}
