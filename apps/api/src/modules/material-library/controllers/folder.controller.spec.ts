@@ -14,6 +14,7 @@ describe('FolderController', () => {
       update: vi.fn(),
       remove: vi.fn(),
       moveUp: vi.fn(),
+      moveFolder: vi.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FolderController],
@@ -51,6 +52,13 @@ describe('FolderController', () => {
   it('PUT /:id/move-up should return { success: true }', async () => {
     service.moveUp.mockResolvedValue(undefined);
     const res = await controller.moveUp('f-1', mockReq());
+    expect(res).toEqual({ success: true });
+  });
+
+  it('PUT /:id/move should return { success: true }', async () => {
+    service.moveFolder.mockResolvedValue(undefined);
+    const res = await controller.move('f-1', { parentId: null, afterId: 'f-2' }, mockReq());
+    expect(service.moveFolder).toHaveBeenCalledWith('f-1', { parentId: null, afterId: 'f-2' }, 'user-1');
     expect(res).toEqual({ success: true });
   });
 });

@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, Delete, Put, Req, Inject } from '@n
 import { FolderService } from '../services/folder.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
+import { MoveFolderDto } from '../dto/move-folder.dto';
 
 @Controller('api/material/folders')
 export class FolderController {
@@ -34,6 +35,16 @@ export class FolderController {
   @Put(':id/move-up')
   async moveUp(@Param('id') id: string, @Req() req: any) {
     await this.folderService.moveUp(id, req.user.id);
+    return { success: true };
+  }
+
+  @Put(':id/move')
+  async move(
+    @Param('id') id: string,
+    @Body() dto: MoveFolderDto,
+    @Req() req: any,
+  ) {
+    await this.folderService.moveFolder(id, dto, req.user.id);
     return { success: true };
   }
 }
