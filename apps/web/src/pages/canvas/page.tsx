@@ -4,6 +4,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
+import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
@@ -114,6 +115,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
           isOpen={isShortcutsOpen}
           onClose={() => setShortcutsOpen(false)}
         />
+        <MaterialLibraryModal />
       </div>
     </ReactFlowProvider>
   );
