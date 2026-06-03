@@ -38,7 +38,7 @@ describe('materialLibraryStore', () => {
 
   it('should load folders on success', async () => {
     (axios.get as any).mockResolvedValue({
-      data: { success: true, data: [{ id: 'f-1', name: '角色' }] },
+      data: { code: 0, data: { success: true, data: [{ id: 'f-1', name: '角色' }] }, message: 'ok' },
     });
     await useMaterialLibraryStore.getState().loadFolders();
     expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'f-1', name: '角色' }]);

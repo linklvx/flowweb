@@ -48,7 +48,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     set({ loading: true });
     try {
       const { data } = await axios.get('/api/material/folders');
-      if (data.success) set({ folders: data.data });
+      if (data.data?.success) set({ folders: data.data.data });
     } catch {
       // silently handle error
     } finally {
@@ -110,7 +110,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       const presignRes = await axios.post('/api/storage/presign', {
         fileName: file.name, fileSize: file.size, fileType: file.type, type: 'uploaded',
       });
-      const { fileId, uploadUrl, fields } = presignRes.data;
+      const { fileId, uploadUrl, fields } = presignRes.data.data;
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v as string));
       formData.append('file', file);
@@ -136,8 +136,8 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
 
   toggleFavorite: async (id) => {
     const { data } = await axios.put(`/api/material/files/${id}/toggle-favorite`);
-    if (data.success) {
-      set((s) => ({ files: s.files.map((f) => f.id === id ? { ...f, isFavorite: data.data.isFavorite } : f) }));
+    if (data.data?.success) {
+      set((s) => ({ files: s.files.map((f) => f.id === id ? { ...f, isFavorite: data.data.data.isFavorite } : f) }));
     }
   },
 }));
