@@ -21,6 +21,8 @@ model User {
   balance        UserBalance?
   templates      Template[]
   canvasProjects CanvasProject[]
+  media          Media[]
+  materialFolders MaterialFolder[]
 }
 
 model Account {
@@ -263,9 +265,46 @@ model Media {
   createdAt    DateTime  @default(now())
   expiresAt    DateTime? // 临时文件过期时间
 
+  // 素材库关联
+  folderId      String?   // 关联素材库文件夹
+  isFavorite    Boolean   @default(false)  // 收藏标记
+  thumbnailKey  String?   // 缩略图对象键（URL动态生成，避免过期）
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime? // 软删除
+
+  folder        MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([projectId])
   @@index([nodeId])
   @@index([taskId])
   @@index([expiresAt])
+  @@index([userId, folderId])
+  @@index([userId, isFavorite])
+  @@index([userId, createdAt])
+}
+
+// 素材文件夹表
+model MaterialFolder {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?
+  userId    String
+  sortOrder Int      @default(0)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  parent   MaterialFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children MaterialFolder[] @relation("FolderHierarchy")
+  files    Media[]
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, parentId])
+  @@index([userId, sortOrder])
+  @@index([userId, deletedAt])
 }
