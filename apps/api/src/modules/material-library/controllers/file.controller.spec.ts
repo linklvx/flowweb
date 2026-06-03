@@ -1,0 +1,57 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { FileController } from './file.controller';
+import { MaterialService } from '../services/material.service';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+describe('FileController', () => {
+  let controller: FileController;
+  let service: any;
+
+  beforeEach(async () => {
+    service = {
+      getFilesByFolderId: vi.fn(),
+      moveFile: vi.fn(),
+      toggleFavorite: vi.fn(),
+      deleteFile: vi.fn(),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [FileController],
+      providers: [{ provide: MaterialService, useValue: service }],
+    }).compile();
+    controller = module.get<FileController>(FileController);
+  });
+
+  const mockReq = (userId = 'user-1') => ({ user: { id: userId } }) as any;
+
+  it('GET / should return files in folder', async () => {
+    service.getFilesByFolderId.mockResolvedValue([{ id: 'm-1' }]);
+    const res = await controller.getFiles(mockReq(), 'folder-1');
+    expect(res).toEqual({ success: true, data: [{ id: 'm-1' }] });
+    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', 'folder-1');
+  });
+
+  it('GET / should work with null folderId', async () => {
+    service.getFilesByFolderId.mockResolvedValue([]);
+    const res = await controller.getFiles(mockReq());
+    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', null);
+    expect(res).toEqual({ success: true, data: [] });
+  });
+
+  it('PUT /:id/move should move file', async () => {
+    service.moveFile.mockResolvedValue({ id: 'm-1', folderId: 'folder-1' });
+    const res = await controller.moveFile('m-1', { folderId: 'folder-1' }, mockReq());
+    expect(res).toEqual({ success: true, data: { id: 'm-1', folderId: 'folder-1' } });
+  });
+
+  it('PUT /:id/toggle-favorite should toggle', async () => {
+    service.toggleFavorite.mockResolvedValue({ id: 'm-1', isFavorite: true });
+    const res = await controller.toggleFavorite('m-1', mockReq());
+    expect(res).toEqual({ success: true, data: { id: 'm-1', isFavorite: true } });
+  });
+
+  it('DELETE /:id should delete file', async () => {
+    service.deleteFile.mockResolvedValue({ id: 'm-1' });
+    const res = await controller.deleteFile('m-1', mockReq());
+    expect(res).toEqual({ success: true });
+  });
+});
