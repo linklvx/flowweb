@@ -96,4 +96,19 @@ describe('materialLibraryStore', () => {
     expect(files[0].url).toBe('/minio-storage/uploads/user1/2026-06-03/vid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256');
     expect(files[0].thumbnailUrl).toBe('/minio-storage/thumbnails/user1/thumb.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256');
   });
+
+  it('should call move endpoint and reload folders', async () => {
+    (axios.put as any).mockResolvedValue({});
+    (axios.get as any).mockResolvedValue({
+      data: { code: 0, data: { success: true, data: [{ id: 'f-1', name: '角色', sortOrder: 0 }] }, message: 'ok' },
+    });
+
+    await useMaterialLibraryStore.getState().moveFolder('f-2', { parentId: null, afterId: 'f-1' });
+
+    expect(axios.put).toHaveBeenCalledWith('/api/material/folders/f-2/move', {
+      parentId: null,
+      afterId: 'f-1',
+    });
+    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'f-1', name: '角色', sortOrder: 0 }]);
+  });
 });

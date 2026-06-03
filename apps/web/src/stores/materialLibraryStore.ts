@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
+import { message } from 'antd';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
 
@@ -25,6 +26,7 @@ interface MaterialLibraryState {
   renameFolder: (id: string, name: string) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
   moveFolderUp: (id: string) => Promise<void>;
+  moveFolder: (id: string, dto: { parentId: string | null; afterId: string | null }) => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -105,6 +107,16 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   moveFolderUp: async (id) => {
     await axios.put(`/api/material/folders/${id}/move-up`);
     await get().loadFolders();
+  },
+
+  moveFolder: async (id, dto) => {
+    try {
+      await axios.put(`/api/material/folders/${id}/move`, dto);
+      await get().loadFolders();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err.message || '未知错误';
+      message.error(`移动文件夹失败：${msg}`);
+    }
   },
 
   uploadFile: async (file) => {
