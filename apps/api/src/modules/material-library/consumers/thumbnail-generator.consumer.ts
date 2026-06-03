@@ -2,15 +2,15 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
-import { THUMBNAIL_GENERATOR_QUEUE, THUMBNAIL_GENERATOR_CONNECTION } from '../constants/material-library.constants';
-import * as sharp from 'sharp';
+import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
+import sharp from 'sharp';
 import * as fs from 'fs';
 import * as tmp from 'tmp';
 
 // Auto-cleanup temp files on process exit (cross-platform safe)
 tmp.setGracefulCleanup();
 
-@Processor(THUMBNAIL_GENERATOR_QUEUE, { connection: THUMBNAIL_GENERATOR_CONNECTION })
+@Processor(THUMBNAIL_GENERATOR_QUEUE)
 export class ThumbnailGeneratorConsumer extends WorkerHost {
   constructor(
     private prisma: PrismaService,

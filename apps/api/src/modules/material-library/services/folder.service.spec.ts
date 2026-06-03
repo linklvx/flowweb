@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('FolderService', () => {
   let service: FolderService;
-  let prisma: { materialFolder: any; media: any };
+  let prisma: { materialFolder: any; media: any; $transaction: any };
 
   beforeEach(async () => {
     prisma = {

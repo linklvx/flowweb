@@ -23,6 +23,7 @@ describe('FileCard', () => {
     mimeType: 'image/png',
     size: 1024,
     url: 'http://example.com/test.png',
+    folderId: null as string | null,
     isFavorite: false,
     createdAt: '2026-06-01',
     updatedAt: '2026-06-01',
