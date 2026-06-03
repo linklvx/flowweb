@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
 import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
 
 const MAX_FILE_SIZE = { image: 10 * 1024 * 1024, video: 100 * 1024 * 1024 };
@@ -63,7 +64,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       const { data } = await axios.get('/api/material/files', {
         params: { folderId: selectedFolderId },
       });
-      if (data.success) set({ files: data.data });
+      if (data.data?.success) set({ files: data.data.data });
     } catch {
       // silently handle error
     } finally {
@@ -107,20 +108,36 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     const source = axios.CancelToken.source();
     try {
       const { selectedFolderId } = get();
-      const presignRes = await axios.post('/api/storage/presign', {
-        fileName: file.name, fileSize: file.size, fileType: file.type, type: 'uploaded',
+
+      // 1. Get presigned URL (uses project's apiFetch wrapper that unwraps TransformInterceptor)
+      const { fileId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        type: 'uploaded',
       });
-      const { fileId, uploadUrl, fields } = presignRes.data.data;
+
+      // 2. Upload to MinIO via Vite proxy (avoids CORS)
       const formData = new FormData();
-      Object.entries(fields).forEach(([k, v]) => formData.append(k, v as string));
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      await axios.post(uploadUrl, formData, {
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+
+      await axios.post(proxyUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
         cancelToken: source.token,
         onUploadProgress: (e) => set({ uploadProgress: Math.round((e.loaded * 100) / (e.total || 1)) }),
       });
-      await axios.post('/api/storage/confirm', { fileId, key: fields.key, fileSize: file.size });
+
+      // 3. Confirm upload
+      await confirmUpload({ fileId, key, fileSize: file.size });
+
+      // 4. Move file to selected folder
       await axios.put(`/api/material/files/${fileId}/move`, { folderId: selectedFolderId });
+
       await get().loadFiles();
     } catch (err) {
       if (!axios.isCancel(err)) console.error('Upload failed:', err);
