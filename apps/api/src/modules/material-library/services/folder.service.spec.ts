@@ -187,4 +187,124 @@ describe('FolderService', () => {
       await expect(service.moveUp('f-1', 'u1')).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('moveFolder', () => {
+    it('should place at beginning when afterId is null', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', name: '拖拽文件夹', parentId: 'p1', sortOrder: 5, isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce({ id: 'p1', name: '目标父', parentId: null, sortOrder: 0, isDefault: false, userId: 'u1' });
+      prisma.materialFolder.findMany.mockResolvedValue([
+        { id: 's1', sortOrder: 0 },
+        { id: 's2', sortOrder: 1 },
+      ]);
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await service.moveFolder('f-move', { parentId: 'p1', afterId: null }, 'u1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 's1' }, data: { sortOrder: 1 } }),
+      );
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 's2' }, data: { sortOrder: 2 } }),
+      );
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'f-move' }, data: { parentId: 'p1', sortOrder: 0 } }),
+      );
+    });
+
+    it('should place after a specific sibling', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', name: '拖拽', parentId: null, sortOrder: 0, isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce(null); // parentId is null, no parent check needed
+      prisma.materialFolder.findMany.mockResolvedValue([
+        { id: 's1', sortOrder: 0 },
+        { id: 's2', sortOrder: 1 },
+      ]);
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await service.moveFolder('f-move', { parentId: null, afterId: 's1' }, 'u1');
+
+      // afterId='s1', insertIndex=1: f-move gets sortOrder=1, s2 bumped to 2
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 's2' }, data: { sortOrder: 2 } }),
+      );
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'f-move' }, data: { parentId: null, sortOrder: 1 } }),
+      );
+    });
+
+    it('should move to a different parent', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', name: '拖拽', parentId: 'p-old', sortOrder: 0, isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce({ id: 'p-new', name: '新父', parentId: null, sortOrder: 0, isDefault: false, userId: 'u1' });
+      prisma.materialFolder.findMany.mockResolvedValue([
+        { id: 's1', sortOrder: 0 },
+      ]);
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await service.moveFolder('f-move', { parentId: 'p-new', afterId: 's1' }, 'u1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'f-move' }, data: { parentId: 'p-new', sortOrder: 1 } }),
+      );
+    });
+
+    it('should throw if folder not found', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.moveFolder('not-found', { parentId: null, afterId: null }, 'u1'),
+      ).rejects.toThrow('文件夹不存在');
+    });
+
+    it('should throw if folder is default', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValueOnce({ id: 'f-1', isDefault: true, userId: 'u1' });
+      await expect(
+        service.moveFolder('f-1', { parentId: null, afterId: null }, 'u1'),
+      ).rejects.toThrow('系统默认文件夹不可移动');
+    });
+
+    it('should throw if target parent not found', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce(null);
+      await expect(
+        service.moveFolder('f-move', { parentId: 'bad-parent', afterId: null }, 'u1'),
+      ).rejects.toThrow('目标父文件夹不存在');
+    });
+
+    it('should throw on circular reference', async () => {
+      // p-new's parent is f-move → getFolderDepth returns 1, then isDescendant detects the cycle
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', name: '拖拽', parentId: 'p-old', sortOrder: 0, isDefault: false, userId: 'u1' }) // folder check
+        .mockResolvedValueOnce({ id: 'p-new', name: '新父', parentId: 'f-move', isDefault: false, userId: 'u1' }) // target parent check
+        .mockResolvedValueOnce({ parentId: 'f-move' }) // getFolderDepth: lookup 'p-new'
+        .mockResolvedValueOnce({ parentId: null })      // getFolderDepth: lookup 'f-move' (depth=1)
+        .mockResolvedValueOnce({ parentId: 'f-move' }); // isDescendant: lookup 'p-new' → cycle found
+      prisma.materialFolder.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await expect(
+        service.moveFolder('f-move', { parentId: 'p-new', afterId: null }, 'u1'),
+      ).rejects.toThrow('不能将文件夹移入其自身或其子文件夹');
+    });
+
+    it('should throw if target depth exceeds 3 levels', async () => {
+      // p-child is at depth 2 (root→parent→child), moving into it makes depth 3 (exceeding limit)
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-move', name: '拖拽', parentId: null, sortOrder: 0, isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce({ id: 'p-child', name: '子', parentId: 'p-parent', isDefault: false, userId: 'u1' })
+        .mockResolvedValueOnce({ parentId: 'p-parent' }) // getFolderDepth: lookup 'p-child'
+        .mockResolvedValueOnce({ parentId: 'root' })     // getFolderDepth: lookup 'p-parent'
+        .mockResolvedValueOnce({ parentId: null });       // getFolderDepth: lookup 'root' (depth now 2)
+      prisma.materialFolder.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await expect(
+        service.moveFolder('f-move', { parentId: 'p-child', afterId: null }, 'u1'),
+      ).rejects.toThrow('文件夹嵌套深度不能超过3层（父→子→孙）');
+    });
+  });
 });
