@@ -99,14 +99,17 @@ describe('FolderService', () => {
       expect(result.name).toBe('New');
     });
 
-    it('should throw if folder is default', async () => {
+    it('should update a default folder', async () => {
       prisma.materialFolder.findFirst.mockResolvedValue({
         id: 'f-1', name: '角色', isDefault: true, userId: 'user-1',
       });
+      prisma.materialFolder.update.mockResolvedValue({
+        id: 'f-1', name: 'New', isDefault: true,
+      });
 
-      await expect(
-        service.update('f-1', { name: 'New' }, 'user-1')
-      ).rejects.toThrow(BadRequestException);
+      const result = await service.update('f-1', { name: 'New' }, 'user-1');
+
+      expect(result.name).toBe('New');
     });
 
     it('should throw if folder not found', async () => {
@@ -140,11 +143,17 @@ describe('FolderService', () => {
       });
     });
 
-    it('should throw if folder is default', async () => {
+    it('should allow deleting a default folder', async () => {
       prisma.materialFolder.findFirst.mockResolvedValue({
         id: 'f-1', name: '角色', isDefault: true, userId: 'u1',
       });
-      await expect(service.remove('f-1', 'u1')).rejects.toThrow(BadRequestException);
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.materialFolder.updateMany.mockResolvedValue({});
+      prisma.media.updateMany.mockResolvedValue({});
+
+      await service.remove('f-1', 'u1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalled();
     });
 
     it('should throw if folder not found', async () => {
@@ -180,11 +189,15 @@ describe('FolderService', () => {
       await expect(service.moveUp('f-99', 'u1')).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw if folder is default', async () => {
-      prisma.materialFolder.findFirst.mockResolvedValue({
-        id: 'f-1', name: '角色', isDefault: true, userId: 'u1',
-      });
-      await expect(service.moveUp('f-1', 'u1')).rejects.toThrow(BadRequestException);
+    it('should allow moving up a default folder', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-2', name: '角色', sortOrder: 2, parentId: null, isDefault: true })
+        .mockResolvedValueOnce({ id: 'f-1', name: '场景', sortOrder: 1, parentId: null });
+      prisma.materialFolder.update.mockResolvedValue({});
+
+      await service.moveUp('f-2', 'u1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -259,11 +272,20 @@ describe('FolderService', () => {
       ).rejects.toThrow('文件夹不存在');
     });
 
-    it('should throw if folder is default', async () => {
-      prisma.materialFolder.findFirst.mockResolvedValueOnce({ id: 'f-1', isDefault: true, userId: 'u1' });
-      await expect(
-        service.moveFolder('f-1', { parentId: null, afterId: null }, 'u1'),
-      ).rejects.toThrow('系统默认文件夹不可移动');
+    it('should allow moving a default folder', async () => {
+      prisma.materialFolder.findFirst
+        .mockResolvedValueOnce({ id: 'f-1', name: '角色', parentId: null, sortOrder: 2, isDefault: true, userId: 'u1' });
+      prisma.materialFolder.findMany.mockResolvedValue([
+        { id: 's1', sortOrder: 0 },
+        { id: 's2', sortOrder: 1 },
+      ]);
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      await service.moveFolder('f-1', { parentId: null, afterId: 's1' }, 'u1');
+
+      // Default folder moved successfully, siblings renumbered
+      expect(prisma.materialFolder.update).toHaveBeenCalled();
     });
 
     it('should throw if target parent not found', async () => {

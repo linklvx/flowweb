@@ -22,9 +22,7 @@ export function canDrop(
   dropPosition: -1 | 0 | 1,
 ): boolean {
   if (dragKey === dropKey) return false;
-  const draggedFolder = folders.find((f) => f.id === dragKey);
-  if (draggedFolder?.isDefault) return false;
-  // All non-default folders can be dropped anywhere
+  void folders;
   void dropPosition;
   return true;
 }
@@ -79,13 +77,7 @@ export default function FolderTree() {
         className="draggable-folder-tree"
         showLine
         defaultExpandAll
-        draggable={(node) => {
-          const folder = folders.find((f) => f.id === node.key);
-          return !folder?.isDefault;
-        }}
-        allowDrop={({ dragNode, dropNode, dropPosition }) =>
-          canDrop(folders, dragNode.key as string, dropNode.key as string, dropPosition)
-        }
+        draggable
         onDrop={({ node, dragNode, dropPosition, dropToGap }) => {
           const params = computeDropParams(
             folders,

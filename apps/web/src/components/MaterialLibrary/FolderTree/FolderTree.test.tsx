@@ -63,8 +63,8 @@ describe('canDrop', () => {
     expect(canDrop(mockFolders, '1', '1', -1)).toBe(false);
   });
 
-  it('should not allow dragging default folder', () => {
-    expect(canDrop(mockFolders, '1', '3', -1)).toBe(false);
+  it('should allow dragging default folder', () => {
+    expect(canDrop(mockFolders, '1', '3', -1)).toBe(true);
   });
 
   it('should allow dropping into default folder', () => {

@@ -58,7 +58,6 @@ export class FolderService {
       where: { id, userId, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
-    if (folder.isDefault) throw new BadRequestException('系统默认文件夹不可修改');
     return this.prisma.materialFolder.update({ where: { id }, data: dto });
   }
 
@@ -67,7 +66,6 @@ export class FolderService {
       where: { id, userId, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
-    if (folder.isDefault) throw new BadRequestException('系统默认文件夹不可删除');
 
     await this.prisma.$transaction([
       this.prisma.materialFolder.update({
@@ -90,7 +88,6 @@ export class FolderService {
       where: { id, userId, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
-    if (folder.isDefault) throw new BadRequestException('系统默认文件夹不可移动');
 
     const previousFolder = await this.prisma.materialFolder.findFirst({
       where: {
@@ -166,7 +163,6 @@ export class FolderService {
       where: { id, userId, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
-    if (folder.isDefault) throw new BadRequestException('系统默认文件夹不可移动');
 
     const targetParentId = dto.parentId ?? null;
 
