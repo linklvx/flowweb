@@ -24,6 +24,8 @@ const mockStore = vi.hoisted(() => {
       selectedFolderId: null,
       setSelectedFolder,
       renameModal: { open: false, folderId: null, defaultValue: '' },
+      setRenameModal,
+      renameFolder: vi.fn(),
     };
     return selector ? selector(state) : state;
   });
@@ -76,6 +78,34 @@ describe('FolderTree', () => {
 
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('should create temp folder and open rename on 新建子文件夹 click', async () => {
+    createFolder.mockResolvedValue(undefined);
+    // Simulate store returning updated folders after create
+    (mockStore as any).getState.mockReturnValue({
+      createFolder,
+      loadFiles,
+      moveFolder,
+      setRenameModal,
+      folders: [
+        ...mockFolders,
+        { id: 'new-id', name: '新建文件夹', parentId: '1', userId: 'u1', sortOrder: 1, isDefault: false, createdAt: '', updatedAt: '' },
+      ],
+    });
+    render(<FolderTree />);
+    // Right-click on 角色 (id=1)
+    fireEvent.contextMenu(screen.getByText('角色'), { clientX: 100, clientY: 200 });
+    // Click 新建子文件夹
+    fireEvent.click(screen.getByText('新建子文件夹'));
+    // Create should be called with temp name and parentId
+    await vi.waitFor(() => {
+      expect(createFolder).toHaveBeenCalledWith('新建文件夹', '1');
+    });
+    // Rename modal should open with empty defaultValue
+    expect(setRenameModal).toHaveBeenCalledWith(
+      expect.objectContaining({ open: true, folderId: 'new-id', defaultValue: '' }),
+    );
   });
 });
 

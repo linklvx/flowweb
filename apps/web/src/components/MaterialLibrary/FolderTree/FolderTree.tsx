@@ -107,7 +107,6 @@ export default function FolderTree() {
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folder: MaterialFolder } | null>(null);
-  const [ctxCreateSubFolder, setCtxCreateSubFolder] = useState<MaterialFolder | null>(null);
   const [ctxRenameFolder, setCtxRenameFolder] = useState<MaterialFolder | null>(null);
 
   const handleDoubleClick = React.useCallback((id: string, name: string) => {
@@ -120,6 +119,25 @@ export default function FolderTree() {
       setContextMenu({ x: e.clientX, y: e.clientY, folder });
     }
   }, [folders]);
+
+  const handleCreateSub = React.useCallback(async (parentFolder: MaterialFolder) => {
+    let tempName = '新建文件夹';
+    const parentKey = parentFolder.id;
+    const siblings = folders.filter((f) => (f.parentId ?? null) === parentKey);
+    let counter = 1;
+    while (siblings.some((f) => f.name === tempName)) {
+      tempName = `新建文件夹 ${counter}`;
+      counter++;
+    }
+    await useMaterialLibraryStore.getState().createFolder(tempName, parentKey);
+    const updated = useMaterialLibraryStore.getState().folders;
+    const newFolder = updated.find(
+      (f) => f.name === tempName && (f.parentId ?? null) === parentKey,
+    );
+    if (newFolder) {
+      setRenameModal({ open: true, folderId: newFolder.id, defaultValue: '' });
+    }
+  }, [folders, setRenameModal]);
 
   const treeData = buildTree(folders, null, handleDoubleClick, handleContextMenu);
 
@@ -232,20 +250,10 @@ export default function FolderTree() {
           y={contextMenu.y}
           folder={contextMenu.folder}
           onClose={() => setContextMenu(null)}
-          onCreateSub={() => setCtxCreateSubFolder(contextMenu.folder)}
+          onCreateSub={() => handleCreateSub(contextMenu.folder)}
           onRename={() => setCtxRenameFolder(contextMenu.folder)}
         />
       )}
-      <FolderInputModal
-        open={ctxCreateSubFolder !== null}
-        title="新建子文件夹"
-        defaultValue=""
-        onOk={(value) => {
-          useMaterialLibraryStore.getState().createFolder(value, ctxCreateSubFolder!.id);
-          setCtxCreateSubFolder(null);
-        }}
-        onCancel={() => setCtxCreateSubFolder(null)}
-      />
       <FolderInputModal
         open={ctxRenameFolder !== null}
         title="重命名"
