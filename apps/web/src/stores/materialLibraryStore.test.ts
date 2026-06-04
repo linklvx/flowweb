@@ -108,3 +108,109 @@ describe('materialLibraryStore - duplicate name check', () => {
     expect(mockPut).toHaveBeenCalledWith('/api/material/folders/f1', { name: '角色' });
   });
 });
+
+describe('materialLibraryStore - batch operations', () => {
+  const testFile: any = (id: string) => ({
+    id, originalName: `file-${id}`, mimeType: 'image/png', size: 100,
+    url: `/minio-storage/${id}`, thumbnailUrl: null, folderId: 'folder-1',
+    isFavorite: false, createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useMaterialLibraryStore.setState({
+      batchMode: false,
+      selectedFileIds: new Set(),
+      files: [testFile('f1'), testFile('f2'), testFile('f3')],
+    });
+  });
+
+  it('should enter batch mode', () => {
+    useMaterialLibraryStore.getState().enterBatchMode();
+    expect(useMaterialLibraryStore.getState().batchMode).toBe(true);
+  });
+
+  it('should exit batch mode and clear selection', () => {
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']) });
+    useMaterialLibraryStore.getState().exitBatchMode();
+    const state = useMaterialLibraryStore.getState();
+    expect(state.batchMode).toBe(false);
+    expect(state.selectedFileIds.size).toBe(0);
+  });
+
+  it('should select a file', () => {
+    useMaterialLibraryStore.getState().selectFile('f1');
+    expect(useMaterialLibraryStore.getState().selectedFileIds.has('f1')).toBe(true);
+  });
+
+  it('should deselect a file', () => {
+    useMaterialLibraryStore.setState({ selectedFileIds: new Set(['f1', 'f2']) });
+    useMaterialLibraryStore.getState().deselectFile('f1');
+    expect(useMaterialLibraryStore.getState().selectedFileIds.has('f1')).toBe(false);
+    expect(useMaterialLibraryStore.getState().selectedFileIds.has('f2')).toBe(true);
+  });
+
+  it('should toggle file selection', () => {
+    const store = useMaterialLibraryStore.getState();
+    store.toggleFileSelection('f1');
+    expect(useMaterialLibraryStore.getState().selectedFileIds.has('f1')).toBe(true);
+    useMaterialLibraryStore.getState().toggleFileSelection('f1');
+    expect(useMaterialLibraryStore.getState().selectedFileIds.has('f1')).toBe(false);
+  });
+
+  it('should select all files', () => {
+    useMaterialLibraryStore.getState().selectAllFiles();
+    const { selectedFileIds } = useMaterialLibraryStore.getState();
+    expect(selectedFileIds.has('f1')).toBe(true);
+    expect(selectedFileIds.has('f2')).toBe(true);
+    expect(selectedFileIds.has('f3')).toBe(true);
+  });
+
+  it('batchDelete should send POST and remove files on success', async () => {
+    mockPost.mockResolvedValue({ data: { success: true, count: 2 } });
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']) });
+
+    await useMaterialLibraryStore.getState().batchDelete();
+
+    expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-delete', { ids: ['f1', 'f2'] });
+    const state = useMaterialLibraryStore.getState();
+    expect(state.files).toHaveLength(1);
+    expect(state.files[0].id).toBe('f3');
+    expect(state.batchMode).toBe(false);
+    expect(state.selectedFileIds.size).toBe(0);
+    expect(message.success).toHaveBeenCalledWith('成功删除 2 个文件');
+  });
+
+  it('batchDelete should warn on partial success', async () => {
+    mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']) });
+
+    await useMaterialLibraryStore.getState().batchDelete();
+
+    expect(message.warning).toHaveBeenCalledWith('部分文件删除失败，成功删除 1/2 个');
+  });
+
+  it('batchDelete should not send request when nothing selected', async () => {
+    useMaterialLibraryStore.setState({ selectedFileIds: new Set() });
+    await useMaterialLibraryStore.getState().batchDelete();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('batchDelete should show error on failure', async () => {
+    mockPost.mockRejectedValue(new Error('Network error'));
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']) });
+
+    await useMaterialLibraryStore.getState().batchDelete();
+
+    expect(message.error).toHaveBeenCalledWith('批量删除失败，请稍后重试');
+  });
+
+  it('should auto-exit batch mode when closing', () => {
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']) });
+    useMaterialLibraryStore.getState().close();
+    const state = useMaterialLibraryStore.getState();
+    expect(state.isOpen).toBe(false);
+    expect(state.batchMode).toBe(false);
+    expect(state.selectedFileIds.size).toBe(0);
+  });
+});

@@ -48,4 +48,32 @@ describe('FileCard', () => {
     expect(screen.getByTitle('收藏')).toBeInTheDocument();
     expect(screen.getByTitle('删除')).toBeInTheDocument();
   });
+
+  describe('batch mode', () => {
+    const baseProps = { file, batchMode: false, selected: false, onToggleSelect: vi.fn() };
+
+    it('should render checkbox when in batch mode', () => {
+      render(<FileCard {...baseProps} batchMode={true} />);
+      expect(screen.getByRole('checkbox')).toBeInTheDocument();
+    });
+
+    it('should not render checkbox when not in batch mode', () => {
+      render(<FileCard {...baseProps} batchMode={false} />);
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('should hide action buttons when in batch mode', () => {
+      render(<FileCard {...baseProps} batchMode={true} />);
+      expect(screen.queryByTitle('收藏')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('删除')).not.toBeInTheDocument();
+    });
+
+    it('should call onToggleSelect when clicked in batch mode', () => {
+      const onToggleSelect = vi.fn();
+      render(<FileCard {...baseProps} batchMode={true} onToggleSelect={onToggleSelect} />);
+      // Click the card
+      screen.getByText('test.png').click();
+      expect(onToggleSelect).toHaveBeenCalled();
+    });
+  });
 });

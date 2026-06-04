@@ -54,4 +54,18 @@ describe('FileController', () => {
     const res = await controller.deleteFile('m-1', mockReq());
     expect(res).toEqual({ success: true });
   });
+
+  it('POST /batch-delete should batch delete and return count', async () => {
+    service.deleteFiles = vi.fn().mockResolvedValue(3);
+    const res = await controller.batchDelete({ ids: ['m-1', 'm-2', 'm-3'] }, mockReq());
+    expect(service.deleteFiles).toHaveBeenCalledWith('user-1', ['m-1', 'm-2', 'm-3']);
+    expect(res).toEqual({ success: true, count: 3 });
+  });
+
+  it('POST /batch-delete should handle empty array', async () => {
+    service.deleteFiles = vi.fn().mockResolvedValue(0);
+    const res = await controller.batchDelete({ ids: [] }, mockReq());
+    expect(service.deleteFiles).toHaveBeenCalledWith('user-1', []);
+    expect(res).toEqual({ success: true, count: 0 });
+  });
 });

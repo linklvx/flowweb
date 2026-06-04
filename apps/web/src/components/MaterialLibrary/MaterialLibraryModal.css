@@ -67,3 +67,13 @@
 .zoom-slider { -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; outline: none; }
 .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #3b82f6; border-radius: 50%; cursor: pointer; border: none; }
 .zoom-slider::-moz-range-thumb { width: 14px; height: 14px; background: #3b82f6; border-radius: 50%; cursor: pointer; border: none; }
+
+/* Batch operation buttons */
+.batch-btn { padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s ease; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); }
+.batch-btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.15); }
+.batch-btn-enter { background: rgba(59,130,246,0.12); color: #60a5fa; border-color: rgba(59,130,246,0.2); }
+.batch-btn-enter:hover { background: rgba(59,130,246,0.2); color: #93bbfd; border-color: rgba(59,130,246,0.35); }
+.batch-btn-delete { background: rgba(239,68,68,0.12); color: #f87171; border-color: rgba(239,68,68,0.2); }
+.batch-btn-delete:hover { background: rgba(239,68,68,0.22); color: #fca5a5; border-color: rgba(239,68,68,0.35); }
+.batch-btn-delete:disabled { opacity: 0.35; cursor: not-allowed; }
+.batch-btn-delete:disabled:hover { background: rgba(239,68,68,0.12); color: #f87171; border-color: rgba(239,68,68,0.2); }

@@ -19,6 +19,7 @@ describe('MaterialService', () => {
         findMany: vi.fn(),
         findFirst: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       materialFolder: {
         findFirst: vi.fn(),
@@ -132,6 +133,38 @@ describe('MaterialService', () => {
     it('should throw if file not found', async () => {
       prisma.media.findFirst.mockResolvedValue(null);
       await expect(service.deleteFile('u1', 'm-99')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('deleteFiles', () => {
+    it('should batch soft-delete multiple files and return count', async () => {
+      prisma.media.updateMany.mockResolvedValue({ count: 3 });
+
+      const count = await service.deleteFiles('user-1', ['m-1', 'm-2', 'm-3']);
+
+      expect(prisma.media.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, userId: 'user-1', deletedAt: null },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(count).toBe(3);
+    });
+
+    it('should return 0 for empty ids array', async () => {
+      const count = await service.deleteFiles('user-1', []);
+      expect(count).toBe(0);
+      expect(prisma.media.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should filter by userId so users cannot delete others files', async () => {
+      prisma.media.updateMany.mockResolvedValue({ count: 0 });
+
+      const count = await service.deleteFiles('user-1', ['m-other']);
+
+      expect(prisma.media.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m-other'] }, userId: 'user-1', deletedAt: null },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(count).toBe(0);
     });
   });
 });

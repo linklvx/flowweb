@@ -22,6 +22,8 @@ interface MaterialLibraryState {
   uploading: boolean;
   uploadProgress: number;
   renameModal: RenameModalState;
+  batchMode: boolean;
+  selectedFileIds: Set<string>;
 
   open: () => void;
   close: () => void;
@@ -38,6 +40,13 @@ interface MaterialLibraryState {
   uploadFile: (file: File) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
+  enterBatchMode: () => void;
+  exitBatchMode: () => void;
+  selectFile: (id: string) => void;
+  deselectFile: (id: string) => void;
+  toggleFileSelection: (id: string) => void;
+  selectAllFiles: () => void;
+  batchDelete: () => Promise<void>;
 }
 
 export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) => ({
@@ -51,9 +60,11 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   uploadProgress: 0,
 
   renameModal: { open: false, folderId: null, defaultValue: '' },
+  batchMode: false,
+  selectedFileIds: new Set<string>(),
 
   open: () => set({ isOpen: true }),
-  close: () => set({ isOpen: false }),
+  close: () => set({ isOpen: false, batchMode: false, selectedFileIds: new Set() }),
   setSelectedFolder: (id) => set({ selectedFolderId: id }),
   setFileGridSize: (size) => set({ fileGridSize: size }),
   setRenameModal: (value) => set({ renameModal: value }),
@@ -71,7 +82,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   },
 
   loadFiles: async () => {
-    set({ loading: true });
+    set({ loading: true, batchMode: false, selectedFileIds: new Set() });
     try {
       const { selectedFolderId } = get();
       const { data } = await axios.get('/api/material/files', {
@@ -202,6 +213,49 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     const { data } = await axios.put(`/api/material/files/${id}/toggle-favorite`);
     if (data.data?.success) {
       set((s) => ({ files: s.files.map((f) => f.id === id ? { ...f, isFavorite: data.data.data.isFavorite } : f) }));
+    }
+  },
+
+  enterBatchMode: () => set({ batchMode: true }),
+  exitBatchMode: () => set({ batchMode: false, selectedFileIds: new Set() }),
+
+  selectFile: (id) => set((s) => ({ selectedFileIds: new Set([...s.selectedFileIds, id]) })),
+  deselectFile: (id) => set((s) => {
+    const next = new Set(s.selectedFileIds);
+    next.delete(id);
+    return { selectedFileIds: next };
+  }),
+
+  toggleFileSelection: (id) => {
+    const { selectedFileIds } = get();
+    if (selectedFileIds.has(id)) {
+      get().deselectFile(id);
+    } else {
+      get().selectFile(id);
+    }
+  },
+
+  selectAllFiles: () => set((s) => ({ selectedFileIds: new Set(s.files.map((f) => f.id)) })),
+
+  batchDelete: async () => {
+    const { selectedFileIds } = get();
+    if (selectedFileIds.size === 0) return;
+    try {
+      const { data } = await axios.post('/api/material/files/batch-delete', {
+        ids: Array.from(selectedFileIds),
+      });
+      set((s) => ({
+        files: s.files.filter((f) => !selectedFileIds.has(f.id)),
+        batchMode: false,
+        selectedFileIds: new Set(),
+      }));
+      if (data.count === selectedFileIds.size) {
+        message.success(`成功删除 ${data.count} 个文件`);
+      } else {
+        message.warning(`部分文件删除失败，成功删除 ${data.count}/${selectedFileIds.size} 个`);
+      }
+    } catch {
+      message.error('批量删除失败，请稍后重试');
     }
   },
 }));

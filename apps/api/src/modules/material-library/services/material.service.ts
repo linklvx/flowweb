@@ -84,4 +84,13 @@ export class MaterialService {
       data: { deletedAt: new Date() },
     });
   }
+
+  async deleteFiles(userId: string, ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await this.prisma.media.updateMany({
+      where: { id: { in: ids }, userId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    return result.count;
+  }
 }

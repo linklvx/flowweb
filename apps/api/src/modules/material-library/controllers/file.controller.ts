@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Param, Body, Req, Query, Inject } from '@nestjs/common';
+import { Controller, Get, Put, Post, Delete, Param, Body, Req, Query, Inject } from '@nestjs/common';
 import { MaterialService } from '../services/material.service';
 import { MoveFileDto } from '../dto/move-file.dto';
 
@@ -31,5 +31,11 @@ export class FileController {
   async deleteFile(@Param('id') id: string, @Req() req: any) {
     await this.materialService.deleteFile(req.user.id, id);
     return { success: true };
+  }
+
+  @Post('batch-delete')
+  async batchDelete(@Body() body: { ids: string[] }, @Req() req: any) {
+    const count = await this.materialService.deleteFiles(req.user.id, body.ids);
+    return { success: true, count };
   }
 }
