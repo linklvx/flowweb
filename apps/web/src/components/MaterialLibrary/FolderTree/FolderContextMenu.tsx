@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
 import FolderInputModal from './FolderInputModal';
@@ -68,11 +68,17 @@ export default function FolderContextMenu({ x, y, folder, onClose }: Props) {
   const deleteFolder = useMaterialLibraryStore((s) => s.deleteFolder);
   const moveFolderUp = useMaterialLibraryStore((s) => s.moveFolderUp);
 
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const [createSubModalOpen, setCreateSubModalOpen] = useState(false);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
 
   useEffect(() => {
-    const handler = () => onClose();
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
@@ -99,6 +105,7 @@ export default function FolderContextMenu({ x, y, folder, onClose }: Props) {
   return (
     <>
       <div
+        ref={menuRef}
         role="menu"
         className="fixed z-50 w-[240px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-white/10 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
         style={{ left: adjustedX, top: adjustedY }}
@@ -107,14 +114,14 @@ export default function FolderContextMenu({ x, y, folder, onClose }: Props) {
         <div
           role="menuitem"
           className={menuItemClass}
-          onClick={() => setCreateSubModalOpen(true)}
+          onClick={() => { setCreateSubModalOpen(true); onClose(); }}
         >
           <PlusIcon />新建子文件夹
         </div>
         <div
           role="menuitem"
           className={menuItemClass}
-          onClick={() => setRenameModalOpen(true)}
+          onClick={() => { setRenameModalOpen(true); onClose(); }}
         >
           <PencilIcon />重命名
         </div>
