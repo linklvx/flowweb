@@ -9,11 +9,12 @@ const mockFolders: MaterialFolder[] = [
   { id: '3', name: '子文件夹', parentId: '1', userId: 'u1', sortOrder: 0, isDefault: false, createdAt: '', updatedAt: '' },
 ];
 
-const { setSelectedFolder, createFolder, loadFiles, moveFolder } = vi.hoisted(() => ({
+const { setSelectedFolder, createFolder, loadFiles, moveFolder, setRenameModal } = vi.hoisted(() => ({
   setSelectedFolder: vi.fn(),
   createFolder: vi.fn(),
   loadFiles: vi.fn(),
   moveFolder: vi.fn(),
+  setRenameModal: vi.fn(),
 }));
 
 const mockStore = vi.hoisted(() => {
@@ -22,10 +23,11 @@ const mockStore = vi.hoisted(() => {
       folders: mockFolders,
       selectedFolderId: null,
       setSelectedFolder,
+      renameModal: { open: false, folderId: null, defaultValue: '' },
     };
     return selector ? selector(state) : state;
   });
-  (fn as any).getState = vi.fn(() => ({ createFolder, loadFiles, moveFolder }));
+  (fn as any).getState = vi.fn(() => ({ createFolder, loadFiles, moveFolder, setRenameModal }));
   return fn;
 });
 
@@ -92,44 +94,36 @@ function makeEvent(clientY: number): { clientY: number; target: EventTarget | nu
 
 describe('computeDropParams', () => {
   it('should compute child append when mouse is in middle of target', () => {
-    // clientY=30 on a 0-100 rect -> ratio=0.3 -> middle 50% -> into
     const result = computeDropParams(mockFolders, '3', '2', makeEvent(30));
     expect(result).toEqual({ parentId: '2', afterId: null });
   });
 
   it('should compute drop into at upper middle boundary', () => {
-    // clientY=26 -> ratio=0.26 -> middle 50% -> into
     const result = computeDropParams(mockFolders, '3', '2', makeEvent(26));
     expect(result).toEqual({ parentId: '2', afterId: null });
   });
 
   it('should compute drop into at lower middle boundary', () => {
-    // clientY=74 -> ratio=0.74 -> middle 50% -> into
     const result = computeDropParams(mockFolders, '3', '2', makeEvent(74));
     expect(result).toEqual({ parentId: '2', afterId: null });
   });
 
   it('should compute before placement when mouse is above target', () => {
-    // clientY=10 on a 0-100 rect -> ratio=0.1 -> top 25% -> above
     const result = computeDropParams(mockFolders, '3', '2', makeEvent(10));
-    // Target '2' is root-level sibling 1 (after '1'), drop above '2' -> afterId='1'
     expect(result).toEqual({ parentId: null, afterId: '1' });
   });
 
   it('should compute before first sibling', () => {
-    // Drop above the first sibling (folder '1')
     const result = computeDropParams(mockFolders, '3', '1', makeEvent(10));
     expect(result).toEqual({ parentId: null, afterId: null });
   });
 
   it('should compute after placement when mouse is below target', () => {
-    // clientY=80 on a 0-100 rect -> ratio=0.8 -> bottom 25% -> below
     const result = computeDropParams(mockFolders, '3', '2', makeEvent(80));
     expect(result).toEqual({ parentId: null, afterId: '2' });
   });
 
   it('should compute drop into for nested target', () => {
-    // Target '1' (has child '3'), drop into the middle
     const result = computeDropParams(mockFolders, '2', '1', makeEvent(50));
     expect(result).toEqual({ parentId: '1', afterId: null });
   });

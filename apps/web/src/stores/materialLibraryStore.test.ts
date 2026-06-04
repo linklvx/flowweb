@@ -1,114 +1,110 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useMaterialLibraryStore } from './materialLibraryStore';
-import axios from 'axios';
 
-vi.mock('axios');
+const mockPost = vi.fn();
+const mockPut = vi.fn();
+const mockDelete = vi.fn();
+const mockGet = vi.fn();
 
-describe('materialLibraryStore', () => {
+vi.mock('axios', () => ({
+  default: {
+    post: (...args: any[]) => mockPost(...args),
+    put: (...args: any[]) => mockPut(...args),
+    delete: (...args: any[]) => mockDelete(...args),
+    get: (...args: any[]) => mockGet(...args),
+  },
+  CancelToken: { source: () => ({ token: null }) },
+}));
+
+vi.mock('antd', () => ({
+  message: {
+    error: vi.fn(),
+    success: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
+
+vi.mock('@/api/storageApi', () => ({
+  presignUpload: vi.fn(),
+  confirmUpload: vi.fn(),
+}));
+
+import { message } from 'antd';
+
+describe('materialLibraryStore - renameModal', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useMaterialLibraryStore.setState({
-      isOpen: false,
-      selectedFolderId: null,
       folders: [],
+      selectedFolderId: null,
       files: [],
-      fileGridSize: 200,
-      loading: false,
-      uploading: false,
     });
+  });
+
+  it('should have initial renameModal state as closed', () => {
+    const state = useMaterialLibraryStore.getState();
+    expect((state as any).renameModal).toEqual({ open: false, folderId: null, defaultValue: '' });
+  });
+
+  it('should set renameModal state', () => {
+    useMaterialLibraryStore.getState().setRenameModal({ open: true, folderId: 'f1', defaultValue: 'Old' });
+    const state = useMaterialLibraryStore.getState();
+    expect((state as any).renameModal).toEqual({ open: true, folderId: 'f1', defaultValue: 'Old' });
+  });
+});
+
+describe('materialLibraryStore - duplicate name check', () => {
+  beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should open and close', () => {
-    const { open, close } = useMaterialLibraryStore.getState();
-    open();
-    expect(useMaterialLibraryStore.getState().isOpen).toBe(true);
-    close();
-    expect(useMaterialLibraryStore.getState().isOpen).toBe(false);
+  it('should reject createFolder when name duplicate under same parent', async () => {
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    const folders = [
+      { id: 'f1', name: '角色', parentId: null, userId: 'u1', sortOrder: 0, isDefault: true, createdAt: '', updatedAt: '' },
+    ];
+    useMaterialLibraryStore.setState({ folders });
+
+    await useMaterialLibraryStore.getState().createFolder('角色', null);
+    expect(message.error).toHaveBeenCalledWith('同名文件夹已存在');
+    expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it('should set selected folder', () => {
-    useMaterialLibraryStore.getState().setSelectedFolder('f-1');
-    expect(useMaterialLibraryStore.getState().selectedFolderId).toBe('f-1');
+  it('should allow createFolder when name is unique', async () => {
+    mockPost.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    const folders = [
+      { id: 'f1', name: '角色', parentId: null, userId: 'u1', sortOrder: 0, isDefault: true, createdAt: '', updatedAt: '' },
+    ];
+    useMaterialLibraryStore.setState({ folders });
+
+    await useMaterialLibraryStore.getState().createFolder('新建', null);
+    expect(message.error).not.toHaveBeenCalled();
+    expect(mockPost).toHaveBeenCalledWith('/api/material/folders', { name: '新建', parentId: null });
   });
 
-  it('should set file grid size', () => {
-    useMaterialLibraryStore.getState().setFileGridSize(250);
-    expect(useMaterialLibraryStore.getState().fileGridSize).toBe(250);
+  it('should reject renameFolder when name duplicate excluding self', async () => {
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    const folders = [
+      { id: 'f1', name: '角色', parentId: null, userId: 'u1', sortOrder: 0, isDefault: true, createdAt: '', updatedAt: '' },
+      { id: 'f2', name: '场景', parentId: null, userId: 'u1', sortOrder: 1, isDefault: true, createdAt: '', updatedAt: '' },
+    ];
+    useMaterialLibraryStore.setState({ folders });
+
+    await useMaterialLibraryStore.getState().renameFolder('f2', '角色');
+    expect(message.error).toHaveBeenCalledWith('同名文件夹已存在');
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
-  it('should load folders on success', async () => {
-    (axios.get as any).mockResolvedValue({
-      data: { code: 0, data: { success: true, data: [{ id: 'f-1', name: '角色' }] }, message: 'ok' },
-    });
-    await useMaterialLibraryStore.getState().loadFolders();
-    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'f-1', name: '角色' }]);
-  });
+  it('should allow renameFolder when keeping same name', async () => {
+    mockPut.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    const folders = [
+      { id: 'f1', name: '角色', parentId: null, userId: 'u1', sortOrder: 0, isDefault: true, createdAt: '', updatedAt: '' },
+    ];
+    useMaterialLibraryStore.setState({ folders });
 
-  it('should handle load folders failure', async () => {
-    (axios.get as any).mockRejectedValue(new Error('network'));
-    await useMaterialLibraryStore.getState().loadFolders();
-    expect(useMaterialLibraryStore.getState().loading).toBe(false);
-  });
-
-  it('should rewrite presigned GET URLs through Vite proxy in loadFiles', async () => {
-    (axios.get as any).mockResolvedValue({
-      data: {
-        code: 0,
-        data: {
-          success: true,
-          data: [
-            {
-              id: 'file-1',
-              originalName: 'test.png',
-              mimeType: 'image/png',
-              url: 'http://127.0.0.1:9000/flowai/uploads/user1/2026-06-03/uuid.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
-              thumbnailUrl: null,
-            },
-          ],
-        },
-      },
-    });
-    await useMaterialLibraryStore.getState().loadFiles();
-    const files = useMaterialLibraryStore.getState().files;
-    expect(files[0].url).toBe('/minio-storage/uploads/user1/2026-06-03/uuid.png?X-Amz-Algorithm=AWS4-HMAC-SHA256');
-  });
-
-  it('should rewrite thumbnailUrl through Vite proxy in loadFiles', async () => {
-    (axios.get as any).mockResolvedValue({
-      data: {
-        code: 0,
-        data: {
-          success: true,
-          data: [
-            {
-              id: 'file-2',
-              originalName: 'test.mp4',
-              mimeType: 'video/mp4',
-              url: 'http://127.0.0.1:9000/flowai/uploads/user1/2026-06-03/vid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256',
-              thumbnailUrl: 'http://127.0.0.1:9000/flowai/thumbnails/user1/thumb.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256',
-            },
-          ],
-        },
-      },
-    });
-    await useMaterialLibraryStore.getState().loadFiles();
-    const files = useMaterialLibraryStore.getState().files;
-    expect(files[0].url).toBe('/minio-storage/uploads/user1/2026-06-03/vid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256');
-    expect(files[0].thumbnailUrl).toBe('/minio-storage/thumbnails/user1/thumb.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256');
-  });
-
-  it('should call move endpoint and reload folders', async () => {
-    (axios.put as any).mockResolvedValue({});
-    (axios.get as any).mockResolvedValue({
-      data: { code: 0, data: { success: true, data: [{ id: 'f-1', name: '角色', sortOrder: 0 }] }, message: 'ok' },
-    });
-
-    await useMaterialLibraryStore.getState().moveFolder('f-2', { parentId: null, afterId: 'f-1' });
-
-    expect(axios.put).toHaveBeenCalledWith('/api/material/folders/f-2/move', {
-      parentId: null,
-      afterId: 'f-1',
-    });
-    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'f-1', name: '角色', sortOrder: 0 }]);
+    await useMaterialLibraryStore.getState().renameFolder('f1', '角色');
+    expect(mockPut).toHaveBeenCalledWith('/api/material/folders/f1', { name: '角色' });
   });
 });

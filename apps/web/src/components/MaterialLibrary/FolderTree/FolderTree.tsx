@@ -1,17 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Tree } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
+import FolderInputModal from './FolderInputModal';
 import type { MaterialFolder } from '@flowweb/shared';
 
-function buildTree(folders: MaterialFolder[], parentId: string | null = null): TreeDataNode[] {
+function buildTree(
+  folders: MaterialFolder[],
+  parentId: string | null = null,
+  onRename?: (id: string, name: string) => void,
+): TreeDataNode[] {
   return folders
     .filter((f) => f.parentId === parentId)
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((f) => ({
       key: f.id,
-      title: f.name,
-      children: buildTree(folders, f.id),
+      title: (
+        <span
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onRename?.(f.id, f.name);
+          }}
+        >
+          {f.name}
+        </span>
+      ),
+      children: buildTree(folders, f.id, onRename),
     }));
 }
 
@@ -80,8 +94,17 @@ export default function FolderTree() {
   const folders = useMaterialLibraryStore((s) => s.folders);
   const selectedFolderId = useMaterialLibraryStore((s) => s.selectedFolderId);
   const setSelectedFolder = useMaterialLibraryStore((s) => s.setSelectedFolder);
+  const renameModal = useMaterialLibraryStore((s) => s.renameModal);
+  const setRenameModal = useMaterialLibraryStore((s) => s.setRenameModal);
+  const renameFolder = useMaterialLibraryStore((s) => s.renameFolder);
 
-  const treeData = buildTree(folders);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+
+  const handleDoubleClick = React.useCallback((id: string, name: string) => {
+    setRenameModal({ open: true, folderId: id, defaultValue: name });
+  }, [setRenameModal]);
+
+  const treeData = buildTree(folders, null, handleDoubleClick);
 
   // Track drag-over state for visual feedback
   const dragStateRef = React.useRef<{
@@ -127,10 +150,7 @@ export default function FolderTree() {
   return (
     <div className="folder-tree-container">
       <div className="sidebar-header">
-        <button className="new-folder-btn" onClick={() => {
-          const name = prompt('请输入文件夹名称');
-          if (name) useMaterialLibraryStore.getState().createFolder(name);
-        }}>
+        <button className="new-folder-btn" onClick={() => setCreateModalOpen(true)}>
           + 新建文件夹
         </button>
       </div>
@@ -174,6 +194,20 @@ export default function FolderTree() {
           useMaterialLibraryStore.getState().loadFiles();
         }}
         treeData={treeData}
+      />
+      <FolderInputModal
+        open={createModalOpen}
+        title="新建文件夹"
+        defaultValue=""
+        onOk={(value) => { useMaterialLibraryStore.getState().createFolder(value); setCreateModalOpen(false); }}
+        onCancel={() => setCreateModalOpen(false)}
+      />
+      <FolderInputModal
+        open={renameModal.open}
+        title="重命名"
+        defaultValue={renameModal.defaultValue}
+        onOk={(value) => { renameFolder(renameModal.folderId!, value); setRenameModal({ open: false, folderId: null, defaultValue: '' }); }}
+        onCancel={() => setRenameModal({ open: false, folderId: null, defaultValue: '' })}
       />
     </div>
   );

@@ -6,6 +6,12 @@ import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
 
 const MAX_FILE_SIZE = { image: 10 * 1024 * 1024, video: 100 * 1024 * 1024 };
 
+interface RenameModalState {
+  open: boolean;
+  folderId: string | null;
+  defaultValue: string;
+}
+
 interface MaterialLibraryState {
   isOpen: boolean;
   selectedFolderId: string | null;
@@ -15,11 +21,13 @@ interface MaterialLibraryState {
   loading: boolean;
   uploading: boolean;
   uploadProgress: number;
+  renameModal: RenameModalState;
 
   open: () => void;
   close: () => void;
   setSelectedFolder: (id: string | null) => void;
   setFileGridSize: (size: number) => void;
+  setRenameModal: (value: RenameModalState) => void;
   loadFolders: () => Promise<void>;
   loadFiles: () => Promise<void>;
   createFolder: (name: string, parentId?: string | null) => Promise<void>;
@@ -42,10 +50,13 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   uploading: false,
   uploadProgress: 0,
 
+  renameModal: { open: false, folderId: null, defaultValue: '' },
+
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
   setSelectedFolder: (id) => set({ selectedFolderId: id }),
   setFileGridSize: (size) => set({ fileGridSize: size }),
+  setRenameModal: (value) => set({ renameModal: value }),
 
   loadFolders: async () => {
     set({ loading: true });
@@ -88,11 +99,21 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   },
 
   createFolder: async (name, parentId = null) => {
+    const { folders } = get();
+    const parentKey = parentId ?? null;
+    const dup = folders.find((f) => f.name === name && (f.parentId ?? null) === parentKey);
+    if (dup) { message.error('同名文件夹已存在'); return; }
     await axios.post('/api/material/folders', { name, parentId });
     await get().loadFolders();
   },
 
   renameFolder: async (id, name) => {
+    const { folders } = get();
+    const folder = folders.find((f) => f.id === id);
+    if (!folder) return;
+    const parentKey = folder.parentId ?? null;
+    const dup = folders.find((f) => f.id !== id && f.name === name && (f.parentId ?? null) === parentKey);
+    if (dup) { message.error('同名文件夹已存在'); return; }
     await axios.put(`/api/material/folders/${id}`, { name });
     await get().loadFolders();
   },
@@ -101,6 +122,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     await axios.delete(`/api/material/folders/${id}`);
     const { selectedFolderId } = get();
     if (selectedFolderId === id) set({ selectedFolderId: null });
+    message.success('文件夹删除成功');
     await get().loadFolders();
   },
 
@@ -122,10 +144,10 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   uploadFile: async (file) => {
     const isVideo = file.type.startsWith('video/');
     const isImage = file.type.startsWith('image/');
-    if (!isVideo && !isImage) { alert('仅支持图片和视频文件'); return; }
+    if (!isVideo && !isImage) { message.warning('仅支持图片和视频文件'); return; }
     const maxSize = isVideo ? MAX_FILE_SIZE.video : MAX_FILE_SIZE.image;
     if (file.size > maxSize) {
-      alert(`文件太大，${isVideo ? '视频' : '图片'}最大 ${maxSize / 1024 / 1024}MB`);
+      message.warning(`文件太大，${isVideo ? '视频' : '图片'}最大 ${maxSize / 1024 / 1024}MB`);
       return;
     }
 

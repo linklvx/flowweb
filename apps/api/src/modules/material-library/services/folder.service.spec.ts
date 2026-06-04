@@ -12,6 +12,7 @@ describe('FolderService', () => {
     prisma = {
       materialFolder: {
         create: vi.fn(),
+        createMany: vi.fn(),
         findMany: vi.fn(),
         findFirst: vi.fn(),
         update: vi.fn(),
@@ -20,6 +21,7 @@ describe('FolderService', () => {
       },
       media: {
         updateMany: vi.fn(),
+        count: vi.fn(),
       },
       $transaction: vi.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
     };
@@ -123,6 +125,8 @@ describe('FolderService', () => {
       prisma.materialFolder.findFirst.mockResolvedValue({
         id: 'f-1', name: 'Test', isDefault: false, userId: 'user-1',
       });
+      prisma.media.count.mockResolvedValue(0);
+      prisma.materialFolder.findMany.mockResolvedValue([]);
       prisma.materialFolder.update.mockResolvedValue({});
       prisma.materialFolder.updateMany.mockResolvedValue({});
       prisma.media.updateMany.mockResolvedValue({});
@@ -147,6 +151,8 @@ describe('FolderService', () => {
       prisma.materialFolder.findFirst.mockResolvedValue({
         id: 'f-1', name: '角色', isDefault: true, userId: 'u1',
       });
+      prisma.media.count.mockResolvedValue(0);
+      prisma.materialFolder.findMany.mockResolvedValue([]);
       prisma.materialFolder.update.mockResolvedValue({});
       prisma.materialFolder.updateMany.mockResolvedValue({});
       prisma.media.updateMany.mockResolvedValue({});
@@ -159,6 +165,47 @@ describe('FolderService', () => {
     it('should throw if folder not found', async () => {
       prisma.materialFolder.findFirst.mockResolvedValue(null);
       await expect(service.remove('f-99', 'u1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw if folder has direct media files', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({
+        id: 'f-1', name: 'Test', isDefault: false, userId: 'user-1',
+      });
+      prisma.media.count.mockResolvedValue(3);
+      await expect(service.remove('f-1', 'user-1')).rejects.toThrow('文件夹或其子文件夹中存在文件，请先清空后再删除');
+    });
+
+    it('should throw if descendant folder has media files', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({
+        id: 'f-1', name: 'Parent', isDefault: false, userId: 'user-1',
+      });
+      prisma.media.count.mockResolvedValueOnce(0); // direct: no files
+      prisma.materialFolder.findMany.mockResolvedValue([
+        { id: 'child-1' },
+        { id: 'child-2' },
+      ]);
+      prisma.media.count.mockResolvedValueOnce(0); // child-1: no files
+      prisma.media.count.mockResolvedValueOnce(5); // child-2: 5 files → should block
+
+      await expect(service.remove('f-1', 'user-1')).rejects.toThrow('文件夹或其子文件夹中存在文件，请先清空后再删除');
+    });
+
+    it('should delete when no files in folder or descendants', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({
+        id: 'f-1', name: 'Empty', isDefault: false, userId: 'user-1',
+      });
+      prisma.media.count.mockResolvedValue(0); // no direct files
+      prisma.materialFolder.findMany.mockResolvedValue([]); // no children
+      prisma.materialFolder.update.mockResolvedValue({});
+      prisma.materialFolder.updateMany.mockResolvedValue({});
+      prisma.media.updateMany.mockResolvedValue({});
+
+      await service.remove('f-1', 'user-1');
+
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith({
+        where: { id: 'f-1' },
+        data: { deletedAt: expect.any(Date) },
+      });
     });
   });
 

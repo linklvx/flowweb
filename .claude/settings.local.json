@@ -13,7 +13,9 @@
       "Agent(*)",
       "mcp__*",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(rm -rf /d/flowweb/D:flowwebbackupsv2.3 /d/flowweb/D:flowwebdocssuperpowersspecs)",
+      "Bash(rm -f /d/flowweb/D:flowwebbackupsv2.3database.sql)"
     ],
     "deny": [],
     "defaultMode": "bypassPermissions"

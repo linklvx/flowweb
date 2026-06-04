@@ -67,6 +67,9 @@ export class FolderService {
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
 
+    const hasFiles = await this.hasFilesRecursive(id, userId);
+    if (hasFiles) throw new BadRequestException('文件夹或其子文件夹中存在文件，请先清空后再删除');
+
     await this.prisma.$transaction([
       this.prisma.materialFolder.update({
         where: { id },
@@ -81,6 +84,26 @@ export class FolderService {
         data: { folderId: null },
       }),
     ]);
+  }
+
+  /** Recursively check if a folder or any of its descendants contain media files */
+  private async hasFilesRecursive(folderId: string, userId: string): Promise<boolean> {
+    const directCount = await this.prisma.media.count({
+      where: { folderId, userId },
+    });
+    if (directCount > 0) return true;
+
+    const children = await this.prisma.materialFolder.findMany({
+      where: { parentId: folderId, userId, deletedAt: null },
+      select: { id: true },
+    });
+
+    for (const child of children) {
+      const childHasFiles = await this.hasFilesRecursive(child.id, userId);
+      if (childHasFiles) return true;
+    }
+
+    return false;
   }
 
   async moveUp(id: string, userId: string) {
