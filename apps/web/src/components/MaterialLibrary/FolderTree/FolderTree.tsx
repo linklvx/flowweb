@@ -1,39 +1,95 @@
 import React, { useState } from 'react';
-import { Tree } from 'antd';
+import { Tree, Input } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
 import FolderInputModal from './FolderInputModal';
 import FolderContextMenu from './FolderContextMenu';
 import type { MaterialFolder } from '@flowweb/shared';
 
+interface InlineEditState {
+  folderId: string;
+  defaultValue: string;
+}
+
 function buildTree(
   folders: MaterialFolder[],
   parentId: string | null = null,
-  onRename?: (id: string, name: string) => void,
+  onDoubleClick?: (id: string, name: string) => void,
   onContextMenu?: (id: string, name: string, e: React.MouseEvent) => void,
+  editingFolderId?: string | null,
+  inlineEditProps?: {
+    defaultValue: string;
+    onConfirm: (value: string) => void;
+    onCancel: () => void;
+  },
 ): TreeDataNode[] {
   return folders
     .filter((f) => f.parentId === parentId)
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((f) => ({
-      key: f.id,
-      title: (
-        <span
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            onRename?.(f.id, f.name);
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onContextMenu?.(f.id, f.name, e);
-          }}
-        >
-          {f.name}
-        </span>
-      ),
-      children: buildTree(folders, f.id, onRename, onContextMenu),
-    }));
+    .map((f) => {
+      const isEditing = f.id === editingFolderId && inlineEditProps;
+      return {
+        key: f.id,
+        title: isEditing ? (
+          <InlineEditInput
+            defaultValue={inlineEditProps!.defaultValue}
+            onConfirm={inlineEditProps!.onConfirm}
+            onCancel={inlineEditProps!.onCancel}
+          />
+        ) : (
+          <span
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              onDoubleClick?.(f.id, f.name);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onContextMenu?.(f.id, f.name, e);
+            }}
+          >
+            {f.name}
+          </span>
+        ),
+        children: buildTree(folders, f.id, onDoubleClick, onContextMenu, editingFolderId, inlineEditProps),
+      };
+    });
+}
+
+function InlineEditInput({ defaultValue, onConfirm, onCancel }: {
+  defaultValue: string;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  const inputRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
+
+  const handleConfirm = () => {
+    const trimmed = value.trim();
+    if (trimmed) onConfirm(trimmed);
+  };
+
+  return (
+    <Input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') handleConfirm();
+        if (e.key === 'Escape') onCancel();
+        e.stopPropagation();
+      }}
+      onBlur={onCancel}
+      size="small"
+      style={{ width: 120 }}
+      maxLength={50}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
 }
 
 /** Determine if a drop target is valid */
@@ -101,17 +157,29 @@ export default function FolderTree() {
   const folders = useMaterialLibraryStore((s) => s.folders);
   const selectedFolderId = useMaterialLibraryStore((s) => s.selectedFolderId);
   const setSelectedFolder = useMaterialLibraryStore((s) => s.setSelectedFolder);
-  const renameModal = useMaterialLibraryStore((s) => s.renameModal);
-  const setRenameModal = useMaterialLibraryStore((s) => s.setRenameModal);
   const renameFolder = useMaterialLibraryStore((s) => s.renameFolder);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folder: MaterialFolder } | null>(null);
-  const [ctxRenameFolder, setCtxRenameFolder] = useState<MaterialFolder | null>(null);
+  const [inlineEdit, setInlineEdit] = useState<InlineEditState | null>(null);
+
+  const startInlineEdit = React.useCallback((folderId: string, defaultValue: string) => {
+    setInlineEdit({ folderId, defaultValue });
+  }, []);
+
+  const cancelInlineEdit = React.useCallback(() => {
+    setInlineEdit(null);
+  }, []);
+
+  const confirmInlineEdit = React.useCallback((value: string) => {
+    if (!inlineEdit) return;
+    renameFolder(inlineEdit.folderId, value);
+    setInlineEdit(null);
+  }, [inlineEdit, renameFolder]);
 
   const handleDoubleClick = React.useCallback((id: string, name: string) => {
-    setRenameModal({ open: true, folderId: id, defaultValue: name });
-  }, [setRenameModal]);
+    startInlineEdit(id, name);
+  }, [startInlineEdit]);
 
   const handleContextMenu = React.useCallback((id: string, _name: string, e: React.MouseEvent) => {
     const folder = folders.find((f) => f.id === id);
@@ -135,11 +203,20 @@ export default function FolderTree() {
       (f) => f.name === tempName && (f.parentId ?? null) === parentKey,
     );
     if (newFolder) {
-      setRenameModal({ open: true, folderId: newFolder.id, defaultValue: '' });
+      startInlineEdit(newFolder.id, '');
     }
-  }, [folders, setRenameModal]);
+  }, [folders, startInlineEdit]);
 
-  const treeData = buildTree(folders, null, handleDoubleClick, handleContextMenu);
+  const inlineEditProps = inlineEdit ? {
+    defaultValue: inlineEdit.defaultValue,
+    onConfirm: confirmInlineEdit,
+    onCancel: cancelInlineEdit,
+  } : undefined;
+
+  const treeData = buildTree(
+    folders, null, handleDoubleClick, handleContextMenu,
+    inlineEdit?.folderId, inlineEditProps,
+  );
 
   // Track drag-over state for visual feedback
   const dragStateRef = React.useRef<{
@@ -149,7 +226,6 @@ export default function FolderTree() {
 
   const handleDragOver = React.useCallback((info: any) => {
     const { event } = info;
-    // Find the treenode DOM element
     const treenodeEl = (event.target as HTMLElement)?.closest?.('.ant-tree-treenode') as HTMLElement | null;
     if (!treenodeEl) return;
 
@@ -158,7 +234,6 @@ export default function FolderTree() {
     const ratio = relativeY / rect.height;
     const isIntoZone = ratio > 0.25 && ratio < 0.75;
 
-    // Clean up previous state if hovering a different node
     if (dragStateRef.current.targetEl !== treenodeEl) {
       dragStateRef.current.cleanup?.();
       dragStateRef.current.targetEl = treenodeEl;
@@ -200,23 +275,13 @@ export default function FolderTree() {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDrop={(info) => {
-          // Clean up highlight
           handleDragEnd();
-          // eslint-disable-next-line no-console
-          console.log('[FolderTree onDrop]', {
-            dragKey: info.dragNode.key,
-            targetKey: info.node.key,
-            dragName: (info.dragNode as any).title,
-            targetName: (info.node as any).title,
-          });
           const params = computeDropParams(
             folders,
             info.dragNode.key as string,
             info.node.key as string,
             info.event,
           );
-          // eslint-disable-next-line no-console
-          console.log('[FolderTree onDrop] computed params:', params);
           useMaterialLibraryStore.getState().moveFolder(
             info.dragNode.key as string,
             params,
@@ -237,13 +302,6 @@ export default function FolderTree() {
         onOk={(value) => { useMaterialLibraryStore.getState().createFolder(value); setCreateModalOpen(false); }}
         onCancel={() => setCreateModalOpen(false)}
       />
-      <FolderInputModal
-        open={renameModal.open}
-        title="重命名"
-        defaultValue={renameModal.defaultValue}
-        onOk={(value) => { renameFolder(renameModal.folderId!, value); setRenameModal({ open: false, folderId: null, defaultValue: '' }); }}
-        onCancel={() => setRenameModal({ open: false, folderId: null, defaultValue: '' })}
-      />
       {contextMenu && (
         <FolderContextMenu
           x={contextMenu.x}
@@ -251,19 +309,9 @@ export default function FolderTree() {
           folder={contextMenu.folder}
           onClose={() => setContextMenu(null)}
           onCreateSub={() => handleCreateSub(contextMenu.folder)}
-          onRename={() => setCtxRenameFolder(contextMenu.folder)}
+          onRename={() => startInlineEdit(contextMenu.folder.id, contextMenu.folder.name)}
         />
       )}
-      <FolderInputModal
-        open={ctxRenameFolder !== null}
-        title="重命名"
-        defaultValue={ctxRenameFolder?.name ?? ''}
-        onOk={(value) => {
-          useMaterialLibraryStore.getState().renameFolder(ctxRenameFolder!.id, value);
-          setCtxRenameFolder(null);
-        }}
-        onCancel={() => setCtxRenameFolder(null)}
-      />
     </div>
   );
 }

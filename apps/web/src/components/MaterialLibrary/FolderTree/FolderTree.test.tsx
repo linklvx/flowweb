@@ -9,12 +9,12 @@ const mockFolders: MaterialFolder[] = [
   { id: '3', name: '子文件夹', parentId: '1', userId: 'u1', sortOrder: 0, isDefault: false, createdAt: '', updatedAt: '' },
 ];
 
-const { setSelectedFolder, createFolder, loadFiles, moveFolder, setRenameModal } = vi.hoisted(() => ({
+const { setSelectedFolder, createFolder, loadFiles, moveFolder, renameFolder } = vi.hoisted(() => ({
   setSelectedFolder: vi.fn(),
   createFolder: vi.fn(),
   loadFiles: vi.fn(),
   moveFolder: vi.fn(),
-  setRenameModal: vi.fn(),
+  renameFolder: vi.fn(),
 }));
 
 const mockStore = vi.hoisted(() => {
@@ -23,13 +23,11 @@ const mockStore = vi.hoisted(() => {
       folders: mockFolders,
       selectedFolderId: null,
       setSelectedFolder,
-      renameModal: { open: false, folderId: null, defaultValue: '' },
-      setRenameModal,
-      renameFolder: vi.fn(),
+      renameFolder,
     };
     return selector ? selector(state) : state;
   });
-  (fn as any).getState = vi.fn(() => ({ createFolder, loadFiles, moveFolder, setRenameModal }));
+  (fn as any).getState = vi.fn(() => ({ createFolder, loadFiles, moveFolder, renameFolder, folders: mockFolders }));
   return fn;
 });
 
@@ -80,32 +78,26 @@ describe('FolderTree', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('should create temp folder and open rename on 新建子文件夹 click', async () => {
+  it('should create temp folder on 新建子文件夹 click', async () => {
     createFolder.mockResolvedValue(undefined);
-    // Simulate store returning updated folders after create
-    (mockStore as any).getState.mockReturnValue({
-      createFolder,
-      loadFiles,
-      moveFolder,
-      setRenameModal,
-      folders: [
-        ...mockFolders,
-        { id: 'new-id', name: '新建文件夹', parentId: '1', userId: 'u1', sortOrder: 1, isDefault: false, createdAt: '', updatedAt: '' },
-      ],
-    });
     render(<FolderTree />);
-    // Right-click on 角色 (id=1)
     fireEvent.contextMenu(screen.getByText('角色'), { clientX: 100, clientY: 200 });
-    // Click 新建子文件夹
     fireEvent.click(screen.getByText('新建子文件夹'));
-    // Create should be called with temp name and parentId
     await vi.waitFor(() => {
       expect(createFolder).toHaveBeenCalledWith('新建文件夹', '1');
     });
-    // Rename modal should open with empty defaultValue
-    expect(setRenameModal).toHaveBeenCalledWith(
-      expect.objectContaining({ open: true, folderId: 'new-id', defaultValue: '' }),
-    );
+    // Inline edit: should NOT open a modal
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('should show inline input on 重命名 context menu click', () => {
+    render(<FolderTree />);
+    fireEvent.contextMenu(screen.getByText('角色'), { clientX: 100, clientY: 200 });
+    fireEvent.click(screen.getByText('重命名'));
+    // Inline input should appear in the tree with folder name as defaultValue
+    const inputs = screen.getAllByRole('textbox');
+    const inlineInput = inputs.find((el) => (el as HTMLInputElement).value === '角色');
+    expect(inlineInput).toBeTruthy();
   });
 });
 
