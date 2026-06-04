@@ -33,13 +33,19 @@ vi.mock('../../../stores/materialLibraryStore', () => ({
   useMaterialLibraryStore: mockStore,
 }));
 
+const defaultProps = {
+  onClose: vi.fn(),
+  onCreateSub: vi.fn(),
+  onRename: vi.fn(),
+};
+
 describe('FolderContextMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('should render all context menu items in correct order', () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     const items = screen.getAllByRole('menuitem');
     expect(items).toHaveLength(4);
     expect(items[0]).toHaveTextContent('新建子文件夹');
@@ -49,7 +55,7 @@ describe('FolderContextMenu', () => {
   });
 
   it('should render SVG icons for each menu item', () => {
-    const { container } = render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     const items = screen.getAllByRole('menuitem');
     expect(items).toHaveLength(4);
     items.forEach((item) => {
@@ -58,10 +64,9 @@ describe('FolderContextMenu', () => {
   });
 
   it('should render separator before delete item', () => {
-    const { container } = render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+    const { container } = render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     const separator = container.querySelector('[role="separator"]');
     expect(separator).toBeTruthy();
-    // Separator should be before the delete item
     const deleteItem = screen.getByText('删除').closest('[role="menuitem"]');
     expect(separator!.compareDocumentPosition(deleteItem!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -69,37 +74,39 @@ describe('FolderContextMenu', () => {
   });
 
   it('should apply destructive styling to delete item', () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     const deleteItem = screen.getByText('删除').closest('[role="menuitem"]');
     expect(deleteItem?.getAttribute('data-variant')).toBe('destructive');
   });
 
   it('should show all items for default folder too', () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockDefaultFolder} onClose={vi.fn()} />);
+    render(<FolderContextMenu x={0} y={0} folder={mockDefaultFolder} {...defaultProps} />);
     expect(screen.getByText('新建子文件夹')).toBeInTheDocument();
     expect(screen.getByText('重命名')).toBeInTheDocument();
     expect(screen.getByText('删除')).toBeInTheDocument();
     expect(screen.getByText('向上移动')).toBeInTheDocument();
   });
 
-  it('should show create subfolder modal on click', async () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+  it('should call onCreateSub and onClose on 新建子文件夹 click', () => {
+    const onClose = vi.fn();
+    const onCreateSub = vi.fn();
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={onClose} onCreateSub={onCreateSub} onRename={vi.fn()} />);
     fireEvent.click(screen.getByText('新建子文件夹'));
-    await waitFor(() => {
-      expect(screen.getAllByText('新建子文件夹').length).toBeGreaterThanOrEqual(2);
-    });
+    expect(onCreateSub).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('should show rename modal with defaultValue on click', async () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+  it('should call onRename and onClose on 重命名 click', () => {
+    const onClose = vi.fn();
+    const onRename = vi.fn();
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={onClose} onCreateSub={vi.fn()} onRename={onRename} />);
     fireEvent.click(screen.getByText('重命名'));
-    await waitFor(() => {
-      expect(screen.getByRole('textbox')).toHaveValue('我的文件夹');
-    });
+    expect(onRename).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('should show delete confirm dialog on click', async () => {
-    render(<FolderContextMenu x={0} y={0} folder={mockFolder} onClose={vi.fn()} />);
+    render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     fireEvent.click(screen.getByText('删除'));
     await waitFor(() => {
       expect(screen.getByText(/确定删除/)).toBeInTheDocument();

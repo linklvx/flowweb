@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Modal } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
-import FolderInputModal from './FolderInputModal';
 import type { MaterialFolder } from '@flowweb/shared';
 
 interface Props {
@@ -9,6 +8,8 @@ interface Props {
   y: number;
   folder: MaterialFolder;
   onClose: () => void;
+  onCreateSub: () => void;
+  onRename: () => void;
 }
 
 /* SVG icons extracted from reference design */
@@ -62,16 +63,11 @@ const menuItemClass =
 const destructiveItemClass =
   'focus:bg-accent relative flex cursor-default items-center rounded-sm px-2 outline-hidden select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-destructive-foreground';
 
-export default function FolderContextMenu({ x, y, folder, onClose }: Props) {
-  const createFolder = useMaterialLibraryStore((s) => s.createFolder);
-  const renameFolder = useMaterialLibraryStore((s) => s.renameFolder);
+export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, onRename }: Props) {
   const deleteFolder = useMaterialLibraryStore((s) => s.deleteFolder);
   const moveFolderUp = useMaterialLibraryStore((s) => s.moveFolderUp);
 
   const menuRef = useRef<HTMLDivElement>(null);
-
-  const [createSubModalOpen, setCreateSubModalOpen] = useState(false);
-  const [renameModalOpen, setRenameModalOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -103,59 +99,43 @@ export default function FolderContextMenu({ x, y, folder, onClose }: Props) {
   const adjustedY = Math.min(y, window.innerHeight - 250);
 
   return (
-    <>
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed z-50 w-[240px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-white/10 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
+      style={{ left: adjustedX, top: adjustedY }}
+      tabIndex={-1}
+    >
       <div
-        ref={menuRef}
-        role="menu"
-        className="fixed z-50 w-[240px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-white/10 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
-        style={{ left: adjustedX, top: adjustedY }}
-        tabIndex={-1}
+        role="menuitem"
+        className={menuItemClass}
+        onClick={() => { onCreateSub(); onClose(); }}
       >
-        <div
-          role="menuitem"
-          className={menuItemClass}
-          onClick={() => { setCreateSubModalOpen(true); onClose(); }}
-        >
-          <PlusIcon />新建子文件夹
-        </div>
-        <div
-          role="menuitem"
-          className={menuItemClass}
-          onClick={() => { setRenameModalOpen(true); onClose(); }}
-        >
-          <PencilIcon />重命名
-        </div>
-        <div
-          role="menuitem"
-          className={menuItemClass}
-          onClick={() => { moveFolderUp(folder.id); onClose(); }}
-        >
-          <ArrowUpIcon />向上移动
-        </div>
-        <div role="separator" className="bg-white/10 -mx-1 my-1 h-px" />
-        <div
-          role="menuitem"
-          data-variant="destructive"
-          className={destructiveItemClass}
-          onClick={handleDelete}
-        >
-          <TrashIcon />删除
-        </div>
+        <PlusIcon />新建子文件夹
       </div>
-      <FolderInputModal
-        open={createSubModalOpen}
-        title="新建子文件夹"
-        defaultValue=""
-        onOk={(value) => { createFolder(value, folder.id); setCreateSubModalOpen(false); }}
-        onCancel={() => setCreateSubModalOpen(false)}
-      />
-      <FolderInputModal
-        open={renameModalOpen}
-        title="重命名"
-        defaultValue={folder.name}
-        onOk={(value) => { renameFolder(folder.id, value); setRenameModalOpen(false); }}
-        onCancel={() => setRenameModalOpen(false)}
-      />
-    </>
+      <div
+        role="menuitem"
+        className={menuItemClass}
+        onClick={() => { onRename(); onClose(); }}
+      >
+        <PencilIcon />重命名
+      </div>
+      <div
+        role="menuitem"
+        className={menuItemClass}
+        onClick={() => { moveFolderUp(folder.id); onClose(); }}
+      >
+        <ArrowUpIcon />向上移动
+      </div>
+      <div role="separator" className="bg-white/10 -mx-1 my-1 h-px" />
+      <div
+        role="menuitem"
+        data-variant="destructive"
+        className={destructiveItemClass}
+        onClick={handleDelete}
+      >
+        <TrashIcon />删除
+      </div>
+    </div>
   );
 }

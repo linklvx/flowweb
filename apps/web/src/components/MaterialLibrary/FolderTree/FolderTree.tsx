@@ -107,6 +107,8 @@ export default function FolderTree() {
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folder: MaterialFolder } | null>(null);
+  const [ctxCreateSubFolder, setCtxCreateSubFolder] = useState<MaterialFolder | null>(null);
+  const [ctxRenameFolder, setCtxRenameFolder] = useState<MaterialFolder | null>(null);
 
   const handleDoubleClick = React.useCallback((id: string, name: string) => {
     setRenameModal({ open: true, folderId: id, defaultValue: name });
@@ -230,8 +232,30 @@ export default function FolderTree() {
           y={contextMenu.y}
           folder={contextMenu.folder}
           onClose={() => setContextMenu(null)}
+          onCreateSub={() => setCtxCreateSubFolder(contextMenu.folder)}
+          onRename={() => setCtxRenameFolder(contextMenu.folder)}
         />
       )}
+      <FolderInputModal
+        open={ctxCreateSubFolder !== null}
+        title="新建子文件夹"
+        defaultValue=""
+        onOk={(value) => {
+          useMaterialLibraryStore.getState().createFolder(value, ctxCreateSubFolder!.id);
+          setCtxCreateSubFolder(null);
+        }}
+        onCancel={() => setCtxCreateSubFolder(null)}
+      />
+      <FolderInputModal
+        open={ctxRenameFolder !== null}
+        title="重命名"
+        defaultValue={ctxRenameFolder?.name ?? ''}
+        onOk={(value) => {
+          useMaterialLibraryStore.getState().renameFolder(ctxRenameFolder!.id, value);
+          setCtxRenameFolder(null);
+        }}
+        onCancel={() => setCtxRenameFolder(null)}
+      />
     </div>
   );
 }
