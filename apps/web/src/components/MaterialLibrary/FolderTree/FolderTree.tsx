@@ -277,7 +277,7 @@ export default function FolderTree() {
           {expandedKeys.length === folders.length ? '全部折叠' : '全部展开'}
         </button>
       </div>
-      <div className="overflow-y-auto flex-1 px-1" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+      <div className="overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 260px)' }}>
         <Tree
           className="draggable-folder-tree"
           showLine
