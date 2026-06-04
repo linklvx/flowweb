@@ -29,14 +29,21 @@ export default function MaterialLibraryModal() {
         <div className="material-library-main">
           <div className="main-header">
             <div className="flex items-center gap-3">
-              <input type="file" accept="image/*,video/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) useMaterialLibraryStore.getState().uploadFile(file);
-                  e.target.value = '';
-                }}
-                disabled={uploading} />
-              {uploading && <span className="text-blue-400 text-sm">上传中...</span>}
+              <div className={`upload-btn-wrapper ${uploading ? 'upload-btn-disabled' : ''}`}>
+                <button className="upload-btn">选择文件</button>
+                <input type="file" accept="image/*,video/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) useMaterialLibraryStore.getState().uploadFile(file);
+                    e.target.value = '';
+                  }}
+                  disabled={uploading} />
+              </div>
+              {uploading ? (
+                <span className="text-blue-400 text-sm">上传中...</span>
+              ) : (
+                <span className="upload-hint">未选择任何文件</span>
+              )}
             </div>
             <FileGridZoomControl />
           </div>

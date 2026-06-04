@@ -266,9 +266,10 @@ export default function FolderTree() {
           + 新建文件夹
         </button>
       </div>
-      <div className="flex items-center justify-between px-1 py-1 text-xs text-gray-400">
+      <div className="flex items-center justify-between px-3 py-1.5" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <span>文件夹</span>
-        <button className="hover:text-white transition-colors"
+        <button className="transition-colors hover:text-white"
+          style={{ color: 'rgba(255,255,255,0.3)' }}
           onClick={() => {
             const allKeys = folders.map((f) => f.id);
             setExpandedKeys(expandedKeys.length === allKeys.length ? [] : allKeys);
@@ -276,7 +277,7 @@ export default function FolderTree() {
           {expandedKeys.length === folders.length ? '全部折叠' : '全部展开'}
         </button>
       </div>
-      <div className="overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+      <div className="overflow-y-auto flex-1 px-1" style={{ maxHeight: 'calc(100vh - 260px)' }}>
         <Tree
           className="draggable-folder-tree"
           showLine
