@@ -276,10 +276,11 @@ export default function FolderTree() {
           {expandedKeys.length === folders.length ? '全部折叠' : '全部展开'}
         </button>
       </div>
-      <Tree
-        className="draggable-folder-tree"
-        showLine
-        expandedKeys={expandedKeys}
+      <div className="overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+        <Tree
+          className="draggable-folder-tree"
+          showLine
+          expandedKeys={expandedKeys}
         onExpand={(keys) => setExpandedKeys(keys as string[])}
         draggable
         allowDrop={({ dragNode, dropNode, dropPosition }) =>
@@ -308,6 +309,7 @@ export default function FolderTree() {
         }}
         treeData={treeData}
       />
+      </div>
       <FolderInputModal
         open={createModalOpen}
         title="新建文件夹"
