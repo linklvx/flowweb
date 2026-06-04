@@ -8,7 +8,9 @@
 .material-library-container { display: flex; height: 100%; }
 
 /* Sidebar */
-.material-library-sidebar { width: 240px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; background-color: #1e1e1e; border-radius: 0 0 0 12px; }
+.material-library-sidebar { width: 240px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; background-color: #252525; overflow: hidden; }
+.folder-tree-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.folder-tree-scroll { flex: 1; overflow-y: auto; min-height: 0; }
 
 /* Sidebar header */
 .sidebar-header { padding: 14px 12px; }
@@ -41,8 +43,9 @@
 .draggable-folder-tree .ant-tree-node-content-wrapper:hover { background: rgba(255,255,255,0.06); }
 .draggable-folder-tree .ant-tree-node-selected .ant-tree-node-content-wrapper { background: rgba(59,130,246,0.12) !important; }
 .draggable-folder-tree .ant-tree-node-content-wrapper:active { cursor: grabbing; }
-.draggable-folder-tree .ant-tree-switcher { color: rgba(255,255,255,0.35); }
-.draggable-folder-tree .ant-tree-switcher:hover { color: rgba(255,255,255,0.6); }
+.draggable-folder-tree .ant-tree-switcher { color: rgba(255,255,255,0.5); }
+.draggable-folder-tree .ant-tree-switcher:hover { color: rgba(255,255,255,0.7); }
+.draggable-folder-tree .ant-tree-show-line .ant-tree-indent-unit::before { border-color: rgba(255,255,255,0.22); }
 .draggable-folder-tree .ant-tree-drop-indicator { background-color: #3b82f6; height: 2px; }
 
 /* "Drop into" visual feedback */
