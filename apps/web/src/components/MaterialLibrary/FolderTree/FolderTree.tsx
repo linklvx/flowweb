@@ -265,16 +265,16 @@ export default function FolderTree() {
         <button className="new-folder-btn" onClick={() => setCreateModalOpen(true)}>
           + 新建文件夹
         </button>
-        <div className="flex gap-1 mt-1">
-          <button className="text-xs text-gray-400 hover:text-white transition-colors"
-            onClick={() => setExpandedKeys(folders.map((f) => f.id))}>
-            展开
-          </button>
-          <button className="text-xs text-gray-400 hover:text-white transition-colors"
-            onClick={() => setExpandedKeys([])}>
-            折叠
-          </button>
-        </div>
+      </div>
+      <div className="flex items-center justify-between px-1 py-1 text-xs text-gray-400">
+        <span>文件夹</span>
+        <button className="hover:text-white transition-colors"
+          onClick={() => {
+            const allKeys = folders.map((f) => f.id);
+            setExpandedKeys(expandedKeys.length === allKeys.length ? [] : allKeys);
+          }}>
+          {expandedKeys.length === folders.length ? '全部折叠' : '全部展开'}
+        </button>
       </div>
       <Tree
         className="draggable-folder-tree"
