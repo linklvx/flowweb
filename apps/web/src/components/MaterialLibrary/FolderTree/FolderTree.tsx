@@ -268,7 +268,7 @@ export default function FolderTree() {
       </div>
       <div className="flex items-center justify-between px-1 py-1 text-xs text-gray-400">
         <span>文件夹</span>
-        <button className="hover:text-white transition-colors"
+        <button className="text-gray-400 hover:text-white hover:bg-white/10 rounded px-1.5 py-0.5 transition-colors bg-transparent border-none cursor-pointer"
           onClick={() => {
             const allKeys = folders.map((f) => f.id);
             setExpandedKeys(expandedKeys.length === allKeys.length ? [] : allKeys);
