@@ -162,6 +162,7 @@ export default function FolderTree() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folder: MaterialFolder } | null>(null);
   const [inlineEdit, setInlineEdit] = useState<InlineEditState | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>(() => folders.map((f) => f.id));
 
   const startInlineEdit = React.useCallback((folderId: string, defaultValue: string) => {
     setInlineEdit({ folderId, defaultValue });
@@ -203,6 +204,7 @@ export default function FolderTree() {
       (f) => f.name === tempName && (f.parentId ?? null) === parentKey,
     );
     if (newFolder) {
+      setExpandedKeys((prev) => prev.includes(parentKey) ? prev : [...prev, parentKey]);
       startInlineEdit(newFolder.id, '');
     }
   }, [folders, startInlineEdit]);
@@ -267,7 +269,8 @@ export default function FolderTree() {
       <Tree
         className="draggable-folder-tree"
         showLine
-        defaultExpandAll
+        expandedKeys={expandedKeys}
+        onExpand={(keys) => setExpandedKeys(keys as string[])}
         draggable
         allowDrop={({ dragNode, dropNode, dropPosition }) =>
           canDrop(folders, dragNode.key as string, dropNode.key as string, dropPosition)
