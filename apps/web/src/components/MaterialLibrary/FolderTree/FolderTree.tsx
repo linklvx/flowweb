@@ -3,12 +3,14 @@ import { Tree } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
 import FolderInputModal from './FolderInputModal';
+import FolderContextMenu from './FolderContextMenu';
 import type { MaterialFolder } from '@flowweb/shared';
 
 function buildTree(
   folders: MaterialFolder[],
   parentId: string | null = null,
   onRename?: (id: string, name: string) => void,
+  onContextMenu?: (id: string, name: string, e: React.MouseEvent) => void,
 ): TreeDataNode[] {
   return folders
     .filter((f) => f.parentId === parentId)
@@ -21,11 +23,16 @@ function buildTree(
             e.stopPropagation();
             onRename?.(f.id, f.name);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu?.(f.id, f.name, e);
+          }}
         >
           {f.name}
         </span>
       ),
-      children: buildTree(folders, f.id, onRename),
+      children: buildTree(folders, f.id, onRename, onContextMenu),
     }));
 }
 
@@ -99,12 +106,20 @@ export default function FolderTree() {
   const renameFolder = useMaterialLibraryStore((s) => s.renameFolder);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folder: MaterialFolder } | null>(null);
 
   const handleDoubleClick = React.useCallback((id: string, name: string) => {
     setRenameModal({ open: true, folderId: id, defaultValue: name });
   }, [setRenameModal]);
 
-  const treeData = buildTree(folders, null, handleDoubleClick);
+  const handleContextMenu = React.useCallback((id: string, _name: string, e: React.MouseEvent) => {
+    const folder = folders.find((f) => f.id === id);
+    if (folder) {
+      setContextMenu({ x: e.clientX, y: e.clientY, folder });
+    }
+  }, [folders]);
+
+  const treeData = buildTree(folders, null, handleDoubleClick, handleContextMenu);
 
   // Track drag-over state for visual feedback
   const dragStateRef = React.useRef<{
@@ -209,6 +224,14 @@ export default function FolderTree() {
         onOk={(value) => { renameFolder(renameModal.folderId!, value); setRenameModal({ open: false, folderId: null, defaultValue: '' }); }}
         onCancel={() => setRenameModal({ open: false, folderId: null, defaultValue: '' })}
       />
+      {contextMenu && (
+        <FolderContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          folder={contextMenu.folder}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

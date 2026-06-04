@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import FolderTree, { canDrop, computeDropParams } from './FolderTree';
 import type { MaterialFolder } from '@flowweb/shared';
@@ -57,6 +57,25 @@ describe('FolderTree', () => {
     folderNode.click();
     expect(setSelectedFolder).toHaveBeenCalledWith('1');
     expect(loadFiles).toHaveBeenCalled();
+  });
+
+  it('should open context menu on right-click of folder', () => {
+    render(<FolderTree />);
+    const folderNode = screen.getByText('角色');
+    fireEvent.contextMenu(folderNode, { clientX: 100, clientY: 200 });
+    // Context menu renders FolderContextMenu which has role="menu"
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByText('新建子文件夹')).toBeInTheDocument();
+    expect(screen.getByText('删除')).toBeInTheDocument();
+  });
+
+  it('should close context menu on outside mousedown', () => {
+    render(<FolderTree />);
+    fireEvent.contextMenu(screen.getByText('角色'), { clientX: 100, clientY: 200 });
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
 
