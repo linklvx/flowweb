@@ -167,7 +167,7 @@ describe('materialLibraryStore - batch operations', () => {
   });
 
   it('batchDelete should send POST and remove files on success', async () => {
-    mockPost.mockResolvedValue({ data: { success: true, count: 2 } });
+    mockPost.mockResolvedValue({ data: { code: 0, data: { success: true, count: 2 }, message: 'ok' } });
     useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']) });
 
     await useMaterialLibraryStore.getState().batchDelete();
@@ -182,7 +182,7 @@ describe('materialLibraryStore - batch operations', () => {
   });
 
   it('batchDelete should warn on partial success', async () => {
-    mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+    mockPost.mockResolvedValue({ data: { code: 0, data: { success: true, count: 1 }, message: 'ok' } });
     useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']) });
 
     await useMaterialLibraryStore.getState().batchDelete();
@@ -216,7 +216,7 @@ describe('materialLibraryStore - batch operations', () => {
 
   describe('batchMove', () => {
     it('should move files and exit batch mode on success', async () => {
-      mockPost.mockResolvedValue({ data: { success: true, count: 2 } });
+      mockPost.mockResolvedValue({ data: { code: 0, data: { success: true, count: 2 }, message: 'ok' } });
       useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']), selectedFolderId: 'folder-1' });
 
       await useMaterialLibraryStore.getState().batchMove('folder-2');
@@ -231,7 +231,7 @@ describe('materialLibraryStore - batch operations', () => {
     });
 
     it('should move to root when folderId is null', async () => {
-      mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+      mockPost.mockResolvedValue({ data: { code: 0, data: { success: true, count: 1 }, message: 'ok' } });
       useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']), selectedFolderId: 'folder-1' });
 
       await useMaterialLibraryStore.getState().batchMove(null);
@@ -240,7 +240,7 @@ describe('materialLibraryStore - batch operations', () => {
     });
 
     it('should warn on partial move', async () => {
-      mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+      mockPost.mockResolvedValue({ data: { code: 0, data: { success: true, count: 1 }, message: 'ok' } });
       useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']), selectedFolderId: 'folder-1' });
 
       await useMaterialLibraryStore.getState().batchMove('folder-2');

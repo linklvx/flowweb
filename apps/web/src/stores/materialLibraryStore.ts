@@ -250,10 +250,11 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
         batchMode: false,
         selectedFileIds: new Set(),
       }));
-      if (data.count === selectedFileIds.size) {
-        message.success(`成功删除 ${data.count} 个文件`);
+      const count = data.data?.count ?? 0;
+      if (count === selectedFileIds.size) {
+        message.success(`成功删除 ${count} 个文件`);
       } else {
-        message.warning(`部分文件删除失败，成功删除 ${data.count}/${selectedFileIds.size} 个`);
+        message.warning(`部分文件删除失败，成功删除 ${count}/${selectedFileIds.size} 个`);
       }
     } catch {
       message.error('批量删除失败，请稍后重试');
@@ -270,16 +271,17 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     try {
       const ids = Array.from(selectedFileIds);
       const { data } = await axios.post('/api/material/files/batch-move', { ids, folderId });
-      if (data.count > 0) {
+      const count = data.data?.count ?? 0;
+      if (count > 0) {
         set((s) => ({
           files: s.files.filter((f) => !selectedFileIds.has(f.id)),
           batchMode: false,
           selectedFileIds: new Set(),
         }));
-        if (data.count === selectedFileIds.size) {
-          message.success(`成功移动 ${data.count} 个文件`);
+        if (count === selectedFileIds.size) {
+          message.success(`成功移动 ${count} 个文件`);
         } else {
-          message.warning(`部分文件移动失败，成功移动 ${data.count}/${selectedFileIds.size} 个`);
+          message.warning(`部分文件移动失败，成功移动 ${count}/${selectedFileIds.size} 个`);
         }
       } else {
         message.info('没有文件被移动');
