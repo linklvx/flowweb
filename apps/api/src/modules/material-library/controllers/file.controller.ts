@@ -1,6 +1,7 @@
 import { Controller, Get, Put, Post, Delete, Param, Body, Req, Query, Inject } from '@nestjs/common';
 import { MaterialService } from '../services/material.service';
 import { MoveFileDto } from '../dto/move-file.dto';
+import { BatchMoveFilesDto } from '../dto/batch-move-files.dto';
 
 @Controller('api/material/files')
 export class FileController {
@@ -36,6 +37,12 @@ export class FileController {
   @Post('batch-delete')
   async batchDelete(@Body() body: { ids: string[] }, @Req() req: any) {
     const count = await this.materialService.deleteFiles(req.user.id, body.ids);
+    return { success: true, count };
+  }
+
+  @Post('batch-move')
+  async batchMove(@Body() body: BatchMoveFilesDto, @Req() req: any) {
+    const count = await this.materialService.moveFiles(req.user.id, body.ids, body.folderId ?? null);
     return { success: true, count };
   }
 }

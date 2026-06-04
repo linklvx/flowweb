@@ -16,7 +16,12 @@ describe('MaterialLibraryModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    state = { isOpen: true, selectedFolderId: null, close, loadFolders, loadFiles, uploading: false };
+    state = {
+      isOpen: true, selectedFolderId: null, close, loadFolders, loadFiles, uploading: false,
+      batchMode: false, selectedFileIds: new Set(), folders: [],
+      enterBatchMode: vi.fn(), exitBatchMode: vi.fn(), selectAllFiles: vi.fn(),
+      batchDelete: vi.fn(), batchMove: vi.fn(),
+    };
     (useMaterialLibraryStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (selector?: (s: Record<string, unknown>) => unknown) => selector ? selector(state) : state
     );
@@ -34,7 +39,7 @@ describe('MaterialLibraryModal', () => {
   });
 
   it('should not render when closed', () => {
-    state = { isOpen: false, close, loadFolders, loadFiles, uploading: false, selectedFolderId: null };
+    state = { isOpen: false, close, loadFolders, loadFiles, uploading: false, selectedFolderId: null, batchMode: false, selectedFileIds: new Set(), folders: [], enterBatchMode: vi.fn(), exitBatchMode: vi.fn(), selectAllFiles: vi.fn(), batchDelete: vi.fn(), batchMove: vi.fn() };
     render(<MaterialLibraryModal />);
     expect(screen.queryByText('我的素材库')).not.toBeInTheDocument();
   });

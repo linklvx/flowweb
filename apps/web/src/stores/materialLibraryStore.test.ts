@@ -213,4 +213,63 @@ describe('materialLibraryStore - batch operations', () => {
     expect(state.batchMode).toBe(false);
     expect(state.selectedFileIds.size).toBe(0);
   });
+
+  describe('batchMove', () => {
+    it('should move files and exit batch mode on success', async () => {
+      mockPost.mockResolvedValue({ data: { success: true, count: 2 } });
+      useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']), selectedFolderId: 'folder-1' });
+
+      await useMaterialLibraryStore.getState().batchMove('folder-2');
+
+      expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-move', { ids: ['f1', 'f2'], folderId: 'folder-2' });
+      const state = useMaterialLibraryStore.getState();
+      expect(state.files).toHaveLength(1);
+      expect(state.files[0].id).toBe('f3');
+      expect(state.batchMode).toBe(false);
+      expect(state.selectedFileIds.size).toBe(0);
+      expect(message.success).toHaveBeenCalledWith('成功移动 2 个文件');
+    });
+
+    it('should move to root when folderId is null', async () => {
+      mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+      useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']), selectedFolderId: 'folder-1' });
+
+      await useMaterialLibraryStore.getState().batchMove(null);
+
+      expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-move', { ids: ['f1'], folderId: null });
+    });
+
+    it('should warn on partial move', async () => {
+      mockPost.mockResolvedValue({ data: { success: true, count: 1 } });
+      useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1', 'f2']), selectedFolderId: 'folder-1' });
+
+      await useMaterialLibraryStore.getState().batchMove('folder-2');
+
+      expect(message.warning).toHaveBeenCalledWith('部分文件移动失败，成功移动 1/2 个');
+    });
+
+    it('should block move to same folder', async () => {
+      useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']), selectedFolderId: 'folder-1' });
+
+      await useMaterialLibraryStore.getState().batchMove('folder-1');
+
+      expect(message.warning).toHaveBeenCalledWith('文件已在目标文件夹中');
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('should not send request when nothing selected', async () => {
+      useMaterialLibraryStore.setState({ selectedFileIds: new Set() });
+      await useMaterialLibraryStore.getState().batchMove('folder-1');
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('should show error on failure', async () => {
+      mockPost.mockRejectedValue(new Error('Network error'));
+      useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['f1']), selectedFolderId: 'folder-1' });
+
+      await useMaterialLibraryStore.getState().batchMove('folder-2');
+
+      expect(message.error).toHaveBeenCalledWith('批量移动失败，请稍后重试');
+    });
+  });
 });

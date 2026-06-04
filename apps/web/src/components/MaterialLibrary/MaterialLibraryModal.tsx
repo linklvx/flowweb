@@ -1,10 +1,25 @@
-import { useEffect } from 'react';
-import { Modal } from 'antd';
+import { useEffect, useState, useMemo } from 'react';
+import { Modal, Select } from 'antd';
 import { useMaterialLibraryStore } from '../../stores/materialLibraryStore';
+import type { MaterialFolder } from '@flowweb/shared';
 import FolderTree from './FolderTree/FolderTree';
 import FileGrid from './FileGrid/FileGrid';
 import FileGridZoomControl from './FileGridZoomControl';
 import './MaterialLibraryModal.css';
+
+function flattenFolders(
+  folders: MaterialFolder[],
+  parentId: string | null = null,
+  depth = 0,
+): { value: string; label: string; depth: number }[] {
+  return folders
+    .filter((f) => f.parentId === parentId)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .flatMap((f) => [
+      { value: f.id, label: f.name, depth },
+      ...flattenFolders(folders, f.id, depth + 1),
+    ]);
+}
 
 export default function MaterialLibraryModal() {
   const isOpen = useMaterialLibraryStore((s) => s.isOpen);
@@ -14,6 +29,13 @@ export default function MaterialLibraryModal() {
   const uploading = useMaterialLibraryStore((s) => s.uploading);
   const batchMode = useMaterialLibraryStore((s) => s.batchMode);
   const selectedFileIds = useMaterialLibraryStore((s) => s.selectedFileIds);
+  const selectedFolderId = useMaterialLibraryStore((s) => s.selectedFolderId);
+  const folders = useMaterialLibraryStore((s) => s.folders);
+
+  const [folderSelectorOpen, setFolderSelectorOpen] = useState(false);
+  const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
+
+  const folderOptions = useMemo(() => flattenFolders(folders), [folders]);
 
   useEffect(() => {
     if (isOpen) { loadFolders(); loadFiles(); }
@@ -53,6 +75,18 @@ export default function MaterialLibraryModal() {
     });
   };
 
+  const openFolderSelector = () => {
+    setTargetFolderId(selectedFolderId ?? '__root__');
+    setFolderSelectorOpen(true);
+  };
+
+  const handleBatchMove = () => {
+    const folderId = targetFolderId === '__root__' ? null : targetFolderId;
+    useMaterialLibraryStore.getState().batchMove(folderId);
+    setFolderSelectorOpen(false);
+    setTargetFolderId(null);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -72,6 +106,11 @@ export default function MaterialLibraryModal() {
                 <button className="batch-btn batch-btn-select-all"
                   onClick={() => useMaterialLibraryStore.getState().selectAllFiles()}>
                   全选当前页
+                </button>
+                <button className="batch-btn batch-btn-move"
+                  disabled={selectedFileIds.size === 0}
+                  onClick={openFolderSelector}>
+                  移动到
                 </button>
                 <button className="batch-btn batch-btn-delete"
                   disabled={selectedFileIds.size === 0}
@@ -111,6 +150,27 @@ export default function MaterialLibraryModal() {
           <FileGrid />
         </div>
       </div>
+      <Modal title="选择目标文件夹" open={folderSelectorOpen}
+        onCancel={() => setFolderSelectorOpen(false)}
+        onOk={handleBatchMove}
+        okText="移动" cancelText="取消"
+        okButtonProps={{ disabled: !targetFolderId }}>
+        <Select
+          placeholder="请选择目标文件夹"
+          style={{ width: '100%' }}
+          value={targetFolderId}
+          onChange={(v) => setTargetFolderId(v)}
+          options={[
+            { value: '__root__', label: '根目录', depth: 0 },
+            ...folderOptions,
+          ]}
+          optionRender={(option) => (
+            <span style={{ paddingLeft: `${(option.data as any).depth * 16}px` }}>
+              {option.label}
+            </span>
+          )}
+        />
+      </Modal>
     </Modal>
   );
 }

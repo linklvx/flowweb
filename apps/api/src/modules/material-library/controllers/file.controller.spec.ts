@@ -68,4 +68,18 @@ describe('FileController', () => {
     expect(service.deleteFiles).toHaveBeenCalledWith('user-1', []);
     expect(res).toEqual({ success: true, count: 0 });
   });
+
+  it('POST /batch-move should batch move and return count', async () => {
+    service.moveFiles = vi.fn().mockResolvedValue(3);
+    const res = await controller.batchMove({ ids: ['m-1', 'm-2'], folderId: 'folder-1' }, mockReq());
+    expect(service.moveFiles).toHaveBeenCalledWith('user-1', ['m-1', 'm-2'], 'folder-1');
+    expect(res).toEqual({ success: true, count: 3 });
+  });
+
+  it('POST /batch-move should handle null folderId', async () => {
+    service.moveFiles = vi.fn().mockResolvedValue(2);
+    const res = await controller.batchMove({ ids: ['m-1'], folderId: null }, mockReq());
+    expect(service.moveFiles).toHaveBeenCalledWith('user-1', ['m-1'], null);
+    expect(res).toEqual({ success: true, count: 2 });
+  });
 });

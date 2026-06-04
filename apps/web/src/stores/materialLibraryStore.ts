@@ -47,6 +47,7 @@ interface MaterialLibraryState {
   toggleFileSelection: (id: string) => void;
   selectAllFiles: () => void;
   batchDelete: () => Promise<void>;
+  batchMove: (folderId: string | null) => Promise<void>;
 }
 
 export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) => ({
@@ -256,6 +257,35 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       }
     } catch {
       message.error('批量删除失败，请稍后重试');
+    }
+  },
+
+  batchMove: async (folderId) => {
+    const { selectedFileIds, selectedFolderId } = get();
+    if (selectedFileIds.size === 0) return;
+    if (folderId === selectedFolderId) {
+      message.warning('文件已在目标文件夹中');
+      return;
+    }
+    try {
+      const ids = Array.from(selectedFileIds);
+      const { data } = await axios.post('/api/material/files/batch-move', { ids, folderId });
+      if (data.count > 0) {
+        set((s) => ({
+          files: s.files.filter((f) => !selectedFileIds.has(f.id)),
+          batchMode: false,
+          selectedFileIds: new Set(),
+        }));
+        if (data.count === selectedFileIds.size) {
+          message.success(`成功移动 ${data.count} 个文件`);
+        } else {
+          message.warning(`部分文件移动失败，成功移动 ${data.count}/${selectedFileIds.size} 个`);
+        }
+      } else {
+        message.info('没有文件被移动');
+      }
+    } catch {
+      message.error('批量移动失败，请稍后重试');
     }
   },
 }));

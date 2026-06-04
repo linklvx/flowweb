@@ -167,4 +167,43 @@ describe('MaterialService', () => {
       expect(count).toBe(0);
     });
   });
+
+  describe('moveFiles', () => {
+    it('should batch move multiple files and return count', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'folder-1' });
+      prisma.media.updateMany.mockResolvedValue({ count: 3 });
+
+      const count = await service.moveFiles('user-1', ['m-1', 'm-2', 'm-3'], 'folder-1');
+
+      expect(prisma.media.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, userId: 'user-1', deletedAt: null },
+        data: { folderId: 'folder-1' },
+      });
+      expect(count).toBe(3);
+    });
+
+    it('should move to root when folderId is null', async () => {
+      prisma.media.updateMany.mockResolvedValue({ count: 2 });
+
+      const count = await service.moveFiles('user-1', ['m-1', 'm-2'], null);
+
+      expect(prisma.media.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m-1', 'm-2'] }, userId: 'user-1', deletedAt: null },
+        data: { folderId: null },
+      });
+      expect(count).toBe(2);
+    });
+
+    it('should return 0 for empty ids array', async () => {
+      const count = await service.moveFiles('user-1', [], 'folder-1');
+      expect(count).toBe(0);
+      expect(prisma.media.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw if target folder does not exist', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+
+      await expect(service.moveFiles('user-1', ['m-1'], 'folder-99')).rejects.toThrow(BadRequestException);
+    });
+  });
 });

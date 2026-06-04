@@ -77,3 +77,7 @@
 .batch-btn-delete:hover { background: rgba(239,68,68,0.22); color: #fca5a5; border-color: rgba(239,68,68,0.35); }
 .batch-btn-delete:disabled { opacity: 0.35; cursor: not-allowed; }
 .batch-btn-delete:disabled:hover { background: rgba(239,68,68,0.12); color: #f87171; border-color: rgba(239,68,68,0.2); }
+.batch-btn-move { background: rgba(34,197,94,0.12); color: #4ade80; border-color: rgba(34,197,94,0.2); }
+.batch-btn-move:hover { background: rgba(34,197,94,0.22); color: #86efac; border-color: rgba(34,197,94,0.35); }
+.batch-btn-move:disabled { opacity: 0.35; cursor: not-allowed; }
+.batch-btn-move:disabled:hover { background: rgba(34,197,94,0.12); color: #4ade80; border-color: rgba(34,197,94,0.2); }

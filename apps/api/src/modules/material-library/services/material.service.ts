@@ -93,4 +93,19 @@ export class MaterialService {
     });
     return result.count;
   }
+
+  async moveFiles(userId: string, ids: string[], folderId: string | null): Promise<number> {
+    if (ids.length === 0) return 0;
+    if (folderId) {
+      const folder = await this.prisma.materialFolder.findFirst({
+        where: { id: folderId, userId, deletedAt: null },
+      });
+      if (!folder) throw new BadRequestException('文件夹不存在');
+    }
+    const result = await this.prisma.media.updateMany({
+      where: { id: { in: ids }, userId, deletedAt: null },
+      data: { folderId },
+    });
+    return result.count;
+  }
 }
