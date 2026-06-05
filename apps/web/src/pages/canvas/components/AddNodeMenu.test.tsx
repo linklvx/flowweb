@@ -24,13 +24,14 @@ describe('AddNodeMenu', () => {
     expect(screen.getByText('添加节点')).toBeInTheDocument();
   });
 
-  it('renders all 5 node type items', () => {
+  it('renders all 6 node type items', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByText('文本')).toBeInTheDocument();
     expect(screen.getByText('图片')).toBeInTheDocument();
     expect(screen.getByText('视频')).toBeInTheDocument();
     expect(screen.getByText('视频合成')).toBeInTheDocument();
     expect(screen.getByText('音频')).toBeInTheDocument();
+    expect(screen.getByText('堆叠图片')).toBeInTheDocument();
   });
 
   it('renders "添加资源" section with upload item', () => {
@@ -86,6 +87,14 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('calls addNode with "multiImage" when clicking stacked image menu item', () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    fireEvent.click(screen.getByText('堆叠图片'));
+    expect(mockAddNode).toHaveBeenCalledWith('multiImage', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('opens material library when clicking upload menu item', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
@@ -126,7 +135,7 @@ describe('AddNodeMenu', () => {
     const menuItems = screen.getAllByRole('menuitem');
     for (const item of menuItems) {
       expect(item).toHaveClass('border-0');
-      expect(item).not.toHaveClass('rounded-xl');
+      expect(item).toHaveClass('rounded-xl');
       expect(item).toHaveClass('h-[50px]');
       expect(item).toHaveClass('py-1');
       expect(item).toHaveClass('bg-transparent');
@@ -137,6 +146,6 @@ describe('AddNodeMenu', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByRole('menu')).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems.length).toBe(6); // 5 node types + 1 upload
+    expect(menuItems.length).toBe(7); // 6 node types + 1 upload
   });
 });

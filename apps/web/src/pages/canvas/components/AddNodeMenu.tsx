@@ -55,6 +55,17 @@ function AudioIcon() {
   );
 }
 
+function StackedImageIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5">
+        <rect x="3" y="3" width="14" height="14" rx="2" />
+        <rect x="7" y="7" width="14" height="14" rx="2" />
+      </g>
+    </svg>
+  );
+}
+
 function UploadIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 19.8008 19.8006">
@@ -79,6 +90,7 @@ const ADD_NODE_ITEMS: MenuItem[] = [
   { type: 'video', label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
   { type: 'composite', label: '视频合成', desc: '多个视频片段合为一个', icon: <CompositeIcon />, badge: 'Beta' },
   { type: 'audio', label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },
+  { type: 'multiImage', label: '堆叠图片', desc: '生成或上传一组风格统一的图片', icon: <StackedImageIcon /> },
 ];
 
 const ADD_RESOURCE_ITEMS: MenuItem[] = [
