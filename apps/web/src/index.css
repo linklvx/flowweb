@@ -8,6 +8,15 @@
   --canvas-handle-icon: #6B7280;
   --canvas-handle-hover-bg: #FFFFFF;
   --canvas-handle-hover-icon: #FFFFFF;
+
+  /* Canvas controls menu tokens */
+  --canvas-controls-bg: rgb(38, 38, 38);
+  --canvas-controls-border: rgb(54, 54, 54);
+  --canvas-controls-text: rgb(247, 247, 247);
+  --canvas-controls-hover: rgba(255, 255, 255, 0.08);
+  --canvas-controls-active: rgba(255, 255, 255, 0.12);
+  --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.15), 0px 2px 8px 0px rgba(0, 0, 0, 0.1);
+  --z-panel: 400;
 }
 
 body {

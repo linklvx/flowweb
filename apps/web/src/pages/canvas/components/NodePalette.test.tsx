@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { NodePalette } from './NodePalette';
-// Mock canvasStore with viewport
+
+// Mock AddNodeMenu to avoid testing its internals here
+vi.mock('./AddNodeMenu', () => ({
+  AddNodeMenu: vi.fn(({ isOpen }: any) =>
+    isOpen ? <div data-testid="add-node-menu">Menu</div> : null,
+  ),
+}));
+
+// Mock canvasStore
 const mockAddNode = vi.fn();
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: vi.fn((selector?: any) => {
@@ -14,113 +22,63 @@ vi.mock('@/stores/canvasStore', () => ({
   }),
 }));
 
+// Mock material library store (needed by AddNodeMenu, imported via NodePalette)
+vi.mock('@/stores/materialLibraryStore', () => ({
+  useMaterialLibraryStore: (selector: any) => selector({ open: vi.fn() }),
+}));
+
 describe('NodePalette', () => {
-  const renderPalette = () =>
-    render(<NodePalette />);
+  const renderPalette = () => render(<NodePalette />);
 
   beforeEach(() => {
-    mockAddNode.mockClear();
+    vi.clearAllMocks();
   });
 
-  it('should render five node types', () => {
+  it('should render the + button', () => {
     renderPalette();
-    expect(screen.getByText('文本输入')).toBeInTheDocument();
-    expect(screen.getByText('图片生成')).toBeInTheDocument();
-    expect(screen.getByText('视频生成')).toBeInTheDocument();
-    expect(screen.getByText('音频生成')).toBeInTheDocument();
-    expect(screen.getByText('多图堆叠')).toBeInTheDocument();
+    const btn = screen.getByLabelText('添加节点');
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute('type', 'button');
+    expect(btn).toHaveAttribute('data-sidebar-btn', 'add-node');
   });
 
-  it('should render draggable items', () => {
+  it('should show menu when + button is clicked', () => {
     renderPalette();
-    const items = screen.getAllByText(/输入|生成/);
-    items.forEach((item) => {
-      const parent = item.closest('[draggable]');
-      expect(parent).toBeTruthy();
-    });
+    expect(screen.queryByTestId('add-node-menu')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('添加节点'));
+    expect(screen.getByTestId('add-node-menu')).toBeInTheDocument();
   });
 
-  it('should render panel title', () => {
+  it('should close menu when + button is clicked again (toggle)', () => {
     renderPalette();
-    expect(screen.getByText('节点面板')).toBeInTheDocument();
+    const btn = screen.getByLabelText('添加节点');
+    fireEvent.click(btn);
+    expect(screen.getByTestId('add-node-menu')).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(screen.queryByTestId('add-node-menu')).not.toBeInTheDocument();
   });
 
-  it('should add text node on click', () => {
+  it('should have ARIA attributes on the button', () => {
     renderPalette();
-    fireEvent.click(screen.getByText('文本输入'));
-    expect(mockAddNode).toHaveBeenCalledWith('text', expect.any(Object));
+    const btn = screen.getByLabelText('添加节点');
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    expect(btn).toHaveAttribute('aria-controls', 'add-node-menu');
   });
 
-  it('should add image node on click', () => {
+  it('should set aria-expanded to true when menu is open', () => {
     renderPalette();
-    fireEvent.click(screen.getByText('图片生成'));
-    expect(mockAddNode).toHaveBeenCalledWith('image', expect.any(Object));
+    const btn = screen.getByLabelText('添加节点');
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('should add video node on click', () => {
+  it('should rotate the + icon when menu is open', () => {
     renderPalette();
-    fireEvent.click(screen.getByText('视频生成'));
-    expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
-  });
-
-  it('should add multiImage node on click', () => {
-    renderPalette();
-    fireEvent.click(screen.getByText('多图堆叠'));
-    expect(mockAddNode).toHaveBeenCalledWith('multiImage', expect.any(Object));
-  });
-
-  it('should still support drag (draggable attribute preserved)', () => {
-    renderPalette();
-    const items = screen.getAllByText(/输入|生成/);
-    items.forEach((item) => {
-      const parent = item.closest('[draggable]');
-      expect(parent).toBeTruthy();
-      expect(parent?.getAttribute('draggable')).toBe('true');
-    });
-  });
-
-  describe('add-node button', () => {
-    it('should render add-node button with correct attributes', () => {
-      renderPalette();
-      const btn = screen.getByLabelText('添加节点');
-      expect(btn).toBeInTheDocument();
-      expect(btn).toHaveAttribute('type', 'button');
-      expect(btn).toHaveAttribute('data-sidebar-btn', 'add-node');
-    });
-
-    it('should render add-node button with a plus SVG icon', () => {
-      renderPalette();
-      const btn = screen.getByLabelText('添加节点');
-      const svg = btn.querySelector('svg');
-      expect(svg).toBeTruthy();
-    });
-
-    it('should place add-node button before the panel title', () => {
-      renderPalette();
-      const btn = screen.getByLabelText('添加节点');
-      const title = screen.getByText('节点面板');
-      // The button should appear before the title in the DOM order
-      expect(btn.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
-  });
-
-  describe('shortcuts button', () => {
-    it('should render shortcuts button at the bottom', () => {
-      renderPalette();
-      expect(screen.getByText('快捷键')).toBeInTheDocument();
-    });
-
-    it('should call onToggleShortcuts when shortcuts button is clicked', () => {
-      const onToggle = vi.fn();
-      render(<NodePalette onToggleShortcuts={onToggle} />);
-      fireEvent.click(screen.getByText('快捷键'));
-      expect(onToggle).toHaveBeenCalledTimes(1);
-    });
-
-    it('should render shortcuts button without onToggleShortcuts prop (optional)', () => {
-      renderPalette();
-      fireEvent.click(screen.getByText('快捷键'));
-      // Should not throw
-    });
+    const btn = screen.getByLabelText('添加节点');
+    const svg = btn.querySelector('svg');
+    expect(svg).toBeTruthy();
+    fireEvent.click(btn);
+    // After click: rotated 45deg via inline style
+    expect(svg!.style.transform).toBe('rotate(45deg)');
   });
 });

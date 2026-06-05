@@ -58,6 +58,45 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
+vi.mock('@/stores/materialLibraryStore', () => ({
+  useMaterialLibraryStore: (selector: any) => selector({
+    isOpen: false,
+    open: vi.fn(),
+    close: vi.fn(),
+    folders: [],
+    files: [],
+    loading: false,
+    uploading: false,
+    uploadProgress: 0,
+    fileGridSize: 200,
+    selectedFolderId: null,
+    batchMode: false,
+    selectedFileIds: new Set(),
+    renameModal: { open: false, folderId: null, defaultValue: '' },
+    loadFolders: vi.fn(),
+    loadFiles: vi.fn(),
+    setSelectedFolder: vi.fn(),
+    setFileGridSize: vi.fn(),
+    setRenameModal: vi.fn(),
+    uploadFile: vi.fn(),
+    deleteFile: vi.fn(),
+    toggleFavorite: vi.fn(),
+    createFolder: vi.fn(),
+    renameFolder: vi.fn(),
+    deleteFolder: vi.fn(),
+    moveFolderUp: vi.fn(),
+    moveFolder: vi.fn(),
+    enterBatchMode: vi.fn(),
+    exitBatchMode: vi.fn(),
+    selectFile: vi.fn(),
+    deselectFile: vi.fn(),
+    toggleFileSelection: vi.fn(),
+    selectAllFiles: vi.fn(),
+    batchDelete: vi.fn(),
+    batchMove: vi.fn(),
+  }),
+}));
+
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return { ...actual, useParams: () => ({}) };
@@ -67,8 +106,6 @@ describe('CanvasPage', () => {
   beforeEach(() => {
     localStorage.clear();
     mockFetch.mockReset();
-    // Mock: first call is project creation (POST /api/projects)
-    // Second call would be GET /api/projects/:id if cached
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', name: '我的画布' } }),
@@ -83,10 +120,8 @@ describe('CanvasPage', () => {
   it('should render CanvasPage after project creation', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('文本输入')).toBeInTheDocument();
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
     });
-    expect(screen.getByText('图片生成')).toBeInTheDocument();
-    expect(screen.getByText('视频生成')).toBeInTheDocument();
   });
 
   it('should render ReactFlow canvas after project creation', async () => {
@@ -96,33 +131,24 @@ describe('CanvasPage', () => {
     });
   });
 
-  it('should render shortcuts button in NodePalette after load', async () => {
+  it('should show add node menu when + button is clicked', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('快捷键')).toBeInTheDocument();
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByLabelText('添加节点'));
+    expect(screen.getByText('文本')).toBeInTheDocument();
+    expect(screen.getByText('图片')).toBeInTheDocument();
   });
 
-  it('should show shortcuts panel when button is clicked', async () => {
+  it('should close add node menu on Escape', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('快捷键')).toBeInTheDocument();
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('快捷键'));
-    expect(screen.getByText('创作')).toBeInTheDocument();
-    expect(screen.getByText('缩放')).toBeInTheDocument();
-  });
-
-  it('should close shortcuts panel when close button is clicked', async () => {
-    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
-    await waitFor(() => {
-      expect(screen.getByText('快捷键')).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByText('快捷键'));
-    expect(screen.getByText('创作')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('关闭快捷键面板'));
-    await waitFor(() => {
-      expect(screen.queryByText('创作')).not.toBeInTheDocument();
-    });
+    fireEvent.click(screen.getByLabelText('添加节点'));
+    expect(screen.getByText('文本')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByText('文本')).not.toBeInTheDocument();
   });
 });
