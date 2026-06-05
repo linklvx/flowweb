@@ -106,6 +106,24 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('menu item icon containers have background color', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    const menuItems = screen.getAllByRole('menuitem');
+    for (const item of menuItems) {
+      const iconContainer = item.firstElementChild as HTMLElement;
+      expect(iconContainer).toHaveStyle({ backgroundColor: 'var(--canvas-controls-hover)' });
+    }
+  });
+
+  it('menu item buttons have no border or rounded corners', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    const menuItems = screen.getAllByRole('menuitem');
+    for (const item of menuItems) {
+      expect(item).toHaveClass('border-0');
+      expect(item).not.toHaveClass('rounded-xl');
+    }
+  });
+
   it('has ARIA menu role and menuitem roles', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByRole('menu')).toBeInTheDocument();
