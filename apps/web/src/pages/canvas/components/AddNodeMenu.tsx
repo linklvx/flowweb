@@ -86,7 +86,7 @@ const ADD_RESOURCE_ITEMS: MenuItem[] = [
 ];
 
 const MENU_ITEM_CLASS =
-  'group flex h-[52px] w-full items-center gap-2 border-0 px-2 py-2 text-left transition-colors duration-200 cursor-pointer';
+  'group flex h-[50px] w-full items-center gap-2 border-0 px-2 py-1 text-left transition-colors duration-200 cursor-pointer';
 
 interface AddNodeMenuProps {
   isOpen: boolean;
@@ -191,7 +191,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       id="add-node-menu"
       role="menu"
       aria-label="添加节点菜单"
-      className="fixed z-[var(--z-panel)] flex w-[240px] flex-col gap-2 rounded-2xl p-2 border"
+      className="fixed z-[var(--z-panel)] flex w-[240px] flex-col gap-0.5 rounded-2xl p-2 border"
       style={{
         backgroundColor: 'var(--canvas-controls-bg)',
         borderColor: 'var(--canvas-controls-border)',

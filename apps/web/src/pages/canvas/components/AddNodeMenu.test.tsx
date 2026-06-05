@@ -115,12 +115,20 @@ describe('AddNodeMenu', () => {
     }
   });
 
+  it('menu container uses compact gap between items', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveClass('gap-0.5');
+  });
+
   it('menu item buttons have no border or rounded corners', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     const menuItems = screen.getAllByRole('menuitem');
     for (const item of menuItems) {
       expect(item).toHaveClass('border-0');
       expect(item).not.toHaveClass('rounded-xl');
+      expect(item).toHaveClass('h-[50px]');
+      expect(item).toHaveClass('py-1');
     }
   });
 
