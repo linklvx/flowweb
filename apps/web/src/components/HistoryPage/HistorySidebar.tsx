@@ -17,7 +17,7 @@ export function HistorySidebar() {
         <button
           key={tab.key}
           type="button"
-          className="flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors"
+          className="flex items-center justify-between rounded-lg border-0 px-3 py-2 text-left text-sm transition-colors shadow-none"
           style={{
             backgroundColor: activeTab === tab.key ? 'var(--canvas-controls-hover)' : 'transparent',
             color: 'var(--canvas-controls-text)',
