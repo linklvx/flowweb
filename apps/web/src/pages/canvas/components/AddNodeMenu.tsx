@@ -82,11 +82,11 @@ const ADD_NODE_ITEMS: MenuItem[] = [
 ];
 
 const ADD_RESOURCE_ITEMS: MenuItem[] = [
-  { type: 'upload', label: '上传', desc: '可上传图片、视频、音频文件', icon: <UploadIcon /> },
+  { type: 'upload', label: '上传', desc: '可上传图片、视频、音频', icon: <UploadIcon /> },
 ];
 
 const MENU_ITEM_CLASS =
-  'group flex h-[50px] w-full items-center gap-2 border-0 bg-transparent px-2 py-1 text-left transition-colors duration-200 cursor-pointer';
+  'group flex h-[50px] w-full items-center gap-2 border-0 bg-transparent rounded-xl px-2 py-1 text-left transition-colors duration-200 cursor-pointer';
 
 interface AddNodeMenuProps {
   isOpen: boolean;
@@ -191,7 +191,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       id="add-node-menu"
       role="menu"
       aria-label="添加节点菜单"
-      className="fixed z-[var(--z-panel)] flex w-[220px] flex-col gap-0.5 rounded-2xl p-2 border"
+      className="fixed z-[var(--z-panel)] flex w-[200px] flex-col gap-0.5 rounded-2xl p-2 border"
       style={{
         backgroundColor: 'var(--canvas-controls-bg)',
         borderColor: 'var(--canvas-controls-border)',
@@ -201,7 +201,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       }}
     >
       <h4
-        className="m-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
+        className="-mt-1 mb-1 mx-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
         style={{ color: 'var(--canvas-controls-text)' }}
       >
         添加节点
