@@ -122,27 +122,6 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
 
-  // Close on click outside (also ignore clicks on trigger button)
-  useEffect(() => {
-    if (!isOpen) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(target) &&
-        !triggerRef.current?.contains(target)
-      ) {
-        onClose();
-      }
-    };
-    const timeout = setTimeout(() => {
-      document.addEventListener('mousedown', onMouseDown);
-    }, 0);
-    return () => {
-      clearTimeout(timeout);
-      document.removeEventListener('mousedown', onMouseDown);
-    };
-  }, [isOpen, onClose, triggerRef]);
 
   // Dynamic positioning: top-aligned with button, boundary-aware
   useEffect(() => {
@@ -199,19 +178,28 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
 
   return (
     <div
-      ref={menuRef}
-      id="add-node-menu"
-      role="menu"
-      aria-label="添加节点菜单"
-      className="fixed z-[var(--z-panel)] flex w-[200px] flex-col gap-0.5 rounded-2xl p-2 border"
-      style={{
-        backgroundColor: 'var(--canvas-controls-bg)',
-        borderColor: 'var(--canvas-controls-border)',
-        boxShadow: 'var(--canvas-shadow-menu)',
-        backdropFilter: 'blur(32px)',
-        WebkitBackdropFilter: 'blur(32px)',
+      className="fixed inset-0 z-[calc(var(--z-panel)-1)]"
+      onClick={onClose}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onClose();
       }}
     >
+      <div
+        ref={menuRef}
+        id="add-node-menu"
+        role="menu"
+        aria-label="添加节点菜单"
+        className="fixed z-[var(--z-panel)] flex w-[200px] flex-col gap-0.5 rounded-2xl p-2 border"
+        style={{
+          backgroundColor: 'var(--canvas-controls-bg)',
+          borderColor: 'var(--canvas-controls-border)',
+          boxShadow: 'var(--canvas-shadow-menu)',
+          backdropFilter: 'blur(32px)',
+          WebkitBackdropFilter: 'blur(32px)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <h4
         className="-mt-1 mb-1 mx-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
         style={{ color: 'var(--canvas-controls-text)' }}
@@ -311,6 +299,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
           </div>
         </button>
       ))}
+    </div>
     </div>
   );
 }

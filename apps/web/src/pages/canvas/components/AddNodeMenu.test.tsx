@@ -115,6 +115,23 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('closes when clicking outside menu on overlay', () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    const menu = screen.getByRole('menu');
+    const overlay = menu.parentElement!;
+    fireEvent.click(overlay);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not close when clicking inside menu', () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    const menu = screen.getByRole('menu');
+    fireEvent.click(menu);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('menu item icon containers have background color', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     const menuItems = screen.getAllByRole('menuitem');
