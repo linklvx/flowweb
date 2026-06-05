@@ -10,3 +10,5 @@ dist/
 services/
 .claude/worktrees/
 .data/
+backups/
+flowweb.dataminio/

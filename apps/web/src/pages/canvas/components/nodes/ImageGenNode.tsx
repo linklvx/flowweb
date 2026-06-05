@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { type NodeProps } from '@xyflow/react';
+import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
@@ -122,7 +123,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       }
     });
 
-    return () => { socket.disconnect(); };
+    return () => { socket.removeAllListeners() };
   }, [id]);
 
   // ---- Floating upload button ----
@@ -171,7 +172,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
 
   return (
-    <div className="relative">
+    <div className="relative canvas-node">
       {/* Hidden file input — shared by floating upload + replace buttons */}
       <input
         ref={fileInputRef}
@@ -263,7 +264,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: containerWidth, height: containerHeight }}
@@ -301,7 +302,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="source" testId="source-handle" />
       </div>
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">

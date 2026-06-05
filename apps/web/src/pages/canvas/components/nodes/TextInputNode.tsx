@@ -1,12 +1,12 @@
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
-import { NodeResizer, useReactFlow, Handle, Position, type NodeProps } from '@xyflow/react';
+import { NodeResizer, useReactFlow, type NodeProps } from '@xyflow/react';
+import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
-import styles from './TextInputNode.module.css';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   const updateText = useNodeStore((s) => s.updateText);
@@ -71,7 +71,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const titleText = label || 'Text';
 
   return (
-    <div className={`relative ${styles.textInputNode} ${selected ? styles.selected : ''}`}>
+    <div className="relative canvas-node">
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
@@ -130,17 +130,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Target handle — outside overflow-hidden */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        data-testid="target-handle"
-      >
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 cursor-crosshair" />
-        <svg className={`absolute left-1/2 top-1/2 ${styles.handleIcon} ${styles.handleIconTarget}`} viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="9" stroke="var(--canvas-handle-bg)" strokeWidth="2" fill="transparent" />
-          <path d="M10 6V14M6 10H14" stroke="var(--canvas-handle-icon)" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      </Handle>
+      <NodeHandle type="target" testId="target-handle" />
 
       {/* Card body */}
       <div
@@ -178,17 +168,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Source handle — outside card body to avoid overflow clipping */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        data-testid="source-handle"
-      >
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 cursor-crosshair" />
-        <svg className={`absolute left-1/2 top-1/2 ${styles.handleIcon} ${styles.handleIconSource}`} viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="9" stroke="var(--canvas-handle-bg)" strokeWidth="2" fill="transparent" />
-          <path d="M10 6V14M6 10H14" stroke="var(--canvas-handle-icon)" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      </Handle>
+      <NodeHandle type="source" testId="source-handle" />
 
       {selected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">

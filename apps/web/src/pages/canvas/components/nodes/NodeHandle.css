@@ -1,0 +1,60 @@
+/* Shared handle styles for all canvas nodes */
+/* Hide native React Flow handle dot, replaced by custom SVG icon */
+
+.canvas-node .react-flow__handle {
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  z-index: 30 !important;
+}
+
+/* Show SVG icon on hover, selected state, or during connection */
+.canvas-node:hover .handle-icon,
+.canvas-node.selected .handle-icon,
+.react-flow__connection-indicator .handle-icon {
+  opacity: 1;
+}
+
+.handle-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.handle-icon:hover {
+  transform: scale(1.1);
+}
+
+.handle-icon:hover circle {
+  stroke: var(--canvas-handle-hover-bg);
+}
+
+.handle-icon:hover path {
+  stroke: var(--canvas-handle-hover-icon);
+}
+
+.handle-icon-source {
+  margin-left: 0;
+}
+
+.handle-icon-target {
+  margin-left: -20px;
+}
+
+/* Large invisible hit area for easier drag-to-connect */
+.handle-hit-area {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  cursor: crosshair;
+}

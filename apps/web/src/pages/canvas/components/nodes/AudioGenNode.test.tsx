@@ -9,7 +9,8 @@ const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStor
   const mockSocket = {
     on: vi.fn().mockReturnThis(),
     emit: vi.fn().mockReturnThis(),
-    disconnect: vi.fn(),
+    removeAllListeners: vi.fn().mockReturnThis(),
+    close: vi.fn(),
   };
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceAudio: undefined };
   let storeSetStatus = vi.fn();
@@ -241,7 +242,7 @@ describe('AudioGenNode', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
     const { unmount } = renderNode();
     unmount();
-    expect(mockSocket.disconnect).toHaveBeenCalled();
+    expect(mockSocket.removeAllListeners).toHaveBeenCalled();
   });
 
   it('should update status to loading on socket node:status event', () => {

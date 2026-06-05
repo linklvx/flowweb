@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { type NodeProps } from '@xyflow/react';
+import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { AudioConfigPanel } from './AudioConfigPanel';
@@ -73,7 +74,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
       }
     });
 
-    return () => { socket.disconnect(); };
+    return () => { socket.removeAllListeners() };
   }, [id]);
 
   // ---- Floating upload button ----
@@ -123,7 +124,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const showReplaceButton = !resultUrl && !!referenceAudio && !!displayUrl;
 
   return (
-    <div className="relative">
+    <div className="relative canvas-node">
       {/* Hidden file input — for uploading audio */}
       <input
         ref={fileInputRef}
@@ -218,7 +219,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
             : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
           style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
@@ -264,7 +265,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="source" testId="source-handle" />
       </div>
 
       {/* Bottom config panel */}

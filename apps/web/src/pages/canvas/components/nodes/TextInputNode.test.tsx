@@ -2,16 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 
-vi.mock('./TextInputNode.module.css', () => ({
-  default: {
-    textInputNode: 'textInputNode',
-    selected: 'selected',
-    handleIcon: 'handleIcon',
-    handleIconSource: 'handleIconSource',
-    handleIconTarget: 'handleIconTarget',
-  },
-}));
-
 // Mock Tiptap
 const mockChainRun = vi.fn();
 const mockEditorIsActive = vi.fn().mockReturnValue(false);
@@ -161,7 +151,7 @@ describe('TextInputNode (Tiptap)', () => {
     handles.forEach((handle) => {
       const svg = handle.querySelector('svg');
       expect(svg).not.toBeNull();
-      expect(svg?.getAttribute('class')).toContain('handleIcon');
+      expect(svg?.classList.contains('handle-icon')).toBe(true);
     });
   });
 

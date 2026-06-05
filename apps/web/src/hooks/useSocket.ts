@@ -15,7 +15,7 @@ export function useSocket(projectId: string): React.MutableRefObject<Socket | nu
     });
 
     return () => {
-      socket.disconnect();
+      socket.removeAllListeners();
     };
   }, [projectId]);
 

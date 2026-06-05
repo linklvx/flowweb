@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { type NodeProps } from '@xyflow/react';
+import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { getMediaUrl } from '@/api/mediaApi';
@@ -185,7 +186,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const stackLayerCount = Math.min(images.length - 1, 3);
 
   return (
-    <div className="relative">
+    <div className="relative canvas-node">
       <input
         ref={fileInputRef}
         type="file"
@@ -279,7 +280,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           height: containerHeight,
         }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="target" testId="target-handle" />
 
         <div className="w-full h-full rounded-lg relative">
           {expanded && images.length > 0 ? (
@@ -399,7 +400,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           )}
         </div>
 
-        <Handle type="source" position={Position.Right} className="!bg-[#555] !border-0 !w-2 !h-2" />
+        <NodeHandle type="source" testId="source-handle" />
 
         {/* Border overlay — rendered above all internal content (shadows, image, badge) */}
         <div
