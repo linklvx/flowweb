@@ -2,6 +2,7 @@ import { memo, useRef } from 'react';
 import { AddNodeMenu } from './AddNodeMenu';
 import { useMenuOpen } from '../hooks/useMenuOpen';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
+import { useHistoryStore } from '@/stores/historyStore';
 
 interface NodePaletteProps {
   onToggleShortcuts?: () => void;
@@ -82,6 +83,7 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
           className={SIDEBAR_BTN}
           aria-label="历史记录"
           style={SIDEBAR_BTN_BG}
+          onClick={() => useHistoryStore.getState().open()}
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = SIDEBAR_BTN_HOVER_BG; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = SIDEBAR_BTN_BG.backgroundColor!; }}
         >

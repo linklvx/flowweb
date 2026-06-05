@@ -6,11 +6,16 @@ interface FileCardProps {
   batchMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  onToggleFavorite?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-export default function FileCard({ file, batchMode, selected, onToggleSelect }: FileCardProps) {
-  const toggleFavorite = useMaterialLibraryStore((s) => s.toggleFavorite);
-  const deleteFile = useMaterialLibraryStore((s) => s.deleteFile);
+export default function FileCard({ file, batchMode, selected, onToggleSelect, onToggleFavorite, onDelete }: FileCardProps) {
+  const storeToggleFavorite = useMaterialLibraryStore((s) => s.toggleFavorite);
+  const storeDeleteFile = useMaterialLibraryStore((s) => s.deleteFile);
+
+  const toggleFavorite = onToggleFavorite || storeToggleFavorite;
+  const deleteFile = onDelete || storeDeleteFile;
 
   return (
     <div

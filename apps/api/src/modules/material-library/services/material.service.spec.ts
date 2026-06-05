@@ -20,6 +20,7 @@ describe('MaterialService', () => {
         findFirst: vi.fn(),
         update: vi.fn(),
         updateMany: vi.fn(),
+        groupBy: vi.fn(),
       },
       materialFolder: {
         findFirst: vi.fn(),
@@ -56,6 +57,57 @@ describe('MaterialService', () => {
       expect(result[0].url).toBe('http://minio/signed/test.png');
     });
 
+    it('should filter by type (mimeType prefix) when type param is provided', async () => {
+      prisma.media.findMany.mockResolvedValue([]);
+
+      await service.getFilesByFolderId('user-1', null, 'image');
+
+      expect(prisma.media.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          folderId: null,
+          deletedAt: null,
+          type: 'generated',
+          mimeType: { startsWith: 'image/' },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should filter by video mimeType when type=video', async () => {
+      prisma.media.findMany.mockResolvedValue([]);
+
+      await service.getFilesByFolderId('user-1', null, 'video');
+
+      expect(prisma.media.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          folderId: null,
+          deletedAt: null,
+          type: 'generated',
+          mimeType: { startsWith: 'video/' },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should filter by audio mimeType when type=audio', async () => {
+      prisma.media.findMany.mockResolvedValue([]);
+
+      await service.getFilesByFolderId('user-1', null, 'audio');
+
+      expect(prisma.media.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          folderId: null,
+          deletedAt: null,
+          type: 'generated',
+          mimeType: { startsWith: 'audio/' },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
     it('should generate thumbnail URLs when thumbnailKey exists', async () => {
       const dbFiles = [{ id: 'm-1', originalName: 'test.png', key: 'key1', thumbnailKey: 'thumb/key1.webp' }];
       prisma.media.findMany.mockResolvedValue(dbFiles);
@@ -67,6 +119,47 @@ describe('MaterialService', () => {
 
       expect(result[0].url).toBe('http://minio/signed/test.png');
       expect(result[0].thumbnailUrl).toBe('http://minio/signed/thumb.webp');
+    });
+
+    it('should not filter by generated when type param is not provided', async () => {
+      const dbFiles = [{ id: 'm-1', originalName: 'uploaded.png', key: 'key1', thumbnailKey: null }];
+      prisma.media.findMany.mockResolvedValue(dbFiles);
+      minio.generatePresignedGetUrl.mockResolvedValue('http://minio/signed/file.png');
+
+      await service.getFilesByFolderId('user-1', 'folder-1');
+
+      expect(prisma.media.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', folderId: 'folder-1', deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  });
+
+  describe('getFileCounts', () => {
+    it('should return counts grouped by mimeType prefix', async () => {
+      prisma.media.groupBy = vi.fn().mockResolvedValue([
+        { mimeType: 'image/png', _count: 10 },
+        { mimeType: 'image/jpeg', _count: 5 },
+        { mimeType: 'video/mp4', _count: 3 },
+        { mimeType: 'audio/mp3', _count: 7 },
+      ]);
+
+      const result = await service.getFileCounts('user-1');
+
+      expect(prisma.media.groupBy).toHaveBeenCalledWith({
+        by: ['mimeType'],
+        where: { userId: 'user-1', deletedAt: null, type: 'generated' },
+        _count: true,
+      });
+      expect(result).toEqual({ image: 15, video: 3, audio: 7 });
+    });
+
+    it('should return zeros when no files exist', async () => {
+      prisma.media.groupBy = vi.fn().mockResolvedValue([]);
+
+      const result = await service.getFileCounts('user-1');
+
+      expect(result).toEqual({ image: 0, video: 0, audio: 0 });
     });
   });
 

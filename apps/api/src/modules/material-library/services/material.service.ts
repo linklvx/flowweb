@@ -13,9 +13,26 @@ export class MaterialService {
     @InjectQueue(THUMBNAIL_GENERATOR_QUEUE) private readonly thumbnailQueue: Queue,
   ) {}
 
-  async getFilesByFolderId(userId: string, folderId: string | null) {
+  async getFilesByFolderId(userId: string, folderId: string | null, type?: 'image' | 'video' | 'audio') {
+    const where: any = { userId, folderId, deletedAt: null };
+
+    if (type) {
+      where.type = 'generated';
+      switch (type) {
+        case 'image':
+          where.mimeType = { startsWith: 'image/' };
+          break;
+        case 'video':
+          where.mimeType = { startsWith: 'video/' };
+          break;
+        case 'audio':
+          where.mimeType = { startsWith: 'audio/' };
+          break;
+      }
+    }
+
     const files = await this.prisma.media.findMany({
-      where: { userId, folderId, deletedAt: null },
+      where,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -92,6 +109,23 @@ export class MaterialService {
       data: { deletedAt: new Date() },
     });
     return result.count;
+  }
+
+  async getFileCounts(userId: string): Promise<{ image: number; video: number; audio: number }> {
+    const counts = await this.prisma.media.groupBy({
+      by: ['mimeType'],
+      where: { userId, deletedAt: null, type: 'generated' },
+      _count: true,
+    });
+
+    const result = { image: 0, video: 0, audio: 0 };
+    counts.forEach((item: { mimeType: string; _count: number }) => {
+      if (item.mimeType.startsWith('image/')) result.image += item._count;
+      else if (item.mimeType.startsWith('video/')) result.video += item._count;
+      else if (item.mimeType.startsWith('audio/')) result.audio += item._count;
+    });
+
+    return result;
   }
 
   async moveFiles(userId: string, ids: string[], folderId: string | null): Promise<number> {

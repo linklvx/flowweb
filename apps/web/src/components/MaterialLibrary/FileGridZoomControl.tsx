@@ -1,8 +1,16 @@
 import { useMaterialLibraryStore } from '../../stores/materialLibraryStore';
 
-export default function FileGridZoomControl() {
-  const fileGridSize = useMaterialLibraryStore((s) => s.fileGridSize);
-  const setFileGridSize = useMaterialLibraryStore((s) => s.setFileGridSize);
+interface FileGridZoomControlProps {
+  value?: number;
+  onChange?: (size: number) => void;
+}
+
+export default function FileGridZoomControl({ value: propValue, onChange: propOnChange }: FileGridZoomControlProps = {}) {
+  const storeFileGridSize = useMaterialLibraryStore((s) => s.fileGridSize);
+  const storeSetFileGridSize = useMaterialLibraryStore((s) => s.setFileGridSize);
+
+  const fileGridSize = propValue ?? storeFileGridSize;
+  const setFileGridSize = propOnChange ?? storeSetFileGridSize;
 
   return (
     <div className="flex items-center gap-2 text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>

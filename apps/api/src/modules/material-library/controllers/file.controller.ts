@@ -8,12 +8,19 @@ export class FileController {
   constructor(@Inject(MaterialService) private readonly materialService: MaterialService) {}
 
   @Get()
-  async getFiles(@Req() req: any, @Query('folderId') folderId?: string) {
+  async getFiles(@Req() req: any, @Query('folderId') folderId?: string, @Query('type') type?: 'image' | 'video' | 'audio') {
     const files = await this.materialService.getFilesByFolderId(
       req.user.id,
       folderId || null,
+      type,
     );
     return { success: true, data: files };
+  }
+
+  @Get('count')
+  async getFileCounts(@Req() req: any) {
+    const counts = await this.materialService.getFileCounts(req.user.id);
+    return { success: true, data: counts };
   }
 
   @Put(':id/move')
