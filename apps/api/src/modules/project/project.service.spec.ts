@@ -116,6 +116,45 @@ describe('ProjectService', () => {
     });
   });
 
+  describe('updateDimensions', () => {
+    let txMock: any;
+
+    beforeEach(() => {
+      txMock = {
+        canvasNode: {
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+      };
+      prisma.$transaction = vi.fn((callback: any) => callback(txMock));
+    });
+
+    it('should update dimensions of existing nodes via updateMany', async () => {
+      await service.updateDimensions('p1', [
+        { id: 'n1', width: 300, height: 200 },
+        { id: 'n2', width: 400, height: 300 },
+      ]);
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(txMock.canvasNode.updateMany).toHaveBeenCalledTimes(2);
+      expect(txMock.canvasNode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'n1' },
+        data: { width: 300, height: 200 },
+      });
+      expect(txMock.canvasNode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'n2' },
+        data: { width: 400, height: 300 },
+      });
+    });
+
+    it('should not throw when node does not exist (updateMany returns count 0)', async () => {
+      txMock.canvasNode.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.updateDimensions('p1', [{ id: 'nonexistent', width: 300, height: 200 }]),
+      ).resolves.not.toThrow();
+    });
+  });
+
   describe('delete', () => {
     it('should delete project by id', async () => {
       prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });

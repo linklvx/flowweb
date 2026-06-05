@@ -104,7 +104,7 @@ export class ProjectService {
     await this.prisma.$transaction(async (tx) => {
       await Promise.all(
         dto.map(({ id, width, height }) =>
-          tx.canvasNode.update({ where: { id }, data: { width, height } }),
+          tx.canvasNode.updateMany({ where: { id }, data: { width, height } }),
         ),
       );
     });
