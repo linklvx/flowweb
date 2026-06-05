@@ -140,9 +140,9 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       const triggerRect = triggerRef.current!.getBoundingClientRect();
       const menuEl = menuRef.current!;
 
-      let left = triggerRect.right + 16;
+      let left = triggerRect.right + 19;
       // Align menu vertical center with button vertical center
-      let top = triggerRect.top + triggerRect.height / 2 - menuEl.offsetHeight / 2;
+      let top = triggerRect.top + triggerRect.height / 2 - menuEl.offsetHeight / 2 + 180;
 
       const menuHeight = menuEl.offsetHeight;
       const menuWidth = menuEl.offsetWidth;
@@ -191,7 +191,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       id="add-node-menu"
       role="menu"
       aria-label="添加节点菜单"
-      className="fixed z-[var(--z-panel)] flex w-[240px] flex-col gap-0.5 rounded-2xl p-2 border"
+      className="fixed z-[var(--z-panel)] flex w-[220px] flex-col gap-0.5 rounded-2xl p-2 border"
       style={{
         backgroundColor: 'var(--canvas-controls-bg)',
         borderColor: 'var(--canvas-controls-border)',
@@ -201,7 +201,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       }}
     >
       <h4
-        className="px-2 py-1 text-sm font-medium leading-5 opacity-60"
+        className="m-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
         style={{ color: 'var(--canvas-controls-text)' }}
       >
         添加节点
@@ -256,7 +256,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       ))}
 
       <h4
-        className="px-2 py-1 text-sm font-medium leading-5 opacity-60"
+        className="m-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
         style={{ color: 'var(--canvas-controls-text)' }}
       >
         添加资源
