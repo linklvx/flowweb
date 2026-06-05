@@ -78,7 +78,35 @@ describe('NodePalette', () => {
     const svg = btn.querySelector('svg');
     expect(svg).toBeTruthy();
     fireEvent.click(btn);
-    // After click: rotated 45deg via inline style
     expect(svg!.style.transform).toBe('rotate(45deg)');
+  });
+
+  it('should render the shortcuts button', () => {
+    renderPalette();
+    const btn = screen.getByLabelText('快捷键');
+    expect(btn).toBeInTheDocument();
+  });
+
+  it('should call onToggleShortcuts when shortcuts button is clicked', () => {
+    const onToggle = vi.fn();
+    render(<NodePalette onToggleShortcuts={onToggle} />);
+    fireEvent.click(screen.getByLabelText('快捷键'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render shortcuts button without onToggleShortcuts prop (optional)', () => {
+    renderPalette();
+    fireEvent.click(screen.getByLabelText('快捷键'));
+    // should not throw
+  });
+
+  it('should render material library button', () => {
+    renderPalette();
+    expect(screen.getByLabelText('素材库')).toBeInTheDocument();
+  });
+
+  it('should render history button', () => {
+    renderPalette();
+    expect(screen.getByLabelText('历史记录')).toBeInTheDocument();
   });
 });

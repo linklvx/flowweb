@@ -1,19 +1,24 @@
 import { memo, useRef } from 'react';
 import { AddNodeMenu } from './AddNodeMenu';
 import { useMenuOpen } from '../hooks/useMenuOpen';
+import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 
-function NodePaletteComponent() {
+interface NodePaletteProps {
+  onToggleShortcuts?: () => void;
+}
+
+function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { isOpen, toggle, close } = useMenuOpen();
 
   return (
     <>
-      <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-14 bg-[#1a1a1a] border border-[#333] rounded-xl p-2 flex flex-col items-center shadow-2xl">
+      <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-12 bg-[#1a1a1a] border border-[#333] rounded-xl p-1.5 flex flex-col items-center gap-5 shadow-2xl">
         <button
           ref={triggerRef}
           type="button"
           data-sidebar-btn="add-node"
-          className="flex items-center justify-center rounded-lg transition-colors h-10 w-10 bg-[#f7f7f7] hover:bg-[#e0e0e0] border-0 cursor-pointer"
+          className="flex items-center justify-center rounded-lg transition-colors h-8 w-8 bg-[#f7f7f7] hover:bg-[#e0e0e0] border-0 cursor-pointer"
           aria-label="添加节点"
           aria-expanded={isOpen}
           aria-controls="add-node-menu"
@@ -25,8 +30,8 @@ function NodePaletteComponent() {
             aria-hidden="true"
             role="img"
             className="pointer-events-none transition-transform duration-200"
-            width="16"
-            height="16"
+            width="14"
+            height="14"
             viewBox="0 0 17 17"
             style={{ color: '#0f0f0f', transform: isOpen ? 'rotate(45deg)' : 'none' }}
           >
@@ -34,6 +39,70 @@ function NodePaletteComponent() {
               d="M8.5 0C8.99705 8.57272e-06 9.40039 0.475703 9.40039 1.0625V7.59961H15.9375C16.5243 7.59961 17 8.00294 17 8.5C17 8.99706 16.5243 9.40039 15.9375 9.40039H9.40039V15.9375C9.40039 16.5243 8.99705 17 8.5 17C8.00294 17 7.59961 16.5243 7.59961 15.9375V9.40039H1.0625C0.475698 9.40039 7.60586e-08 8.99706 0 8.5C0 8.00294 0.475698 7.59961 1.0625 7.59961H7.59961V1.0625C7.59961 0.475697 8.00294 2.1727e-08 8.5 0Z"
               fill="currentColor"
             />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="flex items-center justify-center rounded-lg transition-colors h-8 w-8 bg-[#252525] hover:bg-[#333] border-0 cursor-pointer"
+          aria-label="素材库"
+          onClick={() => useMaterialLibraryStore.getState().open()}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ color: 'rgb(160, 160, 160)' }}
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="flex items-center justify-center rounded-lg transition-colors h-8 w-8 bg-[#252525] hover:bg-[#333] border-0 cursor-pointer"
+          aria-label="历史记录"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ color: 'rgb(160, 160, 160)' }}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="flex items-center justify-center rounded-lg transition-colors h-8 w-8 bg-[#252525] hover:bg-[#333] border-0 cursor-pointer"
+          aria-label="快捷键"
+          onClick={onToggleShortcuts}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 10v6M6 16h12" />
+            <path d="M8 12h8" />
           </svg>
         </button>
       </div>

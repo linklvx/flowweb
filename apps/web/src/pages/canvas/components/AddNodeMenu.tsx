@@ -141,16 +141,17 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       const menuEl = menuRef.current!;
 
       let left = triggerRect.right + 16;
-      let top = triggerRect.top;
+      // Align menu vertical center with button vertical center
+      let top = triggerRect.top + triggerRect.height / 2 - menuEl.offsetHeight / 2;
 
       const menuHeight = menuEl.offsetHeight;
       const menuWidth = menuEl.offsetWidth;
 
       const menuBottom = top + menuHeight;
       if (menuBottom > window.innerHeight) {
-        top = triggerRect.bottom - menuHeight;
-        if (top < 0) top = 0;
+        top = window.innerHeight - menuHeight - 8;
       }
+      if (top < 8) top = 8;
 
       const menuRight = left + menuWidth;
       if (menuRight > window.innerWidth) {

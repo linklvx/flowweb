@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 
 interface Props {
   zoom: number;
@@ -141,20 +140,6 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut, minimapO
         </span>
       </button>
 
-      {/* Material library */}
-      <button
-        className={BTN}
-        aria-label="素材库"
-        data-tooltip="素材库"
-        style={{ ...BTN_BG, width: 28, height: 28 }}
-        onClick={() => useMaterialLibraryStore.getState().open()}
-      >
-        <span className={ICON_WRAP} style={{ width: 14, height: 14 }}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'rgb(160, 160, 160)' }}>
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-        </span>
-      </button>
       </div>
     </>
   );

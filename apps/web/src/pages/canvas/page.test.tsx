@@ -151,4 +151,27 @@ describe('CanvasPage', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByText('文本')).not.toBeInTheDocument();
   });
+
+  it('should show shortcuts panel when shortcuts button is clicked', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('快捷键')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText('快捷键'));
+    expect(screen.getByText('创作')).toBeInTheDocument();
+    expect(screen.getByText('缩放')).toBeInTheDocument();
+  });
+
+  it('should close shortcuts panel when close button is clicked', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('快捷键')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText('快捷键'));
+    expect(screen.getByText('创作')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('关闭快捷键面板'));
+    await waitFor(() => {
+      expect(screen.queryByText('创作')).not.toBeInTheDocument();
+    });
+  });
 });
