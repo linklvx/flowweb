@@ -129,6 +129,7 @@ describe('AddNodeMenu', () => {
       expect(item).not.toHaveClass('rounded-xl');
       expect(item).toHaveClass('h-[50px]');
       expect(item).toHaveClass('py-1');
+      expect(item).toHaveClass('bg-transparent');
     }
   });
 

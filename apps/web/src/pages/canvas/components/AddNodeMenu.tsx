@@ -86,7 +86,7 @@ const ADD_RESOURCE_ITEMS: MenuItem[] = [
 ];
 
 const MENU_ITEM_CLASS =
-  'group flex h-[50px] w-full items-center gap-2 border-0 px-2 py-1 text-left transition-colors duration-200 cursor-pointer';
+  'group flex h-[50px] w-full items-center gap-2 border-0 bg-transparent px-2 py-1 text-left transition-colors duration-200 cursor-pointer';
 
 interface AddNodeMenuProps {
   isOpen: boolean;
