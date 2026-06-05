@@ -208,4 +208,49 @@ describe('ImageConfigPanel', () => {
     fireEvent.mouseDown(document.body);
     expect(screen.queryByText('分辨率')).not.toBeInTheDocument();
   });
+
+  // ─── Generate count button ───
+  it('should render generate count button showing default 1×', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-count-select');
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toContain('1×');
+  });
+
+  it('should show custom "生成数量" tooltip above button', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    const btn = screen.getByTestId('canvas-node-image-count-select');
+    // Custom tooltip element (not native title attribute)
+    const tooltip = btn.querySelector('.count-tooltip');
+    expect(tooltip).toBeTruthy();
+    expect(tooltip?.textContent).toBe('生成数量');
+  });
+
+  it('should open count dropdown on click', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-count-select'));
+    // Use getAllByText for '1×' since button also shows it, causing duplicates
+    expect(screen.getAllByText('1×').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('2×')).toBeTruthy();
+    expect(screen.getByText('4×')).toBeTruthy();
+    expect(screen.getByText('8×')).toBeTruthy();
+  });
+
+  it('should update button text when selecting a count', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-count-select'));
+    fireEvent.click(screen.getByText('2×'));
+    expect(screen.getByTestId('canvas-node-image-count-select').textContent).toContain('2×');
+  });
+
+  it('should close count dropdown on outside click', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-count-select'));
+    // Dropdown is open: text '2×' only exists in dropdown (not on button with default 1×)
+    expect(screen.getByText('2×')).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    // After closing, dropdown items disappear (button still shows 1×)
+    expect(screen.queryByText('2×')).not.toBeInTheDocument();
+    expect(screen.getByText('1×')).toBeTruthy();
+  });
 });

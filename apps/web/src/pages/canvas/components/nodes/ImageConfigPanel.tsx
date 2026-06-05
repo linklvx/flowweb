@@ -58,6 +58,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
+  const [countOpen, setCountOpen] = useState(false);
+  const [generateCount, setGenerateCount] = useState(1);
   const recognitionRef = useRef<any>(null);
   const voiceBaseRef = useRef('');
   const selectedModel = models.find((m) => m.id === model);
@@ -77,6 +79,14 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [ratioOpen]);
+
+  // Close count dropdown on outside click
+  useEffect(() => {
+    if (!countOpen) return;
+    const handler = () => setCountOpen(false);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [countOpen]);
 
   // Load image models
   useEffect(() => {
@@ -391,6 +401,38 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                 <path d="M8.00052 12.2041V14.0048M8.00052 12.2041C9.11488 12.2041 10.1836 11.7614 10.9716 10.9735C11.7595 10.1855 12.2022 9.11678 12.2022 8.00242V6.80193M8.00052 12.2041C6.88616 12.2041 5.81745 11.7614 5.02948 10.9735C4.24151 10.1855 3.79883 9.11678 3.79883 8.00242V6.80193M8.00052 2C8.99503 2 9.80125 2.80621 9.80125 3.80073V8.00242C9.80125 8.99693 8.99503 9.80314 8.00052 9.80314C7.00601 9.80314 6.1998 8.99693 6.1998 8.00242V3.80073C6.1998 2.80621 7.00601 2 8.00052 2Z" stroke="currentColor" strokeOpacity="0.9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+            {/* Generate count selector */}
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="canvas-node-image-count-select"
+                onClick={(e) => { e.stopPropagation(); setCountOpen((v) => !v); }}
+                className="group relative inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-[#f5f5f5] transition-all active:bg-white/[0.1] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed border-none bg-transparent cursor-pointer"
+                aria-label={`Generate ${generateCount} variations`}
+              >
+                <span className="count-tooltip absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 text-xs font-normal text-white bg-[#3a3a3a] rounded-md whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">生成数量</span>
+                <span>{generateCount}×</span>
+              </button>
+              {countOpen && (
+                <div
+                  className="absolute bottom-full mb-1 right-0 bg-[#2a2a2a] border border-white/[0.1] rounded-lg py-1 shadow-xl z-50 min-w-[80px]"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  {[1, 2, 4, 8].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => { setGenerateCount(n); setCountOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${
+                        n === generateCount ? 'bg-white/10' : ''
+                      }`}
+                    >
+                      {n}×
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* Divider */}
             <div className="w-px h-4 bg-white/10 shrink-0" />
             <span className="flex shrink-0 items-center gap-[2px] text-[#919191]">
