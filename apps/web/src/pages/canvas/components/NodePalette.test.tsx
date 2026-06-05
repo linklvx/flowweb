@@ -79,6 +79,31 @@ describe('NodePalette', () => {
     });
   });
 
+  describe('add-node button', () => {
+    it('should render add-node button with correct attributes', () => {
+      renderPalette();
+      const btn = screen.getByLabelText('添加节点');
+      expect(btn).toBeInTheDocument();
+      expect(btn).toHaveAttribute('type', 'button');
+      expect(btn).toHaveAttribute('data-sidebar-btn', 'add-node');
+    });
+
+    it('should render add-node button with a plus SVG icon', () => {
+      renderPalette();
+      const btn = screen.getByLabelText('添加节点');
+      const svg = btn.querySelector('svg');
+      expect(svg).toBeTruthy();
+    });
+
+    it('should place add-node button before the panel title', () => {
+      renderPalette();
+      const btn = screen.getByLabelText('添加节点');
+      const title = screen.getByText('节点面板');
+      // The button should appear before the title in the DOM order
+      expect(btn.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
   describe('shortcuts button', () => {
     it('should render shortcuts button at the bottom', () => {
       renderPalette();
