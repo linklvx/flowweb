@@ -1,6 +1,8 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
+import { useNodeStore } from '@/stores/nodeStore';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
+import axios from 'axios';
 
 // --- Icons ---
 
@@ -109,8 +111,10 @@ interface AddNodeMenuProps {
 export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
   const addNode = useCanvasStore((s) => s.addNode);
   const viewport = useCanvasStore((s) => s.viewport);
-  const materialLibraryOpen = useMaterialLibraryStore((s) => s.open);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cancelledRef = useRef(false);
+  const [uploading, setUploading] = useState(false);
 
   // Close on Escape
   useEffect(() => {
@@ -121,6 +125,14 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
+
+
+  // Cleanup: prevent setState on unmounted component
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
 
   // Dynamic positioning: top-aligned with button, boundary-aware
@@ -161,8 +173,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
   const handleItemClick = useCallback(
     (item: MenuItem) => {
       if (item.type === 'upload') {
-        materialLibraryOpen();
-        onClose();
+        fileInputRef.current?.click();
         return;
       }
       const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
@@ -171,8 +182,81 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
       addNode(item.type, { x: centerX - 125, y: centerY - 30 });
       onClose();
     },
-    [addNode, viewport, onClose, materialLibraryOpen],
+    [addNode, viewport, onClose],
   );
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return; // 用户取消选择，菜单保持打开
+
+    setUploading(true);
+    let success = false;
+    try {
+      // 1. 获取预签名 URL
+      const { fileId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        type: 'uploaded',
+      });
+
+      // 2. 上传到 MinIO
+      const formData = new FormData();
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+      formData.append('file', file);
+
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+
+      await axios.post(proxyUrl, formData);
+
+      // 3. 确认上传
+      await confirmUpload({ fileId, key, fileSize: file.size });
+
+      // 4. 确定节点类型
+      const nodeType = file.type.startsWith('image/') ? 'image'
+        : file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio'
+        : null;
+      if (!nodeType) throw new Error(`Unsupported file type: ${file.type}`);
+
+      // 5. 计算视口中心位置
+      const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
+      const centerY = (window.innerHeight / 2 - viewport.y) / viewport.zoom;
+
+      // 6. 创建画布节点
+      const nodeId = addNode(nodeType, { x: centerX - 125, y: centerY - 30 });
+
+      // 7. 设置文件引用到节点数据
+      const refField =
+        nodeType === 'image' ? 'referenceImage'
+        : nodeType === 'video' ? 'referenceVideo'
+        : 'referenceAudio';
+      useNodeStore.getState().updateConfig(nodeId, { [refField]: fileId });
+
+      success = true;
+    } catch (err: any) {
+      console.error('[AddNodeMenu] upload error:', err.message);
+    } finally {
+      if (!cancelledRef.current) {
+        setUploading(false);
+      }
+      // 清除 input，允许重复选择同一文件
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+    // 上传成功 → 关闭菜单（放在 finally 之后，确保先清理状态再卸载组件）
+    if (success) {
+      onClose();
+    }
+  }, [viewport, addNode, onClose]);
+
+  // 菜单每次打开时重置上传状态（防御性，防止异常情况下状态残留）
+  useEffect(() => {
+    if (isOpen) {
+      setUploading(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -185,6 +269,16 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
         onClose();
       }}
     >
+      {/* Hidden file input for upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*,audio/*"
+        className="hidden"
+        onChange={handleFileChange}
+        onClick={(e) => e.stopPropagation()}
+      />
+
       <div
         ref={menuRef}
         id="add-node-menu"
@@ -262,43 +356,52 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
         添加资源
       </h4>
 
-      {ADD_RESOURCE_ITEMS.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          className={MENU_ITEM_CLASS}
-          style={{ color: 'var(--canvas-controls-text)' }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
-          }}
-          onMouseDown={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
-          }}
-          onMouseUp={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
-          }}
-          onClick={() => handleItemClick(item)}
-        >
-          <div
-            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
-            style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+      {ADD_RESOURCE_ITEMS.map((item) => {
+        const isUploadItem = item.type === 'upload';
+        return (
+          <button
+            key={item.label}
+            type="button"
+            role="menuitem"
+            className={MENU_ITEM_CLASS}
+            disabled={isUploadItem && uploading}
+            style={{
+              color: 'var(--canvas-controls-text)',
+              ...(isUploadItem && uploading ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+            }}
+            onMouseEnter={(e) => {
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+            }}
+            onMouseDown={(e) => {
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
+            }}
+            onMouseUp={(e) => {
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+            }}
+            onClick={() => handleItemClick(item)}
           >
-            {item.icon}
-          </div>
-          <div className="h-full flex-1 overflow-hidden">
-            <div className="flex h-full translate-y-2 flex-col justify-start transition-transform duration-200 group-hover:translate-y-0">
-              <span className="text-sm font-medium leading-5">{item.label}</span>
-              <span className="mt-0.5 text-xs leading-4 opacity-0 transition-opacity duration-200 group-hover:opacity-60">
-                {item.desc}
-              </span>
+            <div
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
+              style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+            >
+              {item.icon}
             </div>
-          </div>
-        </button>
-      ))}
+            <div className="h-full flex-1 overflow-hidden">
+              <div className="flex h-full translate-y-2 flex-col justify-start transition-transform duration-200 group-hover:translate-y-0">
+                <span className="text-sm font-medium leading-5">
+                  {isUploadItem && uploading ? '上传中...' : item.label}
+                </span>
+                <span className="mt-0.5 text-xs leading-4 opacity-0 transition-opacity duration-200 group-hover:opacity-60">
+                  {item.desc}
+                </span>
+              </div>
+            </div>
+          </button>
+        );
+      })}
     </div>
     </div>
   );

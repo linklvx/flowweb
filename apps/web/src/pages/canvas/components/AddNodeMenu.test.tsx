@@ -1,23 +1,52 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AddNodeMenu } from './AddNodeMenu';
 
 // Mock canvas store
-const mockAddNode = vi.fn();
+const mockAddNode = vi.fn().mockReturnValue('test-node-id');
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: (selector: any) => selector({ addNode: mockAddNode, viewport: { x: 0, y: 0, zoom: 1 } }),
 }));
 
-// Mock material library store
-const mockOpen = vi.fn();
-vi.mock('@/stores/materialLibraryStore', () => ({
-  useMaterialLibraryStore: (selector: any) => selector({ open: mockOpen }),
+// Mock node store
+const mockUpdateConfig = vi.fn();
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: {
+    getState: () => ({ updateConfig: mockUpdateConfig }),
+  },
+}));
+
+// Mock storage API
+const mockPresignUpload = vi.fn();
+const mockConfirmUpload = vi.fn();
+vi.mock('@/api/storageApi', () => ({
+  presignUpload: (...args: any[]) => mockPresignUpload(...args),
+  confirmUpload: (...args: any[]) => mockConfirmUpload(...args),
+}));
+
+// Mock axios
+const mockAxiosPost = vi.fn();
+vi.mock('axios', () => ({
+  default: { post: (...args: any[]) => mockAxiosPost(...args) },
 }));
 
 describe('AddNodeMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default resolved values for upload chain
+    mockPresignUpload.mockResolvedValue({
+      fileId: 'file-1',
+      uploadUrl: 'http://minio:9000/flowai/uploads/test.png',
+      key: 'uploads/test.png',
+      fields: { bucket: 'flowai', key: 'uploads/test.png' },
+    });
+    mockConfirmUpload.mockResolvedValue({ fileId: 'file-1' });
+    mockAxiosPost.mockResolvedValue({ status: 200 });
   });
+
+  // ============================================================
+  // 现有渲染测试（不受影响）
+  // ============================================================
 
   it('renders the menu with header "添加节点"', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
@@ -95,14 +124,6 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('opens material library when clicking upload menu item', () => {
-    const onClose = vi.fn();
-    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
-    fireEvent.click(screen.getByText('上传'));
-    expect(mockOpen).toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
-  });
-
   it('does not render when isOpen is false', () => {
     render(<AddNodeMenu isOpen={false} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.queryByText('添加节点')).not.toBeInTheDocument();
@@ -164,5 +185,140 @@ describe('AddNodeMenu', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
     expect(menuItems.length).toBe(7); // 6 node types + 1 upload
+  });
+
+  // ============================================================
+  // 新增：上传功能测试
+  // ============================================================
+
+  describe('上传按钮', () => {
+    it('点击上传按钮触发文件选择对话框', () => {
+      const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+      render(<AddNodeMenu isOpen={true} onClose={vi.fn()} triggerRef={{ current: null }} />);
+      fireEvent.click(screen.getByText('上传'));
+      expect(clickSpy).toHaveBeenCalled();
+      clickSpy.mockRestore();
+    });
+
+    it('点击上传按钮不立即关闭菜单', () => {
+      const onClose = vi.fn();
+      render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+      fireEvent.click(screen.getByText('上传'));
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('选择图片文件后调用 presignUpload', async () => {
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={vi.fn()} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.png', { type: 'image/png' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockPresignUpload).toHaveBeenCalledWith({
+          fileName: 'test.png',
+          fileSize: 5,
+          fileType: 'image/png',
+          type: 'uploaded',
+        });
+      });
+    });
+
+    it('选择图片文件后上传到 MinIO', async () => {
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={vi.fn()} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.png', { type: 'image/png' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockAxiosPost).toHaveBeenCalled();
+        expect(mockConfirmUpload).toHaveBeenCalledWith({
+          fileId: 'file-1',
+          key: 'uploads/test.png',
+          fileSize: 5,
+        });
+      });
+    });
+
+    it('上传图片成功后创建 ImageGenNode 并设置 referenceImage', async () => {
+      const onClose = vi.fn();
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.png', { type: 'image/png' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalledWith('image', expect.any(Object));
+        expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceImage: 'file-1' });
+        expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it('上传视频成功后创建 VideoGenNode 并设置 referenceVideo', async () => {
+      const onClose = vi.fn();
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.mp4', { type: 'video/mp4' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
+        expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceVideo: 'file-1' });
+        expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it('上传音频成功后创建 AudioGenNode 并设置 referenceAudio', async () => {
+      const onClose = vi.fn();
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.mp3', { type: 'audio/mpeg' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalledWith('audio', expect.any(Object));
+        expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceAudio: 'file-1' });
+        expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it('上传失败后不创建节点也不关闭菜单', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockPresignUpload.mockRejectedValueOnce(new Error('Upload failed'));
+      const onClose = vi.fn();
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['dummy'], 'test.png', { type: 'image/png' });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalled();
+      });
+      expect(mockAddNode).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('取消文件选择不触发上传', () => {
+      const { container } = render(<AddNodeMenu isOpen={true} onClose={vi.fn()} triggerRef={{ current: null }} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+      fireEvent.change(fileInput, { target: { files: [] } });
+
+      expect(mockPresignUpload).not.toHaveBeenCalled();
+    });
+
+    it('上传按钮点击不调用素材库 open', () => {
+      render(<AddNodeMenu isOpen={true} onClose={vi.fn()} triggerRef={{ current: null }} />);
+      fireEvent.click(screen.getByText('上传'));
+      // 验证不再调用 materialLibraryStore.open
+      // 由于已移除 import，此处仅验证不会出错
+      expect(mockPresignUpload).not.toHaveBeenCalled(); // 仅触发 file input，不上传
+    });
   });
 });
