@@ -1,6 +1,6 @@
 import { memo, useRef } from 'react';
 import { AddNodeMenu } from './AddNodeMenu';
-import { useMenuOpen } from '../hooks/useMenuOpen';
+import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useHistoryStore } from '@/stores/historyStore';
 
@@ -15,7 +15,9 @@ const SIDEBAR_BTN_HOVER_BG = 'rgb(78, 78, 78)';
 
 function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { isOpen, toggle, close } = useMenuOpen();
+  const isOpen = useMenuStore((s) => s.isOpen);
+  const toggle = useMenuStore((s) => s.toggle);
+  const close = useMenuStore((s) => s.close);
 
   return (
     <>

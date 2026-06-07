@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { NodePalette } from './NodePalette';
+import { useMenuStore } from '@/stores/menuStore';
 
 // Mock AddNodeMenu to avoid testing its internals here
 vi.mock('./AddNodeMenu', () => ({
@@ -22,9 +23,14 @@ vi.mock('@/stores/canvasStore', () => ({
   }),
 }));
 
-// Mock material library store (needed by AddNodeMenu, imported via NodePalette)
+// Mock material library store
 vi.mock('@/stores/materialLibraryStore', () => ({
   useMaterialLibraryStore: (selector: any) => selector({ open: vi.fn() }),
+}));
+
+// Mock history store
+vi.mock('@/stores/historyStore', () => ({
+  useHistoryStore: (selector: any) => selector({ open: vi.fn() }),
 }));
 
 describe('NodePalette', () => {
@@ -32,6 +38,7 @@ describe('NodePalette', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useMenuStore.setState({ isOpen: false });
   });
 
   it('should render the + button', () => {

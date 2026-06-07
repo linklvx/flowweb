@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
-import { ReactFlowProvider } from '@xyflow/react';
+import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
@@ -12,6 +12,7 @@ import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useMenuStore } from '@/stores/menuStore';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -107,6 +108,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
 
   return (
     <ReactFlowProvider>
+      <CanvasKeyboardHandler />
       <div className="h-screen bg-[#0f0f0f] relative">
         <ProjectTitle projectId={projectId} projectName={projectName} onNameChange={onNameChange} />
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
@@ -118,4 +120,38 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
       </div>
     </ReactFlowProvider>
   );
+}
+
+/** Global canvas keyboard shortcuts — must be inside ReactFlowProvider to use useReactFlow */
+function CanvasKeyboardHandler() {
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        useMenuStore.getState().open();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        fitView({ duration: 300, padding: 0.2 });
+        return;
+      }
+
+      if (e.altKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault();
+        fitView({ duration: 300, padding: 0.2 });
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [fitView]);
+
+  return null;
 }

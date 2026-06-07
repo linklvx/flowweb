@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { CanvasPage } from './page';
+import { useMenuStore } from '@/stores/menuStore';
 
 vi.mock('@/components/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'u1', name: 'Test', email: 'test@test.com' }, loading: false, logout: vi.fn(), refresh: vi.fn() }),
@@ -97,6 +98,23 @@ vi.mock('@/stores/materialLibraryStore', () => ({
   }),
 }));
 
+const mockFitView = vi.fn();
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    ReactFlowProvider: actual.ReactFlowProvider,
+    useReactFlow: () => ({
+      fitView: mockFitView,
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      screenToFlowPosition: vi.fn((p: any) => ({ x: p.x, y: p.y })),
+      getNodes: () => [],
+      getEdges: () => [],
+    }),
+  };
+});
+
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return { ...actual, useParams: () => ({}) };
@@ -105,6 +123,7 @@ vi.mock('react-router', async (importOriginal) => {
 describe('CanvasPage', () => {
   beforeEach(() => {
     localStorage.clear();
+    useMenuStore.setState({ isOpen: false });
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
