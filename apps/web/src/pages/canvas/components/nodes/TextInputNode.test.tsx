@@ -9,7 +9,6 @@ const mockEditorGetHTML = vi.fn().mockReturnValue('<p>test</p>');
 const mockEditorGetText = vi.fn().mockReturnValue('test');
 const mockEditorDestroy = vi.fn();
 
-// Build chain pattern: editor.chain().focus().toggleBold().run()
 const buildChain = () => {
   const focused: Record<string, any> = {};
   ['toggleBold', 'toggleItalic', 'toggleHeading', 'setParagraph',
@@ -27,12 +26,36 @@ const buildChain = () => {
   };
 };
 
+// handleMouseDown mock — declared at describe level, reset in beforeEach
+const mockHandleMouseDown = vi.fn();
+
+// getNodes mock — mutable so per-test overrides are clean (no module mutation)
+const mockGetNodes = vi.fn(() => [{ id: 'n1', selected: true }]);
+
+// isResizing mock — mutable so per-test overrides are clean
+let mockIsResizing = false;
+
+// Mock bounding rect helper — returns a realistic node rect
+function mockNodeRect(el: HTMLElement, overrides: Partial<DOMRect> = {}) {
+  const defaults = {
+    top: 0, left: 0, right: 300, bottom: 300,
+    width: 300, height: 300, x: 0, y: 0,
+    toJSON: () => ({}),
+  };
+  el.getBoundingClientRect = vi.fn().mockReturnValue({ ...defaults, ...overrides });
+}
+
 vi.mock('@xyflow/react', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@xyflow/react')>();
   return {
     ...mod,
     useReactFlow: () => ({
-      getNodes: () => [{ id: 'n1', selected: true }],
+      getNodes: () => mockGetNodes(),
+      zoom: 1,
+    }),
+    useNodeResizer: () => ({
+      isResizing: mockIsResizing,
+      handleMouseDown: mockHandleMouseDown,
     }),
   };
 });
@@ -75,10 +98,19 @@ describe('TextInputNode (Tiptap)', () => {
     );
 
   beforeEach(() => {
+    // Tiptap mocks
     mockChainRun.mockClear();
     mockEditorIsActive.mockClear();
     mockEditorIsActive.mockReturnValue(false);
+    mockEditorGetHTML.mockClear();
+    mockEditorGetText.mockClear();
+    mockEditorDestroy.mockClear();
+    // nodeStore mock
     mockUpdateText.mockClear();
+    // Resize mocks
+    mockHandleMouseDown.mockClear();
+    mockGetNodes.mockReturnValue([{ id: 'n1', selected: true }]);
+    mockIsResizing = false;
   });
 
   it('should render node title', () => {
@@ -198,7 +230,170 @@ describe('TextInputNode (Tiptap)', () => {
     expect(p3Div).toBeTruthy();
   });
 
-  // === Resize (Task 4) ===
+  // === Resize Handles (Custom useNodeResizer) ===
+
+  describe('resize handle visibility', () => {
+    it('should not render resize handle when node is not selected', () => {
+      renderNode({ selected: false });
+      expect(screen.queryByTestId('resize-handle')).toBeNull();
+    });
+
+    it('should not render resize handle when selected but mouse is in center of node', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 150, clientY: 150 }); // center, not in any corner
+      expect(screen.queryByTestId('resize-handle')).toBeNull();
+    });
+
+    it('should render resize handle when mouse is near bottom-right corner', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 }); // within 24px hit area
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+    });
+
+    it('should render resize handle when mouse is near top-left corner', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 5, clientY: 5 }); // within 24px hit area
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+    });
+
+    it('should hide handle when mouse leaves the node', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+      fireEvent.mouseLeave(nodeEl);
+      expect(screen.queryByTestId('resize-handle')).toBeNull();
+    });
+
+    it('should not render handle when multiple nodes are selected', () => {
+      // Override getNodes to return 2 selected nodes → isSingleSelected = false
+      mockGetNodes.mockReturnValue([
+        { id: 'n1', selected: true },
+        { id: 'n2', selected: true },
+      ]);
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      expect(screen.queryByTestId('resize-handle')).toBeNull();
+      // Restore default
+      mockGetNodes.mockReturnValue([{ id: 'n1', selected: true }]);
+    });
+
+    it('should hide handle when node is no longer single-selected (deselected)', () => {
+      const { container, rerender } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+
+      // Re-render with selected=false
+      rerender(
+        <ReactFlowProvider>
+          <TextInputNode id="n1" data={{ content: 'initial' } as any} selected={false} />
+        </ReactFlowProvider>
+      );
+      expect(screen.queryByTestId('resize-handle')).toBeNull();
+    });
+  });
+
+  describe('resize handle interaction', () => {
+    it('should call handleMouseDown on left-click', () => {
+      mockHandleMouseDown.mockClear();
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      const handle = screen.getByTestId('resize-handle');
+      fireEvent.mouseDown(handle, { button: 0 });
+      expect(mockHandleMouseDown).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT call handleMouseDown on right-click', () => {
+      mockHandleMouseDown.mockClear();
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      const handle = screen.getByTestId('resize-handle');
+      fireEvent.mouseDown(handle, { button: 2 });
+      expect(mockHandleMouseDown).not.toHaveBeenCalled();
+    });
+
+    it('should stop mousedown propagation (prevent node drag)', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      const handle = screen.getByTestId('resize-handle');
+      const parentHandler = vi.fn();
+      nodeEl.addEventListener('mousedown', parentHandler);
+      fireEvent.mouseDown(handle, { button: 0 });
+      expect(parentHandler).not.toHaveBeenCalled(); // stopPropagation prevented bubble
+    });
+  });
+
+  describe('resize handle style', () => {
+    it('should have correct cursor for bottom-right corner', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      const handle = screen.getByTestId('resize-handle');
+      expect(handle.style.cursor).toBe('nwse-resize');
+    });
+
+    it('should have correct cursor for top-left corner', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 5, clientY: 5 });
+      const handle = screen.getByTestId('resize-handle');
+      expect(handle.style.cursor).toBe('nwse-resize');
+    });
+
+    it('should have white background and circle shape', () => {
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      const handle = screen.getByTestId('resize-handle');
+      expect(handle.style.backgroundColor).toBe('white');
+      expect(handle.style.borderRadius).toBe('50%');
+      expect(handle.style.width).toBe('14px');
+      expect(handle.style.height).toBe('14px');
+    });
+  });
+
+  describe('resize handle during drag', () => {
+    it('should keep handle visible while isResizing is true even on mouseLeave', () => {
+      mockIsResizing = true;
+      const { container } = renderNode({ selected: true });
+      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
+      mockNodeRect(nodeEl);
+
+      // Show handle by hovering corner
+      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+
+      // Mouse leaves — handle should stay because isResizing=true
+      fireEvent.mouseLeave(nodeEl);
+      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+
+      // Cleanup: restore default
+      mockIsResizing = false;
+    });
+  });
+
+  // === Preserved existing tests (adapted) ===
+
   it('should use default dimensions 300x300 when node has no width/height', () => {
     const { container } = renderNode();
     const card = container.querySelector('[class*="bg-\\[\\#222222\\]"]') as HTMLElement;
@@ -207,27 +402,9 @@ describe('TextInputNode (Tiptap)', () => {
     expect(style).toContain('height: 300px');
   });
 
-  it('should not show resize handles when not selected', () => {
-    const { container } = renderNode({ selected: false });
-    const handles = container.querySelectorAll('[class*="resize-control"]');
-    expect(handles.length).toBe(0);
-  });
-
-  it('should show resize handles when single selected', () => {
-    const { container } = renderNode({ selected: true });
-    const handles = container.querySelectorAll('[class*="resize-control"]');
-    expect(handles.length).toBeGreaterThan(0);
-  });
-
   it('should show border overlay with data-testid when selected', () => {
     renderNode({ selected: true });
     const overlay = document.querySelector('[data-testid="border-overlay"]');
     expect(overlay).toBeInTheDocument();
-  });
-
-  it('should render 8 NodeResizer controls when single selected', () => {
-    const { container } = renderNode({ selected: true });
-    const controls = container.querySelectorAll('.react-flow__resize-control');
-    expect(controls.length).toBe(8);
   });
 });
