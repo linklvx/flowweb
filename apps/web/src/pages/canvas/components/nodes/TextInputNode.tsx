@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
-import { NodeResizer, useReactFlow, type NodeProps } from '@xyflow/react';
+import { useNodeResizer, useReactFlow, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -9,14 +9,104 @@ import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
 
 function TextInputNodeComponent({ id, selected }: NodeProps) {
+  // ========== Resize config & state ==========
+
+  type CornerType = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null;
+
+  const RESIZE_CONFIG = {
+    minWidth: 300,
+    minHeight: 300,
+    maxWidth: 2000,
+    maxHeight: 1500,
+    hitAreaSize: 24,
+    visualHandleSize: 14,
+    handleOffset: -7,
+    handleColor: '#9CA3AF',
+  } as const;
+
+  const [activeCorner, setActiveCorner] = useState<CornerType>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const updateText = useNodeStore((s) => s.updateText);
   const appNode = useNodeStore((s) => s.nodes[id]);
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
-  const { getNodes } = useReactFlow();
+  const { getNodes, zoom } = useReactFlow();
   const nodeWidth = appNode?.width ?? 300;
   const nodeHeight = appNode?.height ?? 300;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+
+  // useNodeResizer replaces NodeResizer component
+  const { isResizing, handleMouseDown: handleResizeMouseDown } = useNodeResizer({
+    nodeId: id,
+    minWidth: RESIZE_CONFIG.minWidth,
+    minHeight: RESIZE_CONFIG.minHeight,
+    maxWidth: RESIZE_CONFIG.maxWidth,
+    maxHeight: RESIZE_CONFIG.maxHeight,
+    keepAspectRatio: false,
+    shouldResize: () => true,
+  });
+
+  // Calculate which corner the mouse is near
+  const calculateActiveCorner = useCallback((e: React.MouseEvent): CornerType => {
+    if (!containerRef.current || !isSingleSelected) return null;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const hitSize = RESIZE_CONFIG.hitAreaSize / zoom;
+    const { clientX, clientY } = e;
+
+    // top-left
+    if (clientX >= rect.left && clientX <= rect.left + hitSize &&
+        clientY >= rect.top && clientY <= rect.top + hitSize) {
+      return 'top-left';
+    }
+    // top-right
+    if (clientX >= rect.right - hitSize && clientX <= rect.right &&
+        clientY >= rect.top && clientY <= rect.top + hitSize) {
+      return 'top-right';
+    }
+    // bottom-left
+    if (clientX >= rect.left && clientX <= rect.left + hitSize &&
+        clientY >= rect.bottom - hitSize && clientY <= rect.bottom) {
+      return 'bottom-left';
+    }
+    // bottom-right
+    if (clientX >= rect.right - hitSize && clientX <= rect.right &&
+        clientY >= rect.bottom - hitSize && clientY <= rect.bottom) {
+      return 'bottom-right';
+    }
+
+    return null;
+  }, [isSingleSelected, zoom]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isResizing) return;
+    const corner = calculateActiveCorner(e);
+    setActiveCorner((prev) => (prev !== corner ? corner : prev));
+  }, [calculateActiveCorner, isResizing]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!isResizing) setActiveCorner(null);
+  }, [isResizing]);
+
+  // 兜底：处理 handleMouseLeave 覆盖不到的极端情况。
+  // 例如 blur handler dispatch mouseup → isResizing 变 false，但鼠标仍在角上。
+  // 正常路径由 handleMouseLeave 清理，此 effect 保证 resize 结束后必然清除。
+  useEffect(() => {
+    if (!isResizing) setActiveCorner(null);
+  }, [isResizing]);
+
+  // Window blur → cancel resize
+  useEffect(() => {
+    const handleBlur = () => {
+      if (isResizing) {
+        document.dispatchEvent(new MouseEvent('mouseup'));
+        setTimeout(() => setActiveCorner(null), 0);
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, [isResizing]);
 
   const editor = useEditor({
     extensions: [
@@ -70,8 +160,49 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || 'Text';
 
+  // Generate inline style for the active corner handle
+  const getHandleStyle = (corner: CornerType): React.CSSProperties => {
+    if (!corner) return {};
+
+    const cursorMap: Record<string, string> = {
+      'top-left': 'nwse-resize',
+      'bottom-right': 'nwse-resize',
+      'top-right': 'nesw-resize',
+      'bottom-left': 'nesw-resize',
+    };
+
+    const offset = RESIZE_CONFIG.handleOffset;
+    const size = RESIZE_CONFIG.visualHandleSize;
+
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      width: size,
+      height: size,
+      borderRadius: '50%',
+      backgroundColor: 'white',
+      border: `2px solid ${RESIZE_CONFIG.handleColor}`,
+      zIndex: 9999,
+      cursor: cursorMap[corner] || 'default',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      transition: 'opacity 0.15s ease-out',
+    };
+
+    switch (corner) {
+      case 'top-left':     return { ...base, top: offset, left: offset };
+      case 'top-right':    return { ...base, top: offset, right: offset };
+      case 'bottom-left':  return { ...base, bottom: offset, left: offset };
+      case 'bottom-right': return { ...base, bottom: offset, right: offset };
+      default: return base;
+    }
+  };
+
   return (
-    <div className="relative canvas-node">
+    <div
+      ref={containerRef}
+      className="relative canvas-node"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
@@ -132,19 +263,24 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Target handle — outside overflow-hidden */}
       <NodeHandle type="target" testId="target-handle" />
 
+      {/* Custom resize handle — rendered outside overflow-hidden, only when a corner is active */}
+      {isSingleSelected && activeCorner && (
+        <div
+          data-testid="resize-handle"
+          style={getHandleStyle(activeCorner)}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            handleResizeMouseDown(e, activeCorner);
+          }}
+        />
+      )}
+
       {/* Card body */}
       <div
         className="relative z-0 bg-[#222222] rounded-lg transition-colors overflow-hidden"
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
-        <NodeResizer
-          minWidth={300}
-          minHeight={300}
-          maxWidth={2000}
-          maxHeight={1500}
-          isVisible={isSingleSelected}
-          color="#9CA3AF"
-        />
         <div className="absolute inset-0 py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col overflow-hidden" style={{ backgroundColor: bgColor || undefined }}>
           {/* Tiptap EditorContent — hidden when fullscreen is open */}
           {!fullscreen && (
@@ -161,7 +297,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           data-testid="border-overlay"
           className="absolute inset-0 rounded-lg pointer-events-none"
           style={{
-            zIndex: 10,
+            zIndex: 5,
             border: selected ? '3px solid #9CA3AF' : '1px solid #3F3F46',
           }}
         />
