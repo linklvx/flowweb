@@ -43,4 +43,14 @@ describe('MinioService', () => {
   it('should have getObject method', () => {
     expect(typeof service.getObject).toBe('function');
   });
+
+  it('should have ensureBucket method', () => {
+    expect(typeof service.ensureBucket).toBe('function');
+  });
+
+  describe('ensureBucket', () => {
+    it('should be a function accepting optional retries and delay', () => {
+      expect(service.ensureBucket.length).toBe(2); // (retries, delay)
+    });
+  });
 });
