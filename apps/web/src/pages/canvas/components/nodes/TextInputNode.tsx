@@ -41,8 +41,12 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const calculateActiveCorner = useCallback((e: React.MouseEvent): CornerType => {
     if (!containerRef.current || !isSingleSelected) return null;
 
+    // 必须使用 React Flow 的节点包装器（.react-flow__node）来计算坐标，
+    // 因为它应用了 transform: translate(x, y) 定位节点。
+    // 内部 canvas-node div 的 getBoundingClientRect 可能因 DOM 结构偏移而不准确。
     const rect = containerRef.current.getBoundingClientRect();
-    const hitSize = RESIZE_CONFIG.hitAreaSize / zoom;
+    // zoom from useReactFlow() may be 0/undefined before store init; default to 1
+    const hitSize = RESIZE_CONFIG.hitAreaSize / (zoom || 1);
     const { clientX, clientY } = e;
 
     // top-left
@@ -151,13 +155,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const titleText = label || 'Text';
 
   // Generate offset style for the NodeResizeControl wrapper (transparent hit area)
-  const getControlStyle = (corner: CornerType): React.CSSProperties => {
-    if (!corner) return {};
+  const getControlStyle = (): React.CSSProperties => {
     const size = RESIZE_CONFIG.hitAreaSize;
-    const offset = RESIZE_CONFIG.handleOffset + (RESIZE_CONFIG.visualHandleSize - RESIZE_CONFIG.hitAreaSize) / 2;
-
-    const base: React.CSSProperties = {
-      position: 'absolute',
+    return {
       width: size,
       height: size,
       background: 'transparent',
@@ -165,14 +165,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       zIndex: 9999,
       opacity: 1,
     };
-
-    switch (corner) {
-      case 'top-left':     return { ...base, top: offset, left: offset };
-      case 'top-right':    return { ...base, top: offset, right: offset };
-      case 'bottom-left':  return { ...base, bottom: offset, left: offset };
-      case 'bottom-right': return { ...base, bottom: offset, right: offset };
-      default: return base;
-    }
   };
 
   // Generate inline style for the visual handle inside NodeResizeControl
@@ -275,7 +267,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           keepAspectRatio={false}
           onResizeStart={() => setIsResizing(true)}
           onResizeEnd={() => setIsResizing(false)}
-          style={getControlStyle(activeCorner)}
+          style={getControlStyle()}
         >
           <div data-testid="resize-handle" style={getHandleStyle()} />
         </NodeResizeControl>
