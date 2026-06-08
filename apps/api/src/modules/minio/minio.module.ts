@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { MinioService, MinioConfig } from './minio.service';
 import { validateEnv } from '../../config/env';
 
@@ -22,4 +22,10 @@ import { validateEnv } from '../../config/env';
   ],
   exports: [MinioService],
 })
-export class MinioModule {}
+export class MinioModule implements OnModuleInit {
+  constructor(private readonly minioService: MinioService) {}
+
+  async onModuleInit() {
+    await this.minioService.ensureBucket();
+  }
+}
