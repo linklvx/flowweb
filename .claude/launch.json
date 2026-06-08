@@ -40,5 +40,11 @@
         "MINIO_ROOT_PASSWORD": "minioadmin"
       }
     }
+  ],
+  "compounds": [
+    {
+      "name": "All Services",
+      "configurations": ["minio", "api", "web"]
+    }
   ]
 }
