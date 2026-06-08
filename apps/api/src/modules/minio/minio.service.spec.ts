@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MinioService, MinioConfig } from './minio.service';
 
 const mockConfig: MinioConfig = {
@@ -49,8 +49,46 @@ describe('MinioService', () => {
   });
 
   describe('ensureBucket', () => {
-    it('should be a function accepting optional retries and delay', () => {
-      expect(service.ensureBucket.length).toBe(0); // all params have defaults
+    it('should log when bucket already exists', async () => {
+      const mockSend = vi.fn().mockResolvedValue({});
+      (service as any).s3Client = { send: mockSend };
+
+      await service.ensureBucket();
+
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('should create bucket when NotFound (404)', async () => {
+      const mockSend = vi.fn()
+        .mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } })
+        .mockResolvedValueOnce({});
+
+      (service as any).s3Client = { send: mockSend };
+
+      await service.ensureBucket();
+
+      expect(mockSend).toHaveBeenCalledTimes(2); // HeadBucket → CreateBucket
+    });
+
+    it('should skip creation when BucketAlreadyExists (409)', async () => {
+      const mockSend = vi.fn()
+        .mockRejectedValueOnce({ $metadata: { httpStatusCode: 409 }, name: 'BucketAlreadyExists' });
+
+      (service as any).s3Client = { send: mockSend };
+
+      await service.ensureBucket();
+
+      expect(mockSend).toHaveBeenCalledTimes(1); // Only HeadBucket, no CreateBucket
+    });
+
+    it('should throw after exhausting retries', async () => {
+      const mockSend = vi.fn().mockRejectedValue({ $metadata: { httpStatusCode: 500 }, name: 'InternalError' });
+
+      (service as any).s3Client = { send: mockSend };
+
+      await expect(service.ensureBucket(0, 0)).rejects.toThrow('MinIO initialization failed');
+
+      expect(mockSend).toHaveBeenCalledTimes(1);
     });
   });
 });
