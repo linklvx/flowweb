@@ -166,7 +166,7 @@ function IconButton({ icon, ariaLabel, onClick, disabled, className = '' }: {
       tabIndex={0}
       disabled={disabled}
       onClick={onClick}
-      className={`${BTN_CLASS} flex items-center justify-center rounded-lg p-1.5 transition-colors disabled:opacity-50 disabled:pointer-events-none ${className}`}
+      className={`${BTN_CLASS} flex items-center justify-center border-0 rounded-lg p-1.5 transition-colors disabled:opacity-50 disabled:pointer-events-none ${className}`}
       style={{ backgroundColor: BTN_BG, color: ICON_COLOR }}
     >
       {icon}
@@ -189,7 +189,7 @@ function TextIconButton({ icon, ariaLabel, text, onClick, disabled, className = 
       tabIndex={0}
       disabled={disabled}
       onClick={onClick}
-      className={`${BTN_CLASS} relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50 disabled:pointer-events-none ${className}`}
+      className={`${BTN_CLASS} relative flex items-center gap-1.5 border-0 rounded-lg px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50 disabled:pointer-events-none ${className}`}
       style={{ backgroundColor: BTN_BG, color: TEXT_COLOR }}
     >
       <span className="flex-shrink-0">{icon}</span>
