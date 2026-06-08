@@ -12,3 +12,4 @@ services/
 .data/
 backups/
 flowweb.dataminio/
+flowweb.data/
