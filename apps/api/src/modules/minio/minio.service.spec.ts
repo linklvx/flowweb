@@ -50,7 +50,7 @@ describe('MinioService', () => {
 
   describe('ensureBucket', () => {
     it('should be a function accepting optional retries and delay', () => {
-      expect(service.ensureBucket.length).toBe(2); // (retries, delay)
+      expect(service.ensureBucket.length).toBe(0); // all params have defaults
     });
   });
 });

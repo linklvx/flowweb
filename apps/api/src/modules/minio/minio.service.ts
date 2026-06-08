@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Readable } from 'stream';
 import {
   S3Client,
@@ -6,6 +6,8 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -23,6 +25,7 @@ export interface MinioConfig {
 export class MinioService {
   private readonly s3Client: S3Client;
   private readonly bucket: string;
+  private readonly logger = new Logger(MinioService.name);
 
   constructor(config: MinioConfig) {
     this.bucket = config.bucket;
@@ -35,6 +38,7 @@ export class MinioService {
         secretAccessKey: config.secretKey,
       },
       forcePathStyle: true, // MinIO MUST use path-style URLs
+      tls: config.useSsl,
     });
   }
 
@@ -127,5 +131,30 @@ export class MinioService {
         Key: key,
       }),
     );
+  }
+
+  /** Ensure the configured bucket exists; create it if missing */
+  async ensureBucket(retries: number = 3, delay: number = 1000): Promise<void> {
+    try {
+      await this.s3Client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      this.logger.log(`Bucket '${this.bucket}' already exists`);
+    } catch (err: any) {
+      const status = err.$metadata?.httpStatusCode;
+      const name = err.name;
+
+      if (status === 404 || name === 'NotFound') {
+        await this.s3Client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+        this.logger.log(`Bucket '${this.bucket}' created successfully`);
+      } else if (status === 409 || name === 'BucketAlreadyExists') {
+        this.logger.log(`Bucket '${this.bucket}' already exists (created by another instance)`);
+      } else if (retries > 0) {
+        this.logger.warn(`MinIO not ready, retrying (${retries} left)...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await this.ensureBucket(retries - 1, delay);
+      } else {
+        this.logger.error(`MinIO init failed: ${err.message}`);
+        throw new Error(`MinIO initialization failed: ${err.message}`);
+      }
+    }
   }
 }
