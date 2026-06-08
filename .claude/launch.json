@@ -14,6 +14,17 @@
       "runtimeArgs": ["turbo", "run", "dev", "--filter=@flowweb/api"],
       "port": 3000,
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "minio",
+      "runtimeExecutable": "minio.exe",
+      "runtimeArgs": ["server", "./flowweb.data/minio", "--console-address", ":9001"],
+      "port": 9000,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MINIO_ROOT_USER": "minioadmin",
+        "MINIO_ROOT_PASSWORD": "minioadmin"
+      }
     }
   ]
 }
