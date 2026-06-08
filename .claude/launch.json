@@ -25,6 +25,20 @@
         "MINIO_ROOT_USER": "minioadmin",
         "MINIO_ROOT_PASSWORD": "minioadmin"
       }
+    },
+    {
+      "name": "minio-reset",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "if exist .\\flowweb.data\\minio rmdir /s /q .\\flowweb.data\\minio && minio.exe server .\\flowweb.data\\minio --console-address :9001"
+      ],
+      "port": 9000,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MINIO_ROOT_USER": "minioadmin",
+        "MINIO_ROOT_PASSWORD": "minioadmin"
+      }
     }
   ]
 }
