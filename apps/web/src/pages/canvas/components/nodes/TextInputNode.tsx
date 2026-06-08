@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
-import { useNodeResizer, useReactFlow, type NodeProps } from '@xyflow/react';
+import { NodeResizeControl, useReactFlow, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -25,6 +25,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   } as const;
 
   const [activeCorner, setActiveCorner] = useState<CornerType>(null);
+  const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const updateText = useNodeStore((s) => s.updateText);
@@ -35,17 +36,6 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const nodeWidth = appNode?.width ?? 300;
   const nodeHeight = appNode?.height ?? 300;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
-
-  // useNodeResizer replaces NodeResizer component
-  const { isResizing, handleMouseDown: handleResizeMouseDown } = useNodeResizer({
-    nodeId: id,
-    minWidth: RESIZE_CONFIG.minWidth,
-    minHeight: RESIZE_CONFIG.minHeight,
-    maxWidth: RESIZE_CONFIG.maxWidth,
-    maxHeight: RESIZE_CONFIG.maxHeight,
-    keepAspectRatio: false,
-    shouldResize: () => true,
-  });
 
   // Calculate which corner the mouse is near
   const calculateActiveCorner = useCallback((e: React.MouseEvent): CornerType => {
@@ -160,31 +150,20 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || 'Text';
 
-  // Generate inline style for the active corner handle
-  const getHandleStyle = (corner: CornerType): React.CSSProperties => {
+  // Generate offset style for the NodeResizeControl wrapper (transparent hit area)
+  const getControlStyle = (corner: CornerType): React.CSSProperties => {
     if (!corner) return {};
-
-    const cursorMap: Record<string, string> = {
-      'top-left': 'nwse-resize',
-      'bottom-right': 'nwse-resize',
-      'top-right': 'nesw-resize',
-      'bottom-left': 'nesw-resize',
-    };
-
-    const offset = RESIZE_CONFIG.handleOffset;
-    const size = RESIZE_CONFIG.visualHandleSize;
+    const size = RESIZE_CONFIG.hitAreaSize;
+    const offset = RESIZE_CONFIG.handleOffset + (RESIZE_CONFIG.visualHandleSize - RESIZE_CONFIG.hitAreaSize) / 2;
 
     const base: React.CSSProperties = {
       position: 'absolute',
       width: size,
       height: size,
-      borderRadius: '50%',
-      backgroundColor: 'white',
-      border: `2px solid ${RESIZE_CONFIG.handleColor}`,
+      background: 'transparent',
+      border: 'none',
       zIndex: 9999,
-      cursor: cursorMap[corner] || 'default',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-      transition: 'opacity 0.15s ease-out',
+      opacity: 1,
     };
 
     switch (corner) {
@@ -194,6 +173,27 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       case 'bottom-right': return { ...base, bottom: offset, right: offset };
       default: return base;
     }
+  };
+
+  // Generate inline style for the visual handle inside NodeResizeControl
+  const getHandleStyle = (): React.CSSProperties => {
+    const size = RESIZE_CONFIG.visualHandleSize;
+    // Center the visual handle within the 24px hit area
+    const centerOffset = (RESIZE_CONFIG.hitAreaSize - size) / 2;
+
+    return {
+      position: 'absolute',
+      width: size,
+      height: size,
+      top: centerOffset,
+      left: centerOffset,
+      borderRadius: '50%',
+      backgroundColor: 'white',
+      border: `2px solid ${RESIZE_CONFIG.handleColor}`,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      transition: 'opacity 0.15s ease-out',
+      pointerEvents: 'none',
+    };
   };
 
   return (
@@ -232,7 +232,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             aria-hidden="true"
             style={{ fontSize: 12, lineHeight: '18px' }}
           >
-            {(draft || titleText) + ' '}
+            {(draft || titleText) + ' '}
           </span>
           <input
             ref={titleInputRef}
@@ -265,15 +265,20 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
       {/* Custom resize handle — rendered outside overflow-hidden, only when a corner is active */}
       {isSingleSelected && activeCorner && (
-        <div
-          data-testid="resize-handle"
-          style={getHandleStyle(activeCorner)}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            e.stopPropagation();
-            handleResizeMouseDown(e, activeCorner);
-          }}
-        />
+        <NodeResizeControl
+          nodeId={id}
+          position={activeCorner}
+          minWidth={RESIZE_CONFIG.minWidth}
+          minHeight={RESIZE_CONFIG.minHeight}
+          maxWidth={RESIZE_CONFIG.maxWidth}
+          maxHeight={RESIZE_CONFIG.maxHeight}
+          keepAspectRatio={false}
+          onResizeStart={() => setIsResizing(true)}
+          onResizeEnd={() => setIsResizing(false)}
+          style={getControlStyle(activeCorner)}
+        >
+          <div data-testid="resize-handle" style={getHandleStyle()} />
+        </NodeResizeControl>
       )}
 
       {/* Card body */}
