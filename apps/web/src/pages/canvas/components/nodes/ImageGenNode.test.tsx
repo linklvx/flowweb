@@ -150,12 +150,13 @@ describe('ImageGenNode', () => {
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
   });
 
-  it('floating upload button should have nodrag and nopan classes', () => {
+  it('floating upload container should have nodrag and nopan classes', () => {
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode(true);
-    const btn = screen.getByText('上传').closest('button');
-    expect(btn).toHaveClass('nodrag');
-    expect(btn).toHaveClass('nopan');
+    const { container } = renderNode(true);
+    const toolbar = container.querySelector('.nodrag') as HTMLElement;
+    expect(toolbar).toBeTruthy();
+    expect(toolbar.classList.contains('nodrag')).toBe(true);
+    expect(toolbar.classList.contains('nopan')).toBe(true);
   });
 
   it('shows replace button when image is user-uploaded (referenceImage set, no fileId)', () => {

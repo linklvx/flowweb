@@ -1,9 +1,10 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { type NodeProps } from '@xyflow/react';
+import { type NodeProps, useViewport } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
+import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
@@ -45,7 +46,9 @@ function ratioDimensions(ratio: string) {
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
+  const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
+  const { x: vpX, y: vpY, zoom } = useViewport();
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -185,31 +188,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {/* Floating upload button — only when selected */}
-      {selected && (
-        <button
-          className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
-          style={{ bottom: 'calc(100% + 28px)' }}
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <>
-              <span className="inline-block w-3.5 h-3.5 border-2 border-[#ccc] border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm">{uploadProgress}%</span>
-            </>
-          ) : (
-            <>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
-                <path d="M7 9l5 -5l5 5" />
-                <path d="M12 4l0 12" />
-              </svg>
-              <span className="text-sm">上传</span>
-            </>
-          )}
-        </button>
-      )}
+      {/* Floating toolbar / upload button — only when selected */}
+      <ImageNodeToolbar
+        fileId={fileId}
+        referenceImage={referenceImage}
+        selected={selected ?? false}
+        zoom={zoom}
+        nodeX={node?.position?.x ?? 0}
+        nodeY={node?.position?.y ?? 0}
+        viewportX={vpX}
+        viewportY={vpY}
+        onUpload={() => fileInputRef.current?.click()}
+      />
 
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
