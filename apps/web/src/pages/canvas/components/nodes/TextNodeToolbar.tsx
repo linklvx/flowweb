@@ -1,5 +1,6 @@
-import { memo, useCallback, useState, useEffect, useRef } from 'react';
-import { useViewport } from '@xyflow/react';
+import { memo, useCallback, useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useViewport, useInternalNode } from '@xyflow/react';
 import type { Editor } from '@tiptap/react';
 import '@tiptap/starter-kit'; // Type augmentation for chain commands (tree-shaken at build)
 
@@ -22,7 +23,21 @@ interface Props {
 }
 
 function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgColor, onFullscreen }: Props) {
-  const { zoom } = useViewport();
+  const { x: vpX, y: vpY, zoom } = useViewport();
+  const internalNode = useInternalNode(nodeId);
+
+  // 窗口尺寸追踪
+  const [windowSize, setWindowSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  useEffect(() => {
+    const onResize = () =>
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const { width: windowWidth, height: windowHeight } = windowSize;
 
   // Force re-render when editor selection/state changes (memo prevents re-render otherwise)
   const [, setTick] = useState(0);
@@ -146,14 +161,64 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
       active ? 'bg-white/20' : ''
     }`;
 
-  return (
-    <div
-      className="nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg text-white/90"
-      style={{
+  // Positioning (Portal)
+  const position = useMemo(() => {
+    if (!internalNode?.measured?.width || !internalNode?.measured?.height) {
+      return null;
+    }
+    const { x: nodeX, y: nodeY } = internalNode.position;
+    const { width: nodeWidth, height: nodeHeight } = internalNode.measured;
+
+    const TOOLBAR_HEIGHT = 46;
+    const TOOLBAR_MARGIN = 20;
+    const VIEWPORT_PADDING = 10;
+
+    const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;
+    const viewTopY = nodeY * zoom + vpY;
+    const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
+
+    const showBelow = viewTopY < TOOLBAR_HEIGHT + TOOLBAR_MARGIN;
+    const toolbarTop = showBelow
+      ? viewBottomY + TOOLBAR_MARGIN
+      : viewTopY - TOOLBAR_HEIGHT - TOOLBAR_MARGIN;
+
+    const toolbarLeft = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
+    );
+
+    const isVisible =
+      viewBottomY > -nodeHeight * zoom &&
+      viewTopY < windowHeight + nodeHeight * zoom;
+
+    if (!isVisible) return null;
+
+    return { toolbarLeft, toolbarTop };
+  }, [internalNode, vpX, vpY, zoom, windowWidth, windowHeight]);
+
+  if (!position) return null;
+
+  const portalRoot = document.getElementById('node-toolbar-portal');
+
+  const toolbarStyle = portalRoot
+    ? ({
+        left: position.toolbarLeft,
+        top: position.toolbarTop,
+        transform: 'translateX(-50%)',
+        zIndex: 10000,
+        willChange: 'left, top',
+        border: '1px solid #3F3F46',
+      } satisfies React.CSSProperties)
+    : ({
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'bottom center',
         border: '1px solid #3F3F46',
-      }}
+      } satisfies React.CSSProperties);
+
+  const toolbar = (
+    <div
+      className="nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg text-white/90"
+      style={toolbarStyle}
       onMouseDown={(e) => e.preventDefault()}
     >
       {/* Group 0: Background Color (leftmost) */}
@@ -277,6 +342,8 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
       </div>
     </div>
   );
+
+  return portalRoot ? createPortal(toolbar, portalRoot) : toolbar;
 }
 
 export const TextNodeToolbar = memo(TextNodeToolbarComponent);
