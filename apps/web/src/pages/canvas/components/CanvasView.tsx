@@ -124,9 +124,9 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   );
 
   // Ctrl/Cmd + wheel → canvas zoom; block browser Ctrl+scroll zoom
+  // 使用 document 级别捕获阶段，确保拦截所有 Ctrl+滚轮事件，
+  // 防止浏览器原生的页面缩放快捷键与画布缩放冲突
   useEffect(() => {
-    const el = reactFlowWrapper.current;
-    if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -134,9 +134,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         else zoomOut({ duration: 100 });
       }
     };
-    // non-capture: fires after React Flow's internal handlers, avoids interference
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    document.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => document.removeEventListener('wheel', onWheel, { capture: true });
   }, [zoomIn, zoomOut]);
 
   const handleFitView = useCallback(() => {
