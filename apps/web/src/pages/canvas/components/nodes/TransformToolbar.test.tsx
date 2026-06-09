@@ -62,10 +62,10 @@ describe('TransformToolbar', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders "旋转与镜像" cancel button', () => {
+  it('renders "退出" cancel button', () => {
     setupPortalTarget();
     render(<TransformToolbar {...defaultProps} />);
-    expect(screen.getByText('旋转与镜像')).toBeInTheDocument();
+    expect(screen.getByText('退出')).toBeInTheDocument();
   });
 
   it('renders angle display "90°"', () => {
@@ -133,11 +133,11 @@ describe('TransformToolbar', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onCancel when "旋转与镜像" button is clicked', () => {
+  it('calls onCancel when "退出" button is clicked', () => {
     setupPortalTarget();
     const onCancel = vi.fn();
     render(<TransformToolbar {...defaultProps} onCancel={onCancel} />);
-    fireEvent.click(screen.getByText('旋转与镜像'));
+    fireEvent.click(screen.getByText('退出'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
@@ -157,6 +157,28 @@ describe('TransformToolbar', () => {
     expect(toolbar).toBeTruthy();
     expect(toolbar.classList.contains('nodrag')).toBe(true);
     expect(toolbar.classList.contains('nopan')).toBe(true);
+  });
+
+  it('rotate button has data-tooltip "顺时针旋转90°"', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} />);
+    const btn = screen.getByLabelText('顺时针旋转90°');
+    expect(btn).toHaveAttribute('data-tooltip', '顺时针旋转90°');
+    expect(btn.classList.contains('xform-tooltip')).toBe(true);
+  });
+
+  it('horizontal mirror button has data-tooltip "水平镜像"', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} />);
+    const btn = screen.getByLabelText('水平镜像');
+    expect(btn).toHaveAttribute('data-tooltip', '水平镜像');
+  });
+
+  it('vertical mirror button has data-tooltip "垂直镜像"', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} />);
+    const btn = screen.getByLabelText('垂直镜像');
+    expect(btn).toHaveAttribute('data-tooltip', '垂直镜像');
   });
 
   it('uses the same positioning constants as ImageNodeToolbar', () => {

@@ -58,7 +58,7 @@ const CONTROLS_HOVER = 'rgba(255,255,255,0.08)';
 const CONTROLS_ACTIVE = 'rgba(255,255,255,0.12)';
 const CONTROLS_BORDER = 'rgb(54, 54, 54)';
 const TOOLBAR_HEIGHT = 56;
-const GAP = 44;
+const GAP = 60;
 const VIEWPORT_PADDING = 10;
 
 // ── Main component ─────────────────────────────────────
@@ -143,6 +143,26 @@ function TransformToolbarComponent({
       <style>{`
         .xform-btn:hover { background-color: ${CONTROLS_HOVER} !important; }
         .xform-btn:active { background-color: ${CONTROLS_ACTIVE} !important; }
+        .xform-tooltip { position: relative; }
+        .xform-tooltip::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          bottom: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: rgba(0,0,0,0.85);
+          color: #fff;
+          font-size: 12px;
+          line-height: 1.4;
+          white-space: nowrap;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.15s;
+          z-index: 10001;
+        }
+        .xform-tooltip:hover::after { opacity: 1; }
       `}</style>
 
       <div
@@ -163,7 +183,7 @@ function TransformToolbarComponent({
           onClick={onCancel}
         >
           <ArrowLeftIcon />
-          <span style={{ lineHeight: '1.4' }}>旋转与镜像</span>
+          <span style={{ lineHeight: '1.4' }}>退出</span>
         </button>
 
         <div style={{ backgroundColor: CONTROLS_BORDER, width: 1, height: 32 }} />
@@ -194,17 +214,17 @@ function TransformToolbarComponent({
         <div style={{ backgroundColor: CONTROLS_BORDER, width: 1, height: 32 }} />
 
         {/* Rotate 90° */}
-        <button type="button" className={`${iconBtnClass} xform-btn`} style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onRotate} aria-label="顺时针旋转90°">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="顺时针旋转90°" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onRotate} aria-label="顺时针旋转90°">
           <Rotate90Icon />
         </button>
 
         {/* Horizontal mirror */}
-        <button type="button" className={`${iconBtnClass} xform-btn`} style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipH} aria-label="水平镜像">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="水平镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipH} aria-label="水平镜像">
           <MirrorHIcon />
         </button>
 
         {/* Vertical mirror */}
-        <button type="button" className={`${iconBtnClass} xform-btn`} style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipV} aria-label="垂直镜像">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="垂直镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipV} aria-label="垂直镜像">
           <MirrorVIcon />
         </button>
 
