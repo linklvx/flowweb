@@ -218,28 +218,31 @@ describe('ImageGenNode', () => {
 
   // ---- Transform mode (rotation + mirror) ----
 
-  it('should apply CSS transform to image in transform mode', () => {
+  it('should apply CSS transform to inner container in transform mode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: true, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode();
+    const { container } = renderNode();
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('src', 'http://media/cat-file-id');
-    expect(img.style.transform).toBe('rotate(90deg) scaleX(-1) scaleY(1)');
+    // CSS transform should be on the parent container, not the img
+    const innerDiv = img.closest('.flex.items-center.justify-center');
+    expect(innerDiv).toBeTruthy();
+    expect((innerDiv as HTMLElement).style.transform).toBe('rotate(90deg) scaleX(-1) scaleY(1)');
   });
 
   it('should apply correct CSS transform for 270° with both flips', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 270, flipH: true, flipV: true, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode();
+    const { container } = renderNode();
     const img = screen.getByRole('img');
-    expect(img.style.transform).toBe('rotate(270deg) scaleX(-1) scaleY(-1)');
+    const innerDiv = img.closest('.flex.items-center.justify-center');
+    expect((innerDiv as HTMLElement).style.transform).toBe('rotate(270deg) scaleX(-1) scaleY(-1)');
   });
 
-  it('should swap container dimensions for 90° rotation in transform mode', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+  it('should use unswapped inner container size for 90° rotation in transform mode', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     const { container } = renderNode();
-    // In transform mode with image and 90° rotation, width/height should swap
-    // imgSize is computed from the image on load, so container dimensions won't be ratio-based
+    // Inner container should use base dimensions (w=548, h=309 for 16:9)
+    // so that rotate(90deg) produces visual that fills swapped outer card
     const html = container.innerHTML;
-    // Image dimensions get swapped when transform mode + 90/270 rotation
     expect(html).toContain('width:');
     expect(html).toContain('height:');
   });

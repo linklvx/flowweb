@@ -104,18 +104,29 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const ratio = nodeData?.ratio ?? '16:9';
   const ratioSize = ratioDimensions(ratio);
-  let containerWidth = imgSize ? imgSize.w : ratioSize.w;
-  let containerHeight = imgSize ? imgSize.h : ratioSize.h;
+  const baseWidth = imgSize ? imgSize.w : ratioSize.w;
+  const baseHeight = imgSize ? imgSize.h : ratioSize.h;
+  let containerWidth = baseWidth;
+  let containerHeight = baseHeight;
 
   // Swap dimensions for 90°/270° rotation in transform mode
   if (transformMode && (imageRotation === 90 || imageRotation === 270)) {
     [containerWidth, containerHeight] = [containerHeight, containerWidth];
   }
 
-  // CSS transform for live preview
+  // CSS transform for live preview — applied to inner container
   const previewTransform = transformMode
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
+
+  // Inner container uses unswapped dimensions in rotation mode so the CSS
+  // rotate transform produces a visual that fills the swapped outer card.
+  const innerWidth = transformMode && (imageRotation === 90 || imageRotation === 270)
+    ? baseHeight
+    : baseWidth;
+  const innerHeight = transformMode && (imageRotation === 90 || imageRotation === 270)
+    ? baseWidth
+    : baseHeight;
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -289,14 +300,17 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
-          style={{ width: containerWidth, height: containerHeight }}
+          style={{
+            width: innerWidth,
+            height: innerHeight,
+            ...(previewTransform ? { transform: previewTransform, overflow: 'visible' } : {}),
+          }}
         >
           {displayUrl ? (
             <img
               src={displayUrl}
               alt="preview"
               className="max-w-full max-h-full object-contain"
-              style={{ transition: 'transform 0.3s ease', ...(previewTransform ? { transform: previewTransform } : {}) }}
               onLoad={handleImageLoad}
             />
           ) : status === 'loading' ? (
