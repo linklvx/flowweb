@@ -148,6 +148,15 @@ interface NodeState {
   toggleExpanded: (nodeId: string) => void;
   updateMultiImageNodeStatus: (nodeId: string, status: MultiImageNodeData['nodeStatus']) => void;
   getNodeData: <T>(id: string) => T | undefined;
+
+  // Transform toolbar support
+  cancelRequestedAt: number;
+  setActiveTransformNodeId: (id: string | null) => void;
+  triggerCancelTransform: () => void;
+  saveHandlers: Record<string, () => Promise<void>>;
+  registerSaveHandler: (nodeId: string, handler: () => Promise<void>) => void;
+  unregisterSaveHandler: (nodeId: string) => void;
+  saveTransformNode: (nodeId: string) => Promise<void>;
 }
 
 // ========== Store ==========
@@ -155,6 +164,24 @@ interface NodeState {
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
   activeTransformNodeId: null,
+  cancelRequestedAt: 0,
+  saveHandlers: {},
+
+  setActiveTransformNodeId: (id) => set({ activeTransformNodeId: id }),
+  triggerCancelTransform: () => set({ cancelRequestedAt: Date.now() }),
+
+  registerSaveHandler: (nodeId, handler) =>
+    set((s) => ({ saveHandlers: { ...s.saveHandlers, [nodeId]: handler } })),
+  unregisterSaveHandler: (nodeId) =>
+    set((s) => {
+      const { [nodeId]: _, ...rest } = s.saveHandlers;
+      return { saveHandlers: rest };
+    }),
+  saveTransformNode: async (nodeId) => {
+    const handler = get().saveHandlers[nodeId];
+    if (!handler) return;
+    try { await handler(); } catch (err) { console.error(`保存节点 ${nodeId} 失败:`, err); }
+  },
 
   addNode: (node) => {
     set((s) => ({
@@ -190,7 +217,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const node = getNode(get().nodes, nodeId);
     if (node && isImageNode(node)) {
       const imgData = node.data;
-      const deleteRefs = imgData.prompt.allImages.map((img) =>
+      const deleteRefs = (imgData.prompt?.allImages ?? []).map((img) =>
         fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
       );
       await Promise.allSettled(deleteRefs);

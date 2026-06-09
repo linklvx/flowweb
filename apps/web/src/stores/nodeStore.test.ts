@@ -537,4 +537,72 @@ describe('nodeStore (AppNode nested structure)', () => {
     // Data must include the updated prompt
     expect(stored.data.prompt.text).toBe('a sunset');
   });
+
+  // ── activeTransformNodeId ──
+
+  it('should initialize activeTransformNodeId as null', () => {
+    expect(useNodeStore.getState().activeTransformNodeId).toBeNull();
+  });
+
+  it('setActiveTransformNodeId should update activeTransformNodeId', () => {
+    useNodeStore.getState().setActiveTransformNodeId('node-x');
+    expect(useNodeStore.getState().activeTransformNodeId).toBe('node-x');
+  });
+
+  it('setActiveTransformNodeId(null) should clear activeTransformNodeId', () => {
+    useNodeStore.getState().setActiveTransformNodeId('node-x');
+    useNodeStore.getState().setActiveTransformNodeId(null);
+    expect(useNodeStore.getState().activeTransformNodeId).toBeNull();
+  });
+
+  // ── cancelRequestedAt ──
+
+  it('should initialize cancelRequestedAt to 0', () => {
+    expect(useNodeStore.getState().cancelRequestedAt).toBe(0);
+  });
+
+  it('triggerCancelTransform should update cancelRequestedAt', () => {
+    const ts = 1700000000000;
+    vi.spyOn(Date, 'now').mockReturnValue(ts);
+    useNodeStore.getState().triggerCancelTransform();
+    expect(useNodeStore.getState().cancelRequestedAt).toBe(ts);
+  });
+
+  // ── saveHandlers ──
+
+  it('should initialize saveHandlers as empty object', () => {
+    expect(useNodeStore.getState().saveHandlers).toEqual({});
+  });
+
+  it('registerSaveHandler should add handler to saveHandlers', () => {
+    const handler = vi.fn();
+    useNodeStore.getState().registerSaveHandler('n1', handler);
+    expect(useNodeStore.getState().saveHandlers['n1']).toBe(handler);
+  });
+
+  it('unregisterSaveHandler should remove handler from saveHandlers', () => {
+    const handler = vi.fn();
+    useNodeStore.getState().registerSaveHandler('n1', handler);
+    useNodeStore.getState().unregisterSaveHandler('n1');
+    expect(useNodeStore.getState().saveHandlers['n1']).toBeUndefined();
+  });
+
+  it('saveTransformNode should call the registered handler', async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    useNodeStore.getState().registerSaveHandler('n1', handler);
+    await useNodeStore.getState().saveTransformNode('n1');
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('saveTransformNode should noop when no handler registered', async () => {
+    // Should not throw
+    await expect(useNodeStore.getState().saveTransformNode('nonexistent')).resolves.toBeUndefined();
+  });
+
+  it('saveTransformNode should catch handler errors', async () => {
+    const handler = vi.fn().mockRejectedValue(new Error('upload failed'));
+    useNodeStore.getState().registerSaveHandler('fail', handler);
+    // Should not throw
+    await expect(useNodeStore.getState().saveTransformNode('fail')).resolves.toBeUndefined();
+  });
 });

@@ -45,7 +45,7 @@ export function transformImage(
             reject(new Error('Canvas导出失败'));
           }
         },
-        'image/png',
+        'image/webp', 0.92,
       );
     };
     img.onerror = () => reject(new Error('图片加载失败'));

@@ -163,6 +163,32 @@ describe('transformImage', () => {
     return promise;
   });
 
+  it('outputs image/webp Blob with quality 0.92', async () => {
+    const promise = transformImage('http://example.com/img.png', 0, false, false);
+    mocks.mockImage.width = 800;
+    mocks.mockImage.height = 600;
+    mocks.mockImage.onload?.();
+    await promise;
+    expect(mocks.mockCanvas.toBlob).toHaveBeenCalledWith(
+      expect.any(Function),
+      'image/webp',
+      0.92,
+    );
+  });
+
+  it('outputs image/webp when rotation and flip are applied', async () => {
+    const promise = transformImage('http://example.com/img.png', 90, true, true);
+    mocks.mockImage.width = 800;
+    mocks.mockImage.height = 600;
+    mocks.mockImage.onload?.();
+    await promise;
+    expect(mocks.mockCanvas.toBlob).toHaveBeenCalledWith(
+      expect.any(Function),
+      'image/webp',
+      0.92,
+    );
+  });
+
   it('clears image src and canvas dimensions after toBlob', async () => {
     const promise = transformImage('http://example.com/img.png', 0, false, false);
     mocks.mockImage.width = 800;

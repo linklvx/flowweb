@@ -189,4 +189,53 @@ describe('TransformToolbar', () => {
     expect(toolbar).toBeTruthy();
     expect(toolbar.style.transform).toContain('translateX(-50%)');
   });
+
+  // ── isSaving disabled state ──
+
+  it('disables rotate button when isSaving is true', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} isSaving={true} />);
+    expect(screen.getByLabelText('顺时针旋转90°')).toBeDisabled();
+  });
+
+  it('disables flipH button when isSaving is true', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} isSaving={true} />);
+    expect(screen.getByLabelText('水平镜像')).toBeDisabled();
+  });
+
+  it('disables flipV button when isSaving is true', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} isSaving={true} />);
+    expect(screen.getByLabelText('垂直镜像')).toBeDisabled();
+  });
+
+  it('disables cancel button when isSaving is true', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} isSaving={true} />);
+    expect(screen.getByText('退出').closest('button')).toBeDisabled();
+  });
+
+  it('does not call onRotate when isSaving and clicked', () => {
+    setupPortalTarget();
+    const onRotate = vi.fn();
+    render(<TransformToolbar {...defaultProps} isSaving={true} onRotate={onRotate} />);
+    fireEvent.click(screen.getByLabelText('顺时针旋转90°'));
+    expect(onRotate).not.toHaveBeenCalled();
+  });
+
+  // ── errorMessage ──
+
+  it('renders error message when errorMessage prop is provided', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} errorMessage="保存失败，请重试" />);
+    expect(screen.getByText('保存失败，请重试')).toBeInTheDocument();
+  });
+
+  it('does not render error message when errorMessage is null', () => {
+    setupPortalTarget();
+    render(<TransformToolbar {...defaultProps} />);
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    expect(portalRoot.textContent).not.toContain('保存失败');
+  });
 });

@@ -231,4 +231,57 @@ describe('canvasStore', () => {
     const nsNode = useNodeStore.getState().nodes[newId];
     expect(nsNode.data.fileId).toBe('img-xyz');
   });
+
+  // ── deleteTransformNode ──
+
+  it('deleteTransformNode should remove node from nodes array', () => {
+    const id = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === id)).toBe(true);
+
+    (useCanvasStore.getState() as any).deleteTransformNode(id);
+    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === id)).toBe(false);
+  });
+
+  it('deleteTransformNode should remove connected edges', () => {
+    const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'src-img' });
+    const { addNodeWithEdge, deleteTransformNode } = useCanvasStore.getState() as any;
+    const newId = addNodeWithEdge(sourceId);
+
+    // Should have 1 edge before deletion
+    expect(useCanvasStore.getState().edges.length).toBe(1);
+
+    deleteTransformNode(newId);
+    expect(useCanvasStore.getState().edges.length).toBe(0);
+  });
+
+  it('deleteTransformNode should clear selectedId if deleted node was selected', () => {
+    const id = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    expect(useCanvasStore.getState().selectedId).toBe(id); // auto-selected on add
+
+    (useCanvasStore.getState() as any).deleteTransformNode(id);
+    expect(useCanvasStore.getState().selectedId).toBeNull();
+  });
+
+  it('deleteTransformNode should call nodeStore.deleteNode', () => {
+    const id = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    const deleteNodeSpy = vi.spyOn(useNodeStore.getState(), 'deleteNode');
+
+    (useCanvasStore.getState() as any).deleteTransformNode(id);
+    expect(deleteNodeSpy).toHaveBeenCalledWith(id);
+  });
+
+  it('deleteTransformNode should call nodeStore.unregisterSaveHandler', () => {
+    const id = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    const unregisterSpy = vi.spyOn(useNodeStore.getState(), 'unregisterSaveHandler');
+
+    (useCanvasStore.getState() as any).deleteTransformNode(id);
+    expect(unregisterSpy).toHaveBeenCalledWith(id);
+  });
+
+  it('deleteTransformNode should noop for non-existent id', () => {
+    expect(() => {
+      (useCanvasStore.getState() as any).deleteTransformNode('nonexistent');
+    }).not.toThrow();
+  });
 });

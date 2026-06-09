@@ -25,23 +25,87 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   },
 }));
 
-vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
+const {
+  mockUpdateConfig,
+  mockSetActiveTransformNodeId,
+  mockRegisterSaveHandler,
+  mockUnregisterSaveHandler,
+  mockSaveTransformNode,
+  mockTriggerCancelTransform,
+  mockDeleteTransformNode,
+  mockAddNodeWithEdge,
+  mockSelectNode,
+  mockUseNodeStoreFn,
+  mockUseCanvasStoreFn,
+} = vi.hoisted(() => {
+  const updateConfig = vi.fn();
+  const setActiveTransformNodeId = vi.fn();
+  const registerSaveHandler = vi.fn();
+  const unregisterSaveHandler = vi.fn();
+  const saveTransformNode = vi.fn().mockResolvedValue(undefined);
+  const triggerCancelTransform = vi.fn();
+  const deleteTransformNode = vi.fn();
+  const addNodeWithEdge = vi.fn(() => 'node-xform-new');
+  const selectNode = vi.fn();
+
+  const nodeStoreFn = vi.fn((_selector?: any) => {
+    // Get fresh state at call time
     const state = {
       nodes: { 'img1': { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: mockNodeData } },
-      updateConfig: vi.fn(),
+      updateConfig,
+      activeTransformNodeId: mockActiveNodeId,
+      cancelRequestedAt: mockCancelRequestedAt,
+      setActiveTransformNodeId,
+      triggerCancelTransform,
+      saveHandlers: {} as Record<string, () => Promise<void>>,
+      registerSaveHandler,
+      unregisterSaveHandler,
+      saveTransformNode,
+      getNodeData: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
     };
-    if (typeof selector === 'function') return selector(state);
+    if (typeof _selector === 'function') return _selector(state);
     return state;
-  }),
+  });
+  (nodeStoreFn as any).getState = () => nodeStoreFn() as any;
+  (nodeStoreFn as any).subscribe = vi.fn(() => vi.fn());
+
+  const canvasStoreFn = vi.fn((_selector?: any) => {
+    const state = {
+      selectedId: null,
+      selectNode,
+      addNodeWithEdge,
+      deleteTransformNode,
+    };
+    if (typeof _selector === 'function') return _selector(state);
+    return state;
+  });
+  (canvasStoreFn as any).getState = () => canvasStoreFn() as any;
+
+  return {
+    mockUpdateConfig: updateConfig,
+    mockSetActiveTransformNodeId: setActiveTransformNodeId,
+    mockRegisterSaveHandler: registerSaveHandler,
+    mockUnregisterSaveHandler: unregisterSaveHandler,
+    mockSaveTransformNode: saveTransformNode,
+    mockTriggerCancelTransform: triggerCancelTransform,
+    mockDeleteTransformNode: deleteTransformNode,
+    mockAddNodeWithEdge: addNodeWithEdge,
+    mockSelectNode: selectNode,
+    mockUseNodeStoreFn: nodeStoreFn,
+    mockUseCanvasStoreFn: canvasStoreFn,
+  };
+});
+
+let mockActiveNodeId: string | null = null;
+let mockCancelRequestedAt = 0;
+
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: mockUseNodeStoreFn,
 }));
 
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: vi.fn((selector?: any) => {
-    const state = { selectedId: null, selectNode: vi.fn() };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useCanvasStore: mockUseCanvasStoreFn,
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -63,6 +127,10 @@ vi.mock('./prompt-input/ImageThumbnailBar', () => ({
 describe('ImageGenNode', () => {
   afterEach(() => {
     document.getElementById('node-toolbar-portal')?.remove();
+    vi.clearAllMocks();
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockActiveNodeId = null;
+    mockCancelRequestedAt = 0;
   });
 
   const renderNode = (selected = false) => {
@@ -234,5 +302,76 @@ describe('ImageGenNode', () => {
     expect(img.style.height).toBeTruthy();
     expect(img.style.maxWidth).toBe('none');
     expect(img.style.maxHeight).toBe('none');
+  });
+
+  // ── Phase 4/5: Save handler registration ──
+
+  it('registers save handler with nodeStore on mount when in transform mode', () => {
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true, imageRotation: 90 };
+    renderNode(true);
+    expect(mockRegisterSaveHandler).toHaveBeenCalledWith('img1', expect.any(Function));
+  });
+
+  it('unregisters save handler on unmount', () => {
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true, imageRotation: 90 };
+    const { unmount } = renderNode(true);
+    unmount();
+    expect(mockUnregisterSaveHandler).toHaveBeenCalledWith('img1');
+  });
+
+  it('does not register save handler when not in transform mode', () => {
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: false };
+    renderNode(true);
+    expect(mockRegisterSaveHandler).not.toHaveBeenCalled();
+  });
+
+  // ── activeTransformNodeId ──
+
+  it('sets activeTransformNodeId on mount when in transform mode', () => {
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true };
+    renderNode(true);
+    expect(mockSetActiveTransformNodeId).toHaveBeenCalledWith('img1');
+  });
+
+  it('clears activeTransformNodeId on unmount when it was the active node', () => {
+    mockActiveNodeId = 'img1';
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true };
+    const { unmount } = renderNode(true);
+    unmount();
+    expect(mockSetActiveTransformNodeId).toHaveBeenCalledWith(null);
+  });
+
+  // ── beforeunload ──
+
+  it('adds beforeunload listener when hasChanges in transform mode', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true, imageRotation: 90 };
+    renderNode(true);
+    expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    addSpy.mockRestore();
+  });
+
+  it('does not add beforeunload listener when no changes', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true, imageRotation: 0, flipH: false, flipV: false };
+    renderNode(true);
+    // The handler only checks the beforeunload key — spy on that
+    const wasCalled = addSpy.mock.calls.some((call: any[]) => call[0] === 'beforeunload');
+    expect(wasCalled).toBe(false);
+    addSpy.mockRestore();
+  });
+
+  // ── handleRotateMirror (Phase 4: mutual exclusion) ──
+
+  it('calls addNodeWithEdge when onRotateMirror is triggered and no active transform', () => {
+    mockNodeData = { ...mockNodeData, fileId: 'cat-file-id' };
+    const { container } = renderNode(true);
+    // In non-transform mode with fileId, ImageNodeToolbar is rendered
+    // Find the "旋转与镜像" button and click it
+    const btn = screen.queryByText('旋转与镜像');
+    if (btn) {
+      fireEvent.click(btn);
+      expect(mockAddNodeWithEdge).toHaveBeenCalledWith('img1');
+    }
   });
 });

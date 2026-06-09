@@ -29,6 +29,7 @@ interface CanvasState {
   copyNode: (id: string) => string | null;
   addNodeWithEdge: (sourceId: string) => string | null;
   deleteNode: (id: string) => void;
+  deleteTransformNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -74,6 +75,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   deleteNode: (id) => {
+    set((s) => ({
+      nodes: s.nodes.filter((n) => n.id !== id),
+      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+      selectedId: s.selectedId === id ? null : s.selectedId,
+    }));
+  },
+
+  deleteTransformNode: (id) => {
+    const ns = useNodeStore.getState();
+    ns.deleteNode(id);
+    ns.unregisterSaveHandler(id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),

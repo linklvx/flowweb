@@ -9,6 +9,7 @@ interface TransformToolbarProps {
   flipV: boolean;
   selected: boolean;
   isSaving: boolean;
+  errorMessage?: string | null;
   onRotate: () => void;
   onFlipH: () => void;
   onFlipV: () => void;
@@ -67,6 +68,7 @@ function TransformToolbarComponent({
   nodeId,
   selected,
   isSaving,
+  errorMessage,
   onRotate,
   onFlipH,
   onFlipV,
@@ -172,12 +174,13 @@ function TransformToolbarComponent({
           backdropFilter: 'blur(8px)',
         }}
       >
-        {/* Cancel / "旋转与镜像" button */}
+        {/* Cancel button */}
         <button
           type="button"
           className={`${btnBaseClass} xform-btn`}
           style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }}
           onClick={onCancel}
+          disabled={isSaving}
         >
           <ArrowLeftIcon />
           <span style={{ lineHeight: '1.4' }}>退出</span>
@@ -211,17 +214,17 @@ function TransformToolbarComponent({
         <div style={{ backgroundColor: CONTROLS_BORDER, width: 1, height: 32 }} />
 
         {/* Rotate 90° */}
-        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="顺时针旋转90°" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onRotate} aria-label="顺时针旋转90°">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="顺时针旋转90°" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onRotate} aria-label="顺时针旋转90°" disabled={isSaving}>
           <Rotate90Icon />
         </button>
 
         {/* Horizontal mirror */}
-        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="水平镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipH} aria-label="水平镜像">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="水平镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipH} aria-label="水平镜像" disabled={isSaving}>
           <MirrorHIcon />
         </button>
 
         {/* Vertical mirror */}
-        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="垂直镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipV} aria-label="垂直镜像">
+        <button type="button" className={`${iconBtnClass} xform-btn xform-tooltip`} data-tooltip="垂直镜像" style={{ backgroundColor: 'transparent', color: CONTROLS_TEXT }} onClick={onFlipV} aria-label="垂直镜像" disabled={isSaving}>
           <MirrorVIcon />
         </button>
 
@@ -237,6 +240,14 @@ function TransformToolbarComponent({
           {isSaving ? '保存中...' : '保存'}
         </button>
       </div>
+      {errorMessage && (
+        <div
+          className="rounded-lg px-3 py-1.5 text-xs"
+          style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+        >
+          {errorMessage}
+        </div>
+      )}
     </div>,
     portalRoot,
   );

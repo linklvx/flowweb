@@ -8,6 +8,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useNodeStore } from '@/stores/nodeStore';
 import { debounce } from '@/utils/debounce';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
@@ -16,6 +17,7 @@ import { AudioGenNode } from './nodes/AudioGenNode';
 import { MultiImageNode } from './nodes/MultiImageNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
+import { ConfirmModal } from './ConfirmModal';
 
 const nodeTypes: NodeTypes = {
   textInput: TextInputNode,
@@ -90,11 +92,21 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   }, [onNodesChange, syncNodeDimensions]);
 
   const onNodeClick = useCallback((_event: any, node: any) => {
-    selectNode(node.id);
+    const ns = useNodeStore.getState();
+    if (ns.activeTransformNodeId && ns.activeTransformNodeId !== node.id) {
+      ns.triggerCancelTransform();
+    } else if (!ns.activeTransformNodeId) {
+      selectNode(node.id);
+    }
   }, [selectNode]);
 
   const onPaneClick = useCallback(() => {
-    selectNode(null);
+    const ns = useNodeStore.getState();
+    if (ns.activeTransformNodeId) {
+      ns.triggerCancelTransform();
+    } else {
+      selectNode(null);
+    }
   }, [selectNode]);
 
   const isValidConnection = useCallback((connection: Connection) => {
@@ -202,6 +214,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         id="node-toolbar-portal"
         className="absolute inset-0 pointer-events-none z-[99999]"
       />
+      <ConfirmModal />
     </div>
   );
 }

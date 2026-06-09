@@ -4,11 +4,13 @@ import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { TransformToolbar } from './TransformToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { transformImage } from '@/utils/imageTransform';
 import axios from 'axios';
 
 const MAX_WIDTH = 548;
@@ -65,6 +67,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const imageRotation = (nodeData?.imageRotation ?? 0) as 0 | 90 | 180 | 270;
   const flipH = nodeData?.flipH ?? false;
   const flipV = nodeData?.flipV ?? false;
+
+  // Save/cancel state
+  const [isSaving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -193,6 +199,179 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, updateConfig]);
 
+  // ── Save handler ──
+
+  const handleSave = useCallback(async () => {
+    setErrorMessage(null);
+    setSaving(true);
+    try {
+      const imgUrl = displayUrl;
+      if (!imgUrl) throw new Error('No image to save');
+
+      const blob = await transformImage(imgUrl, imageRotation, flipH, flipV, 2048);
+      const file = new File([blob], `transformed-${Date.now()}.webp`, { type: 'image/webp' });
+
+      const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
+      });
+
+      const formData = new FormData();
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+      formData.append('file', file);
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+      await axios.post(proxyUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+
+      await confirmUpload({ fileId: newId, key, fileSize: file.size });
+
+      updateConfig(id, {
+        fileId: newId, referenceImage: undefined,
+        imageRotation: 0, flipH: false, flipV: false,
+        transformMode: false, isSaving: false,
+      });
+      useNodeStore.getState().setActiveTransformNodeId(null);
+    } catch (err) {
+      console.error('保存变换失败:', err);
+      setSaving(false);
+      setErrorMessage('保存失败，请检查网络后重试');
+    }
+  }, [id, displayUrl, imageRotation, flipH, flipV, updateConfig]);
+
+  // ── Cancel handler ──
+
+  const handleCancel = useCallback(() => {
+    setErrorMessage(null);
+    if (isSaving) return;
+
+    const hasChanges = imageRotation !== 0 || flipH || flipV;
+    if (!hasChanges) {
+      useCanvasStore.getState().deleteTransformNode(id);
+      useNodeStore.getState().setActiveTransformNodeId(null);
+      return;
+    }
+
+    useConfirmModalStore.getState().show({
+      title: '放弃未保存的更改？',
+      content: '当前变换尚未保存，请选择如何处理。',
+      cancelText: '取消',
+      secondaryText: '保留节点',
+      primaryText: '放弃并删除',
+      primaryType: 'danger',
+      onClose: () => useConfirmModalStore.getState().close(),
+      onSecondary: () => {
+        updateConfig(id, { transformMode: false });
+        useNodeStore.getState().setActiveTransformNodeId(null);
+        useConfirmModalStore.getState().close();
+      },
+      onPrimary: () => {
+        useCanvasStore.getState().deleteTransformNode(id);
+        useNodeStore.getState().setActiveTransformNodeId(null);
+        useConfirmModalStore.getState().close();
+      },
+    });
+  }, [id, imageRotation, flipH, flipV, isSaving, updateConfig]);
+
+  // ── RotateMirror handler (Phase 4: mutual exclusion before creating node) ──
+
+  const handleRotateMirror = useCallback(async () => {
+    const ns = useNodeStore.getState();
+    const cs = useCanvasStore.getState();
+    const activeId = ns.activeTransformNodeId;
+
+    if (activeId) {
+      const activeNode = ns.nodes[activeId];
+      const d = activeNode?.data as any;
+      const hasChanges = d?.imageRotation !== 0 || d?.flipH || d?.flipV;
+
+      if (hasChanges) {
+        const result = await new Promise<'cancel' | 'secondary' | 'primary'>((resolve) => {
+          useConfirmModalStore.getState().show({
+            title: '是否保存当前节点的更改？',
+            content: '切换到新节点将丢失未保存的修改。',
+            cancelText: '取消',
+            secondaryText: '放弃并切换',
+            primaryText: '保存并切换',
+            primaryType: 'primary',
+            onClose: () => resolve('cancel'),
+            onSecondary: () => resolve('secondary'),
+            onPrimary: () => resolve('primary'),
+          });
+        });
+
+        if (result === 'cancel') return;
+        if (result === 'primary') await ns.saveTransformNode(activeId);
+      }
+      cs.deleteTransformNode(activeId);
+    }
+
+    const newNodeId = cs.addNodeWithEdge(id);
+    ns.setActiveTransformNodeId(newNodeId);
+  }, [id]);
+
+  // ── Effects ──
+
+  // Register save handler for cross-node invocation
+  useEffect(() => {
+    if (!transformMode) return;
+    useNodeStore.getState().registerSaveHandler(id, handleSave);
+    return () => { useNodeStore.getState().unregisterSaveHandler(id); };
+  }, [id, transformMode, handleSave]);
+
+  // Set/clear activeTransformNodeId
+  useEffect(() => {
+    if (transformMode) {
+      useNodeStore.getState().setActiveTransformNodeId(id);
+    }
+    return () => {
+      const ns = useNodeStore.getState();
+      if (ns.activeTransformNodeId === id) {
+        ns.setActiveTransformNodeId(null);
+      }
+    };
+  }, [transformMode, id]);
+
+  // beforeunload
+  useEffect(() => {
+    if (!transformMode || (imageRotation === 0 && !flipH && !flipV)) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '您有未保存的更改，确定要离开吗？';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [transformMode, imageRotation, flipH, flipV]);
+
+  // Keyboard shortcuts (only when this node is the active transform)
+  useEffect(() => {
+    if (!transformMode) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (useNodeStore.getState().activeTransformNodeId !== id) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === 'Escape') { e.stopPropagation(); handleCancel(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSave(); }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [id, transformMode, handleSave, handleCancel]);
+
+  // cancelRequestedAt watcher
+  useEffect(() => {
+    const unsub = useNodeStore.subscribe((state, prev) => {
+      if (state.cancelRequestedAt !== prev.cancelRequestedAt && state.cancelRequestedAt > 0) {
+        if (state.activeTransformNodeId === id) handleCancel();
+      }
+    });
+    return unsub;
+  }, [id, handleCancel]);
+
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
 
   return (
@@ -217,12 +396,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           flipH={flipH}
           flipV={flipV}
           selected={selected ?? false}
-          isSaving={false}
-          onRotate={() => updateConfig(id, { imageRotation: ((imageRotation + 90) % 360) as 0 | 90 | 180 | 270 })}
-          onFlipH={() => updateConfig(id, { flipH: !flipH })}
-          onFlipV={() => updateConfig(id, { flipV: !flipV })}
-          onSave={() => {}}
-          onCancel={() => {}}
+          isSaving={isSaving}
+          errorMessage={errorMessage}
+          onRotate={() => {
+            setErrorMessage(null);
+            updateConfig(id, { imageRotation: ((imageRotation + 90) % 360) as 0 | 90 | 180 | 270 });
+          }}
+          onFlipH={() => {
+            setErrorMessage(null);
+            updateConfig(id, { flipH: !flipH });
+          }}
+          onFlipV={() => {
+            setErrorMessage(null);
+            updateConfig(id, { flipV: !flipV });
+          }}
+          onSave={handleSave}
+          onCancel={handleCancel}
         />
       ) : (
         <ImageNodeToolbar
@@ -231,7 +420,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           referenceImage={referenceImage}
           selected={selected ?? false}
           onUpload={() => fileInputRef.current?.click()}
-          onRotateMirror={() => addNodeWithEdge(id)}
+          onRotateMirror={handleRotateMirror}
         />
       )}
 
