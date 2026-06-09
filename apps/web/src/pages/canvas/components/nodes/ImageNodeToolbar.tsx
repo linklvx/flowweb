@@ -227,17 +227,17 @@ function ImageNodeToolbarComponent({
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  if (!selected) return null;
-
-  if (!internalNode?.measured?.width || !internalNode?.measured?.height) return null;
-
-  const { x: nodeX, y: nodeY } = internalNode.position;
-  const { width: nodeWidth, height: nodeHeight } = internalNode.measured;
+  const nodeX = internalNode?.position?.x ?? 0;
+  const nodeY = internalNode?.position?.y ?? 0;
+  const nodeWidth = internalNode?.measured?.width;
+  const nodeHeight = internalNode?.measured?.height;
   const { width: windowWidth, height: windowHeight } = windowSize;
 
   const hasImage = !!fileId || !!referenceImage;
 
   const position = useMemo(() => {
+    if (nodeWidth == null || nodeHeight == null) return null;
+
     const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;
     const viewTopY = nodeY * zoom + vpY;
     const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
@@ -258,6 +258,10 @@ function ImageNodeToolbarComponent({
 
     return { toolbarLeft, toolbarTop, isVisible };
   }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight]);
+
+  if (!selected) return null;
+
+  if (!position) return null;
 
   if (!position.isVisible) return null;
 
