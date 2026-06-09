@@ -287,7 +287,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
       <div
-        className="bg-[#222222] rounded-lg transition-colors"
+        className="bg-[#222222] rounded-lg transition-colors overflow-hidden"
         style={{
           width: containerWidth,
           ...(selected
