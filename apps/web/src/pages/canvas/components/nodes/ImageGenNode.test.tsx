@@ -1,7 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    useInternalNode: vi.fn(() => ({
+      position: { x: 0, y: 0 },
+      measured: { width: 500, height: 500 },
+    })),
+  };
+});
 
 let mockNodeData: any = {
   status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] }
@@ -50,12 +61,21 @@ vi.mock('./prompt-input/ImageThumbnailBar', () => ({
 }));
 
 describe('ImageGenNode', () => {
-  const renderNode = (selected = false) =>
-    render(
+  afterEach(() => {
+    document.getElementById('node-toolbar-portal')?.remove();
+  });
+
+  const renderNode = (selected = false) => {
+    const portalRoot = document.createElement('div');
+    portalRoot.id = 'node-toolbar-portal';
+    document.body.appendChild(portalRoot);
+
+    return render(
       <ReactFlowProvider>
         <ImageGenNode id="img1" data={{}} selected={selected} type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
       </ReactFlowProvider>
     );
+  };
 
   it('should render editable node title with default value', () => {
     renderNode();
@@ -152,8 +172,9 @@ describe('ImageGenNode', () => {
 
   it('floating upload container should have nodrag and nopan classes', () => {
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    const { container } = renderNode(true);
-    const toolbar = container.querySelector('.nodrag') as HTMLElement;
+    renderNode(true);
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const toolbar = portalRoot.querySelector('.nodrag') as HTMLElement;
     expect(toolbar).toBeTruthy();
     expect(toolbar.classList.contains('nodrag')).toBe(true);
     expect(toolbar.classList.contains('nopan')).toBe(true);

@@ -48,7 +48,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const { x: vpX, y: vpY, zoom } = useViewport();
+  const { zoom } = useViewport();
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -190,14 +190,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
       {/* Floating toolbar / upload button — only when selected */}
       <ImageNodeToolbar
+        nodeId={id}
         fileId={fileId}
         referenceImage={referenceImage}
         selected={selected ?? false}
-        zoom={zoom}
-        nodeX={node?.position?.x ?? 0}
-        nodeY={node?.position?.y ?? 0}
-        viewportX={vpX}
-        viewportY={vpY}
         onUpload={() => fileInputRef.current?.click()}
       />
 
