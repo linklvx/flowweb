@@ -1,14 +1,12 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useViewport, useInternalNode } from '@xyflow/react';
 
 interface ImageNodeToolbarProps {
+  nodeId: string;
   fileId?: string;
   referenceImage?: string;
   selected: boolean;
-  zoom: number;
-  nodeX: number;
-  nodeY: number;
-  viewportX: number;
-  viewportY: number;
   onUpload?: () => void;
 }
 
@@ -206,31 +204,76 @@ function Divider() {
 
 const TOOLBAR_HEIGHT = 84;
 const MARGIN = 20;
+const VIEWPORT_PADDING = 10;
 
 function ImageNodeToolbarComponent({
+  nodeId,
   fileId,
   referenceImage,
   selected,
-  zoom,
-  nodeY,
-  viewportY,
   onUpload = () => {},
 }: ImageNodeToolbarProps) {
+  const { x: vpX, y: vpY, zoom } = useViewport();
+  const internalNode = useInternalNode(nodeId);
+
+  const [windowSize, setWindowSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  useEffect(() => {
+    const onResize = () =>
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   if (!selected) return null;
+
+  if (!internalNode?.measured?.width || !internalNode?.measured?.height) return null;
+
+  const { x: nodeX, y: nodeY } = internalNode.position;
+  const { width: nodeWidth, height: nodeHeight } = internalNode.measured;
+  const { width: windowWidth, height: windowHeight } = windowSize;
 
   const hasImage = !!fileId || !!referenceImage;
 
+  const position = useMemo(() => {
+    const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;
+    const viewTopY = nodeY * zoom + vpY;
+    const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
+
+    const showBelow = viewTopY < TOOLBAR_HEIGHT + MARGIN;
+    const toolbarTop = showBelow
+      ? viewBottomY + MARGIN
+      : viewTopY - TOOLBAR_HEIGHT - MARGIN;
+
+    const toolbarLeft = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
+    );
+
+    const isVisible =
+      viewBottomY > -nodeHeight * zoom &&
+      viewTopY < windowHeight + nodeHeight * zoom;
+
+    return { toolbarLeft, toolbarTop, isVisible };
+  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight]);
+
+  if (!position.isVisible) return null;
+
+  const portalRoot = document.getElementById('node-toolbar-portal');
+  if (!portalRoot) return null;
+
   if (!hasImage) {
-    return (
+    return createPortal(
       <div
-        className="nodrag nopan absolute flex flex-col items-center gap-1 transition-opacity duration-150"
+        className="nodrag nopan flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
         style={{
-          bottom: 'calc(100% + 32px)',
-          left: '50%',
-          transform: `translateX(-50%) scale(${1 / zoom})`,
-          transformOrigin: 'bottom center',
+          left: position.toolbarLeft,
+          top: position.toolbarTop,
+          transform: 'translateX(-50%)',
           zIndex: 10000,
-          transition: 'all 0.15s ease',
+          willChange: 'left, top',
         }}
       >
         <button
@@ -241,27 +284,21 @@ function ImageNodeToolbarComponent({
           <UploadIcon />
           <span className="text-sm">上传</span>
         </button>
-      </div>
+      </div>,
+      portalRoot,
     );
   }
 
-  const availableTopSpace = (nodeY - viewportY) / zoom;
-  const showBelow = availableTopSpace < TOOLBAR_HEIGHT + MARGIN;
-
-  return (
+  return createPortal(
     <div
-      className="nodrag nopan absolute flex flex-col items-center gap-1 transition-opacity duration-150"
+      className="nodrag nopan flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
       role="toolbar"
       style={{
-        left: '50%',
-        transform: `translateX(-50%) scale(${1 / zoom})`,
-        transformOrigin: showBelow ? 'top center' : 'bottom center',
-        transition: 'all 0.15s ease',
+        left: position.toolbarLeft,
+        top: position.toolbarTop,
+        transform: 'translateX(-50%)',
         zIndex: 10000,
-        ...(showBelow
-          ? { top: 'calc(100% + 32px)' }
-          : { bottom: 'calc(100% + 32px)' }
-        ),
+        willChange: 'left, top',
       }}
     >
       <style>{`
@@ -317,7 +354,8 @@ function ImageNodeToolbarComponent({
           className="hover:text-red-400 hover:bg-red-500/10"
         />
       </div>
-    </div>
+    </div>,
+    portalRoot,
   );
 }
 

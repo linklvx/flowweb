@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-const mockUseViewport = vi.fn(() => ({ x: 0, y: 0, zoom: 1 }));
-const mockUseInternalNode = vi.fn(() => ({
-  position: { x: 100, y: 200 },
-  measured: { width: 300, height: 250 },
+const { mockUseViewport, mockUseInternalNode } = vi.hoisted(() => ({
+  mockUseViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+  mockUseInternalNode: vi.fn(() => ({
+    position: { x: 100, y: 200 },
+    measured: { width: 300, height: 250 },
+  })),
 }));
 
 vi.mock('@xyflow/react', () => ({
@@ -111,8 +113,9 @@ describe('ImageNodeToolbar', () => {
   // 7
   it('renders 3 dividers', () => {
     setupPortalTarget();
-    const { container } = render(<ImageNodeToolbar {...defaultProps} />);
-    const dividers = container.querySelectorAll('[class*="w-px"][class*="h-5"]');
+    render(<ImageNodeToolbar {...defaultProps} />);
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const dividers = portalRoot.querySelectorAll('[class*="w-px"][class*="h-5"]');
     expect(dividers.length).toBe(3);
     cleanupPortalTarget();
   });
