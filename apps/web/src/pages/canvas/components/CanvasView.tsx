@@ -198,6 +198,11 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
       </ReactFlow>
+      {/* 工具条 Portal 挂载点：最高层级，不拦截鼠标事件 */}
+      <div
+        id="node-toolbar-portal"
+        className="absolute inset-0 pointer-events-none z-[99999]"
+      />
     </div>
   );
 }
