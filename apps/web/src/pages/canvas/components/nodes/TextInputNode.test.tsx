@@ -32,17 +32,6 @@ const mockGetNodes = vi.fn(() => [{ id: 'n1', selected: true }]);
 // Spy on NodeResizeControl callbacks
 const mockOnResizeStart = vi.fn();
 const mockOnResizeEnd = vi.fn();
-
-// Mock bounding rect helper — returns a realistic node rect
-function mockNodeRect(el: HTMLElement, overrides: Partial<DOMRect> = {}) {
-  const defaults = {
-    top: 0, left: 0, right: 300, bottom: 300,
-    width: 300, height: 300, x: 0, y: 0,
-    toJSON: () => ({}),
-  };
-  el.getBoundingClientRect = vi.fn().mockReturnValue({ ...defaults, ...overrides });
-}
-
 vi.mock('@xyflow/react', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@xyflow/react')>();
   return {
@@ -238,136 +227,51 @@ describe('TextInputNode (Tiptap)', () => {
   // === Resize Handles (Custom NodeResizeControl) ===
 
   describe('resize handle visibility', () => {
-    it('should not render resize handle when node is not selected', () => {
+    it('should not render resize controls when node is not selected', () => {
       renderNode({ selected: false });
-      expect(screen.queryByTestId('resize-handle')).toBeNull();
+      expect(screen.queryByTestId('resize-control-top-left')).toBeNull();
+      expect(screen.queryByTestId('resize-control-bottom-right')).toBeNull();
     });
 
-    it('should not render resize handle when selected but mouse is in center of node', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 150, clientY: 150 });
-      expect(screen.queryByTestId('resize-handle')).toBeNull();
+    it('should render all 4 corner resize controls when single-selected', () => {
+      renderNode({ selected: true });
+      expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
+      expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
+      expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
+      expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
     });
 
-    it('should render resize handle when mouse is near bottom-right corner', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
-    });
-
-    it('should render resize handle when mouse is near top-left corner', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 5, clientY: 5 });
-      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
-    });
-
-    it('should hide handle when mouse leaves the node', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
-      fireEvent.mouseLeave(nodeEl);
-      expect(screen.queryByTestId('resize-handle')).toBeNull();
-    });
-
-    it('should not render handle when multiple nodes are selected', () => {
+    it('should not render resize controls when multiple nodes are selected', () => {
       mockGetNodes.mockReturnValue([
         { id: 'n1', selected: true },
         { id: 'n2', selected: true },
       ]);
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      expect(screen.queryByTestId('resize-handle')).toBeNull();
+      renderNode({ selected: true });
+      expect(screen.queryByTestId('resize-control-top-left')).toBeNull();
       mockGetNodes.mockReturnValue([{ id: 'n1', selected: true }]);
     });
 
-    it('should hide handle when node is deselected', () => {
-      const { container, rerender } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
-
-      rerender(
-        <ReactFlowProvider>
-          <TextInputNode id="n1" data={{ content: 'initial' } as any} selected={false} />
-        </ReactFlowProvider>
-      );
+    it('should not render inner visual handle (clean transparent style)', () => {
+      renderNode({ selected: true });
       expect(screen.queryByTestId('resize-handle')).toBeNull();
     });
   });
 
-  describe('resize control props', () => {
-    it('should render NodeResizeControl with correct position prop', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 5, clientY: 5 });
+  describe('resize control style', () => {
+    it('should have 24x24 transparent hit area on controls', () => {
+      renderNode({ selected: true });
+      const control = screen.getByTestId('resize-control-bottom-right');
+      expect(control.style.width).toBe('24px');
+      expect(control.style.height).toBe('24px');
+      expect(control.style.background).toBe('transparent');
+    });
+
+    it('should render all 4 corner controls with correct data-testid', () => {
+      renderNode({ selected: true });
       expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
-    });
-
-    it('should render NodeResizeControl for bottom-right corner', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
+      expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
+      expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
       expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
-    });
-
-    it('should pass min/max dimensions to NodeResizeControl', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      // The control wrapper has 24x24 transparent hit area
-      const control = screen.getByTestId('resize-control-bottom-right');
-      expect(control.style.width).toBe('24px');
-      expect(control.style.height).toBe('24px');
-      expect(control.style.background).toBe('transparent');
-    });
-  });
-
-  describe('resize handle style', () => {
-    it('should have correct cursor for bottom-right corner via parent control', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      const control = screen.getByTestId('resize-control-bottom-right');
-      // NodeResizeControl sets cursor internally based on position
-      expect(control).toBeInTheDocument();
-    });
-
-    it('should have white background and circle shape on visual handle', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      const handle = screen.getByTestId('resize-handle');
-      expect(handle.style.backgroundColor).toBe('white');
-      expect(handle.style.borderRadius).toBe('50%');
-      expect(handle.style.width).toBe('14px');
-      expect(handle.style.height).toBe('14px');
-    });
-
-    it('should have 24px transparent hit area on control wrapper', () => {
-      const { container } = renderNode({ selected: true });
-      const nodeEl = container.querySelector('.canvas-node') as HTMLElement;
-      mockNodeRect(nodeEl);
-      fireEvent.mouseMove(nodeEl, { clientX: 295, clientY: 295 });
-      const control = screen.getByTestId('resize-control-bottom-right');
-      expect(control.style.width).toBe('24px');
-      expect(control.style.height).toBe('24px');
-      expect(control.style.background).toBe('transparent');
     });
   });
 

@@ -11,96 +11,25 @@ import { TextNodeFullscreen } from './TextNodeFullscreen';
 function TextInputNodeComponent({ id, selected }: NodeProps) {
   // ========== Resize config & state ==========
 
-  type CornerType = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null;
-
   const RESIZE_CONFIG = {
     minWidth: 300,
     minHeight: 300,
     maxWidth: 2000,
     maxHeight: 1500,
-    hitAreaSize: 24,
-    visualHandleSize: 14,
-    handleOffset: -7,
-    handleColor: '#9CA3AF',
   } as const;
 
-  const [activeCorner, setActiveCorner] = useState<CornerType>(null);
   const [isResizing, setIsResizing] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const updateText = useNodeStore((s) => s.updateText);
   const appNode = useNodeStore((s) => s.nodes[id]);
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
-  const { getNodes, zoom } = useReactFlow();
+  const { getNodes } = useReactFlow();
   const nodeWidth = appNode?.width ?? 300;
   const nodeHeight = appNode?.height ?? 300;
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
 
-  // Calculate which corner the mouse is near
-  const calculateActiveCorner = useCallback((e: React.MouseEvent): CornerType => {
-    if (!containerRef.current || !isSingleSelected) return null;
-
-    // 必须使用 React Flow 的节点包装器（.react-flow__node）来计算坐标，
-    // 因为它应用了 transform: translate(x, y) 定位节点。
-    // 内部 canvas-node div 的 getBoundingClientRect 可能因 DOM 结构偏移而不准确。
-    const rect = containerRef.current.getBoundingClientRect();
-    // zoom from useReactFlow() may be 0/undefined before store init; default to 1
-    const hitSize = RESIZE_CONFIG.hitAreaSize / (zoom || 1);
-    const { clientX, clientY } = e;
-
-    // top-left
-    if (clientX >= rect.left && clientX <= rect.left + hitSize &&
-        clientY >= rect.top && clientY <= rect.top + hitSize) {
-      return 'top-left';
-    }
-    // top-right
-    if (clientX >= rect.right - hitSize && clientX <= rect.right &&
-        clientY >= rect.top && clientY <= rect.top + hitSize) {
-      return 'top-right';
-    }
-    // bottom-left
-    if (clientX >= rect.left && clientX <= rect.left + hitSize &&
-        clientY >= rect.bottom - hitSize && clientY <= rect.bottom) {
-      return 'bottom-left';
-    }
-    // bottom-right
-    if (clientX >= rect.right - hitSize && clientX <= rect.right &&
-        clientY >= rect.bottom - hitSize && clientY <= rect.bottom) {
-      return 'bottom-right';
-    }
-
-    return null;
-  }, [isSingleSelected, zoom]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isResizing) return;
-    const corner = calculateActiveCorner(e);
-    setActiveCorner((prev) => (prev !== corner ? corner : prev));
-  }, [calculateActiveCorner, isResizing]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (!isResizing) setActiveCorner(null);
-  }, [isResizing]);
-
-  // 兜底：处理 handleMouseLeave 覆盖不到的极端情况。
-  // 例如 blur handler dispatch mouseup → isResizing 变 false，但鼠标仍在角上。
-  // 正常路径由 handleMouseLeave 清理，此 effect 保证 resize 结束后必然清除。
-  useEffect(() => {
-    if (!isResizing) setActiveCorner(null);
-  }, [isResizing]);
-
-  // Window blur → cancel resize
-  useEffect(() => {
-    const handleBlur = () => {
-      if (isResizing) {
-        document.dispatchEvent(new MouseEvent('mouseup'));
-        setTimeout(() => setActiveCorner(null), 0);
-      }
-    };
-    window.addEventListener('blur', handleBlur);
-    return () => window.removeEventListener('blur', handleBlur);
-  }, [isResizing]);
+  const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 
   const editor = useEditor({
     extensions: [
@@ -154,47 +83,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || 'Text';
 
-  // Generate offset style for the NodeResizeControl wrapper (transparent hit area)
-  const getControlStyle = (): React.CSSProperties => {
-    const size = RESIZE_CONFIG.hitAreaSize;
-    return {
-      width: size,
-      height: size,
-      background: 'transparent',
-      border: 'none',
-      zIndex: 9999,
-      opacity: 1,
-    };
-  };
-
-  // Generate inline style for the visual handle inside NodeResizeControl
-  const getHandleStyle = (): React.CSSProperties => {
-    const size = RESIZE_CONFIG.visualHandleSize;
-    // Center the visual handle within the 24px hit area
-    const centerOffset = (RESIZE_CONFIG.hitAreaSize - size) / 2;
-
-    return {
-      position: 'absolute',
-      width: size,
-      height: size,
-      top: centerOffset,
-      left: centerOffset,
-      borderRadius: '50%',
-      backgroundColor: 'white',
-      border: `2px solid ${RESIZE_CONFIG.handleColor}`,
-      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-      transition: 'opacity 0.15s ease-out',
-      pointerEvents: 'none',
-    };
-  };
-
   return (
-    <div
-      ref={containerRef}
-      className="relative canvas-node"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
+    <div className="relative canvas-node">
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
         <TextNodeToolbar
@@ -253,11 +143,12 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Target handle — outside overflow-hidden */}
       <NodeHandle type="target" testId="target-handle" />
 
-      {/* Custom resize handle — rendered outside overflow-hidden, only when a corner is active */}
-      {isSingleSelected && activeCorner && (
+      {/* Corner resize handles — always visible when single-selected */}
+      {isSingleSelected && corners.map((corner) => (
         <NodeResizeControl
+          key={corner}
           nodeId={id}
-          position={activeCorner}
+          position={corner}
           minWidth={RESIZE_CONFIG.minWidth}
           minHeight={RESIZE_CONFIG.minHeight}
           maxWidth={RESIZE_CONFIG.maxWidth}
@@ -265,11 +156,16 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           keepAspectRatio={false}
           onResizeStart={() => setIsResizing(true)}
           onResizeEnd={() => setIsResizing(false)}
-          style={getControlStyle()}
-        >
-          <div data-testid="resize-handle" style={getHandleStyle()} />
-        </NodeResizeControl>
-      )}
+          style={{
+            width: 24,
+            height: 24,
+            background: 'transparent',
+            border: 'none',
+            zIndex: 9999,
+          }}
+          data-testid={`resize-control-${corner}`}
+        />
+      ))}
 
       {/* Card body */}
       <div
