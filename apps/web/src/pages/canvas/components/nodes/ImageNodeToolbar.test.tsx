@@ -162,32 +162,32 @@ describe('ImageNodeToolbar', () => {
   });
 
   // 12 (replaced: uses screen-based query and portal pixel positioning)
-  it('shows toolbar below when viewTopY < TOOLBAR_HEIGHT + MARGIN', () => {
+  it('shows toolbar below when viewTopY < effectiveOffset', () => {
     setupPortalTarget();
-    // nodeY=100, zoom=1, vpY=0 → viewTopY=100 < 104 → showBelow
+    // nodeY=50, zoom=1, vpY=0 → viewTopY=50 < 92(FULL_TOOLBAR_HEIGHT+GAP) → showBelow
     mockUseInternalNode.mockReturnValue({
-      position: { x: 100, y: 100 },
+      position: { x: 100, y: 50 },
       measured: { width: 300, height: 250 },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
-    // viewBottomY = (100 + 250) * 1 + 0 = 350, toolbarTop = 350 + 20 = 370
-    expect(toolbar.style.top).toBe('370px');
+    // viewBottomY = (50 + 250) * 1 + 0 = 300, toolbarTop = 300 + 8 = 308
+    expect(toolbar.style.top).toBe('308px');
     cleanupPortalTarget();
   });
 
   // 13 (replaced: uses screen-based query and portal pixel positioning)
-  it('shows toolbar above when viewTopY >= TOOLBAR_HEIGHT + MARGIN', () => {
+  it('shows toolbar above when viewTopY >= effectiveOffset', () => {
     setupPortalTarget();
-    // nodeY=300, zoom=1, vpY=0 → viewTopY=300 >= 104 → showAbove
+    // nodeY=300, zoom=1, vpY=0 → viewTopY=300 >= 92 → showAbove
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 300 },
       measured: { width: 300, height: 250 },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
-    // viewTopY = 300 * 1 + 0 = 300, toolbarTop = 300 - 84 - 20 = 196
-    expect(toolbar.style.top).toBe('196px');
+    // viewTopY = 300, toolbarTop = 300 - 84 - 8 = 208
+    expect(toolbar.style.top).toBe('208px');
     cleanupPortalTarget();
   });
 
@@ -257,7 +257,7 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
     expect(toolbar.style.left).toBe('250px');
-    expect(toolbar.style.top).toBe('96px'); // 200 - 84 - 20 = 96
+    expect(toolbar.style.top).toBe('108px'); // 200 - 84 - 8 = 108
     cleanupPortalTarget();
   });
 
@@ -293,7 +293,7 @@ describe('ImageNodeToolbar', () => {
     const toolbar = screen.getByRole('toolbar');
     expect(toolbar.style.left).toBe('550px');
     // viewTopY = 200 * 2 + 0 = 400, toolbarTop = 400 - 84 - 20 = 296
-    expect(toolbar.style.top).toBe('296px');
+    expect(toolbar.style.top).toBe('308px'); // 200*2 + 0 - 84 - 8 = 400 - 92 = 308
     cleanupPortalTarget();
   });
 });

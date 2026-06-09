@@ -202,8 +202,9 @@ function Divider() {
 
 // ── Main component ─────────────────────────────────────
 
-const TOOLBAR_HEIGHT = 84;
-const MARGIN = 20;
+const FULL_TOOLBAR_HEIGHT = 84; // 2-row toolbar
+const UPLOAD_BTN_OFFSET = 64;   // single upload button (matches video node 28px gap)
+const GAP = 8;
 const VIEWPORT_PADDING = 10;
 
 function ImageNodeToolbarComponent({
@@ -242,10 +243,13 @@ function ImageNodeToolbarComponent({
     const viewTopY = nodeY * zoom + vpY;
     const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
 
-    const showBelow = viewTopY < TOOLBAR_HEIGHT + MARGIN;
+    // 上传按钮用较小偏移（匹配视频节点 28px 间距），完整工具条用实际高度
+    const effectiveOffset = hasImage ? FULL_TOOLBAR_HEIGHT + GAP : UPLOAD_BTN_OFFSET;
+
+    const showBelow = viewTopY < effectiveOffset;
     const toolbarTop = showBelow
-      ? viewBottomY + MARGIN
-      : viewTopY - TOOLBAR_HEIGHT - MARGIN;
+      ? viewBottomY + GAP
+      : viewTopY - effectiveOffset;
 
     const toolbarLeft = Math.max(
       VIEWPORT_PADDING,
@@ -257,7 +261,7 @@ function ImageNodeToolbarComponent({
       viewTopY < windowHeight + nodeHeight * zoom;
 
     return { toolbarLeft, toolbarTop, isVisible };
-  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight]);
+  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, hasImage]);
 
   if (!selected) return null;
 
