@@ -217,7 +217,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
   const toolbar = (
     <div
-      className="nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg text-white/90"
+      className={`nodrag pointer-events-auto flex items-center gap-[2px] px-1 py-1 rounded-full bg-[#222]/80 backdrop-blur-lg text-white/90${portalRoot ? ' absolute' : ''}`}
       style={toolbarStyle}
       onMouseDown={(e) => e.preventDefault()}
     >

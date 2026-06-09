@@ -261,6 +261,15 @@ describe('ImageNodeToolbar', () => {
     cleanupPortalTarget();
   });
 
+  // 20b (regression: toolbar must have absolute positioning for left/top to work)
+  it('toolbar has absolute positioning so left/top styles take effect', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} />);
+    const toolbar = screen.getByRole('toolbar');
+    expect(toolbar.classList.contains('absolute')).toBe(true);
+    cleanupPortalTarget();
+  });
+
   // 21 (new: renders nothing when node has no dimensions)
   it('renders nothing when useInternalNode returns no dimensions', () => {
     setupPortalTarget();

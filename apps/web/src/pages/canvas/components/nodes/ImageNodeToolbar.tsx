@@ -271,7 +271,7 @@ function ImageNodeToolbarComponent({
   if (!hasImage) {
     return createPortal(
       <div
-        className="nodrag nopan flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
+        className="nodrag nopan absolute flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
         style={{
           left: position.toolbarLeft,
           top: position.toolbarTop,
@@ -295,7 +295,7 @@ function ImageNodeToolbarComponent({
 
   return createPortal(
     <div
-      className="nodrag nopan flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
+      className="nodrag nopan absolute flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
       role="toolbar"
       style={{
         left: position.toolbarLeft,
