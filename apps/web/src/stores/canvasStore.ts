@@ -27,6 +27,7 @@ interface CanvasState {
 
   addNode: (type: string, position: XYPosition) => string;
   copyNode: (id: string) => string | null;
+  addNodeWithEdge: (sourceId: string) => string | null;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
@@ -104,6 +105,42 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: node.width,
       height: node.height,
     });
+    return id;
+  },
+
+  addNodeWithEdge: (sourceId) => {
+    const sourceNode = get().nodes.find((n) => n.id === sourceId);
+    if (!sourceNode) return null;
+    const id = getId('node');
+    const edgeId = getId('edge');
+    const newNode: Node = {
+      ...sourceNode,
+      id,
+      position: { x: sourceNode.position.x + 80, y: sourceNode.position.y + 60 },
+      width: sourceNode.width,
+      height: sourceNode.height,
+      selected: true,
+    };
+    const edge: Edge = { id: edgeId, source: sourceId, target: id };
+
+    set((s) => ({
+      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
+      edges: [...s.edges, edge],
+      selectedId: id,
+    }));
+
+    // Copy source node data to nodeStore + set transformMode
+    const sourceNsNode = useNodeStore.getState().nodes[sourceId];
+    const nsData = sourceNsNode?.data ? { ...sourceNsNode.data, transformMode: true, imageRotation: 0, flipH: false, flipV: false } : { transformMode: true };
+    useNodeStore.getState().addNode({
+      id,
+      type: sourceNode.type!,
+      position: newNode.position,
+      data: nsData as any,
+      width: sourceNode.width,
+      height: sourceNode.height,
+    });
+
     return id;
   },
 

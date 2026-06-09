@@ -3,8 +3,10 @@ import { type NodeProps, useViewport } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
+import { TransformToolbar } from './TransformToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import axios from 'axios';
@@ -48,6 +50,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
+  const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const { zoom } = useViewport();
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
@@ -56,6 +59,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const { url: refPreviewUrl } = useMediaUrl(referenceImage);
 
   const displayUrl = resultUrl || refPreviewUrl;
+
+  // Transform mode data
+  const transformMode = nodeData?.transformMode ?? false;
+  const imageRotation = (nodeData?.imageRotation ?? 0) as 0 | 90 | 180 | 270;
+  const flipH = nodeData?.flipH ?? false;
+  const flipV = nodeData?.flipV ?? false;
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -95,8 +104,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const ratio = nodeData?.ratio ?? '16:9';
   const ratioSize = ratioDimensions(ratio);
-  const containerWidth = imgSize ? imgSize.w : ratioSize.w;
-  const containerHeight = imgSize ? imgSize.h : ratioSize.h;
+  let containerWidth = imgSize ? imgSize.w : ratioSize.w;
+  let containerHeight = imgSize ? imgSize.h : ratioSize.h;
+
+  // Swap dimensions for 90°/270° rotation in transform mode
+  if (transformMode && (imageRotation === 90 || imageRotation === 270)) {
+    [containerWidth, containerHeight] = [containerHeight, containerWidth];
+  }
+
+  // CSS transform for live preview
+  const previewTransform = transformMode
+    ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
+    : undefined;
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -188,14 +207,31 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {/* Floating toolbar / upload button — only when selected */}
-      <ImageNodeToolbar
-        nodeId={id}
-        fileId={fileId}
-        referenceImage={referenceImage}
-        selected={selected ?? false}
-        onUpload={() => fileInputRef.current?.click()}
-      />
+      {/* Floating toolbar — TransformToolbar in transform mode, otherwise ImageNodeToolbar */}
+      {transformMode ? (
+        <TransformToolbar
+          nodeId={id}
+          rotation={imageRotation}
+          flipH={flipH}
+          flipV={flipV}
+          selected={selected ?? false}
+          isSaving={false}
+          onRotate={() => updateConfig(id, { imageRotation: ((imageRotation + 90) % 360) as 0 | 90 | 180 | 270 })}
+          onFlipH={() => updateConfig(id, { flipH: !flipH })}
+          onFlipV={() => updateConfig(id, { flipV: !flipV })}
+          onSave={() => {}}
+          onCancel={() => {}}
+        />
+      ) : (
+        <ImageNodeToolbar
+          nodeId={id}
+          fileId={fileId}
+          referenceImage={referenceImage}
+          selected={selected ?? false}
+          onUpload={() => fileInputRef.current?.click()}
+          onRotateMirror={() => addNodeWithEdge(id)}
+        />
+      )}
 
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
@@ -260,6 +296,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               src={displayUrl}
               alt="preview"
               className="max-w-full max-h-full object-contain"
+              style={{ transition: 'transform 0.3s ease', ...(previewTransform ? { transform: previewTransform } : {}) }}
               onLoad={handleImageLoad}
             />
           ) : status === 'loading' ? (

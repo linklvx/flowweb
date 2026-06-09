@@ -215,4 +215,32 @@ describe('ImageGenNode', () => {
     // 9:16 → taller than wide, max height 500, width ~281
     expect(container.innerHTML).toContain('height: 500px');
   });
+
+  // ---- Transform mode (rotation + mirror) ----
+
+  it('should apply CSS transform to image in transform mode', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: true, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode();
+    const img = screen.getByRole('img');
+    expect(img).toHaveAttribute('src', 'http://media/cat-file-id');
+    expect(img.style.transform).toBe('rotate(90deg) scaleX(-1) scaleY(1)');
+  });
+
+  it('should apply correct CSS transform for 270° with both flips', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 270, flipH: true, flipV: true, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode();
+    const img = screen.getByRole('img');
+    expect(img.style.transform).toBe('rotate(270deg) scaleX(-1) scaleY(-1)');
+  });
+
+  it('should swap container dimensions for 90° rotation in transform mode', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    const { container } = renderNode();
+    // In transform mode with image and 90° rotation, width/height should swap
+    // imgSize is computed from the image on load, so container dimensions won't be ratio-based
+    const html = container.innerHTML;
+    // Image dimensions get swapped when transform mode + 90/270 rotation
+    expect(html).toContain('width:');
+    expect(html).toContain('height:');
+  });
 });

@@ -180,4 +180,55 @@ describe('canvasStore', () => {
     expect(node.width).toBe(400);
     expect(node.height).toBe(300);
   });
+
+  // ---- addNodeWithEdge ----
+
+  it('addNodeWithEdge should create new node and edge from source', () => {
+    const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    // Load source node with image data
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', allImages: [], referencedImageIds: [] } });
+
+    const { addNodeWithEdge } = useCanvasStore.getState() as any;
+    expect(typeof addNodeWithEdge).toBe('function');
+    const newId = addNodeWithEdge(sourceId);
+
+    const s = useCanvasStore.getState();
+    // New node created
+    const newNode = s.nodes.find((n: any) => n.id === newId);
+    expect(newNode).toBeDefined();
+    expect(newNode.position.x).not.toBe(100); // offset from source
+    expect(newNode.position.y).not.toBe(100);
+
+    // Edge created from source to new node
+    const edge = s.edges.find((e: any) => e.source === sourceId && e.target === newId);
+    expect(edge).toBeDefined();
+
+    // Source node deselected, new node selected
+    const sourceNode = s.nodes.find((n: any) => n.id === sourceId);
+    expect(sourceNode.selected).toBeFalsy();
+    expect(newNode.selected).toBe(true);
+    expect(s.selectedId).toBe(newId);
+  });
+
+  it('addNodeWithEdge should set transformMode on new node', () => {
+    const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz' });
+
+    const { addNodeWithEdge } = useCanvasStore.getState() as any;
+    const newId = addNodeWithEdge(sourceId);
+
+    const nsNode = useNodeStore.getState().nodes[newId];
+    expect(nsNode.data.transformMode).toBe(true);
+  });
+
+  it('addNodeWithEdge should copy source node image data to new node', () => {
+    const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz' });
+
+    const { addNodeWithEdge } = useCanvasStore.getState() as any;
+    const newId = addNodeWithEdge(sourceId);
+
+    const nsNode = useNodeStore.getState().nodes[newId];
+    expect(nsNode.data.fileId).toBe('img-xyz');
+  });
 });

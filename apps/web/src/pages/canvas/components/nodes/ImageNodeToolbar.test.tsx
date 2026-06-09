@@ -92,9 +92,9 @@ describe('ImageNodeToolbar', () => {
   it('row 1 contains all buttons', () => {
     setupPortalTarget();
     render(<ImageNodeToolbar {...defaultProps} />);
-    const row1Labels = ['逆时针旋转', '顺时针旋转', '分离', '裁切', '扩图', '擦除', '重绘', '文字', '换装'];
+    const row1Labels = ['旋转与镜像', '分离', '裁切', '扩图', '擦除', '重绘', '文字', '换装'];
     row1Labels.forEach((label) => {
-      expect(screen.getByLabelText(label)).toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
     });
     cleanupPortalTarget();
   });
@@ -152,9 +152,8 @@ describe('ImageNodeToolbar', () => {
   it('all icon-only buttons have aria-label', () => {
     setupPortalTarget();
     render(<ImageNodeToolbar {...defaultProps} />);
-    expect(screen.getByLabelText('逆时针旋转')).toBeInTheDocument();
-    expect(screen.getByLabelText('顺时针旋转')).toBeInTheDocument();
     expect(screen.getByLabelText('放大查看')).toBeInTheDocument();
+    expect(screen.getByLabelText('上传')).toBeInTheDocument();
     expect(screen.getByLabelText('下载')).toBeInTheDocument();
     expect(screen.getByLabelText('复制')).toBeInTheDocument();
     expect(screen.getByLabelText('删除')).toBeInTheDocument();
@@ -276,6 +275,36 @@ describe('ImageNodeToolbar', () => {
     mockUseInternalNode.mockReturnValueOnce(null);
     const { container } = render(<ImageNodeToolbar {...defaultProps} />);
     expect(container.innerHTML).toBe('');
+    cleanupPortalTarget();
+  });
+
+  // 22a (new: rotate-mirror button replaced rotation buttons)
+  it('has only one rotation-related button: "旋转与镜像" text-icon-button', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} />);
+    // Old rotation-related labels must be gone
+    expect(screen.queryByLabelText('逆时针旋转')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('顺时针旋转')).not.toBeInTheDocument();
+    // New button must exist
+    expect(screen.getByText('旋转与镜像')).toBeInTheDocument();
+    cleanupPortalTarget();
+  });
+
+  // 22b (new: rotate-mirror button disabled when no image)
+  it('disabled "旋转与镜像" button when no image loaded', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} fileId={undefined} referenceImage={undefined} />);
+    expect(screen.queryByText('旋转与镜像')).not.toBeInTheDocument();
+    cleanupPortalTarget();
+  });
+
+  // 22c (new: rotate-mirror calls onRotateMirror when clicked)
+  it('calls onRotateMirror when "旋转与镜像" button is clicked', () => {
+    setupPortalTarget();
+    const mockOnRotateMirror = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onRotateMirror={mockOnRotateMirror} />);
+    fireEvent.click(screen.getByText('旋转与镜像'));
+    expect(mockOnRotateMirror).toHaveBeenCalledTimes(1);
     cleanupPortalTarget();
   });
 

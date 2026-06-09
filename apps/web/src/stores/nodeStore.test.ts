@@ -487,6 +487,34 @@ describe('nodeStore (AppNode nested structure)', () => {
     }).not.toThrow();
   });
 
+  // 22b. updateConfig should provide default rotation/flip/transformMode on new image node
+  it('should default imageRotation to 0 and flipH/flipV to false on new image node', () => {
+    useNodeStore.getState().updateConfig('img-rotate-defaults', {});
+    const stored = useNodeStore.getState().nodes['img-rotate-defaults'];
+    const imgData = stored.data as ImageNodeData;
+    expect(imgData.imageRotation).toBe(0);
+    expect(imgData.flipH).toBe(false);
+    expect(imgData.flipV).toBe(false);
+    expect(imgData.transformMode).toBe(false);
+  });
+
+  // 22c. updateConfig should persist imageRotation/flipH/flipV/transformMode updates
+  it('should persist imageRotation/flipH/flipV/transformMode via updateConfig', () => {
+    useNodeStore.getState().updateConfig('img-rotate-1', { style: '写实' });
+    useNodeStore.getState().updateConfig('img-rotate-1', {
+      imageRotation: 90 as 0 | 90 | 180 | 270,
+      flipH: true,
+      flipV: true,
+      transformMode: true,
+    });
+    const stored = useNodeStore.getState().nodes['img-rotate-1'];
+    const imgData = stored.data as ImageNodeData;
+    expect(imgData.imageRotation).toBe(90);
+    expect(imgData.flipH).toBe(true);
+    expect(imgData.flipV).toBe(true);
+    expect(imgData.transformMode).toBe(true);
+  });
+
   // 22. updateConfig should preserve videoGen node type (not overwrite to imageGen)
   it('should preserve videoGen type when updateConfig called on video node', () => {
     const videoNode: AppNode = {

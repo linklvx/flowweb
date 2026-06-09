@@ -32,6 +32,10 @@ export interface ImageNodeData {
   referenceImage?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
   prompt: PromptValue;
+  imageRotation?: 0 | 90 | 180 | 270;
+  flipH?: boolean;
+  flipV?: boolean;
+  transformMode?: boolean;
 }
 
 export interface VideoNodeData {
@@ -105,6 +109,10 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     quality: 'standard',
     ratio: '16:9',
     prompt: { text: '', html: '', allImages: [] as ImageItem[], referencedImageIds: [] as string[] },
+    imageRotation: 0 as 0 | 90 | 180 | 270,
+    flipH: false,
+    flipV: false,
+    transformMode: false,
   };
 
   const merged = { ...(existing ?? {}) };
@@ -124,6 +132,7 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
 
 interface NodeState {
   nodes: Record<string, AppNode>;
+  activeTransformNodeId: string | null;
 
   addNode: (node: AppNode) => void;
   updateNodeData: <T>(nodeId: string, data: Partial<T>) => void;
@@ -145,6 +154,7 @@ interface NodeState {
 
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
+  activeTransformNodeId: null,
 
   addNode: (node) => {
     set((s) => ({
