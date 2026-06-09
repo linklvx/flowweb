@@ -51,6 +51,12 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       getNodes: () => mockGetNodes(),
       zoom: 1,
     }),
+    // Mock useViewport and useInternalNode for child toolbar Portal rendering
+    useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+    useInternalNode: (_id: string) => ({
+      position: { x: 100, y: 200 },
+      measured: { width: 400, height: 350 },
+    }),
     // Mock NodeResizeControl as a transparent wrapper that renders children
     NodeResizeControl: ({ children, position, onResizeStart, onResizeEnd, style }: any) => {
       // Capture callbacks for test verification

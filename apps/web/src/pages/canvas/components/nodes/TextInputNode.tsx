@@ -197,15 +197,13 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
     >
       {/* Toolbar — above title bar, shown when selected */}
       {selected && (
-        <div className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -80 }}>
-          <TextNodeToolbar
-            nodeId={id}
-            editor={editor}
-            onBgColorChange={setBgColor}
-            currentBgColor={bgColor}
-            onFullscreen={() => setFullscreen(true)}
-          />
-        </div>
+        <TextNodeToolbar
+          nodeId={id}
+          editor={editor}
+          onBgColorChange={setBgColor}
+          currentBgColor={bgColor}
+          onFullscreen={() => setFullscreen(true)}
+        />
       )}
 
       {/* Title bar */}
