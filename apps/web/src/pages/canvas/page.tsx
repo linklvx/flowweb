@@ -106,6 +106,13 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   useSocket(projectId);
   const [isShortcutsOpen, setShortcutsOpen] = useState(false);
 
+  // 屏蔽浏览器原生右键菜单，后续开发 Canvas 专用右键菜单
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener('contextmenu', onContextMenu);
+    return () => document.removeEventListener('contextmenu', onContextMenu);
+  }, []);
+
   return (
     <ReactFlowProvider>
       <CanvasKeyboardHandler />
