@@ -5,7 +5,23 @@ import type { Editor } from '@tiptap/react';
 // Mock @xyflow/react
 vi.mock('@xyflow/react', () => ({
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+  useInternalNode: (id: string) => ({
+    position: { x: 100, y: 200 },
+    measured: { width: 400, height: 350 },
+  }),
 }));
+
+function setupPortalTarget() {
+  const el = document.createElement('div');
+  el.id = 'node-toolbar-portal';
+  document.body.appendChild(el);
+  return el;
+}
+
+function cleanupPortalTarget() {
+  const el = document.getElementById('node-toolbar-portal');
+  if (el) document.body.removeChild(el);
+}
 
 // Build a mock editor with chain pattern
 const createMockEditor = (overrides: Partial<Editor> = {}): Editor => {
@@ -54,8 +70,10 @@ describe('TextNodeToolbar (Tiptap)', () => {
   });
 
   it('should render toolbar with pill shape', () => {
-    const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
-    expect(container.innerHTML).toContain('rounded-full');
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    // Use screen queries instead of container.innerHTML (toolbar renders via Portal)
+    expect(screen.getByLabelText('加粗')).toBeInTheDocument();
+    expect(screen.getByLabelText('H1')).toBeInTheDocument();
   });
 
   it('should render all heading buttons H1 H2 H3 and paragraph', () => {
@@ -85,10 +103,14 @@ describe('TextNodeToolbar (Tiptap)', () => {
     expect(screen.getByLabelText('全屏')).toBeInTheDocument();
   });
 
-  it('should apply anti-zoom scale transform', () => {
-    const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
-    const toolbar = container.querySelector('[class*="nodrag"]') as HTMLElement;
-    expect(toolbar.style.transform).toContain('scale');
+  it('does NOT apply scale transform (Portal renders in native pixels)', () => {
+    setupPortalTarget();
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    const toolbar = document.querySelector('[class*="nodrag"][class*="pointer-events-auto"]') as HTMLElement;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.style.transform).not.toContain('scale');
+    expect(toolbar.style.transform).toContain('translateX(-50%)');
+    cleanupPortalTarget();
   });
 
   it('should handle null editor gracefully (no crash on click)', () => {
@@ -114,7 +136,7 @@ describe('TextNodeToolbar (Tiptap)', () => {
 
   it('should highlight active bold button when editor.isActive("bold") returns true', () => {
     mockEditor.isActive = vi.fn((type: string) => type === 'bold');
-    const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
     const boldBtn = screen.getByLabelText('加粗');
     expect(boldBtn.className).toContain('bg-white/20');
   });
@@ -177,12 +199,21 @@ describe('TextNodeToolbar (Tiptap)', () => {
   });
 
   it('should have onMouseDown handler to prevent focus loss', () => {
-    const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
-    const toolbar = container.querySelector('[class*="nodrag"]') as HTMLElement;
+    setupPortalTarget();
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    const toolbar = document.querySelector('[class*="nodrag"][class*="pointer-events-auto"]') as HTMLElement;
 
     const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     fireEvent(toolbar, mouseDownEvent);
     // onMouseDown calls e.preventDefault(), so default should be prevented
     expect(mouseDownEvent.defaultPrevented).toBe(true);
+    cleanupPortalTarget();
+  });
+
+  it('renders toolbar via Portal (not as direct child of component)', () => {
+    setupPortalTarget();
+    const { container } = render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    expect(container.innerHTML).toBe('');
+    cleanupPortalTarget();
   });
 });
