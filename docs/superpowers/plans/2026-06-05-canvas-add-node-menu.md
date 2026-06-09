@@ -1,0 +1,737 @@
+# Canvas +号按钮弹出菜单 实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Canvas 页面左侧悬浮侧边栏的 + 号按钮点击后，在右侧弹出一个玻璃态暗色菜单面板，包含添加节点和添加资源两类入口。
+
+**Architecture:** 将 NodePalette 简化为仅保留 + 号按钮，点击切换 `AddNodeMenu` 组件的显隐。菜单使用 `position: fixed` + JS 动态计算定位（顶部与按钮对齐，含边界检测），click-outside 关闭。菜单项点击触发 `addNode` 或打开素材库弹窗。
+
+**Tech Stack:** React 18 + TypeScript strict + Tailwind CSS + Vitest + React Testing Library
+
+---
+
+## 文件结构
+
+| 操作 | 路径 | 职责 |
+|------|------|------|
+| 修改 | `apps/web/src/index.css` | 新增 canvas-controls CSS 自定义属性 |
+| 修改 | `apps/web/src/pages/canvas/components/NodePalette.tsx` | 简化为仅 + 按钮 + 菜单开关状态 |
+| 新建 | `apps/web/src/pages/canvas/components/AddNodeMenu.tsx` | 弹出菜单面板组件 |
+| 新建 | `apps/web/src/pages/canvas/components/__tests__/AddNodeMenu.test.tsx` | 菜单组件测试 |
+| 修改 | `apps/web/src/pages/canvas/page.tsx` | 移除 KeyboardShortcutsPanel，NodePalette 不再需要 props |
+
+---
+
+### Task 1: 添加 CSS 自定义属性
+
+**Files:**
+- Modify: `apps/web/src/index.css:1-18`
+
+- [ ] **Step 1: 在 `:root` 块中添加 canvas-controls 变量**
+
+在 `index.css` 的 `:root` 块中追加：
+
+```css
+/* Canvas controls menu tokens */
+--canvas-controls-bg: rgb(38, 38, 38);
+--canvas-controls-border: rgb(54, 54, 54);
+--canvas-controls-text: rgb(247, 247, 247);
+--canvas-controls-hover: rgba(255, 255, 255, 0.08);
+--canvas-controls-active: rgba(255, 255, 255, 0.12);
+--canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.15), 0px 2px 8px 0px rgba(0, 0, 0, 0.1);
+--z-panel: 400;
+```
+
+- [ ] **Step 2: 验证 CSS 编译无报错**
+
+Run: `cd apps/web && npx tsc --noEmit`
+Expected: 无新错误
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add apps/web/src/index.css
+git commit -m "feat: add canvas-controls CSS custom properties for add-node menu"
+```
+
+---
+
+### Task 2: 编写 AddNodeMenu 测试
+
+**Files:**
+- Create: `apps/web/src/pages/canvas/components/__tests__/AddNodeMenu.test.tsx`
+
+- [ ] **Step 1: 创建测试文件**
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { AddNodeMenu } from '../AddNodeMenu';
+
+// Mock canvas store
+const mockAddNode = vi.fn();
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: (selector: any) => selector({ addNode: mockAddNode, viewport: { x: 0, y: 0, zoom: 1 } }),
+}));
+
+// Mock material library store
+const mockOpen = vi.fn();
+vi.mock('@/stores/materialLibraryStore', () => ({
+  useMaterialLibraryStore: (selector: any) => selector({ open: mockOpen }),
+}));
+
+describe('AddNodeMenu', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders the menu with header "添加节点"', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.getByText('添加节点')).toBeInTheDocument();
+  });
+
+  it('renders all 5 node type items', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.getByText('文本')).toBeInTheDocument();
+    expect(screen.getByText('图片')).toBeInTheDocument();
+    expect(screen.getByText('视频')).toBeInTheDocument();
+    expect(screen.getByText('视频合成')).toBeInTheDocument();
+    expect(screen.getByText('音频')).toBeInTheDocument();
+  });
+
+  it('renders "添加资源" section with upload item', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.getByText('添加资源')).toBeInTheDocument();
+    expect(screen.getByText('上传')).toBeInTheDocument();
+  });
+
+  it('does NOT render removed items', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.queryByText('导演台')).not.toBeInTheDocument();
+    expect(screen.queryByText('脚本')).not.toBeInTheDocument();
+    expect(screen.queryByText('从生成历史选择')).not.toBeInTheDocument();
+  });
+
+  it('calls addNode with "text" when clicking text menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('文本'));
+    expect(mockAddNode).toHaveBeenCalledWith('text', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('calls addNode with "image" when clicking image menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('图片'));
+    expect(mockAddNode).toHaveBeenCalledWith('image', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('calls addNode with "video" when clicking video menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('视频'));
+    expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('calls addNode with "composite" when clicking composite menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('视频合成'));
+    expect(mockAddNode).toHaveBeenCalledWith('composite', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('calls addNode with "audio" when clicking audio menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('音频'));
+    expect(mockAddNode).toHaveBeenCalledWith('audio', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('opens material library when clicking upload menu item', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    await userEvent.click(screen.getByText('上传'));
+    expect(mockOpen).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not render when isOpen is false', () => {
+    render(<AddNodeMenu isOpen={false} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.queryByText('添加节点')).not.toBeInTheDocument();
+  });
+
+  it('closes on Escape key', async () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('has ARIA menu role and menuitem roles', () => {
+    render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    const menuItems = screen.getAllByRole('menuitem');
+    expect(menuItems.length).toBe(6); // 5 node types + 1 upload
+  });
+});
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `cd apps/web && npx vitest run src/pages/canvas/components/__tests__/AddNodeMenu.test.tsx`
+Expected: FAIL — `AddNodeMenu` 模块不存在
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add apps/web/src/pages/canvas/components/__tests__/AddNodeMenu.test.tsx
+git commit -m "test: add AddNodeMenu component tests"
+```
+
+---
+
+### Task 3: 实现 AddNodeMenu 组件
+
+**Files:**
+- Create: `apps/web/src/pages/canvas/components/AddNodeMenu.tsx`
+
+- [ ] **Step 1: 创建 AddNodeMenu 组件**
+
+```typescript
+import { useEffect, useRef, useCallback } from 'react';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
+
+// --- Icons (inline SVG from reference) ---
+
+function TextIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 16 16">
+      <g transform="translate(0 1.8) scale(0.8)">
+        <path d="M13.6006 14C13.8213 14.0002 14 14.1796 14 14.4004V15.1006C13.9999 15.3213 13.8213 15.4998 13.6006 15.5H0.400391C0.17953 15.5 8.56988e-05 15.3214 0 15.1006V14.4004C1.97655e-05 14.1795 0.179489 14 0.400391 14H13.6006ZM13.6006 7.0791C13.8213 7.07929 14 7.25871 14 7.47949V8.17969C13.9999 8.40041 13.8213 8.57892 13.6006 8.5791H0.400391C0.17953 8.5791 8.56988e-05 8.40053 0 8.17969V7.47949C1.97655e-05 7.2586 0.179489 7.0791 0.400391 7.0791H13.6006ZM19.6006 0C19.8213 0.000184198 20 0.179607 20 0.400391V1.10059C19.9999 1.32131 19.8213 1.49982 19.6006 1.5H0.400391C0.17953 1.5 8.56986e-05 1.32143 0 1.10059V0.400391C1.97655e-05 0.179494 0.179489 0 0.400391 0H19.6006Z" fill="currentColor"/>
+      </g>
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 16 16">
+      <g transform="translate(0.0149 0.0149)">
+        <path d="M7.60059 0.970298C7.82137 0.970376 7.9999 1.14893 8 1.36971V1.86971C7.99999 2.09057 7.82143 2.27003 7.60059 2.2701H2.27246C1.73573 2.27053 1.30001 2.70598 1.2998 3.24276V13.6978C1.29984 13.7499 1.30459 13.8013 1.3125 13.8512L8.03711 8.62167C9.49012 7.49165 11.5578 7.6199 12.8594 8.92147L13.7002 9.76229V8.80233C13.7002 8.58143 13.8797 8.40197 14.1006 8.40194H14.6006C14.8214 8.40202 15 8.58146 15 8.80233V13.6978L14.9883 13.9303C14.8793 14.9994 14.0292 15.8498 12.96 15.9586L12.7275 15.9703H2.27246C1.0963 15.9699 0.128385 15.0757 0.0117188 13.9303L0 13.6978V3.24276C0.000207217 1.988 1.01776 0.970723 2.27246 0.970298H7.60059ZM11.9395 9.84042C11.1014 9.00268 9.77036 8.91963 8.83496 9.64706L2.37695 14.6705H12.7275C13.2644 14.6703 13.6998 14.2347 13.7002 13.6978V11.6012L11.9395 9.84042ZM5 4.4703C5.8284 4.4703 6.49995 5.14191 6.5 5.9703C6.49978 6.79854 5.82829 7.4703 5 7.4703C4.17191 7.47006 3.50022 6.79839 3.5 5.9703C3.50005 5.14206 4.17181 4.47054 5 4.4703ZM12.4023 0.145103C12.4739 -0.0483677 12.7477 -0.0483677 12.8193 0.145103L13.6318 2.33944L15.8252 3.15096C16.0187 3.22255 16.0187 3.49636 15.8252 3.56795L13.6318 4.37948L12.8193 6.57381C12.7475 6.76671 12.474 6.76691 12.4023 6.57381L11.5908 4.37948L9.39648 3.56795C9.20347 3.49629 9.20369 3.22286 9.39648 3.15096L11.5908 2.33944L12.4023 0.145103Z" fill="currentColor"/>
+      </g>
+    </svg>
+  );
+}
+
+function VideoIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 16 16">
+      <g transform="translate(0.1814 0.0149)">
+        <path d="M7.59961 0.970298C7.82047 0.970298 7.99992 1.14887 8 1.36971V1.86971C7.99998 2.09061 7.82051 2.2701 7.59961 2.2701H2.27246C1.73568 2.27048 1.30001 2.70594 1.2998 3.24276V13.6978C1.30018 14.2345 1.73579 14.6701 2.27246 14.6705H12.7275C13.2644 14.6703 13.6998 14.2346 13.7002 13.6978V9.25838C13.7003 9.03754 13.8797 8.85897 14.1006 8.85897H14.5996C14.8205 8.85897 14.9999 9.03754 15 9.25838V13.6978L14.9883 13.9303C14.8793 14.9994 14.0292 15.8498 12.96 15.9586L12.7275 15.9703H2.27246C1.09628 15.9699 0.128424 15.0757 0.0117188 13.9303L0 13.6978V3.24276C0.000207303 1.98797 1.01772 0.970673 2.27246 0.970298H7.59961ZM4.84961 5.50643C4.84979 4.54404 5.97299 4.01874 6.71191 4.63534L10.4512 7.75643L10.5488 7.84823C10.9742 8.29679 10.9595 9.01079 10.5156 9.441L10.4131 9.52889L6.6748 12.3902C5.92827 12.9613 4.85004 12.4287 4.84961 11.4889V5.50643ZM6.15039 11.1549L9.45996 8.62167L6.15039 5.85995V11.1549ZM12.0693 0.145103C12.1409 -0.0483677 12.4147 -0.0483677 12.4863 0.145103L13.2979 2.33944L15.4922 3.15096C15.6855 3.22263 15.6856 3.49638 15.4922 3.56795L13.2979 4.37948L12.4863 6.57381C12.4146 6.76677 12.1411 6.76677 12.0693 6.57381L11.2578 4.37948L9.06348 3.56795C8.87005 3.49638 8.87015 3.22263 9.06348 3.15096L11.2578 2.33944L12.0693 0.145103Z" fill="currentColor"/>
+      </g>
+    </svg>
+  );
+}
+
+function CompositeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+        <circle cx="6" cy="6" r="3"/>
+        <path d="M8.12 8.12L12 12m8-8L8.12 15.88"/>
+        <circle cx="6" cy="18" r="3"/>
+        <path d="M14.8 14.8L20 20"/>
+      </g>
+    </svg>
+  );
+}
+
+function AudioIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+      <path d="M8.33301 1.74982C8.74714 1.74982 9.08385 2.08572 9.08398 2.49982V17.4998C9.08398 17.914 8.74722 18.2498 8.33301 18.2498C7.91894 18.2496 7.58301 17.9139 7.58301 17.4998V2.49982C7.58314 2.08583 7.91903 1.75 8.33301 1.74982ZM15 8.83283C15.414 8.83283 15.7497 9.16888 15.75 9.58283V14.9998C15.75 15.414 15.4142 15.7498 15 15.7498C14.5858 15.7498 14.25 15.414 14.25 14.9998V9.58283C14.2503 9.16888 14.586 8.83283 15 8.83283ZM5 4.24982C5.41413 4.24982 5.74987 4.58572 5.75 4.99982V14.1668C5.74985 14.5809 5.41412 14.9168 5 14.9168C4.58588 14.9168 4.25015 14.5809 4.25 14.1668V4.99982C4.25013 4.58572 4.58587 4.24982 5 4.24982ZM11.667 5.91584C12.081 5.91601 12.4169 6.2528 12.417 6.66681V12.4998C12.417 12.9139 12.0811 13.2496 11.667 13.2498C11.2528 13.2498 10.916 12.914 10.916 12.4998V6.66681C10.9161 6.25269 11.2528 5.91584 11.667 5.91584ZM1.66699 7.58283C2.08087 7.58301 2.41668 7.91899 2.41699 8.33283V10.8328C2.41699 11.2469 2.08106 11.5836 1.66699 11.5838C1.25278 11.5838 0.916016 11.247 0.916016 10.8328V8.33283C0.916326 7.91888 1.25297 7.58283 1.66699 7.58283ZM18.333 7.58283C18.747 7.58283 19.0837 7.91888 19.084 8.33283V10.8328C19.084 11.247 18.7472 11.5838 18.333 11.5838C17.9189 11.5836 17.583 11.2469 17.583 10.8328V8.33283C17.5833 7.91899 17.9191 7.58301 18.333 7.58283ZM15.5205 0.843571C15.6281 0.554024 16.0378 0.554168 16.1455 0.843571L16.9062 2.89728C16.9401 2.98808 17.0117 3.05982 17.1025 3.09357L19.1553 3.85334C19.4453 3.96075 19.4452 4.37084 19.1553 4.47834L17.1025 5.2381C17.0114 5.2719 16.94 5.34421 16.9062 5.43537L16.1455 7.4881C16.0379 7.77771 15.628 7.77786 15.5205 7.4881L14.7607 5.43537C14.727 5.34414 14.6547 5.27186 14.5635 5.2381L12.5117 4.47834C12.2218 4.37083 12.2216 3.96073 12.5117 3.85334L14.5635 3.09357C14.6545 3.05987 14.7269 2.98827 14.7607 2.89728L15.5205 0.843571Z" fill="currentColor"/>
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 19.8008 19.8006">
+      <path d="M1.80078 16.9003C1.80087 17.1919 1.91684 17.4714 2.12305 17.6776C2.32932 17.8838 2.60874 17.9999 2.90039 17.9999H16.9004C17.192 17.9999 17.4715 17.8838 17.6777 17.6776C17.8839 17.4714 17.9999 17.1919 18 16.9003V11.9999H19.8008V16.9003C19.8007 17.6693 19.4949 18.4073 18.9512 18.951C18.4073 19.4948 17.6694 19.8006 16.9004 19.8006H2.90039C2.13135 19.8006 1.39345 19.4948 0.849609 18.951C0.305837 18.4073 9.33702e-05 17.6693 0 16.9003V11.9999H1.80078V16.9003ZM9.33203 0.202009C9.68553 -0.086443 10.2076 -0.0660213 10.5371 0.263533L16.1729 5.90025L14.9004 7.17271L10.8008 3.07408V13.8006H9V3.07408L4.90039 7.17271L3.62793 5.90025L9.26367 0.263533L9.33203 0.202009Z" fill="currentColor"/>
+    </svg>
+  );
+}
+
+// --- Menu item definitions ---
+
+interface MenuItem {
+  type: string;
+  label: string;
+  desc: string;
+  icon: React.ReactNode;
+  badge?: string;
+}
+
+const ADD_NODE_ITEMS: MenuItem[] = [
+  { type: 'text', label: '文本', desc: '剧本、广告词、品牌文案', icon: <TextIcon /> },
+  { type: 'image', label: '图片', desc: '海报、分镜、角色设计', icon: <ImageIcon /> },
+  { type: 'video', label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
+  { type: 'composite', label: '视频合成', desc: '多个视频片段合为一个', icon: <CompositeIcon />, badge: 'Beta' },
+  { type: 'audio', label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },
+];
+
+const ADD_RESOURCE_ITEMS: MenuItem[] = [
+  { type: 'upload', label: '上传', desc: '可上传图片、视频、音频文件', icon: <UploadIcon /> },
+];
+
+const MENU_ITEM_CLASS =
+  'group flex h-[52px] w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition-colors duration-200 cursor-pointer';
+
+interface AddNodeMenuProps {
+  isOpen: boolean;
+  onClose: () => void;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
+  const addNode = useCanvasStore((s) => s.addNode);
+  const viewport = useCanvasStore((s) => s.viewport);
+  const materialLibraryOpen = useMaterialLibraryStore((s) => s.open);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
+  // Close on click outside (also ignore clicks on trigger button)
+  useEffect(() => {
+    if (!isOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(target) &&
+        !triggerRef.current?.contains(target)
+      ) {
+        onClose();
+      }
+    };
+    const timeout = setTimeout(() => {
+      document.addEventListener('mousedown', onMouseDown);
+    }, 0);
+    return () => {
+      clearTimeout(timeout);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [isOpen, onClose, triggerRef]);
+
+  // Dynamic positioning: top-aligned with button, boundary-aware
+  useEffect(() => {
+    if (!isOpen || !triggerRef.current || !menuRef.current) return;
+
+    const updatePosition = () => {
+      const triggerRect = triggerRef.current!.getBoundingClientRect();
+      const menuEl = menuRef.current!;
+
+      // Horizontal: to the right of button + 16px gap
+      let left = triggerRect.right + 16;
+
+      // Vertical: top of menu aligned with top of button
+      let top = triggerRect.top;
+
+      // Measure menu before adjusting
+      const menuHeight = menuEl.offsetHeight;
+      const menuWidth = menuEl.offsetWidth;
+
+      // Boundary: if menu bottom overflows viewport, shift up
+      const menuBottom = top + menuHeight;
+      if (menuBottom > window.innerHeight) {
+        top = triggerRect.bottom - menuHeight;
+        if (top < 0) top = 0;
+      }
+
+      // Boundary: if menu right overflows viewport, show on left side
+      const menuRight = left + menuWidth;
+      if (menuRight > window.innerWidth) {
+        left = triggerRect.left - menuWidth - 16;
+      }
+
+      menuEl.style.left = `${left}px`;
+      menuEl.style.top = `${top}px`;
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [isOpen, triggerRef]);
+
+  const handleItemClick = useCallback(
+    (item: MenuItem) => {
+      if (item.type === 'upload') {
+        materialLibraryOpen();
+        onClose();
+        return;
+      }
+      const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
+      const centerY = (window.innerHeight / 2 - viewport.y) / viewport.zoom;
+      // TODO: 后端支持 videoComposite 类型后改为 item.type 直接映射
+      addNode(item.type, { x: centerX - 125, y: centerY - 30 });
+      onClose();
+    },
+    [addNode, viewport, onClose, materialLibraryOpen],
+  );
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      ref={menuRef}
+      id="add-node-menu"
+      role="menu"
+      aria-label="添加节点菜单"
+      className="fixed z-[var(--z-panel)] flex w-[240px] flex-col gap-2 rounded-2xl p-2 border"
+      style={{
+        backgroundColor: 'var(--canvas-controls-bg)',
+        borderColor: 'var(--canvas-controls-border)',
+        boxShadow: 'var(--canvas-shadow-menu)',
+        backdropFilter: 'blur(32px)',
+        WebkitBackdropFilter: 'blur(32px)',
+      }}
+    >
+      <h4
+        className="px-2 py-1 text-sm font-medium leading-5 opacity-60"
+        style={{ color: 'var(--canvas-controls-text)' }}
+      >
+        添加节点
+      </h4>
+
+      {ADD_NODE_ITEMS.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          className={MENU_ITEM_CLASS}
+          style={{ color: 'var(--canvas-controls-text)' }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+          }}
+          onMouseDown={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
+          }}
+          onMouseUp={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+          }}
+          onClick={() => handleItemClick(item)}
+        >
+          <div
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+          >
+            {item.icon}
+          </div>
+          <div className="h-full flex-1 overflow-hidden">
+            <div className="flex h-full translate-y-2 flex-col justify-start transition-transform duration-200 group-hover:translate-y-0">
+              <span className="flex items-center gap-1.5 text-sm font-medium leading-5">
+                {item.label}
+                {item.badge && (
+                  <span
+                    className="rounded px-1.5 py-0.5 text-[10px] leading-3 opacity-60"
+                    style={{ backgroundColor: 'var(--canvas-controls-active)' }}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </span>
+              <span className="mt-0.5 truncate text-xs leading-4 opacity-0 transition-opacity duration-200 group-hover:opacity-60">
+                {item.desc}
+              </span>
+            </div>
+          </div>
+        </button>
+      ))}
+
+      <h4
+        className="px-2 py-1 text-sm font-medium leading-5 opacity-60"
+        style={{ color: 'var(--canvas-controls-text)' }}
+      >
+        添加资源
+      </h4>
+
+      {ADD_RESOURCE_ITEMS.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          className={MENU_ITEM_CLASS}
+          style={{ color: 'var(--canvas-controls-text)' }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+          }}
+          onMouseDown={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
+          }}
+          onMouseUp={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+          }}
+          onClick={() => handleItemClick(item)}
+        >
+          <div
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+          >
+            {item.icon}
+          </div>
+          <div className="h-full flex-1 overflow-hidden">
+            <div className="flex h-full translate-y-2 flex-col justify-start transition-transform duration-200 group-hover:translate-y-0">
+              <span className="text-sm font-medium leading-5">{item.label}</span>
+              <span className="mt-0.5 text-xs leading-4 opacity-0 transition-opacity duration-200 group-hover:opacity-60">
+                {item.desc}
+              </span>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: 确认 materialLibraryStore 导入路径正确**
+
+Store 路径: `@/stores/materialLibraryStore`（已验证存在），使用 `open` 方法（已验证）
+
+- [ ] **Step 3: 运行测试确认通过**
+
+Run: `cd apps/web && npx vitest run src/pages/canvas/components/__tests__/AddNodeMenu.test.tsx`
+Expected: 全部 14 个测试 PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add apps/web/src/pages/canvas/components/AddNodeMenu.tsx
+git commit -m "feat: add AddNodeMenu popup component for canvas + button"
+```
+
+---
+
+### Task 4: 修改 NodePalette 简化侧边栏
+
+**Files:**
+- Modify: `apps/web/src/pages/canvas/components/NodePalette.tsx`
+- Create: `apps/web/src/pages/canvas/hooks/useMenuOpen.ts`
+
+- [ ] **Step 1: 确认无现有 NodePalette 测试**
+
+Run: `find apps/web/src -path "*NodePalette*test*" -o -path "*nodePalette*test*" 2>/dev/null`
+Expected: 无结果（无需更新测试）
+
+- [ ] **Step 2: 重写 NodePalette 为仅 + 按钮**
+
+将 `NodePalette.tsx` 替换为：
+
+```typescript
+import { memo, useRef } from 'react';
+import { AddNodeMenu } from './AddNodeMenu';
+import { useMenuOpen } from '../hooks/useMenuOpen';
+
+function NodePaletteComponent() {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { isOpen, toggle, close } = useMenuOpen();
+
+  return (
+    <>
+      <div className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-14 bg-[#1a1a1a] border border-[#333] rounded-xl p-2 flex flex-col items-center shadow-2xl">
+        <button
+          ref={triggerRef}
+          type="button"
+          data-sidebar-btn="add-node"
+          className="flex items-center justify-center rounded-lg transition-colors h-10 w-10 bg-[#f7f7f7] hover:bg-[#e0e0e0] border-0 cursor-pointer"
+          aria-label="添加节点"
+          aria-expanded={isOpen}
+          aria-controls="add-node-menu"
+          onClick={toggle}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            xmlnsXlink="http://www.w3.org/1999/xlink"
+            aria-hidden="true"
+            role="img"
+            className="pointer-events-none transition-transform duration-200"
+            width="16"
+            height="16"
+            viewBox="0 0 17 17"
+            style={{ color: '#0f0f0f', transform: isOpen ? 'rotate(45deg)' : 'none' }}
+          >
+            <path
+              d="M8.5 0C8.99705 8.57272e-06 9.40039 0.475703 9.40039 1.0625V7.59961H15.9375C16.5243 7.59961 17 8.00294 17 8.5C17 8.99706 16.5243 9.40039 15.9375 9.40039H9.40039V15.9375C9.40039 16.5243 8.99705 17 8.5 17C8.00294 17 7.59961 16.5243 7.59961 15.9375V9.40039H1.0625C0.475698 9.40039 7.60586e-08 8.99706 0 8.5C0 8.00294 0.475698 7.59961 1.0625 7.59961H7.59961V1.0625C7.59961 0.475697 8.00294 2.1727e-08 8.5 0Z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
+      </div>
+      <AddNodeMenu isOpen={isOpen} onClose={close} triggerRef={triggerRef} />
+    </>
+  );
+}
+
+export const NodePalette = memo(NodePaletteComponent);
+```
+
+- [ ] **Step 3: 创建 useMenuOpen hook**
+
+Create `apps/web/src/pages/canvas/hooks/useMenuOpen.ts`:
+
+```typescript
+import { useState, useCallback } from 'react';
+
+interface UseMenuOpen {
+  isOpen: boolean;
+  toggle: () => void;
+  open: () => void;
+  close: () => void;
+}
+
+export function useMenuOpen(): UseMenuOpen {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const toggle = useCallback(() => setIsOpen((v) => !v), []);
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+
+  return { isOpen, toggle, open, close };
+}
+```
+
+- [ ] **Step 4: 更新 page.tsx**
+
+修改 `CanvasPageInner`：移除 `isShortcutsOpen` 状态和 `KeyboardShortcutsPanel` 渲染，移除 NodePalette 的 `onToggleShortcuts` prop。
+
+```typescript
+// 删除这一行:
+const [isShortcutsOpen, setShortcutsOpen] = useState(false);
+
+// 将这行:
+<NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
+
+// 改为:
+<NodePalette />
+
+// 删除这行:
+<KeyboardShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+```
+
+保留 `KeyboardShortcutsPanel` 和 `useState` 的 import（若只有 useState 被 remove 则可清理 import）。
+
+- [ ] **Step 5: 确认 TypeScript 编译**
+
+Run: `cd apps/web && npx tsc --noEmit`
+Expected: 无 TS 错误
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/web/src/pages/canvas/components/NodePalette.tsx apps/web/src/pages/canvas/hooks/useMenuOpen.ts apps/web/src/pages/canvas/page.tsx
+git commit -m "feat: simplify NodePalette to + button only, toggle AddNodeMenu on click"
+```
+
+---
+
+### Task 5: 验证 E2E
+
+- [ ] **Step 1: 确认项目服务已启动**
+
+- Web: http://localhost:5173
+- API: http://localhost:3000
+
+- [ ] **Step 2: 打开 Canvas 页面**
+
+Navigate to `http://localhost:5173/canvas`
+
+- [ ] **Step 3: 点击 + 按钮**
+
+用 `preview_snapshot` 确认菜单弹出，菜单位于按钮右侧、顶部与按钮顶部对齐
+
+- [ ] **Step 4: 验证菜单内容**
+
+Check:
+- "添加节点" 标题 + 5 个节点类型（文本、图片、视频、视频合成(Beta)、音频）
+- "添加资源" 标题 + 上传
+- 无: 导演台、脚本、从生成历史选择
+
+- [ ] **Step 5: 点击 "文本" 菜单项**
+
+确认在画布中心添加了文本节点，菜单关闭
+
+- [ ] **Step 6: 点击 "上传" 菜单项**
+
+确认打开素材库弹窗，菜单关闭
+
+- [ ] **Step 7: 验证 Click-outside 关闭**
+
+打开菜单，点击画布空白区域，确认菜单关闭
+
+- [ ] **Step 8: 验证 + 按钮旋转动画**
+
+菜单打开时 + 号旋转 45°，关闭时恢复
+
+- [ ] **Step 9: 验证 ARIA 属性**
+
+用 `preview_inspect` 检查菜单元素有 `role="menu"`，菜单项有 `role="menuitem"`
+
+- [ ] **Step 10: 验证边界检测**
+
+缩小浏览器窗口高度，打开菜单，确认菜单不会超出视口底部（向上偏移）
+
+---
+
+## 菜单项映射表
+
+| 菜单标签 | nodeType | React Flow 类型 | 说明 |
+|----------|----------|-----------------|------|
+| 文本 | `text` | `textInput` | |
+| 图片 | `image` | `imageGen` | |
+| 视频 | `video` | `videoGen` | |
+| 视频合成 | `composite` | 暂映射 `video` → `videoGen` | TODO: 后端支持 videoComposite 类型后直接使用 |
+| 音频 | `audio` | `audioGen` | |
+| 上传 | — | — | 调用 `useMaterialLibraryStore.open()` |
+
+## 移除的项目
+
+| 项目 | 原因 |
+|------|------|
+| 导演台 | 用户要求移除 |
+| 脚本 | 用户要求移除 |
+| 从生成历史选择 | 用户要求移除 |
+
+## 修正记录
+
+| 问题 | 修正 |
+|------|------|
+| `z-(--z-panel)` 无效 Tailwind | → `z-[var(--z-panel)]` |
+| `border-hair` 不存在 | → `border` |
+| `handleItemClick` deps 错误引用 `setMaterialLibraryOpen` | → `materialLibraryOpen` |
+| 垂直居中不满足"顶部对齐"需求 | → JS 动态计算 `top = triggerRect.top`，底部溢出时向上偏移 |
+| 硬编码 `left: 88px` 兼容性差 | → JS 动态计算 `left = triggerRect.right + 16`，右侧溢出时显示在左侧 |
+| 窗口 resize 后位置错误 | → 添加 `resize` 事件监听重新计算 |
+| click-outside 也会把 trigger 按钮点击判为 outside | → 增加 `!triggerRef.current?.contains(target)` 条件 |
+| 菜单项缺少点击反馈 | → 添加 `onMouseDown`/`onMouseUp` active 态 |
+| 菜单缺少 ARIA | → 添加 `role="menu"`, `role="menuitem"`, `aria-expanded`, `aria-controls` |

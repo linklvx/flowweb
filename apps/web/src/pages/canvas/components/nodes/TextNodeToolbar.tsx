@@ -170,7 +170,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
     const { width: nodeWidth, height: nodeHeight } = internalNode.measured;
 
     const TOOLBAR_HEIGHT = 46;
-    const TOOLBAR_MARGIN = 8;
+    const TOOLBAR_MARGIN = 28;
     const VIEWPORT_PADDING = 10;
 
     const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;

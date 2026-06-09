@@ -204,7 +204,7 @@ function Divider() {
 
 const FULL_TOOLBAR_HEIGHT = 84; // 2-row toolbar
 const UPLOAD_BTN_OFFSET = 64;   // single upload button (matches video node 28px gap)
-const GAP = 8;
+const GAP = 32;                 // 距离节点顶部的间距，确保不遮挡标题
 const VIEWPORT_PADDING = 10;
 
 function ImageNodeToolbarComponent({
