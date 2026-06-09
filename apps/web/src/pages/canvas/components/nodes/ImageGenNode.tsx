@@ -114,17 +114,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     [containerWidth, containerHeight] = [containerHeight, containerWidth];
   }
 
-  // CSS transform for live preview — applied to inner container
+  // CSS transform for image preview in transform mode
   const previewTransform = transformMode
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
-
-  // Inner container uses unswapped dimensions (baseWidth×baseHeight) when
-  // rotated 90/270 so CSS rotate(90deg) swaps visual to match outer card.
-  // e.g. base 548×306 → inner 548×306 → rotate(90deg) → visual 306×548 = outer 306×548 ✓
-  const isRotated90 = transformMode && (imageRotation === 90 || imageRotation === 270);
-  const innerWidth = isRotated90 ? baseWidth : containerWidth;
-  const innerHeight = isRotated90 ? baseHeight : containerHeight;
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
@@ -298,17 +291,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
-          style={{
-            width: innerWidth,
-            height: innerHeight,
-            ...(previewTransform ? { transform: previewTransform, overflow: 'visible' } : {}),
-          }}
+          style={{ width: containerWidth, height: containerHeight }}
         >
           {displayUrl ? (
             <img
               src={displayUrl}
               alt="preview"
               className="max-w-full max-h-full object-contain"
+              style={{
+                ...(transformMode ? {
+                  width: baseWidth,
+                  height: baseHeight,
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                } : {}),
+                ...(previewTransform ? { transform: previewTransform } : {}),
+              }}
               onLoad={handleImageLoad}
             />
           ) : status === 'loading' ? (

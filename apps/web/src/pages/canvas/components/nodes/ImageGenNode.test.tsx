@@ -218,32 +218,21 @@ describe('ImageGenNode', () => {
 
   // ---- Transform mode (rotation + mirror) ----
 
-  it('should apply CSS transform to inner container in transform mode', () => {
+  it('should apply CSS transform to img in transform mode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: true, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    const { container } = renderNode();
+    renderNode();
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('src', 'http://media/cat-file-id');
-    // CSS transform should be on the parent container, not the img
-    const innerDiv = img.closest('.flex.items-center.justify-center');
-    expect(innerDiv).toBeTruthy();
-    expect((innerDiv as HTMLElement).style.transform).toBe('rotate(90deg) scaleX(-1) scaleY(1)');
+    expect(img.style.transform).toBe('rotate(90deg) scaleX(-1) scaleY(1)');
   });
 
-  it('should apply correct CSS transform for 270° with both flips', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 270, flipH: true, flipV: true, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    const { container } = renderNode();
-    const img = screen.getByRole('img');
-    const innerDiv = img.closest('.flex.items-center.justify-center');
-    expect((innerDiv as HTMLElement).style.transform).toBe('rotate(270deg) scaleX(-1) scaleY(-1)');
-  });
-
-  it('should use unswapped inner container size for 90° rotation in transform mode', () => {
+  it('should set explicit img dimensions in transform mode to bypass max-w/h', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    const { container } = renderNode();
-    // Inner container should use base dimensions (w=548, h=309 for 16:9)
-    // so that rotate(90deg) produces visual that fills swapped outer card
-    const html = container.innerHTML;
-    expect(html).toContain('width:');
-    expect(html).toContain('height:');
+    renderNode();
+    const img = screen.getByRole('img');
+    expect(img.style.width).toBeTruthy();
+    expect(img.style.height).toBeTruthy();
+    expect(img.style.maxWidth).toBe('none');
+    expect(img.style.maxHeight).toBe('none');
   });
 });
