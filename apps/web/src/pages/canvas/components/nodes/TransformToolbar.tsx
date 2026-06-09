@@ -102,10 +102,7 @@ function TransformToolbarComponent({
 
     const effectiveOffset = TOOLBAR_HEIGHT + GAP;
 
-    const showBelow = viewTopY < effectiveOffset;
-    const toolbarTop = showBelow
-      ? viewBottomY + GAP
-      : viewTopY - effectiveOffset;
+    const toolbarTop = viewTopY - effectiveOffset;
 
     const toolbarLeft = Math.max(
       VIEWPORT_PADDING,

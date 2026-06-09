@@ -242,10 +242,7 @@ function ImageNodeToolbarComponent({
     // 上传按钮用较小偏移（匹配视频节点 28px 间距），完整工具条用实际高度
     const effectiveOffset = hasImage ? FULL_TOOLBAR_HEIGHT + GAP : UPLOAD_BTN_OFFSET;
 
-    const showBelow = viewTopY < effectiveOffset;
-    const toolbarTop = showBelow
-      ? viewBottomY + GAP
-      : viewTopY - effectiveOffset;
+    const toolbarTop = viewTopY - effectiveOffset;
 
     const toolbarLeft = Math.max(
       VIEWPORT_PADDING,

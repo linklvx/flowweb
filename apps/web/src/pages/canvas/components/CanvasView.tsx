@@ -143,7 +143,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   }, [fitView]);
 
   return (
-    <div ref={reactFlowWrapper} className="w-full h-full">
+    <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden">
       <ReactFlow
         nodes={nodes}
         edges={edges}

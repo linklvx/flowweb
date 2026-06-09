@@ -160,25 +160,25 @@ describe('ImageNodeToolbar', () => {
     cleanupPortalTarget();
   });
 
-  // 12 (replaced: uses screen-based query and portal pixel positioning)
-  it('shows toolbar below when viewTopY < effectiveOffset', () => {
+  // 12 (replaced: toolbar always stays above node, even near viewport top)
+  it('always positions toolbar above node, even when node is at top of viewport', () => {
     setupPortalTarget();
-    // nodeY=50, zoom=1, vpY=0 → viewTopY=50 < 116(FULL_TOOLBAR_HEIGHT+GAP) → showBelow
+    // nodeY=50, zoom=1, vpY=0 → viewTopY=50, effectiveOffset=116, toolbarTop=50-116=-66
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 50 },
       measured: { width: 300, height: 250 },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
-    // viewBottomY = (50 + 250) * 1 + 0 = 300, toolbarTop = 300 + 32 = 332
-    expect(toolbar.style.top).toBe('332px');
+    // toolbar always above: viewTopY - effectiveOffset = 50 - 116 = -66
+    expect(toolbar.style.top).toBe('-66px');
     cleanupPortalTarget();
   });
 
-  // 13 (replaced: uses screen-based query and portal pixel positioning)
-  it('shows toolbar above when viewTopY >= effectiveOffset', () => {
+  // 13 (replaced: toolbar stays above node at normal position)
+  it('positions toolbar above node at normal position', () => {
     setupPortalTarget();
-    // nodeY=300, zoom=1, vpY=0 → viewTopY=300 >= 116 → showAbove
+    // nodeY=300, zoom=1, vpY=0 → viewTopY=300 >= 116 → always above
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 300 },
       measured: { width: 300, height: 250 },

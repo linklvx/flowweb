@@ -113,10 +113,22 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     return () => document.removeEventListener('contextmenu', onContextMenu);
   }, []);
 
+  // 无限画布页面禁止 body/html 滚动条
+  useEffect(() => {
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
+    };
+  }, []);
+
   return (
     <ReactFlowProvider>
       <CanvasKeyboardHandler />
-      <div className="h-screen bg-[#0f0f0f] relative">
+      <div className="h-screen bg-[#0f0f0f] relative overflow-hidden">
         <ProjectTitle projectId={projectId} projectName={projectName} onNameChange={onNameChange} />
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />
