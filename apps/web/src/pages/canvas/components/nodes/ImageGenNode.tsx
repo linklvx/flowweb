@@ -119,14 +119,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
 
-  // Inner container uses unswapped dimensions in rotation mode so the CSS
-  // rotate transform produces a visual that fills the swapped outer card.
-  const innerWidth = transformMode && (imageRotation === 90 || imageRotation === 270)
-    ? baseHeight
-    : baseWidth;
-  const innerHeight = transformMode && (imageRotation === 90 || imageRotation === 270)
-    ? baseWidth
-    : baseHeight;
+  // Inner container uses unswapped dimensions (baseWidth×baseHeight) when
+  // rotated 90/270 so CSS rotate(90deg) swaps visual to match outer card.
+  // e.g. base 548×306 → inner 548×306 → rotate(90deg) → visual 306×548 = outer 306×548 ✓
+  const isRotated90 = transformMode && (imageRotation === 90 || imageRotation === 270);
+  const innerWidth = isRotated90 ? baseWidth : containerWidth;
+  const innerHeight = isRotated90 ? baseHeight : containerHeight;
 
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
