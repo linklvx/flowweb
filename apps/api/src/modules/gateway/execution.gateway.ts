@@ -42,7 +42,7 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
   emitNodeStatus(projectId: string, data: {
     nodeId: string;
-    status: 'loading' | 'done' | 'error';
+    status: 'loading' | 'done' | 'error' | 'edit-result' | 'edit-failed';
     resultUrl?: string;
     fileId?: string;
     error?: string;

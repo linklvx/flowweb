@@ -73,11 +73,127 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
 
 @Injectable()
 export class ApiCallerService {
+  private readonly dashscopeApiKey: string;
+  private readonly dashscopeBaseUrl = 'https://dashscope.aliyuncs.com';
+
+  constructor() {
+    this.dashscopeApiKey = process.env.DASHSCOPE_API_KEY || '';
+  }
 
   /** Combine main prompt and extra prompt, ensuring at least one is present */
   combinePrompt(prompt: string, extraPrompt?: string): string {
     const parts = [prompt, extraPrompt].filter(Boolean);
     return parts.join(', ');
+  }
+
+  private async pollDashScopeTask(taskId: string): Promise<any> {
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const queryRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${this.dashscopeApiKey}` },
+      });
+      const queryJson = await queryRes.json() as any;
+
+      const status = queryJson.output?.task_status || queryJson.status;
+      if (status === 'SUCCEEDED' || status === 'succeeded' || status === 'completed') {
+        return queryJson;
+      }
+      if (status === 'FAILED' || status === 'failed' || status === 'error') {
+        throw new Error(`DashScope task failed: ${queryJson.output?.message || queryJson.message || 'unknown error'}`);
+      }
+    }
+    throw new Error('DashScope task polling timeout');
+  }
+
+  async callOutpainting(
+    imageUrl: string,
+    direction: string,
+    scale: number,
+    prompt?: string,
+  ): Promise<{ url: string }> {
+    const body: any = {
+      model: 'wanx-outpainting-v1',
+      input: { image_url: imageUrl, direction, scale },
+    };
+    if (prompt) body.input.prompt = prompt;
+
+    const submitRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/services/aigc/image2image/out-painting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.dashscopeApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const submitJson = await submitRes.json() as any;
+    const taskId = submitJson.output?.task_id || submitJson.task_id;
+    if (!taskId) throw new Error(`Outpainting submit failed: no task ID, got: ${JSON.stringify(submitJson).slice(0, 200)}`);
+
+    const result = await this.pollDashScopeTask(taskId);
+    const results = result.output?.results || result.results || [];
+    const first = Array.isArray(results) ? results[0] : results;
+    const resultUrl = typeof first === 'string' ? first : first?.url || first;
+    return { url: String(resultUrl) };
+  }
+
+  async callErase(imageUrl: string, maskUrl: string): Promise<{ url: string }> {
+    const body = {
+      model: 'wanx-inpainting-v1',
+      input: { image_url: imageUrl, mask_url: maskUrl },
+    };
+
+    const submitRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/services/aigc/image2image/in-painting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.dashscopeApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const submitJson = await submitRes.json() as any;
+    const taskId = submitJson.output?.task_id || submitJson.task_id;
+    if (!taskId) throw new Error(`Erase submit failed: no task ID, got: ${JSON.stringify(submitJson).slice(0, 200)}`);
+
+    const result = await this.pollDashScopeTask(taskId);
+    const results = result.output?.results || result.results || [];
+    const first = Array.isArray(results) ? results[0] : results;
+    const resultUrl = typeof first === 'string' ? first : first?.url || first;
+    return { url: String(resultUrl) };
+  }
+
+  async callRedraw(
+    imageUrl: string,
+    maskUrl: string,
+    prompt: string,
+    strength: number,
+  ): Promise<{ url: string }> {
+    const body = {
+      model: 'wanx-repainting-v1',
+      input: {
+        image_url: imageUrl,
+        mask_url: maskUrl,
+        prompt,
+        strength: strength / 100,
+      },
+    };
+
+    const submitRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/services/aigc/image2image/image-repainting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.dashscopeApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const submitJson = await submitRes.json() as any;
+    const taskId = submitJson.output?.task_id || submitJson.task_id;
+    if (!taskId) throw new Error(`Redraw submit failed: no task ID, got: ${JSON.stringify(submitJson).slice(0, 200)}`);
+
+    const result = await this.pollDashScopeTask(taskId);
+    const results = result.output?.results || result.results || [];
+    const first = Array.isArray(results) ? results[0] : results;
+    const resultUrl = typeof first === 'string' ? first : first?.url || first;
+    return { url: String(resultUrl) };
   }
 
   async callTextGen(params: TextGenParams): Promise<TextGenResult> {

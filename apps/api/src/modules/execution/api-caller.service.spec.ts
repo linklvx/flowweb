@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiCallerService } from './api-caller.service';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ApiCallerService', () => {
   let service: ApiCallerService;
@@ -69,6 +69,86 @@ describe('ApiCallerService', () => {
 
     it('should return empty when both empty', () => {
       expect((service as any).combinePrompt('', '')).toBe('');
+    });
+  });
+
+  describe('callOutpainting', () => {
+    it('should submit and poll for outpainting result', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({ output: { task_id: 'task-123', task_status: 'PENDING' } }),
+        })
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({
+            output: {
+              task_status: 'SUCCEEDED',
+              results: [{ url: 'https://dashscope.result/outpaint.png' }],
+            },
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await service.callOutpainting('https://example.com/img.png', 'right', 0.5, 'expand view');
+      expect(result.url).toBe('https://dashscope.result/outpaint.png');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('callErase', () => {
+    it('should submit and poll for erase result', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({ output: { task_id: 'task-456', task_status: 'PENDING' } }),
+        })
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({
+            output: {
+              task_status: 'SUCCEEDED',
+              results: [{ url: 'https://dashscope.result/erase.png' }],
+            },
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await service.callErase('https://example.com/img.png', 'https://example.com/mask.png');
+      expect(result.url).toBe('https://dashscope.result/erase.png');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('callRedraw', () => {
+    it('should submit and poll for redraw result with strength converted', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({ output: { task_id: 'task-789', task_status: 'PENDING' } }),
+        })
+        .mockResolvedValueOnce({
+          json: () => Promise.resolve({
+            output: {
+              task_status: 'SUCCEEDED',
+              results: [{ url: 'https://dashscope.result/redraw.png' }],
+            },
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await service.callRedraw(
+        'https://example.com/img.png',
+        'https://example.com/mask.png',
+        'a beautiful sunset',
+        70,
+      );
+      expect(result.url).toBe('https://dashscope.result/redraw.png');
+
+      // Verify the first call body includes strength / 100
+      const firstCallBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(firstCallBody.input.strength).toBe(0.7);
+
+      vi.unstubAllGlobals();
     });
   });
 });

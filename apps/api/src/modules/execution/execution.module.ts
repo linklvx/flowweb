@@ -30,6 +30,6 @@ import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.con
     ExecutionGateway,
     ExecutionProcessor,
   ],
-  exports: [ExecutionService, ExecutionGateway],
+  exports: [ExecutionService, ExecutionGateway, ApiCallerService],
 })
 export class ExecutionModule {}

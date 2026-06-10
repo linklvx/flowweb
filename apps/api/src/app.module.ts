@@ -16,6 +16,7 @@ import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
 import { AiDownloadModule } from './modules/ai-download/ai-download.module';
+import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
 import { AuthGuard } from './auth/auth.guard';
@@ -50,6 +51,7 @@ const env = validateEnv();
     AiDownloadModule,
     TempCleanupModule,
     MaterialLibraryModule,
+    AiImageEditModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
