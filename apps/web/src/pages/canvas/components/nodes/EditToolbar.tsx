@@ -13,6 +13,11 @@ export interface EditToolbarProps {
   onClear?: () => void;
   onGenerate?: () => void;
   onSaveAsVariant?: () => void;
+  // 扩图专用
+  outpaintRect?: { x: number; y: number; width: number; height: number };
+  onOutpaintRatioChange?: (rect: { x: number; y: number; width: number; height: number }) => void;
+  imageW?: number;
+  imageH?: number;
 }
 
 // ── Icons ─────────────────────────────────────────────
@@ -46,6 +51,10 @@ function EditToolbarComponent({
   onClear,
   onGenerate,
   onSaveAsVariant,
+  outpaintRect,
+  onOutpaintRatioChange,
+  imageW,
+  imageH,
 }: EditToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -67,13 +76,18 @@ function EditToolbarComponent({
   const nodeHeight = internalNode?.measured?.height;
   const { width: windowWidth, height: windowHeight } = windowSize;
 
+  const isOutpaint = editMode === 'outpaint' && !!outpaintRect;
+
   const position = useMemo(() => {
     if (nodeWidth == null || nodeHeight == null) return null;
 
     const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;
     const viewTopY = nodeY * zoom + vpY;
+    const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
 
-    const toolbarTop = viewTopY - TOOLBAR_HEIGHT - GAP;
+    const toolbarTop = isOutpaint
+      ? viewBottomY + GAP
+      : viewTopY - TOOLBAR_HEIGHT - GAP;
 
     const toolbarLeft = Math.max(
       VIEWPORT_PADDING,
@@ -81,7 +95,7 @@ function EditToolbarComponent({
     );
 
     return { toolbarLeft, toolbarTop };
-  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight]);
+  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, isOutpaint]);
 
   if (!position || nodeWidth == null || nodeHeight == null) return null;
 
@@ -155,6 +169,47 @@ function EditToolbarComponent({
               <span>清除</span>
             </button>
             <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+          </>
+        )}
+
+        {/* Ratio presets — outpaint mode */}
+        {isOutpaint && onOutpaintRatioChange && outpaintRect && imageW && imageH && (
+          <>
+            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+            {[1.2, 1.5, 2.0].map((ratio) => {
+              const newW = Math.round(imageW * ratio);
+              const newH = Math.round(imageH * ratio);
+              const isActive = Math.abs(outpaintRect.width - newW) < 2 && Math.abs(outpaintRect.height - newH) < 2;
+              return (
+                <button
+                  key={ratio}
+                  type="button"
+                  className={`${btnBaseClass} edit-btn`}
+                  style={{
+                    backgroundColor: isActive ? 'rgb(59,130,246)' : 'transparent',
+                    color: isActive ? 'white' : TEXT_COLOR,
+                  }}
+                  onClick={() => {
+                    const newX = -(newW - imageW) / 2;
+                    const newY = -(newH - imageH) / 2;
+                    onOutpaintRatioChange({ x: newX, y: newY, width: newW, height: newH });
+                  }}
+                  disabled={isSaving}
+                >
+                  <span>{ratio.toFixed(1)}x</span>
+                </button>
+              );
+            })}
+          </>
+        )}
+
+        {/* Credit display — outpaint mode */}
+        {isOutpaint && outpaintRect && imageW && imageH && (
+          <>
+            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+            <span style={{ color: '#999', fontSize: 12, padding: '0 4px' }}>
+              ↓ {Math.ceil(Math.max(outpaintRect.width / imageW, outpaintRect.height / imageH))}
+            </span>
           </>
         )}
 

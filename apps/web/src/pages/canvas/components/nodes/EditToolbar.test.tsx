@@ -257,4 +257,44 @@ describe('EditToolbar', () => {
     expect(toolbar.classList.contains('nodrag')).toBe(true);
     expect(toolbar.classList.contains('nopan')).toBe(true);
   });
+
+  // ── Outpaint mode extensions ──
+
+  it('renders ratio preset buttons when outpaintRect is provided', () => {
+    setupPortalTarget();
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} onOutpaintRatioChange={vi.fn()} />);
+    expect(screen.getByText('1.2x')).toBeInTheDocument();
+    expect(screen.getByText('1.5x')).toBeInTheDocument();
+    expect(screen.getByText('2.0x')).toBeInTheDocument();
+  });
+
+  it('does not render ratio presets in non-outpaint mode', () => {
+    setupPortalTarget();
+    render(<EditToolbar {...baseProps} editMode="crop" />);
+    expect(screen.queryByText('1.2x')).not.toBeInTheDocument();
+  });
+
+  it('calls onOutpaintRatioChange when ratio preset clicked', () => {
+    setupPortalTarget();
+    const onChange = vi.fn();
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: 0, y: 0, width: 512, height: 512 }} imageW={512} imageH={512} onOutpaintRatioChange={onChange} />);
+    fireEvent.click(screen.getByText('1.5x'));
+    expect(onChange).toHaveBeenCalledWith({ x: -128, y: -128, width: 768, height: 768 });
+  });
+
+  it('shows credit count in outpaint mode', () => {
+    setupPortalTarget();
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
+    expect(screen.getByText('↓ 2')).toBeInTheDocument();
+  });
+
+  it('positions toolbar below node in outpaint mode', () => {
+    setupPortalTarget();
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: 0, y: 0, width: 512, height: 512 }} imageW={512} imageH={512} />);
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const toolbar = portalRoot.querySelector('.nodrag') as HTMLElement;
+    const top = parseFloat(toolbar.style.top);
+    // Below node: viewBottomY + GAP = (200 + 250) + 16 = 466
+    expect(top).toBeGreaterThanOrEqual(450);
+  });
 });
