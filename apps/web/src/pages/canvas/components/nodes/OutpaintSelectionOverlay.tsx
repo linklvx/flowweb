@@ -140,68 +140,6 @@ export function OutpaintSelectionOverlay({
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
-      {/* Backdrop: 4 rectangles outside the image, within the frame */}
-      {/* Left */}
-      {frameL < imgL && (
-        <div
-          data-testid="outpaint-backdrop"
-          className="absolute pointer-events-none"
-          style={{
-            left: frameL,
-            top: frameT,
-            width: imgL - frameL,
-            height: frameH,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
-        />
-      )}
-      {/* Right */}
-      {frameR > imgR && (
-        <div
-          data-testid="outpaint-backdrop"
-          className="absolute pointer-events-none"
-          style={{
-            left: imgR,
-            top: frameT,
-            width: frameR - imgR,
-            height: frameH,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
-        />
-      )}
-      {/* Top */}
-      {frameT < imgT && (
-        <div
-          data-testid="outpaint-backdrop"
-          className="absolute pointer-events-none"
-          style={{
-            left: imgL,
-            top: frameT,
-            width: imgR - imgL,
-            height: imgT - frameT,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
-        />
-      )}
-      {/* Bottom */}
-      {frameB > imgB && (
-        <div
-          data-testid="outpaint-backdrop"
-          className="absolute pointer-events-none"
-          style={{
-            left: imgL,
-            top: imgB,
-            width: imgR - imgL,
-            height: frameB - imgB,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
-        />
-      )}
-
       {/* Selection frame */}
       <div
         data-testid="outpaint-frame"

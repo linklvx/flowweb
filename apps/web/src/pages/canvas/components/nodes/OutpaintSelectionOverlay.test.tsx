@@ -25,13 +25,10 @@ describe('OutpaintSelectionOverlay', () => {
     expect(root.classList.contains('nopan')).toBe(true);
   });
 
-  it('renders backdrop on expanded areas (4 sides for default 1.2x rect)', () => {
+  it('does not render any backdrop elements', () => {
     const { container } = render(<OutpaintSelectionOverlay {...baseProps} />);
     const backdrops = container.querySelectorAll('[data-testid="outpaint-backdrop"]');
-    expect(backdrops.length).toBe(4);
-    backdrops.forEach((b) => {
-      expect((b as HTMLElement).style.backgroundColor).toBe('rgba(0, 0, 0, 0.8)');
-    });
+    expect(backdrops.length).toBe(0);
   });
 
   it('renders 8 resize handles (4 corners + 4 edges)', () => {
