@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { type NodeProps, useViewport, useReactFlow, useInternalNode } from '@xyflow/react';
+import { type NodeProps, useViewport, useReactFlow } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore, hasEditChanges } from '@/stores/nodeStore';
@@ -62,7 +62,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const { zoom, x: vpX, y: vpY } = useViewport();
   const { fitView } = useReactFlow();
-  const internalNode = useInternalNode(id);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -813,8 +812,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               )}
               {editMode === 'outpaint' && displayUrl && baseWidth > 0 && createPortal(
                 <OutpaintSelectionOverlay
-                  imageVpX={(internalNode?.position.x ?? node.position.x) * zoom + vpX}
-                  imageVpY={(internalNode?.position.y ?? node.position.y) * zoom + vpY}
+                  imageVpX={node.position.x * zoom + vpX}
+                  imageVpY={node.position.y * zoom + vpY}
                   imageVpW={baseWidth * zoom}
                   imageVpH={baseHeight * zoom}
                   value={outpaintRect.width > 0 ? outpaintRect : { x: -(baseWidth * 0.1), y: -(baseHeight * 0.1), width: baseWidth * 1.2, height: baseHeight * 1.2 }}
