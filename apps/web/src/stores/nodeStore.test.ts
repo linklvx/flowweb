@@ -677,20 +677,30 @@ describe('hasEditChanges', () => {
     expect(hasEditChanges('crop', { cropRect: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } })).toBe(true);
   });
 
-  it('outpaint: no changes with default values', () => {
-    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.2, prompt: '' })).toBe(false);
+  it('outpaint: no changes when outpaintRect is undefined', () => {
+    expect(hasEditChanges('outpaint', {})).toBe(false);
   });
 
-  it('outpaint: has changes when direction differs', () => {
-    expect(hasEditChanges('outpaint', { direction: 'top', scale: 1.2, prompt: '' })).toBe(true);
+  it('outpaint: has changes when outpaintRect exists (store conservative strategy)', () => {
+    // store层保守判断：只要有rect即视为有变更
+    // 精确判断在ImageGenNode组件内使用实际图片尺寸完成
+    expect(hasEditChanges('outpaint', { outpaintRect: { x: 0, y: 0, width: 512, height: 512 } })).toBe(true);
   });
 
-  it('outpaint: has changes when scale differs', () => {
-    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.5, prompt: '' })).toBe(true);
+  it('outpaint: has changes when x is non-zero (expanded left)', () => {
+    expect(hasEditChanges('outpaint', { outpaintRect: { x: -16, y: 0, width: 528, height: 512 } })).toBe(true);
   });
 
-  it('outpaint: has changes when prompt is non-empty', () => {
-    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.2, prompt: '天空' })).toBe(true);
+  it('outpaint: has changes when y is non-zero (expanded top)', () => {
+    expect(hasEditChanges('outpaint', { outpaintRect: { x: 0, y: -32, width: 512, height: 544 } })).toBe(true);
+  });
+
+  it('outpaint: has changes when width increased', () => {
+    expect(hasEditChanges('outpaint', { outpaintRect: { x: 0, y: 0, width: 600, height: 512 } })).toBe(true);
+  });
+
+  it('outpaint: has changes when height increased', () => {
+    expect(hasEditChanges('outpaint', { outpaintRect: { x: 0, y: 0, width: 512, height: 600 } })).toBe(true);
   });
 
   it('erase: no changes when maskPaths is empty', () => {

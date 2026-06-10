@@ -96,9 +96,7 @@ export function isMultiImageNode(node: AppNode): node is AppNode & { data: Multi
 
 export interface EditState {
   cropRect?: { x: number; y: number; width: number; height: number };
-  direction?: string;
-  scale?: number;
-  prompt?: string;
+  outpaintRect?: { x: number; y: number; width: number; height: number };
   maskPaths?: { points: number[] }[];
 }
 
@@ -111,10 +109,11 @@ export function hasEditChanges(editMode: string, editState: EditState): boolean 
   switch (editMode) {
     case 'crop':
       return !isDefaultCropRect(editState.cropRect);
-    case 'outpaint':
-      return editState.direction !== 'all'
-        || editState.scale !== 1.2
-        || (editState.prompt ?? '').trim().length > 0;
+    case 'outpaint': {
+      const r = editState.outpaintRect;
+      // 保守策略：有 rect 即有变更（精确判断在 ImageGenNode 用图片尺寸做）
+      return r != null;
+    }
     case 'erase':
     case 'redraw':
       return (editState.maskPaths?.length ?? 0) > 0;
