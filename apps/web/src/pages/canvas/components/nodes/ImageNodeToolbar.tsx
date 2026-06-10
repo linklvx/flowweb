@@ -9,6 +9,10 @@ interface ImageNodeToolbarProps {
   selected: boolean;
   onUpload?: () => void;
   onRotateMirror?: () => void;
+  onCrop?: () => void;
+  onOutpaint?: () => void;
+  onErase?: () => void;
+  onRedraw?: () => void;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -209,6 +213,10 @@ function ImageNodeToolbarComponent({
   selected,
   onUpload = () => {},
   onRotateMirror,
+  onCrop,
+  onOutpaint,
+  onErase,
+  onRedraw,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -320,10 +328,10 @@ function ImageNodeToolbarComponent({
         <TextIconButton icon={<RotateMirrorIcon />} ariaLabel="旋转与镜像" text="旋转与镜像" onClick={onRotateMirror} disabled={!onRotateMirror} />
         <Divider />
         <TextIconButton icon={<LayersIcon />} ariaLabel="分离" text="分离" />
-        <TextIconButton icon={<CropIcon />} ariaLabel="裁切" text="裁切" />
-        <TextIconButton icon={<ExpandImageIcon />} ariaLabel="扩图" text="扩图" />
-        <TextIconButton icon={<EraserIcon />} ariaLabel="擦除" text="擦除" />
-        <TextIconButton icon={<PaintbrushIcon />} ariaLabel="重绘" text="重绘" />
+        <TextIconButton icon={<CropIcon />} ariaLabel="裁切" text="裁切" onClick={onCrop} />
+        <TextIconButton icon={<ExpandImageIcon />} ariaLabel="扩图" text="扩图" onClick={onOutpaint} />
+        <TextIconButton icon={<EraserIcon />} ariaLabel="擦除" text="擦除" onClick={onErase} />
+        <TextIconButton icon={<PaintbrushIcon />} ariaLabel="重绘" text="重绘" onClick={onRedraw} />
         <TextIconButton icon={<TypeIcon />} ariaLabel="文字" text="文字" />
         <TextIconButton icon={<ShirtIcon />} ariaLabel="换装" text="换装" />
       </div>
