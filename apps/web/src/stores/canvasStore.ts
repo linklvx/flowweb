@@ -30,6 +30,7 @@ interface CanvasState {
   addNodeWithEdge: (sourceId: string) => string | null;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
+  setNodeDraggable: (nodeId: string, draggable: boolean) => void;
   selectNode: (id: string | null) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -92,6 +93,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedId: s.selectedId === id ? null : s.selectedId,
     }));
   },
+
+  setNodeDraggable: (nodeId, draggable) =>
+    set((s) => ({
+      nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, draggable } : n)),
+    })),
 
   copyNode: (nodeId) => {
     const node = get().nodes.find((n) => n.id === nodeId);

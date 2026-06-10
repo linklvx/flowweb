@@ -284,4 +284,19 @@ describe('canvasStore', () => {
       (useCanvasStore.getState() as any).deleteTransformNode('nonexistent');
     }).not.toThrow();
   });
+
+  it('setNodeDraggable should update node draggable flag', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+    useCanvasStore.getState().setNodeDraggable(nodeId, false);
+    const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId);
+    expect(node?.draggable).toBe(false);
+  });
+
+  it('setNodeDraggable(true) should restore draggable', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+    useCanvasStore.getState().setNodeDraggable(nodeId, false);
+    useCanvasStore.getState().setNodeDraggable(nodeId, true);
+    const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId);
+    expect(node?.draggable).toBe(true);
+  });
 });
