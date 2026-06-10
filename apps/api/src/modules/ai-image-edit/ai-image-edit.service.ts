@@ -19,9 +19,9 @@ export class AiImageEditService {
     projectId: string,
     nodeId: string,
     fileId: string,
-    direction: string,
-    scale: number,
-    prompt?: string,
+    rect: { x: number; y: number; width: number; height: number },
+    imageWidth: number,
+    imageHeight: number,
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('outpaint', {
       taskType: 'outpaint',
@@ -29,9 +29,9 @@ export class AiImageEditService {
       projectId,
       nodeId,
       fileId,
-      direction,
-      scale,
-      prompt,
+      rect,
+      imageWidth,
+      imageHeight,
     });
     return { jobId: job.id! };
   }

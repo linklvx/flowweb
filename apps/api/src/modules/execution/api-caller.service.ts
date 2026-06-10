@@ -107,15 +107,26 @@ export class ApiCallerService {
 
   async callOutpainting(
     imageUrl: string,
-    direction: string,
-    scale: number,
-    prompt?: string,
+    rect: { x: number; y: number; width: number; height: number },
+    imageWidth: number,
+    imageHeight: number,
+    onProgress?: (progress: number) => void,
   ): Promise<{ url: string }> {
-    const body: any = {
+    const top = Math.max(0, -rect.y);
+    const bottom = Math.max(0, rect.y + rect.height - imageHeight);
+    const left = Math.max(0, -rect.x);
+    const right = Math.max(0, rect.x + rect.width - imageWidth);
+
+    const body = {
       model: 'wanx-outpainting-v1',
-      input: { image_url: imageUrl, direction, scale },
+      input: {
+        image_url: imageUrl,
+        top: Math.round(top),
+        bottom: Math.round(bottom),
+        left: Math.round(left),
+        right: Math.round(right),
+      },
     };
-    if (prompt) body.input.prompt = prompt;
 
     const submitRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/services/aigc/image2image/out-painting`, {
       method: 'POST',

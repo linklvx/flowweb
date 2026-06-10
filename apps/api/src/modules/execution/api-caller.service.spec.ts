@@ -73,10 +73,10 @@ describe('ApiCallerService', () => {
   });
 
   describe('callOutpainting', () => {
-    it('should submit and poll for outpainting result', async () => {
+    it('should convert outpaintRect to top/bottom/left/right for DashScope API', async () => {
       const mockFetch = vi.fn()
         .mockResolvedValueOnce({
-          json: () => Promise.resolve({ output: { task_id: 'task-123', task_status: 'PENDING' } }),
+          json: () => Promise.resolve({ output: { task_id: 'task-1', task_status: 'PENDING' } }),
         })
         .mockResolvedValueOnce({
           json: () => Promise.resolve({
@@ -88,8 +88,18 @@ describe('ApiCallerService', () => {
         });
       vi.stubGlobal('fetch', mockFetch);
 
-      const result = await service.callOutpainting('https://example.com/img.png', 'right', 0.5, 'expand view');
+      const result = await service.callOutpainting(
+        'https://example.com/img.png',
+        { x: -51, y: -51, width: 614, height: 614 },
+        512, 512,
+      );
       expect(result.url).toBe('https://dashscope.result/outpaint.png');
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.input.top).toBe(51);
+      expect(body.input.bottom).toBe(51);
+      expect(body.input.left).toBe(51);
+      expect(body.input.right).toBe(51);
+      expect(body.input.prompt).toBeUndefined();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       vi.unstubAllGlobals();

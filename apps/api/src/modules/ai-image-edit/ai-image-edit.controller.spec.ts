@@ -24,17 +24,18 @@ describe('AiImageEditController', () => {
   });
 
   describe('POST /api/image-edit/outpaint', () => {
-    it('should enqueue outpaint job and return jobId', async () => {
+    it('should enqueue outpaint job with rect and return jobId', async () => {
       const body = {
         projectId: 'proj1',
         nodeId: 'node1',
         fileId: 'file-1',
-        direction: 'right',
-        scale: 0.5,
+        rect: { x: -16, y: 0, width: 528, height: 512 },
+        imageWidth: 512,
+        imageHeight: 512,
       };
       const result = await controller.outpaint(body);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
-        'proj1', 'node1', 'file-1', 'right', 0.5, undefined,
+        'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
       );
       expect(result).toEqual({ jobId: 'job-outpaint-1' });
     });

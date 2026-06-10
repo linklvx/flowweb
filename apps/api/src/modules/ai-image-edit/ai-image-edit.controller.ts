@@ -6,14 +6,21 @@ export class AiImageEditController {
   constructor(@Inject(AiImageEditService) private readonly service: AiImageEditService) {}
 
   @Post('outpaint')
-  async outpaint(@Body() body: { projectId: string; nodeId: string; fileId: string; direction: string; scale: number; prompt?: string }) {
+  async outpaint(@Body() body: {
+    projectId: string;
+    nodeId: string;
+    fileId: string;
+    rect: { x: number; y: number; width: number; height: number };
+    imageWidth: number;
+    imageHeight: number;
+  }) {
     return this.service.enqueueOutpaint(
       body.projectId,
       body.nodeId,
       body.fileId,
-      body.direction,
-      body.scale,
-      body.prompt,
+      body.rect,
+      body.imageWidth,
+      body.imageHeight,
     );
   }
 

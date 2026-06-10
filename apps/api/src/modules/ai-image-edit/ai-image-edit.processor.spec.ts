@@ -77,8 +77,9 @@ describe('AiImageEditProcessor', () => {
           projectId: 'proj1',
           nodeId: 'node1',
           fileId: 'file-1',
-          direction: 'right',
-          scale: 0.5,
+          rect: { x: -16, y: 0, width: 528, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
         },
       } as any as Job;
 
@@ -86,9 +87,9 @@ describe('AiImageEditProcessor', () => {
       expect(result.status).toBe('completed');
       expect(apiCaller.callOutpainting).toHaveBeenCalledWith(
         'https://minio.local/bucket/key?token=abc',
-        'right',
-        0.5,
-        undefined,
+        { x: -16, y: 0, width: 528, height: 512 },
+        512,
+        512,
       );
       expect(minio.upload).toHaveBeenCalled();
       expect(prisma.media.create).toHaveBeenCalledWith(
@@ -154,8 +155,9 @@ describe('AiImageEditProcessor', () => {
           projectId: 'proj1',
           nodeId: 'node1',
           fileId: 'file-1',
-          direction: 'right',
-          scale: 0.5,
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
         },
       } as any as Job;
 

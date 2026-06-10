@@ -17,8 +17,9 @@ export interface AiImageEditJobData {
   nodeId: string;
   fileId: string;
   maskFileId?: string;
-  direction?: string;
-  scale?: number;
+  rect?: { x: number; y: number; width: number; height: number };
+  imageWidth?: number;
+  imageHeight?: number;
   prompt?: string;
   strength?: number;
 }
@@ -63,7 +64,7 @@ export class AiImageEditProcessor extends WorkerHost {
   }
 
   async process(job: Job<AiImageEditJobData>): Promise<{ status: string; fileId?: string }> {
-    const { taskType, userId, projectId, nodeId, fileId, maskFileId, direction, scale, prompt, strength } = job.data;
+    const { taskType, userId, projectId, nodeId, fileId, maskFileId, rect, imageWidth, imageHeight, prompt, strength } = job.data;
     this.logger.log(`Processing ${taskType} for node ${nodeId}`);
 
     this.ensureRetryConfigured();
@@ -83,7 +84,12 @@ export class AiImageEditProcessor extends WorkerHost {
       let result: { url: string };
       switch (taskType) {
         case 'outpaint':
-          result = await this.apiCaller.callOutpainting(imageUrl, direction!, scale!, prompt);
+          result = await this.apiCaller.callOutpainting(
+            imageUrl,
+            rect!,
+            imageWidth!,
+            imageHeight!,
+          );
           break;
         case 'erase':
           result = await this.apiCaller.callErase(imageUrl, maskUrl!);
