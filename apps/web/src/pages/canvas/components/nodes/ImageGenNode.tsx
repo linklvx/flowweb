@@ -773,7 +773,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           width: containerWidth,
           border: '1px solid #3F3F46',
           margin: 2,
-          ...(selected
+          ...(selected && editMode !== 'outpaint'
             ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
             : {}),
         }}
