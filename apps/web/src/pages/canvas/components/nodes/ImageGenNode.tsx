@@ -367,7 +367,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       hasChanges = hasEditChanges(editMode!, editState);
     }
 
-    if (!hasChanges) {
+    if (!hasChanges || editMode === 'outpaint') {
       updateConfig(id, { editMode: null });
       useNodeStore.getState().setActiveEditNodeId(null);
       return;
@@ -589,10 +589,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   }, [id, editMode, handleEditCancel, handleCropSave]);
 
   const didFitView = useRef(false);
+  const didInitOutpaint = useRef(false);
 
-  // Initialize outpaintRect when entering outpaint mode
+  // Initialize outpaintRect once when entering outpaint mode
   useEffect(() => {
-    if (editMode === 'outpaint' && displayUrl && baseWidth > 0 && baseHeight > 0) {
+    if (editMode === 'outpaint' && displayUrl && baseWidth > 0 && baseHeight > 0 && !didInitOutpaint.current) {
+      didInitOutpaint.current = true;
       const defaultX = -(baseWidth * 0.1);
       const defaultY = -(baseHeight * 0.1);
       const defaultW = baseWidth * 1.2;
@@ -612,6 +614,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       }
     }
     if (editMode !== 'outpaint') {
+      didInitOutpaint.current = false;
       didFitView.current = false;
       setOutpaintRect({ x: 0, y: 0, width: 0, height: 0 });
     }

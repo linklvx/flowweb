@@ -11,6 +11,12 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       position: { x: 0, y: 0 },
       measured: { width: 500, height: 500 },
     })),
+    useReactFlow: vi.fn(() => ({
+      fitView: vi.fn(),
+      screenToFlowPosition: vi.fn((p: any) => p),
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+    })),
   };
 });
 
