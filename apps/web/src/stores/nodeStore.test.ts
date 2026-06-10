@@ -4,7 +4,7 @@ import type { AppNode, TextNodeData, ImageNodeData, VideoNodeData, PromptValue, 
 
 describe('nodeStore (AppNode nested structure)', () => {
   beforeEach(() => {
-    useNodeStore.setState({ nodes: {} });
+    useNodeStore.setState({ nodes: {}, activeTransformNodeId: null, activeEditNodeId: null, cancelRequestedAt: 0, saveHandlers: {} });
     vi.clearAllMocks();
   });
 
@@ -604,5 +604,62 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().registerSaveHandler('fail', handler);
     // Should not throw
     await expect(useNodeStore.getState().saveTransformNode('fail')).resolves.toBeUndefined();
+  });
+
+  // ── editMode infrastructure ──
+
+  it('ImageNodeData should default editMode to null', () => {
+    useNodeStore.getState().updateConfig('edit-default', {});
+    const stored = useNodeStore.getState().nodes['edit-default'];
+    const imgData = stored.data as ImageNodeData;
+    expect(imgData.editMode).toBeNull();
+  });
+
+  it('should persist editMode via updateConfig', () => {
+    useNodeStore.getState().updateConfig('edit-persist', { style: '写实', editMode: 'crop' });
+    const stored = useNodeStore.getState().nodes['edit-persist'];
+    expect((stored.data as ImageNodeData).editMode).toBe('crop');
+  });
+
+  // ── activeEditNodeId ──
+
+  it('should initialize activeEditNodeId as null', () => {
+    expect(useNodeStore.getState().activeEditNodeId).toBeNull();
+  });
+
+  it('setActiveEditNodeId should update activeEditNodeId', () => {
+    useNodeStore.getState().setActiveEditNodeId('edit-x');
+    expect(useNodeStore.getState().activeEditNodeId).toBe('edit-x');
+  });
+
+  it('setActiveEditNodeId(null) should clear activeEditNodeId', () => {
+    useNodeStore.getState().setActiveEditNodeId('edit-x');
+    useNodeStore.getState().setActiveEditNodeId(null);
+    expect(useNodeStore.getState().activeEditNodeId).toBeNull();
+  });
+
+  // ── mutual exclusion ──
+
+  it('setActiveEditNodeId should not set if activeTransformNodeId is set', () => {
+    useNodeStore.getState().setActiveTransformNodeId('tx');
+    useNodeStore.getState().setActiveEditNodeId('ex');
+    expect(useNodeStore.getState().activeEditNodeId).toBeNull();
+    expect(useNodeStore.getState().activeTransformNodeId).toBe('tx');
+  });
+
+  it('setActiveTransformNodeId should not set if activeEditNodeId is set', () => {
+    useNodeStore.getState().setActiveEditNodeId('ex');
+    useNodeStore.getState().setActiveTransformNodeId('tx');
+    expect(useNodeStore.getState().activeTransformNodeId).toBeNull();
+    expect(useNodeStore.getState().activeEditNodeId).toBe('ex');
+  });
+
+  // ── triggerCancelEdit ──
+
+  it('triggerCancelEdit should update cancelRequestedAt', () => {
+    const ts = 1700000000000;
+    vi.spyOn(Date, 'now').mockReturnValue(ts);
+    useNodeStore.getState().triggerCancelEdit();
+    expect(useNodeStore.getState().cancelRequestedAt).toBe(ts);
   });
 });

@@ -36,6 +36,7 @@ export interface ImageNodeData {
   flipH?: boolean;
   flipV?: boolean;
   transformMode?: boolean;
+  editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | null;
 }
 
 export interface VideoNodeData {
@@ -113,6 +114,7 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     flipH: false,
     flipV: false,
     transformMode: false,
+    editMode: null,
   };
 
   const merged = { ...(existing ?? {}) };
@@ -153,6 +155,9 @@ interface NodeState {
   cancelRequestedAt: number;
   setActiveTransformNodeId: (id: string | null) => void;
   triggerCancelTransform: () => void;
+  activeEditNodeId: string | null;
+  setActiveEditNodeId: (id: string | null) => void;
+  triggerCancelEdit: () => void;
   saveHandlers: Record<string, () => Promise<void>>;
   registerSaveHandler: (nodeId: string, handler: () => Promise<void>) => void;
   unregisterSaveHandler: (nodeId: string) => void;
@@ -166,9 +171,19 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   activeTransformNodeId: null,
   cancelRequestedAt: 0,
   saveHandlers: {},
+  activeEditNodeId: null,
 
-  setActiveTransformNodeId: (id) => set({ activeTransformNodeId: id }),
+  setActiveTransformNodeId: (id) => {
+    if (id !== null && get().activeEditNodeId !== null) return;
+    set({ activeTransformNodeId: id });
+  },
   triggerCancelTransform: () => set({ cancelRequestedAt: Date.now() }),
+
+  setActiveEditNodeId: (id) => {
+    if (id !== null && get().activeTransformNodeId !== null) return;
+    set({ activeEditNodeId: id });
+  },
+  triggerCancelEdit: () => set({ cancelRequestedAt: Date.now() }),
 
   registerSaveHandler: (nodeId, handler) =>
     set((s) => ({ saveHandlers: { ...s.saveHandlers, [nodeId]: handler } })),
