@@ -89,4 +89,25 @@ describe('OutpaintSelectionOverlay', () => {
       expect(rect.width).toBeGreaterThanOrEqual(100);
     }
   });
+
+  it('clamps frame so image cannot escape outside', () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <OutpaintSelectionOverlay {...baseProps} value={{ x: 0, y: 0, width: 512, height: 512 }} onChange={onChange} />
+    );
+    // Drag nw handle inward (south-east), trying to push frame inside image bounds
+    const nwHandle = container.querySelector('[data-handle="nw"]') as HTMLElement;
+    fireEvent.mouseDown(nwHandle, { clientX: 0, clientY: 0 });
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50 });
+    fireEvent.mouseUp(window);
+    const rect = onChange.mock.lastCall[0] as OutpaintRect;
+    // x must be <= 0 (frame left cannot go past image left)
+    expect(rect.x).toBeLessThanOrEqual(0);
+    // y must be <= 0
+    expect(rect.y).toBeLessThanOrEqual(0);
+    // frame right (x+width) must be >= imageWidth (512)
+    expect(rect.x + rect.width).toBeGreaterThanOrEqual(512);
+    // frame bottom (y+height) must be >= imageHeight (512)
+    expect(rect.y + rect.height).toBeGreaterThanOrEqual(512);
+  });
 });

@@ -114,6 +114,14 @@ export function OutpaintSelectionOverlay({
       if (newRect.width < MIN_SIZE) newRect.width = MIN_SIZE;
       if (newRect.height < MIN_SIZE) newRect.height = MIN_SIZE;
 
+      // Clamp: image must always stay within the selection frame
+      const imgW = imageVpW / zoom;
+      const imgH = imageVpH / zoom;
+      if (newRect.x > 0) newRect.x = 0;
+      if (newRect.y > 0) newRect.y = 0;
+      if (newRect.x + newRect.width < imgW) newRect.width = imgW - newRect.x;
+      if (newRect.y + newRect.height < imgH) newRect.height = imgH - newRect.y;
+
       onChange(newRect);
     };
 
