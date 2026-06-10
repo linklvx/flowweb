@@ -772,9 +772,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         style={{
           width: containerWidth,
           border: '1px solid #3F3F46',
-          margin: 2,
           ...(selected && editMode !== 'outpaint'
-            ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
+            ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF', margin: 2 }
             : {}),
         }}
       >
@@ -815,8 +814,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               )}
               {editMode === 'outpaint' && displayUrl && baseWidth > 0 && createPortal(
                 <OutpaintSelectionOverlay
-                  imageVpX={(internalNode?.position.x ?? node.position.x) * zoom + vpX}
-                  imageVpY={(internalNode?.position.y ?? node.position.y) * zoom + vpY}
+                  imageVpX={(internalNode?.position.x ?? node.position.x) * zoom + vpX + 1 * zoom}
+                  imageVpY={(internalNode?.position.y ?? node.position.y) * zoom + vpY + 1 * zoom}
                   imageVpW={baseWidth * zoom}
                   imageVpH={baseHeight * zoom}
                   value={outpaintRect.width > 0 ? outpaintRect : { x: -(baseWidth * 0.1), y: -(baseHeight * 0.1), width: baseWidth * 1.2, height: baseHeight * 1.2 }}
