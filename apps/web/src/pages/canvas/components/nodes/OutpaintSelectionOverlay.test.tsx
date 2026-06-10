@@ -110,4 +110,22 @@ describe('OutpaintSelectionOverlay', () => {
     // frame bottom (y+height) must be >= imageHeight (512)
     expect(rect.y + rect.height).toBeGreaterThanOrEqual(512);
   });
+
+  it('move drag should stop at image boundary, not expand frame', () => {
+    const onChange = vi.fn();
+    // Frame right edge at image right edge → x + width = 512
+    const { container } = render(
+      <OutpaintSelectionOverlay {...baseProps} value={{ x: 0, y: 0, width: 512, height: 512 }} onChange={onChange} />
+    );
+    // Drag frame body to the left (dx negative)
+    const frame = container.querySelector('[data-testid="outpaint-frame"]') as HTMLElement;
+    fireEvent.mouseDown(frame, { clientX: 200, clientY: 200 });
+    fireEvent.mouseMove(window, { clientX: 150, clientY: 200 }); // dx = -50
+    fireEvent.mouseUp(window);
+    const rect = onChange.mock.lastCall[0] as OutpaintRect;
+    // x should NOT change (clamped at 0 since move would expose image right)
+    expect(rect.x).toBe(0);
+    // width should NOT expand (should stay at 512)
+    expect(rect.width).toBe(512);
+  });
 });

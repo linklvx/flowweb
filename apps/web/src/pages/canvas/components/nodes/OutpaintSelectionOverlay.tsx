@@ -68,59 +68,98 @@ export function OutpaintSelectionOverlay({
       const dx = (e.clientX / zoom) - dragStart.current.x;
       const dy = (e.clientY / zoom) - dragStart.current.y;
       const start = dragStart.current.rect;
+      const imgW = imageVpW / zoom;
+      const imgH = imageVpH / zoom;
+
+      // Clamp dx/dy per handle so image always stays within the frame
+      let cdx = dx;
+      let cdy = dy;
+      switch (dragging) {
+        case 'nw':
+          // left: start.x + dx <= 0 → dx <= -start.x
+          if (start.x + cdx > 0) cdx = -start.x;
+          // top: start.y + dy <= 0
+          if (start.y + cdy > 0) cdy = -start.y;
+          // right: (start.x+dx)+(start.width-dx) = start.x+start.width — constant, no clamp needed
+          // bottom: (start.y+dy)+(start.height-dy) = start.y+start.height — constant
+          break;
+        case 'n':
+          if (start.y + cdy > 0) cdy = -start.y;
+          break;
+        case 'ne':
+          if (start.y + cdy > 0) cdy = -start.y;
+          // right: start.x + (start.width+dx) >= imgW
+          if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
+          break;
+        case 'e':
+          if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
+          break;
+        case 'se':
+          if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
+          if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          break;
+        case 's':
+          if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          break;
+        case 'sw':
+          if (start.x + cdx > 0) cdx = -start.x;
+          if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          break;
+        case 'w':
+          if (start.x + cdx > 0) cdx = -start.x;
+          break;
+        case 'move':
+          if (start.x + cdx > 0) cdx = -start.x;
+          if (start.y + cdy > 0) cdy = -start.y;
+          if (start.x + cdx + start.width < imgW) cdx = imgW - start.x - start.width;
+          if (start.y + cdy + start.height < imgH) cdy = imgH - start.y - start.height;
+          break;
+      }
 
       let newRect = { ...start };
       switch (dragging) {
         case 'nw':
-          newRect.x = start.x + dx;
-          newRect.y = start.y + dy;
-          newRect.width = start.width - dx;
-          newRect.height = start.height - dy;
+          newRect.x = start.x + cdx;
+          newRect.y = start.y + cdy;
+          newRect.width = start.width - cdx;
+          newRect.height = start.height - cdy;
           break;
         case 'n':
-          newRect.y = start.y + dy;
-          newRect.height = start.height - dy;
+          newRect.y = start.y + cdy;
+          newRect.height = start.height - cdy;
           break;
         case 'ne':
-          newRect.y = start.y + dy;
-          newRect.width = start.width + dx;
-          newRect.height = start.height - dy;
+          newRect.y = start.y + cdy;
+          newRect.width = start.width + cdx;
+          newRect.height = start.height - cdy;
           break;
         case 'e':
-          newRect.width = start.width + dx;
+          newRect.width = start.width + cdx;
           break;
         case 'se':
-          newRect.width = start.width + dx;
-          newRect.height = start.height + dy;
+          newRect.width = start.width + cdx;
+          newRect.height = start.height + cdy;
           break;
         case 's':
-          newRect.height = start.height + dy;
+          newRect.height = start.height + cdy;
           break;
         case 'sw':
-          newRect.x = start.x + dx;
-          newRect.width = start.width - dx;
-          newRect.height = start.height + dy;
+          newRect.x = start.x + cdx;
+          newRect.width = start.width - cdx;
+          newRect.height = start.height + cdy;
           break;
         case 'w':
-          newRect.x = start.x + dx;
-          newRect.width = start.width - dx;
+          newRect.x = start.x + cdx;
+          newRect.width = start.width - cdx;
           break;
         case 'move':
-          newRect.x = start.x + dx;
-          newRect.y = start.y + dy;
+          newRect.x = start.x + cdx;
+          newRect.y = start.y + cdy;
           break;
       }
 
       if (newRect.width < MIN_SIZE) newRect.width = MIN_SIZE;
       if (newRect.height < MIN_SIZE) newRect.height = MIN_SIZE;
-
-      // Clamp: image must always stay within the selection frame
-      const imgW = imageVpW / zoom;
-      const imgH = imageVpH / zoom;
-      if (newRect.x > 0) newRect.x = 0;
-      if (newRect.y > 0) newRect.y = 0;
-      if (newRect.x + newRect.width < imgW) newRect.width = imgW - newRect.x;
-      if (newRect.y + newRect.height < imgH) newRect.height = imgH - newRect.y;
 
       onChange(newRect);
     };
