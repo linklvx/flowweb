@@ -2,15 +2,21 @@ import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { type NodeProps, useViewport } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, hasEditChanges } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { TransformToolbar } from './TransformToolbar';
+import { EditToolbar } from './EditToolbar';
+import { CropOverlay } from './CropOverlay';
+import { EraseCanvas, type EraseCanvasHandle } from './EraseCanvas';
+import { OutpaintPanel, type OutpaintState } from './OutpaintPanel';
+import { RedrawPanel, type RedrawState } from './RedrawPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
+import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
 
 const MAX_WIDTH = 548;
@@ -71,6 +77,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   // Save/cancel state
   const [isSaving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Edit mode state
+  const editMode = nodeData?.editMode ?? null;
+  const eraseRef = useRef<EraseCanvasHandle>(null);
+  const [brushSize] = useState(20);
+  const [isProcessing, setProcessing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
+  const [outpaintState, setOutpaintState] = useState<OutpaintState>({ direction: 'all', scale: 1.2, prompt: '' });
+  const [redrawState, setRedrawState] = useState<RedrawState>({ mode: 'rect', prompt: '', strength: 50 });
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -312,6 +328,177 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     ns.setActiveTransformNodeId(newNodeId);
   }, [id]);
 
+  // ── Edit mode handlers ──
+
+  const enterEditMode = useCallback((mode: 'crop' | 'outpaint' | 'erase' | 'redraw') => {
+    const ns = useNodeStore.getState();
+    if (ns.activeTransformNodeId) {
+      ns.triggerCancelTransform();
+      setTimeout(() => {
+        updateConfig(id, { editMode: mode });
+        ns.setActiveEditNodeId(id);
+      }, 100);
+      return;
+    }
+    setEditError(null);
+    updateConfig(id, { editMode: mode });
+    ns.setActiveEditNodeId(id);
+  }, [id, updateConfig]);
+
+  const handleEditCancel = useCallback(() => {
+    setEditError(null);
+    if (isProcessing) return;
+
+    const editState = {
+      cropRect: cropRectRef.current,
+      direction: outpaintState.direction,
+      scale: outpaintState.scale,
+      prompt: outpaintState.prompt,
+      maskPaths: eraseRef.current?.hasContent() ? [{ points: [] }] : [],
+    };
+
+    if (!hasEditChanges(editMode!, editState)) {
+      updateConfig(id, { editMode: null });
+      useNodeStore.getState().setActiveEditNodeId(null);
+      return;
+    }
+
+    useConfirmModalStore.getState().show({
+      title: '放弃未保存的编辑？',
+      content: '当前编辑尚未保存，请选择如何处理。',
+      cancelText: '取消',
+      primaryText: '放弃并退出',
+      primaryType: 'danger',
+      onClose: () => useConfirmModalStore.getState().close(),
+      onPrimary: () => {
+        updateConfig(id, { editMode: null });
+        useNodeStore.getState().setActiveEditNodeId(null);
+        eraseRef.current?.clear();
+        useConfirmModalStore.getState().close();
+      },
+    });
+  }, [id, editMode, isProcessing, outpaintState, updateConfig]);
+
+  const handleCropSave = useCallback(async () => {
+    setProcessing(true);
+    setEditError(null);
+    try {
+      const rect = cropRectRef.current;
+      const blob = await cropImage(displayUrl!, rect, 2048);
+      const file = new File([blob], `crop-${Date.now()}.webp`, { type: 'image/webp' });
+
+      const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
+      });
+      const formData = new FormData();
+      Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+      formData.append('file', file);
+      const proxyUrl = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+      await axios.post(proxyUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
+      });
+      await confirmUpload({ fileId: newId, key, fileSize: file.size });
+
+      updateConfig(id, { fileId: newId, referenceImage: undefined, editMode: null });
+      useNodeStore.getState().setActiveEditNodeId(null);
+    } catch (err) {
+      console.error('裁剪失败:', err);
+      setEditError('保存失败，请重试');
+    } finally {
+      setProcessing(false);
+    }
+  }, [id, displayUrl, updateConfig]);
+
+  const handleGenerate = useCallback(async () => {
+    setProcessing(true);
+    setEditError(null);
+    try {
+      let endpoint = '';
+      const body: any = { fileId, nodeId: id };
+
+      if (editMode === 'outpaint') {
+        endpoint = '/api/image-edit/outpaint';
+        body.direction = outpaintState.direction;
+        body.scale = outpaintState.scale;
+        body.prompt = outpaintState.prompt || undefined;
+      } else if (editMode === 'erase' || editMode === 'redraw') {
+        endpoint = editMode === 'erase' ? '/api/image-edit/erase' : '/api/image-edit/redraw';
+        const maskBlob = await eraseRef.current!.getMaskBlob(
+          imgSize?.w ?? baseWidth,
+          imgSize?.h ?? baseHeight,
+        );
+        const maskFile = new File([maskBlob], 'mask.png', { type: 'image/png' });
+        const { fileId: maskId, uploadUrl, key, fields } = await presignUpload({
+          fileName: maskFile.name, fileSize: maskFile.size, fileType: 'image/png', type: 'uploaded',
+        });
+        const fd = new FormData();
+        Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+        fd.append('file', maskFile);
+        const proxy = import.meta.env.DEV ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage') : uploadUrl;
+        await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
+        await confirmUpload({ fileId: maskId, key, fileSize: maskFile.size });
+        body.maskFileId = maskId;
+        if (editMode === 'redraw') {
+          body.prompt = redrawState.prompt;
+          body.strength = redrawState.strength;
+        }
+      }
+
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      console.error('AI 编辑失败:', err);
+      setEditError('提交失败，请重试');
+      setProcessing(false);
+    }
+  }, [id, editMode, fileId, imgSize, baseWidth, outpaintState, redrawState]);
+
+  const handleSaveAsVariant = useCallback(async () => {
+    setProcessing(true);
+    setEditError(null);
+    try {
+      let newFileId: string;
+
+      if (editMode === 'crop') {
+        const rect = cropRectRef.current;
+        const blob = await cropImage(displayUrl!, rect, 2048);
+        const file = new File([blob], `crop-${Date.now()}.webp`, { type: 'image/webp' });
+        const { fileId: fid, uploadUrl, key, fields } = await presignUpload({
+          fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
+        });
+        const formData = new FormData();
+        Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
+        formData.append('file', file);
+        const proxyUrl = import.meta.env.DEV
+          ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+          : uploadUrl;
+        await axios.post(proxyUrl, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
+        });
+        await confirmUpload({ fileId: fid, key, fileSize: file.size });
+        newFileId = fid;
+      } else {
+        if (!fileId) throw new Error('没有可保存的图片');
+        newFileId = fileId;
+      }
+
+      const newNodeId = useCanvasStore.getState().addNodeWithEdge(id);
+      useNodeStore.getState().updateConfig(newNodeId, { fileId: newFileId });
+      updateConfig(id, { editMode: null });
+      useNodeStore.getState().setActiveEditNodeId(null);
+    } catch (err) {
+      console.error('保存为新变体失败:', err);
+      setEditError('保存失败，请重试');
+    } finally {
+      setProcessing(false);
+    }
+  }, [id, editMode, fileId, displayUrl, updateConfig]);
+
   // ── Effects ──
 
   // Register save handler for cross-node invocation
@@ -367,10 +554,58 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     const unsub = useNodeStore.subscribe((state, prev) => {
       if (state.cancelRequestedAt !== prev.cancelRequestedAt && state.cancelRequestedAt > 0) {
         if (state.activeTransformNodeId === id) handleCancel();
+        if (state.activeEditNodeId === id) handleEditCancel();
       }
     });
     return unsub;
-  }, [id, handleCancel]);
+  }, [id, handleCancel, handleEditCancel]);
+
+  // Edit mode keyboard shortcuts
+  useEffect(() => {
+    if (!editMode) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (useNodeStore.getState().activeEditNodeId !== id) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === 'Escape') { e.stopPropagation(); handleEditCancel(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's' && editMode === 'crop') { e.preventDefault(); handleCropSave(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && (editMode === 'erase' || editMode === 'redraw')) { e.preventDefault(); eraseRef.current?.undo(); }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [id, editMode, handleEditCancel, handleCropSave]);
+
+  // Edit mode node locking
+  useEffect(() => {
+    if (editMode !== null) {
+      useCanvasStore.getState().setNodeDraggable(id, false);
+    }
+    return () => {
+      useCanvasStore.getState().setNodeDraggable(id, true);
+    };
+  }, [editMode, id]);
+
+  // Socket.io edit result handlers
+  useEffect(() => {
+    if (!editMode) return;
+    const socket = io('/execution', { transports: ['websocket', 'polling'] });
+    socket.on('connect', () => socket.emit('join', 'default'));
+    socket.on('node:edit-result', (data: any) => {
+      if (data.nodeId !== id) return;
+      updateConfig(id, { fileId: data.fileId, editMode: null });
+      useNodeStore.getState().setActiveEditNodeId(null);
+      setProcessing(false);
+    });
+    socket.on('node:edit-failed', (data: any) => {
+      if (data.nodeId !== id) return;
+      setEditError(data.error || 'AI 处理失败');
+      setProcessing(false);
+    });
+    return () => { socket.removeAllListeners(); };
+  }, [editMode, id, updateConfig]);
 
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
 
@@ -388,8 +623,21 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {/* Floating toolbar — TransformToolbar in transform mode, otherwise ImageNodeToolbar */}
-      {transformMode ? (
+      {/* Floating toolbar — EditToolbar > TransformToolbar > ImageNodeToolbar */}
+      {editMode ? (
+        <EditToolbar
+          nodeId={id}
+          editMode={editMode}
+          isSaving={isProcessing}
+          errorMessage={editError}
+          onSave={editMode === 'crop' ? handleCropSave : undefined}
+          onCancel={handleEditCancel}
+          onUndo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.undo() : undefined}
+          onClear={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.clear() : undefined}
+          onGenerate={editMode !== 'crop' ? handleGenerate : undefined}
+          onSaveAsVariant={handleSaveAsVariant}
+        />
+      ) : transformMode ? (
         <TransformToolbar
           nodeId={id}
           rotation={imageRotation}
@@ -421,6 +669,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           selected={selected ?? false}
           onUpload={() => fileInputRef.current?.click()}
           onRotateMirror={handleRotateMirror}
+          onCrop={() => enterEditMode('crop')}
+          onOutpaint={() => enterEditMode('outpaint')}
+          onErase={() => enterEditMode('erase')}
+          onRedraw={() => enterEditMode('redraw')}
         />
       )}
 
@@ -483,21 +735,52 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           style={{ width: containerWidth, height: containerHeight }}
         >
           {displayUrl ? (
-            <img
-              src={displayUrl}
-              alt="preview"
-              className="max-w-full max-h-full object-contain"
-              style={{
-                ...(transformMode ? {
+            <div className="relative" style={{ width: baseWidth, height: baseHeight }}>
+              <img
+                src={displayUrl}
+                alt="preview"
+                className="max-w-full max-h-full object-contain"
+                style={{
                   width: baseWidth,
                   height: baseHeight,
                   maxWidth: 'none',
                   maxHeight: 'none',
-                } : {}),
-                ...(previewTransform ? { transform: previewTransform } : {}),
-              }}
-              onLoad={handleImageLoad}
-            />
+                  ...(previewTransform ? { transform: previewTransform } : {}),
+                }}
+                onLoad={handleImageLoad}
+              />
+              {/* Edit mode overlays */}
+              {editMode === 'crop' && (
+                <CropOverlay
+                  containerWidth={containerWidth}
+                  containerHeight={containerHeight}
+                  imageDisplayWidth={baseWidth}
+                  imageDisplayHeight={baseHeight}
+                  imageNaturalWidth={imgSize?.w ?? baseWidth}
+                  imageNaturalHeight={imgSize?.h ?? baseHeight}
+                  onCropChange={(r) => { cropRectRef.current = r; }}
+                />
+              )}
+              {(editMode === 'erase') && (
+                <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
+              )}
+              {editMode === 'outpaint' && (
+                <OutpaintPanel
+                  state={outpaintState}
+                  onChange={setOutpaintState}
+                  imageW={baseWidth} imageH={baseHeight}
+                  naturalW={imgSize?.w ?? baseWidth} naturalH={imgSize?.h ?? baseHeight}
+                />
+              )}
+              {editMode === 'redraw' && (
+                <>
+                  {redrawState.mode === 'brush' && (
+                    <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
+                  )}
+                  <RedrawPanel state={redrawState} onChange={setRedrawState} />
+                </>
+              )}
+            </div>
           ) : status === 'loading' ? (
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
           ) : (

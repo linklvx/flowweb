@@ -57,6 +57,9 @@ const {
       cancelRequestedAt: mockCancelRequestedAt,
       setActiveTransformNodeId,
       triggerCancelTransform,
+      activeEditNodeId: null as string | null,
+      setActiveEditNodeId: vi.fn(),
+      triggerCancelEdit: vi.fn(),
       saveHandlers: {} as Record<string, () => Promise<void>>,
       registerSaveHandler,
       unregisterSaveHandler,
@@ -76,6 +79,7 @@ const {
       selectNode,
       addNodeWithEdge,
       deleteTransformNode,
+      setNodeDraggable: vi.fn(),
     };
     if (typeof _selector === 'function') return _selector(state);
     return state;
