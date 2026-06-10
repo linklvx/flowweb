@@ -211,12 +211,14 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
 
       {/* Node body */}
       <div
-        className="bg-[#222222] rounded-lg transition-colors"
+        className="bg-[#222222] rounded-lg"
         style={{
           width: NODE_WIDTH,
+          border: '1px solid #3F3F46',
+          margin: 2,
           ...(selected
-            ? { borderColor: '#9CA3AF', borderWidth: '3px', borderStyle: 'solid' }
-            : { borderColor: '#3F3F46', borderWidth: '1px', borderStyle: 'solid' }),
+            ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
+            : {}),
         }}
       >
         <NodeHandle type="target" testId="target-handle" />
