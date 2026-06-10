@@ -370,12 +370,48 @@ describe('ImageGenNode', () => {
   it('calls addNodeWithEdge when onRotateMirror is triggered and no active transform', () => {
     mockNodeData = { ...mockNodeData, fileId: 'cat-file-id' };
     const { container } = renderNode(true);
-    // In non-transform mode with fileId, ImageNodeToolbar is rendered
-    // Find the "旋转与镜像" button and click it
     const btn = screen.queryByText('旋转与镜像');
     if (btn) {
       fireEvent.click(btn);
       expect(mockAddNodeWithEdge).toHaveBeenCalledWith('img1');
     }
+  });
+
+  // ── Outpaint mode: new overlay replaces OutpaintPanel ──
+
+  it('renders OutpaintSelectionOverlay when editMode is outpaint', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    renderNode();
+    expect(screen.queryByText('上')).not.toBeInTheDocument();
+    expect(screen.queryByText('全部')).not.toBeInTheDocument();
+    const frame = document.querySelector('[data-testid="outpaint-frame"]');
+    expect(frame).toBeTruthy();
+  });
+
+  it('renders EditToolbar with outpaint-specific props', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    renderNode();
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    expect(portalRoot.textContent).toContain('生成');
+    expect(portalRoot.textContent).toContain('退出');
+  });
+
+  it('handleGenerate sends outpaintRect in request body', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ jobId: 'test-job' }), { status: 200 })
+    );
+    renderNode();
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const genBtn = Array.from(portalRoot.querySelectorAll('button')).find(
+      (btn) => btn.textContent?.includes('生成')
+    );
+    if (genBtn) fireEvent.click(genBtn);
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/image-edit/outpaint', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"rect"'),
+    }));
+    fetchSpy.mockRestore();
   });
 });

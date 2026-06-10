@@ -11,7 +11,7 @@ import { TransformToolbar } from './TransformToolbar';
 import { EditToolbar } from './EditToolbar';
 import { CropOverlay } from './CropOverlay';
 import { EraseCanvas, type EraseCanvasHandle } from './EraseCanvas';
-import { OutpaintPanel, type OutpaintState } from './OutpaintPanel';
+import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 import { RedrawPanel, type RedrawState } from './RedrawPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -85,7 +85,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [isProcessing, setProcessing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
-  const [outpaintState, setOutpaintState] = useState<OutpaintState>({ direction: 'all', scale: 1.2, prompt: '' });
+  const [outpaintRect, setOutpaintRect] = useState<OutpaintRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [redrawState, setRedrawState] = useState<RedrawState>({ mode: 'rect', prompt: '', strength: 50 });
 
   // Dynamic sizing based on image aspect ratio
@@ -130,6 +130,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const baseHeight = imgSize ? imgSize.h : ratioSize.h;
   let containerWidth = baseWidth;
   let containerHeight = baseHeight;
+
+  // Outpaint mode: container expands to selection frame size
+  if (editMode === 'outpaint' && outpaintRect.width > 0 && outpaintRect.height > 0) {
+    containerWidth = outpaintRect.width;
+    containerHeight = outpaintRect.height;
+  }
 
   // Swap dimensions for 90°/270° rotation in transform mode
   if (transformMode && (imageRotation === 90 || imageRotation === 270)) {
@@ -349,15 +355,23 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     setEditError(null);
     if (isProcessing) return;
 
-    const editState = {
-      cropRect: cropRectRef.current,
-      direction: outpaintState.direction,
-      scale: outpaintState.scale,
-      prompt: outpaintState.prompt,
-      maskPaths: eraseRef.current?.hasContent() ? [{ points: [] }] : [],
-    };
+    let hasChanges = false;
+    if (editMode === 'outpaint') {
+      hasChanges =
+        Math.abs(outpaintRect.x + baseWidth * 0.1) >= 1 ||
+        Math.abs(outpaintRect.y + baseHeight * 0.1) >= 1 ||
+        Math.abs(outpaintRect.width - baseWidth * 1.2) >= 1 ||
+        Math.abs(outpaintRect.height - baseHeight * 1.2) >= 1;
+    } else {
+      const editState = {
+        cropRect: cropRectRef.current,
+        outpaintRect,
+        maskPaths: eraseRef.current?.hasContent() ? [{ points: [] }] : [],
+      };
+      hasChanges = hasEditChanges(editMode!, editState);
+    }
 
-    if (!hasEditChanges(editMode!, editState)) {
+    if (!hasChanges) {
       updateConfig(id, { editMode: null });
       useNodeStore.getState().setActiveEditNodeId(null);
       return;
@@ -377,7 +391,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         useConfirmModalStore.getState().close();
       },
     });
-  }, [id, editMode, isProcessing, outpaintState, updateConfig]);
+  }, [id, editMode, isProcessing, outpaintRect, baseWidth, baseHeight, updateConfig]);
 
   const handleCropSave = useCallback(async () => {
     setProcessing(true);
@@ -420,9 +434,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
       if (editMode === 'outpaint') {
         endpoint = '/api/image-edit/outpaint';
-        body.direction = outpaintState.direction;
-        body.scale = outpaintState.scale;
-        body.prompt = outpaintState.prompt || undefined;
+        body.rect = outpaintRect;
+        body.imageWidth = imgSize?.w ?? baseWidth;
+        body.imageHeight = imgSize?.h ?? baseHeight;
       } else if (editMode === 'erase' || editMode === 'redraw') {
         endpoint = editMode === 'erase' ? '/api/image-edit/erase' : '/api/image-edit/redraw';
         const maskBlob = await eraseRef.current!.getMaskBlob(
@@ -456,7 +470,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       setEditError('提交失败，请重试');
       setProcessing(false);
     }
-  }, [id, editMode, fileId, imgSize, baseWidth, outpaintState, redrawState]);
+  }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawState]);
 
   const handleSaveAsVariant = useCallback(async () => {
     setProcessing(true);
@@ -578,6 +592,20 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [id, editMode, handleEditCancel, handleCropSave]);
 
+  // Initialize outpaintRect when entering outpaint mode
+  useEffect(() => {
+    if (editMode === 'outpaint' && displayUrl && baseWidth > 0 && baseHeight > 0) {
+      const defaultX = -(baseWidth * 0.1);
+      const defaultY = -(baseHeight * 0.1);
+      const defaultW = baseWidth * 1.2;
+      const defaultH = baseHeight * 1.2;
+      setOutpaintRect({ x: defaultX, y: defaultY, width: defaultW, height: defaultH });
+    }
+    if (editMode !== 'outpaint') {
+      setOutpaintRect({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  }, [editMode, displayUrl, baseWidth, baseHeight]);
+
   // Edit mode node locking
   useEffect(() => {
     if (editMode !== null) {
@@ -636,6 +664,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onClear={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.clear() : undefined}
           onGenerate={editMode !== 'crop' ? handleGenerate : undefined}
           onSaveAsVariant={handleSaveAsVariant}
+          outpaintRect={editMode === 'outpaint' ? outpaintRect : undefined}
+          onOutpaintRatioChange={editMode === 'outpaint' ? setOutpaintRect : undefined}
+          imageW={editMode === 'outpaint' ? baseWidth : undefined}
+          imageH={editMode === 'outpaint' ? baseHeight : undefined}
         />
       ) : transformMode ? (
         <TransformToolbar
@@ -764,12 +796,15 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {(editMode === 'erase') && (
                 <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
               )}
-              {editMode === 'outpaint' && (
-                <OutpaintPanel
-                  state={outpaintState}
-                  onChange={setOutpaintState}
-                  imageW={baseWidth} imageH={baseHeight}
-                  naturalW={imgSize?.w ?? baseWidth} naturalH={imgSize?.h ?? baseHeight}
+              {editMode === 'outpaint' && displayUrl && (
+                <OutpaintSelectionOverlay
+                  imageUrl={displayUrl}
+                  imageWidth={baseWidth}
+                  imageHeight={baseHeight}
+                  containerWidth={outpaintRect.width > 0 ? outpaintRect.width : baseWidth}
+                  containerHeight={outpaintRect.height > 0 ? outpaintRect.height : baseHeight}
+                  value={outpaintRect}
+                  onChange={setOutpaintRect}
                 />
               )}
               {editMode === 'redraw' && (
