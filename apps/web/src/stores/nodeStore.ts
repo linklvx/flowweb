@@ -92,6 +92,37 @@ export function isMultiImageNode(node: AppNode): node is AppNode & { data: Multi
   return node.type === 'multiImageGen';
 }
 
+// ========== Edit state helpers ==========
+
+export interface EditState {
+  cropRect?: { x: number; y: number; width: number; height: number };
+  direction?: string;
+  scale?: number;
+  prompt?: string;
+  maskPaths?: { points: number[] }[];
+}
+
+function isDefaultCropRect(rect?: { x: number; y: number; width: number; height: number }): boolean {
+  if (!rect) return true;
+  return rect.x === 0.1 && rect.y === 0.1 && rect.width === 0.8 && rect.height === 0.8;
+}
+
+export function hasEditChanges(editMode: string, editState: EditState): boolean {
+  switch (editMode) {
+    case 'crop':
+      return !isDefaultCropRect(editState.cropRect);
+    case 'outpaint':
+      return editState.direction !== 'all'
+        || editState.scale !== 1.2
+        || (editState.prompt ?? '').trim().length > 0;
+    case 'erase':
+    case 'redraw':
+      return (editState.maskPaths?.length ?? 0) > 0;
+    default:
+      return false;
+  }
+}
+
 // ========== Private helpers ==========
 
 function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | undefined {

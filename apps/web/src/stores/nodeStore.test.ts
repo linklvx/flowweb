@@ -663,3 +663,49 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(useNodeStore.getState().cancelRequestedAt).toBe(ts);
   });
 });
+
+// ── hasEditChanges ──
+
+import { hasEditChanges, type EditState } from './nodeStore';
+
+describe('hasEditChanges', () => {
+  it('crop: no changes for default 80% centered rect', () => {
+    expect(hasEditChanges('crop', { cropRect: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 } })).toBe(false);
+  });
+
+  it('crop: has changes for non-default rect', () => {
+    expect(hasEditChanges('crop', { cropRect: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } })).toBe(true);
+  });
+
+  it('outpaint: no changes with default values', () => {
+    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.2, prompt: '' })).toBe(false);
+  });
+
+  it('outpaint: has changes when direction differs', () => {
+    expect(hasEditChanges('outpaint', { direction: 'top', scale: 1.2, prompt: '' })).toBe(true);
+  });
+
+  it('outpaint: has changes when scale differs', () => {
+    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.5, prompt: '' })).toBe(true);
+  });
+
+  it('outpaint: has changes when prompt is non-empty', () => {
+    expect(hasEditChanges('outpaint', { direction: 'all', scale: 1.2, prompt: '天空' })).toBe(true);
+  });
+
+  it('erase: no changes when maskPaths is empty', () => {
+    expect(hasEditChanges('erase', { maskPaths: [] })).toBe(false);
+  });
+
+  it('erase: has changes when maskPaths has content', () => {
+    expect(hasEditChanges('erase', { maskPaths: [{ points: [0, 0, 10, 10] }] })).toBe(true);
+  });
+
+  it('redraw: no changes when maskPaths is empty', () => {
+    expect(hasEditChanges('redraw', { maskPaths: [] })).toBe(false);
+  });
+
+  it('redraw: has changes when maskPaths has content', () => {
+    expect(hasEditChanges('redraw', { maskPaths: [{ points: [5, 5, 15, 15] }] })).toBe(true);
+  });
+});
