@@ -810,7 +810,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {(editMode === 'erase') && (
                 <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
               )}
-              {editMode === 'outpaint' && displayUrl && createPortal(
+              {editMode === 'outpaint' && displayUrl && outpaintRect.width > 0 && createPortal(
                 <OutpaintSelectionOverlay
                   imageVpX={node.position.x * zoom + vpX}
                   imageVpY={node.position.y * zoom + vpY}
