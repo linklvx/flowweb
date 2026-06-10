@@ -93,16 +93,20 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
 
   const onNodeClick = useCallback((_event: any, node: any) => {
     const ns = useNodeStore.getState();
-    if (ns.activeTransformNodeId && ns.activeTransformNodeId !== node.id) {
+    if (ns.activeEditNodeId && ns.activeEditNodeId !== node.id) {
+      ns.triggerCancelEdit();
+    } else if (ns.activeTransformNodeId && ns.activeTransformNodeId !== node.id) {
       ns.triggerCancelTransform();
-    } else if (!ns.activeTransformNodeId) {
+    } else if (!ns.activeEditNodeId && !ns.activeTransformNodeId) {
       selectNode(node.id);
     }
   }, [selectNode]);
 
   const onPaneClick = useCallback(() => {
     const ns = useNodeStore.getState();
-    if (ns.activeTransformNodeId) {
+    if (ns.activeEditNodeId) {
+      ns.triggerCancelEdit();
+    } else if (ns.activeTransformNodeId) {
       ns.triggerCancelTransform();
     } else {
       selectNode(null);
