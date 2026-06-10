@@ -781,8 +781,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       >
         <NodeHandle type="target" testId="target-handle" />
         <div
-          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
-          style={{ width: containerWidth, height: containerHeight }}
+          className="flex items-center justify-center overflow-hidden transition-all duration-300 relative group"
+          style={{
+            width: containerWidth,
+            height: containerHeight,
+            borderRadius: editMode === 'outpaint' ? 0 : undefined,
+          }}
         >
           {displayUrl ? (
             <div className="relative" style={{ width: baseWidth, height: baseHeight }}>
