@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { type NodeProps, useViewport } from '@xyflow/react';
+import { type NodeProps, useViewport, useReactFlow } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore, hasEditChanges } from '@/stores/nodeStore';
@@ -61,6 +61,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const { zoom, x: vpX, y: vpY } = useViewport();
+  const { fitView } = useReactFlow();
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -587,6 +588,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [id, editMode, handleEditCancel, handleCropSave]);
 
+  const didFitView = useRef(false);
+
   // Initialize outpaintRect when entering outpaint mode
   useEffect(() => {
     if (editMode === 'outpaint' && displayUrl && baseWidth > 0 && baseHeight > 0) {
@@ -595,11 +598,24 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const defaultW = baseWidth * 1.2;
       const defaultH = baseHeight * 1.2;
       setOutpaintRect({ x: defaultX, y: defaultY, width: defaultW, height: defaultH });
+      if (!didFitView.current) {
+        didFitView.current = true;
+        setTimeout(() => {
+          fitView({
+            nodes: [{ id }],
+            duration: 300,
+            maxZoom: 0.8,
+            minZoom: 0.8,
+            padding: 0.3,
+          });
+        }, 50);
+      }
     }
     if (editMode !== 'outpaint') {
+      didFitView.current = false;
       setOutpaintRect({ x: 0, y: 0, width: 0, height: 0 });
     }
-  }, [editMode, displayUrl, baseWidth, baseHeight]);
+  }, [editMode, displayUrl, baseWidth, baseHeight, id, fitView]);
 
   // Edit mode node locking
   useEffect(() => {

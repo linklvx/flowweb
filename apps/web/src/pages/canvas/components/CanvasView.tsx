@@ -43,6 +43,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
+  const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
+  const isLocked = activeEditNodeId !== null;
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
   const onEdgesChange = useCanvasStore((s) => s.onEdgesChange);
   const onConnect = useCanvasStore((s) => s.onConnect);
@@ -146,13 +148,14 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
+        if (isLocked) return;
         if (e.deltaY < 0) zoomIn({ duration: 100 });
         else zoomOut({ duration: 100 });
       }
     };
     document.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => document.removeEventListener('wheel', onWheel, { capture: true });
-  }, [zoomIn, zoomOut]);
+  }, [zoomIn, zoomOut, isLocked]);
 
   const handleFitView = useCallback(() => {
     fitView({ duration: 300, padding: 0.2 });
@@ -181,7 +184,12 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         maxZoom={3}
         fitView={false}
         zoomOnScroll={false}
-        panOnScroll={true}
+        panOnScroll={!isLocked}
+        panOnDrag={!isLocked}
+        zoomOnDoubleClick={!isLocked}
+        nodesDraggable={!isLocked}
+        nodesFocusable={!isLocked}
+        elementsSelectable={!isLocked}
         snapToGrid={snapEnabled}
         snapGrid={[20, 20]}
         noWheelClassName="nowheel"
