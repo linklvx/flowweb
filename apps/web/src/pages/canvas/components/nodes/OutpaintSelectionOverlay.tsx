@@ -9,11 +9,10 @@ export interface OutpaintRect {
 }
 
 interface Props {
-  imageUrl: string;
-  imageWidth: number;
-  imageHeight: number;
-  containerWidth: number;
-  containerHeight: number;
+  imageVpX: number;
+  imageVpY: number;
+  imageVpW: number;
+  imageVpH: number;
   value: OutpaintRect;
   onChange: (rect: OutpaintRect) => void;
 }
@@ -26,11 +25,10 @@ const EDGE_HANDLE_SIZE = 12;
 type DragHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'move' | null;
 
 export function OutpaintSelectionOverlay({
-  imageUrl,
-  imageWidth,
-  imageHeight,
-  containerWidth,
-  containerHeight,
+  imageVpX,
+  imageVpY,
+  imageVpW,
+  imageVpH,
   value,
   onChange,
 }: Props) {
@@ -39,10 +37,19 @@ export function OutpaintSelectionOverlay({
   const [dragging, setDragging] = useState<DragHandle>(null);
   const dragStart = useRef({ x: 0, y: 0, rect: value });
 
-  const imageLeft = (containerWidth - imageWidth) / 2;
-  const imageTop = (containerHeight - imageHeight) / 2;
-  const rectLeft = imageLeft + value.x;
-  const rectTop = imageTop + value.y;
+  // Image bounds in viewport pixels
+  const imgL = imageVpX;
+  const imgT = imageVpY;
+  const imgR = imageVpX + imageVpW;
+  const imgB = imageVpY + imageVpH;
+
+  // Selection frame bounds in viewport pixels
+  const frameL = imgL + value.x * zoom;
+  const frameT = imgT + value.y * zoom;
+  const frameW = value.width * zoom;
+  const frameH = value.height * zoom;
+  const frameR = frameL + frameW;
+  const frameB = frameT + frameH;
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, handle: DragHandle) => {
@@ -121,39 +128,96 @@ export function OutpaintSelectionOverlay({
 
   return (
     <div
-      className="nodrag nopan absolute inset-0"
-      style={{ zIndex: 10 }}
+      className="nodrag nopan absolute"
+      style={{
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 5000,
+        pointerEvents: 'none',
+      }}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
-      <div
-        data-testid="outpaint-backdrop"
-        className="absolute inset-0 pointer-events-none"
-        style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)' }}
-      />
-
-      <div className="absolute inset-0 pointer-events-none">
-        <img
-          src={imageUrl}
-          alt=""
-          className="absolute max-w-none"
-          style={{ width: imageWidth, height: imageHeight, left: imageLeft, top: imageTop }}
+      {/* Backdrop: 4 rectangles outside the image, within the frame */}
+      {/* Left */}
+      {frameL < imgL && (
+        <div
+          data-testid="outpaint-backdrop"
+          className="absolute pointer-events-none"
+          style={{
+            left: frameL,
+            top: frameT,
+            width: imgL - frameL,
+            height: frameH,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(12px)',
+          }}
         />
-      </div>
+      )}
+      {/* Right */}
+      {frameR > imgR && (
+        <div
+          data-testid="outpaint-backdrop"
+          className="absolute pointer-events-none"
+          style={{
+            left: imgR,
+            top: frameT,
+            width: frameR - imgR,
+            height: frameH,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(12px)',
+          }}
+        />
+      )}
+      {/* Top */}
+      {frameT < imgT && (
+        <div
+          data-testid="outpaint-backdrop"
+          className="absolute pointer-events-none"
+          style={{
+            left: imgL,
+            top: frameT,
+            width: imgR - imgL,
+            height: imgT - frameT,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(12px)',
+          }}
+        />
+      )}
+      {/* Bottom */}
+      {frameB > imgB && (
+        <div
+          data-testid="outpaint-backdrop"
+          className="absolute pointer-events-none"
+          style={{
+            left: imgL,
+            top: imgB,
+            width: imgR - imgL,
+            height: frameB - imgB,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(12px)',
+          }}
+        />
+      )}
 
+      {/* Selection frame */}
       <div
         data-testid="outpaint-frame"
+        className="absolute"
         style={{
-          position: 'absolute',
-          left: rectLeft,
-          top: rectTop,
-          width: value.width,
-          height: value.height,
+          left: frameL,
+          top: frameT,
+          width: frameW,
+          height: frameH,
           border: '1px solid rgba(255, 255, 255, 0.5)',
           cursor: 'move',
+          pointerEvents: 'auto',
         }}
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       >
+        {/* 9-grid guidelines */}
         <div
           data-testid="outpaint-grid"
           className="absolute inset-0 pointer-events-none transition-opacity duration-200"
@@ -165,38 +229,35 @@ export function OutpaintSelectionOverlay({
           <div className="absolute top-2/3 left-0 right-0 h-px bg-white/30" />
         </div>
 
-        {/* nw */}
-        <div data-handle="nw" className="absolute z-10" style={{ top: -2, left: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nwse-resize' }} onMouseDown={(e) => handleMouseDown(e, 'nw')}>
+        {/* Corner L-handles */}
+        <div data-handle="nw" className="absolute z-10" style={{ top: -2, left: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nwse-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'nw')}>
           <div className="absolute top-0 left-0 w-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
           <div className="absolute top-0 left-0 h-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        {/* ne */}
-        <div data-handle="ne" className="absolute z-10" style={{ top: -2, right: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nesw-resize' }} onMouseDown={(e) => handleMouseDown(e, 'ne')}>
+        <div data-handle="ne" className="absolute z-10" style={{ top: -2, right: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nesw-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'ne')}>
           <div className="absolute top-0 right-0 w-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
           <div className="absolute top-0 right-0 h-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        {/* sw */}
-        <div data-handle="sw" className="absolute z-10" style={{ bottom: -2, left: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nesw-resize' }} onMouseDown={(e) => handleMouseDown(e, 'sw')}>
+        <div data-handle="sw" className="absolute z-10" style={{ bottom: -2, left: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nesw-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'sw')}>
           <div className="absolute bottom-0 left-0 w-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
           <div className="absolute bottom-0 left-0 h-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        {/* se */}
-        <div data-handle="se" className="absolute z-10" style={{ bottom: -2, right: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nwse-resize' }} onMouseDown={(e) => handleMouseDown(e, 'se')}>
+        <div data-handle="se" className="absolute z-10" style={{ bottom: -2, right: -2, width: CORNER_SIZE, height: CORNER_SIZE, cursor: 'nwse-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'se')}>
           <div className="absolute bottom-0 right-0 w-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
           <div className="absolute bottom-0 right-0 h-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
 
         {/* Edge handles */}
-        <div data-handle="n" className="absolute z-10 flex items-center justify-center" style={{ top: -2, left: CORNER_SIZE, right: CORNER_SIZE, height: EDGE_HANDLE_SIZE, marginTop: -5, cursor: 'ns-resize' }} onMouseDown={(e) => handleMouseDown(e, 'n')}>
+        <div data-handle="n" className="absolute z-10 flex items-center justify-center" style={{ top: -2, left: CORNER_SIZE, right: CORNER_SIZE, height: EDGE_HANDLE_SIZE, marginTop: -5, cursor: 'ns-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'n')}>
           <div className="w-8 rounded-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        <div data-handle="s" className="absolute z-10 flex items-center justify-center" style={{ bottom: -2, left: CORNER_SIZE, right: CORNER_SIZE, height: EDGE_HANDLE_SIZE, marginBottom: -5, cursor: 'ns-resize' }} onMouseDown={(e) => handleMouseDown(e, 's')}>
+        <div data-handle="s" className="absolute z-10 flex items-center justify-center" style={{ bottom: -2, left: CORNER_SIZE, right: CORNER_SIZE, height: EDGE_HANDLE_SIZE, marginBottom: -5, cursor: 'ns-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 's')}>
           <div className="w-8 rounded-full" style={{ height: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        <div data-handle="w" className="absolute z-10 flex items-center justify-center" style={{ left: -2, top: CORNER_SIZE, bottom: CORNER_SIZE, width: EDGE_HANDLE_SIZE, marginLeft: -5, cursor: 'ew-resize' }} onMouseDown={(e) => handleMouseDown(e, 'w')}>
+        <div data-handle="w" className="absolute z-10 flex items-center justify-center" style={{ left: -2, top: CORNER_SIZE, bottom: CORNER_SIZE, width: EDGE_HANDLE_SIZE, marginLeft: -5, cursor: 'ew-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'w')}>
           <div className="h-8 rounded-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
-        <div data-handle="e" className="absolute z-10 flex items-center justify-center" style={{ right: -2, top: CORNER_SIZE, bottom: CORNER_SIZE, width: EDGE_HANDLE_SIZE, marginRight: -5, cursor: 'ew-resize' }} onMouseDown={(e) => handleMouseDown(e, 'e')}>
+        <div data-handle="e" className="absolute z-10 flex items-center justify-center" style={{ right: -2, top: CORNER_SIZE, bottom: CORNER_SIZE, width: EDGE_HANDLE_SIZE, marginRight: -5, cursor: 'ew-resize', pointerEvents: 'auto' }} onMouseDown={(e) => handleMouseDown(e, 'e')}>
           <div className="h-8 rounded-full" style={{ width: CORNER_THICKNESS, backgroundColor: 'white' }} />
         </div>
       </div>

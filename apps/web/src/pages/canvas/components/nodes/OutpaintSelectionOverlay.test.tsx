@@ -9,11 +9,10 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 
 const defaultRect: OutpaintRect = { x: -51, y: -51, width: 614, height: 614 };
 const baseProps = {
-  imageUrl: 'http://test/img.png',
-  imageWidth: 512,
-  imageHeight: 512,
-  containerWidth: 614,
-  containerHeight: 614,
+  imageVpX: 0,
+  imageVpY: 0,
+  imageVpW: 512,
+  imageVpH: 512,
   value: defaultRect,
   onChange: vi.fn(),
 };
@@ -26,12 +25,13 @@ describe('OutpaintSelectionOverlay', () => {
     expect(root.classList.contains('nopan')).toBe(true);
   });
 
-  it('renders semi-transparent backdrop with blur', () => {
+  it('renders backdrop on expanded areas (4 sides for default 1.2x rect)', () => {
     const { container } = render(<OutpaintSelectionOverlay {...baseProps} />);
-    const backdrop = container.querySelector('[data-testid="outpaint-backdrop"]') as HTMLElement;
-    expect(backdrop).toBeTruthy();
-    expect(backdrop.style.backgroundColor).toBe('rgba(0, 0, 0, 0.8)');
-    expect(backdrop.style.backdropFilter).toBe('blur(12px)');
+    const backdrops = container.querySelectorAll('[data-testid="outpaint-backdrop"]');
+    expect(backdrops.length).toBe(4);
+    backdrops.forEach((b) => {
+      expect((b as HTMLElement).style.backgroundColor).toBe('rgba(0, 0, 0, 0.8)');
+    });
   });
 
   it('renders 8 resize handles (4 corners + 4 edges)', () => {

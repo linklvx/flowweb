@@ -12,6 +12,7 @@ import { EditToolbar } from './EditToolbar';
 import { CropOverlay } from './CropOverlay';
 import { EraseCanvas, type EraseCanvasHandle } from './EraseCanvas';
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
+import { createPortal } from 'react-dom';
 import { RedrawPanel, type RedrawState } from './RedrawPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -59,7 +60,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
-  const { zoom } = useViewport();
+  const { zoom, x: vpX, y: vpY } = useViewport();
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
@@ -130,12 +131,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const baseHeight = imgSize ? imgSize.h : ratioSize.h;
   let containerWidth = baseWidth;
   let containerHeight = baseHeight;
-
-  // Outpaint mode: container expands to selection frame size
-  if (editMode === 'outpaint' && outpaintRect.width > 0 && outpaintRect.height > 0) {
-    containerWidth = outpaintRect.width;
-    containerHeight = outpaintRect.height;
-  }
 
   // Swap dimensions for 90°/270° rotation in transform mode
   if (transformMode && (imageRotation === 90 || imageRotation === 270)) {
@@ -796,16 +791,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {(editMode === 'erase') && (
                 <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
               )}
-              {editMode === 'outpaint' && displayUrl && (
+              {editMode === 'outpaint' && displayUrl && createPortal(
                 <OutpaintSelectionOverlay
-                  imageUrl={displayUrl}
-                  imageWidth={baseWidth}
-                  imageHeight={baseHeight}
-                  containerWidth={outpaintRect.width > 0 ? outpaintRect.width : baseWidth}
-                  containerHeight={outpaintRect.height > 0 ? outpaintRect.height : baseHeight}
+                  imageVpX={node.position.x * zoom + vpX}
+                  imageVpY={node.position.y * zoom + vpY}
+                  imageVpW={baseWidth * zoom}
+                  imageVpH={baseHeight * zoom}
                   value={outpaintRect}
                   onChange={setOutpaintRect}
-                />
+                />,
+                document.getElementById('node-toolbar-portal')!,
               )}
               {editMode === 'redraw' && (
                 <>
