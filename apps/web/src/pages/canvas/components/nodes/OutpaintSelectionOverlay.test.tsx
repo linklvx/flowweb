@@ -2,9 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 
+const { mockUseViewport } = vi.hoisted(() => ({
+  mockUseViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+}));
+
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<any>();
-  return { ...actual, useViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })) };
+  return { ...actual, useViewport: mockUseViewport };
 });
 
 const defaultRect: OutpaintRect = { x: -51, y: -51, width: 614, height: 614 };
@@ -109,6 +113,158 @@ describe('OutpaintSelectionOverlay', () => {
     expect(rect.x + rect.width).toBeGreaterThanOrEqual(512);
     // frame bottom (y+height) must be >= imageHeight (512)
     expect(rect.y + rect.height).toBeGreaterThanOrEqual(512);
+  });
+
+  describe('viewport boundary constraints', () => {
+    let portal: HTMLDivElement;
+
+    beforeEach(() => {
+      portal = document.createElement('div');
+      portal.id = 'node-toolbar-portal';
+      document.body.appendChild(portal);
+    });
+
+    afterEach(() => {
+      portal.remove();
+    });
+
+    function setViewport(w: number, h: number) {
+      Object.defineProperty(portal, 'clientWidth', { value: w, configurable: true });
+      Object.defineProperty(portal, 'clientHeight', { value: h, configurable: true });
+    }
+
+    it('clamps nw handle so left edge does not go past viewport left boundary', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={50} imageVpY={50} onChange={onChange} />
+      );
+      const nwHandle = container.querySelector('[data-handle="nw"]') as HTMLElement;
+      // drag far left, trying to push frame beyond viewport left
+      fireEvent.mouseDown(nwHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: -200, clientY: 100 }); // dx = -300 at zoom=1
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      // frameL = imageVpX + rect.x * zoom >= 0 → rect.x >= -50
+      expect(rect.x).toBeGreaterThanOrEqual(-50);
+    });
+
+    it('clamps e handle so right edge does not go past viewport right boundary', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={100} imageVpY={100} onChange={onChange} />
+      );
+      const eHandle = container.querySelector('[data-handle="e"]') as HTMLElement;
+      fireEvent.mouseDown(eHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 900, clientY: 100 }); // dx = +800
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      // frameR = imageVpX + (rect.x + rect.width) * zoom <= vpW
+      expect(rect.x + rect.width).toBeLessThanOrEqual(800 - 100);
+    });
+
+    it('clamps n handle so top edge does not go past viewport top boundary', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={0} imageVpY={50} onChange={onChange} />
+      );
+      const nHandle = container.querySelector('[data-handle="n"]') as HTMLElement;
+      fireEvent.mouseDown(nHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 100, clientY: -200 }); // dy = -300
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      expect(rect.y).toBeGreaterThanOrEqual(-50);
+    });
+
+    it('clamps s handle so bottom edge does not go past viewport bottom boundary', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={0} imageVpY={100} onChange={onChange} />
+      );
+      const sHandle = container.querySelector('[data-handle="s"]') as HTMLElement;
+      fireEvent.mouseDown(sHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 100, clientY: 700 }); // dy = +600
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      expect(rect.y + rect.height).toBeLessThanOrEqual(600 - 100);
+    });
+
+    it('clamps move drag to top-left viewport boundary', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={100} imageVpY={100} onChange={onChange} />
+      );
+      const frame = container.querySelector('[data-testid="outpaint-frame"]') as HTMLElement;
+      fireEvent.mouseDown(frame, { clientX: 200, clientY: 200 });
+      fireEvent.mouseMove(window, { clientX: -200, clientY: -200 });
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      expect(rect.x).toBeGreaterThanOrEqual(-100);
+      expect(rect.y).toBeGreaterThanOrEqual(-100);
+    });
+
+    it('clamps move drag to bottom-right viewport boundary', () => {
+      setViewport(1000, 800);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={100} imageVpY={100} onChange={onChange} />
+      );
+      const frame = container.querySelector('[data-testid="outpaint-frame"]') as HTMLElement;
+      fireEvent.mouseDown(frame, { clientX: 200, clientY: 200 });
+      fireEvent.mouseMove(window, { clientX: 1100, clientY: 900 });
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      expect(rect.x + rect.width).toBeLessThanOrEqual(1000 - 100);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(800 - 100);
+    });
+
+    it('viewport constraint takes priority when image is partially off-screen', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      // image left edge at -200 (partially off-screen left)
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={-200} imageVpY={0} onChange={onChange} />
+      );
+      const wHandle = container.querySelector('[data-handle="w"]') as HTMLElement;
+      fireEvent.mouseDown(wHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: -300, clientY: 100 }); // try to drag far left
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      // frameL >= 0: imageVpX + rect.x >= 0 → -200 + rect.x >= 0 → rect.x >= 200
+      expect(rect.x).toBeGreaterThanOrEqual(200);
+    });
+
+    it('applies viewport constraints correctly when zoom is not 1', () => {
+      setViewport(800, 600);
+      mockUseViewport.mockReturnValue({ x: 0, y: 0, zoom: 0.5 });
+
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={100} imageVpY={100} onChange={onChange} />
+      );
+      const eHandle = container.querySelector('[data-handle="e"]') as HTMLElement;
+      fireEvent.mouseDown(eHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 900, clientY: 100 }); // dx = 800 (client), dx/zoom = 1600
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      // frameR = imageVpX + (rect.x + rect.width) * zoom <= vpW
+      expect((rect.x + rect.width) * 0.5).toBeLessThanOrEqual(700);
+
+      // Restore default zoom=1
+      mockUseViewport.mockReturnValue({ x: 0, y: 0, zoom: 1 });
+    });
   });
 
   it('move drag should stop at image boundary, not expand frame', () => {

@@ -74,45 +74,63 @@ export function OutpaintSelectionOverlay({
       // Clamp dx/dy per handle so image always stays within the frame
       let cdx = dx;
       let cdy = dy;
+
+      const portal = document.getElementById('node-toolbar-portal');
+      const vpW = portal?.clientWidth ?? 0;
+      const vpH = portal?.clientHeight ?? 0;
+
       switch (dragging) {
         case 'nw':
-          // left: start.x + dx <= 0 → dx <= -start.x
           if (start.x + cdx > 0) cdx = -start.x;
-          // top: start.y + dy <= 0
           if (start.y + cdy > 0) cdy = -start.y;
-          // right: (start.x+dx)+(start.width-dx) = start.x+start.width — constant, no clamp needed
-          // bottom: (start.y+dy)+(start.height-dy) = start.y+start.height — constant
+          if (vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
+          if (vpH > 0 && imgT + (start.y + cdy) * zoom < 0) cdy = -imgT / zoom - start.y;
           break;
         case 'n':
           if (start.y + cdy > 0) cdy = -start.y;
+          if (vpH > 0 && imgT + (start.y + cdy) * zoom < 0) cdy = -imgT / zoom - start.y;
           break;
         case 'ne':
           if (start.y + cdy > 0) cdy = -start.y;
-          // right: start.x + (start.width+dx) >= imgW
           if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
+          if (vpH > 0 && imgT + (start.y + cdy) * zoom < 0) cdy = -imgT / zoom - start.y;
+          if (vpW > 0 && imgL + (start.x + start.width + cdx) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
           break;
         case 'e':
           if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
+          if (vpW > 0 && imgL + (start.x + start.width + cdx) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
           break;
         case 'se':
           if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          if (vpW > 0 && imgL + (start.x + start.width + cdx) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
+          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
           break;
         case 's':
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
           break;
         case 'sw':
           if (start.x + cdx > 0) cdx = -start.x;
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
+          if (vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
+          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
           break;
         case 'w':
           if (start.x + cdx > 0) cdx = -start.x;
+          if (vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
           break;
         case 'move':
+          // Image enclosure
           if (start.x + cdx > 0) cdx = -start.x;
           if (start.y + cdy > 0) cdy = -start.y;
           if (start.x + cdx + start.width < imgW) cdx = imgW - start.x - start.width;
           if (start.y + cdy + start.height < imgH) cdy = imgH - start.y - start.height;
+          // Viewport: only constrain the edge in the drag direction
+          if (cdx > 0 && vpW > 0 && imgL + (start.x + cdx + start.width) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
+          if (cdy > 0 && vpH > 0 && imgT + (start.y + cdy + start.height) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
+          if (cdx < 0 && vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
+          if (cdy < 0 && vpH > 0 && imgT + (start.y + cdy) * zoom < 0) cdy = -imgT / zoom - start.y;
           break;
       }
 
