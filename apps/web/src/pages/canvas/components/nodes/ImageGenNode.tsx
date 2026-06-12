@@ -788,7 +788,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               : {}),
         }}
       >
-        <NodeHandle type="target" testId="target-handle" />
+        {!editMode && <NodeHandle type="target" testId="target-handle" />}
         <div
           className="flex items-center justify-center overflow-hidden transition-all duration-300 relative group"
           style={{
@@ -872,7 +872,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        <NodeHandle type="source" testId="source-handle" />
+        {!editMode && <NodeHandle type="source" testId="source-handle" />}
       </div>
       {selected && editMode !== 'outpaint' && editMode !== 'erase' && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">

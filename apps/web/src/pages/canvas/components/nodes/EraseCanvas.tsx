@@ -38,9 +38,9 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
     const isDrawing = useRef(false);
     const strokes = useRef<ImageData[]>([]);
     const redoStack = useRef<ImageData[]>([]);
-    const lastPoint = useRef<{ x: number; y: number } | null>(null);
     const rectStart = useRef<{ x: number; y: number } | null>(null);
     const previewRestore = useRef<ImageData | null>(null);
+    const strokePoints = useRef<{ x: number; y: number }[]>([]);
 
     useEffect(() => {
       const canvas = canvasRef.current;
@@ -57,39 +57,42 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       redoStack.current = [];
     }, [width, height]);
 
-    const drawDot = useCallback((x: number, y: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d')!;
-      ctx.beginPath();
-      ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
-      ctx.fill();
-    }, [brushSize]);
-
-    const drawLineSegment = useCallback((fromX: number, fromY: number, toX: number, toY: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d')!;
-      ctx.beginPath();
-      ctx.moveTo(fromX, fromY);
-      ctx.lineTo(toX, toY);
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.stroke();
-    }, [brushSize]);
-
     const setupBrushContext = useCallback((ctx: CanvasRenderingContext2D) => {
       ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 0.55;
       ctx.fillStyle = createCheckerboardPattern();
       ctx.strokeStyle = createCheckerboardPattern();
     }, []);
 
     const setupEraserContext = useCallback((ctx: CanvasRenderingContext2D) => {
       ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1;
       ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.strokeStyle = 'rgba(0,0,0,1)';
     }, []);
+
+    const drawStrokePath = useCallback((points: { x: number; y: number }[], isEraser: boolean) => {
+      const canvas = canvasRef.current;
+      if (!canvas || points.length === 0) return;
+      const ctx = canvas.getContext('2d')!;
+      if (isEraser) setupEraserContext(ctx);
+      else setupBrushContext(ctx);
+
+      ctx.beginPath();
+      if (points.length === 1) {
+        ctx.arc(points[0].x, points[0].y, brushSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
+    }, [brushSize, setupBrushContext, setupEraserContext]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
@@ -102,10 +105,9 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
 
       if (tool === 'brush' || tool === 'eraser') {
         saveStroke();
-        if (tool === 'brush') setupBrushContext(ctx);
-        else setupEraserContext(ctx);
-        drawDot(x, y);
-        lastPoint.current = { x, y };
+        previewRestore.current = ctx.getImageData(0, 0, width, height);
+        strokePoints.current = [{ x, y }];
+        drawStrokePath(strokePoints.current, tool === 'eraser');
         isDrawing.current = true;
       } else if (tool === 'rect') {
         saveStroke();
@@ -113,7 +115,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
         rectStart.current = { x, y };
         isDrawing.current = true;
       }
-    }, [tool, saveStroke, drawDot, setupBrushContext, setupEraserContext, width, height]);
+    }, [tool, saveStroke, drawStrokePath, width, height]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
       if (!isDrawing.current) return;
@@ -126,13 +128,11 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       const ctx = canvas.getContext('2d')!;
 
       if (tool === 'brush' || tool === 'eraser') {
-        if (tool === 'brush') setupBrushContext(ctx);
-        else setupEraserContext(ctx);
-        const prev = lastPoint.current;
-        if (prev) {
-          drawLineSegment(prev.x, prev.y, x, y);
+        if (previewRestore.current) {
+          ctx.putImageData(previewRestore.current, 0, 0);
         }
-        lastPoint.current = { x, y };
+        strokePoints.current.push({ x, y });
+        drawStrokePath(strokePoints.current, tool === 'eraser');
       } else if (tool === 'rect') {
         // Restore to pre-preview state and draw fresh preview
         if (previewRestore.current) {
@@ -150,13 +150,13 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
         );
         ctx.fill();
       }
-    }, [tool, drawLineSegment, setupBrushContext, setupEraserContext, width, height]);
+    }, [tool, drawStrokePath, width, height]);
 
     const handleMouseUp = useCallback(() => {
       isDrawing.current = false;
-      lastPoint.current = null;
       rectStart.current = null;
       previewRestore.current = null;
+      strokePoints.current = [];
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -234,9 +234,9 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
     useEffect(() => {
       const handleGlobalUp = () => {
         isDrawing.current = false;
-        lastPoint.current = null;
         rectStart.current = null;
         previewRestore.current = null;
+        strokePoints.current = [];
       };
       window.addEventListener('mouseup', handleGlobalUp);
       return () => window.removeEventListener('mouseup', handleGlobalUp);
