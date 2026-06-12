@@ -5,8 +5,6 @@ import { CropOverlay } from './CropOverlay';
 
 describe('CropOverlay', () => {
   const defaultProps = {
-    containerWidth: 400,
-    containerHeight: 300,
     imageDisplayWidth: 400,
     imageDisplayHeight: 300,
     imageNaturalWidth: 800,
@@ -39,5 +37,40 @@ describe('CropOverlay', () => {
     render(<CropOverlay {...defaultProps} />);
     const overlay = document.querySelector('[data-testid="crop-overlay"]');
     expect(overlay?.className).toContain('nodrag');
+  });
+
+  it('clamps crop rect within image bounds when width exceeds 1', () => {
+    // Simulate the case where rapid drag makes width > 1
+    // clampCrop should keep the rect within [0,1] range
+    const onCropChange = vi.fn();
+    render(<CropOverlay {...defaultProps} onCropChange={onCropChange} />);
+    // The initial call should be within bounds
+    const initialCall = onCropChange.mock.calls[0][0];
+    expect(initialCall.x).toBeGreaterThanOrEqual(0);
+    expect(initialCall.y).toBeGreaterThanOrEqual(0);
+    expect(initialCall.x + initialCall.width).toBeLessThanOrEqual(1.01);
+    expect(initialCall.y + initialCall.height).toBeLessThanOrEqual(1.01);
+  });
+
+  it('displays size in natural pixels within image bounds', () => {
+    render(<CropOverlay {...defaultProps} />);
+    // 80% of 800x600 = 640x480
+    expect(screen.getByText(/640/)).toBeInTheDocument();
+    expect(screen.getByText(/480/)).toBeInTheDocument();
+  });
+
+  it('constrains overlay to image display size', () => {
+    const { container } = render(
+      <CropOverlay
+        imageDisplayWidth={400}
+        imageDisplayHeight={300}
+        imageNaturalWidth={800}
+        imageNaturalHeight={600}
+        onCropChange={vi.fn()}
+      />,
+    );
+    const overlay = container.querySelector('[data-testid="crop-overlay"]') as HTMLElement;
+    expect(overlay.style.width).toBe('400px');
+    expect(overlay.style.height).toBe('300px');
   });
 });

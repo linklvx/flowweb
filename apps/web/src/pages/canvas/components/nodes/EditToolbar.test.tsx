@@ -105,14 +105,30 @@ describe('EditToolbar', () => {
 
   // ── erase mode buttons ──
 
-  it('renders undo, clear, generate, and save-as-variant in erase mode', () => {
+  it('renders mode label "退出", brush/rect/eraser tools, slider, undo, and redo in erase mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="erase" />);
+    // Mode label shows "退出"
     expect(screen.getByText('退出')).toBeInTheDocument();
-    expect(screen.getByText('撤销')).toBeInTheDocument();
-    expect(screen.getByText('清除')).toBeInTheDocument();
-    expect(screen.getByText('生成')).toBeInTheDocument();
-    expect(screen.getByText('保存为新变体')).toBeInTheDocument();
+    // Tool buttons with aria-labels
+    expect(screen.getByLabelText('画笔工具')).toBeInTheDocument();
+    expect(screen.getByLabelText('矩形工具')).toBeInTheDocument();
+    expect(screen.getByLabelText('橡皮擦工具')).toBeInTheDocument();
+    // Removed: lasso and fill tools
+    expect(screen.queryByLabelText('套索工具')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('填充工具')).not.toBeInTheDocument();
+    // Brush size slider
+    expect(screen.getByLabelText('画笔大小')).toBeInTheDocument();
+    // Undo icon button
+    expect(screen.getByLabelText('撤销')).toBeInTheDocument();
+    // Redo icon button (disabled, no handler)
+    expect(screen.getByLabelText('重做')).toBeInTheDocument();
+    expect(screen.getByLabelText('重做')).toBeDisabled();
+    // Generate and save-as-variant are NOT in the top paint toolbar
+    expect(screen.queryByText('生成')).not.toBeInTheDocument();
+    expect(screen.queryByText('保存为新变体')).not.toBeInTheDocument();
+    // Should not have crop-specific save button
+    expect(screen.queryByText('保存')).not.toBeInTheDocument();
   });
 
   it('does not render save button in erase mode', () => {
@@ -123,14 +139,20 @@ describe('EditToolbar', () => {
 
   // ── redraw mode buttons ──
 
-  it('renders undo, clear, generate, and save-as-variant in redraw mode', () => {
+  it('renders mode label "退出", undo, and redo in redraw mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="redraw" />);
+    // Mode label shows "退出"
     expect(screen.getByText('退出')).toBeInTheDocument();
-    expect(screen.getByText('撤销')).toBeInTheDocument();
-    expect(screen.getByText('清除')).toBeInTheDocument();
-    expect(screen.getByText('生成')).toBeInTheDocument();
-    expect(screen.getByText('保存为新变体')).toBeInTheDocument();
+    // Undo icon button
+    expect(screen.getByLabelText('撤销')).toBeInTheDocument();
+    // Redo icon button
+    expect(screen.getByLabelText('重做')).toBeInTheDocument();
+    // Generate and save-as-variant are NOT in the top paint toolbar
+    expect(screen.queryByText('生成')).not.toBeInTheDocument();
+    expect(screen.queryByText('保存为新变体')).not.toBeInTheDocument();
+    // Should not have crop-specific save button
+    expect(screen.queryByText('保存')).not.toBeInTheDocument();
   });
 
   // ── isSaving disabled state ──
@@ -157,11 +179,10 @@ describe('EditToolbar', () => {
     expect(screen.getByText('退出').closest('button')).toBeDisabled();
   });
 
-  it('disables undo/clear buttons when isSaving in erase mode', () => {
+  it('disables undo button when isSaving in erase mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="erase" isSaving={true} />);
-    expect(screen.getByText('撤销').closest('button')).toBeDisabled();
-    expect(screen.getByText('清除').closest('button')).toBeDisabled();
+    expect(screen.getByLabelText('撤销')).toBeDisabled();
   });
 
   it('disables save-as-variant button when isSaving', () => {
@@ -233,16 +254,14 @@ describe('EditToolbar', () => {
     setupPortalTarget();
     const onUndo = vi.fn();
     render(<EditToolbar {...baseProps} editMode="erase" onUndo={onUndo} />);
-    fireEvent.click(screen.getByText('撤销'));
+    fireEvent.click(screen.getByLabelText('撤销'));
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onClear when clear button is clicked in erase mode', () => {
+  it('does not render "清除" button in erase mode (replaced by redo icon)', () => {
     setupPortalTarget();
-    const onClear = vi.fn();
-    render(<EditToolbar {...baseProps} editMode="erase" onClear={onClear} />);
-    fireEvent.click(screen.getByText('清除'));
-    expect(onClear).toHaveBeenCalledTimes(1);
+    render(<EditToolbar {...baseProps} editMode="erase" />);
+    expect(screen.queryByText('清除')).not.toBeInTheDocument();
   });
 
   it('calls onSaveAsVariant when save-as-variant button is clicked', () => {

@@ -2,8 +2,6 @@ import { useState, useCallback, useRef, useEffect, useId } from 'react';
 import type { CropRect } from '@/utils/imageCrop';
 
 interface CropOverlayProps {
-  containerWidth: number;
-  containerHeight: number;
   imageDisplayWidth: number;
   imageDisplayHeight: number;
   imageNaturalWidth: number;
@@ -27,10 +25,12 @@ function clampCrop(rect: CropRect, displayW: number, displayH: number): CropRect
   let { x, y, width, height } = rect;
   if (width < minW) width = minW;
   if (height < minH) height = minH;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
+  if (width > 1) width = 1;
+  if (height > 1) height = 1;
   if (x + width > 1) x = 1 - width;
   if (y + height > 1) y = 1 - height;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
   return { x, y, width, height };
 }
 
@@ -68,8 +68,6 @@ const HANDLE_POSITIONS: Record<string, React.CSSProperties> = {
 };
 
 export function CropOverlay({
-  containerWidth,
-  containerHeight,
   imageDisplayWidth,
   imageDisplayHeight,
   imageNaturalWidth,
@@ -146,10 +144,10 @@ export function CropOverlay({
     <div
       data-testid="crop-overlay"
       className="nodrag nopan absolute inset-0"
-      style={{ width: containerWidth, height: containerHeight }}
+      style={{ width: imageDisplayWidth, height: imageDisplayHeight }}
     >
       {/* Dark overlay with transparent cutout via SVG mask */}
-      <svg width={containerWidth} height={containerHeight} style={{ position: 'absolute', top: 0, left: 0 }}>
+      <svg width={imageDisplayWidth} height={imageDisplayHeight} style={{ position: 'absolute', top: 0, left: 0 }}>
         <defs>
           <mask id={maskId}>
             <rect width="100%" height="100%" fill="white" />

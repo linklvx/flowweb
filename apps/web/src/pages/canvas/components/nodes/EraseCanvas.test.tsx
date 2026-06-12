@@ -100,7 +100,7 @@ import { EraseCanvas, type EraseCanvasHandle } from './EraseCanvas';
 
 describe('EraseCanvas', () => {
   it('renders a canvas element with correct dimensions', () => {
-    render(<EraseCanvas width={400} height={300} brushSize={20} />);
+    render(<EraseCanvas width={400} height={300} brushSize={20} tool="brush" />);
     const canvas = document.querySelector('canvas');
     expect(canvas).toBeInTheDocument();
     expect(canvas?.width).toBe(400);
@@ -108,27 +108,39 @@ describe('EraseCanvas', () => {
   });
 
   it('has nodrag class', () => {
-    render(<EraseCanvas width={400} height={300} brushSize={20} />);
+    render(<EraseCanvas width={400} height={300} brushSize={20} tool="brush" />);
     const canvas = document.querySelector('canvas');
     expect(canvas?.className).toContain('nodrag');
   });
 
   it('exposes hasContent as false initially', () => {
     const ref = createRef<EraseCanvasHandle>();
-    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} />);
+    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
     expect(ref.current?.hasContent()).toBe(false);
   });
 
   it('clear resets the canvas', () => {
     const ref = createRef<EraseCanvasHandle>();
-    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} />);
+    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
     ref.current?.clear();
     expect(ref.current?.hasContent()).toBe(false);
   });
 
   it('undo on empty canvas does not throw', () => {
     const ref = createRef<EraseCanvasHandle>();
-    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} />);
+    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
     expect(() => ref.current?.undo()).not.toThrow();
+  });
+
+  it('redo on empty canvas does not throw', () => {
+    const ref = createRef<EraseCanvasHandle>();
+    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
+    expect(() => ref.current?.redo()).not.toThrow();
+  });
+
+  it('canRedo returns false initially', () => {
+    const ref = createRef<EraseCanvasHandle>();
+    render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
+    expect(ref.current?.canRedo()).toBe(false);
   });
 });

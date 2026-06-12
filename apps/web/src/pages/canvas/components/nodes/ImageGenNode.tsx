@@ -10,10 +10,11 @@ import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { TransformToolbar } from './TransformToolbar';
 import { EditToolbar } from './EditToolbar';
 import { CropOverlay } from './CropOverlay';
-import { EraseCanvas, type EraseCanvasHandle } from './EraseCanvas';
+import { EraseCanvas, type EraseCanvasHandle, type EraseTool } from './EraseCanvas';
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 import { createPortal } from 'react-dom';
 import { RedrawPanel, type RedrawState } from './RedrawPanel';
+import { EraseBottomToolbar } from './EraseBottomToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
@@ -84,7 +85,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
   const eraseRef = useRef<EraseCanvasHandle>(null);
-  const [brushSize] = useState(20);
+  const [brushSize, setBrushSize] = useState(20);
+  const [eraseTool, setEraseTool] = useState<EraseTool>('brush');
   const [isProcessing, setProcessing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
@@ -676,9 +678,14 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onSave={editMode === 'crop' ? handleCropSave : undefined}
           onCancel={handleEditCancel}
           onUndo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.undo() : undefined}
+          onRedo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.redo() : undefined}
           onClear={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.clear() : undefined}
           onGenerate={editMode !== 'crop' ? handleGenerate : undefined}
           onSaveAsVariant={handleSaveAsVariant}
+          brushSize={brushSize}
+          onBrushSizeChange={setBrushSize}
+          eraseTool={eraseTool}
+          onEraseToolChange={(t) => setEraseTool(t as EraseTool)}
           outpaintRect={editMode === 'outpaint' ? outpaintRect : undefined}
           onOutpaintRatioChange={editMode === 'outpaint' ? setOutpaintRect : undefined}
           imageW={editMode === 'outpaint' ? baseWidth : undefined}
@@ -808,8 +815,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {/* Edit mode overlays */}
               {editMode === 'crop' && (
                 <CropOverlay
-                  containerWidth={containerWidth}
-                  containerHeight={containerHeight}
                   imageDisplayWidth={baseWidth}
                   imageDisplayHeight={baseHeight}
                   imageNaturalWidth={imgSize?.w ?? baseWidth}
@@ -818,7 +823,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
                 />
               )}
               {(editMode === 'erase') && (
-                <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
+                <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} tool={eraseTool} />
               )}
               {editMode === 'outpaint' && displayUrl && baseWidth > 0 && createPortal(
                 <OutpaintSelectionOverlay
@@ -835,7 +840,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {editMode === 'redraw' && (
                 <>
                   {redrawState.mode === 'brush' && (
-                    <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} />
+                    <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} tool={eraseTool} />
                   )}
                   <RedrawPanel state={redrawState} onChange={setRedrawState} />
                 </>
@@ -869,9 +874,14 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
         <NodeHandle type="source" testId="source-handle" />
       </div>
-      {selected && editMode !== 'outpaint' && (
+      {selected && editMode !== 'outpaint' && editMode !== 'erase' && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <ImageConfigPanel nodeId={id} />
+        </div>
+      )}
+      {editMode === 'erase' && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
+          <EraseBottomToolbar nodeId={id} onGenerate={handleGenerate} isProcessing={isProcessing} />
         </div>
       )}
     </div>
