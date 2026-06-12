@@ -81,17 +81,23 @@ describe('EditToolbar', () => {
 
   // ── outpaint mode buttons ──
 
-  it('renders "退出", "生成", and "保存为新变体" in outpaint mode', () => {
+  it('renders reset button, PRO placeholder, ratio dropdown, and generate in outpaint mode', () => {
     setupPortalTarget();
-    render(<EditToolbar {...baseProps} editMode="outpaint" />);
-    expect(screen.getByText('退出')).toBeInTheDocument();
-    expect(screen.getByText('生成')).toBeInTheDocument();
-    expect(screen.getByText('保存为新变体')).toBeInTheDocument();
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} onOutpaintRatioChange={vi.fn()} />);
+    // Should NOT render text-based 退出/保存为新变体
+    expect(screen.queryByText('退出')).not.toBeInTheDocument();
+    expect(screen.queryByText('保存为新变体')).not.toBeInTheDocument();
+    // Should have reset (crossed arrows) button
+    expect(screen.getByLabelText('重置扩图')).toBeInTheDocument();
+    // Should have PRO disabled placeholder
+    expect(screen.getByText('PRO')).toBeInTheDocument();
+    // Should have ratio dropdown button showing current ratio
+    expect(screen.getByText('1.2x')).toBeInTheDocument();
   });
 
   it('does not render undo/clear/save buttons in outpaint mode', () => {
     setupPortalTarget();
-    render(<EditToolbar {...baseProps} editMode="outpaint" />);
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
     expect(screen.queryByText('撤销')).not.toBeInTheDocument();
     expect(screen.queryByText('清除')).not.toBeInTheDocument();
     expect(screen.queryByText('保存')).not.toBeInTheDocument();
@@ -137,12 +143,12 @@ describe('EditToolbar', () => {
     expect(saveBtn).toBeDisabled();
   });
 
-  it('shows "生成中..." and disables generate button when isSaving', () => {
+  it('disables generate button when isSaving in outpaint mode', () => {
     setupPortalTarget();
-    render(<EditToolbar {...baseProps} editMode="outpaint" isSaving={true} />);
-    const genBtn = screen.getByText('生成中...');
-    expect(genBtn).toBeInTheDocument();
-    expect(genBtn).toBeDisabled();
+    render(<EditToolbar {...baseProps} editMode="outpaint" isSaving={true} outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
+    const genBtn = document.querySelector('[data-testid="outpaint-generate"]') as HTMLButtonElement;
+    expect(genBtn).toBeTruthy();
+    expect(genBtn.disabled).toBe(true);
   });
 
   it('disables exit button when isSaving', () => {
@@ -175,8 +181,9 @@ describe('EditToolbar', () => {
   it('does not call onGenerate when isSaving and generate button clicked', () => {
     setupPortalTarget();
     const onGenerate = vi.fn();
-    render(<EditToolbar {...baseProps} editMode="outpaint" isSaving={true} onGenerate={onGenerate} />);
-    fireEvent.click(screen.getByText('生成中...'));
+    render(<EditToolbar {...baseProps} editMode="outpaint" isSaving={true} onGenerate={onGenerate} outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
+    const genBtn = document.querySelector('[data-testid="outpaint-generate"]') as HTMLButtonElement;
+    fireEvent.click(genBtn);
     expect(onGenerate).not.toHaveBeenCalled();
   });
 
@@ -213,11 +220,12 @@ describe('EditToolbar', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onGenerate when generate button is clicked', () => {
+  it('calls onGenerate when generate button is clicked in outpaint mode', () => {
     setupPortalTarget();
     const onGenerate = vi.fn();
-    render(<EditToolbar {...baseProps} editMode="outpaint" onGenerate={onGenerate} />);
-    fireEvent.click(screen.getByText('生成'));
+    render(<EditToolbar {...baseProps} editMode="outpaint" onGenerate={onGenerate} outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
+    const genBtn = document.querySelector('[data-testid="outpaint-generate"]') as HTMLButtonElement;
+    fireEvent.click(genBtn);
     expect(onGenerate).toHaveBeenCalledTimes(1);
   });
 
@@ -260,32 +268,38 @@ describe('EditToolbar', () => {
 
   // ── Outpaint mode extensions ──
 
-  it('renders ratio preset buttons when outpaintRect is provided', () => {
+  it('renders ratio dropdown showing current ratio when outpaintRect is provided', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} onOutpaintRatioChange={vi.fn()} />);
+    // Single ratio dropdown (not three inline buttons)
     expect(screen.getByText('1.2x')).toBeInTheDocument();
-    expect(screen.getByText('1.5x')).toBeInTheDocument();
-    expect(screen.getByText('2.0x')).toBeInTheDocument();
+    expect(screen.queryByText('1.5x')).not.toBeInTheDocument();
+    expect(screen.queryByText('2.0x')).not.toBeInTheDocument();
   });
 
-  it('does not render ratio presets in non-outpaint mode', () => {
+  it('does not render ratio dropdown in non-outpaint mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="crop" />);
     expect(screen.queryByText('1.2x')).not.toBeInTheDocument();
   });
 
-  it('calls onOutpaintRatioChange when ratio preset clicked', () => {
+  it('cycles ratio when ratio dropdown clicked', () => {
     setupPortalTarget();
     const onChange = vi.fn();
     render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: 0, y: 0, width: 512, height: 512 }} imageW={512} imageH={512} onOutpaintRatioChange={onChange} />);
-    fireEvent.click(screen.getByText('1.5x'));
+    const ratioBtn = screen.getByText('1.2x').closest('button')!;
+    // First click: 1.2x → 1.5x
+    fireEvent.click(ratioBtn);
     expect(onChange).toHaveBeenCalledWith({ x: -128, y: -128, width: 768, height: 768 });
   });
 
-  it('shows credit count in outpaint mode', () => {
+  it('shows credit count with lightning icon in outpaint mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} />);
-    expect(screen.getByText('↓ 2')).toBeInTheDocument();
+    // Should show credit count (not old "↓ N" format)
+    const creditSpan = document.querySelector('[data-testid="outpaint-credits"]');
+    expect(creditSpan).toBeTruthy();
+    expect(creditSpan!.textContent).toContain('2');
   });
 
   it('positions toolbar below selection frame in outpaint mode when frameVpBottom is provided', () => {

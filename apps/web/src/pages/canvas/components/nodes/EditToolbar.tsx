@@ -131,138 +131,227 @@ function EditToolbarComponent({
         .edit-btn:hover { background-color: ${HOVER_BG} !important; }
       `}</style>
 
-      <div
-        className="flex items-center gap-2 rounded-xl p-2"
-        style={{
-          backgroundColor: BAR_BG,
-          border: `0.444px solid ${BAR_BORDER}`,
-          boxShadow: 'rgba(0, 0, 0, 0.25) 0px 4px 10px 0px, rgba(0, 0, 0, 0.3) 0px 2px 4px 0px',
-          color: TEXT_COLOR,
-          backdropFilter: 'blur(8px)',
-        }}
-      >
-        {/* Exit — always shown */}
-        <button
-          type="button"
-          className={`${btnBaseClass} edit-btn`}
-          style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-          onClick={onCancel}
-          disabled={isSaving}
+      {isOutpaint ? (
+        /* ── Outpaint toolbar (Win11-style) ── */
+        <div
+          className="flex items-center justify-between rounded-xl p-2"
+          style={{
+            width: 440,
+            height: 49,
+            backgroundColor: BAR_BG,
+            border: `0.444px solid ${BAR_BORDER}`,
+            boxShadow: 'rgba(0, 0, 0, 0.1) 0px 4px 6px -1px',
+            color: TEXT_COLOR,
+          }}
         >
-          <ArrowLeftIcon />
-          <span style={{ lineHeight: '1.4' }}>退出</span>
-        </button>
-
-        <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
-
-        {/* Undo / Clear — paint modes only (erase, redraw) */}
-        {isPaint && (
-          <>
+          {/* Left group */}
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              className={`${btnBaseClass} edit-btn`}
-              style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-              onClick={onUndo}
+              aria-label="重置扩图"
+              className="size-8 cursor-pointer rounded-lg flex items-center justify-center hover:bg-white/10 bg-transparent transition-colors border-0"
+              style={{ color: TEXT_COLOR }}
+              onClick={() => {
+                if (onOutpaintRatioChange && imageW && imageH) {
+                  const w = Math.round(imageW * 1.2);
+                  const h = Math.round(imageH * 1.2);
+                  onOutpaintRatioChange({ x: -(w - imageW) / 2, y: -(h - imageH) / 2, width: w, height: h });
+                }
+              }}
               disabled={isSaving}
             >
-              <span>撤销</span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
+            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
             <button
               type="button"
-              className={`${btnBaseClass} edit-btn`}
-              style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-              onClick={onClear}
-              disabled={isSaving}
+              disabled
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 bg-transparent text-[13px] leading-normal transition-colors cursor-not-allowed border-0"
+              style={{ color: 'rgb(115, 115, 115)' }}
             >
-              <span>清除</span>
+              <span className="whitespace-nowrap">PRO</span>
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                <path d="M4 6.4L8 10.4L12 6.4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
-            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
-          </>
-        )}
+          </div>
 
-        {/* Ratio presets — outpaint mode */}
-        {isOutpaint && onOutpaintRatioChange && outpaintRect && imageW && imageH && (
-          <>
-            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
-            {[1.2, 1.5, 2.0].map((ratio) => {
-              const newW = Math.round(imageW * ratio);
-              const newH = Math.round(imageH * ratio);
-              const isActive = Math.abs(outpaintRect.width - newW) < 2 && Math.abs(outpaintRect.height - newH) < 2;
+          {/* Right group */}
+          <div className="flex items-center gap-2">
+            {/* Ratio dropdown */}
+            {onOutpaintRatioChange && outpaintRect && imageW && imageH && (() => {
+              const ratios = [1.2, 1.5, 2.0];
+              const currentIdx = ratios.findIndex((r) =>
+                Math.abs(outpaintRect.width - Math.round(imageW * r)) < 2 &&
+                Math.abs(outpaintRect.height - Math.round(imageH * r)) < 2
+              );
+              const currentRatio = ratios[currentIdx >= 0 ? currentIdx : 0];
               return (
                 <button
-                  key={ratio}
                   type="button"
-                  className={`${btnBaseClass} edit-btn`}
-                  style={{
-                    backgroundColor: isActive ? 'rgb(59,130,246)' : 'transparent',
-                    color: isActive ? 'white' : TEXT_COLOR,
-                  }}
+                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+                  style={{ color: TEXT_COLOR }}
                   onClick={() => {
-                    const newX = -(newW - imageW) / 2;
-                    const newY = -(newH - imageH) / 2;
-                    onOutpaintRatioChange({ x: newX, y: newY, width: newW, height: newH });
+                    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ratios.length : 1;
+                    const ratio = ratios[nextIdx];
+                    const newW = Math.round(imageW * ratio);
+                    const newH = Math.round(imageH * ratio);
+                    onOutpaintRatioChange({ x: -(newW - imageW) / 2, y: -(newH - imageH) / 2, width: newW, height: newH });
                   }}
                   disabled={isSaving}
                 >
-                  <span>{ratio.toFixed(1)}x</span>
+                  <span className="whitespace-nowrap">{currentRatio.toFixed(1)}x</span>
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                    <path d="M4 6.4L8 10.4L12 6.4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
               );
-            })}
-          </>
-        )}
-
-        {/* Credit display — outpaint mode */}
-        {isOutpaint && outpaintRect && imageW && imageH && (
-          <>
-            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
-            <span style={{ color: '#999', fontSize: 12, padding: '0 4px' }}>
-              ↓ {Math.ceil(Math.max(outpaintRect.width / imageW, outpaintRect.height / imageH))}
-            </span>
-          </>
-        )}
-
-        {/* Save — crop mode */}
-        {isCrop && onSave && (
-          <button
-            type="button"
-            className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
-            style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
-            disabled={isSaving}
-            onClick={onSave}
-          >
-            {isSaving ? '保存中...' : '保存'}
-          </button>
-        )}
-
-        {/* Generate — AI modes (outpaint, erase, redraw) */}
-        {isAi && onGenerate && (
-          <button
-            type="button"
-            className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
-            style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
-            disabled={isSaving}
-            onClick={onGenerate}
-          >
-            {isSaving ? '生成中...' : '生成'}
-          </button>
-        )}
-
-        {/* Save as variant — always shown when callback provided */}
-        {onSaveAsVariant && (
-          <>
-            <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+            })()}
             <button
               type="button"
-              className={`${btnBaseClass} edit-btn`}
-              style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-              onClick={onSaveAsVariant}
-              disabled={isSaving}
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+              style={{ color: TEXT_COLOR }}
             >
-              <span>保存为新变体</span>
+              <span className="whitespace-nowrap">2K</span>
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                <path d="M4 6.4L8 10.4L12 6.4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
-          </>
-        )}
-      </div>
+            <button
+              type="button"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+              style={{ color: TEXT_COLOR }}
+            >
+              <span className="whitespace-nowrap">1张</span>
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                <path d="M4 6.4L8 10.4L12 6.4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {/* Credits + Generate */}
+            {outpaintRect && imageW && imageH && (
+              <div className="flex h-8 items-center gap-2" style={{ color: '#999' }}>
+                <span className="flex shrink-0 items-center gap-[2px]" data-testid="outpaint-credits">
+                  <svg width="10" height="14" viewBox="0 0 16 24" fill="none" className="shrink-0" style={{ color: '#999', width: 10, height: 14 }}>
+                    <path d="M8.67352 4.08105C9.60755 3.00116 10.3727 3.29255 10.3727 4.73242V10.9033H12.9733C14.1511 10.9034 14.4794 11.6402 13.697 12.54L7.32684 19.9199C6.39312 20.9992 5.6269 20.7076 5.62665 19.2686V13.0977H3.02704C1.84902 13.0977 1.52094 12.3598 2.30341 11.46L8.67352 4.08105Z" fill="currentColor" />
+                  </svg>
+                  <span className="min-w-[13px] text-center text-[12px] font-normal leading-[15px]">
+                    {Math.ceil(Math.max(outpaintRect.width / imageW, outpaintRect.height / imageH))}
+                  </span>
+                </span>
+                {onGenerate && (
+                  <button
+                    type="button"
+                    data-testid="outpaint-generate"
+                    className="bg-white flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
+                    disabled={isSaving}
+                    onClick={onGenerate}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 18 18" fill="none" style={{ color: 'rgb(23, 23, 23)' }}>
+                      <path d="M8.29289 0.292893C8.68342 -0.0976311 9.31658 -0.0976311 9.70711 0.292893L17.7071 8.29289C18.0976 8.68342 18.0976 9.31658 17.7071 9.70711C17.3166 10.0976 16.6834 10.0976 16.2929 9.70711L10 3.41421V17C10 17.5523 9.55229 18 9 18C8.44772 18 8 17.5523 8 17V3.41421L1.70711 9.70711C1.31658 10.0976 0.683418 10.0976 0.292893 9.70711C-0.0976311 9.31658 -0.0976311 8.68342 0.292893 8.29289L8.29289 0.292893Z" fill="currentColor" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* ── Non-outpaint toolbar (unchanged) ── */
+        <div
+          className="flex items-center gap-2 rounded-xl p-2"
+          style={{
+            backgroundColor: BAR_BG,
+            border: `0.444px solid ${BAR_BORDER}`,
+            boxShadow: 'rgba(0, 0, 0, 0.25) 0px 4px 10px 0px, rgba(0, 0, 0, 0.3) 0px 2px 4px 0px',
+            color: TEXT_COLOR,
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          {/* Exit — always shown */}
+          <button
+            type="button"
+            className={`${btnBaseClass} edit-btn`}
+            style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+            onClick={onCancel}
+            disabled={isSaving}
+          >
+            <ArrowLeftIcon />
+            <span style={{ lineHeight: '1.4' }}>退出</span>
+          </button>
+
+          <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+
+          {/* Undo / Clear — paint modes only (erase, redraw) */}
+          {isPaint && (
+            <>
+              <button
+                type="button"
+                className={`${btnBaseClass} edit-btn`}
+                style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+                onClick={onUndo}
+                disabled={isSaving}
+              >
+                <span>撤销</span>
+              </button>
+              <button
+                type="button"
+                className={`${btnBaseClass} edit-btn`}
+                style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+                onClick={onClear}
+                disabled={isSaving}
+              >
+                <span>清除</span>
+              </button>
+              <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+            </>
+          )}
+
+          {/* Save — crop mode */}
+          {isCrop && onSave && (
+            <button
+              type="button"
+              className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+              style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
+              disabled={isSaving}
+              onClick={onSave}
+            >
+              {isSaving ? '保存中...' : '保存'}
+            </button>
+          )}
+
+          {/* Generate — erase, redraw */}
+          {(editMode === 'erase' || editMode === 'redraw') && onGenerate && (
+            <button
+              type="button"
+              className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+              style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
+              disabled={isSaving}
+              onClick={onGenerate}
+            >
+              {isSaving ? '生成中...' : '生成'}
+            </button>
+          )}
+
+          {/* Save as variant — non-outpaint */}
+          {onSaveAsVariant && (
+            <>
+              <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
+              <button
+                type="button"
+                className={`${btnBaseClass} edit-btn`}
+                style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+                onClick={onSaveAsVariant}
+                disabled={isSaving}
+              >
+                <span>保存为新变体</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {errorMessage && (
         <div
