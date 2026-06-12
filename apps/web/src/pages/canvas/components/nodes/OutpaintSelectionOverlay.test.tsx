@@ -265,6 +265,22 @@ describe('OutpaintSelectionOverlay', () => {
       // Restore default zoom=1
       mockUseViewport.mockReturnValue({ x: 0, y: 0, zoom: 1 });
     });
+
+    it('clamps bottom edge respecting bottomReserve prop', () => {
+      setViewport(800, 600);
+      const onChange = vi.fn();
+      const { container } = render(
+        <OutpaintSelectionOverlay {...baseProps} imageVpX={0} imageVpY={100} onChange={onChange} bottomReserve={72} />
+      );
+      const sHandle = container.querySelector('[data-handle="s"]') as HTMLElement;
+      fireEvent.mouseDown(sHandle, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 100, clientY: 700 });
+      fireEvent.mouseUp(window);
+      expect(onChange).toHaveBeenCalled();
+      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      // frameB + bottomReserve <= vpH → (rect.y + rect.height) + imgT + bottomReserve <= vpH
+      expect(rect.y + rect.height).toBeLessThanOrEqual(600 - 100 - 72);
+    });
   });
 
   it('move drag should stop at image boundary, not expand frame', () => {

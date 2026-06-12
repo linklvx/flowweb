@@ -15,6 +15,7 @@ interface Props {
   imageVpH: number;
   value: OutpaintRect;
   onChange: (rect: OutpaintRect) => void;
+  bottomReserve?: number;
 }
 
 const MIN_SIZE = 100;
@@ -31,6 +32,7 @@ export function OutpaintSelectionOverlay({
   imageVpH,
   value,
   onChange,
+  bottomReserve = 0,
 }: Props) {
   const { zoom } = useViewport();
   const [isHovering, setIsHovering] = useState(false);
@@ -78,6 +80,7 @@ export function OutpaintSelectionOverlay({
       const portal = document.getElementById('node-toolbar-portal');
       const vpW = portal?.clientWidth ?? 0;
       const vpH = portal?.clientHeight ?? 0;
+      const vpBottom = vpH - bottomReserve;
 
       switch (dragging) {
         case 'nw':
@@ -104,17 +107,17 @@ export function OutpaintSelectionOverlay({
           if (start.x + start.width + cdx < imgW) cdx = imgW - start.x - start.width;
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
           if (vpW > 0 && imgL + (start.x + start.width + cdx) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
-          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
+          if (vpBottom > 0 && imgT + (start.y + start.height + cdy) * zoom > vpBottom) cdy = (vpBottom - imgT) / zoom - start.y - start.height;
           break;
         case 's':
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
-          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
+          if (vpBottom > 0 && imgT + (start.y + start.height + cdy) * zoom > vpBottom) cdy = (vpBottom - imgT) / zoom - start.y - start.height;
           break;
         case 'sw':
           if (start.x + cdx > 0) cdx = -start.x;
           if (start.y + start.height + cdy < imgH) cdy = imgH - start.y - start.height;
           if (vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
-          if (vpH > 0 && imgT + (start.y + start.height + cdy) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
+          if (vpBottom > 0 && imgT + (start.y + start.height + cdy) * zoom > vpBottom) cdy = (vpBottom - imgT) / zoom - start.y - start.height;
           break;
         case 'w':
           if (start.x + cdx > 0) cdx = -start.x;
@@ -128,7 +131,7 @@ export function OutpaintSelectionOverlay({
           if (start.y + cdy + start.height < imgH) cdy = imgH - start.y - start.height;
           // Viewport: only constrain the edge in the drag direction
           if (cdx > 0 && vpW > 0 && imgL + (start.x + cdx + start.width) * zoom > vpW) cdx = (vpW - imgL) / zoom - start.x - start.width;
-          if (cdy > 0 && vpH > 0 && imgT + (start.y + cdy + start.height) * zoom > vpH) cdy = (vpH - imgT) / zoom - start.y - start.height;
+          if (cdy > 0 && vpBottom > 0 && imgT + (start.y + cdy + start.height) * zoom > vpBottom) cdy = (vpBottom - imgT) / zoom - start.y - start.height;
           if (cdx < 0 && vpW > 0 && imgL + (start.x + cdx) * zoom < 0) cdx = -imgL / zoom - start.x;
           if (cdy < 0 && vpH > 0 && imgT + (start.y + cdy) * zoom < 0) cdy = -imgT / zoom - start.y;
           break;

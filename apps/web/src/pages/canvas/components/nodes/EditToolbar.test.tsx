@@ -288,13 +288,13 @@ describe('EditToolbar', () => {
     expect(screen.getByText('↓ 2')).toBeInTheDocument();
   });
 
-  it('positions toolbar below node in outpaint mode', () => {
+  it('positions toolbar below selection frame in outpaint mode when frameVpBottom is provided', () => {
     setupPortalTarget();
-    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: 0, y: 0, width: 512, height: 512 }} imageW={512} imageH={512} />);
+    render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: 0, y: 0, width: 512, height: 512 }} imageW={512} imageH={512} frameVpBottom={400} frameVpCenterX={300} />);
     const portalRoot = document.getElementById('node-toolbar-portal')!;
     const toolbar = portalRoot.querySelector('.nodrag') as HTMLElement;
     const top = parseFloat(toolbar.style.top);
-    // Below node: viewBottomY + GAP = (200 + 250) + 16 = 466
-    expect(top).toBeGreaterThanOrEqual(450);
+    // Below frame: frameVpBottom + GAP = 400 + 16 = 416
+    expect(top).toBe(416);
   });
 });

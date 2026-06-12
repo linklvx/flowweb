@@ -18,6 +18,8 @@ export interface EditToolbarProps {
   onOutpaintRatioChange?: (rect: { x: number; y: number; width: number; height: number }) => void;
   imageW?: number;
   imageH?: number;
+  frameVpBottom?: number;
+  frameVpCenterX?: number;
 }
 
 // ── Icons ─────────────────────────────────────────────
@@ -55,6 +57,8 @@ function EditToolbarComponent({
   onOutpaintRatioChange,
   imageW,
   imageH,
+  frameVpBottom,
+  frameVpCenterX,
 }: EditToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -77,6 +81,7 @@ function EditToolbarComponent({
   const { width: windowWidth, height: windowHeight } = windowSize;
 
   const isOutpaint = editMode === 'outpaint' && !!outpaintRect;
+  const hasFrameCoords = isOutpaint && frameVpBottom != null && frameVpCenterX != null;
 
   const position = useMemo(() => {
     if (nodeWidth == null || nodeHeight == null) return null;
@@ -85,17 +90,20 @@ function EditToolbarComponent({
     const viewTopY = nodeY * zoom + vpY;
     const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
 
-    const toolbarTop = isOutpaint
-      ? viewBottomY + GAP
-      : viewTopY - TOOLBAR_HEIGHT - GAP;
+    const toolbarTop = hasFrameCoords
+      ? frameVpBottom! + GAP
+      : isOutpaint
+        ? viewBottomY + GAP
+        : viewTopY - TOOLBAR_HEIGHT - GAP;
 
+    const centerX = hasFrameCoords ? frameVpCenterX! : viewCenterX;
     const toolbarLeft = Math.max(
       VIEWPORT_PADDING,
-      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
+      Math.min(centerX, windowWidth - VIEWPORT_PADDING),
     );
 
     return { toolbarLeft, toolbarTop };
-  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, isOutpaint]);
+  }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, isOutpaint, hasFrameCoords, frameVpBottom, frameVpCenterX]);
 
   if (!position || nodeWidth == null || nodeHeight == null) return null;
 
