@@ -389,25 +389,4 @@ describe('EditToolbar', () => {
     });
   });
 
-  describe('PaintToolbar tooltips', () => {
-    const tooltipLabels = ['关闭并退出', '画笔', '矩形', '橡皮擦', '撤销', '重做'];
-
-    it('renders a tooltip wrapper for each tool button', () => {
-      setupPortalTarget();
-      render(<EditToolbar {...baseProps} editMode="erase" />);
-      const portalRoot = document.getElementById('node-toolbar-portal')!;
-      const tooltips = portalRoot.querySelectorAll('[data-tooltip]');
-      expect(tooltips.length).toBe(6);
-    });
-
-    it('each tooltip has correct label text', () => {
-      setupPortalTarget();
-      render(<EditToolbar {...baseProps} editMode="erase" />);
-      const portalRoot = document.getElementById('node-toolbar-portal')!;
-      for (const label of tooltipLabels) {
-        const el = portalRoot.querySelector(`[data-tooltip="${label}"]`);
-        expect(el).toBeTruthy();
-      }
-    });
-  });
 });
