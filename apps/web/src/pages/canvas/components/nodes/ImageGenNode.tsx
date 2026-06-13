@@ -843,7 +843,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
         {!editMode && <NodeHandle type="source" testId="source-handle" />}
       </div>
-      {selected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && (
+      {selected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && !fileId && !referenceImage && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <ImageConfigPanel nodeId={id} />
         </div>

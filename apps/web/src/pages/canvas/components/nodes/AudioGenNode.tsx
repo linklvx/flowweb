@@ -271,7 +271,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Bottom config panel */}
-      {selected && (
+      {selected && !fileId && !referenceAudio && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <AudioConfigPanel nodeId={id} />
         </div>

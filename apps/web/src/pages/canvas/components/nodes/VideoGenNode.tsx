@@ -306,7 +306,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       </div>
 
       {/* Bottom config panel */}
-      {selected && (
+      {selected && !fileId && !referenceVideo && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <VideoConfigPanel nodeId={id} />
         </div>
