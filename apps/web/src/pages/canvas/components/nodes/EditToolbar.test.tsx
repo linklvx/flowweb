@@ -330,4 +330,54 @@ describe('EditToolbar', () => {
     // Below frame: frameVpBottom + GAP = 400 + 16 = 416
     expect(top).toBe(416);
   });
+
+  // ── PaintToolbar dimensions ──
+
+  describe('PaintToolbar dimensions', () => {
+    it('uses h-7 and w-7 for tool buttons instead of h-8 w-8', () => {
+      setupPortalTarget();
+      render(<EditToolbar {...baseProps} editMode="erase" />);
+      const brushBtn = screen.getByLabelText('画笔工具');
+      expect(brushBtn.className).toContain('h-7');
+      expect(brushBtn.className).toContain('w-7');
+      expect(brushBtn.className).not.toContain('h-8');
+      expect(brushBtn.className).not.toContain('w-8');
+    });
+
+    it('uses h-7 for exit button instead of h-8', () => {
+      setupPortalTarget();
+      render(<EditToolbar {...baseProps} editMode="erase" />);
+      const exitBtn = screen.getByText('退出').closest('button')!;
+      expect(exitBtn.className).toContain('h-7');
+      expect(exitBtn.className).not.toContain('h-8');
+    });
+
+    it('uses p-1.5 container padding instead of p-2', () => {
+      setupPortalTarget();
+      render(<EditToolbar {...baseProps} editMode="erase" />);
+      const portalRoot = document.getElementById('node-toolbar-portal')!;
+      const paintBar = portalRoot.querySelector('.rounded-xl') as HTMLElement;
+      expect(paintBar.className).toMatch(/\bp-1\.5\b/);
+      expect(paintBar.className).not.toMatch(/\bp-2\b/);
+    });
+
+    it('uses 20px divider height instead of 24px', () => {
+      setupPortalTarget();
+      render(<EditToolbar {...baseProps} editMode="erase" />);
+      const portalRoot = document.getElementById('node-toolbar-portal')!;
+      const dividers = portalRoot.querySelectorAll('[style*="height"]');
+      const divider = Array.from(dividers).find((d) => (d as HTMLElement).style.height === '20px') as HTMLElement | undefined;
+      expect(divider).toBeTruthy();
+    });
+
+    it('uses 14px icon size via h-3.5 w-3.5', () => {
+      setupPortalTarget();
+      render(<EditToolbar {...baseProps} editMode="erase" />);
+      const brushBtn = screen.getByLabelText('画笔工具');
+      const svg = brushBtn.querySelector('svg')!;
+      const svgClass = svg.getAttribute('class') || '';
+      expect(svgClass).toContain('h-3.5');
+      expect(svgClass).toContain('w-3.5');
+    });
+  });
 });
