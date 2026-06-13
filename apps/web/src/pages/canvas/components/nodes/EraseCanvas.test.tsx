@@ -87,8 +87,11 @@ let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
 
 beforeEach(() => {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = vi.fn((_contextId, _options) => {
-    return createMockContext() as any;
+  HTMLCanvasElement.prototype.getContext = vi.fn(function (this: HTMLCanvasElement, _contextId, _options) {
+    if (!(this as any).__mockCtx) {
+      (this as any).__mockCtx = createMockContext();
+    }
+    return (this as any).__mockCtx;
   }) as any;
 });
 
@@ -142,5 +145,62 @@ describe('EraseCanvas', () => {
     const ref = createRef<EraseCanvasHandle>();
     render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
     expect(ref.current?.canRedo()).toBe(false);
+  });
+
+  describe('coordinate transformation under zoom', () => {
+    it('scales mouse coordinates when canvas bounding rect differs from canvas dimensions', () => {
+      const ref = createRef<EraseCanvasHandle>();
+      render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="brush" />);
+      const canvas = document.querySelector('canvas')!;
+
+      canvas.getBoundingClientRect = vi.fn(() => ({
+        left: 100, top: 50,
+        width: 800, height: 600,
+        right: 900, bottom: 650,
+        x: 100, y: 50,
+        toJSON: () => {},
+      }));
+
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        clientX: 500, clientY: 350,
+        bubbles: true, cancelable: true,
+      }));
+
+      const ctx = canvas.getContext('2d')!;
+      expect(ctx.arc).toHaveBeenCalledWith(200, 150, 10, 0, Math.PI * 2);
+    });
+
+    it('scales rect tool coordinates under zoom', () => {
+      const ref = createRef<EraseCanvasHandle>();
+      render(<EraseCanvas ref={ref} width={400} height={300} brushSize={20} tool="rect" />);
+      const canvas = document.querySelector('canvas')!;
+
+      canvas.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0,
+        width: 800, height: 600,
+        right: 800, bottom: 600,
+        x: 0, y: 0,
+        toJSON: () => {},
+      }));
+
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        clientX: 200, clientY: 100,
+        bubbles: true, cancelable: true,
+      }));
+
+      canvas.dispatchEvent(new MouseEvent('mousemove', {
+        clientX: 600, clientY: 400,
+        bubbles: true, cancelable: true,
+      }));
+
+      const ctx = canvas.getContext('2d')!;
+      expect(ctx.rect).toHaveBeenCalledWith(100, 50, 200, 150);
+    });
+  });
+
+  it('initializes canvas context with willReadFrequently', () => {
+    render(<EraseCanvas width={400} height={300} brushSize={20} tool="brush" />);
+    const getContextMock = HTMLCanvasElement.prototype.getContext as any;
+    expect(getContextMock).toHaveBeenCalledWith('2d', { willReadFrequently: true });
   });
 });

@@ -47,6 +47,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       if (!canvas) return;
       canvas.width = width;
       canvas.height = height;
+      canvas.getContext('2d', { willReadFrequently: true });
     }, [width, height]);
 
     const saveStroke = useCallback(() => {
@@ -99,8 +100,10 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
       const ctx = canvas.getContext('2d')!;
 
       if (tool === 'brush' || tool === 'eraser') {
@@ -123,8 +126,10 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
       const ctx = canvas.getContext('2d')!;
 
       if (tool === 'brush' || tool === 'eraser') {
