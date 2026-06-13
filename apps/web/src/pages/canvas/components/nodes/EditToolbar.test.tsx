@@ -378,14 +378,14 @@ describe('EditToolbar', () => {
       expect(divider).toBeTruthy();
     });
 
-    it('uses 14px icon size via h-3.5 w-3.5', () => {
+    it('uses 16px icon size via h-4 w-4', () => {
       setupPortalTarget();
       render(<EditToolbar {...baseProps} editMode="erase" />);
       const brushBtn = screen.getByLabelText('画笔工具');
       const svg = brushBtn.querySelector('svg')!;
       const svgClass = svg.getAttribute('class') || '';
-      expect(svgClass).toContain('h-3.5');
-      expect(svgClass).toContain('w-3.5');
+      expect(svgClass).toContain('h-4');
+      expect(svgClass).toContain('w-4');
     });
   });
 
