@@ -420,4 +420,79 @@ describe('ImageGenNode', () => {
     }));
     fetchSpy.mockRestore();
   });
+
+  // ── Redraw mode: bottom toolbar + integrated prompt/strength ──
+
+  it('renders EraseBottomToolbar below node when editMode is redraw', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'redraw' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: [] }), { status: 200 })
+    );
+    renderNode();
+    // EraseBottomToolbar renders with credit/generate section
+    const nodeEl = document.querySelector('.canvas-node');
+    expect(nodeEl).toBeTruthy();
+    // The bottom toolbar is positioned at top-full (below node)
+    const bottomBar = nodeEl?.querySelector('.absolute.top-full');
+    expect(bottomBar).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it('renders EraseCanvas in redraw mode regardless of tool', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'redraw' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: [] }), { status: 200 })
+    );
+    const { container } = renderNode();
+    // EraseCanvas renders a canvas element
+    const canvas = container.querySelector('canvas');
+    expect(canvas).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it('renders prompt input and strength slider in node body for redraw mode', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'redraw' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: [] }), { status: 200 })
+    );
+    renderNode();
+    expect(screen.getByPlaceholderText('描述你希望生成的内容')).toBeInTheDocument();
+    // Strength slider with default value 50
+    const strengthSlider = screen.getByDisplayValue('50');
+    expect(strengthSlider).toBeInTheDocument();
+    expect(strengthSlider.tagName).toBe('INPUT');
+    expect((strengthSlider as HTMLInputElement).type).toBe('range');
+    fetchSpy.mockRestore();
+  });
+
+  it('does not render ImageConfigPanel when editMode is redraw', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'redraw' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: [] }), { status: 200 })
+    );
+    renderNode();
+    const nodeEl = document.querySelector('.canvas-node');
+    // ImageConfigPanel would have model/ratio selectors — should not be present
+    expect(screen.queryByText('模型')).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
+  it('RedrawPanel mode toggle buttons are not rendered', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'redraw' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: [] }), { status: 200 })
+    );
+    renderNode();
+    // The old RedrawPanel had "矩形" and "画笔" inside the image area.
+    // These should NOT appear inside the node body (only in EditToolbar portal).
+    const imageContainer = document.querySelector('.canvas-node .relative > .relative');
+    if (imageContainer) {
+      const rectInImage = (imageContainer as HTMLElement).textContent?.includes('矩形');
+      if (rectInImage) {
+        // The text "矩形" should only be in portal, not in image container
+        expect(imageContainer.querySelector('button')?.textContent).not.toBe('矩形');
+      }
+    }
+    fetchSpy.mockRestore();
+  });
 });

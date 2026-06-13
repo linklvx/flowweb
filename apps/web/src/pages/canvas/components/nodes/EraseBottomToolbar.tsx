@@ -7,8 +7,14 @@ interface ModelInfo {
 
 interface Props {
   nodeId: string;
+  editMode?: 'erase' | 'redraw';
   onGenerate?: () => void;
   isProcessing?: boolean;
+  // redraw-specific
+  prompt?: string;
+  onPromptChange?: (value: string) => void;
+  strength?: number;
+  onStrengthChange?: (value: number) => void;
 }
 
 const RATIO_OPTIONS = [
@@ -54,7 +60,7 @@ function ChevronDown() {
   );
 }
 
-function EraseBottomToolbarComponent({ nodeId, onGenerate, isProcessing }: Props) {
+function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessing, prompt, onPromptChange, strength, onStrengthChange }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const nodeData = (node?.type === 'imageGen' ? node.data : undefined) as ImageNodeData | undefined;
@@ -122,189 +128,220 @@ function EraseBottomToolbarComponent({ nodeId, onGenerate, isProcessing }: Props
   const dropdownItem =
     'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] cursor-pointer hover:bg-[rgba(255,255,255,0.08)] whitespace-nowrap w-full border-0';
 
+  const isRedraw = editMode === 'redraw';
+
   return (
     <div
-      className="flex items-start gap-1 rounded-xl p-2 shadow-md"
+      className="flex flex-col gap-2 rounded-xl p-2 shadow-md"
       style={{
-        width: 420,
+        width: isRedraw ? 480 : 420,
         backgroundColor: BAR_BG,
         border: `0.444px solid ${BAR_BORDER}`,
         color: TEXT_COLOR,
       }}
     >
-      {/* Left section: PRO + Ratio */}
-      <div className="flex min-h-8 flex-1 items-center gap-1">
-        {/* Model dropdown */}
-        <div ref={modelWrapperRef} className="relative">
-          <button
-            type="button"
-            className={btnClass}
-            style={{ color: TEXT_COLOR }}
-            onClick={() => setModelOpen(!modelOpen)}
+      {isRedraw && (
+        <>
+          <div className="flex items-center gap-1">
+            <span style={{ color: MUTED_COLOR, fontSize: 11, whiteSpace: 'nowrap' }}>强度</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={strength ?? 50}
+              onChange={(e) => onStrengthChange?.(parseInt(e.target.value))}
+              disabled={isProcessing}
+              style={{ flex: 1 }}
+            />
+            <span style={{ color: TEXT_COLOR, fontSize: 11, minWidth: 20, textAlign: 'right' }}>{strength ?? 50}</span>
+          </div>
+          <textarea
+            placeholder="描述你希望生成的内容"
+            value={prompt ?? ''}
+            onChange={(e) => onPromptChange?.(e.target.value)}
             disabled={isProcessing}
-          >
-            <span className="whitespace-nowrap">{selectedModel?.name ?? model}</span>
-            <ChevronDown />
-          </button>
-          {modelOpen && (
-            <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
-              {models.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={dropdownItem}
-                  style={{
-                    color: m.id === model ? TEXT_COLOR : MUTED_COLOR,
-                    backgroundColor: m.id === model ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    border: 0,
-                  }}
-                  onClick={() => {
-                    updateConfig(nodeId, { model: m.id } as any);
-                    setModelOpen(false);
-                  }}
-                >
-                  {m.name}
-                </button>
-              ))}
-            </div>
-          )}
+            rows={2}
+            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid transparent', backgroundColor: 'rgb(28,28,28)', color: '#ccc', fontSize: 12, width: '100%', resize: 'none', boxSizing: 'border-box', outline: 'none' }}
+          />
+        </>
+      )}
+      <div className="flex items-start gap-1">
+        {/* Left section: Model + Ratio */}
+        <div className="flex min-h-8 flex-1 items-center gap-1">
+          {/* Model dropdown */}
+          <div ref={modelWrapperRef} className="relative">
+            <button
+              type="button"
+              className={btnClass}
+              style={{ color: TEXT_COLOR }}
+              onClick={() => setModelOpen(!modelOpen)}
+              disabled={isProcessing}
+            >
+              <span className="whitespace-nowrap">{selectedModel?.name ?? model}</span>
+              <ChevronDown />
+            </button>
+            {modelOpen && (
+              <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
+                {models.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={dropdownItem}
+                    style={{
+                      color: m.id === model ? TEXT_COLOR : MUTED_COLOR,
+                      backgroundColor: m.id === model ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      border: 0,
+                    }}
+                    onClick={() => {
+                      updateConfig(nodeId, { model: m.id } as any);
+                      setModelOpen(false);
+                    }}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ratio dropdown */}
+          <div ref={ratioWrapperRef} className="relative">
+            <button
+              type="button"
+              className={btnClass}
+              style={{ color: TEXT_COLOR }}
+              onClick={() => setRatioOpen(!ratioOpen)}
+              disabled={isProcessing}
+            >
+              <span className="shrink-0">
+                <RatioIcon ratio={ratio} />
+              </span>
+              <span className="whitespace-nowrap">{ratio}</span>
+              <ChevronDown />
+            </button>
+            {ratioOpen && (
+              <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
+                {RATIO_OPTIONS.map((r) => (
+                  <button
+                    key={r.label}
+                    type="button"
+                    className={dropdownItem}
+                    style={{
+                      color: r.label === ratio ? TEXT_COLOR : MUTED_COLOR,
+                      backgroundColor: r.label === ratio ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      border: 0,
+                    }}
+                    onClick={() => {
+                      updateConfig(nodeId, { ratio: r.label } as any);
+                      setRatioOpen(false);
+                    }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
 
-        {/* Ratio dropdown */}
-        <div ref={ratioWrapperRef} className="relative">
-          <button
-            type="button"
-            className={btnClass}
-            style={{ color: TEXT_COLOR }}
-            onClick={() => setRatioOpen(!ratioOpen)}
-            disabled={isProcessing}
-          >
-            <span className="shrink-0">
-              <RatioIcon ratio={ratio} />
+        {/* Right section: Resolution + Count + Credits + Generate */}
+        <div className="flex items-start gap-2">
+          {/* Resolution dropdown */}
+          <div ref={resWrapperRef} className="relative">
+            <button
+              type="button"
+              className={btnClass}
+              style={{ color: TEXT_COLOR }}
+              onClick={() => setResOpen(!resOpen)}
+              disabled={isProcessing}
+            >
+              <span className="whitespace-nowrap">{resolution}</span>
+              <ChevronDown />
+            </button>
+            {resOpen && (
+              <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
+                {RESOLUTION_OPTIONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={dropdownItem}
+                    style={{
+                      color: r === resolution ? TEXT_COLOR : MUTED_COLOR,
+                      backgroundColor: r === resolution ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      border: 0,
+                    }}
+                    onClick={() => {
+                      updateConfig(nodeId, { resolution: r } as any);
+                      setResOpen(false);
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Count dropdown */}
+          <div ref={countWrapperRef} className="relative">
+            <button
+              type="button"
+              className={btnClass}
+              style={{ color: TEXT_COLOR }}
+              onClick={() => setCountOpen(!countOpen)}
+              disabled={isProcessing}
+            >
+              <span className="whitespace-nowrap">{generateCount}张</span>
+              <ChevronDown />
+            </button>
+            {countOpen && (
+              <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
+                {COUNT_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={dropdownItem}
+                    style={{
+                      color: n === generateCount ? TEXT_COLOR : MUTED_COLOR,
+                      backgroundColor: n === generateCount ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      border: 0,
+                    }}
+                    onClick={() => {
+                      setGenerateCount(n);
+                      setCountOpen(false);
+                    }}
+                  >
+                    {n}张
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Credits + Generate */}
+          <div className="flex h-8 min-w-16 items-center gap-2" style={{ color: MUTED_COLOR }}>
+            <span className="flex shrink-0 items-center gap-[2px]">
+              <svg width="10" height="14" viewBox="0 0 16 24" fill="none" className="shrink-0" style={{ width: 10, height: 14 }}>
+                <path d="M8.67352 4.08105C9.60755 3.00116 10.3727 3.29255 10.3727 4.73242V10.9033H12.9733C14.1511 10.9034 14.4794 11.6402 13.697 12.54L7.32684 19.9199C6.39312 20.9992 5.6269 20.7076 5.62665 19.2686V13.0977H3.02704C1.84902 13.0977 1.52094 12.3598 2.30341 11.46L8.67352 4.08105Z" fill="currentColor" />
+              </svg>
+              <span className="min-w-[13px] text-center text-[12px] font-normal leading-[15px]" style={{ color: MUTED_COLOR }}>
+                {totalCredits}
+              </span>
             </span>
-            <span className="whitespace-nowrap">{ratio}</span>
-            <ChevronDown />
-          </button>
-          {ratioOpen && (
-            <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
-              {RATIO_OPTIONS.map((r) => (
-                <button
-                  key={r.label}
-                  type="button"
-                  className={dropdownItem}
-                  style={{
-                    color: r.label === ratio ? TEXT_COLOR : MUTED_COLOR,
-                    backgroundColor: r.label === ratio ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    border: 0,
-                  }}
-                  onClick={() => {
-                    updateConfig(nodeId, { ratio: r.label } as any);
-                    setRatioOpen(false);
-                  }}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right section: Resolution + Count + Credits + Generate */}
-      <div className="flex items-start gap-2">
-        {/* Resolution dropdown */}
-        <div ref={resWrapperRef} className="relative">
-          <button
-            type="button"
-            className={btnClass}
-            style={{ color: TEXT_COLOR }}
-            onClick={() => setResOpen(!resOpen)}
-            disabled={isProcessing}
-          >
-            <span className="whitespace-nowrap">{resolution}</span>
-            <ChevronDown />
-          </button>
-          {resOpen && (
-            <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
-              {RESOLUTION_OPTIONS.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={dropdownItem}
-                  style={{
-                    color: r === resolution ? TEXT_COLOR : MUTED_COLOR,
-                    backgroundColor: r === resolution ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    border: 0,
-                  }}
-                  onClick={() => {
-                    updateConfig(nodeId, { resolution: r } as any);
-                    setResOpen(false);
-                  }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Count dropdown */}
-        <div ref={countWrapperRef} className="relative">
-          <button
-            type="button"
-            className={btnClass}
-            style={{ color: TEXT_COLOR }}
-            onClick={() => setCountOpen(!countOpen)}
-            disabled={isProcessing}
-          >
-            <span className="whitespace-nowrap">{generateCount}张</span>
-            <ChevronDown />
-          </button>
-          {countOpen && (
-            <div className={dropdownPanel} style={{ backgroundColor: BAR_BG, borderColor: BAR_BORDER }}>
-              {COUNT_OPTIONS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={dropdownItem}
-                  style={{
-                    color: n === generateCount ? TEXT_COLOR : MUTED_COLOR,
-                    backgroundColor: n === generateCount ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    border: 0,
-                  }}
-                  onClick={() => {
-                    setGenerateCount(n);
-                    setCountOpen(false);
-                  }}
-                >
-                  {n}张
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Credits + Generate */}
-        <div className="flex h-8 min-w-16 items-center gap-2" style={{ color: MUTED_COLOR }}>
-          <span className="flex shrink-0 items-center gap-[2px]">
-            <svg width="10" height="14" viewBox="0 0 16 24" fill="none" className="shrink-0" style={{ width: 10, height: 14 }}>
-              <path d="M8.67352 4.08105C9.60755 3.00116 10.3727 3.29255 10.3727 4.73242V10.9033H12.9733C14.1511 10.9034 14.4794 11.6402 13.697 12.54L7.32684 19.9199C6.39312 20.9992 5.6269 20.7076 5.62665 19.2686V13.0977H3.02704C1.84902 13.0977 1.52094 12.3598 2.30341 11.46L8.67352 4.08105Z" fill="currentColor" />
-            </svg>
-            <span className="min-w-[13px] text-center text-[12px] font-normal leading-[15px]" style={{ color: MUTED_COLOR }}>
-              {totalCredits}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
-            style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
-            disabled={isProcessing}
-            onClick={onGenerate}
-          >
-            <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-              <path d="M8.29289 0.292893C8.68342 -0.0976311 9.31658 -0.0976311 9.70711 0.292893L17.7071 8.29289C18.0976 8.68342 18.0976 9.31658 17.7071 9.70711C17.3166 10.0976 16.6834 10.0976 16.2929 9.70711L10 3.41421V17C10 17.5523 9.55229 18 9 18C8.44772 18 8 17.5523 8 17V3.41421L1.70711 9.70711C1.31658 10.0976 0.683418 10.0976 0.292893 9.70711C-0.0976311 9.31658 -0.0976311 8.68342 0.292893 8.29289L8.29289 0.292893Z" fill="currentColor" />
-            </svg>
-          </button>
+            <button
+              type="button"
+              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
+              style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
+              disabled={isProcessing}
+              onClick={onGenerate}
+            >
+              <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                <path d="M8.29289 0.292893C8.68342 -0.0976311 9.31658 -0.0976311 9.70711 0.292893L17.7071 8.29289C18.0976 8.68342 18.0976 9.31658 17.7071 9.70711C17.3166 10.0976 16.6834 10.0976 16.2929 9.70711L10 3.41421V17C10 17.5523 9.55229 18 9 18C8.44772 18 8 17.5523 8 17V3.41421L1.70711 9.70711C1.31658 10.0976 0.683418 10.0976 0.292893 9.70711C-0.0976311 9.31658 -0.0976311 8.68342 0.292893 8.29289L8.29289 0.292893Z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>

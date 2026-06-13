@@ -13,7 +13,6 @@ import { CropOverlay } from './CropOverlay';
 import { EraseCanvas, type EraseCanvasHandle, type EraseTool } from './EraseCanvas';
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 import { createPortal } from 'react-dom';
-import { RedrawPanel, type RedrawState } from './RedrawPanel';
 import { EraseBottomToolbar } from './EraseBottomToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -91,7 +90,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [editError, setEditError] = useState<string | null>(null);
   const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
   const [outpaintRect, setOutpaintRect] = useState<OutpaintRect>({ x: 0, y: 0, width: 0, height: 0 });
-  const [redrawState, setRedrawState] = useState<RedrawState>({ mode: 'rect', prompt: '', strength: 50 });
+  const [redrawPrompt, setRedrawPrompt] = useState('');
+  const [strength, setStrength] = useState(50);
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -419,8 +419,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         await confirmUpload({ fileId: maskId, key, fileSize: maskFile.size });
         body.maskFileId = maskId;
         if (editMode === 'redraw') {
-          body.prompt = redrawState.prompt;
-          body.strength = redrawState.strength;
+          body.prompt = redrawPrompt;
+          body.strength = strength;
         }
       }
 
@@ -434,7 +434,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       setEditError('提交失败，请重试');
       setProcessing(false);
     }
-  }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawState]);
+  }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawPrompt, strength]);
 
   const handleSaveAsVariant = useCallback(async () => {
     setProcessing(true);
@@ -749,7 +749,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           ...(editMode === 'outpaint'
             ? { border: 'none', borderRadius: 0 }
             : selected
-              ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF', margin: 2 }
+              ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
               : {}),
         }}
       >
@@ -803,12 +803,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
                 document.getElementById('node-toolbar-portal')!,
               )}
               {editMode === 'redraw' && (
-                <>
-                  {redrawState.mode === 'brush' && (
-                    <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} tool={eraseTool} />
-                  )}
-                  <RedrawPanel state={redrawState} onChange={setRedrawState} />
-                </>
+                <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} tool={eraseTool} />
               )}
             </div>
           ) : status === 'loading' ? (
@@ -839,12 +834,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
         {!editMode && <NodeHandle type="source" testId="source-handle" />}
       </div>
-      {selected && editMode !== 'outpaint' && editMode !== 'erase' && (
+      {selected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <ImageConfigPanel nodeId={id} />
         </div>
       )}
-      {editMode === 'erase' && (
+      {(editMode === 'erase' || editMode === 'redraw') && (
         <div
           className="absolute top-full left-1/2 z-50 pt-4"
           style={{
@@ -853,7 +848,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             willChange: 'transform',
           }}
         >
-          <EraseBottomToolbar nodeId={id} onGenerate={handleGenerate} isProcessing={isProcessing} />
+          <EraseBottomToolbar
+            nodeId={id}
+            editMode={editMode === 'redraw' ? 'redraw' : 'erase'}
+            onGenerate={handleGenerate}
+            isProcessing={isProcessing}
+            prompt={redrawPrompt}
+            onPromptChange={setRedrawPrompt}
+            strength={strength}
+            onStrengthChange={setStrength}
+          />
         </div>
       )}
     </div>
