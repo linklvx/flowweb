@@ -144,51 +144,123 @@ function PaintToolbar({
         color: TEXT_COLOR,
       }}
     >
+      <style>{`
+        .paint-tooltip-wrap {
+          position: relative;
+        }
+        .paint-tooltip-wrap::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          top: 100%;
+          left: 50%;
+          transform: translateX(-50%);
+          margin-top: 5px;
+          padding: 4px 8px;
+          background: rgb(64, 64, 64);
+          color: rgb(247, 247, 247);
+          font-size: 12px;
+          line-height: 1.4;
+          border-radius: 6px;
+          white-space: nowrap;
+          pointer-events: none;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 100ms ease 150ms, visibility 100ms ease 150ms;
+          z-index: 10001;
+        }
+        .paint-tooltip-wrap::before {
+          content: '';
+          position: absolute;
+          top: calc(100% - 1px);
+          left: 50%;
+          transform: translateX(-50%);
+          border-left: 5px solid transparent;
+          border-right: 5px solid transparent;
+          border-bottom: 5px solid rgb(64, 64, 64);
+          pointer-events: none;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 100ms ease 150ms, visibility 100ms ease 150ms;
+          z-index: 10001;
+        }
+        .paint-tooltip-wrap:hover::after,
+        .paint-tooltip-wrap:hover::before,
+        .paint-tooltip-wrap:focus-within::after,
+        .paint-tooltip-wrap:focus-within::before {
+          opacity: 1;
+          visibility: visible;
+        }
+        .paint-tooltip-wrap:first-child::after {
+          left: 0;
+          transform: translateX(0);
+        }
+        .paint-tooltip-wrap:first-child::before {
+          left: 14px;
+        }
+        .paint-tooltip-wrap:last-child::after {
+          left: auto;
+          right: 0;
+          transform: translateX(0);
+        }
+        .paint-tooltip-wrap:last-child::before {
+          left: auto;
+          right: 6px;
+        }
+      `}</style>
+
       {/* Mode label / Exit */}
-      <button
-        type="button"
-        className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
-        style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-        onClick={onCancel}
-        disabled={isSaving}
-      >
-        <SmallArrowLeftIcon />
-        <span className="text-[13px] leading-[1.4]">退出</span>
-      </button>
+      <span className="paint-tooltip-wrap" data-tooltip="关闭并退出">
+        <button
+          type="button"
+          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
+          style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+          onClick={onCancel}
+          disabled={isSaving}
+        >
+          <SmallArrowLeftIcon />
+          <span className="text-[13px] leading-[1.4]">退出</span>
+        </button>
+      </span>
 
       <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 20 }} className="shrink-0" />
 
       {/* Tool buttons */}
-      <button
-        type="button"
-        aria-label="画笔工具"
-        className={toolBtnClass}
-        style={{ backgroundColor: eraseTool === 'brush' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
-        onClick={() => onEraseToolChange?.('brush')}
-        disabled={isSaving}
-      >
-        <BrushIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="矩形工具"
-        className={toolBtnClass}
-        style={{ backgroundColor: eraseTool === 'rect' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
-        onClick={() => onEraseToolChange?.('rect')}
-        disabled={isSaving}
-      >
-        <RectSelectIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="橡皮擦工具"
-        className={toolBtnClass}
-        style={{ backgroundColor: eraseTool === 'eraser' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
-        onClick={() => onEraseToolChange?.('eraser')}
-        disabled={isSaving}
-      >
-        <EraserIcon />
-      </button>
+      <span className="paint-tooltip-wrap" data-tooltip="画笔">
+        <button
+          type="button"
+          aria-label="画笔工具"
+          className={toolBtnClass}
+          style={{ backgroundColor: eraseTool === 'brush' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
+          onClick={() => onEraseToolChange?.('brush')}
+          disabled={isSaving}
+        >
+          <BrushIcon />
+        </button>
+      </span>
+      <span className="paint-tooltip-wrap" data-tooltip="矩形">
+        <button
+          type="button"
+          aria-label="矩形工具"
+          className={toolBtnClass}
+          style={{ backgroundColor: eraseTool === 'rect' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
+          onClick={() => onEraseToolChange?.('rect')}
+          disabled={isSaving}
+        >
+          <RectSelectIcon />
+        </button>
+      </span>
+      <span className="paint-tooltip-wrap" data-tooltip="橡皮擦">
+        <button
+          type="button"
+          aria-label="橡皮擦工具"
+          className={toolBtnClass}
+          style={{ backgroundColor: eraseTool === 'eraser' ? ACTIVE_BG : 'transparent', color: TEXT_COLOR }}
+          onClick={() => onEraseToolChange?.('eraser')}
+          disabled={isSaving}
+        >
+          <EraserIcon />
+        </button>
+      </span>
 
       <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 20 }} className="shrink-0" />
 
@@ -226,26 +298,30 @@ function PaintToolbar({
       <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 20 }} className="shrink-0" />
 
       {/* Undo / Redo */}
-      <button
-        type="button"
-        aria-label="撤销"
-        className={toolBtnClass}
-        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onUndo || isSaving ? 0.5 : 1, cursor: !onUndo || isSaving ? 'not-allowed' : 'pointer' }}
-        onClick={onUndo}
-        disabled={!onUndo || isSaving}
-      >
-        <UndoIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="重做"
-        className={toolBtnClass}
-        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onRedo || isSaving ? 0.5 : 1, cursor: !onRedo || isSaving ? 'not-allowed' : 'pointer' }}
-        onClick={onRedo}
-        disabled={!onRedo || isSaving}
-      >
-        <RedoIcon />
-      </button>
+      <span className="paint-tooltip-wrap" data-tooltip="撤销">
+        <button
+          type="button"
+          aria-label="撤销"
+          className={toolBtnClass}
+          style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onUndo || isSaving ? 0.5 : 1, cursor: !onUndo || isSaving ? 'not-allowed' : 'pointer' }}
+          onClick={onUndo}
+          disabled={!onUndo || isSaving}
+        >
+          <UndoIcon />
+        </button>
+      </span>
+      <span className="paint-tooltip-wrap" data-tooltip="重做">
+        <button
+          type="button"
+          aria-label="重做"
+          className={toolBtnClass}
+          style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onRedo || isSaving ? 0.5 : 1, cursor: !onRedo || isSaving ? 'not-allowed' : 'pointer' }}
+          onClick={onRedo}
+          disabled={!onRedo || isSaving}
+        >
+          <RedoIcon />
+        </button>
+      </span>
     </div>
   );
 }
