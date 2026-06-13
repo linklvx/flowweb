@@ -845,7 +845,14 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
       )}
       {editMode === 'erase' && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
+        <div
+          className="absolute top-full left-1/2 z-50 pt-4"
+          style={{
+            transform: `translateX(-50%) scale(${1 / zoom})`,
+            transformOrigin: 'top center',
+            willChange: 'transform',
+          }}
+        >
           <EraseBottomToolbar nodeId={id} onGenerate={handleGenerate} isProcessing={isProcessing} />
         </div>
       )}
