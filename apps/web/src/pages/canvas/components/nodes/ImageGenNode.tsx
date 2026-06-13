@@ -118,15 +118,19 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const titleText = label || 'Image';
 
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+
   const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
     setImgSize(size);
+    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
   }, []);
 
   // Reset dimensions when image URL changes
   useEffect(() => {
     setImgSize(null);
+    setNaturalSize(null);
   }, [displayUrl]);
 
   const ratio = nodeData?.ratio ?? '16:9';
@@ -740,6 +744,11 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             maxLength={20}
           />
         </div>
+        {naturalSize && (
+          <span className="shrink-0 ml-auto" style={{ fontSize: 10, color: '#777' }}>
+            {naturalSize.w} × {naturalSize.h}
+          </span>
+        )}
       </div>
       <div
         className="bg-[#222222] rounded-lg overflow-hidden"
