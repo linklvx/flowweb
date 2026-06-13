@@ -22,7 +22,7 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   return (
     <>
       <div
-        className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-12 rounded-xl p-1.5 flex flex-col items-center gap-5"
+        className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-12 rounded-xl pt-3 pb-1.5 px-1.5 flex flex-col items-center gap-5"
         style={{
           backgroundColor: 'rgb(38, 38, 38)',
           border: '0.5px solid rgb(54, 54, 54)',
