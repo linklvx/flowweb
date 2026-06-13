@@ -131,10 +131,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!sourceNode) return null;
     const id = getId('node');
     const edgeId = getId('edge');
+    // Smart positioning: right side of source, avoid overlapping other nodes
+    const GAP = 40;
+    const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
+    const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    const sx = sourceNode.position.x;
+    const sy = sourceNode.position.y;
+    const otherNodes = get().nodes.filter((n) => n.id !== sourceId);
+    const overlaps = (nx: number, ny: number) =>
+      otherNodes.some((n) => {
+        const nw = n.measured?.width ?? n.width ?? 200;
+        const nh = n.measured?.height ?? n.height ?? 200;
+        return !(nx + sw < n.position.x || nx > n.position.x + nw || ny + sh < n.position.y || ny > n.position.y + nh);
+      });
+    const candidates = [
+      { x: sx + sw + GAP, y: sy },
+      { x: sx + sw + GAP, y: sy - sh - GAP },
+      { x: sx + sw + GAP, y: sy + sh + GAP },
+    ];
+    let bestPos = candidates[0];
+    for (const pos of candidates) {
+      if (!overlaps(pos.x, pos.y)) { bestPos = pos; break; }
+    }
     const newNode: Node = {
       ...sourceNode,
       id,
-      position: { x: sourceNode.position.x + 80, y: sourceNode.position.y + 60 },
+      position: bestPos,
       width: sourceNode.width,
       height: sourceNode.height,
       selected: true,

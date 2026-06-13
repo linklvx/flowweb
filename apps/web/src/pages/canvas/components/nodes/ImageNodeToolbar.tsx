@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useViewport, useInternalNode } from '@xyflow/react';
+import { SwapOutlined } from '@ant-design/icons';
 
 interface ImageNodeToolbarProps {
   nodeId: string;
@@ -59,12 +60,6 @@ const Grid3x3Icon = () => (
 );
 
 // ── Lucide icon SVGs ───────────────────────────────────
-
-const RotateMirrorIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
-    <path d="M5.63281 1.33594C5.85359 1.3361 6.03223 1.51551 6.03223 1.73633V2.13574C6.03223 2.35656 5.85359 2.53597 5.63281 2.53613H3.11914C2.66617 2.53614 2.29884 2.90348 2.29883 3.35645V12.6494C2.29886 13.1024 2.66619 13.4697 3.11914 13.4697H5.63281C5.85359 13.4699 6.03223 13.6493 6.03223 13.8701V14.2695C6.03223 14.4903 5.85359 14.6698 5.63281 14.6699H3.11914C2.03849 14.6699 1.15597 13.821 1.10156 12.7539L1.09863 12.6494V3.35645C1.09864 2.24073 2.00343 1.33595 3.11914 1.33594H5.63281ZM9.52246 3.14746C9.67867 2.99125 9.93168 2.99125 10.0879 3.14746L14.5195 7.5791C14.7537 7.81339 14.7537 8.19248 14.5195 8.42676L10.0879 12.8584C9.93168 13.0146 9.67867 13.0146 9.52246 12.8584L9.23926 12.5752C9.08313 12.419 9.08308 12.1659 9.23926 12.0098L12.6455 8.60352H5.5332C5.31229 8.60352 5.13281 8.42404 5.13281 8.20312V7.80273C5.13281 7.58182 5.31229 7.40234 5.5332 7.40234H12.6455L9.23926 3.99609C9.08309 3.83993 9.08318 3.58688 9.23926 3.43066L9.52246 3.14746Z" fill="currentColor" />
-  </svg>
-);
 
 const LayersIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -325,7 +320,7 @@ function ImageNodeToolbarComponent({
           backdropFilter: 'blur(8px)',
         }}
       >
-        <TextIconButton icon={<RotateMirrorIcon />} ariaLabel="旋转与镜像" text="旋转与镜像" onClick={onRotateMirror} disabled={!onRotateMirror} />
+        <TextIconButton icon={<SwapOutlined />} ariaLabel="旋转与镜像" text="旋转与镜像" onClick={onRotateMirror} disabled={!onRotateMirror} />
         <Divider />
         <TextIconButton icon={<LayersIcon />} ariaLabel="分离" text="分离" />
         <TextIconButton icon={<CropIcon />} ariaLabel="裁切" text="裁切" onClick={onCrop} />
