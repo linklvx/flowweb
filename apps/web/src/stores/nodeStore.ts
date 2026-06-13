@@ -92,36 +92,6 @@ export function isMultiImageNode(node: AppNode): node is AppNode & { data: Multi
   return node.type === 'multiImageGen';
 }
 
-// ========== Edit state helpers ==========
-
-export interface EditState {
-  cropRect?: { x: number; y: number; width: number; height: number };
-  outpaintRect?: { x: number; y: number; width: number; height: number };
-  maskPaths?: { points: number[] }[];
-}
-
-function isDefaultCropRect(rect?: { x: number; y: number; width: number; height: number }): boolean {
-  if (!rect) return true;
-  return rect.x === 0.1 && rect.y === 0.1 && rect.width === 0.8 && rect.height === 0.8;
-}
-
-export function hasEditChanges(editMode: string, editState: EditState): boolean {
-  switch (editMode) {
-    case 'crop':
-      return !isDefaultCropRect(editState.cropRect);
-    case 'outpaint': {
-      const r = editState.outpaintRect;
-      // 保守策略：有 rect 即有变更（精确判断在 ImageGenNode 用图片尺寸做）
-      return r != null;
-    }
-    case 'erase':
-    case 'redraw':
-      return (editState.maskPaths?.length ?? 0) > 0;
-    default:
-      return false;
-  }
-}
-
 // ========== Private helpers ==========
 
 function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | undefined {

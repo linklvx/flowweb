@@ -233,6 +233,14 @@ describe('EditToolbar', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onCancel when exit button is clicked in erase mode', () => {
+    setupPortalTarget();
+    const onCancel = vi.fn();
+    render(<EditToolbar {...baseProps} editMode="erase" onCancel={onCancel} />);
+    fireEvent.click(screen.getByText('退出'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it('calls onSave when save button is clicked in crop mode', () => {
     setupPortalTarget();
     const onSave = vi.fn();

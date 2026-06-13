@@ -2,7 +2,7 @@ import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { type NodeProps, useViewport, useReactFlow, useInternalNode } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
-import { useNodeStore, hasEditChanges } from '@/stores/nodeStore';
+import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
@@ -353,44 +353,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const handleEditCancel = useCallback(() => {
     setEditError(null);
     if (isProcessing) return;
-
-    let hasChanges = false;
-    if (editMode === 'outpaint') {
-      hasChanges =
-        Math.abs(outpaintRect.x + baseWidth * 0.1) >= 1 ||
-        Math.abs(outpaintRect.y + baseHeight * 0.1) >= 1 ||
-        Math.abs(outpaintRect.width - baseWidth * 1.2) >= 1 ||
-        Math.abs(outpaintRect.height - baseHeight * 1.2) >= 1;
-    } else {
-      const editState = {
-        cropRect: cropRectRef.current,
-        outpaintRect,
-        maskPaths: eraseRef.current?.hasContent() ? [{ points: [] }] : [],
-      };
-      hasChanges = hasEditChanges(editMode!, editState);
-    }
-
-    if (!hasChanges || editMode === 'outpaint') {
-      updateConfig(id, { editMode: null });
-      useNodeStore.getState().setActiveEditNodeId(null);
-      return;
-    }
-
-    useConfirmModalStore.getState().show({
-      title: '放弃未保存的编辑？',
-      content: '当前编辑尚未保存，请选择如何处理。',
-      cancelText: '取消',
-      primaryText: '放弃并退出',
-      primaryType: 'danger',
-      onClose: () => useConfirmModalStore.getState().close(),
-      onPrimary: () => {
-        updateConfig(id, { editMode: null });
-        useNodeStore.getState().setActiveEditNodeId(null);
-        eraseRef.current?.clear();
-        useConfirmModalStore.getState().close();
-      },
-    });
-  }, [id, editMode, isProcessing, outpaintRect, baseWidth, baseHeight, updateConfig]);
+    updateConfig(id, { editMode: null });
+    useNodeStore.getState().setActiveEditNodeId(null);
+  }, [id, isProcessing, updateConfig]);
 
   const handleCropSave = useCallback(async () => {
     setProcessing(true);
