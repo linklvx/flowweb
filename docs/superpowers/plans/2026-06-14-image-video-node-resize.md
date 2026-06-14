@@ -315,6 +315,9 @@ import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorC
 Add `isSingleSelected` computation after the existing `node` declaration (around line 60):
 ```ts
 const { getNodes, setNodes } = useReactFlow();
+// Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
+// If node count grows significantly, replace with Zustand selector tracking
+// a global selectedNodeIds set to avoid full array scan each frame.
 const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
 ```
 
@@ -492,6 +495,7 @@ Key changes:
 - Image: `width: '100%', height: '100%', objectFit: 'cover'` (covers container)
 - Remove `baseWidth`/`baseHeight` from container styles (they become internal only)
 - Remove `maxWidth: 'none'` / `maxHeight: 'none'` from image
+- Remove old className `max-w-full max-h-full object-contain` from `<img>` — conflicts with new `width: 100%; height: 100%; objectFit: 'cover'` inline styles. Only keep layout-agnostic classes if any.
 
 - [ ] **Step 10: Sync initial dimensions to React Flow node on image load**
 > **Note:** This step's `setNodes` call in `handleImageLoad` will be fully replaced by Task 5 Step 2, which adds the complete "ratio-check + adapt-or-init + setNodes" logic. During implementation of Task 3, include the basic `setNodes` sync; Task 5 will overwrite with the full version. Do NOT keep both branches — Task 5 is the final form.
@@ -547,12 +551,33 @@ useEffect(() => {
 }, [nodeData?.customSize, id, getNodes, setNodes]);
 ```
 
-- [ ] **Step 12: Run tests to verify they pass**
+- [ ] **Step 12: Add edit-mode interruption persistence**
+
+Edge case: user is mid-resize (isResizing=true) and switches to edit mode. `NodeResizeControl` unmounts, `onResizeEnd` may not fire, current dimensions are lost. Add a `useEffect` to detect this and force-persist:
+
+```ts
+// When showResizeHandles transitions true→false while resizing, force-finish
+useEffect(() => {
+  if (!showResizeHandles && isResizing) {
+    // NodeResizeControl just unmounted mid-drag — persist current size
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (currentNode) {
+      updateConfig(id, {
+        customSize: { width: currentNode.width!, height: currentNode.height! },
+      } as any);
+    }
+    setIsResizing(false);
+  }
+}, [showResizeHandles, isResizing, id, getNodes, updateConfig]);
+```
+
+- [ ] **Step 13: Run tests to verify they pass**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/nodes/ImageGenNode.test.tsx --reporter=verbose`
 Expected: All tests PASS including new resize tests
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 14: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx apps/web/src/pages/canvas/components/nodes/ImageGenNode.test.tsx
@@ -640,8 +665,9 @@ Expected: FAIL — resize controls not found
 
 In `VideoGenNode.tsx`, update the import from `@xyflow/react`:
 ```ts
-import { NodeResizeControl, useReactFlow, type NodeProps } from '@xyflow/react';
+import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 ```
+(`useInternalNode` is needed for Step 9 to read React Flow managed node dimensions.)
 
 Add resize utilities import:
 ```ts
@@ -841,6 +867,8 @@ Update the video element (around line 273):
 
 This ensures the outer card scales with the node, the inner container fills it, and the video covers the container — exactly matching ImageGenNode's behavior. Without this, the card "shell" stays at the initial size while only the video element scales, causing visual mismatch.
 
+Also remove old className `max-w-full max-h-full object-contain` from `<video>` — conflicts with the new `width: 100%; height: 100%; objectFit: 'cover'` inline styles.
+
 Also add initial size sync in `handleVideoLoad`: after `setVidSize(size)`, call `setNodes` to sync initial dimensions (only when no customSize). Same pattern as ImageGenNode Step 10.
 
 - [ ] **Step 10: Restore customSize dimensions on mount for video node**
@@ -865,7 +893,31 @@ useEffect(() => {
 }, [nodeData?.customSize, id, getNodes, setNodes]);
 ```
 
-- [ ] **Step 11: Render resize handles**
+- [ ] **Step 11: Add edit-mode interruption persistence for video node**
+
+Same edge-case guard as ImageGenNode (Step 12):
+
+```ts
+useEffect(() => {
+  if (!showResizeHandles && isResizing) {
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (currentNode) {
+      updateConfig(id, {
+        customSize: { width: currentNode.width!, height: currentNode.height! },
+      } as any);
+    }
+    // Also run cleanup: restore pointer-events, remove fallback listeners
+    if (fallbackCleanupRef.current) {
+      fallbackCleanupRef.current();
+      fallbackCleanupRef.current = null;
+    }
+    setIsResizing(false);
+  }
+}, [showResizeHandles, isResizing, id, getNodes, updateConfig]);
+```
+
+- [ ] **Step 12: Render resize handles**
 
 Add resize handles after the title bar div:
 ```tsx
@@ -898,12 +950,12 @@ Update the video element (line 272) to add ref and cover fill:
 ```
 
 Update the outer container div (line 268) to add overflow hidden:
-- [ ] **Step 12: Run tests to verify they pass**
+- [ ] **Step 13: Run tests to verify they pass**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/nodes/VideoGenNode.test.tsx --reporter=verbose`
 Expected: All tests PASS including new resize tests
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 14: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/components/nodes/VideoGenNode.tsx apps/web/src/pages/canvas/components/nodes/VideoGenNode.test.tsx
