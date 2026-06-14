@@ -431,7 +431,13 @@ After the title bar div (after the `</div>` closing the title bar), and before t
 
 - [ ] **Step 9: Adopt 100% container fill driven by React Flow node dimensions**
 
-The inner image container must use `width: 100%; height: 100%` instead of fixed `baseWidth/baseHeight`, so that resizing the node via React Flow's width/height properties automatically scales the content.
+Use `const internalNode = useInternalNode(id)` (already imported) to read the React Flow managed dimensions. Define:
+```ts
+const nodeWidth = internalNode?.width ?? baseWidth;
+const nodeHeight = internalNode?.height ?? baseHeight;
+```
+
+The inner image container must use `width: '100%'; height: '100%'` instead of fixed `baseWidth/baseHeight`, so that resizing the node via React Flow's width/height properties automatically scales the content.
 
 Update the outer card div (around line 714):
 ```tsx
@@ -488,6 +494,7 @@ Key changes:
 - Remove `maxWidth: 'none'` / `maxHeight: 'none'` from image
 
 - [ ] **Step 10: Sync initial dimensions to React Flow node on image load**
+> **Note:** This step's `setNodes` call in `handleImageLoad` will be fully replaced by Task 5 Step 2, which adds the complete "ratio-check + adapt-or-init + setNodes" logic. During implementation of Task 3, include the basic `setNodes` sync; Task 5 will overwrite with the full version. Do NOT keep both branches — Task 5 is the final form.
 
 In `handleImageLoad`, after calculating the initial size via `calcConstrainedSize`, also call `setNodes` to sync the initial dimensions to the React Flow node. This ensures the node's displayed size matches the content, preventing anchor misalignment:
 
@@ -518,24 +525,26 @@ When the node mounts, if `node.data.customSize` exists, restore it to React Flow
 
 Add a `useEffect` after the existing state declarations:
 ```ts
-// On mount, restore customSize to React Flow node dimensions
+// Restore persisted customSize to React Flow node dimensions.
+// Depend on nodeData?.customSize (not []) because project data may load
+// asynchronously — the component mounts before customSize is injected.
 useEffect(() => {
   const cs = nodeData?.customSize as { width: number; height: number } | undefined;
-  if (cs && cs.width > 0 && cs.height > 0) {
-    const currentNodes = getNodes();
-    const currentNode = currentNodes.find((n) => n.id === id);
-    if (currentNode && (currentNode.width !== cs.width || currentNode.height !== cs.height)) {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== id) return n;
-          return { ...n, width: cs.width, height: cs.height };
-        }),
-      );
-      // Also set internal size tracking so containers render at restored size
-      setImgSize({ w: cs.width, h: cs.height });
-    }
-  }
-}, []); // run once on mount
+  if (!cs || cs.width <= 0 || cs.height <= 0) return;
+
+  const currentNodes = getNodes();
+  const currentNode = currentNodes.find((n) => n.id === id);
+  // Guard: skip if dimensions already match (prevents redundant setNodes)
+  if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
+
+  setNodes((nds) =>
+    nds.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, width: cs.width, height: cs.height };
+    }),
+  );
+  setImgSize({ w: cs.width, h: cs.height });
+}, [nodeData?.customSize, id, getNodes, setNodes]);
 ```
 
 - [ ] **Step 12: Run tests to verify they pass**
@@ -784,27 +793,32 @@ const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) 
 }, [id, updateConfig]);
 ```
 
-- [ ] **Step 9: Adopt 100% container fill + initial size sync for video node**
+- [ ] **Step 9: Adopt 100% container fill driven by React Flow node dimensions**
 
-Mirror the ImageGenNode container changes. The outer card div and inner flex container must use 100% fill driven by node width/height.
+Fully align with ImageGenNode (Task 3 Step 9). The same three-level container chain applies:
+
+1. Outer card: `width: nodeWidth, height: nodeHeight` (from `useInternalNode(id)`)
+2. Inner flex: `width: '100%', height: '100%'`
+3. Video element: `width: '100%', height: '100%', objectFit: 'cover', display: 'block'`
 
 Update the outer card div (around line 256):
 ```tsx
+const internalNode = useInternalNode(id);
+const nodeWidth = internalNode?.width ?? containerWidth;
+const nodeHeight = internalNode?.height ?? containerHeight;
+
 <div
-  className="bg-[#222222] rounded-lg"
+  className="bg-[#222222] rounded-lg overflow-hidden"
   style={{
     width: nodeWidth,
     height: nodeHeight,
     border: '1px solid #3F3F46',
-    margin: 2,
     ...(selected
       ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
       : {}),
   }}
 >
 ```
-
-Where `nodeWidth` / `nodeHeight` come from `useInternalNode(id)` — the React Flow managed dimensions.
 
 Update the inner flex container (around line 268):
 ```tsx
@@ -814,28 +828,41 @@ Update the inner flex container (around line 268):
 >
 ```
 
-Also add initial size sync in `handleVideoLoad`: after `setVidSize(size)`, call `setNodes` to sync initial dimensions (only when no customSize). This is the same pattern as ImageGenNode.
+Update the video element (around line 273):
+```tsx
+<video
+  ref={videoRef}
+  src={displayUrl}
+  controls
+  style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
+  onLoadedMetadata={handleVideoLoad}
+/>
+```
+
+This ensures the outer card scales with the node, the inner container fills it, and the video covers the container — exactly matching ImageGenNode's behavior. Without this, the card "shell" stays at the initial size while only the video element scales, causing visual mismatch.
+
+Also add initial size sync in `handleVideoLoad`: after `setVidSize(size)`, call `setNodes` to sync initial dimensions (only when no customSize). Same pattern as ImageGenNode Step 10.
 
 - [ ] **Step 10: Restore customSize dimensions on mount for video node**
 
-Same as ImageGenNode — add a mount-time `useEffect` to restore persisted customSize:
+Same pattern as ImageGenNode — restore persisted customSize, with correct async-safe dependencies:
 ```ts
 useEffect(() => {
   const cs = nodeData?.customSize as { width: number; height: number } | undefined;
-  if (cs && cs.width > 0 && cs.height > 0) {
-    const currentNodes = getNodes();
-    const currentNode = currentNodes.find((n) => n.id === id);
-    if (currentNode && (currentNode.width !== cs.width || currentNode.height !== cs.height)) {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== id) return n;
-          return { ...n, width: cs.width, height: cs.height };
-        }),
-      );
-      setVidSize({ w: cs.width, h: cs.height });
-    }
-  }
-}, []);
+  if (!cs || cs.width <= 0 || cs.height <= 0) return;
+
+  const currentNodes = getNodes();
+  const currentNode = currentNodes.find((n) => n.id === id);
+  if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
+
+  setNodes((nds) =>
+    nds.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, width: cs.width, height: cs.height };
+    }),
+  );
+  setVidSize({ w: cs.width, h: cs.height });
+}, [nodeData?.customSize, id, getNodes, setNodes]);
 ```
 
 - [ ] **Step 11: Render resize handles**
