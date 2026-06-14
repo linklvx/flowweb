@@ -70,7 +70,7 @@ describe('EdgeFlowParticles', () => {
     const begins = Array.from(container.querySelectorAll('animateMotion')).map(
       (m) => m.getAttribute('begin'),
     );
-    expect(begins).toEqual(['0ms', '667ms', '1334ms']);
+    expect(begins).toEqual(['0ms', '1000ms', '2000ms']);
   });
 
   it('should offset inward particle begin times by directionOffset', () => {
@@ -82,7 +82,7 @@ describe('EdgeFlowParticles', () => {
     const begins = Array.from(container.querySelectorAll('animateMotion')).map(
       (m) => m.getAttribute('begin'),
     );
-    expect(begins).toEqual(['1000ms', '1667ms', '2334ms']);
+    expect(begins).toEqual(['1500ms', '2500ms', '3500ms']);
   });
 
   it('should start hidden and use set to become visible at begin time', () => {
@@ -100,7 +100,7 @@ describe('EdgeFlowParticles', () => {
     expect(sets[0].getAttribute('attributeName')).toBe('visibility');
     expect(sets[0].getAttribute('to')).toBe('visible');
     expect(sets[0].getAttribute('begin')).toBe('0ms');
-    expect(sets[1].getAttribute('begin')).toBe('667ms');
-    expect(sets[2].getAttribute('begin')).toBe('1334ms');
+    expect(sets[1].getAttribute('begin')).toBe('1000ms');
+    expect(sets[2].getAttribute('begin')).toBe('2000ms');
   });
 });
