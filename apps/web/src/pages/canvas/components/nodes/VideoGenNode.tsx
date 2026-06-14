@@ -232,6 +232,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       updateConfig(id, {
         customSize: { width: w, height: h },
       } as any);
+      setVidSize({ w, h });
     }
 
     if (videoRef.current) {

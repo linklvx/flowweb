@@ -676,6 +676,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       updateConfig(id, {
         customSize: { width: w, height: h },
       } as any);
+      // Immediately sync local size state so edit overlays use the new dimensions
+      setImgSize({ w, h });
     }
   }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
 
