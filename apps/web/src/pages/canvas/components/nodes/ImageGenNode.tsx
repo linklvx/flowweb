@@ -760,7 +760,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
-        style={{ width: containerWidth, lineHeight: '18px' }}
+        style={{ width: nodeWidth, lineHeight: '18px' }}
       >
         <span className="shrink-0 flex items-center" style={{ width: 12, height: 12 }}>
           <svg width="12" height="12" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
