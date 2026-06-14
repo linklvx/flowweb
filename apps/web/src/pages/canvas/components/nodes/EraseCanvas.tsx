@@ -96,12 +96,15 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       }
     }, [brushSize, setupBrushContext, setupEraserContext]);
 
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const handlePointerDown = useCallback((e: React.PointerEvent) => {
       e.stopPropagation();
       e.preventDefault();
       useNodeStore.getState().setEditOverlayDragging(true);
       const canvas = canvasRef.current;
       if (!canvas) return;
+      // Capture pointer so mousemove/mouseup fire on canvas even when
+      // pointer moves outside the element (e.g. near image edges)
+      canvas.setPointerCapture(e.pointerId);
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
@@ -123,7 +126,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       }
     }, [tool, saveStroke, drawStrokePath, width, height]);
 
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const handlePointerMove = useCallback((e: React.PointerEvent) => {
       if (!isDrawing.current) return;
       e.stopPropagation();
       const canvas = canvasRef.current;
@@ -142,7 +145,6 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
         strokePoints.current.push({ x, y });
         drawStrokePath(strokePoints.current, tool === 'eraser');
       } else if (tool === 'rect') {
-        // Restore to pre-preview state and draw fresh preview
         if (previewRestore.current) {
           ctx.putImageData(previewRestore.current, 0, 0);
         }
@@ -160,7 +162,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       }
     }, [tool, drawStrokePath, width, height]);
 
-    const handleMouseUp = useCallback(() => {
+    const handlePointerUp = useCallback(() => {
       isDrawing.current = false;
       rectStart.current = null;
       previewRestore.current = null;
@@ -240,31 +242,14 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       },
     }), [width, height]);
 
-    useEffect(() => {
-      const handleGlobalUp = () => {
-        if (!isDrawing.current) return;
-        isDrawing.current = false;
-        rectStart.current = null;
-        previewRestore.current = null;
-        strokePoints.current = [];
-        useNodeStore.getState().setEditOverlayDragging(false);
-        window.addEventListener('click', function suppressClick(ev) {
-          ev.stopPropagation();
-          window.removeEventListener('click', suppressClick, true);
-        }, true);
-      };
-      window.addEventListener('mouseup', handleGlobalUp);
-      return () => window.removeEventListener('mouseup', handleGlobalUp);
-    }, []);
-
     return (
       <canvas
         ref={canvasRef}
         className="nopan absolute top-0 left-0"
-        style={{ width, height, cursor: 'crosshair', zIndex: 5 }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        style={{ width, height, cursor: 'crosshair', zIndex: 5, touchAction: 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
       />
     );
   },
