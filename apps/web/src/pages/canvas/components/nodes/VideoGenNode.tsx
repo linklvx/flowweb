@@ -1,11 +1,12 @@
 import { memo, useEffect, useState, useRef, useCallback } from 'react';
-import { type NodeProps } from '@xyflow/react';
+import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation } from '@/utils/resizeUtils';
 import axios from 'axios';
 
 const MAX_WIDTH = 548;
@@ -43,6 +44,8 @@ function ratioDimensions(ratio: string) {
 function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
+  const { getNodes, setNodes } = useReactFlow();
+  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
@@ -51,6 +54,10 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   const displayUrl = resultUrl || refVideoUrl;
 
+  const hasMedia = !!displayUrl;
+  const isEditMode = !!(nodeData?.editMode);
+  const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
+
   // Dynamic sizing based on video aspect ratio (same as image node)
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
 
@@ -58,7 +65,10 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     const vid = e.currentTarget;
     const size = calcConstrainedSize(vid.videoWidth || 548, vid.videoHeight || 306);
     setVidSize(size);
-  }, []);
+    if (vid.videoWidth && vid.videoHeight) {
+      updateConfig(id, { aspectRatio: vid.videoWidth / vid.videoHeight } as any);
+    }
+  }, [id, updateConfig]);
 
   useEffect(() => {
     setVidSize(null);
@@ -68,6 +78,10 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const ratioSize = ratioDimensions(ratio);
   const containerWidth = vidSize ? vidSize.w : ratioSize.w;
   const containerHeight = vidSize ? vidSize.h : ratioSize.h;
+
+  const internalNode = useInternalNode(id);
+  const nodeWidth = internalNode?.width ?? containerWidth;
+  const nodeHeight = internalNode?.height ?? containerHeight;
 
   // Editable title
   const [label, setLabel] = useState('Video');
@@ -123,11 +137,23 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     return () => { socket.removeAllListeners() };
   }, [id]);
 
+  useEffect(() => {
+    return () => {
+      if (fallbackCleanupRef.current) {
+        fallbackCleanupRef.current();
+        fallbackCleanupRef.current = null;
+      }
+    };
+  }, []);
+
   // ---- Floating upload button ----
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isResizing, setIsResizing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const fallbackCleanupRef = useRef<(() => void) | null>(null);
 
   const handleUploadFile = useCallback(async (file: File) => {
     setUploading(true);
@@ -167,6 +193,131 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   }, [id, updateConfig]);
 
   const showReplaceButton = !resultUrl && !!referenceVideo && !!displayUrl;
+
+  // ── Aspect-ratio-locked resize handlers ──
+
+  const finishResize = useCallback(() => {
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (!currentNode) return;
+
+    const w = currentNode.width ?? containerWidth;
+    const h = currentNode.height ?? containerHeight;
+    if (w > 0 && h > 0) {
+      updateConfig(id, {
+        customSize: { width: w, height: h },
+      } as any);
+    }
+
+    if (videoRef.current) {
+      videoRef.current.style.pointerEvents = 'auto';
+    }
+    if (fallbackCleanupRef.current) {
+      fallbackCleanupRef.current();
+      fallbackCleanupRef.current = null;
+    }
+  }, [id, getNodes, updateConfig, containerWidth, containerHeight]);
+
+  const resizeCornerHandlers = useCallback((corner: typeof CORNERS[number]) => ({
+    onResize: (_event: any, params: { width: number; height: number; x: number; y: number }) => {
+      const aspectRatio = nodeData?.aspectRatio;
+      if (!aspectRatio || aspectRatio <= 0 || !isFinite(aspectRatio)) return;
+
+      const currentNodes = getNodes();
+      const currentNode = currentNodes.find((n) => n.id === id);
+      if (!currentNode) return;
+
+      const currentWidth = currentNode.width;
+      const currentHeight = currentNode.height;
+      if (!currentWidth || !currentHeight || currentWidth <= 0 || currentHeight <= 0) return;
+
+      const newWidth = Math.round(params.width);
+      const newHeight = Math.round(newWidth / aspectRatio);
+
+      const clamped = clampWithAspectRatio(newWidth, newHeight, aspectRatio, RESIZE_CONFIG.minSide, RESIZE_CONFIG.maxSide);
+
+      const deltaW = clamped.w - currentWidth;
+      const deltaH = clamped.h - currentHeight;
+
+      const { x: newX, y: newY } = calcAnchorCompensation(
+        corner,
+        currentNode.position.x,
+        currentNode.position.y,
+        deltaW,
+        deltaH,
+      );
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          return { ...n, width: clamped.w, height: clamped.h, position: { x: newX, y: newY } };
+        }),
+      );
+    },
+    onResizeStart: () => {
+      setIsResizing(true);
+      if (videoRef.current) {
+        videoRef.current.style.pointerEvents = 'none';
+      }
+
+      const onFallback = () => {
+        finishResize();
+        setIsResizing(false);
+      };
+      window.addEventListener('mouseup', onFallback);
+      window.addEventListener('blur', onFallback);
+
+      fallbackCleanupRef.current = () => {
+        window.removeEventListener('mouseup', onFallback);
+        window.removeEventListener('blur', onFallback);
+        if (videoRef.current) {
+          videoRef.current.style.pointerEvents = 'auto';
+        }
+      };
+    },
+    onResizeEnd: () => {
+      setIsResizing(false);
+      finishResize();
+    },
+  }), [id, nodeData?.aspectRatio, getNodes, setNodes, finishResize]);
+
+  // Restore customSize dimensions on mount
+  useEffect(() => {
+    const cs = nodeData?.customSize as { width: number; height: number } | undefined;
+    if (!cs || cs.width <= 0 || cs.height <= 0) return;
+
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, width: cs.width, height: cs.height };
+      }),
+    );
+    setVidSize({ w: cs.width, h: cs.height });
+  }, [nodeData?.customSize, id, getNodes, setNodes]);
+
+  // Persist customSize when resize handles disappear mid-resize (e.g. edit mode entered)
+  useEffect(() => {
+    if (!showResizeHandles && isResizing) {
+      const currentNodes = getNodes();
+      const currentNode = currentNodes.find((n) => n.id === id);
+      if (currentNode) {
+        const w = currentNode.width ?? nodeWidth;
+        const h = currentNode.height ?? nodeHeight;
+        if (w > 0 && h > 0) {
+          updateConfig(id, { customSize: { width: w, height: h } } as any);
+        }
+      }
+      if (fallbackCleanupRef.current) {
+        fallbackCleanupRef.current();
+        fallbackCleanupRef.current = null;
+      }
+      setIsResizing(false);
+    }
+  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes, updateConfig]);
 
   return (
     <div className="relative canvas-node">
@@ -252,11 +403,30 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         </div>
       </div>
 
+      {/* Corner resize handles — only when single-selected with media, not in edit mode */}
+      {showResizeHandles && CORNERS.map((corner) => {
+        const handlers = resizeCornerHandlers(corner);
+        return (
+          <NodeResizeControl
+            key={corner}
+            nodeId={id}
+            position={corner}
+            shouldResize={() => false}
+            onResize={handlers.onResize}
+            onResizeStart={handlers.onResizeStart}
+            onResizeEnd={handlers.onResizeEnd}
+            style={HANDLE_STYLE}
+            data-testid={`resize-control-${corner}`}
+          />
+        );
+      })}
+
       {/* Node body */}
       <div
-        className="bg-[#222222] rounded-lg"
+        className="bg-[#222222] rounded-lg overflow-hidden"
         style={{
-          width: containerWidth,
+          width: nodeWidth,
+          height: nodeHeight,
           border: '1px solid #3F3F46',
           margin: 2,
           ...(selected
@@ -267,13 +437,14 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
-          style={{ width: containerWidth, height: containerHeight }}
+          style={{ width: '100%', height: '100%' }}
         >
           {displayUrl ? (
             <video
+              ref={videoRef}
               src={displayUrl}
               controls
-              className="max-w-full max-h-full object-contain"
+              style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
               onLoadedMetadata={handleVideoLoad}
             />
           ) : status === 'loading' ? (

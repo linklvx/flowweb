@@ -34,6 +34,29 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   },
 }));
 
+const { mockGetNodes, mockSetNodes } = vi.hoisted(() => {
+  const getNodes = vi.fn(() => [{ id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, width: 548, height: 309, selected: true, data: getMockNodeData() }]);
+  const setNodes = vi.fn();
+  return { mockGetNodes: getNodes, mockSetNodes: setNodes };
+});
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    useReactFlow: vi.fn(() => ({
+      getNodes: mockGetNodes,
+      setNodes: mockSetNodes,
+    })),
+    // Mock NodeResizeControl as a transparent wrapper that forwards data-testid
+    NodeResizeControl: ({ position, style, children }: any) => (
+      <div data-testid={`resize-control-${position}`} style={style}>
+        {children}
+      </div>
+    ),
+  };
+});
+
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: Object.assign(
     vi.fn((selector?: any) => {
@@ -334,5 +357,23 @@ describe('VideoGenNode', () => {
     const { container } = renderNode();
     expect(container.innerHTML).toContain('width: 548px');
     expect(container.innerHTML).toContain('height: 309px');
+  });
+
+  // ─── Resize handles ───
+
+  it('should NOT render resize handles when no video is loaded', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    renderNode(true);
+    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('resize-control-bottom-right')).not.toBeInTheDocument();
+  });
+
+  it('should render 4 corner resize handles when single-selected with video loaded', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode(true);
+    expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
   });
 });
