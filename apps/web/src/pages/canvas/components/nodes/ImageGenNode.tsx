@@ -491,13 +491,17 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const currentNodes = getNodes();
       const currentNode = currentNodes.find((n) => n.id === id);
       if (currentNode) {
-        updateConfig(id, {
-          customSize: { width: currentNode.width!, height: currentNode.height! },
-        } as any);
+        const w = currentNode.width ?? nodeWidth;
+        const h = currentNode.height ?? nodeHeight;
+        if (w > 0 && h > 0) {
+          updateConfig(id, {
+            customSize: { width: w, height: h },
+          } as any);
+        }
       }
       setIsResizing(false);
     }
-  }, [showResizeHandles, isResizing, id, getNodes, updateConfig]);
+  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes, updateConfig]);
 
   // Register save handler for cross-node invocation
   useEffect(() => {
@@ -685,9 +689,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const currentNodes = getNodes();
       const currentNode = currentNodes.find((n) => n.id === id);
       if (!currentNode) return;
-      updateConfig(id, {
-        customSize: { width: currentNode.width!, height: currentNode.height! },
-      } as any);
+      const w = currentNode.width ?? nodeWidth;
+      const h = currentNode.height ?? nodeHeight;
+      if (w > 0 && h > 0) {
+        updateConfig(id, {
+          customSize: { width: w, height: h },
+        } as any);
+      }
     },
   }), [id, nodeData?.aspectRatio, getNodes, setNodes, updateConfig]);
 
@@ -861,7 +869,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               <img
                 src={displayUrl}
                 alt="preview"
-                className="max-w-full max-h-full object-contain"
+                className="max-w-full max-h-full"
                 style={{
                   display: 'block',
                   width: '100%',
