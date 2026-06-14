@@ -849,7 +849,11 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             key={corner}
             nodeId={id}
             position={corner}
-            shouldResize={() => false}
+            keepAspectRatio={false}
+            minWidth={RESIZE_CONFIG.minSide}
+            minHeight={RESIZE_CONFIG.minSide}
+            maxWidth={RESIZE_CONFIG.maxSide}
+            maxHeight={RESIZE_CONFIG.maxSide}
             onResize={handlers.onResize}
             onResizeStart={handlers.onResizeStart}
             onResizeEnd={handlers.onResizeEnd}
