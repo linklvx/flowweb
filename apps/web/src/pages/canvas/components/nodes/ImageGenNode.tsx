@@ -877,7 +877,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       >
         {!editMode && <NodeHandle type="target" testId="target-handle" />}
         <div
-          className="flex items-center justify-center overflow-hidden transition-all duration-300 relative group"
+          className="flex items-center justify-center overflow-hidden transition-colors duration-300 relative group"
           style={{
             width: '100%',
             height: '100%',

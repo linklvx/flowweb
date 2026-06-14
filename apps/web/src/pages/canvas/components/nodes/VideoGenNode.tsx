@@ -465,7 +465,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       >
         <NodeHandle type="target" testId="target-handle" />
         <div
-          className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
+          className="flex items-center justify-center overflow-hidden rounded-lg transition-colors duration-300 relative group"
           style={{ width: '100%', height: '100%' }}
         >
           {displayUrl ? (
