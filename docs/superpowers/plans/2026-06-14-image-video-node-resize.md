@@ -78,9 +78,11 @@ describe('clampWithAspectRatio', () => {
   });
 
   it('should clamp height to max and scale width proportionally', () => {
-    const { w, h } = clampWithAspectRatio(3000, 2000, ratio, min, max);
-    expect(h).toBe(2000); // height clamped to max, width recomputed
-    expect(w).toBe(Math.round(2000 * ratio));
+    // 9:16 portrait ratio — height exceeds max, should clamp
+    const portraitRatio = 9 / 16; // ~0.5625
+    const { w, h } = clampWithAspectRatio(2000, 4000, portraitRatio, min, max);
+    expect(h).toBe(3000); // height clamped to max
+    expect(w).toBe(Math.round(3000 * portraitRatio)); // ~1688
   });
 
   it('should enforce min side (hard constraint) even if it breaks max', () => {
@@ -99,18 +101,21 @@ describe('clampWithAspectRatio', () => {
 });
 
 describe('adaptCustomSize', () => {
-  it('should fit by width when width-constrained results in height within bounds', () => {
-    // customSize 1600x900, new ratio 1:1
+  // adaptCustomSize does CONTAIN-fit: new content must fit ENTIRELY within customSize rect
+  it('should fit by height when new ratio is wider than rect', () => {
+    // customSize 1600x900 (ratio ~1.78), new ratio 1:1
+    // 1600/1 = 1600 > 900 → height-constrained: keep height=900, width=900*1=900
     const result = adaptCustomSize({ width: 1600, height: 900 }, 1);
-    expect(result.width).toBe(1600);
-    expect(result.height).toBe(1600);
+    expect(result.width).toBe(900);
+    expect(result.height).toBe(900);
   });
 
-  it('should fit by height when height-constrained results in width within bounds', () => {
-    // customSize 400x1200, new ratio 16:9 (~1.778)
+  it('should fit by width when new ratio is taller than rect', () => {
+    // customSize 400x1200 (ratio ~0.33), new ratio 16:9 (~1.78)
+    // 400/1.78 = 225 ≤ 1200 → width-constrained: keep width=400, height=400/1.78=225
     const result = adaptCustomSize({ width: 400, height: 1200 }, 16 / 9);
-    expect(result.height).toBe(1200);
-    expect(result.width).toBe(Math.round(1200 * 16 / 9));
+    expect(result.width).toBe(400);
+    expect(result.height).toBe(225);
   });
 });
 ```
@@ -320,7 +325,7 @@ Add resize state after the existing `isSaving` state (around line 81):
 const [isResizing, setIsResizing] = useState(false);
 ```
 
-Add the onResize handler before the return statement:
+Add the resize handlers before the return statement:
 ```ts
 const handleResize = useCallback((_event: any, params: { width: number; height: number; x: number; y: number; handle: string }) => {
   const aspectRatio = nodeData?.aspectRatio;
@@ -330,27 +335,21 @@ const handleResize = useCallback((_event: any, params: { width: number; height: 
   const currentNode = currentNodes.find((n) => n.id === id);
   if (!currentNode) return;
 
-  const currentWidth = currentNode.width ?? baseWidth;
-  const currentHeight = currentNode.height ?? baseHeight;
+  const currentWidth = currentNode.width;
+  const currentHeight = currentNode.height;
+  // Guard: ensure node dimensions are initialized
+  if (!currentWidth || !currentHeight || currentWidth <= 0 || currentHeight <= 0) return;
 
-  // Main edge: width as primary
-  let newWidth = Math.round(params.width);
-  let newHeight = Math.round(newWidth / aspectRatio);
+  // All corner handles: width is primary edge, derive height
+  const newWidth = Math.round(params.width);
+  const newHeight = Math.round(newWidth / aspectRatio);
 
-  // Boundary clamp
+  // clampWithAspectRatio already handles both max and min constraints;
+  // directly use its output — no need for secondary branch logic
   const clamped = clampWithAspectRatio(newWidth, newHeight, aspectRatio, RESIZE_CONFIG.minSide, RESIZE_CONFIG.maxSide);
 
-  // If height hit boundary first, switch to height as primary
-  if (clamped.h !== newHeight) {
-    newHeight = clamped.h;
-    newWidth = clamped.w;
-  } else {
-    newWidth = clamped.w;
-    newHeight = clamped.h;
-  }
-
-  const deltaW = newWidth - currentWidth;
-  const deltaH = newHeight - currentHeight;
+  const deltaW = clamped.w - currentWidth;
+  const deltaH = clamped.h - currentHeight;
 
   const handlePos = params.handle as (typeof CORNERS)[number];
   const { x: newX, y: newY } = calcAnchorCompensation(
@@ -364,10 +363,10 @@ const handleResize = useCallback((_event: any, params: { width: number; height: 
   setNodes((nds) =>
     nds.map((n) => {
       if (n.id !== id) return n;
-      return { ...n, width: newWidth, height: newHeight, position: { x: newX, y: newY } };
+      return { ...n, width: clamped.w, height: clamped.h, position: { x: newX, y: newY } };
     }),
   );
-}, [id, nodeData?.aspectRatio, baseWidth, baseHeight, getNodes, setNodes]);
+}, [id, nodeData?.aspectRatio, getNodes, setNodes]);
 
 const handleResizeStart = useCallback(() => {
   setIsResizing(true);
@@ -381,6 +380,9 @@ const handleResizeEnd = useCallback(() => {
   updateConfig(id, {
     customSize: { width: currentNode.width!, height: currentNode.height! },
   } as any);
+  // NOTE: Undo history stack integration — deferred to when canvas-level
+  // undo/redo infrastructure is built. Currently no undo stack exists.
+  // See SPEC 1.9: one resize operation → one undo step.
 }, [id, getNodes, updateConfig]);
 ```
 
@@ -427,11 +429,42 @@ After the title bar div (after the `</div>` closing the title bar), and before t
 ))}
 ```
 
-- [ ] **Step 9: Update rendering styles for cover fill**
+- [ ] **Step 9: Adopt 100% container fill driven by React Flow node dimensions**
 
-In the image container div (line 735), update the img styles:
+The inner image container must use `width: 100%; height: 100%` instead of fixed `baseWidth/baseHeight`, so that resizing the node via React Flow's width/height properties automatically scales the content.
+
+Update the outer card div (around line 714):
 ```tsx
-<div className="relative" style={{ width: baseWidth, height: baseHeight, overflow: 'hidden' }}>
+<div
+  className="bg-[#222222] rounded-lg overflow-hidden"
+  style={{
+    width: nodeWidth,   // from node.width (React Flow managed)
+    height: nodeHeight, // from node.height (React Flow managed)
+    border: '1px solid #3F3F46',
+    ...(editMode === 'outpaint'
+      ? { border: 'none', borderRadius: 0 }
+      : selected
+        ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }
+        : {}),
+  }}
+>
+```
+
+Update the inner flex container (around line 726):
+```tsx
+<div
+  className="flex items-center justify-center overflow-hidden transition-all duration-300 relative group"
+  style={{
+    width: '100%',
+    height: '100%',
+    borderRadius: editMode === 'outpaint' ? 0 : undefined,
+  }}
+>
+```
+
+Update the image wrapper (around line 735):
+```tsx
+<div className="relative" style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
   <img
     src={displayUrl}
     alt="preview"
@@ -447,14 +480,44 @@ In the image container div (line 735), update the img styles:
   />
 ```
 
-Note: Remove `maxWidth: 'none'` and `maxHeight: 'none'` from the style since we're now using percentage dimensions.
+Key changes:
+- Outer container: `width: nodeWidth, height: nodeHeight` (reads from React Flow node)
+- Inner containers: `width: '100%', height: '100%'` (fills parent)
+- Image: `width: '100%', height: '100%', objectFit: 'cover'` (covers container)
+- Remove `baseWidth`/`baseHeight` from container styles (they become internal only)
+- Remove `maxWidth: 'none'` / `maxHeight: 'none'` from image
 
-- [ ] **Step 10: Run tests to verify they pass**
+- [ ] **Step 10: Sync initial dimensions to React Flow node on image load**
+
+In `handleImageLoad`, after calculating the initial size via `calcConstrainedSize`, also call `setNodes` to sync the initial dimensions to the React Flow node. This ensures the node's displayed size matches the content, preventing anchor misalignment:
+
+```ts
+const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+  const img = e.currentTarget;
+  const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+  setImgSize(size);
+  setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+  // Cache aspect ratio for resize
+  updateConfig(id, { aspectRatio: img.naturalWidth / img.naturalHeight } as any);
+  // Sync initial dimensions to React Flow node (only on first load, no customSize)
+  const currentData = useNodeStore.getState().nodes[id]?.data as any;
+  if (!currentData?.customSize) {
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, width: size.w, height: size.h };
+      }),
+    );
+  }
+}, [id, updateConfig, setNodes]);
+```
+
+- [ ] **Step 11: Run tests to verify they pass**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/nodes/ImageGenNode.test.tsx --reporter=verbose`
 Expected: All tests PASS including new resize tests
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx apps/web/src/pages/canvas/components/nodes/ImageGenNode.test.tsx
@@ -565,10 +628,12 @@ const { getNodes, setNodes } = useReactFlow();
 const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
 ```
 
-Determine visibility:
+Determine visibility (align with Spec 1.1 — hide in edit mode):
 ```ts
 const hasMedia = !!displayUrl;
-const showResizeHandles = isSingleSelected && hasMedia;
+// VideoGenNode doesn't have transform/edit modes currently, but check for future-proofing
+const isEditMode = !!(nodeData?.editMode);
+const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
 ```
 
 - [ ] **Step 6: Add resize handlers with pointer-events management**
@@ -584,24 +649,18 @@ const handleResize = useCallback((_event: any, params: { width: number; height: 
   const currentNode = currentNodes.find((n) => n.id === id);
   if (!currentNode) return;
 
-  const currentWidth = currentNode.width ?? containerWidth;
-  const currentHeight = currentNode.height ?? containerHeight;
+  const currentWidth = currentNode.width;
+  const currentHeight = currentNode.height;
+  if (!currentWidth || !currentHeight || currentWidth <= 0 || currentHeight <= 0) return;
 
-  let newWidth = Math.round(params.width);
-  let newHeight = Math.round(newWidth / aspectRatio);
+  const newWidth = Math.round(params.width);
+  const newHeight = Math.round(newWidth / aspectRatio);
 
+  // clampWithAspectRatio handles both bounds; use output directly
   const clamped = clampWithAspectRatio(newWidth, newHeight, aspectRatio, RESIZE_CONFIG.minSide, RESIZE_CONFIG.maxSide);
 
-  if (clamped.h !== newHeight) {
-    newHeight = clamped.h;
-    newWidth = clamped.w;
-  } else {
-    newWidth = clamped.w;
-    newHeight = clamped.h;
-  }
-
-  const deltaW = newWidth - currentWidth;
-  const deltaH = newHeight - currentHeight;
+  const deltaW = clamped.w - currentWidth;
+  const deltaH = clamped.h - currentHeight;
 
   const handlePos = params.handle as (typeof CORNERS)[number];
   const { x: newX, y: newY } = calcAnchorCompensation(
@@ -615,10 +674,10 @@ const handleResize = useCallback((_event: any, params: { width: number; height: 
   setNodes((nds) =>
     nds.map((n) => {
       if (n.id !== id) return n;
-      return { ...n, width: newWidth, height: newHeight, position: { x: newX, y: newY } };
+      return { ...n, width: clamped.w, height: clamped.h, position: { x: newX, y: newY } };
     }),
   );
-}, [id, nodeData?.aspectRatio, containerWidth, containerHeight, getNodes, setNodes]);
+}, [id, nodeData?.aspectRatio, getNodes, setNodes]);
 
 const finishResize = useCallback(() => {
   const currentNodes = getNodes();
@@ -638,6 +697,7 @@ const finishResize = useCallback(() => {
     fallbackCleanupRef.current();
     fallbackCleanupRef.current = null;
   }
+  // NOTE: Undo history stack integration deferred — no canvas-level undo system yet.
 }, [id, getNodes, updateConfig]);
 
 const handleResizeStart = useCallback(() => {
@@ -778,7 +838,8 @@ useEffect(() => {
 
 - [ ] **Step 2: Add ratio-aware adaptation in handleImageLoad for ImageGenNode**
 
-Update `handleImageLoad` to adapt customSize when ratio changes:
+Update `handleImageLoad` to adapt customSize when ratio changes, AND sync node display size via setNodes. This merges the logic from Task 3 Step 10 (initial sync) and adds the ratio-change adaptation:
+
 ```ts
 const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
   const img = e.currentTarget;
@@ -787,29 +848,33 @@ const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) 
   const existingCustomSize = currentData?.customSize;
   const existingAspectRatio = currentData?.aspectRatio;
 
-  // Determine if aspect ratio changed significantly (tolerance: 0.01)
+  // Tolerance 0.01: avoid unnecessary adaptation from floating-point noise
   const ratioChanged = existingCustomSize && existingAspectRatio &&
     Math.abs(newAspectRatio - existingAspectRatio) > 0.01;
 
   let size: { w: number; h: number };
   if (ratioChanged) {
-    // Adapt existing customSize to new aspect ratio
     const adapted = adaptCustomSize(existingCustomSize!, newAspectRatio);
     updateConfig(id, { customSize: adapted, aspectRatio: newAspectRatio } as any);
     size = { w: adapted.width, h: adapted.height };
   } else if (existingCustomSize && !ratioChanged) {
-    // Same ratio — keep existing customSize
     size = { w: existingCustomSize.width, h: existingCustomSize.height };
   } else {
-    // No customSize yet — use calcConstrainedSize
     size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
-    // Do NOT write customSize on initial load
     updateConfig(id, { aspectRatio: newAspectRatio } as any);
   }
 
   setImgSize(size);
   setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-}, [id, updateConfig]);
+
+  // Sync display size to React Flow node — keeps visual consistent with data
+  setNodes((nds) =>
+    nds.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, width: size.w, height: size.h };
+    }),
+  );
+}, [id, updateConfig, setNodes]);
 ```
 
 Note: Add `adaptCustomSize` to the resize utils import:
@@ -819,7 +884,8 @@ import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorC
 
 - [ ] **Step 3: Add ratio-aware adaptation in handleVideoLoad for VideoGenNode**
 
-Update `handleVideoLoad` in `VideoGenNode.tsx` similarly:
+Update `handleVideoLoad` in `VideoGenNode.tsx` with the same pattern — adapt customSize on ratio change AND sync display size via setNodes:
+
 ```ts
 const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
   const vid = e.currentTarget;
@@ -846,7 +912,14 @@ const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) 
   }
 
   setVidSize(size);
-}, [id, updateConfig]);
+
+  setNodes((nds) =>
+    nds.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, width: size.w, height: size.h };
+    }),
+  );
+}, [id, updateConfig, setNodes]);
 ```
 
 Add `adaptCustomSize` to the VideoGenNode import as well.
@@ -890,3 +963,19 @@ Start dev server and verify:
 5. Drag bottom-right corner → aspect ratio preserved
 6. Drag top-left corner → anchor stays fixed
 7. Resize a video node → video controls disabled during drag, restored after
+8. After resize, node input/output anchors align with node edges (no offset)
+9. Canvas zoom in/out → handles remain functional with correct size and precision
+
+- [ ] **Step 4: Verify resize persistence across page refresh**
+
+1. Resize an image/video node to a custom size
+2. Refresh the page (or close and reopen the project)
+3. Node dimensions should be restored from customSize
+4. Verify the node display size matches the persisted size
+
+- [ ] **Step 5: Note on undo/redo**
+
+The spec requires undo stack integration (one resize = one undo step). Canvas-level undo/redo infrastructure does not currently exist in the codebase. This is deferred to a future task. When the undo system is built:
+- onResize: already does NOT push to history ✓
+- onResizeEnd: hook into `historyStore` or equivalent to snapshot node state
+- fallback (blur/mouseup): same snapshot on cleanup
