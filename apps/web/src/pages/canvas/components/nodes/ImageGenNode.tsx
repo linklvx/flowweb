@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { type NodeProps, useViewport, useReactFlow, useInternalNode } from '@xyflow/react';
+import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -19,6 +19,7 @@ import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation } from '@/utils/resizeUtils';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -61,7 +62,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const { zoom, x: vpX, y: vpY } = useViewport();
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes, setNodes } = useReactFlow();
+  // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
+  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
   const internalNode = useInternalNode(id);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
@@ -73,12 +76,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // Transform mode data
   const transformMode = nodeData?.transformMode ?? false;
+  const hasMedia = !!displayUrl;
+  const isEditMode = !!nodeData?.editMode || !!transformMode;
+  const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
   const imageRotation = (nodeData?.imageRotation ?? 0) as 0 | 90 | 180 | 270;
   const flipH = nodeData?.flipH ?? false;
   const flipV = nodeData?.flipV ?? false;
 
   // Save/cancel state
   const [isSaving, setSaving] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Edit mode state
@@ -125,7 +132,19 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
     setImgSize(size);
     setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-  }, []);
+    // Cache aspect ratio for resize locking
+    updateConfig(id, { aspectRatio: img.naturalWidth / img.naturalHeight } as any);
+    // Sync initial dimensions to React Flow node if no customSize yet
+    const currentData = useNodeStore.getState().nodes[id]?.data as any;
+    if (!currentData?.customSize) {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          return { ...n, width: size.w, height: size.h };
+        }),
+      );
+    }
+  }, [id, updateConfig, setNodes]);
 
   // Reset dimensions when image URL changes
   useEffect(() => {
@@ -144,6 +163,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   if (transformMode && (imageRotation === 90 || imageRotation === 270)) {
     [containerWidth, containerHeight] = [containerHeight, containerWidth];
   }
+
+  // React Flow node dimensions — drive container fill from node width/height
+  const nodeWidth = internalNode?.width ?? baseWidth;
+  const nodeHeight = internalNode?.height ?? baseHeight;
 
   // CSS transform for image preview in transform mode
   const previewTransform = transformMode
@@ -444,6 +467,38 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // ── Effects ──
 
+  // Restore customSize dimensions on mount
+  useEffect(() => {
+    const cs = nodeData?.customSize as { width: number; height: number } | undefined;
+    if (!cs || cs.width <= 0 || cs.height <= 0) return;
+
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, width: cs.width, height: cs.height };
+      }),
+    );
+    setImgSize({ w: cs.width, h: cs.height });
+  }, [nodeData?.customSize, id, getNodes, setNodes]);
+
+  // Persist customSize when resize handles disappear mid-resize (e.g. edit mode entered)
+  useEffect(() => {
+    if (!showResizeHandles && isResizing) {
+      const currentNodes = getNodes();
+      const currentNode = currentNodes.find((n) => n.id === id);
+      if (currentNode) {
+        updateConfig(id, {
+          customSize: { width: currentNode.width!, height: currentNode.height! },
+        } as any);
+      }
+      setIsResizing(false);
+    }
+  }, [showResizeHandles, isResizing, id, getNodes, updateConfig]);
+
   // Register save handler for cross-node invocation
   useEffect(() => {
     if (!transformMode) return;
@@ -584,6 +639,58 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl && !editMode;
 
+  // ── Aspect-ratio-locked resize handlers ──
+
+  const resizeCornerHandlers = useCallback((corner: typeof CORNERS[number]) => ({
+    onResize: (_event: any, params: { width: number; height: number; x: number; y: number }) => {
+      const aspectRatio = nodeData?.aspectRatio;
+      if (!aspectRatio || aspectRatio <= 0 || !isFinite(aspectRatio)) return;
+
+      const currentNodes = getNodes();
+      const currentNode = currentNodes.find((n) => n.id === id);
+      if (!currentNode) return;
+
+      const currentWidth = currentNode.width;
+      const currentHeight = currentNode.height;
+      if (!currentWidth || !currentHeight || currentWidth <= 0 || currentHeight <= 0) return;
+
+      const newWidth = Math.round(params.width);
+      const newHeight = Math.round(newWidth / aspectRatio);
+
+      const clamped = clampWithAspectRatio(newWidth, newHeight, aspectRatio, RESIZE_CONFIG.minSide, RESIZE_CONFIG.maxSide);
+
+      const deltaW = clamped.w - currentWidth;
+      const deltaH = clamped.h - currentHeight;
+
+      const { x: newX, y: newY } = calcAnchorCompensation(
+        corner,
+        currentNode.position.x,
+        currentNode.position.y,
+        deltaW,
+        deltaH,
+      );
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          return { ...n, width: clamped.w, height: clamped.h, position: { x: newX, y: newY } };
+        }),
+      );
+    },
+    onResizeStart: () => {
+      setIsResizing(true);
+    },
+    onResizeEnd: () => {
+      setIsResizing(false);
+      const currentNodes = getNodes();
+      const currentNode = currentNodes.find((n) => n.id === id);
+      if (!currentNode) return;
+      updateConfig(id, {
+        customSize: { width: currentNode.width!, height: currentNode.height! },
+      } as any);
+    },
+  }), [id, nodeData?.aspectRatio, getNodes, setNodes, updateConfig]);
+
   return (
     <div className="relative canvas-node">
       {/* Hidden file input — shared by floating upload + replace buttons */}
@@ -710,10 +817,28 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           </span>
         )}
       </div>
+      {/* Corner resize handles — only when single-selected with media, not in edit mode */}
+      {showResizeHandles && CORNERS.map((corner) => {
+        const handlers = resizeCornerHandlers(corner);
+        return (
+          <NodeResizeControl
+            key={corner}
+            nodeId={id}
+            position={corner}
+            shouldResize={() => false}
+            onResize={handlers.onResize}
+            onResizeStart={handlers.onResizeStart}
+            onResizeEnd={handlers.onResizeEnd}
+            style={HANDLE_STYLE}
+            data-testid={`resize-control-${corner}`}
+          />
+        );
+      })}
       <div
         className="bg-[#222222] rounded-lg overflow-hidden"
         style={{
-          width: containerWidth,
+          width: nodeWidth,
+          height: nodeHeight,
           border: '1px solid #3F3F46',
           ...(editMode === 'outpaint'
             ? { border: 'none', borderRadius: 0 }
@@ -726,22 +851,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         <div
           className="flex items-center justify-center overflow-hidden transition-all duration-300 relative group"
           style={{
-            width: containerWidth,
-            height: containerHeight,
+            width: '100%',
+            height: '100%',
             borderRadius: editMode === 'outpaint' ? 0 : undefined,
           }}
         >
           {displayUrl ? (
-            <div className="relative" style={{ width: baseWidth, height: baseHeight }}>
+            <div className="relative" style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <img
                 src={displayUrl}
                 alt="preview"
                 className="max-w-full max-h-full object-contain"
                 style={{
-                  width: baseWidth,
-                  height: baseHeight,
-                  maxWidth: 'none',
-                  maxHeight: 'none',
+                  display: 'block',
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
                   ...(previewTransform ? { transform: previewTransform } : {}),
                 }}
                 onLoad={handleImageLoad}

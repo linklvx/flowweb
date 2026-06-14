@@ -18,6 +18,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       screenToFlowPosition: vi.fn((p: any) => p),
       zoomIn: vi.fn(),
       zoomOut: vi.fn(),
+      getNodes: vi.fn(() => [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]),
+      setNodes: vi.fn(),
     })),
   };
 });
@@ -542,5 +544,37 @@ describe('ImageGenNode', () => {
     // Should exit edit mode
     expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
     expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
+  });
+
+  // ─── Resize handles ───
+
+  it('should NOT render resize handles when no image is loaded', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('resize-control-top-right')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('resize-control-bottom-left')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('resize-control-bottom-right')).not.toBeInTheDocument();
+  });
+
+  it('should render 4 corner resize handles when single-selected with image loaded', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
+  });
+
+  it('should NOT render resize handles in edit mode', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', editMode: 'crop', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
+  });
+
+  it('should NOT render resize handles in transform mode', () => {
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', transformMode: true, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    renderNode(true);
+    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
   });
 });
