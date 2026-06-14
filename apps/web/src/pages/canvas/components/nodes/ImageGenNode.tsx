@@ -582,7 +582,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     return () => { socket.removeAllListeners(); };
   }, [editMode, id, updateConfig]);
 
-  const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl;
+  const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl && !editMode;
 
   return (
     <div className="relative canvas-node">
