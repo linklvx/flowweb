@@ -52,7 +52,7 @@
 ### 1.5 尺寸持久化
 
 - 新增 `node.data.customSize: { width: number; height: number }` 字段
-- 新增 `node.data.aspectRatio: number` 字段（素材加载时缓存）
+- 新增 `node.data.aspectRatio: number` 字段（素材加载时缓存，直接保留 `naturalWidth / naturalHeight` 原生浮点精度，不做小数位截断，避免多次缩放后像素级累积偏差）
 - 尺寸优先级：`customSize` > `calcConstrainedSize()`
 - `calcConstrainedSize` 仅作为素材首次加载的初始尺寸
 - 初始尺寸写入规则：首次加载时 `calcConstrainedSize` 结果仅写入 `node.width` / `node.height` 与 `node.data.aspectRatio`，**不**写入 `customSize`，保留「用户未手动缩放」的原生状态标记
@@ -128,7 +128,7 @@ onResize({ handle, width, height }):
   4. 边界钳制（先 max 内切，再 min 硬约束）
   5. delta 差值锚点补偿
   6. Math.round 取整
-  7. setNodes() 强制覆盖 width/height/x/y
+  7. setNodes() 函数式更新 + 单节点局部更新，仅修改当前节点的 width/height/x/y，避免全量 nodes 数组替换引发画布大面积重渲染
 ```
 
 ---
