@@ -19,7 +19,7 @@ import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
-import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation } from '@/utils/resizeUtils';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation, adaptCustomSize } from '@/utils/resizeUtils';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -129,21 +129,37 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+    const newAspectRatio = img.naturalWidth / img.naturalHeight;
+    const currentData = useNodeStore.getState().nodes[id]?.data as any;
+    const existingCustomSize = currentData?.customSize;
+    const existingAspectRatio = currentData?.aspectRatio;
+
+    // Tolerance 0.01: avoid unnecessary adaptation from floating-point noise
+    const ratioChanged = existingCustomSize && existingAspectRatio &&
+      Math.abs(newAspectRatio - existingAspectRatio) > 0.01;
+
+    let size: { w: number; h: number };
+    if (ratioChanged) {
+      const adapted = adaptCustomSize(existingCustomSize!, newAspectRatio);
+      updateConfig(id, { customSize: adapted, aspectRatio: newAspectRatio } as any);
+      size = { w: adapted.width, h: adapted.height };
+    } else if (existingCustomSize && !ratioChanged) {
+      size = { w: existingCustomSize.width, h: existingCustomSize.height };
+    } else {
+      size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+      updateConfig(id, { aspectRatio: newAspectRatio } as any);
+    }
+
     setImgSize(size);
     setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-    // Cache aspect ratio for resize locking
-    updateConfig(id, { aspectRatio: img.naturalWidth / img.naturalHeight } as any);
-    // Sync initial dimensions to React Flow node if no customSize yet
-    const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    if (!currentData?.customSize) {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== id) return n;
-          return { ...n, width: size.w, height: size.h };
-        }),
-      );
-    }
+
+    // Sync display size to React Flow node
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, width: size.w, height: size.h };
+      }),
+    );
   }, [id, updateConfig, setNodes]);
 
   // Reset dimensions when image URL changes

@@ -6,7 +6,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation } from '@/utils/resizeUtils';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation, adaptCustomSize } from '@/utils/resizeUtils';
 import axios from 'axios';
 
 const MAX_WIDTH = 548;
@@ -63,12 +63,37 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
-    const size = calcConstrainedSize(vid.videoWidth || 548, vid.videoHeight || 306);
-    setVidSize(size);
-    if (vid.videoWidth && vid.videoHeight) {
-      updateConfig(id, { aspectRatio: vid.videoWidth / vid.videoHeight } as any);
+    const vidW = vid.videoWidth || 548;
+    const vidH = vid.videoHeight || 306;
+    const newAspectRatio = vidW / vidH;
+    const currentData = useNodeStore.getState().nodes[id]?.data as any;
+    const existingCustomSize = currentData?.customSize;
+    const existingAspectRatio = currentData?.aspectRatio;
+
+    const ratioChanged = existingCustomSize && existingAspectRatio &&
+      Math.abs(newAspectRatio - existingAspectRatio) > 0.01;
+
+    let size: { w: number; h: number };
+    if (ratioChanged) {
+      const adapted = adaptCustomSize(existingCustomSize!, newAspectRatio);
+      updateConfig(id, { customSize: adapted, aspectRatio: newAspectRatio } as any);
+      size = { w: adapted.width, h: adapted.height };
+    } else if (existingCustomSize && !ratioChanged) {
+      size = { w: existingCustomSize.width, h: existingCustomSize.height };
+    } else {
+      size = calcConstrainedSize(vidW, vidH);
+      updateConfig(id, { aspectRatio: newAspectRatio } as any);
     }
-  }, [id, updateConfig]);
+
+    setVidSize(size);
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, width: size.w, height: size.h };
+      }),
+    );
+  }, [id, updateConfig, setNodes]);
 
   useEffect(() => {
     setVidSize(null);
