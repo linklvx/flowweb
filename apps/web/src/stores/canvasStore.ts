@@ -27,6 +27,7 @@ interface CanvasState {
 
   addNode: (type: string, position: XYPosition) => string;
   copyNode: (id: string) => string | null;
+  addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addNodeWithEdge: (sourceId: string) => string | null;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
@@ -123,6 +124,57 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: node.width,
       height: node.height,
     });
+    return id;
+  },
+
+  addChildNode: (sourceId, data) => {
+    const sourceNode = get().nodes.find((n) => n.id === sourceId);
+    if (!sourceNode) return null;
+    const id = getId('node');
+    const edgeId = getId('edge');
+    const GAP = 40;
+    const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
+    const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    const sx = sourceNode.position.x;
+    const sy = sourceNode.position.y;
+    const otherNodes = get().nodes.filter((n) => n.id !== sourceId);
+    const overlaps = (nx: number, ny: number) =>
+      otherNodes.some((n) => {
+        const nw = n.measured?.width ?? n.width ?? 200;
+        const nh = n.measured?.height ?? n.height ?? 200;
+        return !(nx + sw < n.position.x || nx > n.position.x + nw || ny + sh < n.position.y || ny > n.position.y + nh);
+      });
+    const candidates = [
+      { x: sx + sw + GAP, y: sy },
+      { x: sx + sw + GAP, y: sy - sh - GAP },
+      { x: sx + sw + GAP, y: sy + sh + GAP },
+    ];
+    let bestPos = candidates[0];
+    for (const pos of candidates) {
+      if (!overlaps(pos.x, pos.y)) { bestPos = pos; break; }
+    }
+    const newNode: Node = {
+      id,
+      type: sourceNode.type,
+      position: bestPos,
+      data,
+      selected: true,
+    };
+    const edge: Edge = { id: edgeId, source: sourceId, target: id };
+
+    set((s) => ({
+      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
+      edges: [...s.edges, edge],
+      selectedId: id,
+    }));
+
+    useNodeStore.getState().addNode({
+      id,
+      type: sourceNode.type!,
+      position: newNode.position,
+      data: data as any,
+    });
+
     return id;
   },
 

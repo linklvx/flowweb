@@ -383,7 +383,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       });
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
-      updateConfig(id, { fileId: newId, referenceImage: undefined, editMode: null });
+      updateConfig(id, { editMode: null });
+      useCanvasStore.getState().addChildNode(id, { fileId: newId, status: 'done' });
       useNodeStore.getState().setActiveEditNodeId(null);
     } catch (err) {
       console.error('裁剪失败:', err);

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { cropImage } from '@/utils/imageCrop';
 
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<any>();
@@ -34,11 +36,13 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 const {
   mockUpdateConfig,
   mockSetActiveTransformNodeId,
+  mockSetActiveEditNodeId,
   mockRegisterSaveHandler,
   mockUnregisterSaveHandler,
   mockSaveTransformNode,
   mockTriggerCancelTransform,
   mockDeleteTransformNode,
+  mockAddChildNode,
   mockAddNodeWithEdge,
   mockSelectNode,
   mockUseNodeStoreFn,
@@ -46,11 +50,13 @@ const {
 } = vi.hoisted(() => {
   const updateConfig = vi.fn();
   const setActiveTransformNodeId = vi.fn();
+  const setActiveEditNodeId = vi.fn();
   const registerSaveHandler = vi.fn();
   const unregisterSaveHandler = vi.fn();
   const saveTransformNode = vi.fn().mockResolvedValue(undefined);
   const triggerCancelTransform = vi.fn();
   const deleteTransformNode = vi.fn();
+  const addChildNode = vi.fn(() => 'node-crop-child');
   const addNodeWithEdge = vi.fn(() => 'node-xform-new');
   const selectNode = vi.fn();
 
@@ -64,7 +70,7 @@ const {
       setActiveTransformNodeId,
       triggerCancelTransform,
       activeEditNodeId: null as string | null,
-      setActiveEditNodeId: vi.fn(),
+      setActiveEditNodeId,
       triggerCancelEdit: vi.fn(),
       saveHandlers: {} as Record<string, () => Promise<void>>,
       registerSaveHandler,
@@ -83,6 +89,7 @@ const {
     const state = {
       selectedId: null,
       selectNode,
+      addChildNode,
       addNodeWithEdge,
       deleteTransformNode,
       setNodeDraggable: vi.fn(),
@@ -95,11 +102,13 @@ const {
   return {
     mockUpdateConfig: updateConfig,
     mockSetActiveTransformNodeId: setActiveTransformNodeId,
+    mockSetActiveEditNodeId: setActiveEditNodeId,
     mockRegisterSaveHandler: registerSaveHandler,
     mockUnregisterSaveHandler: unregisterSaveHandler,
     mockSaveTransformNode: saveTransformNode,
     mockTriggerCancelTransform: triggerCancelTransform,
     mockDeleteTransformNode: deleteTransformNode,
+    mockAddChildNode: addChildNode,
     mockAddNodeWithEdge: addNodeWithEdge,
     mockSelectNode: selectNode,
     mockUseNodeStoreFn: nodeStoreFn,
@@ -121,6 +130,10 @@ vi.mock('@/stores/canvasStore', () => ({
 vi.mock('@/api/storageApi', () => ({
   presignUpload: vi.fn(),
   confirmUpload: vi.fn(),
+}));
+
+vi.mock('@/utils/imageCrop', () => ({
+  cropImage: vi.fn(),
 }));
 
 vi.mock('axios', () => ({
@@ -494,5 +507,40 @@ describe('ImageGenNode', () => {
       }
     }
     fetchSpy.mockRestore();
+  });
+
+  // ── Crop save creates new node ──
+
+  it('crop save creates new child node instead of replacing original image', async () => {
+    vi.mocked(presignUpload).mockResolvedValue({
+      fileId: 'cropped-file-id',
+      uploadUrl: 'http://upload.url',
+      key: 'some-key',
+      fields: {},
+    } as any);
+    vi.mocked(cropImage).mockResolvedValue(new Blob(['fake'], { type: 'image/webp' }));
+
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'original-file-id', editMode: 'crop' };
+    renderNode();
+
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const saveBtn = Array.from(portalRoot.querySelectorAll('button')).find(
+      (btn) => btn.textContent?.includes('保存')
+    );
+    expect(saveBtn).toBeTruthy();
+    fireEvent.click(saveBtn!);
+
+    await waitFor(() => {
+      expect(mockAddChildNode).toHaveBeenCalledWith('img1', { fileId: 'cropped-file-id', status: 'done' });
+    });
+
+    // Should NOT replace original node's fileId
+    const updateCalls = mockUpdateConfig.mock.calls.filter((c: any[]) => c[0] === 'img1');
+    const fileIdUpdate = updateCalls.find((c: any[]) => c[1]?.fileId !== undefined);
+    expect(fileIdUpdate).toBeUndefined();
+
+    // Should exit edit mode
+    expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
+    expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
   });
 });
