@@ -19,7 +19,7 @@ import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
-import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, clampWithAspectRatio, calcAnchorCompensation, adaptCustomSize } from '@/utils/resizeUtils';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -661,59 +661,23 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // ── Aspect-ratio-locked resize handlers ──
 
-  const resizeCornerHandlers = useCallback((corner: typeof CORNERS[number]) => ({
-    onResize: (_event: any, params: { width: number; height: number; x: number; y: number }) => {
-      const aspectRatio = nodeData?.aspectRatio;
-      if (!aspectRatio || aspectRatio <= 0 || !isFinite(aspectRatio)) return;
+  const handleResizeStart = useCallback(() => {
+    setIsResizing(true);
+  }, []);
 
-      const currentNodes = getNodes();
-      const currentNode = currentNodes.find((n) => n.id === id);
-      if (!currentNode) return;
-
-      const currentWidth = currentNode.width;
-      const currentHeight = currentNode.height;
-      if (!currentWidth || !currentHeight || currentWidth <= 0 || currentHeight <= 0) return;
-
-      const newWidth = Math.round(params.width);
-      const newHeight = Math.round(newWidth / aspectRatio);
-
-      const clamped = clampWithAspectRatio(newWidth, newHeight, aspectRatio, RESIZE_CONFIG.minSide, RESIZE_CONFIG.maxSide);
-
-      const deltaW = clamped.w - currentWidth;
-      const deltaH = clamped.h - currentHeight;
-
-      const { x: newX, y: newY } = calcAnchorCompensation(
-        corner,
-        currentNode.position.x,
-        currentNode.position.y,
-        deltaW,
-        deltaH,
-      );
-
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== id) return n;
-          return { ...n, width: clamped.w, height: clamped.h, position: { x: newX, y: newY } };
-        }),
-      );
-    },
-    onResizeStart: () => {
-      setIsResizing(true);
-    },
-    onResizeEnd: () => {
-      setIsResizing(false);
-      const currentNodes = getNodes();
-      const currentNode = currentNodes.find((n) => n.id === id);
-      if (!currentNode) return;
-      const w = currentNode.width ?? nodeWidth;
-      const h = currentNode.height ?? nodeHeight;
-      if (w > 0 && h > 0) {
-        updateConfig(id, {
-          customSize: { width: w, height: h },
-        } as any);
-      }
-    },
-  }), [id, nodeData?.aspectRatio, getNodes, setNodes, updateConfig]);
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false);
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (!currentNode) return;
+    const w = currentNode.width ?? nodeWidth;
+    const h = currentNode.height ?? nodeHeight;
+    if (w > 0 && h > 0) {
+      updateConfig(id, {
+        customSize: { width: w, height: h },
+      } as any);
+    }
+  }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
 
   return (
     <div className="relative canvas-node">
@@ -842,26 +806,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         )}
       </div>
       {/* Corner resize handles — only when single-selected with media, not in edit mode */}
-      {showResizeHandles && CORNERS.map((corner) => {
-        const handlers = resizeCornerHandlers(corner);
-        return (
-          <NodeResizeControl
-            key={corner}
-            nodeId={id}
-            position={corner}
-            keepAspectRatio={false}
-            minWidth={RESIZE_CONFIG.minSide}
-            minHeight={RESIZE_CONFIG.minSide}
-            maxWidth={RESIZE_CONFIG.maxSide}
-            maxHeight={RESIZE_CONFIG.maxSide}
-            onResize={handlers.onResize}
-            onResizeStart={handlers.onResizeStart}
-            onResizeEnd={handlers.onResizeEnd}
-            style={HANDLE_STYLE}
-            data-testid={`resize-control-${corner}`}
-          />
-        );
-      })}
+      {showResizeHandles && CORNERS.map((corner) => (
+        <NodeResizeControl
+          key={corner}
+          nodeId={id}
+          position={corner}
+          keepAspectRatio={true}
+          minWidth={RESIZE_CONFIG.minSide}
+          minHeight={RESIZE_CONFIG.minSide}
+          maxWidth={RESIZE_CONFIG.maxSide}
+          maxHeight={RESIZE_CONFIG.maxSide}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+          style={HANDLE_STYLE}
+          data-testid={`resize-control-${corner}`}
+        />
+      ))}
       <div
         className="bg-[#222222] rounded-lg overflow-hidden"
         style={{
