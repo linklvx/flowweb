@@ -420,7 +420,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
           border: '1px solid #3F3F46',
           margin: 2,
           ...(selected
-            ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
+            ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }
             : {}),
         }}
       >
