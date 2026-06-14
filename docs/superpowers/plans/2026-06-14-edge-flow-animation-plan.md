@@ -625,3 +625,8 @@ Task 1 和 Task 3 独立，可并行。Task 2 依赖 Task 1。Task 4 依赖 Task
 5. **`source`/`target` props**：React Flow 的 `EdgeProps` 内置属性，默认传入每条边
 6. **`pointer-events: none`** 仅在 CSS 类中声明，不在行内 style 重复
 7. **rAF 清理**：`useEffect` cleanup 中同时清理 `unmountTimerRef` 和 `rafRef`
+
+## 可选优化（非强制，开发时可调整）
+
+- **淡入类测试**：可用 `vi.useFakeTimers()` + `advanceTimersByTime(16)` 模拟一帧验证 `.is-active` 类延迟添加，当前基线测试已覆盖功能正确性，此项可选
+- **边选中粒子行为**：当前边自身选中 + 端点选中时粒子仍显示，仅隐藏高亮叠加层。若后续设计需要隐藏粒子，在 `<g>` 渲染条件加 `&& !selected` 即可
