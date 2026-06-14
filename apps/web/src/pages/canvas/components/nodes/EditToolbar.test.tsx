@@ -48,7 +48,6 @@ describe('EditToolbar', () => {
     onUndo: vi.fn(),
     onClear: vi.fn(),
     onGenerate: vi.fn(),
-    onSaveAsVariant: vi.fn(),
   };
 
   afterEach(() => {
@@ -63,12 +62,6 @@ describe('EditToolbar', () => {
     render(<EditToolbar {...baseProps} />);
     expect(screen.getByText('退出')).toBeInTheDocument();
     expect(screen.getByText('保存')).toBeInTheDocument();
-  });
-
-  it('renders "保存为新变体" button in crop mode', () => {
-    setupPortalTarget();
-    render(<EditToolbar {...baseProps} />);
-    expect(screen.getByText('保存为新变体')).toBeInTheDocument();
   });
 
   it('does not render undo/clear/generate buttons in crop mode', () => {
@@ -185,12 +178,6 @@ describe('EditToolbar', () => {
     expect(screen.getByLabelText('撤销')).toBeDisabled();
   });
 
-  it('disables save-as-variant button when isSaving', () => {
-    setupPortalTarget();
-    render(<EditToolbar {...baseProps} isSaving={true} />);
-    expect(screen.getByText('保存为新变体').closest('button')).toBeDisabled();
-  });
-
   it('does not call onSave when isSaving and save button clicked', () => {
     setupPortalTarget();
     const onSave = vi.fn();
@@ -270,14 +257,6 @@ describe('EditToolbar', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="erase" />);
     expect(screen.queryByText('清除')).not.toBeInTheDocument();
-  });
-
-  it('calls onSaveAsVariant when save-as-variant button is clicked', () => {
-    setupPortalTarget();
-    const onSaveAsVariant = vi.fn();
-    render(<EditToolbar {...baseProps} onSaveAsVariant={onSaveAsVariant} />);
-    fireEvent.click(screen.getByText('保存为新变体'));
-    expect(onSaveAsVariant).toHaveBeenCalledTimes(1);
   });
 
   // ── portal rendering ──

@@ -440,47 +440,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawPrompt, strength]);
 
-  const handleSaveAsVariant = useCallback(async () => {
-    setProcessing(true);
-    setEditError(null);
-    try {
-      let newFileId: string;
-
-      if (editMode === 'crop') {
-        const rect = cropRectRef.current;
-        const blob = await cropImage(displayUrl!, rect, 2048);
-        const file = new File([blob], `crop-${Date.now()}.webp`, { type: 'image/webp' });
-        const { fileId: fid, uploadUrl, key, fields } = await presignUpload({
-          fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
-        });
-        const formData = new FormData();
-        Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
-        formData.append('file', file);
-        const proxyUrl = import.meta.env.DEV
-          ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-          : uploadUrl;
-        await axios.post(proxyUrl, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
-        });
-        await confirmUpload({ fileId: fid, key, fileSize: file.size });
-        newFileId = fid;
-      } else {
-        if (!fileId) throw new Error('没有可保存的图片');
-        newFileId = fileId;
-      }
-
-      const newNodeId = useCanvasStore.getState().addNodeWithEdge(id);
-      useNodeStore.getState().updateConfig(newNodeId, { fileId: newFileId });
-      updateConfig(id, { editMode: null });
-      useNodeStore.getState().setActiveEditNodeId(null);
-    } catch (err) {
-      console.error('保存为新变体失败:', err);
-      setEditError('保存失败，请重试');
-    } finally {
-      setProcessing(false);
-    }
-  }, [id, editMode, fileId, displayUrl, updateConfig]);
-
   // ── Effects ──
 
   // Register save handler for cross-node invocation
@@ -650,7 +609,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onRedo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.redo() : undefined}
           onClear={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.clear() : undefined}
           onGenerate={editMode !== 'crop' ? handleGenerate : undefined}
-          onSaveAsVariant={handleSaveAsVariant}
           brushSize={brushSize}
           onBrushSizeChange={setBrushSize}
           eraseTool={eraseTool}

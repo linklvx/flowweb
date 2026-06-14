@@ -13,7 +13,6 @@ export interface EditToolbarProps {
   onRedo?: () => void;
   onClear?: () => void;
   onGenerate?: () => void;
-  onSaveAsVariant?: () => void;
   // 画笔
   brushSize?: number;
   onBrushSizeChange?: (size: number) => void;
@@ -264,7 +263,6 @@ function EditToolbarComponent({
   onRedo,
   onClear,
   onGenerate,
-  onSaveAsVariant,
   brushSize = 20,
   onBrushSizeChange,
   eraseTool,
@@ -524,20 +522,6 @@ function EditToolbarComponent({
             </button>
           )}
 
-          {onSaveAsVariant && (
-            <>
-              <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 32 }} />
-              <button
-                type="button"
-                className={`${btnBaseClass} edit-btn`}
-                style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
-                onClick={onSaveAsVariant}
-                disabled={isSaving}
-              >
-                <span>保存为新变体</span>
-              </button>
-            </>
-          )}
         </div>
       )}
 
