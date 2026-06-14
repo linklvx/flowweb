@@ -37,12 +37,18 @@ export interface ImageNodeData {
   flipV?: boolean;
   transformMode?: boolean;
   editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | null;
+  customSize?: { width: number; height: number };
+  aspectRatio?: number;
 }
 
 export interface VideoNodeData {
   model: string;
   status: 'idle' | 'loading' | 'done' | 'error';
   fileId?: string;
+  customSize?: { width: number; height: number };
+  aspectRatio?: number;
+  referenceVideo?: string;
+  ratio?: string;
 }
 
 export interface AudioNodeData {
