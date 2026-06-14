@@ -357,6 +357,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const handleEditCancel = useCallback(() => {
     setEditError(null);
     if (isProcessing) return;
+    if (useNodeStore.getState().getEditOverlayDragging()) return;
     updateConfig(id, { editMode: null });
     useNodeStore.getState().setActiveEditNodeId(null);
   }, [id, isProcessing, updateConfig]);

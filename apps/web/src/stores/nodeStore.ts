@@ -158,6 +158,8 @@ interface NodeState {
   activeEditNodeId: string | null;
   setActiveEditNodeId: (id: string | null) => void;
   triggerCancelEdit: () => void;
+  getEditOverlayDragging: () => boolean;
+  setEditOverlayDragging: (v: boolean) => void;
   saveHandlers: Record<string, () => Promise<void>>;
   registerSaveHandler: (nodeId: string, handler: () => Promise<void>) => void;
   unregisterSaveHandler: (nodeId: string) => void;
@@ -166,6 +168,8 @@ interface NodeState {
 
 // ========== Store ==========
 
+let _editOverlayDragging = false;
+
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
   activeTransformNodeId: null,
@@ -173,17 +177,26 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   saveHandlers: {},
   activeEditNodeId: null,
 
+  getEditOverlayDragging: () => _editOverlayDragging,
+  setEditOverlayDragging: (v) => { _editOverlayDragging = v; },
+
   setActiveTransformNodeId: (id) => {
     if (id !== null && get().activeEditNodeId !== null) return;
     set({ activeTransformNodeId: id });
   },
-  triggerCancelTransform: () => set({ cancelRequestedAt: Date.now() }),
+  triggerCancelTransform: () => {
+    if (_editOverlayDragging) return;
+    set({ cancelRequestedAt: Date.now() });
+  },
 
   setActiveEditNodeId: (id) => {
     if (id !== null && get().activeTransformNodeId !== null) return;
     set({ activeEditNodeId: id });
   },
-  triggerCancelEdit: () => set({ cancelRequestedAt: Date.now() }),
+  triggerCancelEdit: () => {
+    if (_editOverlayDragging) return;
+    set({ cancelRequestedAt: Date.now() });
+  },
 
   registerSaveHandler: (nodeId, handler) =>
     set((s) => ({ saveHandlers: { ...s.saveHandlers, [nodeId]: handler } })),

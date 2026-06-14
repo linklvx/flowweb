@@ -107,7 +107,9 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const onPaneClick = useCallback(() => {
     const ns = useNodeStore.getState();
     if (ns.activeEditNodeId) {
-      ns.triggerCancelEdit();
+      if (!ns.getEditOverlayDragging()) {
+        ns.triggerCancelEdit();
+      }
     } else if (ns.activeTransformNodeId) {
       ns.triggerCancelTransform();
     } else {

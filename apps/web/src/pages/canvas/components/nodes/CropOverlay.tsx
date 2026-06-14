@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useId } from 'react';
 import type { CropRect } from '@/utils/imageCrop';
+import { useNodeStore } from '@/stores/nodeStore';
 
 interface CropOverlayProps {
   imageDisplayWidth: number;
@@ -97,6 +98,7 @@ export function CropOverlay({
   const handleMoveStart = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    useNodeStore.getState().setEditOverlayDragging(true);
     setDragging('move');
     dragStart.current = { x: e.clientX, y: e.clientY, rect: { ...cropRect }, handleType: '' };
   };
@@ -104,6 +106,7 @@ export function CropOverlay({
   const handleResizeStart = (e: React.MouseEvent, handle: string) => {
     e.stopPropagation();
     e.preventDefault();
+    useNodeStore.getState().setEditOverlayDragging(true);
     setDragging('resize');
     dragStart.current = { x: e.clientX, y: e.clientY, rect: { ...cropRect }, handleType: handle };
   };
@@ -131,10 +134,18 @@ export function CropOverlay({
       updateRect({ x, y, width, height });
     };
 
-    const handleUp = () => setDragging(null);
+    const handleUp = () => {
+      setDragging(null);
+      useNodeStore.getState().setEditOverlayDragging(false);
+      window.addEventListener('click', function suppressClick(ev) {
+        ev.stopPropagation();
+        window.removeEventListener('click', suppressClick, true);
+      }, true);
+    };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
     return () => {
+      useNodeStore.getState().setEditOverlayDragging(false);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
@@ -143,7 +154,7 @@ export function CropOverlay({
   return (
     <div
       data-testid="crop-overlay"
-      className="nodrag nopan absolute inset-0"
+      className="nopan absolute inset-0"
       style={{ width: imageDisplayWidth, height: imageDisplayHeight }}
     >
       {/* Dark overlay with transparent cutout via SVG mask */}
@@ -190,7 +201,7 @@ export function CropOverlay({
 
       {/* Size display */}
       <div
-        className="nodrag nopan"
+        className="nopan"
         style={{
           position: 'absolute',
           left: px.left,

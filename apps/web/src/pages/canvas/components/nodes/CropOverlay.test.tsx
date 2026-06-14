@@ -33,10 +33,16 @@ describe('CropOverlay', () => {
     expect(screen.getByText(/480/)).toBeInTheDocument();
   });
 
-  it('has nodrag class on overlay to prevent XYFlow drag', () => {
+  it('has nopan class on overlay', () => {
     render(<CropOverlay {...defaultProps} />);
     const overlay = document.querySelector('[data-testid="crop-overlay"]');
-    expect(overlay?.className).toContain('nodrag');
+    expect(overlay?.className).toContain('nopan');
+  });
+
+  it('does NOT have nodrag class on overlay (XYFlow node tracking relies on pointer events reaching the node)', () => {
+    render(<CropOverlay {...defaultProps} />);
+    const overlay = document.querySelector('[data-testid="crop-overlay"]');
+    expect(overlay?.className).not.toContain('nodrag');
   });
 
   it('clamps crop rect within image bounds when width exceeds 1', () => {
