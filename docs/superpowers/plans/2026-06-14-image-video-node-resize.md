@@ -512,12 +512,38 @@ const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) 
 }, [id, updateConfig, setNodes]);
 ```
 
-- [ ] **Step 11: Run tests to verify they pass**
+- [ ] **Step 11: Restore customSize dimensions on mount (page refresh / canvas load)**
+
+When the node mounts, if `node.data.customSize` exists, restore it to React Flow's node dimensions. Without this, persisted customSize is lost on page refresh — React Flow defaults to the initial `calcConstrainedSize` value.
+
+Add a `useEffect` after the existing state declarations:
+```ts
+// On mount, restore customSize to React Flow node dimensions
+useEffect(() => {
+  const cs = nodeData?.customSize as { width: number; height: number } | undefined;
+  if (cs && cs.width > 0 && cs.height > 0) {
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (currentNode && (currentNode.width !== cs.width || currentNode.height !== cs.height)) {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          return { ...n, width: cs.width, height: cs.height };
+        }),
+      );
+      // Also set internal size tracking so containers render at restored size
+      setImgSize({ w: cs.width, h: cs.height });
+    }
+  }
+}, []); // run once on mount
+```
+
+- [ ] **Step 12: Run tests to verify they pass**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/nodes/ImageGenNode.test.tsx --reporter=verbose`
 Expected: All tests PASS including new resize tests
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx apps/web/src/pages/canvas/components/nodes/ImageGenNode.test.tsx
@@ -758,7 +784,61 @@ const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) 
 }, [id, updateConfig]);
 ```
 
-- [ ] **Step 9: Render resize handles and update video styles**
+- [ ] **Step 9: Adopt 100% container fill + initial size sync for video node**
+
+Mirror the ImageGenNode container changes. The outer card div and inner flex container must use 100% fill driven by node width/height.
+
+Update the outer card div (around line 256):
+```tsx
+<div
+  className="bg-[#222222] rounded-lg"
+  style={{
+    width: nodeWidth,
+    height: nodeHeight,
+    border: '1px solid #3F3F46',
+    margin: 2,
+    ...(selected
+      ? { borderColor: 'transparent', boxShadow: '0 0 0 3px #9CA3AF' }
+      : {}),
+  }}
+>
+```
+
+Where `nodeWidth` / `nodeHeight` come from `useInternalNode(id)` — the React Flow managed dimensions.
+
+Update the inner flex container (around line 268):
+```tsx
+<div
+  className="flex items-center justify-center overflow-hidden rounded-lg transition-all duration-300 relative group"
+  style={{ width: '100%', height: '100%' }}
+>
+```
+
+Also add initial size sync in `handleVideoLoad`: after `setVidSize(size)`, call `setNodes` to sync initial dimensions (only when no customSize). This is the same pattern as ImageGenNode.
+
+- [ ] **Step 10: Restore customSize dimensions on mount for video node**
+
+Same as ImageGenNode — add a mount-time `useEffect` to restore persisted customSize:
+```ts
+useEffect(() => {
+  const cs = nodeData?.customSize as { width: number; height: number } | undefined;
+  if (cs && cs.width > 0 && cs.height > 0) {
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (currentNode && (currentNode.width !== cs.width || currentNode.height !== cs.height)) {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          return { ...n, width: cs.width, height: cs.height };
+        }),
+      );
+      setVidSize({ w: cs.width, h: cs.height });
+    }
+  }
+}, []);
+```
+
+- [ ] **Step 11: Render resize handles**
 
 Add resize handles after the title bar div:
 ```tsx
@@ -791,14 +871,12 @@ Update the video element (line 272) to add ref and cover fill:
 ```
 
 Update the outer container div (line 268) to add overflow hidden:
-The existing `overflow-hidden` on the flex container is sufficient. Verify it's present on line 269.
-
-- [ ] **Step 10: Run tests to verify they pass**
+- [ ] **Step 12: Run tests to verify they pass**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/nodes/VideoGenNode.test.tsx --reporter=verbose`
 Expected: All tests PASS including new resize tests
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/components/nodes/VideoGenNode.tsx apps/web/src/pages/canvas/components/nodes/VideoGenNode.test.tsx
@@ -813,28 +891,18 @@ git commit -m "feat: add aspect-ratio-locked corner resize handles to VideoGenNo
 - Modify: `apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/VideoGenNode.tsx`
 
-- [ ] **Step 1: Add material replacement adaptation in ImageGenNode**
+- [ ] **Step 1: Simplify displayUrl change effect in ImageGenNode**
 
-In `ImageGenNode.tsx`, update the `useEffect` that resets dimensions on displayUrl change (line 131):
+The existing `useEffect` on `displayUrl` change (line 131) resets `imgSize` and `naturalSize` to null. This is still needed to trigger a fresh `handleImageLoad` cycle. However, the core adaptation logic now lives in `handleImageLoad` (Step 2). Simplify the effect to only handle the reset:
 ```ts
-// Reset dimensions when image URL changes
+// Reset dimensions when image URL changes — handleImageLoad will recalculate
 useEffect(() => {
-  const currentData = useNodeStore.getState().nodes[id]?.data as any;
-  const existingCustomSize = currentData?.customSize;
-  const existingAspectRatio = currentData?.aspectRatio;
-
   setImgSize(null);
   setNaturalSize(null);
-
-  // If user has manually resized and material changed, adapt customSize
-  if (existingCustomSize && existingAspectRatio && displayUrl) {
-    // Aspect ratio will be updated by handleImageLoad — adapt then
-    // For now, keep customSize; handleImageLoad will adapt if ratio differs
-  } else if (!displayUrl) {
-    // Material removed — keep customSize but clear aspectRatio
-  }
-}, [displayUrl, id]);
+}, [displayUrl]);
 ```
+
+Same simplification applies to `VideoGenNode.tsx`'s displayUrl effect.
 
 - [ ] **Step 2: Add ratio-aware adaptation in handleImageLoad for ImageGenNode**
 
