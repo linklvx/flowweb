@@ -31,11 +31,11 @@ export function ConnectionLine({
     targetPosition,
   });
 
-  // nodeInternals is a runtime Map (O(1) lookup) not exposed in public TS types
+  // nodeLookup is a runtime Map (O(1) lookup) not exposed in public TS types
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isActive = useStore((state: any) => {
-    const sourceSelected = state.nodeInternals.get(source)?.selected ?? false;
-    const targetSelected = state.nodeInternals.get(target)?.selected ?? false;
+    const sourceSelected = state.nodeLookup.get(source)?.selected ?? false;
+    const targetSelected = state.nodeLookup.get(target)?.selected ?? false;
     return sourceSelected || targetSelected;
   });
 

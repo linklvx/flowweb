@@ -12,7 +12,7 @@ vi.mock('@/stores/canvasStore', () => ({
 }));
 
 // mock useStore from @xyflow/react
-const mockNodeInternals = new Map<string, { selected: boolean }>();
+const mockNodeLookup = new Map<string, { selected: boolean }>();
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual('@xyflow/react');
   return {
@@ -37,13 +37,13 @@ const defaultProps: any = {
 };
 
 function setupMockUseStore(sourceSelected: boolean, targetSelected: boolean) {
-  mockNodeInternals.clear();
-  mockNodeInternals.set('node1', { selected: sourceSelected } as any);
-  mockNodeInternals.set('node2', { selected: targetSelected } as any);
+  mockNodeLookup.clear();
+  mockNodeLookup.set('node1', { selected: sourceSelected } as any);
+  mockNodeLookup.set('node2', { selected: targetSelected } as any);
 
   vi.mocked(useStore).mockImplementation((selector: any) => {
     return selector({
-      nodeInternals: new Map(mockNodeInternals),
+      nodeLookup: new Map(mockNodeLookup),
     });
   });
 }
@@ -120,11 +120,11 @@ describe('ConnectionLine', () => {
     expect(paths.length).toBe(2);
   });
 
-  it('should handle missing nodeInternals gracefully', () => {
+  it('should handle missing nodeLookup gracefully', () => {
     // empty Map: get() returns undefined
-    mockNodeInternals.clear();
+    mockNodeLookup.clear();
     vi.mocked(useStore).mockImplementation((selector: any) => {
-      return selector({ nodeInternals: new Map() });
+      return selector({ nodeLookup: new Map() });
     });
     const { container } = renderWithProviders();
     // should render without crash
