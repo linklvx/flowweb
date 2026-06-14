@@ -102,7 +102,6 @@ export function ConnectionLine({
       {visible && (
         <g className={containerClassName}>
           <EdgeFlowParticles pathD={edgePath} direction="outward" />
-          <EdgeFlowParticles pathD={edgePath} direction="inward" />
         </g>
       )}
       {selected && (

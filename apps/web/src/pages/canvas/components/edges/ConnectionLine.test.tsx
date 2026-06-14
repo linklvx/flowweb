@@ -87,7 +87,7 @@ describe('ConnectionLine', () => {
     const { container } = renderWithProviders();
     const particlesGroup = container.querySelector('.edge-flow-particles');
     expect(particlesGroup).toBeInTheDocument();
-    expect(container.querySelectorAll('circle')).toHaveLength(6); // 3 outward + 3 inward
+    expect(container.querySelectorAll('circle')).toHaveLength(3); // outward only
   });
 
   it('should show particles when target node is selected', () => {
@@ -134,7 +134,7 @@ describe('ConnectionLine', () => {
   it('should show particles when both endpoints are selected', () => {
     setupMockUseStore(true, true);
     const { container } = renderWithProviders();
-    // still 6 particles total (not doubled)
-    expect(container.querySelectorAll('circle')).toHaveLength(6);
+    // still 3 particles (not doubled)
+    expect(container.querySelectorAll('circle')).toHaveLength(3);
   });
 });
