@@ -55,12 +55,18 @@
 - 新增 `node.data.aspectRatio: number` 字段（素材加载时缓存）
 - 尺寸优先级：`customSize` > `calcConstrainedSize()`
 - `calcConstrainedSize` 仅作为素材首次加载的初始尺寸
+- 初始尺寸写入规则：首次加载时 `calcConstrainedSize` 结果仅写入 `node.width` / `node.height` 与 `node.data.aspectRatio`，**不**写入 `customSize`，保留「用户未手动缩放」的原生状态标记
 - 缩放结束（`onResizeEnd`）写入 `customSize`，此时推入撤销重做历史栈
 - 缩放过程中（`onResize`）不入历史栈
 
 ### 1.6 素材更换适配
 
-更换素材时不清空 `customSize`，以当前 `customSize` 为外接矩形做 contain 适配：
+更换素材时按以下规则处理 `customSize`：
+- 同节点重新生成素材，新素材比例与原 `aspectRatio` 一致 → 保留当前 `customSize` 不变
+- 同节点更换不同比例素材 → 不清空 `customSize`，执行 contain 适配逻辑（以当前 `customSize` 为外接矩形）
+- 当前版本无主动「重置节点尺寸」入口，暂不提供清空能力
+
+contain 适配算法：
 
 ```ts
 // ratio = width / height
@@ -115,7 +121,10 @@ img, video { display: block; width: 100%; height: 100%; object-fit: cover; }
 onResize({ handle, width, height }):
   1. 校验 aspectRatio 有效性（非空、>0、有限值）
   2. 取缓存 aspectRatio，避免 DOM 读取
-  3. 根据 handle 确定主边，按 ratio 计算次边
+  3. 主边计算规则：
+     所有角手柄统一以拖拽回调的 width 为主基准边
+     height = Math.round(width / aspectRatio)
+     边界钳制阶段若高度先触达 min/max 约束，则自动切换为以高度为主基准边反推宽度
   4. 边界钳制（先 max 内切，再 min 硬约束）
   5. delta 差值锚点补偿
   6. Math.round 取整
@@ -153,6 +162,18 @@ const HANDLE_STYLE = {
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 ```
 
+`HANDLE_STYLE` 样式、尺寸与 `TextInputNode` 文本节点的缩放手柄完全保持一致，保证全画布节点交互体验统一。
+
+### 3.3 工具函数抽离
+
+核心工具函数统一抽离至 `src/utils/resizeUtils.ts` 共享文件：
+
+- `clampWithAspectRatio(w, h, ratio, min, max)` — 等比例边界钳制
+- `adaptCustomSize(customSize, newRatio)` — 素材更换时的 contain 适配
+- `calcAnchorCompensation(handle, node, deltaW, deltaH)` — 锚点补偿计算
+
+`ImageGenNode` 与 `VideoGenNode` 共同引用，避免重复实现。
+
 ---
 
 ## 4. Files to Modify
@@ -181,6 +202,7 @@ const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as cons
 | 锚点补偿（top-left） | 右下角坐标不变 |
 | 边界钳制 - 最短边 ≥ 100 | 无法缩到 100 以下 |
 | 边界钳制 - 最长边 ≤ 3000 | 不会超出 3000（常规比例） |
+| 极端比例（10:1） | 最短边强制 = 100px，长边可突破 3000px，比例不变 |
 | customSize 持久化 | resize end 后 `data.customSize` 非空 |
 | 素材更换适配 | 换素材后 customSize 按 contain 适配 |
 | 事件冒泡阻断 | 拖拽手柄不触发画布平移 |
@@ -214,3 +236,5 @@ const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as cons
 - [ ] 缩放过程中进入编辑模式：缩放终止，状态恢复
 - [ ] 拖拽手柄不触发画布平移
 - [ ] 多选时所有节点均无缩放手柄
+- [ ] 缩放后节点输入/输出锚点与节点边缘对齐，无错位、无偏移
+- [ ] 画布 zoom 缩放后，手柄大小和拖拽精度正常，与文本节点表现一致
