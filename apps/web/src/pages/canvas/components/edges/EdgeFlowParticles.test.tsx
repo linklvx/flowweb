@@ -61,7 +61,7 @@ describe('EdgeFlowParticles', () => {
     expect(circle.getAttribute('style')).toContain('var(--edge-flow-color)');
   });
 
-  it('should stagger particle begin times', () => {
+  it('should stagger outward particle begin times from 0', () => {
     const { container } = render(
       <svg>
         <EdgeFlowParticles pathD={pathD} direction="outward" />
@@ -71,5 +71,17 @@ describe('EdgeFlowParticles', () => {
       (m) => m.getAttribute('begin'),
     );
     expect(begins).toEqual(['0ms', '667ms', '1334ms']);
+  });
+
+  it('should offset inward particle begin times by directionOffset', () => {
+    const { container } = render(
+      <svg>
+        <EdgeFlowParticles pathD={pathD} direction="inward" />
+      </svg>,
+    );
+    const begins = Array.from(container.querySelectorAll('animateMotion')).map(
+      (m) => m.getAttribute('begin'),
+    );
+    expect(begins).toEqual(['1000ms', '1667ms', '2334ms']);
   });
 });
