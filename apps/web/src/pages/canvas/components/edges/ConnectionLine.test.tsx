@@ -23,7 +23,7 @@ vi.mock('@xyflow/react', async () => {
 
 import { useStore } from '@xyflow/react';
 
-const defaultProps = {
+const defaultProps: any = {
   id: 'e1',
   sourceX: 0,
   sourceY: 100,
