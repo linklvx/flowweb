@@ -63,7 +63,7 @@ describe('EdgeFlowParticles', () => {
   it('should render correct number of circles for outward direction', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="outward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="outward" />
       </svg>,
     );
     expect(container.querySelectorAll('circle')).toHaveLength(3);
@@ -73,26 +73,17 @@ describe('EdgeFlowParticles', () => {
   it('should render correct number of circles for inward direction', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="inward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="inward" />
       </svg>,
     );
     expect(container.querySelectorAll('circle')).toHaveLength(3);
     expect(container.querySelectorAll('animateMotion')).toHaveLength(3);
   });
 
-  it('should NOT render circles when inactive', () => {
-    const { container } = render(
-      <svg>
-        <EdgeFlowParticles pathD={pathD} direction="outward" active={false} />
-      </svg>,
-    );
-    expect(container.querySelectorAll('circle')).toHaveLength(0);
-  });
-
   it('outward particles should NOT have keyPoints attribute', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="outward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="outward" />
       </svg>,
     );
     const motions = container.querySelectorAll('animateMotion');
@@ -104,7 +95,7 @@ describe('EdgeFlowParticles', () => {
   it('inward particles SHOULD have keyPoints="1;0" and keyTimes="0;1"', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="inward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="inward" />
       </svg>,
     );
     const motions = container.querySelectorAll('animateMotion');
@@ -118,7 +109,7 @@ describe('EdgeFlowParticles', () => {
   it('should use CSS variable for fill color', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="outward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="outward" />
       </svg>,
     );
     const circle = container.querySelector('circle')!;
@@ -128,7 +119,7 @@ describe('EdgeFlowParticles', () => {
   it('should stagger particle begin times', () => {
     const { container } = render(
       <svg>
-        <EdgeFlowParticles pathD={pathD} direction="outward" active={true} />
+        <EdgeFlowParticles pathD={pathD} direction="outward" />
       </svg>,
     );
     const begins = Array.from(container.querySelectorAll('animateMotion')).map(
@@ -153,16 +144,12 @@ import { EDGE_PARTICLE_CONFIG } from './edgeParticleConfig';
 interface EdgeFlowParticlesProps {
   pathD: string;
   direction: 'outward' | 'inward';
-  active: boolean;
 }
 
 export const EdgeFlowParticles = memo(function EdgeFlowParticles({
   pathD,
   direction,
-  active,
 }: EdgeFlowParticlesProps) {
-  if (!active) return null;
-
   const { count, radius, duration, stagger, directionOffset } = EDGE_PARTICLE_CONFIG;
   const isInward = direction === 'inward';
 
@@ -192,7 +179,7 @@ export const EdgeFlowParticles = memo(function EdgeFlowParticles({
 - [ ] **Step 4: 运行测试，验证全部通过**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/edges/EdgeFlowParticles.test.tsx`
-Expected: all 7 tests PASS
+Expected: all 6 tests PASS
 
 - [ ] **Step 5: Commit**
 
@@ -215,6 +202,7 @@ git commit -m "feat: add EdgeFlowParticles component with bidirectional animateM
 ```css
   /* Edge flow animation */
   --edge-flow-color: #3B82F6;
+  --edge-highlight-color: #999;
 ```
 
 - [ ] **Step 2: 在文件末尾添加边缘流动画和无障碍样式**
@@ -457,7 +445,9 @@ export function ConnectionLine({
   });
 
   const [visible, setVisible] = useState(false);
+  const [isFadeIn, setIsFadeIn] = useState(false);
   const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isActive) {
@@ -466,12 +456,21 @@ export function ConnectionLine({
         clearTimeout(unmountTimerRef.current);
         unmountTimerRef.current = null;
       }
+      // 延迟一帧添加 is-active 类，确保 DOM 先以 opacity:0 挂载，再触发淡入过渡
+      rafRef.current = requestAnimationFrame(() => {
+        setIsFadeIn(true);
+      });
     } else {
+      setIsFadeIn(false);
       unmountTimerRef.current = setTimeout(() => setVisible(false), 300);
     }
     return () => {
       if (unmountTimerRef.current) {
         clearTimeout(unmountTimerRef.current);
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
     };
   }, [isActive]);
@@ -484,7 +483,7 @@ export function ConnectionLine({
     [id],
   );
 
-  const containerClassName = `edge-flow-particles${isActive && visible ? ' is-active' : ''}`;
+  const containerClassName = `edge-flow-particles${isFadeIn ? ' is-active' : ''}`;
 
   return (
     <>
@@ -500,15 +499,15 @@ export function ConnectionLine({
         <path
           d={edgePath}
           fill="none"
-          stroke="#999"
+          stroke="var(--edge-highlight-color)"
           strokeWidth={2}
           style={{ pointerEvents: 'none' }}
         />
       )}
       {visible && (
-        <g className={containerClassName} style={{ pointerEvents: 'none' }}>
-          <EdgeFlowParticles pathD={edgePath} direction="outward" active={isActive} />
-          <EdgeFlowParticles pathD={edgePath} direction="inward" active={isActive} />
+        <g className={containerClassName}>
+          <EdgeFlowParticles pathD={edgePath} direction="outward" />
+          <EdgeFlowParticles pathD={edgePath} direction="inward" />
         </g>
       )}
       {selected && (
@@ -546,7 +545,7 @@ Expected: all 10 tests PASS
 - [ ] **Step 5: 确认 EdgeFlowParticles 测试仍然通过**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/edges/EdgeFlowParticles.test.tsx`
-Expected: all 7 tests PASS
+Expected: all 6 tests PASS
 
 - [ ] **Step 6: Commit**
 
@@ -620,7 +619,9 @@ Task 1 和 Task 3 独立，可并行。Task 2 依赖 Task 1。Task 4 依赖 Task
 ## 关键实现细节
 
 1. **`isEdgeSelected` 来源**：直接使用 `EdgeProps.selected`，无需额外订阅
-2. **淡入实现**：CSS 类控制。容器默认 `opacity: 0`，`is-active` 类设置 `opacity: 1`。挂载与加类分属两个渲染周期，自然触发过渡
+2. **淡入实现**：`visible` + `isFadeIn` 双状态 + `requestAnimationFrame`。挂载时先 `setVisible(true)` 渲染 DOM（opacity:0），一帧后再 `setIsFadeIn(true)` 添加 `.is-active` 类（opacity:1），两帧分别完成挂载和加类，CSS transition 稳定触发
 3. **粒子颜色**：通过 `style={{ fill: 'var(--edge-flow-color)' }}` 设置
-4. **高亮叠加层路径**：直接复用已计算的 `edgePath` 变量
+4. **高亮叠加层路径**：直接复用已计算的 `edgePath` 变量，颜色使用 `var(--edge-highlight-color)`
 5. **`source`/`target` props**：React Flow 的 `EdgeProps` 内置属性，默认传入每条边
+6. **`pointer-events: none`** 仅在 CSS 类中声明，不在行内 style 重复
+7. **rAF 清理**：`useEffect` cleanup 中同时清理 `unmountTimerRef` 和 `rafRef`
