@@ -197,7 +197,6 @@ function Divider() {
 // ── Main component ─────────────────────────────────────
 
 const FULL_TOOLBAR_HEIGHT = 84; // 2-row toolbar
-const UPLOAD_BTN_OFFSET = 64;   // single upload button (matches video node 28px gap)
 const GAP = 32;                 // 距离节点顶部的间距，确保不遮挡标题
 
 function ImageNodeToolbarComponent({
@@ -242,7 +241,7 @@ function ImageNodeToolbarComponent({
     const viewBottomY = (nodeY + nodeHeight) * zoom + vpY;
 
     // 上传按钮用较小偏移（匹配视频节点 28px 间距），完整工具条用实际高度
-    const effectiveOffset = hasImage ? FULL_TOOLBAR_HEIGHT + GAP : UPLOAD_BTN_OFFSET;
+    const effectiveOffset = FULL_TOOLBAR_HEIGHT + GAP;
 
     const toolbarTop = viewTopY - effectiveOffset;
 
@@ -256,25 +255,14 @@ function ImageNodeToolbarComponent({
   }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, hasImage]);
 
   if (!selected) return null;
+  if (nodeWidth == null || nodeHeight == null) return null;
 
-  if (!position) return null;
-
-  if (!position.isVisible) return null;
-
-  const portalRoot = document.getElementById('node-toolbar-portal');
-  if (!portalRoot) return null;
-
+  // Upload-only mode: render inline (like VideoGenNode/AudioGenNode) to avoid portal clipping
   if (!hasImage) {
-    return createPortal(
+    return (
       <div
-        className="nodrag nopan absolute flex flex-col items-center gap-1 transition-opacity duration-150 pointer-events-auto"
-        style={{
-          left: position.toolbarLeft,
-          top: position.toolbarTop,
-          transform: 'translateX(-50%)',
-          zIndex: 10000,
-          willChange: 'left, top',
-        }}
+        className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10"
+        style={{ bottom: 'calc(100% + 32px)' }}
       >
         <button
           type="button"
@@ -284,10 +272,15 @@ function ImageNodeToolbarComponent({
           <UploadIcon />
           <span className="text-sm">上传</span>
         </button>
-      </div>,
-      portalRoot,
+      </div>
     );
   }
+
+  if (!position) return null;
+  if (!position.isVisible) return null;
+
+  const portalRoot = document.getElementById('node-toolbar-portal');
+  if (!portalRoot) return null;
 
   return createPortal(
     <div
