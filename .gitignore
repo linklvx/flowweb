@@ -13,3 +13,4 @@ services/
 backups/
 flowweb.dataminio/
 flowweb.data/
+.worktrees/
