@@ -383,7 +383,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       });
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
-      updateConfig(id, { fileId: newId, referenceImage: undefined, editMode: null });
+      const newNodeId = useCanvasStore.getState().addNodeWithEdge(id);
+      useNodeStore.getState().updateConfig(newNodeId, { fileId: newId, transformMode: false });
+      updateConfig(id, { editMode: null });
       useNodeStore.getState().setActiveEditNodeId(null);
     } catch (err) {
       console.error('裁剪失败:', err);
