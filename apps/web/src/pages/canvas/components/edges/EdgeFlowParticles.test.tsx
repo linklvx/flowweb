@@ -84,4 +84,23 @@ describe('EdgeFlowParticles', () => {
     );
     expect(begins).toEqual(['1000ms', '1667ms', '2334ms']);
   });
+
+  it('should start hidden and use set to become visible at begin time', () => {
+    const { container } = render(
+      <svg>
+        <EdgeFlowParticles pathD={pathD} direction="outward" />
+      </svg>,
+    );
+    const circles = container.querySelectorAll('circle');
+    circles.forEach((c) => {
+      expect(c.getAttribute('visibility')).toBe('hidden');
+    });
+    const sets = container.querySelectorAll('set');
+    expect(sets).toHaveLength(3);
+    expect(sets[0].getAttribute('attributeName')).toBe('visibility');
+    expect(sets[0].getAttribute('to')).toBe('visible');
+    expect(sets[0].getAttribute('begin')).toBe('0ms');
+    expect(sets[1].getAttribute('begin')).toBe('667ms');
+    expect(sets[2].getAttribute('begin')).toBe('1334ms');
+  });
 });

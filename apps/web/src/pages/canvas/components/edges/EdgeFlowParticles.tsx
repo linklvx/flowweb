@@ -15,22 +15,27 @@ export const EdgeFlowParticles = memo(function EdgeFlowParticles({
 
   return (
     <>
-      {Array.from({ length: count }, (_, i) => (
-        <circle
-          key={i}
-          r={radius}
-          style={{ fill: 'var(--edge-flow-color)' }}
-        >
-          <animateMotion
-            path={pathD}
-            dur={`${duration}ms`}
-            begin={`${(isInward ? directionOffset : 0) + i * stagger}ms`}
-            repeatCount="indefinite"
-            calcMode="linear"
-            {...(isInward ? { keyPoints: '1;0', keyTimes: '0;1' } : {})}
-          />
-        </circle>
-      ))}
+      {Array.from({ length: count }, (_, i) => {
+        const beginTime = `${(isInward ? directionOffset : 0) + i * stagger}ms`;
+        return (
+          <circle
+            key={i}
+            r={radius}
+            style={{ fill: 'var(--edge-flow-color)' }}
+            visibility="hidden"
+          >
+            <set attributeName="visibility" to="visible" begin={beginTime} />
+            <animateMotion
+              path={pathD}
+              dur={`${duration}ms`}
+              begin={beginTime}
+              repeatCount="indefinite"
+              calcMode="linear"
+              {...(isInward ? { keyPoints: '1;0', keyTimes: '0;1' } : {})}
+            />
+          </circle>
+        );
+      })}
     </>
   );
 });
