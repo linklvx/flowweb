@@ -199,7 +199,6 @@ function Divider() {
 const FULL_TOOLBAR_HEIGHT = 84; // 2-row toolbar
 const UPLOAD_BTN_OFFSET = 64;   // single upload button (matches video node 28px gap)
 const GAP = 32;                 // 距离节点顶部的间距，确保不遮挡标题
-const VIEWPORT_PADDING = 10;
 
 function ImageNodeToolbarComponent({
   nodeId,
@@ -247,10 +246,7 @@ function ImageNodeToolbarComponent({
 
     const toolbarTop = viewTopY - effectiveOffset;
 
-    const toolbarLeft = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
-    );
+    const toolbarLeft = viewCenterX;
 
     const isVisible =
       viewBottomY > -nodeHeight * zoom &&

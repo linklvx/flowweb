@@ -93,7 +93,6 @@ const TEXT_COLOR = 'rgb(247, 247, 247)';
 const HOVER_BG = 'rgba(255,255,255,0.08)';
 const TOOLBAR_HEIGHT = 56;
 const GAP = 16;
-const VIEWPORT_PADDING = 10;
 
 // ── Paint toolbar sub-component ────────────────────────
 
@@ -311,10 +310,7 @@ function EditToolbarComponent({
         : viewTopY - TOOLBAR_HEIGHT - GAP;
 
     const centerX = hasFrameCoords ? frameVpCenterX! : viewCenterX;
-    const toolbarLeft = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(centerX, windowWidth - VIEWPORT_PADDING),
-    );
+    const toolbarLeft = centerX;
 
     return { toolbarLeft, toolbarTop };
   }, [nodeX, nodeY, nodeWidth, nodeHeight, vpX, vpY, zoom, windowWidth, windowHeight, isOutpaint, hasFrameCoords, frameVpBottom, frameVpCenterX]);

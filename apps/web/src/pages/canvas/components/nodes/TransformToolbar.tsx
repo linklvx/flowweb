@@ -60,7 +60,6 @@ const CONTROLS_ACTIVE = 'rgba(255,255,255,0.12)';
 const CONTROLS_BORDER = 'rgb(54, 54, 54)';
 const TOOLBAR_HEIGHT = 56;
 const GAP = 16;
-const VIEWPORT_PADDING = 10;
 
 // ── Main component ─────────────────────────────────────
 
@@ -106,10 +105,7 @@ function TransformToolbarComponent({
 
     const toolbarTop = viewTopY - effectiveOffset;
 
-    const toolbarLeft = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
-    );
+    const toolbarLeft = viewCenterX;
 
     const isVisible =
       viewBottomY > -nodeHeight * zoom &&

@@ -171,7 +171,6 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
     const TOOLBAR_HEIGHT = 46;
     const TOOLBAR_MARGIN = 28;
-    const VIEWPORT_PADDING = 10;
 
     const viewCenterX = (nodeX + nodeWidth / 2) * zoom + vpX;
     const viewTopY = nodeY * zoom + vpY;
@@ -179,10 +178,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
     const toolbarTop = viewTopY - TOOLBAR_HEIGHT - TOOLBAR_MARGIN;
 
-    const toolbarLeft = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(viewCenterX, windowWidth - VIEWPORT_PADDING),
-    );
+    const toolbarLeft = viewCenterX;
 
     const isVisible =
       viewBottomY > -nodeHeight * zoom &&
