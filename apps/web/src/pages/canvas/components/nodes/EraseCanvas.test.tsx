@@ -110,10 +110,10 @@ describe('EraseCanvas', () => {
     expect(canvas?.height).toBe(300);
   });
 
-  it('has nodrag class', () => {
+  it('has nopan class', () => {
     render(<EraseCanvas width={400} height={300} brushSize={20} tool="brush" />);
     const canvas = document.querySelector('canvas');
-    expect(canvas?.className).toContain('nodrag');
+    expect(canvas?.className).toContain('nopan');
   });
 
   it('exposes hasContent as false initially', () => {

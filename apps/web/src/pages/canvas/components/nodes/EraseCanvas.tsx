@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useNodeStore } from '@/stores/nodeStore';
 
 export interface EraseCanvasHandle {
   hasContent: () => boolean;
@@ -97,6 +98,8 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
+      e.preventDefault();
+      useNodeStore.getState().setEditOverlayDragging(true);
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -162,6 +165,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
       rectStart.current = null;
       previewRestore.current = null;
       strokePoints.current = [];
+      useNodeStore.getState().setEditOverlayDragging(false);
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -238,10 +242,16 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
 
     useEffect(() => {
       const handleGlobalUp = () => {
+        if (!isDrawing.current) return;
         isDrawing.current = false;
         rectStart.current = null;
         previewRestore.current = null;
         strokePoints.current = [];
+        useNodeStore.getState().setEditOverlayDragging(false);
+        window.addEventListener('click', function suppressClick(ev) {
+          ev.stopPropagation();
+          window.removeEventListener('click', suppressClick, true);
+        }, true);
       };
       window.addEventListener('mouseup', handleGlobalUp);
       return () => window.removeEventListener('mouseup', handleGlobalUp);
@@ -250,7 +260,7 @@ export const EraseCanvas = forwardRef<EraseCanvasHandle, Props>(
     return (
       <canvas
         ref={canvasRef}
-        className="nodrag nopan absolute top-0 left-0"
+        className="nopan absolute top-0 left-0"
         style={{ width, height, cursor: 'crosshair', zIndex: 5 }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
