@@ -32,6 +32,13 @@ describe('MaterialLibraryModal', () => {
     expect(screen.getByText('我的素材库')).toBeInTheDocument();
   });
 
+  it('should render with high zIndex above node toolbars', () => {
+    render(<MaterialLibraryModal />);
+    const wrapper = document.querySelector('.ant-modal-wrap');
+    expect(wrapper).toBeInTheDocument();
+    expect(wrapper).toHaveStyle({ zIndex: '100000' });
+  });
+
   it('should load folders and files on open', () => {
     render(<MaterialLibraryModal />);
     expect(loadFolders).toHaveBeenCalled();

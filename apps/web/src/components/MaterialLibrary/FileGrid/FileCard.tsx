@@ -32,18 +32,36 @@ export default function FileCard({ file, batchMode, selected, onToggleSelect, on
       )}
 
       {/* Preview */}
-      {(file.thumbnailUrl || file.url) ? (
+      {file.thumbnailUrl ? (
         <img
-          src={file.thumbnailUrl || file.url}
+          src={file.thumbnailUrl}
           alt={file.originalName}
           className="w-full h-full object-cover"
           loading="lazy"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
-      ) : null}
-      <div className={`w-full h-full flex items-center justify-center text-4xl ${(file.thumbnailUrl || file.url) ? 'hidden' : ''}`}>
-        {file.mimeType?.startsWith('video/') ? '🎬' : '🖼️'}
-      </div>
+      ) : file.mimeType?.startsWith('video/') && file.url ? (
+        <video
+          src={file.url}
+          preload="metadata"
+          muted
+          playsInline
+          disablePictureInPicture
+          className="w-full h-full object-cover pointer-events-none"
+        />
+      ) : file.url ? (
+        <img
+          src={file.url}
+          alt={file.originalName}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-4xl">
+          {file.mimeType?.startsWith('video/') ? '🎬' : '🖼️'}
+        </div>
+      )}
 
       {/* Action buttons — hidden in batch mode */}
       {!batchMode && (

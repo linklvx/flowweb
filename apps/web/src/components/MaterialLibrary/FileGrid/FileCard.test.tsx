@@ -76,4 +76,44 @@ describe('FileCard', () => {
       expect(onToggleSelect).toHaveBeenCalled();
     });
   });
+
+  describe('video preview', () => {
+    it('should render video element for video file without thumbnail', () => {
+      const videoFile = { ...file, mimeType: 'video/mp4', originalName: 'test.mp4' };
+      render(<FileCard file={videoFile} />);
+      const video = document.querySelector('video');
+      expect(video).toBeInTheDocument();
+      expect(video).toHaveAttribute('src', file.url);
+    });
+
+    it('should render img for video file with thumbnail', () => {
+      const videoFile = { ...file, mimeType: 'video/mp4', thumbnailUrl: 'http://example.com/thumb.webp' };
+      render(<FileCard file={videoFile} />);
+      const img = document.querySelector('img');
+      const video = document.querySelector('video');
+      expect(img).toBeInTheDocument();
+      expect(video).not.toBeInTheDocument();
+      expect(img).toHaveAttribute('src', videoFile.thumbnailUrl);
+    });
+
+    it('should render img for image file without thumbnail', () => {
+      render(<FileCard file={file} />);
+      const img = document.querySelector('img');
+      const video = document.querySelector('video');
+      expect(img).toBeInTheDocument();
+      expect(video).not.toBeInTheDocument();
+    });
+
+    it('should show emoji fallback when no url or thumbnail', () => {
+      const noUrlFile = { ...file, url: undefined };
+      render(<FileCard file={noUrlFile} />);
+      expect(screen.getByText('🖼️')).toBeInTheDocument();
+    });
+
+    it('should show video emoji fallback when video has no url or thumbnail', () => {
+      const noUrlVideo = { ...file, mimeType: 'video/mp4', url: undefined };
+      render(<FileCard file={noUrlVideo} />);
+      expect(screen.getByText('🎬')).toBeInTheDocument();
+    });
+  });
 });

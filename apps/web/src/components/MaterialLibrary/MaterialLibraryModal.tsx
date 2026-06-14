@@ -91,7 +91,8 @@ export default function MaterialLibraryModal() {
 
   return (
     <Modal title="我的素材库" open={isOpen} onCancel={handleClose} footer={null}
-      width="90%" style={{ top: 50 }} className="material-library-modal">
+      width="90%" style={{ top: 50 }} zIndex={100000}
+      className="material-library-modal">
       <div className="material-library-container">
         <div className="material-library-sidebar">
           <FolderTree />
