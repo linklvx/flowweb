@@ -9,6 +9,10 @@
   --canvas-handle-hover-bg: #FFFFFF;
   --canvas-handle-hover-icon: #FFFFFF;
 
+  /* Edge flow animation */
+  --edge-flow-color: #3B82F6;
+  --edge-highlight-color: #999;
+
   /* Canvas controls menu tokens */
   --canvas-controls-bg: rgb(38, 38, 38);
   --canvas-controls-border: rgb(54, 54, 54);
@@ -120,4 +124,22 @@ body {
 }
 .editor-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Edge flow animation */
+.edge-flow-particles {
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition: opacity 300ms ease;
+}
+
+.edge-flow-particles.is-active {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-flow-particles {
+    display: none;
+  }
 }
