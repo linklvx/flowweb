@@ -262,7 +262,7 @@ function ImageNodeToolbarComponent({
     return (
       <div
         className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10"
-        style={{ bottom: 'calc(100% + 32px)' }}
+        style={{ bottom: 'calc(100% + 28px)' }}
       >
         <button
           type="button"
