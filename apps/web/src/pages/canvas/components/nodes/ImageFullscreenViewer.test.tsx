@@ -257,7 +257,7 @@ describe('ImageFullscreenViewer', () => {
     expect(screen.getByText('1920 × 1080')).toBeInTheDocument();
   });
 
-  it('shows "计算中" for dimensions before onLoad', () => {
+  it('shows loading indicator when image has not yet loaded', () => {
     render(
       <ImageFullscreenViewer
         open={true}
@@ -282,6 +282,62 @@ describe('ImageFullscreenViewer', () => {
     );
     const img = screen.getByRole('img');
     fireEvent.error(img);
+    expect(screen.getByText('图片加载失败')).toBeInTheDocument();
+  });
+
+  it('resets image state when displayUrl changes', () => {
+    const { rerender } = render(
+      <ImageFullscreenViewer
+        open={true}
+        onClose={vi.fn()}
+        displayUrl="https://example.com/img.jpg"
+        nodeData={mockNodeData}
+        triggerRef={{ current: null }}
+      />,
+    );
+    // Simulate successful load
+    const img = screen.getByRole('img');
+    Object.defineProperty(img, 'naturalWidth', { value: 1920, configurable: true });
+    Object.defineProperty(img, 'naturalHeight', { value: 1080, configurable: true });
+    fireEvent.load(img);
+    expect(screen.getByText('1920 × 1080')).toBeInTheDocument();
+
+    // Change to a new URL — state should reset to loading
+    rerender(
+      <ImageFullscreenViewer
+        open={true}
+        onClose={vi.fn()}
+        displayUrl="https://example.com/new-img.jpg"
+        nodeData={mockNodeData}
+        triggerRef={{ current: null }}
+      />,
+    );
+    // Should show loading indicator again and dimensions should be gone
+    expect(screen.getByText('计算中')).toBeInTheDocument();
+    expect(screen.queryByText('1920 × 1080')).not.toBeInTheDocument();
+  });
+
+  it('resets to error state when displayUrl changes to undefined', () => {
+    const { rerender } = render(
+      <ImageFullscreenViewer
+        open={true}
+        onClose={vi.fn()}
+        displayUrl="https://example.com/img.jpg"
+        nodeData={mockNodeData}
+        triggerRef={{ current: null }}
+      />,
+    );
+    expect(screen.getByRole('img')).toBeInTheDocument();
+
+    rerender(
+      <ImageFullscreenViewer
+        open={true}
+        onClose={vi.fn()}
+        displayUrl={undefined}
+        nodeData={mockNodeData}
+        triggerRef={{ current: null }}
+      />,
+    );
     expect(screen.getByText('图片加载失败')).toBeInTheDocument();
   });
 });

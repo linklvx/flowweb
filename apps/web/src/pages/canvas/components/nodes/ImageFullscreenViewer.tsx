@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useCallback } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import type { ImageNodeData } from '@/stores/nodeStore';
 
@@ -44,18 +44,18 @@ function ImageFullscreenViewerComponent({
     }
   }, [displayUrl]);
 
-  const handleLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setImageState('success');
     setImgSize(`${img.naturalWidth} × ${img.naturalHeight}`);
-  }, []);
+  };
 
-  const handleError = useCallback(() => {
+  const handleError = () => {
     setImageState('error');
     setImgSize(null);
-  }, []);
+  };
 
-  const prompt = nodeData.prompt?.text?.trim() || '';
+  const prompt = nodeData.prompt.text.trim() || '';
   const model = nodeData.model || '未知';
   const quality = nodeData.quality || '未知';
   const ratio = nodeData.ratio || '未知';
