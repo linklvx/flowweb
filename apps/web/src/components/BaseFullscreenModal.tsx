@@ -34,11 +34,12 @@ export function BaseFullscreenModal({
   useEffect(() => {
     if (!open) return;
 
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       initialFocusRef?.current?.focus();
     });
 
     return () => {
+      cancelAnimationFrame(rafId);
       triggerRef?.current?.focus();
     };
   }, [open, initialFocusRef, triggerRef]);
