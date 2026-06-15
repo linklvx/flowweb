@@ -55,7 +55,7 @@ function ImageFullscreenViewerComponent({
     setImgSize(null);
   };
 
-  const prompt = nodeData.prompt.text.trim() || '';
+  const prompt = nodeData.prompt?.text?.trim() || '';
   const model = nodeData.model || '未知';
   const quality = nodeData.quality || '未知';
   const ratio = nodeData.ratio || '未知';
