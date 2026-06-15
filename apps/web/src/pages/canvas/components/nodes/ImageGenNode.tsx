@@ -7,6 +7,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
+import { ImageFullscreenViewer } from './ImageFullscreenViewer';
 import { TransformToolbar } from './TransformToolbar';
 import { EditToolbar } from './EditToolbar';
 import { CropOverlay } from './CropOverlay';
@@ -87,6 +88,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [isSaving, setSaving] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Fullscreen viewer state
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const fullscreenTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const handleOpenFullscreen = useCallback(() => {
+    setFullscreenOpen(true);
+  }, []);
+
+  const handleCloseFullscreen = useCallback(() => {
+    setFullscreenOpen(false);
+  }, []);
 
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
@@ -755,8 +768,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onOutpaint={() => enterEditMode('outpaint')}
           onErase={() => enterEditMode('erase')}
           onRedraw={() => enterEditMode('redraw')}
+          onFullscreen={handleOpenFullscreen}
+          triggerRef={fullscreenTriggerRef}
         />
       )}
+
+      <ImageFullscreenViewer
+        open={fullscreenOpen}
+        onClose={handleCloseFullscreen}
+        displayUrl={displayUrl ?? undefined}
+        nodeData={nodeData}
+        triggerRef={fullscreenTriggerRef}
+      />
 
       <div
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
