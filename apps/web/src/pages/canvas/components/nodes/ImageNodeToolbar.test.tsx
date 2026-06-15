@@ -325,4 +325,31 @@ describe('ImageNodeToolbar', () => {
     expect(toolbar.style.top).toBe('284px'); // 200*2 + 0 - 84 - 32 = 400 - 116 = 284
     cleanupPortalTarget();
   });
+
+  // ── onFullscreen + triggerRef 测试 ──
+
+  it('calls onFullscreen when "放大查看" button is clicked', () => {
+    setupPortalTarget();
+    const onFullscreen = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onFullscreen={onFullscreen} />);
+    fireEvent.click(screen.getByLabelText('放大查看'));
+    expect(onFullscreen).toHaveBeenCalledTimes(1);
+    cleanupPortalTarget();
+  });
+
+  it('放大查看 button forwards triggerRef to button element', () => {
+    setupPortalTarget();
+    const ref = { current: null as HTMLButtonElement | null };
+    render(<ImageNodeToolbar {...defaultProps} onFullscreen={vi.fn()} triggerRef={ref} />);
+    const btn = screen.getByLabelText('放大查看');
+    expect(ref.current).toBe(btn);
+    cleanupPortalTarget();
+  });
+
+  it('放大查看 button is not shown in upload-only mode (no image)', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} fileId={undefined} referenceImage={undefined} />);
+    expect(screen.queryByLabelText('放大查看')).not.toBeInTheDocument();
+    cleanupPortalTarget();
+  });
 });

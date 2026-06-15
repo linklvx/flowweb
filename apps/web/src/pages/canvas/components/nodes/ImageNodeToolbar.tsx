@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { memo, useState, useEffect, useMemo, type ReactNode, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useViewport, useInternalNode } from '@xyflow/react';
 import { SwapOutlined } from '@ant-design/icons';
@@ -14,6 +14,8 @@ interface ImageNodeToolbarProps {
   onOutpaint?: () => void;
   onErase?: () => void;
   onRedraw?: () => void;
+  onFullscreen?: () => void;
+  triggerRef?: React.RefObject<HTMLButtonElement>;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -144,15 +146,20 @@ const BAR_BG = 'rgb(38, 38, 38)';
 const BAR_BORDER = 'rgb(54, 54, 54)';
 const DIVIDER_COLOR = 'rgb(54, 54, 54)';
 
-function IconButton({ icon, ariaLabel, onClick, disabled, className = '' }: {
+interface IconButtonProps {
   icon: ReactNode;
   ariaLabel: string;
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
-}) {
+}
+
+const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(({
+  icon, ariaLabel, onClick, disabled, className = '',
+}, ref) => {
   return (
     <button
+      ref={ref}
       type="button"
       aria-label={ariaLabel}
       tabIndex={0}
@@ -164,7 +171,7 @@ function IconButton({ icon, ariaLabel, onClick, disabled, className = '' }: {
       {icon}
     </button>
   );
-}
+});
 
 function TextIconButton({ icon, ariaLabel, text, onClick, disabled, className = '' }: {
   icon: ReactNode;
@@ -210,6 +217,8 @@ function ImageNodeToolbarComponent({
   onOutpaint,
   onErase,
   onRedraw,
+  onFullscreen,
+  triggerRef,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -335,7 +344,7 @@ function ImageNodeToolbarComponent({
         <TextIconButton icon={<HDIcon />} ariaLabel="高清增强" text="高清增强" />
         <TextIconButton icon={<Grid3x3Icon />} ariaLabel="九宫格" text="九宫格" />
         <Divider />
-        <IconButton icon={<ExpandIcon />} ariaLabel="放大查看" />
+        <IconButton icon={<ExpandIcon />} ariaLabel="放大查看" onClick={onFullscreen} ref={triggerRef} />
         <IconButton icon={<UploadIcon />} ariaLabel="上传" />
         <IconButton icon={<DownloadIcon />} ariaLabel="下载" />
         <Divider />
