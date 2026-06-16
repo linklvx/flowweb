@@ -1,11 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, fireEvent, act, waitFor } from '@testing-library/react';
 import { CanvasView } from './CanvasView';
 import { ReactFlowProvider } from '@xyflow/react';
 
-const mockZoomIn = vi.fn();
-const mockZoomOut = vi.fn();
-const mockFitView = vi.fn();
+const mockZoomIn = vi.hoisted(() => vi.fn());
+const mockZoomOut = vi.hoisted(() => vi.fn());
+const mockFitView = vi.hoisted(() => vi.fn());
+const mockAddNode = vi.hoisted(() => vi.fn());
+const mockSetState = vi.hoisted(() => vi.fn());
+
+let mockPendingMediaFile: any = null;
+let subscribeListener: ((state: any, prevState: any) => void) | null = null;
 
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual('@xyflow/react');
@@ -22,21 +27,36 @@ vi.mock('@xyflow/react', async () => {
 });
 
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      onNodesChange: vi.fn(),
-      onEdgesChange: vi.fn(),
-      onConnect: vi.fn(),
-      updateViewport: vi.fn(),
-      addNode: vi.fn(),
-      selectNode: vi.fn(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = {
+        nodes: [],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        pendingMediaFile: mockPendingMediaFile,
+        onNodesChange: vi.fn(),
+        onEdgesChange: vi.fn(),
+        onConnect: vi.fn(),
+        updateViewport: vi.fn(),
+        addNode: mockAddNode,
+        selectNode: vi.fn(),
+        requestAddMediaNode: vi.fn(),
+      };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    {
+      getState: () => ({
+        pendingMediaFile: mockPendingMediaFile,
+        requestAddMediaNode: vi.fn(),
+      }),
+      setState: mockSetState,
+      subscribe: vi.fn((listener: any) => {
+        subscribeListener = listener;
+        return vi.fn(); // unsubscribe
+      }),
+    },
+  ),
 }));
 
 describe('CanvasView', () => {
@@ -148,5 +168,178 @@ describe('CanvasView', () => {
     fireEvent.click(document.querySelector('[aria-label="网格吸附"]')!);
     // Verify the snap button reflects enabled state
     expect(document.querySelector('[aria-label="网格吸附"]')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  // ── pendingMediaFile → addNode ──
+
+  describe('pendingMediaFile handling', () => {
+    beforeEach(() => {
+      mockAddNode.mockClear();
+      mockSetState.mockClear();
+      subscribeListener = null;
+      mockPendingMediaFile = null;
+    });
+
+    it('creates imageGen node when pendingMediaFile is image', async () => {
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      expect(subscribeListener).toBeTruthy();
+
+      const imageFile = {
+        id: 'img-1',
+        originalName: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        url: 'https://example.com/photo.jpg',
+        thumbnailUrl: 'https://example.com/thumb.jpg',
+        size: 5000,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+        isFavorite: false,
+        folderId: null,
+      };
+
+      act(() => {
+        subscribeListener!({ pendingMediaFile: imageFile }, { pendingMediaFile: null });
+      });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalled();
+      });
+
+      const callArgs = mockAddNode.mock.calls[0];
+      expect(callArgs[0]).toBe('image'); // node type
+      expect(callArgs[2].fileId).toBe('img-1');
+      expect(callArgs[2].status).toBe('done');
+      expect(callArgs[2].mediaName).toBe('photo.jpg');
+      expect(callArgs[2].mediaUrl).toBe('https://example.com/photo.jpg');
+      expect(callArgs[2].thumbnailUrl).toBe('https://example.com/thumb.jpg');
+    });
+
+    it('creates videoGen node when pendingMediaFile is video', async () => {
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      const videoFile = {
+        id: 'vid-1',
+        originalName: 'clip.mp4',
+        mimeType: 'video/mp4',
+        url: 'https://example.com/clip.mp4',
+        thumbnailUrl: 'https://example.com/poster.jpg',
+        size: 20000,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+        isFavorite: false,
+        folderId: null,
+      };
+
+      act(() => {
+        subscribeListener!({ pendingMediaFile: videoFile }, { pendingMediaFile: null });
+      });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalled();
+      });
+
+      expect(mockAddNode.mock.calls[0][0]).toBe('video');
+      expect(mockAddNode.mock.calls[0][2].fileId).toBe('vid-1');
+      expect(mockAddNode.mock.calls[0][2].status).toBe('done');
+    });
+
+    it('clears pendingMediaFile after creating node', async () => {
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      const file = {
+        id: 'f1',
+        originalName: 'test.png',
+        mimeType: 'image/png',
+        url: 'https://example.com/test.png',
+        thumbnailUrl: '',
+        size: 100,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+        isFavorite: false,
+        folderId: null,
+      };
+
+      act(() => {
+        subscribeListener!({ pendingMediaFile: file }, { pendingMediaFile: null });
+      });
+
+      await waitFor(() => {
+        expect(mockSetState).toHaveBeenCalledWith({ pendingMediaFile: null });
+      });
+    });
+
+    it('positions node at viewport center', async () => {
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      const file = {
+        id: 'f1',
+        originalName: 'test.png',
+        mimeType: 'image/png',
+        url: 'https://example.com/test.png',
+        thumbnailUrl: '',
+        size: 100,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+        isFavorite: false,
+        folderId: null,
+      };
+
+      act(() => {
+        subscribeListener!({ pendingMediaFile: file }, { pendingMediaFile: null });
+      });
+
+      await waitFor(() => {
+        expect(mockAddNode).toHaveBeenCalled();
+      });
+
+      const position = mockAddNode.mock.calls[0][1];
+      // With screenToFlowPosition passthrough and wrapper center at (0,0)
+      // position will be (-160, -120) after subtracting half node size
+      expect(position.x).toBeDefined();
+      expect(position.y).toBeDefined();
+    });
+
+    it('handles null file (noop)', () => {
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      act(() => {
+        subscribeListener!({ pendingMediaFile: null }, { pendingMediaFile: null });
+      });
+
+      expect(mockAddNode).not.toHaveBeenCalled();
+    });
+
+    it('clears pendingMediaFile on unmount', () => {
+      const { unmount } = render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+
+      unmount();
+
+      expect(mockSetState).toHaveBeenCalledWith({ pendingMediaFile: null });
+    });
   });
 });

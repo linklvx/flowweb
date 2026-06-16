@@ -5,6 +5,7 @@ import {
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
 import { useNodeStore } from './nodeStore';
+import type { MaterialFile } from '@flowweb/shared';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -24,8 +25,9 @@ interface CanvasState {
   edges: Edge[];
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
+  pendingMediaFile: MaterialFile | null;
 
-  addNode: (type: string, position: XYPosition) => string;
+  addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
   copyNode: (id: string) => string | null;
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addNodeWithEdge: (sourceId: string) => string | null;
@@ -33,6 +35,7 @@ interface CanvasState {
   deleteTransformNode: (id: string) => void;
   setNodeDraggable: (nodeId: string, draggable: boolean) => void;
   selectNode: (id: string | null) => void;
+  requestAddMediaNode: (file: MaterialFile) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -44,11 +47,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
+  pendingMediaFile: null,
 
-  addNode: (type, position) => {
+  addNode: (type, position, dataOverride) => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
-    const nodeData = resolvedType === 'textInput' ? { content: '' } : {};
+    const baseData = resolvedType === 'textInput' ? { content: '' } : {};
+    const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
     const node: Node = {
       id,
       type: resolvedType,
@@ -237,6 +242,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   selectNode: (id) => set({ selectedId: id }),
+
+  requestAddMediaNode: (file) => set({ pendingMediaFile: file }),
 
   updateViewport: (vp) => set({ viewport: vp }),
 

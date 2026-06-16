@@ -299,4 +299,53 @@ describe('canvasStore', () => {
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId);
     expect(node?.draggable).toBe(true);
   });
+
+  // ── addNode dataOverride ──
+
+  it('addNode with dataOverride should merge custom data into node data', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 }, { fileId: 'x', status: 'done' });
+    const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
+    expect(node.data.fileId).toBe('x');
+    expect(node.data.status).toBe('done');
+  });
+
+  it('addNode with dataOverride for video should include fileId', () => {
+    const nodeId = useCanvasStore.getState().addNode('video', { x: 0, y: 0 }, { fileId: 'vid-1' });
+    const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
+    expect(node.data.fileId).toBe('vid-1');
+  });
+
+  it('addNode without dataOverride should produce empty data (backward compat)', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
+    const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
+    expect(node.data).toEqual({});
+  });
+
+  it('addNode with dataOverride should also populate nodeStore with custom data', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 50, y: 50 }, { fileId: 'abc', status: 'done' });
+    const nsNode = useNodeStore.getState().nodes[nodeId];
+    expect(nsNode).toBeDefined();
+    expect(nsNode.data.fileId).toBe('abc');
+    expect(nsNode.data.status).toBe('done');
+  });
+
+  // ── pendingMediaFile / requestAddMediaNode ──
+
+  it('should start with null pendingMediaFile', () => {
+    expect(useCanvasStore.getState().pendingMediaFile).toBeNull();
+  });
+
+  it('requestAddMediaNode should set pendingMediaFile', () => {
+    const file = { id: 'f1', originalName: 'test.png', mimeType: 'image/png', size: 100, createdAt: '2026-01-01', updatedAt: '2026-01-01', isFavorite: false, folderId: null };
+    useCanvasStore.getState().requestAddMediaNode(file as any);
+    expect(useCanvasStore.getState().pendingMediaFile).toEqual(file);
+  });
+
+  it('requestAddMediaNode should overwrite previous pending file', () => {
+    const file1 = { id: 'f1', originalName: 'a.png', mimeType: 'image/png', size: 100, createdAt: '2026-01-01', updatedAt: '2026-01-01', isFavorite: false, folderId: null };
+    const file2 = { id: 'f2', originalName: 'b.mp4', mimeType: 'video/mp4', size: 200, createdAt: '2026-01-02', updatedAt: '2026-01-02', isFavorite: true, folderId: null };
+    useCanvasStore.getState().requestAddMediaNode(file1 as any);
+    useCanvasStore.getState().requestAddMediaNode(file2 as any);
+    expect(useCanvasStore.getState().pendingMediaFile?.id).toBe('f2');
+  });
 });

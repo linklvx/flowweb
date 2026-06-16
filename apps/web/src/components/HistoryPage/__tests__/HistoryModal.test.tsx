@@ -36,11 +36,62 @@ vi.mock('antd', () => ({
   Modal: ({ children, open }: any) =>
     open ? <div data-testid="ant-modal">{children}</div> : null,
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  Popover: ({ children }: any) => <div>{children}</div>,
+}));
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { addNode: vi.fn(), requestAddMediaNode: vi.fn() };
+      return selector ? selector(state) : state;
+    }),
+    {
+      getState: () => ({ requestAddMediaNode: vi.fn() }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
+}));
+
+vi.mock('@/stores/materialLibraryStore', () => ({
+  useMaterialLibraryStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = {
+        close: vi.fn(),
+        toggleFavorite: vi.fn(),
+        deleteFile: vi.fn(),
+        files: [],
+        loading: false,
+        fileGridSize: 200,
+        batchMode: false,
+        selectedFileIds: new Set<string>(),
+      };
+      return selector ? selector(state) : state;
+    }),
+    { getState: () => ({ close: vi.fn(), toggleFavorite: vi.fn(), deleteFile: vi.fn() }) },
+  ),
+}));
+
+vi.mock('@/components/MaterialLibrary/FilePreviewPopover', () => ({
+  default: () => null,
 }));
 
 describe('HistoryModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(pointer: fine)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
   });
 
   it('renders sidebar with all 3 categories', () => {

@@ -25,9 +25,46 @@ vi.mock('../../../stores/materialLibraryStore', () => ({
   useMaterialLibraryStore: mockStore,
 }));
 
+vi.mock('antd', async () => {
+  const actual = await vi.importActual('antd');
+  return { ...(actual as any), Popover: ({ children }: any) => <div>{children}</div> };
+});
+
+vi.mock('../../../stores/canvasStore', () => ({
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { addNode: vi.fn(), requestAddMediaNode: vi.fn() };
+      return selector ? selector(state) : state;
+    }),
+    {
+      getState: () => ({ requestAddMediaNode: vi.fn() }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
+}));
+
+vi.mock('../FilePreviewPopover', () => ({
+  default: () => null,
+}));
+
 describe('FileGrid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // jsdom 无 matchMedia，需 mock
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(pointer: fine)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
   });
 
   it('should show empty state when no files', () => {

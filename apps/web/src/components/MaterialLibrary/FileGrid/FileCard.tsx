@@ -1,23 +1,45 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Popover } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
+import { useCanvasStore } from '../../../stores/canvasStore';
+import FilePreviewPopoverContent from '../FilePreviewPopover';
 import type { MaterialFile } from '@flowweb/shared';
 
 interface FileCardProps {
   file: MaterialFile;
   batchMode?: boolean;
   selected?: boolean;
+  isFinePointer?: boolean;
   onToggleSelect?: () => void;
   onToggleFavorite?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
 
-export default function FileCard({ file, batchMode, selected, onToggleSelect, onToggleFavorite, onDelete }: FileCardProps) {
+export default function FileCard({ file, batchMode, selected, isFinePointer, onToggleSelect, onToggleFavorite, onDelete }: FileCardProps) {
   const storeToggleFavorite = useMaterialLibraryStore((s) => s.toggleFavorite);
   const storeDeleteFile = useMaterialLibraryStore((s) => s.deleteFile);
 
   const toggleFavorite = onToggleFavorite || storeToggleFavorite;
   const deleteFile = onDelete || storeDeleteFile;
 
-  return (
+  const isMedia = file.mimeType?.startsWith('image/') || file.mimeType?.startsWith('video/');
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
+  // Listen for scroll-to-close event
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const handler = () => setPopoverOpen(false);
+    window.addEventListener('material-library:list-scroll', handler);
+    return () => window.removeEventListener('material-library:list-scroll', handler);
+  }, [popoverOpen]);
+
+  const handleApplyToCanvas = useCallback((f: MaterialFile) => {
+    setPopoverOpen(false);
+    useCanvasStore.getState().requestAddMediaNode(f);
+    useMaterialLibraryStore.getState().close();
+  }, []);
+
+  const cardContent = (
     <div
       className={`file-card bg-[#2a2a2a] rounded-lg overflow-hidden hover:bg-[#333] transition-colors group relative ${batchMode ? 'cursor-pointer' : ''}`}
       style={{ aspectRatio: '4/3' }}
@@ -88,5 +110,34 @@ export default function FileCard({ file, batchMode, selected, onToggleSelect, on
         {file.isFavorite && '⭐ '}{file.originalName}
       </div>
     </div>
+  );
+
+  // Non-media file or touch device → no Popover
+  if (!isMedia || !isFinePointer) {
+    return cardContent;
+  }
+
+  return (
+    <Popover
+      open={popoverOpen}
+      onOpenChange={setPopoverOpen}
+      arrow={false}
+      placement="right"
+      mouseEnterDelay={0.3}
+      mouseLeaveDelay={0.15}
+      zIndex={100001}
+      destroyTooltipOnHide={true}
+      overlayInnerStyle={{ padding: 0 }}
+      overlayStyle={{ background: 'transparent' }}
+      getPopupContainer={() => document.body}
+      content={
+        <FilePreviewPopoverContent
+          file={file}
+          onApplyToCanvas={handleApplyToCanvas}
+        />
+      }
+    >
+      {cardContent}
+    </Popover>
   );
 }

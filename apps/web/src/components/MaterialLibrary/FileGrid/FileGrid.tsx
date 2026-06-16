@@ -1,7 +1,26 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
 import FileCard from './FileCard';
 import type { MaterialFile } from '@flowweb/shared';
+
+function useFinePointer(): boolean {
+  const [fine, setFine] = useState(() => window.matchMedia('(pointer: fine)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: fine)');
+    const handler = (e: MediaQueryListEvent) => setFine(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return fine;
+}
+
+function throttle(fn: () => void, ms: number) {
+  let last = 0;
+  return () => {
+    const now = Date.now();
+    if (now - last >= ms) { last = now; fn(); }
+  };
+}
 
 interface FileGridStore {
   selectFile?: (id: string) => void;
@@ -34,6 +53,15 @@ export default function FileGrid(props: FileGridProps = {}) {
   const batchMode = props.batchMode ?? storeBatchMode;
   const selectedFileIds = props.selectedFileIds ?? storeSelectedFileIds;
 
+  const isFinePointer = useFinePointer();
+
+  const handleScroll = useCallback(
+    throttle(() => {
+      window.dispatchEvent(new CustomEvent('material-library:list-scroll'));
+    }, 100),
+    [],
+  );
+
   const getOps = () => props.store ?? useMaterialLibraryStore.getState();
 
   const grouped = useMemo(() => {
@@ -65,7 +93,7 @@ export default function FileGrid(props: FileGridProps = {}) {
   if (files.length === 0) return <div className="file-grid-empty">{props.emptyText ?? '暂无素材，点击上传按钮添加'}</div>;
 
   return (
-    <div className="file-grid-container">
+    <div className="file-grid-container" onScroll={handleScroll}>
       {grouped.map(([date, items]) => {
         const allSelected = items.length > 0 && items.every((f) => selectedFileIds.has(f.id));
         return (
@@ -85,6 +113,7 @@ export default function FileGrid(props: FileGridProps = {}) {
                   file={file}
                   batchMode={batchMode}
                   selected={selectedFileIds.has(file.id)}
+                  isFinePointer={isFinePointer}
                   onToggleSelect={() => getOps().toggleFileSelection?.(file.id)}
                   onToggleFavorite={props.onToggleFavorite}
                   onDelete={props.onDelete}

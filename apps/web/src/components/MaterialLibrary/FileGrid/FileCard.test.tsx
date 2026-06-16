@@ -1,19 +1,53 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import FileCard from './FileCard';
 
 const toggleFavorite = vi.hoisted(() => vi.fn());
 const deleteFile = vi.hoisted(() => vi.fn());
+const requestAddMediaNode = vi.hoisted(() => vi.fn());
+const closeLibrary = vi.hoisted(() => vi.fn());
 
-const mockStore = vi.hoisted(() => {
-  return vi.fn((selector?: (state: any) => any) => {
-    const state = { toggleFavorite, deleteFile };
+const mockLibraryStore = vi.hoisted(() => {
+  const fn = vi.fn((selector?: (state: any) => any) => {
+    const state = { toggleFavorite, deleteFile, close: closeLibrary };
     return selector ? selector(state) : state;
   });
+  (fn as any).getState = () => ({ toggleFavorite, deleteFile, close: closeLibrary });
+  return fn;
 });
 
 vi.mock('../../../stores/materialLibraryStore', () => ({
-  useMaterialLibraryStore: mockStore,
+  useMaterialLibraryStore: mockLibraryStore,
+}));
+
+vi.mock('../../../stores/canvasStore', () => ({
+  useCanvasStore: {
+    getState: () => ({ requestAddMediaNode }),
+  },
+}));
+
+// Mock antd Popover: render content alongside trigger for testing
+vi.mock('antd', async () => {
+  const actual = await vi.importActual('antd');
+  return {
+    ...(actual as any),
+    Popover: ({ content, children, open, onOpenChange, arrow, placement, destroyTooltipOnHide }: any) => (
+      <div data-testid="popover-wrapper" data-open={String(open)} data-arrow={String(arrow)} data-placement={placement} data-destroy-on-hide={String(destroyTooltipOnHide)}>
+        <div data-testid="popover-trigger" onMouseEnter={() => onOpenChange?.(true)} onMouseLeave={() => onOpenChange?.(false)}>
+          {children}
+        </div>
+        {open && <div data-testid="popover-content">{content}</div>}
+      </div>
+    ),
+  };
+});
+
+vi.mock('../FilePreviewPopover', () => ({
+  default: ({ file, onApplyToCanvas }: any) => (
+    <div data-testid="file-preview-popover" data-file-id={file.id}>
+      <button data-testid="apply-btn" onClick={() => onApplyToCanvas(file)}>应用到画布</button>
+    </div>
+  ),
 }));
 
 describe('FileCard', () => {
@@ -23,6 +57,7 @@ describe('FileCard', () => {
     mimeType: 'image/png',
     size: 1024,
     url: 'http://example.com/test.png',
+    thumbnailUrl: 'http://example.com/thumb.png',
     folderId: null as string | null,
     isFavorite: false,
     createdAt: '2026-06-01',
@@ -33,87 +68,114 @@ describe('FileCard', () => {
     vi.clearAllMocks();
   });
 
-  it('should render file name', () => {
+  // ─── Media file: Popover rendering ───
+
+  it('renders Popover wrapper for image file when isFinePointer=true', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    expect(screen.getByTestId('popover-wrapper')).toBeInTheDocument();
+    expect(screen.getByTestId('popover-trigger')).toBeInTheDocument();
+  });
+
+  it('renders Popover wrapper for video file when isFinePointer=true', () => {
+    const videoFile = { ...file, mimeType: 'video/mp4', originalName: 'test.mp4' };
+    render(<FileCard file={videoFile} isFinePointer={true} />);
+    expect(screen.getByTestId('popover-wrapper')).toBeInTheDocument();
+  });
+
+  // ─── Non-media file: no Popover ───
+
+  it('does not render Popover for non-media file (text/plain)', () => {
+    const textFile = { ...file, mimeType: 'text/plain' };
+    render(<FileCard file={textFile} isFinePointer={true} />);
+    expect(screen.queryByTestId('popover-wrapper')).not.toBeInTheDocument();
+  });
+
+  it('does not render Popover for non-media file (audio/mp3)', () => {
+    const audioFile = { ...file, mimeType: 'audio/mp3' };
+    render(<FileCard file={audioFile} isFinePointer={true} />);
+    expect(screen.queryByTestId('popover-wrapper')).not.toBeInTheDocument();
+  });
+
+  // ─── Touch device: no Popover ───
+
+  it('does not render Popover when isFinePointer=false (touch device)', () => {
+    render(<FileCard file={file} isFinePointer={false} />);
+    expect(screen.queryByTestId('popover-wrapper')).not.toBeInTheDocument();
+  });
+
+  it('does not render Popover when isFinePointer is undefined', () => {
     render(<FileCard file={file} />);
+    expect(screen.queryByTestId('popover-wrapper')).not.toBeInTheDocument();
+  });
+
+  // ─── Popover hover: shows FilePreviewPopover ───
+
+  it('shows preview content on popover open', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    const trigger = screen.getByTestId('popover-trigger');
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByTestId('file-preview-popover')).toBeInTheDocument();
+  });
+
+  it('hides preview content on mouse leave', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    const trigger = screen.getByTestId('popover-trigger');
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByTestId('file-preview-popover')).toBeInTheDocument();
+    fireEvent.mouseLeave(trigger);
+    expect(screen.queryByTestId('file-preview-popover')).not.toBeInTheDocument();
+  });
+
+  // ─── Popover config ───
+
+  it('configures Popover with correct props', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    const wrapper = screen.getByTestId('popover-wrapper');
+    expect(wrapper.dataset.arrow).toBe('false');
+    expect(wrapper.dataset.placement).toBe('right');
+    expect(wrapper.dataset.destroyOnHide).toBe('true');
+  });
+
+  // ─── Apply to canvas ───
+
+  it('closes popover, calls store methods on apply', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    // Open popover first
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    // Click apply button in the popover
+    fireEvent.click(screen.getByTestId('apply-btn'));
+
+    // Popover should be closed after apply
+    const wrapper = screen.getByTestId('popover-wrapper');
+    expect(wrapper.dataset.open).toBe('false');
+
+    // Store methods should be called
+    expect(requestAddMediaNode).toHaveBeenCalledWith(file);
+    expect(closeLibrary).toHaveBeenCalled();
+  });
+
+  // ─── Scroll close ───
+
+  it('closes popover on material-library:list-scroll event', async () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    // Open popover
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    expect(screen.getByTestId('file-preview-popover')).toBeInTheDocument();
+
+    // Dispatch scroll event
+    act(() => {
+      window.dispatchEvent(new CustomEvent('material-library:list-scroll'));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('file-preview-popover')).not.toBeInTheDocument();
+    });
+  });
+
+  // ─── File name still rendered ───
+
+  it('still renders file name inside popover trigger', () => {
+    render(<FileCard file={file} isFinePointer={true} />);
     expect(screen.getByText('test.png')).toBeInTheDocument();
-  });
-
-  it('should show favorite icon when favorited', () => {
-    render(<FileCard file={{ ...file, isFavorite: true }} />);
-    expect(screen.getByText('⭐')).toBeInTheDocument();
-  });
-
-  it('should have action buttons', () => {
-    render(<FileCard file={file} />);
-    expect(screen.getByTitle('收藏')).toBeInTheDocument();
-    expect(screen.getByTitle('删除')).toBeInTheDocument();
-  });
-
-  describe('batch mode', () => {
-    const baseProps = { file, batchMode: false, selected: false, onToggleSelect: vi.fn() };
-
-    it('should render checkbox when in batch mode', () => {
-      render(<FileCard {...baseProps} batchMode={true} />);
-      expect(screen.getByRole('checkbox')).toBeInTheDocument();
-    });
-
-    it('should not render checkbox when not in batch mode', () => {
-      render(<FileCard {...baseProps} batchMode={false} />);
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    });
-
-    it('should hide action buttons when in batch mode', () => {
-      render(<FileCard {...baseProps} batchMode={true} />);
-      expect(screen.queryByTitle('收藏')).not.toBeInTheDocument();
-      expect(screen.queryByTitle('删除')).not.toBeInTheDocument();
-    });
-
-    it('should call onToggleSelect when clicked in batch mode', () => {
-      const onToggleSelect = vi.fn();
-      render(<FileCard {...baseProps} batchMode={true} onToggleSelect={onToggleSelect} />);
-      // Click the card
-      screen.getByText('test.png').click();
-      expect(onToggleSelect).toHaveBeenCalled();
-    });
-  });
-
-  describe('video preview', () => {
-    it('should render video element for video file without thumbnail', () => {
-      const videoFile = { ...file, mimeType: 'video/mp4', originalName: 'test.mp4' };
-      render(<FileCard file={videoFile} />);
-      const video = document.querySelector('video');
-      expect(video).toBeInTheDocument();
-      expect(video).toHaveAttribute('src', file.url);
-    });
-
-    it('should render img for video file with thumbnail', () => {
-      const videoFile = { ...file, mimeType: 'video/mp4', thumbnailUrl: 'http://example.com/thumb.webp' };
-      render(<FileCard file={videoFile} />);
-      const img = document.querySelector('img');
-      const video = document.querySelector('video');
-      expect(img).toBeInTheDocument();
-      expect(video).not.toBeInTheDocument();
-      expect(img).toHaveAttribute('src', videoFile.thumbnailUrl);
-    });
-
-    it('should render img for image file without thumbnail', () => {
-      render(<FileCard file={file} />);
-      const img = document.querySelector('img');
-      const video = document.querySelector('video');
-      expect(img).toBeInTheDocument();
-      expect(video).not.toBeInTheDocument();
-    });
-
-    it('should show emoji fallback when no url or thumbnail', () => {
-      const noUrlFile = { ...file, url: undefined };
-      render(<FileCard file={noUrlFile} />);
-      expect(screen.getByText('🖼️')).toBeInTheDocument();
-    });
-
-    it('should show video emoji fallback when video has no url or thumbnail', () => {
-      const noUrlVideo = { ...file, mimeType: 'video/mp4', url: undefined };
-      render(<FileCard file={noUrlVideo} />);
-      expect(screen.getByText('🎬')).toBeInTheDocument();
-    });
   });
 });

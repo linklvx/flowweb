@@ -52,6 +52,54 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const addNode = useCanvasStore((s) => s.addNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
 
+  // 素材库「应用到画布」：监听 pendingMediaFile 创建节点
+  useEffect(() => {
+    const unsub = useCanvasStore.subscribe((state, prevState) => {
+      const file = state.pendingMediaFile;
+      const prevFile = prevState.pendingMediaFile;
+      if (!file || file === prevFile || !reactFlowWrapper.current) return;
+
+      try {
+        const bounds = reactFlowWrapper.current.getBoundingClientRect();
+        const centerClientX = bounds.left + bounds.width / 2;
+        const centerClientY = bounds.top + bounds.height / 2;
+
+        let position = screenToFlowPosition({
+          x: centerClientX,
+          y: centerClientY,
+        });
+
+        const NODE_DEFAULT_WIDTH = 320;
+        const NODE_DEFAULT_HEIGHT = 240;
+        position = {
+          x: position.x - NODE_DEFAULT_WIDTH / 2,
+          y: position.y - NODE_DEFAULT_HEIGHT / 2,
+        };
+
+        const isVideo = file.mimeType?.startsWith('video/');
+        const nodeType = isVideo ? 'video' : 'image';
+        const nodeData = {
+          fileId: file.id,
+          status: 'done',
+          mediaName: file.originalName,
+          mediaUrl: file.url,
+          thumbnailUrl: file.thumbnailUrl,
+        };
+
+        addNode(nodeType, position, nodeData);
+      } catch (err) {
+        console.error('[CanvasView] addMediaNode failed:', err);
+      } finally {
+        useCanvasStore.setState({ pendingMediaFile: null });
+      }
+    });
+
+    return () => {
+      unsub();
+      useCanvasStore.setState({ pendingMediaFile: null });
+    };
+  }, [screenToFlowPosition, addNode]);
+
   // Debounced dimension sync
   const syncNodeDimensions = useMemo(
     () => debounce(async (changes: NodeChange[]) => {
