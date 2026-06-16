@@ -101,6 +101,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     setFullscreenOpen(false);
   }, []);
 
+  const handleDownload = useCallback(async () => {
+    if (!displayUrl) return;
+    try {
+      const response = await fetch(displayUrl);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = '';
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(displayUrl, '_blank');
+    }
+  }, [displayUrl]);
+
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
   const eraseRef = useRef<EraseCanvasHandle>(null);
@@ -769,6 +785,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onErase={() => enterEditMode('erase')}
           onRedraw={() => enterEditMode('redraw')}
           onFullscreen={handleOpenFullscreen}
+          onDownload={handleDownload}
           triggerRef={fullscreenTriggerRef}
         />
       )}

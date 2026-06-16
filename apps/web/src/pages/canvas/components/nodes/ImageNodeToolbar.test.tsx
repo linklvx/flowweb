@@ -352,4 +352,15 @@ describe('ImageNodeToolbar', () => {
     expect(screen.queryByLabelText('放大查看')).not.toBeInTheDocument();
     cleanupPortalTarget();
   });
+
+  // ── onDownload 测试 ──
+
+  it('calls onDownload when "下载" button is clicked', () => {
+    setupPortalTarget();
+    const onDownload = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onDownload={onDownload} />);
+    fireEvent.click(screen.getByLabelText('下载'));
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    cleanupPortalTarget();
+  });
 });

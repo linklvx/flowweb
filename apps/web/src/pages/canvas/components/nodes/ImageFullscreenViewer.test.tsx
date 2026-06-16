@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
 import type { ImageNodeData } from '@/stores/nodeStore';
@@ -149,7 +149,7 @@ describe('ImageFullscreenViewer', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('renders download <a> with href and download when displayUrl is valid', () => {
+  it('renders download button enabled when displayUrl is valid', () => {
     render(
       <ImageFullscreenViewer
         open={true}
@@ -159,13 +159,12 @@ describe('ImageFullscreenViewer', () => {
         triggerRef={{ current: null }}
       />,
     );
-    const downloadLink = screen.getByText('下载图片').closest('a');
-    expect(downloadLink).toHaveAttribute('href', 'https://example.com/img.jpg');
-    expect(downloadLink).toHaveAttribute('download');
-    expect(downloadLink?.tabIndex).not.toBe(-1);
+    const btn = screen.getByRole('button', { name: '下载图片' });
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveTextContent('下载图片');
   });
 
-  it('renders disabled download <a> (no href, tabIndex=-1, aria-disabled) when displayUrl is empty', () => {
+  it('renders disabled download button when displayUrl is empty', () => {
     render(
       <ImageFullscreenViewer
         open={true}
@@ -175,10 +174,9 @@ describe('ImageFullscreenViewer', () => {
         triggerRef={{ current: null }}
       />,
     );
-    const downloadLink = screen.getByText('下载图片').closest('a');
-    expect(downloadLink).not.toHaveAttribute('href');
-    expect(downloadLink?.tabIndex).toBe(-1);
-    expect(downloadLink?.getAttribute('aria-disabled')).toBe('true');
+    const btn = screen.getByRole('button', { name: '下载图片' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent('下载图片');
   });
 
   it('shows loading state initially when displayUrl is valid', () => {
@@ -339,5 +337,190 @@ describe('ImageFullscreenViewer', () => {
       />,
     );
     expect(screen.getByText('图片加载失败')).toBeInTheDocument();
+  });
+
+  describe('download button — fetch + blob', () => {
+    beforeAll(() => {
+      if (!URL.createObjectURL) {
+        Object.defineProperty(URL, 'createObjectURL', {
+          value: vi.fn(),
+          writable: true,
+          configurable: true,
+        });
+      }
+      if (!URL.revokeObjectURL) {
+        Object.defineProperty(URL, 'revokeObjectURL', {
+          value: vi.fn(),
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('fetches image as blob and triggers download on click', async () => {
+      const blob = new Blob(['fake-img'], { type: 'image/png' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(blob, { status: 200 }),
+      );
+      const createObjectURLSpy = vi
+        .spyOn(URL, 'createObjectURL')
+        .mockReturnValue('blob:fake-url');
+      const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL');
+
+      // 模拟临时 <a> 的 click
+      const clickSpy = vi.fn();
+      const origCreateElement = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tag, options) => {
+        const el = origCreateElement(tag, options);
+        if (tag === 'a') {
+          vi.spyOn(el, 'click').mockImplementation(clickSpy);
+        }
+        return el;
+      });
+
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const btn = screen.getByRole('button', { name: '下载图片' });
+      fireEvent.click(btn);
+
+      expect(fetchSpy).toHaveBeenCalledWith('https://example.com/img.jpg');
+      expect(btn).toHaveTextContent('下载中...');
+      expect(btn).toBeDisabled();
+
+      // 等待 fetch 完成
+      await vi.waitFor(() => {
+        expect(createObjectURLSpy).toHaveBeenCalledWith(blob);
+        expect(clickSpy).toHaveBeenCalled();
+        expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:fake-url');
+        expect(btn).toHaveTextContent('下载图片');
+        expect(btn).not.toBeDisabled();
+      });
+
+      fetchSpy.mockRestore();
+      createObjectURLSpy.mockRestore();
+      revokeObjectURLSpy.mockRestore();
+    });
+
+    it('falls back to window.open when fetch fails', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockRejectedValue(new Error('Network error'));
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const btn = screen.getByRole('button', { name: '下载图片' });
+      fireEvent.click(btn);
+
+      await vi.waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith('https://example.com/img.jpg', '_blank');
+        expect(btn).toHaveTextContent('下载图片');
+        expect(btn).not.toBeDisabled();
+      });
+
+      fetchSpy.mockRestore();
+      openSpy.mockRestore();
+    });
+
+    it('does nothing when displayUrl is empty', () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl={undefined}
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const btn = screen.getByRole('button', { name: '下载图片' });
+      fireEvent.click(btn);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+  });
+
+  describe('full-bleed overlay', () => {
+    it('opens full-bleed overlay on image click and closes on close button', () => {
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const img = screen.getByRole('img');
+      fireEvent.load(img);
+
+      // Image has cursor-zoom-in before click
+      expect(img.className).toContain('cursor-zoom-in');
+
+      // Click image → full-bleed overlay opens
+      fireEvent.click(img);
+      expect(screen.getByLabelText('关闭图片预览')).toBeInTheDocument();
+
+      // Click close button → overlay closes
+      fireEvent.click(screen.getByLabelText('关闭图片预览'));
+      expect(screen.queryByLabelText('关闭图片预览')).not.toBeInTheDocument();
+    });
+
+    it('closes full-bleed overlay on backdrop click', () => {
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const img = screen.getByRole('img');
+      fireEvent.load(img);
+      fireEvent.click(img);
+
+      const overlay = screen.getByLabelText('关闭图片预览').parentElement!;
+      fireEvent.click(overlay);
+      expect(screen.queryByLabelText('关闭图片预览')).not.toBeInTheDocument();
+    });
+
+    it('does not open full-bleed when image is not loaded', () => {
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={mockNodeData}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      const img = screen.getByRole('img');
+      // Image is still loading, click should not open full-bleed
+      fireEvent.click(img);
+      expect(screen.queryByLabelText('关闭图片预览')).not.toBeInTheDocument();
+    });
   });
 });

@@ -15,6 +15,7 @@ interface ImageNodeToolbarProps {
   onErase?: () => void;
   onRedraw?: () => void;
   onFullscreen?: () => void;
+  onDownload?: () => void;
   triggerRef?: React.RefObject<HTMLButtonElement>;
 }
 
@@ -218,6 +219,7 @@ function ImageNodeToolbarComponent({
   onErase,
   onRedraw,
   onFullscreen,
+  onDownload,
   triggerRef,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
@@ -346,7 +348,7 @@ function ImageNodeToolbarComponent({
         <Divider />
         <IconButton icon={<ExpandIcon />} ariaLabel="放大查看" onClick={onFullscreen} ref={triggerRef} />
         <IconButton icon={<UploadIcon />} ariaLabel="上传" />
-        <IconButton icon={<DownloadIcon />} ariaLabel="下载" />
+        <IconButton icon={<DownloadIcon />} ariaLabel="下载" onClick={onDownload} />
         <Divider />
         <IconButton icon={<CopyIcon />} ariaLabel="复制" />
         <IconButton
