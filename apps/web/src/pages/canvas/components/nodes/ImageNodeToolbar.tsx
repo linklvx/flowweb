@@ -274,9 +274,8 @@ function SubGridPanel({
                     key={`${row}-${col}`}
                     type="button"
                     disabled={isDisabled}
-                    className="h-8 w-8 rounded border transition-colors duration-75"
+                    className="h-8 w-8 rounded transition-colors duration-75"
                     style={{
-                      borderColor: isPreview ? 'rgba(96,165,250,0.6)' : 'rgb(82,82,82)',
                       backgroundColor: isPreview ? 'rgba(59,130,246,0.4)' : 'rgba(64,64,64,0.5)',
                       opacity: isDisabled ? 0.3 : 1,
                       cursor: isDisabled ? 'not-allowed' : 'pointer',
@@ -497,7 +496,7 @@ function ImageNodeToolbarComponent({
                     key={item.label}
                     type="button"
                     className="flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200 hover:bg-white/10"
-                    style={{ color: 'rgb(247,247,247)', background: 'transparent', border: 0 }}
+                    style={{ color: 'rgb(247,247,247)', border: 0 }}
                     onClick={() => {
                       onGridSplit?.(item.rows, item.cols);
                       setGridSplitOpen(false);
