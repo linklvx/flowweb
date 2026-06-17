@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Modal } from 'antd';
+import { App } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
 import type { MaterialFolder } from '@flowweb/shared';
 
@@ -64,6 +64,7 @@ const destructiveItemClass =
   'hover:bg-red-400/10 relative flex cursor-pointer items-center rounded-sm px-2 outline-hidden select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-red-400';
 
 export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, onRename }: Props) {
+  const { modal } = App.useApp();
   const deleteFolder = useMaterialLibraryStore((s) => s.deleteFolder);
   const moveFolderUp = useMaterialLibraryStore((s) => s.moveFolderUp);
 
@@ -80,7 +81,7 @@ export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, 
   }, [onClose]);
 
   const handleDelete = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除文件夹',
       content: `确定删除文件夹"${folder.name}"及其所有子文件夹？此操作不可恢复。`,
       okType: 'danger',

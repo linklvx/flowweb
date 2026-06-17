@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Modal, Select } from 'antd';
+import { App, Modal, Select } from 'antd';
 import { useMaterialLibraryStore } from '../../stores/materialLibraryStore';
 import type { MaterialFolder } from '@flowweb/shared';
 import FolderTree from './FolderTree/FolderTree';
@@ -31,6 +31,8 @@ export default function MaterialLibraryModal() {
   const selectedFileIds = useMaterialLibraryStore((s) => s.selectedFileIds);
   const selectedFolderId = useMaterialLibraryStore((s) => s.selectedFolderId);
   const folders = useMaterialLibraryStore((s) => s.folders);
+
+  const { modal } = App.useApp();
 
   const [folderSelectorOpen, setFolderSelectorOpen] = useState(false);
   const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export default function MaterialLibraryModal() {
   const handleBatchDelete = () => {
     const state = useMaterialLibraryStore.getState();
     if (state.selectedFileIds.size === 0) return;
-    Modal.confirm({
+    modal.confirm({
       title: '批量删除文件',
       content: `确定删除选中的 ${state.selectedFileIds.size} 个文件？此操作不可恢复。`,
       okText: '删除',

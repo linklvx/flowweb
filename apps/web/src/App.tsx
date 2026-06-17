@@ -1,5 +1,5 @@
 import { RouterProvider } from 'react-router';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
 
@@ -12,9 +12,11 @@ export function App() {
         },
       }}
     >
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <AntdApp>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AntdApp>
     </ConfigProvider>
   );
 }
