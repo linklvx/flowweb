@@ -427,15 +427,9 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
     openCustomSubPanel();
 
-    // Find all disabled buttons in the grid (row=1 or col=1)
-    const disabledButtons = document.querySelectorAll('button[disabled]');
-    // Click the first disabled grid button
-    const disabledGridBtn = Array.from(disabledButtons).find(
-      (b) => b.className.includes('h-8') && b.className.includes('w-8'),
-    );
-    if (disabledGridBtn) {
-      fireEvent.click(disabledGridBtn);
-    }
+    // Grid is 5x5, rendered row-by-row. First button (index 0) = row 1, col 1 (disabled).
+    const gridBtns = document.querySelectorAll('.grid button');
+    fireEvent.click(gridBtns[0]);
     expect(onGridSplit).not.toHaveBeenCalled();
     cleanupPortalTarget();
   });
@@ -446,11 +440,9 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
     openCustomSubPanel();
 
-    // Find non-disabled grid buttons (row > 1 and col > 1)
-    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
-    const validBtn = Array.from(allGridBtns).find((b) => !b.hasAttribute('disabled'));
-    expect(validBtn).toBeTruthy();
-    fireEvent.click(validBtn!);
+    // Grid is 5x5. Index 6 = row 2, col 2 (first valid cell).
+    const gridBtns = document.querySelectorAll('.grid button');
+    fireEvent.click(gridBtns[6]);
 
     expect(onGridSplit).toHaveBeenCalledTimes(1);
     // Dropdown close behavior verified in browser (Ant Design portal cleanup is async in jsdom)
@@ -463,11 +455,9 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
     openCustomSubPanel();
 
-    // Hover over a disabled cell (top-left = row 1, col 1)
-    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
-    const disabledBtn = Array.from(allGridBtns).find((b) => b.hasAttribute('disabled'));
-    expect(disabledBtn).toBeTruthy();
-    fireEvent.mouseEnter(disabledBtn!);
+    // Hover over disabled cell (index 0 = row 1, col 1)
+    const gridBtns = document.querySelectorAll('.grid button');
+    fireEvent.mouseEnter(gridBtns[0]);
 
     // Preview should still show placeholder (not changed by disabled hover)
     expect(screen.getByText('-- × --')).toBeInTheDocument();
@@ -480,16 +470,15 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
     openCustomSubPanel();
 
-    // Hover over a valid cell to set preview
-    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
-    const validBtn = Array.from(allGridBtns).find((b) => !b.hasAttribute('disabled'));
-    fireEvent.mouseEnter(validBtn!);
+    // Hover over valid cell (index 6 = row 2, col 2)
+    const gridBtns = document.querySelectorAll('.grid button');
+    fireEvent.mouseEnter(gridBtns[6]);
 
     // Preview should show a size (not placeholder)
     expect(screen.queryByText('-- × --')).not.toBeInTheDocument();
 
     // Move mouse out of the grid
-    const gridContainer = validBtn!.closest('.grid');
+    const gridContainer = gridBtns[6].closest('.grid');
     fireEvent.mouseLeave(gridContainer!);
 
     // Preview should reset to placeholder

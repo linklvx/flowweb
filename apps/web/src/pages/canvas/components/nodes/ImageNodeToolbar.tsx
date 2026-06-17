@@ -271,12 +271,9 @@ function SubGridPanel({
                   <button
                     key={`${row}-${col}`}
                     type="button"
-                    disabled={isDisabled}
-                    className="h-8 w-8 rounded transition-colors duration-75"
+                    className="h-8 w-8 rounded transition-colors duration-75 cursor-pointer"
                     style={{
                       backgroundColor: isPreview ? 'rgba(59,130,246,0.4)' : 'rgba(64,64,64,0.5)',
-                      opacity: isDisabled ? 0.3 : 1,
-                      cursor: isDisabled ? 'not-allowed' : 'pointer',
                     }}
                     onMouseEnter={() => { if (!isDisabled) onHover(row, col); }}
                     onClick={() => { if (!isDisabled) onCommit(row, col); }}
