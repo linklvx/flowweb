@@ -239,7 +239,6 @@ function SubGridPanel({
         marginRight: flipLeft ? 6 : 0,
         top: 0,
       }}
-      onMouseLeave={onMouseLeave}
     >
       <div
         className="p-1.5 font-sans"
@@ -259,6 +258,7 @@ function SubGridPanel({
           <div
             className="grid gap-1"
             style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+            onMouseLeave={onMouseLeave}
           >
             {Array.from({ length: 5 }, (_, r) =>
               Array.from({ length: 5 }, (_, c) => {
