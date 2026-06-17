@@ -15,7 +15,9 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "Bash(rm -rf /d/flowweb/D:flowwebbackupsv2.3 /d/flowweb/D:flowwebdocssuperpowersspecs)",
-      "Bash(rm -f /d/flowweb/D:flowwebbackupsv2.3database.sql)"
+      "Bash(rm -f /d/flowweb/D:flowwebbackupsv2.3database.sql)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_Preview__preview_start"
     ],
     "deny": [],
     "defaultMode": "bypassPermissions"
