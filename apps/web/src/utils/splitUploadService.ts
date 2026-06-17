@@ -33,7 +33,7 @@ function isRetryable(error: unknown): boolean {
   return false;
 }
 
-/** Presign + PUT upload (retryable). Does NOT call confirmUpload. */
+/** Presign + POST form upload (retryable). Does NOT call confirmUpload. */
 async function uploadOne(
   blob: Blob,
   index: number,
@@ -47,7 +47,7 @@ async function uploadOne(
   const col = index % cols;
   const fileName = `${namePrefix}_r${row}_c${col}.webp`;
 
-  const presignResult = await presignUpload(
+  const { fileId, uploadUrl, key, fields } = await presignUpload(
     {
       fileName,
       fileSize: blob.size,
@@ -59,26 +59,32 @@ async function uploadOne(
 
   signal?.throwIfAborted();
 
-  const putRes = await fetch(presignResult.uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'image/webp' },
-    body: blob,
+  // Build FormData (minIO presigned POST)
+  const formData = new FormData();
+  for (const [k, v] of Object.entries(fields)) {
+    formData.append(k, v);
+  }
+  formData.append('file', blob, fileName);
+
+  // Rewrite presigned URL through Vite proxy in dev (same as FileUpload.tsx)
+  const proxyUrl = import.meta.env.DEV
+    ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+    : uploadUrl;
+
+  const postRes = await fetch(proxyUrl, {
+    method: 'POST',
+    body: formData,
     signal,
   });
 
-  if (!putRes.ok) {
+  if (!postRes.ok) {
     throw Object.assign(
-      new Error(`Upload failed: ${putRes.status} ${putRes.statusText}`),
-      { status: putRes.status },
+      new Error(`Upload failed: ${postRes.status} ${postRes.statusText}`),
+      { status: postRes.status },
     );
   }
 
-  return {
-    index,
-    fileId: presignResult.fileId,
-    key: presignResult.key,
-    fileSize: blob.size,
-  };
+  return { index, fileId, key, fileSize: blob.size };
 }
 
 /** Upload with retry (presign + PUT). confirmUpload is called once after retry succeeds. */

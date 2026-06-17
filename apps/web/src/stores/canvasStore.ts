@@ -486,7 +486,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       } else if (successCount > 0 && failCount > 0) {
         message.warning(`切分完成：成功 ${successCount} 张，失败 ${failCount} 张`);
       } else if (successCount === 0 && failCount > 0) {
-        message.error('切分失败：所有子图上传失败');
+        const reasons = [...new Set(uploadResult.failed.map(f => f.error))].join('; ');
+        message.error(`切分失败：所有子图上传失败 (${reasons})`);
       }
 
       return {
