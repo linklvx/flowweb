@@ -202,37 +202,35 @@ function Divider() {
 // ── Sub-panel ──────────────────────────────────────────
 
 interface SubGridPanelProps {
-  selectedRows: number;
-  selectedCols: number;
   previewRows: number;
   previewCols: number;
   onHover: (r: number, c: number) => void;
-  onSelect: (r: number, c: number) => void;
-  onConfirm: () => void;
+  onMouseLeave: () => void;
+  onCommit: (r: number, c: number) => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 function SubGridPanel({
-  selectedRows,
-  selectedCols,
   previewRows,
   previewCols,
   onHover,
-  onSelect,
-  onConfirm,
+  onMouseLeave,
+  onCommit,
+  containerRef,
 }: SubGridPanelProps) {
   const [flipLeft, setFlipLeft] = useState(false);
 
   useEffect(() => {
-    // Use viewport boundary (better UX than canvas-container — avoids overflow beyond browser window)
-    const el = document.querySelector('.ant-dropdown') as HTMLElement | null;
+    const el = containerRef.current?.closest('.ant-dropdown') as HTMLElement | null;
     if (el) {
       const rect = el.getBoundingClientRect();
       setFlipLeft(rect.right + 220 > window.innerWidth);
     }
-  }, []);
+  }, [containerRef]);
 
   return (
     <div
+      ref={containerRef}
       className="absolute"
       style={{
         left: flipLeft ? 'auto' : '100%',
@@ -256,11 +254,15 @@ function SubGridPanel({
           <div className="flex items-center justify-between px-0.5">
             <span className="text-[13px]" style={{ color: 'rgb(168,168,168)' }}>自定义宫格</span>
             <span className="text-[13px] font-medium" style={{ color: 'rgb(247,247,247)' }}>
-              {previewRows} × {previewCols}
+              {previewRows > 0 && previewCols > 0 ? `${previewRows} × ${previewCols}` : '-- × --'}
             </span>
           </div>
 
-          <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+          <div
+            className="grid gap-1"
+            style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+            onMouseLeave={onMouseLeave}
+          >
             {Array.from({ length: 5 }, (_, r) =>
               Array.from({ length: 5 }, (_, c) => {
                 const row = r + 1;
@@ -279,29 +281,13 @@ function SubGridPanel({
                       opacity: isDisabled ? 0.3 : 1,
                       cursor: isDisabled ? 'not-allowed' : 'pointer',
                     }}
-                    onMouseEnter={() => !isDisabled && onHover(row, col)}
-                    onClick={() => !isDisabled && onSelect(row, col)}
+                    onMouseEnter={() => { if (!isDisabled) onHover(row, col); }}
+                    onClick={() => { if (!isDisabled) onCommit(row, col); }}
                   />
                 );
               })
             )}
           </div>
-
-          <button
-            type="button"
-            disabled={selectedRows < 2 || selectedCols < 2}
-            className="w-full rounded-lg py-1.5 text-[13px] font-medium transition-colors"
-            style={{
-              background: 'rgb(59,130,246)',
-              color: '#fff',
-              border: 0,
-              opacity: selectedRows < 2 || selectedCols < 2 ? 0.5 : 1,
-              cursor: selectedRows < 2 || selectedCols < 2 ? 'not-allowed' : 'pointer',
-            }}
-            onClick={onConfirm}
-          >
-            确认切分
-          </button>
         </div>
       </div>
     </div>
@@ -347,17 +333,22 @@ function ImageNodeToolbarComponent({
   // Grid split dropdown state
   const [gridSplitOpen, setGridSplitOpen] = useState(false);
   const [subMenuOpen, setSubMenuOpen] = useState(false);
-  const [selectedRows, setSelectedRows] = useState(2);
-  const [selectedCols, setSelectedCols] = useState(2);
-  const [previewRows, setPreviewRows] = useState(2);
-  const [previewCols, setPreviewCols] = useState(2);
+  const [previewRows, setPreviewRows] = useState(0);
+  const [previewCols, setPreviewCols] = useState(0);
   const subCloseTimerRef = useRef<number>(0);
+  const subPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return () => {
       if (subCloseTimerRef.current) clearTimeout(subCloseTimerRef.current);
     };
   }, []);
+
+  const handleGridCommit = useCallback((rows: number, cols: number) => {
+    onGridSplit?.(rows, cols);
+    setGridSplitOpen(false);
+    setSubMenuOpen(false);
+  }, [onGridSplit]);
 
   const nodeX = internalNode?.position?.x ?? 0;
   const nodeY = internalNode?.position?.y ?? 0;
@@ -542,17 +533,12 @@ function ImageNodeToolbarComponent({
 
               {subMenuOpen && (
                 <SubGridPanel
-                  selectedRows={selectedRows}
-                  selectedCols={selectedCols}
                   previewRows={previewRows}
                   previewCols={previewCols}
                   onHover={(r, c) => { setPreviewRows(r); setPreviewCols(c); }}
-                  onSelect={(r, c) => { setSelectedRows(r); setSelectedCols(c); }}
-                  onConfirm={() => {
-                    onGridSplit?.(selectedRows, selectedCols);
-                    setGridSplitOpen(false);
-                    setSubMenuOpen(false);
-                  }}
+                  onMouseLeave={() => { setPreviewRows(0); setPreviewCols(0); }}
+                  onCommit={handleGridCommit}
+                  containerRef={subPanelRef}
                 />
               )}
             </div>

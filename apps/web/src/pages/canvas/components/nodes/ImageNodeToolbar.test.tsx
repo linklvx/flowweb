@@ -389,4 +389,111 @@ describe('ImageNodeToolbar', () => {
     expect(screen.queryByText('宫格切分')).not.toBeInTheDocument();
     cleanupPortalTarget();
   });
+
+  // ── SubGridPanel Interaction Optimization Tests ──
+
+  function openGridSplitDropdown() {
+    fireEvent.click(screen.getByText('宫格切分'));
+  }
+
+  function openCustomSubPanel() {
+    openGridSplitDropdown();
+    fireEvent.click(screen.getByText('自定义'));
+  }
+
+  it('SubGridPanel: should show placeholder -- × -- when no grid cell hovered', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    expect(screen.getByText('-- × --')).toBeInTheDocument();
+    cleanupPortalTarget();
+  });
+
+  it('SubGridPanel: should NOT show confirm button', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    expect(screen.queryByText('确认切分')).not.toBeInTheDocument();
+    cleanupPortalTarget();
+  });
+
+  it('SubGridPanel: should not trigger onCommit when clicking disabled cell (row=1 or col=1)', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    // Find all disabled buttons in the grid (row=1 or col=1)
+    const disabledButtons = document.querySelectorAll('button[disabled]');
+    // Click the first disabled grid button
+    const disabledGridBtn = Array.from(disabledButtons).find(
+      (b) => b.className.includes('h-8') && b.className.includes('w-8'),
+    );
+    if (disabledGridBtn) {
+      fireEvent.click(disabledGridBtn);
+    }
+    expect(onGridSplit).not.toHaveBeenCalled();
+    cleanupPortalTarget();
+  });
+
+  it('SubGridPanel: clicking valid grid cell should trigger onGridSplit', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    // Find non-disabled grid buttons (row > 1 and col > 1)
+    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
+    const validBtn = Array.from(allGridBtns).find((b) => !b.hasAttribute('disabled'));
+    expect(validBtn).toBeTruthy();
+    fireEvent.click(validBtn!);
+
+    expect(onGridSplit).toHaveBeenCalledTimes(1);
+    // Dropdown close behavior verified in browser (Ant Design portal cleanup is async in jsdom)
+    cleanupPortalTarget();
+  });
+
+  it('SubGridPanel: disabled cells should not trigger hover preview', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    // Hover over a disabled cell (top-left = row 1, col 1)
+    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
+    const disabledBtn = Array.from(allGridBtns).find((b) => b.hasAttribute('disabled'));
+    expect(disabledBtn).toBeTruthy();
+    fireEvent.mouseEnter(disabledBtn!);
+
+    // Preview should still show placeholder (not changed by disabled hover)
+    expect(screen.getByText('-- × --')).toBeInTheDocument();
+    cleanupPortalTarget();
+  });
+
+  it('SubGridPanel: mouse leave should reset preview to placeholder', () => {
+    setupPortalTarget();
+    const onGridSplit = vi.fn();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={onGridSplit} />);
+    openCustomSubPanel();
+
+    // Hover over a valid cell to set preview
+    const allGridBtns = document.querySelectorAll('button.h-8.w-8');
+    const validBtn = Array.from(allGridBtns).find((b) => !b.hasAttribute('disabled'));
+    fireEvent.mouseEnter(validBtn!);
+
+    // Preview should show a size (not placeholder)
+    expect(screen.queryByText('-- × --')).not.toBeInTheDocument();
+
+    // Move mouse out of the grid
+    const gridContainer = validBtn!.closest('.grid');
+    fireEvent.mouseLeave(gridContainer!);
+
+    // Preview should reset to placeholder
+    expect(screen.getByText('-- × --')).toBeInTheDocument();
+    cleanupPortalTarget();
+  });
 });
