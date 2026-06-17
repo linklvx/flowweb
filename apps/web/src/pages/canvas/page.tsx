@@ -113,6 +113,19 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     return () => document.removeEventListener('contextmenu', onContextMenu);
   }, []);
 
+  // Abort all in-progress split tasks when leaving canvas page
+  useEffect(() => {
+    return () => {
+      const state = useCanvasStore.getState();
+      const map = state?.splitAbortMap;
+      if (map) {
+        for (const ac of Object.values(map)) {
+          ac.abort();
+        }
+      }
+    };
+  }, []);
+
   // 无限画布页面禁止 body/html 滚动条
   useEffect(() => {
     const prevBody = document.body.style.overflow;

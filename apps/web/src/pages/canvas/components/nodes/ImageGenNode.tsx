@@ -62,6 +62,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
+  const splitImageNode = useCanvasStore((s) => s.splitImageNode);
+  const splittingNodeId = useCanvasStore((s) => s.splittingNodeId);
   const { zoom, x: vpX, y: vpY } = useViewport();
   const { fitView, getNodes, setNodes } = useReactFlow();
   // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
@@ -116,6 +118,19 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       window.open(displayUrl, '_blank');
     }
   }, [displayUrl]);
+
+  const handleGridSplit = useCallback(async (rows: number, cols: number) => {
+    const result = await splitImageNode(id, rows, cols);
+    if (!result) return;
+    fitView({
+      nodes: [
+        { id },
+        ...result.newIds.map(nid => ({ id: nid })),
+      ],
+      padding: 0.2,
+      duration: 300,
+    });
+  }, [id, splitImageNode, fitView]);
 
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
@@ -787,6 +802,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onFullscreen={handleOpenFullscreen}
           onDownload={handleDownload}
           triggerRef={fullscreenTriggerRef}
+          onGridSplit={handleGridSplit}
+          splitting={splittingNodeId !== null}
         />
       )}
 

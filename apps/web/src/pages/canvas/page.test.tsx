@@ -26,6 +26,8 @@ vi.mock('@/stores/canvasStore', () => ({
         updateViewport: vi.fn(),
         addNode: vi.fn(),
         selectNode: vi.fn(),
+        splitAbortMap: {},
+        splittingNodeId: null,
       };
       if (typeof selector === 'function') return selector(state);
       return state;

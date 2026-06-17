@@ -95,6 +95,8 @@ const {
       addNodeWithEdge,
       deleteTransformNode,
       setNodeDraggable: vi.fn(),
+      splitImageNode: vi.fn(),
+      splittingNodeId: null,
     };
     if (typeof _selector === 'function') return _selector(state);
     return state;
