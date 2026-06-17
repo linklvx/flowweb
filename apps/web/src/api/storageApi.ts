@@ -7,25 +7,33 @@ export interface PresignResponse {
   fields: Record<string, string>;
 }
 
-export async function presignUpload(params: {
-  fileName: string;
-  fileSize: number;
-  fileType: string;
-  type: 'uploaded' | 'temp';
-}): Promise<PresignResponse> {
+export async function presignUpload(
+  params: {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    type: 'uploaded' | 'temp';
+  },
+  signal?: AbortSignal,
+): Promise<PresignResponse> {
   return apiFetch('/storage/presign', {
     method: 'POST',
     body: JSON.stringify(params),
+    signal,
   });
 }
 
-export async function confirmUpload(params: {
-  fileId: string;
-  key: string;
-  fileSize: number;
-}): Promise<{ fileId: string }> {
+export async function confirmUpload(
+  params: {
+    fileId: string;
+    key: string;
+    fileSize: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ fileId: string }> {
   return apiFetch('/storage/confirm', {
     method: 'POST',
     body: JSON.stringify(params),
+    signal,
   });
 }
