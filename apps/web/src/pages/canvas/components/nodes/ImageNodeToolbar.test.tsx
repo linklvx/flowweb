@@ -103,7 +103,7 @@ describe('ImageNodeToolbar', () => {
   it('row 2 contains all buttons', () => {
     setupPortalTarget();
     render(<ImageNodeToolbar {...defaultProps} />);
-    const row2Labels = ['打光', '3D 角度', '涂鸦', '高清增强', '九宫格', '放大查看', '上传', '下载', '复制', '删除'];
+    const row2Labels = ['打光', '3D 角度', '宫格切分', '高清增强', '九宫格', '放大查看', '上传', '下载', '复制', '删除'];
     row2Labels.forEach((label) => {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     });
@@ -361,6 +361,32 @@ describe('ImageNodeToolbar', () => {
     render(<ImageNodeToolbar {...defaultProps} onDownload={onDownload} />);
     fireEvent.click(screen.getByLabelText('下载'));
     expect(onDownload).toHaveBeenCalledTimes(1);
+    cleanupPortalTarget();
+  });
+
+  // ── Grid Split Dropdown Tests ──
+
+  it('宫格切分 button is disabled when splitting=true', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} splitting={true} />);
+    const btn = screen.getByText('宫格切分');
+    expect(btn.closest('button')).toBeDisabled();
+    cleanupPortalTarget();
+  });
+
+  it('宫格切分 button is disabled when onGridSplit is not provided', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} onGridSplit={undefined} />);
+    const btn = screen.getByText('宫格切分');
+    expect(btn.closest('button')).toBeDisabled();
+    cleanupPortalTarget();
+  });
+
+  it('disables 宫格切分 when no image loaded (hasImage=false)', () => {
+    setupPortalTarget();
+    render(<ImageNodeToolbar {...defaultProps} fileId={undefined} referenceImage={undefined} />);
+    // Upload-only mode: full toolbar not rendered
+    expect(screen.queryByText('宫格切分')).not.toBeInTheDocument();
     cleanupPortalTarget();
   });
 });

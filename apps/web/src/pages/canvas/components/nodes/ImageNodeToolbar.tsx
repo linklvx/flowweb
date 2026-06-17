@@ -1,7 +1,8 @@
-import { memo, useState, useEffect, useMemo, type ReactNode, forwardRef } from 'react';
+import { memo, useState, useEffect, useMemo, useRef, useCallback, type ReactNode, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useViewport, useInternalNode } from '@xyflow/react';
-import { SwapOutlined } from '@ant-design/icons';
+import { SwapOutlined, BorderlessTableOutlined } from '@ant-design/icons';
+import { Dropdown } from 'antd';
 
 interface ImageNodeToolbarProps {
   nodeId: string;
@@ -17,6 +18,8 @@ interface ImageNodeToolbarProps {
   onFullscreen?: () => void;
   onDownload?: () => void;
   triggerRef?: React.RefObject<HTMLButtonElement>;
+  onGridSplit?: (rows: number, cols: number) => void;
+  splitting?: boolean;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -97,12 +100,6 @@ const TypeIcon = () => (
 const ShirtIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />
-  </svg>
-);
-
-const PenLineIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M13 21h8" /><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
   </svg>
 );
 
@@ -202,6 +199,115 @@ function Divider() {
   return <div className="mx-1 h-5 w-px" style={{ backgroundColor: DIVIDER_COLOR }} />;
 }
 
+// ── Sub-panel ──────────────────────────────────────────
+
+interface SubGridPanelProps {
+  selectedRows: number;
+  selectedCols: number;
+  previewRows: number;
+  previewCols: number;
+  onHover: (r: number, c: number) => void;
+  onSelect: (r: number, c: number) => void;
+  onConfirm: () => void;
+}
+
+function SubGridPanel({
+  selectedRows,
+  selectedCols,
+  previewRows,
+  previewCols,
+  onHover,
+  onSelect,
+  onConfirm,
+}: SubGridPanelProps) {
+  const [flipLeft, setFlipLeft] = useState(false);
+
+  useEffect(() => {
+    // Use viewport boundary (better UX than canvas-container — avoids overflow beyond browser window)
+    const el = document.querySelector('.ant-dropdown') as HTMLElement | null;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setFlipLeft(rect.right + 220 > window.innerWidth);
+    }
+  }, []);
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: flipLeft ? 'auto' : '100%',
+        right: flipLeft ? '100%' : 'auto',
+        marginLeft: flipLeft ? 0 : 6,
+        marginRight: flipLeft ? 6 : 0,
+        top: 0,
+      }}
+    >
+      <div
+        className="p-1.5 font-sans"
+        style={{
+          borderRadius: '12px',
+          border: '0.5px solid #363636',
+          background: 'rgba(31,31,31,0.92)',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+          backdropFilter: 'blur(16px)',
+        }}
+      >
+        <div className="flex flex-col gap-2.5 p-2">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[13px]" style={{ color: 'rgb(168,168,168)' }}>自定义宫格</span>
+            <span className="text-[13px] font-medium" style={{ color: 'rgb(247,247,247)' }}>
+              {previewRows} × {previewCols}
+            </span>
+          </div>
+
+          <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            {Array.from({ length: 5 }, (_, r) =>
+              Array.from({ length: 5 }, (_, c) => {
+                const row = r + 1;
+                const col = c + 1;
+                const isPreview = row <= previewRows && col <= previewCols;
+                const isDisabled = row === 1 || col === 1;
+                return (
+                  <button
+                    key={`${row}-${col}`}
+                    type="button"
+                    disabled={isDisabled}
+                    className="h-8 w-8 rounded border transition-colors duration-75"
+                    style={{
+                      borderColor: isPreview ? 'rgba(96,165,250,0.6)' : 'rgb(82,82,82)',
+                      backgroundColor: isPreview ? 'rgba(59,130,246,0.4)' : 'rgba(64,64,64,0.5)',
+                      opacity: isDisabled ? 0.3 : 1,
+                      cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    }}
+                    onMouseEnter={() => !isDisabled && onHover(row, col)}
+                    onClick={() => !isDisabled && onSelect(row, col)}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={selectedRows < 2 || selectedCols < 2}
+            className="w-full rounded-lg py-1.5 text-[13px] font-medium transition-colors"
+            style={{
+              background: 'rgb(59,130,246)',
+              color: '#fff',
+              border: 0,
+              opacity: selectedRows < 2 || selectedCols < 2 ? 0.5 : 1,
+              cursor: selectedRows < 2 || selectedCols < 2 ? 'not-allowed' : 'pointer',
+            }}
+            onClick={onConfirm}
+          >
+            确认切分
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────
 
 const FULL_TOOLBAR_HEIGHT = 84; // 2-row toolbar
@@ -221,6 +327,8 @@ function ImageNodeToolbarComponent({
   onFullscreen,
   onDownload,
   triggerRef,
+  onGridSplit,
+  splitting = false,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -234,6 +342,21 @@ function ImageNodeToolbarComponent({
       setWindowSize({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Grid split dropdown state
+  const [gridSplitOpen, setGridSplitOpen] = useState(false);
+  const [subMenuOpen, setSubMenuOpen] = useState(false);
+  const [selectedRows, setSelectedRows] = useState(2);
+  const [selectedCols, setSelectedCols] = useState(2);
+  const [previewRows, setPreviewRows] = useState(2);
+  const [previewCols, setPreviewCols] = useState(2);
+  const subCloseTimerRef = useRef<number>(0);
+
+  useEffect(() => {
+    return () => {
+      if (subCloseTimerRef.current) clearTimeout(subCloseTimerRef.current);
+    };
   }, []);
 
   const nodeX = internalNode?.position?.x ?? 0;
@@ -342,7 +465,108 @@ function ImageNodeToolbarComponent({
       >
         <TextIconButton icon={<SunIcon />} ariaLabel="打光" text="打光" />
         <TextIconButton icon={<Camera3DIcon />} ariaLabel="3D 角度" text="3D 角度" />
-        <TextIconButton icon={<PenLineIcon />} ariaLabel="涂鸦" text="涂鸦" />
+        <Dropdown
+          open={gridSplitOpen}
+          onOpenChange={(next) => {
+            if (splitting || !hasImage) return;
+            setGridSplitOpen(next);
+            if (!next) setSubMenuOpen(false);
+          }}
+          trigger={['click']}
+          getPopupContainer={() => document.querySelector('.react-flow') || document.body}
+          dropdownRender={() => (
+            <div
+              className="flex relative"
+              onMouseLeave={() => {
+                subCloseTimerRef.current = window.setTimeout(() => setSubMenuOpen(false), 150);
+              }}
+              onMouseEnter={() => {
+                if (subCloseTimerRef.current) clearTimeout(subCloseTimerRef.current);
+              }}
+            >
+              {/* Main menu column */}
+              <div
+                className="flex flex-col gap-0.5 p-1.5 font-sans"
+                style={{
+                  borderRadius: '12px',
+                  border: '0.5px solid #363636',
+                  background: 'rgba(31, 31, 31, 0.92)',
+                  boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+                  backdropFilter: 'blur(16px)',
+                  minWidth: 150,
+                }}
+              >
+                {[
+                  { label: '4宫格 (2×2)', rows: 2, cols: 2 },
+                  { label: '9宫格 (3×3)', rows: 3, cols: 3 },
+                  { label: '16宫格 (4×4)', rows: 4, cols: 4 },
+                  { label: '25宫格 (5×5)', rows: 5, cols: 5 },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200 hover:bg-white/10"
+                    style={{ color: 'rgb(247,247,247)', background: 'transparent', border: 0 }}
+                    onClick={() => {
+                      onGridSplit?.(item.rows, item.cols);
+                      setGridSplitOpen(false);
+                    }}
+                    onMouseEnter={() => setSubMenuOpen(false)}
+                  >
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </button>
+                ))}
+
+                <div className="mx-2 my-0.5 h-px" style={{ background: '#363636' }} />
+
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
+                  style={{
+                    color: 'rgb(247,247,247)',
+                    background: subMenuOpen ? 'rgba(255,255,255,0.08)' : 'transparent',
+                    border: 0,
+                  }}
+                  onMouseEnter={() => {
+                    if (subCloseTimerRef.current) clearTimeout(subCloseTimerRef.current);
+                    setSubMenuOpen(true);
+                  }}
+                  onClick={() => setSubMenuOpen((v) => !v)}
+                >
+                  <span className="min-w-0 truncate">自定义</span>
+                  <svg className="h-3 w-3 shrink-0 -rotate-90 opacity-60" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M6.198 0.117A0.4 0.4 0 0 1 6.765 0.117L7.188 0.541A0.4 0.4 0 0 1 7.188 1.107L4.147 4.148a0.4 0.4 0 0 1-.99 0L0.117 1.107A0.4 0.4 0 0 1 0.117 0.541L0.541 0.117a0.4 0.4 0 0 1 0.566 0L3.652 2.663 6.198 0.117Z" />
+                  </svg>
+                </button>
+              </div>
+
+              {subMenuOpen && (
+                <SubGridPanel
+                  selectedRows={selectedRows}
+                  selectedCols={selectedCols}
+                  previewRows={previewRows}
+                  previewCols={previewCols}
+                  onHover={(r, c) => { setPreviewRows(r); setPreviewCols(c); }}
+                  onSelect={(r, c) => { setSelectedRows(r); setSelectedCols(c); }}
+                  onConfirm={() => {
+                    onGridSplit?.(selectedRows, selectedCols);
+                    setGridSplitOpen(false);
+                    setSubMenuOpen(false);
+                  }}
+                />
+              )}
+            </div>
+          )}
+        >
+          <span>
+            <TextIconButton
+              icon={<BorderlessTableOutlined style={{ fontSize: 16 }} />}
+              ariaLabel="宫格切分"
+              text="宫格切分"
+              disabled={splitting || !hasImage || !onGridSplit}
+            />
+          </span>
+        </Dropdown>
         <TextIconButton icon={<HDIcon />} ariaLabel="高清增强" text="高清增强" />
         <TextIconButton icon={<Grid3x3Icon />} ariaLabel="九宫格" text="九宫格" />
         <Divider />
