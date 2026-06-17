@@ -477,9 +477,9 @@ describe('ImageNodeToolbar', () => {
     // Preview should show a size (not placeholder)
     expect(screen.queryByText('-- × --')).not.toBeInTheDocument();
 
-    // Move mouse out of the grid
-    const gridContainer = gridBtns[6].closest('.grid');
-    fireEvent.mouseLeave(gridContainer!);
+    // Move mouse out of the sub-panel (outer container now holds onMouseLeave)
+    const subPanel = gridBtns[6].closest('.absolute');
+    fireEvent.mouseLeave(subPanel!);
 
     // Preview should reset to placeholder
     expect(screen.getByText('-- × --')).toBeInTheDocument();
