@@ -125,7 +125,6 @@ export default function FileCard({ file, batchMode, selected, isFinePointer, onT
       placement="right"
       mouseEnterDelay={0.3}
       mouseLeaveDelay={0.15}
-      zIndex={100001}
       destroyTooltipOnHide={true}
       overlayInnerStyle={{ padding: 0 }}
       overlayStyle={{ background: 'transparent' }}
