@@ -244,7 +244,7 @@ function SubGridPanel({
         className="p-1.5 font-sans"
         style={{
           borderRadius: '12px',
-          background: 'rgba(31,31,31,0.92)',
+          background: 'rgb(31,31,31)',
         }}
       >
         <div className="flex flex-col gap-2.5 p-2">
