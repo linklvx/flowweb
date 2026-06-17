@@ -244,9 +244,7 @@ function SubGridPanel({
         className="p-1.5 font-sans"
         style={{
           borderRadius: '12px',
-          border: '0.5px solid #363636',
           background: 'rgba(31,31,31,0.92)',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
           backdropFilter: 'blur(16px)',
         }}
       >
@@ -336,6 +334,7 @@ function ImageNodeToolbarComponent({
   const [previewCols, setPreviewCols] = useState(0);
   const subCloseTimerRef = useRef<number>(0);
   const subPanelRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -495,13 +494,18 @@ function ImageNodeToolbarComponent({
                   <button
                     key={item.label}
                     type="button"
-                    className="flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200 hover:bg-white/10"
-                    style={{ color: 'rgb(247,247,247)', border: 0 }}
+                    className="flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
+                    style={{
+                      color: 'rgb(247,247,247)',
+                      background: hoveredPreset === item.label ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      border: 0,
+                    }}
+                    onMouseEnter={() => { setHoveredPreset(item.label); setSubMenuOpen(false); }}
+                    onMouseLeave={() => setHoveredPreset(null)}
                     onClick={() => {
                       onGridSplit?.(item.rows, item.cols);
                       setGridSplitOpen(false);
                     }}
-                    onMouseEnter={() => setSubMenuOpen(false)}
                   >
                     <span className="min-w-0 truncate">{item.label}</span>
                   </button>
