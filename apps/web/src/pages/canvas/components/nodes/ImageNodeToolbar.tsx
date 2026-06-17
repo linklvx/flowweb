@@ -245,7 +245,6 @@ function SubGridPanel({
         style={{
           borderRadius: '12px',
           background: 'rgba(31,31,31,0.92)',
-          backdropFilter: 'blur(16px)',
         }}
       >
         <div className="flex flex-col gap-2.5 p-2">
@@ -273,6 +272,7 @@ function SubGridPanel({
                     type="button"
                     className="h-8 w-8 rounded transition-colors duration-75 cursor-pointer"
                     style={{
+                      border: 0,
                       backgroundColor: isPreview ? 'rgba(59,130,246,0.4)' : 'rgba(64,64,64,0.5)',
                     }}
                     onMouseEnter={() => { if (!isDisabled) onHover(row, col); }}
