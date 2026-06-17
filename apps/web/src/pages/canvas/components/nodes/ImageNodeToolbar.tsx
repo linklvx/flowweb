@@ -245,7 +245,9 @@ function SubGridPanel({
         style={{
           borderRadius: '12px',
           border: '0.5px solid #363636',
-          background: 'rgb(31, 31, 31)',
+          background: 'rgba(31,31,31,0.92)',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+          backdropFilter: 'blur(16px)',
         }}
       >
         <div className="flex flex-col gap-2.5 p-2">
@@ -478,7 +480,9 @@ function ImageNodeToolbarComponent({
                 style={{
                   borderRadius: '12px',
                   border: '0.5px solid #363636',
-                  background: 'rgb(31, 31, 31)',
+                  background: 'rgba(31, 31, 31, 0.92)',
+                  boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+                  backdropFilter: 'blur(16px)',
                   minWidth: 150,
                 }}
               >
