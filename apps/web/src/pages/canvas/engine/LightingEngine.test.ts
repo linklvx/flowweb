@@ -359,4 +359,29 @@ describe('LightingEngine', () => {
       expect(engine.getViewMode()).toBe('front');
     });
   });
+
+  describe('viewport clamping in perspective', () => {
+    let container: HTMLDivElement;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      container.style.width = '800px';
+      container.style.height = '600px';
+      Object.defineProperty(container, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(container, 'clientHeight', { value: 600, configurable: true });
+      document.body.appendChild(container);
+    });
+
+    afterEach(() => {
+      document.body.removeChild(container);
+    });
+
+    it('should have a clampToViewport method for perspective view', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      engine.switchViewMode('perspective');
+
+      // The engine should have a mechanism to clamp positions to viewport
+      expect(typeof (engine as any).clampToViewport).toBe('function');
+    });
+  });
 });

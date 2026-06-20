@@ -388,10 +388,30 @@ export class LightingEngine {
     }
   }
 
+  private clampToViewport(x: number, y: number, z: number): { x: number; y: number } {
+    if (this.viewMode !== 'perspective') return { x, y };
+
+    const worldPos = new THREE.Vector3(x, y, z);
+    const ndc = worldPos.clone().project(this.activeCamera);
+
+    const margin = 0.85;
+    if (Math.abs(ndc.x) > margin || Math.abs(ndc.y) > margin) {
+      const clampedNdc = new THREE.Vector3(
+        Math.max(-margin, Math.min(margin, ndc.x)),
+        Math.max(-margin, Math.min(margin, ndc.y)),
+        ndc.z,
+      );
+      const unprojected = clampedNdc.unproject(this.activeCamera);
+      return { x: unprojected.x, y: unprojected.y };
+    }
+    return { x, y };
+  }
+
   // ─── Public API ──────────────────────────────────────────
 
   setPosition(x: number, y: number, z: number) {
-    this.position = { x, y, z };
+    const clamped = this.clampToViewport(x, y, z);
+    this.position = { x: clamped.x, y: clamped.y, z };
     this.light.position.set(x, y, z);
     this.lightHandle.position.set(x, y, z);
     this.light.intensity = this.calcIntensity();
