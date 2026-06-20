@@ -87,7 +87,7 @@ function ImagePreview({ file }: { file: MaterialFile }) {
         <img
           src={file.thumbnailUrl}
           alt=""
-          className="z-0 max-h-full max-w-full object-contain absolute inset-0"
+          className={`z-0 max-h-full max-w-full object-contain absolute inset-0 transition-opacity duration-150 ${imageLoaded ? 'opacity-0' : 'opacity-100'}`}
         />
       )}
       {originalUrl && (
