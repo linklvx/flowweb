@@ -307,3 +307,29 @@ model MaterialFolder {
   @@index([userId, sortOrder])
   @@index([userId, deletedAt])
 }
+
+model LightingTask {
+  id               String              @id @default(uuid())
+  userId           String
+  nodeId           String
+  projectId        String?
+  originalImageUrl String              @db.VarChar(512)
+  resultImageUrl   String?             @db.VarChar(512)
+  resultMediaId    String?
+  params           Json
+  status           LightingTaskStatus  @default(pending)
+  costCredits      Int                 @default(0)
+  errorMessage     String?             @db.Text
+  createdAt        DateTime            @default(now())
+  completedAt      DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum LightingTaskStatus {
+  pending
+  processing
+  success
+  failed
+}
