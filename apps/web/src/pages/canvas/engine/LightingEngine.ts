@@ -166,7 +166,7 @@ export class LightingEngine {
   }
 
   private initLightCone() {
-    const geo = new THREE.ConeGeometry(Math.tan(Math.PI / 12), 1, 16, 1, true);
+    const geo = new THREE.ConeGeometry(Math.tan(Math.PI / 6), 1, 16, 1, true);
     geo.rotateX(-Math.PI / 2);
     geo.translate(0, 0, 0.5);
 
@@ -177,7 +177,7 @@ export class LightingEngine {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uMaxAlpha: { value: 0.35 },
+        uMaxAlpha: { value: 0.2 },
       },
       vertexShader: `
         varying vec3 vLocalPos;
@@ -198,7 +198,7 @@ export class LightingEngine {
     });
 
     this.lightCone = new THREE.Mesh(geo, mat);
-    this.lightCone.renderOrder = 1;
+    this.lightCone.renderOrder = 0;
     this.lightHandle.renderOrder = 2;
     this.scene.add(this.lightCone);
 
@@ -210,7 +210,7 @@ export class LightingEngine {
     const pos = this.light.position;
     this.lightCone.position.copy(pos);
     this.lightCone.lookAt(0, 0, 0);
-    const d = pos.length();
+    const d = pos.length() * 0.80; // cone base stops before image plane
     this.lightCone.scale.set(d, d, d);
   }
 
@@ -251,6 +251,7 @@ export class LightingEngine {
           metalness: 0,
         });
         this.imagePlane = new THREE.Mesh(geo, mat);
+        this.imagePlane.renderOrder = 1; // render after cone to avoid visual overlap
         this.scene.add(this.imagePlane);
         this.dirty = true;
       },
@@ -260,6 +261,7 @@ export class LightingEngine {
         const geo = new THREE.PlaneGeometry(8, 8);
         const mat = new THREE.MeshStandardMaterial({ color: 0x333333, side: THREE.DoubleSide });
         this.imagePlane = new THREE.Mesh(geo, mat);
+        this.imagePlane.renderOrder = 1; // render after cone to avoid visual overlap
         this.scene.add(this.imagePlane);
         this.dirty = true;
       },
@@ -479,7 +481,7 @@ export class LightingEngine {
     this.light.intensity = this.calcIntensity();
     if (this.lightCone) {
       (this.lightCone.material as THREE.ShaderMaterial).uniforms.uMaxAlpha.value =
-        (this.brightness / 100) * 0.7;
+        (this.brightness / 100) * 0.4;
     }
     this.dirty = true;
   }
@@ -521,6 +523,12 @@ export class LightingEngine {
     // Toggle grids
     this.xyGridHelper.visible = !isPerspective;
     this.xzGridHelper.visible = isPerspective;
+
+    // Scale image plane: full size in front, reduced by 1/3 in perspective
+    if (this.imagePlane) {
+      const s = isPerspective ? 2 / 3 : 1;
+      this.imagePlane.scale.set(s, s, 1);
+    }
 
     // Sync OutlinePass camera
     if (this.outlinePass) {

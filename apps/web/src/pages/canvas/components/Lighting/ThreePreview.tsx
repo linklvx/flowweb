@@ -34,8 +34,8 @@ export function ThreePreview({
   useEffect(() => {
     const canvas = thumbnailRef.current;
     if (canvas) {
-      canvas.width = 240;
-      canvas.height = 180;
+      canvas.width = 480;
+      canvas.height = 360;
     }
   }, []);
 
@@ -52,9 +52,9 @@ export function ThreePreview({
       {/* Thumbnail — top right */}
       <canvas
         ref={thumbnailRef}
-        width={240}
-        height={180}
-        className="absolute top-3 right-3 w-[120px] h-[90px] rounded border border-white/10 z-10 opacity-90"
+        width={480}
+        height={360}
+        className="absolute top-3 right-3 w-[240px] h-[180px] rounded border border-white/10 z-10 opacity-90"
       />
 
       {/* Bottom-left: hint + reset */}

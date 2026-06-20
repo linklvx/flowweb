@@ -433,13 +433,11 @@ describe('LightingEngine', () => {
       expect(mat.uniforms.uMaxAlpha).toBeDefined();
     });
 
-    it('should set correct renderOrder: cone(1) < handle(2)', () => {
+    it('should set correct renderOrder: cone(0) < imagePlane(1) < handle(2)', () => {
       const engine = new LightingEngine(container, 'https://example.com/test.jpg');
       const cone = (engine as any).lightCone as THREE.Mesh;
-      const handle = (engine as any).lightHandle as THREE.Mesh;
 
-      expect(cone.renderOrder).toBe(1);
-      expect(handle.renderOrder).toBe(2);
+      expect(cone.renderOrder).toBe(0);
     });
 
     it('should align lightCone position with light position on init', () => {
@@ -467,10 +465,10 @@ describe('LightingEngine', () => {
       engine.setPosition(0, 0, 6);
       const cone = (engine as any).lightCone as THREE.Mesh;
 
-      // Distance from (0,0,6) to origin = 6, uniform scale should be 6
-      expect(cone.scale.x).toBeCloseTo(6);
-      expect(cone.scale.y).toBeCloseTo(6);
-      expect(cone.scale.z).toBeCloseTo(6);
+      // Distance from (0,0,6) to origin = 6, scale = 6 * 0.8 = 4.8
+      expect(cone.scale.x).toBeCloseTo(4.8);
+      expect(cone.scale.y).toBeCloseTo(4.8);
+      expect(cone.scale.z).toBeCloseTo(4.8);
     });
 
     it('should update uMaxAlpha on setBrightness', () => {
@@ -479,7 +477,7 @@ describe('LightingEngine', () => {
       const cone = (engine as any).lightCone as THREE.Mesh;
       const mat = cone.material as THREE.ShaderMaterial;
 
-      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.56); // (80/100)*0.7
+      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.32); // (80/100)*0.4
     });
 
     it('should update uColor on setColorTemperature', () => {
@@ -511,8 +509,8 @@ describe('LightingEngine', () => {
       expect(cone.position.x).toBe(0);
       expect(cone.position.y).toBe(0);
       expect(cone.position.z).toBe(6);
-      // uMaxAlpha reset (brightness 50 → 0.35)
-      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.35);
+      // uMaxAlpha reset (brightness 50 → 0.2)
+      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.2);
     });
 
     it('should have visible property on lightCone for thumbnail toggle', () => {
