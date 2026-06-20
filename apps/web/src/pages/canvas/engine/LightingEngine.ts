@@ -65,9 +65,9 @@ export class LightingEngine {
     this.thumbnailCanvas = options?.thumbnailCanvas ?? null;
     this.onPositionChange = options?.onPositionChange;
 
-    this.initRenderer();
     this.initScene();
     this.initCameras();
+    this.initRenderer();
     this.initOrbitControls();
     this.initLight();
     this.initGrid();
