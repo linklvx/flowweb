@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useLightingStore } from './lightingStore';
-import { type LightingTaskStatus, LightingTaskStatuses } from '@flowweb/shared';
+type LightingTaskStatus = 'pending' | 'processing' | 'success' | 'failed';
+
+const TS = {
+  PENDING: 'pending' as LightingTaskStatus,
+  PROCESSING: 'processing' as LightingTaskStatus,
+  SUCCESS: 'success' as LightingTaskStatus,
+  FAILED: 'failed' as LightingTaskStatus,
+} as const;
 
 describe('lightingStore', () => {
   beforeEach(() => {
@@ -28,14 +35,14 @@ describe('lightingStore', () => {
     it('should reset task info when opening', () => {
       useLightingStore.getState().setTaskInfo({
         taskId: 'old-task',
-        taskStatus: LightingTaskStatuses.FAILED,
+        taskStatus: TS.FAILED,
         resultUrl: 'https://example.com/old.jpg',
       });
       useLightingStore.getState().openModal('node-2', 'https://example.com/img2.jpg');
 
       const state = useLightingStore.getState();
       expect(state.taskId).toBeNull();
-      expect(state.taskStatus).toBe(LightingTaskStatuses.PENDING);
+      expect(state.taskStatus).toBe(TS.PENDING);
       expect(state.resultUrl).toBeNull();
     });
   });
@@ -46,7 +53,7 @@ describe('lightingStore', () => {
       useLightingStore.getState().updateParams({ brightness: 80 });
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-1',
-        taskStatus: LightingTaskStatuses.SUCCESS,
+        taskStatus: TS.SUCCESS,
         resultUrl: 'https://example.com/result.jpg',
       });
 
@@ -58,7 +65,7 @@ describe('lightingStore', () => {
       expect(state.imageUrl).toBeNull();
       expect(state.params).toEqual(defaultParams);
       expect(state.taskId).toBeNull();
-      expect(state.taskStatus).toBe(LightingTaskStatuses.PENDING);
+      expect(state.taskStatus).toBe(TS.PENDING);
       expect(state.resultUrl).toBeNull();
     });
   });
@@ -97,7 +104,7 @@ describe('lightingStore', () => {
       useLightingStore.getState().updateParams({ brightness: 80, rimLight: true });
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-1',
-        taskStatus: LightingTaskStatuses.PROCESSING,
+        taskStatus: TS.PROCESSING,
       });
 
       useLightingStore.getState().resetParams();
@@ -116,12 +123,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatuses.PROCESSING,
+        taskStatus: TS.PROCESSING,
       });
 
       const state = useLightingStore.getState();
       expect(state.taskId).toBe('task-abc');
-      expect(state.taskStatus).toBe(LightingTaskStatuses.PROCESSING);
+      expect(state.taskStatus).toBe(TS.PROCESSING);
       expect(state.resultUrl).toBeNull();
     });
 
@@ -129,12 +136,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatuses.SUCCESS,
+        taskStatus: TS.SUCCESS,
         resultUrl: 'https://example.com/result.jpg',
       });
 
       const state = useLightingStore.getState();
-      expect(state.taskStatus).toBe(LightingTaskStatuses.SUCCESS);
+      expect(state.taskStatus).toBe(TS.SUCCESS);
       expect(state.resultUrl).toBe('https://example.com/result.jpg');
     });
 
@@ -142,12 +149,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatuses.FAILED,
+        taskStatus: TS.FAILED,
         errorMessage: 'AI generation failed',
       });
 
       const state = useLightingStore.getState();
-      expect(state.taskStatus).toBe(LightingTaskStatuses.FAILED);
+      expect(state.taskStatus).toBe(TS.FAILED);
       // errorMessage is part of task info
     });
   });

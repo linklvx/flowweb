@@ -13,10 +13,7 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["turbo", "run", "dev", "--filter=@flowweb/api"],
       "port": 3000,
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "NODE_OPTIONS": "--no-experimental-detect-module"
-      }
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "minio",

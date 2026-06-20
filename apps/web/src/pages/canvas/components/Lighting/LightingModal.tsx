@@ -1,7 +1,14 @@
 import { useEffect, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useLightingStore } from '@/stores/lightingStore';
-import { type LightingTaskStatus, LightingTaskStatuses } from '@flowweb/shared';
+type LightingTaskStatus = 'pending' | 'processing' | 'success' | 'failed';
+
+const TS = {
+  PENDING: 'pending' as LightingTaskStatus,
+  PROCESSING: 'processing' as LightingTaskStatus,
+  SUCCESS: 'success' as LightingTaskStatus,
+  FAILED: 'failed' as LightingTaskStatus,
+} as const;
 import { ThreePreview } from './ThreePreview';
 import { ControlPanel } from './ControlPanel';
 
@@ -79,7 +86,7 @@ export const LightingModal = memo(function LightingModal() {
 
   const handleGenerate = useCallback(() => {
     // TODO: HTTP POST /api/image-edit/lighting/tasks
-    setTaskInfo({ taskStatus: LightingTaskStatuses.PROCESSING });
+    setTaskInfo({ taskStatus: TS.PROCESSING });
   }, [setTaskInfo]);
 
   if (!visible) return null;
@@ -139,7 +146,7 @@ export const LightingModal = memo(function LightingModal() {
         </div>
 
         {/* Result overlay */}
-        {resultUrl && taskStatus === LightingTaskStatuses.SUCCESS && (
+        {resultUrl && taskStatus === TS.SUCCESS && (
           <ResultOverlay
             resultUrl={resultUrl}
             onConfirm={closeModal}
@@ -148,7 +155,7 @@ export const LightingModal = memo(function LightingModal() {
         )}
 
         {/* Error overlay */}
-        {taskStatus === LightingTaskStatuses.FAILED && (
+        {taskStatus === TS.FAILED && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
             <div className="bg-[#1C1C1C] border border-white/10 rounded-xl p-6 max-w-sm text-center">
               <p className="text-red-400 text-sm mb-4">{errorMessage || '生成失败，请重试'}</p>
