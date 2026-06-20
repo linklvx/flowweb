@@ -144,7 +144,7 @@ export class LightingEngine {
     this.scene.add(this.light);
 
     // Ambient light so shadows aren't fully black
-    const ambient = new THREE.AmbientLight(0x404040, 0.5);
+    const ambient = new THREE.AmbientLight(0xcccccc, 1.5);
     this.scene.add(ambient);
 
     // Visual handle: black sphere
