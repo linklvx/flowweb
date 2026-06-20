@@ -73,21 +73,23 @@ export function ControlPanel({
         <label className="text-xs font-medium text-neutral-400 block mb-2">
           🔥 色温 · {params.colorTemperature}K
         </label>
-        <div
-          className="w-full h-1.5 rounded-full mb-1"
-          style={{
-            background: 'linear-gradient(to right, #ff8c00, #fff5e6, #e6f0ff, #b3d9ff)',
-          }}
-        />
-        <input
-          type="range"
-          min={2000}
-          max={10000}
-          step={100}
-          value={params.colorTemperature}
-          onChange={(e) => onParamsChange({ colorTemperature: Number(e.target.value) })}
-          className="w-full h-1.5 bg-transparent rounded-full appearance-none cursor-pointer accent-blue-500"
-        />
+        <div className="relative h-1.5">
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: 'linear-gradient(to right, #ff8c00, #fff5e6, #e6f0ff, #b3d9ff)',
+            }}
+          />
+          <input
+            type="range"
+            min={2000}
+            max={10000}
+            step={100}
+            value={params.colorTemperature}
+            onChange={(e) => onParamsChange({ colorTemperature: Number(e.target.value) })}
+            className="absolute inset-0 w-full h-full bg-transparent appearance-none cursor-pointer accent-blue-500"
+          />
+        </div>
       </div>
 
       {/* Rim light toggle */}
