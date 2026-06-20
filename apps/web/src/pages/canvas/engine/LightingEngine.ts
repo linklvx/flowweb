@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { type LightingParams } from '@flowweb/shared';
 import { kelvinToRgb } from '@/utils/kelvinToRgb';
 
@@ -16,7 +20,7 @@ export class LightingEngine {
   private perspectiveCamera!: THREE.PerspectiveCamera;
   private orthographicCamera!: THREE.OrthographicCamera;
   private activeCamera!: THREE.PerspectiveCamera | THREE.OrthographicCamera;
-  private orbitControls: any; // OrbitControls
+  private orbitControls!: OrbitControls;
   private imagePlane!: THREE.Mesh;
   private light!: THREE.PointLight;
   private lightHandle!: THREE.Mesh;
@@ -116,7 +120,6 @@ export class LightingEngine {
 
   private initOrbitControls() {
     // Dynamic import pattern — OrbitControls requires DOM
-    const { OrbitControls } = require('three/examples/jsm/controls/OrbitControls.js');
     this.orbitControls = new OrbitControls(this.perspectiveCamera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
     this.orbitControls.dampingFactor = 0.08;
@@ -450,10 +453,6 @@ export class LightingEngine {
   private initOutlinePass() {
     if (this.outlinePass) return;
     try {
-      const { EffectComposer } = require('three/examples/jsm/postprocessing/EffectComposer.js');
-      const { RenderPass } = require('three/examples/jsm/postprocessing/RenderPass.js');
-      const { OutlinePass } = require('three/examples/jsm/postprocessing/OutlinePass.js');
-
       this.composer = new EffectComposer(this.renderer);
       const renderPass = new RenderPass(this.scene, this.activeCamera);
       this.composer.addPass(renderPass);
