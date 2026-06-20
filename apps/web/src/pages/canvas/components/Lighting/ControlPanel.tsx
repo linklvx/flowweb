@@ -96,20 +96,20 @@ export function ControlPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-neutral-400">轮廓光</span>
-          <span className="text-neutral-600 cursor-help" title="为图片边缘添加高亮描边">?</span>
+          <span className="text-neutral-600 cursor-help border-0 shadow-none" title="为图片边缘添加高亮描边">?</span>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={params.rimLight}
-          className={`w-9 h-5 rounded-full transition-colors ${
+          className={`w-9 h-5 rounded-full transition-colors border-0 shadow-none outline-none ${
             params.rimLight ? 'bg-blue-500' : 'bg-white/10'
           }`}
           onClick={() => onParamsChange({ rimLight: !params.rimLight })}
         >
           <div
-            className={`w-3.5 h-3.5 rounded-full bg-white transition-transform mt-0.5 ${
-              params.rimLight ? 'translate-x-[18px]' : 'translate-x-[2px]'
+            className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${
+              params.rimLight ? 'translate-x-[14px]' : '-translate-x-[3px]'
             }`}
           />
         </button>
