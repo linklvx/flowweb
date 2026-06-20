@@ -101,11 +101,11 @@ export class LightingEngine {
   private initCameras() {
     const aspect = this.getAspect();
     this.perspectiveCamera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
-    this.perspectiveCamera.position.set(0, 0, 12);
+    this.perspectiveCamera.position.set(0, 0, 14);
     this.perspectiveCamera.lookAt(0, 0, 0);
     this.activeCamera = this.perspectiveCamera;
 
-    const frustumSize = 10;
+    const frustumSize = 12;
     this.orthographicCamera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -114,7 +114,7 @@ export class LightingEngine {
       0.1,
       100,
     );
-    this.orthographicCamera.position.set(0, 0, 12);
+    this.orthographicCamera.position.set(0, 0, 14);
     this.orthographicCamera.lookAt(0, 0, 0);
   }
 
@@ -160,8 +160,9 @@ export class LightingEngine {
   }
 
   private initGrid() {
-    this.gridHelper = new THREE.GridHelper(20, 20, 0x333344, 0x222233);
-    this.gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane
+    this.gridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x1e293b);
+    this.gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane (parallel to image)
+    this.gridHelper.position.z = -0.5; // Behind the image plane
     this.scene.add(this.gridHelper);
   }
 
@@ -172,7 +173,7 @@ export class LightingEngine {
       (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         const aspect = texture.image.width / texture.image.height;
-        const planeHeight = 8;
+        const planeHeight = 4;
         const planeWidth = planeHeight * aspect;
         const geo = new THREE.PlaneGeometry(planeWidth, planeHeight);
         const mat = new THREE.MeshStandardMaterial({
@@ -270,7 +271,7 @@ export class LightingEngine {
     this.perspectiveCamera.aspect = aspect;
     this.perspectiveCamera.updateProjectionMatrix();
 
-    const frustumSize = 10;
+    const frustumSize = 12;
     this.orthographicCamera.left = (-frustumSize * aspect) / 2;
     this.orthographicCamera.right = (frustumSize * aspect) / 2;
     this.orthographicCamera.top = frustumSize / 2;

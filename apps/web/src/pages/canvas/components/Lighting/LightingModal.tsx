@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useLightingStore } from '@/stores/lightingStore';
 type LightingTaskStatus = 'pending' | 'processing' | 'success' | 'failed';
@@ -11,6 +11,7 @@ const TS = {
 } as const;
 import { ThreePreview } from './ThreePreview';
 import { ControlPanel } from './ControlPanel';
+import { type ViewMode } from '../../engine/LightingEngine';
 
 const ESTIMATED_CREDITS = 15; // TODO: fetch from backend pricing config
 
@@ -31,7 +32,7 @@ export const LightingModal = memo(function LightingModal() {
   } = useLightingStore();
 
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
-  const viewMode = 'perspective'; // Combined with store later in Task 7
+  const [viewMode, setViewMode] = useState<ViewMode>('front');
 
   // Close on Escape
   useEffect(() => {
@@ -129,16 +130,16 @@ export const LightingModal = memo(function LightingModal() {
           <ThreePreview
             imageUrl={imageUrl}
             params={params}
-            viewMode="perspective"
+            viewMode={viewMode}
             onPositionChange={handlePositionChange}
             onReset={resetParams}
           />
           <ControlPanel
             params={params}
-            viewMode="perspective"
+            viewMode={viewMode}
             taskStatus={taskStatus}
             estimatedCredits={ESTIMATED_CREDITS}
-            onViewModeChange={() => {}}
+            onViewModeChange={setViewMode}
             onParamsChange={handleParamsChange}
             onPresetSelect={handlePresetSelect}
             onGenerate={handleGenerate}
