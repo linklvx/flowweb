@@ -91,9 +91,10 @@ export class LightingEngine {
 
     if (this.thumbnailCanvas) {
       this.thumbnailTarget = new THREE.WebGLRenderTarget(
-        this.thumbnailCanvas.width || 160,
-        this.thumbnailCanvas.height || 120,
+        this.thumbnailCanvas.width || 240,
+        this.thumbnailCanvas.height || 180,
       );
+      this.thumbnailTarget.texture.colorSpace = THREE.SRGBColorSpace;
     }
     this.fitRenderer();
   }
@@ -337,20 +338,52 @@ export class LightingEngine {
 
   private renderThumbnail() {
     if (!this.thumbnailTarget || !this.thumbnailCanvas) return;
-    const prevCamera = this.activeCamera;
-    // Use orthographic camera for thumbnail (front view)
+
+    // Tightly frame the image: save and adjust ortho frustum
+    const origLeft = this.orthographicCamera.left;
+    const origRight = this.orthographicCamera.right;
+    const origTop = this.orthographicCamera.top;
+    const origBottom = this.orthographicCamera.bottom;
+    const thumbnailFrustum = 5;
+    const aspect = this.thumbnailCanvas.width / this.thumbnailCanvas.height;
+    this.orthographicCamera.left = (-thumbnailFrustum * aspect) / 2;
+    this.orthographicCamera.right = (thumbnailFrustum * aspect) / 2;
+    this.orthographicCamera.top = thumbnailFrustum / 2;
+    this.orthographicCamera.bottom = -thumbnailFrustum / 2;
+    this.orthographicCamera.updateProjectionMatrix();
+
+    // Hide light visual helpers in thumbnail
+    this.lightHandle.visible = false;
+    this.lightLine.visible = false;
     this.renderer.setRenderTarget(this.thumbnailTarget);
     this.renderer.render(this.scene, this.orthographicCamera);
     this.renderer.setRenderTarget(null);
+    this.lightHandle.visible = true;
+    this.lightLine.visible = true;
 
-    // Copy to thumbnail canvas
+    // Restore original frustum
+    this.orthographicCamera.left = origLeft;
+    this.orthographicCamera.right = origRight;
+    this.orthographicCamera.top = origTop;
+    this.orthographicCamera.bottom = origBottom;
+    this.orthographicCamera.updateProjectionMatrix();
+
+    // Copy to thumbnail canvas (flip Y: WebGL bottom-left vs Canvas top-left)
     const ctx = this.thumbnailCanvas.getContext('2d');
     if (ctx) {
       const w = this.thumbnailCanvas.width;
       const h = this.thumbnailCanvas.height;
       const pixels = new Uint8Array(w * h * 4);
       this.renderer.readRenderTargetPixels(this.thumbnailTarget, 0, 0, w, h, pixels);
-      const imageData = new ImageData(new Uint8ClampedArray(pixels), w, h);
+      // Flip rows manually — putImageData ignores canvas transforms
+      const rowSize = w * 4;
+      const flipped = new Uint8Array(pixels.length);
+      for (let y = 0; y < h; y++) {
+        const srcRow = y * rowSize;
+        const dstRow = (h - 1 - y) * rowSize;
+        flipped.set(pixels.subarray(srcRow, srcRow + rowSize), dstRow);
+      }
+      const imageData = new ImageData(new Uint8ClampedArray(flipped), w, h);
       ctx.putImageData(imageData, 0, 0);
     }
   }
