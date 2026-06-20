@@ -3,32 +3,32 @@ import { Type } from 'class-transformer';
 
 class LightingPositionDto {
   @IsNumber()
-  x: number;
+  x!: number;
 
   @IsNumber()
-  y: number;
+  y!: number;
 
   @IsNumber()
-  z: number;
+  z!: number;
 }
 
 class LightingParamsDto {
   @ValidateNested()
   @Type(() => LightingPositionDto)
-  position: LightingPositionDto;
+  position!: LightingPositionDto;
 
   @IsNumber()
   @Min(0)
   @Max(100)
-  brightness: number;
+  brightness!: number;
 
   @IsNumber()
   @Min(2000)
   @Max(10000)
-  colorTemperature: number;
+  colorTemperature!: number;
 
   @IsBoolean()
-  rimLight: boolean;
+  rimLight!: boolean;
 
   @IsOptional()
   @IsString()
@@ -37,16 +37,16 @@ class LightingParamsDto {
 
 export class CreateLightingTaskDto {
   @IsString()
-  nodeId: string;
+  nodeId!: string;
 
   @IsOptional()
   @IsString()
   projectId?: string;
 
   @IsString()
-  originalImageUrl: string;
+  originalImageUrl!: string;
 
   @ValidateNested()
   @Type(() => LightingParamsDto)
-  params: LightingParamsDto;
+  params!: LightingParamsDto;
 }

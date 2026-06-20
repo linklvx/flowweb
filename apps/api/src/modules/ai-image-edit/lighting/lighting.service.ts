@@ -69,7 +69,7 @@ export class LightingService {
     if (existing) {
       // Check if params match using JSON comparison
       const existingParams = existing.params as Record<string, unknown>;
-      const newParams = params as Record<string, unknown>;
+      const newParams = params as unknown as Record<string, unknown>;
       if (
         existingParams.position &&
         newParams.position &&

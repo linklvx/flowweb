@@ -100,7 +100,7 @@ export class AiImageEditProcessor extends WorkerHost {
           result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!);
           break;
         case 'lighting':
-          return this.lightingConsumer.handleLightingJob(job as Job<LightingJobData>);
+          return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>);
         default:
           throw new Error(`Unknown taskType: ${taskType}`);
       }
