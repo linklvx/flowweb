@@ -20,7 +20,7 @@ export function PromptInput({ value, onChange }: PromptInputProps) {
           <button
             key={text}
             type="button"
-            className="text-xs px-2 py-1 rounded bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-neutral-200 transition-colors truncate max-w-full"
+            className="text-xs px-2 py-1 rounded bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-neutral-200 transition-colors truncate max-w-full border-0 shadow-none outline-none"
             onClick={() => onChange(text)}
             title={text}
           >

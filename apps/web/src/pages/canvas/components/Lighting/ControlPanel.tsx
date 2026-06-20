@@ -125,7 +125,7 @@ export function ControlPanel({
       <button
         type="button"
         disabled={isGenerating}
-        className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+        className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors border-0 shadow-none outline-none ${
           isGenerating
             ? 'bg-blue-500/50 text-white/50 cursor-not-allowed'
             : 'bg-blue-500 hover:bg-blue-600 text-white'

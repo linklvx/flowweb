@@ -117,7 +117,7 @@ export const LightingModal = memo(function LightingModal() {
           <button
             ref={closeBtnRef}
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors border-0 shadow-none outline-none"
             onClick={closeModal}
             aria-label="关闭打光"
           >
@@ -162,7 +162,7 @@ export const LightingModal = memo(function LightingModal() {
               <p className="text-red-400 text-sm mb-4">{errorMessage || '生成失败，请重试'}</p>
               <button
                 type="button"
-                className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors"
+                className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors border-0 shadow-none outline-none"
                 onClick={handleGenerate}
               >
                 重试
@@ -187,19 +187,19 @@ function ResultOverlay({
 }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
-      <div className="bg-[#1C1C1C] border border-white/10 rounded-xl p-6 max-w-lg text-center space-y-4">
+      <div className="bg-[#1C1C1C] border-0 rounded-xl p-6 max-w-lg text-center space-y-4">
         <img src={resultUrl} alt="生成结果" className="max-w-full max-h-64 rounded-lg object-contain" />
         <div className="flex gap-3 justify-center">
           <button
             type="button"
-            className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors"
+            className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors !border-0 !shadow-none !outline-none !ring-0"
             onClick={onConfirm}
           >
             确认替换
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition-colors"
+            className="px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition-colors !border-0 !shadow-none !outline-none !ring-0"
             onClick={onCancel}
           >
             取消
