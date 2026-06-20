@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { type LightingParams, LightingTaskStatus } from '@flowweb/shared';
+import { type LightingParams, type LightingTaskStatus, LightingTaskStatuses } from '@flowweb/shared';
 
 interface LightingState {
   visible: boolean;
@@ -40,7 +40,7 @@ const initialState: LightingState = {
   imageUrl: null,
   params: { ...defaultParams },
   taskId: null,
-  taskStatus: LightingTaskStatus.PENDING,
+  taskStatus: LightingTaskStatuses.PENDING,
   resultUrl: null,
   errorMessage: null,
 };

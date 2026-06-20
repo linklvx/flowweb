@@ -4,9 +4,15 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreditService } from '../../credit/credit.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
-import { LightingTaskStatus } from '@flowweb/shared';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 import * as crypto from 'node:crypto';
+
+const LightingTaskStatus = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  SUCCESS: 'success',
+  FAILED: 'failed',
+} as const;
 
 const PRIVATE_IP_PATTERNS = [
   /^https?:\/\/127\./,

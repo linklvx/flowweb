@@ -6,8 +6,22 @@ import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { CreditService } from '../../credit/credit.service';
 import { CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
-import { LightingTaskStatus, type LightingParams } from '@flowweb/shared';
 import axios from 'axios';
+
+const LightingTaskStatus = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  SUCCESS: 'success',
+  FAILED: 'failed',
+} as const;
+
+export interface LightingParams {
+  position: { x: number; y: number; z: number };
+  brightness: number;
+  colorTemperature: number;
+  rimLight: boolean;
+  customPrompt?: string;
+}
 
 export interface LightingJobData {
   taskType: 'lighting';

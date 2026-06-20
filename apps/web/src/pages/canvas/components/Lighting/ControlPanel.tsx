@@ -1,7 +1,7 @@
 import { ViewToggle } from './ViewToggle';
 import { LightPresetButtons } from './LightPresetButtons';
 import { PromptInput } from './PromptInput';
-import { type LightingParams, LightingTaskStatus } from '@flowweb/shared';
+import { type LightingParams, type LightingTaskStatus, LightingTaskStatuses } from '@flowweb/shared';
 import { type ViewMode } from '../../engine/LightingEngine';
 
 interface ControlPanelProps {
@@ -25,7 +25,7 @@ export function ControlPanel({
   onPresetSelect,
   onGenerate,
 }: ControlPanelProps) {
-  const isGenerating = taskStatus === LightingTaskStatus.PROCESSING;
+  const isGenerating = taskStatus === LightingTaskStatuses.PROCESSING;
 
   return (
     <div className="w-[320px] shrink-0 bg-[#141820] flex flex-col gap-5 p-5 overflow-y-auto">

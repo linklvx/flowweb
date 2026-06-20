@@ -6,12 +6,16 @@ export interface LightingParams {
   customPrompt?: string;
 }
 
-export enum LightingTaskStatus {
-  PENDING = 'pending',
-  PROCESSING = 'processing',
-  SUCCESS = 'success',
-  FAILED = 'failed',
-}
+// String literal union type (for type-level usage)
+export type LightingTaskStatus = 'pending' | 'processing' | 'success' | 'failed';
+
+// Runtime constants (for value-level usage)
+export const LightingTaskStatuses = {
+  PENDING: 'pending' as LightingTaskStatus,
+  PROCESSING: 'processing' as LightingTaskStatus,
+  SUCCESS: 'success' as LightingTaskStatus,
+  FAILED: 'failed' as LightingTaskStatus,
+} as const;
 
 export interface LightingTaskBase {
   id: string;

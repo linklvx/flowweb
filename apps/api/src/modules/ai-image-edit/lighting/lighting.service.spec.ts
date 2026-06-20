@@ -4,7 +4,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreditService } from '../../credit/credit.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
-import { LightingTaskStatus } from '@flowweb/shared';
+
+const LightingTaskStatus = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  SUCCESS: 'success',
+  FAILED: 'failed',
+} as const;
 
 describe('LightingService', () => {
   let service: LightingService;

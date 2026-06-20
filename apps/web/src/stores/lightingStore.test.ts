@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useLightingStore } from './lightingStore';
-import { LightingTaskStatus } from '@flowweb/shared';
+import { type LightingTaskStatus, LightingTaskStatuses } from '@flowweb/shared';
 
 describe('lightingStore', () => {
   beforeEach(() => {
@@ -28,14 +28,14 @@ describe('lightingStore', () => {
     it('should reset task info when opening', () => {
       useLightingStore.getState().setTaskInfo({
         taskId: 'old-task',
-        taskStatus: LightingTaskStatus.FAILED,
+        taskStatus: LightingTaskStatuses.FAILED,
         resultUrl: 'https://example.com/old.jpg',
       });
       useLightingStore.getState().openModal('node-2', 'https://example.com/img2.jpg');
 
       const state = useLightingStore.getState();
       expect(state.taskId).toBeNull();
-      expect(state.taskStatus).toBe(LightingTaskStatus.PENDING);
+      expect(state.taskStatus).toBe(LightingTaskStatuses.PENDING);
       expect(state.resultUrl).toBeNull();
     });
   });
@@ -46,7 +46,7 @@ describe('lightingStore', () => {
       useLightingStore.getState().updateParams({ brightness: 80 });
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-1',
-        taskStatus: LightingTaskStatus.SUCCESS,
+        taskStatus: LightingTaskStatuses.SUCCESS,
         resultUrl: 'https://example.com/result.jpg',
       });
 
@@ -58,7 +58,7 @@ describe('lightingStore', () => {
       expect(state.imageUrl).toBeNull();
       expect(state.params).toEqual(defaultParams);
       expect(state.taskId).toBeNull();
-      expect(state.taskStatus).toBe(LightingTaskStatus.PENDING);
+      expect(state.taskStatus).toBe(LightingTaskStatuses.PENDING);
       expect(state.resultUrl).toBeNull();
     });
   });
@@ -97,7 +97,7 @@ describe('lightingStore', () => {
       useLightingStore.getState().updateParams({ brightness: 80, rimLight: true });
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-1',
-        taskStatus: LightingTaskStatus.PROCESSING,
+        taskStatus: LightingTaskStatuses.PROCESSING,
       });
 
       useLightingStore.getState().resetParams();
@@ -116,12 +116,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatus.PROCESSING,
+        taskStatus: LightingTaskStatuses.PROCESSING,
       });
 
       const state = useLightingStore.getState();
       expect(state.taskId).toBe('task-abc');
-      expect(state.taskStatus).toBe(LightingTaskStatus.PROCESSING);
+      expect(state.taskStatus).toBe(LightingTaskStatuses.PROCESSING);
       expect(state.resultUrl).toBeNull();
     });
 
@@ -129,12 +129,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatus.SUCCESS,
+        taskStatus: LightingTaskStatuses.SUCCESS,
         resultUrl: 'https://example.com/result.jpg',
       });
 
       const state = useLightingStore.getState();
-      expect(state.taskStatus).toBe(LightingTaskStatus.SUCCESS);
+      expect(state.taskStatus).toBe(LightingTaskStatuses.SUCCESS);
       expect(state.resultUrl).toBe('https://example.com/result.jpg');
     });
 
@@ -142,12 +142,12 @@ describe('lightingStore', () => {
       useLightingStore.getState().openModal('node-1', 'https://example.com/img.jpg');
       useLightingStore.getState().setTaskInfo({
         taskId: 'task-abc',
-        taskStatus: LightingTaskStatus.FAILED,
+        taskStatus: LightingTaskStatuses.FAILED,
         errorMessage: 'AI generation failed',
       });
 
       const state = useLightingStore.getState();
-      expect(state.taskStatus).toBe(LightingTaskStatus.FAILED);
+      expect(state.taskStatus).toBe(LightingTaskStatuses.FAILED);
       // errorMessage is part of task info
     });
   });
