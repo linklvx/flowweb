@@ -25,6 +25,7 @@ export class LightingEngine {
   private light!: THREE.PointLight;
   private lightHandle!: THREE.Mesh;
   private lightLine!: THREE.Line;
+  private lightCone!: THREE.Mesh;
   private xyGridHelper!: THREE.GridHelper;
   private xzGridHelper!: THREE.GridHelper;
   private animationId = 0;
@@ -160,6 +161,57 @@ export class LightingEngine {
     this.updateLineGeometry(lineGeo);
     this.lightLine = new THREE.Line(lineGeo, lineMat);
     this.scene.add(this.lightLine);
+
+    this.initLightCone();
+  }
+
+  private initLightCone() {
+    const geo = new THREE.ConeGeometry(Math.tan(Math.PI / 12), 1, 16, 1, true);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, 0, 0.5);
+
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uColor: { value: new THREE.Color(1, 1, 1) },
+        uMaxAlpha: { value: 0.35 },
+      },
+      vertexShader: `
+        varying vec3 vLocalPos;
+        void main() {
+          vLocalPos = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uMaxAlpha;
+        varying vec3 vLocalPos;
+        void main() {
+          float alpha = uMaxAlpha * (1.0 - vLocalPos.z);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
+
+    this.lightCone = new THREE.Mesh(geo, mat);
+    this.lightCone.renderOrder = 1;
+    this.lightHandle.renderOrder = 2;
+    this.scene.add(this.lightCone);
+
+    this.updateConeTransform();
+  }
+
+  private updateConeTransform() {
+    if (!this.lightCone) return;
+    const pos = this.light.position;
+    this.lightCone.position.copy(pos);
+    this.lightCone.lookAt(0, 0, 0);
+    const d = pos.length();
+    this.lightCone.scale.set(d, d, d);
   }
 
   private updateLineGeometry(lineGeo: THREE.BufferGeometry) {
@@ -355,11 +407,13 @@ export class LightingEngine {
     // Hide light visual helpers in thumbnail
     this.lightHandle.visible = false;
     this.lightLine.visible = false;
+    this.lightCone.visible = false;
     this.renderer.setRenderTarget(this.thumbnailTarget);
     this.renderer.render(this.scene, this.orthographicCamera);
     this.renderer.setRenderTarget(null);
     this.lightHandle.visible = true;
     this.lightLine.visible = true;
+    this.lightCone.visible = true;
 
     // Restore original frustum
     this.orthographicCamera.left = origLeft;
@@ -414,6 +468,7 @@ export class LightingEngine {
     this.position = { x: clamped.x, y: clamped.y, z };
     this.light.position.set(x, y, z);
     this.lightHandle.position.set(x, y, z);
+    this.updateConeTransform();
     this.light.intensity = this.calcIntensity();
     this.updateLineGeometry(this.lightLine.geometry);
     this.dirty = true;
@@ -422,6 +477,10 @@ export class LightingEngine {
   setBrightness(value: number) {
     this.brightness = Math.max(0, Math.min(100, value));
     this.light.intensity = this.calcIntensity();
+    if (this.lightCone) {
+      (this.lightCone.material as THREE.ShaderMaterial).uniforms.uMaxAlpha.value =
+        (this.brightness / 100) * 0.7;
+    }
     this.dirty = true;
   }
 
@@ -431,6 +490,9 @@ export class LightingEngine {
     this.light.color.setRGB(r, g, b);
     if (this.rimLightEnabled && this.outlinePass) {
       this.outlinePass.visibleEdgeColor.setRGB(r, g, b);
+    }
+    if (this.lightCone) {
+      (this.lightCone.material as THREE.ShaderMaterial).uniforms.uColor.value.setRGB(r, g, b);
     }
     this.dirty = true;
   }

@@ -384,4 +384,164 @@ describe('LightingEngine', () => {
       expect(typeof (engine as any).clampToViewport).toBe('function');
     });
   });
+
+  describe('light cone beam', () => {
+    let container: HTMLDivElement;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      container.style.width = '800px';
+      container.style.height = '600px';
+      Object.defineProperty(container, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(container, 'clientHeight', { value: 600, configurable: true });
+      document.body.appendChild(container);
+    });
+
+    afterEach(() => {
+      document.body.removeChild(container);
+    });
+
+    it('should create lightCone mesh on init', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+
+      expect((engine as any).lightCone).toBeDefined();
+      expect((engine as any).lightCone).toBeInstanceOf(THREE.Mesh);
+    });
+
+    it('should use ConeGeometry with correct transforms', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const geo = cone.geometry as THREE.ConeGeometry;
+
+      expect(geo).toBeInstanceOf(THREE.ConeGeometry);
+      expect(geo.parameters.openEnded).toBe(true);
+      expect(geo.parameters.radialSegments).toBe(16);
+      expect(geo.parameters.height).toBe(1);
+    });
+
+    it('should use ShaderMaterial with AdditiveBlending, DoubleSide, depthWrite=false', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const mat = cone.material as THREE.ShaderMaterial;
+
+      expect(mat).toBeInstanceOf(THREE.ShaderMaterial);
+      expect(mat.blending).toBe(THREE.AdditiveBlending);
+      expect(mat.side).toBe(THREE.DoubleSide);
+      expect(mat.depthWrite).toBe(false);
+      expect(mat.transparent).toBe(true);
+      expect(mat.uniforms.uColor).toBeDefined();
+      expect(mat.uniforms.uMaxAlpha).toBeDefined();
+    });
+
+    it('should set correct renderOrder: cone(1) < handle(2)', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const handle = (engine as any).lightHandle as THREE.Mesh;
+
+      expect(cone.renderOrder).toBe(1);
+      expect(handle.renderOrder).toBe(2);
+    });
+
+    it('should align lightCone position with light position on init', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const light = (engine as any).light as THREE.PointLight;
+
+      expect(cone.position.x).toBe(light.position.x);
+      expect(cone.position.y).toBe(light.position.y);
+      expect(cone.position.z).toBe(light.position.z);
+    });
+
+    it('should update lightCone position on setPosition', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      engine.setPosition(3, 2, 8);
+      const cone = (engine as any).lightCone as THREE.Mesh;
+
+      expect(cone.position.x).toBe(3);
+      expect(cone.position.y).toBe(2);
+      expect(cone.position.z).toBe(8);
+    });
+
+    it('should update lightCone scale on distance change', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      engine.setPosition(0, 0, 6);
+      const cone = (engine as any).lightCone as THREE.Mesh;
+
+      // Distance from (0,0,6) to origin = 6, uniform scale should be 6
+      expect(cone.scale.x).toBeCloseTo(6);
+      expect(cone.scale.y).toBeCloseTo(6);
+      expect(cone.scale.z).toBeCloseTo(6);
+    });
+
+    it('should update uMaxAlpha on setBrightness', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      engine.setBrightness(80);
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const mat = cone.material as THREE.ShaderMaterial;
+
+      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.56); // (80/100)*0.7
+    });
+
+    it('should update uColor on setColorTemperature', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const mat = cone.material as THREE.ShaderMaterial;
+      const colorBefore = mat.uniforms.uColor.value.getHex();
+
+      engine.setColorTemperature(3000);
+      const colorAfter = mat.uniforms.uColor.value.getHex();
+
+      // Color should change with different kelvin
+      expect(colorAfter).not.toBe(colorBefore);
+    });
+
+    it('should reset lightCone state via reset()', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+
+      // Change all params
+      engine.setPosition(3, 2, 8);
+      engine.setBrightness(80);
+      engine.setColorTemperature(3000);
+      engine.reset();
+
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const mat = cone.material as THREE.ShaderMaterial;
+
+      // Position reset to default (0,0,6)
+      expect(cone.position.x).toBe(0);
+      expect(cone.position.y).toBe(0);
+      expect(cone.position.z).toBe(6);
+      // uMaxAlpha reset (brightness 50 → 0.35)
+      expect(mat.uniforms.uMaxAlpha.value).toBeCloseTo(0.35);
+    });
+
+    it('should have visible property on lightCone for thumbnail toggle', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+
+      // lightCone.visible exists (used by renderThumbnail to toggle on/off)
+      expect(cone.visible).toBe(true);
+    });
+
+    it('should dispose lightCone geometry and material on dispose', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const geoDisposeSpy = vi.spyOn(cone.geometry, 'dispose');
+      const matDisposeSpy = vi.spyOn(cone.material, 'dispose');
+
+      engine.dispose();
+
+      expect(geoDisposeSpy).toHaveBeenCalled();
+      expect(matDisposeSpy).toHaveBeenCalled();
+    });
+
+    it('should show gradient from tip to base in fragment shader', () => {
+      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const cone = (engine as any).lightCone as THREE.Mesh;
+      const mat = cone.material as THREE.ShaderMaterial;
+
+      // Fragment shader should compute alpha decreasing along z (tip→base)
+      expect(mat.fragmentShader).toContain('1.0 - vLocalPos.z');
+    });
+  });
 });
