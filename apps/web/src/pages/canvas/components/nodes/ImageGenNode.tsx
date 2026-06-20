@@ -17,6 +17,7 @@ import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelection
 import { createPortal } from 'react-dom';
 import { EraseBottomToolbar } from './EraseBottomToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
@@ -133,11 +134,21 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     });
   }, [id, splitImageNode, fitView]);
 
-  const handleLighting = useCallback(() => {
-    const imageUrl = displayUrl || resultUrl;
-    if (!imageUrl) return;
-    useLightingStore.getState().openModal(id, imageUrl);
-  }, [id, displayUrl, resultUrl]);
+  const [lightingLoading, setLightingLoading] = useState(false);
+
+  const handleLighting = useCallback(async () => {
+    const targetFileId = fileId || referenceImage;
+    if (!targetFileId) return;
+    setLightingLoading(true);
+    try {
+      const { url } = await getMediaUrl(targetFileId);
+      useLightingStore.getState().openModal(id, url);
+    } catch {
+      // silently fail — image inaccessible
+    } finally {
+      setLightingLoading(false);
+    }
+  }, [id, fileId, referenceImage]);
 
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
