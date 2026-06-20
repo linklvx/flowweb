@@ -329,4 +329,32 @@ export class ApiCallerService {
     }
     throw new Error('Video generation timeout');
   }
+
+  async callRelighting(imageUrl: string, prompt: string): Promise<{ url: string }> {
+    const body = {
+      model: 'wanx-image-relighting-v1',
+      input: {
+        image_url: imageUrl,
+        prompt,
+      },
+    };
+
+    const submitRes = await fetch(`${this.dashscopeBaseUrl}/api/v1/services/aigc/image2image/relighting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.dashscopeApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const submitJson = await submitRes.json() as any;
+    const taskId = submitJson.output?.task_id || submitJson.task_id;
+    if (!taskId) throw new Error(`Relighting submit failed: no task ID, got: ${JSON.stringify(submitJson).slice(0, 200)}`);
+
+    const result = await this.pollDashScopeTask(taskId);
+    const results = result.output?.results || result.results || [];
+    const first = Array.isArray(results) ? results[0] : results;
+    const resultUrl = typeof first === 'string' ? first : first?.url || first;
+    return { url: String(resultUrl) };
+  }
 }

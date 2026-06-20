@@ -7,11 +7,12 @@ import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { CreditService } from '../credit/credit.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from './ai-image-edit.constants';
+import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 
 export interface AiImageEditJobData {
-  taskType: 'outpaint' | 'erase' | 'redraw';
+  taskType: 'outpaint' | 'erase' | 'redraw' | 'lighting';
   userId: string;
   projectId: string;
   nodeId: string;
@@ -35,6 +36,7 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(CreditService) private readonly credit: CreditService,
+    @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
   ) {
     super();
   }
@@ -97,6 +99,8 @@ export class AiImageEditProcessor extends WorkerHost {
         case 'redraw':
           result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!);
           break;
+        case 'lighting':
+          return this.lightingConsumer.handleLightingJob(job as Job<LightingJobData>);
         default:
           throw new Error(`Unknown taskType: ${taskType}`);
       }
