@@ -5,6 +5,7 @@ import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
+import { useLightingStore } from '@/stores/lightingStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
@@ -131,6 +132,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       duration: 300,
     });
   }, [id, splitImageNode, fitView]);
+
+  const handleLighting = useCallback(() => {
+    const imageUrl = displayUrl || resultUrl;
+    if (!imageUrl) return;
+    useLightingStore.getState().openModal(id, imageUrl);
+  }, [id, displayUrl, resultUrl]);
 
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
@@ -804,6 +811,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           triggerRef={fullscreenTriggerRef}
           onGridSplit={handleGridSplit}
           splitting={splittingNodeId !== null}
+          onLighting={handleLighting}
         />
       )}
 

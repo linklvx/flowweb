@@ -6,6 +6,7 @@ import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
+import { LightingModal } from './components/Lighting/LightingModal';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
@@ -149,6 +150,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <KeyboardShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <MaterialLibraryModal />
         <HistoryModal />
+        <LightingModal />
       </div>
     </ReactFlowProvider>
   );

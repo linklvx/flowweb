@@ -20,6 +20,7 @@ interface ImageNodeToolbarProps {
   triggerRef?: React.RefObject<HTMLButtonElement>;
   onGridSplit?: (rows: number, cols: number) => void;
   splitting?: boolean;
+  onLighting?: () => void;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -309,6 +310,7 @@ function ImageNodeToolbarComponent({
   triggerRef,
   onGridSplit,
   splitting = false,
+  onLighting,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -449,7 +451,13 @@ function ImageNodeToolbarComponent({
           backdropFilter: 'blur(8px)',
         }}
       >
-        <TextIconButton icon={<SunIcon />} ariaLabel="打光" text="打光" />
+        <TextIconButton
+          icon={<SunIcon />}
+          ariaLabel="打光"
+          text="打光"
+          onClick={hasImage ? onLighting : undefined}
+          disabled={!hasImage}
+        />
         <TextIconButton icon={<Camera3DIcon />} ariaLabel="3D 角度" text="3D 角度" />
         <Dropdown
           open={gridSplitOpen}
