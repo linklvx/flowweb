@@ -25,7 +25,8 @@ export class LightingEngine {
   private light!: THREE.PointLight;
   private lightHandle!: THREE.Mesh;
   private lightLine!: THREE.Line;
-  private gridHelper!: THREE.GridHelper;
+  private xyGridHelper!: THREE.GridHelper;
+  private xzGridHelper!: THREE.GridHelper;
   private animationId = 0;
   private dirty = true;
   private disposed = false;
@@ -38,7 +39,11 @@ export class LightingEngine {
   private brightness = 50;
   private currentKelvin = 5600;
   private rimLightEnabled = false;
-  private viewMode: ViewMode = 'perspective';
+  private viewMode: ViewMode = 'front';
+
+  // Motion detection for damping animation
+  private lastCamPos = new THREE.Vector3();
+  private lastCamTarget = new THREE.Vector3();
 
   // Drag state
   private isDragging = false;
@@ -101,9 +106,8 @@ export class LightingEngine {
   private initCameras() {
     const aspect = this.getAspect();
     this.perspectiveCamera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
-    this.perspectiveCamera.position.set(0, 0, 14);
+    this.perspectiveCamera.position.set(-3, 2, 12);
     this.perspectiveCamera.lookAt(0, 0, 0);
-    this.activeCamera = this.perspectiveCamera;
 
     const frustumSize = 12;
     this.orthographicCamera = new THREE.OrthographicCamera(
@@ -116,14 +120,20 @@ export class LightingEngine {
     );
     this.orthographicCamera.position.set(0, 0, 14);
     this.orthographicCamera.lookAt(0, 0, 0);
+
+    this.activeCamera = this.orthographicCamera;
   }
 
   private initOrbitControls() {
     // Dynamic import pattern — OrbitControls requires DOM
     this.orbitControls = new OrbitControls(this.perspectiveCamera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
-    this.orbitControls.dampingFactor = 0.08;
+    this.orbitControls.dampingFactor = 0.05;
     this.orbitControls.target.set(0, 0, 0);
+    this.orbitControls.minDistance = 8;
+    this.orbitControls.maxDistance = 20;
+    this.orbitControls.minPolarAngle = 10 * Math.PI / 180;
+    this.orbitControls.maxPolarAngle = 80 * Math.PI / 180;
     this.orbitControls.update();
   }
 
@@ -160,10 +170,15 @@ export class LightingEngine {
   }
 
   private initGrid() {
-    this.gridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x1e293b);
-    this.gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane (parallel to image)
-    this.gridHelper.position.z = -0.5; // Behind the image plane
-    this.scene.add(this.gridHelper);
+    this.xyGridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x1e293b);
+    this.xyGridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane (parallel to image)
+    this.xyGridHelper.position.z = -0.5; // Behind the image plane
+    this.scene.add(this.xyGridHelper);
+
+    this.xzGridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x1e293b);
+    this.xzGridHelper.position.y = -2; // Floor below the image
+    this.xzGridHelper.visible = false; // Hidden in default front view
+    this.scene.add(this.xzGridHelper);
   }
 
   private loadImage(imageUrl: string) {
@@ -287,14 +302,26 @@ export class LightingEngine {
   // ─── Render loop ─────────────────────────────────────────
 
   private startLoop() {
+    // Seed motion detection state to avoid first-frame false positive
+    this.lastCamPos.copy(this.activeCamera.position);
+    this.lastCamTarget.copy(this.orbitControls.target);
+
     const animate = () => {
       if (this.disposed) return;
       this.animationId = requestAnimationFrame(animate);
 
       if (this.orbitControls.enabled) {
+        // Record pre-update state for damping detection
+        this.lastCamPos.copy(this.activeCamera.position);
+        this.lastCamTarget.copy(this.orbitControls.target);
+
         this.orbitControls.update();
-        // If camera moved via orbit, mark dirty
-        if (this.orbitControls._isDragging !== undefined && this.orbitControls._isDragging) {
+
+        // If camera moved (user drag or damping inertia), mark dirty
+        if (
+          this.activeCamera.position.distanceToSquared(this.lastCamPos) > 1e-6 ||
+          (this.orbitControls.target as THREE.Vector3).distanceToSquared(this.lastCamTarget) > 1e-6
+        ) {
           this.dirty = true;
         }
       }
@@ -369,7 +396,16 @@ export class LightingEngine {
   switchViewMode(mode: ViewMode) {
     this.viewMode = mode;
     this.activeCamera = mode === 'perspective' ? this.perspectiveCamera : this.orthographicCamera;
-    this.orbitControls.enabled = mode === 'perspective';
+
+    const isPerspective = mode === 'perspective';
+    this.orbitControls.enabled = isPerspective;
+    this.orbitControls.enableRotate = isPerspective;
+    this.orbitControls.enableZoom = isPerspective;
+    this.orbitControls.enablePan = isPerspective;
+
+    // Toggle grids
+    this.xyGridHelper.visible = !isPerspective;
+    this.xzGridHelper.visible = isPerspective;
 
     // Sync OutlinePass camera
     if (this.outlinePass) {
@@ -391,7 +427,23 @@ export class LightingEngine {
     this.setBrightness(50);
     this.setColorTemperature(5600);
     this.toggleRimLight(false);
-    this.switchViewMode('perspective');
+
+    // Reset current view's camera, not the view mode itself
+    if (this.viewMode === 'perspective') {
+      this.perspectiveCamera.position.set(-3, 2, 12);
+      this.perspectiveCamera.lookAt(0, 0, 0);
+      this.orbitControls.target.set(0, 0, 0);
+      this.orbitControls.update();
+    } else {
+      this.orthographicCamera.position.set(0, 0, 14);
+      this.orthographicCamera.lookAt(0, 0, 0);
+    }
+
+    // Seed motion detection state after reset
+    this.lastCamPos.copy(this.activeCamera.position);
+    this.lastCamTarget.copy(this.orbitControls.target);
+
+    this.dirty = true;
     this.onPositionChange?.(this.position);
   }
 
@@ -417,6 +469,14 @@ export class LightingEngine {
           obj.material.forEach((m) => this.disposeMaterial(m));
         } else {
           this.disposeMaterial(obj.material);
+        }
+      }
+      if (obj instanceof THREE.Line) {
+        obj.geometry.dispose();
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach((m) => m.dispose());
+        } else {
+          obj.material.dispose();
         }
       }
     });
