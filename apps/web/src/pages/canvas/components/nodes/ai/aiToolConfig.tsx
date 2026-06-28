@@ -17,23 +17,6 @@ export interface AiToolGroup {
 
 // ── 内联 SVG 图标 ──
 
-const StoryboardSchedulingIcon = (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-    <path d="M5 5l2.5 3-2.5 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-  </svg>
-);
-
-const StoryboardIcon = (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="2" y="1" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-    <rect x="9" y="1" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-    <rect x="2" y="9" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-    <rect x="9" y="9" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-  </svg>
-);
-
 const Grid25Icon = (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
     <rect x="1" y="1" width="14" height="14" rx="1" stroke="currentColor" strokeWidth="1.2"/>
@@ -64,13 +47,6 @@ const FrameBackwardIcon = (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
     <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.2"/>
     <polyline points="10,5 6,8 10,11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-  </svg>
-);
-
-const PortraitTextureIcon = (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.2"/>
-    <path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
   </svg>
 );
 
@@ -146,8 +122,6 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
   {
     groupName: '分镜叙事',
     items: [
-      { id: 'storyboard_scheduling', name: '调度故事板', desc: '生成带有运动轨迹等调度草图分镜', icon: StoryboardSchedulingIcon, isNew: true },
-      { id: 'storyboard', name: '故事板', desc: '生成完整剧情片段', icon: StoryboardIcon, isNew: true },
       { id: 'grid_25', name: '25宫格连贯分镜', desc: '生成连续分镜长图', icon: Grid25Icon },
       { id: 'four_panel', name: '剧情推演四宫格', desc: '生成四格剧情推演', icon: FourPanelIcon },
       { id: 'frame_forward_3s', name: '画面推演 - 3秒后', desc: '推演画面后续动作', icon: FrameForwardIcon },
@@ -157,7 +131,6 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
   {
     groupName: '质感调节',
     items: [
-      { id: 'portrait_texture', name: '人像质感调节', desc: '降低 AI 感，优化人物质感与光影', icon: PortraitTextureIcon, isNew: true },
       { id: 'film_lighting', name: '电影级光影校正', desc: '调整画面光影质感', icon: FilmLightingIcon },
     ],
   },

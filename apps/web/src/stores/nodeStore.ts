@@ -116,9 +116,9 @@ export interface MultiImageNodeData {
 }
 
 export type AiToolId =
-  | 'storyboard_scheduling' | 'storyboard' | 'grid_25' | 'four_panel'
+  | 'grid_25' | 'four_panel'
   | 'frame_forward_3s' | 'frame_backward_5s'
-  | 'portrait_texture' | 'film_lighting'
+  | 'film_lighting'
   | 'panorama_720' | 'nine_camera'
   | 'face_three_view' | 'character_sheet' | 'character_three_view'
   | 'scene_sheet' | 'product_sheet';
