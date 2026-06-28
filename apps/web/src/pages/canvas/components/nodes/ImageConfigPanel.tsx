@@ -471,54 +471,83 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                   style={POPUP_BASE_STYLE}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <div className="flex flex-col gap-1" style={{ columns: 3, columnGap: 12 }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateConfig(nodeId, { aiTool: undefined });
-                        setAiToolOpen(false);
-                      }}
-                      className={`flex h-[44px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
-                        !selectedAiTool ? 'bg-white/10 text-[#f5f5f5]' : 'text-[#999] hover:bg-white/5'
-                      }`}
-                      style={{ breakInside: 'avoid' }}
-                    >
-                      <span className="text-sm font-medium">不使用 AI 工具</span>
-                    </button>
-                    {AI_TOOL_GROUPS.map((group) => (
-                      <div key={group.groupName} className="flex flex-col gap-0.5" style={{ breakInside: 'avoid' }}>
-                        <div className="px-2 py-1">
-                          <span className="text-[#999] text-xs font-medium">{group.groupName}</span>
-                        </div>
-                        {group.items.map((tool) => (
-                          <button
-                            key={tool.id}
-                            type="button"
-                            onClick={() => {
-                              updateConfig(nodeId, { aiTool: tool.id });
-                              setAiToolOpen(false);
-                            }}
-                            className={`group flex h-[52px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
-                              selectedAiTool === tool.id
-                                ? 'bg-white/10 text-[#f5f5f5]'
-                                : 'text-[#999] hover:bg-white/5'
-                            }`}
-                          >
-                            <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-white/5">
-                              {tool.icon}
-                              {tool.isNew && (
-                                <span className="pointer-events-none absolute right-[3px] top-[3px] size-1.5 rounded-full bg-[#5DDCFF] border border-[#1a1a1a]" />
-                              )}
-                            </div>
-                            <div className="flex flex-col justify-center overflow-hidden">
-                              <span className="text-sm font-medium truncate">{tool.name}</span>
-                              <span className="mt-0.5 text-xs leading-4 text-[#999] opacity-0 group-hover:opacity-60 transition-opacity duration-200">{tool.desc}</span>
-                            </div>
-                          </button>
+                  {(() => {
+                    // 将分组拆成 3 列，保持每组完整不跨列
+                    const flatItems: { type: 'clear' } | { type: 'group'; group: typeof AI_TOOL_GROUPS[number] }[] = [
+                      { type: 'clear' },
+                      ...AI_TOOL_GROUPS.map((g) => ({ type: 'group' as const, group: g })),
+                    ];
+                    const totalWeight = flatItems.reduce((sum, item) => sum + (item.type === 'clear' ? 2 : item.group.items.length + 1), 0);
+                    const perCol = Math.ceil(totalWeight / 3);
+                    const cols: typeof flatItems[] = [[], [], []];
+                    let colIdx = 0;
+                    let colWeight = 0;
+                    flatItems.forEach((item) => {
+                      if (colWeight > 0 && colWeight + (item.type === 'clear' ? 2 : item.group.items.length + 1) > perCol && colIdx < 2) {
+                        colIdx++;
+                        colWeight = 0;
+                      }
+                      cols[colIdx].push(item);
+                      colWeight += item.type === 'clear' ? 2 : item.group.items.length + 1;
+                    });
+                    return (
+                      <div className="flex gap-3">
+                        {cols.map((col, ci) => (
+                          <div key={ci} className="flex-1 flex flex-col gap-1">
+                            {col.map((item, i) =>
+                              item.type === 'clear' ? (
+                                <button
+                                  key="clear"
+                                  type="button"
+                                  onClick={() => {
+                                    updateConfig(nodeId, { aiTool: undefined });
+                                    setAiToolOpen(false);
+                                  }}
+                                  className={`flex h-[44px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
+                                    !selectedAiTool ? 'bg-white/10 text-[#f5f5f5]' : 'text-[#999] hover:bg-white/5'
+                                  }`}
+                                >
+                                  <span className="text-sm font-medium">不使用 AI 工具</span>
+                                </button>
+                              ) : (
+                                <div key={item.group.groupName} className="flex flex-col gap-0.5">
+                                  <div className="px-2 py-1">
+                                    <span className="text-[#999] text-xs font-medium">{item.group.groupName}</span>
+                                  </div>
+                                  {item.group.items.map((tool) => (
+                                    <button
+                                      key={tool.id}
+                                      type="button"
+                                      onClick={() => {
+                                        updateConfig(nodeId, { aiTool: tool.id });
+                                        setAiToolOpen(false);
+                                      }}
+                                      className={`group flex h-[52px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
+                                        selectedAiTool === tool.id
+                                          ? 'bg-white/10 text-[#f5f5f5]'
+                                          : 'text-[#999] hover:bg-white/5'
+                                      }`}
+                                    >
+                                      <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-white/5">
+                                        {tool.icon}
+                                        {tool.isNew && (
+                                          <span className="pointer-events-none absolute right-[3px] top-[3px] size-1.5 rounded-full bg-[#5DDCFF] border border-[#1a1a1a]" />
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col justify-center overflow-hidden">
+                                        <span className="text-sm font-medium truncate">{tool.name}</span>
+                                        <span className="mt-0.5 text-xs leading-4 text-[#999] opacity-0 group-hover:opacity-60 transition-opacity duration-200">{tool.desc}</span>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            )}
+                          </div>
                         ))}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
