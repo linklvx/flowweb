@@ -123,6 +123,7 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
     groupName: '分镜叙事',
     items: [
       { id: 'grid_25', name: '25宫格连贯分镜', desc: '生成连续分镜长图', icon: Grid25Icon },
+      { id: 'nine_camera', name: '多机位九宫格', desc: '生成多视角机位图', icon: NineCameraIcon },
       { id: 'four_panel', name: '剧情推演四宫格', desc: '生成四格剧情推演', icon: FourPanelIcon },
       { id: 'frame_forward_3s', name: '画面推演 - 3秒后', desc: '推演画面后续动作', icon: FrameForwardIcon },
       { id: 'frame_backward_5s', name: '画面推演 - 5秒前', desc: '还原画面前置状态', icon: FrameBackwardIcon },
@@ -138,7 +139,6 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
     groupName: '空间与机位',
     items: [
       { id: 'panorama_720', name: '720全景', desc: '生成全景场景图', icon: Panorama720Icon },
-      { id: 'nine_camera', name: '多机位九宫格', desc: '生成多视角机位图', icon: NineCameraIcon },
     ],
   },
   {
