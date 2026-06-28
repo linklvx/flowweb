@@ -196,6 +196,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const annotationRef = useRef<AnnotationCanvasHandle>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const annotationDrawing = useRef(false);
+  const [annotationLayout, setAnnotationLayout] = useState({ displayWidth: 0, displayHeight: 0, offsetX: 0, offsetY: 0 });
   const [brushSize, setBrushSize] = useState(20);
   const [eraseTool, setEraseTool] = useState<EraseTool>('brush');
   const [eraseCanUndo, setEraseCanUndo] = useState(false);
@@ -211,7 +212,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
   // Editable title (same pattern as TextInputNode)
-  const [label, setLabel] = useState('Image');
+  const [label, setLabel] = useState(nodeData?.mediaName || 'Image');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
@@ -581,6 +582,21 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       doExit();
     }
   }, [id, isProcessing, updateConfig]);
+
+  // ── 标注模式：计算 contain 模式下图片实际渲染区域 ──
+  useEffect(() => {
+    if (editMode !== 'annotate') return;
+    const naturalW = imgSize?.w ?? baseWidth;
+    const naturalH = imgSize?.h ?? baseHeight;
+    if (!naturalW || !naturalH || !baseWidth || !baseHeight) return;
+    const scale = Math.min(baseWidth / naturalW, baseHeight / naturalH);
+    setAnnotationLayout({
+      displayWidth: naturalW * scale,
+      displayHeight: naturalH * scale,
+      offsetX: (baseWidth - naturalW * scale) / 2,
+      offsetY: (baseHeight - naturalH * scale) / 2,
+    });
+  }, [editMode, baseWidth, baseHeight, imgSize]);
 
   const handleCropSave = useCallback(async () => {
     setProcessing(true);
@@ -1117,7 +1133,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
                   display: 'block',
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover',
+                  objectFit: editMode === 'annotate' ? 'contain' : 'cover',
                   ...(previewTransform ? { transform: previewTransform } : {}),
                 }}
                 onLoad={handleImageLoad}
@@ -1153,12 +1169,12 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               {editMode === 'annotate' && (
                 <AnnotationCanvas
                   ref={annotationRef}
-                  displayWidth={baseWidth}
-                  displayHeight={baseHeight}
+                  displayWidth={annotationLayout.displayWidth || baseWidth}
+                  displayHeight={annotationLayout.displayHeight || baseHeight}
                   naturalWidth={imgSize?.w ?? baseWidth}
                   naturalHeight={imgSize?.h ?? baseHeight}
-                  offsetX={0}
-                  offsetY={0}
+                  offsetX={annotationLayout.offsetX}
+                  offsetY={annotationLayout.offsetY}
                   imageRef={imgRef}
                   imageUrl={displayUrl ?? undefined}
                   disabled={isProcessing}

@@ -1,4 +1,4 @@
-import { useNodeStore, type ImageItem } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, type ImageItem } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { getMediaUrl } from '@/api/mediaApi';
 import { compressAccurately } from 'image-conversion';
@@ -22,7 +22,7 @@ export function useImageUpload(nodeId: string) {
     onProgress?: (p: number) => void,
   ): Promise<ImageItem | null> {
     // Type guard: image nodes and video nodes (both support prompt images)
-    if (!node || (node.type !== 'imageGen' && node.type !== 'videoGen' && node.type !== 'video')) return null;
+    if (!node || (!isImageNode(node) && node.type !== 'videoGen' && node.type !== 'video')) return null;
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const tempUrl = URL.createObjectURL(file);
@@ -132,7 +132,7 @@ export function useImageUpload(nodeId: string) {
     files: File[],
     maxCount?: number,
   ): Promise<ImageItem[]> {
-    if (!node || (node.type !== 'imageGen' && node.type !== 'videoGen' && node.type !== 'video')) return [];
+    if (!node || (!isImageNode(node) && node.type !== 'videoGen' && node.type !== 'video')) return [];
 
     // Get existing images to calculate remaining slots
     const existingImages = getLatestAllImages();

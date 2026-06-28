@@ -50,6 +50,12 @@ async function main() {
     create: { name: '图片生成', key: 'image', description: '文生图、图生图' },
   });
 
+  const imageExtNode = await prisma.nodeType.upsert({
+    where: { key: 'imageExt' },
+    update: {},
+    create: { name: '图片扩展', key: 'imageExt', description: '图片扩展节点' },
+  });
+
   const videoNode = await prisma.nodeType.upsert({
     where: { key: 'video' },
     update: {},

@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore, type ImageNodeData } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, type ImageNodeData } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
@@ -42,7 +42,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const promptRef = useRef<PromptInputRef>(null);
   const { uploadSingleImage } = useImageUpload(nodeId);
 
-  const nodeData = (node?.type === 'imageGen' ? node.data : undefined) as ImageNodeData | undefined;
+  const nodeData = (isImageNode(node) ? node.data : undefined) as ImageNodeData | undefined;
   const model = nodeData?.model ?? 'sdxl';
   const ratio = nodeData?.ratio ?? '16:9';
   const resolution = nodeData?.resolution ?? '2K';
@@ -225,7 +225,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   }, [prompt.allImages.length, uploadSingleImage]);
 
   // Conditional return AFTER all hooks
-  if (!node || node.type !== 'imageGen') return null;
+  if (!isImageNode(node)) return null;
 
   return (
     <div

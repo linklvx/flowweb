@@ -30,6 +30,38 @@ describe('canvasStore', () => {
     expect(s.nodes[0].type).toBe('imageGen');
   });
 
+  it('should add an imageExt node as imageExtGen', () => {
+    useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
+    const s = useCanvasStore.getState();
+    expect(s.nodes[0].type).toBe('imageExtGen');
+  });
+
+  it('imageExt node should have default mediaName "扩展图片"', () => {
+    const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
+    const nsNode = useNodeStore.getState().nodes[nodeId];
+    expect(nsNode.data.mediaName).toBe('扩展图片');
+  });
+
+  it('copyNode should preserve imageExtGen type', () => {
+    const id1 = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
+    const { copyNode } = useCanvasStore.getState() as any;
+    const id2 = copyNode(id1);
+    const copied = useCanvasStore.getState().nodes.find((n: any) => n.id === id2)!;
+    expect(copied.type).toBe('imageExtGen');
+    const nsCopied = useNodeStore.getState().nodes[id2];
+    expect(nsCopied.type).toBe('imageExtGen');
+  });
+
+  it('addChildNodes should inherit imageExtGen type from parent', () => {
+    const parentId = useCanvasStore.getState().addNode('imageExt', { x: 100, y: 100 });
+    const { addChildNodes } = useCanvasStore.getState() as any;
+    const childIds = addChildNodes(parentId, [{ data: { fileId: 'test' }, gridRow: 0, gridCol: 0 }]);
+    const child = useCanvasStore.getState().nodes.find((n: any) => n.id === childIds[0])!;
+    expect(child.type).toBe('imageExtGen');
+    const nsChild = useNodeStore.getState().nodes[childIds[0]];
+    expect(nsChild.type).toBe('imageExtGen');
+  });
+
   it('should add a video node', () => {
     useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
     const s = useCanvasStore.getState();

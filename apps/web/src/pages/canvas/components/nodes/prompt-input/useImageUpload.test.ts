@@ -19,7 +19,7 @@ const {
   const nodes: Record<string, any> = {};
 
   const updateFn = vi.fn((nodeId: string, allImages: ImageItem[]) => {
-    if (nodes[nodeId]?.type === 'imageGen' || nodes[nodeId]?.type === 'videoGen' || nodes[nodeId]?.type === 'video') {
+    if (nodes[nodeId]?.type === 'imageGen' || nodes[nodeId]?.type === 'imageExtGen' || nodes[nodeId]?.type === 'videoGen' || nodes[nodeId]?.type === 'video') {
       nodes[nodeId] = {
         ...nodes[nodeId],
         data: {
@@ -62,6 +62,11 @@ const {
 // ========== Module mocks (use hoisted refs) ==========
 
 vi.mock('@/stores/nodeStore', () => ({
+  isImageNode: (node: unknown) => {
+    if (!node || typeof node !== 'object') return false;
+    const type = (node as { type?: string }).type;
+    return type === 'imageGen' || type === 'imageExtGen';
+  },
   useNodeStore: mockUseNodeStore,
 }));
 
@@ -110,6 +115,27 @@ function makeImageNode(id: string, allImages: ImageItem[] = []): Record<string, 
 
 function makeTextNode(id: string): Record<string, any> {
   return { id, type: 'text', position: { x: 0, y: 0 }, data: { content: 'hello' } };
+}
+
+function makeImageExtNode(id: string, allImages: ImageItem[] = []): Record<string, any> {
+  return {
+    id,
+    type: 'imageExtGen',
+    position: { x: 0, y: 0 },
+    data: {
+      style: '写实',
+      model: 'sdxl',
+      quality: 'standard',
+      ratio: '1:1',
+      status: 'idle',
+      prompt: {
+        text: '',
+        html: '',
+        allImages,
+        referencedImageIds: [],
+      },
+    },
+  };
 }
 
 function makeVideoNode(id: string, allImages: ImageItem[] = []): Record<string, any> {
@@ -286,6 +312,24 @@ describe('useImageUpload', () => {
 
     // Cleanup still happens
     expect(mockRevokeObjectURLFn).toHaveBeenCalled();
+  });
+
+  // ================================================================
+  // 3b. uploadSingleImage — imageExtGen node type
+  // ================================================================
+  it('3b. uploadSingleImage — works for imageExtGen nodes', async () => {
+    mockNodes['ext-1'] = makeImageExtNode('ext-1');
+
+    const { result } = renderHook(() => useImageUpload('ext-1'));
+    const file = new File(['test'], 'ext-test.png', { type: 'image/png' });
+
+    let image: ImageItem | null = null;
+    await act(async () => {
+      image = await result.current.uploadSingleImage(file);
+    });
+
+    expect(image).not.toBeNull();
+    expect(image!.status).toBe('success');
   });
 
   // ================================================================

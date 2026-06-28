@@ -12,6 +12,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { debounce } from '@/utils/debounce';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
+import { ImageExtNode } from './nodes/ImageExtNode';
 import { VideoGenNode } from './nodes/VideoGenNode';
 import { AudioGenNode } from './nodes/AudioGenNode';
 import { MultiImageNode } from './nodes/MultiImageNode';
@@ -22,6 +23,7 @@ import { ConfirmModal } from './ConfirmModal';
 const nodeTypes: NodeTypes = {
   textInput: TextInputNode,
   imageGen: ImageGenNode,
+  imageExtGen: ImageExtNode,
   videoGen: VideoGenNode,
   audioGen: AudioGenNode,
   multiImageGen: MultiImageNode,

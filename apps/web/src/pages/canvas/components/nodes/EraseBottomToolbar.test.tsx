@@ -10,9 +10,17 @@ let mockNodeData: any = {
 };
 
 vi.mock('@/stores/nodeStore', () => ({
+  isImageNode: (node: unknown) => {
+    if (!node || typeof node !== 'object') return false;
+    const type = (node as { type?: string }).type;
+    return type === 'imageGen' || type === 'imageExtGen';
+  },
   useNodeStore: (selector: any) => {
     return selector({
-      nodes: { n1: { type: 'imageGen', data: mockNodeData } },
+      nodes: {
+        n1: { type: 'imageGen', data: mockNodeData },
+        ext1: { type: 'imageExtGen', data: mockNodeData },
+      },
       updateConfig: vi.fn(),
     });
   },
@@ -63,5 +71,11 @@ describe('EraseBottomToolbar', () => {
     expect(genBtn).toBeTruthy();
     genBtn.click();
     expect(onGenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders for imageExtGen node type', () => {
+    render(<EraseBottomToolbar nodeId="ext1" />);
+    // Should render ratio button (will fail until guard uses isImageNode)
+    expect(screen.getByText('16:9')).toBeInTheDocument();
   });
 });

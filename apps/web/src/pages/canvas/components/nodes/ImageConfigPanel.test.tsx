@@ -53,12 +53,23 @@ let mockNodeData: any = {
 };
 
 vi.mock('@/stores/nodeStore', () => ({
+  isImageNode: (node: unknown) => {
+    if (!node || typeof node !== 'object') return false;
+    const type = (node as { type?: string }).type;
+    return type === 'imageGen' || type === 'imageExtGen';
+  },
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
       nodes: {
         img1: {
           id: 'img1',
           type: 'imageGen',
+          position: { x: 0, y: 0 },
+          data: mockNodeData,
+        },
+        ext1: {
+          id: 'ext1',
+          type: 'imageExtGen',
           position: { x: 0, y: 0 },
           data: mockNodeData,
         },
@@ -86,6 +97,15 @@ describe('ImageConfigPanel', () => {
 
   it('renders PromptInput', () => {
     render(<ImageConfigPanel nodeId="img1" />);
+    expect(screen.getByTestId('prompt-input')).toBeTruthy();
+  });
+
+  it('should render for imageExtGen node (not null guard)', () => {
+    // The ImageConfigPanel has a null guard: node.type !== 'imageGen' → null
+    // For imageExtGen, this guard currently blocks rendering.
+    // This test will FAIL (RED) until the guard is changed to use isImageNode().
+    const { container } = render(<ImageConfigPanel nodeId="ext1" />);
+    expect(container.innerHTML).toBeTruthy();
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
 

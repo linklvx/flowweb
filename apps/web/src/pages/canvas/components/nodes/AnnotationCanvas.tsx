@@ -21,7 +21,6 @@ interface Props {
 interface Point {
   x: number;
   y: number;
-  pressure: number;
 }
 
 // ── drawOpToCanvas: 统一绘制函数 ──
@@ -39,12 +38,13 @@ function drawOpToCanvas(
   ctx.lineJoin = 'round';
 
   if (op.type === 'pen') {
+    const effectiveWidth = Math.max(0.5, op.lineWidth * op.effectivePressure * scale);
     const pts = op.points;
     if (pts.length === 1) {
       const x = pts[0].x * scale;
       const y = pts[0].y * scale;
       ctx.beginPath();
-      ctx.arc(x, y, (op.lineWidth * scale * 0.5), 0, Math.PI * 2);
+      ctx.arc(x, y, (effectiveWidth * 0.5), 0, Math.PI * 2);
       ctx.fill();
     } else if (pts.length > 1) {
       ctx.beginPath();
@@ -83,11 +83,12 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
     imageUrl,
     disabled,
   }, ref) {
-    const historyCanvasRef = useRef<HTMLCanvasElement>(null);
-    const tempCanvasRef = useRef<HTMLCanvasElement>(null);
+    const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const offscreenRef = useRef<HTMLCanvasElement | null>(null);
     const isDrawing = useRef(false);
     const currentPoints = useRef<Point[]>([]);
+    const pressureSum = useRef(0);
+    const pressureCount = useRef(0);
     const rectStart = useRef<{ x: number; y: number } | null>(null);
     const rectEnd = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const lineStart = useRef<{ x: number; y: number } | null>(null);
@@ -120,22 +121,19 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       return offscreenRef.current;
     }, [naturalWidth, naturalHeight]);
 
-    // ── 重绘全部历史 ──
+    // ── 重绘全部历史 → 显示层 + 离屏层 ──
     const redrawAll = useCallback(() => {
-      const hCanvas = historyCanvasRef.current;
-      if (!hCanvas) return;
-      const hCtx = hCanvas.getContext('2d');
-      if (!hCtx) return;
+      const dCanvas = displayCanvasRef.current;
+      if (!dCanvas) return;
+      const dCtx = dCanvas.getContext('2d');
+      if (!dCtx) return;
 
-      // 显示层：不设 setTransform（避免与 drawOpToCanvas 内 scale 叠加）
-      // 直接用物理像素清除 + 坐标 × dpr 绘制
-      hCtx.setTransform(1, 0, 0, 1, 0, 0);
-      hCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      dCtx.setTransform(1, 0, 0, 1, 0, 0);
+      dCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       for (const op of history) {
-        drawOpToCanvas(hCtx, op, dpr);
+        drawOpToCanvas(dCtx, op, dpr);
       }
 
-      // 离屏层
       const offscreen = getOffscreen();
       const oCtx = offscreen.getContext('2d')!;
       oCtx.clearRect(0, 0, naturalWidth, naturalHeight);
@@ -146,65 +144,48 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
 
     // ── history 变更 → 全量重绘 ──
     useEffect(() => {
-      if (!historyCanvasRef.current) return;
+      if (!displayCanvasRef.current) return;
       redrawAll();
     }, [history, redrawAll]);
-
-    // ── 组件挂载：canvas DOM 就位后首次恢复 ──
-    useEffect(() => {
-      redrawAll();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── 尺寸变化时离屏重建 ──
     const prevNaturalSize = useRef({ w: naturalWidth, h: naturalHeight });
     useEffect(() => {
       if (prevNaturalSize.current.w !== naturalWidth || prevNaturalSize.current.h !== naturalHeight) {
         prevNaturalSize.current = { w: naturalWidth, h: naturalHeight };
-        // 销毁旧离屏
         if (offscreenRef.current) {
           offscreenRef.current.width = 0;
           offscreenRef.current.height = 0;
           offscreenRef.current = null;
         }
-        // 重建后重绘
         redrawAll();
       }
     }, [naturalWidth, naturalHeight, redrawAll]);
 
-    // ★ 参数变更中断绘制
+    // ★ 参数变更中断绘制 → 重绘显示层（仅 history，无 temp shape）
     useEffect(() => {
       if (isDrawing.current) {
-        // 清空临时层
-        const tCanvas = tempCanvasRef.current;
-        if (tCanvas) {
-          const ctx = tCanvas.getContext('2d');
-          if (ctx) ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        }
         isDrawing.current = false;
         currentPoints.current = [];
+        pressureSum.current = 0;
+        pressureCount.current = 0;
         rectStart.current = null;
         rectEnd.current = { x: 0, y: 0 };
         lineStart.current = null;
         lineEnd.current = { x: 0, y: 0 };
+        redrawAll();
       }
-    }, [tool, color, lineWidth, canvasWidth, canvasHeight]);
+    }, [tool, color, lineWidth, redrawAll]);
 
     // ── 坐标换算 ──
-    // canvas.width = displayWidth × dpr（物理像素）
-    // rect.width  = 实际 CSS 渲染宽度（受 React Flow zoom 影响）
-    // ratio = 物理像素 / CSS 像素 = 综合了 dpr + zoom
-    // logicalX = (clientX - rect.left) × ratio → 物理像素位置 → 映射到 CSS 逻辑坐标需要除以 (canvas.width / displayWidth)
     const getLogicalCoords = useCallback((e: React.PointerEvent): { logicalX: number; logicalY: number; pressure: number } => {
-      const canvas = historyCanvasRef.current;
+      const canvas = displayCanvasRef.current;
       if (!canvas) return { logicalX: 0, logicalY: 0, pressure: 0.5 };
       const rect = canvas.getBoundingClientRect();
-      // ★ 使用 canvas 物理像素尺寸与 CSS 渲染尺寸的比值（而非 window.devicePixelRatio）
       const ratioX = canvas.width / rect.width;
       const ratioY = canvas.height / rect.height;
-      // 物理像素 = (client - rect偏移) × ratio
       const physicalX = (e.clientX - rect.left) * ratioX;
       const physicalY = (e.clientY - rect.top) * ratioY;
-      // CSS 逻辑坐标 = 物理像素 / (canvas物理宽 / displayCSS宽)
       const logicalX = physicalX / (canvas.width / displayWidth);
       const logicalY = physicalY / (canvas.height / displayHeight);
       const pressure = e.pressure || ANNOTATION_DEFAULTS.mousePressure;
@@ -215,70 +196,15 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       };
     }, [displayWidth, displayHeight]);
 
-    // ── 临时层绘制 ──
-    const clearTempCanvas = useCallback(() => {
-      const tCanvas = tempCanvasRef.current;
-      if (!tCanvas) return;
-      const ctx = tCanvas.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    }, [canvasWidth, canvasHeight]);
-
-    const getTempCtx = useCallback(() => {
-      const tCanvas = tempCanvasRef.current;
-      if (!tCanvas) return null;
-      const ctx = tCanvas.getContext('2d');
+    // ── 获取显示 Canvas 上下文（已 reset transform） ──
+    const getDisplayCtx = useCallback(() => {
+      const dCanvas = displayCanvasRef.current;
+      if (!dCanvas) return null;
+      const ctx = dCanvas.getContext('2d');
       if (!ctx) return null;
-      // ★ 不设 setTransform，由各 drawTemp* 函数通过坐标 × dpr 处理缩放
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       return ctx;
     }, []);
-
-    const drawTempPen = useCallback((points: Point[]) => {
-      const ctx = getTempCtx();
-      if (!ctx) return;
-      ctx.strokeStyle = colorSnap.current;
-      ctx.lineWidth = Math.max(0.5, lineWidthSnap.current * dpr);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (points.length === 1) {
-        ctx.beginPath();
-        ctx.arc(points[0].x * dpr, points[0].y * dpr, (lineWidthSnap.current * dpr * 0.5), 0, Math.PI * 2);
-        ctx.fill();
-      } else if (points.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(points[0].x * dpr, points[0].y * dpr);
-        for (let i = 1; i < points.length; i++) {
-          ctx.lineTo(points[i].x * dpr, points[i].y * dpr);
-        }
-        ctx.stroke();
-      }
-    }, [getTempCtx, dpr]);
-
-    const drawTempRect = useCallback((start: { x: number; y: number }, end: { x: number; y: number }) => {
-      const ctx = getTempCtx();
-      if (!ctx) return;
-      ctx.strokeStyle = colorSnap.current;
-      ctx.lineWidth = Math.max(0.5, lineWidthSnap.current * dpr);
-      const x = Math.min(start.x, end.x) * dpr;
-      const y = Math.min(start.y, end.y) * dpr;
-      const w = Math.abs(end.x - start.x) * dpr;
-      const h = Math.abs(end.y - start.y) * dpr;
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.stroke();
-    }, [getTempCtx, dpr]);
-
-    const drawTempLine = useCallback((start: { x: number; y: number }, end: { x: number; y: number }) => {
-      const ctx = getTempCtx();
-      if (!ctx) return;
-      ctx.strokeStyle = colorSnap.current;
-      ctx.lineWidth = Math.max(0.5, lineWidthSnap.current * dpr);
-      ctx.beginPath();
-      ctx.moveTo(start.x * dpr, start.y * dpr);
-      ctx.lineTo(end.x * dpr, end.y * dpr);
-      ctx.stroke();
-    }, [getTempCtx, dpr]);
 
     // ── Pointer events ──
 
@@ -288,13 +214,12 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       e.preventDefault();
       useNodeStore.getState().setEditOverlayDragging(true);
 
-      const canvas = historyCanvasRef.current;
+      const canvas = displayCanvasRef.current;
       if (!canvas) return;
       canvas.setPointerCapture(e.pointerId);
 
       const { logicalX, logicalY, pressure } = getLogicalCoords(e);
 
-      // ★ 快照当前参数
       toolSnap.current = tool;
       colorSnap.current = color;
       lineWidthSnap.current = lineWidth;
@@ -302,7 +227,9 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       isDrawing.current = true;
 
       if (tool === 'pen') {
-        currentPoints.current = [{ x: logicalX, y: logicalY, pressure }];
+        currentPoints.current = [{ x: logicalX, y: logicalY }];
+        pressureSum.current = pressure;
+        pressureCount.current = 1;
       } else if (tool === 'rect') {
         rectStart.current = { x: logicalX, y: logicalY };
         rectEnd.current = { x: logicalX, y: logicalY };
@@ -315,26 +242,70 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
     const handlePointerMove = useCallback((e: React.PointerEvent) => {
       if (!isDrawing.current || disabled) return;
       e.stopPropagation();
+      e.preventDefault();
 
       const { logicalX, logicalY, pressure } = getLogicalCoords(e);
       const t = toolSnap.current;
 
-      clearTempCanvas();
-
+      // Update shape state
       if (t === 'pen') {
-        currentPoints.current.push({ x: logicalX, y: logicalY, pressure });
-        drawTempPen(currentPoints.current);
+        currentPoints.current.push({ x: logicalX, y: logicalY });
+        pressureSum.current += pressure;
+        pressureCount.current += 1;
       } else if (t === 'rect') {
         rectEnd.current = { x: logicalX, y: logicalY };
-        drawTempRect(rectStart.current!, rectEnd.current);
       } else if (t === 'line') {
         lineEnd.current = { x: logicalX, y: logicalY };
-        drawTempLine(lineStart.current!, lineEnd.current);
       }
-    }, [disabled, getLogicalCoords, clearTempCanvas, drawTempPen, drawTempRect, drawTempLine]);
 
-    const handlePointerUp = useCallback(() => {
+      // Build temporary DrawOp for preview
+      let tempOp: DrawOp | null = null;
+      const col = colorSnap.current;
+      const lw = lineWidthSnap.current;
+
+      if (t === 'pen' && currentPoints.current.length > 0) {
+        tempOp = {
+          type: 'pen',
+          points: currentPoints.current.map(p => ({ x: p.x, y: p.y })),
+          color: col,
+          lineWidth: lw,
+          effectivePressure: 1,
+        };
+      } else if (t === 'rect' && rectStart.current) {
+        tempOp = {
+          type: 'rect',
+          x1: rectStart.current.x, y1: rectStart.current.y,
+          x2: rectEnd.current.x, y2: rectEnd.current.y,
+          color: col,
+          lineWidth: lw,
+        };
+      } else if (t === 'line' && lineStart.current) {
+        tempOp = {
+          type: 'line',
+          x1: lineStart.current.x, y1: lineStart.current.y,
+          x2: lineEnd.current.x, y2: lineEnd.current.y,
+          color: col,
+          lineWidth: lw,
+        };
+      }
+
+      // Redraw: clear → history → temp shape
+      const dCtx = getDisplayCtx();
+      if (!dCtx) return;
+      dCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      const currentHistory = useNodeStore.getState().annotationState?.history ?? [];
+      for (const op of currentHistory) {
+        drawOpToCanvas(dCtx, op, dpr);
+      }
+      if (tempOp) {
+        drawOpToCanvas(dCtx, tempOp, dpr);
+      }
+    }, [disabled, getLogicalCoords, getDisplayCtx, dpr, canvasWidth, canvasHeight]);
+
+    const handlePointerUp = useCallback((e: React.PointerEvent) => {
       if (!isDrawing.current) return;
+      e.stopPropagation();
+      e.preventDefault();
       const t = toolSnap.current;
       const col = colorSnap.current;
       const lw = lineWidthSnap.current;
@@ -342,11 +313,15 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       let op: DrawOp | null = null;
 
       if (t === 'pen' && currentPoints.current.length > 0) {
+        const avgPressure = pressureCount.current > 0
+          ? pressureSum.current / pressureCount.current
+          : ANNOTATION_DEFAULTS.mousePressure;
         op = {
           type: 'pen',
-          points: currentPoints.current.map(p => ({ x: p.x, y: p.y, pressure: p.pressure })),
+          points: currentPoints.current.map(p => ({ x: p.x, y: p.y })),
           color: col,
           lineWidth: lw,
+          effectivePressure: Math.max(ANNOTATION_DEFAULTS.pressureMin, avgPressure),
         };
       } else if (t === 'rect' && rectStart.current) {
         op = {
@@ -372,25 +347,24 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
 
       isDrawing.current = false;
       currentPoints.current = [];
+      pressureSum.current = 0;
+      pressureCount.current = 0;
       rectStart.current = null;
       lineStart.current = null;
-      clearTempCanvas();
       useNodeStore.getState().setEditOverlayDragging(false);
 
       if (op) {
         useNodeStore.getState().pushDrawOp(op);
       }
-    }, [clearTempCanvas]);
+    }, []);
 
     // ── Imperative handle ──
 
     useImperativeHandle(ref, () => ({
       hasContent: () => history.length > 0,
       getAnnotatedBlob: async (): Promise<Blob> => {
-        // ★ 优先使用已加载的 DOM 元素
         let img: HTMLImageElement | null = imageRef?.current ?? null;
 
-        // 兜底：URL 加载
         if (!img && imageUrl) {
           img = new Image();
           img.crossOrigin = 'anonymous';
@@ -404,11 +378,9 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         if (!img) throw new Error('无可用的图片源');
         if (!img.complete) throw new Error('图片尚未加载完成');
 
-        // ★ 使用图片元素真实自然分辨率（可能 > naturalWidth prop 的 fallback 值）
         const trueW = img.naturalWidth || naturalWidth;
         const trueH = img.naturalHeight || naturalHeight;
 
-        // 尺寸上限检查
         const MAX = 16384;
         let exportW = trueW;
         let exportH = trueH;
@@ -418,22 +390,17 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           exportH = Math.round(exportH * ratio);
         }
 
-        // 创建临时合成画布
         const composite = document.createElement('canvas');
         composite.width = exportW;
         composite.height = exportH;
         const ctx = composite.getContext('2d')!;
 
-        // 1. 绘制原图（使用图片真实分辨率）
         ctx.drawImage(img, 0, 0, exportW, exportH);
 
-        // 2. 叠加标注层
-        // 如果离屏 canvas 尺寸与导出尺寸一致，直接叠加
         const offscreen = getOffscreen();
         if (offscreen.width === exportW && offscreen.height === exportH) {
           ctx.drawImage(offscreen, 0, 0);
         } else {
-          // 尺寸不一致时：按导出尺寸重新绘制标注（使用正确缩放比）
           const trueScale = exportW / displayWidth;
           for (const op of history) {
             drawOpToCanvas(ctx, op, trueScale);
@@ -470,11 +437,11 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           width: displayWidth,
           height: displayHeight,
           zIndex: 5,
+          userSelect: 'none',
         }}
       >
-        {/* 底层：历史 Canvas */}
         <canvas
-          ref={historyCanvasRef}
+          ref={displayCanvasRef}
           width={canvasWidth}
           height={canvasHeight}
           className="nopan"
@@ -490,22 +457,6 @@ export const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-        />
-        {/* 顶层：临时 Canvas（pointer-events: none） */}
-        <canvas
-          ref={tempCanvasRef}
-          width={canvasWidth}
-          height={canvasHeight}
-          className="nopan"
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: displayWidth,
-            height: displayHeight,
-            pointerEvents: 'none',
-            touchAction: 'none',
-          }}
         />
       </div>
     );

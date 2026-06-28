@@ -76,6 +76,16 @@ describe('TopologyService', () => {
       expect(upstream.textContents).toEqual([]);
     });
 
+    it('should collect image resultUrl from upstream imageExtGen node for img2img', () => {
+      const nodes = [
+        { id: 'n1', type: 'imageExtGen', data: { resultUrl: '/img/ext.jpg' } },
+        { id: 'n2', type: 'imageGen', data: {} },
+      ];
+      const edges = [{ source: 'n1', target: 'n2' }];
+      const upstream = service.collectUpstreamData('n2', nodes as any, edges as any);
+      expect(upstream.imageUrl).toBe('/img/ext.jpg');
+    });
+
     it('should return empty when no upstream nodes', () => {
       const nodes = [{ id: 'n1', type: 'imageGen', data: {} }];
       const upstream = service.collectUpstreamData('n1', nodes as any, []);

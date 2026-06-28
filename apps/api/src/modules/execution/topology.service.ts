@@ -72,7 +72,7 @@ export class TopologyService {
 
       if (upstream.type === 'textInput' && data?.content) {
         textContents.push(data.content);
-      } else if ((upstream.type === 'imageGen' || upstream.type === 'videoGen') && data?.resultUrl) {
+      } else if ((upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') && data?.resultUrl) {
         if (!imageUrl) imageUrl = data.resultUrl;
       }
     }

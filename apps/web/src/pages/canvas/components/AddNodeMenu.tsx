@@ -89,6 +89,7 @@ interface MenuItem {
 const ADD_NODE_ITEMS: MenuItem[] = [
   { type: 'text', label: '文本', desc: '剧本、广告词、品牌文案', icon: <TextIcon /> },
   { type: 'image', label: '图片', desc: '海报、分镜、角色设计', icon: <ImageIcon /> },
+  { type: 'imageExt', label: '扩展图片', desc: '图片扩展节点', icon: <ImageIcon /> },
   { type: 'video', label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
   { type: 'composite', label: '视频合成', desc: '多个视频片段合为一个', icon: <CompositeIcon />, badge: 'Beta' },
   { type: 'audio', label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },

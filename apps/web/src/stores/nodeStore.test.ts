@@ -371,6 +371,32 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(isImageNode(txt)).toBe(false);
   });
 
+  // 17b. isImageNode should return true for imageExtGen type
+  it('should return true for imageExtGen via isImageNode type guard', () => {
+    const extNode: AppNode = {
+      id: 'img-ext-guard',
+      type: 'imageExtGen',
+      position: { x: 0, y: 0 },
+      data: {
+        style: '写实',
+        model: 'flux',
+        quality: '2k',
+        ratio: '16:9',
+        status: 'idle',
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+      } as ImageNodeData,
+    };
+
+    useNodeStore.getState().addNode(extNode);
+    const stored = useNodeStore.getState().nodes['img-ext-guard'];
+    expect(isImageNode(stored)).toBe(true);
+    if (isImageNode(stored)) {
+      expect(stored.data.model).toBe('flux');
+    } else {
+      expect.unreachable('isImageNode should return true for imageExtGen type');
+    }
+  });
+
   // 18. isTextNode type guard should correctly narrow type
   it('should correctly narrow via isTextNode type guard', () => {
     const textNode: AppNode = {

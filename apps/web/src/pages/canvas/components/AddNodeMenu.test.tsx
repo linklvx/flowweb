@@ -57,6 +57,7 @@ describe('AddNodeMenu', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByText('文本')).toBeInTheDocument();
     expect(screen.getByText('图片')).toBeInTheDocument();
+    expect(screen.getByText('扩展图片')).toBeInTheDocument();
     expect(screen.getByText('视频')).toBeInTheDocument();
     expect(screen.getByText('视频合成')).toBeInTheDocument();
     expect(screen.getByText('音频')).toBeInTheDocument();
@@ -124,6 +125,14 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('calls addNode with "imageExt" when clicking image extension menu item', () => {
+    const onClose = vi.fn();
+    render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
+    fireEvent.click(screen.getByText('扩展图片'));
+    expect(mockAddNode).toHaveBeenCalledWith('imageExt', expect.any(Object));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('does not render when isOpen is false', () => {
     render(<AddNodeMenu isOpen={false} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.queryByText('添加节点')).not.toBeInTheDocument();
@@ -184,7 +193,7 @@ describe('AddNodeMenu', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByRole('menu')).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems.length).toBe(7); // 6 node types + 1 upload
+    expect(menuItems.length).toBe(8); // 7 node types + 1 upload
   });
 
   // ============================================================

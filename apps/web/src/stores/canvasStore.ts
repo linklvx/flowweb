@@ -19,6 +19,7 @@ function getId(prefix: string) {
 const nodeTypeMap: Record<string, string> = {
   text: 'textInput',
   image: 'imageGen',
+  imageExt: 'imageExtGen',
   video: 'videoGen',
   audio: 'audioGen',
   multiImage: 'multiImageGen',
@@ -74,7 +75,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
-    const baseData = resolvedType === 'textInput' ? { content: '' } : {};
+    const baseData = resolvedType === 'textInput' ? { content: '' }
+      : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片' }
+      : {};
     const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
     const node: Node = {
       id,

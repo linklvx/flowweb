@@ -7,6 +7,7 @@ import { CanvasView } from './components/CanvasView';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
 import { LightingModal } from './components/Lighting/LightingModal';
+import { Angle3DModal } from './components/Angle3D/Angle3DModal';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
@@ -151,6 +152,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <MaterialLibraryModal />
         <HistoryModal />
         <LightingModal />
+        <Angle3DModal />
       </div>
     </ReactFlowProvider>
   );

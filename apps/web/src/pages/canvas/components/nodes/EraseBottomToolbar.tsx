@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef } from 'react';
-import { useNodeStore, type ImageNodeData } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, type ImageNodeData } from '@/stores/nodeStore';
 
 interface ModelInfo {
   id: string; name: string;
@@ -63,7 +63,7 @@ function ChevronDown() {
 function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessing, prompt, onPromptChange, strength, onStrengthChange }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const nodeData = (node?.type === 'imageGen' ? node.data : undefined) as ImageNodeData | undefined;
+  const nodeData = (isImageNode(node) ? node.data : undefined) as ImageNodeData | undefined;
 
   const model = nodeData?.model ?? 'sdxl';
   const ratio = nodeData?.ratio ?? '16:9';

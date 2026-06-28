@@ -15,9 +15,10 @@ export const ANNOTATION_DEFAULTS = {
 // ★ 所有坐标统一为图片显示区域的 CSS 逻辑坐标（与 displayWidth/displayHeight 同单位）
 export interface PenOp {
   type: 'pen';
-  points: { x: number; y: number; pressure?: number }[];
+  points: { x: number; y: number }[];
   color: string;
   lineWidth: number;
+  effectivePressure: number;
 }
 
 export interface RectOp {
@@ -130,8 +131,10 @@ export interface AppNode {
 
 // ========== Type guards ==========
 
-export function isImageNode(node: AppNode): node is AppNode & { data: ImageNodeData } {
-  return node.type === 'imageGen';
+export function isImageNode(node: unknown): node is AppNode & { data: ImageNodeData } {
+  if (!node || typeof node !== 'object') return false;
+  const type = (node as { type?: string }).type;
+  return type === 'imageGen' || type === 'imageExtGen';
 }
 
 export function isTextNode(node: AppNode): node is AppNode & { data: TextNodeData } {
