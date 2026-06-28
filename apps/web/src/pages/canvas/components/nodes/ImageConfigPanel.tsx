@@ -467,14 +467,11 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
               {aiToolOpen && (
                 <div
                   ref={popupRef}
-                  className={`${POPUP_BASE_CLASS} left-0 w-[230px] max-w-[calc(100vw-16px)] flex flex-col gap-1 p-2`}
-                  style={{
-                    ...POPUP_BASE_STYLE,
-                    maxHeight: 'min(520px, calc(100vh - 300px))',
-                  }}
+                  className={`${POPUP_BASE_CLASS} left-0 w-[680px] max-w-[calc(100vw-16px)] p-3`}
+                  style={POPUP_BASE_STYLE}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <div className="overflow-y-auto flex flex-col gap-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgb(134, 144, 156) transparent' }}>
+                  <div className="flex flex-col gap-1" style={{ columns: 3, columnGap: 12 }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -484,11 +481,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
                       className={`flex h-[44px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
                         !selectedAiTool ? 'bg-white/10 text-[#f5f5f5]' : 'text-[#999] hover:bg-white/5'
                       }`}
+                      style={{ breakInside: 'avoid' }}
                     >
                       <span className="text-sm font-medium">不使用 AI 工具</span>
                     </button>
                     {AI_TOOL_GROUPS.map((group) => (
-                      <div key={group.groupName} className="flex flex-col gap-0.5">
+                      <div key={group.groupName} className="flex flex-col gap-0.5" style={{ breakInside: 'avoid' }}>
                         <div className="px-2 py-1">
                           <span className="text-[#999] text-xs font-medium">{group.groupName}</span>
                         </div>
