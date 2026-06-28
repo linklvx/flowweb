@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore, isImageNode, type ImageNodeData } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, isImageExtNode, type ImageNodeData } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
@@ -8,6 +8,7 @@ import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import type { CommandItem } from './prompt-input/types';
+import { AI_TOOL_GROUPS } from './ai/aiToolConfig';
 
 interface ModelInfo {
   id: string; name: string;
@@ -31,6 +32,12 @@ function ratioIcon(r: string) {
   const found = RATIO_OPTIONS.find((o) => o.label === r);
   return found ? { w: found.w, h: found.h } : { w: 12, h: 12 };
 }
+
+const POPUP_BASE_CLASS = 'absolute bottom-full mb-2 z-[300] rounded-2xl p-3 border border-[#363636] shadow-[0_4px_10px_rgba(0,0,0,0.25),0_2px_4px_rgba(0,0,0,0.3)]';
+const POPUP_BASE_STYLE: React.CSSProperties = {
+  backgroundColor: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)',
+  backdropFilter: 'blur(32px)',
+};
 
 function ImageConfigPanelComponent({ nodeId }: Props) {
   // ── ALL hooks must be called before any conditional return ──
@@ -64,6 +71,25 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const voiceBaseRef = useRef('');
   const selectedModel = models.find((m) => m.id === model);
 
+  const isExtNode = isImageExtNode(node);
+  const [aiToolOpen, setAiToolOpen] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const selectedAiTool = nodeData?.aiTool;
+
+  const checkPopupBounds = useCallback(() => {
+    if (!popupRef.current) return;
+    popupRef.current.style.left = '0';
+    popupRef.current.style.right = 'auto';
+    requestAnimationFrame(() => {
+      if (!popupRef.current) return;
+      const rect = popupRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        popupRef.current.style.left = 'auto';
+        popupRef.current.style.right = '0';
+      }
+    });
+  }, []);
+
   // Close model dropdown on outside click
   useEffect(() => {
     if (!modelOpen) return;
@@ -79,6 +105,30 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [ratioOpen]);
+
+  // Close AI tool popup on outside click
+  useEffect(() => {
+    if (!aiToolOpen) return;
+    const handler = () => setAiToolOpen(false);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [aiToolOpen]);
+
+  // Boundary detection: run on open + listen to window resize (100ms debounce)
+  useEffect(() => {
+    if (!aiToolOpen) return;
+    checkPopupBounds();
+    let timer: ReturnType<typeof setTimeout>;
+    const onResize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(checkPopupBounds, 100);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      clearTimeout(timer);
+    };
+  }, [aiToolOpen, checkPopupBounds]);
 
   // Close count dropdown on outside click
   useEffect(() => {
@@ -332,7 +382,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             type="button"
             data-testid="canvas-node-image-ratio-select"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); setRatioOpen((v) => !v); }}
+            onClick={(e) => { e.stopPropagation(); setAiToolOpen(false); setRatioOpen((v) => !v); }}
             className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
           >
             <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
@@ -342,8 +392,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           </button>
           {ratioOpen && (
             <div
-              className="absolute bottom-full mb-2 left-0 z-[300] w-[340px] flex flex-col gap-2 rounded-2xl p-3 border border-[#363636] shadow-[0_4px_10px_rgba(0,0,0,0.25),0_2px_4px_rgba(0,0,0,0.3)]"
-              style={{ backgroundColor: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)', backdropFilter: 'blur(32px)' }}
+              className={`${POPUP_BASE_CLASS} left-0 w-[340px] flex flex-col gap-2`}
+              style={POPUP_BASE_STYLE}
               onMouseDown={(e) => e.stopPropagation()}
             >
               {/* Resolution section */}
@@ -386,6 +436,93 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             </div>
           )}
           </div>
+          {isExtNode && (
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="canvas-node-image-ai-tool-select"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRatioOpen(false);
+                  setAiToolOpen((v) => !v);
+                }}
+                disabled={status === 'loading'}
+                className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                  <path d="M8 1.5a.75.75 0 01.75.75v1.19l1.22-.7a.75.75 0 11.75 1.3L9.5 4.73v1.54l1.22.7a.75.75 0 11-.75 1.3L8.75 7.56v.69a.75.75 0 01-1.5 0v-.69l-1.22.7a.75.75 0 11-.75-1.3L6.5 6.27V4.73l-1.22-.7a.75.75 0 11.75-1.3l1.22.7V2.25A.75.75 0 018 1.5z" fill="currentColor"/>
+                  <path d="M2 11a3 3 0 013-3h6a3 3 0 013 3v1a1 1 0 01-1 1H3a1 1 0 01-1-1v-1z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                  <circle cx="6.5" cy="12" r="0.5" fill="currentColor"/>
+                  <circle cx="8" cy="12" r="0.5" fill="currentColor"/>
+                  <circle cx="9.5" cy="12" r="0.5" fill="currentColor"/>
+                </svg>
+                <span className="whitespace-nowrap text-xs">
+                  {selectedAiTool
+                    ? (AI_TOOL_GROUPS.flatMap(g => g.items).find(t => t.id === selectedAiTool)?.name ?? 'AI 工具')
+                    : 'AI 工具'}
+                </span>
+              </button>
+              {aiToolOpen && (
+                <div
+                  ref={popupRef}
+                  className={`${POPUP_BASE_CLASS} left-0 w-[230px] max-w-[calc(100vw-16px)] flex flex-col gap-1 p-2`}
+                  style={{
+                    ...POPUP_BASE_STYLE,
+                    maxHeight: 'min(520px, calc(100vh - 300px))',
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className="overflow-y-auto flex flex-col gap-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgb(134, 144, 156) transparent' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateConfig(nodeId, { aiTool: undefined });
+                        setAiToolOpen(false);
+                      }}
+                      className={`flex h-[44px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
+                        !selectedAiTool ? 'bg-white/10 text-[#f5f5f5]' : 'text-[#999] hover:bg-white/5'
+                      }`}
+                    >
+                      <span className="text-sm font-medium">不使用 AI 工具</span>
+                    </button>
+                    {AI_TOOL_GROUPS.map((group) => (
+                      <div key={group.groupName} className="flex flex-col gap-0.5">
+                        <div className="px-2 py-1">
+                          <span className="text-[#999] text-xs font-medium">{group.groupName}</span>
+                        </div>
+                        {group.items.map((tool) => (
+                          <button
+                            key={tool.id}
+                            type="button"
+                            onClick={() => {
+                              updateConfig(nodeId, { aiTool: tool.id });
+                              setAiToolOpen(false);
+                            }}
+                            className={`group flex h-[52px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent ${
+                              selectedAiTool === tool.id
+                                ? 'bg-white/10 text-[#f5f5f5]'
+                                : 'text-[#999] hover:bg-white/5'
+                            }`}
+                          >
+                            <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-white/5">
+                              {tool.icon}
+                              {tool.isNew && (
+                                <span className="pointer-events-none absolute right-[3px] top-[3px] size-1.5 rounded-full bg-[#5DDCFF] border border-[#1a1a1a]" />
+                              )}
+                            </div>
+                            <div className="flex flex-col justify-center overflow-hidden">
+                              <span className="text-sm font-medium truncate">{tool.name}</span>
+                              <span className="mt-0.5 text-xs leading-4 text-[#999] opacity-0 group-hover:opacity-60 transition-opacity duration-200">{tool.desc}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           </div>
           <div className="flex items-center gap-3">
             {/* Voice input */}

@@ -41,7 +41,9 @@ vi.mock('@xyflow/react', () => ({
 }));
 
 // Mock nodeStore with AppNode nested structure
-const mockUpdateConfig = vi.fn();
+const mockUpdateConfig = vi.fn((_nodeId: string, partial: Record<string, unknown>) => {
+  Object.assign(mockNodeData, partial);
+});
 let mockNodeData: any = {
   style: '写实',
   model: 'sdxl',
@@ -57,6 +59,11 @@ vi.mock('@/stores/nodeStore', () => ({
     if (!node || typeof node !== 'object') return false;
     const type = (node as { type?: string }).type;
     return type === 'imageGen' || type === 'imageExtGen';
+  },
+  isImageExtNode: (node: unknown) => {
+    if (!node || typeof node !== 'object') return false;
+    const type = (node as { type?: string }).type;
+    return type === 'imageExtGen';
   },
   useNodeStore: vi.fn((selector?: any) => {
     const state = {
@@ -272,5 +279,73 @@ describe('ImageConfigPanel', () => {
     // After closing, dropdown items disappear (button still shows 1×)
     expect(screen.queryByText('2×')).not.toBeInTheDocument();
     expect(screen.getByText('1×')).toBeTruthy();
+  });
+
+  // ─── AI tool button (imageExtGen only) ───
+
+  it('should render AI tool button for imageExtGen node', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    const btn = screen.getByTestId('canvas-node-image-ai-tool-select');
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toContain('AI 工具');
+  });
+
+  it('should NOT render AI tool button for regular imageGen node', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    expect(screen.queryByTestId('canvas-node-image-ai-tool-select')).not.toBeInTheDocument();
+  });
+
+  it('should open AI tool popup on button click', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    expect(screen.getByText('分镜叙事')).toBeTruthy();
+    expect(screen.getByText('质感调节')).toBeTruthy();
+    expect(screen.getByText('空间与机位')).toBeTruthy();
+    expect(screen.getByText('设定图')).toBeTruthy();
+  });
+
+  it('should show "不使用 AI 工具" option at top of popup', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    expect(screen.getByText('不使用 AI 工具')).toBeTruthy();
+  });
+
+  it('should select tool and close popup on click', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    fireEvent.click(screen.getByText('故事板'));
+    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
+    expect(screen.getByTestId('canvas-node-image-ai-tool-select').textContent).toContain('故事板');
+    expect(mockUpdateConfig).toHaveBeenCalledWith('ext1', { aiTool: 'storyboard' });
+  });
+
+  it('should clear aiTool when clicking "不使用 AI 工具"', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    fireEvent.click(screen.getByText('不使用 AI 工具'));
+    expect(mockUpdateConfig).toHaveBeenCalledWith('ext1', { aiTool: undefined });
+    expect(screen.getByTestId('canvas-node-image-ai-tool-select').textContent).toContain('AI 工具');
+  });
+
+  it('should close AI tool popup on outside click', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    expect(screen.getByText('分镜叙事')).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
+  });
+
+  it('should close AI tool popup when clicking button again (toggle)', () => {
+    render(<ImageConfigPanel nodeId="ext1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    expect(screen.getByText('分镜叙事')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
+    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
+  });
+
+  it('should disable AI tool button when status is loading', () => {
+    mockNodeData = { ...mockNodeData, status: 'loading' };
+    render(<ImageConfigPanel nodeId="ext1" />);
+    expect(screen.getByTestId('canvas-node-image-ai-tool-select')).toBeDisabled();
   });
 });
