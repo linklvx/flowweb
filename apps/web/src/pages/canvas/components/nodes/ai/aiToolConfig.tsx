@@ -130,6 +130,16 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
     ],
   },
   {
+    groupName: '设定图',
+    items: [
+      { id: 'face_three_view', name: '角色脸部三视图', desc: '基于一张参考图生成脸部细节三视图', icon: FaceThreeViewIcon },
+      { id: 'character_sheet', name: '角色设定图', desc: '角色主视觉与设定拆解', icon: CharacterSheetIcon },
+      { id: 'character_three_view', name: '角色三视图', desc: '正侧背视图与脸部特写', icon: CharacterThreeViewIcon },
+      { id: 'scene_sheet', name: '场景设定图', desc: '场景设定与氛围参考', icon: SceneSheetIcon },
+      { id: 'product_sheet', name: '产品设定图', desc: '产品外观设定与细节拆解', icon: ProductSheetIcon },
+    ],
+  },
+  {
     groupName: '质感调节',
     items: [
       { id: 'film_lighting', name: '电影级光影校正', desc: '调整画面光影质感', icon: FilmLightingIcon },
@@ -139,16 +149,6 @@ export const AI_TOOL_GROUPS: AiToolGroup[] = [
     groupName: '空间与机位',
     items: [
       { id: 'panorama_720', name: '720全景', desc: '生成全景场景图', icon: Panorama720Icon },
-    ],
-  },
-  {
-    groupName: '设定图',
-    items: [
-      { id: 'face_three_view', name: '角色脸部三视图', desc: '基于一张参考图生成脸部细节三视图', icon: FaceThreeViewIcon },
-      { id: 'character_sheet', name: '角色设定图', desc: '角色主视觉与设定拆解', icon: CharacterSheetIcon },
-      { id: 'character_three_view', name: '角色三视图', desc: '正侧背视图与脸部特写', icon: CharacterThreeViewIcon },
-      { id: 'scene_sheet', name: '场景设定图', desc: '场景设定与氛围参考', icon: SceneSheetIcon },
-      { id: 'product_sheet', name: '产品设定图', desc: '产品外观设定与细节拆解', icon: ProductSheetIcon },
     ],
   },
 ];
