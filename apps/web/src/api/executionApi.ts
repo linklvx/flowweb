@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { AiToolId } from '@/stores/nodeStore';
 
 export async function executeWorkflow(projectId: string, nodeId?: string): Promise<{ success: boolean; errors: string[]; results?: { nodeId: string; type: string; resultUrl?: string }[] }> {
   return apiFetch('/execution/execute', {
@@ -7,10 +8,14 @@ export async function executeWorkflow(projectId: string, nodeId?: string): Promi
   });
 }
 
-export async function enqueueWorkflow(projectId: string, nodeId?: string): Promise<{ jobId: string; status: string }> {
+export async function enqueueWorkflow(params: {
+  projectId: string;
+  nodeId?: string;
+  aiTool?: AiToolId;
+}): Promise<{ jobId: string; status: string }> {
   return apiFetch('/execution/enqueue', {
     method: 'POST',
-    body: JSON.stringify({ projectId, nodeId }),
+    body: JSON.stringify(params),
   });
 }
 

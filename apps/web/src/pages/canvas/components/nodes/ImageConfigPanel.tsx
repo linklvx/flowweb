@@ -259,7 +259,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow('default', nodeId);
+      const latestNode = useNodeStore.getState().nodes[nodeId];
+      const latestAiTool = isImageNode(latestNode) ? latestNode.data.aiTool : undefined;
+      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId, aiTool: latestAiTool });
       console.log('[ImagePanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');

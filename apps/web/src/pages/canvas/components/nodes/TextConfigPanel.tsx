@@ -160,7 +160,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow('default', nodeId);
+      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId });
       console.log('[TextPanel] enqueued job:', jobId);
       // Socket.io will update status → done/error with AI response
     } catch {

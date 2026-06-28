@@ -159,7 +159,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow('default', nodeId);
+      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');

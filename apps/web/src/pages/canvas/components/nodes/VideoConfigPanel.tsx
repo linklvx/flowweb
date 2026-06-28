@@ -197,7 +197,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
         syncNodes('default', mergedNodes),
         syncEdges('default', canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow('default', nodeId);
+      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId });
       console.log('[VideoPanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');
