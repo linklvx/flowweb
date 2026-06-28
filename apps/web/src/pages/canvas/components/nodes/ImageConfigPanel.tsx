@@ -74,6 +74,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const isExtNode = isImageExtNode(node);
   const [aiToolOpen, setAiToolOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
+  const aiToolBtnRef = useRef<HTMLDivElement>(null);
   const selectedAiTool = nodeData?.aiTool;
 
   const checkPopupBounds = useCallback(() => {
@@ -109,7 +110,10 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   // Close AI tool popup on outside click
   useEffect(() => {
     if (!aiToolOpen) return;
-    const handler = () => setAiToolOpen(false);
+    const handler = (e: MouseEvent) => {
+      if (aiToolBtnRef.current?.contains(e.target as Node)) return;
+      setAiToolOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [aiToolOpen]);
@@ -439,7 +443,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           )}
           </div>
           {isExtNode && (
-            <div className="relative">
+            <div className="relative" ref={aiToolBtnRef}>
               <button
                 type="button"
                 data-testid="canvas-node-image-ai-tool-select"
