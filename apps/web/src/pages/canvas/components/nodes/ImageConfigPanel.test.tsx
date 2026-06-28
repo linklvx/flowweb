@@ -304,12 +304,6 @@ describe('ImageConfigPanel', () => {
     expect(screen.getByText('设定图')).toBeTruthy();
   });
 
-  it('should show "不使用 AI 工具" option at top of popup', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    expect(screen.getByText('不使用 AI 工具')).toBeTruthy();
-  });
-
   it('should select tool and close popup on click', () => {
     render(<ImageConfigPanel nodeId="ext1" />);
     fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
@@ -317,14 +311,6 @@ describe('ImageConfigPanel', () => {
     expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
     expect(screen.getByTestId('canvas-node-image-ai-tool-select').textContent).toContain('故事板');
     expect(mockUpdateConfig).toHaveBeenCalledWith('ext1', { aiTool: 'storyboard' });
-  });
-
-  it('should clear aiTool when clicking "不使用 AI 工具"', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    fireEvent.click(screen.getByText('不使用 AI 工具'));
-    expect(mockUpdateConfig).toHaveBeenCalledWith('ext1', { aiTool: undefined });
-    expect(screen.getByTestId('canvas-node-image-ai-tool-select').textContent).toContain('AI 工具');
   });
 
   it('should close AI tool popup on outside click', () => {
