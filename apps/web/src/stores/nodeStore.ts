@@ -84,6 +84,7 @@ export interface ImageNodeData {
   editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate' | null;
   customSize?: { width: number; height: number };
   aspectRatio?: number;
+  aiTool?: AiToolId;
 }
 
 export interface VideoNodeData {
@@ -114,6 +115,14 @@ export interface MultiImageNodeData {
   prompt?: string;
 }
 
+export type AiToolId =
+  | 'storyboard_scheduling' | 'storyboard' | 'grid_25' | 'four_panel'
+  | 'frame_forward_3s' | 'frame_backward_5s'
+  | 'portrait_texture' | 'film_lighting'
+  | 'panorama_720' | 'nine_camera'
+  | 'face_three_view' | 'character_sheet' | 'character_three_view'
+  | 'scene_sheet' | 'product_sheet';
+
 export type NodeData = TextNodeData | ImageNodeData | VideoNodeData | AudioNodeData | MultiImageNodeData;
 
 // ========== AppNode (React Flow aligned) ==========
@@ -130,6 +139,11 @@ export interface AppNode {
 }
 
 // ========== Type guards ==========
+
+export function isImageExtNode(node: unknown): node is AppNode & { type: 'imageExtGen'; data: ImageNodeData } {
+  if (!isImageNode(node)) return false;
+  return node.type === 'imageExtGen';
+}
 
 export function isImageNode(node: unknown): node is AppNode & { data: ImageNodeData } {
   if (!node || typeof node !== 'object') return false;
