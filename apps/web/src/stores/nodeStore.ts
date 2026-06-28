@@ -1,5 +1,49 @@
 import { create } from 'zustand';
 
+// ========== Annotation types ==========
+
+export const ANNOTATION_DEFAULTS = {
+  color: '#FF0000',
+  lineWidth: 4,
+  maxHistory: 50,
+  minLineWidth: 1,
+  maxLineWidth: 40,
+  pressureMin: 0.2,
+  mousePressure: 0.5,
+} as const;
+
+// ★ 所有坐标统一为图片显示区域的 CSS 逻辑坐标（与 displayWidth/displayHeight 同单位）
+export interface PenOp {
+  type: 'pen';
+  points: { x: number; y: number; pressure?: number }[];
+  color: string;
+  lineWidth: number;
+}
+
+export interface RectOp {
+  type: 'rect';
+  x1: number; y1: number; x2: number; y2: number;
+  color: string;
+  lineWidth: number;
+}
+
+export interface LineOp {
+  type: 'line';
+  x1: number; y1: number; x2: number; y2: number;
+  color: string;
+  lineWidth: number;
+}
+
+export type DrawOp = PenOp | RectOp | LineOp;
+
+export interface AnnotationState {
+  tool: 'pen' | 'rect' | 'line';
+  color: string;
+  lineWidth: number;
+  history: DrawOp[];
+  redoStack: DrawOp[];
+}
+
 // ========== Prompt-related types (defined inline for now) ==========
 
 export interface ImageItem {
@@ -36,7 +80,7 @@ export interface ImageNodeData {
   flipH?: boolean;
   flipV?: boolean;
   transformMode?: boolean;
-  editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | null;
+  editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate' | null;
   customSize?: { width: number; height: number };
   aspectRatio?: number;
 }
@@ -170,6 +214,17 @@ interface NodeState {
   registerSaveHandler: (nodeId: string, handler: () => Promise<void>) => void;
   unregisterSaveHandler: (nodeId: string) => void;
   saveTransformNode: (nodeId: string) => Promise<void>;
+
+  // Annotation state
+  annotationState: AnnotationState | null;
+  initAnnotationState: () => void;
+  updateAnnotationTool: (tool: AnnotationState['tool']) => void;
+  updateAnnotationColor: (color: string) => void;
+  updateAnnotationLineWidth: (lineWidth: number) => void;
+  pushDrawOp: (op: DrawOp) => void;
+  undoDrawOp: () => DrawOp | null;
+  redoDrawOp: () => DrawOp | null;
+  clearAnnotationState: () => void;
 }
 
 // ========== Store ==========
@@ -182,6 +237,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   cancelRequestedAt: 0,
   saveHandlers: {},
   activeEditNodeId: null,
+  annotationState: null,
 
   getEditOverlayDragging: () => _editOverlayDragging,
   setEditOverlayDragging: (v) => { _editOverlayDragging = v; },
@@ -216,6 +272,62 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     if (!handler) return;
     try { await handler(); } catch (err) { console.error(`保存节点 ${nodeId} 失败:`, err); }
   },
+
+  // ── Annotation actions ──
+
+  initAnnotationState: () => {
+    if (!get().activeEditNodeId) return;
+    set({
+      annotationState: {
+        tool: 'pen',
+        color: ANNOTATION_DEFAULTS.color,
+        lineWidth: ANNOTATION_DEFAULTS.lineWidth,
+        history: [],
+        redoStack: [],
+      },
+      cancelRequestedAt: 0,
+    });
+  },
+
+  updateAnnotationTool: (tool) => {
+    set(s => ({ annotationState: s.annotationState ? { ...s.annotationState, tool } : null }));
+  },
+
+  updateAnnotationColor: (color) => {
+    set(s => ({ annotationState: s.annotationState ? { ...s.annotationState, color } : null }));
+  },
+
+  updateAnnotationLineWidth: (lineWidth) => {
+    set(s => ({ annotationState: s.annotationState ? { ...s.annotationState, lineWidth } : null }));
+  },
+
+  pushDrawOp: (op) => {
+    const state = get().annotationState;
+    if (!state) return;
+    const next = [...state.history, op];
+    if (next.length > ANNOTATION_DEFAULTS.maxHistory) next.shift();
+    set({ annotationState: { ...state, history: next, redoStack: [] } });
+  },
+
+  undoDrawOp: () => {
+    const state = get().annotationState;
+    if (!state || state.history.length === 0) return null;
+    const history = [...state.history];
+    const op = history.pop()!;
+    set({ annotationState: { ...state, history, redoStack: [...state.redoStack, op] } });
+    return op;
+  },
+
+  redoDrawOp: () => {
+    const state = get().annotationState;
+    if (!state || state.redoStack.length === 0) return null;
+    const redoStack = [...state.redoStack];
+    const op = redoStack.pop()!;
+    set({ annotationState: { ...state, history: [...state.history, op], redoStack } });
+    return op;
+  },
+
+  clearAnnotationState: () => set({ annotationState: null }),
 
   addNode: (node) => {
     set((s) => ({

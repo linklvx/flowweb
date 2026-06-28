@@ -4,13 +4,15 @@ import { useViewport, useInternalNode } from '@xyflow/react';
 
 export interface EditToolbarProps {
   nodeId: string;
-  editMode: 'crop' | 'outpaint' | 'erase' | 'redraw';
+  editMode: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate';
   isSaving: boolean;
   errorMessage: string | null;
   onSave?: () => void;
   onCancel: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   onClear?: () => void;
   onGenerate?: () => void;
   // 画笔
@@ -103,6 +105,8 @@ interface PaintToolbarProps {
   onBrushSizeChange?: (size: number) => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   onCancel: () => void;
   eraseTool?: string;
   onEraseToolChange?: (tool: string) => void;
@@ -115,6 +119,8 @@ function PaintToolbar({
   onBrushSizeChange,
   onUndo,
   onRedo,
+  canUndo = false,
+  canRedo = false,
   onCancel,
   eraseTool = 'brush',
   onEraseToolChange,
@@ -224,14 +230,14 @@ function PaintToolbar({
 
       <div style={{ backgroundColor: BAR_BORDER, width: 1, height: 20 }} className="shrink-0" />
 
-      {/* Undo / Redo */}
+      {/* Undo / Redo — disabled state tracks actual availability */}
       <button
         type="button"
         aria-label="撤销"
         className={toolBtnClass}
-        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onUndo || isSaving ? 0.5 : 1, cursor: !onUndo || isSaving ? 'not-allowed' : 'pointer' }}
+        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !canUndo || isSaving ? 0.5 : 1, cursor: !canUndo || isSaving ? 'not-allowed' : 'pointer' }}
         onClick={onUndo}
-        disabled={!onUndo || isSaving}
+        disabled={!canUndo || isSaving}
       >
         <UndoIcon />
       </button>
@@ -239,9 +245,9 @@ function PaintToolbar({
         type="button"
         aria-label="重做"
         className={toolBtnClass}
-        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !onRedo || isSaving ? 0.5 : 1, cursor: !onRedo || isSaving ? 'not-allowed' : 'pointer' }}
+        style={{ backgroundColor: 'transparent', color: TEXT_COLOR, opacity: !canRedo || isSaving ? 0.5 : 1, cursor: !canRedo || isSaving ? 'not-allowed' : 'pointer' }}
         onClick={onRedo}
-        disabled={!onRedo || isSaving}
+        disabled={!canRedo || isSaving}
       >
         <RedoIcon />
       </button>
@@ -260,6 +266,8 @@ function EditToolbarComponent({
   onCancel,
   onUndo,
   onRedo,
+  canUndo,
+  canRedo,
   onClear,
   onGenerate,
   brushSize = 20,
@@ -477,6 +485,8 @@ function EditToolbarComponent({
           onBrushSizeChange={onBrushSizeChange}
           onUndo={onUndo}
           onRedo={onRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
           onCancel={onCancel}
           eraseTool={eraseTool}
           onEraseToolChange={onEraseToolChange}

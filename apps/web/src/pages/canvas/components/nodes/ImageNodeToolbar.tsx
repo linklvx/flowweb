@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type ReactNode, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useViewport, useInternalNode } from '@xyflow/react';
-import { SwapOutlined, BorderlessTableOutlined } from '@ant-design/icons';
+import { SwapOutlined, BorderlessTableOutlined, EditOutlined } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 
 interface ImageNodeToolbarProps {
@@ -21,6 +21,8 @@ interface ImageNodeToolbarProps {
   onGridSplit?: (rows: number, cols: number) => void;
   splitting?: boolean;
   onLighting?: () => void;
+  onAngle3D?: () => void;
+  onAnnotate?: () => void;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -311,6 +313,8 @@ function ImageNodeToolbarComponent({
   onGridSplit,
   splitting = false,
   onLighting,
+  onAngle3D,
+  onAnnotate,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -438,7 +442,7 @@ function ImageNodeToolbarComponent({
         <TextIconButton icon={<ExpandImageIcon />} ariaLabel="扩图" text="扩图" onClick={onOutpaint} />
         <TextIconButton icon={<EraserIcon />} ariaLabel="擦除" text="擦除" onClick={onErase} />
         <TextIconButton icon={<PaintbrushIcon />} ariaLabel="重绘" text="重绘" onClick={onRedraw} />
-        <TextIconButton icon={<TypeIcon />} ariaLabel="文字" text="文字" />
+        <TextIconButton icon={<EditOutlined style={{ fontSize: 16 }} />} ariaLabel="标注" text="标注" onClick={onAnnotate} />
         <TextIconButton icon={<ShirtIcon />} ariaLabel="换装" text="换装" />
       </div>
 
@@ -458,7 +462,7 @@ function ImageNodeToolbarComponent({
           onClick={hasImage ? onLighting : undefined}
           disabled={!hasImage}
         />
-        <TextIconButton icon={<Camera3DIcon />} ariaLabel="3D 角度" text="3D 角度" />
+        <TextIconButton icon={<Camera3DIcon />} ariaLabel="3D 角度" text="3D 角度" onClick={hasImage ? onAngle3D : undefined} disabled={!hasImage} />
         <Dropdown
           open={gridSplitOpen}
           onOpenChange={(next) => {

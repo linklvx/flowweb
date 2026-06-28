@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { useNodeStore, isImageNode, isTextNode } from './nodeStore';
-import type { AppNode, TextNodeData, ImageNodeData, VideoNodeData, PromptValue, ImageItem } from './nodeStore';
+import { useNodeStore, isImageNode, isTextNode, ANNOTATION_DEFAULTS } from './nodeStore';
+import type { AppNode, TextNodeData, ImageNodeData, VideoNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
 describe('nodeStore (AppNode nested structure)', () => {
   beforeEach(() => {
@@ -661,6 +661,252 @@ describe('nodeStore (AppNode nested structure)', () => {
     vi.spyOn(Date, 'now').mockReturnValue(ts);
     useNodeStore.getState().triggerCancelEdit();
     expect(useNodeStore.getState().cancelRequestedAt).toBe(ts);
+  });
+
+  // ══════════════════════════════════════════════════════
+  // ── Annotation State ──
+  // ══════════════════════════════════════════════════════
+
+  describe('annotationState', () => {
+    const penOp: PenOp = {
+      type: 'pen',
+      points: [{ x: 10, y: 20, pressure: 0.5 }, { x: 30, y: 40, pressure: 0.5 }],
+      color: '#FF0000',
+      lineWidth: 4,
+    };
+
+    const rectOp: RectOp = {
+      type: 'rect',
+      x1: 10, y1: 20, x2: 100, y2: 80,
+      color: '#0066FF',
+      lineWidth: 3,
+    };
+
+    const lineOp: LineOp = {
+      type: 'line',
+      x1: 0, y1: 0, x2: 200, y2: 150,
+      color: '#00AA55',
+      lineWidth: 5,
+    };
+
+    beforeEach(() => {
+      useNodeStore.setState({ annotationState: null, activeEditNodeId: null });
+    });
+
+    // -- constants --
+
+    it('ANNOTATION_DEFAULTS should have expected values', () => {
+      expect(ANNOTATION_DEFAULTS.color).toBe('#FF0000');
+      expect(ANNOTATION_DEFAULTS.lineWidth).toBe(4);
+      expect(ANNOTATION_DEFAULTS.maxHistory).toBe(50);
+      expect(ANNOTATION_DEFAULTS.minLineWidth).toBe(1);
+      expect(ANNOTATION_DEFAULTS.maxLineWidth).toBe(40);
+    });
+
+    // -- initAnnotationState --
+
+    it('initAnnotationState should skip when activeEditNodeId is null', () => {
+      useNodeStore.getState().initAnnotationState();
+      expect(useNodeStore.getState().annotationState).toBeNull();
+    });
+
+    it('initAnnotationState should initialize with defaults when activeEditNodeId is set', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      const state = useNodeStore.getState().annotationState;
+      expect(state).not.toBeNull();
+      expect(state!.tool).toBe('pen');
+      expect(state!.color).toBe(ANNOTATION_DEFAULTS.color);
+      expect(state!.lineWidth).toBe(ANNOTATION_DEFAULTS.lineWidth);
+      expect(state!.history).toEqual([]);
+      expect(state!.redoStack).toEqual([]);
+    });
+
+    // -- updateAnnotationTool --
+
+    it('updateAnnotationTool should update tool without changing history', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().updateAnnotationTool('rect');
+      expect(useNodeStore.getState().annotationState!.tool).toBe('rect');
+      expect(useNodeStore.getState().annotationState!.history).toEqual([]);
+    });
+
+    it('updateAnnotationTool should noop when annotationState is null', () => {
+      useNodeStore.getState().updateAnnotationTool('line');
+      expect(useNodeStore.getState().annotationState).toBeNull();
+    });
+
+    // -- updateAnnotationColor --
+
+    it('updateAnnotationColor should update color without changing history', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().updateAnnotationColor('#00FF00');
+      expect(useNodeStore.getState().annotationState!.color).toBe('#00FF00');
+    });
+
+    // -- updateAnnotationLineWidth --
+
+    it('updateAnnotationLineWidth should update lineWidth', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().updateAnnotationLineWidth(10);
+      expect(useNodeStore.getState().annotationState!.lineWidth).toBe(10);
+    });
+
+    // -- pushDrawOp --
+
+    it('pushDrawOp should push op and clear redoStack', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      // Simulate redoStack having content
+      useNodeStore.setState(s => ({
+        annotationState: s.annotationState ? { ...s.annotationState, redoStack: [penOp] } : null,
+      }));
+
+      useNodeStore.getState().pushDrawOp(rectOp);
+      const state = useNodeStore.getState().annotationState!;
+      expect(state.history).toHaveLength(1);
+      expect(state.history[0]).toEqual(rectOp);
+      expect(state.redoStack).toEqual([]);
+    });
+
+    it('pushDrawOp should noop when annotationState is null', () => {
+      useNodeStore.getState().pushDrawOp(penOp);
+      expect(useNodeStore.getState().annotationState).toBeNull();
+    });
+
+    it('pushDrawOp should drop oldest when over 50 steps', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      const firstOp: PenOp = { ...penOp, points: [{ x: 1, y: 1 }] };
+      // Fill history to exactly 50
+      const ops: DrawOp[] = [firstOp];
+      for (let i = 0; i < 49; i++) {
+        ops.push({ ...penOp, points: [{ x: i + 2, y: i + 2 }] });
+      }
+      useNodeStore.setState(s => ({
+        annotationState: s.annotationState ? { ...s.annotationState, history: ops } : null,
+      }));
+
+      const newOp: RectOp = { ...rectOp, x1: 999 };
+      useNodeStore.getState().pushDrawOp(newOp);
+      const state = useNodeStore.getState().annotationState!;
+      expect(state.history).toHaveLength(50);
+      // First (oldest) should be dropped
+      expect(state.history[0]).not.toEqual(firstOp);
+      // New op should be last
+      expect(state.history[49]).toEqual(newOp);
+    });
+
+    // -- undoDrawOp --
+
+    it('undoDrawOp should move last op from history to redoStack', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().pushDrawOp(penOp);
+      useNodeStore.getState().pushDrawOp(rectOp);
+
+      const result = useNodeStore.getState().undoDrawOp();
+      expect(result).toEqual(rectOp);
+      const state = useNodeStore.getState().annotationState!;
+      expect(state.history).toHaveLength(1);
+      expect(state.history[0]).toEqual(penOp);
+      expect(state.redoStack).toHaveLength(1);
+      expect(state.redoStack[0]).toEqual(rectOp);
+    });
+
+    it('undoDrawOp should return null when history is empty', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      const result = useNodeStore.getState().undoDrawOp();
+      expect(result).toBeNull();
+    });
+
+    it('undoDrawOp should return null when annotationState is null', () => {
+      const result = useNodeStore.getState().undoDrawOp();
+      expect(result).toBeNull();
+    });
+
+    // -- redoDrawOp --
+
+    it('redoDrawOp should move last op from redoStack to history', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().pushDrawOp(penOp);
+      useNodeStore.getState().pushDrawOp(rectOp);
+      useNodeStore.getState().undoDrawOp(); // rectOp now in redoStack
+
+      const result = useNodeStore.getState().redoDrawOp();
+      expect(result).toEqual(rectOp);
+      const state = useNodeStore.getState().annotationState!;
+      expect(state.history).toHaveLength(2);
+      expect(state.history[1]).toEqual(rectOp);
+      expect(state.redoStack).toEqual([]);
+    });
+
+    it('redoDrawOp should return null when redoStack is empty', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      const result = useNodeStore.getState().redoDrawOp();
+      expect(result).toBeNull();
+    });
+
+    it('redoDrawOp should return null when annotationState is null', () => {
+      const result = useNodeStore.getState().redoDrawOp();
+      expect(result).toBeNull();
+    });
+
+    // -- clearAnnotationState --
+
+    it('clearAnnotationState should set annotationState to null', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().pushDrawOp(penOp);
+      useNodeStore.getState().clearAnnotationState();
+      expect(useNodeStore.getState().annotationState).toBeNull();
+    });
+
+    // -- mutation isolation --
+
+    it('pushDrawOp/undoDrawOp/redoDrawOp should not mutate previous state references', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().pushDrawOp(penOp);
+      const state1 = useNodeStore.getState().annotationState!;
+      const historyRef = state1.history;
+
+      useNodeStore.getState().pushDrawOp(rectOp);
+      const state2 = useNodeStore.getState().annotationState!;
+      // Previous history reference should still have length 1
+      expect(historyRef).toHaveLength(1);
+      expect(state2.history).toHaveLength(2);
+      // state1 and state2 should be different objects
+      expect(state1).not.toBe(state2);
+    });
+
+    // -- editMode annotate --
+
+    it('should persist editMode annotate via updateConfig', () => {
+      useNodeStore.getState().updateConfig('edit-annotate', { style: '写实', editMode: 'annotate' });
+      const stored = useNodeStore.getState().nodes['edit-annotate'];
+      expect((stored.data as ImageNodeData).editMode).toBe('annotate');
+    });
+
+    // -- updateAnnotationTool/Color/LineWidth noop --
+    it('updateAnnotationTool should not affect history or redoStack', () => {
+      useNodeStore.getState().setActiveEditNodeId('node-1');
+      useNodeStore.getState().initAnnotationState();
+      useNodeStore.getState().pushDrawOp(penOp);
+      const before = useNodeStore.getState().annotationState!;
+      useNodeStore.getState().updateAnnotationTool('rect');
+      useNodeStore.getState().updateAnnotationColor('#000000');
+      useNodeStore.getState().updateAnnotationLineWidth(20);
+      const after = useNodeStore.getState().annotationState!;
+      expect(after.history).toEqual(before.history);
+      expect(after.redoStack).toEqual(before.redoStack);
+    });
   });
 });
 

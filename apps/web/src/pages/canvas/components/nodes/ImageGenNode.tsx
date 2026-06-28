@@ -6,6 +6,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
+import { useAngle3DStore } from '@/stores/angle3DStore';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
@@ -16,6 +17,9 @@ import { EraseCanvas, type EraseCanvasHandle, type EraseTool } from './EraseCanv
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 import { createPortal } from 'react-dom';
 import { EraseBottomToolbar } from './EraseBottomToolbar';
+import { AnnotationCanvas, type AnnotationCanvasHandle } from './AnnotationCanvas';
+import { AnnotationToolbar } from './AnnotationToolbar';
+import { Modal, message } from 'antd';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -95,20 +99,37 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // Fullscreen viewer state
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
   const fullscreenTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const handleOpenFullscreen = useCallback(() => {
+  const handleOpenFullscreen = useCallback(async () => {
+    // Fetch fresh presigned URL to avoid expiry
+    const targetFileId = fileId || referenceImage;
+    if (targetFileId) {
+      try {
+        const { url } = await getMediaUrl(targetFileId);
+        setFullscreenUrl(url);
+      } catch {
+        setFullscreenUrl(displayUrl ?? null);
+      }
+    } else {
+      setFullscreenUrl(displayUrl ?? null);
+    }
     setFullscreenOpen(true);
-  }, []);
+  }, [fileId, referenceImage, displayUrl]);
 
   const handleCloseFullscreen = useCallback(() => {
     setFullscreenOpen(false);
+    setFullscreenUrl(null);
   }, []);
 
   const handleDownload = useCallback(async () => {
-    if (!displayUrl) return;
+    const targetFileId = fileId || referenceImage;
+    if (!targetFileId) return;
+
     try {
-      const response = await fetch(displayUrl);
+      const { url } = await getMediaUrl(targetFileId);
+      const response = await fetch(url);
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -117,9 +138,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       a.click();
       URL.revokeObjectURL(blobUrl);
     } catch {
-      window.open(displayUrl, '_blank');
+      // fallback: try cached displayUrl, then open in new tab
+      if (displayUrl) {
+        try {
+          window.open(displayUrl, '_blank');
+        } catch {
+          // silently fail
+        }
+      }
     }
-  }, [displayUrl]);
+  }, [fileId, referenceImage, displayUrl]);
 
   const handleGridSplit = useCallback(async (rows: number, cols: number) => {
     const result = await splitImageNode(id, rows, cols);
@@ -150,11 +178,28 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, fileId, referenceImage]);
 
+  const handleAngle3D = useCallback(async () => {
+    const targetFileId = fileId || referenceImage;
+    if (!targetFileId) return;
+    try {
+      const { url } = await getMediaUrl(targetFileId);
+      const canvasId = localStorage.getItem('flowweb_projectId') || '';
+      useAngle3DStore.getState().openModal(id, url, canvasId);
+    } catch {
+      // silently fail
+    }
+  }, [id, fileId, referenceImage]);
+
   // Edit mode state
   const editMode = nodeData?.editMode ?? null;
   const eraseRef = useRef<EraseCanvasHandle>(null);
+  const annotationRef = useRef<AnnotationCanvasHandle>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const annotationDrawing = useRef(false);
   const [brushSize, setBrushSize] = useState(20);
   const [eraseTool, setEraseTool] = useState<EraseTool>('brush');
+  const [eraseCanUndo, setEraseCanUndo] = useState(false);
+  const [eraseCanRedo, setEraseCanRedo] = useState(false);
   const [isProcessing, setProcessing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
@@ -440,7 +485,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // ── Edit mode handlers ──
 
-  const enterEditMode = useCallback((mode: 'crop' | 'outpaint' | 'erase' | 'redraw') => {
+  const enterEditMode = useCallback((mode: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate') => {
     const ns = useNodeStore.getState();
     if (ns.activeTransformNodeId) {
       ns.triggerCancelTransform();
@@ -461,6 +506,80 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     if (useNodeStore.getState().getEditOverlayDragging()) return;
     updateConfig(id, { editMode: null });
     useNodeStore.getState().setActiveEditNodeId(null);
+    setEraseCanUndo(false);
+    setEraseCanRedo(false);
+  }, [id, isProcessing, updateConfig]);
+
+  // Poll erase ref for undo/redo state
+  const updateEraseUndoRedo = useCallback(() => {
+    const ref = eraseRef.current;
+    setEraseCanUndo(ref?.hasContent?.() ?? false);
+    setEraseCanRedo(ref?.canRedo?.() ?? false);
+  }, []);
+
+  // ── Annotation handlers ──
+
+  const handleAnnotate = useCallback(() => {
+    enterEditMode('annotate');
+    useNodeStore.getState().initAnnotationState();
+  }, [enterEditMode]);
+
+  const handleAnnotationSave = useCallback(async () => {
+    if (!annotationRef.current) return;
+    setProcessing(true);
+    setEditError(null);
+    try {
+      const blob = await annotationRef.current.getAnnotatedBlob();
+      const nodeName = nodeData?.referenceImage || fileId || 'image';
+      const fileName = `${nodeName}_annotated.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
+        fileName: file.name, fileSize: file.size, fileType: 'image/png', type: 'uploaded',
+      });
+      const fd = new FormData();
+      Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+      fd.append('file', file);
+      const proxy = import.meta.env.DEV
+        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
+        : uploadUrl;
+      await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
+      await confirmUpload({ fileId: newId, key, fileSize: file.size });
+
+      updateConfig(id, { editMode: null });
+      useCanvasStore.getState().addChildNode(id, { fileId: newId, status: 'done' });
+      useNodeStore.getState().setActiveEditNodeId(null);
+      useNodeStore.getState().clearAnnotationState();
+      message.success('标注已保存');
+    } catch (err: any) {
+      console.error('标注保存失败:', err);
+      setEditError('保存失败，请重试');
+      message.error('保存失败，请重试');
+    } finally {
+      setProcessing(false);
+    }
+  }, [id, fileId, nodeData?.referenceImage, updateConfig]);
+
+  const handleAnnotationCancel = useCallback(() => {
+    if (isProcessing) return;
+    if (useNodeStore.getState().getEditOverlayDragging()) return;
+    const store = useNodeStore.getState();
+    const hasContent = store.annotationState && store.annotationState.history.length > 0;
+    const doExit = () => {
+      updateConfig(id, { editMode: null });
+      store.setActiveEditNodeId(null);
+      store.clearAnnotationState();
+    };
+    if (hasContent) {
+      Modal.confirm({
+        title: '放弃标注？',
+        content: '当前标注内容尚未保存，退出后将丢失。',
+        okText: '放弃',
+        cancelText: '继续标注',
+        onOk: doExit,
+      });
+    } else {
+      doExit();
+    }
   }, [id, isProcessing, updateConfig]);
 
   const handleCropSave = useCallback(async () => {
@@ -601,6 +720,25 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     };
   }, [transformMode, id]);
 
+  // Register node callbacks for Angle3D result writeback
+  useEffect(() => {
+    useAngle3DStore.getState().setNodeCallbacks(id, {
+      onReplaceCurrentNode: (resultUrl: string) => {
+        // Download result, re-upload to get fileId, replace current node
+        // For now, set referenceImage to resultUrl
+        updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
+      },
+      onCreateNewNode: (resultUrl: string) => {
+        useCanvasStore.getState().addChildNode(id, {
+          status: 'done',
+        });
+      },
+    });
+    return () => {
+      useAngle3DStore.getState().setNodeCallbacks(id, null);
+    };
+  }, [id, updateConfig]);
+
   // beforeunload
   useEffect(() => {
     if (!transformMode || (imageRotation === 0 && !flipH && !flipV)) return;
@@ -634,7 +772,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     const unsub = useNodeStore.subscribe((state, prev) => {
       if (state.cancelRequestedAt !== prev.cancelRequestedAt && state.cancelRequestedAt > 0) {
         if (state.activeTransformNodeId === id) handleCancel();
-        if (state.activeEditNodeId === id) handleEditCancel();
+        if (state.activeEditNodeId === id) {
+          if (editMode === 'annotate') {
+            handleAnnotationCancel();
+          } else {
+            handleEditCancel();
+          }
+        }
       }
     });
     return unsub;
@@ -649,14 +793,26 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
-      if (e.key === 'Escape') { e.stopPropagation(); handleEditCancel(); }
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        if (editMode === 'annotate') {
+          // ESC during drawing → cancel current draw; otherwise → confirm exit
+          if (useNodeStore.getState().getEditOverlayDragging()) return;
+          handleAnnotationCancel();
+        } else {
+          handleEditCancel();
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 's' && editMode === 'crop') { e.preventDefault(); handleCropSave(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && editMode === 'annotate') { e.preventDefault(); useNodeStore.getState().undoDrawOp(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey && editMode === 'annotate') { e.preventDefault(); useNodeStore.getState().redoDrawOp(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y' && editMode === 'annotate') { e.preventDefault(); useNodeStore.getState().redoDrawOp(); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && (editMode === 'erase' || editMode === 'redraw')) { e.preventDefault(); eraseRef.current?.undo(); }
     };
 
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [id, editMode, handleEditCancel, handleCropSave]);
+  }, [id, editMode, handleEditCancel, handleCropSave, handleAnnotationCancel]);
 
   const didFitView = useRef(false);
   const didInitOutpaint = useRef(false);
@@ -699,6 +855,17 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       useCanvasStore.getState().setNodeDraggable(id, true);
     };
   }, [editMode, id]);
+
+  // Track erase undo/redo state (poll when not dragging)
+  useEffect(() => {
+    if (editMode !== 'erase' && editMode !== 'redraw') return;
+    const timer = setInterval(() => {
+      if (!useNodeStore.getState().getEditOverlayDragging()) {
+        updateEraseUndoRedo();
+      }
+    }, 200);
+    return () => clearInterval(timer);
+  }, [editMode, updateEraseUndoRedo]);
 
   // Socket.io edit result handlers
   useEffect(() => {
@@ -757,8 +924,20 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {/* Floating toolbar — EditToolbar > TransformToolbar > ImageNodeToolbar */}
-      {editMode ? (
+      {/* Floating toolbar — AnnotationToolbar / EditToolbar / TransformToolbar / ImageNodeToolbar */}
+      {editMode === 'annotate' ? (
+        <AnnotationToolbar
+          nodeId={id}
+          onToolChange={(t) => useNodeStore.getState().updateAnnotationTool(t)}
+          onColorChange={(c) => useNodeStore.getState().updateAnnotationColor(c)}
+          onLineWidthChange={(w) => useNodeStore.getState().updateAnnotationLineWidth(w)}
+          onUndo={() => useNodeStore.getState().undoDrawOp()}
+          onRedo={() => useNodeStore.getState().redoDrawOp()}
+          onSave={handleAnnotationSave}
+          onCancel={handleAnnotationCancel}
+          isSaving={isProcessing}
+        />
+      ) : editMode ? (
         <EditToolbar
           nodeId={id}
           editMode={editMode}
@@ -766,8 +945,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           errorMessage={editError}
           onSave={editMode === 'crop' ? handleCropSave : undefined}
           onCancel={handleEditCancel}
-          onUndo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.undo() : undefined}
-          onRedo={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.redo() : undefined}
+          onUndo={editMode === 'erase' || editMode === 'redraw' ? () => { eraseRef.current?.undo(); updateEraseUndoRedo(); } : undefined}
+          onRedo={editMode === 'erase' || editMode === 'redraw' ? () => { eraseRef.current?.redo(); updateEraseUndoRedo(); } : undefined}
+          canUndo={editMode === 'erase' || editMode === 'redraw' ? eraseCanUndo : undefined}
+          canRedo={editMode === 'erase' || editMode === 'redraw' ? eraseCanRedo : undefined}
           onClear={editMode === 'erase' || editMode === 'redraw' ? () => eraseRef.current?.clear() : undefined}
           onGenerate={editMode !== 'crop' ? handleGenerate : undefined}
           brushSize={brushSize}
@@ -823,13 +1004,15 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onGridSplit={handleGridSplit}
           splitting={splittingNodeId !== null}
           onLighting={handleLighting}
+          onAngle3D={handleAngle3D}
+          onAnnotate={handleAnnotate}
         />
       )}
 
       <ImageFullscreenViewer
         open={fullscreenOpen}
         onClose={handleCloseFullscreen}
-        displayUrl={displayUrl ?? undefined}
+        displayUrl={fullscreenUrl ?? displayUrl ?? undefined}
         nodeData={nodeData}
         triggerRef={fullscreenTriggerRef}
       />
@@ -925,8 +1108,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           {displayUrl ? (
             <div className="relative" style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <img
+                ref={imgRef}
                 src={displayUrl}
                 alt="preview"
+                crossOrigin="anonymous"
                 className="max-w-full max-h-full"
                 style={{
                   display: 'block',
@@ -964,6 +1149,20 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               )}
               {editMode === 'redraw' && (
                 <EraseCanvas ref={eraseRef} width={baseWidth} height={baseHeight} brushSize={brushSize} tool={eraseTool} />
+              )}
+              {editMode === 'annotate' && (
+                <AnnotationCanvas
+                  ref={annotationRef}
+                  displayWidth={baseWidth}
+                  displayHeight={baseHeight}
+                  naturalWidth={imgSize?.w ?? baseWidth}
+                  naturalHeight={imgSize?.h ?? baseHeight}
+                  offsetX={0}
+                  offsetY={0}
+                  imageRef={imgRef}
+                  imageUrl={displayUrl ?? undefined}
+                  disabled={isProcessing}
+                />
               )}
             </div>
           ) : status === 'loading' ? (
