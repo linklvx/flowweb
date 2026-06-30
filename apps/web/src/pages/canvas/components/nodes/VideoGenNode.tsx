@@ -5,7 +5,9 @@ import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
+import { VideoFullscreenViewer } from './VideoFullscreenViewer';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
 import axios from 'axios';
@@ -58,6 +60,18 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const hasMedia = !!displayUrl;
   const isEditMode = !!(nodeData?.editMode);
   const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
+
+  // Fullscreen state
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const fullscreenTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const handleOpenFullscreen = useCallback(() => {
+    setFullscreenOpen(true);
+  }, []);
+
+  const handleCloseFullscreen = useCallback(() => {
+    setFullscreenOpen(false);
+  }, []);
 
   // Dynamic sizing based on video aspect ratio (same as image node)
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
@@ -351,7 +365,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded */}
-      <VideoNodeToolbar show={selected && hasMedia} />
+      <VideoNodeToolbar show={selected && hasMedia} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} />
 
       {/* Title bar */}
       <div
@@ -476,6 +490,15 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
           <VideoConfigPanel nodeId={id} />
         </div>
       )}
+
+      {/* Fullscreen viewer */}
+      <VideoFullscreenViewer
+        open={fullscreenOpen}
+        onClose={handleCloseFullscreen}
+        videoUrl={displayUrl ?? undefined}
+        triggerRef={fullscreenTriggerRef}
+        nodeData={nodeData}
+      />
     </div>
   );
 }

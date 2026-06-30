@@ -2,6 +2,8 @@ import { memo } from 'react';
 
 interface VideoNodeToolbarProps {
   show: boolean;
+  onFullscreen?: () => void;
+  fullscreenTriggerRef?: React.RefObject<HTMLButtonElement>;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -124,7 +126,7 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef }: VideoNodeToolbarProps) {
   if (!show) return null;
 
   return (
@@ -193,7 +195,7 @@ function VideoNodeToolbarComponent({ show }: VideoNodeToolbarProps) {
           </button>
 
           {/* 全屏 (icon only) */}
-          <button type="button" style={ICON_ONLY_BTN_STYLE} aria-label="全屏">
+          <button type="button" ref={fullscreenTriggerRef} style={ICON_ONLY_BTN_STYLE} aria-label="全屏" onClick={onFullscreen}>
             <ExpandIcon />
           </button>
         </div>

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
 
 describe('VideoNodeToolbar', () => {
@@ -32,5 +32,12 @@ describe('VideoNodeToolbar', () => {
     const expandBtn = screen.getByLabelText('全屏');
     expect(downloadBtn).toBeInTheDocument();
     expect(expandBtn).toBeInTheDocument();
+  });
+
+  it('calls onFullscreen when expand button is clicked', () => {
+    const onFullscreen = vi.fn();
+    render(<VideoNodeToolbar show={true} onFullscreen={onFullscreen} />);
+    fireEvent.click(screen.getByLabelText('全屏'));
+    expect(onFullscreen).toHaveBeenCalledTimes(1);
   });
 });
