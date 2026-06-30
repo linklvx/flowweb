@@ -3,6 +3,7 @@ import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type Nod
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
+import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
@@ -161,6 +162,24 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       duration: 300,
     });
   }, [id, splitImageNode, fitView]);
+
+  const handleAiToolAction = useCallback((toolId: AiToolId) => {
+    const nodeType = useNodeStore.getState().nodes[id]?.type;
+    if (nodeType === 'imageExtGen') {
+      updateConfig(id, { aiTool: toolId });
+    } else {
+      const newNodeId = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: id,
+        referenceImage: nodeData?.fileId,
+        aiTool: toolId,
+      });
+      if (newNodeId) {
+        setTimeout(() => {
+          fitView({ nodes: [{ id: newNodeId }], duration: 300 });
+        }, 50);
+      }
+    }
+  }, [id, nodeData?.fileId, updateConfig, fitView]);
 
   const [lightingLoading, setLightingLoading] = useState(false);
 
@@ -1022,6 +1041,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onLighting={handleLighting}
           onAngle3D={handleAngle3D}
           onAnnotate={handleAnnotate}
+          onAiToolAction={handleAiToolAction}
         />
       )}
 

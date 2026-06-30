@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useViewport, useInternalNode } from '@xyflow/react';
 import { SwapOutlined, BorderlessTableOutlined, EditOutlined } from '@ant-design/icons';
 import { Dropdown } from 'antd';
+import { AiToolActionPopup } from './AiToolActionPopup';
+import type { AiToolId } from '@/stores/nodeStore';
 
 interface ImageNodeToolbarProps {
   nodeId: string;
@@ -23,6 +25,7 @@ interface ImageNodeToolbarProps {
   onLighting?: () => void;
   onAngle3D?: () => void;
   onAnnotate?: () => void;
+  onAiToolAction?: (toolId: AiToolId) => void;
 }
 
 // ── Custom SVG icons ───────────────────────────────────
@@ -315,6 +318,7 @@ function ImageNodeToolbarComponent({
   onLighting,
   onAngle3D,
   onAnnotate,
+  onAiToolAction,
 }: ImageNodeToolbarProps) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const internalNode = useInternalNode(nodeId);
@@ -338,6 +342,8 @@ function ImageNodeToolbarComponent({
   const subCloseTimerRef = useRef<number>(0);
   const subPanelRef = useRef<HTMLDivElement | null>(null);
   const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
+  const [aiToolPopupOpen, setAiToolPopupOpen] = useState(false);
+  const aiToolBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return () => {
@@ -566,7 +572,26 @@ function ImageNodeToolbarComponent({
           </span>
         </Dropdown>
         <TextIconButton icon={<HDIcon />} ariaLabel="高清增强" text="高清增强" />
-        <TextIconButton icon={<Grid3x3Icon />} ariaLabel="九宫格" text="九宫格" />
+        <div ref={aiToolBtnRef} className="relative">
+          <TextIconButton
+            icon={<Grid3x3Icon />}
+            ariaLabel="AI工具扩展"
+            text="AI工具扩展"
+            disabled={!hasImage}
+            onClick={() => setAiToolPopupOpen((v) => !v)}
+          />
+          {aiToolPopupOpen && (
+            <AiToolActionPopup
+              open={aiToolPopupOpen}
+              onClose={() => setAiToolPopupOpen(false)}
+              onSelect={(toolId) => {
+                setAiToolPopupOpen(false);
+                onAiToolAction?.(toolId);
+              }}
+              anchorEl={aiToolBtnRef.current}
+            />
+          )}
+        </div>
         <Divider />
         <IconButton icon={<ExpandIcon />} ariaLabel="放大查看" onClick={onFullscreen} ref={triggerRef} />
         <IconButton icon={<UploadIcon />} ariaLabel="上传" />
