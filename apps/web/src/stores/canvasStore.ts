@@ -6,6 +6,7 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
+import type { AiToolId } from './nodeStore';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
@@ -37,6 +38,12 @@ interface SplitResult {
   sourceSize: { w: number; h: number };
 }
 
+interface CreateDerivedExtNodeParams {
+  sourceNodeId: string;
+  referenceImage?: string;
+  aiTool: AiToolId;
+}
+
 interface CanvasState {
   nodes: Node[];
   edges: Edge[];
@@ -61,6 +68,7 @@ interface CanvasState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   splitImageNode: (nodeId: string, rows: number, cols: number) => Promise<SplitResult | null>;
+  createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -328,6 +336,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     return id;
+  },
+
+  createDerivedExtNode: (params) => {
+    const source = get().nodes.find((n) => n.id === params.sourceNodeId);
+    if (!source) return null;
+
+    const sw = source.measured?.width ?? source.width ?? 300;
+    const GAP = 80;
+    const position = {
+      x: source.position.x + sw + GAP,
+      y: source.position.y,
+    };
+
+    const newNodeId = get().addNode('imageExt', position, {
+      allImages: params.referenceImage ? [{ fileId: params.referenceImage }] : [],
+      aiTool: params.aiTool,
+      extConfig: { ...IMAGE_EXT_DEFAULTS },
+    });
+
+    const edgeId = getId('edge');
+    const edge: Edge = { id: edgeId, source: params.sourceNodeId, target: newNodeId };
+    set((s) => ({ edges: [...s.edges, edge] }));
+
+    return newNodeId;
   },
 
   selectNode: (id) => set({ selectedId: id }),

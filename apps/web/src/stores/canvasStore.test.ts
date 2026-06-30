@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import type { AiToolId } from './nodeStore';
 
 describe('canvasStore', () => {
   beforeEach(() => {
@@ -421,6 +422,104 @@ describe('canvasStore', () => {
       expect(nsCopied.data.extConfig!.model).toBe('custom-ext-model');
       expect(nsCopied.data.extConfig!.generateCount).toBe(4);
       expect(nsCopied.data.extConfig!.ratio).toBe('9:16');
+    });
+  });
+
+  // ── createDerivedExtNode ──
+
+  describe('createDerivedExtNode', () => {
+    it('should create a new imageExtGen node to the right of the source', () => {
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+      useNodeStore.setState({ nodes: {} });
+
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: sourceId,
+        referenceImage: 'file-123',
+        aiTool: 'nine_camera' as AiToolId,
+      });
+
+      expect(result).toBeTruthy();
+      const s = useCanvasStore.getState();
+      const newNode = s.nodes.find((n: any) => n.id === result);
+      expect(newNode).toBeTruthy();
+      expect(newNode!.type).toBe('imageExtGen');
+      // Position: 100 + 300 (default width) + 80 = 480
+      expect(newNode!.position.x).toBe(480);
+      expect(newNode!.position.y).toBe(200);
+
+      // nodeStore data
+      const nsNode = useNodeStore.getState().nodes[result!];
+      expect(nsNode.data.aiTool).toBe('nine_camera');
+      expect(nsNode.data.allImages).toEqual([{ fileId: 'file-123' }]);
+    });
+
+    it('should create an edge from source to new node', () => {
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+      useNodeStore.setState({ nodes: {} });
+
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: sourceId,
+        aiTool: 'four_panel' as AiToolId,
+      });
+
+      const s = useCanvasStore.getState();
+      const edge = s.edges.find((e: any) => e.source === sourceId && e.target === result);
+      expect(edge).toBeTruthy();
+    });
+
+    it('should select the new node', () => {
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+      useNodeStore.setState({ nodes: {} });
+
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: sourceId,
+        aiTool: 'four_panel' as AiToolId,
+      });
+
+      const s = useCanvasStore.getState();
+      expect(s.selectedId).toBe(result);
+    });
+
+    it('should return null for non-existent source node', () => {
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: 'nonexistent',
+        referenceImage: 'file-123',
+        aiTool: 'nine_camera' as AiToolId,
+      });
+      expect(result).toBeNull();
+    });
+
+    it('should initialize allImages as empty array when no referenceImage', () => {
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+      useNodeStore.setState({ nodes: {} });
+
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: sourceId,
+        aiTool: 'nine_camera' as AiToolId,
+      });
+
+      const nsNode = useNodeStore.getState().nodes[result!];
+      expect(nsNode.data.allImages).toEqual([]);
+    });
+
+    it('should initialize extConfig with defaults', () => {
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+      useNodeStore.setState({ nodes: {} });
+
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const result = useCanvasStore.getState().createDerivedExtNode({
+        sourceNodeId: sourceId,
+        aiTool: 'nine_camera' as AiToolId,
+      });
+
+      const nsNode = useNodeStore.getState().nodes[result!];
+      expect(nsNode.data.extConfig).toBeDefined();
+      expect(nsNode.data.extConfig.ratio).toBe('16:9');
+      expect(nsNode.data.extConfig.resolution).toBe('2K');
     });
   });
 });
