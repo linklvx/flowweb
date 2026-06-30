@@ -5,7 +5,10 @@ import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
+import { VideoTrimPanel } from './VideoTrimPanel';
 import { VideoFullscreenViewer } from './VideoFullscreenViewer';
+import { videoTrimApi } from '@/services/video-trim.api';
+import { useTrimTaskStatus } from '@/hooks/useTrimTaskStatus';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -64,6 +67,64 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   // Fullscreen state
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const fullscreenTriggerRef = useRef<HTMLButtonElement>(null);
+  const socketRef = useRef<any>(null);
+
+  // Trim panel state
+  const [trimMode, setTrimMode] = useState(false);
+  const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
+  const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
+  const trimStatus = useTrimTaskStatus(trimTaskId, socketRef?.current);
+
+  const handleOpenTrim = useCallback(() => {
+    const nd = useNodeStore.getState().nodes[id]?.data as any;
+    const dur = videoRef.current?.duration ?? 0;
+    const it = initialTrimState.current;
+    it.trimStart = nd?.trimStart ?? 0;
+    it.trimEnd = nd?.trimEnd ?? dur;
+    setTrimMode(true);
+  }, [id]);
+
+  const handleCancelTrim = useCallback(() => {
+    const s = useNodeStore.getState();
+    const node = s.nodes[id];
+    const it = initialTrimState.current;
+    s.updateVideoTrim(id, it.trimStart, it.trimEnd);
+    setTrimMode(false);
+    setTrimTaskId(null);
+  }, [id]);
+
+  const handleConfirmTrim = useCallback(async () => {
+    const nd = useNodeStore.getState().nodes[id]?.data as any;
+    const startTime = nd?.trimStart ?? 0;
+    const endTime = nd?.trimEnd ?? 0;
+    const targetFileId = fileId || referenceVideo;
+    if (!targetFileId) return;
+
+    try {
+      const { taskId } = await videoTrimApi.submitTrim({
+        fileId: targetFileId,
+        startTime,
+        endTime,
+        nodeId: id,
+      });
+      useNodeStore.getState().setTrimTaskStatus(id, 'processing');
+      setTrimTaskId(taskId);
+    } catch {
+      // submission failed silently
+    }
+  }, [id, fileId, referenceVideo]);
+
+  // Sync trim result to node data when completed
+  useEffect(() => {
+    if (trimStatus.status === 'done' && trimTaskId) {
+      useNodeStore.getState().setTrimmedResult(id, trimStatus.outputFileId || '');
+      setTrimMode(false);
+      setTrimTaskId(null);
+    }
+    if (trimStatus.status === 'error' && trimTaskId) {
+      useNodeStore.getState().setTrimTaskStatus(id, 'error');
+    }
+  }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id]);
 
   const handleOpenFullscreen = useCallback(() => {
     setFullscreenOpen(true);
@@ -173,6 +234,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   // Socket.io for real-time video generation status updates
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
 
     socket.on('connect', () => {
       console.log('[VideoGenNode] socket connected, joining default');
@@ -389,8 +451,8 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         </button>
       )}
 
-      {/* Floating toolbar — only when selected and video loaded */}
-      <VideoNodeToolbar show={selected && hasMedia} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} />
+      {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
+      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} />
 
       {/* Title bar */}
       <div
@@ -509,8 +571,24 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         <NodeHandle type="source" testId="source-handle" />
       </div>
 
+      {/* Trim panel — shown below the node when trimMode is active */}
+      {trimMode && hasMedia && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4" style={{ width: nodeWidth }}>
+          <VideoTrimPanel
+            videoRef={videoRef}
+            duration={videoRef.current?.duration ?? 30}
+            initialTrimStart={initialTrimState.current.trimStart}
+            initialTrimEnd={initialTrimState.current.trimEnd}
+            onConfirm={handleConfirmTrim}
+            onCancel={handleCancelTrim}
+            taskStatus={trimStatus.status as any}
+            error={trimStatus.error}
+          />
+        </div>
+      )}
+
       {/* Bottom config panel */}
-      {selected && !fileId && !referenceVideo && (
+      {!trimMode && selected && !fileId && !referenceVideo && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <VideoConfigPanel nodeId={id} />
         </div>

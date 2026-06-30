@@ -5,6 +5,7 @@ interface VideoNodeToolbarProps {
   onFullscreen?: () => void;
   fullscreenTriggerRef?: React.RefObject<HTMLButtonElement>;
   onDownload?: () => void;
+  onTrim?: () => void;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -127,7 +128,7 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim }: VideoNodeToolbarProps) {
   if (!show) return null;
 
   return (
@@ -144,7 +145,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
       <div className="flex w-max items-center">
         <div className="flex items-center justify-center gap-1" style={TOOLBAR_STYLE}>
           {/* 剪辑 */}
-          <button type="button" style={BTN_STYLE}>
+          <button type="button" style={BTN_STYLE} onClick={onTrim}>
             <ClipIcon />
             <span>剪辑</span>
           </button>

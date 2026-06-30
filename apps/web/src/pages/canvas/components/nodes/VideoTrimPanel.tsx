@@ -1,0 +1,139 @@
+import { useState, useCallback } from 'react';
+import { Slider, Button } from 'antd';
+
+interface VideoTrimPanelProps {
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+  duration: number;
+  initialTrimStart: number;
+  initialTrimEnd: number;
+  onConfirm: (start: number, end: number) => void;
+  onCancel: () => void;
+  taskStatus?: 'idle' | 'processing' | 'done' | 'error';
+  error?: string | null;
+}
+
+const MIN_GAP = 0.5;
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 10);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
+}
+
+export function VideoTrimPanel({
+  duration,
+  initialTrimStart,
+  initialTrimEnd,
+  onConfirm,
+  onCancel,
+  taskStatus,
+  error: _error,
+}: VideoTrimPanelProps) {
+  const [range, setRange] = useState<[number, number]>([
+    Math.max(0, initialTrimStart),
+    Math.min(duration, initialTrimEnd),
+  ]);
+
+  const trimDuration = range[1] - range[0];
+  const isValid = trimDuration >= MIN_GAP;
+  const isProcessing = taskStatus === 'processing';
+
+  const handleChange = useCallback(
+    (value: number[]) => {
+      let [start, end] = value;
+      // Clamp boundaries
+      start = Math.max(0, start);
+      end = Math.min(duration, end);
+      // Enforce minimum gap
+      if (end - start < MIN_GAP) {
+        // If start was moved, push end; otherwise push start
+        if (start !== range[0]) {
+          end = Math.min(duration, start + MIN_GAP);
+        } else {
+          start = Math.max(0, end - MIN_GAP);
+        }
+      }
+      setRange([start, end]);
+    },
+    [duration, range],
+  );
+
+  const handleConfirm = useCallback(() => {
+    if (!isValid || isProcessing) return;
+    onConfirm(range[0], range[1]);
+  }, [isValid, isProcessing, onConfirm, range]);
+
+  return (
+    <div
+      className="nodrag nopan nowheel"
+      style={{
+        width: '100%',
+        padding: '12px',
+        borderRadius: '12px',
+        border: '0.5px solid var(--canvas-controls-border)',
+        background: 'var(--canvas-controls-bg)',
+        boxShadow: 'var(--canvas-shadow-dropdown)',
+        backdropFilter: 'blur(16px)',
+        color: 'var(--canvas-controls-text)',
+        fontSize: 13,
+      }}
+    >
+      {/* Time labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span>{formatTime(range[0])}</span>
+        <span style={{ opacity: 0.6 }}>
+          {formatTime(trimDuration)}
+        </span>
+        <span>{formatTime(range[1])}</span>
+      </div>
+
+      {/* Range slider */}
+      <div data-min="0" data-max={String(duration)} data-step="0.1">
+        <Slider
+          range
+          min={0}
+          max={duration}
+          step={0.1}
+          value={range}
+          onChange={handleChange}
+          disabled={isProcessing}
+        />
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
+        <Button
+          size="small"
+          onClick={onCancel}
+          style={{ flex: 1 }}
+        >
+          取消
+        </Button>
+
+        {isProcessing ? (
+          <Button size="small" disabled style={{ flex: 2 }}>
+            裁剪中...
+          </Button>
+        ) : (
+          <Button
+            type="primary"
+            size="small"
+            disabled={!isValid}
+            aria-disabled={!isValid}
+            onClick={handleConfirm}
+            style={{ flex: 2 }}
+          >
+            确认裁剪
+          </Button>
+        )}
+      </div>
+
+      {!isValid && !isProcessing && (
+        <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+          最小裁剪时长 0.5 秒
+        </div>
+      )}
+    </div>
+  );
+}
