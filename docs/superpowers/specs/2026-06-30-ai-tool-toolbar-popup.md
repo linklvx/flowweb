@@ -19,56 +19,56 @@
 | 渲染条件 | 所有图片节点 | 所有图片节点（`imageGen` + `imageExtGen`） |
 | disabled | 无 | `!hasImage` 时禁用（无图片无需操作） |
 
-## 三、AiToolPopup — 共享公共组件（新建）
+## 三、AiToolActionPopup — 工具栏独立弹窗组件（新建）
 
-### 3.1 双模式设计
+### 3.1 设计原则
+
+**复刻 ImageExtConfigPanel 中 AI 工具弹窗的 UI**，但不共享组件。两者各自维护，互不影响。
+
+| 对比项 | ImageExtConfigPanel 弹窗 | AiToolActionPopup |
+|--------|--------------------------|-------------------|
+| 位置 | 底部面板 AI 工具按钮上方 | 工具栏按钮下方居中 |
+| 功能 | 配置选择器（持久选中态） | 动作入口（点击即执行） |
+| 选中态 | 有（高亮当前 aiTool） | 无 |
+| 清除选项 | 有「不使用 AI 工具」 | 无 |
+| 点击行为 | 设置 extConfig.aiTool → 关闭 | 执行动作 → 关闭 |
+
+### 3.2 组件结构
 
 ```
-AiToolPopup (新建独立组件)
-├── mode: 'config' | 'action'
-│
-├── config 模式 (给 ImageExtConfigPanel 用)
-│   ├── 有 selectedToolId → 显示选中态高亮
-│   ├── 顶部「不使用 AI 工具」清除选项
-│   ├── 外部点击 / ESC 关闭
-│   └── onSelect(toolId | undefined) → 设置 extConfig.aiTool
-│
-├── action 模式 (给 ImageNodeToolbar 用)
-│   ├── 无选中态，所有卡片平权
-│   ├── 无清除选项
-│   ├── 外部点击 / ESC 关闭
-│   └── onSelect(toolId) → 立即执行动作 + 关闭弹窗
-│
-└── 共用
-    ├── 4 组纵向排列 × 3 列网格布局 (复用现有 AI_TOOL_GROUPS)
-    ├── 视口边界检测 (弹窗不越界)
-    ├── 统一样式 (popup base class + style)
-    └── 定位由调用方通过 anchorEl 或固定 position 控制
+AiToolActionPopup (新建)
+├── Props: open, onClose, onSelect, anchorRect
+├── UI 复刻自 ImageExtConfigPanel 第 224-289 行
+│   ├── 4 组纵向排列 × 3 列网格布局 (复用 AI_TOOL_GROUPS)
+│   ├── 组名标题 + 工具卡片（图标 + 名称 + hover 描述）
+│   ├── isNew 蓝色圆点指示器
+│   └── 统一样式（背景色、圆角、阴影、毛玻璃）
+├── 定位：根据 anchorRect 计算，按钮下方居中
+├── 视口边界检测 (弹窗不越界)
+├── 外部点击 / ESC 关闭
+└── 点击任意工具卡片 → onSelect(toolId) → 弹窗关闭
 ```
 
-### 3.2 Props
+### 3.3 Props
 
 ```typescript
-interface AiToolPopupProps {
-  mode: 'config' | 'action';
+interface AiToolActionPopupProps {
   open: boolean;
   onClose: () => void;
   onSelect: (toolId: string) => void;
-  selectedToolId?: string;              // config 模式用
-  anchorEl?: HTMLElement | null;        // action 模式定位用
+  anchorEl?: HTMLElement | null;  // 按钮元素，用于定位
 }
 ```
 
-### 3.3 交互规范
+### 3.4 交互规范
 
 | 场景 | 行为 |
 |------|------|
-| 点击弹窗外部 | 关闭弹窗，不执行操作 |
-| 按 ESC | 关闭弹窗，不执行操作 |
-| action 模式点击工具卡片 | 立即调用 `onSelect(toolId)` → 弹窗关闭 |
-| config 模式点击工具卡片 | 调用 `onSelect(toolId)` → 弹窗关闭 |
-| config 模式点击「不使用」 | 调用 `onSelect(undefined)` → 弹窗关闭 |
+| 点击工具卡片 | 立即调用 `onSelect(toolId)` → 弹窗自动关闭 |
+| 点击弹窗外部 | 关闭弹窗，不执行任何操作 |
+| 按 ESC | 关闭弹窗，不执行任何操作 |
 | 窗口 resize / 滚动 | 检测边界，调整位置避免溢出 |
+| 生成中 (`status === 'loading'`) | 按钮禁用，不可打开弹窗 |
 
 ## 四、ImageNodeToolbar 接入（修改）
 
@@ -89,8 +89,7 @@ interface AiToolPopupProps {
     disabled={!hasImage}
     onClick={() => setAiToolPopupOpen(v => !v)}
   />
-  <AiToolPopup
-    mode="action"
+  <AiToolActionPopup
     open={aiToolPopupOpen}
     onClose={() => setAiToolPopupOpen(false)}
     onSelect={(toolId) => {
@@ -171,39 +170,9 @@ createDerivedExtNode(params: CreateDerivedExtNodeParams): string {
 - 新节点 y = 源节点 position.y (水平对齐)
 - 若源节点无 `measured` 宽度，兜底使用 300px
 
-## 六、ImageExtConfigPanel 重构（修改）
+## 六、不改动范围
 
-### 6.1 替换内联弹窗
-
-将第 204-290 行的 AI 工具按钮 + 弹窗替换为使用 `AiToolPopup` (config 模式)：
-
-```tsx
-// 替换后:
-<div className="relative" ref={aiToolBtnRef}>
-  <button onClick={() => setAiToolOpen(v => !v)}>...</button>
-  <AiToolPopup
-    mode="config"
-    open={aiToolOpen}
-    onClose={() => setAiToolOpen(false)}
-    onSelect={(toolId) => {
-      updateConfig(nodeId, { aiTool: toolId });
-      setAiToolOpen(false);
-    }}
-    selectedToolId={aiTool}
-    anchorEl={aiToolBtnRef.current}
-  />
-</div>
-```
-
-### 6.2 移除内部弹窗逻辑
-
-- 删除 `POPUP_BASE_CLASS`、`POPUP_BASE_STYLE` 常量（移入 `AiToolPopup`）
-- 删除内联的列分布算法代码（移入 `AiToolPopup`）
-- 删除 `checkPopupBounds` 逻辑（移入 `AiToolPopup`）
-- 保留 AI 工具按钮的渲染和状态管理
-
-## 七、不改动范围
-
+- `ImageExtConfigPanel.tsx` — **完全不动**（AI 工具弹窗保持不变）
 - `ImageConfigPanel.tsx`（imageGen 独立配置面板，完全不动）
 - `ImageGenNode.tsx` 主体渲染逻辑（仅新增 `handleAiToolAction` 回调传入 toolbar）
 - `ImageExtNode.tsx`（thin wrapper，完全不动）
@@ -216,33 +185,29 @@ createDerivedExtNode(params: CreateDerivedExtNodeParams): string {
 
 | 文件 | 变更 |
 |------|------|
-| `components/nodes/AiToolPopup.tsx` | **新建** — 双模式 AI 工具弹出面板公共组件 |
-| `components/nodes/ImageNodeToolbar.tsx` | "九宫格" → "AI工具扩展" + 接入 `AiToolPopup` (action 模式) |
-| `components/nodes/ImageExtConfigPanel.tsx` | 移除内联弹窗 → 复用 `AiToolPopup` (config 模式) |
+| `components/nodes/AiToolActionPopup.tsx` | **新建** — AI 工具动作弹窗组件（复刻 ImageExtConfigPanel 弹窗 UI） |
+| `components/nodes/ImageNodeToolbar.tsx` | "九宫格" → "AI工具扩展" + 接入 `AiToolActionPopup` |
 | `components/nodes/ImageGenNode.tsx` | 新增 `handleAiToolAction` 回调传入 toolbar |
 | `stores/canvasStore.ts` | 新增 `createDerivedExtNode` 方法 |
-| `components/nodes/AiToolPopup.test.tsx` | **新建** — AiToolPopup 测试 |
+| `components/nodes/AiToolActionPopup.test.tsx` | **新建** — AiToolActionPopup 测试 |
 | `stores/canvasStore.test.ts` | 新增 `createDerivedExtNode` 测试 |
-| `components/nodes/ImageNodeToolbar.test.tsx` | 更新测试：按钮名称 + 弹窗行为 |
-| `components/nodes/ImageExtConfigPanel.test.tsx` | 更新测试：复用 AiToolPopup |
 
 ## 九、成功标准
 
 1. 悬浮工具栏上"AI工具扩展"按钮在选中图片节点后可见
 2. 点击"AI工具扩展"按钮 → 弹窗在按钮下方居中弹出
-3. 弹窗展示 4 组 AI 工具，每组纵向排列、组内 3 列网格
+3. 弹窗展示 4 组 AI 工具，每组纵向排列、组内 3 列网格（UI 与 ImageExtConfigPanel 弹窗一致）
 4. imageGen 节点选中工具 → 新 imageExtGen 节点创建在右侧、连线、选中并滚动到视野中心
 5. imageExtGen 节点选中工具 → 更新当前节点 `aiTool` 配置
 6. 点击弹窗外 / ESC → 弹窗关闭，不执行任何操作
-7. ImageExtConfigPanel 的 AI 工具选择器行为与重构前完全一致（config 模式）
+7. ImageExtConfigPanel 的 AI 工具弹窗零改动
 8. 无图片时按钮禁用
 9. 弹窗不超出视口边界
 10. 所有现有测试不退化
 
 ## 十、核心测试覆盖
 
-1. **AiToolPopup config 模式**：选中态高亮、"不使用"选项、onSelect 回调
-2. **AiToolPopup action 模式**：无选中态、无清除选项、onSelect 回调
-3. **ImageNodeToolbar**：按钮名称变更、点击弹窗开关、action 模式 onSelect
+1. **AiToolActionPopup**：弹窗渲染、工具卡片点击 → onSelect 回调、外部点击关闭
+2. **AiToolActionPopup 定位**：按钮下方居中、视口边界检测
+3. **ImageNodeToolbar**：按钮名称变更、点击弹窗开关、disabled 状态
 4. **canvasStore.createDerivedExtNode**：节点创建位置、edge 创建、选中 + 视野滚动
-5. **ImageExtConfigPanel**：重构后行为与之前完全一致
