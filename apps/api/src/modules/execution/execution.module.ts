@@ -9,6 +9,10 @@ import { ExecutionProcessor } from './execution.processor';
 import { CreditModule } from '../credit/credit.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.constants';
+import { VideoTrimController } from './video-trim.controller';
+import { VideoTrimService } from './video-trim.service';
+import { VideoTrimProcessor } from './video-trim.processor';
+import { VIDEO_TRIM_QUEUE, VIDEO_TRIM_CONNECTION } from './video-trim.constants';
 
 @Module({
   imports: [
@@ -20,8 +24,12 @@ import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.con
     BullModule.registerQueue({
       name: 'ai-result-download',
     }),
+    BullModule.registerQueue({
+      name: VIDEO_TRIM_QUEUE,
+      configKey: VIDEO_TRIM_CONNECTION,
+    }),
   ],
-  controllers: [ExecutionController],
+  controllers: [ExecutionController, VideoTrimController],
   providers: [
     ExecutionService,
     TopologyService,
@@ -29,6 +37,8 @@ import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.con
     ApiCallerService,
     ExecutionGateway,
     ExecutionProcessor,
+    VideoTrimService,
+    VideoTrimProcessor,
   ],
   exports: [ExecutionService, ExecutionGateway, ApiCallerService],
 })
