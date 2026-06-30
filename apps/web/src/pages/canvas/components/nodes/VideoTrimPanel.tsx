@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Slider, Button } from 'antd';
 
 interface VideoTrimPanelProps {
@@ -22,6 +22,7 @@ function formatTime(seconds: number): string {
 }
 
 export function VideoTrimPanel({
+  videoRef,
   duration,
   initialTrimStart,
   initialTrimEnd,
@@ -38,6 +39,26 @@ export function VideoTrimPanel({
   const trimDuration = range[1] - range[0];
   const isValid = trimDuration >= MIN_GAP;
   const isProcessing = taskStatus === 'processing';
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        const vid = videoRef?.current;
+        if (vid) {
+          vid.paused ? vid.play() : vid.pause();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel, videoRef]);
 
   const handleChange = useCallback(
     (value: number[]) => {
