@@ -433,9 +433,10 @@ describe('canvasStore', () => {
       useNodeStore.setState({ nodes: {} });
 
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
+      const refImg = { id: 'file-123', url: 'https://example.com/img.png', name: 'test.png', status: 'success' as const };
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: sourceId,
-        referenceImage: 'file-123',
+        allImages: [refImg],
         aiTool: 'nine_camera' as AiToolId,
       });
 
@@ -451,7 +452,7 @@ describe('canvasStore', () => {
       // nodeStore data
       const nsNode = useNodeStore.getState().nodes[result!];
       expect(nsNode.data.aiTool).toBe('nine_camera');
-      expect(nsNode.data.allImages).toEqual([{ fileId: 'file-123' }]);
+      expect(nsNode.data.allImages).toEqual([refImg]);
     });
 
     it('should create an edge from source to new node', () => {
@@ -461,6 +462,7 @@ describe('canvasStore', () => {
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: sourceId,
+        allImages: [],
         aiTool: 'four_panel' as AiToolId,
       });
 
@@ -476,6 +478,7 @@ describe('canvasStore', () => {
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: sourceId,
+        allImages: [],
         aiTool: 'four_panel' as AiToolId,
       });
 
@@ -486,7 +489,7 @@ describe('canvasStore', () => {
     it('should return null for non-existent source node', () => {
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: 'nonexistent',
-        referenceImage: 'file-123',
+        allImages: [],
         aiTool: 'nine_camera' as AiToolId,
       });
       expect(result).toBeNull();
@@ -499,6 +502,7 @@ describe('canvasStore', () => {
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: sourceId,
+        allImages: [],
         aiTool: 'nine_camera' as AiToolId,
       });
 
@@ -513,6 +517,7 @@ describe('canvasStore', () => {
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 200 });
       const result = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: sourceId,
+        allImages: [],
         aiTool: 'nine_camera' as AiToolId,
       });
 

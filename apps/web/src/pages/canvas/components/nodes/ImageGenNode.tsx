@@ -163,14 +163,23 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     });
   }, [id, splitImageNode, fitView]);
 
-  const handleAiToolAction = useCallback((toolId: AiToolId) => {
+  const handleAiToolAction = useCallback(async (toolId: AiToolId) => {
     const nodeType = useNodeStore.getState().nodes[id]?.type;
     if (nodeType === 'imageExtGen') {
       updateConfig(id, { aiTool: toolId });
     } else {
+      // 构建参考图 ImageItem（需要完整 url/name/status）
+      const fileId = nodeData?.fileId;
+      let allImages: { id: string; url: string; name: string; status: 'success' }[] = [];
+      if (fileId) {
+        try {
+          const { url } = await getMediaUrl(fileId);
+          allImages = [{ id: fileId, url, name: nodeData?.mediaName || '参考图', status: 'success' }];
+        } catch { /* 获取 URL 失败时忽略参考图 */ }
+      }
       const newNodeId = useCanvasStore.getState().createDerivedExtNode({
         sourceNodeId: id,
-        referenceImage: nodeData?.fileId,
+        allImages,
         aiTool: toolId,
       });
       if (newNodeId) {
@@ -179,7 +188,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }, 50);
       }
     }
-  }, [id, nodeData?.fileId, updateConfig, fitView]);
+  }, [id, nodeData?.fileId, nodeData?.mediaName, updateConfig, fitView]);
 
   const [lightingLoading, setLightingLoading] = useState(false);
 

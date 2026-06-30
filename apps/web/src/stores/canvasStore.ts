@@ -5,8 +5,8 @@ import {
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
+import type { ImageItem, AiToolId } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
-import type { AiToolId } from './nodeStore';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
@@ -40,7 +40,7 @@ interface SplitResult {
 
 interface CreateDerivedExtNodeParams {
   sourceNodeId: string;
-  referenceImage?: string;
+  allImages: ImageItem[];
   aiTool: AiToolId;
 }
 
@@ -350,7 +350,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     };
 
     const newNodeId = get().addNode('imageExt', position, {
-      allImages: params.referenceImage ? [{ fileId: params.referenceImage }] : [],
+      allImages: params.allImages,
       aiTool: params.aiTool,
       extConfig: { ...IMAGE_EXT_DEFAULTS },
     });
