@@ -188,7 +188,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           if (newNode) {
             const nw = newNode.measured?.width ?? newNode.width ?? 300;
             const nh = newNode.measured?.height ?? newNode.height ?? 300;
-            setCenter(newNode.position.x + nw / 2, newNode.position.y + nh / 2, { duration: 300 });
+            const currentZoom = useCanvasStore.getState().viewport.zoom;
+            setCenter(newNode.position.x + nw / 2, newNode.position.y + nh / 2, { zoom: currentZoom, duration: 300 });
           }
         }, 50);
       }
