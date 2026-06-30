@@ -4,6 +4,7 @@ import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
+import { VideoNodeToolbar } from './VideoNodeToolbar';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
@@ -323,8 +324,8 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {/* Floating upload button — only when selected */}
-      {selected && (
+      {/* Floating upload button — only when selected and no video */}
+      {selected && !hasMedia && (
         <button
           className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
           style={{ bottom: 'calc(100% + 28px)' }}
@@ -348,6 +349,9 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
           )}
         </button>
       )}
+
+      {/* Floating toolbar — only when selected and video loaded */}
+      <VideoNodeToolbar show={selected && hasMedia} />
 
       {/* Title bar */}
       <div
