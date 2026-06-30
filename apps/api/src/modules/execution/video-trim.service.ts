@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import { exec } from 'child_process';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
-import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR } from './video-trim.constants';
+import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
 
 @Injectable()
@@ -55,7 +55,7 @@ export class VideoTrimService {
   private detectAudio(inputPath: string): Promise<boolean> {
     return new Promise((resolve) => {
       exec(
-        `ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`,
+        `${FFPROBE_PATH} -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`,
         (error, stdout) => {
           if (error) {
             this.logger.warn(`ffprobe audio detection failed: ${error.message}`);
@@ -87,7 +87,7 @@ export class VideoTrimService {
     try {
       actualDuration = await new Promise<number>((resolve, reject) => {
         exec(
-          `ffprobe -v error -show_entries format=duration -of csv=p=0 "${inputPath}"`,
+          `${FFPROBE_PATH} -v error -show_entries format=duration -of csv=p=0 "${inputPath}"`,
           (error, stdout) => {
             if (error) {
               reject(error);

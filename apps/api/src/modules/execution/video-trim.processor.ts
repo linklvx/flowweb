@@ -6,7 +6,7 @@ import { rm } from 'fs/promises';
 import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
 import { VideoTrimJobData, VideoTrimJobResult } from './video-trim.types';
-import { VIDEO_TRIM_QUEUE, TEMP_DIR } from './video-trim.constants';
+import { VIDEO_TRIM_QUEUE, TEMP_DIR, FFMPEG_PATH } from './video-trim.constants';
 
 @Processor(VIDEO_TRIM_QUEUE)
 export class VideoTrimProcessor extends WorkerHost {
@@ -29,7 +29,7 @@ export class VideoTrimProcessor extends WorkerHost {
     this.logger.log(`FFmpeg args: ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
-      const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(FFMPEG_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
       let stderr = '';
       proc.stderr?.on('data', (chunk: Buffer) => {

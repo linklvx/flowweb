@@ -19,11 +19,11 @@ export interface TaskStatusResponse {
 
 export const videoTrimApi = {
   submitTrim: (params: VideoTrimRequest) =>
-    apiFetch<VideoTrimResponse>('/api/execution/video-trim', {
+    apiFetch<VideoTrimResponse>('/execution/video-trim', {
       method: 'POST',
       body: JSON.stringify(params),
     }),
 
   getTaskStatus: (taskId: string) =>
-    apiFetch<TaskStatusResponse>(`/api/execution/video-trim/${taskId}`),
+    apiFetch<TaskStatusResponse>(`/execution/video-trim/${taskId}`),
 };
