@@ -72,7 +72,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const splitImageNode = useCanvasStore((s) => s.splitImageNode);
   const splittingNodeId = useCanvasStore((s) => s.splittingNodeId);
   const { zoom, x: vpX, y: vpY } = useViewport();
-  const { fitView, getNodes, setNodes } = useReactFlow();
+  const { fitView, getNodes, setNodes, setCenter } = useReactFlow();
   // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
   const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
   const internalNode = useInternalNode(id);
@@ -184,11 +184,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       });
       if (newNodeId) {
         setTimeout(() => {
-          fitView({ nodes: [{ id: newNodeId }], duration: 300 });
+          const newNode = useCanvasStore.getState().nodes.find((n) => n.id === newNodeId);
+          if (newNode) {
+            const nw = newNode.measured?.width ?? newNode.width ?? 300;
+            const nh = newNode.measured?.height ?? newNode.height ?? 300;
+            setCenter(newNode.position.x + nw / 2, newNode.position.y + nh / 2, { duration: 300 });
+          }
         }, 50);
       }
     }
-  }, [id, nodeData?.fileId, nodeData?.mediaName, updateConfig, fitView]);
+  }, [id, nodeData?.fileId, nodeData?.mediaName, updateConfig, setCenter]);
 
   const [lightingLoading, setLightingLoading] = useState(false);
 
