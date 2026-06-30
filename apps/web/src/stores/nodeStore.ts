@@ -132,6 +132,10 @@ export interface VideoNodeData {
   aspectRatio?: number;
   referenceVideo?: string;
   ratio?: string;
+  trimStart?: number;
+  trimEnd?: number;
+  trimTaskStatus?: 'idle' | 'processing' | 'done' | 'error';
+  trimmedFileId?: string;
 }
 
 export interface AudioNodeData {
@@ -280,6 +284,11 @@ interface NodeState {
   toggleExpanded: (nodeId: string) => void;
   updateMultiImageNodeStatus: (nodeId: string, status: MultiImageNodeData['nodeStatus']) => void;
   getNodeData: <T>(id: string) => T | undefined;
+
+  // Video trim actions
+  updateVideoTrim: (nodeId: string, trimStart: number, trimEnd: number) => void;
+  setTrimTaskStatus: (nodeId: string, status: string) => void;
+  setTrimmedResult: (nodeId: string, fileId: string) => void;
 
   // Transform toolbar support
   cancelRequestedAt: number;
@@ -645,5 +654,49 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   getNodeData: <T>(id: string): T | undefined => {
     return getNode(get().nodes, id)?.data as T | undefined;
+  },
+
+  // ── Video trim actions ──
+
+  updateVideoTrim: (nodeId, trimStart, trimEnd) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, trimStart, trimEnd },
+        },
+      },
+    }));
+  },
+
+  setTrimTaskStatus: (nodeId, status) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, trimTaskStatus: status },
+        },
+      },
+    }));
+  },
+
+  setTrimmedResult: (nodeId, fileId) => {
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, trimmedFileId: fileId, trimTaskStatus: 'done' as const },
+        },
+      },
+    }));
   },
 }));
