@@ -333,3 +333,21 @@ enum LightingTaskStatus {
   success
   failed
 }
+
+model VideoTrimTask {
+  id            String    @id @default(cuid())
+  userId        String
+  workflowId    String
+  nodeId        String
+  sourceFileId  String
+  startTime     Float
+  endTime       Float
+  status        String    @default("queued")
+  outputFileId  String?
+  errorMsg      String?
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@index([nodeId])
+  @@index([userId])
+}
