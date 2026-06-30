@@ -93,24 +93,26 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     setTrimTaskId(null);
   }, [id]);
 
-  const handleConfirmTrim = useCallback(async () => {
-    const nd = useNodeStore.getState().nodes[id]?.data as any;
-    const startTime = nd?.trimStart ?? 0;
-    const endTime = nd?.trimEnd ?? 0;
+  const handleConfirmTrim = useCallback(async (start: number, end: number) => {
     const targetFileId = fileId || referenceVideo;
     if (!targetFileId) return;
+
+    // Persist the user's trim selection to nodeStore
+    useNodeStore.getState().updateVideoTrim(id, start, end);
+    useNodeStore.getState().setTrimTaskStatus(id, 'processing');
+    setTrimTaskId(null); // reset before new submission
 
     try {
       const { taskId } = await videoTrimApi.submitTrim({
         fileId: targetFileId,
-        startTime,
-        endTime,
+        startTime: start,
+        endTime: end,
         nodeId: id,
       });
-      useNodeStore.getState().setTrimTaskStatus(id, 'processing');
       setTrimTaskId(taskId);
-    } catch {
-      // submission failed silently
+    } catch (err) {
+      console.error('[VideoGenNode] trim submission failed:', err);
+      useNodeStore.getState().setTrimTaskStatus(id, 'error');
     }
   }, [id, fileId, referenceVideo]);
 
@@ -123,6 +125,11 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     }
     if (trimStatus.status === 'error' && trimTaskId) {
       useNodeStore.getState().setTrimTaskStatus(id, 'error');
+      // Clear error state after a few seconds so user can retry
+      const timer = setTimeout(() => {
+        useNodeStore.getState().setTrimTaskStatus(id, 'idle');
+      }, 5000);
+      // Store timer cleanup — simplified: just keep error visible
     }
   }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id]);
 
@@ -581,6 +588,9 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             initialTrimEnd={initialTrimState.current.trimEnd}
             onConfirm={handleConfirmTrim}
             onCancel={handleCancelTrim}
+            onRangeChange={(start, end) => {
+              useNodeStore.getState().updateVideoTrim(id, start, end);
+            }}
             taskStatus={trimStatus.status as any}
             error={trimStatus.error}
           />

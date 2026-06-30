@@ -8,6 +8,7 @@ interface VideoTrimPanelProps {
   initialTrimEnd: number;
   onConfirm: (start: number, end: number) => void;
   onCancel: () => void;
+  onRangeChange?: (start: number, end: number) => void;
   taskStatus?: 'idle' | 'processing' | 'done' | 'error';
   error?: string | null;
 }
@@ -28,6 +29,7 @@ export function VideoTrimPanel({
   initialTrimEnd,
   onConfirm,
   onCancel,
+  onRangeChange,
   taskStatus,
   error: _error,
 }: VideoTrimPanelProps) {
@@ -76,8 +78,9 @@ export function VideoTrimPanel({
         }
       }
       setRange([start, end]);
+      onRangeChange?.(start, end);
     },
-    [duration, range],
+    [duration, range, onRangeChange],
   );
 
   const handleConfirm = useCallback(() => {
