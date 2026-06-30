@@ -7,7 +7,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
 import { useAngle3DStore } from '@/stores/angle3DStore';
-import { ImageConfigPanel } from './ImageConfigPanel';
+import { ImageConfigPanelResolver } from './ImageConfigPanelResolver';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
 import { TransformToolbar } from './TransformToolbar';
@@ -1211,7 +1211,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       </div>
       {selected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && !fileId && !referenceImage && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
-          <ImageConfigPanel nodeId={id} />
+          <ImageConfigPanelResolver nodeId={id} />
         </div>
       )}
       {(editMode === 'erase' || editMode === 'redraw') && (

@@ -4,7 +4,7 @@ import {
   applyNodeChanges, applyEdgeChanges,
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
-import { useNodeStore } from './nodeStore';
+import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -75,8 +75,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
-    const baseData = resolvedType === 'textInput' ? { content: '' }
-      : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片' }
+    const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }
+      : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
       : {};
     const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
     const node: Node = {

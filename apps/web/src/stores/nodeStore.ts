@@ -1,5 +1,34 @@
 import { create } from 'zustand';
 
+// ========== Node type constants ==========
+
+export const NODE_TYPES = {
+  IMAGE_GEN: 'imageGen',
+  IMAGE_EXT_GEN: 'imageExtGen',
+  TEXT: 'textInput',
+  VIDEO_GEN: 'videoGen',
+  AUDIO_GEN: 'audioGen',
+  MULTI_IMAGE_GEN: 'multiImageGen',
+} as const;
+
+// ========== Ext config ==========
+
+export interface ImageExtConfig {
+  model?: string;
+  ratio?: string;
+  resolution?: string;
+  quality?: string;
+  generateCount?: number;
+  prompt?: { text?: string; html?: string };
+}
+
+export const IMAGE_EXT_DEFAULTS: ImageExtConfig = {
+  ratio: '16:9',
+  resolution: '2K',
+  quality: 'standard',
+  generateCount: 1,
+};
+
 // ========== Annotation types ==========
 
 export const ANNOTATION_DEFAULTS = {
@@ -69,14 +98,10 @@ export interface TextNodeData {
 }
 
 export interface ImageNodeData {
-  style: string;
-  model: string;
-  quality: string;
-  ratio: string;
+  // —— 根级通用 ——
   fileId?: string;
   referenceImage?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
-  prompt: PromptValue;
   imageRotation?: 0 | 90 | 180 | 270;
   flipH?: boolean;
   flipV?: boolean;
@@ -84,6 +109,18 @@ export interface ImageNodeData {
   editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate' | null;
   customSize?: { width: number; height: number };
   aspectRatio?: number;
+  allImages?: ImageItem[];
+
+  // —— imageGen 根级专属生成配置 ——
+  style?: string;
+  model?: string;
+  quality?: string;
+  ratio?: string;
+  resolution?: string;
+  prompt?: PromptValue;
+
+  // —— imageExtGen 专属 ——
+  extConfig?: ImageExtConfig;
   aiTool?: AiToolId;
 }
 
@@ -140,9 +177,17 @@ export interface AppNode {
 
 // ========== Type guards ==========
 
-export function isImageExtNode(node: unknown): node is AppNode & { type: 'imageExtGen'; data: ImageNodeData } {
+export function isImageExtNode(node: unknown): node is AppNode & { type: 'imageExtGen'; data: ImageNodeData & { extConfig: ImageExtConfig } } {
   if (!isImageNode(node)) return false;
-  return node.type === 'imageExtGen';
+  if (node.type !== 'imageExtGen') return false;
+  // ★ 运行时兜底：无 extConfig 不判定为扩展节点，避免空值风险
+  if (!node.data?.extConfig) return false;
+  return true;
+}
+
+export function isImageGenNode(node: unknown): node is AppNode & { type: 'imageGen'; data: ImageNodeData } {
+  if (!isImageNode(node)) return false;
+  return node.type === 'imageGen';
 }
 
 export function isImageNode(node: unknown): node is AppNode & { data: ImageNodeData } {
@@ -169,19 +214,24 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
  * Merge node config — type-agnostic, works for image/video/text nodes.
  * Preserves all existing fields, applies overrides, fills missing defaults.
  */
-function mergeNodeData(existing: Record<string, any> | undefined, overrides: Record<string, any>): Record<string, any> {
+function mergeNodeData(existing: Record<string, any> | undefined, overrides: Record<string, any>, nodeType?: string): Record<string, any> {
   const defaults: Record<string, any> = {
     status: 'idle',
-    style: '写实',
-    model: 'sdxl',
-    quality: 'standard',
-    ratio: '16:9',
-    prompt: { text: '', html: '', allImages: [] as ImageItem[], referencedImageIds: [] as string[] },
     imageRotation: 0 as 0 | 90 | 180 | 270,
     flipH: false,
     flipV: false,
     transformMode: false,
     editMode: null,
+    allImages: [] as ImageItem[],
+  };
+
+  const imageGenDefaults = {
+    style: '写实',
+    model: 'sdxl',
+    quality: 'standard',
+    ratio: '16:9',
+    resolution: '2K',
+    prompt: { text: '', html: '' },
   };
 
   const merged = { ...(existing ?? {}) };
@@ -192,6 +242,18 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
 
   for (const [key, value] of Object.entries(defaults)) {
     if (!(key in merged)) merged[key] = value;
+  }
+
+  // Apply imageGen defaults for imageGen nodes or when creating via updateConfig (no existing node)
+  if (nodeType === NODE_TYPES.IMAGE_GEN || !nodeType) {
+    for (const [key, value] of Object.entries(imageGenDefaults)) {
+      if (!(key in merged)) merged[key] = value;
+    }
+  }
+
+  // Apply extConfig defaults for imageExtGen nodes
+  if (nodeType === NODE_TYPES.IMAGE_EXT_GEN && !merged.extConfig) {
+    merged.extConfig = { ...IMAGE_EXT_DEFAULTS };
   }
 
   return merged;
@@ -209,6 +271,7 @@ interface NodeState {
 
   updateText: (id: string, content: string) => void;
   updateConfig: (id: string, config: Partial<ImageNodeData>) => void;
+  updateExtConfig: (id: string, partial: Partial<ImageExtConfig>) => void;
   setStatus: (id: string, status: ImageNodeData['status']) => void;
   setFileResult: (id: string, fileId: string) => void;
   updatePromptImages: (nodeId: string, allImages: ImageItem[]) => void;
@@ -430,6 +493,13 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   updateConfig: (id, config) => {
     const existing = getNode(get().nodes, id);
+    const nodeType = existing?.type;
+
+    // ★ 代码层强制过滤 extConfig，杜绝误覆盖
+    if ('extConfig' in (config as any)) {
+      console.warn('[nodeStore] updateConfig 不允许传入 extConfig，已自动过滤');
+      delete (config as any).extConfig;
+    }
 
     set((s) => ({
       nodes: {
@@ -437,11 +507,28 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         [id]: {
           id,
           // Preserve node type — never overwrite (image/video/text each own their type)
-          type: existing?.type ?? 'imageGen',
+          type: nodeType ?? 'imageGen',
           position: existing?.position ?? { x: 0, y: 0 },
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: mergeNodeData(existing?.data, config),
+          data: mergeNodeData(existing?.data, config, nodeType),
+        },
+      },
+    }));
+  },
+
+  updateExtConfig: (nodeId, partial) => {
+    const node = getNode(get().nodes, nodeId);
+    if (!node || !isImageExtNode(node)) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...node,
+          data: {
+            ...node.data,
+            extConfig: { ...node.data.extConfig, ...partial },
+          },
         },
       },
     }));
@@ -487,7 +574,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
             ...node,
             data: {
               ...node.data,
-              prompt: { ...node.data.prompt, allImages },
+              allImages,  // ★ root-level shared field, no longer nested in prompt
             },
           },
         },

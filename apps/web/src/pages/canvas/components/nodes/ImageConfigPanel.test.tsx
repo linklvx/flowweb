@@ -107,11 +107,8 @@ describe('ImageConfigPanel', () => {
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
 
-  it('should render for imageExtGen node (not null guard)', () => {
-    // The ImageConfigPanel has a null guard: node.type !== 'imageGen' → null
-    // For imageExtGen, this guard currently blocks rendering.
-    // This test will FAIL (RED) until the guard is changed to use isImageNode().
-    const { container } = render(<ImageConfigPanel nodeId="ext1" />);
+  it('should render for imageGen node', () => {
+    const { container } = render(<ImageConfigPanel nodeId="img1" />);
     expect(container.innerHTML).toBeTruthy();
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
   });
@@ -281,57 +278,8 @@ describe('ImageConfigPanel', () => {
     expect(screen.getByText('1×')).toBeTruthy();
   });
 
-  // ─── AI tool button (imageExtGen only) ───
-
-  it('should render AI tool button for imageExtGen node', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    const btn = screen.getByTestId('canvas-node-image-ai-tool-select');
-    expect(btn).toBeTruthy();
-    expect(btn.textContent).toContain('AI 工具');
-  });
-
-  it('should NOT render AI tool button for regular imageGen node', () => {
+  it('should NOT render AI tool button for imageGen node', () => {
     render(<ImageConfigPanel nodeId="img1" />);
     expect(screen.queryByTestId('canvas-node-image-ai-tool-select')).not.toBeInTheDocument();
-  });
-
-  it('should open AI tool popup on button click', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    expect(screen.getByText('分镜叙事')).toBeTruthy();
-    expect(screen.getByText('质感调节')).toBeTruthy();
-    expect(screen.getByText('空间与机位')).toBeTruthy();
-    expect(screen.getByText('设定图')).toBeTruthy();
-  });
-
-  it('should select tool and close popup on click', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    fireEvent.click(screen.getByText('电影级光影校正'));
-    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
-    expect(screen.getByTestId('canvas-node-image-ai-tool-select').textContent).toContain('电影级光影校正');
-    expect(mockUpdateConfig).toHaveBeenCalledWith('ext1', { aiTool: 'film_lighting' });
-  });
-
-  it('should close AI tool popup on outside click', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    expect(screen.getByText('分镜叙事')).toBeTruthy();
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
-  });
-
-  it('should close AI tool popup when clicking button again (toggle)', () => {
-    render(<ImageConfigPanel nodeId="ext1" />);
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    expect(screen.getByText('分镜叙事')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('canvas-node-image-ai-tool-select'));
-    expect(screen.queryByText('分镜叙事')).not.toBeInTheDocument();
-  });
-
-  it('should disable AI tool button when status is loading', () => {
-    mockNodeData = { ...mockNodeData, status: 'loading' };
-    render(<ImageConfigPanel nodeId="ext1" />);
-    expect(screen.getByTestId('canvas-node-image-ai-tool-select')).toBeDisabled();
   });
 });

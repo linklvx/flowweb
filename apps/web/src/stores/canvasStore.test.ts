@@ -380,4 +380,47 @@ describe('canvasStore', () => {
     useCanvasStore.getState().requestAddMediaNode(file2 as any);
     expect(useCanvasStore.getState().pendingMediaFile?.id).toBe('f2');
   });
+
+  // ══════════════════════════════════════════════════════
+  // ── ImageExtNode: extConfig defaults, copy, split ──
+  // ══════════════════════════════════════════════════════
+
+  describe('imageExtGen — extConfig initialization', () => {
+    it('addNode("imageExt") should inject extConfig with default values', () => {
+      const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
+      const nsNode = useNodeStore.getState().nodes[nodeId];
+      expect(nsNode.data.extConfig).toBeDefined();
+      expect(nsNode.data.extConfig.ratio).toBe('16:9');
+      expect(nsNode.data.extConfig.resolution).toBe('2K');
+      expect(nsNode.data.extConfig.quality).toBe('standard');
+      expect(nsNode.data.extConfig.generateCount).toBe(1);
+    });
+
+    it('addNode("imageExt") should include allImages: [] at root level', () => {
+      const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
+      const nsNode = useNodeStore.getState().nodes[nodeId];
+      expect(nsNode.data.allImages).toEqual([]);
+    });
+
+    it('addNode("image") should NOT include extConfig', () => {
+      const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
+      const nsNode = useNodeStore.getState().nodes[nodeId];
+      expect(nsNode.data.extConfig).toBeUndefined();
+    });
+
+    it('copyNode should preserve extConfig completely for imageExt node', () => {
+      const id1 = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 }, {
+        extConfig: { model: 'custom-ext-model', ratio: '9:16', resolution: '4K', quality: 'high', generateCount: 4 },
+      });
+
+      const { copyNode } = useCanvasStore.getState() as any;
+      const id2 = copyNode(id1);
+      const nsCopied = useNodeStore.getState().nodes[id2];
+      expect(nsCopied.type).toBe('imageExtGen');
+      expect(nsCopied.data.extConfig).toBeDefined();
+      expect(nsCopied.data.extConfig!.model).toBe('custom-ext-model');
+      expect(nsCopied.data.extConfig!.generateCount).toBe(4);
+      expect(nsCopied.data.extConfig!.ratio).toBe('9:16');
+    });
+  });
 });

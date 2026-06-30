@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { useNodeStore, isImageNode, isTextNode, ANNOTATION_DEFAULTS } from './nodeStore';
-import type { AppNode, TextNodeData, ImageNodeData, VideoNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
+import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS } from './nodeStore';
+import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
 describe('nodeStore (AppNode nested structure)', () => {
   beforeEach(() => {
@@ -200,16 +200,17 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('16:9');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', html: '', allImages: [], referencedImageIds: [] });
+    expect(imgData.prompt).toEqual({ text: '', html: '' });
+    expect(imgData.allImages).toEqual([]);
   });
 
   it('should persist prompt text via updateConfig', () => {
     useNodeStore.getState().updateConfig('img9', {
-      prompt: { text: 'hello world', allImages: [], referencedImageIds: [] },
+      prompt: { text: 'hello world', html: '' },
     });
     const stored = useNodeStore.getState().nodes['img9'];
     const imgData = stored.data as ImageNodeData;
-    expect(imgData.prompt.text).toBe('hello world');
+    expect(imgData.prompt!.text).toBe('hello world');
   });
 
   // 10. setStatus should update status field
@@ -447,7 +448,8 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: 'a cat', allImages: [], referencedImageIds: ['ref-1'] },
+        prompt: { text: 'a cat', html: '' },
+        allImages: [],
       } as ImageNodeData,
     };
 
@@ -461,10 +463,9 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     const stored = useNodeStore.getState().nodes['img-prompt'];
     const imgData = stored.data as ImageNodeData;
-    expect(imgData.prompt.allImages).toEqual(newImages);
+    expect(imgData.allImages).toEqual(newImages);
     // Other prompt fields preserved
-    expect(imgData.prompt.text).toBe('a cat');
-    expect(imgData.prompt.referencedImageIds).toEqual(['ref-1']);
+    expect(imgData.prompt!.text).toBe('a cat');
   });
 
   // 20. updatePromptImages should noop for text nodes (text nodes have no prompt)
@@ -502,8 +503,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().updatePromptImages('vid-prompt', newImages);
 
     const stored = useNodeStore.getState().nodes['vid-prompt'];
-    expect(stored.data.prompt).toBeDefined();
-    expect(stored.data.prompt.allImages).toEqual(newImages);
+    expect(stored.data.allImages).toEqual(newImages);
   });
 
   // 21. updatePromptImages should noop for non-existent node
@@ -932,6 +932,233 @@ describe('nodeStore (AppNode nested structure)', () => {
       const after = useNodeStore.getState().annotationState!;
       expect(after.history).toEqual(before.history);
       expect(after.redoStack).toEqual(before.redoStack);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════
+  // ── ImageExtNode: NODE_TYPES, type guards, extConfig ──
+  // ══════════════════════════════════════════════════════
+
+  describe('NODE_TYPES constant', () => {
+    it('should export NODE_TYPES with IMAGE_GEN and IMAGE_EXT_GEN', () => {
+      expect(NODE_TYPES.IMAGE_GEN).toBe('imageGen');
+      expect(NODE_TYPES.IMAGE_EXT_GEN).toBe('imageExtGen');
+    });
+  });
+
+  describe('isImageExtNode — runtime safety', () => {
+    it('should return true for imageExtGen node with extConfig', () => {
+      const node: AppNode = {
+        id: 'ext-valid',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          prompt: { text: '', html: '' },
+          allImages: [],
+          extConfig: { model: 'ext-model', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['ext-valid'];
+      expect(isImageExtNode(stored)).toBe(true);
+    });
+
+    it('should return false for imageExtGen node without extConfig (runtime safety)', () => {
+      const node: AppNode = {
+        id: 'ext-no-config',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          prompt: { text: '', html: '' },
+          allImages: [],
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['ext-no-config'];
+      expect(isImageExtNode(stored)).toBe(false);
+    });
+
+    it('should return false for regular imageGen node', () => {
+      const node: AppNode = {
+        id: 'img-regular',
+        type: 'imageGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          model: 'sdxl',
+          prompt: { text: '', html: '' },
+          allImages: [],
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['img-regular'];
+      expect(isImageExtNode(stored)).toBe(false);
+    });
+  });
+
+  describe('isImageGenNode — symmetric type guard', () => {
+    it('should return true for imageGen node', () => {
+      const node: AppNode = {
+        id: 'img-gen',
+        type: 'imageGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          model: 'sdxl',
+          prompt: { text: '', html: '' },
+          allImages: [],
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['img-gen'];
+      expect(isImageGenNode(stored)).toBe(true);
+    });
+
+    it('should return false for imageExtGen node', () => {
+      const node: AppNode = {
+        id: 'ext-not-gen',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          prompt: { text: '', html: '' },
+          allImages: [],
+          extConfig: { model: 'x' },
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['ext-not-gen'];
+      expect(isImageGenNode(stored)).toBe(false);
+    });
+
+    it('should return false for text node', () => {
+      const node: AppNode = {
+        id: 'txt',
+        type: 'text',
+        position: { x: 0, y: 0 },
+        data: { content: 'hello' } as TextNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+      const stored = useNodeStore.getState().nodes['txt'];
+      expect(isImageGenNode(stored)).toBe(false);
+    });
+  });
+
+  describe('updateExtConfig — shallow merge', () => {
+    beforeEach(() => {
+      useNodeStore.setState({ nodes: {} });
+    });
+
+    it('should update only the specified extConfig field, preserving others', () => {
+      const node: AppNode = {
+        id: 'ext-update',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          prompt: { text: '', html: '' },
+          allImages: [],
+          extConfig: {
+            model: 'old-model',
+            ratio: '1:1',
+            resolution: '2K',
+            quality: 'standard',
+            generateCount: 1,
+          },
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+
+      useNodeStore.getState().updateExtConfig('ext-update', { model: 'new-model' });
+
+      const stored = useNodeStore.getState().nodes['ext-update'];
+      const extConfig = (stored.data as ImageNodeData).extConfig!;
+      expect(extConfig.model).toBe('new-model');
+      // Other fields preserved
+      expect(extConfig.ratio).toBe('1:1');
+      expect(extConfig.resolution).toBe('2K');
+      expect(extConfig.quality).toBe('standard');
+      expect(extConfig.generateCount).toBe(1);
+    });
+
+    it('should noop when called on non-ext node', () => {
+      const node: AppNode = {
+        id: 'img-noop',
+        type: 'imageGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          model: 'sdxl',
+          prompt: { text: '', html: '' },
+          allImages: [],
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+
+      // Should not throw, no state change
+      expect(() => {
+        useNodeStore.getState().updateExtConfig('img-noop', { model: 'x' });
+      }).not.toThrow();
+
+      const stored = useNodeStore.getState().nodes['img-noop'];
+      expect((stored.data as ImageNodeData).model).toBe('sdxl');
+    });
+
+    it('should noop when called on non-existent node', () => {
+      expect(() => {
+        useNodeStore.getState().updateExtConfig('nonexistent', { model: 'x' });
+      }).not.toThrow();
+    });
+
+    it('should update generateCount in extConfig', () => {
+      const node: AppNode = {
+        id: 'ext-count',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          prompt: { text: '', html: '' },
+          allImages: [],
+          extConfig: { model: 'm', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+
+      useNodeStore.getState().updateExtConfig('ext-count', { generateCount: 4 });
+
+      const stored = useNodeStore.getState().nodes['ext-count'];
+      expect((stored.data as ImageNodeData).extConfig!.generateCount).toBe(4);
+    });
+  });
+
+  describe('updateConfig — extConfig filtering', () => {
+    it('should strip extConfig from updateConfig payload', () => {
+      const node: AppNode = {
+        id: 'img-filter',
+        type: 'imageGen',
+        position: { x: 0, y: 0 },
+        data: {
+          status: 'idle',
+          model: 'sdxl',
+          prompt: { text: '', html: '' },
+          allImages: [],
+        } as ImageNodeData,
+      };
+      useNodeStore.getState().addNode(node);
+
+      // Attempt to pass extConfig via updateConfig — should be silently ignored
+      useNodeStore.getState().updateConfig('img-filter', {
+        model: 'flux',
+        extConfig: { model: 'evil-model' },
+      } as any);
+
+      const stored = useNodeStore.getState().nodes['img-filter'];
+      const data = stored.data as ImageNodeData;
+      expect(data.model).toBe('flux');
+      // extConfig should NOT be set on imageGen node
+      expect(data.extConfig).toBeUndefined();
     });
   });
 });
