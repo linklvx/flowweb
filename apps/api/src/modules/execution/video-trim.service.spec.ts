@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { VideoTrimService } from './video-trim.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import * as constants from './video-trim.constants';
 
@@ -70,7 +71,7 @@ describe('VideoTrimService', () => {
     const module = await Test.createTestingModule({
       providers: [
         VideoTrimService,
-        { provide: 'PrismaService', useValue: prisma },
+        { provide: PrismaService, useValue: prisma },
         { provide: `BullQueue_${constants.VIDEO_TRIM_QUEUE}`, useValue: queue },
         { provide: ExecutionGateway, useValue: gateway },
       ],

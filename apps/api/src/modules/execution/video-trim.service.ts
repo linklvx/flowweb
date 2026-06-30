@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { exec } from 'child_process';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
@@ -11,7 +12,7 @@ export class VideoTrimService {
   private readonly logger = new Logger(VideoTrimService.name);
 
   constructor(
-    @Inject('PrismaService') private readonly prisma: any,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
     @InjectQueue(VIDEO_TRIM_QUEUE) private readonly trimQueue: Queue,
     private readonly gateway: ExecutionGateway,
   ) {}
