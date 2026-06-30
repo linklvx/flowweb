@@ -54,4 +54,14 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
   emitExecutionComplete(projectId: string, data: { totalCost: number }) {
     this.server.to(`project:${projectId}`).emit('execution:complete', data);
   }
+
+  emitTrimStatus(workflowId: string, data: {
+    nodeId: string;
+    taskId: string;
+    status: string;
+    outputFileId?: string;
+    error?: string;
+  }) {
+    this.server.to(`project:${workflowId}`).emit('video-trim:status', data);
+  }
 }
