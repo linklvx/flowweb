@@ -56,7 +56,7 @@ export class MinioService {
       case 'uploaded':
         return `uploads/${userId}/${date}/${uuid}.${ext}`;
       case 'generated':
-        return `results/${userId}/${opts.projectId}/${opts.nodeId}/${date}/${uuid}.${ext}`;
+        return `results/${userId}/${opts.projectId || 'default'}/${opts.nodeId || 'unknown'}/${date}/${uuid}.${ext}`;
       case 'temp':
         return `temp/${userId}/${date}/${uuid}.${ext}`;
     }

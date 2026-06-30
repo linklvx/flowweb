@@ -74,14 +74,16 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const [trimMode, setTrimMode] = useState(false);
   const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
   const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
-  const trimStatus = useTrimTaskStatus(trimTaskId, socketRef?.current);
+  const trimStatus = useTrimTaskStatus(trimTaskId, socketRef?.current, id);
 
   const handleOpenTrim = useCallback(() => {
     const nd = useNodeStore.getState().nodes[id]?.data as any;
-    const dur = videoRef.current?.duration ?? 0;
+    const rawDuration = videoRef.current?.duration;
+    const dur = Number.isFinite(rawDuration) ? rawDuration! : 0;
     const it = initialTrimState.current;
-    it.trimStart = nd?.trimStart ?? 0;
-    it.trimEnd = nd?.trimEnd ?? dur;
+    it.trimStart = Number.isFinite(nd?.trimStart) ? nd!.trimStart : 0;
+    it.trimEnd = Number.isFinite(nd?.trimEnd) ? nd!.trimEnd : dur;
+    setTrimTaskId(null);
     setTrimMode(true);
   }, [id]);
 
@@ -99,7 +101,9 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
     // Persist the user's trim selection to nodeStore
     useNodeStore.getState().updateVideoTrim(id, start, end);
-    useNodeStore.getState().setTrimTaskStatus(id, 'processing');
+
+    // Transition hook to processing state so panel shows "裁剪中..."
+    trimStatus.setProcessing();
     setTrimTaskId(null);
 
     try {
@@ -111,31 +115,25 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       });
       setTrimTaskId(taskId);
     } catch (err) {
-      console.error('[VideoGenNode] trim submission failed:', err);
-      useNodeStore.getState().setTrimTaskStatus(id, 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[VideoGenNode] trim submission failed:', msg, err);
+      trimStatus.setError(msg || '裁剪提交失败，请检查网络后重试');
     }
-  }, [id, fileId, referenceVideo]);
+  }, [id, fileId, referenceVideo, trimStatus]);
 
   // Sync trim result to node data when completed
   useEffect(() => {
     if (trimStatus.status === 'done' && trimTaskId && trimStatus.outputFileId) {
-      const trimmedFileId = trimStatus.outputFileId;
-
       // Create a new child video node with the trimmed result
       useCanvasStore.getState().addChildNode(id, {
-        fileId: trimmedFileId,
+        fileId: trimStatus.outputFileId,
         model: nodeData?.model ?? 'hyvideo-v1.5',
         status: 'done',
         ratio: nodeData?.ratio ?? '16:9',
       });
 
-      // Also update current node's record
-      useNodeStore.getState().setTrimmedResult(id, trimmedFileId);
       setTrimMode(false);
       setTrimTaskId(null);
-    }
-    if (trimStatus.status === 'error' && trimTaskId) {
-      useNodeStore.getState().setTrimTaskStatus(id, 'error');
     }
   }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id, nodeData?.model, nodeData?.ratio]);
 
@@ -249,9 +247,22 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
+    const projectId = useCanvasStore.getState().projectId;
+
+    const joinRoom = () => {
+      if (projectId) {
+        socket.emit('join', projectId);
+      }
+    };
+
     socket.on('connect', () => {
-      console.log('[VideoGenNode] socket connected, joining default');
-      socket.emit('join', 'default');
+      console.log('[VideoGenNode] socket connected, joining', projectId || '(no projectId, skipping)');
+      joinRoom();
+    });
+
+    socket.on('reconnect', () => {
+      console.log('[VideoGenNode] socket reconnected, re-joining', projectId || '(no projectId, skipping)');
+      joinRoom();
     });
 
     socket.on('connect_error', (err: any) => {
@@ -274,7 +285,12 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       }
     });
 
-    return () => { socket.removeAllListeners() };
+    return () => {
+      if (projectId) {
+        socket.emit('leave', projectId);
+      }
+      socket.removeAllListeners();
+    };
   }, [id]);
 
   useEffect(() => {
@@ -586,10 +602,10 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
       {/* Trim panel — shown below the node when trimMode is active */}
       {trimMode && hasMedia && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4" style={{ width: nodeWidth }}>
+        <div className="nodrag nopan absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4" style={{ width: nodeWidth }}>
           <VideoTrimPanel
             videoRef={videoRef}
-            duration={videoRef.current?.duration ?? 30}
+            duration={Number.isFinite(videoRef.current?.duration) ? videoRef.current!.duration : 30}
             initialTrimStart={initialTrimState.current.trimStart}
             initialTrimEnd={initialTrimState.current.trimEnd}
             onConfirm={handleConfirmTrim}

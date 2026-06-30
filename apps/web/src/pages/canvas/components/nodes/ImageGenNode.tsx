@@ -334,9 +334,20 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
 
+    const projectId = useCanvasStore.getState().projectId;
+
+    const joinRoom = () => {
+      if (projectId) socket.emit('join', projectId);
+    };
+
     socket.on('connect', () => {
-      console.log('[ImageGenNode] socket connected, joining default');
-      socket.emit('join', 'default');
+      console.log('[ImageGenNode] socket connected, joining', projectId || '(no projectId, skipping)');
+      joinRoom();
+    });
+
+    socket.on('reconnect', () => {
+      console.log('[ImageGenNode] socket reconnected, re-joining', projectId || '(no projectId, skipping)');
+      joinRoom();
     });
 
     socket.on('connect_error', (err: any) => {
@@ -359,7 +370,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       }
     });
 
-    return () => { socket.removeAllListeners() };
+    return () => {
+      if (projectId) socket.emit('leave', projectId);
+      socket.removeAllListeners();
+    };
   }, [id]);
 
   // ---- Floating upload button ----
@@ -921,7 +935,15 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   useEffect(() => {
     if (!editMode) return;
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
-    socket.on('connect', () => socket.emit('join', 'default'));
+
+    const projectId = useCanvasStore.getState().projectId;
+
+    const joinRoom = () => {
+      if (projectId) socket.emit('join', projectId);
+    };
+
+    socket.on('connect', () => joinRoom());
+    socket.on('reconnect', () => joinRoom());
     socket.on('node:edit-result', (data: any) => {
       if (data.nodeId !== id) return;
       updateConfig(id, { fileId: data.fileId, editMode: null });
@@ -933,7 +955,10 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       setEditError(data.error || 'AI 处理失败');
       setProcessing(false);
     });
-    return () => { socket.removeAllListeners(); };
+    return () => {
+      if (projectId) socket.emit('leave', projectId);
+      socket.removeAllListeners();
+    };
   }, [editMode, id, updateConfig]);
 
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl && !editMode;

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { BadRequestException, ForbiddenException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { VideoTrimService } from './video-trim.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import * as constants from './video-trim.constants';
 
@@ -41,7 +43,7 @@ function mockPrismaService(overrides: Record<string, any> = {}) {
     },
     media: {
       findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }),
-      findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: '/tmp/test.mp4', projectId: 'wf-1' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: 'wf-1' }),
     },
     ...overrides,
   };
@@ -51,11 +53,16 @@ function mockBullQueue() {
   return { add: vi.fn().mockResolvedValue({ id: 'job-001' }) };
 }
 
+function mockMinioService() {
+  return { generatePresignedGetUrl: vi.fn().mockResolvedValue('https://minio.local/bucket/uploads/test.mp4?sign=abc') };
+}
+
 describe('VideoTrimService', () => {
   let service: VideoTrimService;
   let prisma: ReturnType<typeof mockPrismaService>;
   let queue: ReturnType<typeof mockBullQueue>;
   let gateway: { emitTrimStatus: ReturnType<typeof vi.fn> };
+  let minio: ReturnType<typeof mockMinioService>;
 
   beforeEach(async () => {
     // Reset mockExec to default (ffprobe returns duration=30.0, no audio)
@@ -67,6 +74,7 @@ describe('VideoTrimService', () => {
     prisma = mockPrismaService();
     queue = mockBullQueue();
     gateway = { emitTrimStatus: vi.fn() };
+    minio = mockMinioService();
 
     const module = await Test.createTestingModule({
       providers: [
@@ -74,6 +82,7 @@ describe('VideoTrimService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: `BullQueue_${constants.VIDEO_TRIM_QUEUE}`, useValue: queue },
         { provide: ExecutionGateway, useValue: gateway },
+        { provide: MinioService, useValue: minio },
       ],
     }).compile();
 
@@ -83,28 +92,28 @@ describe('VideoTrimService', () => {
   // ── Parameter validation ──
 
   describe('validateParams', () => {
-    it('should throw 400 if startTime < 0', () => {
+    it('should throw BadRequestException if startTime < 0', () => {
       expect(() =>
         (service as any).validateParams(-1, 10, 30),
-      ).toThrow('startTime must be >= 0');
+      ).toThrow(BadRequestException);
     });
 
-    it('should throw 400 if endTime > actual duration', () => {
+    it('should throw BadRequestException if endTime > actual duration', () => {
       expect(() =>
         (service as any).validateParams(5, 35, 30),
-      ).toThrow('endTime must be <= video duration');
+      ).toThrow(BadRequestException);
     });
 
-    it('should throw 400 if trim duration < 0.5s', () => {
+    it('should throw BadRequestException if trim duration < 0.5s', () => {
       expect(() =>
         (service as any).validateParams(5, 5.3, 30),
-      ).toThrow('minimum trim duration is 0.5s');
+      ).toThrow(BadRequestException);
     });
 
-    it('should throw 400 if source video < 0.5s', () => {
+    it('should throw BadRequestException if source video < 0.5s', () => {
       expect(() =>
         (service as any).validateParams(0, 0.3, 0.3),
-      ).toThrow('video is too short to trim');
+      ).toThrow(BadRequestException);
     });
 
     it('should pass for valid params', () => {
@@ -117,12 +126,12 @@ describe('VideoTrimService', () => {
   // ── File ownership ──
 
   describe('validateFileOwnership', () => {
-    it('should throw 403 if file does not belong to user', async () => {
+    it('should throw ForbiddenException if file does not belong to user', async () => {
       prisma.media = { findFirst: vi.fn().mockResolvedValue(null) };
 
       await expect(
         (service as any).validateFileOwnership('file-1', 'user-1'),
-      ).rejects.toThrow('file not found or access denied');
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should pass if file belongs to user', async () => {
@@ -192,7 +201,10 @@ describe('VideoTrimService', () => {
   // ── submitTrim ──
 
   describe('submitTrim', () => {
-    it('should create task and enqueue job', async () => {
+    it('should create task and enqueue job with presigned URL', async () => {
+      const presignedUrl = 'https://minio.local/bucket/uploads/test.mp4?sign=abc';
+      minio.generatePresignedGetUrl.mockResolvedValueOnce(presignedUrl);
+
       prisma.videoTrimTask.create.mockResolvedValueOnce({
         id: 'task-002',
         userId: 'user-1',
@@ -214,7 +226,12 @@ describe('VideoTrimService', () => {
       });
 
       expect(result.taskId).toBe('task-002');
-      expect(queue.add).toHaveBeenCalled();
+      expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith('uploads/test.mp4', 3600);
+      expect(queue.add).toHaveBeenCalledWith(
+        'video-trim',
+        expect.objectContaining({ inputPath: presignedUrl }),
+        expect.anything(),
+      );
     });
   });
 

@@ -1,15 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { videoTrimApi } from '@/services/video-trim.api';
+import { useNodeStore } from '@/stores/nodeStore';
 
 interface TrimStatus {
-  status: 'idle' | 'processing' | 'done' | 'error';
+  status: 'idle' | 'queued' | 'processing' | 'done' | 'error';
   outputFileId: string | null;
   error: string | null;
 }
 
-const POLL_INTERVAL = 3000;
+interface TrimTaskStatusResult extends TrimStatus {
+  setError: (error: string) => void;
+  setProcessing: () => void;
+}
 
-export function useTrimTaskStatus(taskId: string | null, socket: any): TrimStatus {
+const POLL_INTERVAL_LOW = 10000;
+const POLL_INTERVAL_HIGH = 3000;
+
+export function useTrimTaskStatus(
+  taskId: string | null,
+  socket: any,
+  nodeId?: string,
+): TrimTaskStatusResult {
   const [state, setState] = useState<TrimStatus>({
     status: 'idle',
     outputFileId: null,
@@ -27,49 +38,98 @@ export function useTrimTaskStatus(taskId: string | null, socket: any): TrimStatu
     }
   }, []);
 
-  const poll = useCallback(async () => {
-    if (!taskId) return;
-    try {
-      const result = await videoTrimApi.getTaskStatus(taskId);
-      if (result) {
-        setState({
-          status: (result.status as TrimStatus['status']) || 'idle',
-          outputFileId: result.outputFileId ?? null,
-          error: result.error ?? null,
-        });
-      }
-    } catch {
-      // Poll failure is silent — will retry next interval
-    }
-  }, [taskId]);
+  const startPolling = useCallback(
+    (interval: number) => {
+      stopPolling();
+      pollingRef.current = setInterval(async () => {
+        if (!taskId) return;
+        try {
+          const result = await videoTrimApi.getTaskStatus(taskId);
+          if (result) {
+            console.debug('[trim-status] poll result:', { taskId, status: result.status, outputFileId: result.outputFileId });
+            setState((prev) => {
+              const next: TrimStatus = {
+                status: (result.status as TrimStatus['status']) || 'idle',
+                outputFileId: result.outputFileId ?? null,
+                error: result.error ?? prev.error,
+              };
+              return next;
+            });
+          }
+        } catch (err) {
+          console.debug('[trim-status] poll error:', { taskId, error: (err as Error).message });
+        }
+      }, interval);
+    },
+    [taskId, stopPolling],
+  );
 
+  const setError = useCallback((error: string) => {
+    setState((prev) => ({ ...prev, status: 'error' as const, error }));
+    stopPolling();
+  }, [stopPolling]);
+
+  const setProcessing = useCallback(() => {
+    setState((prev) => ({ ...prev, status: 'processing' as const, error: null }));
+  }, []);
+
+  // Automatically sync terminal states to nodeStore
   useEffect(() => {
-    if (!taskId) return;
+    if (!nodeId) return;
+    const isTerminal = state.status === 'done' || state.status === 'error';
+
+    if (isTerminal) {
+      if (state.status === 'done' && state.outputFileId) {
+        useNodeStore.getState().setTrimmedResult(nodeId, state.outputFileId);
+      } else if (state.status === 'error') {
+        useNodeStore.getState().setTrimTaskStatus(nodeId, 'error');
+      }
+    }
+  }, [state.status, state.outputFileId, state.error, nodeId]);
+
+  // Main effect: manage polling + socket subscription
+  useEffect(() => {
+    if (!taskId) {
+      stopPolling();
+      return;
+    }
 
     const socket = socketRef.current;
 
-    const handleStatus = (data: { taskId: string; status: string; outputFileId?: string; error?: string }) => {
-      if (data.taskId === taskId) {
-        setState({
-          status: (data.status as TrimStatus['status']) || 'idle',
-          outputFileId: data.outputFileId ?? null,
-          error: data.error ?? null,
-        });
+    const getPollInterval = () => {
+      return socket && socket.connected ? POLL_INTERVAL_LOW : POLL_INTERVAL_HIGH;
+    };
+
+    const resetPolling = () => {
+      stopPolling();
+      startPolling(getPollInterval());
+    };
+
+    const handleStatus = (data: {
+      taskId: string;
+      status: string;
+      outputFileId?: string;
+      error?: string;
+    }) => {
+      if (data.taskId !== taskId) return;
+      console.debug('[trim-status] socket event:', { taskId: data.taskId, status: data.status, outputFileId: data.outputFileId });
+      setState({
+        status: (data.status as TrimStatus['status']) || 'idle',
+        outputFileId: data.outputFileId ?? null,
+        error: data.error ?? null,
+      });
+      if (data.status === 'done' || data.status === 'error') {
+        stopPolling();
+      } else {
+        resetPolling();
       }
     };
 
-    // Subscribe to socket event
     if (socket) {
       socket.on('video-trim:status', handleStatus);
     }
 
-    // If socket is not connected, start polling immediately
-    const shouldPoll = !socket || !socket.connected;
-    if (shouldPoll) {
-      pollingRef.current = setInterval(poll, POLL_INTERVAL);
-      // Also poll immediately on mount
-      poll();
-    }
+    startPolling(getPollInterval());
 
     return () => {
       if (socket) {
@@ -77,7 +137,7 @@ export function useTrimTaskStatus(taskId: string | null, socket: any): TrimStatu
       }
       stopPolling();
     };
-  }, [taskId, poll, stopPolling]);
+  }, [taskId, startPolling, stopPolling]);
 
   // Stop polling when reaching terminal state
   useEffect(() => {
@@ -86,5 +146,5 @@ export function useTrimTaskStatus(taskId: string | null, socket: any): TrimStatu
     }
   }, [state.status, stopPolling]);
 
-  return state;
+  return { ...state, setError, setProcessing };
 }

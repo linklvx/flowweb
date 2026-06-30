@@ -527,4 +527,22 @@ describe('canvasStore', () => {
       expect(nsNode.data.extConfig.resolution).toBe('2K');
     });
   });
+
+  describe('projectId', () => {
+    it('should initialize projectId as null', () => {
+      expect(useCanvasStore.getState().projectId).toBeNull();
+    });
+
+    it('should set and get projectId', () => {
+      useCanvasStore.getState().setProjectId('cmr-test-123');
+      expect(useCanvasStore.getState().projectId).toBe('cmr-test-123');
+    });
+
+    it('should allow setting projectId to different values', () => {
+      useCanvasStore.getState().setProjectId('first-id');
+      expect(useCanvasStore.getState().projectId).toBe('first-id');
+      useCanvasStore.getState().setProjectId('second-id');
+      expect(useCanvasStore.getState().projectId).toBe('second-id');
+    });
+  });
 });

@@ -106,6 +106,12 @@ export function CanvasPage() {
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
   useSocket(projectId);
+
+  // Sync projectId to canvasStore so React Flow nodes can access it for socket room join
+  useEffect(() => {
+    useCanvasStore.getState().setProjectId(projectId);
+  }, [projectId]);
+
   const [isShortcutsOpen, setShortcutsOpen] = useState(false);
 
   // 屏蔽浏览器原生右键菜单，后续开发 Canvas 专用右键菜单

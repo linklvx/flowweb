@@ -2,7 +2,9 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { spawn } from 'child_process';
-import { rm } from 'fs/promises';
+import { rm, mkdir, readFile } from 'fs/promises';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
 import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
 import { VideoTrimJobData, VideoTrimJobResult } from './video-trim.types';
@@ -20,6 +22,8 @@ export class VideoTrimProcessor extends WorkerHost {
 
   constructor(
     @Inject(VideoTrimService) private readonly videoTrimService: VideoTrimService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minio: MinioService,
   ) {
     super();
   }
@@ -60,18 +64,56 @@ export class VideoTrimProcessor extends WorkerHost {
   }
 
   async process(job: Job<VideoTrimJobData, VideoTrimJobResult>): Promise<VideoTrimJobResult> {
-    const { taskId, outputPath } = job.data;
+    const { taskId, userId, outputPath } = job.data;
     this.logger.log(`Processing trim task ${taskId}`);
     await job.updateProgress(10);
 
     try {
+      // Ensure output directory exists
+      await mkdir(`${TEMP_DIR}${taskId}`, { recursive: true });
       await this.runFfmpeg(job.data);
-      await job.updateProgress(100);
+      await job.updateProgress(80);
 
-      await this.videoTrimService.handleTaskCompleted(taskId, outputPath);
+      // Upload trimmed result to MinIO and create Media record
+      const buffer = await readFile(outputPath);
+      const task = await this.prisma.videoTrimTask.findUnique({
+        where: { id: taskId },
+        select: { sourceFileId: true, nodeId: true, workflowId: true },
+      });
+
+      const sourceMedia = task
+        ? await this.prisma.media.findUnique({ where: { id: task.sourceFileId } })
+        : null;
+
+      const ext = sourceMedia?.originalName?.split('.').pop() || 'mp4';
+      const key = this.minio.buildKey('generated', userId, {
+        projectId: task?.workflowId,
+        nodeId: task?.nodeId,
+        ext,
+      });
+      const contentType = sourceMedia?.mimeType || 'video/mp4';
+
+      await this.minio.upload(key, buffer, contentType);
+
+      const media = await this.prisma.media.create({
+        data: {
+          userId,
+          key,
+          originalName: `trimmed-${taskId}.${ext}`,
+          mimeType: contentType,
+          size: buffer.length,
+          projectId: task?.workflowId,
+          nodeId: task?.nodeId,
+          type: 'generated',
+          status: 'completed',
+        },
+      });
+
+      await job.updateProgress(100);
+      await this.videoTrimService.handleTaskCompleted(taskId, media.id);
       await this.cleanupTempDir(taskId);
 
-      return { outputPath };
+      return { outputPath: media.id };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Trim task ${taskId} failed: ${message}`);

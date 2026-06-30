@@ -52,6 +52,7 @@ interface CanvasState {
   pendingMediaFile: MaterialFile | null;
   splittingNodeId: string | null;
   splitAbortMap: Record<string, AbortController>;
+  projectId: string | null;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
   copyNode: (id: string) => string | null;
@@ -69,6 +70,7 @@ interface CanvasState {
   onConnect: (connection: Connection) => void;
   splitImageNode: (nodeId: string, rows: number, cols: number) => Promise<SplitResult | null>;
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
+  setProjectId: (projectId: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -79,6 +81,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pendingMediaFile: null,
   splittingNodeId: null,
   splitAbortMap: {},
+  projectId: null,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
@@ -550,4 +553,5 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       });
     }
   },
+  setProjectId: (projectId) => set({ projectId }),
 }));

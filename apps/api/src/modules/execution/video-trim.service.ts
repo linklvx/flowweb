@@ -1,8 +1,9 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, ForbiddenException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { exec } from 'child_process';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
@@ -13,22 +14,23 @@ export class VideoTrimService {
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minio: MinioService,
     @InjectQueue(VIDEO_TRIM_QUEUE) private readonly trimQueue: Queue,
     private readonly gateway: ExecutionGateway,
   ) {}
 
   private validateParams(startTime: number, endTime: number, actualDuration: number): void {
     if (actualDuration < MIN_TRIM_DURATION) {
-      throw Object.assign(new Error('video is too short to trim'), { statusCode: 400 });
+      throw new BadRequestException('video is too short to trim');
     }
     if (startTime < 0) {
-      throw Object.assign(new Error('startTime must be >= 0'), { statusCode: 400 });
+      throw new BadRequestException('startTime must be >= 0');
     }
     if (endTime > actualDuration) {
-      throw Object.assign(new Error('endTime must be <= video duration'), { statusCode: 400 });
+      throw new BadRequestException('endTime must be <= video duration');
     }
     if (endTime - startTime < MIN_TRIM_DURATION) {
-      throw Object.assign(new Error('minimum trim duration is 0.5s'), { statusCode: 400 });
+      throw new BadRequestException('minimum trim duration is 0.5s');
     }
   }
 
@@ -40,7 +42,7 @@ export class VideoTrimService {
       where: { id: fileId, userId },
     });
     if (!file) {
-      throw Object.assign(new Error('file not found or access denied'), { statusCode: 403 });
+      throw new ForbiddenException('file not found or access denied');
     }
   }
 
@@ -71,23 +73,25 @@ export class VideoTrimService {
   async submitTrim(params: VideoTrimRequest): Promise<{ taskId: string }> {
     const { fileId, startTime, endTime, nodeId, userId, workflowId } = params;
 
-    // 1. Validate file ownership and get workflow ID
+    // 1. Validate file ownership
     await this.validateFileOwnership(fileId, userId);
 
     // 2. Get media record for input path and workflow
     const media = await this.prisma.media.findUnique({ where: { id: fileId } });
     if (!media) {
-      throw Object.assign(new Error('file not found'), { statusCode: 404 });
+      throw new NotFoundException('file not found');
     }
-    const inputPath = media.key ?? fileId;
     const derivedWorkflowId = media.projectId ?? workflowId;
 
-    // 3. Get actual video duration via ffprobe
+    // 3. Generate presigned URL for MinIO object access
+    const inputUrl = await this.minio.generatePresignedGetUrl(media.key, 3600);
+
+    // 4. Get actual video duration via ffprobe
     let actualDuration: number;
     try {
       actualDuration = await new Promise<number>((resolve, reject) => {
         exec(
-          `${FFPROBE_PATH} -v error -show_entries format=duration -of csv=p=0 "${inputPath}"`,
+          `${FFPROBE_PATH} -v error -show_entries format=duration -of csv=p=0 "${inputUrl}"`,
           (error, stdout) => {
             if (error) {
               reject(error);
@@ -99,22 +103,22 @@ export class VideoTrimService {
       });
     } catch (err) {
       this.logger.error(`ffprobe failed to read file: ${(err as Error).message}`);
-      throw Object.assign(new Error('failed to read video file'), { statusCode: 500 });
+      throw new InternalServerErrorException('failed to read video file');
     }
 
-    // 4. Server-side parameter validation
+    // 5. Server-side parameter validation
     this.validateParams(startTime, endTime, actualDuration);
 
-    // 5. Idempotency check
+    // 6. Idempotency check
     const duplicateId = await this.checkDuplicate(nodeId);
     if (duplicateId) {
       return { taskId: duplicateId };
     }
 
-    // 6. Detect audio
-    const hasAudio = await this.detectAudio(inputPath);
+    // 7. Detect audio
+    const hasAudio = await this.detectAudio(inputUrl);
 
-    // 7. Create task record
+    // 8. Create task record
     const task = await this.prisma.videoTrimTask.create({
       data: {
         userId,
@@ -127,11 +131,11 @@ export class VideoTrimService {
       },
     });
 
-    // 8. Enqueue BullMQ job
+    // 9. Enqueue BullMQ job
     const jobData: VideoTrimJobData = {
       taskId: task.id,
       userId,
-      inputPath,
+      inputPath: inputUrl,
       outputPath: `${TEMP_DIR}${task.id}/output.mp4`,
       startTime,
       endTime,

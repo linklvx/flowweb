@@ -3,6 +3,7 @@ import { type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { AudioConfigPanel } from './AudioConfigPanel';
 import { AudioWaveform } from './AudioWaveform';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
@@ -49,9 +50,20 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   useEffect(() => {
     const socket = io('/execution', { transports: ['websocket', 'polling'] });
 
+    const projectId = useCanvasStore.getState().projectId;
+
+    const joinRoom = () => {
+      if (projectId) socket.emit('join', projectId);
+    };
+
     socket.on('connect', () => {
-      console.log('[AudioGenNode] socket connected, joining default');
-      socket.emit('join', 'default');
+      console.log('[AudioGenNode] socket connected, joining', projectId || '(no projectId, skipping)');
+      joinRoom();
+    });
+
+    socket.on('reconnect', () => {
+      console.log('[AudioGenNode] socket reconnected, re-joining', projectId || '(no projectId, skipping)');
+      joinRoom();
     });
 
     socket.on('connect_error', (err: any) => {
@@ -74,7 +86,10 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
       }
     });
 
-    return () => { socket.removeAllListeners() };
+    return () => {
+      if (projectId) socket.emit('leave', projectId);
+      socket.removeAllListeners();
+    };
   }, [id]);
 
   // ---- Floating upload button ----

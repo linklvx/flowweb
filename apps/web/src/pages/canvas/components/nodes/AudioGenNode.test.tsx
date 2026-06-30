@@ -56,6 +56,17 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { projectId: 'test-project' };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    { getState: () => ({ projectId: 'test-project' }) },
+  ),
+}));
+
 vi.mock('socket.io-client', () => ({
   io: vi.fn(() => mockSocket),
 }));
@@ -235,7 +246,7 @@ describe('AudioGenNode', () => {
     renderNode();
     connectHandler!();
     expect(io).toHaveBeenCalledWith('/execution', expect.objectContaining({ transports: expect.any(Array) }));
-    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'default');
+    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
   });
 
   it('should disconnect socket.io on unmount', () => {

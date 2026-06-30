@@ -79,6 +79,27 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
+const { mockCanvasProjectId, setMockCanvasProjectId } = vi.hoisted(() => {
+  let projectId: string | null = 'test-project';
+  return {
+    mockCanvasProjectId: () => projectId,
+    setMockCanvasProjectId: (v: string | null) => { projectId = v; },
+  };
+});
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { projectId: mockCanvasProjectId() };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    {
+      getState: () => ({ projectId: mockCanvasProjectId() }),
+    },
+  ),
+}));
+
 vi.mock('socket.io-client', () => ({
   io: vi.fn(() => mockSocket),
 }));
@@ -277,8 +298,9 @@ describe('VideoGenNode', () => {
 
   // ─── Socket.io real-time status updates ───
 
-  it('should connect to socket.io on mount and join default room', () => {
+  it('should connect to socket.io on mount and join project room', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    setMockCanvasProjectId('test-project');
     let connectHandler: Function | null = null;
     mockSocket.on.mockImplementation((event: string, handler: Function) => {
       if (event === 'connect') connectHandler = handler;
@@ -288,7 +310,44 @@ describe('VideoGenNode', () => {
     // Simulate socket connect event
     connectHandler!();
     expect(io).toHaveBeenCalledWith('/execution', expect.objectContaining({ transports: expect.any(Array) }));
-    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'default');
+    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
+  });
+
+  it('should not join any room when projectId is null', () => {
+    setMockCanvasProjectId(null);
+    let connectHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'connect') connectHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    connectHandler!();
+    // Should NOT emit join when projectId is null
+    const joinCalls = (mockSocket.emit as any).mock.calls.filter(
+      (call: string[]) => call[0] === 'join',
+    );
+    expect(joinCalls.length).toBe(0);
+    setMockCanvasProjectId('test-project'); // restore
+  });
+
+  it('should re-join room on socket reconnect', () => {
+    setMockCanvasProjectId('test-project');
+    let reconnectHandler: Function | null = null;
+    mockSocket.on.mockImplementation((event: string, handler: Function) => {
+      if (event === 'reconnect') reconnectHandler = handler;
+      return mockSocket;
+    });
+    renderNode();
+    // Simulate reconnect
+    reconnectHandler!();
+    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
+  });
+
+  it('should leave room on unmount', () => {
+    setMockCanvasProjectId('test-project');
+    const { unmount } = renderNode();
+    unmount();
+    expect(mockSocket.emit).toHaveBeenCalledWith('leave', 'test-project');
   });
 
   it('should disconnect socket.io on unmount', () => {
