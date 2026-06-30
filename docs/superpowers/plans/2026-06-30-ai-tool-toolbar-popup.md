@@ -388,6 +388,7 @@ createDerivedExtNode: (params) => {
   const newNodeId = get().addNode('imageExt', position, {
     allImages: params.referenceImage ? [{ fileId: params.referenceImage }] : [],
     aiTool: params.aiTool,
+    extConfig: { ...IMAGE_EXT_DEFAULTS },  // 显式初始化，保证 isImageExtNode 类型守卫通过
   });
 
   const edgeId = getId('edge');
