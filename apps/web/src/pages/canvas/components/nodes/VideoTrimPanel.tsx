@@ -42,6 +42,23 @@ export function VideoTrimPanel({
   const isValid = trimDuration >= MIN_GAP;
   const isProcessing = taskStatus === 'processing';
 
+  // Video loop: seek to start when playing past end of trim range
+  useEffect(() => {
+    const vid = videoRef?.current;
+    if (!vid) return;
+
+    // Jump to trim start on panel open
+    vid.currentTime = Math.max(0, Math.min(range[0], vid.duration || duration));
+
+    const onTimeUpdate = () => {
+      if (vid.currentTime >= range[1]) {
+        vid.currentTime = range[0];
+      }
+    };
+    vid.addEventListener('timeupdate', onTimeUpdate);
+    return () => vid.removeEventListener('timeupdate', onTimeUpdate);
+  }, [videoRef, range, duration]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

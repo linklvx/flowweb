@@ -3,6 +3,7 @@ import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
 import { VideoTrimPanel } from './VideoTrimPanel';
@@ -118,20 +119,26 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   // Sync trim result to node data when completed
   useEffect(() => {
-    if (trimStatus.status === 'done' && trimTaskId) {
-      useNodeStore.getState().setTrimmedResult(id, trimStatus.outputFileId || '');
+    if (trimStatus.status === 'done' && trimTaskId && trimStatus.outputFileId) {
+      const trimmedFileId = trimStatus.outputFileId;
+
+      // Create a new child video node with the trimmed result
+      useCanvasStore.getState().addChildNode(id, {
+        fileId: trimmedFileId,
+        model: nodeData?.model ?? 'hyvideo-v1.5',
+        status: 'done',
+        ratio: nodeData?.ratio ?? '16:9',
+      });
+
+      // Also update current node's record
+      useNodeStore.getState().setTrimmedResult(id, trimmedFileId);
       setTrimMode(false);
       setTrimTaskId(null);
     }
     if (trimStatus.status === 'error' && trimTaskId) {
       useNodeStore.getState().setTrimTaskStatus(id, 'error');
-      // Clear error state after a few seconds so user can retry
-      const timer = setTimeout(() => {
-        useNodeStore.getState().setTrimTaskStatus(id, 'idle');
-      }, 5000);
-      // Store timer cleanup — simplified: just keep error visible
     }
-  }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id]);
+  }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id, nodeData?.model, nodeData?.ratio]);
 
   const handleOpenFullscreen = useCallback(() => {
     setFullscreenOpen(true);
