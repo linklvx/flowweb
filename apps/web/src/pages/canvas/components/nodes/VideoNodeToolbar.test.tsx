@@ -40,4 +40,11 @@ describe('VideoNodeToolbar', () => {
     fireEvent.click(screen.getByLabelText('全屏'));
     expect(onFullscreen).toHaveBeenCalledTimes(1);
   });
+
+  it('calls onDownload when download button is clicked', () => {
+    const onDownload = vi.fn();
+    render(<VideoNodeToolbar show={true} onDownload={onDownload} />);
+    fireEvent.click(screen.getByLabelText('下载'));
+    expect(onDownload).toHaveBeenCalledTimes(1);
+  });
 });

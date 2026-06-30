@@ -73,6 +73,31 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     setFullscreenOpen(false);
   }, []);
 
+  const handleDownload = useCallback(async () => {
+    const targetFileId = fileId || referenceVideo;
+    if (!targetFileId) return;
+
+    try {
+      const { url } = await getMediaUrl(targetFileId);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = '';
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      if (displayUrl) {
+        try {
+          window.open(displayUrl, '_blank');
+        } catch {
+          // silently fail
+        }
+      }
+    }
+  }, [fileId, referenceVideo, displayUrl]);
+
   // Dynamic sizing based on video aspect ratio (same as image node)
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
 
@@ -365,7 +390,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded */}
-      <VideoNodeToolbar show={selected && hasMedia} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} />
+      <VideoNodeToolbar show={selected && hasMedia} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} />
 
       {/* Title bar */}
       <div

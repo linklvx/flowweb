@@ -4,6 +4,7 @@ interface VideoNodeToolbarProps {
   show: boolean;
   onFullscreen?: () => void;
   fullscreenTriggerRef?: React.RefObject<HTMLButtonElement>;
+  onDownload?: () => void;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -126,7 +127,7 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload }: VideoNodeToolbarProps) {
   if (!show) return null;
 
   return (
@@ -190,7 +191,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef }:
           <div style={DIVIDER_STYLE} />
 
           {/* 下载 (icon only) */}
-          <button type="button" style={ICON_ONLY_BTN_STYLE} aria-label="下载">
+          <button type="button" style={ICON_ONLY_BTN_STYLE} aria-label="下载" onClick={onDownload}>
             <DownloadIcon />
           </button>
 
