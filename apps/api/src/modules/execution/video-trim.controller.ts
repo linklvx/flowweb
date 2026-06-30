@@ -13,11 +13,10 @@ export class VideoTrimController {
     @Req() req: any,
   ) {
     const userId = req.user?.id;
-    const workflowId = req.workflowId;
     return this.videoTrimService.submitTrim({
       ...body,
       userId,
-      workflowId,
+      workflowId: '', // derived from media record in service
     });
   }
 

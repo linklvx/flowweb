@@ -41,7 +41,7 @@ function mockPrismaService(overrides: Record<string, any> = {}) {
     },
     media: {
       findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }),
-      findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: '/tmp/test.mp4' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: '/tmp/test.mp4', projectId: 'wf-1' }),
     },
     ...overrides,
   };
@@ -121,7 +121,7 @@ describe('VideoTrimService', () => {
       prisma.media = { findFirst: vi.fn().mockResolvedValue(null) };
 
       await expect(
-        (service as any).validateFileOwnership('file-1', 'user-1', 'wf-1'),
+        (service as any).validateFileOwnership('file-1', 'user-1'),
       ).rejects.toThrow('file not found or access denied');
     });
 
@@ -129,7 +129,7 @@ describe('VideoTrimService', () => {
       prisma.media = { findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }) };
 
       await expect(
-        (service as any).validateFileOwnership('file-1', 'user-1', 'wf-1'),
+        (service as any).validateFileOwnership('file-1', 'user-1'),
       ).resolves.toBeUndefined();
     });
   });

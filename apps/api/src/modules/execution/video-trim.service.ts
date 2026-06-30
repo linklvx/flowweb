@@ -35,10 +35,9 @@ export class VideoTrimService {
   private async validateFileOwnership(
     fileId: string,
     userId: string,
-    workflowId: string,
   ): Promise<void> {
     const file = await this.prisma.media.findFirst({
-      where: { id: fileId, userId, projectId: workflowId },
+      where: { id: fileId, userId },
     });
     if (!file) {
       throw Object.assign(new Error('file not found or access denied'), { statusCode: 403 });
@@ -72,12 +71,16 @@ export class VideoTrimService {
   async submitTrim(params: VideoTrimRequest): Promise<{ taskId: string }> {
     const { fileId, startTime, endTime, nodeId, userId, workflowId } = params;
 
-    // 1. Validate file ownership
-    await this.validateFileOwnership(fileId, userId, workflowId);
+    // 1. Validate file ownership and get workflow ID
+    await this.validateFileOwnership(fileId, userId);
 
-    // 2. Get input path from media record
+    // 2. Get media record for input path and workflow
     const media = await this.prisma.media.findUnique({ where: { id: fileId } });
-    const inputPath = media?.key ?? fileId;
+    if (!media) {
+      throw Object.assign(new Error('file not found'), { statusCode: 404 });
+    }
+    const inputPath = media.key ?? fileId;
+    const derivedWorkflowId = media.projectId ?? workflowId;
 
     // 3. Get actual video duration via ffprobe
     let actualDuration: number;
@@ -115,7 +118,7 @@ export class VideoTrimService {
     const task = await this.prisma.videoTrimTask.create({
       data: {
         userId,
-        workflowId,
+        workflowId: derivedWorkflowId,
         nodeId,
         sourceFileId: fileId,
         startTime,

@@ -118,6 +118,7 @@ export function VideoTrimPanel({
         backdropFilter: 'blur(16px)',
         color: 'var(--canvas-controls-text)',
         fontSize: 13,
+        pointerEvents: 'auto',
       }}
     >
       {/* Time labels */}
@@ -173,6 +174,12 @@ export function VideoTrimPanel({
       {!isValid && !isProcessing && (
         <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
           最小裁剪时长 0.5 秒
+        </div>
+      )}
+
+      {taskStatus === 'error' && (
+        <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+          裁剪提交失败，请检查网络后重试
         </div>
       )}
     </div>

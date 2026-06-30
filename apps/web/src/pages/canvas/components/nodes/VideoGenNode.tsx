@@ -87,7 +87,6 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   const handleCancelTrim = useCallback(() => {
     const s = useNodeStore.getState();
-    const node = s.nodes[id];
     const it = initialTrimState.current;
     s.updateVideoTrim(id, it.trimStart, it.trimEnd);
     setTrimMode(false);
@@ -101,7 +100,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     // Persist the user's trim selection to nodeStore
     useNodeStore.getState().updateVideoTrim(id, start, end);
     useNodeStore.getState().setTrimTaskStatus(id, 'processing');
-    setTrimTaskId(null); // reset before new submission
+    setTrimTaskId(null);
 
     try {
       const { taskId } = await videoTrimApi.submitTrim({

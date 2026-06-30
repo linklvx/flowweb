@@ -38,7 +38,7 @@ describe('VideoTrimController', () => {
       expect(result).toEqual({ taskId: 'task-001' });
       expect(mockService.submitTrim).toHaveBeenCalledWith({
         fileId: 'file-1', startTime: 5, endTime: 10, nodeId: 'node-1',
-        userId: 'user-1', workflowId: 'wf-1',
+        userId: 'user-1', workflowId: '',
       });
     });
   });
