@@ -334,7 +334,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
         : type === 'first' ? captureFirst : captureLast;
       const blob = await captureFn();
 
-      const { url, fileId } = await uploadImageBlob(blob);
+      const { fileId } = await uploadImageBlob(blob);
 
       const store = useCanvasStore.getState();
       const videoNode = store.nodes.find((n) => n.id === id);
@@ -349,7 +349,6 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       const newNodeId = store.addNode('image', position, {
         fileId,
         status: 'done',
-        referenceImage: url,
       });
 
       store.addEdge(id, newNodeId);
