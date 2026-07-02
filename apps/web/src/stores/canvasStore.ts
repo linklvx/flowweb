@@ -59,6 +59,7 @@ interface CanvasState {
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[]) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
+  addEdge: (source: string, target: string) => string;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
   setNodeDraggable: (nodeId: string, draggable: boolean) => void;
@@ -338,6 +339,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       height: sourceNode.height,
     });
 
+    return id;
+  },
+
+  addEdge: (source, target) => {
+    const id = getId('edge');
+    const edge: Edge = { id, source, target, type: 'default' };
+    set((s) => ({ edges: [...s.edges, edge] }));
     return id;
   },
 
