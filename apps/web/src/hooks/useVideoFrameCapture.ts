@@ -37,7 +37,7 @@ export function clearVideoCache(): void { videoCache.clear(); }
 export function clearFirstFrameCache(): void { firstFrameCache.clear(); }
 export function clearVideoLocks(): void { videoLocks.clear(); }
 
-// ── Helpers ───────────────────────────────────────────────
+const METADATA_TIMEOUT_MS = 15000;
 
 function clampTime(time: number, duration: number): number {
   return Math.max(0, Math.min(time, duration));
@@ -200,7 +200,7 @@ export function useVideoFrameCapture({
 
       const time = clampTime(Math.min(0.1, duration / 2), duration);
       const video = getOrCreateHiddenVideo(videoSrc!);
-      await waitForMetadata(video);
+      await waitForMetadata(video, METADATA_TIMEOUT_MS);
 
       const blob = await withVideoLock(video, async () => {
         video.currentTime = time;
@@ -236,7 +236,7 @@ export function useVideoFrameCapture({
     try {
       const time = clampTime(Math.max(0.1, duration - 0.1), duration);
       const video = getOrCreateHiddenVideo(videoSrc!);
-      await waitForMetadata(video);
+      await waitForMetadata(video, METADATA_TIMEOUT_MS);
 
       const blob = await withVideoLock(video, async () => {
         video.currentTime = time;
@@ -273,7 +273,7 @@ export function useVideoFrameCapture({
       try {
         const time = clampTime(Math.min(0.1, duration / 2), duration);
         const video = getOrCreateHiddenVideo(videoSrc!);
-        await waitForMetadata(video);
+        await waitForMetadata(video, METADATA_TIMEOUT_MS);
         if (generation !== prefetchGenerationRef.current) return;
 
         const blob = await withVideoLock(video, async () => {

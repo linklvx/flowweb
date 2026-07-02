@@ -626,6 +626,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             <video
               ref={videoRef}
               src={displayUrl}
+              crossOrigin="anonymous"
               controls
               style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
               onLoadedMetadata={handleVideoLoad}
