@@ -2,37 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoTrimPanel } from './VideoTrimPanel';
 
-// Mock Ant Design components to avoid CSS-in-JS and rendering issues
+// ─── Mocks ─────────────────────────────────────────────────────
+
+// Mock VideoTrimTimeline component
+let mockTimelineProps: any = {};
+vi.mock('./VideoTrimTimeline', () => ({
+  VideoTrimTimeline: vi.fn((props: any) => {
+    mockTimelineProps = props;
+    return (
+      <div data-testid="mock-timeline">
+        <button
+          data-testid="mock-timeline-range"
+          onClick={() => props.onRangeChange?.(3, 10)}
+        />
+      </div>
+    );
+  }),
+}));
+
+// Mock Ant Design Button only (keep Button, remove Slider)
 vi.mock('antd', async () => {
   const React = await import('react');
   return {
-    Slider: ({ value, onChange, min, max, step, disabled }: any) =>
-      React.createElement('div', {
-        'data-testid': 'mock-slider',
-        'data-min': min,
-        'data-max': max,
-        'data-step': step,
-        children: [
-          React.createElement('input', {
-            key: 'start',
-            type: 'range',
-            min, max, step,
-            value: value[0],
-            disabled,
-            'aria-label': 'trim-start',
-            onChange: (e: any) => onChange?.([Number(e.target.value), value[1]]),
-          }),
-          React.createElement('input', {
-            key: 'end',
-            type: 'range',
-            min, max, step,
-            value: value[1],
-            disabled,
-            'aria-label': 'trim-end',
-            onChange: (e: any) => onChange?.([value[0], Number(e.target.value)]),
-          }),
-        ],
-      }),
     Button: ({ onClick, disabled, children, ...rest }: any) => {
       const React2 = require('react');
       return React2.createElement('button', {
@@ -45,6 +36,8 @@ vi.mock('antd', async () => {
     },
   };
 });
+
+// ─── Helpers ───────────────────────────────────────────────────
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -64,14 +57,44 @@ describe('VideoTrimPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTimelineProps = {};
   });
 
-  it('should render range slider with correct min/max', () => {
+  // ─── Integration tests (new) ────────────────────────────────
+
+  it('should render VideoTrimTimeline component', () => {
     render(<VideoTrimPanel {...baseProps} />);
-    const sliders = screen.getAllByTestId('mock-slider');
-    expect(sliders.length).toBeGreaterThan(0);
-    expect(sliders[0].dataset.max).toBe('30');
+    expect(screen.getByTestId('mock-timeline')).toBeDefined();
   });
+
+  it('should pass correct props to VideoTrimTimeline', () => {
+    render(<VideoTrimPanel {...baseProps} initialTrimStart={4} initialTrimEnd={12} />);
+    expect(mockTimelineProps.duration).toBe(30);
+    expect(mockTimelineProps.trimStart).toBe(4);
+    expect(mockTimelineProps.trimEnd).toBe(12);
+  });
+
+  it('should pass disabled=true when taskStatus is processing', () => {
+    render(<VideoTrimPanel {...baseProps} taskStatus="processing" />);
+    expect(mockTimelineProps.disabled).toBe(true);
+  });
+
+  it('should pass disabled=true when taskStatus is queued', () => {
+    render(<VideoTrimPanel {...baseProps} taskStatus="queued" />);
+    expect(mockTimelineProps.disabled).toBe(true);
+  });
+
+  it('should call onRangeChange when timeline range changes', () => {
+    const onRangeChange = vi.fn();
+    render(<VideoTrimPanel {...baseProps} onRangeChange={onRangeChange} />);
+
+    fireEvent.click(screen.getByTestId('mock-timeline-range'));
+
+    // Should have called both internal setRange and external onRangeChange
+    expect(onRangeChange).toHaveBeenCalledWith(3, 10);
+  });
+
+  // ─── Existing tests (preserved) ──────────────────────────────
 
   it('should display current trim start/end time labels', () => {
     render(<VideoTrimPanel {...baseProps} initialTrimStart={5.2} initialTrimEnd={18.7} />);
@@ -81,7 +104,6 @@ describe('VideoTrimPanel', () => {
 
   it('should display trim duration', () => {
     render(<VideoTrimPanel {...baseProps} initialTrimStart={5} initialTrimEnd={10} />);
-    // Duration midpoint value also rendered — both start=5 and duration=5 give "00:05.0"
     const elements = screen.getAllByText('00:05.0');
     expect(elements.length).toBeGreaterThanOrEqual(1);
   });
@@ -96,7 +118,6 @@ describe('VideoTrimPanel', () => {
   it('should call onCancel when cancel clicked', () => {
     const onCancel = vi.fn();
     render(<VideoTrimPanel {...baseProps} onCancel={onCancel} />);
-    // Button renders text as children directly in our mock
     fireEvent.click(screen.getByText('取消'));
     expect(onCancel).toHaveBeenCalled();
   });
@@ -133,14 +154,18 @@ describe('VideoTrimPanel', () => {
 
   it('should clamp start to 0 when dragging beyond minimum', () => {
     render(<VideoTrimPanel {...baseProps} initialTrimStart={-1} />);
-    const sliders = screen.getAllByTestId('mock-slider');
     // Component clamps negative values to 0 in useState initialization
-    expect(sliders[0].dataset.min).toBe('0');
+    expect(mockTimelineProps.trimStart).toBe(0);
   });
 
   it('should enforce 0.5s minimum gap between sliders', () => {
     render(<VideoTrimPanel {...baseProps} initialTrimStart={5} initialTrimEnd={5.5} />);
     const btn = screen.getByText('确认裁剪');
     expect(btn).not.toBeDisabled();
+  });
+
+  it('should show error message when taskStatus is error', () => {
+    render(<VideoTrimPanel {...baseProps} taskStatus="error" error="连接超时" />);
+    expect(screen.getByText('连接超时')).toBeDefined();
   });
 });

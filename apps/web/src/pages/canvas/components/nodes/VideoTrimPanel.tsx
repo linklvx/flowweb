@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Slider, Button } from 'antd';
+import { Button } from 'antd';
+import { VideoTrimTimeline } from './VideoTrimTimeline';
 
 interface VideoTrimPanelProps {
   videoRef?: React.RefObject<HTMLVideoElement | null>;
@@ -13,7 +14,7 @@ interface VideoTrimPanelProps {
   error?: string | null;
 }
 
-const MIN_GAP = 0.5;
+export const MIN_GAP = 0.5;
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -42,6 +43,21 @@ export function VideoTrimPanel({
   const trimDuration = range[1] - range[0];
   const isValid = trimDuration >= MIN_GAP;
   const isProcessing = taskStatus === 'processing' || taskStatus === 'queued';
+
+  // Dynamic video src tracking
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const vid = videoRef?.current;
+    setVideoSrc(vid?.src ?? null);
+
+    if (!vid) return;
+    const observer = new MutationObserver(() => {
+      if (vid.src) setVideoSrc(vid.src);
+    });
+    observer.observe(vid, { attributes: true, attributeFilter: ['src'] });
+    return () => observer.disconnect();
+  }, [videoRef]);
 
   // Video loop: seek to start when playing past end of trim range
   useEffect(() => {
@@ -80,25 +96,12 @@ export function VideoTrimPanel({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onCancel, videoRef]);
 
-  const handleChange = useCallback(
-    (value: number[]) => {
-      let [start, end] = value;
-      // Clamp boundaries
-      start = Math.max(0, start);
-      end = Math.min(safeDuration, end);
-      // Enforce minimum gap
-      if (end - start < MIN_GAP) {
-        // If start was moved, push end; otherwise push start
-        if (start !== range[0]) {
-          end = Math.min(safeDuration, start + MIN_GAP);
-        } else {
-          start = Math.max(0, end - MIN_GAP);
-        }
-      }
+  const handleTimelineChange = useCallback(
+    (start: number, end: number) => {
       setRange([start, end]);
       onRangeChange?.(start, end);
     },
-    [safeDuration, range, onRangeChange],
+    [onRangeChange],
   );
 
   const handleConfirm = useCallback(async (e: React.MouseEvent) => {
@@ -137,18 +140,15 @@ export function VideoTrimPanel({
         <span>{formatTime(range[1])}</span>
       </div>
 
-      {/* Range slider */}
-      <div data-min="0" data-max={String(safeDuration)} data-step="0.1">
-        <Slider
-          range
-          min={0}
-          max={safeDuration}
-          step={0.1}
-          value={range}
-          onChange={handleChange}
-          disabled={isProcessing}
-        />
-      </div>
+      {/* Video thumbnail timeline */}
+      <VideoTrimTimeline
+        duration={safeDuration}
+        videoSrc={videoSrc}
+        trimStart={range[0]}
+        trimEnd={range[1]}
+        onRangeChange={handleTimelineChange}
+        disabled={isProcessing}
+      />
 
       {/* Action buttons */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
