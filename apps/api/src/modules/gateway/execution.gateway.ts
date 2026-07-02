@@ -64,4 +64,15 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
   }) {
     this.server.to(`project:${workflowId}`).emit('video-trim:status', data);
   }
+
+  emitSeparateStatus(workflowId: string, data: {
+    nodeId: string;
+    taskId: string;
+    status: 'processing' | 'done' | 'error';
+    videoFileId?: string;
+    audioFileId?: string;
+    error?: string;
+  }) {
+    this.server.to(`project:${workflowId}`).emit('video-separate:status', data);
+  }
 }

@@ -11,8 +11,10 @@ import { VideoTrimPanel } from './VideoTrimPanel';
 import { VideoFullscreenViewer } from './VideoFullscreenViewer';
 import { videoTrimApi } from '@/services/video-trim.api';
 import { useTrimTaskStatus } from '@/hooks/useTrimTaskStatus';
+import { useVideoSeparateTask } from '@/hooks/useVideoSeparateTask';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { useVideoFrameCapture } from '@/hooks/useVideoFrameCapture';
+import { videoSeparateApi } from '@/services/video-separate.api';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { uploadImageBlob } from '@/utils/mediaUploadUtils';
@@ -75,6 +77,11 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   // Frame capture state
   const [capturingType, setCapturingType] = useState<'current' | 'first' | 'last' | null>(null);
   const socketRef = useRef<any>(null);
+
+  // Audio separate state
+  const [audioSeparatingType, setAudioSeparatingType] = useState<'vocal' | 'background' | 'split' | null>(null);
+  const [separateTaskId, setSeparateTaskId] = useState<string | null>(null);
+  const separateStatus = useVideoSeparateTask(separateTaskId, socketRef.current, id);
 
   // Trim panel state
   const [trimMode, setTrimMode] = useState(false);
@@ -142,6 +149,64 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       setTrimTaskId(null);
     }
   }, [trimStatus.status, trimStatus.outputFileId, trimTaskId, id, nodeData?.model, nodeData?.ratio]);
+
+  // Sync separate result to child nodes when completed
+  useEffect(() => {
+    if (separateStatus.status === 'done' && separateTaskId) {
+      const videoFileId = separateStatus.data.videoFileId;
+      const audioFileId = separateStatus.data.audioFileId;
+      if (!videoFileId || !audioFileId) return;
+
+      const sourceNode = useCanvasStore.getState().nodes.find(n => n.id === id);
+      if (!sourceNode) return;
+
+      const sourceTitle = (useNodeStore.getState().nodes[id]?.data as any)?.label || 'Video';
+
+      const newNodeIds = useCanvasStore.getState().addChildNodes(id, [
+        {
+          data: {
+            fileId: videoFileId,
+            model: nodeData?.model ?? 'hyvideo-v1.5',
+            status: 'done',
+            ratio: nodeData?.ratio ?? '16:9',
+            label: `${sourceTitle}-无音频`,
+          },
+          gridRow: 0,
+          gridCol: 0,
+          nodeType: 'videoGen',
+        },
+        {
+          data: {
+            fileId: audioFileId,
+            status: 'done',
+            label: `${sourceTitle}-分离音频`,
+          },
+          gridRow: 1,
+          gridCol: 0,
+          nodeType: 'audioGen',
+        },
+      ], { skipEdges: true });
+
+      const store = useCanvasStore.getState();
+      store.addEdge(id, newNodeIds[0]);
+      store.addEdge(id, newNodeIds[1]);
+
+      store.selectNode(newNodeIds[0]);
+
+      message.success('音视频分离完成');
+      setSeparateTaskId(null);
+      setAudioSeparatingType(null);
+      useCanvasStore.getState().finishNodeProcess(id, 'done');
+    }
+
+    if (separateStatus.status === 'error' && separateTaskId) {
+      const errMsg = separateStatus.data.error || '分离失败';
+      message.error(errMsg);
+      setSeparateTaskId(null);
+      setAudioSeparatingType(null);
+      useCanvasStore.getState().finishNodeProcess(id, 'error', errMsg);
+    }
+  }, [separateStatus.status, separateStatus.data, separateTaskId, id, nodeData?.model, nodeData?.ratio]);
 
   const handleOpenFullscreen = useCallback(() => {
     setFullscreenOpen(true);
@@ -302,6 +367,22 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
     };
   }, [id]);
 
+  // Unmount cleanup for in-progress separate task
+  const separateTaskIdRef = useRef(separateTaskId);
+  separateTaskIdRef.current = separateTaskId;
+  const nodeIdRef = useRef(id);
+  nodeIdRef.current = id;
+
+  useEffect(() => {
+    return () => {
+      if (separateTaskIdRef.current) {
+        setSeparateTaskId(null);
+        setAudioSeparatingType(null);
+        useCanvasStore.getState().finishNodeProcess(nodeIdRef.current, 'error', 'cancelled');
+      }
+    };
+  }, []);
+
   useEffect(() => {
     return () => {
       if (fallbackCleanupRef.current) {
@@ -371,6 +452,30 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       setCapturingType(null);
     }
   }, [id, capturingType, captureCurrent, captureFirst, captureLast]);
+
+  const handleAudioSeparate = useCallback(async (type: 'vocal' | 'background' | 'split') => {
+    if (type !== 'split') return;
+
+    const targetFileId = fileId || referenceVideo;
+    if (!targetFileId) return;
+
+    setAudioSeparatingType(type);
+    useCanvasStore.getState().startNodeProcess(id, 'separating');
+
+    try {
+      const { taskId } = await videoSeparateApi.submitSeparate({
+        fileId: targetFileId,
+        nodeId: id,
+        mode: type,
+      });
+      setSeparateTaskId(taskId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '请求失败';
+      message.error(msg);
+      setAudioSeparatingType(null);
+      useCanvasStore.getState().finishNodeProcess(id, 'error', msg);
+    }
+  }, [fileId, referenceVideo, id]);
 
   const handleUploadFile = useCallback(async (file: File) => {
     setUploading(true);
@@ -542,7 +647,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
-      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} />
+      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} />
 
       {/* Title bar */}
       <div

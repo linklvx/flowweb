@@ -260,6 +260,7 @@ model Media {
   // 状态与类型
   status       String    @default("pending")  // pending | completed | failed
   type         String    // uploaded | generated | temp
+  metadata     Json?     // 扩展元数据（ffprobe信息、血缘sourceFileId/bizType等）
 
   // 时间戳
   createdAt    DateTime  @default(now())
@@ -350,4 +351,24 @@ model VideoTrimTask {
 
   @@index([nodeId])
   @@index([userId])
+}
+
+model VideoSeparateTask {
+  id            String    @id @default(cuid())
+  userId        String
+  workflowId    String
+  nodeId        String
+  sourceFileId  String
+  mode          String    @default("split")
+  status        String    @default("queued")
+  videoFileId   String?
+  audioFileId   String?
+  errorMsg      String?
+  errorType     String?
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@index([nodeId])
+  @@index([userId])
+  @@index([sourceFileId])
 }

@@ -26,8 +26,7 @@ vi.mock('@/stores/canvasStore', () => ({
         updateViewport: vi.fn(),
         addNode: vi.fn(),
         selectNode: vi.fn(),
-        splitAbortMap: {},
-        splittingNodeId: null,
+        nodeProcessMap: {},
       };
       if (typeof selector === 'function') return selector(state);
       return state;
@@ -41,6 +40,8 @@ vi.mock('@/stores/canvasStore', () => ({
         updateViewport: vi.fn(),
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
+        setProjectId: vi.fn(),
+        nodeProcessMap: {},
       })),
       setState: vi.fn(),
     }

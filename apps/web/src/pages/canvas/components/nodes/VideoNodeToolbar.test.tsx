@@ -135,24 +135,28 @@ describe('VideoNodeToolbar', () => {
     });
   });
 
-  it('calls onAudioSeparate("vocal") when 仅保留人声 is clicked', async () => {
+  it('vocal button is disabled and does not trigger onAudioSeparate', async () => {
     const onAudioSeparate = vi.fn();
     const user = userEvent.setup();
     render(<VideoNodeToolbar show={true} onAudioSeparate={onAudioSeparate} />);
     await user.click(screen.getByText('音频分离'));
     await waitFor(() => expect(screen.getByText('仅保留人声')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('仅保留人声'));
-    expect(onAudioSeparate).toHaveBeenCalledWith('vocal');
+    const vocalBtn = screen.getByText('仅保留人声');
+    expect(vocalBtn).toBeDisabled();
+    fireEvent.click(vocalBtn);
+    expect(onAudioSeparate).not.toHaveBeenCalled();
   });
 
-  it('calls onAudioSeparate("background") when 仅保留背景音 is clicked', async () => {
+  it('background button is disabled and does not trigger onAudioSeparate', async () => {
     const onAudioSeparate = vi.fn();
     const user = userEvent.setup();
     render(<VideoNodeToolbar show={true} onAudioSeparate={onAudioSeparate} />);
     await user.click(screen.getByText('音频分离'));
     await waitFor(() => expect(screen.getByText('仅保留背景音')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('仅保留背景音'));
-    expect(onAudioSeparate).toHaveBeenCalledWith('background');
+    const bgBtn = screen.getByText('仅保留背景音');
+    expect(bgBtn).toBeDisabled();
+    fireEvent.click(bgBtn);
+    expect(onAudioSeparate).not.toHaveBeenCalled();
   });
 
   it('calls onAudioSeparate("split") when 音视频分离 is clicked', async () => {

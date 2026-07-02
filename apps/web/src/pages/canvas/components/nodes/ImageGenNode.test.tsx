@@ -96,7 +96,7 @@ const {
       deleteTransformNode,
       setNodeDraggable: vi.fn(),
       splitImageNode: vi.fn(),
-      splittingNodeId: null,
+      nodeProcessMap: {},
     };
     if (typeof _selector === 'function') return _selector(state);
     return state;

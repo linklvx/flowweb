@@ -121,14 +121,14 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     return () => document.removeEventListener('contextmenu', onContextMenu);
   }, []);
 
-  // Abort all in-progress split tasks when leaving canvas page
+  // Abort all in-progress node processes when leaving canvas page
   useEffect(() => {
     return () => {
       const state = useCanvasStore.getState();
-      const map = state?.splitAbortMap;
+      const map = state?.nodeProcessMap;
       if (map) {
-        for (const ac of Object.values(map)) {
-          ac.abort();
+        for (const entry of Object.values(map)) {
+          entry.abortController?.abort();
         }
       }
     };

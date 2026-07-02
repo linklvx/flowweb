@@ -17,6 +17,16 @@ function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${++counter}`;
 }
 
+type ProcessType = 'generating' | 'trimming' | 'separating' | 'splitting' | 'uploading';
+
+interface NodeProcessState {
+  processType: ProcessType;
+  status: 'processing' | 'done' | 'error';
+  progress?: number;
+  errorMsg?: string;
+  abortController?: AbortController;
+}
+
 const nodeTypeMap: Record<string, string> = {
   text: 'textInput',
   image: 'imageGen',
@@ -30,6 +40,13 @@ interface AddChildNodeItem {
   data: Record<string, unknown>;
   gridRow: number;
   gridCol: number;
+  nodeType?: string;
+}
+
+interface AddChildNodesOptions {
+  /** When true, skip creating edges from source to child nodes.
+   *  Caller is responsible for creating edges manually (e.g. with handle identifiers). */
+  skipEdges?: boolean;
 }
 
 interface SplitResult {
@@ -50,16 +67,15 @@ interface CanvasState {
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
   pendingMediaFile: MaterialFile | null;
-  splittingNodeId: string | null;
-  splitAbortMap: Record<string, AbortController>;
+  nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
   copyNode: (id: string) => string | null;
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
-  addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[]) => string[];
+  addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
-  addEdge: (source: string, target: string) => string;
+  addEdge: (source: string, target: string, sourceHandle?: string, targetHandle?: string) => string;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
   setNodeDraggable: (nodeId: string, draggable: boolean) => void;
@@ -72,6 +88,10 @@ interface CanvasState {
   splitImageNode: (nodeId: string, rows: number, cols: number) => Promise<SplitResult | null>;
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
   setProjectId: (projectId: string) => void;
+  startNodeProcess: (nodeId: string, processType: ProcessType, abortController?: AbortController) => void;
+  updateNodeProcessProgress: (nodeId: string, progress: number) => void;
+  finishNodeProcess: (nodeId: string, status: 'done' | 'error', errorMsg?: string) => void;
+  cancelNodeProcess: (nodeId: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -80,8 +100,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
   pendingMediaFile: null,
-  splittingNodeId: null,
-  splitAbortMap: {},
+  nodeProcessMap: {},
   projectId: null,
 
   addNode: (type, position, dataOverride) => {
@@ -119,11 +138,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   deleteNode: (id) => {
-    // Abort any in-progress split task for this node
+    // Cancel any in-progress process for this node
     const state = get();
-    if (state.splitAbortMap[id]) {
-      state.splitAbortMap[id].abort();
-    }
+    state.cancelNodeProcess(id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
@@ -132,11 +149,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   deleteTransformNode: (id) => {
-    // Abort any in-progress split task
+    // Cancel any in-progress process for this node
     const state = get();
-    if (state.splitAbortMap[id]) {
-      state.splitAbortMap[id].abort();
-    }
+    state.cancelNodeProcess(id);
     const ns = useNodeStore.getState();
     ns.deleteNode(id);
     ns.unregisterSaveHandler(id);
@@ -230,9 +245,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return id;
   },
 
-  addChildNodes: (sourceId, nodeDataList) => {
+  addChildNodes: (sourceId, nodeDataList, options) => {
     const sourceNode = get().nodes.find((n) => n.id === sourceId);
     if (!sourceNode || nodeDataList.length === 0) return [];
+
+    const skipEdges = options?.skipEdges ?? false;
 
     const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
     const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
@@ -246,23 +263,25 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     for (const item of nodeDataList) {
       const nodeId = getId('node');
-      const edgeId = getId('edge');
+      const resolvedType = item.nodeType || sourceNode.type;
 
       const x = startX + item.gridCol * (sw + GAP);
       const y = startY + item.gridRow * (sh + GAP);
 
       const newNode: Node = {
         id: nodeId,
-        type: sourceNode.type,
+        type: resolvedType,
         position: { x, y },
         data: item.data,
         selected: false,
       };
 
-      const edge: Edge = { id: edgeId, source: sourceId, target: nodeId };
-
       newNodes.push(newNode);
-      newEdges.push(edge);
+      if (!skipEdges) {
+        const edgeId = getId('edge');
+        const edge: Edge = { id: edgeId, source: sourceId, target: nodeId };
+        newEdges.push(edge);
+      }
       newIds.push(nodeId);
     }
 
@@ -342,9 +361,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return id;
   },
 
-  addEdge: (source, target) => {
+  addEdge: (source, target, sourceHandle, targetHandle) => {
     const id = getId('edge');
-    const edge: Edge = { id, source, target, type: 'default' };
+    const edge: Edge = { id, source, target, type: 'default', sourceHandle, targetHandle };
     set((s) => ({ edges: [...s.edges, edge] }));
     return id;
   },
@@ -415,8 +434,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   splitImageNode: async (nodeId, rows, cols) => {
     const state = get();
 
-    // Guard: already splitting
-    if (state.splittingNodeId !== null) return null;
+    // Guard: already processing
+    if (state.nodeProcessMap[nodeId]) return null;
 
     // Guard: invalid params
     if (!validateGridParams(rows, cols)) return null;
@@ -438,8 +457,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     const ac = new AbortController();
     set((s) => ({
-      splittingNodeId: nodeId,
-      splitAbortMap: { ...s.splitAbortMap, [nodeId]: ac },
+      nodeProcessMap: {
+        ...s.nodeProcessMap,
+        [nodeId]: { processType: 'splitting', status: 'processing', abortController: ac },
+      },
     }));
 
     let isTimeout = false;
@@ -556,10 +577,46 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         URL.revokeObjectURL(imageUrl);
       }
       set((s) => {
-        const { [nodeId]: _, ...restMap } = s.splitAbortMap;
-        return { splittingNodeId: null, splitAbortMap: restMap };
+        const next = { ...s.nodeProcessMap };
+        delete next[nodeId];
+        return { nodeProcessMap: next };
       });
     }
   },
+  startNodeProcess: (nodeId, processType, abortController) =>
+    set((s) => ({
+      nodeProcessMap: {
+        ...s.nodeProcessMap,
+        [nodeId]: { processType, status: 'processing', abortController },
+      },
+    })),
+
+  updateNodeProcessProgress: (nodeId, progress) =>
+    set((s) => ({
+      nodeProcessMap: {
+        ...s.nodeProcessMap,
+        [nodeId]: { ...s.nodeProcessMap[nodeId], progress },
+      },
+    })),
+
+  finishNodeProcess: (nodeId, _status, _errorMsg) =>
+    set((s) => {
+      const next = { ...s.nodeProcessMap };
+      delete next[nodeId];
+      return { nodeProcessMap: next };
+    }),
+
+  cancelNodeProcess: (nodeId) => {
+    const entry = get().nodeProcessMap[nodeId];
+    if (entry?.abortController) {
+      entry.abortController.abort();
+    }
+    set((s) => {
+      const next = { ...s.nodeProcessMap };
+      delete next[nodeId];
+      return { nodeProcessMap: next };
+    });
+  },
+
   setProjectId: (projectId) => set({ projectId }),
 }));

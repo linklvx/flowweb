@@ -292,24 +292,18 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
                 ))}
                 <div style={{ height: 0, margin: '2px 4px', borderTop: '0.5px solid rgba(255,255,255,0.12)' }} />
                 {([
-                  ['仅保留人声', 'vocal' as const],
-                  ['仅保留背景音', 'background' as const],
-                ] as const).map(([label, type]) => (
+                  ['仅保留人声', 'vocal' as const, '即将上线'],
+                  ['仅保留背景音', 'background' as const, '即将上线'],
+                ] as const).map(([label, _type, tooltip]) => (
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent hover:bg-white/10"
-                    style={{
-                      color: 'rgba(255,255,255,0.9)',
-                      border: 'none',
-                    }}
-                    disabled={isAnySeparating}
-                    onClick={() => {
-                      setAudioSeparateOpen(false);
-                      onAudioSeparate?.(type);
-                    }}
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent"
+                    style={{ color: 'rgba(255,255,255,0.35)', border: 'none', cursor: 'not-allowed' }}
+                    disabled
+                    title={tooltip}
                   >
-                    {audioSeparatingType === type ? '分离中...' : label}
+                    {label}
                   </button>
                 ))}
               </div>

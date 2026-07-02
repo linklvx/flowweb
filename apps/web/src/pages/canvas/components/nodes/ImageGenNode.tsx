@@ -70,7 +70,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const splitImageNode = useCanvasStore((s) => s.splitImageNode);
-  const splittingNodeId = useCanvasStore((s) => s.splittingNodeId);
+  const isSplitting = useCanvasStore((s) => s.nodeProcessMap[id]?.processType === 'splitting');
   const { zoom, x: vpX, y: vpY } = useViewport();
   const { fitView, getNodes, setNodes, setCenter } = useReactFlow();
   // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
@@ -1077,7 +1077,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onDownload={handleDownload}
           triggerRef={fullscreenTriggerRef}
           onGridSplit={handleGridSplit}
-          splitting={splittingNodeId !== null}
+          splitting={isSplitting}
           onLighting={handleLighting}
           onAngle3D={handleAngle3D}
           onAnnotate={handleAnnotate}
