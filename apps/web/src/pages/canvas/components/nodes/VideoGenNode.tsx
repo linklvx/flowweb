@@ -2,6 +2,7 @@ import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
+import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { VideoConfigPanel } from './VideoConfigPanel';
@@ -11,8 +12,10 @@ import { VideoFullscreenViewer } from './VideoFullscreenViewer';
 import { videoTrimApi } from '@/services/video-trim.api';
 import { useTrimTaskStatus } from '@/hooks/useTrimTaskStatus';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { useVideoFrameCapture } from '@/hooks/useVideoFrameCapture';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { uploadImageBlob } from '@/utils/mediaUploadUtils';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
 import axios from 'axios';
 
@@ -68,6 +71,9 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   // Fullscreen state
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const fullscreenTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Frame capture state
+  const [capturingType, setCapturingType] = useState<'current' | 'first' | 'last' | null>(null);
   const socketRef = useRef<any>(null);
 
   // Trim panel state
@@ -311,6 +317,59 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fallbackCleanupRef = useRef<(() => void) | null>(null);
 
+  // Frame capture hook
+  const videoDuration = Number.isFinite(videoRef.current?.duration) ? videoRef.current!.duration! : 0;
+  const { captureCurrent, captureFirst, captureLast } = useVideoFrameCapture({
+    videoSrc: displayUrl,
+    duration: videoDuration,
+    videoRef,
+  });
+
+  const handleCaptureFrame = useCallback(async (type: 'current' | 'first' | 'last') => {
+    if (capturingType) return;
+    setCapturingType(type);
+
+    try {
+      const captureFn = type === 'current' ? captureCurrent
+        : type === 'first' ? captureFirst : captureLast;
+      const blob = await captureFn();
+
+      const { url, fileId } = await uploadImageBlob(blob);
+
+      const store = useCanvasStore.getState();
+      const videoNode = store.nodes.find((n) => n.id === id);
+      if (!videoNode) { setCapturingType(null); return; }
+
+      const vw = videoNode.measured?.width ?? videoNode.width ?? 400;
+      const position = {
+        x: videoNode.position.x + vw + 40,
+        y: videoNode.position.y + 40,
+      };
+
+      const newNodeId = store.addNode('image', position, {
+        fileId,
+        status: 'done',
+        referenceImage: url,
+      });
+
+      store.addEdge(id, newNodeId);
+      store.selectNode(newNodeId);
+
+      message.success('截帧成功');
+    } catch (err: any) {
+      const friendlyMsg = (() => {
+        const msg = err?.message || '';
+        if (msg.includes('视频未加载完成')) return '视频正在缓冲，请稍后重试';
+        if (msg.includes('视频帧加载超时')) return '视频资源加载缓慢，请检查网络后重试';
+        if (msg.includes('SecurityError')) return '视频资源无法访问，请检查源文件';
+        return msg || '截帧失败，请重试';
+      })();
+      message.error(friendlyMsg);
+    } finally {
+      setCapturingType(null);
+    }
+  }, [id, capturingType, captureCurrent, captureFirst, captureLast]);
+
   const handleUploadFile = useCallback(async (file: File) => {
     setUploading(true);
     setUploadProgress(0);
@@ -481,7 +540,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
-      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} />
+      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} />
 
       {/* Title bar */}
       <div
