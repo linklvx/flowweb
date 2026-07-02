@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
 
 describe('VideoNodeToolbar', () => {
@@ -14,7 +15,7 @@ describe('VideoNodeToolbar', () => {
     expect(screen.getByText('裁剪')).toBeInTheDocument();
     expect(screen.getByText('高清')).toBeInTheDocument();
     expect(screen.getByText('解析')).toBeInTheDocument();
-    expect(screen.getByText('智能去字幕')).toBeInTheDocument();
+    expect(screen.getByText('视频截帧')).toBeInTheDocument();
     expect(screen.getByText('音频分离')).toBeInTheDocument();
   });
 
@@ -46,5 +47,78 @@ describe('VideoNodeToolbar', () => {
     render(<VideoNodeToolbar show={true} onDownload={onDownload} />);
     fireEvent.click(screen.getByLabelText('下载'));
     expect(onDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens dropdown with three frame capture options when 视频截帧 is clicked', async () => {
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} />);
+    await user.click(screen.getByText('视频截帧'));
+    await waitFor(() => {
+      expect(screen.getByText('截取当前帧')).toBeInTheDocument();
+      expect(screen.getByText('截取首帧')).toBeInTheDocument();
+      expect(screen.getByText('截取尾帧')).toBeInTheDocument();
+    });
+  });
+
+  // ── Frame capture callbacks ───────────────────────────
+
+  it('calls onCaptureFrame("current") when 截取当前帧 is clicked', async () => {
+    const onCaptureFrame = vi.fn();
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} onCaptureFrame={onCaptureFrame} />);
+    await user.click(screen.getByText('视频截帧'));
+    await waitFor(() => expect(screen.getByText('截取当前帧')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('截取当前帧'));
+    expect(onCaptureFrame).toHaveBeenCalledWith('current');
+  });
+
+  it('calls onCaptureFrame("first") when 截取首帧 is clicked', async () => {
+    const onCaptureFrame = vi.fn();
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} onCaptureFrame={onCaptureFrame} />);
+    await user.click(screen.getByText('视频截帧'));
+    await waitFor(() => expect(screen.getByText('截取首帧')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('截取首帧'));
+    expect(onCaptureFrame).toHaveBeenCalledWith('first');
+  });
+
+  it('calls onCaptureFrame("last") when 截取尾帧 is clicked', async () => {
+    const onCaptureFrame = vi.fn();
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} onCaptureFrame={onCaptureFrame} />);
+    await user.click(screen.getByText('视频截帧'));
+    await waitFor(() => expect(screen.getByText('截取尾帧')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('截取尾帧'));
+    expect(onCaptureFrame).toHaveBeenCalledWith('last');
+  });
+
+  it('disables all capture buttons when capturingType is set', async () => {
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} capturingType="current" />);
+    await user.click(screen.getByText('视频截帧'));
+
+    await waitFor(() => {
+      const btns = screen.getAllByRole('button').filter((b) =>
+        ['截取当前帧', '截取首帧', '截取尾帧'].some((t) => b.textContent?.includes(t)),
+      );
+      btns.forEach((b) => expect(b).toBeDisabled());
+    });
+  });
+
+  it('dropdown stays closed when capturingType is set', async () => {
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} capturingType="first" />);
+    await user.click(screen.getByText('视频截帧'));
+    // Dropdown should not open
+    expect(screen.queryByText('截取当前帧')).not.toBeInTheDocument();
+  });
+
+  it('does not throw when onCaptureFrame is not provided', async () => {
+    const user = userEvent.setup();
+    render(<VideoNodeToolbar show={true} />);
+    await user.click(screen.getByText('视频截帧'));
+    await waitFor(() => expect(screen.getByText('截取当前帧')).toBeInTheDocument());
+    // Should not throw
+    fireEvent.click(screen.getByText('截取当前帧'));
   });
 });

@@ -1,4 +1,5 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
+import { Dropdown } from 'antd';
 
 interface VideoNodeToolbarProps {
   show: boolean;
@@ -6,6 +7,8 @@ interface VideoNodeToolbarProps {
   fullscreenTriggerRef?: React.RefObject<HTMLButtonElement>;
   onDownload?: () => void;
   onTrim?: () => void;
+  onCaptureFrame?: (type: 'current' | 'first' | 'last') => void;
+  capturingType?: 'current' | 'first' | 'last' | null;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -42,12 +45,10 @@ const GridIcon = () => (
   </svg>
 );
 
-const RemoveSubtitlesIcon = () => (
+const FrameCaptureIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="5" y1="5" x2="19" y2="19" />
-    <path d="M8 10h6" />
-    <path d="M8 14h8" />
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
   </svg>
 );
 
@@ -128,7 +129,10 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType }: VideoNodeToolbarProps) {
+  const [frameCaptureOpen, setFrameCaptureOpen] = useState(false);
+  const isAnyCapturing = capturingType != null;
+
   if (!show) return null;
 
   return (
@@ -168,16 +172,61 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
             <span>解析</span>
           </button>
 
-          {/* 智能去字幕 (dropdown trigger) */}
-          <span style={{ display: 'inline-flex' }}>
-            <button type="button" style={BTN_STYLE} aria-label="智能去字幕">
-              <RemoveSubtitlesIcon />
-              <span>智能去字幕</span>
-              <span style={{ opacity: 0.6, display: 'flex', alignItems: 'center' }}>
-                <ChevronDownIcon />
-              </span>
-            </button>
-          </span>
+          {/* 视频截帧 (dropdown trigger) */}
+          <Dropdown
+            open={isAnyCapturing ? false : frameCaptureOpen}
+            onOpenChange={(v) => { if (!isAnyCapturing) setFrameCaptureOpen(v); }}
+            trigger={['click']}
+            dropdownRender={() => (
+              <div
+                className="flex flex-col gap-0.5"
+                style={{
+                  minWidth: 220,
+                  borderRadius: 16,
+                  border: 'none',
+                  background: '#2F2F2F',
+                  backdropFilter: 'blur(28px)',
+                  WebkitBackdropFilter: 'blur(28px)',
+                  boxShadow: '0px 4px 16px rgba(0,0,0,0.16), inset 0px 0.5px 0px rgba(255,255,255,0.16)',
+                  padding: '8px 4px',
+                }}
+              >
+                {([
+                  ['截取当前帧', 'current' as const],
+                  ['截取首帧', 'first' as const],
+                  ['截取尾帧', 'last' as const],
+                ] as const).map(([label, type]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-sm font-medium transition-colors"
+                    style={{
+                      color: 'rgba(255,255,255,0.9)',
+                      background: 'transparent',
+                      border: 'none',
+                    }}
+                    disabled={isAnyCapturing}
+                    onClick={() => {
+                      setFrameCaptureOpen(false);
+                      onCaptureFrame?.(type);
+                    }}
+                  >
+                    {capturingType === type ? '截取中...' : label}
+                  </button>
+                ))}
+              </div>
+            )}
+          >
+            <span style={{ display: 'inline-flex' }}>
+              <button type="button" style={BTN_STYLE} aria-label="视频截帧">
+                <FrameCaptureIcon />
+                <span>视频截帧</span>
+                <span style={{ opacity: 0.6, display: 'flex', alignItems: 'center' }}>
+                  <ChevronDownIcon />
+                </span>
+              </button>
+            </span>
+          </Dropdown>
 
           {/* 音频分离 (dropdown trigger) */}
           <button type="button" style={BTN_STYLE} aria-label="音频分离">
