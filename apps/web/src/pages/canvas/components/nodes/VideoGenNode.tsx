@@ -178,11 +178,13 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   // Dynamic sizing based on video aspect ratio (same as image node)
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
   const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     const vidW = vid.videoWidth || 548;
     const vidH = vid.videoHeight || 306;
+    setNaturalSize({ w: vid.videoWidth || vidW, h: vid.videoHeight || vidH });
     const newAspectRatio = vidW / vidH;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
     const existingCustomSize = currentData?.customSize;
@@ -215,6 +217,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
 
   useEffect(() => {
     setVidSize(null);
+    setNaturalSize(null);
   }, [displayUrl]);
 
   const ratio = nodeData?.ratio ?? '16:9';
@@ -583,6 +586,11 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
             maxLength={20}
           />
         </div>
+        {naturalSize && (
+          <span className="shrink-0 ml-auto" style={{ fontSize: 10, color: '#777' }}>
+            {naturalSize.w} × {naturalSize.h}
+          </span>
+        )}
       </div>
 
       {/* Corner resize handles — only when single-selected with media, not in edit mode */}

@@ -435,4 +435,24 @@ describe('VideoGenNode', () => {
     expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
     expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
   });
+
+  // ─── Title bar dimension display ───
+
+  it('displays video dimensions in title bar after video metadata loads', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode();
+    const video = document.querySelector('video');
+    expect(video).toBeTruthy();
+    Object.defineProperty(video, 'videoWidth', { value: 1920, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 1080, configurable: true });
+    fireEvent(video!, new Event('loadedmetadata'));
+    expect(screen.getByText('1920 × 1080')).toBeInTheDocument();
+  });
+
+  it('does not display dimensions when no video is loaded', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    const { container } = renderNode();
+    const titleBar = container.querySelector('[class*="-translate-y-full"]');
+    expect(titleBar?.textContent).not.toContain('×');
+  });
 });

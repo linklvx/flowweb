@@ -9,6 +9,8 @@ interface VideoNodeToolbarProps {
   onTrim?: () => void;
   onCaptureFrame?: (type: 'current' | 'first' | 'last') => void;
   capturingType?: 'current' | 'first' | 'last' | null;
+  onAudioSeparate?: (type: 'vocal' | 'background' | 'split') => void;
+  audioSeparatingType?: 'vocal' | 'background' | 'split' | null;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -129,9 +131,11 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType, onAudioSeparate, audioSeparatingType }: VideoNodeToolbarProps) {
   const [frameCaptureOpen, setFrameCaptureOpen] = useState(false);
+  const [audioSeparateOpen, setAudioSeparateOpen] = useState(false);
   const isAnyCapturing = capturingType != null;
+  const isAnySeparating = audioSeparatingType != null;
 
   if (!show) return null;
 
@@ -181,7 +185,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
               <div
                 className="flex flex-col gap-0.5"
                 style={{
-                  minWidth: 220,
+                  minWidth: 100,
                   borderRadius: 16,
                   border: 'none',
                   background: '#2F2F2F',
@@ -193,16 +197,35 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
               >
                 {([
                   ['截取当前帧', 'current' as const],
+                ] as const).map(([label, type]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent hover:bg-white/10"
+                    style={{
+                      color: 'rgba(255,255,255,0.9)',
+                      border: 'none',
+                    }}
+                    disabled={isAnyCapturing}
+                    onClick={() => {
+                      setFrameCaptureOpen(false);
+                      onCaptureFrame?.(type);
+                    }}
+                  >
+                    {capturingType === type ? '截取中...' : label}
+                  </button>
+                ))}
+                <div style={{ height: 0, margin: '2px 4px', borderTop: '0.5px solid rgba(255,255,255,0.12)' }} />
+                {([
                   ['截取首帧', 'first' as const],
                   ['截取尾帧', 'last' as const],
                 ] as const).map(([label, type]) => (
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-sm font-medium transition-colors"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent hover:bg-white/10"
                     style={{
                       color: 'rgba(255,255,255,0.9)',
-                      background: 'transparent',
                       border: 'none',
                     }}
                     disabled={isAnyCapturing}
@@ -229,13 +252,79 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
           </Dropdown>
 
           {/* 音频分离 (dropdown trigger) */}
-          <button type="button" style={BTN_STYLE} aria-label="音频分离">
-            <AudioSeparateIcon />
-            <span>音频分离</span>
-            <span style={{ opacity: 0.6, display: 'flex', alignItems: 'center' }}>
-              <ChevronDownIcon />
+          <Dropdown
+            open={isAnySeparating ? false : audioSeparateOpen}
+            onOpenChange={(v) => { if (!isAnySeparating) setAudioSeparateOpen(v); }}
+            trigger={['click']}
+            dropdownRender={() => (
+              <div
+                className="flex flex-col gap-0.5"
+                style={{
+                  minWidth: 100,
+                  borderRadius: 16,
+                  border: 'none',
+                  background: '#2F2F2F',
+                  backdropFilter: 'blur(28px)',
+                  WebkitBackdropFilter: 'blur(28px)',
+                  boxShadow: '0px 4px 16px rgba(0,0,0,0.16), inset 0px 0.5px 0px rgba(255,255,255,0.16)',
+                  padding: '8px 4px',
+                }}
+              >
+                {([
+                  ['音视频分离', 'split' as const],
+                ] as const).map(([label, type]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent hover:bg-white/10"
+                    style={{
+                      color: 'rgba(255,255,255,0.9)',
+                      border: 'none',
+                    }}
+                    disabled={isAnySeparating}
+                    onClick={() => {
+                      setAudioSeparateOpen(false);
+                      onAudioSeparate?.(type);
+                    }}
+                  >
+                    {audioSeparatingType === type ? '分离中...' : label}
+                  </button>
+                ))}
+                <div style={{ height: 0, margin: '2px 4px', borderTop: '0.5px solid rgba(255,255,255,0.12)' }} />
+                {([
+                  ['仅保留人声', 'vocal' as const],
+                  ['仅保留背景音', 'background' as const],
+                ] as const).map(([label, type]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors bg-transparent hover:bg-white/10"
+                    style={{
+                      color: 'rgba(255,255,255,0.9)',
+                      border: 'none',
+                    }}
+                    disabled={isAnySeparating}
+                    onClick={() => {
+                      setAudioSeparateOpen(false);
+                      onAudioSeparate?.(type);
+                    }}
+                  >
+                    {audioSeparatingType === type ? '分离中...' : label}
+                  </button>
+                ))}
+              </div>
+            )}
+          >
+            <span style={{ display: 'inline-flex' }}>
+              <button type="button" style={BTN_STYLE} aria-label="音频分离">
+                <AudioSeparateIcon />
+                <span>音频分离</span>
+                <span style={{ opacity: 0.6, display: 'flex', alignItems: 'center' }}>
+                  <ChevronDownIcon />
+                </span>
+              </button>
             </span>
-          </button>
+          </Dropdown>
 
           {/* Divider */}
           <div style={DIVIDER_STYLE} />
