@@ -13,7 +13,6 @@ export interface UseThumbnailsResult {
 
 // ─── Constants ─────────────────────────────────────────────────
 
-const CANVAS_W = 40;
 const CANVAS_H = 60;
 const TIMEOUT_MS = 3000;
 const MAX_CACHE = 5;
@@ -51,14 +50,16 @@ export function clearThumbnailCache(): void {
 
 function drawCover(video: HTMLVideoElement, canvas: HTMLCanvasElement): void {
   const ctx = canvas.getContext('2d')!;
+  const cw = canvas.width;
+  const ch = canvas.height;
   const vw = video.videoWidth;
   const vh = video.videoHeight;
-  const scale = Math.max(CANVAS_W / vw, CANVAS_H / vh);
-  const sourceW = CANVAS_W / scale;
-  const sourceH = CANVAS_H / scale;
+  const scale = Math.max(cw / vw, ch / vh);
+  const sourceW = cw / scale;
+  const sourceH = ch / scale;
   const sourceX = (vw - sourceW) / 2;
   const sourceY = (vh - sourceH) / 2;
-  ctx.drawImage(video, sourceX, sourceY, sourceW, sourceH, 0, 0, CANVAS_W, CANVAS_H);
+  ctx.drawImage(video, sourceX, sourceY, sourceW, sourceH, 0, 0, cw, ch);
 }
 
 function waitForMetadata(video: HTMLVideoElement, timeoutMs = TIMEOUT_MS): Promise<void> {
@@ -122,7 +123,6 @@ export function useThumbnails({
     video.src = videoSrc;
 
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_W;
     canvas.height = CANVAS_H;
 
     const frameCount = duration < 2 ? 10 : 20;
@@ -132,6 +132,11 @@ export function useThumbnails({
       try {
         // Wait for metadata
         await waitForMetadata(video);
+
+        // Size canvas: 50% center crop for landscape, min 40px for portrait/square
+        const aspectRatio = video.videoWidth / video.videoHeight;
+        canvas.width = Math.max(40, Math.round(CANVAS_H * 0.5 * aspectRatio));
+        canvas.height = CANVAS_H;
 
         const collected: string[] = [];
 

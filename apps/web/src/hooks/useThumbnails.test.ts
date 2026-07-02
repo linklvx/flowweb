@@ -109,7 +109,7 @@ describe('useThumbnails', () => {
 
   // ─── Test Cases ───────────────────────────────────────────────
 
-  // 1. videoSrc is null → empty array + loading:false
+  // 1. videoSrc is null -> empty array + loading:false
   it('should return empty thumbnails when videoSrc is null', () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: null, duration: 30 }),
@@ -120,7 +120,7 @@ describe('useThumbnails', () => {
     expect(result.current.error).toBe(false);
   });
 
-  // 2. videoSrc is undefined → empty array + loading:false
+  // 2. videoSrc is undefined -> empty array + loading:false
   it('should return empty thumbnails when videoSrc is undefined', () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: undefined, duration: 30 }),
@@ -130,7 +130,7 @@ describe('useThumbnails', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 3. duration < 1 → empty array + loading:false
+  // 3. duration < 1 -> empty array + loading:false
   it('should not extract frames when duration < 1', () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: 'http://example.com/video.mp4', duration: 0.5 }),
@@ -140,7 +140,7 @@ describe('useThumbnails', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 4. duration >= 2 → 20 thumbnails
+  // 4. duration >= 2 -> 20 thumbnails
   it('should extract 20 thumbnails for duration >= 2s', async () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: 'http://example.com/video.mp4', duration: 30 }),
@@ -162,7 +162,7 @@ describe('useThumbnails', () => {
     });
   });
 
-  // 5. duration < 2 && >= 1 → 10 thumbnails
+  // 5. duration < 2 && >= 1 -> 10 thumbnails
   it('should extract 10 thumbnails for duration between 1s and 2s', async () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: 'http://example.com/short.mp4', duration: 1.5 }),
@@ -175,7 +175,7 @@ describe('useThumbnails', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 6. Same videoSrc twice → cache hit (extract only once)
+  // 6. Same videoSrc twice -> cache hit (extract only once)
   it('should cache thumbnails and reuse for same videoSrc', async () => {
     const src = 'http://example.com/same.mp4';
 
@@ -237,7 +237,7 @@ describe('useThumbnails', () => {
     expect(r1evicted.current.loading).toBe(true);
   });
 
-  // 8. loadedmetadata 3s timeout → error:true
+  // 8. loadedmetadata 3s timeout -> error:true
   it('should set error on loadedmetadata timeout', async () => {
     // Override mock to NOT fire loadedmetadata
     const origCreateElement = document.createElement.bind(document);
@@ -295,7 +295,7 @@ describe('useThumbnails', () => {
     expect(true).toBe(true);
   });
 
-  // 10. SecurityError on drawImage → error:true
+  // 10. SecurityError on drawImage -> error:true
   it('should handle SecurityError (canvas taint) gracefully', async () => {
     const taintedCtx = {
       drawImage: vi.fn(() => {
@@ -328,8 +328,8 @@ describe('useThumbnails', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 11. cover mode → correct drawImage params
-  it('should use cover mode cropping (center-crop) for drawImage', async () => {
+  // 11. landscape video: canvas width = 50% aspect-ratio crop
+  it('should size canvas to show ~50% center crop for landscape video', async () => {
     const { result } = renderHook(() =>
       useThumbnails({ videoSrc: 'http://example.com/v.mp4', duration: 30 }),
     );
@@ -338,11 +338,13 @@ describe('useThumbnails', () => {
       expect(result.current.thumbnails.length).toBe(20);
     });
 
-    // Verify drawImage was called with cover-mode coordinates
+    // 16:9 (1920x1080): width = max(40, round(60*0.5*1920/1080)) = 53
+    expect(mockCanvas.width).toBe(53);
+    expect(mockCanvas.height).toBe(60);
+
     const ctx = mockCanvas._ctx;
     expect(ctx.drawImage).toHaveBeenCalled();
 
-    // First call args: drawImage(video, sx, sy, sw, sh)
     const firstCall = ctx.drawImage.mock.calls[0];
     const videoArg = firstCall[0];
     const sx = firstCall[1] as number;
@@ -352,21 +354,79 @@ describe('useThumbnails', () => {
 
     expect(videoArg).toBe(mockVideo);
 
-    // Canvas is 40×60, video is 1920×1080
-    // scale = max(40/1920, 60/1080) = max(0.0208, 0.0556) = 0.0556
-    // sw = 1920 * 0.0556 ≈ 106.7, sh = 1080 * 0.0556 ≈ 60
-    // sx = (40 - 106.7) / 2 ≈ -33.3, sy = (60 - 60) / 2 = 0
-    // Cover: sourceW = canvasW / scale, sourceH = canvasH / scale
-    // sourceW = 40 / 0.05556 = 720, sourceH = 60 / 0.05556 = 1080
-    // sourceX = (1920 - 720) / 2 = 600, sourceY = (1080 - 1080) / 2 = 0
-    expect(sx).toBeCloseTo(600, 0);
+    // scale = max(53/1920, 60/1080) = 0.0556 (height-constrained)
+    // sourceW = 53/0.0556 = 954, sourceH = 60/0.0556 = 1080
+    // sourceX = (1920-954)/2 = 483, sourceY = (1080-1080)/2 = 0
+    expect(sx).toBeCloseTo(483, 0);
     expect(sy).toBeCloseTo(0, 0);
-    expect(sw).toBeCloseTo(720, 0);
+    expect(sw).toBeCloseTo(954, 0);
     expect(sh).toBeCloseTo(1080, 0);
-    // dx, dy should be 0, 0 and dw, dh should be canvas dimensions
+    // Destination: full canvas
     expect(firstCall[5]).toBe(0);
     expect(firstCall[6]).toBe(0);
-    expect(firstCall[7]).toBe(40);
+    expect(firstCall[7]).toBe(53);
     expect(firstCall[8]).toBe(60);
+  });
+
+  // 12. portrait/square video: keep original 40px canvas
+  it('should keep 40px canvas width for portrait video', async () => {
+    // 9:16 portrait video (1080x1920)
+    const portraitVideo = createMockVideo('');
+    Object.defineProperty(portraitVideo, 'videoWidth', { get: () => 1080 });
+    Object.defineProperty(portraitVideo, 'videoHeight', { get: () => 1920 });
+
+    const origCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string, ...rest: any[]) => {
+      if (tag === 'video') return portraitVideo as any;
+      if (tag === 'canvas') return mockCanvas as any;
+      return origCreateElement(tag, ...rest);
+    }) as typeof document.createElement);
+
+    const mod = await import('./useThumbnails');
+    const localUseThumbnails = mod.useThumbnails;
+
+    const { result } = renderHook(() =>
+      localUseThumbnails({ videoSrc: 'http://example.com/portrait.mp4', duration: 30 }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.thumbnails.length).toBe(20);
+    });
+
+    // 9:16: max(40, round(60*0.5*1080/1920)) = max(40, 17) = 40
+    expect(mockCanvas.width).toBe(40);
+
+    vi.restoreAllMocks();
+  });
+
+  // 13. square video: keep original 40px canvas
+  it('should keep 40px canvas width for square video', async () => {
+    // 1:1 square video (1080x1080)
+    const squareVideo = createMockVideo('');
+    Object.defineProperty(squareVideo, 'videoWidth', { get: () => 1080 });
+    Object.defineProperty(squareVideo, 'videoHeight', { get: () => 1080 });
+
+    const origCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string, ...rest: any[]) => {
+      if (tag === 'video') return squareVideo as any;
+      if (tag === 'canvas') return mockCanvas as any;
+      return origCreateElement(tag, ...rest);
+    }) as typeof document.createElement);
+
+    const mod = await import('./useThumbnails');
+    const localUseThumbnails = mod.useThumbnails;
+
+    const { result } = renderHook(() =>
+      localUseThumbnails({ videoSrc: 'http://example.com/square.mp4', duration: 30 }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.thumbnails.length).toBe(20);
+    });
+
+    // 1:1: max(40, round(60*0.5*1080/1080)) = max(40, 30) = 40
+    expect(mockCanvas.width).toBe(40);
+
+    vi.restoreAllMocks();
   });
 });
