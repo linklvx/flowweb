@@ -47,6 +47,9 @@ export function releaseVideo(video: HTMLVideoElement): void {
 // ── Async video events ────────────────────────────────────
 
 export function waitForMetadata(video: HTMLVideoElement, timeoutMs = 5000): Promise<void> {
+  // Already loaded (e.g. reused from cache)
+  if (video.readyState >= 1) return Promise.resolve();
+
   return Promise.race([
     new Promise<void>((resolve) => {
       video.addEventListener('loadedmetadata', () => resolve(), { once: true });

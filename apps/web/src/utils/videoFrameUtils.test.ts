@@ -24,7 +24,7 @@ function createMockVideo(overrides: Record<string, unknown> = {}) {
     paused: true,
     currentTime: 0,
     duration: 10,
-    readyState: 2,
+    readyState: 0,
     addEventListener: vi.fn((event: string, fn: () => void) => {
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push(fn);
