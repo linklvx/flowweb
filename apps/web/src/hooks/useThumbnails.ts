@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { drawCover, waitForMetadata, releaseVideo } from '@/utils/videoFrameUtils';
 
 export interface UseThumbnailsOptions {
   videoSrc: string | null | undefined;
@@ -44,39 +45,6 @@ function setCache(src: string, thumbnails: string[]): void {
 
 export function clearThumbnailCache(): void {
   cache.clear();
-}
-
-// ─── Helpers ───────────────────────────────────────────────────
-
-function drawCover(video: HTMLVideoElement, canvas: HTMLCanvasElement): void {
-  const ctx = canvas.getContext('2d')!;
-  const cw = canvas.width;
-  const ch = canvas.height;
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const scale = Math.max(cw / vw, ch / vh);
-  const sourceW = cw / scale;
-  const sourceH = ch / scale;
-  const sourceX = (vw - sourceW) / 2;
-  const sourceY = (vh - sourceH) / 2;
-  ctx.drawImage(video, sourceX, sourceY, sourceW, sourceH, 0, 0, cw, ch);
-}
-
-function waitForMetadata(video: HTMLVideoElement, timeoutMs = TIMEOUT_MS): Promise<void> {
-  return Promise.race([
-    new Promise<void>((resolve) => {
-      video.addEventListener('loadedmetadata', () => resolve(), { once: true });
-    }),
-    new Promise<void>((_, reject) => {
-      setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs);
-    }),
-  ]);
-}
-
-function releaseVideo(video: HTMLVideoElement): void {
-  video.pause();
-  video.src = '';
-  video.load();
 }
 
 // ─── Hook ──────────────────────────────────────────────────────
@@ -131,7 +99,7 @@ export function useThumbnails({
     async function extract() {
       try {
         // Wait for metadata
-        await waitForMetadata(video);
+        await waitForMetadata(video, TIMEOUT_MS);
 
         // Size canvas: 50% center crop for landscape, min 40px for portrait/square
         const aspectRatio = video.videoWidth / video.videoHeight;
