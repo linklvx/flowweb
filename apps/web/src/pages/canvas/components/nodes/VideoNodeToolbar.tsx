@@ -11,6 +11,8 @@ interface VideoNodeToolbarProps {
   capturingType?: 'current' | 'first' | 'last' | null;
   onAudioSeparate?: (type: 'vocal' | 'background' | 'split') => void;
   audioSeparatingType?: 'vocal' | 'background' | 'split' | null;
+  onHD?: () => void;
+  hdPanelOpen?: boolean;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -131,7 +133,7 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType, onAudioSeparate, audioSeparatingType }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType, onAudioSeparate, audioSeparatingType, onHD, hdPanelOpen }: VideoNodeToolbarProps) {
   const [frameCaptureOpen, setFrameCaptureOpen] = useState(false);
   const [audioSeparateOpen, setAudioSeparateOpen] = useState(false);
   const isAnyCapturing = capturingType != null;
@@ -165,7 +167,15 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
           </button>
 
           {/* 高清 */}
-          <button type="button" style={BTN_STYLE}>
+          <button
+            type="button"
+            style={{
+              ...BTN_STYLE,
+              ...(hdPanelOpen ? { background: 'var(--canvas-controls-hover)' } : {}),
+            }}
+            data-active={hdPanelOpen ? 'true' : undefined}
+            onClick={onHD}
+          >
             <HDIcon />
             <span>高清</span>
           </button>

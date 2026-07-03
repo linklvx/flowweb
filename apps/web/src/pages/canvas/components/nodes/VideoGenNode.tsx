@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, useRef, useCallback } from 'react';
+import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
@@ -9,6 +9,7 @@ import { VideoConfigPanel } from './VideoConfigPanel';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
 import { VideoTrimPanel } from './VideoTrimPanel';
 import { VideoFullscreenViewer } from './VideoFullscreenViewer';
+import { VideoHDPanel } from './VideoHDPanel';
 import { videoTrimApi } from '@/services/video-trim.api';
 import { useTrimTaskStatus } from '@/hooks/useTrimTaskStatus';
 import { useVideoSeparateTask } from '@/hooks/useVideoSeparateTask';
@@ -53,11 +54,14 @@ function ratioDimensions(ratio: string) {
   return calcConstrainedSize(w, h);
 }
 
-function VideoGenNodeComponent({ id, selected }: NodeProps) {
+function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const { getNodes, setNodes } = useReactFlow();
-  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const isSingleSelected = useMemo(
+    () => selected && getNodes().filter((n) => n.selected).length === 1,
+    [selected, getNodes],
+  );
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
@@ -88,6 +92,30 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
   const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
   const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
   const trimStatus = useTrimTaskStatus(trimTaskId, socketRef?.current, id);
+
+  // HD panel state
+  const [hdPanelOpen, setHdPanelOpen] = useState(false);
+
+  // Close HD panel when node becomes unselected, multi-selected, or dragged
+  useEffect(() => {
+    if (!selected || !isSingleSelected || dragging) {
+      setHdPanelOpen(false);
+    }
+  }, [selected, isSingleSelected, dragging]);
+
+  // ESC key closes HD panel (skip when input is focused)
+  useEffect(() => {
+    if (!hdPanelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+        setHdPanelOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hdPanelOpen]);
 
   const handleOpenTrim = useCallback(() => {
     const nd = useNodeStore.getState().nodes[id]?.data as any;
@@ -647,7 +675,7 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
-      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} />
+      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} onHD={() => setHdPanelOpen(prev => !prev)} hdPanelOpen={hdPanelOpen} />
 
       {/* Title bar */}
       <div
@@ -792,9 +820,16 @@ function VideoGenNodeComponent({ id, selected }: NodeProps) {
       )}
 
       {/* Bottom config panel */}
-      {!trimMode && selected && !fileId && !referenceVideo && (
+      {!trimMode && selected && !fileId && !referenceVideo && !hdPanelOpen && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <VideoConfigPanel nodeId={id} />
+        </div>
+      )}
+
+      {/* HD panel */}
+      {isSingleSelected && fileId && hdPanelOpen && !dragging && (
+        <div className="nodrag nopan absolute -bottom-4 left-1/2 -translate-x-1/2 translate-y-full z-20 w-full min-w-[420px] max-w-[430px]">
+          <VideoHDPanel nodeId={id} fileId={fileId} />
         </div>
       )}
 

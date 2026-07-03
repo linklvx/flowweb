@@ -122,6 +122,10 @@ vi.mock('./VideoConfigPanel', () => ({
   VideoConfigPanel: () => <div>config panel</div>,
 }));
 
+vi.mock('./VideoHDPanel', () => ({
+  VideoHDPanel: () => <div>hd panel</div>,
+}));
+
 describe('VideoGenNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -454,5 +458,90 @@ describe('VideoGenNode', () => {
     const { container } = renderNode();
     const titleBar = container.querySelector('[class*="-translate-y-full"]');
     expect(titleBar?.textContent).not.toContain('×');
+  });
+
+  // ─── HD panel integration ────────────────────────────
+
+  it('does not render toolbar or HD panel when no fileId', () => {
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    renderNode(true);
+    // Toolbar not visible (show requires hasMedia)
+    expect(screen.queryByText('高清')).not.toBeInTheDocument();
+    // HD panel not rendered
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+  });
+
+  it('renders HD button but not HD panel when fileId exists', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode(true);
+    // HD button visible in toolbar
+    expect(screen.getByText('高清')).toBeInTheDocument();
+    // HD panel not open by default
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+  });
+
+  it('opens HD panel when HD button is clicked', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode(true);
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
+  });
+
+  it('hides HD panel when selected becomes false', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    const { rerender } = renderNode(true);
+    // Open panel
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
+    // Deselect
+    rerender(<ReactFlowProvider><VideoGenNode {...baseNodeProps} selected={false} /></ReactFlowProvider>);
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+  });
+
+  it('hides HD panel when dragging becomes true', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    const { rerender } = renderNode(true);
+    // Open panel
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
+    // Start dragging
+    rerender(<ReactFlowProvider><VideoGenNode {...baseNodeProps} selected={true} dragging={true} /></ReactFlowProvider>);
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+  });
+
+  it('does not show HD panel when multiple nodes are selected', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    // Return multiple selected nodes
+    mockGetNodes.mockReturnValue([
+      { id: 'v1', type: 'videoGen', selected: true } as any,
+      { id: 'v2', type: 'videoGen', selected: true } as any,
+    ]);
+    renderNode(true);
+    // Try to open HD panel - won't render due to !isSingleSelected
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+    // Restore
+    mockGetNodes.mockReturnValue([{ id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, width: 548, height: 309, selected: true, data: getMockNodeData() }]);
+  });
+
+  it('closes HD panel on Escape key', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode(true);
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
+  });
+
+  it('does not close HD panel on Escape when input is focused', () => {
+    setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    renderNode(true);
+    fireEvent.click(screen.getByText('高清'));
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
+    // Focus the title input
+    const titleInput = screen.getByLabelText('节点标题');
+    (titleInput as HTMLInputElement).focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByText('hd panel')).toBeInTheDocument();
   });
 });

@@ -196,4 +196,31 @@ describe('VideoNodeToolbar', () => {
     await waitFor(() => expect(screen.getByText('仅保留人声')).toBeInTheDocument());
     fireEvent.click(screen.getByText('仅保留人声'));
   });
+
+  // ── HD button ────────────────────────────────────────
+
+  it('calls onHD when HD button is clicked', () => {
+    const onHD = vi.fn();
+    render(<VideoNodeToolbar show={true} onHD={onHD} />);
+    fireEvent.click(screen.getByText('高清'));
+    expect(onHD).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when onHD is not provided', () => {
+    render(<VideoNodeToolbar show={true} />);
+    // Should not throw
+    fireEvent.click(screen.getByText('高清'));
+  });
+
+  it('HD button has data-active="true" when hdPanelOpen is true', () => {
+    render(<VideoNodeToolbar show={true} hdPanelOpen />);
+    const hdBtn = screen.getByText('高清').closest('button')!;
+    expect(hdBtn).toHaveAttribute('data-active', 'true');
+  });
+
+  it('HD button does not have data-active when hdPanelOpen is false', () => {
+    render(<VideoNodeToolbar show={true} />);
+    const hdBtn = screen.getByText('高清').closest('button')!;
+    expect(hdBtn).not.toHaveAttribute('data-active');
+  });
 });
