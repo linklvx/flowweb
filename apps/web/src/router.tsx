@@ -6,6 +6,7 @@ import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
 import { RequireAuth } from '@/components/RequireAuth';
 import { SettingsLayout, ProfilePage, CreditsPage } from '@/pages/settings';
+import { MembershipPage } from '@/pages/settings/MembershipPage';
 import { TemplateMarketPage } from '@/pages/templates/TemplateMarketPage';
 import { TemplatePreviewPage } from '@/pages/templates/TemplatePreviewPage';
 import { MyTemplatesPage } from '@/pages/settings/MyTemplatesPage';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/settings/profile" replace /> },
           { path: 'profile', element: <ProfilePage /> },
           { path: 'credits', element: <CreditsPage /> },
+          { path: 'membership', element: <MembershipPage /> },
           { path: 'templates', element: <MyTemplatesPage /> },
           { path: 'templates/:id', element: <TemplatePreviewPage /> },
         ],

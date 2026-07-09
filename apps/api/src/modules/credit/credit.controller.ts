@@ -12,6 +12,8 @@ export class CreditController {
     const balance = await this.service.getOrCreateBalance(userId);
     return {
       credits: balance.credits,
+      subscriptionCredits: balance.subscriptionCredits,
+      subscriptionCreditsExpiry: balance.subscriptionCreditsExpiry?.toISOString() ?? null,
       updatedAt: balance.updatedAt.toISOString(),
     };
   }

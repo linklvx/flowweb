@@ -25,6 +25,8 @@ interface Props {
 export function Navbar({ onAction: _onAction }: Props) {
   const { user, logout } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
+  const [subCredits, setSubCredits] = useState<number | null>(null);
+  const [subTier, setSubTier] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -37,13 +39,27 @@ export function Navbar({ onAction: _onAction }: Props) {
   useEffect(() => {
     if (!user) {
       setCredits(null);
+      setSubCredits(null);
+      setSubTier(null);
       return;
     }
     fetch('/api/credits/balance')
       .then(r => r.json())
-      .then(json => { if (json.code === 0) setCredits(json.data.credits); })
+      .then(json => {
+        if (json.code === 0) {
+          setCredits(json.data.credits);
+          setSubCredits(json.data.subscriptionCredits ?? 0);
+        }
+      })
+      .catch(() => {});
+    fetch('/api/subscription/me')
+      .then(r => r.json())
+      .then(json => { if (json.code === 0 && json.data) setSubTier(json.data.tier); })
       .catch(() => {});
   }, [user]);
+
+  const totalCredits = credits !== null ? credits + (subCredits ?? 0) : null;
+  const tierLabel: Record<string, string> = { basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
 
   const displayName = user?.name || user?.email || '?';
   const firstLetter = displayName.charAt(0).toUpperCase();
@@ -124,11 +140,23 @@ export function Navbar({ onAction: _onAction }: Props) {
           <Link to="/settings/credits" className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-700 transition-colors">
             <GiftOutlined className="text-sm" /> 赚积分
           </Link>
-          {credits !== null && (
-            <span className="text-sm text-white flex items-center gap-1 rounded-full bg-gray-800/80 px-4 py-1.5">
-              ⚡ {credits?.toLocaleString()}
-              {!user && <span className="text-[#888]">Free</span>}
-            </span>
+          {totalCredits !== null && (
+            <Link to="/settings/membership" className="no-underline">
+              <span className="text-sm text-white flex items-center gap-1 rounded-full bg-gray-800/80 px-4 py-1.5 hover:bg-gray-700 transition-colors cursor-pointer">
+                ⚡ {totalCredits.toLocaleString()}
+                {subTier && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                    subTier === 'ultra' ? 'bg-[#f59e0b] text-black' :
+                    subTier === 'max' ? 'bg-[#a855f7] text-white' :
+                    subTier === 'pro' ? 'bg-[#3b82f6] text-white' :
+                    'bg-[#9ca3af] text-black'
+                  }`}>
+                    {tierLabel[subTier] ?? subTier}
+                  </span>
+                )}
+                {!user && <span className="text-[#888]">Free</span>}
+              </span>
+            </Link>
           )}
           {user ? (
             <ConfigProvider

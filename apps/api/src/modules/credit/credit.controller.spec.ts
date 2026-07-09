@@ -17,6 +17,8 @@ describe('CreditController', () => {
       getOrCreateBalance: vi.fn().mockResolvedValue({
         userId: 'u1',
         credits: 100,
+        subscriptionCredits: 0,
+        subscriptionCreditsExpiry: null,
         version: 0,
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       }),
@@ -36,6 +38,8 @@ describe('CreditController', () => {
     service.getOrCreateBalance.mockResolvedValue({
       userId: 'u1',
       credits: 100,
+      subscriptionCredits: 500,
+      subscriptionCreditsExpiry: new Date('2026-02-01T00:00:00.000Z'),
       version: 0,
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     });
@@ -43,6 +47,8 @@ describe('CreditController', () => {
     const result = await controller.getBalance(req as any);
     expect(result).toEqual({
       credits: 100,
+      subscriptionCredits: 500,
+      subscriptionCreditsExpiry: '2026-02-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
     expect(service.getOrCreateBalance).toHaveBeenCalledWith('u1');

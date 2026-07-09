@@ -232,13 +232,15 @@ model PricingRule {
 }
 
 model UserBalance {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credits   Int      @default(100)
-  version   Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credits                Int       @default(100)
+  subscriptionCredits    Int       @default(0)
+  subscriptionCreditsExpiry DateTime?
+  version                Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 model Media {
@@ -371,4 +373,156 @@ model VideoSeparateTask {
   @@index([nodeId])
   @@index([userId])
   @@index([sourceFileId])
+}
+
+// ========== 会员订阅 ==========
+
+enum SubscriptionTier {
+  basic
+  pro
+  max
+  ultra
+}
+
+enum SubscriptionPeriod {
+  monthly
+  quarterly
+  annually
+}
+
+enum SubscriptionStatus {
+  active
+  expired
+  upgraded
+  cancelled
+}
+
+enum SubscriptionOrderType {
+  new_purchase
+  upgrade
+  renewal
+}
+
+enum CreditTransactionType {
+  subscription_grant
+  upgrade_clear
+  expire_clear
+  admin_clear
+  admin_grant
+  consumption
+  subscription_payment
+}
+
+enum CreditType {
+  regular
+  subscription
+}
+
+enum CreditReferenceType {
+  subscription
+  order
+  execution
+  admin
+}
+
+enum AuditTargetType {
+  subscription
+  subscription_plan
+  point
+  order
+}
+
+model SubscriptionPlan {
+  id              String             @id @default(cuid())
+  name            String
+  tier            SubscriptionTier
+  monthlyCredits  Int
+  priceMonthly    Int
+  priceQuarterly  Int
+  priceAnnually   Int
+  sort            Int                @default(0)
+  isActive        Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  subscriptions   UserSubscription[]
+
+  @@index([isActive, sort])
+}
+
+model UserSubscription {
+  id                 String               @id @default(cuid())
+  userId             String
+  planId             String
+  plan               SubscriptionPlan     @relation(fields: [planId], references: [id])
+  tier               SubscriptionTier
+  period             SubscriptionPeriod
+  status             SubscriptionStatus   @default(active)
+  paidAmount         Int
+  totalCredits       Int
+  totalDays          Int
+  consumedCredits    Int                  @default(0)
+  subscribedAt       DateTime
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  nextGrantDate      DateTime
+  grantCount         Int                  @default(1)
+  autoRenew          Boolean              @default(true)
+  cancelledAt        DateTime?
+  previousSubId      String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status, nextGrantDate])
+  @@index([status, currentPeriodEnd])
+}
+
+model SubscriptionOrder {
+  id                     String                 @id @default(cuid())
+  orderNo                String                 @unique
+  userId                 String
+  planId                 String
+  period                 SubscriptionPeriod
+  type                   SubscriptionOrderType
+  amount                 Int
+  originalPrice          Int
+  deductibleAmount       Int                    @default(0)
+  status                 String                 @default("success")
+  originalSubscriptionId String?
+  pricingSnapshot        Json?
+  createdAt              DateTime               @default(now())
+}
+
+model CreditTransaction {
+  id            String                @id @default(cuid())
+  userId        String
+  amount        Int
+  type          CreditTransactionType
+  creditType    CreditType
+  referenceId   String?
+  referenceType CreditReferenceType?
+  balanceAfter  Int
+  createdAt     DateTime              @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@index([referenceId])
+}
+
+model AuditLog {
+  id           String          @id @default(cuid())
+  operatorId   String
+  operatorName String
+  targetType   AuditTargetType
+  targetId     String
+  action       String
+  beforeValue  Json?
+  afterValue   Json?
+  remark       String?
+  createdAt    DateTime        @default(now())
+
+  @@index([operatorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }

@@ -12,6 +12,9 @@ import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
 import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
+import { SubscriptionModule } from './modules/subscription/subscription.module';
+import { AdminSubscriptionModule } from './modules/subscription/admin/admin-subscription.module';
+import { SubscriptionTaskModule } from './modules/subscription/task/subscription-task.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
@@ -52,6 +55,9 @@ const env = validateEnv();
     TempCleanupModule,
     MaterialLibraryModule,
     AiImageEditModule,
+    SubscriptionModule,
+    AdminSubscriptionModule,
+    SubscriptionTaskModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
