@@ -398,9 +398,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = import.meta.env.DEV
-        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -438,9 +436,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
-      const proxyUrl = import.meta.env.DEV
-        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
@@ -588,9 +584,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const fd = new FormData();
       Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
       fd.append('file', file);
-      const proxy = import.meta.env.DEV
-        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxy = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
       await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
@@ -660,9 +654,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
-      const proxyUrl = import.meta.env.DEV
-        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
       });
@@ -704,7 +696,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         const fd = new FormData();
         Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
         fd.append('file', maskFile);
-        const proxy = import.meta.env.DEV ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage') : uploadUrl;
+        const proxy = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
         await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
         await confirmUpload({ fileId: maskId, key, fileSize: maskFile.size });
         body.maskFileId = maskId;

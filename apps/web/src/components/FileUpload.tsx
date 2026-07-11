@@ -34,9 +34,7 @@ export function FileUpload({ onUploadComplete, accept, hint }: FileUploadProps) 
       formData.append('file', file);
 
       // Rewrite presigned URL through Vite proxy to avoid CORS issues
-      const proxyUrl = import.meta.env.DEV
-        ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

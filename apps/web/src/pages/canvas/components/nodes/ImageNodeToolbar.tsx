@@ -399,7 +399,7 @@ function ImageNodeToolbarComponent({
         <button
           type="button"
           className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
-          onClick={onUpload}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onUpload(); }}
         >
           <UploadIcon />
           <span className="text-sm">上传</span>
@@ -594,7 +594,7 @@ function ImageNodeToolbarComponent({
         </div>
         <Divider />
         <IconButton icon={<ExpandIcon />} ariaLabel="放大查看" onClick={onFullscreen} ref={triggerRef} />
-        <IconButton icon={<UploadIcon />} ariaLabel="上传" />
+        <IconButton icon={<UploadIcon />} ariaLabel="上传" onClick={onUpload} />
         <IconButton icon={<DownloadIcon />} ariaLabel="下载" onClick={onDownload} />
         <Divider />
         <IconButton icon={<CopyIcon />} ariaLabel="复制" />

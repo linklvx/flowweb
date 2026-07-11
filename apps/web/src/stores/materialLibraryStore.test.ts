@@ -112,7 +112,7 @@ describe('materialLibraryStore - duplicate name check', () => {
 describe('materialLibraryStore - batch operations', () => {
   const testFile: any = (id: string) => ({
     id, originalName: `file-${id}`, mimeType: 'image/png', size: 100,
-    url: `/minio-storage/${id}`, thumbnailUrl: null, folderId: 'folder-1',
+    url: `/flowai/${id}`, thumbnailUrl: null, folderId: 'folder-1',
     isFavorite: false, createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
   });
 

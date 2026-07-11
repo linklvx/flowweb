@@ -27,9 +27,7 @@ export async function uploadImageBlob(blob: Blob): Promise<UploadImageBlobResult
   Object.entries(presign.fields).forEach(([k, v]) => formData.append(k, v));
   formData.append('file', blob, presign.key.split('/').pop() || fileName);
 
-  const proxyUrl = import.meta.env.DEV
-    ? presign.uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-    : presign.uploadUrl;
+  const proxyUrl = presign.uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
   await axios.post(proxyUrl, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

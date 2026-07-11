@@ -91,15 +91,13 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       });
       if (data.data?.success) {
         // Rewrite presigned GET URLs through Vite proxy to avoid CORS/network issues
-        // Same pattern as upload: http://127.0.0.1:9000/flowai/... -> /minio-storage/...
+        // Same pattern as upload: http://127.0.0.1:9000/flowai/... -> /flowai/...
         const files = (data.data.data as any[]).map((f: any) => ({
           ...f,
-          url: import.meta.env.DEV
-            ? (f.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
-            : f.url,
-          thumbnailUrl: f.thumbnailUrl && import.meta.env.DEV
-            ? (f.thumbnailUrl as string).replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
-            : f.thumbnailUrl,
+          url: (f.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'),
+          thumbnailUrl: f.thumbnailUrl
+            ? (f.thumbnailUrl as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai')
+            : undefined,
         }));
         set({ files });
       }
@@ -181,9 +179,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = import.meta.env.DEV
-        ? uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/minio-storage')
-        : uploadUrl;
+      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

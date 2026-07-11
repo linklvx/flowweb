@@ -134,9 +134,7 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
         const formData = new FormData();
         Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
         formData.append('file', file);
-        const proxyUrl = import.meta.env.DEV
-          ? uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-          : uploadUrl;
+        const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
         await axios.post(proxyUrl, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });

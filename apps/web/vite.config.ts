@@ -17,10 +17,9 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:3000',
       '/socket.io': { target: 'http://localhost:3000', ws: true, changeOrigin: true },
-      '/minio-storage': {
+      '/flowai': {
         target: 'http://127.0.0.1:9000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/minio-storage/, '/flowai'),
       },
     },
   },

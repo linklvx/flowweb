@@ -4,7 +4,7 @@ import FileGrid from './FileGrid';
 
 const testFile = (id: string, date: string) => ({
   id, originalName: `file-${id}`, mimeType: 'image/png', size: 100,
-  url: `/minio-storage/${id}`, thumbnailUrl: null, folderId: 'folder-1',
+  url: `/flowai/${id}`, thumbnailUrl: null, folderId: 'folder-1',
   isFavorite: false, createdAt: date, updatedAt: date,
 });
 

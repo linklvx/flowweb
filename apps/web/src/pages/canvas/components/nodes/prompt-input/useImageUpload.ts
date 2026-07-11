@@ -59,9 +59,7 @@ export function useImageUpload(nodeId: string) {
       formData.append('file', uploadFile);
 
       // Proxy URL rewrite for dev
-      const proxyUrl = import.meta.env.DEV
-        ? presign.uploadUrl.replace(/^http:\/\/[^/]+\/flowai/, '/minio-storage')
-        : presign.uploadUrl;
+      const proxyUrl = presign.uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
       // Upload with progress (throttle: only update store when >= 10% change)
       let lastProgress = 0;
