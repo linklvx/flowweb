@@ -1,20 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
+import { AddNodeMenu } from './components/AddNodeMenu';
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
 import { LightingModal } from './components/Lighting/LightingModal';
 import { Angle3DModal } from './components/Angle3D/Angle3DModal';
+import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useMenuStore } from '@/stores/menuStore';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -107,6 +108,14 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   useCanvasPersistence(projectId);
   useSocket(projectId);
 
+  // AddNodeMenu state — shared by + button and right-click triggers
+  const menuIsOpen = useMenuStore((s) => s.isOpen);
+  const menuPosition = useMenuStore((s) => s.position);
+  const menuClose = useMenuStore((s) => s.close);
+  const triggerEl = useMenuStore((s) => s.triggerEl);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { triggerRef.current = triggerEl; }, [triggerEl]);
+
   // Sync projectId to canvasStore so React Flow nodes can access it for socket room join
   useEffect(() => {
     useCanvasStore.getState().setProjectId(projectId);
@@ -159,6 +168,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <HistoryModal />
         <LightingModal />
         <Angle3DModal />
+        <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
       </div>
     </ReactFlowProvider>
   );
@@ -175,7 +185,8 @@ function CanvasKeyboardHandler() {
 
       if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
-        useMenuStore.getState().open();
+        const pos = useMenuStore.getState().lastMousePos;
+        useMenuStore.getState().open(pos);
         return;
       }
 

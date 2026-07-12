@@ -330,4 +330,32 @@ describe('AddNodeMenu', () => {
       expect(mockPresignUpload).not.toHaveBeenCalled(); // 仅触发 file input，不上传
     });
   });
+
+  // ============================================================
+  // 新增：position 模式测试
+  // ============================================================
+
+  describe('position 模式（右键触发）', () => {
+    it('当提供 position 时菜单渲染正常', () => {
+      render(<AddNodeMenu isOpen={true} onClose={() => {}} position={{ x: 300, y: 400 }} />);
+      expect(screen.getByText('添加节点')).toBeInTheDocument();
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+
+    it('position 模式下点击菜单项仍能创建节点', () => {
+      const onClose = vi.fn();
+      render(<AddNodeMenu isOpen={true} onClose={onClose} position={{ x: 500, y: 200 }} />);
+      fireEvent.click(screen.getByText('文本'));
+      expect(mockAddNode).toHaveBeenCalledWith('text', expect.any(Object));
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('position 模式下覆盖层点击关闭', () => {
+      const onClose = vi.fn();
+      render(<AddNodeMenu isOpen={true} onClose={onClose} position={{ x: 100, y: 100 }} />);
+      const menu = screen.getByRole('menu');
+      fireEvent.click(menu.parentElement!);
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
 });

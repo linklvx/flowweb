@@ -3,13 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { NodePalette } from './NodePalette';
 import { useMenuStore } from '@/stores/menuStore';
 
-// Mock AddNodeMenu to avoid testing its internals here
-vi.mock('./AddNodeMenu', () => ({
-  AddNodeMenu: vi.fn(({ isOpen }: any) =>
-    isOpen ? <div data-testid="add-node-menu">Menu</div> : null,
-  ),
-}));
-
 // Mock canvasStore
 const mockAddNode = vi.fn();
 vi.mock('@/stores/canvasStore', () => ({
@@ -38,7 +31,7 @@ describe('NodePalette', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    useMenuStore.setState({ isOpen: false });
+    useMenuStore.setState({ isOpen: false, position: undefined, triggerEl: null, lastMousePos: { x: 0, y: 0 } });
   });
 
   it('should render the + button', () => {
@@ -49,20 +42,20 @@ describe('NodePalette', () => {
     expect(btn).toHaveAttribute('data-sidebar-btn', 'add-node');
   });
 
-  it('should show menu when + button is clicked', () => {
+  it('should open menu in store when + button is clicked', () => {
     renderPalette();
-    expect(screen.queryByTestId('add-node-menu')).not.toBeInTheDocument();
+    expect(useMenuStore.getState().isOpen).toBe(false);
     fireEvent.click(screen.getByLabelText('添加节点'));
-    expect(screen.getByTestId('add-node-menu')).toBeInTheDocument();
+    expect(useMenuStore.getState().isOpen).toBe(true);
   });
 
-  it('should close menu when + button is clicked again (toggle)', () => {
+  it('should close menu in store when + button is clicked again (toggle)', () => {
     renderPalette();
     const btn = screen.getByLabelText('添加节点');
     fireEvent.click(btn);
-    expect(screen.getByTestId('add-node-menu')).toBeInTheDocument();
+    expect(useMenuStore.getState().isOpen).toBe(true);
     fireEvent.click(btn);
-    expect(screen.queryByTestId('add-node-menu')).not.toBeInTheDocument();
+    expect(useMenuStore.getState().isOpen).toBe(false);
   });
 
   it('should have ARIA attributes on the button', () => {
@@ -77,6 +70,13 @@ describe('NodePalette', () => {
     const btn = screen.getByLabelText('添加节点');
     fireEvent.click(btn);
     expect(btn).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('should sync triggerEl to menuStore on mount and clear on unmount', () => {
+    const { unmount } = renderPalette();
+    expect(useMenuStore.getState().triggerEl).toBeInstanceOf(HTMLButtonElement);
+    unmount();
+    expect(useMenuStore.getState().triggerEl).toBeNull();
   });
 
   it('should rotate the + icon when menu is open', () => {

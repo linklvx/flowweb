@@ -106,10 +106,11 @@ const MENU_ITEM_CLASS =
 interface AddNodeMenuProps {
   isOpen: boolean;
   onClose: () => void;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
+  triggerRef?: React.RefObject<HTMLButtonElement | null>;
+  position?: { x: number; y: number };
 }
 
-export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
+export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMenuProps) {
   const addNode = useCanvasStore((s) => s.addNode);
   const viewport = useCanvasStore((s) => s.viewport);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -136,21 +137,33 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
   }, []);
 
 
-  // Dynamic positioning: top-aligned with button, boundary-aware
+  // Dynamic positioning: triggerRef-based (left of button) or position-based (right-click)
   useEffect(() => {
-    if (!isOpen || !triggerRef.current || !menuRef.current) return;
+    if (!isOpen || !menuRef.current) return;
+    // Need either triggerRef or position
+    if (!triggerRef?.current && !position) return;
 
-    const updatePosition = () => {
-      const triggerRect = triggerRef.current!.getBoundingClientRect();
-      const menuEl = menuRef.current!;
+    const menuEl = menuRef.current;
 
-      let left = triggerRect.right + 19;
-      // Align menu vertical center with button vertical center
-      let top = triggerRect.top + triggerRect.height / 2 - menuEl.offsetHeight / 2 + 180;
+    const place = () => {
+      let left: number;
+      let top: number;
+
+      if (position) {
+        // Right-click mode: menu at bottom-right of cursor
+        left = position.x + 8;
+        top = position.y + 8;
+      } else {
+        // + button trigger mode: align to the right of the button
+        const triggerRect = triggerRef!.current!.getBoundingClientRect();
+        left = triggerRect.right + 19;
+        top = triggerRect.top + triggerRect.height / 2 - menuEl.offsetHeight / 2 + 180;
+      }
 
       const menuHeight = menuEl.offsetHeight;
       const menuWidth = menuEl.offsetWidth;
 
+      // Boundary clamping
       const menuBottom = top + menuHeight;
       if (menuBottom > window.innerHeight) {
         top = window.innerHeight - menuHeight - 8;
@@ -159,17 +172,18 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef }: AddNodeMenuProps) {
 
       const menuRight = left + menuWidth;
       if (menuRight > window.innerWidth) {
-        left = triggerRect.left - menuWidth - 16;
+        left = window.innerWidth - menuWidth - 8;
       }
+      if (left < 8) left = 8;
 
       menuEl.style.left = `${left}px`;
       menuEl.style.top = `${top}px`;
     };
 
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    return () => window.removeEventListener('resize', updatePosition);
-  }, [isOpen, triggerRef]);
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [isOpen, triggerRef, position]);
 
   const handleItemClick = useCallback(
     (item: MenuItem) => {

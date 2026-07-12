@@ -1,5 +1,4 @@
-import { memo, useRef } from 'react';
-import { AddNodeMenu } from './AddNodeMenu';
+import { memo, useRef, useEffect } from 'react';
 import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -17,7 +16,13 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const isOpen = useMenuStore((s) => s.isOpen);
   const toggle = useMenuStore((s) => s.toggle);
-  const close = useMenuStore((s) => s.close);
+  const setTriggerEl = useMenuStore((s) => s.setTriggerEl);
+
+  // Sync button element to store so page-level AddNodeMenu can use it for positioning
+  useEffect(() => {
+    setTriggerEl(triggerRef.current);
+    return () => setTriggerEl(null);
+  }, [setTriggerEl]);
 
   return (
     <>
@@ -123,7 +128,6 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
           </svg>
         </button>
       </div>
-      <AddNodeMenu isOpen={isOpen} onClose={close} triggerRef={triggerRef} />
     </>
   );
 }

@@ -9,6 +9,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useMenuStore } from '@/stores/menuStore';
 import { debounce } from '@/utils/debounce';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
@@ -167,6 +168,14 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     }
   }, [selectNode]);
 
+  const onPaneContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      useMenuStore.getState().open({ x: event.clientX, y: event.clientY });
+    },
+    [],
+  );
+
   const isValidConnection = useCallback((connection: Connection) => {
     // No self-connections
     if (connection.source === connection.target) return false;
@@ -213,8 +222,12 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     fitView({ duration: 300, padding: 0.2 });
   }, [fitView]);
 
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
+  }, []);
+
   return (
-    <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden">
+    <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -230,6 +243,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onDrop={onDrop}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
+        onPaneContextMenu={onPaneContextMenu}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
