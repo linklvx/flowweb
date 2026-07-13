@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useCallback } from 'react';
 import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
-import { GiftOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { GiftOutlined, CrownOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 import { AuthModal } from '@/components/AuthModal';
 
 interface NavLink {
@@ -139,6 +139,9 @@ export function Navbar({ onAction: _onAction }: Props) {
         <div className="flex gap-3 items-center">
           <Link to="/settings/credits" className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-700 transition-colors">
             <GiftOutlined className="text-sm" /> 赚积分
+          </Link>
+          <Link to="/settings/membership" className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#4ade80] no-underline hover:bg-gray-700 transition-colors">
+            <CrownOutlined className="text-sm" /> 会员充值
           </Link>
           {totalCredits !== null && (
             <Link to="/settings/membership" className="no-underline">
