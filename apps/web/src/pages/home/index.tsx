@@ -4,10 +4,13 @@ import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
 import { ContentSection } from './components/ContentSection';
 import { AIAssistantFAB } from './components/AIAssistantFAB';
+import { VipSubscribeModal } from '@/components/VipSubscribeModal';
+import { useVipModalStore } from '@/stores/vipModalStore';
 import { useNavigate } from 'react-router';
 
 export function HomePage() {
   const { visible, message, linkUrl, dismiss } = useAnnouncementStore();
+  const vipModalVisible = useVipModalStore(s => s.visible);
   const navigate = useNavigate();
 
   return (
@@ -32,6 +35,9 @@ export function HomePage() {
 
       {/* Floating */}
       <AIAssistantFAB />
+
+      {/* VIP Subscribe Modal */}
+      {vipModalVisible && <VipSubscribeModal />}
     </div>
   );
 }

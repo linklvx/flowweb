@@ -1,8 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { Navbar } from './Navbar';
 import { AuthProvider } from '@/components/AuthProvider';
+
+const mockOpen = vi.fn();
+
+vi.mock('@/stores/vipModalStore', () => ({
+  useVipModalStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = { visible: false, open: mockOpen, close: vi.fn() };
+    return selector ? selector(state) : state;
+  },
+}));
 
 function renderWithProviders(ui: React.ReactElement) {
   return render(
@@ -51,5 +60,19 @@ describe('Navbar', () => {
     const loginBtn = screen.getByText('登录/注册');
     expect(loginBtn).toBeInTheDocument();
     expect(loginBtn.tagName).toBe('BUTTON');
+  });
+
+  it('should render vip button as button element (not link)', () => {
+    renderWithProviders(<Navbar />);
+    const vipBtn = screen.getByText('会员充值');
+    expect(vipBtn.tagName).toBe('BUTTON');
+  });
+
+  it('should call vipModalStore.open on vip button click', () => {
+    mockOpen.mockClear();
+    renderWithProviders(<Navbar />);
+    const vipBtn = screen.getByText('会员充值');
+    fireEvent.click(vipBtn);
+    expect(mockOpen).toHaveBeenCalledTimes(1);
   });
 });

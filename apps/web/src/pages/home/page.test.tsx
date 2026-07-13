@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { HomePage } from './index';
@@ -21,6 +21,17 @@ vi.mock('@/stores/announcementStore', () => ({
     linkUrl: undefined,
     dismiss: vi.fn(),
   })),
+}));
+
+vi.mock('@/stores/vipModalStore', () => ({
+  useVipModalStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = { visible: false, open: vi.fn(), close: vi.fn() };
+    return selector ? selector(state) : state;
+  },
+}));
+
+vi.mock('@/components/VipSubscribeModal', () => ({
+  VipSubscribeModal: () => <div data-testid="vip-subscribe-modal">VIP Modal</div>,
 }));
 
 describe('HomePage', () => {
@@ -70,5 +81,10 @@ describe('HomePage', () => {
   it('should render AI assistant button', () => {
     renderHomePage();
     expect(screen.getByRole('button', { name: /AI 助手/i })).toBeInTheDocument();
+  });
+
+  it('should not render vip modal by default (visible is false)', () => {
+    renderHomePage();
+    expect(screen.queryByTestId('vip-subscribe-modal')).not.toBeInTheDocument();
   });
 });

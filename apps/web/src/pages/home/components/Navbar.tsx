@@ -5,6 +5,7 @@ import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { GiftOutlined, CrownOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 import { AuthModal } from '@/components/AuthModal';
+import { useVipModalStore } from '@/stores/vipModalStore';
 
 interface NavLink {
   label: string;
@@ -30,6 +31,7 @@ export function Navbar({ onAction: _onAction }: Props) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const openVipModal = useVipModalStore(s => s.open);
 
   const handleLogout = useCallback(async () => {
     navigate('/');
@@ -140,9 +142,9 @@ export function Navbar({ onAction: _onAction }: Props) {
           <Link to="/settings/credits" className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-700 transition-colors">
             <GiftOutlined className="text-sm" /> 赚积分
           </Link>
-          <Link to="/settings/membership" className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#4ade80] no-underline hover:bg-gray-700 transition-colors">
+          <button onClick={openVipModal} className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#4ade80] no-underline hover:bg-gray-700 transition-colors border-none cursor-pointer">
             <CrownOutlined className="text-sm" /> 会员充值
-          </Link>
+          </button>
           {totalCredits !== null && (
             <Link to="/settings/membership" className="no-underline">
               <span className="text-sm text-white flex items-center gap-1 rounded-full bg-gray-800/80 px-4 py-1.5 hover:bg-gray-700 transition-colors cursor-pointer">
