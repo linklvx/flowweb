@@ -56,7 +56,7 @@ export class SubscriptionBannerService {
 
     // Auto-extend if needed
     if (record.autoExtend && record.countdownEndAt && record.countdownEndAt < new Date()) {
-      const newEndAt = await this.tryAutoExtend(record);
+      const newEndAt = await this.tryAutoExtend({ id: record.id, countdownEndAt: record.countdownEndAt });
       if (newEndAt) record.countdownEndAt = newEndAt;
     }
 
@@ -117,8 +117,8 @@ export class SubscriptionBannerService {
         targetType: 'subscription_banner',
         targetId: BANNER_ID,
         action: existing ? 'update' : 'create',
-        beforeValue: existing ? this.stripInternal(existing) : null,
-        afterValue: this.stripInternal(updated),
+        beforeValue: existing ? this.stripInternal(existing) as any : null,
+        afterValue: this.stripInternal(updated) as any,
       });
     } catch {
       // ignore audit failure
