@@ -171,8 +171,9 @@ describe('SubscriptionBannerService', () => {
   // autoExtend (triggered within getPublicBanner)
   // ============================================================
   describe('autoExtend', () => {
-    it('should extend countdownEndAt by 3 days based on original time', async () => {
+    it('should extend countdownEndAt by 3 days and return new time in current request', async () => {
       const pastDate = new Date('2026-07-18T00:00:00Z');
+      const expectedNewDate = new Date(pastDate.getTime() + 3 * 86400000);
       redis.get.mockResolvedValue(null);
       prisma.subscriptionBanner.findFirst.mockResolvedValue({
         id: 'subscription-banner-singleton',
@@ -192,6 +193,10 @@ describe('SubscriptionBannerService', () => {
 
       const result = await service.getPublicBanner();
 
+      // Should return the NEW extended time, not the old expired one
+      expect(result).not.toBeNull();
+      expect(result!.countdownEndAt).toBe(expectedNewDate.toISOString());
+
       // Lock attempt
       expect(redis.set).toHaveBeenNthCalledWith(
         1,
@@ -205,7 +210,7 @@ describe('SubscriptionBannerService', () => {
       expect(prisma.subscriptionBanner.update).toHaveBeenCalledWith({
         where: { id: 'subscription-banner-singleton' },
         data: {
-          countdownEndAt: new Date(pastDate.getTime() + 3 * 86400000),
+          countdownEndAt: expectedNewDate,
         },
       });
       // Lock released via Lua
@@ -214,7 +219,7 @@ describe('SubscriptionBannerService', () => {
       expect(redis.del).toHaveBeenCalledWith('flowweb:subscription:banner:public');
     });
 
-    it('should not extend when lock is held by another request', async () => {
+    it('should not extend when lock is held by another request (returns old time)', async () => {
       const pastDate = new Date('2026-07-18T00:00:00Z');
       redis.get.mockResolvedValue(null);
       prisma.subscriptionBanner.findFirst.mockResolvedValue({
@@ -234,6 +239,7 @@ describe('SubscriptionBannerService', () => {
       const result = await service.getPublicBanner();
 
       expect(result).not.toBeNull();
+      expect(result!.countdownEndAt).toBe(pastDate.toISOString());
       expect(prisma.subscriptionBanner.update).not.toHaveBeenCalled();
       expect(redis.eval).not.toHaveBeenCalled();
     });

@@ -56,7 +56,8 @@ export class SubscriptionBannerService {
 
     // Auto-extend if needed
     if (record.autoExtend && record.countdownEndAt && record.countdownEndAt < new Date()) {
-      await this.tryAutoExtend(record);
+      const newEndAt = await this.tryAutoExtend(record);
+      if (newEndAt) record.countdownEndAt = newEndAt;
     }
 
     const result: PublicBanner = {
@@ -139,11 +140,11 @@ export class SubscriptionBannerService {
   private async tryAutoExtend(record: {
     id: string;
     countdownEndAt: Date;
-  }): Promise<void> {
+  }): Promise<Date | null> {
     const lockValue = crypto.randomUUID();
     const locked = await this.redis.set(LOCK_KEY, lockValue, 'PX', 1000, 'NX');
 
-    if (locked !== 'OK') return; // another process holds the lock
+    if (locked !== 'OK') return null; // another process holds the lock
 
     try {
       const newEndAt = new Date(record.countdownEndAt.getTime() + 3 * 86400000);
@@ -167,6 +168,8 @@ export class SubscriptionBannerService {
       } catch {
         // ignore audit failure
       }
+
+      return newEndAt;
     } finally {
       // Release lock via Lua (only if we still hold it)
       await this.redis.eval(
