@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   AI_DOWNLOAD: 'ai-result-download',
   THUMBNAIL_GENERATOR: 'thumbnail-generator',
   TEMP_CLEANUP: 'temp-file-cleanup',
+  BANNER_CLEANUP: 'banner-cleanup',
 } as const;
 
 export const QUEUE_CONCURRENCY = {
