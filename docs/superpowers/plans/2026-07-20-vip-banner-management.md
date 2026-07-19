@@ -38,6 +38,8 @@ model SubscriptionBanner {
   isActive            Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+
+  @@map("subscription_banner")
 }
 ```
 
@@ -196,7 +198,7 @@ describe('SubscriptionBannerService', () => {
       const result = await service.getPublicBanner();
       expect(result).toBeNull();
       // 空值应缓存
-      expect(mockRedis.set).toHaveBeenCalledWith('subscription:banner:public', 'null', 'EX', 60);
+      expect(mockRedis.set).toHaveBeenCalledWith(CACHE_KEY, 'null', 'EX', 60);
     });
 
     it('should return null when banner is inactive', async () => {
@@ -312,7 +314,7 @@ describe('SubscriptionBannerService', () => {
       mockPrisma.subscriptionBanner.upsert.mockResolvedValue({});
       await service.updateBanner({ title: 'new title' });
       expect(mockPrisma.subscriptionBanner.upsert).toHaveBeenCalled();
-      expect(mockRedis.del).toHaveBeenCalledWith('subscription:banner:public');
+      expect(mockRedis.del).toHaveBeenCalledWith(CACHE_KEY);
     });
 
     it('should throw if final state has autoExtend=true but no countdownEndAt', async () => {
@@ -363,25 +365,31 @@ Expected: FAIL — Service 未定义。
 ```ts
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { randomUUID } from 'crypto';
+
+const CACHE_KEY = 'flowweb:subscription:banner:public';
+const LOCK_KEY = 'flowweb:subscription:banner:auto-extend:lock';
 
 @Injectable()
 export class SubscriptionBannerService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
+    @InjectQueue('banner-cleanup') private readonly cleanupQueue: Queue,
   ) {}
 
   async getPublicBanner() {
-    const cached = await this.redis.get('subscription:banner:public');
+    const cached = await this.redis.get(CACHE_KEY);
     if (cached !== null) {
       return cached === 'null' ? null : JSON.parse(cached);
     }
 
     const banner = await this.prisma.subscriptionBanner.findFirst();
     if (!banner || !banner.isActive) {
-      await this.redis.set('subscription:banner:public', 'null', 'EX', 60);
+      await this.redis.set(CACHE_KEY, 'null', 'EX', 60);
       return null;
     }
 
@@ -391,7 +399,7 @@ export class SubscriptionBannerService {
       banner.countdownEndAt &&
       banner.countdownEndAt < new Date()
     ) {
-      const lockKey = 'subscription:banner:auto-extend:lock';
+      const lockKey = LOCK_KEY;
       const lockValue = randomUUID();
       const locked = await this.redis.set(lockKey, lockValue, 'NX', 'PX', 1000);
 
@@ -409,7 +417,7 @@ export class SubscriptionBannerService {
           1, lockKey, lockValue,
         );
         banner.countdownEndAt = newEndAt;
-        await this.redis.del('subscription:banner:public');
+        await this.redis.del(CACHE_KEY);
       }
     }
 
@@ -422,7 +430,7 @@ export class SubscriptionBannerService {
     };
 
     await this.redis.set(
-      'subscription:banner:public',
+      CACHE_KEY,
       JSON.stringify(result),
       'EX', 60,
     );
@@ -474,7 +482,19 @@ export class SubscriptionBannerService {
       update: data,
     });
 
-    await this.redis.del('subscription:banner:public');
+    await this.redis.del(CACHE_KEY);
+
+    // 旧图片异步删除
+    if (
+      dto.backgroundImageKey !== undefined &&
+      existing?.backgroundImageKey &&
+      dto.backgroundImageKey !== existing.backgroundImageKey
+    ) {
+      await this.cleanupQueue.add('delete-old-banner-image', {
+        oldImageKey: existing.backgroundImageKey,
+      });
+    }
+
     return updated;
   }
 }
@@ -1030,6 +1050,9 @@ export function BannerManagementTab() {
               <span className="text-xs text-[#ccc]">自动延期（归零后+3天）</span>
             </div>
           </div>
+          {autoExtend && !countdownEndAt && (
+            <div className="text-[11px] text-yellow-500 mt-1">启用自动延期需要设置截止时间</div>
+          )}
         </div>
 
         <div className="border-t border-[#333] pt-4 flex items-center justify-between">
@@ -1038,6 +1061,7 @@ export function BannerManagementTab() {
             <span className="text-xs text-[#ccc]">启用 Banner</span>
           </div>
           <Button type="primary" loading={saving} onClick={handleSave}
+            disabled={autoExtend && !countdownEndAt}
             style={{ backgroundColor: '#4ade80', borderColor: '#4ade80', color: '#000' }}
           >保存</Button>
         </div>
@@ -1155,17 +1179,28 @@ git commit -m "feat(web): integrate BannerManagementTab into admin page"
 **Files:**
 - Modify: `apps/web/src/components/VipSubscribeModal.tsx`
 
-- [ ] **Step 1: 导入 hook 并控制请求时机**
+- [ ] **Step 1: 导入 hook 并控制请求时机（Modal 打开时才请求）**
+
+修改 `usePublicBanner` hook 使其支持条件请求，或使用 `useRef` 追踪 Modal 打开状态：
 
 ```tsx
 import { usePublicBanner } from '@/hooks/useSubscription';
-```
 
-在组件内添加 hook（在 `visible` store 状态读取之后）：
-
-```tsx
+// 在组件内
+const visible = useVipModalStore(s => s.visible);
 const { data: bannerData, refresh: refreshBanner } = usePublicBanner();
+
+// 仅在 Modal 打开时触发请求
+const hasFetched = useRef(false);
+useEffect(() => {
+  if (visible && !hasFetched.current) {
+    hasFetched.current = true;
+    refreshBanner();
+  }
+}, [visible, refreshBanner]);
 ```
+
+> 或直接在 `usePublicBanner` hook 中增加 `enabled` 参数，仅在 `enabled=true` 时发起请求。`VipSubscribeModal` 中传入 `enabled={visible}`。
 
 - [ ] **Step 2: 创建 BannerCountdown 组件**
 
