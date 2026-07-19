@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { PublicBannerData, AdminBannerData, UpdateBannerDto } from '@flowweb/shared';
 
 export interface SubscriptionPlan {
   id: string; name: string; tier: string; monthlyCredits: number;
@@ -40,4 +41,36 @@ export const subscriptionApi = {
   cancelAutoRenew: () => apiFetch('/subscription/cancel-auto-renew', { method: 'POST' }),
   enableAutoRenew: () => apiFetch('/subscription/enable-auto-renew', { method: 'POST' }),
   getBalance: () => apiFetch<CreditBalance>('/credits/balance'),
+
+  // ── Banner ──
+
+  /** 获取公开 banner（无需登录） */
+  getPublicBanner: () =>
+    apiFetch<PublicBannerData | null>('/subscription/banner'),
+
+  /** [Admin] 获取完整 banner 配置 */
+  getAdminBanner: () =>
+    apiFetch<AdminBannerData | null>('/admin/subscription/banner'),
+
+  /** [Admin] 部分更新 banner */
+  updateBanner: (dto: UpdateBannerDto) =>
+    apiFetch('/admin/subscription/banner', {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  /** [Admin] 上传 banner 背景图，返回 { imageKey } */
+  uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/admin/subscription/banner/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Upload failed');
+    }
+    return res.json();
+  },
 };
