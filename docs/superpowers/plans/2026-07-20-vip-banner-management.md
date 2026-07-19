@@ -367,6 +367,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { QUEUE_NAMES } from '@/config/queue.constants';
 import Redis from 'ioredis';
 import { randomUUID } from 'crypto';
 
@@ -378,7 +379,8 @@ export class SubscriptionBannerService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
-    @InjectQueue('banner-cleanup') private readonly cleanupQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.BANNER_CLEANUP) private readonly cleanupQueue: Queue,
+    @Inject(AuditService) private readonly auditLog: AuditService,
   ) {}
 
   async getPublicBanner() {
@@ -410,6 +412,12 @@ export class SubscriptionBannerService {
         await this.prisma.subscriptionBanner.update({
           where: { id: banner.id },
           data: { countdownEndAt: newEndAt },
+        });
+        // 审计日志：系统自动延期
+        await this.auditLog.create({
+          action: 'banner:auto-extend',
+          operator: 'system',
+          detail: { from: banner.countdownEndAt.toISOString(), to: newEndAt.toISOString() },
         });
         // Lua 原子释放锁（校验 value 匹配）
         await this.redis.eval(
@@ -484,6 +492,13 @@ export class SubscriptionBannerService {
 
     await this.redis.del(CACHE_KEY);
 
+    // 审计日志：Admin 配置变更
+    await this.auditLog.create({
+      action: 'banner:update',
+      operator: 'admin', // 从请求上下文获取实际用户 ID
+      detail: { before: existing, after: toPlainObject(updated) },
+    });
+
     // 旧图片异步删除
     if (
       dto.backgroundImageKey !== undefined &&
@@ -536,7 +551,14 @@ git commit -m "feat(api): add SubscriptionBannerService with TDD — CRUD, cache
 创建 `apps/api/src/modules/subscription/dto/update-banner.dto.ts`：
 
 ```ts
-import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, Matches } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, Matches, ValidateIf, ValidationOptions } from 'class-validator';
+
+// 自定义装饰器：允许 null 值通过校验
+function IsNullable(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    ValidateIf((_obj, value) => value !== null, validationOptions)(object, propertyName);
+  };
+}
 
 export class UpdateBannerDto {
   @IsOptional()
@@ -550,16 +572,19 @@ export class UpdateBannerDto {
   subtitle?: string;
 
   @IsOptional()
+  @IsNullable()
   @IsString()
   backgroundImageKey?: string | null;
 
   @IsOptional()
+  @IsNullable()
   @IsString()
   @MaxLength(500)
   @Matches(/^https?:\/\//, { message: 'backgroundImageUrl must use http or https protocol' })
   backgroundImageUrl?: string | null;
 
   @IsOptional()
+  @IsNullable()
   @IsDateString()
   countdownEndAt?: string | null;
 
@@ -675,12 +700,13 @@ export class AdminBannerController {
     if (!file) throw new BadRequestException('未上传文件');
 
     // 文件头魔数校验
-    const magic = file.buffer.slice(0, 4);
-    const validMagic = (
-      (magic[0] === 0xFF && magic[1] === 0xD8 && magic[2] === 0xFF) || // JPEG
-      (magic[0] === 0x89 && magic[1] === 0x50 && magic[2] === 0x4E && magic[3] === 0x47) || // PNG
-      (magic[0] === 0x52 && magic[1] === 0x49 && magic[2] === 0x46 && magic[3] === 0x46) // WEBP (RIFF)
-    );
+    const head = file.buffer;
+    const isJPEG = head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF;
+    const isPNG  = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47;
+    // WebP: RIFF(4) + size(4) + WEBP(4)，必须校验前12字节才能唯一标识
+    const isWebP = head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
+                && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
+    const validMagic = isJPEG || isPNG || isWebP;
     if (!validMagic) {
       throw new BadRequestException('文件类型不匹配');
     }
@@ -717,13 +743,15 @@ git commit -m "feat(api): add public and admin banner controllers with DTO valid
 修改 `apps/api/src/modules/subscription/subscription.module.ts`：
 
 ```ts
-// 在 imports 中无需额外添加（PrismaService 和 REDIS_CLIENT 来自全局/根模块）
-
-import { SubscriptionBannerService } from './subscription-banner.service';
-import { SubscriptionBannerPublicController } from './subscription-banner.public.controller';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_NAMES } from '@/config/queue.constants';
 
 @Module({
-  imports: [CreditModule, OrderModule],
+  imports: [
+    CreditModule,
+    OrderModule,
+    BullModule.registerQueue({ name: QUEUE_NAMES.BANNER_CLEANUP }),
+  ],
   controllers: [SubscriptionController, SubscriptionBannerPublicController],
   providers: [SubscriptionService, PricingService, SubscriptionBannerService],
   exports: [SubscriptionService, PricingService, SubscriptionBannerService],
@@ -803,9 +831,11 @@ import type { PublicBannerData, AdminBannerData, UpdateBannerDto } from '@flowwe
   uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {
     const formData = new FormData();
     formData.append('file', file);
+    // 基于 apiFetch 底层 fetch 封装，手动处理 FormData（apiFetch 默认 JSON）
     const res = await fetch('/api/admin/subscription/banner/upload', {
       method: 'POST',
       body: formData,
+      credentials: 'include', // 携带 Cookie 鉴权
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -1404,24 +1434,27 @@ git commit -m "feat(web): refactor VIP modal banner to data-driven with image fa
 **Files:**
 - Create/Modify: `apps/api/src/modules/media/media.controller.ts`（或新建简易端点）
 
-**背景：** Banner 图片来源 `backgroundImageKey` 存储的是 MinIO key，前端需要通过预签名 URL 或文件代理访问。若项目已有 `/api/media/:fileId/url` 但需要 `fileId`（而非 key），则需新增按 key 查询的端点。
+**背景：** Banner 图片来源 `backgroundImageKey` 存储的是 MinIO key，前端需要通过预签名 URL 访问。前端直接使用图片端点路径作为 `<img src>`，因此端点需返回 302 重定向（非 JSON），且端点必须公开无需登录。
 
-- [ ] **Step 1: 新增 GET `/api/media/by-key` 端点**
+- [ ] **Step 1: 新增公开 GET `/api/media/by-key` 端点（302 重定向）**
 
 在 `apps/api/src/modules/media/media.controller.ts` 中添加：
 
 ```ts
 @Get('by-key')
+@Redirect()
 async getUrlByKey(@Query('key') key: string) {
   if (!key) throw new BadRequestException('key is required');
   const url = await this.minio.generatePresignedGetUrl(key, 900);
-  return { url };
+  return { url, statusCode: 302 };
 }
 ```
 
-> 或者直接返回 302 重定向到预签名 URL。若项目为私有桶，这是必需的。
+- [ ] **Step 2: 将端点加入公开访问前缀**
 
-- [ ] **Step 2: 验证 + 提交**
+检查 `apps/api/src/auth/auth.guard.ts` 的 `PUBLIC_PREFIXES`，确保 `/api/media/by-key` 在其中（或 `/api/media` 前缀已在放行列表）。若不在，添加到放行列表，与订阅计划查询接口权限对齐。游客必须能加载 Banner 图片。
+
+- [ ] **Step 3: 验证 + 提交**
 
 ```bash
 cd apps/api && npx tsc --noEmit
@@ -1455,7 +1488,7 @@ import { Job } from 'bullmq';
 import { Inject } from '@nestjs/common';
 import { MinioService } from '../../minio/minio.service';
 
-@Processor('banner-cleanup')
+@Processor(QUEUE_NAMES.BANNER_CLEANUP)
 export class BannerCleanupProcessor extends WorkerHost {
   constructor(@Inject(MinioService) private readonly minio: MinioService) {
     super();
