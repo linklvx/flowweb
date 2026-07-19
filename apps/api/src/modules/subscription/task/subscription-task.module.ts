@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { GrantCreditProcessor } from './grant-credit.processor';
 import { ExpireSubscriptionProcessor } from './expire-subscription.processor';
+import { BannerCleanupProcessor } from './banner-cleanup.processor';
 import { SubscriptionSchedulerService } from './subscription-scheduler.service';
+import { QUEUE_NAMES } from '../../../config/queue.constants';
 
 @Module({
   imports: [
@@ -16,7 +18,8 @@ import { SubscriptionSchedulerService } from './subscription-scheduler.service';
         defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
       },
     ),
+    BullModule.registerQueue({ name: QUEUE_NAMES.BANNER_CLEANUP }),
   ],
-  providers: [GrantCreditProcessor, ExpireSubscriptionProcessor, SubscriptionSchedulerService],
+  providers: [GrantCreditProcessor, ExpireSubscriptionProcessor, BannerCleanupProcessor, SubscriptionSchedulerService],
 })
 export class SubscriptionTaskModule {}
