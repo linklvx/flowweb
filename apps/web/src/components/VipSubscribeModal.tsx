@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, useCallback, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useVipModalStore } from '@/stores/vipModalStore';
+import { useSubscriptionPlans } from '@/hooks/useSubscription';
 import type { SubscriptionTier, SubscriptionPeriod } from '@flowweb/shared';
 
 // ─── Types ───
@@ -35,53 +36,36 @@ interface VipSubscribeModalProps {
   plansByPeriod?: Record<SubscriptionPeriod, VipPlan[]>;
 }
 
-// ─── Mock Data ───
+// ─── Static tier metadata (non-price fields) ───
 
-const DEFAULT_PLANS_BY_PERIOD: Record<SubscriptionPeriod, VipPlan[]> = {
-  monthly: [
-    {
-      tier: 'basic', name: '普通', price: 49, originalPrice: 66, discountTag: '75折',
-      monthlyPoints: 1500, imageEstimate: 6000, videoEstimate: 300,
-      concurrentLimit: 8, storageSize: '60GB', annualSavingPercent: 20,
-      rights: {
-        limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
-        general: ['8个并发任务', '云端存储空间60GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
-        exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
-      },
-    },
-    {
-      tier: 'pro', name: 'Pro', price: 149, originalPrice: 199, discountTag: '75折',
-      monthlyPoints: 4600, imageEstimate: 18400, videoEstimate: 920,
-      concurrentLimit: 12, storageSize: '100GB', annualSavingPercent: 46,
-      rights: {
-        limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
-        general: ['12个并发任务', '云端存储空间100GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
-        exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
-      },
-    },
-    {
-      tier: 'max', name: 'Max', price: 499, originalPrice: 669, discountTag: '75折',
-      monthlyPoints: 16300, imageEstimate: 65200, videoEstimate: 3260,
-      concurrentLimit: 20, storageSize: '300GB', annualSavingPercent: 47,
-      rights: {
-        limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
-        general: ['20个并发任务', '云端存储空间300GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
-        exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
-      },
-    },
-    {
-      tier: 'ultra', name: 'Ultra', price: 999, originalPrice: 1299, discountTag: '77折',
-      monthlyPoints: 32800, imageEstimate: 131200, videoEstimate: 6560,
-      concurrentLimit: null, storageSize: '600GB', annualSavingPercent: 47,
-      rights: {
-        limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
-        general: ['无限并发任务', '云端存储空间600GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
-        exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
-      },
-    },
-  ],
-  quarterly: [],
-  annually: [],
+const TIER_RIGHTS: Record<string, VipPlan['rights']> = {
+  basic: {
+    limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
+    general: ['8个并发任务', '云端存储空间60GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
+    exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
+  },
+  pro: {
+    limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
+    general: ['12个并发任务', '云端存储空间100GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
+    exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
+  },
+  max: {
+    limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
+    general: ['20个并发任务', '云端存储空间300GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
+    exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
+  },
+  ultra: {
+    limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
+    general: ['无限并发任务', '云端存储空间600GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
+    exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
+  },
+};
+
+const TIER_EXTRAS: Record<string, { concurrentLimit: number | null; storageSize: string; annualSavingPercent: number }> = {
+  basic: { concurrentLimit: 8, storageSize: '60GB', annualSavingPercent: 20 },
+  pro: { concurrentLimit: 12, storageSize: '100GB', annualSavingPercent: 46 },
+  max: { concurrentLimit: 20, storageSize: '300GB', annualSavingPercent: 47 },
+  ultra: { concurrentLimit: null, storageSize: '600GB', annualSavingPercent: 47 },
 };
 
 const FAQ_LIST: FaqItem[] = [
@@ -133,7 +117,36 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
   const [activeTier, setActiveTier] = useState<SubscriptionTier>('pro');
   const [activeTab, setActiveTab] = useState<'creator' | 'team'>('creator');
   const [expandedFaqs, setExpandedFaqs] = useState<Set<string>>(new Set());
-  const plans = (plansByPeriod ?? DEFAULT_PLANS_BY_PERIOD)[period];
+  const { data: apiPlans } = useSubscriptionPlans();
+
+  const plans: VipPlan[] = useMemo(() => {
+    const source = plansByPeriod ? plansByPeriod[period] : null;
+    if (source) return source;
+
+    if (!apiPlans.length) return [];
+
+    return apiPlans.map(p => {
+      const firstPrice = period === 'monthly' ? p.firstPriceMonthly : period === 'quarterly' ? p.firstPriceQuarterly : p.firstPriceAnnually;
+      const origPrice = period === 'monthly' ? p.priceMonthly : period === 'quarterly' ? p.priceQuarterly : p.priceAnnually;
+      const extras = TIER_EXTRAS[p.tier] ?? TIER_EXTRAS.basic;
+      const rights = TIER_RIGHTS[p.tier] ?? TIER_RIGHTS.basic;
+
+      return {
+        tier: p.tier as SubscriptionTier,
+        name: p.name,
+        price: firstPrice ?? 0,
+        originalPrice: origPrice ?? 0,
+        discountTag: origPrice > 0 ? Math.round(firstPrice / origPrice * 10) + '折' : '-',
+        monthlyPoints: p.monthlyCredits,
+        imageEstimate: p.monthlyCredits * 4,
+        videoEstimate: Math.floor(p.monthlyCredits * 0.2),
+        concurrentLimit: extras.concurrentLimit,
+        storageSize: extras.storageSize,
+        annualSavingPercent: extras.annualSavingPercent,
+        rights,
+      };
+    });
+  }, [apiPlans, period, plansByPeriod]);
 
   // —— Scroll lock (only when mounted and visible) ——
   useEffect(() => {

@@ -2,6 +2,46 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { VipSubscribeModal } from './VipSubscribeModal';
 import { useVipModalStore } from '@/stores/vipModalStore';
+import type { SubscriptionPeriod } from '@flowweb/shared';
+
+function makePlan(tier: string, name: string, firstPrice: number, regularPrice: number, credits: number) {
+  return {
+    tier, name, price: firstPrice, originalPrice: regularPrice,
+    discountTag: regularPrice > 0 ? Math.round(firstPrice / regularPrice * 10) + '折' : '-',
+    monthlyPoints: credits,
+    imageEstimate: credits * 4,
+    videoEstimate: Math.floor(credits * 0.2),
+    concurrentLimit: tier === 'ultra' ? null : (tier === 'max' ? 20 : tier === 'pro' ? 12 : 8),
+    storageSize: tier === 'ultra' ? '600GB' : tier === 'max' ? '300GB' : tier === 'pro' ? '100GB' : '60GB',
+    annualSavingPercent: tier === 'ultra' ? 47 : tier === 'max' ? 47 : tier === 'pro' ? 46 : 20,
+    rights: {
+      limited: ['Seedream 5.0 Pro 限时8折', 'Happy Horse 1.1 限时4折'],
+      general: ['8个并发任务', '云端存储空间60GB', '去除品牌水印 商用无忧', '会员专享无限次加速', '登录每日赠送20积分', '训练专属权益'],
+      exclusive: ['脚本策划', '智能分镜（Kling3.0/O3）', '9/4/25 宫格生成', '宫格切分', '镜头聚焦', '多模态主体库', '视频剪辑', '720 度全景'],
+    },
+  } as any;
+}
+
+const PLANS_BY_PERIOD: Record<SubscriptionPeriod, any[]> = {
+  monthly: [
+    makePlan('basic', '普通', 49, 66, 1500),
+    makePlan('pro', 'Pro', 149, 199, 4600),
+    makePlan('max', 'Max', 499, 669, 16300),
+    makePlan('ultra', 'Ultra', 999, 1299, 32800),
+  ],
+  quarterly: [
+    makePlan('basic', '普通', 135, 180, 1500),
+    makePlan('pro', 'Pro', 400, 540, 4600),
+    makePlan('max', 'Max', 1400, 1800, 16300),
+    makePlan('ultra', 'Ultra', 2800, 3600, 32800),
+  ],
+  annually: [
+    makePlan('basic', '普通', 520, 720, 1500),
+    makePlan('pro', 'Pro', 1500, 2000, 4600),
+    makePlan('max', 'Max', 5400, 7200, 16300),
+    makePlan('ultra', 'Ultra', 10800, 14400, 32800),
+  ],
+};
 
 describe('VipSubscribeModal', () => {
   beforeEach(() => {
@@ -17,11 +57,11 @@ describe('VipSubscribeModal', () => {
 
   const renderOpen = () => {
     act(() => { useVipModalStore.getState().open(); });
-    return render(<VipSubscribeModal />);
+    return render(<VipSubscribeModal plansByPeriod={PLANS_BY_PERIOD} />);
   };
 
   const renderClosed = () => {
-    return render(<VipSubscribeModal />);
+    return render(<VipSubscribeModal plansByPeriod={PLANS_BY_PERIOD} />);
   };
 
   // Helper: trigger close and flush exit animation timer
@@ -85,10 +125,8 @@ describe('VipSubscribeModal', () => {
     const { unmount } = renderOpen();
     expect(document.body.style.overflow).toBe('hidden');
 
-    // Close store directly and advance exit timer
     act(() => { useVipModalStore.getState().close(); });
     act(() => { vi.runAllTimers(); });
-    // Re-render to let React process the state changes
     unmount();
 
     expect(document.body.style.overflow).toBe('scroll');
@@ -109,7 +147,23 @@ describe('VipSubscribeModal', () => {
     expect(screen.getByText('Ultra')).toBeInTheDocument();
   });
 
-  // ─── 7. Period switching ───
+  // ─── 7. Plan cards show API-driven data ───
+  it('should display first price as the main price', () => {
+    renderOpen();
+    expect(screen.getByText('49')).toBeInTheDocument();
+  });
+
+  it('should display original price as strikethrough', () => {
+    renderOpen();
+    expect(screen.getByText('¥66')).toBeInTheDocument();
+  });
+
+  it('should display monthly credits', () => {
+    renderOpen();
+    expect(screen.getByText('1,500')).toBeInTheDocument();
+  });
+
+  // ─── 8. Period switching ───
   it('should have period tabs', () => {
     renderOpen();
     expect(screen.getByText('连续包月')).toBeInTheDocument();
@@ -123,7 +177,7 @@ describe('VipSubscribeModal', () => {
     expect(monthlyBtn).not.toBeNull();
   });
 
-  // ─── 8. FAQ expand/collapse ───
+  // ─── 9. FAQ expand/collapse ───
   it('should render FAQ items', () => {
     renderOpen();
     expect(screen.getByText('积分有效期规则')).toBeInTheDocument();
@@ -133,7 +187,6 @@ describe('VipSubscribeModal', () => {
   it('should toggle FAQ item on click', () => {
     renderOpen();
     const faqBtn = screen.getByText('积分有效期规则').closest('button')!;
-    // Initially collapsed - aria-expanded is false
     expect(faqBtn).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(faqBtn);
@@ -158,7 +211,7 @@ describe('VipSubscribeModal', () => {
     expect(faq2).toHaveAttribute('aria-expanded', 'true');
   });
 
-  // ─── 9. Team tab shows placeholder ───
+  // ─── 10. Team tab shows placeholder ───
   it('should show placeholder when team tab is clicked', () => {
     renderOpen();
     const teamTab = screen.getByText('团队版会员');
@@ -167,17 +220,16 @@ describe('VipSubscribeModal', () => {
     expect(screen.queryByText('立即开通')).not.toBeInTheDocument();
   });
 
-  // ─── 10. Default selections ───
+  // ─── 11. Default selections ───
   it('should have Pro tier active by default', () => {
     renderOpen();
     expect(screen.getByText('Pro')).toBeInTheDocument();
-    // Pro card should have the selected border
     const proCard = document.querySelector('[data-tier="pro"]');
     expect(proCard).not.toBeNull();
     expect(proCard?.className).toContain('border-[#4ade80]');
   });
 
-  // ─── 11. Accessibility attributes ───
+  // ─── 12. Accessibility attributes ───
   it('should have role="dialog" and aria-modal="true"', () => {
     renderOpen();
     const dialog = screen.getByRole('dialog');
@@ -185,39 +237,45 @@ describe('VipSubscribeModal', () => {
     expect(dialog).toHaveAttribute('aria-labelledby', 'vip-modal-title');
   });
 
-  // ─── 12. Close button aria-label ───
+  // ─── 13. Close button aria-label ───
   it('should have close button with aria-label', () => {
     renderOpen();
     const closeBtn = screen.getByLabelText('关闭会员弹窗');
     expect(closeBtn).toBeInTheDocument();
   });
 
-  // ─── 13. Card selection switches activeTier ───
+  // ─── 14. Card selection switches activeTier ───
   it('should switch active tier on card click', () => {
     renderOpen();
-    // Click basic card to switch away from default Pro
     const basicCard = document.querySelector('[data-tier="basic"]') as HTMLElement;
     expect(basicCard).not.toBeNull();
     fireEvent.click(basicCard);
     expect(basicCard.className).toContain('border-[#4ade80]');
   });
 
-  // ─── 14. Cards layout ───
+  // ─── 15. Cards layout ───
   it('should render cards in a flex container', () => {
     renderOpen();
     const cards = document.querySelectorAll('[data-tier]');
     expect(cards.length).toBe(4);
   });
 
-  // ─── 15. Card keyboard accessibility ───
+  // ─── 16. Card keyboard accessibility ───
   it('cards should be keyboard accessible via Tab', () => {
     renderOpen();
-    // Cards have tabIndex={0}
     const cards = document.querySelectorAll('[data-tier]');
     expect(cards.length).toBe(4);
     cards.forEach(card => {
       expect(card.getAttribute('tabindex')).toBe('0');
     });
+  });
+
+  // ─── 17. When no plansByPeriod prop, fetches from API ───
+  it('should render empty when API has no plans yet', () => {
+    act(() => { useVipModalStore.getState().open(); });
+    const { container } = render(<VipSubscribeModal />);
+    // No plans loaded from API, so no plan cards
+    expect(screen.queryByText('立即开通')).not.toBeInTheDocument();
   });
 
   // ─── Entrance animation ───

@@ -10,8 +10,11 @@ export interface CreatePlanDto {
   tier: 'basic' | 'pro' | 'max' | 'ultra';
   monthlyCredits: number;
   priceMonthly: number;
+  firstPriceMonthly?: number;
   priceQuarterly: number;
+  firstPriceQuarterly?: number;
   priceAnnually: number;
+  firstPriceAnnually?: number;
   sort?: number;
 }
 
@@ -19,8 +22,11 @@ export interface UpdatePlanDto {
   name?: string;
   monthlyCredits?: number;
   priceMonthly?: number;
+  firstPriceMonthly?: number;
   priceQuarterly?: number;
+  firstPriceQuarterly?: number;
   priceAnnually?: number;
+  firstPriceAnnually?: number;
   sort?: number;
   isActive?: boolean;
   tier?: 'basic' | 'pro' | 'max' | 'ultra';

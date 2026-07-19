@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Table, Button, Tag, message, Modal, InputNumber } from 'antd';
+import { useState, useEffect, useRef } from 'react';
+import { Table, Button, Tag, message, Modal, InputNumber, Input } from 'antd';
 
 const PLAN_COLORS: Record<string, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
 const API = '/api/admin/subscription';
@@ -7,6 +7,8 @@ const API = '/api/admin/subscription';
 export function PlanManagementTab() {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingCell, setEditingCell] = useState<string | null>(null);
+  const numberRef = useRef<number>(0);
 
   const load = async () => {
     setLoading(true);
@@ -17,14 +19,68 @@ export function PlanManagementTab() {
   };
   useEffect(() => { load(); }, []);
 
+  const cellKey = (id: string, field: string) => `${id}::${field}`;
+
+  const save = async (id: string, field: string, value: any) => {
+    setEditingCell(null);
+    try {
+      await fetch(`${API}/plans/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      message.success('已更新');
+      load();
+    } catch { message.error('更新失败'); load(); }
+  };
+
+  const renderTextEdit = (v: string, record: any, field: string) => {
+    if (editingCell === cellKey(record.id, field)) {
+      return (
+        <Input
+          autoFocus
+          defaultValue={v}
+          size="small"
+          onBlur={e => save(record.id, field, e.target.value)}
+          onPressEnter={e => save(record.id, field, (e.target as HTMLInputElement).value)}
+          onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null); }}
+        />
+      );
+    }
+    return <div onClick={() => setEditingCell(cellKey(record.id, field))} style={{ cursor: 'pointer', minHeight: 22 }}>{v}</div>;
+  };
+
+  const renderNumberEdit = (v: number, record: any, field: string, min?: number) => {
+    if (editingCell === cellKey(record.id, field)) {
+      numberRef.current = v;
+      return (
+        <InputNumber
+          autoFocus
+          defaultValue={v}
+          size="small"
+          style={{ width: '100%' }}
+          min={min ?? 0}
+          onChange={val => { numberRef.current = val ?? 0; }}
+          onBlur={() => save(record.id, field, numberRef.current)}
+          onPressEnter={() => save(record.id, field, numberRef.current)}
+          onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null); }}
+        />
+      );
+    }
+    return <div onClick={() => setEditingCell(cellKey(record.id, field))} style={{ cursor: 'pointer', minHeight: 22 }}>{v}</div>;
+  };
+
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 100, ellipsis: true },
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name', render: (v: string, r: any) => renderTextEdit(v, r, 'name') },
     { title: '档位', dataIndex: 'tier', key: 'tier', render: (v: string) => <Tag color={PLAN_COLORS[v]}>{v}</Tag> },
-    { title: '月积分', dataIndex: 'monthlyCredits', key: 'monthlyCredits' },
-    { title: '包月价', dataIndex: 'priceMonthly', key: 'priceMonthly' },
-    { title: '包季价', dataIndex: 'priceQuarterly', key: 'priceQuarterly' },
-    { title: '包年价', dataIndex: 'priceAnnually', key: 'priceAnnually' },
+    { title: '月积分', dataIndex: 'monthlyCredits', key: 'monthlyCredits', render: (v: number, r: any) => renderNumberEdit(v, r, 'monthlyCredits') },
+    { title: '包月价', dataIndex: 'priceMonthly', key: 'priceMonthly', render: (v: number, r: any) => renderNumberEdit(v, r, 'priceMonthly') },
+    { title: '首次包月价', dataIndex: 'firstPriceMonthly', key: 'firstPriceMonthly', render: (v: number, r: any) => renderNumberEdit(v, r, 'firstPriceMonthly') },
+    { title: '包季价', dataIndex: 'priceQuarterly', key: 'priceQuarterly', render: (v: number, r: any) => renderNumberEdit(v, r, 'priceQuarterly') },
+    { title: '首次包季价', dataIndex: 'firstPriceQuarterly', key: 'firstPriceQuarterly', render: (v: number, r: any) => renderNumberEdit(v, r, 'firstPriceQuarterly') },
+    { title: '包年价', dataIndex: 'priceAnnually', key: 'priceAnnually', render: (v: number, r: any) => renderNumberEdit(v, r, 'priceAnnually') },
+    { title: '首次包年价', dataIndex: 'firstPriceAnnually', key: 'firstPriceAnnually', render: (v: number, r: any) => renderNumberEdit(v, r, 'firstPriceAnnually') },
     { title: '排序', dataIndex: 'sort', key: 'sort' },
     { title: '状态', dataIndex: 'isActive', key: 'isActive', render: (v: boolean) => v ? <Tag color="green">上架</Tag> : <Tag color="default">下架</Tag> },
   ];

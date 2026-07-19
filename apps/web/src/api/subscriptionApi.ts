@@ -2,7 +2,10 @@ import { apiFetch } from './client';
 
 export interface SubscriptionPlan {
   id: string; name: string; tier: string; monthlyCredits: number;
-  priceMonthly: number; priceQuarterly: number; priceAnnually: number; sort: number;
+  priceMonthly: number; firstPriceMonthly: number;
+  priceQuarterly: number; firstPriceQuarterly: number;
+  priceAnnually: number; firstPriceAnnually: number;
+  sort: number;
 }
 
 export interface MySubscription {
