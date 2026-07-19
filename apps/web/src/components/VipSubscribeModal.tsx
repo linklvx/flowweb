@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, type KeyboardEvent }
 import { createPortal } from 'react-dom';
 import { useVipModalStore } from '@/stores/vipModalStore';
 import { useSubscriptionPlans, usePublicBanner } from '@/hooks/useSubscription';
+import { getPresignedUrlByKey } from '@/api/mediaApi';
 import type { SubscriptionTier, SubscriptionPeriod } from '@flowweb/shared';
 
 // ─── Types ───
@@ -169,13 +170,13 @@ function BannerCountdown({ endAt, onExpired }: { endAt: string; onExpired: () =>
 }
 
 function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownExpired: () => void }) {
-  const [bgStyle, setBgStyle] = useState<React.CSSProperties>({});
-  const triedRef = useRef(false);
+  const [bgStyle, setBgStyle] = useState<React.CSSProperties>({
+    background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  });
 
   useEffect(() => {
-    if (triedRef.current) return;
-    triedRef.current = true;
-
     const applyFallback = () => {
       setBgStyle({
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
@@ -184,40 +185,52 @@ function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownE
       });
     };
 
-    const primaryUrl = data.backgroundImageKey
-      ? `/api/media/by-key?key=${encodeURIComponent(data.backgroundImageKey)}`
-      : null;
-    const fallbackUrl = data.backgroundImageUrl;
+    const loadImage = async () => {
+      // Priority: uploaded image (via MinIO key + Vite proxy) > external URL > default gradient
+      let primaryUrl: string | null = null;
 
-    if (primaryUrl || fallbackUrl) {
-      const img = new Image();
-      img.onload = () => {
-        setBgStyle({
-          backgroundImage: `url(${img.src})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        });
-      };
-      img.onerror = () => {
-        if (primaryUrl && fallbackUrl) {
-          const img2 = new Image();
-          img2.onload = () => {
-            setBgStyle({
-              backgroundImage: `url(${fallbackUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            });
-          };
-          img2.onerror = applyFallback;
-          img2.src = fallbackUrl;
-        } else {
-          applyFallback();
+      if (data.backgroundImageKey) {
+        try {
+          primaryUrl = await getPresignedUrlByKey(data.backgroundImageKey);
+        } catch {
+          // fetch failed, fall through to external URL or gradient
         }
-      };
-      img.src = primaryUrl || fallbackUrl!;
-    } else {
-      applyFallback();
-    }
+      }
+
+      const fallbackUrl = data.backgroundImageUrl || null;
+
+      if (primaryUrl || fallbackUrl) {
+        const img = new Image();
+        img.onload = () => {
+          setBgStyle({
+            backgroundImage: `url(${img.src})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          });
+        };
+        img.onerror = () => {
+          if (primaryUrl && fallbackUrl) {
+            const img2 = new Image();
+            img2.onload = () => {
+              setBgStyle({
+                backgroundImage: `url(${fallbackUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              });
+            };
+            img2.onerror = applyFallback;
+            img2.src = fallbackUrl;
+          } else {
+            applyFallback();
+          }
+        };
+        img.src = primaryUrl || fallbackUrl!;
+      } else {
+        applyFallback();
+      }
+    };
+
+    loadImage();
   }, [data.backgroundImageKey, data.backgroundImageUrl]);
 
   return (

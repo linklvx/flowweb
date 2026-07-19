@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Button, message, Switch, DatePicker } from 'antd';
 import dayjs from 'dayjs';
 import { subscriptionApi } from '@/api/subscriptionApi';
+import { getPresignedUrlByKey } from '@/api/mediaApi';
 import type { AdminBannerData } from '@flowweb/shared';
 
 export function BannerManagementTab() {
@@ -14,6 +15,7 @@ export function BannerManagementTab() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState('');
   const [uploadedImageKey, setUploadedImageKey] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState('');
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [countdownEndAt, setCountdownEndAt] = useState<string | null>(null);
   const [autoExtend, setAutoExtend] = useState(false);
   const [isActive, setIsActive] = useState(true);
@@ -78,11 +80,18 @@ export function BannerManagementTab() {
     setUploadedFileName('');
   };
 
-  // 通过 MinIO key 拼装预览 URL（项目统一文件代理接口）
-  const getImagePreviewUrl = (key: string | null) => {
-    if (!key) return null;
-    return `/api/media/by-key?key=${encodeURIComponent(key)}`;
-  };
+  // 通过 MinIO key 获取 presigned URL（经 /flowai Vite 代理访问）
+  useEffect(() => {
+    let cancelled = false;
+    if (uploadedImageKey) {
+      getPresignedUrlByKey(uploadedImageKey).then(url => {
+        if (!cancelled) setImagePreviewUrl(url);
+      }).catch(() => {});
+    } else {
+      setImagePreviewUrl(null);
+    }
+    return () => { cancelled = true; };
+  }, [uploadedImageKey]);
 
   const getCountdownPreview = () => {
     if (!countdownEndAt) return null;
@@ -197,11 +206,11 @@ export function BannerManagementTab() {
         <div
           className="w-full rounded-xl overflow-hidden flex items-center justify-between px-6 py-5"
           style={{
-            background: (uploadedImageKey || backgroundImageUrl)
+            background: (imagePreviewUrl || backgroundImageUrl)
               ? undefined
               : 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
             backgroundImage: (() => {
-              const url = getImagePreviewUrl(uploadedImageKey) || backgroundImageUrl;
+              const url = imagePreviewUrl || backgroundImageUrl;
               return url ? `url(${url})` : undefined;
             })(),
             backgroundSize: 'cover',
