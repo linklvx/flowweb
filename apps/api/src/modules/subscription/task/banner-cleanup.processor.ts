@@ -10,18 +10,12 @@ export class BannerCleanupProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ oldImageKey: string }>) {
-    const { oldImageKey } = job.data;
-    try {
-      await this.minio.delete(oldImageKey);
-    } catch (err: any) {
-      // NoSuchKey = already deleted, which is fine
-      if (err.code !== 'NoSuchKey') throw err;
-    }
+  async process(job: Job<{ key: string }>) {
+    await this.minio.delete(job.data.key);
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job, err: Error) {
-    console.error(`[BannerCleanup] Failed to delete ${job.data.oldImageKey}:`, err.message);
+    console.error(`[BannerCleanup] Failed to delete ${job.data?.key}:`, err.message);
   }
 }

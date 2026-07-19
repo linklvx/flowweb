@@ -7,6 +7,8 @@ const PUBLIC_PREFIXES = [
   '/api/auth',
   '/api/announcements',
   '/api/pricing/calculate',
+  '/api/subscription',
+  '/api/media/by-key',
 ];
 
 @Injectable()

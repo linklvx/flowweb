@@ -452,6 +452,27 @@ model SubscriptionPlan {
   @@index([isActive, sort])
 }
 
+model SubscriptionBanner {
+  id                  String    @id @default("subscription-banner-singleton")
+  /// Banner 标题文字，最多64字符
+  title               String    @db.VarChar(64)
+  /// Banner 副标题/描述文字，最多200字符
+  subtitle            String    @db.VarChar(200)
+  /// 外部图片URL，优先使用已上传图片
+  backgroundImageUrl  String?   @db.VarChar(500)
+  /// MinIO 对象存储 Key，优先级高于外部URL
+  backgroundImageKey  String?   @db.VarChar(255)
+  /// 倒计时截止时间，UTC存储；为空则不展示倒计时
+  countdownEndAt      DateTime?
+  /// 倒计时归零后自动顺延3天，仅countdownEndAt非空时生效
+  autoExtend          Boolean   @default(false)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("subscription_banner")
+}
+
 model UserSubscription {
   id                 String               @id @default(cuid())
   userId             String

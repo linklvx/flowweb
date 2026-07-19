@@ -22,6 +22,7 @@ import { QUEUE_NAMES } from '../../../config/queue.constants';
         defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
       },
     ),
+    BullModule.registerQueue({ name: QUEUE_NAMES.BANNER_CLEANUP }),
   ],
   providers: [GrantCreditProcessor, ExpireSubscriptionProcessor, BannerCleanupProcessor, SubscriptionSchedulerService],
 })

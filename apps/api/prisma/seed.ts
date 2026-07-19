@@ -203,6 +203,13 @@ async function main() {
     create: { userId: 'default-user', credits: 100, version: 0 },
   });
 
+  // Seed subscription banner singleton
+  await prisma.subscriptionBanner.upsert({
+    where: { id: 'subscription-banner-singleton' },
+    create: { id: 'subscription-banner-singleton', title: '', subtitle: '', isActive: false },
+    update: {},
+  });
+
   console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance + Phase 5 video models');
 }
 

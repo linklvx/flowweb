@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { subscriptionApi, type SubscriptionPlan, type MySubscription, type UpgradePreview } from '@/api/subscriptionApi';
+import type { PublicBannerData } from '@flowweb/shared';
 
 export function useSubscriptionPlans() {
   const [data, setData] = useState<SubscriptionPlan[]>([]);
@@ -84,4 +85,26 @@ export function useUpgradePreview(targetPlanId: string | null, targetPeriod: str
   }, [targetPlanId, targetPeriod]);
 
   return { data, loading };
+}
+
+export function usePublicBanner() {
+  const [data, setData] = useState<PublicBannerData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const result = await subscriptionApi.getPublicBanner();
+      setData(result);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { data, loading, error, refresh };
 }

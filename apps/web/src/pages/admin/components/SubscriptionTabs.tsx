@@ -170,3 +170,5 @@ export function CreditManagementTab() {
     </div>
   );
 }
+
+export { BannerManagementTab } from './BannerManagementTab';

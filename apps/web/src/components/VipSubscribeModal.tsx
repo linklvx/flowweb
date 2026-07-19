@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useVipModalStore } from '@/stores/vipModalStore';
-import { useSubscriptionPlans } from '@/hooks/useSubscription';
+import { useSubscriptionPlans, usePublicBanner } from '@/hooks/useSubscription';
 import type { SubscriptionTier, SubscriptionPeriod } from '@flowweb/shared';
 
 // ─── Types ───
@@ -105,6 +105,134 @@ const PERIOD_UNIT: Record<SubscriptionPeriod, string> = { monthly: '/月', quart
 const PERIOD_RENEWAL_PREFIX: Record<SubscriptionPeriod, string> = { monthly: '次月', quarterly: '次季', annually: '次年' };
 const TIER_COLORS: Record<SubscriptionTier, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
 
+// ─── Helper Components ───
+
+function BannerCountdown({ endAt, onExpired }: { endAt: string; onExpired: () => void }) {
+  const calc = () => {
+    const diff = new Date(endAt).getTime() - Date.now();
+    if (diff <= 0) return { days: '00', hours: '00', mins: '00', secs: '00', expired: true as const };
+    return {
+      days: String(Math.floor(diff / 86400000)).padStart(2, '0'),
+      hours: String(Math.floor((diff % 86400000) / 3600000)).padStart(2, '0'),
+      mins: String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0'),
+      secs: String(Math.floor((diff % 60000) / 1000)).padStart(2, '0'),
+      expired: false as const,
+    };
+  };
+
+  const [time, setTime] = useState(calc);
+  const expiredRef = useRef(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const t = calc();
+      setTime(t);
+      if (t.expired && !expiredRef.current) {
+        expiredRef.current = true;
+        onExpired();
+      }
+    }, 1000);
+
+    const onVisible = () => {
+      if (!document.hidden) {
+        const t = calc();
+        setTime(t);
+        if (t.expired && !expiredRef.current) {
+          expiredRef.current = true;
+          onExpired();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [endAt, onExpired]);
+
+  return (
+    <div className="flex gap-3 items-center">
+      {[
+        { value: time.days, unit: '天' },
+        { value: time.hours, unit: '时' },
+        { value: time.mins, unit: '分' },
+        { value: time.secs, unit: '秒' },
+      ].map(({ value, unit }) => (
+        <div key={unit} className="flex flex-col items-center">
+          <span className="font-mono text-2xl font-bold text-white bg-[#ffffff15] rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
+          <span className="text-xs text-[#888] mt-1">{unit}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownExpired: () => void }) {
+  const [bgStyle, setBgStyle] = useState<React.CSSProperties>({});
+  const triedRef = useRef(false);
+
+  useEffect(() => {
+    if (triedRef.current) return;
+    triedRef.current = true;
+
+    const applyFallback = () => {
+      setBgStyle({
+        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      });
+    };
+
+    const primaryUrl = data.backgroundImageKey
+      ? `/api/media/by-key?key=${encodeURIComponent(data.backgroundImageKey)}`
+      : null;
+    const fallbackUrl = data.backgroundImageUrl;
+
+    if (primaryUrl || fallbackUrl) {
+      const img = new Image();
+      img.onload = () => {
+        setBgStyle({
+          backgroundImage: `url(${img.src})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        });
+      };
+      img.onerror = () => {
+        if (primaryUrl && fallbackUrl) {
+          const img2 = new Image();
+          img2.onload = () => {
+            setBgStyle({
+              backgroundImage: `url(${fallbackUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            });
+          };
+          img2.onerror = applyFallback;
+          img2.src = fallbackUrl;
+        } else {
+          applyFallback();
+        }
+      };
+      img.src = primaryUrl || fallbackUrl!;
+    } else {
+      applyFallback();
+    }
+  }, [data.backgroundImageKey, data.backgroundImageUrl]);
+
+  return (
+    <div className="w-full rounded-xl overflow-hidden flex items-center justify-between px-8 py-6" style={bgStyle}>
+      <div>
+        <h2 id="vip-modal-title" className="text-xl font-bold text-white m-0">{data.title}</h2>
+        <p className="text-sm text-[#a8a8a8] mt-1 m-0">{data.subtitle}</p>
+      </div>
+      {data.countdownEndAt && (
+        <BannerCountdown endAt={data.countdownEndAt} onExpired={onCountdownExpired} />
+      )}
+    </div>
+  );
+}
+
 // ─── Component ───
 
 export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: VipSubscribeModalProps) {
@@ -120,6 +248,16 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
   const [activeTab, setActiveTab] = useState<'creator' | 'team'>('creator');
   const [expandedFaqs, setExpandedFaqs] = useState<Set<string>>(new Set());
   const { data: apiPlans } = useSubscriptionPlans();
+  const { data: bannerData, refresh: refreshBanner } = usePublicBanner();
+
+  // Only fetch when modal opens
+  const hasFetched = useRef(false);
+  useEffect(() => {
+    if (visible && !hasFetched.current) {
+      hasFetched.current = true;
+      refreshBanner();
+    }
+  }, [visible, refreshBanner]);
 
   const plans: VipPlan[] = useMemo(() => {
     const source = plansByPeriod ? plansByPeriod[period] : null;
@@ -255,30 +393,36 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
         </button>
 
         <div className="w-full max-w-[1268px] mx-auto px-[60px]">
-          {/* ── Banner ── */}
-          <div className="w-full flex justify-center mb-6">
-            <div
-              className="w-full rounded-xl overflow-hidden flex items-center justify-between px-8 py-6"
-              style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}
-            >
-              <div>
-                <h2 id="vip-modal-title" className="text-xl font-bold text-white m-0">会员限时折扣｜年卡低至 37折，Seedance 2.0 低至 0.37元/秒</h2>
-                <p className="text-sm text-[#a8a8a8] mt-1 m-0">Seedance 2.5 即将上线，抢先锁定会员</p>
+          {/* ── Banner (data-driven) ── */}
+          <div className="w-full flex justify-center mb-6" style={{ minHeight: 88 }}>
+            {bannerData ? (
+              <BannerWithImage
+                data={bannerData}
+                onCountdownExpired={refreshBanner}
+              />
+            ) : (
+              /* 降级：默认硬编码 banner */
+              <div
+                className="w-full rounded-xl overflow-hidden flex items-center justify-between px-8 py-6"
+                style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}
+              >
+                <div>
+                  <h2 id="vip-modal-title" className="text-xl font-bold text-white m-0">会员限时折扣｜年卡低至 37折，Seedance 2.0 低至 0.37元/秒</h2>
+                  <p className="text-sm text-[#a8a8a8] mt-1 m-0">Seedance 2.5 即将上线，抢先锁定会员</p>
+                </div>
+                <div className="flex gap-3 items-center">
+                  {[
+                    { value: '00', unit: '天' }, { value: '03', unit: '时' },
+                    { value: '16', unit: '分' }, { value: '50', unit: '秒' },
+                  ].map(({ value, unit }) => (
+                    <div key={unit} className="flex flex-col items-center">
+                      <span className="font-mono text-2xl font-bold text-white bg-[#ffffff15] rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
+                      <span className="text-xs text-[#888] mt-1">{unit}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-3 items-center">
-                {[
-                  { value: '00', unit: '天' },
-                  { value: '03', unit: '时' },
-                  { value: '16', unit: '分' },
-                  { value: '50', unit: '秒' },
-                ].map(({ value, unit }) => (
-                  <div key={unit} className="flex flex-col items-center">
-                    <span className="font-mono text-2xl font-bold text-white bg-[#ffffff15] rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
-                    <span className="text-xs text-[#888] mt-1">{unit}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* ── Tabs: 创作会员 / 团队版会员 ── */}

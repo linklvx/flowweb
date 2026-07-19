@@ -127,3 +127,44 @@ export interface PaginatedResponse<T> {
   page: number;
   pageSize: number;
 }
+
+// ── Banner ──
+
+/** 用户端 Banner 返回数据（字段裁剪，无内部配置字段） */
+export interface PublicBannerData {
+  /** Banner 标题文字 */
+  title: string;
+  /** Banner 副标题文字 */
+  subtitle: string;
+  /** MinIO 对象存储 Key（优先），通过文件代理接口访问 */
+  backgroundImageKey: string | null;
+  /** 外部图片 URL（降级），仅允许 http/https 协议 */
+  backgroundImageUrl: string | null;
+  /** 倒计时截止时间 ISO 8601 UTC；null 时不展示倒计时 */
+  countdownEndAt: string | null;
+}
+
+/** Admin 端 Banner 完整配置（含内部字段） */
+export interface AdminBannerData {
+  id: string;
+  title: string;
+  subtitle: string;
+  backgroundImageKey: string | null;
+  backgroundImageUrl: string | null;
+  countdownEndAt: string | null;
+  autoExtend: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Admin 部分更新 Banner 的请求体 */
+export interface UpdateBannerDto {
+  title?: string;
+  subtitle?: string;
+  backgroundImageKey?: string | null;
+  backgroundImageUrl?: string | null;
+  countdownEndAt?: string | null;
+  autoExtend?: boolean;
+  isActive?: boolean;
+}

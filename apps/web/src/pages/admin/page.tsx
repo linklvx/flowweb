@@ -3,13 +3,13 @@ import { fetchNodeTypes, type NodeTypeData } from '@/api/adminApi';
 import { NodeTypeTabs } from './components/NodeTypeTabs';
 import { ModelTable } from './components/ModelTable';
 import { PricingRuleTable } from './components/PricingRuleTable';
-import { PlanManagementTab, SubscriptionManagementTab, CreditManagementTab } from './components/SubscriptionTabs';
+import { PlanManagementTab, SubscriptionManagementTab, CreditManagementTab, BannerManagementTab } from './components/SubscriptionTabs';
 
 export function AdminPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [section, setSection] = useState<'models' | 'subscription'>('models');
-  const [subTab, setSubTab] = useState<'plans' | 'subscriptions' | 'credits'>('plans');
+  const [subTab, setSubTab] = useState<'plans' | 'subscriptions' | 'credits' | 'banner'>('plans');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,19 +47,20 @@ export function AdminPage() {
       {section === 'subscription' && (
         <div>
           <div className="flex gap-2 mb-6">
-            {(['plans', 'subscriptions', 'credits'] as const).map(t => (
+            {(['plans', 'subscriptions', 'credits', 'banner'] as const).map(t => (
               <button key={t} onClick={() => setSubTab(t)}
                 className={`px-3 py-1 rounded text-xs border border-[#444] cursor-pointer transition-colors ${
                   subTab === t ? 'bg-[#4ade80]/20 text-[#4ade80] border-[#4ade80]' : 'bg-[#1A1A1A] text-[#888] hover:text-white'
                 }`}
               >
-                {t === 'plans' ? '套餐管理' : t === 'subscriptions' ? '订阅管理' : '积分管理'}
+                {t === 'plans' ? '套餐管理' : t === 'subscriptions' ? '订阅管理' : t === 'credits' ? '积分管理' : 'Banner 管理'}
               </button>
             ))}
           </div>
           {subTab === 'plans' && <PlanManagementTab />}
           {subTab === 'subscriptions' && <SubscriptionManagementTab />}
           {subTab === 'credits' && <CreditManagementTab />}
+          {subTab === 'banner' && <BannerManagementTab />}
         </div>
       )}
 
