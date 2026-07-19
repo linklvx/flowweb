@@ -159,10 +159,16 @@ git commit -m "feat(shared): add banner type definitions with JSDoc"
 import { Test, TestingModule } from '@nestjs/testing';
 import { SubscriptionBannerService } from './subscription-banner.service';
 
+// 与 Service 保持一致的常量（测试需独立运行，不可依赖 Service 内部导出）
+const CACHE_KEY = 'flowweb:subscription:banner:public';
+const LOCK_KEY = 'flowweb:subscription:banner:auto-extend:lock';
+
 describe('SubscriptionBannerService', () => {
   let service: SubscriptionBannerService;
   let mockPrisma: any;
   let mockRedis: any;
+  let mockAuditLog: any;
+  let mockCleanupQueue: any;
 
   beforeEach(async () => {
     mockPrisma = {
@@ -178,12 +184,16 @@ describe('SubscriptionBannerService', () => {
       del: jest.fn(),
       eval: jest.fn(),
     };
+    mockAuditLog = { create: jest.fn() };
+    mockCleanupQueue = { add: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SubscriptionBannerService,
         { provide: 'PrismaService', useValue: mockPrisma },
         { provide: 'REDIS_CLIENT', useValue: mockRedis },
+        { provide: 'AuditService', useValue: mockAuditLog },
+        { provide: 'BullQueue_banner-cleanup', useValue: mockCleanupQueue },
       ],
     }).compile();
 
@@ -413,12 +423,14 @@ export class SubscriptionBannerService {
           where: { id: banner.id },
           data: { countdownEndAt: newEndAt },
         });
-        // 审计日志：系统自动延期
-        await this.auditLog.create({
-          action: 'banner:auto-extend',
-          operator: 'system',
-          detail: { from: banner.countdownEndAt.toISOString(), to: newEndAt.toISOString() },
-        });
+        // 审计日志：系统自动延期（异常不阻塞主业务）
+        try {
+          await this.auditLog.create({
+            action: 'banner:auto-extend',
+            operator: 'system',
+            detail: { from: banner.countdownEndAt.toISOString(), to: newEndAt.toISOString() },
+          });
+        } catch (err) { /* 审计失败不应阻塞延期 */ }
         // Lua 原子释放锁（校验 value 匹配）
         await this.redis.eval(
           "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
@@ -457,7 +469,7 @@ export class SubscriptionBannerService {
     countdownEndAt?: string | null;
     autoExtend?: boolean;
     isActive?: boolean;
-  }) {
+  }, operatorId?: string) {
     const existing = await this.prisma.subscriptionBanner.findFirst();
 
     // 检查最终状态（非仅检查传入值）
@@ -492,12 +504,14 @@ export class SubscriptionBannerService {
 
     await this.redis.del(CACHE_KEY);
 
-    // 审计日志：Admin 配置变更
-    await this.auditLog.create({
-      action: 'banner:update',
-      operator: 'admin', // 从请求上下文获取实际用户 ID
-      detail: { before: existing, after: toPlainObject(updated) },
-    });
+    // 审计日志：Admin 配置变更（异常不阻塞主业务）
+    try {
+      await this.auditLog.create({
+        action: 'banner:update',
+        operator: operatorId || 'unknown',
+        detail: { changes: dto, from: existing },
+      });
+    } catch (err) { /* 审计失败不应阻塞业务 */ }
 
     // 旧图片异步删除
     if (
@@ -551,14 +565,7 @@ git commit -m "feat(api): add SubscriptionBannerService with TDD — CRUD, cache
 创建 `apps/api/src/modules/subscription/dto/update-banner.dto.ts`：
 
 ```ts
-import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, Matches, ValidateIf, ValidationOptions } from 'class-validator';
-
-// 自定义装饰器：允许 null 值通过校验
-function IsNullable(validationOptions?: ValidationOptions) {
-  return function (object: object, propertyName: string) {
-    ValidateIf((_obj, value) => value !== null, validationOptions)(object, propertyName);
-  };
-}
+import { IsString, IsOptional, IsBoolean, IsDateString, IsNullable, MaxLength, Matches } from 'class-validator';
 
 export class UpdateBannerDto {
   @IsOptional()
@@ -681,8 +688,8 @@ export class AdminBannerController {
   }
 
   @Patch('banner')
-  async updateBanner(@Body() dto: UpdateBannerDto) {
-    return this.bannerService.updateBanner(dto);
+  async updateBanner(@Body() dto: UpdateBannerDto, @Req() req: any) {
+    return this.bannerService.updateBanner(dto, req.user?.id);
   }
 
   @Post('banner/upload')
@@ -831,11 +838,12 @@ import type { PublicBannerData, AdminBannerData, UpdateBannerDto } from '@flowwe
   uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {
     const formData = new FormData();
     formData.append('file', file);
-    // 基于 apiFetch 底层 fetch 封装，手动处理 FormData（apiFetch 默认 JSON）
-    const res = await fetch('/api/admin/subscription/banner/upload', {
+    // 基于 apiFetch 的 baseURL 拼接路径（与 apiFetch 保持同一 baseURL，避免路径硬编码）
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+    const res = await fetch(`${baseURL}/api/admin/subscription/banner/upload`, {
       method: 'POST',
       body: formData,
-      credentials: 'include', // 携带 Cookie 鉴权
+      credentials: 'include',
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
