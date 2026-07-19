@@ -51,7 +51,7 @@ model SubscriptionBanner {
 **PATCH 校验规则：**
 - `autoExtend=true` 时 `countdownEndAt` 必填
 - `title` ≤ 64，`subtitle` ≤ 200
-- `backgroundImageUrl`：仅允许 `http://` / `https://`，过滤 `javascript:`、`data:` 等危险协议
+- `backgroundImageUrl`：仅允许 `http://` / `https://`，拦截内网 IP / 内网域名（防 SSRF），过滤 `javascript:`、`data:` 等危险协议。复用项目现有 URL 安全校验工具
 - 字符串字段 XSS 过滤
 
 **图片上传校验：**
@@ -60,6 +60,10 @@ model SubscriptionBanner {
 - 文件大小 ≤ 2MB
 - 存储路径：`subscription/banner/YYYYMMDD/[随机].webp`
 - 复用项目现有 MinIO 工具类
+
+**图片访问方式：**
+- 若为私有桶，前端不可直接拼接 MinIO 地址，须通过项目统一文件代理接口或预签名 URL 访问
+- 与项目现有素材访问逻辑对齐
 
 **PATCH 后置处理：**
 - 事务提交后：删除 Redis 缓存 `{project}:subscription:banner:public`
@@ -84,9 +88,12 @@ model SubscriptionBanner {
 
 **自动延期逻辑（懒触发）：**
 1. 查库 → 判断 `isActive && autoExtend && countdownEndAt < now()`
-2. 触发延期 → Redis 分布式锁 `SET {project}:subscription:banner:auto-extend:lock NX PX 1000`
-3. 获锁 → `countdownEndAt += 3天`（基于原截止时间）→ 写审计日志 → 删缓存 → 释放锁 → 返回新数据
-4. 未获锁 → 直接返回当前数据
+2. 触发延期 → Redis 分布式锁：
+   - 加锁：`SET {project}:subscription:banner:auto-extend:lock <requestUuid> NX PX 1000`
+   - value 写入唯一请求 UUID（非固定值），用于所有权校验
+3. 获锁 → `countdownEndAt += 3天`（基于原截止时间）→ 写审计日志 → 删缓存
+4. 释放锁：Lua 脚本原子校验 value 匹配后删除，避免误释放其他请求的锁
+5. 未获锁 → 直接返回当前数据
 
 **缓存策略：**
 - 用户端 GET 缓存 60s，key=`{project}:subscription:banner:public`
@@ -108,6 +115,10 @@ model SubscriptionBanner {
   - 上传图片后自动清空 URL 输入框；输入 URL 后清除已上传文件
   - 保存 → PATCH → 成功提示
   - 预览区 1:1 还原 VIP Modal Banner 样式
+- 表单联动校验：
+  - 勾选「自动延期」→ 截止时间输入框强制必填
+  - 清空截止时间 → 自动延期选项灰置不可选
+  - 与后端 DTO 校验规则对齐
 
 ### Admin page.tsx 改动
 
@@ -123,14 +134,21 @@ model SubscriptionBanner {
 GET /api/subscription/banner →
   ├─ null / !isActive → 显示默认 banner（现有硬编码渐变+文案）
   └─ 有数据 →
-       ├─ 背景：backgroundImageKey（MinIO 地址）→ 加载失败 → backgroundImageUrl → 默认渐变
+       ├─ 背景：backgroundImageKey → 加载失败降级 backgroundImageUrl → 再失败降级默认渐变
        ├─ 文案：title / subtitle
        └─ 倒计时：countdownEndAt (UTC) → setInterval 1s → 归零后重新 GET
 ```
 
-- `useEffect` cleanup 清除 `setInterval`
-- 接口返回 null 时隐藏 banner，页面布局无跳动
-- 组件卸载时清理定时器
+**倒计时精度校准：**
+- 监听 `visibilitychange` 事件，页面从后台切回前台时重新计算剩余时间
+- 若倒计时已归零，触发接口重新拉取（触发后端自动延期）
+
+**布局稳定性：**
+- Banner 区域设置固定高度，无论是否展示、图片是否加载完成，均不挤压下方会员计划列表
+
+**内存安全：**
+- `useEffect` cleanup 清除 `setInterval` + 移除 `visibilitychange` 监听
+- 组件卸载时清理所有定时器
 
 ---
 
