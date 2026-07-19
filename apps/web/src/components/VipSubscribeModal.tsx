@@ -101,6 +101,8 @@ const FAQ_LIST: FaqItem[] = [
 
 const PERIOD_LABELS: Record<SubscriptionPeriod, string> = { monthly: '连续包月', quarterly: '连续包季', annually: '连续包年' };
 const PERIOD_DISCOUNTS: Record<SubscriptionPeriod, string> = { monthly: '75折', quarterly: '74折', annually: '限时37折' };
+const PERIOD_UNIT: Record<SubscriptionPeriod, string> = { monthly: '/月', quarterly: '/季', annually: '/年' };
+const PERIOD_RENEWAL_PREFIX: Record<SubscriptionPeriod, string> = { monthly: '次月', quarterly: '次季', annually: '次年' };
 const TIER_COLORS: Record<SubscriptionTier, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
 
 // ─── Component ───
@@ -364,10 +366,10 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                           <div className="flex items-baseline gap-1 mt-1">
                             <span className="text-xs text-[#888]">¥</span>
                             <span className="text-3xl font-bold text-white">{plan.price}</span>
-                            <span className="text-sm text-[#888]">/月</span>
+                            <span className="text-sm text-[#888]">{PERIOD_UNIT[period]}</span>
                             <span className="text-sm text-[#555] line-through ml-2">¥{plan.originalPrice}</span>
                           </div>
-                          <div className="text-xs text-[#666] mt-1">次月续费 ¥{plan.originalPrice} 可随时取消</div>
+                          <div className="text-xs text-[#666] mt-1">{PERIOD_RENEWAL_PREFIX[period]}续费 ¥{plan.originalPrice} 可随时取消</div>
                           <div className="flex items-center justify-between mt-3">
                             <span className="text-xs text-[#888]">1积分≈{plan.tier === 'basic' ? '0.039' : plan.tier === 'pro' ? '0.037' : plan.tier === 'max' ? '0.037' : '0.03'}元</span>
                             <button className="text-xs text-[#4ade80] bg-transparent border-none cursor-pointer flex items-center gap-1 hover:underline">
