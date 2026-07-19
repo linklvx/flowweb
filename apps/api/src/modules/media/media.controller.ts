@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query, UseGuards, Req, Inject, BadRequestException, Redirect } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req, Inject, BadRequestException, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { MediaService } from './media.service';
 import { MinioService } from '../minio/minio.service';
 import { AuthGuard } from '../../auth/auth.guard';
@@ -18,10 +19,9 @@ export class MediaController {
   }
 
   @Get('by-key')
-  @Redirect()
-  async getUrlByKey(@Query('key') key: string) {
+  async getUrlByKey(@Query('key') key: string, @Res() res: Response) {
     if (!key) throw new BadRequestException('key is required');
     const url = await this.minioService.generatePresignedGetUrl(key, 900);
-    return { url, statusCode: 302 };
+    res.redirect(302, url);
   }
 }
