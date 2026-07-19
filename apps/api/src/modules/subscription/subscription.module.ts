@@ -9,6 +9,10 @@ import { CreditModule } from '../credit/credit.module';
 import { OrderModule } from '../order/order.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { QUEUE_NAMES } from '../../config/queue.constants';
+import Redis from 'ioredis';
+import { validateEnv } from '../../config/env';
+
+const env = validateEnv();
 
 @Module({
   imports: [
@@ -17,7 +21,13 @@ import { QUEUE_NAMES } from '../../config/queue.constants';
     BullModule.registerQueue({ name: QUEUE_NAMES.BANNER_CLEANUP }),
   ],
   controllers: [SubscriptionController, SubscriptionBannerPublicController],
-  providers: [SubscriptionService, PricingService, SubscriptionBannerService, AuditService],
+  providers: [
+    SubscriptionService,
+    PricingService,
+    SubscriptionBannerService,
+    AuditService,
+    { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },
+  ],
   exports: [SubscriptionService, PricingService, SubscriptionBannerService],
 })
 export class SubscriptionModule {}
