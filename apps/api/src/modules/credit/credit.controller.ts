@@ -11,10 +11,11 @@ export class CreditController {
     if (!userId) throw new UnauthorizedException();
     const balance = await this.service.getOrCreateBalance(userId);
     return {
-      credits: balance.credits,
-      subscriptionCredits: balance.subscriptionCredits,
+      credits: balance.credits ?? 0,
+      subscriptionCredits: balance.subscriptionCredits ?? 0,
       subscriptionCreditsExpiry: balance.subscriptionCreditsExpiry?.toISOString() ?? null,
-      updatedAt: balance.updatedAt.toISOString(),
+      balance: (balance.balance ?? 0) / 100,
+      updatedAt: (balance.updatedAt ?? new Date()).toISOString(),
     };
   }
 }

@@ -49,6 +49,7 @@ describe('CreditController', () => {
       credits: 100,
       subscriptionCredits: 500,
       subscriptionCreditsExpiry: '2026-02-01T00:00:00.000Z',
+      balance: 0,
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
     expect(service.getOrCreateBalance).toHaveBeenCalledWith('u1');

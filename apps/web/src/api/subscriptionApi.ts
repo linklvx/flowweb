@@ -26,6 +26,7 @@ export interface UpgradePreview {
 export interface CreditBalance {
   credits: number; subscriptionCredits: number;
   subscriptionCreditsExpiry: string | null; updatedAt: string;
+  balance: number;
 }
 
 export const subscriptionApi = {
@@ -58,6 +59,25 @@ export const subscriptionApi = {
       method: 'PATCH',
       body: JSON.stringify(dto),
     }),
+
+  // ── Recharge ──
+
+  createRechargeOrder: (amount: number) =>
+    apiFetch<{ id: string; orderNo: string; amount: number; status: string; createdAt: string }>(
+      '/recharge/orders',
+      { method: 'POST', body: JSON.stringify({ amount }) },
+    ),
+
+  payRechargeOrder: (orderNo: string) =>
+    apiFetch<{ orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; paidAt: string | null }>(
+      `/recharge/orders/${orderNo}/pay`,
+      { method: 'POST' },
+    ),
+
+  getRechargeOrders: (page = 1, pageSize = 20) =>
+    apiFetch<{ items: Array<{ id: string; orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; payChannel: string | null; paidAt: string | null; createdAt: string }>; total: number; page: number; pageSize: number }>(
+      `/recharge/orders?page=${page}&pageSize=${pageSize}`,
+    ),
 
   /** [Admin] 上传 banner 背景图，返回 { imageKey } */
   uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {

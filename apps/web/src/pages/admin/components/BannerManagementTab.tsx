@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, message, Switch, DatePicker } from 'antd';
+import { Button, App, Switch, DatePicker } from 'antd';
 import dayjs from 'dayjs';
 import { subscriptionApi } from '@/api/subscriptionApi';
 import { getPresignedUrlByKey } from '@/api/mediaApi';
 import type { AdminBannerData } from '@flowweb/shared';
 
 export function BannerManagementTab() {
+  const { message } = App.useApp();
   const [banner, setBanner] = useState<AdminBannerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -154,6 +155,11 @@ export function BannerManagementTab() {
                 <span className="text-[10px] text-[#666]">jpg/png/webp, ≤2MB</span>
               )}
             </div>
+            {uploadedImageKey && (
+              <div className="text-[10px] text-[#888] break-all mt-1">
+                /flowai/{uploadedImageKey}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[10px] text-[#666] mb-1">或输入外链 URL</div>
@@ -206,12 +212,11 @@ export function BannerManagementTab() {
         <div
           className="w-full rounded-xl overflow-hidden flex items-center justify-between px-6 py-5"
           style={{
-            background: (imagePreviewUrl || backgroundImageUrl)
-              ? undefined
-              : 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
             backgroundImage: (() => {
               const url = imagePreviewUrl || backgroundImageUrl;
-              return url ? `url(${url})` : undefined;
+              return url
+                ? `url(${url})`
+                : 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)';
             })(),
             backgroundSize: 'cover',
             backgroundPosition: 'center',

@@ -57,8 +57,8 @@ export function useMySubscription() {
 }
 
 export function useCreditBalance() {
-  const [data, setData] = useState<{ credits: number; subscriptionCredits: number; subscriptionCreditsExpiry: string | null }>({
-    credits: 0, subscriptionCredits: 0, subscriptionCreditsExpiry: null,
+  const [data, setData] = useState<{ credits: number; subscriptionCredits: number; subscriptionCreditsExpiry: string | null; balance: number }>({
+    credits: 0, subscriptionCredits: 0, subscriptionCreditsExpiry: null, balance: 0,
   });
   const [loading, setLoading] = useState(true);
 

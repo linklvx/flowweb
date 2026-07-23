@@ -116,8 +116,12 @@ export class SubscriptionService {
         },
       });
 
-      // Step 3: deduct regular credits (calls internal CreditTransaction write)
-      await this.credit.deductRegular(userId, priceKey, order.id);
+      // Step 3: check balance & deduct (priceKey = yuan, convert to fen)
+      const balanceFen = priceKey * 100;
+      const currentBalance = await tx.userBalance.findUnique({ where: { userId } });
+      if (!currentBalance || currentBalance.balance < balanceFen) {
+        throw new BusinessException('BALANCE_INSUFFICIENT', '余额不足');
+      }
 
       // Step 4: create subscription
       const now = new Date();
@@ -154,10 +158,11 @@ export class SubscriptionService {
         },
       });
 
-      // Step 6: update balance with subscription credits + expiry
+      // Step 6: deduct balance + grant subscription credits + set expiry
       await tx.userBalance.update({
         where: { userId },
         data: {
+          balance: { decrement: balanceFen },
           subscriptionCredits: { increment: plan.monthlyCredits },
           subscriptionCreditsExpiry: currentPeriodEnd,
         },
@@ -238,9 +243,17 @@ export class SubscriptionService {
         },
       });
 
-      // Deduct payable (only if > 0)
+      // Deduct payable from balance (only if > 0)
       if (snap.payableAmount > 0) {
-        await this.credit.deductRegular(userId, snap.payableAmount, order.id);
+        const upgradeBalanceFen = snap.payableAmount * 100;
+        const ub = await tx.userBalance.findUnique({ where: { userId } });
+        if (!ub || ub.balance < upgradeBalanceFen) {
+          throw new BusinessException('BALANCE_INSUFFICIENT', '余额不足');
+        }
+        await tx.userBalance.update({
+          where: { userId },
+          data: { balance: { decrement: upgradeBalanceFen } },
+        });
       }
 
       // Mark old subscription as upgraded (row-level condition)

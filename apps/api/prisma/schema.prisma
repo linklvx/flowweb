@@ -238,9 +238,11 @@ model UserBalance {
   credits                Int       @default(100)
   subscriptionCredits    Int       @default(0)
   subscriptionCreditsExpiry DateTime?
+  balance                Int       @default(0)
   version                Int       @default(0)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
+
 }
 
 model Media {
@@ -425,6 +427,12 @@ enum CreditReferenceType {
   admin
 }
 
+enum RechargeOrderStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
 enum AuditTargetType {
   subscription
   subscription_plan
@@ -516,6 +524,26 @@ model SubscriptionOrder {
   originalSubscriptionId String?
   pricingSnapshot        Json?
   createdAt              DateTime               @default(now())
+}
+
+model RechargeOrder {
+  id            String              @id @default(cuid())
+  orderNo       String              @unique
+  userId        String
+  amount        Int
+  balanceBefore Int                 @default(0)
+  balanceAfter  Int                 @default(0)
+  status        RechargeOrderStatus @default(PENDING)
+  paidAt        DateTime?
+  payChannel    String?
+  tradeNo       String?             @unique
+  clientIp      String?
+  notifyRaw     Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 model CreditTransaction {

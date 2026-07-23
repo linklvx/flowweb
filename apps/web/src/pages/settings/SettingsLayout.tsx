@@ -36,7 +36,7 @@ export function SettingsLayout() {
                 }`
               }
             >
-              积分余额
+              积分与余额
             </NavLink>
             <NavLink
               to="/settings/membership"

@@ -22,6 +22,7 @@ import { AiDownloadModule } from './modules/ai-download/ai-download.module';
 import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
+import { RechargeModule } from './modules/recharge/recharge.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -55,6 +56,7 @@ const env = validateEnv();
     TempCleanupModule,
     MaterialLibraryModule,
     AiImageEditModule,
+    RechargeModule,
     SubscriptionModule,
     AdminSubscriptionModule,
     SubscriptionTaskModule,

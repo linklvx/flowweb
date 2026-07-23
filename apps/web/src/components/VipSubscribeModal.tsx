@@ -171,7 +171,7 @@ function BannerCountdown({ endAt, onExpired }: { endAt: string; onExpired: () =>
 
 function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownExpired: () => void }) {
   const [bgStyle, setBgStyle] = useState<React.CSSProperties>({
-    background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+    backgroundImage: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
     backgroundSize: 'cover',
     backgroundPosition: 'center',
   });
@@ -179,7 +179,7 @@ function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownE
   useEffect(() => {
     const applyFallback = () => {
       setBgStyle({
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        backgroundImage: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       });

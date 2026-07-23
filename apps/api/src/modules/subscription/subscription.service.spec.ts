@@ -113,6 +113,7 @@ describe('SubscriptionService - Subscribe', () => {
   let service: SubscriptionService;
   let prisma: any;
   let credit: any;
+  let txMock: any;
 
   const mockPlan = {
     id: 'p1', name: 'Pro', tier: 'pro' as const, monthlyCredits: 19800,
@@ -122,11 +123,11 @@ describe('SubscriptionService - Subscribe', () => {
 
   beforeEach(async () => {
     credit = mockCredit();
-    const txMock = {
+    txMock = {
       subscriptionOrder: { create: vi.fn().mockResolvedValue({ id: 'order-1' }) },
       userSubscription: { create: vi.fn().mockImplementation((a: any) => Promise.resolve({ id: 'sub-1', ...a.data })) },
       creditTransaction: { create: vi.fn() },
-      userBalance: { update: vi.fn() },
+      userBalance: { update: vi.fn(), findUnique: vi.fn().mockResolvedValue({ balance: 50000 }) },
     };
     prisma = {
       subscriptionPlan: { findMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(mockPlan), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -145,7 +146,7 @@ describe('SubscriptionService - Subscribe', () => {
     service = module.get<SubscriptionService>(SubscriptionService);
   });
 
-  it('should subscribe a user to a monthly plan', async () => {
+  it('should subscribe a user to a monthly plan (pay with balance)', async () => {
     prisma.userSubscription.findFirst.mockResolvedValue(null);
 
     const result = await service.subscribe('u1', 'p1', 'monthly');
@@ -153,7 +154,23 @@ describe('SubscriptionService - Subscribe', () => {
     expect(result).toBeDefined();
     expect(result.tier).toBe('pro');
     expect(result.grantCount).toBe(1);
-    expect(credit.deductRegular).toHaveBeenCalledWith('u1', 200, 'order-1');
+    // Should NOT call credit.deductRegular
+    expect(credit.deductRegular).not.toHaveBeenCalled();
+    // Should deduct balance (200 yuan = 20000 fen) + grant subscription credits
+    expect(txMock.userBalance.update).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      data: expect.objectContaining({
+        balance: { decrement: 20000 },
+        subscriptionCredits: { increment: 19800 },
+      }),
+    });
+  });
+
+  it('should throw when balance insufficient for subscription', async () => {
+    txMock.userBalance.findUnique.mockResolvedValue({ balance: 100 }); // only 1 yuan
+    prisma.userSubscription.findFirst.mockResolvedValue(null);
+
+    await expect(service.subscribe('u1', 'p1', 'monthly')).rejects.toThrow('余额不足');
   });
 
   it('should return existing subscription when already active (idempotent)', async () => {

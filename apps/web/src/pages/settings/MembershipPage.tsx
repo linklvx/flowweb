@@ -11,7 +11,7 @@ function PriceCell({ plan, period, onClick }: { plan: SubscriptionPlan; period: 
   const price = period === 'monthly' ? plan.priceMonthly : period === 'quarterly' ? plan.priceQuarterly : plan.priceAnnually;
   return (
     <td className="p-3 text-center">
-      <div className="text-lg font-bold text-white">{(price ?? 0).toLocaleString()} 积分</div>
+      <div className="text-lg font-bold text-white">¥{(price ?? 0).toLocaleString()}</div>
       <div className="text-xs text-[#888]">{PERIOD_MAP[period]}</div>
       <button
         onClick={onClick}
@@ -33,10 +33,10 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
     <Modal open={visible} onCancel={onClose} footer={null} title="升级确认" width={480}>
       <div className="text-sm text-[#ccc] space-y-3 py-2">
         <div className="flex justify-between"><span>目标套餐</span><span className="text-white font-bold">{plan.name} {PERIOD_MAP[period]}</span></div>
-        <div className="flex justify-between"><span>目标原价</span><span className="text-white">{preview?.originalPrice?.toLocaleString()} 积分</span></div>
-        <div className="flex justify-between"><span>可抵扣</span><span className="text-[#4ade80]">-{preview?.deductibleAmount?.toLocaleString()} 积分</span></div>
+        <div className="flex justify-between"><span>目标原价</span><span className="text-white">¥{preview?.originalPrice?.toLocaleString()}</span></div>
+        <div className="flex justify-between"><span>可抵扣</span><span className="text-[#4ade80]">-¥{preview?.deductibleAmount?.toLocaleString()}</span></div>
         <hr className="border-[#333]" />
-        <div className="flex justify-between text-base"><span>应付</span><span className="text-[#4ade80] font-bold">{preview?.payableAmount?.toLocaleString()} 积分</span></div>
+        <div className="flex justify-between text-base"><span>应付</span><span className="text-[#4ade80] font-bold">¥{preview?.payableAmount?.toLocaleString()}</span></div>
         <div className="text-xs text-[#666]">首月发放 {preview?.firstMonthCredits?.toLocaleString()} 订阅积分</div>
       </div>
       <div className="flex justify-end gap-3 mt-4">
@@ -50,7 +50,7 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
 export function MembershipPage() {
   const { data: plans } = useSubscriptionPlans();
   const { data: sub, loading, subscribe, upgrade, cancelAutoRenew, enableAutoRenew } = useMySubscription();
-  const { credits, subscriptionCredits, subscriptionCreditsExpiry } = useCreditBalance();
+  const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance } = useCreditBalance();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [upgradePlan, setUpgradePlan] = useState<SubscriptionPlan | null>(null);
@@ -84,6 +84,7 @@ export function MembershipPage() {
     <div>
       <h2 className="text-lg font-bold text-white mb-1">会员中心</h2>
       <div className="flex gap-3 mb-6 text-sm">
+        <span className="text-[#888]">账户余额: <span className="text-[#4ade80] font-mono">¥{Number(balance ?? 0).toFixed(2)}</span></span>
         <span className="text-[#888]">普通积分: <span className="text-white font-mono">{(credits ?? 0).toLocaleString()}</span></span>
         <span className="text-[#888]">订阅积分: <span className="text-white font-mono">{(subscriptionCredits ?? 0).toLocaleString()}</span></span>
         {subscriptionCreditsExpiry && <span className="text-[#666] text-xs">(到期: {new Date(subscriptionCreditsExpiry).toLocaleDateString()})</span>}
@@ -126,7 +127,7 @@ export function MembershipPage() {
                   >
                     <div className="text-white font-bold">{p.name} {PERIOD_MAP[per]}</div>
                     <div className="text-[#4ade80] text-lg font-mono mt-1">
-                      {per === 'monthly' ? p.priceMonthly : per === 'quarterly' ? p.priceQuarterly : p.priceAnnually} 积分
+                      ¥{per === 'monthly' ? p.priceMonthly : per === 'quarterly' ? p.priceQuarterly : p.priceAnnually}
                     </div>
                     <div className="text-xs text-[#666] mt-1">月授{p.monthlyCredits.toLocaleString()} 积分</div>
                   </button>
