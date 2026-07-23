@@ -16,39 +16,32 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const path = request.path;
+    const isPublic = PUBLIC_PREFIXES.some(p => path.startsWith(p));
 
-    // Allow public routes
-    if (PUBLIC_PREFIXES.some(p => path.startsWith(p))) {
-      return true;
-    }
-
-    // Parse session token from cookie
+    // Try to authenticate from session cookie (optional for public routes)
     const cookieStr: string = request.headers.cookie || '';
     const match = cookieStr.match(/flowweb\.session_token=([^;]+)/);
-    if (!match) throw new UnauthorizedException('Unauthorized');
-
-    const token = match[1];
-
-    // Direct DB lookup — bypasses Better Auth's getSession which fails in NestJS
-    try {
-      const { PrismaClient } = await import('@prisma/client');
-      const p = new PrismaClient();
+    if (match) {
       try {
-        const session = await p.session.findUnique({
-          where: { token },
-          include: { user: true },
-        });
-        if (!session || session.expiresAt < new Date()) {
-          throw new UnauthorizedException('Unauthorized');
+        const { PrismaClient } = await import('@prisma/client');
+        const p = new PrismaClient();
+        try {
+          const session = await p.session.findUnique({
+            where: { token: match[1] },
+            include: { user: true },
+          });
+          if (session && session.expiresAt >= new Date()) {
+            request.user = session.user;
+          }
+        } finally {
+          await p.$disconnect();
         }
-        request.user = session.user;
-        return true;
-      } finally {
-        await p.$disconnect();
+      } catch {
+        // Silently fail for public routes
       }
-    } catch (e) {
-      if (e instanceof UnauthorizedException) throw e;
-      throw new UnauthorizedException('Unauthorized');
     }
+
+    if (isPublic || request.user) return true;
+    throw new UnauthorizedException('Unauthorized');
   }
 }

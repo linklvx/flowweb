@@ -5,6 +5,8 @@ import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { useCreditsStore } from '@/stores/creditsStore';
+import CreditsDropdown from './CreditsDropdown';
 
 interface Props {
   projectId: string;
@@ -13,9 +15,9 @@ interface Props {
 
 export function CanvasTopBar({ projectId, projectName }: Props) {
   const { user, logout } = useAuth();
-  const [credits, setCredits] = useState<number | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const navigate = useNavigate();
+  const store = useCreditsStore();
 
   const handleLogout = useCallback(async () => {
     navigate('/');
@@ -23,16 +25,13 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
   }, [logout, navigate]);
 
   useEffect(() => {
-    fetch('/api/credits/balance')
-      .then(r => r.json())
-      .then(json => { if (json.code === 0) setCredits(json.data.credits); })
-      .catch(() => {});
+    store.fetchBalance();
   }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent;
-      if (typeof ce.detail === 'number') setCredits(ce.detail);
+      if (typeof ce.detail === 'number') store.updateCredits(ce.detail);
     };
     window.addEventListener('credits:update', handler);
     return () => window.removeEventListener('credits:update', handler);
@@ -59,8 +58,8 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
           {avatarNode('w-10 h-10 text-sm')}
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-medium text-[#e2e8f0] truncate">{displayName}</span>
-            {credits !== null && (
-              <span className="text-sm text-white">⚡ {credits?.toLocaleString()} 积分</span>
+            {!store.loading && (
+              <span className="text-sm text-white">⚡ {(store.credits + (store.isSubscriptionActive() ? store.subscriptionCredits : 0)).toLocaleString()} 积分</span>
             )}
           </div>
         </div>
@@ -98,9 +97,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
             保存项目
           </button>
         )}
-        {credits !== null && (
-          <span className="text-sm text-white whitespace-nowrap tracking-wider">⚡ {credits?.toLocaleString()}</span>
-        )}
+        {!store.loading && <CreditsDropdown />}
         {user ? (
           <ConfigProvider
             theme={{

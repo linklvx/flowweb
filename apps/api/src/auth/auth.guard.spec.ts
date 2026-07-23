@@ -53,4 +53,21 @@ describe('AuthGuard', () => {
     await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
     expect((req as any).user).toEqual(user);
   });
+
+  it('should populate req.user on public subscription path when valid session cookie exists', async () => {
+    const user = { id: 'u1', email: 'test@test.com' };
+    mockFindUnique.mockResolvedValue({ user, expiresAt: new Date(Date.now() + 86400000) });
+    mockDisconnect.mockResolvedValue(undefined);
+    const req = { path: '/api/subscription/me', headers: { cookie: 'flowweb.session_token=validtoken' } };
+    const ctx = { switchToHttp: () => ({ getRequest: () => req }) };
+    await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
+    expect((req as any).user).toEqual(user);
+  });
+
+  it('should not throw on public subscription path without session cookie', async () => {
+    const req = { path: '/api/subscription/me', headers: {} };
+    const ctx = { switchToHttp: () => ({ getRequest: () => req }) };
+    await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
+    expect((req as any).user).toBeUndefined();
+  });
 });

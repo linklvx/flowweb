@@ -1,14 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
-const { mockUseAuth } = vi.hoisted(() => ({
+const { mockUseAuth, mockCreditsStore } = vi.hoisted(() => ({
   mockUseAuth: vi.fn(),
+  mockCreditsStore: {
+    credits: 88,
+    subscriptionCredits: 12,
+    subscriptionCreditsExpiry: null,
+    loading: false,
+    error: null,
+    fetchBalance: vi.fn(),
+    updateCredits: vi.fn(),
+    isSubscriptionActive: vi.fn(() => false),
+  },
 }));
 
-// Mock fetch for credits
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+vi.mock('@/stores/creditsStore', () => ({
+  useCreditsStore: () => mockCreditsStore,
+}));
 
 vi.mock('@/components/AuthProvider', () => ({
   useAuth: () => mockUseAuth(),
@@ -19,8 +29,6 @@ import { CanvasTopBar } from './CanvasTopBar';
 describe('CanvasTopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockReset();
-    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ code: 0, data: { credits: 88 } }) });
   });
 
   function renderBar() {
@@ -37,17 +45,16 @@ describe('CanvasTopBar', () => {
       loading: false,
     });
     renderBar();
-    // Shows first letter avatar "U" from "U1"
     expect(screen.getByText('U')).toBeInTheDocument();
   });
 
-  it('should display credits fetched from API', async () => {
+  it('should display credits from store', () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', email: 'u1@flowai.dev', name: 'U1' },
       loading: false,
     });
     renderBar();
-    expect(await screen.findByText(/88/)).toBeDefined();
+    expect(screen.getByLabelText('查看积分明细')).toBeDefined();
   });
 
   it('should show login link when not authenticated', () => {
