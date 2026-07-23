@@ -92,7 +92,7 @@ export function CreditsPanelContent({
 
   if (loading) {
     return (
-      <div className="w-72 p-3">
+      <div className="w-96 p-3">
         <Skeleton active paragraph={{ rows: 1 }} title={{ width: '60%' }} />
         <Skeleton active paragraph={{ rows: 2 }} title={false} className="mt-2" />
         <Skeleton.Button active block className="mt-3" />
@@ -103,7 +103,7 @@ export function CreditsPanelContent({
 
   if (error) {
     return (
-      <div className="w-72 p-4 flex flex-col items-center gap-2 text-white/60">
+      <div className="w-96 p-4 flex flex-col items-center gap-2 text-white/60">
         <span className="text-sm">{error}</span>
         <button
           type="button"
@@ -120,7 +120,7 @@ export function CreditsPanelContent({
 
   return (
     <div
-      className="w-72 flex flex-col overflow-hidden rounded-[1.75rem] border border-zinc-900/90 p-3 text-white"
+      className="w-96 flex flex-col overflow-hidden rounded-[1.75rem] border border-zinc-900/90 p-3 text-white"
       style={{
         backgroundImage: 'linear-gradient(160deg, #111111 0%, #171717 52%, #101828 100%)',
         boxShadow: '0 20px 60px rgba(15,23,42,0.16)',
