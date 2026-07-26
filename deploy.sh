@@ -1,8 +1,10 @@
 #!/bin/bash
 # 日常部署脚本
-#   ./deploy.sh         全量部署（上传源码 + 依赖 + 前端构建 + 重启后端）
+#   ./deploy.sh         全量部署（上传源码 + 依赖 + prisma + 构建 + 重启后端）
 #   ./deploy.sh web     仅部署前端（本地构建 → 上传 dist）
-#   ./deploy.sh api     仅部署后端（上传源码 → 服务器构建 → 重启）
+#   ./deploy.sh api     仅部署后端（上传源码 → prisma → 构建 → 重启）
+#
+# 注意：deploy.sh 不会覆盖服务器上的 .env 文件，环境变量需在服务器上手动管理。
 
 SERVER="ubuntu@101.42.94.107"
 KEY="$HOME/.ssh/flowweb_server"
@@ -16,13 +18,16 @@ deploy_full() {
   tar czf - \
     --exclude='node_modules' --exclude='dist' --exclude='.turbo' \
     --exclude='backups' --exclude='.data' --exclude='.worktrees' \
-    --exclude='.claude' --exclude='.git' \
+    --exclude='.claude' --exclude='.git' --exclude='.env' \
     apps/ packages/ package.json pnpm-workspace.yaml pnpm-lock.yaml \
     turbo.json tsconfig.base.json .eslintrc.base.json .gitignore \
     | ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && tar xzf -"
 
   echo "=== 安装依赖 ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pnpm install"
+
+  echo "=== 生成 Prisma Client ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma generate"
 
   echo "=== 构建后端 ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx nest build"
@@ -50,7 +55,10 @@ deploy_api() {
   tar czf - -C apps/api/src . \
     | ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api/src && tar xzf -"
 
-  echo "=== 服务器构建 ==="
+  echo "=== 生成 Prisma Client ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma generate"
+
+  echo "=== 构建后端 ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx nest build"
 
   echo "=== 重启后端 ==="
