@@ -431,6 +431,14 @@ enum RechargeOrderStatus {
   PENDING
   SUCCESS
   FAILED
+  CLOSED
+}
+
+enum BalanceTxType {
+  RECHARGE
+  CONSUME
+  REFUND
+  ADJUST
 }
 
 enum AuditTargetType {
@@ -527,23 +535,43 @@ model SubscriptionOrder {
 }
 
 model RechargeOrder {
-  id            String              @id @default(cuid())
-  orderNo       String              @unique
-  userId        String
-  amount        Int
-  balanceBefore Int                 @default(0)
-  balanceAfter  Int                 @default(0)
-  status        RechargeOrderStatus @default(PENDING)
-  paidAt        DateTime?
-  payChannel    String?
-  tradeNo       String?             @unique
-  clientIp      String?
-  notifyRaw     Json?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id             String              @id @default(cuid())
+  orderNo        String              @unique
+  userId         String
+  amount         Int
+  balanceBefore  Int                 @default(0)
+  balanceAfter   Int                 @default(0)
+  status         RechargeOrderStatus @default(PENDING)
+  payChannel     String?             @db.VarChar(32)
+  prepayId       String?             @db.VarChar(64)
+  transactionId  String?             @db.VarChar(64)
+  payerOpenid    String?             @db.VarChar(64)
+  paidAt         DateTime?
+  expiredAt      DateTime?
+  closedAt       DateTime?
+  remark         String?             @db.VarChar(512)
+  clientIp       String?
+  notifySummary  Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([status, expiredAt])
+}
+
+model UserBalanceTransaction {
+  id             String        @id @default(cuid())
+  userId         String
+  amountFen      Int
+  balanceBefore  Int
+  balanceAfter   Int
+  type           BalanceTxType
+  bizOrderNo     String
+  createdAt      DateTime      @default(now())
+
+  @@index([userId, createdAt])
+  @@index([bizOrderNo])
 }
 
 model CreditTransaction {

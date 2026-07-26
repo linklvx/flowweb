@@ -1,6 +1,8 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { Reflector } from '@nestjs/core';
+import { NO_TRANSFORM_KEY } from '../common/decorators/no-transform.decorator';
 
 export interface WrappedResponse<T> {
   code: number;
@@ -9,8 +11,14 @@ export interface WrappedResponse<T> {
 }
 
 @Injectable()
-export class TransformInterceptor<T> implements NestInterceptor<T, WrappedResponse<T>> {
-  intercept(_context: ExecutionContext, next: CallHandler): Observable<WrappedResponse<T>> {
+export class TransformInterceptor<T> implements NestInterceptor<T, WrappedResponse<T> | T> {
+  constructor(private readonly reflector: Reflector) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<WrappedResponse<T> | T> {
+    const noTransform = this.reflector.get<boolean>(NO_TRANSFORM_KEY, context.getHandler());
+    if (noTransform) {
+      return next.handle();
+    }
     return next.handle().pipe(
       map(data => ({
         code: 0,

@@ -69,13 +69,24 @@ export const subscriptionApi = {
     ),
 
   payRechargeOrder: (orderNo: string) =>
-    apiFetch<{ orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; paidAt: string | null }>(
+    apiFetch<{ orderNo: string; amount: number; status: string; codeUrl: string | null }>(
       `/recharge/orders/${orderNo}/pay`,
       { method: 'POST' },
     ),
 
+  queryRechargeOrder: (orderNo: string) =>
+    apiFetch<{ orderNo: string; amount: number; status: string; payChannel: string | null; paidAt: string | null }>(
+      `/recharge/orders/${orderNo}`,
+    ),
+
+  closeRechargeOrder: (orderNo: string) =>
+    apiFetch<{ success: boolean }>(
+      `/recharge/orders/${orderNo}/close`,
+      { method: 'POST' },
+    ),
+
   getRechargeOrders: (page = 1, pageSize = 20) =>
-    apiFetch<{ items: Array<{ id: string; orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; payChannel: string | null; paidAt: string | null; createdAt: string }>; total: number; page: number; pageSize: number }>(
+    apiFetch<{ items: Array<{ id: string; orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; payChannel: string | null; prepayId: string | null; transactionId: string | null; paidAt: string | null; expiredAt: string | null; closedAt: string | null; createdAt: string }>; total: number; page: number; pageSize: number }>(
       `/recharge/orders?page=${page}&pageSize=${pageSize}`,
     ),
 

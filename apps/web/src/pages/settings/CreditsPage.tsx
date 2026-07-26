@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { subscriptionApi } from '@/api/subscriptionApi';
 import type { CreditBalance } from '@/api/subscriptionApi';
 import { message } from 'antd';
+import { WeChatQRModal } from '@/components/WeChatQRModal';
 
-const PRESET_AMOUNTS = [10, 50, 100, 200, 500];
-const AMOUNT_REGEX = /^\d+(\.\d{1,2})?$/;
+const PRESET_AMOUNTS = [10, 30, 50, 100, 200, 500];
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('zh-CN', {
@@ -13,15 +13,36 @@ function formatDate(iso: string) {
   });
 }
 
+function statusBadge(status: string) {
+  const map: Record<string, { label: string; color: string }> = {
+    PENDING: { label: '处理中', color: 'bg-[#f59e0b]/15 text-[#f59e0b]' },
+    SUCCESS: { label: '成功', color: 'bg-[#4ade80]/15 text-[#4ade80]' },
+    CLOSED:  { label: '已关闭', color: 'bg-[#666]/15 text-[#888]' },
+    FAILED:  { label: '失败', color: 'bg-[#ef4444]/15 text-[#ef4444]' },
+  };
+  const item = map[status] || map.PENDING;
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-xs ${item.color}`}>
+      {item.label}
+    </span>
+  );
+}
+
 export function CreditsPage() {
   const [balance, setBalance] = useState<CreditBalance | null>(null);
   const [error, setError] = useState('');
-  const [amount, setAmount] = useState('');
+  const [selectedAmount, setSelectedAmount] = useState<number>(10);
   const [recharging, setRecharging] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersTotal, setOrdersTotal] = useState(0);
   const [showOrders, setShowOrders] = useState(false);
   const [ordersPage, setOrdersPage] = useState(1);
+
+  // QR Modal state
+  const [qrVisible, setQrVisible] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [qrOrderNo, setQrOrderNo] = useState('');
+  const [qrExpiredAt, setQrExpiredAt] = useState('');
 
   const loadBalance = useCallback(async () => {
     try {
@@ -45,23 +66,19 @@ export function CreditsPage() {
   useEffect(() => { loadBalance(); }, [loadBalance]);
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  const isValid = AMOUNT_REGEX.test(amount) && Number(amount) >= 1 && Number(amount) <= 10000;
-
   const handleRecharge = async () => {
-    if (!isValid || recharging) return;
+    if (recharging) return;
     setRecharging(true);
     try {
-      const order = await subscriptionApi.createRechargeOrder(Number(amount));
+      const order = await subscriptionApi.createRechargeOrder(selectedAmount);
       const payResult = await subscriptionApi.payRechargeOrder(order.orderNo);
-      // Optimistic update with balanceAfter from pay response
-      if (balance) {
-        setBalance({ ...balance, balance: payResult.balanceAfter });
+      if (payResult.codeUrl) {
+        const expiredAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        setQrCodeUrl(payResult.codeUrl);
+        setQrOrderNo(order.orderNo);
+        setQrExpiredAt(expiredAt);
+        setQrVisible(true);
       }
-      message.success(`充值成功！余额 +¥${payResult.amount.toFixed(2)}`);
-      setAmount('');
-      // Refresh from server to sync
-      loadBalance();
-      loadOrders();
     } catch (e: any) {
       message.error(e.message || '充值失败');
     } finally {
@@ -69,8 +86,15 @@ export function CreditsPage() {
     }
   };
 
-  const handlePreset = (val: number) => {
-    setAmount(String(val));
+  const handlePaymentSuccess = () => {
+    setQrVisible(false);
+    message.success('充值成功！');
+    loadBalance();
+    loadOrders();
+  };
+
+  const handlePaymentCancel = () => {
+    setQrVisible(false);
   };
 
   if (!balance) {
@@ -84,11 +108,10 @@ export function CreditsPage() {
 
       {/* ── 双卡片布局 ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-w-2xl">
-        {/* 积分余额卡片 */}
         <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6">
           <div className="text-center py-4">
             <p className="text-4xl font-bold text-[#f59e0b] mb-2">
-              ⚡ {balance.credits.toLocaleString()}
+              {balance.credits.toLocaleString()}
             </p>
             <p className="text-sm text-[#888]">积分余额</p>
             <p className="text-xs text-[#666] mt-3">
@@ -97,7 +120,6 @@ export function CreditsPage() {
           </div>
         </div>
 
-        {/* 账户余额卡片 */}
         <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6">
           <div className="text-center py-4">
             <p className="text-4xl font-bold text-[#4ade80] mb-2">
@@ -111,18 +133,17 @@ export function CreditsPage() {
         </div>
       </div>
 
-      {/* ── 充值面板 ── */}
+      {/* ── 充值面板（仅预设档位，无自定义输入）── */}
       <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6 max-w-2xl mb-8">
         <h3 className="text-sm font-bold text-[#e2e8f0] mb-4">充值</h3>
 
-        {/* 预设金额 */}
         <div className="flex gap-2 mb-4 flex-wrap">
           {PRESET_AMOUNTS.map(val => (
             <button
               key={val}
-              onClick={() => handlePreset(val)}
+              onClick={() => setSelectedAmount(val)}
               className={`px-4 py-1.5 rounded-lg text-sm border transition-colors ${
-                amount === String(val)
+                selectedAmount === val
                   ? 'border-[#4ade80] bg-[#4ade80]/10 text-[#4ade80]'
                   : 'border-[#333] bg-transparent text-[#888] hover:text-[#ccc] hover:border-[#555]'
               }`}
@@ -132,49 +153,28 @@ export function CreditsPage() {
           ))}
         </div>
 
-        {/* 输入框 + 充值按钮 */}
-        <div className="flex gap-3 items-center">
-          <div className="flex-1 relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#888] text-sm">¥</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              role="textbox"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              onPaste={e => {
-                const pasted = e.clipboardData.getData('text');
-                const filtered = pasted.replace(/[^0-9.]/g, '');
-                // Keep only first decimal point
-                const dotIdx = filtered.indexOf('.');
-                const cleaned = dotIdx >= 0
-                  ? filtered.slice(0, dotIdx + 1) + filtered.slice(dotIdx + 1).replace(/\./g, '')
-                  : filtered;
-                e.preventDefault();
-                setAmount(cleaned);
-              }}
-              placeholder="输入充值金额"
-              className="w-full bg-[#252525] border border-[#333] rounded-lg px-8 py-2 text-white text-sm
-                         focus:outline-none focus:border-[#4ade80] placeholder:text-[#555]"
-            />
-          </div>
-          <button
-            onClick={handleRecharge}
-            disabled={!isValid || recharging}
-            className="px-6 py-2 rounded-lg text-sm font-medium text-white transition-opacity
-                       bg-[#4ade80] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {recharging ? '充值中...' : '立即充值'}
-          </button>
-        </div>
-        {amount && !isValid && (
-          <p className="text-xs text-[#ef4444] mt-2">
-            请输入 1~10000 之间的金额，最多两位小数
-          </p>
-        )}
+        <button
+          onClick={handleRecharge}
+          disabled={recharging}
+          className="px-6 py-2 rounded-lg text-sm font-medium text-white transition-opacity
+                     bg-[#4ade80] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          立即充值 ¥{selectedAmount}
+        </button>
       </div>
 
-      {/* ── 充值记录（可折叠） ── */}
+      {/* ── 微信扫码支付弹窗 ── */}
+      <WeChatQRModal
+        visible={qrVisible}
+        codeUrl={qrCodeUrl}
+        orderNo={qrOrderNo}
+        amount={selectedAmount}
+        expiredAt={qrExpiredAt}
+        onSuccess={handlePaymentSuccess}
+        onCancel={handlePaymentCancel}
+      />
+
+      {/* ── 充值记录（可折叠）── */}
       <div className="max-w-2xl">
         <button
           onClick={() => setShowOrders(!showOrders)}
@@ -205,13 +205,7 @@ export function CreditsPage() {
                 >
                   <div>
                     <span className="text-[#ccc] font-mono text-xs">{o.orderNo}</span>
-                    <span className={`ml-3 px-1.5 py-0.5 rounded text-xs ${
-                      o.status === 'SUCCESS' ? 'bg-[#4ade80]/15 text-[#4ade80]' :
-                      o.status === 'FAILED' ? 'bg-[#ef4444]/15 text-[#ef4444]' :
-                      'bg-[#f59e0b]/15 text-[#f59e0b]'
-                    }`}>
-                      {o.status === 'SUCCESS' ? '成功' : o.status === 'FAILED' ? '失败' : '处理中'}
-                    </span>
+                    {statusBadge(o.status)}
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="text-[#4ade80] font-mono">

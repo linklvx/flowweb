@@ -9,6 +9,9 @@ export const QUEUE_NAMES = {
   THUMBNAIL_GENERATOR: 'thumbnail-generator',
   TEMP_CLEANUP: 'temp-file-cleanup',
   BANNER_CLEANUP: 'banner-cleanup',
+  RECHARGE_CLOSE_EXPIRED: 'recharge-close-expired',
+  RECHARGE_ACTIVE_QUERY: 'recharge-active-query',
+  RECHARGE_DAILY_SCAN: 'recharge-daily-scan',
 } as const;
 
 export const QUEUE_CONCURRENCY = {

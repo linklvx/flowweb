@@ -104,10 +104,8 @@ export interface CreateRechargeOrderVO {
 export interface PayRechargeOrderVO {
   orderNo: string;
   amount: number; // 元
-  balanceBefore: number; // 元
-  balanceAfter: number; // 元
   status: string;
-  paidAt: string;
+  codeUrl: string | null;
 }
 
 export interface RechargeOrderItemVO {
@@ -118,7 +116,11 @@ export interface RechargeOrderItemVO {
   balanceAfter: number;
   status: string;
   payChannel: string | null;
+  prepayId: string | null;
+  transactionId: string | null;
   paidAt: string | null;
+  expiredAt: string | null;
+  closedAt: string | null;
   createdAt: string;
 }
 
