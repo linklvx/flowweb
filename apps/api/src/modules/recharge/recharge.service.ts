@@ -68,6 +68,10 @@ export class RechargeService {
       };
     }
 
+    if (!this.payment) {
+      throw new BusinessException('RECHARGE_UNAVAILABLE', '充值服务暂未配置，请稍后重试');
+    }
+
     try {
       const amountYuan = order.amount / 100;
       const description = `Flow123 AI创作平台充值 - ${amountYuan}元`;
