@@ -21,6 +21,10 @@ const envSchema = z.object({
   WECHAT_PAY_PUBLIC_KEY_ID: z.string().optional().default(''),
   WECHAT_PAY_PUBLIC_KEY: z.string().optional().default(''),
   WECHAT_PAY_NOTIFY_URL: z.string().optional().default(''),
+
+  // Observability (Phase 9)
+  SENTRY_DSN: z.string().optional(),
+  PROMETHEUS_TOKEN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

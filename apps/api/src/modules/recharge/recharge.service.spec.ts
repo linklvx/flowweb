@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RechargeService } from './recharge.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
+vi.mock('@sentry/nestjs', () => ({
+  captureException: vi.fn(),
+  withScope: vi.fn((fn: Function) => fn({ setTag: vi.fn(), setLevel: vi.fn() })),
+}));
+
 function createTx() {
   return {
     userBalance: {
@@ -43,24 +48,36 @@ function mockPrisma() {
   } as any;
 }
 
+function mockMetrics() {
+  return {
+    ordersCreatedTotal: { inc: vi.fn() },
+    ordersCompletedTotal: { inc: vi.fn() },
+    ordersClosedTotal: { inc: vi.fn() },
+    callbackTotal: { inc: vi.fn() },
+    wechatApiDurationSeconds: { startTimer: vi.fn(() => vi.fn()) },
+    amountFenTotal: { inc: vi.fn() },
+    callbackDurationSeconds: { startTimer: vi.fn(() => vi.fn()) },
+  } as any;
+}
+
 describe('RechargeService', () => {
   let service: RechargeService;
   let prisma: any;
+  let metrics: any;
   let payment: any;
-  let credit: any;
 
   const validTiersFen = [1000, 3000, 5000, 10000, 20000, 50000];
 
   beforeEach(() => {
     prisma = mockPrisma();
-    credit = {} as any;
+    metrics = mockMetrics();
     payment = {
       createPayment: vi.fn(),
       queryOrder: vi.fn(),
       closePayment: vi.fn(),
       parseNotify: vi.fn(),
     };
-    service = new RechargeService(prisma, credit, payment);
+    service = new RechargeService(prisma, metrics, payment);
     process.env.WECHAT_PAY_APP_ID = 'wx1234567890abcdef';
     process.env.WECHAT_PAY_MCH_ID = '1234567890';
   });
@@ -84,6 +101,7 @@ describe('RechargeService', () => {
     expect(result.status).toBe('PENDING');
     expect(result.amount).toBe(amountFen);
     expect(result.clientIp).toBe('1.2.3.4');
+    expect(metrics.ordersCreatedTotal.inc).toHaveBeenCalledWith({ amount_tier: String(amountFen / 100) });
   });
 
   it('should reject non-tier amount with 档位 error', async () => {
@@ -142,6 +160,7 @@ describe('RechargeService', () => {
     expect(result.codeUrl).toBe('weixin://wxpay/bizpayurl?pr=abc');
     expect(result.status).toBe('PENDING');
     expect(payment.createPayment).toHaveBeenCalledTimes(1);
+    expect(metrics.wechatApiDurationSeconds.startTimer).toHaveBeenCalledWith({ api: 'create_payment' });
   });
 
   it('should reject non-owner user', async () => {
@@ -172,12 +191,14 @@ describe('RechargeService', () => {
     await expect(service.pay('NONEXISTENT', 'user-1')).rejects.toThrow('订单不存在');
   });
 
-  it('should throw RECHARGE_PAY_CHANNEL_FAILED when createPayment fails', async () => {
+  it('should report to Sentry when createPayment fails', async () => {
+    const Sentry = await import('@sentry/nestjs');
     prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING', prepayId: null,
+      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING', prepayId: null, createdAt: new Date(),
     });
     payment.createPayment.mockRejectedValue(new Error('WeChat API error'));
     await expect(service.pay('RC20260726USER00123456', 'user-1')).rejects.toThrow(BusinessException);
+    expect(Sentry.captureException).toHaveBeenCalled();
   });
 
   // ── getOrders ──
@@ -228,6 +249,7 @@ describe('RechargeService', () => {
       where: { orderNo: 'RC20260726USER00123456', status: 'PENDING' },
       data: { status: 'CLOSED', closedAt: expect.any(Date) },
     });
+    expect(metrics.ordersClosedTotal.inc).toHaveBeenCalledWith({ reason: 'expired' });
   });
 
   it('should reject non-owner for closeOrder', async () => {
@@ -272,9 +294,6 @@ describe('RechargeService', () => {
       id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
     });
 
-    const tx = prisma.$transaction.mock.calls[0]
-      ? (await prisma.$transaction.mock.results[0]?.value)
-      : undefined;
     const result = await service.handleCallback(
       { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
       Buffer.from(JSON.stringify({ resource: { ciphertext: 'ct', nonce: 'nonce1', associated_data: 'ad1' } })),
@@ -282,6 +301,9 @@ describe('RechargeService', () => {
 
     expect(result.code).toBe('SUCCESS');
     expect(payment.parseNotify).toHaveBeenCalled();
+    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'success' });
+    expect(metrics.ordersCompletedTotal.inc).toHaveBeenCalledWith({ channel: 'callback' });
+    expect(metrics.amountFenTotal.inc).toHaveBeenCalledWith(5000);
   });
 
   it('should reject callback with mismatched amount', async () => {
@@ -306,6 +328,7 @@ describe('RechargeService', () => {
     );
 
     expect(result.code).toBe('FAIL');
+    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'amount_mismatch' });
   });
 
   it('should return SUCCESS for terminal-state order (idempotent callback)', async () => {
@@ -390,5 +413,34 @@ describe('RechargeService', () => {
     );
 
     expect(capturedTx.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('should report to Sentry with fatal level on transaction failure', async () => {
+    const Sentry = await import('@sentry/nestjs');
+    const notify = {
+      outTradeNo: 'RC20260726USER00123456',
+      transactionId: '4200001234567890',
+      tradeState: 'SUCCESS',
+      tradeStateDesc: '支付成功',
+      amount: 5000,
+      payerOpenid: 'oTest123',
+      appid: 'wx1234567890abcdef',
+      mchid: '1234567890',
+    };
+    payment.parseNotify.mockResolvedValue(notify);
+
+    prisma.rechargeOrder.findUnique.mockResolvedValue({
+      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
+    });
+
+    prisma.$transaction.mockRejectedValue(new Error('DB error'));
+
+    await service.handleCallback(
+      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
+      Buffer.from(JSON.stringify({ resource: { ciphertext: 'ct', nonce: 'nonce1', associated_data: 'ad1' } })),
+    );
+
+    expect(Sentry.captureException).toHaveBeenCalled();
+    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'error' });
   });
 });

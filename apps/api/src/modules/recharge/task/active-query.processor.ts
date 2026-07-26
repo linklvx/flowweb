@@ -1,8 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Optional } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { MetricsService } from '../../../metrics/metrics.service';
 import type { IPaymentProvider } from '../providers/payment.provider.interface';
 
 interface ActiveQueryJob {
@@ -14,6 +16,7 @@ interface ActiveQueryJob {
 export class ActiveQueryProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(MetricsService) private readonly metrics: MetricsService,
     @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
   ) {
     super();
@@ -22,23 +25,39 @@ export class ActiveQueryProcessor extends WorkerHost {
   async process(job: Job<ActiveQueryJob>): Promise<void> {
     const { orderNo, userId } = job.data;
 
-    const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo } });
-    if (!order || order.status !== 'PENDING') return;
+    try {
+      const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo } });
+      if (!order || order.status !== 'PENDING') return;
 
-    if (!this.payment) return;
-    const queryResult = await this.payment.queryOrder(orderNo);
+      if (!this.payment) return;
 
-    if (queryResult.tradeState === 'SUCCESS') {
-      await this.creditOrder(order, queryResult.transactionId!, queryResult.tradeStateDesc, queryResult.amount ?? order.amount, queryResult.payerOpenid ?? '');
-    } else if (queryResult.tradeState === 'CLOSED') {
-      await this.prisma.rechargeOrder.updateMany({
-        where: { orderNo, status: 'PENDING' },
-        data: { status: 'CLOSED', closedAt: new Date() },
+      const endTimer = this.metrics.wechatApiDurationSeconds.startTimer({ api: 'query_order' });
+      const queryResult = await this.payment.queryOrder(orderNo);
+      endTimer();
+
+      if (queryResult.tradeState === 'SUCCESS') {
+        await this.creditOrder(order, queryResult.transactionId!, queryResult.tradeStateDesc, queryResult.amount ?? order.amount, queryResult.payerOpenid ?? '');
+      } else if (queryResult.tradeState === 'CLOSED') {
+        await this.prisma.rechargeOrder.updateMany({
+          where: { orderNo, status: 'PENDING' },
+          data: { status: 'CLOSED', closedAt: new Date() },
+        });
+        this.metrics.ordersClosedTotal.inc({ reason: 'expired' });
+      }
+    } catch (err) {
+      Sentry.withScope((scope) => {
+        scope.setTag('module', 'recharge');
+        scope.setTag('orderNo', orderNo);
+        scope.setTag('userId', userId);
+        scope.setLevel('warning');
+        Sentry.captureException(err);
       });
     }
   }
 
   private async creditOrder(order: any, transactionId: string, tradeStateDesc: string, amount: number, payerOpenid: string) {
+    let balanceAfter = 0;
+
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT * FROM "UserBalance" WHERE "userId" = ${order.userId} FOR UPDATE`;
 
@@ -49,7 +68,7 @@ export class ActiveQueryProcessor extends WorkerHost {
       });
 
       const balanceBefore = ub.balance;
-      const balanceAfter = balanceBefore + order.amount;
+      balanceAfter = balanceBefore + order.amount;
 
       await tx.userBalance.update({
         where: { userId: order.userId },
@@ -79,5 +98,8 @@ export class ActiveQueryProcessor extends WorkerHost {
         },
       });
     });
+
+    this.metrics.ordersCompletedTotal.inc({ channel: 'active_query' });
+    this.metrics.amountFenTotal.inc(order.amount);
   }
 }

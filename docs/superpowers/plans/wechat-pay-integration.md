@@ -392,35 +392,211 @@ pnpm --filter web dev  # 浏览器访问 /settings/credits 验证完整流程
 
 ## Phase 9: 可观测性
 
-### 目标
-添加 Sentry 告警、Prometheus 指标、日志脱敏。
-
 ### 文件变更
 
 | 操作 | 文件 |
 |------|------|
-| 修改 | `apps/api/src/modules/recharge/recharge.service.ts` — 关键节点 Sentry + 日志 |
-| 新增 | `apps/api/src/modules/recharge/metrics.ts` — Prometheus 指标 |
-| 修改 | `apps/api/src/modules/recharge/providers/wechat-payment.provider.ts` — 异常 Sentry 上报 |
+| 修改 | `apps/api/package.json` — 添加 `@sentry/nestjs`、`prom-client` |
+| 修改 | `apps/api/src/main.ts` — `Sentry.init()` + `SentryGlobalFilter` |
+| 修改 | `apps/api/src/config/env.ts` — 新增 `SENTRY_DSN`、`PROMETHEUS_TOKEN` 可选字段 |
+| 修改 | `apps/api/src/auth/auth.guard.ts` — `PUBLIC_PREFIXES` 新增 `/api/metrics` |
+| 新增 | `apps/api/src/metrics/metrics.module.ts` — 全局单例模块 |
+| 新增 | `apps/api/src/metrics/metrics.controller.ts` — `GET /metrics` 端点 |
+| 新增 | `apps/api/src/metrics/metrics.service.ts` — 指标注册与获取 |
+| 修改 | `apps/api/src/app.module.ts` — 导入 `MetricsModule` |
+| 修改 | `apps/api/src/modules/recharge/recharge.service.ts` — Sentry 打点 + Prometheus 计数 |
+| 修改 | `apps/api/src/modules/recharge/providers/wechat-payment.provider.ts` — Sentry + Histogram 耗时 |
+| 修改 | `apps/api/src/modules/recharge/task/active-query.processor.ts` — Sentry 打点 |
+| 修改 | `apps/api/src/modules/recharge/task/close-expired-order.processor.ts` — Sentry 打点 |
 
-### 具体变更
+### Step 1: 安装依赖
 
-1. **Sentry**：验签失败（高优）、金额不一致（高优）、入账事务异常（高优）、终态重复回调（低优）、Nonce 重放（低优）
-2. **Prometheus**：
-   - `recharge_order_create_total` Counter `{channel: "wechat"}`
-   - `recharge_callback_total` Counter `{result: "success"|"fail"}`
-   - `recharge_callback_fail_total` Counter `{stage: "content_type"|"nonce"|"timestamp"|"sign"|"decrypt"|"appid"|"currency"|"amount"}` — 按校验阶段细分失败计数，便于快速定位回调异常根因
-   - `recharge_balance_incr_total` Counter `{type: "callback"|"query"}` — 区分回调入账和查单入账
-   - `recharge_callback_duration_seconds` Histogram `{result: "success"|"fail"}`
-   - `recharge_daily_amount_total` Counter — 每日充值成功总金额（分），日终对账用
-   - `recharge_daily_count_total` Counter — 每日充值成功总笔数
-3. **日志脱敏**：禁止打印 openid、加密报文完整内容
+```bash
+pnpm --filter api add @sentry/nestjs prom-client
+```
+
+`@sentry/node` 安装 `@sentry/nestjs` 后会自动升级到兼容版本。`prom-client` 锁定 `^15.x` 大版本。
+
+### Step 2: 环境变量配置
+
+在 `apps/api/src/config/env.ts` 中新增：
+
+```typescript
+SENTRY_DSN: z.string().optional(),
+PROMETHEUS_TOKEN: z.string().optional(),
+```
+
+两个字段均为可选。`SENTRY_DSN` 缺失时 Sentry SDK 静默不工作；`PROMETHEUS_TOKEN` 缺失时不启用应用层鉴权。
+
+### Step 3: Sentry 初始化（main.ts）
+
+在 `apps/api/src/main.ts` 中，`NestFactory.create()` **之前**执行：
+
+```typescript
+import * as Sentry from '@sentry/nestjs';
+
+try {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    release: process.env.GIT_COMMIT_HASH || 'unknown',
+    integrations: [Sentry.nestIntegration()],
+  });
+} catch (err) {
+  console.warn('[Sentry] Init failed, continuing without error reporting:', (err as Error).message);
+}
+```
+
+> 不配置 `ignoreErrors`：`@sentry/nestjs` 已默认过滤 `HttpException` 及其派生类（`BadRequestException`、`UnauthorizedException` 等），无需额外规则。若后续需过滤自定义异常，在全局异常过滤器内通过 `instanceof` 判断后不上报 Sentry，而非依赖正则匹配类名（生产压缩后会失效）。
+
+`NestFactory.create()` 之后，注册 `SentryGlobalFilter` 为**第一个**全局过滤器：
+
+```typescript
+app.useGlobalFilters(new Sentry.SentryGlobalFilter());
+```
+
+> 全局过滤器按注册顺序执行，`SentryGlobalFilter` 必须在业务过滤器之前，确保未被业务过滤器处理的异常也能到达 Sentry。
+> 
+> 备选：也可使用 NestJS 官方的 `APP_FILTER` 依赖注入方式注册，二选一，功能无差异。
+
+### Step 4: Metrics 基础设施模块
+
+#### 4.1 MetricsService
+`apps/api/src/metrics/metrics.service.ts`
+
+- 显式导入 `import { register } from 'prom-client'`，所有指标注册到该默认实例，确保多模块扩展时 registry 统一
+- 调用 `collectDefaultMetrics()` 获取 Node.js 运行时指标（内存、GC、事件循环、CPU）
+- 一次性注册所有业务指标（Counter/Histogram），**必须在构造函数中完成，禁止运行时动态创建**，彻底规避热重载、重复加载导致的 "duplicate metric" 报错
+- 暴露 `getMetricsText()` 返回 Prometheus 文本格式（使用 `register.metrics()`）
+
+指标 HELP 示例：
+```typescript
+new Counter({
+  name: 'recharge_orders_created_total',
+  help: '各金额档位充值订单创建数。标签 amount_tier 为充值金额（元）。',
+  labelNames: ['amount_tier'],
+  registers: [register],
+});
+```
+
+#### 4.2 MetricsController
+`apps/api/src/metrics/metrics.controller.ts`
+
+```typescript
+@Controller('metrics')
+export class MetricsController {
+  @Get()
+  @UseGuards(PrometheusAuthGuard)
+  async getMetrics(@Res() res: Response) {
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(await this.metricsService.getMetricsText());
+  }
+}
+```
+
+- `PrometheusAuthGuard`：可选 Token 鉴权 Guard，校验 `X-Prometheus-Token` 请求头。`PROMETHEUS_TOKEN` 未配置时 Guard 直接放行；配置后校验失败返回 403 Forbidden
+- `Content-Type` 显式设置为 `text/plain; version=0.0.4; charset=utf-8`，符合 Prometheus 官方文本格式规范
+- `/api/metrics` 加入 `auth.guard.ts` 的 `PUBLIC_PREFIXES` 数组，豁免全局用户鉴权
+
+#### 4.3 MetricsModule
+`apps/api/src/metrics/metrics.module.ts`
+
+- 装饰器 `@Global()` 确保全局单例
+- exports `MetricsService` 供其他模块注入
+
+### Step 5: recharge 模块打点
+
+#### 5.1 Prometheus 指标定义（7 个）
+
+| 指标名 | 类型 | 标签 | buckets | help |
+|--------|------|------|---------|------|
+| `recharge_orders_created_total` | Counter | `amount_tier` | — | 各金额档位充值订单创建数 |
+| `recharge_orders_completed_total` | Counter | `channel` | — | 支付成功数，channel 区分来源（callback/active_query） |
+| `recharge_orders_closed_total` | Counter | `reason` | — | 订单关闭数，reason 区分原因（expired/manual/api_fail） |
+| `recharge_callback_total` | Counter | `result` | — | 微信支付回调处理结果计数 |
+| `recharge_wechat_api_duration_seconds` | Histogram | `api` | `[0.05, 0.1, 0.3, 0.5, 1, 2, 5, 10]` | 微信支付 API 调用耗时（秒） |
+| `recharge_amount_fen_total` | Counter | — | — | 累计充值金额（分），用于财务对账 |
+| `recharge_callback_duration_seconds` | Histogram | `result` | 默认 | 回调全链路处理耗时（秒），包含验签+入账 |
+
+#### 5.2 recharge.service.ts 打点位置
+
+| 方法 | Sentry | Prometheus |
+|------|--------|-----------|
+| `createOrder()` | — | `orders_created_total.inc({amount_tier})` |
+| `pay()` | `captureException` + `error` on API fail | `wechat_api_duration.observe()` on createPayment |
+| `closeOrder()` | — | `orders_closed_total.inc({reason})` |
+| `handleCallback()` parse fail | `captureException` + `error` | `callback_total.inc({result: 'sig_fail'})` |
+| `handleCallback()` amount mismatch | — | `callback_total.inc({result: 'amount_mismatch'})` |
+| `handleCallback()` 事务失败 | `captureException` + `fatal` | `callback_total.inc({result: 'error'})` |
+| `handleCallback()` 成功 | — | `callback_total.inc({result: 'success'})` + 调用 `completeOrderInTransaction()`（内部统一计数） |
+
+回调全链路耗时用 `callback_duration_seconds` Histogram 包裹整个 `handleCallback()` 方法。
+
+#### 5.2.1 入账指标统一收敛
+
+`orders_completed_total` 和 `amount_fen_total` 的计数收敛到私有方法 `completeOrderInTransaction()` 中，回调入账和主动查单入账两条路径共用同一方法，确保指标统计口径一致：
+
+```typescript
+private async completeOrderInTransaction(
+  orderNo: string,
+  userId: string,
+  amount: number,
+  channel: 'callback' | 'active_query',
+  transactionId: string,
+  payerOpenid?: string,
+  notifySummary?: object,
+) {
+  await this.prisma.$transaction(async (tx) => {
+    // FOR UPDATE row lock → upsert balance → create transaction record → update order
+  });
+
+  // Metrics (consistently counted regardless of which path completes the order)
+  this.metrics.ordersCompletedTotal.inc({ channel });
+  this.metrics.amountFenTotal.inc(amount);
+}
+```
+
+> `handleCallback()` 和 `active-query.processor.ts` 的入账逻辑均调用此方法，避免指标计数的重复代码和口径不一致。
+
+#### 5.3 wechat-payment.provider.ts 打点
+
+所有微信 API 调用（`createPayment`、`queryOrder`、`closePayment`）包裹 `wechat_api_duration_seconds` Histogram 计时。异常由上层 Service 统一上报 Sentry。
+
+#### 5.4 BullMQ 异步任务打点
+
+`active-query.processor.ts` 和 `close-expired-order.processor.ts` 中：
+
+```typescript
+try {
+  // ... processor logic
+} catch (err) {
+  Sentry.withScope((scope) => {
+    scope.setTag('module', 'recharge');
+    scope.setTag('orderNo', job.data.orderNo);
+    scope.setTag('userId', job.data.userId);
+    scope.setLevel('warning');
+    Sentry.captureException(err);
+  });
+}
+```
+
+BullMQ 处理器运行在独立上下文，必须手动用 `Sentry.withScope()` 注入标签，否则全局异常过滤器无法捕获上下文信息。
+
+### 部署清单（服务器侧）
+
+- **APISIX**：配置路由规则，禁止外网请求访问 `/api/metrics`，仅允许内网 Prometheus 抓取节点
+- **环境变量**：生产服务器 `.env` 添加 `SENTRY_DSN=<DSN_URL>` 和 `GIT_COMMIT_HASH`（部署脚本注入）
 
 ### 验证
 ```bash
 pnpm --filter api test -- --reporter=verbose
-# 确认 Sentry 告警携带 orderNo 标签
-# 确认 Prometheus metrics 端点可访问
+
+# 启动后验证:
+# 1. GET /api/metrics — 返回 Prometheus 文本格式，包含 recharge_* + nodejs_* 指标
+# 2. 无 SENTRY_DSN 时应用正常启动，无报错
+# 3. Sentry 初始化失败时仅 console.warn，不阻断启动
+# 4. 模拟支付 → 确认 Sentry 事件携带 module/orderNo/userId 标签
+# 5. 模拟 BullMQ 任务异常 → 确认 Sentry 捕获且携带标签
 ```
 
 ---
@@ -439,7 +615,10 @@ pnpm --filter api test -- --reporter=verbose
   apps/api/src/modules/recharge/payment.gateway.ts
   apps/api/src/modules/recharge/payment.gateway.spec.ts
   apps/api/src/modules/recharge/guards/throttle-user.guard.ts
-  apps/api/src/modules/recharge/metrics.ts
+  apps/api/src/metrics/metrics.module.ts
+  apps/api/src/metrics/metrics.controller.ts
+  apps/api/src/metrics/metrics.service.ts
+  apps/api/src/metrics/prometheus-auth.guard.ts
   apps/api/src/common/decorators/no-transform.decorator.ts
   apps/web/src/components/WeChatQRModal.tsx
   apps/web/src/components/WeChatQRModal.test.tsx

@@ -23,6 +23,7 @@ describe('AuthGuard', () => {
     '/api/auth/sign-up',
     '/api/announcements/active',
     '/api/pricing/calculate',
+    '/metrics',
   ];
 
   PUBLIC_PATHS.forEach(path => {

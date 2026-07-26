@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Optional } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { IPaymentProvider } from '../providers/payment.provider.interface';
@@ -20,22 +21,32 @@ export class CloseExpiredOrderProcessor extends WorkerHost {
   }
 
   async process(job: Job<CloseExpiredJob>): Promise<void> {
-    const { orderNo } = job.data;
+    const { orderNo, userId } = job.data;
 
-    const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo } });
-    if (!order || order.status !== 'PENDING') return;
+    try {
+      const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo } });
+      if (!order || order.status !== 'PENDING') return;
 
-    if (this.payment) {
-      try {
-        await this.payment.closePayment(orderNo);
-      } catch {
-        // WeChat already closed or not found — proceed to local close
+      if (this.payment) {
+        try {
+          await this.payment.closePayment(orderNo);
+        } catch {
+          // WeChat already closed or not found — proceed to local close
+        }
       }
-    }
 
-    await this.prisma.rechargeOrder.updateMany({
-      where: { orderNo, status: 'PENDING' },
-      data: { status: 'CLOSED', closedAt: new Date() },
-    });
+      await this.prisma.rechargeOrder.updateMany({
+        where: { orderNo, status: 'PENDING' },
+        data: { status: 'CLOSED', closedAt: new Date() },
+      });
+    } catch (err) {
+      Sentry.withScope((scope) => {
+        scope.setTag('module', 'recharge');
+        scope.setTag('orderNo', orderNo);
+        scope.setTag('userId', userId);
+        scope.setLevel('warning');
+        Sentry.captureException(err);
+      });
+    }
   }
 }
