@@ -24,6 +24,9 @@ deploy_full() {
   echo "=== 安装依赖 ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pnpm install"
 
+  echo "=== 构建后端 ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx nest build"
+
   echo "=== 构建前端 ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/web && npx vite build"
 
