@@ -69,17 +69,18 @@ export class WechatPaymentProvider implements IPaymentProvider {
     };
 
     const response = await this.withRetry(() =>
-      this.wxpay.v3.pay.transactions.native.post(body),
-    );
+      (this.wxpay as any).v3.pay.transactions.native.post(body),
+    ) as any;
 
+    const data = response.data as Record<string, any>;
     return {
-      codeUrl: response.data.code_url,
-      prepayId: response.data.prepay_id,
+      codeUrl: data.code_url,
+      prepayId: data.prepay_id,
     };
   }
 
   async queryOrder(orderNo: string) {
-    const response = await this.wxpay.v3.pay.transactions.outTradeNo(orderNo).get();
+    const response = await (this.wxpay as any).v3.pay.transactions.outTradeNo(orderNo).get();
     const data = response.data as Record<string, unknown>;
     const amount = (data.amount as Record<string, number>)?.total;
     const payer = data.payer as Record<string, string> | undefined;
@@ -94,7 +95,7 @@ export class WechatPaymentProvider implements IPaymentProvider {
   }
 
   async closePayment(orderNo: string): Promise<void> {
-    await this.wxpay.v3.pay.transactions.outTradeNo(orderNo).close.post({
+    await (this.wxpay as any).v3.pay.transactions.outTradeNo(orderNo).close.post({
       mchid: this.mchId,
     });
   }

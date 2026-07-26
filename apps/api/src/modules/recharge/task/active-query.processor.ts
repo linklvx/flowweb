@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Inject, Optional } from '@nestjs/common';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { IPaymentProvider } from '../providers/payment.provider.interface';
@@ -13,7 +14,7 @@ interface ActiveQueryJob {
 export class ActiveQueryProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly payment: IPaymentProvider,
+    @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
   ) {
     super();
   }
@@ -24,6 +25,7 @@ export class ActiveQueryProcessor extends WorkerHost {
     const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo } });
     if (!order || order.status !== 'PENDING') return;
 
+    if (!this.payment) return;
     const queryResult = await this.payment.queryOrder(orderNo);
 
     if (queryResult.tradeState === 'SUCCESS') {

@@ -1,5 +1,6 @@
 import { Module, OnApplicationBootstrap } from '@nestjs/common';
 import * as crypto from 'crypto';
+import Redis from 'ioredis';
 import { CreditModule } from '../credit/credit.module';
 import { RechargeTaskModule } from './task/recharge-task.module';
 import { RechargeController } from './recharge.controller';
@@ -14,8 +15,15 @@ import { PaymentGateway } from './payment.gateway';
     RechargeService,
     PaymentGateway,
     {
+      provide: 'REDIS_CLIENT',
+      useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'),
+    },
+    {
       provide: 'PAYMENT_PROVIDER',
       useFactory: () => {
+        if (!process.env.WECHAT_PAY_APP_ID) {
+          return null;
+        }
         validateWeChatPayConfig();
         return new WechatPaymentProvider({
           WECHAT_PAY_APP_ID: process.env.WECHAT_PAY_APP_ID!,
@@ -38,6 +46,9 @@ export class RechargeModule implements OnApplicationBootstrap {
 }
 
 function validateWeChatPayConfig() {
+  if (!process.env.WECHAT_PAY_APP_ID) {
+    return;
+  }
   const pemKeys: [string, string][] = [
     ['WECHAT_PAY_PRIVATE_KEY', process.env.WECHAT_PAY_PRIVATE_KEY!],
     ['WECHAT_PAY_MERCHANT_CERT', process.env.WECHAT_PAY_MERCHANT_CERT!],

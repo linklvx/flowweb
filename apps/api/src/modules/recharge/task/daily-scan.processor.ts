@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Inject, Optional } from '@nestjs/common';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { IPaymentProvider } from '../providers/payment.provider.interface';
@@ -10,7 +11,7 @@ const BATCH_SIZE = 100;
 export class DailyScanProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly payment: IPaymentProvider,
+    @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
   ) {
     super();
   }
@@ -33,10 +34,12 @@ export class DailyScanProcessor extends WorkerHost {
       }
 
       for (const order of orders) {
-        try {
-          await this.payment.closePayment(order.orderNo);
-        } catch {
-          // Already closed on WeChat side
+        if (this.payment) {
+          try {
+            await this.payment.closePayment(order.orderNo);
+          } catch {
+            // Already closed on WeChat side
+          }
         }
         await this.prisma.rechargeOrder.updateMany({
           where: { orderNo: order.orderNo, status: 'PENDING' },

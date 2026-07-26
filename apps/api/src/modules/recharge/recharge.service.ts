@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type Redis from 'ioredis';
@@ -18,9 +18,9 @@ export class RechargeService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CreditService) private readonly credit: CreditService,
     @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider,
-    @Inject('REDIS_CLIENT') private readonly redis?: Redis,
-    @InjectQueue(QUEUE_NAMES.RECHARGE_CLOSE_EXPIRED) private readonly closeExpiredQueue?: Queue,
-    @InjectQueue(QUEUE_NAMES.RECHARGE_ACTIVE_QUERY) private readonly activeQueryQueue?: Queue,
+    @Optional() @Inject('REDIS_CLIENT') private readonly redis?: Redis,
+    @Optional() @InjectQueue(QUEUE_NAMES.RECHARGE_CLOSE_EXPIRED) private readonly closeExpiredQueue?: Queue,
+    @Optional() @InjectQueue(QUEUE_NAMES.RECHARGE_ACTIVE_QUERY) private readonly activeQueryQueue?: Queue,
     @Inject(PaymentGateway) private readonly gateway?: PaymentGateway,
   ) {}
 
@@ -213,6 +213,7 @@ export class RechargeService {
     }
 
     // Credit balance in transaction
+    let balanceAfter = 0;
     try {
       await this.prisma.$transaction(async (tx) => {
         // FOR UPDATE row lock
@@ -229,7 +230,7 @@ export class RechargeService {
         });
 
         const balanceBefore = ub.balance;
-        const balanceAfter = balanceBefore + order.amount;
+        balanceAfter = balanceBefore + order.amount;
 
         await tx.userBalance.update({
           where: { userId: order.userId },

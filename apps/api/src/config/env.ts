@@ -11,16 +11,16 @@ const envSchema = z.object({
   MINIO_BUCKET: z.string().default('flowai'),
   MINIO_USE_SSL: z.coerce.boolean().default(false),
 
-  // WeChat Pay API v3
-  WECHAT_PAY_APP_ID: z.string().min(1, 'WECHAT_PAY_APP_ID is required'),
-  WECHAT_PAY_MCH_ID: z.string().min(1, 'WECHAT_PAY_MCH_ID is required'),
-  WECHAT_PAY_API_V3_KEY: z.string().min(1, 'WECHAT_PAY_API_V3_KEY is required'),
-  WECHAT_PAY_MERCHANT_SERIAL_NO: z.string().min(1, 'WECHAT_PAY_MERCHANT_SERIAL_NO is required'),
-  WECHAT_PAY_PRIVATE_KEY: z.string().min(1, 'WECHAT_PAY_PRIVATE_KEY is required'),
-  WECHAT_PAY_MERCHANT_CERT: z.string().min(1, 'WECHAT_PAY_MERCHANT_CERT is required'),
-  WECHAT_PAY_PUBLIC_KEY_ID: z.string().min(1, 'WECHAT_PAY_PUBLIC_KEY_ID is required'),
-  WECHAT_PAY_PUBLIC_KEY: z.string().min(1, 'WECHAT_PAY_PUBLIC_KEY is required'),
-  WECHAT_PAY_NOTIFY_URL: z.string().url(),
+  // WeChat Pay API v3 (optional — only required for recharge feature)
+  WECHAT_PAY_APP_ID: z.string().optional().default(''),
+  WECHAT_PAY_MCH_ID: z.string().optional().default(''),
+  WECHAT_PAY_API_V3_KEY: z.string().optional().default(''),
+  WECHAT_PAY_MERCHANT_SERIAL_NO: z.string().optional().default(''),
+  WECHAT_PAY_PRIVATE_KEY: z.string().optional().default(''),
+  WECHAT_PAY_MERCHANT_CERT: z.string().optional().default(''),
+  WECHAT_PAY_PUBLIC_KEY_ID: z.string().optional().default(''),
+  WECHAT_PAY_PUBLIC_KEY: z.string().optional().default(''),
+  WECHAT_PAY_NOTIFY_URL: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;
