@@ -5,6 +5,7 @@ interface CreditsState {
   credits: number;
   subscriptionCredits: number;
   subscriptionCreditsExpiry: string | null;
+  tier: string | null;
   loading: boolean;
   error: string | null;
   fetchBalance: () => Promise<void>;
@@ -16,17 +17,22 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
   credits: 0,
   subscriptionCredits: 0,
   subscriptionCreditsExpiry: null,
+  tier: null,
   loading: true,
   error: null,
 
   fetchBalance: async () => {
     set({ loading: true, error: null });
     try {
-      const data = await subscriptionApi.getBalance();
+      const [data, sub] = await Promise.all([
+        subscriptionApi.getBalance(),
+        subscriptionApi.getMe(),
+      ]);
       set({
         credits: data.credits,
         subscriptionCredits: data.subscriptionCredits,
         subscriptionCreditsExpiry: data.subscriptionCreditsExpiry,
+        tier: sub?.tier ?? null,
         loading: false,
       });
     } catch {

@@ -88,53 +88,67 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
 
   return (
     <>
-      <div className="absolute top-3 right-4 z-50 flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+      <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         {user && (
-          <button
-            onClick={() => setShowSaveDialog(true)}
-            className="text-[#4ade80] text-xs bg-transparent border-none cursor-pointer hover:text-[#5dfc8e] transition-colors"
-          >
-            保存项目
-          </button>
-        )}
-        {!store.loading && <CreditsDropdown />}
-        {user ? (
-          <ConfigProvider
-            theme={{
-              components: {
-                Dropdown: {
-                  colorBgElevated: '#252525',
-                  colorText: '#e2e8f0',
-                  controlItemBgHover: '#3a3a3a',
-                  borderRadiusLG: 12,
-                  paddingXXS: 6,
-                },
-              },
-            }}
-          >
-            <Dropdown
-              menu={{ items: userMenuItems }}
-              trigger={['hover']}
-              placement="bottomRight"
-              align={{ offset: [0, 6] }}
+          <div className="bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              className="text-[#4ade80] text-xs bg-transparent border-none cursor-pointer hover:text-[#5dfc8e] transition-colors"
             >
-              <span className="cursor-pointer">
-                {avatarNode('w-5 h-5 text-[10px]')}
-              </span>
-            </Dropdown>
-          </ConfigProvider>
-        ) : (
-          <Link
-            to="/login"
-            className="px-2 py-0.5 rounded-full text-xs border border-[#4ade80] text-[#4ade80] no-underline hover:bg-[#4ade80]/10 transition-colors"
-          >
-            登录
-          </Link>
+              保存项目
+            </button>
+          </div>
         )}
-        {/* debug: projectId */}
-        <span className="absolute -bottom-8 right-0 text-[10px] text-[#444] whitespace-nowrap select-all">
-          pid: {projectId}
-        </span>
+        <div className="relative flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+          {!store.loading && <CreditsDropdown />}
+          {!store.loading && store.tier && (
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+              store.tier === 'ultra' ? 'bg-[#f59e0b] text-black' :
+              store.tier === 'max' ? 'bg-[#a855f7] text-white' :
+              store.tier === 'pro' ? 'bg-[#3b82f6] text-white' :
+              'bg-[#9ca3af] text-black'
+            }`}>
+              {{ basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' }[store.tier] ?? store.tier}
+            </span>
+          )}
+          {user ? (
+            <ConfigProvider
+              theme={{
+                components: {
+                  Dropdown: {
+                    colorBgElevated: '#252525',
+                    colorText: '#e2e8f0',
+                    controlItemBgHover: '#3a3a3a',
+                    borderRadiusLG: 12,
+                    paddingXXS: 6,
+                  },
+                },
+              }}
+            >
+              <Dropdown
+                menu={{ items: userMenuItems }}
+                trigger={['hover']}
+                placement="bottomRight"
+                align={{ offset: [0, 6] }}
+              >
+                <span className="cursor-pointer">
+                  {avatarNode('w-5 h-5 text-[10px]')}
+                </span>
+              </Dropdown>
+            </ConfigProvider>
+          ) : (
+            <Link
+              to="/login"
+              className="px-2 py-0.5 rounded-full text-xs border border-[#4ade80] text-[#4ade80] no-underline hover:bg-[#4ade80]/10 transition-colors"
+            >
+              登录
+            </Link>
+          )}
+          {/* debug: projectId */}
+          <span className="absolute -bottom-8 right-0 text-[10px] text-[#444] whitespace-nowrap select-all">
+            pid: {projectId}
+          </span>
+        </div>
       </div>
 
       {showSaveDialog && (
