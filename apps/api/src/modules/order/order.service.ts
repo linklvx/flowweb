@@ -32,11 +32,12 @@ export class OrderService {
         planId: params.planId,
         period: params.period,
         type: params.type,
-        amount: params.amount,
-        originalPrice: params.originalPrice,
-        deductibleAmount: params.deductibleAmount ?? 0,
-        originalSubscriptionId: params.originalSubscriptionId,
+        payableAmount: params.amount,
+        originalAmount: params.originalPrice,
+        prorationAmount: params.deductibleAmount ?? 0,
+        fromSubscriptionId: params.originalSubscriptionId,
         pricingSnapshot: params.pricingSnapshot ?? undefined,
+        status: 'SUCCESS',
       },
     });
   }

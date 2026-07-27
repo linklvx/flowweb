@@ -43,7 +43,7 @@ import { PaymentGateway } from './payment.gateway';
       useExisting: SubscriptionOrderService,
     },
   ],
-  exports: [RechargeService],
+  exports: [RechargeService, PaymentGateway],
 })
 export class RechargeModule implements OnApplicationBootstrap {
   onApplicationBootstrap() {

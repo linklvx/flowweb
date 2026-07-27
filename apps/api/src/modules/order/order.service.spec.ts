@@ -25,22 +25,22 @@ describe('OrderService', () => {
   it('should create order with SUB prefix', async () => {
     prisma.subscriptionOrder.create.mockResolvedValue({
       id: 'o1', orderNo: 'SUB12345678901234567890', userId: 'u1',
-      planId: 'p1', period: 'monthly', type: 'new_purchase', amount: 100, originalPrice: 100, deductibleAmount: 0,
+      planId: 'p1', period: 'monthly', type: 'new_purchase', payableAmount: 100, originalAmount: 100, prorationAmount: 0,
     });
 
     const result = await service.createOrder({
       userId: 'u1', planId: 'p1', period: 'monthly', type: 'new_purchase', amount: 100, originalPrice: 100,
     });
     expect(result.orderNo.startsWith('SUB')).toBe(true);
-    expect(result.amount).toBe(100);
+    expect(result.payableAmount).toBe(100);
     expect(prisma.subscriptionOrder.create).toHaveBeenCalled();
   });
 
   it('should create upgrade order with pricing snapshot', async () => {
     prisma.subscriptionOrder.create.mockResolvedValue({
       id: 'o2', orderNo: 'SUB123', userId: 'u1', planId: 'p2', period: 'quarterly',
-      type: 'upgrade', amount: 300, originalPrice: 560, deductibleAmount: 260,
-      originalSubscriptionId: 'sub-1',
+      type: 'upgrade', payableAmount: 300, originalAmount: 560, prorationAmount: 260,
+      fromSubscriptionId: 'sub-1',
       pricingSnapshot: { sourcePaidAmount: 280, remainTimeRatio: 0.93, remainPointsRatio: 0.5, finalRatio: 0.5, targetOriginalPrice: 560, deductibleAmount: 260, payableAmount: 300 },
     });
 

@@ -11,7 +11,6 @@ import { CreditModule } from '../credit/credit.module';
 import { OrderModule } from '../order/order.module';
 import { RechargeModule } from '../recharge/recharge.module';
 import { AuditService } from '../../common/audit/audit.service';
-import { MetricsService } from '../../metrics/metrics.service';
 import { QUEUE_NAMES } from '../../config/queue.constants';
 import Redis from 'ioredis';
 import { validateEnv } from '../../config/env';
@@ -32,7 +31,6 @@ const env = validateEnv();
     SubscriptionService,
     SubscriptionOrderService,
     PricingService,
-    MetricsService,
     SubscriptionBannerService,
     AuditService,
     { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },

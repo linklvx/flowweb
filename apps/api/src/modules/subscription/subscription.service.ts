@@ -110,9 +110,9 @@ export class SubscriptionService {
           planId,
           period,
           type: 'new_purchase',
-          amount: priceKey,
-          originalPrice: priceKey,
-          deductibleAmount: 0,
+          payableAmount: priceKey * 100,
+          originalAmount: priceKey * 100,
+          status: 'SUCCESS',
         },
       });
 
@@ -237,9 +237,10 @@ export class SubscriptionService {
       const order = await tx.subscriptionOrder.create({
         data: {
           orderNo: this.generateOrderNo(), userId, planId: targetPlanId, period: targetPeriod as any,
-          type: 'upgrade', amount: snap.payableAmount, originalPrice: priceKey,
-          deductibleAmount: snap.deductibleAmount, originalSubscriptionId: sub.id,
+          type: 'upgrade', payableAmount: snap.payableAmount * 100, originalAmount: priceKey * 100,
+          prorationAmount: snap.deductibleAmount * 100, fromSubscriptionId: sub.id,
           pricingSnapshot: snap as any,
+          status: 'SUCCESS',
         },
       });
 

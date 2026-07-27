@@ -5,10 +5,12 @@ import { ExpireSubscriptionProcessor } from './expire-subscription.processor';
 import { BannerCleanupProcessor } from './banner-cleanup.processor';
 import { PaymentSuccessProcessor } from './payment-success.processor';
 import { SubscriptionSchedulerService } from './subscription-scheduler.service';
+import { RechargeModule } from '../../recharge/recharge.module';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 
 @Module({
   imports: [
+    RechargeModule,
     BullModule.registerQueue(
       {
         name: 'subscription-expire',
