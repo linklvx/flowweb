@@ -5,6 +5,7 @@ import { ExpireSubscriptionProcessor } from './expire-subscription.processor';
 import { BannerCleanupProcessor } from './banner-cleanup.processor';
 import { PaymentSuccessProcessor } from './payment-success.processor';
 import { CloseExpiredSubOrderProcessor } from './close-expired-sub-order.processor';
+import { DailyReconProcessor } from './daily-recon.processor';
 import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { RechargeModule } from '../../recharge/recharge.module';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
@@ -35,6 +36,10 @@ import { QUEUE_NAMES } from '../../../config/queue.constants';
       name: QUEUE_NAMES.SUBSCRIPTION_CLOSE_EXPIRED,
       defaultJobOptions: { attempts: 1 },
     }),
+    BullModule.registerQueue({
+      name: QUEUE_NAMES.SUBSCRIPTION_DAILY_RECON,
+      defaultJobOptions: { attempts: 1 },
+    }),
   ],
   providers: [
     GrantCreditProcessor,
@@ -42,6 +47,7 @@ import { QUEUE_NAMES } from '../../../config/queue.constants';
     BannerCleanupProcessor,
     PaymentSuccessProcessor,
     CloseExpiredSubOrderProcessor,
+    DailyReconProcessor,
     SubscriptionSchedulerService,
   ],
 })
