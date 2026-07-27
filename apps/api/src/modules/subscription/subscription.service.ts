@@ -310,24 +310,6 @@ export class SubscriptionService {
     });
   }
 
-  // ========== Auto-Renew ==========
-
-  async cancelAutoRenew(userId: string) {
-    const updated = await this.prisma.userSubscription.updateMany({
-      where: { userId, status: 'active' },
-      data: { autoRenew: false, cancelledAt: new Date() },
-    });
-    if (updated.count === 0) throw new BusinessException('SUBSCRIPTION_NOT_ACTIVE');
-  }
-
-  async enableAutoRenew(userId: string) {
-    const updated = await this.prisma.userSubscription.updateMany({
-      where: { userId, status: 'active' },
-      data: { autoRenew: true, cancelledAt: null },
-    });
-    if (updated.count === 0) throw new BusinessException('SUBSCRIPTION_NOT_ACTIVE');
-  }
-
   // ========== Helpers ==========
 
   private generateOrderNo(): string {

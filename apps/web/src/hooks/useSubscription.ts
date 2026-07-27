@@ -43,17 +43,7 @@ export function useMySubscription() {
     finally { setLoading(false); await refresh(); }
   }, [refresh]);
 
-  const cancelAutoRenew = useCallback(async () => {
-    await subscriptionApi.cancelAutoRenew();
-    await refresh();
-  }, [refresh]);
-
-  const enableAutoRenew = useCallback(async () => {
-    await subscriptionApi.enableAutoRenew();
-    await refresh();
-  }, [refresh]);
-
-  return { data, loading, error, refresh, subscribe, upgrade, cancelAutoRenew, enableAutoRenew };
+  return { data, loading, error, refresh, subscribe, upgrade };
 }
 
 export function useCreditBalance() {

@@ -49,7 +49,7 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
 
 export function MembershipPage() {
   const { data: plans } = useSubscriptionPlans();
-  const { data: sub, loading, subscribe, upgrade, cancelAutoRenew, enableAutoRenew } = useMySubscription();
+  const { data: sub, loading, subscribe, upgrade } = useMySubscription();
   const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance } = useCreditBalance();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
@@ -104,13 +104,6 @@ export function MembershipPage() {
               <div><span className="text-[#888]">已发放次数</span><div className="text-white">{sub.grantCount}</div></div>
               <div><span className="text-[#888]">周期到期</span><div className="text-white">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</div></div>
               <div><span className="text-[#888]">下次发放</span><div className="text-white">{new Date(sub.nextGrantDate).toLocaleDateString()}</div></div>
-            </div>
-            <div className="flex gap-3 mt-4">
-              {sub.autoRenew ? (
-                <Button size="small" danger onClick={cancelAutoRenew}>取消自动续费</Button>
-              ) : (
-                <Button size="small" onClick={enableAutoRenew}>开启自动续费</Button>
-              )}
             </div>
           </div>
 

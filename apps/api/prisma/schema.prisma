@@ -396,7 +396,6 @@ enum SubscriptionStatus {
   active
   expired
   upgraded
-  cancelled
 }
 
 enum SubscriptionOrderType {
@@ -506,8 +505,6 @@ model UserSubscription {
   currentPeriodEnd   DateTime
   nextGrantDate      DateTime
   grantCount         Int                  @default(1)
-  autoRenew          Boolean              @default(true)
-  cancelledAt        DateTime?
   previousSubId      String?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt

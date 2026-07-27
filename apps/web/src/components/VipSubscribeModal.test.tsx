@@ -166,14 +166,14 @@ describe('VipSubscribeModal', () => {
   // ─── 8. Period switching ───
   it('should have period tabs', () => {
     renderOpen();
-    expect(screen.getByText('连续包月')).toBeInTheDocument();
-    expect(screen.getByText('连续包季')).toBeInTheDocument();
-    expect(screen.getByText('连续包年')).toBeInTheDocument();
+    expect(screen.getByText('包月')).toBeInTheDocument();
+    expect(screen.getByText('包季')).toBeInTheDocument();
+    expect(screen.getByText('包年')).toBeInTheDocument();
   });
 
-  it('should default to 连续包月 selected', () => {
+  it('should default to 包月 selected', () => {
     renderOpen();
-    const monthlyBtn = screen.getByText('连续包月').closest('button');
+    const monthlyBtn = screen.getByText('包月').closest('button');
     expect(monthlyBtn).not.toBeNull();
   });
 
@@ -185,14 +185,14 @@ describe('VipSubscribeModal', () => {
 
   it('should show /季 suffix and 次季续费 when quarterly selected', () => {
     renderOpen();
-    fireEvent.click(screen.getByText('连续包季'));
+    fireEvent.click(screen.getByText('包季'));
     expect(screen.getAllByText('/季').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/次季续费/).length).toBeGreaterThan(0);
   });
 
   it('should show /年 suffix and 次年续费 when annually selected', () => {
     renderOpen();
-    fireEvent.click(screen.getByText('连续包年'));
+    fireEvent.click(screen.getByText('包年'));
     expect(screen.getAllByText('/年').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/次年续费/).length).toBeGreaterThan(0);
   });

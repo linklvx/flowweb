@@ -35,14 +35,14 @@ export class AdminSubscriptionService {
     const sub = await this.prisma.userSubscription.findUnique({ where: { id } });
     if (!sub) throw new BusinessException('SUBSCRIPTION_NOT_FOUND');
 
-    const TERMINAL = new Set(['expired', 'upgraded', 'cancelled']);
+    const TERMINAL = new Set(['expired', 'upgraded']);
     if (TERMINAL.has(sub.status)) throw new BusinessException('STATE_MACHINE_TERMINAL', '终态订阅不可作废');
     if (sub.status !== 'active') throw new BusinessException('SUBSCRIPTION_STATUS_INVALID');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.userSubscription.update({
         where: { id },
-        data: { status: 'cancelled', autoRenew: false, cancelledAt: new Date() },
+        data: { status: 'expired' },
       });
       await tx.userBalance.updateMany({
         where: { userId: sub.userId },

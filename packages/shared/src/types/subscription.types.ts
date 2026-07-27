@@ -4,7 +4,7 @@ export type SubscriptionTier = 'basic' | 'pro' | 'max' | 'ultra';
 
 export type SubscriptionPeriod = 'monthly' | 'quarterly' | 'annually';
 
-export type SubscriptionStatus = 'active' | 'expired' | 'upgraded' | 'cancelled';
+export type SubscriptionStatus = 'active' | 'expired' | 'upgraded';
 
 export type SubscriptionOrderType = 'new_purchase' | 'upgrade' | 'renewal';
 
@@ -55,8 +55,6 @@ export interface SubscriptionMeResponse {
   currentPeriodEnd: string;
   nextGrantDate: string;
   grantCount: number;
-  autoRenew: boolean;
-  cancelledAt: string | null;
   previousSubId: string | null;
 }
 

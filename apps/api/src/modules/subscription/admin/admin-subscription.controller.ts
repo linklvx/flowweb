@@ -37,10 +37,9 @@ export class AdminSubscriptionController {
 
   @Patch('subscriptions/:id')
   async updateSubscription(@Param('id') id: string, @Body() body: any) {
-    if (body.status === 'cancelled') {
+    if (body.status === 'expired') {
       return this.adminService.cancelSubscription(id);
     }
-    // For other updates (extend expiry, modify autoRenew etc.) — implement in admin service when needed
     return { message: '仅支持作废操作' };
   }
 

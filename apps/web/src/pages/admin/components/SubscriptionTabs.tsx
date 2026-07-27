@@ -106,7 +106,7 @@ export function SubscriptionManagementTab() {
       await fetch(API + '/subscriptions/' + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' }),
+        body: JSON.stringify({ status: 'expired' }),
       });
       message.success('已作废');
       load();

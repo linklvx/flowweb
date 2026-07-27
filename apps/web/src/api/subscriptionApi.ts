@@ -13,7 +13,7 @@ export interface MySubscription {
   id: string; planId: string; tier: string; period: string; status: string;
   paidAmount: number; totalCredits: number; totalDays: number;
   consumedCredits: number; currentPeriodEnd: string; nextGrantDate: string;
-  grantCount: number; autoRenew: boolean; cancelledAt: string | null;
+  grantCount: number;
   plan?: SubscriptionPlan;
 }
 
@@ -39,8 +39,6 @@ export const subscriptionApi = {
     apiFetch<UpgradePreview>(`/subscription/upgrade/preview?targetPlanId=${targetPlanId}&targetPeriod=${targetPeriod}`),
   upgrade: (targetPlanId: string, targetPeriod: string) =>
     apiFetch('/subscription/upgrade', { method: 'POST', body: JSON.stringify({ targetPlanId, targetPeriod }) }),
-  cancelAutoRenew: () => apiFetch('/subscription/cancel-auto-renew', { method: 'POST' }),
-  enableAutoRenew: () => apiFetch('/subscription/enable-auto-renew', { method: 'POST' }),
   getBalance: () => apiFetch<CreditBalance>('/credits/balance'),
 
   // ── Banner ──

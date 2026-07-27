@@ -45,18 +45,6 @@ export class SubscriptionController {
     return this.subService.upgrade(this.uid(req), body.targetPlanId, body.targetPeriod as any);
   }
 
-  @Post('cancel-auto-renew')
-  async cancelAutoRenew(@Req() req: any) {
-    await this.subService.cancelAutoRenew(this.uid(req));
-    return { message: 'ok' };
-  }
-
-  @Post('enable-auto-renew')
-  async enableAutoRenew(@Req() req: any) {
-    await this.subService.enableAutoRenew(this.uid(req));
-    return { message: 'ok' };
-  }
-
   @Get('orders')
   async getOrders(@Req() req: any, @Query() q: { page?: string; pageSize?: string }) {
     return this.orderService.getOrders(this.uid(req), {

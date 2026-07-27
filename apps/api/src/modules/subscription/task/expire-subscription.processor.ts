@@ -27,7 +27,7 @@ export class ExpireSubscriptionProcessor extends WorkerHost {
         const current = await this.prisma.userSubscription.findUnique({ where: { id: sub.id } });
         if (current?.status !== 'active') continue;
 
-        const newStatus = current.cancelledAt ? 'cancelled' : 'expired';
+        const newStatus = 'expired';
 
         await this.prisma.$transaction(async (tx) => {
           await tx.userSubscription.update({
