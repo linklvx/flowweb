@@ -113,6 +113,17 @@ export const subscriptionApi = {
       { method: 'POST' },
     ),
 
+  querySubscriptionOrders: (params?: { status?: string; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return apiFetch<{ items: Array<{ orderNo: string; amount: number; status: string; createdAt: string }>; total: number; page: number; pageSize: number }>(
+      `/subscription/orders${suffix}`,
+    );
+  },
+
   /** [Admin] 上传 banner 背景图，返回 { imageKey } */
   uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {
     const formData = new FormData();

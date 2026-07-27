@@ -1,7 +1,8 @@
-import { Injectable, Inject, Optional } from '@nestjs/common';
+import { Injectable, Inject, Optional, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type Redis from 'ioredis';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from './pricing.service';
 import { MetricsService } from '../../metrics/metrics.service';
@@ -25,6 +26,8 @@ const PRICE_FIELD: Record<string, string> = {
 
 @Injectable()
 export class SubscriptionOrderService {
+  private readonly logger = new Logger(SubscriptionOrderService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PricingService) private readonly pricing: PricingService,
@@ -150,6 +153,16 @@ export class SubscriptionOrderService {
         plan_tier: plan.tier,
         type: dto.type,
       });
+
+      this.logger.log(JSON.stringify({
+        event: 'subscription_order_created',
+        userId,
+        type: dto.type,
+        planId: dto.planId,
+        period: dto.period,
+        payableAmount,
+        orderNo: order.orderNo,
+      }));
 
       // Dispatch delayed close task
       if (this.closeExpiredQueue) {
@@ -290,6 +303,12 @@ export class SubscriptionOrderService {
   }
 
   async processPaymentCallback(notify: any) {
+    this.logger.log(JSON.stringify({
+      event: 'subscription_callback_received',
+      orderNo: notify.outTradeNo,
+      tradeState: notify.tradeState,
+    }));
+
     const order = await this.prisma.subscriptionOrder.findUnique({
       where: { orderNo: notify.outTradeNo },
     });
@@ -309,6 +328,16 @@ export class SubscriptionOrderService {
 
     // Mandatory: amount must match exactly (both in fen, integer comparison)
     if (notify.amount !== order.payableAmount) {
+      this.logger.error(JSON.stringify({
+        event: 'subscription_callback_amount_mismatch',
+        orderNo: order.orderNo,
+        localAmount: order.payableAmount,
+        notifyAmount: notify.amount,
+      }));
+      Sentry.captureMessage('subscription payment amount mismatch', {
+        level: 'error',
+        extra: { orderNo: order.orderNo, local: order.payableAmount, notify: notify.amount },
+      });
       return { code: 'FAIL', message: 'amount mismatch' };
     }
 
@@ -338,6 +367,25 @@ export class SubscriptionOrderService {
     this.metrics.subPaymentsSucceededTotal?.inc();
 
     return { code: 'SUCCESS', message: 'OK' };
+  }
+
+  async list(userId: string, params: { status?: string; page?: number; pageSize?: number }) {
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 20;
+    const where: any = { userId };
+    if (params.status) where.status = params.status;
+
+    const [items, total] = await Promise.all([
+      this.prisma.subscriptionOrder.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.subscriptionOrder.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
   }
 }
 

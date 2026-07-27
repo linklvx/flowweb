@@ -1,6 +1,7 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Inject, Optional } from '@nestjs/common';
+import { Inject, Optional, Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentGateway } from '../../recharge/payment.gateway';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
@@ -13,6 +14,8 @@ interface PaymentSuccessJob {
 
 @Processor(QUEUE_NAMES.SUBSCRIPTION_PAYMENT_SUCCESS)
 export class PaymentSuccessProcessor extends WorkerHost {
+  private readonly logger = new Logger(PaymentSuccessProcessor.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PaymentGateway) private readonly gateway: PaymentGateway,
@@ -157,6 +160,17 @@ export class PaymentSuccessProcessor extends WorkerHost {
         this.gateway.emitSubscriptionPaymentSuccess(orderNo, order.payableAmount!);
       } catch { /* best-effort */ }
     } catch (err) {
+      Sentry.captureException(err, (scope) => {
+        scope.setTag('module', 'subscription-payment-success');
+        scope.setTag('orderNo', orderNo);
+        scope.setLevel('fatal');
+        return scope;
+      });
+      this.logger.error(JSON.stringify({
+        event: 'subscription_payment_activation_failed',
+        orderNo,
+        error: (err as Error).message,
+      }));
       throw err; // Let BullMQ retry
     }
   }

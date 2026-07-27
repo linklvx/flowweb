@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Inject, Req, Body, Param, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Inject, Req, Body, Param, Query, UnauthorizedException } from '@nestjs/common';
 import { SubscriptionOrderService } from './subscription-order.service';
 
 @Controller('api/subscription')
@@ -36,5 +36,17 @@ export class SubscriptionOrderController {
   @Post('orders/:orderNo/close')
   async close(@Param('orderNo') orderNo: string, @Req() req: any) {
     return this.orderService.close(orderNo, this.uid(req));
+  }
+
+  @Get('orders')
+  async list(
+    @Req() req: any,
+    @Query() query: { status?: string; page?: string; pageSize?: string },
+  ) {
+    return this.orderService.list(this.uid(req), {
+      status: query.status,
+      page: Number(query.page) || 1,
+      pageSize: Number(query.pageSize) || 20,
+    });
   }
 }

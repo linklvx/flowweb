@@ -4,6 +4,7 @@ import { GrantCreditProcessor } from './grant-credit.processor';
 import { ExpireSubscriptionProcessor } from './expire-subscription.processor';
 import { BannerCleanupProcessor } from './banner-cleanup.processor';
 import { PaymentSuccessProcessor } from './payment-success.processor';
+import { CloseExpiredSubOrderProcessor } from './close-expired-sub-order.processor';
 import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { RechargeModule } from '../../recharge/recharge.module';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
@@ -40,6 +41,7 @@ import { QUEUE_NAMES } from '../../../config/queue.constants';
     ExpireSubscriptionProcessor,
     BannerCleanupProcessor,
     PaymentSuccessProcessor,
+    CloseExpiredSubOrderProcessor,
     SubscriptionSchedulerService,
   ],
 })

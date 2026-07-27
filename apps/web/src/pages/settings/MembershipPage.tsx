@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useMySubscription, useSubscriptionPlans, useCreditBalance, useUpgradePreview } from '@/hooks/useSubscription';
 import { Modal, Button, Tag, message } from 'antd';
 import type { SubscriptionPlan, UpgradePreview } from '@/api/subscriptionApi';
@@ -118,6 +118,29 @@ export function MembershipPage() {
     message.destroy('sub-paying');
     message.success('订阅成功！');
   }, [refreshSub, refreshBalance]);
+
+  // PENDING order detection on page load
+  useEffect(() => {
+    if (loading || sub?.status === 'active') return;
+    const checkPending = async () => {
+      try {
+        const result = await subscriptionApi.querySubscriptionOrders({ status: 'PENDING' });
+        const latest = result?.items?.[0];
+        if (latest && latest.status === 'PENDING') {
+          Modal.confirm({
+            title: '待支付订单',
+            content: '您有一笔待支付的订阅订单，是否继续支付？',
+            onOk: () => {
+              setQrOrderNo(latest.orderNo);
+              setQrAmount(Number((latest.amount / 100).toFixed(2)));
+              setQrVisible(true);
+            },
+          });
+        }
+      } catch { /* silent */ }
+    };
+    checkPending();
+  }, [loading, sub?.status]);
 
   if (loading) return <div className="text-[#888] p-8 text-sm">加载中...</div>;
 
