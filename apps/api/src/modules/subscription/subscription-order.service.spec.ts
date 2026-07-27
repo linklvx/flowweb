@@ -314,6 +314,22 @@ describe('SubscriptionOrderService - pay', () => {
       data: expect.objectContaining({ status: 'FAILED' }),
     });
   });
+
+  it('should throw PAYMENT_NOT_CONFIGURED when PAYMENT_PROVIDER is not injected', async () => {
+    const mod = await Test.createTestingModule({
+      providers: [
+        SubscriptionOrderService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PricingService, useValue: mockPricing() },
+        { provide: MetricsService, useValue: mockMetrics() },
+      ],
+    }).compile();
+    const svc = mod.get(SubscriptionOrderService);
+
+    await expect(
+      svc.pay('SUB1753596000000a3B7x9Yz', 'u1'),
+    ).rejects.toThrow('支付服务暂未配置');
+  });
 });
 
 describe('SubscriptionOrderService - query', () => {
