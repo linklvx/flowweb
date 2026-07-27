@@ -404,6 +404,13 @@ enum SubscriptionOrderType {
   renewal
 }
 
+enum SubscriptionOrderStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  CLOSED
+}
+
 enum CreditTransactionType {
   subscription_grant
   upgrade_clear
@@ -516,19 +523,30 @@ model UserSubscription {
 }
 
 model SubscriptionOrder {
-  id                     String                 @id @default(cuid())
-  orderNo                String                 @unique
-  userId                 String
-  planId                 String
-  period                 SubscriptionPeriod
-  type                   SubscriptionOrderType
-  amount                 Int
-  originalPrice          Int
-  deductibleAmount       Int                    @default(0)
-  status                 String                 @default("success")
-  originalSubscriptionId String?
-  pricingSnapshot        Json?
-  createdAt              DateTime               @default(now())
+  id                  String                    @id @default(cuid())
+  orderNo             String                    @unique
+  userId              String
+  planId              String
+  period              SubscriptionPeriod
+  type                SubscriptionOrderType
+  originalAmount      Int
+  payableAmount       Int
+  prorationAmount     Int?
+  fromSubscriptionId  String?
+  fromPlanId          String?
+  status              SubscriptionOrderStatus   @default(PENDING)
+  pricingSnapshot     Json?
+  payChannel          String                    @default("wechat") @db.VarChar(32)
+  prepayId            String?                   @db.VarChar(64)
+  transactionId       String?                   @db.VarChar(64)
+  payerOpenid         String?                   @db.VarChar(64)
+  paidAt              DateTime?
+  expiredAt           DateTime?
+  closedAt            DateTime?
+  delayCloseJobId     String?
+  notifySummary       Json?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
 }
 
 model RechargeOrder {
