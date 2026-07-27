@@ -12,6 +12,9 @@ export const QUEUE_NAMES = {
   RECHARGE_CLOSE_EXPIRED: 'recharge-close-expired',
   RECHARGE_ACTIVE_QUERY: 'recharge-active-query',
   RECHARGE_DAILY_SCAN: 'recharge-daily-scan',
+  SUBSCRIPTION_CLOSE_EXPIRED: 'subscription-close-expired',
+  SUBSCRIPTION_PAYMENT_SUCCESS: 'subscription-payment-success',
+  SUBSCRIPTION_DAILY_RECON: 'subscription-daily-recon',
 } as const;
 
 export const QUEUE_CONCURRENCY = {
