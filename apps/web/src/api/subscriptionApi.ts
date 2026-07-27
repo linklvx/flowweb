@@ -88,6 +88,31 @@ export const subscriptionApi = {
       `/recharge/orders?page=${page}&pageSize=${pageSize}`,
     ),
 
+  // ── Subscription Orders (WeChat Pay) ──
+
+  createSubscriptionOrder: (planId: string, period: string, type: string) =>
+    apiFetch<{ orderNo: string; amount: number; expiredAt: string }>(
+      '/subscription/orders',
+      { method: 'POST', body: JSON.stringify({ planId, period, type }) },
+    ),
+
+  paySubscriptionOrder: (orderNo: string) =>
+    apiFetch<{ orderNo: string; amount: number; codeUrl: string | null }>(
+      `/subscription/orders/${orderNo}/pay`,
+      { method: 'POST' },
+    ),
+
+  querySubscriptionOrder: (orderNo: string) =>
+    apiFetch<{ orderNo: string; amount: number; status: string; payChannel: string | null; paidAt: string | null }>(
+      `/subscription/orders/${orderNo}`,
+    ),
+
+  closeSubscriptionOrder: (orderNo: string) =>
+    apiFetch<{ success: boolean }>(
+      `/subscription/orders/${orderNo}/close`,
+      { method: 'POST' },
+    ),
+
   /** [Admin] 上传 banner 背景图，返回 { imageKey } */
   uploadBannerImage: async (file: File): Promise<{ imageKey: string }> => {
     const formData = new FormData();

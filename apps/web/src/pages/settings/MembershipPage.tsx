@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useMySubscription, useSubscriptionPlans, useCreditBalance, useUpgradePreview } from '@/hooks/useSubscription';
 import { Modal, Button, Tag, message } from 'antd';
 import type { SubscriptionPlan, UpgradePreview } from '@/api/subscriptionApi';
+import { subscriptionApi } from '@/api/subscriptionApi';
+import { WeChatQRModal } from '@/components/WeChatQRModal';
 
 const PLAN_COLORS: Record<string, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
 const PLAN_LABELS: Record<string, string> = { basic: '普通会员', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
@@ -49,8 +51,8 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
 
 export function MembershipPage() {
   const { data: plans } = useSubscriptionPlans();
-  const { data: sub, loading, subscribe, upgrade } = useMySubscription();
-  const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance } = useCreditBalance();
+  const { data: sub, loading, subscribe, upgrade, refresh: refreshSub } = useMySubscription();
+  const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance, refresh: refreshBalance } = useCreditBalance();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [upgradePlan, setUpgradePlan] = useState<SubscriptionPlan | null>(null);
@@ -58,25 +60,64 @@ export function MembershipPage() {
   const [subLoading, setSubLoading] = useState(false);
   const preview = useUpgradePreview(upgradePlan?.id ?? null, upgradePeriod);
 
+  // WeChat QR payment state
+  const [qrVisible, setQrVisible] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [qrOrderNo, setQrOrderNo] = useState('');
+  const [qrAmount, setQrAmount] = useState(0);
+  const [qrExpiredAt, setQrExpiredAt] = useState('');
+
   const handleSubscribe = async (plan: SubscriptionPlan, period: string) => {
+    setSelectedPlan(null);
     setSubLoading(true);
     try {
-      await subscribe(plan.id, period);
-      message.success('订阅成功！');
-    } catch (e: any) { message.error(e.message); }
-    finally { setSubLoading(false); }
+      const order = await subscriptionApi.createSubscriptionOrder(plan.id, period, 'new_purchase');
+      const payResult = await subscriptionApi.paySubscriptionOrder(order.orderNo);
+      if (payResult.codeUrl) {
+        setQrCodeUrl(payResult.codeUrl);
+        setQrOrderNo(order.orderNo);
+        setQrAmount(Number((order.amount / 100).toFixed(2)));
+        setQrExpiredAt(order.expiredAt);
+        setQrVisible(true);
+      }
+    } catch (e: any) {
+      message.error(e.message || '创建订单失败');
+    } finally {
+      setSubLoading(false);
+    }
   };
 
   const handleUpgrade = async () => {
     if (!upgradePlan || !upgradePeriod) return;
+    setUpgradePlan(null);
     setSubLoading(true);
     try {
-      await upgrade(upgradePlan.id, upgradePeriod);
-      message.success('升级成功！');
-      setUpgradePlan(null);
-    } catch (e: any) { message.error(e.message); }
-    finally { setSubLoading(false); }
+      const order = await subscriptionApi.createSubscriptionOrder(upgradePlan.id, upgradePeriod, 'upgrade');
+      const payResult = await subscriptionApi.paySubscriptionOrder(order.orderNo);
+      if (payResult.codeUrl) {
+        setQrCodeUrl(payResult.codeUrl);
+        setQrOrderNo(order.orderNo);
+        setQrAmount(Number((order.amount / 100).toFixed(2)));
+        setQrExpiredAt(order.expiredAt);
+        setQrVisible(true);
+      }
+    } catch (e: any) {
+      message.error(e.message || '创建升级订单失败');
+    } finally {
+      setSubLoading(false);
+    }
   };
+
+  const handlePaymentSuccess = useCallback(async () => {
+    setQrVisible(false);
+    message.loading({ content: '支付成功，权益开通中...', key: 'sub-paying', duration: 0 });
+    try {
+      await refreshSub();
+      await refreshBalance();
+    } catch { /* refresh failed, user can manually reload */ }
+    message.destroy('sub-paying');
+    message.success('订阅成功！');
+  }, [refreshSub, refreshBalance]);
 
   if (loading) return <div className="text-[#888] p-8 text-sm">加载中...</div>;
 
@@ -138,6 +179,27 @@ export function MembershipPage() {
           />
         </div>
       )}
+      <WeChatQRModal
+        visible={qrVisible}
+        codeUrl={qrCodeUrl}
+        orderNo={qrOrderNo}
+        amount={qrAmount}
+        expiredAt={qrExpiredAt}
+        onSuccess={handlePaymentSuccess}
+        onCancel={() => {
+          setQrVisible(false);
+          subscriptionApi.closeSubscriptionOrder(qrOrderNo).catch(() => {});
+        }}
+        queryOrderFn={(orderNo: string) =>
+          subscriptionApi.querySubscriptionOrder(orderNo).then(o => ({ status: o.status }))
+        }
+        closeOrderFn={(orderNo: string) =>
+          subscriptionApi.closeSubscriptionOrder(orderNo)
+        }
+        successEventName="subscription:order:success"
+        failedEventName="subscription:order:failed"
+      />
+
       {(!sub || sub.status !== 'active') && (
         /* Unsubscribed: Plan comparison table */
         <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6 overflow-x-auto">

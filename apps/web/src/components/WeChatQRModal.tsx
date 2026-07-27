@@ -12,6 +12,11 @@ interface WeChatQRModalProps {
   expiredAt: string; // ISO string
   onSuccess: () => void;
   onCancel: () => void;
+  // Optional props for subscription orders (defaults to recharge methods)
+  queryOrderFn?: (orderNo: string) => Promise<{ status: string }>;
+  closeOrderFn?: (orderNo: string) => Promise<{ success: boolean }>;
+  successEventName?: string;
+  failedEventName?: string;
 }
 
 export function WeChatQRModal({
@@ -22,6 +27,10 @@ export function WeChatQRModal({
   expiredAt,
   onSuccess,
   onCancel,
+  queryOrderFn = subscriptionApi.queryRechargeOrder,
+  closeOrderFn = subscriptionApi.closeRechargeOrder,
+  successEventName = 'payment:success',
+  failedEventName = 'payment:failed',
 }: WeChatQRModalProps) {
   const [countdown, setCountdown] = useState('--:--');
   const [status, setStatus] = useState<'waiting' | 'success' | 'closed' | 'failed'>('waiting');
@@ -40,7 +49,7 @@ export function WeChatQRModal({
   const handleCancel = useCallback(async () => {
     stopAll();
     try {
-      await subscriptionApi.closeRechargeOrder(orderNo);
+      await closeOrderFn(orderNo);
     } catch { /* best-effort */ }
     onCancel();
   }, [orderNo, onCancel, stopAll]);
@@ -78,14 +87,14 @@ export function WeChatQRModal({
       socket.emit('join:order', { orderNo });
     });
 
-    socket.on('payment:success', () => {
+    socket.on(successEventName, () => {
       setStatus('success');
       clearInterval(timer);
       stopAll();
       onSuccess();
     });
 
-    socket.on('payment:failed', () => {
+    socket.on(failedEventName, () => {
       setStatus('failed');
       clearInterval(timer);
       stopAll();
@@ -101,7 +110,7 @@ export function WeChatQRModal({
 
     const poll = async () => {
       try {
-        const order = await subscriptionApi.queryRechargeOrder(orderNo);
+        const order = await queryOrderFn(orderNo);
         if (order.status === 'SUCCESS') {
           setStatus('success');
           clearInterval(timer);
@@ -124,7 +133,7 @@ export function WeChatQRModal({
       clearInterval(timer);
       stopAll();
     };
-  }, [visible, orderNo, expiredAt, onSuccess, handleCancel, stopAll]);
+  }, [visible, orderNo, expiredAt, onSuccess, handleCancel, stopAll, queryOrderFn, closeOrderFn, successEventName, failedEventName]);
 
   return (
     <Modal
