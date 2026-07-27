@@ -39,12 +39,23 @@ export class PaymentGateway implements OnGatewayInit {
 
     if (!userId) return;
 
-    const order = await this.prisma.rechargeOrder.findUnique({
+    // Try recharge order first, then subscription order
+    const rechargeOrder = await this.prisma.rechargeOrder.findUnique({
       where: { orderNo },
       select: { userId: true },
     });
 
-    if (order && order.userId === userId) {
+    if (rechargeOrder && rechargeOrder.userId === userId) {
+      client.join(`order:${orderNo}`);
+      return;
+    }
+
+    const subOrder = await this.prisma.subscriptionOrder.findUnique({
+      where: { orderNo },
+      select: { userId: true },
+    });
+
+    if (subOrder && subOrder.userId === userId) {
       client.join(`order:${orderNo}`);
     }
   }
@@ -57,5 +68,15 @@ export class PaymentGateway implements OnGatewayInit {
 
   emitPaymentFailed(orderNo: string) {
     this.server.to(`order:${orderNo}`).emit('payment:failed', { orderNo });
+  }
+
+  emitSubscriptionPaymentSuccess(orderNo: string, amount: number) {
+    this.server.to(`order:${orderNo}`).emit('subscription:order:success', {
+      orderNo, amount,
+    });
+  }
+
+  emitSubscriptionPaymentFailed(orderNo: string) {
+    this.server.to(`order:${orderNo}`).emit('subscription:order:failed', { orderNo });
   }
 }

@@ -23,6 +23,7 @@ export class RechargeService {
     @Optional() @InjectQueue(QUEUE_NAMES.RECHARGE_CLOSE_EXPIRED) private readonly closeExpiredQueue?: Queue,
     @Optional() @InjectQueue(QUEUE_NAMES.RECHARGE_ACTIVE_QUERY) private readonly activeQueryQueue?: Queue,
     @Inject(PaymentGateway) private readonly gateway?: PaymentGateway,
+    @Optional() @Inject('SUB_ORDER_SERVICE') private readonly subOrderService?: any,
   ) {}
 
   async createOrder(userId: string, amountFen: number, clientIp: string) {
@@ -220,9 +221,35 @@ export class RechargeService {
       return { code: 'FAIL', message: 'signature verification failed' };
     }
 
+    // === Route by out_trade_no prefix (MUST come before table query) ===
+    const outTradeNo = notify.outTradeNo;
+
+    if ((outTradeNo as string).startsWith('SUB')) {
+      // Subscription order callback — route to subscription handler
+      if (!this.subOrderService) {
+        endDuration({ result: 'error' });
+        return { code: 'FAIL', message: 'subscription processing not available' };
+      }
+      try {
+        const result = await this.subOrderService.processPaymentCallback(notify);
+        endDuration({ result: result.code === 'SUCCESS' ? 'success' : 'error' });
+        return result;
+      } catch (err) {
+        Sentry.captureException(err, (scope) => {
+          scope.setTag('module', 'subscription-callback');
+          scope.setTag('orderNo', outTradeNo);
+          scope.setLevel('fatal');
+          return scope;
+        });
+        endDuration({ result: 'error' });
+        return { code: 'FAIL', message: 'internal error' };
+      }
+    }
+
+    // === Existing recharge order flow (RCH_ prefix, or legacy without prefix) ===
     // Load order
     const order = await this.prisma.rechargeOrder.findUnique({
-      where: { orderNo: notify.outTradeNo },
+      where: { orderNo: outTradeNo },
     });
 
     if (!order) {

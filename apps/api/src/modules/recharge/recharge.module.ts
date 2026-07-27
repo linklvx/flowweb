@@ -1,7 +1,9 @@
-import { Module, OnApplicationBootstrap } from '@nestjs/common';
+import { Module, OnApplicationBootstrap, forwardRef } from '@nestjs/common';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
 import { CreditModule } from '../credit/credit.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
+import { SubscriptionOrderService } from '../subscription/subscription-order.service';
 import { RechargeTaskModule } from './task/recharge-task.module';
 import { RechargeController } from './recharge.controller';
 import { RechargeService } from './recharge.service';
@@ -9,7 +11,7 @@ import { WechatPaymentProvider } from './providers/wechat-payment.provider';
 import { PaymentGateway } from './payment.gateway';
 
 @Module({
-  imports: [CreditModule, RechargeTaskModule],
+  imports: [CreditModule, forwardRef(() => SubscriptionModule), RechargeTaskModule],
   controllers: [RechargeController],
   providers: [
     RechargeService,
@@ -35,6 +37,10 @@ import { PaymentGateway } from './payment.gateway';
           WECHAT_PAY_PUBLIC_KEY: process.env.WECHAT_PAY_PUBLIC_KEY!,
         });
       },
+    },
+    {
+      provide: 'SUB_ORDER_SERVICE',
+      useExisting: SubscriptionOrderService,
     },
   ],
   exports: [RechargeService],
