@@ -278,8 +278,8 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
     if (!apiPlans.length) return [];
 
     return apiPlans.map(p => {
-      const firstPrice = period === 'monthly' ? p.originalPriceMonthly : period === 'quarterly' ? p.originalPriceQuarterly : p.originalPriceAnnually;
-      const origPrice = period === 'monthly' ? p.priceMonthly : period === 'quarterly' ? p.priceQuarterly : p.priceAnnually;
+      const firstPrice = period === 'monthly' ? p.priceMonthly : period === 'quarterly' ? p.priceQuarterly : p.priceAnnually;
+      const origPrice = period === 'monthly' ? p.originalPriceMonthly : period === 'quarterly' ? p.originalPriceQuarterly : p.originalPriceAnnually;
       const extras = TIER_EXTRAS[p.tier] ?? TIER_EXTRAS.basic;
       const rights = TIER_RIGHTS[p.tier] ?? TIER_RIGHTS.basic;
 
