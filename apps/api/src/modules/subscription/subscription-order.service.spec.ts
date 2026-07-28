@@ -37,9 +37,9 @@ const mockPlan = {
   priceMonthly: 200,
   priceQuarterly: 560,
   priceAnnually: 2000,
-  firstPriceMonthly: 0,
-  firstPriceQuarterly: 0,
-  firstPriceAnnually: 0,
+  originalPriceMonthly: 0,
+  originalPriceQuarterly: 0,
+  originalPriceAnnually: 0,
   sort: 1,
   isActive: true,
 };

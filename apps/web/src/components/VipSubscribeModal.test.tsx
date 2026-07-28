@@ -177,24 +177,21 @@ describe('VipSubscribeModal', () => {
     expect(monthlyBtn).not.toBeNull();
   });
 
-  it('should show /月 suffix and 次月续费 for monthly period', () => {
+  it('should show /月 suffix for monthly period', () => {
     renderOpen();
     expect(screen.getAllByText('/月').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/次月续费/).length).toBeGreaterThan(0);
   });
 
-  it('should show /季 suffix and 次季续费 when quarterly selected', () => {
+  it('should show /季 suffix when quarterly selected', () => {
     renderOpen();
     fireEvent.click(screen.getByText('包季'));
     expect(screen.getAllByText('/季').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/次季续费/).length).toBeGreaterThan(0);
   });
 
-  it('should show /年 suffix and 次年续费 when annually selected', () => {
+  it('should show /年 suffix when annually selected', () => {
     renderOpen();
     fireEvent.click(screen.getByText('包年'));
     expect(screen.getAllByText('/年').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/次年续费/).length).toBeGreaterThan(0);
   });
 
   // ─── 9. FAQ expand/collapse ───

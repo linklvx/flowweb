@@ -3,9 +3,9 @@ import type { PublicBannerData, AdminBannerData, UpdateBannerDto } from '@flowwe
 
 export interface SubscriptionPlan {
   id: string; name: string; tier: string; monthlyCredits: number;
-  priceMonthly: number; firstPriceMonthly: number;
-  priceQuarterly: number; firstPriceQuarterly: number;
-  priceAnnually: number; firstPriceAnnually: number;
+  priceMonthly: number; originalPriceMonthly: number;
+  priceQuarterly: number; originalPriceQuarterly: number;
+  priceAnnually: number; originalPriceAnnually: number;
   sort: number;
 }
 

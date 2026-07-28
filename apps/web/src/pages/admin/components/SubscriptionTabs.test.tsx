@@ -3,8 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PlanManagementTab } from './SubscriptionTabs';
 
 const mockPlans = [
-  { id: 'plan1', name: '基础版', tier: 'basic', monthlyCredits: 100, priceMonthly: 50, firstPriceMonthly: 30, priceQuarterly: 135, firstPriceQuarterly: 90, priceAnnually: 480, firstPriceAnnually: 399, sort: 1, isActive: true },
-  { id: 'plan2', name: '专业版', tier: 'pro', monthlyCredits: 500, priceMonthly: 200, firstPriceMonthly: 150, priceQuarterly: 540, firstPriceQuarterly: 400, priceAnnually: 1920, firstPriceAnnually: 1500, sort: 2, isActive: true },
+  { id: 'plan1', name: '基础版', tier: 'basic', monthlyCredits: 100, priceMonthly: 50, originalPriceMonthly: 30, priceQuarterly: 135, originalPriceQuarterly: 90, priceAnnually: 480, originalPriceAnnually: 399, sort: 1, isActive: true },
+  { id: 'plan2', name: '专业版', tier: 'pro', monthlyCredits: 500, priceMonthly: 200, originalPriceMonthly: 150, priceQuarterly: 540, originalPriceQuarterly: 400, priceAnnually: 1920, originalPriceAnnually: 1500, sort: 2, isActive: true },
 ];
 
 describe('PlanManagementTab - inline editing', () => {
@@ -107,7 +107,7 @@ describe('PlanManagementTab - inline editing', () => {
         expect.stringContaining('/api/admin/subscription/plans/plan1'),
         expect.objectContaining({
           method: 'PATCH',
-          body: JSON.stringify({ firstPriceAnnually: 399 }),
+          body: JSON.stringify({ originalPriceAnnually: 399 }),
         }),
       );
     });
