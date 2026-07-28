@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`AgreementFooter > should match snapshot 1`] = `
+<DocumentFragment>
+  <div
+    class="flex justify-center bg-[#F8F8F8] w-full rounded-b-[12px] py-3 text-[12px] text-[#787878] "
+  >
+    <p
+      class="m-0"
+    >
+      登录即代表同意
+      <a
+        class="text-[#1F6DFF]"
+        href="#"
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        《用户协议》
+      </a>
+      和
+      <a
+        class="text-[#1F6DFF]"
+        href="#"
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        《隐私政策》
+      </a>
+      未注册手机号将自动注册
+    </p>
+  </div>
+</DocumentFragment>
+`;

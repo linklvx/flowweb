@@ -1,3 +1,4 @@
+/** @deprecated 请使用 @/components/auth/LoginModal 替换 */
 import { useState } from 'react';
 import { useAuth } from './AuthProvider';
 

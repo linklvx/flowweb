@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { GiftOutlined, CrownOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
-import { AuthModal } from '@/components/AuthModal';
+import { LoginModal } from '@/components/auth/LoginModal';
 import { useVipModalStore } from '@/stores/vipModalStore';
 
 interface NavLink {
@@ -28,7 +28,7 @@ export function Navbar({ onAction: _onAction }: Props) {
   const [credits, setCredits] = useState<number | null>(null);
   const [subCredits, setSubCredits] = useState<number | null>(null);
   const [subTier, setSubTier] = useState<string | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const openVipModal = useVipModalStore(s => s.open);
@@ -190,7 +190,7 @@ export function Navbar({ onAction: _onAction }: Props) {
             </ConfigProvider>
           ) : (
             <button
-              onClick={() => setShowAuthModal(true)}
+              onClick={() => setShowLoginModal(true)}
               className="rounded-full bg-gray-700 px-3 py-1.5 text-xs text-[#ccc] hover:bg-gray-600 transition-colors border-none cursor-pointer"
             >
               登录/注册
@@ -198,7 +198,7 @@ export function Navbar({ onAction: _onAction }: Props) {
           )}
         </div>
       </div>
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
     </nav>
   );
 }

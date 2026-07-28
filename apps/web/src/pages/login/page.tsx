@@ -1,41 +1,49 @@
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { PhoneLoginForm } from '@/components/auth/PhoneLoginForm';
+import { WeChatQRLogin } from '@/components/auth/WeChatQRLogin';
+import { AgreementFooter } from '@/components/auth/AgreementFooter';
+/** @deprecated 旧邮箱登录，后续替换 */
+import { AuthModal } from '@/components/AuthModal';
 
 export function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [searchParams] = useSearchParams();
+  const [showEmailLogin, setShowEmailLogin] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setError('');
-    try {
-      const res = await fetch('/api/auth/sign-in', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
-      });
-      if (!res.ok) { setError('邮箱或密码错误'); return; }
-      window.location.href = searchParams.get('redirect') || '/canvas';
-    } catch { setError('网络错误，请重试'); }
-  };
+  if (showEmailLogin) {
+    return <AuthModal onClose={() => setShowEmailLogin(false)} />;
+  }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-      <form onSubmit={handleSubmit} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-8 w-96">
-        <h1 className="text-xl font-bold text-[#e2e8f0] mb-6">登录 Flow123</h1>
-        {error && <p className="text-red-400 text-xs mb-4">{error}</p>}
-        <input type="email" placeholder="邮箱" value={email} onChange={e => setEmail(e.target.value)}
-          className="w-full bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-3 text-sm text-[#ccc] mb-3" required />
-        <input type="password" placeholder="密码" value={password} onChange={e => setPassword(e.target.value)}
-          className="w-full bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-3 text-sm text-[#ccc] mb-4" required />
-        <button type="submit" className="w-full bg-[#4ade80] text-black font-bold py-3 rounded-lg cursor-pointer text-sm">
-          登录
-        </button>
-        <p className="text-xs text-[#888] mt-4 text-center">
-          还没有账号？<Link to="/register" className="text-[#4ade80]">注册</Link>
-        </p>
-      </form>
+    <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center">
+      <div className="w-[720px] rounded-[16px] overflow-hidden shadow-lg">
+        {/* Banner */}
+        <div className="h-[140px] rounded-t-[16px] overflow-hidden">
+          <div className="w-full h-full bg-gradient-to-b from-[#e8e8e8] to-[#f0f0f0] flex items-center justify-center">
+            <span className="text-[24px] font-semibold text-[#141414]">
+              FlowWeb
+            </span>
+          </div>
+        </div>
+
+        {/* Form area */}
+        <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
+          <div className="flex gap-0 pl-10 h-[328px] box-border rounded-t-[12px]">
+            <PhoneLoginForm />
+
+            {/* Divider */}
+            <div
+              className="w-[1px] mt-2 h-[280px] opacity-10"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(255,255,255,1) 0%, #0D0D0D 35%, #0D0D0D 65%, rgba(255,255,255,1) 100%)',
+              }}
+            />
+
+            <WeChatQRLogin onAlternativeLogin={() => setShowEmailLogin(true)} />
+          </div>
+
+          <AgreementFooter />
+        </div>
+      </div>
     </div>
   );
 }
