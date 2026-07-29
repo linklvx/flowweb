@@ -22,7 +22,7 @@ export class SmsService implements OnModuleInit {
         secretId: process.env.TENCENT_SMS_SECRET_ID!,
         secretKey: process.env.TENCENT_SMS_SECRET_KEY!,
       },
-      region: '',
+      region: 'ap-guangzhou',
     });
   }
 
