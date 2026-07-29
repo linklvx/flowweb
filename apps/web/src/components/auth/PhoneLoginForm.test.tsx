@@ -7,9 +7,19 @@ import {
 } from '@testing-library/react';
 import { PhoneLoginForm } from './PhoneLoginForm';
 
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+const mockRefresh = vi.fn();
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ refresh: mockRefresh }),
+}));
+
 describe('PhoneLoginForm', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockFetch.mockReset();
+    mockRefresh.mockReset();
   });
 
   afterEach(() => {
@@ -19,6 +29,10 @@ describe('PhoneLoginForm', () => {
   const renderForm = (
     props?: Partial<Parameters<typeof PhoneLoginForm>[0]>,
   ) => render(<PhoneLoginForm {...props} />);
+
+  const setupValidPhone = () => {
+    fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
+  };
 
   it('should render title, phone input with +86 prefix, code input, get code button, and login button', () => {
     renderForm();
@@ -59,11 +73,16 @@ describe('PhoneLoginForm', () => {
     expect(codeInput).toHaveAttribute('maxLength', '6');
   });
 
-  it('should start 60s countdown when clicking get code button', () => {
+  it('should start 60s countdown when clicking get code button', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true }),
+    });
     renderForm();
+    setupValidPhone();
     const getCodeBtn = screen.getByLabelText('获取验证码');
 
-    act(() => {
+    await act(async () => {
       fireEvent.click(getCodeBtn);
     });
 
@@ -82,11 +101,16 @@ describe('PhoneLoginForm', () => {
     expect(screen.getByLabelText('获取验证码')).toBeDisabled();
   });
 
-  it('should restore get code button after countdown ends', () => {
+  it('should restore get code button after countdown ends', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true }),
+    });
     renderForm();
+    setupValidPhone();
     const getCodeBtn = screen.getByLabelText('获取验证码');
 
-    act(() => {
+    await act(async () => {
       fireEvent.click(getCodeBtn);
     });
 
@@ -100,21 +124,6 @@ describe('PhoneLoginForm', () => {
       '获取验证码',
     );
     expect(screen.getByLabelText('获取验证码')).not.toBeDisabled();
-  });
-
-  it('should call onLogin with phone and code when clicking login button', () => {
-    const onLogin = vi.fn();
-    renderForm({ onLogin });
-
-    const phoneInput = screen.getByLabelText('手机号');
-    const codeInput = screen.getByLabelText('验证码');
-    const loginBtn = screen.getByLabelText('登录/注册');
-
-    fireEvent.change(phoneInput, { target: { value: '13800138000' } });
-    fireEvent.change(codeInput, { target: { value: '123456' } });
-    fireEvent.click(loginBtn);
-
-    expect(onLogin).toHaveBeenCalledWith('13800138000', '123456');
   });
 
   it('should show error message when errorMsg is provided', () => {
@@ -138,11 +147,16 @@ describe('PhoneLoginForm', () => {
     expect(loginBtn.className).toContain('opacity-50');
   });
 
-  it('should clear countdown timer on unmount', () => {
+  it('should clear countdown timer on unmount', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true }),
+    });
     const { unmount } = renderForm();
+    setupValidPhone();
     const getCodeBtn = screen.getByLabelText('获取验证码');
 
-    act(() => {
+    await act(async () => {
       fireEvent.click(getCodeBtn);
     });
 
@@ -155,9 +169,6 @@ describe('PhoneLoginForm', () => {
 
     // If timer was not cleared, we'd get "Can't perform a React state update
     // on an unmounted component" warning. The test passes if no error thrown.
-    // We verify no active timers remain
-    // vi.getTimerCount() would be 0 if cleaned up - but fake timers
-    // advance automatically, so let's just ensure no crash.
   });
 
   it('should accept className prop', () => {
@@ -168,5 +179,80 @@ describe('PhoneLoginForm', () => {
   it('should match snapshot', () => {
     const { asFragment } = renderForm();
     expect(asFragment()).toMatchSnapshot();
+  });
+
+  describe('API integration', () => {
+    it('should call send-sms-code API when clicking get code button', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+      renderForm();
+      fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('获取验证码'));
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/auth/send-sms-code',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ phone: '13800138000' }),
+        }),
+      );
+    });
+
+    it('should call onError with code and message when send-sms-code fails', async () => {
+      const onError = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: () => Promise.resolve({ code: 'IP_RATE_LIMITED', error: '请求过于频繁' }),
+      });
+      renderForm({ onError });
+      fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('获取验证码'));
+      });
+      expect(onError).toHaveBeenCalledWith('IP_RATE_LIMITED', '请求过于频繁');
+    });
+
+    it('should call phone-login API and onLoginSuccess on success', async () => {
+      const onLoginSuccess = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ user: { id: 'u1' } }),
+      });
+      renderForm({ onLoginSuccess });
+      fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
+      fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('登录/注册'));
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/auth/phone-login',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ phone: '13800138000', code: '123456' }),
+        }),
+      );
+      expect(mockRefresh).toHaveBeenCalled();
+      expect(onLoginSuccess).toHaveBeenCalled();
+    });
+
+    it('should call onError with code and message when phone-login fails', async () => {
+      const onError = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ code: 'INVALID_OTP', error: '验证码错误' }),
+      });
+      renderForm({ onError });
+      fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
+      fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('登录/注册'));
+      });
+      expect(onError).toHaveBeenCalledWith('INVALID_OTP', '验证码错误');
+    });
   });
 });

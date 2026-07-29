@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Input, Button } from 'antd';
+import { useAuth } from '@/components/AuthProvider';
 
 export interface PhoneLoginFormProps {
   onLogin?: (phone: string, code: string) => void;
+  /** 登录成功回调 — 由父组件导航/关闭弹窗 */
+  onLoginSuccess?: () => void;
+  /** 错误回调 — (错误码, 人类可读消息)，替代 __ERROR__: 字符串拼接 */
+  onError?: (code: string, message: string) => void;
   loading?: boolean;
   errorMsg?: string;
   className?: string;
@@ -12,6 +17,8 @@ const COUNTDOWN_SECONDS = 60;
 
 export function PhoneLoginForm({
   onLogin = () => {},
+  onLoginSuccess,
+  onError,
   loading = false,
   errorMsg = '',
   className = '',
@@ -20,10 +27,29 @@ export function PhoneLoginForm({
   const [code, setCode] = useState('');
   const [countdown, setCountdown] = useState(0);
 
-  const handleGetCode = useCallback(() => {
-    if (countdown > 0) return;
-    setCountdown(COUNTDOWN_SECONDS);
-  }, [countdown]);
+  const { refresh } = useAuth();
+
+  const handleGetCode = useCallback(async () => {
+    if (countdown > 0 || phone.length !== 11) return;
+    if (!/^1[3-9]\d{9}$/.test(phone)) return;
+
+    try {
+      const res = await fetch('/api/auth/send-sms-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setCountdown(COUNTDOWN_SECONDS);
+      } else {
+        onError?.(data.code || 'SEND_FAILED', data.error || '发送失败');
+      }
+    } catch {
+      onError?.('NETWORK', '网络错误，请重试');
+    }
+  }, [countdown, phone, onError]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -33,8 +59,26 @@ export function PhoneLoginForm({
     return () => clearInterval(timer);
   }, [countdown]);
 
-  const handleLogin = () => {
-    onLogin(phone, code);
+  const handleLogin = async () => {
+    if (!phone || !code) return;
+
+    try {
+      const res = await fetch('/api/auth/phone-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        await refresh();
+        onLoginSuccess?.();
+      } else {
+        onError?.(data.code || 'LOGIN_FAILED', data.error || '登录失败');
+      }
+    } catch {
+      onError?.('NETWORK', '网络错误，请重试');
+    }
   };
 
   return (
