@@ -20,25 +20,25 @@ interface FieldMeta {
 const FIELD_META: Record<SettingGroup, { title: string; description?: string; fields: FieldMeta[] }> = {
   wechat_pay: {
     title: '微信支付设置',
-    description: 'API 密钥、私钥、证书等敏感凭证需在服务器 .env 文件中配置',
+    description: 'API 密钥、私钥、证书等敏感凭证需在服务器 ~/flowweb/apps/api/.env 中配置',
     fields: [
       { key: 'WECHAT_PAY_APP_ID', label: 'App ID', type: 'text' },
       { key: 'WECHAT_PAY_MCH_ID', label: '商户号 (Mch ID)', type: 'text' },
-      { key: 'WECHAT_PAY_API_V3_KEY', label: 'API V3 密钥', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_API_V3_KEY', label: 'API V3 密钥', type: 'password', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
       { key: 'WECHAT_PAY_MERCHANT_SERIAL_NO', label: '商户证书序列号', type: 'text' },
-      { key: 'WECHAT_PAY_PRIVATE_KEY', label: '商户私钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
-      { key: 'WECHAT_PAY_MERCHANT_CERT', label: '商户证书 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_PRIVATE_KEY', label: '商户私钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_MERCHANT_CERT', label: '商户证书 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
       { key: 'WECHAT_PAY_PUBLIC_KEY_ID', label: '平台公钥 ID', type: 'text' },
-      { key: 'WECHAT_PAY_PUBLIC_KEY', label: '平台公钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_PUBLIC_KEY', label: '平台公钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
       { key: 'WECHAT_PAY_NOTIFY_URL', label: '支付回调地址', type: 'text', placeholder: 'https://www.flow123.com/api/recharge/notify' },
     ],
   },
   sms: {
     title: '短信 SMS 设置',
-    description: 'SecretId / SecretKey 需在服务器 .env 文件中配置',
+    description: 'SecretId / SecretKey 需在服务器 ~/flowweb/apps/api/.env 中配置',
     fields: [
-      { key: 'TENCENT_SMS_SECRET_ID', label: 'SecretId', type: 'text', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
-      { key: 'TENCENT_SMS_SECRET_KEY', label: 'SecretKey', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'TENCENT_SMS_SECRET_ID', label: 'SecretId', type: 'text', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
+      { key: 'TENCENT_SMS_SECRET_KEY', label: 'SecretKey', type: 'password', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
       { key: 'TENCENT_SMS_SDK_APP_ID', label: 'SDK App ID', type: 'text' },
       { key: 'TENCENT_SMS_TEMPLATE_ID', label: '模板 ID', type: 'text' },
       { key: 'TENCENT_SMS_SIGN_NAME', label: '签名名称', type: 'text' },
@@ -48,7 +48,7 @@ const FIELD_META: Record<SettingGroup, { title: string; description?: string; fi
     title: '微信扫码登录设置',
     fields: [
       { key: 'WECHAT_APP_ID', label: 'App ID', type: 'text' },
-      { key: 'WECHAT_APP_SECRET', label: 'App Secret', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_APP_SECRET', label: 'App Secret', type: 'password', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
     ],
   },
 };
@@ -168,7 +168,7 @@ export function SettingsTab() {
                     className="w-full bg-[#111] border border-[#333] rounded-md px-3 py-2 text-sm text-[#555] font-mono cursor-not-allowed"
                     placeholder={field.placeholder}
                   />
-                  <p className="mt-1 text-[11px] text-[#555]">SSH 登录服务器修改 .env 后重启服务</p>
+                  <p className="mt-1 text-[11px] text-[#555]">SSH 登录服务器修改 ~/flowweb/apps/api/.env 后重启服务</p>
                 </div>
               );
             }
@@ -219,7 +219,7 @@ export function SettingsTab() {
         </div>
 
         <p className="mt-4 text-xs text-[#666]">
-          非敏感配置保存在数据库中。修改后需重启 API 服务才能生效。敏感凭证仅可 SSH 登录服务器修改 .env 文件。
+          非敏感配置保存在数据库中。修改后需重启 API 服务才能生效。敏感凭证仅可 SSH 登录服务器修改 ~/flowweb/apps/api/.env 文件。
         </p>
       </div>
     </div>
