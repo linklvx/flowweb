@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import Redis from 'ioredis';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { SmsModule } from '../modules/sms/sms.module';
@@ -7,7 +8,14 @@ import { RateLimiterService } from '../common/services/rate-limiter.service';
 @Module({
   imports: [SmsModule],
   controllers: [AuthController],
-  providers: [AuthService, RateLimiterService],
+  providers: [
+    AuthService,
+    RateLimiterService,
+    {
+      provide: 'REDIS_CLIENT',
+      useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'),
+    },
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}
