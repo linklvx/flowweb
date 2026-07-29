@@ -109,7 +109,7 @@ export function SettingsTab() {
     }));
     try {
       await saveSettings(entries);
-      setMessage({ type: 'success', text: '保存成功，修改后需重启服务生效' });
+      setMessage({ type: 'success', text: '保存成功，请执行 pm2 restart flowweb-api 重启服务生效' });
       await load();
     } catch {
       setMessage({ type: 'error', text: '保存失败' });
@@ -219,7 +219,7 @@ export function SettingsTab() {
         </div>
 
         <p className="mt-4 text-xs text-[#666]">
-          非敏感配置保存在数据库中。修改后需重启 API 服务才能生效。敏感凭证仅可 SSH 登录服务器修改 ~/flowweb/apps/api/.env 文件。
+          非敏感配置保存在数据库中，修改后需执行 pm2 restart flowweb-api 重启服务生效。敏感凭证仅可 SSH 登录服务器修改 ~/flowweb/apps/api/.env 文件。
         </p>
       </div>
     </div>
