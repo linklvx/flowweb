@@ -13,8 +13,10 @@ model User {
   name           String
   email          String           @unique
   emailVerified  Boolean
-  image          String?
-  createdAt      DateTime         @default(now())
+  image               String?
+  phoneNumber         String?  @unique @db.VarChar(20)
+  phoneNumberVerified Boolean  @default(false)
+  createdAt            DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   accounts       Account[]
   sessions       Session[]
