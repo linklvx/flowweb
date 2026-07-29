@@ -6,45 +6,49 @@ import {
   type SettingGroup,
 } from '@/api/adminApi';
 
-// ---- 字段元数据定义 ----
+// ---- 字段元数据 ----
 
 interface FieldMeta {
   key: string;
   label: string;
   type: 'text' | 'password' | 'textarea';
   placeholder?: string;
+  /** 敏感字段：不可编辑，仅显示是否已配置 */
+  sensitive?: boolean;
 }
 
-const FIELD_META: Record<SettingGroup, { title: string; fields: FieldMeta[] }> = {
+const FIELD_META: Record<SettingGroup, { title: string; description?: string; fields: FieldMeta[] }> = {
   wechat_pay: {
     title: '微信支付设置',
+    description: 'API 密钥、私钥、证书等敏感凭证需在服务器 .env 文件中配置',
     fields: [
-      { key: 'wechat_pay.app_id', label: 'App ID', type: 'text' },
-      { key: 'wechat_pay.mch_id', label: '商户号 (Mch ID)', type: 'text' },
-      { key: 'wechat_pay.api_v3_key', label: 'API V3 密钥', type: 'password', placeholder: '32位随机字符串' },
-      { key: 'wechat_pay.merchant_serial_no', label: '商户证书序列号', type: 'text' },
-      { key: 'wechat_pay.private_key', label: '商户私钥 (PEM)', type: 'textarea', placeholder: '-----BEGIN PRIVATE KEY-----\n...' },
-      { key: 'wechat_pay.merchant_cert', label: '商户证书 (PEM)', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----\n...' },
-      { key: 'wechat_pay.public_key_id', label: '平台公钥 ID', type: 'text' },
-      { key: 'wechat_pay.public_key', label: '平台公钥 (PEM)', type: 'textarea', placeholder: '-----BEGIN PUBLIC KEY-----\n...' },
-      { key: 'wechat_pay.notify_url', label: '支付回调地址', type: 'text', placeholder: 'https://www.flow123.com/api/recharge/notify' },
+      { key: 'WECHAT_PAY_APP_ID', label: 'App ID', type: 'text' },
+      { key: 'WECHAT_PAY_MCH_ID', label: '商户号 (Mch ID)', type: 'text' },
+      { key: 'WECHAT_PAY_API_V3_KEY', label: 'API V3 密钥', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_MERCHANT_SERIAL_NO', label: '商户证书序列号', type: 'text' },
+      { key: 'WECHAT_PAY_PRIVATE_KEY', label: '商户私钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_MERCHANT_CERT', label: '商户证书 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_PUBLIC_KEY_ID', label: '平台公钥 ID', type: 'text' },
+      { key: 'WECHAT_PAY_PUBLIC_KEY', label: '平台公钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_NOTIFY_URL', label: '支付回调地址', type: 'text', placeholder: 'https://www.flow123.com/api/recharge/notify' },
     ],
   },
   sms: {
     title: '短信 SMS 设置',
+    description: 'SecretId / SecretKey 需在服务器 .env 文件中配置',
     fields: [
-      { key: 'sms.secret_id', label: 'SecretId', type: 'text' },
-      { key: 'sms.secret_key', label: 'SecretKey', type: 'password' },
-      { key: 'sms.sdk_app_id', label: 'SDK App ID', type: 'text' },
-      { key: 'sms.template_id', label: '模板 ID', type: 'text' },
-      { key: 'sms.sign_name', label: '签名名称', type: 'text' },
+      { key: 'TENCENT_SMS_SECRET_ID', label: 'SecretId', type: 'text', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'TENCENT_SMS_SECRET_KEY', label: 'SecretKey', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
+      { key: 'TENCENT_SMS_SDK_APP_ID', label: 'SDK App ID', type: 'text' },
+      { key: 'TENCENT_SMS_TEMPLATE_ID', label: '模板 ID', type: 'text' },
+      { key: 'TENCENT_SMS_SIGN_NAME', label: '签名名称', type: 'text' },
     ],
   },
   wechat_login: {
     title: '微信扫码登录设置',
     fields: [
-      { key: 'wechat_login.app_id', label: 'App ID', type: 'text' },
-      { key: 'wechat_login.app_secret', label: 'App Secret', type: 'password' },
+      { key: 'WECHAT_APP_ID', label: 'App ID', type: 'text' },
+      { key: 'WECHAT_APP_SECRET', label: 'App Secret', type: 'password', placeholder: '仅可在服务器 .env 中配置', sensitive: true },
     ],
   },
 };
@@ -91,14 +95,15 @@ export function SettingsTab() {
   const currentMeta = FIELD_META[activeGroup];
   const currentEntries = allSettings[activeGroup];
 
-  const hasChanges = currentMeta.fields.some(
+  const editableFields = currentMeta.fields.filter(f => !f.sensitive);
+  const hasChanges = editableFields.some(
     f => (editValues[f.key] ?? '') !== (currentEntries.find(e => e.key === f.key)?.value ?? ''),
   );
 
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
-    const entries: SettingEntry[] = currentMeta.fields.map(f => ({
+    const entries: SettingEntry[] = editableFields.map(f => ({
       key: f.key,
       value: editValues[f.key] ?? '',
     }));
@@ -136,33 +141,61 @@ export function SettingsTab() {
         ))}
       </div>
 
-      {/* 表单 */}
       <div className="max-w-2xl">
-        <h3 className="text-sm font-semibold text-[#e2e8f0] mb-4">{currentMeta.title}</h3>
+        <h3 className="text-sm font-semibold text-[#e2e8f0] mb-1">{currentMeta.title}</h3>
+        {currentMeta.description && (
+          <p className="text-xs text-[#666] mb-4">{currentMeta.description}</p>
+        )}
 
         <div className="space-y-4">
-          {currentMeta.fields.map(field => (
-            <div key={field.key}>
-              <label className="block text-xs text-[#888] mb-1.5">{field.label}</label>
-              {field.type === 'textarea' ? (
-                <textarea
-                  value={editValues[field.key] ?? ''}
-                  onChange={e => setEditValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  placeholder={field.placeholder}
-                  rows={5}
-                  className="w-full bg-[#1A1A1A] border border-[#444] rounded-md px-3 py-2 text-sm text-[#e2e8f0] font-mono resize-y focus:outline-none focus:border-[#4ade80] transition-colors"
-                />
-              ) : (
-                <input
-                  type={field.type}
-                  value={editValues[field.key] ?? ''}
-                  onChange={e => setEditValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  placeholder={field.placeholder}
-                  className="w-full bg-[#1A1A1A] border border-[#444] rounded-md px-3 py-2 text-sm text-[#e2e8f0] font-mono focus:outline-none focus:border-[#4ade80] transition-colors"
-                />
-              )}
-            </div>
-          ))}
+          {currentMeta.fields.map(field => {
+            const currentVal = editValues[field.key] ?? '';
+            const configured = currentVal.length > 0;
+
+            if (field.sensitive) {
+              return (
+                <div key={field.key}>
+                  <label className="block text-xs text-[#888] mb-1.5">
+                    {field.label}
+                    <span className="ml-2 text-[#666]">
+                      {configured ? '✓ 已配置' : '✗ 未配置'}
+                    </span>
+                  </label>
+                  <input
+                    type="password"
+                    value={configured ? '••••••••' : ''}
+                    disabled
+                    className="w-full bg-[#111] border border-[#333] rounded-md px-3 py-2 text-sm text-[#555] font-mono cursor-not-allowed"
+                    placeholder={field.placeholder}
+                  />
+                  <p className="mt-1 text-[11px] text-[#555]">SSH 登录服务器修改 .env 后重启服务</p>
+                </div>
+              );
+            }
+
+            return (
+              <div key={field.key}>
+                <label className="block text-xs text-[#888] mb-1.5">{field.label}</label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    value={currentVal}
+                    onChange={e => setEditValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    placeholder={field.placeholder}
+                    rows={5}
+                    className="w-full bg-[#1A1A1A] border border-[#444] rounded-md px-3 py-2 text-sm text-[#e2e8f0] font-mono resize-y focus:outline-none focus:border-[#4ade80] transition-colors"
+                  />
+                ) : (
+                  <input
+                    type={field.type}
+                    value={currentVal}
+                    onChange={e => setEditValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    placeholder={field.placeholder}
+                    className="w-full bg-[#1A1A1A] border border-[#444] rounded-md px-3 py-2 text-sm text-[#e2e8f0] font-mono focus:outline-none focus:border-[#4ade80] transition-colors"
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* 操作区 */}
@@ -186,7 +219,7 @@ export function SettingsTab() {
         </div>
 
         <p className="mt-4 text-xs text-[#666]">
-          配置保存在数据库中。修改后需在服务器上重启 API 服务才能生效。
+          非敏感配置保存在数据库中。修改后需重启 API 服务才能生效。敏感凭证仅可 SSH 登录服务器修改 .env 文件。
         </p>
       </div>
     </div>
