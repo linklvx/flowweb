@@ -4,11 +4,12 @@ import { NodeTypeTabs } from './components/NodeTypeTabs';
 import { ModelTable } from './components/ModelTable';
 import { PricingRuleTable } from './components/PricingRuleTable';
 import { PlanManagementTab, SubscriptionManagementTab, CreditManagementTab, BannerManagementTab } from './components/SubscriptionTabs';
+import { SettingsTab } from './components/SettingsTab';
 
 export function AdminPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
-  const [section, setSection] = useState<'models' | 'subscription'>('models');
+  const [section, setSection] = useState<'models' | 'subscription' | 'settings'>('models');
   const [subTab, setSubTab] = useState<'plans' | 'subscriptions' | 'credits' | 'banner'>('plans');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,13 +34,13 @@ export function AdminPage() {
     <div className="min-h-screen bg-[#0f0f0f] p-6">
       <h1 className="text-xl font-bold text-[#e2e8f0] mb-2">管理后台</h1>
       <div className="flex gap-3 mb-6">
-        {(['models', 'subscription'] as const).map(s => (
+        {(['models', 'subscription', 'settings'] as const).map(s => (
           <button key={s} onClick={() => setSection(s)}
             className={`px-4 py-1.5 rounded-md text-sm border-none cursor-pointer transition-colors ${
               section === s ? 'bg-[#4ade80]/20 text-[#4ade80] font-bold' : 'bg-[#252525] text-[#888] hover:text-white'
             }`}
           >
-            {s === 'models' ? '模型管理' : '会员订阅'}
+            {s === 'models' ? '模型管理' : s === 'subscription' ? '会员订阅' : '参数配置'}
           </button>
         ))}
       </div>
@@ -63,6 +64,8 @@ export function AdminPage() {
           {subTab === 'banner' && <BannerManagementTab />}
         </div>
       )}
+
+      {section === 'settings' && <SettingsTab />}
 
       {section === 'models' && (
         loading ? (
