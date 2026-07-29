@@ -33,6 +33,8 @@ async function bootstrap() {
   // nestIntegration() in Sentry.init() handles exception capture automatically
   // No separate SentryGlobalFilter required in @sentry/nestjs v10.x
 
+  app.set('trust proxy', true);
+
   // 初始化官方模板
   const templateService = app.get(TemplateService);
   await templateService.initOfficialTemplates();
