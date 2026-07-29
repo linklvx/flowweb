@@ -20,16 +20,16 @@ interface FieldMeta {
 const FIELD_META: Record<SettingGroup, { title: string; description?: string; fields: FieldMeta[] }> = {
   wechat_pay: {
     title: '微信支付设置',
-    description: 'API 密钥、私钥、证书等敏感凭证需在服务器 ~/flowweb/apps/api/.env 中配置',
+    description: 'API V3 密钥、商户私钥需在服务器 ~/flowweb/apps/api/.env 中配置',
     fields: [
       { key: 'WECHAT_PAY_APP_ID', label: 'App ID', type: 'text' },
       { key: 'WECHAT_PAY_MCH_ID', label: '商户号 (Mch ID)', type: 'text' },
       { key: 'WECHAT_PAY_API_V3_KEY', label: 'API V3 密钥', type: 'password', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
       { key: 'WECHAT_PAY_MERCHANT_SERIAL_NO', label: '商户证书序列号', type: 'text' },
       { key: 'WECHAT_PAY_PRIVATE_KEY', label: '商户私钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
-      { key: 'WECHAT_PAY_MERCHANT_CERT', label: '商户证书 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_MERCHANT_CERT', label: '商户证书 (PEM)', type: 'textarea' },
       { key: 'WECHAT_PAY_PUBLIC_KEY_ID', label: '平台公钥 ID', type: 'text' },
-      { key: 'WECHAT_PAY_PUBLIC_KEY', label: '平台公钥 (PEM)', type: 'textarea', placeholder: '仅可在服务器 ~/flowweb/apps/api/.env 中配置', sensitive: true },
+      { key: 'WECHAT_PAY_PUBLIC_KEY', label: '平台公钥 (PEM)', type: 'textarea' },
       { key: 'WECHAT_PAY_NOTIFY_URL', label: '支付回调地址', type: 'text', placeholder: 'https://www.flow123.com/api/recharge/notify' },
     ],
   },

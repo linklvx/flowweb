@@ -14,8 +14,10 @@ const GROUP_KEYS: Record<SettingGroup, string[]> = {
     'WECHAT_PAY_APP_ID',
     'WECHAT_PAY_MCH_ID',
     'WECHAT_PAY_MERCHANT_SERIAL_NO',
+    'WECHAT_PAY_MERCHANT_CERT',
     'WECHAT_PAY_NOTIFY_URL',
     'WECHAT_PAY_PUBLIC_KEY_ID',
+    'WECHAT_PAY_PUBLIC_KEY',
   ],
   sms: [
     'TENCENT_SMS_SDK_APP_ID',
