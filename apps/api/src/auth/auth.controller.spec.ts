@@ -157,6 +157,28 @@ describe('AuthController', () => {
 
       expect(mockRes.json).toHaveBeenCalledWith({ user: null });
     });
+
+    it('should ensure default folders when user has none', async () => {
+      const req = { headers: { cookie: 'flowweb.session_token=valid' } };
+      const mockRes = { json: vi.fn() };
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', email: 'u1@test.com' } });
+
+      const mockPrismaForFolders = {
+        materialFolder: {
+          count: vi.fn().mockResolvedValue(0),
+          createMany: vi.fn().mockResolvedValue({ count: 5 }),
+        },
+      } as any;
+      const mockRedis = { get: vi.fn(), del: vi.fn() };
+
+      const ctrl = new AuthController(
+        mockSvc as any, mockPrismaForFolders, mockRateLimiter, mockSmsService, mockRedis as any,
+      );
+      await ctrl.getMe(req as any, mockRes as any);
+
+      expect(mockPrismaForFolders.materialFolder.count).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+      expect(mockPrismaForFolders.materialFolder.createMany).toHaveBeenCalled();
+    });
   });
 
   describe('updateMe', () => {

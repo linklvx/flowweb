@@ -87,6 +87,23 @@ export class AuthController {
     const cookieStr: string = req.headers.cookie || '';
     const session = await this.authService.getSession({ cookie: cookieStr });
     if (!session) return res.json({ user: null });
+
+    // 补偿默认文件夹（idempotent）
+    try {
+      const count = await this.prisma.materialFolder.count({
+        where: { userId: session.user.id },
+      });
+      if (count === 0) {
+        await this.prisma.materialFolder.createMany({
+          data: DEFAULT_FOLDER_NAMES.map((name: string, i: number) => ({
+            name, userId: session.user.id, isDefault: true, sortOrder: i,
+          })),
+        });
+      }
+    } catch {
+      // 非致命 — 用户仍可正常使用
+    }
+
     return res.json({ user: session.user });
   }
 
