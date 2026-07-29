@@ -103,13 +103,21 @@ export class SmsService implements OnModuleInit {
     logger.log({ phone: masked }, 'Sending SMS OTP');
 
     try {
-      await this.smsClient.SendSms({
+      const response = await this.smsClient.SendSms({
         PhoneNumberSet: [phoneNumber],
         SmsSdkAppId: process.env.TENCENT_SMS_SDK_APP_ID!,
         TemplateId: process.env.TENCENT_SMS_TEMPLATE_ID!,
         TemplateParamSet: [code],
         SignName: process.env.TENCENT_SMS_SIGN_NAME,
       });
+
+      // 检查每条号码的实际发送状态（HTTP 200 不代表发送成功）
+      const status = response.SendStatusSet?.[0];
+      if (status?.Code !== 'Ok') {
+        logger.error({ phone: masked, status }, 'SMS send rejected by Tencent Cloud');
+        throw new Error(status?.Code || 'SMS_SEND_REJECTED');
+      }
+
       logger.log({ phone: masked }, 'SMS sent successfully');
     } catch (err) {
       logger.error({ phone: masked, err }, 'SMS send failed');
