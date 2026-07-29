@@ -8,6 +8,8 @@ interface User {
   emailVerified: boolean;
   createdAt: string;
   updatedAt: string;
+  phoneNumber?: string | null;
+  phoneNumberVerified?: boolean;
 }
 
 interface AuthContextType {
