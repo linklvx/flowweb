@@ -66,3 +66,27 @@ export async function createPricingRule(data: any): Promise<PricingRuleData> {
 export async function deletePricingRule(id: string): Promise<void> {
   return apiFetch(`/admin/pricing-rules/${id}`, { method: 'DELETE' });
 }
+
+// ========== 参数配置 ==========
+
+export interface SettingEntry {
+  key: string;
+  value: string;
+}
+
+export type SettingGroup = 'wechat_pay' | 'sms' | 'wechat_login';
+
+/** 获取全部配置（按分组） */
+export async function fetchAllSettings(): Promise<Record<SettingGroup, SettingEntry[]>> {
+  return apiFetch('/admin/settings');
+}
+
+/** 获取指定分组的配置 */
+export async function fetchSettingsByGroup(group: SettingGroup): Promise<SettingEntry[]> {
+  return apiFetch(`/admin/settings/group?name=${group}`);
+}
+
+/** 批量保存配置 */
+export async function saveSettings(entries: SettingEntry[]): Promise<void> {
+  return apiFetch('/admin/settings', { method: 'PUT', body: JSON.stringify(entries) });
+}
