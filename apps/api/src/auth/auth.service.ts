@@ -40,6 +40,16 @@ export class AuthService {
     return exists === 1;
   }
 
+  async phoneLogin(phoneNumber: string, code: string) {
+    return auth.api.verifyPhoneNumber({
+      body: {
+        phoneNumber,
+        code,
+        updatePhoneNumber: false,
+      },
+    });
+  }
+
   async updateProfile(cookieHeader: string, dto: { name?: string; image?: string }) {
     return auth.api.updateUser({
       body: { name: dto.name, image: dto.image },

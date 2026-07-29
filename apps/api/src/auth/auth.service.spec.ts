@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockSignInEmail, mockSignUpEmail, mockSignOut, mockGetSession, mockUpdateUser } = vi.hoisted(() => ({
+const { mockSignInEmail, mockSignUpEmail, mockSignOut, mockGetSession, mockUpdateUser,
+  mockVerifyPhoneNumber } = vi.hoisted(() => ({
   mockSignInEmail: vi.fn(),
   mockSignUpEmail: vi.fn(),
   mockSignOut: vi.fn(),
   mockGetSession: vi.fn(),
   mockUpdateUser: vi.fn(),
+  mockVerifyPhoneNumber: vi.fn(),
 }));
 
 vi.mock('./auth', () => ({
@@ -17,6 +19,7 @@ vi.mock('./auth', () => ({
       signOut: mockSignOut,
       getSession: mockGetSession,
       updateUser: mockUpdateUser,
+      verifyPhoneNumber: mockVerifyPhoneNumber,
     },
   },
 }));
@@ -76,5 +79,23 @@ describe('AuthService', () => {
       headers: expect.any(Headers),
     });
     expect(result).toEqual({ user: { id: 'u1', name: 'NewName' } });
+  });
+
+  describe('phoneLogin', () => {
+    it('should call auth.api.verifyPhoneNumber with updatePhoneNumber: false', async () => {
+      mockVerifyPhoneNumber.mockResolvedValue({
+        token: 'tok_abc',
+        user: { id: 'u1', phoneNumber: '+8613800138000', phoneNumberVerified: true },
+      });
+      const result = await service.phoneLogin('+8613800138000', '123456');
+      expect(auth.api.verifyPhoneNumber).toHaveBeenCalledWith({
+        body: {
+          phoneNumber: '+8613800138000',
+          code: '123456',
+          updatePhoneNumber: false,
+        },
+      });
+      expect(result.token).toBe('tok_abc');
+    });
   });
 });
