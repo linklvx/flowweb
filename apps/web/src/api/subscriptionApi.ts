@@ -136,6 +136,8 @@ export const subscriptionApi = {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || 'Upload failed');
     }
-    return res.json();
+    const body = await res.json();
+    // Unwrap TransformInterceptor { code: 0, data: T }
+    return body.data ?? body;
   },
 };
