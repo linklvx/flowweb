@@ -1,7 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { LoginPage } from './page';
+
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    updateUser: vi.fn(),
+  }),
+}));
 
 describe('LoginPage', () => {
   function renderPage() {

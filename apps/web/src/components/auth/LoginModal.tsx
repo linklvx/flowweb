@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Modal } from 'antd';
 import { PhoneLoginForm } from './PhoneLoginForm';
+import { useAuth } from '@/components/AuthProvider';
 import { WeChatQRLogin } from './WeChatQRLogin';
 import { AgreementFooter } from './AgreementFooter';
 /** @deprecated 旧邮箱登录，后续替换 */
@@ -17,6 +18,7 @@ export function LoginModal({
 }: LoginModalProps) {
   const [bannerFailed, setBannerFailed] = useState(false);
   const [showEmailLogin, setShowEmailLogin] = useState(false);
+  const { refresh } = useAuth();
 
   if (showEmailLogin) {
     return <AuthModal onClose={() => setShowEmailLogin(false)} />;
@@ -59,7 +61,12 @@ export function LoginModal({
         {/* Form area */}
         <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
           <div className="flex gap-0 pl-10 h-[328px] box-border rounded-t-[12px]">
-            <PhoneLoginForm />
+            <PhoneLoginForm
+              onLoginSuccess={() => {
+                refresh();
+                onClose();
+              }}
+            />
 
             {/* Divider */}
             <div

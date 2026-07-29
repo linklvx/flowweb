@@ -27,7 +27,7 @@ export function LoginPage() {
         {/* Form area */}
         <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
           <div className="flex gap-0 pl-10 h-[328px] box-border rounded-t-[12px]">
-            <PhoneLoginForm />
+            <PhoneLoginForm onLoginSuccess={() => { window.location.href = '/canvas'; }} />
 
             {/* Divider */}
             <div

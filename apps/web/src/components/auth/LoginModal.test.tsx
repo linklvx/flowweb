@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LoginModal } from './LoginModal';
 
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    updateUser: vi.fn(),
+  }),
+}));
+
 describe('LoginModal', () => {
   const mockOnClose = vi.fn();
 
