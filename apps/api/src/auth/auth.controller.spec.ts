@@ -4,6 +4,10 @@ import { AuthController } from './auth.controller';
 describe('AuthController', () => {
   let controller: AuthController;
   let mockSvc: Record<string, any>;
+  let mockRateLimiter: Record<string, any>;
+  let mockSmsService: Record<string, any>;
+  let mockRedis: Record<string, any>;
+  let mockPrisma: Record<string, any>;
 
   beforeEach(() => {
     mockSvc = {
@@ -13,11 +17,38 @@ describe('AuthController', () => {
       getSession: vi.fn(),
       getSessionByToken: vi.fn(),
       updateProfile: vi.fn(),
+      phoneLogin: vi.fn(),
     };
 
+    mockRateLimiter = {
+      getClientIp: vi.fn(),
+      checkIpRateLimit: vi.fn(),
+      checkPhoneRateLimit: vi.fn(),
+      releasePhoneLock: vi.fn(),
+    };
+
+    mockSmsService = {
+      generateOtp: vi.fn(),
+      storeOtp: vi.fn(),
+      sendSms: vi.fn(),
+      deleteOtp: vi.fn(),
+    };
+
+    mockRedis = {
+      get: vi.fn(),
+      del: vi.fn(),
+    };
+
+    mockPrisma = { materialFolder: { createMany: vi.fn() } } as any;
+
     // Direct construction — bypasses NestJS DI
-    const mockPrisma = { materialFolder: { createMany: vi.fn() } } as any;
-    controller = new AuthController(mockSvc as any, mockPrisma);
+    controller = new AuthController(
+      mockSvc as any,
+      mockPrisma as any,
+      mockRateLimiter as any,
+      mockSmsService as any,
+      mockRedis as any,
+    );
   });
 
   describe('signIn', () => {
@@ -179,6 +210,116 @@ describe('AuthController', () => {
         'flowweb.session_token=tok',
         expect.anything()
       );
+    });
+  });
+
+  describe('sendSmsCode', () => {
+    it('should return 200 on success', async () => {
+      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
+      mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
+      mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(true);
+      mockSmsService.generateOtp.mockReturnValue('123456');
+      mockSmsService.storeOtp.mockResolvedValue(undefined);
+      mockSmsService.sendSms.mockResolvedValue(undefined);
+
+      const mockRes = { status: vi.fn().mockReturnValue({ json: vi.fn() }), json: vi.fn() };
+      const req = { headers: { 'x-forwarded-for': '1.2.3.4' }, ip: '10.0.0.1' };
+
+      await controller.sendSmsCode(
+        { phone: '13800138000' } as any,
+        req as any, mockRes as any,
+      );
+
+      expect(mockRes.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    it('should return 429 when phone rate limit exceeded', async () => {
+      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
+      mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
+      mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(false);
+
+      const mockRes = { status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      const req = { headers: {}, ip: '1.2.3.4' };
+
+      await controller.sendSmsCode(
+        { phone: '13800138000' } as any,
+        req as any, mockRes as any,
+      );
+
+      expect(mockRes.status).toHaveBeenCalledWith(429);
+      expect(mockSmsService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it('should return 502 after releasing lock + deleting OTP when SMS fails', async () => {
+      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
+      mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
+      mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(true);
+      mockSmsService.generateOtp.mockReturnValue('123456');
+      mockSmsService.storeOtp.mockResolvedValue(undefined);
+      mockSmsService.sendSms.mockRejectedValue(new Error('SMS_FAILED'));
+
+      const mockRes = { status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      const req = { headers: {}, ip: '1.2.3.4' };
+
+      await controller.sendSmsCode(
+        { phone: '13800138000' } as any,
+        req as any, mockRes as any,
+      );
+
+      expect(mockRateLimiter.releasePhoneLock).toHaveBeenCalledWith('+8613800138000');
+      expect(mockSmsService.deleteOtp).toHaveBeenCalledWith('+8613800138000');
+      expect(mockRes.status).toHaveBeenCalledWith(502);
+    });
+  });
+
+  describe('phoneLogin', () => {
+    it('should return 200 + Set-Cookie on success', async () => {
+      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
+      mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
+      mockSvc.phoneLogin.mockResolvedValue({
+        token: 'tok_abc',
+        user: { id: 'u1', phoneNumber: '+8613800138000', phoneNumberVerified: true },
+      });
+
+      const mockRes = { cookie: vi.fn(), json: vi.fn(), status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      const req = { headers: {}, ip: '1.2.3.4' };
+
+      await controller.phoneLogin(
+        { phone: '13800138000', code: '123456' } as any,
+        req as any, mockRes as any,
+      );
+
+      expect(mockSvc.phoneLogin).toHaveBeenCalledWith('+8613800138000', '123456');
+      expect(mockRes.cookie).toHaveBeenCalledWith(
+        'flowweb.session_token', 'tok_abc',
+        expect.objectContaining({ httpOnly: true, path: '/' }),
+      );
+      expect(mockRes.json).toHaveBeenCalledWith({
+        user: { id: 'u1', phoneNumber: '+8613800138000', phoneNumberVerified: true },
+      });
+    });
+
+    it('should read last_error from Redis when verify fails', async () => {
+      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
+      mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
+      mockSvc.phoneLogin.mockRejectedValue(new Error('INVALID_OTP'));
+
+      const spyRedis = { get: vi.fn().mockResolvedValue('WRONG'), del: vi.fn() };
+      const mockRes = { status: vi.fn().mockReturnValue({ json: vi.fn() }) };
+      const req = { headers: {}, ip: '1.2.3.4' };
+
+      const ctrl = new AuthController(
+        mockSvc as any, {} as any, mockRateLimiter as any, mockSmsService as any, spyRedis as any,
+      );
+
+      await ctrl.phoneLogin(
+        { phone: '13800138000', code: '000000' } as any,
+        req as any, mockRes as any,
+      );
+
+      expect(spyRedis.get).toHaveBeenCalledWith('sms:{+8613800138000}:last_error');
+      expect(spyRedis.del).toHaveBeenCalledWith('sms:{+8613800138000}:last_error');
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
   });
 });
