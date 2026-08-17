@@ -62,8 +62,8 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
-vi.mock('@/stores/materialLibraryStore', () => ({
-  useMaterialLibraryStore: (selector: any) => selector({
+vi.mock('@/stores/materialLibraryStore', () => {
+  const state = {
     isOpen: false,
     open: vi.fn(),
     close: vi.fn(),
@@ -98,8 +98,11 @@ vi.mock('@/stores/materialLibraryStore', () => ({
     selectAllFiles: vi.fn(),
     batchDelete: vi.fn(),
     batchMove: vi.fn(),
-  }),
-}));
+  };
+  const useMaterialLibraryStore = (selector: any) => selector(state);
+  (useMaterialLibraryStore as any).getState = () => state;
+  return { useMaterialLibraryStore };
+});
 
 const mockFitView = vi.fn();
 vi.mock('@xyflow/react', async (importOriginal) => {

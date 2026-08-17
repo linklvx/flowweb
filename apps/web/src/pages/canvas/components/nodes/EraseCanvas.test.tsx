@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import React, { createRef } from 'react';
 
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: Object.assign(vi.fn(), {
+    getState: vi.fn(() => ({ setEditOverlayDragging: vi.fn() })),
+  }),
+}));
+
 function createMockImageData(w: number, h: number): ImageData {
   return {
     data: new Uint8ClampedArray(w * h * 4),
@@ -93,6 +99,8 @@ beforeEach(() => {
     }
     return (this as any).__mockCtx;
   }) as any;
+  HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+  HTMLCanvasElement.prototype.releasePointerCapture = vi.fn();
 });
 
 afterEach(() => {
@@ -161,9 +169,8 @@ describe('EraseCanvas', () => {
         toJSON: () => {},
       }));
 
-      canvas.dispatchEvent(new MouseEvent('mousedown', {
-        clientX: 500, clientY: 350,
-        bubbles: true, cancelable: true,
+      canvas.dispatchEvent(new MouseEvent('pointerdown', {
+        clientX: 500, clientY: 350, bubbles: true, cancelable: true,
       }));
 
       const ctx = canvas.getContext('2d')!;
@@ -183,14 +190,12 @@ describe('EraseCanvas', () => {
         toJSON: () => {},
       }));
 
-      canvas.dispatchEvent(new MouseEvent('mousedown', {
-        clientX: 200, clientY: 100,
-        bubbles: true, cancelable: true,
+      canvas.dispatchEvent(new MouseEvent('pointerdown', {
+        clientX: 200, clientY: 100, bubbles: true, cancelable: true,
       }));
 
-      canvas.dispatchEvent(new MouseEvent('mousemove', {
-        clientX: 600, clientY: 400,
-        bubbles: true, cancelable: true,
+      canvas.dispatchEvent(new MouseEvent('pointermove', {
+        clientX: 600, clientY: 400, bubbles: true, cancelable: true,
       }));
 
       const ctx = canvas.getContext('2d')!;

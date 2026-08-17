@@ -92,7 +92,7 @@ describe('ImageNodeToolbar', () => {
   it('row 1 contains all buttons', () => {
     setupPortalTarget();
     render(<ImageNodeToolbar {...defaultProps} />);
-    const row1Labels = ['旋转与镜像', '分离', '裁切', '扩图', '擦除', '重绘', '文字', '换装'];
+    const row1Labels = ['旋转与镜像', '分离', '裁切', '扩图', '擦除', '重绘', '标注', '换装'];
     row1Labels.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument();
     });
@@ -103,7 +103,7 @@ describe('ImageNodeToolbar', () => {
   it('row 2 contains all buttons', () => {
     setupPortalTarget();
     render(<ImageNodeToolbar {...defaultProps} />);
-    const row2Labels = ['打光', '3D 角度', '宫格切分', '高清增强', '九宫格', '放大查看', '上传', '下载', '复制', '删除'];
+    const row2Labels = ['打光', '3D 角度', '宫格切分', '高清增强', 'AI工具扩展', '放大查看', '上传', '下载', '复制', '删除'];
     row2Labels.forEach((label) => {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     });
@@ -235,7 +235,7 @@ describe('ImageNodeToolbar', () => {
     setupPortalTarget();
     const mockOnUpload = vi.fn();
     render(<ImageNodeToolbar {...defaultProps} fileId={undefined} onUpload={mockOnUpload} />);
-    fireEvent.click(screen.getByText('上传'));
+    fireEvent.mouseDown(screen.getByText('上传'));
     expect(mockOnUpload).toHaveBeenCalledTimes(1);
     cleanupPortalTarget();
   });

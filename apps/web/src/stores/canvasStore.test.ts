@@ -229,8 +229,8 @@ describe('canvasStore', () => {
     // New node created
     const newNode = s.nodes.find((n: any) => n.id === newId);
     expect(newNode).toBeDefined();
-    expect(newNode.position.x).not.toBe(100); // offset from source
-    expect(newNode.position.y).not.toBe(100);
+    expect(newNode.position.x).not.toBe(100); // offset to the right of source
+    expect(newNode.position.y).toBe(100); // same row (smart positioning places node to the right)
 
     // Edge created from source to new node
     const edge = s.edges.find((e: any) => e.source === sourceId && e.target === newId);

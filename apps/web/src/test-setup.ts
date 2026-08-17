@@ -22,11 +22,20 @@ global.ResizeObserver = class {
 
 // jsdom lacks requestAnimationFrame
 let rafId = 0;
+const rafTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
 global.requestAnimationFrame = (cb: FrameRequestCallback): number => {
   const id = ++rafId;
-  setTimeout(() => cb(performance.now()), 0);
+  const timeout = setTimeout(() => {
+    rafTimeouts.delete(id);
+    cb(performance.now());
+  }, 0);
+  rafTimeouts.set(id, timeout);
   return id;
 };
 global.cancelAnimationFrame = (id: number): void => {
-  // no-op in test environment
+  const timeout = rafTimeouts.get(id);
+  if (timeout) {
+    clearTimeout(timeout);
+    rafTimeouts.delete(id);
+  }
 };

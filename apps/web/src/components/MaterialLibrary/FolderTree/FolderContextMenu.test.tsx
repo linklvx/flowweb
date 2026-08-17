@@ -1,7 +1,20 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import FolderContextMenu from './FolderContextMenu';
 import type { MaterialFolder } from '@flowweb/shared';
+
+const { mockConfirm } = vi.hoisted(() => ({ mockConfirm: vi.fn() }));
+
+vi.mock('antd', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('antd')>();
+  return {
+    ...actual,
+    App: {
+      ...actual.App,
+      useApp: () => ({ modal: { confirm: mockConfirm } }),
+    },
+  };
+});
 
 const mockFolder: MaterialFolder = {
   id: 'f1', name: '我的文件夹', parentId: null, userId: 'u1',
@@ -105,11 +118,13 @@ describe('FolderContextMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('should show delete confirm dialog on click', async () => {
+  it('should show delete confirm dialog on click', () => {
     render(<FolderContextMenu x={0} y={0} folder={mockFolder} {...defaultProps} />);
     fireEvent.click(screen.getByText('删除'));
-    await waitFor(() => {
-      expect(screen.getByText(/确定删除/)).toBeInTheDocument();
-    });
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: '删除文件夹',
+      content: expect.stringContaining('确定删除文件夹'),
+    }));
   });
 });

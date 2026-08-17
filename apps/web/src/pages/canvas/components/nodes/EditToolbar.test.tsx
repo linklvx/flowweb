@@ -248,7 +248,7 @@ describe('EditToolbar', () => {
   it('calls onUndo when undo button is clicked in erase mode', () => {
     setupPortalTarget();
     const onUndo = vi.fn();
-    render(<EditToolbar {...baseProps} editMode="erase" onUndo={onUndo} />);
+    render(<EditToolbar {...baseProps} editMode="erase" canUndo={true} onUndo={onUndo} />);
     fireEvent.click(screen.getByLabelText('撤销'));
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
