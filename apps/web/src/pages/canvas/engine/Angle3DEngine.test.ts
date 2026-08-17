@@ -58,6 +58,17 @@ vi.mock('three/examples/jsm/controls/OrbitControls.js', () => ({
 
 import { Angle3DEngine } from './Angle3DEngine';
 
+const engines: Angle3DEngine[] = [];
+afterEach(() => {
+  engines.forEach((e) => e.dispose());
+  engines.length = 0;
+});
+function createEngine(container: HTMLDivElement, url = 'https://example.com/test.jpg') {
+  const engine = new Angle3DEngine(container, url);
+  engines.push(engine);
+  return engine;
+}
+
 describe('Angle3DEngine', () => {
   it('module should export Angle3DEngine class', () => {
     expect(Angle3DEngine).toBeDefined();
@@ -81,7 +92,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should create perspective camera', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       expect(cam).toBeDefined();
@@ -89,7 +100,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set scene background to dark blue', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const scene = (engine as any).scene as THREE.Scene;
       expect(scene.background).toBeDefined();
@@ -97,7 +108,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should use perspectiveCamera as activeCamera', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const active = (engine as any).activeCamera;
       const persp = (engine as any).perspectiveCamera;
@@ -105,7 +116,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should NOT create orthographic camera', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).orthographicCamera).toBeUndefined();
     });
@@ -128,7 +139,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should create placeholder plane on init (before texture loads)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const plane = (engine as any).imagePlane as THREE.Mesh;
       expect(plane).toBeDefined();
@@ -137,7 +148,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should use MeshBasicMaterial (not MeshStandardMaterial) for placeholder', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const plane = (engine as any).imagePlane as THREE.Mesh;
       const mat = plane.material as THREE.MeshBasicMaterial;
@@ -145,7 +156,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should have transparent:true and depthWrite:true on material', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const plane = (engine as any).imagePlane as THREE.Mesh;
       const mat = plane.material as THREE.MeshBasicMaterial;
@@ -154,7 +165,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should place image plane at origin with correct orientation', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const plane = (engine as any).imagePlane as THREE.Mesh;
       expect(plane.position.x).toBe(0);
@@ -180,28 +191,28 @@ describe('Angle3DEngine', () => {
     });
 
     it('should create xzGridHelper', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).xzGridHelper).toBeDefined();
       expect((engine as any).xzGridHelper).toBeInstanceOf(THREE.GridHelper);
     });
 
     it('should place grid at Y=-1 (aligned with bottom of image)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const grid = (engine as any).xzGridHelper as THREE.GridHelper;
       expect(grid.position.y).toBe(-1);
     });
 
     it('should have no rotation on grid (XZ plane)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const grid = (engine as any).xzGridHelper as THREE.GridHelper;
       expect(grid.rotation.x).toBe(0);
     });
 
     it('should use 10x10 size with 10 divisions', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const grid = (engine as any).xzGridHelper as THREE.GridHelper;
       // GridHelper constructor args: size, divisions, colorCenter, colorGrid
@@ -209,7 +220,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should NOT create xyGridHelper (no front view mode)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).xyGridHelper).toBeUndefined();
     });
@@ -232,20 +243,20 @@ describe('Angle3DEngine', () => {
     });
 
     it('should enable damping', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const c = (engine as any).orbitControls;
       expect(c.enableDamping).toBe(true);
     });
 
     it('should disable pan (prevent camera drift from spherical coords)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).orbitControls.enablePan).toBe(false);
     });
 
     it('should set polar angle limits for verticalAngle ±60°', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const c = (engine as any).orbitControls;
       // minPolarAngle = π/2 - degToRad(60) = π/6
@@ -255,7 +266,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set azimuth angle limits for horizontalAngle ±90°', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const c = (engine as any).orbitControls;
       expect(c.minAzimuthAngle).toBeCloseTo(-Math.PI / 2);
@@ -263,7 +274,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set target to origin', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).orbitControls).toBeDefined();
     });
@@ -286,7 +297,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set camera to correct position for default params (0,0,5)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       // r = 5 * (1 - 5/20) = 5 * 0.75 = 3.75
       // camera at (0, 0, 3.75) looking at origin
@@ -297,7 +308,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should compute camera position for horizontalAngle=90, verticalAngle=0, zoom=5', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(90, 0, 5);
 
       // α=90°=π/2, β=0, r=3.75
@@ -311,7 +322,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should compute camera position for horizontalAngle=0, verticalAngle=60, zoom=5', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(0, 60, 5);
 
       // α=0, β=60°=π/3, r=3.75
@@ -325,7 +336,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should compute camera position for horizontalAngle=-90, verticalAngle=-30, zoom=5', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(-90, -30, 5);
 
       // α=-90°=-π/2, β=-30°=-π/6, r=3.75
@@ -356,7 +367,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should reverse-calculate params from camera position at default', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(0, 0, 5);
 
       const result = (engine as any).getParamsFromCamera();
@@ -366,7 +377,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should reverse-calculate after setParams(45, 30, 3)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(45, 30, 3);
 
       const result = (engine as any).getParamsFromCamera();
@@ -376,7 +387,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should clamp horizontalAngle to ±90 when camera goes beyond', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       // Force camera position to an extreme that would give >90°
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       cam.position.set(-5, 0, -1);
@@ -388,7 +399,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should clamp zoom to 0 when camera is far', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       cam.position.set(0, 0, 10); // r=10 → zoom = 20*(1-10/5) = -20, clamp to 0
       (engine as any).orbitControls.target.set(0, 0, 0);
@@ -398,7 +409,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should clamp zoom to 10 when camera is very close', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       cam.position.set(0, 0, 1); // r=1 → zoom = 20*(1-1/5) = 16, clamp to 10
       (engine as any).orbitControls.target.set(0, 0, 0);
@@ -425,7 +436,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should place camera at distance 5 when zoom=0 (farthest)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(0, 0, 0);
 
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
@@ -434,7 +445,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should place camera at distance 2.5 when zoom=10 (closest)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(0, 0, 10);
 
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
@@ -460,7 +471,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should reset camera to default position (0,0,5)', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(45, 30, 3);
       engine.reset();
 
@@ -472,7 +483,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should reset orbit controls target to origin', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setParams(90, 60, 0);
       engine.reset();
 
@@ -498,7 +509,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should dispose image plane geometry and material', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const plane = (engine as any).imagePlane as THREE.Mesh;
       const geoSpy = vi.spyOn(plane.geometry, 'dispose');
       const matSpy = vi.spyOn(plane.material as THREE.Material, 'dispose');
@@ -510,7 +521,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should dispose grid geometry and material', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const grid = (engine as any).xzGridHelper as THREE.GridHelper;
       const geoSpy = vi.spyOn(grid.geometry, 'dispose');
       const matSpy = vi.spyOn(grid.material as THREE.Material, 'dispose');
@@ -522,14 +533,14 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set disposed flag to prevent further rendering', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.dispose();
 
       expect((engine as any).disposed).toBe(true);
     });
 
     it('should not throw on double dispose', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.dispose();
       expect(() => engine.dispose()).not.toThrow();
     });
@@ -552,7 +563,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true after setParams call', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       engine.setParams(45, 0, 5);
 
@@ -560,7 +571,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true after setHorizontalAngle', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       engine.setHorizontalAngle(45);
 
@@ -568,7 +579,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true after setVerticalAngle', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       engine.setVerticalAngle(30);
 
@@ -576,7 +587,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true after setZoom', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       engine.setZoom(3);
 
@@ -584,7 +595,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true after applyPreset', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       engine.applyPreset('fisheye' as any);
 
@@ -592,7 +603,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should set dirty=true on resize', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       (engine as any).dirty = false;
       (engine as any).onResize();
 
@@ -617,7 +628,7 @@ describe('Angle3DEngine', () => {
     });
 
     it('should clamp horizontalAngle to [-90, 90] on setHorizontalAngle', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setHorizontalAngle(100);
 
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
@@ -626,14 +637,14 @@ describe('Angle3DEngine', () => {
     });
 
     it('should clamp verticalAngle to [-60, 60] on setVerticalAngle', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setVerticalAngle(-70);
 
       expect((engine as any).currentParams.verticalAngle).toBe(-60);
     });
 
     it('should clamp zoom to [0, 10] on setZoom', () => {
-      const engine = new Angle3DEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setZoom(15);
 
       expect((engine as any).currentParams.zoom).toBe(10);

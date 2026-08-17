@@ -14,12 +14,13 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       measured: { width: 500, height: 500 },
     })),
     useReactFlow: vi.fn(() => ({
-      fitView: vi.fn(),
+      fitView: mockFitView,
       screenToFlowPosition: vi.fn((p: any) => p),
       zoomIn: vi.fn(),
       zoomOut: vi.fn(),
-      getNodes: vi.fn(() => [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]),
-      setNodes: vi.fn(),
+      getNodes: mockGetNodes,
+      setNodes: mockSetNodes,
+      setCenter: mockSetCenter,
     })),
   };
 });
@@ -47,6 +48,10 @@ const {
   mockAddChildNode,
   mockAddNodeWithEdge,
   mockSelectNode,
+  mockFitView,
+  mockGetNodes,
+  mockSetNodes,
+  mockSetCenter,
   mockUseNodeStoreFn,
   mockUseCanvasStoreFn,
 } = vi.hoisted(() => {
@@ -61,6 +66,10 @@ const {
   const addChildNode = vi.fn(() => 'node-crop-child');
   const addNodeWithEdge = vi.fn(() => 'node-xform-new');
   const selectNode = vi.fn();
+  const fitView = vi.fn();
+  const getNodes = vi.fn(() => [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
+  const setNodes = vi.fn();
+  const setCenter = vi.fn();
 
   const nodeStoreFn = vi.fn((_selector?: any) => {
     // Get fresh state at call time
@@ -115,6 +124,10 @@ const {
     mockAddChildNode: addChildNode,
     mockAddNodeWithEdge: addNodeWithEdge,
     mockSelectNode: selectNode,
+    mockFitView: fitView,
+    mockGetNodes: getNodes,
+    mockSetNodes: setNodes,
+    mockSetCenter: setCenter,
     mockUseNodeStoreFn: nodeStoreFn,
     mockUseCanvasStoreFn: canvasStoreFn,
   };
@@ -125,6 +138,9 @@ let mockCancelRequestedAt = 0;
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: mockUseNodeStoreFn,
+  isImageExtNode: (node: any) => node?.type === 'imageExtGen',
+  isImageGenNode: (node: any) => node?.type === 'imageGen',
+  isImageNode: (node: any) => node?.type === 'imageGen' || node?.type === 'imageExtGen',
 }));
 
 vi.mock('@/stores/canvasStore', () => ({

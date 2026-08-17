@@ -69,6 +69,17 @@ vi.mock('three/examples/jsm/postprocessing/OutlinePass.js', () => ({
 
 import { LightingEngine } from './LightingEngine';
 
+const engines: LightingEngine[] = [];
+afterEach(() => {
+  engines.forEach((e) => e.dispose());
+  engines.length = 0;
+});
+function createEngine(container: HTMLDivElement, url = 'https://example.com/test.jpg') {
+  const engine = new LightingEngine(container, url);
+  engines.push(engine);
+  return engine;
+}
+
 describe('LightingEngine', () => {
   it('module should export LightingEngine class', () => {
     expect(LightingEngine).toBeDefined();
@@ -92,7 +103,7 @@ describe('LightingEngine', () => {
     });
 
     it('should create both xyGrid and xzGrid on init', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).xyGridHelper).toBeDefined();
       expect((engine as any).xyGridHelper).toBeInstanceOf(THREE.GridHelper);
@@ -101,14 +112,14 @@ describe('LightingEngine', () => {
     });
 
     it('should have xyGrid visible and xzGrid hidden by default', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).xyGridHelper.visible).toBe(true);
       expect((engine as any).xzGridHelper.visible).toBe(false);
     });
 
     it('should keep xyGrid parameters unchanged', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const xyGrid = (engine as any).xyGridHelper as THREE.GridHelper;
       expect(xyGrid.rotation.x).toBeCloseTo(Math.PI / 2);
@@ -116,7 +127,7 @@ describe('LightingEngine', () => {
     });
 
     it('should place xzGrid at y=-2 with no rotation', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const xzGrid = (engine as any).xzGridHelper as THREE.GridHelper;
       expect(xzGrid.position.y).toBe(-2);
@@ -141,7 +152,7 @@ describe('LightingEngine', () => {
     });
 
     it('should place perspective camera at (-3, 2, 12)', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       expect(cam.position.x).toBe(-3);
@@ -150,7 +161,7 @@ describe('LightingEngine', () => {
     });
 
     it('should default activeCamera to orthographic', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const active = (engine as any).activeCamera;
       const ortho = (engine as any).orthographicCamera;
@@ -158,13 +169,13 @@ describe('LightingEngine', () => {
     });
 
     it('should default viewMode to front', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect(engine.getViewMode()).toBe('front');
     });
 
     it('should keep orthographic camera at (0, 0, 14)', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       const cam = (engine as any).orthographicCamera as THREE.OrthographicCamera;
       expect(cam.position.x).toBe(0);
@@ -190,24 +201,24 @@ describe('LightingEngine', () => {
     });
 
     it('should set dampingFactor to 0.05', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       expect((engine as any).orbitControls.dampingFactor).toBe(0.05);
     });
 
     it('should set zoom distance limits', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       expect((engine as any).orbitControls.minDistance).toBe(8);
       expect((engine as any).orbitControls.maxDistance).toBe(20);
     });
 
     it('should set polar angle limits in radians', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       expect((engine as any).orbitControls.minPolarAngle).toBeCloseTo(10 * Math.PI / 180);
       expect((engine as any).orbitControls.maxPolarAngle).toBeCloseTo(80 * Math.PI / 180);
     });
 
     it('should set target to origin', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       expect((engine as any).orbitControls).toBeDefined();
     });
   });
@@ -229,7 +240,7 @@ describe('LightingEngine', () => {
     });
 
     it('should show xzGrid and hide xyGrid in perspective view', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
 
       expect((engine as any).xyGridHelper.visible).toBe(false);
@@ -237,7 +248,7 @@ describe('LightingEngine', () => {
     });
 
     it('should show xyGrid and hide xzGrid in front view', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective'); // switch away first
       engine.switchViewMode('front');
 
@@ -246,7 +257,7 @@ describe('LightingEngine', () => {
     });
 
     it('should enable all controls sub-switches in perspective view', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
 
       const c = (engine as any).orbitControls;
@@ -257,7 +268,7 @@ describe('LightingEngine', () => {
     });
 
     it('should disable all controls in front view', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective'); // switch away first
       engine.switchViewMode('front');
 
@@ -269,7 +280,7 @@ describe('LightingEngine', () => {
     });
 
     it('should preserve camera position when switching views', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
       const cam = (engine as any).perspectiveCamera as THREE.PerspectiveCamera;
       const posBefore = cam.position.clone();
@@ -298,7 +309,7 @@ describe('LightingEngine', () => {
     });
 
     it('should have lastCamPos and lastCamTarget fields', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).lastCamPos).toBeDefined();
       expect((engine as any).lastCamPos).toBeInstanceOf(THREE.Vector3);
@@ -307,7 +318,7 @@ describe('LightingEngine', () => {
     });
 
     it('should set dirty after switching to perspective (triggers render)', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
       expect((engine as any).dirty).toBe(true);
     });
@@ -330,7 +341,7 @@ describe('LightingEngine', () => {
     });
 
     it('should reset perspective camera to default position without changing view mode', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
 
       // Move camera away from default
@@ -346,7 +357,7 @@ describe('LightingEngine', () => {
     });
 
     it('should reset orthographic camera in front view without changing view mode', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       // Default is front view
       const cam = (engine as any).orthographicCamera as THREE.OrthographicCamera;
       cam.position.set(5, 5, 5);
@@ -377,7 +388,7 @@ describe('LightingEngine', () => {
     });
 
     it('should have a clampToViewport method for perspective view', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.switchViewMode('perspective');
 
       // The engine should have a mechanism to clamp positions to viewport
@@ -402,14 +413,14 @@ describe('LightingEngine', () => {
     });
 
     it('should create lightCone mesh on init', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       expect((engine as any).lightCone).toBeDefined();
       expect((engine as any).lightCone).toBeInstanceOf(THREE.Mesh);
     });
 
     it('should use ConeGeometry with correct transforms', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const geo = cone.geometry as THREE.ConeGeometry;
 
@@ -420,7 +431,7 @@ describe('LightingEngine', () => {
     });
 
     it('should use ShaderMaterial with AdditiveBlending, DoubleSide, depthWrite=false', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const mat = cone.material as THREE.ShaderMaterial;
 
@@ -434,14 +445,14 @@ describe('LightingEngine', () => {
     });
 
     it('should set correct renderOrder: cone(0) < imagePlane(1) < handle(2)', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
 
       expect(cone.renderOrder).toBe(0);
     });
 
     it('should align lightCone position with light position on init', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const light = (engine as any).light as THREE.PointLight;
 
@@ -451,7 +462,7 @@ describe('LightingEngine', () => {
     });
 
     it('should update lightCone position on setPosition', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setPosition(3, 2, 8);
       const cone = (engine as any).lightCone as THREE.Mesh;
 
@@ -461,7 +472,7 @@ describe('LightingEngine', () => {
     });
 
     it('should update lightCone scale on distance change', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setPosition(0, 0, 6);
       const cone = (engine as any).lightCone as THREE.Mesh;
 
@@ -472,7 +483,7 @@ describe('LightingEngine', () => {
     });
 
     it('should update uMaxAlpha on setBrightness', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       engine.setBrightness(80);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const mat = cone.material as THREE.ShaderMaterial;
@@ -481,7 +492,7 @@ describe('LightingEngine', () => {
     });
 
     it('should update uColor on setColorTemperature', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const mat = cone.material as THREE.ShaderMaterial;
       const colorBefore = mat.uniforms.uColor.value.getHex();
@@ -494,7 +505,7 @@ describe('LightingEngine', () => {
     });
 
     it('should reset lightCone state via reset()', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
 
       // Change all params
       engine.setPosition(3, 2, 8);
@@ -514,7 +525,7 @@ describe('LightingEngine', () => {
     });
 
     it('should have visible property on lightCone for thumbnail toggle', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
 
       // lightCone.visible exists (used by renderThumbnail to toggle on/off)
@@ -522,7 +533,7 @@ describe('LightingEngine', () => {
     });
 
     it('should dispose lightCone geometry and material on dispose', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const geoDisposeSpy = vi.spyOn(cone.geometry, 'dispose');
       const matDisposeSpy = vi.spyOn(cone.material, 'dispose');
@@ -534,7 +545,7 @@ describe('LightingEngine', () => {
     });
 
     it('should show gradient from tip to base in fragment shader', () => {
-      const engine = new LightingEngine(container, 'https://example.com/test.jpg');
+      const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const mat = cone.material as THREE.ShaderMaterial;
 
