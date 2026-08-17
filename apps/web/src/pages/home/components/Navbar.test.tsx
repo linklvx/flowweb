@@ -50,9 +50,9 @@ describe('Navbar', () => {
     expect(screen.getByText('文档中心').closest('a')).toHaveAttribute('href', '/docs');
   });
 
-  it('should link 我的作品 to /settings/templates', () => {
+  it('should link 我的作品 to /works', () => {
     renderWithProviders(<Navbar />);
-    expect(screen.getByText('我的作品').closest('a')).toHaveAttribute('href', '/settings/templates');
+    expect(screen.getByText('我的作品').closest('a')).toHaveAttribute('href', '/works');
   });
 
   it('should render login/register button when user is not authenticated', () => {

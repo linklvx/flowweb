@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 
 const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn() }));
@@ -45,5 +45,19 @@ describe('SettingsLayout', () => {
       </MemoryRouter>
     );
     expect(screen.getByText('Profile Content')).toBeDefined();
+  });
+
+  it('should NOT render 我的作品 in sidebar (decoupled from settings)', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings/profile']}>
+        <Routes>
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route path="profile" element={<div>Profile Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+    const sidebarNav = screen.getByText('退出登录').closest('nav');
+    expect(within(sidebarNav as HTMLElement).queryByText('我的作品')).toBeNull();
   });
 });

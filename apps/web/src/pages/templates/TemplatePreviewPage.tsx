@@ -7,7 +7,7 @@ export function TemplatePreviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const isEmbedded = location.pathname.startsWith('/settings/');
+  const isWorks = location.pathname.startsWith('/works');
   const [template, setTemplate] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -36,16 +36,16 @@ export function TemplatePreviewPage() {
   const handleDelete = async () => {
     if (!id || !confirm('确定删除此模板？')) return;
     await deleteTemplate(id);
-    navigate(isEmbedded ? '/settings/templates' : '/templates');
+    navigate(isWorks ? '/works' : '/templates');
   };
 
   if (loading) return <div className="flex items-center justify-center py-16 text-[#555]">加载中...</div>;
   if (!template) return <div className="flex items-center justify-center py-16 text-[#555]">模板不存在</div>;
 
   const content = (
-    <div className={isEmbedded ? '' : 'mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8'}>
-      <button onClick={() => navigate(isEmbedded ? '/settings/templates' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
-        ← 返回{isEmbedded ? '我的作品' : '模板广场'}
+    <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
+      <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
+        ← 返回{isWorks ? '我的作品' : '模板广场'}
       </button>
 
       <div className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden">
@@ -104,8 +104,6 @@ export function TemplatePreviewPage() {
       </div>
     </div>
   );
-
-  if (isEmbedded) return content;
 
   return (
     <div className="min-h-screen bg-[#0f0f0f]">

@@ -9,7 +9,7 @@ import { SettingsLayout, ProfilePage, CreditsPage } from '@/pages/settings';
 import { MembershipPage } from '@/pages/settings/MembershipPage';
 import { TemplateMarketPage } from '@/pages/templates/TemplateMarketPage';
 import { TemplatePreviewPage } from '@/pages/templates/TemplatePreviewPage';
-import { MyTemplatesPage } from '@/pages/settings/MyTemplatesPage';
+import { MyTemplatesPage } from '@/pages/templates/MyTemplatesPage';
 
 export const router = createBrowserRouter([
   { path: '/', element: <HomePage /> },
@@ -22,6 +22,8 @@ export const router = createBrowserRouter([
     children: [
       { path: '/canvas', element: <CanvasPage /> },
       { path: '/admin', element: <AdminPage /> },
+      { path: '/works', element: <MyTemplatesPage /> },
+      { path: '/works/:id', element: <TemplatePreviewPage /> },
       {
         path: '/settings',
         element: <SettingsLayout />,
@@ -30,8 +32,6 @@ export const router = createBrowserRouter([
           { path: 'profile', element: <ProfilePage /> },
           { path: 'credits', element: <CreditsPage /> },
           { path: 'membership', element: <MembershipPage /> },
-          { path: 'templates', element: <MyTemplatesPage /> },
-          { path: 'templates/:id', element: <TemplatePreviewPage /> },
         ],
       },
     ],

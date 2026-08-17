@@ -16,7 +16,7 @@ const navLinks: NavLink[] = [
   { label: '首页', href: '/' },
   { label: '模板广场', href: '/templates' },
   { label: '文档中心', href: '/docs' },
-  { label: '我的作品', href: '/settings/templates' },
+  { label: '我的作品', href: '/works' },
 ];
 
 interface Props {
