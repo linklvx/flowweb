@@ -26,6 +26,7 @@ const ALLOWED_DB_OVERRIDE_KEYS = new Set([
   'WECHAT_PAY_PUBLIC_KEY_ID',
   'WECHAT_PAY_PUBLIC_KEY',
   'WECHAT_PAY_NOTIFY_URL',
+  'WECHAT_APP_ID',
 ]);
 
 /** 从 DB 预加载非敏感配置覆盖 process.env */

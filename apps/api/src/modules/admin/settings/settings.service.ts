@@ -24,7 +24,9 @@ const GROUP_KEYS: Record<SettingGroup, string[]> = {
     'TENCENT_SMS_TEMPLATE_ID',
     'TENCENT_SMS_SIGN_NAME',
   ],
-  wechat_login: [],
+  wechat_login: [
+    'WECHAT_APP_ID',
+  ],
 };
 
 /** 反向索引：key → group */

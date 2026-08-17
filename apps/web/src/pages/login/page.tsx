@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { PhoneLoginForm } from '@/components/auth/PhoneLoginForm';
 import { WeChatQRLogin } from '@/components/auth/WeChatQRLogin';
 import { AgreementFooter } from '@/components/auth/AgreementFooter';
@@ -7,6 +8,8 @@ import { AuthModal } from '@/components/AuthModal';
 
 export function LoginPage() {
   const [showEmailLogin, setShowEmailLogin] = useState(false);
+  const [searchParams] = useSearchParams();
+  const error = searchParams.get('error');
 
   if (showEmailLogin) {
     return <AuthModal onClose={() => setShowEmailLogin(false)} />;
@@ -26,12 +29,18 @@ export function LoginPage() {
 
         {/* Form area */}
         <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
-          <div className="flex gap-0 pl-10 h-[328px] box-border rounded-t-[12px]">
+          {error === 'wechat_failed' && (
+            <div className="text-center text-[12px] text-[#F53F3F] mb-4">
+              微信登录失败，请重试
+            </div>
+          )}
+
+          <div className="flex gap-0 pl-10 h-[550px] box-border rounded-t-[12px]">
             <PhoneLoginForm onLoginSuccess={() => { window.location.href = '/canvas'; }} />
 
             {/* Divider */}
             <div
-              className="w-[1px] mt-2 h-[280px] opacity-10"
+              className="w-[1px] mt-2 h-[500px] opacity-10"
               style={{
                 background:
                   'linear-gradient(180deg, rgba(255,255,255,1) 0%, #0D0D0D 35%, #0D0D0D 65%, rgba(255,255,255,1) 100%)',

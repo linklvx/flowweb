@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LoginModal } from './LoginModal';
 
@@ -36,6 +36,9 @@ describe('LoginModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // WeChatQRLogin 挂载会请求 config 接口；用 pending promise 停在加载态，
+    // 避免异步 setState 触发 act 警告（LoginModal 测试不关心二维码内容）
+    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
   });
 
   const renderModal = (props?: Partial<Parameters<typeof LoginModal>[0]>) =>

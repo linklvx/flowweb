@@ -16,6 +16,8 @@ model User {
   image               String?
   phoneNumber         String?  @unique @db.VarChar(20)
   phoneNumberVerified Boolean  @default(false)
+  wechatOpenid        String?  @unique @db.VarChar(64)
+  wechatUnionid       String?  @db.VarChar(64)
   createdAt            DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   accounts       Account[]

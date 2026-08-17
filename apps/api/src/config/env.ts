@@ -22,6 +22,11 @@ const envSchema = z.object({
   WECHAT_PAY_PUBLIC_KEY: z.string().optional().default(''),
   WECHAT_PAY_NOTIFY_URL: z.string().optional().default(''),
 
+  // WeChat Login (website app scan login)
+  WECHAT_APP_ID: z.string().optional().default(''),
+  WECHAT_APP_SECRET: z.string().optional().default(''),
+  WECHAT_LOGIN_REDIRECT_URI: z.string().optional().default(''),
+
   // Observability (Phase 9)
   SENTRY_DSN: z.string().optional(),
   PROMETHEUS_TOKEN: z.string().optional(),

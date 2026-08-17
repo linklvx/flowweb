@@ -60,7 +60,7 @@ export function LoginModal({
 
         {/* Form area */}
         <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
-          <div className="flex gap-0 pl-10 h-[328px] box-border rounded-t-[12px]">
+          <div className="flex gap-0 pl-10 h-[550px] box-border rounded-t-[12px]">
             <PhoneLoginForm
               onLoginSuccess={() => {
                 refresh();
@@ -70,7 +70,7 @@ export function LoginModal({
 
             {/* Divider */}
             <div
-              className="w-[1px] mt-2 h-[280px] opacity-10"
+              className="w-[1px] mt-2 h-[500px] opacity-10"
               style={{
                 background:
                   'linear-gradient(180deg, rgba(255,255,255,1) 0%, #0D0D0D 35%, #0D0D0D 65%, rgba(255,255,255,1) 100%)',
