@@ -106,8 +106,8 @@ export type WorkspaceItem =
 - **操作方法**：
   - `createFolder(name)` / `renameFolder(id, name)`：纯本地
   - `deleteFolder(id)`：先校验非空（内有画布 → 抛错「请先移出画布」toast，不发请求），校验通过后删除本地记录
-  - `moveCanvas(canvasId, folderId)`：写 localFolderMap（乐观，无 API）
-  - `renameCanvas(id, name)` / `togglePublic(id)` / `deleteCanvas(id)`：乐观更新本地，API（updateTemplate/deleteTemplate）失败回滚 + message 报错
+  - `moveCanvas(canvasId, folderId)`：写 localFolderMap（乐观，无 API）；**同时刷新源文件夹与目标文件夹的 updatedAt 为当前时间**（mock 本地；后端阶段由 API 级联处理）
+  - `renameCanvas(id, name)` / `togglePublic(id)` / `deleteCanvas(id)`：乐观更新本地，API（updateTemplate/deleteTemplate）失败回滚 + message 报错；deleteCanvas 回滚范围含画布状态及涉及文件夹的 updatedAt
   - `deletePlaceholder(id)`：仅移除本地占位记录，不调 API
   - `createCanvas(name, folderId)`：调 `projectApi.createProject(name)` → 本地插入占位 Canvas（isPlaceholder）→ 返回 projectId 供跳转
 - **加载状态机**：`'loading' | 'success' | 'error'`（页面进入即加载，无 idle）
@@ -133,6 +133,8 @@ export const MOCK_FOLDERS: Folder[] = [
 ];
 // 初始归属：按加载后的画布列表前几个 id 分配（folder-demo-1 得前 2 个，folder-demo-2 得第 3-4 个），
 // 使预置文件夹含真实缩略图，还原效果图「文件夹堆叠预览有内容」的视觉
+// 时序：localFolderMap 的 useState 初始为 {}，在 getTemplates 成功回调中用返回的 canvasIds
+// 调 buildInitialFolderMap 后 set（不能在 useState 初始化时调用，此时 canvasIds 尚未就绪）
 export function buildInitialFolderMap(canvasIds: string[]): Record<string, string>;
 ```
 
@@ -156,10 +158,10 @@ export function buildInitialFolderMap(canvasIds: string[]): Record<string, strin
 - **FolderCard**：onClick 统一行为 = `setCurrentFolderId(id)` + 清除搜索词（如有）+ 同步 URL（无分支判断）；⋯ 菜单：重命名 / 删除（非空 → toast「请先移出画布」）
 - **CanvasCard**：
   - 路由分流在 WorkspacePage 的 `onItemClick(item)` 统一处理：普通 → `/works/:id`；占位 → `/canvas?projectId=xxx`（卡片组件不含路由逻辑）
-  - hover 铅笔快捷重命名（与菜单重命名双入口，效率习惯）：hover 时 opacity-0 → 100，过渡 150ms；用 antd Typography.Text editable 实现，确认后调 renameCanvas
+  - hover 铅笔快捷重命名（与菜单重命名双入口，效率习惯）：铅笔为自定义 EditOutlined 图标，位置在**标题文字右侧**（跟随效果图，右上角是 ⋯ 菜单），hover 时 opacity-0 → 100 过渡 150ms；点击后标题切换为 antd Input（回车/失焦确认、Esc 取消），确认后调 renameCanvas。不用 Typography.Text 内置 editable（trigger 位置不可控）
   - ⋯ 菜单：重命名 / 移动到文件夹 / 设为公开(私有) / 删除；占位记录菜单仅「删除」（只移除本地）
 - **MoveToFolderModal**：列表 = 「根目录（未分组）」+ 全部文件夹单选；画布当前所在文件夹禁用 + 标记「当前位置」
-- **CreateCanvasModal**：名称 + 目标文件夹下拉（默认当前文件夹）→ createProject → 插入占位 Canvas → 跳转 `/canvas?projectId=xxx`
+- **CreateCanvasModal**：名称 + 目标文件夹下拉（选项与 MoveToFolderModal 一致：「根目录（未分组）」+ 全部文件夹；默认选中当前所在文件夹）→ createProject → 插入占位 Canvas → 跳转 `/canvas?projectId=xxx`
 - **加载中点击卡片**：不触发导航
 
 ### 7.3 面包屑 WorkspaceBreadcrumb
@@ -205,7 +207,7 @@ export function buildInitialFolderMap(canvasIds: string[]): Record<string, strin
 - 卡片：背景 `#1F1F1F`、外圆角 16px（rounded-2xl）、padding p-2、描边 `outline 1px white/[0.08]`（-offset-1）
 - 缩略图区：`aspect-ratio 4/3`、圆角 12px、overflow-hidden
 - hover 态：背景提亮 `#262626`、描边提亮 `white/[0.16]`、缩略图 `scale-110` 过渡 200ms
-- 标题行：14px semibold 白色；副信息行：12px，左「编辑于 N 前」右「N 个画布」（文件夹）
+- 标题行：14px semibold 白色；副信息行：12px——文件夹卡：左「编辑于 N 前」右「N 个画布」；画布卡：左「编辑于 N 前」，右侧 isPublic 时显示「公开」小标签（10px，bg-white/10 rounded px-1.5），否则留空
 - **FolderStackPreview**（标志性视觉，精确还原参考 HTML）：
   - 3 张卡片错位堆叠：left 5.6% / 31.3% / 58.5%，top 37.9% / 18.5% / 24.6%，rotate -15° / 0° / 15°，宽 37.3%，比例 100:134，z-index 1/2/3
   - 每张：圆角 12px、阴影 `[-2px -1px 10.5px rgba(0,0,0,0.4)]`、描边 1px `#CCCCCC/50`、左上角花瓣图标（16px，stroke #646464）
@@ -242,7 +244,7 @@ export function buildInitialFolderMap(canvasIds: string[]): Record<string, strin
 
 ## 10. 测试策略
 
-框架：项目现有 Vitest + @testing-library/react + jsdom（vite.config.ts 已配置）。
+框架：项目现有 Vitest + @testing-library/react + jsdom（**已验证**：package.json 依赖齐全，vite.config.ts 含 `test: { globals, environment: 'jsdom', setupFiles }` 配置，现有测试可运行）。dayjs 已是 apps/web 直接依赖（^1.11.21），可直接 import。
 
 **mock 范围**：`templateApi`（getTemplates/deleteTemplate/updateTemplate）、`projectApi.createProject`；路由用 MemoryRouter；防抖用 `vi.useFakeTimers()`；不单独 mock Zustand store。
 
@@ -262,7 +264,7 @@ export function buildInitialFolderMap(canvasIds: string[]): Record<string, strin
 |---|---|
 | `pages/templates/MyTemplatesPage.tsx` + `.test.tsx` | 删除（/works 指向 WorkspacePage） |
 | `pages/templates/TemplateCard.tsx` | 删除（删除前 grep 全局确认零引用） |
-| `pages/templates/EditTemplateDialog.tsx` | 删除（新对话框体系替代；删除前 grep 确认） |
+| `pages/templates/EditTemplateDialog.tsx` | 删除（新对话框体系替代）。**已 grep 确认**：仅 MyTemplatesPage 引用（随其删除），TemplatePreviewPage 与 /templates 模板广场零引用，删除安全 |
 | `api/templateApi.ts` | 保留（仍是画布数据源） |
 | `pages/templates/TemplatePreviewPage.tsx` + `/works/:id` 路由 | 保留不动 |
 | 模板广场 `/templates` | 完全不动，与工作空间数据无关 |
