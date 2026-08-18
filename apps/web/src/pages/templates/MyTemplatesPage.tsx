@@ -40,7 +40,7 @@ export function MyTemplatesPage() {
     <div className="min-h-screen bg-[#0f0f0f]">
       <Navbar />
       <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
-        <h1 className="text-2xl font-bold text-[#e2e8f0] mb-6">我的作品</h1>
+        <h1 className="text-2xl font-bold text-[#e2e8f0] mb-6">工作空间</h1>
         {templates.length === 0 ? (
           <p className="text-[#555]">暂无模板，前往画布页面创建。</p>
         ) : (

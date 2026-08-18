@@ -47,7 +47,7 @@ describe('SettingsLayout', () => {
     expect(screen.getByText('Profile Content')).toBeDefined();
   });
 
-  it('should NOT render 我的作品 in sidebar (decoupled from settings)', () => {
+  it('should NOT render 工作空间 in sidebar (decoupled from settings)', () => {
     render(
       <MemoryRouter initialEntries={['/settings/profile']}>
         <Routes>
@@ -58,6 +58,6 @@ describe('SettingsLayout', () => {
       </MemoryRouter>
     );
     const sidebarNav = screen.getByText('退出登录').closest('nav');
-    expect(within(sidebarNav as HTMLElement).queryByText('我的作品')).toBeNull();
+    expect(within(sidebarNav as HTMLElement).queryByText('工作空间')).toBeNull();
   });
 });

@@ -41,9 +41,9 @@ function renderAt(path: string) {
 }
 
 describe('TemplatePreviewPage', () => {
-  it('在 /works/:id 下返回按钮文案为「返回我的作品」', async () => {
+  it('在 /works/:id 下返回按钮文案为「返回工作空间」', async () => {
     renderAt('/works/abc');
-    expect(await screen.findByText('← 返回我的作品')).toBeInTheDocument();
+    expect(await screen.findByText('← 返回工作空间')).toBeInTheDocument();
   });
 
   it('在 /templates/:id 下返回按钮文案为「返回模板广场」', async () => {

@@ -45,7 +45,7 @@ export function TemplatePreviewPage() {
   const content = (
     <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
       <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
-        ← 返回{isWorks ? '我的作品' : '模板广场'}
+        ← 返回{isWorks ? '工作空间' : '模板广场'}
       </button>
 
       <div className="bg-[#1A1A1A] border border-[#333] rounded-lg overflow-hidden">

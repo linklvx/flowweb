@@ -32,7 +32,7 @@ export function TemplateMarketPage() {
   const tabs: { key: TabType; label: string }[] = [
     { key: 'community', label: '社区模板' },
     { key: 'official', label: '官方模板' },
-    { key: 'my', label: '我的作品' },
+    { key: 'my', label: '工作空间' },
   ];
 
   return (

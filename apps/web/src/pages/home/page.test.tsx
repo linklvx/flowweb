@@ -74,7 +74,7 @@ describe('HomePage', () => {
     expect(screen.getByText('首页')).toBeInTheDocument();
     expect(screen.getByText('模板广场')).toBeInTheDocument();
     expect(screen.getByText('文档中心')).toBeInTheDocument();
-    expect(screen.getByText('我的作品')).toBeInTheDocument();
+    expect(screen.getByText('工作空间')).toBeInTheDocument();
     expect(screen.getByText('登录/注册')).toBeInTheDocument();
   });
 

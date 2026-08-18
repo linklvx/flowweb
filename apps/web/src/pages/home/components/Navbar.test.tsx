@@ -27,12 +27,12 @@ describe('Navbar', () => {
     expect(screen.getByText(/Flow123/i)).toBeInTheDocument();
   });
 
-  it('should render nav links: 首页, 模板广场, 文档中心, 我的作品', () => {
+  it('should render nav links: 首页, 模板广场, 文档中心, 工作空间', () => {
     renderWithProviders(<Navbar />);
     expect(screen.getByText('首页')).toBeInTheDocument();
     expect(screen.getByText('模板广场')).toBeInTheDocument();
     expect(screen.getByText('文档中心')).toBeInTheDocument();
-    expect(screen.getByText('我的作品')).toBeInTheDocument();
+    expect(screen.getByText('工作空间')).toBeInTheDocument();
   });
 
   it('should link 首页 to /', () => {
@@ -50,9 +50,9 @@ describe('Navbar', () => {
     expect(screen.getByText('文档中心').closest('a')).toHaveAttribute('href', '/docs');
   });
 
-  it('should link 我的作品 to /works', () => {
+  it('should link 工作空间 to /works', () => {
     renderWithProviders(<Navbar />);
-    expect(screen.getByText('我的作品').closest('a')).toHaveAttribute('href', '/works');
+    expect(screen.getByText('工作空间').closest('a')).toHaveAttribute('href', '/works');
   });
 
   it('should render login/register button when user is not authenticated', () => {

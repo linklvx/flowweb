@@ -35,9 +35,9 @@ describe('MyTemplatesPage', () => {
     expect(screen.getByTestId('navbar')).toBeInTheDocument();
   });
 
-  it('渲染一级标题「我的作品」', async () => {
+  it('渲染一级标题「工作空间」', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { level: 1, name: '我的作品' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: '工作空间' })).toBeInTheDocument();
   });
 
   it('模板卡片链接前缀为 /works', async () => {
