@@ -682,11 +682,16 @@ describe('FolderCard', () => {
     expect(props.onClick).toHaveBeenCalled();
   });
 
-  it('菜单「删除」触发 onDelete；菜单「重命名」触发 onRequestRename（Modal 由页面处理）', () => {
+  it('菜单「删除」触发 onDelete', () => {
     const { props } = renderFolder();
     fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('删除'));
     expect(props.onDelete).toHaveBeenCalledWith(props.folder);
+  });
+
+  it('菜单「重命名」触发 onRequestRename（Modal 由页面处理）', () => {
+    const { props } = renderFolder();
+    fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('重命名'));
     expect(props.onRequestRename).toHaveBeenCalledWith(props.folder);
   });
@@ -925,12 +930,13 @@ export function CreateFolderCard({ onClick }: { onClick: () => void }) {
 
 ```tsx
 // components/EmptyState.tsx
+import type { ReactNode } from 'react';
 import { Button } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, CloudUploadOutlined, RocketOutlined } from '@ant-design/icons';
 
 type Variant = 'empty-folder' | 'no-results' | 'error' | 'empty-root';
 
-const CONFIG: Record<Variant, { icon: React.ReactNode; title: string; hint: string; action: string }> = {
+const CONFIG: Record<Variant, { icon: ReactNode; title: string; hint: string; action: string }> = {
   'empty-folder': { icon: <FolderOpenOutlined />, title: '文件夹还是空的', hint: '在当前文件夹创建你的下一个画布', action: '新建画布' },
   'no-results': { icon: <SearchOutlined />, title: '未找到匹配项', hint: '换个关键词试试', action: '清除搜索' },
   error: { icon: <CloudUploadOutlined />, title: '加载失败', hint: '网络异常，请重试', action: '重试' },
@@ -966,8 +972,6 @@ export function CardGridSkeleton() {
   );
 }
 ```
-
-（EmptyState 需要 `import type React from 'react'` 或将 icon 类型标 `ReactNode`——实现时用 `import type { ReactNode } from 'react'` 并将 CONFIG 的 icon 类型写为 `ReactNode`。）
 
 - [ ] **Step 4: 跑测试确认通过**
 
