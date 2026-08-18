@@ -40,6 +40,15 @@ describe('WorkspaceToolbar', () => {
     vi.useRealTimers();
   });
 
+  it('搜索输入自动 trim 前后空格', async () => {
+    vi.useFakeTimers();
+    const { props } = renderToolbar();
+    fireEvent.change(screen.getByLabelText('搜索'), { target: { value: '  关键词  ' } });
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(props.onSearchChange).toHaveBeenCalledWith('关键词');
+    vi.useRealTimers();
+  });
+
   it('筛选菜单三种选项', () => {
     renderToolbar();
     fireEvent.click(screen.getByText('显示全部'));
