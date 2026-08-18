@@ -13,7 +13,7 @@ export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, onNavi
   if (searchQuery) {
     return (
       <div className="flex items-center gap-2 px-8 py-3 text-[13px]">
-        <span className="text-white/90">搜索 {searchQuery}</span>
+        <span className="text-white/90">搜索 “{searchQuery}”</span>
         <button aria-label="清除搜索" onClick={onClearSearch} className="text-white/50 hover:text-white/90 border-none bg-transparent cursor-pointer">
           <CloseOutlined style={{ fontSize: 12 }} />
         </button>
