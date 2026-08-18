@@ -1,0 +1,56 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { CreateFolderModal } from '../components/CreateFolderModal';
+import { CreateCanvasModal } from '../components/CreateCanvasModal';
+import { MoveToFolderModal } from '../components/MoveToFolderModal';
+import type { Folder } from '../types';
+
+const folders: Folder[] = [
+  { id: 'f1', name: '文件夹一', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
+  { id: 'f2', name: '文件夹二', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
+];
+
+describe('CreateFolderModal', () => {
+  it('空名称时确认按钮禁用，输入后点击确认回传名称', () => {
+    const onOk = vi.fn();
+    render(<CreateFolderModal open onOk={onOk} onCancel={vi.fn()} />);
+    const btn = screen.getByRole('button', { name: '确 定' });
+    expect(btn).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('文件夹名称'), { target: { value: '新文件夹' } });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    expect(onOk).toHaveBeenCalledWith('新文件夹');
+  });
+  it('重命名模式回填 initialName', () => {
+    render(<CreateFolderModal open initialName="旧名" onOk={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByDisplayValue('旧名')).toBeInTheDocument();
+  });
+});
+
+describe('CreateCanvasModal', () => {
+  it('含「根目录」与全部文件夹，默认当前文件夹，确认回传', () => {
+    const onOk = vi.fn();
+    render(<CreateCanvasModal open folders={folders} defaultFolderId="f1" onOk={onOk} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('画布名称'), { target: { value: '新画布' } });
+    fireEvent.click(screen.getByRole('button', { name: '确 定' }));
+    expect(onOk).toHaveBeenCalledWith('新画布', 'f1');
+  });
+});
+
+describe('MoveToFolderModal', () => {
+  it('当前文件夹禁用并标「当前位置」，选择目标后确认回传', () => {
+    const onOk = vi.fn();
+    render(<MoveToFolderModal open folders={folders} currentFolderId="f1" onOk={onOk} onCancel={vi.fn()} />);
+    expect(screen.getByText('当前位置')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('文件夹二'));
+    fireEvent.click(screen.getByRole('button', { name: '确 定' }));
+    expect(onOk).toHaveBeenCalledWith('f2');
+  });
+  it('可选「根目录」回传 null', () => {
+    const onOk = vi.fn();
+    render(<MoveToFolderModal open folders={folders} currentFolderId="f1" onOk={onOk} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByText('根目录（未分组）'));
+    fireEvent.click(screen.getByRole('button', { name: '确 定' }));
+    expect(onOk).toHaveBeenCalledWith(null);
+  });
+});

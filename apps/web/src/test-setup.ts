@@ -39,3 +39,30 @@ global.cancelAnimationFrame = (id: number): void => {
     rafTimeouts.delete(id);
   }
 };
+
+// Workaround for jsdom not supporting CSS selectors used by antd 5
+// Ant Design 5+ uses :has() and complex selectors that jsdom's nwsapi doesn't parse
+// We intercept style tag insertion to filter out problematic CSS rules
+const originalInsertBefore = Node.prototype.insertBefore;
+Node.prototype.insertBefore = function (newNode: Node, referenceNode: Node | null) {
+  if (newNode.nodeType === Node.ELEMENT_NODE && (newNode as Element).tagName === 'STYLE') {
+    const styleEl = newNode as HTMLStyleElement;
+    const originalText = styleEl.textContent;
+    if (originalText && (originalText.includes(')+:') || originalText.includes(':has('))) {
+      // Filter out problematic CSS rules
+      const filtered = originalText
+        .split('}')
+        .map((rule) => {
+          const selectorPart = rule.split('{')[0];
+          if (selectorPart.includes(')+:') || selectorPart.includes(':has(')) {
+            return ''; // Remove problematic rules
+          }
+          return rule;
+        })
+        .filter((rule) => rule.trim())
+        .join('}');
+      styleEl.textContent = filtered;
+    }
+  }
+  return originalInsertBefore.call(this, newNode, referenceNode);
+};
