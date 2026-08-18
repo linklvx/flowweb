@@ -284,11 +284,10 @@ describe('ImageGenNode', () => {
   it('floating upload container should have nodrag and nopan classes', () => {
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode(true);
-    const portalRoot = document.getElementById('node-toolbar-portal')!;
-    const toolbar = portalRoot.querySelector('.nodrag') as HTMLElement;
-    expect(toolbar).toBeTruthy();
-    expect(toolbar.classList.contains('nodrag')).toBe(true);
-    expect(toolbar.classList.contains('nopan')).toBe(true);
+    const uploadBtn = screen.getByText('上传');
+    const container = uploadBtn.closest('.nodrag');
+    expect(container).toBeTruthy();
+    expect(container?.classList.contains('nopan')).toBe(true);
   });
 
   it('shows replace button when image is user-uploaded (referenceImage set, no fileId)', () => {
@@ -341,10 +340,9 @@ describe('ImageGenNode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
     renderNode();
     const img = screen.getByRole('img');
-    expect(img.style.width).toBeTruthy();
-    expect(img.style.height).toBeTruthy();
-    expect(img.style.maxWidth).toBe('none');
-    expect(img.style.maxHeight).toBe('none');
+    expect(img.style.width).toBe('100%');
+    expect(img.style.height).toBe('100%');
+    expect(img.style.objectFit).toBe('cover');
   });
 
   // ── Phase 4/5: Save handler registration ──
@@ -431,8 +429,8 @@ describe('ImageGenNode', () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
     renderNode();
     const portalRoot = document.getElementById('node-toolbar-portal')!;
-    expect(portalRoot.textContent).toContain('生成');
     expect(portalRoot.textContent).toContain('退出');
+    expect(portalRoot.querySelector('[data-testid="outpaint-generate"]')).toBeTruthy();
   });
 
   it('handleGenerate sends outpaintRect in request body', async () => {
@@ -442,9 +440,7 @@ describe('ImageGenNode', () => {
     );
     renderNode();
     const portalRoot = document.getElementById('node-toolbar-portal')!;
-    const genBtn = Array.from(portalRoot.querySelectorAll('button')).find(
-      (btn) => btn.textContent?.includes('生成')
-    );
+    const genBtn = portalRoot.querySelector('[data-testid="outpaint-generate"]');
     if (genBtn) fireEvent.click(genBtn);
 
     expect(fetchSpy).toHaveBeenCalledWith('/api/image-edit/outpaint', expect.objectContaining({
@@ -568,31 +564,31 @@ describe('ImageGenNode', () => {
 
   it('should NOT render resize handles when no image is loaded', () => {
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode(true);
-    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('resize-control-top-right')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('resize-control-bottom-left')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('resize-control-bottom-right')).not.toBeInTheDocument();
+    const { container } = renderNode(true);
+    expect(container.querySelector('.resize-control-top-left')).toBeNull();
+    expect(container.querySelector('.resize-control-top-right')).toBeNull();
+    expect(container.querySelector('.resize-control-bottom-left')).toBeNull();
+    expect(container.querySelector('.resize-control-bottom-right')).toBeNull();
   });
 
   it('should render 4 corner resize handles when single-selected with image loaded', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode(true);
-    expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
-    expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
-    expect(screen.getByTestId('resize-control-bottom-left')).toBeInTheDocument();
-    expect(screen.getByTestId('resize-control-bottom-right')).toBeInTheDocument();
+    const { container } = renderNode(true);
+    expect(container.querySelector('.resize-control-top-left')).toBeTruthy();
+    expect(container.querySelector('.resize-control-top-right')).toBeTruthy();
+    expect(container.querySelector('.resize-control-bottom-left')).toBeTruthy();
+    expect(container.querySelector('.resize-control-bottom-right')).toBeTruthy();
   });
 
   it('should NOT render resize handles in edit mode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', editMode: 'crop', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode(true);
-    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
+    const { container } = renderNode(true);
+    expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });
 
   it('should NOT render resize handles in transform mode', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', transformMode: true, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
-    renderNode(true);
-    expect(screen.queryByTestId('resize-control-top-left')).not.toBeInTheDocument();
+    const { container } = renderNode(true);
+    expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });
 });

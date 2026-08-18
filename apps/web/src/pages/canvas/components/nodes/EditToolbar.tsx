@@ -366,6 +366,16 @@ function EditToolbarComponent({
           <div className="flex items-center gap-1">
             <button
               type="button"
+              className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
+              style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              <SmallArrowLeftIcon />
+              <span className="text-[13px] leading-[1.4]">退出</span>
+            </button>
+            <button
+              type="button"
               aria-label="重置扩图"
               className="size-8 cursor-pointer rounded-lg flex items-center justify-center hover:bg-white/10 bg-transparent transition-colors border-0"
               style={{ color: TEXT_COLOR }}

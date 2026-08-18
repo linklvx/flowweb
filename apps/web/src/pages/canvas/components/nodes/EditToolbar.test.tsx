@@ -77,8 +77,8 @@ describe('EditToolbar', () => {
   it('renders reset button, PRO placeholder, ratio dropdown, and generate in outpaint mode', () => {
     setupPortalTarget();
     render(<EditToolbar {...baseProps} editMode="outpaint" outpaintRect={{ x: -51, y: -51, width: 614, height: 614 }} imageW={512} imageH={512} onOutpaintRatioChange={vi.fn()} />);
-    // Should NOT render text-based 退出/保存为新变体
-    expect(screen.queryByText('退出')).not.toBeInTheDocument();
+    // Should render 退出 (exit) button; 保存为新变体 remains absent
+    expect(screen.getByText('退出')).toBeInTheDocument();
     expect(screen.queryByText('保存为新变体')).not.toBeInTheDocument();
     // Should have reset (crossed arrows) button
     expect(screen.getByLabelText('重置扩图')).toBeInTheDocument();

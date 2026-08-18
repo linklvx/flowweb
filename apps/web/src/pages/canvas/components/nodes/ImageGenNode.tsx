@@ -1148,7 +1148,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
           style={HANDLE_STYLE}
-          data-testid={`resize-control-${corner}`}
+          className={`resize-control-${corner}`}
         />
       ))}
       <div
