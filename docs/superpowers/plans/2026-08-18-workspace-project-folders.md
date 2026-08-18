@@ -1124,7 +1124,7 @@ Expected: FAIL — `Cannot find module '../hooks/useWorkspaceData'`
 
 ```typescript
 // hooks/useWorkspaceData.ts
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from 'antd';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
 import { createProject } from '@/api/projectApi';
@@ -1425,7 +1425,7 @@ git commit -m "feat(workspace): add folder navigation hook"
 
 ```tsx
 // __tests__/ToolbarBreadcrumb.test.tsx
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar';
 import { WorkspaceBreadcrumb } from '../components/WorkspaceBreadcrumb';
@@ -1921,6 +1921,11 @@ vi.mock('react-router', async (orig) => {
 import * as templateApi from '@/api/templateApi';
 import * as projectApi from '@/api/projectApi';
 import { WorkspacePage } from '../WorkspacePage';
+
+const tpl = (id: string, name: string, updatedAt: string) => ({
+  id, name, description: '', coverUrl: null, isPublic: false,
+  createdAt: updatedAt, updatedAt, importCount: 0,
+});
 
 const navigate = vi.fn();
 
