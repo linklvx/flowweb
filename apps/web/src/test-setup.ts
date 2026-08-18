@@ -42,7 +42,8 @@ global.cancelAnimationFrame = (id: number): void => {
 
 // Workaround for jsdom not supporting CSS selectors used by antd 5
 // antd 5 的 cssinjs 会注入含 :has() / )+: 的选择符，jsdom 解析时抛 SyntaxError 导致组件被卸载。
-// 测试不依赖视觉样式，直接清空含坏选择符的 style 标签内容。
+// 仅测试环境生效：清空整个标签内容（测试不依赖视觉样式；生产浏览器支持这些选择符）。
+// 若 antd 日后回读 textContent 做主题 diff 可能重复注入样式——升级 antd/jsdom 时需复查。
 const originalInsertBefore = Node.prototype.insertBefore;
 Node.prototype.insertBefore = function (newNode: Node, referenceNode: Node | null) {
   if (newNode.nodeType === Node.ELEMENT_NODE && (newNode as Element).tagName === 'STYLE') {
