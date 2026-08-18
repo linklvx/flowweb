@@ -2183,7 +2183,7 @@ export function WorkspacePage() {
           {data.status === 'success' && !isEmpty && viewMode === 'grid' && (
             <ul className={gridClass} data-testid="workspace-grid">
               {showCreateFolderCard && (
-                <li><CreateFolderCard onClick={() => setFolderModal({ open: true })} /></li>
+                <li data-testid="create-folder-card"><CreateFolderCard onClick={() => setFolderModal({ open: true })} /></li>
               )}
               {items.map((item) => (
                 <li key={item.data.id}>
@@ -2215,7 +2215,7 @@ export function WorkspacePage() {
           {data.status === 'success' && !isEmpty && viewMode === 'list' && (
             <ul className="flex flex-col" data-testid="workspace-list">
               {showCreateFolderCard && (
-                <li className="px-4 py-2">
+                <li data-testid="create-folder-card" className="px-4 py-2">
                   <button
                     onClick={() => setFolderModal({ open: true })}
                     className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
