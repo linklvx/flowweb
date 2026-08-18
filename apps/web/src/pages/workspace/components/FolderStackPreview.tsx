@@ -1,4 +1,5 @@
 const FALLBACK = 'linear-gradient(#CCCCCC 0%, #939E9E 100%)';
+const MASK_URL = `url("data:image/svg+xml,%3Csvg width='284' height='116' viewBox='0 0 284 116' preserveAspectRatio='none' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 12C0 5.37258 5.37258 0 12 0H97.5617C103.047 0 108.435 1.4556 113.174 4.2182L137.578 18.4446C141.095 20.4942 145.092 21.5742 149.162 21.5742H272C278.627 21.5742 284 26.9468 284 33.5742V100C284 108.837 276.837 116 268 116H16C7.16345 116 0 108.837 0 100V12Z' fill='black'/%3E%3C/svg%3E")`;
 
 // 错位参数还原参考效果图：left%, top%, rotate deg
 const POSITIONS = [
@@ -37,9 +38,12 @@ export function FolderStackPreview({ thumbnails }: FolderStackPreviewProps) {
           height: '45%',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
-          maskImage: `url("data:image/svg+xml,%3Csvg width='284' height='116' viewBox='0 0 284 116' preserveAspectRatio='none' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 12C0 5.37258 5.37258 0 12 0H97.5617C103.047 0 108.435 1.4556 113.174 4.2182L137.578 18.4446C141.095 20.4942 145.092 21.5742 149.162 21.5742H272C278.627 21.5742 284 26.9468 284 33.5742V100C284 108.837 276.837 116 268 116H16C7.16345 116 0 108.837 0 100V12Z' fill='black'/%3E%3C/svg%3E")`,
+          maskImage: MASK_URL,
+          WebkitMaskImage: MASK_URL,
           maskSize: '100% 100%',
+          WebkitMaskSize: '100% 100%',
           maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat',
           background: 'rgba(89, 103, 107, 0.3)',
         }} />
     </div>
