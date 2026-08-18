@@ -120,10 +120,10 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
 
 dayjs.extend(relativeTime);
-dayjs.locale('zh-cn');
 
+// 局部指定 zh-cn locale，不污染全局 dayjs（antd 内部也使用 dayjs）
 export function formatRelativeTime(iso: string, now: Date = new Date()): string {
-  return dayjs(iso).from(dayjs(now));
+  return dayjs(iso).locale('zh-cn').from(dayjs(now).locale('zh-cn'));
 }
 ```
 
@@ -230,8 +230,6 @@ import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { FolderStackPreview } from '../components/FolderStackPreview';
 
-const FALLBACK = 'linear-gradient(#CCCCCC 0%, #939E9E 100%)';
-
 describe('FolderStackPreview', () => {
   it('渲染 3 张堆叠卡片', () => {
     const { container } = render(<FolderStackPreview thumbnails={['linear-gradient(red, blue)']} />);
@@ -241,9 +239,11 @@ describe('FolderStackPreview', () => {
   it('thumbnails 依次作为卡片背景，不足 3 张用白色系渐变兜底', () => {
     const { container } = render(<FolderStackPreview thumbnails={['linear-gradient(red, blue)']} />);
     const cards = Array.from(container.querySelectorAll('[data-testid="stack-card"]'));
-    expect(cards[0]).toHaveStyle({ background: 'linear-gradient(red, blue)' });
-    expect(cards[1]).toHaveStyle({ background: FALLBACK });
-    expect(cards[2]).toHaveStyle({ background: FALLBACK });
+    // jsdom/cssom 对 gradient 的序列化不稳定，用 getAttribute('style') 做子串断言
+    expect(cards[0].getAttribute('style')).toContain('linear-gradient');
+    expect(cards[0].getAttribute('style')).toContain('red');
+    expect(cards[1].getAttribute('style')).toContain('#CCCCCC');
+    expect(cards[2].getAttribute('style')).toContain('#939E9E');
   });
   it('snapshot 锁定 DOM 结构（标志性视觉）', () => {
     const { asFragment } = render(<FolderStackPreview thumbnails={[]} />);
@@ -416,6 +416,21 @@ describe('CanvasCard', () => {
     expect(props.onRename).not.toHaveBeenCalled();
     expect(screen.getByText('画布 1')).toBeInTheDocument();
   });
+
+  it('菜单「重命名」同样进入编辑态', () => {
+    renderCard(base);
+    fireEvent.click(screen.getByLabelText('更多操作'));
+    fireEvent.click(screen.getByText('重命名'));
+    expect(screen.getByDisplayValue('画布 1')).toBeInTheDocument();
+  });
+
+  it('variant="list" 渲染紧凑行（含菜单）', () => {
+    const { props } = renderCard(base, { variant: 'list' });
+    expect(screen.getByTestId('canvas-card-c1').className).toContain('h-16');
+    fireEvent.click(screen.getByLabelText('更多操作'));
+    fireEvent.click(screen.getByText('删除'));
+    expect(props.onDelete).toHaveBeenCalled();
+  });
 });
 ```
 
@@ -427,30 +442,37 @@ Expected: FAIL — `Cannot find module '../components/CanvasCard'`
 - [ ] **Step 3: 写实现**
 
 ```tsx
-// components/InlineRename.tsx
-import { useState } from 'react';
+// components/InlineRename.tsx（受控组件：编辑态由父级管理）
+import { useEffect, useState } from 'react';
 import { Input } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 
 interface InlineRenameProps {
   value: string;
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
   onConfirm: (next: string) => void;
   ariaLabel: string;
 }
 
-export function InlineRename({ value, onConfirm, ariaLabel }: InlineRenameProps) {
-  const [editing, setEditing] = useState(false);
+export function InlineRename({ value, editing, onEditingChange, onConfirm, ariaLabel }: InlineRenameProps) {
   const [draft, setDraft] = useState(value);
+  useEffect(() => { if (editing) setDraft(value); }, [editing, value]);
+
+  const commit = () => {
+    onEditingChange(false);
+    if (draft.trim() && draft !== value) onConfirm(draft.trim());
+  };
 
   if (editing) {
     return (
       <Input
         size="small" autoFocus value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); if (draft.trim() && draft !== value) onConfirm(draft.trim()); }}
+        onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { setEditing(false); if (draft.trim() && draft !== value) onConfirm(draft.trim()); }
-          if (e.key === 'Escape') { setEditing(false); setDraft(value); }
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { onEditingChange(false); setDraft(value); }
         }}
         onClick={(e) => e.stopPropagation()}
         data-testid="inline-rename-input"
@@ -463,7 +485,7 @@ export function InlineRename({ value, onConfirm, ariaLabel }: InlineRenameProps)
       <button
         aria-label={ariaLabel}
         className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0 bg-transparent border-none cursor-pointer"
-        onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
+        onClick={(e) => { e.stopPropagation(); onEditingChange(true); }}
       >
         <EditOutlined style={{ fontSize: 12 }} />
       </button>
@@ -474,17 +496,18 @@ export function InlineRename({ value, onConfirm, ariaLabel }: InlineRenameProps)
 
 ```tsx
 // components/CanvasCard.tsx
-import { Dropdown, message } from 'antd';
-import { DeleteOutlined, MoveToInboxOutlined, EditOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
+import { useState } from 'react';
+import { Dropdown, Tooltip } from 'antd';
+import { DeleteOutlined, MoveToInboxOutlined, EditOutlined, EyeOutlined, EyeInvisibleOutlined, MoreOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Canvas } from '../types';
 import { getCanvasGradient } from '../utils/gradient';
 import { formatRelativeTime } from '../utils/time';
-import { Tooltip } from 'antd';
 import { InlineRename } from './InlineRename';
 
 interface CanvasCardProps {
   canvas: Canvas;
+  variant?: 'grid' | 'list';
   onClick: (canvas: Canvas) => void;
   onRename: (id: string, name: string) => void;
   onMove: (canvas: Canvas) => void;
@@ -492,7 +515,8 @@ interface CanvasCardProps {
   onDelete: (canvas: Canvas) => void;
 }
 
-export function CanvasCard({ canvas, onClick, onRename, onMove, onTogglePublic, onDelete }: CanvasCardProps) {
+export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove, onTogglePublic, onDelete }: CanvasCardProps) {
+  const [renaming, setRenaming] = useState(false);
   const background = canvas.coverUrl ? `url("${canvas.coverUrl}")` : getCanvasGradient(canvas.id);
 
   const menuItems: MenuProps['items'] = canvas.isPlaceholder
@@ -507,10 +531,50 @@ export function CanvasCard({ canvas, onClick, onRename, onMove, onTogglePublic, 
   const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
     domEvent.stopPropagation();
     if (key === 'delete') onDelete(canvas);
-    if (key === 'rename') { /* 菜单重命名走卡片铅笔：触发 hover 铅笔逻辑由页面统一处理，简化为直接 prompt 不行——见下 */ }
+    if (key === 'rename') setRenaming(true);
     if (key === 'move') onMove(canvas);
     if (key === 'public') onTogglePublic(canvas.id);
   };
+
+  const menuButton = (
+    <Dropdown menu={{ items: menuItems, onClick: onMenuClick }} trigger={['click']}>
+      <button
+        aria-label="更多操作"
+        onClick={(e) => e.stopPropagation()}
+        className="p-1.5 rounded-md text-white/80 border-none cursor-pointer z-30 bg-transparent hover:bg-white/10"
+      >
+        <MoreOutlined />
+      </button>
+    </Dropdown>
+  );
+
+  if (variant === 'list') {
+    return (
+      <div
+        data-testid={`canvas-card-${canvas.id}`}
+        tabIndex={0}
+        role="button"
+        onClick={() => onClick(canvas)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(canvas); }}
+        className="h-16 px-4 flex items-center border-b border-white/5 hover:bg-white/5 cursor-pointer group/menu"
+      >
+        <span className="w-12 h-12 rounded-lg shrink-0" style={{ background }} />
+        <div className="flex-1 ml-3 min-w-0">
+          <InlineRename
+            value={canvas.name}
+            editing={renaming}
+            onEditingChange={setRenaming}
+            ariaLabel="重命名画布"
+            onConfirm={(next) => onRename(canvas.id, next)}
+          />
+        </div>
+        {canvas.isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 mr-4">草稿</span>}
+        {canvas.isPublic && !canvas.isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 mr-4">公开</span>}
+        <span className="text-xs text-white/40 mr-4 shrink-0">编辑于 {formatRelativeTime(canvas.updatedAt)}</span>
+        {menuButton}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -530,6 +594,8 @@ export function CanvasCard({ canvas, onClick, onRename, onMove, onTogglePublic, 
       <div className="px-1 pt-2 pb-2 flex flex-col gap-1">
         <InlineRename
           value={canvas.name}
+          editing={renaming}
+          onEditingChange={setRenaming}
           ariaLabel="重命名画布"
           onConfirm={(next) => onRename(canvas.id, next)}
         />
@@ -540,48 +606,18 @@ export function CanvasCard({ canvas, onClick, onRename, onMove, onTogglePublic, 
           {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10">公开</span>}
         </div>
       </div>
-      <Dropdown menu={{ items: menuItems, onClick: onMenuClick }} trigger={['click']}>
-        <button
-          aria-label="更多操作"
-          onClick={(e) => e.stopPropagation()}
-          className="absolute top-4 right-4 p-1.5 rounded-md text-white/80 bg-black/50 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200 z-30 border-none cursor-pointer"
-        >
-          <span className="text-lg leading-none">⋮</span>
-        </button>
-      </Dropdown>
+      <div className="absolute top-4 right-4 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">
+        {menuButton}
+      </div>
     </div>
   );
 }
 ```
 
-注意：菜单里「重命名」项与铅笔同功能。实现时给 CanvasCard 加受控入口——把 `InlineRename` 的编辑态提升：菜单 rename 项调用 `onMenuClick` 中的自定义事件。**简化做法**：菜单「重命名」项直接 `onDelete` 同级回调 `onRequestRename(canvas)`，页面层不处理；更简单：菜单 rename 项触发卡片内铅笔的编辑态——用 `useState` 提升 `editing` 到 CanvasCard，传 `editing`/`setEditing` 给 InlineRename。实现时把 InlineRename 改为受控组件：
-
-```tsx
-// InlineRename 增加受控 editing（最终版签名）
-interface InlineRenameProps {
-  value: string;
-  editing: boolean;
-  onEditingChange: (editing: boolean) => void;
-  onConfirm: (next: string) => void;
-  ariaLabel: string;
-}
-```
-
-CanvasCard 内 `const [renaming, setRenaming] = useState(false)`，菜单 rename 项 `setRenaming(true)`，铅笔 `setRenaming(true)`。测试用例「菜单重命名」补一条：点菜单「重命名」后出现 input。**在 Step 1 测试中追加**：
-
-```tsx
-it('菜单「重命名」同样进入编辑态', () => {
-  renderCard(base);
-  fireEvent.click(screen.getByLabelText('更多操作'));
-  fireEvent.click(screen.getByText('重命名'));
-  expect(screen.getByDisplayValue('画布 1')).toBeInTheDocument();
-});
-```
-
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/web && pnpm vitest run src/pages/workspace/__tests__/CanvasCard.test.tsx`
-Expected: PASS（8 用例）
+Expected: PASS（9 用例）
 
 - [ ] **Step 5: Commit**
 
@@ -615,12 +651,13 @@ const folder: FolderViewModel = {
   canvasCount: 3, thumbnails: ['linear-gradient(red, blue)'],
 };
 
-function renderFolder(overrides?: { folder?: Partial<FolderViewModel>; showCount?: boolean }) {
+function renderFolder(overrides?: { folder?: Partial<FolderViewModel>; showCount?: boolean; variant?: 'grid' | 'list' }) {
   const props = {
     folder: { ...folder, ...overrides?.folder },
     showCount: overrides?.showCount ?? true,
+    variant: overrides?.variant ?? 'grid',
     onClick: vi.fn(),
-    onRename: vi.fn(),
+    onRequestRename: vi.fn(),
     onDelete: vi.fn(),
   };
   return { props, ...render(<FolderCard {...props} />) };
@@ -645,20 +682,29 @@ describe('FolderCard', () => {
     expect(props.onClick).toHaveBeenCalled();
   });
 
-  it('菜单含重命名与删除，点击触发回调', () => {
+  it('菜单「删除」触发 onDelete；菜单「重命名」触发 onRequestRename（Modal 由页面处理）', () => {
     const { props } = renderFolder();
     fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('删除'));
     expect(props.onDelete).toHaveBeenCalledWith(props.folder);
+    fireEvent.click(screen.getByText('重命名'));
+    expect(props.onRequestRename).toHaveBeenCalledWith(props.folder);
   });
 
-  it('hover 铅笔重命名进入编辑并确认', () => {
+  it('hover 铅笔点击触发 onRequestRename（不进入内联编辑）', () => {
     const { props } = renderFolder();
     fireEvent.click(screen.getByLabelText('重命名文件夹'));
-    const input = screen.getByDisplayValue('项目文件夹');
-    fireEvent.change(input, { target: { value: '新文件夹' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(props.onRename).toHaveBeenCalledWith('f1', '新文件夹');
+    expect(props.onRequestRename).toHaveBeenCalledWith(props.folder);
+    expect(screen.queryByDisplayValue('项目文件夹')).not.toBeInTheDocument();
+  });
+
+  it('variant="list" 渲染紧凑行（含菜单与数量）', () => {
+    const { props } = renderFolder({ variant: 'list' });
+    expect(screen.getByTestId('folder-card-f1').className).toContain('h-16');
+    expect(screen.getByText('3 个画布')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('更多操作'));
+    fireEvent.click(screen.getByText('重命名'));
+    expect(props.onRequestRename).toHaveBeenCalled();
   });
 });
 ```
@@ -671,35 +717,65 @@ Expected: FAIL — `Cannot find module '../components/FolderCard'`
 - [ ] **Step 3: 写实现**
 
 ```tsx
-// components/FolderCard.tsx
-import { useState } from 'react';
+// components/FolderCard.tsx（重命名统一走 Modal：铅笔/菜单都只触发 onRequestRename）
 import { Dropdown, Tooltip } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, MoreOutlined, FolderOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { FolderViewModel } from '../types';
 import { formatRelativeTime } from '../utils/time';
 import { FolderStackPreview } from './FolderStackPreview';
-import { InlineRename } from './InlineRename';
 
 interface FolderCardProps {
   folder: FolderViewModel;
   showCount: boolean;
+  variant?: 'grid' | 'list';
   onClick: (folder: FolderViewModel) => void;
-  onRename: (id: string, name: string) => void;
+  onRequestRename: (folder: FolderViewModel) => void;
   onDelete: (folder: FolderViewModel) => void;
 }
 
-export function FolderCard({ folder, showCount, onClick, onRename, onDelete }: FolderCardProps) {
-  const [renaming, setRenaming] = useState(false);
+export function FolderCard({ folder, showCount, variant = 'grid', onClick, onRequestRename, onDelete }: FolderCardProps) {
   const items: MenuProps['items'] = [
     { key: 'rename', label: '重命名', icon: <EditOutlined /> },
     { key: 'delete', label: '删除', icon: <DeleteOutlined /> },
   ];
   const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
     domEvent.stopPropagation();
-    if (key === 'rename') setRenaming(true);
+    if (key === 'rename') onRequestRename(folder);
     if (key === 'delete') onDelete(folder);
   };
+
+  const menuButton = (
+    <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']}>
+      <button
+        aria-label="更多操作"
+        onClick={(e) => e.stopPropagation()}
+        className="p-1.5 rounded-md text-white/80 border-none cursor-pointer z-30 bg-transparent hover:bg-white/10"
+      >
+        <MoreOutlined />
+      </button>
+    </Dropdown>
+  );
+
+  if (variant === 'list') {
+    return (
+      <div
+        data-testid={`folder-card-${folder.id}`}
+        tabIndex={0}
+        role="button"
+        onClick={() => onClick(folder)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(folder); }}
+        className="h-16 px-4 flex items-center border-b border-white/5 hover:bg-white/5 cursor-pointer group/menu"
+      >
+        <span className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg text-white/70 shrink-0">
+          <FolderOutlined style={{ fontSize: 20 }} />
+        </span>
+        <span className="flex-1 ml-3 text-sm font-semibold truncate group-hover/name">{folder.name}</span>
+        {showCount && <span className="text-xs text-white/40 mr-4 shrink-0">{folder.canvasCount} 个画布</span>}
+        {menuButton}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -712,13 +788,16 @@ export function FolderCard({ folder, showCount, onClick, onRename, onDelete }: F
     >
       <FolderStackPreview thumbnails={folder.thumbnails} />
       <div className="px-2 pt-2 pb-1">
-        <InlineRename
-          value={folder.name}
-          ariaLabel="重命名文件夹"
-          editing={renaming}
-          onEditingChange={setRenaming}
-          onConfirm={(next) => onRename(folder.id, next)}
-        />
+        <span className="group/name flex items-center min-w-0">
+          <span className="text-sm font-semibold truncate">{folder.name}</span>
+          <button
+            aria-label="重命名文件夹"
+            className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0 bg-transparent border-none cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); onRequestRename(folder); }}
+          >
+            <EditOutlined style={{ fontSize: 12 }} />
+          </button>
+        </span>
         <div className="flex items-center justify-between text-xs text-white/50 mt-1">
           <Tooltip title={new Date(folder.updatedAt).toLocaleString()}>
             <span>编辑于 {formatRelativeTime(folder.updatedAt)}</span>
@@ -726,21 +805,13 @@ export function FolderCard({ folder, showCount, onClick, onRename, onDelete }: F
           {showCount && <span className="text-[10px]">{folder.canvasCount} 个画布</span>}
         </div>
       </div>
-      <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']}>
-        <button
-          aria-label="更多操作"
-          onClick={(e) => e.stopPropagation()}
-          className="absolute top-4 right-4 p-1.5 rounded-md text-white/80 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200 z-30 border-none cursor-pointer"
-        >
-          <span className="text-lg leading-none">⋮</span>
-        </button>
-      </Dropdown>
+      <div className="absolute top-4 right-4 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">
+        {menuButton}
+      </div>
     </div>
   );
 }
 ```
-
-（InlineRename 使用 Task 4 最终受控签名；CanvasCard 同步为受控用法。）
 
 - [ ] **Step 4: 跑测试确认通过（含 CanvasCard 回归）**
 
@@ -772,6 +843,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CreateFolderCard } from '../components/CreateFolderCard';
 import { EmptyState } from '../components/EmptyState';
+import { CardGridSkeleton } from '../components/CardGridSkeleton';
 
 describe('CreateFolderCard', () => {
   it('role=button + aria-label，点击触发回调', () => {
@@ -805,6 +877,17 @@ describe('EmptyState', () => {
   it('empty-root 态：新建画布引导', () => {
     render(<EmptyState variant="empty-root" onAction={vi.fn()} />);
     expect(screen.getByRole('button', { name: '新建画布' })).toBeInTheDocument();
+  });
+});
+
+describe('CardGridSkeleton', () => {
+  it('渲染 10 个骨架卡', () => {
+    const { container } = render(<CardGridSkeleton />);
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(10);
+  });
+  it('snapshot 锁定结构', () => {
+    const { asFragment } = render(<CardGridSkeleton />);
+    expect(asFragment()).toMatchSnapshot();
   });
 });
 ```
@@ -1112,18 +1195,16 @@ export function useWorkspaceData() {
   }, [canvases]);
 
   const moveCanvas = useCallback((canvasId: string, folderId: string | null) => {
+    const source = folderMap[canvasId] ?? null;
     setFolderMap((prev) => {
-      const source = prev[canvasId] ?? null;
-      const next = { ...prev, [canvasId]: folderId ?? '' };
-      if (folderId === null) delete next[canvasId]; else next[canvasId] = folderId;
-      const touched = [source, folderId].filter((v): v is string => !!v);
-      if (touched.length) {
-        const now = new Date().toISOString();
-        setFolders((fs) => fs.map((f) => (touched.includes(f.id) ? { ...f, updatedAt: now } : f)));
-      }
+      const next = { ...prev };
+      if (folderId === null) delete next[canvasId];
+      else next[canvasId] = folderId;
       return next;
     });
-  }, []);
+    const touched = [source, folderId].filter((v): v is string => !!v);
+    if (touched.length) touchFolders(touched);
+  }, [folderMap, touchFolders]);
 
   const renameCanvas = useCallback(async (id: string, name: string) => {
     const prev = rawCanvases;
@@ -1155,12 +1236,12 @@ export function useWorkspaceData() {
     setRawCanvases((cs) => cs.filter((c) => c.id !== id));
     try {
       await deleteTemplate(id);
+      if (sourceFolder) touchFolders([sourceFolder]); // 成功才级联刷新，失败回滚时不动
     } catch {
       setRawCanvases(prev);
       message.error('删除失败，请重试');
     }
-    // 成功后刷新所属文件夹 updatedAt（失败回滚时不动）
-  }, [rawCanvases, folderMap]);
+  }, [rawCanvases, folderMap, touchFolders]);
 
   const createCanvas = useCallback(async (name: string, folderId: string | null) => {
     const project: any = await createProject(name);
@@ -1191,10 +1272,6 @@ export function useWorkspaceData() {
 }
 ```
 
-注意两点实现细节：
-1. `moveCanvas` 内 `setFolders` 嵌套在 `setFolderMap` updater 中是副作用，违反纯函数约定——实现时拆开：先读 `folderMap`（依赖闭包）计算 touched，再分别 set。签名保持 `useCallback` 依赖 `[folderMap]`。
-2. `deleteCanvas` 成功路径补 `if (sourceFolder) touchFolders([sourceFolder])`（spec 6.3 级联语义）。
-
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/web && pnpm vitest run src/pages/workspace/__tests__/useWorkspaceData.test.tsx`
@@ -1220,7 +1297,7 @@ git commit -m "feat(workspace): add workspace data hook"
 ```tsx
 // __tests__/useFolderNavigation.test.tsx
 import { describe, it, expect, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { MemoryRouter, useSearchParams } from 'react-router';
 import { useFolderNavigation } from '../hooks/useFolderNavigation';
 import type { Folder } from '../types';
@@ -1257,8 +1334,9 @@ describe('useFolderNavigation', () => {
   });
 
   it('无效 folderId 重置为根目录并清空参数', async () => {
-    const { result } = await renderNav('/works?folder=nope');
-    expect(result.current.currentFolderId).toBeNull();
+    const { result } = renderNav('/works?folder=nope');
+    // 重置发生在 useEffect 中，需 waitFor 等 effect 执行
+    await waitFor(() => expect(result.current.currentFolderId).toBeNull());
     expect(result.current.folderParam).toBeNull();
   });
 
@@ -1448,7 +1526,7 @@ Expected: FAIL — `Cannot find module '../components/WorkspaceToolbar'`
 // components/WorkspaceToolbar.tsx
 import { useEffect, useRef, useState } from 'react';
 import { Dropdown, Button } from 'antd';
-import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, FolderAddOutlined, PlusOutlined } from '@ant-design/icons';
+import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { FilterKind, ViewMode } from '../types';
 import { message } from 'antd';
@@ -1484,10 +1562,10 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
 
   return (
     <div className="flex flex-col md:flex-row items-start md:items-center gap-y-2 justify-between px-8 pb-2">
-      <ul className="flex gap-2 text-lg">
-        <li className="text-white border-b-2 border-white cursor-pointer mx-3 py-1.5">个人</li>
-        <li className="text-white/60 cursor-pointer mx-3 py-1.5" aria-disabled>团队项目</li>
-      </ul>
+      <div className="flex gap-2 text-lg items-center">
+        <button className="text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer mx-3 py-1.5 bg-transparent">个人</button>
+        <button disabled className="text-white/60 mx-3 py-1.5 bg-transparent border-none cursor-not-allowed opacity-60">团队项目</button>
+      </div>
       <div className="flex items-center gap-2">
         <div className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 focus-within:ring-white/20" style={{ width: 160 }}>
           <SearchOutlined className="text-[#646464] shrink-0" />
@@ -1521,15 +1599,13 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
           </button>
         </div>
         <div className="h-6 w-px bg-white/10 mx-1" />
-        <Button aria-label="导入" icon={<FolderAddOutlined />} onClick={() => message.info('即将上线')} style={{ width: 40 }} />
+        <Button aria-label="导入" icon={<UploadOutlined />} onClick={() => message.info('即将上线')} style={{ width: 40 }} />
         <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCanvas}>新建画布</Button>
       </div>
     </div>
   );
 }
 ```
-
-（「团队项目」置灰用 `<li aria-disabled className="... opacity-40 cursor-not-allowed">`——测试断言 `toBeDisabled()` 需要真 button，改为 `<button disabled>` 元素包裹文字。实现时标签页用 `<button>` 渲染。）
 
 ```tsx
 // components/WorkspaceBreadcrumb.tsx
@@ -1823,8 +1899,8 @@ git commit -m "feat(workspace): add folder/canvas/move modals"
 ```tsx
 // __tests__/WorkspacePage.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { MemoryRouter, useNavigate } from 'react-router';
 
 vi.mock('@/pages/home/components/Navbar', () => ({ Navbar: () => <div data-testid="navbar" /> }));
 vi.mock('@/api/templateApi', () => ({
@@ -1833,24 +1909,15 @@ vi.mock('@/api/templateApi', () => ({
   deleteTemplate: vi.fn(),
 }));
 vi.mock('@/api/projectApi', () => ({ createProject: vi.fn() }));
-
-const getTemplates = vi.fn();
-const createProject = vi.fn();
-vi.mocked;
-// 直接取 mock 引用
-import * as templateApi from '@/api/templateApi';
-import * as projectApi from '@/api/projectApi';
-
-const tpl = (id: string, name: string, updatedAt: string) => ({
-  id, name, description: '', coverUrl: null, isPublic: false, createdAt: updatedAt, updatedAt, importCount: 0,
-});
-
-import { WorkspacePage } from '../WorkspacePage';
-import { useNavigate } from 'react-router';
 vi.mock('react-router', async (orig) => {
   const actual = await orig<typeof import('react-router')>();
   return { ...actual, useNavigate: vi.fn() };
 });
+
+import * as templateApi from '@/api/templateApi';
+import * as projectApi from '@/api/projectApi';
+import { WorkspacePage } from '../WorkspacePage';
+
 const navigate = vi.fn();
 
 beforeEach(() => {
@@ -1896,18 +1963,20 @@ describe('WorkspacePage', () => {
     await waitFor(() => expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument());
   });
 
-  it('普通画布点击跳 /works/:id；占位画布跳编辑器', async () => {
+  it('普通画布点击跳 /works/:id', async () => {
     renderPage('/works?folder=folder-demo-1');
     fireEvent.click(await screen.findByTestId('canvas-card-c1'));
     expect(navigate).toHaveBeenCalledWith('/works/c1');
   });
 
   it('搜索防抖过滤（全局，跨文件夹）', async () => {
-    vi.useFakeTimers();
     renderPage();
-    fireEvent.change(await screen.findByLabelText('搜索'), { target: { value: '阿尔法' } });
-    await vi.advanceTimersByTimeAsync(300);
-    expect(await screen.findByTestId('canvas-card-c1')).toBeInTheDocument(); // c1 在文件夹内也能搜到
+    const input = await screen.findByLabelText('搜索'); // 先用真实 timers 等初始渲染
+    vi.useFakeTimers();
+    fireEvent.change(input, { target: { value: '阿尔法' } });
+    expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument(); // 防抖内不生效
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(screen.getByTestId('canvas-card-c1')).toBeInTheDocument(); // c1 在文件夹内也能搜到（全局搜索）
     expect(screen.queryByTestId('folder-card-folder-demo-2')).not.toBeInTheDocument();
     expect(screen.queryByTestId('create-folder-card')).not.toBeInTheDocument(); // 搜索态隐藏新建卡
     vi.useRealTimers();
@@ -1990,6 +2059,7 @@ Expected: FAIL — `Cannot find module '../WorkspacePage'`
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { message } from 'antd';
+import { FolderAddOutlined } from '@ant-design/icons';
 import { Navbar } from '@/pages/home/components/Navbar';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { useFolderNavigation } from './hooks/useFolderNavigation';
@@ -2113,7 +2183,7 @@ export function WorkspacePage() {
                       folder={item.data}
                       showCount={!searchQuery}
                       onClick={() => onItemClick(item)}
-                      onRename={data.renameFolder}
+                      onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
                       onDelete={handleDeleteFolder}
                     />
                   ) : (
@@ -2136,25 +2206,39 @@ export function WorkspacePage() {
           {data.status === 'success' && !isEmpty && viewMode === 'list' && (
             <ul className="flex flex-col" data-testid="workspace-list">
               {showCreateFolderCard && (
-                <li className="h-16 px-4 flex items-center border border-dashed border-white/20 rounded-lg mb-2">
-                  <button onClick={() => setFolderModal({ open: true })} className="text-sm text-white/60 bg-transparent border-none cursor-pointer">+ 新建文件夹</button>
+                <li className="px-4 py-2">
+                  <button
+                    onClick={() => setFolderModal({ open: true })}
+                    className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
+                  >
+                    <FolderAddOutlined /> 新建文件夹
+                  </button>
                 </li>
               )}
               {items.map((item) => (
-                <li key={item.data.id} className="h-16 px-4 flex items-center border-b border-white/5 hover:bg-white/5 cursor-pointer"
-                  onClick={() => onItemClick(item)}>
+                <li key={item.data.id}>
                   {item.type === 'folder' ? (
-                    <>
-                      <span className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg text-white/70">▣</span>
-                      <span className="flex-1 ml-3 text-sm font-semibold">{item.data.name}</span>
-                      <span className="text-xs text-white/40 mr-4">{item.data.canvasCount} 个画布</span>
-                    </>
+                    <FolderCard
+                      variant="list"
+                      folder={item.data}
+                      showCount={!searchQuery}
+                      onClick={() => onItemClick(item)}
+                      onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
+                      onDelete={handleDeleteFolder}
+                    />
                   ) : (
-                    <>
-                      <span className="w-12 h-12 rounded-lg" style={{ background: item.data.coverUrl ? `url("${item.data.coverUrl}")` : undefined, backgroundImage: item.data.coverUrl ? undefined : 'linear-gradient(135deg, hsl(200,70%,75%), hsl(200,70%,55%))' }} />
-                      <span className="flex-1 ml-3 text-sm font-semibold">{item.data.name}</span>
-                      <span className="text-xs text-white/40 mr-4">编辑于 {new Date(item.data.updatedAt).toLocaleDateString()}</span>
-                    </>
+                    <CanvasCard
+                      variant="list"
+                      canvas={item.data}
+                      onClick={() => onItemClick(item)}
+                      onRename={data.renameCanvas}
+                      onMove={setMoveTarget}
+                      onTogglePublic={data.togglePublic}
+                      onDelete={(c) => {
+                        if (c.isPlaceholder) data.deletePlaceholder(c.id);
+                        else void data.deleteCanvas(c.id);
+                      }}
+                    />
                   )}
                 </li>
               ))}
@@ -2192,10 +2276,7 @@ export function WorkspacePage() {
 }
 ```
 
-实现要点：
-- FolderCard 的重命名入口（铅笔/菜单）打开 `setFolderModal({ open: true, rename: folder })`——FolderCard 需向页面暴露 onRename 触发方式：**统一为页面传 `onRequestRename(folder)`**，卡片内铅笔点击调用它（不再用 InlineRename 内联输入，文件夹重命名统一走 Modal，与 CreateFolderModal 重命名模式复用）。因此 FolderCard 的 props 调整为 `onRequestRename: (folder: FolderViewModel) => void`，InlineRename 仅 CanvasCard 使用。对应 FolderCard 测试改两处：铅笔点击断言 `props.onRequestRename` 被调用、删除菜单不变。
-- list 视图缩略图背景直接用 `getCanvasGradient(item.data.id)`（import 自 utils），上面代码中 backgroundImage 的硬编码 hsl 是笔误示例，实现时统一 `getCanvasGradient`。
-- 加载中 list/grid 均不渲染（CardGridSkeleton 覆盖）。
+说明：list 视图直接复用 `FolderCard variant="list"` / `CanvasCard variant="list"`（Task 4/5 已实现），菜单/重命名能力与 grid 完全一致；文件夹重命名统一走 Modal（`onRequestRename` → `setFolderModal({ open: true, rename })`），InlineRename 仅 CanvasCard 使用。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -2268,8 +2349,10 @@ git commit -m "feat(workspace): switch /works route to WorkspacePage, remove leg
 
 ---
 
-## Self-Review 结果
+## Self-Review 结果（评审修订版）
 
 - **Spec 覆盖**：spec §5 类型(T1)、§6 数据流(T2/7/8)、§7 交互(T4/5/9/10/11)、§8 视觉(T3/5/6/9/11)、§9 限制（体现在 T7 实现细节）、§10 测试（各任务用例 + T11 页面级）、§11 破坏性变更(T12)。无缺口。
-- **占位符扫描**：无 TBD/TODO（fixtures 的 TODO 注释为 spec 规定的替换标注）。
-- **类型一致性**：InlineRename 受控签名在 T4 定义、T5/T11 使用一致；FolderCard 的 `onRequestRename` 调整已在 T11 实现要点中说明并要求同步 T5 测试；`WorkspaceItem`/`ViewMode`/`FilterKind` 全程一致。
+- **占位符扫描**：无 TBD/TODO（fixtures 的 TODO 注释为 spec 规定的替换标注）；无「错误代码 + 注释补救」段落，所有 Step 3 代码为可直接落地的最终版。
+- **架构一致性**：InlineRename 受控签名在 T4 定义、仅 CanvasCard 使用；FolderCard 自始采用 Modal 重命名（`onRequestRename`，T5 定义、T11 直接使用，无跨任务推翻）；list 视图复用卡片组件 `variant="list"`（T4/5 定义、T11 使用），菜单/重命名能力与 grid 一致。
+- **类型一致性**：`WorkspaceItem`/`ViewMode`/`FilterKind`/`FolderViewModel`/`Canvas` 全程一致；`getCanvasGradient` 无硬编码旁路。
+- **测试健壮性**：fake timers 下先同步查询再切换（T9/T11）；useEffect 驱动的断言用 waitFor（T8）；gradient 断言用 `getAttribute('style')` 子串匹配（T3）；CardGridSkeleton 有 snapshot（T6）。
