@@ -1,0 +1,151 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CardGridSkeleton > snapshot 锁定结构 1`] = `
+<DocumentFragment>
+  <div
+    class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+    data-testid="card-grid-skeleton"
+  >
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+    <div
+      class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
+    >
+      <div
+        class="w-full rounded-xl bg-white/10"
+        style="aspect-ratio: 4 / 3;"
+      />
+      <div
+        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+      />
+      <div
+        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+      />
+    </div>
+  </div>
+</DocumentFragment>
+`;
