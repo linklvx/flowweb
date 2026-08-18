@@ -41,27 +41,15 @@ global.cancelAnimationFrame = (id: number): void => {
 };
 
 // Workaround for jsdom not supporting CSS selectors used by antd 5
-// Ant Design 5+ uses :has() and complex selectors that jsdom's nwsapi doesn't parse
-// We intercept style tag insertion to filter out problematic CSS rules
+// antd 5 的 cssinjs 会注入含 :has() / )+: 的选择符，jsdom 解析时抛 SyntaxError 导致组件被卸载。
+// 测试不依赖视觉样式，直接清空含坏选择符的 style 标签内容。
 const originalInsertBefore = Node.prototype.insertBefore;
 Node.prototype.insertBefore = function (newNode: Node, referenceNode: Node | null) {
   if (newNode.nodeType === Node.ELEMENT_NODE && (newNode as Element).tagName === 'STYLE') {
     const styleEl = newNode as HTMLStyleElement;
-    const originalText = styleEl.textContent;
-    if (originalText && (originalText.includes(')+:') || originalText.includes(':has('))) {
-      // Filter out problematic CSS rules
-      const filtered = originalText
-        .split('}')
-        .map((rule) => {
-          const selectorPart = rule.split('{')[0];
-          if (selectorPart.includes(')+:') || selectorPart.includes(':has(')) {
-            return ''; // Remove problematic rules
-          }
-          return rule;
-        })
-        .filter((rule) => rule.trim())
-        .join('}');
-      styleEl.textContent = filtered;
+    const text = styleEl.textContent;
+    if (text && (text.includes(')+:') || text.includes(':has('))) {
+      styleEl.textContent = '';
     }
   }
   return originalInsertBefore.call(this, newNode, referenceNode);
