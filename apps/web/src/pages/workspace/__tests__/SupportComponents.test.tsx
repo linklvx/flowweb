@@ -31,7 +31,7 @@ describe('EmptyState', () => {
   });
   it('error 态：重试按钮', () => {
     render(<EmptyState variant="error" onAction={vi.fn()} />);
-    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重 试' })).toBeInTheDocument();
   });
   it('empty-root 态：新建画布引导', () => {
     render(<EmptyState variant="empty-root" onAction={vi.fn()} />);

@@ -1,6 +1,6 @@
 // components/EmptyState.tsx
 import type { ReactNode } from 'react';
-import { Button, ConfigProvider } from 'antd';
+import { Button } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, CloudUploadOutlined, RocketOutlined } from '@ant-design/icons';
 
 type Variant = 'empty-folder' | 'no-results' | 'error' | 'empty-root';
@@ -19,9 +19,7 @@ export function EmptyState({ variant, onAction }: { variant: Variant; onAction: 
       <span className="text-5xl text-white/30">{cfg.icon}</span>
       <p className="text-sm text-white/90 m-0">{cfg.title}</p>
       <p className="text-xs text-white/50 m-0">{cfg.hint}</p>
-      <ConfigProvider button={{ autoInsertSpace: false }}>
-        <Button type="primary" onClick={onAction}>{cfg.action}</Button>
-      </ConfigProvider>
+      <Button type="primary" onClick={onAction}>{cfg.action}</Button>
     </div>
   );
 }
