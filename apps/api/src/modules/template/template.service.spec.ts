@@ -17,7 +17,6 @@ describe('TemplateService', () => {
       update: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
-      upsert: ReturnType<typeof vi.fn>;
     };
     folder: {
       findFirst: ReturnType<typeof vi.fn>;
@@ -49,7 +48,6 @@ describe('TemplateService', () => {
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue({}),
         count: vi.fn().mockResolvedValue(0),
-        upsert: vi.fn().mockResolvedValue({}),
       },
       folder: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -225,9 +223,13 @@ describe('TemplateService', () => {
   });
 
   describe('initOfficialTemplates', () => {
-    it('should upsert official templates', async () => {
+    it('不存在时创建官方模板，已存在时跳过', async () => {
       await service.initOfficialTemplates();
-      expect(prisma.template.upsert).toHaveBeenCalled();
+      expect(prisma.template.create).toHaveBeenCalled();
+      prisma.template.create.mockClear();
+      prisma.template.findFirst.mockResolvedValue({ id: 'existing' } as never);
+      await service.initOfficialTemplates();
+      expect(prisma.template.create).not.toHaveBeenCalled();
     });
   });
 

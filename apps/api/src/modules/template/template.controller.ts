@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Req, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TemplateService } from './template.service';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { TemplateListQueryDto } from './dto/template-list-query.dto';

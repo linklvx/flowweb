@@ -252,11 +252,12 @@ export class TemplateService {
     ];
 
     for (const tpl of officialTemplates) {
-      await this.prisma.template.upsert({
-        where: { name_userId: { name: tpl.name, userId: OFFICIAL_USER_ID } },
-        update: {},
-        create: tpl,
+      const existing = await this.prisma.template.findFirst({
+        where: { name: tpl.name, userId: OFFICIAL_USER_ID },
       });
+      if (!existing) {
+        await this.prisma.template.create({ data: tpl });
+      }
     }
   }
 
