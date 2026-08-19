@@ -1,150 +1,161 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
-import { createProject } from '@/api/projectApi';
-import type { Canvas, Folder, FolderViewModel } from '../types';
-import { MOCK_FOLDERS, buildInitialFolderMap } from '../fixtures';
+import { getFolders, createFolder as apiCreateFolder, renameFolder as apiRenameFolder, deleteFolder as apiDeleteFolder } from '@/api/folderApi';
+import { createCanvas as apiCreateCanvas } from '@/api/canvasApi';
+import type { Canvas, FolderViewModel } from '../types';
 import { getCanvasGradient } from '../utils/gradient';
 
-const byUpdatedDesc = (a: { updatedAt: string }, b: { updatedAt: string }) =>
-  b.updatedAt.localeCompare(a.updatedAt);
+const PAGE_SIZE = 20;
+
+function toCanvas(t: any): Canvas {
+  return {
+    id: t.id, name: t.name, coverUrl: t.coverUrl ?? null, isPublic: !!t.isPublic,
+    createdAt: t.createdAt, updatedAt: t.updatedAt, folderId: t.folderId ?? null,
+  };
+}
 
 export function useWorkspaceData() {
-  const [rawCanvases, setRawCanvases] = useState<Canvas[]>([]);
-  const [folders, setFolders] = useState<Folder[]>(MOCK_FOLDERS);
-  const [folderMap, setFolderMap] = useState<Record<string, string>>({});
+  const [canvases, setCanvases] = useState<Canvas[]>([]);
+  const [folders, setFolders] = useState<FolderViewModel[]>([]);
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const currentRef = useRef<string | null>(null);
+  const pageRef = useRef(1);
 
-  const reload = useCallback(async () => {
+  const refreshFolders = useCallback(async () => {
+    const data = await getFolders();
+    setFolders(data.folders.map((f) => ({
+      id: f.id, name: f.name, parentId: f.parentId,
+      createdAt: f.createdAt, updatedAt: f.updatedAt,
+      canvasCount: f.canvasCount,
+      thumbnails: f.thumbnails.map((t) => (t.coverUrl ? `url("${t.coverUrl}")` : getCanvasGradient(t.id))),
+    })));
+  }, []);
+
+  const loadFolder = useCallback(async (folderId: string | null) => {
+    currentRef.current = folderId;
+    pageRef.current = 1;
+    setPage(1);
     setStatus('loading');
     try {
-      const data: any = await getTemplates({ type: 'my', limit: 100 });
-      const canvases: Canvas[] = (data.templates ?? []).map((t: any) => ({
-        id: t.id, name: t.name, coverUrl: t.coverUrl ?? null, isPublic: !!t.isPublic,
-        createdAt: t.createdAt, updatedAt: t.updatedAt, folderId: null,
-      }));
-      setRawCanvases(canvases);
-      setFolderMap(buildInitialFolderMap(canvases.map((c) => c.id)));
+      const [, data] = await Promise.all([
+        refreshFolders(),
+        getTemplates({ type: 'my', folderId: folderId ?? 'root', page: 1, limit: PAGE_SIZE }),
+      ]);
+      setCanvases((data.templates ?? []).map(toCanvas));
+      setHasMore(1 < (data.totalPages ?? 1));
       setStatus('success');
     } catch {
       setStatus('error');
     }
+  }, [refreshFolders]);
+
+  useEffect(() => { loadFolder(null); }, [loadFolder]);
+
+  const reload = useCallback(() => loadFolder(currentRef.current), [loadFolder]);
+
+  const loadMore = useCallback(async () => {
+    const next = pageRef.current + 1;
+    const folderId = currentRef.current;
+    try {
+      const data = await getTemplates({ type: 'my', folderId: folderId ?? 'root', page: next, limit: PAGE_SIZE });
+      setCanvases((prev) => [...prev, ...(data.templates ?? []).map(toCanvas)]);
+      pageRef.current = next;
+      setPage(next);
+      setHasMore(next < (data.totalPages ?? 1));
+    } catch {
+      message.error('加载失败，请重试');
+    }
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  const createFolder = useCallback(async (name: string) => {
+    await apiCreateFolder(name);
+    await refreshFolders();
+  }, [refreshFolders]);
 
-  // 归属单源合并：本地优先（后端阶段删除 folderMap 即直连真实 folderId）
-  const canvases = useMemo(
-    () => rawCanvases.map((c) => ({ ...c, folderId: folderMap[c.id] ?? c.folderId })),
-    [rawCanvases, folderMap],
-  );
-
-  const folderViewModels = useMemo<FolderViewModel[]>(() => {
-    return folders.map((f) => {
-      const mine = canvases.filter((c) => c.folderId === f.id);
-      const thumbnails = [...mine]
-        .sort(byUpdatedDesc)
-        .slice(0, 3)
-        .map((c) => (c.coverUrl ? `url("${c.coverUrl}")` : getCanvasGradient(c.id)));
-      return { ...f, canvasCount: mine.length, thumbnails };
-    });
-  }, [folders, canvases]);
-
-  const touchFolders = useCallback((ids: string[]) => {
+  const renameFolder = useCallback(async (id: string, name: string) => {
+    const prev = folders;
     const now = new Date().toISOString();
-    setFolders((prev) => prev.map((f) => (ids.includes(f.id) ? { ...f, updatedAt: now } : f)));
-  }, []);
+    setFolders((fs) => fs.map((f) => (f.id === id ? { ...f, name, updatedAt: now } : f)));
+    try {
+      await apiRenameFolder(id, name);
+    } catch {
+      setFolders(prev);
+      message.error('重命名失败，请重试');
+    }
+  }, [folders]);
 
-  const createFolder = useCallback((name: string) => {
-    const now = new Date().toISOString();
-    setFolders((prev) => [
-      ...prev,
-      { id: `folder-${Date.now()}`, name, parentId: null, workspaceId: 'personal', createdAt: now, updatedAt: now },
-    ]);
-  }, []);
+  const deleteFolder = useCallback(async (id: string): Promise<number> => {
+    const { movedCanvasCount } = await apiDeleteFolder(id);
+    // 删除的是当前浏览的文件夹 → 回根目录；删除其他文件夹 → 保持当前视图
+    const target = currentRef.current === id ? null : currentRef.current;
+    await Promise.all([refreshFolders(), loadFolder(target)]);
+    return movedCanvasCount;
+  }, [refreshFolders, loadFolder]);
 
-  const renameFolder = useCallback((id: string, name: string) => {
-    setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name, updatedAt: new Date().toISOString() } : f)));
-  }, []);
-
-  const deleteFolder = useCallback((id: string) => {
-    if (canvases.some((c) => c.folderId === id)) throw new Error('请先移出画布');
-    setFolders((prev) => prev.filter((f) => f.id !== id));
+  const moveCanvas = useCallback(async (canvasId: string, folderId: string | null) => {
+    const prev = canvases;
+    setCanvases((cs) => cs.map((c) => (c.id === canvasId ? { ...c, folderId } : c)));
+    try {
+      await updateTemplate(canvasId, { folderId });
+    } catch {
+      setCanvases(prev);
+      message.error('移动失败，请重试');
+    }
   }, [canvases]);
 
-  const moveCanvas = useCallback((canvasId: string, folderId: string | null) => {
-    const source = folderMap[canvasId] ?? null;
-    setFolderMap((prev) => {
-      const next = { ...prev };
-      if (folderId === null) delete next[canvasId];
-      else next[canvasId] = folderId;
-      return next;
-    });
-    const touched = [source, folderId].filter((v): v is string => !!v);
-    if (touched.length) touchFolders(touched);
-  }, [folderMap, touchFolders]);
-
   const renameCanvas = useCallback(async (id: string, name: string) => {
-    const prev = rawCanvases;
-    setRawCanvases((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
+    const prev = canvases;
+    setCanvases((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
     try {
       await updateTemplate(id, { name });
     } catch {
-      setRawCanvases(prev);
+      setCanvases(prev);
       message.error('重命名失败，请重试');
     }
-  }, [rawCanvases]);
+  }, [canvases]);
 
   const togglePublic = useCallback(async (id: string) => {
-    const target = rawCanvases.find((c) => c.id === id);
+    const target = canvases.find((c) => c.id === id);
     if (!target) return;
-    const prev = rawCanvases;
-    setRawCanvases((cs) => cs.map((c) => (c.id === id ? { ...c, isPublic: !c.isPublic } : c)));
+    const prev = canvases;
+    setCanvases((cs) => cs.map((c) => (c.id === id ? { ...c, isPublic: !c.isPublic } : c)));
     try {
       await updateTemplate(id, { isPublic: !target.isPublic });
     } catch {
-      setRawCanvases(prev);
+      setCanvases(prev);
       message.error('操作失败，请重试');
     }
-  }, [rawCanvases]);
+  }, [canvases]);
 
   const deleteCanvas = useCallback(async (id: string) => {
-    const prev = rawCanvases;
-    const sourceFolder = folderMap[id] ?? null;
-    setRawCanvases((cs) => cs.filter((c) => c.id !== id));
+    const prev = canvases;
+    setCanvases((cs) => cs.filter((c) => c.id !== id));
     try {
       await deleteTemplate(id);
-      if (sourceFolder) touchFolders([sourceFolder]); // 成功才级联刷新，失败回滚时不动
     } catch {
-      setRawCanvases(prev);
+      setCanvases(prev);
       message.error('删除失败，请重试');
     }
-  }, [rawCanvases, folderMap, touchFolders]);
+  }, [canvases]);
 
-  const createCanvas = useCallback(async (name: string, folderId: string | null) => {
-    const project: any = await createProject(name);
+  const createCanvas = useCallback(async (name: string, folderId: string | null): Promise<string> => {
+    const { templateId, projectId } = await apiCreateCanvas(name, folderId);
     const now = new Date().toISOString();
-    setRawCanvases((prev) => [
-      { id: `placeholder-${project.id}`, name, coverUrl: null, isPublic: false,
-        createdAt: now, updatedAt: now, folderId: null, isPlaceholder: true },
+    setCanvases((prev) => [
+      { id: templateId, name, coverUrl: null, isPublic: false, createdAt: now, updatedAt: now, folderId },
       ...prev,
     ]);
-    if (folderId) {
-      setFolderMap((prev) => ({ ...prev, [`placeholder-${project.id}`]: folderId }));
-      touchFolders([folderId]);
-    }
-    return project.id as string;
-  }, [touchFolders]);
-
-  const deletePlaceholder = useCallback((id: string) => {
-    setRawCanvases((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+    await refreshFolders();
+    return projectId;
+  }, [refreshFolders]);
 
   return {
-    status, reload,
-    folders: folderViewModels, canvases,
+    status, reload, folders, canvases, hasMore, page,
+    loadFolder, loadMore,
     createFolder, renameFolder, deleteFolder,
-    moveCanvas, renameCanvas, togglePublic, deleteCanvas,
-    createCanvas, deletePlaceholder,
+    moveCanvas, renameCanvas, togglePublic, deleteCanvas, createCanvas,
   };
 }

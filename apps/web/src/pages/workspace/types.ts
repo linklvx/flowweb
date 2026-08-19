@@ -1,26 +1,24 @@
 export interface Folder {
   id: string;
   name: string;
-  parentId: string | null; // 自引用，一期恒 null（根级）
-  workspaceId: string;     // 一期恒 'personal'
+  parentId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface FolderViewModel extends Folder {
   canvasCount: number;
-  thumbnails: string[]; // 合法 CSS background 值：url("...") 或 linear-gradient(...)
+  thumbnails: string[];
 }
 
 export interface Canvas {
-  id: string; // Template id；占位记录为 `placeholder-${projectId}`
+  id: string;
   name: string;
   coverUrl: string | null;
   isPublic: boolean;
   createdAt: string;
   updatedAt: string;
-  folderId: string | null; // null = 根目录
-  isPlaceholder?: boolean;
+  folderId: string | null;
 }
 
 export type WorkspaceItem =

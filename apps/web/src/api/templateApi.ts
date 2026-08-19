@@ -23,6 +23,7 @@ export interface UpdateTemplateDto {
   name?: string;
   description?: string;
   isPublic?: boolean;
+  folderId?: string | null;
 }
 
 export interface TemplateListQuery {
@@ -31,6 +32,7 @@ export interface TemplateListQuery {
   sort?: 'importCount' | 'newest';
   page?: number;
   limit?: number;
+  folderId?: string;
 }
 
 export function createTemplate(dto: CreateTemplateDto) {
@@ -44,6 +46,7 @@ export function getTemplates(query: TemplateListQuery) {
   if (query.sort) params.set('sort', query.sort);
   if (query.page) params.set('page', String(query.page));
   if (query.limit) params.set('limit', String(query.limit));
+  if (query.folderId) params.set('folderId', query.folderId);
   const qs = params.toString();
   return request<any>(`?${qs}`);
 }
