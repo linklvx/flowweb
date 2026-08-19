@@ -23,6 +23,9 @@
 | 5 | 文件夹同级重名 | **service 层校验**（同 userId 同 parentId 下重名 → 400）。不用 DB 约束：parentId 为 NULL 时 PG 默认 NULLS DISTINCT 拦不住根目录重名 |
 | 6 | 删除非空文件夹 | **自动移根目录**（onDelete: SetNull 天然支持），非拒绝。前端弹窗文案："内含画布将移至根目录" |
 | 7 | 画布状态区分 | Template 加 **status: DRAFT / SAVED**。PUBLISHED 命名被否（与 isPublic 语义冲突）。"未保存"标签 UI 一期不做 |
+| 8 | 文件夹级联 updatedAt 语义 | **内容构成变化才 touch**：创建入夹、移动、删除、改名。isPublic 切换、描述修改、内容保存不 touch（避免文件夹排序抖动） |
+| 9 | Template ↔ CanvasProject 基数 | **1 工程 : 1 画布记录**，`projectId @unique` 落库保证；与 save upsert 语义一致 |
+| 10 | 旧 `POST /api/templates` 端点 | **随本次移除**：前端唯一调用方 SaveAsTemplateDialog 已切 save 端点，且 @unique 落库后旧端点会撞约束，双入口语义分叉 |
 
 ## 3. 数据模型（Prisma）
 
@@ -60,17 +63,23 @@ model Template {
   // ...现有字段不变
   folderId   String?
   folder     Folder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  projectId  String?                        // 现有字段，补 relation
+  projectId  String?  @unique                   // 现有字段，补 relation + 唯一约束（1 工程 : 1 画布记录）
   project    CanvasProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   status     TemplateStatus @default(DRAFT)
 
   // 删除：@@unique([name, userId])
   @@index([folderId])
 }
+
+model CanvasProject {
+  // ...现有字段不变
+  templates  Template[]                    // 反向 relation，Prisma 要求两侧声明
+}
 ```
 
 - `status` 用于区分"刚建还没写内容的草稿"与"已保存画布"，后续自动保存、缩略图生成、排序可复用
-- 补 `Template ↔ CanvasProject` relation（原 projectId 为裸字符串）：save upsert、删除级联、drafts 查询三处依赖它
+- 补 `Template ↔ CanvasProject` relation（原 projectId 为裸字符串）：save upsert（findUnique by projectId）、删除级联、drafts 查询（`templates: { none: {} }`）三处依赖它
+- `projectId @unique` 数据库层保证一个工程至多一条画布记录，import 首存并发安全由约束兜底
 
 ### 3.3 迁移清单（prisma migrate）
 
@@ -80,6 +89,16 @@ model Template {
 4. **Backfill**：`UPDATE "Template" SET status = 'SAVED'`（存量均为已保存模板）
 5. `DROP CONSTRAINT "Template_name_userId_key"`
 6. `Template.projectId` 加 FK → CanvasProject ON DELETE SET NULL。**加 FK 前先清理无效引用**：`UPDATE "Template" SET "projectId" = NULL WHERE "projectId" IS NOT NULL AND "projectId" NOT IN (SELECT "id" FROM "CanvasProject")`
+7. **去重后再加 `projectId` 唯一约束**：旧行为是每次"保存项目"都新建 Template，同工程多次保存会产生多条同 projectId 记录。保留每组最新一条（createdAt 最大），其余置 NULL 脱钩（不删数据，降级为无工程关联的历史模板）：
+   ```sql
+   UPDATE "Template" SET "projectId" = NULL
+   WHERE "projectId" IS NOT NULL AND "id" NOT IN (
+     SELECT DISTINCT ON ("projectId") "id" FROM "Template"
+     WHERE "projectId" IS NOT NULL
+     ORDER BY "projectId", "createdAt" DESC
+   );
+   CREATE UNIQUE INDEX "Template_projectId_key" ON "Template" ("projectId");
+   ```
 
 ## 4. API 设计（NestJS）
 
@@ -91,8 +110,8 @@ model Template {
 |---|---|---|
 | `GET /api/folders` | — | 当前用户文件夹列表。一次查询聚合（避免 N+1）：`include: { templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id, coverUrl } } }` + `_count.templates`。返回 `{ folders: [{ id, name, parentId, createdAt, updatedAt, canvasCount, thumbnails: [{id, coverUrl}] }] }` |
 | `POST /api/folders` | `{ name }`（1–255 字符） | 校验同级重名（同 userId + parentId=null 下同名 → 400 "已存在同名文件夹"）。parentId 一期只接受 null/缺省 |
-| `PATCH /api/folders/:id` | `{ name }` | 重命名，同样做同级重名校验。`@updatedAt` 自动刷新。文件夹不存在/非本人 → 404 |
-| `DELETE /api/folders/:id` | — | 直接删除；内含画布经 SetNull 自动移至根目录。返回 `{ movedCanvasCount }`（前端据此提示"N 张画布已移至根目录"） |
+| `PATCH /api/folders/:id` | `{ name }` | 重命名，同级重名校验**排除自身**（`id: { not: id }`，no-op 重命名不报错）。`@updatedAt` 自动刷新。文件夹不存在/非本人 → 404 |
+| `DELETE /api/folders/:id` | — | 直接删除；内含画布经 SetNull 自动移至根目录。count 与 delete 放同一 `$transaction`（同快照，防并发计数不准），返回 `{ movedCanvasCount }`（前端据此提示"N 张画布已移至根目录"） |
 
 ### 4.2 画布创建（创建即入列）
 
@@ -101,7 +120,7 @@ model Template {
 - 入参：`{ name: string（1–255）, folderId?: string | null }`
 - folderId 传入时校验：存在且属于当前用户，否则 400
 - **事务**（`prisma.$transaction`）：
-  1. 建 CanvasProject（空 nodes/edges，现有默认 viewport）
+  1. 建 CanvasProject：**复用 `ProjectService.create(name, userId)`**（已验证仅建工程行，nodes/edges 关系表由 sync 阶段创建，字段与默认值不遗漏）
   2. 建 Template：`{ name, userId, projectId, folderId, status: 'DRAFT', isPublic: false }`
   3. 若 folderId 非空 → touch 该文件夹（`folder.update` 触发 @updatedAt）
 - 返回：`{ templateId, projectId }` —— templateId 用于列表入列，projectId 用于编辑器路由。不用裸 `id`
@@ -121,10 +140,10 @@ model Template {
 - 入参：`{ name, description?, isPublic? }`（对齐现有 SaveAsTemplateDialog 传参）
 - 行为：
   1. 校验工程归属（同现有 create 的权限逻辑）
-  2. 从工程快照 templateData（nodes/edges/viewport 规范化 + `validateTemplateData`，复用现有 create 逻辑）
-  3. 按 projectId 查关联 Template：**存在 → 更新**（templateData、name、description、isPublic、status 置 SAVED）；**不存在 → 创建**（status: SAVED，覆盖"从模板导入"路径的首存）
-  4. touch 画布所在文件夹
-- 边界：空画布（DRAFT、空 nodes/edges）首次保存需通过 `validateTemplateData`——实现时验证空数据是否合法，若被拒则放行空快照（新建空画布保存是正常路径）
+  2. 从工程快照 templateData（nodes/edges/viewport 规范化 + `validateTemplateData`，复用现有 create 逻辑）。空画布首存无需特判——已验证 zod schema 为 `z.array()` 无 `.min(1)`，`nodes: [], edges: []` 本就合法
+  3. 按 projectId `findUnique` 关联 Template（@unique 保证确定性）：**存在 → 更新**（templateData、name、description、isPublic、status 置 SAVED）；**不存在 → 创建**（status: SAVED，覆盖"从模板导入"路径的首存）。并发首存由唯一约束兜底
+  4. 不 touch 文件夹（内容更新不属于"内容构成变化"，见 §4.8）
+- **同步移除旧 `POST /api/templates` 端点**（决策 #10）：save 端点全面替代其创建职责，`CreateTemplateDto`/controller/service 对应入口与测试一并清理
 
 ### 4.5 画布删除
 
@@ -145,7 +164,7 @@ model Template {
 
 ### 4.7 画布列表分页（扩展现有端点）
 
-`GET /api/templates` 新增可选 `folderId` 参数，三态：
+`GET /api/templates` 新增可选 `folderId` 参数，**仅在 `type=my` 下生效**（模板/社区场景无文件夹归属概念），controller 层显式 `type !== 'my'` 时忽略该参数：
 
 - 缺省 → 不过滤（现状，社区/搜索场景不受影响）
 - `folderId=root`（哨兵）→ `where: { folderId: null }`（根目录）
@@ -155,12 +174,15 @@ model Template {
 
 ### 4.8 级联 updatedAt 规则（service 层实现）
 
+语义：文件夹 updatedAt = **"内容构成的最后变化时间"**（决策 #8），非"内部任意活动时间"——改描述/切公开不应让文件夹跳到"最近修改"顶部。
+
 | 触发操作 | touch 哪些文件夹 |
 |---|---|
 | 画布创建入夹 | 目标文件夹 |
 | 画布移动 | 源 + 目标（null 跳过） |
 | 画布删除 | 原所在文件夹 |
-| 画布保存 / 改名 / 切换公开（任何 Template 更新） | 当前所在文件夹 |
+| 画布改名（PATCH `/api/templates/:id` 的 name 路径；save 端点附带的 name 同步不 touch） | 当前所在文件夹 |
+| 画布保存 / isPublic 切换 / 描述修改 | **不 touch**（内容变化，非构成变化） |
 | 文件夹重命名 | 自身（@updatedAt 自动） |
 | 删除文件夹（画布 SetNull 移根目录） | 无需 touch（文件夹已不存在，画布 updatedAt 不变） |
 
@@ -179,7 +201,7 @@ model Template {
 
 - 新增 `folderApi.ts`（list/create/rename/remove）
 - 新增 `canvasApi.ts`：`createCanvas(name, folderId?)`、`saveCanvas(projectId, payload)`、`cleanDrafts()`
-- `templateApi.ts`：`updateTemplate` 入参类型加 `folderId`；`getTemplates` 查询类型加 `folderId`
+- `templateApi.ts`：`updateTemplate` 入参类型加 `folderId`；`getTemplates` 查询类型加 `folderId`；**删除 `createTemplate` 函数**（端点已移除，调用方改用 `saveCanvas`）
 - **删除** `projectApi.createProject` 前端函数（仅 useWorkspaceData 使用，自然完成 createProject → createCanvas 改名）
 
 ### 5.3 SaveAsTemplateDialog
@@ -205,7 +227,7 @@ FolderCard、CanvasCard、各 Modal（移动/重命名/新建）等消费 Folder
 编辑器编辑（syncNodes/syncEdges 刷新工程）
 "保存项目"
   → POST /api/projects/:id/save
-  → 快照 templateData，Template 更新，status DRAFT→SAVED，touch folder
+  → 快照 templateData，Template 更新，status DRAFT→SAVED（不 touch 文件夹）
 从模板导入（不变）
   → POST /api/templates/:id/import（仅建 CanvasProject）
   → 首次保存走同一 save 端点 → 无关联 Template → 创建（SAVED）
@@ -223,12 +245,13 @@ FolderCard、CanvasCard、各 Modal（移动/重命名/新建）等消费 Folder
 ## 8. 测试策略（TDD）
 
 - **后端**（Vitest 单测，mock PrismaService，沿用 template.service.spec 模式）：
-  - folder service/controller：CRUD、同级重名 400、他人文件夹 404、删除返回 movedCanvasCount、列表聚合（_count + take 3）
-  - canvases 创建：事务、folderId 归属校验、返回 {templateId, projectId}
-  - template 扩展：folderId 移动 + touch 源/目标、目标文件夹越权 400、删除级联工程
-  - save：已有 Template 更新（status→SAVED）、无 Template 创建（import 路径）、空画布首存
+  - folder service/controller：CRUD、同级重名 400、**重命名排除自身（no-op 不报错）**、他人文件夹 404、删除返回 movedCanvasCount（count+delete 同事务）、列表聚合（_count + take 3）
+  - canvases 创建：事务、folderId 归属校验、复用 ProjectService.create、返回 {templateId, projectId}
+  - template 扩展：folderId 移动 + touch 源/目标、目标文件夹越权 400、删除级联工程；**改名 touch 而 isPublic 切换不 touch**（决策 #8）
+  - save：已有 Template 更新（findUnique by projectId，status→SAVED）、无 Template 创建（import 路径）、空画布首存（空数组合法）
+  - **移除旧 POST /api/templates 端点及其测试**
   - drafts：无关联 + 24h 窗口两个条件的查询构造、返回 deletedCount
-  - 列表：folderId 三态过滤 + 分页
+  - 列表：folderId 三态过滤（仅 type=my 生效）+ 分页
 - **前端**（Vitest + Testing Library，mock folderApi/canvasApi）：
   - useWorkspaceData：直连 CRUD、乐观更新与回滚、createCanvas 真实入列、加载更多追加
   - SaveAsTemplateDialog：调用 save 端点
