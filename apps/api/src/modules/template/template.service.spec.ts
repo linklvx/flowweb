@@ -85,31 +85,6 @@ describe('TemplateService', () => {
     service = module.get<TemplateService>(TemplateService);
   });
 
-  describe('create', () => {
-    it('should create template when user owns the project', async () => {
-      const result = await service.create(
-        { projectId: 'p1', name: 'My Template', isPublic: false },
-        'u1',
-      );
-      expect(prisma.template.create).toHaveBeenCalled();
-      expect(result.id).toBe('t1');
-    });
-
-    it('should throw ForbiddenException when user does not own project', async () => {
-      await expect(
-        service.create({ projectId: 'p1', name: 'Test' }, 'other-user'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('should allow saving project with null userId (existing projects)', async () => {
-      projectService.findById.mockResolvedValue({
-        id: 'p1', userId: null, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-      });
-      const result = await service.create({ projectId: 'p1', name: 'Test' }, 'any-user');
-      expect(prisma.template.create).toHaveBeenCalled();
-    });
-  });
-
   describe('findMany', () => {
     it('should return paginated results with isOwner flag', async () => {
       prisma.template.findMany.mockResolvedValue([

@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 describe('TemplateController', () => {
   let controller: TemplateController;
   let service: {
-    create: ReturnType<typeof vi.fn>;
     findMany: ReturnType<typeof vi.fn>;
     getTemplate: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -16,7 +15,6 @@ describe('TemplateController', () => {
 
   beforeEach(async () => {
     service = {
-      create: vi.fn().mockResolvedValue({ id: 't1', name: 'Test' }),
       findMany: vi.fn().mockResolvedValue({ templates: [], total: 0, page: 1, limit: 20, totalPages: 0 }),
       getTemplate: vi.fn().mockResolvedValue({ id: 't1', name: 'Test', isOwner: true }),
       update: vi.fn().mockResolvedValue({ id: 't1', name: 'Updated' }),
@@ -28,14 +26,6 @@ describe('TemplateController', () => {
       providers: [{ provide: TemplateService, useValue: service }],
     }).compile();
     controller = module.get<TemplateController>(TemplateController);
-  });
-
-  it('POST /templates calls service.create', async () => {
-    const req = { user: { id: 'u1' } } as any;
-    const dto = { projectId: 'p1', name: 'My Template', isPublic: false };
-    const result = await controller.create(dto, req);
-    expect(service.create).toHaveBeenCalledWith(dto, 'u1');
-    expect(result.success).toBe(true);
   });
 
   it('GET /templates calls service.findMany', async () => {
@@ -74,7 +64,7 @@ describe('TemplateController', () => {
 
   it('endpoints return UNAUTHORIZED when no user', async () => {
     const req = {} as any;
-    const result = await controller.create({ projectId: 'p1', name: 'T' }, req);
+    const result = await controller.update('t1', { name: 'New' }, req);
     expect(result.success).toBe(false);
     expect(result.error!.code).toBe('UNAUTHORIZED');
   });

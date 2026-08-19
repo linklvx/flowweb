@@ -1,6 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Req, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TemplateService } from './template.service';
-import { CreateTemplateDto } from './dto/create-template.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { TemplateListQueryDto } from './dto/template-list-query.dto';
 import { Request } from 'express';
@@ -8,15 +7,6 @@ import { Request } from 'express';
 @Controller('api/templates')
 export class TemplateController {
   constructor(@Inject(TemplateService) private readonly templateService: TemplateService) {}
-
-  @Post()
-  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
-  async create(@Body() dto: CreateTemplateDto, @Req() req: Request) {
-    const userId = (req as any).user?.id;
-    if (!userId) return { success: false, error: { code: 'UNAUTHORIZED', message: '未登录' } };
-    const template = await this.templateService.create(dto, userId);
-    return { success: true, data: template };
-  }
 
   @Get()
   @UsePipes(new ValidationPipe({ transform: true }))

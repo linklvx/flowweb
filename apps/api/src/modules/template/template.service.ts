@@ -6,13 +6,6 @@ import { validateTemplateData } from './template.validation';
 import { OFFICIAL_USER_ID, TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 import type { TemplateCategory } from '@prisma/client';
 
-interface CreateTemplateInput {
-  projectId: string;
-  name: string;
-  description?: string;
-  isPublic?: boolean;
-}
-
 interface TemplateListQuery {
   type?: 'official' | 'my' | 'community';
   search?: string;
@@ -38,67 +31,6 @@ export class TemplateService {
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(FolderService) private readonly folderService: FolderService,
   ) {}
-
-  async create(input: CreateTemplateInput, userId: string) {
-    const project = await this.projectService.findById(input.projectId);
-    if (project.userId !== null && project.userId !== userId) {
-      throw new ForbiddenException('无权将此项目保存为模板');
-    }
-
-    // Normalize nodes and edges: strip Prisma fields, canonical ReactFlow format
-    const nodes = (project.nodes || []).map((n: any) => ({
-      id: n.id, type: n.type, position: n.position, data: n.data,
-    }));
-    const edges = (project.edges || []).map((e: any) => ({
-      id: e.id,
-      source: e.sourceId || e.source || '',
-      target: e.targetId || e.target || '',
-    }));
-
-    const templateData = {
-      nodes,
-      edges,
-      viewport: project.viewport,
-    };
-
-    try {
-      validateTemplateData(templateData);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : '模板数据验证失败';
-      throw new BadRequestException(message);
-    }
-
-    this.clearCache();
-
-    // 同一项目已保存过 → 更新而非新建
-    const existing = await this.prisma.template.findFirst({
-      where: { projectId: input.projectId, userId },
-    });
-    if (existing) {
-      return this.prisma.template.update({
-        where: { id: existing.id },
-        data: {
-          name: input.name,
-          description: input.description,
-          isPublic: input.isPublic ?? existing.isPublic,
-          templateData,
-          category: input.isPublic ? 'COMMUNITY' : existing.category,
-        },
-      });
-    }
-
-    return this.prisma.template.create({
-      data: {
-        name: input.name,
-        description: input.description,
-        isPublic: input.isPublic ?? false,
-        projectId: input.projectId,
-        userId,
-        templateData,
-        category: input.isPublic ? 'COMMUNITY' : undefined,
-      },
-    });
-  }
 
   async findMany(query: TemplateListQuery, userId: string) {
     const cacheKey = JSON.stringify({ query, userId });
