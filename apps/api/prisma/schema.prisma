@@ -27,6 +27,7 @@ model User {
   canvasProjects CanvasProject[]
   media          Media[]
   materialFolders MaterialFolder[]
+  folders        Folder[]
 }
 
 model Account {
@@ -111,7 +112,11 @@ model Template {
   coverUrl     String?
   dataUrl      String?
   templateData Json?
-  projectId    String?
+  folderId     String?
+  folder       Folder?            @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  projectId    String?            @unique
+  project      CanvasProject?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  status       TemplateStatus     @default(DRAFT)
   userId       String
   isPublic     Boolean            @default(false)
   importCount  Int                @default(0)
@@ -121,7 +126,7 @@ model Template {
 
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([name, userId])
+  @@index([folderId])
   @@index([userId])
   @@index([isPublic])
   @@index([category])
@@ -135,12 +140,34 @@ model CanvasProject {
   viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
   nodes     CanvasNode[]
   edges     CanvasEdge[]
+  templates Template[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+enum TemplateStatus {
+  DRAFT
+  SAVED
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(255)
+  parentId  String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent    Folder?    @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Folder[]   @relation("FolderHierarchy")
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates Template[]
+
+  @@index([userId, parentId])
 }
 
 model CanvasNode {
