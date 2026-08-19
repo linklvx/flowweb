@@ -19,6 +19,7 @@ interface TemplateListQuery {
   sort?: 'importCount' | 'newest';
   page?: number;
   limit?: number;
+  folderId?: string;
 }
 
 interface UpdateTemplateInput {
@@ -127,6 +128,10 @@ export class TemplateService {
         where.isPublic = true;
         where.userId = { not: OFFICIAL_USER_ID };
         break;
+    }
+
+    if (query.type === 'my' && query.folderId) {
+      where.folderId = query.folderId === 'root' ? null : query.folderId;
     }
 
     if (query.search) {

@@ -129,6 +129,31 @@ describe('TemplateService', () => {
       const callArgs = prisma.template.findMany.mock.calls[0][0];
       expect(callArgs.where.userId).toBe('u1');
     });
+
+    describe('findMany folderId 过滤', () => {
+      it('type=my + folderId=root 过滤 folderId=null', async () => {
+        prisma.template.findMany.mockResolvedValue([]);
+        await service.findMany({ type: 'my', folderId: 'root' } as any, 'u1');
+        expect(prisma.template.findMany).toHaveBeenCalledWith(expect.objectContaining({
+          where: expect.objectContaining({ userId: 'u1', folderId: null }),
+        }));
+      });
+
+      it('type=my + 具体 folderId 精确匹配', async () => {
+        prisma.template.findMany.mockResolvedValue([]);
+        await service.findMany({ type: 'my', folderId: 'f1' } as any, 'u1');
+        expect(prisma.template.findMany).toHaveBeenCalledWith(expect.objectContaining({
+          where: expect.objectContaining({ folderId: 'f1' }),
+        }));
+      });
+
+      it('非 type=my 时 folderId 被忽略', async () => {
+        prisma.template.findMany.mockResolvedValue([]);
+        await service.findMany({ type: 'community', folderId: 'f1' } as any, 'u1');
+        const where = prisma.template.findMany.mock.calls[0][0].where;
+        expect(where.folderId).toBeUndefined();
+      });
+    });
   });
 
   describe('getTemplate', () => {

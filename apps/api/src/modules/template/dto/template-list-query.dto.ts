@@ -6,4 +6,5 @@ export class TemplateListQueryDto {
   @IsOptional() @IsIn(['importCount', 'newest']) sort?: string;
   @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) page?: number;
   @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) limit?: number;
+  @IsOptional() @IsString() folderId?: string;
 }
