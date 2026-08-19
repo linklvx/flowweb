@@ -141,7 +141,7 @@ model CanvasProject {
 - 行为：
   1. 校验工程归属（同现有 create 的权限逻辑）
   2. 从工程快照 templateData（nodes/edges/viewport 规范化 + `validateTemplateData`，复用现有 create 逻辑）。空画布首存无需特判——已验证 zod schema 为 `z.array()` 无 `.min(1)`，`nodes: [], edges: []` 本就合法
-  3. 按 projectId `findUnique` 关联 Template（@unique 保证确定性）：**存在 → 更新**（templateData、name、description、isPublic、status 置 SAVED）；**不存在 → 创建**（status: SAVED，覆盖"从模板导入"路径的首存）。并发首存由唯一约束兜底
+  3. 按 projectId `findUnique` 关联 Template（@unique 保证确定性）：**存在 → 更新**（templateData、name、description、isPublic、status 置 SAVED）；**不存在 → 创建**（status: SAVED，覆盖"从模板导入"路径的首存）。**并发首存冲突处理**：创建捕获 `P2002`（projectId 唯一约束）时说明另一请求已创建，回退为 update 路径重试一次，而非直接报错
   4. 不 touch 文件夹（内容更新不属于"内容构成变化"，见 §4.8）
 - **同步移除旧 `POST /api/templates` 端点**（决策 #10）：save 端点全面替代其创建职责，`CreateTemplateDto`/controller/service 对应入口与测试一并清理
 
@@ -149,7 +149,7 @@ model CanvasProject {
 
 `DELETE /api/templates/:id`（扩展现有行为）
 
-- 删除 Template 的同事务内删除关联 CanvasProject（及其 nodes/edges）
+- 同事务内按序删除：先删 Template（解除 projectId FK），再删关联 CanvasProject——nodes/edges 已验证为 `onDelete: Cascade`（schema.prisma CanvasNode/CanvasEdge），删工程自动级联，无需显式删节点
 - touch 原所在文件夹
 
 ### 4.6 草稿清理
@@ -248,7 +248,7 @@ FolderCard、CanvasCard、各 Modal（移动/重命名/新建）等消费 Folder
   - folder service/controller：CRUD、同级重名 400、**重命名排除自身（no-op 不报错）**、他人文件夹 404、删除返回 movedCanvasCount（count+delete 同事务）、列表聚合（_count + take 3）
   - canvases 创建：事务、folderId 归属校验、复用 ProjectService.create、返回 {templateId, projectId}
   - template 扩展：folderId 移动 + touch 源/目标、目标文件夹越权 400、删除级联工程；**改名 touch 而 isPublic 切换不 touch**（决策 #8）
-  - save：已有 Template 更新（findUnique by projectId，status→SAVED）、无 Template 创建（import 路径）、空画布首存（空数组合法）
+  - save：已有 Template 更新（findUnique by projectId，status→SAVED）、无 Template 创建（import 路径）、空画布首存（空数组合法）、**并发首存 P2002 回退 update**（mock create 抛 P2002，验证回退成功）
   - **移除旧 POST /api/templates 端点及其测试**
   - drafts：无关联 + 24h 窗口两个条件的查询构造、返回 deletedCount
   - 列表：folderId 三态过滤（仅 type=my 生效）+ 分页
