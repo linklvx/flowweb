@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createTemplate } from '@/api/templateApi';
+import { saveCanvas } from '@/api/canvasApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -23,7 +23,7 @@ export function SaveAsTemplateDialog({ projectId, projectName, onClose, onSaved 
       const state = useCanvasStore.getState();
       await syncNodes(projectId, state.nodes as any);
       await syncEdges(projectId, state.edges as any);
-      await createTemplate({ projectId, name: projectName, description: description.trim(), isPublic });
+      await saveCanvas(projectId, { name: projectName, description: description.trim(), isPublic });
       onSaved();
     } catch (e: any) {
       setError(e?.message || '保存失败');

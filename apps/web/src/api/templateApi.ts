@@ -12,13 +12,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return json.data.data as T;
 }
 
-export interface CreateTemplateDto {
-  projectId: string;
-  name: string;
-  description?: string;
-  isPublic?: boolean;
-}
-
 export interface UpdateTemplateDto {
   name?: string;
   description?: string;
@@ -33,10 +26,6 @@ export interface TemplateListQuery {
   page?: number;
   limit?: number;
   folderId?: string;
-}
-
-export function createTemplate(dto: CreateTemplateDto) {
-  return request('', { method: 'POST', body: JSON.stringify(dto) });
 }
 
 export function getTemplates(query: TemplateListQuery) {

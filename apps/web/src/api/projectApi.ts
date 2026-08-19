@@ -8,13 +8,6 @@ export interface ProjectData {
   edges: any[];
 }
 
-export async function createProject(name: string): Promise<ProjectData> {
-  return apiFetch<ProjectData>('/projects', {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-  });
-}
-
 export async function getProject(id: string): Promise<ProjectData> {
   return apiFetch<ProjectData>(`/projects/${id}`);
 }
