@@ -158,8 +158,8 @@ ALTER TABLE "Folder" ADD CONSTRAINT "Folder_userId_fkey" FOREIGN KEY ("userId") 
 ALTER TABLE "Template" ADD COLUMN "folderId" TEXT;
 ALTER TABLE "Template" ADD COLUMN "status" "TemplateStatus" NOT NULL DEFAULT 'DRAFT';
 
--- 3. 删除 (name, userId) 唯一约束（Prisma 自动生成，确认存在）
-DROP INDEX/"CONSTRAINT" "Template_name_userId_key";  -- 用 Prisma 生成的实际语句
+-- 3. 删除 (name, userId) 唯一约束（Prisma @@unique 生成的是 CONSTRAINT）
+ALTER TABLE "Template" DROP CONSTRAINT IF EXISTS "Template_name_userId_key";
 
 -- 4. 数据修复（手写补充，必须在 FK 与唯一索引之前）
 UPDATE "Template" SET "projectId" = NULL
@@ -1659,9 +1659,24 @@ describe('useWorkspaceData', () => {
     await waitFor(() => expect(result.current.status).toBe('success'));
     vi.mocked(apiDeleteFolder).mockResolvedValue({ movedCanvasCount: 3 } as never);
     let count = -1;
-    await act(async () => { count = await result.current.deleteFolder('f1'); });
+    await act(async () => { count = await result.current.deleteFolder('f2'); });
     expect(count).toBe(3);
-    expect(apiDeleteFolder).toHaveBeenCalledWith('f1');
+    expect(apiDeleteFolder).toHaveBeenCalledWith('f2');
+    // 删除非当前文件夹（当前为根）→ 仍加载根目录
+    expect(getTemplates).toHaveBeenLastCalledWith(expect.objectContaining({ folderId: 'root' }));
+  });
+
+  it('deleteFolder 删除当前浏览的文件夹时回根目录', async () => {
+    vi.mocked(getTemplates).mockResolvedValue({
+      templates: [tpl('c1', '画布 1', '2026-08-18T10:00:00', 'f1')],
+      total: 1, page: 1, limit: 20, totalPages: 1,
+    } as never);
+    const { result } = renderHook(() => useWorkspaceData());
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    await act(async () => { await result.current.loadFolder('f1'); });
+    vi.mocked(apiDeleteFolder).mockResolvedValue({ movedCanvasCount: 1 } as never);
+    await act(async () => { await result.current.deleteFolder('f1'); });
+    expect(getTemplates).toHaveBeenLastCalledWith(expect.objectContaining({ folderId: 'root', page: 1 }));
   });
 
   it('moveCanvas 乐观更新 folderId，调 updateTemplate', async () => {
@@ -1860,7 +1875,9 @@ export function useWorkspaceData() {
 
   const deleteFolder = useCallback(async (id: string): Promise<number> => {
     const { movedCanvasCount } = await apiDeleteFolder(id);
-    await Promise.all([refreshFolders(), loadFolder(currentRef.current)]);
+    // 删除的是当前浏览的文件夹 → 回根目录；删除其他文件夹 → 保持当前视图
+    const target = currentRef.current === id ? null : currentRef.current;
+    await Promise.all([refreshFolders(), loadFolder(target)]);
     return movedCanvasCount;
   }, [refreshFolders, loadFolder]);
 
