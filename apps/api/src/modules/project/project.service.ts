@@ -134,4 +134,16 @@ export class ProjectService {
   async delete(id: string) {
     return this.prisma.canvasProject.delete({ where: { id } });
   }
+
+  async cleanDrafts(userId: string) {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await this.prisma.canvasProject.deleteMany({
+      where: {
+        userId,
+        updatedAt: { lt: cutoff },
+        templates: { none: {} },
+      },
+    });
+    return { deletedCount: result.count };
+  }
 }

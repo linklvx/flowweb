@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject, ValidationPipe, Req, UnauthorizedException } from '@nestjs/common';
+import { Request } from 'express';
 import { ProjectService } from './project.service';
 import { UpdateNodeDimensionsDto } from './dto/update-node-dimensions.dto';
 
@@ -42,6 +43,13 @@ export class ProjectController {
   @Patch(':id')
   updateName(@Param('id') id: string, @Body() body: { name: string }) {
     return this.projectService.updateName(id, body.name);
+  }
+
+  @Delete('drafts')
+  cleanDrafts(@Req() req: Request) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('未登录');
+    return this.projectService.cleanDrafts(userId);
   }
 
   @Delete(':id')

@@ -14,6 +14,7 @@ describe('ProjectService', () => {
         findUnique: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       canvasNode: {
         createMany: vi.fn(),
@@ -160,6 +161,21 @@ describe('ProjectService', () => {
       prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
       await service.delete('p1');
       expect(prisma.canvasProject.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+    });
+  });
+
+  describe('cleanDrafts', () => {
+    it('删除无 Template 关联且 24h 未更新的本人工程', async () => {
+      prisma.canvasProject.deleteMany.mockResolvedValue({ count: 4 });
+      const result = await service.cleanDrafts('u1');
+      expect(prisma.canvasProject.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'u1',
+          updatedAt: { lt: expect.any(Date) },
+          templates: { none: {} },
+        },
+      });
+      expect(result).toEqual({ deletedCount: 4 });
     });
   });
 });
