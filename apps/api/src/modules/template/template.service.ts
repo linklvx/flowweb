@@ -207,7 +207,15 @@ export class TemplateService {
       throw new ForbiddenException('无权删除此模板');
     }
     this.clearCache();
-    return this.prisma.template.delete({ where: { id } });
+    // 先删 Template 解除 projectId FK，再删工程（nodes/edges 由 DB 级联 Cascade 清理）
+    await this.prisma.$transaction([
+      this.prisma.template.delete({ where: { id } }),
+      ...(template.projectId
+        ? [this.prisma.canvasProject.delete({ where: { id: template.projectId } })]
+        : []),
+    ]);
+    if (template.folderId) await this.folderService.touch([template.folderId]);
+    return null;
   }
 
   async import(id: string, userId: string) {

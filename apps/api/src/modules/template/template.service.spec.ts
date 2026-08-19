@@ -40,6 +40,7 @@ describe('TemplateService', () => {
 
   beforeEach(async () => {
     prisma = {
+      $transaction: vi.fn((ops: any[]) => Promise.resolve(ops.map(() => ({})))),
       template: {
         create: vi.fn().mockResolvedValue({ id: 't1', name: 'Test', userId: 'u1', isPublic: false }),
         findMany: vi.fn().mockResolvedValue([]),
@@ -56,6 +57,7 @@ describe('TemplateService', () => {
       },
       canvasProject: {
         findFirst: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue({}),
       },
       user: {
         upsert: vi.fn().mockResolvedValue({}),
@@ -174,6 +176,24 @@ describe('TemplateService', () => {
     it('should throw ForbiddenException when not creator', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'creator' });
       await expect(service.delete('t1', 'other-user')).rejects.toThrow(ForbiddenException);
+    });
+
+    describe('级联删除工程', () => {
+      it('同事务删除 Template 与关联 CanvasProject，并 touch 文件夹', async () => {
+        prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1', projectId: 'p1' });
+        prisma.$transaction.mockResolvedValue([{}, {}]);
+        await service.delete('t1', 'u1');
+        const ops = prisma.$transaction.mock.calls[0][0];
+        expect(ops).toHaveLength(2);
+        expect(folderService.touch).toHaveBeenCalledWith(['f1']);
+      });
+
+      it('无关联工程时不删工程', async () => {
+        prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: null, projectId: null });
+        prisma.$transaction.mockResolvedValue([{}]);
+        await service.delete('t1', 'u1');
+        expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(1);
+      });
     });
   });
 
