@@ -22,6 +22,7 @@ import { AiDownloadModule } from './modules/ai-download/ai-download.module';
 import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
+import { FolderModule } from './modules/folder/folder.module';
 import { RechargeModule } from './modules/recharge/recharge.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AuthGuard } from './auth/auth.guard';
@@ -51,6 +52,7 @@ const env = validateEnv();
     MinioModule,
     StorageModule,
     TemplateModule,
+    FolderModule,
     AuthModule,
     MediaModule,
     AiDownloadModule,
