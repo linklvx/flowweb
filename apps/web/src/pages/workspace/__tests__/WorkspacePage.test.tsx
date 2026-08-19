@@ -77,6 +77,16 @@ describe('WorkspacePage', () => {
       expect.objectContaining({ folderId: 'root' })));
   });
 
+  it('直链进入文件夹视图：按 URL folderId 请求画布（刷新/分享场景）', async () => {
+    vi.mocked(templateApi.getTemplates).mockResolvedValue({
+      templates: [tpl('c1', '文件夹内画布', 'f1')], total: 1, page: 1, limit: 20, totalPages: 1,
+    } as never);
+    renderPage('/works?folder=f1');
+    await waitFor(() => expect(templateApi.getTemplates).toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'f1' })));
+    expect(await screen.findByTestId('canvas-card-c1')).toBeInTheDocument();
+  });
+
   it('画布点击跳 /works/:id', async () => {
     vi.mocked(templateApi.getTemplates).mockResolvedValue({
       templates: [tpl('c1', '画布')], total: 1, page: 1, limit: 20, totalPages: 1,

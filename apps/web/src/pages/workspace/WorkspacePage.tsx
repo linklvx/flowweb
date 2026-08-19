@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { message } from 'antd';
 import { FolderAddOutlined } from '@ant-design/icons';
@@ -52,11 +52,21 @@ export function WorkspacePage() {
 
   const showCreateFolderCard = !searchQuery && filter !== 'canvases';
 
-  // 统一入口：进入文件夹 = 定位 + 清搜索 + 同步数据加载
+  // URL → currentFolderId 单一数据流：点击导航与直链/刷新都经此加载对应文件夹画布。
+  // 首帧为根目录时 hook 的初始加载已覆盖，跳过避免重复请求；直链文件夹仍在此加载。
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      if (nav.currentFolderId === null) return;
+    }
+    void data.loadFolder(nav.currentFolderId);
+  }, [nav.currentFolderId, data.loadFolder]);
+
+  // 统一入口：进入文件夹 = 定位 + 清搜索（数据加载由上面的 effect 接管）
   const enterFolder = (folderId: string | null) => {
     nav.setCurrentFolderId(folderId);
     setSearchQuery('');
-    void data.loadFolder(folderId);
   };
 
   const onItemClick = (item: WorkspaceItem) => {
