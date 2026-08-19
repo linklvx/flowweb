@@ -23,6 +23,7 @@ import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module'
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
 import { FolderModule } from './modules/folder/folder.module';
+import { CanvasModule } from './modules/canvas/canvas.module';
 import { RechargeModule } from './modules/recharge/recharge.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AuthGuard } from './auth/auth.guard';
@@ -53,6 +54,7 @@ const env = validateEnv();
     StorageModule,
     TemplateModule,
     FolderModule,
+    CanvasModule,
     AuthModule,
     MediaModule,
     AiDownloadModule,
