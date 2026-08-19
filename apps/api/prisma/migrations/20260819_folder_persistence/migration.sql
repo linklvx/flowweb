@@ -51,9 +51,3 @@ ALTER TABLE "Template" ADD CONSTRAINT "Template_projectId_fkey" FOREIGN KEY ("pr
 -- 11. 添加索引（必须在数据修复之后）
 CREATE INDEX "Template_folderId_idx" ON "Template"("folderId");
 CREATE UNIQUE INDEX "Template_projectId_key" ON "Template"("projectId");
-
--- 12. 在 User 表中添加 folders 关系的外键（无实际列变更，仅为 Prisma 关系同步）
--- 注意：User 表的 folders 关系不涉及数据库变更，仅为 Prisma 客户端层的关系映射
-
--- 13. 在 CanvasProject 表中添加 templates 关系的外键（无实际列变更，仅为 Prisma 关系同步）
--- 注意：CanvasProject 表的 templates 关系不涉及数据库变更，仅为 Prisma 客户端层的关系映射
