@@ -6,8 +6,8 @@ import { MoveToFolderModal } from '../components/MoveToFolderModal';
 import type { Folder } from '../types';
 
 const folders: Folder[] = [
-  { id: 'f1', name: '文件夹一', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
-  { id: 'f2', name: '文件夹二', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
+  { id: 'f1', name: '文件夹一', parentId: null, createdAt: '', updatedAt: '' },
+  { id: 'f2', name: '文件夹二', parentId: null, createdAt: '', updatedAt: '' },
 ];
 
 describe('CreateFolderModal', () => {

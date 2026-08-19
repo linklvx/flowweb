@@ -7,8 +7,8 @@ import type { Folder } from '../types';
 vi.mock('antd', () => ({ message: { info: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 const folders: Folder[] = [
-  { id: 'f1', name: 'A', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
-  { id: 'f2', name: 'B', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' },
+  { id: 'f1', name: 'A', parentId: null, createdAt: '', updatedAt: '' },
+  { id: 'f2', name: 'B', parentId: null, createdAt: '', updatedAt: '' },
 ];
 
 function renderNav(initialUrl = '/works') {

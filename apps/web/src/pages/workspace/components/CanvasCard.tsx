@@ -21,14 +21,12 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
   const [renaming, setRenaming] = useState(false);
   const background = canvas.coverUrl ? `url("${canvas.coverUrl}")` : getCanvasGradient(canvas.id);
 
-  const menuItems: MenuProps['items'] = canvas.isPlaceholder
-    ? [{ key: 'delete', label: '删除', icon: <DeleteOutlined /> }]
-    : [
-        { key: 'rename', label: '重命名', icon: <EditOutlined /> },
-        { key: 'move', label: '移动到文件夹', icon: <InboxOutlined /> },
-        { key: 'public', label: canvas.isPublic ? '设为私有' : '设为公开', icon: canvas.isPublic ? <EyeInvisibleOutlined /> : <EyeOutlined /> },
-        { key: 'delete', label: '删除', icon: <DeleteOutlined /> },
-      ];
+  const menuItems: MenuProps['items'] = [
+    { key: 'rename', label: '重命名', icon: <EditOutlined /> },
+    { key: 'move', label: '移动到文件夹', icon: <InboxOutlined /> },
+    { key: 'public', label: canvas.isPublic ? '设为私有' : '设为公开', icon: canvas.isPublic ? <EyeInvisibleOutlined /> : <EyeOutlined /> },
+    { key: 'delete', label: '删除', icon: <DeleteOutlined /> },
+  ];
 
   const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
     domEvent.stopPropagation();
@@ -70,8 +68,7 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
             onConfirm={(next) => onRename(canvas.id, next)}
           />
         </div>
-        {canvas.isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 mr-4">草稿</span>}
-        {canvas.isPublic && !canvas.isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 mr-4">公开</span>}
+        {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 mr-4">公开</span>}
         <span className="text-xs text-white/40 mr-4 shrink-0">编辑于 {formatRelativeTime(canvas.updatedAt)}</span>
         {menuButton}
       </div>
@@ -89,9 +86,6 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
     >
       <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: '4 / 3' }}>
         <div className="absolute inset-0 transition-transform duration-200 group-hover/menu:scale-110" style={{ background }} />
-        {canvas.isPlaceholder && (
-          <span className="absolute bottom-2 right-2 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90">草稿</span>
-        )}
       </div>
       <div className="px-1 pt-2 pb-2 flex flex-col gap-1">
         <InlineRename

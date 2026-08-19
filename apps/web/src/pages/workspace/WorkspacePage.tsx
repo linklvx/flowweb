@@ -52,25 +52,25 @@ export function WorkspacePage() {
 
   const showCreateFolderCard = !searchQuery && filter !== 'canvases';
 
-  // 统一入口：进入文件夹 = 定位 + 清搜索 + 同步 URL
+  // 统一入口：进入文件夹 = 定位 + 清搜索 + 同步数据加载
   const enterFolder = (folderId: string | null) => {
     nav.setCurrentFolderId(folderId);
     setSearchQuery('');
+    void data.loadFolder(folderId);
   };
 
   const onItemClick = (item: WorkspaceItem) => {
     if (data.status === 'loading') return; // 加载中不导航
     if (item.type === 'folder') enterFolder(item.data.id);
-    else if (item.data.isPlaceholder) navigate(`/canvas?projectId=${item.data.id.replace('placeholder-', '')}`);
     else navigate(`/works/${item.data.id}`);
   };
 
-  const handleDeleteFolder = (folder: FolderViewModel) => {
+  const handleDeleteFolder = async (folder: FolderViewModel) => {
     try {
-      data.deleteFolder(folder.id);
-      message.success('文件夹已删除');
-    } catch (e) {
-      message.error((e as Error).message);
+      const moved = await data.deleteFolder(folder.id);
+      message.success(moved > 0 ? `文件夹已删除，${moved} 张画布已移至根目录` : '文件夹已删除');
+    } catch {
+      message.error('删除失败，请重试');
     }
   };
 
@@ -114,77 +114,93 @@ export function WorkspacePage() {
             />
           )}
           {data.status === 'success' && !isEmpty && viewMode === 'grid' && (
-            <ul className={gridClass} data-testid="workspace-grid">
-              {showCreateFolderCard && (
-                <li data-testid="create-folder-card"><CreateFolderCard onClick={() => setFolderModal({ open: true })} /></li>
+            <>
+              <ul className={gridClass} data-testid="workspace-grid">
+                {showCreateFolderCard && (
+                  <li data-testid="create-folder-card"><CreateFolderCard onClick={() => setFolderModal({ open: true })} /></li>
+                )}
+                {items.map((item) => (
+                  <li key={item.data.id}>
+                    {item.type === 'folder' ? (
+                      <FolderCard
+                        folder={item.data}
+                        showCount={!searchQuery}
+                        onClick={() => onItemClick(item)}
+                        onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
+                        onDelete={handleDeleteFolder}
+                      />
+                    ) : (
+                      <CanvasCard
+                        canvas={item.data}
+                        onClick={() => onItemClick(item)}
+                        onRename={data.renameCanvas}
+                        onMove={setMoveTarget}
+                        onTogglePublic={data.togglePublic}
+                        onDelete={(c) => { void data.deleteCanvas(c.id); }}
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {data.hasMore && !searchQuery && (
+                <button
+                  data-testid="load-more"
+                  onClick={() => { void data.loadMore(); }}
+                  className="mt-4 mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 bg-transparent cursor-pointer hover:border-white/40"
+                >
+                  加载更多
+                </button>
               )}
-              {items.map((item) => (
-                <li key={item.data.id}>
-                  {item.type === 'folder' ? (
-                    <FolderCard
-                      folder={item.data}
-                      showCount={!searchQuery}
-                      onClick={() => onItemClick(item)}
-                      onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
-                      onDelete={handleDeleteFolder}
-                    />
-                  ) : (
-                    <CanvasCard
-                      canvas={item.data}
-                      onClick={() => onItemClick(item)}
-                      onRename={data.renameCanvas}
-                      onMove={setMoveTarget}
-                      onTogglePublic={data.togglePublic}
-                      onDelete={(c) => {
-                        if (c.isPlaceholder) data.deletePlaceholder(c.id);
-                        else void data.deleteCanvas(c.id);
-                      }}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+            </>
           )}
           {data.status === 'success' && !isEmpty && viewMode === 'list' && (
-            <ul className="flex flex-col" data-testid="workspace-list">
-              {showCreateFolderCard && (
-                <li data-testid="create-folder-card" className="px-4 py-2">
-                  <button
-                    onClick={() => setFolderModal({ open: true })}
-                    className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
-                  >
-                    <FolderAddOutlined /> 新建文件夹
-                  </button>
-                </li>
+            <>
+              <ul className="flex flex-col" data-testid="workspace-list">
+                {showCreateFolderCard && (
+                  <li data-testid="create-folder-card" className="px-4 py-2">
+                    <button
+                      onClick={() => setFolderModal({ open: true })}
+                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
+                    >
+                      <FolderAddOutlined /> 新建文件夹
+                    </button>
+                  </li>
+                )}
+                {items.map((item) => (
+                  <li key={item.data.id}>
+                    {item.type === 'folder' ? (
+                      <FolderCard
+                        variant="list"
+                        folder={item.data}
+                        showCount={!searchQuery}
+                        onClick={() => onItemClick(item)}
+                        onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
+                        onDelete={handleDeleteFolder}
+                      />
+                    ) : (
+                      <CanvasCard
+                        variant="list"
+                        canvas={item.data}
+                        onClick={() => onItemClick(item)}
+                        onRename={data.renameCanvas}
+                        onMove={setMoveTarget}
+                        onTogglePublic={data.togglePublic}
+                        onDelete={(c) => { void data.deleteCanvas(c.id); }}
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {data.hasMore && !searchQuery && (
+                <button
+                  data-testid="load-more"
+                  onClick={() => { void data.loadMore(); }}
+                  className="mt-4 mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 bg-transparent cursor-pointer hover:border-white/40"
+                >
+                  加载更多
+                </button>
               )}
-              {items.map((item) => (
-                <li key={item.data.id}>
-                  {item.type === 'folder' ? (
-                    <FolderCard
-                      variant="list"
-                      folder={item.data}
-                      showCount={!searchQuery}
-                      onClick={() => onItemClick(item)}
-                      onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
-                      onDelete={handleDeleteFolder}
-                    />
-                  ) : (
-                    <CanvasCard
-                      variant="list"
-                      canvas={item.data}
-                      onClick={() => onItemClick(item)}
-                      onRename={data.renameCanvas}
-                      onMove={setMoveTarget}
-                      onTogglePublic={data.togglePublic}
-                      onDelete={(c) => {
-                        if (c.isPlaceholder) data.deletePlaceholder(c.id);
-                        else void data.deleteCanvas(c.id);
-                      }}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+            </>
           )}
         </div>
       </div>

@@ -6,7 +6,7 @@ import type { FolderViewModel } from '../types';
 vi.setSystemTime(new Date('2026-08-18T12:00:00'));
 
 const folder: FolderViewModel = {
-  id: 'f1', name: '项目文件夹', parentId: null, workspaceId: 'personal',
+  id: 'f1', name: '项目文件夹', parentId: null,
   createdAt: '2026-08-18T09:00:00', updatedAt: '2026-08-18T09:00:00',
   canvasCount: 3, thumbnails: ['linear-gradient(red, blue)'],
 };

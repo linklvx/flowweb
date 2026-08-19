@@ -76,7 +76,7 @@ describe('WorkspaceToolbar', () => {
 });
 
 describe('WorkspaceBreadcrumb', () => {
-  const f1: Folder = { id: 'f1', name: '文件夹一', parentId: null, workspaceId: 'personal', createdAt: '', updatedAt: '' };
+  const f1: Folder = { id: 'f1', name: '文件夹一', parentId: null, createdAt: '', updatedAt: '' };
 
   it('根视图仅显示「工作空间」', () => {
     render(<WorkspaceBreadcrumb path={[]} currentFolderId={null} searchQuery="" onNavigate={vi.fn()} onClearSearch={vi.fn()} />);

@@ -36,21 +36,12 @@ describe('CanvasCard', () => {
     expect(props.onClick).toHaveBeenCalledWith(base);
   });
 
-  it('普通画布菜单含 4 项；占位画布菜单仅「删除」', () => {
+  it('画布菜单含 4 项（重命名、移动、公开/私有、删除）', () => {
     renderCard(base);
     fireEvent.click(screen.getByLabelText('更多操作'));
     expect(screen.getByText('重命名')).toBeInTheDocument();
     expect(screen.getByText('移动到文件夹')).toBeInTheDocument();
     expect(screen.getByText('设为公开')).toBeInTheDocument();
-    expect(screen.getByText('删除')).toBeInTheDocument();
-  });
-
-  it('占位画布：草稿角标 + 菜单仅删除 + 菜单无 API 项', () => {
-    renderCard({ ...base, isPlaceholder: true, id: 'placeholder-p1' });
-    expect(screen.getByText('草稿')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('更多操作'));
-    expect(screen.queryByText('移动到文件夹')).not.toBeInTheDocument();
-    expect(screen.queryByText('设为公开')).not.toBeInTheDocument();
     expect(screen.getByText('删除')).toBeInTheDocument();
   });
 

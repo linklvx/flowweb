@@ -103,7 +103,6 @@ describe('useWorkspaceData', () => {
     const created = result.current.canvases.find((c) => c.id === 't9');
     expect(created).toBeDefined();
     expect(created?.folderId).toBe('f1');
-    expect(created?.isPlaceholder).toBeUndefined();
   });
 
   it('createFolder 直连 API 并刷新列表', async () => {
