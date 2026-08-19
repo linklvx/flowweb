@@ -7,7 +7,7 @@ import { TemplateModule } from '../template/template.module';
 
 @Module({
   imports: [ProjectModule, FolderModule, TemplateModule],
-  controllers: [CanvasController],
+  controllers: [CanvasController, CanvasSaveController],
   providers: [CanvasService],
 })
 export class CanvasModule {}

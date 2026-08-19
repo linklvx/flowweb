@@ -5,7 +5,7 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('CanvasService', () => {
   let service: CanvasService;
@@ -17,6 +17,11 @@ describe('CanvasService', () => {
   beforeEach(async () => {
     prisma = {
       folder: { findFirst: vi.fn().mockResolvedValue(null) },
+      template: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 't1', status: 'SAVED' }),
+        update: vi.fn().mockResolvedValue({ id: 't2', status: 'SAVED' }),
+      },
       $transaction: vi.fn(),
     };
     projectService = {};
@@ -67,6 +72,72 @@ describe('CanvasService', () => {
       prisma.folder.findFirst.mockResolvedValue(null);
       await expect(service.create('新画布', 'fx', 'u1')).rejects.toThrow(BadRequestException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('save', () => {
+    const project = {
+      id: 'p1', userId: 'u1',
+      nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
+      edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    };
+
+    beforeEach(() => {
+      projectService.findById = vi.fn().mockResolvedValue(project);
+      prisma.template.findUnique.mockResolvedValue(null);
+    });
+
+    it('无关联 Template 时创建，status=SAVED，规范化 edges 的 sourceId/targetId', async () => {
+      const result = await service.save('p1', { name: '名', description: 'd', isPublic: false }, 'u1');
+      expect(prisma.template.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: '名', description: 'd', isPublic: false, status: 'SAVED',
+          projectId: 'p1', userId: 'u1',
+          templateData: {
+            nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
+            edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
+            viewport: { x: 0, y: 0, zoom: 1 },
+          },
+        }),
+      });
+      expect(result.id).toBe('t1');
+      expect(templateService.clearCache).toHaveBeenCalled();
+    });
+
+    it('有关联 Template 时更新且不 touch 文件夹', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't2', folderId: 'f1', isPublic: true });
+      await service.save('p1', { name: '名' }, 'u1');
+      expect(prisma.template.update).toHaveBeenCalledWith({
+        where: { id: 't2' },
+        data: expect.objectContaining({ name: '名', status: 'SAVED' }),
+      });
+      expect(prisma.template.create).not.toHaveBeenCalled();
+      expect(folderService.touch).not.toHaveBeenCalled();
+    });
+
+    it('update 保留未传的 isPublic', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't2', isPublic: true });
+      await service.save('p1', { name: '名' }, 'u1');
+      expect(prisma.template.update).toHaveBeenCalledWith({
+        where: { id: 't2' },
+        data: expect.objectContaining({ isPublic: true }),
+      });
+    });
+
+    it('非本人工程抛 Forbidden', async () => {
+      projectService.findById.mockResolvedValue({ ...project, userId: 'other' });
+      await expect(service.save('p1', { name: '名' }, 'u1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('并发首存 P2002 回退为 update', async () => {
+      const p2002: any = new Error('Unique constraint failed');
+      p2002.code = 'P2002';
+      prisma.template.create.mockRejectedValueOnce(p2002);
+      prisma.template.findUnique.mockResolvedValue({ id: 't2', isPublic: false });
+      const result = await service.save('p1', { name: '名' }, 'u1');
+      expect(prisma.template.update).toHaveBeenCalled();
+      expect(result.id).toBe('t2');
     });
   });
 });
