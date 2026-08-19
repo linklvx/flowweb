@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TemplateService } from './template.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
+import { FolderService } from '../folder/folder.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
@@ -18,6 +19,10 @@ describe('TemplateService', () => {
       count: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
     };
+    folder: {
+      findFirst: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
+    };
     canvasProject: {
       findFirst: ReturnType<typeof vi.fn>;
     };
@@ -28,6 +33,9 @@ describe('TemplateService', () => {
   let projectService: {
     findById: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
+  };
+  let folderService: {
+    touch: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -42,6 +50,10 @@ describe('TemplateService', () => {
         count: vi.fn().mockResolvedValue(0),
         upsert: vi.fn().mockResolvedValue({}),
       },
+      folder: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn(),
+      },
       canvasProject: {
         findFirst: vi.fn().mockResolvedValue(null),
       },
@@ -55,12 +67,16 @@ describe('TemplateService', () => {
       }),
       create: vi.fn().mockImplementation((name: string) => Promise.resolve({ id: 'p2', name })),
     };
+    folderService = {
+      touch: vi.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TemplateService,
         { provide: PrismaService, useValue: prisma },
         { provide: ProjectService, useValue: projectService },
+        { provide: FolderService, useValue: folderService },
       ],
     }).compile();
 
@@ -192,6 +208,44 @@ describe('TemplateService', () => {
     it('should upsert official templates', async () => {
       await service.initOfficialTemplates();
       expect(prisma.template.upsert).toHaveBeenCalled();
+    });
+  });
+
+  describe('update folderId 移动', () => {
+    it('folderId 变化时校验目标文件夹归属并 touch 源与目标', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1' });
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f2', userId: 'u1' });
+      prisma.template.update.mockResolvedValue({ id: 't1', folderId: 'f2' });
+      await service.update('t1', { folderId: 'f2' } as any, 'u1');
+      expect(prisma.folder.findFirst).toHaveBeenCalledWith({ where: { id: 'f2', userId: 'u1' } });
+      expect(folderService.touch).toHaveBeenCalledWith(['f1', 'f2']);
+    });
+
+    it('目标文件夹非本人抛 BadRequest', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: null });
+      prisma.folder.findFirst.mockResolvedValue(null);
+      await expect(service.update('t1', { folderId: 'fx' } as any, 'u1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('folderId 传 null 移到根目录，touch 源文件夹', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1' });
+      prisma.template.update.mockResolvedValue({ id: 't1', folderId: null });
+      await service.update('t1', { folderId: null } as any, 'u1');
+      expect(prisma.template.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { folderId: null },
+      });
+      expect(folderService.touch).toHaveBeenCalledWith(['f1']);
+    });
+
+    it('改名时 touch 所在文件夹；isPublic 切换不 touch', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1' });
+      prisma.template.update.mockResolvedValue({ id: 't1' });
+      await service.update('t1', { name: '新名' } as any, 'u1');
+      expect(folderService.touch).toHaveBeenCalledWith(['f1']);
+      (folderService.touch as any).mockClear();
+      await service.update('t1', { isPublic: true } as any, 'u1');
+      expect(folderService.touch).not.toHaveBeenCalled();
     });
   });
 });

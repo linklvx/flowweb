@@ -1,6 +1,7 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
+import { FolderService } from '../folder/folder.service';
 import { validateTemplateData } from './template.validation';
 import { OFFICIAL_USER_ID, TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 import type { TemplateCategory } from '@prisma/client';
@@ -24,6 +25,7 @@ interface UpdateTemplateInput {
   name?: string;
   description?: string;
   isPublic?: boolean;
+  folderId?: string | null;
 }
 
 @Injectable()
@@ -33,6 +35,7 @@ export class TemplateService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ProjectService) private readonly projectService: ProjectService,
+    @Inject(FolderService) private readonly folderService: FolderService,
   ) {}
 
   async create(input: CreateTemplateInput, userId: string) {
@@ -172,13 +175,30 @@ export class TemplateService {
     }
     this.clearCache();
     const data: any = {};
+    const touchIds = new Set<string>();
+
     if (input.name !== undefined) data.name = input.name;
     if (input.description !== undefined) data.description = input.description;
     if (input.isPublic !== undefined) {
       data.isPublic = input.isPublic;
       data.category = input.isPublic ? 'COMMUNITY' : undefined;
     }
-    return this.prisma.template.update({ where: { id }, data });
+    if (input.folderId !== undefined) {
+      if (input.folderId !== null) {
+        const folder = await this.prisma.folder.findFirst({ where: { id: input.folderId, userId } });
+        if (!folder) throw new BadRequestException('目标文件夹不存在');
+      }
+      data.folderId = input.folderId;
+      if (input.folderId !== template.folderId) {
+        if (template.folderId) touchIds.add(template.folderId);
+        if (input.folderId) touchIds.add(input.folderId);
+      }
+    }
+    if (input.name !== undefined && template.folderId) touchIds.add(template.folderId);
+
+    const updated = await this.prisma.template.update({ where: { id }, data });
+    if (touchIds.size > 0) await this.folderService.touch([...touchIds]);
+    return updated;
   }
 
   async delete(id: string, userId: string) {
@@ -295,7 +315,7 @@ export class TemplateService {
     }
   }
 
-  private clearCache() {
+  clearCache() {
     this.cache.clear();
   }
 }
