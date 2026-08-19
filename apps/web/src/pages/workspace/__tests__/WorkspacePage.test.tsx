@@ -159,4 +159,31 @@ describe('WorkspacePage', () => {
     vi.useRealTimers();
   });
 
+  it('筛选「仅画布」隐藏新建卡，画布仍显示', async () => {
+    vi.mocked(templateApi.getTemplates).mockResolvedValue({
+      templates: [tpl('c1', '画布')], total: 1, page: 1, limit: 20, totalPages: 1,
+    } as never);
+    renderPage();
+    // 点击筛选下拉按钮展开菜单
+    fireEvent.click(await screen.findByText('显示全部'));
+    fireEvent.click(await screen.findByText('仅画布'));
+    await waitFor(() => expect(screen.queryByTestId('create-folder-card')).not.toBeInTheDocument());
+    expect(screen.getByTestId('canvas-card-c1')).toBeInTheDocument();
+  });
+
+  it('新建文件夹流程', async () => {
+    vi.mocked(folderApi.createFolder).mockResolvedValue({ id: 'f9' } as never);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '新建文件夹' }));
+    fireEvent.change(await screen.findByLabelText('文件夹名称'), { target: { value: '我的新文件夹' } });
+    fireEvent.click(screen.getByRole('button', { name: '确 定' }));
+    await waitFor(() => expect(folderApi.createFolder).toHaveBeenCalledWith('我的新文件夹'));
+  });
+
+  it('无效 folderId 重置根目录', async () => {
+    renderPage('/works?folder=nope');
+    await waitFor(() => expect(screen.getByTestId('folder-card-f1')).toBeInTheDocument());
+    expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument();
+  });
+
 });
