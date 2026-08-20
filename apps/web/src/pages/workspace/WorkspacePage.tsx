@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { message } from 'antd';
-import { FolderAddOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { Navbar } from '@/pages/home/components/Navbar';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { useFolderNavigation } from './hooks/useFolderNavigation';
 import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { WorkspaceBreadcrumb } from './components/WorkspaceBreadcrumb';
-import { CreateFolderCard } from './components/CreateFolderCard';
+import { CreateCanvasCard } from './components/CreateCanvasCard';
 import { FolderCard } from './components/FolderCard';
 import { CanvasCard } from './components/CanvasCard';
 import { CreateFolderModal } from './components/CreateFolderModal';
@@ -50,7 +50,7 @@ export function WorkspacePage() {
     ];
   }, [data.folders, data.canvases, searchQuery, filter, nav.currentFolderId]);
 
-  const showCreateFolderCard = !searchQuery && filter !== 'canvases';
+  const showCreateCanvasCard = !searchQuery && filter !== 'folders';
 
   // URL → currentFolderId 单一数据流：点击导航与直链/刷新都经此加载对应文件夹画布。
   // 首帧为根目录时 hook 的初始加载已覆盖，跳过避免重复请求；直链文件夹仍在此加载。
@@ -96,7 +96,7 @@ export function WorkspacePage() {
 
   const gridClass = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4';
 
-  const isEmpty = items.length === 0 && !showCreateFolderCard;
+  const isEmpty = items.length === 0 && !showCreateCanvasCard;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -106,7 +106,7 @@ export function WorkspacePage() {
           viewMode={viewMode} onViewModeChange={setViewMode}
           onSearchChange={setSearchQuery}
           filter={filter} onFilterChange={setFilter}
-          onCreateCanvas={() => setCanvasModal(true)}
+          onCreateFolder={() => setFolderModal({ open: true })}
         />
         <WorkspaceBreadcrumb
           path={nav.path} currentFolderId={nav.currentFolderId}
@@ -126,8 +126,8 @@ export function WorkspacePage() {
           {data.status === 'success' && !isEmpty && viewMode === 'grid' && (
             <>
               <ul className={gridClass} data-testid="workspace-grid">
-                {showCreateFolderCard && (
-                  <li data-testid="create-folder-card"><CreateFolderCard onClick={() => setFolderModal({ open: true })} /></li>
+                {showCreateCanvasCard && (
+                  <li data-testid="create-canvas-card"><CreateCanvasCard onClick={() => setCanvasModal(true)} /></li>
                 )}
                 {items.map((item) => (
                   <li key={item.data.id}>
@@ -166,13 +166,13 @@ export function WorkspacePage() {
           {data.status === 'success' && !isEmpty && viewMode === 'list' && (
             <>
               <ul className="flex flex-col" data-testid="workspace-list">
-                {showCreateFolderCard && (
-                  <li data-testid="create-folder-card" className="px-4 py-2">
+                {showCreateCanvasCard && (
+                  <li data-testid="create-canvas-card" className="px-4 py-2">
                     <button
-                      onClick={() => setFolderModal({ open: true })}
+                      onClick={() => setCanvasModal(true)}
                       className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
                     >
-                      <FolderAddOutlined /> 新建文件夹
+                      <PlusOutlined /> 新建画布
                     </button>
                   </li>
                 )}

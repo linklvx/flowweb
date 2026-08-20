@@ -18,7 +18,7 @@ describe('WorkspaceToolbar', () => {
       onSearchChange: vi.fn(),
       filter: 'all' as FilterKind,
       onFilterChange: vi.fn(),
-      onCreateCanvas: vi.fn(),
+      onCreateFolder: vi.fn(),
       ...overrides,
     };
     return { props, ...render(<WorkspaceToolbar {...props} />) };
@@ -68,10 +68,10 @@ describe('WorkspaceToolbar', () => {
     expect(message.info).toHaveBeenCalledWith('即将上线');
   });
 
-  it('新建画布按钮回调', () => {
+  it('新建文件夹按钮回调', () => {
     const { props } = renderToolbar();
-    fireEvent.click(screen.getByRole('button', { name: /新建画布/ }));
-    expect(props.onCreateCanvas).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /新建文件夹/ }));
+    expect(props.onCreateFolder).toHaveBeenCalled();
   });
 });
 

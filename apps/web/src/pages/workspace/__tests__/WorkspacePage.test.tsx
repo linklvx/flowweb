@@ -58,13 +58,13 @@ function renderPage(initialUrl = '/works') {
 }
 
 describe('WorkspacePage', () => {
-  it('根目录渲染：文件夹卡片 + 无根级画布 + 新建文件夹卡首位', async () => {
+  it('根目录渲染：文件夹卡片 + 无根级画布 + 新建画布卡首位', async () => {
     renderPage();
     expect(await screen.findByTestId('folder-card-f1')).toBeInTheDocument();
     expect(screen.getByTestId('folder-card-f2')).toBeInTheDocument();
     expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument();
     const first = document.querySelector('[data-testid="workspace-grid"] > :first-child');
-    expect(first).toHaveAttribute('data-testid', 'create-folder-card');
+    expect(first).toHaveAttribute('data-testid', 'create-canvas-card');
   });
 
   it('进入文件夹：按 folderId 请求画布，返回根目录重新请求', async () => {
@@ -165,26 +165,23 @@ describe('WorkspacePage', () => {
     // 防抖后匹配'阿尔法'，c1 仍存在
     expect(screen.getByTestId('canvas-card-c1')).toBeInTheDocument();
     expect(screen.queryByTestId('folder-card-f2')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('create-folder-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-canvas-card')).not.toBeInTheDocument();
     vi.useRealTimers();
   });
 
-  it('筛选「仅画布」隐藏新建卡，画布仍显示', async () => {
-    vi.mocked(templateApi.getTemplates).mockResolvedValue({
-      templates: [tpl('c1', '画布')], total: 1, page: 1, limit: 20, totalPages: 1,
-    } as never);
+  it('筛选「仅文件夹」隐藏新建画布卡，文件夹仍显示', async () => {
     renderPage();
     // 点击筛选下拉按钮展开菜单
     fireEvent.click(await screen.findByText('显示全部'));
-    fireEvent.click(await screen.findByText('仅画布'));
-    await waitFor(() => expect(screen.queryByTestId('create-folder-card')).not.toBeInTheDocument());
-    expect(screen.getByTestId('canvas-card-c1')).toBeInTheDocument();
+    fireEvent.click(await screen.findByText('仅文件夹'));
+    await waitFor(() => expect(screen.queryByTestId('create-canvas-card')).not.toBeInTheDocument());
+    expect(screen.getByTestId('folder-card-f1')).toBeInTheDocument();
   });
 
   it('新建文件夹流程', async () => {
     vi.mocked(folderApi.createFolder).mockResolvedValue({ id: 'f9' } as never);
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: '新建文件夹' }));
+    fireEvent.click(await screen.findByRole('button', { name: /新建文件夹/ }));
     fireEvent.change(await screen.findByLabelText('文件夹名称'), { target: { value: '我的新文件夹' } });
     fireEvent.click(screen.getByRole('button', { name: '确 定' }));
     await waitFor(() => expect(folderApi.createFolder).toHaveBeenCalledWith('我的新文件夹'));

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dropdown, Button } from 'antd';
-import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, UploadOutlined, FolderAddOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { FilterKind, ViewMode } from '../types';
 import { message } from 'antd';
@@ -11,12 +11,12 @@ interface WorkspaceToolbarProps {
   onSearchChange: (query: string) => void;
   filter: FilterKind;
   onFilterChange: (filter: FilterKind) => void;
-  onCreateCanvas: () => void;
+  onCreateFolder: () => void;
 }
 
 const FILTER_LABEL: Record<FilterKind, string> = { all: '显示全部', folders: '仅文件夹', canvases: '仅画布' };
 
-export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateCanvas }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateFolder }: WorkspaceToolbarProps) {
   const [text, setText] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -74,7 +74,7 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
         </div>
         <div className="h-6 w-px bg-white/10 mx-1" />
         <Button aria-label="导入" icon={<UploadOutlined />} onClick={() => message.info('即将上线')} style={{ width: 40 }} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCanvas}>新建画布</Button>
+        <Button type="primary" icon={<FolderAddOutlined />} onClick={onCreateFolder}>新建文件夹</Button>
       </div>
     </div>
   );

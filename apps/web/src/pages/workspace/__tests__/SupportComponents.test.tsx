@@ -1,20 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { CreateFolderCard } from '../components/CreateFolderCard';
+import { CreateCanvasCard } from '../components/CreateCanvasCard';
 import { EmptyState } from '../components/EmptyState';
 import { CardGridSkeleton } from '../components/CardGridSkeleton';
 
-describe('CreateFolderCard', () => {
+describe('CreateCanvasCard', () => {
   it('role=button + aria-label，点击触发回调', () => {
     const onClick = vi.fn();
-    render(<CreateFolderCard onClick={onClick} />);
-    const el = screen.getByRole('button', { name: '新建文件夹' });
+    render(<CreateCanvasCard onClick={onClick} />);
+    const el = screen.getByRole('button', { name: '新建画布' });
     fireEvent.click(el);
     expect(onClick).toHaveBeenCalled();
   });
-  it('渲染「新建文件夹」文字与虚线样式', () => {
-    render(<CreateFolderCard onClick={vi.fn()} />);
-    expect(screen.getByText('新建文件夹')).toBeInTheDocument();
+  it('渲染「新建画布」文字与虚线样式', () => {
+    render(<CreateCanvasCard onClick={vi.fn()} />);
+    expect(screen.getByText('新建画布')).toBeInTheDocument();
   });
 });
 
