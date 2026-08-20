@@ -111,6 +111,8 @@ export function CanvasPage() {
 
   const queryProjectId = searchParams.get('projectId');
   const lastPidRef = useRef<string | null>(null);
+  // StrictMode 双执行共享同一次创建请求，避免重复建画布；失败后清空以允许重试
+  const createPromiseRef = useRef<Promise<{ id: string; name: string }> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,18 +144,24 @@ export function CanvasPage() {
             // 无参路径：项目已删除/无权 → 清 key → fallback 新建（loading 不中断，避免闪烁）
             localStorage.removeItem(PROJECT_ID_KEY);
             message.warning('上次的画布已不存在，已为你新建');
-            createUntitledProject()
+            createPromiseRef.current ??= createUntitledProject();
+            createPromiseRef.current
               .then(({ id, name }) => finish(id, name))
-              .catch(() => setLoadError('network'));
+              .catch(() => {
+                createPromiseRef.current = null;
+                setLoadError('network');
+              });
             return;
           }
           setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
         });
     } else {
       // Normal flow — create new project
-      createUntitledProject()
+      createPromiseRef.current ??= createUntitledProject();
+      createPromiseRef.current
         .then(({ id, name }) => finish(id, name))
         .catch(() => {
+          createPromiseRef.current = null;
           if (!cancelled) setLoadError('network');
         });
     }

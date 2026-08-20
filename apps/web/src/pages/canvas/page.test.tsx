@@ -470,6 +470,48 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('StrictMode 创建去重（Fix 9）', () => {
+    const createOk = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目1' } }),
+    };
+
+    it('StrictMode 双执行 effect 仅创建一次画布', async () => {
+      mockFetch.mockResolvedValue(createOk);
+
+      render(
+        <React.StrictMode>
+          <MemoryRouter><CanvasPage /></MemoryRouter>
+        </React.StrictMode>,
+      );
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(1);
+      expect(String(posts[0][0])).toContain('/api/canvases');
+    });
+
+    it('创建失败后重试可重新创建（共享 promise 失败即重置）', async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      mockFetch.mockResolvedValue(createOk);
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('重试')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('重试'));
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(2);
+    });
+  });
+
   it('should show add node menu when + button is clicked', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
