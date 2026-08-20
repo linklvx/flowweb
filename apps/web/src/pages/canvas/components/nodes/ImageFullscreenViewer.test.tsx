@@ -27,6 +27,22 @@ describe('ImageFullscreenViewer', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  it('does not throw when nodeData is undefined (refresh restore race)', () => {
+    expect(() =>
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={undefined as unknown as ImageNodeData}
+          triggerRef={{ current: null }}
+        />,
+      ),
+    ).not.toThrow();
+    expect(screen.getByText('暂无提示词')).toBeInTheDocument();
+    expect(screen.getAllByText('未知').length).toBeGreaterThanOrEqual(3);
+  });
+
   it('renders the fullscreen dialog when open', () => {
     render(
       <ImageFullscreenViewer

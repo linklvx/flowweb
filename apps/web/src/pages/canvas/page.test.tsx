@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useNavigate } from 'react-router';
+import React from 'react';
+import { message } from 'antd';
 import { CanvasPage } from './page';
 import { useMenuStore } from '@/stores/menuStore';
 
@@ -12,11 +14,19 @@ vi.mock('@/components/AuthProvider', () => ({
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
+// 按用例注入 canvasStore 节点（模拟"canvasStore 有节点但 nodeStore 无对应数据"的刷新竞态）
+let mockCanvasNodes: any[] = [];
+
+const { useCanvasStoreSetState, useNodeStoreSetState } = vi.hoisted(() => ({
+  useCanvasStoreSetState: vi.fn(),
+  useNodeStoreSetState: vi.fn(),
+}));
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
       const state = {
-        nodes: [],
+        nodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
@@ -34,16 +44,17 @@ vi.mock('@/stores/canvasStore', () => ({
     {
       subscribe: vi.fn(() => vi.fn()),
       getState: vi.fn(() => ({
-        nodes: [],
+        nodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         updateViewport: vi.fn(),
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         setProjectId: vi.fn(),
+        setNodeDraggable: vi.fn(),
         nodeProcessMap: {},
       })),
-      setState: vi.fn(),
+      setState: useCanvasStoreSetState,
     }
   ),
 }));
@@ -57,7 +68,14 @@ vi.mock('@/stores/nodeStore', () => ({
     }),
     {
       subscribe: vi.fn(() => vi.fn()),
-      setState: vi.fn(),
+      getState: vi.fn(() => ({
+        nodes: {},
+        activeTransformNodeId: null,
+        activeEditNodeId: null,
+        setActiveTransformNodeId: vi.fn(),
+        setActiveEditNodeId: vi.fn(),
+      })),
+      setState: useNodeStoreSetState,
     }
   ),
 }));
@@ -130,6 +148,7 @@ describe('CanvasPage', () => {
   beforeEach(() => {
     localStorage.clear();
     useMenuStore.setState({ isOpen: false });
+    mockCanvasNodes = [];
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -153,6 +172,299 @@ describe('CanvasPage', () => {
     const { container } = render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
       expect(container.querySelector('.react-flow')).toBeInTheDocument();
+    });
+  });
+
+  it('should not crash when canvas node has no nodeStore data (refresh restore race)', async () => {
+    mockCanvasNodes = [
+      { id: 'node_x1', type: 'imageGen', position: { x: 0, y: 0 }, data: {}, selected: false },
+    ];
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    // ImageGenNode 渲染（nodeStore 无 node_x1 数据 → nodeData undefined）不应抛错
+    expect(document.querySelector('.react-flow__node')).toBeInTheDocument();
+  });
+
+  describe('loadProjectIntoStore 双防护（Fix 3）', () => {
+    const emptyDbResponse = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+    };
+
+    it('StrictMode 下迟到的前次响应不覆盖 store（cancelled 守卫）', async () => {
+      let resolveA!: (v: any) => void;
+      const nodeFromA = [{ id: 'stale-node', type: 'imageGen', position: { x: 0, y: 0 }, data: {} }];
+      mockFetch.mockImplementationOnce(() => new Promise((r) => { resolveA = r; })); // fetch A：慢
+      mockFetch.mockImplementationOnce(() => Promise.resolve(emptyDbResponse));      // fetch B：快
+
+      render(
+        <MemoryRouter initialEntries={['/canvas?projectId=p1']}>
+          <React.StrictMode><CanvasPage /></React.StrictMode>
+        </MemoryRouter>,
+      );
+      // fetch B（有效）先完成 → 画布渲染
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      // fetch A（已取消）迟到返回带节点的数据 → 不应写入 store
+      const setStateCallsBefore = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls.length;
+      resolveA({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', nodes: nodeFromA, edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const calls = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls;
+      const staleWrite = calls.slice(setStateCallsBefore).some((args: any[]) =>
+        args[0]?.nodes?.some((n: any) => n.id === 'stale-node'),
+      );
+      expect(staleWrite).toBe(false);
+    });
+
+    it('DB 空节点且 localStorage 有数据时不覆盖 store（DB 空守卫）', async () => {
+      localStorage.setItem('flowweb_canvas_content_p1', JSON.stringify({ n1: { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } }));
+      mockFetch.mockResolvedValue(emptyDbResponse);
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      (useNodeStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      // 全量形状（nodes+edges+viewport）写入仅 Fix 5 清空 1 次，DB 空响应未二次覆盖
+      const fullWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s);
+      expect(fullWrites).toHaveLength(1);
+      expect(fullWrites[0][0].nodes).toEqual([]);
+      // nodeStore 侧仅清空 1 次空对象；恢复 effect 写入的是本地非空数据，不计入
+      const emptyNodeWrites = (useNodeStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => s?.nodes && Object.keys(s.nodes).length === 0);
+      expect(emptyNodeWrites).toHaveLength(1);
+    });
+
+    it('DB 空节点且本地也空时正常写入空（新建首载）', async () => {
+      mockFetch.mockResolvedValue(emptyDbResponse);
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      // Fix 5 清空(1) + DB 空数据正常写入(1)
+      const fullWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s);
+      expect(fullWrites).toHaveLength(2);
+    });
+
+    it('content key 为截断 JSON 时不抛错且脏 key 被清除', async () => {
+      localStorage.setItem('flowweb_canvas_content_p1', '{"n1": {"prompt": "trunc');
+      mockFetch.mockResolvedValue(emptyDbResponse);
+
+      let renderError: Error | null = null;
+      try {
+        render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+        await waitFor(() => {
+          expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+        });
+      } catch (e) {
+        renderError = e as Error;
+      }
+      expect(renderError).toBeNull();
+      expect(localStorage.getItem('flowweb_canvas_content_p1')).toBeNull();
+    });
+  });
+
+  describe('恢复最近项目与分级降级（Fix 1）', () => {
+    const dbOkResponse = (id: string) => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { id, name: 'DB画布', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+    });
+    const createOkResponse = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { id: 'new-pid', name: '未命名项目' } }),
+    };
+
+    it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockResolvedValue(dbOkResponse('p1'));
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(0);
+      const gets = mockFetch.mock.calls.filter((c: any[]) => !c[1]);
+      expect(gets.some((c: any[]) => String(c[0]).includes('/api/projects/p1'))).toBe(true);
+    });
+
+    it('无参且 key 不存在时新建项目（现有行为回归）', async () => {
+      mockFetch.mockResolvedValue(createOkResponse);
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBeGreaterThan(0);
+    });
+
+    it('无参 404 时清 key 并 fallback 新建且提示', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      const warnSpy = vi.spyOn(message, 'warning').mockImplementation(() => ({}) as never);
+      // 第一次 GET 404，之后 POST 新建成功
+      mockFetch.mockImplementation((url: any, init?: any) => {
+        if (init?.method === 'POST') return Promise.resolve(createOkResponse);
+        return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ code: -1 }) });
+      });
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      expect(localStorage.getItem('flowweb_projectId')).toBe('new-pid');
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('无参网络错误时进入错误态，保留 key 不自动新建', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('重试')).toBeInTheDocument();
+      });
+
+      expect(localStorage.getItem('flowweb_projectId')).toBe('p1');
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(0);
+      // G：失败后 loading 态消失
+      expect(screen.queryByText('加载画布...')).not.toBeInTheDocument();
+    });
+
+    it('错误态点重试成功后进入画布', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      mockFetch.mockResolvedValue(dbOkResponse('p1'));
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('重试')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('重试'));
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('重试')).not.toBeInTheDocument();
+    });
+
+    it('有参 404 时进入错误态且提供返回工作空间，不清 key 不新建', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({ code: -1 }) });
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('返回工作空间')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('加载画布...')).not.toBeInTheDocument();
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(0);
+    });
+  });
+
+  describe('项目切换清空 store（Fix 5）', () => {
+    const paNode = { id: 'node_pa', type: 'imageGen', position: { x: 1, y: 1 }, data: {} };
+    const dbWithNode = (id: string, nodeId: string) => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { id, name: 'X', nodes: [{ id: nodeId, type: 'imageGen', position: { x: 0, y: 0 }, data: {} }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+    });
+    const isFullClear = (s: any) => Array.isArray(s?.nodes) && s.nodes.length === 0 && 'edges' in s && 'viewport' in s;
+
+    function SwitchHarness() {
+      const navigate = useNavigate();
+      return (
+        <div>
+          <button type="button" onClick={() => navigate('/canvas?projectId=pb')}>去P_b</button>
+          <CanvasPage />
+        </div>
+      );
+    }
+
+    it('SPA 原地切换项目时先清空 store 再加载（P_a 残留不进入 P_b）', async () => {
+      mockCanvasNodes = [paNode];
+      mockFetch.mockResolvedValue(dbWithNode('pb', 'node_pb'));
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=pa']}><SwitchHarness /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      (useNodeStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      fireEvent.click(screen.getByText('去P_b'));
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const calls = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      // 清空（空 nodes）必须先于加载写入（node_pb）
+      expect(calls[0][0]?.nodes).toEqual([]);
+      expect(calls.some((c: any[]) => c[0]?.nodes?.some((n: any) => n.id === 'node_pb'))).toBe(true);
+      expect(calls.some((c: any[]) => c[0]?.nodes?.some((n: any) => n.id === 'node_pa'))).toBe(false);
+      expect((useNodeStoreSetState as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({ nodes: {} });
+    });
+
+    it('同项目网络错误重试不二次清空', async () => {
+      mockCanvasNodes = [paNode];
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      mockFetch.mockResolvedValue({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      });
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('重试')).toBeInTheDocument();
+      });
+
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      fireEvent.click(screen.getByText('重试'));
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const clearCalls = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => isFullClear(s));
+      expect(clearCalls).toHaveLength(0);
+    });
+
+    it('无参新建路径先清空残留（首页开始创作场景）', async () => {
+      mockCanvasNodes = [paNode];
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      // beforeEach 已清 localStorage → 无 key → 走创建路径
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const calls = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0][0]?.nodes).toEqual([]);
     });
   });
 

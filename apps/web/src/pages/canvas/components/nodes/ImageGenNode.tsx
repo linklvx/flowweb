@@ -977,6 +977,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
 
+  // 刷新恢复竞态：canvasStore 有节点但 nodeStore 尚无数据时不渲染，避免下游组件收到 undefined
+  if (!nodeData) return null;
+
   return (
     <div className="relative canvas-node">
       {/* Hidden file input — shared by floating upload + replace buttons */}

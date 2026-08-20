@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router';
+import { message } from 'antd';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { AddNodeMenu } from './components/AddNodeMenu';
@@ -33,11 +34,51 @@ async function ensureProject(): Promise<{ id: string; name: string }> {
   throw new Error('Failed to create project');
 }
 
-async function loadProjectIntoStore(projectId: string): Promise<string> {
+const STORAGE_KEY = 'flowweb_canvas';
+
+class ProjectInaccessibleError extends Error {}
+class ProjectLoadError extends Error {}
+
+// 脏数据防御：解析失败 = 无本地数据，并清除脏 key
+function safeParseLocalNodes(key: string, isContentKey: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return isContentKey
+      ? Object.keys(parsed).length > 0
+      : parsed?.nodes?.length > 0;
+  } catch {
+    localStorage.removeItem(key);
+    return false;
+  }
+}
+
+async function loadProjectIntoStore(
+  projectId: string,
+  isCancelled?: () => boolean,
+): Promise<string> {
   const res = await fetch(`/api/projects/${projectId}`);
+  if (res.status === 404 || res.status === 403) throw new ProjectInaccessibleError();
+  if (!res.ok) throw new ProjectLoadError();
   const json = await res.json();
   if (json.code !== 0 || !json.data) return '未命名项目';
   const project = json.data;
+
+  // DB 空守卫：写库链路未生效期间 DB 空不代表画布空，本地已有数据时不覆盖
+  if (!(project.nodes?.length)) {
+    const canvasHasNodes = useCanvasStore.getState().nodes.length > 0;
+    const localHasNodes =
+      safeParseLocalNodes(`${STORAGE_KEY}_${projectId}`, false) ||
+      safeParseLocalNodes(`${STORAGE_KEY}_content_${projectId}`, true);
+    if (canvasHasNodes || localHasNodes) {
+      return project.name || '未命名项目';
+    }
+  }
+
+  // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
+  if (isCancelled?.()) return project.name || '未命名项目';
+
   // Restore canvas state from DB project
   useCanvasStore.setState({
     nodes: (project.nodes || []).map((n: any) => ({
@@ -68,26 +109,108 @@ async function loadProjectIntoStore(projectId: string): Promise<string> {
 
 export function CanvasPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('未命名项目');
+  const [loadError, setLoadError] = useState<'inaccessible' | 'network' | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  const queryProjectId = searchParams.get('projectId');
+  const lastPidRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const queryProjectId = searchParams.get('projectId');
-    if (queryProjectId) {
-      // Imported template — load project from DB into canvas store
-      localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
-      loadProjectIntoStore(queryProjectId).then((name) => {
-        setProjectId(queryProjectId);
-        setProjectName(name);
-      });
+    let cancelled = false;
+    setLoadError(null);
+
+    // 项目切换/新建前同步清空模块级 store 残留，否则残留会骗过下方 DB 空守卫（Bug 3）
+    const storedId = queryProjectId || localStorage.getItem(PROJECT_ID_KEY);
+    const target = storedId ?? null;
+    if (target === null || target !== lastPidRef.current) {
+      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+      useNodeStore.setState({ nodes: {} });
+    }
+    lastPidRef.current = target;
+
+    const finish = (id: string, name: string) => {
+      if (cancelled) return;
+      setProjectId(id);
+      setProjectName(name);
+    };
+
+    // 优先 query 参数（工作空间/模板导入），否则恢复最近项目
+    if (storedId) {
+      if (queryProjectId) localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
+      loadProjectIntoStore(storedId, () => cancelled)
+        .then((name) => finish(storedId, name))
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          if (e instanceof ProjectInaccessibleError && !queryProjectId) {
+            // 无参路径：项目已删除/无权 → 清 key → fallback 新建（loading 不中断，避免闪烁）
+            localStorage.removeItem(PROJECT_ID_KEY);
+            message.warning('上次的画布已不存在，已为你新建');
+            ensureProject()
+              .then(({ id, name }) => finish(id, name))
+              .catch(() => setLoadError('network'));
+            return;
+          }
+          setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
+        });
     } else {
       // Normal flow — create new project
-      ensureProject().then(({ id, name }) => {
-        setProjectId(id);
-        setProjectName(name);
-      });
+      ensureProject()
+        .then(({ id, name }) => finish(id, name))
+        .catch(() => {
+          if (!cancelled) setLoadError('network');
+        });
     }
-  }, [searchParams]);
+    return () => {
+      cancelled = true;
+    };
+  }, [queryProjectId, retryKey]);
+
+  const handleRetry = () => setRetryKey((k) => k + 1);
+  const handleCreateNew = () => {
+    localStorage.removeItem(PROJECT_ID_KEY);
+    setLoadError(null);
+    setRetryKey((k) => k + 1);
+  };
+
+  if (loadError) {
+    const isInaccessible = loadError === 'inaccessible';
+    return (
+      <div className="flex h-screen bg-[#0f0f0f] flex-col items-center justify-center gap-5">
+        <span className="text-white/70 text-sm">
+          {isInaccessible ? '画布不存在或无权访问' : '画布加载失败，请检查网络后重试'}
+        </span>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+          >
+            重试
+          </button>
+          {isInaccessible ? (
+            <button
+              type="button"
+              onClick={() => navigate('/works')}
+              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+            >
+              返回工作空间
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCreateNew}
+              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+            >
+              新建画布
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // 等待项目就绪后才渲染
   if (!projectId) {

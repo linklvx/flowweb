@@ -66,10 +66,13 @@ export function useCanvasPersistence(projectId: string) {
     });
 
     const unsub2 = useNodeStore.subscribe((state) => {
-      localStorage.setItem(
-        `${STORAGE_KEY}_content_${projectId}`,
-        JSON.stringify(state.nodes)
-      );
+      const key = `${STORAGE_KEY}_content_${projectId}`;
+      // 防污染：store 被动清空（如迟到空响应覆盖）时不回写，避免覆盖非空缓存
+      if (Object.keys(state.nodes).length === 0) {
+        const existing = localStorage.getItem(key);
+        if (existing && existing !== '{}') return;
+      }
+      localStorage.setItem(key, JSON.stringify(state.nodes));
     });
 
     return () => {

@@ -7,7 +7,7 @@ interface ImageFullscreenViewerProps {
   open: boolean;
   onClose: () => void;
   displayUrl: string | undefined;
-  nodeData: ImageNodeData;
+  nodeData: ImageNodeData | undefined;
   triggerRef: React.RefObject<HTMLButtonElement>;
 }
 
@@ -107,10 +107,10 @@ function ImageFullscreenViewerComponent({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [fullBleedOpen]);
 
-  const prompt = nodeData.prompt?.text?.trim() || '';
-  const model = nodeData.model || '未知';
-  const quality = nodeData.quality || '未知';
-  const ratio = nodeData.ratio || '未知';
+  const prompt = nodeData?.prompt?.text?.trim() || '';
+  const model = nodeData?.model || '未知';
+  const quality = nodeData?.quality || '未知';
+  const ratio = nodeData?.ratio || '未知';
   const sizeDisplay = imgSize || '未知';
 
   const downloadDisabled = !displayUrl || downloading;
