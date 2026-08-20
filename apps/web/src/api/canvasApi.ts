@@ -3,6 +3,7 @@ import { apiFetch } from './client';
 export interface CreateCanvasResult {
   templateId: string;
   projectId: string;
+  name: string;
 }
 
 export function createCanvas(name: string, folderId: string | null) {

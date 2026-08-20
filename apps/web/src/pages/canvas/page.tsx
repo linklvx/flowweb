@@ -17,21 +17,15 @@ import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { createCanvas } from '@/api/canvasApi';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
-async function ensureProject(): Promise<{ id: string; name: string }> {
-  const res = await fetch('/api/projects', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: '未命名项目' }),
-  });
-  const json = await res.json();
-  if (json.code === 0 && json.data?.id) {
-    localStorage.setItem(PROJECT_ID_KEY, json.data.id);
-    return { id: json.data.id, name: json.data.name || '未命名项目' };
-  }
-  throw new Error('Failed to create project');
+// 空名创建：编号由后端生成，画布进入工作空间根目录
+async function createUntitledProject(): Promise<{ id: string; name: string }> {
+  const { projectId, name } = await createCanvas('', null);
+  localStorage.setItem(PROJECT_ID_KEY, projectId);
+  return { id: projectId, name };
 }
 
 const STORAGE_KEY = 'flowweb_canvas';
@@ -148,7 +142,7 @@ export function CanvasPage() {
             // 无参路径：项目已删除/无权 → 清 key → fallback 新建（loading 不中断，避免闪烁）
             localStorage.removeItem(PROJECT_ID_KEY);
             message.warning('上次的画布已不存在，已为你新建');
-            ensureProject()
+            createUntitledProject()
               .then(({ id, name }) => finish(id, name))
               .catch(() => setLoadError('network'));
             return;
@@ -157,7 +151,7 @@ export function CanvasPage() {
         });
     } else {
       // Normal flow — create new project
-      ensureProject()
+      createUntitledProject()
         .then(({ id, name }) => finish(id, name))
         .catch(() => {
           if (!cancelled) setLoadError('network');

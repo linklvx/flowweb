@@ -152,7 +152,7 @@ describe('CanvasPage', () => {
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', name: '我的画布' } }),
+      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', projectId: 'test-pid-123', templateId: 't-1', name: '我的画布' } }),
     });
   });
 
@@ -290,7 +290,7 @@ describe('CanvasPage', () => {
     const createOkResponse = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { id: 'new-pid', name: '未命名项目' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4' } }),
     };
 
     it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
@@ -308,7 +308,7 @@ describe('CanvasPage', () => {
       expect(gets.some((c: any[]) => String(c[0]).includes('/api/projects/p1'))).toBe(true);
     });
 
-    it('无参且 key 不存在时新建项目（现有行为回归）', async () => {
+    it('无参且 key 不存在时新建项目（统一走 canvases API）', async () => {
       mockFetch.mockResolvedValue(createOkResponse);
 
       render(<MemoryRouter><CanvasPage /></MemoryRouter>);
@@ -317,6 +317,8 @@ describe('CanvasPage', () => {
       });
       const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
       expect(posts.length).toBeGreaterThan(0);
+      expect(String(posts[0][0])).toContain('/api/canvases');
+      expect(localStorage.getItem('flowweb_projectId')).toBe('new-pid');
     });
 
     it('无参 404 时清 key 并 fallback 新建且提示', async () => {
