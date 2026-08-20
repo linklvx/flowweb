@@ -1,4 +1,4 @@
-import { useNodeStore, isImageNode, type ImageItem } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, type ImageItem, type ImageNodeData, type VideoNodeData } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { getMediaUrl } from '@/api/mediaApi';
 import { compressAccurately } from 'image-conversion';
@@ -8,9 +8,11 @@ export function useImageUpload(nodeId: string) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
 
   function getLatestAllImages(): ImageItem[] {
-    return (
-      useNodeStore.getState().nodes[nodeId]?.data?.prompt?.allImages ?? []
-    );
+    const data = useNodeStore.getState().nodes[nodeId]?.data as
+      | ImageNodeData
+      | VideoNodeData
+      | undefined;
+    return data?.prompt?.allImages ?? [];
   }
 
   const updatePromptImages = (allImages: ImageItem[]) => {
@@ -40,14 +42,14 @@ export function useImageUpload(nodeId: string) {
       updatePromptImages([...getLatestAllImages(), tempItem]);
 
       // Compress if > 2MB
-      let uploadFile = file;
+      let uploadFile: Blob = file;
       if (file.size > 2 * 1024 * 1024) {
         uploadFile = await compressAccurately(file, 2 * 1024 * 1024);
       }
 
-      // Presign
+      // Presign — 压缩产物是裸 Blob（无 name），文件名一律取原始 file
       const presign = await presignUpload({
-        fileName: uploadFile.name,
+        fileName: file.name,
         fileSize: uploadFile.size,
         fileType: uploadFile.type || 'image/png',
         type: 'uploaded',
@@ -56,7 +58,7 @@ export function useImageUpload(nodeId: string) {
       // Build FormData
       const formData = new FormData();
       Object.entries(presign.fields).forEach(([k, v]) => formData.append(k, v));
-      formData.append('file', uploadFile);
+      formData.append('file', uploadFile, file.name);
 
       // Proxy URL rewrite for dev
       const proxyUrl = presign.uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');

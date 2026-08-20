@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useNodeStore, NODE_TYPES, type AppNode } from './nodeStore';
+import { useNodeStore, NODE_TYPES, type AppNode, type VideoNodeData } from './nodeStore';
 
-function createVideoNode(overrides?: Partial<AppNode['data']>): AppNode {
+function createVideoNode(overrides?: Partial<VideoNodeData>): AppNode {
   return {
     id: 'test-video-node-1',
     type: NODE_TYPES.VIDEO_GEN,
@@ -30,7 +30,7 @@ describe('nodeStore — video trim actions', () => {
 
       useNodeStore.getState().updateVideoTrim(node.id, 5.2, 18.7);
 
-      const updated = useNodeStore.getState().getNodeData<AppNode['data']>(node.id);
+      const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
       expect(updated?.trimStart).toBe(5.2);
       expect(updated?.trimEnd).toBe(18.7);
     });
@@ -50,7 +50,7 @@ describe('nodeStore — video trim actions', () => {
 
       useNodeStore.getState().setTrimTaskStatus(node.id, 'processing');
 
-      const updated = useNodeStore.getState().getNodeData<AppNode['data']>(node.id);
+      const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
       expect(updated?.trimTaskStatus).toBe('processing');
     });
 
@@ -68,7 +68,7 @@ describe('nodeStore — video trim actions', () => {
 
       useNodeStore.getState().setTrimmedResult(node.id, 'trimmed-file-xyz');
 
-      const updated = useNodeStore.getState().getNodeData<AppNode['data']>(node.id);
+      const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
       expect(updated?.trimmedFileId).toBe('trimmed-file-xyz');
       expect(updated?.trimTaskStatus).toBe('done');
     });

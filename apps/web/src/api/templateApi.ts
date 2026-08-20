@@ -53,5 +53,5 @@ export function deleteTemplate(id: string) {
 }
 
 export function importTemplate(id: string) {
-  return request(`/${id}/import`, { method: 'POST' });
+  return request<{ id: string }>(`/${id}/import`, { method: 'POST' });
 }

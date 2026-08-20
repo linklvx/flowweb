@@ -25,7 +25,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
         ratio: '16:9',
         resolution: '2K',
         quality: 'standard',
-        prompt: { text: 'a beautiful sunset', html: '<p>a beautiful sunset</p>' },
+        prompt: { text: 'a beautiful sunset', html: '<p>a beautiful sunset</p>', allImages: [], referencedImageIds: [] },
         allImages: [],
       } as ImageNodeData,
     };
@@ -43,7 +43,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
       data: {
         status: 'idle',
         model: 'flux',
-        prompt: { text: '', html: '' },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
         allImages: [
           { id: 'ref-1', url: '/img1.png', name: 'ref1.png', status: 'success' },
           { id: 'ref-2', url: '/img2.png', name: 'ref2.png', status: 'success' },
@@ -54,7 +54,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
 
     const params = buildImageGenParams('img2');
     expect(params.allImages).toHaveLength(2);
-    expect(params.allImages).toEqual(node.data.allImages);
+    expect(params.allImages).toEqual((node.data as ImageNodeData).allImages);
   });
 
   it('should include model, ratio, resolution, quality from node data', () => {
@@ -68,7 +68,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
         ratio: '9:16',
         resolution: '4K',
         quality: 'high',
-        prompt: { text: 'test', html: '<p>test</p>' },
+        prompt: { text: 'test', html: '<p>test</p>', allImages: [], referencedImageIds: [] },
         allImages: [],
       } as ImageNodeData,
     };
@@ -89,7 +89,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
       data: {
         status: 'idle',
         model: 'sdxl',
-        prompt: { text: '', html: '' },
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
     useNodeStore.getState().addNode(node);

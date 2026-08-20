@@ -86,6 +86,7 @@ export interface ImageItem {
 
 export interface PromptValue {
   text: string;
+  html: string;
   allImages: ImageItem[];
   referencedImageIds: string[];
 }
@@ -101,6 +102,7 @@ export interface ImageNodeData {
   // —— 根级通用 ——
   fileId?: string;
   referenceImage?: string;
+  mediaName?: string;
   status: 'idle' | 'loading' | 'done' | 'error';
   imageRotation?: 0 | 90 | 180 | 270;
   flipH?: boolean;
@@ -122,6 +124,9 @@ export interface ImageNodeData {
   // —— imageExtGen 专属 ——
   extConfig?: ImageExtConfig;
   aiTool?: AiToolId;
+
+  // —— 变换保存流程写入的标记（ImageGenNode）——
+  isSaving?: boolean;
 }
 
 export interface VideoNodeData {
@@ -132,6 +137,8 @@ export interface VideoNodeData {
   aspectRatio?: number;
   referenceVideo?: string;
   ratio?: string;
+  prompt?: PromptValue;
+  allImages?: ImageItem[];
   trimStart?: number;
   trimEnd?: number;
   trimTaskStatus?: 'idle' | 'processing' | 'done' | 'error';
@@ -235,7 +242,7 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     quality: 'standard',
     ratio: '16:9',
     resolution: '2K',
-    prompt: { text: '', html: '' },
+    prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
   };
 
   const merged = { ...(existing ?? {}) };
@@ -274,7 +281,7 @@ interface NodeState {
   deleteNode: (nodeId: string) => Promise<void>;
 
   updateText: (id: string, content: string) => void;
-  updateConfig: (id: string, config: Partial<ImageNodeData>) => void;
+  updateConfig: (id: string, config: Partial<NodeData>) => void;
   updateExtConfig: (id: string, partial: Partial<ImageExtConfig>) => void;
   setStatus: (id: string, status: ImageNodeData['status']) => void;
   setFileResult: (id: string, fileId: string) => void;
@@ -520,7 +527,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           position: existing?.position ?? { x: 0, y: 0 },
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: mergeNodeData(existing?.data, config, nodeType),
+          data: mergeNodeData(existing?.data, config, nodeType) as NodeData,
         },
       },
     }));

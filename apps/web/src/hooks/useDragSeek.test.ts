@@ -4,7 +4,13 @@ import { useDragSeek } from './useDragSeek';
 
 describe('useDragSeek', () => {
   let canvas: HTMLCanvasElement;
-  let wavesurfer: { seekTo: ReturnType<typeof vi.fn>; getCurrentTime: ReturnType<typeof vi.fn> };
+  let wavesurfer: {
+    seekTo: ReturnType<typeof vi.fn>;
+    getCurrentTime: ReturnType<typeof vi.fn>;
+    isPlaying: ReturnType<typeof vi.fn>;
+    pause: ReturnType<typeof vi.fn>;
+    play: ReturnType<typeof vi.fn>;
+  };
   let windowRemoveSpy: ReturnType<typeof vi.spyOn>;
   let windowListeners: Map<string, EventListener>;
 

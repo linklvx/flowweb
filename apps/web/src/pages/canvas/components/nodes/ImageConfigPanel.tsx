@@ -132,7 +132,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
           nodeId={nodeId}
           value={{ text: prompt.text || '', html: prompt.html || '', allImages, referencedImageIds: [] }}
           allImages={allImages}
-          onChange={(newPrompt) => updateConfig(nodeId, { prompt: { text: newPrompt.text, html: newPrompt.html } })}
+          onChange={(newPrompt) => updateConfig(nodeId, { prompt: { text: newPrompt.text, html: newPrompt.html, allImages: [], referencedImageIds: [] } })}
           onAllImagesChange={(images) => updatePromptImages(nodeId, images)}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}

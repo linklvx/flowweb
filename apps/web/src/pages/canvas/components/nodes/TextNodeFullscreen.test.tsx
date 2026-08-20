@@ -86,10 +86,10 @@ describe('TextNodeFullscreen', () => {
   it('should call editor chain on bold click', () => {
     const editor = createMockEditor();
     const chainSpy = vi.fn();
-    editor.chain = () => {
+    editor.chain = (() => {
       chainSpy();
       return { focus: () => ({ toggleBold: () => ({ run: vi.fn() }) }) };
-    };
+    }) as unknown as typeof editor.chain;
 
     render(<TextNodeFullscreen {...defaultProps} editor={editor} />);
     fireEvent.click(screen.getByLabelText('加粗'));

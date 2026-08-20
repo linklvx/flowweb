@@ -213,7 +213,7 @@ interface SubGridPanelProps {
   onHover: (r: number, c: number) => void;
   onMouseLeave: () => void;
   onCommit: (r: number, c: number) => void;
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: React.RefObject<HTMLDivElement>;
 }
 
 function SubGridPanel({
@@ -340,7 +340,7 @@ function ImageNodeToolbarComponent({
   const [previewRows, setPreviewRows] = useState(0);
   const [previewCols, setPreviewCols] = useState(0);
   const subCloseTimerRef = useRef<number>(0);
-  const subPanelRef = useRef<HTMLDivElement | null>(null);
+  const subPanelRef = useRef<HTMLDivElement>(null);
   const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
   const [aiToolPopupOpen, setAiToolPopupOpen] = useState(false);
   const aiToolBtnRef = useRef<HTMLDivElement>(null);

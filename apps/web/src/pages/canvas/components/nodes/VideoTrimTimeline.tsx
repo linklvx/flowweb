@@ -93,7 +93,7 @@ export function VideoTrimTimeline({
       const onUp = (ev: PointerEvent) => {
         const d = dragRef.current;
         dragRef.current = null;
-        if (d?.rafId !== null) {
+        if (d && d.rafId !== null) {
           cancelAnimationFrame(d.rafId);
         }
         // Fire final value synchronously to ensure convergence

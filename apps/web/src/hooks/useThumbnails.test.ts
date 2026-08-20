@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 // We import the module under test after setting up mocks
@@ -79,7 +79,7 @@ function createMockCanvas() {
 describe('useThumbnails', () => {
   let mockVideo: ReturnType<typeof createMockVideo>;
   let mockCanvas: ReturnType<typeof createMockCanvas>;
-  let createElementSpy: ReturnType<typeof vi.spyOn>;
+  let createElementSpy: MockInstance;
 
   beforeEach(async () => {
     mockVideo = createMockVideo('');

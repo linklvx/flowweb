@@ -7,7 +7,7 @@ import React, {
   createElement,
 } from 'react';
 import './PromptInput.css';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, type NodeViewRendererProps } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Mention from '@tiptap/extension-mention';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -31,7 +31,7 @@ interface PromptInputProps {
   nodeId: string;
   value: PromptValue;
   onChange: (value: PromptValue) => void;
-  onCommandSelect: (command: CommandItem) => void;
+  onCommandSelect?: (command: CommandItem) => void;
   onGenerate?: () => void;
 
   // Phase 3
@@ -56,7 +56,6 @@ function createImageSuggestionRenderer() {
     onStart: (props: any) => void;
     onUpdate: (props: any) => void;
     onExit: () => void;
-    command: (props: any) => void;
   } => {
     let popupElement: HTMLDivElement | null = null;
     let popupRoot: ReturnType<typeof createRoot> | null = null;
@@ -104,7 +103,7 @@ function createImageSuggestionRenderer() {
  * Renders CommandMentionList into a document.body portal via createRoot.
  */
 function createNativeSuggestionRenderer(
-  onCommandSelect: (command: CommandItem) => void,
+  onCommandSelect?: (command: CommandItem) => void,
 ) {
   return (): {
     onStart: (props: any) => void;
@@ -163,7 +162,7 @@ function createNativeSuggestionRenderer(
             attrs: { id: props.id, label: props.name },
           })
           .run();
-        onCommandSelect(props);
+        onCommandSelect?.(props);
       },
     };
   };
@@ -179,7 +178,7 @@ function createNativeSuggestionRenderer(
  */
 function useCommandChipSync(
   editor: ReturnType<typeof useEditor>,
-  onCommandSelect: (command: CommandItem) => void,
+  onCommandSelect?: (command: CommandItem) => void,
 ) {
   useEffect(() => {
     if (!editor) return;
@@ -202,7 +201,7 @@ function useCommandChipSync(
         const defaultValue =
           CATEGORY_DEFAULTS[category as keyof typeof CATEGORY_DEFAULTS];
         if (defaultValue) {
-          onCommandSelect({ category, value: defaultValue } as CommandItem);
+          onCommandSelect?.({ category, value: defaultValue } as CommandItem);
         }
       });
     };
@@ -266,7 +265,7 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
           inline: true,
           group: 'inline',
           addNodeView() {
-            return ({ node }: { node: { attrs: { src: string } } }) => {
+            return ({ node }: NodeViewRendererProps) => {
               const dom = document.createElement('span');
               dom.className = 'image-chip';
               dom.setAttribute('contenteditable', 'false');

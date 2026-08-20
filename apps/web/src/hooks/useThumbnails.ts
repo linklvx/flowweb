@@ -145,7 +145,7 @@ export function useThumbnails({
         }
 
         if (!cancelled && isMountedRef.current && collected.length > 0) {
-          setCache(videoSrc, collected);
+          setCache(videoSrc!, collected);
           setThumbnails(collected);
           setLoading(false);
         }

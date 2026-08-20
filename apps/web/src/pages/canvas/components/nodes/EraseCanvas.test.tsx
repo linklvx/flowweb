@@ -82,7 +82,7 @@ function createMockContext(): CanvasRenderingContext2D {
     direction: 'inherit' as CanvasDirection,
     letterSpacing: '0px',
     fontKerning: 'auto' as CanvasFontKerning,
-    fontStretch: 'normal' as CanvasFontStretching,
+    fontStretch: 'normal' as CanvasFontStretch,
     fontVariantCaps: 'normal' as CanvasFontVariantCaps,
     textRendering: 'auto' as CanvasTextRendering,
     wordSpacing: '0px',

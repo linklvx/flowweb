@@ -169,7 +169,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   }, [selectNode]);
 
   const onPaneContextMenu = useCallback(
-    (event: React.MouseEvent) => {
+    (event: MouseEvent | React.MouseEvent) => {
       event.preventDefault();
       useMenuStore.getState().open({ x: event.clientX, y: event.clientY });
     },

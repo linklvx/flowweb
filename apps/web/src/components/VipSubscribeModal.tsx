@@ -311,7 +311,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
 
   // —— Escape key ——
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopImmediatePropagation();

@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, type VideoNodeData } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
@@ -137,7 +137,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     }
 
     promptRef.current?.forceSync();
-    const currentText = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
+    const currentText = useNodeStore.getState().getNodeData<VideoNodeData>(nodeId)?.prompt?.text || '';
     voiceBaseRef.current = currentText;
 
     const recognition = new SpeechRecognition();
@@ -174,7 +174,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   // Generate
   const handleGenerate = useCallback(async () => {
     promptRef.current?.forceSync();
-    const latestText = useNodeStore.getState().nodes[nodeId]?.data?.prompt?.text || '';
+    const latestText = useNodeStore.getState().getNodeData<VideoNodeData>(nodeId)?.prompt?.text || '';
     if (!latestText.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');

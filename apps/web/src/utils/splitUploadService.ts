@@ -132,7 +132,7 @@ export async function uploadSplitBlobs(
 
   // Filter null blobs (canvas crop failures) before queuing — reported as failed
   const queue = items
-    .filter(item => {
+    .filter((item): item is { blob: Blob; index: number } => {
       if (!item.blob) {
         failed.push({ index: item.index, error: '子图裁剪失败（浏览器渲染异常）' });
         return false;

@@ -136,7 +136,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: 'a cat', allImages: [], referencedImageIds: [] },
+        prompt: { text: 'a cat', html: '', allImages: [], referencedImageIds: [] },
       } as ImageNodeData,
     };
 
@@ -200,13 +200,13 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('16:9');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', html: '' });
+    expect(imgData.prompt).toEqual({ text: '', html: '', allImages: [], referencedImageIds: [] });
     expect(imgData.allImages).toEqual([]);
   });
 
   it('should persist prompt text via updateConfig', () => {
     useNodeStore.getState().updateConfig('img9', {
-      prompt: { text: 'hello world', html: '' },
+      prompt: { text: 'hello world', html: '', allImages: [], referencedImageIds: [] },
     });
     const stored = useNodeStore.getState().nodes['img9'];
     const imgData = stored.data as ImageNodeData;
@@ -448,7 +448,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: 'a cat', html: '' },
+        prompt: { text: 'a cat', html: '', allImages: [], referencedImageIds: [] },
         allImages: [],
       } as ImageNodeData,
     };
@@ -503,7 +503,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().updatePromptImages('vid-prompt', newImages);
 
     const stored = useNodeStore.getState().nodes['vid-prompt'];
-    expect(stored.data.allImages).toEqual(newImages);
+    expect((stored.data as VideoNodeData).allImages).toEqual(newImages);
   });
 
   // 21. updatePromptImages should noop for non-existent node
@@ -553,7 +553,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     // Simulate VideoConfigPanel saving a prompt
     useNodeStore.getState().updateConfig('vid-config', {
-      prompt: { text: 'a sunset', allImages: [], referencedImageIds: [] },
+      prompt: { text: 'a sunset', html: '', allImages: [], referencedImageIds: [] },
     });
 
     const stored = useNodeStore.getState().nodes['vid-config'];
@@ -561,7 +561,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     // Must preserve videoGen type — NOT overwrite to imageGen
     expect(stored.type).toBe('videoGen');
     // Data must include the updated prompt
-    expect(stored.data.prompt.text).toBe('a sunset');
+    expect((stored.data as VideoNodeData).prompt!.text).toBe('a sunset');
   });
 
   // ── activeTransformNodeId ──
@@ -696,9 +696,10 @@ describe('nodeStore (AppNode nested structure)', () => {
   describe('annotationState', () => {
     const penOp: PenOp = {
       type: 'pen',
-      points: [{ x: 10, y: 20, pressure: 0.5 }, { x: 30, y: 40, pressure: 0.5 }],
+      points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
       color: '#FF0000',
       lineWidth: 4,
+      effectivePressure: 0.5,
     };
 
     const rectOp: RectOp = {
@@ -954,7 +955,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         position: { x: 0, y: 0 },
         data: {
           status: 'idle',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'ext-model', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
         } as ImageNodeData,
@@ -971,7 +972,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         position: { x: 0, y: 0 },
         data: {
           status: 'idle',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
         } as ImageNodeData,
       };
@@ -988,7 +989,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         data: {
           status: 'idle',
           model: 'sdxl',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
         } as ImageNodeData,
       };
@@ -1007,7 +1008,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         data: {
           status: 'idle',
           model: 'sdxl',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
         } as ImageNodeData,
       };
@@ -1023,7 +1024,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         position: { x: 0, y: 0 },
         data: {
           status: 'idle',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'x' },
         } as ImageNodeData,
@@ -1058,7 +1059,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         position: { x: 0, y: 0 },
         data: {
           status: 'idle',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
           extConfig: {
             model: 'old-model',
@@ -1091,7 +1092,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         data: {
           status: 'idle',
           model: 'sdxl',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
         } as ImageNodeData,
       };
@@ -1119,7 +1120,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         position: { x: 0, y: 0 },
         data: {
           status: 'idle',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'm', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
         } as ImageNodeData,
@@ -1142,7 +1143,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         data: {
           status: 'idle',
           model: 'sdxl',
-          prompt: { text: '', html: '' },
+          prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
           allImages: [],
         } as ImageNodeData,
       };

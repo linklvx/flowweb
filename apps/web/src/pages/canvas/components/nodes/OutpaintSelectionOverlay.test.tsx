@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { OutpaintSelectionOverlay, type OutpaintRect } from './OutpaintSelectionOverlay';
 
@@ -75,7 +75,7 @@ describe('OutpaintSelectionOverlay', () => {
     fireEvent.mouseMove(window, { clientX: 120, clientY: 100 });
     fireEvent.mouseUp(window);
     expect(onChange).toHaveBeenCalled();
-    const lastCall = onChange.mock.lastCall[0] as OutpaintRect;
+    const lastCall = onChange.mock.lastCall![0] as OutpaintRect;
     expect(lastCall.width).toBeGreaterThan(defaultRect.width);
   });
 
@@ -89,7 +89,7 @@ describe('OutpaintSelectionOverlay', () => {
     fireEvent.mouseMove(window, { clientX: 200, clientY: 100 });
     fireEvent.mouseUp(window);
     if (onChange.mock.calls.length > 0) {
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       expect(rect.width).toBeGreaterThanOrEqual(100);
     }
   });
@@ -104,7 +104,7 @@ describe('OutpaintSelectionOverlay', () => {
     fireEvent.mouseDown(nwHandle, { clientX: 0, clientY: 0 });
     fireEvent.mouseMove(window, { clientX: 100, clientY: 50 });
     fireEvent.mouseUp(window);
-    const rect = onChange.mock.lastCall[0] as OutpaintRect;
+    const rect = onChange.mock.lastCall![0] as OutpaintRect;
     // x must be <= 0 (frame left cannot go past image left)
     expect(rect.x).toBeLessThanOrEqual(0);
     // y must be <= 0
@@ -145,7 +145,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: -200, clientY: 100 }); // dx = -300 at zoom=1
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       // frameL = imageVpX + rect.x * zoom >= 0 → rect.x >= -50
       expect(rect.x).toBeGreaterThanOrEqual(-50);
     });
@@ -161,7 +161,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 900, clientY: 100 }); // dx = +800
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       // frameR = imageVpX + (rect.x + rect.width) * zoom <= vpW
       expect(rect.x + rect.width).toBeLessThanOrEqual(800 - 100);
     });
@@ -177,7 +177,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 100, clientY: -200 }); // dy = -300
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       expect(rect.y).toBeGreaterThanOrEqual(-50);
     });
 
@@ -192,7 +192,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 100, clientY: 700 }); // dy = +600
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       expect(rect.y + rect.height).toBeLessThanOrEqual(600 - 100);
     });
 
@@ -207,7 +207,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: -200, clientY: -200 });
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       expect(rect.x).toBeGreaterThanOrEqual(-100);
       expect(rect.y).toBeGreaterThanOrEqual(-100);
     });
@@ -223,7 +223,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 1100, clientY: 900 });
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       expect(rect.x + rect.width).toBeLessThanOrEqual(1000 - 100);
       expect(rect.y + rect.height).toBeLessThanOrEqual(800 - 100);
     });
@@ -240,7 +240,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: -300, clientY: 100 }); // try to drag far left
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       // frameL >= 0: imageVpX + rect.x >= 0 → -200 + rect.x >= 0 → rect.x >= 200
       expect(rect.x).toBeGreaterThanOrEqual(200);
     });
@@ -258,7 +258,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 900, clientY: 100 }); // dx = 800 (client), dx/zoom = 1600
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       // frameR = imageVpX + (rect.x + rect.width) * zoom <= vpW
       expect((rect.x + rect.width) * 0.5).toBeLessThanOrEqual(700);
 
@@ -277,7 +277,7 @@ describe('OutpaintSelectionOverlay', () => {
       fireEvent.mouseMove(window, { clientX: 100, clientY: 700 });
       fireEvent.mouseUp(window);
       expect(onChange).toHaveBeenCalled();
-      const rect = onChange.mock.lastCall[0] as OutpaintRect;
+      const rect = onChange.mock.lastCall![0] as OutpaintRect;
       // frameB + bottomReserve <= vpH → (rect.y + rect.height) + imgT + bottomReserve <= vpH
       expect(rect.y + rect.height).toBeLessThanOrEqual(600 - 100 - 72);
     });
@@ -294,7 +294,7 @@ describe('OutpaintSelectionOverlay', () => {
     fireEvent.mouseDown(frame, { clientX: 200, clientY: 200 });
     fireEvent.mouseMove(window, { clientX: 150, clientY: 200 }); // dx = -50
     fireEvent.mouseUp(window);
-    const rect = onChange.mock.lastCall[0] as OutpaintRect;
+    const rect = onChange.mock.lastCall![0] as OutpaintRect;
     // x should NOT change (clamped at 0 since move would expose image right)
     expect(rect.x).toBe(0);
     // width should NOT expand (should stay at 512)

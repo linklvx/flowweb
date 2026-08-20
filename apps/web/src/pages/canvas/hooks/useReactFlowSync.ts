@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useNodesState, type NodeChange } from '@xyflow/react';
+import { useNodesState, type Node, type NodeChange } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ function applyChangeToStore(
 // ---------------------------------------------------------------------------
 
 export function useReactFlowSync() {
-  const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState([]);
+  const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState<Node>([]);
   const storeNodes = useNodeStore((state) => state.nodes);
   const updateNodeData = useNodeStore((state) => state.updateNodeData);
   const deleteNode = useNodeStore((state) => state.deleteNode);

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import type { AiToolId } from './nodeStore';
+import type { AiToolId, ImageNodeData } from './nodeStore';
 
 describe('canvasStore', () => {
   beforeEach(() => {
@@ -40,7 +40,7 @@ describe('canvasStore', () => {
   it('imageExt node should have default mediaName "扩展图片"', () => {
     const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
     const nsNode = useNodeStore.getState().nodes[nodeId];
-    expect(nsNode.data.mediaName).toBe('扩展图片');
+    expect((nsNode.data as ImageNodeData).mediaName).toBe('扩展图片');
   });
 
   it('copyNode should preserve imageExtGen type', () => {
@@ -219,7 +219,7 @@ describe('canvasStore', () => {
   it('addNodeWithEdge should create new node and edge from source', () => {
     const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
     // Load source node with image data
-    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', allImages: [], referencedImageIds: [] } });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } });
 
     const { addNodeWithEdge } = useCanvasStore.getState() as any;
     expect(typeof addNodeWithEdge).toBe('function');
@@ -227,7 +227,7 @@ describe('canvasStore', () => {
 
     const s = useCanvasStore.getState();
     // New node created
-    const newNode = s.nodes.find((n: any) => n.id === newId);
+    const newNode = s.nodes.find((n: any) => n.id === newId)!;
     expect(newNode).toBeDefined();
     expect(newNode.position.x).not.toBe(100); // offset to the right of source
     expect(newNode.position.y).toBe(100); // same row (smart positioning places node to the right)
@@ -237,7 +237,7 @@ describe('canvasStore', () => {
     expect(edge).toBeDefined();
 
     // Source node deselected, new node selected
-    const sourceNode = s.nodes.find((n: any) => n.id === sourceId);
+    const sourceNode = s.nodes.find((n: any) => n.id === sourceId)!;
     expect(sourceNode.selected).toBeFalsy();
     expect(newNode.selected).toBe(true);
     expect(s.selectedId).toBe(newId);
@@ -251,7 +251,7 @@ describe('canvasStore', () => {
     const newId = addNodeWithEdge(sourceId);
 
     const nsNode = useNodeStore.getState().nodes[newId];
-    expect(nsNode.data.transformMode).toBe(true);
+    expect((nsNode.data as ImageNodeData).transformMode).toBe(true);
   });
 
   it('addNodeWithEdge should copy source node image data to new node', () => {
@@ -262,7 +262,7 @@ describe('canvasStore', () => {
     const newId = addNodeWithEdge(sourceId);
 
     const nsNode = useNodeStore.getState().nodes[newId];
-    expect(nsNode.data.fileId).toBe('img-xyz');
+    expect((nsNode.data as ImageNodeData).fileId).toBe('img-xyz');
   });
 
   // ── deleteTransformNode ──
@@ -358,8 +358,8 @@ describe('canvasStore', () => {
     const nodeId = useCanvasStore.getState().addNode('image', { x: 50, y: 50 }, { fileId: 'abc', status: 'done' });
     const nsNode = useNodeStore.getState().nodes[nodeId];
     expect(nsNode).toBeDefined();
-    expect(nsNode.data.fileId).toBe('abc');
-    expect(nsNode.data.status).toBe('done');
+    expect((nsNode.data as ImageNodeData).fileId).toBe('abc');
+    expect((nsNode.data as ImageNodeData).status).toBe('done');
   });
 
   // ── pendingMediaFile / requestAddMediaNode ──
@@ -390,23 +390,23 @@ describe('canvasStore', () => {
     it('addNode("imageExt") should inject extConfig with default values', () => {
       const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
       const nsNode = useNodeStore.getState().nodes[nodeId];
-      expect(nsNode.data.extConfig).toBeDefined();
-      expect(nsNode.data.extConfig.ratio).toBe('16:9');
-      expect(nsNode.data.extConfig.resolution).toBe('2K');
-      expect(nsNode.data.extConfig.quality).toBe('standard');
-      expect(nsNode.data.extConfig.generateCount).toBe(1);
+      expect((nsNode.data as ImageNodeData).extConfig).toBeDefined();
+      expect((nsNode.data as ImageNodeData).extConfig!.ratio).toBe('16:9');
+      expect((nsNode.data as ImageNodeData).extConfig!.resolution).toBe('2K');
+      expect((nsNode.data as ImageNodeData).extConfig!.quality).toBe('standard');
+      expect((nsNode.data as ImageNodeData).extConfig!.generateCount).toBe(1);
     });
 
     it('addNode("imageExt") should include allImages: [] at root level', () => {
       const nodeId = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
       const nsNode = useNodeStore.getState().nodes[nodeId];
-      expect(nsNode.data.allImages).toEqual([]);
+      expect((nsNode.data as ImageNodeData).allImages).toEqual([]);
     });
 
     it('addNode("image") should NOT include extConfig', () => {
       const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
       const nsNode = useNodeStore.getState().nodes[nodeId];
-      expect(nsNode.data.extConfig).toBeUndefined();
+      expect((nsNode.data as ImageNodeData).extConfig).toBeUndefined();
     });
 
     it('copyNode should preserve extConfig completely for imageExt node', () => {
@@ -418,10 +418,10 @@ describe('canvasStore', () => {
       const id2 = copyNode(id1);
       const nsCopied = useNodeStore.getState().nodes[id2];
       expect(nsCopied.type).toBe('imageExtGen');
-      expect(nsCopied.data.extConfig).toBeDefined();
-      expect(nsCopied.data.extConfig!.model).toBe('custom-ext-model');
-      expect(nsCopied.data.extConfig!.generateCount).toBe(4);
-      expect(nsCopied.data.extConfig!.ratio).toBe('9:16');
+      expect((nsCopied.data as ImageNodeData).extConfig).toBeDefined();
+      expect((nsCopied.data as ImageNodeData).extConfig!.model).toBe('custom-ext-model');
+      expect((nsCopied.data as ImageNodeData).extConfig!.generateCount).toBe(4);
+      expect((nsCopied.data as ImageNodeData).extConfig!.ratio).toBe('9:16');
     });
   });
 
@@ -451,8 +451,8 @@ describe('canvasStore', () => {
 
       // nodeStore data
       const nsNode = useNodeStore.getState().nodes[result!];
-      expect(nsNode.data.aiTool).toBe('nine_camera');
-      expect(nsNode.data.allImages).toEqual([refImg]);
+      expect((nsNode.data as ImageNodeData).aiTool).toBe('nine_camera');
+      expect((nsNode.data as ImageNodeData).allImages).toEqual([refImg]);
     });
 
     it('should create an edge from source to new node', () => {
@@ -507,7 +507,7 @@ describe('canvasStore', () => {
       });
 
       const nsNode = useNodeStore.getState().nodes[result!];
-      expect(nsNode.data.allImages).toEqual([]);
+      expect((nsNode.data as ImageNodeData).allImages).toEqual([]);
     });
 
     it('should initialize extConfig with defaults', () => {
@@ -522,9 +522,9 @@ describe('canvasStore', () => {
       });
 
       const nsNode = useNodeStore.getState().nodes[result!];
-      expect(nsNode.data.extConfig).toBeDefined();
-      expect(nsNode.data.extConfig.ratio).toBe('16:9');
-      expect(nsNode.data.extConfig.resolution).toBe('2K');
+      expect((nsNode.data as ImageNodeData).extConfig).toBeDefined();
+      expect((nsNode.data as ImageNodeData).extConfig!.ratio).toBe('16:9');
+      expect((nsNode.data as ImageNodeData).extConfig!.resolution).toBe('2K');
     });
   });
 

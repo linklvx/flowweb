@@ -45,7 +45,7 @@ global.cancelAnimationFrame = (id: number): void => {
 // 仅测试环境生效：清空整个标签内容（测试不依赖视觉样式；生产浏览器支持这些选择符）。
 // 若 antd 日后回读 textContent 做主题 diff 可能重复注入样式——升级 antd/jsdom 时需复查。
 const originalInsertBefore = Node.prototype.insertBefore;
-Node.prototype.insertBefore = function (newNode: Node, referenceNode: Node | null) {
+Node.prototype.insertBefore = function (this: Node, newNode: Node, referenceNode: Node | null) {
   if (newNode.nodeType === Node.ELEMENT_NODE && (newNode as Element).tagName === 'STYLE') {
     const styleEl = newNode as HTMLStyleElement;
     const text = styleEl.textContent;
@@ -54,4 +54,4 @@ Node.prototype.insertBefore = function (newNode: Node, referenceNode: Node | nul
     }
   }
   return originalInsertBefore.call(this, newNode, referenceNode);
-};
+} as typeof Node.prototype.insertBefore;

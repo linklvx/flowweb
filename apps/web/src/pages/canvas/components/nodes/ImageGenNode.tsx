@@ -1159,12 +1159,11 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         style={{
           width: nodeWidth,
           height: nodeHeight,
-          border: '1px solid #3F3F46',
           ...(editMode === 'outpaint'
             ? { border: 'none', borderRadius: 0 }
             : selected
               ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }
-              : {}),
+              : { border: '1px solid #3F3F46' }),
         }}
       >
         {!editMode && <NodeHandle type="target" testId="target-handle" />}

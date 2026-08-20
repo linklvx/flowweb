@@ -272,7 +272,7 @@ describe('ImageNodeToolbar', () => {
   // 21 (new: renders nothing when node has no dimensions)
   it('renders nothing when useInternalNode returns no dimensions', () => {
     setupPortalTarget();
-    mockUseInternalNode.mockReturnValueOnce(null);
+    mockUseInternalNode.mockReturnValueOnce(null as never);
     const { container } = render(<ImageNodeToolbar {...defaultProps} />);
     expect(container.innerHTML).toBe('');
     cleanupPortalTarget();

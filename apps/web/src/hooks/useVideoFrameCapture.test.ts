@@ -258,7 +258,7 @@ describe('useVideoFrameCapture', () => {
       let go: () => void = () => {};
       // First waitForSeeked = prefetch, second = user click
       vu.waitForSeeked
-        .mockReturnValueOnce(new Promise((r) => { go = r; }))
+        .mockReturnValueOnce(new Promise<void>((r) => { go = r; }))
         .mockResolvedValueOnce(undefined);
 
       const video = makeMainVideo();
@@ -376,7 +376,7 @@ describe('useVideoFrameCapture', () => {
     it('#20 concurrent access to same cached video serializes via lock', async () => {
       // Make first captureFirst's seek hang
       let go1: () => void = () => {};
-      vu.waitForSeeked.mockReturnValueOnce(new Promise((r) => { go1 = r; }));
+      vu.waitForSeeked.mockReturnValueOnce(new Promise<void>((r) => { go1 = r; }));
 
       const video = makeMainVideo();
       const ref: RefObject<HTMLVideoElement | null> = { current: video };

@@ -536,7 +536,7 @@ describe('LightingEngine', () => {
       const engine = createEngine(container);
       const cone = (engine as any).lightCone as THREE.Mesh;
       const geoDisposeSpy = vi.spyOn(cone.geometry, 'dispose');
-      const matDisposeSpy = vi.spyOn(cone.material, 'dispose');
+      const matDisposeSpy = vi.spyOn(cone.material as THREE.Material, 'dispose');
 
       engine.dispose();
 

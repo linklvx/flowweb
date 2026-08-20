@@ -1,17 +1,5 @@
-export interface ImageItem {
-  id: string;
-  url: string;
-  name: string;
-  status: 'uploading' | 'success' | 'error';
-  progress?: number;
-}
-
-export interface PromptValue {
-  text: string;
-  html: string;
-  allImages: ImageItem[];
-  referencedImageIds: string[];
-}
+// 单一定义源：与 store 层共享 PromptValue/ImageItem，避免结构漂移
+export type { PromptValue, ImageItem } from '@/stores/nodeStore';
 
 export interface CommandItem {
   id: string;

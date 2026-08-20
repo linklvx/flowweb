@@ -91,7 +91,7 @@ describe('useReactFlowSync', () => {
     renderHook(() => useReactFlowSync());
 
     expect(mockSetNodes).toHaveBeenCalledTimes(1);
-    const arg = mockSetNodes.mock.calls[0][0];
+    const arg = mockSetNodes.mock.calls[0][0] as any[];
     expect(arg).toHaveLength(2);
     expect(arg[0]).toMatchObject({
       id: 'n1',
