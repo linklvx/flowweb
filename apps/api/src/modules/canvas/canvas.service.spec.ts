@@ -40,14 +40,14 @@ describe('CanvasService', () => {
   });
 
   describe('create', () => {
-    it('事务创建 CanvasProject + DRAFT Template，返回 templateId/projectId', async () => {
+    it('事务创建 CanvasProject + DRAFT Template，返回 templateId/projectId/name', async () => {
       prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
       }));
       const result = await service.create('新画布', 'f1', 'u1');
-      expect(result).toEqual({ templateId: 't1', projectId: 'p1' });
+      expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '新画布' });
       expect(templateService.clearCache).toHaveBeenCalled();
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
@@ -72,6 +72,53 @@ describe('CanvasService', () => {
       prisma.folder.findFirst.mockResolvedValue(null);
       await expect(service.create('新画布', 'fx', 'u1')).rejects.toThrow(BadRequestException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    describe('空名默认编号（Fix 7）', () => {
+      function mockTx(names: string[]) {
+        const tx = {
+          $executeRaw: vi.fn().mockResolvedValue(0),
+          canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
+          template: {
+            findMany: vi.fn().mockResolvedValue(names.map((name) => ({ name }))),
+            create: vi.fn().mockResolvedValue({ id: 't1' }),
+          },
+        };
+        prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+        return tx;
+      }
+
+      it('空名走编号：事务内取 advisory lock，无已有未命名 → 未命名项目1', async () => {
+        const tx = mockTx(['我的画布']);
+        const result = await service.create('', null, 'u1');
+        expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(tx.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
+        expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '未命名项目1' }) });
+        expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '未命名项目1', status: 'DRAFT' }) });
+        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '未命名项目1' });
+      });
+
+      it('已有 未命名项目1、3 → 下一个为 4，非未命名名不影响编号', async () => {
+        const tx = mockTx(['未命名项目1', '我的画布', '未命名项目3']);
+        const result = await service.create('', null, 'u1');
+        expect(result.name).toBe('未命名项目4');
+      });
+
+      it('空白名同样走编号分支', async () => {
+        const tx = mockTx([]);
+        const result = await service.create('   ', null, 'u1');
+        expect(tx.template.findMany).toHaveBeenCalled();
+        expect(result.name).toBe('未命名项目1');
+      });
+
+      it('非空名不取锁、不查编号，原名创建', async () => {
+        const tx = mockTx(['未命名项目1']);
+        const result = await service.create('我的新画布', null, 'u1');
+        expect(tx.$executeRaw).not.toHaveBeenCalled();
+        expect(tx.template.findMany).not.toHaveBeenCalled();
+        expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '我的新画布' }) });
+        expect(result.name).toBe('我的新画布');
+      });
     });
   });
 

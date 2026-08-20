@@ -20,17 +20,33 @@ export class CanvasService {
       if (!folder) throw new BadRequestException('目标文件夹不存在');
     }
     const result = await this.prisma.$transaction(async (tx) => {
+      let finalName = name;
+      if (!name?.trim()) {
+        // 同用户并发空名创建串行化，消除编号 read-modify-write 竞态；事务结束自动释放
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'canvas_untitled:' + userId}))`;
+        finalName = await CanvasService.nextUntitledName(tx, userId);
+      }
       const project = await tx.canvasProject.create({
-        data: { name, userId, viewport: { x: 0, y: 0, zoom: 1 } },
+        data: { name: finalName, userId, viewport: { x: 0, y: 0, zoom: 1 } },
       });
       const template = await tx.template.create({
-        data: { name, userId, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
+        data: { name: finalName, userId, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
       });
-      return { templateId: template.id, projectId: project.id };
+      return { templateId: template.id, projectId: project.id, name: finalName };
     });
     this.templateService.clearCache();
     if (folderId) await this.folderService.touch([folderId]);
     return result;
+  }
+
+  private static async nextUntitledName(db: { template: { findMany: Function } }, userId: string): Promise<string> {
+    const templates = await db.template.findMany({ where: { userId }, select: { name: true } });
+    let max = 0;
+    for (const t of templates) {
+      const m = /^未命名项目(\d+)$/.exec(t.name);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `未命名项目${max + 1}`;
   }
 
   async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean }, userId: string) {
