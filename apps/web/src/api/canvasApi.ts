@@ -19,3 +19,7 @@ export function saveCanvas(projectId: string, payload: { name: string; descripti
     body: JSON.stringify(payload),
   });
 }
+
+export function getNextUntitledName() {
+  return apiFetch<{ name: string }>('/canvases/next-untitled-name');
+}

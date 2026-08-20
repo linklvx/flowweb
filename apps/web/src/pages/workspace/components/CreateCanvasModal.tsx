@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal, Input, Select } from 'antd';
+import { getNextUntitledName } from '@/api/canvasApi';
 import type { Folder } from '../types';
 
 interface CreateCanvasModalProps {
@@ -13,7 +14,16 @@ interface CreateCanvasModalProps {
 export function CreateCanvasModal({ open, folders, defaultFolderId, onOk, onCancel }: CreateCanvasModalProps) {
   const [name, setName] = useState('');
   const [folderId, setFolderId] = useState<string | null>(defaultFolderId);
-  useEffect(() => { if (open) { setName(''); setFolderId(defaultFolderId); } }, [open, defaultFolderId]);
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setFolderId(defaultFolderId);
+      // 函数式更新：仅输入框仍为空时预填，不覆盖用户已输入的内容；失败静默不预填
+      getNextUntitledName()
+        .then((d) => setName((prev) => prev || d.name))
+        .catch(() => {});
+    }
+  }, [open, defaultFolderId]);
 
   return (
     <Modal

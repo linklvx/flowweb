@@ -39,6 +39,10 @@ export class CanvasService {
     return result;
   }
 
+  async getNextUntitledName(userId: string): Promise<string> {
+    return CanvasService.nextUntitledName(this.prisma, userId);
+  }
+
   private static async nextUntitledName(db: { template: { findMany: Function } }, userId: string): Promise<string> {
     const templates = await db.template.findMany({ where: { userId }, select: { name: true } });
     let max = 0;

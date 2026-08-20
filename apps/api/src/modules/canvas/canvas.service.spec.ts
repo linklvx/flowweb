@@ -19,6 +19,7 @@ describe('CanvasService', () => {
       folder: { findFirst: vi.fn().mockResolvedValue(null) },
       template: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: 't1', status: 'SAVED' }),
         update: vi.fn().mockResolvedValue({ id: 't2', status: 'SAVED' }),
       },
@@ -119,6 +120,19 @@ describe('CanvasService', () => {
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '我的新画布' }) });
         expect(result.name).toBe('我的新画布');
       });
+    });
+  });
+
+  describe('getNextUntitledName（Fix 8）', () => {
+    it('无未命名画布 → 未命名项目1', async () => {
+      prisma.template.findMany.mockResolvedValue([{ name: '我的画布' }]);
+      await expect(service.getNextUntitledName('u1')).resolves.toBe('未命名项目1');
+      expect(prisma.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
+    });
+
+    it('已有 未命名项目1、3 → 未命名项目4', async () => {
+      prisma.template.findMany.mockResolvedValue([{ name: '未命名项目1' }, { name: '未命名项目3' }]);
+      await expect(service.getNextUntitledName('u1')).resolves.toBe('未命名项目4');
     });
   });
 
