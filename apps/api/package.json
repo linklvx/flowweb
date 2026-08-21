@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",
     "lint": "eslint \"{src,test}/**/*.ts\""
   },

@@ -17,20 +17,6 @@
 
 ## 后端（apps/api）
 
-### TD-13 三个实现新增分支无测试覆盖
-
-- **来源**：2026-08-21 TD-9 修复批次（spec 明示不补覆盖，记台账）
-- **现状**：`transform.interceptor` 的 noTransform=true 分支（@NoTransform 跳过包装）、`sms.service` 的 SendStatusSet.Code !== 'Ok' 拒绝分支（SMS_SEND_REJECTED 抛错路径）、`file.controller` 的 type 参数非空过滤路径——均为实现新增逻辑，零覆盖
-- **修复方向**：各补 1-2 个用例；属测试增强
-- **优先级**：低
-
-### TD-14 api spec 文件不在 tsc 类型检查范围
-
-- **来源**：2026-08-21 TD-9 修复批次发现（结构性根因）
-- **现状**：api tsconfig.json 排除 `**/*.spec.ts`，测试与实现的接口漂移无编译期安全网，仅运行时暴露——TD-9 的 9 例过时断言（如 `new TransformInterceptor()` 无参调用）长期存活的根因即此
-- **修复方向**：新增 tsconfig.spec.json 并 `tsc -p tsconfig.spec.json --noEmit`（可接入 test script 或 CI）
-- **优先级**：低——一次性基建投入，长期防接口漂移静默累积
-
 ## 数据 / 部署
 
 ### TD-15 删除清理链路后端断路 + 素材引用埋雷（实证升级）
@@ -70,3 +56,4 @@
 | TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a / 8397472 |
 | TD-3 isSaving 死写入+类型删除；TD-7 nodeData 竞态空白换 Spin 占位（role=status）；TD-16 useReactFlowSync 死代码删除 | 2026-08-21 | （hash 回填） |
 | TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | （hash 回填） |
+| TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | （hash 回填） |
