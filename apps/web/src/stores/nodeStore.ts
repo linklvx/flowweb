@@ -459,7 +459,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const node = getNode(get().nodes, nodeId);
     if (node && isImageNode(node)) {
       const imgData = node.data;
-      const deleteRefs = (imgData.prompt?.allImages ?? []).map((img) =>
+      // Merge root-level + legacy nested refs, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless)
+      const rootImgs = imgData.allImages ?? [];
+      const nestedImgs = imgData.prompt?.allImages ?? [];
+      const allRefs = [...new Map([...rootImgs, ...nestedImgs].map((img) => [img.id, img])).values()];
+      const deleteRefs = allRefs.map((img) =>
         fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
       );
       await Promise.allSettled(deleteRefs);

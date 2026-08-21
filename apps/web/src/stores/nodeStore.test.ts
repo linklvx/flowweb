@@ -331,6 +331,92 @@ describe('nodeStore (AppNode nested structure)', () => {
     vi.useRealTimers();
   });
 
+  // 16a. deleteNode should DELETE root-level allImages refs
+  it('should DELETE root-level allImages files on deleteNode', async () => {
+    const imageNode: AppNode = {
+      id: 'img-root-refs',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: {
+        status: 'done',
+        allImages: [{ id: 'f1', url: '/f1.png', name: 'f1.png', status: 'success' }],
+        prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+      } as ImageNodeData,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 })
+    );
+
+    useNodeStore.getState().addNode(imageNode);
+    await useNodeStore.getState().deleteNode('img-root-refs');
+
+    const storageDeletes = fetchSpy.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
+    );
+    expect(storageDeletes).toHaveLength(1);
+    expect(storageDeletes[0][0]).toBe('/api/storage/files/f1');
+  });
+
+  // 16b. deleteNode should still DELETE nested prompt.allImages refs (legacy data)
+  it('should DELETE nested prompt.allImages files on deleteNode (legacy shape)', async () => {
+    const imageNode: AppNode = {
+      id: 'img-nested-refs',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: {
+        status: 'done',
+        prompt: {
+          text: '',
+          html: '',
+          allImages: [{ id: 'f2', url: '/f2.png', name: 'f2.png', status: 'success' }],
+          referencedImageIds: [],
+        },
+      } as ImageNodeData,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 })
+    );
+
+    useNodeStore.getState().addNode(imageNode);
+    await useNodeStore.getState().deleteNode('img-nested-refs');
+
+    const storageDeletes = fetchSpy.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
+    );
+    expect(storageDeletes).toHaveLength(1);
+    expect(storageDeletes[0][0]).toBe('/api/storage/files/f2');
+  });
+
+  // 16c. deleteNode should dedupe refs present in both root and nested
+  it('should DELETE a file only once when present in both root and nested allImages', async () => {
+    const shared = { id: 'f3', url: '/f3.png', name: 'f3.png', status: 'success' as const };
+    const imageNode: AppNode = {
+      id: 'img-dup-refs',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: {
+        status: 'done',
+        allImages: [shared],
+        prompt: { text: '', html: '', allImages: [shared], referencedImageIds: [] },
+      } as ImageNodeData,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 })
+    );
+
+    useNodeStore.getState().addNode(imageNode);
+    await useNodeStore.getState().deleteNode('img-dup-refs');
+
+    const storageDeletes = fetchSpy.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
+    );
+    expect(storageDeletes).toHaveLength(1);
+    expect(storageDeletes[0][0]).toBe('/api/storage/files/f3');
+  });
+
   // 17. isImageNode type guard should correctly narrow type
   it('should correctly narrow via isImageNode type guard', () => {
     const imageNode: AppNode = {
