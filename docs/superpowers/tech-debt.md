@@ -52,17 +52,19 @@
 
 ## 后端（apps/api）
 
-### TD-9 既有测试失败 9 个（5 文件）
+### TD-13 三个实现新增分支无测试覆盖
 
-- **来源**：Fix 7 开发期间基线比对确认与业务改动无关（git stash 前后同样失败）
-- **现状**（2026-08-20 复验仍失败）：
-  - `src/common/audit/audit.service.spec.ts`（2 例：必填字段/最小字段写入）
-  - `src/interceptors/transform.interceptor.spec.ts`（1 例：成功响应包装）
-  - `src/modules/ai-image-edit/ai-image-edit.processor.spec.ts`（3 例：erase/outpaint 成功路径 + 失败路径积分处理）
-  - `src/modules/material-library/controllers/file.controller.spec.ts`（2 例：文件夹内文件列表/null folderId）
-  - Sms 相关（1 例）
-- **修复方向**：逐文件判断是测试过时（实现演进后断言未跟）还是实现回归；修复标准 = api 全量绿
-- **优先级**：中——掩盖真实回归的噪音
+- **来源**：2026-08-21 TD-9 修复批次（spec 明示不补覆盖，记台账）
+- **现状**：`transform.interceptor` 的 noTransform=true 分支（@NoTransform 跳过包装）、`sms.service` 的 SendStatusSet.Code !== 'Ok' 拒绝分支（SMS_SEND_REJECTED 抛错路径）、`file.controller` 的 type 参数非空过滤路径——均为实现新增逻辑，零覆盖
+- **修复方向**：各补 1-2 个用例；属测试增强
+- **优先级**：低
+
+### TD-14 api spec 文件不在 tsc 类型检查范围
+
+- **来源**：2026-08-21 TD-9 修复批次发现（结构性根因）
+- **现状**：api tsconfig.json 排除 `**/*.spec.ts`，测试与实现的接口漂移无编译期安全网，仅运行时暴露——TD-9 的 9 例过时断言（如 `new TransformInterceptor()` 无参调用）长期存活的根因即此
+- **修复方向**：新增 tsconfig.spec.json 并 `tsc -p tsconfig.spec.json --noEmit`（可接入 test script 或 CI）
+- **优先级**：低——一次性基建投入，长期防接口漂移静默累积
 
 ## 数据 / 部署
 
@@ -93,9 +95,9 @@
 
 ## 集中修复建议批次
 
-1. **第二批（测试卫生）**：TD-9
+1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
 2. **第三批（结构/上线）**：TD-10 → TD-5/6/8 → TD-4 → TD-11（与 TD-8 一并）
-3. **随手清**：TD-3、TD-7、TD-12
+3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14
 
 ## 已清账
 
@@ -105,3 +107,4 @@
 | StrictMode 双创建（首页一次点击建 2 个画布） | 2026-08-20 | 3151d51 |
 | TD-2 allImages 双轨统一（根级）：useImageUpload/VideoConfigPanel/deleteRefs 三读取方迁移 + 测试基建修正 | 2026-08-21 | 7a62eb2 / bdf8fdd / 4af7834 |
 | TD-1 projectId 硬编码（实际 15 处非台账原记 5 处，含 syncNodes/syncEdges 位置参数形式漏报；修复带节点画布生成 500 阻断） | 2026-08-21 | e82cf36 |
+| TD-9 既有测试失败 9 例（5 文件，全部为实现演进后断言/mock 过时，零实现回归；结构性根因另立 TD-14） | 2026-08-21 | 3bcd50c |
