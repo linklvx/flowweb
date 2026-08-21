@@ -42,4 +42,4 @@
 | TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | c939c20 |
 | TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | c43ccc0 / de9b744 |
 | TD-13 三分支覆盖补齐：interceptor @NoTransform 直通不包装 / sms SendStatusSet 非 Ok 拒绝（含状态码透传与 SMS_SEND_REJECTED 兜底）/ file controller type 非空过滤透传 | 2026-08-21 | 257d86b |
-| TD-15 双实证（断路+埋雷，b3eafad）→ 方案 B 收口：移除 6 处死调用（deleteNode 四分支 + useImageUpload）固化「画布删除不触文件清理」语义——Media 行是素材库/历史资产（软删为产品语义）、生成结果不随节点删除（TD-11 D1 扩展至 imageGen/trim）；mergeImageRefs 随调用方退役 | 2026-08-22 | b3eafad + 本批（hash 回填） |
+| TD-15 双实证（断路+埋雷，b3eafad）→ 方案 B 收口：移除 6 处死调用（deleteNode 四分支 + useImageUpload）固化「画布删除不触文件清理」语义——Media 行是素材库/历史资产（软删为产品语义）、生成结果不随节点删除（TD-11 D1 扩展至 imageGen/trim）；mergeImageRefs 随调用方退役 | 2026-08-22 | b3eafad / a25f286 |
