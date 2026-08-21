@@ -22,20 +22,6 @@
 - **修复方向**（plan 已定）：加载期间订阅 isLoading 标志，防抖写入在 isLoading=true 时抑制
 - **优先级**：中
 
-### TD-5 localStorage 双 store 两份独立数据
-
-- **来源**：canvas-refresh-data-loss-fix spec defer
-- **现状**：canvasStore 与 nodeStore 各自持久化，同一画布两份数据靠恢复逻辑拼接
-- **修复方向**：合并为单一持久化 schema（与 TD-6 一并设计）
-- **优先级**：中——结构性，涉及面广，需单独 spec
-
-### TD-6 localStorage key 版本化 + schema 校验
-
-- **来源**：canvas-refresh-data-loss-fix spec defer
-- **现状**：`safeParseLocalNodes` 仅做解析失败兜底，无版本/结构校验
-- **修复方向**：key 带 version 前缀 + 恢复时 schema 校验，不兼容直接丢弃（当前 `safeParseLocalNodes` 已清除脏 key，可在此基础上扩展）
-- **优先级**：中
-
 ### TD-7 nodeData undefined 时空白占位
 
 - **来源**：canvas-refresh-data-loss-fix spec（UX 债）
@@ -43,11 +29,11 @@
 - **修复方向**：换 Spin/轻文案占位
 - **优先级**：低
 
-### TD-8 localStorage 已污染脏数据
+### TD-8 MinIO 存量孤儿文件对账
 
-- **来源**：canvas-create-unify-fix spec 明示「不会自愈」
-- **现状**：开发期手动处理（清 key 或删画布）；无生产用户。含 TD-11 修复前已删节点的 localStorage 残留与泄漏的 MinIO 孤儿文件（对账需 DB media 全量 vs MinIO listing）
-- **修复方向**：上线前评估——若无生产数据可直接忽略；否则写一次性清理迁移（含 MinIO 孤儿对账）
+- **来源**：canvas-create-unify-fix spec 明示「不会自愈」；TD-11 修复前已删节点泄漏的 MinIO 文件；localStorage 脏数据部分已随 3c 基线重构清账（v2 版本化快照 + 旧 key 一次性清扫）
+- **现状**：无生产用户；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
+- **修复方向**：上线前评估——若无生产数据可直接忽略；否则一次性清理脚本（含 DB media vs MinIO listing 对账）
 - **优先级**：上线前评估
 
 ## 后端（apps/api）
@@ -92,7 +78,7 @@
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
-2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ 3c: TD-5/6/8 → 3d: TD-4
+2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ ~~3c: TD-5/6/8~~ ✅ 已完成（2026-08-21，本 commit）→ 3d: TD-4
 3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16
 
 ## 已清账
@@ -106,3 +92,4 @@
 | TD-9 既有测试失败 9 例（5 文件，全部为实现演进后断言/mock 过时，零实现回归；结构性根因另立 TD-14） | 2026-08-21 | 3bcd50c |
 | TD-11 删除链路三层断裂：remove 接线（三件套+DB 同步）+ videoGen/audioGen 清理分支（生成 fileId 不删，D1）；存量泄漏处置见 TD-8 / 3c；衍生 TD-15/TD-16 | 2026-08-21 | 5584864 |
 | TD-10 Prisma migrate 历史断裂（基线重置为单一 init，沙箱重放自证；部署流程固化于 deployment-db-baseline.md；遗留：本地 `migrate dev` 需用户一次性执行 `ALTER ROLE flowweb CREATEDB`） | 2026-08-21 | d2cae05 |
+| TD-5/6 localStorage 持久化合一：单一版本化快照 `flowweb_canvas_v2_${pid}`（nodeStore 数据权威 + 视图派生恢复 + isHydrating 抑制单写者 + 旧 key 一次性清扫）；TD-8 localStorage 部分随清，余 MinIO 对账 | 2026-08-21 | 本 commit |

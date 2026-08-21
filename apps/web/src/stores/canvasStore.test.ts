@@ -619,4 +619,17 @@ describe('canvasStore', () => {
       expect(useCanvasStore.getState().projectId).toBe('second-id');
     });
   });
+
+  describe('isHydrating', () => {
+    it('should initialize as false', () => {
+      expect(useCanvasStore.getState().isHydrating).toBe(false);
+    });
+
+    it('should toggle via setHydrating', () => {
+      useCanvasStore.getState().setHydrating(true);
+      expect(useCanvasStore.getState().isHydrating).toBe(true);
+      useCanvasStore.getState().setHydrating(false);
+      expect(useCanvasStore.getState().isHydrating).toBe(false);
+    });
+  });
 });

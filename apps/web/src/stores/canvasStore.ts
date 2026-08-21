@@ -70,6 +70,7 @@ interface CanvasState {
   pendingMediaFile: MaterialFile | null;
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
+  isHydrating: boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
   copyNode: (id: string) => string | null;
@@ -89,6 +90,7 @@ interface CanvasState {
   splitImageNode: (nodeId: string, rows: number, cols: number) => Promise<SplitResult | null>;
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
   setProjectId: (projectId: string) => void;
+  setHydrating: (v: boolean) => void;
   startNodeProcess: (nodeId: string, processType: ProcessType, abortController?: AbortController) => void;
   updateNodeProcessProgress: (nodeId: string, progress: number) => void;
   finishNodeProcess: (nodeId: string, status: 'done' | 'error', errorMsg?: string) => void;
@@ -103,6 +105,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pendingMediaFile: null,
   nodeProcessMap: {},
   projectId: null,
+  isHydrating: false,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
@@ -647,4 +650,5 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   setProjectId: (projectId) => set({ projectId }),
+  setHydrating: (v) => set({ isHydrating: v }),
 }));

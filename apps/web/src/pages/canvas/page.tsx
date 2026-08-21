@@ -14,6 +14,7 @@ import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
+import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -28,25 +29,8 @@ async function createUntitledProject(): Promise<{ id: string; name: string }> {
   return { id: projectId, name };
 }
 
-const STORAGE_KEY = 'flowweb_canvas';
-
 class ProjectInaccessibleError extends Error {}
 class ProjectLoadError extends Error {}
-
-// 脏数据防御：解析失败 = 无本地数据，并清除脏 key
-function safeParseLocalNodes(key: string, isContentKey: boolean): boolean {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    return isContentKey
-      ? Object.keys(parsed).length > 0
-      : parsed?.nodes?.length > 0;
-  } catch {
-    localStorage.removeItem(key);
-    return false;
-  }
-}
 
 async function loadProjectIntoStore(
   projectId: string,
@@ -62,9 +46,8 @@ async function loadProjectIntoStore(
   // DB 空守卫：写库链路未生效期间 DB 空不代表画布空，本地已有数据时不覆盖
   if (!(project.nodes?.length)) {
     const canvasHasNodes = useCanvasStore.getState().nodes.length > 0;
-    const localHasNodes =
-      safeParseLocalNodes(`${STORAGE_KEY}_${projectId}`, false) ||
-      safeParseLocalNodes(`${STORAGE_KEY}_content_${projectId}`, true);
+    const snap = loadSnapshot(projectId);
+    const localHasNodes = snap !== null && !isEmptySnapshot(snap);
     if (canvasHasNodes || localHasNodes) {
       return project.name || '未命名项目';
     }
@@ -117,11 +100,15 @@ export function CanvasPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
+    // 每轮开局归零：清上一轮 cancelled 遗留的悬停 hydrating（三保险之一）
+    useCanvasStore.getState().setHydrating(false);
 
     // 项目切换/新建前同步清空模块级 store 残留，否则残留会骗过下方 DB 空守卫（Bug 3）
     const storedId = queryProjectId || localStorage.getItem(PROJECT_ID_KEY);
     const target = storedId ?? null;
     if (target === null || target !== lastPidRef.current) {
+      // hydrate 窗口开启：清 store 至 DB 加载/兜底恢复完成期间，抑制本地快照空写
+      useCanvasStore.getState().setHydrating(true);
       useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
       useNodeStore.setState({ nodes: {} });
     }
@@ -129,6 +116,7 @@ export function CanvasPage() {
 
     const finish = (id: string, name: string) => {
       if (cancelled) return;
+      useCanvasStore.getState().setHydrating(false);
       setProjectId(id);
       setProjectName(name);
     };
@@ -149,10 +137,13 @@ export function CanvasPage() {
               .then(({ id, name }) => finish(id, name))
               .catch(() => {
                 createPromiseRef.current = null;
+                if (cancelled) return;
+                useCanvasStore.getState().setHydrating(false);
                 setLoadError('network');
               });
             return;
           }
+          useCanvasStore.getState().setHydrating(false);
           setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
         });
     } else {
@@ -162,7 +153,10 @@ export function CanvasPage() {
         .then(({ id, name }) => finish(id, name))
         .catch(() => {
           createPromiseRef.current = null;
-          if (!cancelled) setLoadError('network');
+          if (!cancelled) {
+            useCanvasStore.getState().setHydrating(false);
+            setLoadError('network');
+          }
         });
     }
     return () => {

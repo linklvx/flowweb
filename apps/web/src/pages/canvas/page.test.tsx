@@ -30,6 +30,7 @@ vi.mock('@/stores/canvasStore', () => ({
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
+        isHydrating: false,
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         onConnect: vi.fn(),
@@ -47,6 +48,8 @@ vi.mock('@/stores/canvasStore', () => ({
         nodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
+        isHydrating: false,
+        setHydrating: vi.fn(),
         updateViewport: vi.fn(),
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
@@ -227,7 +230,12 @@ describe('CanvasPage', () => {
     });
 
     it('DB 空节点且 localStorage 有数据时不覆盖 store（DB 空守卫）', async () => {
-      localStorage.setItem('flowweb_canvas_content_p1', JSON.stringify({ n1: { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } }));
+      localStorage.setItem('flowweb_canvas_v2_p1', JSON.stringify({
+        version: 2,
+        nodes: { n1: { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } },
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }));
       mockFetch.mockResolvedValue(emptyDbResponse);
       (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
       (useNodeStoreSetState as ReturnType<typeof vi.fn>).mockClear();
@@ -237,11 +245,12 @@ describe('CanvasPage', () => {
         expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
       });
 
-      // 全量形状（nodes+edges+viewport）写入仅 Fix 5 清空 1 次，DB 空响应未二次覆盖
+      // 全量形状（nodes+edges+viewport）写入：Fix 5 清空 1 次 + hook 快照恢复 1 次；DB 空响应未覆盖
       const fullWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
         .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s);
-      expect(fullWrites).toHaveLength(1);
+      expect(fullWrites).toHaveLength(2);
       expect(fullWrites[0][0].nodes).toEqual([]);
+      expect(fullWrites[1][0].nodes.map((n: any) => n.id)).toEqual(['n1']);
       // nodeStore 侧仅清空 1 次空对象；恢复 effect 写入的是本地非空数据，不计入
       const emptyNodeWrites = (useNodeStoreSetState as ReturnType<typeof vi.fn>).mock.calls
         .filter(([s]: any[]) => s?.nodes && Object.keys(s.nodes).length === 0);
@@ -263,8 +272,8 @@ describe('CanvasPage', () => {
       expect(fullWrites).toHaveLength(2);
     });
 
-    it('content key 为截断 JSON 时不抛错且脏 key 被清除', async () => {
-      localStorage.setItem('flowweb_canvas_content_p1', '{"n1": {"prompt": "trunc');
+    it('快照 key 为截断 JSON 时不抛错且脏 key 被清除', async () => {
+      localStorage.setItem('flowweb_canvas_v2_p1', '{"nodes": {"n1": {"prom');
       mockFetch.mockResolvedValue(emptyDbResponse);
 
       let renderError: Error | null = null;
@@ -277,7 +286,7 @@ describe('CanvasPage', () => {
         renderError = e as Error;
       }
       expect(renderError).toBeNull();
-      expect(localStorage.getItem('flowweb_canvas_content_p1')).toBeNull();
+      expect(localStorage.getItem('flowweb_canvas_v2_p1')).toBeNull();
     });
   });
 

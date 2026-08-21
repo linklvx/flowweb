@@ -1,78 +1,97 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { SNAPSHOT_VERSION, loadSnapshot, snapshotKey } from './canvasSnapshot';
 
-const STORAGE_KEY = 'flowweb_canvas';
+// 旧 key 清扫单次执行 flag：hook 随 projectId 变化重跑 effect，避免重复全量扫描
+let hasCleanedOldLocalKeys = false;
+
+const OLD_KEY_PATTERNS = [
+  /^flowweb_canvas_content_/,
+  /^flowweb_canvas_(?!v2_)/,
+];
+
+function sweepOldKeys() {
+  if (hasCleanedOldLocalKeys) return;
+  hasCleanedOldLocalKeys = true;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && OLD_KEY_PATTERNS.some((re) => re.test(key))) {
+      localStorage.removeItem(key);
+      i--;
+    }
+  }
+}
 
 export function useCanvasPersistence(projectId: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restore from localStorage on mount (only if store is empty)
+  // Restore from localStorage on mount (only if store is empty — DB 加载优先，本地兜底，串行不竞争)
   useEffect(() => {
+    sweepOldKeys();
+
     const store = useCanvasStore.getState();
-    // Only restore if canvas is empty — prevents duplicates on re-render
     if (store.nodes.length > 0) return;
 
-    const cached = localStorage.getItem(`${STORAGE_KEY}_${projectId}`);
-    if (!cached) return;
+    const snap = loadSnapshot(projectId);
+    if (!snap) return;
 
+    useCanvasStore.getState().setHydrating(true);
     try {
-      const data = JSON.parse(cached);
-
-      // Restore viewport
-      if (data.viewport) {
-        store.updateViewport(data.viewport);
-      }
-
-      // Restore nodes — use setState to replace, not add
-      if (data.nodes && data.nodes.length > 0) {
-        useCanvasStore.setState({ nodes: data.nodes });
-      }
-
-      // Restore edges — use setState to replace, not add
-      if (data.edges && data.edges.length > 0) {
-        useCanvasStore.setState({ edges: data.edges });
-      }
-    } catch {
-      // Corrupt cache — ignore
-    }
-
-    // Restore node content
-    const cachedContent = localStorage.getItem(`${STORAGE_KEY}_content_${projectId}`);
-    if (cachedContent) {
-      try {
-        const content = JSON.parse(cachedContent);
-        useNodeStore.setState({ nodes: content });
-      } catch {
-        // ignore
-      }
+      useNodeStore.setState({ nodes: snap.nodes });
+      useCanvasStore.setState({
+        nodes: Object.values(snap.nodes).map((n) => ({
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: n.data as unknown as Record<string, unknown>,
+          width: n.width,
+          height: n.height,
+        })),
+        edges: snap.edges,
+        viewport: snap.viewport,
+      });
+    } finally {
+      useCanvasStore.getState().setHydrating(false);
     }
   }, [projectId]);
 
-  // Auto-save to localStorage on state changes (debounced for nodes/edges)
+  // Auto-save merged snapshot (single writer, shared 500ms debounce across both stores)
   useEffect(() => {
-    const unsub1 = useCanvasStore.subscribe((state) => {
+    const scheduleWrite = (hydratingNow: boolean, wasHydrating: boolean) => {
+      if (hydratingNow) {
+        // S1: hydrate 窗口内不调度，并清除挂起定时器，防止 hydrate 结束后旧回调脏写
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        return;
+      }
+      // hydrate 结束的过渡事件本身不调度——窗口内的实质变化已被抑制，无新内容可写
+      if (wasHydrating) return;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (useCanvasStore.getState().isHydrating) return;
+        const cs = useCanvasStore.getState();
         localStorage.setItem(
-          `${STORAGE_KEY}_${projectId}`,
+          snapshotKey(projectId),
           JSON.stringify({
-            nodes: state.nodes,
-            edges: state.edges,
-            viewport: state.viewport,
-          })
+            version: SNAPSHOT_VERSION,
+            nodes: useNodeStore.getState().nodes,
+            edges: cs.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+            viewport: cs.viewport,
+          }),
         );
       }, 500);
-    });
+    };
 
-    const unsub2 = useNodeStore.subscribe((state) => {
-      const key = `${STORAGE_KEY}_content_${projectId}`;
-      // 防污染：store 被动清空（如迟到空响应覆盖）时不回写，避免覆盖非空缓存
-      if (Object.keys(state.nodes).length === 0) {
-        const existing = localStorage.getItem(key);
-        if (existing && existing !== '{}') return;
-      }
-      localStorage.setItem(key, JSON.stringify(state.nodes));
+    const unsub1 = useCanvasStore.subscribe((state, prevState) =>
+      scheduleWrite(state.isHydrating, prevState.isHydrating),
+    );
+    const unsub2 = useNodeStore.subscribe(() => {
+      const h = useCanvasStore.getState().isHydrating;
+      scheduleWrite(h, h);
     });
 
     return () => {
