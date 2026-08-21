@@ -8,10 +8,19 @@ vi.mock('@/api/executionApi', () => ({
   enqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
 }));
 
+const { mockProjectIdRef } = vi.hoisted(() => ({ mockProjectIdRef: { value: 'proj-test-123' as string | null } }));
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: {
+    getState: () => ({ projectId: mockProjectIdRef.value }),
+  },
+}));
+
 describe('imageNodeApi — buildImageGenParams', () => {
   beforeEach(() => {
     useNodeStore.setState({ nodes: {} });
     vi.clearAllMocks();
+    mockProjectIdRef.value = 'proj-test-123';
   });
 
   it('should include nodeType: imageGen', () => {
@@ -96,5 +105,45 @@ describe('imageNodeApi — buildImageGenParams', () => {
 
     const params = buildImageGenParams('img4');
     expect(params.allImages).toEqual([]);
+  });
+
+  it('should read projectId from canvasStore by default', () => {
+    const node: AppNode = {
+      id: 'img-p1',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: { status: 'idle', allImages: [] } as ImageNodeData,
+    };
+    useNodeStore.getState().addNode(node);
+
+    const params = buildImageGenParams('img-p1');
+    expect(params.projectId).toBe('proj-test-123');
+  });
+
+  it('should prefer opts.projectId over canvasStore', () => {
+    const node: AppNode = {
+      id: 'img-p2',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: { status: 'idle', allImages: [] } as ImageNodeData,
+    };
+    useNodeStore.getState().addNode(node);
+
+    const params = buildImageGenParams('img-p2', { projectId: 'explicit-1' });
+    expect(params.projectId).toBe('explicit-1');
+  });
+
+  it('should fall back to "default" when canvasStore projectId is null', () => {
+    mockProjectIdRef.value = null;
+    const node: AppNode = {
+      id: 'img-p3',
+      type: 'imageGen',
+      position: { x: 0, y: 0 },
+      data: { status: 'idle', allImages: [] } as ImageNodeData,
+    };
+    useNodeStore.getState().addNode(node);
+
+    const params = buildImageGenParams('img-p3');
+    expect(params.projectId).toBe('default');
   });
 });

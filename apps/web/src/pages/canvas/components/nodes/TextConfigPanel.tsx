@@ -156,11 +156,12 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         data: latestState.nodes[n.id]?.data || (n.data as any) || {},
         width: n.width, height: n.height,
       }));
+      const projectId = canvasState.projectId ?? 'default';
       await Promise.all([
-        syncNodes('default', mergedNodes),
-        syncEdges('default', canvasState.edges),
+        syncNodes(projectId, mergedNodes),
+        syncEdges(projectId, canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId });
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[TextPanel] enqueued job:', jobId);
       // Socket.io will update status → done/error with AI response
     } catch {

@@ -132,11 +132,12 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
         width: n.width,
         height: n.height,
       }));
+      const projectId = canvasState.projectId ?? 'default';
       await Promise.all([
-        syncNodes('default', mergedNodes),
-        syncEdges('default', canvasState.edges),
+        syncNodes(projectId, mergedNodes),
+        syncEdges(projectId, canvasState.edges),
       ]);
-      await imageExtNodeApi.submitGeneration(nodeId);
+      await imageExtNodeApi.submitGeneration(nodeId, { projectId });
     } catch {
       setStatus(nodeId, 'error');
     } finally {

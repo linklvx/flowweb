@@ -1,5 +1,6 @@
 import { useNodeStore, NODE_TYPES, isImageNode } from '@/stores/nodeStore';
 import type { ImageItem } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from './executionApi';
 
 export interface ImageGenParams {
@@ -14,12 +15,12 @@ export interface ImageGenParams {
   prompt?: { text?: string; html?: string };
 }
 
-export function buildImageGenParams(nodeId: string): ImageGenParams {
+export function buildImageGenParams(nodeId: string, opts?: { projectId?: string }): ImageGenParams {
   const node = useNodeStore.getState().nodes[nodeId];
   const data = isImageNode(node) ? node.data : undefined;
 
   return {
-    projectId: 'default',
+    projectId: opts?.projectId ?? useCanvasStore.getState().projectId ?? 'default',
     nodeId,
     nodeType: NODE_TYPES.IMAGE_GEN,
     allImages: data?.allImages ?? [],
@@ -47,7 +48,7 @@ export async function getCreditCost(modelId: string): Promise<number> {
   }
 }
 
-export async function submitGeneration(nodeId: string): Promise<{ jobId: string }> {
-  const params = buildImageGenParams(nodeId);
+export async function submitGeneration(nodeId: string, opts?: { projectId?: string }): Promise<{ jobId: string }> {
+  const params = buildImageGenParams(nodeId, opts);
   return enqueueWorkflow(params);
 }

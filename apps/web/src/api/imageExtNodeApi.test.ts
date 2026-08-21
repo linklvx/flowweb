@@ -7,10 +7,19 @@ vi.mock('@/api/executionApi', () => ({
   enqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-ext-1', status: 'queued' }),
 }));
 
+const { mockProjectIdRef } = vi.hoisted(() => ({ mockProjectIdRef: { value: 'proj-test-123' as string | null } }));
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: {
+    getState: () => ({ projectId: mockProjectIdRef.value }),
+  },
+}));
+
 describe('imageExtNodeApi — buildImageExtGenParams', () => {
   beforeEach(() => {
     useNodeStore.setState({ nodes: {} });
     vi.clearAllMocks();
+    mockProjectIdRef.value = 'proj-test-123';
   });
 
   it('should include nodeType: imageExtGen', () => {
@@ -117,7 +126,7 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     expect(params.generateCount).toBe(1);
   });
 
-  it('should include projectId: default', () => {
+  it('should read projectId from canvasStore by default', () => {
     const node: AppNode = {
       id: 'ext6',
       type: 'imageExtGen',
@@ -131,6 +140,41 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     useNodeStore.getState().addNode(node);
 
     const params = buildImageExtGenParams('ext6');
+    expect(params.projectId).toBe('proj-test-123');
+  });
+
+  it('should prefer opts.projectId over canvasStore', () => {
+    const node: AppNode = {
+      id: 'ext7',
+      type: 'imageExtGen',
+      position: { x: 0, y: 0 },
+      data: {
+        status: 'idle',
+        allImages: [],
+        extConfig: { model: 'm', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
+      } as ImageNodeData,
+    };
+    useNodeStore.getState().addNode(node);
+
+    const params = buildImageExtGenParams('ext7', { projectId: 'explicit-1' });
+    expect(params.projectId).toBe('explicit-1');
+  });
+
+  it('should fall back to "default" when canvasStore projectId is null', () => {
+    mockProjectIdRef.value = null;
+    const node: AppNode = {
+      id: 'ext8',
+      type: 'imageExtGen',
+      position: { x: 0, y: 0 },
+      data: {
+        status: 'idle',
+        allImages: [],
+        extConfig: { model: 'm', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
+      } as ImageNodeData,
+    };
+    useNodeStore.getState().addNode(node);
+
+    const params = buildImageExtGenParams('ext8');
     expect(params.projectId).toBe('default');
   });
 });

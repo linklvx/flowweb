@@ -1,5 +1,6 @@
 import { useNodeStore, NODE_TYPES, isImageNode, IMAGE_EXT_DEFAULTS } from '@/stores/nodeStore';
 import type { ImageItem, AiToolId, ImageExtConfig } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from './executionApi';
 
 export interface ImageExtGenParams {
@@ -22,13 +23,13 @@ function getExtConfig(nodeId: string): ImageExtConfig {
   return node.data.extConfig;
 }
 
-export function buildImageExtGenParams(nodeId: string): ImageExtGenParams {
+export function buildImageExtGenParams(nodeId: string, opts?: { projectId?: string }): ImageExtGenParams {
   const node = useNodeStore.getState().nodes[nodeId];
   const data = isImageNode(node) ? node.data : undefined;
   const extConfig = getExtConfig(nodeId);
 
   return {
-    projectId: 'default',
+    projectId: opts?.projectId ?? useCanvasStore.getState().projectId ?? 'default',
     nodeId,
     nodeType: NODE_TYPES.IMAGE_EXT_GEN,
     allImages: data?.allImages ?? [],
@@ -58,7 +59,7 @@ export async function getCreditCost(modelId: string): Promise<number> {
   }
 }
 
-export async function submitGeneration(nodeId: string): Promise<{ jobId: string }> {
-  const params = buildImageExtGenParams(nodeId);
+export async function submitGeneration(nodeId: string, opts?: { projectId?: string }): Promise<{ jobId: string }> {
+  const params = buildImageExtGenParams(nodeId, opts);
   return enqueueWorkflow(params);
 }

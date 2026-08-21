@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { ImageConfigPanel } from './ImageConfigPanel';
 
 // Track the maxHeight prop passed to PromptInput
 let capturedMaxHeight: number = 80;
+let capturedOnGenerate: (() => void) | undefined;
 
 // Mock PromptInput — don't render the real Tiptap editor
 vi.mock('./prompt-input/PromptInput', () => ({
   default: React.forwardRef((props: any, ref: any) => {
     capturedMaxHeight = props.maxHeight;
+    capturedOnGenerate = props.onGenerate;
     React.useImperativeHandle(ref, () => ({
       forceSync: vi.fn(),
       focus: vi.fn(),
@@ -54,39 +56,67 @@ let mockNodeData: any = {
   prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
 };
 
-vi.mock('@/stores/nodeStore', () => ({
-  isImageNode: (node: unknown) => {
-    if (!node || typeof node !== 'object') return false;
-    const type = (node as { type?: string }).type;
-    return type === 'imageGen' || type === 'imageExtGen';
-  },
-  isImageExtNode: (node: unknown) => {
-    if (!node || typeof node !== 'object') return false;
-    const type = (node as { type?: string }).type;
-    return type === 'imageExtGen';
-  },
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: {
-        img1: {
-          id: 'img1',
-          type: 'imageGen',
-          position: { x: 0, y: 0 },
-          data: mockNodeData,
-        },
-        ext1: {
-          id: 'ext1',
-          type: 'imageExtGen',
-          position: { x: 0, y: 0 },
-          data: mockNodeData,
-        },
+vi.mock('@/stores/nodeStore', () => {
+  const buildState = () => ({
+    nodes: {
+      img1: {
+        id: 'img1',
+        type: 'imageGen',
+        position: { x: 0, y: 0 },
+        data: mockNodeData,
       },
-      updateConfig: mockUpdateConfig,
-      updatePromptImages: vi.fn(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+      ext1: {
+        id: 'ext1',
+        type: 'imageExtGen',
+        position: { x: 0, y: 0 },
+        data: mockNodeData,
+      },
+    },
+    updateConfig: mockUpdateConfig,
+    updatePromptImages: vi.fn(),
+    setStatus: vi.fn(),
+  });
+  return {
+    isImageNode: (node: unknown) => {
+      if (!node || typeof node !== 'object') return false;
+      const type = (node as { type?: string }).type;
+      return type === 'imageGen' || type === 'imageExtGen';
+    },
+    isImageExtNode: (node: unknown) => {
+      if (!node || typeof node !== 'object') return false;
+      const type = (node as { type?: string }).type;
+      return type === 'imageExtGen';
+    },
+    useNodeStore: Object.assign(
+      vi.fn((selector?: any) => {
+        const state = buildState();
+        if (typeof selector === 'function') return selector(state);
+        return state;
+      }),
+      { getState: () => buildState() },
+    ),
+  };
+});
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: {
+    getState: () => ({ nodes: [], edges: [], projectId: 'real-pid' }),
+  },
+}));
+
+const { mockSyncNodes, mockSyncEdges, mockSubmitGeneration } = vi.hoisted(() => ({
+  mockSyncNodes: vi.fn().mockResolvedValue([]),
+  mockSyncEdges: vi.fn().mockResolvedValue([]),
+  mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
+}));
+vi.mock('@/api/projectApi', () => ({
+  syncNodes: mockSyncNodes,
+  syncEdges: mockSyncEdges,
+}));
+vi.mock('@/api/imageNodeApi', () => ({
+  getCreditCost: vi.fn().mockResolvedValue(0),
+  fetchModels: vi.fn().mockResolvedValue([]),
+  submitGeneration: mockSubmitGeneration,
 }));
 
 describe('ImageConfigPanel', () => {
@@ -281,5 +311,18 @@ describe('ImageConfigPanel', () => {
   it('should NOT render AI tool button for imageGen node', () => {
     render(<ImageConfigPanel nodeId="img1" />);
     expect(screen.queryByTestId('canvas-node-image-ai-tool-select')).not.toBeInTheDocument();
+  });
+
+  it('generates with real projectId from canvasStore (not "default")', async () => {
+    mockNodeData.prompt.text = 'hello image';
+    render(<ImageConfigPanel nodeId="img1" />);
+
+    await act(async () => {
+      await capturedOnGenerate?.();
+    });
+
+    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockSubmitGeneration).toHaveBeenCalledWith('img1', { projectId: 'real-pid' });
   });
 });

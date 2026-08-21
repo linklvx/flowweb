@@ -155,11 +155,12 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
         data: latestState.nodes[n.id]?.data || (n.data as any) || {},
         width: n.width, height: n.height,
       }));
+      const projectId = canvasState.projectId ?? 'default';
       await Promise.all([
-        syncNodes('default', mergedNodes),
-        syncEdges('default', canvasState.edges),
+        syncNodes(projectId, mergedNodes),
+        syncEdges(projectId, canvasState.edges),
       ]);
-      const { jobId } = await enqueueWorkflow({ projectId: 'default', nodeId });
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');

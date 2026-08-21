@@ -7,12 +7,15 @@ import { VideoConfigPanel } from './VideoConfigPanel';
 let capturedMaxHeight = 80;
 // Track the onPasteImage handler passed to PromptInput
 let capturedOnPasteImage: ((file: File) => void) | undefined;
+// Track the onGenerate handler passed to PromptInput
+let capturedOnGenerate: (() => void) | undefined;
 
 // Mock PromptInput
 vi.mock('./prompt-input/PromptInput', () => ({
   default: React.forwardRef((props: any, ref: any) => {
     capturedMaxHeight = props.maxHeight;
     capturedOnPasteImage = props.onPasteImage;
+    capturedOnGenerate = props.onGenerate;
     React.useImperativeHandle(ref, () => ({
       forceSync: vi.fn(),
       focus: vi.fn(),
@@ -84,24 +87,33 @@ vi.mock('@/stores/nodeStore', () => {
         if (typeof selector === 'function') return selector(state);
         return state;
       }),
-      { getState: () => buildState() },
+      {
+        getState: () => buildState(),
+        setState: vi.fn(),
+      },
     ),
   };
 });
 
+let mockCanvasProjectId: string | null = 'real-pid';
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
-    getState: () => ({ nodes: [], edges: [] }),
+    getState: () => ({ nodes: [], edges: [], projectId: mockCanvasProjectId }),
   },
 }));
 
-vi.mock('@/api/executionApi', () => ({
-  enqueueWorkflow: vi.fn(),
+const { mockEnqueueWorkflow, mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
+  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
+  mockSyncNodes: vi.fn().mockResolvedValue([]),
+  mockSyncEdges: vi.fn().mockResolvedValue([]),
 }));
-
+vi.mock('@/api/executionApi', () => ({
+  enqueueWorkflow: mockEnqueueWorkflow,
+}));
 vi.mock('@/api/projectApi', () => ({
-  syncNodes: vi.fn(),
-  syncEdges: vi.fn(),
+  syncNodes: mockSyncNodes,
+  syncEdges: mockSyncEdges,
 }));
 
 describe('VideoConfigPanel', () => {
@@ -217,6 +229,19 @@ describe('VideoConfigPanel', () => {
       await capturedOnPasteImage?.(file);
     });
     expect(mockUploadSingleImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('generates with real projectId from canvasStore (not "default")', async () => {
+    mockNodeData.prompt.text = 'hello video';
+    render(<VideoConfigPanel nodeId="v1" />);
+
+    await act(async () => {
+      await capturedOnGenerate?.();
+    });
+
+    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
   });
 
   it('should render 2 dividers: after model selector and between voice/credits', () => {

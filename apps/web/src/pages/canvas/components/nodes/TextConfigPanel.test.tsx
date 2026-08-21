@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 // Mock Web Speech API
 const mockListeners: Record<string, Function> = {};
@@ -50,18 +50,23 @@ vi.mock('@/stores/nodeStore', () => ({
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
-    getState: () => ({ nodes: [], edges: [] }),
+    getState: () => ({ nodes: [], edges: [], projectId: 'real-pid' }),
   },
 }));
 
 // Mock api
+const { mockEnqueueWorkflow, mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
+  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
+  mockSyncNodes: vi.fn().mockResolvedValue([]),
+  mockSyncEdges: vi.fn().mockResolvedValue([]),
+}));
 vi.mock('@/api/executionApi', () => ({
   executeWorkflow: vi.fn(),
-  enqueueWorkflow: vi.fn(),
+  enqueueWorkflow: mockEnqueueWorkflow,
 }));
 vi.mock('@/api/projectApi', () => ({
-  syncNodes: vi.fn(),
-  syncEdges: vi.fn(),
+  syncNodes: mockSyncNodes,
+  syncEdges: mockSyncEdges,
 }));
 
 import { TextConfigPanel } from './TextConfigPanel';
@@ -119,6 +124,21 @@ describe('TextConfigPanel', () => {
     const btn = document.querySelector('[aria-label="语音输入"]')!;
     fireEvent.click(btn);
     expect(btn.className).toContain('bg-white/20');
+  });
+
+  it('generates with real projectId from canvasStore (not "default")', async () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    const textarea = container.querySelector('textarea')!;
+    fireEvent.change(textarea, { target: { value: 'hello text' } });
+    const buttons = container.querySelectorAll('button');
+    const generateBtn = buttons[buttons.length - 1];
+    fireEvent.click(generateBtn);
+
+    await act(async () => {});
+
+    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
   });
 
   it('should restore persisted prompt from nodeStore on mount', () => {
