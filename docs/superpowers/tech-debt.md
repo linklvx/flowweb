@@ -39,7 +39,7 @@
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
 2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ ~~3c: TD-5/6/8~~ ✅ 已完成（2026-08-21，8be333a）→ ~~3d: TD-4~~ ✅ 已完成（2026-08-21，8397472，第三批全部收官）
-3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16
+3. ~~**随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16~~ ✅ 除 TD-15 外全部完成（2026-08-21/22，第四批 a20bab1/c939c20/c43ccc0/de9b744/257d86b）；TD-15 已实证升级为独立高优债（删除清理链路断路+素材引用埋雷，修复需另立 spec）
 
 ## 已清账
 
@@ -54,7 +54,7 @@
 | TD-10 Prisma migrate 历史断裂（基线重置为单一 init，沙箱重放自证；部署流程固化于 deployment-db-baseline.md；遗留：本地 `migrate dev` 需用户一次性执行 `ALTER ROLE flowweb CREATEDB`） | 2026-08-21 | d2cae05 |
 | TD-5/6 localStorage 持久化合一：单一版本化快照 `flowweb_canvas_v2_${pid}`（nodeStore 数据权威 + 视图派生恢复 + isHydrating 抑制单写者 + 旧 key 一次性清扫）；TD-8 localStorage 部分随清，余 MinIO 对账 | 2026-08-21 | 8be333a |
 | TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a / 8397472 |
-| TD-3 isSaving 死写入+类型删除；TD-7 nodeData 竞态空白换 Spin 占位（role=status）；TD-16 useReactFlowSync 死代码删除 | 2026-08-21 | （hash 回填） |
-| TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | （hash 回填） |
-| TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | （hash 回填） |
-| TD-13 三分支覆盖补齐：interceptor @NoTransform 直通不包装 / sms SendStatusSet 非 Ok 拒绝（含状态码透传与 SMS_SEND_REJECTED 兜底）/ file controller type 非空过滤透传 | 2026-08-21 | （hash 回填） |
+| TD-3 isSaving 死写入+类型删除；TD-7 nodeData 竞态空白换 Spin 占位（role=status）；TD-16 useReactFlowSync 死代码删除 | 2026-08-21 | a20bab1 |
+| TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | c939c20 |
+| TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | c43ccc0 / de9b744 |
+| TD-13 三分支覆盖补齐：interceptor @NoTransform 直通不包装 / sms SendStatusSet 非 Ok 拒绝（含状态码透传与 SMS_SEND_REJECTED 兜底）/ file controller type 非空过滤透传 | 2026-08-21 | 257d86b |
