@@ -4,33 +4,9 @@
 > 约定：每项含【来源】【现状核查日期】【修复方向】；完成一项移入文末「已清账」并注明 commit。
 > 新债发现时随手追加，修复前先核查现状（文件/行为可能已变化）。
 
-最近核查：2026-08-20
+最近核查：2026-08-21
 
 ## 前端（apps/web）
-
-### TD-1 ConfigPanel 硬编码 `projectId: 'default'` 写库
-
-- **来源**：canvas-refresh-data-loss-fix spec 首次 defer，canvas-create-unify-fix spec 延续 defer
-- **现状**（2026-08-20 核查）：5 处仍存在
-  - `src/api/imageNodeApi.ts:22`（buildImageGenParams）
-  - `src/api/imageExtNodeApi.ts:31`
-  - `src/pages/canvas/components/nodes/AudioConfigPanel.tsx:162`
-  - `src/pages/canvas/components/nodes/VideoConfigPanel.tsx:200`
-  - `src/pages/canvas/components/nodes/TextConfigPanel.tsx:163`
-- **影响**：生成任务（enqueueWorkflow）归属到名为 default 的错误项目，任务追踪/审计数据错误
-- **修复方向**：projectId 从 canvasStore（已有 setProjectId 同步）读取，五处统一；注意测试 `imageExtNodeApi.test.ts:134` 断言了 'default' 需同步更新
-- **优先级**：高（上线前）——数据归属错误
-
-### TD-2 `allImages` 双轨数据形状（root-level vs prompt 嵌套）
-
-- **来源**：2026-08-20 类型清零（commit e42863f）过程中发现
-- **现状**：写入方与读取方分裂
-  - 写：`nodeStore.updatePromptImages` 写**根级** `data.allImages`（nodeStore.ts 注释明确 "root-level shared field, no longer nested in prompt"）
-  - 读（仍在读嵌套 `prompt.allImages`）：`VideoConfigPanel.tsx:249/270`（缩略图栏展示）、`useImageUpload.getLatestAllImages`、`nodeStore.ts:455`（节点删除时的引用文件清理 deleteRefs）
-  - image 节点链路已迁移至根级（ImageConfigPanel 读根级），video 链路未迁移
-- **疑似症状**（待复现确认）：视频节点上传图片后缩略图栏不更新；节点删除时 presigned 引用文件不清理
-- **修复方向**：先浏览器复现确认症状；统一迁移 video 链路读根级，或恢复嵌套单一来源；nodeStore.ts:455 的 deleteRefs 需两轨兼容（存量数据可能两处都有）
-- **优先级**：高——潜在用户可见 bug
 
 ### TD-3 ImageGenNode 死字段写入 `isSaving: false`
 
@@ -97,12 +73,29 @@
 - **修复方向**：上线部署前人工核对 schema 与迁移一致性；建议基线重置（`migrate resolve`/重新基线）并在部署流程中固化
 - **优先级**：**上线阻塞项**
 
+### TD-11 节点删除链路断裂（视图删、nodeStore 永不删）
+
+- **来源**：2026-08-21 TD-1/TD-2 修复批次浏览器手验发现（实锤）
+- **现状**：
+  - CanvasView 绑定 `canvasStore.onNodesChange`（CanvasView.tsx:51），其实现只处理 dimensions change（canvasStore.ts:401-422），**remove change 无分支** → 删除节点只更新 React Flow 视图 state
+  - 正确实现 remove→deleteNode 的 `useReactFlowSync.ts` **只有测试在用，是未接线的死代码**
+  - 叠加：`nodeStore.deleteNode` 清理分支只认 image 节点（isImageNode），**videoGen 节点即使接线后引用图也不清理**
+- **实测后果**：已删节点永久残留 nodeStore/localStorage（刷新后不复活——恢复走 DB，用户基本无感）；引用文件 DELETE 从未发出 → MinIO 孤儿泄漏
+- **修复方向**：remove change 接线到 nodeStore.deleteNode（复活 useReactFlowSync 或在 canvasStore.onNodesChange 加 remove 分支）+ deleteNode 扩 videoGen 清理分支（allImages 根级+嵌套合并去重逻辑已在位，nodeStore.ts deleteNode）
+- **优先级**：中——数据泄漏不可见但不可逆（MinIO 孤儿）；与 TD-8 存量清理一并做收益更大
+
+### TD-12 `PromptValue.allImages` 僵尸类型字段
+
+- **来源**：2026-08-21 TD-2 修复批次（spec O3 决议保留类型、记台账）
+- **现状**：运行时读写已全部迁移根级 `data.allImages`，`PromptValue.allImages` 无运行时读取方；几十处测试 mock 仍使用嵌套形状
+- **修复方向**：测试 mock 批量迁移到根级形状后，从 `PromptValue` 类型移除该字段（连带 nodeStore.ts:245 初始 prompt 形状）
+- **优先级**：低——纯类型卫生
+
 ## 集中修复建议批次
 
-1. **第一批（用户可见 bug）**：TD-2 → TD-1（复现确认后修）
-2. **第二批（测试卫生）**：TD-9
-3. **第三批（结构/上线）**：TD-10 → TD-5/6/8 → TD-4
-4. **随手清**：TD-3、TD-7
+1. **第二批（测试卫生）**：TD-9
+2. **第三批（结构/上线）**：TD-10 → TD-5/6/8 → TD-4 → TD-11（与 TD-8 一并）
+3. **随手清**：TD-3、TD-7、TD-12
 
 ## 已清账
 
@@ -110,3 +103,5 @@
 |---|---|---|
 | 117 个 TypeScript 类型错误（阻断 `tsc -b` 构建） | 2026-08-20 | e42863f |
 | StrictMode 双创建（首页一次点击建 2 个画布） | 2026-08-20 | 3151d51 |
+| TD-2 allImages 双轨统一（根级）：useImageUpload/VideoConfigPanel/deleteRefs 三读取方迁移 + 测试基建修正 | 2026-08-21 | 7a62eb2 / bdf8fdd / 4af7834 |
+| TD-1 projectId 硬编码（实际 15 处非台账原记 5 处，含 syncNodes/syncEdges 位置参数形式漏报；修复带节点画布生成 500 阻断） | 2026-08-21 | e82cf36 |
