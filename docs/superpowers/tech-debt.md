@@ -11,9 +11,14 @@
 ### TD-8 软删 Media 行的 MinIO 对象回收
 
 - **来源**：canvas-create-unify-fix spec 明示「不会自愈」；TD-11 修复前已删节点泄漏的 MinIO 文件；localStorage 脏数据部分已随 3c 基线重构清账（v2 版本化快照 + 旧 key 一次性清扫）
-- **现状**：无生产用户；TD-15 方案 B 落地后画布侧不再产生孤儿，唯一孤儿来源 = 库内软删（deletedAt）行的 MinIO 对象；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
-- **修复方向**：上线前评估——若无生产数据可直接忽略；否则一次性清理脚本（含 DB media vs MinIO listing 对账）；可选运行时回收（软删 >N 天物理清扫，temp-cleanup 模式扩展）
-- **优先级**：上线前评估
+- **现状**：无生产用户；TD-15 方案 B 落地后画布侧不再产生孤儿，唯一孤儿来源 = 库内软删（deletedAt）行的 MinIO 对象
+- **处置**：上线前评估（D2 裁定维持）；届时按下述 checklist 逐项回答后再定方案
+- **评估 checklist**（上线前逐项回答）：
+  1. **引用安全（阻塞项）**：`getMediaUrl` / 画布渲染 / 历史记录查询是否过滤 `deletedAt`？软删行的 fileId 是否仍可能被画布节点引用？若不过滤，物理清扫会直接弄坏画布上的图
+  2. **N 值**：软删后多少天物理回收？需产品输入（建议 30 天起步）
+  3. **DB 行处理**：物理删 MinIO 对象后，Media 行是硬删还是保留为悬空标记？
+  4. **存量对账**：DB media 全量 vs MinIO listing 对账脚本（服务端脚本域，有真实数据后写）
+  5. **实现形态**：temp-cleanup.processor（apps/api/src/modules/temp-cleanup/）扩展软删清扫条件（`deletedAt < now() - N`）
 
 ## 后端（apps/api）
 
