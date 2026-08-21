@@ -16,6 +16,8 @@ globalThis.fetch = mockFetch;
 
 // 按用例注入 canvasStore 节点（模拟"canvasStore 有节点但 nodeStore 无对应数据"的刷新竞态）
 let mockCanvasNodes: any[] = [];
+// 按用例注入 hydrate 窗口状态（TD-4 遮罩/键盘守卫）
+let mockIsHydrating = false;
 
 const { useCanvasStoreSetState, useNodeStoreSetState } = vi.hoisted(() => ({
   useCanvasStoreSetState: vi.fn(),
@@ -30,7 +32,7 @@ vi.mock('@/stores/canvasStore', () => ({
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
-        isHydrating: false,
+        isHydrating: mockIsHydrating,
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         onConnect: vi.fn(),
@@ -48,7 +50,7 @@ vi.mock('@/stores/canvasStore', () => ({
         nodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
-        isHydrating: false,
+        isHydrating: mockIsHydrating,
         setHydrating: vi.fn(),
         updateViewport: vi.fn(),
         onNodesChange: vi.fn(),
@@ -152,6 +154,7 @@ describe('CanvasPage', () => {
     localStorage.clear();
     useMenuStore.setState({ isOpen: false });
     mockCanvasNodes = [];
+    mockIsHydrating = false;
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -563,5 +566,74 @@ describe('CanvasPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('创作')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('TD-4 hydrate 遮罩', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useMenuStore.setState({ isOpen: false });
+    mockCanvasNodes = [];
+    mockIsHydrating = false;
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', projectId: 'test-pid-123', templateId: 't-1', name: '我的画布' } }),
+    });
+  });
+
+  it('isHydrating=true 时渲染遮罩：覆盖全屏（inset-0/z-40）、不穿透指针、带 a11y 属性', async () => {
+    mockIsHydrating = true;
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    const overlay = await screen.findByTestId('hydrate-overlay');
+    expect(overlay).toHaveAttribute('role', 'status');
+    expect(overlay.className).toContain('inset-0');
+    expect(overlay.className).toContain('z-40');
+    // C2：类名断言（jsdom computed style 不完整）——默认 pointer-events auto 即阻断
+    expect(overlay).not.toHaveClass('pointer-events-none');
+    expect(overlay).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByText('画布加载中')).toBeInTheDocument();
+  });
+
+  it('isHydrating=false 时无遮罩', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('hydrate-overlay')).not.toBeInTheDocument();
+  });
+});
+
+describe('TD-4 hydrate 键盘守卫', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useMenuStore.setState({ isOpen: false });
+    mockCanvasNodes = [];
+    mockIsHydrating = false;
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', projectId: 'test-pid-123', templateId: 't-1', name: '我的画布' } }),
+    });
+  });
+
+  it('isHydrating=true 时 Tab 不开 AddNodeMenu', async () => {
+    mockIsHydrating = true;
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(useMenuStore.getState().isOpen).toBe(false);
+  });
+
+  it('isHydrating=false 时 Tab 正常开菜单', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(useMenuStore.getState().isOpen).toBe(true);
+    useMenuStore.setState({ isOpen: false });
   });
 });

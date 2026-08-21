@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
-import { message } from 'antd';
+import { message, Spin } from 'antd';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { AddNodeMenu } from './components/AddNodeMenu';
@@ -232,6 +232,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   const menuPosition = useMenuStore((s) => s.position);
   const menuClose = useMenuStore((s) => s.close);
   const triggerEl = useMenuStore((s) => s.triggerEl);
+  const isHydrating = useCanvasStore((s) => s.isHydrating);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { triggerRef.current = triggerEl; }, [triggerEl]);
 
@@ -288,6 +289,19 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <LightingModal />
         <Angle3DModal />
         <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
+        {isHydrating && (
+          <div
+            data-testid="hydrate-overlay"
+            role="status"
+            aria-live="polite"
+            className="absolute inset-0 z-40 flex items-center justify-center bg-black/50"
+          >
+            <div className="flex flex-col items-center gap-2 text-white">
+              <Spin />
+              <span>画布加载中</span>
+            </div>
+          </div>
+        )}
       </div>
     </ReactFlowProvider>
   );
@@ -299,6 +313,8 @@ function CanvasKeyboardHandler() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // TD-4：hydrate 窗口内忽略快捷键（遮罩封指针路径，这里封键盘路径）
+      if (useCanvasStore.getState().isHydrating) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
