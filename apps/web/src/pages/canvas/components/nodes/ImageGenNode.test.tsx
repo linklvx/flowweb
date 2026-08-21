@@ -591,4 +591,13 @@ describe('ImageGenNode', () => {
     const { container } = renderNode(true);
     expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });
+
+  it('TD-7: renders loading placeholder (not blank) when nodeData is undefined (refresh restore race)', () => {
+    mockNodeData = undefined;
+    renderNode();
+    const placeholder = screen.getByTestId('node-loading-placeholder');
+    expect(placeholder).toHaveAttribute('role', 'status');
+    expect(placeholder).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByText('内容加载中')).toBeInTheDocument();
+  });
 });

@@ -8,20 +8,6 @@
 
 ## 前端（apps/web）
 
-### TD-3 ImageGenNode 死字段写入 `isSaving: false`
-
-- **来源**：2026-08-20 类型清零时发现；已如实补类型（`ImageNodeData.isSaving?: boolean`）但未删行为
-- **现状**：`src/pages/canvas/components/nodes/ImageGenNode.tsx:450` 变换保存完成后往节点数据写 `isSaving: false`，全库无读取方（工具栏的 isSaving 是组件 state 非数据字段）
-- **修复方向**：删除该字段写入（一行）；`ImageNodeData.isSaving` 类型可一并移除
-- **优先级**：低——微清理
-
-### TD-7 nodeData undefined 时空白占位
-
-- **来源**：canvas-refresh-data-loss-fix spec（UX 债）
-- **现状**：相关组件 `return null`，用户看到空白
-- **修复方向**：换 Spin/轻文案占位
-- **优先级**：低
-
 ### TD-8 MinIO 存量孤儿文件对账
 
 - **来源**：canvas-create-unify-fix spec 明示「不会自愈」；TD-11 修复前已删节点泄漏的 MinIO 文件；localStorage 脏数据部分已随 3c 基线重构清账（v2 版本化快照 + 旧 key 一次性清扫）
@@ -89,3 +75,4 @@
 | TD-10 Prisma migrate 历史断裂（基线重置为单一 init，沙箱重放自证；部署流程固化于 deployment-db-baseline.md；遗留：本地 `migrate dev` 需用户一次性执行 `ALTER ROLE flowweb CREATEDB`） | 2026-08-21 | d2cae05 |
 | TD-5/6 localStorage 持久化合一：单一版本化快照 `flowweb_canvas_v2_${pid}`（nodeStore 数据权威 + 视图派生恢复 + isHydrating 抑制单写者 + 旧 key 一次性清扫）；TD-8 localStorage 部分随清，余 MinIO 对账 | 2026-08-21 | 8be333a |
 | TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a / 8397472 |
+| TD-3 isSaving 死写入+类型删除；TD-7 nodeData 竞态空白换 Spin 占位（role=status）；TD-16 useReactFlowSync 死代码删除 | 2026-08-21 | （hash 回填） |

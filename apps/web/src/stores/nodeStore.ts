@@ -124,9 +124,6 @@ export interface ImageNodeData {
   // —— imageExtGen 专属 ——
   extConfig?: ImageExtConfig;
   aiTool?: AiToolId;
-
-  // —— 变换保存流程写入的标记（ImageGenNode）——
-  isSaving?: boolean;
 }
 
 export interface VideoNodeData {

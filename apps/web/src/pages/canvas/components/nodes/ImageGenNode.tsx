@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom';
 import { EraseBottomToolbar } from './EraseBottomToolbar';
 import { AnnotationCanvas, type AnnotationCanvasHandle } from './AnnotationCanvas';
 import { AnnotationToolbar } from './AnnotationToolbar';
-import { Modal, message } from 'antd';
+import { Modal, message, Spin } from 'antd';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -447,7 +447,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       updateConfig(id, {
         fileId: newId, referenceImage: undefined,
         imageRotation: 0, flipH: false, flipV: false,
-        transformMode: false, isSaving: false,
+        transformMode: false,
       });
       useNodeStore.getState().setActiveTransformNodeId(null);
     } catch (err) {
@@ -977,8 +977,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     }
   }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
 
-  // 刷新恢复竞态：canvasStore 有节点但 nodeStore 尚无数据时不渲染，避免下游组件收到 undefined
-  if (!nodeData) return null;
+  // 刷新恢复竞态：canvasStore 有节点但 nodeStore 尚无数据时渲染占位（TD-7，原 return null 空白）
+  if (!nodeData) return (
+    <div
+      data-testid="node-loading-placeholder"
+      role="status"
+      aria-live="polite"
+      className="flex h-24 w-64 items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 text-sm text-neutral-400"
+    >
+      <Spin size="small" />
+      <span>内容加载中</span>
+    </div>
+  );
 
   return (
     <div className="relative canvas-node">
