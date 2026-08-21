@@ -27,13 +27,13 @@ describe('FileController', () => {
     service.getFilesByFolderId.mockResolvedValue([{ id: 'm-1' }]);
     const res = await controller.getFiles(mockReq(), 'folder-1');
     expect(res).toEqual({ success: true, data: [{ id: 'm-1' }] });
-    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', 'folder-1');
+    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', 'folder-1', undefined);
   });
 
   it('GET / should work with null folderId', async () => {
     service.getFilesByFolderId.mockResolvedValue([]);
     const res = await controller.getFiles(mockReq());
-    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', null);
+    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', null, undefined);
     expect(res).toEqual({ success: true, data: [] });
   });
 

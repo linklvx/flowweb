@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { CreditService } from '../credit/credit.service';
+import { LightingConsumer } from './lighting/lighting.consumer';
 import { Job } from 'bullmq';
 
 // Mock axios
@@ -57,6 +58,7 @@ describe('AiImageEditProcessor', () => {
         { provide: ExecutionGateway, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: CreditService, useValue: credit },
+        { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);

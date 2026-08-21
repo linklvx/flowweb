@@ -7,7 +7,7 @@ vi.mock('tencentcloud-sdk-nodejs-sms', () => ({
   sms: {
     v20210111: {
       Client: vi.fn().mockImplementation(() => ({
-        SendSms: vi.fn().mockResolvedValue({}),
+        SendSms: vi.fn().mockResolvedValue({ SendStatusSet: [{ Code: 'Ok' }] }),
       })),
     },
   },

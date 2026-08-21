@@ -41,7 +41,7 @@ describe('AuditService', () => {
       expect(call.data.targetType).toBe('subscription');
       expect(call.data.targetId).toBe('sub-1');
       expect(call.data.action).toBe('create');
-      expect(call.data.beforeValue).toBeNull();
+      expect(call.data.beforeValue).toBeUndefined();
       expect(call.data.afterValue).toEqual({ tier: 'pro' });
       expect(call.data.remark).toBe('test remark');
     });
@@ -60,8 +60,8 @@ describe('AuditService', () => {
       expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
       const call = prisma.auditLog.create.mock.calls[0][0];
       expect(call.data.remark).toBeNull();
-      expect(call.data.beforeValue).toBeNull();
-      expect(call.data.afterValue).toBeNull();
+      expect(call.data.beforeValue).toBeUndefined();
+      expect(call.data.afterValue).toBeUndefined();
     });
 
     it('should serialize complex before/after values as JSON', async () => {

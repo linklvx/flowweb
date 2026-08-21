@@ -4,8 +4,9 @@ import { describe, it, expect } from 'vitest';
 
 describe('TransformInterceptor', () => {
   it('should wrap success response', async () => {
-    const interceptor = new TransformInterceptor();
+    const interceptor = new TransformInterceptor({ get: () => false } as any);
     const context = {
+      getHandler: () => () => {},
       switchToHttp: () => ({
         getResponse: () => ({ statusCode: 200 }),
       }),
