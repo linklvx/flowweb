@@ -215,10 +215,23 @@ export function isMultiImageNode(node: AppNode): node is AppNode & { data: Multi
   return node.type === 'multiImageGen';
 }
 
+export function isVideoGenNode(node: AppNode): node is AppNode & { data: VideoNodeData } {
+  return node.type === 'videoGen';
+}
+
+export function isAudioGenNode(node: AppNode): node is AppNode & { data: AudioNodeData } {
+  return node.type === 'audioGen';
+}
+
 // ========== Private helpers ==========
 
 function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | undefined {
   return nodes[nodeId];
+}
+
+/** Merge root-level allImages + legacy nested prompt.allImages, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless) */
+function mergeImageRefs(data: { allImages?: ImageItem[]; prompt?: { allImages?: ImageItem[] } }): ImageItem[] {
+  return [...new Map([...(data.allImages ?? []), ...(data.prompt?.allImages ?? [])].map((img) => [img.id, img])).values()];
 }
 
 /**
@@ -459,10 +472,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const node = getNode(get().nodes, nodeId);
     if (node && isImageNode(node)) {
       const imgData = node.data;
-      // Merge root-level + legacy nested refs, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless)
-      const rootImgs = imgData.allImages ?? [];
-      const nestedImgs = imgData.prompt?.allImages ?? [];
-      const allRefs = [...new Map([...rootImgs, ...nestedImgs].map((img) => [img.id, img])).values()];
+      const allRefs = mergeImageRefs(imgData);
       const deleteRefs = allRefs.map((img) =>
         fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
       );
@@ -477,6 +487,24 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
       );
       await Promise.allSettled(deleteRefs);
+    }
+    if (node && isVideoGenNode(node)) {
+      const vd = node.data;
+      const refIds = [...mergeImageRefs(vd).map((img) => img.id), vd.referenceVideo, vd.trimmedFileId]
+        .filter((id): id is string => Boolean(id));
+      await Promise.allSettled(
+        refIds.map((id) =>
+          fetch(`/api/storage/files/${id}`, { method: 'DELETE' }).catch(() => {})
+        )
+      );
+      // fileId 是生成结果（进生成历史），随节点删除会抹历史，故不删（TD-11 D1）
+    }
+    if (node && isAudioGenNode(node)) {
+      const ad = node.data;
+      if (ad.referenceAudio) {
+        await fetch(`/api/storage/files/${ad.referenceAudio}`, { method: 'DELETE' }).catch(() => {});
+      }
+      // fileId 生成结果不删（TD-11 D1）
     }
 
     const newNodes = { ...get().nodes };

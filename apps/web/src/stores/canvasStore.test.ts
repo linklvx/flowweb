@@ -3,10 +3,21 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { AiToolId, ImageNodeData } from './nodeStore';
 
+const { mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
+  mockSyncNodes: vi.fn().mockResolvedValue({}),
+  mockSyncEdges: vi.fn().mockResolvedValue({}),
+}));
+vi.mock('@/api/projectApi', () => ({
+  syncNodes: mockSyncNodes,
+  syncEdges: mockSyncEdges,
+}));
+
 describe('canvasStore', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null });
+    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null });
     useNodeStore.setState({ nodes: {} });
+    mockSyncNodes.mockClear();
+    mockSyncEdges.mockClear();
   });
 
   it('should initialize with empty canvas', () => {
@@ -316,6 +327,69 @@ describe('canvasStore', () => {
     expect(() => {
       (useCanvasStore.getState() as any).deleteTransformNode('nonexistent');
     }).not.toThrow();
+  });
+
+  // ─── TD-11: onNodesChange remove 分支 ───
+
+  it('onNodesChange remove should run cleanup trio and sync DB once with view-based payload', async () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
+    useCanvasStore.setState({ projectId: 'pid-1' });
+    const cancelSpy = vi.spyOn(useCanvasStore.getState(), 'cancelNodeProcess');
+    const unregisterSpy = vi.spyOn(useNodeStore.getState(), 'unregisterSaveHandler');
+
+    useCanvasStore.getState().onNodesChange([{ id, type: 'remove' } as any]);
+
+    expect(cancelSpy).toHaveBeenCalledWith(id);
+    expect(unregisterSpy).toHaveBeenCalledWith(id);
+    // view 立即删除
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)).toBeUndefined();
+    // DB 同步各一次，载荷不含被删节点
+    expect(mockSyncNodes).toHaveBeenCalledTimes(1);
+    expect(mockSyncEdges).toHaveBeenCalledTimes(1);
+    expect(mockSyncNodes.mock.calls[0][0]).toBe('pid-1');
+    expect(mockSyncNodes.mock.calls[0][1].every((n: any) => n.id !== id)).toBe(true);
+    // nodeStore 移除（deleteNode 异步完成后）
+    await vi.waitFor(() => expect(useNodeStore.getState().nodes[id]).toBeUndefined());
+  });
+
+  it('onNodesChange remove should skip DB sync when projectId is null (TD-11 D2)', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
+    useCanvasStore.setState({ projectId: null });
+    const cancelSpy = vi.spyOn(useCanvasStore.getState(), 'cancelNodeProcess');
+
+    useCanvasStore.getState().onNodesChange([{ id, type: 'remove' } as any]);
+
+    expect(cancelSpy).toHaveBeenCalledWith(id);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)).toBeUndefined();
+    expect(mockSyncNodes).not.toHaveBeenCalled();
+    expect(mockSyncEdges).not.toHaveBeenCalled();
+  });
+
+  it('onNodesChange batch removes should sync DB only once', () => {
+    const id1 = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
+    const id2 = useCanvasStore.getState().addNode('text', { x: 100, y: 0 });
+    useCanvasStore.setState({ projectId: 'pid-2' });
+
+    useCanvasStore.getState().onNodesChange([
+      { id: id1, type: 'remove' } as any,
+      { id: id2, type: 'remove' } as any,
+    ]);
+
+    expect(useCanvasStore.getState().nodes).toHaveLength(0);
+    expect(mockSyncNodes).toHaveBeenCalledTimes(1);
+    expect(mockSyncEdges).toHaveBeenCalledTimes(1);
+  });
+
+  it('onNodesChange non-remove change should not trigger DB sync', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
+    useCanvasStore.setState({ projectId: 'pid-3' });
+
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'dimensions', dimensions: { width: 320, height: 240 }, setAttributes: true } as any,
+    ]);
+
+    expect(mockSyncNodes).not.toHaveBeenCalled();
+    expect(mockSyncEdges).not.toHaveBeenCalled();
   });
 
   it('setNodeDraggable should update node draggable flag', () => {

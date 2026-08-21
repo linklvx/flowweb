@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS } from './nodeStore';
-import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
+import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
 describe('nodeStore (AppNode nested structure)', () => {
   beforeEach(() => {
@@ -415,6 +415,78 @@ describe('nodeStore (AppNode nested structure)', () => {
     );
     expect(storageDeletes).toHaveLength(1);
     expect(storageDeletes[0][0]).toBe('/api/storage/files/f3');
+  });
+
+  // 16d. deleteNode should clean videoGen refs: allImages dedup + referenceVideo + trimmedFileId, NOT generated fileId (TD-11)
+  it('should DELETE videoGen refs but not generated fileId on deleteNode', async () => {
+    const videoNode: AppNode = {
+      id: 'vid-refs',
+      type: 'videoGen',
+      position: { x: 0, y: 0 },
+      data: {
+        model: 'video-model-1',
+        status: 'done',
+        fileId: 'gen-result-1',
+        referenceVideo: 'ref-video-1',
+        trimmedFileId: 'trim-out-1',
+        allImages: [{ id: 'vf1', url: '/vf1.png', name: 'vf1.png', status: 'success' }],
+        prompt: {
+          text: '',
+          html: '',
+          allImages: [
+            { id: 'vf1', url: '/vf1.png', name: 'vf1.png', status: 'success' },
+            { id: 'vf2', url: '/vf2.png', name: 'vf2.png', status: 'success' },
+          ],
+          referencedImageIds: [],
+        },
+      } as VideoNodeData,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 })
+    );
+
+    useNodeStore.getState().addNode(videoNode);
+    await useNodeStore.getState().deleteNode('vid-refs');
+
+    const storageDeletes = fetchSpy.mock.calls
+      .map((call) => (typeof call[0] === 'string' ? (call[0] as string) : ''))
+      .filter((url) => url.startsWith('/api/storage/files/'));
+    expect(storageDeletes).toHaveLength(4);
+    expect(storageDeletes).toContain('/api/storage/files/vf1');
+    expect(storageDeletes).toContain('/api/storage/files/vf2');
+    expect(storageDeletes).toContain('/api/storage/files/ref-video-1');
+    expect(storageDeletes).toContain('/api/storage/files/trim-out-1');
+    expect(storageDeletes).not.toContain('/api/storage/files/gen-result-1');
+  });
+
+  // 16e. deleteNode should clean audioGen referenceAudio but not generated fileId (TD-11)
+  it('should DELETE audioGen referenceAudio but not generated fileId on deleteNode', async () => {
+    const audioNode: AppNode = {
+      id: 'aud-refs',
+      type: 'audioGen',
+      position: { x: 0, y: 0 },
+      data: {
+        model: 'tts-1',
+        content: 'hello',
+        status: 'done',
+        fileId: 'gen-audio-1',
+        referenceAudio: 'ref-audio-1',
+      } as AudioNodeData,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 })
+    );
+
+    useNodeStore.getState().addNode(audioNode);
+    await useNodeStore.getState().deleteNode('aud-refs');
+
+    const storageDeletes = fetchSpy.mock.calls
+      .map((call) => (typeof call[0] === 'string' ? (call[0] as string) : ''))
+      .filter((url) => url.startsWith('/api/storage/files/'));
+    expect(storageDeletes).toHaveLength(1);
+    expect(storageDeletes[0]).toBe('/api/storage/files/ref-audio-1');
   });
 
   // 17. isImageNode type guard should correctly narrow type

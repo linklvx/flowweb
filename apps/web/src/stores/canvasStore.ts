@@ -11,6 +11,7 @@ import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
+import { syncNodes, syncEdges } from '@/api/projectApi';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -419,6 +420,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
       return { nodes: nextNodes };
     });
+
+    // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套 + DB 同步
+    const removes = changes.filter((c) => c.type === 'remove');
+    if (removes.length === 0) return;
+    for (const change of removes) {
+      get().cancelNodeProcess(change.id);
+      const ns = useNodeStore.getState();
+      ns.deleteNode(change.id);
+      ns.unregisterSaveHandler(change.id);
+    }
+    // view 基准载荷（上方 set 已排除删除节点），批量删除循环外统一同步一次
+    const projectId = get().projectId;
+    if (projectId) {
+      const ns = useNodeStore.getState();
+      const mergedNodes = get().nodes.map((n) => ({
+        id: n.id,
+        type: n.type || 'videoGen',
+        position: n.position,
+        data: ns.nodes[n.id]?.data || (n.data as any) || {},
+        width: n.width,
+        height: n.height,
+      }));
+      Promise.all([
+        syncNodes(projectId, mergedNodes),
+        syncEdges(projectId, get().edges),
+      ]).catch((e) => console.error('[canvasStore] delete sync failed', e));
+    }
   },
 
   onEdgesChange: (changes) => {
