@@ -45,7 +45,7 @@ describe('LightingController', () => {
     it('should return task details', async () => {
       const result = await controller.getTask('task-1');
       expect(result.code).toBe(0);
-      expect(result.data.id).toBe('task-1');
+      expect(result.data?.id).toBe('task-1');
     });
 
     it('should return 404 for non-existent task', async () => {

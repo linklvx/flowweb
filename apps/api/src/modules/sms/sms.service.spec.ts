@@ -15,7 +15,7 @@ vi.mock('tencentcloud-sdk-nodejs-sms', () => ({
 
 describe('SmsService', () => {
   let service: SmsService;
-  let mockRedis: { eval: any; evalsha: any; del: any; script: any };
+  let mockRedis: { eval: any; evalsha: any; del: any; script: any; load: any };
 
   beforeEach(async () => {
     mockRedis = {

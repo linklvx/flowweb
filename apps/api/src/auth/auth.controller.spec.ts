@@ -172,7 +172,7 @@ describe('AuthController', () => {
       const mockRedis = { get: vi.fn(), del: vi.fn() };
 
       const ctrl = new AuthController(
-        mockSvc as any, mockPrismaForFolders, mockRateLimiter, mockSmsService, mockRedis as any,
+        mockSvc as any, mockPrismaForFolders, mockRateLimiter as any, mockSmsService as any, mockRedis as any,
       );
       await ctrl.getMe(req as any, mockRes as any);
 

@@ -9,6 +9,7 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 describe('TemplateService', () => {
   let service: TemplateService;
   let prisma: {
+    $transaction: ReturnType<typeof vi.fn>;
     template: {
       create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
@@ -24,6 +25,7 @@ describe('TemplateService', () => {
     };
     canvasProject: {
       findFirst: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
     };
     user: {
       upsert: ReturnType<typeof vi.fn>;

@@ -127,7 +127,7 @@ describe('VideoTrimService', () => {
 
   describe('validateFileOwnership', () => {
     it('should throw ForbiddenException if file does not belong to user', async () => {
-      prisma.media = { findFirst: vi.fn().mockResolvedValue(null) };
+      prisma.media = { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn() };
 
       await expect(
         (service as any).validateFileOwnership('file-1', 'user-1'),
@@ -135,7 +135,7 @@ describe('VideoTrimService', () => {
     });
 
     it('should pass if file belongs to user', async () => {
-      prisma.media = { findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }) };
+      prisma.media = { findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }), findUnique: vi.fn() };
 
       await expect(
         (service as any).validateFileOwnership('file-1', 'user-1'),
@@ -247,8 +247,8 @@ describe('VideoTrimService', () => {
       });
 
       const result = await service.getTaskStatus('task-1');
-      expect(result.status).toBe('done');
-      expect(result.outputFileId).toBe('out-1');
+      expect(result?.status).toBe('done');
+      expect(result?.outputFileId).toBe('out-1');
     });
 
     it('should return null for unknown task', async () => {

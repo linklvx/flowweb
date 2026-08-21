@@ -132,7 +132,7 @@ describe('LightingService', () => {
       });
 
       const result = await service.getTask('task-1', 'user-1');
-      expect(result.id).toBe('task-1');
+      expect(result?.id).toBe('task-1');
     });
 
     it('should return null for non-existent task', async () => {
