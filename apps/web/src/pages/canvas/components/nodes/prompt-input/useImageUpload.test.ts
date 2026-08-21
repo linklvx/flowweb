@@ -18,13 +18,14 @@ const {
 } = vi.hoisted(() => {
   const nodes: Record<string, any> = {};
 
+  // Mirrors real nodeStore.updatePromptImages — writes ROOT-level data.allImages
   const updateFn = vi.fn((nodeId: string, allImages: ImageItem[]) => {
     if (nodes[nodeId]?.type === 'imageGen' || nodes[nodeId]?.type === 'imageExtGen' || nodes[nodeId]?.type === 'videoGen' || nodes[nodeId]?.type === 'video') {
       nodes[nodeId] = {
         ...nodes[nodeId],
         data: {
           ...nodes[nodeId].data,
-          prompt: { ...nodes[nodeId].data.prompt, allImages },
+          allImages,
         },
       };
     }
@@ -103,10 +104,11 @@ function makeImageNode(id: string, allImages: ImageItem[] = []): Record<string, 
       quality: 'standard',
       ratio: '1:1',
       status: 'idle',
+      allImages,
       prompt: {
         text: '',
         html: '',
-        allImages,
+        allImages: [],
         referencedImageIds: [],
       },
     },
@@ -128,10 +130,11 @@ function makeImageExtNode(id: string, allImages: ImageItem[] = []): Record<strin
       quality: 'standard',
       ratio: '1:1',
       status: 'idle',
+      allImages,
       prompt: {
         text: '',
         html: '',
-        allImages,
+        allImages: [],
         referencedImageIds: [],
       },
     },
@@ -146,7 +149,8 @@ function makeVideoNode(id: string, allImages: ImageItem[] = []): Record<string, 
     data: {
       model: '',
       status: 'idle',
-      prompt: { text: '', html: '', allImages, referencedImageIds: [] },
+      allImages,
+      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
     },
   };
 }
@@ -544,5 +548,62 @@ describe('useImageUpload', () => {
       ];
     expect(lastCall[0]).toBe('node-1');
     expect(lastCall[1]).toHaveLength(0);
+  });
+
+  // ================================================================
+  // 11. uploadSingleImage — preserves existing root-level images (no overwrite)
+  // ================================================================
+  it('11. uploadSingleImage — preserves existing root-level allImages after upload', async () => {
+    const existingImage: ImageItem = {
+      id: 'img-existing',
+      url: '/u/existing.png',
+      name: 'existing.png',
+      status: 'success',
+      progress: 100,
+    };
+    mockNodes['vid-1'] = makeVideoNode('vid-1', [existingImage]);
+
+    const { result } = renderHook(() => useImageUpload('vid-1'));
+    const file = new File(['x'], 'new.png', { type: 'image/png' });
+
+    await act(async () => {
+      await result.current.uploadSingleImage(file);
+    });
+
+    const lastCall =
+      mockUpdatePromptImagesFn.mock.calls[mockUpdatePromptImagesFn.mock.calls.length - 1] as [
+        string,
+        ImageItem[],
+      ];
+    const ids = lastCall[1].map((img) => img.id);
+    expect(ids).toContain('img-existing');
+    expect(ids).toContain('file-1');
+    expect(lastCall[1]).toHaveLength(2);
+  });
+
+  // ================================================================
+  // 12. deleteImage — filters from root-level data (keeps siblings)
+  // ================================================================
+  it('12. deleteImage — filters target from root-level allImages, keeps siblings', async () => {
+    const imgA: ImageItem = { id: 'img-a', url: '/u/a.png', name: 'a.png', status: 'success' };
+    const imgB: ImageItem = { id: 'img-b', url: '/u/b.png', name: 'b.png', status: 'success' };
+    mockNodes['node-1'] = makeImageNode('node-1', [imgA, imgB]);
+
+    const { result } = renderHook(() => useImageUpload('node-1'));
+
+    await act(async () => {
+      await result.current.deleteImage('img-a');
+    });
+
+    expect(mockFetchFn).toHaveBeenCalledWith('/api/storage/files/img-a', { method: 'DELETE' });
+
+    const lastCall =
+      mockUpdatePromptImagesFn.mock.calls[mockUpdatePromptImagesFn.mock.calls.length - 1] as [
+        string,
+        ImageItem[],
+      ];
+    expect(lastCall[0]).toBe('node-1');
+    expect(lastCall[1]).toHaveLength(1);
+    expect(lastCall[1][0].id).toBe('img-b');
   });
 });

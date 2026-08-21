@@ -12,7 +12,7 @@ export function useImageUpload(nodeId: string) {
       | ImageNodeData
       | VideoNodeData
       | undefined;
-    return data?.prompt?.allImages ?? [];
+    return data?.allImages ?? [];
   }
 
   const updatePromptImages = (allImages: ImageItem[]) => {
