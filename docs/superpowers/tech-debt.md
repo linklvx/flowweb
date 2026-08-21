@@ -25,7 +25,7 @@
 ### TD-8 MinIO 存量孤儿文件对账
 
 - **来源**：canvas-create-unify-fix spec 明示「不会自愈」；TD-11 修复前已删节点泄漏的 MinIO 文件；localStorage 脏数据部分已随 3c 基线重构清账（v2 版本化快照 + 旧 key 一次性清扫）
-- **现状**：无生产用户；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
+- **现状**：无生产用户；孤儿累积**进行中**（TD-15 实证：删除调用打到死端点实际零删除，非仅「修复前遗留」）；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
 - **修复方向**：上线前评估——若无生产数据可直接忽略；否则一次性清理脚本（含 DB media vs MinIO listing 对账）
 - **优先级**：上线前评估
 
@@ -47,12 +47,14 @@
 
 ## 数据 / 部署
 
-### TD-15 素材库 fileId 随节点删除疑点
+### TD-15 删除清理链路后端断路 + 素材引用埋雷（实证升级）
 
-- **来源**：2026-08-21 TD-11 修复批次 spec 观察项 O1
-- **现状**：CanvasView.tsx:85 素材库「应用到画布」创建节点时 `data.fileId` 直接用素材库文件 id；nodeStore.deleteNode 的 image 分支会 DELETE 该 fileId——若素材库文件被库内引用，删画布节点会连带删库资产。TD-11 批次浏览器验证未覆盖「素材应用节点删除」场景，**未实证**
-- **修复方向**：核查素材 apply 是否复制文件；若不复制，image 分支的 fileId 删除需区分上传源与素材引用（或 apply 时复制）
-- **优先级**：中——潜在用户资产丢失，未实证
+- **来源**：TD-11 修复批次 spec 观察项 O1（原疑点）；2026-08-21 随手清批次侦查双重实证（spec: cleanup-batch4-quick-wins）
+- **现状**：
+  1. 断路（根本）：`DELETE /api/storage/files/:id` 后端不存在（storage 控制器仅 presign/confirm 两 POST；全后端无 files/:id DELETE 路由）；前端 6 处删除调用（nodeStore.ts 5 处 + useImageUpload.ts:180）全部静默 404 no-op——画布侧文件删除实际零生效，TD-8 MinIO 孤儿持续累积
+  2. 埋雷：CanvasView.tsx 素材 apply 直接 `fileId: file.id`（不复制）+ nodeStore.deleteNode image 分支 DELETE 该 id——端点一旦补上，素材库资产立即被连删
+- **修复方向**（预评审倾向方案 A）：后端补 DELETE 端点，校验 `file.ownerId === userId && file.source === 'upload'`，素材引用（source=material）403 跳过；前端 deleteNode 调用不变；存量节点 source 标记需迁移策略；MinIO 孤儿由端点实际删除逐步消化 + 一次性对账（并入 TD-8）
+- **优先级**：高——修复需独立 spec（端点设计 + 引用语义 + 存量迁移三决策）
 
 ### TD-16 useReactFlowSync 死代码处置
 
