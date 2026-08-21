@@ -99,7 +99,6 @@ describe('PromptInput', () => {
   const defaultValue: PromptValue = {
     text: '',
     html: '',
-    allImages: [],
     referencedImageIds: [],
   };
 
@@ -168,7 +167,6 @@ describe('PromptInput', () => {
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'hello world',
       html: '<p>hello world</p>',
-      allImages: [],
       referencedImageIds: [],
     });
 
@@ -203,7 +201,6 @@ describe('PromptInput', () => {
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'forced text',
       html: '<p>forced text</p>',
-      allImages: [],
       referencedImageIds: [],
     });
 
@@ -269,7 +266,6 @@ describe('PromptInput', () => {
     expect(defaultOnChange).toHaveBeenCalledWith({
       text: 'typed before deselection',
       html: '<p>typed before deselection</p>',
-      allImages: [],
       referencedImageIds: [],
     });
 

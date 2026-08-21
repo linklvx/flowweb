@@ -131,9 +131,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       <div className="p-3 flex flex-col gap-0">
         <PromptEditor
           nodeId={nodeId}
-          value={{ text: prompt.text || '', html: prompt.html || '', allImages, referencedImageIds: [] }}
+          value={{ text: prompt.text || '', html: prompt.html || '', referencedImageIds: [] }}
           allImages={allImages}
-          onChange={(newPrompt) => updateConfig(nodeId, { prompt: { text: newPrompt.text, html: newPrompt.html, allImages: [], referencedImageIds: [] } })}
+          onChange={(newPrompt) => updateConfig(nodeId, { prompt: { text: newPrompt.text, html: newPrompt.html, referencedImageIds: [] } })}
           onAllImagesChange={(images) => updatePromptImages(nodeId, images)}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}

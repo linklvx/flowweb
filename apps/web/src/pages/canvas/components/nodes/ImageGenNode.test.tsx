@@ -26,7 +26,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 });
 
 let mockNodeData: any = {
-  status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] }
+  status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] }
 };
 
 vi.mock('@/hooks/useMediaUrl', () => ({
@@ -171,7 +171,7 @@ describe('ImageGenNode', () => {
   afterEach(() => {
     document.getElementById('node-toolbar-portal')?.remove();
     vi.clearAllMocks();
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockActiveNodeId = null;
     mockCancelRequestedAt = 0;
   });
@@ -223,7 +223,7 @@ describe('ImageGenNode', () => {
   });
 
   it('should render camera SVG placeholder when no result image', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     // The placeholder should be an SVG icon, not text
     expect(screen.queryByText(/图片预览区/i)).not.toBeInTheDocument();
@@ -254,13 +254,13 @@ describe('ImageGenNode', () => {
 
   it('should have 2 handles (input + output)', () => {
     // Reset to default
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
 
   it('should render card with dynamic width based on ratio', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     const html = container.innerHTML;
     // Width is dynamic (inline style), 16:9 ratio gives 548px wide
@@ -270,19 +270,19 @@ describe('ImageGenNode', () => {
   // ---- New tests for floating upload button ----
 
   it('should show floating upload button when selected', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode(true);
     expect(screen.getByText('上传')).toBeInTheDocument();
   });
 
   it('should not show floating upload button when not selected', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
   });
 
   it('floating upload container should have nodrag and nopan classes', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode(true);
     const uploadBtn = screen.getByText('上传');
     const container = uploadBtn.closest('.nodrag');
@@ -291,20 +291,20 @@ describe('ImageGenNode', () => {
   });
 
   it('shows replace button when image is user-uploaded (referenceImage set, no fileId)', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode();
     expect(screen.getByText('替换')).toBeInTheDocument();
   });
 
   it('does not show replace button when image is AI-generated (fileId set)', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', referenceImage: 'ref-123', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode();
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
 
   // ---- Ratio-based container dimensions (when no image loaded) ----
   it('should use square dimensions for 1:1 ratio when no image', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     // Container should be square (width ≈ height) within max constraints
     expect(container.innerHTML).toContain('width: 500px');
@@ -312,7 +312,7 @@ describe('ImageGenNode', () => {
   });
 
   it('should use wide dimensions for 16:9 ratio when no image', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     // 16:9 → wider than tall, max width 548, height ~309
     expect(container.innerHTML).toContain('width: 548px');
@@ -320,7 +320,7 @@ describe('ImageGenNode', () => {
   });
 
   it('should use tall dimensions for 9:16 ratio when no image', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '9:16', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '9:16', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode();
     // 9:16 → taller than wide, max height 500, width ~281
     expect(container.innerHTML).toContain('height: 500px');
@@ -329,7 +329,7 @@ describe('ImageGenNode', () => {
   // ---- Transform mode (rotation + mirror) ----
 
   it('should apply CSS transform to img in transform mode', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: true, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', transformMode: true, imageRotation: 90, flipH: true, flipV: false, prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode();
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('src', 'http://media/cat-file-id');
@@ -337,7 +337,7 @@ describe('ImageGenNode', () => {
   });
 
   it('should set explicit img dimensions in transform mode to bypass max-w/h', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '16:9', transformMode: true, imageRotation: 90, flipH: false, flipV: false, prompt: { text: '', html: '', referencedImageIds: [] } };
     renderNode();
     const img = screen.getByRole('img');
     expect(img.style.width).toBe('100%');
@@ -563,7 +563,7 @@ describe('ImageGenNode', () => {
   // ─── Resize handles ───
 
   it('should NOT render resize handles when no image is loaded', () => {
-    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode(true);
     expect(container.querySelector('.resize-control-top-left')).toBeNull();
     expect(container.querySelector('.resize-control-top-right')).toBeNull();
@@ -572,7 +572,7 @@ describe('ImageGenNode', () => {
   });
 
   it('should render 4 corner resize handles when single-selected with image loaded', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode(true);
     expect(container.querySelector('.resize-control-top-left')).toBeTruthy();
     expect(container.querySelector('.resize-control-top-right')).toBeTruthy();
@@ -581,13 +581,13 @@ describe('ImageGenNode', () => {
   });
 
   it('should NOT render resize handles in edit mode', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', editMode: 'crop', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', editMode: 'crop', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode(true);
     expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });
 
   it('should NOT render resize handles in transform mode', () => {
-    mockNodeData = { status: 'done', fileId: 'cat-file-id', transformMode: true, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } };
+    mockNodeData = { status: 'done', fileId: 'cat-file-id', transformMode: true, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode(true);
     expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });

@@ -87,7 +87,6 @@ export interface ImageItem {
 export interface PromptValue {
   text: string;
   html: string;
-  allImages: ImageItem[];
   referencedImageIds: string[];
 }
 
@@ -227,8 +226,10 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
 }
 
 /** Merge root-level allImages + legacy nested prompt.allImages, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless) */
-function mergeImageRefs(data: { allImages?: ImageItem[]; prompt?: { allImages?: ImageItem[] } }): ImageItem[] {
-  return [...new Map([...(data.allImages ?? []), ...(data.prompt?.allImages ?? [])].map((img) => [img.id, img])).values()];
+function mergeImageRefs(data: { allImages?: ImageItem[]; prompt?: unknown }): ImageItem[] {
+  // prompt 为运行时遗留形状（持久化旧 JSON），不依赖 PromptValue 接口
+  const legacy = (data.prompt as { allImages?: ImageItem[] } | undefined)?.allImages ?? [];
+  return [...new Map([...(data.allImages ?? []), ...legacy].map((img) => [img.id, img])).values()];
 }
 
 /**
@@ -252,7 +253,7 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     quality: 'standard',
     ratio: '16:9',
     resolution: '2K',
-    prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+    prompt: { text: '', html: '', referencedImageIds: [] },
   };
 
   const merged = { ...(existing ?? {}) };

@@ -150,7 +150,7 @@ function makeVideoNode(id: string, allImages: ImageItem[] = []): Record<string, 
       model: '',
       status: 'idle',
       allImages,
-      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+      prompt: { text: '', html: '', referencedImageIds: [] },
     },
   };
 }

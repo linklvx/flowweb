@@ -230,7 +230,7 @@ describe('canvasStore', () => {
   it('addNodeWithEdge should create new node and edge from source', () => {
     const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
     // Load source node with image data
-    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', html: '', allImages: [], referencedImageIds: [] } });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', html: '', referencedImageIds: [] } });
 
     const { addNodeWithEdge } = useCanvasStore.getState() as any;
     expect(typeof addNodeWithEdge).toBe('function');

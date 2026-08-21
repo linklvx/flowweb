@@ -53,7 +53,7 @@ let mockNodeData: any = {
   ratio: '1:1',
   resolution: '2K',
   status: 'idle',
-  prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+  prompt: { text: '', html: '', referencedImageIds: [] },
 };
 
 vi.mock('@/stores/nodeStore', () => {
@@ -128,7 +128,7 @@ describe('ImageConfigPanel', () => {
       quality: 'standard',
       ratio: '1:1',
       status: 'idle',
-      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+      prompt: { text: '', html: '', referencedImageIds: [] },
     };
   });
 

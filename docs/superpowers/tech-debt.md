@@ -49,13 +49,6 @@
 - **修复方向**：删除该 hook 及其测试文件（属破坏性清理，执行前需确认）
 - **优先级**：低
 
-### TD-12 `PromptValue.allImages` 僵尸类型字段
-
-- **来源**：2026-08-21 TD-2 修复批次（spec O3 决议保留类型、记台账）
-- **现状**：运行时读写已全部迁移根级 `data.allImages`，`PromptValue.allImages` 无运行时读取方；几十处测试 mock 仍使用嵌套形状
-- **修复方向**：测试 mock 批量迁移到根级形状后，从 `PromptValue` 类型移除该字段（连带 nodeStore.ts:245 初始 prompt 形状）
-- **优先级**：低——纯类型卫生
-
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
@@ -76,3 +69,4 @@
 | TD-5/6 localStorage 持久化合一：单一版本化快照 `flowweb_canvas_v2_${pid}`（nodeStore 数据权威 + 视图派生恢复 + isHydrating 抑制单写者 + 旧 key 一次性清扫）；TD-8 localStorage 部分随清，余 MinIO 对账 | 2026-08-21 | 8be333a |
 | TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a / 8397472 |
 | TD-3 isSaving 死写入+类型删除；TD-7 nodeData 竞态空白换 Spin 占位（role=status）；TD-16 useReactFlowSync 死代码删除 | 2026-08-21 | （hash 回填） |
+| TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | （hash 回填） |

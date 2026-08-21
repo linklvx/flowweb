@@ -66,7 +66,7 @@ let mockNodeData: any = {
   resolution: '1080p',
   duration: 5,
   audio: true,
-  prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+  prompt: { text: '', html: '', referencedImageIds: [] },
 };
 
 vi.mock('@/stores/nodeStore', () => {
@@ -126,7 +126,7 @@ describe('VideoConfigPanel', () => {
       resolution: '1080p',
       duration: 5,
       audio: true,
-      prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
+      prompt: { text: '', html: '', referencedImageIds: [] },
     };
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no fetch in test'));
   });
