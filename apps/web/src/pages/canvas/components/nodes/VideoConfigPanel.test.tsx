@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { VideoConfigPanel } from './VideoConfigPanel';
 
 // Track the maxHeight prop passed to PromptInput
 let capturedMaxHeight = 80;
+// Track the onPasteImage handler passed to PromptInput
+let capturedOnPasteImage: ((file: File) => void) | undefined;
 
 // Mock PromptInput
 vi.mock('./prompt-input/PromptInput', () => ({
   default: React.forwardRef((props: any, ref: any) => {
     capturedMaxHeight = props.maxHeight;
+    capturedOnPasteImage = props.onPasteImage;
     React.useImperativeHandle(ref, () => ({
       forceSync: vi.fn(),
       focus: vi.fn(),
@@ -19,6 +22,16 @@ vi.mock('./prompt-input/PromptInput', () => ({
       setText: vi.fn(),
     }));
     return <div data-testid="prompt-input" data-max-height={props.maxHeight}>PromptInput</div>;
+  }),
+}));
+
+// Mock useImageUpload — uploadSingleImage spyable
+const mockUploadSingleImage = vi.fn();
+vi.mock('./prompt-input/useImageUpload', () => ({
+  useImageUpload: () => ({
+    uploadSingleImage: mockUploadSingleImage,
+    uploadBatchImages: vi.fn(),
+    deleteImage: vi.fn(),
   }),
 }));
 
@@ -53,21 +66,28 @@ let mockNodeData: any = {
   prompt: { text: '', html: '', allImages: [], referencedImageIds: [] },
 };
 
-vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: {
-        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: mockNodeData },
-        img1: { id: 'img1', type: 'imageGen', position: { x: 100, y: 0 }, data: { model: 'sdxl' } },
-      },
-      updateConfig: mockUpdateConfig,
-      updatePromptImages: mockUpdatePromptImages,
-      setStatus: vi.fn(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
-}));
+vi.mock('@/stores/nodeStore', () => {
+  const buildState = () => ({
+    nodes: {
+      v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: mockNodeData },
+      img1: { id: 'img1', type: 'imageGen', position: { x: 100, y: 0 }, data: { model: 'sdxl' } },
+    },
+    updateConfig: mockUpdateConfig,
+    updatePromptImages: mockUpdatePromptImages,
+    setStatus: vi.fn(),
+    getNodeData: () => mockNodeData,
+  });
+  return {
+    useNodeStore: Object.assign(
+      vi.fn((selector?: any) => {
+        const state = buildState();
+        if (typeof selector === 'function') return selector(state);
+        return state;
+      }),
+      { getState: () => buildState() },
+    ),
+  };
+});
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
@@ -157,14 +177,46 @@ describe('VideoConfigPanel', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders correctly with images in prompt', () => {
-    mockNodeData.prompt.allImages = [
+  it('renders thumbnails from root-level allImages', () => {
+    mockNodeData.allImages = [
       { id: 'img1', url: '/u', name: 'x.png', status: 'success' },
       { id: 'img2', url: '/u', name: 'y.png', status: 'success' },
     ];
     const { container } = render(<VideoConfigPanel nodeId="v1" />);
     expect(screen.getByTestId('prompt-input')).toBeTruthy();
     expect(container.querySelectorAll('[data-testid^="thumb-"]').length).toBe(2);
+  });
+
+  it('blocks paste upload when root-level allImages is full (9)', async () => {
+    mockNodeData.allImages = Array.from({ length: 9 }, (_, i) => ({
+      id: `full-${i}`,
+      url: `/u/${i}`,
+      name: `f${i}.png`,
+      status: 'success' as const,
+    }));
+    render(<VideoConfigPanel nodeId="v1" />);
+
+    const file = new File(['x'], 'paste.png', { type: 'image/png' });
+    await act(async () => {
+      await capturedOnPasteImage?.(file);
+    });
+    expect(mockUploadSingleImage).not.toHaveBeenCalled();
+  });
+
+  it('allows paste upload when root-level allImages has room (8)', async () => {
+    mockNodeData.allImages = Array.from({ length: 8 }, (_, i) => ({
+      id: `room-${i}`,
+      url: `/u/${i}`,
+      name: `r${i}.png`,
+      status: 'success' as const,
+    }));
+    render(<VideoConfigPanel nodeId="v1" />);
+
+    const file = new File(['x'], 'paste.png', { type: 'image/png' });
+    await act(async () => {
+      await capturedOnPasteImage?.(file);
+    });
+    expect(mockUploadSingleImage).toHaveBeenCalledTimes(1);
   });
 
   it('should render 2 dividers: after model selector and between voice/credits', () => {

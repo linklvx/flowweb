@@ -49,6 +49,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const audio = nodeData?.audio ?? true;
   const status = nodeData?.status ?? 'idle';
   const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
+  const allImages = nodeData?.allImages ?? [];
 
   // ── Model selector state ──
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -207,10 +208,10 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus]);
 
   const handlePasteImage = useCallback(async (file: File) => {
-    if (prompt.allImages.length >= 9) return;
+    if (allImages.length >= 9) return;
     const uploaded = await uploadSingleImage(file);
     if (uploaded) promptRef.current?.insertImage(uploaded.url);
-  }, [prompt.allImages.length, uploadSingleImage]);
+  }, [allImages.length, uploadSingleImage]);
 
   // VideoConfigPanel is rendered inside VideoGenNode which already
   // guarantees video context. Only render for videoGen (and legacy 'video') nodes.
@@ -246,18 +247,18 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       <div className="p-3 flex flex-col gap-0">
         <ImageThumbnailBar
           nodeId={nodeId}
-          images={prompt.allImages}
+          images={allImages}
           onChange={(allImages) => updatePromptImages(nodeId, allImages)}
           onImageClick={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
+            const img = allImages.find((i: any) => i.id === imageId);
             if (img) promptRef.current?.insertImage(img.url);
           }}
           onImageUploaded={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
+            const img = allImages.find((i: any) => i.id === imageId);
             if (img) promptRef.current?.insertImage(img.url);
           }}
           onBeforeImageDelete={(imageId) => {
-            const img = prompt.allImages.find((i: any) => i.id === imageId);
+            const img = allImages.find((i: any) => i.id === imageId);
             if (img) promptRef.current?.removeImage(img.url);
           }}
           disabled={status === 'loading'}
@@ -267,7 +268,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
           ref={promptRef}
           nodeId={nodeId}
           value={prompt}
-          allImages={prompt.allImages}
+          allImages={allImages}
           onPasteImage={handlePasteImage}
           onChange={(newPrompt) => updateConfig(nodeId, { prompt: newPrompt })}
           onCommandSelect={handleCommandSelect}
