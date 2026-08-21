@@ -101,5 +101,17 @@ describe('SmsService', () => {
       await service.sendSms('+8613800138000', '123456');
       // 不抛异常即通过
     });
+
+    it('should throw provider status code when SendStatusSet rejects (non-Ok)', async () => {
+      (service as any).smsClient.SendSms.mockResolvedValue({
+        SendStatusSet: [{ Code: 'LimitExceeded' }],
+      });
+      await expect(service.sendSms('+8613800138000', '123456')).rejects.toThrow('LimitExceeded');
+    });
+
+    it('should fall back to SMS_SEND_REJECTED when status code missing', async () => {
+      (service as any).smsClient.SendSms.mockResolvedValue({ SendStatusSet: [{}] });
+      await expect(service.sendSms('+8613800138000', '123456')).rejects.toThrow('SMS_SEND_REJECTED');
+    });
   });
 });

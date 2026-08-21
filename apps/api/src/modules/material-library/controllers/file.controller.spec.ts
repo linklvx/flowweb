@@ -37,6 +37,13 @@ describe('FileController', () => {
     expect(res).toEqual({ success: true, data: [] });
   });
 
+  it('GET / should forward non-empty type filter to service', async () => {
+    service.getFilesByFolderId.mockResolvedValue([{ id: 'm-1', type: 'image' }]);
+    const res = await controller.getFiles(mockReq(), 'folder-1', 'image');
+    expect(service.getFilesByFolderId).toHaveBeenCalledWith('user-1', 'folder-1', 'image');
+    expect(res).toEqual({ success: true, data: [{ id: 'm-1', type: 'image' }] });
+  });
+
   it('PUT /:id/move should move file', async () => {
     service.moveFile.mockResolvedValue({ id: 'm-1', folderId: 'folder-1' });
     const res = await controller.moveFile('m-1', { folderId: 'folder-1' }, mockReq());
