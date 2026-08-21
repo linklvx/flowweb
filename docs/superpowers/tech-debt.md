@@ -71,7 +71,7 @@
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
-2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ ~~3c: TD-5/6/8~~ ✅ 已完成（2026-08-21，8be333a）→ ~~3d: TD-4~~ ✅ 已完成（2026-08-21，第三批全部收官）
+2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ ~~3c: TD-5/6/8~~ ✅ 已完成（2026-08-21，8be333a）→ ~~3d: TD-4~~ ✅ 已完成（2026-08-21，8397472，第三批全部收官）
 3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16
 
 ## 已清账
@@ -86,4 +86,4 @@
 | TD-11 删除链路三层断裂：remove 接线（三件套+DB 同步）+ videoGen/audioGen 清理分支（生成 fileId 不删，D1）；存量泄漏处置见 TD-8 / 3c；衍生 TD-15/TD-16 | 2026-08-21 | 5584864 |
 | TD-10 Prisma migrate 历史断裂（基线重置为单一 init，沙箱重放自证；部署流程固化于 deployment-db-baseline.md；遗留：本地 `migrate dev` 需用户一次性执行 `ALTER ROLE flowweb CREATEDB`） | 2026-08-21 | d2cae05 |
 | TD-5/6 localStorage 持久化合一：单一版本化快照 `flowweb_canvas_v2_${pid}`（nodeStore 数据权威 + 视图派生恢复 + isHydrating 抑制单写者 + 旧 key 一次性清扫）；TD-8 localStorage 部分随清，余 MinIO 对账 | 2026-08-21 | 8be333a |
-| TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a + 本批（hash 回填） |
+| TD-4 慢请求覆盖窗口收口：写侧抑制（3c isHydrating 单写者，8be333a）+ 读侧遮罩封交互（isHydrating 全屏遮罩挡指针 + CanvasKeyboardHandler 首行守卫封键盘，浏览器 2s 慢 fetch 实证窗口内零交互零写入） | 2026-08-21 | 8be333a / 8397472 |
