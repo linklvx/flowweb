@@ -46,8 +46,8 @@
 ### TD-8 localStorage 已污染脏数据
 
 - **来源**：canvas-create-unify-fix spec 明示「不会自愈」
-- **现状**：开发期手动处理（清 key 或删画布）；无生产用户
-- **修复方向**：上线前评估——若无生产数据可直接忽略；否则写一次性清理迁移
+- **现状**：开发期手动处理（清 key 或删画布）；无生产用户。含 TD-11 修复前已删节点的 localStorage 残留与泄漏的 MinIO 孤儿文件（对账需 DB media 全量 vs MinIO listing）
+- **修复方向**：上线前评估——若无生产数据可直接忽略；否则写一次性清理迁移（含 MinIO 孤儿对账）
 - **优先级**：上线前评估
 
 ## 后端（apps/api）
@@ -75,16 +75,19 @@
 - **修复方向**：上线部署前人工核对 schema 与迁移一致性；建议基线重置（`migrate resolve`/重新基线）并在部署流程中固化
 - **优先级**：**上线阻塞项**
 
-### TD-11 节点删除链路断裂（视图删、nodeStore 永不删）
+### TD-15 素材库 fileId 随节点删除疑点
 
-- **来源**：2026-08-21 TD-1/TD-2 修复批次浏览器手验发现（实锤）
-- **现状**：
-  - CanvasView 绑定 `canvasStore.onNodesChange`（CanvasView.tsx:51），其实现只处理 dimensions change（canvasStore.ts:401-422），**remove change 无分支** → 删除节点只更新 React Flow 视图 state
-  - 正确实现 remove→deleteNode 的 `useReactFlowSync.ts` **只有测试在用，是未接线的死代码**
-  - 叠加：`nodeStore.deleteNode` 清理分支只认 image 节点（isImageNode），**videoGen 节点即使接线后引用图也不清理**
-- **实测后果**：已删节点永久残留 nodeStore/localStorage（刷新后不复活——恢复走 DB，用户基本无感）；引用文件 DELETE 从未发出 → MinIO 孤儿泄漏
-- **修复方向**：remove change 接线到 nodeStore.deleteNode（复活 useReactFlowSync 或在 canvasStore.onNodesChange 加 remove 分支）+ deleteNode 扩 videoGen 清理分支（allImages 根级+嵌套合并去重逻辑已在位，nodeStore.ts deleteNode）
-- **优先级**：中——数据泄漏不可见但不可逆（MinIO 孤儿）；与 TD-8 存量清理一并做收益更大
+- **来源**：2026-08-21 TD-11 修复批次 spec 观察项 O1
+- **现状**：CanvasView.tsx:85 素材库「应用到画布」创建节点时 `data.fileId` 直接用素材库文件 id；nodeStore.deleteNode 的 image 分支会 DELETE 该 fileId——若素材库文件被库内引用，删画布节点会连带删库资产。TD-11 批次浏览器验证未覆盖「素材应用节点删除」场景，**未实证**
+- **修复方向**：核查素材 apply 是否复制文件；若不复制，image 分支的 fileId 删除需区分上传源与素材引用（或 apply 时复制）
+- **优先级**：中——潜在用户资产丢失，未实证
+
+### TD-16 useReactFlowSync 死代码处置
+
+- **来源**：2026-08-21 TD-11 修复批次（原 TD-11 附属观察项 O2）
+- **现状**：仅测试引用，产品代码未接线；TD-11 已用 onNodesChange remove 分支方案替代复活方案
+- **修复方向**：删除该 hook 及其测试文件（属破坏性清理，执行前需确认）
+- **优先级**：低
 
 ### TD-12 `PromptValue.allImages` 僵尸类型字段
 
@@ -96,8 +99,8 @@
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
-2. **第三批（结构/上线）**：TD-10 → TD-5/6/8 → TD-4 → TD-11（与 TD-8 一并）
-3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14
+2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ 3b: TD-10 → 3c: TD-5/6/8 → 3d: TD-4
+3. **随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16
 
 ## 已清账
 
@@ -108,3 +111,4 @@
 | TD-2 allImages 双轨统一（根级）：useImageUpload/VideoConfigPanel/deleteRefs 三读取方迁移 + 测试基建修正 | 2026-08-21 | 7a62eb2 / bdf8fdd / 4af7834 |
 | TD-1 projectId 硬编码（实际 15 处非台账原记 5 处，含 syncNodes/syncEdges 位置参数形式漏报；修复带节点画布生成 500 阻断） | 2026-08-21 | e82cf36 |
 | TD-9 既有测试失败 9 例（5 文件，全部为实现演进后断言/mock 过时，零实现回归；结构性根因另立 TD-14） | 2026-08-21 | 3bcd50c |
+| TD-11 删除链路三层断裂：remove 接线（三件套+DB 同步）+ videoGen/audioGen 清理分支（生成 fileId 不删，D1）；存量泄漏处置见 TD-8 / 3c；衍生 TD-15/TD-16 | 2026-08-21 | 5584864 |
