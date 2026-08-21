@@ -170,17 +170,10 @@ export function useImageUpload(nodeId: string) {
   }
 
   async function deleteImage(imageId: string): Promise<void> {
-    // Remove from store
+    // TD-15：仅移除 store 引用，不 DELETE 服务端——Media 行是素材库资产
     const currentImages = getLatestAllImages();
     const filtered = currentImages.filter((img) => img.id !== imageId);
     updatePromptImages(filtered);
-
-    // DELETE from server
-    try {
-      await fetch(`/api/storage/files/${imageId}`, { method: 'DELETE' });
-    } catch {
-      // Server deletion is best-effort; don't throw
-    }
   }
 
   return {

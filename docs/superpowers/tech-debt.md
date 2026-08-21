@@ -8,38 +8,22 @@
 
 ## 前端（apps/web）
 
-### TD-8 MinIO 存量孤儿文件对账
+### TD-8 软删 Media 行的 MinIO 对象回收
 
 - **来源**：canvas-create-unify-fix spec 明示「不会自愈」；TD-11 修复前已删节点泄漏的 MinIO 文件；localStorage 脏数据部分已随 3c 基线重构清账（v2 版本化快照 + 旧 key 一次性清扫）
-- **现状**：无生产用户；孤儿累积**进行中**（TD-15 实证：删除调用打到死端点实际零删除，非仅「修复前遗留」）；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
-- **修复方向**：上线前评估——若无生产数据可直接忽略；否则一次性清理脚本（含 DB media vs MinIO listing 对账）
+- **现状**：无生产用户；TD-15 方案 B 落地后画布侧不再产生孤儿，唯一孤儿来源 = 库内软删（deletedAt）行的 MinIO 对象；对账需 DB media 全量 vs MinIO listing（服务端脚本域）
+- **修复方向**：上线前评估——若无生产数据可直接忽略；否则一次性清理脚本（含 DB media vs MinIO listing 对账）；可选运行时回收（软删 >N 天物理清扫，temp-cleanup 模式扩展）
 - **优先级**：上线前评估
 
 ## 后端（apps/api）
 
 ## 数据 / 部署
 
-### TD-15 删除清理链路后端断路 + 素材引用埋雷（实证升级）
-
-- **来源**：TD-11 修复批次 spec 观察项 O1（原疑点）；2026-08-21 随手清批次侦查双重实证（spec: cleanup-batch4-quick-wins）
-- **现状**：
-  1. 断路（根本）：`DELETE /api/storage/files/:id` 后端不存在（storage 控制器仅 presign/confirm 两 POST；全后端无 files/:id DELETE 路由）；前端 6 处删除调用（nodeStore.ts 5 处 + useImageUpload.ts:180）全部静默 404 no-op——画布侧文件删除实际零生效，TD-8 MinIO 孤儿持续累积
-  2. 埋雷：CanvasView.tsx 素材 apply 直接 `fileId: file.id`（不复制）+ nodeStore.deleteNode image 分支 DELETE 该 id——端点一旦补上，素材库资产立即被连删
-- **修复方向**（预评审倾向方案 A）：后端补 DELETE 端点，校验 `file.ownerId === userId && file.source === 'upload'`，素材引用（source=material）403 跳过；前端 deleteNode 调用不变；存量节点 source 标记需迁移策略；MinIO 孤儿由端点实际删除逐步消化 + 一次性对账（并入 TD-8）
-- **优先级**：高——修复需独立 spec（端点设计 + 引用语义 + 存量迁移三决策）
-
-### TD-16 useReactFlowSync 死代码处置
-
-- **来源**：2026-08-21 TD-11 修复批次（原 TD-11 附属观察项 O2）
-- **现状**：仅测试引用，产品代码未接线；TD-11 已用 onNodesChange remove 分支方案替代复活方案
-- **修复方向**：删除该 hook 及其测试文件（属破坏性清理，执行前需确认）
-- **优先级**：低
-
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）
 2. **第三批（结构/上线）**：~~3a: TD-11~~ ✅ 已完成（2026-08-21，5584864）→ ~~3b: TD-10~~ ✅ 已完成（2026-08-21，d2cae05）→ ~~3c: TD-5/6/8~~ ✅ 已完成（2026-08-21，8be333a）→ ~~3d: TD-4~~ ✅ 已完成（2026-08-21，8397472，第三批全部收官）
-3. ~~**随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16~~ ✅ 除 TD-15 外全部完成（2026-08-21/22，第四批 a20bab1/c939c20/c43ccc0/de9b744/257d86b）；TD-15 已实证升级为独立高优债（删除清理链路断路+素材引用埋雷，修复需另立 spec）
+3. ~~**随手清**：TD-3、TD-7、TD-12、TD-13、TD-14、TD-15、TD-16~~ ✅ 全部完成（2026-08-21/22，第四批 a20bab1/c939c20/c43ccc0/de9b744/257d86b；TD-15 于 08-22 方案 B 收口）
 
 ## 已清账
 
@@ -58,3 +42,4 @@
 | TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | c939c20 |
 | TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | c43ccc0 / de9b744 |
 | TD-13 三分支覆盖补齐：interceptor @NoTransform 直通不包装 / sms SendStatusSet 非 Ok 拒绝（含状态码透传与 SMS_SEND_REJECTED 兜底）/ file controller type 非空过滤透传 | 2026-08-21 | 257d86b |
+| TD-15 双实证（断路+埋雷，b3eafad）→ 方案 B 收口：移除 6 处死调用（deleteNode 四分支 + useImageUpload）固化「画布删除不触文件清理」语义——Media 行是素材库/历史资产（软删为产品语义）、生成结果不随节点删除（TD-11 D1 扩展至 imageGen/trim）；mergeImageRefs 随调用方退役 | 2026-08-22 | b3eafad + 本批（hash 回填） |

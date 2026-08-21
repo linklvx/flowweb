@@ -536,8 +536,8 @@ describe('useImageUpload', () => {
       await result.current.deleteImage('img-1');
     });
 
-    // fetch DELETE called
-    expect(mockFetchFn).toHaveBeenCalledWith('/api/storage/files/img-1', { method: 'DELETE' });
+    // TD-15: prompt image removal is store-level only — no server DELETE (Media rows are library assets)
+    expect(mockFetchFn).not.toHaveBeenCalledWith('/api/storage/files/img-1', { method: 'DELETE' });
 
     // updatePromptImages called with filtered list (empty)
     expect(mockUpdatePromptImagesFn).toHaveBeenCalled();
@@ -595,7 +595,7 @@ describe('useImageUpload', () => {
       await result.current.deleteImage('img-a');
     });
 
-    expect(mockFetchFn).toHaveBeenCalledWith('/api/storage/files/img-a', { method: 'DELETE' });
+    expect(mockFetchFn).not.toHaveBeenCalledWith('/api/storage/files/img-a', { method: 'DELETE' });
 
     const lastCall =
       mockUpdatePromptImagesFn.mock.calls[mockUpdatePromptImagesFn.mock.calls.length - 1] as [

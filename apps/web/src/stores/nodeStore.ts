@@ -226,12 +226,6 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
 }
 
 /** Merge root-level allImages + legacy nested prompt.allImages, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless) */
-function mergeImageRefs(data: { allImages?: ImageItem[]; prompt?: unknown }): ImageItem[] {
-  // prompt 为运行时遗留形状（持久化旧 JSON），不依赖 PromptValue 接口
-  const legacy = (data.prompt as { allImages?: ImageItem[] } | undefined)?.allImages ?? [];
-  return [...new Map([...(data.allImages ?? []), ...legacy].map((img) => [img.id, img])).values()];
-}
-
 /**
  * Merge node config — type-agnostic, works for image/video/text nodes.
  * Preserves all existing fields, applies overrides, fills missing defaults.
@@ -467,44 +461,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   deleteNode: async (nodeId: string) => {
-    const node = getNode(get().nodes, nodeId);
-    if (node && isImageNode(node)) {
-      const imgData = node.data;
-      const allRefs = mergeImageRefs(imgData);
-      const deleteRefs = allRefs.map((img) =>
-        fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
-      );
-      await Promise.allSettled(deleteRefs);
-      if (imgData.fileId) {
-        await fetch(`/api/storage/files/${imgData.fileId}`, { method: 'DELETE' }).catch(() => {});
-      }
-    }
-    if (node && isMultiImageNode(node)) {
-      const imgData = node.data;
-      const deleteRefs = imgData.images.map((img) =>
-        fetch(`/api/storage/files/${img.id}`, { method: 'DELETE' }).catch(() => {})
-      );
-      await Promise.allSettled(deleteRefs);
-    }
-    if (node && isVideoGenNode(node)) {
-      const vd = node.data;
-      const refIds = [...mergeImageRefs(vd).map((img) => img.id), vd.referenceVideo, vd.trimmedFileId]
-        .filter((id): id is string => Boolean(id));
-      await Promise.allSettled(
-        refIds.map((id) =>
-          fetch(`/api/storage/files/${id}`, { method: 'DELETE' }).catch(() => {})
-        )
-      );
-      // fileId 是生成结果（进生成历史），随节点删除会抹历史，故不删（TD-11 D1）
-    }
-    if (node && isAudioGenNode(node)) {
-      const ad = node.data;
-      if (ad.referenceAudio) {
-        await fetch(`/api/storage/files/${ad.referenceAudio}`, { method: 'DELETE' }).catch(() => {});
-      }
-      // fileId 生成结果不删（TD-11 D1）
-    }
-
+    // TD-15：画布节点删除不触发文件清理——Media 行是素材库/历史资产（软删为产品语义），
+    // 生成结果不随节点删除（TD-11 D1 语义扩展至 imageGen/trim）
     const newNodes = { ...get().nodes };
     delete newNodes[nodeId];
     set({ nodes: newNodes });

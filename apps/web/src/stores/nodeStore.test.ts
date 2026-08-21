@@ -281,8 +281,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(useNodeStore.getState().nodes['nonexistent']).toBeUndefined();
   });
 
-  // 16. deleteNode should handle async resource cleanup (use fake timers)
-  it('should handle async resource cleanup on deleteNode for image nodes', async () => {
+  // 16. deleteNode removes the node without any file-cleanup calls (TD-15: Media rows are library assets)
+  it('should remove node on deleteNode without any fetch calls (TD-15)', async () => {
     vi.useFakeTimers();
 
     const imageNode: AppNode = {
@@ -318,13 +318,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     await vi.runAllTimersAsync();
     await deletePromise;
 
-    // Should have called DELETE for reference images and fileId
-    const deleteCalls = fetchSpy.mock.calls.filter(
-      (call) =>
-        typeof call[0] === 'string' && (call[0] as string).includes('DELETE')
-    );
-    // Allow the calls to have happened (some implementations batch)
-    expect(fetchSpy).toHaveBeenCalled();
+    // TD-15: canvas node deletion must not touch Media rows (library/history assets)
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     // Node should be removed
     expect(useNodeStore.getState().nodes['img-cleanup']).toBeUndefined();
@@ -332,8 +327,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     vi.useRealTimers();
   });
 
-  // 16a. deleteNode should DELETE root-level allImages refs
-  it('should DELETE root-level allImages files on deleteNode', async () => {
+  // 16a. deleteNode must not DELETE root-level allImages refs (TD-15)
+  it('should NOT issue storage DELETEs for root-level allImages refs on deleteNode (TD-15)', async () => {
     const imageNode: AppNode = {
       id: 'img-root-refs',
       type: 'imageGen',
@@ -355,12 +350,11 @@ describe('nodeStore (AppNode nested structure)', () => {
     const storageDeletes = fetchSpy.mock.calls.filter(
       (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
     );
-    expect(storageDeletes).toHaveLength(1);
-    expect(storageDeletes[0][0]).toBe('/api/storage/files/f1');
+    expect(storageDeletes).toHaveLength(0);
   });
 
-  // 16b. deleteNode should still DELETE nested prompt.allImages refs (legacy data)
-  it('should DELETE nested prompt.allImages files on deleteNode (legacy shape)', async () => {
+  // 16b. deleteNode must not DELETE nested prompt.allImages refs either (legacy data shape, TD-15)
+  it('should NOT issue storage DELETEs for legacy nested prompt.allImages refs on deleteNode (TD-15)', async () => {
     const imageNode: AppNode = {
       id: 'img-nested-refs',
       type: 'imageGen',
@@ -386,12 +380,11 @@ describe('nodeStore (AppNode nested structure)', () => {
     const storageDeletes = fetchSpy.mock.calls.filter(
       (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
     );
-    expect(storageDeletes).toHaveLength(1);
-    expect(storageDeletes[0][0]).toBe('/api/storage/files/f2');
+    expect(storageDeletes).toHaveLength(0);
   });
 
-  // 16c. deleteNode should dedupe refs present in both root and nested
-  it('should DELETE a file only once when present in both root and nested allImages', async () => {
+  // 16c. refs present in both root and nested trigger nothing either (TD-15)
+  it('should NOT issue storage DELETEs when refs present in both root and nested allImages (TD-15)', async () => {
     const shared = { id: 'f3', url: '/f3.png', name: 'f3.png', status: 'success' as const };
     const imageNode: AppNode = {
       id: 'img-dup-refs',
@@ -414,12 +407,11 @@ describe('nodeStore (AppNode nested structure)', () => {
     const storageDeletes = fetchSpy.mock.calls.filter(
       (call) => typeof call[0] === 'string' && (call[0] as string).startsWith('/api/storage/files/')
     );
-    expect(storageDeletes).toHaveLength(1);
-    expect(storageDeletes[0][0]).toBe('/api/storage/files/f3');
+    expect(storageDeletes).toHaveLength(0);
   });
 
-  // 16d. deleteNode should clean videoGen refs: allImages dedup + referenceVideo + trimmedFileId, NOT generated fileId (TD-11)
-  it('should DELETE videoGen refs but not generated fileId on deleteNode', async () => {
+  // 16d. videoGen deletion issues no storage DELETEs at all — refs and generated fileId alike (TD-15)
+  it('should NOT issue any storage DELETEs on videoGen deleteNode (TD-15)', async () => {
     const videoNode: AppNode = {
       id: 'vid-refs',
       type: 'videoGen',
@@ -453,16 +445,11 @@ describe('nodeStore (AppNode nested structure)', () => {
     const storageDeletes = fetchSpy.mock.calls
       .map((call) => (typeof call[0] === 'string' ? (call[0] as string) : ''))
       .filter((url) => url.startsWith('/api/storage/files/'));
-    expect(storageDeletes).toHaveLength(4);
-    expect(storageDeletes).toContain('/api/storage/files/vf1');
-    expect(storageDeletes).toContain('/api/storage/files/vf2');
-    expect(storageDeletes).toContain('/api/storage/files/ref-video-1');
-    expect(storageDeletes).toContain('/api/storage/files/trim-out-1');
-    expect(storageDeletes).not.toContain('/api/storage/files/gen-result-1');
+    expect(storageDeletes).toHaveLength(0);
   });
 
-  // 16e. deleteNode should clean audioGen referenceAudio but not generated fileId (TD-11)
-  it('should DELETE audioGen referenceAudio but not generated fileId on deleteNode', async () => {
+  // 16e. audioGen deletion issues no storage DELETEs either (TD-15)
+  it('should NOT issue any storage DELETEs on audioGen deleteNode (TD-15)', async () => {
     const audioNode: AppNode = {
       id: 'aud-refs',
       type: 'audioGen',
@@ -486,8 +473,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const storageDeletes = fetchSpy.mock.calls
       .map((call) => (typeof call[0] === 'string' ? (call[0] as string) : ''))
       .filter((url) => url.startsWith('/api/storage/files/'));
-    expect(storageDeletes).toHaveLength(1);
-    expect(storageDeletes[0]).toBe('/api/storage/files/ref-audio-1');
+    expect(storageDeletes).toHaveLength(0);
   });
 
   // 17. isImageNode type guard should correctly narrow type
