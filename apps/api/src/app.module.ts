@@ -26,6 +26,7 @@ import { FolderModule } from './modules/folder/folder.module';
 import { CanvasModule } from './modules/canvas/canvas.module';
 import { RechargeModule } from './modules/recharge/recharge.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { StoryboardModule } from './modules/storyboard/storyboard.module';
 import { AuthGuard } from './auth/auth.guard';
 import { validateEnv } from './config/env';
 
@@ -63,6 +64,7 @@ const env = validateEnv();
     AiImageEditModule,
     RechargeModule,
     MetricsModule,
+    StoryboardModule,
     SubscriptionModule,
     AdminSubscriptionModule,
     SubscriptionTaskModule,
