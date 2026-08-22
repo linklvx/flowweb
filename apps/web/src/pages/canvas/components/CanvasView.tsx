@@ -474,7 +474,6 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           x={groupContextMenu.x}
           y={groupContextMenu.y}
           onClose={closeGroupContextMenu}
-          canPaste={true} // TODO: Track clipboard state to enable/disable paste
         />
       )}
     </div>

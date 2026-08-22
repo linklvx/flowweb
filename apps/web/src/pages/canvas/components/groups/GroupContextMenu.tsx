@@ -8,7 +8,6 @@ interface Props {
   x: number;
   y: number;
   onClose: () => void;
-  canPaste: boolean;
 }
 
 const menuItem = (disabled?: boolean): React.CSSProperties => ({
@@ -22,7 +21,8 @@ const menuItem = (disabled?: boolean): React.CSSProperties => ({
   width: '100%',
 });
 
-function GroupContextMenuComponent({ groupId, x, y, onClose, canPaste }: Props) {
+function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
+  const canPaste = useCanvasStore.getState().hasGroupClipboard();
   const duplicateGroup = useCanvasStore((s) => s.duplicateGroup);
   const copyGroupToClipboard = useCanvasStore((s) => s.copyGroupToClipboard);
   const pasteGroupClipboard = useCanvasStore((s) => s.pasteGroupClipboard);

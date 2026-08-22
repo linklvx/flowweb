@@ -120,6 +120,7 @@ interface CanvasState {
   duplicateGroup: (groupId: string) => string | null;
   copyGroupToClipboard: (groupId: string) => void;
   pasteGroupClipboard: (position: { x: number; y: number }) => string | null;
+  hasGroupClipboard: () => boolean;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -1053,6 +1054,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!groupClipboard) return null;
     return rebuildFromClipboard(get, set, position);
   },
+
+  hasGroupClipboard: () => groupClipboard !== null,
 }));
 
 // Shared helper function to build a group copy
