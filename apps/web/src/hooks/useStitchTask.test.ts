@@ -29,11 +29,11 @@ describe('useStitchTask', () => {
     vi.useFakeTimers();
     try {
       const { result } = renderHook(() => useStitchTask('p1'));
-      let promise: Promise<string> | undefined;
+      let promise: Promise<{ outcome: string; failedCount?: number }> | undefined;
       act(() => { promise = result.current.start({ fileIds: ['f1', 'f2', 'f3', 'f4'], gridRows: 2, gridCols: 2,
         aspectRatio: '16:9', showIndex: false, resolution: '2K' }); });
       await vi.advanceTimersByTimeAsync(10_500); // 触发两次轮询并 flush 异步回调（65s 超时不会触发）
-      const outcome = await promise!;
+      const { outcome } = await promise!;
       expect(outcome).toBe('COMPLETED');
       expect(useCanvasStore.getState().nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(true);
       expect(useGroupHistory.getState().canUndo()).toBe(true); // 撤销项已注册
@@ -60,11 +60,11 @@ describe('useStitchTask', () => {
     vi.useFakeTimers();
     try {
       const { result } = renderHook(() => useStitchTask('p1'));
-      let promise: Promise<string> | undefined;
+      let promise: Promise<{ outcome: string; failedCount?: number }> | undefined;
       act(() => { promise = result.current.start({ fileIds: ['f1', 'f2'], gridRows: 1, gridCols: 2,
         aspectRatio: '16:9', showIndex: false, resolution: '2K' }); });
       await vi.advanceTimersByTimeAsync(11_000); // socket t=1s 完成 + 轮询 t=5s/10s 也返回 COMPLETED
-      const outcome = await promise!;
+      const { outcome } = await promise!;
       expect(outcome).toBe('COMPLETED');
       // 竞态回归：产物节点只能有一个（socket 完成后 timer 已被 settle 清理）
       expect(useCanvasStore.getState().nodes.filter((n) => (n.data as any).fileId === 'out1')).toHaveLength(1);

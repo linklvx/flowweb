@@ -102,14 +102,19 @@ function StitchButtonComponent({
       sourceGroupId: groupId,
     };
 
-    // 快照参数：触发时刻固定，后续宫格调整不影响进行中任务
+    // params 即触发时刻快照（闭包固化，宫格调整不影响进行中任务）；
+    // paramsRef 供重试入口判断，重试本身按最新宫格重新收集（新任务语义）
     paramsRef.current = params;
 
     setInternalRunning(true);
     try {
-      const outcome = await start(params);
+      const { outcome, failedCount } = await start(params);
       if (outcome === 'COMPLETED') {
-        message.success('拼接完成');
+        message.success(
+          failedCount && failedCount > 0
+            ? `拼接完成，${failedCount} 张图片加载失败，已用占位图替代`
+            : '拼接完成'
+        );
       } else if (outcome === 'FAILED') {
         message.error({
           content: '拼接失败',

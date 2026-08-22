@@ -57,10 +57,11 @@ export function useStitchTask(projectId: string) {
   const start = useCallback(
     async (
       params: StitchParams
-    ): Promise<'COMPLETED' | 'FAILED' | 'TIMEOUT'> => {
-      if (running.current) return 'FAILED'; // 防重（spec 7.3）
+    ): Promise<{ outcome: 'COMPLETED' | 'FAILED' | 'TIMEOUT'; failedCount?: number }> => {
+      if (running.current) return { outcome: 'FAILED' }; // 防重（spec 7.3）
       running.current = true;
       let outcome: 'COMPLETED' | 'FAILED' | 'TIMEOUT' = 'TIMEOUT';
+      let failedCount: number | undefined;
       try {
         const { taskId } = await createStitchTask(projectId, params);
         await new Promise<void>((resolve) => {
@@ -69,13 +70,14 @@ export function useStitchTask(projectId: string) {
           // 只会结算一次，产物节点不会重复生成（socket 完成后未清 timer 的双 spawn 缺陷修复）
           const settle = (
             r: typeof outcome,
-            result?: { fileId: string; url?: string; width?: number; height?: number }
+            result?: { fileId: string; url?: string; width?: number; height?: number; failedCount?: number }
           ) => {
             if (done) return;
             done = true;
             clearInterval(timer);
             clearTimeout(timeoutId);
             if (r === 'COMPLETED' && result) {
+              failedCount = result.failedCount;
               spawnResultNode(result, params.sourceGroupId);
             }
             outcome = r;
@@ -85,7 +87,7 @@ export function useStitchTask(projectId: string) {
           socket.current?.once('storyboard:stitch:completed', (evt: any) => {
             if (evt.taskId !== taskId) return;
             if (evt.status === 'COMPLETED' && evt.fileId) {
-              settle('COMPLETED', { fileId: evt.fileId, url: evt.url, width: evt.width, height: evt.height });
+              settle('COMPLETED', { fileId: evt.fileId, url: evt.url, width: evt.width, height: evt.height, failedCount: evt.failedCount });
             } else {
               settle('FAILED');
             }
@@ -95,7 +97,7 @@ export function useStitchTask(projectId: string) {
             try {
               const r = await getStitchTask(projectId, taskId);
               if (r.status === 'COMPLETED' && r.fileId) {
-                settle('COMPLETED', { fileId: r.fileId, url: r.url, width: r.width, height: r.height });
+                settle('COMPLETED', { fileId: r.fileId, url: r.url, width: r.width, height: r.height, failedCount: r.failedCount });
               }
               if (r.status === 'FAILED') {
                 settle('FAILED');
@@ -114,7 +116,7 @@ export function useStitchTask(projectId: string) {
       } finally {
         running.current = false;
       }
-      return outcome;
+      return { outcome, failedCount };
     },
     [projectId, spawnResultNode, socket]
   );
