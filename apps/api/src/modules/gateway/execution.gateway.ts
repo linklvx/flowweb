@@ -75,4 +75,18 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
   }) {
     this.server.to(`project:${workflowId}`).emit('video-separate:status', data);
   }
+
+  emitStitchStatus(projectId: string, data: {
+    taskId: string;
+    status: 'COMPLETED' | 'FAILED';
+    fileId?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+    cellCount?: number;
+    failedCount?: number;
+    error?: string;
+  }) {
+    this.server.to(`project:${projectId}`).emit('storyboard:stitch:completed', data);
+  }
 }
