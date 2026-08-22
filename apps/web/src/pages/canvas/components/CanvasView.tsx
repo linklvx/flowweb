@@ -323,6 +323,11 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     return children.length === 0 || children.every(isImageCompletedNode);
   }, [selectedGroup, nodes]);
 
+  // 计算组内是否有节点正在执行（响应式订阅）
+  const groupExecuting = useCanvasStore((s) =>
+    selectedGroup ? s.nodes.filter((n) => n.parentId === selectedGroup.id).some((n) => n.id in s.nodeProcessMap) : false
+  );
+
   return (
     <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
       <ReactFlow
@@ -442,7 +447,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
                 groupId={selectedGroup.id}
                 groupType="storyboard"
                 collapsed={false}
-                executing={false}
+                executing={groupExecuting}
                 onCollapse={noOp}
                 onExecute={noOp}
                 onUngroup={handleUngroup}
@@ -451,13 +456,13 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
                 <AspectRatioDropdown
                   value={cfg.aspectRatio}
                   onChange={(v) => updateStoryboardConfig({ aspectRatio: v })}
-                  executing={false}
+                  executing={groupExecuting}
                 />
                 <GridSizeDropdown
                   rows={cfg.gridRows}
                   cols={cfg.gridCols}
                   onChange={(r, c) => resizeStoryboardGrid(r, c)}
-                  executing={false}
+                  executing={groupExecuting}
                 />
                 <StitchButton
                   groupId={selectedGroup.id}
@@ -484,7 +489,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
               groupId={selectedGroup.id}
               groupType="normal"
               collapsed={!!gd.collapsed}
-              executing={false}
+              executing={groupExecuting}
               onCollapse={toggleCollapse}
               onExecute={(groupId) => {
                 const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);

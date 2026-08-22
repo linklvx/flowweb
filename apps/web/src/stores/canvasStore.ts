@@ -80,6 +80,7 @@ interface CanvasState {
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
   isHydrating: boolean;
+  hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
   copyNode: (id: string) => string | null;
@@ -173,6 +174,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   deleteNode: (id) => {
+    // 组清理需在删除前捕获父子关系（filter 后会丢失）
+    const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
@@ -181,6 +184,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
     }));
+    // 组清理逻辑：检查被删节点的父组是否需要清理
+    const after = get();
+    const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
+    if (!parent || parent.type !== 'group') return;
+    if ((parent.data as any)?.cells) {
+      // 分镜组：cells 移除该 id（宫格不收缩）
+      set((s) => ({
+        nodes: s.nodes.map((n) => n.id === parent.id
+          ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
+          : n),
+      }));
+    } else if ((parent.data as any).groupType === 'normal'
+      && !after.nodes.some((c) => c.parentId === parent.id)) {
+      // 普通组：删空自动解组
+      get().ungroup(parent.id);
+    }
   },
 
   deleteTransformNode: (id) => {
@@ -683,6 +702,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
+  hasActiveProcessInGroup: (groupId: string) => {
+    const s = get();
+    const childIds = new Set(s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id));
+    return Object.keys(s.nodeProcessMap ?? {}).some((id) => childIds.has(id));
+  },
+
   setProjectId: (projectId) => set({ projectId }),
   setHydrating: (v) => set({ isHydrating: v }),
 
@@ -732,6 +757,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   ungroup: (groupId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
@@ -806,6 +835,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   removeNodeFromGroup: (groupId, nodeId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
@@ -826,6 +859,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   dropIntoGroup: (nodeId, groupId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
@@ -863,6 +900,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   dropImageIntoStoryboard: (groupId, nodeId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     const node = s.nodes.find((n) => n.id === nodeId);
@@ -1080,6 +1121,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   convertGroup: (groupId, target) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
@@ -1179,6 +1224,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   resizeStoryboardGrid: (groupId, rows, cols) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
@@ -1218,6 +1267,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   clearStoryboard: (groupId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const cellIds = (s.nodes.find((n) => n.id === groupId)?.data as any)?.cells ?? [];
     // TD-15: history record — 收集受影响的边（删除前），before snapshot
@@ -1257,6 +1310,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   removeStoryboardCell: (groupId, cellIndex) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
