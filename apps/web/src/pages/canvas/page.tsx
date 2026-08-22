@@ -70,6 +70,12 @@ async function loadProjectIntoStore(
   });
   // Apply hidden derivation for group children (TD-Group step 3)
   useCanvasStore.getState().applyGroupDerivations();
+  // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
+  for (const g of useCanvasStore.getState().nodes.filter(
+    (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
+  )) {
+    useCanvasStore.getState().refitGroupBounds(g.id);
+  }
   // Restore node content as AppNode structure
   const content: Record<string, any> = {};
   for (const n of project.nodes || []) {

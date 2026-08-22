@@ -13,6 +13,7 @@ import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP } from '@/utils/groupLayout';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -97,6 +98,12 @@ interface CanvasState {
   updateNodeProcessProgress: (nodeId: string, progress: number) => void;
   finishNodeProcess: (nodeId: string, status: 'done' | 'error', errorMsg?: string) => void;
   cancelNodeProcess: (nodeId: string) => void;
+  groupNodes: (nodeIds: string[]) => string;
+  ungroup: (groupId: string) => void;
+  addToGroup: (groupId: string, nodeId: string) => void;
+  removeNodeFromGroup: (groupId: string, nodeId: string) => void;
+  toggleCollapse: (groupId: string) => void;
+  refitGroupBounds: (groupId: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -659,5 +666,143 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const repaired = repairStoryboardCells(s.nodes as any);
       return deriveHidden(repaired, s.edges as any);
     });
+  },
+
+  groupNodes: (nodeIds) => {
+    const s = get();
+    const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
+    if (picked.length < 2) throw new Error('打组至少需要 2 个节点');
+    if (picked.some((n) => n.type === 'group')) throw new Error('组不支持嵌套');
+    const id = getId('node');
+    const bounds = calcGroupBounds(picked.map((n) => ({
+      x: n.position.x, y: n.position.y,
+      width: n.width ?? 280, height: n.height ?? 120,
+    })));
+    const groupNode: Node = {
+      id, type: 'group',
+      position: { x: bounds.x, y: bounds.y },
+      width: bounds.width, height: bounds.height,
+      data: { groupType: 'normal', name: `分组 ${picked.length} 个节点` },
+      selected: true,
+    };
+    set((st) => ({
+      nodes: [
+        ...st.nodes.map((n) => nodeIds.includes(n.id)
+          ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
+              position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
+          : { ...n, selected: false }),
+        groupNode,
+      ],
+      selectedId: id,
+    }));
+    useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
+    get().applyGroupDerivations();
+    return id;
+  },
+
+  ungroup: (groupId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gd = group.data as any;
+    const gp = group.position;
+    if (gd.groupType === 'storyboard') {
+      const cfg = gd.storyboard;
+      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          const idx = (gd.cells ?? []).indexOf(n.id);
+          if (idx === -1 || n.parentId !== groupId) return n;
+          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+          return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
+            position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
+        }),
+      }));
+    }
+    set((st) => ({
+      nodes: st.nodes
+        .filter((n) => n.id !== groupId)
+        .map((n) => n.parentId === groupId
+          ? { ...n, parentId: undefined, extent: undefined,
+              position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
+          : n),
+      selectedId: st.selectedId === groupId ? null : st.selectedId,
+    }));
+    useNodeStore.getState().deleteNode(groupId);
+    get().applyGroupDerivations();
+  },
+
+  addToGroup: (groupId, nodeId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    const node = s.nodes.find((n) => n.id === nodeId);
+    if (!group || !node || node.type === 'group') return;
+    const gp = group.position;
+    set((st) => {
+      const child = {
+        ...node, parentId: groupId, extent: 'parent' as const,
+        position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
+      };
+      const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
+      const bounds = calcGroupBounds(siblings.map((n) => ({
+        x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
+        y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
+        width: n.width ?? 280, height: n.height ?? 120,
+      })));
+      return {
+        nodes: st.nodes.map((n) => {
+          if (n.id === nodeId) return child;
+          if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
+          return n;
+        }),
+      };
+    });
+    get().applyGroupDerivations();
+  },
+
+  removeNodeFromGroup: (groupId, nodeId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gp = group.position;
+    set((st) => ({
+      nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
+        ? { ...n, parentId: undefined, extent: undefined,
+            position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
+        : n),
+    }));
+    get().applyGroupDerivations();
+  },
+
+  toggleCollapse: (groupId) => {
+    set((st) => ({
+      nodes: st.nodes.map((n) => n.id === groupId
+        ? { ...n, data: { ...n.data, collapsed: !(n.data as any).collapsed },
+            ...(!(n.data as any).collapsed ? { width: 200, height: 64 } : {}) }
+        : n),
+    }));
+    if (get().nodes.find((n) => n.id === groupId && !(n.data as any).collapsed)) {
+      get().refitGroupBounds(groupId);
+    }
+    get().applyGroupDerivations();
+  },
+
+  refitGroupBounds: (groupId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gp = group.position;
+    const children = s.nodes.filter((n) => n.parentId === groupId);
+    if (children.length === 0) return;
+    const bounds = calcGroupBounds(children.map((n) => ({
+      x: n.position.x + gp.x, y: n.position.y + gp.y,
+      width: n.width ?? 280, height: n.height ?? 120,
+    })));
+    set((st) => ({
+      nodes: st.nodes.map((n) => n.id === groupId
+        ? { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height }
+        : n),
+    }));
   },
 }));
