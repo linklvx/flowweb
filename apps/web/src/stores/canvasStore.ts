@@ -7,6 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
+import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
@@ -109,6 +110,10 @@ interface CanvasState {
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
   mergeStoryboard: (nodeIds: string[]) => string;
   convertGroup: (groupId: string, target: 'normal' | 'storyboard') => void;
+  updateStoryboardConfig: (groupId: string, patch: Partial<StoryboardConfig>) => void;
+  resizeStoryboardGrid: (groupId: string, rows: number, cols: number) => void;
+  clearStoryboard: (groupId: string) => void;
+  addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string, url?: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -943,5 +948,81 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ? { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height }
         : n),
     }));
+  },
+
+  updateStoryboardConfig: (groupId, patch) => {
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        const cfg = { ...(n.data as any).storyboard, ...patch };
+        const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+        return { ...n, width: size.width, height: size.height, data: { ...n.data, storyboard: cfg } };
+      }),
+    }));
+  },
+
+  resizeStoryboardGrid: (groupId, rows, cols) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gd = group.data as any;
+    const capacity = rows * cols;
+    const keep = (gd.cells ?? []).slice(0, capacity);
+    const overflowIds = (gd.cells ?? []).slice(capacity);
+    const gp = group.position;
+    const gw = group.width ?? 0;
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
+        if (n.id === groupId) {
+          const cfg = { ...gd.storyboard, gridRows: rows, gridCols: cols };
+          const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
+          return { ...n, width: size.width, height: size.height, data: { ...gd, cells: keep, storyboard: cfg } };
+        }
+        if (overflowIds.includes(n.id) && n.parentId === groupId) {
+          const idx = overflowIds.indexOf(n.id);
+          return { ...n, parentId: undefined, extent: undefined, hidden: false,
+            position: { x: gp.x + gw + 20, y: gp.y + idx * 200 } };
+        }
+        return n;
+      }),
+      edges: st.edges, // 溢出节点若有连线已在组内隐藏；解出后 hidden 推导恢复显示
+    }));
+    get().applyGroupDerivations();
+    if (overflowIds.length > 0) {
+      message.info(`${overflowIds.length} 张图片已移出分镜组`);
+    }
+  },
+
+  clearStoryboard: (groupId) => {
+    const s = get();
+    const cellIds = (s.nodes.find((n) => n.id === groupId)?.data as any)?.cells ?? [];
+    set((st) => ({
+      nodes: st.nodes
+        .filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId))
+        .map((n) => n.id === groupId ? { ...n, data: { ...n.data, cells: [] } } : n),
+      edges: st.edges.filter((e) => !cellIds.includes(e.source) && !cellIds.includes(e.target)),
+    }));
+    cellIds.forEach((id: string) => useNodeStore.getState().deleteNode(id));
+  },
+
+  addImageToStoryboardCell: (groupId, cellIndex, fileId, url) => {
+    const id = getId('node');
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        // 空位用 null 占位（cells: (string | null)[]），语义明确且 filter(Boolean) 安全
+        const cells: (string | null)[] = [...((n.data as any).cells ?? [])];
+        while (cells.length < cellIndex) cells.push(null);
+        cells[cellIndex] = id;
+        return { ...n, data: { ...n.data, cells } };
+      }).concat([{
+        id, type: 'imageGen', parentId: groupId, extent: 'parent',
+        position: { x: 0, y: 0 }, width: 320, height: 180,
+        data: { status: 'done', fileId, mediaUrl: url } as any, selected: false,
+      } as Node]),
+    }));
+    useNodeStore.getState().addNode({ id, type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId, mediaUrl: url } as any });
+    get().applyGroupDerivations();
   },
 }));

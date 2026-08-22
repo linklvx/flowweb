@@ -7,6 +7,7 @@ import {
   type NodeChange, type NodeDimensionChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
@@ -26,6 +27,10 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { MultiSelectToolbar } from './groups/MultiSelectToolbar';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { ConfirmModal } from './ConfirmModal';
+import { AspectRatioDropdown } from './groups/AspectRatioDropdown';
+import { GridSizeDropdown } from './groups/GridSizeDropdown';
+import { StitchButton } from './groups/StitchButton';
+import type { StoryboardConfig } from '@/types/group';
 
 const nodeTypes: NodeTypes = {
   textInput: TextInputNode,
@@ -331,22 +336,116 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
         <MultiSelectToolbar />
-        {selectedGroup && (
-          <GroupToolbar
-            groupId={selectedGroup.id}
-            groupType={(selectedGroup.data as any).groupType ?? 'normal'}
-            collapsed={!!(selectedGroup.data as any).collapsed}
-            executing={false}
-            onCollapse={toggleCollapse}
-            onExecute={(groupId) => {
-              const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-              if (childIds.length > 0 && projectId) void executeGroupNodes(projectId, childIds);
-            }}
-            onUngroup={ungroup}
-            onConvert={(id, target) => convertGroup(id, target)}
-            convertible={isConvertible}
-          />
-        )}
+        {selectedGroup && (() => {
+          const gd = selectedGroup.data as any;
+          const groupType = gd.groupType ?? 'normal';
+          const cfg = gd.storyboard;
+
+          const noOp = () => {};
+
+          const handleUngroup = () => {
+            ungroup(selectedGroup.id);
+          };
+
+          const handleConvert = (target: 'normal' | 'storyboard') => {
+            convertGroup(selectedGroup.id, target);
+          };
+
+          if (groupType === 'storyboard') {
+            const confirmClear = () => {
+              Modal.confirm({
+                title: '清空分镜组',
+                content: '将删除组内全部图片节点，此操作不可恢复',
+                okButtonProps: { danger: true },
+                onOk: () => {
+                  useCanvasStore.getState().clearStoryboard(selectedGroup.id);
+                },
+              });
+            };
+
+            const updateStoryboardConfig = (patch: Partial<StoryboardConfig>) => {
+              useCanvasStore.getState().updateStoryboardConfig(selectedGroup.id, patch);
+            };
+
+            const resizeStoryboardGrid = (rows: number, cols: number) => {
+              useCanvasStore.getState().resizeStoryboardGrid(selectedGroup.id, rows, cols);
+            };
+
+            const indexBtn = (enabled: boolean): React.CSSProperties => ({
+              background: enabled ? 'rgba(74,222,128,0.15)' : 'none',
+              border: 'none',
+              color: enabled ? '#4ade80' : '#fff',
+              fontWeight: enabled ? 600 : 'normal',
+              padding: '6px 10px',
+              borderRadius: 6,
+              fontSize: 13,
+              cursor: 'pointer',
+            });
+
+            const btn = (disabled?: boolean): React.CSSProperties => ({
+              background: 'none', border: 'none', color: disabled ? '#666' : '#fff',
+              padding: '6px 10px', borderRadius: 6, fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer',
+            });
+
+            return (
+              <GroupToolbar
+                groupId={selectedGroup.id}
+                groupType="storyboard"
+                collapsed={false}
+                executing={false}
+                onCollapse={noOp}
+                onExecute={noOp}
+                onUngroup={handleUngroup}
+                onConvert={(id, target) => convertGroup(id, target)}
+              >
+                <AspectRatioDropdown
+                  value={cfg.aspectRatio}
+                  onChange={(v) => updateStoryboardConfig({ aspectRatio: v })}
+                  executing={false}
+                />
+                <GridSizeDropdown
+                  rows={cfg.gridRows}
+                  cols={cfg.gridCols}
+                  onChange={(r, c) => resizeStoryboardGrid(r, c)}
+                  executing={false}
+                />
+                <StitchButton
+                  groupId={selectedGroup.id}
+                  resolution={cfg.stitchResolution}
+                  onResolutionChange={(v) => updateStoryboardConfig({ stitchResolution: v })}
+                  running={false}
+                />
+                <button
+                  style={indexBtn(cfg.showIndex)}
+                  onClick={() => updateStoryboardConfig({ showIndex: !cfg.showIndex })}
+                >
+                  № 序号
+                </button>
+                <button style={btn(false)} onClick={confirmClear}>
+                  🗑 清空
+                </button>
+              </GroupToolbar>
+            );
+          }
+
+          // normal group
+          return (
+            <GroupToolbar
+              groupId={selectedGroup.id}
+              groupType="normal"
+              collapsed={!!gd.collapsed}
+              executing={false}
+              onCollapse={toggleCollapse}
+              onExecute={(groupId) => {
+                const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
+                if (childIds.length > 0 && projectId) void executeGroupNodes(projectId, childIds);
+              }}
+              onUngroup={handleUngroup}
+              onConvert={(id, target) => convertGroup(id, target)}
+              convertible={isConvertible}
+            />
+          );
+        })()}
       </ReactFlow>
       {/* 工具条 Portal 挂载点：最高层级，不拦截鼠标事件 */}
       <div
