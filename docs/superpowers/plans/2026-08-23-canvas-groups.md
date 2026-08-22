@@ -216,10 +216,11 @@ git commit -m "feat(web): add group layout pure functions (TD-Group step 1)"
 在 `project.service.spec.ts` 的 `describe('syncNodes', ...)` 内追加：
 
 ```ts
-it('persists parentId when present', async () => {
+it('persists parentId; parentless nodes written first (self-FK insert order)', async () => {
   await service.syncNodes('p1', [
-    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
+    // 故意乱序：子节点在前 —— 实现须排序（无 parentId 先写）
     { id: 'n1', type: 'imageGen', position: { x: 10, y: 10 }, data: {}, parentId: 'g1' },
+    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
   ]);
   expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
     data: [
@@ -237,16 +238,34 @@ Expected: FAIL（parentId 未存）
 
 - [ ] **Step 3: 写实现**
 
-schema.prisma CanvasNode 模型 `data Json` 行后加：
+schema.prisma CanvasNode 模型追加（对齐项目 Folder/MaterialFolder 自引用惯例，schema.prisma:159-170/339-355；`SetNull` = 删组节点时子节点保留为独立节点，与 ungroup 语义一致）：
 
 ```prisma
   parentId    String?
+  parent      CanvasNode?  @relation("CanvasNodeChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children    CanvasNode[] @relation("CanvasNodeChildren")
+
+  @@index([parentId])
 ```
 
-project.service.ts `syncNodes` 的 `createMany data` 映射加一行：
+（`@@index([projectId])` 已存在，`@@index([parentId])` 追加其后。不加 `@db.VarChar`——项目自引用惯例 Folder.parentId 无长度约束，cuid 为 25 字符，加长度约束反而不符现有风格。）
+
+project.service.ts `syncNodes`：映射加 `parentId`，且 createMany 前排序——无 parentId 的节点先写（自引用外键下，若 Prisma 把 createMany 拆成多条 INSERT，子先于父插入会触发外键错误；排序是廉价保险）：
 
 ```ts
+    const sorted = [...nodes].sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
+    await this.prisma.canvasNode.createMany({
+      data: sorted.map((n: any) => ({
+        id: n.id,
+        projectId,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+        width: n.width ?? 280,
+        height: n.height ?? 120,
         parentId: n.parentId ?? null,
+      })),
+    });
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
@@ -280,7 +299,7 @@ git commit -m "feat(api): persist CanvasNode.parentId (TD-Group step 2)"
 ```ts
 // apps/web/src/utils/groupDerive.test.ts
 import { describe, it, expect } from 'vitest';
-import { deriveHidden } from './groupDerive';
+import { deriveHidden, repairStoryboardCells } from './groupDerive';
 
 const group = (over: Record<string, unknown> = {}) => ({
   id: 'g1', type: 'group',
@@ -321,6 +340,31 @@ describe('deriveHidden', () => {
     expect(edges.find((e) => e.id === 'e2')?.hidden).toBe(false);
   });
 });
+
+describe('repairStoryboardCells（cells/parentId 一致性守卫）', () => {
+  it('子节点不在 cells 中 → 移出组并给绝对坐标（不堆叠原点）', () => {
+    const g = { id: 'g1', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182,
+      data: { groupType: 'storyboard', cells: ['a'] } };
+    const stray = { id: 'stray', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 } };
+    const { nodes } = repairStoryboardCells([
+      g as any, { id: 'a', parentId: 'g1' } as any, stray as any,
+    ] as any) as any;
+    const s = nodes.find((n: any) => n.id === 'stray')!;
+    expect(s.parentId).toBeUndefined();
+    expect(s.extent).toBeUndefined();
+    expect(s.position.x).toBeGreaterThanOrEqual(500); // 绝对坐标 = 组位置 + 偏移
+    expect(s.position.y).toBeGreaterThanOrEqual(500 + 182); // 排在组下方
+  });
+
+  it('cells 与子节点一致 → 原样返回', () => {
+    const input = [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 },
+        data: { groupType: 'storyboard', cells: ['a'] } },
+      { id: 'a', parentId: 'g1', position: { x: 0, y: 0 } },
+    ] as any;
+    expect(repairStoryboardCells(input)).toEqual(input);
+  });
+});
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -356,15 +400,40 @@ export function deriveHidden(nodes: Node[], edges: Edge[]): { nodes: Node[]; edg
 }
 ```
 
+groupDerive.ts 追加一致性守卫（分镜组子节点纯 DOM 宫格渲染、position 无意义——若因 bug 脱离 cells 须移出组并给绝对坐标，否则堆叠画布原点不可见）：
+
+```ts
+/** 一致性守卫：分镜组 children 必须同时在 cells 中；多余子节点移出组（绝对坐标排在组下方） */
+export function repairStoryboardCells(nodes: Node[]): Node[] {
+  const storyboardGroups = new Map<string, Node>();
+  for (const n of nodes) {
+    if (n.type === 'group' && (n.data as any)?.groupType === 'storyboard') storyboardGroups.set(n.id, n);
+  }
+  let overflow = 0;
+  return nodes.map((n) => {
+    const g = n.parentId ? storyboardGroups.get(n.parentId) : undefined;
+    if (!g) return n;
+    const cells = ((g.data as any).cells ?? []) as string[];
+    if (cells.includes(n.id)) return n;
+    const i = overflow++;
+    return { ...n, parentId: undefined, extent: undefined,
+      position: { x: g.position.x + i * 360, y: g.position.y + (g.height ?? 0) + 20 } };
+  });
+}
+```
+
 canvasStore 新增 action（接口与实现）：
 
 ```ts
 // CanvasState 接口追加：
 applyGroupDerivations: () => void;
 
-// create() 实现追加：
+// create() 实现追加（守卫先行，再推导 hidden）：
 applyGroupDerivations: () => {
-  set((s) => deriveHidden(s.nodes as any, s.edges as any));
+  set((s) => {
+    const repaired = repairStoryboardCells(s.nodes as any);
+    return deriveHidden(repaired, s.edges as any);
+  });
 },
 ```
 
@@ -448,6 +517,30 @@ describe('ungroup', () => {
     expect(child1.parentId).toBeUndefined();
     expect(child1.position).toEqual({ x: 100, y: 100 }); // 回到原始绝对坐标
   });
+
+  it('分镜组解组：按 cells 网格重排，{0,0} 子节点不堆叠（spec 5.3 解组=转普通组布局+删组节点）', () => {
+    // 手工播种分镜组（mergeStoryboard 在 Task 10 才实现）：子节点坐标 {0,0}（纯 DOM 宫格）
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182, data: {
+          groupType: 'storyboard', cells: ['c1', 'c2'],
+          storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
+        } },
+        { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+      ] as any,
+      edges: [], selectedId: null,
+    });
+    useCanvasStore.getState().ungroup('sg');
+    const s = useCanvasStore.getState();
+    expect(s.nodes.find((n) => n.id === 'sg')).toBeUndefined();
+    const c1 = s.nodes.find((n) => n.id === 'c1')!;
+    const c2 = s.nodes.find((n) => n.id === 'c2')!;
+    expect(c1.position).toEqual({ x: 500, y: 500 }); // 组位置 + 网格相对坐标（第 1 列 = 0）
+    expect(c2.position.x).toBe(500 + 320 + 40); // 第 2 列 = 组位置 + (320+40)
+    expect(c2.position.y).toBe(500);
+    expect(c1.parentId).toBeUndefined();
+  });
 });
 
 describe('addToGroup / removeNodeFromGroup', () => {
@@ -526,7 +619,23 @@ ungroup: (groupId) => {
   const s = get();
   const group = s.nodes.find((n) => n.id === groupId);
   if (!group) return;
+  const gd = group.data as any;
   const gp = group.position;
+  if (gd.groupType === 'storyboard') {
+    // 分镜组解组 = 转普通组布局 + 删组节点（spec 5.3）：先按 cells 网格重排相对坐标，
+    // 再走下方通用解组转绝对——否则 {0,0} 子节点全部堆叠在组左上角
+    const cfg = gd.storyboard;
+    const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[cfg.aspectRatio];
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        const idx = (gd.cells ?? []).indexOf(n.id);
+        if (idx === -1 || n.parentId !== groupId) return n;
+        const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+        return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
+          position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
+      }),
+    }));
+  }
   set((st) => ({
     nodes: st.nodes
       .filter((n) => n.id !== groupId)
@@ -616,7 +725,20 @@ refitGroupBounds: (groupId) => {
 },
 ```
 
-头部补导入：`import { calcGroupBounds } from '@/utils/groupLayout';`
+头部补导入：`import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP } from '@/utils/groupLayout';`
+
+**hydrate 尺寸修复（P0-4）**：折叠时组节点 width/height（200x64）会随 syncNodes 持久化；若用户展开后、下一次 sync 前刷新页面，库中仍是 200x64，展开的组会渲染成小框。在 Task 3 Step 5 定位的 hydrate effect 中，`applyGroupDerivations()` 之后追加：
+
+```ts
+    // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
+    for (const g of useCanvasStore.getState().nodes.filter(
+      (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
+    )) {
+      useCanvasStore.getState().refitGroupBounds(g.id);
+    }
+```
+
+（`collapsed:true` 持久化的 200x64 即折叠卡片正确尺寸，不处理；分镜组尺寸由公式在每次变更时重算，持久化值可信。）
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -1342,6 +1464,8 @@ describe('mergeStoryboard', () => {
     expect(expanded.every((n) => n.type === 'imageGen' && (n.data as any).status === 'done')).toBe(true);
     expect(s.nodes.find((n) => n.id === 'multi')).toBeUndefined(); // 原节点移除
     expect(s.nodes.length).toBe(before + 2 - 1 + 1); // +2 展开 -1 原节点 +1 组
+    // 展开节点必须挂组（parentId + hidden），否则游离在画布上不隐藏也不入格
+    expect(expanded.every((n) => n.parentId === gid && n.hidden === true)).toBe(true);
   });
 
   it('含非完成图节点抛错', () => {
@@ -1402,6 +1526,8 @@ mergeStoryboard: (nodeIds) => {
   if (picked.some((n) => !isImageCompletedNode(n))) {
     throw new Error('分镜组仅支持含完成图片的节点');
   }
+  // 0. 先生成组 id：展开节点构造时即挂组（若构造后再追加，map 分支覆盖不到新增节点 → parentId 永远缺失）
+  const gid = getId('node');
   // 1. 展开 multiImageGen → 独立隐藏 imageGen 节点
   const expanded: Node[] = [];
   const kept: Node[] = [];
@@ -1411,9 +1537,10 @@ mergeStoryboard: (nodeIds) => {
       for (const img of d.images.filter((i: any) => i.status === 'success')) {
         const id = getId('node');
         expanded.push({
-          id, type: 'imageGen', parentId: undefined,
-          position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
+          id, type: 'imageGen', parentId: gid, extent: 'parent' as const,
+          position: { x: 0, y: 0 }, width: 320, height: 180,
           data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: n.id },
+          selected: false,
         } as Node);
       }
     } else {
@@ -1429,7 +1556,6 @@ mergeStoryboard: (nodeIds) => {
   const cx = images.reduce((sum, n) => sum + n.position.x + (n.width ?? 320) / 2, 0) / images.length;
   const cy = images.reduce((sum, n) => sum + n.position.y + (n.height ?? 180) / 2, 0) / images.length;
   const size = calcStoryboardSize(rows, cols, '16:9');
-  const gid = getId('node');
   const groupNode: Node = {
     id: gid, type: 'group',
     position: { x: cx - size.width / 2, y: cy - size.height / 2 },
@@ -1453,6 +1579,14 @@ mergeStoryboard: (nodeIds) => {
     selectedId: gid,
   }));
   useNodeStore.getState().addNode({ id: gid, type: 'group', position: groupNode.position, data: groupNode.data });
+  // 双写补全：展开的新节点写入 nodeStore；被移除的 multiImageGen 原节点同步删除（双 store 一致）
+  const ns = useNodeStore.getState();
+  for (const e of expanded) {
+    ns.addNode({ id: e.id, type: 'imageGen', position: e.position, data: e.data as any });
+  }
+  for (const n of picked) {
+    if (n.type === 'multiImageGen') ns.deleteNode(n.id);
+  }
   get().applyGroupDerivations();
   return gid;
 },
@@ -1536,9 +1670,16 @@ git commit -m "feat(web): mergeStoryboard/convertGroup with multiImage expansion
 
 ```tsx
 // StoryboardGroupRenderer.test.tsx
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
+
+// P0-2：mock useMediaUrl —— 宫格取图经 fileId → 预签名 URL 解析（JSON API 不能直接作 src）
+vi.mock('@/hooks/useMediaUrl', () => ({
+  useMediaUrl: (fileId: string | null) => ({
+    url: fileId ? `/flowai/${fileId}` : null, loading: false, error: null,
+  }),
+}));
 
 const cells = [
   { id: 'a', fileId: 'f1', status: 'done' },
@@ -1557,10 +1698,11 @@ const props = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('StoryboardGroupRenderer', () => {
-  it('渲染宫格图与两位补零序号', () => {
+  it('渲染宫格图与两位补零序号（img src 为解析后的 URL）', () => {
     render(<StoryboardGroupRenderer {...(props() as any)} />);
     expect(screen.getByText('01')).toBeTruthy();
     expect(screen.getByText('02')).toBeTruthy();
+    expect((screen.getByRole('img') as HTMLImageElement).getAttribute('src')).toBe('/flowai/f1');
   });
 
   it('空宫格显示 + 占位（2x2 只有 2 图 → 2 个空位）', () => {
@@ -1594,6 +1736,7 @@ Expected: FAIL
 ```tsx
 // StoryboardCell.tsx
 import { memo } from 'react';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
 
 export interface CellNodeInfo { id: string; fileId?: string; status?: string; url?: string }
 
@@ -1608,6 +1751,10 @@ interface Props {
 }
 
 function StoryboardCellComponent(p: Props) {
+  // 取图走项目现有 useMediaUrl 模式（P0-2）：GET /media/:fileId/url 返回 JSON { url }（预签名地址经
+  // /flowai 代理改写），不是图片流，不能直接作 img src；data.mediaUrl（展开/填充时已写入）优先短路请求
+  const { url: resolvedUrl } = useMediaUrl(p.info?.fileId ?? null);
+  const imgSrc = p.info?.url ?? resolvedUrl;
   const style: React.CSSProperties = {
     width: p.cellWidth, height: p.cellHeight, position: 'relative',
     border: p.selectedCell === p.index ? '2px solid #4ade80' : 'none',
@@ -1630,7 +1777,7 @@ function StoryboardCellComponent(p: Props) {
   }
   return (
     <div style={style} onClick={(e) => { e.stopPropagation(); p.onSelectCell(p.index); }}>
-      <img src={p.info.url ?? mediaUrl(p.info.fileId)} alt=""
+      <img src={imgSrc} alt="" loading="lazy" decoding="async"
         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       {p.showIndex && (
         <span style={{ position: 'absolute', left: 12, bottom: 10, color: '#fff',
@@ -1640,12 +1787,6 @@ function StoryboardCellComponent(p: Props) {
       )}
     </div>
   );
-}
-
-function mediaUrl(fileId?: string) {
-  // 项目实际取图方式（已核对 apps/web/src/api/mediaApi.ts）：GET /media/:fileId/url 返回 { url }
-  // 宫格渲染复用该 API（或 ImageGenNode 同款 useMediaUrl hook），此处返回相对端点供请求
-  return fileId ? `/media/${fileId}/url` : '';
 }
 
 export const StoryboardCell = memo(StoryboardCellComponent);
@@ -1695,7 +1836,7 @@ function StoryboardGroupRendererComponent({ data, selected, cellNodes }: Props) 
 export const StoryboardGroupRenderer = memo(StoryboardGroupRendererComponent);
 ```
 
-GroupNode.tsx 中从 canvasStore 订阅 `cellNodes`（`nodes.filter(n => data.cells?.includes(n.id)).map(...)`）并注入；图片 URL 解析复用项目现有 media URL 获取方式（`grep -rn "mediaUrl\|/media/" apps/web/src/api` 找现有取图端点，若无则经 nodeStore 的 data.mediaUrl，展开节点时已写入）。
+GroupNode.tsx 中从 canvasStore 订阅 `cellNodes`（`nodes.filter(n => data.cells?.includes(n.id)).map(n => ({ id: n.id, fileId: (n.data as any).fileId, status: (n.data as any).status, url: (n.data as any).mediaUrl }))`）并注入。取图统一走 useMediaUrl（P0-2：`GET /media/:id/url` 返回 JSON `{url}` 而非图片流，不能直接作 img src；`data.mediaUrl` 优先短路重复请求）。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -2124,8 +2265,9 @@ git commit -m "feat(web): storyboard cell fill/remove via material library (TD-G
 ```ts
 // groupHistory.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useGroupHistory, snapshotNodesEdges, type HistoryEntry } from './groupHistory';
+import { useGroupHistory } from './groupHistory';
 import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
 
 beforeEach(() => {
   useGroupHistory.getState().clear();
@@ -2198,6 +2340,33 @@ describe('groupHistory 快照往返', () => {
     expect(useGroupHistory.getState().pastLength()).toBe(50);
   });
 });
+
+describe('undo/redo 与 nodeStore 双写 + 执行中禁令', () => {
+  const seed = (ids: string[]) => useCanvasStore.setState({
+    nodes: ids.map((id) => ({ id, type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180,
+      data: { status: 'done', fileId: `f-${id}` } } as any)),
+    edges: [], selectedId: null,
+  });
+
+  it('undo 打组 → 组节点从 nodeStore 同步移除（P0-1 双写约定）', () => {
+    seed(['a', 'b']);
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    expect(useNodeStore.getState().nodes[gid]).toBeTruthy(); // groupNodes 双写
+    useGroupHistory.getState().undo();
+    expect(useCanvasStore.getState().nodes.find((x) => x.id === gid)).toBeUndefined();
+    expect(useNodeStore.getState().nodes[gid]).toBeUndefined(); // applySnapshot 同步删除
+  });
+
+  it('受影响节点执行中 → undo 阻止（P1-7）', () => {
+    seed(['a', 'b']);
+    useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.setState({
+      nodeProcessMap: { a: { processType: 'generating', status: 'processing' } },
+    } as any);
+    useGroupHistory.getState().undo();
+    expect(useCanvasStore.getState().nodes.filter((n) => n.type === 'group')).toHaveLength(1); // 未撤销
+  });
+});
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -2210,8 +2379,10 @@ Expected: FAIL
 ```ts
 // groupHistory.ts
 import { create } from 'zustand';
+import { message } from 'antd';
 import type { Node, Edge } from '@xyflow/react';
 import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
 
 export type Snapshot<T> = T | null; // null = tombstone（该对象此时间点不存在）
 
@@ -2262,6 +2433,24 @@ function applySnapshot(side: 'before' | 'after', entry: HistoryEntry) {
     });
     return { nodes: nextNodes, edges: nextEdges };
   });
+  // 双写 nodeStore（P0-1）：canvasStore.addNode/deleteNode 均同步 nodeStore，撤销/重做的逆操作
+  // 必须遵守同一约定，否则两 store 节点集合漂移（幽灵节点/缺失节点）。
+  // addNode 按 id 覆盖写 → 同时刷新 data/position；组节点与普通节点统一镜像（groupNodes 亦双写）。
+  const ns = useNodeStore.getState();
+  nodes.forEach((snap, i) => {
+    const id = entry.nodeIds[i];
+    if (snap) {
+      ns.addNode({ id, type: snap.type!, position: snap.position, data: snap.data as any });
+    } else if (ns.nodes[id]) {
+      ns.deleteNode(id);
+    }
+  });
+}
+
+/** P1-7：撤销/重做受执行中禁令约束——结构变更的逆操作同样是结构变更（spec 8） */
+function isEntryExecuting(entry: HistoryEntry): boolean {
+  const processes = useCanvasStore.getState().nodeProcessMap;
+  return entry.nodeIds.some((id) => id in processes);
 }
 
 export const useGroupHistory = create<GroupHistoryState>((set, get) => ({
@@ -2273,12 +2462,20 @@ export const useGroupHistory = create<GroupHistoryState>((set, get) => ({
   undo: () => {
     const entry = get().past[get().past.length - 1];
     if (!entry) return;
+    if (isEntryExecuting(entry)) {
+      message.warning('组内有节点正在执行，请等待完成后再撤销');
+      return;
+    }
     applySnapshot('before', entry);
     set((s) => ({ past: s.past.slice(0, -1), future: [entry, ...s.future] }));
   },
   redo: () => {
     const entry = get().future[0];
     if (!entry) return;
+    if (isEntryExecuting(entry)) {
+      message.warning('组内有节点正在执行，请等待完成后再重做');
+      return;
+    }
     applySnapshot('after', entry);
     set((s) => ({ past: [...s.past, entry], future: s.future.slice(1) }));
   },
@@ -2478,7 +2675,7 @@ const doneImage = (id: string, x = 100, y = 100) =>
 beforeEach(() => {
   useCanvasStore.setState({
     nodes: [doneImage('a'), doneImage('b', 500, 100), doneImage('c', 100, 400)] as any,
-    edges: [], selectedId: null, nodeProcesses: {},
+    edges: [], selectedId: null, nodeProcessMap: {},
   });
 });
 
@@ -2503,7 +2700,7 @@ describe('deleteNode 组清理', () => {
 describe('hasActiveProcessInGroup（执行中禁令）', () => {
   it('组内节点有活跃进程 → true', () => {
     const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.setState({ nodeProcessMap: { a: { processType: 'generate' } } } as any);
+    useCanvasStore.setState({ nodeProcessMap: { a: { processType: 'generating', status: 'processing' } } } as any);
     expect(useCanvasStore.getState().hasActiveProcessInGroup(gid)).toBe(true);
   });
 
@@ -2521,25 +2718,27 @@ Expected: FAIL
 
 - [ ] **Step 3: 写实现**
 
-deleteNode（canvasStore.ts:144-153）增强——在现有实现末尾追加组清理：
+deleteNode（canvasStore.ts:144-153）增强——父组判定必须在 filter **之前**取被删节点的 parentId（filter 后父子关系丢失），且"删空自动解组"只检查被删节点的父组（不做全局扫描）：
 
 ```ts
 deleteNode: (id) => {
-  // ...现有实现（cancelNodeProcess + filter）...
-  // 组清理（spec 8）：删除的是组子节点 → 维护组数据
+  // 组清理需在删除前捕获父子关系
+  const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
+  // ...现有实现（cancelNodeProcess + filter nodes/edges + selectedId）...
   const after = get();
-  const parent = after.nodes.find((n) => n.type === 'group' && (n.data as any)?.cells?.includes(id));
-  if (parent) {
+  const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
+  if (!parent || parent.type !== 'group') return;
+  if ((parent.data as any)?.cells) {
+    // 分镜组：cells 移除该 id（宫格不收缩）
     set((s) => ({
       nodes: s.nodes.map((n) => n.id === parent.id
         ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
         : n),
     }));
-  } else {
+  } else if ((parent.data as any).groupType === 'normal'
+    && !after.nodes.some((c) => c.parentId === parent.id)) {
     // 普通组：删空自动解组
-    const group = after.nodes.find((n) => n.type === 'group' && (n.data as any).groupType === 'normal'
-      && !after.nodes.some((c) => c.parentId === n.id));
-    if (group) get().ungroup(group.id);
+    get().ungroup(parent.id);
   }
 },
 ```
@@ -2630,7 +2829,7 @@ describe('StoryboardService.getTaskStatus', () => {
     stitchQueue.getJob.mockResolvedValue({
       id: 'job1',
       getState: vi.fn().mockResolvedValue('completed'),
-      returnvalue: { fileId: 'out1', url: 'http://x', width: 2048, height: 1026, failedCount: 0 },
+      returnvalue: { fileId: 'out1', width: 2048, height: 1026, failedCount: 0 }, // 无 url：前端经 useMediaUrl(fileId) 解析
     });
     const r = await service.getTaskStatus('p1', 'job1');
     expect(r).toMatchObject({ taskId: 'job1', status: 'COMPLETED', fileId: 'out1' });
@@ -2747,7 +2946,11 @@ import { StitchConsumer } from './stitch.consumer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: STORYBOARD_STITCH_QUEUE })],
+  imports: [BullModule.registerQueue({
+    name: STORYBOARD_STITCH_QUEUE,
+    // P1-4：job 级超时 + 指数退避重试，防 MinIO/网络异常导致 worker 永久挂起
+    defaultJobOptions: { timeout: 120_000, attempts: 2, backoff: { type: 'exponential', delay: 5000 } },
+  })],
   controllers: [StoryboardController],
   providers: [StoryboardService, StitchConsumer],
   exports: [StoryboardService],
@@ -2927,7 +3130,7 @@ interface StitchJobData {
 
 const CONCURRENCY = 3;
 
-@Processor(STORYBOARD_STITCH_QUEUE)
+@Processor(STORYBOARD_STITCH_QUEUE, 2) // P1-4：4K 合成内存峰值高，限制 worker 并发
 export class StitchConsumer extends WorkerHost {
   constructor(
     private prisma: PrismaService,
@@ -2946,12 +3149,16 @@ export class StitchConsumer extends WorkerHost {
     for (let i = 0; i < d.fileIds.length; i += CONCURRENCY) {
       const batch = d.fileIds.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async (fileId, j) => {
-        const media = await this.prisma.media.findUnique({ where: { id: fileId } });
-        if (!media) return;
-        const stream = await this.minioService.getObject(media.key);
-        const chunks: Buffer[] = [];
-        for await (const chunk of stream) chunks.push(chunk as Buffer);
-        buffers[i + j] = Buffer.concat(chunks);
+        try {
+          const media = await this.prisma.media.findUnique({ where: { id: fileId } });
+          if (!media) return; // Media 记录缺失 → 留 null（灰占位）
+          const stream = await this.minioService.getObject(media.key);
+          const chunks: Buffer[] = [];
+          for await (const chunk of stream) chunks.push(chunk as Buffer); // 流错误经 for-await 抛出，被此处捕获
+          buffers[i + j] = Buffer.concat(chunks);
+        } catch {
+          // 单图失败 → 该格灰占位继续拼（spec 7.3），不让整个 job 失败
+        }
       }));
     }
     const failedCount = buffers.filter((b) => b === null).length;
@@ -2979,7 +3186,9 @@ export class StitchConsumer extends WorkerHost {
 
     const result = {
       taskId: job.id!, fileId: media.id,
-      url: `/api/media/${media.id}/content`, width, height,
+      // 不返回 url：项目无 /media/:id/content 直链端点（media.controller 仅 :id/url 与 by-key），
+      // 前端经 useMediaUrl(fileId) 解析预签名 URL
+      width, height,
       cellCount: d.fileIds.length, failedCount,
     };
     this.gateway.emitStitchStatus(d.projectId, { ...result, status: 'COMPLETED' });
@@ -3063,12 +3272,14 @@ git commit -m "feat(api): stitch consumer with sharp composer, unit+integration 
 ```ts
 // useStitchTask.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useStitchTask } from './useStitchTask';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useGroupHistory } from '@/stores/groupHistory';
 
 vi.mock('@/api/client', () => ({ apiFetch: vi.fn() }));
+// P2-1：useSocket 返回 ref 形态；组件外直接调 hook 会抛 Invalid hook call，须 mock + renderHook
+vi.mock('@/hooks/useSocket', () => ({ useSocket: () => ({ current: null }) }));
 
 describe('useStitchTask', () => {
   beforeEach(() => {
@@ -3082,10 +3293,11 @@ describe('useStitchTask', () => {
     (apiFetch as any)
       .mockResolvedValueOnce({ taskId: 't1' })                       // POST stitch
       .mockResolvedValueOnce({ status: 'PENDING' })                   // poll 1
-      .mockResolvedValueOnce({ status: 'COMPLETED', fileId: 'out1', url: 'http://x', width: 2048, height: 1026 });
-    const hook = useStitchTask('p1');
-    await hook.start({ fileIds: ['f1', 'f2', 'f3', 'f4'], gridRows: 2, gridCols: 2,
+      .mockResolvedValueOnce({ status: 'COMPLETED', fileId: 'out1', width: 2048, height: 1026 });
+    const { result } = renderHook(() => useStitchTask('p1'));
+    const outcome = await result.current.start({ fileIds: ['f1', 'f2', 'f3', 'f4'], gridRows: 2, gridCols: 2,
       aspectRatio: '16:9', showIndex: false, resolution: '2K' });
+    expect(outcome).toBe('COMPLETED');
     await waitFor(() => {
       const nodes = useCanvasStore.getState().nodes;
       expect(nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(true);
@@ -3148,7 +3360,9 @@ export function useStitchTask(projectId: string) {
     const gx = group ? group.position.x + (group.width ?? 0) + 40 : 100;
     const gy = group?.position.y ?? 100;
     const nodeId = add('image', { x: gx, y: gy }, {
-      fileId: r.fileId, status: 'done', mediaUrl: r.url, customSize: { width: r.width, height: r.height },
+      fileId: r.fileId, status: 'done',
+      customSize: r.width && r.height ? { width: r.width, height: r.height } : undefined,
+      // 不写 mediaUrl：后端无直链端点，ImageGenNode 按 fileId 自行解析（getMediaUrl 模式）
     });
     // 撤销项：undo=删产物节点 / redo=复用 fileId 重建（不重新拼接）
     const nodeIds = [nodeId];
@@ -3160,42 +3374,45 @@ export function useStitchTask(projectId: string) {
     useGroupHistory.getState().record({ label: '拼接产物', nodeIds, edgeIds: [], before, after });
   }, []);
 
-  const start = useCallback(async (params: StitchParams) => {
-    if (running.current) return; // 防重（spec 7.3）
+  const start = useCallback(async (params: StitchParams): Promise<'COMPLETED' | 'FAILED' | 'TIMEOUT'> => {
+    if (running.current) return 'FAILED'; // 防重（spec 7.3）
     running.current = true;
+    let outcome: 'COMPLETED' | 'FAILED' | 'TIMEOUT' = 'TIMEOUT';
     try {
       const { taskId } = await createStitchTask(projectId, params);
       await new Promise<void>((resolve) => {
         let done = false;
-        const finish = () => { if (!done) { done = true; resolve(); } };
-        // Socket 快路径（socket 来自 hook 顶层实例；不可用时仅轮询）
-        try {
-          socket?.once?.('storyboard:stitch:completed', (evt: any) => {
-            if (evt.taskId !== taskId) return;
-            if (evt.status === 'COMPLETED') { spawnResultNode(evt, params.sourceGroupId); finish(); }
-            else { finish(); /* 失败 Toast 在 StitchButton 处理 */ }
-          });
-        } catch { /* socket 不可用 → 仅轮询 */ }
-        // 5s 轮询兜底
+        const finish = (r: typeof outcome) => { if (!done) { done = true; outcome = r; resolve(); } };
+        // Socket 快路径：useSocket 返回 MutableRefObject<Socket|null>（useSocket.ts:4），
+        // 必须经 .current 取实例——直接对 ref 调 .once 会静默短路，快路径变死代码
+        socket.current?.once('storyboard:stitch:completed', (evt: any) => {
+          if (evt.taskId !== taskId) return;
+          if (evt.status === 'COMPLETED') { spawnResultNode(evt, params.sourceGroupId); finish('COMPLETED'); }
+          else finish('FAILED');
+        });
+        // 5s 轮询兜底（Socket 断线/事件未达）
         const timer = setInterval(async () => {
-          const r = await getStitchTask(projectId, taskId);
-          if (r.status === 'COMPLETED') { clearInterval(timer); spawnResultNode(r, params.sourceGroupId); finish(); }
-          if (r.status === 'FAILED') { clearInterval(timer); finish(); }
+          try {
+            const r = await getStitchTask(projectId, taskId);
+            if (r.status === 'COMPLETED') { clearInterval(timer); spawnResultNode(r, params.sourceGroupId); finish('COMPLETED'); }
+            if (r.status === 'FAILED') { clearInterval(timer); finish('FAILED'); }
+          } catch { /* 单次轮询失败（网络抖动）→ 等待下一轮 */ }
         }, 5000);
-        setTimeout(() => { clearInterval(timer); finish(); }, 65_000); // >60s 超时（spec 7.3）
+        setTimeout(() => { clearInterval(timer); finish('TIMEOUT'); }, 65_000); // >60s 超时（spec 7.3）
       });
     } finally {
       running.current = false;
     }
-  }, [projectId, spawnResultNode]);
+    return outcome;
+  }, [projectId, spawnResultNode, socket]);
 
   return { start };
 }
 ```
 
-`useSocket` 现有签名以 `apps/web/src/hooks/useSocket.ts` 实际导出为准（探索确认其连接 `/execution` 命名空间并 join 项目房间；若其 API 为组件级 hook，则改为在 CanvasView 层订阅事件转发——执行时按实际签名适配，保持"Socket 优先 + 轮询兜底"行为不变）。
+`useSocket` 已核实（apps/web/src/hooks/useSocket.ts:4）：签名 `useSocket(projectId): MutableRefObject<Socket|null>`，内部连接 `/execution` 命名空间并在 connect 后 `emit('join', projectId)`；T19 的 `emitStitchStatus` 加在 ExecutionGateway（同命名空间）→ 房间与事件自洽。取实例必须经 `socket.current`（P2-1）。
 
-StitchButton 完整实现：点击 → `useStitchTask(projectId).start(params)`（params 从组 data.cells 节点收集 fileId，cells 顺序）+ 按钮 loading + 完成 Toast「拼接完成」（failedCount>0 时附「N 张图片加载失败，已用占位图替代」）+ 失败 Toast 含重试按钮 + 首用提示（`localStorage.getItem('stitch-upscale-tip-shown')` 为空时 Toast 一次并写入）。
+StitchButton 完整实现：点击 → `useStitchTask(projectId).start(params)`（params 从组 data.cells 节点收集 fileId，cells 顺序）+ 按钮 loading + 按 `start` 返回值 Toast（COMPLETED→「拼接完成」，failedCount>0 时附「N 张图片加载失败，已用占位图替代」；FAILED/TIMEOUT→失败/超时 Toast 含重试按钮）+ 首用提示（`localStorage.getItem('stitch-upscale-tip-shown')` 为空时 Toast 一次并写入）。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -3315,6 +3532,18 @@ Phase 4: T15（撤销接入 T4-T14 全部 actions）→ T16 → T17
 Phase 5: T18 → T19（后端拼接）‖ T20 → T21（前端拼接，与 T18/T19 并行依赖 API 契约）
 收尾: T22
 ```
+
+## 修订记录 v2（架构审查 18 项裁定）
+
+**采纳（P0 全部 5 项）**：P0-1 撤销栈双写 nodeStore（T15 applySnapshot 镜像）；P0-2 取图改 useMediaUrl（T11，`/media/:id/url` 返回 JSON 非图片流）；P0-3 Prisma 自引用 relation+SetNull+index 对齐 Folder 惯例（T2；**驳回 @db.VarChar**——Folder.parentId 无长度约束，非项目惯例）；P0-4 hydrate 对展开态普通组 refitGroupBounds（T4）；P0-5 syncNodes 排序 parents-first（T2）。
+
+**采纳（P1 五项，两项部分）**：P1-2 cells 一致性守卫 repairStoryboardCells（T3）；P1-3 分镜组 ungroup 按 cells 网格重排——实际比审查所述更严重，{0,0} 子节点会全部堆叠（T4）；P1-4 部分采纳——队列 timeout/attempts + worker 并发 2（T18/T19），驳回 per-request AbortController（job 级超时已覆盖，for-await 流错误由新增单图 try/catch 捕获）；P1-6 部分采纳——img 加 loading="lazy" decoding="async"（T11），驳回 IntersectionObserver 方案（过度工程）；P1-7 undo/redo 执行中禁令（T15 isEntryExecuting）。
+
+**驳回（P1 两项）**：P1-1 不做 slice 重构——spec 定案 actions 驻 canvasStore，布局/尺寸/排序逻辑已下沉 groupLayout 纯函数，action 体保持薄；无既有 slice 先例，遵循精准修改。P1-5 跨组拖拽本期不做——spec 未含，两步操作（Shift+G 移出→拖入）可用，YAGNI，列后续增强。
+
+**P2 六项全部核实**：P2-1 揪出真 bug——useSocket 返回 ref 被 T20 当实例调用（`socket?.once?.` 静默短路，快路径死代码），已改 `.current`；P2-2 非矛盾——T4 用 nodeStore.addNode(AppNode)、T20 用 canvasStore.addNode(type,pos,data)，两 store 两 API 各自正确；P2-3 customSize 已确认存在且 ImageGenNode mount 恢复尺寸（nodeStore.ts:111/ImageGenNode.tsx:723）；P2-4 syncNodes=deleteMany+createMany（P0-5 修复据此落地）；P2-5 MinioService getObject(key)/upload(key,body,contentType) 与 T19 用法一致；P2-6 useSocket 连 /execution+join，T19 复用 ExecutionGateway 同命名空间，自洽。
+
+**自查新发现（审查之外，均已修复）**：N1 T10 mergeStoryboard 展开节点构造时 parentId 未设、追加未经 map → 永不挂组（gid 提前生成+构造即挂组）；N2 `/media/:id/content` 端点不存在（media.controller 仅 :id/url 与 by-key）→ 产物不返回 url，前端统一 useMediaUrl(fileId) 解析（T18/T19/T20）；N3 T15 测试导入不存在的 snapshotNodesEdges（改 useGroupHistory）；N4 T17 字段名 nodeProcesses/processType:'generate'（改 nodeProcessMap/'generating'）+ 删空自动解组全局扫描改按被删节点父组；N5 T20 测试组件外调 hook（renderHook+mock useSocket）；N6 T20 轮询无 try/catch + start 无返回值（补 catch + 返回 COMPLETED/FAILED/TIMEOUT 驱动 Toast）。
 
 
 
