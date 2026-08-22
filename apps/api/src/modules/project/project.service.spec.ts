@@ -82,6 +82,20 @@ describe('ProjectService', () => {
       expect(prisma.canvasNode.deleteMany).toHaveBeenCalled();
       expect(prisma.canvasNode.createMany).not.toHaveBeenCalled();
     });
+
+    it('persists parentId; parentless nodes written first (self-FK insert order)', async () => {
+      await service.syncNodes('p1', [
+        // 故意乱序：子节点在前 —— 实现须排序（无 parentId 先写）
+        { id: 'n1', type: 'imageGen', position: { x: 10, y: 10 }, data: {}, parentId: 'g1' },
+        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
+      ]);
+      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({ id: 'g1', parentId: null }),
+          expect.objectContaining({ id: 'n1', parentId: 'g1' }),
+        ],
+      });
+    });
   });
 
   describe('syncEdges', () => {

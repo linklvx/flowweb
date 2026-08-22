@@ -83,8 +83,9 @@ export class ProjectService {
   async syncNodes(projectId: string, nodes: NodeInput[]) {
     await this.prisma.canvasNode.deleteMany({ where: { projectId } });
     if (nodes.length === 0) return [];
+    const sorted = [...nodes].sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
     await this.prisma.canvasNode.createMany({
-      data: nodes.map((n: any) => ({
+      data: sorted.map((n: any) => ({
         id: n.id,
         projectId,
         type: n.type,
@@ -92,6 +93,7 @@ export class ProjectService {
         data: n.data,
         width: n.width ?? 280,
         height: n.height ?? 120,
+        parentId: n.parentId ?? null,
       })),
     });
     return this.prisma.canvasNode.findMany({ where: { projectId } });

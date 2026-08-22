@@ -179,10 +179,14 @@ model CanvasNode {
   data      Json
   width     Float         @default(280)
   height    Float         @default(120)
+  parentId  String?
+  parent    CanvasNode?   @relation("CanvasNodeChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children  CanvasNode[]  @relation("CanvasNodeChildren")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   @@index([projectId])
+  @@index([parentId])
 }
 
 model CanvasEdge {
