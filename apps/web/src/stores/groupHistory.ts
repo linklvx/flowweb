@@ -51,7 +51,11 @@ function applySnapshot(side: 'before' | 'after', entry: HistoryEntry) {
           : [...nextEdges, snap]
         : nextEdges.filter((e) => e.id !== id);
     });
-    return { nodes: nextNodes, edges: nextEdges };
+    // 撤销/重做可能删除 selectedId 指向的节点 → 清空悬空选中态
+    const danglingSelected = s.selectedId !== null
+      && entry.nodeIds.includes(s.selectedId)
+      && !nextNodes.some((n) => n.id === s.selectedId);
+    return { nodes: nextNodes, edges: nextEdges, ...(danglingSelected ? { selectedId: null } : {}) };
   });
   // 双写 nodeStore（P0-1）：canvasStore 组 actions 均双写 nodeStore，撤销/重做的逆操作
   // 必须遵守同一约定，否则两 store 节点集合漂移（幽灵节点/缺失节点）。
