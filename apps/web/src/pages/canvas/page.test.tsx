@@ -126,6 +126,7 @@ vi.mock('@/stores/materialLibraryStore', () => {
   };
   const useMaterialLibraryStore = (selector: any) => selector(state);
   (useMaterialLibraryStore as any).getState = () => state;
+  (useMaterialLibraryStore as any).subscribe = vi.fn(() => vi.fn());
   return { useMaterialLibraryStore };
 });
 

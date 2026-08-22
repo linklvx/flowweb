@@ -141,7 +141,19 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
       useMaterialLibraryStore.getState().open();
     };
     window.addEventListener('storyboard:fill-cell', handleFillCell);
-    return () => window.removeEventListener('storyboard:fill-cell', handleFillCell);
+    // 素材库关闭且未消费选图（选图路径先设 pendingMediaFile 再 close）→ 清残留的填充意图
+    const unsubLib = useMaterialLibraryStore.subscribe((state, prevState) => {
+      if (prevState.isOpen && !state.isOpen) {
+        const cs = useCanvasStore.getState();
+        if (cs.pendingFillCell && !cs.pendingMediaFile) {
+          useCanvasStore.setState({ pendingFillCell: null });
+        }
+      }
+    });
+    return () => {
+      window.removeEventListener('storyboard:fill-cell', handleFillCell);
+      unsubLib();
+    };
   }, []);
 
   // Debounced dimension sync
