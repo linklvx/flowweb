@@ -68,6 +68,8 @@ async function loadProjectIntoStore(
     })),
     viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
   });
+  // Apply hidden derivation for group children (TD-Group step 3)
+  useCanvasStore.getState().applyGroupDerivations();
   // Restore node content as AppNode structure
   const content: Record<string, any> = {};
   for (const n of project.nodes || []) {

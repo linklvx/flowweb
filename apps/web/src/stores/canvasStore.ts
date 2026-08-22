@@ -12,6 +12,7 @@ import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSub
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
+import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -91,6 +92,7 @@ interface CanvasState {
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
   setProjectId: (projectId: string) => void;
   setHydrating: (v: boolean) => void;
+  applyGroupDerivations: () => void;
   startNodeProcess: (nodeId: string, processType: ProcessType, abortController?: AbortController) => void;
   updateNodeProcessProgress: (nodeId: string, progress: number) => void;
   finishNodeProcess: (nodeId: string, status: 'done' | 'error', errorMsg?: string) => void;
@@ -651,4 +653,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setProjectId: (projectId) => set({ projectId }),
   setHydrating: (v) => set({ isHydrating: v }),
+
+  applyGroupDerivations: () => {
+    set((s) => {
+      const repaired = repairStoryboardCells(s.nodes as any);
+      return deriveHidden(repaired, s.edges as any);
+    });
+  },
 }));
