@@ -42,10 +42,10 @@ function StitchButtonComponent({
 
   // 首用提示
   useEffect(() => {
-    const shown = localStorage.getItem('stitch-upscale-tip-shown');
+    const shown = localStorage.getItem('flowweb.stitch-upscale-tip');
     if (!shown) {
       message.info('图片分辨率不足时将被强制放大，可能影响清晰度');
-      localStorage.setItem('stitch-upscale-tip-shown', '1');
+      localStorage.setItem('flowweb.stitch-upscale-tip', '1');
     }
   }, []);
 
