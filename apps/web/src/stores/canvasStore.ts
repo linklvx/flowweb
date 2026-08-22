@@ -13,7 +13,8 @@ import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize } from '@/utils/groupLayout';
+import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -106,6 +107,8 @@ interface CanvasState {
   refitGroupBounds: (groupId: string) => void;
   dropIntoGroup: (nodeId: string, groupId: string) => void;
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
+  mergeStoryboard: (nodeIds: string[]) => string;
+  convertGroup: (groupId: string, target: 'normal' | 'storyboard') => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -786,6 +789,130 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   dropImageIntoStoryboard: (_groupId, _nodeId) => {}, // Task 12 正式实现
+
+  mergeStoryboard: (nodeIds) => {
+    const s = get();
+    const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
+    if (picked.length < 2) throw new Error('合并分镜组至少需要 2 个节点');
+    if (picked.some((n) => !isImageCompletedNode(n))) {
+      throw new Error('分镜组仅支持含完成图片的节点');
+    }
+    // 0. 先生成组 id：展开节点构造时即挂组（若构造后再追加，map 分支覆盖不到新增节点 → parentId 永远缺失）
+    const gid = getId('node');
+    // 1. 展开 multiImageGen → 独立隐藏 imageGen 节点
+    const expanded: Node[] = [];
+    const kept: Node[] = [];
+    for (const n of picked) {
+      const d = n.data as any;
+      if (n.type === 'multiImageGen') {
+        for (const img of d.images.filter((i: any) => i.status === 'success')) {
+          const id = getId('node');
+          expanded.push({
+            id, type: 'imageGen', parentId: gid, extent: 'parent' as const,
+            // 暂留原 multi 位置：字典序排序依据（P1-新1——若归零则展开图永远插队排最前）；
+            // 追加进 nodes 时统一归零（分镜组子节点坐标无意义）
+            position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
+            data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: n.id },
+            selected: false,
+          } as Node);
+        }
+      } else {
+        kept.push(n);
+      }
+    }
+    const images = [...kept, ...expanded];
+    // 2. 字典序排序 + 智能宫格
+    const sorted = sortNodesByPosition(images.map((n) => ({ ...n, positionX: n.position.x, positionY: n.position.y })))
+      .map((n) => (n as any).id);
+    const { rows, cols } = calcDefaultGrid(sorted.length);
+    // 3. 组中心对齐选中区域中心
+    const cx = images.reduce((sum, n) => sum + n.position.x + (n.width ?? 320) / 2, 0) / images.length;
+    const cy = images.reduce((sum, n) => sum + n.position.y + (n.height ?? 180) / 2, 0) / images.length;
+    const size = calcStoryboardSize(rows, cols, '16:9');
+    const groupNode: Node = {
+      id: gid, type: 'group',
+      position: { x: cx - size.width / 2, y: cy - size.height / 2 },
+      width: size.width, height: size.height, selected: true,
+      data: {
+        groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
+        storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' },
+      },
+    };
+    set((st) => ({
+      nodes: [
+        ...st.nodes
+          .filter((n) => !(n.type === 'multiImageGen' && nodeIds.includes(n.id)))
+          .map((n) => images.some((i) => i.id === n.id)
+            ? { ...n, selected: false, parentId: gid, extent: 'parent' as const,
+                position: { x: 0, y: 0 } } // 分镜组子节点坐标无意义（纯 DOM 宫格渲染），归零
+            : { ...n, selected: false }),
+        ...expanded.map((e) => ({ ...e, position: { x: 0, y: 0 } })), // 排序已完成，入组归零
+        groupNode,
+      ],
+      selectedId: gid,
+    }));
+    useNodeStore.getState().addNode({ id: gid, type: 'group', position: groupNode.position, data: groupNode.data as any });
+    // 双写补全：展开的新节点写入 nodeStore；被移除的 multiImageGen 原节点同步删除（双 store 一致）
+    const ns = useNodeStore.getState();
+    for (const e of expanded) {
+      ns.addNode({ id: e.id, type: 'imageGen', position: e.position, data: e.data as any });
+    }
+    for (const n of picked) {
+      if (n.type === 'multiImageGen') ns.deleteNode(n.id);
+    }
+    get().applyGroupDerivations();
+    return gid;
+  },
+
+  convertGroup: (groupId, target) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gd = group.data as any;
+
+    if (target === 'storyboard') {
+      const children = s.nodes.filter((n) => n.parentId === groupId);
+      if (children.some((n) => !isImageCompletedNode(n))) {
+        throw new Error('仅包含图片节点的组可转为分镜组');
+      }
+      // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
+      const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
+        .map((n) => (n as any).id);
+      const { rows, cols } = calcDefaultGrid(sorted.length);
+      const size = calcStoryboardSize(rows, cols, '16:9');
+      const cx = group.position.x + (group.width ?? 0) / 2;
+      const cy = group.position.y + (group.height ?? 0) / 2;
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
+            width: size.width, height: size.height,
+            data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
+                    storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
+          if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
+          return n;
+        }),
+      }));
+    } else {
+      // 分镜组 → 普通组：cells 顺序网格重排
+      const cfg = gd.storyboard;
+      const cellW = CELL_WIDTH;
+      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: `分组 ${gd.cells.length} 个节点` } };
+          const idx = gd.cells.indexOf(n.id);
+          if (idx === -1 || n.parentId !== groupId) return n;
+          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+          return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
+                   width: cellW, height: Math.round(cellH) };
+        }),
+      }));
+      // 组框重算
+      get().refitGroupBounds(groupId);
+    }
+    get().applyGroupDerivations();
+  },
 
   toggleCollapse: (groupId) => {
     set((st) => ({

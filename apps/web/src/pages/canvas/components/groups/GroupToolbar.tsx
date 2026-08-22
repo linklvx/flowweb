@@ -10,6 +10,7 @@ interface Props {
   onExecute: (id: string) => void;
   onUngroup: (id: string) => void;
   onConvert: (id: string, target: 'normal' | 'storyboard') => void;
+  convertible?: boolean; // 默认 true；false 时禁用「转分镜组」按钮
   children?: React.ReactNode; // 分镜组专属按钮插槽（Task 11）
 }
 
@@ -40,7 +41,8 @@ function GroupToolbarComponent(p: Props) {
 }
 
 function ConvertButton({ p }: { p: Props }) {
-  return <button style={btn(p.executing)} disabled={p.executing} onClick={() => !p.executing && p.onConvert(p.groupId, 'storyboard')}>▦ 转分镜组</button>;
+  const disabled = p.executing || p.convertible === false;
+  return <button style={btn(disabled)} disabled={disabled} onClick={() => !disabled && p.onConvert(p.groupId, 'storyboard')} title={p.convertible === false ? '仅包含图片节点的组可转为分镜组' : undefined}>▦ 转分镜组</button>;
 }
 
 const Sep = () => <span style={{ color: 'rgba(255,255,255,0.1)', padding: '0 4px' }}>│</span>;

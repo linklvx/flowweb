@@ -13,6 +13,7 @@ import { useMenuStore } from '@/stores/menuStore';
 import { debounce } from '@/utils/debounce';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
+import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { ImageExtNode } from './nodes/ImageExtNode';
@@ -63,6 +64,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const selectNode = useCanvasStore((s) => s.selectNode);
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
+  const convertGroup = useCanvasStore((s) => s.convertGroup);
 
   // 素材库「应用到画布」：监听 pendingMediaFile 创建节点
   useEffect(() => {
@@ -257,6 +259,16 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     [nodes]
   );
 
+  // 计算组是否可转为分镜组：仅当普通组且子节点全部是完成图片节点时
+  const isConvertible = useMemo(() => {
+    if (!selectedGroup) return true;
+    const gd = selectedGroup.data as any;
+    if (gd.groupType === 'storyboard') return true;
+    const children = nodes.filter((n) => n.parentId === selectedGroup.id);
+    // 默认 convertible=true（T7 测试不传 prop）；仅当明确不满足时置 false
+    return children.length === 0 || children.every(isImageCompletedNode);
+  }, [selectedGroup, nodes]);
+
   return (
     <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
       <ReactFlow
@@ -331,7 +343,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
               if (childIds.length > 0 && projectId) void executeGroupNodes(projectId, childIds);
             }}
             onUngroup={ungroup}
-            onConvert={() => {}}
+            onConvert={(id, target) => convertGroup(id, target)}
+            convertible={isConvertible}
           />
         )}
       </ReactFlow>
