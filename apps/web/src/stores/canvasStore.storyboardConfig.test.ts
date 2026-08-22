@@ -12,8 +12,15 @@ beforeEach(() => {
     nodes: [doneImage('a'), doneImage('b', 500, 100), doneImage('c', 100, 400), doneImage('d', 500, 400)] as any,
     edges: [], selectedId: null,
   });
-  // 清空 nodeStore 以避免测试间污染
-  useNodeStore.setState({ nodes: {} });
+  // 播种 nodeStore（生产中这些是既有节点，nodeStore 已有记录）——供 P0-新1 断言验证 resize 不误删
+  useNodeStore.setState({
+    nodes: {
+      a: { id: 'a', type: 'imageGen', position: { x: 100, y: 100 }, data: { status: 'done', fileId: 'f-a' } },
+      b: { id: 'b', type: 'imageGen', position: { x: 500, y: 100 }, data: { status: 'done', fileId: 'f-b' } },
+      c: { id: 'c', type: 'imageGen', position: { x: 100, y: 400 }, data: { status: 'done', fileId: 'f-c' } },
+      d: { id: 'd', type: 'imageGen', position: { x: 500, y: 400 }, data: { status: 'done', fileId: 'f-d' } },
+    } as any,
+  });
 });
 
 describe('updateStoryboardConfig', () => {
@@ -43,8 +50,9 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     expect(overflowed.parentId).toBeUndefined();
     expect(overflowed.position.x).toBeGreaterThan(before.position.x + (before.width ?? 0)); // 组右侧
     expect(overflowed.hidden).toBe(false);
-    // P0-新1 回归：溢出节点必须存活（而非被删除）
+    // P0-新1 回归：溢出节点必须存活（而非被删除），nodeStore 双写一致
     expect(s.nodes.find((n) => n.id === 'd')).toBeTruthy();
+    expect(useNodeStore.getState().nodes['b']).toBeTruthy();
   });
 
   it('增格 → cells 不变（空位由渲染器显示）', () => {
