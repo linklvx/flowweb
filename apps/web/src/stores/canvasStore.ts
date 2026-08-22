@@ -875,12 +875,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const ns = useNodeStore.getState();
       set((st) => ({
         nodes: [
-          ...st.nodes.filter((n) => n.id !== nodeId),
+          ...st.nodes.filter((n) => n.id !== nodeId && n.id !== groupId),
           ...expandedNodes,
           ...overflowNodes,
-          st.nodes.find((n) => n.id === groupId) ?
-            { ...st.nodes.find((n) => n.id === groupId)!, data: { ...gd, cells } } :
-            st.nodes.find((n) => n.id === groupId)!,
+          { ...group, data: { ...gd, cells } },
         ],
         edges: st.edges,
       }));

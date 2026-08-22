@@ -40,3 +40,30 @@ describe('removeStoryboardCell（删单格：不收缩宫格，序号重排）',
     expect(storyboard.gridRows).toBe(2); // 不收缩
   });
 });
+
+describe('dropImageIntoStoryboard（multiImageGen 展开拖入）', () => {
+  it('multi 展开填空位、原节点移除、组节点不重复', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b']); // 1x2 [a,b]
+    useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2); // 扩为 2x2，两个空位
+    useCanvasStore.setState({
+      nodes: [...useCanvasStore.getState().nodes, {
+        id: 'multi', type: 'multiImageGen', position: { x: 1000, y: 100 }, width: 320, height: 200,
+        data: { images: [
+          { id: 'm1', url: 'u1', name: 'n', status: 'success' },
+          { id: 'm2', url: 'u2', name: 'n', status: 'success' },
+        ], nodeStatus: 'done' },
+      } as Node],
+    });
+    useCanvasStore.getState().dropImageIntoStoryboard(gid, 'multi');
+    const s = useCanvasStore.getState();
+    expect(s.nodes.filter((n) => n.id === gid)).toHaveLength(1); // 组节点唯一（回归：曾因旧实例未排除而重复）
+    expect(s.nodes.find((n) => n.id === 'multi')).toBeUndefined();
+    const g = s.nodes.find((n) => n.id === gid)!;
+    const cells = g.data.cells as (string | null)[];
+    expect(cells.filter(Boolean)).toHaveLength(4); // a + b + m1 + m2 全入格
+    expect(cells.every((c) => c !== 'multi')).toBe(true);
+    const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
+    expect(expanded).toHaveLength(2);
+    expect(expanded.every((n) => n.parentId === gid)).toBe(true);
+  });
+});
