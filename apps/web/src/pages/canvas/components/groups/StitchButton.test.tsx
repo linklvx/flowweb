@@ -27,10 +27,14 @@ describe('StitchButton', () => {
     expect((screen.getByRole('button', { name: /拼接/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('首用提示设置正确的 localStorage key', () => {
-    // 首次渲染应设置正确的 key
+  it('首用提示在首次点击拼接时写入 localStorage（非组件 mount 时）', async () => {
     render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
-    // 验证 plan 定稿的 key：flowweb.stitch-upscale-tip
-    expect(localStorage.getItem('flowweb.stitch-upscale-tip')).toBe('1');
+    // mount 时不提示（spec 7.3「首次使用」= 首次点击触发）
+    expect(localStorage.getItem('flowweb.stitch-upscale-tip')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
+    // 点击后 key 写入（plan 定稿的 key：flowweb.stitch-upscale-tip）
+    await vi.waitFor(() => {
+      expect(localStorage.getItem('flowweb.stitch-upscale-tip')).toBe('1');
+    });
   });
 });

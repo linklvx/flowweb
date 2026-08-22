@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useRef, useEffect } from 'react';
+import { memo, useState, useCallback, useRef } from 'react';
 import { message } from 'antd';
 import type { StitchResolution } from '@/types/group';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -40,15 +40,6 @@ function StitchButtonComponent({
 
   const running = externalRunning ?? internalRunning;
 
-  // 首用提示
-  useEffect(() => {
-    const shown = localStorage.getItem('flowweb.stitch-upscale-tip');
-    if (!shown) {
-      message.info('图片分辨率不足时将被强制放大，可能影响清晰度');
-      localStorage.setItem('flowweb.stitch-upscale-tip', '1');
-    }
-  }, []);
-
   const handleResolutionChange = useCallback(
     (value: StitchResolution) => {
       onResolutionChange(value);
@@ -58,6 +49,13 @@ function StitchButtonComponent({
   );
 
   const handleStitch = useCallback(async () => {
+    // 首用提示（spec 7.3「首次使用」= 首次点击拼接时，非组件首见）
+    const shown = localStorage.getItem('flowweb.stitch-upscale-tip');
+    if (!shown) {
+      message.info('图片分辨率不足时将被强制放大，可能影响清晰度');
+      localStorage.setItem('flowweb.stitch-upscale-tip', '1');
+    }
+
     if (!projectId) {
       message.error('项目未加载');
       return;
