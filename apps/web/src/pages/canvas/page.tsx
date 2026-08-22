@@ -18,6 +18,7 @@ import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { createCanvas } from '@/api/canvasApi';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
@@ -318,6 +319,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
 /** Global canvas keyboard shortcuts — must be inside ReactFlowProvider to use useReactFlow */
 function CanvasKeyboardHandler() {
   const { fitView } = useReactFlow();
+  useGroupKeyboard();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
