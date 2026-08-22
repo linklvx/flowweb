@@ -58,6 +58,8 @@ vi.mock('@/stores/canvasStore', () => ({
         setProjectId: vi.fn(),
         setNodeDraggable: vi.fn(),
         nodeProcessMap: {},
+        applyGroupDerivations: vi.fn(),
+        refitGroupBounds: vi.fn(),
       })),
       setState: useCanvasStoreSetState,
     }
