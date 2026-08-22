@@ -26,6 +26,7 @@ import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 import { MultiSelectToolbar } from './groups/MultiSelectToolbar';
 import { GroupToolbar } from './groups/GroupToolbar';
+import { GroupContextMenu } from './groups/GroupContextMenu';
 import { ConfirmModal } from './ConfirmModal';
 import { AspectRatioDropdown } from './groups/AspectRatioDropdown';
 import { GridSizeDropdown } from './groups/GridSizeDropdown';
@@ -55,6 +56,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow();
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(false);
+  const [groupContextMenu, setGroupContextMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -171,7 +173,19 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     }
   }, [selectNode]);
 
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
+    if (node.type === 'group') {
+      event.preventDefault();
+      setGroupContextMenu({ groupId: node.id, x: event.clientX, y: event.clientY });
+    }
+  }, []);
+
+  const closeGroupContextMenu = useCallback(() => {
+    setGroupContextMenu(null);
+  }, []);
+
   const onPaneClick = useCallback(() => {
+    closeGroupContextMenu();
     const ns = useNodeStore.getState();
     if (ns.activeEditNodeId) {
       if (!ns.getEditOverlayDragging()) {
@@ -182,7 +196,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     } else {
       selectNode(null);
     }
-  }, [selectNode]);
+  }, [selectNode, closeGroupContextMenu]);
 
   const onPaneContextMenu = useCallback(
     (event: MouseEvent | React.MouseEvent) => {
@@ -290,6 +304,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onDragOver={onDragOver}
         onDrop={onDrop}
         onNodeClick={onNodeClick}
+        onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
         onNodeDragStop={onNodeDragStopIntoGroup}
@@ -453,6 +468,15 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         className="absolute inset-0 pointer-events-none z-50"
       />
       <ConfirmModal />
+      {groupContextMenu && (
+        <GroupContextMenu
+          groupId={groupContextMenu.groupId}
+          x={groupContextMenu.x}
+          y={groupContextMenu.y}
+          onClose={closeGroupContextMenu}
+          canPaste={true} // TODO: Track clipboard state to enable/disable paste
+        />
+      )}
     </div>
   );
 }

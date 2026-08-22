@@ -22,6 +22,9 @@ function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${++counter}`;
 }
 
+// Module-level clipboard for group copy/paste
+let groupClipboard: { group: Node; children: Node[]; innerEdges: Edge[] } | null = null;
+
 type ProcessType = 'generating' | 'trimming' | 'separating' | 'splitting' | 'uploading';
 
 interface NodeProcessState {
@@ -114,6 +117,9 @@ interface CanvasState {
   resizeStoryboardGrid: (groupId: string, rows: number, cols: number) => void;
   clearStoryboard: (groupId: string) => void;
   addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string, url?: string) => void;
+  duplicateGroup: (groupId: string) => string | null;
+  copyGroupToClipboard: (groupId: string) => void;
+  pasteGroupClipboard: (position: { x: number; y: number }) => string | null;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -1025,4 +1031,197 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     useNodeStore.getState().addNode({ id, type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId, mediaUrl: url } as any });
     get().applyGroupDerivations();
   },
+
+  duplicateGroup: (groupId) => {
+    return buildGroupCopy(get, set, groupId, { x: 40, y: 0 });
+  },
+
+  copyGroupToClipboard: (groupId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const children = s.nodes.filter((n) => n.parentId === groupId);
+    const childIds = new Set(children.map((n) => n.id));
+    groupClipboard = {
+      group: structuredClone(group),
+      children: structuredClone(children),
+      innerEdges: structuredClone(s.edges.filter((e) => childIds.has(e.source) && childIds.has(e.target))),
+    };
+  },
+
+  pasteGroupClipboard: (position) => {
+    if (!groupClipboard) return null;
+    return rebuildFromClipboard(get, set, position);
+  },
 }));
+
+// Shared helper function to build a group copy
+function buildGroupCopy(
+  get: () => CanvasState,
+  set: (partial: Partial<CanvasState>) => void,
+  groupId: string,
+  offset: { x: number; y: number }
+): string | null {
+  const s = get();
+  const group = s.nodes.find((n) => n.id === groupId);
+  if (!group) return null;
+
+  const children = s.nodes.filter((n) => n.parentId === groupId);
+  const childIds = new Set(children.map((n) => n.id));
+  const innerEdges = s.edges.filter((e) => childIds.has(e.source) && childIds.has(e.target));
+
+  // Generate new IDs upfront (P1-新5 convention)
+  const newGid = getId('node');
+  const idMap = new Map(children.map((c) => [c.id, getId('node')]));
+
+  const isStoryboard = (group.data as any).groupType === 'storyboard';
+
+  // Build new group node
+  const newGroup: Node = {
+    ...structuredClone(group),
+    id: newGid,
+    position: { x: group.position.x + offset.x, y: group.position.y + offset.y },
+    selected: true,
+  };
+  // Map cells if storyboard
+  if (isStoryboard && newGroup.data.cells) {
+    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) || id);
+  }
+
+  // Build new child nodes
+  const newChildren: Node[] = children.map((child) => {
+    const newId = idMap.get(child.id)!;
+    const newChild: Node = {
+      ...structuredClone(child),
+      id: newId,
+      parentId: newGid,
+      selected: false,
+      // Storyboard children: position zeroed; normal group: preserve relative position
+      position: isStoryboard ? { x: 0, y: 0 } : child.position,
+    };
+    return newChild;
+  });
+
+  // Build new edges
+  const newEdges: Edge[] = innerEdges.map((edge) => ({
+    ...structuredClone(edge),
+    id: getId('edge'),
+    source: idMap.get(edge.source)!,
+    target: idMap.get(edge.target)!,
+  }));
+
+  // Update store
+  set({
+    nodes: [
+      ...s.nodes.map((n) => ({ ...n, selected: false })),
+      newGroup,
+      ...newChildren,
+    ],
+    edges: [...s.edges, ...newEdges],
+    selectedId: newGid,
+  });
+
+  // Double-write to nodeStore
+  const ns = useNodeStore.getState();
+  ns.addNode({
+    id: newGid,
+    type: 'group',
+    position: newGroup.position,
+    data: newGroup.data as any,
+  });
+  for (const child of newChildren) {
+    ns.addNode({
+      id: child.id,
+      type: child.type!,
+      position: child.position,
+      data: child.data as any,
+      width: child.width,
+      height: child.height,
+    });
+  }
+
+  get().applyGroupDerivations();
+  return newGid;
+}
+
+// Shared helper function to rebuild from clipboard
+function rebuildFromClipboard(
+  get: () => CanvasState,
+  set: (partial: Partial<CanvasState>) => void,
+  position: { x: number; y: number }
+): string | null {
+  if (!groupClipboard) return null;
+
+  // Generate new IDs upfront
+  const newGid = getId('node');
+  const idMap = new Map(groupClipboard.children.map((c) => [c.id, getId('node')]));
+
+  const isStoryboard = (groupClipboard.group.data as any).groupType === 'storyboard';
+
+  // Build new group node
+  const newGroup: Node = {
+    ...structuredClone(groupClipboard.group),
+    id: newGid,
+    position: { x: position.x, y: position.y },
+    selected: true,
+  };
+  // Map cells if storyboard
+  if (isStoryboard && newGroup.data.cells) {
+    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) || id);
+  }
+
+  // Build new child nodes
+  const newChildren: Node[] = groupClipboard.children.map((child) => {
+    const newId = idMap.get(child.id)!;
+    const newChild: Node = {
+      ...structuredClone(child),
+      id: newId,
+      parentId: newGid,
+      selected: false,
+      // Storyboard children: position zeroed; normal group: preserve relative position
+      position: isStoryboard ? { x: 0, y: 0 } : child.position,
+    };
+    return newChild;
+  });
+
+  // Build new edges
+  const newEdges: Edge[] = groupClipboard.innerEdges.map((edge) => ({
+    ...structuredClone(edge),
+    id: getId('edge'),
+    source: idMap.get(edge.source)!,
+    target: idMap.get(edge.target)!,
+  }));
+
+  // Update store
+  set({
+    nodes: [
+      ...get().nodes.map((n) => ({ ...n, selected: false })),
+      newGroup,
+      ...newChildren,
+    ],
+    edges: [...get().edges, ...newEdges],
+    selectedId: newGid,
+  });
+
+  // Double-write to nodeStore
+  const ns = useNodeStore.getState();
+  ns.addNode({
+    id: newGid,
+    type: 'group',
+    position: newGroup.position,
+    data: newGroup.data as any,
+  });
+  for (const child of newChildren) {
+    ns.addNode({
+      id: child.id,
+      type: child.type!,
+      position: child.position,
+      data: child.data as any,
+      width: child.width,
+      height: child.height,
+    });
+  }
+
+  get().applyGroupDerivations();
+  return newGid;
+}
