@@ -104,6 +104,8 @@ interface CanvasState {
   removeNodeFromGroup: (groupId: string, nodeId: string) => void;
   toggleCollapse: (groupId: string) => void;
   refitGroupBounds: (groupId: string) => void;
+  dropIntoGroup: (nodeId: string, groupId: string) => void;
+  dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -774,6 +776,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }));
     get().applyGroupDerivations();
   },
+
+  dropIntoGroup: (nodeId, groupId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
+    get().addToGroup(groupId, nodeId);
+  },
+
+  dropImageIntoStoryboard: (_groupId, _nodeId) => {}, // Task 12 正式实现
 
   toggleCollapse: (groupId) => {
     set((st) => ({

@@ -11,6 +11,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { debounce } from '@/utils/debounce';
+import { findDropGroup } from '@/utils/groupDrop';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { ImageExtNode } from './nodes/ImageExtNode';
@@ -232,6 +233,22 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const onNodeDragStopIntoGroup = useCallback(
+    (_e: any, draggedNode: any) => {
+      const s = useCanvasStore.getState();
+      const groups = s.nodes.filter((n) => n.type === 'group' && n.id !== draggedNode.id);
+      const target = findDropGroup(draggedNode, groups);
+      if (target) {
+        if ((target.data as any).groupType === 'storyboard') {
+          s.dropImageIntoStoryboard(target.id, draggedNode.id); // Task 12 正式实现（当前 no-op）
+        } else {
+          s.dropIntoGroup(draggedNode.id, target.id);
+        }
+      }
+    },
+    [],
+  );
+
   // 选中组节点时显示 GroupToolbar
   const selectedGroup = useMemo(
     () => nodes.find((n) => n.type === 'group' && n.selected),
@@ -256,6 +273,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
+        onNodeDragStop={onNodeDragStopIntoGroup}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
