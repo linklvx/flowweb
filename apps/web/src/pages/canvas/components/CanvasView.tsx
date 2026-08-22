@@ -20,6 +20,7 @@ import { MultiImageNode } from './nodes/MultiImageNode';
 import { GroupNode } from './groups/GroupNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
+import { MultiSelectToolbar } from './groups/MultiSelectToolbar';
 import { ConfirmModal } from './ConfirmModal';
 
 const nodeTypes: NodeTypes = {
@@ -288,6 +289,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           snapEnabled={snapEnabled}
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
+        <MultiSelectToolbar />
       </ReactFlow>
       {/* 工具条 Portal 挂载点：最高层级，不拦截鼠标事件 */}
       <div
