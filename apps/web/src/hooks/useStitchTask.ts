@@ -65,29 +65,29 @@ export function useStitchTask(projectId: string) {
         const { taskId } = await createStitchTask(projectId, params);
         await new Promise<void>((resolve) => {
           let done = false;
-          const finish = (r: typeof outcome) => {
-            if (!done) {
-              done = true;
-              outcome = r;
-              resolve();
+          // 统一结算：done 保护 + 清理两个定时器 + spawn —— Socket 与轮询双完成路径
+          // 只会结算一次，产物节点不会重复生成（socket 完成后未清 timer 的双 spawn 缺陷修复）
+          const settle = (
+            r: typeof outcome,
+            result?: { fileId: string; url?: string; width?: number; height?: number }
+          ) => {
+            if (done) return;
+            done = true;
+            clearInterval(timer);
+            clearTimeout(timeoutId);
+            if (r === 'COMPLETED' && result) {
+              spawnResultNode(result, params.sourceGroupId);
             }
+            outcome = r;
+            resolve();
           };
           // Socket 快路径：useSocket 返回 MutableRefObject<Socket|null>，必须经 .current 取实例
           socket.current?.once('storyboard:stitch:completed', (evt: any) => {
             if (evt.taskId !== taskId) return;
             if (evt.status === 'COMPLETED' && evt.fileId) {
-              spawnResultNode(
-                {
-                  fileId: evt.fileId,
-                  url: evt.url,
-                  width: evt.width,
-                  height: evt.height,
-                },
-                params.sourceGroupId
-              );
-              finish('COMPLETED');
+              settle('COMPLETED', { fileId: evt.fileId, url: evt.url, width: evt.width, height: evt.height });
             } else {
-              finish('FAILED');
+              settle('FAILED');
             }
           });
           // 5s 轮询兜底（Socket 断线/事件未达）
@@ -95,30 +95,18 @@ export function useStitchTask(projectId: string) {
             try {
               const r = await getStitchTask(projectId, taskId);
               if (r.status === 'COMPLETED' && r.fileId) {
-                clearInterval(timer);
-                spawnResultNode(
-                  {
-                    fileId: r.fileId,
-                    url: r.url,
-                    width: r.width,
-                    height: r.height,
-                  },
-                  params.sourceGroupId
-                );
-                finish('COMPLETED');
+                settle('COMPLETED', { fileId: r.fileId, url: r.url, width: r.width, height: r.height });
               }
               if (r.status === 'FAILED') {
-                clearInterval(timer);
-                finish('FAILED');
+                settle('FAILED');
               }
             } catch {
               /* 单次轮询失败（网络抖动）→ 等待下一轮 */
             }
           }, 5000);
-          setTimeout(
+          const timeoutId = setTimeout(
             () => {
-              clearInterval(timer);
-              finish('TIMEOUT');
+              settle('TIMEOUT');
             },
             65_000
           ); // >60s 超时（spec 7.3）
