@@ -87,7 +87,7 @@ describe('calcGroupBounds', () => {
       { x: 100, y: 200, width: 300, height: 150 },
       { x: 500, y: 100, width: 300, height: 150 },
     ]);
-    expect(bounds).toEqual({ x: 80, y: 80, width: 740, height: 390 });
+    expect(bounds).toEqual({ x: 80, y: 80, width: 740, height: 290 });
   });
 });
 
@@ -124,7 +124,7 @@ export interface GroupNodeData extends Record<string, unknown> {
   groupType: GroupType;
   name?: string;
   collapsed?: boolean;
-  cells?: string[];
+  cells?: (string | null)[]; // null = 空宫格占位
   storyboard?: StoryboardConfig;
 }
 ```
@@ -586,12 +586,33 @@ toggleCollapse: (groupId) => {
   set((st) => ({
     nodes: st.nodes.map((n) => n.id === groupId
       ? { ...n, data: { ...n.data, collapsed: !(n.data as any).collapsed },
-          ...( !(n.data as any).collapsed
-            ? { width: 200, height: 64, _prevSize: { width: n.width, height: n.height } }
-            : { width: (n as any)._prevSize?.width ?? n.width, height: (n as any)._prevSize?.height ?? n.height } ) }
+          // 折叠→紧凑卡片；展开尺寸不存节点顶层（刷新丢失），展开后 refitGroupBounds 按子节点包围盒重算
+          ...(!(n.data as any).collapsed ? { width: 200, height: 64 } : {}) }
       : n),
   }));
+  if (get().nodes.find((n) => n.id === groupId && !(n.data as any).collapsed)) {
+    get().refitGroupBounds(groupId); // 展开态恢复尺寸
+  }
   get().applyGroupDerivations();
+},
+
+// 接口追加：refitGroupBounds: (groupId: string) => void;
+refitGroupBounds: (groupId) => {
+  const s = get();
+  const group = s.nodes.find((n) => n.id === groupId);
+  if (!group) return;
+  const gp = group.position;
+  const children = s.nodes.filter((n) => n.parentId === groupId);
+  if (children.length === 0) return;
+  const bounds = calcGroupBounds(children.map((n) => ({
+    x: n.position.x + gp.x, y: n.position.y + gp.y,
+    width: n.width ?? 280, height: n.height ?? 120,
+  })));
+  set((st) => ({
+    nodes: st.nodes.map((n) => n.id === groupId
+      ? { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height }
+      : n),
+  }));
 },
 ```
 
@@ -1338,12 +1359,12 @@ describe('convertGroup', () => {
     expect(g.data.cells).toBeUndefined();
     const a = s.nodes.find((n) => n.id === 'a')!;
     expect(a.hidden).toBe(false);
-    // cells 顺序 [a,c,b,d]：a=(0,0) c=(0,200) b=(360,0) d=(360,200)（相对组）
+    // cells 顺序 [a,c,b,d]，cols=2：a=(0,0) c=第二列(360,0) b=第二行(0,220) d=(360,220)（相对组）
     const c = s.nodes.find((n) => n.id === 'c')!;
     const b = s.nodes.find((n) => n.id === 'b')!;
     expect(a.position).toEqual({ x: 0, y: 0 });
-    expect(c.position.y - a.position.y).toBeCloseTo(180 + 40);
-    expect(b.position.x - a.position.x).toBeCloseTo(320 + 40);
+    expect(c.position.x - a.position.x).toBeCloseTo(320 + 40); // c 在第二列
+    expect(b.position.y - a.position.y).toBeCloseTo(180 + 40); // b 在第二行
     expect(a.width).toBe(320);
   });
 
@@ -1622,7 +1643,9 @@ function StoryboardCellComponent(p: Props) {
 }
 
 function mediaUrl(fileId?: string) {
-  return fileId ? `/api/media/${fileId}/url` : '';
+  // 项目实际取图方式（已核对 apps/web/src/api/mediaApi.ts）：GET /media/:fileId/url 返回 { url }
+  // 宫格渲染复用该 API（或 ImageGenNode 同款 useMediaUrl hook），此处返回相对端点供请求
+  return fileId ? `/media/${fileId}/url` : '';
 }
 
 export const StoryboardCell = memo(StoryboardCellComponent);
@@ -1844,8 +1867,9 @@ addImageToStoryboardCell: (groupId, cellIndex, fileId, url) => {
   set((st) => ({
     nodes: st.nodes.map((n) => {
       if (n.id !== groupId) return n;
-      const cells = [...((n.data as any).cells ?? [])];
-      while (cells.length < cellIndex) cells.push('');
+      // 空位用 null 占位（cells: (string | null)[]），语义明确且 filter(Boolean) 安全
+      const cells: (string | null)[] = [...((n.data as any).cells ?? [])];
+      while (cells.length < cellIndex) cells.push(null);
       cells[cellIndex] = id;
       return { ...n, data: { ...n.data, cells } };
     }).concat([{
@@ -2117,6 +2141,7 @@ describe('groupHistory 快照往返', () => {
       ] as any, edges: [] as any,
     });
     const gid = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    expect(useGroupHistory.getState().canUndo()).toBe(true); // action 自动注册撤销项（集成点）
     expect(useCanvasStore.getState().nodes).toHaveLength(3); // 组+2子
 
     useGroupHistory.getState().undo();
@@ -2345,6 +2370,7 @@ Expected: FAIL
 ```ts
 // useGroupKeyboard.ts
 import { useEffect } from 'react';
+import { message } from 'antd'; // Vite ESM：静态导入（require 不可用）
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupHistory } from '@/stores/groupHistory';
@@ -2408,7 +2434,6 @@ export function useGroupKeyboard() {
         }
       } catch (err) {
         // 置灰条件的快捷键触发（如嵌套/非图片），Toast 提示错误信息
-        const { message } = require('antd');
         message.warning((err as Error).message);
       }
     };
@@ -2478,7 +2503,7 @@ describe('deleteNode 组清理', () => {
 describe('hasActiveProcessInGroup（执行中禁令）', () => {
   it('组内节点有活跃进程 → true', () => {
     const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.setState({ nodeProcesses: { a: { processType: 'generate' } } } as any);
+    useCanvasStore.setState({ nodeProcessMap: { a: { processType: 'generate' } } } as any);
     expect(useCanvasStore.getState().hasActiveProcessInGroup(gid)).toBe(true);
   });
 
@@ -2525,11 +2550,11 @@ deleteNode: (id) => {
 hasActiveProcessInGroup: (groupId: string) => {
   const s = get();
   const childIds = new Set(s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id));
-  return Object.keys(s.nodeProcesses ?? {}).some((id) => childIds.has(id));
+  return Object.keys(s.nodeProcessMap ?? {}).some((id) => childIds.has(id));
 },
 ```
 
-（`nodeProcesses` 字段名以 canvasStore 实际进程映射为准，执行时 `grep -n "nodeProcess\|startNodeProcess" apps/web/src/stores/canvasStore.ts` 核对。）GroupToolbar/右键菜单/快捷键的结构变更入口统一加 `executing` guard：`hasActiveProcessInGroup(gid)` 为 true 时按钮 disabled + Toast「组内有节点正在执行，请等待完成后再操作」。
+（字段名已核对：canvasStore 实际进程映射为 `nodeProcessMap`，见 canvasStore.ts:71。）GroupToolbar/右键菜单/快捷键的结构变更入口统一加 `executing` guard：`hasActiveProcessInGroup(gid)` 为 true 时按钮 disabled + Toast「组内有节点正在执行，请等待完成后再操作」。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -3007,8 +3032,7 @@ describe('composeStoryboard 集成（真实 sharp）', () => {
     expect(meta.width).toBe(2 * 120 + 2);
     expect(meta.height).toBe(2 * 68 + 2);
     expect(meta.format).toBe('jpeg');
-    // fixture 输出供人工核对
-    fs.writeFileSync(path.join(__dirname, '../../../test/fixtures/stitch-out.sample.jpg'), out);
+    // 需人工核对输出时，临时将 buffer 写入 os.tmpdir()（勿写入仓库路径，避免污染 git 状态）
   });
 });
 ```
@@ -3113,6 +3137,7 @@ import { captureBefore, captureAfter, useGroupHistory } from '@/stores/groupHist
 
 export function useStitchTask(projectId: string) {
   const running = useRef(false);
+  const socket = useSocket(projectId); // Hooks 规则：顶层调用一次，start 闭包引用（方案 A）
 
   const spawnResultNode = useCallback((r: { fileId: string; url?: string; width?: number; height?: number }, sourceGroupId?: string) => {
     const add = useCanvasStore.getState().addNode;
@@ -3143,10 +3168,9 @@ export function useStitchTask(projectId: string) {
       await new Promise<void>((resolve) => {
         let done = false;
         const finish = () => { if (!done) { done = true; resolve(); } };
-        // Socket 快路径
+        // Socket 快路径（socket 来自 hook 顶层实例；不可用时仅轮询）
         try {
-          const socket = useSocket(projectId);
-          socket.once('storyboard:stitch:completed', (evt: any) => {
+          socket?.once?.('storyboard:stitch:completed', (evt: any) => {
             if (evt.taskId !== taskId) return;
             if (evt.status === 'COMPLETED') { spawnResultNode(evt, params.sourceGroupId); finish(); }
             else { finish(); /* 失败 Toast 在 StitchButton 处理 */ }
