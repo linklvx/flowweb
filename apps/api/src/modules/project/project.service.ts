@@ -6,6 +6,9 @@ interface NodeInput {
   type: string;
   position: { x: number; y: number };
   data: any;
+  parentId?: string | null;
+  width?: number;
+  height?: number;
 }
 
 interface EdgeInput {
