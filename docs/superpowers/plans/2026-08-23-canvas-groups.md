@@ -588,11 +588,11 @@ groupNodes: (nodeIds) => {
   const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
   if (picked.length < 2) throw new Error('打组至少需要 2 个节点');
   if (picked.some((n) => n.type === 'group')) throw new Error('组不支持嵌套');
+  const id = getId('node'); // 提前生成（P1-新5）：T15 撤销接入需在 action 入口 capture 时即纳入新 id
   const bounds = calcGroupBounds(picked.map((n) => ({
     x: n.position.x, y: n.position.y,
     width: n.width ?? 280, height: n.height ?? 120,
   })));
-  const id = getId('node');
   const groupNode: Node = {
     id, type: 'group',
     position: { x: bounds.x, y: bounds.y },
@@ -2162,7 +2162,7 @@ pasteGroupClipboard: (position) => {
 },
 ```
 
-共享构建函数 `buildGroupCopy`/`rebuildFromClipboard`（模块级私有函数，生成新 ID 映射：组、每个子节点（fileId/data 原样）、组内边按映射重建；`parentId` 指向新组；分镜组子节点 `position` 归零、普通组子节点保留相对位置 + 偏移；双写 nodeStore）。
+共享构建函数 `buildGroupCopy`/`rebuildFromClipboard`（模块级私有函数，生成新 ID 映射：组、每个子节点（fileId/data 原样）、组内边按映射重建；`parentId` 指向新组；分镜组子节点 `position` 归零、普通组子节点保留相对位置 + 偏移；双写 nodeStore）。**新 id（组+全部子节点）须在函数入口统一生成后再执行 store 写入**——与 T4 groupNodes/T10 mergeStoryboard 同一约定，供 T15 撤销 capture 在写入前纳入全部新增 id（P1-新5）。
 
 GroupContextMenu：组节点 `onContextMenu` 阻止默认、渲染菜单（创建副本/删除(二次确认 Modal.confirm)/复制/粘贴(剪贴板空则置灰)），删除走"删除组及全部子节点"逻辑（组节点 + parentId=组的子节点 + 相关边全删，双写 nodeStore）。
 
@@ -3164,7 +3164,7 @@ import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { composeStoryboard } from './stitch.composer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
-import { STITCH_WIDTH_MAP } from './stitch.size';
+import { STITCH_WIDTH_MAP, RATIO_MAP } from './stitch.size';
 
 interface StitchJobData {
   projectId: string; userId: string; fileIds: string[];
@@ -3318,7 +3318,7 @@ git commit -m "feat(api): stitch consumer with sharp composer, unit+integration 
 ```ts
 // useStitchTask.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { useStitchTask } from './useStitchTask';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useGroupHistory } from '@/stores/groupHistory';
@@ -3338,17 +3338,27 @@ describe('useStitchTask', () => {
     const { apiFetch } = await import('@/api/client');
     (apiFetch as any)
       .mockResolvedValueOnce({ taskId: 't1' })                       // POST stitch
-      .mockResolvedValueOnce({ status: 'PENDING' })                   // poll 1
-      .mockResolvedValueOnce({ status: 'COMPLETED', fileId: 'out1', width: 2048, height: 1026 });
-    const { result } = renderHook(() => useStitchTask('p1'));
-    const outcome = await result.current.start({ fileIds: ['f1', 'f2', 'f3', 'f4'], gridRows: 2, gridCols: 2,
-      aspectRatio: '16:9', showIndex: false, resolution: '2K' });
-    expect(outcome).toBe('COMPLETED');
-    await waitFor(() => {
-      const nodes = useCanvasStore.getState().nodes;
-      expect(nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(true);
-    });
-    expect(useGroupHistory.getState().canUndo()).toBe(true); // 撤销项已注册
+      .mockResolvedValueOnce({ status: 'PENDING' })                   // poll 1（t=5s）
+      .mockResolvedValueOnce({ status: 'COMPLETED', fileId: 'out1', width: 2048, height: 1026 }); // poll 2（t=10s）
+    // P2-新6：真实等待第二次轮询 ≥10s > Vitest 默认 5s 超时——必须 fake timers
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useStitchTask('p1'));
+      let promise: Promise<string> | undefined;
+      act(() => { promise = result.current.start({ fileIds: ['f1', 'f2', 'f3', 'f4'], gridRows: 2, gridCols: 2,
+        aspectRatio: '16:9', showIndex: false, resolution: '2K' }); });
+      await vi.advanceTimersByTimeAsync(10_500); // 触发两次轮询并 flush 异步回调（65s 超时不会触发）
+      const outcome = await promise!;
+      expect(outcome).toBe('COMPLETED');
+      expect(useCanvasStore.getState().nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(true);
+      expect(useGroupHistory.getState().canUndo()).toBe(true); // 撤销项已注册
+
+      // P1-新4 回归：undo 必须删除产物节点（before 为 tombstone，非覆盖恢复）
+      act(() => { useGroupHistory.getState().undo(); });
+      expect(useCanvasStore.getState().nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 ```
@@ -3391,7 +3401,7 @@ import { useCallback, useRef } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { createStitchTask, getStitchTask, type StitchParams } from '@/api/stitchApi';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { captureBefore, captureAfter, useGroupHistory } from '@/stores/groupHistory';
+import { useGroupHistory } from '@/stores/groupHistory';
 
 export function useStitchTask(projectId: string) {
   const running = useRef(false);
@@ -3412,7 +3422,9 @@ export function useStitchTask(projectId: string) {
     });
     // 撤销项：undo=删产物节点 / redo=复用 fileId 重建（不重新拼接）
     const nodeIds = [nodeId];
-    const before = captureBefore(nodeIds, []); // before 全为 tombstone（节点尚不存在）
+    // before 必须是 tombstone（P1-新4）：此刻节点已 add 进 store，captureBefore 会取到快照
+    // 而非 null → undo 走「覆盖恢复」而非「删除」→ 撤销无效。手动构造 null 占位。
+    const before = { nodes: [null] as any, edges: [] };
     const after = {
       nodes: [useCanvasStore.getState().nodes.find((n) => n.id === nodeId) ?? null] as any,
       edges: [],
@@ -3600,6 +3612,16 @@ Phase 5: T18 → T19（后端拼接）‖ T20 → T21（前端拼接，与 T18/T
 **P2×2 采纳、2 驳回**：P2-新2 采纳为验证注记（useMediaUrl 确无缓存；data.mediaUrl 短路覆盖常见场景，T22 走查大宫格卡顿再优化，勿提前优化）；P2-新3 采纳——T18 service 增 `media.findMany({ id in fileIds, projectId })` 归属校验（防跨项目越权 + fail-fast），测试补断言与 400 用例；P2-新1 驳回——AppNode 无 parentId 字段（nodeStore 不存父子关系），position 本就允许陈旧（拖动 onNodesChange 只同步 dimensions 不同步 position，既有惯例）；P2-新4 驳回——main.ts 无 `setGlobalPrefix`（grep 0 命中），project.controller.ts:6 即 `@Controller('api/projects')`，T18 前缀写法正确（二次核实）。
 
 **顺带修正**：T18 it.each 400 用例未 mock findUnique，实际走 404 分支、`toThrow()` 无模式为安慰剂测试 → 补 mock + `toThrow(BadRequestException)` 精确断言。
+
+## 修订记录 v4（第四轮最终审核 5 项裁定）
+
+**P0×1 成立、修复**：P0-新4 T19 consumer 使用 `RATIO_MAP` 但 import 段只导入 `STITCH_WIDTH_MAP`——tsc 严格模式 `TS2304` 硬阻断 + 运行时 ReferenceError，且 composer 单测（mock sharp）不实例化 consumer 掩盖此错 → import 补 `RATIO_MAP`。
+
+**P1×2 成立、修复**：P1-新4 T20 spawnResultNode 中 `captureBefore` 在 `add()` 之后调用——节点已存在，before 返回快照而非 tombstone → undo 走覆盖恢复而非删除，撤销无效 → 手动构造 `{ nodes: [null] }`（方案 A），测试补「undo 后产物节点消失」回归断言；P1-新5 T4 groupNodes 组 id 在 bounds 计算后生成，与 T15「新增 id 提前纳入 capture」矛盾 → id 生成提前至校验后（T10 已提前✅、T12 addImageToStoryboardCell 本就在函数首行✅、T13 buildGroupCopy 补「入口统一生成新 id」约定）。
+
+**P2×1 采纳、1 驳回**：P2-新6 采纳且比审查所述更严重——PENDING→COMPLETED 需第二次轮询，真实等待 ≥10s 超过 Vitest 默认 5s 超时，**必挂**而非 flaky → `vi.useFakeTimers()` + `advanceTimersByTimeAsync(10_500)` + act 包裹；P2-新5 驳回——nodeStore.nodes 为 `Record<string, AppNode>` 并非假设而是第二轮已实际 Read 验证的事实（nodeStore.ts:281 接口声明 + addNode 实现 `nodes: { ...s.nodes, [node.id]: ... }` 均为 Record 键值展开，工具输出在案），T15 注释已引用行号。
+
+四轮累计 40 项裁定闭环（v1 8 + v2 18 + v3 9 + v4 5）。
 
 
 
