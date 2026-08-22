@@ -12,6 +12,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { debounce } from '@/utils/debounce';
 import { findDropGroup } from '@/utils/groupDrop';
+import { executeGroupNodes } from '@/api/executionApi';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { ImageExtNode } from './nodes/ImageExtNode';
@@ -51,6 +52,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
+  const projectId = useCanvasStore((s) => s.projectId);
   const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
   const isLocked = activeEditNodeId !== null;
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
@@ -324,7 +326,10 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
             collapsed={!!(selectedGroup.data as any).collapsed}
             executing={false}
             onCollapse={toggleCollapse}
-            onExecute={() => {}}
+            onExecute={(groupId) => {
+              const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
+              if (childIds.length > 0 && projectId) void executeGroupNodes(projectId, childIds);
+            }}
             onUngroup={ungroup}
             onConvert={() => {}}
           />

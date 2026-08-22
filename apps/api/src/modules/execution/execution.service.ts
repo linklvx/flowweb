@@ -22,7 +22,7 @@ export class ExecutionService {
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
 
-  async execute(projectId: string, nodeId: string | undefined, userId: string) {
+  async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[]) {
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: projectId },
@@ -34,9 +34,11 @@ export class ExecutionService {
     const allEdges = project.edges as any[];
 
     // 2. Determine scope
-    const scopeNodes = nodeId
-      ? this.topology.getScope(allNodes, allEdges, nodeId)
-      : allNodes;
+    const scopeNodes = nodeIds
+      ? allNodes.filter((n) => nodeIds.includes(n.id))
+      : nodeId
+        ? this.topology.getScope(allNodes, allEdges, nodeId)
+        : allNodes;
 
     // 3. Topological sort
     const orderedNodes = this.topology.sort(scopeNodes, allEdges);
@@ -54,8 +56,9 @@ export class ExecutionService {
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
 
       try {
-        // Collect upstream data
-        const upstream = this.topology.collectUpstreamData(node.id, scopeNodes, allEdges);
+        // Collect upstream data (use full node list when nodeIds mode to allow reading from outside group)
+        const upstreamSource = nodeIds ? allNodes : scopeNodes;
+        const upstream = this.topology.collectUpstreamData(node.id, upstreamSource, allEdges);
         const data = node.data as any;
         const prompt = upstream.textContents.join(' ') || data?.content || '';
 

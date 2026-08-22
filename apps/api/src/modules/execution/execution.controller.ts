@@ -13,8 +13,8 @@ export class ExecutionController {
   ) {}
 
   @Post('execute')
-  execute(@Body() body: { projectId: string; nodeId?: string; userId?: string }) {
-    return this.service.execute(body.projectId, body.nodeId, body.userId || 'default-user');
+  execute(@Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; userId?: string }) {
+    return this.service.execute(body.projectId, body.nodeId, body.userId || 'default-user', body.nodeIds);
   }
 
   @Post('enqueue')

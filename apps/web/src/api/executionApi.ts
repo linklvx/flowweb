@@ -8,6 +8,13 @@ export async function executeWorkflow(projectId: string, nodeId?: string): Promi
   });
 }
 
+export async function executeGroupNodes(projectId: string, nodeIds: string[]): Promise<{ success: boolean; errors: string[]; results?: { nodeId: string; type: string; resultUrl?: string }[] }> {
+  return apiFetch('/execution/execute', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, nodeIds }),
+  });
+}
+
 export async function enqueueWorkflow(params: {
   projectId: string;
   nodeId?: string;
