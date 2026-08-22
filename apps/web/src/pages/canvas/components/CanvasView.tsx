@@ -21,6 +21,7 @@ import { GroupNode } from './groups/GroupNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 import { MultiSelectToolbar } from './groups/MultiSelectToolbar';
+import { GroupToolbar } from './groups/GroupToolbar';
 import { ConfirmModal } from './ConfirmModal';
 
 const nodeTypes: NodeTypes = {
@@ -57,6 +58,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const updateViewport = useCanvasStore((s) => s.updateViewport);
   const addNode = useCanvasStore((s) => s.addNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
+  const ungroup = useCanvasStore((s) => s.ungroup);
 
   // 素材库「应用到画布」：监听 pendingMediaFile 创建节点
   useEffect(() => {
@@ -229,6 +232,12 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
+  // 选中组节点时显示 GroupToolbar
+  const selectedGroup = useMemo(
+    () => nodes.find((n) => n.type === 'group' && n.selected),
+    [nodes]
+  );
+
   return (
     <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
       <ReactFlow
@@ -290,6 +299,18 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
         <MultiSelectToolbar />
+        {selectedGroup && (
+          <GroupToolbar
+            groupId={selectedGroup.id}
+            groupType={(selectedGroup.data as any).groupType ?? 'normal'}
+            collapsed={!!(selectedGroup.data as any).collapsed}
+            executing={false}
+            onCollapse={toggleCollapse}
+            onExecute={() => {}}
+            onUngroup={ungroup}
+            onConvert={() => {}}
+          />
+        )}
       </ReactFlow>
       {/* 工具条 Portal 挂载点：最高层级，不拦截鼠标事件 */}
       <div
