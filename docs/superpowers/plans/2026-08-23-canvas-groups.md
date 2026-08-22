@@ -859,7 +859,7 @@ CanvasView.tsx nodeTypes 追加 `group: GroupNode`，并补 import。
 - [ ] **Step 4: 运行确认通过 + 全量回归**
 
 Run: `cd apps/web && npx vitest run src/pages/canvas/components/groups/NormalGroupRenderer.test.tsx && npx vitest run src/pages/canvas/components/CanvasView.test.tsx`
-Expected: PASS（注意 StoryboardGroupRenderer 尚未创建，GroupNode.tsx 顶层 import 会失败——本任务先在 GroupNode 中用条件懒引入或先创建占位文件并在 Task 10 替换为完整实现；选择：本任务直接创建最小占位 StoryboardGroupRenderer（返回 null 的 div），Task 10 重写）
+Expected: PASS（注意 StoryboardGroupRenderer 尚未创建，GroupNode.tsx 顶层 import 会失败——本任务先在 GroupNode 中用条件懒引入或先创建占位文件并在 Task 11 替换为完整实现；选择：本任务直接创建最小占位 StoryboardGroupRenderer（返回 null 的 div），Task 11 重写）
 
 - [ ] **Step 5: Commit**
 
@@ -3501,7 +3501,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { StitchButton } from './StitchButton';
 
 vi.mock('@/hooks/useStitchTask', () => ({
-  useStitchTask: () => ({ start: vi.fn().mockResolvedValue(undefined) }),
+  useStitchTask: () => ({ start: vi.fn().mockResolvedValue('COMPLETED' as const) }),
 }));
 
 describe('StitchButton', () => {
@@ -3622,6 +3622,18 @@ Phase 5: T18 → T19（后端拼接）‖ T20 → T21（前端拼接，与 T18/T
 **P2×1 采纳、1 驳回**：P2-新6 采纳且比审查所述更严重——PENDING→COMPLETED 需第二次轮询，真实等待 ≥10s 超过 Vitest 默认 5s 超时，**必挂**而非 flaky → `vi.useFakeTimers()` + `advanceTimersByTimeAsync(10_500)` + act 包裹；P2-新5 驳回——nodeStore.nodes 为 `Record<string, AppNode>` 并非假设而是第二轮已实际 Read 验证的事实（nodeStore.ts:281 接口声明 + addNode 实现 `nodes: { ...s.nodes, [node.id]: ... }` 均为 Record 键值展开，工具输出在案），T15 注释已引用行号。
 
 四轮累计 40 项裁定闭环（v1 8 + v2 18 + v3 9 + v4 5）。
+
+## 修订记录 v5（第五轮终审确认）
+
+终审结论：v4 对第四轮 5 项的修复逐行验证全部到位（RATIO_MAP import :3167、手动 tombstone :3427、id 提前 :591/:1539/:2027、fake timers :3344-3350、nodeStore Record 为已验证事实），全量走读无新 P0/P1，plan 达到可执行状态。
+
+**P2×2 顺手修复**：T5 Step 4 笔误——「Task 10 替换/重写」应为 Task 11（T10 是 store actions，StoryboardGroupRenderer 完整实现在 T11）；T21 测试 mock `mockResolvedValue(undefined)` 改为 `mockResolvedValue('COMPLETED')`（对齐 useStitchTask 真实返回类型语义，现测试断言不读返回值故两者均过，取语义正确者）。
+
+**P2×2 维持原判**：T20 socket once 监听器在轮询完成路径不主动 off——once 触发即自移除，未触发则随 socket 断连销毁，泄漏量级可忽略，不加代码（YAGNI）；T19 Media 模型字段已对照 Prisma schema.prisma:290-309 实据确认一致（`key` 存在、`status:'completed'` 与 `type:'generated'` 均在字段枚举注释内、`bucket @default("flowai")`），执行时无需再调。
+
+**执行前环境核对（第五轮实据）**：apps/api 依赖四项全部就位（@nestjs/bullmq 10.2.1、bullmq 5.75.1、sharp ^0.34.5、ioredis 5.4.1，package.json 在案）；BullMQ 全局注册于 app.module.ts:36 `BullModule.forRoot('default')` 且有 ai-download/ai-image-edit processor 先例，T18 仅需 registerQueue 对齐既有模式；MinioService getObject/upload 签名二轮已验证与 T19 一致；nodeStore Record 结构二轮已 Read 验证（nodeStore.ts:281）。运行时前提仅两项：本地 Redis 进程可用（项目启动流程含验证步骤）、T2 迁移需一次性 CREATEDB 授权（T2 Step 5 已注明）。
+
+五轮累计 42 项裁定闭环（v1 8 + v2 18 + v3 9 + v4 5 + v5 终审 2 修）。
 
 
 
