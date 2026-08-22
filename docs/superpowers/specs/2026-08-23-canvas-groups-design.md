@@ -99,7 +99,7 @@ hydrate/状态更新时按规则推导，规则单一来源：
 折叠/展开 · 整组执行 · 转分镜组 · 解组
 
 - 折叠：`collapsed=true`，组收缩为 200×64px 卡片（组名 + 节点数），子节点按 3.3 推导隐藏；展开恢复原尺寸。折叠/展开不进撤销栈
-- 整组执行：组内节点按依赖顺序执行（复用现有拓扑执行引擎）；**外部节点不执行，上游输出可读**（复用现有单节点执行的输入读取机制）；执行状态沿用现有节点进程机制
+- 整组执行：语义与现有「批量执行选中节点」**完全一致**（done 态节点是否重跑由现有执行引擎决定，本 spec 不重复定义引擎逻辑）；依赖顺序由现有拓扑执行引擎处理；**外部节点不执行，上游输出可读**（复用现有输入读取机制）；执行状态沿用现有节点进程机制；执行期间分镜组宫格显示 loading 占位
 - 转分镜组：仅当组内全部节点满足「含完成图片」判定（5.1）时可用，否则置灰 + Tooltip
 - 空组自动解组：最后一个子节点被删除时普通组自动解组
 
@@ -144,7 +144,9 @@ imageGen/imageExtGen/multiImageGen 合并或转入分镜组时：每个图片项
 
 ### 5.4 右键菜单
 
-创建副本（右侧偏移 40px，含全部配置与图片引用）/ 删除（二次确认）/ 复制 `Ctrl+C` / 粘贴 `Ctrl+V`（鼠标位置）。
+创建副本（右侧偏移 40px）/ 删除（二次确认）/ 复制 `Ctrl+C` / 粘贴 `Ctrl+V`（鼠标位置）。
+
+副本拷贝深度：组节点与全部子节点深拷贝并生成新 ID；图片引用复用原 fileId（**不复制 MinIO 文件**）；子节点 `parentId` 指向新组；**组内边一并复制，跨组边不复制**（与现有节点复制行为一致）；组配置（比例/宫格/序号状态）完整保留。
 
 ### 5.5 空宫格填充
 
@@ -194,12 +196,12 @@ interface HistoryEntry {
 ### 7.1 API（后端不理解组，纯图片拼接服务）
 
 ```
-POST /api/storyboard/stitch
+POST /api/projects/:projectId/storyboard/stitch
 body: { fileIds: string[](有序), gridRows, gridCols,
         aspectRatio, showIndex, resolution: '2K'|'4K' }
 → 202 { taskId }
 
-GET /api/storyboard/stitch/:taskId
+GET /api/projects/:projectId/storyboard/stitch/:taskId
 → 200 { taskId, status: 'PENDING'|'COMPLETED'|'FAILED', fileId?, url?, width?, height?, failedCount?, error? }
 ```
 
@@ -220,6 +222,7 @@ GET /api/storyboard/stitch/:taskId
 - 完成：画布生成 image 节点（组右侧）+ Toast「拼接完成」+ 注册撤销项
 - Socket 断线：5s 轮询 taskId 兜底
 - 失败：单图失败→该格灰占位（#333）继续拼 + failedCount；全部失败或 >60s 超时→FAILED + Toast（含「重试」）
+- 空宫格：#333 灰占位（与失败格视觉一致），序号照常标注——输出布局与画布宫格一一对应，不因跳空错位
 - 拼接期间调整宫格：允许——参数在触发时刻已快照，结果与当前配置无关
 
 ## 8. 边界与异常
