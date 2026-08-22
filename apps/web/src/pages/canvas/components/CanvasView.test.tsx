@@ -339,7 +339,7 @@ describe('CanvasView', () => {
 
       unmount();
 
-      expect(mockSetState).toHaveBeenCalledWith({ pendingMediaFile: null });
+      expect(mockSetState).toHaveBeenCalledWith({ pendingMediaFile: null, pendingFillCell: null });
     });
   });
 });

@@ -75,6 +75,7 @@ interface CanvasState {
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
   pendingMediaFile: MaterialFile | null;
+  pendingFillCell: { groupId: string; cellIndex: number } | null;
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
   isHydrating: boolean;
@@ -90,6 +91,7 @@ interface CanvasState {
   setNodeDraggable: (nodeId: string, draggable: boolean) => void;
   selectNode: (id: string | null) => void;
   requestAddMediaNode: (file: MaterialFile) => void;
+  requestFillStoryboardCell: (groupId: string, cellIndex: number) => void;
   updateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -117,6 +119,7 @@ interface CanvasState {
   resizeStoryboardGrid: (groupId: string, rows: number, cols: number) => void;
   clearStoryboard: (groupId: string) => void;
   addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string, url?: string) => void;
+  removeStoryboardCell: (groupId: string, cellIndex: number) => void;
   duplicateGroup: (groupId: string) => string | null;
   copyGroupToClipboard: (groupId: string) => void;
   pasteGroupClipboard: (position: { x: number; y: number }) => string | null;
@@ -129,6 +132,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
   pendingMediaFile: null,
+  pendingFillCell: null,
   nodeProcessMap: {},
   projectId: null,
   isHydrating: false,
@@ -425,6 +429,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectNode: (id) => set({ selectedId: id }),
 
   requestAddMediaNode: (file) => set({ pendingMediaFile: file }),
+
+  requestFillStoryboardCell: (groupId, cellIndex) =>
+    set({ pendingFillCell: { groupId, cellIndex } }),
 
   updateViewport: (vp) => set({ viewport: vp }),
 
@@ -800,7 +807,142 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     get().addToGroup(groupId, nodeId);
   },
 
-  dropImageIntoStoryboard: (_groupId, _nodeId) => {}, // Task 12 正式实现
+  dropImageIntoStoryboard: (groupId, nodeId) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    const node = s.nodes.find((n) => n.id === nodeId);
+    if (!group || !node) return;
+    const gd = group.data as any;
+    if (gd.groupType !== 'storyboard') return;
+
+    const cfg = gd.storyboard as StoryboardConfig;
+    const capacity = cfg.gridRows * cfg.gridCols;
+    const cells = [...(gd.cells ?? [])];
+    const gp = group.position;
+    const gw = group.width ?? 0;
+
+    // 判断节点类型
+    if (node.type === 'multiImageGen') {
+      // multiImageGen：展开成功图片逐个填充
+      const nd = node.data as any;
+      const successImages = nd.images?.filter((i: any) => i.status === 'success') ?? [];
+      if (successImages.length === 0) return;
+
+      // 预生成所有新节点 ID（P1-新5 convention）
+      const newIds = successImages.map(() => getId('node'));
+
+      // 构造新节点（复用 T10 mergeStoryboard 展开模式）
+      const expandedNodes: Node[] = [];
+      const overflowNodes: Node[] = [];
+      let filledCount = 0;
+
+      for (let i = 0; i < successImages.length; i++) {
+        const img = successImages[i];
+        const id = newIds[i];
+        const newNode: Node = {
+          id, type: 'imageGen', parentId: groupId, extent: 'parent' as const,
+          position: { x: 0, y: 0 }, width: 320, height: 180,
+          data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: nodeId },
+          selected: false,
+        } as Node;
+
+        // 找第一个空位
+        let emptyIdx = -1;
+        for (let idx = 0; idx < Math.max(capacity, cells.length); idx++) {
+          if (!cells[idx]) { emptyIdx = idx; break; }
+        }
+
+        if (emptyIdx >= 0 && emptyIdx < capacity) {
+          // 入组：补 null 到空位索引
+          while (cells.length < emptyIdx) cells.push(null);
+          cells[emptyIdx] = id;
+          expandedNodes.push(newNode);
+          filledCount++;
+        } else {
+          // 溢出：排在组右侧
+          const overflowIdx = i - filledCount;
+          overflowNodes.push({
+            ...newNode,
+            parentId: undefined,
+            extent: undefined,
+            hidden: false,
+            position: { x: gp.x + gw + 20, y: gp.y + overflowIdx * 200 },
+          });
+        }
+      }
+
+      // 写入 store
+      const ns = useNodeStore.getState();
+      set((st) => ({
+        nodes: [
+          ...st.nodes.filter((n) => n.id !== nodeId),
+          ...expandedNodes,
+          ...overflowNodes,
+          st.nodes.find((n) => n.id === groupId) ?
+            { ...st.nodes.find((n) => n.id === groupId)!, data: { ...gd, cells } } :
+            st.nodes.find((n) => n.id === groupId)!,
+        ],
+        edges: st.edges,
+      }));
+
+      // 双写 nodeStore
+      for (const e of expandedNodes) {
+        ns.addNode({ id: e.id, type: 'imageGen', position: e.position, data: e.data as any });
+      }
+      for (const o of overflowNodes) {
+        ns.addNode({ id: o.id, type: 'imageGen', position: o.position, data: o.data as any });
+      }
+      ns.deleteNode(nodeId);
+
+      if (overflowNodes.length > 0) {
+        message.info(`分镜组已满，${overflowNodes.length} 张图片已放在组旁`);
+      }
+    } else if (node.type === 'imageGen' || node.type === 'imageExtGen') {
+      // imageGen/imageExtGen 完成态
+      const nd = node.data as any;
+      if (nd.status !== 'done') return;
+
+      // 找第一个空位
+      let emptyIdx = -1;
+      for (let idx = 0; idx < Math.max(capacity, cells.length); idx++) {
+        if (!cells[idx]) { emptyIdx = idx; break; }
+      }
+
+      if (emptyIdx >= 0 && emptyIdx < capacity) {
+        // 入组
+        get().addToGroup(groupId, nodeId);
+        // 补 null 到空位索引
+        set((st) => {
+          const g = st.nodes.find((n) => n.id === groupId);
+          if (!g) return st;
+          const updatedCells = [...(g.data as any).cells ?? []];
+          while (updatedCells.length < emptyIdx) updatedCells.push(null);
+          updatedCells[emptyIdx] = nodeId;
+          return {
+            nodes: st.nodes.map((n) =>
+              n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
+            ),
+          };
+        });
+      } else {
+        // 溢出：移到组右侧
+        set((st) => ({
+          nodes: st.nodes.map((n) =>
+            n.id === nodeId ?
+              { ...n, parentId: undefined, extent: undefined, hidden: false,
+                position: { x: gp.x + gw + 20, y: gp.y } } :
+            n
+          ),
+        }));
+        message.info('分镜组已满，图片已放在组旁');
+      }
+    } else {
+      // 非完成图/其他类型：不处理
+      return;
+    }
+
+    get().applyGroupDerivations();
+  },
 
   mergeStoryboard: (nodeIds) => {
     const s = get();
@@ -1030,6 +1172,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       } as Node]),
     }));
     useNodeStore.getState().addNode({ id, type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId, mediaUrl: url } as any });
+    get().applyGroupDerivations();
+  },
+
+  removeStoryboardCell: (groupId, cellIndex) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const gd = group.data as any;
+    const cells = [...(gd.cells ?? [])];
+    if (cellIndex < 0 || cellIndex >= cells.length) return;
+    const removedId = cells[cellIndex];
+    // 紧凑前移：splice 移除该位，后续自动前移
+    cells.splice(cellIndex, 1);
+    set((st) => ({
+      nodes: st.nodes
+        .filter((n) => n.id !== removedId)
+        .map((n) => n.id === groupId ? { ...n, data: { ...n.data, cells } } : n),
+      edges: st.edges.filter((e) => e.source !== removedId && e.target !== removedId),
+    }));
+    if (removedId) useNodeStore.getState().deleteNode(removedId);
     get().applyGroupDerivations();
   },
 

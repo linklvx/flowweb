@@ -1,17 +1,38 @@
 // StoryboardGroupRenderer.tsx — 完整重写（替换 Task 5 占位）
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { calcStoryboardSize } from '@/utils/groupLayout';
 import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 interface Props { id: string; data: GroupNodeData; selected: boolean; cellNodes: CellNodeInfo[] }
 
 function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
+  const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
   const cfg = data.storyboard!;
   const { cellWidth, cellHeight } = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
   const total = cfg.gridRows * cfg.gridCols;
   const byId = new Map(cellNodes.map((c) => [c.id, c]));
+
+  // Delete key handler for cell deletion
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 编辑态守卫：焦点在输入元素时不拦截（对齐 T16 编辑态定义）
+      if ((e.target as HTMLElement)?.closest?.('input, textarea, [contenteditable="true"]')) return;
+
+      if (selectedCell !== null && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        e.stopPropagation();
+        removeStoryboardCell(id, selectedCell);
+        setSelectedCell(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true); // capture 阶段拦截
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [selectedCell, id, removeStoryboardCell]);
+
   return (
     <div style={{
       width: '100%', height: '100%',

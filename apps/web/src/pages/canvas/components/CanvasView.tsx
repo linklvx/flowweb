@@ -11,6 +11,7 @@ import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
+import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { debounce } from '@/utils/debounce';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
@@ -72,15 +73,25 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
+  const addImageToStoryboardCell = useCanvasStore((s) => s.addImageToStoryboardCell);
 
-  // 素材库「应用到画布」：监听 pendingMediaFile 创建节点
+  // 素材库「应用到画布」：监听 pendingMediaFile 创建节点或填充分镜格
   useEffect(() => {
     const unsub = useCanvasStore.subscribe((state, prevState) => {
       const file = state.pendingMediaFile;
       const prevFile = prevState.pendingMediaFile;
+      const fillCell = state.pendingFillCell;
       if (!file || file === prevFile || !reactFlowWrapper.current) return;
 
       try {
+        // 如果有 pending fill cell，填充分镜格
+        if (fillCell) {
+          addImageToStoryboardCell(fillCell.groupId, fillCell.cellIndex, file.id, file.url);
+          useCanvasStore.setState({ pendingFillCell: null });
+          return;
+        }
+
+        // 否则创建新节点
         const bounds = reactFlowWrapper.current.getBoundingClientRect();
         const centerClientX = bounds.left + bounds.width / 2;
         const centerClientY = bounds.top + bounds.height / 2;
@@ -117,9 +128,21 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
 
     return () => {
       unsub();
-      useCanvasStore.setState({ pendingMediaFile: null });
+      useCanvasStore.setState({ pendingMediaFile: null, pendingFillCell: null });
     };
-  }, [screenToFlowPosition, addNode]);
+  }, [screenToFlowPosition, addNode, addImageToStoryboardCell]);
+
+  // 监听 fill-cell 事件，打开素材库
+  useEffect(() => {
+    const handleFillCell = (e: Event) => {
+      const ce = e as CustomEvent<{ groupId: string; index: number }>;
+      const { groupId, index } = ce.detail;
+      useCanvasStore.getState().requestFillStoryboardCell(groupId, index);
+      useMaterialLibraryStore.getState().open();
+    };
+    window.addEventListener('storyboard:fill-cell', handleFillCell);
+    return () => window.removeEventListener('storyboard:fill-cell', handleFillCell);
+  }, []);
 
   // Debounced dimension sync
   const syncNodeDimensions = useMemo(
