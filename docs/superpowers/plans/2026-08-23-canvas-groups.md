@@ -799,9 +799,9 @@ import type { NodeProps } from '@xyflow/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
 
-function GroupNodeComponent({ data, selected }: NodeProps) {
+function GroupNodeComponent({ id, data, selected }: NodeProps) {
   if ((data as any).groupType === 'storyboard') {
-    return <StoryboardGroupRenderer data={data as any} selected={!!selected} />;
+    return <StoryboardGroupRenderer id={id} data={data as any} selected={!!selected} />;
   }
   return <NormalGroupRenderer data={data as any} selected={!!selected} />;
 }
@@ -1459,6 +1459,7 @@ describe('mergeStoryboard', () => {
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
     expect(g.data.cells).toHaveLength(3); // a + 2 张展开图
+    expect(g.data.cells![0]).toBe('a'); // a.x=100 < multi.x=1000 → 展开图不插队（P1-新1）
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
     expect(expanded.every((n) => n.type === 'imageGen' && (n.data as any).status === 'done')).toBe(true);
@@ -1538,7 +1539,9 @@ mergeStoryboard: (nodeIds) => {
         const id = getId('node');
         expanded.push({
           id, type: 'imageGen', parentId: gid, extent: 'parent' as const,
-          position: { x: 0, y: 0 }, width: 320, height: 180,
+          // 暂留原 multi 位置：字典序排序依据（P1-新1——若归零则展开图永远插队排最前）；
+          // 追加进 nodes 时统一归零（分镜组子节点坐标无意义）
+          position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
           data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: n.id },
           selected: false,
         } as Node);
@@ -1573,7 +1576,7 @@ mergeStoryboard: (nodeIds) => {
           ? { ...n, selected: false, parentId: gid, extent: 'parent' as const,
               position: { x: 0, y: 0 } } // 分镜组子节点坐标无意义（纯 DOM 宫格渲染），归零
           : { ...n, selected: false }),
-      ...expanded,
+      ...expanded.map((e) => ({ ...e, position: { x: 0, y: 0 } })), // 排序已完成，入组归零
       groupNode,
     ],
     selectedId: gid,
@@ -1671,7 +1674,7 @@ git commit -m "feat(web): mergeStoryboard/convertGroup with multiImage expansion
 ```tsx
 // StoryboardGroupRenderer.test.tsx
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
 
 // P0-2：mock useMediaUrl —— 宫格取图经 fileId → 预签名 URL 解析（JSON API 不能直接作 src）
@@ -1681,12 +1684,17 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   }),
 }));
 
+// P2-新2 注记：useMediaUrl 无缓存（每次 effect 直接 fetch）。大宫格（如 10x10）首渲染会并发
+// 解析请求——浏览器同源并发排队不会失败，且 data.mediaUrl 短路覆盖常见场景；T22 浏览器走查时
+// 若大宫格卡顿明显，再给 useMediaUrl 加模块级 fileId→Promise 去重缓存（勿提前优化）。
+
 const cells = [
   { id: 'a', fileId: 'f1', status: 'done' },
   { id: 'b', fileId: 'f2', status: 'done' },
 ];
 
 const props = (over: Record<string, unknown> = {}) => ({
+  id: 'g1',
   data: {
     groupType: 'storyboard',
     cells: ['a', 'b'],
@@ -1722,6 +1730,15 @@ describe('StoryboardGroupRenderer', () => {
       storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: false, stitchResolution: '2K' },
     }) as any)} />);
     expect(screen.queryByText('01')).toBeNull();
+  });
+
+  it('空宫格 + 按钮 dispatch fill-cell 事件携带 groupId（P0-新2）', () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    render(<StoryboardGroupRenderer {...(props() as any)} />);
+    fireEvent.click(screen.getAllByText('+')[0]);
+    const evt = dispatchSpy.mock.calls.map((c) => c[0]).find((e) => (e as Event).type === 'storyboard:fill-cell');
+    expect(evt).toBeTruthy();
+    expect((evt as CustomEvent).detail.groupId).toBe('g1'); // 来自 NodeProps.id，非 data.groupId
   });
 });
 ```
@@ -1799,9 +1816,9 @@ import { calcStoryboardSize } from '@/utils/groupLayout';
 import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 
-interface Props { data: GroupNodeData; selected: boolean; cellNodes: CellNodeInfo[] }
+interface Props { id: string; data: GroupNodeData; selected: boolean; cellNodes: CellNodeInfo[] }
 
-function StoryboardGroupRendererComponent({ data, selected, cellNodes }: Props) {
+function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const cfg = data.storyboard!;
   const { cellWidth, cellHeight } = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
@@ -1824,7 +1841,7 @@ function StoryboardGroupRendererComponent({ data, selected, cellNodes }: Props) 
           <StoryboardCell key={i} index={i} cellWidth={cellWidth} cellHeight={cellHeight}
             info={info} showIndex={cfg.showIndex}
             selectedCell={selectedCell} onSelectCell={setSelectedCell}
-            onFillEmpty={(idx) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: (data as any).groupId, index: idx } }))} />
+            onFillEmpty={(idx) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: id, index: idx } }))} />
         );
       })}
       <div style={{ position: 'absolute', top: -10, left: 8, background: '#0a0a0a', color: '#999', fontSize: 12, padding: '0 6px', whiteSpace: 'nowrap' }}>
@@ -1866,6 +1883,7 @@ git commit -m "feat(web): storyboard grid renderer with index/empty/loading cell
 // canvasStore.storyboardConfig.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
 
 const doneImage = (id: string, x = 100, y = 100) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
@@ -1904,6 +1922,9 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     expect(overflowed.parentId).toBeUndefined();
     expect(overflowed.position.x).toBeGreaterThan(before.position.x + (before.width ?? 0)); // 组右侧
     expect(overflowed.hidden).toBe(false);
+    // P0-新1 回归：溢出节点必须存活（而非被删除），nodeStore 双写一致
+    expect(s.nodes.find((n) => n.id === 'd')).toBeTruthy();
+    expect(useNodeStore.getState().nodes['b']).toBeTruthy();
   });
 
   it('增格 → cells 不变（空位由渲染器显示）', () => {
@@ -1968,21 +1989,20 @@ resizeStoryboardGrid: (groupId, rows, cols) => {
   const gp = group.position;
   const gw = group.width ?? 0;
   set((st) => ({
-    nodes: st.nodes
-      .filter((n) => !(overflowIds.includes(n.id) && n.parentId === groupId))
-      .map((n) => {
-        if (n.id === groupId) {
-          const cfg = { ...gd.storyboard, gridRows: rows, gridCols: cols };
-          const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
-          return { ...n, width: size.width, height: size.height, data: { ...gd, cells: keep, storyboard: cfg } };
-        }
-        if (overflowIds.includes(n.id)) {
-          const idx = overflowIds.indexOf(n.id);
-          return { ...n, parentId: undefined, extent: undefined, hidden: false,
-            position: { x: gp.x + gw + 20, y: gp.y + idx * 200 } };
-        }
-        return n;
-      }),
+    nodes: st.nodes.map((n) => {
+      // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
+      if (n.id === groupId) {
+        const cfg = { ...gd.storyboard, gridRows: rows, gridCols: cols };
+        const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
+        return { ...n, width: size.width, height: size.height, data: { ...gd, cells: keep, storyboard: cfg } };
+      }
+      if (overflowIds.includes(n.id) && n.parentId === groupId) {
+        const idx = overflowIds.indexOf(n.id);
+        return { ...n, parentId: undefined, extent: undefined, hidden: false,
+          position: { x: gp.x + gw + 20, y: gp.y + idx * 200 } };
+      }
+      return n;
+    }),
     edges: st.edges, // 溢出节点若有连线已在组内隐藏；解出后 hidden 推导恢复显示
   }));
   get().applyGroupDerivations();
@@ -2436,6 +2456,8 @@ function applySnapshot(side: 'before' | 'after', entry: HistoryEntry) {
   // 双写 nodeStore（P0-1）：canvasStore.addNode/deleteNode 均同步 nodeStore，撤销/重做的逆操作
   // 必须遵守同一约定，否则两 store 节点集合漂移（幽灵节点/缺失节点）。
   // addNode 按 id 覆盖写 → 同时刷新 data/position；组节点与普通节点统一镜像（groupNodes 亦双写）。
+  // 注（P1-新3）：nodeStore.nodes 是 Record<string, AppNode>（nodeStore.ts:281，键=节点 id），
+  // 与 canvasStore.nodes（数组）结构不同——ns.nodes[id] 是 Record 访问，非数组索引。
   const ns = useNodeStore.getState();
   nodes.forEach((snap, i) => {
     const id = entry.nodeIds[i];
@@ -2783,6 +2805,7 @@ git commit -m "feat(web): group boundary handling — node deletion cleanup, exe
 ```ts
 // storyboard.service.spec.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { BadRequestException } from '@nestjs/common';
 
 const stitchQueue = { add: vi.fn().mockResolvedValue({ id: 'job1' }), getJob: vi.fn() };
 const prisma = { canvasProject: { findUnique: vi.fn() }, media: { findMany: vi.fn() } };
@@ -2803,9 +2826,20 @@ describe('StoryboardService.createStitchTask', () => {
     prisma.media.findMany.mockResolvedValue([{ id: 'f1' }, { id: 'f2' }, { id: 'f3' }, { id: 'f4' }]);
     const result = await service.createStitchTask('p1', validBody, 'u1');
     expect(result.taskId).toBe('job1');
+    expect(prisma.media.findMany).toHaveBeenCalledWith({
+      where: { id: { in: validBody.fileIds }, projectId: 'p1' }, // P2-新3：项目归属过滤
+      select: { id: true },
+    });
     expect(stitchQueue.add).toHaveBeenCalledWith('stitch', expect.objectContaining({
       projectId: 'p1', userId: 'u1', fileIds: validBody.fileIds, resolution: '2K',
     }));
+  });
+
+  it('fileIds 含不存在或不属于本项目的图片 → 400', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.media.findMany.mockResolvedValue([{ id: 'f1' }]); // 只命中 1/4
+    await expect(service.createStitchTask('p1', validBody, 'u1')).rejects.toThrow(/无效或不属于/);
+    expect(stitchQueue.add).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -2815,7 +2849,8 @@ describe('StoryboardService.createStitchTask', () => {
     ['非法分辨率', { ...validBody, resolution: '8K' }],
     ['图片数超过容量', { ...validBody, gridRows: 1, gridCols: 2 }],
   ])('%s → 400', async (_label, body) => {
-    await expect(service.createStitchTask('p1', body as any, 'u1')).rejects.toThrow();
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' }); // 否则先抛 404，格式校验分支未被测到
+    await expect(service.createStitchTask('p1', body as any, 'u1')).rejects.toThrow(BadRequestException);
   });
 
   it('项目不存在 → 404', async () => {
@@ -2892,6 +2927,15 @@ export class StoryboardService {
     }
     if (!VALID_RESOLUTIONS.includes(dto.resolution as any)) {
       throw new BadRequestException('非法分辨率');
+    }
+    // P2-新3：fileIds 存在性 + 项目归属校验（防跨项目越权取图；重复提交时 fail-fast 而非让 consumer 全失败）
+    const medias = await this.prisma.media.findMany({
+      where: { id: { in: dto.fileIds }, projectId },
+      select: { id: true },
+    });
+    const found = new Set(medias.map((m) => m.id));
+    if (dto.fileIds.some((f) => !found.has(f))) {
+      throw new BadRequestException('存在无效或不属于该项目的图片');
     }
     const job = await this.stitchQueue.add('stitch', { projectId, userId, ...dto });
     return { taskId: job.id!, status: 'PENDING' };
@@ -3130,7 +3174,9 @@ interface StitchJobData {
 
 const CONCURRENCY = 3;
 
-@Processor(STORYBOARD_STITCH_QUEUE, 2) // P1-4：4K 合成内存峰值高，限制 worker 并发
+@Processor(STORYBOARD_STITCH_QUEUE, { concurrency: 2 }) // P1-4/P1-新2：第二参数是 NestWorkerOptions 对象
+// （@nestjs/bullmq@10.2.1 processor.decorator.d.ts：Processor(queueName, workerOptions)），
+// 传数字是 TS 编译错误且并发不生效；4K 合成内存峰值高，限制 worker 并发
 export class StitchConsumer extends WorkerHost {
   constructor(
     private prisma: PrismaService,
@@ -3544,6 +3590,16 @@ Phase 5: T18 → T19（后端拼接）‖ T20 → T21（前端拼接，与 T18/T
 **P2 六项全部核实**：P2-1 揪出真 bug——useSocket 返回 ref 被 T20 当实例调用（`socket?.once?.` 静默短路，快路径死代码），已改 `.current`；P2-2 非矛盾——T4 用 nodeStore.addNode(AppNode)、T20 用 canvasStore.addNode(type,pos,data)，两 store 两 API 各自正确；P2-3 customSize 已确认存在且 ImageGenNode mount 恢复尺寸（nodeStore.ts:111/ImageGenNode.tsx:723）；P2-4 syncNodes=deleteMany+createMany（P0-5 修复据此落地）；P2-5 MinioService getObject(key)/upload(key,body,contentType) 与 T19 用法一致；P2-6 useSocket 连 /execution+join，T19 复用 ExecutionGateway 同命名空间，自洽。
 
 **自查新发现（审查之外，均已修复）**：N1 T10 mergeStoryboard 展开节点构造时 parentId 未设、追加未经 map → 永不挂组（gid 提前生成+构造即挂组）；N2 `/media/:id/content` 端点不存在（media.controller 仅 :id/url 与 by-key）→ 产物不返回 url，前端统一 useMediaUrl(fileId) 解析（T18/T19/T20）；N3 T15 测试导入不存在的 snapshotNodesEdges（改 useGroupHistory）；N4 T17 字段名 nodeProcesses/processType:'generate'（改 nodeProcessMap/'generating'）+ 删空自动解组全局扫描改按被删节点父组；N5 T20 测试组件外调 hook（renderHook+mock useSocket）；N6 T20 轮询无 try/catch + start 无返回值（补 catch + 返回 COMPLETED/FAILED/TIMEOUT 驱动 Toast）。
+
+## 修订记录 v3（第三轮深度走读 9 项裁定）
+
+**P0×2 全部成立、全部修复**：P0-新1 T12 resizeStoryboardGrid 的 `.filter` 把溢出节点直接删除（map 中的 overflow 分支成死代码，测试 `find('b')!` 必 TypeError）→ 去 filter 纯 map 改写 + 补存活/nodeStore 双写回归断言；P0-新2 T11 空宫格填充事件 `(data as any).groupId` 恒 undefined（GroupNodeData 无此字段）→ GroupNode 从 NodeProps 取 id 透传，detail 改用 props.id + 补 dispatchEvent detail 断言。
+
+**P1×2 成立、1 驳回**：P1-新1 成立（系 v2 修复 N1 引入的回归——expanded 归零 {0,0} 使字典序排序永远插队最前）→ 构造时暂留 multi 原位置排序、追加时统一归零 + 补 cells[0] 顺序断言；P1-新2 成立（已对照安装版 `@nestjs/bullmq@10.2.1` processor.decorator.d.ts：第二参数为 `NestWorkerOptions` 对象）→ 改 `@Processor(name, { concurrency: 2 })`；P1-新3 驳回——nodeStore.nodes 就是 `Record<string, AppNode>`（nodeStore.ts:281，`ns.nodes[id]` 是 Record 键访问），审查者把它与 canvasStore.nodes（数组）混淆；已在 T15 加结构说明注避免执行时误判。
+
+**P2×2 采纳、2 驳回**：P2-新2 采纳为验证注记（useMediaUrl 确无缓存；data.mediaUrl 短路覆盖常见场景，T22 走查大宫格卡顿再优化，勿提前优化）；P2-新3 采纳——T18 service 增 `media.findMany({ id in fileIds, projectId })` 归属校验（防跨项目越权 + fail-fast），测试补断言与 400 用例；P2-新1 驳回——AppNode 无 parentId 字段（nodeStore 不存父子关系），position 本就允许陈旧（拖动 onNodesChange 只同步 dimensions 不同步 position，既有惯例）；P2-新4 驳回——main.ts 无 `setGlobalPrefix`（grep 0 命中），project.controller.ts:6 即 `@Controller('api/projects')`，T18 前缀写法正确（二次核实）。
+
+**顺带修正**：T18 it.each 400 用例未 mock findUnique，实际走 404 分支、`toThrow()` 无模式为安慰剂测试 → 补 mock + `toThrow(BadRequestException)` 精确断言。
 
 
 
