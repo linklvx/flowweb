@@ -55,7 +55,7 @@
 ### Fix 3：组块重做（NormalGroupRenderer + GroupNode + canvasStore）
 
 **渲染层**（NormalGroupRenderer）：
-- 展开态：token 容器样式（单层虚线深色）；标题行实底浮层（`data.name ?? '分组'` + 徽标）；徽标计数响应式订阅（**for 循环计数** parentId===id，与 Fix 1 风格一致），增删子节点实时更新，不触碰用户改过的名字。
+- 展开态：token 容器样式（单层虚线深色）；标题行实底浮层（`data.name ?? '分组'` + 徽标）；徽标计数响应式订阅（**for 循环计数** parentId===id，与 Fix 1 风格一致），增删子节点实时更新，不触碰用户改过的名字。`groupNodes` 创建时**不再设初始 name**（原 `` `分组 N 个节点` `` 移除——默认名由渲染层兜底、数量由徽标动态承担，避免持久旧文案）。
 - 标题浮层 `pointerEvents: auto`（双击入口 + 单击可拖组）；与子节点的遮挡由 `GROUP_TOP_PADDING = 44` 布局预留解决（不采用编辑态切换 none——`pointer-events: none` 元素不是鼠标事件目标，会杀死双击）。
 - **双击编辑**：双击标题 → input（`nodrag nopan` 类防拖拽）→ Enter/失焦提交、Esc 取消 → `canvasStore.renameGroup(groupId, name)`。提交 guard：
   - 空值回退：`value.trim() || '分组'`（空输入视为重置默认名，不持久化空名）

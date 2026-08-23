@@ -302,8 +302,7 @@ describe('SelectionBoxOverlay', () => {
     rf.state.vp = { x: 0, y: 0, zoom: 1 };
     render(<SelectionBoxOverlay />);
     const toolbar = portal.children[1] as HTMLElement;
-    // top(=-16) - 12 - 40 <= 0 → 翻转：top + height + 12
-    expect(toolbar.style.top).toBe('48px'); // -16 + 112 + 12 = 108？见断言说明
+    expect(toolbar.style.top).toBe('68px'); // -16 + 72 + 12（height = 40×1 + 32 = 72）
   });
 
   it('原 MultiSelectToolbar 用例迁移：点击打组调用回调（onGroup）', () => {
@@ -321,7 +320,7 @@ describe('SelectionBoxOverlay', () => {
 });
 ```
 
-**断言说明（翻转用例）**：框 top=-16、height=112（40 bounds + 32 padding），翻转后工具条 top = -16+112+12 = 108。写测试时以实现公式核对：`isAbove = top - 12 - 40 > 0`；`top' = isAbove ? top - 12 : top + height + 12`。上面示例中 `48px` 是占位错误值——**以公式计算值 108px 为准**（执行时修正断言，两个 zoom=1 顶部用例均适用）。
+**断言说明**：翻转公式 `isAbove = top - 12 - 40 > 0`；`top' = isAbove ? top - 12 : top + height + 12`。zoom=1 用例：top=-16、height=40+32=72 → toolbarTop=68。zoom=2 坐标用例（width/height 断言）为 132/112，两用例数值已按公式核对。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -579,19 +578,11 @@ function GroupToolbarComponent(p: Props) {
         display: 'flex', alignItems: 'center', gap: 2, color: '#fff',
       }}
     >
-      {/* ↓ 原按钮内容原样保留（groupType 分支 / ConvertButton / Sep 均不动） */}
-      {p.groupType === 'normal' && (
-        <>
-          <button style={btn()} onClick={() => p.onCollapse(p.groupId)}>{p.collapsed ? '展开' : '折叠'}</button>
-          <Sep />
-          <button style={btn(p.executing)} disabled={p.executing} onClick={() => !p.executing && p.onExecute(p.groupId)}>▶ 整组执行</button>
-          <Sep />
-          <ConvertButton p={p} />
-          <Sep />
-          <button style={btn(p.executing)} disabled={p.executing} onClick={() => !p.executing && p.onUngroup(p.groupId)}>⧉ 解组</button>
-        </>
-      )}
-      {p.groupType === 'storyboard' && p.children}
+      {/* ↓↓↓ 从现有 GroupToolbar.tsx（git diff 前）原样逐字搬入以下两个分支的全部按钮 JSX，
+          含 btn 样式函数调用、Sep、ConvertButton 及所有 disabled/title/事件绑定，禁止重写 ↓↓↓ */}
+      {/* {p.groupType === 'normal' && ( ...现有完整按钮树... )} */}
+      {/* {p.groupType === 'storyboard' && p.children} */}
+      {/* ↑↑↑ 原样搬入结束 ↑↑↑ */}
     </div>,
     portalRoot,
   );
@@ -639,18 +630,23 @@ git commit -m "feat(web): 组工具条锚定组块上方+多选互斥（组视�
 
 ```tsx
 describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => {
+  it('groupNodes 创建不设初始 name（默认名由渲染层兜底「分组」，数量由徽标动态显示）', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
+    expect((g!.data as any).name).toBeUndefined();
+  });
+
   it('renameGroup 更新 canvasStore data.name 并入组历史（可 Ctrl+Z）', () => {
-    // 准备：canvasStore 两节点打组成组 g（用 groupNodes(['n1','n2'])），nodeStore mock 捕获
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     useCanvasStore.getState().renameGroup(gId, '我的分组');
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
     expect((g!.data as any).name).toBe('我的分组');
     // nodeStore 双写（localStorage 快照数据源）
     expect(mockNodeStore.nodes[gId].data.name).toBe('我的分组');
-    // 历史
+    // 历史：undo 恢复改名前（创建时无 name）
     expect(useGroupHistory.getState().canUndo()).toBe(true);
-    act(() => { useGroupHistory.getState().undo(); });
-    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组 2 个节点');
+    useGroupHistory.getState().undo();
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBeUndefined();
   });
 
   it('renameGroup 空串/同名 no-op 不产生历史', () => {
@@ -699,7 +695,15 @@ function syncGroupDataToNodeStore(groupId: string) {
 }
 ```
 
-实现（`toggleCollapse` 实现之前插入）：
+实现（`toggleCollapse` 实现之前插入；另改 groupNodes 初始 data）：
+
+groupNodes 创建处（canvasStore.ts:748）data 改为不设 name：
+```ts
+// 原：data: { groupType: 'normal', name: `分组 ${picked.length} 个节点` },
+data: { groupType: 'normal' },
+```
+（spec 决策：默认名固定「分组」由渲染层 `?? '分组'` 兜底，数量由徽标动态显示；初始持久名会让旧文案残留。既有断言初始名的测试同步更新。）
+
 ```ts
 renameGroup: (groupId, name) => {
   const final = name.trim() || '分组';
