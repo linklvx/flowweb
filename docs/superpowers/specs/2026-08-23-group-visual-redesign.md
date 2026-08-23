@@ -42,7 +42,10 @@
 新组件 `groups/SelectionBoxOverlay.tsx`，在 CanvasView 中替代现 `MultiSelectToolbar` 渲染位（其 JSX 内容——"已选 N 个节点"文字 + 打组下拉，**内容不动**——并入 overlay；原 `MultiSelectToolbar.tsx` 移除，`MultiSelectToolbar.test.tsx` 若有则用例迁移）。
 
 - **数据**：`useStore` 订阅 `nodeLookup` 取选中节点 internalNode 引用（浅比较）→ RF 内置 `getNodesBounds(internalNodes)` 得流坐标 bounds（internalNode 走 `positionAbsolute`，组内子节点不错位；项目未配置 nodeOrigin，默认 [0,0] 无需传参——已验证）。
-- **坐标**：`useViewport()` 变换屏幕坐标（同 `ImageNodeToolbar.tsx:323-324` 现有模式）：`left = (b.x − 16)·zoom + vpX` 等，宽高 `(b.w + 32)·zoom`。
+- **坐标**：`useViewport()` 变换屏幕坐标（同 `ImageNodeToolbar.tsx:323-324` 现有模式）。**padding 是屏幕像素常量，在流→屏幕变换后外加，不乘 zoom**（否则 zoom 0.5 时 16px 缩成 8px）：
+  - `left = b.x·zoom + vpX − 16`，`top = b.y·zoom + vpY − 16`
+  - `width = b.w·zoom + 32`，`height = b.h·zoom + 32`
+  - 边框 2px / 圆角 8px 为 CSS 属性天然屏幕坐标，无需处理
 - **框**：token 样式，本体 `pointerEvents: none`（拖拽走 RF 内置 nodesselection 层）；左上角胶囊徽标「N 项」。
 - **工具条**：框上方居中偏移 12px；**顶部边界保护**：`isAbove = screenY − 12 − TOOLBAR_HEIGHT(40) > 0`，不满足则翻转到框下方（`translateY(0)`）。高 40 为两工具条现有固定单行常量（入 token），不做 ref 测量。
 - **显示条件**：选中 ≥ 2（沿用）。
@@ -63,7 +66,7 @@
 **NodeResizer**（GroupNode.tsx 普通组分支，仅 selected 渲染）：
 - `minWidth 200 / minHeight 120`；CSS 隐藏边把手只留四角手柄（token 样式）：`.react-flow__resize-control:where(.line) { display: none; }`（全局样式文件，低特异性便于覆盖）。
 - 仅改容器尺寸，子节点不动（`extent: 'parent'` 保证不出界）。
-- **实时性**：依赖 RF v12 ResizeControl 默认拖拽实时 dimensions change 链路（走现有 onNodesChange，不手动 onResize setNodes——避免绕过 changes 链路双写）。**实现首日浏览器验证拖拽实时跟随**，异常才启用 onResize 手动同步后备。
+- **实时性**：依赖 RF v12 ResizeControl 默认拖拽实时 dimensions change 链路（不手动 onResize setNodes——避免绕过 changes 链路双写）。**已验证**：canvasStore.onNodesChange（canvasStore.ts:468）走标准 `applyNodeChanges` 且已有 dimensions → nodeStore 同步（472-479），dimensions type 不会被丢弃。仍保留实现首日浏览器验证拖拽实时跟随，异常才启用 onResize 后备。
 - onResizeEnd → `data.manuallyResized = true`。
 
 **store 层**（canvasStore）：
@@ -75,7 +78,7 @@
 
 ### Fix 4：GroupToolbar 重定位（普通组 + 分镜组统一）
 
-组件内部改造（已有 `groupId` prop）：`useInternalNode(groupId)` + `useViewport()` + portal 到 `node-toolbar-portal`，bounds 上方居中偏移 12px + 顶部翻转保护（同 Fix 2）。移除 `top-4 left-1/2` class。按钮内容不动。折叠/展开引起的 bounds 变化由 internalNode 订阅天然覆盖。
+组件内部改造（已有 `groupId` prop）：`useInternalNode(groupId)` + `useViewport()` + portal 到 `node-toolbar-portal`，bounds 上方居中偏移 12px + 顶部翻转保护（同 Fix 2；**偏移 12px 为屏幕常量，变换后外加不乘 zoom**）。移除 `top-4 left-1/2` class。按钮内容不动。折叠/展开引起的 bounds 变化由 internalNode 订阅天然覆盖。
 
 **与 SelectionBoxOverlay 互斥**：选中 ≥2 节点（含组节点）时两个工具条会叠——GroupToolbar 显示条件增加「**单独选中该组**」（选中计数 === 1，与 Fix 1 同模式），多选时隐藏。改 CanvasView 选中组判定处（310 行附近），组件两处用法（446/488）其余不动。
 
