@@ -22,7 +22,12 @@ vi.mock('./StoryboardGroupRenderer', () => ({
 }));
 
 vi.mock('./NormalGroupRenderer', () => ({
-  NormalGroupRenderer: () => <div data-testid="normal-renderer" />,
+  NormalGroupRenderer: (p: any) => <div data-testid="normal-renderer" data-groupid={p.groupId} />,
+}));
+
+vi.mock('@xyflow/react', async (orig) => ({
+  ...(await orig<typeof import('@xyflow/react')>()),
+  NodeResizer: (p: any) => <div data-testid="node-resizer" data-visible={String(p.isVisible)} />,
 }));
 
 describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
@@ -41,5 +46,15 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
       { id: 'c1', fileId: 'ref-1', status: 'idle' }, // url: undefined 序列化丢失
       { id: 'c2', fileId: 'gen-2', status: 'done', url: 'http://m/gen-2' },
     ]);
+  });
+});
+
+describe('GroupNode（普通组 NodeResizer）', () => {
+  it('普通组：选中时渲染 NodeResizer，未选中不渲染', () => {
+    setMockNodes([]);
+    const { rerender } = render(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={false} {...{} as any} />);
+    expect(screen.queryByTestId('node-resizer')).toBeNull();
+    rerender(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
+    expect(screen.getByTestId('node-resizer')).toBeTruthy();
   });
 });

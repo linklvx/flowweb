@@ -147,3 +147,6 @@ body {
     display: none;
   }
 }
+
+/* 组块四角手柄：隐藏边把手（.line），仅保留四角——低特异性便于覆盖 */
+.react-flow__resize-control:where(.line) { display: none; }

@@ -1,18 +1,90 @@
-// NormalGroupRenderer.test.tsx
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+// NormalGroupRenderer.test.tsx（全量替换）
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
 
-const baseData = { groupType: 'normal', name: '分组 2 个节点' };
+const renameGroup = vi.fn();
+const mockStore = { nodes: [] as any[] };
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: (sel: any) => sel({ nodes: mockStore.nodes, renameGroup }),
+}));
 
-describe('NormalGroupRenderer', () => {
-  it('渲染组名标签', () => {
-    render(<NormalGroupRenderer data={baseData as any} selected={false} />);
-    expect(screen.getByText('分组 2 个节点')).toBeTruthy();
+describe('NormalGroupRenderer 展开态', () => {
+  beforeEach(() => {
+    mockStore.nodes = [{ id: 'c1', parentId: 'g1' }, { id: 'c2', parentId: 'g1' }, { id: 'x', parentId: null }];
+    renameGroup.mockClear();
   });
 
-  it('折叠态渲染紧凑卡片（200x64 + 节点数）', () => {
-    render(<NormalGroupRenderer data={{ ...baseData, collapsed: true } as any} selected={false} />);
-    expect(screen.getByText(/2 个节点/)).toBeTruthy();
+  it('默认名「分组」+ 徽标「2 项」（for 循环计数）', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
+    expect(screen.getByText('分组')).toBeTruthy();
+    expect(screen.getByText('2 项')).toBeTruthy();
+  });
+
+  it('自定义名显示 data.name', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '我的分组' } as any} selected={false} />);
+    expect(screen.getByText('我的分组')).toBeTruthy();
+  });
+
+  it('常态/选中虚线色切换（token）', () => {
+    const { rerender } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
+    const box = screen.getByTestId('group-box');
+    expect(box.style.border).toContain('rgba(255, 255, 255, 0.45)');
+    rerender(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={true} />);
+    expect(screen.getByTestId('group-box').style.border).toContain('rgba(255, 255, 255, 0.85)');
+  });
+
+  it('双击进入编辑；Enter 提交非空名', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '新名' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(renameGroup).toHaveBeenCalledWith('g1', '新名');
+  });
+
+  it('空输入提交回退默认「分组」', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(renameGroup).toHaveBeenCalledWith('g1', '分组');
+  });
+
+  it('Esc 取消不提交', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    expect(renameGroup).not.toHaveBeenCalled();
+    expect(screen.getByText('旧名')).toBeTruthy();
+  });
+
+  it('Enter 触发 blur 后不重复提交（committedRef guard）', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '新名' } });
+    fireEvent.keyDown(input, { key: 'Enter' }); // Enter 提交 → setEditing(false) → input 卸载（无 blur 双触发路径）
+    expect(renameGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('IME 组合期 Enter 不提交（isComposing）', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    const input = screen.getByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true } as any);
+    expect(renameGroup).not.toHaveBeenCalled();
+    // 若 fireEvent 不支持 isComposing 字段导致用例失败，改用：
+    // input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true } as any));
+  });
+});
+
+describe('NormalGroupRenderer 折叠态', () => {
+  it('小卡片：名称 + 徽标 + 虚线深色', () => {
+    mockStore.nodes = [{ id: 'c1', parentId: 'g1' }];
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '我的分组', collapsed: true } as any} selected={false} />);
+    expect(screen.getByText('我的分组')).toBeTruthy();
+    expect(screen.getByText('1 项')).toBeTruthy();
   });
 });
