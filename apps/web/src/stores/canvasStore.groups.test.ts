@@ -33,14 +33,14 @@ describe('groupNodes', () => {
     const group = s.nodes.find((n) => n.id === groupId)!;
     expect(group.type).toBe('group');
     expect(group.data.groupType).toBe('normal');
-    // 包围盒 = (80,30) ~ (820,370)（外扩20px）
-    expect(group.position).toEqual({ x: 80, y: 30 });
+    // 包围盒 = (80,6) ~ (820,370)（外扩20px，顶部44px）
+    expect(group.position).toEqual({ x: 80, y: 6 });
     expect(group.width).toBe(740);
-    expect(group.height).toBe(340);
+    expect(group.height).toBe(364); // 340 + (44-20) = 364
     const child1 = s.nodes.find((n) => n.id === 'n1')!;
     expect(child1.parentId).toBe(groupId);
     expect(child1.extent).toBe('parent');
-    expect(child1.position).toEqual({ x: 20, y: 70 }); // 相对组左上角
+    expect(child1.position).toEqual({ x: 20, y: 94 }); // 相对组左上角：100 - 6
   });
 
   it('选中含 group 节点时抛错（禁止嵌套）', () => {
@@ -208,5 +208,54 @@ describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => 
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).manuallyResized).toBe(true);
     const ns = useNodeStore.getState();
     expect((ns.nodes[gId].data as any).manuallyResized).toBe(true);
+  });
+});
+
+describe('组尺寸持久化行为', () => {
+  it('折叠保存 savedSize；无手动标记展开 refit 重算', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    const before = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
+    const beforeWidth = before.width ?? 0;
+    const beforeHeight = before.height ?? 0;
+    useCanvasStore.getState().toggleCollapse(gId); // 折叠
+    const collapsed = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
+    expect((collapsed.data as any).collapsed).toBe(true);
+    expect(collapsed.width).toBe(200);
+    expect((collapsed.data as any).savedSize).toEqual({ width: beforeWidth, height: beforeHeight });
+    useCanvasStore.getState().toggleCollapse(gId); // 展开 → refit
+    const expanded = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
+    expect((expanded.data as any).collapsed).toBe(false);
+    expect(expanded.width).toBeGreaterThan(200);
+  });
+
+  it('manuallyResized 组展开恢复 savedSize（不 refit）', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.getState().toggleCollapse(gId); // 折叠（savedSize 已存）
+    useCanvasStore.getState().markManuallyResized(gId);
+    // 模拟用户在折叠前手动 resize 过：直接改 savedSize 为自定义值
+    useCanvasStore.setState({ nodes: useCanvasStore.getState().nodes.map((n) =>
+      n.id === gId ? { ...n, data: { ...n.data, savedSize: { width: 777, height: 555 } } } : n) });
+    useCanvasStore.getState().toggleCollapse(gId); // 展开
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
+    expect(g.width).toBe(777);
+    expect(g.height).toBe(555);
+  });
+
+  it('convertGroup 清除 manuallyResized/savedSize，默认名「分组」', () => {
+    // convertGroup normal→storyboard 需要图片节点，这里手工播种图片节点组
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 220, data: { groupType: 'normal', manuallyResized: true, savedSize: { width: 999, height: 888 }, name: '旧名' } },
+        { id: 'img1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'img2', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+      ] as any,
+      edges: [], selectedId: null,
+    });
+    useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    useCanvasStore.getState().convertGroup('g1', 'normal');
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
+    expect((g.data as any).manuallyResized).toBeUndefined();
+    expect((g.data as any).savedSize).toBeUndefined();
+    expect((g.data as any).name).toBe('分组');
   });
 });

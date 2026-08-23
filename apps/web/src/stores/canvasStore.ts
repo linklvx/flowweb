@@ -1186,7 +1186,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
-          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: `分组 ${gd.cells.length} 个节点` } };
+          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
           const idx = gd.cells.indexOf(n.id);
           if (idx === -1 || n.parentId !== groupId) return n;
           const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
@@ -1226,14 +1226,34 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
 
   toggleCollapse: (groupId) => {
     set((st) => ({
-      nodes: st.nodes.map((n) => n.id === groupId
-        ? { ...n, data: { ...n.data, collapsed: !(n.data as any).collapsed },
-            ...(!(n.data as any).collapsed ? { width: 200, height: 64 } : {}) }
-        : n),
+      nodes: st.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        const collapsing = !(n.data as any).collapsed;
+        if (collapsing) {
+          return {
+            ...n,
+            data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
+            width: 200, height: 64,
+          };
+        }
+        return { ...n, data: { ...n.data, collapsed: false } };
+      }),
     }));
-    if (get().nodes.find((n) => n.id === groupId && !(n.data as any).collapsed)) {
-      get().refitGroupBounds(groupId);
+    const g = get().nodes.find((n) => n.id === groupId);
+    if (g && !(g.data as any).collapsed) {
+      const d = g.data as any;
+      if (d.manuallyResized && d.savedSize) {
+        // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
+        set((st) => ({
+          nodes: st.nodes.map((n) => (n.id === groupId
+            ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
+            : n)),
+        }));
+      } else {
+        get().refitGroupBounds(groupId);
+      }
     }
+    syncGroupDataToNodeStore(groupId);
     get().applyGroupDerivations();
   },
 

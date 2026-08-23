@@ -52,12 +52,21 @@ describe('sortNodesByPosition', () => {
 });
 
 describe('calcGroupBounds', () => {
-  it('包围盒外扩 20px', () => {
+  it('包围盒外扩 20px，顶部预留 44px（标题行）', () => {
     const bounds = calcGroupBounds([
       { x: 100, y: 200, width: 300, height: 150 },
       { x: 500, y: 100, width: 300, height: 150 },
     ]);
-    expect(bounds).toEqual({ x: 80, y: 80, width: 740, height: 290 });
+    // minY = 100 - 44 = 56, maxY = 350 + 20 = 370, height = 314
+    expect(bounds).toEqual({ x: 80, y: 56, width: 740, height: 314 });
+  });
+
+  it('顶部预留 GROUP_TOP_PADDING=44（标题行空间），其余 20', () => {
+    const b = calcGroupBounds([{ x: 100, y: 100, width: 200, height: 100 }]);
+    expect(b.x).toBe(80);   // 100 - 20
+    expect(b.y).toBe(56);   // 100 - 44
+    expect(b.width).toBe(240);
+    expect(b.height).toBe(164); // 100 + 20 + 44
   });
 });
 

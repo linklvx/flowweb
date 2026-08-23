@@ -74,7 +74,8 @@ async function loadProjectIntoStore(
   useCanvasStore.getState().applyGroupDerivations();
   // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
   for (const g of useCanvasStore.getState().nodes.filter(
-    (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
+    (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
+      && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
   )) {
     useCanvasStore.getState().refitGroupBounds(g.id);
   }
