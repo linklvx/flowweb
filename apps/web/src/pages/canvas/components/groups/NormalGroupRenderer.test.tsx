@@ -35,6 +35,14 @@ describe('NormalGroupRenderer 展开态', () => {
     expect(screen.getByTestId('group-box').style.border).toBe('');
   });
 
+  it('标题浮层在容器外右上角（translateY(-100%) 外浮，节点标题同款）', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
+    const title = screen.getByText('分组').parentElement as HTMLElement;
+    expect(title.style.transform).toBe('translateY(-100%)');
+    expect(title.style.top).toBe('0px');
+    expect(title.style.right).toBe('0px');
+  });
+
   it('双击进入编辑；Enter 提交非空名', () => {
     render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
     fireEvent.doubleClick(screen.getByText('旧名'));

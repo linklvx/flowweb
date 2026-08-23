@@ -33,14 +33,14 @@ describe('groupNodes', () => {
     const group = s.nodes.find((n) => n.id === groupId)!;
     expect(group.type).toBe('group');
     expect(group.data.groupType).toBe('normal');
-    // 包围盒 = (80,6) ~ (820,370)（外扩20px，顶部44px）
-    expect(group.position).toEqual({ x: 80, y: 6 });
+    // 包围盒 = (80,30) ~ (820,370)（四周外扩20px，标题外浮容器外顶部无预留）
+    expect(group.position).toEqual({ x: 80, y: 30 });
     expect(group.width).toBe(740);
-    expect(group.height).toBe(364); // 340 + (44-20) = 364
+    expect(group.height).toBe(340);
     const child1 = s.nodes.find((n) => n.id === 'n1')!;
     expect(child1.parentId).toBe(groupId);
     expect(child1.extent).toBe('parent');
-    expect(child1.position).toEqual({ x: 20, y: 94 }); // 相对组左上角：100 - 6
+    expect(child1.position).toEqual({ x: 20, y: 70 }); // 相对组左上角：100 - 30
   });
 
   it('选中含 group 节点时抛错（禁止嵌套）', () => {

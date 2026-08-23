@@ -5,8 +5,6 @@ export const CELL_WIDTH = 320;
 export const CELL_GAP = 2;
 export const CONVERT_GAP = 40;
 export const GROUP_PADDING = 20;
-/** 顶部额外预留 = 标题行空间（标题浮层在容器内左上，子节点相对坐标渲染推不开，必须靠 bounds 预留） */
-export const GROUP_TOP_PADDING = 44;
 
 export const ASPECT_RATIO_MAP: Record<AspectRatio, number> = {
   '21:9': 21 / 9, '16:9': 16 / 9, '9:16': 9 / 16,
@@ -53,7 +51,7 @@ export function sortNodesByPosition<T extends { positionX: number; positionY: nu
 
 export function calcGroupBounds(items: { x: number; y: number; width: number; height: number }[]) {
   const minX = Math.min(...items.map((i) => i.x)) - GROUP_PADDING;
-  const minY = Math.min(...items.map((i) => i.y)) - GROUP_TOP_PADDING;
+  const minY = Math.min(...items.map((i) => i.y)) - GROUP_PADDING;
   const maxX = Math.max(...items.map((i) => i.x + i.width)) + GROUP_PADDING;
   const maxY = Math.max(...items.map((i) => i.y + i.height)) + GROUP_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };

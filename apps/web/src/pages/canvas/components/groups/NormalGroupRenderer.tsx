@@ -76,7 +76,8 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
             else if (e.key === 'Escape') cancel();
           }}
           style={{
-            position: 'absolute', top: 8, left: 12, width: 140, zIndex: 2,
+            position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)',
+            width: 140, zIndex: 2,
             fontSize: 12, color: '#fff', background: '#1a1a1a',
             border: '1px solid #555', borderRadius: 4, padding: '2px 6px', outline: 'none',
           }}
@@ -85,10 +86,9 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
         <div
           onDoubleClick={() => { setDraft(name); setEditing(true); }}
           style={{
-            position: 'absolute', top: 8, left: 12, zIndex: 2,
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: '#0a0a0a', padding: '0 6px',
-            fontSize: 12, color: '#cccccc', whiteSpace: 'nowrap',
+            position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)', zIndex: 2,
+            display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px',
+            fontSize: 12, color: '#999', whiteSpace: 'nowrap',
           }}
         >
           <span>{name}</span>
