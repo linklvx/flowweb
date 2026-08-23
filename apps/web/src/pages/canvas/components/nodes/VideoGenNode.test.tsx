@@ -44,6 +44,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
     ...actual,
+    useStore: (selector: any) => selector({ nodes: mockGetNodes() }),
     useReactFlow: vi.fn(() => ({
       getNodes: mockGetNodes,
       setNodes: mockSetNodes,

@@ -13,6 +13,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       position: { x: 0, y: 0 },
       measured: { width: 500, height: 500 },
     })),
+    useStore: (selector: any) => selector({ nodes: mockGetNodes() }),
     useReactFlow: vi.fn(() => ({
       fitView: mockFitView,
       screenToFlowPosition: vi.fn((p: any) => p),

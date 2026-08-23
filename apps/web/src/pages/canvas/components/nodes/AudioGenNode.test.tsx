@@ -27,14 +27,14 @@ const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStor
 
 const mockUpdateConfig = vi.fn();
 
-// getNodes mock — isSingleSelected 计算用
-const mockGetNodes = vi.fn(() => [{ id: 'a1', selected: true } as any]);
+// useStore mock — useIsSingleSelected 计算用
+const mockStoreNodes = [{ id: 'a1', selected: true } as any];
 
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
     ...actual,
-    useReactFlow: () => ({ getNodes: () => mockGetNodes() }),
+    useStore: (selector: any) => selector({ nodes: mockStoreNodes }),
   };
 });
 

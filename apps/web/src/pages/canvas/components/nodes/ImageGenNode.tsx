@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type NodeProps } from '@xyflow/react';
+import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -73,8 +74,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const isSplitting = useCanvasStore((s) => s.nodeProcessMap[id]?.processType === 'splitting');
   const { zoom, x: vpX, y: vpY } = useViewport();
   const { fitView, getNodes, setNodes, setCenter } = useReactFlow();
-  // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
-  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const isSingleSelected = useIsSingleSelected(selected);
   const internalNode = useInternalNode(id);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;

@@ -26,8 +26,8 @@ const buildChain = () => {
   };
 };
 
-// getNodes mock — mutable so per-test overrides are clean (no module mutation)
-const mockGetNodes = vi.fn(() => [{ id: 'n1', selected: true }]);
+// useStore mock — useIsSingleSelected 计算用
+let mockStoreNodes = [{ id: 'n1', selected: true }];
 
 // Spy on NodeResizeControl callbacks
 const mockOnResizeStart = vi.fn();
@@ -36,8 +36,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@xyflow/react')>();
   return {
     ...mod,
+    useStore: (selector: any) => selector({ nodes: mockStoreNodes }),
     useReactFlow: () => ({
-      getNodes: () => mockGetNodes(),
       zoom: 1,
     }),
     // Mock useViewport and useInternalNode for child toolbar Portal rendering
@@ -107,8 +107,8 @@ describe('TextInputNode (Tiptap)', () => {
     mockEditorDestroy.mockClear();
     // nodeStore mock
     mockUpdateText.mockClear();
-    // Resize mocks
-    mockGetNodes.mockReturnValue([{ id: 'n1', selected: true }]);
+    // Resize mocks - restore single-selection default
+    mockStoreNodes = [{ id: 'n1', selected: true }];
     mockOnResizeStart.mockClear();
     mockOnResizeEnd.mockClear();
   });
@@ -242,13 +242,13 @@ describe('TextInputNode (Tiptap)', () => {
     });
 
     it('should not render resize controls when multiple nodes are selected', () => {
-      mockGetNodes.mockReturnValue([
+      mockStoreNodes = [
         { id: 'n1', selected: true },
         { id: 'n2', selected: true },
-      ]);
+      ];
       renderNode({ selected: true });
       expect(screen.queryByTestId('resize-control-top-left')).toBeNull();
-      mockGetNodes.mockReturnValue([{ id: 'n1', selected: true }]);
+      mockStoreNodes = [{ id: 'n1', selected: true }];
     });
 
     it('should not render inner visual handle (clean transparent style)', () => {

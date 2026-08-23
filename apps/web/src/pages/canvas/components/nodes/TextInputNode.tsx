@@ -1,5 +1,6 @@
 import { memo, useCallback, useState, useRef, useEffect } from 'react';
-import { NodeResizeControl, useReactFlow, type NodeProps } from '@xyflow/react';
+import { NodeResizeControl, type NodeProps } from '@xyflow/react';
+import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -24,10 +25,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   const appNode = useNodeStore((s) => s.nodes[id]);
   const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
 
-  const { getNodes } = useReactFlow();
   const nodeWidth = appNode?.width ?? 300;
   const nodeHeight = appNode?.height ?? 300;
-  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const isSingleSelected = useIsSingleSelected(selected);
 
   const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 

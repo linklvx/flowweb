@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useCallback, useRef } from 'react';
-import { useReactFlow, type NodeProps } from '@xyflow/react';
+import { type NodeProps } from '@xyflow/react';
+import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -16,9 +17,7 @@ const NODE_HEIGHT = 280;
 function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const { getNodes } = useReactFlow();
-  // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
-  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const isSingleSelected = useIsSingleSelected(selected);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceAudio = nodeData?.referenceAudio;

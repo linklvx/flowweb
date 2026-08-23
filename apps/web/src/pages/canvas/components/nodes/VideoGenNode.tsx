@@ -1,5 +1,6 @@
-import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
+import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { io } from 'socket.io-client';
 import { message } from 'antd';
@@ -58,10 +59,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const { getNodes, setNodes } = useReactFlow();
-  const isSingleSelected = useMemo(
-    () => selected && getNodes().filter((n) => n.selected).length === 1,
-    [selected, getNodes],
-  );
+  const isSingleSelected = useIsSingleSelected(selected);
   const status = nodeData?.status ?? 'idle';
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;

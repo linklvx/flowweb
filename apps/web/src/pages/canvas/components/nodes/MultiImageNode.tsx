@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
-import { useReactFlow, type NodeProps } from '@xyflow/react';
+import { type NodeProps } from '@xyflow/react';
+import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -73,9 +74,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const setMainImageIndexStore = useNodeStore((s) => s.setMainImageIndex);
   const toggleExpanded = useNodeStore((s) => s.toggleExpanded);
   const updateMultiImageNodeStatus = useNodeStore((s) => s.updateMultiImageNodeStatus);
-  const { getNodes } = useReactFlow();
-  // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
-  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
+  const isSingleSelected = useIsSingleSelected(selected);
 
   const images: any[] = nodeData?.images ?? [];
   const mainImageIndex: number = nodeData?.mainImageIndex ?? 0;
