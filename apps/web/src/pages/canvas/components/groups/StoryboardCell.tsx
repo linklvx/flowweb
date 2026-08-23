@@ -6,7 +6,6 @@ export interface CellNodeInfo { id: string; fileId?: string; status?: string; ur
 
 interface Props {
   index: number;
-  cellWidth: number; cellHeight: number;
   info?: CellNodeInfo;
   showIndex: boolean;
   selectedCell: number | null;
@@ -19,8 +18,9 @@ function StoryboardCellComponent(p: Props) {
   // /flowai 代理改写），不是图片流，不能直接作 img src；data.mediaUrl（展开/填充时已写入）优先短路请求
   const { url: resolvedUrl } = useMediaUrl(p.info?.fileId ?? null);
   const imgSrc = p.info?.url ?? resolvedUrl ?? undefined;
+  // 100% 填充 1fr 轨道：固定像素会被轨道 auto-min 下限撑破容器（grid 溢出组边框）
   const style: React.CSSProperties = {
-    width: p.cellWidth, height: p.cellHeight, position: 'relative',
+    width: '100%', height: '100%', position: 'relative',
     border: p.selectedCell === p.index ? '2px solid #4ade80' : 'none',
     overflow: 'hidden',
   };

@@ -1,6 +1,5 @@
 // StoryboardGroupRenderer.tsx — 完整重写（替换 Task 5 占位）
 import { memo, useState, useEffect } from 'react';
-import { calcStoryboardSize } from '@/utils/groupLayout';
 import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -11,7 +10,6 @@ function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Pro
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
   const cfg = data.storyboard!;
-  const { cellWidth, cellHeight } = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
   const total = cfg.gridRows * cfg.gridCols;
   const byId = new Map(cellNodes.map((c) => [c.id, c]));
 
@@ -35,9 +33,11 @@ function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Pro
 
   return (
     <div style={{
-      width: '100%', height: '100%',
+      // absolute inset:0 覆盖整个节点盒——RF .react-flow__node-group 自带 padding:10px，
+      // 静态 100% 尺寸会相对 padding 后的内容盒布局导致格子溢出节点边界
+      position: 'absolute', inset: 0,
       border: `1px solid ${selected ? '#4ade80' : '#333333'}`, borderRadius: 8,
-      background: '#1a1a1a', position: 'relative',
+      background: '#1a1a1a',
       display: 'grid',
       gridTemplateColumns: `repeat(${cfg.gridCols}, 1fr)`,
       gridTemplateRows: `repeat(${cfg.gridRows}, 1fr)`,
@@ -47,7 +47,7 @@ function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Pro
         const nodeId = data.cells?.[i];
         const info = nodeId ? byId.get(nodeId) : undefined;
         return (
-          <StoryboardCell key={i} index={i} cellWidth={cellWidth} cellHeight={cellHeight}
+          <StoryboardCell key={i} index={i}
             info={info} showIndex={cfg.showIndex}
             selectedCell={selectedCell} onSelectCell={setSelectedCell}
             onFillEmpty={(idx) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: id, index: idx } }))} />

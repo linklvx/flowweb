@@ -63,4 +63,14 @@ describe('StoryboardGroupRenderer', () => {
     expect(evt).toBeTruthy();
     expect((evt as CustomEvent).detail.groupId).toBe('g1'); // 来自 NodeProps.id，非 data.groupId
   });
+
+  it('根容器 absolute inset:0 + 格子 100% 填充轨道（RF .react-flow__node-group 默认 padding 10px，静态 100% 尺寸 + 固定格子像素会溢出节点盒）', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.position).toBe('absolute');
+    expect(root.style.inset).toBe('0');
+    const cell = root.children[0] as HTMLElement; // 第一个 StoryboardCell 根 div
+    expect(cell.style.width).toBe('100%');
+    expect(cell.style.height).toBe('100%');
+  });
 });
