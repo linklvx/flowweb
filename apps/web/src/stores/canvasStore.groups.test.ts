@@ -185,7 +185,7 @@ describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => 
     expect((g!.data as any).name).toBe('我的分组');
     // nodeStore 双写（localStorage 快照数据源）
     const ns = useNodeStore.getState();
-    expect(ns.nodes[gId].data.name).toBe('我的分组');
+    expect((ns.nodes[gId].data as any).name).toBe('我的分组');
     // 历史：undo 恢复改名前（创建时无 name）
     expect(useGroupHistory.getState().canUndo()).toBe(true);
     useGroupHistory.getState().undo();
