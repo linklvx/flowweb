@@ -19,6 +19,15 @@ import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesBy
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { useGroupHistory, captureBefore, captureAfter } from './groupHistory';
 
+/** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore，undo/redo 由 groupHistory 自带双写） */
+function syncGroupDataToNodeStore(groupId: string) {
+  const ns = useNodeStore.getState();
+  const appNode = ns.nodes[groupId];
+  const group = useCanvasStore.getState().nodes.find((n) => n.id === groupId);
+  if (!appNode || !group) return;
+  useNodeStore.setState({ nodes: { ...ns.nodes, [groupId]: { ...appNode, data: group.data as any } } });
+}
+
 let counter = 0;
 function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${++counter}`;
@@ -112,6 +121,8 @@ interface CanvasState {
   ungroup: (groupId: string) => void;
   addToGroup: (groupId: string, nodeId: string) => void;
   removeNodeFromGroup: (groupId: string, nodeId: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  markManuallyResized: (groupId: string) => void;
   toggleCollapse: (groupId: string) => void;
   refitGroupBounds: (groupId: string) => void;
   dropIntoGroup: (nodeId: string, groupId: string) => void;
@@ -746,7 +757,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       id, type: 'group',
       position: { x: bounds.x, y: bounds.y },
       width: bounds.width, height: bounds.height,
-      data: { groupType: 'normal', name: `分组 ${picked.length} 个节点` },
+      data: { groupType: 'normal' },
       selected: true,
     };
     setWithParentOrder((st) => ({
@@ -1190,6 +1201,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
     // TD-15: history record — after snapshot + record
     const after = captureAfter(allNodeIds, []);
     useGroupHistory.getState().record({ label: '转换组类型', nodeIds: allNodeIds, edgeIds: [], before, after });
+  },
+
+  renameGroup: (groupId, name) => {
+    const final = name.trim() || '分组';
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group || (group.data as any).name === final) return;
+    const before = captureBefore([groupId], []);
+    set((st) => ({
+      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, data: { ...n.data, name: final } } : n)),
+    }));
+    syncGroupDataToNodeStore(groupId);
+    const after = captureAfter([groupId], []);
+    useGroupHistory.getState().record({ label: '重命名组', nodeIds: [groupId], edgeIds: [], before, after });
+  },
+
+  markManuallyResized: (groupId) => {
+    set((st) => ({
+      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, data: { ...n.data, manuallyResized: true } } : n)),
+    }));
+    syncGroupDataToNodeStore(groupId);
   },
 
   toggleCollapse: (groupId) => {

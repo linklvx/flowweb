@@ -170,3 +170,43 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
     expectParentBeforeChild(groupId, 'n2');
   });
 });
+
+describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => {
+  it('groupNodes 创建不设初始 name（默认名由渲染层兜底「分组」，数量由徽标动态显示）', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
+    expect((g!.data as any).name).toBeUndefined();
+  });
+
+  it('renameGroup 更新 canvasStore data.name 并入组历史（可 Ctrl+Z）', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.getState().renameGroup(gId, '我的分组');
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
+    expect((g!.data as any).name).toBe('我的分组');
+    // nodeStore 双写（localStorage 快照数据源）
+    const ns = useNodeStore.getState();
+    expect(ns.nodes[gId].data.name).toBe('我的分组');
+    // 历史：undo 恢复改名前（创建时无 name）
+    expect(useGroupHistory.getState().canUndo()).toBe(true);
+    useGroupHistory.getState().undo();
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBeUndefined();
+  });
+
+  it('renameGroup 空串/同名 no-op 不产生历史', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    const before = useGroupHistory.getState().pastLength();
+    useCanvasStore.getState().renameGroup(gId, '');
+    // '' 回退由渲染层做，store 层收到 '' 时存 '分组'
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
+    useCanvasStore.getState().renameGroup(gId, '分组');
+    expect(useGroupHistory.getState().pastLength()).toBe(before + 1); // 仅第一次生效
+  });
+
+  it('markManuallyResized 设标记并双写 nodeStore', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.getState().markManuallyResized(gId);
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).manuallyResized).toBe(true);
+    const ns = useNodeStore.getState();
+    expect((ns.nodes[gId].data as any).manuallyResized).toBe(true);
+  });
+});
