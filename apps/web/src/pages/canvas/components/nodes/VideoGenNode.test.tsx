@@ -517,8 +517,8 @@ describe('VideoGenNode', () => {
       { id: 'v2', type: 'videoGen', selected: true } as any,
     ]);
     renderNode(true);
-    // Try to open HD panel - won't render due to !isSingleSelected
-    fireEvent.click(screen.getByText('高清'));
+    // 多选时工具条（含高清入口）整体隐藏，HD panel 不可达
+    expect(screen.queryByText('高清')).not.toBeInTheDocument();
     expect(screen.queryByText('hd panel')).not.toBeInTheDocument();
     // Restore
     mockGetNodes.mockReturnValue([{ id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, width: 548, height: 309, selected: true, data: getMockNodeData() }]);

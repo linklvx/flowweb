@@ -27,6 +27,17 @@ const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStor
 
 const mockUpdateConfig = vi.fn();
 
+// getNodes mock — isSingleSelected 计算用
+const mockGetNodes = vi.fn(() => [{ id: 'a1', selected: true } as any]);
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    useReactFlow: () => ({ getNodes: () => mockGetNodes() }),
+  };
+});
+
 vi.mock('@/hooks/useMediaUrl', () => ({
   useMediaUrl: (fileId: string | null | undefined) => {
     if (fileId) return { url: `http://media/${fileId}`, loading: false, error: null };

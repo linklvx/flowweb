@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
-import { type NodeProps } from '@xyflow/react';
+import { useReactFlow, type NodeProps } from '@xyflow/react';
 import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -73,6 +73,9 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const setMainImageIndexStore = useNodeStore((s) => s.setMainImageIndex);
   const toggleExpanded = useNodeStore((s) => s.toggleExpanded);
   const updateMultiImageNodeStatus = useNodeStore((s) => s.updateMultiImageNodeStatus);
+  const { getNodes } = useReactFlow();
+  // Perf note: getNodes().filter() is O(n) per render. Acceptable for <500 nodes.
+  const isSingleSelected = selected && getNodes().filter((n) => n.selected).length === 1;
 
   const images: any[] = nodeData?.images ?? [];
   const mainImageIndex: number = nodeData?.mainImageIndex ?? 0;
@@ -198,7 +201,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         }}
       />
 
-      {selected && (
+      {isSingleSelected && (
         <button
           className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
           style={{ bottom: 'calc(100% + 28px)' }}
@@ -411,7 +414,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         />
       </div>
 
-      {selected && (
+      {isSingleSelected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <MultiImageConfigPanel nodeId={id} />
         </div>

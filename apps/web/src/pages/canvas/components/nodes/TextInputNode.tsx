@@ -86,7 +86,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   return (
     <div className="relative canvas-node">
       {/* Toolbar — above title bar, shown when selected */}
-      {selected && (
+      {isSingleSelected && (
         <TextNodeToolbar
           nodeId={id}
           editor={editor}
@@ -197,7 +197,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
       {/* Source handle — outside card body to avoid overflow clipping */}
       <NodeHandle type="source" testId="source-handle" />
 
-      {selected && (
+      {isSingleSelected && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <TextConfigPanel nodeId={id} />
         </div>

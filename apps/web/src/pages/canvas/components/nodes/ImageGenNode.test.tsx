@@ -174,6 +174,8 @@ describe('ImageGenNode', () => {
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockActiveNodeId = null;
     mockCancelRequestedAt = 0;
+    // mockReturnValue 不被 clearAllMocks 清除 → 显式恢复单选默认
+    mockGetNodes.mockReturnValue([{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
   });
 
   const renderNode = (selected = false) => {
@@ -288,6 +290,39 @@ describe('ImageGenNode', () => {
     const container = uploadBtn.closest('.nodrag');
     expect(container).toBeTruthy();
     expect(container?.classList.contains('nopan')).toBe(true);
+  });
+
+  // ---- Multi-selection: hide single-node toolbar (Bug A) ----
+
+  it('多选（选中数≥2）时不渲染悬浮上传按钮', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+    mockGetNodes.mockReturnValue([
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData },
+      { id: 'img2', type: 'imageGen', position: { x: 600, y: 0 }, width: 500, height: 500, selected: true, data: {} },
+    ]);
+    renderNode(true);
+    expect(screen.queryByText('上传')).not.toBeInTheDocument();
+  });
+
+  it('多选时不渲染底部配置面板', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+    mockGetNodes.mockReturnValue([
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData },
+      { id: 'img2', type: 'imageGen', position: { x: 600, y: 0 }, width: 500, height: 500, selected: true, data: {} },
+    ]);
+    renderNode(true);
+    // ImageConfigPanel would have model/ratio selectors — should not be present
+    expect(screen.queryByText('模型')).not.toBeInTheDocument();
+  });
+
+  it('多选时选中边框保留（inline boxShadow）', () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+    mockGetNodes.mockReturnValue([
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData },
+      { id: 'img2', type: 'imageGen', position: { x: 600, y: 0 }, width: 500, height: 500, selected: true, data: {} },
+    ]);
+    const { container } = renderNode(true);
+    expect(container.innerHTML).toContain('box-shadow: 0 0 0 3px #9CA3AF');
   });
 
   it('shows replace button when image is user-uploaded (referenceImage set, no fileId)', () => {

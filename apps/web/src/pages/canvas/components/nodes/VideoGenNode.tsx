@@ -647,7 +647,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       />
 
       {/* Floating upload button — only when selected and no video */}
-      {selected && !hasMedia && (
+      {isSingleSelected && !hasMedia && (
         <button
           className="nodrag nopan absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#222222]/80 backdrop-blur-lg text-[#ccc] px-3 py-2"
           style={{ bottom: 'calc(100% + 28px)' }}
@@ -673,7 +673,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
-      <VideoNodeToolbar show={selected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} onHD={() => setHdPanelOpen(prev => !prev)} hdPanelOpen={hdPanelOpen} />
+      <VideoNodeToolbar show={isSingleSelected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} onHD={() => setHdPanelOpen(prev => !prev)} hdPanelOpen={hdPanelOpen} />
 
       {/* Title bar */}
       <div

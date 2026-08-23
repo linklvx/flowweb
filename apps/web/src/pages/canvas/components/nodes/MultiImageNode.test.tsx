@@ -26,6 +26,17 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 
 const mockUpdateNodeData = vi.fn();
 
+// getNodes mock — isSingleSelected 计算用（多选隐藏工具条）
+const mockGetNodes = vi.fn(() => [{ id: 'mimg1', selected: true } as any]);
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    useReactFlow: () => ({ getNodes: () => mockGetNodes() }),
+  };
+});
+
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: Object.assign(
     vi.fn((selector?: any) => {
@@ -98,6 +109,8 @@ describe('MultiImageNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
     setMockNodeData({ images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' });
+    // mockReturnValue 不被 clearAllMocks 清除 → 显式恢复单选默认
+    mockGetNodes.mockReturnValue([{ id: 'mimg1', selected: true } as any]);
   });
 
   it('should render editable title with default value', () => {
@@ -234,6 +247,41 @@ describe('MultiImageNode', () => {
     setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
+  });
+
+  // ---- Multi-selection: hide single-node toolbar (Bug A) ----
+
+  it('多选（选中数≥2）时不渲染悬浮上传按钮', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    mockGetNodes.mockReturnValue([
+      { id: 'mimg1', selected: true } as any,
+      { id: 'other', selected: true } as any,
+    ]);
+    renderNode(true);
+    expect(screen.queryByText('上传')).not.toBeInTheDocument();
+  });
+
+  it('多选时不渲染底部配置面板', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    mockGetNodes.mockReturnValue([
+      { id: 'mimg1', selected: true } as any,
+      { id: 'other', selected: true } as any,
+    ]);
+    renderNode(true);
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument();
+  });
+
+  it('多选时选中边框保留（border-overlay inline style）', () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    mockGetNodes.mockReturnValue([
+      { id: 'mimg1', selected: true } as any,
+      { id: 'other', selected: true } as any,
+    ]);
+    renderNode(true);
+    const overlay = document.querySelector('[data-testid="border-overlay"]') as HTMLElement;
+    expect(overlay).toBeInTheDocument();
+    const style = overlay.getAttribute('style')!;
+    expect(style).toContain('border: 3px solid');
   });
 
   it('should render 2 handles (target + source)', () => {

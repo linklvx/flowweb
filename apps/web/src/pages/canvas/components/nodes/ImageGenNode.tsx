@@ -1071,7 +1071,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           nodeId={id}
           fileId={fileId}
           referenceImage={referenceImage}
-          selected={selected ?? false}
+          selected={isSingleSelected}
           onUpload={() => fileInputRef.current?.click()}
           onRotateMirror={handleRotateMirror}
           onCrop={() => enterEditMode('crop')}
@@ -1273,7 +1273,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         </div>
         {!editMode && <NodeHandle type="source" testId="source-handle" />}
       </div>
-      {selected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && !fileId && !referenceImage && (
+      {isSingleSelected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && !fileId && !referenceImage && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <ImageConfigPanelResolver nodeId={id} />
         </div>
