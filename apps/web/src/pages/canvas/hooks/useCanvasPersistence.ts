@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { SNAPSHOT_VERSION, loadSnapshot, snapshotKey } from './canvasSnapshot';
+import { hydrateNodes } from '@/utils/nodeOrder';
 
 // 旧 key 清扫单次执行 flag：hook 随 projectId 变化重跑 effect，避免重复全量扫描
 let hasCleanedOldLocalKeys = false;
@@ -40,14 +41,17 @@ export function useCanvasPersistence(projectId: string) {
     try {
       useNodeStore.setState({ nodes: snap.nodes });
       useCanvasStore.setState({
-        nodes: Object.values(snap.nodes).map((n) => ({
-          id: n.id,
-          type: n.type,
-          position: n.position,
-          data: n.data as unknown as Record<string, unknown>,
-          width: n.width,
-          height: n.height,
-        })),
+        nodes: hydrateNodes(
+          Object.values(snap.nodes).map((n) => ({
+            id: n.id,
+            type: n.type,
+            position: n.position,
+            data: n.data as unknown as Record<string, unknown>,
+            width: n.width,
+            height: n.height,
+          })),
+          snap.parentMap,
+        ) as any,
         edges: snap.edges,
         viewport: snap.viewport,
       });
@@ -81,6 +85,9 @@ export function useCanvasPersistence(projectId: string) {
             nodes: useNodeStore.getState().nodes,
             edges: cs.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
             viewport: cs.viewport,
+            parentMap: Object.fromEntries(
+              cs.nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId as string]),
+            ),
           }),
         );
       }, 500);

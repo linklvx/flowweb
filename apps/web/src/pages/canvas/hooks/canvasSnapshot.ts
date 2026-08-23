@@ -11,6 +11,8 @@ export interface CanvasSnapshot {
   nodes: Record<string, AppNode>;
   edges: { id: string; source: string; target: string }[];
   viewport: { x: number; y: number; zoom: number };
+  /** 可选：nodeId→parentId 组关系（旧快照无此字段仍有效，不升版本） */
+  parentMap?: Record<string, string>;
 }
 
 function isValidNode(v: unknown): v is AppNode {
@@ -40,7 +42,11 @@ function isValidPayload(p: unknown): p is CanvasSnapshot {
   })) return false;
   if (typeof s.viewport !== 'object' || s.viewport === null) return false;
   const vp = s.viewport as Record<string, unknown>;
-  return typeof vp.x === 'number' && typeof vp.y === 'number' && typeof vp.zoom === 'number';
+  if (!(typeof vp.x === 'number' && typeof vp.y === 'number' && typeof vp.zoom === 'number')) return false;
+  // parentMap 可选（旧快照无此字段/null 宽松通过）；存在时必须是 Record<string,string>
+  if (s.parentMap === undefined || s.parentMap === null) return true;
+  if (typeof s.parentMap !== 'object' || Array.isArray(s.parentMap)) return false;
+  return Object.values(s.parentMap).every((v) => typeof v === 'string');
 }
 
 /** 读取并校验快照；解析/校验失败时清除 key 返回 null（IO 副作用内聚，调用方不触 localStorage） */

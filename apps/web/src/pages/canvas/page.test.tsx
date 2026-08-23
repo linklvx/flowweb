@@ -296,6 +296,37 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('DB 加载组关系恢复（Bug F：parentId + extent + 父前子后）', () => {
+    it('DB 节点带 parentId（乱序）→ 写入 store 含 parentId + extent:"parent" + 顺序父前子后', async () => {
+      // DB 返回子在前父在后（syncNodes 排序正常时父在前；此用例防御任意顺序）
+      const dbNodes = [
+        { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
+        { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
+        { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal' } },
+      ];
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', nodes: dbNodes, edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      });
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const fullWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s);
+      // 最后一次全量写入是 DB 加载（此前可能有清空写入）
+      const loaded = fullWrites[fullWrites.length - 1][0].nodes as any[];
+      expect(loaded.map((n: any) => n.id)).toEqual(['g1', 'c1', 'c2']); // 父前子后
+      const c1 = loaded.find((n: any) => n.id === 'c1');
+      expect(c1.parentId).toBe('g1');
+      expect(c1.extent).toBe('parent');
+    });
+  });
+
   describe('恢复最近项目与分级降级（Fix 1）', () => {
     const dbOkResponse = (id: string) => ({
       ok: true,

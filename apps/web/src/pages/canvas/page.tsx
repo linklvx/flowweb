@@ -15,6 +15,7 @@ import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
+import { hydrateNodes } from '@/utils/nodeOrder';
 import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -59,11 +60,11 @@ async function loadProjectIntoStore(
 
   // Restore canvas state from DB project
   useCanvasStore.setState({
-    nodes: (project.nodes || []).map((n: any) => ({
+    nodes: hydrateNodes((project.nodes || []).map((n: any) => ({
       ...n,
       width: n.width ?? 300,
       height: n.height ?? 300,
-    })),
+    }))) as any,
     edges: (project.edges || []).map((e: any) => ({
       id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
     })),
