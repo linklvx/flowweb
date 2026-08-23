@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { useGroupHistory } from './groupHistory';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -12,7 +13,18 @@ const seedNodes = () => [
 beforeEach(() => {
   useCanvasStore.setState({ nodes: seedNodes() as any, edges: [], selectedId: null, projectId: null });
   useNodeStore.setState({ nodes: {} });
+  useGroupHistory.setState({ past: [], future: [] });
 });
+
+// RF v12 updateChildNode 要求父节点在 nodes 数组中位于子节点之前（否则忽略 parentId）
+const expectParentBeforeChild = (groupId: string, childId: string) => {
+  const nodes = useCanvasStore.getState().nodes;
+  const gi = nodes.findIndex((n) => n.id === groupId);
+  const ci = nodes.findIndex((n) => n.id === childId);
+  expect(gi).toBeGreaterThanOrEqual(0);
+  expect(ci).toBeGreaterThanOrEqual(0);
+  expect(gi).toBeLessThan(ci);
+};
 
 describe('groupNodes', () => {
   it('创建组节点并挂靠子节点（相对坐标 + extent）', () => {
@@ -95,5 +107,66 @@ describe('addToGroup / removeNodeFromGroup', () => {
     const n1 = s.nodes.find((n) => n.id === 'n1')!;
     expect(n1.parentId).toBeUndefined();
     expect(n1.position).toEqual({ x: 100, y: 100 });
+  });
+});
+
+describe('父前子后不变式（RF updateChildNode 要求）', () => {
+  it('groupNodes 后组在子节点前', () => {
+    const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    expectParentBeforeChild(groupId, 'n1');
+    expectParentBeforeChild(groupId, 'n2');
+  });
+
+  it('mergeStoryboard 后组在子节点前', () => {
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'm1', type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'm2', type: 'imageGen', position: { x: 500, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+      ] as any,
+    });
+    const gid = useCanvasStore.getState().mergeStoryboard(['m1', 'm2']);
+    expectParentBeforeChild(gid, 'm1');
+    expectParentBeforeChild(gid, 'm2');
+  });
+
+  it('convertGroup(→storyboard) 后组在子节点前（乱序继承修复）', () => {
+    // 播种乱序组：子在前父在后（历史数据/快照恢复可能出现的顺序）
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'c1', type: 'imageGen', parentId: 'g', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'g', extent: 'parent', position: { x: 340, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 700, height: 220, data: { groupType: 'normal' } },
+      ] as any,
+    });
+    useCanvasStore.getState().convertGroup('g', 'storyboard');
+    expectParentBeforeChild('g', 'c1');
+    expectParentBeforeChild('g', 'c2');
+  });
+
+  it('addToGroup 后组在新子节点前', () => {
+    const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.getState().addToGroup(groupId, 'free');
+    expectParentBeforeChild(groupId, 'free');
+  });
+
+  it('dropIntoGroup 后组在新子节点前', () => {
+    const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.getState().dropIntoGroup('free', groupId);
+    expectParentBeforeChild(groupId, 'free');
+  });
+
+  it('undo→redo 打组后组在子节点前（applySnapshot 排序）', () => {
+    const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    // 模拟快照恢复顺序不定：手动打乱 store 顺序（子在前父在后）
+    useCanvasStore.setState((s) => {
+      const g = s.nodes.find((n) => n.id === groupId)!;
+      const n1 = s.nodes.find((n) => n.id === 'n1')!;
+      const rest = s.nodes.filter((n) => n.id !== groupId && n.id !== 'n1');
+      return { nodes: [n1, g, ...rest] };
+    });
+    useGroupHistory.getState().undo();
+    useGroupHistory.getState().redo();
+    expectParentBeforeChild(groupId, 'n1');
+    expectParentBeforeChild(groupId, 'n2');
   });
 });

@@ -3,6 +3,7 @@ import { message } from 'antd';
 import type { Node, Edge } from '@xyflow/react';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { ensureParentOrder } from '@/utils/nodeOrder';
 
 export type Snapshot<T> = T | null; // null = tombstone（该对象此时间点不存在）
 
@@ -55,7 +56,8 @@ function applySnapshot(side: 'before' | 'after', entry: HistoryEntry) {
     const danglingSelected = s.selectedId !== null
       && entry.nodeIds.includes(s.selectedId)
       && !nextNodes.some((n) => n.id === s.selectedId);
-    return { nodes: nextNodes, edges: nextEdges, ...(danglingSelected ? { selectedId: null } : {}) };
+    // 快照逐个替换/追加不保证父前子后（RF updateChildNode 要求）→ 统一重排
+    return { nodes: ensureParentOrder(nextNodes), edges: nextEdges, ...(danglingSelected ? { selectedId: null } : {}) };
   });
   // 双写 nodeStore（P0-1）：canvasStore 组 actions 均双写 nodeStore，撤销/重做的逆操作
   // 必须遵守同一约定，否则两 store 节点集合漂移（幽灵节点/缺失节点）。

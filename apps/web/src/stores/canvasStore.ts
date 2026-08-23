@@ -14,6 +14,7 @@ import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
+import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { useGroupHistory, captureBefore, captureAfter } from './groupHistory';
@@ -128,7 +129,16 @@ interface CanvasState {
   hasGroupClipboard: () => boolean;
 }
 
-export const useCanvasStore = create<CanvasState>((set, get) => ({
+export const useCanvasStore = create<CanvasState>((set, get) => {
+  // 组结构写入统一包装：对 updater 产出的 nodes 应用父前子后重排
+  // （RF v12 updateChildNode 要求父节点在数组中位于子节点前，否则忽略 parentId）
+  const setWithParentOrder = (updater: (s: CanvasState) => Partial<CanvasState>) =>
+    set((s) => {
+      const next = updater(s);
+      return { ...next, nodes: ensureParentOrder(next.nodes ?? s.nodes) };
+    });
+
+  return {
   nodes: [],
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
@@ -738,7 +748,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       data: { groupType: 'normal', name: `分组 ${picked.length} 个节点` },
       selected: true,
     };
-    set((st) => ({
+    setWithParentOrder((st) => ({
       nodes: [
         ...st.nodes.map((n) => nodeIds.includes(n.id)
           ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
@@ -809,7 +819,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // TD-15: history record — before snapshot
     const allNodeIds = [groupId, nodeId];
     const before = captureBefore(allNodeIds, []);
-    set((st) => {
+    setWithParentOrder((st) => {
       const child = {
         ...node, parentId: groupId, extent: 'parent' as const,
         position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
@@ -874,7 +884,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const before = captureBefore(allNodeIds, []);
     if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
     // 内联 addToGroup 逻辑（避免重复 record）
-    set((st) => {
+    setWithParentOrder((st) => {
       const child = {
         ...node, parentId: groupId, extent: 'parent' as const,
         position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
@@ -1091,7 +1101,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' },
       },
     };
-    set((st) => ({
+    setWithParentOrder((st) => ({
       nodes: [
         ...st.nodes
           .filter((n) => !(n.type === 'multiImageGen' && nodeIds.includes(n.id)))
@@ -1146,7 +1156,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const size = calcStoryboardSize(rows, cols, '16:9');
       const cx = group.position.x + (group.width ?? 0) / 2;
       const cy = group.position.y + (group.height ?? 0) / 2;
-      set((st) => ({
+      setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
             width: size.width, height: size.height,
@@ -1162,7 +1172,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const cellW = CELL_WIDTH;
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
-      set((st) => ({
+      setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: `分组 ${gd.cells.length} 个节点` } };
           const idx = gd.cells.indexOf(n.id);
@@ -1363,7 +1373,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   hasGroupClipboard: () => groupClipboard !== null,
-}));
+};
+});
 
 // Shared helper function to build a group copy
 function buildGroupCopy(
