@@ -55,7 +55,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <>
       <div
         data-testid="group-box"
         style={{
@@ -76,9 +76,9 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
             else if (e.key === 'Escape') cancel();
           }}
           style={{
-            position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)',
+            position: 'absolute', top: 0, left: 0, transform: 'translateY(calc(-100% - 10px))',
             width: 140, zIndex: 2,
-            fontSize: 12, color: '#fff', background: '#1a1a1a',
+            fontSize: 13, color: '#fff', background: '#1a1a1a',
             border: '1px solid #555', borderRadius: 4, padding: '2px 6px', outline: 'none',
           }}
         />
@@ -86,16 +86,16 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
         <div
           onDoubleClick={() => { setDraft(name); setEditing(true); }}
           style={{
-            position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)', zIndex: 2,
+            position: 'absolute', top: 0, left: 0, transform: 'translateY(calc(-100% - 10px))', zIndex: 2,
             display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px',
-            fontSize: 12, color: '#999', whiteSpace: 'nowrap',
+            fontSize: 13, color: '#999', whiteSpace: 'nowrap',
           }}
         >
           <span>{name}</span>
           <span style={BADGE}>{childCount} 项</span>
         </div>
       )}
-    </div>
+    </>
   );
 }
 export const NormalGroupRenderer = memo(NormalGroupRendererComponent);

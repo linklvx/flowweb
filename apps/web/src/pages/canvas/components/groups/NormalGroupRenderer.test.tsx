@@ -35,12 +35,18 @@ describe('NormalGroupRenderer 展开态', () => {
     expect(screen.getByTestId('group-box').style.border).toBe('');
   });
 
-  it('标题浮层在容器外右上角（translateY(-100%) 外浮，节点标题同款）', () => {
+  it('标题浮层在容器外左上角，上移 10px，字号 13（节点标题同款外浮）', () => {
     render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
     const title = screen.getByText('分组').parentElement as HTMLElement;
-    expect(title.style.transform).toBe('translateY(-100%)');
+    expect(title.style.transform).toBe('translateY(calc(-100% - 10px))');
     expect(title.style.top).toBe('0px');
-    expect(title.style.right).toBe('0px');
+    expect(title.style.left).toBe('0px');
+    expect(title.style.fontSize).toBe('13px');
+  });
+
+  it('无 relative 包裹 div——absolute 子元素直接挂载（inset:0 相对整个节点盒，不受 RF 默认 padding 内缩）', () => {
+    const { container } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
+    expect(screen.getByTestId('group-box').parentElement).toBe(container);
   });
 
   it('双击进入编辑；Enter 提交非空名', () => {
