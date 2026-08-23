@@ -73,7 +73,7 @@
 - 新增 `renameGroup(groupId, name)`：更新 `node.data.name`；**入组历史**（`captureBefore/After` + `record` 照抄 convertGroup 模式，label「重命名组」）——项目为独立组历史栈（快照式双写两 store），无 RF 通用 undo，改名入栈才可 Ctrl+Z。
 - `toggleCollapse`：折叠时保存 `data.savedSize = { width, height }`；展开时 `manuallyResized` → 恢复 savedSize，否则 `refitGroupBounds`（现状）。
 - `convertGroup`：refit 前清 `manuallyResized`（结构转换重置布局预期）。
-- DB 加载路径（page.tsx P0-4）：加载后对展开普通组统一 refitGroupBounds 会覆盖手动尺寸——该循环需跳过 `manuallyResized` 组（计划调研发现，spec 补充）。localStorage 恢复路径同理（快照 AppNode 不含组宽高，展开组按子节点重算；手动尺寸组恢复 savedSize）。
+- DB 加载路径（page.tsx P0-4）：加载后对展开普通组统一 refitGroupBounds 会覆盖手动尺寸——该循环需跳过 `manuallyResized` 组（计划调研发现，spec 补充）。localStorage 恢复路径同理（快照 AppNode 不含组宽高，展开组按子节点重算；手动尺寸组恢复 savedSize）。**T8 端到端修正**：恢复判定以 `manuallyResized` 标记为准（有标记即保留 hydrate 带回的快照/DB 宽高，不 refit），`savedSize` 仅作宽高缺失时兜底——从未折叠过的手动组无 savedSize，原 `manuallyResized && savedSize` 双条件会误 refit。
 - `calcGroupBounds`（utils/groupLayout.ts）：`GROUP_PADDING = 20` 拆出 `GROUP_TOP_PADDING = 44`（20 + 标题行高），新组顶部天然留标题空间。注意：子节点按相对坐标独立渲染，容器 CSS padding 推不开子节点，必须改 bounds 计算。旧组（恢复后不重算）由标题实底浮层保证可读，可接受的边缘重叠。
 - 增删子节点（addToGroup/dropIntoGroup）不调用 refitGroupBounds（已核实仅 2 处调用），与手动 resize 无冲突，不需处理。
 
