@@ -57,4 +57,10 @@ describe('GroupNode（普通组 NodeResizer）', () => {
     rerender(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
     expect(screen.getByTestId('node-resizer')).toBeTruthy();
   });
+
+  it('普通组：折叠态即使选中也不渲染 NodeResizer', () => {
+    setMockNodes([]);
+    render(<GroupNode id="g1" data={{ groupType: 'normal', collapsed: true }} selected={true} {...{} as any} />);
+    expect(screen.queryByTestId('node-resizer')).toBeNull();
+  });
 });

@@ -13,12 +13,12 @@ function GroupNodeComponent({ id, data, selected }: NodeProps) {
   }
   return (
     <>
-      {selected && (
+      {selected && !(data as any).collapsed && (
         <NodeResizer
           isVisible={!!selected}
           minWidth={200}
           minHeight={120}
-          handleStyle={HANDLE as any}
+          handleStyle={HANDLE}
           onResizeEnd={() => useCanvasStore.getState().markManuallyResized(id)}
         />
       )}
