@@ -94,4 +94,63 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     expect(nodes.findIndex((n) => n.id === gid)).toBeLessThan(nodes.findIndex((n) => n.id === 'n1'));
     expect(nodes.findIndex((n) => n.id === gid)).toBeLessThan(nodes.findIndex((n) => n.id === 'n2'));
   });
+
+  it('手动 resize 组（无 savedSize）恢复：保留快照宽高，不被 refit 覆盖（T8 端到端发现）', () => {
+    // 组带 manuallyResized 标记与快照宽高（从未折叠过 → 无 savedSize），子节点用于让 refit 可检测
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'g1', type: 'group', position: { x: 50, y: 50 }, width: 460, height: 436, data: { groupType: 'normal', manuallyResized: true } } as any,
+        { id: 'c1', type: 'textInput', parentId: 'g1', extent: 'parent', position: { x: 20, y: 60 }, width: 300, height: 300, data: {} } as any,
+      ],
+      edges: [], selectedId: null, isHydrating: false,
+    });
+    useNodeStore.setState({
+      nodes: {
+        g1: { id: 'g1', type: 'group', position: { x: 50, y: 50 }, width: 460, height: 436, data: { groupType: 'normal', manuallyResized: true } } as any,
+        c1: { id: 'c1', type: 'textInput', position: { x: 20, y: 60 }, width: 300, height: 300, data: {} } as any,
+      },
+    });
+
+    const { unmount } = renderHook(() => useCanvasPersistence('p1'));
+    useCanvasStore.setState({ selectedId: 'trigger-save' });
+    vi.advanceTimersByTime(600);
+    unmount();
+
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, isHydrating: false });
+    useNodeStore.setState({ nodes: {} });
+    renderHook(() => useCanvasPersistence('p1'));
+
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
+    expect(g.width).toBe(460);
+    expect(g.height).toBe(436);
+  });
+
+  it('手动 resize 组 + savedSize + 快照无宽高：恢复用 savedSize 兜底', () => {
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'g1', type: 'group', position: { x: 50, y: 50 }, data: { groupType: 'normal', manuallyResized: true, savedSize: { width: 777, height: 555 } } } as any,
+        { id: 'c1', type: 'textInput', parentId: 'g1', extent: 'parent', position: { x: 20, y: 60 }, width: 300, height: 300, data: {} } as any,
+      ],
+      edges: [], selectedId: null, isHydrating: false,
+    });
+    useNodeStore.setState({
+      nodes: {
+        g1: { id: 'g1', type: 'group', position: { x: 50, y: 50 }, data: { groupType: 'normal', manuallyResized: true, savedSize: { width: 777, height: 555 } } } as any,
+        c1: { id: 'c1', type: 'textInput', position: { x: 20, y: 60 }, width: 300, height: 300, data: {} } as any,
+      },
+    });
+
+    const { unmount } = renderHook(() => useCanvasPersistence('p1'));
+    useCanvasStore.setState({ selectedId: 'trigger-save' });
+    vi.advanceTimersByTime(600);
+    unmount();
+
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, isHydrating: false });
+    useNodeStore.setState({ nodes: {} });
+    renderHook(() => useCanvasPersistence('p1'));
+
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
+    expect(g.width).toBe(777);
+    expect(g.height).toBe(555);
+  });
 });

@@ -57,17 +57,20 @@ export function useCanvasPersistence(projectId: string) {
       });
       // 对齐 DB 加载路径（loadProjectIntoStore）：恢复后派生 storyboard 子节点 hidden 等组状态
       useCanvasStore.getState().applyGroupDerivations();
-      // 对齐 DB 加载路径 P0-4：快照 AppNode 不含组宽高，展开普通组按子节点重算；
-      // 手动 resize 过的组恢复用户保存的尺寸
+      // 对齐 DB 加载路径 P0-4：展开普通组按子节点重算；手动 resize 过的组保留用户尺寸。
+      // 快照 AppNode 通常带组宽高（hydrate 已恢复），从未折叠过的手动组无 savedSize——
+      // 只要有 manuallyResized 标记就不 refit，savedSize 仅作宽高缺失时的兜底（T8 端到端发现）
       for (const g of useCanvasStore.getState().nodes.filter(
         (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
       )) {
         const d = g.data as any;
-        if (d.manuallyResized && d.savedSize) {
-          useCanvasStore.setState({
-            nodes: useCanvasStore.getState().nodes.map((n) =>
-              n.id === g.id ? { ...n, width: d.savedSize.width, height: d.savedSize.height } : n),
-          });
+        if (d.manuallyResized) {
+          if (d.savedSize && (g.width == null || g.height == null)) {
+            useCanvasStore.setState({
+              nodes: useCanvasStore.getState().nodes.map((n) =>
+                n.id === g.id ? { ...n, width: d.savedSize.width, height: d.savedSize.height } : n),
+            });
+          }
         } else {
           useCanvasStore.getState().refitGroupBounds(g.id);
         }
