@@ -60,7 +60,6 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
         data-testid="group-box"
         style={{
           position: 'absolute', inset: 0, borderRadius: GROUP_BOX.borderRadius,
-          border: `${GROUP_BOX.borderWidth}px dashed ${selected ? GROUP_BOX.selectedBorder : GROUP_BOX.border}`,
           background: GROUP_BOX.background, pointerEvents: 'none',
         }}
       />

@@ -26,12 +26,13 @@ describe('NormalGroupRenderer 展开态', () => {
     expect(screen.getByText('我的分组')).toBeTruthy();
   });
 
-  it('常态/选中虚线色切换（token）', () => {
+  it('展开态无边框（去虚线，保留深色底；选中反馈由四角手柄承担）', () => {
     const { rerender } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
     const box = screen.getByTestId('group-box');
-    expect(box.style.border).toContain('rgba(255, 255, 255, 0.45)');
+    expect(box.style.border).toBe('');
+    expect(box.style.background).toContain('rgba(26, 26, 26, 0.6)');
     rerender(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={true} />);
-    expect(screen.getByTestId('group-box').style.border).toContain('rgba(255, 255, 255, 0.85)');
+    expect(screen.getByTestId('group-box').style.border).toBe('');
   });
 
   it('双击进入编辑；Enter 提交非空名', () => {
