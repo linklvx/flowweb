@@ -25,7 +25,7 @@ import { MultiImageNode } from './nodes/MultiImageNode';
 import { GroupNode } from './groups/GroupNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
-import { MultiSelectToolbar } from './groups/MultiSelectToolbar';
+import { SelectionBoxOverlay } from './groups/SelectionBoxOverlay';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { GroupContextMenu } from './groups/GroupContextMenu';
 import { ConfirmModal } from './ConfirmModal';
@@ -390,7 +390,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
           snapEnabled={snapEnabled}
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
-        <MultiSelectToolbar />
+        <SelectionBoxOverlay />
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;
           const groupType = gd.groupType ?? 'normal';

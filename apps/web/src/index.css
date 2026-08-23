@@ -108,6 +108,9 @@ body {
   box-shadow: none !important;
 }
 
+/* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层 */
+.react-flow__nodesselection-rect { fill: transparent; stroke: transparent; }
+
 /* Thin transparent scrollbar for editor */
 .editor-scroll {
   scrollbar-width: thin;
