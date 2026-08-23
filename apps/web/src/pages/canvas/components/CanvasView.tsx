@@ -307,11 +307,16 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     [],
   );
 
-  // 选中组节点时显示 GroupToolbar
-  const selectedGroup = useMemo(
-    () => nodes.find((n) => n.type === 'group' && n.selected),
-    [nodes]
-  );
+  // 选中组节点时显示 GroupToolbar；多选（≥2）时与 SelectionBoxOverlay 互斥，仅单独选中该组时显示
+  const selectedGroup = useMemo(() => {
+    let count = 0;
+    for (const n of nodes) {
+      if (!n.selected) continue;
+      count++;
+      if (count > 1) return undefined;
+    }
+    return count === 1 ? nodes.find((n) => n.type === 'group' && n.selected) : undefined;
+  }, [nodes]);
 
   // 计算组是否可转为分镜组：仅当普通组且子节点全部是完成图片节点时
   const isConvertible = useMemo(() => {

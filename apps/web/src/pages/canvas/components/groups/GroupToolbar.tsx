@@ -1,5 +1,8 @@
 // GroupToolbar.tsx — 普通组与分镜组共用容器；分镜组工具栏内容在 Task 11 扩展本组件（switch 渲染）
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useViewport, useInternalNode } from '@xyflow/react';
+import { TOOLBAR } from './selectionTokens';
 
 interface Props {
   groupId: string;
@@ -20,10 +23,38 @@ const btn = (disabled?: boolean): React.CSSProperties => ({
 });
 
 function GroupToolbarComponent(p: Props) {
-  return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20"
-      style={{ background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: 40,
-               display: 'flex', alignItems: 'center', gap: 2, color: '#fff' }}>
+  const { x: vpX, y: vpY, zoom } = useViewport();
+  const internalNode = useInternalNode(p.groupId);
+
+  const geo = useMemo(() => {
+    const w = internalNode?.measured?.width ?? internalNode?.width ?? 0;
+    const h = (internalNode?.measured?.height ?? internalNode?.height ?? 0) * zoom;
+    if (!internalNode || w === 0) return null;
+    const abs = internalNode.internals.positionAbsolute;
+    const left = (abs.x + w / 2) * zoom + vpX;
+    const topAbs = abs.y * zoom + vpY;
+    // 偏移 12 为屏幕常量，变换后外加不乘 zoom
+    const isAbove = topAbs - TOOLBAR.offset - TOOLBAR.height > 0;
+    return {
+      left,
+      top: isAbove ? topAbs - TOOLBAR.offset : topAbs + h + TOOLBAR.offset,
+      transform: isAbove ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+    };
+  }, [internalNode, vpX, vpY, zoom]);
+
+  if (!geo) return null;
+  const portalRoot = document.getElementById('node-toolbar-portal');
+  if (!portalRoot) return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: 'absolute', left: geo.left, top: geo.top, transform: geo.transform,
+        pointerEvents: 'auto', zIndex: 40,
+        background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: TOOLBAR.height,
+        display: 'flex', alignItems: 'center', gap: 2, color: '#fff',
+      }}
+    >
       {p.groupType === 'normal' && (
         <>
           <button style={btn()} onClick={() => p.onCollapse(p.groupId)}>{p.collapsed ? '展开' : '折叠'}</button>
@@ -36,7 +67,8 @@ function GroupToolbarComponent(p: Props) {
         </>
       )}
       {p.groupType === 'storyboard' && p.children}
-    </div>
+    </div>,
+    portalRoot,
   );
 }
 
