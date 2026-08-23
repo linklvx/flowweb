@@ -53,7 +53,7 @@ function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Pro
             onFillEmpty={(idx) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: id, index: idx } }))} />
         );
       })}
-      <div style={{ position: 'absolute', top: -10, left: 8, background: '#0a0a0a', color: '#999', fontSize: 12, padding: '0 6px', whiteSpace: 'nowrap' }}>
+      <div style={{ position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)', color: '#999', fontSize: 12, padding: '0 2px', whiteSpace: 'nowrap' }}>
         {data.name ?? '分镜组'}
       </div>
     </div>

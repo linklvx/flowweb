@@ -73,4 +73,12 @@ describe('StoryboardGroupRenderer', () => {
     expect(cell.style.width).toBe('100%');
     expect(cell.style.height).toBe('100%');
   });
+
+  it('标题浮层在容器外右上角（translateY(-100%)，与普通组/节点标题一致）', () => {
+    render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const title = screen.getByText('分镜组') as HTMLElement;
+    expect(title.style.transform).toBe('translateY(-100%)');
+    expect(title.style.top).toBe('0px');
+    expect(title.style.right).toBe('0px');
+  });
 });
