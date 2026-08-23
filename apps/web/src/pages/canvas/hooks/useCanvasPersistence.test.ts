@@ -1,5 +1,5 @@
 // apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useCanvasPersistence } from './useCanvasPersistence';
 import { useCanvasStore } from '@/stores/canvasStore';
