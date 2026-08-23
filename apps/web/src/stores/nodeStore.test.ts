@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS } from './nodeStore';
+import { useCanvasStore } from './canvasStore';
 import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
 describe('nodeStore (AppNode nested structure)', () => {
@@ -1309,3 +1310,51 @@ describe('nodeStore (AppNode nested structure)', () => {
   });
 });
 
+
+describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应式）', () => {
+  beforeEach(() => {
+    useNodeStore.setState({ nodes: {}, activeTransformNodeId: null, activeEditNodeId: null, cancelRequestedAt: 0, saveHandlers: {} });
+    useNodeStore.getState().addNode({ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} as any });
+    useCanvasStore.setState({ nodes: [{ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], edges: [] });
+  });
+
+  it('updateConfig 白名单字段（referenceImage）桥接到 canvasStore', () => {
+    useNodeStore.getState().updateConfig('b1', { referenceImage: 'f1' } as any);
+    const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
+    expect((cn.data as any).referenceImage).toBe('f1');
+  });
+
+  it('updateConfig 白名单字段（fileId/status）桥接到 canvasStore', () => {
+    useNodeStore.getState().updateConfig('b1', { fileId: 'fx', status: 'done' } as any);
+    const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
+    expect((cn.data as any).fileId).toBe('fx');
+    expect((cn.data as any).status).toBe('done');
+  });
+
+  it('updateConfig 非白名单字段不触发 canvasStore setState（防高频重渲染）', () => {
+    const spy = vi.spyOn(useCanvasStore, 'setState');
+    useNodeStore.getState().updateConfig('b1', { model: 'flux' } as any);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('setFileResult 桥接 fileId + status done', () => {
+    useNodeStore.getState().setFileResult('b1', 'file-9');
+    const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
+    expect((cn.data as any).fileId).toBe('file-9');
+    expect((cn.data as any).status).toBe('done');
+  });
+
+  it('updateMultiImageImages 桥接 images', () => {
+    useNodeStore.getState().updateMultiImageImages('b1', [{ id: 'i1', url: 'http://m/i1', name: 'i1', status: 'success' }] as any);
+    const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
+    expect((cn.data as any).images).toHaveLength(1);
+    expect((cn.data as any).images[0].id).toBe('i1');
+  });
+
+  it('canvasStore 中不存在的节点 id 桥接不报错（guard）', () => {
+    useNodeStore.getState().addNode({ id: 'ghost', type: 'imageGen', position: { x: 0, y: 0 }, data: {} as any });
+    expect(() => useNodeStore.getState().setFileResult('ghost', 'f')).not.toThrow();
+    expect(() => useNodeStore.getState().updateConfig('ghost', { referenceImage: 'f' } as any)).not.toThrow();
+  });
+});

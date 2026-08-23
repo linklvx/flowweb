@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useCanvasStore } from './canvasStore';
 
 // ========== Node type constants ==========
 
@@ -223,6 +224,19 @@ export function isAudioGenNode(node: AppNode): node is AppNode & { data: AudioNo
 
 function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | undefined {
   return nodes[nodeId];
+}
+
+// 桥接白名单：仅低频图片身份字段同步 canvasStore（订阅 canvasStore 的组件实时响应），
+// 防高频 updateConfig 路径（未知字段）引发全画布重渲染。
+const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'mediaUrl', 'images']);
+
+function bridgeToCanvasStore(nodeId: string, patch: Record<string, unknown>) {
+  const cs = useCanvasStore.getState();
+  const exists = cs.nodes.some((n) => n.id === nodeId);
+  if (!exists) return;
+  useCanvasStore.setState({
+    nodes: cs.nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)),
+  });
 }
 
 /** Merge root-level allImages + legacy nested prompt.allImages, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless) */
@@ -519,6 +533,12 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         },
       },
     }));
+
+    // 桥接白名单字段到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应）
+    const bridged = Object.entries(config).filter(([k]) => CANVAS_BRIDGE_KEYS.has(k));
+    if (bridged.length > 0) {
+      bridgeToCanvasStore(id, Object.fromEntries(bridged));
+    }
   },
 
   updateExtConfig: (nodeId, partial) => {
@@ -564,6 +584,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         },
       },
     }));
+    bridgeToCanvasStore(id, { fileId, status: 'done' });
   },
 
   updatePromptImages: (nodeId, allImages) => {
@@ -603,6 +624,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         },
       },
     }));
+    bridgeToCanvasStore(nodeId, { images });
   },
 
   setMainImageIndex: (nodeId, index) => {
