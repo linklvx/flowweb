@@ -71,7 +71,7 @@ describe('useCanvasPersistence — 恢复派生', () => {
     const cs = useCanvasStore.getState();
     expect(cs.nodes.map((n) => n.id)).toContain('n1');
     expect((cs.nodes[0].data as any).foo).toBe('bar');
-    expect(cs.edges[0]).toEqual({ id: 'e1', source: 'n1', target: 'n2' });
+    expect(cs.edges[0]).toMatchObject({ id: 'e1', source: 'n1', target: 'n2' }); // 恢复后视图派生会附加 hidden 字段
     expect(cs.viewport).toEqual({ x: 9, y: 8, zoom: 0.5 });
     expect(useNodeStore.getState().nodes.n1).toBeDefined();
     expect(useCanvasStore.getState().isHydrating).toBe(false);

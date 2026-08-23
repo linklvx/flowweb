@@ -55,6 +55,8 @@ export function useCanvasPersistence(projectId: string) {
         edges: snap.edges,
         viewport: snap.viewport,
       });
+      // 对齐 DB 加载路径（loadProjectIntoStore）：恢复后派生 storyboard 子节点 hidden 等组状态
+      useCanvasStore.getState().applyGroupDerivations();
     } finally {
       useCanvasStore.getState().setHydrating(false);
     }

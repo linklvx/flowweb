@@ -31,6 +31,40 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     vi.useRealTimers();
   });
 
+  it('恢复后 storyboard 子节点 hidden（applyGroupDerivations 对齐 DB 路径）', () => {
+    // 播种 storyboard 组 + 子节点（可见态），保存快照
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'sg', type: 'group', position: { x: 100, y: 100 }, width: 642, height: 182, data: {
+          groupType: 'storyboard', cells: ['c1'],
+          storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' },
+        } } as any,
+        { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } } as any,
+      ],
+      edges: [], selectedId: null, isHydrating: false,
+    });
+    useNodeStore.setState({
+      nodes: {
+        sg: { id: 'sg', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'storyboard', cells: ['c1'] } } as any,
+        c1: { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1' } } as any,
+      },
+    });
+
+    const { unmount } = renderHook(() => useCanvasPersistence('p1'));
+    useCanvasStore.setState({ selectedId: 'trigger' });
+    vi.advanceTimersByTime(600);
+
+    // 清空后恢复
+    unmount();
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, isHydrating: false });
+    useNodeStore.setState({ nodes: {} });
+    renderHook(() => useCanvasPersistence('p1'));
+
+    const c1 = useCanvasStore.getState().nodes.find((n) => n.id === 'c1')!;
+    expect(c1.parentId).toBe('sg');
+    expect(c1.hidden).toBe(true); // storyboard 子节点隐藏（格子渲染代替）
+  });
+
   it('带组 store 保存 → 清空 → localStorage 恢复：parentId/extent/父前子后', () => {
     // 1. 打组（Task 2 修复后已父前子后）
     const gid = useCanvasStore.getState().groupNodes(['n1', 'n2']);
