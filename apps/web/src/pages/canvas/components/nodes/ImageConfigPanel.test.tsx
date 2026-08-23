@@ -98,16 +98,21 @@ vi.mock('@/stores/nodeStore', () => {
   };
 });
 
+const { setMockCanvasNodes, getMockCanvasNodes, mockSyncNodes, mockSyncEdges, mockSubmitGeneration } = vi.hoisted(() => {
+  let mockCanvasNodes: any[] = [];
+  return {
+    setMockCanvasNodes: (n: any[]) => { mockCanvasNodes = n; },
+    mockSyncNodes: vi.fn().mockResolvedValue([]),
+    mockSyncEdges: vi.fn().mockResolvedValue([]),
+    mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
+    getMockCanvasNodes: () => mockCanvasNodes,
+  };
+});
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
-    getState: () => ({ nodes: [], edges: [], projectId: 'real-pid' }),
+    getState: () => ({ nodes: getMockCanvasNodes(), edges: [], projectId: 'real-pid' }),
   },
-}));
-
-const { mockSyncNodes, mockSyncEdges, mockSubmitGeneration } = vi.hoisted(() => ({
-  mockSyncNodes: vi.fn().mockResolvedValue([]),
-  mockSyncEdges: vi.fn().mockResolvedValue([]),
-  mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
 }));
 vi.mock('@/api/projectApi', () => ({
   syncNodes: mockSyncNodes,
@@ -324,5 +329,24 @@ describe('ImageConfigPanel', () => {
     expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
     expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
     expect(mockSubmitGeneration).toHaveBeenCalledWith('img1', { projectId: 'real-pid' });
+  });
+
+  it('生成前同步 payload 携带 parentId（防抹组，Bug F）', async () => {
+    mockNodeData.prompt.text = 'hello image';
+    setMockCanvasNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
+      { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
+      { id: 'free', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
+    ]);
+    render(<ImageConfigPanel nodeId="img1" />);
+
+    await act(async () => {
+      await capturedOnGenerate?.();
+    });
+
+    const payload = mockSyncNodes.mock.calls[0][1];
+    expect(payload.find((n: any) => n.id === 'img1').parentId).toBe('g1');
+    expect(payload.find((n: any) => n.id === 'free').parentId).toBeNull();
+    expect(payload.find((n: any) => n.id === 'g1').parentId).toBeNull();
   });
 });

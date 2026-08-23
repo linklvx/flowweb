@@ -151,6 +151,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
       const latestState = useNodeStore.getState();
       const mergedNodes = canvasState.nodes.map((n) => ({
         id: n.id, type: n.type || 'audioGen',
+        parentId: n.parentId ?? null,
         position: n.position,
         data: latestState.nodes[n.id]?.data || (n.data as any) || {},
         width: n.width, height: n.height,

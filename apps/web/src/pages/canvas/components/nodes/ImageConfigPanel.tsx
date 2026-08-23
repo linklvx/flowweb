@@ -80,6 +80,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       const mergedNodes = canvasState.nodes.map((n) => ({
         id: n.id,
         type: n.type || 'imageGen',
+        parentId: n.parentId ?? null,
         position: n.position,
         data: nodeState.nodes[n.id]?.data || (n.data as any) || {},
         width: n.width,

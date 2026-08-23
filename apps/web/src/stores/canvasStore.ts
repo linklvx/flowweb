@@ -503,6 +503,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       const mergedNodes = get().nodes.map((n) => ({
         id: n.id,
         type: n.type || 'videoGen',
+        parentId: n.parentId ?? null,
         position: n.position,
         data: ns.nodes[n.id]?.data || (n.data as any) || {},
         width: n.width,
