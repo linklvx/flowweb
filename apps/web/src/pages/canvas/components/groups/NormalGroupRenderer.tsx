@@ -34,10 +34,6 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
   };
   const cancel = () => {
     committedRef.current = true;
-    // 先移除 onBlur 监听，防止 blur 后再次触发 submit
-    if (inputRef.current) {
-      inputRef.current.onblur = null;
-    }
     setEditing(false);
   };
 
