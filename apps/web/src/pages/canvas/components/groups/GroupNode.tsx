@@ -17,7 +17,7 @@ function StoryboardGroupRendererCellNodes({ id, data, selected }: { id: string; 
   const cellNodes = useCanvasStore((s) =>
     s.nodes
       .filter((n) => (data.cells ?? []).includes(n.id))
-      .map((n) => ({ id: n.id, fileId: (n.data as any).fileId, status: (n.data as any).status, url: (n.data as any).mediaUrl })));
+      .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: (n.data as any).status, url: (n.data as any).mediaUrl })));
   return <StoryboardGroupRenderer id={id} data={data} selected={selected} cellNodes={cellNodes as CellNodeInfo[]} />;
 }
 

@@ -68,12 +68,13 @@ function StitchButtonComponent({
       return;
     }
 
-    // 收集 cells 对应节点的 fileId（跳过 null/无 fileId 的空位）
+    // 收集 cells 对应节点的图片身份（fileId || referenceImage，上传图无 fileId；跳过空位）
     const fileIds = (groupNode.data.cells as (string | null)[])
       .map((cellId) => {
         if (!cellId) return null;
         const node = nodes.find((n) => n.id === cellId);
-        return (node?.data as any)?.fileId ?? null;
+        const d = (node?.data as any) ?? {};
+        return d.fileId || d.referenceImage || null;
       })
       .filter((f): f is string => f !== null);
 

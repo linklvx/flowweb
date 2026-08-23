@@ -2,14 +2,36 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { StitchButton } from './StitchButton';
 
+const { getMockNodes, setMockNodes, getMockStart } = vi.hoisted(() => {
+  let mockNodes: any[] = [];
+  const start = vi.fn().mockResolvedValue({ outcome: 'COMPLETED' as const });
+  return {
+    getMockNodes: () => mockNodes,
+    setMockNodes: (n: any[]) => { mockNodes = n; },
+    getMockStart: () => start,
+  };
+});
+
 vi.mock('@/hooks/useStitchTask', () => ({
-  useStitchTask: () => ({ start: vi.fn().mockResolvedValue({ outcome: 'COMPLETED' } as const) }),
+  useStitchTask: () => ({ start: getMockStart() }),
+}));
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { projectId: 'p1', nodes: getMockNodes() };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    { getState: () => ({ projectId: 'p1', nodes: getMockNodes() }) },
+  ),
 }));
 
 describe('StitchButton', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    setMockNodes([]);
   });
 
   afterEach(() => {
@@ -36,5 +58,28 @@ describe('StitchButton', () => {
     await vi.waitFor(() => {
       expect(localStorage.getItem('flowweb.stitch-upscale-tip')).toBe('1');
     });
+  });
+
+  it('fileIds 收集归一化：cells 节点无 fileId 有 referenceImage（上传图）时收集 referenceImage', async () => {
+    setMockNodes([
+      {
+        id: 'g1', type: 'group', position: { x: 0, y: 0 },
+        data: {
+          groupType: 'storyboard', cells: ['c1', 'c2', 'c3'],
+          storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false },
+        },
+      },
+      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1' } },
+      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-2' } },
+      { id: 'c3', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle' } }, // 空位节点
+    ]);
+    render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
+    await vi.waitFor(() => {
+      expect(getMockStart()).toHaveBeenCalled();
+    });
+    const params = getMockStart().mock.calls[0][0];
+    expect(params.fileIds).toEqual(['gen-1', 'ref-2']);
+    expect(params.fileIds.every((f: unknown) => f != null)).toBe(true);
   });
 });
