@@ -251,11 +251,22 @@ describe('组尺寸持久化行为', () => {
       ] as any,
       edges: [], selectedId: null,
     });
+    // 真实链路中 groupNodes 创建时会写 nodeStore——同步播种带旧标记的版本
+    useNodeStore.setState({
+      nodes: {
+        g1: { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal', manuallyResized: true, name: '旧名' } } as any,
+      },
+    });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
     expect((g.data as any).manuallyResized).toBeUndefined();
     expect((g.data as any).savedSize).toBeUndefined();
     expect((g.data as any).name).toBe('分组');
+    // nodeStore 同步清标记（终审发现：localStorage 快照数据源，残留会让恢复误跳过 refit）
+    const nsG = useNodeStore.getState().nodes['g1'];
+    expect((nsG?.data as any).manuallyResized).toBeUndefined();
+    expect((nsG?.data as any).name).toBe('分组');
+    expect((nsG?.data as any).groupType).toBe('normal');
   });
 });

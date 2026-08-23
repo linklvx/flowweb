@@ -1197,6 +1197,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       // 组框重算
       get().refitGroupBounds(groupId);
     }
+    // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
+    syncGroupDataToNodeStore(groupId);
     get().applyGroupDerivations();
     // TD-15: history record — after snapshot + record
     const after = captureAfter(allNodeIds, []);
