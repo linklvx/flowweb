@@ -12,7 +12,10 @@ const { getMockNodes, setMockNodes } = vi.hoisted(() => {
 });
 
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: vi.fn((selector?: any) => selector({ nodes: getMockNodes() })),
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => selector({ nodes: getMockNodes() })),
+    { getState: () => ({ nodes: getMockNodes(), markManuallyResized: vi.fn() }) },
+  ),
 }));
 
 vi.mock('./StoryboardGroupRenderer', () => ({
@@ -27,7 +30,14 @@ vi.mock('./NormalGroupRenderer', () => ({
 
 vi.mock('@xyflow/react', async (orig) => ({
   ...(await orig<typeof import('@xyflow/react')>()),
-  NodeResizer: (p: any) => <div data-testid="node-resizer" data-visible={String(p.isVisible)} />,
+  NodeResizer: (p: any) => (
+    <div
+      data-testid="node-resizer"
+      data-visible={String(p.isVisible)}
+      data-minw={String(p.minWidth)}
+      data-minh={String(p.minHeight)}
+    />
+  ),
 }));
 
 describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
@@ -62,5 +72,40 @@ describe('GroupNode（普通组 NodeResizer）', () => {
     setMockNodes([]);
     render(<GroupNode id="g1" data={{ groupType: 'normal', collapsed: true }} selected={true} {...{} as any} />);
     expect(screen.queryByTestId('node-resizer')).toBeNull();
+  });
+});
+
+describe('GroupNode（组缩放最小尺寸 R5）', () => {
+  it('minWidth/minHeight = 子节点联合包围盒 + 非对称 padding', () => {
+    setMockNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 740, height: 370, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 200, data: {} },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 420, y: 50 }, width: 300, height: 300, data: {} },
+    ]);
+    render(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
+    const resizer = screen.getByTestId('node-resizer');
+    expect(resizer.getAttribute('data-minw')).toBe('740');  // 联合宽 700 + 40
+    expect(resizer.getAttribute('data-minh')).toBe('370'); // 联合高 300 + 50 + 20
+  });
+
+  it('子节点 width 为空时走 measured 再 fallback', () => {
+    setMockNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 589, height: 380, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: null, height: null, measured: { width: 549, height: 310 }, data: {} },
+    ]);
+    render(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
+    const resizer = screen.getByTestId('node-resizer');
+    expect(resizer.getAttribute('data-minw')).toBe('589');  // 549 + 40
+    expect(resizer.getAttribute('data-minh')).toBe('380'); // 310 + 70
+  });
+
+  it('无子节点保留 200/120 兜底', () => {
+    setMockNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal' } },
+    ]);
+    render(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
+    const resizer = screen.getByTestId('node-resizer');
+    expect(resizer.getAttribute('data-minw')).toBe('200');
+    expect(resizer.getAttribute('data-minh')).toBe('120');
   });
 });
