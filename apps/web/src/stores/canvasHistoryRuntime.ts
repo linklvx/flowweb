@@ -184,3 +184,8 @@ export function withHistoryTransaction(fn: () => void) {
     if (!structuralEquality(snap, current)) pushHistorySnapshot(snap);
   }
 }
+
+/** M7：hydrate 完成（DB 或本地兜底）后调用——清空历史 */
+export function hydrateLoaded() {
+  useCanvasStore.temporal.setState({ pastStates: [], futureStates: [] });
+}

@@ -8,7 +8,7 @@ vi.mock('@/api/projectApi', () => ({ syncNodes: vi.fn(() => Promise.resolve()), 
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { scheduleSync, withHistoryPaused, undoCanvas, redoCanvas, beginDragTransaction, endDragTransaction, withHistoryTransaction } from './canvasHistoryRuntime';
+import { scheduleSync, withHistoryPaused, undoCanvas, redoCanvas, beginDragTransaction, endDragTransaction, withHistoryTransaction, hydrateLoaded } from './canvasHistoryRuntime';
 import { reconcileNodeStore, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 
 const n = (over: Partial<Node> & { id: string }): Node => ({
@@ -329,5 +329,20 @@ describe('拖动/resize 事务（D1.1）', () => {
     })).toThrow('x');
     useCanvasStore.setState({ nodes: [nodeA()] as any, edges: [] });        // resume 后恢复记录
     expect(useCanvasStore.temporal.getState().pastStates.length).toBeGreaterThan(0);
+  });
+});
+
+describe('hydrateLoaded', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [{ id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], edges: [] });
+    useCanvasStore.temporal.getState().clear();
+  });
+
+  it('清空 past/future（防 undo 到上一个项目）', () => {
+    useCanvasStore.setState({ nodes: [] as any, edges: [] });   // 产生 1 条历史
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+    hydrateLoaded();
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+    expect(useCanvasStore.temporal.getState().futureStates.length).toBe(0);
   });
 });

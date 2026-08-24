@@ -3,6 +3,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { SNAPSHOT_VERSION, loadSnapshot, snapshotKey } from './canvasSnapshot';
 import { hydrateNodes } from '@/utils/nodeOrder';
+import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
 
 // 旧 key 清扫单次执行 flag：hook 随 projectId 变化重跑 effect，避免重复全量扫描
 let hasCleanedOldLocalKeys = false;
@@ -39,42 +40,45 @@ export function useCanvasPersistence(projectId: string) {
 
     useCanvasStore.getState().setHydrating(true);
     try {
-      useNodeStore.setState({ nodes: snap.nodes });
-      useCanvasStore.setState({
-        nodes: hydrateNodes(
-          Object.values(snap.nodes).map((n) => ({
-            id: n.id,
-            type: n.type,
-            position: n.position,
-            data: n.data as unknown as Record<string, unknown>,
-            width: n.width,
-            height: n.height,
-          })),
-          snap.parentMap,
-        ) as any,
-        edges: snap.edges,
-        viewport: snap.viewport,
-      });
-      // 对齐 DB 加载路径（loadProjectIntoStore）：恢复后派生 storyboard 子节点 hidden 等组状态
-      useCanvasStore.getState().applyGroupDerivations();
-      // 对齐 DB 加载路径 P0-4：展开普通组按子节点重算；手动 resize 过的组保留用户尺寸。
-      // 快照 AppNode 通常带组宽高（hydrate 已恢复），从未折叠过的手动组无 savedSize——
-      // 只要有 manuallyResized 标记就不 refit，savedSize 仅作宽高缺失时的兜底（T8 端到端发现）
-      for (const g of useCanvasStore.getState().nodes.filter(
-        (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
-      )) {
-        const d = g.data as any;
-        if (d.manuallyResized) {
-          if (d.savedSize && (g.width == null || g.height == null)) {
-            useCanvasStore.setState({
-              nodes: useCanvasStore.getState().nodes.map((n) =>
-                n.id === g.id ? { ...n, width: d.savedSize.width, height: d.savedSize.height } : n),
-            });
+      withHistoryPaused(() => {
+        useNodeStore.setState({ nodes: snap.nodes });
+        useCanvasStore.setState({
+          nodes: hydrateNodes(
+            Object.values(snap.nodes).map((n) => ({
+              id: n.id,
+              type: n.type,
+              position: n.position,
+              data: n.data as unknown as Record<string, unknown>,
+              width: n.width,
+              height: n.height,
+            })),
+            snap.parentMap,
+          ) as any,
+          edges: snap.edges,
+          viewport: snap.viewport,
+        });
+        // 对齐 DB 加载路径（loadProjectIntoStore）：恢复后派生 storyboard 子节点 hidden 等组状态
+        useCanvasStore.getState().applyGroupDerivations();
+        // 对齐 DB 加载路径 P0-4：展开普通组按子节点重算；手动 resize 过的组保留用户尺寸。
+        // 快照 AppNode 通常带组宽高（hydrate 已恢复），从未折叠过的手动组无 savedSize——
+        // 只要有 manuallyResized 标记就不 refit，savedSize 仅作宽高缺失时的兜底（T8 端到端发现）
+        for (const g of useCanvasStore.getState().nodes.filter(
+          (n) => n.type === 'group' && (n.data as any).groupType === 'normal' && !(n.data as any).collapsed,
+        )) {
+          const d = g.data as any;
+          if (d.manuallyResized) {
+            if (d.savedSize && (g.width == null || g.height == null)) {
+              useCanvasStore.setState({
+                nodes: useCanvasStore.getState().nodes.map((n) =>
+                  n.id === g.id ? { ...n, width: d.savedSize.width, height: d.savedSize.height } : n),
+              });
+            }
+          } else {
+            useCanvasStore.getState().refitGroupBounds(g.id);
           }
-        } else {
-          useCanvasStore.getState().refitGroupBounds(g.id);
         }
-      }
+      });
+      hydrateLoaded();
     } finally {
       useCanvasStore.getState().setHydrating(false);
     }

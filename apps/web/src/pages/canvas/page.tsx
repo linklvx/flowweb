@@ -21,6 +21,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { createCanvas } from '@/api/canvasApi';
+import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -59,39 +60,42 @@ async function loadProjectIntoStore(
   if (isCancelled?.()) return project.name || '未命名项目';
 
   // Restore canvas state from DB project
-  useCanvasStore.setState({
-    nodes: hydrateNodes((project.nodes || []).map((n: any) => ({
-      ...n,
-      width: n.width ?? 300,
-      height: n.height ?? 300,
-    }))) as any,
-    edges: (project.edges || []).map((e: any) => ({
-      id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
-    })),
-    viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
+  withHistoryPaused(() => {
+    useCanvasStore.setState({
+      nodes: hydrateNodes((project.nodes || []).map((n: any) => ({
+        ...n,
+        width: n.width ?? 300,
+        height: n.height ?? 300,
+      }))) as any,
+      edges: (project.edges || []).map((e: any) => ({
+        id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
+      })),
+      viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
+    });
+    // Apply hidden derivation for group children (TD-Group step 3)
+    useCanvasStore.getState().applyGroupDerivations();
+    // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
+    for (const g of useCanvasStore.getState().nodes.filter(
+      (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
+        && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
+    )) {
+      useCanvasStore.getState().refitGroupBounds(g.id);
+    }
+    // Restore node content as AppNode structure
+    const content: Record<string, any> = {};
+    for (const n of project.nodes || []) {
+      content[n.id] = {
+        id: n.id,
+        type: n.type,
+        position: n.position || { x: 0, y: 0 },
+        data: n.data || {},
+        width: n.width ?? 300,
+        height: n.height ?? 300,
+      };
+    }
+    useNodeStore.setState({ nodes: content });
   });
-  // Apply hidden derivation for group children (TD-Group step 3)
-  useCanvasStore.getState().applyGroupDerivations();
-  // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
-  for (const g of useCanvasStore.getState().nodes.filter(
-    (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
-      && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
-  )) {
-    useCanvasStore.getState().refitGroupBounds(g.id);
-  }
-  // Restore node content as AppNode structure
-  const content: Record<string, any> = {};
-  for (const n of project.nodes || []) {
-    content[n.id] = {
-      id: n.id,
-      type: n.type,
-      position: n.position || { x: 0, y: 0 },
-      data: n.data || {},
-      width: n.width ?? 300,
-      height: n.height ?? 300,
-    };
-  }
-  useNodeStore.setState({ nodes: content });
+  hydrateLoaded();
   return project.name || '未命名项目';
 }
 
@@ -120,8 +124,11 @@ export function CanvasPage() {
     if (target === null || target !== lastPidRef.current) {
       // hydrate 窗口开启：清 store 至 DB 加载/兜底恢复完成期间，抑制本地快照空写
       useCanvasStore.getState().setHydrating(true);
-      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
-      useNodeStore.setState({ nodes: {} });
+      // B-2：清空不进历史（否则产生一条「上一项目 → 空」的结构历史）
+      withHistoryPaused(() => {
+        useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+        useNodeStore.setState({ nodes: {} });
+      });
     }
     lastPidRef.current = target;
 
@@ -150,11 +157,15 @@ export function CanvasPage() {
                 createPromiseRef.current = null;
                 if (cancelled) return;
                 useCanvasStore.getState().setHydrating(false);
+                // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
+                hydrateLoaded();
                 setLoadError('network');
               });
             return;
           }
           useCanvasStore.getState().setHydrating(false);
+          // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
+          hydrateLoaded();
           setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
         });
     } else {
@@ -166,6 +177,8 @@ export function CanvasPage() {
           createPromiseRef.current = null;
           if (!cancelled) {
             useCanvasStore.getState().setHydrating(false);
+            // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
+            hydrateLoaded();
             setLoadError('network');
           }
         });

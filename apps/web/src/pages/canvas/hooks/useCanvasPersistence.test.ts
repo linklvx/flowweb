@@ -4,7 +4,6 @@ import { renderHook } from '@testing-library/react';
 import { useCanvasPersistence } from './useCanvasPersistence';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useGroupHistory } from '@/stores/groupHistory';
 import { snapshotKey } from './canvasSnapshot';
 
 describe('useCanvasPersistence 组关系往返（Bug F）', () => {
@@ -24,7 +23,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
         n2: { id: 'n2', type: 'textInput', position: { x: 500, y: 50 }, data: {} } as any,
       },
     });
-    useGroupHistory.setState({ past: [], future: [] });
+    useCanvasStore.temporal.getState().clear();
   });
 
   afterEach(() => {
