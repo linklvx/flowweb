@@ -198,6 +198,9 @@ importers:
       dayjs:
         specifier: ^1.11.21
         version: 1.11.21
+      fast-deep-equal:
+        specifier: ^3.1.3
+        version: 3.1.3
       image-conversion:
         specifier: ^2.1.1
         version: 2.1.1
@@ -222,6 +225,9 @@ importers:
       wavesurfer.js:
         specifier: ^7.8.1
         version: 7.12.7
+      zundo:
+        specifier: ^2.3.0
+        version: 2.3.0(zustand@4.5.5(@types/react@18.3.28)(react@18.3.1))
       zustand:
         specifier: 4.5.5
         version: 4.5.5(@types/react@18.3.28)(react@18.3.1)
@@ -5004,6 +5010,11 @@ packages:
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
+  zundo@2.3.0:
+    resolution: {integrity: sha512-4GXYxXA17SIKYhVbWHdSEU04P697IMyVGXrC2TnzoyohEAWytFNOKqOp5gTGvaW93F/PM5Y0evbGtOPF0PWQwQ==}
+    peerDependencies:
+      zustand: ^4.3.0 || ^5.0.0
 
   zustand@4.5.5:
     resolution: {integrity: sha512-+0PALYNJNgK6hldkgDq2vLrw5f6g/jCInz52n9RTpropGgeAf/ioFUCdtsjCqu4gNhW9D01rUQBROoRjdzyn2Q==}
@@ -10103,6 +10114,10 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.4.3: {}
+
+  zundo@2.3.0(zustand@4.5.5(@types/react@18.3.28)(react@18.3.1)):
+    dependencies:
+      zustand: 4.5.5(@types/react@18.3.28)(react@18.3.1)
 
   zustand@4.5.5(@types/react@18.3.28)(react@18.3.1):
     dependencies:
