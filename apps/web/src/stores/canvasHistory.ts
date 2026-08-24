@@ -99,3 +99,22 @@ export function structuralEquality(
   return isEqual(pickStructNodes(past.nodes), pickStructNodes(current.nodes))
     && isEqual(pickStructEdges(past.edges), pickStructEdges(current.edges));
 }
+
+/** D2 合成规则（双向语义，纯函数——store 写入由 runtime 桥接）：
+ *   当前 nodeStore 有 → 保留（undo 拖动不回退配置）
+ *   当前无、快照有 → 回补（undo 删除恢复配置）
+ *   目标结构不含 → 不进结果（redo 删除不残留，防复活） */
+export function reconcileNodeStore(
+  targetNodes: Array<Pick<Node, 'id' | 'type' | 'position'>>,
+  snap: HistoryPartial['__nodeDataSnap'],
+  currentNodes: Record<string, NodeDataSnapEntry>,
+): Record<string, NodeDataSnapEntry> {
+  const next: Record<string, NodeDataSnapEntry> = {};
+  for (const node of targetNodes) {
+    next[node.id] = currentNodes[node.id] ?? snap[node.id] ?? {
+      id: node.id, type: node.type || 'videoGen',   // 五审 M-2：与 buildSyncPayload/既有同步路径（:236/:582）统一兜底，双 store 类型一致
+      position: node.position, data: {},
+    };
+  }
+  return next;
+}

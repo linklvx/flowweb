@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { Node, Edge } from '@xyflow/react';
 import {
   HISTORY_LIMIT, pickStructNodes, pickStructEdges, sanitizeDragging,
-  createPartialize, structuralEquality, type NodeStoreLike,
+  createPartialize, structuralEquality, reconcileNodeStore, type NodeStoreLike,
 } from './canvasHistory';
 
 const n = (over: Partial<Node> & { id: string }): Node => ({
@@ -119,4 +119,31 @@ describe('structuralEquality（G1：过滤在 equality 层）', () => {
 
 describe('HISTORY_LIMIT', () => {
   it('为 100', () => expect(HISTORY_LIMIT).toBe(100));
+});
+
+describe('reconcileNodeStore（D2 合成规则，纯函数）', () => {
+  it('undo 拖动：节点在当前 nodeStore 存在 → 保留当前 data', () => {
+    const current = { a: snapEntry('a', { content: '当前值' }) };
+    const snap = { a: snapEntry('a', { content: '旧值' }) };
+    const next = reconcileNodeStore([{ id: 'a', type: 'textInput', position: { x: 0, y: 0 } }], snap, current);
+    expect((next.a.data as any).content).toBe('当前值');
+  });
+
+  it('undo 删除：节点不在 nodeStore → 从快照回补', () => {
+    const snap = { a: snapEntry('a', { content: '恢复我' }) };
+    const next = reconcileNodeStore([{ id: 'a', type: 'textInput', position: { x: 1, y: 2 } }], snap, {});
+    expect((next.a.data as any).content).toBe('恢复我');
+  });
+
+  it('redo 删除：目标结构不含 → 不进结果（防复活）', () => {
+    const current = { a: snapEntry('a'), keep: snapEntry('keep') };
+    const next = reconcileNodeStore([{ id: 'keep', type: 'textInput', position: { x: 0, y: 0 } }], {}, current);
+    expect(next.a).toBeUndefined();
+    expect(next.keep).toBeDefined();
+  });
+
+  it('快照也缺的节点 → 空 data 兜底', () => {
+    const next = reconcileNodeStore([{ id: 'x', type: 'videoGen', position: { x: 0, y: 0 } }], {}, {});
+    expect(next.x.data).toEqual({});
+  });
 });
