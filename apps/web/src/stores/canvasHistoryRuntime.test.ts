@@ -381,6 +381,11 @@ describe('B-2：删除路径采样契约（先 set 后清 nodeStore）', () => {
 });
 
 describe('D5 不可变纪律守护', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [] as any, edges: [], selectedId: null, projectId: null, isHydrating: false, _isPointerInteraction: false });
+    useCanvasStore.temporal.getState().clear();
+    useNodeStore.setState({ nodes: {} });
+  });
   it('后续 set 不污染 pastStates 中的旧快照节点', () => {
     useCanvasStore.temporal.getState().clear();
     useCanvasStore.setState({ nodes: [{ id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: { v: 1 } } as any], edges: [] });
