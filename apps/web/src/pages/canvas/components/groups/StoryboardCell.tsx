@@ -21,7 +21,7 @@ function StoryboardCellComponent(p: Props) {
   // 100% 填充 1fr 轨道：固定像素会被轨道 auto-min 下限撑破容器（grid 溢出组边框）
   const style: React.CSSProperties = {
     width: '100%', height: '100%', position: 'relative',
-    border: p.selectedCell === p.index ? '2px solid #4ade80' : 'none',
+    border: p.selectedCell === p.index ? '1px solid #fffff0' : 'none',
     overflow: 'hidden',
   };
   if (!p.info) {

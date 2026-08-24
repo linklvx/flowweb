@@ -4,9 +4,9 @@ import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 import { useCanvasStore } from '@/stores/canvasStore';
 
-interface Props { id: string; data: GroupNodeData; selected: boolean; cellNodes: CellNodeInfo[] }
+interface Props { id: string; data: GroupNodeData; cellNodes: CellNodeInfo[] }
 
-function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Props) {
+function StoryboardGroupRendererComponent({ id, data, cellNodes }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
   const cfg = data.storyboard!;
@@ -36,12 +36,13 @@ function StoryboardGroupRendererComponent({ id, data, selected, cellNodes }: Pro
       // absolute inset:0 覆盖整个节点盒——RF .react-flow__node-group 自带 padding:10px，
       // 静态 100% 尺寸会相对 padding 后的内容盒布局导致格子溢出节点边界
       position: 'absolute', inset: 0,
-      border: `1px solid ${selected ? '#4ade80' : '#333333'}`, borderRadius: 8,
+      border: '1px solid #333333', borderRadius: 8,
       background: '#1a1a1a',
       display: 'grid',
       gridTemplateColumns: `repeat(${cfg.gridCols}, 1fr)`,
       gridTemplateRows: `repeat(${cfg.gridRows}, 1fr)`,
-      gap: 2,
+      gap: 3,
+      padding: 5,
     }}>
       {Array.from({ length: total }, (_, i) => {
         const nodeId = data.cells?.[i];

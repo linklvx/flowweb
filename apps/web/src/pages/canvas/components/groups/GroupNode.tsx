@@ -33,7 +33,7 @@ function GroupNodeResizer({ id }: { id: string }) {
 
 function GroupNodeComponent({ id, data, selected }: NodeProps) {
   if ((data as any).groupType === 'storyboard') {
-    return <StoryboardGroupRendererCellNodes id={id} data={data as any} selected={!!selected} />;
+    return <StoryboardGroupRendererCellNodes id={id} data={data as any} />;
   }
   return (
     <>
@@ -43,12 +43,12 @@ function GroupNodeComponent({ id, data, selected }: NodeProps) {
   );
 }
 
-function StoryboardGroupRendererCellNodes({ id, data, selected }: { id: string; data: any; selected: boolean }) {
+function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any }) {
   const cellNodes = useCanvasStore((s) =>
     s.nodes
       .filter((n) => (data.cells ?? []).includes(n.id))
       .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: (n.data as any).status, url: (n.data as any).mediaUrl })));
-  return <StoryboardGroupRenderer id={id} data={data} selected={selected} cellNodes={cellNodes as CellNodeInfo[]} />;
+  return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} />;
 }
 
 export const GroupNode = memo(GroupNodeComponent);

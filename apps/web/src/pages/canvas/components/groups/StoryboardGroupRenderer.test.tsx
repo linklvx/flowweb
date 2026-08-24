@@ -23,7 +23,6 @@ const props = (over: Record<string, unknown> = {}) => ({
     storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' as const },
     ...over,
   },
-  selected: false,
   cellNodes: cells,
 });
 
@@ -72,6 +71,32 @@ describe('StoryboardGroupRenderer', () => {
     const cell = root.children[0] as HTMLElement; // 第一个 StoryboardCell 根 div
     expect(cell.style.width).toBe('100%');
     expect(cell.style.height).toBe('100%');
+  });
+
+  it('组框与格子间有 5px padding（图片不贴组框边）', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.padding).toBe('5px');
+  });
+
+  it('格子间有 3px 间隙（图片不挤一块）', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.gap).toBe('3px');
+  });
+
+  it('组框边框恒定深色（选中态无高亮边框，选中反馈仅有上方悬浮工具条）', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.borderColor).toBe('rgb(51, 51, 51)');
+  });
+
+  it('格子选中态边框为乳白色 1px', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    const cell = (container.firstElementChild as HTMLElement).children[0] as HTMLElement;
+    fireEvent.click(cell);
+    expect(cell.style.borderWidth).toBe('1px');
+    expect(cell.style.borderColor).toBe('rgb(255, 255, 240)');
   });
 
   it('标题浮层在容器外右上角（translateY(-100%)，与普通组/节点标题一致）', () => {
