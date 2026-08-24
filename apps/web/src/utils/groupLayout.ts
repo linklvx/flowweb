@@ -5,6 +5,7 @@ export const CELL_WIDTH = 320;
 export const CELL_GAP = 2;
 export const CONVERT_GAP = 40;
 export const GROUP_PADDING = 20;
+export const GROUP_PADDING_TOP = 50;
 
 export const ASPECT_RATIO_MAP: Record<AspectRatio, number> = {
   '21:9': 21 / 9, '16:9': 16 / 9, '9:16': 9 / 16,
@@ -51,7 +52,7 @@ export function sortNodesByPosition<T extends { positionX: number; positionY: nu
 
 export function calcGroupBounds(items: { x: number; y: number; width: number; height: number }[]) {
   const minX = Math.min(...items.map((i) => i.x)) - GROUP_PADDING;
-  const minY = Math.min(...items.map((i) => i.y)) - GROUP_PADDING;
+  const minY = Math.min(...items.map((i) => i.y)) - GROUP_PADDING_TOP;
   const maxX = Math.max(...items.map((i) => i.x + i.width)) + GROUP_PADDING;
   const maxY = Math.max(...items.map((i) => i.y + i.height)) + GROUP_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
