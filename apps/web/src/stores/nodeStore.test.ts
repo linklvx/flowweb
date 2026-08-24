@@ -190,6 +190,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 9. updateConfig convenience method should set config with defaults
   it('should set config with defaults via updateConfig', () => {
+    // Seed canvasStore so updateConfig rebuild branch passes guard
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img3', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     // Start with an empty config
     useNodeStore.getState().updateConfig('img3', {});
 
@@ -206,6 +208,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   });
 
   it('should persist prompt text via updateConfig', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img9', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img9', {
       prompt: { text: 'hello world', html: '', referencedImageIds: [] },
     });
@@ -216,6 +219,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 10. setStatus should update status field
   it('should update status field via setStatus', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img4', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img4', { style: '写实' });
     useNodeStore.getState().setStatus('img4', 'loading');
 
@@ -226,6 +230,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 11. setFileResult should set fileId and mark status='done'
   it('should set fileId and mark status=done via setFileResult', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img5', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img5', { style: '写实' });
     useNodeStore.getState().setFileResult('img5', 'file-abc-123');
 
@@ -661,6 +666,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 22b. updateConfig should provide default rotation/flip/transformMode on new image node
   it('should default imageRotation to 0 and flipH/flipV to false on new image node', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img-rotate-defaults', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img-rotate-defaults', {});
     const stored = useNodeStore.getState().nodes['img-rotate-defaults'];
     const imgData = stored.data as ImageNodeData;
@@ -672,6 +678,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 22c. updateConfig should persist imageRotation/flipH/flipV/transformMode updates
   it('should persist imageRotation/flipH/flipV/transformMode via updateConfig', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img-rotate-1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img-rotate-1', { style: '写实' });
     useNodeStore.getState().updateConfig('img-rotate-1', {
       imageRotation: 90 as 0 | 90 | 180 | 270,
@@ -781,6 +788,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   // ── editMode infrastructure ──
 
   it('ImageNodeData should default editMode to null', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-default', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-default', {});
     const stored = useNodeStore.getState().nodes['edit-default'];
     const imgData = stored.data as ImageNodeData;
@@ -788,6 +796,7 @@ describe('nodeStore (AppNode nested structure)', () => {
   });
 
   it('should persist editMode via updateConfig', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-persist', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-persist', { style: '写实', editMode: 'crop' });
     const stored = useNodeStore.getState().nodes['edit-persist'];
     expect((stored.data as ImageNodeData).editMode).toBe('crop');
@@ -1062,6 +1071,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     // -- editMode annotate --
 
     it('should persist editMode annotate via updateConfig', () => {
+      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-annotate', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
       useNodeStore.getState().updateConfig('edit-annotate', { style: '写实', editMode: 'annotate' });
       const stored = useNodeStore.getState().nodes['edit-annotate'];
       expect((stored.data as ImageNodeData).editMode).toBe('annotate');

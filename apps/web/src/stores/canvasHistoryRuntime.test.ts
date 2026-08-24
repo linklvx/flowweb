@@ -168,12 +168,13 @@ describe('undoCanvas / redoCanvas', () => {
 
   it('S-1：undo 撤销创建时取消该节点的活跃进程（防完成回调幽灵复活）', async () => {
     const abort = vi.fn();
+    // 模拟创建节点的历史：先添加节点（生成历史状态），再撤销时触发 cancel
     useCanvasStore.setState({
       nodes: [{ id: 'a', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
       edges: [],
       nodeProcessMap: { a: { status: 'PROCESSING', progress: 50, abortController: { abort } } as any },
     });
-    useCanvasStore.setState({ nodes: [], edges: [] });
+    // 现在的 pastStates 有一个状态（包含 'a'），undo 会回到空状态
     await undoCanvas();
     expect(useCanvasStore.getState().nodeProcessMap.a).toBeUndefined();
     expect(abort).toHaveBeenCalled();

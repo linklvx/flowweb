@@ -93,24 +93,16 @@ function applyHistory(direction: 'undo' | 'redo'): Promise<void> {
     try {
       const beforeIds = new Set(s.nodes.map((nd) => nd.id));
       if (direction === 'undo') t.undo(); else t.redo();
-      // S-1：历史切换后（undo/redo 双向）从结构中消失且仍有活跃进程的节点 → cancel（防生成完成
-      // 回调经 nodeStore.updateConfig 为缺失 id 重建节点 → 刷新时幽灵复活）
+      // S-1：历史切换后（undo/redo 双向）从结构中消失且仍有活跃进程的节点 → cancel（防生成完成回调经 nodeStore.updateConfig 为缺失 id 重建节点 → 刷新时幽灵复活）
       const afterState = useCanvasStore.getState();
       const afterIds = new Set(afterState.nodes.map((nd) => nd.id));
-      // 取消 beforeIds 中存在但 afterIds 中不存在的节点的进程
       for (const id of beforeIds) {
         if (!afterIds.has(id) && afterState.nodeProcessMap[id]) {
           afterState.cancelNodeProcess(id);
         }
       }
-      // 取消 afterIds 中存在但 beforeIds 中不存在的节点的进程（撤销删除时）
-      for (const id of afterIds) {
-        if (!beforeIds.has(id) && afterState.nodeProcessMap[id]) {
-          afterState.cancelNodeProcess(id);
-        }
-      }
       useNodeStore.setState({
-        nodes: reconcileNodeStore(afterState.nodes, target.__nodeDataSnap, useNodeStore.getState().nodes),
+        nodes: reconcileNodeStore(afterState.nodes, target.__nodeDataSnap, useNodeStore.getState().nodes) as any,
       });
       afterState.applyGroupDerivations();
       useCanvasStore.setState({ __nodeDataSnap: undefined });
