@@ -15,6 +15,7 @@ function Harness() {
     <div ref={ref}>
       <div className="react-flow">
         <div data-testid="node" ref={(el) => { if (el) nodeEl = el; }} />
+        <svg data-testid="svg-icon"><path d="M0 0h10v10z" /></svg>
         <div className="react-flow__minimap" data-testid="minimap" />
         <div id="canvas-toolbar" data-testid="ctoolbar" />
       </div>
@@ -46,6 +47,12 @@ describe('useTrackCanvasPointerShift', () => {
     useCanvasStore.setState({ lastPointerShiftKey: true });
     pd(nodeEl, { shiftKey: false });
     expect(flag()).toBe(false);
+  });
+
+  it('节点内 SVG 元素目标（SVGElement 非 HTMLElement 子类）也采样 flag', () => {
+    const path = document.querySelector('[data-testid="svg-icon"] path')!;
+    pd(path, { shiftKey: true });
+    expect(flag()).toBe(true);
   });
 
   it('非主键（button=2）不改 flag', () => {

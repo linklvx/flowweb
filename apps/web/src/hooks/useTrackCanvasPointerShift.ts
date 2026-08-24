@@ -18,7 +18,9 @@ export function useTrackCanvasPointerShift(wrapperRef: RefObject<HTMLDivElement 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
+      // Element（含 SVGElement）：节点标题图标/波形等 SVG 目标也需采样；
+      // 仅排除文本节点等非 Element 目标
+      if (!(target instanceof Element)) return;
       if (!target.closest('.react-flow')) return;
       if (target.closest('.react-flow__minimap, #canvas-toolbar')) return;
       useCanvasStore.setState({ lastPointerShiftKey: e.shiftKey });
