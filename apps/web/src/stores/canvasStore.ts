@@ -541,12 +541,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
           }
         }
       }
+      // TD-Pos: position 变更同步 nodeStore（localStorage 快照兜底恢复的 position 来源），取 clamp 后的最终值
+      const posChangedIds = new Set(
+        changes.filter((c) => c.type === 'position' && c.position != null).map((c) => (c as any).id),
+      );
+      if (posChangedIds.size > 0) {
+        const nodeStore = useNodeStore.getState();
+        let nsNodes = nodeStore.nodes;
+        let dirty = false;
+        for (const n of nodes) {
+          if (!posChangedIds.has(n.id)) continue;
+          const existing = nsNodes[n.id];
+          if (existing && (existing.position.x !== n.position.x || existing.position.y !== n.position.y)) {
+            nsNodes = { ...nsNodes, [n.id]: { ...existing, position: n.position } };
+            dirty = true;
+          }
+        }
+        if (dirty) useNodeStore.setState({ nodes: nsNodes });
+      }
       return { nodes };
     });
 
     // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套 + DB 同步
     const removes = changes.filter((c) => c.type === 'remove');
-    if (removes.length === 0) return;
+    // TD-Pos: 拖动/移动结束（dragging 非 true 的 position 变更，RF 松手时发一次）→ 同步 DB，修复刷新后位置回退
+    const moveEnded = changes.some((c) => c.type === 'position' && (c as any).dragging !== true);
+    if (removes.length === 0 && !moveEnded) return;
     for (const change of removes) {
       get().cancelNodeProcess(change.id);
       const ns = useNodeStore.getState();

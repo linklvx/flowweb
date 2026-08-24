@@ -409,6 +409,59 @@ describe('canvasStore', () => {
     expect(mockSyncEdges).toHaveBeenCalledTimes(1);
   });
 
+// ─── TD-Pos: 拖动位置持久化（修复刷新后位置回退初始位置）───
+
+  it('onNodesChange position 结束（dragging:false）应全量同步 DB 且 payload 含新位置', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
+    useCanvasStore.setState({ projectId: 'pid-pos' });
+    mockSyncNodes.mockClear();
+    mockSyncEdges.mockClear();
+
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
+    ]);
+
+    expect(mockSyncNodes).toHaveBeenCalledTimes(1);
+    expect(mockSyncNodes.mock.calls[0][0]).toBe('pid-pos');
+    const payload = mockSyncNodes.mock.calls[0][1];
+    expect(payload.find((n: any) => n.id === id).position).toEqual({ x: 300, y: 400 });
+    expect(mockSyncEdges).toHaveBeenCalledTimes(1);
+  });
+
+  it('onNodesChange position 拖动中（dragging:true）不应同步 DB', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
+    useCanvasStore.setState({ projectId: 'pid-pos-drag' });
+
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: true } as any,
+    ]);
+
+    expect(mockSyncNodes).not.toHaveBeenCalled();
+    expect(mockSyncEdges).not.toHaveBeenCalled();
+  });
+
+  it('onNodesChange position 变更应同步 nodeStore position（快照兜底恢复正确）', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
+
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
+    ]);
+
+    expect(useNodeStore.getState().nodes[id].position).toEqual({ x: 300, y: 400 });
+  });
+
+  it('onNodesChange position 结束且 projectId 为 null 时跳过 DB 同步', () => {
+    const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
+    useCanvasStore.setState({ projectId: null });
+
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
+    ]);
+
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
+    expect(mockSyncNodes).not.toHaveBeenCalled();
+  });
+
   it('onNodesChange non-remove change should not trigger DB sync', () => {
     const id = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
     useCanvasStore.setState({ projectId: 'pid-3' });
