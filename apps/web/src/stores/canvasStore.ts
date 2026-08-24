@@ -15,7 +15,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { useGroupHistory, captureBefore, captureAfter } from './groupHistory';
 
@@ -481,6 +481,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   onNodesChange: (changes) => {
     set((s) => {
       const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
+      // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点
+      const changedIds = new Set(
+        changes
+          .filter((c) => (c.type === 'position' && c.position != null) || c.type === 'dimensions')
+          .map((c) => c.id),
+      );
+      let nodes = nextNodes;
+      if (changedIds.size > 0) {
+        const byId = new Map(nextNodes.map((n) => [n.id, n]));
+        nodes = nextNodes.map((n) => {
+          if (!changedIds.has(n.id) || !n.parentId) return n;
+          const parent = byId.get(n.parentId);
+          if (!parent || parent.type !== 'group' || (parent.data as any)?.groupType === 'storyboard') return n;
+          const clamped = clampPositionToPadding(
+            n.position,
+            { width: n.width ?? n.measured?.width ?? 280, height: n.height ?? n.measured?.height ?? 120 },
+            { width: parent.width ?? parent.measured?.width ?? 0, height: parent.height ?? parent.measured?.height ?? 0 },
+          );
+          if (clamped.x === n.position.x && clamped.y === n.position.y) return n;
+          return { ...n, position: clamped };
+        });
+      }
       // Sync dimension changes to nodeStore so components read updated width/height
       for (const change of changes) {
         if (change.type === 'dimensions' && 'dimensions' in change && (change as any).setAttributes) {
@@ -497,7 +519,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
           }
         }
       }
-      return { nodes: nextNodes };
+      return { nodes };
     });
 
     // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套 + DB 同步

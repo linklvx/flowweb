@@ -272,3 +272,87 @@ describe('组尺寸持久化行为', () => {
     expect((nsG?.data as any).groupType).toBe('normal');
   });
 });
+
+describe('组内边距保留区夹取（onNodesChange）', () => {
+  // groupNodes(['n1','n2']) 后：group(80,0,740×370)；n1 rel(20,100) 300×200；n2 rel(420,50) 300×300
+  const setupGroup = () => useCanvasStore.getState().groupNodes(['n1', 'n2']);
+
+  it('顶排子节点 y<50 的 position 变更被夹回 50', () => {
+    setupGroup();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n2', position: { x: 420, y: 10 }, dragging: true },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n2')!.position)
+      .toEqual({ x: 420, y: 50 });
+  });
+
+  it('x<20 夹回 20；x 超出右边距夹回 组宽-20-子宽', () => {
+    setupGroup();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n1', position: { x: 5, y: 100 } },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(20);
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n1', position: { x: 500, y: 100 } },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(420);
+  });
+
+  it('y 超出下边距夹回 组高-20-子高', () => {
+    setupGroup();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n1', position: { x: 20, y: 300 } },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.y).toBe(150);
+  });
+
+  it('无父节点的 position 变更不受影响', () => {
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'free', position: { x: -999, y: -999 } },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'free')!.position)
+      .toEqual({ x: -999, y: -999 });
+  });
+
+  it('分镜组子节点不受影响（groupType 门控）', () => {
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182, data: {
+          groupType: 'storyboard', cells: ['c1'],
+          storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
+        } },
+        { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: {} },
+      ] as any,
+      edges: [], selectedId: null,
+    });
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'c1', position: { x: -999, y: -999 } },
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'c1')!.position)
+      .toEqual({ x: -999, y: -999 });
+  });
+
+  it('子节点 dimensions 变更（setAttributes）触发即时夹取', () => {
+    setupGroup();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n1', position: { x: 420, y: 100 } },
+    ]);
+    useCanvasStore.getState().onNodesChange([
+      { type: 'dimensions', id: 'n1', dimensions: { width: 500, height: 100 }, setAttributes: true } as any,
+    ]);
+    const n1 = useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!;
+    expect(n1.width).toBe(500);
+    expect(n1.position.x).toBe(220); // 740-20-500
+    expect(n1.position.y).toBe(100); // yMax=370-20-100=250 > 100，不动
+  });
+
+  it('select-only 与无 position 字段的变更不夹取', () => {
+    setupGroup();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'select', id: 'n1', selected: true },
+      { type: 'position', id: 'n1', dragging: false } as any,
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position)
+      .toEqual({ x: 20, y: 100 });
+  });
+});
