@@ -5,14 +5,19 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { cropImage } from '@/utils/imageCrop';
 
+const { mockUseInternalNode } = vi.hoisted(() => ({
+  mockUseInternalNode: vi.fn(() => ({
+    position: { x: 0, y: 0 },
+    measured: { width: 500, height: 500 },
+    internals: { positionAbsolute: { x: 0, y: 0 } },
+  })),
+}));
+
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
     ...actual,
-    useInternalNode: vi.fn(() => ({
-      position: { x: 0, y: 0 },
-      measured: { width: 500, height: 500 },
-    })),
+    useInternalNode: mockUseInternalNode,
     useStore: (selector: any) => selector({ nodes: mockGetNodes() }),
     useReactFlow: vi.fn(() => ({
       fitView: mockFitView,
@@ -185,6 +190,11 @@ describe('ImageGenNode', () => {
     mockCancelRequestedAt = 0;
     // mockReturnValue 不被 clearAllMocks 清除 → 显式恢复单选默认
     mockGetNodes.mockReturnValue([{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
+    mockUseInternalNode.mockReturnValue({
+      position: { x: 0, y: 0 },
+      measured: { width: 500, height: 500 },
+      internals: { positionAbsolute: { x: 0, y: 0 } },
+    });
   });
 
   const renderNode = (selected = false) => {
@@ -467,6 +477,26 @@ describe('ImageGenNode', () => {
     expect(screen.queryByText('全部')).not.toBeInTheDocument();
     const frame = document.querySelector('[data-testid="outpaint-frame"]');
     expect(frame).toBeTruthy();
+  });
+
+  it('扩图选区悬浮层按 positionAbsolute 定位（打组后不错位）', () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const first = renderNode();
+    const frame0 = document.querySelector('[data-testid="outpaint-frame"]') as HTMLElement;
+    expect(frame0).toBeTruthy();
+    const left0 = parseFloat(frame0.style.left);
+    const top0 = parseFloat(frame0.style.top);
+    first.unmount();
+
+    mockUseInternalNode.mockReturnValue({
+      position: { x: 0, y: 0 },
+      measured: { width: 500, height: 500 },
+      internals: { positionAbsolute: { x: 600, y: 400 } },
+    });
+    renderNode();
+    const frame1 = document.querySelector('[data-testid="outpaint-frame"]') as HTMLElement;
+    expect(parseFloat(frame1.style.left) - left0).toBe(600);
+    expect(parseFloat(frame1.style.top) - top0).toBe(400);
   });
 
   it('renders EditToolbar with outpaint-specific props', () => {
