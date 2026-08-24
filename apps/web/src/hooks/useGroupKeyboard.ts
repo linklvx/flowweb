@@ -3,11 +3,20 @@ import { useEffect } from 'react';
 import { message } from 'antd'; // Vite ESM：静态导入（require 不可用）
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useGroupHistory } from '@/stores/groupHistory';
+import { undoCanvas, redoCanvas } from '@/stores/canvasHistoryRuntime';
 
 export function isGroupEditContext(target: HTMLElement | null): boolean {
   const ns = useNodeStore.getState();
   if (ns.activeEditNodeId !== null || ns.activeTransformNodeId !== null) return true;
+  const active = document.activeElement as HTMLElement | null;
+  if (active) {
+    const tag = active.tagName;
+    // 全局文本编辑上下文（含侧边栏普通输入框——target 是 keydown 目标，焦点可能在别处）
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return true;
+    // S4（五审 M-3）：AntD 弹层（Select/DatePicker/Dropdown/Cascader/Modal）挂 body 下
+    if (active !== document.body
+      && active.closest('.ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-cascader-menu, .ant-modal')) return true;
+  }
   if (!target) return false;
   const tag = target.tagName;
   return !!(tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable);
@@ -27,6 +36,7 @@ export function resolveGroupShortcut(e: {
   if (!ctrl && e.shiftKey && !e.altKey && k === 'g') return 'remove-from-group';
   if (ctrl && !e.shiftKey && k === 'z') return 'undo';
   if (ctrl && e.shiftKey && k === 'z') return 'redo';
+  if (ctrl && !e.shiftKey && k === 'y') return 'redo';   // S5
   return null;
 }
 
@@ -59,8 +69,12 @@ export function useGroupKeyboard() {
             if (child?.parentId) { e.preventDefault(); s.removeNodeFromGroup(child.parentId, child.id); }
             break;
           }
-          case 'undo': e.preventDefault(); useGroupHistory.getState().undo(); break;
-          case 'redo': e.preventDefault(); useGroupHistory.getState().redo(); break;
+          case 'undo':
+            e.preventDefault(); void undoCanvas();
+            break;
+          case 'redo':
+            e.preventDefault(); void redoCanvas();
+            break;
         }
       } catch (err) {
         // 置灰条件的快捷键触发（如嵌套/非图片），Toast 提示错误信息
