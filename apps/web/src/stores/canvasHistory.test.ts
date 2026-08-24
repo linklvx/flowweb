@@ -40,10 +40,6 @@ describe('sanitizeDragging', () => {
 });
 
 describe('createPartialize（F1 缓存 + S-3 降级）', () => {
-  const mkStore = (nodes: Record<string, any>): NodeStoreLike & { swap(next: any): void } => {
-    const holder = { nodes };
-    return { nodes, swap: (next) => { holder.nodes = next; }, get nodes2() { return holder.nodes; } } as any;
-  };
   // 简化：直接用闭包可控引用
   const mkGetter = () => {
     let cur: NodeStoreLike = { nodes: {} };
