@@ -85,6 +85,7 @@ interface CanvasState {
   edges: Edge[];
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
+  lastPointerShiftKey: boolean;
   pendingMediaFile: MaterialFile | null;
   pendingFillCell: { groupId: string; cellIndex: number } | null;
   nodeProcessMap: Record<string, NodeProcessState>;
@@ -154,6 +155,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
+  lastPointerShiftKey: false,
   pendingMediaFile: null,
   pendingFillCell: null,
   nodeProcessMap: {},

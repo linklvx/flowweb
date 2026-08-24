@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import * as react from 'react';
 
@@ -15,9 +15,15 @@ const rf = vi.hoisted(() => {
   };
 });
 
-vi.mock('@xyflow/react', () => ({ useStore: rf.useStore }));
+// canvasStore.ts:4 运行时 import applyNodeChanges/applyEdgeChanges，mock 工厂必须补导出
+vi.mock('@xyflow/react', () => ({
+  useStore: rf.useStore,
+  applyNodeChanges: vi.fn(),
+  applyEdgeChanges: vi.fn(),
+}));
 
 import { useIsSingleSelected } from './useIsSingleSelected';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 function Probe({ selected }: { selected: boolean }) {
   const single = useIsSingleSelected(selected);
@@ -25,6 +31,10 @@ function Probe({ selected }: { selected: boolean }) {
 }
 
 describe('useIsSingleSelected', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ lastPointerShiftKey: false });
+  });
+
   it('单选时为 true', () => {
     rf.setNodes([{ id: 'a', selected: true }]);
     render(<Probe selected />);
@@ -33,7 +43,7 @@ describe('useIsSingleSelected', () => {
 
   it('Bug A 残留时序：先选中 A（count=1）再加选 B → A 的单选态消失', () => {
     rf.setNodes([{ id: 'a', selected: true }]);
-    render(<Probe selected />); // 此时 A 渲染，count=1
+    render(<Probe selected />);
     expect(screen.getByTestId('probe').textContent).toBe('single');
     act(() => { rf.setNodes([{ id: 'a', selected: true }, { id: 'b', selected: true }]); });
     expect(screen.getByTestId('probe').textContent).toBe('multi');
@@ -50,5 +60,28 @@ describe('useIsSingleSelected', () => {
     rf.setNodes([{ id: 'a', selected: false }]);
     render(<Probe selected={false} />);
     expect(screen.getByTestId('probe').textContent).toBe('multi');
+  });
+
+  it('Shift 多选抑制：flag=true 时单选也返回 false', () => {
+    useCanvasStore.setState({ lastPointerShiftKey: true });
+    rf.setNodes([{ id: 'a', selected: true }]);
+    render(<Probe selected />);
+    expect(screen.getByTestId('probe').textContent).toBe('multi');
+  });
+
+  it('边界：count=0 + flag=true 为 false', () => {
+    useCanvasStore.setState({ lastPointerShiftKey: true });
+    rf.setNodes([]);
+    render(<Probe selected />);
+    expect(screen.getByTestId('probe').textContent).toBe('multi');
+  });
+
+  it('恢复路径：flag true→false 且选中数不变时恢复 true（依赖 flag 订阅触发重渲染）', () => {
+    useCanvasStore.setState({ lastPointerShiftKey: true });
+    rf.setNodes([{ id: 'a', selected: true }]);
+    render(<Probe selected />);
+    expect(screen.getByTestId('probe').textContent).toBe('multi');
+    act(() => { useCanvasStore.setState({ lastPointerShiftKey: false }); });
+    expect(screen.getByTestId('probe').textContent).toBe('single');
   });
 });
