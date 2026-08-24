@@ -45,15 +45,15 @@ describe('SelectionBoxOverlay', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('坐标：bounds 变换 + padding 屏幕常量外加（zoom=2 时 padding 不缩放）', () => {
+  it('坐标：bounds 变换 + padding 屏幕常量外加（zoom=2 时 padding 不缩放）；顶部含标题浮层 titleExtra×zoom', () => {
     rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 100, y: 200 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 110, y: 210 } })];
     rf.state.vp = { x: 10, y: 20, zoom: 2 };
     render(<SelectionBoxOverlay />);
     const box = portal.firstElementChild as HTMLElement;
     expect(box.style.left).toBe('194px');  // 100*2+10-16
-    expect(box.style.top).toBe('404px');   // 200*2+20-16
+    expect(box.style.top).toBe('352px');   // 200*2+20-16-26*2（标题浮层随流坐标缩放）
     expect(box.style.width).toBe('132px'); // 50*2+32
-    expect(box.style.height).toBe('112px');// 40*2+32
+    expect(box.style.height).toBe('164px');// 40*2+32+26*2
   });
 
   it('框本体 pointerEvents none；徽标显示「N 项」', () => {

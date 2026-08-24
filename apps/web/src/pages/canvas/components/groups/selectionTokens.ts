@@ -9,6 +9,8 @@ export const SELECTION_BOX = {
   borderRadius: 8,
   background: 'rgba(0,0,0,0.35)',
   padding: 16,
+  // 节点标题浮层溢出高度（流坐标：18px 行高 + pb-2 8px 间隙），getNodesBounds 不含此浮层
+  titleExtra: 26,
 };
 
 /** 组块容器（RF 节点内，流坐标）——单层虚线深色 */

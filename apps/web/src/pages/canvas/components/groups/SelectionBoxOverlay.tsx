@@ -25,11 +25,12 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   const geo = useMemo(() => {
     if (selectedInternal.length < 2) return null;
     const b = getNodesBounds(selectedInternal);
-    // padding/offset 为屏幕像素常量：流→屏幕变换后外加，不乘 zoom
+    // padding/offset 为屏幕像素常量：流→屏幕变换后外加，不乘 zoom；
+    // titleExtra 为流坐标量（节点标题浮层溢出节点盒上方），随 zoom 缩放
     const left = b.x * zoom + vpX - SELECTION_BOX.padding;
-    const top = b.y * zoom + vpY - SELECTION_BOX.padding;
+    const top = b.y * zoom + vpY - SELECTION_BOX.padding - SELECTION_BOX.titleExtra * zoom;
     const width = b.width * zoom + SELECTION_BOX.padding * 2;
-    const height = b.height * zoom + SELECTION_BOX.padding * 2;
+    const height = b.height * zoom + SELECTION_BOX.padding * 2 + SELECTION_BOX.titleExtra * zoom;
     const centerX = left + width / 2;
     const isAbove = top - TOOLBAR.offset - TOOLBAR.height > 0;
     return {
