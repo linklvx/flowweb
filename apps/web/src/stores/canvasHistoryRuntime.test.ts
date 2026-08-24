@@ -379,3 +379,64 @@ describe('B-2：删除路径采样契约（先 set 后清 nodeStore）', () => {
     expect((useNodeStore.getState().nodes.t1?.data as any).prompt).toBe('完整配置');
   });
 });
+
+describe('D5 不可变纪律守护', () => {
+  it('后续 set 不污染 pastStates 中的旧快照节点', () => {
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.setState({ nodes: [{ id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: { v: 1 } } as any], edges: [] });
+    useCanvasStore.setState({ nodes: [{ id: 'a', type: 'textInput', position: { x: 5, y: 5 }, data: { v: 1 } } as any], edges: [] });
+    const snap = useCanvasStore.temporal.getState().pastStates.at(-1)!;   // 尾条 = 上一次 set 前状态
+    expect(snap.nodes![0].position).toEqual({ x: 0, y: 0 });
+    expect(snap.nodes![0].data).toEqual({ v: 1 });
+  });
+
+  it('连续 5 次 undo 再 5 次 redo 结构一致（验收 11，S3：多节点累积）', async () => {
+    useCanvasStore.temporal.getState().clear();
+    const nodes: any[] = [];
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      nodes.push(n({ id }));
+      useCanvasStore.setState({ nodes: [...nodes], edges: [] });   // 累积，非替换
+    }
+    const finalIds = useCanvasStore.getState().nodes.map((nd) => nd.id).join(',');
+    for (let i = 0; i < 5; i++) await undoCanvas();
+    expect(useCanvasStore.getState().nodes.length).toBe(0);
+    for (let i = 0; i < 5; i++) await redoCanvas();
+    expect(useCanvasStore.getState().nodes.map((nd) => nd.id).join(',')).toBe(finalIds);
+  });
+
+  it('undo 后 canvasStore 结构与 nodeStore 键集合一致（验收 13，无幽灵/缺失）', async () => {
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.setState({ nodes: [n({ id: 'a' })], edges: [] });
+    useCanvasStore.setState({ nodes: [], edges: [] });
+    await undoCanvas();
+    const csIds = new Set(useCanvasStore.getState().nodes.map((nd) => nd.id));
+    const nsIds = new Set(Object.keys(useNodeStore.getState().nodes));
+    expect([...csIds].every((id) => nsIds.has(id))).toBe(true);
+  });
+
+  it('五审 C-2 语义守护：非 partialize 字段 set 不产生历史（zundo per-set equality 基线，防升级变语义）', () => {
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.setState({ nodes: [n({ id: 'a' })], edges: [] });   // 1 条
+    useCanvasStore.setState({ selectedId: 'a' });                      // 非 partialize 字段
+    useCanvasStore.setState({ viewport: { x: 10, y: 10, zoom: 1 } });  // 非 partialize 字段
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+  });
+});
+
+describe('S-2：组派生不产生多余历史（一致态守卫）', () => {
+  it('父子一致态下 applyGroupDerivations 不产生历史', () => {
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, projectId: null });
+    useCanvasStore.temporal.getState().clear();
+    useNodeStore.setState({ nodes: {} });
+    // 构造一致态组：groupNodes 后 derivations 已在 action 内跑过，此态为一致态
+    useCanvasStore.setState((s) => ({
+      nodes: [
+        { id: 'g', type: 'group', position: { x: 0, y: 0 }, width: 600, height: 400, data: { groupType: 'normal' } } as any,
+        { id: 'c', type: 'text', position: { x: 10, y: 10 }, parentId: 'g', extent: 'parent', data: {} } as any,
+      ],
+    }));
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.getState().applyGroupDerivations();
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+  });
+});
