@@ -346,3 +346,36 @@ describe('hydrateLoaded', () => {
     expect(useCanvasStore.temporal.getState().futureStates.length).toBe(0);
   });
 });
+
+describe('B-2：删除路径采样契约（先 set 后清 nodeStore）', () => {
+  const seedNode = (id: string) => {
+    useCanvasStore.setState({
+      nodes: [{ id, type: 'textGen', position: { x: 1, y: 2 }, data: {} } as any],
+      edges: [],
+      selectedId: null, projectId: null, nodeProcessMap: {},
+    });
+    useNodeStore.setState({
+      nodes: { [id]: { id, type: 'textGen', position: { x: 1, y: 2 }, data: { prompt: '完整配置', extConfig: { model: 'x' } } as any } },
+    });
+    useCanvasStore.temporal.getState().clear();
+  };
+
+  it('undo 真实 deleteNode → nodeStore data 完整恢复', async () => {
+    seedNode('a');
+    useCanvasStore.getState().deleteNode('a');
+    expect(useNodeStore.getState().nodes.a).toBeUndefined();   // 删除路径已清理
+    expect(useCanvasStore.getState().nodes.length).toBe(0);
+    await undoCanvas();
+    expect(useCanvasStore.getState().nodes.some((nd) => nd.id === 'a')).toBe(true);
+    expect((useNodeStore.getState().nodes.a?.data as any).prompt).toBe('完整配置');
+    expect((useNodeStore.getState().nodes.a?.data as any).extConfig).toEqual({ model: 'x' });
+  });
+
+  it('undo 真实 deleteTransformNode → data 完整恢复', async () => {
+    seedNode('t1');
+    useCanvasStore.getState().deleteTransformNode!('t1');
+    expect(useNodeStore.getState().nodes.t1).toBeUndefined();
+    await undoCanvas();
+    expect((useNodeStore.getState().nodes.t1?.data as any).prompt).toBe('完整配置');
+  });
+});

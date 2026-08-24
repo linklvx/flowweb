@@ -220,15 +220,16 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
-    // 对齐 deleteTransformNode：清 nodeStore（否则快照脏写，删除节点刷新后复活）
-    const ns = useNodeStore.getState();
-    ns.deleteNode(id);
-    ns.unregisterSaveHandler(id);
+    // B-2（spec D2）：结构 set 必须先于 nodeStore 清理——
+    // zundo partialize 在 set 时采样 nodeStore，先清会丢失 undo 删除所需的完整 data
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
     }));
+    const ns = useNodeStore.getState();
+    ns.deleteNode(id);
+    ns.unregisterSaveHandler(id);
     // 组清理逻辑：检查被删节点的父组是否需要清理
     const after = get();
     const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
@@ -269,14 +270,15 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
-    const ns = useNodeStore.getState();
-    ns.deleteNode(id);
-    ns.unregisterSaveHandler(id);
+    // B-2（spec D2）：结构 set 必须先于 nodeStore 清理
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
     }));
+    const ns = useNodeStore.getState();
+    ns.deleteNode(id);
+    ns.unregisterSaveHandler(id);
   },
 
   setNodeDraggable: (nodeId, draggable) =>
