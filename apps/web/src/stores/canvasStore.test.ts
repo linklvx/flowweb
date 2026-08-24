@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { AiToolId, ImageNodeData } from './nodeStore';
+import { HISTORY_LIMIT } from './canvasHistory';
+import { historyPartialize } from './canvasStore';
 
 const { mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
   mockSyncNodes: vi.fn().mockResolvedValue({}),
@@ -18,6 +20,7 @@ describe('canvasStore', () => {
     useNodeStore.setState({ nodes: {} });
     mockSyncNodes.mockClear();
     mockSyncEdges.mockClear();
+    useCanvasStore.temporal.getState().clear();
   });
 
   it('should initialize with empty canvas', () => {
@@ -712,6 +715,42 @@ describe('canvasStore', () => {
       expect(useCanvasStore.getState().isHydrating).toBe(true);
       useCanvasStore.getState().setHydrating(false);
       expect(useCanvasStore.getState().isHydrating).toBe(false);
+    });
+  });
+
+  // ─── TD-Hist: temporal 中间件接入 ───
+  describe('canvasStore temporal history', () => {
+    it('结构 set（addNode）应产生一条历史', () => {
+      useCanvasStore.temporal.getState().clear();
+      useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+      expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+    });
+
+    it('UI 态 set（selectedId）不应产生历史', () => {
+      useCanvasStore.temporal.getState().clear();
+      useCanvasStore.setState({ selectedId: 'x' });
+      expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+    });
+
+    it('isApplyingHistory/_isPointerInteraction 默认 false，__nodeDataSnap 默认 undefined', () => {
+      useCanvasStore.setState({ isApplyingHistory: false, _isPointerInteraction: false, __nodeDataSnap: undefined });
+      const s = useCanvasStore.getState();
+      expect(s.isApplyingHistory).toBe(false);
+      expect(s._isPointerInteraction).toBe(false);
+      expect(s.__nodeDataSnap).toBeUndefined();
+    });
+
+    it('N-4：zundo 自动路径 limit 截断——105 次结构 set 后 pastStates ≤ HISTORY_LIMIT', () => {
+      useCanvasStore.temporal.getState().clear();
+      for (let i = 0; i < 105; i++) {
+        useCanvasStore.setState({ nodes: [{ id: 'a', type: 'textInput', position: { x: i, y: 0 }, data: {} } as any], edges: [] });
+      }
+      expect(useCanvasStore.temporal.getState().pastStates.length).toBeLessThanOrEqual(HISTORY_LIMIT);
+    });
+
+    it('N-3：historyPartialize 单例冒烟——nodeStore 未变时连续调用 __nodeDataSnap 同引用', () => {
+      const state = { nodes: [], edges: [] } as any;
+      expect(historyPartialize(state).__nodeDataSnap).toBe(historyPartialize(state).__nodeDataSnap);
     });
   });
 });

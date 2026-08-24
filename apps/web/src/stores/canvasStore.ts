@@ -4,6 +4,8 @@ import {
   applyNodeChanges, applyEdgeChanges,
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
+import { temporal } from 'zundo';
+import { createPartialize, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
@@ -91,6 +93,14 @@ interface CanvasState {
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
   isHydrating: boolean;
+  // ── undo/redo（spec canvas-undo-redo.md）──
+  /** zundo undo 回写时带入的 nodeStore data 采样，包装 undo/redo 中读出后立即清除 */
+  __nodeDataSnap?: import('./canvasHistory').HistoryPartial['__nodeDataSnap'];
+  /** 拖动事务进行中（onNodeDragStart/Stop 维护），undo/redo 键盘 no-op 守卫 */
+  _isPointerInteraction: boolean;
+  /** 包装 undo/redo 写回进行中。I-4：当前无订阅者消费（persistence 500ms debounce 写最终态天然安全、
+   *  CanvasView pendingMediaFile 不受 undo 影响）——预留字段（spec D3 定义），供未来需跳过副作用的订阅者使用 */
+  isApplyingHistory: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
@@ -141,7 +151,12 @@ interface CanvasState {
   hasGroupClipboard: () => boolean;
 }
 
-export const useCanvasStore = create<CanvasState>((set, get) => {
+/** F1 缓存单例：zundo 配置与 runtime 事务快照（Task 5）共用同一实例，防两处漂移。
+ *  getNodeStore 箭头延迟求值——canvasStore 先于 nodeStore 完成求值也安全 */
+export const historyPartialize = createPartialize(() => useNodeStore.getState());
+
+export const useCanvasStore = create<CanvasState>()(temporal(
+  (set, get) => {
   // 组结构写入统一包装：对 updater 产出的 nodes 应用父前子后重排
   // （RF v12 updateChildNode 要求父节点在数组中位于子节点前，否则忽略 parentId）
   const setWithParentOrder = (updater: (s: CanvasState) => Partial<CanvasState>) =>
@@ -161,6 +176,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   nodeProcessMap: {},
   projectId: null,
   isHydrating: false,
+  __nodeDataSnap: undefined,
+  _isPointerInteraction: false,
+  isApplyingHistory: false,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
@@ -1494,8 +1512,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   },
 
   hasGroupClipboard: () => groupClipboard !== null,
-};
-});
+  };
+  },
+  {
+    limit: HISTORY_LIMIT,
+    partialize: historyPartialize as any,
+    equality: (past, current) => structuralEquality(past as any, current as any),
+  },
+));
 
 // Shared helper function to build a group copy
 function buildGroupCopy(
