@@ -7,7 +7,7 @@ import { message } from 'antd';
 import { useCanvasStore, historyPartialize } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { HistoryPartial } from './canvasHistory';
-import { reconcileNodeStore } from './canvasHistory';
+import { reconcileNodeStore, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 
 /** undo/redo 后的 DB 全量同步载荷：canvasStore 结构为基准 + nodeStore data */
@@ -119,3 +119,68 @@ function applyHistory(direction: 'undo' | 'redo'): Promise<void> {
 
 export function undoCanvas() { return applyHistory('undo'); }
 export function redoCanvas() { return applyHistory('redo'); }
+
+/** F2：手动 push 快照 + limit 截断 + 清 future（拖动/resize/多 set 事务共用） */
+function pushHistorySnapshot(snap: HistoryPartial) {
+  const t = useCanvasStore.temporal.getState() as { pastStates: HistoryPartial[]; futureStates: HistoryPartial[] };
+  const next = [...t.pastStates, snap];
+  if (next.length > HISTORY_LIMIT) next.shift();
+  useCanvasStore.temporal.setState({ pastStates: next, futureStates: [] });
+}
+
+let dragStartSnapshot: HistoryPartial | null = null;
+
+/** D1.1：dragStart/resizeStart 调用——拍拖动前快照并暂停记录（跨事件两段式）。
+ *  五审 M-1：重入守卫——同一手势重复 Start 忽略，保住首个拖动前快照。
+ *  顺序 snapshot→pause→set：flag 置位全程在 pause 窗口内（与 end 对称），不产生记录 */
+export function beginDragTransaction() {
+  if (dragStartSnapshot) return;
+  dragStartSnapshot = historyPartialize(useCanvasStore.getState());
+  useCanvasStore.temporal.getState().pause();
+  useCanvasStore.setState({ _isPointerInteraction: true });
+}
+
+/** D1.1：dragStop/resizeEnd/拖动中断兜底（M-4）调用——恢复记录并 push 拖动前快照。
+ *  B-1：push 前 equality 守卫——空拖动、snapToGrid 回原位、resize 尺寸未变时结构相等，不 push。
+ *  五审 C-1：复位必须在 resume **之前**——zundo equality 比较同一次 set 的 pre/post partialize，
+ *  resume 后复位的 set 其 pre 侧（flag=true → I-1 跳过采样=旧 snap）与 post 侧（flag=false →
+ *  catch-up 采样=TD-Pos 拖动中新 position）不等 → push 幽灵条目，首次 undo 视觉无反应。
+ *  pause 窗口内 set 被 temporalHandleSet 首行 isTracking 检查整体丢弃。
+ *  幂等：未 begin 时直调仅复位 + resume，无快照可 push，安全（M-4 兜底路径） */
+export function endDragTransaction() {
+  if (dragStartSnapshot) {
+    // 复位前计算 changed：此刻 flag 仍 true → I-1 复用 begin 时缓存，structuralEquality
+    // 只比 nodes/edges 结构字段——拖动中途的 nodeStore 数据变化（进程状态等）属 S-1 范围外
+    const current = historyPartialize(useCanvasStore.getState());
+    const changed = !structuralEquality(dragStartSnapshot, current);
+    useCanvasStore.setState({ _isPointerInteraction: false });   // pause 窗口内复位，不记录（C-1）
+    useCanvasStore.temporal.getState().resume();
+    if (changed) pushHistorySnapshot(dragStartSnapshot);          // temporal.setState，不触发 canvas 包装 set
+    dragStartSnapshot = null;
+  } else {
+    useCanvasStore.setState({ _isPointerInteraction: false });
+    useCanvasStore.temporal.getState().resume();
+  }
+}
+
+let txDepth = 0;
+
+/** S6：同步多 set 操作（组 action 多 set 段 / handleDelete 批量删除）压成一条历史；
+ *  嵌套直通（内层不拍快照不 resume，外层统一 push）；不碰 _isPointerInteraction；
+ *  B-1：结构无变化（防御性提前 return 路径等）不 push；
+ *  五审 L-3：fn 抛错时 finally 仍比较并 push 快照——「操作失败到一半」也可 undo 回操作前，
+ *  失败安全语义，勿改为抛错不记录 */
+export function withHistoryTransaction(fn: () => void) {
+  if (txDepth > 0) { fn(); return; }
+  const snap = historyPartialize(useCanvasStore.getState());
+  useCanvasStore.temporal.getState().pause();
+  txDepth++;
+  try {
+    fn();
+  } finally {
+    txDepth--;
+    useCanvasStore.temporal.getState().resume();
+    const current = historyPartialize(useCanvasStore.getState());
+    if (!structuralEquality(snap, current)) pushHistorySnapshot(snap);
+  }
+}

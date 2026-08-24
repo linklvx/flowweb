@@ -8,8 +8,8 @@ vi.mock('@/api/projectApi', () => ({ syncNodes: vi.fn(() => Promise.resolve()), 
 import { syncNodes, syncEdges } from '@/api/projectApi';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { scheduleSync, withHistoryPaused, undoCanvas, redoCanvas } from './canvasHistoryRuntime';
-import { reconcileNodeStore } from './canvasHistory';
+import { scheduleSync, withHistoryPaused, undoCanvas, redoCanvas, beginDragTransaction, endDragTransaction, withHistoryTransaction } from './canvasHistoryRuntime';
+import { reconcileNodeStore, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 
 const n = (over: Partial<Node> & { id: string }): Node => ({
   type: 'textInput', position: { x: 0, y: 0 }, data: {}, ...over,
@@ -194,5 +194,140 @@ describe('undoCanvas / redoCanvas', () => {
     await undoCanvas();
     expect(useCanvasStore.getState().nodeProcessMap.a).toBeDefined();
     expect(abort).not.toHaveBeenCalled();
+  });
+});
+
+describe('拖动/resize 事务（D1.1）', () => {
+  const nodeA = () => ({ id: 'a', type: 'textInput' as const, position: { x: 0, y: 0 }, data: {} });
+
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [nodeA()] as any, edges: [], _isPointerInteraction: false, isHydrating: false, projectId: null, selectedId: null, nodeProcessMap: {} });
+    useCanvasStore.temporal.getState().clear();   // 节点已在，历史清零（M4 基线；projectId:null 防残留 pending timer）
+  });
+
+  it('pause 期间 set 不记录；endDrag 后恰好一条（拖动前快照，无 dragging）', () => {
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 50, y: 50 } } as any], edges: [] });
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 99, y: 99 } } as any], edges: [] });
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);   // pause 中不记录
+    endDragTransaction();
+    const past = useCanvasStore.temporal.getState().pastStates;
+    expect(past.length).toBe(1);                                            // 恰好一条
+    expect((past as any)[0].nodes[0].position).toEqual({ x: 0, y: 0 });              // 拖动前
+    expect((past as any)[0].nodes[0].dragging).toBeFalsy();
+  });
+
+  it('endDrag push 使 futureStates 清空', async () => {
+    useCanvasStore.setState({ nodes: [] as any, edges: [] });
+    await undoCanvas();
+    expect(useCanvasStore.temporal.getState().futureStates.length).toBe(1);
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.setState({ nodes: [nodeA()] as any, edges: [] });        // 基线
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 5, y: 5 } } as any], edges: [] });
+    endDragTransaction();
+    expect(useCanvasStore.temporal.getState().futureStates.length).toBe(0); // 新操作清 future
+  });
+
+  it('F2：手动 push 同步 limit 截断', () => {
+    for (let i = 0; i < HISTORY_LIMIT + 5; i++) {
+      beginDragTransaction();
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: i, y: 0 } } as any], edges: [] });
+      endDragTransaction();
+    }
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBeLessThanOrEqual(HISTORY_LIMIT);
+  });
+
+  it('_isPointerInteraction 事务内为 true，结束复位；endDragTransaction 幂等（M-4 兜底可安全重入）', () => {
+    beginDragTransaction();
+    expect(useCanvasStore.getState()._isPointerInteraction).toBe(true);
+    endDragTransaction();
+    expect(useCanvasStore.getState()._isPointerInteraction).toBe(false);
+    expect(() => endDragTransaction()).not.toThrow();   // 未 begin 时直调（卸载兜底路径）
+  });
+
+  it('B-1：空拖动（无 set / 结构未变 / snapToGrid 回原位）不产生幽灵历史', () => {
+    beginDragTransaction();
+    endDragTransaction();                                              // 完全无 set（mousedown 即 mouseup）
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [nodeA()] as any, edges: [] });   // set 了但结构与快照相同（回原位）
+    endDragTransaction();
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+  });
+
+  it('B-1：withHistoryTransaction 内无结构变化不 push', () => {
+    withHistoryTransaction(() => {
+      useCanvasStore.setState({ selectedId: 'x' });                    // 非 partialize 字段
+    });
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);
+  });
+
+  it('五审 C-1 回归：拖动中 TD-Pos 写 nodeStore（新引用）→ endDrag 后仍恰好 1 条且首次 undo 即回原位', async () => {
+    useNodeStore.setState({ nodes: { a: { id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: {} as any } } });
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 99, y: 99 } } as any], edges: [] });
+    // 模拟 TD-Pos（canvasStore.ts:544-561）：拖动中把新 position 写进 nodeStore 新引用
+    useNodeStore.setState({ nodes: { a: { id: 'a', type: 'textInput', position: { x: 99, y: 99 }, data: {} as any } } });
+    endDragTransaction();
+    const past = useCanvasStore.temporal.getState().pastStates;
+    expect(past.length).toBe(1);                                        // 旧顺序（resume→push→复位）此处为 2：复位 set 的 pre(旧snap)/post(catch-up新snap) 不等被 zundo 记录
+    await undoCanvas();
+    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 0, y: 0 });   // 首次 undo 即回原位
+  });
+
+  it('五审 M-1：同一手势重复 beginDragTransaction 不覆盖首个快照', () => {
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 5, y: 5 } } as any], edges: [] });
+    beginDragTransaction();                                             // RF 边缘场景重复触发 Start
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 9, y: 9 } } as any], edges: [] });
+    endDragTransaction();
+    const past = useCanvasStore.temporal.getState().pastStates;
+    expect(past.length).toBe(1);
+    expect((past as any)[0].nodes[0].position).toEqual({ x: 0, y: 0 });          // 首个拖动前快照，非 x:5
+  });
+
+  it('M-4 时序：RF dragStart 前节点已 dragging:true → 快照被 sanitize 为 false', () => {
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), dragging: true } as any], edges: [] });
+    useCanvasStore.temporal.getState().clear();                         // 该 set 结构未变，无历史
+    beginDragTransaction();
+    useCanvasStore.setState({ nodes: [{ ...nodeA(), dragging: true, position: { x: 7, y: 7 } } as any], edges: [] });
+    endDragTransaction();
+    const past = useCanvasStore.temporal.getState().pastStates;
+    expect(past.length).toBe(1);
+    expect((past as any)[0].nodes[0].dragging).toBeFalsy();
+    expect((past as any)[0].nodes[0].position).toEqual({ x: 0, y: 0 });          // 拖动前
+  });
+
+  it('withHistoryTransaction：同步多 set 压成一条历史（Task 9 组操作复用）', () => {
+    withHistoryTransaction(() => {
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 1, y: 1 } } as any], edges: [] });
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 2, y: 2 } } as any], edges: [] });
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 3, y: 3 } } as any], edges: [] });
+    });
+    const past = useCanvasStore.temporal.getState().pastStates;
+    expect(past.length).toBe(1);
+    expect((past as any)[0].nodes[0].position).toEqual({ x: 0, y: 0 });              // 操作前快照
+    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 3, y: 3 });
+  });
+
+  it('withHistoryTransaction：嵌套直通——外层统一 1 条历史（handleDelete N+1 循环用）', () => {
+    withHistoryTransaction(() => {
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 1, y: 1 } } as any], edges: [] });
+      withHistoryTransaction(() => {
+        useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 2, y: 2 } } as any], edges: [] });
+      });
+      expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0); // 外层仍 pause 中
+    });
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+  });
+
+  it('withHistoryTransaction：fn 抛错也 push 且 resume（不卡 pause）', () => {
+    expect(() => withHistoryTransaction(() => {
+      useCanvasStore.setState({ nodes: [{ ...nodeA(), position: { x: 9, y: 9 } } as any], edges: [] });
+      throw new Error('x');
+    })).toThrow('x');
+    useCanvasStore.setState({ nodes: [nodeA()] as any, edges: [] });        // resume 后恢复记录
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBeGreaterThan(0);
   });
 });

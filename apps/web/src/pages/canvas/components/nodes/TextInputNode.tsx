@@ -5,6 +5,7 @@ import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
+import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
@@ -154,8 +155,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           maxWidth={RESIZE_CONFIG.maxWidth}
           maxHeight={RESIZE_CONFIG.maxHeight}
           keepAspectRatio={false}
-          onResizeStart={() => setIsResizing(true)}
-          onResizeEnd={() => setIsResizing(false)}
+          onResizeStart={() => { beginDragTransaction(); setIsResizing(true); }}
+          onResizeEnd={() => { endDragTransaction(); setIsResizing(false); }}
           style={{
             width: 24,
             height: 24,

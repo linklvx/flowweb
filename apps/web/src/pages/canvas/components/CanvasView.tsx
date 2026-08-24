@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState, useEffect, type DragEvent } from 'react';
+import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
 import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow,
@@ -195,6 +196,12 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     return () => { syncNodeDimensions.cancel(); };
   }, [syncNodeDimensions]);
 
+  // M-4：RF v12 无 onNodeDragCancel——拖动中断（pointercancel/卸载/路由切换）时兜底收尾，
+  // 防 temporal 永久 pause + _isPointerInteraction 永久 true（历史记录与 undo/redo 全局失效）
+  useEffect(() => () => {
+    if (useCanvasStore.getState()._isPointerInteraction) endDragTransaction();
+  }, []);
+
   const wrappedOnNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
     syncNodeDimensions(changes);
@@ -294,6 +301,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const handleNodeDragStart = useCallback(() => beginDragTransaction(), []);
+
   const onNodeDragStopIntoGroup = useCallback(
     (_e: any, draggedNode: any) => {
       const s = useCanvasStore.getState();
@@ -309,6 +318,11 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     },
     [],
   );
+
+  const handleNodeDragStop = useCallback((e: any, node: any) => {
+    endDragTransaction();
+    onNodeDragStopIntoGroup(e, node);   // 既有拖入组逻辑保持
+  }, [onNodeDragStopIntoGroup]);
 
   // 选中组节点时显示 GroupToolbar；多选（≥2）或 Shift 多选意图时不显示，仅普通单独选中时显示
   const selectedGroup = useMemo(() => {
@@ -357,7 +371,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
-        onNodeDragStop={onNodeDragStopIntoGroup}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
