@@ -178,7 +178,7 @@ describe('ImageGenNode', () => {
     mockLastPointerShiftKey = false;
   });
   afterEach(() => {
-    document.getElementById('node-toolbar-portal')?.remove();
+    document.querySelectorAll('#node-toolbar-portal').forEach((el) => el.remove());
     vi.clearAllMocks();
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockActiveNodeId = null;
@@ -678,6 +678,8 @@ describe('ImageGenNode', () => {
     );
     expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).toBeNull();
     mockLastPointerShiftKey = false;
+    // ImageGenNode 是 memo 组件：rerender 传新 data={{}} 字面量（identity 变化）越过浅比较触发重渲染；
+    // 真实场景的订阅触发路径由 useIsSingleSelected.test.tsx「恢复路径」用例覆盖
     rerender(
       <ReactFlowProvider>
         <ImageGenNode id="img1" data={{}} selected type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
