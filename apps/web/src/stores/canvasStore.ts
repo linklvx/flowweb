@@ -202,6 +202,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
+    // 对齐 deleteTransformNode：清 nodeStore（否则快照脏写，删除节点刷新后复活）
+    const ns = useNodeStore.getState();
+    ns.deleteNode(id);
+    ns.unregisterSaveHandler(id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
@@ -210,18 +214,36 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
     // 组清理逻辑：检查被删节点的父组是否需要清理
     const after = get();
     const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
-    if (!parent || parent.type !== 'group') return;
-    if ((parent.data as any)?.cells) {
-      // 分镜组：cells 移除该 id（宫格不收缩）
-      set((s) => ({
-        nodes: s.nodes.map((n) => n.id === parent.id
-          ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
-          : n),
+    if (parent && parent.type === 'group') {
+      if ((parent.data as any)?.cells) {
+        // 分镜组：cells 移除该 id（宫格不收缩）
+        set((s) => ({
+          nodes: s.nodes.map((n) => n.id === parent.id
+            ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
+            : n),
+        }));
+      } else if ((parent.data as any).groupType === 'normal'
+        && !after.nodes.some((c) => c.parentId === parent.id)) {
+        // 普通组：删空自动解组
+        get().ungroup(parent.id);
+      }
+    }
+    // 对齐 onNodesChange remove 路径：全量同步 DB（置于组清理后，payload 含 cells 过滤/解组结果）
+    const projectId = get().projectId;
+    if (projectId) {
+      const mergedNodes = get().nodes.map((n) => ({
+        id: n.id,
+        type: n.type || 'videoGen',
+        parentId: n.parentId ?? null,
+        position: n.position,
+        data: ns.nodes[n.id]?.data || (n.data as any) || {},
+        width: n.width,
+        height: n.height,
       }));
-    } else if ((parent.data as any).groupType === 'normal'
-      && !after.nodes.some((c) => c.parentId === parent.id)) {
-      // 普通组：删空自动解组
-      get().ungroup(parent.id);
+      Promise.all([
+        syncNodes(projectId, mergedNodes),
+        syncEdges(projectId, get().edges),
+      ]).catch((e) => console.error('[canvasStore] deleteNode sync failed', e));
     }
   },
 

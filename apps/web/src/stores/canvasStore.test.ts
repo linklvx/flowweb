@@ -128,6 +128,35 @@ describe('canvasStore', () => {
     expect(useCanvasStore.getState().nodes).toHaveLength(0);
   });
 
+  it('deleteNode should remove node from nodeStore（防快照脏写刷新复活）', () => {
+    const { addNode, deleteNode } = useCanvasStore.getState();
+    const nodeId = addNode('text', { x: 0, y: 0 });
+    expect(useNodeStore.getState().nodes[nodeId]).toBeDefined();
+    deleteNode(nodeId);
+    expect(useNodeStore.getState().nodes[nodeId]).toBeUndefined();
+  });
+
+  it('deleteNode should call nodeStore.unregisterSaveHandler', () => {
+    const { addNode, deleteNode } = useCanvasStore.getState();
+    const nodeId = addNode('text', { x: 0, y: 0 });
+    const spy = vi.spyOn(useNodeStore.getState(), 'unregisterSaveHandler');
+    deleteNode(nodeId);
+    expect(spy).toHaveBeenCalledWith(nodeId);
+  });
+
+  it('deleteNode should sync DB（payload 排除被删节点）', () => {
+    useCanvasStore.setState({ projectId: 'p1' });
+    const { addNode, deleteNode } = useCanvasStore.getState();
+    const keep = addNode('text', { x: 0, y: 0 });
+    const drop = addNode('text', { x: 100, y: 0 });
+    mockSyncNodes.mockClear();
+    mockSyncEdges.mockClear();
+    deleteNode(drop);
+    expect(mockSyncNodes).toHaveBeenCalledTimes(1);
+    expect(mockSyncNodes.mock.calls[0][1].map((n: any) => n.id)).toEqual([keep]);
+    expect(mockSyncEdges).toHaveBeenCalledWith('p1', []);
+  });
+
   it('should update viewport', () => {
     useCanvasStore.getState().updateViewport({ x: 10, y: 20, zoom: 1.5 });
     const s = useCanvasStore.getState();
