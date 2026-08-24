@@ -19,10 +19,9 @@ import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
-import { useGroupHistory, captureBefore, captureAfter } from './groupHistory';
 import { withHistoryTransaction } from './canvasHistoryRuntime';
 
-/** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore，undo/redo 由 groupHistory 自带双写） */
+/** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore） */
 function syncGroupDataToNodeStore(groupId: string) {
   const ns = useNodeStore.getState();
   const appNode = ns.nodes[groupId];
@@ -834,37 +833,35 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
     if (picked.length < 2) throw new Error('打组至少需要 2 个节点');
     if (picked.some((n) => n.type === 'group')) throw new Error('组不支持嵌套');
-    const id = getId('node');
-    // TD-15: history record — before snapshot (组 id 尚不存在 → tombstone)
-    const allNodeIds = [...nodeIds, id];
-    const before = captureBefore(allNodeIds, []);
-    const bounds = calcGroupBounds(picked.map((n) => ({
-      x: n.position.x, y: n.position.y,
-      width: n.width ?? 280, height: n.height ?? 120,
-    })));
-    const groupNode: Node = {
-      id, type: 'group',
-      position: { x: bounds.x, y: bounds.y },
-      width: bounds.width, height: bounds.height,
-      data: { groupType: 'normal' },
-      selected: true,
-    };
-    setWithParentOrder((st) => ({
-      nodes: [
-        ...st.nodes.map((n) => nodeIds.includes(n.id)
-          ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
-              position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
-          : { ...n, selected: false }),
-        groupNode,
-      ],
-      selectedId: id,
-    }));
-    useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
-    get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '打组', nodeIds: allNodeIds, edgeIds: [], before, after });
-    return id;
+    let id: string;
+    withHistoryTransaction(() => {
+      id = getId('node');
+      const allNodeIds = [...nodeIds, id];
+      const bounds = calcGroupBounds(picked.map((n) => ({
+        x: n.position.x, y: n.position.y,
+        width: n.width ?? 280, height: n.height ?? 120,
+      })));
+      const groupNode: Node = {
+        id, type: 'group',
+        position: { x: bounds.x, y: bounds.y },
+        width: bounds.width, height: bounds.height,
+        data: { groupType: 'normal' },
+        selected: true,
+      };
+      setWithParentOrder((st) => ({
+        nodes: [
+          ...st.nodes.map((n) => nodeIds.includes(n.id)
+            ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
+                position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
+            : { ...n, selected: false }),
+          groupNode,
+        ],
+        selectedId: id,
+      }));
+      useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
+      get().applyGroupDerivations();
+    });
+    return id!;
   },
 
   ungroup: (groupId) => {
@@ -877,10 +874,8 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     if (!group) return;
     const gd = group.data as any;
     const gp = group.position;
-    // TD-15: history record — 收集所有子节点 id，before snapshot
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
     const allNodeIds = [groupId, ...childIds];
-    const before = captureBefore(allNodeIds, []);
     withHistoryTransaction(() => {
       if (gd.groupType === 'storyboard') {
         const cfg = gd.storyboard;
@@ -908,9 +903,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       useNodeStore.getState().deleteNode(groupId);
       get().applyGroupDerivations();
     });
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '解组', nodeIds: allNodeIds, edgeIds: [], before, after });
   },
 
   addToGroup: (groupId, nodeId) => {
@@ -919,9 +911,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const node = s.nodes.find((n) => n.id === nodeId);
     if (!group || !node || node.type === 'group') return;
     const gp = group.position;
-    // TD-15: history record — before snapshot
-    const allNodeIds = [groupId, nodeId];
-    const before = captureBefore(allNodeIds, []);
     setWithParentOrder((st) => {
       const child = {
         ...node, parentId: groupId, extent: 'parent' as const,
@@ -942,9 +931,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       };
     });
     get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '加入组', nodeIds: allNodeIds, edgeIds: [], before, after });
   },
 
   removeNodeFromGroup: (groupId, nodeId) => {
@@ -956,9 +942,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
     const gp = group.position;
-    // TD-15: history record — before snapshot
-    const allNodeIds = [groupId, nodeId];
-    const before = captureBefore(allNodeIds, []);
     set((st) => ({
       nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
         ? { ...n, parentId: undefined, extent: undefined,
@@ -966,9 +949,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
         : n),
     }));
     get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '移出组', nodeIds: allNodeIds, edgeIds: [], before, after });
   },
 
   dropIntoGroup: (nodeId, groupId) => {
@@ -982,12 +962,8 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const gp = group.position;
     const node = s.nodes.find((n) => n.id === nodeId);
     if (!node || node.type === 'group') return;
-    // TD-15: history record — before snapshot（拖入组是独立操作，内部不调 addToGroup action）
-    const allNodeIds = [groupId, nodeId];
-    const before = captureBefore(allNodeIds, []);
     withHistoryTransaction(() => {
       if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
-      // 内联 addToGroup 逻辑（避免重复 record）
       setWithParentOrder((st) => {
         const child = {
           ...node, parentId: groupId, extent: 'parent' as const,
@@ -1009,9 +985,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       });
       get().applyGroupDerivations();
     });
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '拖入组', nodeIds: allNodeIds, edgeIds: [], before, after });
   },
 
   dropImageIntoStoryboard: (groupId, nodeId) => {
@@ -1185,11 +1158,9 @@ export const useCanvasStore = create<CanvasState>()(temporal(
         kept.push(n);
       }
     }
-    // TD-15: history record — before snapshot（所有受影响节点：原节点 + 新组 + 新展开节点）
     const expandedIds = expanded.map((e) => e.id);
     const multiIdsToRemove = picked.filter((n) => n.type === 'multiImageGen').map((n) => n.id);
     const allNodeIds = [...nodeIds, ...expandedIds, gid];
-    const before = captureBefore(allNodeIds, []);
     const images = [...kept, ...expanded];
     // 2. 字典序排序 + 智能宫格
     const sorted = sortNodesByPosition(images.map((n) => ({ ...n, positionX: n.position.x, positionY: n.position.y })))
@@ -1231,9 +1202,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       if (n.type === 'multiImageGen') ns.deleteNode(n.id);
     }
     get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '合并分镜组', nodeIds: allNodeIds, edgeIds: [], before, after });
     return gid;
   },
 
@@ -1246,10 +1214,8 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
     const gd = group.data as any;
-    // TD-15: history record — 收集所有子节点 id，before snapshot
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
     const allNodeIds = [groupId, ...childIds];
-    const before = captureBefore(allNodeIds, []);
 
     withHistoryTransaction(() => {
       if (target === 'storyboard') {
@@ -1297,9 +1263,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       syncGroupDataToNodeStore(groupId);
       get().applyGroupDerivations();
     });
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '转换组类型', nodeIds: allNodeIds, edgeIds: [], before, after });
   },
 
   renameGroup: (groupId, name) => {
@@ -1307,13 +1270,10 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group || (group.data as any).name === final) return;
-    const before = captureBefore([groupId], []);
     set((st) => ({
       nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, data: { ...n.data, name: final } } : n)),
     }));
     syncGroupDataToNodeStore(groupId);
-    const after = captureAfter([groupId], []);
-    useGroupHistory.getState().record({ label: '重命名组', nodeIds: [groupId], edgeIds: [], before, after });
   },
 
   markManuallyResized: (groupId) => {
@@ -1401,9 +1361,7 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const overflowIds = (gd.cells ?? []).slice(capacity);
     const gp = group.position;
     const gw = group.width ?? 0;
-    // TD-15: history record — before snapshot（组节点 + 溢出节点）
     const allNodeIds = [groupId, ...overflowIds];
-    const before = captureBefore(allNodeIds, []);
     set((st) => ({
       nodes: st.nodes.map((n) => {
         // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
@@ -1422,9 +1380,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       edges: st.edges, // 溢出节点若有连线已在组内隐藏；解出后 hidden 推导恢复显示
     }));
     get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, []);
-    useGroupHistory.getState().record({ label: '调整宫格', nodeIds: allNodeIds, edgeIds: [], before, after });
     if (overflowIds.length > 0) {
       message.info(`${overflowIds.length} 张图片已移出分镜组`);
     }
@@ -1437,10 +1392,8 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     }
     const s = get();
     const cellIds = (s.nodes.find((n) => n.id === groupId)?.data as any)?.cells ?? [];
-    // TD-15: history record — 收集受影响的边（删除前），before snapshot
     const edgeIds = s.edges.filter((e) => cellIds.includes(e.source) || cellIds.includes(e.target)).map((e) => e.id);
     const allNodeIds = [groupId, ...cellIds];
-    const before = captureBefore(allNodeIds, edgeIds);
     set((st) => ({
       nodes: st.nodes
         .filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId))
@@ -1448,9 +1401,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       edges: st.edges.filter((e) => !cellIds.includes(e.source) && !cellIds.includes(e.target)),
     }));
     cellIds.forEach((id: string) => useNodeStore.getState().deleteNode(id));
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, edgeIds);
-    useGroupHistory.getState().record({ label: '清空分镜组', nodeIds: allNodeIds, edgeIds, before, after });
   },
 
   addImageToStoryboardCell: (groupId, cellIndex, fileId, url) => {
@@ -1485,10 +1435,8 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const cells = [...(gd.cells ?? [])];
     if (cellIndex < 0 || cellIndex >= cells.length) return;
     const removedId = cells[cellIndex];
-    // TD-15: history record — 收集受影响的边（删除前），before snapshot
     const edgeIds = removedId ? s.edges.filter((e) => e.source === removedId || e.target === removedId).map((e) => e.id) : [];
     const allNodeIds = [groupId, removedId].filter((id): id is string => !!id);
-    const before = captureBefore(allNodeIds, edgeIds);
     // 紧凑前移：splice 移除该位，后续自动前移
     cells.splice(cellIndex, 1);
     set((st) => ({
@@ -1499,9 +1447,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     }));
     if (removedId) useNodeStore.getState().deleteNode(removedId);
     get().applyGroupDerivations();
-    // TD-15: history record — after snapshot + record
-    const after = captureAfter(allNodeIds, edgeIds);
-    useGroupHistory.getState().record({ label: '删除宫格', nodeIds: allNodeIds, edgeIds, before, after });
   },
 
   duplicateGroup: (groupId) => {
@@ -1556,10 +1501,6 @@ function buildGroupCopy(
   const newGid = getId('node');
   const idMap = new Map(children.map((c) => [c.id, getId('node')]));
   const newEdgeIds = innerEdges.map(() => getId('edge'));
-
-  // TD-15: history record — before snapshot（所有新节点 id 尚不存在 → tombstone）
-  const allNodeIds = [newGid, ...Array.from(idMap.values())];
-  const before = captureBefore(allNodeIds, newEdgeIds);
 
   const isStoryboard = (group.data as any).groupType === 'storyboard';
 
@@ -1629,10 +1570,6 @@ function buildGroupCopy(
 
   get().applyGroupDerivations();
 
-  // TD-15: history record — after snapshot + record
-  const after = captureAfter(allNodeIds, newEdgeIds);
-  useGroupHistory.getState().record({ label, nodeIds: allNodeIds, edgeIds: newEdgeIds, before, after });
-
   return newGid;
 }
 
@@ -1649,10 +1586,6 @@ function rebuildFromClipboard(
   const newGid = getId('node');
   const idMap = new Map(groupClipboard.children.map((c) => [c.id, getId('node')]));
   const newEdgeIds = groupClipboard.innerEdges.map(() => getId('edge'));
-
-  // TD-15: history record — before snapshot（所有新节点 id 尚不存在 → tombstone）
-  const allNodeIds = [newGid, ...Array.from(idMap.values())];
-  const before = captureBefore(allNodeIds, newEdgeIds);
 
   const isStoryboard = (groupClipboard.group.data as any).groupType === 'storyboard';
 
@@ -1721,10 +1654,6 @@ function rebuildFromClipboard(
   }
 
   get().applyGroupDerivations();
-
-  // TD-15: history record — after snapshot + record
-  const after = captureAfter(allNodeIds, newEdgeIds);
-  useGroupHistory.getState().record({ label, nodeIds: allNodeIds, edgeIds: newEdgeIds, before, after });
 
   return newGid;
 }

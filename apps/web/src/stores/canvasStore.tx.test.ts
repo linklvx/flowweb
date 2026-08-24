@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { undoCanvas, redoCanvas } from './canvasHistoryRuntime';
 
 vi.mock('antd', () => ({ message: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 // Mock projectApi to avoid DB calls in tests (reference canvasStore.groups.test.ts pattern if needed)
@@ -120,5 +121,35 @@ describe('多 set 组操作事务护栏（M-1：恰好 1 条历史）', () => {
     useCanvasStore.temporal.getState().clear();
     useCanvasStore.getState().dropImageIntoStoryboard(gid, 'img3');
     expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+  });
+});
+
+describe('组操作历史（groupHistory 退役后）', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, projectId: null, nodeProcessMap: {} });
+    useCanvasStore.temporal.getState().clear();
+    useNodeStore.setState({ nodes: {} });
+  });
+
+  it('打组产生恰好 1 条历史，undo 可恢复结构', async () => {
+    addText('a', 0, 0); addText('b', 300, 0);
+    useCanvasStore.temporal.getState().clear();
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+    await undoCanvas();
+    const s = useCanvasStore.getState();
+    expect(s.nodes.some((nd) => nd.type === 'group')).toBe(false);
+    expect(s.nodes.find((nd) => nd.id === 'a')!.parentId).toBeUndefined();
+    expect(s.nodes.some((nd) => nd.id === gid)).toBe(false);
+  });
+
+  it('解组产生恰好 1 条历史，undo 恢复组', async () => {
+    addText('a', 0, 0); addText('b', 300, 0);
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.temporal.getState().clear();
+    useCanvasStore.getState().ungroup(gid);
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+    await undoCanvas();
+    expect(useCanvasStore.getState().nodes.some((nd) => nd.id === gid)).toBe(true);
   });
 });

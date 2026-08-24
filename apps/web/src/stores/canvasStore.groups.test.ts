@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { useGroupHistory } from './groupHistory';
+import { undoCanvas, redoCanvas } from './canvasHistoryRuntime';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -13,7 +13,7 @@ const seedNodes = () => [
 beforeEach(() => {
   useCanvasStore.setState({ nodes: seedNodes() as any, edges: [], selectedId: null, projectId: null });
   useNodeStore.setState({ nodes: {} });
-  useGroupHistory.setState({ past: [], future: [] });
+  useCanvasStore.temporal.getState().clear();
 });
 
 // RF v12 updateChildNode 要求父节点在 nodes 数组中位于子节点之前（否则忽略 parentId）
@@ -157,8 +157,11 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
     expectParentBeforeChild(groupId, 'free');
   });
 
-  it('undo→redo 打组后组在子节点前（applySnapshot 排序）', () => {
+  it('undo→redo 打组后组在子节点前（zundo 快照恢复排序）', async () => {
     const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    // groupNodes 使用 withHistoryTransaction，产生 1 条历史
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(1);
+
     // 模拟快照恢复顺序不定：手动打乱 store 顺序（子在前父在后）
     useCanvasStore.setState((s) => {
       const g = s.nodes.find((n) => n.id === groupId)!;
@@ -166,10 +169,31 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
       const rest = s.nodes.filter((n) => n.id !== groupId && n.id !== 'n1');
       return { nodes: [n1, g, ...rest] };
     });
-    useGroupHistory.getState().undo();
-    useGroupHistory.getState().redo();
+    // 此时有 2 条历史：1. groupNodes, 2. 打乱顺序
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(2);
+
+    // 第一次 undo：撤销打乱顺序 → 回到 groupNodes 后的正确顺序（父前子后）
+    await undoCanvas();
+    expectParentBeforeChild(groupId, 'n1');  // 验证：已恢复父前子后
+    expectParentBeforeChild(groupId, 'n2');
+
+    // 第二次 undo：撤销 groupNodes → 回到打组前的状态
+    await undoCanvas();
+    const s = useCanvasStore.getState();
+    expect(s.nodes.find((n) => n.id === groupId)).toBeUndefined();
+    expect(s.nodes.find((n) => n.id === 'n1')!.parentId).toBeUndefined();
+
+    // redo 第一次：恢复 groupNodes
+    await redoCanvas();
     expectParentBeforeChild(groupId, 'n1');
     expectParentBeforeChild(groupId, 'n2');
+
+    // redo 第二次：恢复打乱顺序
+    await redoCanvas();
+    const s2 = useCanvasStore.getState();
+    const gi = s2.nodes.findIndex((n) => n.id === groupId);
+    const n1i = s2.nodes.findIndex((n) => n.id === 'n1');
+    expect(gi).toBeGreaterThan(n1i); // 验证：重新打乱后 n1 在 group 前
   });
 });
 
@@ -180,28 +204,23 @@ describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => 
     expect((g!.data as any).name).toBeUndefined();
   });
 
-  it('renameGroup 更新 canvasStore data.name 并入组历史（可 Ctrl+Z）', () => {
+  it('renameGroup 为 data-only 变更，不进结构历史（退役后语义，S-4）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.temporal.getState().clear();
     useCanvasStore.getState().renameGroup(gId, '我的分组');
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
-    expect((g!.data as any).name).toBe('我的分组');
-    // nodeStore 双写（localStorage 快照数据源）
-    const ns = useNodeStore.getState();
-    expect((ns.nodes[gId].data as any).name).toBe('我的分组');
-    // 历史：undo 恢复改名前（创建时无 name）
-    expect(useGroupHistory.getState().canUndo()).toBe(true);
-    useGroupHistory.getState().undo();
-    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBeUndefined();
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('我的分组');
+    expect((useNodeStore.getState().nodes[gId].data as any).name).toBe('我的分组');   // nodeStore 双写保持
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(0);             // data-only 不产生历史
   });
 
   it('renameGroup 空串/同名 no-op 不产生历史', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    const before = useGroupHistory.getState().pastLength();
+    const before = useCanvasStore.temporal.getState().pastStates.length;
     useCanvasStore.getState().renameGroup(gId, '');
     // '' 回退由渲染层做，store 层收到 '' 时存 '分组'
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
     useCanvasStore.getState().renameGroup(gId, '分组');
-    expect(useGroupHistory.getState().pastLength()).toBe(before + 1); // 仅第一次生效
+    expect(useCanvasStore.temporal.getState().pastStates.length).toBe(before); // no-op 无历史（data-only 不进 zundo）
   });
 
   it('markManuallyResized 设标记并双写 nodeStore', () => {

@@ -1,9 +1,8 @@
-// useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成 + 撤销注册（redo 复用 fileId 不重拼，spec 6.3）
+// useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成（zundo 自动记录）
 import { useCallback, useRef } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { createStitchTask, getStitchTask, type StitchParams } from '@/api/stitchApi';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useGroupHistory } from '@/stores/groupHistory';
 
 export function useStitchTask(projectId: string) {
   const running = useRef(false);
@@ -34,22 +33,6 @@ export function useStitchTask(projectId: string) {
           // 不写 mediaUrl：后端无直链端点，ImageGenNode 按 fileId 自行解析
         }
       );
-      // 撤销项：undo=删产物节点 / redo=复用 fileId 重建（不重新拼接）
-      const nodeIds = [nodeId];
-      // before 必须是 tombstone（P1-新4）：此刻节点已 add 进 store，captureBefore 会取到快照
-      // 而非 null → undo 走「覆盖恢复」而非「删除」→ 撤销无效。手动构造 null 占位。
-      const before = { nodes: [null] as any, edges: [] };
-      const after = {
-        nodes: [useCanvasStore.getState().nodes.find((n) => n.id === nodeId) ?? null] as any,
-        edges: [],
-      };
-      useGroupHistory.getState().record({
-        label: '拼接产物',
-        nodeIds,
-        edgeIds: [],
-        before,
-        after,
-      });
     },
     []
   );
