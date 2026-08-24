@@ -54,6 +54,15 @@ React Flow v12.10.2 的 `internalNode.internals.positionAbsolute` 始终维护
   - 顶排/贴边子节点往保留区方向拖不动（预期行为，用户确认）
 - **R3 悬浮层绝对坐标修复**：上述 7 处视口换算全部改用
   `internals.positionAbsolute`，打组/解组后所有 portal 悬浮层位置正确。
+- **R5 缩放最小尺寸限制（2026-08-24 追加，用户选定方案 B）**：普通组的
+  NodeResizer 动态最小尺寸 = 子节点联合包围盒 + 非对称 padding：
+  - `minWidth = 子节点联合宽 + 40`（左右各 20）
+  - `minHeight = 子节点联合高 + 70`（上 50 + 下 20）
+  - 子节点尺寸取 `n.width ?? n.measured?.width ?? 280` / `?? 120`（与既有
+    fallback 约定一致），坐标取组内相对 `n.position`
+  - 无子节点时保留现有静态 200/120 兜底
+  - 子节点在缩放过程中永不移动（区别于"缩放时重夹"方案，用户已选定）
+  - 分镜组无 resizer，不受影响；onNodesChange 夹取逻辑不变
 
 ## 3. 方案选择
 
