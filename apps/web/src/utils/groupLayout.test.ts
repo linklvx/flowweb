@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcDefaultGrid, calcStoryboardSize, calcStitchSize,
-  sortNodesByPosition, calcGroupBounds, ASPECT_RATIO_MAP,
+  sortNodesByPosition, calcGroupBounds, ASPECT_RATIO_MAP, clampPositionToPadding,
 } from './groupLayout';
 
 describe('calcDefaultGrid', () => {
@@ -74,5 +74,39 @@ describe('ASPECT_RATIO_MAP', () => {
   it('六比例齐全', () => {
     expect(Object.keys(ASPECT_RATIO_MAP)).toHaveLength(6);
     expect(ASPECT_RATIO_MAP['1:1']).toBe(1);
+  });
+});
+
+describe('clampPositionToPadding', () => {
+  it('进入保留区的坐标被夹回边距线（左20/上50）', () => {
+    expect(clampPositionToPadding(
+      { x: 5, y: 10 },
+      { width: 100, height: 50 },
+      { width: 400, height: 300 },
+    )).toEqual({ x: 20, y: 50 });
+  });
+
+  it('保留区内的坐标不动', () => {
+    expect(clampPositionToPadding(
+      { x: 100, y: 100 },
+      { width: 100, height: 50 },
+      { width: 400, height: 300 },
+    )).toEqual({ x: 100, y: 100 });
+  });
+
+  it('超出右/下边距被夹回组内', () => {
+    expect(clampPositionToPadding(
+      { x: 350, y: 280 },
+      { width: 100, height: 50 },
+      { width: 400, height: 300 },
+    )).toEqual({ x: 280, y: 230 }); // 400-20-100, 300-20-50
+  });
+
+  it('组小于内容+边距时区间反转，贴住上界（退化行为）', () => {
+    expect(clampPositionToPadding(
+      { x: 30, y: 55 },
+      { width: 200, height: 50 },
+      { width: 100, height: 60 },
+    )).toEqual({ x: -120, y: -10 }); // hi = 100-20-200, 60-20-50
   });
 });

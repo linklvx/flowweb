@@ -57,3 +57,16 @@ export function calcGroupBounds(items: { x: number; y: number; width: number; he
   const maxY = Math.max(...items.map((i) => i.y + i.height)) + GROUP_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
+
+export function clampPositionToPadding(
+  position: { x: number; y: number },
+  childSize: { width: number; height: number },
+  groupSize: { width: number; height: number },
+): { x: number; y: number } {
+  const xMax = groupSize.width - GROUP_PADDING - childSize.width;
+  const yMax = groupSize.height - GROUP_PADDING - childSize.height;
+  return {
+    x: Math.min(Math.max(position.x, GROUP_PADDING), xMax),
+    y: Math.min(Math.max(position.y, GROUP_PADDING_TOP), yMax),
+  };
+}
