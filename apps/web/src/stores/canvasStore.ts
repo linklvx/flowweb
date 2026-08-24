@@ -485,7 +485,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       const changedIds = new Set(
         changes
           .filter((c) => (c.type === 'position' && c.position != null) || c.type === 'dimensions')
-          .map((c) => c.id),
+          .map((c) => (c as any).id),
       );
       let nodes = nextNodes;
       if (changedIds.size > 0) {
