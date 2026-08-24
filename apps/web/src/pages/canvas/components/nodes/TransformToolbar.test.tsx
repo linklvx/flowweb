@@ -6,6 +6,7 @@ const { mockUseViewport, mockUseInternalNode } = vi.hoisted(() => ({
   mockUseInternalNode: vi.fn(() => ({
     position: { x: 100, y: 200 },
     measured: { width: 300, height: 250 },
+    internals: { positionAbsolute: { x: 100, y: 200 } },
   })),
 }));
 
@@ -20,6 +21,7 @@ afterEach(() => {
   mockUseInternalNode.mockReturnValue({
     position: { x: 100, y: 200 },
     measured: { width: 300, height: 250 },
+    internals: { positionAbsolute: { x: 100, y: 200 } },
   });
 });
 
@@ -237,5 +239,19 @@ describe('TransformToolbar', () => {
     render(<TransformToolbar {...defaultProps} />);
     const portalRoot = document.getElementById('node-toolbar-portal')!;
     expect(portalRoot.textContent).not.toContain('保存失败');
+  });
+
+  it('positions toolbar by positionAbsolute when node is inside a group', () => {
+    setupPortalTarget();
+    mockUseInternalNode.mockReturnValue({
+      position: { x: 30, y: 60 },
+      measured: { width: 300, height: 250 },
+      internals: { positionAbsolute: { x: 600, y: 400 } },
+    });
+    render(<TransformToolbar {...defaultProps} />);
+    const toolbar = document.getElementById('node-toolbar-portal')!.querySelector('.nodrag') as HTMLElement;
+    expect(toolbar.style.left).toBe('750px'); // (600 + 300/2) * 1 + 0
+    expect(toolbar.style.top).toBe('328px');  // 400 - 56 - 16
+    cleanupPortalTarget();
   });
 });
