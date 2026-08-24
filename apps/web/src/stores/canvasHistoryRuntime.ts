@@ -7,6 +7,7 @@ import { message } from 'antd';
 import { useCanvasStore, historyPartialize } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { HistoryPartial } from './canvasHistory';
+import { reconcileNodeStore } from './canvasHistory';
 import { syncNodes, syncEdges } from '@/api/projectApi';
 
 /** undo/redo 后的 DB 全量同步载荷：canvasStore 结构为基准 + nodeStore data */
@@ -71,3 +72,58 @@ export function withHistoryPaused<T>(fn: () => T): T {
     if (pauseDepth === 0) t.resume();
   }
 }
+
+/** S9：统一执行链（同步主体，async 仅因 scheduleSync）。undo=true 撤销 / false 重做。
+ *  五审 H-2：pause/resume 复用 withHistoryPaused 深度计数——zundo undo/redo 不检查
+ *  isTracking 且经原始 set 应用状态（源码实证），pause 窗口内执行安全且不会重录 */
+function applyHistory(direction: 'undo' | 'redo'): Promise<void> {
+  const t = useCanvasStore.temporal.getState() as {
+    pastStates: HistoryPartial[]; futureStates: HistoryPartial[];
+    undo(): void; redo(): void;
+  };
+  const s = useCanvasStore.getState();
+  const stack = direction === 'undo' ? t.pastStates : t.futureStates;
+  if (stack.length === 0 || s._isPointerInteraction || s.isHydrating) return Promise.resolve();
+  const target = stack[stack.length - 1];
+
+  // isApplyingHistory 不在 partialize 视图 → 窗口外 set 的 pre/post 相等，不产生历史
+  useCanvasStore.setState({ isApplyingHistory: true });
+  let ok = false;
+  withHistoryPaused(() => {
+    try {
+      const beforeIds = new Set(s.nodes.map((nd) => nd.id));
+      if (direction === 'undo') t.undo(); else t.redo();
+      // S-1：历史切换后（undo/redo 双向）从结构中消失且仍有活跃进程的节点 → cancel（防生成完成
+      // 回调经 nodeStore.updateConfig 为缺失 id 重建节点 → 刷新时幽灵复活）
+      const afterState = useCanvasStore.getState();
+      const afterIds = new Set(afterState.nodes.map((nd) => nd.id));
+      // 取消 beforeIds 中存在但 afterIds 中不存在的节点的进程
+      for (const id of beforeIds) {
+        if (!afterIds.has(id) && afterState.nodeProcessMap[id]) {
+          afterState.cancelNodeProcess(id);
+        }
+      }
+      // 取消 afterIds 中存在但 beforeIds 中不存在的节点的进程（撤销删除时）
+      for (const id of afterIds) {
+        if (!beforeIds.has(id) && afterState.nodeProcessMap[id]) {
+          afterState.cancelNodeProcess(id);
+        }
+      }
+      useNodeStore.setState({
+        nodes: reconcileNodeStore(afterState.nodes, target.__nodeDataSnap, useNodeStore.getState().nodes),
+      });
+      afterState.applyGroupDerivations();
+      useCanvasStore.setState({ __nodeDataSnap: undefined });
+      ok = true;
+    } catch (err) {
+      console.error('[canvasHistory] history apply failed', err);
+      useCanvasStore.setState({ __nodeDataSnap: undefined });   // S9：半成品最小清理
+      message.error('撤销失败，画布状态可能不一致，请刷新页面');
+    }
+  });
+  useCanvasStore.setState({ isApplyingHistory: false });
+  return ok ? scheduleSync() : Promise.resolve();
+}
+
+export function undoCanvas() { return applyHistory('undo'); }
+export function redoCanvas() { return applyHistory('redo'); }

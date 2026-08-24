@@ -1358,3 +1358,22 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     expect(() => useNodeStore.getState().updateConfig('ghost', { referenceImage: 'f' } as any)).not.toThrow();
   });
 });
+
+describe('updateConfig 幽灵守卫（I-3）', () => {
+  it('双 store 均无的幽灵 id 直接丢弃（undo 撤销创建后完成回调迟到不复活）', () => {
+    useNodeStore.setState((s) => { const next = { ...s.nodes }; delete next['ghost-undo']; return { nodes: next }; });
+    useCanvasStore.setState((s) => ({ nodes: s.nodes.filter((nd) => nd.id !== 'ghost-undo') }));
+    useNodeStore.getState().updateConfig('ghost-undo', { status: 'done' } as any);
+    expect(useNodeStore.getState().nodes['ghost-undo']).toBeUndefined();
+  });
+
+  it('canvasStore 存在而 nodeStore 缺失 → 仍重建（既有语义保留）', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'cs-only', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    try {
+      useNodeStore.getState().updateConfig('cs-only', { status: 'done' } as any);
+      expect(useNodeStore.getState().nodes['cs-only']).toBeDefined();
+    } finally {
+      useCanvasStore.setState((s) => ({ nodes: s.nodes.filter((nd) => nd.id !== 'cs-only') }));   // 防跨用例污染
+    }
+  });
+});

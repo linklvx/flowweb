@@ -513,6 +513,12 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const existing = getNode(get().nodes, id);
     const nodeType = existing?.type;
 
+    // I-3 幽灵守卫：双 store 均无且携带完成标记（undo 撤销创建后生成完成回调迟到）→ 丢弃。
+    // abort() 拦不住已入微任务队列的完成回调；若不拦截会经此处重建 nodeStore 条目，
+    // 被 persistence 快照持久化 → 下次刷新幽灵复活
+    const isCompletionCallback = 'status' in config && (config as any).status === 'done';
+    if (isCompletionCallback && !existing && !useCanvasStore.getState().nodes.some((n) => n.id === id)) return;
+
     // ★ 代码层强制过滤 extConfig，杜绝误覆盖
     if ('extConfig' in (config as any)) {
       console.warn('[nodeStore] updateConfig 不允许传入 extConfig，已自动过滤');
