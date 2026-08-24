@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcDefaultGrid, calcStoryboardSize, calcStitchSize,
-  sortNodesByPosition, calcGroupBounds, ASPECT_RATIO_MAP, clampPositionToPadding,
+  sortNodesByPosition, calcGroupBounds, ASPECT_RATIO_MAP, clampPositionToPadding, calcGroupMinSize,
 } from './groupLayout';
 
 describe('calcDefaultGrid', () => {
@@ -108,5 +108,25 @@ describe('clampPositionToPadding', () => {
       { width: 200, height: 50 },
       { width: 100, height: 60 },
     )).toEqual({ x: -120, y: -10 }); // hi = 100-20-200, 60-20-50
+  });
+});
+
+describe('calcGroupMinSize', () => {
+  it('最小尺寸 = 子节点联合包围盒 + 非对称 padding（上50/左右下20）', () => {
+    const min = calcGroupMinSize([
+      { x: 20, y: 50, width: 300, height: 200 },
+      { x: 420, y: 50, width: 300, height: 300 },
+    ]);
+    // 联合宽 = 720-20 = 700 → 700+40；联合高 = 350-50 = 300 → 300+50+20
+    expect(min).toEqual({ minWidth: 740, minHeight: 370 });
+  });
+
+  it('单个 fallback 尺寸子节点', () => {
+    const min = calcGroupMinSize([{ x: 0, y: 0, width: 280, height: 120 }]);
+    expect(min).toEqual({ minWidth: 320, minHeight: 190 });
+  });
+
+  it('无子节点保留静态兜底 200/120', () => {
+    expect(calcGroupMinSize([])).toEqual({ minWidth: 200, minHeight: 120 });
   });
 });

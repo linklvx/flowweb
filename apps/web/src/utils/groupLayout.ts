@@ -70,3 +70,17 @@ export function clampPositionToPadding(
     y: Math.min(Math.max(position.y, GROUP_PADDING_TOP), yMax),
   };
 }
+
+export function calcGroupMinSize(
+  items: { x: number; y: number; width: number; height: number }[],
+): { minWidth: number; minHeight: number } {
+  if (items.length === 0) return { minWidth: 200, minHeight: 120 };
+  const minX = Math.min(...items.map((i) => i.x));
+  const minY = Math.min(...items.map((i) => i.y));
+  const maxX = Math.max(...items.map((i) => i.x + i.width));
+  const maxY = Math.max(...items.map((i) => i.y + i.height));
+  return {
+    minWidth: maxX - minX + GROUP_PADDING * 2,
+    minHeight: maxY - minY + GROUP_PADDING_TOP + GROUP_PADDING,
+  };
+}
