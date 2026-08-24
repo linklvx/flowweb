@@ -875,7 +875,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const gd = group.data as any;
     const gp = group.position;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-    const allNodeIds = [groupId, ...childIds];
     withHistoryTransaction(() => {
       if (gd.groupType === 'storyboard') {
         const cfg = gd.storyboard;
@@ -1215,7 +1214,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     if (!group) return;
     const gd = group.data as any;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-    const allNodeIds = [groupId, ...childIds];
 
     withHistoryTransaction(() => {
       if (target === 'storyboard') {
@@ -1361,7 +1359,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const overflowIds = (gd.cells ?? []).slice(capacity);
     const gp = group.position;
     const gw = group.width ?? 0;
-    const allNodeIds = [groupId, ...overflowIds];
     set((st) => ({
       nodes: st.nodes.map((n) => {
         // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
@@ -1392,8 +1389,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     }
     const s = get();
     const cellIds = (s.nodes.find((n) => n.id === groupId)?.data as any)?.cells ?? [];
-    const edgeIds = s.edges.filter((e) => cellIds.includes(e.source) || cellIds.includes(e.target)).map((e) => e.id);
-    const allNodeIds = [groupId, ...cellIds];
     set((st) => ({
       nodes: st.nodes
         .filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId))
@@ -1435,8 +1430,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const cells = [...(gd.cells ?? [])];
     if (cellIndex < 0 || cellIndex >= cells.length) return;
     const removedId = cells[cellIndex];
-    const edgeIds = removedId ? s.edges.filter((e) => e.source === removedId || e.target === removedId).map((e) => e.id) : [];
-    const allNodeIds = [groupId, removedId].filter((id): id is string => !!id);
     // 紧凑前移：splice 移除该位，后续自动前移
     cells.splice(cellIndex, 1);
     set((st) => ({
