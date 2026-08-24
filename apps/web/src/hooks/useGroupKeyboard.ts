@@ -9,13 +9,13 @@ export function isGroupEditContext(target: HTMLElement | null): boolean {
   const ns = useNodeStore.getState();
   if (ns.activeEditNodeId !== null || ns.activeTransformNodeId !== null) return true;
   const active = document.activeElement as HTMLElement | null;
-  if (active) {
+  if (active instanceof HTMLElement) {
     const tag = active.tagName;
     // 全局文本编辑上下文（含侧边栏普通输入框——target 是 keydown 目标，焦点可能在别处）
     if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return true;
-    // S4（五审 M-3）：AntD 弹层（Select/DatePicker/Dropdown/Cascader/Modal）挂 body 下
+    // S4（五审 M-3）：AntD 弹层（Select/DatePicker/Dropdown/Cascader/Modal/Popover/Tooltip）挂 body 下
     if (active !== document.body
-      && active.closest('.ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-cascader-menu, .ant-modal')) return true;
+      && active.closest('.ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-cascader-menu, .ant-modal, .ant-popover, .ant-tooltip')) return true;
   }
   if (!target) return false;
   const tag = target.tagName;
