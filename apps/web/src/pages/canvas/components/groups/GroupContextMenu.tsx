@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { withHistoryTransaction } from '@/stores/canvasHistoryRuntime';
 
 interface Props {
   groupId: string;
@@ -58,13 +59,16 @@ function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
         const children = state.nodes.filter((n) => n.parentId === groupId);
         const childIds = new Set(children.map((n) => n.id));
 
-        // Delete all children
-        for (const childId of childIds) {
-          deleteNode(childId);
-        }
+        // Wrap all deletions in a single transaction
+        withHistoryTransaction(() => {
+          // Delete all children
+          for (const childId of childIds) {
+            deleteNode(childId);
+          }
 
-        // Delete group itself
-        deleteNode(groupId);
+          // Delete group itself
+          deleteNode(groupId);
+        });
 
         // Delete edges connected to group nodes
         const ns = useNodeStore.getState();

@@ -20,6 +20,7 @@ import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { useGroupHistory, captureBefore, captureAfter } from './groupHistory';
+import { withHistoryTransaction } from './canvasHistoryRuntime';
 
 /** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore，undo/redo 由 groupHistory 自带双写） */
 function syncGroupDataToNodeStore(groupId: string) {
@@ -222,31 +223,33 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     state.cancelNodeProcess(id);
     // B-2（spec D2）：结构 set 必须先于 nodeStore 清理——
     // zundo partialize 在 set 时采样 nodeStore，先清会丢失 undo 删除所需的完整 data
-    set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-    }));
+    withHistoryTransaction(() => {
+      set((s) => ({
+        nodes: s.nodes.filter((n) => n.id !== id),
+        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+        selectedId: s.selectedId === id ? null : s.selectedId,
+      }));
+      // 组清理逻辑：检查被删节点的父组是否需要清理
+      const after = get();
+      const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
+      if (parent && parent.type === 'group') {
+        if ((parent.data as any)?.cells) {
+          // 分镜组：cells 移除该 id（宫格不收缩）
+          set((s) => ({
+            nodes: s.nodes.map((n) => n.id === parent.id
+              ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
+              : n),
+          }));
+        } else if ((parent.data as any).groupType === 'normal'
+          && !after.nodes.some((c) => c.parentId === parent.id)) {
+          // 普通组：删空自动解组
+          get().ungroup(parent.id);
+        }
+      }
+    });
     const ns = useNodeStore.getState();
     ns.deleteNode(id);
     ns.unregisterSaveHandler(id);
-    // 组清理逻辑：检查被删节点的父组是否需要清理
-    const after = get();
-    const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
-    if (parent && parent.type === 'group') {
-      if ((parent.data as any)?.cells) {
-        // 分镜组：cells 移除该 id（宫格不收缩）
-        set((s) => ({
-          nodes: s.nodes.map((n) => n.id === parent.id
-            ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
-            : n),
-        }));
-      } else if ((parent.data as any).groupType === 'normal'
-        && !after.nodes.some((c) => c.parentId === parent.id)) {
-        // 普通组：删空自动解组
-        get().ungroup(parent.id);
-      }
-    }
     // 对齐 onNodesChange remove 路径：全量同步 DB（置于组清理后，payload 含 cells 过滤/解组结果）
     const projectId = get().projectId;
     if (projectId) {
@@ -878,31 +881,33 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
     const allNodeIds = [groupId, ...childIds];
     const before = captureBefore(allNodeIds, []);
-    if (gd.groupType === 'storyboard') {
-      const cfg = gd.storyboard;
-      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
-      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+    withHistoryTransaction(() => {
+      if (gd.groupType === 'storyboard') {
+        const cfg = gd.storyboard;
+        const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+        const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+        set((st) => ({
+          nodes: st.nodes.map((n) => {
+            const idx = (gd.cells ?? []).indexOf(n.id);
+            if (idx === -1 || n.parentId !== groupId) return n;
+            const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+            return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
+              position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
+          }),
+        }));
+      }
       set((st) => ({
-        nodes: st.nodes.map((n) => {
-          const idx = (gd.cells ?? []).indexOf(n.id);
-          if (idx === -1 || n.parentId !== groupId) return n;
-          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-          return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
-            position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
-        }),
+        nodes: st.nodes
+          .filter((n) => n.id !== groupId)
+          .map((n) => n.parentId === groupId
+            ? { ...n, parentId: undefined, extent: undefined,
+                position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
+            : n),
+        selectedId: st.selectedId === groupId ? null : st.selectedId,
       }));
-    }
-    set((st) => ({
-      nodes: st.nodes
-        .filter((n) => n.id !== groupId)
-        .map((n) => n.parentId === groupId
-          ? { ...n, parentId: undefined, extent: undefined,
-              position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
-          : n),
-      selectedId: st.selectedId === groupId ? null : st.selectedId,
-    }));
-    useNodeStore.getState().deleteNode(groupId);
-    get().applyGroupDerivations();
+      useNodeStore.getState().deleteNode(groupId);
+      get().applyGroupDerivations();
+    });
     // TD-15: history record — after snapshot + record
     const after = captureAfter(allNodeIds, []);
     useGroupHistory.getState().record({ label: '解组', nodeIds: allNodeIds, edgeIds: [], before, after });
@@ -980,28 +985,30 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     // TD-15: history record — before snapshot（拖入组是独立操作，内部不调 addToGroup action）
     const allNodeIds = [groupId, nodeId];
     const before = captureBefore(allNodeIds, []);
-    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
-    // 内联 addToGroup 逻辑（避免重复 record）
-    setWithParentOrder((st) => {
-      const child = {
-        ...node, parentId: groupId, extent: 'parent' as const,
-        position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
-      };
-      const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-      const bounds = calcGroupBounds(siblings.map((n) => ({
-        x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
-        y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
-        width: n.width ?? 280, height: n.height ?? 120,
-      })));
-      return {
-        nodes: st.nodes.map((n) => {
-          if (n.id === nodeId) return child;
-          if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
-          return n;
-        }),
-      };
+    withHistoryTransaction(() => {
+      if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
+      // 内联 addToGroup 逻辑（避免重复 record）
+      setWithParentOrder((st) => {
+        const child = {
+          ...node, parentId: groupId, extent: 'parent' as const,
+          position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
+        };
+        const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
+        const bounds = calcGroupBounds(siblings.map((n) => ({
+          x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
+          y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
+          width: n.width ?? 280, height: n.height ?? 120,
+        })));
+        return {
+          nodes: st.nodes.map((n) => {
+            if (n.id === nodeId) return child;
+            if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
+            return n;
+          }),
+        };
+      });
+      get().applyGroupDerivations();
     });
-    get().applyGroupDerivations();
     // TD-15: history record — after snapshot + record
     const after = captureAfter(allNodeIds, []);
     useGroupHistory.getState().record({ label: '拖入组', nodeIds: allNodeIds, edgeIds: [], before, after });
@@ -1111,23 +1118,25 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       }
 
       if (emptyIdx >= 0 && emptyIdx < capacity) {
-        // 入组
-        get().addToGroup(groupId, nodeId);
-        // 补 null 到空位索引
-        set((st) => {
-          const g = st.nodes.find((n) => n.id === groupId);
-          if (!g) return st;
-          const updatedCells = [...(g.data as any).cells ?? []];
-          while (updatedCells.length < emptyIdx) updatedCells.push(null);
-          updatedCells[emptyIdx] = nodeId;
-          return {
-            nodes: st.nodes.map((n) =>
-              n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
-            ),
-          };
+        // 入组（五审 L-4：addToGroup 本身是单 set 操作，但 cells set 是独立 set，需包事务）
+        withHistoryTransaction(() => {
+          get().addToGroup(groupId, nodeId);
+          // 补 null 到空位索引
+          set((st) => {
+            const g = st.nodes.find((n) => n.id === groupId);
+            if (!g) return st;
+            const updatedCells = [...(g.data as any).cells ?? []];
+            while (updatedCells.length < emptyIdx) updatedCells.push(null);
+            updatedCells[emptyIdx] = nodeId;
+            return {
+              nodes: st.nodes.map((n) =>
+                n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
+              ),
+            };
+          });
         });
       } else {
-        // 溢出：移到组右侧
+        // 溢出：移到组右侧（单 set，无需事务）
         set((st) => ({
           nodes: st.nodes.map((n) =>
             n.id === nodeId ?
@@ -1242,50 +1251,52 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const allNodeIds = [groupId, ...childIds];
     const before = captureBefore(allNodeIds, []);
 
-    if (target === 'storyboard') {
-      const children = s.nodes.filter((n) => n.parentId === groupId);
-      if (children.some((n) => !isImageCompletedNode(n))) {
-        throw new Error('仅包含图片节点的组可转为分镜组');
+    withHistoryTransaction(() => {
+      if (target === 'storyboard') {
+        const children = s.nodes.filter((n) => n.parentId === groupId);
+        if (children.some((n) => !isImageCompletedNode(n))) {
+          throw new Error('仅包含图片节点的组可转为分镜组');
+        }
+        // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
+        const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
+          .map((n) => (n as any).id);
+        const { rows, cols } = calcDefaultGrid(sorted.length);
+        const size = calcStoryboardSize(rows, cols, '16:9');
+        const cx = group.position.x + (group.width ?? 0) / 2;
+        const cy = group.position.y + (group.height ?? 0) / 2;
+        setWithParentOrder((st) => ({
+          nodes: st.nodes.map((n) => {
+            if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
+              width: size.width, height: size.height,
+              data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
+                      storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
+            if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
+            return n;
+          }),
+        }));
+      } else {
+        // 分镜组 → 普通组：cells 顺序网格重排
+        const cfg = gd.storyboard;
+        const cellW = CELL_WIDTH;
+        const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+        const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+        setWithParentOrder((st) => ({
+          nodes: st.nodes.map((n) => {
+            if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
+            const idx = gd.cells.indexOf(n.id);
+            if (idx === -1 || n.parentId !== groupId) return n;
+            const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+            return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
+                     width: cellW, height: Math.round(cellH) };
+          }),
+        }));
+        // 组框重算
+        get().refitGroupBounds(groupId);
       }
-      // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
-      const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
-        .map((n) => (n as any).id);
-      const { rows, cols } = calcDefaultGrid(sorted.length);
-      const size = calcStoryboardSize(rows, cols, '16:9');
-      const cx = group.position.x + (group.width ?? 0) / 2;
-      const cy = group.position.y + (group.height ?? 0) / 2;
-      setWithParentOrder((st) => ({
-        nodes: st.nodes.map((n) => {
-          if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
-            width: size.width, height: size.height,
-            data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
-                    storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
-          if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
-          return n;
-        }),
-      }));
-    } else {
-      // 分镜组 → 普通组：cells 顺序网格重排
-      const cfg = gd.storyboard;
-      const cellW = CELL_WIDTH;
-      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
-      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
-      setWithParentOrder((st) => ({
-        nodes: st.nodes.map((n) => {
-          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
-          const idx = gd.cells.indexOf(n.id);
-          if (idx === -1 || n.parentId !== groupId) return n;
-          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-          return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
-                   width: cellW, height: Math.round(cellH) };
-        }),
-      }));
-      // 组框重算
-      get().refitGroupBounds(groupId);
-    }
-    // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
-    syncGroupDataToNodeStore(groupId);
-    get().applyGroupDerivations();
+      // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
+      syncGroupDataToNodeStore(groupId);
+      get().applyGroupDerivations();
+    });
     // TD-15: history record — after snapshot + record
     const after = captureAfter(allNodeIds, []);
     useGroupHistory.getState().record({ label: '转换组类型', nodeIds: allNodeIds, edgeIds: [], before, after });
@@ -1313,36 +1324,38 @@ export const useCanvasStore = create<CanvasState>()(temporal(
   },
 
   toggleCollapse: (groupId) => {
-    set((st) => ({
-      nodes: st.nodes.map((n) => {
-        if (n.id !== groupId) return n;
-        const collapsing = !(n.data as any).collapsed;
-        if (collapsing) {
-          return {
-            ...n,
-            data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
-            width: 200, height: 64,
-          };
+    withHistoryTransaction(() => {
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id !== groupId) return n;
+          const collapsing = !(n.data as any).collapsed;
+          if (collapsing) {
+            return {
+              ...n,
+              data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
+              width: 200, height: 64,
+            };
+          }
+          return { ...n, data: { ...n.data, collapsed: false } };
+        }),
+      }));
+      const g = get().nodes.find((n) => n.id === groupId);
+      if (g && !(g.data as any).collapsed) {
+        const d = g.data as any;
+        if (d.manuallyResized && d.savedSize) {
+          // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
+          set((st) => ({
+            nodes: st.nodes.map((n) => (n.id === groupId
+              ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
+              : n)),
+          }));
+        } else {
+          get().refitGroupBounds(groupId);
         }
-        return { ...n, data: { ...n.data, collapsed: false } };
-      }),
-    }));
-    const g = get().nodes.find((n) => n.id === groupId);
-    if (g && !(g.data as any).collapsed) {
-      const d = g.data as any;
-      if (d.manuallyResized && d.savedSize) {
-        // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
-        set((st) => ({
-          nodes: st.nodes.map((n) => (n.id === groupId
-            ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
-            : n)),
-        }));
-      } else {
-        get().refitGroupBounds(groupId);
       }
-    }
-    syncGroupDataToNodeStore(groupId);
-    get().applyGroupDerivations();
+      syncGroupDataToNodeStore(groupId);
+      get().applyGroupDerivations();
+    });
   },
 
   refitGroupBounds: (groupId) => {
