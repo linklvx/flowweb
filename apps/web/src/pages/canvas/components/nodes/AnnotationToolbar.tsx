@@ -112,8 +112,8 @@ function AnnotationToolbarComponent({
 
   const position = useMemo(() => {
     if (!internalNode) return null;
-    const nodeX = internalNode.position?.x ?? 0;
-    const nodeY = internalNode.position?.y ?? 0;
+    const nodeX = internalNode.internals?.positionAbsolute?.x ?? 0;
+    const nodeY = internalNode.internals?.positionAbsolute?.y ?? 0;
     const nodeWidth = internalNode.measured?.width;
     const nodeHeight = internalNode.measured?.height;
 
