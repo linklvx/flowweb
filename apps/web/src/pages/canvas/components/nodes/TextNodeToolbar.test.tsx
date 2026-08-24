@@ -1,15 +1,31 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
 
-// Mock @xyflow/react
-vi.mock('@xyflow/react', () => ({
-  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-  useInternalNode: (id: string) => ({
+const { mockUseViewport, mockUseInternalNode } = vi.hoisted(() => ({
+  mockUseViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+  mockUseInternalNode: vi.fn(() => ({
     position: { x: 100, y: 200 },
     measured: { width: 400, height: 350 },
-  }),
+    internals: { positionAbsolute: { x: 100, y: 200 } },
+  })),
 }));
+
+vi.mock('@xyflow/react', () => ({
+  useViewport: mockUseViewport,
+  useInternalNode: mockUseInternalNode,
+}));
+
+afterEach(() => {
+  vi.clearAllMocks();
+  mockUseViewport.mockReturnValue({ x: 0, y: 0, zoom: 1 });
+  mockUseInternalNode.mockReturnValue({
+    position: { x: 100, y: 200 },
+    measured: { width: 400, height: 350 },
+    internals: { positionAbsolute: { x: 100, y: 200 } },
+  });
+  document.getElementById('node-toolbar-portal')?.remove();
+});
 
 function setupPortalTarget() {
   const el = document.createElement('div');
@@ -110,6 +126,20 @@ describe('TextNodeToolbar (Tiptap)', () => {
     expect(toolbar).not.toBeNull();
     expect(toolbar.style.transform).not.toContain('scale');
     expect(toolbar.style.transform).toContain('translateX(-50%)');
+    cleanupPortalTarget();
+  });
+
+  it('positions toolbar by positionAbsolute when node is inside a group', () => {
+    setupPortalTarget();
+    mockUseInternalNode.mockReturnValue({
+      position: { x: 30, y: 60 },
+      measured: { width: 400, height: 350 },
+      internals: { positionAbsolute: { x: 600, y: 400 } },
+    });
+    render(<TextNodeToolbar nodeId="n1" editor={mockEditor} />);
+    const toolbar = document.getElementById('node-toolbar-portal')!.querySelector('.nodrag') as HTMLElement;
+    expect(toolbar.style.left).toBe('800px'); // (600 + 400/2) * 1 + 0
+    expect(toolbar.style.top).toBe('326px');  // 400 - 46 - 28
     cleanupPortalTarget();
   });
 

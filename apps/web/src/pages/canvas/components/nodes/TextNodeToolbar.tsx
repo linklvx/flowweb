@@ -166,7 +166,8 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
     if (!internalNode?.measured?.width || !internalNode?.measured?.height) {
       return null;
     }
-    const { x: nodeX, y: nodeY } = internalNode.position;
+    const nodeX = internalNode.internals?.positionAbsolute?.x ?? 0;
+    const nodeY = internalNode.internals?.positionAbsolute?.y ?? 0;
     const { width: nodeWidth, height: nodeHeight } = internalNode.measured;
 
     const TOOLBAR_HEIGHT = 46;
