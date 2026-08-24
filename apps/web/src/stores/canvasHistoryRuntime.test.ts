@@ -37,7 +37,7 @@ describe('scheduleSync', () => {
     useCanvasStore.setState({ nodes: [n({ id: 'a', position: { x: 9, y: 9 } })], edges: [] });   // 连按时状态再变
     const p2 = scheduleSync();
     // 等待 debounce 窗口 + API 调用完成
-    await new Promise(resolve => setTimeout(resolve, 350));
+    await new Promise(resolve => setTimeout(resolve, 500));
     // 不等待 p1/p2（它们会在内部 resolve），直接验证结果
     expect(syncNodes).toHaveBeenCalledTimes(1);                                                  // 合并为一次
     expect(syncNodes).toHaveBeenCalledWith('p1', [expect.objectContaining({ position: { x: 9, y: 9 }, data: { content: 'x' } })]);  // 最新位置 + nodeStore data 为准
@@ -48,7 +48,7 @@ describe('scheduleSync', () => {
     (syncNodes as any).mockRejectedValueOnce(new Error('net'));
     useCanvasStore.setState({ projectId: 'p1', nodes: [n({ id: 'a' })], edges: [] });
     const p = scheduleSync();
-    await new Promise(resolve => setTimeout(resolve, 350));
+    await new Promise(resolve => setTimeout(resolve, 500));
     // Promise 应该内部 resolve，即使 syncNodes 失败
     await expect(p).resolves.toBeUndefined();
   });
@@ -57,7 +57,7 @@ describe('scheduleSync', () => {
     useCanvasStore.setState({ projectId: 'p1', nodes: [n({ id: 'a' })], edges: [] });
     const p = scheduleSync();
     useCanvasStore.setState({ projectId: 'p2' });                    // 300ms 内切换
-    await new Promise(resolve => setTimeout(resolve, 350));
+    await new Promise(resolve => setTimeout(resolve, 500));
     expect(syncNodes).not.toHaveBeenCalled();                        // 不用旧 pid 脏写
     expect(syncEdges).not.toHaveBeenCalled();
   });

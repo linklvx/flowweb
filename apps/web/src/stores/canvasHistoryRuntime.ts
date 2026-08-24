@@ -18,7 +18,7 @@ function buildSyncPayload() {
     type: nd.type || 'videoGen',
     parentId: nd.parentId ?? null,
     position: nd.position,
-    data: (ns.nodes[nd.id]?.data ?? nd.data) as Record<string, unknown>,
+    data: ns.nodes[nd.id]?.data ?? nd.data,
     width: nd.width,
     height: nd.height,
   }));

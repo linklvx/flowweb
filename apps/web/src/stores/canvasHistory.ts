@@ -14,7 +14,7 @@ export interface NodeDataSnapEntry {
   id: string;
   type: string;
   position: { x: number; y: number };
-  data: Record<string, unknown>;
+  data: unknown;
 }
 
 export interface HistoryPartial {
