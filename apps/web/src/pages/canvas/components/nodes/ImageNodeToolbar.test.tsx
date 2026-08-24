@@ -6,6 +6,7 @@ const { mockUseViewport, mockUseInternalNode } = vi.hoisted(() => ({
   mockUseInternalNode: vi.fn(() => ({
     position: { x: 100, y: 200 },
     measured: { width: 300, height: 250 },
+    internals: { positionAbsolute: { x: 100, y: 200 } },
   })),
 }));
 
@@ -21,6 +22,7 @@ afterEach(() => {
   mockUseInternalNode.mockReturnValue({
     position: { x: 100, y: 200 },
     measured: { width: 300, height: 250 },
+    internals: { positionAbsolute: { x: 100, y: 200 } },
   });
 });
 
@@ -167,6 +169,7 @@ describe('ImageNodeToolbar', () => {
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 50 },
       measured: { width: 300, height: 250 },
+      internals: { positionAbsolute: { x: 100, y: 50 } },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
@@ -182,6 +185,7 @@ describe('ImageNodeToolbar', () => {
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 300 },
       measured: { width: 300, height: 250 },
+      internals: { positionAbsolute: { x: 100, y: 300 } },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
@@ -317,12 +321,29 @@ describe('ImageNodeToolbar', () => {
     mockUseInternalNode.mockReturnValue({
       position: { x: 100, y: 200 },
       measured: { width: 300, height: 250 },
+      internals: { positionAbsolute: { x: 100, y: 200 } },
     });
     render(<ImageNodeToolbar {...defaultProps} />);
     const toolbar = screen.getByRole('toolbar');
     expect(toolbar.style.left).toBe('550px');
     // viewTopY = 200 * 2 + 0 = 400, toolbarTop = 400 - 84 - 20 = 296
     expect(toolbar.style.top).toBe('284px'); // 200*2 + 0 - 84 - 32 = 400 - 116 = 284
+    cleanupPortalTarget();
+  });
+
+  // 22d (new: 父组坐标系 — 按 positionAbsolute 定位，打组后不错位)
+  it('positions toolbar by positionAbsolute when node is inside a group', () => {
+    setupPortalTarget();
+    // 组内相对坐标 (30,60)，绝对坐标 (600,400)：必须按绝对坐标定位
+    mockUseInternalNode.mockReturnValue({
+      position: { x: 30, y: 60 },
+      measured: { width: 300, height: 250 },
+      internals: { positionAbsolute: { x: 600, y: 400 } },
+    });
+    render(<ImageNodeToolbar {...defaultProps} />);
+    const toolbar = screen.getByRole('toolbar');
+    expect(toolbar.style.left).toBe('750px'); // (600 + 300/2) * 1 + 0
+    expect(toolbar.style.top).toBe('284px');  // 400 - 84 - 32
     cleanupPortalTarget();
   });
 

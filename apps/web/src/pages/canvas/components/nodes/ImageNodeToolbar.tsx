@@ -357,8 +357,9 @@ function ImageNodeToolbarComponent({
     setSubMenuOpen(false);
   }, [onGridSplit]);
 
-  const nodeX = internalNode?.position?.x ?? 0;
-  const nodeY = internalNode?.position?.y ?? 0;
+  const abs = internalNode?.internals?.positionAbsolute;
+  const nodeX = abs?.x ?? 0;
+  const nodeY = abs?.y ?? 0;
   const nodeWidth = internalNode?.measured?.width;
   const nodeHeight = internalNode?.measured?.height;
   const { width: windowWidth, height: windowHeight } = windowSize;
