@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { CanvasView } from './CanvasView';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -10,7 +10,13 @@ const mockAddNode = vi.hoisted(() => vi.fn());
 const mockSetState = vi.hoisted(() => vi.fn());
 
 let mockPendingMediaFile: any = null;
+let mockNodes: any[] = [];
+let mockLastPointerShiftKey = false;
 let subscribeListener: ((state: any, prevState: any) => void) | null = null;
+
+vi.mock('./groups/GroupToolbar', () => ({
+  GroupToolbar: () => <div data-testid="group-toolbar" />,
+}));
 
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual('@xyflow/react');
@@ -30,7 +36,11 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
       const state = {
-        nodes: [],
+        nodes: mockNodes,
+        lastPointerShiftKey: mockLastPointerShiftKey,
+        toggleCollapse: vi.fn(),
+        ungroup: vi.fn(),
+        convertGroup: vi.fn(),
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         pendingMediaFile: mockPendingMediaFile,
@@ -63,6 +73,9 @@ describe('CanvasView', () => {
   beforeEach(() => {
     mockZoomIn.mockClear();
     mockZoomOut.mockClear();
+    mockNodes = [];
+    mockLastPointerShiftKey = false;
+    mockSetState.mockClear();
   });
 
   it('should render ReactFlow container', () => {
@@ -341,5 +354,67 @@ describe('CanvasView', () => {
 
       expect(mockSetState).toHaveBeenCalledWith({ pendingMediaFile: null, pendingFillCell: null });
     });
+  });
+
+  // ── Shift 多选抑制 GroupToolbar ──
+
+  const groupNode = { id: 'g1', type: 'group', selected: true, data: { groupType: 'normal' }, position: { x: 0, y: 0 }, width: 300, height: 200 };
+
+  it('组单选 + flag=false → GroupToolbar 渲染', () => {
+    mockNodes = [groupNode];
+    mockLastPointerShiftKey = false;
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    expect(screen.getByTestId('group-toolbar')).toBeInTheDocument();
+  });
+
+  it('组单选 + flag=true → GroupToolbar 抑制', () => {
+    mockNodes = [groupNode];
+    mockLastPointerShiftKey = true;
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    expect(screen.queryByTestId('group-toolbar')).not.toBeInTheDocument();
+  });
+
+  it('组单选 flag true→false 且 nodes 不变 → GroupToolbar 恢复（锁定订阅+memo deps）', () => {
+    mockNodes = [groupNode];
+    mockLastPointerShiftKey = true;
+    const { rerender } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    expect(screen.queryByTestId('group-toolbar')).not.toBeInTheDocument();
+    mockLastPointerShiftKey = false;
+    // CanvasView 被 memo 包裹，rerender 传相同 props 会 bail out；
+    // mock 环境无真实 zustand 订阅，改 prop 强制重渲染以验证 memo deps（projectId 未被组件使用）
+    rerender(
+      <ReactFlowProvider>
+        <CanvasView projectId="p2" />
+      </ReactFlowProvider>
+    );
+    expect(screen.getByTestId('group-toolbar')).toBeInTheDocument();
+  });
+
+  it('画布内 Shift pointerdown 接线：写入 lastPointerShiftKey', () => {
+    mockNodes = [];
+    mockLastPointerShiftKey = false;
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane');
+    expect(pane).toBeInTheDocument();
+    // 现有 mock 经 vi.importActual 真实渲染 ReactFlow，.react-flow__pane 必然存在；
+    // 万一为 null，降级 querySelector('.react-flow') 亦可（事件经 capture 到达 wrapper 监听）
+    pane!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, shiftKey: true }));
+    expect(mockSetState).toHaveBeenCalledWith({ lastPointerShiftKey: true });
   });
 });

@@ -45,6 +45,7 @@ function CanvasToolbarComponent({ zoom, onFitView, onZoomIn, onZoomOut, minimapO
         }
       `}</style>
       <div
+        id="canvas-toolbar"
         className="nodrag nopan absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-xl p-1.5"
         style={{
           backgroundColor: 'rgb(38, 38, 38)',

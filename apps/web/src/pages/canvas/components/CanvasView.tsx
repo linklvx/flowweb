@@ -13,6 +13,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { debounce } from '@/utils/debounce';
+import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -70,6 +71,8 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const updateViewport = useCanvasStore((s) => s.updateViewport);
   const addNode = useCanvasStore((s) => s.addNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  const lastPointerShiftKey = useCanvasStore((s) => s.lastPointerShiftKey);
+  useTrackCanvasPointerShift(reactFlowWrapper);
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
@@ -307,7 +310,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     [],
   );
 
-  // 选中组节点时显示 GroupToolbar；多选（≥2）时与 SelectionBoxOverlay 互斥，仅单独选中该组时显示
+  // 选中组节点时显示 GroupToolbar；多选（≥2）或 Shift 多选意图时不显示，仅普通单独选中时显示
   const selectedGroup = useMemo(() => {
     let count = 0;
     for (const n of nodes) {
@@ -315,8 +318,10 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
       count++;
       if (count > 1) return undefined;
     }
-    return count === 1 ? nodes.find((n) => n.type === 'group' && n.selected) : undefined;
-  }, [nodes]);
+    return count === 1 && !lastPointerShiftKey
+      ? nodes.find((n) => n.type === 'group' && n.selected)
+      : undefined;
+  }, [nodes, lastPointerShiftKey]);
 
   // 计算组是否可转为分镜组：仅当普通组且子节点全部是完成图片节点时
   const isConvertible = useMemo(() => {
