@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-24-group-padding-and-overlay-position-design.md`
 
-**测试命令：** `pnpm --filter web test <文件路径>`（= `vitest run`，非 watch）。类型检查：`pnpm --filter web exec tsc -b`。
+**测试命令：** `pnpm --filter @flowweb/web test <文件路径>`（= `vitest run`，非 watch）。类型检查：`pnpm --filter @flowweb/web exec tsc -b`。
 
 **背景事实（执行者必读）：**
 - 打组时子节点坐标被改为**相对组原点**（`canvasStore.ts:768-769`），悬浮层组件把 `node.position` 当绝对坐标乘 zoom 加 viewport，组不在画布原点时错位到左上角。
@@ -81,7 +81,7 @@ describe('calcGroupBounds', () => {
 
 - [ ] **Step 3: 跑两文件确认红**
 
-Run: `pnpm --filter web test src/utils/groupLayout.test.ts src/stores/canvasStore.groups.test.ts`
+Run: `pnpm --filter @flowweb/web test src/utils/groupLayout.test.ts src/stores/canvasStore.groups.test.ts`
 Expected: FAIL — groupLayout 两用例与 groups 的 groupNodes 用例断言不匹配（y/height 差 30px）
 
 - [ ] **Step 4: 实现 groupLayout.ts**
@@ -105,7 +105,7 @@ export function calcGroupBounds(items: { x: number; y: number; width: number; he
 
 - [ ] **Step 5: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/utils/groupLayout.test.ts src/stores/canvasStore.groups.test.ts`
+Run: `pnpm --filter @flowweb/web test src/utils/groupLayout.test.ts src/stores/canvasStore.groups.test.ts`
 Expected: PASS（全部用例）
 
 - [ ] **Step 6: Commit**
@@ -174,7 +174,7 @@ describe('clampPositionToPadding', () => {
 
 - [ ] **Step 2: 跑测试确认红**
 
-Run: `pnpm --filter web test src/utils/groupLayout.test.ts`
+Run: `pnpm --filter @flowweb/web test src/utils/groupLayout.test.ts`
 Expected: FAIL — `clampPositionToPadding` 未导出
 
 - [ ] **Step 3: 实现（groupLayout.ts 的 calcGroupBounds 之后）**
@@ -196,7 +196,7 @@ export function clampPositionToPadding(
 
 - [ ] **Step 4: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/utils/groupLayout.test.ts`
+Run: `pnpm --filter @flowweb/web test src/utils/groupLayout.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -306,7 +306,7 @@ describe('组内边距保留区夹取（onNodesChange）', () => {
 
 - [ ] **Step 2: 跑测试确认红**
 
-Run: `pnpm --filter web test src/stores/canvasStore.groups.test.ts`
+Run: `pnpm --filter @flowweb/web test src/stores/canvasStore.groups.test.ts`
 Expected: FAIL — 前三个用例与 dimensions 用例未被夹取（position 原样写入）
 
 - [ ] **Step 3: 实现 canvasStore.ts**
@@ -365,7 +365,7 @@ Expected: FAIL — 前三个用例与 dimensions 用例未被夹取（position �
 
 - [ ] **Step 4: 跑测试确认绿（含回归）**
 
-Run: `pnpm --filter web test src/stores/canvasStore.groups.test.ts src/stores/canvasStore.test.ts`
+Run: `pnpm --filter @flowweb/web test src/stores/canvasStore.groups.test.ts src/stores/canvasStore.test.ts`
 Expected: PASS（含既有 onNodesChange 用例回归）
 
 - [ ] **Step 5: Commit**
@@ -403,7 +403,7 @@ git commit -m "feat(web): onNodesChange 组内保留区集中夹取（分镜组�
 
 - [ ] **Step 2: 跑全文件确认仍绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: 新增父组坐标系用例（见红）**
@@ -430,7 +430,7 @@ Expected: PASS
 
 - [ ] **Step 4: 跑测试确认红**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
 Expected: FAIL — left 为 '180px'（按相对坐标 30 计算），非 '750px'
 
 - [ ] **Step 5: 实现（ImageNodeToolbar.tsx:360-361 替换为）**
@@ -443,7 +443,7 @@ Expected: FAIL — left 为 '180px'（按相对坐标 30 计算），非 '750px'
 
 - [ ] **Step 6: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageNodeToolbar.test.tsx`
 Expected: PASS（新用例 + 全部既有用例）
 
 - [ ] **Step 7: Commit**
@@ -494,12 +494,13 @@ afterEach(() => {
     measured: { width: 400, height: 350 },
     internals: { positionAbsolute: { x: 100, y: 200 } },
   });
+  document.getElementById('node-toolbar-portal')?.remove();
 });
 ```
 
 - [ ] **Step 2: 跑全文件确认仍绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: 新增父组坐标系用例（见红）**
@@ -524,18 +525,19 @@ it('positions toolbar by positionAbsolute when node is inside a group', () => {
 
 - [ ] **Step 4: 跑测试确认红**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
 Expected: FAIL — left 为 '230px'（按相对坐标 30 计算），非 '800px'
 
-- [ ] **Step 5: 实现（TextNodeToolbar.tsx:169 替换为）**
+- [ ] **Step 5: 实现（TextNodeToolbar.tsx:169 替换为，统一可选链+兜底风格）**
 
 ```ts
-    const { x: nodeX, y: nodeY } = internalNode.internals.positionAbsolute;
+    const nodeX = internalNode.internals?.positionAbsolute?.x ?? 0;
+    const nodeY = internalNode.internals?.positionAbsolute?.y ?? 0;
 ```
 
 - [ ] **Step 6: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -635,19 +637,19 @@ describe('AnnotationToolbar 定位', () => {
 
 - [ ] **Step 2: 跑测试确认第二个用例红（第一个应绿）**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/AnnotationToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/AnnotationToolbar.test.tsx`
 Expected: 第一个 PASS；第二个 FAIL — left 为 '180px'（按相对坐标 30 计算），非 '750px'
 
-- [ ] **Step 3: 实现（AnnotationToolbar.tsx:115-116 替换为）**
+- [ ] **Step 3: 实现（AnnotationToolbar.tsx:115-116 替换为，统一可选链+兜底风格）**
 
 ```ts
-    const nodeX = internalNode.internals.positionAbsolute.x;
-    const nodeY = internalNode.internals.positionAbsolute.y;
+    const nodeX = internalNode.internals?.positionAbsolute?.x ?? 0;
+    const nodeY = internalNode.internals?.positionAbsolute?.y ?? 0;
 ```
 
 - [ ] **Step 4: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/AnnotationToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/AnnotationToolbar.test.tsx`
 Expected: PASS（两个用例）
 
 - [ ] **Step 5: Commit**
@@ -675,7 +677,7 @@ git commit -m "fix(web): AnnotationToolbar 改用 positionAbsolute 定位并补�
 
 - [ ] **Step 2: 跑全文件确认仍绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: 新增父组坐标系用例（见红）**
@@ -700,7 +702,7 @@ it('positions toolbar by positionAbsolute when node is inside a group', () => {
 
 - [ ] **Step 4: 跑测试确认红**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
 Expected: FAIL — left 为 '180px'，非 '750px'
 
 - [ ] **Step 5: 实现（EditToolbar.tsx:298-299 替换为）**
@@ -713,7 +715,7 @@ Expected: FAIL — left 为 '180px'，非 '750px'
 
 - [ ] **Step 6: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/EditToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -735,7 +737,7 @@ git commit -m "fix(web): EditToolbar 改用 positionAbsolute 定位修复打组�
 
 - [ ] **Step 1: 默认 mock 与 afterEach 补 `internals: { positionAbsolute: { x: 100, y: 200 } }`，跑全文件确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 2: 新增用例（见红）**
@@ -756,7 +758,7 @@ it('positions toolbar by positionAbsolute when node is inside a group', () => {
 });
 ```
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
 Expected: FAIL — left 为 '180px'，非 '750px'
 
 - [ ] **Step 3: 实现（TransformToolbar.tsx:91-92 替换为）**
@@ -769,7 +771,7 @@ Expected: FAIL — left 为 '180px'，非 '750px'
 
 - [ ] **Step 4: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/TransformToolbar.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -819,7 +821,7 @@ mock 工厂内替换原 `useInternalNode: vi.fn(() => ({ position: { x: 0, y: 0 
 
 - [ ] **Step 2: 跑全文件确认仍绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: 新增 Δ 定位用例（见红）**
@@ -848,9 +850,11 @@ Expected: PASS
   });
 ```
 
+注：outpaint 初始化 effect（ImageGenNode.tsx:877）的 `setOutpaintRect` 值与 fallback 相同（均为 baseWidth×1.2 等），两次渲染常数抵消，Δ 稳定。若 CI 偶发偏差，在读取 style 前加一次 `await vi.waitFor(() => document.querySelector('[data-testid="outpaint-frame"]'))`。
+
 - [ ] **Step 4: 跑测试确认红**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
 Expected: FAIL — Δ 为 0（实现仍读相对坐标 position {0,0}）
 
 - [ ] **Step 5: 实现（ImageGenNode.tsx 四处表达式替换）**
@@ -871,7 +875,7 @@ Expected: FAIL — Δ 为 0（实现仍读相对坐标 position {0,0}）
 
 - [ ] **Step 6: 跑测试确认绿**
 
-Run: `pnpm --filter web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
+Run: `pnpm --filter @flowweb/web test src/pages/canvas/components/nodes/ImageGenNode.test.tsx`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -889,10 +893,10 @@ git commit -m "fix(web): 扩图选区/扩图工具条坐标改用 positionAbsolu
 
 - [ ] **Step 1: 全量单测 + 类型检查**
 
-Run: `pnpm --filter web test`
+Run: `pnpm --filter @flowweb/web test`
 Expected: PASS（全量）。若无关用例本来就红，记录并仅保证本次涉及文件全绿。
 
-Run: `pnpm --filter web exec tsc -b`
+Run: `pnpm --filter @flowweb/web exec tsc -b`
 Expected: 无错误（TypeScript strict）
 
 - [ ] **Step 2: 浏览器手测（preview 工具，金路径）**
@@ -915,3 +919,4 @@ Expected: 无错误（TypeScript strict）
 - **Spec 覆盖：** R1→Task 1；R2→Task 2+3；R3 七处→Task 4-9（ImageNodeToolbar/TextNode/Annotation/Edit/Transform/ImageGenNode×2）；验收→Task 10。无缺口。
 - **占位符扫描：** 全部步骤含完整代码与期望输出，无 TBD/"适当处理"。
 - **类型一致性：** `clampPositionToPadding(position, childSize, groupSize)` 在 Task 2 定义、Task 3 消费，签名一致；`GROUP_PADDING_TOP` Task 1 定义、Task 2 消费一致。
+- **用户评审核验修订（2026-08-24）：** ①包名实为 `@flowweb/web`，全部测试/类型命令已改 `pnpm --filter @flowweb/web ...`；②Task 5 afterEach 追加 portal div 清理（防断言失败泄漏）；③Task 5/6 修复代码统一可选链+`?? 0` 兜底风格；④Task 9 补 Δ 稳定性备注（CI 偶发时用 vi.waitFor）。
