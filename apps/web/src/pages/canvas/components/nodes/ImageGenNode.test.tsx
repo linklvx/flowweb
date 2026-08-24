@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
@@ -29,6 +29,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 let mockNodeData: any = {
   status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] }
 };
+let mockLastPointerShiftKey = false;
 
 vi.mock('@/hooks/useMediaUrl', () => ({
   useMediaUrl: (fileId: string | null | undefined) => {
@@ -100,6 +101,7 @@ const {
   const canvasStoreFn = vi.fn((_selector?: any) => {
     const state = {
       selectedId: null,
+      lastPointerShiftKey: mockLastPointerShiftKey,
       selectNode,
       addChildNode,
       addNodeWithEdge,
@@ -169,6 +171,12 @@ vi.mock('./prompt-input/ImageThumbnailBar', () => ({
 }));
 
 describe('ImageGenNode', () => {
+  beforeEach(() => {
+    const el = document.createElement('div');
+    el.id = 'node-toolbar-portal';
+    document.body.appendChild(el);
+    mockLastPointerShiftKey = false;
+  });
   afterEach(() => {
     document.getElementById('node-toolbar-portal')?.remove();
     vi.clearAllMocks();
@@ -635,5 +643,46 @@ describe('ImageGenNode', () => {
     expect(placeholder).toHaveAttribute('role', 'status');
     expect(placeholder).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByText('内容加载中')).toBeInTheDocument();
+  });
+
+  // ── Shift 多选抑制悬浮工具条（接线回归锁定）──
+
+  it('flag=true：单选图片节点不渲染悬浮工具条（Shift 多选抑制接线）', () => {
+    mockNodeData.fileId = 'f1';
+    mockLastPointerShiftKey = true;
+    render(
+      <ReactFlowProvider>
+        <ImageGenNode id="img1" data={{}} selected type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
+      </ReactFlowProvider>
+    );
+    expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).toBeNull();
+  });
+
+  it('flag=false：单选图片节点正常渲染悬浮工具条（接线回归）', () => {
+    mockNodeData.fileId = 'f1';
+    render(
+      <ReactFlowProvider>
+        <ImageGenNode id="img1" data={{}} selected type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
+      </ReactFlowProvider>
+    );
+    expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).not.toBeNull();
+  });
+
+  it('flag true→false rerender 后工具条恢复（接线回归）', () => {
+    mockNodeData.fileId = 'f1';
+    mockLastPointerShiftKey = true;
+    const { rerender } = render(
+      <ReactFlowProvider>
+        <ImageGenNode id="img1" data={{}} selected type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
+      </ReactFlowProvider>
+    );
+    expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).toBeNull();
+    mockLastPointerShiftKey = false;
+    rerender(
+      <ReactFlowProvider>
+        <ImageGenNode id="img1" data={{}} selected type="imageGen" draggable={true} dragging={false} selectable={true} deletable={true} zIndex={0} {...{} as any} />
+      </ReactFlowProvider>
+    );
+    expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).not.toBeNull();
   });
 });
