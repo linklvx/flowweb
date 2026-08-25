@@ -18,7 +18,7 @@ Canvas 画布页左上角悬浮按钮（[ProjectTitle.tsx](../../../apps/web/src
 独立子资源接口返回 folderId + 前端沿 `Folder.parentId` 拼路径（复用 [useFolderNavigation.ts:23-31](../../../apps/web/src/pages/workspace/hooks/useFolderNavigation.ts) 的 chain 模式）。**不改动** `GET /api/projects/:id` 返回结构。
 
 已否决的备选（记录）：
-- `findById` 附带 folderPath：findById 无鉴权是有意的（公开画布访问），附带路径会向任意访问者泄露属主文件夹名称，或在核心接口加属主分支（更复杂）。登记为技术债，未来做请求合并/BFF 时再评估。
+- `findById` 附带 folderPath：findById 无鉴权是有意的（公开画布访问），附带路径会向任意访问者泄露属主文件夹名称，或在核心接口加属主分支（更复杂）。
 - React Query/SWR 缓存、全局 folders Zustand store：项目未用/不存在，超范围；本设计每次进页现请求，无缓存故无一致性问题。
 
 ## 3. 后端设计
@@ -93,12 +93,7 @@ GET /api/projects/:id/folder
 - folderId 不在 folders 列表（已删除）回退主目录
 - 竞态：isCancelled 过期响应不覆盖新路径
 
-## 6. 技术债登记（不阻塞本次）
-
-- `GET /api/projects/:id` 属主校验缺失（存量遗留，公开访问语义需先厘清）
-- findById 附带 folderPath 的请求合并方案（未来 BFF/缓存层评估）
-
-## 7. 明确不做
+## 6. 明确不做
 
 - React Query / SWR 缓存
 - 全局 folders Zustand store
