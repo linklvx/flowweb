@@ -89,27 +89,27 @@ describe('CanvasService', () => {
         return tx;
       }
 
-      it('空名走编号：事务内取 advisory lock，无已有未命名 → 未命名项目1', async () => {
+      it('空名走编号：事务内取 advisory lock，无已有未命名 → 画布1', async () => {
         const tx = mockTx(['我的画布']);
         const result = await service.create('', null, 'u1');
         expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
         expect(tx.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
-        expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '未命名项目1' }) });
-        expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '未命名项目1', status: 'DRAFT' }) });
-        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '未命名项目1' });
+        expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
+        expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1', status: 'DRAFT' }) });
+        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '画布1' });
       });
 
-      it('已有 未命名项目1、3 → 下一个为 4，非未命名名不影响编号', async () => {
-        const tx = mockTx(['未命名项目1', '我的画布', '未命名项目3']);
+      it('已有 画布1、3 → 下一个为 4，非编号名不影响编号，旧规则未命名项目N 不再参与编号', async () => {
+        const tx = mockTx(['画布1', '我的画布', '画布3', '未命名项目1']);
         const result = await service.create('', null, 'u1');
-        expect(result.name).toBe('未命名项目4');
+        expect(result.name).toBe('画布4');
       });
 
       it('空白名同样走编号分支', async () => {
         const tx = mockTx([]);
         const result = await service.create('   ', null, 'u1');
         expect(tx.template.findMany).toHaveBeenCalled();
-        expect(result.name).toBe('未命名项目1');
+        expect(result.name).toBe('画布1');
       });
 
       it('非空名不取锁、不查编号，原名创建', async () => {
@@ -124,15 +124,15 @@ describe('CanvasService', () => {
   });
 
   describe('getNextUntitledName（Fix 8）', () => {
-    it('无未命名画布 → 未命名项目1', async () => {
+    it('无未命名画布 → 画布1', async () => {
       prisma.template.findMany.mockResolvedValue([{ name: '我的画布' }]);
-      await expect(service.getNextUntitledName('u1')).resolves.toBe('未命名项目1');
+      await expect(service.getNextUntitledName('u1')).resolves.toBe('画布1');
       expect(prisma.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
     });
 
-    it('已有 未命名项目1、3 → 未命名项目4', async () => {
-      prisma.template.findMany.mockResolvedValue([{ name: '未命名项目1' }, { name: '未命名项目3' }]);
-      await expect(service.getNextUntitledName('u1')).resolves.toBe('未命名项目4');
+    it('已有 画布1、3 → 画布4', async () => {
+      prisma.template.findMany.mockResolvedValue([{ name: '画布1' }, { name: '画布3' }]);
+      await expect(service.getNextUntitledName('u1')).resolves.toBe('画布4');
     });
   });
 

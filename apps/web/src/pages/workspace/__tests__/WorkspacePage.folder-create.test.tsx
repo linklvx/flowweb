@@ -9,7 +9,7 @@ vi.mock('@/api/folderApi', () => ({
   renameFolder: vi.fn(),
   deleteFolder: vi.fn(),
 }));
-vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '未命名项目1' }) }));
+vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
 vi.mock('@/api/templateApi', () => ({
   getTemplates: vi.fn(),
   updateTemplate: vi.fn(),

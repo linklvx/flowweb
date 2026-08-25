@@ -47,10 +47,10 @@ export class CanvasService {
     const templates = await db.template.findMany({ where: { userId }, select: { name: true } });
     let max = 0;
     for (const t of templates) {
-      const m = /^未命名项目(\d+)$/.exec(t.name);
+      const m = /^画布(\d+)$/.exec(t.name);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
-    return `未命名项目${max + 1}`;
+    return `画布${max + 1}`;
   }
 
   async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean }, userId: string) {
