@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter, useNavigate, createMemoryRouter, RouterProvider } from 'react-router';
+import { MemoryRouter, useNavigate } from 'react-router';
 import React from 'react';
 import { message } from 'antd';
 import { CanvasPage } from './page';
