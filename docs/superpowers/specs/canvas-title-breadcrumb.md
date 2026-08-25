@@ -63,7 +63,7 @@ GET /api/projects/:id/folder
 ### ProjectTitle 组件
 
 - Props 新增 `folderPath?: string[]`，默认 `[]`
-- **Flow123**：`text-white`，点击 `navigate('/works')`，`hover:opacity-80 transition-opacity`，保留 `select-none` 与 💦 emoji
+- **Flow123**：`text-white`，用 `<Link to="/works">` 包裹（react-router v7，键盘 Tab/回车可访问），`hover:opacity-80 transition-opacity`，保留 `select-none` 与 💦 emoji
 - **路径前缀**（分隔符 `/` 之后、画布名之前）：
   - 文案：`folderPath.join('/') + '/'`，空数组显示 `主目录/`
   - 样式：`text-[#888] select-none`，不可点击；`max-w-[200px] truncate`（无条件应用）
