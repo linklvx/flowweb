@@ -177,8 +177,8 @@ model CanvasNode {
   type      String
   position  Json
   data      Json
-  width     Float         @default(280)
-  height    Float         @default(120)
+  width     Float?
+  height    Float?
   parentId  String?
   parent    CanvasNode?   @relation("CanvasNodeChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children  CanvasNode[]  @relation("CanvasNodeChildren")
