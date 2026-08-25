@@ -10,6 +10,8 @@
 
 **关键背景（执行者必读）：**
 - 全局 TransformInterceptor 自动把 controller 返回值包装为 `{ code: 0, data, message }`；前端 `apiFetch`（apps/web/src/api/client.ts）校验 `code === 0` 并返回 `json.data`。
+- 鉴权：全局 AuthGuard（app.module.ts APP_GUARD）按 `PUBLIC_PREFIXES` 前缀白名单放行，`/api/projects` 不在白名单。**新接口不加任何公开放行**（项目无 @Public 装饰器；与现有 `GET /api/projects/:id` 一致）。未登录 401 → 前端 apiFetch throw → catch 回退主目录/。
+- service 的 `if (!userId) return { folderId: null }` 是正确性必需（非防御）：Prisma 忽略 where 中 undefined 条件，不提前返回会退化为不按属主过滤导致越权。
 - `Template.projectId` 有 `@unique`（prisma/schema.prisma:117），`findUnique` 安全。
 - `CanvasProject.userId` 可空（草稿画布 null）——属主匹配自然排除草稿。
 - 测试命令：`pnpm --filter @flowweb/api test`、`pnpm --filter @flowweb/web test`。
@@ -494,9 +496,11 @@ import { createCanvas, getProjectFolder } from '@/api/canvasApi';
         if (cancelled) return;
         const chain: string[] = [];
         let cur = data.folders.find((f) => f.id === folderId);
-        while (cur) {
+        let depth = 0;
+        while (cur && depth < 10) { // 上限防脏数据循环引用死循环
           chain.unshift(cur.name);
           cur = cur.parentId ? data.folders.find((f) => f.id === cur!.parentId) : undefined;
+          depth++;
         }
         setFolderPath(chain);
       })

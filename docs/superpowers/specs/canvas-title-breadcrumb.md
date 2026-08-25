@@ -36,7 +36,8 @@ GET /api/projects/:id/folder
 ### 实现逻辑（`ProjectService.getProjectFolder(id, userId)`）
 
 ```
-1. userId 为空（未登录）        → { folderId: null }（200，不抛 401，公开画布访问者正常回退主目录）
+1. userId 为空 → { folderId: null }（正确性必需：Prisma 会忽略 where 中 undefined 条件，
+   不提前返回会退化为"不按属主过滤"导致越权。实际请求被全局 AuthGuard 拦截时到不了这里）
 2. canvasProject.findFirst({ where: { id, userId }, select: { id } })
    未命中（不存在/非属主/草稿） → { folderId: null }（不暴露存在性）
 3. template.findUnique({ where: { projectId }, select: { folderId: true } })
@@ -47,6 +48,7 @@ GET /api/projects/:id/folder
 依据：
 - 属主校验按最小权限原则新增（评审裁决）。注意字段是 `userId`（schema.prisma:139，可空），草稿画布不匹配 → null → 主目录。
 - `Template.projectId` 已有 `@unique`（schema.prisma:117），`findUnique` 安全，无需改动 schema。
+- 鉴权现状：全局 AuthGuard（app.module.ts APP_GUARD）按 `PUBLIC_PREFIXES` 前缀白名单放行，`/api/projects` 不在白名单——未登录请求 401，前端 apiFetch 抛错被 catch → 回退主目录/。**不加任何公开放行**（与现有 `GET /api/projects/:id` 行为一致；前端 `/canvas` 路由另有 RequireAuth 保护）。
 
 ## 4. 前端设计
 
