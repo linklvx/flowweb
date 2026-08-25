@@ -100,6 +100,26 @@ describe('ProjectService', () => {
         ],
       });
     });
+
+    it('无 width/height 的节点落库 null（空白节点动态尺寸不持久化）', async () => {
+      await service.syncNodes('p1', [
+        { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
+      ]);
+
+      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ id: 'n1', width: null, height: null })],
+      });
+    });
+
+    it('有 width/height 的节点原样透传', async () => {
+      await service.syncNodes('p1', [
+        { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: {}, width: 548, height: 309 },
+      ]);
+
+      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ id: 'n2', width: 548, height: 309 })],
+      });
+    });
   });
 
   describe('syncEdges', () => {

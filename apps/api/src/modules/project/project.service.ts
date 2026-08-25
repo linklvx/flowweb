@@ -109,8 +109,8 @@ export class ProjectService {
         type: n.type,
         position: n.position,
         data: n.data,
-        width: n.width ?? 280,
-        height: n.height ?? 120,
+        width: n.width ?? null,
+        height: n.height ?? null,
         parentId: n.parentId ?? null,
       })),
     });
