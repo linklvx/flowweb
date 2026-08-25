@@ -17,6 +17,12 @@ export class ProjectController {
     return this.projectService.findById(id);
   }
 
+  @Get(':id/folder')
+  getProjectFolder(@Param('id') id: string, @Req() req: Request) {
+    const userId = (req as any).user?.id;
+    return this.projectService.getProjectFolder(id, userId);
+  }
+
   @Put(':id/viewport')
   updateViewport(@Param('id') id: string, @Body() body: { viewport: { x: number; y: number; zoom: number } }) {
     return this.projectService.updateViewport(id, body.viewport);

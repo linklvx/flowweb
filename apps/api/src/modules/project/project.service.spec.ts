@@ -12,9 +12,13 @@ describe('ProjectService', () => {
       canvasProject: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      template: {
+        findUnique: vi.fn(),
       },
       canvasNode: {
         createMany: vi.fn(),
@@ -190,6 +194,46 @@ describe('ProjectService', () => {
         },
       });
       expect(result).toEqual({ deletedCount: 4 });
+    });
+  });
+
+  describe('getProjectFolder', () => {
+    it('属主项目返回 template 的 folderId', async () => {
+      prisma.canvasProject.findFirst.mockResolvedValue({ id: 'p1' });
+      prisma.template.findUnique.mockResolvedValue({ folderId: 'f1' });
+
+      const result = await service.getProjectFolder('p1', 'u1');
+
+      expect(prisma.canvasProject.findFirst).toHaveBeenCalledWith({
+        where: { id: 'p1', userId: 'u1' },
+        select: { id: true },
+      });
+      expect(result).toEqual({ folderId: 'f1' });
+    });
+
+    it('非属主项目返回 null 且不查 template（不暴露存在性）', async () => {
+      prisma.canvasProject.findFirst.mockResolvedValue(null);
+
+      const result = await service.getProjectFolder('p1', 'other-user');
+
+      expect(result).toEqual({ folderId: null });
+      expect(prisma.template.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('未登录（userId 空）直接返回 null 且不查库', async () => {
+      const result = await service.getProjectFolder('p1', undefined);
+
+      expect(result).toEqual({ folderId: null });
+      expect(prisma.canvasProject.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('无 template 记录返回 null', async () => {
+      prisma.canvasProject.findFirst.mockResolvedValue({ id: 'p1' });
+      prisma.template.findUnique.mockResolvedValue(null);
+
+      const result = await service.getProjectFolder('p1', 'u1');
+
+      expect(result).toEqual({ folderId: null });
     });
   });
 });

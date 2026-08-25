@@ -16,6 +16,7 @@ describe('ProjectController', () => {
       syncEdges: vi.fn().mockResolvedValue([]),
       updateName: vi.fn().mockResolvedValue({ id: 'p1', name: 'updated' }),
       delete: vi.fn().mockResolvedValue({}),
+      getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -41,6 +42,16 @@ describe('ProjectController', () => {
     const result = await controller.getProject('p1');
     expect(result).toHaveProperty('nodes');
     expect(result).toHaveProperty('edges');
+  });
+
+  it('GET /api/projects/:id/folder 登录时透传 userId', async () => {
+    await controller.getProjectFolder('p1', { user: { id: 'u1' } } as any);
+    expect(service.getProjectFolder).toHaveBeenCalledWith('p1', 'u1');
+  });
+
+  it('GET /api/projects/:id/folder 未登录时透传 undefined', async () => {
+    await controller.getProjectFolder('p1', {} as any);
+    expect(service.getProjectFolder).toHaveBeenCalledWith('p1', undefined);
   });
 
   it('PUT /api/projects/:id/viewport should update viewport', async () => {

@@ -76,6 +76,21 @@ export class ProjectService {
     return project;
   }
 
+  /** 画布所属文件夹 id；属主不匹配/未登录/无关联时返回 null（不暴露项目存在性） */
+  async getProjectFolder(id: string, userId?: string) {
+    if (!userId) return { folderId: null };
+    const project = await this.prisma.canvasProject.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+    if (!project) return { folderId: null };
+    const template = await this.prisma.template.findUnique({
+      where: { projectId: id },
+      select: { folderId: true },
+    });
+    return { folderId: template?.folderId ?? null };
+  }
+
   async updateViewport(id: string, viewport: { x: number; y: number; zoom: number }) {
     return this.prisma.canvasProject.update({
       where: { id },
