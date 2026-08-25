@@ -270,6 +270,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   const [folderPath, setFolderPath] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setFolderPath([]); // projectId 切换/重新加载时清除旧路径，加载期显示主目录/
     getProjectFolder(projectId)
       .then(async ({ folderId }) => {
         if (cancelled || !folderId) return;
@@ -280,7 +281,8 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         let depth = 0;
         while (cur && depth < 10) { // 上限防脏数据循环引用死循环
           chain.unshift(cur.name);
-          cur = cur.parentId ? data.folders.find((f) => f.id === cur!.parentId) : undefined;
+          const pid = cur.parentId;
+          cur = pid ? data.folders.find((f) => f.id === pid) : undefined;
           depth++;
         }
         setFolderPath(chain);

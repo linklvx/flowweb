@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter, useNavigate } from 'react-router';
+import { MemoryRouter, useNavigate, createMemoryRouter, RouterProvider } from 'react-router';
 import React from 'react';
 import { message } from 'antd';
 import { CanvasPage } from './page';
@@ -772,6 +772,62 @@ describe('TD-4 hydrate 键盘守卫', () => {
       resolveStale({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folderId: 'f1' } }) });
       await new Promise((r) => setTimeout(r, 50));
       expect(screen.getByText('设计稿/子文件夹/')).toBeInTheDocument();
+    });
+
+    it('切换 projectId 后旧路径清除，回退主目录', async () => {
+      function SwitchHarness() {
+        const navigate = useNavigate();
+        return (
+          <div>
+            <button type="button" onClick={() => navigate('/canvas?projectId=p2')}>切P2</button>
+            <CanvasPage />
+          </div>
+        );
+      }
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.endsWith('/folder') && url.includes('/p1')) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folderId: 'f2' } }) });
+        }
+        if (url.endsWith('/folder') && url.includes('/p2')) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folderId: null } }) });
+        }
+        if (url === '/api/folders') {
+          return Promise.resolve({
+            ok: true, status: 200,
+            json: () => Promise.resolve({ code: 0, data: { folders: [
+              { id: 'f1', name: '设计稿', parentId: null },
+              { id: 'f2', name: '子文件夹', parentId: 'f1' },
+            ] } }),
+          });
+        }
+        if (url.includes('/p1')) {
+          return Promise.resolve({
+            ok: true, status: 200,
+            json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'P1', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ code: 0, data: { id: 'p2', name: 'P2', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+        });
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/canvas?projectId=p1']}>
+          <SwitchHarness />
+        </MemoryRouter>,
+      );
+
+      // p1：嵌套路径渲染
+      expect(await screen.findByText('设计稿/子文件夹/')).toBeInTheDocument();
+
+      // 切到 p2（根目录画布）
+      fireEvent.click(screen.getByText('切P2'));
+
+      // 旧路径必须清除，回退主目录
+      expect(await screen.findByText('主目录/')).toBeInTheDocument();
+      expect(screen.queryByText('设计稿/子文件夹/')).not.toBeInTheDocument();
     });
   });
 });
