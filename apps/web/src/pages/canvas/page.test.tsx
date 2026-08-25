@@ -332,6 +332,40 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('DB 加载空白节点尺寸（width/height null → undefined，动态尺寸）', () => {
+    it('null 宽高节点写入两 store 均为 undefined，不再兜底 300', async () => {
+      const dbNodes = [
+        { id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {}, width: null, height: null },
+      ];
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', nodes: dbNodes, edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      });
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      (useNodeStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      // canvasStore：最后一次全量写入是 DB 加载
+      const fullWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s);
+      const b1 = (fullWrites[fullWrites.length - 1][0].nodes as any[]).find((n: any) => n.id === 'b1');
+      expect(b1.width).toBeUndefined();
+      expect(b1.height).toBeUndefined();
+
+      // nodeStore：content 写入（loadProjectIntoStore 第二处）
+      const nsWrite = (useNodeStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => s?.nodes?.b1)
+        .pop() as any[];
+      expect(nsWrite[0].nodes.b1.width).toBeUndefined();
+      expect(nsWrite[0].nodes.b1.height).toBeUndefined();
+    });
+  });
+
   describe('恢复最近项目与分级降级（Fix 1）', () => {
     const dbOkResponse = (id: string) => ({
       ok: true,

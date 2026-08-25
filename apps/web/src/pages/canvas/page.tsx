@@ -65,8 +65,8 @@ async function loadProjectIntoStore(
     useCanvasStore.setState({
       nodes: hydrateNodes((project.nodes || []).map((n: any) => ({
         ...n,
-        width: n.width ?? 300,
-        height: n.height ?? 300,
+        width: n.width ?? undefined,
+        height: n.height ?? undefined,
       }))) as any,
       edges: (project.edges || []).map((e: any) => ({
         id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
@@ -90,8 +90,8 @@ async function loadProjectIntoStore(
         type: n.type,
         position: n.position || { x: 0, y: 0 },
         data: n.data || {},
-        width: n.width ?? 300,
-        height: n.height ?? 300,
+        width: n.width ?? undefined,
+        height: n.height ?? undefined,
       };
     }
     useNodeStore.setState({ nodes: content });
