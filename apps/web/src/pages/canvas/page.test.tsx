@@ -341,7 +341,7 @@ describe('CanvasPage', () => {
     const createOkResponse = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '画布4' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4' } }),
     };
 
     it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
@@ -538,7 +538,7 @@ describe('CanvasPage', () => {
     const createOk = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '画布1' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目1' } }),
     };
 
     it('StrictMode 双执行 effect 仅创建一次画布', async () => {
