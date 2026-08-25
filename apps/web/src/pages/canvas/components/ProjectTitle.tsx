@@ -1,12 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { Link } from 'react-router';
+
+export const ROOT_FOLDER_NAME = '主目录';
 
 interface Props {
   projectId: string;
   projectName: string;
+  folderPath?: string[];
   onNameChange?: (name: string) => void;
 }
 
-export function ProjectTitle({ projectId, projectName: initialName, onNameChange }: Props) {
+export function ProjectTitle({ projectId, projectName: initialName, folderPath = [], onNameChange }: Props) {
   const [name, setName] = useState(initialName);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(initialName);
@@ -50,12 +54,21 @@ export function ProjectTitle({ projectId, projectName: initialName, onNameChange
     setEditing(true);
   }, [name]);
 
+  const prefix = folderPath.length > 0 ? `${folderPath.join('/')}/` : `${ROOT_FOLDER_NAME}/`;
+
   return (
     <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
-      <span className="text-[#4ade80] font-bold text-sm select-none">
+      <Link
+        to="/works"
+        title="返回工作空间"
+        className="text-white font-bold text-sm select-none hover:opacity-80 transition-opacity"
+      >
         💦 Flow123
-      </span>
+      </Link>
       <span className="text-[#555] select-none">/</span>
+      <span className="text-[#888] select-none max-w-[200px] truncate" title={prefix}>
+        {prefix}
+      </span>
       {editing ? (
         <input
           ref={inputRef}
@@ -69,7 +82,7 @@ export function ProjectTitle({ projectId, projectName: initialName, onNameChange
               setEditing(false);
             }
           }}
-          className="bg-[#252525] border border-[#4ade80] rounded px-1.5 py-0.5 text-xs text-[#e2e8f0] outline-none min-w-[80px]"
+          className="bg-[#252525] border border-[#555] rounded px-1.5 py-0.5 text-xs text-[#e2e8f0] outline-none min-w-[120px]"
           maxLength={30}
         />
       ) : (
