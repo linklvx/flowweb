@@ -20,7 +20,8 @@ import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
-import { createCanvas } from '@/api/canvasApi';
+import { createCanvas, getProjectFolder } from '@/api/canvasApi';
+import { apiFetch } from '@/api/client';
 import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
@@ -265,6 +266,33 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     useCanvasStore.getState().setProjectId(projectId);
   }, [projectId]);
 
+  // 标题栏面包屑：folderId → folders 平铺列表沿 parentId 拼「顶层→直接父级」链；任何失败回退主目录
+  const [folderPath, setFolderPath] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getProjectFolder(projectId)
+      .then(async ({ folderId }) => {
+        if (cancelled || !folderId) return;
+        const data = await apiFetch<{ folders: { id: string; name: string; parentId: string | null }[] }>('/folders');
+        if (cancelled) return;
+        const chain: string[] = [];
+        let cur = data.folders.find((f) => f.id === folderId);
+        let depth = 0;
+        while (cur && depth < 10) { // 上限防脏数据循环引用死循环
+          chain.unshift(cur.name);
+          cur = cur.parentId ? data.folders.find((f) => f.id === cur!.parentId) : undefined;
+          depth++;
+        }
+        setFolderPath(chain);
+      })
+      .catch(() => {
+        // 未登录/网络失败/接口异常 → 保持主目录
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
   const [isShortcutsOpen, setShortcutsOpen] = useState(false);
 
   // 屏蔽浏览器原生右键菜单，后续开发 Canvas 专用右键菜单
@@ -303,7 +331,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     <ReactFlowProvider>
       <CanvasKeyboardHandler />
       <div className="h-screen bg-[#0f0f0f] relative overflow-hidden">
-        <ProjectTitle projectId={projectId} projectName={projectName} onNameChange={onNameChange} />
+        <ProjectTitle projectId={projectId} projectName={projectName} folderPath={folderPath} onNameChange={onNameChange} />
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />
         <CanvasTopBar projectId={projectId} projectName={projectName} />

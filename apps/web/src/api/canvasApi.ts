@@ -23,3 +23,7 @@ export function saveCanvas(projectId: string, payload: { name: string; descripti
 export function getNextUntitledName() {
   return apiFetch<{ name: string }>('/canvases/next-untitled-name');
 }
+
+export function getProjectFolder(projectId: string) {
+  return apiFetch<{ folderId: string | null }>(`/projects/${projectId}/folder`);
+}

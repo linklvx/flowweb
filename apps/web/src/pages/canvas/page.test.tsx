@@ -341,7 +341,7 @@ describe('CanvasPage', () => {
     const createOkResponse = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '画布4' } }),
     };
 
     it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
@@ -538,7 +538,7 @@ describe('CanvasPage', () => {
     const createOk = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目1' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '画布1' } }),
     };
 
     it('StrictMode 双执行 effect 仅创建一次画布', async () => {
@@ -687,5 +687,91 @@ describe('TD-4 hydrate 键盘守卫', () => {
     fireEvent.keyDown(document, { key: 'Tab' });
     expect(useMenuStore.getState().isOpen).toBe(true);
     useMenuStore.setState({ isOpen: false });
+  });
+
+  describe('folderPath 面包屑', () => {
+    const projectResponse = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: '我的画布', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+    };
+
+    function mockByUrl({ folder, folders }: { folder?: { folderId: string | null }; folders?: { id: string; name: string; parentId: string | null }[] } = {}) {
+      mockFetch.mockImplementation((url: string) => {
+        // 注意用 endsWith：'/api/folders'.includes('/folder') 为 true，会误拦截
+        if (url.endsWith('/folder')) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: folder ?? { folderId: null } }) });
+        }
+        if (url === '/api/folders') {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folders: folders ?? [] } }) });
+        }
+        return Promise.resolve(projectResponse);
+      });
+    }
+
+    it('folderId 非空：请求 folders 并渲染嵌套层级路径', async () => {
+      mockByUrl({
+        folder: { folderId: 'f2' },
+        folders: [
+          { id: 'f1', name: '设计稿', parentId: null },
+          { id: 'f2', name: '子文件夹', parentId: 'f1' },
+        ],
+      });
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+
+      expect(await screen.findByText('设计稿/子文件夹/')).toBeInTheDocument();
+      expect(mockFetch.mock.calls.some((c: any[]) => c[0] === '/api/folders')).toBe(true);
+    });
+
+    it('folderId 为空：显示 主目录/ 且不请求 /api/folders', async () => {
+      mockByUrl({ folder: { folderId: null } });
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+
+      expect(await screen.findByText('主目录/')).toBeInTheDocument();
+      expect(mockFetch.mock.calls.every((c: any[]) => c[0] !== '/api/folders')).toBe(true);
+    });
+
+    it('folderId 指向的文件夹已删除（不在列表）：回退主目录', async () => {
+      mockByUrl({ folder: { folderId: 'ghost' }, folders: [{ id: 'f1', name: '设计稿', parentId: null }] });
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+
+      expect(await screen.findByText('主目录/')).toBeInTheDocument();
+    });
+
+    it('StrictMode 下迟到的 folder 响应不覆盖新一轮结果', async () => {
+      let resolveStale!: (v: any) => void;
+      let firstFolderCall = true;
+      const foldersData = [
+        { id: 'f1', name: '设计稿', parentId: null },
+        { id: 'f2', name: '子文件夹', parentId: 'f1' },
+      ];
+      mockFetch.mockImplementation((url: string) => {
+        if (url.endsWith('/folder') && firstFolderCall) {
+          firstFolderCall = false;
+          return new Promise((r) => { resolveStale = r; }); // 第一轮：慢，将被取消
+        }
+        if (url.endsWith('/folder')) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folderId: 'f2' } }) });
+        }
+        if (url === '/api/folders') {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folders: foldersData } }) });
+        }
+        return Promise.resolve(projectResponse);
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/canvas?projectId=p1']}>
+          <React.StrictMode><CanvasPage /></React.StrictMode>
+        </MemoryRouter>,
+      );
+
+      // 第二轮（有效）完成 → 嵌套路径渲染
+      expect(await screen.findByText('设计稿/子文件夹/')).toBeInTheDocument();
+
+      // 第一轮（已取消）迟到返回 folderId 指向 f1 链 —— 若实现未做 cancelled 守卫，前缀会被覆盖为 设计稿/
+      resolveStale({ ok: true, status: 200, json: () => Promise.resolve({ code: 0, data: { folderId: 'f1' } }) });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByText('设计稿/子文件夹/')).toBeInTheDocument();
+    });
   });
 });
