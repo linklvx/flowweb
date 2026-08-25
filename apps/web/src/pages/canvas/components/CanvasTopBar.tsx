@@ -95,7 +95,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
               onClick={() => setShowSaveDialog(true)}
               className="text-[#4ade80] text-xs bg-transparent border-none cursor-pointer hover:text-[#5dfc8e] transition-colors"
             >
-              保存项目
+              保存画布
             </button>
           </div>
         )}

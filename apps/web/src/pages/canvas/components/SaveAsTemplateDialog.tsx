@@ -35,7 +35,7 @@ export function SaveAsTemplateDialog({ projectId, projectName, onClose, onSaved 
   return (
     <div className="fixed inset-0 bg-black/60 flex justify-center z-[100] pt-16" onClick={onClose}>
       <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-6 w-full max-w-md h-fit" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">保存项目</h2>
+        <h2 className="text-lg font-bold text-[#e2e8f0] mb-4">保存画布</h2>
         <div className="mb-4">
           <label className="block text-xs text-[#888] mb-1">项目名称</label>
           <div className="text-sm text-[#e2e8f0] px-3 py-2 bg-[#252525] border border-[#333] rounded">{projectName}</div>
