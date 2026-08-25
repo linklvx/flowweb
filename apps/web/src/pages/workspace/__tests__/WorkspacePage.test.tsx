@@ -87,13 +87,13 @@ describe('WorkspacePage', () => {
     expect(await screen.findByTestId('canvas-card-c1')).toBeInTheDocument();
   });
 
-  it('画布点击跳 /works/:id', async () => {
+  it('画布点击直接进画布编辑页', async () => {
     vi.mocked(templateApi.getTemplates).mockResolvedValue({
-      templates: [tpl('c1', '画布')], total: 1, page: 1, limit: 20, totalPages: 1,
+      templates: [{ ...tpl('c1', '画布'), projectId: 'p1' }], total: 1, page: 1, limit: 20, totalPages: 1,
     } as never);
     renderPage();
     fireEvent.click(await screen.findByTestId('canvas-card-c1'));
-    expect(navigate).toHaveBeenCalledWith('/works/c1');
+    expect(navigate).toHaveBeenCalledWith('/canvas?projectId=p1');
   });
 
   it('hasMore 时显示加载更多，点击追加下一页', async () => {

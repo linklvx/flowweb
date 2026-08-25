@@ -13,6 +13,7 @@ export interface FolderViewModel extends Folder {
 
 export interface Canvas {
   id: string;
+  projectId: string | null;
   name: string;
   coverUrl: string | null;
   isPublic: boolean;

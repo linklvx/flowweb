@@ -72,6 +72,8 @@ export function WorkspacePage() {
   const onItemClick = (item: WorkspaceItem) => {
     if (data.status === 'loading') return; // 加载中不导航
     if (item.type === 'folder') enterFolder(item.data.id);
+    // 画布卡片 id 是 template id，进编辑器需用其关联的 projectId
+    else if (item.data.projectId) navigate(`/canvas?projectId=${item.data.projectId}`);
     else navigate(`/works/${item.data.id}`);
   };
 

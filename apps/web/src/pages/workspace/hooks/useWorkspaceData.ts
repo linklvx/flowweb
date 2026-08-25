@@ -10,7 +10,7 @@ const PAGE_SIZE = 20;
 
 function toCanvas(t: any): Canvas {
   return {
-    id: t.id, name: t.name, coverUrl: t.coverUrl ?? null, isPublic: !!t.isPublic,
+    id: t.id, projectId: t.projectId ?? null, name: t.name, coverUrl: t.coverUrl ?? null, isPublic: !!t.isPublic,
     createdAt: t.createdAt, updatedAt: t.updatedAt, folderId: t.folderId ?? null,
   };
 }
@@ -145,7 +145,7 @@ export function useWorkspaceData() {
     const { templateId, projectId } = await apiCreateCanvas(name, folderId);
     const now = new Date().toISOString();
     setCanvases((prev) => [
-      { id: templateId, name, coverUrl: null, isPublic: false, createdAt: now, updatedAt: now, folderId },
+      { id: templateId, projectId, name, coverUrl: null, isPublic: false, createdAt: now, updatedAt: now, folderId },
       ...prev,
     ]);
     await refreshFolders();

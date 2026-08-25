@@ -4,7 +4,7 @@ import { CanvasCard } from '../components/CanvasCard';
 import type { Canvas } from '../types';
 
 const base: Canvas = {
-  id: 'c1', name: '画布 1', coverUrl: null, isPublic: false,
+  id: 'c1', projectId: 'p1', name: '画布 1', coverUrl: null, isPublic: false,
   createdAt: '2026-08-18T09:00:00', updatedAt: '2026-08-18T09:00:00', folderId: null,
 };
 
