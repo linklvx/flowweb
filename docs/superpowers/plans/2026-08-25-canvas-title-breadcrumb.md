@@ -489,6 +489,7 @@ import { createCanvas, getProjectFolder } from '@/api/canvasApi';
   const [folderPath, setFolderPath] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setFolderPath([]); // projectId 切换/重新加载时清除旧路径，加载期显示主目录/
     getProjectFolder(projectId)
       .then(async ({ folderId }) => {
         if (cancelled || !folderId) return;
@@ -499,7 +500,8 @@ import { createCanvas, getProjectFolder } from '@/api/canvasApi';
         let depth = 0;
         while (cur && depth < 10) { // 上限防脏数据循环引用死循环
           chain.unshift(cur.name);
-          cur = cur.parentId ? data.folders.find((f) => f.id === cur!.parentId) : undefined;
+          const pid = cur.parentId;
+          cur = pid ? data.folders.find((f) => f.id === pid) : undefined;
           depth++;
         }
         setFolderPath(chain);
@@ -512,6 +514,8 @@ import { createCanvas, getProjectFolder } from '@/api/canvasApi';
     };
   }, [projectId]);
 ```
+
+（实现阶段经 code review 补充：effect 开头 `setFolderPath([])` 防 projectId 切换残留旧路径，并新增第 5 个集成用例「切换 projectId 后旧路径清除，回退主目录」；`cur!.parentId` 断言改为 `pid` 局部变量。）
 
 `<ProjectTitle ... />` 渲染行加 prop：
 
