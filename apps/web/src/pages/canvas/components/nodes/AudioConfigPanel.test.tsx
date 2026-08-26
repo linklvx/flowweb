@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AudioConfigPanel } from './AudioConfigPanel';
 
 // Mock @xyflow/react for useViewport
@@ -17,39 +17,47 @@ let mockNodeData: any = {
   status: 'idle',
 };
 
-vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: vi.fn((selector?: any) => {
-    const state = {
-      nodes: {
-        a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: mockNodeData },
-        img1: { id: 'img1', type: 'imageGen', position: { x: 100, y: 0 }, data: { model: 'sdxl' } },
-      },
-      updateConfig: mockUpdateConfig,
-      setStatus: vi.fn(),
-      getState: () => ({
-        nodes: {
-          a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: mockNodeData },
-        },
+vi.mock('@/stores/nodeStore', () => {
+  const buildState = () => ({
+    nodes: {
+      a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: mockNodeData },
+      img1: { id: 'img1', type: 'imageGen', position: { x: 100, y: 0 }, data: { model: 'sdxl' } },
+    },
+    updateConfig: mockUpdateConfig,
+    setStatus: vi.fn(),
+  });
+  return {
+    useNodeStore: Object.assign(
+      vi.fn((selector?: any) => {
+        const state = buildState();
+        if (typeof selector === 'function') return selector(state);
+        return state;
       }),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
-}));
+      {
+        getState: () => buildState(),
+        setState: vi.fn(),
+      },
+    ),
+  };
+});
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
-    getState: () => ({ nodes: [], edges: [] }),
+    getState: () => ({ nodes: [], edges: [], projectId: 'real-pid' }),
   },
 }));
 
-vi.mock('@/api/executionApi', () => ({
-  enqueueWorkflow: vi.fn(),
+const { mockEnqueueWorkflow, mockFlushCanvasSync } = vi.hoisted(() => ({
+  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
+  mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@/api/projectApi', () => ({
-  syncNodes: vi.fn(),
-  syncEdges: vi.fn(),
+vi.mock('@/api/executionApi', () => ({
+  enqueueWorkflow: mockEnqueueWorkflow,
+}));
+
+vi.mock('@/stores/canvasSyncRuntime', () => ({
+  flushCanvasSync: mockFlushCanvasSync,
 }));
 
 describe('AudioConfigPanel', () => {
@@ -148,5 +156,23 @@ describe('AudioConfigPanel', () => {
     const { container } = render(<AudioConfigPanel nodeId="a1" />);
     const dividers = container.querySelectorAll('.w-px.h-4');
     expect(dividers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ─── Generate: flush before enqueue ───
+
+  it('生成前先 flush 再 enqueue（改参即生效），不再散点同步', async () => {
+    const order: string[] = [];
+    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
+    mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
+    const { container } = render(<AudioConfigPanel nodeId="a1" />);
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: 'hello audio' } });
+    const buttons = container.querySelectorAll('button');
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await act(async () => {});
+
+    expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
+    expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
+    expect(order).toEqual(['flush', 'enqueue']);
   });
 });

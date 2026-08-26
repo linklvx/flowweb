@@ -3,7 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { syncNodes, syncEdges } from '@/api/projectApi';
+import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface ModelInfo {
   id: string; name: string;
@@ -142,25 +142,14 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
-      const canvasState = useCanvasStore.getState();
       const nodeState = useNodeStore.getState();
       const existing = nodeState.nodes[nodeId] as any;
       useNodeStore.setState({
         nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: prompt } } },
       });
-      const latestState = useNodeStore.getState();
-      const mergedNodes = canvasState.nodes.map((n) => ({
-        id: n.id, type: n.type || 'audioGen',
-        parentId: n.parentId ?? null,
-        position: n.position,
-        data: latestState.nodes[n.id]?.data || (n.data as any) || {},
-        width: n.width, height: n.height,
-      }));
-      const projectId = canvasState.projectId ?? 'default';
-      await Promise.all([
-        syncNodes(projectId, mergedNodes),
-        syncEdges(projectId, canvasState.edges),
-      ]);
+      const projectId = useCanvasStore.getState().projectId;
+      if (!projectId) return;
+      await flushCanvasSync('execute');
       const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {

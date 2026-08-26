@@ -103,17 +103,15 @@ vi.mock('@/stores/canvasStore', () => ({
   },
 }));
 
-const { mockEnqueueWorkflow, mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
+const { mockEnqueueWorkflow, mockFlushCanvasSync } = vi.hoisted(() => ({
   mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
-  mockSyncNodes: vi.fn().mockResolvedValue([]),
-  mockSyncEdges: vi.fn().mockResolvedValue([]),
+  mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@/api/executionApi', () => ({
   enqueueWorkflow: mockEnqueueWorkflow,
 }));
-vi.mock('@/api/projectApi', () => ({
-  syncNodes: mockSyncNodes,
-  syncEdges: mockSyncEdges,
+vi.mock('@/stores/canvasSyncRuntime', () => ({
+  flushCanvasSync: mockFlushCanvasSync,
 }));
 
 describe('VideoConfigPanel', () => {
@@ -231,17 +229,20 @@ describe('VideoConfigPanel', () => {
     expect(mockUploadSingleImage).toHaveBeenCalledTimes(1);
   });
 
-  it('generates with real projectId from canvasStore (not "default")', async () => {
+  it('生成前先 flush 再 enqueue（改参即生效），不再散点同步', async () => {
     mockNodeData.prompt.text = 'hello video';
+    const order: string[] = [];
+    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
+    mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
     render(<VideoConfigPanel nodeId="v1" />);
 
     await act(async () => {
       await capturedOnGenerate?.();
     });
 
-    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
-    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
     expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
+    expect(order).toEqual(['flush', 'enqueue']);
   });
 
   it('should render 2 dividers: after model selector and between voice/credits', () => {

@@ -12,7 +12,7 @@ import { RunButton } from './config-panel/RunButton';
 import { PromptEditor } from './config-panel/PromptEditor';
 import { useImageExtConfig } from './hooks/useImageExtConfig';
 import * as imageExtNodeApi from '@/api/imageExtNodeApi';
-import { syncNodes, syncEdges } from '@/api/projectApi';
+import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 import { AI_TOOL_GROUPS } from './ai/aiToolConfig';
 
 const RATIO_OPTIONS: RatioOption[] = [
@@ -122,22 +122,9 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
-      const canvasState = useCanvasStore.getState();
-      const nodeState = useNodeStore.getState();
-      const mergedNodes = canvasState.nodes.map((n) => ({
-        id: n.id,
-        type: n.type || 'imageExtGen',
-        parentId: n.parentId ?? null,
-        position: n.position,
-        data: nodeState.nodes[n.id]?.data || (n.data as any) || {},
-        width: n.width,
-        height: n.height,
-      }));
-      const projectId = canvasState.projectId ?? 'default';
-      await Promise.all([
-        syncNodes(projectId, mergedNodes),
-        syncEdges(projectId, canvasState.edges),
-      ]);
+      const projectId = useCanvasStore.getState().projectId;
+      if (!projectId) return;
+      await flushCanvasSync('execute');
       await imageExtNodeApi.submitGeneration(nodeId, { projectId });
     } catch {
       setStatus(nodeId, 'error');

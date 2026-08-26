@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 // Mock Web Speech API
 const mockListeners: Record<string, Function> = {};
@@ -55,18 +55,16 @@ vi.mock('@/stores/canvasStore', () => ({
 }));
 
 // Mock api
-const { mockEnqueueWorkflow, mockSyncNodes, mockSyncEdges } = vi.hoisted(() => ({
+const { mockEnqueueWorkflow, mockFlushCanvasSync } = vi.hoisted(() => ({
   mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
-  mockSyncNodes: vi.fn().mockResolvedValue([]),
-  mockSyncEdges: vi.fn().mockResolvedValue([]),
+  mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@/api/executionApi', () => ({
   executeWorkflow: vi.fn(),
   enqueueWorkflow: mockEnqueueWorkflow,
 }));
-vi.mock('@/api/projectApi', () => ({
-  syncNodes: mockSyncNodes,
-  syncEdges: mockSyncEdges,
+vi.mock('@/stores/canvasSyncRuntime', () => ({
+  flushCanvasSync: mockFlushCanvasSync,
 }));
 
 import { TextConfigPanel } from './TextConfigPanel';
@@ -126,7 +124,10 @@ describe('TextConfigPanel', () => {
     expect(btn.className).toContain('bg-white/20');
   });
 
-  it('generates with real projectId from canvasStore (not "default")', async () => {
+  it('生成前先 flush 再 enqueue（改参即生效），不再散点同步', async () => {
+    const order: string[] = [];
+    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
+    mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
     const { container } = render(<TextConfigPanel nodeId="n1" />);
     const textarea = container.querySelector('textarea')!;
     fireEvent.change(textarea, { target: { value: 'hello text' } });
@@ -134,10 +135,12 @@ describe('TextConfigPanel', () => {
     const generateBtn = buttons[buttons.length - 1];
     fireEvent.click(generateBtn);
 
-    await act(async () => {});
+    await vi.waitFor(() => {
+      expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
+      expect(mockEnqueueWorkflow).toHaveBeenCalled();
+    });
 
-    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
-    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(order).toEqual(['flush', 'enqueue']);
     expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
   });
 

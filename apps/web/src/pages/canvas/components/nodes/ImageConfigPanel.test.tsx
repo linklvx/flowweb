@@ -98,12 +98,10 @@ vi.mock('@/stores/nodeStore', () => {
   };
 });
 
-const { setMockCanvasNodes, getMockCanvasNodes, mockSyncNodes, mockSyncEdges, mockSubmitGeneration } = vi.hoisted(() => {
+const { getMockCanvasNodes, mockSubmitGeneration, mockFlushCanvasSync } = vi.hoisted(() => {
   let mockCanvasNodes: any[] = [];
   return {
-    setMockCanvasNodes: (n: any[]) => { mockCanvasNodes = n; },
-    mockSyncNodes: vi.fn().mockResolvedValue([]),
-    mockSyncEdges: vi.fn().mockResolvedValue([]),
+    mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockCanvasNodes: () => mockCanvasNodes,
   };
@@ -114,9 +112,8 @@ vi.mock('@/stores/canvasStore', () => ({
     getState: () => ({ nodes: getMockCanvasNodes(), edges: [], projectId: 'real-pid' }),
   },
 }));
-vi.mock('@/api/projectApi', () => ({
-  syncNodes: mockSyncNodes,
-  syncEdges: mockSyncEdges,
+vi.mock('@/stores/canvasSyncRuntime', () => ({
+  flushCanvasSync: mockFlushCanvasSync,
 }));
 vi.mock('@/api/imageNodeApi', () => ({
   getCreditCost: vi.fn().mockResolvedValue(0),
@@ -318,35 +315,19 @@ describe('ImageConfigPanel', () => {
     expect(screen.queryByTestId('canvas-node-image-ai-tool-select')).not.toBeInTheDocument();
   });
 
-  it('generates with real projectId from canvasStore (not "default")', async () => {
+  it('生成前先 flush 再 submitGeneration（改参即生效），不再散点同步', async () => {
     mockNodeData.prompt.text = 'hello image';
+    const order: string[] = [];
+    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
+    mockSubmitGeneration.mockImplementationOnce(async () => { order.push('submit'); return { jobId: 'j1' }; });
     render(<ImageConfigPanel nodeId="img1" />);
 
     await act(async () => {
       await capturedOnGenerate?.();
     });
 
-    expect(mockSyncNodes).toHaveBeenCalledWith('real-pid', expect.any(Array));
-    expect(mockSyncEdges).toHaveBeenCalledWith('real-pid', expect.any(Array));
+    expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
     expect(mockSubmitGeneration).toHaveBeenCalledWith('img1', { projectId: 'real-pid' });
-  });
-
-  it('生成前同步 payload 携带 parentId（防抹组，Bug F）', async () => {
-    mockNodeData.prompt.text = 'hello image';
-    setMockCanvasNodes([
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
-      { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
-      { id: 'free', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
-    ]);
-    render(<ImageConfigPanel nodeId="img1" />);
-
-    await act(async () => {
-      await capturedOnGenerate?.();
-    });
-
-    const payload = mockSyncNodes.mock.calls[0][1];
-    expect(payload.find((n: any) => n.id === 'img1').parentId).toBe('g1');
-    expect(payload.find((n: any) => n.id === 'free').parentId).toBeNull();
-    expect(payload.find((n: any) => n.id === 'g1').parentId).toBeNull();
+    expect(order).toEqual(['flush', 'submit']);
   });
 });

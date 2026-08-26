@@ -11,7 +11,7 @@ import { CreditDisplay } from './config-panel/CreditDisplay';
 import { RunButton } from './config-panel/RunButton';
 import { PromptEditor } from './config-panel/PromptEditor';
 import * as imageNodeApi from '@/api/imageNodeApi';
-import { syncNodes, syncEdges } from '@/api/projectApi';
+import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface Props {
   nodeId: string;
@@ -75,22 +75,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
-      const canvasState = useCanvasStore.getState();
-      const nodeState = useNodeStore.getState();
-      const mergedNodes = canvasState.nodes.map((n) => ({
-        id: n.id,
-        type: n.type || 'imageGen',
-        parentId: n.parentId ?? null,
-        position: n.position,
-        data: nodeState.nodes[n.id]?.data || (n.data as any) || {},
-        width: n.width,
-        height: n.height,
-      }));
-      const projectId = canvasState.projectId ?? 'default';
-      await Promise.all([
-        syncNodes(projectId, mergedNodes),
-        syncEdges(projectId, canvasState.edges),
-      ]);
+      const projectId = useCanvasStore.getState().projectId;
+      if (!projectId) return;
+      await flushCanvasSync('execute');
       await imageNodeApi.submitGeneration(nodeId, { projectId });
     } catch {
       setStatus(nodeId, 'error');
