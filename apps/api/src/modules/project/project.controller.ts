@@ -38,6 +38,14 @@ export class ProjectController {
     return this.projectService.syncEdges(id, body.edges);
   }
 
+  @Put(':id/canvas')
+  syncCanvas(
+    @Param('id') id: string,
+    @Body() body: { nodes: any[]; edges: any[]; version: number },
+  ) {
+    return this.projectService.syncCanvas(id, body.nodes, body.edges, body.version);
+  }
+
   @Patch(':id/nodes/dimensions')
   updateDimensions(
     @Param('id') id: string,

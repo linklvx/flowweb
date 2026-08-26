@@ -82,3 +82,13 @@ describe('ProjectController', () => {
     expect(service.delete).toHaveBeenCalledWith('p1');
   });
 });
+
+describe('PUT :id/canvas', () => {
+  it('透传 nodes/edges/version 到 service.syncCanvas', async () => {
+    const syncCanvas = vi.fn().mockResolvedValue({ version: 4 });
+    const controller = new ProjectController({ syncCanvas } as any);
+    const body = { nodes: [{ id: 'n1' }], edges: [], version: 3 };
+    await controller.syncCanvas('p1', body);
+    expect(syncCanvas).toHaveBeenCalledWith('p1', body.nodes, body.edges, 3);
+  });
+});
