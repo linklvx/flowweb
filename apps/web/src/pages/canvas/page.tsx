@@ -14,6 +14,7 @@ import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
+import { useCanvasAutoSave } from './hooks/useCanvasAutoSave';
 import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
 import { hydrateNodes } from '@/utils/nodeOrder';
 import { useSocket } from '@/hooks/useSocket';
@@ -23,6 +24,7 @@ import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
 import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
+import { refitExpandedGroups } from '@/stores/canvasSyncRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -72,16 +74,13 @@ async function loadProjectIntoStore(
         id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
       })),
       viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
+      serverVersion: project.version ?? 0,
+      saveStatus: 'saved',
     });
     // Apply hidden derivation for group children (TD-Group step 3)
     useCanvasStore.getState().applyGroupDerivations();
     // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
-    for (const g of useCanvasStore.getState().nodes.filter(
-      (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
-        && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
-    )) {
-      useCanvasStore.getState().refitGroupBounds(g.id);
-    }
+    refitExpandedGroups();
     // Restore node content as AppNode structure
     const content: Record<string, any> = {};
     for (const n of project.nodes || []) {
@@ -250,6 +249,7 @@ export function CanvasPage() {
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
+  useCanvasAutoSave(projectId);
   useSocket(projectId);
 
   // AddNodeMenu state — shared by + button and right-click triggers

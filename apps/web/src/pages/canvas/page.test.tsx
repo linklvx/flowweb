@@ -366,6 +366,32 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('DB 加载写入自动保存基准（serverVersion + saveStatus）', () => {
+    it('hydrate 时全量写入含 version 与 saved 态（flush 乐观锁基准）', async () => {
+      const dbNodes = [
+        { id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
+      ];
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ code: 0, data: { id: 'p1', name: 'X', version: 7, nodes: dbNodes, edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      });
+      (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+
+      render(<MemoryRouter initialEntries={['/canvas?projectId=p1']}><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      // 含 serverVersion 的全量写入仅 DB 加载一次（Fix 5 清空写入不含该字段）
+      const hydrateWrites = (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([s]: any[]) => 'nodes' in s && 'edges' in s && 'viewport' in s && 'serverVersion' in s);
+      expect(hydrateWrites).toHaveLength(1);
+      expect(hydrateWrites[0][0].serverVersion).toBe(7);
+      expect(hydrateWrites[0][0].saveStatus).toBe('saved');
+    });
+  });
+
   describe('恢复最近项目与分级降级（Fix 1）', () => {
     const dbOkResponse = (id: string) => ({
       ok: true,
