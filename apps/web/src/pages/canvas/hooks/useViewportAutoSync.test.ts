@@ -35,4 +35,20 @@ describe('useViewportAutoSync', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(updateViewport).not.toHaveBeenCalled();
   });
+
+  it('窗口内切换项目：不把旧项目 viewport 写到新项目（H-1 同款守卫）', async () => {
+    const { result } = renderHook(() => useViewportAutoSync());
+    act(() => { result.current.onMoveEnd(); });
+    useCanvasStore.setState({ projectId: 'p2' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(updateViewport).not.toHaveBeenCalled();
+  });
+
+  it('isHydrating 窗口内定时器触发不发送', async () => {
+    const { result } = renderHook(() => useViewportAutoSync());
+    act(() => { result.current.onMoveEnd(); });
+    useCanvasStore.setState({ isHydrating: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(updateViewport).not.toHaveBeenCalled();
+  });
 });

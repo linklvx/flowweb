@@ -13,9 +13,10 @@ export function useViewportAutoSync() {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
+      // H-1 同款守卫：窗口内切项目/hydrate 期间触发则丢弃，防旧项目 viewport 写到新项目
       const cs = useCanvasStore.getState();
-      if (!cs.projectId) return;
-      updateViewport(cs.projectId, cs.viewport)
+      if (cs.projectId !== pid || cs.isHydrating) return;
+      updateViewport(pid, cs.viewport)
         .catch((e) => console.error('[canvasSync] viewport sync failed', e));
     }, 1000);
   }, []);
