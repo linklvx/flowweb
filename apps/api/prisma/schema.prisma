@@ -138,6 +138,7 @@ model CanvasProject {
   name      String
   userId    String?
   viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
+  version   Int          @default(0)
   nodes     CanvasNode[]
   edges     CanvasEdge[]
   templates Template[]
