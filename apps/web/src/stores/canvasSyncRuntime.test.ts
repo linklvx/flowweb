@@ -66,12 +66,18 @@ describe('canvasSyncRuntime', () => {
 
   it('PUT 载荷：nodes 合并 nodeStore data + 携带 version', async () => {
     syncCanvasMock.mockResolvedValue({ version: 4 });
+    useCanvasStore.setState((s) => ({
+      nodes: [...s.nodes, { id: 'c1', type: 'textInput', parentId: 'g1', position: { x: 9, y: 9 }, data: {} } as any],
+    }));
     void scheduleSync();
     await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
     const arg = syncCanvasMock.mock.calls[0][1];
     expect(arg.version).toBe(3);
     expect(arg.nodes[0].data).toEqual({ content: 'hi' });
     expect(arg.edges).toEqual([]);
+    const byId = Object.fromEntries(arg.nodes.map((n: any) => [n.id, n]));
+    expect(byId.c1.parentId).toBe('g1');
+    expect(byId.n1.parentId).toBe(null);
   });
 
   it('H-1：窗口内切换项目不写旧项目', async () => {
