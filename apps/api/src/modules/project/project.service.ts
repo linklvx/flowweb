@@ -98,52 +98,6 @@ export class ProjectService {
     });
   }
 
-  async syncNodes(projectId: string, nodes: NodeInput[]) {
-    await this.prisma.canvasNode.deleteMany({ where: { projectId } });
-    if (nodes.length === 0) return [];
-    const sorted = [...nodes].sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
-    await this.prisma.canvasNode.createMany({
-      data: sorted.map((n: any) => ({
-        id: n.id,
-        projectId,
-        type: n.type,
-        position: n.position,
-        data: n.data,
-        width: n.width ?? null,
-        height: n.height ?? null,
-        parentId: n.parentId ?? null,
-      })),
-    });
-    return this.prisma.canvasNode.findMany({ where: { projectId } });
-  }
-
-  async updateDimensions(
-    projectId: string,
-    dto: { id: string; width: number; height: number }[],
-  ) {
-    await this.prisma.$transaction(async (tx) => {
-      await Promise.all(
-        dto.map(({ id, width, height }) =>
-          tx.canvasNode.updateMany({ where: { id }, data: { width, height } }),
-        ),
-      );
-    });
-  }
-
-  async syncEdges(projectId: string, edges: EdgeInput[]) {
-    await this.prisma.canvasEdge.deleteMany({ where: { projectId } });
-    if (edges.length === 0) return [];
-    await this.prisma.canvasEdge.createMany({
-      data: edges.map((e) => ({
-        id: e.id,
-        projectId,
-        sourceId: e.sourceId || e.source || '',
-        targetId: e.targetId || e.target || '',
-      })),
-    });
-    return this.prisma.canvasEdge.findMany({ where: { projectId } });
-  }
-
   /** 画布整体原子同步（自动保存）：乐观锁 version 校验 + nodes/edges 同事务重写 */
   async syncCanvas(projectId: string, nodes: NodeInput[], edges: EdgeInput[], version: number) {
     return this.prisma.$transaction(async (tx) => {

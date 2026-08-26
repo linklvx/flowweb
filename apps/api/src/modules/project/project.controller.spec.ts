@@ -12,8 +12,6 @@ describe('ProjectController', () => {
       create: vi.fn().mockResolvedValue({ id: 'p1', name: 'test' }),
       findById: vi.fn().mockResolvedValue({ id: 'p1', nodes: [], edges: [] }),
       updateViewport: vi.fn().mockResolvedValue({}),
-      syncNodes: vi.fn().mockResolvedValue([]),
-      syncEdges: vi.fn().mockResolvedValue([]),
       updateName: vi.fn().mockResolvedValue({ id: 'p1', name: 'updated' }),
       delete: vi.fn().mockResolvedValue({}),
       getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
@@ -57,18 +55,6 @@ describe('ProjectController', () => {
   it('PUT /api/projects/:id/viewport should update viewport', async () => {
     await controller.updateViewport('p1', { viewport: { x: 10, y: 20, zoom: 1.5 } });
     expect(service.updateViewport).toHaveBeenCalledWith('p1', { x: 10, y: 20, zoom: 1.5 });
-  });
-
-  it('PUT /api/projects/:id/nodes should sync nodes', async () => {
-    const nodes = [{ id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: {} }];
-    await controller.syncNodes('p1', { nodes });
-    expect(service.syncNodes).toHaveBeenCalledWith('p1', nodes);
-  });
-
-  it('PUT /api/projects/:id/edges should sync edges', async () => {
-    const edges = [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }];
-    await controller.syncEdges('p1', { edges });
-    expect(service.syncEdges).toHaveBeenCalledWith('p1', edges);
   });
 
   it('PATCH /api/projects/:id should update project name', async () => {

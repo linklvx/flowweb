@@ -72,68 +72,6 @@ describe('ProjectService', () => {
     });
   });
 
-  describe('syncNodes', () => {
-    it('should delete existing nodes and create new ones', async () => {
-      await service.syncNodes('p1', [
-        { id: 'n1', type: 'text', position: { x: 100, y: 200 }, data: { content: 'hello' } },
-      ]);
-
-      expect(prisma.canvasNode.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
-      expect(prisma.canvasNode.createMany).toHaveBeenCalled();
-    });
-
-    it('should handle empty nodes array', async () => {
-      await service.syncNodes('p1', []);
-      expect(prisma.canvasNode.deleteMany).toHaveBeenCalled();
-      expect(prisma.canvasNode.createMany).not.toHaveBeenCalled();
-    });
-
-    it('persists parentId; parentless nodes written first (self-FK insert order)', async () => {
-      await service.syncNodes('p1', [
-        // 故意乱序：子节点在前 —— 实现须排序（无 parentId 先写）
-        { id: 'n1', type: 'imageGen', position: { x: 10, y: 10 }, data: {}, parentId: 'g1' },
-        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
-      ]);
-      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
-        data: [
-          expect.objectContaining({ id: 'g1', parentId: null }),
-          expect.objectContaining({ id: 'n1', parentId: 'g1' }),
-        ],
-      });
-    });
-
-    it('无 width/height 的节点落库 null（空白节点动态尺寸不持久化）', async () => {
-      await service.syncNodes('p1', [
-        { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
-      ]);
-
-      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
-        data: [expect.objectContaining({ id: 'n1', width: null, height: null })],
-      });
-    });
-
-    it('有 width/height 的节点原样透传', async () => {
-      await service.syncNodes('p1', [
-        { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: {}, width: 548, height: 309 },
-      ]);
-
-      expect(prisma.canvasNode.createMany).toHaveBeenCalledWith({
-        data: [expect.objectContaining({ id: 'n2', width: 548, height: 309 })],
-      });
-    });
-  });
-
-  describe('syncEdges', () => {
-    it('should delete existing edges and create new ones', async () => {
-      await service.syncEdges('p1', [
-        { id: 'e1', sourceId: 'n1', targetId: 'n2' },
-      ]);
-
-      expect(prisma.canvasEdge.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
-      expect(prisma.canvasEdge.createMany).toHaveBeenCalled();
-    });
-  });
-
   describe('updateViewport', () => {
     it('should update viewport on project', async () => {
       prisma.canvasProject.update.mockResolvedValue({ id: 'p1', viewport: { x: 10, y: 20, zoom: 1.5 } });
@@ -153,45 +91,6 @@ describe('ProjectService', () => {
         where: { id: 'p1' },
         data: { name: '新项目名' },
       });
-    });
-  });
-
-  describe('updateDimensions', () => {
-    let txMock: any;
-
-    beforeEach(() => {
-      txMock = {
-        canvasNode: {
-          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-        },
-      };
-      prisma.$transaction = vi.fn((callback: any) => callback(txMock));
-    });
-
-    it('should update dimensions of existing nodes via updateMany', async () => {
-      await service.updateDimensions('p1', [
-        { id: 'n1', width: 300, height: 200 },
-        { id: 'n2', width: 400, height: 300 },
-      ]);
-
-      expect(prisma.$transaction).toHaveBeenCalled();
-      expect(txMock.canvasNode.updateMany).toHaveBeenCalledTimes(2);
-      expect(txMock.canvasNode.updateMany).toHaveBeenCalledWith({
-        where: { id: 'n1' },
-        data: { width: 300, height: 200 },
-      });
-      expect(txMock.canvasNode.updateMany).toHaveBeenCalledWith({
-        where: { id: 'n2' },
-        data: { width: 400, height: 300 },
-      });
-    });
-
-    it('should not throw when node does not exist (updateMany returns count 0)', async () => {
-      txMock.canvasNode.updateMany.mockResolvedValue({ count: 0 });
-
-      await expect(
-        service.updateDimensions('p1', [{ id: 'nonexistent', width: 300, height: 200 }]),
-      ).resolves.not.toThrow();
     });
   });
 

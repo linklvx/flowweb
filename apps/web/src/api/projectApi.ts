@@ -12,20 +12,6 @@ export async function getProject(id: string): Promise<ProjectData> {
   return apiFetch<ProjectData>(`/projects/${id}`);
 }
 
-export async function syncNodes(projectId: string, nodes: any[]) {
-  return apiFetch(`/projects/${projectId}/nodes`, {
-    method: 'PUT',
-    body: JSON.stringify({ nodes }),
-  });
-}
-
-export async function syncEdges(projectId: string, edges: any[]) {
-  return apiFetch(`/projects/${projectId}/edges`, {
-    method: 'PUT',
-    body: JSON.stringify({ edges }),
-  });
-}
-
 export interface SyncCanvasPayload {
   nodes: any[];
   edges: any[];

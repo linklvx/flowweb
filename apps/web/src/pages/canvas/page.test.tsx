@@ -303,7 +303,7 @@ describe('CanvasPage', () => {
 
   describe('DB 加载组关系恢复（Bug F：parentId + extent + 父前子后）', () => {
     it('DB 节点带 parentId（乱序）→ 写入 store 含 parentId + extent:"parent" + 顺序父前子后', async () => {
-      // DB 返回子在前父在后（syncNodes 排序正常时父在前；此用例防御任意顺序）
+      // DB 返回子在前父在后（服务端同步排序正常时父在前；此用例防御任意顺序）
       const dbNodes = [
         { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
         { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },

@@ -2,11 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/api/canvasApi', () => ({ saveCanvas: vi.fn() }));
-vi.mock('@/api/projectApi', () => ({ syncNodes: vi.fn(), syncEdges: vi.fn() }));
 vi.mock('@/stores/canvasSyncRuntime', () => ({ flushCanvasSync: vi.fn() }));
 
 import { saveCanvas } from '@/api/canvasApi';
-import { syncNodes } from '@/api/projectApi';
 import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 import { SaveAsTemplateDialog } from '../SaveAsTemplateDialog';
 
@@ -26,7 +24,6 @@ describe('SaveAsTemplateDialog', () => {
       name: '我的画布', description: '描述', isPublic: false,
     }));
     expect(flushCanvasSync).toHaveBeenCalledWith('template');
-    expect(syncNodes).not.toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalled();
   });
 

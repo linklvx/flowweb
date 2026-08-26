@@ -7,8 +7,7 @@ import { undoCanvas, redoCanvas } from './canvasHistoryRuntime';
 vi.mock('antd', () => ({ message: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 // Mock projectApi to avoid DB calls in tests (reference canvasStore.groups.test.ts pattern if needed)
 vi.mock('@/api/projectApi', () => ({
-  syncNodes: vi.fn(() => Promise.resolve()),
-  syncEdges: vi.fn(() => Promise.resolve()),
+  syncCanvas: vi.fn(() => Promise.resolve({ version: 1 })),
 }));
 
 const addText = (id: string, x: number, y: number) => {

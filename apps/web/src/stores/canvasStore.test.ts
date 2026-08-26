@@ -6,14 +6,10 @@ import { HISTORY_LIMIT } from './canvasHistory';
 import { historyPartialize } from './canvasStore';
 import { AUTO_SAVE_DELAY_MS, bindCanvasSync } from './canvasSyncRuntime';
 
-const { mockSyncNodes, mockSyncEdges, mockSyncCanvas } = vi.hoisted(() => ({
-  mockSyncNodes: vi.fn().mockResolvedValue({}),
-  mockSyncEdges: vi.fn().mockResolvedValue({}),
+const { mockSyncCanvas } = vi.hoisted(() => ({
   mockSyncCanvas: vi.fn().mockResolvedValue({ version: 4 }),
 }));
 vi.mock('@/api/projectApi', () => ({
-  syncNodes: mockSyncNodes,
-  syncEdges: mockSyncEdges,
   syncCanvas: mockSyncCanvas,
 }));
 
@@ -21,8 +17,6 @@ describe('canvasStore', () => {
   beforeEach(() => {
     useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null, saveStatus: 'saved', serverVersion: 0 });
     useNodeStore.setState({ nodes: {} });
-    mockSyncNodes.mockClear();
-    mockSyncEdges.mockClear();
     mockSyncCanvas.mockClear();
     useCanvasStore.temporal.getState().clear();
   });
@@ -471,8 +465,6 @@ describe('canvasStore', () => {
     ]);
 
     // 散点立即 PUT 已移除：任何路径都不再当场发请求
-    expect(mockSyncNodes).not.toHaveBeenCalled();
-    expect(mockSyncEdges).not.toHaveBeenCalled();
     expect(mockSyncCanvas).not.toHaveBeenCalled();
   });
 
