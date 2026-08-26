@@ -8,51 +8,12 @@ import { useCanvasStore, historyPartialize } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { HistoryPartial } from './canvasHistory';
 import { reconcileNodeStore, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
-import { syncNodes, syncEdges } from '@/api/projectApi';
+// 循环依赖裁定同头注：仅 import 声明与函数定义，调用点求值，ESM 安全
+import { scheduleSync as canvasAutoScheduleSync, UNDO_SYNC_DELAY_MS } from './canvasSyncRuntime';
 
-/** undo/redo 后的 DB 全量同步载荷：canvasStore 结构为基准 + nodeStore data */
-function buildSyncPayload() {
-  const cs = useCanvasStore.getState();
-  const ns = useNodeStore.getState();
-  return cs.nodes.map((nd) => ({
-    id: nd.id,
-    type: nd.type || 'videoGen',
-    parentId: nd.parentId ?? null,
-    position: nd.position,
-    data: ns.nodes[nd.id]?.data ?? nd.data,
-    width: nd.width,
-    height: nd.height,
-  }));
-}
-
-/** undo/redo 后的 DB 全量同步（失败 toast，spec D3）。
- *  I-2：300ms trailing debounce——快速连按 Ctrl+Z 会发出多个并发全量 PUT，
- *  乱序完成会使 DB 落旧状态；debounce 合并为一次，且 payload 取 debounce 结束时最新状态 */
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-
+/** undo/redo 后自动保存：委托统一 runtime，保留 300ms 快节奏窗口（I-2 行为不变） */
 export function scheduleSync(): Promise<void> {
-  const { projectId } = useCanvasStore.getState();
-  if (!projectId) return Promise.resolve();
-  if (syncTimer) clearTimeout(syncTimer);
-  return new Promise((resolve) => {
-    syncTimer = setTimeout(() => {
-      syncTimer = null;
-      // 五审 H-1：debounce 窗口内可能已切换项目——重读并校验，防止用旧 projectId
-      // 写入当前（新项目/过渡）状态脏写旧项目（page.tsx 切换路径不调 scheduleSync，旧 timer 会存活）
-      const pid = useCanvasStore.getState().projectId;
-      if (!pid || pid !== projectId) { resolve(); return; }
-      Promise.all([
-        syncNodes(pid, buildSyncPayload()),
-        syncEdges(pid, useCanvasStore.getState().edges),
-      ])
-        .then(() => resolve())
-        .catch((e) => {
-          console.error('[canvasHistory] undo sync failed', e);
-          message.warning('撤销结果未能保存到服务器，刷新后可能恢复到撤销前状态');
-          resolve();
-        });
-    }, 300);
-  });
+  return canvasAutoScheduleSync(UNDO_SYNC_DELAY_MS);
 }
 
 let pauseDepth = 0;

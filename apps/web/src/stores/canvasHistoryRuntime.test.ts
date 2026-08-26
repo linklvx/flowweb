@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Node } from '@xyflow/react';
 
 vi.mock('antd', () => ({ message: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }));
-vi.mock('@/api/projectApi', () => ({ syncNodes: vi.fn(() => Promise.resolve()), syncEdges: vi.fn(() => Promise.resolve()) }));
+vi.mock('@/api/projectApi', () => ({ syncCanvas: vi.fn(() => Promise.resolve({ version: 99 })) }));
 
-import { syncNodes, syncEdges } from '@/api/projectApi';
+import { message } from 'antd';
+import { syncCanvas } from '@/api/projectApi';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { scheduleSync, withHistoryPaused, undoCanvas, redoCanvas, beginDragTransaction, endDragTransaction, withHistoryTransaction, hydrateLoaded } from './canvasHistoryRuntime';
@@ -15,9 +16,11 @@ const n = (over: Partial<Node> & { id: string }): Node => ({
   type: 'textInput', position: { x: 0, y: 0 }, data: {}, ...over,
 } as Node);
 
-describe('scheduleSync', () => {
+const syncCanvasMock = vi.mocked(syncCanvas);
+
+describe('scheduleSync（委托统一 runtime）', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, projectId: null, isHydrating: false, _isPointerInteraction: false, nodeProcessMap: {} });
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, projectId: null, isHydrating: false, _isPointerInteraction: false, nodeProcessMap: {}, saveStatus: 'saved' });
     useCanvasStore.temporal.getState().clear();
     useNodeStore.setState({ nodes: {} });
     vi.clearAllMocks();
@@ -26,32 +29,34 @@ describe('scheduleSync', () => {
 
   it('projectId 为 null 时早退不发请求', async () => {
     useCanvasStore.setState({ projectId: null });
-    await scheduleSync();
-    expect(syncNodes).not.toHaveBeenCalled();
-    expect(syncEdges).not.toHaveBeenCalled();
+    await expect(scheduleSync()).resolves.toBeUndefined();   // 委托版无定时器参与，直接结算
+    expect(syncCanvasMock).not.toHaveBeenCalled();
   });
 
   it('I-2：debounce 300ms 合并连发，payload 取最新状态', async () => {
     useCanvasStore.setState({ projectId: 'p1', nodes: [n({ id: 'a' })], edges: [] });
     useNodeStore.setState({ nodes: { a: { id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'x' } as any } } });
-    const p1 = scheduleSync();
+    void scheduleSync();
     useCanvasStore.setState({ nodes: [n({ id: 'a', position: { x: 9, y: 9 } })], edges: [] });   // 连按时状态再变
-    const p2 = scheduleSync();
-    // 等待 debounce 窗口 + API 调用完成
+    const p = scheduleSync();
+    // 等待 debounce 窗口 + 保存结算完成（p 在 PUT 后 resolve）
     await new Promise(resolve => setTimeout(resolve, 500));
-    // 不等待 p1/p2（它们会在内部 resolve），直接验证结果
-    expect(syncNodes).toHaveBeenCalledTimes(1);                                                  // 合并为一次
-    expect(syncNodes).toHaveBeenCalledWith('p1', [expect.objectContaining({ position: { x: 9, y: 9 }, data: { content: 'x' } })]);  // 最新位置 + nodeStore data 为准
-    expect(syncEdges).toHaveBeenCalledWith('p1', []);
+    await p;
+    expect(syncCanvasMock).toHaveBeenCalledTimes(1);               // 合并为一次
+    const arg = syncCanvasMock.mock.calls[0][1];
+    expect(arg.nodes[0]).toEqual(expect.objectContaining({ position: { x: 9, y: 9 }, data: { content: 'x' } }));  // 最新位置 + nodeStore data 为准
+    expect(arg.edges).toEqual([]);
   });
 
-  it('同步失败 toast 不抛出', async () => {
-    (syncNodes as any).mockRejectedValueOnce(new Error('net'));
+  it('同步失败内部消化：saveStatus=error 不抛出、不再 toast', async () => {
+    syncCanvasMock.mockRejectedValueOnce(new Error('net'));
     useCanvasStore.setState({ projectId: 'p1', nodes: [n({ id: 'a' })], edges: [] });
     const p = scheduleSync();
     await new Promise(resolve => setTimeout(resolve, 500));
-    // Promise 应该内部 resolve，即使 syncNodes 失败
+    // Promise 仍内部 resolve（不向 undo 执行链抛错）
     await expect(p).resolves.toBeUndefined();
+    expect(useCanvasStore.getState().saveStatus).toBe('error');   // 失败转指示器状态
+    expect(message.warning).not.toHaveBeenCalled();               // toast 移除（统一 runtime 语义）
   });
 
   it('五审 H-1：debounce 窗口内切换项目 → 旧 projectId 同步被丢弃', async () => {
@@ -59,8 +64,8 @@ describe('scheduleSync', () => {
     const p = scheduleSync();
     useCanvasStore.setState({ projectId: 'p2' });                    // 300ms 内切换
     await new Promise(resolve => setTimeout(resolve, 500));
-    expect(syncNodes).not.toHaveBeenCalled();                        // 不用旧 pid 脏写
-    expect(syncEdges).not.toHaveBeenCalled();
+    await p;
+    expect(syncCanvasMock).not.toHaveBeenCalled();                   // 不用旧 pid 脏写
   });
 });
 

@@ -14,7 +14,6 @@ import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
-import { syncNodes, syncEdges } from '@/api/projectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
@@ -255,23 +254,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const ns = useNodeStore.getState();
     ns.deleteNode(id);
     ns.unregisterSaveHandler(id);
-    // 对齐 onNodesChange remove 路径：全量同步 DB（置于组清理后，payload 含 cells 过滤/解组结果）
-    const projectId = get().projectId;
-    if (projectId) {
-      const mergedNodes = get().nodes.map((n) => ({
-        id: n.id,
-        type: n.type || 'videoGen',
-        parentId: n.parentId ?? null,
-        position: n.position,
-        data: ns.nodes[n.id]?.data || (n.data as any) || {},
-        width: n.width,
-        height: n.height,
-      }));
-      Promise.all([
-        syncNodes(projectId, mergedNodes),
-        syncEdges(projectId, get().edges),
-      ]).catch((e) => console.error('[canvasStore] deleteNode sync failed', e));
-    }
   },
 
   deleteTransformNode: (id) => {
@@ -590,34 +572,15 @@ export const useCanvasStore = create<CanvasState>()(temporal(
       return { nodes };
     });
 
-    // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套 + DB 同步
+    // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套
+    // （DB 同步由 bindCanvasSync 订阅判脏 → 统一 runtime debounce 保存承担）
     const removes = changes.filter((c) => c.type === 'remove');
-    // TD-Pos: 拖动/移动结束（dragging 非 true 的 position 变更，RF 松手时发一次）→ 同步 DB，修复刷新后位置回退
-    const moveEnded = changes.some((c) => c.type === 'position' && (c as any).dragging !== true);
-    if (removes.length === 0 && !moveEnded) return;
+    if (removes.length === 0) return;
     for (const change of removes) {
       get().cancelNodeProcess(change.id);
       const ns = useNodeStore.getState();
       ns.deleteNode(change.id);
       ns.unregisterSaveHandler(change.id);
-    }
-    // view 基准载荷（上方 set 已排除删除节点），批量删除循环外统一同步一次
-    const projectId = get().projectId;
-    if (projectId) {
-      const ns = useNodeStore.getState();
-      const mergedNodes = get().nodes.map((n) => ({
-        id: n.id,
-        type: n.type || 'videoGen',
-        parentId: n.parentId ?? null,
-        position: n.position,
-        data: ns.nodes[n.id]?.data || (n.data as any) || {},
-        width: n.width,
-        height: n.height,
-      }));
-      Promise.all([
-        syncNodes(projectId, mergedNodes),
-        syncEdges(projectId, get().edges),
-      ]).catch((e) => console.error('[canvasStore] delete sync failed', e));
     }
   },
 

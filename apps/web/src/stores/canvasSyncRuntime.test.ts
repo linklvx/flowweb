@@ -13,6 +13,7 @@ import { message } from 'antd';
 import { syncCanvas } from '@/api/projectApi';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { undoCanvas } from './canvasHistoryRuntime';
 import {
   AUTO_SAVE_DELAY_MS,
   bindCanvasSync,
@@ -259,6 +260,27 @@ describe('canvasSyncRuntime', () => {
       useNodeStore.setState({ nodes: { ...ns.nodes } });
       expect(useCanvasStore.getState().saveStatus).toBe('dirty');
       unbind();
+    });
+  });
+
+  describe('undo → 300ms flush（scheduleSync 收编）', () => {
+    it('undo 后 300ms 触发 syncCanvas（非 2s、不叠加双发）', async () => {
+      syncCanvasMock.mockResolvedValue({ version: 4 });
+      // 干净历史基线：清掉前序用例可能残留的 pastStates
+      useCanvasStore.temporal.getState().clear();
+      // 结构变更即入历史（zundo 自动采样），为 undo 准备一条可回退快照
+      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'n2', type: 'textInput', position: { x: 1, y: 1 }, data: {} } as any] }));
+      // 不直接 await 整链：undo 返回的 Promise 在 300ms 定时器保存完成后才结算，
+      // fake timers 下先推进时钟再 await，否则死锁
+      const p = undoCanvas();
+      expect(syncCanvasMock).not.toHaveBeenCalled();   // 无立即 PUT
+      await vi.advanceTimersByTimeAsync(299);
+      expect(syncCanvasMock).not.toHaveBeenCalled();   // 非 0ms 抢跑
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(syncCanvasMock).toHaveBeenCalledTimes(1); // 恰在 300ms 触发一次
+      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
+      expect(syncCanvasMock).toHaveBeenCalledTimes(1); // 不再叠加 2s 双发
     });
   });
 });
