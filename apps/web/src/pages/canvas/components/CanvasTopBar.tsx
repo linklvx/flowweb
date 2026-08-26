@@ -4,9 +4,10 @@ import { useAuth } from '@/components/AuthProvider';
 import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
-import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { UserOutlined, SettingOutlined, LogoutOutlined, SaveOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import CreditsDropdown from './CreditsDropdown';
+import { SaveStatusIndicator } from './SaveStatusIndicator';
 
 interface Props {
   projectId: string;
@@ -77,6 +78,12 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       icon: <SettingOutlined />,
       label: <Link to="/settings/profile" className="no-underline text-inherit">个人设置</Link>,
     },
+    {
+      key: 'save-template',
+      icon: <SaveOutlined />,
+      label: '保存为模板',
+      onClick: () => setShowSaveDialog(true),
+    },
     { type: 'divider' as const },
     {
       key: 'logout',
@@ -91,12 +98,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         {user && (
           <div className="bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
-            <button
-              onClick={() => setShowSaveDialog(true)}
-              className="text-[#4ade80] text-xs bg-transparent border-none cursor-pointer hover:text-[#5dfc8e] transition-colors"
-            >
-              保存画布
-            </button>
+            <SaveStatusIndicator />
           </div>
         )}
         <div className="relative flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
