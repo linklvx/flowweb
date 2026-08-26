@@ -94,6 +94,19 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     expect(nodes.findIndex((n) => n.id === gid)).toBeLessThan(nodes.findIndex((n) => n.id === 'n2'));
   });
 
+  it('快照写入 serverVersion', () => {
+    useCanvasStore.setState({ serverVersion: 7 });
+    // 触发一次 store 结构变更 → 500ms debounce 后写入快照
+    const { unmount } = renderHook(() => useCanvasPersistence('p1'));
+    useCanvasStore.setState({ selectedId: 'trigger-server-version' });
+    vi.advanceTimersByTime(600);
+    unmount();
+
+    const raw = localStorage.getItem(snapshotKey('p1'));
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!).serverVersion).toBe(7);
+  });
+
   it('手动 resize 组（无 savedSize）恢复：保留快照宽高，不被 refit 覆盖（T8 端到端发现）', () => {
     // 组带 manuallyResized 标记与快照宽高（从未折叠过 → 无 savedSize），子节点用于让 refit 可检测
     useCanvasStore.setState({

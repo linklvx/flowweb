@@ -13,6 +13,8 @@ export interface CanvasSnapshot {
   viewport: { x: number; y: number; zoom: number };
   /** 可选：nodeId→parentId 组关系（旧快照无此字段仍有效，不升版本） */
   parentMap?: Record<string, string>;
+  /** 可选：服务端乐观锁版本（冲突取证/兜底判断用；旧快照无此字段仍有效） */
+  serverVersion?: number;
 }
 
 function isValidNode(v: unknown): v is AppNode {
@@ -43,6 +45,8 @@ function isValidPayload(p: unknown): p is CanvasSnapshot {
   if (typeof s.viewport !== 'object' || s.viewport === null) return false;
   const vp = s.viewport as Record<string, unknown>;
   if (!(typeof vp.x === 'number' && typeof vp.y === 'number' && typeof vp.zoom === 'number')) return false;
+  // serverVersion 可选；存在时必须是 number
+  if (s.serverVersion !== undefined && typeof s.serverVersion !== 'number') return false;
   // parentMap 可选（旧快照无此字段/null 宽松通过）；存在时必须是 Record<string,string>
   if (s.parentMap === undefined || s.parentMap === null) return true;
   if (typeof s.parentMap !== 'object' || Array.isArray(s.parentMap)) return false;
