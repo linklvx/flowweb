@@ -218,6 +218,21 @@ describe('canvasSyncRuntime', () => {
       await flushCanvasSync('execute');
       expect(syncCanvasMock).not.toHaveBeenCalled();
     });
+
+    it('saving 态 flush(template)：等待在途保存结算，失败后仍尝试自身保存', async () => {
+      let rejectFirst!: (e: Error) => void;
+      syncCanvasMock.mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }));
+      void scheduleSync();
+      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS); // 在途保存，status='saving'
+      expect(useCanvasStore.getState().saveStatus).toBe('saving');
+      syncCanvasMock.mockResolvedValueOnce({ version: 4 });
+      const p = flushCanvasSync('template');
+      rejectFirst(new Error('net')); // 在途保存失败
+      const ok = await p;
+      expect(ok).toBe(true);
+      expect(syncCanvasMock).toHaveBeenCalledTimes(2); // 在途失败后 flush 自身再保存
+      expect(useCanvasStore.getState().saveStatus).toBe('saved');
+    });
   });
 
   it('flushOnUnload：keepalive fetch 携带完整载荷', async () => {

@@ -171,6 +171,7 @@ export function refitExpandedGroups() {
  *  返回 true = 已保存/无需保存，false = 失败 */
 export async function flushCanvasSync(reason: 'execute' | 'retry' | 'template'): Promise<boolean> {
   clearTimer();
+  if (inFlight) await inFlight; // 在途保存（saving 态）：等结算再判定，防 template/execute 在旧数据上放行
   const cs = useCanvasStore.getState();
   if (!cs.projectId || (cs.saveStatus !== 'dirty' && cs.saveStatus !== 'error')) return true;
   if (reason === 'retry' || reason === 'template') return doSave();
