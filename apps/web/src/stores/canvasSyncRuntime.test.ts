@@ -104,6 +104,36 @@ describe('canvasSyncRuntime', () => {
     expect(useCanvasStore.getState().serverVersion).toBe(5);
   });
 
+  it('flush 与在途保存并发：串行排队，第二次 PUT 携带新 version（防双 PUT 假 409）', async () => {
+    let resolveFirst!: (v: { version: number }) => void;
+    syncCanvasMock.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }));
+    void scheduleSync();
+    await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS); // A in flight（version 3）
+    void scheduleSync(); // flight 中编辑 → dirty + 新 timer
+    syncCanvasMock.mockResolvedValue({ version: 4 });
+    const p = flushCanvasSync('execute'); // clearTimer + doSave B —— 应排队等 A 结算
+    resolveFirst({ version: 4 }); // A 结算（epoch 不匹配 → dirty + reschedule）
+    await vi.advanceTimersByTimeAsync(0);
+    await p;
+    expect(syncCanvasMock).toHaveBeenCalledTimes(2);
+    // 核心断言：B 在 A 之后执行，携带 A 推进后的 version 4，而非陈旧的 3
+    expect(syncCanvasMock.mock.calls[1][1].version).toBe(4);
+    expect(useCanvasStore.getState().saveStatus).toBe('saved');
+  });
+
+  it('在途保存完成时项目已切换：不污染新项目 serverVersion/saveStatus', async () => {
+    let resolveFirst!: (v: { version: number }) => void;
+    syncCanvasMock.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }));
+    void scheduleSync();
+    await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS); // A in flight for p1
+    // 模拟项目切换 + hydrate 完成
+    useCanvasStore.setState({ projectId: 'p2', serverVersion: 100, saveStatus: 'saved' });
+    resolveFirst({ version: 4 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useCanvasStore.getState().serverVersion).toBe(100);
+    expect(useCanvasStore.getState().saveStatus).toBe('saved');
+  });
+
   it('网络失败：saveStatus=error', async () => {
     syncCanvasMock.mockRejectedValue(new Error('network'));
     void scheduleSync();

@@ -22,6 +22,9 @@ const KEEPALIVE_BODY_LIMIT = 60000;
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
 let dirtyEpoch = 0;
 
+/** 在途保存互斥：并发 doSave 排队串行执行（防双 PUT 同 version 假 409） */
+let inFlight: Promise<boolean> | null = null;
+
 /** 同步载荷：canvasStore 结构为基准 + nodeStore data（原 canvasHistoryRuntime.buildSyncPayload 迁入） */
 export function buildSyncPayload() {
   const cs = useCanvasStore.getState();
@@ -59,48 +62,66 @@ export function scheduleSync(delayMs = AUTO_SAVE_DELAY_MS): Promise<void> {
   });
 }
 
-function reschedule() {
+function reschedule(pid: string) {
   clearTimer();
-  autoTimer = setTimeout(() => { autoTimer = null; void doSave(); }, AUTO_SAVE_DELAY_MS);
+  autoTimer = setTimeout(() => {
+    autoTimer = null;
+    const cur = useCanvasStore.getState();
+    if (cur.projectId !== pid || cur.isHydrating) return;
+    void doSave();
+  }, AUTO_SAVE_DELAY_MS);
 }
 
-async function doSave(): Promise<boolean> {
-  const cs = useCanvasStore.getState();
-  const pid = cs.projectId;
-  // 'error' 放行：flush 重试路径需要（debounce 路径不经过此处）
-  if (!pid || (cs.saveStatus !== 'dirty' && cs.saveStatus !== 'error')) return true;
-  const epoch = dirtyEpoch;
-  useCanvasStore.setState({ saveStatus: 'saving' });
-  try {
-    const latest = useCanvasStore.getState();
-    const res = await syncCanvas(pid, {
-      nodes: buildSyncPayload(),
-      edges: latest.edges as any,
-      version: latest.serverVersion,
-    });
-    if (dirtyEpoch !== epoch) {
-      // 保存期间又有变更：version 已推进，保持 dirty 重新调度
-      useCanvasStore.setState({ serverVersion: res.version, saveStatus: 'dirty' });
-      reschedule();
-    } else {
-      useCanvasStore.setState({ serverVersion: res.version, saveStatus: 'saved' });
-    }
-    return true;
-  } catch (err: any) {
-    if (err?.status === 409) {
-      await reloadFromServer(pid);
+/** 串行化保存：并发调用（debounce 触发/flush/重试）排队执行，后到者在前者结算后
+ *  用最新 payload+version 再保存——避免双 PUT 同 version 假 409 触发重载丢本地编辑。
+ *  完成路径校验 projectId 未变，防止在途保存污染切换后新项目的状态。 */
+function doSave(): Promise<boolean> {
+  const prev = inFlight;
+  const run = (async (): Promise<boolean> => {
+    if (prev) await prev.catch(() => {});
+    const cs = useCanvasStore.getState();
+    const pid = cs.projectId;
+    // 'error' 放行：flush 重试路径需要（debounce 路径不经过此处）
+    if (!pid || (cs.saveStatus !== 'dirty' && cs.saveStatus !== 'error')) return true;
+    const epoch = dirtyEpoch;
+    useCanvasStore.setState({ saveStatus: 'saving' });
+    try {
+      const latest = useCanvasStore.getState();
+      const res = await syncCanvas(pid, {
+        nodes: buildSyncPayload(),
+        edges: latest.edges as any,
+        version: latest.serverVersion,
+      });
+      if (useCanvasStore.getState().projectId !== pid) return true;
+      if (dirtyEpoch !== epoch) {
+        // 保存期间又有变更：version 已推进，保持 dirty 重新调度
+        useCanvasStore.setState({ serverVersion: res.version, saveStatus: 'dirty' });
+        reschedule(pid);
+      } else {
+        useCanvasStore.setState({ serverVersion: res.version, saveStatus: 'saved' });
+      }
       return true;
+    } catch (err: any) {
+      if (err?.status === 409) {
+        await reloadFromServer(pid);
+        return true;
+      }
+      console.error('[canvasSync] save failed', err);
+      if (useCanvasStore.getState().projectId !== pid) return true;
+      useCanvasStore.setState({ saveStatus: 'error' });
+      return false;
     }
-    console.error('[canvasSync] save failed', err);
-    useCanvasStore.setState({ saveStatus: 'error' });
-    return false;
-  }
+  })();
+  inFlight = run;
+  void run.finally(() => { if (inFlight === run) inFlight = null; });
+  return run;
 }
 
 /** 409 冲突重载：复用 loadProjectIntoStore 的 hydrate 模式（withHistoryPaused + 清历史，防 undo 栈污染） */
 async function reloadFromServer(pid: string) {
   try {
     const project = await apiFetch<any>(`/projects/${pid}`);
+    if (useCanvasStore.getState().projectId !== pid) return; // 切换中：放弃陈旧重载
     useCanvasStore.getState().setHydrating(true);
     withHistoryPaused(() => {
       useCanvasStore.setState({
