@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 interface NodeInput {
@@ -142,6 +142,52 @@ export class ProjectService {
       })),
     });
     return this.prisma.canvasEdge.findMany({ where: { projectId } });
+  }
+
+  /** 画布整体原子同步（自动保存）：乐观锁 version 校验 + nodes/edges 同事务重写 */
+  async syncCanvas(projectId: string, nodes: NodeInput[], edges: EdgeInput[], version: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.canvasProject.updateMany({
+        where: { id: projectId, version },
+        data: { version: version + 1 },
+      });
+      if (updated.count === 0) {
+        const exists = await tx.canvasProject.findUnique({
+          where: { id: projectId },
+          select: { version: true },
+        });
+        if (!exists) throw new NotFoundException('Project not found');
+        throw new ConflictException('画布已被他人修改');
+      }
+      await tx.canvasNode.deleteMany({ where: { projectId } });
+      if (nodes.length > 0) {
+        const sorted = [...nodes].sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
+        await tx.canvasNode.createMany({
+          data: sorted.map((n) => ({
+            id: n.id,
+            projectId,
+            type: n.type,
+            position: n.position,
+            data: n.data,
+            width: n.width ?? null,
+            height: n.height ?? null,
+            parentId: n.parentId ?? null,
+          })),
+        });
+      }
+      await tx.canvasEdge.deleteMany({ where: { projectId } });
+      if (edges.length > 0) {
+        await tx.canvasEdge.createMany({
+          data: edges.map((e) => ({
+            id: e.id,
+            projectId,
+            sourceId: e.sourceId || e.source || '',
+            targetId: e.targetId || e.target || '',
+          })),
+        });
+      }
+      return { version: version + 1 };
+    });
   }
 
   async updateName(id: string, name: string) {

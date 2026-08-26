@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -255,5 +256,82 @@ describe('ProjectService', () => {
 
       expect(result).toEqual({ folderId: null });
     });
+  });
+});
+
+describe('ProjectService.syncCanvas', () => {
+  const mkTx = () => ({
+    canvasProject: {
+      updateMany: vi.fn(),
+      findUnique: vi.fn(),
+    },
+    canvasNode: { deleteMany: vi.fn(), createMany: vi.fn() },
+    canvasEdge: { deleteMany: vi.fn(), createMany: vi.fn() },
+  });
+
+  const mkService = (tx: ReturnType<typeof mkTx>) => {
+    const prisma = {
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
+    };
+    return { service: new ProjectService(prisma as any), prisma };
+  };
+
+  const nodes = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
+  const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
+
+  it('version 匹配：事务内更新 nodes+edges，version+1 并返回', async () => {
+    const tx = mkTx();
+    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
+    const { service } = mkService(tx);
+    const result = await service.syncCanvas('p1', nodes, edges, 3);
+    expect(tx.canvasProject.updateMany).toHaveBeenCalledWith({
+      where: { id: 'p1', version: 3 },
+      data: { version: 4 },
+    });
+    expect(tx.canvasNode.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
+    expect(tx.canvasEdge.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
+    expect(tx.canvasNode.createMany).toHaveBeenCalled();
+    expect(tx.canvasEdge.createMany).toHaveBeenCalled();
+    expect(result).toEqual({ version: 4 });
+  });
+
+  it('保留客户端 node ID + parentId 父先子后排序', async () => {
+    const tx = mkTx();
+    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
+    const { service } = mkService(tx);
+    const mixed = [
+      { id: 'child', type: 'textInput', position: { x: 0, y: 0 }, data: {}, parentId: 'parent' },
+      { id: 'parent', type: 'group', position: { x: 0, y: 0 }, data: {} },
+    ];
+    await service.syncCanvas('p1', mixed, [], 0);
+    const arg = tx.canvasNode.createMany.mock.calls[0][0].data as any[];
+    expect(arg[0].id).toBe('parent');
+    expect(arg[1].id).toBe('child');
+  });
+
+  it('空 nodes/edges：deleteMany 后不 createMany', async () => {
+    const tx = mkTx();
+    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
+    const { service } = mkService(tx);
+    await service.syncCanvas('p1', [], [], 0);
+    expect(tx.canvasNode.createMany).not.toHaveBeenCalled();
+    expect(tx.canvasEdge.createMany).not.toHaveBeenCalled();
+  });
+
+  it('version 不匹配：抛 ConflictException', async () => {
+    const tx = mkTx();
+    tx.canvasProject.updateMany.mockResolvedValue({ count: 0 });
+    tx.canvasProject.findUnique.mockResolvedValue({ version: 9 });
+    const { service } = mkService(tx);
+    await expect(service.syncCanvas('p1', nodes, edges, 3)).rejects.toThrow(ConflictException);
+    expect(tx.canvasNode.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('项目不存在：抛 NotFoundException', async () => {
+    const tx = mkTx();
+    tx.canvasProject.updateMany.mockResolvedValue({ count: 0 });
+    tx.canvasProject.findUnique.mockResolvedValue(null);
+    const { service } = mkService(tx);
+    await expect(service.syncCanvas('p1', nodes, edges, 3)).rejects.toThrow(NotFoundException);
   });
 });
