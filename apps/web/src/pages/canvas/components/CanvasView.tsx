@@ -5,16 +5,16 @@ import {
   useReactFlow,
   type Connection,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
-  type NodeChange, type NodeDimensionChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
-import { debounce } from '@/utils/debounce';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
+import { useViewportAutoSync } from '../hooks/useViewportAutoSync';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -54,7 +54,7 @@ interface Props {
   projectId: string;
 }
 
-function CanvasViewComponent({ projectId: _projectId }: Props) {
+function CanvasViewComponent(_props: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow();
   const [minimapOpen, setMinimapOpen] = useState(false);
@@ -74,6 +74,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
   const selectNode = useCanvasStore((s) => s.selectNode);
   const lastPointerShiftKey = useCanvasStore((s) => s.lastPointerShiftKey);
   useTrackCanvasPointerShift(reactFlowWrapper);
+  const { onMoveEnd: viewportMoveEnd } = useViewportAutoSync();
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
@@ -160,52 +161,11 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
     };
   }, []);
 
-  // Debounced dimension sync
-  const syncNodeDimensions = useMemo(
-    () => debounce(async (changes: NodeChange[]) => {
-      const dimChanges = changes.filter(
-        (c): c is NodeDimensionChange => c.type === 'dimensions',
-      );
-      if (dimChanges.length === 0) return;
-
-      const data = dimChanges.map((c) => ({
-        id: c.id,
-        width: c.dimensions!.width,
-        height: c.dimensions!.height,
-      }));
-
-      for (let i = 0; i < 3; i++) {
-        try {
-          const res = await fetch(`/api/projects/${_projectId}/nodes/dimensions`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          });
-          if (!res.ok) throw new Error('HTTP error');
-          return;
-        } catch (error) {
-          if (i === 2) console.error('节点尺寸同步失败，将在项目保存时重试', error);
-          await new Promise((r) => setTimeout(r, 100 * Math.pow(2, i)));
-        }
-      }
-    }, 500),
-    [_projectId],
-  );
-
-  useEffect(() => {
-    return () => { syncNodeDimensions.cancel(); };
-  }, [syncNodeDimensions]);
-
   // M-4：RF v12 无 onNodeDragCancel——拖动中断（pointercancel/卸载/路由切换）时兜底收尾，
   // 防 temporal 永久 pause + _isPointerInteraction 永久 true（历史记录与 undo/redo 全局失效）
   useEffect(() => () => {
     if (useCanvasStore.getState()._isPointerInteraction) endDragTransaction();
   }, []);
-
-  const wrappedOnNodesChange = useCallback((changes: NodeChange[]) => {
-    onNodesChange(changes);
-    syncNodeDimensions(changes);
-  }, [onNodesChange, syncNodeDimensions]);
 
   const onNodeClick = useCallback((_event: any, node: any) => {
     const ns = useNodeStore.getState();
@@ -357,7 +317,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={wrappedOnNodesChange as OnNodesChange}
+        onNodesChange={onNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}
         onConnect={onConnect as any}
         isValidConnection={isValidConnection as any}
@@ -365,6 +325,7 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
         edgeTypes={edgeTypes}
         defaultViewport={viewport}
         onViewportChange={updateViewport}
+        onMoveEnd={viewportMoveEnd}
         onDragOver={onDragOver}
         onDrop={onDrop}
         onNodeClick={onNodeClick}
@@ -516,9 +477,12 @@ function CanvasViewComponent({ projectId: _projectId }: Props) {
               collapsed={!!gd.collapsed}
               executing={groupExecuting}
               onCollapse={toggleCollapse}
-              onExecute={(groupId) => {
+              onExecute={async (groupId) => {
                 const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-                if (childIds.length > 0 && projectId) void executeGroupNodes(projectId, childIds);
+                if (childIds.length > 0 && projectId) {
+                  await flushCanvasSync('execute');
+                  void executeGroupNodes(projectId, childIds);
+                }
               }}
               onUngroup={handleUngroup}
               onConvert={(id, target) => convertGroup(id, target)}
