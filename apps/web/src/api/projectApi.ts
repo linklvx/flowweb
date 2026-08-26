@@ -26,6 +26,19 @@ export async function syncEdges(projectId: string, edges: any[]) {
   });
 }
 
+export interface SyncCanvasPayload {
+  nodes: any[];
+  edges: any[];
+  version: number;
+}
+
+export async function syncCanvas(projectId: string, payload: SyncCanvasPayload) {
+  return apiFetch<{ version: number }>(`/projects/${projectId}/canvas`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateViewport(projectId: string, viewport: { x: number; y: number; zoom: number }) {
   return apiFetch(`/projects/${projectId}/viewport`, {
     method: 'PUT',
