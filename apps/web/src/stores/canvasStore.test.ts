@@ -753,4 +753,20 @@ describe('canvasStore', () => {
       expect(historyPartialize(state).__nodeDataSnap).toBe(historyPartialize(state).__nodeDataSnap);
     });
   });
+
+  // ─── 自动保存（spec canvas-autosave-design.md D1）───
+  describe('自动保存状态字段', () => {
+    it('初始 saveStatus=saved、serverVersion=0', () => {
+      const s = useCanvasStore.getState();
+      expect(s.saveStatus).toBe('saved');
+      expect(s.serverVersion).toBe(0);
+    });
+
+    it('saveStatus/serverVersion 变更不进 undo 历史', () => {
+      useCanvasStore.setState({ saveStatus: 'saving' });
+      useCanvasStore.setState({ serverVersion: 5, saveStatus: 'saved' });
+      const t = useCanvasStore.temporal.getState() as any;
+      expect(t.pastStates.length).toBe(0);
+    });
+  });
 });
