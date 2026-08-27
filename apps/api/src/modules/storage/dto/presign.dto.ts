@@ -3,4 +3,5 @@ export class PresignUploadDto {
   fileSize!: number;
   fileType!: string;
   type!: 'uploaded' | 'temp';
+  teamId?: string;
 }

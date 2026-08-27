@@ -1,3 +1,4 @@
+import { StorageQuotaService } from '../team/storage-quota.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { StorageService } from './storage.service';
@@ -42,6 +43,7 @@ describe('StorageService', () => {
         StorageService,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
+        { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn(), assertOnConfirm: vi.fn(), assertMember: vi.fn() } },
       ],
     }).compile();
     service = module.get<StorageService>(StorageService);

@@ -5,6 +5,7 @@ import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId } from '../team/team.util';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import axios from 'axios';
@@ -29,6 +30,7 @@ export class AiDownloadProcessor extends WorkerHost {
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
   ) {
     super();
   }
@@ -66,6 +68,28 @@ export class AiDownloadProcessor extends WorkerHost {
 
     // 2. Build key and upload to MinIO
     const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
+    // ⑥ 生成物超限语义：配额校验失败 → Media 不建、节点失败态、credits 不退（推理已发生）
+    const quotaTeamId = (await this.prisma.canvasProject.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    }))?.teamId;
+    if (quotaTeamId) {
+      try {
+        await this.quota.assertCanUpload(quotaTeamId, buffer.length);
+      } catch {
+        await this.collabDoc.writeNodeData(projectId, nodeId, {
+          errorCode: 'storage_quota_exceeded',
+        });
+        this.gateway.emitNodeStatus(projectId, {
+          nodeId,
+          status: 'error',
+          error: '存储空间不足：请清理素材或升级团队订阅',
+        });
+        this.logger.warn(`storage quota exceeded for project ${projectId}, node ${nodeId}`);
+        return { status: 'failed' };
+      }
+    }
+
     await this.minio.upload(key, buffer, mimeType);
 
     // 3. Create Media record (directly status=completed)

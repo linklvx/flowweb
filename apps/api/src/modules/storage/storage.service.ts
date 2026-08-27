@@ -4,15 +4,23 @@ import { MinioService } from '../minio/minio.service';
 import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
 import { getOwnerTeamId } from '../team/team.util';
+import { StorageQuotaService } from '../team/storage-quota.service';
 
 @Injectable()
 export class StorageService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
+    @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
   ) {}
 
   async presignUpload(userId: string, dto: PresignUploadDto) {
+    // D4：素材直传归属——dto.teamId（成员校验）或本人默认团队
+    const teamId = dto.teamId
+      ? (await this.quota.assertMember(dto.teamId, userId), dto.teamId)
+      : await getOwnerTeamId(this.prisma, userId);
+    await this.quota.assertCanUpload(teamId, dto.fileSize);
+
     const ext = dto.fileName.split('.').pop() || 'bin';
     const key = this.minio.buildKey(dto.type, userId, { ext });
 
@@ -20,7 +28,7 @@ export class StorageService {
     const media = await this.prisma.media.create({
       data: {
         userId,
-        teamId: await getOwnerTeamId(this.prisma, userId),
+        teamId,
         bucket: 'flowai',
         key,
         originalName: dto.fileName,
@@ -68,6 +76,9 @@ export class StorageService {
       await this.prisma.media.delete({ where: { id: dto.fileId } });
       throw new BadRequestException('文件大小不匹配，请重新上传');
     }
+
+    // Q7：confirm 二次校验（两并发 presign 可同过，此处按 actualSize 终判）
+    await this.quota.assertOnConfirm(dto.fileId, actualSize, dto.key, media.bucket);
 
     // Update Media status (id is unique PK, safe to use alone after ownership verified)
     await this.prisma.media.update({

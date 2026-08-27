@@ -4,11 +4,13 @@ import { TeamService } from './team.service';
 import { TeamCreditService } from './team-credit.service';
 import { TeamRechargeService } from './team-recharge.service';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { StorageQuotaService } from './storage-quota.service';
 import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
 import { TeamActiveQueryProcessor } from './task/team-recharge-active-query.processor';
 import { TeamSubscriptionExpireProcessor } from './task/team-subscription-expire.processor';
+import { TeamMediaCleanupProcessor } from './task/team-media-cleanup.processor';
 import { AdminTeamPlanController } from './admin-team-plan.controller';
 import { RechargeModule } from '../recharge/recharge.module';
 
@@ -23,9 +25,9 @@ import { RechargeModule } from '../recharge/recharge.module';
   ],
   controllers: [TeamController, AdminTeamPlanController],
   providers: [
-    TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, TeamGuard,
-    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor,
+    TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
+    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor, TeamMediaCleanupProcessor,
   ],
-  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, TeamGuard],
+  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard],
 })
 export class TeamModule {}

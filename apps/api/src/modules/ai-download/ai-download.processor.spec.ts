@@ -4,6 +4,7 @@ import { AiDownloadProcessor } from './ai-download.processor';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { Job } from 'bullmq';
 
@@ -22,13 +23,16 @@ describe('AiDownloadProcessor', () => {
   let minio: any;
   let gateway: any;
   let collabDoc: any;
+  let quota: any;
 
   beforeEach(async () => {
     prisma = {
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }) },
       media: { create: vi.fn().mockResolvedValue({ id: 'media-new' }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     };
     collabDoc = { writeNodeData: vi.fn() };
+    quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined) };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),
       buildKey: vi.fn().mockReturnValue('results/user1/proj1/node1/2026-05-20/uuid.png'),
@@ -44,6 +48,7 @@ describe('AiDownloadProcessor', () => {
         { provide: MinioService, useValue: minio },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: StorageQuotaService, useValue: quota },
       ],
     }).compile();
     processor = module.get<AiDownloadProcessor>(AiDownloadProcessor);
