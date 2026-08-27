@@ -1,7 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { LightingService } from './lighting.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CreditService } from '../../credit/credit.service';
+import { TeamCreditService } from '../../team/team-credit.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 
@@ -32,6 +32,9 @@ describe('LightingService', () => {
 
   beforeEach(async () => {
     prisma = {
+      canvasProject: {
+        findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }),
+      },
       lightingTask: {
         create: vi.fn().mockResolvedValue({ id: 'task-1', status: 'pending' }),
         findFirst: vi.fn().mockResolvedValue(null),
@@ -40,7 +43,7 @@ describe('LightingService', () => {
       },
     };
     credit = {
-      getBalance: vi.fn().mockResolvedValue({ credits: 100, version: 0 }),
+      getBalanceView: vi.fn().mockResolvedValue({ credits: 100, subscriptionCredits: 0, total: 100, quota: 0, used: 0 }),
       freeze: vi.fn().mockResolvedValue(undefined),
       deduct: vi.fn().mockResolvedValue(undefined),
       unfreeze: vi.fn().mockResolvedValue(undefined),
@@ -53,7 +56,7 @@ describe('LightingService', () => {
       providers: [
         LightingService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CreditService, useValue: credit },
+        { provide: TeamCreditService, useValue: credit },
         { provide: getQueueToken(AI_IMAGE_EDIT_QUEUE_NAME), useValue: queue },
       ],
     }).compile();

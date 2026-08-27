@@ -2,7 +2,7 @@ import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CreditService } from '../../credit/credit.service';
+import { TeamCreditService } from '../../team/team-credit.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 import * as crypto from 'node:crypto';
@@ -36,7 +36,7 @@ function hashParams(nodeId: string, userId: string, params: unknown): string {
 export class LightingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(CreditService) private readonly credit: CreditService,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly queue: Queue,
   ) {}
 
@@ -85,11 +85,19 @@ export class LightingService {
       }
     }
 
-    // Check credits
+    // Check credits (team pool pre-check)
     const estimatedCost = 15; // TODO: fetch from pricing config
-    const balance = await this.credit.getBalance(userId);
-    if (!balance || balance.credits < estimatedCost) {
-      throw new BadRequestException('积分不足，无法提交任务');
+    if (dto.projectId) {
+      const project = await this.prisma.canvasProject.findUnique({
+        where: { id: dto.projectId },
+        select: { teamId: true },
+      });
+      if (project) {
+        const balance = await this.teamCredit.getBalanceView(project.teamId, userId);
+        if (balance.total < estimatedCost) {
+          throw new BadRequestException('积分不足，无法提交任务');
+        }
+      }
     }
 
     // Create task in DB

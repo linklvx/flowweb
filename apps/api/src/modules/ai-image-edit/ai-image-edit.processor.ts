@@ -6,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId } from '../team/team.util';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
-import { CreditService } from '../credit/credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
@@ -36,7 +36,7 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
-    @Inject(CreditService) private readonly credit: CreditService,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
   ) {
     super();
@@ -136,8 +136,14 @@ export class AiImageEditProcessor extends WorkerHost {
         },
       });
 
-      // 6. Deduct credit
-      await this.credit.deduct(userId, CREDIT_COST_PER_EDIT);
+      // 6. Deduct credit (team pool)
+      const teamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (teamId) {
+        await this.teamCredit.consume(teamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
+      }
 
       // 7. Push success via WebSocket
       this.gateway.emitNodeStatus(projectId, {

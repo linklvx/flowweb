@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
-import { CreditService } from '../credit/credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -18,7 +18,7 @@ export class ExecutionService {
     @Inject(TopologyService) private readonly topology: TopologyService,
     @Inject(ValidationService) private readonly validation: ValidationService,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
-    @Inject(CreditService) private readonly credit: CreditService,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
@@ -79,7 +79,7 @@ export class ExecutionService {
           });
           const cost = rule?.creditCost ?? 0;
           if (cost > 0) {
-            const deductResult = await this.credit.deduct(userId, cost);
+            const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`);
             if (!deductResult.success) {
               this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败' });
               return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
@@ -87,8 +87,8 @@ export class ExecutionService {
             totalDeducted += cost;
           }
 
-          const bal = await this.credit.getBalance(userId);
-          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: bal?.credits });
+          const bal = await this.teamCredit.getBalanceView(project.teamId, userId);
+          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: bal?.total });
           continue;
         }
 
@@ -111,7 +111,21 @@ export class ExecutionService {
 
           // TODO(Task13): withDoc 写回节点 data
 
-          const newBalance = await this.credit.getBalance(userId);
+          // 视频成功后补扣（Task11：对齐惯例）
+          const vRule = await this.prisma.pricingRule.findFirst({
+            where: { modelId: vData?.model, resolutionId: null, durationId: null, active: true },
+          });
+          const vCost = vRule?.creditCost ?? 0;
+          if (vCost > 0) {
+            const vDeduct = await this.teamCredit.consume(project.teamId, userId, vCost, `node:${node.id}`);
+            if (!vDeduct.success) {
+              this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败' });
+              return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
+            }
+            totalDeducted += vCost;
+          }
+
+          const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 
           // Enqueue AI result download for MinIO storage
           if (result.url) {
@@ -157,9 +171,9 @@ export class ExecutionService {
         });
         const cost = rule?.creditCost ?? 0;
 
-        // Deduct credits (optimistic lock)
+        // Deduct credits (team pool)
         if (cost > 0) {
-          const deductResult = await this.credit.deduct(userId, cost);
+          const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`);
           if (!deductResult.success) {
             this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败，请重试' });
             return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
@@ -169,7 +183,7 @@ export class ExecutionService {
 
         // TODO(Task13): withDoc 写回节点 data
 
-        const newBalance = await this.credit.getBalance(userId);
+        const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 
         // Enqueue AI result download for MinIO storage
         if (result.url) {

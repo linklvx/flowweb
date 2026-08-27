@@ -7,13 +7,13 @@ import { LightingController } from './lighting/lighting.controller';
 import { LightingService } from './lighting/lighting.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { ExecutionModule } from '../execution/execution.module';
-import { CreditModule } from '../credit/credit.module';
+import { TeamModule } from '../team/team.module';
 import { AI_IMAGE_EDIT_QUEUE_NAME, AI_IMAGE_EDIT_CONNECTION_NAME } from './ai-image-edit.constants';
 
 @Module({
   imports: [
     ExecutionModule,
-    CreditModule,
+    TeamModule,
     BullModule.registerQueue({
       name: AI_IMAGE_EDIT_QUEUE_NAME,
       configKey: AI_IMAGE_EDIT_CONNECTION_NAME,

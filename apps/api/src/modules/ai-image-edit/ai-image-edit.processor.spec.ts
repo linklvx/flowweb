@@ -5,7 +5,7 @@ import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
-import { CreditService } from '../credit/credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { Job } from 'bullmq';
 
@@ -24,10 +24,11 @@ describe('AiImageEditProcessor', () => {
   let minio: any;
   let gateway: any;
   let apiCaller: any;
-  let credit: any;
+  let teamCredit: any;
 
   beforeEach(async () => {
     prisma = {
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }) },
       media: {
         findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'results/u/p/n/date/uuid.png' }),
         create: vi.fn().mockResolvedValue({ id: 'media-new' }),
@@ -47,8 +48,8 @@ describe('AiImageEditProcessor', () => {
       callErase: vi.fn().mockResolvedValue({ url: 'https://dashscope.result/erase.png' }),
       callRedraw: vi.fn().mockResolvedValue({ url: 'https://dashscope.result/redraw.png' }),
     };
-    credit = {
-      deduct: vi.fn().mockResolvedValue({ success: true, newBalance: 99 }),
+    teamCredit = {
+      consume: vi.fn().mockResolvedValue({ success: true }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -58,7 +59,7 @@ describe('AiImageEditProcessor', () => {
         { provide: MinioService, useValue: minio },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
-        { provide: CreditService, useValue: credit },
+        { provide: TeamCreditService, useValue: teamCredit },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
       ],
     }).compile();
@@ -104,7 +105,7 @@ describe('AiImageEditProcessor', () => {
           }),
         }),
       );
-      expect(credit.deduct).toHaveBeenCalledWith('user1', 1);
+      expect(teamCredit.consume).toHaveBeenCalledWith('team1', 'user1', 1, 'edit:node1');
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
         expect.objectContaining({
@@ -139,7 +140,7 @@ describe('AiImageEditProcessor', () => {
         'https://minio.local/bucket/key?token=abc',
         'https://minio.local/bucket/key?token=abc',
       );
-      expect(credit.deduct).toHaveBeenCalledWith('user1', 1);
+      expect(teamCredit.consume).toHaveBeenCalledWith('team1', 'user1', 1, 'edit:node1');
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
         expect.objectContaining({ status: 'edit-result' }),
@@ -167,7 +168,7 @@ describe('AiImageEditProcessor', () => {
       await expect(processor.process(job)).rejects.toThrow('API timeout');
 
       // Must NOT deduct credit on failure
-      expect(credit.deduct).not.toHaveBeenCalled();
+      expect(teamCredit.consume).not.toHaveBeenCalled();
 
       // Must emit failure status
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(

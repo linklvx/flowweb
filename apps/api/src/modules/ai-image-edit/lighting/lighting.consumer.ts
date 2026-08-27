@@ -5,7 +5,7 @@ import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
 import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
-import { CreditService } from '../../credit/credit.service';
+import { TeamCreditService } from '../../team/team-credit.service';
 import { CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
 import axios from 'axios';
 
@@ -71,7 +71,7 @@ export class LightingConsumer {
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
-    @Inject(CreditService) private readonly credit: CreditService,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string }> {
@@ -149,8 +149,16 @@ export class LightingConsumer {
         },
       });
 
-      // 9. Deduct credit
-      await this.credit.deduct(userId, CREDIT_COST_PER_EDIT);
+      // 9. Deduct credit (team pool)
+      if (projectId) {
+        const teamId = (await this.prisma.canvasProject.findUnique({
+          where: { id: projectId },
+          select: { teamId: true },
+        }))?.teamId;
+        if (teamId) {
+          await this.teamCredit.consume(teamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
+        }
+      }
 
       // 10. Push success via WebSocket
       this.gateway.emitNodeStatus(projectId || '', {

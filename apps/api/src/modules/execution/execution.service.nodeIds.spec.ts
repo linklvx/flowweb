@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
-import { CreditService } from '../credit/credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
@@ -15,7 +15,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   let topology: any;
   let validation: any;
   let apiCaller: any;
-  let credit: any;
+  let teamCredit: any;
   let gateway: any;
   let mockDownloadQueue: any;
 
@@ -37,7 +37,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       callVideoGen: vi.fn(),
       callAudioGen: vi.fn(),
     };
-    credit = { deduct: vi.fn().mockResolvedValue({ success: true }), getBalance: vi.fn().mockResolvedValue({ credits: 100 }) };
+    teamCredit = { consume: vi.fn().mockResolvedValue({ success: true }), getBalanceView: vi.fn().mockResolvedValue({ total: 100 }) };
     gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
     mockDownloadQueue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }) };
 
@@ -48,7 +48,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: TopologyService, useValue: topology },
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
-        { provide: CreditService, useValue: credit },
+        { provide: TeamCreditService, useValue: teamCredit },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
       ],
@@ -62,7 +62,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'in1', type: 'textInput', data: { content: 'a', model: 'seed-model-kimi' } },
       { id: 'in2', type: 'textInput', data: { content: 'b', model: 'seed-model-kimi' } },
     ];
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: buildLegacyDocState(nodes, []) });
 
     await service.execute('p1', undefined, 'u1', ['in1', 'in2']);
@@ -78,7 +78,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'outside', type: 'textInput', data: { content: 'up' } },
       { id: 'in1', type: 'textInput', data: { model: 'seed-model-kimi' } },
     ];
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.canvasDoc.findUnique.mockResolvedValue({
       projectId: 'p1',
       state: buildLegacyDocState(nodes, [{ id: 'e1', source: 'outside', target: 'in1' }]),

@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
-import { CreditService } from '../credit/credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -14,7 +14,7 @@ describe('ExecutionService', () => {
   let topology: any;
   let validation: any;
   let apiCaller: any;
-  let credit: any;
+  let teamCredit: any;
   let gateway: any;
   let mockDownloadQueue: any;
 
@@ -41,9 +41,9 @@ describe('ExecutionService', () => {
       callTextGen: vi.fn().mockResolvedValue({ content: 'hello' }),
       callVideoGen: vi.fn().mockResolvedValue({ url: '/mock/video.mp4' }),
     };
-    credit = {
-      deduct: vi.fn().mockResolvedValue({ success: true, newBalance: 95 }),
-      getBalance: vi.fn().mockResolvedValue({ credits: 95 }),
+    teamCredit = {
+      consume: vi.fn().mockResolvedValue({ success: true }),
+      getBalanceView: vi.fn().mockResolvedValue({ credits: 95, subscriptionCredits: 0, total: 95, quota: 0, used: 0 }),
     };
     gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
     mockDownloadQueue = {
@@ -57,7 +57,7 @@ describe('ExecutionService', () => {
         { provide: TopologyService, useValue: topology },
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
-        { provide: CreditService, useValue: credit },
+        { provide: TeamCreditService, useValue: teamCredit },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
       ],
@@ -66,24 +66,24 @@ describe('ExecutionService', () => {
   });
 
   it('should execute single node successfully', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
-    expect(credit.deduct).toHaveBeenCalledWith('default-user', 5);
+    expect(teamCredit.consume).toHaveBeenCalledWith('t1', 'default-user', 5, 'node:n2');
   });
 
   it('should return error when validation fails', async () => {
     validation.validateAll.mockResolvedValue({ valid: false, errors: ['余额不足'], totalCost: 0 });
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
 
     const result = await service.execute('p1', undefined, 'default-user');
     expect(result.success).toBe(false);
     expect(result.errors).toContain('余额不足');
     expect(apiCaller.callImageGen).not.toHaveBeenCalled();
-    expect(credit.deduct).not.toHaveBeenCalled();
+    expect(teamCredit.consume).not.toHaveBeenCalled();
   });
 
   it('should return error when project not found', async () => {
@@ -94,9 +94,9 @@ describe('ExecutionService', () => {
   });
 
   it('should handle credit deduction failure during execution', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
-    credit.deduct.mockResolvedValue({ success: false });
+    teamCredit.consume.mockResolvedValue({ success: false });
 
     const result = await service.execute('p1', 'n2', 'u1');
     expect(result.success).toBe(false);
@@ -104,7 +104,7 @@ describe('ExecutionService', () => {
   });
 
   it('should enqueue ai-result-download after AI returns resultUrl', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');
