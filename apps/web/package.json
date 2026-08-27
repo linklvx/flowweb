@@ -16,6 +16,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@flowweb/shared": "workspace:*",
+    "@hocuspocus/provider": "^4.6.0",
     "@tiptap/extension-image": "2",
     "@tiptap/extension-mention": "2",
     "@tiptap/extension-placeholder": "2",
@@ -35,6 +36,8 @@
     "socket.io-client": "^4.8.3",
     "three": "^0.184.0",
     "wavesurfer.js": "^7.8.1",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32",
     "zundo": "^2.3.0",
     "zustand": "4.5.5"
   },

@@ -55,18 +55,13 @@ vi.mock('@/stores/canvasStore', () => ({
 }));
 
 // Mock api
-const { mockEnqueueWorkflow, mockFlushCanvasSync } = vi.hoisted(() => ({
-  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
-  mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
+const { mockEnqueueWorkflow } = vi.hoisted(() => ({
+  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' })
 }));
 vi.mock('@/api/executionApi', () => ({
   executeWorkflow: vi.fn(),
   enqueueWorkflow: mockEnqueueWorkflow,
 }));
-vi.mock('@/stores/canvasSyncRuntime', () => ({
-  flushCanvasSync: mockFlushCanvasSync,
-}));
-
 import { TextConfigPanel } from './TextConfigPanel';
 
 // Inject mock after imports
@@ -124,10 +119,9 @@ describe('TextConfigPanel', () => {
     expect(btn.className).toContain('bg-white/20');
   });
 
-  it('生成前先 flush 再 enqueue（改参即生效），不再散点同步', async () => {
+  it('Task15：直接 enqueue（server doc 实时持久化，无 flush）', async () => {
     const order: string[] = [];
-    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
-    mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
+        mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
     const { container } = render(<TextConfigPanel nodeId="n1" />);
     const textarea = container.querySelector('textarea')!;
     fireEvent.change(textarea, { target: { value: 'hello text' } });
@@ -136,11 +130,10 @@ describe('TextConfigPanel', () => {
     fireEvent.click(generateBtn);
 
     await vi.waitFor(() => {
-      expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
       expect(mockEnqueueWorkflow).toHaveBeenCalled();
     });
 
-    expect(order).toEqual(['flush', 'enqueue']);
+    expect(order).toEqual(['enqueue']);
     expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
   });
 

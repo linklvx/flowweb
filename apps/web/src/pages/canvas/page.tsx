@@ -1,3 +1,4 @@
+import { initCollab, destroyCollab } from '@/stores/canvasCollabRuntime';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { message, Spin } from 'antd';
@@ -14,7 +15,6 @@ import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
-import { useCanvasAutoSave } from './hooks/useCanvasAutoSave';
 import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
 import { hydrateNodes } from '@/utils/nodeOrder';
 import { useSocket } from '@/hooks/useSocket';
@@ -24,7 +24,7 @@ import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
 import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
-import { refitExpandedGroups } from '@/stores/canvasSyncRuntime';
+import { refitExpandedGroups } from '@/stores/canvasCollabRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -49,53 +49,13 @@ async function loadProjectIntoStore(
   if (json.code !== 0 || !json.data) return '未命名项目';
   const project = json.data;
 
-  // DB 空守卫：写库链路未生效期间 DB 空不代表画布空，本地已有数据时不覆盖
-  if (!(project.nodes?.length)) {
-    const canvasHasNodes = useCanvasStore.getState().nodes.length > 0;
-    const snap = loadSnapshot(projectId);
-    const localHasNodes = snap !== null && !isEmptySnapshot(snap);
-    if (canvasHasNodes || localHasNodes) {
-      return project.name || '未命名项目';
-    }
-  }
-
   // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
   if (isCancelled?.()) return project.name || '未命名项目';
 
-  // Restore canvas state from DB project
-  withHistoryPaused(() => {
-    useCanvasStore.setState({
-      nodes: hydrateNodes((project.nodes || []).map((n: any) => ({
-        ...n,
-        width: n.width ?? undefined,
-        height: n.height ?? undefined,
-      }))) as any,
-      edges: (project.edges || []).map((e: any) => ({
-        id: e.id, source: e.sourceId || e.source, target: e.targetId || e.target,
-      })),
-      viewport: project.viewport || { x: 0, y: 0, zoom: 1 },
-      serverVersion: project.version ?? 0,
-      saveStatus: 'saved',
-    });
-    // Apply hidden derivation for group children (TD-Group step 3)
-    useCanvasStore.getState().applyGroupDerivations();
-    // 折叠尺寸可能被持久化污染：展开态普通组按子节点包围盒重算（P0-4）
-    refitExpandedGroups();
-    // Restore node content as AppNode structure
-    const content: Record<string, any> = {};
-    for (const n of project.nodes || []) {
-      content[n.id] = {
-        id: n.id,
-        type: n.type,
-        position: n.position || { x: 0, y: 0 },
-        data: n.data || {},
-        width: n.width ?? undefined,
-        height: n.height ?? undefined,
-      };
-    }
-    useNodeStore.setState({ nodes: content });
-  });
-  hydrateLoaded();
+  // Task14：画布内容改经 server doc 加载（synced 后 applyDocToStore；
+  // 本地崩溃快照在连接前 apply 到本地 doc，标准 sync 自动合并——D2）
+  await initCollab(projectId);
+  if (isCancelled?.()) return project.name || '未命名项目';
   return project.name || '未命名项目';
 }
 
@@ -185,6 +145,7 @@ export function CanvasPage() {
     }
     return () => {
       cancelled = true;
+      void destroyCollab();
     };
   }, [queryProjectId, retryKey]);
 
@@ -249,7 +210,6 @@ export function CanvasPage() {
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
-  useCanvasAutoSave(projectId);
   useSocket(projectId);
 
   // AddNodeMenu state — shared by + button and right-click triggers

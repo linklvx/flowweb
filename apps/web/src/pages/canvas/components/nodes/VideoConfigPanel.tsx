@@ -6,7 +6,6 @@ import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
 import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 import type { CommandItem } from './prompt-input/types';
 
 interface ModelInfo {
@@ -188,7 +187,6 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      await flushCanvasSync('execute');
       const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[VideoPanel] enqueued job:', jobId);
     } catch {

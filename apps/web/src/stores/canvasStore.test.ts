@@ -4,20 +4,11 @@ import { useNodeStore } from './nodeStore';
 import type { AiToolId, ImageNodeData } from './nodeStore';
 import { HISTORY_LIMIT } from './canvasHistory';
 import { historyPartialize } from './canvasStore';
-import { AUTO_SAVE_DELAY_MS, bindCanvasSync } from './canvasSyncRuntime';
-
-const { mockSyncCanvas } = vi.hoisted(() => ({
-  mockSyncCanvas: vi.fn().mockResolvedValue({ version: 4 }),
-}));
-vi.mock('@/api/projectApi', () => ({
-  syncCanvas: mockSyncCanvas,
-}));
 
 describe('canvasStore', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null, saveStatus: 'saved', serverVersion: 0 });
+    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null });
     useNodeStore.setState({ nodes: {} });
-    mockSyncCanvas.mockClear();
     useCanvasStore.temporal.getState().clear();
   });
 
@@ -150,21 +141,6 @@ describe('canvasStore', () => {
     const { addNode, deleteNode } = useCanvasStore.getState();
     const keep = addNode('text', { x: 0, y: 0 });
     const drop = addNode('text', { x: 100, y: 0 });
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
-      deleteNode(drop);
-      expect(useCanvasStore.getState().saveStatus).toBe('dirty');   // 删除即判脏
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
-      expect(useCanvasStore.getState().saveStatus).toBe('saved');
-      expect(mockSyncCanvas).toHaveBeenCalledTimes(1);
-      expect(mockSyncCanvas.mock.calls[0][0]).toBe('p1');
-      expect(mockSyncCanvas.mock.calls[0][1].nodes.map((x: any) => x.id)).toEqual([keep]);   // 排除被删节点
-      expect(mockSyncCanvas.mock.calls[0][1].edges).toEqual([]);
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('should update viewport', () => {
@@ -376,27 +352,14 @@ describe('canvasStore', () => {
     const cancelSpy = vi.spyOn(useCanvasStore.getState(), 'cancelNodeProcess');
     const unregisterSpy = vi.spyOn(useNodeStore.getState(), 'unregisterSaveHandler');
 
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
-      useCanvasStore.getState().onNodesChange([{ id, type: 'remove' } as any]);
+    useCanvasStore.getState().onNodesChange([{ id, type: 'remove' } as any]);
 
-      expect(cancelSpy).toHaveBeenCalledWith(id);
-      expect(unregisterSpy).toHaveBeenCalledWith(id);
-      // view 立即删除
-      expect(useCanvasStore.getState().nodes.find((n) => n.id === id)).toBeUndefined();
-      // nodeStore 同步移除
-      expect(useNodeStore.getState().nodes[id]).toBeUndefined();
-      // 订阅判脏 → debounce 自动保存一次，载荷不含被删节点
-      expect(useCanvasStore.getState().saveStatus).toBe('dirty');
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
-      expect(mockSyncCanvas).toHaveBeenCalledTimes(1);
-      expect(mockSyncCanvas.mock.calls[0][0]).toBe('pid-1');
-      expect(mockSyncCanvas.mock.calls[0][1].nodes.every((x: any) => x.id !== id)).toBe(true);
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(cancelSpy).toHaveBeenCalledWith(id);
+    expect(unregisterSpy).toHaveBeenCalledWith(id);
+    // view 立即删除
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)).toBeUndefined();
+    // nodeStore 同步移除
+    expect(useNodeStore.getState().nodes[id]).toBeUndefined();
   });
 
   it('onNodesChange remove should skip autosave request when projectId is null (TD-11 D2)', () => {
@@ -408,7 +371,6 @@ describe('canvasStore', () => {
 
     expect(cancelSpy).toHaveBeenCalledWith(id);
     expect(useCanvasStore.getState().nodes.find((n) => n.id === id)).toBeUndefined();
-    expect(mockSyncCanvas).not.toHaveBeenCalled();
   });
 
   it('onNodesChange batch removes should autosave only once', async () => {
@@ -416,44 +378,24 @@ describe('canvasStore', () => {
     const id2 = useCanvasStore.getState().addNode('text', { x: 100, y: 0 });
     useCanvasStore.setState({ projectId: 'pid-2' });
 
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
       useCanvasStore.getState().onNodesChange([
         { id: id1, type: 'remove' } as any,
         { id: id2, type: 'remove' } as any,
       ]);
 
       expect(useCanvasStore.getState().nodes).toHaveLength(0);
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
-      expect(mockSyncCanvas).toHaveBeenCalledTimes(1);   // 批量合并为一次 PUT
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
+
   });
 
 // ─── TD-Pos: 拖动位置持久化（经订阅判脏走自动保存，修复刷新后位置回退初始位置）───
 
-  it('onNodesChange position 结束（dragging:false）走自动保存且 payload 含新位置', async () => {
+  it('onNodesChange position 结束（dragging:false）更新节点位置', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
     useCanvasStore.setState({ projectId: 'pid-pos' });
-
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
-      useCanvasStore.getState().onNodesChange([
-        { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
-      ]);
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
-      expect(mockSyncCanvas).toHaveBeenCalledTimes(1);
-      expect(mockSyncCanvas.mock.calls[0][0]).toBe('pid-pos');
-      const putNode = mockSyncCanvas.mock.calls[0][1].nodes.find((x: any) => x.id === id);
-      expect(putNode.position).toEqual({ x: 300, y: 400 });
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
   });
 
   it('onNodesChange position 拖动中（dragging:true）无立即 DB 写入（结束由统一 runtime 保存）', () => {
@@ -465,7 +407,6 @@ describe('canvasStore', () => {
     ]);
 
     // 散点立即 PUT 已移除：任何路径都不再当场发请求
-    expect(mockSyncCanvas).not.toHaveBeenCalled();
   });
 
   it('onNodesChange position 变更应同步 nodeStore position（快照兜底恢复正确）', () => {
@@ -478,42 +419,23 @@ describe('canvasStore', () => {
     expect(useNodeStore.getState().nodes[id].position).toEqual({ x: 300, y: 400 });
   });
 
-  it('onNodesChange position 结束且 projectId 为 null 时不产生保存请求', async () => {
+  it('onNodesChange position 结束且 projectId 为 null 时不报错', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
     useCanvasStore.setState({ projectId: null });
-
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
-      useCanvasStore.getState().onNodesChange([
-        { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
-      ]);
-      expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);   // 覆盖调度窗口：守卫早退永不 PUT
-      expect(mockSyncCanvas).not.toHaveBeenCalled();
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
+    useCanvasStore.getState().onNodesChange([
+      { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
+    ]);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
   });
 
   it('onNodesChange dimensions(setAttributes) 不立即 PUT——经订阅判脏走自动保存', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 0, y: 0 });
     useCanvasStore.setState({ projectId: 'pid-3' });
 
-    vi.useFakeTimers();
-    try {
-      const unbind = bindCanvasSync();
       useCanvasStore.getState().onNodesChange([
         { id, type: 'dimensions', dimensions: { width: 320, height: 240 }, setAttributes: true } as any,
-      ]);
-      expect(mockSyncCanvas).not.toHaveBeenCalled();   // 散点立即 PUT 移除
-      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
-      expect(mockSyncCanvas).toHaveBeenCalledTimes(1); // 统一 runtime 承担
-      unbind();
-    } finally {
-      vi.useRealTimers();
-    }
+      ]);   // 散点立即 PUT 移除
+
   });
 
   it('setNodeDraggable should update node draggable flag', () => {
@@ -793,17 +715,10 @@ describe('canvasStore', () => {
     });
   });
 
-  // ─── 自动保存（spec canvas-autosave-design.md D1）───
-  describe('自动保存状态字段', () => {
-    it('初始 saveStatus=saved、serverVersion=0', () => {
-      const s = useCanvasStore.getState();
-      expect(s.saveStatus).toBe('saved');
-      expect(s.serverVersion).toBe(0);
-    });
-
-    it('saveStatus/serverVersion 变更不进 undo 历史', () => {
-      useCanvasStore.setState({ saveStatus: 'saving' });
-      useCanvasStore.setState({ serverVersion: 5, saveStatus: 'saved' });
+  // ─── Task15：autosave 字段退役，连接状态不进历史 ───
+  describe('连接状态字段', () => {
+    it('connStatus 变更不进 undo 历史', () => {
+      useCanvasStore.setState({ connStatus: 'offline' });
       const t = useCanvasStore.temporal.getState() as any;
       expect(t.pastStates.length).toBe(0);
     });

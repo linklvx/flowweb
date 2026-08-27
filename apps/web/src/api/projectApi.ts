@@ -25,9 +25,3 @@ export async function syncCanvas(projectId: string, payload: SyncCanvasPayload) 
   });
 }
 
-export async function updateViewport(projectId: string, viewport: { x: number; y: number; zoom: number }) {
-  return apiFetch(`/projects/${projectId}/viewport`, {
-    method: 'PUT',
-    body: JSON.stringify({ viewport }),
-  });
-}

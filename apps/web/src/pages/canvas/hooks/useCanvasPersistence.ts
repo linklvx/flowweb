@@ -112,7 +112,6 @@ export function useCanvasPersistence(projectId: string) {
             parentMap: Object.fromEntries(
               cs.nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId as string]),
             ),
-            serverVersion: cs.serverVersion,
           }),
         );
       }, 500);

@@ -3,7 +3,6 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface ModelInfo {
   id: string; name: string;
@@ -149,7 +148,6 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
       });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      await flushCanvasSync('execute');
       const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {

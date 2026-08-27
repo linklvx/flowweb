@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { saveCanvas } from '@/api/canvasApi';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface SaveAsTemplateDialogProps {
   projectId: string;
@@ -19,11 +18,6 @@ export function SaveAsTemplateDialog({ projectId, projectName, onClose, onSaved 
     setError('');
     setSaving(true);
     try {
-      const ok = await flushCanvasSync('template');
-      if (!ok) {
-        setError('画布保存失败，请检查网络后重试');
-        return;
-      }
       await saveCanvas(projectId, { name: projectName, description: description.trim(), isPublic });
       onSaved();
     } catch (e: any) {

@@ -183,6 +183,9 @@ importers:
       '@flowweb/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@hocuspocus/provider':
+        specifier: ^4.6.0
+        version: 4.6.0(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32)
       '@tiptap/extension-image':
         specifier: '2'
         version: 2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))
@@ -240,6 +243,12 @@ importers:
       wavesurfer.js:
         specifier: ^7.8.1
         version: 7.12.7
+      y-protocols:
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.32)
+      yjs:
+        specifier: ^13.6.32
+        version: 13.6.32
       zundo:
         specifier: ^2.3.0
         version: 2.3.0(zustand@4.5.5(@types/react@18.3.28)(react@18.3.1))

@@ -50,11 +50,6 @@ describe('ProjectController', () => {
     expect(service.getProjectFolder).toHaveBeenCalledWith('p1', undefined);
   });
 
-  it('PUT /api/projects/:id/viewport 窗口期 no-op 200', async () => {
-    const result = await controller.updateViewport('p1', { viewport: { x: 10, y: 20, zoom: 1.5 } });
-    expect(result).toEqual({ success: true });
-  });
-
   it('PATCH /api/projects/:id should update project name', async () => {
     const result = await controller.updateName('p1', { name: '新名字' });
     expect(result.id).toBe('p1');

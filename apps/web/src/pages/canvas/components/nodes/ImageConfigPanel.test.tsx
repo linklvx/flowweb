@@ -98,10 +98,9 @@ vi.mock('@/stores/nodeStore', () => {
   };
 });
 
-const { getMockCanvasNodes, mockSubmitGeneration, mockFlushCanvasSync } = vi.hoisted(() => {
+const { getMockCanvasNodes, mockSubmitGeneration } = vi.hoisted(() => {
   let mockCanvasNodes: any[] = [];
   return {
-    mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockCanvasNodes: () => mockCanvasNodes,
   };
@@ -111,9 +110,6 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
     getState: () => ({ nodes: getMockCanvasNodes(), edges: [], projectId: 'real-pid' }),
   },
-}));
-vi.mock('@/stores/canvasSyncRuntime', () => ({
-  flushCanvasSync: mockFlushCanvasSync,
 }));
 vi.mock('@/api/imageNodeApi', () => ({
   getCreditCost: vi.fn().mockResolvedValue(0),
@@ -315,19 +311,16 @@ describe('ImageConfigPanel', () => {
     expect(screen.queryByTestId('canvas-node-image-ai-tool-select')).not.toBeInTheDocument();
   });
 
-  it('生成前先 flush 再 submitGeneration（改参即生效），不再散点同步', async () => {
+  it('Task15：直接 submitGeneration（server doc 实时持久化，无 flush）', async () => {
     mockNodeData.prompt.text = 'hello image';
     const order: string[] = [];
-    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
-    mockSubmitGeneration.mockImplementationOnce(async () => { order.push('submit'); return { jobId: 'j1' }; });
+        mockSubmitGeneration.mockImplementationOnce(async () => { order.push('submit'); return { jobId: 'j1' }; });
     render(<ImageConfigPanel nodeId="img1" />);
 
     await act(async () => {
       await capturedOnGenerate?.();
     });
-
-    expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
     expect(mockSubmitGeneration).toHaveBeenCalledWith('img1', { projectId: 'real-pid' });
-    expect(order).toEqual(['flush', 'submit']);
+    expect(order).toEqual(['submit']);
   });
 });

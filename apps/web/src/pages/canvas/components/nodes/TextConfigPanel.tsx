@@ -3,7 +3,6 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface ModelInfo {
   id: string; name: string;
@@ -150,7 +149,6 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      await flushCanvasSync('execute');
       const { jobId } = await enqueueWorkflow({ projectId, nodeId });
       console.log('[TextPanel] enqueued job:', jobId);
       // Socket.io will update status → done/error with AI response

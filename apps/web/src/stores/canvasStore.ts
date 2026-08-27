@@ -92,10 +92,8 @@ interface CanvasState {
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
   isHydrating: boolean;
-  /** 自动保存状态（spec canvas-autosave-design.md D1）——不进 history partialize（createPartialize 显式字段） */
-  saveStatus: 'saved' | 'dirty' | 'saving' | 'error';
-  /** 服务端画布版本号（乐观锁）——PUT /canvas 成功后由 runtime 更新 */
-  serverVersion: number;
+  /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
+  connStatus: 'connected' | 'connecting' | 'offline';
   // ── undo/redo（spec canvas-undo-redo.md）──
   /** zundo undo 回写时带入的 nodeStore data 采样，包装 undo/redo 中读出后立即清除 */
   __nodeDataSnap?: import('./canvasHistory').HistoryPartial['__nodeDataSnap'];
@@ -179,8 +177,7 @@ export const useCanvasStore = create<CanvasState>()(temporal(
   nodeProcessMap: {},
   projectId: null,
   isHydrating: false,
-  saveStatus: 'saved',
-  serverVersion: 0,
+  connStatus: 'connecting',
   __nodeDataSnap: undefined,
   _isPointerInteraction: false,
   isApplyingHistory: false,

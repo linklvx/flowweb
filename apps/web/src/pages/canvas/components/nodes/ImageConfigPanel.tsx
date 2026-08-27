@@ -11,7 +11,6 @@ import { CreditDisplay } from './config-panel/CreditDisplay';
 import { RunButton } from './config-panel/RunButton';
 import { PromptEditor } from './config-panel/PromptEditor';
 import * as imageNodeApi from '@/api/imageNodeApi';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 
 interface Props {
   nodeId: string;
@@ -77,7 +76,6 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     try {
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      await flushCanvasSync('execute');
       await imageNodeApi.submitGeneration(nodeId, { projectId });
     } catch {
       setStatus(nodeId, 'error');

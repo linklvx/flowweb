@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Inject, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Inject, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ProjectService } from './project.service';
 import { TeamGuard, TeamSource } from '../team/team.guard';
@@ -23,12 +23,6 @@ export class ProjectController {
   getProjectFolder(@Param('id') id: string, @Req() req: Request) {
     const userId = (req as any).user?.id;
     return this.projectService.getProjectFolder(id, userId);
-  }
-
-  // TODO(Task15): 端点随 autosave 链路退役删除——窗口期 no-op 200 兼容旧前端
-  @Put(':id/viewport')
-  updateViewport(@Param('id') id: string, @Body() body: { viewport: { x: number; y: number; zoom: number } }) {
-    return { success: true };
   }
 
 

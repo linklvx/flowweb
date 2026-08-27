@@ -47,17 +47,12 @@ vi.mock('@/stores/canvasStore', () => ({
   },
 }));
 
-const { mockEnqueueWorkflow, mockFlushCanvasSync } = vi.hoisted(() => ({
-  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
-  mockFlushCanvasSync: vi.fn().mockResolvedValue(true),
+const { mockEnqueueWorkflow } = vi.hoisted(() => ({
+  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1' })
 }));
 
 vi.mock('@/api/executionApi', () => ({
   enqueueWorkflow: mockEnqueueWorkflow,
-}));
-
-vi.mock('@/stores/canvasSyncRuntime', () => ({
-  flushCanvasSync: mockFlushCanvasSync,
 }));
 
 describe('AudioConfigPanel', () => {
@@ -160,19 +155,16 @@ describe('AudioConfigPanel', () => {
 
   // ─── Generate: flush before enqueue ───
 
-  it('生成前先 flush 再 enqueue（改参即生效），不再散点同步', async () => {
+  it('Task15：直接 enqueue（server doc 实时持久化，无 flush）', async () => {
     const order: string[] = [];
-    mockFlushCanvasSync.mockImplementationOnce(async () => { order.push('flush'); return true; });
-    mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
+        mockEnqueueWorkflow.mockImplementationOnce(async () => { order.push('enqueue'); return { jobId: 'j1' }; });
     const { container } = render(<AudioConfigPanel nodeId="a1" />);
     fireEvent.change(container.querySelector('textarea')!, { target: { value: 'hello audio' } });
     const buttons = container.querySelectorAll('button');
     fireEvent.click(buttons[buttons.length - 1]);
 
     await act(async () => {});
-
-    expect(mockFlushCanvasSync).toHaveBeenCalledWith('execute');
     expect(mockEnqueueWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'real-pid' }));
-    expect(order).toEqual(['flush', 'enqueue']);
+    expect(order).toEqual(['enqueue']);
   });
 });

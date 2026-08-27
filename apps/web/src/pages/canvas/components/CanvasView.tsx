@@ -9,12 +9,10 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { flushCanvasSync } from '@/stores/canvasSyncRuntime';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
-import { useViewportAutoSync } from '../hooks/useViewportAutoSync';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -74,7 +72,6 @@ function CanvasViewComponent(_props: Props) {
   const selectNode = useCanvasStore((s) => s.selectNode);
   const lastPointerShiftKey = useCanvasStore((s) => s.lastPointerShiftKey);
   useTrackCanvasPointerShift(reactFlowWrapper);
-  const { onMoveEnd: viewportMoveEnd } = useViewportAutoSync();
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
@@ -325,7 +322,6 @@ function CanvasViewComponent(_props: Props) {
         edgeTypes={edgeTypes}
         defaultViewport={viewport}
         onViewportChange={updateViewport}
-        onMoveEnd={viewportMoveEnd}
         onDragOver={onDragOver}
         onDrop={onDrop}
         onNodeClick={onNodeClick}
@@ -480,7 +476,6 @@ function CanvasViewComponent(_props: Props) {
               onExecute={async (groupId) => {
                 const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
                 if (childIds.length > 0 && projectId) {
-                  await flushCanvasSync('execute');
                   void executeGroupNodes(projectId, childIds);
                 }
               }}

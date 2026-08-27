@@ -9,12 +9,6 @@ import { useNodeStore } from './nodeStore';
 import type { HistoryPartial } from './canvasHistory';
 import { reconcileNodeStore, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 // 循环依赖裁定同头注：仅 import 声明与函数定义，调用点求值，ESM 安全
-import { scheduleSync as canvasAutoScheduleSync, UNDO_SYNC_DELAY_MS } from './canvasSyncRuntime';
-
-/** undo/redo 后自动保存：委托统一 runtime，保留 300ms 快节奏窗口（I-2 行为不变） */
-export function scheduleSync(): Promise<void> {
-  return canvasAutoScheduleSync(UNDO_SYNC_DELAY_MS);
-}
 
 let pauseDepth = 0;
 
@@ -75,7 +69,7 @@ function applyHistory(direction: 'undo' | 'redo'): Promise<void> {
     }
   });
   useCanvasStore.setState({ isApplyingHistory: false });
-  return ok ? scheduleSync() : Promise.resolve();
+  return ok ? Promise.resolve() : Promise.resolve();
 }
 
 export function undoCanvas() { return applyHistory('undo'); }
