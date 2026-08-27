@@ -369,3 +369,162 @@ describe('TeamService 成员管理', () => {
     });
   });
 });
+
+describe('TeamService 加入申请', () => {
+  let service: TeamService;
+  let prisma: any;
+  let emitter: any;
+  let queue: any;
+
+  beforeEach(async () => {
+    prisma = {};
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    queue = { add: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TeamService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventEmitter2, useValue: emitter },
+        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+      ],
+    }).compile();
+
+    service = module.get<TeamService>(TeamService);
+  });
+
+  describe('apply', () => {
+    it('团队 ACTIVE 且需审批：建 PENDING 申请', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ id: 't1', status: 'ACTIVE', joinApproval: true }) };
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue(null) };
+      prisma.teamJoinRequest = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'r1', status: 'PENDING' }),
+      };
+
+      const result = await service.apply('t1', 'u2', '想加入');
+
+      expect(prisma.teamJoinRequest.create).toHaveBeenCalledWith({
+        data: { teamId: 't1', userId: 'u2', status: 'PENDING', message: '想加入' },
+      });
+      expect(result).toEqual({ id: 'r1', status: 'PENDING' });
+    });
+
+    it('DISBANDED 团队拒绝申请', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'DISBANDED' }) };
+      await expect(service.apply('t1', 'u2')).rejects.toThrow(BadRequestException);
+    });
+
+    it('已有 PENDING 申请拒绝重复提交', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'ACTIVE', joinApproval: true }) };
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue(null) };
+      prisma.teamJoinRequest = { findFirst: vi.fn().mockResolvedValue({ id: 'r0' }) };
+      await expect(service.apply('t1', 'u2')).rejects.toThrow('已有待处理的申请');
+    });
+
+    it('已是成员拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'ACTIVE', joinApproval: true }) };
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };
+      await expect(service.apply('t1', 'u2')).rejects.toThrow(BadRequestException);
+    });
+
+    it('免审批开关关闭：直接入团 MEMBER', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'ACTIVE', joinApproval: false }) };
+      prisma.teamMember = {
+        findUnique: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(3),
+        create: vi.fn().mockResolvedValue({ id: 'm2', role: 'MEMBER' }),
+      };
+      prisma.teamSubscription = { findFirst: vi.fn().mockResolvedValue(null) };
+      prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+
+      const result = await service.apply('t1', 'u2');
+
+      expect(prisma.teamMember.create).toHaveBeenCalledWith({
+        data: { teamId: 't1', userId: 'u2', role: 'MEMBER' },
+      });
+      expect(result).toMatchObject({ role: 'MEMBER' });
+    });
+  });
+
+  describe('approve', () => {
+    const setup = (opts: { callerRole?: string; memberCount?: number; planSeatLimit?: number } = {}) => {
+      prisma.teamMember = {
+        findUnique: vi.fn().mockResolvedValue({ role: opts.callerRole ?? 'OWNER' }),
+        count: vi.fn().mockResolvedValue(opts.memberCount ?? 3),
+        create: vi.fn().mockResolvedValue({ id: 'm9' }),
+      };
+      prisma.teamJoinRequest = {
+        findUnique: vi.fn().mockResolvedValue({ id: 'r1', teamId: 't1', userId: 'u2', status: 'PENDING' }),
+        update: vi.fn(),
+      };
+      prisma.teamSubscription = {
+        findFirst: vi.fn().mockResolvedValue(opts.planSeatLimit ? { plan: { seatLimit: opts.planSeatLimit } } : null),
+      };
+      prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+    };
+
+    it('OWNER/ADMIN 批准：事务内建 MEMBER + 置 APPROVED', async () => {
+      setup();
+      await service.approve('t1', 'caller', 'r1');
+      expect(prisma.teamMember.create).toHaveBeenCalledWith({
+        data: { teamId: 't1', userId: 'u2', role: 'MEMBER' },
+      });
+      expect(prisma.teamJoinRequest.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: 'APPROVED', decidedBy: 'caller', decidedAt: expect.any(Date) },
+      });
+    });
+
+    it('席位已满拒绝（免费版常量 20）', async () => {
+      setup({ memberCount: 20 });
+      await expect(service.approve('t1', 'caller', 'r1')).rejects.toThrow('席位已满');
+      expect(prisma.teamMember.create).not.toHaveBeenCalled();
+    });
+
+    it('席位按 active 订阅 plan 现算', async () => {
+      setup({ memberCount: 5, planSeatLimit: 5 });
+      await expect(service.approve('t1', 'caller', 'r1')).rejects.toThrow('席位已满');
+    });
+
+    it('MEMBER 无权批准', async () => {
+      setup({ callerRole: 'MEMBER' });
+      await expect(service.approve('t1', 'caller', 'r1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('非 PENDING 状态拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
+      prisma.teamJoinRequest = {
+        findUnique: vi.fn().mockResolvedValue({ id: 'r1', status: 'APPROVED' }),
+      };
+      await expect(service.approve('t1', 'caller', 'r1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('reject / listRequests', () => {
+    it('reject：置 REJECTED + decidedBy/decidedAt', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
+      prisma.teamJoinRequest = {
+        findUnique: vi.fn().mockResolvedValue({ id: 'r1', teamId: 't1', status: 'PENDING' }),
+        update: vi.fn(),
+      };
+      await service.reject('t1', 'caller', 'r1');
+      expect(prisma.teamJoinRequest.update).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { status: 'REJECTED', decidedBy: 'caller', decidedAt: expect.any(Date) },
+      });
+    });
+
+    it('listRequests 按 status 过滤含 user 摘要', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
+      prisma.teamJoinRequest = {
+        findMany: vi.fn().mockResolvedValue([{ id: 'r1', user: { id: 'u2', name: '李四' } }]),
+      };
+      const result = await service.listRequests('t1', 'caller', 'PENDING');
+      expect(prisma.teamJoinRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { teamId: 't1', status: 'PENDING' },
+      }));
+      expect(result[0].user).toEqual({ id: 'u2', name: '李四' });
+    });
+  });
+});

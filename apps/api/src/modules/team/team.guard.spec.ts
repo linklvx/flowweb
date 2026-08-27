@@ -59,7 +59,7 @@ describe('TeamGuard', () => {
   });
 
   it("project source：:id 是 projectId，查 project.teamId 后校验成员", async () => {
-    reflector.get.mockReturnValue('project');
+    reflector.get.mockImplementation((key: string) => (key === 'team:id-source' ? 'project' : undefined));
     prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't9' });
     prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
     prisma.team.findUnique.mockResolvedValue({ status: 'ACTIVE' });

@@ -695,13 +695,14 @@ enum TeamOrderStatus {
 }
 
 model Team {
-  id        String     @id @default(cuid())
-  name      String
-  ownerId   String
-  owner     User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  status    TeamStatus @default(ACTIVE)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String     @id @default(cuid())
+  name          String
+  ownerId       String
+  owner         User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  status        TeamStatus @default(ACTIVE)
+  joinApproval  Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   members      TeamMember[]
   balance      TeamBalance?

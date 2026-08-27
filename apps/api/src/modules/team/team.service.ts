@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 
 @Injectable()
 export class TeamService {
@@ -145,6 +146,89 @@ export class TeamService {
     return this.prisma.teamMember.update({
       where: { teamId_userId: { teamId, userId: targetUserId } },
       data: { monthlyQuota },
+    });
+  }
+
+  /** 席位上限现算：active 订阅取 plan，否则免费常量（Task 10 getLimits 统一封装） */
+  private async getSeatLimit(teamId: string): Promise<number> {
+    const sub = await this.prisma.teamSubscription.findFirst({
+      where: { teamId, status: 'active', currentPeriodEnd: { gt: new Date() } },
+      select: { plan: { select: { seatLimit: true } } },
+    });
+    return sub?.plan.seatLimit ?? TEAM_FREE_SEAT_LIMIT;
+  }
+
+  async apply(teamId: string, userId: string, message?: string) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { status: true, joinApproval: true },
+    });
+    if (!team || team.status !== 'ACTIVE') throw new BadRequestException('团队不存在或已解散');
+
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (member) throw new BadRequestException('已是团队成员');
+
+    if (!team.joinApproval) {
+      return this.prisma.teamMember.create({ data: { teamId, userId, role: 'MEMBER' } });
+    }
+
+    const pending = await this.prisma.teamJoinRequest.findFirst({
+      where: { teamId, userId, status: 'PENDING' },
+    });
+    if (pending) throw new BadRequestException('已有待处理的申请');
+
+    return this.prisma.teamJoinRequest.create({
+      data: { teamId, userId, status: 'PENDING', message },
+    });
+  }
+
+  async approve(teamId: string, callerId: string, requestId: string) {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('仅团队管理员可审批');
+    }
+    const request = await this.prisma.teamJoinRequest.findUnique({ where: { id: requestId } });
+    if (!request || request.teamId !== teamId) throw new BadRequestException('申请不存在');
+    if (request.status !== 'PENDING') throw new BadRequestException('申请已处理');
+
+    const memberCount = await this.prisma.teamMember.count({ where: { teamId } });
+    const seatLimit = await this.getSeatLimit(teamId);
+    if (memberCount >= seatLimit) throw new BadRequestException('席位已满');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.teamMember.create({ data: { teamId, userId: request.userId, role: 'MEMBER' } });
+      return tx.teamJoinRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED', decidedBy: callerId, decidedAt: new Date() },
+      });
+    });
+  }
+
+  async reject(teamId: string, callerId: string, requestId: string) {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('仅团队管理员可审批');
+    }
+    const request = await this.prisma.teamJoinRequest.findUnique({ where: { id: requestId } });
+    if (!request || request.teamId !== teamId) throw new BadRequestException('申请不存在');
+    if (request.status !== 'PENDING') throw new BadRequestException('申请已处理');
+    return this.prisma.teamJoinRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED', decidedBy: callerId, decidedAt: new Date() },
+    });
+  }
+
+  async listRequests(teamId: string, callerId: string, status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('仅团队管理员可查看申请');
+    }
+    return this.prisma.teamJoinRequest.findMany({
+      where: status ? { teamId, status } : { teamId },
+      include: { user: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
