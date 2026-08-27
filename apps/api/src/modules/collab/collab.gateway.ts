@@ -1,10 +1,9 @@
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
 import type { onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { auth } from '../../auth/auth';
 
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
@@ -18,18 +17,23 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    port?: number,
-    debounce = 5000,
+    @Optional() @Inject('COLLAB_PORT') port?: number,
+    @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
   ) {
     this.server = new Server({
       port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
-      debounce,
+      debounce: debounce ?? 5000,
       maxDebounce: 10000,
-      onAuthenticate: async ({ token, documentName }: onAuthenticatePayload) => {
-        const session = await auth.api.getSession({
-          headers: new Headers({ cookie: `flowweb.session_token=${token}` }),
-        });
-        if (!session) throw new Error('未登录');
+      // 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
+      // token 来自 WS 握手 query（测试/工具）或 httpOnly cookie（浏览器自动携带）
+      onAuthenticate: async ({ requestHeaders, requestParameters, documentName }: onAuthenticatePayload) => {
+        const token = requestParameters?.get('token')
+          ?? (requestHeaders?.get('cookie') || '').match(/flowweb\.session_token=([^;]+)/)?.[1]
+          ?? null;
+        const session = token
+          ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
+          : null;
+        if (!session || session.expiresAt < new Date()) throw new Error('未登录');
         const projectId = parseProjectId(documentName);
         const project = await this.prisma.canvasProject.findUnique({
           where: { id: projectId },

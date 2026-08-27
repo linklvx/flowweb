@@ -14,13 +14,11 @@ import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
 
 function collabUrl(): string {
+  // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
+  // 生产走 Nginx /collab WS upgrade（完整 headers 转发）
+  if (import.meta.env.DEV) return 'ws://localhost:3001';
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}/collab`;
-}
-
-function sessionToken(): string {
-  const m = document.cookie.match(/flowweb\.session_token=([^;]+)/);
-  return m ? m[1] : '';
 }
 
 export const LOCAL_ORIGIN = 'local';
@@ -177,7 +175,8 @@ export async function initCollab(projectId: string): Promise<void> {
     url: collabUrl(),
     name: `project:${projectId}`,
     document: doc,
-    token: sessionToken(),
+    // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
+    token: 'cookie-auth',
   });
 
   provider.on('status', ({ status }: any) => {

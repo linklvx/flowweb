@@ -4,9 +4,11 @@ import { AiDownloadProcessor } from './ai-download.processor';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import { ExecutionModule } from '../execution/execution.module';
 import { CollabModule } from '../collab/collab.module';
+import { TeamModule } from '../team/team.module';
 
 @Module({
   imports: [
+    TeamModule,
     CollabModule,
     ExecutionModule,
     BullModule.registerQueue({

@@ -4,21 +4,39 @@
     {
       "name": "web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["turbo", "run", "dev", "--filter=@flowweb/web"],
+      "runtimeArgs": [
+        "turbo",
+        "run",
+        "dev",
+        "--filter=@flowweb/web"
+      ],
       "port": 5173,
       "cwd": "${workspaceFolder}"
     },
     {
       "name": "api",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["turbo", "run", "dev", "--filter=@flowweb/api"],
+      "runtimeArgs": [
+        "turbo",
+        "run",
+        "dev",
+        "--filter=@flowweb/api"
+      ],
       "port": 3000,
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "COLLAB_PORT": "3001"
+      }
     },
     {
       "name": "minio",
       "runtimeExecutable": "minio.exe",
-      "runtimeArgs": ["server", "./flowweb.data/minio", "--console-address", ":9001"],
+      "runtimeArgs": [
+        "server",
+        "./flowweb.data/minio",
+        "--console-address",
+        ":9001"
+      ],
       "port": 9000,
       "cwd": "${workspaceFolder}",
       "env": {
@@ -30,7 +48,11 @@
   "compounds": [
     {
       "name": "All Services",
-      "configurations": ["minio", "api", "web"]
+      "configurations": [
+        "minio",
+        "api",
+        "web"
+      ]
     }
   ]
 }

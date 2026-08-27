@@ -5,11 +5,6 @@ import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../../auth/auth', () => ({
-  auth: { api: { getSession: vi.fn() } },
-}));
-
-import { auth } from '../../auth/auth';
 
 function buildDocState(): Buffer {
   const doc = new Y.Doc();
@@ -42,6 +37,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
   beforeEach(async () => {
     prisma = {
+      session: {
+        findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
+      },
       canvasProject: {
         findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }),
       },
@@ -53,7 +51,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         upsert: vi.fn(),
       },
     };
-    (auth.api.getSession as any) = vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' } });
+
 
     emitter = new EventEmitter2();
     const port = 20000 + Math.floor(Math.random() * 20000);
@@ -70,7 +68,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
   function connect(name: string, token = 'tok'): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> } {
     const ydoc = new Y.Doc();
-    const provider = new HocuspocusProvider({ url, name, document: ydoc, token });
+    const provider = new HocuspocusProvider({ url: `${url}?token=${token}`, name, document: ydoc });
     providers.push(provider);
     const synced = new Promise<void>((resolve) => provider.on('synced', () => resolve()));
     return { ydoc, provider, synced };
@@ -82,8 +80,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   });
 
   it('① 无 session 拒绝：连接永不完成 sync', async () => {
-    (auth.api.getSession as any) = vi.fn().mockResolvedValue(null);
-    const provider = new HocuspocusProvider({ url, name: 'project:p2', document: new Y.Doc(), token: 'bad' });
+    prisma.session.findUnique.mockResolvedValue(null);
+    const provider = new HocuspocusProvider({ url: `${url}?token=bad`, name: 'project:p2', document: new Y.Doc() });
     providers.push(provider);
     await new Promise((r) => setTimeout(r, 1500));
     expect(provider.isSynced).toBe(false);
@@ -91,7 +89,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
   it('① 非团队成员拒绝：连接永不完成 sync', async () => {
     prisma.teamMember.findUnique.mockResolvedValue(null);
-    const provider = new HocuspocusProvider({ url, name: 'project:p3', document: new Y.Doc(), token: 'tok' });
+    const provider = new HocuspocusProvider({ url: `${url}?token=tok`, name: 'project:p3', document: new Y.Doc() });
     providers.push(provider);
     await new Promise((r) => setTimeout(r, 1500));
     expect(provider.isSynced).toBe(false);
