@@ -4,6 +4,7 @@ import { Inject, Logger } from '@nestjs/common';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId } from '../team/team.util';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import axios from 'axios';
@@ -27,6 +28,7 @@ export class AiDownloadProcessor extends WorkerHost {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {
     super();
   }
@@ -83,7 +85,9 @@ export class AiDownloadProcessor extends WorkerHost {
       },
     });
 
-    // 4. Push fileId via Socket
+    // 4. Write fileId to server doc (real-time persistence), socket 仅进度通知
+    await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id, resultUrl: job.data.resultUrl });
+
     this.gateway.emitNodeStatus(projectId, {
       nodeId,
       status: 'done',

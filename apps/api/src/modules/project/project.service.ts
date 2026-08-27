@@ -1,7 +1,8 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readCanvasLegacy, buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 import { TeamService } from '../team/team.service';
+import * as Y from 'yjs';
+import { CollabDocumentService } from '../collab/collab-document.service';
 
 interface NodeInput {
   id: string;
@@ -26,6 +27,7 @@ export class ProjectService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
   async create(name: string, userId?: string, nodes?: any[], edges?: any[]) {
@@ -39,9 +41,31 @@ export class ProjectService {
     });
 
     if (nodes && nodes.length > 0) {
-      // TODO(Task13): withDoc 写入
-      await this.prisma.canvasDoc.create({
-        data: { projectId: project.id, state: buildLegacyDocState(nodes, edges ?? []) },
+      // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）
+      await this.collabDoc.withDoc(project.id, (doc) => {
+        const nodesMap = doc.getMap('nodes');
+        for (const n of nodes) {
+          const m = new Y.Map();
+          m.set('type', n.type);
+          if (n.parentId != null) m.set('parentId', n.parentId);
+          if (n.width != null) m.set('width', n.width);
+          if (n.height != null) m.set('height', n.height);
+          const position = new Y.Map();
+          position.set('x', n.position?.x ?? 0);
+          position.set('y', n.position?.y ?? 0);
+          m.set('position', position);
+          const data = new Y.Map();
+          for (const [k, v] of Object.entries(n.data ?? {})) data.set(k, v);
+          m.set('data', data);
+          nodesMap.set(n.id, m);
+        }
+        const edgesMap = doc.getMap('edges');
+        for (const e of edges ?? []) {
+          const m = new Y.Map();
+          m.set('source', e.source ?? e.sourceId ?? '');
+          m.set('target', e.target ?? e.targetId ?? '');
+          edgesMap.set(e.id, m);
+        }
       });
     }
 
@@ -53,8 +77,7 @@ export class ProjectService {
       where: { id },
     });
     if (!project) throw new NotFoundException('Project not found');
-    const canvas = await readCanvasLegacy(this.prisma, id);
-    return { ...project, nodes: canvas.nodes, edges: canvas.edges };
+    return project;
   }
 
   /** 画布所属文件夹 id；属主不匹配/未登录/无关联时返回 null（不暴露项目存在性） */

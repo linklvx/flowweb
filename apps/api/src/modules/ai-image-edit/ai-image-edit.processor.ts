@@ -7,6 +7,7 @@ import { getOwnerTeamId } from '../team/team.util';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
@@ -37,6 +38,7 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
   ) {
     super();
@@ -145,7 +147,11 @@ export class AiImageEditProcessor extends WorkerHost {
         await this.teamCredit.consume(teamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
       }
 
-      // 7. Push success via WebSocket
+      // 7. Write fileId/尺寸 to server doc；socket 仅进度通知
+      await this.collabDoc.writeNodeData(projectId, nodeId, {
+        fileId: media.id,
+        ...(job.data.imageWidth ? { width: job.data.imageWidth, height: job.data.imageHeight } : {}),
+      });
       this.gateway.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',

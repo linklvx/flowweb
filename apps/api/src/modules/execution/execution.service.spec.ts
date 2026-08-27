@@ -5,6 +5,7 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -15,14 +16,18 @@ describe('ExecutionService', () => {
   let validation: any;
   let apiCaller: any;
   let teamCredit: any;
+  let collabDoc: any;
   let gateway: any;
   let mockDownloadQueue: any;
 
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
-      canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
       pricingRule: { findFirst: vi.fn() },
+    };
+    collabDoc = {
+      readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+      writeNodeData: vi.fn(),
     };
     topology = {
       getScope: vi.fn().mockReturnValue([
@@ -58,6 +63,7 @@ describe('ExecutionService', () => {
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
+        { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
       ],

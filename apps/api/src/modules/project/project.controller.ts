@@ -31,14 +31,6 @@ export class ProjectController {
     return { success: true };
   }
 
-  // TODO(Task15): 端点随 autosave 链路退役删除——窗口期 no-op 200（echo version 保持前端 serverVersion 平滑）
-  @Put(':id/canvas')
-  syncCanvas(
-    @Param('id') id: string,
-    @Body() body: { nodes: any[]; edges: any[]; version: number },
-  ) {
-    return { version: body.version };
-  }
 
   @Patch(':id')
   @TeamSource('project')

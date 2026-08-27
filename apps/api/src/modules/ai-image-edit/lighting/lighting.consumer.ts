@@ -6,6 +6,7 @@ import { MinioService } from '../../minio/minio.service';
 import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
+import { CollabDocumentService } from '../../collab/collab-document.service';
 import { CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
 import axios from 'axios';
 
@@ -72,6 +73,7 @@ export class LightingConsumer {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string }> {
@@ -160,7 +162,10 @@ export class LightingConsumer {
         }
       }
 
-      // 10. Push success via WebSocket
+      // 10. Write fileId to server doc；socket 仅进度通知
+      if (projectId) {
+        await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
+      }
       this.gateway.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-result',

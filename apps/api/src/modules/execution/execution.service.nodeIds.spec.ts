@@ -5,9 +5,9 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 
 describe('ExecutionService with nodeIds（整组执行）', () => {
   let service: ExecutionService;
@@ -16,14 +16,18 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   let validation: any;
   let apiCaller: any;
   let teamCredit: any;
+  let collabDoc: any;
   let gateway: any;
   let mockDownloadQueue: any;
 
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
-      canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
       pricingRule: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    collabDoc = {
+      readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+      writeNodeData: vi.fn(),
     };
     topology = {
       getScope: vi.fn(),
@@ -49,6 +53,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
+        { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
       ],
@@ -63,7 +68,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'in2', type: 'textInput', data: { content: 'b', model: 'seed-model-kimi' } },
     ];
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: buildLegacyDocState(nodes, []) });
+    collabDoc.readCanvas.mockResolvedValue({ nodes, edges: [] });
 
     await service.execute('p1', undefined, 'u1', ['in1', 'in2']);
 
@@ -79,10 +84,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'in1', type: 'textInput', data: { model: 'seed-model-kimi' } },
     ];
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.canvasDoc.findUnique.mockResolvedValue({
-      projectId: 'p1',
-      state: buildLegacyDocState(nodes, [{ id: 'e1', source: 'outside', target: 'in1' }]),
-    });
+    collabDoc.readCanvas.mockResolvedValue({ nodes, edges: [{ id: 'e1', sourceId: 'outside', targetId: 'in1' }] });
     await service.execute('p1', undefined, 'u1', ['in1']);
 
     const nodesPassed = topology.collectUpstreamData.mock.calls[0][1] as any[];

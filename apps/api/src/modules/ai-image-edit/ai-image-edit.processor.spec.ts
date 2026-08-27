@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { Job } from 'bullmq';
 
@@ -25,6 +26,7 @@ describe('AiImageEditProcessor', () => {
   let gateway: any;
   let apiCaller: any;
   let teamCredit: any;
+  let collabDoc: any;
 
   beforeEach(async () => {
     prisma = {
@@ -51,6 +53,7 @@ describe('AiImageEditProcessor', () => {
     teamCredit = {
       consume: vi.fn().mockResolvedValue({ success: true }),
     };
+    collabDoc = { writeNodeData: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +63,7 @@ describe('AiImageEditProcessor', () => {
         { provide: ExecutionGateway, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
+        { provide: CollabDocumentService, useValue: collabDoc },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
       ],
     }).compile();

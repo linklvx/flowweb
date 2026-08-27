@@ -5,6 +5,7 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { TeamService } from '../team/team.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
@@ -37,6 +38,7 @@ describe('CanvasService', () => {
         { provide: FolderService, useValue: folderService },
         { provide: TemplateService, useValue: templateService },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
+        { provide: CollabDocumentService, useValue: { readCanvas: vi.fn(), withDoc: vi.fn() } },
       ],
     }).compile();
     service = module.get<CanvasService>(CanvasService);
@@ -150,7 +152,11 @@ describe('CanvasService', () => {
     };
 
     beforeEach(() => {
-      projectService.findById = vi.fn().mockResolvedValue(project);
+      projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1' });
+      (service as any).collabDoc.readCanvas.mockResolvedValue({
+        nodes: project.nodes,
+        edges: project.edges.map((e: any) => ({ ...e })),
+      });
       prisma.template.findUnique.mockResolvedValue(null);
     });
 

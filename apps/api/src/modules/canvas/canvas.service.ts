@@ -5,6 +5,7 @@ import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { validateTemplateData } from '../template/template.validation';
 import { TeamService } from '../team/team.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 
 @Injectable()
 export class CanvasService {
@@ -14,6 +15,7 @@ export class CanvasService {
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TemplateService) private readonly templateService: TemplateService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
   async create(name: string, folderId: string | null, userId: string) {
@@ -56,22 +58,22 @@ export class CanvasService {
     return `画布${max + 1}`;
   }
 
-  async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean }, userId: string) {
+  async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean; viewport?: { x: number; y: number; zoom: number } }, userId: string) {
     const project = await this.projectService.findById(projectId);
     if (project.userId !== null && project.userId !== userId) {
       throw new ForbiddenException('无权保存此工程');
     }
 
-    const nodes = (project.nodes || []).map((n: any) => ({
+    const canvas = await this.collabDoc.readCanvas(projectId);
+    const nodes = canvas.nodes.map((n: any) => ({
       id: n.id, type: n.type, position: n.position, data: n.data,
     }));
-    const edges = (project.edges || []).map((e: any) => ({
+    const edges = canvas.edges.map((e: any) => ({
       id: e.id,
       source: e.sourceId || e.source || '',
       target: e.targetId || e.target || '',
     }));
-    // TODO(Task13): viewport 改前端入参（SaveAsTemplateDto）；窗口期占位（viewport 列已随 autosave 退役）
-    const templateData = { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
+    const templateData = { nodes, edges, viewport: input.viewport || { x: 0, y: 0, zoom: 1 } };
 
     try {
       validateTemplateData(templateData);

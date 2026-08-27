@@ -2,8 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 
 describe('ProjectService', () => {
   let service: ProjectService;
@@ -25,7 +25,6 @@ describe('ProjectService', () => {
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
       canvasDoc: {
         findUnique: vi.fn().mockResolvedValue(null),
-        create: vi.fn(),
       },
     };
 
@@ -34,6 +33,7 @@ describe('ProjectService', () => {
         ProjectService,
         { provide: PrismaService, useValue: prisma },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
+        { provide: CollabDocumentService, useValue: { readCanvas: vi.fn(), withDoc: vi.fn() } },
       ],
     }).compile();
 
@@ -52,48 +52,28 @@ describe('ProjectService', () => {
       expect(prisma.canvasProject.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ name: '未命名项目', teamId: 'team1' }),
       });
-      expect(prisma.canvasDoc.create).not.toHaveBeenCalled();
     });
 
-    it('带 nodes 时序列化写入 CanvasDoc', async () => {
+    it('带 nodes 时经 withDoc 直连写入', async () => {
       const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
       const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
       const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
+      const collabDoc = (service as any).collabDoc;
       await service.create('导入', 'u1', nodes, edges);
-      expect(prisma.canvasDoc.create).toHaveBeenCalledWith({
-        data: { projectId: 'p1', state: expect.any(Buffer) },
-      });
+      expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
     });
   });
 
   describe('findById', () => {
-    it('should return project with nodes and edges', async () => {
+    it('should return project（Task13 起：画布内容走 Hocuspocus，不再随行返回）', async () => {
       const mockProject = { id: 'p1', name: 'Test', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
       const result = await service.findById('p1');
-      expect(result.nodes).toEqual([]);
-      expect(result.edges).toEqual([]);
-    });
-
-    it('从 CanvasDoc 反序列化 nodes/edges', async () => {
-      const mockProject = { id: 'p1', name: 'Test', createdAt: new Date(), updatedAt: new Date() };
-      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
-      prisma.canvasDoc.findUnique.mockResolvedValue({
-        projectId: 'p1',
-        state: buildLegacyDocState(
-          [{ id: 'n1', type: 'textInput', position: { x: 3, y: 4 }, data: { text: 'hi' } }],
-          [{ id: 'e1', source: 'n1', target: 'n2' }],
-        ),
-      });
-
-      const result = await service.findById('p1');
-      expect(result.nodes).toHaveLength(1);
-      expect(result.nodes[0]).toMatchObject({ id: 'n1', type: 'textInput', data: { text: 'hi' } });
-      expect(result.edges).toEqual([{ id: 'e1', sourceId: 'n1', targetId: 'n2' }]);
+      expect(result).not.toHaveProperty('nodes');
     });
 
     it('should throw NotFoundException when project missing', async () => {

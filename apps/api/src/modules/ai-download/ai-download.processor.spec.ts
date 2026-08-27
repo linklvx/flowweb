@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AiDownloadProcessor } from './ai-download.processor';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { Job } from 'bullmq';
 
@@ -20,12 +21,14 @@ describe('AiDownloadProcessor', () => {
   let prisma: any;
   let minio: any;
   let gateway: any;
+  let collabDoc: any;
 
   beforeEach(async () => {
     prisma = {
       media: { create: vi.fn().mockResolvedValue({ id: 'media-new' }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     };
+    collabDoc = { writeNodeData: vi.fn() };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),
       buildKey: vi.fn().mockReturnValue('results/user1/proj1/node1/2026-05-20/uuid.png'),
@@ -40,6 +43,7 @@ describe('AiDownloadProcessor', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
         { provide: ExecutionGateway, useValue: gateway },
+        { provide: CollabDocumentService, useValue: collabDoc },
       ],
     }).compile();
     processor = module.get<AiDownloadProcessor>(AiDownloadProcessor);

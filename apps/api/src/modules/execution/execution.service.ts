@@ -7,7 +7,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { readCanvasLegacy } from '../canvas/canvas-legacy.reader';
+import { CollabDocumentService } from '../collab/collab-document.service';
 
 @Injectable()
 export class ExecutionService {
@@ -19,6 +19,7 @@ export class ExecutionService {
     @Inject(ValidationService) private readonly validation: ValidationService,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
@@ -30,7 +31,7 @@ export class ExecutionService {
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
 
-    const canvas = await readCanvasLegacy(this.prisma, projectId);
+    const canvas = await this.collabDoc.readCanvas(projectId);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];
 
@@ -72,7 +73,10 @@ export class ExecutionService {
           });
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
-          // TODO(Task13): withDoc 写回节点 data
+          await this.collabDoc.writeNodeData(projectId, node.id, {
+            content: data.content || prompt,
+            result: textResult.content,
+          });
 
           const rule = await this.prisma.pricingRule.findFirst({
             where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
@@ -109,7 +113,7 @@ export class ExecutionService {
             audio: vData?.audio,
           });
 
-          // TODO(Task13): withDoc 写回节点 data
+          await this.collabDoc.writeNodeData(projectId, node.id, { videoUrl: result.url });
 
           // 视频成功后补扣（Task11：对齐惯例）
           const vRule = await this.prisma.pricingRule.findFirst({
@@ -181,7 +185,7 @@ export class ExecutionService {
           totalDeducted += cost;
         }
 
-        // TODO(Task13): withDoc 写回节点 data
+        await this.collabDoc.writeNodeData(projectId, node.id, { resultUrl: result.url });
 
         const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 

@@ -35,10 +35,9 @@ describe('ProjectController', () => {
     expect(service.create).toHaveBeenCalledWith('未命名项目', 'u1');
   });
 
-  it('GET /api/projects/:id should return project with nodes and edges', async () => {
+  it('GET /api/projects/:id should return project', async () => {
     const result = await controller.getProject('p1');
-    expect(result).toHaveProperty('nodes');
-    expect(result).toHaveProperty('edges');
+    expect(result.id).toBe('p1');
   });
 
   it('GET /api/projects/:id/folder 登录时透传 userId', async () => {
@@ -68,11 +67,3 @@ describe('ProjectController', () => {
   });
 });
 
-describe('PUT :id/canvas', () => {
-  it('窗口期 no-op 200：丢弃 nodes/edges，echo version（Task15 退役）', async () => {
-    const controller = new ProjectController({} as any);
-    const body = { nodes: [{ id: 'n1' }], edges: [], version: 3 };
-    const result = await controller.syncCanvas('p1', body);
-    expect(result).toEqual({ version: 3 });
-  });
-});

@@ -9,6 +9,7 @@ import { ApiCallerService } from './api-caller.service';
 import { ExecutionProcessor } from './execution.processor';
 import { CreditModule } from '../credit/credit.module';
 import { TeamModule } from '../team/team.module';
+import { CollabModule } from '../collab/collab.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.constants';
 import { VideoTrimController } from './video-trim.controller';
@@ -27,6 +28,7 @@ const env = validateEnv();
 
 @Module({
   imports: [
+    CollabModule,
     CreditModule,
     TeamModule,
     MediaProcessModule,

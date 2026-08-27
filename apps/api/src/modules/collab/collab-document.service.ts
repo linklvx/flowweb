@@ -42,4 +42,18 @@ export class CollabDocumentService {
       return { nodes, edges };
     });
   }
+
+  /** 服务端写节点 data 字段（逐键写入，禁止整块替换） */
+  async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>) {
+    await this.withDoc(projectId, (doc) => {
+      const nodeMap = doc.getMap('nodes').get(nodeId);
+      if (!(nodeMap instanceof Y.Map)) return;
+      let dataMap = nodeMap.get('data');
+      if (!(dataMap instanceof Y.Map)) {
+        dataMap = new Y.Map();
+        nodeMap.set('data', dataMap);
+      }
+      for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
+    });
+  }
 }
