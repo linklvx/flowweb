@@ -28,6 +28,10 @@ model User {
   media          Media[]
   materialFolders MaterialFolder[]
   folders        Folder[]
+  teamsOwned     Team[]
+  teamMemberships TeamMember[]
+  teamJoinRequests TeamJoinRequest[]
+  decidedTeamJoinRequests TeamJoinRequest[] @relation("TeamJoinRequestDecidedBy")
 }
 
 model Account {
@@ -137,17 +141,21 @@ model CanvasProject {
   id        String       @id @default(cuid())
   name      String
   userId    String?
+  teamId    String?
   viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
   version   Int          @default(0)
   nodes     CanvasNode[]
   edges     CanvasEdge[]
   templates Template[]
+  canvasDoc CanvasDoc?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team?        @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([teamId])
 }
 
 enum TemplateStatus {
@@ -327,6 +335,9 @@ model Media {
   folder        MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  teamId        String?
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([projectId])
@@ -675,4 +686,184 @@ model SystemSetting {
   value     String   @db.Text
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+// ========== 团队协作 ==========
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum TeamStatus {
+  ACTIVE
+  DISBANDED
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TeamCreditTransactionType {
+  recharge
+  subscription_grant
+  consumption
+  expire_clear
+  register_grant
+  admin_adjust
+}
+
+enum TeamSubscriptionStatus {
+  active
+  expired
+}
+
+enum TeamOrderStatus {
+  PENDING
+  SUCCESS
+  CLOSED
+}
+
+model Team {
+  id        String     @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  status    TeamStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  members      TeamMember[]
+  balance      TeamBalance?
+  transactions TeamCreditTransaction[]
+  projects     CanvasProject[]
+  media        Media[]
+  subscription TeamSubscription?
+  orders       TeamRechargeOrder[]
+  joinRequests TeamJoinRequest[]
+
+  @@index([status])
+}
+
+model TeamMember {
+  id            String   @id @default(cuid())
+  teamId        String
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          TeamRole @default(MEMBER)
+  monthlyQuota  Int      @default(0) // 0=不限额
+  monthlyPeriod String? // 'YYYY-MM'
+  monthlyUsed   Int      @default(0)
+  joinedAt      DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model TeamBalance {
+  id                  String   @id @default(cuid())
+  teamId              String   @unique
+  team                Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  credits             Int      @default(0)
+  subscriptionCredits Int      @default(0)
+  version             Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model TeamCreditTransaction {
+  id             String                     @id @default(cuid())
+  teamId         String?
+  team           Team?                      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  operatorUserId String?
+  amount         Int
+  type           TeamCreditTransactionType
+  creditType     CreditType
+  referenceId    String?
+  balanceAfter   Int
+  createdAt      DateTime                   @default(now())
+
+  @@index([teamId, createdAt])
+  @@index([referenceId])
+}
+
+model TeamPlan {
+  id                String   @id @default(cuid())
+  name              String
+  monthlyCredits    Int
+  storageLimitBytes BigInt
+  seatLimit         Int
+  priceMonthly      Int // 分
+  isActive          Boolean  @default(true)
+  sort              Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  subscriptions TeamSubscription[]
+
+  @@index([isActive, sort])
+}
+
+model TeamSubscription {
+  id                 String                 @id @default(cuid())
+  teamId             String?                @unique
+  team               Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  planId             String
+  plan               TeamPlan               @relation(fields: [planId], references: [id])
+  status             TeamSubscriptionStatus @default(active)
+  paidAmount         Int
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([status, currentPeriodEnd])
+}
+
+model TeamRechargeOrder {
+  id            String          @id @default(cuid())
+  outTradeNo    String          @unique // TEAM 前缀
+  teamId        String?
+  team          Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  payerUserId   String
+  amountFen     Int
+  credits       Int
+  status        TeamOrderStatus @default(PENDING)
+  prepayId      String?         @db.VarChar(64)
+  transactionId String?         @db.VarChar(64)
+  paidAt        DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([teamId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model TeamJoinRequest {
+  id            String            @id @default(cuid())
+  teamId        String
+  team          Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        JoinRequestStatus @default(PENDING)
+  message       String?
+  decidedAt     DateTime?
+  decidedBy     String?
+  decidedByUser User?             @relation("TeamJoinRequestDecidedBy", fields: [decidedBy], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+
+  @@index([teamId, status])
+  @@index([userId])
+}
+
+model CanvasDoc {
+  projectId String   @id
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  state     Bytes
+  updatedAt DateTime @updatedAt
 }
