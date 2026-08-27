@@ -72,8 +72,8 @@ ProjectMember   id, projectId(→CanvasProject, onDelete: Cascade), userId(→Us
 **端点**（`/api/project/:id/members`，TeamGuard('project') + 项目角色校验）：
 
 - `GET`：项目成员列表（含回退角色推导的有效角色标注"继承"）——PROJECT_VIEWER 及以上可看
-- `POST {userId, role}`：添加/覆盖项目成员——PROJECT_OWNER 或 Team OWNER/ADMIN
-- `PATCH /:memberId {role}`：改角色——同上；改 PROJECT_OWNER 需当前操作者是 PROJECT_OWNER 或 Team OWNER
+- `POST {userId, role}`：添加/覆盖项目成员——**被添加人必须是本团队成员，否则 400**；普通角色（VIEWER/EDITOR）PROJECT_OWNER 或 Team OWNER/ADMIN 可设，**设为 PROJECT_OWNER 需当前操作者是 PROJECT_OWNER 或 Team OWNER**（与 PATCH 同规则，防 Team ADMIN 经 POST 路径绕过授予 OWNER）
+- `PATCH /:memberId {role}`：改角色——普通角色同 POST 权限；改 PROJECT_OWNER 需当前操作者是 PROJECT_OWNER 或 Team OWNER
 - `DELETE /:memberId`：移除——同 POST；**禁止移除最后一个显式 PROJECT_OWNER**（Team OWNER 回退兜底技术上仍可达，此禁令为产品语义——防误操作产生只能靠团队管理员管理的准孤儿项目）
 - **PROJECT_OWNER 允许多个**（平权协管理员语义）：PATCH 设为 PROJECT_OWNER 不降级他人；OWNER 间均可行使项目管理权
 
@@ -140,13 +140,13 @@ CanvasDocUpdate   id, projectId(→CanvasProject, onDelete: Cascade), seq BigInt
   3. 成功后 `lastPersistedSV = Y.encodeStateVector(doc)`
 - **Compaction（flush-then-compact，快照从 Postgres 权威构建，不信任任何实例内存——Redis 广播延迟与 compaction 解耦）**：该项目累计 update 行数 ≥ 32 时触发：
   1. **前置 flush**：先按上文流程 append 本实例 diff——保证本实例内存状态全部落库，否则后续 SV 重置会使未持久化更新永不 append
-  2. 事务内（`pg_advisory_xact_lock(hashtext(projectId))` 防多实例并发 compaction）：
+  2. 事务内（`pg_advisory_xact_lock(hashtext(projectId)::bigint)` 防多实例并发 compaction）：
      - `maxSeq = SELECT max(seq) WHERE projectId`
      - 临时 `new Y.Doc()`：apply `CanvasDoc.state` + 按 seq ASC 重放 `seq <= maxSeq` 全部增量行（临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律）
      - `newSnapshot = Y.encodeStateAsUpdate(tempDoc)` → UPSERT `CanvasDoc.state`
      - `DELETE WHERE projectId AND seq <= maxSeq`——步骤 a 之后其他实例新 append 的行（seq > maxSeq）不受影响，下次加载快照 + 这些行重放仍正确
   3. 内存 `lastPersistedSV = Y.encodeStateVector(doc)`（本实例状态已全部落库且被 maxSeq 覆盖，重置安全；其他实例 SV 落后产生的重复 append 为冗余行，幂等无害）
-- **onDocumentUnload 强制 compaction**（await 完成，走同一 flush-then-compact 序列）：不留增量尾巴，下次加载只读快照
+- **最后连接断开强制 compaction**：`onDisconnect` 时判断 `instance.getConnectionsCount(documentName) === 0`（含直连）→ 主动执行同一 flush-then-compact 序列（await 完成）——Hocuspocus 无独立 unload 钩子（一期 S7 裁定），框架随后自动触发的 onStoreDocument flush 因 diff 为空而跳过；不留增量尾巴，下次加载只读快照
 - **多实例冗余 append 接受**：同一文档两实例都 debounce 触发时可能 append 冗余行——CRDT 幂等保证重放正确，compaction 统一回收，不做内容去重
 
 ### 2.3 加载（onLoadDocument 改造）
@@ -212,8 +212,8 @@ doc observeDeep  → 投影刷新 canvasStore/nodeStore（原 hydrate 路径保�
 
 - store 彻底变为 doc 投影，undo 产生的更新 origin = UndoManager 实例 → 投影刷新 store 但不回写（回环结构上消失）
 - **mutation 入口全量拦截清单（spec 级钉死，plan 阶段 grep 复核防漏）**：
-  - `onNodesChange`（React Flow：position 拖拽/选中/zIndex/dimensions/remove）
-  - `onEdgesChange`（边的选中/remove）
+  - `onNodesChange`（React Flow：position 拖拽/zIndex/dimensions/remove——**select 变更不进 doc**，走 awareness selectedIds（一期已有），否则瞬态选中会以 local-user origin 污染 undo 栈）
+  - `onEdgesChange`（边的 remove；**select 同上走 awareness**）
   - 节点增删：addNode / 复制粘贴 / 拖入素材 / 导入模板 / 组操作（group/ungroup）
   - 连线建立/删除
   - 参数面板 data 字段编辑（prompt/model 等，逐键写 Y.Map）
