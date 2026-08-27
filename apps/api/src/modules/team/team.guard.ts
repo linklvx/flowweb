@@ -17,6 +17,7 @@ export class TeamGuard implements CanActivate {
     if (!userId) throw new ForbiddenException('未登录');
 
     const id = req.params.id;
+    if (!id) return true; // 无 :id 的路由（如 mine）不涉团队上下文，放行
     let teamId = id;
     if (source === 'project') {
       const project = await this.prisma.canvasProject.findUnique({

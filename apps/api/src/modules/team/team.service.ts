@@ -90,6 +90,64 @@ export class TeamService {
     if (!team || team.status === 'DISBANDED') throw new BadRequestException('团队已解散');
   }
 
+  async listMembers(teamId: string, page = 1, pageSize = 20) {
+    const [rows, total] = await Promise.all([
+      this.prisma.teamMember.findMany({
+        where: { teamId },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { joinedAt: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.teamMember.count({ where: { teamId } }),
+    ]);
+    return { items: rows, total };
+  }
+
+  private async requireMember(teamId: string, userId: string) {
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new ForbiddenException('非团队成员');
+    return member;
+  }
+
+  async changeRole(teamId: string, callerId: string, targetUserId: string, role: 'ADMIN' | 'MEMBER') {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可调整角色');
+    const target = await this.requireMember(teamId, targetUserId);
+    if (target.role === 'OWNER') throw new BadRequestException('不能修改 OWNER 的角色');
+    return this.prisma.teamMember.update({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+      data: { role },
+    });
+  }
+
+  async removeMember(teamId: string, callerId: string, targetUserId: string) {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('仅团队管理员可移除成员');
+    }
+    const target = await this.requireMember(teamId, targetUserId);
+    if (target.role === 'OWNER') throw new BadRequestException('OWNER 不可被移除');
+    return this.prisma.teamMember.delete({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+    });
+  }
+
+  async setQuota(teamId: string, callerId: string, targetUserId: string, monthlyQuota: number) {
+    if (monthlyQuota < 0) throw new BadRequestException('配额不能为负数');
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('仅团队管理员可配置额度');
+    }
+    await this.requireMember(teamId, targetUserId);
+    return this.prisma.teamMember.update({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+      data: { monthlyQuota },
+    });
+  }
+
   /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除+凭证置空 */
   async disbandTeam(teamId: string, userId: string) {
     const member = await this.prisma.teamMember.findUnique({

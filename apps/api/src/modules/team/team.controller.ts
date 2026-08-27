@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TeamService } from './team.service';
 import { TeamGuard } from './team.guard';
@@ -11,6 +11,26 @@ export class TeamController {
   @Get('mine')
   getMyTeams(@Req() req: Request) {
     return this.teamService.getMyTeams((req as any).user.id);
+  }
+
+  @Get(':id/members')
+  listMembers(@Param('id') id: string, @Query() query: { page?: string; pageSize?: string }) {
+    return this.teamService.listMembers(id, Number(query.page) || 1, Number(query.pageSize) || 20);
+  }
+
+  @Patch(':id/members/:memberUserId/role')
+  changeRole(@Param('id') id: string, @Param('memberUserId') memberUserId: string, @Body() body: { role: 'ADMIN' | 'MEMBER' }, @Req() req: Request) {
+    return this.teamService.changeRole(id, (req as any).user.id, memberUserId, body.role);
+  }
+
+  @Delete(':id/members/:memberUserId')
+  removeMember(@Param('id') id: string, @Param('memberUserId') memberUserId: string, @Req() req: Request) {
+    return this.teamService.removeMember(id, (req as any).user.id, memberUserId);
+  }
+
+  @Patch(':id/members/:memberUserId/quota')
+  setQuota(@Param('id') id: string, @Param('memberUserId') memberUserId: string, @Body() body: { monthlyQuota: number }, @Req() req: Request) {
+    return this.teamService.setQuota(id, (req as any).user.id, memberUserId, body.monthlyQuota);
   }
 
   @Patch(':id')

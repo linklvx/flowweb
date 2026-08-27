@@ -237,3 +237,135 @@ describe('TeamService 基础 API', () => {
     });
   });
 });
+
+describe('TeamService 成员管理', () => {
+  let service: TeamService;
+  let prisma: any;
+  let emitter: any;
+  let queue: any;
+
+  beforeEach(async () => {
+    prisma = {};
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    queue = { add: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TeamService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventEmitter2, useValue: emitter },
+        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+      ],
+    }).compile();
+
+    service = module.get<TeamService>(TeamService);
+  });
+
+  describe('listMembers', () => {
+    it('分页返回 {items,total}，item 含 user 摘要/role/quota/used', async () => {
+      const row = {
+        id: 'm1', role: 'MEMBER', monthlyQuota: 100, monthlyUsed: 30,
+        user: { id: 'u2', name: '张三', email: 'z@x.com' },
+      };
+      prisma.teamMember = {
+        findMany: vi.fn().mockResolvedValue([row]),
+        count: vi.fn().mockResolvedValue(1),
+      };
+
+      const result = await service.listMembers('t1', 1, 20);
+
+      expect(prisma.teamMember.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { teamId: 't1' },
+        skip: 0,
+        take: 20,
+      }));
+      expect(result).toEqual({
+        items: [{ id: 'm1', role: 'MEMBER', monthlyQuota: 100, monthlyUsed: 30, user: { id: 'u2', name: '张三', email: 'z@x.com' } }],
+        total: 1,
+      });
+    });
+  });
+
+  describe('changeRole', () => {
+    const setup = (callerRole: string, targetRole: string) => {
+      prisma.teamMember = {
+        findUnique: vi.fn()
+          .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
+          .mockResolvedValueOnce({ userId: 'target', role: targetRole }),
+        update: vi.fn(),
+      };
+    };
+
+    it('OWNER 可改 MEMBER→ADMIN', async () => {
+      setup('OWNER', 'MEMBER');
+      await service.changeRole('t1', 'caller', 'target', 'ADMIN');
+      expect(prisma.teamMember.update).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't1', userId: 'target' } },
+        data: { role: 'ADMIN' },
+      });
+    });
+
+    it('非 OWNER 拒绝', async () => {
+      setup('ADMIN', 'MEMBER');
+      await expect(service.changeRole('t1', 'caller', 'target', 'ADMIN')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('不能改 OWNER 的角色', async () => {
+      setup('OWNER', 'OWNER');
+      await expect(service.changeRole('t1', 'caller', 'target', 'ADMIN')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('removeMember', () => {
+    const setup = (callerRole: string, targetRole: string) => {
+      prisma.teamMember = {
+        findUnique: vi.fn()
+          .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
+          .mockResolvedValueOnce({ userId: 'target', role: targetRole }),
+        delete: vi.fn(),
+      };
+    };
+
+    it('OWNER/ADMIN 可移除 MEMBER', async () => {
+      setup('ADMIN', 'MEMBER');
+      await service.removeMember('t1', 'caller', 'target');
+      expect(prisma.teamMember.delete).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't1', userId: 'target' } },
+      });
+    });
+
+    it('OWNER 不可被移除', async () => {
+      setup('OWNER', 'OWNER');
+      await expect(service.removeMember('t1', 'caller', 'target')).rejects.toThrow(BadRequestException);
+    });
+
+    it('MEMBER 无权移除', async () => {
+      setup('MEMBER', 'MEMBER');
+      await expect(service.removeMember('t1', 'caller', 'target')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('setQuota', () => {
+    it('OWNER/ADMIN 设置 monthlyQuota≥0', async () => {
+      prisma.teamMember = {
+        findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
+        update: vi.fn(),
+      };
+      await service.setQuota('t1', 'caller', 'target', 50);
+      expect(prisma.teamMember.update).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't1', userId: 'target' } },
+        data: { monthlyQuota: 50 },
+      });
+    });
+
+    it('负数拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
+      await expect(service.setQuota('t1', 'caller', 'target', -1)).rejects.toThrow(BadRequestException);
+    });
+
+    it('MEMBER 拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };
+      await expect(service.setQuota('t1', 'caller', 'target', 50)).rejects.toThrow(ForbiddenException);
+    });
+  });
+});
