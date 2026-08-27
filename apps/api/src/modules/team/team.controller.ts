@@ -1,12 +1,16 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TeamService } from './team.service';
+import { TeamRechargeService } from './team-recharge.service';
 import { SkipTeamGuard, TeamGuard } from './team.guard';
 
 @Controller('api/team')
 @UseGuards(TeamGuard)
 export class TeamController {
-  constructor(@Inject(TeamService) private readonly teamService: TeamService) {}
+  constructor(
+    @Inject(TeamService) private readonly teamService: TeamService,
+    private readonly teamRecharge: TeamRechargeService,
+  ) {}
 
   @Get('mine')
   getMyTeams(@Req() req: Request) {
@@ -57,6 +61,16 @@ export class TeamController {
   @Post(':id/join-requests/:requestId/reject')
   reject(@Param('id') id: string, @Param('requestId') requestId: string, @Req() req: Request) {
     return this.teamService.reject(id, (req as any).user.id, requestId);
+  }
+
+  @Post(':id/recharge/orders')
+  createRechargeOrder(@Param('id') id: string, @Body() body: { amount: number }, @Req() req: Request) {
+    return this.teamRecharge.createTeamOrder(id, (req as any).user.id, Math.round(Number(body.amount) * 100));
+  }
+
+  @Post(':id/recharge/orders/:orderNo/pay')
+  payRechargeOrder(@Param('id') id: string, @Param('orderNo') orderNo: string, @Req() req: Request) {
+    return this.teamRecharge.payTeamOrder(orderNo, (req as any).user.id);
   }
 
   @Post(':id/disband')

@@ -24,6 +24,7 @@ export class RechargeService {
     @Optional() @InjectQueue(QUEUE_NAMES.RECHARGE_ACTIVE_QUERY) private readonly activeQueryQueue?: Queue,
     @Inject(PaymentGateway) private readonly gateway?: PaymentGateway,
     @Optional() @Inject('SUB_ORDER_SERVICE') private readonly subOrderService?: any,
+    @Optional() @Inject('TEAM_RECHARGE_SERVICE') private readonly teamRechargeService?: any,
   ) {}
 
   async createOrder(userId: string, amountFen: number, clientIp: string) {
@@ -241,6 +242,22 @@ export class RechargeService {
           scope.setLevel('fatal');
           return scope;
         });
+        endDuration({ result: 'error' });
+        return { code: 'FAIL', message: 'internal error' };
+      }
+    }
+
+    if ((outTradeNo as string).startsWith('TEAM')) {
+      // Team order callback (recharge / Task10: subscription) — route to team handler
+      if (!this.teamRechargeService) {
+        endDuration({ result: 'error' });
+        return { code: 'FAIL', message: 'team order processing not available' };
+      }
+      try {
+        const result = await this.teamRechargeService.completeTeamCallback(notify);
+        endDuration({ result: result.code === 'SUCCESS' ? 'success' : 'error' });
+        return result;
+      } catch {
         endDuration({ result: 'error' });
         return { code: 'FAIL', message: 'internal error' };
       }

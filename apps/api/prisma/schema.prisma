@@ -803,6 +803,7 @@ model TeamRechargeOrder {
   status        TeamOrderStatus @default(PENDING)
   prepayId      String?         @db.VarChar(64)
   transactionId String?         @db.VarChar(64)
+  payerOpenid   String?         @db.VarChar(64)
   paidAt        DateTime?
   expiresAt     DateTime
   createdAt     DateTime        @default(now())

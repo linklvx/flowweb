@@ -4,6 +4,8 @@ import Redis from 'ioredis';
 import { CreditModule } from '../credit/credit.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { SubscriptionOrderService } from '../subscription/subscription-order.service';
+import { TeamModule } from '../team/team.module';
+import { TeamRechargeService } from '../team/team-recharge.service';
 import { RechargeTaskModule } from './task/recharge-task.module';
 import { RechargeController } from './recharge.controller';
 import { RechargeService } from './recharge.service';
@@ -11,7 +13,7 @@ import { WechatPaymentProvider } from './providers/wechat-payment.provider';
 import { PaymentGateway } from './payment.gateway';
 
 @Module({
-  imports: [CreditModule, forwardRef(() => SubscriptionModule), RechargeTaskModule],
+  imports: [CreditModule, forwardRef(() => SubscriptionModule), forwardRef(() => TeamModule), RechargeTaskModule],
   controllers: [RechargeController],
   providers: [
     RechargeService,
@@ -41,6 +43,10 @@ import { PaymentGateway } from './payment.gateway';
     {
       provide: 'SUB_ORDER_SERVICE',
       useExisting: SubscriptionOrderService,
+    },
+    {
+      provide: 'TEAM_RECHARGE_SERVICE',
+      useExisting: TeamRechargeService,
     },
   ],
   exports: [RechargeService, PaymentGateway, 'PAYMENT_PROVIDER'],
