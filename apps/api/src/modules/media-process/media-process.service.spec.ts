@@ -35,7 +35,7 @@ describe('MediaProcessService', () => {
   let mockMinio: any;
 
   beforeEach(async () => {
-    mockPrisma = { media: { create: vi.fn() } };
+    mockPrisma = { media: { create: vi.fn() }, team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) } };
     mockMinio = {
       buildKey: vi.fn().mockReturnValue('generated/user123/video.mp4'),
       upload: vi.fn().mockResolvedValue(undefined),

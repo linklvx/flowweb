@@ -44,6 +44,7 @@ describe('CanvasService', () => {
     it('事务创建 CanvasProject + DRAFT Template，返回 templateId/projectId/name', async () => {
       prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
       }));
@@ -56,6 +57,7 @@ describe('CanvasService', () => {
     it('事务内 Template 数据含 folderId/status DRAFT/isPublic false', async () => {
       const templateCreate = vi.fn().mockResolvedValue({ id: 't1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: templateCreate },
       }));
@@ -79,6 +81,7 @@ describe('CanvasService', () => {
       function mockTx(names: string[]) {
         const tx = {
           $executeRaw: vi.fn().mockResolvedValue(0),
+          team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
           canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
           template: {
             findMany: vi.fn().mockResolvedValue(names.map((name) => ({ name }))),

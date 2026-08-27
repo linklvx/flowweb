@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { mkdir, rm, readFile } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -171,6 +172,7 @@ export class MediaProcessService {
     const media = await this.prisma.media.create({
       data: {
         userId,
+        teamId: await getOwnerTeamId(this.prisma, userId),
         key,
         originalName,
         mimeType,

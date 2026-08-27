@@ -7,6 +7,7 @@ import { ApiCallerService } from './api-caller.service';
 import { CreditService } from '../credit/credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 
 describe('ExecutionService with nodeIds（整组执行）', () => {
   let service: ExecutionService;
@@ -21,7 +22,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
-      canvasNode: { update: vi.fn() },
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
       pricingRule: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     topology = {
@@ -61,7 +62,8 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'in1', type: 'textInput', data: { content: 'a', model: 'seed-model-kimi' } },
       { id: 'in2', type: 'textInput', data: { content: 'b', model: 'seed-model-kimi' } },
     ];
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', nodes, edges: [] });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: buildLegacyDocState(nodes, []) });
 
     await service.execute('p1', undefined, 'u1', ['in1', 'in2']);
 
@@ -72,13 +74,14 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   });
 
   it('collectUpstreamData 收到全量节点（组外上游可读）', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({
-      id: 'p1',
-      nodes: [
-        { id: 'outside', type: 'textInput', data: { content: 'up' } },
-        { id: 'in1', type: 'textInput', data: { model: 'seed-model-kimi' } },
-      ],
-      edges: [{ sourceId: 'outside', targetId: 'in1' }],
+    const nodes = [
+      { id: 'outside', type: 'textInput', data: { content: 'up' } },
+      { id: 'in1', type: 'textInput', data: { model: 'seed-model-kimi' } },
+    ];
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.canvasDoc.findUnique.mockResolvedValue({
+      projectId: 'p1',
+      state: buildLegacyDocState(nodes, [{ id: 'e1', source: 'outside', target: 'in1' }]),
     });
     await service.execute('p1', undefined, 'u1', ['in1']);
 

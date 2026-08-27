@@ -204,7 +204,6 @@ export class TemplateService {
         userId,
         cleanNodes,
         cleanEdges,
-        projectData.viewport,
       );
 
       await this.prisma.template.update({

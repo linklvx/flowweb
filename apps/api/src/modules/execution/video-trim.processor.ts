@@ -4,6 +4,7 @@ import { Inject, Logger } from '@nestjs/common';
 import { spawn } from 'child_process';
 import { rm, mkdir, readFile } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
 import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
@@ -98,6 +99,7 @@ export class VideoTrimProcessor extends WorkerHost {
       const media = await this.prisma.media.create({
         data: {
           userId,
+          teamId: await getOwnerTeamId(this.prisma, userId),
           key,
           originalName: `trimmed-${taskId}.${ext}`,
           mimeType: contentType,

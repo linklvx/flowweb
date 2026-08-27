@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { CreditService } from '../credit/credit.service';
@@ -123,6 +124,7 @@ export class AiImageEditProcessor extends WorkerHost {
       const media = await this.prisma.media.create({
         data: {
           userId,
+          teamId: await getOwnerTeamId(this.prisma, userId),
           key,
           originalName: `ai-edited-${nodeId}.${ext}`,
           mimeType: contentType,

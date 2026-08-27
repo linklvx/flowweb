@@ -24,6 +24,7 @@ describe('AiDownloadProcessor', () => {
   beforeEach(async () => {
     prisma = {
       media: { create: vi.fn().mockResolvedValue({ id: 'media-new' }) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),

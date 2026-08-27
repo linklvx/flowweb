@@ -32,6 +32,7 @@ function makeJob(overrides?: Record<string, unknown>) {
 
 function mockPrisma() {
   return {
+    team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     videoTrimTask: {
       findUnique: vi.fn().mockResolvedValue({
         id: 'task-1',

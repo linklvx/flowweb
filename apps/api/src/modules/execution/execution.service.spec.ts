@@ -21,7 +21,7 @@ describe('ExecutionService', () => {
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
-      canvasNode: { update: vi.fn() },
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
       pricingRule: { findFirst: vi.fn() },
     };
     topology = {
@@ -66,9 +66,7 @@ describe('ExecutionService', () => {
   });
 
   it('should execute single node successfully', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({
-      id: 'p1', nodes: [], edges: [], viewport: {},
-    });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');
@@ -79,9 +77,7 @@ describe('ExecutionService', () => {
 
   it('should return error when validation fails', async () => {
     validation.validateAll.mockResolvedValue({ valid: false, errors: ['余额不足'], totalCost: 0 });
-    prisma.canvasProject.findUnique.mockResolvedValue({
-      id: 'p1', nodes: [], edges: [], viewport: {},
-    });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
 
     const result = await service.execute('p1', undefined, 'default-user');
     expect(result.success).toBe(false);
@@ -98,9 +94,7 @@ describe('ExecutionService', () => {
   });
 
   it('should handle credit deduction failure during execution', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({
-      id: 'p1', nodes: [], edges: [], viewport: {},
-    });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
     credit.deduct.mockResolvedValue({ success: false });
 
@@ -110,9 +104,7 @@ describe('ExecutionService', () => {
   });
 
   it('should enqueue ai-result-download after AI returns resultUrl', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({
-      id: 'p1', nodes: [], edges: [], viewport: {},
-    });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');

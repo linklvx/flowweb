@@ -141,18 +141,14 @@ model CanvasProject {
   id        String       @id @default(cuid())
   name      String
   userId    String?
-  teamId    String?
-  viewport  Json         @default("{ \"x\": 0, \"y\": 0, \"zoom\": 1 }")
-  version   Int          @default(0)
-  nodes     CanvasNode[]
-  edges     CanvasEdge[]
+  teamId    String
   templates Template[]
   canvasDoc CanvasDoc?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team?        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team      Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([teamId])
@@ -177,35 +173,6 @@ model Folder {
   templates Template[]
 
   @@index([userId, parentId])
-}
-
-model CanvasNode {
-  id        String        @id @default(cuid())
-  projectId String
-  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  type      String
-  position  Json
-  data      Json
-  width     Float?
-  height    Float?
-  parentId  String?
-  parent    CanvasNode?   @relation("CanvasNodeChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  children  CanvasNode[]  @relation("CanvasNodeChildren")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  @@index([projectId])
-  @@index([parentId])
-}
-
-model CanvasEdge {
-  id        String        @id @default(cuid())
-  projectId String
-  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sourceId  String
-  targetId  String
-
-  @@index([projectId])
 }
 
 model NodeType {
@@ -336,8 +303,8 @@ model Media {
 
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  teamId        String?
-  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId        String
+  team          Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([projectId])

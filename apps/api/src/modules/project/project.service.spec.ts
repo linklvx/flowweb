@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 
 describe('ProjectService', () => {
   let service: ProjectService;
@@ -21,15 +21,10 @@ describe('ProjectService', () => {
       template: {
         findUnique: vi.fn(),
       },
-      canvasNode: {
-        createMany: vi.fn(),
-        deleteMany: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      canvasEdge: {
-        createMany: vi.fn(),
-        deleteMany: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+      canvasDoc: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
       },
     };
 
@@ -45,20 +40,36 @@ describe('ProjectService', () => {
 
   describe('create', () => {
     it('should create a project with given name', async () => {
-      const mockProject = { id: 'p1', name: '未命名项目', viewport: { x: 0, y: 0, zoom: 1 }, createdAt: new Date(), updatedAt: new Date() };
-      const mockProjectFull = { ...mockProject, nodes: [], edges: [] };
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
-      prisma.canvasProject.findUnique.mockResolvedValue(mockProjectFull);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
-      const result = await service.create('未命名项目');
+      const result = await service.create('未命名项目', 'u1');
       expect(result.id).toBe('p1');
       expect(result.name).toBe('未命名项目');
+      expect(prisma.canvasProject.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ name: '未命名项目', teamId: 'team1' }),
+      });
+      expect(prisma.canvasDoc.create).not.toHaveBeenCalled();
+    });
+
+    it('带 nodes 时序列化写入 CanvasDoc', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
+      const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
+      await service.create('导入', 'u1', nodes, edges);
+      expect(prisma.canvasDoc.create).toHaveBeenCalledWith({
+        data: { projectId: 'p1', state: expect.any(Buffer) },
+      });
     });
   });
 
   describe('findById', () => {
     it('should return project with nodes and edges', async () => {
-      const mockProject = { id: 'p1', name: 'Test', nodes: [], edges: [], viewport: {}, createdAt: new Date(), updatedAt: new Date() };
+      const mockProject = { id: 'p1', name: 'Test', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
       const result = await service.findById('p1');
@@ -66,20 +77,26 @@ describe('ProjectService', () => {
       expect(result.edges).toEqual([]);
     });
 
+    it('从 CanvasDoc 反序列化 nodes/edges', async () => {
+      const mockProject = { id: 'p1', name: 'Test', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      prisma.canvasDoc.findUnique.mockResolvedValue({
+        projectId: 'p1',
+        state: buildLegacyDocState(
+          [{ id: 'n1', type: 'textInput', position: { x: 3, y: 4 }, data: { text: 'hi' } }],
+          [{ id: 'e1', source: 'n1', target: 'n2' }],
+        ),
+      });
+
+      const result = await service.findById('p1');
+      expect(result.nodes).toHaveLength(1);
+      expect(result.nodes[0]).toMatchObject({ id: 'n1', type: 'textInput', data: { text: 'hi' } });
+      expect(result.edges).toEqual([{ id: 'e1', sourceId: 'n1', targetId: 'n2' }]);
+    });
+
     it('should throw NotFoundException when project missing', async () => {
       prisma.canvasProject.findUnique.mockResolvedValue(null);
       await expect(service.findById('bad-id')).rejects.toThrow();
-    });
-  });
-
-  describe('updateViewport', () => {
-    it('should update viewport on project', async () => {
-      prisma.canvasProject.update.mockResolvedValue({ id: 'p1', viewport: { x: 10, y: 20, zoom: 1.5 } });
-      await service.updateViewport('p1', { x: 10, y: 20, zoom: 1.5 });
-      expect(prisma.canvasProject.update).toHaveBeenCalledWith({
-        where: { id: 'p1' },
-        data: { viewport: { x: 10, y: 20, zoom: 1.5 } },
-      });
     });
   });
 
@@ -155,82 +172,5 @@ describe('ProjectService', () => {
 
       expect(result).toEqual({ folderId: null });
     });
-  });
-});
-
-describe('ProjectService.syncCanvas', () => {
-  const mkTx = () => ({
-    canvasProject: {
-      updateMany: vi.fn(),
-      findUnique: vi.fn(),
-    },
-    canvasNode: { deleteMany: vi.fn(), createMany: vi.fn() },
-    canvasEdge: { deleteMany: vi.fn(), createMany: vi.fn() },
-  });
-
-  const mkService = (tx: ReturnType<typeof mkTx>) => {
-    const prisma = {
-      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
-    };
-    return { service: new ProjectService(prisma as any), prisma };
-  };
-
-  const nodes = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
-  const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
-
-  it('version 匹配：事务内更新 nodes+edges，version+1 并返回', async () => {
-    const tx = mkTx();
-    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
-    const { service } = mkService(tx);
-    const result = await service.syncCanvas('p1', nodes, edges, 3);
-    expect(tx.canvasProject.updateMany).toHaveBeenCalledWith({
-      where: { id: 'p1', version: 3 },
-      data: { version: 4 },
-    });
-    expect(tx.canvasNode.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
-    expect(tx.canvasEdge.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
-    expect(tx.canvasNode.createMany).toHaveBeenCalled();
-    expect(tx.canvasEdge.createMany).toHaveBeenCalled();
-    expect(result).toEqual({ version: 4 });
-  });
-
-  it('保留客户端 node ID + parentId 父先子后排序', async () => {
-    const tx = mkTx();
-    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
-    const { service } = mkService(tx);
-    const mixed = [
-      { id: 'child', type: 'textInput', position: { x: 0, y: 0 }, data: {}, parentId: 'parent' },
-      { id: 'parent', type: 'group', position: { x: 0, y: 0 }, data: {} },
-    ];
-    await service.syncCanvas('p1', mixed, [], 0);
-    const arg = tx.canvasNode.createMany.mock.calls[0][0].data as any[];
-    expect(arg[0].id).toBe('parent');
-    expect(arg[1].id).toBe('child');
-  });
-
-  it('空 nodes/edges：deleteMany 后不 createMany', async () => {
-    const tx = mkTx();
-    tx.canvasProject.updateMany.mockResolvedValue({ count: 1 });
-    const { service } = mkService(tx);
-    await service.syncCanvas('p1', [], [], 0);
-    expect(tx.canvasNode.createMany).not.toHaveBeenCalled();
-    expect(tx.canvasEdge.createMany).not.toHaveBeenCalled();
-  });
-
-  it('version 不匹配：抛 ConflictException', async () => {
-    const tx = mkTx();
-    tx.canvasProject.updateMany.mockResolvedValue({ count: 0 });
-    tx.canvasProject.findUnique.mockResolvedValue({ version: 9 });
-    const { service } = mkService(tx);
-    await expect(service.syncCanvas('p1', nodes, edges, 3)).rejects.toThrow(ConflictException);
-    expect(tx.canvasNode.deleteMany).not.toHaveBeenCalled();
-  });
-
-  it('项目不存在：抛 NotFoundException', async () => {
-    const tx = mkTx();
-    tx.canvasProject.updateMany.mockResolvedValue({ count: 0 });
-    tx.canvasProject.findUnique.mockResolvedValue(null);
-    const { service } = mkService(tx);
-    await expect(service.syncCanvas('p1', nodes, edges, 3)).rejects.toThrow(NotFoundException);
   });
 });

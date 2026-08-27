@@ -4,6 +4,7 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { validateTemplateData } from '../template/template.validation';
+import { getOwnerTeamId } from '../team/team.util';
 
 @Injectable()
 export class CanvasService {
@@ -27,7 +28,7 @@ export class CanvasService {
         finalName = await CanvasService.nextUntitledName(tx, userId);
       }
       const project = await tx.canvasProject.create({
-        data: { name: finalName, userId, viewport: { x: 0, y: 0, zoom: 1 } },
+        data: { name: finalName, userId, teamId: await getOwnerTeamId(tx, userId) },
       });
       const template = await tx.template.create({
         data: { name: finalName, userId, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
@@ -67,7 +68,8 @@ export class CanvasService {
       source: e.sourceId || e.source || '',
       target: e.targetId || e.target || '',
     }));
-    const templateData = { nodes, edges, viewport: project.viewport };
+    // TODO(Task13): viewport 改前端入参（SaveAsTemplateDto）；窗口期占位（viewport 列已随 autosave 退役）
+    const templateData = { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
 
     try {
       validateTemplateData(templateData);

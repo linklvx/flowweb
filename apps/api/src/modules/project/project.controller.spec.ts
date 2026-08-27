@@ -11,7 +11,6 @@ describe('ProjectController', () => {
     service = {
       create: vi.fn().mockResolvedValue({ id: 'p1', name: 'test' }),
       findById: vi.fn().mockResolvedValue({ id: 'p1', nodes: [], edges: [] }),
-      updateViewport: vi.fn().mockResolvedValue({}),
       updateName: vi.fn().mockResolvedValue({ id: 'p1', name: 'updated' }),
       delete: vi.fn().mockResolvedValue({}),
       getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
@@ -52,9 +51,9 @@ describe('ProjectController', () => {
     expect(service.getProjectFolder).toHaveBeenCalledWith('p1', undefined);
   });
 
-  it('PUT /api/projects/:id/viewport should update viewport', async () => {
-    await controller.updateViewport('p1', { viewport: { x: 10, y: 20, zoom: 1.5 } });
-    expect(service.updateViewport).toHaveBeenCalledWith('p1', { x: 10, y: 20, zoom: 1.5 });
+  it('PUT /api/projects/:id/viewport 窗口期 no-op 200', async () => {
+    const result = await controller.updateViewport('p1', { viewport: { x: 10, y: 20, zoom: 1.5 } });
+    expect(result).toEqual({ success: true });
   });
 
   it('PATCH /api/projects/:id should update project name', async () => {
@@ -70,11 +69,10 @@ describe('ProjectController', () => {
 });
 
 describe('PUT :id/canvas', () => {
-  it('透传 nodes/edges/version 到 service.syncCanvas', async () => {
-    const syncCanvas = vi.fn().mockResolvedValue({ version: 4 });
-    const controller = new ProjectController({ syncCanvas } as any);
+  it('窗口期 no-op 200：丢弃 nodes/edges，echo version（Task15 退役）', async () => {
+    const controller = new ProjectController({} as any);
     const body = { nodes: [{ id: 'n1' }], edges: [], version: 3 };
-    await controller.syncCanvas('p1', body);
-    expect(syncCanvas).toHaveBeenCalledWith('p1', body.nodes, body.edges, 3);
+    const result = await controller.syncCanvas('p1', body);
+    expect(result).toEqual({ version: 3 });
   });
 });

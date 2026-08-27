@@ -11,6 +11,7 @@ describe('StorageService', () => {
 
   beforeEach(async () => {
     prisma = {
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
       media: {
         create: vi.fn().mockResolvedValue({ id: 'media-1', key: 'uploads/u1/2026-01-01/a.png', status: 'pending' }),
         update: vi.fn().mockResolvedValue({ id: 'media-1', status: 'completed' }),

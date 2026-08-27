@@ -7,6 +7,7 @@ import { CreditService } from '../credit/credit.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { readCanvasLegacy } from '../canvas/canvas-legacy.reader';
 
 @Injectable()
 export class ExecutionService {
@@ -26,12 +27,12 @@ export class ExecutionService {
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: projectId },
-      include: { nodes: true, edges: true },
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
 
-    const allNodes = project.nodes as any[];
-    const allEdges = project.edges as any[];
+    const canvas = await readCanvasLegacy(this.prisma, projectId);
+    const allNodes = canvas.nodes as any[];
+    const allEdges = canvas.edges as any[];
 
     // 2. Determine scope
     const scopeNodes = nodeIds
@@ -71,10 +72,7 @@ export class ExecutionService {
           });
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
-          await this.prisma.canvasNode.update({
-            where: { id: node.id },
-            data: { data: { ...data, content: data.content || prompt, result: textResult.content } },
-          });
+          // TODO(Task13): withDoc 写回节点 data
 
           const rule = await this.prisma.pricingRule.findFirst({
             where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
@@ -111,10 +109,7 @@ export class ExecutionService {
             audio: vData?.audio,
           });
 
-          await this.prisma.canvasNode.update({
-            where: { id: node.id },
-            data: { data: { ...vData, videoUrl: result.url } },
-          });
+          // TODO(Task13): withDoc 写回节点 data
 
           const newBalance = await this.credit.getBalance(userId);
 
@@ -172,11 +167,7 @@ export class ExecutionService {
           totalDeducted += cost;
         }
 
-        // Save result to node
-        await this.prisma.canvasNode.update({
-          where: { id: node.id },
-          data: { data: { ...data, resultUrl: result.url } },
-        });
+        // TODO(Task13): withDoc 写回节点 data
 
         const newBalance = await this.credit.getBalance(userId);
 

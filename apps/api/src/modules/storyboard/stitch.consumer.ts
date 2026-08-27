@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { composeStoryboard } from './stitch.composer';
@@ -84,6 +85,7 @@ export class StitchConsumer extends WorkerHost {
       const media = await this.prisma.media.create({
         data: {
           userId: d.userId,
+          teamId: await getOwnerTeamId(this.prisma, d.userId),
           bucket: 'flowai',
           key,
           originalName: `storyboard-stitch-${job.id}.jpg`,

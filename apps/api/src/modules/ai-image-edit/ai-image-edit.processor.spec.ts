@@ -32,6 +32,7 @@ describe('AiImageEditProcessor', () => {
         findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'results/u/p/n/date/uuid.png' }),
         create: vi.fn().mockResolvedValue({ id: 'media-new' }),
       },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),

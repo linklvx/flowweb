@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
 import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
@@ -123,6 +124,7 @@ export class LightingConsumer {
       const media = await this.prisma.media.create({
         data: {
           userId,
+          teamId: await getOwnerTeamId(this.prisma, userId),
           key,
           originalName: `lighting-${nodeId}.${ext}`,
           mimeType: contentType,

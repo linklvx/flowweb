@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import axios from 'axios';
@@ -69,6 +70,7 @@ export class AiDownloadProcessor extends WorkerHost {
     const media = await this.prisma.media.create({
       data: {
         userId,
+        teamId: await getOwnerTeamId(this.prisma, userId),
         key,
         originalName: `ai-generated-${nodeId}.${ext}`,
         mimeType,

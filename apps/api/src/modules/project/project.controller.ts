@@ -22,17 +22,19 @@ export class ProjectController {
     return this.projectService.getProjectFolder(id, userId);
   }
 
+  // TODO(Task15): 端点随 autosave 链路退役删除——窗口期 no-op 200 兼容旧前端
   @Put(':id/viewport')
   updateViewport(@Param('id') id: string, @Body() body: { viewport: { x: number; y: number; zoom: number } }) {
-    return this.projectService.updateViewport(id, body.viewport);
+    return { success: true };
   }
 
+  // TODO(Task15): 端点随 autosave 链路退役删除——窗口期 no-op 200（echo version 保持前端 serverVersion 平滑）
   @Put(':id/canvas')
   syncCanvas(
     @Param('id') id: string,
     @Body() body: { nodes: any[]; edges: any[]; version: number },
   ) {
-    return this.projectService.syncCanvas(id, body.nodes, body.edges, body.version);
+    return { version: body.version };
   }
 
   @Patch(':id')

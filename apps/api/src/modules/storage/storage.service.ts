@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
+import { getOwnerTeamId } from '../team/team.util';
 
 @Injectable()
 export class StorageService {
@@ -19,6 +20,7 @@ export class StorageService {
     const media = await this.prisma.media.create({
       data: {
         userId,
+        teamId: await getOwnerTeamId(this.prisma, userId),
         bucket: 'flowai',
         key,
         originalName: dto.fileName,
