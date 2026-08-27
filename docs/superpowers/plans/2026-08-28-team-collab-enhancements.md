@@ -164,6 +164,7 @@ describe('CanvasDocUpdateRepository', () => {
     prisma = {
       $transaction: jest.fn(),
       $queryRaw: jest.fn().mockResolvedValue([{ seq: 1n }]),
+      $executeRaw: jest.fn().mockResolvedValue(undefined),
       canvasDocUpdate: {
         create: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
@@ -786,12 +787,17 @@ import Redis from 'ioredis';
 CollabRedisSync,
 ```
 
-gateway 注入 `CollabRedisSync` 并在构造后绑定 `this.redisSync.getDocument = (name) => this.server.documents.get(name)?.doc`（Hocuspocus `instance.documents: Map<string, Document>`，Document 上有 `.doc`；绑定动作放 `onModuleInit`——`listen()` 之前）。`loadDocument` 末尾（persistedSVs.set 之前）追加：
+gateway 注入 `CollabRedisSync` 并在构造后绑定 `this.redisSync.getDocument = (name) => this.server.documents.get(name)?.doc`（Hocuspocus `instance.documents: Map<string, Document>`，Document 上有 `.doc`；绑定动作放 `onModuleInit`——`listen()` 之前）。`loadDocument` 末尾追加（**顺序钉死：先 set 再 sync**）：
 
 ```typescript
-await this.redisSync.syncFromPeers(documentName, document, 1000);
+// 先固定"已持久化状态"（快照+增量重放后的 SV）——sync 从对等实例拉来的未持久化更新
+// （对等 5s debounce 窗口内）落在 lastPersistedSV 之外，本实例 onStoreDocument 的 diff 会
+// 冗余 append 它们（spec 2.2 冗余策略）：对等实例崩溃也不丢
 this.persistedSVs.set(projectId, Y.encodeStateVector(document));
+await this.redisSync.syncFromPeers(documentName, document, 1000);
 ```
+
+（Task 4 实现里 loadDocument 末尾原有的 `this.persistedSVs.set(...)` 保持位置不变，sync 追加在其后。）
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -894,6 +900,7 @@ private waitForSV(doc: Y.Doc, sv: Uint8Array, timeoutMs: number): Promise<boolea
     const timer = setTimeout(() => { cleanup(); resolve(false); }, timeoutMs);
     const cleanup = () => { clearTimeout(timer); doc.off('update', onUpdate); };
     doc.on('update', onUpdate);
+    if (check()) { cleanup(); resolve(true); } // 注册后立即检查——函数自洽，不依赖外层守卫时序
   });
 }
 
@@ -1240,9 +1247,14 @@ export class ProjectMemberService {
 
   /** 统一授予规则（spec 1.2 修订）：普通角色 PO/TeamOA 可设；设 OWNER 仅 PO/TeamOWNER */
   private async assertCanManage(projectId: string, callerId: string, grantRole: 'PROJECT_VIEWER' | 'PROJECT_EDITOR' | 'PROJECT_OWNER') {
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('项目不存在');
     const projectRole = await this.perm.resolve(projectId, callerId);
     const teamMember = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: (await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } }))!.teamId, userId: callerId } },
+      where: { teamId_userId: { teamId: project.teamId, userId: callerId } },
       select: { role: true },
     });
     const isProjectOwner = projectRole === 'PROJECT_OWNER';
@@ -1340,7 +1352,7 @@ cd apps/api && npx jest src/modules/team/project-member.service.spec.ts src/modu
 
 - [ ] **Step 5: 前端 ProjectMembersPanel**
 
-`projectMemberApi.ts`：list/add/changeRole/remove 四函数（apiFetch，路径 `/project/${id}/members`）。
+`projectMemberApi.ts`：`listProjectMembers / addProjectMember / changeProjectMemberRole / removeProjectMember` 四函数（apiFetch，路径 `/project/${id}/members`）。
 
 `ProjectMembersPanel.tsx`（antd Table + 添加下拉）：
 
@@ -1359,7 +1371,22 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
       render: (v, r) => <Tag color={v === 'PROJECT_OWNER' ? 'gold' : v === 'PROJECT_EDITOR' ? 'blue' : 'default'}>{v.replace('PROJECT_', '')}</Tag> },
     { title: '来源', dataIndex: 'source', render: (v) => (v === 'inherited' ? <Tag>继承</Tag> : <Tag color="cyan">显式</Tag>) },
     { title: '操作', key: 'op', render: (_, r) => (
-      <Button size="small" danger onClick={async () => { await removeProjectMember(projectId, r.userId); void load(); }}>移除</Button>
+      <Dropdown menu={{
+        items: [
+          { key: 'EDITOR', label: '设为编辑' },
+          { key: 'VIEWER', label: '设为只读' },
+          { key: 'OWNER', label: '设为所有者', danger: true },
+          { type: 'divider' },
+          { key: 'remove', label: '移除显式记录', danger: true },
+        ],
+        onClick: async ({ key }) => {
+          if (key === 'remove') await removeProjectMember(projectId, r.userId);
+          else await changeProjectMemberRole(projectId, r.userId, key as any);
+          void load();
+        },
+      }}>
+        <Button size="small">管理</Button>
+      </Dropdown>
     ) },
   ];
   return (
@@ -1855,8 +1882,9 @@ export function attachUndoManager(doc: Y.Doc): Y.UndoManager {
     trackedOrigins: new Set([Origin.LocalUser]),
     captureTimeout: 500,
   });
-  undoManager.on('stack-item-added', ({ stack }) => {
-    if (stack === 'undo' && undoManager!.undoStack.length > STACK_LIMIT) {
+  undoManager.on('stack-item-added', ({ type }) => {
+    // yjs 事件 payload 为 { stackItem, type }，type: 'undo' | 'redo'（无 stack 字段）
+    if (type === 'undo' && undoManager!.undoStack.length > STACK_LIMIT) {
       undoManager!.undoStack.shift(); // 手动截断（Y.UndoManager 无内建上限）
     }
   });
@@ -1900,7 +1928,7 @@ export async function redoCanvas(): Promise<void> {
 `canvasCollabRuntime.ts`：
 - 删除 `LOCAL_ORIGIN/LOCAL_UNDO_ORIGIN/markNextAsUndo/fromUndoFlag`（L24-25、L242-247），改 `import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo'` 并 `export { Origin } from './canvasUndo'`（过渡期兼容 import）。
 - `syncStoreToDoc` 调用处 origin 一律 `Origin.LocalUser`。
-- `initCollab` 在 provider synced 后（L194 前）：`attachUndoManager(doc);`
+- `initCollab` 在 `doc = new Y.Doc()` 后（L167 紧随）立即 `attachUndoManager(doc);`——不依赖 synced 时序（localStorage 恢复 origin=null 不入栈；synced 前 UI 不可交互无 local-user 事务，提前 attach 纯健壮性）
 - `destroyCollab`：`detachUndoManager();`
 - `onRemote` 的 `fromLocal` 判断（L200）改：`const fromLocal = events.some((e) => e.transaction.origin === Origin.LocalUser);`
 
