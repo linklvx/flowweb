@@ -10,6 +10,7 @@ import { pickStructNodes, pickStructEdges } from './canvasHistory';
 import { withHistoryPaused, hydrateLoaded } from './canvasHistoryRuntime';
 import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
 import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
+import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
 
 function collabUrl(): string {
@@ -27,7 +28,13 @@ export const LOCAL_UNDO_ORIGIN = 'local-undo';
 
 let doc: Y.Doc | null = null;
 let provider: HocuspocusProvider | null = null;
+let awarenessBridge: AwarenessBridge | null = null;
 let unbindStores: (() => void) | null = null;
+
+/** 当前协作会话的 awareness 桥（无连接时 null，视图层按需判空） */
+export function getAwareness(): AwarenessBridge | null {
+  return awarenessBridge;
+}
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let currentPid: string | null = null;
 
@@ -204,6 +211,8 @@ export async function initCollab(projectId: string): Promise<void> {
   doc.getMap('nodes').observeDeep(onRemote as any);
   doc.getMap('edges').observeDeep(onRemote as any);
 
+  awarenessBridge = new AwarenessBridge(provider);
+
   unbindStores = bindBridge();
 }
 
@@ -215,6 +224,7 @@ export async function destroyCollab(): Promise<void> {
     try { await provider.destroy(); } catch { /* 已销毁 */ }
     provider = null;
   }
+  awarenessBridge = null;
   doc?.destroy();
   doc = null;
   currentPid = null;

@@ -15,6 +15,7 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
   initCollab: vi.fn().mockResolvedValue(undefined),
   destroyCollab: vi.fn().mockResolvedValue(undefined),
   refitExpandedGroups: vi.fn(),
+  getAwareness: () => null,
 }));
 vi.mock('@/stores/canvasHistoryRuntime', () => ({
   withHistoryPaused: (fn: () => any) => fn(),   // 直通执行（mock canvasStore 无 temporal）

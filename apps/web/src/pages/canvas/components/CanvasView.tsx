@@ -9,6 +9,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { getAwareness } from '@/stores/canvasCollabRuntime';
+import { RemoteCursors } from './RemoteCursors';
+import { useAuth } from '@/components/AuthProvider';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
@@ -52,6 +55,14 @@ interface Props {
   projectId: string;
 }
 
+/** awareness 变化驱动的远端光标层（非响应式桥 → 计数器强制渲染） */
+function RemoteCursorsLive() {
+  const [, force] = useState(0);
+  const bridge = getAwareness()!;
+  useEffect(() => bridge.onStateChange(() => force((v) => v + 1)), [bridge]);
+  return <RemoteCursors bridge={bridge} />;
+}
+
 function CanvasViewComponent(_props: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow();
@@ -61,6 +72,26 @@ function CanvasViewComponent(_props: Props) {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
+  const authUser = (useAuth() as { user?: { id: string; name: string } } | null)?.user;
+
+  // presence：本地用户 + 光标 50ms 节流上报（流坐标）
+  useEffect(() => {
+    const bridge = getAwareness();
+    if (!bridge || !authUser) return;
+    bridge.setLocalUser({ id: authUser.id, name: authUser.name });
+  }, [authUser]);
+
+  const lastCursorReport = useRef(0);
+  const handlePresencePointerMove = useCallback((e: React.MouseEvent) => {
+    const bridge = getAwareness();
+    if (!bridge) return;
+    const now = performance.now();
+    if (now - lastCursorReport.current < 50) return;
+    lastCursorReport.current = now;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const flow = screenToFlowPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    bridge.setCursor({ x: flow.x, y: flow.y });
+  }, [screenToFlowPosition]);
   const projectId = useCanvasStore((s) => s.projectId);
   const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
   const isLocked = activeEditNodeId !== null;
@@ -322,6 +353,7 @@ function CanvasViewComponent(_props: Props) {
         edgeTypes={edgeTypes}
         defaultViewport={viewport}
         onViewportChange={updateViewport}
+        onMouseMove={handlePresencePointerMove}
         onDragOver={onDragOver}
         onDrop={onDrop}
         onNodeClick={onNodeClick}
@@ -362,6 +394,17 @@ function CanvasViewComponent(_props: Props) {
     maskColor="rgba(0, 0, 0, 0.35)"
   />
 )}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+            transformOrigin: '0 0',
+          }}
+        >
+          {getAwareness() && <RemoteCursorsLive />}
+        </div>
         <CanvasToolbar
           zoom={viewport.zoom}
           onFitView={handleFitView}
