@@ -43,6 +43,38 @@ export const SESSION_COOKIE_OPTIONS = {
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // 注册即建默认团队（与 TeamService.ensureDefaultTeam 同逻辑；auth 在 DI 外，直写防循环依赖）
+          try {
+            const existing = await prisma.team.findFirst({ where: { ownerId: user.id } });
+            if (existing) return;
+            await prisma.$transaction(async (tx) => {
+              const team = await tx.team.create({
+                data: { name: `${user.name}的团队`, ownerId: user.id, status: 'ACTIVE' },
+              });
+              await tx.teamMember.create({ data: { teamId: team.id, userId: user.id, role: 'OWNER' } });
+              await tx.teamBalance.create({ data: { teamId: team.id, credits: 100 } });
+              await tx.teamCreditTransaction.create({
+                data: {
+                  teamId: team.id,
+                  operatorUserId: user.id,
+                  amount: 100,
+                  type: 'register_grant',
+                  creditType: 'regular',
+                  balanceAfter: 100,
+                },
+              });
+            });
+          } catch (err) {
+            console.error(`[databaseHooks] default team creation failed for ${user.id}`, err);
+          }
+        },
+      },
+    },
+  },
   emailAndPassword: {
     enabled: true,
   },

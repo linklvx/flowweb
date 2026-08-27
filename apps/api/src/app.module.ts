@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
 import { ProjectModule } from './modules/project/project.module';
+import { TeamModule } from './modules/team/team.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
@@ -48,6 +49,7 @@ const env = validateEnv();
     HealthModule,
     ContentModule,
     ProjectModule,
+    TeamModule,
     AdminModule,
     CreditModule,
     ExecutionModule,
