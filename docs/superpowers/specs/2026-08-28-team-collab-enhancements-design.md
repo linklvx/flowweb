@@ -74,7 +74,8 @@ ProjectMember   id, projectId(→CanvasProject, onDelete: Cascade), userId(→Us
 - `GET`：项目成员列表（含回退角色推导的有效角色标注"继承"）——PROJECT_VIEWER 及以上可看
 - `POST {userId, role}`：添加/覆盖项目成员——PROJECT_OWNER 或 Team OWNER/ADMIN
 - `PATCH /:memberId {role}`：改角色——同上；改 PROJECT_OWNER 需当前操作者是 PROJECT_OWNER 或 Team OWNER
-- `DELETE /:memberId`：移除——同 POST
+- `DELETE /:memberId`：移除——同 POST；**禁止移除最后一个显式 PROJECT_OWNER**（Team OWNER 回退兜底技术上仍可达，此禁令为产品语义——防误操作产生只能靠团队管理员管理的准孤儿项目）
+- **PROJECT_OWNER 允许多个**（平权协管理员语义）：PATCH 设为 PROJECT_OWNER 不降级他人；OWNER 间均可行使项目管理权
 
 **collab 接入：** Hocuspocus `onAuthenticate` 在现有团队成员校验后追加 `resolveProjectRole`：`PROJECT_VIEWER` → 返回 `readOnly: true`（Hocuspocus 拒绝其写更新）。
 
@@ -137,8 +138,15 @@ CanvasDocUpdate   id, projectId(→CanvasProject, onDelete: Cascade), seq BigInt
   1. `diff = Y.encodeStateAsUpdate(doc, lastPersistedSV)`；**空 diff 跳过**（无变更不落行）
   2. append CanvasDocUpdate（seq=nextval）
   3. 成功后 `lastPersistedSV = Y.encodeStateVector(doc)`
-- **Compaction**：该项目累计 update 行数 ≥ 32 → 事务内（`pg_advisory_xact_lock(hashtext(projectId))` 防多实例并发 compaction）：全量快照 upsert 回 `CanvasDoc` + `deleteMany` 该项目增量行；内存 `lastPersistedSV` 重置为当前 SV
-- **onDocumentUnload 强制 compaction**（await 完成）：不留增量尾巴，下次加载只读快照
+- **Compaction（flush-then-compact，快照从 Postgres 权威构建，不信任任何实例内存——Redis 广播延迟与 compaction 解耦）**：该项目累计 update 行数 ≥ 32 时触发：
+  1. **前置 flush**：先按上文流程 append 本实例 diff——保证本实例内存状态全部落库，否则后续 SV 重置会使未持久化更新永不 append
+  2. 事务内（`pg_advisory_xact_lock(hashtext(projectId))` 防多实例并发 compaction）：
+     - `maxSeq = SELECT max(seq) WHERE projectId`
+     - 临时 `new Y.Doc()`：apply `CanvasDoc.state` + 按 seq ASC 重放 `seq <= maxSeq` 全部增量行（临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律）
+     - `newSnapshot = Y.encodeStateAsUpdate(tempDoc)` → UPSERT `CanvasDoc.state`
+     - `DELETE WHERE projectId AND seq <= maxSeq`——步骤 a 之后其他实例新 append 的行（seq > maxSeq）不受影响，下次加载快照 + 这些行重放仍正确
+  3. 内存 `lastPersistedSV = Y.encodeStateVector(doc)`（本实例状态已全部落库且被 maxSeq 覆盖，重置安全；其他实例 SV 落后产生的重复 append 为冗余行，幂等无害）
+- **onDocumentUnload 强制 compaction**（await 完成，走同一 flush-then-compact 序列）：不留增量尾巴，下次加载只读快照
 - **多实例冗余 append 接受**：同一文档两实例都 debounce 触发时可能 append 冗余行——CRDT 幂等保证重放正确，compaction 统一回收，不做内容去重
 
 ### 2.3 加载（onLoadDocument 改造）
@@ -222,10 +230,10 @@ doc observeDeep  → 投影刷新 canvasStore/nodeStore（原 hydrate 路径保�
 ## 验证标准
 
 1. **多团队**：新建团队余额 0 且无流水；创建后自动切换；Navbar 切换器切换生效；解散当前团队后自动回退剩余团队
-2. **项目角色**：PROJECT_VIEWER 打开画布只读（协作编辑被服务端拒绝）、执行返回 403；PROJECT_EDITOR 可编辑可执行；PROJECT_OWNER 可管项目成员；Team ADMIN 无项目记录时为 EDITOR 但仍可删项目（两层分离）；项目创建者默认 PROJECT_OWNER
+2. **项目角色**：PROJECT_VIEWER 打开画布只读（协作编辑被服务端拒绝）、执行返回 403；PROJECT_EDITOR 可编辑可执行；PROJECT_OWNER 可管项目成员；**多 PROJECT_OWNER 平权，移除最后一个显式 OWNER 被拒**；Team ADMIN 无项目记录时为 EDITOR 但仍可删项目（两层分离）；项目创建者默认 PROJECT_OWNER
 3. **OWNER 转让**：转让后原 OWNER 变 ADMIN、Team.ownerId 更新、审计有记录；转让人不可转让给自己/非成员
 4. **审计日志**：1.4 表格动作均产生记录；第 5 tab 分页正常；仅 OWNER/ADMIN 可见
-5. **多实例**：双 api 实例（不同端口）+ 浏览器各连其一，同项目实时同步（update+awareness）；实例 A 上 execute 能读到实例 B 上未持久化（5s debounce 窗口内）的最新参数（跨实例 sync + SV 等待）
+5. **多实例**：双 api 实例（不同端口）+ 浏览器各连其一，同项目实时同步（update+awareness）；实例 A 上 execute 能读到实例 B 上未持久化（5s debounce 窗口内）的最新参数（跨实例 sync + SV 等待）；**并发 compaction 不丢更新**——实例 B append 后、广播到达前，实例 A 触发 compaction，B 的更新行（seq > maxSeq）保留且下次加载可重放
 6. **SV 等待**：自动化测试——写参数 → 立即 execute（带 x-yjs-sv）→ 断言执行读到新值；无头请求兼容通过
 7. **undo/redo**：本地操作可撤销/重做；远端用户/AI 写入后本地 Ctrl+Z 不撤销远端内容；一次拖拽一个 undo 项；参数连续输入合并一项、停顿后分隔；栈超 100 截断；刷新后 undo 历史清空（UndoManager 为内存态，预期行为）
 8. **回归**：模板保存/导入、素材库、组操作、6 类节点生成、协作 presence、断网重连恢复
