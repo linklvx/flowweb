@@ -20,7 +20,7 @@ function PriceCell({ plan, period, onClick }: { plan: SubscriptionPlan; period: 
         className="mt-2 px-4 py-1.5 text-xs rounded-md text-white border-none cursor-pointer transition-colors"
         style={{ backgroundColor: PLAN_COLORS[plan.tier] || '#4ade80' }}
       >
-        立即订阅
+        团队订阅（前往团队管理）
       </button>
     </td>
   );

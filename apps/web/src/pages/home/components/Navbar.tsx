@@ -101,6 +101,8 @@ export function Navbar({ onAction: _onAction }: Props) {
     {
       key: 'center',
       icon: <UserOutlined />,
+      key: 'team',
+      label: <Link to="/team" className="no-underline text-inherit">团队管理</Link>,
       label: <Link to="/settings" className="no-underline text-inherit">用户中心</Link>,
     },
     {

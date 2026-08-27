@@ -1,18 +1,53 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TeamService } from './team.service';
+import { TeamCreditService } from './team-credit.service';
 import { TeamRechargeService } from './team-recharge.service';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { StorageQuotaService } from './storage-quota.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { SkipTeamGuard, TeamGuard } from './team.guard';
 
 @Controller('api/team')
 @UseGuards(TeamGuard)
 export class TeamController {
   constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    private readonly teamCredit: TeamCreditService,
     private readonly teamRecharge: TeamRechargeService,
     private readonly teamSubscription: TeamSubscriptionService,
+    private readonly quota: StorageQuotaService,
   ) {}
+
+  @Get(':id/balance')
+  getBalance(@Param('id') id: string, @Req() req: Request) {
+    return this.teamCredit.getBalanceView(id, (req as any).user.id);
+  }
+
+  @Get(':id/transactions')
+  async listTransactions(@Param('id') id: string, @Query() query: { page?: string; pageSize?: string }) {
+    const page = Number(query.page) || 1;
+    const pageSize = Number(query.pageSize) || 20;
+    const where = { teamId: id };
+    const [items, total] = await Promise.all([
+      this.prisma.teamCreditTransaction.findMany({
+        where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
+      }),
+      this.prisma.teamCreditTransaction.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  @Get(':id/limits')
+  getLimits(@Param('id') id: string) {
+    return this.teamSubscription.getLimits(id);
+  }
+
+  @Get(':id/storage-usage')
+  getStorageUsage(@Param('id') id: string) {
+    return this.quota.getUsage(id);
+  }
 
   @Get('mine')
   getMyTeams(@Req() req: Request) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { subscriptionApi } from '@/api/subscriptionApi';
 import type { CreditBalance } from '@/api/subscriptionApi';
 import { message } from 'antd';
+import { Link } from 'react-router';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 
 const PRESET_AMOUNTS = [10, 30, 50, 100, 200, 500];
@@ -133,46 +134,11 @@ export function CreditsPage() {
         </div>
       </div>
 
-      {/* ── 充值面板（仅预设档位，无自定义输入）── */}
-      <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6 max-w-2xl mb-8">
-        <h3 className="text-sm font-bold text-[#e2e8f0] mb-4">充值</h3>
-
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {PRESET_AMOUNTS.map(val => (
-            <button
-              key={val}
-              onClick={() => setSelectedAmount(val)}
-              className={`px-4 py-1.5 rounded-lg text-sm border transition-colors ${
-                selectedAmount === val
-                  ? 'border-[#4ade80] bg-[#4ade80]/10 text-[#4ade80]'
-                  : 'border-[#333] bg-transparent text-[#888] hover:text-[#ccc] hover:border-[#555]'
-              }`}
-            >
-              ¥{val}
-            </button>
-          ))}
-        </div>
-
-        <button
-          onClick={handleRecharge}
-          disabled={recharging}
-          className="px-6 py-2 rounded-lg text-sm font-medium text-white transition-opacity
-                     bg-[#4ade80] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          立即充值 ¥{selectedAmount}
-        </button>
+      {/* S5：个人充值入口下线，引导团队 */}
+      <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-5">
+        <h3 className="text-sm font-bold text-[#e2e8f0] mb-2">充值</h3>
+        <p className="text-xs text-[#888]">个人充值已升级为团队积分：前往 <Link to="/team" className="text-[#5DDCFF]">团队管理 → 积分管理</Link> 为团队充值。</p>
       </div>
-
-      {/* ── 微信扫码支付弹窗 ── */}
-      <WeChatQRModal
-        visible={qrVisible}
-        codeUrl={qrCodeUrl}
-        orderNo={qrOrderNo}
-        amount={selectedAmount}
-        expiredAt={qrExpiredAt}
-        onSuccess={handlePaymentSuccess}
-        onCancel={handlePaymentCancel}
-      />
 
       {/* ── 充值记录（可折叠）── */}
       <div className="max-w-2xl">

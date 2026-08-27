@@ -10,10 +10,13 @@ import { MembershipPage } from '@/pages/settings/MembershipPage';
 import { TemplateMarketPage } from '@/pages/templates/TemplateMarketPage';
 import { TemplatePreviewPage } from '@/pages/templates/TemplatePreviewPage';
 import { WorkspacePage } from '@/pages/workspace/WorkspacePage';
+import TeamPage from '@/pages/team/TeamPage';
+import JoinPage from '@/pages/join/JoinPage';
 
 export const router = createBrowserRouter([
   { path: '/', element: <HomePage /> },
   { path: '/login', element: <LoginPage /> },
+  { path: '/join', element: <JoinPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/templates', element: <TemplateMarketPage /> },
   { path: '/templates/:id', element: <TemplatePreviewPage /> },
@@ -22,6 +25,7 @@ export const router = createBrowserRouter([
     children: [
       { path: '/canvas', element: <CanvasPage /> },
       { path: '/admin', element: <AdminPage /> },
+      { path: '/team', element: <TeamPage /> },
       { path: '/works', element: <WorkspacePage /> },
       { path: '/works/:id', element: <TemplatePreviewPage /> },
       {
