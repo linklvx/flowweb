@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import Redis from 'ioredis';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
@@ -35,6 +36,7 @@ const env = validateEnv();
 
 @Module({
   imports: [
+    EventEmitterModule.forRoot(),
     BullModule.forRoot('default', {
       connection: { url: env.REDIS_URL },
       defaultJobOptions: {

@@ -4,7 +4,7 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { validateTemplateData } from '../template/template.validation';
-import { getOwnerTeamId } from '../team/team.util';
+import { TeamService } from '../team/team.service';
 
 @Injectable()
 export class CanvasService {
@@ -13,6 +13,7 @@ export class CanvasService {
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TemplateService) private readonly templateService: TemplateService,
+    @Inject(TeamService) private readonly teamService: TeamService,
   ) {}
 
   async create(name: string, folderId: string | null, userId: string) {
@@ -20,6 +21,7 @@ export class CanvasService {
       const folder = await this.prisma.folder.findFirst({ where: { id: folderId, userId } });
       if (!folder) throw new BadRequestException('目标文件夹不存在');
     }
+    const team = await this.teamService.ensureDefaultTeam(userId);
     const result = await this.prisma.$transaction(async (tx) => {
       let finalName = name;
       if (!name?.trim()) {
@@ -28,7 +30,7 @@ export class CanvasService {
         finalName = await CanvasService.nextUntitledName(tx, userId);
       }
       const project = await tx.canvasProject.create({
-        data: { name: finalName, userId, teamId: await getOwnerTeamId(tx, userId) },
+        data: { name: finalName, userId, teamId: team.id },
       });
       const template = await tx.template.create({
         data: { name: finalName, userId, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },

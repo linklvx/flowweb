@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { readCanvasLegacy, buildLegacyDocState } from '../canvas/canvas-legacy.reader';
-import { getOwnerTeamId } from '../team/team.util';
+import { TeamService } from '../team/team.service';
 
 interface NodeInput {
   id: string;
@@ -23,14 +23,18 @@ interface EdgeInput {
 
 @Injectable()
 export class ProjectService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TeamService) private readonly teamService: TeamService,
+  ) {}
 
   async create(name: string, userId?: string, nodes?: any[], edges?: any[]) {
+    const team = await this.teamService.ensureDefaultTeam(userId || '');
     const project = await this.prisma.canvasProject.create({
       data: {
         name,
         userId: userId || null,
-        teamId: await getOwnerTeamId(this.prisma, userId),
+        teamId: team.id,
       },
     });
 

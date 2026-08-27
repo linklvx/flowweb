@@ -1,4 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { getQueueToken } from '@nestjs/bullmq';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -6,6 +9,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 describe('TeamService.ensureDefaultTeam', () => {
   let service: TeamService;
   let prisma: any;
+  let emitter: any;
+  let queue: any;
 
   beforeEach(async () => {
     prisma = {
@@ -18,9 +23,16 @@ describe('TeamService.ensureDefaultTeam', () => {
       teamCreditTransaction: { create: vi.fn() },
       $transaction: vi.fn(),
     };
+    emitter = { emitAsync: vi.fn() };
+    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TeamService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        TeamService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventEmitter2, useValue: emitter },
+        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+      ],
     }).compile();
 
     service = module.get<TeamService>(TeamService);
@@ -73,5 +85,155 @@ describe('TeamService.ensureDefaultTeam', () => {
     await service.ensureDefaultTeam('u1', '张三');
 
     expect(prisma.team.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TeamService 基础 API', () => {
+  let service: TeamService;
+  let prisma: any;
+  let emitter: any;
+  let queue: any;
+
+  beforeEach(async () => {
+    prisma = {};
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    queue = { add: vi.fn().mockResolvedValue({}) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TeamService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventEmitter2, useValue: emitter },
+        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+      ],
+    }).compile();
+
+    service = module.get<TeamService>(TeamService);
+  });
+
+  describe('getMyTeams', () => {
+    it('返回所在团队（role/成员数/余额/active 订阅摘要）', async () => {
+      prisma.teamMember = {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            role: 'OWNER',
+            team: {
+              id: 't1', name: '团队A', status: 'ACTIVE',
+              _count: { members: 3 },
+              balance: { credits: 100, subscriptionCredits: 50 },
+              subscription: { status: 'active', currentPeriodEnd: new Date('2026-09-27'), plan: { name: '专业版' } },
+            },
+          },
+          {
+            role: 'MEMBER',
+            team: {
+              id: 't2', name: '团队B', status: 'ACTIVE',
+              _count: { members: 1 },
+              balance: { credits: 0, subscriptionCredits: 0 },
+              subscription: null,
+            },
+          },
+        ]),
+      };
+
+      const result = await service.getMyTeams('u1');
+
+      expect(prisma.teamMember.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+        include: expect.anything(),
+      });
+      expect(result).toEqual([
+        {
+          id: 't1', name: '团队A', role: 'OWNER', status: 'ACTIVE', memberCount: 3,
+          balance: { credits: 100, subscriptionCredits: 50 },
+          subscription: { planName: '专业版', status: 'active', currentPeriodEnd: new Date('2026-09-27') },
+        },
+        {
+          id: 't2', name: '团队B', role: 'MEMBER', status: 'ACTIVE', memberCount: 1,
+          balance: { credits: 0, subscriptionCredits: 0 },
+          subscription: null,
+        },
+      ]);
+    });
+  });
+
+  describe('renameTeam', () => {
+    it('OWNER/ADMIN 可改名', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ id: 't1', status: 'ACTIVE' }), update: vi.fn().mockResolvedValue({ id: 't1', name: '新名' }) };
+
+      await service.renameTeam('t1', 'u1', '新名');
+
+      expect(prisma.team.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { name: '新名' } });
+    });
+
+    it('MEMBER 拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };
+      await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('DISBANDED 拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'DISBANDED' }) };
+      await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('disbandTeam（M2 时序）', () => {
+    const setup = (opts: { role?: string; teamCount?: number; status?: string } = {}) => {
+      prisma.teamMember = {
+        findUnique: vi.fn().mockResolvedValue({ role: opts.role ?? 'OWNER' }),
+        count: vi.fn().mockResolvedValue(opts.teamCount ?? 2),
+      };
+      prisma.team = {
+        findUnique: vi.fn().mockResolvedValue({ id: 't1', status: opts.status ?? 'ACTIVE' }),
+        update: vi.fn(),
+        delete: vi.fn(),
+      };
+      prisma.canvasProject = { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]) };
+      prisma.media = { findMany: vi.fn().mockResolvedValue([{ id: 'm1', bucket: 'flowai', key: 'k1' }]) };
+      prisma.teamRechargeOrder = { updateMany: vi.fn() };
+      prisma.teamCreditTransaction = { updateMany: vi.fn() };
+      prisma.teamSubscription = { updateMany: vi.fn() };
+      prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+    };
+
+    it('时序：事务置 DISBANDED+查 projectIds/media → emitAsync 携带 payload → 物理删除+凭证置空', async () => {
+      setup();
+
+      await service.disbandTeam('t1', 'u1');
+
+      // 阶段1：事务内置 DISBANDED + 删前查 projectIds/media
+      expect(prisma.team.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'DISBANDED' } });
+      expect(prisma.canvasProject.findMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, select: { id: true } });
+      expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { teamId: 't1' } }));
+      // 阶段2：emitAsync（等监听器，payload 含 projectIds）
+      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
+      // MinIO 异步清理 job（processor Task 17）
+      expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
+      // 阶段3：凭证 SetNull 保留 + team 物理删（级联 member/request/balance/projects/media/CanvasDoc）
+      expect(prisma.teamRechargeOrder.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
+      expect(prisma.teamCreditTransaction.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
+      expect(prisma.teamSubscription.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
+      expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
+      // emitAsync 必须在物理删除之前完成
+      const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];
+      expect(prisma.team.delete.mock.invocationCallOrder[0]).toBeGreaterThan(emitOrder);
+    });
+
+    it('非 OWNER 拒绝', async () => {
+      setup({ role: 'ADMIN' });
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('唯一团队禁令：仅 1 个团队时抛 BadRequest', async () => {
+      setup({ teamCount: 1 });
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow('不能解散唯一团队');
+    });
+
+    it('已 DISBANDED 拒绝重复解散', async () => {
+      setup({ status: 'DISBANDED' });
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow(BadRequestException);
+    });
   });
 });

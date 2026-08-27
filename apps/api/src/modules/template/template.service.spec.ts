@@ -3,6 +3,7 @@ import { TemplateService } from './template.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
+import { TeamService } from '../team/team.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
@@ -79,6 +80,7 @@ describe('TemplateService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: ProjectService, useValue: projectService },
         { provide: FolderService, useValue: folderService },
+        { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
       ],
     }).compile();
 
@@ -98,19 +100,22 @@ describe('TemplateService', () => {
       expect(result.total).toBe(1);
     });
 
-    it('should filter by type=my', async () => {
+    it('should filter by type=my（团队化 B2：本人 OR 团队项目）', async () => {
       prisma.template.count.mockResolvedValue(0);
       await service.findMany({ type: 'my', page: 1, limit: 20 }, 'u1');
       const callArgs = prisma.template.findMany.mock.calls[0][0];
-      expect(callArgs.where.userId).toBe('u1');
+      expect(callArgs.where.OR).toEqual([{ userId: 'u1' }, { project: { teamId: 'team1' } }]);
     });
 
     describe('findMany folderId 过滤', () => {
-      it('type=my + folderId=root 过滤 folderId=null', async () => {
+      it('type=my + folderId=root 过滤 folderId=null（与团队 OR 并列）', async () => {
         prisma.template.findMany.mockResolvedValue([]);
         await service.findMany({ type: 'my', folderId: 'root' } as any, 'u1');
         expect(prisma.template.findMany).toHaveBeenCalledWith(expect.objectContaining({
-          where: expect.objectContaining({ userId: 'u1', folderId: null }),
+          where: expect.objectContaining({
+            folderId: null,
+            OR: [{ userId: 'u1' }, { project: { teamId: 'team1' } }],
+          }),
         }));
       });
 

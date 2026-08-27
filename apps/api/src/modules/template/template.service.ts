@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { validateTemplateData } from './template.validation';
+import { TeamService } from '../team/team.service';
 import { OFFICIAL_USER_ID, TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 import type { TemplateCategory } from '@prisma/client';
 
@@ -30,6 +31,7 @@ export class TemplateService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(FolderService) private readonly folderService: FolderService,
+    @Inject(TeamService) private readonly teamService: TeamService,
   ) {}
 
   async findMany(query: TemplateListQuery, userId: string) {
@@ -52,9 +54,12 @@ export class TemplateService {
         where.userId = OFFICIAL_USER_ID;
         where.isPublic = true;
         break;
-      case 'my':
-        where.userId = userId;
+      case 'my': {
+        // 团队化（B2）：团队项目全员可见；保留 userId 以覆盖本人无 project 关联的模板行
+        const team = await this.teamService.ensureDefaultTeam(userId);
+        where.OR = [{ userId }, { project: { teamId: team.id } }];
         break;
+      }
       case 'community':
       default:
         where.isPublic = true;

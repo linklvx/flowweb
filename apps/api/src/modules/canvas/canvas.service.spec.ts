@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
+import { TeamService } from '../team/team.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
@@ -35,6 +36,7 @@ describe('CanvasService', () => {
         { provide: ProjectService, useValue: projectService },
         { provide: FolderService, useValue: folderService },
         { provide: TemplateService, useValue: templateService },
+        { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
       ],
     }).compile();
     service = module.get<CanvasService>(CanvasService);

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TeamService } from '../team/team.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildLegacyDocState } from '../canvas/canvas-legacy.reader';
 
@@ -32,6 +33,7 @@ describe('ProjectService', () => {
       providers: [
         ProjectService,
         { provide: PrismaService, useValue: prisma },
+        { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
       ],
     }).compile();
 

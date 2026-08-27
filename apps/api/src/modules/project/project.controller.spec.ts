@@ -24,15 +24,15 @@ describe('ProjectController', () => {
     controller = module.get<ProjectController>(ProjectController);
   });
 
-  it('POST /api/projects should create project', async () => {
-    const result = await controller.create({ name: 'test' });
+  it('POST /api/projects should create project（带登录 userId）', async () => {
+    const result = await controller.create({ name: 'test' }, { user: { id: 'u1' } } as any);
     expect(result.id).toBe('p1');
-    expect(service.create).toHaveBeenCalledWith('test');
+    expect(service.create).toHaveBeenCalledWith('test', 'u1');
   });
 
   it('POST /api/projects should default name to 未命名项目', async () => {
-    await controller.create({ name: '' });
-    expect(service.create).toHaveBeenCalledWith('未命名项目');
+    await controller.create({ name: '' }, { user: { id: 'u1' } } as any);
+    expect(service.create).toHaveBeenCalledWith('未命名项目', 'u1');
   });
 
   it('GET /api/projects/:id should return project with nodes and edges', async () => {
