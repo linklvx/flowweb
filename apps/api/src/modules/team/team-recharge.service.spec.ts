@@ -3,6 +3,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { TeamRechargeService } from './team-recharge.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGateway } from '../recharge/payment.gateway';
+import { TeamSubscriptionService } from './team-subscription.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamRechargeService', () => {
@@ -35,6 +36,7 @@ describe('TeamRechargeService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: 'PAYMENT_PROVIDER', useValue: payment },
         { provide: PaymentGateway, useValue: gateway },
+        { provide: TeamSubscriptionService, useValue: { completeSubscriptionCallback: vi.fn() } },
         { provide: getQueueToken('team-recharge-close-expired'), useValue: closeQueue },
       ],
     }).compile();

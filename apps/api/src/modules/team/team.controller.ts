@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, 
 import { Request } from 'express';
 import { TeamService } from './team.service';
 import { TeamRechargeService } from './team-recharge.service';
+import { TeamSubscriptionService } from './team-subscription.service';
 import { SkipTeamGuard, TeamGuard } from './team.guard';
 
 @Controller('api/team')
@@ -10,6 +11,7 @@ export class TeamController {
   constructor(
     @Inject(TeamService) private readonly teamService: TeamService,
     private readonly teamRecharge: TeamRechargeService,
+    private readonly teamSubscription: TeamSubscriptionService,
   ) {}
 
   @Get('mine')
@@ -71,6 +73,11 @@ export class TeamController {
   @Post(':id/recharge/orders/:orderNo/pay')
   payRechargeOrder(@Param('id') id: string, @Param('orderNo') orderNo: string, @Req() req: Request) {
     return this.teamRecharge.payTeamOrder(orderNo, (req as any).user.id);
+  }
+
+  @Post(':id/subscription/orders')
+  createSubscriptionOrder(@Param('id') id: string, @Body() body: { planId: string }, @Req() req: Request) {
+    return this.teamSubscription.createSubscriptionOrder(id, (req as any).user.id, body.planId);
   }
 
   @Post(':id/disband')

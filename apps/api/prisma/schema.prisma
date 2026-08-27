@@ -694,6 +694,11 @@ enum TeamOrderStatus {
   CLOSED
 }
 
+enum RechargeKind {
+  credits
+  subscription
+}
+
 model Team {
   id            String     @id @default(cuid())
   name          String
@@ -800,6 +805,8 @@ model TeamRechargeOrder {
   payerUserId   String
   amountFen     Int
   credits       Int
+  kind          RechargeKind    @default(credits)
+  planId        String?
   status        TeamOrderStatus @default(PENDING)
   prepayId      String?         @db.VarChar(64)
   transactionId String?         @db.VarChar(64)

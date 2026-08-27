@@ -5,11 +5,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import type { IPaymentProvider } from '../recharge/providers/payment.provider.interface';
 import { PaymentGateway } from '../recharge/payment.gateway';
+import { TeamSubscriptionService } from './team-subscription.service';
 
 const TEAM_TIERS_FEN = [1000, 3000, 5000, 10000, 20000, 50000];
 const FEN_PER_CREDIT = 10; // 1 元 = 10 积分
 
-function generateTeamOrderNo(): string {
+export function generateTeamOrderNo(): string {
   const ts = Date.now().toString();
   const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   return `TEAM${ts}${random}`;
@@ -24,6 +25,7 @@ function formatTimeExpire(date: Date): string {
 export class TeamRechargeService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TeamSubscriptionService) private readonly subscriptionService: TeamSubscriptionService,
     @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
     @Inject(PaymentGateway) private readonly gateway?: PaymentGateway,
     @Optional() @InjectQueue('team-recharge-close-expired') private readonly closeQueue?: Queue,
@@ -108,7 +110,10 @@ export class TeamRechargeService {
     if (notify.amount !== order.amountFen) return { code: 'FAIL', message: 'amount mismatch' };
     if (notify.tradeState !== 'SUCCESS') return { code: 'FAIL', message: `trade_state: ${notify.tradeState}` };
 
-    // TODO(Task10): order.kind === 'subscription' 分支走订阅入账
+    if ((order as any).kind === 'subscription') {
+      return this.subscriptionService.completeSubscriptionCallback(notify);
+    }
+
     try {
       await this.creditTeamBalance(order, notify.transactionId, notify.payerOpenid);
       this.gateway?.emitPaymentSuccess(notify.outTradeNo, notify.amount, order.credits);

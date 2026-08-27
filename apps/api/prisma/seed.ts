@@ -210,6 +210,19 @@ async function main() {
     update: {},
   });
 
+  // Seed team plans (monthly)
+  const GIB = 1024 ** 3;
+  const teamPlans = [
+    { key: 'team-basic', name: '团队基础版', monthlyCredits: 1000, storageLimitBytes: BigInt(20 * GIB), seatLimit: 30, priceMonthly: 9900, sort: 1 },
+    { key: 'team-pro', name: '团队专业版', monthlyCredits: 3000, storageLimitBytes: BigInt(50 * GIB), seatLimit: 50, priceMonthly: 19900, sort: 2 },
+  ];
+  for (const p of teamPlans) {
+    const existing = await prisma.teamPlan.findFirst({ where: { name: p.name } });
+    if (!existing) {
+      await prisma.teamPlan.create({ data: { name: p.name, monthlyCredits: p.monthlyCredits, storageLimitBytes: p.storageLimitBytes, seatLimit: p.seatLimit, priceMonthly: p.priceMonthly, sort: p.sort } });
+    }
+  }
+
   console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance + Phase 5 video models');
 }
 

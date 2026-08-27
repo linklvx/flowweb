@@ -3,10 +3,13 @@ import { BullModule } from '@nestjs/bullmq';
 import { TeamService } from './team.service';
 import { TeamCreditService } from './team-credit.service';
 import { TeamRechargeService } from './team-recharge.service';
+import { TeamSubscriptionService } from './team-subscription.service';
 import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
 import { TeamActiveQueryProcessor } from './task/team-recharge-active-query.processor';
+import { TeamSubscriptionExpireProcessor } from './task/team-subscription-expire.processor';
+import { AdminTeamPlanController } from './admin-team-plan.controller';
 import { RechargeModule } from '../recharge/recharge.module';
 
 @Module({
@@ -18,8 +21,11 @@ import { RechargeModule } from '../recharge/recharge.module';
     ),
     forwardRef(() => RechargeModule),
   ],
-  controllers: [TeamController],
-  providers: [TeamService, TeamCreditService, TeamRechargeService, TeamGuard, TeamCloseExpiredProcessor, TeamActiveQueryProcessor],
-  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamGuard],
+  controllers: [TeamController, AdminTeamPlanController],
+  providers: [
+    TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, TeamGuard,
+    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor,
+  ],
+  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, TeamGuard],
 })
 export class TeamModule {}
