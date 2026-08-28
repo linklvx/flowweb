@@ -32,6 +32,7 @@ model User {
   teamMemberships TeamMember[]
   teamJoinRequests TeamJoinRequest[]
   decidedTeamJoinRequests TeamJoinRequest[] @relation("TeamJoinRequestDecidedBy")
+  projectMembers ProjectMember[]
 }
 
 model Account {
@@ -144,6 +145,8 @@ model CanvasProject {
   teamId    String
   templates Template[]
   canvasDoc CanvasDoc?
+  projectMembers ProjectMember[]
+  docUpdates CanvasDocUpdate[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -477,6 +480,10 @@ enum AuditTargetType {
   subscription_plan
   point
   order
+  TEAM
+  TEAM_MEMBER
+  PROJECT
+  PROJECT_MEMBER
 }
 
 model SubscriptionPlan {
@@ -634,6 +641,7 @@ model AuditLog {
   id           String          @id @default(cuid())
   operatorId   String
   operatorName String
+  teamId       String?
   targetType   AuditTargetType
   targetId     String
   action       String
@@ -645,6 +653,7 @@ model AuditLog {
   @@index([operatorId])
   @@index([targetType, targetId])
   @@index([createdAt])
+  @@index([teamId, createdAt])
 }
 
 model SystemSetting {
@@ -842,4 +851,34 @@ model CanvasDoc {
   project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   state     Bytes
   updatedAt DateTime @updatedAt
+}
+
+enum ProjectRole {
+  PROJECT_OWNER
+  PROJECT_EDITOR
+  PROJECT_VIEWER
+}
+
+model ProjectMember {
+  id        String        @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole
+  createdAt DateTime      @default(now())
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+model CanvasDocUpdate {
+  id        String        @id @default(cuid())
+  projectId String
+  seq       BigInt
+  update    Bytes
+  createdAt DateTime      @default(now())
+  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, seq])
 }
