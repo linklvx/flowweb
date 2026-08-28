@@ -199,13 +199,29 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
 
     it('onDisconnect：最后连接断开触发 flush-then-compact', async () => {
-      const { onDisconnect } = extractHooks();
-      const doc = new Y.Doc(); doc.getMap('nodes').set('x', 1);
-      await onDisconnect({
-        document: doc, documentName: 'project:p1',
-        instance: { getConnectionsCount: () => 0 },
-      });
+      const { onLoadDocument, onDisconnect } = extractHooks();
+      // 真实契约：onDisconnect payload 的 document 自带按文档计数
+      const doc: any = new Y.Doc();
+      doc.getConnectionsCount = () => 0;
+      // 先 load 初始化 lastPersistedSV（快照 null + 无增量）
+      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+      doc.getMap('nodes').set('x', 1);
+      await onDisconnect({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);
       expect(repo.compact).toHaveBeenCalledTimes(1);
+      // flush（append）必须先于 compact
+      expect(repo.append.mock.invocationCallOrder[0]).toBeLessThan(repo.compact.mock.invocationCallOrder[0]);
+    });
+
+    it('onDisconnect：非最后连接早退——不 flush 不 compact', async () => {
+      const { onLoadDocument, onDisconnect } = extractHooks();
+      const doc: any = new Y.Doc();
+      doc.getConnectionsCount = () => 1;
+      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+      doc.getMap('nodes').set('x', 1);
+      await onDisconnect({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).not.toHaveBeenCalled();
+      expect(repo.compact).not.toHaveBeenCalled();
     });
   });
 });

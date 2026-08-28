@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { onAuthenticatePayload } from '@hocuspocus/server';
+import type { onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -20,9 +20,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 每文档"已持久化状态"（spec 2.2 lastPersistedSV，= Postgres maxSeq 时刻状态） */
   private readonly persistedSVs = new Map<string, Uint8Array>();
   readonly hooks: {
-    onLoadDocument: (p: any) => Promise<any>;
-    onStoreDocument: (p: any) => Promise<void>;
-    onDisconnect: (p: any) => Promise<void>;
+    onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
+    onStoreDocument: (p: onStoreDocumentPayload) => Promise<void>;
+    onDisconnect: (p: onDisconnectPayload) => Promise<void>;
   };
 
   constructor(
@@ -70,7 +70,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放 */
-  private async loadDocument({ document, documentName }: any) {
+  private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     const projectId = parseProjectId(documentName);
     const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
     if (docRow) Y.applyUpdate(document, new Uint8Array(docRow.state));
@@ -82,7 +82,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.2：diff append（含 flush 语义）+ 阈值触发 compaction */
-  private async storeDocument({ document, documentName }: any) {
+  private async storeDocument({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>) {
     const projectId = parseProjectId(documentName);
     const lastSV = this.persistedSVs.get(projectId);
     if (!lastSV) return;
@@ -97,8 +97,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.2：最后连接断开（含直连）强制 flush-then-compact */
-  private async disconnect({ document, documentName, instance }: any) {
-    if (instance.getConnectionsCount(documentName) > 0) return;
+  private async disconnect({ document, documentName }: onDisconnectPayload) {
+    if (document.getConnectionsCount() > 0) return;
     const projectId = parseProjectId(documentName);
     try {
       await this.storeDocument({ document, documentName });

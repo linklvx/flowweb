@@ -444,13 +444,29 @@ describe('增量持久化（spec 2.2/2.3）', () => {
   });
 
   it('onDisconnect：最后连接断开触发 flush-then-compact', async () => {
-    const { onDisconnect } = extractHooks();
-    const doc = new Y.Doc(); doc.getMap('nodes').set('x', 1);
-    await onDisconnect({
-      document: doc, documentName: 'project:p1',
-      instance: { getConnectionsCount: () => 0 },
-    });
+    const { onLoadDocument, onDisconnect } = extractHooks();
+    // 真实契约：onDisconnect payload 的 document 自带按文档计数（getConnectionsCount 零参）
+    const doc: any = new Y.Doc();
+    doc.getConnectionsCount = () => 0;
+    // 先 load 初始化 lastPersistedSV（快照 null + 无增量）
+    await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+    doc.getMap('nodes').set('x', 1);
+    await onDisconnect({ document: doc, documentName: 'project:p1' });
+    expect(repo.append).toHaveBeenCalledTimes(1);
     expect(repo.compact).toHaveBeenCalledTimes(1);
+    // flush（append）必须先于 compact
+    expect(repo.append.mock.invocationCallOrder[0]).toBeLessThan(repo.compact.mock.invocationCallOrder[0]);
+  });
+
+  it('onDisconnect：非最后连接早退——不 flush 不 compact', async () => {
+    const { onLoadDocument, onDisconnect } = extractHooks();
+    const doc: any = new Y.Doc();
+    doc.getConnectionsCount = () => 1;
+    await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+    doc.getMap('nodes').set('x', 1);
+    await onDisconnect({ document: doc, documentName: 'project:p1' });
+    expect(repo.append).not.toHaveBeenCalled();
+    expect(repo.compact).not.toHaveBeenCalled();
   });
 });
 ```
@@ -479,9 +495,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 每文档"已持久化状态"（spec 2.2 lastPersistedSV，= Postgres maxSeq 时刻状态） */
   private readonly persistedSVs = new Map<string, Uint8Array>();
   readonly hooks: {
-    onLoadDocument: (p: any) => Promise<any>;
-    onStoreDocument: (p: any) => Promise<void>;
-    onDisconnect: (p: any) => Promise<void>;
+    onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
+    onStoreDocument: (p: onStoreDocumentPayload) => Promise<void>;
+    onDisconnect: (p: onDisconnectPayload) => Promise<void>;
   };
 
   constructor(
@@ -508,7 +524,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放 */
-  private async loadDocument({ document, documentName }: any) {
+  private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     const projectId = parseProjectId(documentName);
     const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
     if (docRow) Y.applyUpdate(document, new Uint8Array(docRow.state));
@@ -520,7 +536,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.2：diff append（含 flush 语义）+ 阈值触发 compaction */
-  private async storeDocument({ document, documentName }: any) {
+  private async storeDocument({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>) {
     const projectId = parseProjectId(documentName);
     const lastSV = this.persistedSVs.get(projectId);
     if (!lastSV) return;
@@ -535,8 +551,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** spec 2.2：最后连接断开（含直连）强制 flush-then-compact */
-  private async disconnect({ document, documentName, instance }: any) {
-    if (instance.getConnectionsCount(documentName) > 0) return;
+  private async disconnect({ document, documentName }: onDisconnectPayload) {
+    // 注意：payload.document（hocuspocus Document）的 getConnectionsCount 零参、按文档计数；
+    // instance.getConnectionsCount 是零参全局计数（跨所有文档），勿用——否则多文档场景 compaction 不触发
+    if (document.getConnectionsCount() > 0) return;
     const projectId = parseProjectId(documentName);
     try {
       await this.storeDocument({ document, documentName });
@@ -550,7 +568,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 }
 ```
 
-import 追加 `CanvasDocUpdateRepository`、`svSatisfied`。既有 spec 里 onStoreDocument 直接 upsert canvasDoc 的断言改为 repo.append 断言。
+import 追加 `CanvasDocUpdateRepository`、`svSatisfied`，以及 `import type { onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server'`（钩子与私有方法用具名 payload 类型；storeDocument 因被 disconnect 以部分 payload 内部调用，参数取 Pick 子集）。既有 spec 里 onStoreDocument 直接 upsert canvasDoc 的断言改为 repo.append 断言。
 
 - [ ] **Step 4: 跑全部 collab 测试确认通过**
 
