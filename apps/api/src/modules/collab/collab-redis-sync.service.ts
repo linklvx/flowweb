@@ -34,8 +34,11 @@ export class CollabRedisSync implements OnModuleDestroy {
       const timer = setTimeout(() => { this.pending.delete(requestId); resolve(); }, timeoutMs);
       this.pending.set(requestId, (update) => {
         clearTimeout(timer); this.pending.delete(requestId);
-        Y.applyUpdate(doc, update); // origin 缺省 null——生命周期同 localStorage 恢复，不入 undo（服务端 doc 无 UndoManager）
-        resolve();
+        try {
+          Y.applyUpdate(doc, update); // origin 缺省 null——生命周期同 localStorage 恢复，不入 undo（服务端 doc 无 UndoManager）
+        } finally {
+          resolve();
+        }
       });
       void this.pub.publish(`collab-sync:req:${docName}`, JSON.stringify({ requestId, docName, sv } satisfies SyncRequestMsg));
     });
