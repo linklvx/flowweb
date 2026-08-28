@@ -62,7 +62,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     emitter = new EventEmitter2();
     const port = 20000 + Math.floor(Math.random() * 20000);
-    gateway = new CollabGateway(prisma as any, emitter as any, repo, port, 300);
+    gateway = new CollabGateway(prisma as any, emitter as any, repo, { syncFromPeers: vi.fn(async () => {}) } as any, port, 300);
     await gateway.onModuleInit();
     url = `ws://127.0.0.1:${port}`;
     service = new CollabDocumentService(gateway);

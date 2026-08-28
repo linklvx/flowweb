@@ -7,6 +7,7 @@ import Redis from 'ioredis';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { CollabRedisSync } from './collab-redis-sync.service';
 import { svSatisfied } from './sv.util';
 
 export const COMPACT_THRESHOLD = 32;
@@ -31,6 +32,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly repo: CanvasDocUpdateRepository,
+    private readonly redisSync: CollabRedisSync,
     @Optional() @Inject('COLLAB_PORT') port?: number,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
   ) {
@@ -83,7 +85,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     for (const u of await this.repo.loadUpdates(projectId)) {
       Y.applyUpdate(document, new Uint8Array(u));
     }
+    // 先固定"已持久化状态"（快照+增量重放后的 SV）——sync 从对等实例拉来的未持久化更新
+    // （对等 5s debounce 窗口内）落在 lastPersistedSV 之外，本实例 onStoreDocument 的 diff 会
+    // 冗余 append 它们（spec 2.2 冗余策略）：对等实例崩溃也不丢
     this.persistedSVs.set(projectId, Y.encodeStateVector(document));
+    await this.redisSync.syncFromPeers(documentName, document, 1000);
     return document;
   }
 
@@ -117,6 +123,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   onModuleInit() {
+    // 跨实例同步：仅回复本实例已打开的文档（Document extends Y.Doc，内存态最新）
+    this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
     this.server.listen();
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
