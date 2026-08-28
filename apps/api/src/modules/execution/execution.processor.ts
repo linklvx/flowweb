@@ -20,8 +20,9 @@ export class ExecutionProcessor extends WorkerHost {
     await job.updateProgress(10);
 
     try {
-      const { projectId, nodeId, userId } = job.data;
-      const result = await this.executionService.execute(projectId, nodeId, userId);
+      const { projectId, nodeId, userId, sv } = job.data;
+      const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
+      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, svBytes);
       await job.updateProgress(100);
       this.logger.log(`任务 ${job.id} 完成`);
       return result;

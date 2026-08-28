@@ -24,14 +24,14 @@ export class ExecutionService {
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
 
-  async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[]) {
+  async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array) {
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: projectId },
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
 
-    const canvas = await this.collabDoc.readCanvas(projectId);
+    const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];
 

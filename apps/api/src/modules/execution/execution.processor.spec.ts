@@ -32,7 +32,7 @@ describe('ExecutionProcessor', () => {
 
     const result = await processor.process(job);
 
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1');
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined);
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
   });
@@ -45,7 +45,20 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1');
+    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined);
+  });
+
+  it('should decode job.data.sv base64 and pass to execute', async () => {
+    const b64 = Buffer.from('hello').toString('base64');
+    const job = {
+      id: 'job-4',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', sv: b64 },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+
+    await processor.process(job);
+    const svArg = (execService.execute.mock.calls[0][4] as Uint8Array);
+    expect([...svArg]).toEqual([104, 101, 108, 108, 111]);
   });
 
   it('should throw error on failure and trigger retry', async () => {

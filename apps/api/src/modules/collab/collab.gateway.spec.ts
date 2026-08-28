@@ -147,6 +147,31 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
   });
 
+  it('readCanvas 带 sv：doc 落后时等待 update 事件追上', async () => {
+    const peerDoc = new Y.Doc();
+    peerDoc.getMap('nodes').set('n1', new Y.Map());
+    const requiredSV = Y.encodeStateVector(peerDoc);
+    const serverDoc = new Y.Doc(); // 空的，落后
+    vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: any) => {
+      setTimeout(() => { serverDoc.getMap('nodes').set('n1', new Y.Map()); }, 20);
+      return fn(serverDoc);
+    });
+    const t0 = Date.now();
+    await service.readCanvas('p1', requiredSV);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(15);
+  });
+
+  it('readCanvas 带 sv：3s 超时降级不抛错', async () => {
+    const peerDoc = new Y.Doc(); peerDoc.getMap('nodes').set('n1', 1);
+    vi.spyOn(service, 'withDoc').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));
+    await expect(service.readCanvas('p1', Y.encodeStateVector(peerDoc), 50)).resolves.toBeTruthy();
+  });
+
+  it('readCanvas 无 sv：直接读', async () => {
+    vi.spyOn(service, 'withDoc').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));
+    await expect(service.readCanvas('p1')).resolves.toBeTruthy();
+  });
+
   it('⑥ closeTeamDocuments：disband 事件按 payload.projectIds 关连接', async () => {
     const { provider, synced } = connect('project:p9');
     await synced;

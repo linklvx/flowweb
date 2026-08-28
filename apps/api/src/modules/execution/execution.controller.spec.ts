@@ -40,14 +40,22 @@ describe('ExecutionController', () => {
     it('should call service.execute with provided parameters', async () => {
       const body = { projectId: 'p1', nodeId: 'n2', userId: 'user-1' };
       const result = await controller.execute(body);
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n2', 'user-1', undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n2', 'user-1', undefined, undefined);
       expect(result).toEqual({ success: true, errors: [] });
     });
 
     it('should default userId to default-user when not provided', async () => {
       const body = { projectId: 'p1' };
       await controller.execute(body);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'default-user', undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'default-user', undefined, undefined);
+    });
+
+    it('should decode x-yjs-sv header to Uint8Array', async () => {
+      const body = { projectId: 'p1' };
+      const b64 = Buffer.from('hello').toString('base64');
+      await controller.execute(body, b64);
+      const svArg = service.execute.mock.calls[0][4] as Uint8Array;
+      expect([...svArg]).toEqual([104, 101, 108, 108, 111]);
     });
   });
 
@@ -60,6 +68,7 @@ describe('ExecutionController', () => {
         projectId: 'p1',
         nodeId: 'n2',
         userId: 'user-1',
+        sv: null,
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
     });
@@ -72,8 +81,21 @@ describe('ExecutionController', () => {
         projectId: 'p1',
         nodeId: undefined,
         userId: undefined,
+        sv: null,
       });
       expect(result.status).toBe('queued');
+    });
+
+    it('should pass x-yjs-sv base64 into job payload', async () => {
+      const req = { user: { id: 'user-1' } } as any;
+      const body = { projectId: 'p1' };
+      await controller.enqueue(body, req, 'abc==');
+      expect(queue.add).toHaveBeenCalledWith('execution', {
+        projectId: 'p1',
+        nodeId: undefined,
+        userId: 'user-1',
+        sv: 'abc==',
+      });
     });
   });
 

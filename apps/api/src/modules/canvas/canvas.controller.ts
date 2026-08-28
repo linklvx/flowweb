@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Inject, UnauthorizedException, UsePipes, ValidationPipe, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Inject, UnauthorizedException, UsePipes, ValidationPipe, Param, Headers } from '@nestjs/common';
 import { Request } from 'express';
 import { CanvasService } from './canvas.service';
 import { CreateCanvasDto } from './dto/create-canvas.dto';
@@ -31,9 +31,15 @@ export class CanvasSaveController {
 
   @Post(':id/save')
   @UsePipes(new ValidationPipe({ whitelist: true }))
-  async save(@Param('id') id: string, @Body() dto: SaveCanvasDto, @Req() req: Request) {
+  async save(
+    @Param('id') id: string,
+    @Body() dto: SaveCanvasDto,
+    @Req() req: Request,
+    @Headers('x-yjs-sv') sv?: string,
+  ) {
     const userId = (req as any).user?.id;
     if (!userId) throw new UnauthorizedException('未登录');
-    return this.canvasService.save(id, dto, userId);
+    const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
+    return this.canvasService.save(id, dto, userId, svBytes);
   }
 }

@@ -58,13 +58,13 @@ export class CanvasService {
     return `画布${max + 1}`;
   }
 
-  async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean; viewport?: { x: number; y: number; zoom: number } }, userId: string) {
+  async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean; viewport?: { x: number; y: number; zoom: number } }, userId: string, sv?: Uint8Array) {
     const project = await this.projectService.findById(projectId);
     if (project.userId !== null && project.userId !== userId) {
       throw new ForbiddenException('无权保存此工程');
     }
 
-    const canvas = await this.collabDoc.readCanvas(projectId);
+    const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const nodes = canvas.nodes.map((n: any) => ({
       id: n.id, type: n.type, position: n.position, data: n.data,
     }));

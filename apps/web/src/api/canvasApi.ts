@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { getStateVector } from '@/stores/canvasCollabRuntime';
 
 export interface CreateCanvasResult {
   templateId: string;
@@ -14,9 +15,11 @@ export function createCanvas(name: string, folderId: string | null) {
 }
 
 export function saveCanvas(projectId: string, payload: { name: string; description?: string; isPublic?: boolean }) {
+  const sv = getStateVector();
   return apiFetch(`/projects/${projectId}/save`, {
     method: 'POST',
     body: JSON.stringify(payload),
+    headers: sv ? { 'x-yjs-sv': sv } : {},
   });
 }
 

@@ -245,3 +245,12 @@ export function markNextAsUndo(): void {
   queueMicrotask(() => { fromUndoFlag = false; });
 }
 let fromUndoFlag = false;
+
+/** 执行请求附带的本端状态向量（spec 3.1，base64） */
+export function getStateVector(): string | undefined {
+  if (!doc) return undefined;
+  const sv = Y.encodeStateVector(doc);
+  let bin = '';
+  for (const b of sv) bin += String.fromCharCode(b);
+  return btoa(bin);
+}

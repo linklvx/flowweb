@@ -4,12 +4,13 @@ interface FetchOptions {
   method?: string;
   body?: string;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }
 
 export async function apiFetch<T>(path: string, options?: FetchOptions): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: options?.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: options?.body,
     signal: options?.signal,
   });

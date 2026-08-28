@@ -1,9 +1,13 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
+import { svSatisfied } from './sv.util';
+import { svWaitTimeoutTotal } from './sv-wait.metrics';
 
 @Injectable()
 export class CollabDocumentService {
+  private readonly logger = new Logger(CollabDocumentService.name);
+
   constructor(@Inject(CollabGateway) private readonly gateway: CollabGateway) {}
 
   /** Q1 单实例铁律：业务服务端写 doc 一律走 Hocuspocus 直连；try/finally disconnect 保证 unload flush（S7） */
@@ -20,27 +24,50 @@ export class CollabDocumentService {
     }
   }
 
-  /** doc → plain nodes/edges（形状对齐原 CanvasNode/CanvasEdge include 结果） */
-  async readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
-    return this.withDoc(projectId, (doc) => {
-      const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
-        const m = v as Y.Map<any>;
-        return {
-          id,
-          type: m.get('type'),
-          parentId: m.get('parentId') ?? null,
-          width: m.get('width') ?? null,
-          height: m.get('height') ?? null,
-          position: m.get('position')?.toJSON(),
-          data: m.get('data')?.toJSON(),
-        };
-      });
-      const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
-        const m = v as Y.Map<any>;
-        return { id, sourceId: m.get('source'), targetId: m.get('target') };
-      });
-      return { nodes, edges };
+  /** doc → plain nodes/edges（形状对齐原 CanvasNode/CanvasEdge include 结果）；sv 提供时等待 server doc 追上（超时降级不抛错，spec 3.1） */
+  async readCanvas(projectId: string, sv?: Uint8Array, timeoutMs = 3000): Promise<{ nodes: any[]; edges: any[] }> {
+    return this.withDoc(projectId, async (doc) => {
+      if (sv && !svSatisfied(Y.encodeStateVector(doc), sv)) {
+        const ok = await this.waitForSV(doc, sv, timeoutMs);
+        if (!ok) {
+          this.logger.warn(`SV wait timeout projectId=${projectId}`);
+          svWaitTimeoutTotal.inc();
+        }
+      }
+      return this.readDocCanvas(doc);
     });
+  }
+
+  private waitForSV(doc: Y.Doc, sv: Uint8Array, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const check = () => svSatisfied(Y.encodeStateVector(doc), sv);
+      const onUpdate = () => { if (check()) { cleanup(); resolve(true); } };
+      const timer = setTimeout(() => { cleanup(); resolve(false); }, timeoutMs);
+      const cleanup = () => { clearTimeout(timer); doc.off('update', onUpdate); };
+      doc.on('update', onUpdate);
+      if (check()) { cleanup(); resolve(true); } // 注册后立即检查——函数自洽，不依赖外层守卫时序
+    });
+  }
+
+  /** 原 readCanvas 内的读取逻辑抽为纯函数（供复用） */
+  private readDocCanvas(doc: Y.Doc): { nodes: any[]; edges: any[] } {
+    const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
+      const m = v as Y.Map<any>;
+      return {
+        id,
+        type: m.get('type'),
+        parentId: m.get('parentId') ?? null,
+        width: m.get('width') ?? null,
+        height: m.get('height') ?? null,
+        position: m.get('position')?.toJSON(),
+        data: m.get('data')?.toJSON(),
+      };
+    });
+    const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
+      const m = v as Y.Map<any>;
+      return { id, sourceId: m.get('source'), targetId: m.get('target') };
+    });
+    return { nodes, edges };
   }
 
   /** 服务端写节点 data 字段（逐键写入，禁止整块替换） */
