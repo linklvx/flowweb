@@ -29,6 +29,7 @@ function buildDocState(): Buffer {
 
 describe('CollabGateway + CollabDocumentService（integration）', () => {
   let prisma: any;
+  let repo: any;
   let gateway: CollabGateway;
   let service: CollabDocumentService;
   let emitter: EventEmitter2;
@@ -51,11 +52,17 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         upsert: vi.fn(),
       },
     };
+    repo = {
+      append: vi.fn().mockResolvedValue(undefined),
+      loadUpdates: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      compact: vi.fn().mockResolvedValue(null),
+    };
 
 
     emitter = new EventEmitter2();
     const port = 20000 + Math.floor(Math.random() * 20000);
-    gateway = new CollabGateway(prisma as any, emitter as any, port, 300);
+    gateway = new CollabGateway(prisma as any, emitter as any, repo, port, 300);
     await gateway.onModuleInit();
     url = `ws://127.0.0.1:${port}`;
     service = new CollabDocumentService(gateway);
@@ -111,7 +118,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     m.set('type', 'group');
     ydoc.getMap('nodes').set('g1', m);
     await vi.waitFor(() => {
-      expect(prisma.canvasDoc.upsert).toHaveBeenCalled();
+      expect(repo.append).toHaveBeenCalled();
     }, { timeout: 4000 });
   }, 8000);
 
@@ -156,4 +163,49 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(prisma.canvasProject.findUnique.mock.calls.length).toBe(callsBeforeClose);
   }, 8000);
+
+  describe('增量持久化（spec 2.2/2.3）', () => {
+    function extractHooks() {
+      return (gateway as any).hooks as {
+        onLoadDocument: (p: any) => Promise<any>;
+        onStoreDocument: (p: any) => Promise<void>;
+        onDisconnect: (p: any) => Promise<void>;
+      };
+    }
+
+    it('onStoreDocument：diff append + lastPersistedSV 前进', async () => {
+      const { onLoadDocument, onStoreDocument } = extractHooks();
+      // 先 load 初始化 persistedSVs（快照 null + 无增量）
+      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+      const doc = new Y.Doc();
+      doc.getMap('nodes').set('n1', 'a');
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);
+      // 再触发一次无变化：不 append
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);
+    });
+
+    it('onLoadDocument：快照 + 增量按序重放', async () => {
+      const { onLoadDocument } = extractHooks();
+      const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
+      prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
+      const incDoc = new Y.Doc(); incDoc.getMap('nodes').set('b', 2);
+      repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate(incDoc))]);
+      const doc = new Y.Doc();
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      expect(doc.getMap('nodes').get('a')).toBe(1);
+      expect(doc.getMap('nodes').get('b')).toBe(2);
+    });
+
+    it('onDisconnect：最后连接断开触发 flush-then-compact', async () => {
+      const { onDisconnect } = extractHooks();
+      const doc = new Y.Doc(); doc.getMap('nodes').set('x', 1);
+      await onDisconnect({
+        document: doc, documentName: 'project:p1',
+        instance: { getConnectionsCount: () => 0 },
+      });
+      expect(repo.compact).toHaveBeenCalledTimes(1);
+    });
+  });
 });

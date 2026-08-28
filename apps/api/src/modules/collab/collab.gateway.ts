@@ -1,9 +1,13 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { onAuthenticatePayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import type { onAuthenticatePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { svSatisfied } from './sv.util';
+
+export const COMPACT_THRESHOLD = 32;
 
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
@@ -13,13 +17,26 @@ export function parseProjectId(documentName: string): string {
 export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(CollabGateway.name);
   readonly server: Server;
+  /** 每文档"已持久化状态"（spec 2.2 lastPersistedSV，= Postgres maxSeq 时刻状态） */
+  private readonly persistedSVs = new Map<string, Uint8Array>();
+  readonly hooks: {
+    onLoadDocument: (p: any) => Promise<any>;
+    onStoreDocument: (p: any) => Promise<void>;
+    onDisconnect: (p: any) => Promise<void>;
+  };
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly repo: CanvasDocUpdateRepository,
     @Optional() @Inject('COLLAB_PORT') port?: number,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
   ) {
+    this.hooks = {
+      onLoadDocument: (p) => this.loadDocument(p),
+      onStoreDocument: (p) => this.storeDocument(p),
+      onDisconnect: (p) => this.disconnect(p),
+    };
     this.server = new Server({
       port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
       debounce: debounce ?? 5000,
@@ -46,25 +63,51 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         if (!member) throw new Error('非团队成员');
         return { user: { id: session.user.id, name: session.user.name, role: member.role } };
       },
-      onLoadDocument: async ({ document, documentName }: onLoadDocumentPayload) => {
-        const docRow = await this.prisma.canvasDoc.findUnique({
-          where: { projectId: parseProjectId(documentName) },
-        });
-        if (docRow) {
-          Y.applyUpdate(document, new Uint8Array(docRow.state));
-        }
-        return document;
-      },
-      onStoreDocument: async ({ document, documentName }: onStoreDocumentPayload) => {
-        const projectId = parseProjectId(documentName);
-        const state = Buffer.from(Y.encodeStateAsUpdate(document));
-        await this.prisma.canvasDoc.upsert({
-          where: { projectId },
-          update: { state },
-          create: { projectId, state },
-        });
-      },
+      onLoadDocument: this.hooks.onLoadDocument,
+      onStoreDocument: this.hooks.onStoreDocument,
+      onDisconnect: this.hooks.onDisconnect,
     });
+  }
+
+  /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放 */
+  private async loadDocument({ document, documentName }: any) {
+    const projectId = parseProjectId(documentName);
+    const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
+    if (docRow) Y.applyUpdate(document, new Uint8Array(docRow.state));
+    for (const u of await this.repo.loadUpdates(projectId)) {
+      Y.applyUpdate(document, new Uint8Array(u));
+    }
+    this.persistedSVs.set(projectId, Y.encodeStateVector(document));
+    return document;
+  }
+
+  /** spec 2.2：diff append（含 flush 语义）+ 阈值触发 compaction */
+  private async storeDocument({ document, documentName }: any) {
+    const projectId = parseProjectId(documentName);
+    const lastSV = this.persistedSVs.get(projectId);
+    if (!lastSV) return;
+    const currentSV = Y.encodeStateVector(document);
+    if (svSatisfied(currentSV, lastSV) && svSatisfied(lastSV, currentSV)) return; // 无变化
+    await this.repo.append(projectId, Y.encodeStateAsUpdate(document, lastSV));
+    this.persistedSVs.set(projectId, currentSV);
+    if (await this.repo.count(projectId) >= COMPACT_THRESHOLD) {
+      const snapshotSV = await this.repo.compact(projectId);
+      if (snapshotSV) this.persistedSVs.set(projectId, snapshotSV);
+    }
+  }
+
+  /** spec 2.2：最后连接断开（含直连）强制 flush-then-compact */
+  private async disconnect({ document, documentName, instance }: any) {
+    if (instance.getConnectionsCount(documentName) > 0) return;
+    const projectId = parseProjectId(documentName);
+    try {
+      await this.storeDocument({ document, documentName });
+      await this.repo.compact(projectId);
+    } catch (err) {
+      this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);
+    } finally {
+      this.persistedSVs.delete(projectId);
+    }
   }
 
   onModuleInit() {
