@@ -10,7 +10,7 @@
 
 **关键实现裁定（写死，执行时不再讨论）：**
 
-1. **TS 严格模式**全程生效；测试框架：api 用 jest（`*.spec.ts`），web 用 vitest（`*.test.ts(x)`）。
+1. **TS 严格模式**全程生效；测试框架：api 用 vitest（`*.spec.ts`），web 用 vitest（`*.test.ts(x)`）。
 2. **第 4 节单向数据流的实现路径**：保留 `canvasCollabRuntime.bindBridge` 的 store subscribe → `syncStoreToDoc` 自动 diff 桥作为**所有 UI mutation 的统一通道**（subscribe 即拦截点），origin 固定 `'local-user'`。依据：`storeProjection()`（canvasCollabRuntime.ts:40-55）只取 id/type/parentId/position/width/height/data 结构字段，**select/dragging 天然不进 doc**（spec 4.3 select 走 awareness 自动满足）；`syncStoreToDoc` 已是细粒度 Y 操作转译器（新增/删除按 id、position 独立子 Map、data 逐键），重写 10+ 入口为显式 transact 行为等价但风险高。undo 回放经 observeDeep → `applyDocToStore` 投影，`isHydrating` 守卫（bindBridge:147/154 已有）防回写——回环结构上消失。
 3. **Prisma migrate 流程**（记忆：基线已重置，禁 db push）：`npx prisma migrate dev --create-only --name xxx` → 手动编辑 migration.sql 追加 `CREATE SEQUENCE` → `npx prisma migrate dev` 应用。migrate dev 需一次性 CREATEDB 授权（记忆 prisma_migrate_history_broken）。
 4. 所有命令在 `apps/api` 或 `apps/web` 目录下执行（monorepo：`D:\flowweb\apps\api`、`D:\flowweb\apps\web`）。
@@ -218,7 +218,7 @@ describe('CanvasDocUpdateRepository', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/canvas-doc-update.repository.spec.ts
+cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts
 ```
 
 Expected: FAIL（模块不存在）。
@@ -309,7 +309,7 @@ export class CanvasDocUpdateRepository {
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/canvas-doc-update.repository.spec.ts
+cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts
 ```
 
 Expected: PASS 3 个用例。
@@ -366,7 +366,7 @@ describe('svSatisfied', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/sv.util.spec.ts
+cd apps/api && npx vitest run src/modules/collab/sv.util.spec.ts
 ```
 
 Expected: FAIL（模块不存在）。
@@ -394,7 +394,7 @@ export function svSatisfied(serverSV: Uint8Array, requiredSV: Uint8Array): boole
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/sv.util.spec.ts
+cd apps/api && npx vitest run src/modules/collab/sv.util.spec.ts
 ```
 
 Expected: PASS。
@@ -460,7 +460,7 @@ describe('增量持久化（spec 2.2/2.3）', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab.gateway.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab.gateway.spec.ts
 ```
 
 Expected: 新增用例 FAIL。
@@ -555,7 +555,7 @@ import 追加 `CanvasDocUpdateRepository`、`svSatisfied`。既有 spec 里 onSt
 - [ ] **Step 4: 跑全部 collab 测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/collab
+cd apps/api && npx vitest run src/modules/collab
 ```
 
 Expected: PASS（含既有用例修正后）。
@@ -611,7 +611,7 @@ describe('CollabGateway 多实例配置', () => {
 - [ ] **Step 3: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab.gateway.multi-instance.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab.gateway.multi-instance.spec.ts
 ```
 
 Expected: FAIL（无 Redis extension）。
@@ -634,7 +634,7 @@ this.server = new Server({
 - [ ] **Step 5: 跑测试确认通过 + Commit**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab.gateway.multi-instance.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab.gateway.multi-instance.spec.ts
 git add apps/api/src/modules/collab apps/api/package.json apps/api/package-lock.json
 git commit -m "feat(collab): 挂载 @hocuspocus/extension-redis 跨实例广播"
 ```
@@ -688,7 +688,7 @@ describe('CollabRedisSync', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab-redis-sync.service.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab-redis-sync.service.spec.ts
 ```
 
 - [ ] **Step 3: 实现**
@@ -796,7 +796,7 @@ await this.redisSync.syncFromPeers(documentName, document, 1000);
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab-redis-sync.service.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab-redis-sync.service.spec.ts
 ```
 
 - [ ] **Step 5: Commit**
@@ -853,7 +853,7 @@ it('readCanvas 无 sv：直接读', async () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/collab/collab.gateway.spec.ts
+cd apps/api && npx vitest run src/modules/collab/collab.gateway.spec.ts
 ```
 
 - [ ] **Step 3: 实现**
@@ -909,7 +909,7 @@ private readDocCanvas(doc: Y.Doc): { nodes: any[]; edges: any[] } {
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/collab
+cd apps/api && npx vitest run src/modules/collab
 ```
 
 - [ ] **Step 5: 端点接线（后端）**
@@ -1002,7 +1002,7 @@ function svHeaders(): Record<string, string> {
 - [ ] **Step 7: 跑两侧测试 + Commit**
 
 ```bash
-cd apps/api && npx jest src/modules/collab src/modules/execution
+cd apps/api && npx vitest run src/modules/collab src/modules/execution
 cd ../web && npx vitest run src/api
 git add apps/api/src apps/web/src
 git commit -m "feat(collab): readCanvas SV 事件等待 + x-yjs-sv 全端点接线 + BullMQ payload"
@@ -1075,7 +1075,7 @@ describe('resolveProjectRole（spec 1.2 三级解析链）', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/team/project-permission.service.spec.ts
+cd apps/api && npx vitest run src/modules/team/project-permission.service.spec.ts
 ```
 
 - [ ] **Step 3: 实现**
@@ -1124,7 +1124,7 @@ export class ProjectPermissionService {
 - [ ] **Step 4: 跑测试确认通过 + Commit**
 
 ```bash
-cd apps/api && npx jest src/modules/team/project-permission.service.spec.ts
+cd apps/api && npx vitest run src/modules/team/project-permission.service.spec.ts
 git add apps/api/src/modules/team
 git commit -m "feat(team): resolveProjectRole 三级解析链 + assertEditor"
 ```
@@ -1188,7 +1188,7 @@ describe('ProjectMemberService', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/team/project-member.service.spec.ts
+cd apps/api && npx vitest run src/modules/team/project-member.service.spec.ts
 ```
 
 - [ ] **Step 3: 实现 service + controller**
@@ -1341,7 +1341,7 @@ await tx.projectMember.create({
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd apps/api && npx jest src/modules/team/project-member.service.spec.ts src/modules/project
+cd apps/api && npx vitest run src/modules/team/project-member.service.spec.ts src/modules/project
 ```
 
 - [ ] **Step 5: 前端 ProjectMembersPanel**
@@ -1457,7 +1457,7 @@ it('createTeam：credits=0、无 register_grant 流水、创建者 OWNER', async
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd apps/api && npx jest src/modules/team/team.service.spec.ts -t createTeam
+cd apps/api && npx vitest run src/modules/team/team.service.spec.ts -t createTeam
 ```
 
 - [ ] **Step 3: 实现**
@@ -1670,7 +1670,7 @@ async logTx(tx: { auditLog: { create(args: any): Promise<unknown> } }, params: A
 - [ ] **Step 4: 跑测试确认通过（team 全量 + audit）**
 
 ```bash
-cd apps/api && npx jest src/modules/team src/common/audit
+cd apps/api && npx vitest run src/modules/team src/common/audit
 ```
 
 - [ ] **Step 5: Commit**
@@ -1735,7 +1735,7 @@ web：teamApi 加 `getAuditLogs(teamId, page, pageSize)`；TeamPage 左导航加
 - [ ] **Step 4: 跑测试 + Commit**
 
 ```bash
-cd apps/api && npx jest src/modules/team
+cd apps/api && npx vitest run src/modules/team
 git add apps/api/src apps/web/src
 git commit -m "feat(team): 审计查询端点 + TeamPage 第5 tab"
 ```
@@ -1789,7 +1789,7 @@ execution.service.execute 在 project 加载后：`await this.perm.assertEditor(
 - [ ] **Step 4: 跑测试 + Commit**
 
 ```bash
-cd apps/api && npx jest src/modules/collab src/modules/execution
+cd apps/api && npx vitest run src/modules/collab src/modules/execution
 git add apps/api/src
 git commit -m "feat(team): VIEWER 只读贯通——collab readOnly + 执行端点 403"
 ```
