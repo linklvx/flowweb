@@ -153,12 +153,14 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     const requiredSV = Y.encodeStateVector(peerDoc);
     const serverDoc = new Y.Doc(); // 空的，落后
     vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: any) => {
-      setTimeout(() => { serverDoc.getMap('nodes').set('n1', new Y.Map()); }, 20);
+      setTimeout(() => { Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(peerDoc)); }, 20);
       return fn(serverDoc);
     });
     const t0 = Date.now();
     await service.readCanvas('p1', requiredSV);
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(15);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(15);
+    expect(elapsed).toBeLessThan(1000); // 等待成功路径：远早于 3s 超时
   });
 
   it('readCanvas 带 sv：3s 超时降级不抛错', async () => {
