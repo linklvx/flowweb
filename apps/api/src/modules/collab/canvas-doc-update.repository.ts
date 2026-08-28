@@ -40,31 +40,34 @@ export class CanvasDocUpdateRepository {
    * 临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律。
    */
   async compact(projectId: string): Promise<Uint8Array | null> {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
-      const maxRows = await tx.$queryRaw<{ max: bigint | null }[]>`
-        SELECT max(seq) AS max FROM "CanvasDocUpdate" WHERE "projectId" = ${projectId}`;
-      const maxSeq = maxRows[0]?.max;
-      if (maxSeq == null) return null;
-      const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
-      const updates = await tx.canvasDocUpdate.findMany({
-        where: { projectId, seq: { lte: maxSeq } },
-        orderBy: { seq: 'asc' },
-        select: { update: true },
-      });
-      const temp = new Y.Doc();
-      if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
-      for (const u of updates) Y.applyUpdate(temp, new Uint8Array(u.update));
-      const newSnapshot = Y.encodeStateAsUpdate(temp);
-      const snapshotSV = Y.encodeStateVector(temp);
-      temp.destroy();
-      await tx.canvasDoc.upsert({
-        where: { projectId },
-        update: { state: Buffer.from(newSnapshot) },
-        create: { projectId, state: Buffer.from(newSnapshot) },
-      });
-      await tx.canvasDocUpdate.deleteMany({ where: { projectId, seq: { lte: maxSeq } } });
-      return snapshotSV;
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
+        const maxRows = await tx.$queryRaw<{ max: bigint | null }[]>`
+          SELECT max(seq) AS max FROM "CanvasDocUpdate" WHERE "projectId" = ${projectId}`;
+        const maxSeq = maxRows[0]?.max;
+        if (maxSeq == null) return null;
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
+        const updates = await tx.canvasDocUpdate.findMany({
+          where: { projectId, seq: { lte: maxSeq } },
+          orderBy: { seq: 'asc' },
+          select: { update: true },
+        });
+        const temp = new Y.Doc();
+        if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
+        for (const u of updates) Y.applyUpdate(temp, new Uint8Array(u.update));
+        const newSnapshot = Y.encodeStateAsUpdate(temp);
+        const snapshotSV = Y.encodeStateVector(temp);
+        temp.destroy();
+        await tx.canvasDoc.upsert({
+          where: { projectId },
+          update: { state: Buffer.from(newSnapshot) },
+          create: { projectId, state: Buffer.from(newSnapshot) },
+        });
+        await tx.canvasDocUpdate.deleteMany({ where: { projectId, seq: { lte: maxSeq } } });
+        return snapshotSV;
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
   }
 }
