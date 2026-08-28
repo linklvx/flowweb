@@ -15,9 +15,16 @@ export class CollabDocumentService {
     const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`);
     try {
       let result: T;
-      await connection.transact(async (doc: Y.Doc) => {
-        result = await fn(doc);
+      let pending: Promise<void> | undefined;
+      await connection.transact((doc: Y.Doc) => {
+        // transact 不 await 异步回调（hocuspocus 4.6.0 DirectConnection.transact 同步调用且不 await）：
+        // 同步 fn 原样在事务内完成；异步 fn 捕获其 Promise 在事务外 await——
+        // 否则回调挂起时即返回 undefined 且 finally 提前拆直连（readCanvas SV 等待路径依赖此语义）
+        const r = fn(doc);
+        if (r instanceof Promise) pending = r.then((v) => { result = v; });
+        else result = r;
       });
+      if (pending) await pending;
       return result!;
     } finally {
       await connection.disconnect();

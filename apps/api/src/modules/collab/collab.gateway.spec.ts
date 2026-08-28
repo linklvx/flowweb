@@ -147,6 +147,24 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
   });
 
+  it('readCanvas SV 等待（真实 withDoc 直连）：update 到达后返回数据而非 undefined', async () => {
+    const peerDoc = new Y.Doc();
+    peerDoc.getMap('nodes').set('n1', new Y.Map());
+    const requiredSV = Y.encodeStateVector(peerDoc);
+    // 直连建立（openDirectConnection 触发 onLoadDocument）后，向 gateway 内存中的同一 Document 注入对端更新
+    setTimeout(() => {
+      const serverDoc = gateway.server.hocuspocus.documents.get('project:p1');
+      if (serverDoc) Y.applyUpdate(serverDoc as unknown as Y.Doc, Y.encodeStateAsUpdate(peerDoc));
+    }, 20);
+    const t0 = Date.now();
+    const canvas = await service.readCanvas('p1', requiredSV, 3000);
+    const elapsed = Date.now() - t0;
+    expect(canvas?.nodes).toHaveLength(1); // 修复前 withDoc 提前返回 undefined → 此处红
+    // 等待成功路径 ≈ 20ms 等待 + RedisExtension disconnect 固定 2×1000ms（disconnectDelay）≈ 2.1s；
+    // 若 SV 等待超时降级（3s）则 >5s——3000ms 稳定区分两路径
+    expect(elapsed).toBeLessThan(3000);
+  }, 12000);
+
   it('readCanvas 带 sv：doc 落后时等待 update 事件追上', async () => {
     const peerDoc = new Y.Doc();
     peerDoc.getMap('nodes').set('n1', new Y.Map());
