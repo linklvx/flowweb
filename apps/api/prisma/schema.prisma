@@ -866,7 +866,7 @@ model ProjectMember {
   role      ProjectRole
   createdAt DateTime      @default(now())
   project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User          @relation(fields: [userId], references: [id])
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@index([userId])
