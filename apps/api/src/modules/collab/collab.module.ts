@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
+import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 
 @Module({
   providers: [
@@ -8,6 +9,7 @@ import { CollabDocumentService } from './collab-document.service';
     { provide: 'COLLAB_DEBOUNCE', useValue: 5000 },
     CollabGateway,
     CollabDocumentService,
+    CanvasDocUpdateRepository,
   ],
   exports: [CollabDocumentService],
 })
