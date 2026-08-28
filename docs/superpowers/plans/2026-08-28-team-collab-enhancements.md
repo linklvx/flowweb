@@ -376,26 +376,15 @@ Expected: FAIL（模块不存在）。
 `sv.util.ts`：
 
 ```typescript
-import * as decoding from 'lib0/decoding';
 import * as Y from 'yjs';
 
-/** 解码 state vector 为 client→clock Map */
-export function decodeStateVector(sv: Uint8Array): Map<number, number> {
-  const decoder = decoding.createDecoder(sv);
-  const ss = decoding.readVarUint(decoder);
-  const result = new Map<number, number>();
-  for (let i = 0; i < ss; i++) {
-    const client = decoding.readVarUint(decoder);
-    const clock = decoding.readVarUint(decoder);
-    result.set(client, clock);
-  }
-  return result;
-}
+/** 解码 state vector 为 client→clock Map（yjs 公开 API） */
+export const decodeStateVector = Y.decodeStateVector;
 
 /** serverSV 是否覆盖 requiredSV 的全部 clock（spec 3.2 等待条件） */
 export function svSatisfied(serverSV: Uint8Array, requiredSV: Uint8Array): boolean {
-  const server = decodeStateVector(serverSV);
-  for (const [client, clock] of decodeStateVector(requiredSV)) {
+  const server = Y.decodeStateVector(serverSV);
+  for (const [client, clock] of Y.decodeStateVector(requiredSV)) {
     if ((server.get(client) ?? 0) < clock) return false;
   }
   return true;
