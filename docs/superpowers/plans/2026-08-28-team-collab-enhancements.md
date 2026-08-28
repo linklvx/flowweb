@@ -1377,7 +1377,7 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
           { key: 'VIEWER', label: '设为只读' },
           { key: 'OWNER', label: '设为所有者', danger: true },
           { type: 'divider' },
-          { key: 'remove', label: '移除显式记录', danger: true },
+          { key: 'remove', label: '移除显式记录', danger: true, disabled: r.source === 'inherited' }, // 继承成员无 ProjectMember 记录，remove 会 404
         ],
         onClick: async ({ key }) => {
           if (key === 'remove') await removeProjectMember(projectId, r.userId);
