@@ -2,6 +2,8 @@ import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleIn
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
 import type { onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
+import Redis from 'ioredis';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -66,6 +68,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
       onDisconnect: this.hooks.onDisconnect,
+      extensions: [
+        // v4.6.0 无 url 选项——createClient 直建 ioredis（吃 REDIS_URL，pub/sub 各一连接）
+        new RedisExtension({ createClient: () => new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379/0') }),
+      ],
     });
   }
 
