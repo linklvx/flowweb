@@ -18,7 +18,11 @@ import { hydrateNodes } from '@/utils/nodeOrder';
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
   // 生产走 Nginx /collab WS upgrade（完整 headers 转发）
-  if (import.meta.env.DEV) return 'ws://localhost:3001';
+  // DEV 态 ?collab=<port> 覆盖默认端口——双实例验收时浏览器 B 连实例 B 的 collab 端口
+  if (import.meta.env.DEV) {
+    const port = new URLSearchParams(location.search).get('collab');
+    return `ws://localhost:${port ?? '3001'}`;
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}/collab`;
 }
