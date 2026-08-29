@@ -67,6 +67,7 @@ export interface CreditsPanelContentProps {
   subscriptionCredits: number;
   subscriptionCreditsExpiry: string | null;
   isActive: boolean;
+  scope?: 'personal' | 'team';
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -79,6 +80,7 @@ export function CreditsPanelContent({
   subscriptionCredits,
   subscriptionCreditsExpiry,
   isActive,
+  scope = 'personal',
   loading,
   error,
   onRetry,
@@ -218,7 +220,9 @@ export function CreditsPanelContent({
             {formatNumber(subscriptionCredits)}
           </div>
           <div className="mt-1 truncate text-[0.6875rem] font-medium text-violet-100/70">
-            {formatExpiry(subscriptionCreditsExpiry, isActive)}
+            {scope === 'team'
+              ? <span className="text-xs text-[#888]">{subscriptionCredits > 0 ? '团队订阅积分' : '暂无团队订阅'}</span>
+              : formatExpiry(subscriptionCreditsExpiry, isActive)}
           </div>
         </div>
 
@@ -313,7 +317,7 @@ function CreditsDropdownComponent() {
   const handleRecharge = () => {
     manualCloseRef.current = true;
     setOpen(false);
-    navigate('/settings/credits');
+    navigate(store.scope === 'team' && store.teamId ? `/team/${store.teamId}/billing` : '/settings/credits');
   };
 
   const handleInvite = () => {
@@ -341,9 +345,10 @@ function CreditsDropdownComponent() {
           subscriptionCredits={store.subscriptionCredits}
           subscriptionCreditsExpiry={store.subscriptionCreditsExpiry}
           isActive={store.isSubscriptionActive()}
+          scope={store.scope}
           loading={store.loading}
           error={store.error}
-          onRetry={() => store.fetchBalance()}
+          onRetry={() => (store.scope === 'team' && store.teamId ? store.fetchTeamBalance(store.teamId) : store.fetchBalance())}
           onRecharge={handleRecharge}
           onInvite={handleInvite}
         />

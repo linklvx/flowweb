@@ -1,14 +1,16 @@
-import { describe, it, expect, vi, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CreditsPanelContent, default as CreditsDropdown } from './CreditsDropdown';
 import { useCreditsStore } from '@/stores/creditsStore';
+
+const mockNavigate = vi.hoisted(() => vi.fn());
 
 vi.mock('@/stores/creditsStore', () => ({
   useCreditsStore: vi.fn(),
 }));
 
 vi.mock('react-router', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
 }));
 
 const baseProps = {
@@ -153,12 +155,64 @@ describe('CreditsDropdown trigger', () => {
       error: null,
       isSubscriptionActive: () => true,
       fetchBalance: vi.fn(),
-      updateCredits: vi.fn(),
     });
 
     render(<CreditsDropdown />);
     const btn = screen.getByLabelText('查看积分明细');
     expect(btn).toBeDefined();
     expect(btn.textContent).toContain('6,000');
+  });
+});
+
+describe('CreditsDropdown scope 分流', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+  });
+
+  function mockStore(scope: 'personal' | 'team', opts: { error?: string } = {}) {
+    const store = {
+      credits: 5000,
+      subscriptionCredits: 1000,
+      subscriptionCreditsExpiry: null,
+      scope,
+      teamId: scope === 'team' ? 't-1' : null,
+      loading: false,
+      error: opts.error ?? null,
+      fetchBalance: vi.fn(),
+      fetchTeamBalance: vi.fn(),
+      isSubscriptionActive: () => true,
+    };
+    (useCreditsStore as unknown as Mock).mockReturnValue(store);
+    return store;
+  }
+
+  it('scope=team 时充值按钮跳 /team/:id/billing', async () => {
+    mockStore('team');
+    render(<CreditsDropdown />);
+    fireEvent.mouseEnter(screen.getByLabelText('查看积分明细'));
+    fireEvent.click(await screen.findByRole('button', { name: /充值/ }));
+    expect(mockNavigate).toHaveBeenCalledWith('/team/t-1/billing');
+  });
+
+  it('scope=personal 时充值跳 /settings/credits', async () => {
+    mockStore('personal');
+    render(<CreditsDropdown />);
+    fireEvent.mouseEnter(screen.getByLabelText('查看积分明细'));
+    fireEvent.click(await screen.findByRole('button', { name: /充值/ }));
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/credits');
+  });
+
+  it('scope=team 时订阅积分卡显示团队语义（无到期日期）', () => {
+    render(<CreditsPanelContent {...baseProps} scope="team" subscriptionCredits={30} />);
+    expect(screen.getByText('团队订阅积分')).toBeInTheDocument();
+  });
+
+  it('scope=team 时重试拉团队余额而非个人接口', async () => {
+    const store = mockStore('team', { error: '积分获取失败' });
+    render(<CreditsDropdown />);
+    fireEvent.mouseEnter(screen.getByLabelText('查看积分明细'));
+    fireEvent.click(await screen.findByText('重试'));
+    expect(store.fetchTeamBalance).toHaveBeenCalledWith('t-1');
+    expect(store.fetchBalance).not.toHaveBeenCalled();
   });
 });
