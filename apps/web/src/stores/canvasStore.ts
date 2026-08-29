@@ -203,7 +203,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
-    // B-2：结构 set 必须先于 nodeStore 清理——collab 桥在 set 时即读 nodeStore 合成投影，先清会丢 data
+    // B-2：结构 set 必须先于 nodeStore 清理——先清会触发 nodeStore 订阅提前 sync，被删节点走 nd.data 陈旧 fallback 瞬态覆写 doc data；结构 set 先行使其直接从投影消失
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
