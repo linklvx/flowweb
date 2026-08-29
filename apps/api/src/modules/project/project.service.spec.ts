@@ -26,7 +26,9 @@ describe('ProjectService', () => {
       canvasDoc: {
         findUnique: vi.fn().mockResolvedValue(null),
       },
+      projectMember: { create: vi.fn().mockResolvedValue({}) },
     };
+    prisma.$transaction = vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -64,6 +66,26 @@ describe('ProjectService', () => {
       const collabDoc = (service as any).collabDoc;
       await service.create('导入', 'u1', nodes, edges);
       expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
+    });
+
+    it('登录创建者写入 PROJECT_OWNER 成员记录', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      await service.create('未命名项目', 'u1');
+      expect(prisma.projectMember.create).toHaveBeenCalledWith({
+        data: { projectId: 'p1', userId: 'u1', role: 'PROJECT_OWNER' },
+      });
+    });
+
+    it('匿名创建（无 userId）不写成员记录', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      await service.create('未命名项目', undefined);
+      expect(prisma.projectMember.create).not.toHaveBeenCalled();
     });
   });
 

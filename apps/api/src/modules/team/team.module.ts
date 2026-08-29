@@ -6,6 +6,8 @@ import { TeamRechargeService } from './team-recharge.service';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { StorageQuotaService } from './storage-quota.service';
 import { ProjectPermissionService } from './project-permission.service';
+import { ProjectMemberService } from './project-member.service';
+import { ProjectMemberController } from './project-member.controller';
 import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
@@ -24,10 +26,10 @@ import { RechargeModule } from '../recharge/recharge.module';
     ),
     forwardRef(() => RechargeModule),
   ],
-  controllers: [TeamController, AdminTeamPlanController],
+  controllers: [TeamController, AdminTeamPlanController, ProjectMemberController],
   providers: [
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
-    ProjectPermissionService,
+    ProjectPermissionService, ProjectMemberService,
     TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor, TeamMediaCleanupProcessor,
   ],
   exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],

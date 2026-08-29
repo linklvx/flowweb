@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router';
+import { Button, Modal } from 'antd';
+import { ProjectMembersPanel } from './ProjectMembersPanel';
 
 export const ROOT_FOLDER_NAME = '主目录';
 
@@ -14,6 +16,7 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
   const [name, setName] = useState(initialName);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(initialName);
+  const [showMembers, setShowMembers] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync if parent's projectName changes
@@ -57,6 +60,7 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
   const prefix = folderPath.length > 0 ? `${folderPath.join('/')}/` : `${ROOT_FOLDER_NAME}/`;
 
   return (
+    <>
     <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
       <Link
         to="/works"
@@ -94,6 +98,14 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
           {name}
         </span>
       )}
+      <Button size="small" type="text" className="text-[#ccc]" onClick={() => setShowMembers(true)}>
+        成员
+      </Button>
     </div>
+
+    <Modal open={showMembers} title="项目成员" footer={null} onCancel={() => setShowMembers(false)} width={560}>
+      <ProjectMembersPanel projectId={projectId} />
+    </Modal>
+    </>
   );
 }

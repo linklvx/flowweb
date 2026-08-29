@@ -32,12 +32,20 @@ export class ProjectService {
 
   async create(name: string, userId?: string, nodes?: any[], edges?: any[]) {
     const team = await this.teamService.ensureDefaultTeam(userId || '');
-    const project = await this.prisma.canvasProject.create({
-      data: {
-        name,
-        userId: userId || null,
-        teamId: team.id,
-      },
+    const project = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.canvasProject.create({
+        data: {
+          name,
+          userId: userId || null,
+          teamId: team.id,
+        },
+      });
+      if (userId) {
+        await tx.projectMember.create({
+          data: { projectId: created.id, userId, role: 'PROJECT_OWNER' },
+        });
+      }
+      return created;
     });
 
     if (nodes && nodes.length > 0) {
