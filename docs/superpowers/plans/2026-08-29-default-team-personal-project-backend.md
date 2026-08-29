@@ -768,11 +768,11 @@ git commit -m "feat(api): canvas/project 团队化——save 删 creator-only �
 - [ ] **Step 1: 写失败测试（folder.service.spec.ts 追加，模式同前）**
 
 ```typescript
-  it('list 按 teamId 查询（队友可见）', async () => {
+  it('list 按 teamId 查询（队友可见，平铺全量——前端自行按 parentId 组树/过滤）', async () => {
     prisma.folder.findMany.mockResolvedValue([]);
     await service.list('u1', 't-team');
     expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ teamId: 't-team', parentId: null }),
+      where: expect.objectContaining({ teamId: 't-team' }),
     }));
   });
   it('create 校验 parent.teamId 一致，防跨团队挂载', async () => {
