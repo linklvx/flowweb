@@ -113,7 +113,10 @@ export class TeamRechargeService {
     if (notify.tradeState !== 'SUCCESS') return { code: 'FAIL', message: `trade_state: ${notify.tradeState}` };
 
     if ((order as any).kind === 'subscription') {
-      return this.subscriptionService.completeSubscriptionCallback(notify);
+      const result = await this.subscriptionService.completeSubscriptionCallback(notify);
+      // 团队订单无单查端点（WeChatQRModal 无轮询兜底），socket 是前端关弹窗唯一通道；前端不读 payload，credits 传 0
+      if (result.code === 'SUCCESS') this.gateway?.emitPaymentSuccess(notify.outTradeNo, notify.amount, 0);
+      return result;
     }
 
     try {

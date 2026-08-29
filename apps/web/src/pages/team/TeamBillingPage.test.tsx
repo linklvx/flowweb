@@ -68,7 +68,8 @@ describe('TeamBillingPage', () => {
   it('渲染团队名/余额/充值档位/套餐/订单记录', async () => {
     renderBilling();
     expect(await screen.findByText(/梦幻团队/)).toBeInTheDocument();
-    expect(screen.getByTestId('billing-balance-total')).toHaveTextContent('150');
+    // 余额来自 refresh 第二轮异步 commit，与团队名（teams state）不同链，必须 waitFor 防竞态
+    await waitFor(() => expect(screen.getByTestId('billing-balance-total')).toHaveTextContent('150'));
     // 锚定 ^¥10 避免与 ¥100 档位产生 multiple matches
     expect(screen.getByRole('button', { name: /^¥10 / })).toBeInTheDocument();
     expect(await screen.findByText('团队月卡')).toBeInTheDocument();

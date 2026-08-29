@@ -137,7 +137,7 @@ export default function TeamBillingPage() {
             </div>
           ))}
         </div>
-        {team.subscription && <p className="text-xs text-[#666] mb-4">已有生效订阅，再次开通将覆盖当前周期（旧订阅自动过期）。</p>}
+        {team.subscription && <p className="text-xs text-[#666] mb-4">已有生效订阅，到期后可再次开通。</p>}
 
         <h3 className="text-sm font-bold mt-8 mb-3">订单记录（充值 + 订阅）</h3>
         <div className="divide-y divide-white/5">
@@ -164,7 +164,7 @@ export default function TeamBillingPage() {
       <WeChatQRModal
         visible={!!qr}
         onCancel={() => { setQr(null); if (id) void refresh(id); }}
-        onSuccess={() => { setQr(null); if (id) void refresh(id); }}
+        onSuccess={() => { setQr(null); getMyTeams().then(setTeams).catch(() => {}); if (id) void refresh(id); }}
         codeUrl={qr?.codeUrl ?? ''}
         orderNo={qr?.orderNo ?? ''}
         amount={qr?.amount ?? 0}

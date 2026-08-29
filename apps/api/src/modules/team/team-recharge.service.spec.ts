@@ -13,6 +13,7 @@ describe('TeamRechargeService', () => {
   let payment: any;
   let gateway: any;
   let closeQueue: any;
+  let subscriptionService: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -32,6 +33,7 @@ describe('TeamRechargeService', () => {
     payment = { createPayment: vi.fn(), closePayment: vi.fn(), queryOrder: vi.fn() };
     gateway = { emitPaymentSuccess: vi.fn(), emitPaymentFailed: vi.fn() };
     closeQueue = { add: vi.fn() };
+    subscriptionService = { completeSubscriptionCallback: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -39,7 +41,7 @@ describe('TeamRechargeService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: 'PAYMENT_PROVIDER', useValue: payment },
         { provide: PaymentGateway, useValue: gateway },
-        { provide: TeamSubscriptionService, useValue: { completeSubscriptionCallback: vi.fn() } },
+        { provide: TeamSubscriptionService, useValue: subscriptionService },
         { provide: getQueueToken('team-recharge-close-expired'), useValue: closeQueue },
         { provide: AuditService, useValue: audit },
       ],
@@ -157,6 +159,39 @@ describe('TeamRechargeService', () => {
 
       expect(result.code).toBe('FAIL');
       expect(gateway.emitPaymentFailed).toHaveBeenCalledWith('TEAM1');
+    });
+  });
+
+  describe('completeTeamCallback（kind=subscription）', () => {
+    const notify = {
+      outTradeNo: 'TEAM1', appid: process.env.WECHAT_PAY_APP_ID, mchid: process.env.WECHAT_PAY_MCH_ID,
+      amount: 3000, tradeState: 'SUCCESS', transactionId: 'tx1', payerOpenid: 'o1',
+    };
+    const order = {
+      outTradeNo: 'TEAM1', teamId: 't1', payerUserId: 'u1', amountFen: 3000, credits: 300,
+      status: 'PENDING', kind: 'subscription',
+    };
+
+    it('回调成功：透传 completeSubscriptionCallback 并推送 payment:success（团队订单无轮询兜底，socket 是前端 modal 唯一通道）', async () => {
+      prisma.teamRechargeOrder.findUnique.mockResolvedValue(order);
+      subscriptionService.completeSubscriptionCallback.mockResolvedValue({ code: 'SUCCESS', message: 'OK' });
+
+      const result = await service.completeTeamCallback(notify as any);
+
+      expect(result.code).toBe('SUCCESS');
+      expect(subscriptionService.completeSubscriptionCallback).toHaveBeenCalledWith(notify);
+      // 前端 WeChatQRModal 不读 payload，credits 传 0
+      expect(gateway.emitPaymentSuccess).toHaveBeenCalledWith('TEAM1', 3000, 0);
+    });
+
+    it('回调 FAIL（completeSubscriptionCallback 内部吞错只返回 code）：不推送 success', async () => {
+      prisma.teamRechargeOrder.findUnique.mockResolvedValue(order);
+      subscriptionService.completeSubscriptionCallback.mockResolvedValue({ code: 'FAIL', message: 'internal error' });
+
+      const result = await service.completeTeamCallback(notify as any);
+
+      expect(result.code).toBe('FAIL');
+      expect(gateway.emitPaymentSuccess).not.toHaveBeenCalled();
     });
   });
 
