@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { message } from 'antd';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { useCanvasStore } from './canvasStore';
 import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
 
 const MAX_FILE_SIZE = { image: 10 * 1024 * 1024, video: 100 * 1024 * 1024 };
@@ -73,7 +74,9 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   loadFolders: async () => {
     set({ loading: true });
     try {
-      const { data } = await axios.get('/api/material/folders');
+      const { data } = await axios.get('/api/material/folders', {
+        params: { teamId: useCanvasStore.getState().teamId ?? undefined },
+      });
       if (data.data?.success) set({ folders: data.data.data });
     } catch {
       // silently handle error
@@ -87,7 +90,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     try {
       const { selectedFolderId } = get();
       const { data } = await axios.get('/api/material/files', {
-        params: { folderId: selectedFolderId },
+        params: { folderId: selectedFolderId, teamId: useCanvasStore.getState().teamId ?? undefined },
       });
       if (data.data?.success) {
         // Rewrite presigned GET URLs through Vite proxy to avoid CORS/network issues
@@ -172,6 +175,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
+        projectId: useCanvasStore.getState().projectId ?? undefined,
       });
 
       // 2. Upload to MinIO via Vite proxy (avoids CORS)

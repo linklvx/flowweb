@@ -12,6 +12,7 @@ vi.mock('axios', () => ({
     put: (...args: any[]) => mockPut(...args),
     delete: (...args: any[]) => mockDelete(...args),
     get: (...args: any[]) => mockGet(...args),
+    CancelToken: { source: () => ({ token: null }) },
   },
   CancelToken: { source: () => ({ token: null }) },
 }));
@@ -24,9 +25,18 @@ vi.mock('antd', () => ({
   },
 }));
 
+const { mockPresignUpload, mockConfirmUpload } = vi.hoisted(() => ({
+  mockPresignUpload: vi.fn(),
+  mockConfirmUpload: vi.fn(),
+}));
+
 vi.mock('@/api/storageApi', () => ({
-  presignUpload: vi.fn(),
-  confirmUpload: vi.fn(),
+  presignUpload: mockPresignUpload,
+  confirmUpload: mockConfirmUpload,
+}));
+
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: { getState: () => ({ projectId: 'p1', teamId: 't-team' }) },
 }));
 
 import { message } from 'antd';
@@ -271,5 +281,43 @@ describe('materialLibraryStore - batch operations', () => {
 
       expect(message.error).toHaveBeenCalledWith('批量移动失败，请稍后重试');
     });
+  });
+});
+
+describe('materialLibraryStore - 画布团队维度', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useMaterialLibraryStore.setState({
+      folders: [],
+      selectedFolderId: null,
+      files: [],
+      uploading: false,
+      uploadProgress: 0,
+    });
+  });
+
+  it('loadFolders 按画布团队维度拉取', async () => {
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: { folders: [] } } } });
+    await useMaterialLibraryStore.getState().loadFolders();
+    expect(mockGet).toHaveBeenCalledWith('/api/material/folders', expect.objectContaining({
+      params: expect.objectContaining({ teamId: 't-team' }),
+    }));
+  });
+
+  it('uploadFile presign 传 projectId（后端三级回落①级）', async () => {
+    mockPresignUpload.mockResolvedValue({ fileId: 'file-1', uploadUrl: 'http://127.0.0.1:9000/flowai/k1', key: 'k1', fields: {} });
+    mockConfirmUpload.mockResolvedValue({ fileId: 'file-1' });
+    mockPost.mockResolvedValue({ data: {} });
+    mockPut.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+
+    await useMaterialLibraryStore.getState().uploadFile(new File(['x'], 'a.png', { type: 'image/png' }));
+    expect(mockPresignUpload).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: 'a.png',
+      fileSize: 1,
+      fileType: 'image/png',
+      type: 'uploaded',
+      projectId: 'p1',
+    }));
   });
 });

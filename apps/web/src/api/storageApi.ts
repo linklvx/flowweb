@@ -13,6 +13,8 @@ export async function presignUpload(
     fileSize: number;
     fileType: string;
     type: 'uploaded' | 'temp';
+    projectId?: string;
+    teamId?: string;
   },
   signal?: AbortSignal,
 ): Promise<PresignResponse> {
