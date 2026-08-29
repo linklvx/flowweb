@@ -49,7 +49,7 @@ export class ExecutionService {
     const orderedNodes = this.topology.sort(scopeNodes, allEdges);
 
     // 4. Global pre-validation
-    const validationResult = await this.validation.validateAll(orderedNodes, userId);
+    const validationResult = await this.validation.validateAll(orderedNodes, project.teamId, userId);
     if (!validationResult.valid) {
       return { success: false, errors: validationResult.errors };
     }

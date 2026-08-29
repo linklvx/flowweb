@@ -1,58 +1,70 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CreditController } from './credit.controller';
-import { CreditService } from './credit.service';
-import { UnauthorizedException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-describe('CreditController', () => {
+describe('CreditController getBalance', () => {
   let controller: CreditController;
-  let service: {
-    getOrCreateBalance: ReturnType<typeof vi.fn>;
-    getBalance: ReturnType<typeof vi.fn>;
-    deduct: ReturnType<typeof vi.fn>;
-  };
+  let prisma: any;
 
   beforeEach(async () => {
-    service = {
-      getOrCreateBalance: vi.fn().mockResolvedValue({
-        userId: 'u1',
-        credits: 100,
-        subscriptionCredits: 0,
-        subscriptionCreditsExpiry: null,
-        version: 0,
-        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      }),
-      getBalance: vi.fn(),
-      deduct: vi.fn(),
+    prisma = {
+      team: { findFirst: vi.fn() },
+      teamBalance: { findUnique: vi.fn() },
+      userSubscription: { findFirst: vi.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CreditController],
-      providers: [{ provide: CreditService, useValue: service }],
+      providers: [{ provide: PrismaService, useValue: prisma }],
     }).compile();
 
     controller = module.get<CreditController>(CreditController);
   });
 
-  it('should return balance for authenticated user via req.user.id', async () => {
-    service.getOrCreateBalance.mockResolvedValue({
-      userId: 'u1',
+  it('换源默认团队 TeamBalance，返回结构含 subscriptionCreditsExpiry（现读 active 订阅）', async () => {
+    prisma.team.findFirst.mockResolvedValue({ id: 't-team' });
+    prisma.teamBalance.findUnique.mockResolvedValue({
       credits: 100,
       subscriptionCredits: 500,
-      subscriptionCreditsExpiry: new Date('2026-02-01T00:00:00.000Z'),
-      version: 0,
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     });
-    const req = { user: { id: 'u1' } };
-    const result = await controller.getBalance(req as any);
+    prisma.userSubscription.findFirst.mockResolvedValue({
+      currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+    });
+
+    const result = await controller.getBalance({ user: { id: 'u1' } } as any);
+
+    expect(prisma.team.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'u1', isDefault: true } });
+    expect(prisma.teamBalance.findUnique).toHaveBeenCalledWith({ where: { teamId: 't-team' } });
     expect(result).toEqual({
       credits: 100,
       subscriptionCredits: 500,
+      total: 600,
       subscriptionCreditsExpiry: '2026-02-01T00:00:00.000Z',
-      balance: 0,
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(service.getOrCreateBalance).toHaveBeenCalledWith('u1');
+  });
+
+  it('无 active 订阅时 subscriptionCreditsExpiry 为 null', async () => {
+    prisma.team.findFirst.mockResolvedValue({ id: 't-team' });
+    prisma.teamBalance.findUnique.mockResolvedValue({
+      credits: 10,
+      subscriptionCredits: 0,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    prisma.userSubscription.findFirst.mockResolvedValue(null);
+
+    const result = await controller.getBalance({ user: { id: 'u1' } } as any);
+
+    expect(result.subscriptionCreditsExpiry).toBeNull();
+  });
+
+  it('无个人团队抛 BadRequest（个人团队未初始化）', async () => {
+    prisma.team.findFirst.mockResolvedValue(null);
+    await expect(controller.getBalance({ user: { id: 'u1' } } as any)).rejects.toThrow(BadRequestException);
+    await expect(controller.getBalance({ user: { id: 'u1' } } as any)).rejects.toThrow('个人团队未初始化');
   });
 
   it('should throw UnauthorizedException when req.user is missing', async () => {

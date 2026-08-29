@@ -87,6 +87,8 @@ describe('ExecutionService', () => {
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
     expect(teamCredit.consume).toHaveBeenCalledWith('t1', 'default-user', 5, 'node:n2');
+    // 预校验传项目所属团队 id（账本换源 TeamBalance）
+    expect(validation.validateAll).toHaveBeenCalledWith(expect.any(Array), 't1', 'default-user');
   });
 
   it('should return error when validation fails', async () => {

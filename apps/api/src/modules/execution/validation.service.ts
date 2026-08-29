@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { availableCredits } from '../team/team.util';
 
 export interface ValidationResult {
   valid: boolean;
@@ -11,7 +12,7 @@ export interface ValidationResult {
 export class ValidationService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async validateAll(nodes: any[], userId: string): Promise<ValidationResult> {
+  async validateAll(nodes: any[], teamId: string, userId: string): Promise<ValidationResult> {
     const errors: string[] = [];
     let totalCost = 0;
 
@@ -58,12 +59,13 @@ export class ValidationService {
 
     if (errors.length > 0) return { valid: false, errors, totalCost: 0 };
 
-    // Check balance
-    const balance = await this.prisma.userBalance.findUnique({ where: { userId } });
-    if (!balance || balance.credits < totalCost) {
+    // 校验口径与 teamCredit.consume 一致：credits + subscriptionCredits（quota 以 consume 为准，不预校验）
+    const balance = await this.prisma.teamBalance.findUnique({ where: { teamId } });
+    const available = availableCredits(balance ?? { credits: 0, subscriptionCredits: 0 });
+    if (available < totalCost) {
       return {
         valid: false,
-        errors: [`余额不足: 需要 ${totalCost} 积分，当前 ${balance?.credits ?? 0} 积分`],
+        errors: [`余额不足: 需要 ${totalCost} 积分，当前 ${available} 积分`],
         totalCost,
       };
     }

@@ -1,6 +1,16 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, it, expect, vi } from 'vitest';
-import { getOwnerTeamId, assertTeamMember } from './team.util';
+import { getOwnerTeamId, assertTeamMember, availableCredits } from './team.util';
+
+describe('availableCredits', () => {
+  it('双池合计：{5,10} → 15', () => {
+    expect(availableCredits({ credits: 5, subscriptionCredits: 10 })).toBe(15);
+  });
+
+  it('空池：{0,0} → 0', () => {
+    expect(availableCredits({ credits: 0, subscriptionCredits: 0 })).toBe(0);
+  });
+});
 
 describe('getOwnerTeamId', () => {
   const makeDb = () => ({
