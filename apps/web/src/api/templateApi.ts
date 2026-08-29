@@ -26,6 +26,7 @@ export interface TemplateListQuery {
   page?: number;
   limit?: number;
   folderId?: string;
+  teamId?: string;
 }
 
 export function getTemplates(query: TemplateListQuery) {
@@ -36,6 +37,7 @@ export function getTemplates(query: TemplateListQuery) {
   if (query.page) params.set('page', String(query.page));
   if (query.limit) params.set('limit', String(query.limit));
   if (query.folderId) params.set('folderId', query.folderId);
+  if (query.teamId) params.set('teamId', query.teamId);
   const qs = params.toString();
   return request<any>(`?${qs}`);
 }

@@ -7,10 +7,10 @@ export interface CreateCanvasResult {
   name: string;
 }
 
-export function createCanvas(name: string, folderId: string | null) {
+export function createCanvas(name: string, folderId: string | null, teamId?: string) {
   return apiFetch<CreateCanvasResult>('/canvases', {
     method: 'POST',
-    body: JSON.stringify({ name, folderId }),
+    body: JSON.stringify({ name, folderId, teamId }),
   });
 }
 

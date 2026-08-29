@@ -10,12 +10,16 @@ export interface FolderDto {
   thumbnails: Array<{ id: string; coverUrl: string | null }>;
 }
 
-export function getFolders() {
-  return apiFetch<{ folders: FolderDto[] }>('/folders');
+export function getFolders(teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<{ folders: FolderDto[] }>(`/folders${qs}`);
 }
 
-export function createFolder(name: string) {
-  return apiFetch<{ id: string }>('/folders', { method: 'POST', body: JSON.stringify({ name }) });
+export function createFolder(name: string, teamId?: string) {
+  return apiFetch<{ id: string }>('/folders', {
+    method: 'POST',
+    body: JSON.stringify(teamId ? { name, teamId } : { name }),
+  });
 }
 
 export function renameFolder(id: string, name: string) {
