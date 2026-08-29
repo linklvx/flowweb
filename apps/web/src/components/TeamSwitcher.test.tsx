@@ -4,7 +4,8 @@ import { TeamSwitcher } from './TeamSwitcher';
 
 const api = vi.hoisted(() => ({
   getMyTeams: vi.fn(),
-  createTeam: vi.fn(),
+  // 新 TeamSwitcher 调用 teamDisplayName；mock 工厂缺失则组件内 undefined 即崩
+  teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
 }));
 
 vi.mock('@/api/teamApi', () => api);
@@ -20,8 +21,9 @@ function stubLocation() {
   });
 }
 
-const team = (id: string, name: string) => ({
-  id, name, role: 'OWNER' as const, status: 'ACTIVE', memberCount: 1,
+const team = (id: string, name: string, isDefault = false) => ({
+  id, name, role: 'OWNER' as const, status: 'ACTIVE', isDefault, isOwner: true,
+  createdAt: '2026-08-01', memberCount: 1,
   balance: { credits: 0, subscriptionCredits: 0 },
   subscription: null,
 });
@@ -54,27 +56,35 @@ describe('TeamSwitcher', () => {
     expect(localStorage.getItem('currentTeamId')).toBe('t1');
   });
 
-  it('③ 创建后自动切换：新建团队 → createTeam + localStorage 写新 id + reload', async () => {
-    api.getMyTeams.mockResolvedValue([team('t1', 'A 团')]);
-    api.createTeam.mockResolvedValue({ id: 't9', name: '新团' });
-    localStorage.setItem('currentTeamId', 't1');
-    render(<TeamSwitcher />);
-    await screen.findByText('A 团');
-    fireEvent.click(screen.getByRole('button', { name: /A 团/ }));
-    fireEvent.click(await screen.findByText('新建团队'));
-    await screen.findByPlaceholderText('团队名称');
-    fireEvent.change(screen.getByPlaceholderText('团队名称'), { target: { value: '新团' } });
-    fireEvent.click(screen.getByRole('button', { name: '创 建' }));
-    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('新团'));
-    await waitFor(() => expect(localStorage.getItem('currentTeamId')).toBe('t9'));
-    expect(mockReload).toHaveBeenCalled();
-  });
-
-  it('④ 解散回退：currentTeamId=dead 不在列表 → 写回 t1 + reload', async () => {
+  it('③ 解散回退：currentTeamId=dead 不在列表 → 写回 t1 + reload', async () => {
     api.getMyTeams.mockResolvedValue([team('t1', 'A 团')]);
     localStorage.setItem('currentTeamId', 'dead');
     render(<TeamSwitcher />);
     await waitFor(() => expect(localStorage.getItem('currentTeamId')).toBe('t1'));
     expect(mockReload).toHaveBeenCalled();
+  });
+
+  it('④ 只有默认团队时整体隐藏（渲染 null）', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A的团队', true)]);
+    const { container } = render(<TeamSwitcher />);
+    await waitFor(() => expect(api.getMyTeams).toHaveBeenCalled());
+    await waitFor(() => expect(container.querySelector('button')).toBeNull());
+  });
+
+  it('⑤ 有真实团队时显示，默认团队条目显示「个人项目」且排第一', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A的团队', true), team('t2', 'B 团')]);
+    render(<TeamSwitcher />);
+    fireEvent.click(await screen.findByRole('button'));
+    // 触发按钮本身也显示「个人项目」，必须在菜单项层查询（findAllByText 会多匹配按钮本体）
+    const menuItems = await screen.findAllByRole('menuitem');
+    // currentTeamId 未设置时 currentTeam 回退列表第一项（默认团队）→ 首项带 ✓ 当前标记
+    expect(menuItems.map((el) => el.textContent)).toEqual(['个人项目 ✓', 'B 团']);
+  });
+
+  it('⑥ 不再有「新建团队」入口', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A的团队', true), team('t2', 'B 团')]);
+    render(<TeamSwitcher />);
+    fireEvent.click(await screen.findByRole('button'));
+    await waitFor(() => expect(screen.queryByText('新建团队')).not.toBeInTheDocument());
   });
 });
