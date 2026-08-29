@@ -407,6 +407,47 @@ describe('TeamService 成员管理', () => {
       await expect(service.setQuota('t1', 'caller', 'target', 50)).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('transferOwnership', () => {
+    it('事务内三写：原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步', async () => {
+      prisma.teamMember = {
+        findUnique: vi.fn().mockImplementation(({ where }: any) => {
+          const k = where.teamId_userId;
+          if (k.userId === 'owner1') return { role: 'OWNER' };
+          if (k.userId === 'u2') return { role: 'MEMBER' };
+          return null;
+        }),
+        update: vi.fn(),
+      };
+      prisma.team = { update: vi.fn() };
+      prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+
+      await service.transferOwnership('t1', 'owner1', 'u2');
+
+      expect(prisma.teamMember.update).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't1', userId: 'owner1' } },
+        data: { role: 'ADMIN' },
+      });
+      expect(prisma.teamMember.update).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't1', userId: 'u2' } },
+        data: { role: 'OWNER' },
+      });
+      expect(prisma.team.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { ownerId: 'u2' },
+      });
+    });
+
+    it('非 OWNER 拒绝 / 目标非成员拒绝 / 转让给自己拒绝', async () => {
+      prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
+      await expect(service.transferOwnership('t1', 'a1', 'u2')).rejects.toThrow('仅 OWNER');
+
+      prisma.teamMember.findUnique.mockImplementation(({ where }: any) =>
+        where.teamId_userId.userId === 'owner1' ? { role: 'OWNER' } : null);
+      await expect(service.transferOwnership('t1', 'owner1', 'ghost')).rejects.toThrow('团队成员');
+      await expect(service.transferOwnership('t1', 'owner1', 'owner1')).rejects.toThrow('自己');
+    });
+  });
 });
 
 describe('TeamService 加入申请', () => {

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { Table, Button, Modal, Input, Progress, Tag, message, Pagination, Switch } from 'antd';
 import {
-  getMyTeams, listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam,
+  getMyTeams, listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
   listJoinRequests, approveJoinRequest, rejectJoinRequest,
   getTeamBalanceView, listTeamTransactions,
   createTeamRechargeOrder, payTeamOrder, createSubscriptionOrder, listTeamPlans,
@@ -241,6 +241,24 @@ export default function TeamPage() {
                     <div className="flex gap-2">
                       {isOwner && r.role !== 'OWNER' && (
                         <Button size="small" onClick={() => { void changeRole(teamId, r.user.id, r.role === 'ADMIN' ? 'MEMBER' : 'ADMIN').then(refreshAll); }}>改角色</Button>
+                      )}
+                      {isOwner && r.role !== 'OWNER' && user?.id !== r.user.id && (
+                        <Button size="small" danger onClick={() => {
+                          Modal.confirm({
+                            title: '转让所有权',
+                            content: `将把团队所有权转让给 ${r.user?.name}，你将降为管理员（ADMIN）。确认转让？`,
+                            onOk: async () => {
+                              try {
+                                await transferOwnership(teamId, r.user.id);
+                                message.success('已转让所有权');
+                                void refreshTeams();
+                                void refreshAll();
+                              } catch {
+                                message.error('转让失败');
+                              }
+                            },
+                          });
+                        }}>转让所有权</Button>
                       )}
                       {isAdmin && r.role !== 'OWNER' && (
                         <>

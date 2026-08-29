@@ -125,4 +125,9 @@ export class TeamController {
   disbandTeam(@Param('id') id: string, @Req() req: Request) {
     return this.teamService.disbandTeam(id, (req as any).user.id);
   }
+
+  @Post(':id/transfer-ownership')
+  transferOwnership(@Param('id') id: string, @Body() body: { targetUserId: string }, @Req() req: Request) {
+    return this.teamService.transferOwnership(id, (req as any).user.id, body.targetUserId);
+  }
 }

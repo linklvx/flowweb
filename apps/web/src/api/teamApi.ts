@@ -78,6 +78,13 @@ export function disbandTeam(teamId: string) {
   return apiFetch(`/team/${teamId}/disband`, { method: 'POST' });
 }
 
+export function transferOwnership(teamId: string, targetUserId: string) {
+  return apiFetch(`/team/${teamId}/transfer-ownership`, {
+    method: 'POST',
+    body: JSON.stringify({ targetUserId }),
+  });
+}
+
 export function listJoinRequests(teamId: string, status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
   return apiFetch<JoinRequestRow[]>(`/team/${teamId}/join-requests${status ? `?status=${status}` : ''}`);
 }

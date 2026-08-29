@@ -162,6 +162,25 @@ export class TeamService {
     });
   }
 
+  /** spec 1.3：事务内 原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步（审计由 Task 12 统一接线） */
+  async transferOwnership(teamId: string, callerId: string, targetUserId: string) {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可转让团队');
+    if (targetUserId === callerId) throw new BadRequestException('不能转让给自己');
+    const target = await this.requireMember(teamId, targetUserId);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.teamMember.update({
+        where: { teamId_userId: { teamId, userId: callerId } },
+        data: { role: 'ADMIN' },
+      });
+      await tx.teamMember.update({
+        where: { teamId_userId: { teamId, userId: targetUserId } },
+        data: { role: 'OWNER' },
+      });
+      return tx.team.update({ where: { id: teamId }, data: { ownerId: targetUserId } });
+    });
+  }
+
   /** 席位上限现算：active 订阅取 plan，否则免费常量（Task 10 getLimits 统一封装） */
   private async getSeatLimit(teamId: string): Promise<number> {
     const sub = await this.prisma.teamSubscription.findFirst({
