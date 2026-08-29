@@ -87,7 +87,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
     if (!member) throw new Error('非团队成员');
     const projectRole = await this.perm.resolve(projectId, session.user.id);
-    if (!projectRole) throw new Error('非团队成员');
     const readOnly = projectRole === 'PROJECT_VIEWER';
     // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
     // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）

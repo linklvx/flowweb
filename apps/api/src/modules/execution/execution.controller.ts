@@ -16,11 +16,12 @@ export class ExecutionController {
 
   @Post('execute')
   execute(
-    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; userId?: string },
+    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[] },
+    @Req() req: Request,
     @Headers('x-yjs-sv') sv?: string,
   ) {
     const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
-    return this.service.execute(body.projectId, body.nodeId, body.userId || 'default-user', body.nodeIds, svBytes);
+    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, svBytes);
   }
 
   @Post('enqueue')
