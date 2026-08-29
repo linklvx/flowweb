@@ -8,6 +8,9 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { pickStructNodes, pickStructEdges } from './canvasHistory';
 import { withHistoryPaused, hydrateLoaded } from './canvasHistoryRuntime';
+// 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
+import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
+export { Origin } from './canvasUndo';
 import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
 import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
@@ -20,9 +23,6 @@ function collabUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}/collab`;
 }
-
-export const LOCAL_ORIGIN = 'local';
-export const LOCAL_UNDO_ORIGIN = 'local-undo';
 
 let doc: Y.Doc | null = null;
 let provider: HocuspocusProvider | null = null;
@@ -141,18 +141,18 @@ function applyDocToStore() {
   hydrateLoaded();
 }
 
-/** 订阅双 store → ydoc（origin 标记：undo 栈回写用 local-undo 区分） */
+/** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */
 function bindBridge(): () => void {
   const unsubCs = useCanvasStore.subscribe((state, prev) => {
     if (state.isHydrating || prev.isHydrating) return;
     if (state.projectId !== prev.projectId) return;
     const changed = !isEqual(pickStructNodes(state.nodes), pickStructNodes(prev.nodes))
       || !isEqual(pickStructEdges(state.edges), pickStructEdges(prev.edges));
-    if (changed) syncStoreToDoc(fromUndoFlag ? LOCAL_UNDO_ORIGIN : LOCAL_ORIGIN);
+    if (changed) syncStoreToDoc(Origin.LocalUser);
   });
   const unsubNs = useNodeStore.subscribe((state, prev) => {
     if (useCanvasStore.getState().isHydrating) return;
-    if (state.nodes !== prev.nodes) syncStoreToDoc(LOCAL_ORIGIN);
+    if (state.nodes !== prev.nodes) syncStoreToDoc(Origin.LocalUser);
   });
   return () => { unsubCs(); unsubNs(); };
 }
@@ -165,6 +165,7 @@ export async function initCollab(projectId: string): Promise<void> {
   await destroyCollab();
   currentPid = projectId;
   doc = new Y.Doc();
+  attachUndoManager(doc);
 
   const snap = loadSnapshot(projectId);
   if (snap && !isEmptySnapshot(snap)) {
@@ -197,7 +198,7 @@ export async function initCollab(projectId: string): Promise<void> {
   useCanvasStore.getState().setHydrating(false);
 
   const onRemote = (events: any[]) => {
-    const fromLocal = events.some((e) => e.transaction.origin === LOCAL_ORIGIN || e.transaction.origin === LOCAL_UNDO_ORIGIN);
+    const fromLocal = events.some((e) => e.transaction.origin === Origin.LocalUser);
     if (fromLocal) return;
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
@@ -224,6 +225,7 @@ export async function destroyCollab(): Promise<void> {
     provider = null;
   }
   awarenessBridge = null;
+  detachUndoManager();
   doc?.destroy();
   doc = null;
   currentPid = null;
@@ -238,13 +240,6 @@ export function refitExpandedGroups() {
     useCanvasStore.getState().refitGroupBounds(g.id);
   }
 }
-
-/** 供测试与 undo 桥标记：zundo undo 产生的下一轮 store 变更以 local-undo origin 写 doc */
-export function markNextAsUndo(): void {
-  fromUndoFlag = true;
-  queueMicrotask(() => { fromUndoFlag = false; });
-}
-let fromUndoFlag = false;
 
 /** 执行请求附带的本端状态向量（spec 3.1，base64） */
 export function getStateVector(): string | undefined {

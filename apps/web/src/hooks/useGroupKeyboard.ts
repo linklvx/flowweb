@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { message } from 'antd'; // Vite ESM：静态导入（require 不可用）
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { undoCanvas, redoCanvas } from '@/stores/canvasHistoryRuntime';
+import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 
 export function isGroupEditContext(target: HTMLElement | null): boolean {
   const ns = useNodeStore.getState();

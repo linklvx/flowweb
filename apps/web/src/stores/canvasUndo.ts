@@ -1,0 +1,58 @@
+// apps/web/src/stores/canvasUndo.ts
+// Y.UndoManager 集成（spec 4.2/4.4）：trackedOrigins 仅 local-user，快捷键入口。
+import * as Y from 'yjs';
+
+/** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
+export const Origin = { LocalUser: 'local-user', Server: 'server' } as const;
+
+const STACK_LIMIT = 100;
+
+let undoManager: Y.UndoManager | null = null;
+
+export function attachUndoManager(doc: Y.Doc): Y.UndoManager {
+  undoManager?.destroy();
+  undoManager = new Y.UndoManager([doc.getMap('nodes'), doc.getMap('edges')], {
+    trackedOrigins: new Set([Origin.LocalUser]),
+    captureTimeout: 500,
+  });
+  undoManager.on('stack-item-added', ({ type }) => {
+    // yjs 事件 payload 为 { stackItem, type }，type: 'undo' | 'redo'（无 stack 字段）
+    if (type === 'undo' && undoManager!.undoStack.length > STACK_LIMIT) {
+      undoManager!.undoStack.shift(); // 手动截断（Y.UndoManager 无内建上限）
+    }
+  });
+  return undoManager;
+}
+
+export function detachUndoManager() {
+  undoManager?.destroy();
+  undoManager = null;
+}
+
+export function stopCapturing() {
+  undoManager?.stopCapturing();
+}
+
+export function getUndoManager() {
+  return undoManager;
+}
+
+/** 快捷键入口（保留 S-1 语义：undo 后消失节点的活跃进程取消） */
+export async function undoCanvas(): Promise<void> {
+  const um = undoManager;
+  if (!um || um.undoStack.length === 0) return;
+  const { useCanvasStore } = await import('./canvasStore');
+  const beforeIds = new Set(useCanvasStore.getState().nodes.map((n: any) => n.id));
+  um.undo();
+  const after = useCanvasStore.getState();
+  for (const id of beforeIds) {
+    if (!after.nodes.some((n: any) => n.id === id) && after.nodeProcessMap[id]) {
+      after.cancelNodeProcess(id);
+    }
+  }
+}
+
+export async function redoCanvas(): Promise<void> {
+  if (!undoManager || undoManager.redoStack.length === 0) return;
+  undoManager.redo();
+}
