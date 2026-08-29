@@ -51,7 +51,7 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
 
 export function MembershipPage() {
   const { data: plans } = useSubscriptionPlans();
-  const { data: sub, loading, subscribe, upgrade, refresh: refreshSub } = useMySubscription();
+  const { data: sub, loading, refresh: refreshSub } = useMySubscription();
   const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance, refresh: refreshBalance } = useCreditBalance();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');

@@ -31,19 +31,7 @@ export function useMySubscription() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const subscribe = useCallback(async (planId: string, period: string) => {
-    setLoading(true);
-    try { const r = await subscriptionApi.subscribe(planId, period) as MySubscription; setData(r); }
-    finally { setLoading(false); await refresh(); }
-  }, [refresh]);
-
-  const upgrade = useCallback(async (targetPlanId: string, targetPeriod: string) => {
-    setLoading(true);
-    try { const r = await subscriptionApi.upgrade(targetPlanId, targetPeriod) as MySubscription; setData(r); }
-    finally { setLoading(false); await refresh(); }
-  }, [refresh]);
-
-  return { data, loading, error, refresh, subscribe, upgrade };
+  return { data, loading, error, refresh };
 }
 
 export function useCreditBalance() {

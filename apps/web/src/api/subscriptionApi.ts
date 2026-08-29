@@ -32,13 +32,9 @@ export interface CreditBalance {
 export const subscriptionApi = {
   getPlans: () => apiFetch<SubscriptionPlan[]>('/subscription/plans'),
   getMe: () => apiFetch<MySubscription | null>('/subscription/me'),
-  subscribe: (planId: string, period: string) =>
-    apiFetch('/subscription/subscribe', { method: 'POST', body: JSON.stringify({ planId, period }) }),
   getUpgradeAvailable: () => apiFetch<SubscriptionPlan[]>('/subscription/upgrade/available'),
   getUpgradePreview: (targetPlanId: string, targetPeriod: string) =>
     apiFetch<UpgradePreview>(`/subscription/upgrade/preview?targetPlanId=${targetPlanId}&targetPeriod=${targetPeriod}`),
-  upgrade: (targetPlanId: string, targetPeriod: string) =>
-    apiFetch('/subscription/upgrade', { method: 'POST', body: JSON.stringify({ targetPlanId, targetPeriod }) }),
   getBalance: () => apiFetch<CreditBalance>('/credits/balance'),
 
   // ── Banner ──
