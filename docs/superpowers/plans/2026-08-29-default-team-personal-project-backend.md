@@ -8,7 +8,9 @@
 
 **Tech Stack:** NestJS + Prisma 5.22 + PostgreSQL、Vitest（`pnpm test` = tsc --noEmit + vitest run）、TypeScript strict。
 
-**范围说明:** 本计划只覆盖 spec 的 Phase 0-6（后端）。Phase 7-9（前端 works/team/billing/上传上下文/顶栏积分）与 Phase 10（联调）在 Plan A 验收后另写 Plan B。
+**范围说明:** 本计划只覆盖 spec 的 Phase 0-6（后端）。Phase 7-9（前端 works/team/billing/上传上下文/顶栏积分）与 Phase 10（联调）在 Plan A 验收后另写 Plan B。**Plan A 内对 apps/web 只做两类最小改动**：① 删除死链路及其引用（Task 12）；② 适配 `/api/credits/balance` 新返回结构 `{credits, subscriptionCredits, total}`（Task 13）。works/team/billing UI 一律不动（Plan B）。`cd apps/web && pnpm test` 是 Plan A 硬门禁。
+
+**全局安全不变量（P0-3）:** TeamGuard 仅对 URL 带 `:id` 的路由校验成员（team.guard.ts:24-25 无 `:id` 直接放行）。因此**任何从 body/query 接收外部 teamId 且 URL 无 `:id` 的接口（folder/template/material-library/media/storage 的 list/create 等），第一道必须调用成员自证**（Task 6 起统一使用 `assertTeamMember`，见 team.util.ts 扩展），校验通过才允许进 where/data；每个此类接口必须配一条「他团队成员猜 ID → 403」反例测试。
 
 **通用约定:**
 - 测试命令（单文件快速迭代）：`cd apps/api && pnpm exec vitest run <文件路径>`；全量门禁：`cd apps/api && pnpm test`
@@ -46,11 +48,14 @@ Expected: 全部通过（若有既有红测，记录并向用户确认后再继�
 ```prisma
   isDefault        Boolean  @default(false)
   folders          Folder[]
+  templates        Template[]
   materialFolders  MaterialFolder[]
   lightingTasks    LightingTask[]
   videoTrimTasks   VideoTrimTask[]
   videoSeparateTasks VideoSeparateTask[]
 ```
+
+（`templates Template[]` 不可漏——Template 加 team FK 后 Prisma 要求双向关系，缺它 `prisma validate` 直接报 missing opposite relation field。）
 
 在 `Folder` model（:165-179）加：
 
@@ -63,7 +68,7 @@ Expected: 全部通过（若有既有红测，记录并向用户确认后再继�
 
 对 `MaterialFolder`、`LightingTask`、`VideoTrimTask`、`VideoSeparateTask` 四个 model 做同样操作（teamId String + FK Cascade + `@@index([teamId])`；userId 保留）。先读各 model 现状确认字段名。
 
-`Template` model 加 `teamId String` + FK（Cascade）+ `@@index([teamId])`。
+`Template` model 加 **`teamId String?`（可空）** + FK（Cascade）+ `@@index([teamId])`。**必须可空的原因**：`initOfficialTemplates`（template.service.ts:227-266）创建 `userId=OFFICIAL_USER_ID` 的官方模板，该系统用户无团队不走 bootstrap；社区公共模板 isPublic 且 projectId 可空（schema:122）也存在游离态。非空约束会让官方模板 seed 直接 NOT NULL/FK 违约。语义约定：公共/官方模板 teamId=null；用户/团队模板由 service 层保证非空；my/team 维度查询按 teamId 直查天然排除 null 公共模板；official/community 分支仍按 isPublic/userId 查（:54/:66 现状不变）。Folder/MaterialFolder/三类 Task 无公共概念，保持非空。
 
 `TeamCreditTransactionType` enum（:686-693）改为：
 
@@ -334,6 +339,10 @@ export async function getOwnerTeamId(
 ```
 
 （删除成员团队兜底；调用方的补建路径走 ensureDefaultTeam，本函数只读。同步更新 team.util.spec.ts：删除"成员兜底"用例，新增"无个人团队时抛错"用例。）
+
+6. **auth.ts:92-109 `callbackOnVerification` 整段删除**（手机注册回调只补素材文件夹且不带 teamId——Task 1 后 MaterialFolder.teamId 必填，该段一旦执行即崩；团队+文件夹已统一由 bootstrap 建）。删除 phoneNumber 插件配置中的 `callbackOnVerification` 整个属性，`DEFAULT_FOLDER_NAMES` import 一并清理。
+
+7. auth.ts 钩子 catch 中补 Sentry 上报（项目已接 @sentry/nestjs）：`import * as Sentry from '@sentry/nestjs';` 后 `Sentry.captureException(err);`——bootstrap 失败用户后续会在 getOwnerTeamId 处炸，必须可观测。
 
 - [ ] **Step 6: 全量测试并修复受影响用例**
 
@@ -639,37 +648,44 @@ Expected: FAIL。
 canvas.service.ts：
 
 1. `save`（:63-68）：**删除** :66-68 三行 creator-only 判断（`if (project.userId !== null && ...`），assertEditor 为唯一权威。
-2. `create`（:23-47）签名加 `teamId?: string`：
+2. `create`（:23，现状签名 `(name: string, folderId: string | null, userId: string)`）**保持参数顺序、追加尾参** `teamId?: string`（最小 diff，现有调用点不动）：
 
 ```typescript
-  async create(userId: string, name?: string, folderId?: string, teamId?: string) {
-    let team: { id: string };
+  async create(name: string, folderId: string | null, userId: string, teamId?: string) {
+    let teamIdResolved: string;
     if (teamId) {
       const member = await this.prisma.teamMember.findUnique({
         where: { teamId_userId: { teamId, userId } },
       });
       if (!member) throw new ForbiddenException('非团队成员');
-      team = { id: teamId };
+      teamIdResolved = teamId;
     } else {
-      team = await this.teams.ensureDefaultTeam(userId);
+      teamIdResolved = (await this.teamService.ensureDefaultTeam(userId)).id;
     }
-    // folderId 校验加 teamId 维度
     if (folderId) {
-      const folder = await this.prisma.folder.findFirst({ where: { id: folderId, teamId: team.id } });
+      const folder = await this.prisma.folder.findFirst({ where: { id: folderId, teamId: teamIdResolved } });
       if (!folder) throw new BadRequestException('目标文件夹不存在');
     }
-    return this.prisma.$transaction(async (tx) => {
-      let finalName = name?.trim();
-      if (!finalName) finalName = await CanvasService.nextUntitledName(tx, team.id);
+    const result = await this.prisma.$transaction(async (tx) => {
+      let finalName = name;
+      if (!name?.trim()) {
+        // advisory lock 与 nextUntitledName 必须同时切 teamId 维度（漏一处即编号竞态重名）
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'canvas_untitled:' + teamIdResolved}))`;
+        finalName = await CanvasService.nextUntitledName(tx, teamIdResolved);
+      }
       const project = await tx.canvasProject.create({
-        data: { name: finalName, userId, teamId: team.id, ...(folderId ? { template: { create: { name: finalName, userId, teamId: team.id, ...(folderId ? { folderId } : {}) } } } : {}) },
+        data: { name: finalName, userId, teamId: teamIdResolved },
       });
-      return project;
+      const template = await tx.template.create({
+        data: { name: finalName, userId, teamId: teamIdResolved, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
+      });
+      return { templateId: template.id, projectId: project.id, name: finalName };
     });
+    this.templateService.clearCache();
+    if (folderId) await this.folderService.touch([folderId]);
+    return result;
   }
 ```
-
-（**实施注意**：以上为改造意图，实际以现有 create 实现（:23-47）的模板创建结构为准做最小改动——把 `ensureDefaultTeam` 换成上面的 team 解析、folderId 校验加 teamId、nextUntitledName 传 team.id、template.create 数据加 `teamId: team.id`。）
 
 3. `nextUntitledName`（:53-59）改 teamId 维度：
 
@@ -680,13 +696,14 @@ canvas.service.ts：
   }
 ```
 
-同步修改 :34 与 :50 两个调用点传 team.id（advisory lock 若按 userId 加锁，改为按 teamId，锁参数前缀保持唯一性）。
+4. **save 首存分支补 teamId（P1-2）**：save 内 template.create（:106-117）数据加 `teamId: project.teamId`；并发回退分支（:120-135 的 update）无需加（行已存在）。
+5. `getNextUntitledName`（:49-50）public 入口同步切 teamId 维度（读签名现状，默认解析默认团队）。
 
 project.service.ts：
 
-4. `create`：接收 `teamId?`，同 canvas 的 team 解析模式（校验成员/默认回落），project 数据写 teamId。
-5. `getProjectFolder`（:117 附近 `where: { id, userId }`）改 `where: { id, teamId }`（teamId 来自 project 解析或参数，读该函数现状后最小改动）。
-6. `cleanDrafts`（:117-123）`deleteMany where` 的 `userId` 改为按用户全部团队的 `teamId: { in: teamIds }`（用户所在团队集合，`teamMember.findMany` 后取 id 列表）——草稿清理语义从"个人创建"扩为"用户可见团队"。
+6. `create`（:33，现状 `(name, userId?, nodes?, edges?)`）**追加第 5 参 `teamId?: string`**（不占位第 3/4 位），同 canvas 的 team 解析模式（校验成员/默认回落），project 数据写 teamId。
+7. `getProjectFolder`（`where: { id, userId }`）改 `where: { id, teamId }`（teamId 来自 project 解析或参数，读该函数现状后最小改动）；对应 controller 端点补团队成员校验。
+8. **cleanDrafts 保留 userId 维度不动（P1-5）**：草稿=未存成模板的进行中工作，A 触发清理不得删同团队 B 正在编辑的草稿——维持"本人创建"语义，本 Task 不改此函数（从原计划的改动清单中移除）。
 
 controller 层（canvas.controller.ts / project.controller.ts）：body/query 透传 `teamId`（`@Body() body: { name?: string; folderId?: string; teamId?: string }`）。
 
@@ -754,11 +771,26 @@ Expected: FAIL。
 
 - [ ] **Step 3: 实现**
 
-folder.service.ts：所有 `where: { userId ... }` / `{ id, userId }` 的权限语义改 teamId 维度（userId 仅在 create 的 data 中作为创建人保留）；`list(userId, teamId?)`——不传 teamId 时解析 ensureDefaultTeam；`create(dto, userId, teamId?)` 同理；create/rename 涉及 parentId 时校验 `parent.teamId === teamId` 否则抛 `BadRequestException('不能跨团队挂载文件夹')`；`remove` 删除父文件夹前消解同名冲突（把将升入 root 的子文件夹中与 root 现有同名者重命名为 `${name} (1)` 递增后缀）。controller 透传 teamId（query/body）。
+**先建统一成员自证（P0-3 全局不变量）**——team.util.ts 追加：
+
+```typescript
+export async function assertTeamMember(
+  db: { teamMember: { findUnique: Function } },
+  teamId: string,
+  userId: string,
+): Promise<void> {
+  const member = await db.teamMember.findUnique({
+    where: { teamId_userId: { teamId, userId } },
+  });
+  if (!member) throw new ForbiddenException('非团队成员');
+}
+```
+
+folder.service.ts：**每个接收外部 teamId 的入口先 `assertTeamMember(this.prisma, teamId, userId)`**；随后所有 `where: { userId ... }` / `{ id, userId }` 的权限语义改 teamId 维度（userId 仅在 create 的 data 中作为创建人保留）；`list(userId, teamId?)`——不传 teamId 时解析 ensureDefaultTeam；`create(dto, userId, teamId?)` 同理；create/rename 涉及 parentId 时校验 `parent.teamId === teamId` 否则抛 `BadRequestException('不能跨团队挂载文件夹')`；`remove` 删除父文件夹前消解同名冲突（把将升入 root 的子文件夹中与 root 现有同名者重命名为 `${name} (1)` 递增后缀）。controller 透传 teamId（query/body）。
 
 template.service.ts：
 
-- `findMany`（:54-62 区域）加 teamId 分支：有 teamId 时 `where: { project: { teamId } }`（**无 OR userId**）；无 teamId 且 type='my' 时维持现状但 OR 中 teamId 换成 `ensureDefaultTeam(userId).id` 的精确值。
+- `findMany`（:54-67 区域）加 teamId 分支：有 teamId 时 **`where: { teamId }` 直查本表字段**（P1-4——不走 `project: { teamId }` 反查：Template 自带 teamId 且带索引，反查多一次 join 且漏掉本团队 projectId=null 的模板）；无 teamId 且 type='my' 时 OR 中 teamId 换成 `ensureDefaultTeam(userId).id` 的精确值；official/community 分支按现状（:54/:66）不动。
 - `getTemplate`（:105-111）：
 
 ```typescript
@@ -767,6 +799,9 @@ template.service.ts：
     if (!template.isPublic) {
       if (template.userId === userId) {
         // creator 直接过
+      } else if (template.teamId) {
+        // 鉴权优先走 template.teamId 成员资格；project 权限链作补充（ProjectMember 显式协作者）
+        await assertTeamMember(this.prisma, template.teamId, userId);
       } else if (template.projectId) {
         const perm = await this.perm.resolve(template.projectId, userId);
         if (!perm) throw new ForbiddenException('无权访问此模板');
@@ -778,11 +813,28 @@ template.service.ts：
   }
 ```
 
-- `update`（:113）/`delete`（:146）：creator 或 `perm.assertEditor(template.projectId, userId)` 二选一通过（无 projectId 且非 creator 拒绝）；update 中 folderId 校验 `findFirst({ where: { id: input.folderId, teamId: template.teamId } })`。
-- `import`（:163）：解析目标 teamId（参数或默认团队）透传给 projectService.create，Template 新纪录写 teamId。
-- controller：query/body 透传 teamId。
+- `update`（:113）：creator 或 `assertTeamMember(template.teamId)` / `perm.assertEditor` 任一通过；update 中 folderId 校验 `findFirst({ where: { id: input.folderId, teamId: template.teamId } })`。
+- **`delete`（:146）权限收紧**：EDITOR 不足——template.delete 会级联删 canvasProject，团队成员 EDITOR 可删他人整个工程。收紧为 creator / `perm.resolve` 为 PROJECT_OWNER / 团队 OWNER 三者之一：
 
-（perm = ProjectPermissionService 注入，参考 execution 模块用法。）
+```typescript
+  async delete(id: string, userId: string) {
+    const template = await this.findById(id);
+    if (template.userId !== userId) {
+      const perm = template.projectId ? await this.perm.resolve(template.projectId, userId) : null;
+      const member = template.teamId
+        ? await this.prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: template.teamId, userId } } })
+        : null;
+      const isTeamOwner = member?.role === 'OWNER';
+      if (perm?.role !== 'PROJECT_OWNER' && !isTeamOwner) {
+        throw new ForbiddenException('仅创建者或团队 OWNER 可删除');
+      }
+    }
+    // 余下删除事务不变
+  }
+```
+
+- `import`（:163）：解析目标 teamId（参数或默认团队，**先 assertTeamMember**）透传给 projectService.create，Template 新纪录写 teamId。
+- controller：query/body 透传 teamId；**每个外部 teamId 入口配一条「他团队成员猜 ID → 403」反例测试**。
 
 - [ ] **Step 4: 跑测试确认通过 + 全量**
 
@@ -883,7 +935,7 @@ presign.dto.ts 加 `projectId?: string;`。confirmUpload（:60-67）改：
     }
 ```
 
-material-library 两个 service：全部权限语义 where 加 `teamId`（列表接口从 query/当前上下文取 teamId，无则默认团队；`{ id, userId }` 单条操作改 `{ id, teamId }`；userId 仅作创建人/操作者保留）。media.service：`getMediaUrl` 按 `media.teamId + TeamMember` 校验（creator 直接过）；:16 缓存 key 的 userId 换 teamId。对应 controller 透传 teamId。
+material-library 两个 service：**每个接收外部 teamId 的入口先 `assertTeamMember(this.prisma, teamId, userId)`**；随后全部权限语义 where 加 `teamId`（列表接口从 query/当前上下文取 teamId，无则默认团队；`{ id, userId }` 单条操作改 `{ id, teamId }`；userId 仅作创建人/操作者保留）。media.service：`getMediaUrl` 按 `media.teamId + TeamMember` 校验（creator 直接过；**注意 URL 缓存命中不得跳过鉴权**）；media.service.ts:16 的**URL 签名缓存 key** userId 换 teamId（与 storage 的 minio buildKey(type,userId) 是两回事，后者按上传者命名保留）。对应 controller 透传 teamId，**每个外部 teamId 入口配一条「他团队成员 → 403」反例测试**。
 
 - [ ] **Step 4: 跑测试确认通过 + 全量**
 
@@ -900,6 +952,8 @@ git commit -m "feat(api): media/material/storage 团队化——presign 三级�
 ---
 
 ### Task 8: 异步链路 getOwnerTeamId 收敛 + task/storyboard 团队化
+
+（表述澄清：实际为 **6 处 processor/consumer 收敛** + storage.service:21 ——后者是 presign 三级回落的第③级（无 project 上下文的全局上传归个人团队），**属正确设计必须保留**，Task 7 已覆盖，本 Task 不得误删。）
 
 **Files:**
 - Modify: `apps/api/src/modules/ai-download/ai-download.processor.ts:99`
@@ -1026,37 +1080,56 @@ Expected: FAIL。
 
 - [ ] **Step 3: 实现（四文件统一模式）**
 
-每个写入点替换为：
+每个写入点按**完整序列**替换（对齐团队侧 team-subscription.service:67-89 口径——发放前先清旧池，防窗口续费/升级时旧池残留与新积分叠加多发）：
 
 ```typescript
-        // 统一模式：锁默认团队 TeamBalance 行 → 实时读 → 写账本 + 团队流水（双池分记）
+        // 统一模式：锁默认团队 TeamBalance 行 → 实时读 → （升级/续费场景）先清旧池+清零流水 → 发放+流水
         const personalTeam = await tx.team.findFirst({ where: { ownerId: userId, isDefault: true } });
         if (!personalTeam) throw new Error(`personal team missing for ${userId}`);
         await tx.$queryRaw`SELECT * FROM "TeamBalance" WHERE "teamId" = ${personalTeam.id} FOR UPDATE`;
-        const bal = await tx.teamBalance.findUnique({ where: { teamId: personalTeam.id } });
-        const before = bal?.subscriptionCredits ?? 0;
+        let bal = await tx.teamBalance.findUnique({ where: { teamId: personalTeam.id } });
+        if (!bal) {
+          // bootstrap 失败被吞掉的用户兜底：补建账本行，不裸 update（P2025）
+          bal = await tx.teamBalance.create({ data: { teamId: personalTeam.id, credits: 0 } });
+        }
+        const before = bal.subscriptionCredits ?? 0;
+        if (clearBeforeGrant) { // 升级/续费首发生效场景为 true；普通周期发放为 false
+          if (before > 0) {
+            await tx.teamBalance.update({
+              where: { teamId: personalTeam.id },
+              data: { subscriptionCredits: 0 },
+            });
+            await tx.teamCreditTransaction.create({
+              data: {
+                teamId: personalTeam.id, operatorUserId: userId,
+                amount: -before, type: clearType, creditType: 'subscription', // clearType: 'upgrade_clear' | 'expire_clear'
+                referenceId: sub.id, referenceType: 'subscription', balanceAfter: 0,
+              },
+            });
+          }
+        }
         await tx.teamBalance.update({
           where: { teamId: personalTeam.id },
-          data: { subscriptionCredits: before + grantAmount }, // 或清零场景 data:{subscriptionCredits:0}
+          data: { subscriptionCredits: grantAmount }, // 清零后直接设为目标值（非 increment 推算）
         });
         await tx.teamCreditTransaction.create({
           data: {
             teamId: personalTeam.id,
             operatorUserId: userId,
-            amount: grantAmount,            // 清零场景 = -before（实时剩余）
-            type: 'subscription_grant',     // expire 清零='expire_clear'，admin 调整='admin_grant'/'admin_clear'，升级清零='upgrade_clear'
+            amount: grantAmount,
+            type: 'subscription_grant',
             creditType: 'subscription',
             referenceId: sub.id,
             referenceType: 'subscription',
-            balanceAfter: before + grantAmount, // 清零=0；双池口径：subscription 池 balanceAfter=subscriptionCredits
+            balanceAfter: grantAmount, // 锁内实时值
           },
         });
 ```
 
 各文件差异点：
-- payment-success（:117,:137 两个写入点 + :125 流水）：发放 `plan.monthlyCredits`
-- grant-credit（:44,:49）：周期发放同上
-- expire（:38,:43）：清零 `data:{subscriptionCredits:0}`、`amount:-before`、`balanceAfter:0`、type `expire_clear`
+- payment-success（:117,:137 两个写入点 + :125 流水）：新购 `clearBeforeGrant=false` 发放 `plan.monthlyCredits`；**升级分支 `clearBeforeGrant=true` + `clearType='upgrade_clear'`**（现状 :117 先清 :137 再发的语义保留，改为写流水+实时值）
+- grant-credit（:44,:49）：周期发放 `clearBeforeGrant=false`；**顺带修复既有分页 bug**：现状 :17-30 用 skip 分页+循环内 continue，被跳过记录导致后续页错位漏发——重写为 cursor 分页（`where: { id: { gt: lastId } }, orderBy: { id: 'asc' }, take: N`，处理完记录 lastId）
+- expire（:38,:43）：`clearBeforeGrant=true`、`clearType='expire_clear'`、无发放段（`grantAmount=0` 时跳过发放）、`amount:-before`（实时剩余，禁 consumedCredits 推算）
 - admin-subscription（:47,:67,:81 三处调整）：手工加/扣积分——type 用 `admin_grant`（加）/`admin_clear`（扣）、amount=±实际调整量、balanceAfter 用调整后实时值（regular 池操作 balanceAfter=credits）
 
 - [ ] **Step 4: 跑测试确认通过 + 全量**
@@ -1155,11 +1228,11 @@ team.controller.ts 新增（TeamGuard 自动生效，成员可查）：
 ```typescript
   @Get(':id/recharge/orders')
   listRechargeOrders(@Param('id') id: string, @Query('kind') kind: 'credits' | 'subscription', @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.recharge.listOrders(id, Number(page) || 1, Number(pageSize) || 20, kind);
+    return this.teamRecharge.listOrders(id, Number(page) || 1, Number(pageSize) || 20, kind);
   }
 ```
 
-（controller 现有 service 注入名以文件现状为准。）
+（注入名 `teamRecharge`——已核实 controller 现有注入名，非 this.recharge。）
 
 - [ ] **Step 4: 跑测试确认通过 + 全量**
 
@@ -1257,7 +1330,7 @@ credit.controller.ts `getBalance` 换源：
   }
 ```
 
-（credit.service 的 UserBalance CRUD 方法本 Task 不删——Task 13 统一删除。）
+（credit.service 的 UserBalance CRUD 方法本 Task 不删——Task 13 统一删除。**注意**：credit.controller 现仅注入 CreditService（:6），直查 prisma 需补 `@Inject(PrismaService) private readonly prisma: PrismaService`。）
 
 - [ ] **Step 4: 跑测试确认通过 + 全量**
 
@@ -1282,10 +1355,14 @@ git commit -m "fix(api): 执行预校验读项目团队账本（口径对齐 con
 - Modify: `apps/web/src/hooks/useSubscription.ts:36,42`（删暴露）
 - Test: 对应 spec 删除相关用例
 
-- [ ] **Step 1: 确认前端无调用方**
+- [ ] **Step 1: 确认前端无调用方（含 hook 解构层）**
 
-Run: `cd apps/web && grep -rn "subscriptionApi.subscribe\|subscriptionApi.upgrade" src --include="*.tsx" --include="*.ts" | grep -v "api/subscriptionApi.ts" | grep -v "hooks/useSubscription.ts"`
-Expected: 无输出（已核实死代码）。
+Run:
+```bash
+cd apps/web && grep -rn "subscriptionApi.subscribe\|subscriptionApi.upgrade" src --include="*.tsx" --include="*.ts" | grep -v "api/subscriptionApi.ts" | grep -v "hooks/useSubscription.ts"
+grep -rn "subscribe,\|, subscribe\|upgrade,\|, upgrade" src/pages/settings/MembershipPage.tsx
+```
+Expected: 第一条无输出（死代码已核实）；第二条命中 MembershipPage.tsx:54 的解构（`const { data: sub, loading, subscribe, upgrade, refresh: refreshSub } = useMySubscription()`）——已核实两函数全组件从未调用。
 
 - [ ] **Step 2: 删除后端链路**
 
@@ -1293,10 +1370,11 @@ Expected: 无输出（已核实死代码）。
 - subscription.controller.ts：删除 `POST /subscribe`、`POST /upgrade` 两个 handler。
 - 对应 spec 文件删除 subscribe/upgrade 用例。
 
-- [ ] **Step 3: 删除前端暴露**
+- [ ] **Step 3: 删除前端暴露（含解构，P1-1）**
 
 - subscriptionApi.ts：删 `subscribe`、`upgrade` 两个函数。
 - useSubscription.ts:36,42：删 hook 内对应函数与返回字段。
+- **MembershipPage.tsx:54：解构中删去 `subscribe, upgrade`**（否则 tsc 报属性不存在，web 测试门禁必红）。
 
 - [ ] **Step 4: 全量测试（前后端）**
 
@@ -1357,12 +1435,17 @@ Expected: 成功。
 Run: `cd apps/api && pnpm test && cd ../web && pnpm test`
 Expected: 全绿（tsc --noEmit 含在 api test 内；web 侧跑自己的类型检查/测试）。
 
-- [ ] **Step 5: 资源团队化词表核查（Phase 3/4 收尾门禁）**
+- [ ] **Step 5: SetNull 全局排查（folder 唯一索引配套）**
+
+Run: `cd apps/api && grep -rn "SetNull" prisma/schema.prisma | grep -i "parent"`
+Expected: 确认 Folder/MaterialFolder 的 parentId onDelete 策略。对**所有**会让 parentId 变 null 的路径（删父文件夹、批量移动等）逐一核查：升入 root 域前完成同名消解（Task 6 remove 已实现，此步确认无遗漏入口）。
+
+- [ ] **Step 6: 资源团队化词表核查（Phase 3/4 收尾门禁）**
 
 Run: `cd apps/api && grep -rn "where: { id, userId }" src/modules/{material-library,media,storage,project,canvas,template,storyboard} --include="*.ts" | grep -v ".spec.ts"`
 Expected: 无输出（权限语义的 `{id, userId}` 全部已团队化；创建人语义的 userId 保留在 data 不在 where）。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add apps/api apps/web packages/shared
