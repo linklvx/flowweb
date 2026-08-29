@@ -26,6 +26,7 @@ describe('VideoSeparateService', () => {
     };
     mockPrisma = {
       media: { findFirst: vi.fn(), findUnique: vi.fn() },
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team-1' }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }) },
       teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       videoSeparateTask: {
@@ -68,6 +69,8 @@ describe('VideoSeparateService', () => {
 
     const mockMedia = {
       id: 'file-1',
+      userId: 'user-1',
+      teamId: 'team-1',
       size: 10485760,
       mimeType: 'video/mp4',
       originalName: 'test_video.mp4',
@@ -153,6 +156,83 @@ describe('VideoSeparateService', () => {
       await expect(service.submitSeparate(baseParams)).rejects.toThrow(BadRequestException);
       expect(mockRedis.decr).toHaveBeenCalled(); // rollback counter
     });
+
+    it('非 creator 团队成员可提交（按 media.teamId 校验）', async () => {
+      mockPrisma.media.findFirst.mockResolvedValue({ ...mockMedia, userId: 'owner-1', teamId: 't-team' });
+      mockPrisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+      mockRedis.set.mockResolvedValue('OK');
+      mockPrisma.videoSeparateTask.findFirst.mockResolvedValue(null);
+      mockPrisma.videoSeparateTask.create.mockResolvedValue({ id: 'task-1' });
+      mockQueue.add.mockResolvedValue({ id: 'task-1' });
+      mockRedis.incr.mockResolvedValue(1);
+
+      const result = await service.submitSeparate(baseParams);
+      expect(result.taskId).toBe('task-1');
+      expect(mockPrisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', userId: 'user-1' }),
+        }),
+      );
+    });
+
+    it('非 creator 非成员 → 403', async () => {
+      mockPrisma.media.findFirst.mockResolvedValue({ ...mockMedia, userId: 'owner-1', teamId: 't-team' });
+      mockPrisma.teamMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.submitSeparate(baseParams)).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.videoSeparateTask.create).not.toHaveBeenCalled();
+    });
+
+    it('团队项目：task.teamId = project.teamId（media.projectId 解析），不反推', async () => {
+      mockPrisma.media.findFirst.mockResolvedValue({ ...mockMedia, projectId: 'proj-1' });
+      mockPrisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+      mockRedis.set.mockResolvedValue('OK');
+      mockPrisma.videoSeparateTask.findFirst.mockResolvedValue(null);
+      mockPrisma.videoSeparateTask.create.mockResolvedValue({ id: 'task-1' });
+      mockQueue.add.mockResolvedValue({ id: 'task-1' });
+      mockRedis.incr.mockResolvedValue(1);
+
+      await service.submitSeparate(baseParams);
+
+      expect(mockPrisma.videoSeparateTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 't-team' }),
+        }),
+      );
+      expect(mockPrisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('个人素材（media.projectId 空）→ 回落个人团队', async () => {
+      mockPrisma.media.findFirst.mockResolvedValue(mockMedia); // projectId: null
+      mockRedis.set.mockResolvedValue('OK');
+      mockPrisma.videoSeparateTask.findFirst.mockResolvedValue(null);
+      mockPrisma.videoSeparateTask.create.mockResolvedValue({ id: 'task-1' });
+      mockQueue.add.mockResolvedValue({ id: 'task-1' });
+      mockRedis.incr.mockResolvedValue(1);
+
+      await service.submitSeparate(baseParams);
+
+      expect(mockPrisma.team.findFirst).toHaveBeenCalled();
+      expect(mockPrisma.videoSeparateTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 'team-1' }),
+        }),
+      );
+    });
+
+    it('并发计数器保留 userId 维度（队友互不阻塞）', async () => {
+      mockPrisma.media.findFirst.mockResolvedValue({ ...mockMedia, projectId: 'proj-1' });
+      mockPrisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+      mockRedis.set.mockResolvedValue('OK');
+      mockPrisma.videoSeparateTask.findFirst.mockResolvedValue(null);
+      mockPrisma.videoSeparateTask.create.mockResolvedValue({ id: 'task-1' });
+      mockQueue.add.mockResolvedValue({ id: 'task-1' });
+      mockRedis.incr.mockResolvedValue(1);
+
+      await service.submitSeparate(baseParams);
+
+      expect(mockRedis.incr).toHaveBeenCalledWith('user:video-separate:user-1');
+    });
   });
 
   describe('getTaskStatus', () => {
@@ -184,6 +264,37 @@ describe('VideoSeparateService', () => {
       mockPrisma.videoSeparateTask.findUnique.mockResolvedValue(null);
 
       await expect(service.getTaskStatus('unknown', 'user-1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('团队成员可查他人任务（按 task.teamId 校验）', async () => {
+      mockPrisma.videoSeparateTask.findUnique.mockResolvedValue({
+        status: 'done',
+        videoFileId: 'vid-1',
+        audioFileId: 'aud-1',
+        errorMsg: null,
+        userId: 'owner-1',
+        teamId: 't-team',
+      });
+      mockPrisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+
+      const result = await service.getTaskStatus('task-1', 'user-1');
+      expect(result.status).toBe('done');
+      expect(mockPrisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', userId: 'user-1' }),
+        }),
+      );
+    });
+
+    it('非团队成员 → 403', async () => {
+      mockPrisma.videoSeparateTask.findUnique.mockResolvedValue({
+        status: 'done',
+        userId: 'owner-1',
+        teamId: 't-team',
+      });
+      mockPrisma.teamMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.getTaskStatus('task-1', 'user-1')).rejects.toThrow(ForbiddenException);
     });
   });
 

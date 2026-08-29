@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getOwnerTeamId } from '../team/team.util';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
@@ -85,10 +85,19 @@ export class StitchConsumer extends WorkerHost {
 
       const key = `stitch/${job.id}.jpg`;
       await this.minioService.upload(key, out, 'image/jpeg');
+      // 归属 = project.teamId（project 缺失即失败，不回落个人团队）
+      const projectTeamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: d.projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (!projectTeamId) {
+        Sentry.captureException(new Error(`stitch: project team missing for project ${d.projectId}`));
+        throw new Error('PROJECT_TEAM_MISSING');
+      }
       const media = await this.prisma.media.create({
         data: {
           userId: d.userId,
-          teamId: await getOwnerTeamId(this.prisma, d.userId),
+          teamId: projectTeamId,
           bucket: 'flowai',
           key,
           originalName: `storyboard-stitch-${job.id}.jpg`,

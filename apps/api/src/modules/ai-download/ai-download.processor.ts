@@ -1,9 +1,9 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getOwnerTeamId } from '../team/team.util';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
@@ -51,7 +51,7 @@ export class AiDownloadProcessor extends WorkerHost {
     this.retryConfigured = true;
   }
 
-  async process(job: Job<AiDownloadJobData>): Promise<{ status: string; fileId?: string }> {
+  async process(job: Job<AiDownloadJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
     const { userId, projectId, nodeId, taskId, resultUrl, mimeType } = job.data;
     this.logger.log(`Downloading AI result: ${resultUrl}`);
 
@@ -73,21 +73,24 @@ export class AiDownloadProcessor extends WorkerHost {
       where: { id: projectId },
       select: { teamId: true },
     }))?.teamId;
-    if (quotaTeamId) {
-      try {
-        await this.quota.assertCanUpload(quotaTeamId, buffer.length);
-      } catch {
-        await this.collabDoc.writeNodeData(projectId, nodeId, {
-          errorCode: 'storage_quota_exceeded',
-        });
-        this.gateway.emitNodeStatus(projectId, {
-          nodeId,
-          status: 'error',
-          error: '存储空间不足：请清理素材或升级团队订阅',
-        });
-        this.logger.warn(`storage quota exceeded for project ${projectId}, node ${nodeId}`);
-        return { status: 'failed' };
-      }
+    if (!quotaTeamId) {
+      // project 缺失/解析失败：job 已无意义，直接 failed 不再 create Media（不回落个人团队）
+      Sentry.captureException(new Error(`ai-download: project team missing for job ${job.id}`));
+      return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
+    }
+    try {
+      await this.quota.assertCanUpload(quotaTeamId, buffer.length);
+    } catch {
+      await this.collabDoc.writeNodeData(projectId, nodeId, {
+        errorCode: 'storage_quota_exceeded',
+      });
+      this.gateway.emitNodeStatus(projectId, {
+        nodeId,
+        status: 'error',
+        error: '存储空间不足：请清理素材或升级团队订阅',
+      });
+      this.logger.warn(`storage quota exceeded for project ${projectId}, node ${nodeId}`);
+      return { status: 'failed' };
     }
 
     await this.minio.upload(key, buffer, mimeType);
@@ -96,7 +99,7 @@ export class AiDownloadProcessor extends WorkerHost {
     const media = await this.prisma.media.create({
       data: {
         userId,
-        teamId: await getOwnerTeamId(this.prisma, userId),
+        teamId: quotaTeamId,
         key,
         originalName: `ai-generated-${nodeId}.${ext}`,
         mimeType,

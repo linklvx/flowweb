@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { spawn } from 'child_process';
 import { mkdir, rm, readFile } from 'fs/promises';
 import * as path from 'path';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
@@ -169,10 +170,26 @@ export class MediaProcessService {
 
     await this.minio.upload(key, buffer, mimeType);
 
+    // 归属 = project.teamId（project 缺失即失败，不回落个人团队）；projectId 为空（个人素材）回落个人团队
+    let teamId: string;
+    if (projectId) {
+      const projectTeamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (!projectTeamId) {
+        Sentry.captureException(new Error(`media-process: project team missing for project ${projectId}`));
+        throw new Error('PROJECT_TEAM_MISSING');
+      }
+      teamId = projectTeamId;
+    } else {
+      teamId = await getOwnerTeamId(this.prisma, userId);
+    }
+
     const media = await this.prisma.media.create({
       data: {
         userId,
-        teamId: await getOwnerTeamId(this.prisma, userId),
+        teamId,
         key,
         originalName,
         mimeType,

@@ -89,10 +89,10 @@ describe('VideoTrimController', () => {
   });
 
   describe('GET /video-trim/:taskId', () => {
-    it('should return task status', async () => {
-      const result = await controller.getTaskStatus('task-1');
+    it('should return task status（透传 userId 供团队鉴权）', async () => {
+      const result = await controller.getTaskStatus('task-1', { user: { id: 'user-1' } } as any);
       expect(result).toEqual({ status: 'done', outputFileId: 'out-1' });
-      expect(mockService.getTaskStatus).toHaveBeenCalledWith('task-1');
+      expect(mockService.getTaskStatus).toHaveBeenCalledWith('task-1', 'user-1');
     });
   });
 });

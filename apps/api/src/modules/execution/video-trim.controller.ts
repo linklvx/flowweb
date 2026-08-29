@@ -30,7 +30,7 @@ export class VideoTrimController {
   }
 
   @Get('video-trim/:taskId')
-  async getTaskStatus(@Param('taskId') taskId: string) {
-    return this.videoTrimService.getTaskStatus(taskId);
+  async getTaskStatus(@Param('taskId') taskId: string, @Req() req: any) {
+    return this.videoTrimService.getTaskStatus(taskId, (req as any).user?.id);
   }
 }

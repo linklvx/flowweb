@@ -99,4 +99,56 @@ describe('AiDownloadProcessor', () => {
       }),
     );
   });
+
+  it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
+    const mockBuffer = Buffer.from('fake-image-data');
+    (axios.get as any).mockResolvedValue({
+      data: mockBuffer,
+      headers: { 'content-type': 'image/png' },
+    });
+
+    const job = {
+      data: {
+        userId: 'user1',
+        projectId: 'proj1',
+        nodeId: 'node1',
+        taskId: 'task1',
+        resultUrl: 'https://external.ai/result.png',
+        mimeType: 'image/png',
+      },
+    } as any as Job;
+
+    await processor.process(job);
+    expect(prisma.media.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ teamId: 'team1' }),
+      }),
+    );
+    // 不再调用 team.findFirst 反推
+    expect(prisma.team.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('project 缺失 → failed 且不建 Media（不回落个人团队）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue(null);
+    (axios.get as any).mockResolvedValue({
+      data: Buffer.from('fake-image-data'),
+      headers: { 'content-type': 'image/png' },
+    });
+
+    const job = {
+      data: {
+        userId: 'user1',
+        projectId: 'proj-missing',
+        nodeId: 'node1',
+        taskId: 'task1',
+        resultUrl: 'https://external.ai/result.png',
+        mimeType: 'image/png',
+      },
+    } as any as Job;
+
+    const result = await processor.process(job);
+    expect(result.status).toBe('failed');
+    expect(prisma.media.create).not.toHaveBeenCalled();
+    expect(prisma.team.findFirst).not.toHaveBeenCalled();
+  });
 });

@@ -1,10 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { spawn } from 'child_process';
 import { rm, mkdir, readFile } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
 import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
@@ -79,8 +79,16 @@ export class VideoTrimProcessor extends WorkerHost {
       const buffer = await readFile(outputPath);
       const task = await this.prisma.videoTrimTask.findUnique({
         where: { id: taskId },
-        select: { sourceFileId: true, nodeId: true, workflowId: true },
+        select: { sourceFileId: true, nodeId: true, workflowId: true, teamId: true },
       });
+
+      if (!task?.teamId) {
+        // task 缺失或团队缺失：job 已无意义，failed 不再 create Media（不回落个人团队）
+        Sentry.captureException(new Error(`video-trim: task team missing for task ${taskId}`));
+        await this.cleanupTempDir(taskId);
+        await this.videoTrimService.handleTaskFailed(taskId, 'PROJECT_TEAM_MISSING');
+        return { outputPath: '' };
+      }
 
       const sourceMedia = task
         ? await this.prisma.media.findUnique({ where: { id: task.sourceFileId } })
@@ -99,7 +107,7 @@ export class VideoTrimProcessor extends WorkerHost {
       const media = await this.prisma.media.create({
         data: {
           userId,
-          teamId: await getOwnerTeamId(this.prisma, userId),
+          teamId: task.teamId,
           key,
           originalName: `trimmed-${taskId}.${ext}`,
           mimeType: contentType,

@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
@@ -122,11 +123,28 @@ export class LightingConsumer {
       const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
       await this.minio.upload(key, buffer, contentType);
 
+      // 6.5 解析归属团队：project 上下文优先（缺失即失败，不回落个人团队）；无 projectId 的个人任务回落个人团队
+      let teamId: string;
+      let projectTeamId: string | undefined;
+      if (projectId) {
+        projectTeamId = (await this.prisma.canvasProject.findUnique({
+          where: { id: projectId },
+          select: { teamId: true },
+        }))?.teamId;
+        if (!projectTeamId) {
+          Sentry.captureException(new Error(`lighting: project team missing for task ${taskId}`));
+          throw new Error('PROJECT_TEAM_MISSING');
+        }
+        teamId = projectTeamId;
+      } else {
+        teamId = await getOwnerTeamId(this.prisma, userId);
+      }
+
       // 7. Create Media record
       const media = await this.prisma.media.create({
         data: {
           userId,
-          teamId: await getOwnerTeamId(this.prisma, userId),
+          teamId,
           key,
           originalName: `lighting-${nodeId}.${ext}`,
           mimeType: contentType,
@@ -152,14 +170,8 @@ export class LightingConsumer {
       });
 
       // 9. Deduct credit (team pool)
-      if (projectId) {
-        const teamId = (await this.prisma.canvasProject.findUnique({
-          where: { id: projectId },
-          select: { teamId: true },
-        }))?.teamId;
-        if (teamId) {
-          await this.teamCredit.consume(teamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
-        }
+      if (projectTeamId) {
+        await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
       }
 
       // 10. Write fileId to server doc；socket 仅进度通知

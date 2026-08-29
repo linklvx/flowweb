@@ -1,4 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { LightingService } from './lighting.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
@@ -126,11 +127,52 @@ describe('LightingService', () => {
       expect(result.taskId).toBe('existing-task');
       expect(queue.add).not.toHaveBeenCalled();
     });
+
+    it('幂等键深排序：params 嵌套键序不同仍命中幂等（stableStringify）', async () => {
+      prisma.lightingTask.findFirst.mockResolvedValue({
+        id: 'existing-task',
+        status: 'pending',
+        params: {
+          colorTemperature: 5600,
+          rimLight: false,
+          brightness: 50,
+          position: { z: 6, y: 0, x: 0 },
+        },
+      });
+
+      const result = await service.createTask(validDto, 'user-1');
+
+      expect(result.taskId).toBe('existing-task');
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('团队项目归属：task.teamId = project.teamId（非 getOwnerTeamId 反推）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+
+      await service.createTask(validDto, 'user-1');
+
+      expect(prisma.lightingTask.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ teamId: 't-team' }),
+      });
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('幂等查重按团队维度（teamId + nodeId）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+
+      await service.createTask(validDto, 'user-1');
+
+      expect(prisma.lightingTask.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', nodeId: 'node-1' }),
+        }),
+      );
+    });
   });
 
   describe('getTask', () => {
     it('should return task by id', async () => {
-      prisma.lightingTask.findFirst = vi.fn().mockResolvedValue({
+      prisma.lightingTask.findUnique = vi.fn().mockResolvedValue({
         id: 'task-1',
         userId: 'user-1',
         status: LightingTaskStatus.PENDING,
@@ -141,9 +183,39 @@ describe('LightingService', () => {
     });
 
     it('should return null for non-existent task', async () => {
-      prisma.lightingTask.findFirst = vi.fn().mockResolvedValue(null);
+      prisma.lightingTask.findUnique = vi.fn().mockResolvedValue(null);
       const result = await service.getTask('nonexistent', 'user-1');
       expect(result).toBeNull();
+    });
+
+    it('团队成员可查他人任务（按 task.teamId 校验）', async () => {
+      prisma.lightingTask.findUnique = vi.fn().mockResolvedValue({
+        id: 'task-1',
+        userId: 'owner-1',
+        teamId: 't-team',
+        status: LightingTaskStatus.PENDING,
+      });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+
+      const result = await service.getTask('task-1', 'user-1');
+      expect(result?.id).toBe('task-1');
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', userId: 'user-1' }),
+        }),
+      );
+    });
+
+    it('非团队成员 → 403', async () => {
+      prisma.lightingTask.findUnique = vi.fn().mockResolvedValue({
+        id: 'task-1',
+        userId: 'owner-1',
+        teamId: 't-team',
+        status: LightingTaskStatus.PENDING,
+      });
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.getTask('task-1', 'user-1')).rejects.toThrow(ForbiddenException);
     });
   });
 });

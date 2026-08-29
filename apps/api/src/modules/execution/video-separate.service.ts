@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
@@ -12,7 +12,7 @@ import {
   SUPPORTED_VIDEO_MIME_TYPES,
 } from './video-separate.constants';
 import { VideoSeparateRequest, VideoSeparateJobData } from './video-separate.types';
-import { getOwnerTeamId } from '../team/team.util';
+import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 
 @Injectable()
 export class VideoSeparateService {
@@ -29,12 +29,28 @@ export class VideoSeparateService {
   async submitSeparate(params: VideoSeparateRequest): Promise<{ taskId: string }> {
     const { fileId, nodeId, userId, workflowId, mode } = params;
 
-    // 1. File ownership validation
+    // 1. File ownership validation（团队化：按 id 查，creator 之外须为 media.teamId 成员）
     const media = await this.prisma.media.findFirst({
-      where: { id: fileId, userId },
-      select: { id: true, size: true, mimeType: true, originalName: true, key: true, projectId: true },
+      where: { id: fileId },
+      select: { id: true, userId: true, teamId: true, size: true, mimeType: true, originalName: true, key: true, projectId: true },
     });
     if (!media) throw new ForbiddenException('file not found or access denied');
+    if (media.userId !== userId) {
+      await assertTeamMember(this.prisma, media.teamId, userId);
+    }
+
+    // 1.5 团队解析：project 上下文 → project.teamId（缺失即拒绝，不回落）；个人素材回落个人团队
+    let teamId: string;
+    if (media.projectId) {
+      const projectTeamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: media.projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (!projectTeamId) throw new InternalServerErrorException('项目团队缺失');
+      teamId = projectTeamId;
+    } else {
+      teamId = await getOwnerTeamId(this.prisma, userId);
+    }
 
     // 2. Lightweight DB-field validation
     if (media.size > MAX_FILE_SIZE) {
@@ -53,16 +69,14 @@ export class VideoSeparateService {
     }
 
     try {
-      // 4. Idempotency check (inside lock)
+      // 4. Idempotency check (inside lock，团队 + 节点 + 参数维度；并发计数器保留 userId 维度)
       const existing = await this.prisma.videoSeparateTask.findFirst({
-        where: { nodeId, status: { in: ['queued', 'processing'] } },
+        where: { teamId, nodeId, mode, status: { in: ['queued', 'processing'] } },
         select: { id: true },
       });
       if (existing) return { taskId: existing.id };
 
       // 5. Create task + enqueue
-      // 临时接线：Task 8 将切换 project.teamId 归属
-      const teamId = await getOwnerTeamId(this.prisma, userId);
       const task = await this.prisma.videoSeparateTask.create({
         data: { userId, teamId, workflowId, nodeId, sourceFileId: fileId, mode, status: 'queued' },
       });
@@ -104,10 +118,14 @@ export class VideoSeparateService {
   async getTaskStatus(taskId: string, userId: string) {
     const task = await this.prisma.videoSeparateTask.findUnique({
       where: { id: taskId },
-      select: { status: true, videoFileId: true, audioFileId: true, errorMsg: true, userId: true },
+      select: { status: true, videoFileId: true, audioFileId: true, errorMsg: true, userId: true, teamId: true },
     });
-    if (!task || task.userId !== userId) {
+    if (!task) {
       throw new ForbiddenException('task not found or access denied');
+    }
+    // 团队化：creator 之外须为 task.teamId 成员方可查询
+    if (task.userId !== userId) {
+      await assertTeamMember(this.prisma, task.teamId, userId);
     }
     return { status: task.status, videoFileId: task.videoFileId, audioFileId: task.audioFileId, error: task.errorMsg };
   }

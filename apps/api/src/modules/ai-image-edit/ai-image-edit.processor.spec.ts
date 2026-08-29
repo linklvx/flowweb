@@ -150,6 +150,61 @@ describe('AiImageEditProcessor', () => {
         expect.objectContaining({ status: 'edit-result' }),
       );
     });
+
+    it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
+      (axios.get as any).mockResolvedValue({
+        data: Buffer.from('fake-image-data'),
+        headers: { 'content-type': 'image/png' },
+      });
+
+      const job = {
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+        },
+      } as any as Job;
+
+      await processor.process(job);
+      expect(prisma.media.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 'team1' }),
+        }),
+      );
+      // 不再调用 team.findFirst 反推
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('project 缺失 → failed 且不建 Media（不回落个人团队）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue(null);
+      (axios.get as any).mockResolvedValue({
+        data: Buffer.from('fake-image-data'),
+        headers: { 'content-type': 'image/png' },
+      });
+
+      const job = {
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj-missing',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+        },
+      } as any as Job;
+
+      const result = await processor.process(job);
+      expect(result.status).toBe('failed');
+      expect(prisma.media.create).not.toHaveBeenCalled();
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
   });
 
   describe('failure path', () => {

@@ -35,7 +35,11 @@ describe('MediaProcessService', () => {
   let mockMinio: any;
 
   beforeEach(async () => {
-    mockPrisma = { media: { create: vi.fn() }, team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) } };
+    mockPrisma = {
+      media: { create: vi.fn() },
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+    };
     mockMinio = {
       buildKey: vi.fn().mockReturnValue('generated/user123/video.mp4'),
       upload: vi.fn().mockResolvedValue(undefined),
@@ -214,6 +218,69 @@ describe('MediaProcessService', () => {
           }),
         }),
       );
+    });
+
+    it('有 project 上下文：teamId = project.teamId（非 getOwnerTeamId 反推）', async () => {
+      mockPrisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+      mockPrisma.media.create.mockResolvedValue({ id: 'media-team' });
+
+      await service.uploadAndCreateMedia({
+        filePath: '/tmp/output.mp4',
+        userId: 'user1',
+        projectId: 'proj1',
+        nodeId: 'node1',
+        originalName: 'test.mp4',
+        mimeType: 'video/mp4',
+        sourceFileId: 'src-1',
+        bizType: 'video_separate',
+      });
+
+      expect(mockPrisma.media.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 't-team' }),
+        }),
+      );
+      expect(mockPrisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('project 查不到 → 抛错不建 Media（不回落个人团队）', async () => {
+      mockPrisma.canvasProject.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.uploadAndCreateMedia({
+          filePath: '/tmp/output.mp4',
+          userId: 'user1',
+          projectId: 'proj-missing',
+          nodeId: 'node1',
+          originalName: 'test.mp4',
+          mimeType: 'video/mp4',
+          sourceFileId: 'src-1',
+          bizType: 'video_separate',
+        }),
+      ).rejects.toThrow('PROJECT_TEAM_MISSING');
+      expect(mockPrisma.media.create).not.toHaveBeenCalled();
+    });
+
+    it('无 project 上下文（projectId 空）→ 回落个人团队', async () => {
+      mockPrisma.media.create.mockResolvedValue({ id: 'media-personal' });
+
+      await service.uploadAndCreateMedia({
+        filePath: '/tmp/output.mp4',
+        userId: 'user1',
+        projectId: '',
+        nodeId: 'node1',
+        originalName: 'test.mp4',
+        mimeType: 'video/mp4',
+        sourceFileId: 'src-1',
+        bizType: 'video_separate',
+      });
+
+      expect(mockPrisma.media.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 'team1' }),
+        }),
+      );
+      expect(mockPrisma.team.findFirst).toHaveBeenCalled();
     });
   });
 

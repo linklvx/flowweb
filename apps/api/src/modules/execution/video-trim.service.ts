@@ -7,7 +7,7 @@ import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
-import { getOwnerTeamId } from '../team/team.util';
+import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 
 @Injectable()
 export class VideoTrimService {
@@ -39,17 +39,26 @@ export class VideoTrimService {
     fileId: string,
     userId: string,
   ): Promise<void> {
+    // 团队化：按 id 查，creator 之外须为 media.teamId 成员方可操作
     const file = await this.prisma.media.findFirst({
-      where: { id: fileId, userId },
+      where: { id: fileId },
     });
     if (!file) {
       throw new ForbiddenException('file not found or access denied');
     }
+    if (file.userId !== userId) {
+      await assertTeamMember(this.prisma, file.teamId, userId);
+    }
   }
 
-  private async checkDuplicate(nodeId: string): Promise<string | null> {
+  private async checkDuplicate(
+    teamId: string,
+    nodeId: string,
+    startTime: number,
+    endTime: number,
+  ): Promise<string | null> {
     const existing = await this.prisma.videoTrimTask.findFirst({
-      where: { nodeId, status: { in: ['queued', 'processing'] } },
+      where: { teamId, nodeId, startTime, endTime, status: { in: ['queued', 'processing'] } },
       select: { id: true },
     });
     return existing?.id ?? null;
@@ -84,6 +93,19 @@ export class VideoTrimService {
     }
     const derivedWorkflowId = media.projectId ?? workflowId;
 
+    // 2.5 团队解析：project 上下文 → project.teamId（缺失即拒绝，不回落）；个人素材回落个人团队
+    let teamId: string;
+    if (media.projectId) {
+      const projectTeamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: media.projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (!projectTeamId) throw new NotFoundException('项目不存在');
+      teamId = projectTeamId;
+    } else {
+      teamId = await getOwnerTeamId(this.prisma, userId);
+    }
+
     // 3. Generate presigned URL for MinIO object access
     const inputUrl = await this.minio.generatePresignedGetUrl(media.key, 3600);
 
@@ -110,8 +132,8 @@ export class VideoTrimService {
     // 5. Server-side parameter validation
     this.validateParams(startTime, endTime, actualDuration);
 
-    // 6. Idempotency check
-    const duplicateId = await this.checkDuplicate(nodeId);
+    // 6. Idempotency check（团队 + 节点 + 参数维度）
+    const duplicateId = await this.checkDuplicate(teamId, nodeId, startTime, endTime);
     if (duplicateId) {
       return { taskId: duplicateId };
     }
@@ -119,9 +141,7 @@ export class VideoTrimService {
     // 7. Detect audio
     const hasAudio = await this.detectAudio(inputUrl);
 
-    // 8. Create task record
-    // 临时接线：Task 8 将切换 project.teamId 归属
-    const teamId = await getOwnerTeamId(this.prisma, userId);
+    // 8. Create task record（归属 = project.teamId / 个人团队）
     const task = await this.prisma.videoTrimTask.create({
       data: {
         userId,
@@ -152,16 +172,20 @@ export class VideoTrimService {
     return { taskId: task.id };
   }
 
-  async getTaskStatus(taskId: string): Promise<{
+  async getTaskStatus(taskId: string, userId: string): Promise<{
     status: string;
     outputFileId?: string | null;
     error?: string | null;
   } | null> {
     const task = await this.prisma.videoTrimTask.findUnique({
       where: { id: taskId },
-      select: { status: true, outputFileId: true, errorMsg: true },
+      select: { status: true, outputFileId: true, errorMsg: true, userId: true, teamId: true },
     });
     if (!task) return null;
+    // 团队化：creator 之外须为 task.teamId 成员方可查询
+    if (task.userId !== userId) {
+      await assertTeamMember(this.prisma, task.teamId, userId);
+    }
     return { status: task.status, outputFileId: task.outputFileId, error: task.errorMsg };
   }
 

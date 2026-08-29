@@ -1,12 +1,11 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
-import { getOwnerTeamId } from '../../team/team.util';
+import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
-import * as crypto from 'node:crypto';
 
 const LightingTaskStatus = {
   PENDING: 'pending',
@@ -28,9 +27,15 @@ function isPrivateUrl(url: string): boolean {
   return PRIVATE_IP_PATTERNS.some((p) => p.test(url));
 }
 
-function hashParams(nodeId: string, userId: string, params: unknown): string {
-  const normalized = JSON.stringify({ nodeId, userId, params }, Object.keys({ nodeId: '', userId: '', params: {} }).sort());
-  return crypto.createHash('sha256').update(normalized).digest('hex');
+// 递归排序对象键后序列化（嵌套对象键序不同不击穿幂等比较）
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
+  return `{${entries.join(',')}}`;
 }
 
 @Injectable()
@@ -62,48 +67,45 @@ export class LightingService {
       throw new BadRequestException('不支持内网图片地址');
     }
 
-    // Idempotency check: same userId + nodeId + params within 60s
+    // 团队解析：project 上下文 → project.teamId（缺失即拒绝，不回落）；无 projectId 的个人任务回落个人团队
+    let teamId: string;
+    let project: { teamId: string } | null = null;
+    if (dto.projectId) {
+      project = await this.prisma.canvasProject.findUnique({
+        where: { id: dto.projectId },
+        select: { teamId: true },
+      });
+      if (!project) throw new NotFoundException('项目不存在');
+      teamId = project.teamId;
+    } else {
+      teamId = await getOwnerTeamId(this.prisma, userId);
+    }
+
+    // Idempotency check: same team + nodeId + params（stableStringify 深排序键）within 60s
     const recentWindow = new Date(Date.now() - 60_000);
     const existing = await this.prisma.lightingTask.findFirst({
       where: {
-        userId,
+        teamId,
         nodeId: dto.nodeId,
         createdAt: { gte: recentWindow },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (existing) {
-      // Check if params match using JSON comparison
-      const existingParams = existing.params as Record<string, unknown>;
-      const newParams = params as unknown as Record<string, unknown>;
-      if (
-        existingParams.position &&
-        newParams.position &&
-        JSON.stringify(existingParams) === JSON.stringify(newParams)
-      ) {
-        return { taskId: existing.id, status: existing.status };
-      }
+    if (existing && stableStringify(existing.params) === stableStringify(params)) {
+      return { taskId: existing.id, status: existing.status };
     }
 
     // Check credits (team pool pre-check)
     const estimatedCost = 15; // TODO: fetch from pricing config
-    if (dto.projectId) {
-      const project = await this.prisma.canvasProject.findUnique({
-        where: { id: dto.projectId },
-        select: { teamId: true },
-      });
-      if (project) {
-        const balance = await this.teamCredit.getBalanceView(project.teamId, userId);
-        if (balance.total < estimatedCost) {
-          throw new BadRequestException('积分不足，无法提交任务');
-        }
+    if (project) {
+      const balance = await this.teamCredit.getBalanceView(teamId, userId);
+      if (balance.total < estimatedCost) {
+        throw new BadRequestException('积分不足，无法提交任务');
       }
     }
 
-    // Create task in DB
-    // 临时接线：Task 8 将切换 project.teamId 归属
-    const teamId = await getOwnerTeamId(this.prisma, userId);
+    // Create task in DB（归属 = project.teamId / 个人团队）
     const task = await this.prisma.lightingTask.create({
       data: {
         userId,
@@ -133,8 +135,12 @@ export class LightingService {
   }
 
   async getTask(taskId: string, userId: string) {
-    return this.prisma.lightingTask.findFirst({
-      where: { id: taskId, userId },
-    });
+    const task = await this.prisma.lightingTask.findUnique({ where: { id: taskId } });
+    if (!task) return null;
+    // 团队化：creator 之外须为 task.teamId 成员方可查询
+    if (task.userId !== userId) {
+      await assertTeamMember(this.prisma, task.teamId, userId);
+    }
+    return task;
   }
 }

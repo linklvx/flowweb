@@ -39,6 +39,7 @@ function mockPrisma() {
         sourceFileId: 'file-1',
         nodeId: 'node-1',
         workflowId: 'wf-1',
+        teamId: 'team1',
       }),
     },
     media: {
@@ -138,6 +139,30 @@ describe('VideoTrimProcessor', () => {
         `${constants.TEMP_DIR}task-4`,
         expect.objectContaining({ recursive: true, force: true }),
       );
+    });
+
+    it('生成物归属 = task.teamId（非 getOwnerTeamId 反推）', async () => {
+      vi.spyOn(processor as any, 'runFfmpeg').mockResolvedValue(undefined);
+
+      await processor.process(makeJob());
+
+      expect(prisma.media.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 'team1' }),
+        }),
+      );
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('task/teamId 缺失 → failed 分支（handleTaskFailed，不建 Media 不回落）', async () => {
+      vi.spyOn(processor as any, 'runFfmpeg').mockResolvedValue(undefined);
+      prisma.videoTrimTask.findUnique.mockResolvedValue(null);
+
+      await processor.process(makeJob());
+
+      expect(mockService.handleTaskFailed).toHaveBeenCalledWith('task-1', 'PROJECT_TEAM_MISSING');
+      expect(prisma.media.create).not.toHaveBeenCalled();
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
     });
   });
 });

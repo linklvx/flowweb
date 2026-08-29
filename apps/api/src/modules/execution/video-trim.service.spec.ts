@@ -42,9 +42,10 @@ function mockPrismaService(overrides: Record<string, any> = {}) {
       findUnique: vi.fn().mockResolvedValue(null),
     },
     media: {
-      findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }),
+      findFirst: vi.fn().mockResolvedValue({ id: 'file-1', userId: 'user-1', teamId: 'team-1' }),
       findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: 'wf-1' }),
     },
+    canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team-1' }) },
     team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }) },
     teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
     ...overrides,
@@ -137,11 +138,34 @@ describe('VideoTrimService', () => {
     });
 
     it('should pass if file belongs to user', async () => {
-      prisma.media = { findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }), findUnique: vi.fn() };
+      prisma.media = { findFirst: vi.fn().mockResolvedValue({ id: 'file-1', userId: 'user-1', teamId: 'team-1' }), findUnique: vi.fn() };
 
       await expect(
         (service as any).validateFileOwnership('file-1', 'user-1'),
       ).resolves.toBeUndefined();
+    });
+
+    it('团队成员可访问他人文件（按 media.teamId 校验）', async () => {
+      prisma.media.findFirst.mockResolvedValue({ id: 'file-1', userId: 'owner-1', teamId: 't-team' });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+
+      await expect(
+        (service as any).validateFileOwnership('file-1', 'user-1'),
+      ).resolves.toBeUndefined();
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', userId: 'user-1' }),
+        }),
+      );
+    });
+
+    it('非团队成员 → 403', async () => {
+      prisma.media.findFirst.mockResolvedValue({ id: 'file-1', userId: 'owner-1', teamId: 't-team' });
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+
+      await expect(
+        (service as any).validateFileOwnership('file-1', 'user-1'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -154,15 +178,26 @@ describe('VideoTrimService', () => {
         status: 'queued',
       });
 
-      const result = await (service as any).checkDuplicate('node-1');
+      const result = await (service as any).checkDuplicate('team-1', 'node-1', 5, 10);
       expect(result).toBe('existing-task');
     });
 
     it('should return null if no duplicate', async () => {
       prisma.videoTrimTask.findFirst.mockResolvedValueOnce(null);
 
-      const result = await (service as any).checkDuplicate('node-1');
+      const result = await (service as any).checkDuplicate('team-1', 'node-1', 5, 10);
       expect(result).toBeNull();
+    });
+
+    it('幂等键 = teamId + nodeId + params（startTime/endTime）', async () => {
+      prisma.videoTrimTask.findFirst.mockResolvedValueOnce(null);
+
+      await (service as any).checkDuplicate('t-team', 'node-1', 5, 10);
+      expect(prisma.videoTrimTask.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', nodeId: 'node-1', startTime: 5, endTime: 10 }),
+        }),
+      );
     });
   });
 
@@ -235,6 +270,49 @@ describe('VideoTrimService', () => {
         expect.anything(),
       );
     });
+
+    it('团队项目：task.teamId = project.teamId（media.projectId 解析），不反推', async () => {
+      prisma.media.findUnique.mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: 'proj-1' });
+      prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
+
+      await service.submitTrim({
+        fileId: 'file-1', startTime: 5, endTime: 10, nodeId: 'node-1', userId: 'user-1', workflowId: '',
+      });
+
+      expect(prisma.videoTrimTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 't-team' }),
+        }),
+      );
+      expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('个人素材（media.projectId 空）→ 回落个人团队', async () => {
+      prisma.media.findUnique.mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: null });
+
+      await service.submitTrim({
+        fileId: 'file-1', startTime: 5, endTime: 10, nodeId: 'node-1', userId: 'user-1', workflowId: '',
+      });
+
+      expect(prisma.team.findFirst).toHaveBeenCalled();
+      expect(prisma.videoTrimTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 'team-1' }),
+        }),
+      );
+    });
+
+    it('media.projectId 非空但项目不存在 → 拒绝（不回落）', async () => {
+      prisma.media.findUnique.mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: 'proj-missing' });
+      prisma.canvasProject.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.submitTrim({
+          fileId: 'file-1', startTime: 5, endTime: 10, nodeId: 'node-1', userId: 'user-1', workflowId: '',
+        }),
+      ).rejects.toThrow();
+      expect(prisma.videoTrimTask.create).not.toHaveBeenCalled();
+    });
   });
 
   // ── getTaskStatus ──
@@ -246,9 +324,11 @@ describe('VideoTrimService', () => {
         status: 'done',
         outputFileId: 'out-1',
         errorMsg: null,
+        userId: 'user-1',
+        teamId: 'team-1',
       });
 
-      const result = await service.getTaskStatus('task-1');
+      const result = await service.getTaskStatus('task-1', 'user-1');
       expect(result?.status).toBe('done');
       expect(result?.outputFileId).toBe('out-1');
     });
@@ -256,8 +336,42 @@ describe('VideoTrimService', () => {
     it('should return null for unknown task', async () => {
       prisma.videoTrimTask.findUnique.mockResolvedValueOnce(null);
 
-      const result = await service.getTaskStatus('unknown');
+      const result = await service.getTaskStatus('unknown', 'user-1');
       expect(result).toBeNull();
+    });
+
+    it('团队成员可查他人任务（按 task.teamId 校验）', async () => {
+      prisma.videoTrimTask.findUnique.mockResolvedValueOnce({
+        id: 'task-1',
+        status: 'done',
+        outputFileId: 'out-1',
+        errorMsg: null,
+        userId: 'owner-1',
+        teamId: 't-team',
+      });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+
+      const result = await service.getTaskStatus('task-1', 'user-1');
+      expect(result?.status).toBe('done');
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ teamId: 't-team', userId: 'user-1' }),
+        }),
+      );
+    });
+
+    it('非团队成员 → 403', async () => {
+      prisma.videoTrimTask.findUnique.mockResolvedValueOnce({
+        id: 'task-1',
+        status: 'done',
+        outputFileId: 'out-1',
+        errorMsg: null,
+        userId: 'owner-1',
+        teamId: 't-team',
+      });
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.getTaskStatus('task-1', 'user-1')).rejects.toThrow(ForbiddenException);
     });
   });
 });
