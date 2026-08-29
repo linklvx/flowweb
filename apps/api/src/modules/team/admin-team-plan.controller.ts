@@ -5,31 +5,35 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class AdminTeamPlanController {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  // storageLimitBytes 列为 BigInt，无法经 JSON.stringify 序列化（Express 抛错致 500），响应统一转 Number
   @Get()
-  list() {
-    return this.prisma.teamPlan.findMany({ orderBy: { sort: 'asc' } });
+  async list() {
+    const plans = await this.prisma.teamPlan.findMany({ orderBy: { sort: 'asc' } });
+    return plans.map((p) => ({ ...p, storageLimitBytes: Number(p.storageLimitBytes) }));
   }
 
   @Post()
-  create(@Body() body: {
+  async create(@Body() body: {
     name: string; monthlyCredits: number; storageLimitBytes: bigint | number;
     seatLimit: number; priceMonthly: number; sort?: number;
   }) {
-    return this.prisma.teamPlan.create({
+    const plan = await this.prisma.teamPlan.create({
       data: { ...body, storageLimitBytes: BigInt(body.storageLimitBytes) },
     });
+    return { ...plan, storageLimitBytes: Number(plan.storageLimitBytes) };
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: Partial<{
+  async update(@Param('id') id: string, @Body() body: Partial<{
     name: string; monthlyCredits: number; storageLimitBytes: bigint | number;
     seatLimit: number; priceMonthly: number; sort: number; isActive: boolean;
   }>) {
     const { storageLimitBytes, ...rest } = body;
-    return this.prisma.teamPlan.update({
+    const plan = await this.prisma.teamPlan.update({
       where: { id },
       data: { ...rest, ...(storageLimitBytes != null ? { storageLimitBytes: BigInt(storageLimitBytes) } : {}) },
     });
+    return { ...plan, storageLimitBytes: Number(plan.storageLimitBytes) };
   }
 
   @Delete(':id')
