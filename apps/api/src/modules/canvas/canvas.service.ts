@@ -53,9 +53,10 @@ export class CanvasService {
     return result;
   }
 
-  async getNextUntitledName(userId: string): Promise<string> {
-    const teamId = (await this.teamService.ensureDefaultTeam(userId)).id;
-    return CanvasService.nextUntitledName(this.prisma, teamId);
+  async getNextUntitledName(userId: string, teamId?: string): Promise<string> {
+    const resolved = teamId ?? (await this.teamService.ensureDefaultTeam(userId)).id;
+    if (teamId) await assertTeamMember(this.prisma, teamId, userId);
+    return CanvasService.nextUntitledName(this.prisma, resolved);
   }
 
   private static async nextUntitledName(db: { template: { findMany: Function } }, teamId: string): Promise<string> {

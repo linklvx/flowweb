@@ -5,13 +5,14 @@ import type { Folder } from '../types';
 
 interface CreateCanvasModalProps {
   open: boolean;
+  teamId?: string;
   folders: Folder[];
   defaultFolderId: string | null;
   onOk: (name: string, folderId: string | null) => void;
   onCancel: () => void;
 }
 
-export function CreateCanvasModal({ open, folders, defaultFolderId, onOk, onCancel }: CreateCanvasModalProps) {
+export function CreateCanvasModal({ open, teamId, folders, defaultFolderId, onOk, onCancel }: CreateCanvasModalProps) {
   const [name, setName] = useState('');
   const [folderId, setFolderId] = useState<string | null>(defaultFolderId);
   useEffect(() => {
@@ -19,11 +20,11 @@ export function CreateCanvasModal({ open, folders, defaultFolderId, onOk, onCanc
       setName('');
       setFolderId(defaultFolderId);
       // 函数式更新：仅输入框仍为空时预填，不覆盖用户已输入的内容；失败静默不预填
-      getNextUntitledName()
+      getNextUntitledName(teamId)
         .then((d) => setName((prev) => prev || d.name))
         .catch(() => {});
     }
-  }, [open, defaultFolderId]);
+  }, [open, defaultFolderId, teamId]);
 
   return (
     <Modal

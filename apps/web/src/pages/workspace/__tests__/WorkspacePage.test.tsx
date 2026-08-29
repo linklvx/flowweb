@@ -10,6 +10,11 @@ vi.mock('@/api/folderApi', () => ({
   deleteFolder: vi.fn(),
 }));
 vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
+const { getMyTeams: mockGetMyTeams } = vi.hoisted(() => ({ getMyTeams: vi.fn() }));
+vi.mock('@/api/teamApi', () => ({
+  getMyTeams: mockGetMyTeams,
+  teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
+}));
 vi.mock('@/api/templateApi', () => ({
   getTemplates: vi.fn(),
   updateTemplate: vi.fn(),
@@ -38,6 +43,7 @@ const folderDto = (id: string, name: string, canvasCount = 0) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetMyTeams.mockResolvedValue([]);
   vi.mocked(folderApi.getFolders).mockResolvedValue({
     folders: [folderDto('f1', '工作文件夹', 1), folderDto('f2', '项目文件夹', 0)],
   } as never);
@@ -196,6 +202,28 @@ describe('WorkspacePage', () => {
   it('?tab=team 持久化页签状态，默认个人', async () => {
     renderPage('/works?tab=team');
     expect(await screen.findByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
+  });
+
+  it('?tab=team 渲染团队分组（我创建的/我加入的），过滤默认团队', async () => {
+    mockGetMyTeams.mockResolvedValue([
+      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-owned', name: '我建的团', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-joined', name: '加入的团', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, createdAt: '2026-08-02', memberCount: 5, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    renderPage('/works?tab=team');
+    expect(await screen.findByText('我创建的')).toBeInTheDocument();
+    expect(screen.getByText('我加入的')).toBeInTheDocument();
+    expect(await screen.findByText('我建的团')).toBeInTheDocument();
+    expect(screen.getByText('加入的团')).toBeInTheDocument();
+    expect(screen.queryByText('个人项目')).not.toBeInTheDocument();
+  });
+
+  it('?tab=team 无真实团队时空状态引导', async () => {
+    mockGetMyTeams.mockResolvedValue([
+      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    renderPage('/works?tab=team');
+    expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
   });
 
 });

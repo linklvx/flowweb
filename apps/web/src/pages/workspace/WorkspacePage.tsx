@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { message } from 'antd';
+import { Button, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { Navbar } from '@/pages/home/components/Navbar';
+import { getMyTeams, type MyTeam } from '@/api/teamApi';
 import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { useFolderNavigation } from './hooks/useFolderNavigation';
 import { WorkspaceToolbar } from './components/WorkspaceToolbar';
@@ -13,6 +14,7 @@ import { CanvasCard } from './components/CanvasCard';
 import { CreateFolderModal } from './components/CreateFolderModal';
 import { CreateCanvasModal } from './components/CreateCanvasModal';
 import { MoveToFolderModal } from './components/MoveToFolderModal';
+import { TeamSection } from './components/TeamSection';
 import { EmptyState } from './components/EmptyState';
 import { CardGridSkeleton } from './components/CardGridSkeleton';
 import type { Canvas, FilterKind, FolderViewModel, ViewMode, WorkspaceItem } from './types';
@@ -36,6 +38,16 @@ export function WorkspacePage() {
   const [folderModal, setFolderModal] = useState<{ open: boolean; rename?: FolderViewModel }>({ open: false });
   const [canvasModal, setCanvasModal] = useState(false);
   const [moveTarget, setMoveTarget] = useState<Canvas | null>(null);
+
+  // 团队页签：首次进入拉团队列表，过滤默认团队（个人项目不走团队区块）
+  const [teams, setTeams] = useState<MyTeam[] | null>(null);
+  useEffect(() => {
+    if (tab !== 'team' || teams !== null) return;
+    getMyTeams().then(setTeams).catch(() => message.error('团队列表加载失败'));
+  }, [tab, teams]);
+  const realTeams = (teams ?? []).filter((t) => !t.isDefault);
+  const ownedTeams = realTeams.filter((t) => t.isOwner);
+  const joinedTeams = realTeams.filter((t) => !t.isOwner);
 
   const items = useMemo<WorkspaceItem[]>(() => {
     let folders = data.folders;
@@ -119,12 +131,41 @@ export function WorkspacePage() {
           onTabChange={setTab}
           showTools={tab === 'personal'}
         />
-        <WorkspaceBreadcrumb
-          path={nav.path} currentFolderId={nav.currentFolderId}
-          searchQuery={searchQuery}
-          onNavigate={enterFolder}
-          onClearSearch={() => setSearchQuery('')}
-        />
+        {tab === 'personal' && (
+          <WorkspaceBreadcrumb
+            path={nav.path} currentFolderId={nav.currentFolderId}
+            searchQuery={searchQuery}
+            onNavigate={enterFolder}
+            onClearSearch={() => setSearchQuery('')}
+          />
+        )}
+        {tab === 'team' ? (
+          <main className="flex-1 overflow-y-auto pt-4">
+            {teams === null ? (
+              <p className="text-sm text-[#888] px-8">加载中…</p>
+            ) : realTeams.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="team-empty-state">
+                <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
+                <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
+              </div>
+            ) : (
+              <>
+                {ownedTeams.length > 0 && (
+                  <>
+                    <h2 className="px-8 text-sm font-bold text-[#888] mb-2 mt-2">我创建的</h2>
+                    {ownedTeams.map((t) => <TeamSection key={t.id} team={t} />)}
+                  </>
+                )}
+                {joinedTeams.length > 0 && (
+                  <>
+                    <h2 className="px-8 text-sm font-bold text-[#888] mb-2 mt-2">我加入的</h2>
+                    {joinedTeams.map((t) => <TeamSection key={t.id} team={t} />)}
+                  </>
+                )}
+              </>
+            )}
+          </main>
+        ) : (
         <div className="px-8 pb-10">
           {data.status === 'loading' && <CardGridSkeleton />}
           {data.status === 'error' && <EmptyState variant="error" onAction={data.reload} />}
@@ -224,6 +265,7 @@ export function WorkspacePage() {
             </>
           )}
         </div>
+        )}
       </div>
 
       <CreateFolderModal

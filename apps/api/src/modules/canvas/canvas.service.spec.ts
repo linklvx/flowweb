@@ -152,6 +152,19 @@ describe('CanvasService', () => {
     });
   });
 
+  describe('getNextUntitledName teamId 维度', () => {
+    it('传 teamId 时按该团队编号（校验成员）', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+      prisma.template.findMany.mockResolvedValue([{ name: '画布2' }]);
+      await expect(service.getNextUntitledName('u1', 't-team')).resolves.toBe('画布3');
+      expect(prisma.template.findMany).toHaveBeenCalledWith({ where: { teamId: 't-team' }, select: { name: true } });
+    });
+    it('非成员传 teamId → 403', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+      await expect(service.getNextUntitledName('u1', 't-team')).rejects.toThrow('非团队成员');
+    });
+  });
+
   describe('save', () => {
     const project = {
       id: 'p1', userId: 'u1',

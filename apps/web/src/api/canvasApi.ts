@@ -23,8 +23,9 @@ export function saveCanvas(projectId: string, payload: { name: string; descripti
   });
 }
 
-export function getNextUntitledName() {
-  return apiFetch<{ name: string }>('/canvases/next-untitled-name');
+export function getNextUntitledName(teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<{ name: string }>(`/canvases/next-untitled-name${qs}`);
 }
 
 export function getProjectFolder(projectId: string) {
