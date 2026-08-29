@@ -45,6 +45,17 @@
       }
     },
     {
+      "name": "web-b",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5174"
+      ],
+      "port": 5174,
+      "cwd": "${workspaceFolder}/apps/web"
+    },
+    {
       "name": "minio",
       "runtimeExecutable": "minio.exe",
       "runtimeArgs": [
