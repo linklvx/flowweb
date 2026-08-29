@@ -14,7 +14,7 @@ export function RemoteCursors({ bridge }: { bridge: AwarenessBridge }) {
 
   return (
     <>
-      {states.filter((s) => s.cursor && s.user).map((s, i) => (
+      {states.filter((s) => s.cursor && s.user?.id && s.user?.name).map((s, i) => (
         <div
           key={i}
           data-testid={`remote-cursor-${s.user.id}`}

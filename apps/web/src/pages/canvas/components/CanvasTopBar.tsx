@@ -109,7 +109,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         {onlineUsers.length > 0 && (
           <div className="flex items-center -space-x-1.5 bg-[#1A1A1A]/90 backdrop-blur px-2 py-1.5 rounded-full border border-[#333] shadow-lg" data-testid="online-users">
-            {onlineUsers.filter((o) => o.user).slice(0, 5).map((o, i) => (
+            {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (
               <span
                 key={i}
                 title={o.user.name}

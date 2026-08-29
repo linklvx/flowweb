@@ -49,4 +49,8 @@ describe('awareness', () => {
     expect(userColor('u1')).toBe(userColor('u1'));
     expect(typeof userColor('u2')).toBe('string');
   });
+
+  it('userColor 对缺 id 的畸形 awareness 状态不抛错（远端可发任意字段）', () => {
+    expect(typeof userColor(undefined as any)).toBe('string');
+  });
 });

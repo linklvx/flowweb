@@ -23,7 +23,7 @@ export interface AwarenessState {
 
 const COLORS = ['#5DDCFF', '#FF7A9E', '#9EFF8A', '#FFC56D', '#C39EFF', '#7AD7FF'];
 
-export function userColor(userId: string): string {
+export function userColor(userId: string | undefined = ''): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
   return COLORS[Math.abs(hash) % COLORS.length];
