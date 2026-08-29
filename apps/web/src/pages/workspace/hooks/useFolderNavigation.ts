@@ -7,16 +7,24 @@ export function useFolderNavigation(folders: Folder[], loaded: boolean) {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentFolderId = searchParams.get('folder');
 
-  // 无效 folderId fallback：重置根目录并提示
+  // 无效 folderId fallback：重置根目录并提示（保留其他参数，如 ?tab=）
   useEffect(() => {
     if (loaded && currentFolderId && !folders.some((f) => f.id === currentFolderId)) {
-      setSearchParams({}, { replace: true });
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('folder');
+        return next;
+      }, { replace: true });
       message.info('文件夹不存在');
     }
   }, [loaded, currentFolderId, folders, setSearchParams]);
 
   const setCurrentFolderId = (id: string | null) => {
-    setSearchParams(id ? { folder: id } : {}, { replace: true });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set('folder', id); else next.delete('folder');
+      return next;
+    }, { replace: true });
   };
 
   // 根 → 当前层级链（一期深 1，按递归链写）

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { Navbar } from '@/pages/home/components/Navbar';
@@ -21,8 +21,14 @@ const byUpdatedDesc = (a: { updatedAt: string }, b: { updatedAt: string }) => b.
 
 export function WorkspacePage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: 'personal' | 'team' = searchParams.get('tab') === 'team' ? 'team' : 'personal';
+  const setTab = (t: 'personal' | 'team') => {
+    // 切页签清 folder（D3）：跨 scope 的 folder id 无意义
+    setSearchParams(t === 'team' ? { tab: 'team' } : {}, { replace: true });
+  };
   const data = useWorkspaceData();
-  const nav = useFolderNavigation(data.folders, data.status !== 'loading');
+  const nav = useFolderNavigation(data.folders, data.status !== 'loading' && tab === 'personal');
 
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,6 +115,9 @@ export function WorkspacePage() {
           onSearchChange={setSearchQuery}
           filter={filter} onFilterChange={setFilter}
           onCreateFolder={() => setFolderModal({ open: true })}
+          activeTab={tab}
+          onTabChange={setTab}
+          showTools={tab === 'personal'}
         />
         <WorkspaceBreadcrumb
           path={nav.path} currentFolderId={nav.currentFolderId}

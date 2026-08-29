@@ -19,15 +19,31 @@ describe('WorkspaceToolbar', () => {
       filter: 'all' as FilterKind,
       onFilterChange: vi.fn(),
       onCreateFolder: vi.fn(),
+      activeTab: 'personal' as const,
+      onTabChange: vi.fn(),
       ...overrides,
     };
     return { props, ...render(<WorkspaceToolbar {...props} />) };
   }
 
-  it('「个人」选中、「团队项目」禁用', () => {
-    renderToolbar();
-    expect(screen.getByText('个人')).toHaveClass('text-white');
-    expect(screen.getByText('团队项目')).toBeDisabled();
+  it('页签受控：点击「团队项目」触发 onTabChange，激活态样式切换', () => {
+    const onTabChange = vi.fn();
+    renderToolbar({ onTabChange });
+    fireEvent.click(screen.getByRole('button', { name: '团队项目' }));
+    expect(onTabChange).toHaveBeenCalledWith('team');
+    expect(screen.getByRole('button', { name: '个人' })).toHaveClass('border-b-2');
+  });
+
+  it('activeTab=team 时团队项目按钮为激活态', () => {
+    renderToolbar({ activeTab: 'team' });
+    expect(screen.getByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
+    expect(screen.getByRole('button', { name: '个人' })).not.toHaveClass('border-b-2');
+  });
+
+  it('showTools=false 时隐藏搜索/筛选/新建文件夹（团队页签专用）', () => {
+    renderToolbar({ showTools: false });
+    expect(screen.queryByLabelText('搜索')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /新建文件夹/ })).not.toBeInTheDocument();
   });
 
   it('搜索输入 300ms 防抖后回调', async () => {

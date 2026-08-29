@@ -12,11 +12,15 @@ interface WorkspaceToolbarProps {
   filter: FilterKind;
   onFilterChange: (filter: FilterKind) => void;
   onCreateFolder: () => void;
+  activeTab: 'personal' | 'team';
+  onTabChange: (tab: 'personal' | 'team') => void;
+  /** 团队页签置 false：隐藏搜索/筛选/视图/导入/新建文件夹（这些只驱动个人 data），仅保留页签行 */
+  showTools?: boolean;
 }
 
 const FILTER_LABEL: Record<FilterKind, string> = { all: '显示全部', folders: '仅文件夹', canvases: '仅画布' };
 
-export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateFolder }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateFolder, activeTab, onTabChange, showTools }: WorkspaceToolbarProps) {
   const [text, setText] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -37,9 +41,16 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
   return (
     <div className="flex flex-col md:flex-row items-start md:items-center gap-y-2 justify-between px-8 pb-2">
       <div className="flex gap-2 text-lg items-center">
-        <button className="text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer mx-3 py-1.5 bg-transparent">个人</button>
-        <button disabled className="text-white/60 mx-3 py-1.5 bg-transparent border-none cursor-not-allowed opacity-60">团队项目</button>
+        <button
+          onClick={() => onTabChange('personal')}
+          className={`mx-3 py-1.5 bg-transparent ${activeTab === 'personal' ? 'text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer' : 'text-white/60 border-none cursor-pointer'}`}
+        >个人</button>
+        <button
+          onClick={() => onTabChange('team')}
+          className={`mx-3 py-1.5 bg-transparent ${activeTab === 'team' ? 'text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer' : 'text-white/60 border-none cursor-pointer'}`}
+        >团队项目</button>
       </div>
+      {showTools !== false && (
       <div className="flex items-center gap-2">
         <div className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 focus-within:ring-white/20" style={{ width: 160 }}>
           <SearchOutlined className="text-[#646464] shrink-0" />
@@ -76,6 +87,7 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
         <Button aria-label="导入" icon={<UploadOutlined />} onClick={() => message.info('即将上线')} style={{ width: 40 }} />
         <Button type="primary" icon={<FolderAddOutlined />} onClick={onCreateFolder}>新建文件夹</Button>
       </div>
+      )}
     </div>
   );
 }

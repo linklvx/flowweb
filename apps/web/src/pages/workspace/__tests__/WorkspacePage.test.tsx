@@ -193,4 +193,9 @@ describe('WorkspacePage', () => {
     expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument();
   });
 
+  it('?tab=team 持久化页签状态，默认个人', async () => {
+    renderPage('/works?tab=team');
+    expect(await screen.findByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
+  });
+
 });
