@@ -2,14 +2,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamSubscriptionService', () => {
   let service: TeamSubscriptionService;
   let prisma: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ name: '付款人' }) },
       teamMember: { findUnique: vi.fn() },
       teamSubscription: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
       teamPlan: { findUnique: vi.fn() },
@@ -27,7 +30,11 @@ describe('TeamSubscriptionService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TeamSubscriptionService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        TeamSubscriptionService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
+      ],
     }).compile();
 
     service = module.get<TeamSubscriptionService>(TeamSubscriptionService);
@@ -97,6 +104,10 @@ describe('TeamSubscriptionService', () => {
           currentPeriodStart: expect.any(Date), currentPeriodEnd: expect.any(Date),
         }),
       });
+      expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        operatorId: 'u1', operatorName: '付款人', teamId: 't1', targetType: 'TEAM', targetId: 't1',
+        action: 'subscribe', afterValue: { planId: 'plan1', monthlyCredits: 500 },
+      }));
     });
 
     it('金额不匹配 FAIL', async () => {
@@ -127,6 +138,10 @@ describe('TeamSubscriptionService', () => {
       expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ teamId: 't1', amount: -80, type: 'expire_clear', creditType: 'subscription', balanceAfter: 0 }),
       });
+      expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        operatorId: 'system', teamId: 't1', targetType: 'TEAM', targetId: 't1',
+        action: 'expire', afterValue: { cleared: 80 },
+      }));
     });
   });
 

@@ -1,13 +1,19 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from './project-permission.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class ProjectMemberService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly perm: ProjectPermissionService,
+    private readonly audit: AuditService,
   ) {}
+
+  private async userName(userId: string): Promise<string> {
+    return (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? '未知';
+  }
 
   async list(projectId: string, userId: string) {
     const role = await this.perm.resolve(projectId, userId);
@@ -59,7 +65,13 @@ export class ProjectMemberService {
     }
   }
 
-  async add(projectId: string, callerId: string, targetUserId: string, role: 'PROJECT_VIEWER' | 'PROJECT_EDITOR' | 'PROJECT_OWNER') {
+  async add(
+    projectId: string,
+    callerId: string,
+    targetUserId: string,
+    role: 'PROJECT_VIEWER' | 'PROJECT_EDITOR' | 'PROJECT_OWNER',
+    auditAction: 'add_project_member' | 'change_project_role' = 'add_project_member',
+  ) {
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: projectId },
       select: { teamId: true },
@@ -71,18 +83,33 @@ export class ProjectMemberService {
     });
     if (!inTeam) throw new BadRequestException('目标用户不是团队成员');
     await this.assertCanManage(projectId, callerId, role);
-    return this.prisma.projectMember.upsert({
+    const result = await this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId, userId: targetUserId } },
       update: { role },
       create: { projectId, userId: targetUserId, role },
     });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId: project.teamId,
+      targetType: 'PROJECT_MEMBER',
+      targetId: targetUserId,
+      action: auditAction,
+      afterValue: { role },
+    });
+    return result;
   }
 
   async changeRole(projectId: string, callerId: string, targetUserId: string, role: 'PROJECT_VIEWER' | 'PROJECT_EDITOR' | 'PROJECT_OWNER') {
-    return this.add(projectId, callerId, targetUserId, role);
+    return this.add(projectId, callerId, targetUserId, role, 'change_project_role');
   }
 
   async remove(projectId: string, callerId: string, targetUserId: string) {
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('项目不存在');
     await this.assertCanManage(projectId, callerId, 'PROJECT_EDITOR');
     const record = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId: targetUserId } },
@@ -95,6 +122,14 @@ export class ProjectMemberService {
       if (ownerCount <= 1) throw new BadRequestException('不能移除最后一个项目所有者');
     }
     await this.prisma.projectMember.delete({ where: { id: record.id } });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId: project.teamId,
+      targetType: 'PROJECT_MEMBER',
+      targetId: targetUserId,
+      action: 'remove_project_member',
+    });
     return { ok: true };
   }
 }

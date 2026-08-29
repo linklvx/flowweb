@@ -16,6 +16,7 @@ import { TeamSubscriptionExpireProcessor } from './task/team-subscription-expire
 import { TeamMediaCleanupProcessor } from './task/team-media-cleanup.processor';
 import { AdminTeamPlanController } from './admin-team-plan.controller';
 import { RechargeModule } from '../recharge/recharge.module';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { RechargeModule } from '../recharge/recharge.module';
   controllers: [TeamController, AdminTeamPlanController, ProjectMemberController],
   providers: [
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
-    ProjectPermissionService, ProjectMemberService,
+    ProjectPermissionService, ProjectMemberService, AuditService,
     TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor, TeamMediaCleanupProcessor,
   ],
   exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],

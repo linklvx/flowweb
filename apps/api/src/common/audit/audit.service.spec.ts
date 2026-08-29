@@ -84,5 +84,44 @@ describe('AuditService', () => {
       expect(call.data.beforeValue).toEqual(beforeValue);
       expect(call.data.afterValue).toEqual(afterValue);
     });
+
+    it('log 带 teamId 写入', async () => {
+      await service.log({
+        operatorId: 'u1',
+        operatorName: 'a',
+        teamId: 't1',
+        targetType: 'TEAM',
+        targetId: 't1',
+        action: 'create_team',
+      });
+
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 't1', action: 'create_team' }),
+        }),
+      );
+    });
+  });
+
+  describe('logTx', () => {
+    it('logTx 在传入事务上写', async () => {
+      const tx = { auditLog: { create: vi.fn() } };
+
+      await service.logTx(tx as any, {
+        operatorId: 'u1',
+        operatorName: 'a',
+        teamId: 't1',
+        targetType: 'TEAM_MEMBER',
+        targetId: 'u2',
+        action: 'remove_member',
+      });
+
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: 't1', action: 'remove_member' }),
+        }),
+      );
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
   });
 });

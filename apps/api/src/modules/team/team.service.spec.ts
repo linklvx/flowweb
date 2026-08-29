@@ -4,6 +4,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamService.ensureDefaultTeam', () => {
@@ -11,6 +12,7 @@ describe('TeamService.ensureDefaultTeam', () => {
   let prisma: any;
   let emitter: any;
   let queue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {
@@ -32,6 +34,7 @@ describe('TeamService.ensureDefaultTeam', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -105,6 +108,7 @@ describe('TeamService 基础 API', () => {
   let prisma: any;
   let emitter: any;
   let queue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {};
@@ -117,6 +121,7 @@ describe('TeamService 基础 API', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -195,6 +200,9 @@ describe('TeamService 基础 API', () => {
       });
       expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
       expect(team).toEqual({ id: 't1' });
+      expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        operatorId: 'u1', teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'create_team',
+      }));
     });
 
     it('空名兜底为创建者名+的团队', async () => {
@@ -241,6 +249,7 @@ describe('TeamService 基础 API', () => {
         update: vi.fn(),
         delete: vi.fn(),
       };
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '张三' }) };
       prisma.canvasProject = { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]) };
       prisma.media = { findMany: vi.fn().mockResolvedValue([{ id: 'm1', bucket: 'flowai', key: 'k1' }]) };
       prisma.teamRechargeOrder = { updateMany: vi.fn() };
@@ -270,6 +279,11 @@ describe('TeamService 基础 API', () => {
       // emitAsync 必须在物理删除之前完成
       const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];
       expect(prisma.team.delete.mock.invocationCallOrder[0]).toBeGreaterThan(emitOrder);
+      // 审计在物理删除之后落库
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+        teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'disband_team',
+      }));
+      expect(audit.log.mock.invocationCallOrder[0]).toBeGreaterThan(prisma.team.delete.mock.invocationCallOrder[0]);
     });
 
     it('非 OWNER 拒绝', async () => {
@@ -294,6 +308,7 @@ describe('TeamService 成员管理', () => {
   let prisma: any;
   let emitter: any;
   let queue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {};
@@ -306,6 +321,7 @@ describe('TeamService 成员管理', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -339,6 +355,7 @@ describe('TeamService 成员管理', () => {
 
   describe('changeRole', () => {
     const setup = (callerRole: string, targetRole: string) => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
       prisma.teamMember = {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
@@ -354,6 +371,10 @@ describe('TeamService 成员管理', () => {
         where: { teamId_userId: { teamId: 't1', userId: 'target' } },
         data: { role: 'ADMIN' },
       });
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+        operatorId: 'caller', teamId: 't1', targetType: 'TEAM_MEMBER', targetId: 'target',
+        action: 'change_role', beforeValue: { role: 'MEMBER' }, afterValue: { role: 'ADMIN' },
+      }));
     });
 
     it('非 OWNER 拒绝', async () => {
@@ -377,6 +398,7 @@ describe('TeamService 成员管理', () => {
 
   describe('removeMember', () => {
     const setup = (callerRole: string, targetRole: string) => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
       prisma.teamMember = {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
@@ -391,6 +413,9 @@ describe('TeamService 成员管理', () => {
       expect(prisma.teamMember.delete).toHaveBeenCalledWith({
         where: { teamId_userId: { teamId: 't1', userId: 'target' } },
       });
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+        operatorId: 'caller', teamId: 't1', targetType: 'TEAM_MEMBER', targetId: 'target', action: 'remove_member',
+      }));
     });
 
     it('OWNER 不可被移除', async () => {
@@ -406,8 +431,11 @@ describe('TeamService 成员管理', () => {
 
   describe('setQuota', () => {
     it('OWNER/ADMIN 设置 monthlyQuota≥0', async () => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
       prisma.teamMember = {
-        findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
+        findUnique: vi.fn()
+          .mockResolvedValueOnce({ role: 'ADMIN' })
+          .mockResolvedValueOnce({ role: 'MEMBER', monthlyQuota: 100 }),
         update: vi.fn(),
       };
       await service.setQuota('t1', 'caller', 'target', 50);
@@ -415,6 +443,10 @@ describe('TeamService 成员管理', () => {
         where: { teamId_userId: { teamId: 't1', userId: 'target' } },
         data: { monthlyQuota: 50 },
       });
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+        teamId: 't1', targetType: 'TEAM_MEMBER', targetId: 'target',
+        action: 'adjust_quota', beforeValue: { monthlyQuota: 100 }, afterValue: { monthlyQuota: 50 },
+      }));
     });
 
     it('负数拒绝', async () => {
@@ -429,7 +461,8 @@ describe('TeamService 成员管理', () => {
   });
 
   describe('transferOwnership', () => {
-    it('事务内三写：原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步', async () => {
+    it('事务内三写：原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步 + logTx 审计', async () => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '老主人' }) };
       prisma.teamMember = {
         findUnique: vi.fn().mockImplementation(({ where }: any) => {
           const k = where.teamId_userId;
@@ -456,6 +489,10 @@ describe('TeamService 成员管理', () => {
         where: { id: 't1' },
         data: { ownerId: 'u2' },
       });
+      expect(audit.logTx).toHaveBeenCalledWith(prisma, expect.objectContaining({
+        operatorId: 'owner1', operatorName: '老主人', teamId: 't1',
+        targetType: 'TEAM_MEMBER', targetId: 'u2', action: 'transfer_ownership',
+      }));
     });
 
     it('非 OWNER 拒绝 / 目标非成员拒绝 / 转让给自己拒绝', async () => {
@@ -475,6 +512,7 @@ describe('TeamService 加入申请', () => {
   let prisma: any;
   let emitter: any;
   let queue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {};
@@ -487,6 +525,7 @@ describe('TeamService 加入申请', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -549,6 +588,7 @@ describe('TeamService 加入申请', () => {
 
   describe('approve', () => {
     const setup = (opts: { callerRole?: string; memberCount?: number; planSeatLimit?: number } = {}) => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '审批人' }) };
       prisma.teamMember = {
         findUnique: vi.fn().mockResolvedValue({ role: opts.callerRole ?? 'OWNER' }),
         count: vi.fn().mockResolvedValue(opts.memberCount ?? 3),
@@ -564,7 +604,7 @@ describe('TeamService 加入申请', () => {
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('OWNER/ADMIN 批准：事务内建 MEMBER + 置 APPROVED', async () => {
+    it('OWNER/ADMIN 批准：事务内建 MEMBER + 置 APPROVED + logTx 审计', async () => {
       setup();
       await service.approve('t1', 'caller', 'r1');
       expect(prisma.teamMember.create).toHaveBeenCalledWith({
@@ -574,6 +614,9 @@ describe('TeamService 加入申请', () => {
         where: { id: 'r1' },
         data: { status: 'APPROVED', decidedBy: 'caller', decidedAt: expect.any(Date) },
       });
+      expect(audit.logTx).toHaveBeenCalledWith(prisma, expect.objectContaining({
+        operatorId: 'caller', teamId: 't1', targetType: 'TEAM_MEMBER', targetId: 'u2', action: 'approve_join',
+      }));
     });
 
     it('席位已满拒绝（免费版常量 20）', async () => {
@@ -602,10 +645,11 @@ describe('TeamService 加入申请', () => {
   });
 
   describe('reject / listRequests', () => {
-    it('reject：置 REJECTED + decidedBy/decidedAt', async () => {
+    it('reject：置 REJECTED + decidedBy/decidedAt + 审计', async () => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '审批人' }) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
       prisma.teamJoinRequest = {
-        findUnique: vi.fn().mockResolvedValue({ id: 'r1', teamId: 't1', status: 'PENDING' }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'r1', teamId: 't1', userId: 'u2', status: 'PENDING' }),
         update: vi.fn(),
       };
       await service.reject('t1', 'caller', 'r1');
@@ -613,6 +657,9 @@ describe('TeamService 加入申请', () => {
         where: { id: 'r1' },
         data: { status: 'REJECTED', decidedBy: 'caller', decidedAt: expect.any(Date) },
       });
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+        teamId: 't1', targetType: 'TEAM_MEMBER', targetId: 'u2', action: 'reject_join',
+      }));
     });
 
     it('listRequests 按 status 过滤含 user 摘要', async () => {

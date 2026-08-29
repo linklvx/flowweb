@@ -2,10 +2,14 @@ import { Injectable, Inject, BadRequestException, ForbiddenException } from '@ne
 import { PrismaService } from '../../prisma/prisma.service';
 import { TEAM_FREE_SEAT_LIMIT, TEAM_FREE_STORAGE_LIMIT_BYTES } from './team.constants';
 import { generateTeamOrderNo } from './team-recharge.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class TeamSubscriptionService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditService) private readonly audit: AuditService,
+  ) {}
 
   /** 购买（Q2 月付模型）：active 期拒购（S3 不支持提前续费） */
   async createSubscriptionOrder(teamId: string, userId: string, planId: string) {
@@ -54,6 +58,7 @@ export class TeamSubscriptionService {
     if (!plan) return { code: 'FAIL', message: 'plan not found' };
 
     const teamId = order.teamId!;
+    const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT * FROM "TeamBalance" WHERE "teamId" = ${teamId} FOR UPDATE`;
@@ -96,6 +101,16 @@ export class TeamSubscriptionService {
           data: { status: 'SUCCESS', paidAt: now, transactionId: notify.transactionId, payerOpenid: notify.payerOpenid },
         });
         if (updated.count === 0) throw new Error('Order already processed');
+
+        await this.audit.logTx(tx, {
+          operatorId: order.payerUserId,
+          operatorName: payerName,
+          teamId,
+          targetType: 'TEAM',
+          targetId: teamId,
+          action: 'subscribe',
+          afterValue: { planId: plan.id, monthlyCredits: plan.monthlyCredits },
+        });
       });
       return { code: 'SUCCESS', message: 'OK' };
     } catch {
@@ -128,6 +143,16 @@ export class TeamSubscriptionService {
         await tx.teamSubscription.updateMany({
           where: { id: sub.id, status: 'active' },
           data: { status: 'expired' },
+        });
+
+        await this.audit.logTx(tx, {
+          operatorId: 'system',
+          operatorName: 'system',
+          teamId: sub.teamId!,
+          targetType: 'TEAM',
+          targetId: sub.teamId!,
+          action: 'expire',
+          afterValue: { cleared: remaining },
         });
       });
     }

@@ -5,11 +5,15 @@ describe('ProjectMemberService', () => {
   let svc: ProjectMemberService;
   let prisma: any;
   const permSvc = { resolve: vi.fn(), assertEditor: vi.fn() };
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(() => {
     permSvc.resolve.mockReset();
     permSvc.assertEditor.mockReset();
+    audit.log.mockReset();
+    audit.logTx.mockReset();
     prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) },
       canvasProject: { findUnique: vi.fn() },
       teamMember: { findUnique: vi.fn(), findMany: vi.fn() },
       projectMember: {
@@ -20,7 +24,7 @@ describe('ProjectMemberService', () => {
         delete: vi.fn(),
       },
     };
-    svc = new ProjectMemberService(prisma, permSvc as any);
+    svc = new ProjectMemberService(prisma, permSvc as any, audit as any);
   });
 
   it('list：显式记录 + 全团队成员有效角色推导（继承标注）', async () => {
@@ -49,12 +53,27 @@ describe('ProjectMemberService', () => {
     await expect(svc.add('p1', 'caller1', 'u2', 'PROJECT_OWNER')).rejects.toThrow('仅项目所有者');
   });
 
-  it('add：Team ADMIN 可授予 EDITOR', async () => {
+  it('add：Team ADMIN 可授予 EDITOR + 审计 add_project_member', async () => {
     permSvc.resolve.mockResolvedValue('PROJECT_OWNER');
     prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't1' });
     prisma.teamMember.findUnique.mockResolvedValueOnce({ role: 'ADMIN' }).mockResolvedValueOnce({ role: 'MEMBER' }); // 第一次=目标成员在团检查，第二次=caller 团队角色
     prisma.projectMember.upsert.mockResolvedValue({});
     await expect(svc.add('p1', 'caller1', 'u2', 'PROJECT_EDITOR')).resolves.toBeTruthy();
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      operatorId: 'caller1', teamId: 't1', targetType: 'PROJECT_MEMBER', targetId: 'u2',
+      action: 'add_project_member', afterValue: { role: 'PROJECT_EDITOR' },
+    }));
+  });
+
+  it('changeRole：审计 change_project_role', async () => {
+    permSvc.resolve.mockResolvedValue('PROJECT_OWNER');
+    prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't1' });
+    prisma.teamMember.findUnique.mockResolvedValue({ role: 'OWNER' });
+    prisma.projectMember.upsert.mockResolvedValue({});
+    await svc.changeRole('p1', 'caller1', 'u2', 'PROJECT_VIEWER');
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      targetType: 'PROJECT_MEMBER', targetId: 'u2', action: 'change_project_role',
+    }));
   });
 
   it('remove：最后一个显式 PROJECT_OWNER 拒绝', async () => {
@@ -65,7 +84,7 @@ describe('ProjectMemberService', () => {
     await expect(svc.remove('p1', 'caller1', 'u2')).rejects.toThrow('最后一个');
   });
 
-  it('remove：非 OWNER 显式记录正常移除', async () => {
+  it('remove：非 OWNER 显式记录正常移除 + 审计 remove_project_member', async () => {
     permSvc.resolve.mockResolvedValue('PROJECT_OWNER');
     prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't1' });
     prisma.teamMember.findUnique.mockResolvedValue({ role: 'OWNER' });
@@ -73,5 +92,9 @@ describe('ProjectMemberService', () => {
     prisma.projectMember.delete.mockResolvedValue({});
     await expect(svc.remove('p1', 'caller1', 'u2')).resolves.toEqual({ ok: true });
     expect(prisma.projectMember.delete).toHaveBeenCalledWith({ where: { id: 'm1' } });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      operatorId: 'caller1', teamId: 't1', targetType: 'PROJECT_MEMBER', targetId: 'u2',
+      action: 'remove_project_member',
+    }));
   });
 });

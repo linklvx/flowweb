@@ -4,6 +4,7 @@ import { TeamRechargeService } from './team-recharge.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGateway } from '../recharge/payment.gateway';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamRechargeService', () => {
@@ -12,9 +13,11 @@ describe('TeamRechargeService', () => {
   let payment: any;
   let gateway: any;
   let closeQueue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
     prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ name: '付款人' }) },
       teamRechargeOrder: { create: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
       teamBalance: { findUnique: vi.fn(), update: vi.fn() },
       teamCreditTransaction: { create: vi.fn() },
@@ -38,6 +41,7 @@ describe('TeamRechargeService', () => {
         { provide: PaymentGateway, useValue: gateway },
         { provide: TeamSubscriptionService, useValue: { completeSubscriptionCallback: vi.fn() } },
         { provide: getQueueToken('team-recharge-close-expired'), useValue: closeQueue },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -118,6 +122,10 @@ describe('TeamRechargeService', () => {
           creditType: 'regular', referenceId: 'TEAM1', balanceAfter: 300,
         },
       });
+      expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        operatorId: 'u1', operatorName: '付款人', teamId: 't1', targetType: 'TEAM', targetId: 't1',
+        action: 'recharge', afterValue: { credits: 300 },
+      }));
       expect(gateway.emitPaymentSuccess).toHaveBeenCalledWith('TEAM1', 3000, 300);
     });
 

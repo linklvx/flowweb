@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class TeamService {
@@ -11,7 +12,13 @@ export class TeamService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
     @InjectQueue('team-media-cleanup') private readonly cleanupQueue: Queue,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
+
+  /** 审计 operatorName：调用点无现成名字时一次 user 查询兜底 */
+  private async userName(userId: string): Promise<string> {
+    return (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? '未知';
+  }
 
   /** 幂等：无团队用户任意时机调用可补建（注册钩子 / 历史用户兜底）。
    * 判据 = 是否存在任意 TeamMember 记录（转让后降级用户成员身份仍在、团队仍可用，不兜底建团）；
@@ -60,6 +67,14 @@ export class TeamService {
       });
       await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'OWNER' } });
       await tx.teamBalance.create({ data: { teamId: team.id, credits: 0, subscriptionCredits: 0 } });
+      await this.audit.logTx(tx, {
+        operatorId: userId,
+        operatorName: user?.name ?? '用户',
+        teamId: team.id,
+        targetType: 'TEAM',
+        targetId: team.id,
+        action: 'create_team',
+      });
       return team;
     });
   }
@@ -143,10 +158,21 @@ export class TeamService {
     if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可调整角色');
     const target = await this.requireMember(teamId, targetUserId);
     if (target.role === 'OWNER') throw new BadRequestException('不能修改 OWNER 的角色');
-    return this.prisma.teamMember.update({
+    const updated = await this.prisma.teamMember.update({
       where: { teamId_userId: { teamId, userId: targetUserId } },
       data: { role },
     });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId,
+      targetType: 'TEAM_MEMBER',
+      targetId: targetUserId,
+      action: 'change_role',
+      beforeValue: { role: target.role },
+      afterValue: { role },
+    });
+    return updated;
   }
 
   async removeMember(teamId: string, callerId: string, targetUserId: string) {
@@ -156,9 +182,18 @@ export class TeamService {
     }
     const target = await this.requireMember(teamId, targetUserId);
     if (target.role === 'OWNER') throw new BadRequestException('OWNER 不可被移除');
-    return this.prisma.teamMember.delete({
+    const removed = await this.prisma.teamMember.delete({
       where: { teamId_userId: { teamId, userId: targetUserId } },
     });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId,
+      targetType: 'TEAM_MEMBER',
+      targetId: targetUserId,
+      action: 'remove_member',
+    });
+    return removed;
   }
 
   async setQuota(teamId: string, callerId: string, targetUserId: string, monthlyQuota: number) {
@@ -167,19 +202,31 @@ export class TeamService {
     if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
       throw new ForbiddenException('仅团队管理员可配置额度');
     }
-    await this.requireMember(teamId, targetUserId);
-    return this.prisma.teamMember.update({
+    const target = await this.requireMember(teamId, targetUserId);
+    const updated = await this.prisma.teamMember.update({
       where: { teamId_userId: { teamId, userId: targetUserId } },
       data: { monthlyQuota },
     });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId,
+      targetType: 'TEAM_MEMBER',
+      targetId: targetUserId,
+      action: 'adjust_quota',
+      beforeValue: { monthlyQuota: target.monthlyQuota },
+      afterValue: { monthlyQuota },
+    });
+    return updated;
   }
 
-  /** spec 1.3：事务内 原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步（审计由 Task 12 统一接线） */
+  /** spec 1.3：事务内 原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步 + logTx 审计 */
   async transferOwnership(teamId: string, callerId: string, targetUserId: string) {
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可转让团队');
     if (targetUserId === callerId) throw new BadRequestException('不能转让给自己');
     const target = await this.requireMember(teamId, targetUserId);
+    const operatorName = await this.userName(callerId);
     return this.prisma.$transaction(async (tx) => {
       await tx.teamMember.update({
         where: { teamId_userId: { teamId, userId: callerId } },
@@ -189,7 +236,16 @@ export class TeamService {
         where: { teamId_userId: { teamId, userId: targetUserId } },
         data: { role: 'OWNER' },
       });
-      return tx.team.update({ where: { id: teamId }, data: { ownerId: targetUserId } });
+      const team = await tx.team.update({ where: { id: teamId }, data: { ownerId: targetUserId } });
+      await this.audit.logTx(tx, {
+        operatorId: callerId,
+        operatorName,
+        teamId,
+        targetType: 'TEAM_MEMBER',
+        targetId: targetUserId,
+        action: 'transfer_ownership',
+      });
+      return team;
     });
   }
 
@@ -241,12 +297,22 @@ export class TeamService {
     const seatLimit = await this.getSeatLimit(teamId);
     if (memberCount >= seatLimit) throw new BadRequestException('席位已满');
 
+    const operatorName = await this.userName(callerId);
     return this.prisma.$transaction(async (tx) => {
       await tx.teamMember.create({ data: { teamId, userId: request.userId, role: 'MEMBER' } });
-      return tx.teamJoinRequest.update({
+      const approved = await tx.teamJoinRequest.update({
         where: { id: requestId },
         data: { status: 'APPROVED', decidedBy: callerId, decidedAt: new Date() },
       });
+      await this.audit.logTx(tx, {
+        operatorId: callerId,
+        operatorName,
+        teamId,
+        targetType: 'TEAM_MEMBER',
+        targetId: request.userId,
+        action: 'approve_join',
+      });
+      return approved;
     });
   }
 
@@ -258,10 +324,19 @@ export class TeamService {
     const request = await this.prisma.teamJoinRequest.findUnique({ where: { id: requestId } });
     if (!request || request.teamId !== teamId) throw new BadRequestException('申请不存在');
     if (request.status !== 'PENDING') throw new BadRequestException('申请已处理');
-    return this.prisma.teamJoinRequest.update({
+    const rejected = await this.prisma.teamJoinRequest.update({
       where: { id: requestId },
       data: { status: 'REJECTED', decidedBy: callerId, decidedAt: new Date() },
     });
+    await this.audit.log({
+      operatorId: callerId,
+      operatorName: await this.userName(callerId),
+      teamId,
+      targetType: 'TEAM_MEMBER',
+      targetId: request.userId,
+      action: 'reject_join',
+    });
+    return rejected;
   }
 
   async listRequests(teamId: string, callerId: string, status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
@@ -311,6 +386,16 @@ export class TeamService {
       await tx.teamSubscription.updateMany({ where: { teamId }, data: { teamId: null } });
       // 级联物理删除：members/joinRequests/balance/projects(CanvasDoc)/media
       await tx.team.delete({ where: { id: teamId } });
+    });
+
+    // 审计在物理删除后落库（AuditLog.teamId 无 FK，行随审计保留）
+    await this.audit.log({
+      operatorId: userId,
+      operatorName: await this.userName(userId),
+      teamId,
+      targetType: 'TEAM',
+      targetId: teamId,
+      action: 'disband_team',
     });
   }
 }

@@ -6,6 +6,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import type { IPaymentProvider } from '../recharge/providers/payment.provider.interface';
 import { PaymentGateway } from '../recharge/payment.gateway';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 const TEAM_TIERS_FEN = [1000, 3000, 5000, 10000, 20000, 50000];
 const FEN_PER_CREDIT = 10; // 1 元 = 10 积分
@@ -26,6 +27,7 @@ export class TeamRechargeService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamSubscriptionService) private readonly subscriptionService: TeamSubscriptionService,
+    @Inject(AuditService) private readonly audit: AuditService,
     @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
     @Inject(PaymentGateway) private readonly gateway?: PaymentGateway,
     @Optional() @InjectQueue('team-recharge-close-expired') private readonly closeQueue?: Queue,
@@ -131,6 +133,7 @@ export class TeamRechargeService {
   ): Promise<void> {
     const teamId = order.teamId!;
     let balanceAfter = 0;
+    const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
 
     await this.prisma.$transaction(async (tx) => {
       // FOR UPDATE 行锁（对齐个人版幂等模式）
@@ -173,6 +176,16 @@ export class TeamRechargeService {
         },
       });
       if (updated.count === 0) throw new Error('Order already processed in concurrent request');
+
+      await this.audit.logTx(tx, {
+        operatorId: order.payerUserId,
+        operatorName: payerName,
+        teamId,
+        targetType: 'TEAM',
+        targetId: teamId,
+        action: 'recharge',
+        afterValue: { credits: order.credits },
+      });
     });
   }
 
