@@ -42,6 +42,20 @@ describe('Y.UndoManager 集成（spec 4.2/4.4）', () => {
     expect(nodes.get('n1')).toBe('v3');
   });
 
+  it('captureTimeout 内连续事务合并为一个 undo 项，stopCapturing 分隔', () => {
+    const doc = new Y.Doc();
+    const um = attachUndoManager(doc);
+    const pos = new Y.Map(); doc.getMap('nodes').set('n1', pos);
+    doc.transact(() => pos.set('x', 1), Origin.LocalUser);
+    doc.transact(() => pos.set('x', 2), Origin.LocalUser); // 500ms 内：合并
+    expect(um.undoStack.length).toBe(1);
+    stopCapturing();
+    doc.transact(() => pos.set('x', 3), Origin.LocalUser);
+    expect(um.undoStack.length).toBe(2);
+    um.undo();
+    expect(pos.get('x')).toBe(2);
+  });
+
   it('栈上限 100 截断', () => {
     const doc = new Y.Doc();
     const um = attachUndoManager(doc);

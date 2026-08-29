@@ -7,7 +7,6 @@ import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { pickStructNodes, pickStructEdges } from './canvasHistory';
-import { withHistoryPaused, hydrateLoaded } from './canvasHistoryRuntime';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
@@ -120,25 +119,22 @@ function applyDocToStore() {
   const d = doc;
   if (!d) return;
   const { nodes, edges } = readCanvasFromDoc(d);
-  withHistoryPaused(() => {
-    useCanvasStore.setState({
-      nodes: hydrateNodes(nodes.map((n: any) => ({
-        ...n, width: n.width ?? undefined, height: n.height ?? undefined,
-      }))) as any,
-      edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
-    });
-    useCanvasStore.getState().applyGroupDerivations();
-    refitExpandedGroups();
-    const content: Record<string, any> = {};
-    for (const n of nodes) {
-      content[n.id] = {
-        id: n.id, type: n.type, position: n.position || { x: 0, y: 0 },
-        data: n.data || {}, width: n.width ?? undefined, height: n.height ?? undefined,
-      };
-    }
-    useNodeStore.setState({ nodes: content });
+  useCanvasStore.setState({
+    nodes: hydrateNodes(nodes.map((n: any) => ({
+      ...n, width: n.width ?? undefined, height: n.height ?? undefined,
+    }))) as any,
+    edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   });
-  hydrateLoaded();
+  useCanvasStore.getState().applyGroupDerivations();
+  refitExpandedGroups();
+  const content: Record<string, any> = {};
+  for (const n of nodes) {
+    content[n.id] = {
+      id: n.id, type: n.type, position: n.position || { x: 0, y: 0 },
+      data: n.data || {}, width: n.width ?? undefined, height: n.height ?? undefined,
+    };
+  }
+  useNodeStore.setState({ nodes: content });
 }
 
 /** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */

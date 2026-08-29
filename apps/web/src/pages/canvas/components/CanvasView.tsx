@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState, useEffect, type DragEvent } from 'react';
-import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
+import { stopCapturing } from '@/stores/canvasUndo';
 import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow,
@@ -189,12 +189,6 @@ function CanvasViewComponent(_props: Props) {
     };
   }, []);
 
-  // M-4：RF v12 无 onNodeDragCancel——拖动中断（pointercancel/卸载/路由切换）时兜底收尾，
-  // 防 temporal 永久 pause + _isPointerInteraction 永久 true（历史记录与 undo/redo 全局失效）
-  useEffect(() => () => {
-    if (useCanvasStore.getState()._isPointerInteraction) endDragTransaction();
-  }, []);
-
   const onNodeClick = useCallback((_event: any, node: any) => {
     const ns = useNodeStore.getState();
     if (ns.activeEditNodeId && ns.activeEditNodeId !== node.id) {
@@ -289,8 +283,6 @@ function CanvasViewComponent(_props: Props) {
     useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const handleNodeDragStart = useCallback(() => beginDragTransaction(), []);
-
   const onNodeDragStopIntoGroup = useCallback(
     (_e: any, draggedNode: any) => {
       const s = useCanvasStore.getState();
@@ -308,7 +300,7 @@ function CanvasViewComponent(_props: Props) {
   );
 
   const handleNodeDragStop = useCallback((e: any, node: any) => {
-    endDragTransaction();
+    stopCapturing();                    // 分隔拖动手势：手势内连续变更合并为一个 undo 项
     onNodeDragStopIntoGroup(e, node);   // 既有拖入组逻辑保持
   }, [onNodeDragStopIntoGroup]);
 
@@ -360,7 +352,6 @@ function CanvasViewComponent(_props: Props) {
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
-        onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"

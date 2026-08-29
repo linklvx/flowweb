@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
+import { stopCapturing } from '@/stores/canvasUndo';
 import { VideoConfigPanel } from './VideoConfigPanel';
 import { VideoNodeToolbar } from './VideoNodeToolbar';
 import { VideoTrimPanel } from './VideoTrimPanel';
@@ -567,7 +567,6 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   }, [id, getNodes, updateConfig, containerWidth, containerHeight]);
 
   const handleResizeStart = useCallback(() => {
-    beginDragTransaction();
     setIsResizing(true);
     if (videoRef.current) {
       videoRef.current.style.pointerEvents = 'none';
@@ -590,7 +589,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   }, [finishResize]);
 
   const handleResizeEnd = useCallback(() => {
-    endDragTransaction();
+    stopCapturing();
     setIsResizing(false);
     finishResize();
   }, [finishResize]);

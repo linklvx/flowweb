@@ -4,7 +4,7 @@ import { NodeResizer, type NodeProps } from '@xyflow/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
+import { stopCapturing } from '@/stores/canvasUndo';
 import { calcGroupMinSize } from '@/utils/groupLayout';
 import type { CellNodeInfo } from './StoryboardCell';
 import { HANDLE } from './selectionTokens';
@@ -27,8 +27,7 @@ function GroupNodeResizer({ id }: { id: string }) {
       minWidth={minSize.minWidth}
       minHeight={minSize.minHeight}
       handleStyle={HANDLE}
-      onResizeStart={() => beginDragTransaction()}
-      onResizeEnd={() => { endDragTransaction(); useCanvasStore.getState().markManuallyResized(id); }}
+      onResizeEnd={() => { stopCapturing(); useCanvasStore.getState().markManuallyResized(id); }}
     />
   );
 }

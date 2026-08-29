@@ -17,10 +17,6 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
   refitExpandedGroups: vi.fn(),
   getAwareness: () => null,
 }));
-vi.mock('@/stores/canvasHistoryRuntime', () => ({
-  withHistoryPaused: (fn: () => any) => fn(),   // 直通执行（mock canvasStore 无 temporal）
-  hydrateLoaded: vi.fn(),
-}));
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -280,19 +276,6 @@ describe('CanvasPage', () => {
       expect(posts.length).toBe(0);
       // G：失败后 loading 态消失
       expect(screen.queryByText('加载画布...')).not.toBeInTheDocument();
-    });
-
-    it('B-2：加载失败路径清空历史栈（hydrateLoaded 被调，防跨项目 undo 污染）', async () => {
-      localStorage.setItem('flowweb_projectId', 'p1');
-      mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
-
-      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
-      await waitFor(() => {
-        expect(screen.getByText('重试')).toBeInTheDocument();
-      });
-
-      const { hydrateLoaded } = await import('@/stores/canvasHistoryRuntime');
-      expect(hydrateLoaded).toHaveBeenCalled();
     });
 
     it('错误态点重试成功后进入画布', async () => {

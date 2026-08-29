@@ -23,7 +23,6 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
-import { withHistoryPaused, hydrateLoaded } from '@/stores/canvasHistoryRuntime';
 import { refitExpandedGroups } from '@/stores/canvasCollabRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
@@ -84,11 +83,8 @@ export function CanvasPage() {
     if (target === null || target !== lastPidRef.current) {
       // hydrate 窗口开启：清 store 至 DB 加载/兜底恢复完成期间，抑制本地快照空写
       useCanvasStore.getState().setHydrating(true);
-      // B-2：清空不进历史（否则产生一条「上一项目 → 空」的结构历史）
-      withHistoryPaused(() => {
-        useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
-        useNodeStore.setState({ nodes: {} });
-      });
+      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+      useNodeStore.setState({ nodes: {} });
     }
     lastPidRef.current = target;
 
@@ -117,15 +113,11 @@ export function CanvasPage() {
                 createPromiseRef.current = null;
                 if (cancelled) return;
                 useCanvasStore.getState().setHydrating(false);
-                // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
-                hydrateLoaded();
                 setLoadError('network');
               });
             return;
           }
           useCanvasStore.getState().setHydrating(false);
-          // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
-          hydrateLoaded();
           setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
         });
     } else {
@@ -137,8 +129,6 @@ export function CanvasPage() {
           createPromiseRef.current = null;
           if (!cancelled) {
             useCanvasStore.getState().setHydrating(false);
-            // B-2：错误路径同样清栈，防 Ctrl+Z 跨项目污染
-            hydrateLoaded();
             setLoadError('network');
           }
         });

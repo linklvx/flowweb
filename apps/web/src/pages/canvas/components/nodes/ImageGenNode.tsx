@@ -9,7 +9,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
 import { useAngle3DStore } from '@/stores/angle3DStore';
-import { beginDragTransaction, endDragTransaction } from '@/stores/canvasHistoryRuntime';
+import { stopCapturing } from '@/stores/canvasUndo';
 import { ImageConfigPanelResolver } from './ImageConfigPanelResolver';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
@@ -959,12 +959,11 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   // ── Aspect-ratio-locked resize handlers ──
 
   const handleResizeStart = useCallback(() => {
-    beginDragTransaction();
     setIsResizing(true);
   }, []);
 
   const handleResizeEnd = useCallback(() => {
-    endDragTransaction();
+    stopCapturing();
     setIsResizing(false);
     const currentNodes = getNodes();
     const currentNode = currentNodes.find((n) => n.id === id);

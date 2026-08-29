@@ -19,11 +19,6 @@ vi.mock('./groups/GroupToolbar', () => ({
   GroupToolbar: () => <div data-testid="group-toolbar" />,
 }));
 
-vi.mock('@/stores/canvasHistoryRuntime', () => ({
-  beginDragTransaction: vi.fn(),
-  endDragTransaction: vi.fn(),
-}));
-
 vi.mock('@xyflow/react', async () => {
   const actual = await vi.importActual('@xyflow/react');
   return {
@@ -423,16 +418,5 @@ describe('CanvasView', () => {
     // 万一为 null，降级 querySelector('.react-flow') 亦可（事件经 capture 到达 wrapper 监听）
     pane!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, shiftKey: true }));
     expect(mockSetState).toHaveBeenCalledWith({ lastPointerShiftKey: true });
-  });
-
-  it('M-4：拖动中卸载组件触发 endDragTransaction 兜底（防 temporal 永久 pause）', async () => {
-    const { endDragTransaction } = await import('@/stores/canvasHistoryRuntime');
-    const { unmount } = render(
-      <ReactFlowProvider><CanvasView projectId="p1" /></ReactFlowProvider>
-    );
-    mockPointer.interaction = true;       // 模拟 beginDrag 已发生（真实 store 的 _isPointerInteraction=true）
-    unmount();
-    expect(endDragTransaction).toHaveBeenCalled();
-    mockPointer.interaction = false;      // 还原，防污染同文件其他用例
   });
 });
