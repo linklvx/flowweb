@@ -15,10 +15,10 @@ describe('TeamService.ensureDefaultTeam', () => {
   beforeEach(async () => {
     prisma = {
       team: {
-        findFirst: vi.fn().mockResolvedValue(null),
+        findUnique: vi.fn(),
         create: vi.fn(),
       },
-      teamMember: { create: vi.fn() },
+      teamMember: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       teamBalance: { create: vi.fn() },
       teamCreditTransaction: { create: vi.fn() },
       $transaction: vi.fn(),
@@ -67,7 +67,8 @@ describe('TeamService.ensureDefaultTeam', () => {
   });
 
   it('已有团队：no-op 直接返回，不建任何行', async () => {
-    prisma.team.findFirst.mockResolvedValue({ id: 't1', name: '已有' });
+    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't1', userId: 'u1' });
+    prisma.team.findUnique.mockResolvedValue({ id: 't1', name: '已有' });
 
     const result = await service.ensureDefaultTeam('u1', '张三');
 
@@ -81,10 +82,21 @@ describe('TeamService.ensureDefaultTeam', () => {
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
     await service.ensureDefaultTeam('u1', '张三');
-    prisma.team.findFirst.mockResolvedValue({ id: 't1' });
+    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't1' });
+    prisma.team.findUnique.mockResolvedValue({ id: 't1' });
     await service.ensureDefaultTeam('u1', '张三');
 
     expect(prisma.team.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('ensureDefaultTeam：仅以 ADMIN 成员身份存在（转让后）——返回既有团队，不建团不发放', async () => {
+    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't-existing', userId: 'u1', role: 'ADMIN' });
+    prisma.team.findUnique.mockResolvedValue({ id: 't-existing', name: '现有团队' });
+    const team = await service.ensureDefaultTeam('u1', '某用户');
+    expect(team).toMatchObject({ id: 't-existing' });
+    expect(prisma.team.create).not.toHaveBeenCalled();
+    expect(prisma.teamBalance.create).not.toHaveBeenCalled();
+    expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
   });
 });
 
@@ -352,6 +364,14 @@ describe('TeamService 成员管理', () => {
     it('不能改 OWNER 的角色', async () => {
       setup('OWNER', 'OWNER');
       await expect(service.changeRole('t1', 'caller', 'target', 'ADMIN')).rejects.toThrow(BadRequestException);
+    });
+
+    it('changeRole：传 OWNER 被拒', async () => {
+      setup('OWNER', 'MEMBER');
+      await expect(
+        service.changeRole('t1', 'caller', 'target', 'OWNER' as any),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.teamMember.update).not.toHaveBeenCalled();
     });
   });
 

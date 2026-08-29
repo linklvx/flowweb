@@ -91,6 +91,8 @@ ProjectMember   id, projectId(→CanvasProject, onDelete: Cascade), userId(→Us
 - 不影响任何 ProjectMember 记录（项目所有权独立）
 - UI：TeamPage 成员 tab 三点菜单，OWNER 对其他成员可见「转让所有权」，二次确认弹窗（展示目标成员名）后调用
 
+> **实施决议（2026-08-29）**：转让后用户处于"无属主团队但有成员身份"状态。团队解析幂等判据定为**成员身份**（ensureDefaultTeam：任一 TeamMember（最早 joinedAt）→ 直接返回该团队；零成员才新建+发放 register_grant；getOwnerTeamId：属主 > 最早成员回退）。切断"转让→建项目→幽灵团队+重复发放 100 积分"的循环刷积分路径。前端 localStorage currentTeamId 为建项目权威，服务端解析仅兜底。
+
 ### 1.4 团队审计日志
 
 **数据模型（改现有 AuditLog）：**

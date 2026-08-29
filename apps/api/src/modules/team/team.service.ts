@@ -13,10 +13,20 @@ export class TeamService {
     @InjectQueue('team-media-cleanup') private readonly cleanupQueue: Queue,
   ) {}
 
-  /** 幂等：无团队用户任意时机调用可补建（注册钩子 / 历史用户兜底） */
+  /** 幂等：无团队用户任意时机调用可补建（注册钩子 / 历史用户兜底）。
+   * 判据 = 是否存在任意 TeamMember 记录（转让后降级用户成员身份仍在、团队仍可用，不兜底建团）；
+   * 取最早加入的团队返回（前端 currentTeamId 才是权威，此处仅服务端兜底）；
+   * register_grant 仅零成员（真新用户）时发放——与"新用户注册赠送一次"语义严格对齐，切断刷积分闭环。 */
   async ensureDefaultTeam(userId: string, userName?: string) {
-    const existing = await this.prisma.team.findFirst({ where: { ownerId: userId } });
-    if (existing) return existing;
+    const membership = await this.prisma.teamMember.findFirst({
+      where: { userId },
+      orderBy: { joinedAt: 'asc' },
+    });
+    if (membership) {
+      // 成员存在则团队必存在（TeamMember.teamId 默认 Restrict；解散时成员随团队级联删除，无悬挂）
+      // 注意：Prisma delegate 返回非 nullable 的 PrismaPromise 类实例，null 在 await 后出现，! 必须作用于 await 结果
+      return (await this.prisma.team.findUnique({ where: { id: membership.teamId } }))!;
+    }
     const name =
       userName ??
       (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ??
@@ -127,6 +137,8 @@ export class TeamService {
   }
 
   async changeRole(teamId: string, callerId: string, targetUserId: string, role: 'ADMIN' | 'MEMBER') {
+    // 运行时白名单：controller 无 ValidationPipe，类型限定仅编译期生效，透传 'OWNER' 可铸出双 OWNER 破坏 ownerId 不变式
+    if (role !== 'ADMIN' && role !== 'MEMBER') throw new BadRequestException('成员角色仅可设为 ADMIN 或 MEMBER');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可调整角色');
     const target = await this.requireMember(teamId, targetUserId);
