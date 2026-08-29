@@ -5,6 +5,9 @@ export interface MyTeam {
   name: string;
   role: 'OWNER' | 'ADMIN' | 'MEMBER';
   status: string;
+  isDefault: boolean;
+  isOwner: boolean;
+  createdAt: string;
   memberCount: number;
   balance: { credits: number; subscriptionCredits: number };
   subscription: { planName: string; status: string; currentPeriodEnd: string } | null;
@@ -179,4 +182,9 @@ export interface AuditLogRow {
 
 export function getAuditLogs(teamId: string, page = 1, pageSize = 20) {
   return apiFetch<{ items: AuditLogRow[]; total: number }>(`/team/${teamId}/audit-logs?page=${page}&pageSize=${pageSize}`);
+}
+
+/** 显示名统一：默认团队（个人项目）在一切 UI 上显示为「个人项目」，不暴露「XX的团队」 */
+export function teamDisplayName(t: Pick<MyTeam, 'isDefault' | 'name'>): string {
+  return t.isDefault ? '个人项目' : t.name;
 }
