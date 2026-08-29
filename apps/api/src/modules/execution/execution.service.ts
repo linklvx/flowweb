@@ -26,6 +26,11 @@ export class ExecutionService {
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
   ) {}
 
+  /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
+  private balancePayload(bal: { credits: number; subscriptionCredits: number; total: number } | null | undefined) {
+    return bal ? { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits, total: bal.total } : undefined;
+  }
+
   async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array) {
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
@@ -95,7 +100,7 @@ export class ExecutionService {
           }
 
           const bal = await this.teamCredit.getBalanceView(project.teamId, userId);
-          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: bal?.total });
+          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: this.balancePayload(bal) });
           continue;
         }
 
@@ -148,7 +153,7 @@ export class ExecutionService {
           }
 
           this.gateway.emitNodeStatus(projectId, {
-            nodeId: node.id, status: 'done', credits: newBalance?.credits,
+            nodeId: node.id, status: 'done', credits: this.balancePayload(newBalance),
           });
           results.push({ nodeId: node.id, type: 'video', resultUrl: result.url });
           continue;
@@ -206,7 +211,7 @@ export class ExecutionService {
         }
 
         this.gateway.emitNodeStatus(projectId, {
-          nodeId: node.id, status: 'done', credits: newBalance?.credits,
+          nodeId: node.id, status: 'done', credits: this.balancePayload(newBalance),
         });
 
       } catch (err: any) {

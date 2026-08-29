@@ -143,4 +143,33 @@ describe('ExecutionService', () => {
       }),
     );
   });
+
+  it('node:status credits 为完整余额对象（文本/图片节点），total = credits + subscriptionCredits', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    teamCredit.getBalanceView.mockResolvedValue({ credits: 60, subscriptionCredits: 40, total: 100, quota: 0, used: 0 });
+
+    await service.execute('p1', 'n1', 'default-user');
+
+    // 默认拓扑 n1(textInput) + n2(imageGen)，两条 done 事件均推完整对象
+    const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done');
+    expect(dones).toHaveLength(2);
+    for (const c of dones) {
+      expect(c[1].credits).toEqual({ credits: 60, subscriptionCredits: 40, total: 100 });
+      expect(c[1].credits.total).toBe(c[1].credits.credits + c[1].credits.subscriptionCredits);
+    }
+  });
+
+  it('node:status credits 为完整余额对象（视频节点）', async () => {
+    topology.sort.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    teamCredit.getBalanceView.mockResolvedValue({ credits: 60, subscriptionCredits: 40, total: 100, quota: 0, used: 0 });
+
+    await service.execute('p1', 'n3', 'default-user');
+
+    const payload = gateway.emitNodeStatus.mock.calls.find((c: any[]) => c[1]?.status === 'done')?.[1];
+    expect(payload.credits).toEqual({ credits: 60, subscriptionCredits: 40, total: 100 });
+    expect(payload.credits.total).toBe(payload.credits.credits + payload.credits.subscriptionCredits);
+  });
 });

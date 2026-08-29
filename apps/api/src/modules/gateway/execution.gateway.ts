@@ -46,7 +46,7 @@ export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnG
     resultUrl?: string;
     fileId?: string;
     error?: string;
-    credits?: number;
+    credits?: { credits: number; subscriptionCredits: number; total: number };
   }) {
     this.server.to(`project:${projectId}`).emit('node:status', data);
   }
