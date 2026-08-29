@@ -4,8 +4,6 @@ import {
   applyNodeChanges, applyEdgeChanges,
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
-import { temporal } from 'zundo';
-import { createPartialize, structuralEquality, HISTORY_LIMIT } from './canvasHistory';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
@@ -18,7 +16,6 @@ import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
-import { withHistoryTransaction } from './canvasHistoryRuntime';
 
 /** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore） */
 function syncGroupDataToNodeStore(groupId: string) {
@@ -94,14 +91,6 @@ interface CanvasState {
   isHydrating: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
-  // ── undo/redo（spec canvas-undo-redo.md）──
-  /** zundo undo 回写时带入的 nodeStore data 采样，包装 undo/redo 中读出后立即清除 */
-  __nodeDataSnap?: import('./canvasHistory').HistoryPartial['__nodeDataSnap'];
-  /** 拖动事务进行中（onNodeDragStart/Stop 维护），undo/redo 键盘 no-op 守卫 */
-  _isPointerInteraction: boolean;
-  /** 包装 undo/redo 写回进行中。I-4：当前无订阅者消费（persistence 500ms debounce 写最终态天然安全、
-   *  CanvasView pendingMediaFile 不受 undo 影响）——预留字段（spec D3 定义），供未来需跳过副作用的订阅者使用 */
-  isApplyingHistory: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
@@ -152,12 +141,7 @@ interface CanvasState {
   hasGroupClipboard: () => boolean;
 }
 
-/** F1 缓存单例：zundo 配置与 runtime 事务快照（Task 5）共用同一实例，防两处漂移。
- *  getNodeStore 箭头延迟求值——canvasStore 先于 nodeStore 完成求值也安全 */
-export const historyPartialize = createPartialize(() => useNodeStore.getState());
-
-export const useCanvasStore = create<CanvasState>()(temporal(
-  (set, get) => {
+export const useCanvasStore = create<CanvasState>()((set, get) => {
   // 组结构写入统一包装：对 updater 产出的 nodes 应用父前子后重排
   // （RF v12 updateChildNode 要求父节点在数组中位于子节点前，否则忽略 parentId）
   const setWithParentOrder = (updater: (s: CanvasState) => Partial<CanvasState>) =>
@@ -178,9 +162,6 @@ export const useCanvasStore = create<CanvasState>()(temporal(
   projectId: null,
   isHydrating: false,
   connStatus: 'connecting',
-  __nodeDataSnap: undefined,
-  _isPointerInteraction: false,
-  isApplyingHistory: false,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
@@ -222,32 +203,29 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
-    // B-2（spec D2）：结构 set 必须先于 nodeStore 清理——
-    // zundo partialize 在 set 时采样 nodeStore，先清会丢失 undo 删除所需的完整 data
-    withHistoryTransaction(() => {
-      set((s) => ({
-        nodes: s.nodes.filter((n) => n.id !== id),
-        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-        selectedId: s.selectedId === id ? null : s.selectedId,
-      }));
-      // 组清理逻辑：检查被删节点的父组是否需要清理
-      const after = get();
-      const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
-      if (parent && parent.type === 'group') {
-        if ((parent.data as any)?.cells) {
-          // 分镜组：cells 移除该 id（宫格不收缩）
-          set((s) => ({
-            nodes: s.nodes.map((n) => n.id === parent.id
-              ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
-              : n),
-          }));
-        } else if ((parent.data as any).groupType === 'normal'
-          && !after.nodes.some((c) => c.parentId === parent.id)) {
-          // 普通组：删空自动解组
-          get().ungroup(parent.id);
-        }
+    // B-2：结构 set 必须先于 nodeStore 清理——collab 桥在 set 时即读 nodeStore 合成投影，先清会丢 data
+    set((s) => ({
+      nodes: s.nodes.filter((n) => n.id !== id),
+      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+      selectedId: s.selectedId === id ? null : s.selectedId,
+    }));
+    // 组清理逻辑：检查被删节点的父组是否需要清理
+    const after = get();
+    const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
+    if (parent && parent.type === 'group') {
+      if ((parent.data as any)?.cells) {
+        // 分镜组：cells 移除该 id（宫格不收缩）
+        set((s) => ({
+          nodes: s.nodes.map((n) => n.id === parent.id
+            ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
+            : n),
+        }));
+      } else if ((parent.data as any).groupType === 'normal'
+        && !after.nodes.some((c) => c.parentId === parent.id)) {
+        // 普通组：删空自动解组
+        get().ungroup(parent.id);
       }
-    });
+    }
     const ns = useNodeStore.getState();
     ns.deleteNode(id);
     ns.unregisterSaveHandler(id);
@@ -799,35 +777,32 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
     if (picked.length < 2) throw new Error('打组至少需要 2 个节点');
     if (picked.some((n) => n.type === 'group')) throw new Error('组不支持嵌套');
-    let id: string;
-    withHistoryTransaction(() => {
-      id = getId('node');
-      const allNodeIds = [...nodeIds, id];
-      const bounds = calcGroupBounds(picked.map((n) => ({
-        x: n.position.x, y: n.position.y,
-        width: n.width ?? 280, height: n.height ?? 120,
-      })));
-      const groupNode: Node = {
-        id, type: 'group',
-        position: { x: bounds.x, y: bounds.y },
-        width: bounds.width, height: bounds.height,
-        data: { groupType: 'normal' },
-        selected: true,
-      };
-      setWithParentOrder((st) => ({
-        nodes: [
-          ...st.nodes.map((n) => nodeIds.includes(n.id)
-            ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
-                position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
-            : { ...n, selected: false }),
-          groupNode,
-        ],
-        selectedId: id,
-      }));
-      useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
-      get().applyGroupDerivations();
-    });
-    return id!;
+    const id = getId('node');
+    const allNodeIds = [...nodeIds, id];
+    const bounds = calcGroupBounds(picked.map((n) => ({
+      x: n.position.x, y: n.position.y,
+      width: n.width ?? 280, height: n.height ?? 120,
+    })));
+    const groupNode: Node = {
+      id, type: 'group',
+      position: { x: bounds.x, y: bounds.y },
+      width: bounds.width, height: bounds.height,
+      data: { groupType: 'normal' },
+      selected: true,
+    };
+    setWithParentOrder((st) => ({
+      nodes: [
+        ...st.nodes.map((n) => nodeIds.includes(n.id)
+          ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
+              position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
+          : { ...n, selected: false }),
+        groupNode,
+      ],
+      selectedId: id,
+    }));
+    useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
+    get().applyGroupDerivations();
+    return id;
   },
 
   ungroup: (groupId) => {
@@ -841,33 +816,31 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const gd = group.data as any;
     const gp = group.position;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-    withHistoryTransaction(() => {
-      if (gd.groupType === 'storyboard') {
-        const cfg = gd.storyboard;
-        const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
-        const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
-        set((st) => ({
-          nodes: st.nodes.map((n) => {
-            const idx = (gd.cells ?? []).indexOf(n.id);
-            if (idx === -1 || n.parentId !== groupId) return n;
-            const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-            return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
-              position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
-          }),
-        }));
-      }
+    if (gd.groupType === 'storyboard') {
+      const cfg = gd.storyboard;
+      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
       set((st) => ({
-        nodes: st.nodes
-          .filter((n) => n.id !== groupId)
-          .map((n) => n.parentId === groupId
-            ? { ...n, parentId: undefined, extent: undefined,
-                position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
-            : n),
-        selectedId: st.selectedId === groupId ? null : st.selectedId,
+        nodes: st.nodes.map((n) => {
+          const idx = (gd.cells ?? []).indexOf(n.id);
+          if (idx === -1 || n.parentId !== groupId) return n;
+          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+          return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
+            position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
+        }),
       }));
-      useNodeStore.getState().deleteNode(groupId);
-      get().applyGroupDerivations();
-    });
+    }
+    set((st) => ({
+      nodes: st.nodes
+        .filter((n) => n.id !== groupId)
+        .map((n) => n.parentId === groupId
+          ? { ...n, parentId: undefined, extent: undefined,
+              position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
+          : n),
+      selectedId: st.selectedId === groupId ? null : st.selectedId,
+    }));
+    useNodeStore.getState().deleteNode(groupId);
+    get().applyGroupDerivations();
   },
 
   addToGroup: (groupId, nodeId) => {
@@ -927,29 +900,27 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const gp = group.position;
     const node = s.nodes.find((n) => n.id === nodeId);
     if (!node || node.type === 'group') return;
-    withHistoryTransaction(() => {
-      if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
-      setWithParentOrder((st) => {
-        const child = {
-          ...node, parentId: groupId, extent: 'parent' as const,
-          position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
-        };
-        const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-        const bounds = calcGroupBounds(siblings.map((n) => ({
-          x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
-          y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
-          width: n.width ?? 280, height: n.height ?? 120,
-        })));
-        return {
-          nodes: st.nodes.map((n) => {
-            if (n.id === nodeId) return child;
-            if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
-            return n;
-          }),
-        };
-      });
-      get().applyGroupDerivations();
+    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
+    setWithParentOrder((st) => {
+      const child = {
+        ...node, parentId: groupId, extent: 'parent' as const,
+        position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
+      };
+      const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
+      const bounds = calcGroupBounds(siblings.map((n) => ({
+        x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
+        y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
+        width: n.width ?? 280, height: n.height ?? 120,
+      })));
+      return {
+        nodes: st.nodes.map((n) => {
+          if (n.id === nodeId) return child;
+          if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
+          return n;
+        }),
+      };
     });
+    get().applyGroupDerivations();
   },
 
   dropImageIntoStoryboard: (groupId, nodeId) => {
@@ -1057,21 +1028,19 @@ export const useCanvasStore = create<CanvasState>()(temporal(
 
       if (emptyIdx >= 0 && emptyIdx < capacity) {
         // 入组（五审 L-4：addToGroup 本身是单 set 操作，但 cells set 是独立 set，需包事务）
-        withHistoryTransaction(() => {
-          get().addToGroup(groupId, nodeId);
-          // 补 null 到空位索引
-          set((st) => {
-            const g = st.nodes.find((n) => n.id === groupId);
-            if (!g) return st;
-            const updatedCells = [...(g.data as any).cells ?? []];
-            while (updatedCells.length < emptyIdx) updatedCells.push(null);
-            updatedCells[emptyIdx] = nodeId;
-            return {
-              nodes: st.nodes.map((n) =>
-                n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
-              ),
-            };
-          });
+        get().addToGroup(groupId, nodeId);
+        // 补 null 到空位索引
+        set((st) => {
+          const g = st.nodes.find((n) => n.id === groupId);
+          if (!g) return st;
+          const updatedCells = [...(g.data as any).cells ?? []];
+          while (updatedCells.length < emptyIdx) updatedCells.push(null);
+          updatedCells[emptyIdx] = nodeId;
+          return {
+            nodes: st.nodes.map((n) =>
+              n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
+            ),
+          };
         });
       } else {
         // 溢出：移到组右侧（单 set，无需事务）
@@ -1181,52 +1150,50 @@ export const useCanvasStore = create<CanvasState>()(temporal(
     const gd = group.data as any;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
 
-    withHistoryTransaction(() => {
-      if (target === 'storyboard') {
-        const children = s.nodes.filter((n) => n.parentId === groupId);
-        if (children.some((n) => !isImageCompletedNode(n))) {
-          throw new Error('仅包含图片节点的组可转为分镜组');
-        }
-        // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
-        const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
-          .map((n) => (n as any).id);
-        const { rows, cols } = calcDefaultGrid(sorted.length);
-        const size = calcStoryboardSize(rows, cols, '16:9');
-        const cx = group.position.x + (group.width ?? 0) / 2;
-        const cy = group.position.y + (group.height ?? 0) / 2;
-        setWithParentOrder((st) => ({
-          nodes: st.nodes.map((n) => {
-            if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
-              width: size.width, height: size.height,
-              data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
-                      storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
-            if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
-            return n;
-          }),
-        }));
-      } else {
-        // 分镜组 → 普通组：cells 顺序网格重排
-        const cfg = gd.storyboard;
-        const cellW = CELL_WIDTH;
-        const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
-        const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
-        setWithParentOrder((st) => ({
-          nodes: st.nodes.map((n) => {
-            if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
-            const idx = gd.cells.indexOf(n.id);
-            if (idx === -1 || n.parentId !== groupId) return n;
-            const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-            return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
-                     width: cellW, height: Math.round(cellH) };
-          }),
-        }));
-        // 组框重算
-        get().refitGroupBounds(groupId);
+    if (target === 'storyboard') {
+      const children = s.nodes.filter((n) => n.parentId === groupId);
+      if (children.some((n) => !isImageCompletedNode(n))) {
+        throw new Error('仅包含图片节点的组可转为分镜组');
       }
-      // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
-      syncGroupDataToNodeStore(groupId);
-      get().applyGroupDerivations();
-    });
+      // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
+      const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
+        .map((n) => (n as any).id);
+      const { rows, cols } = calcDefaultGrid(sorted.length);
+      const size = calcStoryboardSize(rows, cols, '16:9');
+      const cx = group.position.x + (group.width ?? 0) / 2;
+      const cy = group.position.y + (group.height ?? 0) / 2;
+      setWithParentOrder((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
+            width: size.width, height: size.height,
+            data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
+                    storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
+          if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
+          return n;
+        }),
+      }));
+    } else {
+      // 分镜组 → 普通组：cells 顺序网格重排
+      const cfg = gd.storyboard;
+      const cellW = CELL_WIDTH;
+      const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
+      const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+      setWithParentOrder((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
+          const idx = gd.cells.indexOf(n.id);
+          if (idx === -1 || n.parentId !== groupId) return n;
+          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
+          return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
+                   width: cellW, height: Math.round(cellH) };
+        }),
+      }));
+      // 组框重算
+      get().refitGroupBounds(groupId);
+    }
+    // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
+    syncGroupDataToNodeStore(groupId);
+    get().applyGroupDerivations();
   },
 
   renameGroup: (groupId, name) => {
@@ -1248,38 +1215,36 @@ export const useCanvasStore = create<CanvasState>()(temporal(
   },
 
   toggleCollapse: (groupId) => {
-    withHistoryTransaction(() => {
-      set((st) => ({
-        nodes: st.nodes.map((n) => {
-          if (n.id !== groupId) return n;
-          const collapsing = !(n.data as any).collapsed;
-          if (collapsing) {
-            return {
-              ...n,
-              data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
-              width: 200, height: 64,
-            };
-          }
-          return { ...n, data: { ...n.data, collapsed: false } };
-        }),
-      }));
-      const g = get().nodes.find((n) => n.id === groupId);
-      if (g && !(g.data as any).collapsed) {
-        const d = g.data as any;
-        if (d.manuallyResized && d.savedSize) {
-          // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
-          set((st) => ({
-            nodes: st.nodes.map((n) => (n.id === groupId
-              ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
-              : n)),
-          }));
-        } else {
-          get().refitGroupBounds(groupId);
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        const collapsing = !(n.data as any).collapsed;
+        if (collapsing) {
+          return {
+            ...n,
+            data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
+            width: 200, height: 64,
+          };
         }
+        return { ...n, data: { ...n.data, collapsed: false } };
+      }),
+    }));
+    const g = get().nodes.find((n) => n.id === groupId);
+    if (g && !(g.data as any).collapsed) {
+      const d = g.data as any;
+      if (d.manuallyResized && d.savedSize) {
+        // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
+        set((st) => ({
+          nodes: st.nodes.map((n) => (n.id === groupId
+            ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
+            : n)),
+        }));
+      } else {
+        get().refitGroupBounds(groupId);
       }
-      syncGroupDataToNodeStore(groupId);
-      get().applyGroupDerivations();
-    });
+    }
+    syncGroupDataToNodeStore(groupId);
+    get().applyGroupDerivations();
   },
 
   refitGroupBounds: (groupId) => {
@@ -1432,13 +1397,7 @@ export const useCanvasStore = create<CanvasState>()(temporal(
 
   hasGroupClipboard: () => groupClipboard !== null,
   };
-  },
-  {
-    limit: HISTORY_LIMIT,
-    partialize: historyPartialize as any,
-    equality: (past, current) => structuralEquality(past as any, current as any),
-  },
-));
+});
 
 // Shared helper function to build a group copy
 function buildGroupCopy(

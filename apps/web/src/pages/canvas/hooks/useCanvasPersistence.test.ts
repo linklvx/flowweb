@@ -23,7 +23,6 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
         n2: { id: 'n2', type: 'textInput', position: { x: 500, y: 50 }, data: {} } as any,
       },
     });
-    useCanvasStore.temporal.getState().clear();
   });
 
   afterEach(() => {

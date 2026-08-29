@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useStitchTask } from './useStitchTask';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { undoCanvas } from '@/stores/canvasHistoryRuntime';
 
 vi.mock('@/api/client', () => ({ apiFetch: vi.fn() }));
 // P2-1：useSocket 返回 ref 形态；组件外直接调 hook 会抛 Invalid hook call，须 mock + renderHook。
@@ -16,10 +15,9 @@ describe('useStitchTask', () => {
     vi.clearAllMocks();
     mockSocketRef.current = null;
     useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
-    useCanvasStore.temporal.getState().clear();
   });
 
-  it('轮询兜底：Socket 未达时 GET 状态完成后生成产物节点 + 注册撤销项', async () => {
+  it('轮询兜底：Socket 未达时 GET 状态完成后生成产物节点', async () => {
     const { apiFetch } = await import('@/api/client');
     (apiFetch as any)
       .mockResolvedValueOnce({ taskId: 't1' })                       // POST stitch
@@ -36,11 +34,6 @@ describe('useStitchTask', () => {
       const { outcome } = await promise!;
       expect(outcome).toBe('COMPLETED');
       expect(useCanvasStore.getState().nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(true);
-      expect(useCanvasStore.temporal.getState().pastStates.length).toBeGreaterThan(0); // 撤销项已注册（zundo 自动记录）
-
-      // P1-新4 回归：undo 必须删除产物节点
-      await act(async () => { await undoCanvas(); });
-      expect(useCanvasStore.getState().nodes.some((n) => (n.data as any).fileId === 'out1')).toBe(false);
     } finally {
       vi.useRealTimers();
     }

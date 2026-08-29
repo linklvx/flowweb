@@ -1,6 +1,6 @@
 // apps/web/src/stores/canvasCollabRuntime.ts
 // 画布 Yjs 实时协作桥（spec T6：store ↔ server doc 双向同步 + origin 防回环）。
-// ⚠️ 循环依赖裁定（同 canvasHistoryRuntime.ts）：顶层仅 import 声明/函数定义/纯常量。
+// ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import isEqual from 'fast-deep-equal';

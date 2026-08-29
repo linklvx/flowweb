@@ -1,4 +1,4 @@
-// useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成（zundo 自动记录）
+// useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成（doc 同步自动入 undo 栈）
 import { useCallback, useRef } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { createStitchTask, getStitchTask, type StitchParams } from '@/api/stitchApi';

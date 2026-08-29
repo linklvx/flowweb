@@ -43,7 +43,7 @@ export function getUndoManager() {
 export async function undoCanvas(): Promise<void> {
   const um = undoManager;
   if (!um || um.undoStack.length === 0) return;
-  // 动态 import：测试重量隔离——canvasUndo.test.ts 只拉 yjs，静态引入会把 zundo/antd/@xyflow 全图拖进测试
+  // 动态 import：测试重量隔离——canvasUndo.test.ts 只拉 yjs，静态引入会把 antd/@xyflow 全图拖进测试
   const { useCanvasStore } = await import('./canvasStore');
   if (undoManager !== um) return; // await 间隙项目切换防串
   const beforeIds = new Set(useCanvasStore.getState().nodes.map((n: any) => n.id));

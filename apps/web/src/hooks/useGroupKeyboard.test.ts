@@ -21,8 +21,6 @@ vi.mock('@/stores/canvasStore', () => ({
   },
 }));
 
-vi.mock('@/stores/canvasHistoryRuntime', () => ({ undoCanvas: vi.fn(), redoCanvas: vi.fn() }));
-
 // Mock antd message
 vi.mock('antd', () => ({
   message: {
