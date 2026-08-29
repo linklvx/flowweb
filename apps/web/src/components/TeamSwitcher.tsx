@@ -8,6 +8,7 @@ export function TeamSwitcher() {
   const [teams, setTeams] = useState<MyTeam[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
   const current = localStorage.getItem('currentTeamId');
   const currentTeam = teams.find((t) => t.id === current) ?? teams[0];
 
@@ -21,7 +22,9 @@ export function TeamSwitcher() {
       location.reload();
     }
   }, []);
-  useEffect(() => { void load().catch(() => {}); }, [load]);
+  useEffect(() => {
+    void load().catch((err) => message.error('团队列表加载失败：' + (err as Error).message));
+  }, [load]);
 
   const switchTo = (id: string) => {
     if (id === current) return;
@@ -30,12 +33,16 @@ export function TeamSwitcher() {
   };
 
   const create = async () => {
+    if (creating) return;
+    setCreating(true);
     try {
       const team = await createTeam(name);
       localStorage.setItem('currentTeamId', team.id); // 创建后自动切换
       location.reload();
     } catch (err) {
       message.error('创建失败：' + (err as Error).message);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -59,7 +66,7 @@ export function TeamSwitcher() {
           {currentTeam?.name ?? '团队'} <DownOutlined className="text-[10px]" />
         </button>
       </Dropdown>
-      <Modal open={open} title="新建团队" okText="创建" cancelText="取消" onCancel={() => setOpen(false)} onOk={create}>
+      <Modal open={open} title="新建团队" okText="创建" cancelText="取消" confirmLoading={creating} onCancel={() => setOpen(false)} onOk={create}>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="团队名称" />
       </Modal>
     </>

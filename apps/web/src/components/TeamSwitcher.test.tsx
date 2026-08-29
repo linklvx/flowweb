@@ -1,0 +1,80 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { TeamSwitcher } from './TeamSwitcher';
+
+const api = vi.hoisted(() => ({
+  getMyTeams: vi.fn(),
+  createTeam: vi.fn(),
+}));
+
+vi.mock('@/api/teamApi', () => api);
+
+// jsdom 25 下 vi.spyOn(window.location, 'reload') 报 Cannot redefine，
+// 用 defineProperty 整体替换 window.location（探针验证可行）
+const mockReload = vi.fn();
+function stubLocation() {
+  Object.defineProperty(window, 'location', {
+    value: { ...window.location, reload: mockReload },
+    writable: true,
+    configurable: true,
+  });
+}
+
+const team = (id: string, name: string) => ({
+  id, name, role: 'OWNER' as const, status: 'ACTIVE', memberCount: 1,
+  balance: { credits: 0, subscriptionCredits: 0 },
+  subscription: null,
+});
+
+describe('TeamSwitcher', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockReload.mockClear();
+    stubLocation();
+  });
+
+  it('① 渲染列表 + 当前标记：currentTeamId=t2 → 按钮显示 B 团', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A 团'), team('t2', 'B 团')]);
+    localStorage.setItem('currentTeamId', 't2');
+    render(<TeamSwitcher />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /B 团/ })).toBeInTheDocument(),
+    );
+  });
+
+  it('② 切换：点 A 团 → localStorage 写 t1 + reload', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A 团'), team('t2', 'B 团')]);
+    localStorage.setItem('currentTeamId', 't2');
+    render(<TeamSwitcher />);
+    await screen.findByText('B 团');
+    fireEvent.click(screen.getByRole('button', { name: /B 团/ }));
+    fireEvent.click(await screen.findByText('A 团'));
+    await waitFor(() => expect(mockReload).toHaveBeenCalled());
+    expect(localStorage.getItem('currentTeamId')).toBe('t1');
+  });
+
+  it('③ 创建后自动切换：新建团队 → createTeam + localStorage 写新 id + reload', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A 团')]);
+    api.createTeam.mockResolvedValue({ id: 't9', name: '新团' });
+    localStorage.setItem('currentTeamId', 't1');
+    render(<TeamSwitcher />);
+    await screen.findByText('A 团');
+    fireEvent.click(screen.getByRole('button', { name: /A 团/ }));
+    fireEvent.click(await screen.findByText('新建团队'));
+    await screen.findByPlaceholderText('团队名称');
+    fireEvent.change(screen.getByPlaceholderText('团队名称'), { target: { value: '新团' } });
+    fireEvent.click(screen.getByRole('button', { name: '创 建' }));
+    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('新团'));
+    await waitFor(() => expect(localStorage.getItem('currentTeamId')).toBe('t9'));
+    expect(mockReload).toHaveBeenCalled();
+  });
+
+  it('④ 解散回退：currentTeamId=dead 不在列表 → 写回 t1 + reload', async () => {
+    api.getMyTeams.mockResolvedValue([team('t1', 'A 团')]);
+    localStorage.setItem('currentTeamId', 'dead');
+    render(<TeamSwitcher />);
+    await waitFor(() => expect(localStorage.getItem('currentTeamId')).toBe('t1'));
+    expect(mockReload).toHaveBeenCalled();
+  });
+});
