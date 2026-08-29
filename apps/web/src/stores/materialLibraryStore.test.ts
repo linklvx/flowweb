@@ -12,6 +12,7 @@ vi.mock('axios', () => ({
     put: (...args: any[]) => mockPut(...args),
     delete: (...args: any[]) => mockDelete(...args),
     get: (...args: any[]) => mockGet(...args),
+    isCancel: () => false,
     CancelToken: { source: () => ({ token: null }) },
   },
   CancelToken: { source: () => ({ token: null }) },

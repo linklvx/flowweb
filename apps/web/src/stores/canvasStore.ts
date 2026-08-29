@@ -655,7 +655,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const namePrefix = (nsData?.fileName as string) || fileId || referenceImage || 'split';
       const uploadResult = await uploadSplitBlobs(
         blobResults,
-        { signal: ac.signal, maxConcurrent: 3, maxRetries: 1, cols, namePrefix },
+        { signal: ac.signal, maxConcurrent: 3, maxRetries: 1, cols, namePrefix, projectId: get().projectId ?? undefined },
       );
 
       // Check again

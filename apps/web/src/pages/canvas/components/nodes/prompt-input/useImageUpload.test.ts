@@ -76,6 +76,10 @@ vi.mock('@/api/storageApi', () => ({
   confirmUpload: mockConfirmUploadFn,
 }));
 
+vi.mock('@/stores/canvasStore', () => ({
+  useCanvasStore: { getState: () => ({ projectId: 'p1' }) },
+}));
+
 vi.mock('axios', () => ({
   default: { post: mockAxiosPostFn },
 }));
@@ -226,6 +230,7 @@ describe('useImageUpload', () => {
       fileSize: 12,
       fileType: 'image/png',
       type: 'uploaded',
+      projectId: 'p1',
     });
     expect(mockConfirmUploadFn).toHaveBeenCalled();
 
@@ -605,5 +610,23 @@ describe('useImageUpload', () => {
     expect(lastCall[0]).toBe('node-1');
     expect(lastCall[1]).toHaveLength(1);
     expect(lastCall[1][0].id).toBe('img-b');
+  });
+
+  // ================================================================
+  // 13. uploadSingleImage — presign 传 projectId（画布三级回落①级）
+  // ================================================================
+  it('13. uploadSingleImage — presign 传 projectId', async () => {
+    mockNodes['node-1'] = makeImageNode('node-1');
+
+    const { result } = renderHook(() => useImageUpload('node-1'));
+    const file = new File(['test'], 'test.png', { type: 'image/png' });
+
+    await act(async () => {
+      await result.current.uploadSingleImage(file);
+    });
+
+    expect(mockPresignUploadFn).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'p1',
+    }));
   });
 });

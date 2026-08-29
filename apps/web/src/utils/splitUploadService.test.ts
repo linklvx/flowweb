@@ -176,4 +176,15 @@ describe('uploadSplitBlobs', () => {
     expect(result.failed[0].error).toContain('裁剪失败');
     expect(result.success).toHaveLength(2);
   });
+
+  it('uploadOne presign 透传 options.projectId', async () => {
+    const items = toItems([makeBlob()]);
+
+    await uploadSplitBlobs(items, { projectId: 'p1', maxConcurrent: 1, maxRetries: 0 });
+
+    expect(mockPresign).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'p1' }),
+      undefined, // signal
+    );
+  });
 });

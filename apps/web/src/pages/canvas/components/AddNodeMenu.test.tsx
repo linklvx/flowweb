@@ -5,7 +5,10 @@ import { AddNodeMenu } from './AddNodeMenu';
 // Mock canvas store
 const mockAddNode = vi.fn().mockReturnValue('test-node-id');
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (selector: any) => selector({ addNode: mockAddNode, viewport: { x: 0, y: 0, zoom: 1 } }),
+  useCanvasStore: Object.assign(
+    (selector: any) => selector({ addNode: mockAddNode, viewport: { x: 0, y: 0, zoom: 1 } }),
+    { getState: () => ({ projectId: null }) },
+  ),
 }));
 
 // Mock node store

@@ -9,6 +9,7 @@ import { AudioConfigPanel } from './AudioConfigPanel';
 import { AudioWaveform } from './AudioWaveform';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import axios from 'axios';
 
 const NODE_WIDTH = 548;
@@ -111,6 +112,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       const formData = new FormData();

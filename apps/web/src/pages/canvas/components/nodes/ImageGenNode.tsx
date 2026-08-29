@@ -6,6 +6,7 @@ import { io } from 'socket.io-client';
 import { useNodeStore } from '@/stores/nodeStore';
 import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { canvasProjectId } from '@/utils/uploadContext';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
 import { useAngle3DStore } from '@/stores/angle3DStore';
@@ -393,6 +394,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       const formData = new FormData();
@@ -432,6 +434,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
       const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
         fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       const formData = new FormData();
@@ -581,6 +584,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       const file = new File([blob], fileName, { type: 'image/png' });
       const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
         fileName: file.name, fileSize: file.size, fileType: 'image/png', type: 'uploaded',
+        projectId: canvasProjectId(),
       });
       const fd = new FormData();
       Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
@@ -651,6 +655,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
       const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
         fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
+        projectId: canvasProjectId(),
       });
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
@@ -693,6 +698,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         const maskFile = new File([maskBlob], 'mask.png', { type: 'image/png' });
         const { fileId: maskId, uploadUrl, key, fields } = await presignUpload({
           fileName: maskFile.name, fileSize: maskFile.size, fileType: 'image/png', type: 'uploaded',
+          projectId: canvasProjectId(),
         });
         const fd = new FormData();
         Object.entries(fields).forEach(([k, v]) => fd.append(k, v));

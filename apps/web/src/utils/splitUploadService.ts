@@ -21,6 +21,7 @@ interface UploadOptions {
   maxRetries?: number;
   cols?: number;
   namePrefix?: string;
+  projectId?: string;
 }
 
 function isRetryable(error: unknown): boolean {
@@ -39,6 +40,7 @@ async function uploadOne(
   index: number,
   cols: number,
   namePrefix: string,
+  projectId: string | undefined,
   signal?: AbortSignal,
 ): Promise<{ index: number; fileId: string; key: string; fileSize: number }> {
   signal?.throwIfAborted();
@@ -53,6 +55,7 @@ async function uploadOne(
       fileSize: blob.size,
       fileType: 'image/webp',
       type: 'uploaded',
+      projectId,
     },
     signal,
   );
@@ -91,6 +94,7 @@ async function uploadOneWithRetry(
   index: number,
   cols: number,
   namePrefix: string,
+  projectId: string | undefined,
   signal?: AbortSignal,
   maxRetries = 1,
 ): Promise<UploadResult> {
@@ -100,7 +104,7 @@ async function uploadOneWithRetry(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       signal?.throwIfAborted();
-      data = await uploadOne(blob, index, cols, namePrefix, signal);
+      data = await uploadOne(blob, index, cols, namePrefix, projectId, signal);
       break;
     } catch (err) {
       lastError = err;
@@ -125,7 +129,7 @@ export async function uploadSplitBlobs(
   items: Array<{ blob: Blob | null; index: number }>,
   options: UploadOptions = {},
 ): Promise<UploadAllResult> {
-  const { signal, maxConcurrent = 3, maxRetries = 1, cols = 1, namePrefix = 'split' } = options;
+  const { signal, maxConcurrent = 3, maxRetries = 1, cols = 1, namePrefix = 'split', projectId } = options;
 
   const success: UploadResult[] = [];
   const failed: UploadFailed[] = [];
@@ -152,7 +156,7 @@ export async function uploadSplitBlobs(
       activeCount++;
 
       try {
-        const result = await uploadOneWithRetry(item.blob, item.index, cols, namePrefix, signal, maxRetries);
+        const result = await uploadOneWithRetry(item.blob, item.index, cols, namePrefix, projectId, signal, maxRetries);
         success.push(result);
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {

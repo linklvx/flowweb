@@ -1,5 +1,6 @@
 import { useNodeStore, isImageNode, type ImageItem, type ImageNodeData, type VideoNodeData } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { compressAccurately } from 'image-conversion';
 import axios from 'axios';
@@ -53,6 +54,7 @@ export function useImageUpload(nodeId: string) {
         fileSize: uploadFile.size,
         fileType: uploadFile.type || 'image/png',
         type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       // Build FormData

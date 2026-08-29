@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import axios from 'axios';
 
 // --- Icons ---
@@ -213,6 +214,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       // 2. 上传到 MinIO

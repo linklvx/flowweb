@@ -12,7 +12,7 @@ export interface UploadImageBlobResult {
  * Internal flow: presign → FormData POST → confirm → getMediaUrl.
  * Auto-generates filename: frame_{timestamp}_{8-random-chars}.jpg
  */
-export async function uploadImageBlob(blob: Blob): Promise<UploadImageBlobResult> {
+export async function uploadImageBlob(blob: Blob, projectId?: string): Promise<UploadImageBlobResult> {
   const randomStr = Math.random().toString(36).slice(2, 10);
   const fileName = `frame_${Date.now()}_${randomStr}.jpg`;
 
@@ -21,6 +21,7 @@ export async function uploadImageBlob(blob: Blob): Promise<UploadImageBlobResult
     fileSize: blob.size,
     fileType: 'image/jpeg',
     type: 'uploaded',
+    projectId,
   });
 
   const formData = new FormData();

@@ -20,6 +20,7 @@ import { useVideoFrameCapture } from '@/hooks/useVideoFrameCapture';
 import { videoSeparateApi } from '@/services/video-separate.api';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import { uploadImageBlob } from '@/utils/mediaUploadUtils';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
 import axios from 'axios';
@@ -445,7 +446,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
         : type === 'first' ? captureFirst : captureLast;
       const blob = await captureFn();
 
-      const { fileId } = await uploadImageBlob(blob);
+      const { fileId } = await uploadImageBlob(blob, canvasProjectId());
 
       const store = useCanvasStore.getState();
       const videoNode = store.nodes.find((n) => n.id === id);
@@ -514,6 +515,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
+        projectId: canvasProjectId(),
       });
 
       const formData = new FormData();

@@ -4,6 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { MultiImageConfigPanel } from './MultiImageConfigPanel';
@@ -153,6 +154,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           fileSize: file.size,
           fileType: file.type,
           type: 'uploaded',
+          projectId: canvasProjectId(),
         });
 
         const formData = new FormData();

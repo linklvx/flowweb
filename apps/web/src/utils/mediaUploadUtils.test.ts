@@ -117,5 +117,15 @@ describe('mediaUploadUtils', () => {
       await expect(uploadImageBlob(blob)).rejects.toThrow('Upload failed');
       expect(mocks.confirmUpload).not.toHaveBeenCalled();
     });
+
+    it('should pass projectId through to presignUpload', async () => {
+      const blob = new Blob(['x'], { type: 'image/jpeg' });
+
+      await uploadImageBlob(blob, 'p1');
+
+      expect(mocks.presignUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'p1' }),
+      );
+    });
   });
 });

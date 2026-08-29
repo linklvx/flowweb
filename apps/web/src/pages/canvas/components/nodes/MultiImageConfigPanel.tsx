@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import {
@@ -130,6 +131,7 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
           fileSize: file.size,
           fileType: file.type,
           type: 'uploaded',
+          projectId: canvasProjectId(),
         });
         const formData = new FormData();
         Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
