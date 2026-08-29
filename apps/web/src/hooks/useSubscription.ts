@@ -35,13 +35,13 @@ export function useMySubscription() {
 }
 
 export function useCreditBalance() {
-  const [data, setData] = useState<{ credits: number; subscriptionCredits: number; subscriptionCreditsExpiry: string | null; balance: number }>({
-    credits: 0, subscriptionCredits: 0, subscriptionCreditsExpiry: null, balance: 0,
+  const [data, setData] = useState<{ credits: number; subscriptionCredits: number; subscriptionCreditsExpiry: string | null }>({
+    credits: 0, subscriptionCredits: 0, subscriptionCreditsExpiry: null,
   });
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    try { setData(await subscriptionApi.getBalance() as any); }
+    try { setData(await subscriptionApi.getBalance()); }
     finally { setLoading(false); }
   }, []);
 

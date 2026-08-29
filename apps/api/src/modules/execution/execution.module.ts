@@ -7,7 +7,6 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { ExecutionProcessor } from './execution.processor';
-import { CreditModule } from '../credit/credit.module';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
@@ -29,7 +28,6 @@ const env = validateEnv();
 @Module({
   imports: [
     CollabModule,
-    CreditModule,
     TeamModule,
     MediaProcessModule,
     BullModule.registerQueue({

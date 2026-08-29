@@ -39,17 +39,6 @@ export class PaymentGateway implements OnGatewayInit {
 
     if (!userId) return;
 
-    // Try recharge order first, then subscription order
-    const rechargeOrder = await this.prisma.rechargeOrder.findUnique({
-      where: { orderNo },
-      select: { userId: true },
-    });
-
-    if (rechargeOrder && rechargeOrder.userId === userId) {
-      client.join(`order:${orderNo}`);
-      return;
-    }
-
     const subOrder = await this.prisma.subscriptionOrder.findUnique({
       where: { orderNo },
       select: { userId: true },

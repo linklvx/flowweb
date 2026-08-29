@@ -1,52 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RechargeService } from './recharge.service';
-import { BusinessException } from '../../common/exceptions/business.exception';
+import type Redis from 'ioredis';
 
 vi.mock('@sentry/nestjs', () => ({
   captureException: vi.fn(),
   withScope: vi.fn((fn: Function) => fn({ setTag: vi.fn(), setLevel: vi.fn() })),
 }));
-
-function createTx() {
-  return {
-    userBalance: {
-      upsert: vi.fn().mockResolvedValue({ balance: 10000, version: 0 }),
-      update: vi.fn().mockResolvedValue({}),
-      findUnique: vi.fn(),
-    },
-    rechargeOrder: {
-      findUnique: vi.fn(),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
-    userBalanceTransaction: {
-      create: vi.fn().mockResolvedValue({}),
-    },
-    $queryRaw: vi.fn().mockResolvedValue([]),
-  };
-}
-
-function mockPrisma() {
-  const tx = createTx();
-  return {
-    rechargeOrder: {
-      create: vi.fn(),
-      findUnique: vi.fn(),
-      findMany: vi.fn(),
-      count: vi.fn(),
-      updateMany: vi.fn(),
-    },
-    userBalance: {
-      findUnique: vi.fn(),
-      upsert: vi.fn(),
-      update: vi.fn(),
-    },
-    userBalanceTransaction: {
-      create: vi.fn(),
-    },
-    $queryRaw: vi.fn(),
-    $transaction: vi.fn((fn: Function) => fn(tx)),
-  } as any;
-}
 
 function mockMetrics() {
   return {
@@ -60,387 +19,78 @@ function mockMetrics() {
   } as any;
 }
 
-describe('RechargeService', () => {
-  let service: RechargeService;
-  let prisma: any;
+const JSON_HEADERS = {
+  'content-type': 'application/json',
+  'wechatpay-nonce': 'n1',
+};
+
+describe('RechargeService.handleCallback（回调分发）', () => {
   let metrics: any;
   let payment: any;
-
-  const validTiersFen = [1000, 3000, 5000, 10000, 20000, 50000];
+  let redis: any;
+  let subOrderService: any;
+  let teamRechargeService: any;
+  let service: RechargeService;
 
   beforeEach(() => {
-    prisma = mockPrisma();
     metrics = mockMetrics();
     payment = {
-      createPayment: vi.fn(),
-      queryOrder: vi.fn(),
-      closePayment: vi.fn(),
       parseNotify: vi.fn(),
     };
-    service = new RechargeService(prisma, metrics, payment);
-    process.env.WECHAT_PAY_APP_ID = 'wx1234567890abcdef';
-    process.env.WECHAT_PAY_MCH_ID = '1234567890';
+    redis = { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') };
+    subOrderService = { processPaymentCallback: vi.fn() };
+    teamRechargeService = { completeTeamCallback: vi.fn() };
+    service = new RechargeService(metrics, payment, redis as unknown as Redis, subOrderService, teamRechargeService);
   });
 
-  // ── createOrder ──
-
-  it.each(validTiersFen)('should create order for valid tier %i fen', async (amountFen) => {
-    prisma.rechargeOrder.create.mockResolvedValue({
-      id: 'order-1',
-      orderNo: `RC20260726USER00${amountFen}`,
-      userId: 'user-1',
-      amount: amountFen,
-      status: 'PENDING',
-      clientIp: '1.2.3.4',
-      expiredAt: new Date(),
-      createdAt: new Date(),
-    });
-
-    const result = await service.createOrder('user-1', amountFen, '1.2.3.4');
-
-    expect(result.status).toBe('PENDING');
-    expect(result.amount).toBe(amountFen);
-    expect(result.clientIp).toBe('1.2.3.4');
-    expect(metrics.ordersCreatedTotal.inc).toHaveBeenCalledWith({ amount_tier: String(amountFen / 100) });
-  });
-
-  it('should reject non-tier amount with 档位 error', async () => {
-    await expect(service.createOrder('user-1', 1500, '1.2.3.4')).rejects.toThrow(BusinessException);
-    await expect(service.createOrder('user-1', 1500, '1.2.3.4')).rejects.toThrow(/档位/);
-  });
-
-  it('should reject zero amount', async () => {
-    await expect(service.createOrder('user-1', 0, '1.2.3.4')).rejects.toThrow(BusinessException);
-  });
-
-  it('should set expiredAt to ~2 hours from now', async () => {
-    const before = Date.now();
-    prisma.rechargeOrder.create.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC-TEST', amount: 5000, status: 'PENDING', createdAt: new Date(),
-    });
-
-    await service.createOrder('user-1', 5000, '1.2.3.4');
-
-    const createCall = prisma.rechargeOrder.create.mock.calls[0][0].data;
-    const expiredAt = new Date(createCall.expiredAt).getTime();
-    const expected = before + 2 * 60 * 60 * 1000;
-    expect(Math.abs(expiredAt - expected)).toBeLessThan(5000);
-  });
-
-  it('should use orderNo with RC prefix', async () => {
-    prisma.rechargeOrder.create.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', amount: 5000, status: 'PENDING',
-    });
-
-    const result = await service.createOrder('user-1', 5000, '1.2.3.4');
-
-    expect(result.orderNo).toMatch(/^RC/);
-  });
-
-  // ── pay ──
-
-  it('should call createPayment and return codeUrl, NOT modify balance', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1',
-      orderNo: 'RC20260726USER00123456',
-      userId: 'user-1',
-      amount: 5000,
-      status: 'PENDING',
-      prepayId: null,
-      createdAt: new Date(),
-    });
-    payment.createPayment.mockImplementation(async () => ({
-      codeUrl: 'weixin://wxpay/bizpayurl?pr=abc',
-      prepayId: 'prepay_001',
-    }));
-    prisma.rechargeOrder.updateMany.mockResolvedValue({ count: 1 });
-
-    const result = await service.pay('RC20260726USER00123456', 'user-1');
-
-    expect(result.codeUrl).toBe('weixin://wxpay/bizpayurl?pr=abc');
-    expect(result.status).toBe('PENDING');
-    expect(payment.createPayment).toHaveBeenCalledTimes(1);
-    expect(metrics.wechatApiDurationSeconds.startTimer).toHaveBeenCalledWith({ api: 'create_payment' });
-  });
-
-  it('should reject non-owner user', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-    await expect(service.pay('RC20260726USER00123456', 'user-2')).rejects.toThrow(BusinessException);
-  });
-
-  it('should be idempotent when prepayId already exists', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING', prepayId: 'prepay_existing', payChannel: 'wechat',
-    });
-    const result = await service.pay('RC20260726USER00123456', 'user-1');
-    expect(result.status).toBe('PENDING');
-    expect(payment.createPayment).not.toHaveBeenCalled();
-  });
-
-  it('should reject non-PENDING orders', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'SUCCESS',
-    });
-    await expect(service.pay('RC20260726USER00123456', 'user-1')).rejects.toThrow(BusinessException);
-  });
-
-  it('should reject order not found', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue(null);
-    await expect(service.pay('NONEXISTENT', 'user-1')).rejects.toThrow('订单不存在');
-  });
-
-  it('should report to Sentry when createPayment fails', async () => {
-    const Sentry = await import('@sentry/nestjs');
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING', prepayId: null, createdAt: new Date(),
-    });
-    payment.createPayment.mockRejectedValue(new Error('WeChat API error'));
-    await expect(service.pay('RC20260726USER00123456', 'user-1')).rejects.toThrow(BusinessException);
-    expect(Sentry.captureException).toHaveBeenCalled();
-  });
-
-  // ── getOrders ──
-
-  it('should return paginated orders sorted by createdAt desc', async () => {
-    prisma.rechargeOrder.findMany.mockResolvedValue([
-      { id: 'o2', orderNo: 'RC2', amount: 5000, status: 'SUCCESS' },
-    ]);
-    prisma.rechargeOrder.count.mockResolvedValue(1);
-
-    const result = await service.getOrders('user-1', 1, 20);
-
-    expect(result.total).toBe(1);
-    expect(result.items.length).toBe(1);
-  });
-
-  // ── queryOrder ──
-
-  it('should return single order by orderNo', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', amount: 5000, status: 'SUCCESS', payChannel: 'wechat', paidAt: new Date(),
-    });
-
-    const result = await service.queryOrder('RC20260726USER00123456');
-
-    expect(result.orderNo).toBe('RC20260726USER00123456');
-    expect(result.status).toBe('SUCCESS');
-  });
-
-  it('should throw when order not found', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue(null);
-    await expect(service.queryOrder('NONEXISTENT')).rejects.toThrow(BusinessException);
-  });
-
-  // ── closeOrder ──
-
-  it('should close PENDING order and call WeChat closePayment', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-    payment.closePayment.mockResolvedValue(undefined);
-    prisma.rechargeOrder.updateMany.mockResolvedValue({ count: 1 });
-
-    await service.closeOrder('RC20260726USER00123456', 'user-1');
-
-    expect(payment.closePayment).toHaveBeenCalledWith('RC20260726USER00123456');
-    expect(prisma.rechargeOrder.updateMany).toHaveBeenCalledWith({
-      where: { orderNo: 'RC20260726USER00123456', status: 'PENDING' },
-      data: { status: 'CLOSED', closedAt: expect.any(Date) },
-    });
-    expect(metrics.ordersClosedTotal.inc).toHaveBeenCalledWith({ reason: 'expired' });
-  });
-
-  it('should reject non-owner for closeOrder', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-    await expect(service.closeOrder('RC20260726USER00123456', 'user-2')).rejects.toThrow(BusinessException);
-  });
-
-  it('should be idempotent for already CLOSED orders', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'CLOSED',
-    });
-    await service.closeOrder('RC20260726USER00123456', 'user-1');
-    expect(payment.closePayment).not.toHaveBeenCalled();
-  });
-
-  it('should be idempotent for already SUCCESS orders', async () => {
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'SUCCESS',
-    });
-    await service.closeOrder('RC20260726USER00123456', 'user-1');
-    expect(payment.closePayment).not.toHaveBeenCalled();
-  });
-
-  // ── handleCallback ──
-
-  it('should credit balance on valid SUCCESS callback', async () => {
-    const notify = {
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 5000,
-      payerOpenid: 'oTest123',
-      appid: 'wx1234567890abcdef',
-      mchid: '1234567890',
-    };
-    payment.parseNotify.mockResolvedValue(notify);
-
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-
-    const result = await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from(JSON.stringify({ resource: { ciphertext: 'ct', nonce: 'nonce1', associated_data: 'ad1' } })),
-    );
-
-    expect(result.code).toBe('SUCCESS');
-    expect(payment.parseNotify).toHaveBeenCalled();
-    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'success' });
-    expect(metrics.ordersCompletedTotal.inc).toHaveBeenCalledWith({ channel: 'callback' });
-    expect(metrics.amountFenTotal.inc).toHaveBeenCalledWith(5000);
-  });
-
-  it('should reject callback with mismatched amount', async () => {
-    payment.parseNotify.mockResolvedValue({
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 9999,
-      payerOpenid: 'oTest123',
-      appid: 'wx1234567890abcdef',
-      mchid: '1234567890',
-    });
-
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-
-    const result = await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from('{}'),
-    );
-
+  it('should return FAIL for non-JSON content-type', async () => {
+    const result = await service.handleCallback({ 'content-type': 'text/plain' }, Buffer.from('{}'));
     expect(result.code).toBe('FAIL');
-    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'amount_mismatch' });
+    expect(payment.parseNotify).not.toHaveBeenCalled();
   });
 
-  it('should return SUCCESS for terminal-state order (idempotent callback)', async () => {
-    payment.parseNotify.mockResolvedValue({
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 5000,
-      payerOpenid: 'oTest123',
-      appid: 'wx1234567890abcdef',
-      mchid: '1234567890',
-    });
+  it('should return SUCCESS without parsing when nonce already seen (dedup)', async () => {
+    redis.get.mockResolvedValue('1');
+    const result = await service.handleCallback({ ...JSON_HEADERS, 'wechatpay-nonce': 'dup' }, Buffer.from('{}'));
+    expect(result).toEqual({ code: 'SUCCESS', message: 'OK' });
+    expect(payment.parseNotify).not.toHaveBeenCalled();
+  });
 
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'SUCCESS',
-    });
+  it('should return FAIL on signature verification failure', async () => {
+    payment.parseNotify.mockRejectedValue(new Error('bad signature'));
+    const result = await service.handleCallback(JSON_HEADERS, Buffer.from('{}'));
+    expect(result.code).toBe('FAIL');
+    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'sig_fail' });
+  });
 
-    const result = await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from('{}'),
-    );
+  it('should route SUB-prefixed order to subscription handler', async () => {
+    payment.parseNotify.mockResolvedValue({ outTradeNo: 'SUB202608290001', tradeState: 'SUCCESS' });
+    subOrderService.processPaymentCallback.mockResolvedValue({ code: 'SUCCESS', message: 'OK' });
 
+    const result = await service.handleCallback(JSON_HEADERS, Buffer.from('{}'));
+
+    expect(subOrderService.processPaymentCallback).toHaveBeenCalledWith({ outTradeNo: 'SUB202608290001', tradeState: 'SUCCESS' });
+    expect(teamRechargeService.completeTeamCallback).not.toHaveBeenCalled();
     expect(result.code).toBe('SUCCESS');
   });
 
-  it('should reject callback with non-CNY or mismatched appid', async () => {
-    payment.parseNotify.mockResolvedValue({
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 5000,
-      payerOpenid: 'oTest123',
-      appid: 'wrong-appid',
-      mchid: 'wrong-mchid',
-    });
+  it('should route TEAM-prefixed order to team handler', async () => {
+    payment.parseNotify.mockResolvedValue({ outTradeNo: 'TEAM202608290001', tradeState: 'SUCCESS' });
+    teamRechargeService.completeTeamCallback.mockResolvedValue({ code: 'SUCCESS', message: 'OK' });
 
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
+    const result = await service.handleCallback(JSON_HEADERS, Buffer.from('{}'));
 
-    const result = await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from('{}'),
-    );
-
-    expect(result.code).toBe('FAIL');
+    expect(teamRechargeService.completeTeamCallback).toHaveBeenCalledWith({ outTradeNo: 'TEAM202608290001', tradeState: 'SUCCESS' });
+    expect(subOrderService.processPaymentCallback).not.toHaveBeenCalled();
+    expect(result.code).toBe('SUCCESS');
   });
 
-  it('should use FOR UPDATE row lock during balance credit', async () => {
-    const notify = {
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 5000,
-      payerOpenid: 'oTest123',
-      appid: 'wx1234567890abcdef',
-      mchid: '1234567890',
-    };
-    payment.parseNotify.mockResolvedValue(notify);
+  it('should return FAIL for unknown order number (User-level orders removed)', async () => {
+    payment.parseNotify.mockResolvedValue({ outTradeNo: 'RC20260726USER00123456', tradeState: 'SUCCESS' });
 
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
+    const result = await service.handleCallback(JSON_HEADERS, Buffer.from('{}'));
 
-    let capturedTx: any;
-    prisma.$transaction.mockImplementation(async (fn: Function) => {
-      const itx = createTx();
-      itx.rechargeOrder.findUnique.mockResolvedValue({
-        id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-      });
-      itx.userBalance.upsert.mockResolvedValue({ balance: 10000, version: 0 });
-      capturedTx = itx;
-      return fn(itx);
-    });
-
-    await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from(JSON.stringify({ resource: { ciphertext: 'ct', nonce: 'nonce1', associated_data: 'ad1' } })),
-    );
-
-    expect(capturedTx.$queryRaw).toHaveBeenCalled();
-  });
-
-  it('should report to Sentry with fatal level on transaction failure', async () => {
-    const Sentry = await import('@sentry/nestjs');
-    const notify = {
-      outTradeNo: 'RC20260726USER00123456',
-      transactionId: '4200001234567890',
-      tradeState: 'SUCCESS',
-      tradeStateDesc: '支付成功',
-      amount: 5000,
-      payerOpenid: 'oTest123',
-      appid: 'wx1234567890abcdef',
-      mchid: '1234567890',
-    };
-    payment.parseNotify.mockResolvedValue(notify);
-
-    prisma.rechargeOrder.findUnique.mockResolvedValue({
-      id: 'order-1', orderNo: 'RC20260726USER00123456', userId: 'user-1', amount: 5000, status: 'PENDING',
-    });
-
-    prisma.$transaction.mockRejectedValue(new Error('DB error'));
-
-    await service.handleCallback(
-      { 'content-type': 'application/json', 'wechatpay-nonce': 'n1', 'wechatpay-timestamp': String(Math.floor(Date.now() / 1000)), 'wechatpay-serial': 'PK1', 'wechatpay-signature': 'sig1' },
-      Buffer.from(JSON.stringify({ resource: { ciphertext: 'ct', nonce: 'nonce1', associated_data: 'ad1' } })),
-    );
-
-    expect(Sentry.captureException).toHaveBeenCalled();
-    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'error' });
+    expect(result).toEqual({ code: 'FAIL', message: 'order not found' });
+    expect(metrics.callbackTotal.inc).toHaveBeenCalledWith({ result: 'unknown_order' });
   });
 });

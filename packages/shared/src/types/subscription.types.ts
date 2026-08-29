@@ -85,41 +85,8 @@ export interface CreditBalanceResponse {
   credits: number;
   subscriptionCredits: number;
   subscriptionCreditsExpiry: string | null;
-  balance: number;
+  total: number;
   updatedAt: string;
-}
-
-// ========== Recharge Types ==========
-
-export interface CreateRechargeOrderVO {
-  id: string;
-  orderNo: string;
-  amount: number; // 元，保留 2 位小数
-  status: string;
-  createdAt: string;
-}
-
-export interface PayRechargeOrderVO {
-  orderNo: string;
-  amount: number; // 元
-  status: string;
-  codeUrl: string | null;
-}
-
-export interface RechargeOrderItemVO {
-  id: string;
-  orderNo: string;
-  amount: number;
-  balanceBefore: number;
-  balanceAfter: number;
-  status: string;
-  payChannel: string | null;
-  prepayId: string | null;
-  transactionId: string | null;
-  paidAt: string | null;
-  expiredAt: string | null;
-  closedAt: string | null;
-  createdAt: string;
 }
 
 // ========== Filter Types ==========

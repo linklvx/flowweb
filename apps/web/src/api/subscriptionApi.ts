@@ -24,9 +24,8 @@ export interface UpgradePreview {
 }
 
 export interface CreditBalance {
-  credits: number; subscriptionCredits: number;
+  credits: number; subscriptionCredits: number; total: number;
   subscriptionCreditsExpiry: string | null; updatedAt: string;
-  balance: number;
 }
 
 export const subscriptionApi = {
@@ -53,36 +52,6 @@ export const subscriptionApi = {
       method: 'PATCH',
       body: JSON.stringify(dto),
     }),
-
-  // ── Recharge ──
-
-  createRechargeOrder: (amount: number) =>
-    apiFetch<{ id: string; orderNo: string; amount: number; status: string; createdAt: string }>(
-      '/recharge/orders',
-      { method: 'POST', body: JSON.stringify({ amount }) },
-    ),
-
-  payRechargeOrder: (orderNo: string) =>
-    apiFetch<{ orderNo: string; amount: number; status: string; codeUrl: string | null }>(
-      `/recharge/orders/${orderNo}/pay`,
-      { method: 'POST' },
-    ),
-
-  queryRechargeOrder: (orderNo: string) =>
-    apiFetch<{ orderNo: string; amount: number; status: string; payChannel: string | null; paidAt: string | null }>(
-      `/recharge/orders/${orderNo}`,
-    ),
-
-  closeRechargeOrder: (orderNo: string) =>
-    apiFetch<{ success: boolean }>(
-      `/recharge/orders/${orderNo}/close`,
-      { method: 'POST' },
-    ),
-
-  getRechargeOrders: (page = 1, pageSize = 20) =>
-    apiFetch<{ items: Array<{ id: string; orderNo: string; amount: number; balanceBefore: number; balanceAfter: number; status: string; payChannel: string | null; prepayId: string | null; transactionId: string | null; paidAt: string | null; expiredAt: string | null; closedAt: string | null; createdAt: string }>; total: number; page: number; pageSize: number }>(
-      `/recharge/orders?page=${page}&pageSize=${pageSize}`,
-    ),
 
   // ── Subscription Orders (WeChat Pay) ──
 

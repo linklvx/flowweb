@@ -190,17 +190,22 @@ async function main() {
     }
   }
 
-  // ====== Phase 4: Default User Balance ======
+  // ====== Phase 4: Default User + 默认团队账本（UserBalance 已删，账本唯一 TeamBalance）======
   await prisma.user.upsert({
     where: { id: 'default-user' },
     update: {},
     create: { id: 'default-user', name: 'Default User', email: 'default@flowweb.local', emailVerified: true },
   });
 
-  await prisma.userBalance.upsert({
-    where: { userId: 'default-user' },
+  const defaultTeam = await prisma.team.upsert({
+    where: { id: 'default-team' },
     update: {},
-    create: { userId: 'default-user', credits: 100, version: 0 },
+    create: { id: 'default-team', name: 'Default User的团队', ownerId: 'default-user', status: 'ACTIVE', isDefault: true },
+  });
+  await prisma.teamBalance.upsert({
+    where: { teamId: defaultTeam.id },
+    update: {},
+    create: { teamId: defaultTeam.id, credits: 100 },
   });
 
   // Seed subscription banner singleton

@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { subscriptionApi } from '@/api/subscriptionApi';
 import type { CreditBalance } from '@/api/subscriptionApi';
+import {
+  getDefaultTeam, createTeamRechargeOrder, payTeamOrder, listTeamRechargeOrders,
+  type TeamRechargeOrderRow,
+} from '@/api/teamApi';
 import { message } from 'antd';
-import { Link } from 'react-router';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 
 const PRESET_AMOUNTS = [10, 30, 50, 100, 200, 500];
@@ -34,16 +37,13 @@ export function CreditsPage() {
   const [error, setError] = useState('');
   const [selectedAmount, setSelectedAmount] = useState<number>(10);
   const [recharging, setRecharging] = useState(false);
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<TeamRechargeOrderRow[]>([]);
   const [ordersTotal, setOrdersTotal] = useState(0);
   const [showOrders, setShowOrders] = useState(false);
   const [ordersPage, setOrdersPage] = useState(1);
 
-  // QR Modal state
-  const [qrVisible, setQrVisible] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [qrOrderNo, setQrOrderNo] = useState('');
-  const [qrExpiredAt, setQrExpiredAt] = useState('');
+  // QR Modal state（团队充值订单）
+  const [qrOrder, setQrOrder] = useState<{ orderNo: string; codeUrl: string; amount: number; expiredAt: string } | null>(null);
 
   const loadBalance = useCallback(async () => {
     try {
@@ -57,7 +57,8 @@ export function CreditsPage() {
 
   const loadOrders = useCallback(async (page = 1) => {
     try {
-      const data = await subscriptionApi.getRechargeOrders(page);
+      const team = await getDefaultTeam();
+      const data = await listTeamRechargeOrders(team.id, page);
       setOrders(data.items);
       setOrdersTotal(data.total);
       setOrdersPage(page);
@@ -71,14 +72,18 @@ export function CreditsPage() {
     if (recharging) return;
     setRecharging(true);
     try {
-      const order = await subscriptionApi.createRechargeOrder(selectedAmount);
-      const payResult = await subscriptionApi.payRechargeOrder(order.orderNo);
-      if (payResult.codeUrl) {
-        const expiredAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-        setQrCodeUrl(payResult.codeUrl);
-        setQrOrderNo(order.orderNo);
-        setQrExpiredAt(expiredAt);
-        setQrVisible(true);
+      // 充值到默认团队（1 元 = 10 积分），复用 TeamPage 团队下单模式
+      const team = await getDefaultTeam();
+      const { outTradeNo } = await createTeamRechargeOrder(team.id, selectedAmount);
+      const pay = await payTeamOrder(team.id, outTradeNo);
+      if (pay.codeUrl) {
+        // 微信 Native 下单二维码默认 2 小时有效；amount 后端为分、弹窗展示为元
+        setQrOrder({
+          orderNo: outTradeNo,
+          codeUrl: pay.codeUrl,
+          amount: pay.amount / 100,
+          expiredAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        });
       }
     } catch (e: any) {
       message.error(e.message || '充值失败');
@@ -88,14 +93,10 @@ export function CreditsPage() {
   };
 
   const handlePaymentSuccess = () => {
-    setQrVisible(false);
+    setQrOrder(null);
     message.success('充值成功！');
     loadBalance();
     loadOrders();
-  };
-
-  const handlePaymentCancel = () => {
-    setQrVisible(false);
   };
 
   if (!balance) {
@@ -107,8 +108,8 @@ export function CreditsPage() {
       <h2 className="text-lg font-bold text-[#e2e8f0] mb-6">积分与余额</h2>
       {error && <p className="text-[#ef4444] text-xs mb-4">{error}</p>}
 
-      {/* ── 双卡片布局 ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-w-2xl">
+      {/* ── 积分卡 ── */}
+      <div className="max-w-2xl mb-8">
         <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6">
           <div className="text-center py-4">
             <p className="text-4xl font-bold text-[#f59e0b] mb-2">
@@ -120,24 +121,35 @@ export function CreditsPage() {
             </p>
           </div>
         </div>
-
-        <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6">
-          <div className="text-center py-4">
-            <p className="text-4xl font-bold text-[#4ade80] mb-2">
-              ¥ {Number(balance.balance).toFixed(2)}
-            </p>
-            <p className="text-sm text-[#888]">账户余额（元）</p>
-            <p className="text-xs text-[#666] mt-3">
-              最后更新于 {formatDate(balance.updatedAt)}
-            </p>
-          </div>
-        </div>
       </div>
 
-      {/* S5：个人充值入口下线，引导团队 */}
-      <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-5">
-        <h3 className="text-sm font-bold text-[#e2e8f0] mb-2">充值</h3>
-        <p className="text-xs text-[#888]">个人充值已升级为团队积分：前往 <Link to="/team" className="text-[#5DDCFF]">团队管理 → 积分管理</Link> 为团队充值。</p>
+      {/* ── 充值：默认团队积分（1 元 = 10 积分）── */}
+      <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-5 max-w-2xl mb-8">
+        <h3 className="text-sm font-bold text-[#e2e8f0] mb-1">充值</h3>
+        <p className="text-xs text-[#888] mb-4">积分归属默认团队（1 元 = 10 积分）；团队订阅与席位管理见 团队管理。</p>
+        <div className="grid grid-cols-3 gap-3">
+          {PRESET_AMOUNTS.map((yuan) => (
+            <button
+              key={yuan}
+              onClick={() => setSelectedAmount(yuan)}
+              className={`rounded-lg p-4 cursor-pointer border text-center transition-colors ${
+                selectedAmount === yuan
+                  ? 'border-[#5DDCFF] bg-[#5DDCFF]/10'
+                  : 'border-[#333] bg-[#111] hover:border-[#666]'
+              }`}
+            >
+              <div className="text-lg font-bold text-[#e2e8f0]">{yuan * 10}</div>
+              <div className="text-xs text-[#666]">¥{yuan}</div>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => void handleRecharge()}
+          disabled={recharging}
+          className="mt-4 w-full py-2.5 rounded-lg text-sm font-bold bg-[#5DDCFF] text-[#111] hover:bg-[#7ce4ff] disabled:opacity-50 border-none cursor-pointer"
+        >
+          {recharging ? '创建订单中…' : `微信支付 ¥${selectedAmount}`}
+        </button>
       </div>
 
       {/* ── 充值记录（可折叠）── */}
@@ -164,18 +176,18 @@ export function CreditsPage() {
             {orders.length === 0 ? (
               <p className="text-sm text-[#666] py-4">暂无记录</p>
             ) : (
-              orders.map((o: any) => (
+              orders.map((o) => (
                 <div
                   key={o.id}
                   className="bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-3 flex items-center justify-between text-sm"
                 >
                   <div>
-                    <span className="text-[#ccc] font-mono text-xs">{o.orderNo}</span>
+                    <span className="text-[#ccc] font-mono text-xs">{o.outTradeNo}</span>
                     {statusBadge(o.status)}
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="text-[#4ade80] font-mono">
-                      +¥{Number(o.amount).toFixed(2)}
+                      +¥{(o.amountFen / 100).toFixed(2)}
                     </span>
                     <span className="text-xs text-[#666]">{formatDate(o.createdAt)}</span>
                   </div>
@@ -203,6 +215,18 @@ export function CreditsPage() {
           </div>
         )}
       </div>
+
+      {qrOrder && (
+        <WeChatQRModal
+          visible
+          codeUrl={qrOrder.codeUrl}
+          orderNo={qrOrder.orderNo}
+          amount={qrOrder.amount}
+          expiredAt={qrOrder.expiredAt}
+          onSuccess={handlePaymentSuccess}
+          onCancel={() => setQrOrder(null)}
+        />
+      )}
     </div>
   );
 }

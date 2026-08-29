@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Modal, message } from 'antd';
+import { Modal } from 'antd';
 import { QRCodeSVG } from 'qrcode.react';
 import { io, Socket } from 'socket.io-client';
-import { subscriptionApi } from '../api/subscriptionApi';
 
 interface WeChatQRModalProps {
   visible: boolean;
@@ -12,8 +11,9 @@ interface WeChatQRModalProps {
   expiredAt: string; // ISO string
   onSuccess: () => void;
   onCancel: () => void;
-  // Optional props for subscription orders (defaults to recharge methods)
+  // 订单状态轮询兜底（socket 为主通道）；团队订单无单查端点，不传则跳过轮询
   queryOrderFn?: (orderNo: string) => Promise<{ status: string }>;
+  // 用户主动取消时的关单调用；团队订单由服务端过期关单兜底，不传则跳过
   closeOrderFn?: (orderNo: string) => Promise<{ success: boolean }>;
   successEventName?: string;
   failedEventName?: string;
@@ -27,8 +27,8 @@ export function WeChatQRModal({
   expiredAt,
   onSuccess,
   onCancel,
-  queryOrderFn = subscriptionApi.queryRechargeOrder,
-  closeOrderFn = subscriptionApi.closeRechargeOrder,
+  queryOrderFn,
+  closeOrderFn,
   successEventName = 'payment:success',
   failedEventName = 'payment:failed',
 }: WeChatQRModalProps) {
@@ -48,11 +48,13 @@ export function WeChatQRModal({
 
   const handleCancel = useCallback(async () => {
     stopAll();
-    try {
-      await closeOrderFn(orderNo);
-    } catch { /* best-effort */ }
+    if (closeOrderFn) {
+      try {
+        await closeOrderFn(orderNo);
+      } catch { /* best-effort */ }
+    }
     onCancel();
-  }, [orderNo, onCancel, stopAll]);
+  }, [orderNo, closeOrderFn, onCancel, stopAll]);
 
   useEffect(() => {
     if (!visible) return;
@@ -100,40 +102,42 @@ export function WeChatQRModal({
       stopAll();
     });
 
-    // Polling fallback
-    const getInterval = () => {
-      const elapsed = (Date.now() - startTimeRef.current) / 1000;
-      if (elapsed < 30) return 2000;
-      if (elapsed < 120) return 5000;
-      return 10000;
-    };
+    // Polling fallback (only when a query fn is provided)
+    if (queryOrderFn) {
+      const getInterval = () => {
+        const elapsed = (Date.now() - startTimeRef.current) / 1000;
+        if (elapsed < 30) return 2000;
+        if (elapsed < 120) return 5000;
+        return 10000;
+      };
 
-    const poll = async () => {
-      try {
-        const order = await queryOrderFn(orderNo);
-        if (order.status === 'SUCCESS') {
-          setStatus('success');
-          clearInterval(timer);
-          stopAll();
-          onSuccess();
-        } else if (order.status === 'CLOSED' || order.status === 'FAILED') {
-          setStatus(order.status === 'CLOSED' ? 'closed' : 'failed');
-          clearInterval(timer);
-          stopAll();
-        } else {
-          // Reschedule with next interval
-          clearInterval(pollingRef.current!);
-          pollingRef.current = setTimeout(poll, getInterval());
-        }
-      } catch { /* ignore errors, retry on next poll */ }
-    };
-    pollingRef.current = setTimeout(poll, getInterval());
+      const poll = async () => {
+        try {
+          const order = await queryOrderFn(orderNo);
+          if (order.status === 'SUCCESS') {
+            setStatus('success');
+            clearInterval(timer);
+            stopAll();
+            onSuccess();
+          } else if (order.status === 'CLOSED' || order.status === 'FAILED') {
+            setStatus(order.status === 'CLOSED' ? 'closed' : 'failed');
+            clearInterval(timer);
+            stopAll();
+          } else {
+            // Reschedule with next interval
+            clearInterval(pollingRef.current!);
+            pollingRef.current = setTimeout(poll, getInterval());
+          }
+        } catch { /* ignore errors, retry on next poll */ }
+      };
+      pollingRef.current = setTimeout(poll, getInterval());
+    }
 
     return () => {
       clearInterval(timer);
       stopAll();
     };
-  }, [visible, orderNo, expiredAt, onSuccess, handleCancel, stopAll, queryOrderFn, closeOrderFn, successEventName, failedEventName]);
+  }, [visible, orderNo, expiredAt, onSuccess, handleCancel, stopAll, queryOrderFn, successEventName, failedEventName]);
 
   return (
     <Modal

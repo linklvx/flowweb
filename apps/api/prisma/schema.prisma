@@ -22,7 +22,6 @@ model User {
   updatedAt      DateTime         @updatedAt
   accounts       Account[]
   sessions       Session[]
-  balance        UserBalance?
   templates      Template[]
   canvasProjects CanvasProject[]
   media          Media[]
@@ -261,20 +260,6 @@ model PricingRule {
   @@index([modelId])
 }
 
-model UserBalance {
-  id                     String    @id @default(cuid())
-  userId                 String    @unique
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credits                Int       @default(100)
-  subscriptionCredits    Int       @default(0)
-  subscriptionCreditsExpiry DateTime?
-  balance                Int       @default(0)
-  version                Int       @default(0)
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-
-}
-
 model Media {
   id           String    @id @default(uuid())
   userId       String
@@ -459,40 +444,9 @@ enum SubscriptionOrderStatus {
   CLOSED
 }
 
-enum CreditTransactionType {
-  subscription_grant
-  upgrade_clear
-  expire_clear
-  admin_clear
-  admin_grant
-  consumption
-  subscription_payment
-}
-
 enum CreditType {
   regular
   subscription
-}
-
-enum CreditReferenceType {
-  subscription
-  order
-  execution
-  admin
-}
-
-enum RechargeOrderStatus {
-  PENDING
-  SUCCESS
-  FAILED
-  CLOSED
-}
-
-enum BalanceTxType {
-  RECHARGE
-  CONSUME
-  REFUND
-  ADJUST
 }
 
 enum AuditTargetType {
@@ -602,62 +556,6 @@ model SubscriptionOrder {
   updatedAt           DateTime                  @updatedAt
 }
 
-model RechargeOrder {
-  id             String              @id @default(cuid())
-  orderNo        String              @unique
-  userId         String
-  amount         Int
-  balanceBefore  Int                 @default(0)
-  balanceAfter   Int                 @default(0)
-  status         RechargeOrderStatus @default(PENDING)
-  payChannel     String?             @db.VarChar(32)
-  prepayId       String?             @db.VarChar(64)
-  transactionId  String?             @db.VarChar(64)
-  payerOpenid    String?             @db.VarChar(64)
-  paidAt         DateTime?
-  expiredAt      DateTime?
-  closedAt       DateTime?
-  remark         String?             @db.VarChar(512)
-  clientIp       String?
-  notifySummary  Json?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-
-  @@index([userId, createdAt])
-  @@index([status, createdAt])
-  @@index([status, expiredAt])
-}
-
-model UserBalanceTransaction {
-  id             String        @id @default(cuid())
-  userId         String
-  amountFen      Int
-  balanceBefore  Int
-  balanceAfter   Int
-  type           BalanceTxType
-  bizOrderNo     String
-  createdAt      DateTime      @default(now())
-
-  @@index([userId, createdAt])
-  @@index([bizOrderNo])
-}
-
-model CreditTransaction {
-  id            String                @id @default(cuid())
-  userId        String
-  amount        Int
-  type          CreditTransactionType
-  creditType    CreditType
-  referenceId   String?
-  referenceType CreditReferenceType?
-  balanceAfter  Int
-  createdAt     DateTime              @default(now())
-
-  @@index([userId, createdAt])
-  @@index([type])
-  @@index([referenceId])
-}
-
 model AuditLog {
   id           String          @id @default(cuid())
   operatorId   String
@@ -759,6 +657,7 @@ model Team {
   joinRequests TeamJoinRequest[]
 
   @@index([status])
+  @@index([ownerId])
 }
 
 model TeamMember {

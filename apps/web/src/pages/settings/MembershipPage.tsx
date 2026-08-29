@@ -52,7 +52,7 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
 export function MembershipPage() {
   const { data: plans } = useSubscriptionPlans();
   const { data: sub, loading, refresh: refreshSub } = useMySubscription();
-  const { credits, subscriptionCredits, subscriptionCreditsExpiry, balance, refresh: refreshBalance } = useCreditBalance();
+  const { credits, subscriptionCredits, subscriptionCreditsExpiry, refresh: refreshBalance } = useCreditBalance();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [upgradePlan, setUpgradePlan] = useState<SubscriptionPlan | null>(null);
@@ -148,7 +148,6 @@ export function MembershipPage() {
     <div>
       <h2 className="text-lg font-bold text-white mb-1">会员中心</h2>
       <div className="flex gap-3 mb-6 text-sm">
-        <span className="text-[#888]">账户余额: <span className="text-[#4ade80] font-mono">¥{Number(balance ?? 0).toFixed(2)}</span></span>
         <span className="text-[#888]">普通积分: <span className="text-white font-mono">{(credits ?? 0).toLocaleString()}</span></span>
         <span className="text-[#888]">订阅积分: <span className="text-white font-mono">{(subscriptionCredits ?? 0).toLocaleString()}</span></span>
         {subscriptionCreditsExpiry && <span className="text-[#666] text-xs">(到期: {new Date(subscriptionCreditsExpiry).toLocaleDateString()})</span>}

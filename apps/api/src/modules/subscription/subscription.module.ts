@@ -7,7 +7,6 @@ import { PricingService } from './pricing.service';
 import { SubscriptionBannerService } from './subscription-banner.service';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionBannerPublicController } from './subscription-banner.public.controller';
-import { CreditModule } from '../credit/credit.module';
 import { OrderModule } from '../order/order.module';
 import { RechargeModule } from '../recharge/recharge.module';
 import { AuditService } from '../../common/audit/audit.service';
@@ -19,7 +18,6 @@ const env = validateEnv();
 
 @Module({
   imports: [
-    CreditModule,
     OrderModule,
     forwardRef(() => RechargeModule),
     BullModule.registerQueue({ name: QUEUE_NAMES.BANNER_CLEANUP }),

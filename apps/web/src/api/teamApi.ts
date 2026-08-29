@@ -41,6 +41,11 @@ export function getMyTeams() {
   return apiFetch<MyTeam[]>('/team/mine');
 }
 
+/** 当前用户的默认团队（个人项目归属；无则后端确保创建） */
+export function getDefaultTeam() {
+  return apiFetch<{ id: string; name: string; isDefault: boolean }>('/team/default');
+}
+
 export function createTeam(name: string) {
   return apiFetch<{ id: string; name: string }>('/team/create', {
     method: 'POST',
@@ -123,6 +128,22 @@ export function payTeamOrder(teamId: string, orderNo: string) {
   return apiFetch<{ orderNo: string; amount: number; status: string; codeUrl: string | null }>(`/team/${teamId}/recharge/orders/${orderNo}/pay`, {
     method: 'POST',
   });
+}
+
+export interface TeamRechargeOrderRow {
+  id: string;
+  outTradeNo: string;
+  amountFen: number;
+  kind: string;
+  status: string;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export function listTeamRechargeOrders(teamId: string, page = 1, pageSize = 20) {
+  return apiFetch<{ items: TeamRechargeOrderRow[]; total: number }>(
+    `/team/${teamId}/recharge/orders?kind=credits&page=${page}&pageSize=${pageSize}`,
+  );
 }
 
 export function createSubscriptionOrder(teamId: string, planId: string) {
