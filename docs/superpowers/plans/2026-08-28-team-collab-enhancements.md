@@ -2062,6 +2062,7 @@ cd apps/web && grep -rn "canvasHistoryRuntime" src --include="*.ts*"
 - `useStitchTask.test.ts:19,39` temporal 断言改 UndoManager 断言
 - `page.test.tsx` L21-22 mock 改 `vi.mock('@/stores/canvasUndo', () => ({ undoCanvas: vi.fn(), redoCanvas: vi.fn() }))`；L285-295 hydrateLoaded 断言删除
 - `CanvasView.test.tsx` L23-24 mock 改 canvasUndo（stopCapturing: vi.fn()）；L428-435 M-4 兜底断言删除（无 pause 状态）
+- `useGroupKeyboard.test.ts`：其 `vi.mock('@/stores/canvasHistoryRuntime')` 已失联（模块已删），Task 17 需清理该 mock 行
 
 - [ ] **Step 5: 卸载依赖 + 全量回归**
 

@@ -27,7 +27,7 @@ function GroupNodeResizer({ id }: { id: string }) {
       minWidth={minSize.minWidth}
       minHeight={minSize.minHeight}
       handleStyle={HANDLE}
-      onResizeEnd={() => { stopCapturing(); useCanvasStore.getState().markManuallyResized(id); }}
+      onResizeEnd={() => { useCanvasStore.getState().markManuallyResized(id); stopCapturing(); }}
     />
   );
 }

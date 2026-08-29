@@ -963,7 +963,6 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   }, []);
 
   const handleResizeEnd = useCallback(() => {
-    stopCapturing();
     setIsResizing(false);
     const currentNodes = getNodes();
     const currentNode = currentNodes.find((n) => n.id === id);
@@ -977,6 +976,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       // Immediately sync local size state so edit overlays use the new dimensions
       setImgSize({ w, h });
     }
+    stopCapturing();
   }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
 
   // 刷新恢复竞态：canvasStore 有节点但 nodeStore 尚无数据时渲染占位（TD-7，原 return null 空白）

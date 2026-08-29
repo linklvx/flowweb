@@ -589,9 +589,9 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   }, [finishResize]);
 
   const handleResizeEnd = useCallback(() => {
-    stopCapturing();
     setIsResizing(false);
     finishResize();
+    stopCapturing();
   }, [finishResize]);
 
   // Restore customSize dimensions on mount
