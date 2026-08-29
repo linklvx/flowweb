@@ -22,6 +22,9 @@ const api = vi.hoisted(() => ({
   listTeamPlans: vi.fn(),
   getTeamLimits: vi.fn(),
   getTeamUsage: vi.fn(),
+  // 新 TeamPage 调用 teamDisplayName；mock 工厂缺失则组件内 undefined 即崩
+  teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
+  createTeam: vi.fn(),
 }));
 
 vi.mock('@/api/teamApi', () => api);
@@ -31,13 +34,13 @@ vi.mock('@/components/AuthProvider', () => ({
 }));
 
 const team = {
-  id: 't1', name: '我的团队', role: 'OWNER' as const, status: 'ACTIVE', memberCount: 2,
+  id: 't1', name: '我的团队', role: 'OWNER' as const, status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2,
   balance: { credits: 400, subscriptionCredits: 100 },
   subscription: null,
 };
 
 function setup() {
-  api.getMyTeams.mockResolvedValue([team, { ...team, id: 't2', name: '第二团队', role: 'MEMBER' as const }]);
+  api.getMyTeams.mockResolvedValue([team, { ...team, id: 't2', name: '第二团队', role: 'MEMBER' as const, isOwner: false }]);
   api.listMembers.mockResolvedValue({
     items: [
       { id: 'm1', role: 'OWNER', monthlyQuota: 0, monthlyUsed: 0, user: { id: 'u1', name: '我' } },
@@ -124,5 +127,41 @@ describe('TeamPage', () => {
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     await screen.findByText('张三');
     expect(screen.getAllByText('— 空席位 —').length).toBe(18);
+  });
+
+  it('只有默认团队时空状态+新建团队按钮', async () => {
+    api.getMyTeams.mockResolvedValue([
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新建团队' })).toBeInTheDocument();
+  });
+
+  it('选中默认团队时渲染个人项目精简面板（余额+订阅状态，无成员管理）', async () => {
+    api.getMyTeams.mockResolvedValue([
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    localStorage.setItem('currentTeamId', 't1');
+    api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    expect(await screen.findByText('个人项目')).toBeInTheDocument();
+    expect(screen.getByTestId('personal-balance-total')).toHaveTextContent('150');
+    expect(screen.queryByTestId('tab-members')).not.toBeInTheDocument();
+    await waitFor(() => expect(api.listMembers).not.toHaveBeenCalled());
+  });
+
+  it('个人精简面板充值按钮跳 /settings/credits、开通会员跳 /settings/membership', async () => {
+    api.getMyTeams.mockResolvedValue([
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    localStorage.setItem('currentTeamId', 't1');
+    api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    expect(await screen.findByText('个人项目')).toBeInTheDocument();
+    expect(screen.getByTestId('link-personal-recharge').getAttribute('href')).toBe('/settings/credits');
+    expect(screen.getByTestId('link-personal-membership').getAttribute('href')).toBe('/settings/membership');
   });
 });

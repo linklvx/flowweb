@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Table, Button, Modal, Input, Progress, Tag, message, Pagination, Switch } from 'antd';
 import {
-  getMyTeams, listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
+  createTeam, getMyTeams, listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
   listJoinRequests, approveJoinRequest, rejectJoinRequest,
   getTeamBalanceView, listTeamTransactions,
   createTeamRechargeOrder, payTeamOrder, createSubscriptionOrder, listTeamPlans,
   getTeamLimits, getTeamUsage,
-  getAuditLogs, type AuditLogRow,
+  getAuditLogs, teamDisplayName, type AuditLogRow,
 } from '@/api/teamApi';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 import { useAuth } from '@/components/AuthProvider';
@@ -67,6 +67,12 @@ export default function TeamPage() {
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [qrOrder, setQrOrder] = useState<{ orderNo: string; codeUrl: string; amount: number; expiredAt: string } | null>(null);
   const [subscribePlan, setSubscribePlan] = useState<any | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const realTeams = teams.filter((t) => !t.isDefault);
+  const isPersonal = team?.isDefault ?? false;
 
   const refreshTeams = useCallback(async () => {
     const list = await getMyTeams();
@@ -80,7 +86,7 @@ export default function TeamPage() {
   useEffect(() => { void refreshTeams(); }, [refreshTeams]);
 
   const refreshAll = useCallback(async () => {
-    if (!teamId) return;
+    if (!teamId || isPersonal) return;
     const [m, b, tx, lim, u, rq, ps] = await Promise.all([
       listMembers(teamId, memberPage),
       getTeamBalanceView(teamId),
@@ -91,25 +97,98 @@ export default function TeamPage() {
       listTeamPlans().catch(() => []),
     ]);
     setMembers(m); setBalance(b); setTransactions(tx); setLimits(lim); setUsage(u); setRequests(rq as any[]); setPlans(ps);
-  }, [teamId, memberPage, txPage]);
+  }, [teamId, memberPage, txPage, isPersonal]);
 
   useEffect(() => { void refreshAll(); }, [refreshAll]);
 
+  // 个人（默认）团队：不走团队管理接口，只拉余额视图
+  useEffect(() => {
+    if (!teamId || !isPersonal) return;
+    getTeamBalanceView(teamId).then(setBalance).catch(() => {});
+  }, [teamId, isPersonal]);
+
   // 审计日志：切到 audit tab 时按需拉取（仅 OWNER/ADMIN 可见，且接口仅管理员可调）
   const refreshAudit = useCallback(async () => {
-    if (!teamId || tab !== 'audit') return;
+    if (!teamId || isPersonal || tab !== 'audit') return;
     if (!team || (team.role !== 'OWNER' && team.role !== 'ADMIN')) return;
     try {
       setAuditLogs(await getAuditLogs(teamId, auditPage));
     } catch {
       message.error('审计日志加载失败');
     }
-  }, [teamId, team, tab, auditPage]);
+  }, [teamId, team, tab, auditPage, isPersonal]);
 
   useEffect(() => { void refreshAudit(); }, [refreshAudit]);
 
+  const doCreateTeam = async () => {
+    if (creating || !createName.trim()) return;
+    setCreating(true);
+    try {
+      const t = await createTeam(createName.trim());
+      localStorage.setItem('currentTeamId', t.id);
+      location.reload();
+    } catch (err) {
+      message.error('创建失败：' + (err as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const createModal = (
+    <Modal open={createOpen} title="新建团队" okText="创建" cancelText="取消" confirmLoading={creating}
+      onCancel={() => setCreateOpen(false)} onOk={doCreateTeam}>
+      <Input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="团队名称" />
+    </Modal>
+  );
+
   if (!teamId || !team) {
     return <div className="min-h-screen bg-[#111] text-[#e2e8f0] p-10">加载中…</div>;
+  }
+
+  if (realTeams.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#111] text-[#e2e8f0]">
+        <div className="max-w-xl mx-auto flex flex-col items-center justify-center py-24 gap-4" data-testid="team-empty-state">
+          <p className="text-sm text-[#888]">还没有团队——个人项目无需团队管理，创建团队后可邀请成员协作</p>
+          <Button type="primary" onClick={() => setCreateOpen(true)}>新建团队</Button>
+          {createModal}
+        </div>
+      </div>
+    );
+  }
+
+  if (isPersonal) {
+    return (
+      <div className="min-h-screen bg-[#111] text-[#e2e8f0]">
+        <div className="max-w-2xl mx-auto p-8" data-testid="personal-panel">
+          <h2 className="text-lg font-bold mb-1">个人项目</h2>
+          <p className="text-sm text-[#888] mb-6">个人项目的积分、订阅与作品独立于团队，无需团队管理。</p>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-white/5 rounded-lg p-4">
+              <p className="text-3xl font-bold text-[#f59e0b]" data-testid="personal-balance-total">
+                {(balance?.total ?? 0).toLocaleString()}
+              </p>
+              <p className="text-xs text-[#888] mt-1">可用积分（通用 {balance?.credits ?? 0} · 订阅 {balance?.subscriptionCredits ?? 0}）</p>
+            </div>
+            <div className="bg-white/5 rounded-lg p-4">
+              {team?.subscription ? (
+                <>
+                  <p className="text-base font-bold">{team.subscription.planName}</p>
+                  <p className="text-xs text-[#888] mt-1">有效期至 {new Date(team.subscription.currentPeriodEnd).toLocaleDateString()}</p>
+                </>
+              ) : (
+                <p className="text-sm text-[#888]">暂无订阅</p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Link to="/settings/credits" data-testid="link-personal-recharge" className="px-4 py-1.5 rounded-md bg-[#f59e0b] text-black text-sm no-underline">充值</Link>
+            <Link to="/settings/membership" data-testid="link-personal-membership" className="px-4 py-1.5 rounded-md bg-[#4ade80] text-black text-sm no-underline">开通/管理会员</Link>
+          </div>
+        </div>
+        {createModal}
+      </div>
+    );
   }
 
   const isOwner = team.role === 'OWNER';
@@ -159,7 +238,7 @@ export default function TeamPage() {
       {/* Header */}
       <div className="border-b border-[#222] px-8 py-4 flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-bold">{team.name}</span>
+          <span className="text-lg font-bold">{teamDisplayName(team)}</span>
           <Tag color={isOwner ? 'gold' : isAdmin ? 'cyan' : 'default'}>{ROLE_LABEL[team.role]}</Tag>
           {team.subscription ? (
             <Tag style={{ background: '#07B8DD', color: '#000', border: 'none' }}>
@@ -191,14 +270,15 @@ export default function TeamPage() {
             });
           }}>解散团队</Button>
         )}
-        {teams.length > 1 && (
+        <Button size="small" onClick={() => setCreateOpen(true)}>新建团队</Button>
+        {realTeams.length > 0 && (
           <select
             value={teamId}
             onChange={(e) => switchTeam(e.target.value)}
             className="bg-[#1A1A1A] border border-[#333] rounded px-2 py-1 text-xs"
             data-testid="team-switcher"
           >
-            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {teams.map((t) => <option key={t.id} value={t.id}>{teamDisplayName(t)}</option>)}
           </select>
         )}
       </div>
@@ -405,7 +485,7 @@ export default function TeamPage() {
       {/* Modals */}
       <Modal open={renameOpen} title="重命名团队" onCancel={() => setRenameOpen(false)}
         onOk={async () => { await renameTeam(teamId, renameValue || team.name); setRenameOpen(false); void refreshTeams(); }}>
-        <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder={team.name} />
+        <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder={teamDisplayName(team)} />
       </Modal>
 
       <Modal open={inviteOpen} title="邀请成员" footer={null} onCancel={() => setInviteOpen(false)}>
@@ -438,6 +518,8 @@ export default function TeamPage() {
           ))}
         </div>
       </Modal>
+
+      {createModal}
 
       <Modal open={!!subscribePlan} title="开通团队订阅" onCancel={() => setSubscribePlan(null)} footer={null}>
         <div className="flex flex-col gap-3">
