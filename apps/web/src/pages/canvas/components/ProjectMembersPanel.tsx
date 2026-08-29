@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Dropdown, Modal, Select, Table, Tag } from 'antd';
+import { Button, Dropdown, message, Modal, Select, Table, Tag } from 'antd';
 import {
   listProjectMembers,
   addProjectMember,
@@ -42,9 +42,13 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
               { key: 'remove', label: '移除显式记录', danger: true, disabled: r.source === 'inherited' }, // 继承成员无记录，remove 会 404
             ],
             onClick: async ({ key }: { key: string }) => {
-              if (key === 'remove') await removeProjectMember(projectId, r.userId);
-              else await changeProjectMemberRole(projectId, r.userId, `PROJECT_${key}`);
-              void load();
+              try {
+                if (key === 'remove') await removeProjectMember(projectId, r.userId);
+                else await changeProjectMemberRole(projectId, r.userId, `PROJECT_${key}`);
+                void load();
+              } catch (err) {
+                message.error('操作失败：' + (err as Error).message);
+              }
             },
           }}
         >
@@ -73,8 +77,12 @@ function AddMemberModal({ open, onClose, onDone, projectId, rows }: {
   const candidates = rows.filter((r) => r.source === 'inherited'); // 仅对继承成员做显式覆盖
   const submit = async () => {
     if (!userId) return;
-    await addProjectMember(projectId, userId, role);
-    onDone(); onClose();
+    try {
+      await addProjectMember(projectId, userId, role);
+      onDone(); onClose();
+    } catch (err) {
+      message.error('添加失败：' + (err as Error).message);
+    }
   };
   return (
     <Modal open={open} title="添加项目成员" onCancel={onClose} onOk={submit}>

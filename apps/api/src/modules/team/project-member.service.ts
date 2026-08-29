@@ -65,6 +65,7 @@ export class ProjectMemberService {
       select: { teamId: true },
     });
     if (!project) throw new NotFoundException('项目不存在');
+    // 先校验目标在团（400 语义），再做 caller 权限门（403）——caller 已过 TeamGuard，顺序不影响安全
     const inTeam = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId: targetUserId } },
     });

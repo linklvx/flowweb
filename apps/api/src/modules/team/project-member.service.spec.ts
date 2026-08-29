@@ -64,4 +64,14 @@ describe('ProjectMemberService', () => {
     prisma.projectMember.count.mockResolvedValue(1);
     await expect(svc.remove('p1', 'caller1', 'u2')).rejects.toThrow('最后一个');
   });
+
+  it('remove：非 OWNER 显式记录正常移除', async () => {
+    permSvc.resolve.mockResolvedValue('PROJECT_OWNER');
+    prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't1' });
+    prisma.teamMember.findUnique.mockResolvedValue({ role: 'OWNER' });
+    prisma.projectMember.findUnique.mockResolvedValue({ id: 'm1', role: 'PROJECT_EDITOR' });
+    prisma.projectMember.delete.mockResolvedValue({});
+    await expect(svc.remove('p1', 'caller1', 'u2')).resolves.toEqual({ ok: true });
+    expect(prisma.projectMember.delete).toHaveBeenCalledWith({ where: { id: 'm1' } });
+  });
 });
