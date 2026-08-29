@@ -1,11 +1,14 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Inject } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { clearPersonalTeamSubscription } from './personal-team-ledger';
 
 @Processor('subscription-expire')
 export class ExpireSubscriptionProcessor extends WorkerHost {
+  private readonly logger = new Logger(ExpireSubscriptionProcessor.name);
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {
     super();
   }
@@ -29,19 +32,25 @@ export class ExpireSubscriptionProcessor extends WorkerHost {
 
       for (const sub of subs) {
         lastId = sub.id; // 复查 continue 跳过的记录也推进游标，避免错位漏扫
-        // Re-verify still active (defensive check after grant processor may have changed state)
-        const current = await this.prisma.userSubscription.findUnique({ where: { id: sub.id } });
-        if (current?.status !== 'active') continue;
+        try {
+          // Re-verify still active (defensive check after grant processor may have changed state)
+          const current = await this.prisma.userSubscription.findUnique({ where: { id: sub.id } });
+          if (current?.status !== 'active') continue;
 
-        await this.prisma.$transaction(async (tx) => {
-          await tx.userSubscription.update({
-            where: { id: sub.id },
-            data: { status: 'expired' as any },
+          await this.prisma.$transaction(async (tx) => {
+            await tx.userSubscription.update({
+              where: { id: sub.id },
+              data: { status: 'expired' as any },
+            });
+
+            // 清零默认团队实时剩余订阅积分（禁 totalCredits-consumedCredits 推算），无剩余不写流水
+            await clearPersonalTeamSubscription(tx, sub.userId, 'expire_clear', sub.id);
           });
-
-          // 清零默认团队实时剩余订阅积分（禁 totalCredits-consumedCredits 推算），无剩余不写流水
-          await clearPersonalTeamSubscription(tx, sub.userId, 'expire_clear', sub.id);
-        });
+        } catch (err) {
+          // 单个用户失败不得中止当日扫描（bootstrap 失败用户会拖垮全体）
+          Sentry.captureException(err);
+          this.logger.error(`[expire-subscription] failed for subscription ${sub.id}: ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
   }

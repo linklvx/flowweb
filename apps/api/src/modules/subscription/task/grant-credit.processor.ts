@@ -1,11 +1,14 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Inject } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { grantToPersonalTeam } from './personal-team-ledger';
 
 @Processor('subscription-grant-credit')
 export class GrantCreditProcessor extends WorkerHost {
+  private readonly logger = new Logger(GrantCreditProcessor.name);
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {
     super();
   }
@@ -29,24 +32,30 @@ export class GrantCreditProcessor extends WorkerHost {
 
       for (const sub of subs) {
         lastId = sub.id; // continue 跳过的记录也推进游标，避免错位漏发
-        const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } });
-        if (!plan) continue;
+        try {
+          const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } });
+          if (!plan) continue;
 
-        const maxGrants = sub.period === 'monthly' ? 1 : sub.period === 'quarterly' ? 3 : 12;
-        if (sub.grantCount >= maxGrants) continue;
+          const maxGrants = sub.period === 'monthly' ? 1 : sub.period === 'quarterly' ? 3 : 12;
+          if (sub.grantCount >= maxGrants) continue;
 
-        await this.prisma.$transaction(async (tx) => {
-          const nextGrant = new Date(sub.nextGrantDate.getTime() + 30 * 86400000);
-          nextGrant.setUTCHours(0, 0, 0, 0);
+          await this.prisma.$transaction(async (tx) => {
+            const nextGrant = new Date(sub.nextGrantDate.getTime() + 30 * 86400000);
+            nextGrant.setUTCHours(0, 0, 0, 0);
 
-          await tx.userSubscription.update({
-            where: { id: sub.id },
-            data: { nextGrantDate: nextGrant, grantCount: { increment: 1 } },
+            await tx.userSubscription.update({
+              where: { id: sub.id },
+              data: { nextGrantDate: nextGrant, grantCount: { increment: 1 } },
+            });
+
+            // 周期覆盖不滚存：旧池有剩余先清零（expire_clear 流水）再设值发放
+            await grantToPersonalTeam(tx, sub.userId, plan.monthlyCredits, 'expire_clear', sub.id);
           });
-
-          // 周期覆盖不滚存：旧池有剩余先清零（expire_clear 流水）再设值发放
-          await grantToPersonalTeam(tx, sub.userId, plan.monthlyCredits, 'expire_clear', sub.id);
-        });
+        } catch (err) {
+          // 单个用户失败不得中止当日扫描（bootstrap 失败用户会拖垮全体）
+          Sentry.captureException(err);
+          this.logger.error(`[grant-credit] failed for subscription ${sub.id}: ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
   }
