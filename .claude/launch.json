@@ -29,6 +29,22 @@
       }
     },
     {
+      "name": "api-b",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "turbo",
+        "run",
+        "dev",
+        "--filter=@flowweb/api"
+      ],
+      "port": 3002,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PORT": "3002",
+        "COLLAB_PORT": "3003"
+      }
+    },
+    {
       "name": "minio",
       "runtimeExecutable": "minio.exe",
       "runtimeArgs": [
