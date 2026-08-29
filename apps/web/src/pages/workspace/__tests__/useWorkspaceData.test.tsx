@@ -110,7 +110,7 @@ describe('useWorkspaceData', () => {
     await waitFor(() => expect(result.current.status).toBe('success'));
     vi.mocked(apiCreateFolder).mockResolvedValue(folderDto('f9', '新建') as never);
     await act(async () => { await result.current.createFolder('新建'); });
-    expect(apiCreateFolder).toHaveBeenCalledWith('新建');
+    expect(apiCreateFolder).toHaveBeenCalledWith('新建', undefined);
   });
 
   it('renameFolder 乐观更新失败回滚', async () => {
@@ -175,5 +175,29 @@ describe('useWorkspaceData', () => {
       try { await result.current.deleteCanvas('c1'); } catch {}
     });
     expect(result.current.canvases.find((c) => c.id === 'c1')).toBeDefined();
+  });
+
+  it('传 teamId 时 API 调用带团队维度', async () => {
+    vi.mocked(getFolders).mockResolvedValue({ folders: [] } as never);
+    vi.mocked(getTemplates).mockResolvedValue({ templates: [], total: 0, page: 1, limit: 20, totalPages: 1 } as never);
+    const { result } = renderHook(() => useWorkspaceData('t-team'));
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    expect(getFolders).toHaveBeenCalledWith('t-team');
+    expect(getTemplates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ teamId: 't-team' }),
+    );
+  });
+
+  it('传 teamId 时 createFolder/createCanvas 透传 teamId', async () => {
+    vi.mocked(getFolders).mockResolvedValue({ folders: [] } as never);
+    vi.mocked(getTemplates).mockResolvedValue({ templates: [], total: 0, page: 1, limit: 20, totalPages: 1 } as never);
+    vi.mocked(apiCreateFolder).mockResolvedValue({ id: 'f1' } as never);
+    vi.mocked(apiCreateCanvas).mockResolvedValue({ templateId: 'tp', projectId: 'p1', name: 'n' } as never);
+    const { result } = renderHook(() => useWorkspaceData('t-team'));
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    await act(async () => { await result.current.createFolder('x'); });
+    await act(async () => { await result.current.createCanvas('y', null); });
+    expect(apiCreateFolder).toHaveBeenCalledWith('x', 't-team');
+    expect(apiCreateCanvas).toHaveBeenCalledWith('y', null, 't-team');
   });
 });

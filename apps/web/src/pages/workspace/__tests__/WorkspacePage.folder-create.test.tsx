@@ -59,7 +59,7 @@ describe('WorkspacePage 文件夹内新建画布', () => {
     fireEvent.click(await screen.findByRole('button', { name: /新建画布/ }));
     fireEvent.change(await screen.findByLabelText('画布名称'), { target: { value: '文件夹内新作' } });
     fireEvent.click(screen.getByRole('button', { name: '确 定' }));
-    await waitFor(() => expect(canvasApi.createCanvas).toHaveBeenCalledWith('文件夹内新作', 'f1'));
+    await waitFor(() => expect(canvasApi.createCanvas).toHaveBeenCalledWith('文件夹内新作', 'f1', undefined));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/canvas?projectId=p9'));
   });
 });

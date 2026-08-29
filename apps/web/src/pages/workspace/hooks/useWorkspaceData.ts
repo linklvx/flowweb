@@ -15,7 +15,7 @@ function toCanvas(t: any): Canvas {
   };
 }
 
-export function useWorkspaceData() {
+export function useWorkspaceData(teamId?: string) {
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [folders, setFolders] = useState<FolderViewModel[]>([]);
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -25,14 +25,14 @@ export function useWorkspaceData() {
   const pageRef = useRef(1);
 
   const refreshFolders = useCallback(async () => {
-    const data = await getFolders();
+    const data = await getFolders(teamId);
     setFolders(data.folders.map((f) => ({
       id: f.id, name: f.name, parentId: f.parentId,
       createdAt: f.createdAt, updatedAt: f.updatedAt,
       canvasCount: f.canvasCount,
       thumbnails: f.thumbnails.map((t) => (t.coverUrl ? `url("${t.coverUrl}")` : getCanvasGradient(t.id))),
     })));
-  }, []);
+  }, [teamId]);
 
   const loadFolder = useCallback(async (folderId: string | null) => {
     currentRef.current = folderId;
@@ -42,7 +42,7 @@ export function useWorkspaceData() {
     try {
       const [, data] = await Promise.all([
         refreshFolders(),
-        getTemplates({ type: 'my', folderId: folderId ?? 'root', page: 1, limit: PAGE_SIZE }),
+        getTemplates({ type: 'my', teamId, folderId: folderId ?? 'root', page: 1, limit: PAGE_SIZE }),
       ]);
       setCanvases((data.templates ?? []).map(toCanvas));
       setHasMore(1 < (data.totalPages ?? 1));
@@ -60,7 +60,7 @@ export function useWorkspaceData() {
     const next = pageRef.current + 1;
     const folderId = currentRef.current;
     try {
-      const data = await getTemplates({ type: 'my', folderId: folderId ?? 'root', page: next, limit: PAGE_SIZE });
+      const data = await getTemplates({ type: 'my', teamId, folderId: folderId ?? 'root', page: next, limit: PAGE_SIZE });
       setCanvases((prev) => [...prev, ...(data.templates ?? []).map(toCanvas)]);
       pageRef.current = next;
       setPage(next);
@@ -68,12 +68,12 @@ export function useWorkspaceData() {
     } catch {
       message.error('加载失败，请重试');
     }
-  }, []);
+  }, [teamId]);
 
   const createFolder = useCallback(async (name: string) => {
-    await apiCreateFolder(name);
+    await apiCreateFolder(name, teamId);
     await refreshFolders();
-  }, [refreshFolders]);
+  }, [refreshFolders, teamId]);
 
   const renameFolder = useCallback(async (id: string, name: string) => {
     const prev = folders;
@@ -142,7 +142,7 @@ export function useWorkspaceData() {
   }, [canvases]);
 
   const createCanvas = useCallback(async (name: string, folderId: string | null): Promise<string> => {
-    const { templateId, projectId } = await apiCreateCanvas(name, folderId);
+    const { templateId, projectId } = await apiCreateCanvas(name, folderId, teamId);
     const now = new Date().toISOString();
     setCanvases((prev) => [
       { id: templateId, projectId, name, coverUrl: null, isPublic: false, createdAt: now, updatedAt: now, folderId },
@@ -150,7 +150,7 @@ export function useWorkspaceData() {
     ]);
     await refreshFolders();
     return projectId;
-  }, [refreshFolders]);
+  }, [refreshFolders, teamId]);
 
   return {
     status, reload, folders, canvases, hasMore, page,

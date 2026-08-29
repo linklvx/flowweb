@@ -184,7 +184,7 @@ describe('WorkspacePage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /新建文件夹/ }));
     fireEvent.change(await screen.findByLabelText('文件夹名称'), { target: { value: '我的新文件夹' } });
     fireEvent.click(screen.getByRole('button', { name: '确 定' }));
-    await waitFor(() => expect(folderApi.createFolder).toHaveBeenCalledWith('我的新文件夹'));
+    await waitFor(() => expect(folderApi.createFolder).toHaveBeenCalledWith('我的新文件夹', undefined));
   });
 
   it('无效 folderId 重置根目录', async () => {
