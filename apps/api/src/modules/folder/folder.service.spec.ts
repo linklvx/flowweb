@@ -20,6 +20,8 @@ describe('FolderService', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       template: { count: vi.fn().mockResolvedValue(0) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       $transaction: vi.fn().mockResolvedValue([0, { id: 'f1' }]),
     };
     const module: TestingModule = await Test.createTestingModule({
@@ -63,10 +65,10 @@ describe('FolderService', () => {
     await expect(service.create('工作', 'u1')).rejects.toThrow(BadRequestException);
   });
 
-  it('create 正常创建', async () => {
+  it('create 正常创建（写入解析到的 teamId）', async () => {
     const folder = await service.create('新文件夹', 'u1');
     expect(prisma.folder.create).toHaveBeenCalledWith({
-      data: { name: '新文件夹', userId: 'u1' },
+      data: { name: '新文件夹', userId: 'u1', teamId: 't1' },
     });
     expect(folder.id).toBe('f1');
   });

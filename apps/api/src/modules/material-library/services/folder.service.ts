@@ -4,6 +4,7 @@ import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
 import { MoveFolderDto } from '../dto/move-folder.dto';
 import { DEFAULT_FOLDER_NAMES } from '../constants/material-library.constants';
+import { getOwnerTeamId } from '../../team/team.util';
 
 @Injectable()
 export class FolderService {
@@ -17,11 +18,15 @@ export class FolderService {
     });
     const sortOrder = (maxResult._max.sortOrder ?? -1) + 1;
 
+    // 临时接线：Task 7 将改造为 teamId 参数
+    const teamId = await getOwnerTeamId(this.prisma, userId);
+
     return this.prisma.materialFolder.create({
       data: {
         name: dto.name,
         parentId: dto.parentId ?? null,
         userId,
+        teamId,
         sortOrder,
       },
     });
@@ -35,10 +40,13 @@ export class FolderService {
 
     // Lazy creation: if user has no folders (e.g., account created before this feature), create defaults
     if (folders.length === 0) {
+      // 临时接线：Task 7 将改造为 teamId 参数
+      const teamId = await getOwnerTeamId(this.prisma, userId);
       await this.prisma.materialFolder.createMany({
         data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
           name,
           userId,
+          teamId,
           isDefault: true,
           sortOrder: index,
         })),

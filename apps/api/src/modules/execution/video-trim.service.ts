@@ -7,6 +7,7 @@ import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
+import { getOwnerTeamId } from '../team/team.util';
 
 @Injectable()
 export class VideoTrimService {
@@ -119,9 +120,12 @@ export class VideoTrimService {
     const hasAudio = await this.detectAudio(inputUrl);
 
     // 8. Create task record
+    // 临时接线：Task 8 将切换 project.teamId 归属
+    const teamId = await getOwnerTeamId(this.prisma, userId);
     const task = await this.prisma.videoTrimTask.create({
       data: {
         userId,
+        teamId,
         workflowId: derivedWorkflowId,
         nodeId,
         sourceFileId: fileId,

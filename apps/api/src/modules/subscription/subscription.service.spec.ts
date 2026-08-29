@@ -78,13 +78,14 @@ describe('SubscriptionService - Plan CRUD', () => {
         name: 'Pro', tier: 'pro' as const, monthlyCredits: 19800,
         priceMonthly: 200, priceQuarterly: 560, priceAnnually: 2000, sort: 2,
       };
-      prisma.subscriptionPlan.create.mockResolvedValue({ id: 'p2', ...dto, isActive: true });
+      prisma.subscriptionPlan.create.mockResolvedValue({ id: 'p2', ...dto, isActive: true, storageLimitBytes: 1073741824 });
 
       const result = await service.createPlan(dto);
       expect(result.name).toBe('Pro');
       expect(result.tier).toBe('pro');
+      // 未指定 storageLimitBytes 时默认 1GB 免费档
       expect(prisma.subscriptionPlan.create).toHaveBeenCalledWith({
-        data: { ...dto, isActive: true },
+        data: { ...dto, isActive: true, storageLimitBytes: 1073741824 },
       });
     });
   });

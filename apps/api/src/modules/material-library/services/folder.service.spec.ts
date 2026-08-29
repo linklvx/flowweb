@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('FolderService', () => {
   let service: FolderService;
-  let prisma: { materialFolder: any; media: any; $transaction: any };
+  let prisma: { materialFolder: any; media: any; team: any; teamMember: any; $transaction: any };
 
   beforeEach(async () => {
     prisma = {
@@ -23,6 +23,8 @@ describe('FolderService', () => {
         updateMany: vi.fn(),
         count: vi.fn(),
       },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       $transaction: vi.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
     };
 
@@ -50,7 +52,7 @@ describe('FolderService', () => {
         _max: { sortOrder: true },
       });
       expect(prisma.materialFolder.create).toHaveBeenCalledWith({
-        data: { name: 'My Folder', parentId: null, userId, sortOrder: 3 },
+        data: { name: 'My Folder', parentId: null, userId, teamId: 't1', sortOrder: 3 },
       });
       expect(result.sortOrder).toBe(3);
     });
@@ -62,7 +64,7 @@ describe('FolderService', () => {
       const result = await service.create({ name: 'Root' }, 'u1');
 
       expect(prisma.materialFolder.create).toHaveBeenCalledWith({
-        data: { name: 'Root', parentId: null, userId: 'u1', sortOrder: 0 },
+        data: { name: 'Root', parentId: null, userId: 'u1', teamId: 't1', sortOrder: 0 },
       });
       expect(result.sortOrder).toBe(0);
     });

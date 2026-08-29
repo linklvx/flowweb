@@ -26,6 +26,8 @@ describe('VideoSeparateService', () => {
     };
     mockPrisma = {
       media: { findFirst: vi.fn(), findUnique: vi.fn() },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       videoSeparateTask: {
         findFirst: vi.fn(),
         findUnique: vi.fn(),

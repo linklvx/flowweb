@@ -16,6 +16,7 @@ export interface CreatePlanDto {
   priceAnnually: number;
   originalPriceAnnually?: number;
   sort?: number;
+  storageLimitBytes?: number;
 }
 
 export interface UpdatePlanDto {
@@ -61,7 +62,8 @@ export class SubscriptionService {
 
   async createPlan(dto: CreatePlanDto) {
     return this.prisma.subscriptionPlan.create({
-      data: { ...dto, isActive: true },
+      // storageLimitBytes 必填（BigInt）：未指定时默认 1GB 免费档
+      data: { ...dto, isActive: true, storageLimitBytes: dto.storageLimitBytes ?? 1073741824 },
     });
   }
 

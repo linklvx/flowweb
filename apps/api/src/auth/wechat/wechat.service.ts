@@ -4,12 +4,16 @@ import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SESSION_COOKIE_OPTIONS } from '../auth';
 import { DEFAULT_FOLDER_NAMES } from '../../modules/material-library/constants/material-library.constants';
+import { TeamService } from '../../modules/team/team.service';
 
 const WECHAT_API_BASE = 'https://api.weixin.qq.com';
 
 @Injectable()
 export class WechatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teamService: TeamService,
+  ) {}
 
   async getAccessToken(code: string) {
     const data = await this.getJson('/sns/oauth2/access_token', {
@@ -67,10 +71,15 @@ export class WechatService {
       },
     });
 
+    // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
+    // （微信直连 prisma.create 绕过 better-auth 钩子，必须在此幂等补建团队）
+    const team = await this.teamService.ensureDefaultTeam(user.id, user.name);
+
     await this.prisma.materialFolder.createMany({
       data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
         name,
         userId: user.id,
+        teamId: team.id,
         isDefault: true,
         sortOrder: index,
       })),

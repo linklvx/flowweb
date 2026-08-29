@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
+import { getOwnerTeamId } from '../../team/team.util';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 import * as crypto from 'node:crypto';
@@ -101,9 +102,12 @@ export class LightingService {
     }
 
     // Create task in DB
+    // 临时接线：Task 8 将切换 project.teamId 归属
+    const teamId = await getOwnerTeamId(this.prisma, userId);
     const task = await this.prisma.lightingTask.create({
       data: {
         userId,
+        teamId,
         nodeId: dto.nodeId,
         projectId: dto.projectId,
         originalImageUrl,

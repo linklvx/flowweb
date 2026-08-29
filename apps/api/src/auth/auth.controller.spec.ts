@@ -168,6 +168,8 @@ describe('AuthController', () => {
           count: vi.fn().mockResolvedValue(0),
           createMany: vi.fn().mockResolvedValue({ count: 5 }),
         },
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+        teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       } as any;
       const mockRedis = { get: vi.fn(), del: vi.fn() };
 

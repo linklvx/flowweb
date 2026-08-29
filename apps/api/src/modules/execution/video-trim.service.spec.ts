@@ -45,6 +45,8 @@ function mockPrismaService(overrides: Record<string, any> = {}) {
       findFirst: vi.fn().mockResolvedValue({ id: 'file-1' }),
       findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'uploads/test.mp4', projectId: 'wf-1' }),
     },
+    team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }) },
+    teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
     ...overrides,
   };
 }

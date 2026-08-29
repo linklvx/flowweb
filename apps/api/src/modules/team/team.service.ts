@@ -86,30 +86,34 @@ export class TeamService {
         team: {
           include: {
             balance: true,
-            subscription: { include: { plan: { select: { name: true } } } },
+            subscriptions: { include: { plan: { select: { name: true } } } },
             _count: { select: { members: true } },
           },
         },
       },
     });
-    return memberships.map((m) => ({
-      id: m.team.id,
-      name: m.team.name,
-      role: m.role,
-      status: m.team.status,
-      memberCount: m.team._count.members,
-      balance: {
-        credits: m.team.balance?.credits ?? 0,
-        subscriptionCredits: m.team.balance?.subscriptionCredits ?? 0,
-      },
-      subscription: m.team.subscription
-        ? {
-            planName: m.team.subscription.plan.name,
-            status: m.team.subscription.status,
-            currentPeriodEnd: m.team.subscription.currentPeriodEnd,
-          }
-        : null,
-    }));
+    return memberships.map((m) => {
+      // 临时接线：Task 3 将重写为订阅分叉逻辑（现状一对一最多一条，取首条行为等价）
+      const sub = m.team.subscriptions?.[0];
+      return {
+        id: m.team.id,
+        name: m.team.name,
+        role: m.role,
+        status: m.team.status,
+        memberCount: m.team._count.members,
+        balance: {
+          credits: m.team.balance?.credits ?? 0,
+          subscriptionCredits: m.team.balance?.subscriptionCredits ?? 0,
+        },
+        subscription: sub
+          ? {
+              planName: sub.plan.name,
+              status: sub.status,
+              currentPeriodEnd: sub.currentPeriodEnd,
+            }
+          : null,
+      };
+    });
   }
 
   async renameTeam(teamId: string, userId: string, name: string) {
@@ -391,11 +395,10 @@ export class TeamService {
     await this.cleanupQueue.add('team-media-cleanup', { medias });
 
     await this.prisma.$transaction(async (tx) => {
-      // 支付凭证保留（P2）：订单/流水/订阅 teamId 置空
+      // 支付凭证保留（P2）：订单/流水 teamId 置空（订阅 teamId 非空，随团队级联删除）
       await tx.teamRechargeOrder.updateMany({ where: { teamId }, data: { teamId: null } });
       await tx.teamCreditTransaction.updateMany({ where: { teamId }, data: { teamId: null } });
-      await tx.teamSubscription.updateMany({ where: { teamId }, data: { teamId: null } });
-      // 级联物理删除：members/joinRequests/balance/projects(CanvasDoc)/media
+      // 级联物理删除：members/joinRequests/balance/subscriptions/projects(CanvasDoc)/media
       await tx.team.delete({ where: { id: teamId } });
     });
 

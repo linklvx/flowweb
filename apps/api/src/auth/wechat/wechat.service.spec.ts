@@ -21,6 +21,7 @@ import { SESSION_COOKIE_OPTIONS } from '../auth';
 describe('WechatService', () => {
   let service: WechatService;
   let mockPrisma: Record<string, any>;
+  let mockTeamService: Record<string, any>;
 
   beforeEach(() => {
     mockPrisma = {
@@ -36,7 +37,10 @@ describe('WechatService', () => {
         create: vi.fn(),
       },
     };
-    service = new WechatService(mockPrisma as any);
+    mockTeamService = {
+      ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team-1' }),
+    };
+    service = new WechatService(mockPrisma as any, mockTeamService as any);
     vi.clearAllMocks();
   });
 

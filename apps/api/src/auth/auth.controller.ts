@@ -8,6 +8,7 @@ import { SendSmsCodeDto } from './dto/send-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { SESSION_COOKIE_OPTIONS } from './auth';
 import { DEFAULT_FOLDER_NAMES } from '../modules/material-library/constants/material-library.constants';
+import { getOwnerTeamId } from '../modules/team/team.util';
 import type { Response } from 'express';
 import Redis from 'ioredis';
 
@@ -52,10 +53,13 @@ export class AuthController {
 
       // Create default material folders
       try {
+        // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
+        const teamId = await getOwnerTeamId(this.prisma, result.user.id);
         await this.prisma.materialFolder.createMany({
           data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
             name,
             userId: result.user.id,
+            teamId,
             isDefault: true,
             sortOrder: index,
           })),
@@ -94,9 +98,11 @@ export class AuthController {
         where: { userId: session.user.id },
       });
       if (count === 0) {
+        // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
+        const teamId = await getOwnerTeamId(this.prisma, session.user.id);
         await this.prisma.materialFolder.createMany({
           data: DEFAULT_FOLDER_NAMES.map((name: string, i: number) => ({
-            name, userId: session.user.id, isDefault: true, sortOrder: i,
+            name, userId: session.user.id, teamId, isDefault: true, sortOrder: i,
           })),
         });
       }

@@ -35,6 +35,8 @@ describe('LightingService', () => {
       canvasProject: {
         findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }),
       },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       lightingTask: {
         create: vi.fn().mockResolvedValue({ id: 'task-1', status: 'pending' }),
         findFirst: vi.fn().mockResolvedValue(null),

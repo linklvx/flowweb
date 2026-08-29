@@ -123,6 +123,7 @@ model Template {
   project      CanvasProject?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   status       TemplateStatus     @default(DRAFT)
   userId       String
+  teamId       String?
   isPublic     Boolean            @default(false)
   importCount  Int                @default(0)
   category     TemplateCategory?
@@ -130,9 +131,11 @@ model Template {
   updatedAt    DateTime           @updatedAt
 
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         Team?              @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([folderId])
   @@index([userId])
+  @@index([teamId])
   @@index([isPublic])
   @@index([category])
   @@index([importCount])
@@ -167,15 +170,17 @@ model Folder {
   name      String   @db.VarChar(255)
   parentId  String?
   userId    String
+  teamId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   parent    Folder?    @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children  Folder[]   @relation("FolderHierarchy")
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
   templates Template[]
 
-  @@index([userId, parentId])
+  @@index([teamId])
 }
 
 model NodeType {
@@ -310,6 +315,7 @@ model Media {
   team          Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([teamId])
   @@index([projectId])
   @@index([nodeId])
   @@index([taskId])
@@ -324,6 +330,7 @@ model MaterialFolder {
   name      String
   parentId  String?
   userId    String
+  teamId    String
   sortOrder Int      @default(0)
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -335,8 +342,9 @@ model MaterialFolder {
   files    Media[]
 
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team     Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
-  @@index([userId, parentId])
+  @@index([teamId])
   @@index([userId, sortOrder])
   @@index([userId, deletedAt])
 }
@@ -353,10 +361,14 @@ model LightingTask {
   status           LightingTaskStatus  @default(pending)
   costCredits      Int                 @default(0)
   errorMessage     String?             @db.Text
+  teamId           String
   createdAt        DateTime            @default(now())
   completedAt      DateTime?
 
+  team             Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   @@index([userId])
+  @@index([teamId])
   @@index([status])
 }
 
@@ -378,11 +390,15 @@ model VideoTrimTask {
   status        String    @default("queued")
   outputFileId  String?
   errorMsg      String?
+  teamId        String
   createdAt     DateTime  @default(now())
   finishedAt    DateTime?
 
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   @@index([nodeId])
   @@index([userId])
+  @@index([teamId])
 }
 
 model VideoSeparateTask {
@@ -397,11 +413,15 @@ model VideoSeparateTask {
   audioFileId   String?
   errorMsg      String?
   errorType     String?
+  teamId        String
   createdAt     DateTime  @default(now())
   finishedAt    DateTime?
 
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   @@index([nodeId])
   @@index([userId])
+  @@index([teamId])
   @@index([sourceFileId])
 }
 
@@ -491,6 +511,7 @@ model SubscriptionPlan {
   name            String
   tier            SubscriptionTier
   monthlyCredits  Int
+  storageLimitBytes BigInt
   priceMonthly    Int
   originalPriceMonthly   Int                @default(0)
   priceQuarterly  Int
@@ -689,7 +710,9 @@ enum TeamCreditTransactionType {
   consumption
   expire_clear
   register_grant
-  admin_adjust
+  upgrade_clear
+  admin_grant
+  admin_clear
 }
 
 enum TeamSubscriptionStatus {
@@ -718,12 +741,20 @@ model Team {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
+  isDefault        Boolean  @default(false)
+
   members      TeamMember[]
   balance      TeamBalance?
   transactions TeamCreditTransaction[]
   projects     CanvasProject[]
   media        Media[]
-  subscription TeamSubscription?
+  folders      Folder[]
+  templates    Template[]
+  materialFolders  MaterialFolder[]
+  lightingTasks    LightingTask[]
+  videoTrimTasks   VideoTrimTask[]
+  videoSeparateTasks VideoSeparateTask[]
+  subscriptions TeamSubscription[]
   orders       TeamRechargeOrder[]
   joinRequests TeamJoinRequest[]
 
@@ -792,8 +823,8 @@ model TeamPlan {
 
 model TeamSubscription {
   id                 String                 @id @default(cuid())
-  teamId             String?                @unique
-  team               Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId             String
+  team               Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
   planId             String
   plan               TeamPlan               @relation(fields: [planId], references: [id])
   status             TeamSubscriptionStatus @default(active)

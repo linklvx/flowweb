@@ -138,7 +138,7 @@ describe('TeamService 基础 API', () => {
               id: 't1', name: '团队A', status: 'ACTIVE',
               _count: { members: 3 },
               balance: { credits: 100, subscriptionCredits: 50 },
-              subscription: { status: 'active', currentPeriodEnd: new Date('2026-09-27'), plan: { name: '专业版' } },
+              subscriptions: [{ status: 'active', currentPeriodEnd: new Date('2026-09-27'), plan: { name: '专业版' } }],
             },
           },
           {
@@ -147,7 +147,7 @@ describe('TeamService 基础 API', () => {
               id: 't2', name: '团队B', status: 'ACTIVE',
               _count: { members: 1 },
               balance: { credits: 0, subscriptionCredits: 0 },
-              subscription: null,
+              subscriptions: [],
             },
           },
         ]),
@@ -254,7 +254,6 @@ describe('TeamService 基础 API', () => {
       prisma.media = { findMany: vi.fn().mockResolvedValue([{ id: 'm1', bucket: 'flowai', key: 'k1' }]) };
       prisma.teamRechargeOrder = { updateMany: vi.fn() };
       prisma.teamCreditTransaction = { updateMany: vi.fn() };
-      prisma.teamSubscription = { updateMany: vi.fn() };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
@@ -271,10 +270,9 @@ describe('TeamService 基础 API', () => {
       expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
       // MinIO 异步清理 job（processor Task 17）
       expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
-      // 阶段3：凭证 SetNull 保留 + team 物理删（级联 member/request/balance/projects/media/CanvasDoc）
+      // 阶段3：凭证 SetNull 保留 + team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
       expect(prisma.teamRechargeOrder.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
       expect(prisma.teamCreditTransaction.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
-      expect(prisma.teamSubscription.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
       expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
       // emitAsync 必须在物理删除之前完成
       const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];

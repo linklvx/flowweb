@@ -12,6 +12,7 @@ import {
   SUPPORTED_VIDEO_MIME_TYPES,
 } from './video-separate.constants';
 import { VideoSeparateRequest, VideoSeparateJobData } from './video-separate.types';
+import { getOwnerTeamId } from '../team/team.util';
 
 @Injectable()
 export class VideoSeparateService {
@@ -60,8 +61,10 @@ export class VideoSeparateService {
       if (existing) return { taskId: existing.id };
 
       // 5. Create task + enqueue
+      // 临时接线：Task 8 将切换 project.teamId 归属
+      const teamId = await getOwnerTeamId(this.prisma, userId);
       const task = await this.prisma.videoSeparateTask.create({
-        data: { userId, workflowId, nodeId, sourceFileId: fileId, mode, status: 'queued' },
+        data: { userId, teamId, workflowId, nodeId, sourceFileId: fileId, mode, status: 'queued' },
       });
 
       const jobData: VideoSeparateJobData = {

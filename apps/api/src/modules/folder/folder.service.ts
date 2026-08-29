@@ -1,5 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getOwnerTeamId } from '../team/team.util';
 
 @Injectable()
 export class FolderService {
@@ -30,7 +31,9 @@ export class FolderService {
   async create(name: string, userId: string) {
     const duplicate = await this.prisma.folder.findFirst({ where: { userId, parentId: null, name } });
     if (duplicate) throw new BadRequestException('已存在同名文件夹');
-    return this.prisma.folder.create({ data: { name, userId } });
+    // 临时接线：Task 6 将参数化 teamId 并切换团队维度
+    const teamId = await getOwnerTeamId(this.prisma, userId);
+    return this.prisma.folder.create({ data: { name, userId, teamId } });
   }
 
   async rename(id: string, name: string, userId: string) {

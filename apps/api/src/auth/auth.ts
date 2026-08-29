@@ -6,6 +6,7 @@ import Redis from 'ioredis';
 import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
 import { maskPhone } from '../common/utils/mask-phone';
 import { DEFAULT_FOLDER_NAMES } from '../modules/material-library/constants/material-library.constants';
+import { getOwnerTeamId } from '../modules/team/team.util';
 
 const prisma = new PrismaClient();
 
@@ -97,9 +98,11 @@ export const auth = betterAuth({
         try {
           const existing = await prisma.materialFolder.count({ where: { userId: user.id } });
           if (existing === 0) {
+            // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
+            const teamId = await getOwnerTeamId(prisma, user.id);
             await prisma.materialFolder.createMany({
               data: DEFAULT_FOLDER_NAMES.map((name, i) => ({
-                name, userId: user.id, isDefault: true, sortOrder: i,
+                name, userId: user.id, teamId, isDefault: true, sortOrder: i,
               })),
             });
           }
