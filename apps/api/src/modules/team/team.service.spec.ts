@@ -157,6 +157,45 @@ describe('TeamService 基础 API', () => {
     });
   });
 
+  describe('createTeam', () => {
+    const setup = () => {
+      prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '张三' }) };
+      prisma.team = { create: vi.fn().mockResolvedValue({ id: 't1' }) };
+      prisma.teamMember = { create: vi.fn() };
+      prisma.teamBalance = { create: vi.fn() };
+      prisma.teamCreditTransaction = { create: vi.fn() };
+      prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+    };
+
+    it('主动建团：credits=0、无 register_grant 流水、创建者 OWNER', async () => {
+      setup();
+
+      const team = await service.createTeam('u1', '新团队');
+
+      expect(prisma.team.create).toHaveBeenCalledWith({
+        data: { name: '新团队', ownerId: 'u1', status: 'ACTIVE' },
+      });
+      expect(prisma.teamMember.create).toHaveBeenCalledWith({
+        data: { teamId: 't1', userId: 'u1', role: 'OWNER' },
+      });
+      expect(prisma.teamBalance.create).toHaveBeenCalledWith({
+        data: { teamId: 't1', credits: 0, subscriptionCredits: 0 },
+      });
+      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+      expect(team).toEqual({ id: 't1' });
+    });
+
+    it('空名兜底为创建者名+的团队', async () => {
+      setup();
+
+      await service.createTeam('u1', '   ');
+
+      expect(prisma.team.create).toHaveBeenCalledWith({
+        data: { name: '张三的团队', ownerId: 'u1', status: 'ACTIVE' },
+      });
+    });
+  });
+
   describe('renameTeam', () => {
     it('OWNER/ADMIN 可改名', async () => {
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };

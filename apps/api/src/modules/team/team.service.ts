@@ -41,6 +41,19 @@ export class TeamService {
     });
   }
 
+  /** 主动建团 credits=0、无流水（注册赠送只给默认团队一次，防刷） */
+  async createTeam(userId: string, name: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    return this.prisma.$transaction(async (tx) => {
+      const team = await tx.team.create({
+        data: { name: name.trim() || `${user?.name ?? '用户'}的团队`, ownerId: userId, status: 'ACTIVE' },
+      });
+      await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'OWNER' } });
+      await tx.teamBalance.create({ data: { teamId: team.id, credits: 0, subscriptionCredits: 0 } });
+      return team;
+    });
+  }
+
   async getMyTeams(userId: string) {
     const memberships = await this.prisma.teamMember.findMany({
       where: { userId },

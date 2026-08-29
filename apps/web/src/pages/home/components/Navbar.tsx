@@ -5,6 +5,7 @@ import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { GiftOutlined, CrownOutlined, UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 import { LoginModal } from '@/components/auth/LoginModal';
+import { TeamSwitcher } from '@/components/TeamSwitcher';
 import { useVipModalStore } from '@/stores/vipModalStore';
 
 interface NavLink {
@@ -182,6 +183,7 @@ export function Navbar({ onAction: _onAction }: Props) {
                 },
               }}
             >
+              <TeamSwitcher />
               <Dropdown
                 menu={{ items: userMenuItems }}
                 trigger={['hover']}

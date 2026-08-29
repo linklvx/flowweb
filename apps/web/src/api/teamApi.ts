@@ -41,6 +41,13 @@ export function getMyTeams() {
   return apiFetch<MyTeam[]>('/team/mine');
 }
 
+export function createTeam(name: string) {
+  return apiFetch<{ id: string; name: string }>('/team/create', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function listMembers(teamId: string, page = 1, pageSize = 20) {
   return apiFetch<{ items: TeamMemberRow[]; total: number }>(`/team/${teamId}/members?page=${page}&pageSize=${pageSize}`);
 }

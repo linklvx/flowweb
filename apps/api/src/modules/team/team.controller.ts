@@ -20,6 +20,12 @@ export class TeamController {
     private readonly quota: StorageQuotaService,
   ) {}
 
+  @Post('create')
+  @SkipTeamGuard()
+  createTeam(@Body() body: { name: string }, @Req() req: Request) {
+    return this.teamService.createTeam((req as any).user.id, body.name);
+  }
+
   @Get(':id/balance')
   getBalance(@Param('id') id: string, @Req() req: Request) {
     return this.teamCredit.getBalanceView(id, (req as any).user.id);
