@@ -4,4 +4,5 @@ export class PresignUploadDto {
   fileType!: string;
   type!: 'uploaded' | 'temp';
   teamId?: string;
+  projectId?: string;
 }

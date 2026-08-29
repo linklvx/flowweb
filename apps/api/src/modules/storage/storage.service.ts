@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
-import { getOwnerTeamId } from '../team/team.util';
+import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 import { StorageQuotaService } from '../team/storage-quota.service';
 
 @Injectable()
@@ -15,10 +15,19 @@ export class StorageService {
   ) {}
 
   async presignUpload(userId: string, dto: PresignUploadDto) {
-    // D4：素材直传归属——dto.teamId（成员校验）或本人默认团队
-    const teamId = dto.teamId
-      ? (await this.quota.assertMember(dto.teamId, userId), dto.teamId)
-      : await getOwnerTeamId(this.prisma, userId);
+    // 三级回落：projectId（后端解析+成员校验）> teamId（assertMember）> 默认团队
+    let teamId: string;
+    if (dto.projectId) {
+      const project = await this.prisma.canvasProject.findUnique({ where: { id: dto.projectId }, select: { teamId: true } });
+      if (!project) throw new BadRequestException('项目不存在');
+      await this.quota.assertMember(project.teamId, userId);
+      teamId = project.teamId;
+    } else if (dto.teamId) {
+      await this.quota.assertMember(dto.teamId, userId);
+      teamId = dto.teamId;
+    } else {
+      teamId = await getOwnerTeamId(this.prisma, userId);
+    }
     await this.quota.assertCanUpload(teamId, dto.fileSize);
 
     const ext = dto.fileName.split('.').pop() || 'bin';
@@ -58,12 +67,15 @@ export class StorageService {
   }
 
   async confirmUpload(userId: string, dto: ConfirmUploadDto) {
-    // Verify ownership — findFirst checks both id AND userId (id alone is PK but we need userId check too)
+    // 团队化：上传记录按 id 查，creator 之外须为 media.teamId 成员方可确认
     const media = await this.prisma.media.findFirst({
-      where: { id: dto.fileId, userId },
+      where: { id: dto.fileId },
     });
     if (!media) {
       throw new BadRequestException('文件记录不存在');
+    }
+    if (media.userId !== userId) {
+      await assertTeamMember(this.prisma, media.teamId, userId);
     }
 
     // Verify file exists in MinIO

@@ -10,7 +10,7 @@ describe('FolderController', () => {
   beforeEach(async () => {
     service = {
       create: vi.fn(),
-      findAllByUserId: vi.fn(),
+      findAll: vi.fn(),
       update: vi.fn(),
       remove: vi.fn(),
       moveUp: vi.fn(),
@@ -32,9 +32,15 @@ describe('FolderController', () => {
   });
 
   it('GET / should return { success: true, data }', async () => {
-    service.findAllByUserId.mockResolvedValue([{ id: 'f-1' }]);
+    service.findAll.mockResolvedValue([{ id: 'f-1' }]);
     const res = await controller.findAll(mockReq());
     expect(res).toEqual({ success: true, data: [{ id: 'f-1' }] });
+  });
+
+  it('GET / 应透传 teamId（团队成员浏览团队素材库）', async () => {
+    service.findAll.mockResolvedValue([]);
+    await controller.findAll(mockReq(), 't-team');
+    expect(service.findAll).toHaveBeenCalledWith('user-1', 't-team');
   });
 
   it('PUT /:id should return { success: true, data }', async () => {
@@ -43,22 +49,24 @@ describe('FolderController', () => {
     expect(res).toEqual({ success: true, data: { id: 'f-1', name: 'Updated' } });
   });
 
-  it('DELETE /:id should return { success: true }', async () => {
+  it('DELETE /:id should return { success: true } and pass teamId', async () => {
     service.remove.mockResolvedValue(undefined);
-    const res = await controller.remove('f-1', mockReq());
+    const res = await controller.remove('f-1', mockReq(), 't-team');
+    expect(service.remove).toHaveBeenCalledWith('f-1', 'user-1', 't-team');
     expect(res).toEqual({ success: true });
   });
 
-  it('PUT /:id/move-up should return { success: true }', async () => {
+  it('PUT /:id/move-up should return { success: true } and pass teamId', async () => {
     service.moveUp.mockResolvedValue(undefined);
-    const res = await controller.moveUp('f-1', mockReq());
+    const res = await controller.moveUp('f-1', mockReq(), 't-team');
+    expect(service.moveUp).toHaveBeenCalledWith('f-1', 'user-1', 't-team');
     expect(res).toEqual({ success: true });
   });
 
   it('PUT /:id/move should return { success: true }', async () => {
     service.moveFolder.mockResolvedValue(undefined);
     const res = await controller.move('f-1', { parentId: null, afterId: 'f-2' }, mockReq());
-    expect(service.moveFolder).toHaveBeenCalledWith('f-1', { parentId: null, afterId: 'f-2' }, 'user-1');
+    expect(service.moveFolder).toHaveBeenCalledWith('f-1', { parentId: null, afterId: 'f-2' }, 'user-1', undefined);
     expect(res).toEqual({ success: true });
   });
 });

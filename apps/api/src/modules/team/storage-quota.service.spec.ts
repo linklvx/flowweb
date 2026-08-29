@@ -18,7 +18,7 @@ describe('StorageQuotaService', () => {
         findUnique: vi.fn(),
         delete: vi.fn(),
       },
-      teamMember: { findUnique: vi.fn() },
+      teamMember: { findFirst: vi.fn() },
     };
     minio = { delete: vi.fn() };
 
@@ -69,8 +69,16 @@ describe('StorageQuotaService', () => {
     expect(minio.delete).not.toHaveBeenCalled();
   });
 
+  it('④ 成员放行', async () => {
+    prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+    await expect(service.assertMember('t1', 'u1')).resolves.toBeUndefined();
+    expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ teamId: 't1', userId: 'u1' }) }),
+    );
+  });
+
   it('④ 非成员 403', async () => {
-    prisma.teamMember.findUnique.mockResolvedValue(null);
+    prisma.teamMember.findFirst.mockResolvedValue(null);
     await expect(service.assertMember('t1', 'u1')).rejects.toThrow(ForbiddenException);
   });
 });

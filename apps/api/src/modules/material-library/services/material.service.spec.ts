@@ -2,14 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MaterialService } from './material.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('MaterialService', () => {
   let service: MaterialService;
-  let prisma: { media: any; materialFolder: any };
+  let prisma: { media: any; materialFolder: any; team: any; teamMember: any };
   let minio: { generatePresignedGetUrl: ReturnType<typeof vi.fn> };
   let queue: { add: ReturnType<typeof vi.fn> };
 
@@ -25,6 +25,8 @@ describe('MaterialService', () => {
       materialFolder: {
         findFirst: vi.fn(),
       },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'OWNER' }) },
     };
     minio = { generatePresignedGetUrl: vi.fn() };
     queue = { add: vi.fn() };
@@ -41,6 +43,25 @@ describe('MaterialService', () => {
     service = module.get<MaterialService>(MaterialService);
   });
 
+  describe('团队维度鉴权（resolveTeamId）', () => {
+    it('外部 teamId 且为成员 → 放行并按 teamId 查', async () => {
+      prisma.media.findMany.mockResolvedValue([]);
+      await service.getFilesByFolderId('u1', null, undefined, 't-team');
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ teamId: 't-team', userId: 'u1' }) }),
+      );
+      expect(prisma.media.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ teamId: 't-team' }) }),
+      );
+    });
+
+    it('他团队成员（非成员）→ 403', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+      await expect(service.getFilesByFolderId('u1', null, undefined, 't-other')).rejects.toThrow(ForbiddenException);
+      expect(prisma.media.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getFilesByFolderId', () => {
     it('should return files with generated presigned URLs', async () => {
       const dbFiles = [{ id: 'm-1', originalName: 'test.png', key: 'key1', thumbnailKey: null }];
@@ -50,7 +71,7 @@ describe('MaterialService', () => {
       const result = await service.getFilesByFolderId('user-1', 'folder-1');
 
       expect(prisma.media.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1', folderId: 'folder-1', deletedAt: null },
+        where: { teamId: 't1', folderId: 'folder-1', deletedAt: null },
         orderBy: { createdAt: 'desc' },
       });
       expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith('key1', 3600);
@@ -64,7 +85,7 @@ describe('MaterialService', () => {
 
       expect(prisma.media.findMany).toHaveBeenCalledWith({
         where: {
-          userId: 'user-1',
+          teamId: 't1',
           folderId: null,
           deletedAt: null,
           type: 'generated',
@@ -81,7 +102,7 @@ describe('MaterialService', () => {
 
       expect(prisma.media.findMany).toHaveBeenCalledWith({
         where: {
-          userId: 'user-1',
+          teamId: 't1',
           folderId: null,
           deletedAt: null,
           type: 'generated',
@@ -98,7 +119,7 @@ describe('MaterialService', () => {
 
       expect(prisma.media.findMany).toHaveBeenCalledWith({
         where: {
-          userId: 'user-1',
+          teamId: 't1',
           folderId: null,
           deletedAt: null,
           type: 'generated',
@@ -129,7 +150,7 @@ describe('MaterialService', () => {
       await service.getFilesByFolderId('user-1', 'folder-1');
 
       expect(prisma.media.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1', folderId: 'folder-1', deletedAt: null },
+        where: { teamId: 't1', folderId: 'folder-1', deletedAt: null },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -148,7 +169,7 @@ describe('MaterialService', () => {
 
       expect(prisma.media.groupBy).toHaveBeenCalledWith({
         by: ['mimeType'],
-        where: { userId: 'user-1', deletedAt: null, type: 'generated' },
+        where: { teamId: 't1', deletedAt: null, type: 'generated' },
         _count: true,
       });
       expect(result).toEqual({ image: 15, video: 3, audio: 7 });
@@ -166,15 +187,21 @@ describe('MaterialService', () => {
   describe('moveFile', () => {
     it('should move file to folder and trigger thumbnail job', async () => {
       prisma.media.findFirst.mockResolvedValue({
-        id: 'm-1', originalName: 'test.png', key: 'uploads/test.png', thumbnailKey: null, mimeType: 'image/png',
+        id: 'm-1', teamId: 't1', originalName: 'test.png', key: 'uploads/test.png', thumbnailKey: null, mimeType: 'image/png',
       });
-      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'folder-1' });
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'folder-1', teamId: 't1' });
       prisma.media.update.mockResolvedValue({
         id: 'm-1', folderId: 'folder-1', key: 'uploads/test.png', mimeType: 'image/png', thumbnailKey: null,
       });
 
       await service.moveFile('user-1', 'm-1', 'folder-1');
 
+      expect(prisma.media.findFirst).toHaveBeenCalledWith({
+        where: { id: 'm-1', teamId: 't1', deletedAt: null },
+      });
+      expect(prisma.materialFolder.findFirst).toHaveBeenCalledWith({
+        where: { id: 'folder-1', teamId: 't1', deletedAt: null },
+      });
       expect(prisma.media.update).toHaveBeenCalledWith({
         where: { id: 'm-1' },
         data: { folderId: 'folder-1' },
@@ -190,15 +217,23 @@ describe('MaterialService', () => {
     });
 
     it('should throw if folder not found', async () => {
-      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', key: 'k1', thumbnailKey: null });
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', teamId: 't1', key: 'k1', thumbnailKey: null });
       prisma.materialFolder.findFirst.mockResolvedValue(null);
-      await expect(service.moveFile('u1', 'm-1', 'f-99')).rejects.toThrow(BadRequestException);
+      await expect(service.moveFile('u1', 'm-1', 'f-99')).rejects.toThrow('文件夹不存在');
+    });
+
+    it('移动越权：目标文件夹属其他团队 → 统一报文件夹不存在', async () => {
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', teamId: 't1', key: 'k1', thumbnailKey: null });
+      // 目标文件夹在别的团队，teamId 过滤后查不到
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+      await expect(service.moveFile('u1', 'm-1', 'f-other-team')).rejects.toThrow('文件夹不存在');
+      expect(prisma.media.update).not.toHaveBeenCalled();
     });
   });
 
   describe('toggleFavorite', () => {
     it('should toggle isFavorite from false to true', async () => {
-      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', isFavorite: false });
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', teamId: 't1', isFavorite: false });
       prisma.media.update.mockResolvedValue({ id: 'm-1', isFavorite: true });
 
       const result = await service.toggleFavorite('user-1', 'm-1');
@@ -213,7 +248,7 @@ describe('MaterialService', () => {
 
   describe('deleteFile', () => {
     it('should soft-delete file', async () => {
-      prisma.media.findFirst.mockResolvedValue({ id: 'm-1' });
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', teamId: 't1' });
       prisma.media.update.mockResolvedValue({ id: 'm-1', deletedAt: new Date() });
 
       await service.deleteFile('user-1', 'm-1');
@@ -236,7 +271,7 @@ describe('MaterialService', () => {
       const count = await service.deleteFiles('user-1', ['m-1', 'm-2', 'm-3']);
 
       expect(prisma.media.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, userId: 'user-1', deletedAt: null },
+        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, teamId: 't1', deletedAt: null },
         data: { deletedAt: expect.any(Date) },
       });
       expect(count).toBe(3);
@@ -248,13 +283,13 @@ describe('MaterialService', () => {
       expect(prisma.media.updateMany).not.toHaveBeenCalled();
     });
 
-    it('should filter by userId so users cannot delete others files', async () => {
+    it('should filter by teamId so cross-team files are untouched', async () => {
       prisma.media.updateMany.mockResolvedValue({ count: 0 });
 
       const count = await service.deleteFiles('user-1', ['m-other']);
 
       expect(prisma.media.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['m-other'] }, userId: 'user-1', deletedAt: null },
+        where: { id: { in: ['m-other'] }, teamId: 't1', deletedAt: null },
         data: { deletedAt: expect.any(Date) },
       });
       expect(count).toBe(0);
@@ -263,13 +298,16 @@ describe('MaterialService', () => {
 
   describe('moveFiles', () => {
     it('should batch move multiple files and return count', async () => {
-      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'folder-1' });
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'folder-1', teamId: 't1' });
       prisma.media.updateMany.mockResolvedValue({ count: 3 });
 
       const count = await service.moveFiles('user-1', ['m-1', 'm-2', 'm-3'], 'folder-1');
 
+      expect(prisma.materialFolder.findFirst).toHaveBeenCalledWith({
+        where: { id: 'folder-1', teamId: 't1', deletedAt: null },
+      });
       expect(prisma.media.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, userId: 'user-1', deletedAt: null },
+        where: { id: { in: ['m-1', 'm-2', 'm-3'] }, teamId: 't1', deletedAt: null },
         data: { folderId: 'folder-1' },
       });
       expect(count).toBe(3);
@@ -281,7 +319,7 @@ describe('MaterialService', () => {
       const count = await service.moveFiles('user-1', ['m-1', 'm-2'], null);
 
       expect(prisma.media.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['m-1', 'm-2'] }, userId: 'user-1', deletedAt: null },
+        where: { id: { in: ['m-1', 'm-2'] }, teamId: 't1', deletedAt: null },
         data: { folderId: null },
       });
       expect(count).toBe(2);
@@ -297,6 +335,13 @@ describe('MaterialService', () => {
       prisma.materialFolder.findFirst.mockResolvedValue(null);
 
       await expect(service.moveFiles('user-1', ['m-1'], 'folder-99')).rejects.toThrow(BadRequestException);
+    });
+
+    it('移动越权：目标文件夹属其他团队 → 统一报文件夹不存在', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null);
+
+      await expect(service.moveFiles('user-1', ['m-1'], 'f-other-team')).rejects.toThrow('文件夹不存在');
+      expect(prisma.media.updateMany).not.toHaveBeenCalled();
     });
   });
 });

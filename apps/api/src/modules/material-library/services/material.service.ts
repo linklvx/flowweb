@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
+import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
 
 @Injectable()
 export class MaterialService {
@@ -13,8 +14,16 @@ export class MaterialService {
     @InjectQueue(THUMBNAIL_GENERATOR_QUEUE) private readonly thumbnailQueue: Queue,
   ) {}
 
-  async getFilesByFolderId(userId: string, folderId: string | null, type?: 'image' | 'video' | 'audio') {
-    const where: any = { userId, folderId, deletedAt: null };
+  /** 团队维度入口统一门：外部 teamId 自证成员资格，否则回落本人默认团队 */
+  private async resolveTeamId(teamId: string | undefined | null, userId: string): Promise<string> {
+    const resolved = teamId ?? (await getOwnerTeamId(this.prisma, userId));
+    await assertTeamMember(this.prisma, resolved, userId);
+    return resolved;
+  }
+
+  async getFilesByFolderId(userId: string, folderId: string | null, type?: 'image' | 'video' | 'audio', teamId?: string) {
+    const resolved = await this.resolveTeamId(teamId, userId);
+    const where: any = { teamId: resolved, folderId, deletedAt: null };
 
     if (type) {
       where.type = 'generated';
@@ -49,15 +58,17 @@ export class MaterialService {
     );
   }
 
-  async moveFile(userId: string, fileId: string, folderId: string | null) {
+  async moveFile(userId: string, fileId: string, folderId: string | null, teamId?: string) {
+    const resolved = await this.resolveTeamId(teamId, userId);
+    // 文件与目标文件夹均按 teamId 过滤——跨团队目标统一报「不存在」，防存在性探测
     const file = await this.prisma.media.findFirst({
-      where: { id: fileId, userId, deletedAt: null },
+      where: { id: fileId, teamId: resolved, deletedAt: null },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
     if (folderId) {
       const folder = await this.prisma.materialFolder.findFirst({
-        where: { id: folderId, userId, deletedAt: null },
+        where: { id: folderId, teamId: resolved, deletedAt: null },
       });
       if (!folder) throw new BadRequestException('文件夹不存在');
     }
@@ -78,9 +89,10 @@ export class MaterialService {
     return updated;
   }
 
-  async toggleFavorite(userId: string, fileId: string) {
+  async toggleFavorite(userId: string, fileId: string, teamId?: string) {
+    const resolved = await this.resolveTeamId(teamId, userId);
     const file = await this.prisma.media.findFirst({
-      where: { id: fileId, userId, deletedAt: null },
+      where: { id: fileId, teamId: resolved, deletedAt: null },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
@@ -90,9 +102,10 @@ export class MaterialService {
     });
   }
 
-  async deleteFile(userId: string, fileId: string) {
+  async deleteFile(userId: string, fileId: string, teamId?: string) {
+    const resolved = await this.resolveTeamId(teamId, userId);
     const file = await this.prisma.media.findFirst({
-      where: { id: fileId, userId, deletedAt: null },
+      where: { id: fileId, teamId: resolved, deletedAt: null },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
@@ -102,19 +115,21 @@ export class MaterialService {
     });
   }
 
-  async deleteFiles(userId: string, ids: string[]): Promise<number> {
+  async deleteFiles(userId: string, ids: string[], teamId?: string): Promise<number> {
     if (ids.length === 0) return 0;
+    const resolved = await this.resolveTeamId(teamId, userId);
     const result = await this.prisma.media.updateMany({
-      where: { id: { in: ids }, userId, deletedAt: null },
+      where: { id: { in: ids }, teamId: resolved, deletedAt: null },
       data: { deletedAt: new Date() },
     });
     return result.count;
   }
 
-  async getFileCounts(userId: string): Promise<{ image: number; video: number; audio: number }> {
+  async getFileCounts(userId: string, teamId?: string): Promise<{ image: number; video: number; audio: number }> {
+    const resolved = await this.resolveTeamId(teamId, userId);
     const counts = await this.prisma.media.groupBy({
       by: ['mimeType'],
-      where: { userId, deletedAt: null, type: 'generated' },
+      where: { teamId: resolved, deletedAt: null, type: 'generated' },
       _count: true,
     });
 
@@ -128,16 +143,17 @@ export class MaterialService {
     return result;
   }
 
-  async moveFiles(userId: string, ids: string[], folderId: string | null): Promise<number> {
+  async moveFiles(userId: string, ids: string[], folderId: string | null, teamId?: string): Promise<number> {
     if (ids.length === 0) return 0;
+    const resolved = await this.resolveTeamId(teamId, userId);
     if (folderId) {
       const folder = await this.prisma.materialFolder.findFirst({
-        where: { id: folderId, userId, deletedAt: null },
+        where: { id: folderId, teamId: resolved, deletedAt: null },
       });
       if (!folder) throw new BadRequestException('文件夹不存在');
     }
     const result = await this.prisma.media.updateMany({
-      where: { id: { in: ids }, userId, deletedAt: null },
+      where: { id: { in: ids }, teamId: resolved, deletedAt: null },
       data: { folderId },
     });
     return result.count;

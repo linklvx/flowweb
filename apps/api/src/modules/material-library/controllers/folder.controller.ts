@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, Req, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Put, Req, Query, Inject } from '@nestjs/common';
 import { FolderService } from '../services/folder.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
@@ -15,8 +15,8 @@ export class FolderController {
   }
 
   @Get()
-  async findAll(@Req() req: any) {
-    const folders = await this.folderService.findAllByUserId(req.user.id);
+  async findAll(@Req() req: any, @Query('teamId') teamId?: string) {
+    const folders = await this.folderService.findAll(req.user.id, teamId);
     return { success: true, data: folders };
   }
 
@@ -27,14 +27,14 @@ export class FolderController {
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: any) {
-    await this.folderService.remove(id, req.user.id);
+  async remove(@Param('id') id: string, @Req() req: any, @Query('teamId') teamId?: string) {
+    await this.folderService.remove(id, req.user.id, teamId);
     return { success: true };
   }
 
   @Put(':id/move-up')
-  async moveUp(@Param('id') id: string, @Req() req: any) {
-    await this.folderService.moveUp(id, req.user.id);
+  async moveUp(@Param('id') id: string, @Req() req: any, @Query('teamId') teamId?: string) {
+    await this.folderService.moveUp(id, req.user.id, teamId);
     return { success: true };
   }
 
@@ -44,7 +44,7 @@ export class FolderController {
     @Body() dto: MoveFolderDto,
     @Req() req: any,
   ) {
-    await this.folderService.moveFolder(id, dto, req.user.id);
+    await this.folderService.moveFolder(id, dto, req.user.id, dto.teamId);
     return { success: true };
   }
 }

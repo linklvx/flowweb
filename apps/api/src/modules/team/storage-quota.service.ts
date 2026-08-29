@@ -1,7 +1,8 @@
-import { Injectable, Inject, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { assertTeamMember } from './team.util';
 
 @Injectable()
 export class StorageQuotaService {
@@ -47,11 +48,8 @@ export class StorageQuotaService {
     }
   }
 
-  /** 素材直传归属校验（D4）：用户须为 teamId 成员 */
+  /** 素材直传归属校验（D4）：用户须为 teamId 成员（规范实现在 team.util.ts，此处委托防双实现漂移） */
   async assertMember(teamId: string, userId: string): Promise<void> {
-    const member = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId, userId } },
-    });
-    if (!member) throw new ForbiddenException('非团队成员');
+    await assertTeamMember(this.prisma, teamId, userId);
   }
 }

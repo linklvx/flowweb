@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MediaService } from './media.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('MediaService', () => {
   let service: MediaService;
@@ -14,14 +14,16 @@ describe('MediaService', () => {
   beforeEach(async () => {
     prisma = {
       media: {
-        findFirst: vi.fn().mockResolvedValue({
+        findUnique: vi.fn().mockResolvedValue({
           id: 'media-1',
           userId: 'user1',
+          teamId: 't-team',
           key: 'results/user1/proj1/node1/2026-05-20/a.png',
           status: 'completed',
           type: 'generated',
         }),
       },
+      teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) },
     };
     minio = {
       generatePresignedGetUrl: vi.fn().mockResolvedValue(
@@ -44,6 +46,33 @@ describe('MediaService', () => {
     service = module.get<MediaService>(MediaService);
   });
 
+  it('getMediaUrl 鉴权前置：非 creator 需团队成员（缓存命中也不得跳过）', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k' });
+    prisma.teamMember.findFirst.mockResolvedValue(null); // 非成员
+    redis.get.mockResolvedValue('http://pre-warmed-url'); // 缓存已预热
+    await expect(service.getMediaUrl('m1', 'u-stranger')).rejects.toThrow(ForbiddenException);
+    expect(redis.get).not.toHaveBeenCalled(); // 鉴权未过不得读缓存
+    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it('getMediaUrl 成员命中缓存直接返回（不再生成新 URL）', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k' });
+    prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+    redis.get.mockResolvedValue('http://cached');
+    const url = await service.getMediaUrl('m1', 'u-teammate');
+    expect(url).toBe('http://cached');
+    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it('getMediaUrl 缓存 key 为团队维度 media:url:${teamId}:${fileId}', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', teamId: 't-team', key: 'k' });
+    redis.get.mockResolvedValue(null);
+    minio.generatePresignedGetUrl.mockResolvedValue('http://new');
+    const url = await service.getMediaUrl('m1', 'u1');
+    expect(url).toBe('http://new');
+    expect(redis.set).toHaveBeenCalledWith('media:url:t-team:m1', 'http://new', 'EX', 840);
+  });
+
   it('should return cached URL if present', async () => {
     redis.get = vi.fn().mockResolvedValue('http://cached-url/path?X-Amz=...');
     const url = await service.getMediaUrl('media-1', 'user1');
@@ -55,7 +84,7 @@ describe('MediaService', () => {
     const url = await service.getMediaUrl('media-1', 'user1');
     expect(url).toContain('X-Amz-Algorithm');
     expect(redis.set).toHaveBeenCalledWith(
-      'media:url:user1:media-1',
+      'media:url:t-team:media-1',
       expect.any(String),
       'EX',
       840,
@@ -63,16 +92,16 @@ describe('MediaService', () => {
   });
 
   it('should throw NotFoundException for non-existent media', async () => {
-    prisma.media.findFirst = vi.fn().mockResolvedValue(null);
+    prisma.media.findUnique = vi.fn().mockResolvedValue(null);
     await expect(
       service.getMediaUrl('nonexistent', 'user1'),
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('should reject access from wrong userId', async () => {
-    prisma.media.findFirst = vi.fn().mockResolvedValue(null);
+  it('should reject access from non-member stranger', async () => {
+    prisma.teamMember.findFirst = vi.fn().mockResolvedValue(null);
     await expect(
       service.getMediaUrl('media-1', 'user2'),
-    ).rejects.toThrow(NotFoundException);
+    ).rejects.toThrow(ForbiddenException);
   });
 });

@@ -8,4 +8,8 @@ export class BatchMoveFilesDto {
   @IsOptional()
   @IsString()
   folderId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  teamId?: string;
 }
