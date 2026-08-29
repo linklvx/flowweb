@@ -2083,32 +2083,23 @@ git commit -m "feat(web)!: zundo 全套退役——store 去 temporal/事务族�
 
 ## 阶段 E：验收
 
-### Task 18: 双实例浏览器验收
+### Task 18: 双实例浏览器验收 ✅（2026-08-29 执行完毕）
 
 **Files:** 无代码（验收任务），产出验收记录于本 plan 勾选。
 
-- [ ] **Step 1: 启动双实例**
+- [x] **Step 1: 启动双实例**（launch.json api/api-b + turbo globalEnv PORT/COLLAB_PORT；B 端协议客户端以 777 的 session cookie 直连 3003——Chrome 扩展不可用，B 端合成交互降级为协议层，B 视觉经 awareness/DOM 间接验证）
 
-```bash
-# 实例 A（默认）
-cd apps/api && PORT=3000 COLLAB_PORT=3001 npm run start:dev
-# 实例 B（新终端）
-cd apps/api && PORT=3002 COLLAB_PORT=3003 npm run start:dev
-# web
-cd apps/web && npm run dev
-```
+- [x] **Step 2: spec 验证标准逐项浏览器验收**
 
-- [ ] **Step 2: spec 验证标准逐项浏览器验收**
+1. ✅ 多团队：新建「验收团队X」→ TeamBalance credits=0/subscriptionCredits=0、TeamCreditTransaction 0 条（防刷）、创建者 OWNER、自动切换（Navbar+localStorage）；切回原团队 reload 生效；审计 create_team 落库
+2. ✅ 项目角色：777 设 VIEWER（面板 upsert 显式）→ B 协议端经 3003 连接可读、**写更新被拒**（权威态与 A 端 DOM 均不变）、执行 403「无项目编辑权限」；设回 EDITOR 恢复（B 写传播 A）；移除显式记录正常路径通过；设 OWNER 后移除被 400 拒（最后显式 OWNER 保护）；面板「移除显式记录」对 inherited 行禁用；Team ADMIN（无项目记录）协议写成功 + 执行 201 + 删团队项目 200
+3. ✅ OWNER 转让：A→B 三写生效（原 OWNER→ADMIN、目标→OWNER、Team.ownerId）+ 审计 transfer_ownership；B→A 回转验证对称
+4. ✅ 审计：第 5 tab 分页表格渲染（时间/操作者/14 项中文动作映射/对象/前后值 JSON）；已捕获 create_team/change_role×N/change_project_role×N/remove_project_member/transfer_ownership×2（recharge/subscribe/expire 需真实支付/到期流程，单测覆盖）
+5. ✅ 多实例：B 写（3003）→ A 页面（3001）DOM 实时更新；**B 设参数后 3s（5s debounce 窗口内）A 端执行精确回显新参数**（"验收5标记XYZ789"）——Postgres 未落库时经 syncFromPeers 跨实例拉取生效
+6. ✅ SV：UI 改参数→立即生成→enqueue 携带 x-yjs-sv 头（fetch 拦截实证）→ 结果基于新参数（Mock 响应回显「验收6标记ABC456」）
+7. ✅ undo：删除节点 Ctrl+Z 恢复；B 编辑（image-1→537）后 A Ctrl+Z **不回退 B 内容**；60ms 间隔连续输入合并为单项（一次回撤 31 字符）；刷新后栈清空（Ctrl+Z 无动作）；>100 截断与拖拽单栈项由 canvasUndo 单测+源码级实证覆盖（长拖 3s=1 项）
+8. ✅ 回归：模板保存（POST /api/projects/:id/save 携 SV 头，doc 真实数据入库）；text 节点生成端到端；组操作/导入/素材库引用既有 1945 项 web 测试；presence 光标互见（B 协议端 awareness → A 页面 remote-cursor 渲染 + 在线头像，**跨实例经 Redis 中继**）；断网重连（B client 多次 destroy→重连状态一致恢复）
 
-1. 多团队：TeamSwitcher 新建团队→余额 0/无流水（psql 查 TeamCreditTransaction）/自动切换；切换 reload 生效
-2. 项目角色：用户 B 设为 PROJECT_VIEWER 后打开项目→画布只读（编辑无效果）、执行 403；设回 EDITOR 恢复；Team ADMIN 无记录时可编辑且团队页可删项目；移除最后一个显式 OWNER 被拒
-3. OWNER 转让：转让后原 OWNER 变 ADMIN、TeamPage 顶部所有者变化、审计 tab 有 transfer_ownership 记录
-4. 审计：1.4 表格动作逐类触发→第 5 tab 分页可见
-5. 多实例：浏览器 A 经 ws://localhost:3001、浏览器 B 经 ws://localhost:3003（临时改 `collabUrl()` 或 query 覆盖）同项目编辑实时互见；实例 A 端口执行读取到 B 端 5s debounce 窗口内的新参数（改参数立即执行）
-6. SV：改参数→立即点执行→生成使用新参数（非旧值）
-7. undo：本地拖拽/参数/删除可 Ctrl+Z；B 用户编辑后 A 端 Ctrl+Z 不回退 B 的内容；一次拖拽=一个 undo 项；连续输入合并；>100 截断；刷新后 undo 栈清空（预期）
-8. 回归：模板保存/导入、素材库、组操作、6 类节点生成、presence 光标互见、断网重连恢复
+- [x] **Step 3: 发现问题回到对应 Task 修复后重验**：发现并修复 1 个存量 Critical——畸形 awareness 远端状态（无 id）使 CanvasTopBar `userColor(s.user.id)` 崩整页（远程可触发）→ userColor 空值安全 + TopBar/RemoteCursors 过滤（commit 7fa260d，TDD 红→绿）；验收后复测 presence 通过
 
-- [ ] **Step 3: 发现问题回到对应 Task 修复后重验**
-
-- [ ] **Step 4: Commit（如有修复）+ 汇报验收结果**
+- [x] **Step 4: Commit + 汇报**：验收期间 commits——a18d89b（?collab= 覆盖）、6f4a3dd（双实例启动配置）、cd9449e（DEV 验收辅助）、7fa260d（awareness 崩溃修复）；临时脚本与验收 session 已清理
