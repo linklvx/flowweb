@@ -160,32 +160,48 @@ describe('FolderService', () => {
     });
 
     it('remove 删父文件夹前消解子文件夹与 root 现有同名 → rename 为 name (1)', async () => {
-      prisma.folder.findFirst.mockImplementation(({ where }: any) => {
-        if (typeof where.id === 'string') return Promise.resolve({ id: 'f1', teamId: 't1' });
-        if (where.name === 'X') return Promise.resolve({ id: 'fx' }); // root 已有 X
-        return Promise.resolve(null);
-      });
-      prisma.folder.findMany.mockResolvedValue([{ id: 'c1', name: 'X' }]);
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1', teamId: 't1' });
+      prisma.folder.findMany.mockImplementation(({ where }: any) =>
+        where.parentId === null
+          ? Promise.resolve([{ name: 'X' }]) // root 现有名
+          : Promise.resolve([{ id: 'c1', name: 'X' }]),
+      );
       await service.remove('f1', 'u1', 't1');
       expect(prisma.folder.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { name: 'X (1)' } });
     });
 
     it('remove 消解递增：root 已有 X 和 X (1) → 子文件夹 rename 为 X (2)', async () => {
-      prisma.folder.findFirst.mockImplementation(({ where }: any) => {
-        if (typeof where.id === 'string') return Promise.resolve({ id: 'f1', teamId: 't1' });
-        if (where.name === 'X' || where.name === 'X (1)') return Promise.resolve({ id: 'fx' });
-        return Promise.resolve(null);
-      });
-      prisma.folder.findMany.mockResolvedValue([{ id: 'c1', name: 'X' }]);
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1', teamId: 't1' });
+      prisma.folder.findMany.mockImplementation(({ where }: any) =>
+        where.parentId === null
+          ? Promise.resolve([{ name: 'X' }, { name: 'X (1)' }]) // root 现有名
+          : Promise.resolve([{ id: 'c1', name: 'X' }]),
+      );
       await service.remove('f1', 'u1', 't1');
       expect(prisma.folder.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { name: 'X (2)' } });
     });
 
-    it('remove 子文件夹与 root 无同名时不 rename', async () => {
-      prisma.folder.findFirst.mockImplementation(({ where }: any) =>
-        typeof where.id === 'string' ? Promise.resolve({ id: 'f1', teamId: 't1' }) : Promise.resolve(null),
+    it('remove 消解补兄弟盲区：子 A 与兄弟 A (1) 同升 root、root 已有 A → c1 改 A (1)、c2 改 A (2)', async () => {
+      prisma.folder.findFirst.mockImplementation(({ where }: any) => {
+        if (typeof where.id === 'string') return Promise.resolve({ id: 'p1', teamId: 't1' });
+        if (where.name === 'A') return Promise.resolve({ id: 'root-a' }); // root 已有 A；兄弟 A (1) 还挂在 P 下，root 查不到
+        return Promise.resolve(null);
+      });
+      prisma.folder.findMany.mockImplementation(({ where }: any) =>
+        where.parentId === null
+          ? Promise.resolve([{ name: 'A' }]) // root 现有名
+          : Promise.resolve([{ id: 'c1', name: 'A' }, { id: 'c2', name: 'A (1)' }]), // 待升子文件夹
       );
-      prisma.folder.findMany.mockResolvedValue([{ id: 'c1', name: '独一名' }]);
+      await service.remove('p1', 'u1', 't1');
+      expect(prisma.folder.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { name: 'A (1)' } });
+      expect(prisma.folder.update).toHaveBeenCalledWith({ where: { id: 'c2' }, data: { name: 'A (2)' } });
+    });
+
+    it('remove 子文件夹与 root 无同名时不 rename', async () => {
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1', teamId: 't1' });
+      prisma.folder.findMany.mockImplementation(({ where }: any) =>
+        where.parentId === null ? Promise.resolve([]) : Promise.resolve([{ id: 'c1', name: '独一名' }]),
+      );
       await service.remove('f1', 'u1', 't1');
       expect(prisma.folder.update).not.toHaveBeenCalled();
     });

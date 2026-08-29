@@ -81,18 +81,24 @@ export class FolderService {
     const folder = await this.prisma.folder.findFirst({ where: { id, teamId: teamIdResolved } });
     if (!folder) throw new NotFoundException('文件夹不存在');
 
-    // 删父文件夹时其子文件夹将升入 root（parentId 置空），先消解与 root 现有同名者
+    // 删父文件夹时其子文件夹将升入 root（parentId 置空），先消解与 root 同名者——
+    // 集合化查重且已分配新名即时占位，防兄弟互撞（如子 A 与兄弟 A (1) 同升 root → A (1) / A (2)）
     const children = await this.prisma.folder.findMany({ where: { parentId: id } });
+    const rootNames = await this.prisma.folder.findMany({
+      where: { teamId: teamIdResolved, parentId: null },
+      select: { name: true },
+    });
+    const reserved = new Set(rootNames.map((r) => r.name));
     for (const child of children) {
-      let suffix = 1;
-      let name = child.name;
-      while (await this.prisma.folder.findFirst({
-        where: { teamId: teamIdResolved, parentId: null, name },
-      })) {
-        name = `${child.name} (${suffix++})`;
+      const base = child.name.replace(/\s\(\d+\)$/, ''); // 剥末尾序数后缀，同名家族共享一个序数空间
+      let newName = child.name;
+      let i = 0;
+      while (reserved.has(newName)) {
+        newName = `${base} (${++i})`;
       }
-      if (name !== child.name) {
-        await this.prisma.folder.update({ where: { id: child.id }, data: { name } });
+      reserved.add(newName);
+      if (newName !== child.name) {
+        await this.prisma.folder.update({ where: { id: child.id }, data: { name: newName } });
       }
     }
 
