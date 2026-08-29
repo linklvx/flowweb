@@ -1,6 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, it, expect, vi } from 'vitest';
-import { getOwnerTeamId } from './team.util';
+import { getOwnerTeamId, assertTeamMember } from './team.util';
 
 describe('getOwnerTeamId', () => {
   const makeDb = () => ({
@@ -26,5 +26,31 @@ describe('getOwnerTeamId', () => {
     db.team.findFirst.mockResolvedValue(null);
 
     await expect(getOwnerTeamId(db as any, 'u1')).rejects.toThrow('用户暂无个人团队');
+  });
+});
+
+describe('assertTeamMember', () => {
+  const makeDb = () => ({
+    teamMember: { findUnique: vi.fn() },
+  });
+
+  it('成员通过（按 teamId_userId 查询）', async () => {
+    const db = makeDb();
+    db.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+
+    await expect(assertTeamMember(db as any, 't1', 'u1')).resolves.toBeUndefined();
+
+    expect(db.teamMember.findUnique).toHaveBeenCalledWith({
+      where: { teamId_userId: { teamId: 't1', userId: 'u1' } },
+      select: { role: true },
+    });
+  });
+
+  it('非成员抛 403 非团队成员', async () => {
+    const db = makeDb();
+    db.teamMember.findUnique.mockResolvedValue(null);
+
+    await expect(assertTeamMember(db as any, 't1', 'u1')).rejects.toThrow(ForbiddenException);
+    await expect(assertTeamMember(db as any, 't1', 'u1')).rejects.toThrow('非团队成员');
   });
 });

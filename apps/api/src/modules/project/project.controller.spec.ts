@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectController } from './project.controller';
 import { ProjectService } from './project.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ProjectController', () => {
   let controller: ProjectController;
   let service: any;
+  let prisma: any;
 
   beforeEach(async () => {
     service = {
@@ -15,10 +17,14 @@ describe('ProjectController', () => {
       delete: vi.fn().mockResolvedValue({}),
       getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
     };
+    prisma = { teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) } };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ProjectController],
-      providers: [{ provide: ProjectService, useValue: service }],
+      providers: [
+        { provide: ProjectService, useValue: service },
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     controller = module.get<ProjectController>(ProjectController);
@@ -27,12 +33,17 @@ describe('ProjectController', () => {
   it('POST /api/projects should create project（带登录 userId）', async () => {
     const result = await controller.create({ name: 'test' }, { user: { id: 'u1' } } as any);
     expect(result.id).toBe('p1');
-    expect(service.create).toHaveBeenCalledWith('test', 'u1');
+    expect(service.create).toHaveBeenCalledWith('test', 'u1', undefined, undefined, undefined);
   });
 
   it('POST /api/projects should default name to 未命名项目', async () => {
     await controller.create({ name: '' }, { user: { id: 'u1' } } as any);
-    expect(service.create).toHaveBeenCalledWith('未命名项目', 'u1');
+    expect(service.create).toHaveBeenCalledWith('未命名项目', 'u1', undefined, undefined, undefined);
+  });
+
+  it('POST /api/projects 透传 body.teamId', async () => {
+    await controller.create({ name: 'test', teamId: 't1' }, { user: { id: 'u1' } } as any);
+    expect(service.create).toHaveBeenCalledWith('test', 'u1', undefined, undefined, 't1');
   });
 
   it('GET /api/projects/:id should return project', async () => {
@@ -40,14 +51,26 @@ describe('ProjectController', () => {
     expect(result.id).toBe('p1');
   });
 
-  it('GET /api/projects/:id/folder 登录时透传 userId', async () => {
-    await controller.getProjectFolder('p1', { user: { id: 'u1' } } as any);
-    expect(service.getProjectFolder).toHaveBeenCalledWith('p1', 'u1');
+  it('GET /api/projects/:id/folder 登录+teamId 时校验成员并透传', async () => {
+    await controller.getProjectFolder('p1', 't1', { user: { id: 'u1' } } as any);
+    expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
+      where: { teamId_userId: { teamId: 't1', userId: 'u1' } },
+      select: { role: true },
+    });
+    expect(service.getProjectFolder).toHaveBeenCalledWith('p1', 'u1', 't1');
   });
 
-  it('GET /api/projects/:id/folder 未登录时透传 undefined', async () => {
-    await controller.getProjectFolder('p1', {} as any);
-    expect(service.getProjectFolder).toHaveBeenCalledWith('p1', undefined);
+  it('GET /api/projects/:id/folder 非成员抛 403', async () => {
+    prisma.teamMember.findUnique.mockResolvedValue(null);
+    await expect(controller.getProjectFolder('p1', 't1', { user: { id: 'u1' } } as any)).rejects.toThrow('非团队成员');
+    expect(service.getProjectFolder).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/projects/:id/folder 未登录或缺 teamId 直接返回 null', async () => {
+    expect(await controller.getProjectFolder('p1', 't1', {} as any)).toEqual({ folderId: null });
+    expect(await controller.getProjectFolder('p1', undefined, { user: { id: 'u1' } } as any)).toEqual({ folderId: null });
+    expect(prisma.teamMember.findUnique).not.toHaveBeenCalled();
+    expect(service.getProjectFolder).not.toHaveBeenCalled();
   });
 
   it('PATCH /api/projects/:id should update project name', async () => {
@@ -61,4 +84,3 @@ describe('ProjectController', () => {
     expect(service.delete).toHaveBeenCalledWith('p1');
   });
 });
-

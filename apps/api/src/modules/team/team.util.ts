@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 
 // 只读解析个人团队 id（判据 ownerId+isDefault，与成员身份无关）；
 // 补建路径走 ensureDefaultTeam/bootstrapPersonalTeam，本函数不建任何行。
@@ -14,4 +14,17 @@ export async function getOwnerTeamId(
   })
   if (team) return team.id
   throw new BadRequestException('用户暂无个人团队')
+}
+
+// 外部传入 teamId 的入口用：非成员一律 403（不区分团队是否存在，不暴露存在性）
+export async function assertTeamMember(
+  db: { teamMember: { findUnique: Function } },
+  teamId: string,
+  userId: string,
+): Promise<void> {
+  const member = await db.teamMember.findUnique({
+    where: { teamId_userId: { teamId, userId } },
+    select: { role: true },
+  })
+  if (!member) throw new ForbiddenException('非团队成员')
 }

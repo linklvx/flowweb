@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
@@ -7,6 +7,7 @@ import { validateTemplateData } from '../template/template.validation';
 import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { assertTeamMember } from '../team/team.util';
 
 @Injectable()
 export class CanvasService {
@@ -20,24 +21,30 @@ export class CanvasService {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
-  async create(name: string, folderId: string | null, userId: string) {
+  async create(name: string, folderId: string | null, userId: string, teamId?: string) {
+    let teamIdResolved: string;
+    if (teamId) {
+      await assertTeamMember(this.prisma, teamId, userId);
+      teamIdResolved = teamId;
+    } else {
+      teamIdResolved = (await this.teamService.ensureDefaultTeam(userId)).id;
+    }
     if (folderId) {
-      const folder = await this.prisma.folder.findFirst({ where: { id: folderId, userId } });
+      const folder = await this.prisma.folder.findFirst({ where: { id: folderId, teamId: teamIdResolved } });
       if (!folder) throw new BadRequestException('目标文件夹不存在');
     }
-    const team = await this.teamService.ensureDefaultTeam(userId);
     const result = await this.prisma.$transaction(async (tx) => {
       let finalName = name;
       if (!name?.trim()) {
-        // 同用户并发空名创建串行化，消除编号 read-modify-write 竞态；事务结束自动释放
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'canvas_untitled:' + userId}))`;
-        finalName = await CanvasService.nextUntitledName(tx, userId);
+        // 同团队并发空名创建串行化，消除编号 read-modify-write 竞态；事务结束自动释放
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'canvas_untitled:' + teamIdResolved}))`;
+        finalName = await CanvasService.nextUntitledName(tx, teamIdResolved);
       }
       const project = await tx.canvasProject.create({
-        data: { name: finalName, userId, teamId: team.id },
+        data: { name: finalName, userId, teamId: teamIdResolved },
       });
       const template = await tx.template.create({
-        data: { name: finalName, userId, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
+        data: { name: finalName, userId, teamId: teamIdResolved, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
       });
       return { templateId: template.id, projectId: project.id, name: finalName };
     });
@@ -47,11 +54,12 @@ export class CanvasService {
   }
 
   async getNextUntitledName(userId: string): Promise<string> {
-    return CanvasService.nextUntitledName(this.prisma, userId);
+    const teamId = (await this.teamService.ensureDefaultTeam(userId)).id;
+    return CanvasService.nextUntitledName(this.prisma, teamId);
   }
 
-  private static async nextUntitledName(db: { template: { findMany: Function } }, userId: string): Promise<string> {
-    const templates = await db.template.findMany({ where: { userId }, select: { name: true } });
+  private static async nextUntitledName(db: { template: { findMany: Function } }, teamId: string): Promise<string> {
+    const templates = await db.template.findMany({ where: { teamId }, select: { name: true } });
     let max = 0;
     for (const t of templates) {
       const m = /^画布(\d+)$/.exec(t.name);
@@ -63,9 +71,6 @@ export class CanvasService {
   async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean; viewport?: { x: number; y: number; zoom: number } }, userId: string, sv?: Uint8Array) {
     const project = await this.projectService.findById(projectId);
     await this.perm.assertEditor(projectId, userId);
-    if (project.userId !== null && project.userId !== userId) {
-      throw new ForbiddenException('无权保存此工程');
-    }
 
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const nodes = canvas.nodes.map((n: any) => ({
@@ -110,6 +115,7 @@ export class CanvasService {
           isPublic: input.isPublic ?? false,
           projectId,
           userId,
+          teamId: project.teamId,
           templateData,
           status: 'SAVED',
           category: input.isPublic ? 'COMMUNITY' : undefined,

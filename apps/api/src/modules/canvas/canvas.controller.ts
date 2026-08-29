@@ -13,7 +13,7 @@ export class CanvasController {
   async create(@Body() dto: CreateCanvasDto, @Req() req: Request) {
     const userId = (req as any).user?.id;
     if (!userId) throw new UnauthorizedException('未登录');
-    return this.canvasService.create(dto.name, dto.folderId ?? null, userId);
+    return this.canvasService.create(dto.name, dto.folderId ?? null, userId, dto.teamId);
   }
 
   // 静态路由需先于将来可能出现的 @Get(':id') 声明，避免被动态段吞掉

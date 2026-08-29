@@ -22,6 +22,7 @@ describe('ProjectService', () => {
       template: {
         findUnique: vi.fn(),
       },
+      teamMember: { findUnique: vi.fn().mockResolvedValue(null) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
       canvasDoc: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -87,6 +88,28 @@ describe('ProjectService', () => {
       await service.create('未命名项目', undefined);
       expect(prisma.projectMember.create).not.toHaveBeenCalled();
     });
+
+    it('团队化：传 teamId 时校验成员并写入该团队', async () => {
+      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      const mockProject = { id: 'p1', name: '团项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      await service.create('团项目', 'u1', undefined, undefined, 't-team');
+
+      expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't-team', userId: 'u1' } },
+        select: { role: true },
+      });
+      expect(prisma.canvasProject.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ teamId: 't-team' }),
+      });
+    });
+
+    it('团队化：传非成员 teamId 抛 403', async () => {
+      await expect(service.create('x', 'u1', undefined, undefined, 't-team')).rejects.toThrow('非团队成员');
+      expect(prisma.canvasProject.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('findById', () => {
@@ -139,32 +162,34 @@ describe('ProjectService', () => {
   });
 
   describe('getProjectFolder', () => {
-    it('属主项目返回 template 的 folderId', async () => {
+    it('teamId 匹配的项目返回 template 的 folderId', async () => {
       prisma.canvasProject.findFirst.mockResolvedValue({ id: 'p1' });
       prisma.template.findUnique.mockResolvedValue({ folderId: 'f1' });
 
-      const result = await service.getProjectFolder('p1', 'u1');
+      const result = await service.getProjectFolder('p1', 'u1', 't1');
 
       expect(prisma.canvasProject.findFirst).toHaveBeenCalledWith({
-        where: { id: 'p1', userId: 'u1' },
+        where: { id: 'p1', teamId: 't1' },
         select: { id: true },
       });
       expect(result).toEqual({ folderId: 'f1' });
     });
 
-    it('非属主项目返回 null 且不查 template（不暴露存在性）', async () => {
+    it('teamId 不匹配返回 null 且不查 template（不暴露存在性）', async () => {
       prisma.canvasProject.findFirst.mockResolvedValue(null);
 
-      const result = await service.getProjectFolder('p1', 'other-user');
+      const result = await service.getProjectFolder('p1', 'u1', 't-other');
 
       expect(result).toEqual({ folderId: null });
       expect(prisma.template.findUnique).not.toHaveBeenCalled();
     });
 
-    it('未登录（userId 空）直接返回 null 且不查库', async () => {
-      const result = await service.getProjectFolder('p1', undefined);
+    it('未登录或 teamId 缺失直接返回 null 且不查库', async () => {
+      const r1 = await service.getProjectFolder('p1', undefined, 't1');
+      const r2 = await service.getProjectFolder('p1', 'u1', undefined);
 
-      expect(result).toEqual({ folderId: null });
+      expect(r1).toEqual({ folderId: null });
+      expect(r2).toEqual({ folderId: null });
       expect(prisma.canvasProject.findFirst).not.toHaveBeenCalled();
     });
 
@@ -172,7 +197,7 @@ describe('ProjectService', () => {
       prisma.canvasProject.findFirst.mockResolvedValue({ id: 'p1' });
       prisma.template.findUnique.mockResolvedValue(null);
 
-      const result = await service.getProjectFolder('p1', 'u1');
+      const result = await service.getProjectFolder('p1', 'u1', 't1');
 
       expect(result).toEqual({ folderId: null });
     });

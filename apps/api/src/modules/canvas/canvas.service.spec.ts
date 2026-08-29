@@ -21,6 +21,8 @@ describe('CanvasService', () => {
   beforeEach(async () => {
     prisma = {
       folder: { findFirst: vi.fn().mockResolvedValue(null) },
+      canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
+      teamMember: { findUnique: vi.fn().mockResolvedValue(null) },
       template: {
         findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -75,7 +77,7 @@ describe('CanvasService', () => {
       await service.create('新画布', null, 'u1');
       expect(templateCreate).toHaveBeenCalledWith({
         data: {
-          name: '新画布', userId: 'u1', projectId: 'p1',
+          name: '新画布', userId: 'u1', teamId: 'team1', projectId: 'p1',
           folderId: null, status: 'DRAFT', isPublic: false,
         },
       });
@@ -107,7 +109,7 @@ describe('CanvasService', () => {
         const tx = mockTx(['我的画布']);
         const result = await service.create('', null, 'u1');
         expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
-        expect(tx.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
+        expect(tx.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
         expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1', status: 'DRAFT' }) });
         expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '画布1' });
@@ -141,7 +143,7 @@ describe('CanvasService', () => {
     it('无未命名画布 → 画布1', async () => {
       prisma.template.findMany.mockResolvedValue([{ name: '我的画布' }]);
       await expect(service.getNextUntitledName('u1')).resolves.toBe('画布1');
-      expect(prisma.template.findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { name: true } });
+      expect(prisma.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
     });
 
     it('已有 画布1、3 → 画布4', async () => {
@@ -159,7 +161,7 @@ describe('CanvasService', () => {
     };
 
     beforeEach(() => {
-      projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1' });
+      projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1', teamId: 'team1' });
       (service as any).collabDoc.readCanvas.mockResolvedValue({
         nodes: project.nodes,
         edges: project.edges.map((e: any) => ({ ...e })),
@@ -172,7 +174,7 @@ describe('CanvasService', () => {
       expect(prisma.template.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           name: '名', description: 'd', isPublic: false, status: 'SAVED',
-          projectId: 'p1', userId: 'u1',
+          projectId: 'p1', userId: 'u1', teamId: 'team1',
           templateData: {
             nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
             edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
@@ -204,11 +206,6 @@ describe('CanvasService', () => {
       });
     });
 
-    it('非本人工程抛 Forbidden', async () => {
-      projectService.findById.mockResolvedValue({ ...project, userId: 'other' });
-      await expect(service.save('p1', { name: '名' }, 'u1')).rejects.toThrow(ForbiddenException);
-    });
-
     it('save：VIEWER 403', async () => {
       permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       await expect(service.save('p1', { name: '名' }, 'u1')).rejects.toThrow('无项目编辑权限');
@@ -223,6 +220,58 @@ describe('CanvasService', () => {
       const result = await service.save('p1', { name: '名' }, 'u1');
       expect(prisma.template.update).toHaveBeenCalled();
       expect(result.id).toBe('t2');
+    });
+  });
+
+  describe('团队化', () => {
+    it('create 传 teamId 时挂指定团队并校验成员', async () => {
+      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+      prisma.canvasProject.create.mockResolvedValue({ id: 'p1', teamId: 't-team' });
+      prisma.template.create.mockResolvedValue({ id: 'tp1' });
+      const result = await service.create('名字', null, 'u1', 't-team');
+      expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
+        where: { teamId_userId: { teamId: 't-team', userId: 'u1' } },
+        select: { role: true },
+      });
+      expect(prisma.canvasProject.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ teamId: 't-team' }) }),
+      );
+      expect(result).toEqual({ templateId: 'tp1', projectId: 'p1', name: '名字' });
+    });
+
+    it('create 传非成员 teamId 时抛 403', async () => {
+      prisma.teamMember.findUnique.mockResolvedValue(null);
+      await expect(service.create('x', null, 'u1', 't-team')).rejects.toThrow('非团队成员');
+    });
+
+    it('create folderId 跨团队时抛 400', async () => {
+      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      prisma.folder.findFirst.mockResolvedValue(null);
+      await expect(service.create('x', 'f-other', 'u1', 't-team')).rejects.toThrow('目标文件夹不存在');
+    });
+
+    it('save 不再拒绝团队成员（无 creator-only）', async () => {
+      projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'other-user', teamId: 't-team' });
+      (service as any).collabDoc.readCanvas.mockResolvedValue({
+        nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
+        edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+      });
+      prisma.template.findUnique.mockResolvedValue(null);
+      await expect(service.save('p1', { name: 'x' }, 'u2')).resolves.toBeDefined();
+    });
+
+    it('save 首存 template 带 teamId', async () => {
+      projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1', teamId: 't-team' });
+      (service as any).collabDoc.readCanvas.mockResolvedValue({
+        nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
+        edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+      });
+      prisma.template.findUnique.mockResolvedValue(null);
+      await service.save('p1', { name: 'x' }, 'u1');
+      expect(prisma.template.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ projectId: 'p1', userId: 'u1', teamId: 't-team' }),
+      });
     });
   });
 });

@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import * as Y from 'yjs';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
   id: string;
@@ -30,14 +31,20 @@ export class ProjectService {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
-  async create(name: string, userId?: string, nodes?: any[], edges?: any[]) {
-    const team = await this.teamService.ensureDefaultTeam(userId || '');
+  async create(name: string, userId?: string, nodes?: any[], edges?: any[], teamId?: string) {
+    let teamIdResolved: string;
+    if (teamId && userId) {
+      await assertTeamMember(this.prisma, teamId, userId);
+      teamIdResolved = teamId;
+    } else {
+      teamIdResolved = (await this.teamService.ensureDefaultTeam(userId || '')).id;
+    }
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.canvasProject.create({
         data: {
           name,
           userId: userId || null,
-          teamId: team.id,
+          teamId: teamIdResolved,
         },
       });
       if (userId) {
@@ -88,11 +95,11 @@ export class ProjectService {
     return project;
   }
 
-  /** 画布所属文件夹 id；属主不匹配/未登录/无关联时返回 null（不暴露项目存在性） */
-  async getProjectFolder(id: string, userId?: string) {
-    if (!userId) return { folderId: null };
+  /** 画布所属文件夹 id；非本团队成员/未登录/teamId 缺失/无关联时返回 null（不暴露项目存在性） */
+  async getProjectFolder(id: string, userId?: string, teamId?: string) {
+    if (!userId || !teamId) return { folderId: null };
     const project = await this.prisma.canvasProject.findFirst({
-      where: { id, userId },
+      where: { id, teamId },
       select: { id: true },
     });
     if (!project) return { folderId: null };
