@@ -59,34 +59,63 @@ export class TeamService {
         team: {
           include: {
             balance: true,
-            subscriptions: { include: { plan: { select: { name: true } } } },
+            // Task 1 起 Team 侧为 subscriptions[]（一对多）：取最新 active 一条
+            subscriptions: {
+              where: { status: 'active' },
+              orderBy: { currentPeriodEnd: 'desc' },
+              take: 1,
+              include: { plan: { select: { name: true } } },
+            },
             _count: { select: { members: true } },
           },
         },
       },
+      orderBy: { team: { createdAt: 'asc' } },
     });
-    return memberships.map((m) => {
-      // 临时接线：Task 3 将重写为订阅分叉逻辑（现状一对一最多一条，取首条行为等价）
-      const sub = m.team.subscriptions?.[0];
+    const rows = await Promise.all(memberships.map(async (m) => {
+      // 订阅状态分叉：默认团队查个人订阅（UserSubscription），普通团队查 TeamSubscription
+      let subscription: { planName: string; status: string; currentPeriodEnd: Date } | null = null;
+      if (m.team.isDefault) {
+        const personal = await this.prisma.userSubscription.findFirst({
+          where: { userId, status: 'active' },
+          orderBy: { currentPeriodEnd: 'desc' },
+          include: { plan: { select: { tier: true } } },
+        });
+        if (personal) {
+          subscription = { planName: personal.plan.tier, status: personal.status, currentPeriodEnd: personal.currentPeriodEnd };
+        }
+      } else if (m.team.subscriptions[0]) {
+        const teamSub = m.team.subscriptions[0];
+        subscription = {
+          planName: teamSub.plan.name,
+          status: teamSub.status,
+          currentPeriodEnd: teamSub.currentPeriodEnd,
+        };
+      }
       return {
         id: m.team.id,
         name: m.team.name,
         role: m.role,
         status: m.team.status,
+        isDefault: m.team.isDefault,
+        isOwner: m.team.ownerId === userId,
         memberCount: m.team._count.members,
+        createdAt: m.team.createdAt,
         balance: {
           credits: m.team.balance?.credits ?? 0,
           subscriptionCredits: m.team.balance?.subscriptionCredits ?? 0,
         },
-        subscription: sub
-          ? {
-              planName: sub.plan.name,
-              status: sub.status,
-              currentPeriodEnd: sub.currentPeriodEnd,
-            }
-          : null,
+        subscription,
       };
-    });
+    }));
+    // 排序规则：默认团队固定第一（前端 ?? teams[0] 缺省不得落到真实团队）
+    // → 我创建的（OWNER）优先于我加入的（MEMBER）→ 同级按创建时间升序
+    return rows.sort(
+      (a, b) =>
+        Number(b.isDefault) - Number(a.isDefault) ||
+        Number(b.isOwner) - Number(a.isOwner) ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
   }
 
   async renameTeam(teamId: string, userId: string, name: string) {

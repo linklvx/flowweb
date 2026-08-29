@@ -138,13 +138,14 @@ describe('TeamService 基础 API', () => {
   });
 
   describe('getMyTeams', () => {
-    it('返回所在团队（role/成员数/余额/active 订阅摘要）', async () => {
+    it('返回所在团队（role/成员数/余额/active 订阅摘要；含 isDefault/isOwner/createdAt）', async () => {
       prisma.teamMember = {
         findMany: vi.fn().mockResolvedValue([
           {
             role: 'OWNER',
             team: {
-              id: 't1', name: '团队A', status: 'ACTIVE',
+              id: 't1', name: '团队A', status: 'ACTIVE', ownerId: 'u1', isDefault: false,
+              createdAt: new Date('2026-01-01'),
               _count: { members: 3 },
               balance: { credits: 100, subscriptionCredits: 50 },
               subscriptions: [{ status: 'active', currentPeriodEnd: new Date('2026-09-27'), plan: { name: '专业版' } }],
@@ -153,7 +154,8 @@ describe('TeamService 基础 API', () => {
           {
             role: 'MEMBER',
             team: {
-              id: 't2', name: '团队B', status: 'ACTIVE',
+              id: 't2', name: '团队B', status: 'ACTIVE', ownerId: 'x', isDefault: false,
+              createdAt: new Date('2026-02-01'),
               _count: { members: 1 },
               balance: { credits: 0, subscriptionCredits: 0 },
               subscriptions: [],
@@ -164,22 +166,77 @@ describe('TeamService 基础 API', () => {
 
       const result = await service.getMyTeams('u1');
 
-      expect(prisma.teamMember.findMany).toHaveBeenCalledWith({
+      expect(prisma.teamMember.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: { userId: 'u1' },
-        include: expect.anything(),
-      });
+      }));
       expect(result).toEqual([
         {
-          id: 't1', name: '团队A', role: 'OWNER', status: 'ACTIVE', memberCount: 3,
+          id: 't1', name: '团队A', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, memberCount: 3,
+          createdAt: new Date('2026-01-01'),
           balance: { credits: 100, subscriptionCredits: 50 },
           subscription: { planName: '专业版', status: 'active', currentPeriodEnd: new Date('2026-09-27') },
         },
         {
-          id: 't2', name: '团队B', role: 'MEMBER', status: 'ACTIVE', memberCount: 1,
+          id: 't2', name: '团队B', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, memberCount: 1,
+          createdAt: new Date('2026-02-01'),
           balance: { credits: 0, subscriptionCredits: 0 },
           subscription: null,
         },
       ]);
+    });
+  });
+
+  describe('getMyTeams（个人项目化）', () => {
+    it('返回 isDefault/isOwner，默认团队排第一，默认团队订阅来自 UserSubscription', async () => {
+      // mock findMany 返回两个成员关系：普通团队（member）+ 默认团队（owner）——故意乱序
+      prisma.teamMember = {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            role: 'MEMBER',
+            team: {
+              id: 't-team', name: '梦幻团队', ownerId: 'someone-else', isDefault: false,
+              balance: { credits: 5, subscriptionCredits: 0 },
+              subscriptions: [{ plan: { name: '团队月卡' }, status: 'active', currentPeriodEnd: new Date('2026-09-30') }],
+              _count: { members: 3 },
+            },
+          },
+          {
+            role: 'OWNER',
+            team: {
+              id: 't-default', name: 'Alice的团队', ownerId: 'u1', isDefault: true,
+              balance: { credits: 100, subscriptionCredits: 50 },
+              subscriptions: [],
+              _count: { members: 1 },
+            },
+          },
+        ]),
+      };
+      prisma.userSubscription = {
+        findFirst: vi.fn().mockResolvedValue({
+          plan: { tier: 'pro' }, status: 'active', currentPeriodEnd: new Date('2026-09-15'),
+        }),
+      };
+
+      const result = await service.getMyTeams('u1');
+
+      expect(result[0]).toMatchObject({ id: 't-default', isDefault: true, isOwner: true });
+      expect(result[0].subscription!).toMatchObject({ planName: 'pro', status: 'active' });
+      expect(result[1]).toMatchObject({ id: 't-team', isDefault: false, isOwner: false });
+      expect(result[1].subscription!.planName).toBe('团队月卡');
+    });
+
+    it('非默认团队排序：我创建的（OWNER）优先于我加入的（MEMBER），同级按创建时间升序', async () => {
+      prisma.teamMember = {
+        findMany: vi.fn().mockResolvedValue([
+          { role: 'MEMBER', team: { id: 't-join-old', ownerId: 'x', isDefault: false, createdAt: new Date('2026-01-01'), balance: null, subscriptions: [], _count: { members: 2 } } },
+          { role: 'OWNER', team: { id: 't-mine-new', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-06-01'), balance: null, subscriptions: [], _count: { members: 1 } } },
+          { role: 'OWNER', team: { id: 't-mine-old', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-03-01'), balance: null, subscriptions: [], _count: { members: 1 } } },
+        ]),
+      };
+
+      const result = await service.getMyTeams('u1');
+
+      expect(result.map((t: any) => t.id)).toEqual(['t-mine-old', 't-mine-new', 't-join-old']);
     });
   });
 

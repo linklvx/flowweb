@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TeamService } from './team.service';
 import { TeamCreditService } from './team-credit.service';
@@ -58,6 +58,15 @@ export class TeamController {
   @Get('mine')
   getMyTeams(@Req() req: Request) {
     return this.teamService.getMyTeams((req as any).user.id);
+  }
+
+  // 无 :id 路由守卫本就放行，显式声明防未来类级守卫变化
+  @SkipTeamGuard()
+  @Get('default')
+  getDefault(@Req() req: Request) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException();
+    return this.teamService.ensureDefaultTeam(userId).then((t) => ({ id: t.id, name: t.name, isDefault: true }));
   }
 
   @Get(':id/members')
