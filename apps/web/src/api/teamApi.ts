@@ -143,9 +143,15 @@ export interface TeamRechargeOrderRow {
   createdAt: string;
 }
 
-export function listTeamRechargeOrders(teamId: string, page = 1, pageSize = 20) {
+export function listTeamRechargeOrders(
+  teamId: string,
+  page = 1,
+  pageSize = 20,
+  kind?: 'credits' | 'subscription',
+) {
+  const kindQs = kind ? `kind=${kind}&` : '';
   return apiFetch<{ items: TeamRechargeOrderRow[]; total: number }>(
-    `/team/${teamId}/recharge/orders?kind=credits&page=${page}&pageSize=${pageSize}`,
+    `/team/${teamId}/recharge/orders?${kindQs}page=${page}&pageSize=${pageSize}`,
   );
 }
 

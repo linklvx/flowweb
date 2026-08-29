@@ -58,7 +58,7 @@ export function CreditsPage() {
   const loadOrders = useCallback(async (page = 1) => {
     try {
       const team = await getDefaultTeam();
-      const data = await listTeamRechargeOrders(team.id, page);
+      const data = await listTeamRechargeOrders(team.id, page, 20, 'credits');
       setOrders(data.items);
       setOrdersTotal(data.total);
       setOrdersPage(page);
