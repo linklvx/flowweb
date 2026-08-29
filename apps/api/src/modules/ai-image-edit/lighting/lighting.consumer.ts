@@ -89,6 +89,24 @@ export class LightingConsumer {
     });
 
     try {
+      // 1.5 解析归属团队（先于付费 AI 调用/上传：project 缺失属永久性错误，提前失败零孤儿零浪费）
+      //     project 上下文优先（缺失即失败，不回落个人团队）；无 projectId 的个人任务回落个人团队
+      let teamId: string;
+      let projectTeamId: string | undefined;
+      if (projectId) {
+        projectTeamId = (await this.prisma.canvasProject.findUnique({
+          where: { id: projectId },
+          select: { teamId: true },
+        }))?.teamId;
+        if (!projectTeamId) {
+          Sentry.captureException(new Error(`lighting: project team missing for task ${taskId}`));
+          throw new Error('PROJECT_TEAM_MISSING');
+        }
+        teamId = projectTeamId;
+      } else {
+        teamId = await getOwnerTeamId(this.prisma, userId);
+      }
+
       // 2. Get original image presigned URL
       const presignedUrl = await this.minio.generatePresignedGetUrl(
         originalImageUrl.replace(/.*\/media\//, '').split('?')[0] || originalImageUrl,
@@ -122,23 +140,6 @@ export class LightingConsumer {
       // 6. Upload to MinIO
       const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
       await this.minio.upload(key, buffer, contentType);
-
-      // 6.5 解析归属团队：project 上下文优先（缺失即失败，不回落个人团队）；无 projectId 的个人任务回落个人团队
-      let teamId: string;
-      let projectTeamId: string | undefined;
-      if (projectId) {
-        projectTeamId = (await this.prisma.canvasProject.findUnique({
-          where: { id: projectId },
-          select: { teamId: true },
-        }))?.teamId;
-        if (!projectTeamId) {
-          Sentry.captureException(new Error(`lighting: project team missing for task ${taskId}`));
-          throw new Error('PROJECT_TEAM_MISSING');
-        }
-        teamId = projectTeamId;
-      } else {
-        teamId = await getOwnerTeamId(this.prisma, userId);
-      }
 
       // 7. Create Media record
       const media = await this.prisma.media.create({

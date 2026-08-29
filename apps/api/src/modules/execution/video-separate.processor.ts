@@ -189,6 +189,12 @@ export class VideoSeparateProcessor extends WorkerHost {
     } catch (error) {
       await this.redis.decr(`user:video-separate:${userId}`);
 
+      // PROJECT_TEAM_MISSING 属永久性错误（project 缺失/已删，重试不会好转）：
+      // 包装为不可重试，避免 BullMQ 指数退避放大为 3× 下载/ffmpeg/上传 + 孤儿对象
+      if ((error as Error).message === 'PROJECT_TEAM_MISSING') {
+        error = new NonRetryableError('PROJECT_TEAM_MISSING', (error as Error).message);
+      }
+
       if (error instanceof NonRetryableError) {
         // 业务错误：更新 DB → throw → retryStrategy 返回 -1 → BullMQ 直接标记 failed
         await this.separateService.handleTaskFailed(taskId, error.message, error.errorType);

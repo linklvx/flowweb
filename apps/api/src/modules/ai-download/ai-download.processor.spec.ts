@@ -15,7 +15,13 @@ vi.mock('axios', () => ({
   },
 }));
 
+// Mock Sentry（failed 分支须上报 captureException）
+vi.mock('@sentry/nestjs', () => ({
+  captureException: vi.fn(),
+}));
+
 import axios from 'axios';
+import * as Sentry from '@sentry/nestjs';
 
 describe('AiDownloadProcessor', () => {
   let processor: AiDownloadProcessor;
@@ -150,5 +156,6 @@ describe('AiDownloadProcessor', () => {
     expect(result.status).toBe('failed');
     expect(prisma.media.create).not.toHaveBeenCalled();
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
   });
 });

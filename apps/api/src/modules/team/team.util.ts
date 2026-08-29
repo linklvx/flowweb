@@ -24,6 +24,8 @@ export async function assertTeamMember(
   teamId: string,
   userId: string,
 ): Promise<void> {
+  // 防 Prisma 静默省略 where 中的 undefined 字段（where.userId 缺失 → 匹配团队任意成员 → 鉴权穿透）
+  if (!teamId || !userId) throw new ForbiddenException('非团队成员')
   const member = await db.teamMember.findFirst({
     where: { teamId, userId, team: { status: 'ACTIVE' } },
     select: { role: true },

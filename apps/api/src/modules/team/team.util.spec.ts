@@ -46,6 +46,14 @@ describe('assertTeamMember', () => {
     });
   });
 
+  it('userId undefined → 403 且不查库（防 Prisma 静默省略 where.userId 匹配任意成员的鉴权穿透）', async () => {
+    const db = makeDb();
+    db.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+
+    await expect(assertTeamMember(db as any, 't1', undefined as any)).rejects.toThrow(ForbiddenException);
+    expect(db.teamMember.findFirst).not.toHaveBeenCalled();
+  });
+
   it('非成员抛 403 非团队成员', async () => {
     const db = makeDb();
     db.teamMember.findFirst.mockResolvedValue(null);

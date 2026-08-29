@@ -157,6 +157,21 @@ describe('LightingService', () => {
       expect(prisma.team.findFirst).not.toHaveBeenCalled();
     });
 
+    it('无 projectId（个人任务）→ 回落个人团队（getOwnerTeamId）', async () => {
+      const dto = { ...validDto, projectId: undefined };
+
+      await service.createTask(dto, 'user-1');
+
+      expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled();
+      expect(prisma.team.findFirst).toHaveBeenCalledWith({
+        where: { ownerId: 'user-1', isDefault: true },
+        select: { id: true },
+      });
+      expect(prisma.lightingTask.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ teamId: 'team1' }),
+      });
+    });
+
     it('幂等查重按团队维度（teamId + nodeId）', async () => {
       prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-team' });
 

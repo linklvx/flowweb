@@ -108,6 +108,16 @@ describe('VideoSeparateProcessor', () => {
     expect(mockRedis.decr).toHaveBeenCalled();
   });
 
+  it('PROJECT_TEAM_MISSING（project 缺失，永久性错误）→ 包装为 NonRetryableError 终态，不触发重试放大', async () => {
+    mockMediaProcess.uploadAndCreateMedia.mockRejectedValue(new Error('PROJECT_TEAM_MISSING'));
+    const job = mockJob(baseJobData);
+
+    await expect(processor.process(job)).rejects.toThrow(NonRetryableError);
+    expect(mockSeparateService.handleTaskFailed).toHaveBeenCalledWith('task-1', 'PROJECT_TEAM_MISSING', 'PROJECT_TEAM_MISSING');
+    // 媒体处理在首次尝试内只走到第一次 uploadAndCreateMedia（video 抛错后 audio 不再执行）
+    expect(mockMediaProcess.uploadAndCreateMedia).toHaveBeenCalledTimes(1);
+  });
+
   it('should handle download failure with retry via throw', async () => {
     mockMediaProcess.downloadWithRetry.mockRejectedValue(new Error('ECONNRESET'));
     const job = mockJob(baseJobData);

@@ -21,6 +21,7 @@ describe('LightingConsumer', () => {
   let consumer: LightingConsumer;
   let prisma: any;
   let teamCredit: any;
+  let apiCaller: any;
 
   beforeEach(async () => {
     prisma = {
@@ -35,7 +36,7 @@ describe('LightingConsumer', () => {
       upload: vi.fn().mockResolvedValue(undefined),
     };
     const gateway = { emitNodeStatus: vi.fn() };
-    const apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
+    apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
     teamCredit = { consume: vi.fn().mockResolvedValue(undefined) };
     const collabDoc = { writeNodeData: vi.fn() };
 
@@ -91,12 +92,32 @@ describe('LightingConsumer', () => {
     expect(teamCredit.consume).toHaveBeenCalledWith('t-team', 'u1', 1, 'lighting:task-1');
   });
 
+  it('无 projectId（个人任务）→ Media 回落个人团队，不扣团队积分', async () => {
+    prisma.team.findFirst.mockResolvedValue({ id: 't-personal' });
+    mockAxiosResult();
+
+    await consumer.handleLightingJob(makeJob(undefined));
+
+    expect(prisma.team.findFirst).toHaveBeenCalledWith({
+      where: { ownerId: 'u1', isDefault: true },
+      select: { id: true },
+    });
+    expect(prisma.media.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ teamId: 't-personal' }),
+      }),
+    );
+    expect(teamCredit.consume).not.toHaveBeenCalled();
+  });
+
   it('project.teamId 缺失 → task failed 且不建 Media（不回落个人团队）', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
     mockAxiosResult();
 
     await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('PROJECT_TEAM_MISSING');
 
+    // team 解析先于付费 AI 调用：project 缺失属永久性错误，不应浪费一次 relighting 调用
+    expect(apiCaller.callRelighting).not.toHaveBeenCalled();
     expect(prisma.media.create).not.toHaveBeenCalled();
     expect(prisma.lightingTask.update).toHaveBeenCalledWith(
       expect.objectContaining({
