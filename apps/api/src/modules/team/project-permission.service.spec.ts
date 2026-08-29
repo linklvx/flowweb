@@ -45,4 +45,22 @@ describe('resolveProjectRole（spec 1.2 三级解析链）', () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
     await expect(svc.resolve('p1', 'u1')).rejects.toThrow('项目不存在');
   });
+
+  describe('assertEditor', () => {
+    it('非成员（null）→ ForbiddenException', async () => {
+      prisma.projectMember.findUnique.mockResolvedValue(null);
+      prisma.teamMember.findUnique.mockResolvedValue(null);
+      await expect(svc.assertEditor('p1', 'u3')).rejects.toThrow('无项目编辑权限');
+    });
+
+    it('PROJECT_VIEWER → ForbiddenException', async () => {
+      prisma.projectMember.findUnique.mockResolvedValue({ role: 'PROJECT_VIEWER' });
+      await expect(svc.assertEditor('p1', 'u1')).rejects.toThrow('无项目编辑权限');
+    });
+
+    it('PROJECT_EDITOR → 放行并返回 role', async () => {
+      prisma.projectMember.findUnique.mockResolvedValue({ role: 'PROJECT_EDITOR' });
+      await expect(svc.assertEditor('p1', 'u1')).resolves.toBe('PROJECT_EDITOR');
+    });
+  });
 });
