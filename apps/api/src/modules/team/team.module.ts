@@ -5,6 +5,7 @@ import { TeamCreditService } from './team-credit.service';
 import { TeamRechargeService } from './team-recharge.service';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { StorageQuotaService } from './storage-quota.service';
+import { ProjectPermissionService } from './project-permission.service';
 import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
@@ -26,8 +27,9 @@ import { RechargeModule } from '../recharge/recharge.module';
   controllers: [TeamController, AdminTeamPlanController],
   providers: [
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
+    ProjectPermissionService,
     TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor, TeamMediaCleanupProcessor,
   ],
-  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard],
+  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],
 })
 export class TeamModule {}
