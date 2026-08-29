@@ -9,6 +9,8 @@ import { Dropdown, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { UserOutlined, SettingOutlined, LogoutOutlined, SaveOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { getDefaultTeam } from '@/api/teamApi';
 import CreditsDropdown from './CreditsDropdown';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
 
@@ -36,14 +38,30 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
     await logout();
   }, [logout, navigate]);
 
-  useEffect(() => {
-    store.fetchBalance();
-  }, []);
+  const teamId = useCanvasStore((s) => s.teamId);
 
+  // 画布初始余额：经 project.teamId 判 scope（D2——不只依赖 Socket 推送）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!teamId) {
+        store.fetchBalance();
+        return;
+      }
+      const def = await getDefaultTeam().catch(() => null);
+      if (cancelled) return;
+      if (def && teamId !== def.id) store.fetchTeamBalance(teamId);
+      else store.fetchBalance();
+    })();
+    return () => { cancelled = true; };
+  }, [teamId]);
+
+  // Socket 扣费推送：node:status credits 为完整余额对象（D1）
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent;
-      if (typeof ce.detail === 'number') store.updateCredits(ce.detail);
+      const d = ce.detail;
+      if (d && typeof d === 'object' && 'credits' in d) store.applyBalance(d);
     };
     window.addEventListener('credits:update', handler);
     return () => window.removeEventListener('credits:update', handler);

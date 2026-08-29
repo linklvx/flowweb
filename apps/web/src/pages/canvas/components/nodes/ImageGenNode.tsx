@@ -367,7 +367,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
       }
-      if (data.credits !== undefined) {
+      if (data.credits && typeof data.credits === 'object') {
         window.dispatchEvent(new CustomEvent('credits:update', { detail: data.credits }));
       }
     });
