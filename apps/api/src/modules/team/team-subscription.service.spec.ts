@@ -3,6 +3,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { TEAM_FREE_STORAGE_LIMIT_BYTES } from './team.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamSubscriptionService', () => {
@@ -20,6 +21,7 @@ describe('TeamSubscriptionService', () => {
       teamBalance: { findUnique: vi.fn(), update: vi.fn() },
       teamCreditTransaction: { create: vi.fn() },
       teamRechargeOrder: { findUnique: vi.fn() },
+      userSubscription: { findFirst: vi.fn() },
       $queryRaw: vi.fn(),
       $transaction: vi.fn(async (fn: any) => fn({
         $queryRaw: prisma.$queryRaw,
@@ -133,6 +135,32 @@ describe('TeamSubscriptionService', () => {
         outTradeNo: 'TEAM9', appid: '', mchid: '', amount: 9900, tradeState: 'SUCCESS', transactionId: 'tx9',
       } as any)).rejects.toThrow('个人项目不支持');
     });
+
+    it('回调 create 前先关闭旧 active 订阅（到期未过期 job 窗口续费）', async () => {
+      prisma.teamRechargeOrder.findUnique.mockResolvedValue({
+        id: 'o1', outTradeNo: 'TEAM1', teamId: 't1', payerUserId: 'u1', amountFen: 3000,
+        credits: 300, kind: 'subscription', planId: 'plan1', status: 'PENDING',
+      });
+      prisma.teamPlan.findUnique.mockResolvedValue({ id: 'plan1', monthlyCredits: 300, isActive: true });
+      prisma.teamBalance.findUnique.mockResolvedValue({ subscriptionCredits: 50 });
+      prisma.teamSubscription.updateMany.mockResolvedValue({ count: 1 });
+      prisma.teamSubscription.create.mockResolvedValue({ id: 's-new' });
+      prisma.teamRechargeOrder.updateMany = vi.fn().mockResolvedValue({ count: 1 });
+
+      const result = await service.completeSubscriptionCallback({
+        outTradeNo: 'TEAM1', appid: '', mchid: '', amount: 3000, tradeState: 'SUCCESS', transactionId: 'tx1',
+      } as any);
+
+      expect(result.code).toBe('SUCCESS');
+      // 先关旧（updateMany 在 create 之前调用）
+      const closeIdx = prisma.teamSubscription.updateMany.mock.invocationCallOrder[0];
+      const createIdx = prisma.teamSubscription.create.mock.invocationCallOrder[0];
+      expect(closeIdx).toBeLessThan(createIdx);
+      expect(prisma.teamSubscription.updateMany).toHaveBeenCalledWith({
+        where: { teamId: 't1', status: 'active' },
+        data: { status: 'expired' },
+      });
+    });
   });
 
   describe('expireSubscriptions（team-expire processor 逻辑）', () => {
@@ -174,6 +202,29 @@ describe('TeamSubscriptionService', () => {
       prisma.teamSubscription.findFirst.mockResolvedValue(null);
       const limits = await service.getLimits('t1');
       expect(limits).toEqual({ seatLimit: 20, storageLimitBytes: 6 * 1024 ** 3 });
+    });
+  });
+
+  describe('getLimits 个人订阅回退（C7）', () => {
+    it('默认团队 + 个人 pro 会员 → plan.storageLimitBytes、seatLimit=1', async () => {
+      prisma.team.findUnique.mockResolvedValue({ isDefault: true, ownerId: 'u1' });
+      prisma.userSubscription.findFirst.mockResolvedValue({ plan: { storageLimitBytes: 21474836480n } });
+      const limits = await service.getLimits('t-default');
+      expect(limits).toEqual({ seatLimit: 1, storageLimitBytes: 21474836480 });
+    });
+
+    it('默认团队 + 无个人订阅 → 免费档', async () => {
+      prisma.team.findUnique.mockResolvedValue({ isDefault: true, ownerId: 'u1' });
+      prisma.userSubscription.findFirst.mockResolvedValue(null);
+      const limits = await service.getLimits('t-default');
+      expect(limits.storageLimitBytes).toBe(TEAM_FREE_STORAGE_LIMIT_BYTES);
+    });
+
+    it('普通团队走 TeamSubscription（现状不变）', async () => {
+      prisma.team.findUnique.mockResolvedValue({ isDefault: false, ownerId: 'u1' });
+      prisma.teamSubscription.findFirst.mockResolvedValue({ plan: { seatLimit: 5, storageLimitBytes: 107374182400n } });
+      const limits = await service.getLimits('t-team');
+      expect(limits).toEqual({ seatLimit: 5, storageLimitBytes: 107374182400 });
     });
   });
 });

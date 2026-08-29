@@ -159,4 +159,33 @@ describe('TeamRechargeService', () => {
       expect(gateway.emitPaymentFailed).toHaveBeenCalledWith('TEAM1');
     });
   });
+
+  describe('listOrders', () => {
+    it('where 含 teamId + kind 过滤 + 分页（createdAt desc）', async () => {
+      prisma.teamRechargeOrder.findMany = vi.fn().mockResolvedValue([{ id: 'o1' }]);
+      prisma.teamRechargeOrder.count = vi.fn().mockResolvedValue(1);
+
+      const result = await service.listOrders('t1', 2, 10, 'subscription');
+
+      expect(result).toEqual({ items: [{ id: 'o1' }], total: 1 });
+      expect(prisma.teamRechargeOrder.findMany).toHaveBeenCalledWith({
+        where: { teamId: 't1', kind: 'subscription' },
+        orderBy: { createdAt: 'desc' },
+        skip: 10,
+        take: 10,
+      });
+      expect(prisma.teamRechargeOrder.count).toHaveBeenCalledWith({ where: { teamId: 't1', kind: 'subscription' } });
+    });
+
+    it('无 kind 过滤时 where 仅 teamId', async () => {
+      prisma.teamRechargeOrder.findMany = vi.fn().mockResolvedValue([]);
+      prisma.teamRechargeOrder.count = vi.fn().mockResolvedValue(0);
+
+      await service.listOrders('t1');
+
+      expect(prisma.teamRechargeOrder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { teamId: 't1' } }),
+      );
+    });
+  });
 });

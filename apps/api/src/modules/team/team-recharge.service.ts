@@ -189,6 +189,22 @@ export class TeamRechargeService {
     });
   }
 
+  /** 订单列表（成员可查，controller TeamGuard） */
+  async listOrders(teamId: string, page = 1, pageSize = 20, kind?: 'credits' | 'subscription') {
+    const where: any = { teamId };
+    if (kind) where.kind = kind;
+    const [items, total] = await Promise.all([
+      this.prisma.teamRechargeOrder.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.teamRechargeOrder.count({ where }),
+    ]);
+    return { items, total };
+  }
+
   /** 过期关单（close-expired / active-query CLOSED 共用） */
   async closeExpired(orderNo: string): Promise<void> {
     const order = await this.prisma.teamRechargeOrder.findUnique({ where: { outTradeNo: orderNo } });

@@ -125,6 +125,11 @@ export class TeamController {
     return this.teamRecharge.createTeamOrder(id, (req as any).user.id, Math.round(Number(body.amount) * 100));
   }
 
+  @Get(':id/recharge/orders')
+  listRechargeOrders(@Param('id') id: string, @Query('kind') kind: 'credits' | 'subscription', @Query() query: { page?: string; pageSize?: string }) {
+    return this.teamRecharge.listOrders(id, Number(query.page) || 1, Number(query.pageSize) || 20, kind);
+  }
+
   @Post(':id/recharge/orders/:orderNo/pay')
   payRechargeOrder(@Param('id') id: string, @Param('orderNo') orderNo: string, @Req() req: Request) {
     return this.teamRecharge.payTeamOrder(orderNo, (req as any).user.id);

@@ -95,6 +95,11 @@ export class TeamSubscriptionService {
         });
 
         const now = new Date();
+        // 先关旧 active（partial unique 是最后防线，不能替代此步：到期后 expire-job 未跑窗口续费场景）
+        await tx.teamSubscription.updateMany({
+          where: { teamId, status: 'active' },
+          data: { status: 'expired' },
+        });
         await tx.teamSubscription.create({
           data: {
             teamId, planId: plan.id, status: 'active', paidAmount: order.amountFen,
@@ -165,8 +170,23 @@ export class TeamSubscriptionService {
     return due.length;
   }
 
-  /** 限额现算：active 订阅取 plan，否则免费常量 */
+  /** 限额现算：默认团队回退个人订阅（C7），普通团队 active 订阅取 plan，否则免费常量 */
   async getLimits(teamId: string): Promise<{ seatLimit: number; storageLimitBytes: number }> {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { isDefault: true, ownerId: true },
+    });
+    if (team?.isDefault) {
+      // 默认团队永远没有 TeamSubscription（禁令），个人会员存储权益来自 UserSubscription
+      const personal = await this.prisma.userSubscription.findFirst({
+        where: { userId: team.ownerId, status: 'active', currentPeriodEnd: { gt: new Date() } },
+        select: { plan: { select: { storageLimitBytes: true } } },
+      });
+      return {
+        seatLimit: 1, // 默认团队恒单人（禁令保证），无席位概念
+        storageLimitBytes: personal ? Number(personal.plan.storageLimitBytes) : TEAM_FREE_STORAGE_LIMIT_BYTES,
+      };
+    }
     const sub = await this.prisma.teamSubscription.findFirst({
       where: { teamId, status: 'active', currentPeriodEnd: { gt: new Date() } },
       select: { plan: { select: { seatLimit: true, storageLimitBytes: true } } },
