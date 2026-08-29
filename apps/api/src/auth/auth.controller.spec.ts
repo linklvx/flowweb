@@ -39,7 +39,11 @@ describe('AuthController', () => {
       del: vi.fn(),
     };
 
-    mockPrisma = { materialFolder: { createMany: vi.fn() } } as any;
+    // getMe 补偿走 bootstrapPersonalTeam：首查命中即 no-op，故 findFirst 默认返回既有团队
+    mockPrisma = {
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
+      materialFolder: { createMany: vi.fn() },
+    } as any;
 
     // Direct construction — bypasses NestJS DI
     controller = new AuthController(
@@ -158,28 +162,32 @@ describe('AuthController', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ user: null });
     });
 
-    it('should ensure default folders when user has none', async () => {
+    it('should bootstrap personal team when user has none (幂等补偿，含文件夹)', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
       const mockRes = { json: vi.fn() };
-      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', email: 'u1@test.com' } });
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', name: '张三', email: 'u1@test.com' } });
 
-      const mockPrismaForFolders = {
-        materialFolder: {
-          count: vi.fn().mockResolvedValue(0),
-          createMany: vi.fn().mockResolvedValue({ count: 5 }),
+      const mockPrismaForBootstrap = {
+        team: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: 't1' }),
         },
-        team: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
-        teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
+        teamMember: { create: vi.fn() },
+        teamBalance: { create: vi.fn() },
+        teamCreditTransaction: { create: vi.fn() },
+        materialFolder: { createMany: vi.fn().mockResolvedValue({ count: 5 }) },
+        $transaction: vi.fn(async (fn: any) => fn(mockPrismaForBootstrap)),
       } as any;
       const mockRedis = { get: vi.fn(), del: vi.fn() };
 
       const ctrl = new AuthController(
-        mockSvc as any, mockPrismaForFolders, mockRateLimiter as any, mockSmsService as any, mockRedis as any,
+        mockSvc as any, mockPrismaForBootstrap, mockRateLimiter as any, mockSmsService as any, mockRedis as any,
       );
       await ctrl.getMe(req as any, mockRes as any);
 
-      expect(mockPrismaForFolders.materialFolder.count).toHaveBeenCalledWith({ where: { userId: 'u1' } });
-      expect(mockPrismaForFolders.materialFolder.createMany).toHaveBeenCalled();
+      expect(mockPrismaForBootstrap.team.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'u1', isDefault: true } });
+      expect(mockPrismaForBootstrap.materialFolder.createMany).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({ user: { id: 'u1', name: '张三', email: 'u1@test.com' } });
     });
   });
 

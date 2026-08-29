@@ -16,14 +16,16 @@ describe('TeamService.ensureDefaultTeam', () => {
 
   beforeEach(async () => {
     prisma = {
+      user: { findUnique: vi.fn() },
       team: {
-        findUnique: vi.fn(),
-        create: vi.fn(),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 't1', name: '张三的团队', ownerId: 'u1', isDefault: true }),
       },
-      teamMember: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
+      teamMember: { create: vi.fn() },
       teamBalance: { create: vi.fn() },
       teamCreditTransaction: { create: vi.fn() },
-      $transaction: vi.fn(),
+      materialFolder: { createMany: vi.fn().mockResolvedValue({ count: 5 }) },
+      $transaction: vi.fn(async (fn: any) => fn(prisma)),
     };
     emitter = { emitAsync: vi.fn() };
     queue = { add: vi.fn() };
@@ -41,14 +43,12 @@ describe('TeamService.ensureDefaultTeam', () => {
     service = module.get<TeamService>(TeamService);
   });
 
-  it('无团队：事务内建 Team(ACTIVE)+OWNER 成员+Balance(credits=100)+register_grant 流水', async () => {
-    prisma.team.create.mockResolvedValue({ id: 't1', name: '张三的团队', ownerId: 'u1' });
-    prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-
+  it('无个人团队：事务内建 Team(isDefault)+OWNER 成员+Balance(100)+register_grant 流水+默认文件夹', async () => {
     const result = await service.ensureDefaultTeam('u1', '张三');
 
+    expect(prisma.team.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'u1', isDefault: true } });
     expect(prisma.team.create).toHaveBeenCalledWith({
-      data: { name: '张三的团队', ownerId: 'u1', status: 'ACTIVE' },
+      data: { name: '张三的团队', ownerId: 'u1', status: 'ACTIVE', isDefault: true },
     });
     expect(prisma.teamMember.create).toHaveBeenCalledWith({
       data: { teamId: 't1', userId: 'u1', role: 'OWNER' },
@@ -66,40 +66,49 @@ describe('TeamService.ensureDefaultTeam', () => {
         balanceAfter: 100,
       },
     });
-    expect(result).toEqual({ id: 't1', name: '张三的团队', ownerId: 'u1' });
+    expect(prisma.materialFolder.createMany).toHaveBeenCalled();
+    expect(result).toEqual({ id: 't1', name: '张三的团队', ownerId: 'u1', isDefault: true });
   });
 
-  it('已有团队：no-op 直接返回，不建任何行', async () => {
-    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't1', userId: 'u1' });
-    prisma.team.findUnique.mockResolvedValue({ id: 't1', name: '已有' });
+  it('userName 未传时查 user.name 兜底', async () => {
+    prisma.user.findUnique.mockResolvedValue({ name: '李四' });
+    prisma.team.create.mockResolvedValue({ id: 't1', name: '李四的团队' });
+
+    await service.ensureDefaultTeam('u1');
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'u1' }, select: { name: true } });
+    expect(prisma.team.create).toHaveBeenCalledWith({
+      data: { name: '李四的团队', ownerId: 'u1', status: 'ACTIVE', isDefault: true },
+    });
+  });
+
+  it('已有个人团队（ownerId+isDefault 命中）：no-op 直接返回，不建任何行', async () => {
+    prisma.team.findFirst.mockResolvedValue({ id: 't1', name: '已有', isDefault: true });
 
     const result = await service.ensureDefaultTeam('u1', '张三');
 
-    expect(result).toEqual({ id: 't1', name: '已有' });
+    expect(result).toEqual({ id: 't1', name: '已有', isDefault: true });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.team.create).not.toHaveBeenCalled();
   });
 
-  it('任意时机可补建（I4 兜底）：注册钩子失败/历史用户后续调用同逻辑，首次建完后再次调用 no-op', async () => {
-    prisma.team.create.mockResolvedValue({ id: 't1' });
-    prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-
+  it('任意时机可补建（I4 兜底）：首次建完后再次调用 no-op', async () => {
     await service.ensureDefaultTeam('u1', '张三');
-    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't1' });
-    prisma.team.findUnique.mockResolvedValue({ id: 't1' });
+    prisma.team.findFirst.mockResolvedValue({ id: 't1', isDefault: true });
     await service.ensureDefaultTeam('u1', '张三');
 
     expect(prisma.team.create).toHaveBeenCalledTimes(1);
   });
 
-  it('ensureDefaultTeam：仅以 ADMIN 成员身份存在（转让后）——返回既有团队，不建团不发放', async () => {
-    prisma.teamMember.findFirst.mockResolvedValue({ teamId: 't-existing', userId: 'u1', role: 'ADMIN' });
-    prisma.team.findUnique.mockResolvedValue({ id: 't-existing', name: '现有团队' });
+  it('仅以 ADMIN 成员身份存在（转让后）——个人团队与成员身份解耦，仍补建个人团队', async () => {
+    prisma.team.create.mockResolvedValue({ id: 't-new', name: '某用户的团队', isDefault: true });
+
     const team = await service.ensureDefaultTeam('u1', '某用户');
-    expect(team).toMatchObject({ id: 't-existing' });
-    expect(prisma.team.create).not.toHaveBeenCalled();
-    expect(prisma.teamBalance.create).not.toHaveBeenCalled();
-    expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+
+    expect(team).toMatchObject({ id: 't-new' });
+    expect(prisma.team.create).toHaveBeenCalledTimes(1);
+    expect(prisma.teamBalance.create).toHaveBeenCalledTimes(1);
+    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1);
   });
 });
 

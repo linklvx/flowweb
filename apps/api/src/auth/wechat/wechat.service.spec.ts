@@ -21,7 +21,6 @@ import { SESSION_COOKIE_OPTIONS } from '../auth';
 describe('WechatService', () => {
   let service: WechatService;
   let mockPrisma: Record<string, any>;
-  let mockTeamService: Record<string, any>;
 
   beforeEach(() => {
     mockPrisma = {
@@ -37,10 +36,7 @@ describe('WechatService', () => {
         create: vi.fn(),
       },
     };
-    mockTeamService = {
-      ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team-1' }),
-    };
-    service = new WechatService(mockPrisma as any, mockTeamService as any);
+    service = new WechatService(mockPrisma as any);
     vi.clearAllMocks();
   });
 
@@ -108,10 +104,19 @@ describe('WechatService', () => {
   });
 
   describe('findOrCreateUser', () => {
-    it('新 openid 时创建 User（临时 email）+ 默认文件夹', async () => {
+    it('新 openid 时创建 User（临时 email）+ bootstrap 个人团队（含默认文件夹）', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'new-user', wechatOpenid: 'openid123' });
+      mockPrisma.user.create.mockResolvedValue({ id: 'new-user', name: '微信用户', wechatOpenid: 'openid123' });
+      // bootstrap 判据：无 isDefault 个人团队 → 事务建团（tx 即 mockPrisma）
+      mockPrisma.team = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'team-1' }),
+      };
+      mockPrisma.teamMember = { create: vi.fn() };
+      mockPrisma.teamBalance = { create: vi.fn() };
+      mockPrisma.teamCreditTransaction = { create: vi.fn() };
       mockPrisma.materialFolder.createMany.mockResolvedValue({ count: 5 });
+      mockPrisma.$transaction = vi.fn(async (fn: any) => fn(mockPrisma));
 
       const result = await service.findOrCreateUser({
         openid: 'openid123',
@@ -129,17 +134,25 @@ describe('WechatService', () => {
           emailVerified: false,
         }),
       });
+      expect(mockPrisma.team.create).toHaveBeenCalledWith({
+        data: { name: '微信用户的团队', ownerId: 'new-user', status: 'ACTIVE', isDefault: true },
+      });
       expect(mockPrisma.materialFolder.createMany).toHaveBeenCalled();
       expect(result.id).toBe('new-user');
     });
 
-    it('已存在 openid 时复用 User，不重复创建（含文件夹）', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: 'existing', wechatOpenid: 'openid123' });
+    it('已存在 openid 时复用 User，不重复创建（含团队 bootstrap）', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'existing', name: '微信用户', wechatOpenid: 'openid123' });
+      mockPrisma.team = {
+        findFirst: vi.fn().mockResolvedValue({ id: 'team-1', isDefault: true }),
+        create: vi.fn(),
+      };
 
       const result = await service.findOrCreateUser({ openid: 'openid123', nickname: '微信用户' });
 
       expect(result.id).toBe('existing');
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockPrisma.team.create).not.toHaveBeenCalled();
       expect(mockPrisma.materialFolder.createMany).not.toHaveBeenCalled();
     });
   });

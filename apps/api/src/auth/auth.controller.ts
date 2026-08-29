@@ -7,8 +7,7 @@ import { SmsService } from '../modules/sms/sms.service';
 import { SendSmsCodeDto } from './dto/send-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { SESSION_COOKIE_OPTIONS } from './auth';
-import { DEFAULT_FOLDER_NAMES } from '../modules/material-library/constants/material-library.constants';
-import { getOwnerTeamId } from '../modules/team/team.util';
+import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 import type { Response } from 'express';
 import Redis from 'ioredis';
 
@@ -51,23 +50,6 @@ export class AuthController {
     try {
       const result = await this.authService.signUp(body.email, body.password, body.name);
 
-      // Create default material folders
-      try {
-        // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
-        const teamId = await getOwnerTeamId(this.prisma, result.user.id);
-        await this.prisma.materialFolder.createMany({
-          data: DEFAULT_FOLDER_NAMES.map((name, index) => ({
-            name,
-            userId: result.user.id,
-            teamId,
-            isDefault: true,
-            sortOrder: index,
-          })),
-        });
-      } catch {
-        // Non-fatal — user can still use the app, folders can be created later
-      }
-
       res.cookie('flowweb.session_token', result.token, COOKIE_OPTIONS);
       return res.json({ user: result.user });
     } catch {
@@ -92,23 +74,10 @@ export class AuthController {
     const session = await this.authService.getSession({ cookie: cookieStr });
     if (!session) return res.json({ user: null });
 
-    // 补偿默认文件夹（idempotent）
+    // 补偿个人团队（幂等，含素材文件夹）
     try {
-      const count = await this.prisma.materialFolder.count({
-        where: { userId: session.user.id },
-      });
-      if (count === 0) {
-        // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
-        const teamId = await getOwnerTeamId(this.prisma, session.user.id);
-        await this.prisma.materialFolder.createMany({
-          data: DEFAULT_FOLDER_NAMES.map((name: string, i: number) => ({
-            name, userId: session.user.id, teamId, isDefault: true, sortOrder: i,
-          })),
-        });
-      }
-    } catch {
-      // 非致命 — 用户仍可正常使用
-    }
+      await bootstrapPersonalTeam(this.prisma, session.user.id, session.user.name);
+    } catch { /* 非致命 */ }
 
     return res.json({ user: session.user });
   }

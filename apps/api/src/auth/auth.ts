@@ -3,10 +3,9 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { PrismaClient } from '@prisma/client';
 import { phoneNumber } from 'better-auth/plugins';
 import Redis from 'ioredis';
+import * as Sentry from '@sentry/nestjs';
 import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
-import { maskPhone } from '../common/utils/mask-phone';
-import { DEFAULT_FOLDER_NAMES } from '../modules/material-library/constants/material-library.constants';
-import { getOwnerTeamId } from '../modules/team/team.util';
+import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 
 const prisma = new PrismaClient();
 
@@ -48,29 +47,12 @@ export const auth = betterAuth({
     user: {
       create: {
         after: async (user) => {
-          // 注册即建默认团队（与 TeamService.ensureDefaultTeam 同逻辑；auth 在 DI 外，直写防循环依赖）
+          // 统一 Bootstrap：唯一建团入口（含默认素材文件夹），判据 ownerId+isDefault
           try {
-            const existing = await prisma.team.findFirst({ where: { ownerId: user.id } });
-            if (existing) return;
-            await prisma.$transaction(async (tx) => {
-              const team = await tx.team.create({
-                data: { name: `${user.name}的团队`, ownerId: user.id, status: 'ACTIVE' },
-              });
-              await tx.teamMember.create({ data: { teamId: team.id, userId: user.id, role: 'OWNER' } });
-              await tx.teamBalance.create({ data: { teamId: team.id, credits: 100 } });
-              await tx.teamCreditTransaction.create({
-                data: {
-                  teamId: team.id,
-                  operatorUserId: user.id,
-                  amount: 100,
-                  type: 'register_grant',
-                  creditType: 'regular',
-                  balanceAfter: 100,
-                },
-              });
-            });
+            await bootstrapPersonalTeam(prisma, user.id, user.name);
           } catch (err) {
-            console.error(`[databaseHooks] default team creation failed for ${user.id}`, err);
+            console.error(`[databaseHooks] personal team bootstrap failed for ${user.id}`, err);
+            Sentry.captureException(err);
           }
         },
       },
@@ -89,26 +71,6 @@ export const auth = betterAuth({
         getTempEmail: (phone) =>
           `phone_${Buffer.from(phone).toString('base64url')}@sms.flowweb.local`,
         getTempName: (phone) => phone.slice(-4),
-      },
-      callbackOnVerification: async ({ phoneNumber, user }) => {
-        if (!user?.id) {
-          console.warn(`[callbackOnVerification] user null for ${maskPhone(phoneNumber)}`);
-          return;
-        }
-        try {
-          const existing = await prisma.materialFolder.count({ where: { userId: user.id } });
-          if (existing === 0) {
-            // 临时接线：Task 2 将由 bootstrapPersonalTeam 统一替换
-            const teamId = await getOwnerTeamId(prisma, user.id);
-            await prisma.materialFolder.createMany({
-              data: DEFAULT_FOLDER_NAMES.map((name, i) => ({
-                name, userId: user.id, teamId, isDefault: true, sortOrder: i,
-              })),
-            });
-          }
-        } catch (err) {
-          console.error(`[callbackOnVerification] folder creation failed for ${user.id}`, err);
-        }
       },
       phoneNumberValidator: (phone) => /^\+86\d{11}$/.test(phone),
     }),

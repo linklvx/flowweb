@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 import { AuditService } from '../../common/audit/audit.service';
+import { bootstrapPersonalTeam } from './team.bootstrap';
 
 @Injectable()
 export class TeamService {
@@ -20,42 +21,14 @@ export class TeamService {
     return (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? '未知';
   }
 
-  /** 幂等：无团队用户任意时机调用可补建（注册钩子 / 历史用户兜底）。
-   * 判据 = 是否存在任意 TeamMember 记录（转让后降级用户成员身份仍在、团队仍可用，不兜底建团）；
-   * 取最早加入的团队返回（前端 currentTeamId 才是权威，此处仅服务端兜底）；
-   * register_grant 仅零成员（真新用户）时发放——与"新用户注册赠送一次"语义严格对齐，切断刷积分闭环。 */
+  /** 幂等：无个人团队用户任意时机调用可补建（注册钩子 / 历史用户兜底）。
+   * 判据 = ownerId+isDefault（个人团队与成员身份解耦，加入他人团队不影响补建）。 */
   async ensureDefaultTeam(userId: string, userName?: string) {
-    const membership = await this.prisma.teamMember.findFirst({
-      where: { userId },
-      orderBy: { joinedAt: 'asc' },
-    });
-    if (membership) {
-      // 成员存在则团队必存在（TeamMember.teamId 默认 Restrict；解散时成员随团队级联删除，无悬挂）
-      // 注意：Prisma delegate 返回非 nullable 的 PrismaPromise 类实例，null 在 await 后出现，! 必须作用于 await 结果
-      return (await this.prisma.team.findUnique({ where: { id: membership.teamId } }))!;
-    }
     const name =
       userName ??
       (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ??
       '用户';
-    return this.prisma.$transaction(async (tx) => {
-      const team = await tx.team.create({
-        data: { name: `${name}的团队`, ownerId: userId, status: 'ACTIVE' },
-      });
-      await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'OWNER' } });
-      await tx.teamBalance.create({ data: { teamId: team.id, credits: 100 } });
-      await tx.teamCreditTransaction.create({
-        data: {
-          teamId: team.id,
-          operatorUserId: userId,
-          amount: 100,
-          type: 'register_grant',
-          creditType: 'regular',
-          balanceAfter: 100,
-        },
-      });
-      return team;
-    });
+    return bootstrapPersonalTeam(this.prisma, userId, name);
   }
 
   /** 主动建团 credits=0、无流水（注册赠送只给默认团队一次，防刷） */

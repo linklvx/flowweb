@@ -6,10 +6,9 @@ import { WechatController } from './wechat/wechat.controller';
 import { WechatService } from './wechat/wechat.service';
 import { SmsModule } from '../modules/sms/sms.module';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
-import { TeamModule } from '../modules/team/team.module';
 
 @Module({
-  imports: [SmsModule, TeamModule],
+  imports: [SmsModule],
   controllers: [AuthController, WechatController],
   providers: [
     AuthService,
