@@ -22,7 +22,7 @@ describe('CanvasService', () => {
     prisma = {
       folder: { findFirst: vi.fn().mockResolvedValue(null) },
       canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
-      teamMember: { findUnique: vi.fn().mockResolvedValue(null) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       template: {
         findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -225,13 +225,13 @@ describe('CanvasService', () => {
 
   describe('团队化', () => {
     it('create 传 teamId 时挂指定团队并校验成员', async () => {
-      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
       prisma.canvasProject.create.mockResolvedValue({ id: 'p1', teamId: 't-team' });
       prisma.template.create.mockResolvedValue({ id: 'tp1' });
       const result = await service.create('名字', null, 'u1', 't-team');
-      expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
-        where: { teamId_userId: { teamId: 't-team', userId: 'u1' } },
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith({
+        where: { teamId: 't-team', userId: 'u1', team: { status: 'ACTIVE' } },
         select: { role: true },
       });
       expect(prisma.canvasProject.create).toHaveBeenCalledWith(
@@ -241,12 +241,12 @@ describe('CanvasService', () => {
     });
 
     it('create 传非成员 teamId 时抛 403', async () => {
-      prisma.teamMember.findUnique.mockResolvedValue(null);
+      prisma.teamMember.findFirst.mockResolvedValue(null);
       await expect(service.create('x', null, 'u1', 't-team')).rejects.toThrow('非团队成员');
     });
 
     it('create folderId 跨团队时抛 400', async () => {
-      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
       prisma.folder.findFirst.mockResolvedValue(null);
       await expect(service.create('x', 'f-other', 'u1', 't-team')).rejects.toThrow('目标文件夹不存在');
     });

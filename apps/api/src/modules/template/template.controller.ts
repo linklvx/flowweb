@@ -41,10 +41,10 @@ export class TemplateController {
   }
 
   @Post(':id/import')
-  async import(@Param('id') id: string, @Req() req: Request) {
+  async import(@Param('id') id: string, @Req() req: Request, @Query('teamId') teamId?: string) {
     const userId = (req as any).user?.id;
     if (!userId) return { success: false, error: { code: 'UNAUTHORIZED', message: '未登录' } };
-    const project = await this.templateService.import(id, userId);
+    const project = await this.templateService.import(id, userId, teamId);
     return { success: true, data: project };
   }
 }

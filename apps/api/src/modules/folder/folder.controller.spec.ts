@@ -29,24 +29,29 @@ describe('FolderController', () => {
 
   it('GET 登录返回列表', async () => {
     const result = await controller.list(req('u1') as any);
-    expect(service.list).toHaveBeenCalledWith('u1');
+    expect(service.list).toHaveBeenCalledWith('u1', undefined);
     expect(result).toEqual({ folders: [] });
+  });
+
+  it('GET 透传 query.teamId', async () => {
+    await controller.list(req('u1') as any, 't-team');
+    expect(service.list).toHaveBeenCalledWith('u1', 't-team');
   });
 
   it('POST 校验并创建', async () => {
     const result = await controller.create({ name: '工作' }, req('u1') as any);
-    expect(service.create).toHaveBeenCalledWith('工作', 'u1');
+    expect(service.create).toHaveBeenCalledWith({ name: '工作' }, 'u1', undefined);
     expect(result).toEqual({ id: 'f1', name: 'n' });
   });
 
   it('PATCH 重命名', async () => {
     await controller.rename('f1', { name: '新名' }, req('u1') as any);
-    expect(service.rename).toHaveBeenCalledWith('f1', '新名', 'u1');
+    expect(service.rename).toHaveBeenCalledWith('f1', '新名', 'u1', undefined);
   });
 
   it('DELETE 返回 movedCanvasCount', async () => {
     const result = await controller.remove('f1', req('u1') as any);
-    expect(service.remove).toHaveBeenCalledWith('f1', 'u1');
+    expect(service.remove).toHaveBeenCalledWith('f1', 'u1', undefined);
     expect(result).toEqual({ movedCanvasCount: 2 });
   });
 });

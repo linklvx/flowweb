@@ -22,7 +22,7 @@ describe('ProjectService', () => {
       template: {
         findUnique: vi.fn(),
       },
-      teamMember: { findUnique: vi.fn().mockResolvedValue(null) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue(null) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
       canvasDoc: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -90,15 +90,15 @@ describe('ProjectService', () => {
     });
 
     it('团队化：传 teamId 时校验成员并写入该团队', async () => {
-      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
       const mockProject = { id: 'p1', name: '团项目', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
       await service.create('团项目', 'u1', undefined, undefined, 't-team');
 
-      expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
-        where: { teamId_userId: { teamId: 't-team', userId: 'u1' } },
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith({
+        where: { teamId: 't-team', userId: 'u1', team: { status: 'ACTIVE' } },
         select: { role: true },
       });
       expect(prisma.canvasProject.create).toHaveBeenCalledWith({

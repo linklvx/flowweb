@@ -17,7 +17,7 @@ describe('ProjectController', () => {
       delete: vi.fn().mockResolvedValue({}),
       getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
     };
-    prisma = { teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) } };
+    prisma = { teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) } };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ProjectController],
@@ -53,15 +53,15 @@ describe('ProjectController', () => {
 
   it('GET /api/projects/:id/folder 登录+teamId 时校验成员并透传', async () => {
     await controller.getProjectFolder('p1', 't1', { user: { id: 'u1' } } as any);
-    expect(prisma.teamMember.findUnique).toHaveBeenCalledWith({
-      where: { teamId_userId: { teamId: 't1', userId: 'u1' } },
+    expect(prisma.teamMember.findFirst).toHaveBeenCalledWith({
+      where: { teamId: 't1', userId: 'u1', team: { status: 'ACTIVE' } },
       select: { role: true },
     });
     expect(service.getProjectFolder).toHaveBeenCalledWith('p1', 'u1', 't1');
   });
 
   it('GET /api/projects/:id/folder 非成员抛 403', async () => {
-    prisma.teamMember.findUnique.mockResolvedValue(null);
+    prisma.teamMember.findFirst.mockResolvedValue(null);
     await expect(controller.getProjectFolder('p1', 't1', { user: { id: 'u1' } } as any)).rejects.toThrow('非团队成员');
     expect(service.getProjectFolder).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe('ProjectController', () => {
   it('GET /api/projects/:id/folder 未登录或缺 teamId 直接返回 null', async () => {
     expect(await controller.getProjectFolder('p1', 't1', {} as any)).toEqual({ folderId: null });
     expect(await controller.getProjectFolder('p1', undefined, { user: { id: 'u1' } } as any)).toEqual({ folderId: null });
-    expect(prisma.teamMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.teamMember.findFirst).not.toHaveBeenCalled();
     expect(service.getProjectFolder).not.toHaveBeenCalled();
   });
 

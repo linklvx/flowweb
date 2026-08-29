@@ -58,8 +58,14 @@ describe('TemplateController', () => {
   it('POST /templates/:id/import calls service.import', async () => {
     const req = { user: { id: 'u1' } } as any;
     const result = await controller.import('t1', req);
-    expect(service.import).toHaveBeenCalledWith('t1', 'u1');
+    expect(service.import).toHaveBeenCalledWith('t1', 'u1', undefined);
     expect(result.success).toBe(true);
+  });
+
+  it('POST /templates/:id/import 透传 query.teamId', async () => {
+    const req = { user: { id: 'u1' } } as any;
+    await controller.import('t1', req, 't-team');
+    expect(service.import).toHaveBeenCalledWith('t1', 'u1', 't-team');
   });
 
   it('endpoints return UNAUTHORIZED when no user', async () => {

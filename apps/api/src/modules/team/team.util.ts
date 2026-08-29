@@ -16,14 +16,16 @@ export async function getOwnerTeamId(
   throw new BadRequestException('用户暂无个人团队')
 }
 
-// 外部传入 teamId 的入口用：非成员一律 403（不区分团队是否存在，不暴露存在性）
+// 外部传入 teamId 的入口用：非成员一律 403（不区分团队是否存在，不暴露存在性）。
+// 嵌套 team.status='ACTIVE' 过滤：TeamGuard 只拦 URL-:id 路由，body/query teamId 路径
+// 经此函数自证成员资格，解散团队（DISBANDED）不得再收新资源。
 export async function assertTeamMember(
-  db: { teamMember: { findUnique: Function } },
+  db: { teamMember: { findFirst: Function } },
   teamId: string,
   userId: string,
 ): Promise<void> {
-  const member = await db.teamMember.findUnique({
-    where: { teamId_userId: { teamId, userId } },
+  const member = await db.teamMember.findFirst({
+    where: { teamId, userId, team: { status: 'ACTIVE' } },
     select: { role: true },
   })
   if (!member) throw new ForbiddenException('非团队成员')

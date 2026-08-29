@@ -4,6 +4,8 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { validateTemplateData } from './template.validation';
 import { TeamService } from '../team/team.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
+import { assertTeamMember } from '../team/team.util';
 import { OFFICIAL_USER_ID, TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 import type { TemplateCategory } from '@prisma/client';
 
@@ -14,6 +16,7 @@ interface TemplateListQuery {
   page?: number;
   limit?: number;
   folderId?: string;
+  teamId?: string;
 }
 
 interface UpdateTemplateInput {
@@ -32,9 +35,12 @@ export class TemplateService {
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
   ) {}
 
   async findMany(query: TemplateListQuery, userId: string) {
+    // 成员自证必须先于缓存查询：同一 cacheKey 可能已被队友写入缓存，跳过校验会向外人泄露团队模板
+    if (query.teamId) await assertTeamMember(this.prisma, query.teamId, userId);
     const cacheKey = JSON.stringify({ query, userId });
     if (this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey)!;
@@ -55,9 +61,14 @@ export class TemplateService {
         where.isPublic = true;
         break;
       case 'my': {
-        // 团队化（B2）：团队项目全员可见；保留 userId 以覆盖本人无 project 关联的模板行
-        const team = await this.teamService.ensureDefaultTeam(userId);
-        where.OR = [{ userId }, { project: { teamId: team.id } }];
+        if (query.teamId) {
+          // Template 自带 teamId（带索引）直查：不走 project 反查——多一次 join，且漏掉本团队 projectId=null 的模板行
+          where.teamId = query.teamId;
+        } else {
+          // 团队化（B2）：团队项目全员可见；保留 userId 以覆盖本人无 project 关联的模板行
+          const team = await this.teamService.ensureDefaultTeam(userId);
+          where.OR = [{ userId }, { project: { teamId: team.id } }];
+        }
         break;
       }
       case 'community':
@@ -105,7 +116,22 @@ export class TemplateService {
   async getTemplate(id: string, userId: string) {
     const template = await this.findById(id);
     if (!template.isPublic && template.userId !== userId) {
-      throw new ForbiddenException('无权访问此模板');
+      // 鉴权为 OR 关系：团队成员 OR 项目显式协作者任一通过即放行。
+      // 不得写成 if-else if 互斥——普通团队允许 addProjectMember 添加外部协作者（Task 4 只拦默认团队），
+      // 互斥写法会让非团队成员的项目协作者永远打不开项目内模板。
+      let allowed = false;
+      if (template.teamId) {
+        // 成员判断用 findUnique 直查而非 assertTeamMember——此处需要"成员资格作为 OR 条件之一"而非"不通过即抛"
+        const member = await this.prisma.teamMember.findUnique({
+          where: { teamId_userId: { teamId: template.teamId, userId } },
+        });
+        if (member) allowed = true;
+      }
+      if (!allowed && template.projectId) {
+        const perm = await this.perm.resolve(template.projectId, userId);
+        if (perm) allowed = true;
+      }
+      if (!allowed) throw new ForbiddenException('无权访问此模板');
     }
     return { ...template, isOwner: template.userId === userId };
   }
@@ -113,7 +139,19 @@ export class TemplateService {
   async update(id: string, input: UpdateTemplateInput, userId: string) {
     const template = await this.findById(id);
     if (template.userId !== userId) {
-      throw new ForbiddenException('无权编辑此模板');
+      // OR 关系（同 getTemplate）：创建者 / 团队成员 / 项目编辑者 任一通过
+      let allowed = false;
+      if (template.teamId) {
+        const member = await this.prisma.teamMember.findUnique({
+          where: { teamId_userId: { teamId: template.teamId, userId } },
+        });
+        if (member) allowed = true;
+      }
+      if (!allowed && template.projectId) {
+        await this.perm.assertEditor(template.projectId, userId);
+        allowed = true;
+      }
+      if (!allowed) throw new ForbiddenException('无权编辑此模板');
     }
     this.clearCache();
     const data: any = {};
@@ -127,7 +165,10 @@ export class TemplateService {
     }
     if (input.folderId !== undefined) {
       if (input.folderId !== null) {
-        const folder = await this.prisma.folder.findFirst({ where: { id: input.folderId, userId } });
+        // 跨团队挂载防护：目标文件夹必须属于模板所在团队（无团队模板不可挂团队文件夹）
+        const folder = template.teamId
+          ? await this.prisma.folder.findFirst({ where: { id: input.folderId, teamId: template.teamId } })
+          : null;
         if (!folder) throw new BadRequestException('目标文件夹不存在');
       }
       data.folderId = input.folderId;
@@ -146,7 +187,12 @@ export class TemplateService {
   async delete(id: string, userId: string) {
     const template = await this.findById(id);
     if (template.userId !== userId) {
-      throw new ForbiddenException('无权删除此模板');
+      // D1 收紧：template.delete 会级联删 canvasProject，团队成员 EDITOR 不可删他人整个工程。
+      // perm.resolve 的 PROJECT_OWNER 已覆盖 创建者/团队 OWNER/显式项目 OWNER 三种情形（解析链）。
+      const role = template.projectId ? await this.perm.resolve(template.projectId, userId) : null;
+      if (role !== 'PROJECT_OWNER') {
+        throw new ForbiddenException('仅创建者或项目 OWNER 可删除');
+      }
     }
     this.clearCache();
     // 先删 Template 解除 projectId FK，再删工程（nodes/edges 由 DB 级联 Cascade 清理）
@@ -160,8 +206,11 @@ export class TemplateService {
     return null;
   }
 
-  async import(id: string, userId: string) {
+  async import(id: string, userId: string, teamId?: string) {
     try {
+      // 先成员自证：他团队成员猜 teamId 不得借 import 落资源（默认团队路径亦统一过此门）
+      const teamIdResolved = teamId ?? (await this.teamService.ensureDefaultTeam(userId)).id;
+      await assertTeamMember(this.prisma, teamIdResolved, userId);
       const template = await this.findById(id);
 
       if (!template.isPublic && template.userId !== userId) {
@@ -178,9 +227,10 @@ export class TemplateService {
       let projectName = `${template.name} (副本)`;
       let counter = 1;
 
+      // 重名查重按团队维度：队友导入同一模板时不因 userId 不同产生错乱编号
       while (true) {
         const existing = await this.prisma.canvasProject.findFirst({
-          where: { name: projectName, userId },
+          where: { name: projectName, teamId: teamIdResolved },
         });
         if (!existing) break;
         projectName = `${template.name} (副本 ${++counter})`;
@@ -209,6 +259,7 @@ export class TemplateService {
         userId,
         cleanNodes,
         cleanEdges,
+        teamIdResolved,
       );
 
       await this.prisma.template.update({

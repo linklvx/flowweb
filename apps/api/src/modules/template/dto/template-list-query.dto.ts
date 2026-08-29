@@ -7,4 +7,5 @@ export class TemplateListQueryDto {
   @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) page?: number;
   @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) limit?: number;
   @IsOptional() @IsString() folderId?: string;
+  @IsOptional() @IsString() teamId?: string;
 }
