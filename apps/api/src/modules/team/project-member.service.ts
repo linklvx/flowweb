@@ -77,6 +77,9 @@ export class ProjectMemberService {
       select: { teamId: true },
     });
     if (!project) throw new NotFoundException('项目不存在');
+    // 默认团队（个人项目）画布：服务端不变量，拒绝一切协作者添加
+    const team = await this.prisma.team.findUnique({ where: { id: project.teamId }, select: { isDefault: true } });
+    if (team?.isDefault) throw new BadRequestException('个人项目画布不支持添加协作者');
     // 先校验目标在团（400 语义），再做 caller 权限门（403）——caller 已过 TeamGuard，顺序不影响安全
     const inTeam = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId: targetUserId } },

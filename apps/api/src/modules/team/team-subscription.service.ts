@@ -13,6 +13,9 @@ export class TeamSubscriptionService {
 
   /** 购买（Q2 月付模型）：active 期拒购（S3 不支持提前续费） */
   async createSubscriptionOrder(teamId: string, userId: string, planId: string) {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isDefault: true } });
+    if (team?.isDefault) throw new BadRequestException('个人项目不支持团队套餐订阅');
+
     const member = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
@@ -58,6 +61,9 @@ export class TeamSubscriptionService {
     if (!plan) return { code: 'FAIL', message: 'plan not found' };
 
     const teamId = order.teamId!;
+    // 回调兜底入口：默认团队（个人项目）订单不入账（下单入口已拦，此处防御异常路径）
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isDefault: true } });
+    if (team?.isDefault) throw new BadRequestException('个人项目不支持团队套餐订阅');
     const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
     try {
       await this.prisma.$transaction(async (tx) => {

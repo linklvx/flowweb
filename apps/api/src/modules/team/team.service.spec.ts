@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TeamService.ensureDefaultTeam', () => {
@@ -247,10 +248,11 @@ describe('TeamService 基础 API', () => {
       prisma.teamMember = { create: vi.fn() };
       prisma.teamBalance = { create: vi.fn() };
       prisma.teamCreditTransaction = { create: vi.fn() };
+      prisma.materialFolder = { createMany: vi.fn().mockResolvedValue({ count: 5 }) };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('主动建团：credits=0、无 register_grant 流水、创建者 OWNER', async () => {
+    it('主动建团：credits=0、无 register_grant 流水、创建者 OWNER、默认素材文件夹与个人项目一致', async () => {
       setup();
 
       const team = await service.createTeam('u1', '新团队');
@@ -263,6 +265,11 @@ describe('TeamService 基础 API', () => {
       });
       expect(prisma.teamBalance.create).toHaveBeenCalledWith({
         data: { teamId: 't1', credits: 0, subscriptionCredits: 0 },
+      });
+      expect(prisma.materialFolder.createMany).toHaveBeenCalledWith({
+        data: DEFAULT_FOLDER_NAMES.map((name, i) => ({
+          name, teamId: 't1', userId: 'u1', isDefault: true, sortOrder: i,
+        })),
       });
       expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
       expect(team).toEqual({ id: 't1' });
@@ -293,6 +300,7 @@ describe('TeamService 基础 API', () => {
     });
 
     it('MEMBER 拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };
       await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(ForbiddenException);
     });
@@ -420,6 +428,7 @@ describe('TeamService 成员管理', () => {
   describe('changeRole', () => {
     const setup = (callerRole: string, targetRole: string) => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
@@ -463,6 +472,7 @@ describe('TeamService 成员管理', () => {
   describe('removeMember', () => {
     const setup = (callerRole: string, targetRole: string) => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ userId: 'caller', role: callerRole })
@@ -496,6 +506,7 @@ describe('TeamService 成员管理', () => {
   describe('setQuota', () => {
     it('OWNER/ADMIN 设置 monthlyQuota≥0', async () => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ role: 'ADMIN' })
@@ -514,11 +525,13 @@ describe('TeamService 成员管理', () => {
     });
 
     it('负数拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
       await expect(service.setQuota('t1', 'caller', 'target', -1)).rejects.toThrow(BadRequestException);
     });
 
     it('MEMBER 拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };
       await expect(service.setQuota('t1', 'caller', 'target', 50)).rejects.toThrow(ForbiddenException);
     });
@@ -527,6 +540,7 @@ describe('TeamService 成员管理', () => {
   describe('transferOwnership', () => {
     it('事务内三写：原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步 + logTx 审计', async () => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '老主人' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() };
       prisma.teamMember = {
         findUnique: vi.fn().mockImplementation(({ where }: any) => {
           const k = where.teamId_userId;
@@ -536,7 +550,6 @@ describe('TeamService 成员管理', () => {
         }),
         update: vi.fn(),
       };
-      prisma.team = { update: vi.fn() };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
 
       await service.transferOwnership('t1', 'owner1', 'u2');
@@ -560,6 +573,7 @@ describe('TeamService 成员管理', () => {
     });
 
     it('非 OWNER 拒绝 / 目标非成员拒绝 / 转让给自己拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
       await expect(service.transferOwnership('t1', 'a1', 'u2')).rejects.toThrow('仅 OWNER');
 
@@ -653,6 +667,7 @@ describe('TeamService 加入申请', () => {
   describe('approve', () => {
     const setup = (opts: { callerRole?: string; memberCount?: number; planSeatLimit?: number } = {}) => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '审批人' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = {
         findUnique: vi.fn().mockResolvedValue({ role: opts.callerRole ?? 'OWNER' }),
         count: vi.fn().mockResolvedValue(opts.memberCount ?? 3),
@@ -700,6 +715,7 @@ describe('TeamService 加入申请', () => {
     });
 
     it('非 PENDING 状态拒绝', async () => {
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
       prisma.teamJoinRequest = {
         findUnique: vi.fn().mockResolvedValue({ id: 'r1', status: 'APPROVED' }),
@@ -711,6 +727,7 @@ describe('TeamService 加入申请', () => {
   describe('reject / listRequests', () => {
     it('reject：置 REJECTED + decidedBy/decidedAt + 审计', async () => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '审批人' }) };
+      prisma.team = { findUnique: vi.fn().mockResolvedValue(null) };
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) };
       prisma.teamJoinRequest = {
         findUnique: vi.fn().mockResolvedValue({ id: 'r1', teamId: 't1', userId: 'u2', status: 'PENDING' }),
@@ -790,5 +807,76 @@ describe('listAuditLogs', () => {
     prisma.auditLog.findMany.mockResolvedValue([]);
     prisma.auditLog.count.mockResolvedValue(0);
     await expect(service.listAuditLogs('t1', 'u1', 1, 20)).resolves.toEqual({ items: [], total: 0 });
+  });
+});
+
+describe('TeamService 默认团队操作禁令（个人项目不变量）', () => {
+  let service: TeamService;
+  let prisma: any;
+  let emitter: any;
+  let queue: any;
+  const audit = { log: vi.fn(), logTx: vi.fn() };
+
+  beforeEach(async () => {
+    prisma = {};
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    queue = { add: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TeamService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventEmitter2, useValue: emitter },
+        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: AuditService, useValue: audit },
+      ],
+    }).compile();
+
+    service = module.get<TeamService>(TeamService);
+  });
+
+  const defaultTeam = () => {
+    prisma.team = { findUnique: vi.fn().mockResolvedValue({ id: 't1', status: 'ACTIVE', isDefault: true }) };
+  };
+
+  it('apply 对默认团队抛「个人项目不支持」', async () => {
+    defaultTeam();
+    await expect(service.apply('t1', 'u2')).rejects.toThrow('个人项目不支持');
+  });
+
+  it('approve/reject 对默认团队抛「个人项目不支持」', async () => {
+    defaultTeam();
+    await expect(service.approve('t1', 'u1', 'r1')).rejects.toThrow('个人项目不支持');
+    await expect(service.reject('t1', 'u1', 'r1')).rejects.toThrow('个人项目不支持');
+  });
+
+  it('renameTeam/changeRole/removeMember/setQuota 对默认团队抛「个人项目不支持」', async () => {
+    defaultTeam();
+    await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow('个人项目不支持');
+    await expect(service.changeRole('t1', 'u1', 'u2', 'ADMIN')).rejects.toThrow('个人项目不支持');
+    await expect(service.removeMember('t1', 'u1', 'u2')).rejects.toThrow('个人项目不支持');
+    await expect(service.setQuota('t1', 'u1', 'u2', 100)).rejects.toThrow('个人项目不支持');
+  });
+
+  it('disbandTeam/transferOwnership 对默认团队抛「个人项目不支持」', async () => {
+    defaultTeam();
+    await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow('个人项目不支持');
+    await expect(service.transferOwnership('t1', 'u1', 'u2')).rejects.toThrow('个人项目不支持');
+  });
+
+  it('普通团队不受影响：apply 正常走 joinApproval 分支', async () => {
+    prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'ACTIVE', joinApproval: true, isDefault: false }) };
+    prisma.teamMember = { findUnique: vi.fn().mockResolvedValue(null) };
+    prisma.teamJoinRequest = {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'r1', status: 'PENDING' }),
+    };
+
+    const result = await service.apply('t1', 'u2', '想加入');
+
+    expect(prisma.teamJoinRequest.create).toHaveBeenCalledWith({
+      data: { teamId: 't1', userId: 'u2', status: 'PENDING', message: '想加入' },
+    });
+    expect(result).toEqual({ id: 'r1', status: 'PENDING' });
   });
 });

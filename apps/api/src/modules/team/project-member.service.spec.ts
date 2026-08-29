@@ -15,6 +15,7 @@ describe('ProjectMemberService', () => {
     prisma = {
       user: { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) },
       canvasProject: { findUnique: vi.fn() },
+      team: { findUnique: vi.fn().mockResolvedValue({ isDefault: false }) },
       teamMember: { findUnique: vi.fn(), findMany: vi.fn() },
       projectMember: {
         findUnique: vi.fn(),
@@ -51,6 +52,12 @@ describe('ProjectMemberService', () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't1' });
     prisma.teamMember.findUnique.mockResolvedValue({ role: 'ADMIN' });
     await expect(svc.add('p1', 'caller1', 'u2', 'PROJECT_OWNER')).rejects.toThrow('仅项目所有者');
+  });
+
+  it('add：默认团队（个人项目）画布拒绝添加协作者', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ teamId: 't-default' });
+    prisma.team.findUnique.mockResolvedValue({ isDefault: true });
+    await expect(svc.add('p1', 'caller1', 'u2', 'PROJECT_EDITOR')).rejects.toThrow('个人项目画布不支持添加协作者');
   });
 
   it('add：Team ADMIN 可授予 EDITOR + 审计 add_project_member', async () => {

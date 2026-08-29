@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 import { AuditService } from '../../common/audit/audit.service';
 import { bootstrapPersonalTeam } from './team.bootstrap';
+import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 
 @Injectable()
 export class TeamService {
@@ -19,6 +20,12 @@ export class TeamService {
   /** 审计 operatorName：调用点无现成名字时一次 user 查询兜底 */
   private async userName(userId: string): Promise<string> {
     return (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? '未知';
+  }
+
+  /** 默认团队（个人项目）服务端不变量：操作禁令入口统一拦截 */
+  private async assertNotPersonalTeam(teamId: string, action: string) {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isDefault: true } });
+    if (team?.isDefault) throw new BadRequestException(`个人项目不支持此操作：${action}`);
   }
 
   /** 幂等：无个人团队用户任意时机调用可补建（注册钩子 / 历史用户兜底）。
@@ -39,6 +46,12 @@ export class TeamService {
         data: { name: name.trim() || `${user?.name ?? '用户'}的团队`, ownerId: userId, status: 'ACTIVE' },
       });
       await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'OWNER' } });
+      // 与个人项目体验一致：建团即有默认素材文件夹
+      await tx.materialFolder.createMany({
+        data: DEFAULT_FOLDER_NAMES.map((folderName, i) => ({
+          name: folderName, teamId: team.id, userId, isDefault: true, sortOrder: i,
+        })),
+      });
       await tx.teamBalance.create({ data: { teamId: team.id, credits: 0, subscriptionCredits: 0 } });
       await this.audit.logTx(tx, {
         operatorId: userId,
@@ -119,6 +132,7 @@ export class TeamService {
   }
 
   async renameTeam(teamId: string, userId: string, name: string) {
+    await this.assertNotPersonalTeam(teamId, '重命名');
     await this.assertEditable(teamId, userId);
     return this.prisma.team.update({ where: { id: teamId }, data: { name } });
   }
@@ -158,6 +172,7 @@ export class TeamService {
   }
 
   async changeRole(teamId: string, callerId: string, targetUserId: string, role: 'ADMIN' | 'MEMBER') {
+    await this.assertNotPersonalTeam(teamId, '调整角色');
     // 运行时白名单：controller 无 ValidationPipe，类型限定仅编译期生效，透传 'OWNER' 可铸出双 OWNER 破坏 ownerId 不变式
     if (role !== 'ADMIN' && role !== 'MEMBER') throw new BadRequestException('成员角色仅可设为 ADMIN 或 MEMBER');
     const caller = await this.requireMember(teamId, callerId);
@@ -182,6 +197,7 @@ export class TeamService {
   }
 
   async removeMember(teamId: string, callerId: string, targetUserId: string) {
+    await this.assertNotPersonalTeam(teamId, '移除成员');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
       throw new ForbiddenException('仅团队管理员可移除成员');
@@ -203,6 +219,7 @@ export class TeamService {
   }
 
   async setQuota(teamId: string, callerId: string, targetUserId: string, monthlyQuota: number) {
+    await this.assertNotPersonalTeam(teamId, '调整配额');
     if (monthlyQuota < 0) throw new BadRequestException('配额不能为负数');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
@@ -228,6 +245,7 @@ export class TeamService {
 
   /** spec 1.3：事务内 原 OWNER→ADMIN / 目标→OWNER / Team.ownerId 同步 + logTx 审计 */
   async transferOwnership(teamId: string, callerId: string, targetUserId: string) {
+    await this.assertNotPersonalTeam(teamId, '转让');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER') throw new ForbiddenException('仅 OWNER 可转让团队');
     if (targetUserId === callerId) throw new BadRequestException('不能转让给自己');
@@ -265,6 +283,7 @@ export class TeamService {
   }
 
   async apply(teamId: string, userId: string, message?: string) {
+    await this.assertNotPersonalTeam(teamId, '申请加入');
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       select: { status: true, joinApproval: true },
@@ -291,6 +310,7 @@ export class TeamService {
   }
 
   async approve(teamId: string, callerId: string, requestId: string) {
+    await this.assertNotPersonalTeam(teamId, '审批加入申请');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
       throw new ForbiddenException('仅团队管理员可审批');
@@ -323,6 +343,7 @@ export class TeamService {
   }
 
   async reject(teamId: string, callerId: string, requestId: string) {
+    await this.assertNotPersonalTeam(teamId, '审批加入申请');
     const caller = await this.requireMember(teamId, callerId);
     if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') {
       throw new ForbiddenException('仅团队管理员可审批');
@@ -370,6 +391,7 @@ export class TeamService {
 
   /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除+凭证置空 */
   async disbandTeam(teamId: string, userId: string) {
+    await this.assertNotPersonalTeam(teamId, '解散');
     const member = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });

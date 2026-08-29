@@ -13,6 +13,7 @@ describe('TeamSubscriptionService', () => {
   beforeEach(async () => {
     prisma = {
       user: { findUnique: vi.fn().mockResolvedValue({ name: '付款人' }) },
+      team: { findUnique: vi.fn().mockResolvedValue({ isDefault: false }) },
       teamMember: { findUnique: vi.fn() },
       teamSubscription: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
       teamPlan: { findUnique: vi.fn() },
@@ -70,6 +71,12 @@ describe('TeamSubscriptionService', () => {
       prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
       await expect(service.createSubscriptionOrder('t1', 'u1', 'plan1')).rejects.toThrow(ForbiddenException);
     });
+
+    it('默认团队（个人项目）拒绝购买订阅', async () => {
+      prisma.team.findUnique.mockResolvedValue({ isDefault: true });
+      await expect(service.createSubscriptionOrder('t1', 'u1', 'plan1')).rejects.toThrow('个人项目不支持');
+      expect(prisma.teamMember.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe('completeSubscriptionCallback（Q2：覆盖式发放）', () => {
@@ -116,6 +123,15 @@ describe('TeamSubscriptionService', () => {
         outTradeNo: 'TEAM9', appid: '', mchid: '', amount: 9900, tradeState: 'SUCCESS', transactionId: 'tx',
       } as any);
       expect(result.code).toBe('FAIL');
+    });
+
+    it('默认团队回调兜底拒绝（个人项目）', async () => {
+      prisma.teamRechargeOrder.findUnique.mockResolvedValue(order);
+      prisma.teamPlan.findUnique.mockResolvedValue({ id: 'plan1', monthlyCredits: 500 });
+      prisma.team.findUnique.mockResolvedValue({ isDefault: true });
+      await expect(service.completeSubscriptionCallback({
+        outTradeNo: 'TEAM9', appid: '', mchid: '', amount: 9900, tradeState: 'SUCCESS', transactionId: 'tx9',
+      } as any)).rejects.toThrow('个人项目不支持');
     });
   });
 
