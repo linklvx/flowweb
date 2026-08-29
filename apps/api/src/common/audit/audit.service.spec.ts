@@ -101,6 +101,21 @@ describe('AuditService', () => {
         }),
       );
     });
+
+    it('log 不传 teamId 时写 null', async () => {
+      await service.log({
+        operatorId: 'u1',
+        operatorName: 'a',
+        targetType: 'TEAM',
+        targetId: 't1',
+        action: 'create_team',
+      });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ teamId: null }),
+        }),
+      );
+    });
   });
 
   describe('logTx', () => {

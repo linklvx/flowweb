@@ -72,7 +72,8 @@ describe('ProjectMemberService', () => {
     prisma.projectMember.upsert.mockResolvedValue({});
     await svc.changeRole('p1', 'caller1', 'u2', 'PROJECT_VIEWER');
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
-      targetType: 'PROJECT_MEMBER', targetId: 'u2', action: 'change_project_role',
+      operatorId: 'caller1', teamId: 't1', targetType: 'PROJECT_MEMBER', targetId: 'u2',
+      action: 'change_project_role', afterValue: { role: 'PROJECT_VIEWER' },
     }));
   });
 

@@ -20,11 +20,11 @@ export class AuditService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async log(params: AuditLogParams): Promise<void> {
-    await this.prisma.auditLog.create({ data: this.buildData(params) });
+    await this.logTx(this.prisma, params);
   }
 
   /** 事务内审计：与 log 同字段映射，但写在传入 tx 上（随事务原子提交/回滚） */
-  async logTx(tx: { auditLog: { create(args: any): Promise<unknown> } }, params: AuditLogParams): Promise<void> {
+  async logTx(tx: Prisma.TransactionClient, params: AuditLogParams): Promise<void> {
     await tx.auditLog.create({ data: this.buildData(params) });
   }
 
