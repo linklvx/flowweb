@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import TeamPage from './TeamPage';
 
 const api = vi.hoisted(() => ({
@@ -16,10 +16,6 @@ const api = vi.hoisted(() => ({
   rejectJoinRequest: vi.fn(),
   getTeamBalanceView: vi.fn(),
   listTeamTransactions: vi.fn(),
-  createTeamRechargeOrder: vi.fn(),
-  payTeamOrder: vi.fn(),
-  createSubscriptionOrder: vi.fn(),
-  listTeamPlans: vi.fn(),
   getTeamLimits: vi.fn(),
   getTeamUsage: vi.fn(),
   // 新 TeamPage 调用 teamDisplayName；mock 工厂缺失则组件内 undefined 即崩
@@ -28,7 +24,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/api/teamApi', () => api);
-vi.mock('@/components/WeChatQRModal', () => ({ WeChatQRModal: () => null }));
 vi.mock('@/components/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
 }));
@@ -57,9 +52,6 @@ function setup() {
   ]);
   api.approveJoinRequest.mockResolvedValue(undefined);
   api.rejectJoinRequest.mockResolvedValue(undefined);
-  api.listTeamPlans.mockResolvedValue([
-    { id: 'p1', name: '团队基础版', monthlyCredits: 1000, storageLimitBytes: String(20 * 1024 ** 3), seatLimit: 30, priceMonthly: 9900, isActive: true },
-  ]);
 }
 
 describe('TeamPage', () => {
@@ -71,7 +63,7 @@ describe('TeamPage', () => {
     expect(screen.getByTestId('tab-credits')).toBeInTheDocument();
     expect(screen.getByTestId('tab-permissions')).toBeInTheDocument();
     expect(screen.getByTestId('tab-requests')).toBeInTheDocument();
-    expect(screen.getByText('张三')).toBeInTheDocument();
+    expect(await screen.findByText('张三')).toBeInTheDocument();
   });
 
   it('③ OverviewCard：剩余积分=总额+通用积分、席位 n/20、存储 1.0G/6.0G', async () => {
@@ -102,16 +94,19 @@ describe('TeamPage', () => {
     await waitFor(() => expect(api.approveJoinRequest).toHaveBeenCalledWith('t1', 'r1'));
   });
 
-  it('⑥ CreditsTab：档位充值（10 元→100 积分订单+支付）', async () => {
-    api.createTeamRechargeOrder.mockResolvedValue({ outTradeNo: 'TEAM1' });
-    api.payTeamOrder.mockResolvedValue({ codeUrl: 'weixin://x', orderNo: 'TEAM1', amount: 1000, status: 'PENDING' });
-    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+  it('⑥ CreditsTab：充值/订阅按钮跳转 /team/:id/billing', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<TeamPage />} />
+          <Route path="/team/:id/billing" element={<div data-testid="billing-page-marker" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
     await screen.findByText('张三');
     fireEvent.click(screen.getByTestId('tab-credits'));
-    fireEvent.click(screen.getByRole('button', { name: '充 值' }));
-    fireEvent.click(await screen.findByText('¥10'));
-    await waitFor(() => expect(api.createTeamRechargeOrder).toHaveBeenCalledWith('t1', 10));
-    await waitFor(() => expect(api.payTeamOrder).toHaveBeenCalledWith('t1', 'TEAM1'));
+    fireEvent.click(screen.getByRole('button', { name: '充值 / 订阅' }));
+    expect(await screen.findByTestId('billing-page-marker')).toBeInTheDocument();
   });
 
   it('⑪ 团队切换下拉：多团队显示并切换写 localStorage', async () => {

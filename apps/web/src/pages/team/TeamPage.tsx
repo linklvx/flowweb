@@ -5,11 +5,9 @@ import {
   createTeam, getMyTeams, listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
   listJoinRequests, approveJoinRequest, rejectJoinRequest,
   getTeamBalanceView, listTeamTransactions,
-  createTeamRechargeOrder, payTeamOrder, createSubscriptionOrder, listTeamPlans,
   getTeamLimits, getTeamUsage,
   getAuditLogs, teamDisplayName, type AuditLogRow,
 } from '@/api/teamApi';
-import { WeChatQRModal } from '@/components/WeChatQRModal';
 import { useAuth } from '@/components/AuthProvider';
 
 const ACCENT = '#5DDCFF';
@@ -55,7 +53,6 @@ export default function TeamPage() {
   const [limits, setLimits] = useState<{ seatLimit: number; storageLimitBytes: number } | null>(null);
   const [usage, setUsage] = useState(0);
   const [requests, setRequests] = useState<any[]>([]);
-  const [plans, setPlans] = useState<Awaited<ReturnType<typeof listTeamPlans>>>([]);
   const [auditLogs, setAuditLogs] = useState<{ items: AuditLogRow[]; total: number }>({ items: [], total: 0 });
   const [auditPage, setAuditPage] = useState(1);
 
@@ -64,9 +61,6 @@ export default function TeamPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [quotaTarget, setQuotaTarget] = useState<any | null>(null);
   const [quotaValue, setQuotaValue] = useState('');
-  const [rechargeOpen, setRechargeOpen] = useState(false);
-  const [qrOrder, setQrOrder] = useState<{ orderNo: string; codeUrl: string; amount: number; expiredAt: string } | null>(null);
-  const [subscribePlan, setSubscribePlan] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -87,16 +81,15 @@ export default function TeamPage() {
 
   const refreshAll = useCallback(async () => {
     if (!teamId || isPersonal) return;
-    const [m, b, tx, lim, u, rq, ps] = await Promise.all([
+    const [m, b, tx, lim, u, rq] = await Promise.all([
       listMembers(teamId, memberPage),
       getTeamBalanceView(teamId),
       listTeamTransactions(teamId, txPage),
       getTeamLimits(teamId),
       getTeamUsage(teamId),
       listJoinRequests(teamId, 'PENDING').catch(() => []),
-      listTeamPlans().catch(() => []),
     ]);
-    setMembers(m); setBalance(b); setTransactions(tx); setLimits(lim); setUsage(u); setRequests(rq as any[]); setPlans(ps);
+    setMembers(m); setBalance(b); setTransactions(tx); setLimits(lim); setUsage(u); setRequests(rq as any[]);
   }, [teamId, memberPage, txPage, isPersonal]);
 
   useEffect(() => { void refreshAll(); }, [refreshAll]);
@@ -104,6 +97,7 @@ export default function TeamPage() {
   // 个人（默认）团队：不走团队管理接口，只拉余额视图
   useEffect(() => {
     if (!teamId || !isPersonal) return;
+    setBalance(null);
     getTeamBalanceView(teamId).then(setBalance).catch(() => {});
   }, [teamId, isPersonal]);
 
@@ -184,6 +178,7 @@ export default function TeamPage() {
           <div className="flex gap-3">
             <Link to="/settings/credits" data-testid="link-personal-recharge" className="px-4 py-1.5 rounded-md bg-[#f59e0b] text-black text-sm no-underline">充值</Link>
             <Link to="/settings/membership" data-testid="link-personal-membership" className="px-4 py-1.5 rounded-md bg-[#4ade80] text-black text-sm no-underline">开通/管理会员</Link>
+            <Button size="small" onClick={() => setCreateOpen(true)}>新建团队</Button>
           </div>
         </div>
         {createModal}
@@ -200,26 +195,6 @@ export default function TeamPage() {
   const switchTeam = (id: string) => {
     localStorage.setItem('currentTeamId', id);
     location.reload();
-  };
-
-  const doRecharge = async (amountYuan: number) => {
-    const { outTradeNo } = await createTeamRechargeOrder(teamId, amountYuan);
-    const pay = await payTeamOrder(teamId, outTradeNo);
-    if (pay.codeUrl) {
-      setRechargeOpen(false);
-      // 微信 Native 下单二维码默认 2 小时有效；amount 后端为分、弹窗展示为元
-      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl, amount: pay.amount / 100, expiredAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() });
-    }
-  };
-
-  const doSubscribe = async () => {
-    const { outTradeNo } = await createSubscriptionOrder(teamId, subscribePlan.id);
-    const pay = await payTeamOrder(teamId, outTradeNo);
-    if (pay.codeUrl) {
-      setSubscribePlan(null);
-      // 微信 Native 下单二维码默认 2 小时有效；amount 后端为分、弹窗展示为元
-      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl, amount: pay.amount / 100, expiredAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() });
-    }
   };
 
   const tabs: { key: typeof tab; label: string }[] = [
@@ -397,10 +372,7 @@ export default function TeamPage() {
         {tab === 'credits' && (
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <Button type="primary" style={{ background: ACCENT, color: '#000', borderColor: ACCENT }} onClick={() => setRechargeOpen(true)}>充值</Button>
-              {!team.subscription && (
-                <Button onClick={() => setSubscribePlan(plans[0] ?? null)}>立即开通</Button>
-              )}
+              <Button type="primary" onClick={() => navigate(`/team/${teamId}/billing`)}>充值 / 订阅</Button>
             </div>
             <Table
               rowKey="id" size="small"
@@ -507,46 +479,7 @@ export default function TeamPage() {
         <Input value={quotaValue} onChange={(e) => setQuotaValue(e.target.value)} placeholder="0 = 不限额" />
       </Modal>
 
-      <Modal open={rechargeOpen} title="团队积分充值（1 元 = 10 积分）" footer={null} onCancel={() => setRechargeOpen(false)}>
-        <div className="grid grid-cols-3 gap-3">
-          {[10, 30, 50, 100, 200, 500].map((yuan) => (
-            <button key={yuan} onClick={() => void doRecharge(yuan)}
-              className="bg-[#1A1A1A] border border-[#333] rounded-lg p-4 cursor-pointer hover:border-[#5DDCFF]">
-              <div className="text-lg font-bold">{yuan * 10}</div>
-              <div className="text-xs text-[#666]">¥{yuan}</div>
-            </button>
-          ))}
-        </div>
-      </Modal>
-
       {createModal}
-
-      <Modal open={!!subscribePlan} title="开通团队订阅" onCancel={() => setSubscribePlan(null)} footer={null}>
-        <div className="flex flex-col gap-3">
-          {plans.map((p) => (
-            <button key={p.id} onClick={() => setSubscribePlan(p)}
-              className={`bg-[#1A1A1A] border rounded-lg p-4 text-left cursor-pointer ${subscribePlan?.id === p.id ? 'border-[#5DDCFF]' : 'border-[#333]'}`}>
-              <div className="font-bold">{p.name}</div>
-              <div className="text-xs text-[#888] mt-1">¥{(p.priceMonthly / 100).toFixed(0)}/月 · {p.monthlyCredits} 积分 · {p.seatLimit} 席位 · {fmtBytes(Number(p.storageLimitBytes))}</div>
-            </button>
-          ))}
-          <Button type="primary" disabled={!subscribePlan} style={{ background: ACCENT, borderColor: ACCENT, color: '#000' }} onClick={() => void doSubscribe()}>
-            去支付
-          </Button>
-        </div>
-      </Modal>
-
-      {qrOrder && (
-        <WeChatQRModal
-          visible
-          codeUrl={qrOrder.codeUrl}
-          orderNo={qrOrder.orderNo}
-          amount={qrOrder.amount}
-          expiredAt={qrOrder.expiredAt}
-          onSuccess={() => { setQrOrder(null); void refreshAll(); }}
-          onCancel={() => { setQrOrder(null); void refreshAll(); }}
-        />
-      )}
     </div>
   );
 }
