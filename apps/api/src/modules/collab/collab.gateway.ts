@@ -72,7 +72,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onDisconnect: this.hooks.onDisconnect,
       extensions: [
         // v4.6.0 无 url 选项——createClient 直建 ioredis（吃 REDIS_URL，pub/sub 各一连接）
-        new RedisExtension({ createClient: () => new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379/0') }),
+        // disconnectDelay 默认 1000ms 使每次直连 disconnect 固定 +2s（afterStoreDocument/beforeUnloadDocument 各等一次），
+        // withDoc 每调用一断——压到 200ms：本地 Redis 发布 <10ms，Postgres 权威持久化兼作兜底
+        new RedisExtension({
+          createClient: () => new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379/0'),
+          disconnectDelay: 200,
+        }),
       ],
     });
   }
