@@ -6,6 +6,7 @@ import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
 import Redis from 'ioredis';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
 import { svSatisfied } from './sv.util';
@@ -23,6 +24,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 每文档"已持久化状态"（spec 2.2 lastPersistedSV，= Postgres maxSeq 时刻状态） */
   private readonly persistedSVs = new Map<string, Uint8Array>();
   readonly hooks: {
+    onAuthenticate: (p: onAuthenticatePayload) => Promise<any>;
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<void>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
@@ -33,10 +35,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly eventEmitter: EventEmitter2,
     private readonly repo: CanvasDocUpdateRepository,
     private readonly redisSync: CollabRedisSync,
+    private readonly perm: ProjectPermissionService,
     @Optional() @Inject('COLLAB_PORT') port?: number,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
   ) {
     this.hooks = {
+      onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
       onStoreDocument: (p) => this.storeDocument(p),
       onDisconnect: (p) => this.disconnect(p),
@@ -45,28 +49,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
       debounce: debounce ?? 5000,
       maxDebounce: 10000,
-      // 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
-      // token 来自 WS 握手 query（测试/工具）或 httpOnly cookie（浏览器自动携带）
-      onAuthenticate: async ({ requestHeaders, requestParameters, documentName }: onAuthenticatePayload) => {
-        const token = requestParameters?.get('token')
-          ?? (requestHeaders?.get('cookie') || '').match(/flowweb\.session_token=([^;]+)/)?.[1]
-          ?? null;
-        const session = token
-          ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
-          : null;
-        if (!session || session.expiresAt < new Date()) throw new Error('未登录');
-        const projectId = parseProjectId(documentName);
-        const project = await this.prisma.canvasProject.findUnique({
-          where: { id: projectId },
-          select: { teamId: true },
-        });
-        if (!project) throw new Error('项目不存在');
-        const member = await this.prisma.teamMember.findUnique({
-          where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
-        });
-        if (!member) throw new Error('非团队成员');
-        return { user: { id: session.user.id, name: session.user.name, role: member.role } };
-      },
+      onAuthenticate: this.hooks.onAuthenticate,
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
       onDisconnect: this.hooks.onDisconnect,
@@ -80,6 +63,36 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         }),
       ],
     });
+  }
+
+  /** 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
+   *  token 来自 WS 握手 query（测试/工具）或 httpOnly cookie（浏览器自动携带）；
+   *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新 */
+  private async authenticate({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
+    const token = requestParameters?.get('token')
+      ?? (requestHeaders?.get('cookie') || '').match(/flowweb\.session_token=([^;]+)/)?.[1]
+      ?? null;
+    const session = token
+      ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
+      : null;
+    if (!session || session.expiresAt < new Date()) throw new Error('未登录');
+    const projectId = parseProjectId(documentName);
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new Error('项目不存在');
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
+    });
+    if (!member) throw new Error('非团队成员');
+    const projectRole = await this.perm.resolve(projectId, session.user.id);
+    if (!projectRole) throw new Error('非团队成员');
+    const readOnly = projectRole === 'PROJECT_VIEWER';
+    // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
+    // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
+    if (readOnly) connectionConfig.readOnly = true;
+    return { user: { id: session.user.id, name: session.user.name, role: member.role }, readOnly };
   }
 
   /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放 */

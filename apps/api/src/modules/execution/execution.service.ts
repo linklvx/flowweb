@@ -4,6 +4,7 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -19,6 +20,7 @@ export class ExecutionService {
     @Inject(ValidationService) private readonly validation: ValidationService,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
@@ -30,6 +32,7 @@ export class ExecutionService {
       where: { id: projectId },
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
+    await this.perm.assertEditor(projectId, userId);
 
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const allNodes = canvas.nodes as any[];

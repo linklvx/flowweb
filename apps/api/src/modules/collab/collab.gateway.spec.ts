@@ -30,6 +30,7 @@ function buildDocState(): Buffer {
 describe('CollabGateway + CollabDocumentService（integration）', () => {
   let prisma: any;
   let repo: any;
+  let permSvc: { resolve: ReturnType<typeof vi.fn> };
   let gateway: CollabGateway;
   let service: CollabDocumentService;
   let emitter: EventEmitter2;
@@ -37,6 +38,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   const providers: HocuspocusProvider[] = [];
 
   beforeEach(async () => {
+    permSvc = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
     prisma = {
       session: {
         findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
@@ -62,7 +64,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     emitter = new EventEmitter2();
     const port = 20000 + Math.floor(Math.random() * 20000);
-    gateway = new CollabGateway(prisma as any, emitter as any, repo, { syncFromPeers: vi.fn(async () => {}) } as any, port, 300);
+    gateway = new CollabGateway(prisma as any, emitter as any, repo, { syncFromPeers: vi.fn(async () => {}) } as any, permSvc as any, port, 300);
     await gateway.onModuleInit();
     url = `ws://127.0.0.1:${port}`;
     service = new CollabDocumentService(gateway);
@@ -101,6 +103,33 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     await new Promise((r) => setTimeout(r, 1500));
     expect(provider.isSynced).toBe(false);
   }, 8000);
+
+  describe('onAuthenticate：VIEWER 只读贯通（spec 1.2）', () => {
+    function authPayload(connectionConfig: { readOnly: boolean; isAuthenticated: boolean }) {
+      return {
+        requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
+        requestParameters: new URLSearchParams(),
+        documentName: 'project:p1',
+        connectionConfig,
+      };
+    }
+
+    it('PROJECT_VIEWER：connectionConfig.readOnly 置 true（Hocuspocus 拒绝连接写更新）', async () => {
+      permSvc.resolve.mockResolvedValue('PROJECT_VIEWER');
+      const connectionConfig = { readOnly: false, isAuthenticated: false };
+      const ctx = await gateway.hooks.onAuthenticate(authPayload(connectionConfig) as any);
+      expect(connectionConfig.readOnly).toBe(true);
+      expect(ctx).toMatchObject({ user: { id: 'u1' }, readOnly: true });
+    });
+
+    it('EDITOR：正常可写', async () => {
+      permSvc.resolve.mockResolvedValue('PROJECT_EDITOR');
+      const connectionConfig = { readOnly: false, isAuthenticated: false };
+      const ctx = await gateway.hooks.onAuthenticate(authPayload(connectionConfig) as any);
+      expect(connectionConfig.readOnly).toBe(false);
+      expect(ctx.readOnly).toBeFalsy();
+    });
+  });
 
   it('② onLoadDocument：有 CanvasDoc 时客户端连后能读到节点', async () => {
     prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: buildDocState() });

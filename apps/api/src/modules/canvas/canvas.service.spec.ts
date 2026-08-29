@@ -5,6 +5,7 @@ import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { TeamService } from '../team/team.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
@@ -15,6 +16,7 @@ describe('CanvasService', () => {
   let projectService: any;
   let folderService: any;
   let templateService: any;
+  let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     prisma = {
@@ -30,6 +32,10 @@ describe('CanvasService', () => {
     projectService = {};
     folderService = { touch: vi.fn() };
     templateService = { clearCache: vi.fn() };
+    permSvc = {
+      resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+      assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CanvasService,
@@ -38,6 +44,7 @@ describe('CanvasService', () => {
         { provide: FolderService, useValue: folderService },
         { provide: TemplateService, useValue: templateService },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
+        { provide: ProjectPermissionService, useValue: permSvc },
         { provide: CollabDocumentService, useValue: { readCanvas: vi.fn(), withDoc: vi.fn() } },
       ],
     }).compile();
@@ -200,6 +207,12 @@ describe('CanvasService', () => {
     it('非本人工程抛 Forbidden', async () => {
       projectService.findById.mockResolvedValue({ ...project, userId: 'other' });
       await expect(service.save('p1', { name: '名' }, 'u1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('save：VIEWER 403', async () => {
+      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      await expect(service.save('p1', { name: '名' }, 'u1')).rejects.toThrow('无项目编辑权限');
+      expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'u1');
     });
 
     it('并发首存 P2002 回退为 update', async () => {

@@ -5,6 +5,7 @@ import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { validateTemplateData } from '../template/template.validation';
 import { TeamService } from '../team/team.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class CanvasService {
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TemplateService) private readonly templateService: TemplateService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
@@ -60,6 +62,7 @@ export class CanvasService {
 
   async save(projectId: string, input: { name: string; description?: string; isPublic?: boolean; viewport?: { x: number; y: number; zoom: number } }, userId: string, sv?: Uint8Array) {
     const project = await this.projectService.findById(projectId);
+    await this.perm.assertEditor(projectId, userId);
     if (project.userId !== null && project.userId !== userId) {
       throw new ForbiddenException('无权保存此工程');
     }

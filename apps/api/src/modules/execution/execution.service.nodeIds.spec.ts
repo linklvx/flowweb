@@ -5,6 +5,7 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -53,6 +54,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
+        { provide: ProjectPermissionService, useValue: { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') } },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },

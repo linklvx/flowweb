@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
+import { ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -11,6 +13,7 @@ describe('ExecutionController', () => {
     add: ReturnType<typeof vi.fn>;
     getJob: ReturnType<typeof vi.fn>;
   };
+  let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -24,11 +27,16 @@ describe('ExecutionController', () => {
         progress: 100,
       }),
     };
+    permSvc = {
+      resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+      assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ExecutionController],
       providers: [
         { provide: ExecutionService, useValue: service },
+        { provide: ProjectPermissionService, useValue: permSvc },
         { provide: getQueueToken('execution'), useValue: queue },
       ],
     }).compile();
@@ -64,6 +72,7 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'user-1' } } as any;
       const body = { projectId: 'p1', nodeId: 'n2' };
       const result = await controller.enqueue(body, req);
+      expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'user-1');
       expect(queue.add).toHaveBeenCalledWith('execution', {
         projectId: 'p1',
         nodeId: 'n2',
@@ -71,6 +80,13 @@ describe('ExecutionController', () => {
         sv: null,
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
+    });
+
+    it('enqueue：VIEWER 403，不入队', async () => {
+      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      const req = { user: { id: 'user-1' } } as any;
+      await expect(controller.enqueue({ projectId: 'p1' }, req)).rejects.toThrow('无项目编辑权限');
+      expect(queue.add).not.toHaveBeenCalled();
     });
 
     it('should handle missing user on request', async () => {

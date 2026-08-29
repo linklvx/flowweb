@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, Param, Inject, Req, Headers } from '@nestj
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { Request } from 'express';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
@@ -9,6 +10,7 @@ import { EXECUTION_QUEUE_NAME } from './execution.constants';
 export class ExecutionController {
   constructor(
     @Inject(ExecutionService) private readonly service: ExecutionService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
   ) {}
 
@@ -27,6 +29,7 @@ export class ExecutionController {
     @Req() req: Request,
     @Headers('x-yjs-sv') sv?: string,
   ) {
+    await this.perm.assertEditor(body.projectId, (req as any).user?.id);
     const job = await this.executionQueue.add('execution', {
       projectId: body.projectId,
       nodeId: body.nodeId,

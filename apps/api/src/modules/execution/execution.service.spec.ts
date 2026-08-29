@@ -5,8 +5,10 @@ import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { ForbiddenException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ExecutionService', () => {
@@ -19,6 +21,7 @@ describe('ExecutionService', () => {
   let collabDoc: any;
   let gateway: any;
   let mockDownloadQueue: any;
+  let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     prisma = {
@@ -54,6 +57,10 @@ describe('ExecutionService', () => {
     mockDownloadQueue = {
       add: vi.fn().mockResolvedValue({ id: 'download-job-1' }),
     };
+    permSvc = {
+      resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+      assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -63,6 +70,7 @@ describe('ExecutionService', () => {
         { provide: ValidationService, useValue: validation },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
+        { provide: ProjectPermissionService, useValue: permSvc },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
@@ -97,6 +105,13 @@ describe('ExecutionService', () => {
     const result = await service.execute('bad-id', undefined, 'u1');
     expect(result.success).toBe(false);
     expect(result.errors).toContain('项目不存在');
+  });
+
+  it('execute：VIEWER 403', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+    await expect(service.execute('p1', undefined, 'u1', undefined)).rejects.toThrow('无项目编辑权限');
+    expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'u1');
   });
 
   it('should handle credit deduction failure during execution', async () => {
