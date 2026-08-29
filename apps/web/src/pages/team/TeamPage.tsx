@@ -65,7 +65,7 @@ export default function TeamPage() {
   const [quotaTarget, setQuotaTarget] = useState<any | null>(null);
   const [quotaValue, setQuotaValue] = useState('');
   const [rechargeOpen, setRechargeOpen] = useState(false);
-  const [qrOrder, setQrOrder] = useState<{ orderNo: string; codeUrl: string } | null>(null);
+  const [qrOrder, setQrOrder] = useState<{ orderNo: string; codeUrl: string; amount: number; expiredAt: string } | null>(null);
   const [subscribePlan, setSubscribePlan] = useState<any | null>(null);
 
   const refreshTeams = useCallback(async () => {
@@ -128,7 +128,8 @@ export default function TeamPage() {
     const pay = await payTeamOrder(teamId, outTradeNo);
     if (pay.codeUrl) {
       setRechargeOpen(false);
-      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl });
+      // 微信 Native 下单二维码默认 2 小时有效；amount 后端为分、弹窗展示为元
+      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl, amount: pay.amount / 100, expiredAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() });
     }
   };
 
@@ -137,7 +138,8 @@ export default function TeamPage() {
     const pay = await payTeamOrder(teamId, outTradeNo);
     if (pay.codeUrl) {
       setSubscribePlan(null);
-      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl });
+      // 微信 Native 下单二维码默认 2 小时有效；amount 后端为分、弹窗展示为元
+      setQrOrder({ orderNo: outTradeNo, codeUrl: pay.codeUrl, amount: pay.amount / 100, expiredAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() });
     }
   };
 
@@ -454,9 +456,13 @@ export default function TeamPage() {
 
       {qrOrder && (
         <WeChatQRModal
+          visible
           codeUrl={qrOrder.codeUrl}
           orderNo={qrOrder.orderNo}
-          onClose={() => { setQrOrder(null); void refreshAll(); }}
+          amount={qrOrder.amount}
+          expiredAt={qrOrder.expiredAt}
+          onSuccess={() => { setQrOrder(null); void refreshAll(); }}
+          onCancel={() => { setQrOrder(null); void refreshAll(); }}
         />
       )}
     </div>

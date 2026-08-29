@@ -52,6 +52,8 @@ function setup() {
   api.listJoinRequests.mockResolvedValue([
     { id: 'r1', userId: 'u9', status: 'PENDING', message: '想加入', createdAt: '2026-08-27T00:00:00Z', user: { id: 'u9', name: '李四' } },
   ]);
+  api.approveJoinRequest.mockResolvedValue(undefined);
+  api.rejectJoinRequest.mockResolvedValue(undefined);
   api.listTeamPlans.mockResolvedValue([
     { id: 'p1', name: '团队基础版', monthlyCredits: 1000, storageLimitBytes: String(20 * 1024 ** 3), seatLimit: 30, priceMonthly: 9900, isActive: true },
   ]);
