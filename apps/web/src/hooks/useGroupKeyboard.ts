@@ -70,10 +70,12 @@ export function useGroupKeyboard() {
             break;
           }
           case 'undo':
-            e.preventDefault(); void undoCanvas();
+            e.preventDefault();
+            undoCanvas().catch((err) => message.warning('撤销失败：' + (err as Error).message));
             break;
           case 'redo':
-            e.preventDefault(); void redoCanvas();
+            e.preventDefault();
+            redoCanvas().catch((err) => message.warning('重做失败：' + (err as Error).message));
             break;
         }
       } catch (err) {

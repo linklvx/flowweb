@@ -1,6 +1,17 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as Y from 'yjs';
-import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
+import { Origin, attachUndoManager, detachUndoManager, stopCapturing, undoCanvas, redoCanvas } from './canvasUndo';
+
+const cancelNodeProcess = vi.fn();
+vi.mock('./canvasStore', () => ({
+  useCanvasStore: {
+    getState: () => ({
+      nodes: [{ id: 'n1' }],
+      nodeProcessMap: { n1: { status: 'running' } },
+      cancelNodeProcess,
+    }),
+  },
+}));
 
 describe('Y.UndoManager 集成（spec 4.2/4.4）', () => {
   afterEach(() => {
@@ -40,5 +51,21 @@ describe('Y.UndoManager 集成（spec 4.2/4.4）', () => {
       doc.transact(() => nodes.set(`n${i}`, i), Origin.LocalUser);
     }
     expect(um.undoStack.length).toBeLessThanOrEqual(100);
+  });
+
+  it('undo 使 doc 中节点消失时取消其进程（S-1，store 投影未到也必须触发）', async () => {
+    const doc = new Y.Doc();
+    attachUndoManager(doc);
+    doc.transact(() => doc.getMap('nodes').set('n1', new Y.Map()), Origin.LocalUser);
+    stopCapturing();
+    await undoCanvas();
+    expect(cancelNodeProcess).toHaveBeenCalledWith('n1');
+  });
+
+  it('redo 空栈 no-op：不抛错不动作', async () => {
+    const doc = new Y.Doc();
+    attachUndoManager(doc);
+    await expect(redoCanvas()).resolves.toBeUndefined();
+    expect(doc.getMap('nodes').size).toBe(0);
   });
 });

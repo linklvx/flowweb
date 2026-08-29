@@ -3,6 +3,7 @@
 import * as Y from 'yjs';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
+// Server 为后端 withDoc transact 预留常量（后端尚未传 origin，凡 ≠ local-user 均不入栈/视为远端，功能无依赖）
 export const Origin = { LocalUser: 'local-user', Server: 'server' } as const;
 
 const STACK_LIMIT = 100;
@@ -11,17 +12,18 @@ let undoManager: Y.UndoManager | null = null;
 
 export function attachUndoManager(doc: Y.Doc): Y.UndoManager {
   undoManager?.destroy();
-  undoManager = new Y.UndoManager([doc.getMap('nodes'), doc.getMap('edges')], {
+  const um = new Y.UndoManager([doc.getMap('nodes'), doc.getMap('edges')], {
     trackedOrigins: new Set([Origin.LocalUser]),
     captureTimeout: 500,
   });
-  undoManager.on('stack-item-added', ({ type }) => {
+  um.on('stack-item-added', ({ type }) => {
     // yjs 事件 payload 为 { stackItem, type }，type: 'undo' | 'redo'（无 stack 字段）
-    if (type === 'undo' && undoManager!.undoStack.length > STACK_LIMIT) {
-      undoManager!.undoStack.shift(); // 手动截断（Y.UndoManager 无内建上限）
+    if (type === 'undo' && um.undoStack.length > STACK_LIMIT) {
+      um.undoStack.shift(); // 手动截断（Y.UndoManager 无内建上限）
     }
   });
-  return undoManager;
+  undoManager = um;
+  return um;
 }
 
 export function detachUndoManager() {
@@ -41,14 +43,15 @@ export function getUndoManager() {
 export async function undoCanvas(): Promise<void> {
   const um = undoManager;
   if (!um || um.undoStack.length === 0) return;
+  // 动态 import：测试重量隔离——canvasUndo.test.ts 只拉 yjs，静态引入会把 zundo/antd/@xyflow 全图拖进测试
   const { useCanvasStore } = await import('./canvasStore');
+  if (undoManager !== um) return; // await 间隙项目切换防串
   const beforeIds = new Set(useCanvasStore.getState().nodes.map((n: any) => n.id));
   um.undo();
-  const after = useCanvasStore.getState();
+  const afterIds = new Set<string>(um.doc.getMap('nodes').keys()); // 事务同步提交，doc 已是 undo 后状态
+  const s = useCanvasStore.getState();
   for (const id of beforeIds) {
-    if (!after.nodes.some((n: any) => n.id === id) && after.nodeProcessMap[id]) {
-      after.cancelNodeProcess(id);
-    }
+    if (!afterIds.has(id) && s.nodeProcessMap[id]) s.cancelNodeProcess(id);
   }
 }
 
