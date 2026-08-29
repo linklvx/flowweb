@@ -141,10 +141,29 @@ describe('TeamPage', () => {
     localStorage.setItem('currentTeamId', 't1');
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    expect(await screen.findByText('个人项目')).toBeInTheDocument();
+    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
+    expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
     expect(screen.getByTestId('personal-balance-total')).toHaveTextContent('150');
     expect(screen.queryByTestId('tab-members')).not.toBeInTheDocument();
     await waitFor(() => expect(api.listMembers).not.toHaveBeenCalled());
+  });
+
+  it('个人面板在有真实团队时提供团队切换 select', async () => {
+    // 双团队 fixture 对齐「个人项目精简面板」用例：t1 默认（个人）、t2 真实团队
+    api.getMyTeams.mockResolvedValue([
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+    ]);
+    localStorage.setItem('currentTeamId', 't1');
+    api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
+    expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
+    const select = screen.getByTestId('team-switcher');
+    expect(select).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 't2' } });
+    // switchTeam 写 localStorage（location.reload 在 jsdom 仅告警不失败，对齐 ⑪ 号用例）
+    expect(localStorage.getItem('currentTeamId')).toBe('t2');
   });
 
   it('个人精简面板充值按钮跳 /settings/credits、开通会员跳 /settings/membership', async () => {
@@ -155,7 +174,8 @@ describe('TeamPage', () => {
     localStorage.setItem('currentTeamId', 't1');
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    expect(await screen.findByText('个人项目')).toBeInTheDocument();
+    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
+    expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
     expect(screen.getByTestId('link-personal-recharge').getAttribute('href')).toBe('/settings/credits');
     expect(screen.getByTestId('link-personal-membership').getAttribute('href')).toBe('/settings/membership');
   });

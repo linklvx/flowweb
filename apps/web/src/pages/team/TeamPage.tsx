@@ -68,6 +68,12 @@ export default function TeamPage() {
   const realTeams = teams.filter((t) => !t.isDefault);
   const isPersonal = team?.isDefault ?? false;
 
+  // 切换团队：写 localStorage 后整页刷新（个人面板与团队主面板共用，须定义在各分支早退 return 之前）
+  const switchTeam = (id: string) => {
+    localStorage.setItem('currentTeamId', id);
+    location.reload();
+  };
+
   const refreshTeams = useCallback(async () => {
     const list = await getMyTeams();
     setTeams(list);
@@ -179,6 +185,16 @@ export default function TeamPage() {
             <Link to="/settings/credits" data-testid="link-personal-recharge" className="px-4 py-1.5 rounded-md bg-[#f59e0b] text-black text-sm no-underline">充值</Link>
             <Link to="/settings/membership" data-testid="link-personal-membership" className="px-4 py-1.5 rounded-md bg-[#4ade80] text-black text-sm no-underline">开通/管理会员</Link>
             <Button size="small" onClick={() => setCreateOpen(true)}>新建团队</Button>
+            {realTeams.length > 0 && (
+              <select
+                value={teamId}
+                onChange={(e) => switchTeam(e.target.value)}
+                className="bg-[#1A1A1A] border border-[#333] rounded px-2 py-1 text-xs"
+                data-testid="team-switcher"
+              >
+                {teams.map((t) => <option key={t.id} value={t.id}>{teamDisplayName(t)}</option>)}
+              </select>
+            )}
           </div>
         </div>
         {createModal}
@@ -191,11 +207,6 @@ export default function TeamPage() {
   const seatLimit = limits?.seatLimit ?? 20;
   const storageLimit = limits?.storageLimitBytes ?? 6 * 1024 ** 3;
   const total = (balance?.total ?? 0);
-
-  const switchTeam = (id: string) => {
-    localStorage.setItem('currentTeamId', id);
-    location.reload();
-  };
 
   const tabs: { key: typeof tab; label: string }[] = [
     { key: 'members', label: '成员管理' },
