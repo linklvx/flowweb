@@ -224,7 +224,7 @@ export function CreditsPage() {
           amount={qrOrder.amount}
           expiredAt={qrOrder.expiredAt}
           onSuccess={handlePaymentSuccess}
-          onCancel={() => setQrOrder(null)}
+          onCancel={() => { setQrOrder(null); loadBalance(); loadOrders(); }}
         />
       )}
     </div>

@@ -30,46 +30,10 @@ describe('MetricsService', () => {
     expect(mockCollectDefaultMetrics).toHaveBeenCalledOnce();
   });
 
-  it('should create ordersCreatedTotal counter', () => {
-    expect(mockCounter).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'recharge_orders_created_total',
-      labelNames: ['amount_tier'],
-      registers: [mockRegister],
-    }));
-  });
-
-  it('should create ordersCompletedTotal counter with channel label', () => {
-    expect(mockCounter).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'recharge_orders_completed_total',
-      labelNames: ['channel'],
-    }));
-  });
-
-  it('should create ordersClosedTotal counter with reason label', () => {
-    expect(mockCounter).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'recharge_orders_closed_total',
-      labelNames: ['reason'],
-    }));
-  });
-
   it('should create callbackTotal counter with result label', () => {
     expect(mockCounter).toHaveBeenCalledWith(expect.objectContaining({
       name: 'recharge_callback_total',
       labelNames: ['result'],
-    }));
-  });
-
-  it('should create wechatApiDurationSeconds histogram with custom buckets', () => {
-    expect(mockHistogram).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'recharge_wechat_api_duration_seconds',
-      labelNames: ['api'],
-      buckets: [0.05, 0.1, 0.3, 0.5, 1, 2, 5, 10],
-    }));
-  });
-
-  it('should create amountFenTotal counter without labels', () => {
-    expect(mockCounter).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'recharge_amount_fen_total',
     }));
   });
 
@@ -81,13 +45,13 @@ describe('MetricsService', () => {
   });
 
   it('should expose all 7 metrics as properties', () => {
-    expect(service.ordersCreatedTotal).toBeDefined();
-    expect(service.ordersCompletedTotal).toBeDefined();
-    expect(service.ordersClosedTotal).toBeDefined();
     expect(service.callbackTotal).toBeDefined();
-    expect(service.wechatApiDurationSeconds).toBeDefined();
-    expect(service.amountFenTotal).toBeDefined();
     expect(service.callbackDurationSeconds).toBeDefined();
+    expect(service.subOrdersCreatedTotal).toBeDefined();
+    expect(service.subPaymentsInitiatedTotal).toBeDefined();
+    expect(service.subPaymentsSucceededTotal).toBeDefined();
+    expect(service.subPaymentDurationSeconds).toBeDefined();
+    expect(service.subCallbackLatencySeconds).toBeDefined();
   });
 
   it('should return prometheus text from getMetricsText', async () => {

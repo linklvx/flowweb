@@ -9,12 +9,7 @@ vi.mock('@sentry/nestjs', () => ({
 
 function mockMetrics() {
   return {
-    ordersCreatedTotal: { inc: vi.fn() },
-    ordersCompletedTotal: { inc: vi.fn() },
-    ordersClosedTotal: { inc: vi.fn() },
     callbackTotal: { inc: vi.fn() },
-    wechatApiDurationSeconds: { startTimer: vi.fn(() => vi.fn()) },
-    amountFenTotal: { inc: vi.fn() },
     callbackDurationSeconds: { startTimer: vi.fn(() => vi.fn()) },
   } as any;
 }

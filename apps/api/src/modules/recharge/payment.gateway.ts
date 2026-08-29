@@ -1,6 +1,6 @@
 import {
   WebSocketGateway, WebSocketServer, SubscribeMessage,
-  OnGatewayInit,
+  OnGatewayInit, WsException,
 } from '@nestjs/websockets';
 import { Inject } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
@@ -45,6 +45,16 @@ export class PaymentGateway implements OnGatewayInit {
     });
 
     if (subOrder && subOrder.userId === userId) {
+      client.join(`order:${orderNo}`);
+      return;
+    }
+
+    const teamOrder = await this.prisma.teamRechargeOrder.findUnique({
+      where: { outTradeNo: orderNo },
+      select: { payerUserId: true },
+    });
+    if (teamOrder) {
+      if (teamOrder.payerUserId !== userId) throw new WsException('无权加入此订单');
       client.join(`order:${orderNo}`);
     }
   }

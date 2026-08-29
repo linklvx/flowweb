@@ -24,8 +24,8 @@ vi.mock('@/api/teamApi', () => ({
 }));
 
 vi.mock('@/components/WeChatQRModal', () => ({
-  WeChatQRModal: ({ visible }: { visible: boolean }) =>
-    visible ? <div data-testid="wechat-qr-modal" /> : null,
+  WeChatQRModal: ({ visible, onCancel }: { visible: boolean; onCancel?: () => void }) =>
+    visible ? <div data-testid="wechat-qr-modal" onClick={onCancel} /> : null,
 }));
 
 import { CreditsPage } from './CreditsPage';
@@ -63,5 +63,21 @@ describe('CreditsPage（积分展示 + 团队充值）', () => {
     await waitFor(() => expect(mockCreateTeamOrder).toHaveBeenCalledWith('team-1', 10));
     await waitFor(() => expect(mockPayTeamOrder).toHaveBeenCalledWith('team-1', 'TEAM1'));
     await waitFor(() => expect(screen.getByTestId('wechat-qr-modal')).toBeInTheDocument());
+  });
+
+  it('取消二维码弹窗后刷新余额与充值记录（对齐 TeamPage）', async () => {
+    mockCreateTeamOrder.mockResolvedValue({ outTradeNo: 'TEAM1' });
+    mockPayTeamOrder.mockResolvedValue({ orderNo: 'TEAM1', amount: 1000, status: 'PENDING', codeUrl: 'weixin://x' });
+
+    render(<MemoryRouter><CreditsPage /></MemoryRouter>);
+    const payButton = await screen.findByRole('button', { name: /微信支付 ¥10/ });
+    fireEvent.click(payButton);
+    await waitFor(() => expect(screen.getByTestId('wechat-qr-modal')).toBeInTheDocument());
+
+    const balanceCalls = mockGetBalance.mock.calls.length;
+    const ordersCalls = mockListTeamOrders.mock.calls.length;
+    fireEvent.click(screen.getByTestId('wechat-qr-modal'));
+    await waitFor(() => expect(mockGetBalance.mock.calls.length).toBeGreaterThan(balanceCalls));
+    await waitFor(() => expect(mockListTeamOrders.mock.calls.length).toBeGreaterThan(ordersCalls));
   });
 });
