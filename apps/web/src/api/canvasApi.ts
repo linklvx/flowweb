@@ -5,6 +5,7 @@ export interface CreateCanvasResult {
   templateId: string;
   projectId: string;
   name: string;
+  teamId: string;
 }
 
 export function createCanvas(name: string, folderId: string | null, teamId?: string) {

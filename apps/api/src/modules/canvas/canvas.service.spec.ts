@@ -62,7 +62,7 @@ describe('CanvasService', () => {
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
       }));
       const result = await service.create('新画布', 'f1', 'u1');
-      expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '新画布' });
+      expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' });
       expect(templateService.clearCache).toHaveBeenCalled();
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
@@ -112,7 +112,7 @@ describe('CanvasService', () => {
         expect(tx.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
         expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1', status: 'DRAFT' }) });
-        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '画布1' });
+        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '画布1', teamId: 'team1' });
       });
 
       it('已有 画布1、3 → 下一个为 4，非编号名不影响编号，旧规则未命名项目N 不再参与编号', async () => {
@@ -250,7 +250,21 @@ describe('CanvasService', () => {
       expect(prisma.canvasProject.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ teamId: 't-team' }) }),
       );
-      expect(result).toEqual({ templateId: 'tp1', projectId: 'p1', name: '名字' });
+      expect(result).toEqual({ templateId: 'tp1', projectId: 'p1', name: '名字', teamId: 't-team' });
+    });
+
+    it('create 返回值含 teamId（前端画布 store 需要）', async () => {
+      // 范式要点（上轮审核 P1）：
+      // - teamMember 必须用 findFirst（顶层 mock 只有它，assertTeamMember 也只调它）
+      // - 不得出现 prisma.team.findFirst —— 顶层 prisma mock 没有 team 键，
+      //   且 create 事务体不调 team.findFirst（既有用例里的 team.findFirst 在 $transaction 内联 tx 对象中）
+      // - 非空名不走编号分支，不调 template.findMany，无需 mock
+      prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
+      prisma.canvasProject.create.mockResolvedValue({ id: 'p1', teamId: 't-team' });
+      prisma.template.create.mockResolvedValue({ id: 'tp1' });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+      const result = await service.create('画布', null, 'u1', 't-team');
+      expect(result.teamId).toBe('t-team');
     });
 
     it('create 传非成员 teamId 时抛 403', async () => {

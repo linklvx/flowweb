@@ -29,8 +29,9 @@ const PROJECT_ID_KEY = 'flowweb_projectId';
 
 // 空名创建：编号由后端生成，画布进入工作空间根目录
 async function createUntitledProject(): Promise<{ id: string; name: string }> {
-  const { projectId, name } = await createCanvas('', null);
+  const { projectId, name, teamId } = await createCanvas('', null);
   localStorage.setItem(PROJECT_ID_KEY, projectId);
+  useCanvasStore.getState().setTeamId(teamId ?? null);
   return { id: projectId, name };
 }
 
@@ -50,6 +51,9 @@ async function loadProjectIntoStore(
 
   // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
   if (isCancelled?.()) return project.name || '未命名项目';
+
+  // 画布团队上下文（顶栏积分/上传/素材库消费）
+  useCanvasStore.getState().setTeamId(project.teamId ?? null);
 
   // Task14：画布内容改经 server doc 加载（synced 后 applyDocToStore；
   // 本地崩溃快照在连接前 apply 到本地 doc，标准 sync 自动合并——D2）

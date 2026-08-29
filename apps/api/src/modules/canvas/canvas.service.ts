@@ -46,7 +46,7 @@ export class CanvasService {
       const template = await tx.template.create({
         data: { name: finalName, userId, teamId: teamIdResolved, projectId: project.id, folderId, status: 'DRAFT', isPublic: false },
       });
-      return { templateId: template.id, projectId: project.id, name: finalName };
+      return { templateId: template.id, projectId: project.id, name: finalName, teamId: teamIdResolved };
     });
     this.templateService.clearCache();
     if (folderId) await this.folderService.touch([folderId]);

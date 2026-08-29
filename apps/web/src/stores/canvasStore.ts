@@ -88,6 +88,7 @@ interface CanvasState {
   pendingFillCell: { groupId: string; cellIndex: number } | null;
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
+  teamId: string | null;
   isHydrating: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
@@ -112,6 +113,7 @@ interface CanvasState {
   splitImageNode: (nodeId: string, rows: number, cols: number) => Promise<SplitResult | null>;
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
   setProjectId: (projectId: string) => void;
+  setTeamId: (teamId: string | null) => void;
   setHydrating: (v: boolean) => void;
   applyGroupDerivations: () => void;
   startNodeProcess: (nodeId: string, processType: ProcessType, abortController?: AbortController) => void;
@@ -160,6 +162,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   pendingFillCell: null,
   nodeProcessMap: {},
   projectId: null,
+  teamId: null,
   isHydrating: false,
   connStatus: 'connecting',
 
@@ -763,6 +766,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   setProjectId: (projectId) => set({ projectId }),
+  setTeamId: (teamId) => set({ teamId }),
   setHydrating: (v) => set({ isHydrating: v }),
 
   applyGroupDerivations: () => {

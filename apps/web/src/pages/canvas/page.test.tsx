@@ -26,9 +26,10 @@ let mockCanvasNodes: any[] = [];
 // 按用例注入 hydrate 窗口状态（TD-4 遮罩/键盘守卫）
 let mockIsHydrating = false;
 
-const { useCanvasStoreSetState, useNodeStoreSetState } = vi.hoisted(() => ({
+const { useCanvasStoreSetState, useNodeStoreSetState, setTeamIdMock } = vi.hoisted(() => ({
   useCanvasStoreSetState: vi.fn(),
   useNodeStoreSetState: vi.fn(),
+  setTeamIdMock: vi.fn(),
 }));
 
 vi.mock('@/stores/canvasStore', () => ({
@@ -63,6 +64,7 @@ vi.mock('@/stores/canvasStore', () => ({
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         setProjectId: vi.fn(),
+        setTeamId: setTeamIdMock,
         setNodeDraggable: vi.fn(),
         nodeProcessMap: {},
         applyGroupDerivations: vi.fn(),
@@ -165,6 +167,7 @@ describe('CanvasPage', () => {
     useMenuStore.setState({ isOpen: false });
     mockCanvasNodes = [];
     mockIsHydrating = false;
+    setTeamIdMock.mockClear();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -207,12 +210,12 @@ describe('CanvasPage', () => {
     const dbOkResponse = (id: string) => ({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { id, name: 'DB画布', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      json: () => Promise.resolve({ code: 0, data: { id, name: 'DB画布', teamId: 't-1', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
     });
     const createOkResponse = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4' } }),
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4', teamId: 't-create' } }),
     };
 
     it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
@@ -228,6 +231,8 @@ describe('CanvasPage', () => {
       expect(posts.length).toBe(0);
       const gets = mockFetch.mock.calls.filter((c: any[]) => !c[1]);
       expect(gets.some((c: any[]) => String(c[0]).includes('/api/projects/p1'))).toBe(true);
+      // 加载路径写入画布团队上下文
+      expect(setTeamIdMock).toHaveBeenCalledWith('t-1');
     });
 
     it('无参且 key 不存在时新建项目（统一走 canvases API）', async () => {
@@ -241,6 +246,8 @@ describe('CanvasPage', () => {
       expect(posts.length).toBeGreaterThan(0);
       expect(String(posts[0][0])).toContain('/api/canvases');
       expect(localStorage.getItem('flowweb_projectId')).toBe('new-pid');
+      // 新建路径写入画布团队上下文
+      expect(setTeamIdMock).toHaveBeenCalledWith('t-create');
     });
 
     it('无参 404 时清 key 并 fallback 新建且提示', async () => {
