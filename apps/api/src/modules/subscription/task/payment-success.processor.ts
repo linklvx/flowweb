@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentGateway } from '../../recharge/payment.gateway';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
+import { grantToPersonalTeam } from './personal-team-ledger';
 
 interface PaymentSuccessJob {
   orderNo: string;
@@ -75,7 +76,7 @@ export class PaymentSuccessProcessor extends WorkerHost {
               tier: plan.tier,
               period: order.period,
               status: 'active',
-              paidAmount: order.payableAmount! / 100,
+              paidAmount: order.payableAmount!,
               totalCredits: plan.monthlyCredits * periodMonths,
               totalDays: periodMonths * 30,
               subscribedAt: now,
@@ -101,7 +102,7 @@ export class PaymentSuccessProcessor extends WorkerHost {
               tier: plan.tier,
               period: order.period,
               status: 'active',
-              paidAmount: order.payableAmount! / 100,
+              paidAmount: order.payableAmount!,
               totalCredits: plan.monthlyCredits * periodMonths,
               totalDays: periodMonths * 30,
               subscribedAt: now,
@@ -112,40 +113,12 @@ export class PaymentSuccessProcessor extends WorkerHost {
               previousSubId: order.fromSubscriptionId,
             },
           });
-
-          // Clear old subscription credits
-          await tx.userBalance.updateMany({
-            where: { userId: order.userId },
-            data: { subscriptionCredits: 0, subscriptionCreditsExpiry: null },
-          });
         }
 
-        // 4) Grant first month subscription credits
-        const grantCredits = plan.monthlyCredits;
-        await tx.creditTransaction.create({
-          data: {
-            userId: order.userId,
-            type: 'subscription_grant',
-            amount: grantCredits,
-            creditType: 'subscription',
-            referenceId: newSub?.id || order.id,
-            referenceType: 'subscription',
-            balanceAfter: grantCredits,
-          },
-        });
-
-        await tx.userBalance.upsert({
-          where: { userId: order.userId },
-          update: {
-            subscriptionCredits: { increment: grantCredits },
-            subscriptionCreditsExpiry: periodEnd,
-          },
-          create: {
-            userId: order.userId,
-            subscriptionCredits: grantCredits,
-            subscriptionCreditsExpiry: periodEnd,
-          },
-        });
+        // 4) Grant first month subscription credits to personal team ledger
+        // 升级先清旧池（upgrade_clear）/ 续费=新周期（expire_clear）；旧池有剩余必有清零流水
+        const clearType = order.type === 'upgrade' ? 'upgrade_clear' : 'expire_clear';
+        await grantToPersonalTeam(tx, order.userId, plan.monthlyCredits, clearType, newSub?.id || order.id);
       });
 
       // 5) Remove delayed close task (best-effort)

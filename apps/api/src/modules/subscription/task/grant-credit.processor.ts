@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Inject } from '@nestjs/common';
+import { grantToPersonalTeam } from './personal-team-ledger';
 
 @Processor('subscription-grant-credit')
 export class GrantCreditProcessor extends WorkerHost {
@@ -11,18 +12,23 @@ export class GrantCreditProcessor extends WorkerHost {
 
   async process(job: Job): Promise<void> {
     const batchSize = 100;
-    let page = 0;
+    let lastId: string | undefined;
 
     while (true) {
       const subs = await this.prisma.userSubscription.findMany({
-        where: { status: 'active', nextGrantDate: { lte: this.todayUtc() } },
-        skip: page * batchSize,
+        where: {
+          status: 'active',
+          nextGrantDate: { lte: this.todayUtc() },
+          ...(lastId ? { id: { gt: lastId } } : {}),
+        },
+        orderBy: { id: 'asc' },
         take: batchSize,
       });
 
       if (subs.length === 0) break;
 
       for (const sub of subs) {
+        lastId = sub.id; // continue 跳过的记录也推进游标，避免错位漏发
         const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } });
         if (!plan) continue;
 
@@ -38,25 +44,10 @@ export class GrantCreditProcessor extends WorkerHost {
             data: { nextGrantDate: nextGrant, grantCount: { increment: 1 } },
           });
 
-          const balance = await tx.userBalance.findUnique({ where: { userId: sub.userId } });
-          const newBal = (balance?.subscriptionCredits ?? 0) + plan.monthlyCredits;
-
-          await tx.userBalance.update({
-            where: { userId: sub.userId },
-            data: { subscriptionCredits: { increment: plan.monthlyCredits } },
-          });
-
-          await tx.creditTransaction.create({
-            data: {
-              userId: sub.userId, amount: plan.monthlyCredits,
-              type: 'subscription_grant', creditType: 'subscription',
-              referenceId: sub.id, referenceType: 'subscription', balanceAfter: newBal,
-            },
-          });
+          // 周期覆盖不滚存：旧池有剩余先清零（expire_clear 流水）再设值发放
+          await grantToPersonalTeam(tx, sub.userId, plan.monthlyCredits, 'expire_clear', sub.id);
         });
       }
-
-      page++;
     }
   }
 
