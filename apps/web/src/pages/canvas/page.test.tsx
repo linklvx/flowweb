@@ -321,7 +321,7 @@ describe('CanvasPage', () => {
     const dbWithNode = (id: string, nodeId: string) => ({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { id, name: 'X', nodes: [{ id: nodeId, type: 'imageGen', position: { x: 0, y: 0 }, data: {} }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      json: () => Promise.resolve({ code: 0, data: { id, name: 'X', teamId: `t-${id}`, nodes: [{ id: nodeId, type: 'imageGen', position: { x: 0, y: 0 }, data: {} }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
     });
     const isFullClear = (s: any) => Array.isArray(s?.nodes) && s.nodes.length === 0 && 'edges' in s && 'viewport' in s;
 
@@ -346,6 +346,7 @@ describe('CanvasPage', () => {
 
       (useCanvasStoreSetState as ReturnType<typeof vi.fn>).mockClear();
       (useNodeStoreSetState as ReturnType<typeof vi.fn>).mockClear();
+      setTeamIdMock.mockClear();
       fireEvent.click(screen.getByText('去P_b'));
       await waitFor(() => {
         expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
@@ -355,8 +356,12 @@ describe('CanvasPage', () => {
       expect(calls.length).toBeGreaterThan(0);
       // 清空（空 nodes）必须先于新项目加载（Task14：内容加载改经 initCollab）
       expect(calls[0][0]?.nodes).toEqual([]);
+      // 清 store 残留同步清 teamId（防降级路径残留旧团队上下文，Task 11 交接项）
+      expect(calls[0][0]?.teamId).toBeNull();
       expect(calls.some((c: any[]) => c[0]?.nodes?.some((n: any) => n.id === 'node_pa'))).toBe(false);
       expect((useNodeStoreSetState as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({ nodes: {} });
+      // pb 加载完成后写入新团队上下文
+      expect(setTeamIdMock).toHaveBeenCalledWith('t-pb');
       const { initCollab } = await import('@/stores/canvasCollabRuntime');
       expect(vi.mocked(initCollab)).toHaveBeenCalledWith('pb');
     });

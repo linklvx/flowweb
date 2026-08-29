@@ -87,7 +87,7 @@ export function CanvasPage() {
     if (target === null || target !== lastPidRef.current) {
       // hydrate 窗口开启：清 store 至 DB 加载/兜底恢复完成期间，抑制本地快照空写
       useCanvasStore.getState().setHydrating(true);
-      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, teamId: null });
       useNodeStore.setState({ nodes: {} });
     }
     lastPidRef.current = target;
