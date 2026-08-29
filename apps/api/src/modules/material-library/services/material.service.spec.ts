@@ -58,6 +58,12 @@ describe('MaterialService', () => {
     it('他团队成员（非成员）→ 403', async () => {
       prisma.teamMember.findFirst.mockResolvedValue(null);
       await expect(service.getFilesByFolderId('u1', null, undefined, 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.moveFile('u1', 'm-1', 'f-1', 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.moveFiles('u1', ['m-1'], 'f-1', 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.toggleFavorite('u1', 'm-1', 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteFile('u1', 'm-1', 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteFiles('u1', ['m-1'], 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.getFileCounts('u1', 't-other')).rejects.toThrow(ForbiddenException);
       expect(prisma.media.findMany).not.toHaveBeenCalled();
     });
   });

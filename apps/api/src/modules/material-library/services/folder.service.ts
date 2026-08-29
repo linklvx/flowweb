@@ -20,6 +20,14 @@ export class FolderService {
   async create(dto: CreateFolderDto, userId: string) {
     const teamId = await this.resolveTeamId(dto.teamId, userId);
 
+    // 归属校验：parent 按 teamId 过滤查不到（不存在/属他团队）→ 统一报不存在，防跨团队父子脏数据
+    if (dto.parentId) {
+      const parent = await this.prisma.materialFolder.findFirst({
+        where: { id: dto.parentId, teamId, deletedAt: null },
+      });
+      if (!parent) throw new BadRequestException('文件夹不存在');
+    }
+
     // Auto-calculate sortOrder: max existing sortOrder + 1（团队 + 同级维度）
     const maxResult = await this.prisma.materialFolder.aggregate({
       where: { teamId, parentId: dto.parentId ?? null, deletedAt: null },

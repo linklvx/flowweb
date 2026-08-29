@@ -54,6 +54,8 @@ describe('FolderService', () => {
     it('他团队成员（非成员）→ 403', async () => {
       prisma.teamMember.findFirst.mockResolvedValue(null);
       await expect(service.findAll('u1', 't-other')).rejects.toThrow(ForbiddenException);
+      await expect(service.create({ name: 'X', teamId: 't-other' }, 'u1')).rejects.toThrow(ForbiddenException);
+      await expect(service.moveUp('f-1', 'u1', 't-other')).rejects.toThrow(ForbiddenException);
       await expect(service.update('f-1', { name: 'X', teamId: 't-other' }, 'u1')).rejects.toThrow(ForbiddenException);
       await expect(service.remove('f-1', 'u1', 't-other')).rejects.toThrow(ForbiddenException);
       await expect(service.moveFolder('f-1', { parentId: null, afterId: null }, 'u1', 't-other')).rejects.toThrow(ForbiddenException);
@@ -105,6 +107,27 @@ describe('FolderService', () => {
         data: { name: 'Root', parentId: null, userId: 'u1', teamId: 't1', sortOrder: 0 },
       });
       expect(result.sortOrder).toBe(0);
+    });
+
+    it('归属校验：parentId 属其他团队（teamId 过滤后查不到）→ 统一报文件夹不存在', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue(null); // 他团队 parent，teamId 过滤后查不到
+      await expect(service.create({ name: 'X', parentId: 'p-other-team' }, 'u1')).rejects.toThrow('文件夹不存在');
+      expect(prisma.materialFolder.create).not.toHaveBeenCalled();
+    });
+
+    it('归属校验：parentId 属本团队 → 正常创建', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'p-1', teamId: 't1' });
+      prisma.materialFolder.aggregate.mockResolvedValue({ _max: { sortOrder: null } });
+      prisma.materialFolder.create.mockResolvedValue({ id: 'f-1', name: 'Child', parentId: 'p-1' });
+
+      await service.create({ name: 'Child', parentId: 'p-1' }, 'u1');
+
+      expect(prisma.materialFolder.findFirst).toHaveBeenCalledWith({
+        where: { id: 'p-1', teamId: 't1', deletedAt: null },
+      });
+      expect(prisma.materialFolder.create).toHaveBeenCalledWith({
+        data: { name: 'Child', parentId: 'p-1', userId: 'u1', teamId: 't1', sortOrder: 0 },
+      });
     });
   });
 
