@@ -395,7 +395,7 @@ git commit -m "feat(api): 统一个人团队 Bootstrap——邮箱/手机/微信
           team: {
             id: 't-team', name: '梦幻团队', ownerId: 'someone-else', isDefault: false,
             balance: { credits: 5, subscriptionCredits: 0 },
-            subscription: { plan: { name: '团队月卡' }, status: 'active', currentPeriodEnd: new Date('2026-09-30') },
+            subscriptions: [{ plan: { name: '团队月卡' }, status: 'active', currentPeriodEnd: new Date('2026-09-30') }],
             _count: { members: 3 },
           },
         },
@@ -404,7 +404,7 @@ git commit -m "feat(api): 统一个人团队 Bootstrap——邮箱/手机/微信
           team: {
             id: 't-default', name: 'Alice的团队', ownerId: 'u1', isDefault: true,
             balance: { credits: 100, subscriptionCredits: 50 },
-            subscription: null,
+            subscriptions: [],
             _count: { members: 1 },
           },
         },
@@ -442,7 +442,13 @@ getMyTeams 替换为：
         team: {
           include: {
             balance: true,
-            subscription: { include: { plan: { select: { name: true } } } },
+            // Task 1 起 Team 侧为 subscriptions[]（一对多）：取最新 active 一条
+            subscriptions: {
+              where: { status: 'active' },
+              orderBy: { currentPeriodEnd: 'desc' },
+              take: 1,
+              include: { plan: { select: { name: true } } },
+            },
             _count: { select: { members: true } },
           },
         },
@@ -461,11 +467,12 @@ getMyTeams 替换为：
         if (personal) {
           subscription = { planName: personal.plan.tier, status: personal.status, currentPeriodEnd: personal.currentPeriodEnd };
         }
-      } else if (m.team.subscription) {
+      } else if (m.team.subscriptions[0]) {
+        const teamSub = m.team.subscriptions[0];
         subscription = {
-          planName: m.team.subscription.plan.name,
-          status: m.team.subscription.status,
-          currentPeriodEnd: m.team.subscription.currentPeriodEnd,
+          planName: teamSub.plan.name,
+          status: teamSub.status,
+          currentPeriodEnd: teamSub.currentPeriodEnd,
         };
       }
       return {
