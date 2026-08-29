@@ -96,6 +96,11 @@ export class TeamController {
     return this.teamService.listRequests(id, (req as any).user.id, query.status);
   }
 
+  @Get(':id/audit-logs')
+  listAuditLogs(@Param('id') id: string, @Query() q: { page?: string; pageSize?: string }, @Req() req: Request) {
+    return this.teamService.listAuditLogs(id, (req as any).user.id, Number(q.page) || 1, Number(q.pageSize) || 20);
+  }
+
   @Post(':id/join-requests/:requestId/approve')
   approve(@Param('id') id: string, @Param('requestId') requestId: string, @Req() req: Request) {
     return this.teamService.approve(id, (req as any).user.id, requestId);

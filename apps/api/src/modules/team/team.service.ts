@@ -351,6 +351,17 @@ export class TeamService {
     });
   }
 
+  async listAuditLogs(teamId: string, callerId: string, page = 1, pageSize = 20) {
+    const caller = await this.requireMember(teamId, callerId);
+    if (caller.role !== 'OWNER' && caller.role !== 'ADMIN') throw new ForbiddenException('仅团队管理员可查看审计日志');
+    const where = { teamId };
+    const [items, total] = await Promise.all([
+      this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return { items, total };
+  }
+
   /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除+凭证置空 */
   async disbandTeam(teamId: string, userId: string) {
     const member = await this.prisma.teamMember.findUnique({

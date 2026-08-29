@@ -674,4 +674,48 @@ describe('TeamService 加入申请', () => {
       expect(result[0].user).toEqual({ id: 'u2', name: '李四' });
     });
   });
+
+  describe('listAuditLogs', () => {
+    let service: TeamService;
+    let prisma: any;
+    let emitter: any;
+    let queue: any;
+    const audit = { log: vi.fn(), logTx: vi.fn() };
+
+    beforeEach(async () => {
+      prisma = {
+        teamMember: { findUnique: vi.fn() },
+        auditLog: { findMany: vi.fn(), count: vi.fn() },
+      };
+      emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+      queue = { add: vi.fn() };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          TeamService,
+          { provide: PrismaService, useValue: prisma },
+          { provide: EventEmitter2, useValue: emitter },
+          { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+          { provide: AuditService, useValue: audit },
+        ],
+      }).compile();
+
+      service = module.get<TeamService>(TeamService);
+    });
+
+    it('listAuditLogs：按 teamId 分页倒序；非 OWNER/ADMIN 拒绝', async () => {
+      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      await expect(service.listAuditLogs('t1', 'u1', 1, 20)).rejects.toThrow('仅团队管理员');
+      prisma.teamMember.findUnique.mockResolvedValue({ role: 'OWNER' });
+      prisma.auditLog.findMany.mockResolvedValue([]);
+      prisma.auditLog.count.mockResolvedValue(0);
+      await expect(service.listAuditLogs('t1', 'u1', 1, 20)).resolves.toEqual({ items: [], total: 0 });
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith({
+        where: { teamId: 't1' },
+        orderBy: { createdAt: 'desc' },
+        skip: 0,
+        take: 20,
+      });
+    });
+  });
 });

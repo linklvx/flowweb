@@ -7,6 +7,7 @@ import {
   getTeamBalanceView, listTeamTransactions,
   createTeamRechargeOrder, payTeamOrder, createSubscriptionOrder, listTeamPlans,
   getTeamLimits, getTeamUsage,
+  getAuditLogs, type AuditLogRow,
 } from '@/api/teamApi';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 import { useAuth } from '@/components/AuthProvider';
@@ -21,13 +22,30 @@ function fmtBytes(n: number): string {
 
 const ROLE_LABEL: Record<string, string> = { OWNER: '所有者', ADMIN: '管理员', MEMBER: '成员' };
 
+const ACTION_LABEL: Record<string, string> = {
+  create_team: '建立团队',
+  disband_team: '解散团队',
+  remove_member: '移除成员',
+  change_role: '变更角色',
+  adjust_quota: '调整配额',
+  transfer_ownership: '转让所有权',
+  approve_join: '通过申请',
+  reject_join: '拒绝申请',
+  recharge: '充值',
+  subscribe: '订阅',
+  expire: '过期',
+  add_project_member: '添加项目成员',
+  change_project_role: '变更项目角色',
+  remove_project_member: '移除项目成员',
+};
+
 export default function TeamPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [teams, setTeams] = useState<Awaited<ReturnType<typeof getMyTeams>>>([]);
   const [teamId, setTeamId] = useState<string | null>(null);
   const [team, setTeam] = useState<Awaited<ReturnType<typeof getMyTeams>>[number] | null>(null);
-  const [tab, setTab] = useState<'members' | 'credits' | 'permissions' | 'requests'>('members');
+  const [tab, setTab] = useState<'members' | 'credits' | 'permissions' | 'requests' | 'audit'>('members');
 
   const [members, setMembers] = useState<{ items: any[]; total: number }>({ items: [], total: 0 });
   const [memberPage, setMemberPage] = useState(1);
@@ -38,6 +56,8 @@ export default function TeamPage() {
   const [usage, setUsage] = useState(0);
   const [requests, setRequests] = useState<any[]>([]);
   const [plans, setPlans] = useState<Awaited<ReturnType<typeof listTeamPlans>>>([]);
+  const [auditLogs, setAuditLogs] = useState<{ items: AuditLogRow[]; total: number }>({ items: [], total: 0 });
+  const [auditPage, setAuditPage] = useState(1);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -74,6 +94,19 @@ export default function TeamPage() {
   }, [teamId, memberPage, txPage]);
 
   useEffect(() => { void refreshAll(); }, [refreshAll]);
+
+  // 审计日志：切到 audit tab 时按需拉取（仅 OWNER/ADMIN 可见，且接口仅管理员可调）
+  const refreshAudit = useCallback(async () => {
+    if (!teamId || tab !== 'audit') return;
+    if (!team || (team.role !== 'OWNER' && team.role !== 'ADMIN')) return;
+    try {
+      setAuditLogs(await getAuditLogs(teamId, auditPage));
+    } catch {
+      message.error('审计日志加载失败');
+    }
+  }, [teamId, team, tab, auditPage]);
+
+  useEffect(() => { void refreshAudit(); }, [refreshAudit]);
 
   if (!teamId || !team) {
     return <div className="min-h-screen bg-[#111] text-[#e2e8f0] p-10">加载中…</div>;
@@ -113,6 +146,7 @@ export default function TeamPage() {
     { key: 'credits', label: '积分管理' },
     { key: 'permissions', label: '权限设置' },
     { key: 'requests', label: '加入申请' },
+    ...(isAdmin ? [{ key: 'audit' as const, label: '审计日志' }] : []),
   ];
 
   // 预留席位占位行（seatLimit 补齐）
@@ -335,6 +369,34 @@ export default function TeamPage() {
               },
             ]}
           />
+        )}
+
+        {tab === 'audit' && (
+          <div>
+            <Table
+              rowKey="id" size="small"
+              pagination={false}
+              dataSource={auditLogs.items}
+              columns={[
+                { title: '时间', dataIndex: 'createdAt', render: (v: string) => new Date(v).toLocaleString() },
+                { title: '操作者', dataIndex: 'operatorName' },
+                { title: '动作', dataIndex: 'action', render: (v: string) => ACTION_LABEL[v] ?? v },
+                { title: '对象', dataIndex: 'targetType' },
+                {
+                  title: '摘要',
+                  render: (_: any, r: AuditLogRow) => (
+                    <div className="text-xs text-[#888] break-all">
+                      {r.remark && <div>{r.remark}</div>}
+                      {r.beforeValue != null && <div>前：{JSON.stringify(r.beforeValue)}</div>}
+                      {r.afterValue != null && <div>后：{JSON.stringify(r.afterValue)}</div>}
+                      {!r.remark && r.beforeValue == null && r.afterValue == null && '-'}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+            <Pagination size="small" current={auditPage} total={auditLogs.total} pageSize={20} onChange={setAuditPage} className="mt-3" />
+          </div>
         )}
       </div>
 

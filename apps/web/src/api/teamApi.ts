@@ -143,3 +143,19 @@ export function getTeamLimits(teamId: string) {
 export function getTeamUsage(teamId: string) {
   return apiFetch<number>(`/team/${teamId}/storage-usage`);
 }
+
+export interface AuditLogRow {
+  id: string;
+  operatorName: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  beforeValue?: unknown;
+  afterValue?: unknown;
+  remark?: string | null;
+  createdAt: string;
+}
+
+export function getAuditLogs(teamId: string, page = 1, pageSize = 20) {
+  return apiFetch<{ items: AuditLogRow[]; total: number }>(`/team/${teamId}/audit-logs?page=${page}&pageSize=${pageSize}`);
+}
