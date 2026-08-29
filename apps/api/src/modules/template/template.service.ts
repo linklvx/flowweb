@@ -39,7 +39,7 @@ export class TemplateService {
   ) {}
 
   async findMany(query: TemplateListQuery, userId: string) {
-    // 成员自证必须先于缓存查询：同一 cacheKey 可能已被队友写入缓存，跳过校验会向外人泄露团队模板
+    // teamId 过滤不是鉴权：必须先成员自证，否则任何用户传 teamId 即可枚举团队模板
     if (query.teamId) await assertTeamMember(this.prisma, query.teamId, userId);
     const cacheKey = JSON.stringify({ query, userId });
     if (this.cache.has(cacheKey)) {

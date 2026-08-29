@@ -51,7 +51,7 @@ describe('FolderService', () => {
       const result = await service.list('u1');
       expect(teamService.ensureDefaultTeam).toHaveBeenCalledWith('u1');
       expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { teamId: 't1', parentId: null },
+        where: { teamId: 't1' },
         include: {
           templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true, coverUrl: true } },
           _count: { select: { templates: true } },
@@ -68,7 +68,7 @@ describe('FolderService', () => {
       prisma.folder.findMany.mockResolvedValue([]);
       await service.list('u1', 't-team');
       expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ teamId: 't-team', parentId: null }),
+        where: expect.objectContaining({ teamId: 't-team' }),
       }));
     });
 

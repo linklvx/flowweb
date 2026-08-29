@@ -25,7 +25,7 @@ export class FolderService {
   async list(userId: string, teamId?: string) {
     const teamIdResolved = await this.resolveTeamId(teamId, userId);
     const folders = await this.prisma.folder.findMany({
-      where: { teamId: teamIdResolved, parentId: null },
+      where: { teamId: teamIdResolved },
       include: {
         templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true, coverUrl: true } },
         _count: { select: { templates: true } },
