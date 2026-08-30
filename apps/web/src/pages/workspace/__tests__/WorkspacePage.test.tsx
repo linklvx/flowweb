@@ -299,5 +299,8 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
       const fresh = screen.getByLabelText('搜索') as HTMLInputElement;
       expect(fresh.value).toBe('');
     });
+    // 新维度实例以 t2 打根目录（spec：切团队 =1 请求）
+    await waitFor(() => expect(templateApi.getTemplates).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: 't2', folderId: 'root' })));
   });
 });
