@@ -213,6 +213,8 @@ model Announcement {
 }
 ```
 
+（不建普通 `@@index([active])`——4.3 的部分唯一索引已覆盖 active=true 查询路径，布尔索引冗余。）
+
 ### 4.2 HomeBanner（新模型）
 ```prisma
 model HomeBanner {
@@ -243,7 +245,7 @@ CREATE UNIQUE INDEX "announcement_single_active" ON "Announcement"("active") WHE
 | 接口 | 说明 |
 | --- | --- |
 | `GET /api/announcements/active` | 已存在。service 补 `orderBy: { updatedAt: 'desc' }`，返回扩展字段 |
-| `GET /api/home-banners/active` | 新。返回 `{ items: [{ id, title?, subtitle?, linkUrl?, imageUrl, sortOrder }] }`，按 sortOrder 升序；imageUrl 为后端生成的 presigned GET URL（**3600s**），多条 `Promise.all` 并行签 |
+| `GET /api/home-banners/active` | 新。返回**裸数组** `[{ id, title?, subtitle?, linkUrl?, imageUrl, sortOrder }]`（与 `/api/content/cards` 风格一致），按 sortOrder 升序；imageUrl 为后端生成的 presigned GET URL（**3600s**），多条 `Promise.all` 并行签 |
 
 **AuthGuard 白名单**（auth.guard.ts）必须新增 `'/api/home-banners'`（`/api/announcements` 已在列）。
 
@@ -270,8 +272,8 @@ Banner（新模块 `modules/home-banner/`：controller + service + admin control
 
 `admin/page.tsx` 顶级 tab 由 `models | subscription | settings` 扩为四项，新增 **"首页配置"**，内含两个子 tab：
 
-- `AnnouncementManagementTab.tsx`：Table（内容/启用/创建时间/操作）+ 新建/编辑 Modal（message、bgColor、textColor、linkText、linkUrl、启用）+ 删除 + 启用开关（启用时 confirm 提示"将自动禁用其他公告"）
-- `HomeBannerManagementTab.tsx`：Table（缩略图/标题/链接/排序/启用/操作）+ 新建/编辑 Modal（图片上传、title、subtitle、linkUrl、sortOrder、active）+ 删除（confirm 提示同步删除图片文件）
+- `AnnouncementManagementTab.tsx`：卡片式列表（内容/启用/创建时间/操作，与现有 admin 组件风格一致）+ 新建/编辑 Modal（message、bgColor、textColor、linkText、linkUrl、启用）+ 删除 + 启用开关（启用时 confirm 提示"将自动禁用其他公告"）
+- `HomeBannerManagementTab.tsx`：卡片式列表（缩略图/标题/链接/排序/启用/操作）+ 新建/编辑 Modal（图片上传、title、subtitle、linkUrl、sortOrder、active）+ 删除（confirm 提示同步删除图片文件）
 - API 封装入 `adminApi.ts`；测试范式参照 `BannerManagementTab.test.tsx`
 
 ## 7. 资源文件

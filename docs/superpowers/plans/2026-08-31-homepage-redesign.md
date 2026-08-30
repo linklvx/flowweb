@@ -6,7 +6,7 @@
 
 **Architecture:** 路由级嵌套布局 `AppLayout`（公开组 + RequireAuth 登录组两组共享）；后端扩展 `Announcement` 模型（互斥启用）+ 新建 `HomeBanner` 模型（MinIO 图片存储），各配公开/admin 端点；前端复用 creditsStore、vipModalStore、TeamSwitcher、LoginModal。
 
-**Tech Stack:** NestJS 10 + Prisma 5 + MinIO（@aws-sdk）；React 19 + react-router v7 + Tailwind 3.4 + antd 5 + zustand；Vitest 双端。
+**Tech Stack:** NestJS 10 + Prisma 5 + MinIO（@aws-sdk）；React 18.3 + react-router v7 + Tailwind 3.4 + antd 5 + zustand；Vitest 双端。
 
 **Spec:** `docs/superpowers/specs/2026-08-31-homepage-redesign-design.md`（本计划的上位文档，冲突时以 spec 为准）
 
@@ -38,10 +38,10 @@ model Announcement {
   active     Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-
-  @@index([active])
 }
 ```
+
+注意：**不保留** `@@index([active])`——下方手工补充的部分唯一索引（WHERE active）已覆盖 active=true 的全部查询路径，普通布尔索引冗余。
 
 在 ContentCard 模型之后新增：
 
@@ -93,6 +93,14 @@ psql -U flowweb -d flowweb -c "\d Announcement" | grep announcement_single_activ
 ```
 
 Expected: 输出包含 `announcement_single_active` UNIQUE 索引行。
+
+若本机 psql 要求密码交互，替代验证（任选其一）：
+
+```bash
+cd apps/api && pnpm prisma db execute --stdin <<< "SELECT indexname FROM pg_indexes WHERE tablename='Announcement';"
+```
+
+或直接以 Step 3 的 `migrate reset --force` 无报错为准——reset 重放包含该 CREATE UNIQUE INDEX，若存在重复 active 行会直接失败，本身就是强验证。
 
 - [ ] **Step 5: Commit**
 
@@ -820,6 +828,7 @@ Expected: FAIL（模块不存在）。
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
+import type { HomeBanner } from '@prisma/client';
 import type { CreateHomeBannerDto, UpdateHomeBannerDto } from '@flowweb/shared';
 
 const ORDER_BY = [{ sortOrder: 'asc' }, { createdAt: 'asc' }] as const;
@@ -846,7 +855,7 @@ export class HomeBannerService {
     return this.withUrls(rows);
   }
 
-  private async withUrls(rows: Awaited<ReturnType<HomeBannerService['listActive']>>) {
+  private async withUrls(rows: HomeBanner[]) {
     return Promise.all(
       rows.map(async (b) => ({
         ...b,
@@ -1723,6 +1732,9 @@ describe('BannerCarousel', () => {
     expect(screen.getByRole('button', { name: '跳转到第 2 张' })).toBeInTheDocument();
     expect((screen.getAllByRole('img')[0] as HTMLElement).style.opacity).toBe('1');
     expect((screen.getAllByRole('img')[1] as HTMLElement).style.opacity).toBe('0');
+    // 叠层防拦截：非当前张禁用指针事件（opacity:0 的元素仍会命中点击）
+    expect((screen.getAllByRole('img')[0] as HTMLElement).style.pointerEvents).toBe('auto');
+    expect((screen.getAllByRole('img')[1] as HTMLElement).style.pointerEvents).toBe('none');
   });
 
   it('单张：无箭头无指示器', async () => {
@@ -1786,6 +1798,8 @@ describe('BannerCarousel', () => {
 });
 ```
 
+实现备注：fake timers 下 `findAllByRole` 若因等待器与假时钟抖动，兜底写法是在状态更新后 `await vi.advanceTimersByTimeAsync(0)` 再断言。
+
 - [ ] **Step 6: 实现 BannerCarousel**
 
 ```tsx
@@ -1848,7 +1862,7 @@ export function BannerCarousel() {
           onError={() => setFailed((prev) => { const s = new Set(prev); s.add(b.id); return s; })}
           onClick={() => { if (b.linkUrl) window.open(b.linkUrl, '_blank', 'noopener noreferrer'); }}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300 cursor-pointer"
-          style={{ opacity: i === currentIndex ? 1 : 0 }}
+          style={{ opacity: i === currentIndex ? 1 : 0, pointerEvents: i === currentIndex ? 'auto' : 'none' }}
         />
       ))}
 
@@ -2469,14 +2483,13 @@ describe('AnnouncementBar', () => {
     expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener noreferrer');
   });
 
-  it('关闭按钮：dismiss 且不触发跳转', () => {
-    const dismiss = vi.fn();
-    useAnnouncementStore.setState({ dismiss });
+  it('关闭按钮：真实 dismiss 写 sessionStorage 并清空 store，不触发跳转', () => {
+    // 不 mock dismiss——sessionStorage 写入逻辑在真实 action 内，mock 掉则断言其副作用必失败
     render(<AnnouncementBar />);
     fireEvent.click(screen.getByTestId('announcement-close-btn'));
-    expect(dismiss).toHaveBeenCalledTimes(1);
     expect(openSpy).not.toHaveBeenCalled();
     expect(sessionStorage.getItem('announcement_dismissed_a1')).toBe('1');
+    expect(useAnnouncementStore.getState().announcement).toBeNull();
   });
 
   it('无公告时不渲染', () => {
@@ -2510,17 +2523,17 @@ export function AnnouncementBar() {
       >
         <span className="text-sm font-medium leading-[22px] truncate">{message}</span>
         {linkText && linkUrl && (
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
             data-testid="announcement-link-btn"
-            onClick={(e) => e.stopPropagation()}
-            className="shrink-0 rounded-full border bg-transparent hover:bg-white/10 text-[13px] leading-none px-3 py-1 no-underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(linkUrl, '_blank', 'noopener noreferrer');
+            }}
+            className="shrink-0 rounded-full border bg-transparent hover:bg-white/10 text-[13px] leading-none px-3 py-1 cursor-pointer"
             style={{ color: textColor, borderColor: 'rgba(255,255,255,0.5)' }}
           >
             {linkText}
-          </a>
+          </button>
         )}
         <button
           aria-label="关闭公告"
@@ -2879,10 +2892,10 @@ export const router = createBrowserRouter([
 | `pages/workspace/WorkspacePage.tsx` | `<div className="min-h-screen bg-black text-white">` → `<div>`；内层 `className="mx-auto max-w-[1640px] pt-4"` → `className="pt-4"` |
 | `pages/materials/MaterialsPage.tsx` | 同上模式：`min-h-screen bg-black text-white` 删；`mx-auto max-w-[1640px] pt-4` → `pt-4` |
 | `pages/settings/SettingsLayout.tsx` | 外层 `min-h-screen bg-[#0f0f0f] flex flex-col overflow-x-hidden` → `flex flex-col`；内层 `flex-1 mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] w-full pt-6` → `flex-1 w-full pt-6`（内部三级 nav 保留不动） |
-| `pages/team/TeamBillingPage.tsx` | 三处：`<div className="min-h-screen bg-[#111]" />` → `<div />`；两处 `min-h-screen bg-[#111] text-white` → `text-white`（`max-w-4xl mx-auto p-8` 保留） |
+| `pages/team/TeamBillingPage.tsx` | 三处外壳：`<div className="min-h-screen bg-[#111]" />` → `<div />`；两处 `min-h-screen bg-[#111] text-white` → `text-white`（`max-w-4xl mx-auto p-8` 保留）。**两处 `<Navbar />`（54、98 行）均删** |
 | `pages/templates/TemplateMarketPage.tsx` | `min-h-screen bg-[#0f0f0f]` 删（`<div>`）；`mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8` → `py-8` |
-| `pages/templates/TemplatePreviewPage.tsx` | `min-h-screen bg-[#0f0f0f]` 删（`<div>`） |
-| `pages/team/TeamPage.tsx` | 三处 return 分支：`min-h-screen bg-[#111] text-[#e2e8f0] p-10` → `text-[#e2e8f0] p-10`；另两处 `min-h-screen bg-[#111] text-[#e2e8f0]` → `text-[#e2e8f0]` |
+| `pages/templates/TemplatePreviewPage.tsx` | `min-h-screen bg-[#0f0f0f]` 删（`<div>`）；内层约 46 行的 `max-w-[1640px] px-5 md:px-10 lg:px-[120px]` 宽度约束一并删（与其他页统一，全宽铺满主内容区） |
+| `pages/team/TeamPage.tsx` | **四处**（145/150/162/223 行）：145 行 `min-h-screen bg-[#111] text-[#e2e8f0] p-10` → `text-[#e2e8f0] p-10`；150/162/223 行 `min-h-screen bg-[#111] text-[#e2e8f0]` → `text-[#e2e8f0]` |
 
 每页同时删除 `import { Navbar } from '@/pages/home/components/Navbar';` 与 `<Navbar />` 行。
 
@@ -2924,6 +2937,14 @@ Expected: 全绿 + 零类型错误。
 
 ```bash
 grep -rn "components/Navbar\|HeroSection\|ContentSection\|ContentCard\|contentStore\|AnnouncementBanner" apps/web/src --include="*.ts" --include="*.tsx"
+```
+
+Expected: 零输出。
+
+套布局的 7 个页面外壳清零验证（防漏网）：
+
+```bash
+grep -n "min-h-screen" apps/web/src/pages/workspace/WorkspacePage.tsx apps/web/src/pages/materials/MaterialsPage.tsx apps/web/src/pages/settings/SettingsLayout.tsx apps/web/src/pages/team/TeamBillingPage.tsx apps/web/src/pages/team/TeamPage.tsx apps/web/src/pages/templates/TemplateMarketPage.tsx apps/web/src/pages/templates/TemplatePreviewPage.tsx
 ```
 
 Expected: 零输出。
@@ -3507,6 +3528,8 @@ export function HomeBannerManagementTab() {
   );
 }
 ```
+
+实现备注：两个 tab 均用自定义卡片式列表（与现有 admin 组件风格一致），而非 spec 第 6 节初稿提到的 antd Table——功能等价，属有意偏离，PR 描述登记。
 
 - [ ] **Step 6: admin/page.tsx 接入新 section**
 
