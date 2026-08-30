@@ -15,7 +15,7 @@ function toCanvas(t: any): Canvas {
   };
 }
 
-export function useWorkspaceData(teamId?: string) {
+export function useWorkspaceData(teamId?: string, initialFolderId?: string | null) {
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [folders, setFolders] = useState<FolderViewModel[]>([]);
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -23,6 +23,7 @@ export function useWorkspaceData(teamId?: string) {
   const [page, setPage] = useState(1);
   const currentRef = useRef<string | null>(null);
   const pageRef = useRef(1);
+  const sessionIdRef = useRef(0);
 
   const refreshFolders = useCallback(async () => {
     const data = await getFolders(teamId);
@@ -35,6 +36,7 @@ export function useWorkspaceData(teamId?: string) {
   }, [teamId]);
 
   const loadFolder = useCallback(async (folderId: string | null) => {
+    const session = ++sessionIdRef.current; // 替换型：递增并捕获
     currentRef.current = folderId;
     pageRef.current = 1;
     setPage(1);
@@ -44,23 +46,29 @@ export function useWorkspaceData(teamId?: string) {
         refreshFolders(),
         getTemplates({ type: 'my', teamId, folderId: folderId ?? 'root', page: 1, limit: PAGE_SIZE }),
       ]);
+      if (session !== sessionIdRef.current) return; // 同实例内已被更新请求覆盖
       setCanvases((data.templates ?? []).map(toCanvas));
       setHasMore(1 < (data.totalPages ?? 1));
       setStatus('success');
     } catch {
+      if (session !== sessionIdRef.current) return;
       setStatus('error');
     }
-  }, [refreshFolders]);
+  }, [refreshFolders, teamId]);
 
-  useEffect(() => { loadFolder(null); }, [loadFolder]);
+  // 首帧按 URL 原始值直打目标（spec：initialFolderId 未经 nav valid 过滤），全场景挂载单请求
+  const initialFolderIdRef = useRef(initialFolderId);
+  useEffect(() => { loadFolder(initialFolderIdRef.current ?? null); }, [loadFolder]);
 
   const reload = useCallback(() => loadFolder(currentRef.current), [loadFolder]);
 
   const loadMore = useCallback(async () => {
+    const session = sessionIdRef.current; // 追加型：捕获当前，不递增（翻页不互杀）
     const next = pageRef.current + 1;
     const folderId = currentRef.current;
     try {
       const data = await getTemplates({ type: 'my', teamId, folderId: folderId ?? 'root', page: next, limit: PAGE_SIZE });
+      if (session !== sessionIdRef.current) return; // loadFolder/重挂载后丢弃
       setCanvases((prev) => [...prev, ...(data.templates ?? []).map(toCanvas)]);
       pageRef.current = next;
       setPage(next);
@@ -80,20 +88,20 @@ export function useWorkspaceData(teamId?: string) {
     const now = new Date().toISOString();
     setFolders((fs) => fs.map((f) => (f.id === id ? { ...f, name, updatedAt: now } : f)));
     try {
-      await apiRenameFolder(id, name);
+      await apiRenameFolder(id, name, teamId);
     } catch {
       setFolders(prev);
       message.error('重命名失败，请重试');
     }
-  }, [folders]);
+  }, [folders, teamId]);
 
   const deleteFolder = useCallback(async (id: string): Promise<number> => {
-    const { movedCanvasCount } = await apiDeleteFolder(id);
+    const { movedCanvasCount } = await apiDeleteFolder(id, teamId);
     // 删除的是当前浏览的文件夹 → 回根目录；删除其他文件夹 → 保持当前视图
     const target = currentRef.current === id ? null : currentRef.current;
     await Promise.all([refreshFolders(), loadFolder(target)]);
     return movedCanvasCount;
-  }, [refreshFolders, loadFolder]);
+  }, [refreshFolders, loadFolder, teamId]);
 
   const moveCanvas = useCallback(async (canvasId: string, folderId: string | null) => {
     const prev = canvases;

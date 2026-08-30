@@ -128,7 +128,7 @@ describe('useWorkspaceData', () => {
     let count = -1;
     await act(async () => { count = await result.current.deleteFolder('f2'); });
     expect(count).toBe(3);
-    expect(apiDeleteFolder).toHaveBeenCalledWith('f2');
+    expect(apiDeleteFolder).toHaveBeenCalledWith('f2', undefined);
     // 删除非当前文件夹（当前为根）→ 仍加载根目录
     expect(getTemplates).toHaveBeenLastCalledWith(expect.objectContaining({ folderId: 'root' }));
   });
@@ -199,5 +199,61 @@ describe('useWorkspaceData', () => {
     await act(async () => { await result.current.createCanvas('y', null); });
     expect(apiCreateFolder).toHaveBeenCalledWith('x', 't-team');
     expect(apiCreateCanvas).toHaveBeenCalledWith('y', null, 't-team');
+  });
+});
+
+describe('useWorkspaceData 维度化改造（spec §一.3/§一.6/竞态）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getFolders).mockResolvedValue({ folders: [] } as never);
+    vi.mocked(getTemplates).mockResolvedValue({ templates: [], totalPages: 1 } as never);
+  });
+
+  it('mount 直打 initialFolderId（首帧单请求，URL 原始值）', async () => {
+    renderHook(() => useWorkspaceData(undefined, 'yyy'));
+    await waitFor(() => expect(vi.mocked(getTemplates)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(getTemplates)).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
+  });
+
+  it('无 initialFolderId → mount 打根目录 1 次', async () => {
+    renderHook(() => useWorkspaceData());
+    await waitFor(() => expect(vi.mocked(getTemplates)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(getTemplates)).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
+  });
+
+  it('renameFolder/deleteFolder 传维度 teamId（断链修复）', async () => {
+    const { result } = renderHook(() => useWorkspaceData('t1'));
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    await result.current.renameFolder('f1', '新名');
+    expect(vi.mocked(apiRenameFolder)).toHaveBeenCalledWith('f1', '新名', 't1');
+    await result.current.deleteFolder('f1');
+    expect(vi.mocked(apiDeleteFolder)).toHaveBeenCalledWith('f1', 't1');
+  });
+
+  it('loadFolder 替换型乱序：慢响应后到被丢弃', async () => {
+    let resolveSlow!: (v: any) => void;
+    vi.mocked(getTemplates).mockImplementation((q: any) =>
+      (q.folderId ?? 'root') === 'A'
+        ? new Promise((r) => { resolveSlow = r; })
+        : Promise.resolve({ templates: [{ id: 'b' }], totalPages: 1 } as never),
+    );
+    const { result } = renderHook(() => useWorkspaceData());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { void result.current.loadFolder('A'); });
+    await act(async () => { void result.current.loadFolder('B'); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // B 已生效
+    await act(async () => { resolveSlow({ templates: [{ id: 'a-stale' }], totalPages: 1 }); await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // A 慢响应被丢弃
+  });
+
+  it('loadMore 追加型：sessionId 相等才 append', async () => {
+    vi.mocked(getTemplates)
+      .mockResolvedValueOnce({ templates: [{ id: 'c1' }], totalPages: 2 } as never)
+      .mockResolvedValueOnce({ templates: [{ id: 'c2' }], totalPages: 2 } as never);
+    const { result } = renderHook(() => useWorkspaceData());
+    await waitFor(() => expect(result.current.status).toBe('success'));
+    await act(async () => { await result.current.loadMore(); });
+    expect(result.current.canvases.map((c) => c.id)).toEqual(['c1', 'c2']);
   });
 });
