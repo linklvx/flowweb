@@ -21,6 +21,8 @@
 | D8 | content/cards 后端 | 后端端点/模型/迁移**一律不碰**，前端连带删除消费组件，PR 描述登记 |
 | D9 | 文档中心链接 | 点击 toast "敬请期待"，不跳转（无真实 URL，不编造） |
 | D10 | Banner presign 有效期 | **3600s**（优于现有 VIP banner 900s 惯例，零前端逻辑） |
+| D11 | VipSubscribeModal 挂载 | **上移 AppLayout 全局挂载**（仅首页挂载会使其余 6 个布局页"会员充值"成死按钮；组件 createPortal 全局安全） |
+| D12 | TopActionBar 积分数据源 | **改用既有 creditsStore**（fetchBalance 同两接口并联 + applyBalance 全局联动；Navbar 裸 fetch 是仓库异类，不复制） |
 
 ## 2. 路由与布局架构
 
@@ -68,28 +70,32 @@ export const router = createBrowserRouter([
 <div className="min-w-[1200px] min-h-screen bg-[#141414]">
   {公告可见 && <AnnouncementBar />}        // sticky top-0 z-40，无公告不渲染不占高
   <div className="flex">
-    <Sidebar />                            // sticky left-0，top 与高度同源消费公告状态：
-                                           // 公告显示时 top-64px h-[calc(100vh-64px)]，隐藏时 top-0 h-screen
+    <Sidebar />                            // sticky left-0 self-start z-30（flex 子项须 self-start，默认 stretch 会破坏 sticky）
+                                           // top 与高度同源消费公告状态：显示时 top-64px h-[calc(100vh-64px)]，隐藏时 top-0 h-screen
     <main className="flex-1 min-w-0 px-6">
-      <TopActionBar />                     // h-14 sticky，top 随公告显隐联动（64px/0px）
+      <TopActionBar />                     // h-14 sticky top-[64|0]px z-20，右对齐
       <Outlet />
     </main>
   </div>
+  {vipVisible && <VipSubscribeModal />}    // 全局挂载（组件内部 createPortal，安全）；TopActionBar 在全部布局页可触发 open()，
+                                           // 仅首页挂载会使其余页面"会员充值"变死按钮
 </div>
 ```
 
 关键约束：
 - 侧边栏 **sticky left-0**（不用 fixed：min-w 横滚时 fixed 侧栏钉死视口，主内容会滚动到侧栏下面）
 - 公告条显隐由 announcementStore 驱动，关闭后 sidebar/操作栏 top 偏移即时归零，不留 64px 空槽
-- 布局 chrome 的 z-index 全部 **< 1000**（antd 弹层基线已抬到 11000，不打架）
+- 布局 chrome z-index 分层：公告 z-40 / 侧栏 z-30 / 操作栏 z-20（全部 < 1000，antd 弹层基线已抬到 11000，不打架）
 - 套布局的 7 个页面逐页删除自带外壳（`min-h-screen bg-[#0f0f0f]`、`max-w-[1640px] px-[120px]` 等），否则双层背景/错位；SettingsLayout 只删 Navbar，保留内部三级 nav
+- **index.css**：body 背景 `#0f0f0f` → `#141414`（边缘过滚露色），字体栈补 `'Helvetica Neue', Arial`（对齐 9.2）
+- **preflight 已关闭**（tailwind.config `corePlugins.preflight: false`）：浏览器原生 button 边框/背景、img inline 不会被重置——所有新 button 显式 `border-none cursor-pointer`，Logo/二维码 img 加 `block`
 
 ## 3. 前端组件设计
 
 新目录 `src/components/layout/`，首页专属组件在 `src/pages/home/components/`。
 
 ### 3.1 `layout/AppLayout.tsx`
-职责：布局骨架 + 挂载时 `announcementStore.fetchActive()` + 渲染公告条/侧边栏/操作栏/Outlet。
+职责：布局骨架 + 挂载时 `announcementStore.fetchActive()`（store 带 loaded 标志，公开组↔登录组两棵路由子树切换重挂载时跳过重复请求）+ 渲染公告条/侧边栏/操作栏/Outlet + 全局挂载 `{vipVisible && <VipSubscribeModal />}`（VipSubscribeModal 从 HomePage 上移至此）。
 
 ### 3.2 `layout/Sidebar.tsx`
 - 容器：`w-[240px]` sticky，bg `#141414`，右边框 `1px solid #262626`，内容 `px-4`，flex column
@@ -119,7 +125,7 @@ export const router = createBrowserRouter([
 ### 3.4 `layout/AnnouncementBar.tsx`（新实现，替换旧组件）
 - sticky top-0 z-40 全宽；外层 p-2（8px）bg 同页面 `#141414`；内层 h-12 rounded-lg px-12 垂直居中，bg/textColor 取自数据（默认 `#0f2761` / `#ffffff`），cursor-pointer
 - 公告文字 14px/500/22px 单行省略；链接按钮（配置了 linkText+linkUrl 才显示）：白边框 `1px solid rgba(255,255,255,0.5)` 透明底白字 13px 圆角 9999px px-3，hover bg `rgba(255,255,255,0.1)`，新窗口打开
-- 关闭按钮：24×24 图标 14px `rgba(255,255,255,0.7)` hover 白，圆形 hover bg `rgba(255,255,255,0.1)`；点击 → `announcementStore.dismiss()`
+- 关闭按钮：24×24 图标 14px `rgba(255,255,255,0.7)` hover 白，圆形 hover bg `rgba(255,255,255,0.1)`；onClick 需 `e.stopPropagation()`（内容区整条可点击跳转，否则关公告同时触发跳转）并调 `announcementStore.dismiss()`
 - 内容区点击行为同链接按钮（未配置链接无跳转）
 
 ### 3.5 `layout/TopActionBar.tsx`
@@ -127,11 +133,11 @@ export const router = createBrowserRouter([
 - 通用按钮：h-8 rounded-lg border `rgba(255,255,255,0.1)` bg `rgba(255,255,255,0.04)` 文字 13px `#d0d0d0` px-2.5，图标 16px `#a0a0a0` gap-1；hover bg `#262626` border `#444` 文字白，过渡 150ms
 - **未登录**：赚积分（GiftOutlined → `/settings/credits`）、会员充值（CrownOutlined → `useVipModalStore().open()`）、登录/注册（反色实色：bg `#ffffff` 文字黑 13px/500 无边框 px-4 hover `#e8e8e8`；onClick 打开 LoginModal——局部 state，随组件迁入）。无促销标签
 - **登录态**：赚积分、会员充值、积分余额（⚡图标 + `toLocaleString()` 数字白 13px/500 + 会员等级彩色小标签，点击 → `/settings/membership`）、TeamSwitcher（复用现有组件，容器样式适配按钮风格）、头像 32px 圆形 antd Dropdown（团队管理 `/team` / 用户中心 `/settings` / 个人设置 `/settings/profile` / 退出登录）
-- Navbar 内两个直接 fetch（`/api/credits/balance`、`/api/subscription/me`）随迁，逻辑不变
+- 积分/会员数据改用既有 **`creditsStore`**（`fetchBalance()` 内部即 `Promise.all([getBalance, getMe])`，含 tier 字段与 `applyBalance` 充值到账全局联动；Navbar 的裸 fetch 是仓库异类，不复制）
 - 未登录点赚积分/会员充值 → RequireAuth 弹登录：行为保持，测试固化
 
 ### 3.6 `pages/home/components/BannerCarousel.tsx`
-- 数据：组件内 local state + `GET /api/home-banners/active`（不建 store）
+- 数据：组件内 local state + `apiFetch` 调 `GET /api/home-banners/active`（自动解包取 items，不建 store）
 - loading：骨架 bg `#1e1e1e` 呼吸动画，按 8:1 比例，rounded-xl
 - 空（无启用）：不渲染不占高
 - 容器：w-full `aspect-[8/1]` rounded-xl overflow-hidden mb-3，group（hover 显示箭头）
@@ -141,7 +147,7 @@ export const router = createBrowserRouter([
 - 指示器：底部居中距底 12px，间距 6px；单点 6×6 圆形 `rgba(255,255,255,0.4)`，激活 16×6 胶囊白，可点击跳转
 - 自动轮播 5s；hover **和 focus** 暂停；unmount 清 timer；单张时不显示箭头/指示器、不自动轮播
 - 点击跳转 linkUrl（新窗口）；未配置链接不可点击
-- 单张图片 onError：该张显示占位背景，轮播跳过该张，不影响其他
+- 单张图片 onError：该张显示占位背景，轮播跳过该张，不影响其他；全部失败等价空态不渲染
 
 ### 3.7 `pages/home/components/CreateCanvasCard.tsx`
 - h-[200px] w-full rounded-xl border `0.5px solid rgba(8,182,221,0.5)` bg `#1a1a1a` hover `#1e1e1e`，mb-8
@@ -163,9 +169,10 @@ export const router = createBrowserRouter([
   <CreateCanvasCard />
   <Footer />
   <AIAssistantFAB />                          // 保持 fixed bottom-8 right-8 z-50，仅首页挂载
-  {vipModal open && <VipSubscribeModal />}    // 维持现有 vipModalStore 条件渲染
 </>
 ```
+
+（VipSubscribeModal 已上移 AppLayout 全局挂载，见 3.1。）
 
 ### 3.10 `src/utils/startNewProject.ts`
 ```ts
@@ -179,7 +186,9 @@ Sidebar 新建项目按钮与 CreateCanvasCard 两处复用，禁止各自手写
 ### 3.11 `stores/announcementStore.ts`（改造）
 ```ts
 interface AnnouncementInfo { id; message; linkUrl?; linkText?; bgColor; textColor }
-// state: announcement | null；fetchActive() → GET /api/announcements/active，失败静默置 null
+// state: announcement | null, loaded
+// fetchActive()：loaded 为 true 则跳过（防两组 AppLayout 路由子树切换重挂载重复请求；dismiss 不清 loaded）
+//              → GET /api/announcements/active，失败静默置 null
 // dismiss() → sessionStorage.setItem(`announcement_dismissed_${id}`, '1') 并清 announcement
 // visible 派生：announcement 存在 && !sessionStorage.getItem(`announcement_dismissed_${id}`)
 ```
@@ -249,7 +258,7 @@ CREATE UNIQUE INDEX "announcement_single_active" ON "Announcement"("active") WHE
 互斥实现：`$transaction([updateMany({ where: { active: true }, data: { active: false } }), update(目标 active: true)])`；**create 时 active=true 同样触发**（不只 PATCH）；partial unique index 兜底并发，捕获 P2002 转友好错误。
 
 Banner（新模块 `modules/home-banner/`：controller + service + admin controller，app.module.ts 注册）：
-- `GET /api/admin/home-banners` 列表（含 presigned 缩略图 URL）
+- `GET /api/admin/home-banners` 列表（含 presigned 缩略图 URL，与公开端统一 3600s）
 - `POST /api/admin/home-banners` DTO：title?（≤128）、subtitle?（≤256）、linkUrl?（http(s) ≤500）、imageKey（必填 ≤255，来自 upload）、sortOrder（int ≥0）、active（bool）
 - `PATCH /api/admin/home-banners/:id` 同 DTO；**更换 imageKey 时删除旧 key 的 MinIO 对象**（否则孤儿对象持续累积）
 - `DELETE /api/admin/home-banners/:id` **先 `minio.delete(key)` 再删 DB 行**；对象不存在（NoSuchKey/404）视为成功（保证失败可重试不留脏行）
@@ -330,7 +339,7 @@ Banner（新模块 `modules/home-banner/`：controller + service + admin control
 
 ### 11.2 测试点
 - **后端**：公告 CRUD；互斥（启用一条其余自动 false，create/PATCH 两路径；P2002 捕获）；HomeBanner CRUD；列表按 sortOrder；删除时 MinIO 对象删除（含 NoSuchKey 容忍）；换图删旧 key；上传类型/大小/magic number 校验
-- **前端**：Sidebar 四菜单渲染/高亮/跳转；新建项目走 startNewProject（清 localStorage）；TopActionBar 登录/未登录两态 + 未登录点受保护入口弹登录；AnnouncementBar 渲染/关闭 sessionStorage 按公告 id/无公告不渲染；BannerCarousel（fake timers 自动轮播/hover 暂停/unmount 清 timer/单张无箭头指示器/骨架/单张失败占位/空态不渲染）；CreateCanvasCard 跳转；Footer 文案与备案链接 href+rel；WeChatFollowModal 渲染二维码；Admin 两 tab 渲染 + 启用互斥提示；HomePage 组装
+- **前端**：AppLayout 挂载即 fetchActive、公告显隐驱动侧栏/操作栏 top class 联动、VipSubscribeModal 全局挂载；Sidebar 四菜单渲染/高亮/跳转；新建项目走 startNewProject（清 localStorage）；TopActionBar 登录/未登录两态 + 积分走 creditsStore + 未登录点受保护入口弹登录；AnnouncementBar 渲染/关闭按钮 stopPropagation + sessionStorage 按公告 id/无公告不渲染；BannerCarousel（fake timers 自动轮播/hover 暂停/unmount 清 timer/单张无箭头指示器/骨架/单张失败占位/全部失败等价空态/空态不渲染）；CreateCanvasCard 跳转；Footer 文案与备案链接 href+rel；WeChatFollowModal 渲染二维码；Admin 两 tab 渲染 + 启用互斥提示；HomePage 组装
 
 ### 11.3 完成定义（硬门）
 1. `tsc --noEmit` 严格模式零错（web + api + spec tsconfig）
@@ -342,3 +351,4 @@ Banner（新模块 `modules/home-banner/`：controller + service + admin control
 
 - 后端 `GET /api/content/cards`、ContentCard 模型及 seed 失去前端消费者：**保留不动**（涉及模型迁移，超出本次范围），PR 描述登记技术债
 - admin 无角色守卫（任何登录用户可访问 /admin 与 /api/admin/*）：已知上线前必修项，本次新增端点沿用现状
+- Banner 上传弃单孤儿对象（上传成功但取消新建，对象落在 uploads/system/）：temp-cleanup 只清 Media 表 type=temp 记录不会回收；与现有 VIP Banner 同性质、admin 低频，接受，PR 描述登记，本次不做清理
