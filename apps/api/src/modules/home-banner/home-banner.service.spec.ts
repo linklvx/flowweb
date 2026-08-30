@@ -61,9 +61,9 @@ describe('HomeBannerService', () => {
   it('listAll 不筛 active，同样附 presign URL', async () => {
     prisma.homeBanner.findMany.mockResolvedValue([ROW({ active: false })]);
     const r = await service.listAll();
-    expect(prisma.homeBanner.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
-    );
+    expect(prisma.homeBanner.findMany).toHaveBeenCalledWith({
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
     expect(r[0]).toMatchObject({ imageUrl: 'http://minio/presigned' });
   });
 
