@@ -69,7 +69,7 @@ async function uploadOne(
   }
   formData.append('file', blob, fileName);
 
-  // Rewrite presigned URL through Vite proxy in dev (same as FileUpload.tsx)
+  // Rewrite presigned URL through Vite proxy in dev (pattern shared with materialLibraryStore upload)
   const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
 
   const postRes = await fetch(proxyUrl, {
