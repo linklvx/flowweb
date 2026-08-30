@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AnnouncementBar } from './AnnouncementBar';
 import { useAnnouncementStore } from '@/stores/announcementStore';
@@ -16,7 +16,7 @@ const ANNOUNCEMENT = {
 };
 
 describe('AnnouncementBar', () => {
-  let openSpy: ReturnType<typeof vi.spyOn>;
+  let openSpy: MockInstance<typeof window.open>;
 
   beforeEach(() => {
     vi.clearAllMocks();
