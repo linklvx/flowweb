@@ -22,10 +22,12 @@ export function createFolder(name: string, teamId?: string) {
   });
 }
 
-export function renameFolder(id: string, name: string) {
-  return apiFetch<{ id: string }>(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+export function renameFolder(id: string, name: string, teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<{ id: string }>(`/folders/${id}${qs}`, { method: 'PATCH', body: JSON.stringify({ name }) });
 }
 
-export function deleteFolder(id: string) {
-  return apiFetch<{ movedCanvasCount: number }>(`/folders/${id}`, { method: 'DELETE' });
+export function deleteFolder(id: string, teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<{ movedCanvasCount: number }>(`/folders/${id}${qs}`, { method: 'DELETE' });
 }
