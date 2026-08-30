@@ -143,7 +143,7 @@ export class BatchDeleteFilesDto {
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd D:/flowweb/apps/api && npx vitest run src/modules/material-library/dto/dto-decorators.spec.ts`
-Expected: PASS（4 passed）
+Expected: PASS（3 passed）
 
 - [ ] **Step 5: 提交**
 
@@ -1024,8 +1024,8 @@ export function WorkspaceTabBar({ activeTab, onTabChange, labels = { personal: '
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd D:/flowweb/apps/web && npx vitest run src/pages/workspace/__tests__/WorkspaceDimension.test.tsx src/pages/workspace/__tests__/ToolbarBreadcrumb.test.tsx`
-Expected: 新用例 PASS；ToolbarBreadcrumb 既有用例按"断言不变"适配 props 变化后 PASS
+Run: `cd D:/flowweb/apps/web && npx vitest run src/pages/workspace/__tests__/WorkspaceDimension.test.tsx src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx src/pages/workspace/__tests__/ToolbarBreadcrumb.test.tsx`
+Expected: 新用例 PASS；WorkspaceTabBar.test（配套改造新建）PASS；ToolbarBreadcrumb 既有用例按 P1-5 适配后 PASS
 
 - [ ] **Step 5: 提交**
 
@@ -1084,7 +1084,7 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     mockGetMyTeams.mockReturnValue(new Promise(() => {}));
     renderPage('/works?tab=team&teamId=t1');
     expect(screen.queryByTestId('workspace-grid')).not.toBeInTheDocument();
-    expect(mockGetTemplates).not.toHaveBeenCalled();
+    expect(vi.mocked(templateApi.getTemplates)).not.toHaveBeenCalled();
   });
 
   it('切团队：维度组件 key 重挂载，搜索/筛选等本地 state 归零', async () => {
@@ -1104,7 +1104,7 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
 });
 ```
 
-（`renderPage` 为现有文件里的渲染辅助——若无名则封装 `render(<MemoryRouter initialEntries={[url]}><WorkspacePage /></MemoryRouter>)`；`mockGetMyTeams` 在顶部 `vi.mock('@/api/teamApi', ...)` 中定义；`fireEvent` 从 '@testing-library/react' 导入——注意 antd5 测试中 input 受控变更用 fireEvent.change 生效，参照记忆 antd5_testing_quirks。）
+（`renderPage` 为现有文件里的渲染辅助——若无名则封装 `render(<MemoryRouter initialEntries={[url]}><WorkspacePage /></MemoryRouter>)`；`mockGetMyTeams` 在顶部 `vi.mock('@/api/teamApi', ...)` 中定义；**mock 断言风格（P1-3）**：该文件是 `import * as templateApi from '@/api/templateApi'` + `vi.mocked()` 风格，无 mockGetTemplates 本地变量——画布请求断言一律 `vi.mocked(templateApi.getTemplates)`；`fireEvent` 从 '@testing-library/react' 导入——注意 antd5 测试中 input 受控变更用 fireEvent.change 生效，参照记忆 antd5_testing_quirks。）
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -1115,17 +1115,17 @@ Expected: 新用例 FAIL——现状平铺 TeamSection、无 team-tabs-row、失
 
 ```tsx
 import { useEffect } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { Button, Tabs } from 'antd';
 import { Navbar } from '@/pages/home/components/Navbar';
 import { teamDisplayName } from '@/api/teamApi';
 import { useTeams } from './hooks/useTeams';
-import { useWorkspaceData } from './hooks/useWorkspaceData';
 import { WorkspaceTabBar } from './components/WorkspaceTabBar';
 import { WorkspaceDimension } from './components/WorkspaceDimension';
 import type { MyTeam } from '@/api/teamApi';
 
 export function WorkspacePage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: 'personal' | 'team' = searchParams.get('tab') === 'team' ? 'team' : 'personal';
   const urlTeamId = searchParams.get('teamId');
@@ -1164,7 +1164,7 @@ export function WorkspacePage() {
           ) : realTeams.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="team-empty-state">
               <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
-              <Button type="primary" onClick={() => setSearchParams({})}>前往创建团队</Button>
+              <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
             </div>
           ) : validTeamId ? (
             <>
@@ -1193,7 +1193,7 @@ function teamTabLabel(t: MyTeam) {
 }
 ```
 
-（注：空态"前往创建团队"现用清 URL 占位——实现时改为 `useNavigate()` 跳 `/team`，与现状一致：`<Button type="primary" onClick={() => navigate('/team')}>`。）
+**清理清单（Step 3 一并执行）**：删除 WorkspacePage 中不再使用的 imports——`useWorkspaceData`（data/nav 已下沉 Dimension）、`useFolderNavigation`（随重写自然消失）、以及原 :5-20 的全部卡片/弹窗/工具组件 imports（TeamSection/CreateCanvasCard/FolderCard/CanvasCard/CreateFolderModal/CreateCanvasModal/MoveToFolderModal/EmptyState/CardGridSkeleton/getMyTeams 内联 state 等，均已迁入 Dimension 或被 useTeams 替代）。
 
 删除两个文件：
 
@@ -1722,7 +1722,7 @@ batchDelete（:241-262）/ batchMove（:264-292）——body 条件注入：
   },
 ```
 
-最后**同步接通 Modal 调用点（消除中间态）**：`MaterialLibraryModal.tsx` 的 load effect（原 :42-44 `if (isOpen) { loadFolders(); loadFiles(); }`）改为：
+最后**同步接通 Modal 调用点（消除中间态）**：`MaterialLibraryModal.tsx` 的 load effect（原 :42-44 `if (isOpen) { loadFolders(); loadFiles(); }`）改为下述 enterContext 版，并**删除 :27-28 的 `loadFolders`/`loadFiles` 订阅**（仅被旧 effect 使用，改后闲置）：
 
 ```tsx
   const enterContext = useMaterialLibraryStore((s) => s.enterContext);
@@ -1744,8 +1744,8 @@ Expected: 全 PASS。既有"画布团队维度"describe 的 2 个用例（:288-3
 - [ ] **Step 5: 提交**
 
 ```bash
-git add apps/web/src/stores/materialLibraryStore.ts apps/web/src/stores/materialLibraryStore.test.ts
-git commit -m "feat(web): material store 12 action context 注入+uploadFile 快照+替换型序号+deleteFolder 补 loadFiles"
+git add apps/web/src/stores/materialLibraryStore.ts apps/web/src/stores/materialLibraryStore.test.ts apps/web/src/components/MaterialLibrary/MaterialLibraryModal.tsx
+git commit -m "feat(web): material store 12 action context 注入+uploadFile 快照+替换型序号+deleteFolder 补 loadFiles；Modal 同步接通 enterContext"
 ```
 
 ---
@@ -1775,7 +1775,8 @@ describe('FileCard onApplyFile 场景感知（spec §二.6）', () => {
     const onApplyFile = vi.fn();
     render(<FileCard file={mockFile} isFinePointer onApplyFile={onApplyFile} />);
     fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
-    await waitFor(() => fireEvent.click(screen.getByText('应用到画布')));
+    await waitFor(() => expect(screen.getByText('应用到画布')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('应用到画布'));
     expect(onApplyFile).toHaveBeenCalledWith(mockFile);
   });
 });
@@ -1945,7 +1946,7 @@ export function MaterialLibraryBrowser({ title = '我的素材库', onApplyFile 
 }
 ```
 
-（"原样迁入"部分的完整代码 = 现 MaterialLibraryModal.tsx :25-176 逐行搬运，仅三处变化：①外层 `<Modal title="我的素材库" ...>` 壳移除；②`<FileGrid />` 改 `<FileGrid onApplyFile={onApplyFile} />`；③头部加 `{title}` 显示。）
+（**迁移范围 = 现 MaterialLibraryModal.tsx :25-176 逐行搬运，排除清单（P1-1，写死）**：Task 9 改造后的 enterContext 加载 effect **不迁入 Browser**——加载职责已统一由 enterContext 驱动（Modal/页面各自定义），Browser 内再放加载 effect 会双发请求并触发 enterContext 重置竞争。Browser 只迁：store 订阅（isOpen/close/uploading/batchMode/selectedFileIds/selectedFolderId/folders）、folderSelector 本地态、键盘监听 effect、flattenFolders、handleBatchDelete/openFolderSelector/handleBatchMove、容器 JSX、内嵌「选择目标文件夹」Modal。三处变化：①外层 `<Modal title="我的素材库" ...>` 壳移除；②`<FileGrid />` 改 `<FileGrid onApplyFile={onApplyFile} />`；③头部加 `{title}` 显示。）
 
 `MaterialLibraryModal.tsx` 全文重写为薄包装：
 
@@ -2084,10 +2085,11 @@ Expected: FAIL——页面不存在
 // apps/web/src/pages/materials/MaterialsPage.tsx
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Button, Tabs } from 'antd';
+import { Tabs } from 'antd';
 import { Navbar } from '@/pages/home/components/Navbar';
 import { teamDisplayName } from '@/api/teamApi';
 import { useTeams } from '@/pages/workspace/hooks/useTeams';
+import { WorkspaceTabBar } from '@/pages/workspace/components/WorkspaceTabBar';
 import { MaterialLibraryBrowser } from '@/components/MaterialLibrary/MaterialLibraryBrowser';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 
@@ -2127,15 +2129,12 @@ export default function MaterialsPage() {
     <div className="min-h-screen bg-black text-white">
       <Navbar />
       <div className="mx-auto max-w-[1640px] pt-4">
-        {/* 一级 tab（视觉同 works WorkspaceTabBar） */}
-        <div className="flex gap-2 text-lg items-center px-8 pt-2">
-          <button onClick={() => setTab('personal')}
-            className={`mx-3 py-1.5 bg-transparent ${tab === 'personal' ? 'text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer' : 'text-white/60 border-none cursor-pointer'}`}
-          >个人素材</button>
-          <button onClick={() => setTab('team')}
-            className={`mx-3 py-1.5 bg-transparent ${tab === 'team' ? 'text-white border-b-2 border-white border-x-0 border-t-0 cursor-pointer' : 'text-white/60 border-none cursor-pointer'}`}
-          >团队素材</button>
-        </div>
+        {/* 一级 tab：复用 works 的 WorkspaceTabBar（labels prop 定制文案，消重复） */}
+        <WorkspaceTabBar
+          activeTab={tab}
+          onTabChange={setTab}
+          labels={{ personal: '个人素材', team: '团队素材' }}
+        />
         {tab === 'team' ? (
           state.status === 'loading' ? (
             <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
