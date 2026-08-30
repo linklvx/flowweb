@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { waitFor } from '@testing-library/react';
 import { useMaterialLibraryStore } from './materialLibraryStore';
 
 const mockPost = vi.fn();
@@ -298,6 +299,7 @@ describe('materialLibraryStore - 画布团队维度', () => {
   });
 
   it('loadFolders 按画布团队维度拉取', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 't-team', projectId: 'p1' } });
     mockGet.mockResolvedValue({ data: { data: { success: true, data: { folders: [] } } } });
     await useMaterialLibraryStore.getState().loadFolders();
     expect(mockGet).toHaveBeenCalledWith('/api/material/folders', expect.objectContaining({
@@ -306,6 +308,7 @@ describe('materialLibraryStore - 画布团队维度', () => {
   });
 
   it('uploadFile presign 传 projectId（后端三级回落①级）', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 't-team', projectId: 'p1' } });
     mockPresignUpload.mockResolvedValue({ fileId: 'file-1', uploadUrl: 'http://127.0.0.1:9000/flowai/k1', key: 'k1', fields: {} });
     mockConfirmUpload.mockResolvedValue({ fileId: 'file-1' });
     mockPost.mockResolvedValue({ data: {} });
@@ -348,11 +351,12 @@ describe('materialLibraryStore - enterContext 完整重置（spec §二.3）', (
     expect(s.batchMode).toBe(false);
     expect(s.selectedFileIds.size).toBe(0);
     expect((s as any).renameModal).toEqual({ open: false, folderId: null, defaultValue: '' });
-    // loadFolders teamId 注入断言由 Task 9 补
+    expect(mockGet).toHaveBeenCalledWith('/api/material/folders', expect.objectContaining({
+      params: expect.objectContaining({ teamId: 'B' }),
+    }));
   });
 
   it('跨团队批量误操作回归：A 勾选残留切 B 后 batchDelete 请求体不含 A 的 fileId', async () => {
-    mockPost.mockResolvedValue({ data: { data: { success: true, count: 0 } } });
     mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
     useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['file-A1', 'file-A2']) });
 
@@ -362,5 +366,118 @@ describe('materialLibraryStore - enterContext 完整重置（spec §二.3）', (
 
     // enterContext 已清空 A 的残留勾选 → batchDelete 空选择 early return → 删除请求根本不发出
     expect(mockPost).not.toHaveBeenCalled();
+  });
+});
+
+describe('materialLibraryStore - context 注入与快照（spec §二.4/§二.5）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useMaterialLibraryStore.setState({
+      context: {}, folders: [], selectedFolderId: null, files: [], uploading: false, uploadProgress: 0,
+    });
+  });
+
+  it('个人上下文 loadFolders 不带 teamId（③级回落）', async () => {
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    await useMaterialLibraryStore.getState().loadFolders();
+    expect(mockGet).toHaveBeenCalledWith('/api/material/folders', { params: {} });
+  });
+
+  it('团队上下文 loadFiles 带 teamId（②级）', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'T2' } });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    await useMaterialLibraryStore.getState().loadFiles();
+    expect(mockGet).toHaveBeenCalledWith('/api/material/files', expect.objectContaining({
+      params: expect.objectContaining({ teamId: 'T2' }),
+    }));
+  });
+
+  it('createFolder body 带 teamId', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'T2' } });
+    mockPost.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    await useMaterialLibraryStore.getState().createFolder('新夹', null);
+    expect(mockPost).toHaveBeenCalledWith('/api/material/folders', { name: '新夹', parentId: null, teamId: 'T2' });
+  });
+
+  it('renameFolder/moveFolder body 带 teamId；deleteFolder/moveFolderUp query 带 teamId', async () => {
+    useMaterialLibraryStore.setState({
+      context: { teamId: 'T2' },
+      folders: [{ id: 'f1', name: 'a', parentId: null, userId: 'u1', sortOrder: 0, isDefault: false, createdAt: '', updatedAt: '' }] as any,
+    });
+    mockPut.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    mockDelete.mockResolvedValue({ data: {} });
+    await useMaterialLibraryStore.getState().renameFolder('f1', 'b');
+    expect(mockPut).toHaveBeenCalledWith('/api/material/folders/f1', { name: 'b', teamId: 'T2' });
+    await useMaterialLibraryStore.getState().moveFolder('f1', { parentId: null, afterId: null });
+    expect(mockPut).toHaveBeenCalledWith('/api/material/folders/f1/move', { parentId: null, afterId: null, teamId: 'T2' });
+    await useMaterialLibraryStore.getState().moveFolderUp('f1');
+    expect(mockPut).toHaveBeenCalledWith('/api/material/folders/f1/move-up', null, { params: { teamId: 'T2' } });
+    await useMaterialLibraryStore.getState().deleteFolder('f1');
+    expect(mockDelete).toHaveBeenCalledWith('/api/material/folders/f1', { params: { teamId: 'T2' } });
+  });
+
+  it('deleteFolder 后 loadFiles 被调用（残留修复）', async () => {
+    mockDelete.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    await useMaterialLibraryStore.getState().deleteFolder('f1');
+    expect(mockGet).toHaveBeenCalledWith('/api/material/files', expect.anything());
+  });
+
+  it('deleteFile/toggleFavorite query 带 teamId', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'T2' }, files: [{ id: 'x1' }] as any });
+    mockDelete.mockResolvedValue({ data: {} });
+    mockPut.mockResolvedValue({ data: { data: { success: true, data: { isFavorite: true } } } });
+    await useMaterialLibraryStore.getState().deleteFile('x1');
+    expect(mockDelete).toHaveBeenCalledWith('/api/material/files/x1', { params: { teamId: 'T2' } });
+    await useMaterialLibraryStore.getState().toggleFavorite('x1');
+    expect(mockPut).toHaveBeenCalledWith('/api/material/files/x1/toggle-favorite', null, { params: { teamId: 'T2' } });
+  });
+
+  it('batchDelete/batchMove body 带 teamId', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'T2' }, batchMode: true, selectedFileIds: new Set(['a']) });
+    mockPost.mockResolvedValue({ data: { data: { success: true, count: 1 } } });
+    await useMaterialLibraryStore.getState().batchDelete();
+    expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-delete', { ids: ['a'], teamId: 'T2' });
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['a']), selectedFolderId: 'f1' });
+    await useMaterialLibraryStore.getState().batchMove('f2');
+    expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-move', { ids: ['a'], folderId: 'f2', teamId: 'T2' });
+  });
+
+  it('uploadFile 快照：presign/move 用快照 teamId+projectId，confirm 不传 teamId，末尾仅 context 未变才刷新', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'A', projectId: 'P' }, selectedFolderId: 'fa' });
+    mockPresignUpload.mockImplementation(async () => {
+      // 上传在途切换上下文到 B
+      useMaterialLibraryStore.setState({ context: { teamId: 'B' }, selectedFolderId: null, files: [{ id: 'b-file' }] as any });
+      return { fileId: 'fid', uploadUrl: 'http://127.0.0.1:9000/flowai/k1', key: 'k1', fields: {} };
+    });
+    mockConfirmUpload.mockResolvedValue({});
+    mockPost.mockResolvedValue({ data: {} });
+    mockPut.mockResolvedValue({ data: {} });
+
+    await useMaterialLibraryStore.getState().uploadFile(new File(['x'], 'a.png', { type: 'image/png' }));
+
+    expect(mockPresignUpload).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'A', projectId: 'P' }));
+    expect(mockPut).toHaveBeenCalledWith('/api/material/files/fid/move', { folderId: 'fa', teamId: 'A' });
+    // confirm 不传 teamId（后端按 fileId 自证）
+    expect(mockConfirmUpload).toHaveBeenCalledWith(expect.not.objectContaining({ teamId: expect.anything() }));
+    // 末尾不刷新旧视图（context 已变）
+    const calls = mockGet.mock.calls.filter((c: any[]) => c[0] === '/api/material/files');
+    expect(calls.every((c: any[]) => c[1]?.params?.teamId !== 'A')).toBe(true);
+  });
+
+  it('loadFolders 替换型乱序：慢响应后到被丢弃', async () => {
+    let resolveSlow!: (v: any) => void;
+    mockGet.mockImplementation((url: string, cfg?: any) => {
+      if (cfg?.params?.teamId === 'A') return new Promise((r) => { resolveSlow = r; });
+      return Promise.resolve({ data: { data: { success: true, data: [{ id: 'b-folder' }] } } });
+    });
+    const store = useMaterialLibraryStore.getState();
+    void store.enterContext({ teamId: 'A' });
+    void store.enterContext({ teamId: 'B' });
+    await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]));
+    resolveSlow({ data: { data: { success: true, data: [{ id: 'a-stale' }] } } });
+    await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }])); // A 被丢弃
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { App, Modal, Select } from 'antd';
 import { useMaterialLibraryStore } from '../../stores/materialLibraryStore';
+import { useCanvasStore } from '../../stores/canvasStore';
 import type { MaterialFolder } from '@flowweb/shared';
 import FolderTree from './FolderTree/FolderTree';
 import FileGrid from './FileGrid/FileGrid';
@@ -24,8 +25,7 @@ function flattenFolders(
 export default function MaterialLibraryModal() {
   const isOpen = useMaterialLibraryStore((s) => s.isOpen);
   const close = useMaterialLibraryStore((s) => s.close);
-  const loadFolders = useMaterialLibraryStore((s) => s.loadFolders);
-  const loadFiles = useMaterialLibraryStore((s) => s.loadFiles);
+  const enterContext = useMaterialLibraryStore((s) => s.enterContext);
   const uploading = useMaterialLibraryStore((s) => s.uploading);
   const batchMode = useMaterialLibraryStore((s) => s.batchMode);
   const selectedFileIds = useMaterialLibraryStore((s) => s.selectedFileIds);
@@ -40,8 +40,11 @@ export default function MaterialLibraryModal() {
   const folderOptions = useMemo(() => flattenFolders(folders), [folders]);
 
   useEffect(() => {
-    if (isOpen) { loadFolders(); loadFiles(); }
-  }, [isOpen, loadFolders, loadFiles]);
+    if (isOpen) {
+      const cs = useCanvasStore.getState();
+      enterContext({ teamId: cs.teamId ?? undefined, projectId: cs.projectId ?? undefined });
+    }
+  }, [isOpen, enterContext]);
 
   // Keyboard shortcuts for batch mode
   useEffect(() => {

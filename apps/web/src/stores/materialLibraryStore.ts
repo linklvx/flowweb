@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { message } from 'antd';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { useCanvasStore } from './canvasStore';
 import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
 
 const MAX_FILE_SIZE = { image: 10 * 1024 * 1024, video: 100 * 1024 * 1024 };
@@ -60,7 +59,12 @@ interface MaterialLibraryState {
   batchMove: (folderId: string | null) => Promise<void>;
 }
 
-export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) => ({
+export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) => {
+  // 替换型序号：慢响应后到一律丢弃（spec §二.5）
+  let foldersSeq = 0;
+  let filesSeq = 0;
+
+  return ({
   isOpen: false,
   selectedFolderId: null,
   folders: [],
@@ -97,26 +101,30 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   setRenameModal: (value) => set({ renameModal: value }),
 
   loadFolders: async () => {
+    const seq = ++foldersSeq;
     set({ loading: true });
     try {
       const { data } = await axios.get('/api/material/folders', {
-        params: { teamId: useCanvasStore.getState().teamId ?? undefined },
+        params: { teamId: get().context.teamId ?? undefined },
       });
+      if (seq !== foldersSeq) return;
       if (data.data?.success) set({ folders: data.data.data });
     } catch {
       // silently handle error
     } finally {
-      set({ loading: false });
+      if (seq === foldersSeq) set({ loading: false });
     }
   },
 
   loadFiles: async () => {
+    const seq = ++filesSeq;
     set({ loading: true, batchMode: false, selectedFileIds: new Set() });
     try {
       const { selectedFolderId } = get();
       const { data } = await axios.get('/api/material/files', {
-        params: { folderId: selectedFolderId, teamId: useCanvasStore.getState().teamId ?? undefined },
+        params: { folderId: selectedFolderId, teamId: get().context.teamId ?? undefined },
       });
+      if (seq !== filesSeq) return;
       if (data.data?.success) {
         // Rewrite presigned GET URLs through Vite proxy to avoid CORS/network issues
         // Same pattern as upload: http://127.0.0.1:9000/flowai/... -> /flowai/...
@@ -132,46 +140,51 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     } catch {
       // silently handle error
     } finally {
-      set({ loading: false });
+      if (seq === filesSeq) set({ loading: false });
     }
   },
 
   createFolder: async (name, parentId = null) => {
-    const { folders } = get();
+    const { folders, context } = get();
     const parentKey = parentId ?? null;
     const dup = folders.find((f) => f.name === name && (f.parentId ?? null) === parentKey);
     if (dup) { message.error('同名文件夹已存在'); return; }
-    await axios.post('/api/material/folders', { name, parentId });
+    const body: { name: string; parentId: string | null; teamId?: string } = { name, parentId };
+    if (context.teamId) body.teamId = context.teamId;
+    await axios.post('/api/material/folders', body);
     await get().loadFolders();
   },
 
   renameFolder: async (id, name) => {
-    const { folders } = get();
+    const { folders, context } = get();
     const folder = folders.find((f) => f.id === id);
     if (!folder) return;
     const parentKey = folder.parentId ?? null;
     const dup = folders.find((f) => f.id !== id && f.name === name && (f.parentId ?? null) === parentKey);
     if (dup) { message.error('同名文件夹已存在'); return; }
-    await axios.put(`/api/material/folders/${id}`, { name });
+    const body: { name: string; teamId?: string } = { name };
+    if (context.teamId) body.teamId = context.teamId;
+    await axios.put(`/api/material/folders/${id}`, body);
     await get().loadFolders();
   },
 
   deleteFolder: async (id) => {
-    await axios.delete(`/api/material/folders/${id}`);
+    await axios.delete(`/api/material/folders/${id}`, { params: { teamId: get().context.teamId ?? undefined } });
     const { selectedFolderId } = get();
     if (selectedFolderId === id) set({ selectedFolderId: null });
     message.success('文件夹删除成功');
-    await get().loadFolders();
+    await Promise.all([get().loadFolders(), get().loadFiles()]);
   },
 
   moveFolderUp: async (id) => {
-    await axios.put(`/api/material/folders/${id}/move-up`);
+    await axios.put(`/api/material/folders/${id}/move-up`, null, { params: { teamId: get().context.teamId ?? undefined } });
     await get().loadFolders();
   },
 
   moveFolder: async (id, dto) => {
     try {
-      await axios.put(`/api/material/folders/${id}/move`, dto);
+      const body = { ...dto, teamId: get().context.teamId };
+      await axios.put(`/api/material/folders/${id}/move`, body);
       await get().loadFolders();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err.message || '未知错误';
@@ -192,7 +205,9 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     set({ uploading: true, uploadProgress: 0 });
     const source = axios.CancelToken.source();
     try {
-      const { selectedFolderId } = get();
+      // 请求链路一律快照：上传在途的上下文切换不影响归属
+      const snapCtx = { ...get().context };
+      const snapFolderId = get().selectedFolderId;
 
       // 1. Get presigned URL (uses project's apiFetch wrapper that unwraps TransformInterceptor)
       const { fileId, uploadUrl, key, fields } = await presignUpload({
@@ -200,7 +215,8 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
         fileSize: file.size,
         fileType: file.type,
         type: 'uploaded',
-        projectId: useCanvasStore.getState().projectId ?? undefined,
+        teamId: snapCtx.teamId,
+        projectId: snapCtx.projectId,
       });
 
       // 2. Upload to MinIO via Vite proxy (avoids CORS)
@@ -216,13 +232,19 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
         onUploadProgress: (e) => set({ uploadProgress: Math.round((e.loaded * 100) / (e.total || 1)) }),
       });
 
-      // 3. Confirm upload
+      // 3. Confirm upload (不传 teamId：后端按 fileId 自证)
       await confirmUpload({ fileId, key, fileSize: file.size });
 
       // 4. Move file to selected folder
-      await axios.put(`/api/material/files/${fileId}/move`, { folderId: selectedFolderId });
+      await axios.put(`/api/material/files/${fileId}/move`, { folderId: snapFolderId, teamId: snapCtx.teamId });
 
-      await get().loadFiles();
+      // 末尾刷新口径：仅当前 context 与快照一致且 folder 未变才刷新
+      const cur = get();
+      const ctxUnchanged =
+        cur.context.teamId === snapCtx.teamId && cur.context.projectId === snapCtx.projectId;
+      if (ctxUnchanged && cur.selectedFolderId === snapFolderId) {
+        await get().loadFiles();
+      }
     } catch (err) {
       if (!axios.isCancel(err)) console.error('Upload failed:', err);
     } finally {
@@ -231,12 +253,12 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   },
 
   deleteFile: async (id) => {
-    await axios.delete(`/api/material/files/${id}`);
+    await axios.delete(`/api/material/files/${id}`, { params: { teamId: get().context.teamId ?? undefined } });
     set((s) => ({ files: s.files.filter((f) => f.id !== id) }));
   },
 
   toggleFavorite: async (id) => {
-    const { data } = await axios.put(`/api/material/files/${id}/toggle-favorite`);
+    const { data } = await axios.put(`/api/material/files/${id}/toggle-favorite`, null, { params: { teamId: get().context.teamId ?? undefined } });
     if (data.data?.success) {
       set((s) => ({ files: s.files.map((f) => f.id === id ? { ...f, isFavorite: data.data.data.isFavorite } : f) }));
     }
@@ -264,12 +286,12 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   selectAllFiles: () => set((s) => ({ selectedFileIds: new Set(s.files.map((f) => f.id)) })),
 
   batchDelete: async () => {
-    const { selectedFileIds } = get();
+    const { selectedFileIds, context } = get();
     if (selectedFileIds.size === 0) return;
     try {
-      const { data } = await axios.post('/api/material/files/batch-delete', {
-        ids: Array.from(selectedFileIds),
-      });
+      const body: { ids: string[]; teamId?: string } = { ids: Array.from(selectedFileIds) };
+      if (context.teamId) body.teamId = context.teamId;
+      const { data } = await axios.post('/api/material/files/batch-delete', body);
       set((s) => ({
         files: s.files.filter((f) => !selectedFileIds.has(f.id)),
         batchMode: false,
@@ -287,7 +309,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   },
 
   batchMove: async (folderId) => {
-    const { selectedFileIds, selectedFolderId } = get();
+    const { selectedFileIds, selectedFolderId, context } = get();
     if (selectedFileIds.size === 0) return;
     if (folderId === selectedFolderId) {
       message.warning('文件已在目标文件夹中');
@@ -295,7 +317,9 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
     }
     try {
       const ids = Array.from(selectedFileIds);
-      const { data } = await axios.post('/api/material/files/batch-move', { ids, folderId });
+      const body: { ids: string[]; folderId: string | null; teamId?: string } = { ids, folderId };
+      if (context.teamId) body.teamId = context.teamId;
+      const { data } = await axios.post('/api/material/files/batch-move', body);
       const count = data.data?.count ?? 0;
       if (count > 0) {
         set((s) => ({
@@ -315,4 +339,5 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       message.error('批量移动失败，请稍后重试');
     }
   },
-}));
+  });
+});
