@@ -107,9 +107,11 @@ export function HomeBannerManagementTab() {
       title: '删除该 Banner？',
       content: '服务器上的图片文件将一并删除。',
       onOk: async () => {
-        await deleteHomeBanner(b.id);
-        messageApi.success('已删除');
-        void load();
+        try {
+          await deleteHomeBanner(b.id);
+          messageApi.success('已删除');
+          void load();
+        } catch { messageApi.error('操作失败'); }
       },
     });
   };
