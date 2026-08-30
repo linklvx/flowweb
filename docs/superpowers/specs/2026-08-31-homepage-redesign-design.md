@@ -124,7 +124,7 @@ export const router = createBrowserRouter([
 
 ### 3.4 `layout/AnnouncementBar.tsx`（新实现，替换旧组件）
 - sticky top-0 z-40 全宽；外层 p-2（8px）bg 同页面 `#141414`；内层 h-12 rounded-lg px-12 垂直居中，bg/textColor 取自数据（默认 `#0f2761` / `#ffffff`），cursor-pointer
-- 公告文字 14px/500/22px 单行省略；链接按钮（配置了 linkText+linkUrl 才显示）：白边框 `1px solid rgba(255,255,255,0.5)` 透明底白字 13px 圆角 9999px px-3，hover bg `rgba(255,255,255,0.1)`，新窗口打开
+- 公告文字 14px/500/22px 单行省略；链接按钮（配置了 linkText+linkUrl 才显示）：白边框 `1px solid rgba(255,255,255,0.5)` 透明底白字 13px 圆角 9999px px-3，hover bg `rgba(255,255,255,0.1)`，新窗口打开；onClick 需 `e.stopPropagation()`（它是 `<a target="_blank">`，冒泡会触发整栏 onClick 连开两个相同标签页，只走 anchor 默认行为）
 - 关闭按钮：24×24 图标 14px `rgba(255,255,255,0.7)` hover 白，圆形 hover bg `rgba(255,255,255,0.1)`；onClick 需 `e.stopPropagation()`（内容区整条可点击跳转，否则关公告同时触发跳转）并调 `announcementStore.dismiss()`
 - 内容区点击行为同链接按钮（未配置链接无跳转）
 
@@ -133,8 +133,8 @@ export const router = createBrowserRouter([
 - 通用按钮：h-8 rounded-lg border `rgba(255,255,255,0.1)` bg `rgba(255,255,255,0.04)` 文字 13px `#d0d0d0` px-2.5，图标 16px `#a0a0a0` gap-1；hover bg `#262626` border `#444` 文字白，过渡 150ms
 - **未登录**：赚积分（GiftOutlined → `/settings/credits`）、会员充值（CrownOutlined → `useVipModalStore().open()`）、登录/注册（反色实色：bg `#ffffff` 文字黑 13px/500 无边框 px-4 hover `#e8e8e8`；onClick 打开 LoginModal——局部 state，随组件迁入）。无促销标签
 - **登录态**：赚积分、会员充值、积分余额（⚡图标 + `toLocaleString()` 数字白 13px/500 + 会员等级彩色小标签，点击 → `/settings/membership`）、TeamSwitcher（复用现有组件，容器样式适配按钮风格）、头像 32px 圆形 antd Dropdown（团队管理 `/team` / 用户中心 `/settings` / 个人设置 `/settings/profile` / 退出登录）
-- 积分/会员数据改用既有 **`creditsStore`**（`fetchBalance()` 内部即 `Promise.all([getBalance, getMe])`，含 tier 字段与 `applyBalance` 充值到账全局联动；Navbar 的裸 fetch 是仓库异类，不复制）
-- 未登录点赚积分/会员充值 → RequireAuth 弹登录：行为保持，测试固化
+- 积分/会员数据改用既有 **`creditsStore`**（`fetchBalance()` 内部即 `Promise.all([getBalance, getMe])`，含 tier 字段与 `applyBalance` 充值到账全局联动；Navbar 的裸 fetch 是仓库异类，不复制）；**调用需登录门控**：`useEffect(() => { if (user) void fetchBalance(); }, [user])`，对齐旧 Navbar 的 `if (!user) return` 门控——fetchBalance 无 token 判断，而 TopActionBar 存在于公开组页面，未登录请求会打两个非白名单接口产生 401 噪音
+- 未登录三按钮确切行为（保持现状，测试按此断言，勿误接 LoginModal）：**赚积分** `<Link to="/settings/credits">` → 未登录命中 RequireAuth 的 `Navigate to="/login"` **整页跳登录页**；**会员充值** → 未登录也直接 `vipModalStore.open()` 弹 VIP 订阅框（D11 全局挂载后本就可弹，不拦登录）；**登录/注册** → 打开 LoginModal
 
 ### 3.6 `pages/home/components/BannerCarousel.tsx`
 - 数据：组件内 local state + `apiFetch` 调 `GET /api/home-banners/active`（自动解包取 items，不建 store）
@@ -237,7 +237,7 @@ CREATE UNIQUE INDEX "announcement_single_active" ON "Announcement"("active") WHE
 
 ## 5. API 设计
 
-共享类型放 `packages/shared/src/types/home.types.ts`（范式：subscription.types.ts）。
+共享类型放 `packages/shared/src/types/home.types.ts`，并在 `packages/shared/src/index.ts` 根 barrel 补 `export * from './types/home.types'`（照 subscription.types 导出链，漏补则 web 侧 import 不到）。
 
 ### 5.1 公开接口
 | 接口 | 说明 |
@@ -339,7 +339,7 @@ Banner（新模块 `modules/home-banner/`：controller + service + admin control
 
 ### 11.2 测试点
 - **后端**：公告 CRUD；互斥（启用一条其余自动 false，create/PATCH 两路径；P2002 捕获）；HomeBanner CRUD；列表按 sortOrder；删除时 MinIO 对象删除（含 NoSuchKey 容忍）；换图删旧 key；上传类型/大小/magic number 校验
-- **前端**：AppLayout 挂载即 fetchActive、公告显隐驱动侧栏/操作栏 top class 联动、VipSubscribeModal 全局挂载；Sidebar 四菜单渲染/高亮/跳转；新建项目走 startNewProject（清 localStorage）；TopActionBar 登录/未登录两态 + 积分走 creditsStore + 未登录点受保护入口弹登录；AnnouncementBar 渲染/关闭按钮 stopPropagation + sessionStorage 按公告 id/无公告不渲染；BannerCarousel（fake timers 自动轮播/hover 暂停/unmount 清 timer/单张无箭头指示器/骨架/单张失败占位/全部失败等价空态/空态不渲染）；CreateCanvasCard 跳转；Footer 文案与备案链接 href+rel；WeChatFollowModal 渲染二维码；Admin 两 tab 渲染 + 启用互斥提示；HomePage 组装
+- **前端**：AppLayout 挂载即 fetchActive、公告显隐驱动侧栏/操作栏 top class 联动、VipSubscribeModal 全局挂载；Sidebar 四菜单渲染/高亮/跳转；新建项目走 startNewProject（清 localStorage）；TopActionBar 登录/未登录两态 + 积分走 creditsStore（仅登录态发请求）+ 未登录三按钮确切行为断言（赚积分→整页跳 /login、会员充值→直接弹 VIP 框、登录/注册→LoginModal）；AnnouncementBar 渲染/关闭按钮与链接按钮各自 stopPropagation（点链接按钮只打开一次，不冒泡触发整栏跳转）+ sessionStorage 按公告 id/无公告不渲染；BannerCarousel（fake timers 自动轮播/hover 暂停/unmount 清 timer/单张无箭头指示器/骨架/单张失败占位/全部失败等价空态/空态不渲染）；CreateCanvasCard 跳转；Footer 文案与备案链接 href+rel；WeChatFollowModal 渲染二维码；Admin 两 tab 渲染 + 启用互斥提示；HomePage 组装
 
 ### 11.3 完成定义（硬门）
 1. `tsc --noEmit` 严格模式零错（web + api + spec tsconfig）
