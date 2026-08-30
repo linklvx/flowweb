@@ -1,7 +1,7 @@
 # 素材库独立页 + works 团队页对齐 设计文档
 
 日期：2026-08-30
-状态：v6（用户 2026-08-30 逐节确认，含八轮设计审核修订；v6 补全 enterContext 重置清单（folders/selectedFileIds/renameModal）与有意不清清单、素材页 Browser key 重挂载）
+状态：v6.1（v6 八轮审核收敛后的终稿 + 十/十一轮 plan 审核发现的时序勘误：URL→loadFolder effect 必须盯 raw + lastLoadedRef 基准，边界表数值结论不变、机制描述订正）
 
 ## 背景
 
@@ -58,14 +58,20 @@
   - `useWorkspaceData(teamId, initialFolderId)` 增加入参，mount effect 直接 `loadFolder(initialFolderId ?? null)`，下沉的 URL effect **首帧恒跳过**、只负责后续导航
   - **initialFolderId 必须取 URL 原始值 `searchParams.get('folder')`**，不能用 `useFolderNavigation` 过滤后的 `currentFolderId`——后者经 valid 过滤（useFolderNavigation.ts:41-42），挂载瞬间 folders 为空、任何 URL folder 都被判无效返回 null，会导致 mount 打根目录 + loaded 后 nav 跳成 yyy 再打一次 = 2 次退化
   - **useFolderNavigation 随 data 一并下沉进共享组件**（其入参 folders + loaded 来自 data；面包屑 path 也在共享组件内消费）——父组件不再持有 data/nav，只产出「有效选中 teamId」
-  - **请求次数精确边界**：
+  - **请求次数精确边界**（v6.1 勘误：数值结论 1/1/1/2 不变，机制描述订正）：
 
-| 挂载场景 | 请求次数 | 机制 |
+> **勘误（v6.1）**：原表述「loaded 后 nav 值与初始一致、依赖不变，effect 不触发」作废。实际：挂载瞬间 folders=[]，useFolderNavigation 的 valid 过滤（:41-42）使 nav.currentFolderId 为 **null**（非 URL 原值），folders 就位后发生 null→yyy 跳变。URL→loadFolder effect **不得盯过滤后的 nav.currentFolderId**，必须盯 URL 原始值 `searchParams.get('folder')`（raw），并以 `lastLoadedRef`（初始值 = 挂载时 raw）为基准：target 与基准相同即吞掉（覆盖有效直链的跳变），不同才加载并更新基准。
+>
+> 无效直链「=2 且终态根目录」的成立前提同步订正：**加载 effect 与 fallback effect（useFolderNavigation:8,12）同盯 raw**——fallback 删 folder 使 raw 发生 nope→null 跳变，effect 才会打根目录；若盯过滤值则 null→null 无跳变、回落失败（此为被否方案，记录以防回退）。
+>
+> items 过滤与面包屑 path 继续消费 nav 过滤值（无效期间按根渲染）；两套值各司其职：**raw 驱动请求，nav 驱动渲染**。
+
+| 挂载场景 | 请求次数 | 机制（v6.1 订正版） |
 |---|---|---|
-| 根目录 | 1 | mount `loadFolder(null)` |
-| 有效 folder 直链 | 1 | mount 直打 yyy；loaded 后 nav 值与初始一致、依赖不变，effect 不触发 |
-| 切团队（folder 已清空） | 1 | 同根目录 |
-| 无效 folder 直链 | 2（下限，不可消除） | mount 打 yyy 得空列表 → loaded 后 fallback（:12-19）replace 删 folder + message.info → URL effect 打根目录。判断有效性必须先拿到 folders 树 |
+| 根目录 | 1 | mount `loadFolder(null)`；raw 恒 null 与基准相等 |
+| 有效 folder 直链 | 1 | mount 直打 yyy；nav 过滤值的 null→yyy 跳变与 raw 依赖无关，且 raw===基准被吞 |
+| 切团队（folder 已清空） | 1 | key 重挂载，ref 重新初始化，等同根目录 |
+| 无效 folder 直链 | 2（下限，不可消除） | mount 打 nope 得空列表 → loaded 后 fallback（:12-19）replace 删 folder + message.info → raw nope→null 与基准不等 → 打根目录。判断有效性必须先拿到 folders 树 |
 
   - 同时消掉个人页现状冗余根请求；配合「teams 未就绪不挂载」，与消除 N 组并发的初衷一致
 - **行为变化登记（key 方案固有代价，开发期可接受）**：personal ↔ team 一级 tab 切换会卸载/重挂载维度组件——切回个人 tab 重新拉个人列表，搜索词/滚动位置/分页 page 全部归零（现状 data 在父组件常驻、切 tab 不重拉）。素材页 enterContext 本就如此，仅 works 是行为变化
@@ -234,6 +240,10 @@ backups/、.claude/worktrees/ 下的 FileUpload 副本非生产路径，不动�
 
 - 加载/上传失败提示沿用 store 现有 message 逻辑
 - 团队列表加载失败复用 works 同款错误提示（message.error）
+
+## 已知现状登记（不修，v6.1）
+
+- 删除「当前所在文件夹」时：deleteFolder 内部 loadFolder(null) 与 fallback 删 URL 会重复一次根请求并误弹「文件夹不存在」——现状既有行为（raw 方案也不消除，因内部加载不回写 lastLoadedRef），非本次回归
 
 ## 竞态防护（本次新增交互引入的风险）
 

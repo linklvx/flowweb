@@ -798,22 +798,19 @@ export function WorkspaceDimension({ teamId }: WorkspaceDimensionProps) {
 
   const showCreateCanvasCard = !searchQuery && filter !== 'folders';
 
-  // URL→loadFolder 单一数据流（P0-1 修复版）：盯「原始 searchParams」而非 nav.currentFolderId——
-  // nav 值经 valid 过滤（useFolderNavigation:41-42），挂载瞬间 folders 为空 → 有效 folder 也返回 null，
-  // 请求回来后 null→yyy 跳变会被误判为"后续导航"造成双发；盯 raw + lastLoadedRef 基准可吞掉该跳变。
-  // 无效 folder 场景：fallback 删 URL 后 raw null≠基准 yyy → 正确回落根目录（=2 符合边界表）。
-  const lastLoadedRef = useRef<string | null>(initialFolderIdRef.current ?? null);
-  const firstRender = useRef(true);
+  // URL→loadFolder 单一数据流（v6.1 勘误版，raw + lastLoadedRef）：盯「原始 searchParams」而非
+  // nav.currentFolderId——nav 值经 valid 过滤（useFolderNavigation:41-42），挂载瞬间 folders 为空 →
+  // 有效 folder 也返回 null，请求回来后 null→yyy 跳变会被误判为"后续导航"造成双发。
+  // 基准初始化 = 挂载时 raw → 首帧必然等于基准自然被吞（firstRender 冗余，省略）；
+  // 与 fallback effect（useFolderNavigation:8,12 同盯 raw）数据源一致，「fallback 删 URL → 回落根目录」链路才闭合。
+  // loadFolder 引用实例内稳定（useCallback 依赖 [refreshFolders, teamId]，teamId 只随 key 重挂载变化）。
+  const rawFolderId = searchParams.get('folder');
+  const lastLoadedRef = useRef<string | null>(rawFolderId);
   useEffect(() => {
-    const raw = searchParams.get('folder');
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    if (raw === lastLoadedRef.current) return; // valid 恢复造成的跳变，mount 已加载，吞掉
-    lastLoadedRef.current = raw;
-    void data.loadFolder(raw);
-  }, [searchParams, data.loadFolder]);
+    if (rawFolderId === lastLoadedRef.current) return; // valid 恢复造成的跳变 / 首帧，mount 已加载，吞掉
+    lastLoadedRef.current = rawFolderId;
+    void data.loadFolder(rawFolderId);
+  }, [rawFolderId, data.loadFolder]);
 
   const enterFolder = (folderId: string | null) => {
     nav.setCurrentFolderId(folderId);
