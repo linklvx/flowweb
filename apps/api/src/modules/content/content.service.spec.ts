@@ -119,4 +119,19 @@ describe('ContentService 公告 CRUD', () => {
     await service.deleteAnnouncement('a1');
     expect(prisma.announcement.delete).toHaveBeenCalledWith({ where: { id: 'a1' } });
   });
+
+  it('getCards 返回启用卡片并按 sortOrder 排序', async () => {
+    const mockCards = [
+      { id: '1', title: 'Card 1', coverUrl: 'url1', tags: ['推荐'], desc: 'desc1', sortOrder: 1, active: true, createdAt: new Date(), updatedAt: new Date() },
+      { id: '2', title: 'Card 2', coverUrl: 'url2', tags: [], desc: 'desc2', sortOrder: 2, active: true, createdAt: new Date(), updatedAt: new Date() },
+    ];
+    prisma.contentCard.findMany.mockResolvedValue(mockCards);
+
+    const result = await service.getCards();
+    expect(result).toHaveLength(2);
+    expect(prisma.contentCard.findMany).toHaveBeenCalledWith({
+      where: { active: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  });
 });
