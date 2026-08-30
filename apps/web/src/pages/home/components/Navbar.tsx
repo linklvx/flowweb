@@ -18,6 +18,7 @@ const navLinks: NavLink[] = [
   { label: '模板广场', href: '/templates' },
   { label: '文档中心', href: '/docs' },
   { label: '工作空间', href: '/works' },
+  { label: '素材库', href: '/materials' },
 ];
 
 interface Props {
