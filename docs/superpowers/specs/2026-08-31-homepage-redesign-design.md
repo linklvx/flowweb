@@ -137,7 +137,7 @@ export const router = createBrowserRouter([
 - 未登录三按钮确切行为（保持现状，测试按此断言，勿误接 LoginModal）：**赚积分** `<Link to="/settings/credits">` → 未登录命中 RequireAuth 的 `Navigate to="/login"` **整页跳登录页**；**会员充值** → 未登录也直接 `vipModalStore.open()` 弹 VIP 订阅框（D11 全局挂载后本就可弹，不拦登录）；**登录/注册** → 打开 LoginModal
 
 ### 3.6 `pages/home/components/BannerCarousel.tsx`
-- 数据：组件内 local state + `apiFetch` 调 `GET /api/home-banners/active`（自动解包取 items，不建 store）
+- 数据：组件内 local state + `apiFetch` 调 `GET /api/home-banners/active`（apiFetch 自动解包后直接得到数组，不建 store）
 - loading：骨架 bg `#1e1e1e` 呼吸动画，按 8:1 比例，rounded-xl
 - 空（无启用）：不渲染不占高
 - 容器：w-full `aspect-[8/1]` rounded-xl overflow-hidden mb-3，group（hover 显示箭头）

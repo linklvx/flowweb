@@ -1692,7 +1692,7 @@ export function CreateCanvasCard() {
 
 ```tsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BannerCarousel } from './BannerCarousel';
 import { apiFetch } from '@/api/client';
 
@@ -1751,7 +1751,7 @@ describe('BannerCarousel', () => {
     render(<BannerCarousel />);
     await screen.findAllByRole('img');
     expect((screen.getAllByRole('img')[0] as HTMLElement).style.opacity).toBe('1');
-    vi.advanceTimersByTime(5000);
+    await act(async () => { vi.advanceTimersByTime(5000); });
     expect((screen.getAllByRole('img')[0] as HTMLElement).style.opacity).toBe('0');
     expect((screen.getAllByRole('img')[1] as HTMLElement).style.opacity).toBe('1');
   });
