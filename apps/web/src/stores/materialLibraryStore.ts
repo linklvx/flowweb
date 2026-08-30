@@ -13,6 +13,13 @@ interface RenameModalState {
   defaultValue: string;
 }
 
+export interface MaterialLibraryContext {
+  teamId?: string;
+  projectId?: string;
+}
+
+const RENAME_MODAL_INIT: RenameModalState = { open: false, folderId: null, defaultValue: '' };
+
 interface MaterialLibraryState {
   isOpen: boolean;
   selectedFolderId: string | null;
@@ -25,9 +32,11 @@ interface MaterialLibraryState {
   renameModal: RenameModalState;
   batchMode: boolean;
   selectedFileIds: Set<string>;
+  context: MaterialLibraryContext;
 
   open: () => void;
   close: () => void;
+  enterContext: (ctx: MaterialLibraryContext) => void;
   setSelectedFolder: (id: string | null) => void;
   setFileGridSize: (size: number) => void;
   setRenameModal: (value: RenameModalState) => void;
@@ -61,12 +70,28 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
   uploading: false,
   uploadProgress: 0,
 
-  renameModal: { open: false, folderId: null, defaultValue: '' },
+  renameModal: RENAME_MODAL_INIT,
   batchMode: false,
   selectedFileIds: new Set<string>(),
+  context: {},
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false, batchMode: false, selectedFileIds: new Set() }),
+
+  enterContext: (ctx) => {
+    // 单一入口：完整重置 + reload（spec §二.3，时序约束编码进 API）
+    set({
+      context: ctx,
+      selectedFolderId: null,
+      folders: [],
+      files: [],
+      batchMode: false,
+      selectedFileIds: new Set(),
+      renameModal: RENAME_MODAL_INIT,
+    });
+    void get().loadFolders();
+    void get().loadFiles();
+  },
   setSelectedFolder: (id) => set({ selectedFolderId: id }),
   setFileGridSize: (size) => set({ fileGridSize: size }),
   setRenameModal: (value) => set({ renameModal: value }),

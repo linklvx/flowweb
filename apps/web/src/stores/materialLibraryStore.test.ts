@@ -322,3 +322,45 @@ describe('materialLibraryStore - 画布团队维度', () => {
     }));
   });
 });
+
+describe('materialLibraryStore - enterContext 完整重置（spec §二.3）', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('重置清单全覆盖：context+selectedFolderId+folders+files+batchMode+selectedFileIds+renameModal', async () => {
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    // 预置脏状态（模拟团队 A 的残留）
+    useMaterialLibraryStore.setState({
+      selectedFolderId: 'folder-A',
+      folders: [{ id: 'fa', name: 'A文件夹', parentId: null, userId: 'u1', sortOrder: 0, isDefault: false, createdAt: '', updatedAt: '' }] as any,
+      files: [{ id: 'fa-file' }] as any,
+      batchMode: true,
+      selectedFileIds: new Set(['fa-file']),
+      renameModal: { open: true, folderId: 'fa', defaultValue: 'x' },
+    });
+
+    await useMaterialLibraryStore.getState().enterContext({ teamId: 'B' });
+
+    const s = useMaterialLibraryStore.getState();
+    expect(s.context).toEqual({ teamId: 'B' });
+    expect(s.selectedFolderId).toBeNull();
+    expect(s.folders).toEqual([]);
+    expect(s.files).toEqual([]);
+    expect(s.batchMode).toBe(false);
+    expect(s.selectedFileIds.size).toBe(0);
+    expect((s as any).renameModal).toEqual({ open: false, folderId: null, defaultValue: '' });
+    // loadFolders teamId 注入断言由 Task 9 补
+  });
+
+  it('跨团队批量误操作回归：A 勾选残留切 B 后 batchDelete 请求体不含 A 的 fileId', async () => {
+    mockPost.mockResolvedValue({ data: { data: { success: true, count: 0 } } });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+    useMaterialLibraryStore.setState({ batchMode: true, selectedFileIds: new Set(['file-A1', 'file-A2']) });
+
+    await useMaterialLibraryStore.getState().enterContext({});
+    useMaterialLibraryStore.getState().enterBatchMode();
+    await useMaterialLibraryStore.getState().batchDelete();
+
+    // enterContext 已清空 A 的残留勾选 → batchDelete 空选择 early return → 删除请求根本不发出
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+});
