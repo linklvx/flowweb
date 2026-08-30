@@ -539,4 +539,16 @@ describe('FolderService', () => {
       ).rejects.toThrow('文件夹嵌套深度不能超过3层（父→子→孙）');
     });
   });
+
+  describe('update 写入收窄（spec §四）', () => {
+    it('只写 name，不透传 dto 整体（SET teamId 隐式不变量消除）', async () => {
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'f1', teamId: 't1' });
+      prisma.materialFolder.update.mockResolvedValue({ id: 'f1' });
+      await service.update('f1', { name: '新名', teamId: 't1' } as any, 'u1');
+      expect(prisma.materialFolder.update).toHaveBeenCalledWith({
+        where: { id: 'f1' },
+        data: { name: '新名' },
+      });
+    });
+  });
 });

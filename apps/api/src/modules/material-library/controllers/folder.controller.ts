@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, Req, Query, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Put, Req, Query, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
 import { FolderService } from '../services/folder.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
 import { MoveFolderDto } from '../dto/move-folder.dto';
 
 @Controller('api/material/folders')
+@UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class FolderController {
   constructor(@Inject(FolderService) private readonly folderService: FolderService) {}
 

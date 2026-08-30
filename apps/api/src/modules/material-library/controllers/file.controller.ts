@@ -1,9 +1,11 @@
-import { Controller, Get, Put, Post, Delete, Param, Body, Req, Query, Inject } from '@nestjs/common';
+import { Controller, Get, Put, Post, Delete, Param, Body, Req, Query, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
 import { MaterialService } from '../services/material.service';
 import { MoveFileDto } from '../dto/move-file.dto';
 import { BatchMoveFilesDto } from '../dto/batch-move-files.dto';
+import { BatchDeleteFilesDto } from '../dto/batch-delete-files.dto';
 
 @Controller('api/material/files')
+@UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class FileController {
   constructor(@Inject(MaterialService) private readonly materialService: MaterialService) {}
 
@@ -48,7 +50,7 @@ export class FileController {
   }
 
   @Post('batch-delete')
-  async batchDelete(@Body() body: { ids: string[]; teamId?: string }, @Req() req: any) {
+  async batchDelete(@Body() body: BatchDeleteFilesDto, @Req() req: any) {
     const count = await this.materialService.deleteFiles(req.user.id, body.ids, body.teamId);
     return { success: true, count };
   }

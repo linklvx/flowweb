@@ -80,7 +80,7 @@ export class FolderService {
       where: { id, teamId: resolved, deletedAt: null },
     });
     if (!folder) throw new BadRequestException('文件夹不存在');
-    return this.prisma.materialFolder.update({ where: { id }, data: dto });
+    return this.prisma.materialFolder.update({ where: { id }, data: { name: dto.name } });
   }
 
   async remove(id: string, userId: string, teamId?: string) {
