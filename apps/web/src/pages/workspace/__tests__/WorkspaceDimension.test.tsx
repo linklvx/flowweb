@@ -57,12 +57,16 @@ describe('WorkspaceDimension 共享组件', () => {
     renderDim(undefined, ['/works?folder=yyy']);
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
     expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
+    // 静置后再复核——nav valid 恢复造成的 null→yyy 跳变若被误判为后续导航，第二次请求会在此窗口出现
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mockGetTemplates).toHaveBeenCalledTimes(1);
   });
 
   it('无效 folder 直链：=2 次请求且终态根目录（spec 请求次数边界表）', async () => {
     // folders 树不含 yyy（beforeEach 默认空树）→ loaded 后 fallback replace 删 folder → URL raw 变 null 与基准不等 → 打根目录
     renderDim(undefined, ['/works?folder=yyy']);
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    expect(mockGetTemplates.mock.calls[0][0]).toEqual(expect.objectContaining({ folderId: 'yyy' }));
     const lastCall = mockGetTemplates.mock.calls[mockGetTemplates.mock.calls.length - 1][0];
     expect(lastCall.folderId).toBe('root');
   });
