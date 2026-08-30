@@ -1256,9 +1256,7 @@ describe('materialLibraryStore - enterContext 完整重置（spec §二.3）', (
     expect(s.batchMode).toBe(false);
     expect(s.selectedFileIds.size).toBe(0);
     expect((s as any).renameModal).toEqual({ open: false, folderId: null, defaultValue: '' });
-    expect(mockGet).toHaveBeenCalledWith('/api/material/folders', expect.objectContaining({
-      params: expect.objectContaining({ teamId: 'B' }),
-    }));
+    // loadFolders 以 context.teamId='B' 注入的断言由 Task 9 补（本任务 loadFolders 仍读 canvasStore）
   });
 
   it('跨团队批量误操作回归：A 勾选残留切 B 后 batchDelete 请求体不含 A 的 fileId', async () => {
@@ -1270,7 +1268,7 @@ describe('materialLibraryStore - enterContext 完整重置（spec §二.3）', (
     useMaterialLibraryStore.getState().enterBatchMode();
     await useMaterialLibraryStore.getState().batchDelete();
 
-    expect(mockPost).toHaveBeenCalledWith('/api/material/files/batch-delete', { ids: [] });
+    expect(mockPost).not.toHaveBeenCalled(); // batchDelete 空集早退（store 内 if size===0 return），A 的 fileId 连请求体都进不去——语义比计划原稿更强
   });
 });
 ```
@@ -1319,7 +1317,7 @@ const RENAME_MODAL_INIT: RenameModalState = { open: false, folderId: null, defau
   },
 ```
 
-（`close()`（:69）同步改为复用常量：`renameModal: RENAME_MODAL_INIT`——保持行为一致。）
+（勘误：`close()` 实际只 set isOpen/batchMode/selectedFileIds 三键、无 renameModal 字面量，无可换内容，不改。）
 
 - [ ] **Step 4: 跑测试确认通过 + 既有回归**
 
