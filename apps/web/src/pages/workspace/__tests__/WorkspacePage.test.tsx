@@ -127,7 +127,7 @@ describe('WorkspacePage', () => {
     const card = await screen.findByTestId('folder-card-f1');
     fireEvent.click(card.querySelector('[aria-label="更多操作"]')!);
     fireEvent.click(await screen.findByText('删除'));
-    await waitFor(() => expect(folderApi.deleteFolder).toHaveBeenCalledWith('f1'));
+    await waitFor(() => expect(folderApi.deleteFolder).toHaveBeenCalledWith('f1', undefined));
   });
 
   it('移动画布到根目录：updateTemplate folderId null', async () => {

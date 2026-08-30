@@ -86,7 +86,7 @@ describe('TeamSection', () => {
     expect(input).toHaveValue('旧名');
     fireEvent.change(input, { target: { value: '新名' } });
     fireEvent.click(screen.getByRole('button', { name: '确 定' }));
-    await waitFor(() => expect(api.renameFolder).toHaveBeenCalledWith('f1', '新名'));
+    await waitFor(() => expect(api.renameFolder).toHaveBeenCalledWith('f1', '新名', 't-1'));
   });
 
   it('文件夹列表按当前层级过滤（root 只显示顶级，进入后只显示子级）', async () => {
