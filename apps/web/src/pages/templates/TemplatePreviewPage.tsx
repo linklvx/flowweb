@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router';
 import { getTemplate, importTemplate, deleteTemplate } from '@/api/templateApi';
-import { Navbar } from '@/pages/home/components/Navbar';
 
 export function TemplatePreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,7 +42,7 @@ export function TemplatePreviewPage() {
   if (!template) return <div className="flex items-center justify-center py-16 text-[#555]">模板不存在</div>;
 
   const content = (
-    <div className="mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] py-8">
+    <div className="py-8">
       <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
         ← 返回{isWorks ? '工作空间' : '模板广场'}
       </button>
@@ -106,8 +105,7 @@ export function TemplatePreviewPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f]">
-      <Navbar />
+    <div>
       {content}
     </div>
   );

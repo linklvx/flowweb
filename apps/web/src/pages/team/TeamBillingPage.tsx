@@ -6,7 +6,6 @@ import {
   createTeamRechargeOrder, payTeamOrder, createSubscriptionOrder,
   teamDisplayName, type MyTeam, type TeamPlanRow, type TeamRechargeOrderRow,
 } from '@/api/teamApi';
-import { Navbar } from '@/pages/home/components/Navbar';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 
 const PRESET_AMOUNTS = [10, 30, 50, 100, 200, 500];
@@ -47,11 +46,10 @@ export default function TeamBillingPage() {
     if (id && team && !team.isDefault) void refresh(id).catch(() => {});
   }, [id, team?.id, team?.isDefault]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (teams === null) return <div className="min-h-screen bg-[#111]" />;
+  if (teams === null) return <div />;
   if (!team) {
     return (
-      <div className="min-h-screen bg-[#111] text-white">
-        <Navbar />
+      <div className="text-white">
         <p className="max-w-xl mx-auto py-24 text-sm text-[#888]" data-testid="billing-forbidden">无权访问该团队或团队不存在。<Link to="/team" className="text-[#5DDCFF]">返回团队管理</Link></p>
       </div>
     );
@@ -94,8 +92,7 @@ export default function TeamBillingPage() {
     : <span className="text-[#888]">{s === 'CLOSED' ? '已关闭' : '失败'}</span>;
 
   return (
-    <div className="min-h-screen bg-[#111] text-white">
-      <Navbar />
+    <div className="text-white">
       <div className="max-w-4xl mx-auto p-8">
         <div className="flex items-center gap-3 mb-6">
           <h2 className="text-lg font-bold">{teamDisplayName(team)} · 账单</h2>

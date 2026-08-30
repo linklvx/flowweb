@@ -1,7 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Navbar } from '@/pages/home/components/Navbar';
 
 export function SettingsLayout() {
   const { logout } = useAuth();
@@ -13,9 +12,8 @@ export function SettingsLayout() {
   }, [logout, navigate]);
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col overflow-x-hidden">
-      <Navbar />
-      <div className="flex-1 mx-auto max-w-[1640px] px-5 md:px-10 lg:px-[120px] w-full pt-6">
+    <div className="flex flex-col">
+      <div className="flex-1 w-full pt-6">
         <div className="flex h-full min-w-0">
           <nav className="w-48 flex-shrink-0 bg-[#1A1A1A] border-r border-[#333] flex flex-col py-4">
             <NavLink

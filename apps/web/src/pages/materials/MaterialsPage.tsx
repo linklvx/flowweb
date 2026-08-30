@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Button, Tabs } from 'antd';
-import { Navbar } from '@/pages/home/components/Navbar';
 import { teamDisplayName } from '@/api/teamApi';
 import { useTeams } from '@/pages/workspace/hooks/useTeams';
 import { WorkspaceTabBar } from '@/pages/workspace/components/WorkspaceTabBar';
@@ -41,9 +40,8 @@ export default function MaterialsPage() {
   }, [tab, validTeamId, enterContext]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <Navbar />
-      <div className="mx-auto max-w-[1640px] pt-4">
+    <div>
+      <div className="pt-4">
         <WorkspaceTabBar
           activeTab={tab}
           onTabChange={setTab}

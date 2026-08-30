@@ -18,7 +18,6 @@ vi.mock('@/api/teamApi', () => ({
 vi.mock('@/components/WeChatQRModal', () => ({
   WeChatQRModal: ({ visible }: { visible: boolean }) => (visible ? <div data-testid="wechat-qr-modal" /> : null),
 }));
-vi.mock('@/pages/home/components/Navbar', () => ({ Navbar: () => <div /> }));
 
 import TeamBillingPage from './TeamBillingPage';
 

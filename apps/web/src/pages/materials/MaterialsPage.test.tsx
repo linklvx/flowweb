@@ -8,7 +8,6 @@ vi.mock('@/api/teamApi', () => ({
   getMyTeams: (...a: any[]) => mockGetMyTeams(...a),
   teamDisplayName: (t: any) => t.name,
 }));
-vi.mock('@/pages/home/components/Navbar', () => ({ Navbar: () => <div data-testid="navbar" /> }));
 vi.mock('@/components/MaterialLibrary/MaterialLibraryBrowser', () => ({
   MaterialLibraryBrowser: (p: any) => <div data-testid="browser">{p.title}</div>,
 }));

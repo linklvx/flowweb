@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
-vi.mock('@/pages/home/components/Navbar', () => ({
-  Navbar: () => <div data-testid="navbar" />,
-}));
-
 const getTemplatesMock = vi.fn();
 vi.mock('@/api/templateApi', () => ({
   getTemplates: (...args: unknown[]) => getTemplatesMock(...args),

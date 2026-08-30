@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Button, Tabs } from 'antd';
-import { Navbar } from '@/pages/home/components/Navbar';
 import { teamDisplayName, type MyTeam } from '@/api/teamApi';
 import { useTeams } from './hooks/useTeams';
 import { WorkspaceTabBar } from './components/WorkspaceTabBar';
@@ -32,9 +31,8 @@ export function WorkspacePage() {
   }, [tab, state.status, validTeamId, realTeams, setSearchParams]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <Navbar />
-      <div className="mx-auto max-w-[1640px] pt-4">
+    <div>
+      <div className="pt-4">
         <WorkspaceTabBar activeTab={tab} onTabChange={setTab} />
         {tab === 'team' ? (
           state.status === 'loading' ? (

@@ -142,12 +142,12 @@ export default function TeamPage() {
   );
 
   if (!teamId || !team) {
-    return <div className="min-h-screen bg-[#111] text-[#e2e8f0] p-10">加载中…</div>;
+    return <div className="text-[#e2e8f0] p-10">加载中…</div>;
   }
 
   if (realTeams.length === 0) {
     return (
-      <div className="min-h-screen bg-[#111] text-[#e2e8f0]">
+      <div className="text-[#e2e8f0]">
         <div className="max-w-xl mx-auto flex flex-col items-center justify-center py-24 gap-4" data-testid="team-empty-state">
           <p className="text-sm text-[#888]">还没有团队——个人项目无需团队管理，创建团队后可邀请成员协作</p>
           <Button type="primary" onClick={() => setCreateOpen(true)}>新建团队</Button>
@@ -159,7 +159,7 @@ export default function TeamPage() {
 
   if (isPersonal) {
     return (
-      <div className="min-h-screen bg-[#111] text-[#e2e8f0]">
+      <div className="text-[#e2e8f0]">
         <div className="max-w-2xl mx-auto p-8" data-testid="personal-panel">
           <h2 className="text-lg font-bold mb-1">个人项目</h2>
           <p className="text-sm text-[#888] mb-6">个人项目的积分、订阅与作品独立于团队，无需团队管理。</p>
@@ -220,7 +220,7 @@ export default function TeamPage() {
   const placeholderRows = Math.max(0, seatLimit - members.total);
 
   return (
-    <div className="min-h-screen bg-[#111] text-[#e2e8f0]">
+    <div className="text-[#e2e8f0]">
       {/* Header */}
       <div className="border-b border-[#222] px-8 py-4 flex items-center gap-4">
         <div className="flex items-center gap-2">
