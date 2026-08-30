@@ -290,11 +290,11 @@ git commit -m "feat(api): material 两 controller 类级 ValidationPipe + batchD
 
 **Files:**
 - Create: `apps/web/src/pages/workspace/hooks/useTeams.ts`
-- Test: `apps/web/src/pages/workspace/hooks/useTeams.test.ts`（新建，.ts 纯 hook 逻辑用 renderHook 或直接测状态机——本仓 hook 测试参照 `useFolderNavigation.test.tsx` 用 renderHook）
+- Test: `apps/web/src/pages/workspace/hooks/useTeams.test.tsx`（新建，命名对齐仓内 `useFolderNavigation.test.tsx` 惯例）
 
 - [ ] **Step 1: 写失败测试**
 
-```ts
+```tsx
 // apps/web/src/pages/workspace/hooks/useTeams.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -468,94 +468,62 @@ git commit -m "fix(web): folderApi rename/delete 补 teamId query——修团队
 - Modify: `apps/web/src/pages/workspace/hooks/useWorkspaceData.ts`
 - Test: `apps/web/src/pages/workspace/__tests__/useWorkspaceData.test.tsx`（已存在，追加 describe）
 
-- [ ] **Step 1: 写失败测试**（追加到现有测试文件末尾；mock 方式参照文件内现有结构——`vi.mock('@/api/templateApi')` 等。若文件顶部无这些 mock 则补上）
+- [ ] **Step 1: 写失败测试**（追加到现有测试文件末尾）
 
-在文件顶部（若无）补 mock：
+**Mock 风格（重要）**：现有 useWorkspaceData.test.tsx 顶部已是 hoisted `vi.mock('@/api/templateApi')` + `import { getTemplates, updateTemplate, deleteTemplate, getFolders, createFolder, renameFolder, deleteFolder }` + `vi.mocked(x)` 风格——**复用现有 mock 与导入，不要新增第二套 vi.mock**（同模块重复 mock 会互相覆盖）。新增 describe 中一律用 `vi.mocked(getTemplates)` / `vi.mocked(apiRenameFolder)` / `vi.mocked(apiDeleteFolder)` 断言（命名随现有文件导入别名）。
 
-```ts
-const mockGetTemplates = vi.fn();
-const mockUpdateTemplate = vi.fn();
-const mockDeleteTemplate = vi.fn();
-vi.mock('@/api/templateApi', () => ({
-  getTemplates: (...a: any[]) => mockGetTemplates(...a),
-  updateTemplate: (...a: any[]) => mockUpdateTemplate(...a),
-  deleteTemplate: (...a: any[]) => mockDeleteTemplate(...a),
-}));
-const mockGetFolders = vi.fn();
-const mockCreateFolder = vi.fn();
-const mockRenameFolder = vi.fn();
-const mockDeleteFolder = vi.fn();
-vi.mock('@/api/folderApi', () => ({
-  getFolders: (...a: any[]) => mockGetFolders(...a),
-  createFolder: (...a: any[]) => mockCreateFolder(...a),
-  renameFolder: (...a: any[]) => mockRenameFolder(...a),
-  deleteFolder: (...a: any[]) => mockDeleteFolder(...a),
-}));
-```
-
-追加用例（renderHook 来自 @testing-library/react）：
+追加用例（renderHook/act/waitFor 从 '@testing-library/react' 导入，现有文件已有）：
 
 ```ts
 describe('useWorkspaceData 维度化改造（spec §一.3/§一.6/竞态）', () => {
-  const listOk = (templates: any[] = [], totalPages = 1) =>
-    mockGetTemplates.mockResolvedValue({ templates, totalPages });
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetFolders.mockResolvedValue({ folders: [] });
-    mockRenameFolder.mockResolvedValue({});
-    mockDeleteFolder.mockResolvedValue({ movedCanvasCount: 0 });
-    listOk();
+    vi.mocked(getFolders).mockResolvedValue({ folders: [] } as never);
+    vi.mocked(getTemplates).mockResolvedValue({ templates: [], totalPages: 1 } as never);
   });
 
   it('mount 直打 initialFolderId（首帧单请求，URL 原始值）', async () => {
-    listOk();
     renderHook(() => useWorkspaceData(undefined, 'yyy'));
-    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
-    expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
+    await waitFor(() => expect(vi.mocked(getTemplates)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(getTemplates)).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
   });
 
   it('无 initialFolderId → mount 打根目录 1 次', async () => {
     renderHook(() => useWorkspaceData());
-    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
-    expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
+    await waitFor(() => expect(vi.mocked(getTemplates)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(getTemplates)).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
   });
 
   it('renameFolder/deleteFolder 传维度 teamId（断链修复）', async () => {
     const { result } = renderHook(() => useWorkspaceData('t1'));
     await waitFor(() => expect(result.current.status).toBe('success'));
     await result.current.renameFolder('f1', '新名');
-    expect(mockRenameFolder).toHaveBeenCalledWith('f1', '新名', 't1');
+    expect(vi.mocked(apiRenameFolder)).toHaveBeenCalledWith('f1', '新名', 't1');
     await result.current.deleteFolder('f1');
-    expect(mockDeleteFolder).toHaveBeenCalledWith('f1', 't1');
+    expect(vi.mocked(apiDeleteFolder)).toHaveBeenCalledWith('f1', 't1');
   });
 
-  it('loadFolder 替换型乱序：慢响应后到被丢弃（伪定时器）', async () => {
-    vi.useFakeTimers();
-    try {
-      let resolveSlow!: (v: any) => void;
-      mockGetTemplates.mockImplementationOnce((q: any) =>
-        q.folderId === 'A' ? new Promise((r) => { resolveSlow = r; }) : Promise.resolve({ templates: [{ id: 'b' }], totalPages: 1 }),
-      );
-      mockGetTemplates.mockImplementation((q: any) =>
-        q.folderId === 'A' ? new Promise((r) => { resolveSlow = r; }) : Promise.resolve({ templates: [{ id: 'b' }], totalPages: 1 }),
-      );
-      const { result } = renderHook(() => useWorkspaceData());
-      await act(async () => { await Promise.resolve(); });
-      await act(async () => { void result.current.loadFolder('A'); });
-      await act(async () => { void result.current.loadFolder('B'); });
-      await act(async () => { await Promise.resolve(); });
-      expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // B 已生效
-      await act(async () => { resolveSlow({ templates: [{ id: 'a-stale' }], totalPages: 1 }); await Promise.resolve(); });
-      expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // A 慢响应被丢弃
-    } finally {
-      vi.useRealTimers();
-    }
+  it('loadFolder 替换型乱序：慢响应后到被丢弃', async () => {
+    let resolveSlow!: (v: any) => void;
+    vi.mocked(getTemplates).mockImplementation((q: any) =>
+      (q.folderId ?? 'root') === 'A'
+        ? new Promise((r) => { resolveSlow = r; })
+        : Promise.resolve({ templates: [{ id: 'b' }], totalPages: 1 }),
+    );
+    const { result } = renderHook(() => useWorkspaceData());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { void result.current.loadFolder('A'); });
+    await act(async () => { void result.current.loadFolder('B'); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // B 已生效
+    await act(async () => { resolveSlow({ templates: [{ id: 'a-stale' }], totalPages: 1 }); await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.canvases.map((c) => c.id)).toEqual(['b']); // A 慢响应被丢弃
   });
 
   it('loadMore 追加型：sessionId 相等才 append', async () => {
-    listOk([{ id: 'c1' }], 2);
-    mockGetTemplates.mockResolvedValue({ templates: [{ id: 'c2' }], totalPages: 2 });
+    vi.mocked(getTemplates)
+      .mockResolvedValueOnce({ templates: [{ id: 'c1' }], totalPages: 2 } as never)
+      .mockResolvedValueOnce({ templates: [{ id: 'c2' }], totalPages: 2 } as never);
     const { result } = renderHook(() => useWorkspaceData());
     await waitFor(() => expect(result.current.status).toBe('success'));
     await act(async () => { await result.current.loadMore(); });
@@ -564,7 +532,7 @@ describe('useWorkspaceData 维度化改造（spec §一.3/§一.6/竞态）', ()
 });
 ```
 
-注意：`act`、`renderHook`、`waitFor` 从 '@testing-library/react' 导入；`useWorkspaceData` 已在该测试文件中导入（现有文件）。import 若缺则补。
+（乱序用例不用 fake timers——链路全是 Promise 无定时器，且 fake timers 会禁用 waitFor。）
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -658,7 +626,9 @@ renameFolder/deleteFolder 传 teamId + 依赖补全（:78-96）：
 - [ ] **Step 4: 跑测试确认通过 + 既有用例回归**
 
 Run: `cd D:/flowweb/apps/web && npx vitest run src/pages/workspace/__tests__/useWorkspaceData.test.tsx`
-Expected: 全 PASS。既有用例若因 mount 行为/依赖数组变化失败：只调整测试 setup（如显式传 initialFolderId），行为断言不变
+Expected: 全 PASS。**既有用例适配（必做，非可选）**：
+- `:131` 附近 `expect(apiDeleteFolder).toHaveBeenCalledWith('f2')` → 改为 `toHaveBeenCalledWith('f2', undefined)`（改造后实际传 2 参，参数个数校验会失败）
+- 其他既有用例若因 mount 行为/依赖数组变化失败：只调整 setup（如显式传 initialFolderId），行为断言不变
 
 - [ ] **Step 5: 提交**
 
@@ -712,6 +682,8 @@ const renderDim = (teamId: string | undefined, initialEntries = ['/works']) =>
     </MemoryRouter>,
   );
 
+const folderY = { id: 'yyy', name: 'Y', parentId: null, createdAt: '', updatedAt: '', canvasCount: 0, thumbnails: [] };
+
 describe('WorkspaceDimension 共享组件', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -733,14 +705,16 @@ describe('WorkspaceDimension 共享组件', () => {
     expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ teamId: 't1' }));
   });
 
-  it('直链带 folder：mount 直打 yyy（单请求）', async () => {
+  it('有效 folder 直链：mount 直打 yyy 且全程仅 1 次请求', async () => {
+    // folders 树必须含 yyy——空树下 yyy 会被判无效走 fallback，用例前提就变了（P0-2）
+    mockGetFolders.mockResolvedValue({ folders: [folderY] });
     renderDim(undefined, ['/works?folder=yyy']);
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
     expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
   });
 
   it('无效 folder 直链：=2 次请求且终态根目录（spec 请求次数边界表）', async () => {
-    // folders 返回不含 yyy → loaded 后 nav fallback replace 删 folder → URL effect 打根目录
+    // folders 树不含 yyy（beforeEach 默认空树）→ loaded 后 fallback replace 删 folder → URL raw 变 null 与基准不等 → 打根目录
     renderDim(undefined, ['/works?folder=yyy']);
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(2), { timeout: 3000 });
     const lastCall = mockGetTemplates.mock.calls[mockGetTemplates.mock.calls.length - 1][0];
@@ -824,15 +798,22 @@ export function WorkspaceDimension({ teamId }: WorkspaceDimensionProps) {
 
   const showCreateCanvasCard = !searchQuery && filter !== 'folders';
 
-  // URL→loadFolder 单一数据流：首帧恒跳过（mount 已按 initialFolderId 直打，spec §一.3）
+  // URL→loadFolder 单一数据流（P0-1 修复版）：盯「原始 searchParams」而非 nav.currentFolderId——
+  // nav 值经 valid 过滤（useFolderNavigation:41-42），挂载瞬间 folders 为空 → 有效 folder 也返回 null，
+  // 请求回来后 null→yyy 跳变会被误判为"后续导航"造成双发；盯 raw + lastLoadedRef 基准可吞掉该跳变。
+  // 无效 folder 场景：fallback 删 URL 后 raw null≠基准 yyy → 正确回落根目录（=2 符合边界表）。
+  const lastLoadedRef = useRef<string | null>(initialFolderIdRef.current ?? null);
   const firstRender = useRef(true);
   useEffect(() => {
+    const raw = searchParams.get('folder');
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
-    void data.loadFolder(nav.currentFolderId);
-  }, [nav.currentFolderId, data.loadFolder]);
+    if (raw === lastLoadedRef.current) return; // valid 恢复造成的跳变，mount 已加载，吞掉
+    lastLoadedRef.current = raw;
+    void data.loadFolder(raw);
+  }, [searchParams, data.loadFolder]);
 
   const enterFolder = (folderId: string | null) => {
     nav.setCurrentFolderId(folderId);
@@ -875,8 +856,6 @@ export function WorkspaceDimension({ teamId }: WorkspaceDimensionProps) {
         onSearchChange={setSearchQuery}
         filter={filter} onFilterChange={setFilter}
         onCreateFolder={() => setFolderModal({ open: true })}
-        activeTab={teamId ? 'team' : 'personal'}
-        onTabChange={() => { /* 一级 tab 切换由父组件管理 URL，此处占位防误触 */ }}
       />
       <WorkspaceBreadcrumb
         path={nav.path} currentFolderId={nav.currentFolderId}
@@ -1014,16 +993,13 @@ export function WorkspaceDimension({ teamId }: WorkspaceDimensionProps) {
 }
 ```
 
-**配套改造（必须执行）**：一级 tab 行从 `WorkspaceToolbar` 上移到父组件，避免维度组件内重复渲染。新建 `WorkspaceTabBar.tsx`（一级 tab 按钮）；改造 `WorkspaceToolbar.tsx`——删除 `activeTab`/`onTabChange`/`showTools` props 与 :43-52 的 tab 按钮区块（工具行 :53-90 原样保留，`showTools !== false` 条件可简化为恒显）；`ToolbarBreadcrumb.test.tsx` 既有测试同步适配（断言不变）。上方案例代码中的 `<WorkspaceToolbar ... activeTab={...} onTabChange={...}/>` 调用相应改为不传这两个 prop：
+**配套改造（必须执行）**：一级 tab 行从 `WorkspaceToolbar` 上移到父组件，避免维度组件内重复渲染。新建 `WorkspaceTabBar.tsx`（一级 tab 按钮，代码见上）；改造 `WorkspaceToolbar.tsx`——删除 `activeTab`/`onTabChange`/`showTools` props 与 :43-52 的 tab 按钮区块（工具行 :53-90 原样保留，`showTools !== false` 条件简化为恒显）。
 
-```tsx
-      <WorkspaceToolbar
-        viewMode={viewMode} onViewModeChange={setViewMode}
-        onSearchChange={setSearchQuery}
-        filter={filter} onFilterChange={setFilter}
-        onCreateFolder={() => setFolderModal({ open: true })}
-      />
-```
+**ToolbarBreadcrumb.test.tsx 适配（P1-5，断言对象随迁移走）**：
+- `:29-40` 两条 tab 用例（页签受控/激活态）的被测对象已迁至 WorkspaceTabBar → 新建 `__tests__/WorkspaceTabBar.test.tsx` 承接这两条（render `<WorkspaceTabBar activeTab=... onTabChange=.../>`，断言原样）
+- `:43` `showTools=false 隐藏工具` 用例随 prop 一起**删除**（新设计工具行恒显）
+- `renderToolbar` 默认 props（:15-27）删除 `activeTab`/`onTabChange` 两键
+- `:98-117` Breadcrumb 用例不受影响，原样保留
 
 ```tsx
 // apps/web/src/pages/workspace/components/WorkspaceTabBar.tsx（新建）
@@ -1121,8 +1097,8 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     // 输入搜索词后切团队 → 新维度实例搜索框为空
     const searchInput = screen.getByLabelText('搜索');
     fireEvent.change(searchInput, { target: { value: 'abc' } });
-    const tabs = screen.getAllByText('t2');
-    fireEvent.click(tabs[tabs.length - 1]);
+    const tab2 = screen.getByTestId('team-tabs-row').querySelectorAll('.ant-tabs-tab')[1];
+    fireEvent.click(tab2!);
     await waitFor(() => {
       const fresh = screen.getByLabelText('搜索') as HTMLInputElement;
       expect(fresh.value).toBe('');
@@ -1233,7 +1209,10 @@ git rm apps/web/src/pages/workspace/components/TeamSection.tsx apps/web/src/page
 - [ ] **Step 4: 跑测试确认通过 + 既有回归**
 
 Run: `cd D:/flowweb/apps/web && npx vitest run src/pages/workspace`
-Expected: 全 PASS。`WorkspacePage.folder-create.test.tsx`、`WorkspacePage.test.tsx` 既有用例按"断言不变"适配（如个人分支渲染路径不变，仅外层多 WorkspaceTabBar；mock getMyTeams 需提供默认成功值避免团队请求干扰）
+Expected: 全 PASS。**既有用例适配（必做）**：
+- `WorkspacePage.test.tsx:207-219`「?tab=team 渲染团队分组（我创建的/我加入的）」——新设计**删除分组标题**，该用例必须重写为 team-tabs-row 页签断言（owned 前 joined 后 + `queryByText('我创建的')` not.toBe；mock 数据结构沿用其现有 MyTeam 全字段 fixture）
+- `:221-227` 空态用例可保留（断言 不再需要——新空态同文案同 testid）
+- `WorkspacePage.folder-create.test.tsx`：个人分支渲染路径不变，仅外层多 WorkspaceTabBar；mock getMyTeams 需提供默认成功值避免团队请求干扰
 
 - [ ] **Step 5: 提交**
 
@@ -1367,6 +1346,8 @@ git commit -m "feat(web): materialLibraryStore context 字段+enterContext 完�
 
 ```ts
 describe('materialLibraryStore - context 注入与快照（spec §二.4/§二.5）', () => {
+  // 文件头部 import 区补：import { waitFor } from '@testing-library/react';
+  // （乱序用例穿两层 await 需 waitFor 而非单次 await Promise.resolve()）
   beforeEach(() => {
     vi.clearAllMocks();
     useMaterialLibraryStore.setState({
@@ -1471,11 +1452,9 @@ describe('materialLibraryStore - context 注入与快照（spec §二.4/§二.5�
     const store = useMaterialLibraryStore.getState();
     void store.enterContext({ teamId: 'A' });
     void store.enterContext({ teamId: 'B' });
-    await Promise.resolve();
-    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]);
+    await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]));
     resolveSlow({ data: { data: { success: true, data: [{ id: 'a-stale' }] } } });
-    await Promise.resolve();
-    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]); // A 被丢弃
+    await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }])); // A 被丢弃
   });
 });
 ```
@@ -1746,7 +1725,19 @@ batchDelete（:241-262）/ batchMove（:264-292）——body 条件注入：
   },
 ```
 
-最后删除 `import { useCanvasStore } from './canvasStore';`（:5）——store 不再依赖画布 store。**注意**：此刻 Modal 仍直接调 `open()`（不 enterContext），画布内素材库将回落个人上下文——批 4 Task 11 恢复 Modal 场景。此中间态可接受（同 commit 内批 4 紧随，或本任务暂留 `open()` 原行为并在 Task 11 切换）。
+最后**同步接通 Modal 调用点（消除中间态）**：`MaterialLibraryModal.tsx` 的 load effect（原 :42-44 `if (isOpen) { loadFolders(); loadFiles(); }`）改为：
+
+```tsx
+  const enterContext = useMaterialLibraryStore((s) => s.enterContext);
+  useEffect(() => {
+    if (isOpen) {
+      const cs = useCanvasStore.getState();
+      enterContext({ teamId: cs.teamId ?? undefined, projectId: cs.projectId ?? undefined });
+    }
+  }, [isOpen, enterContext]);
+```
+
+（store 层的 `import { useCanvasStore } from './canvasStore'`（:5）删除——store 不再依赖画布 store；Modal 自身的 useCanvasStore 引用保留至 Task 11 提取 Browser 时由 handleApplyFile 继续使用。store+Modal 接通在同一 commit，无"画布内回落个人上下文"中间态。）
 
 - [ ] **Step 4: 跑测试确认通过 + 既有回归**
 
@@ -1772,24 +1763,28 @@ git commit -m "feat(web): material store 12 action context 注入+uploadFile 快
 - Modify: `apps/web/src/components/MaterialLibrary/FileGrid/FileGrid.tsx`（props 透传）
 - Test: `apps/web/src/components/MaterialLibrary/FileGrid/FileCard.test.tsx`（追加）
 
-- [ ] **Step 1: 写失败测试**（追加到 FileCard.test.tsx）
+- [ ] **Step 1: 写失败测试**（追加到 FileCard.test.tsx。**P1-6 前置适配**：该文件 :31-50 现有 mock 的 FilePreviewPopoverContent 无条件渲染"应用到画布"按钮——先改 mock 为 `{onApplyToCanvas && <button>应用到画布</button>}` 并给 Popover mock 的 trigger div 加 `data-testid="popover-trigger"`；antd 合成 mouseEnter 不冒泡，事件必须打在 trigger 元素上而非内部 img；:24-29 已不被消费的 canvasStore mock 顺手清理）
 
 ```tsx
 describe('FileCard onApplyFile 场景感知（spec §二.6）', () => {
-  it('未传 onApplyFile：不渲染"应用到画布"，但预览 Popover 仍可唤起', () => {
-    render(
-      <FileCard file={mockFile} isFinePointer />,
-    );
-    // hover 唤起预览（fireEvent.mouseEnter 卡片后 antd Popover 出现预览内容）
-    fireEvent.mouseEnter(screen.getByAltText(mockFile.originalName));
-    // 预览内容出现（originalName 在 Popover 中）
-    // 「应用到画布」按钮不存在
-    expect(screen.queryByText('应用到画布')).not.toBeInTheDocument();
+  it('未传 onApplyFile：不渲染"应用到画布"，但预览 Popover 仍可唤起', async () => {
+    render(<FileCard file={mockFile} isFinePointer />);
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    await waitFor(() => expect(screen.getByTestId('popover-content')).toBeInTheDocument()); // 预览保留
+    expect(screen.queryByText('应用到画布')).not.toBeInTheDocument(); // 按钮不渲染
+  });
+
+  it('传 onApplyFile：按钮渲染且点击回调', async () => {
+    const onApplyFile = vi.fn();
+    render(<FileCard file={mockFile} isFinePointer onApplyFile={onApplyFile} />);
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    await waitFor(() => fireEvent.click(screen.getByText('应用到画布')));
+    expect(onApplyFile).toHaveBeenCalledWith(mockFile);
   });
 });
 ```
 
-（`mockFile`/`fireEvent`/`render`/`screen` 复用该测试文件现有导入与 fixture；antd Popover 异步浮现可用 `await waitFor`。）
+（`mockFile`/`fireEvent`/`render`/`screen` 复用该测试文件现有导入与 fixture；`popover-content` testid 加在 Popover mock 的 content 根 div 上。）
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -2004,7 +1999,11 @@ export default function MaterialLibraryModal() {
 - [ ] **Step 4: 跑测试确认通过 + Modal 既有回归**
 
 Run: `cd D:/flowweb/apps/web && npx vitest run src/components/MaterialLibrary`
-Expected: 全 PASS。MaterialLibraryModal.test.tsx 既有用例 setup 适配：原 `loadFolders` 断言不变（enterContext 内部调 loadFolders）；若 mock 了 canvasStore 需提供 `getState()` 返回 `{ teamId: 't-team', projectId: 'p1' }`——断言行为不变。"应用到画布"按钮回归用例（若有）：Modal 版传入 onApplyFile → 按钮在、点击走 requestAddMediaNode+close
+Expected: 全 PASS。**MaterialLibraryModal.test.tsx 适配（P1-7，该文件是 automock + 手工 state，:6/18-43）**：
+- state 对象补 `enterContext: vi.fn()`——否则 Modal 订阅 `s.enterContext` 得 undefined，effect 调用直接 TypeError
+- 原「should load folders and files on open」用例（:43-47）：automock 下 enterContext 不会内部真调 loadFolders，**断言改为** `expect(state.enterContext).toHaveBeenCalled()` 且入参为 canvasStore 的 teamId/projectId；文件顶部补 `vi.mock('../../stores/canvasStore', () => ({ useCanvasStore: { getState: () => ({ teamId: 't-team', projectId: 'p1' }) } }))`
+- 「我的素材库」标题断言（:41-42）随 title prop 传入 Browser 继续成立；Browser/`FolderTree`/`FileGrid` 的既有子组件 mock（:5-6）继续生效
+- FileGrid mock 需接收 onApplyFile prop（mock 组件可忽略）
 
 - [ ] **Step 5: 提交**
 
