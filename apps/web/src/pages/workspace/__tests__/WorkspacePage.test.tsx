@@ -199,11 +199,6 @@ describe('WorkspacePage', () => {
     expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument();
   });
 
-  it('?tab=team 持久化页签状态，默认个人', async () => {
-    renderPage('/works?tab=team');
-    expect(await screen.findByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
-  });
-
   it('?tab=team 渲染团队分组（我创建的/我加入的），过滤默认团队', async () => {
     mockGetMyTeams.mockResolvedValue([
       { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },

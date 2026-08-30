@@ -1,0 +1,69 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, waitFor, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import { WorkspaceDimension } from '../components/WorkspaceDimension';
+
+const mockGetTemplates = vi.fn();
+vi.mock('@/api/templateApi', () => ({
+  getTemplates: (...a: any[]) => mockGetTemplates(...a),
+  updateTemplate: vi.fn(),
+  deleteTemplate: vi.fn(),
+}));
+const mockGetFolders = vi.fn();
+vi.mock('@/api/folderApi', () => ({
+  getFolders: (...a: any[]) => mockGetFolders(...a),
+  createFolder: vi.fn(),
+  renameFolder: vi.fn(),
+  deleteFolder: vi.fn(),
+}));
+const mockGetNext = vi.fn();
+vi.mock('@/api/canvasApi', () => ({
+  createCanvas: vi.fn(),
+  getNextUntitledName: (...a: any[]) => mockGetNext(...a),
+}));
+
+const renderDim = (teamId: string | undefined, initialEntries = ['/works']) =>
+  render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <WorkspaceDimension teamId={teamId} />
+    </MemoryRouter>,
+  );
+
+const folderY = { id: 'yyy', name: 'Y', parentId: null, createdAt: '', updatedAt: '', canvasCount: 0, thumbnails: [] };
+
+describe('WorkspaceDimension 共享组件', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetFolders.mockResolvedValue({ folders: [] });
+    mockGetTemplates.mockResolvedValue({ templates: [], totalPages: 1 });
+    mockGetNext.mockResolvedValue({ name: '画布 1' });
+  });
+
+  it('个人维度：mount 单请求（folderId=root）+ 渲染新建画布卡', async () => {
+    renderDim(undefined);
+    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
+    expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
+    expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
+  });
+
+  it('团队维度：请求带 teamId', async () => {
+    renderDim('t1');
+    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ teamId: 't1' })));
+  });
+
+  it('有效 folder 直链：mount 直打 yyy 且全程仅 1 次请求', async () => {
+    // folders 树必须含 yyy——空树下 yyy 会被判无效走 fallback，用例前提就变了
+    mockGetFolders.mockResolvedValue({ folders: [folderY] });
+    renderDim(undefined, ['/works?folder=yyy']);
+    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
+    expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'yyy' }));
+  });
+
+  it('无效 folder 直链：=2 次请求且终态根目录（spec 请求次数边界表）', async () => {
+    // folders 树不含 yyy（beforeEach 默认空树）→ loaded 后 fallback replace 删 folder → URL raw 变 null 与基准不等 → 打根目录
+    renderDim(undefined, ['/works?folder=yyy']);
+    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    const lastCall = mockGetTemplates.mock.calls[mockGetTemplates.mock.calls.length - 1][0];
+    expect(lastCall.folderId).toBe('root');
+  });
+});

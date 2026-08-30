@@ -127,9 +127,6 @@ export function WorkspacePage() {
           onSearchChange={setSearchQuery}
           filter={filter} onFilterChange={setFilter}
           onCreateFolder={() => setFolderModal({ open: true })}
-          activeTab={tab}
-          onTabChange={setTab}
-          showTools={tab === 'personal'}
         />
         {tab === 'personal' && (
           <WorkspaceBreadcrumb
