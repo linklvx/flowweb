@@ -202,7 +202,7 @@ describe('material DTO whitelist 剥离', () => {
 });
 ```
 
-在 `apps/api/src/modules/material-library/services/folder.service.spec.ts` 末尾追加 describe（复用文件顶部现有 mock 结构 `prisma`）：
+在 `apps/api/src/modules/material-library/services/folder.service.spec.ts` 的**顶层 `describe('FolderService')` 闭合 `});` 之前**插入下述 describe（`prisma`/`service` 是该 describe 内的局部量，追加到文件末尾会变成顶层块引用不到——勿放错位置）：
 
 ```ts
   describe('update 写入收窄（spec §四）', () => {
@@ -2085,7 +2085,7 @@ Expected: FAIL——页面不存在
 // apps/web/src/pages/materials/MaterialsPage.tsx
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Tabs } from 'antd';
+import { Button, Tabs } from 'antd';
 import { Navbar } from '@/pages/home/components/Navbar';
 import { teamDisplayName } from '@/api/teamApi';
 import { useTeams } from '@/pages/workspace/hooks/useTeams';
@@ -2213,7 +2213,7 @@ git commit -m "feat(web): /materials 独立素材库页——个人③级/团队
 - Modify: `apps/web/src/utils/splitUploadService.ts:72`（注释清理）
 - Test: 兜底验证命令（无新测试文件）
 
-- [ ] **Step 1: 写"失败测试"**（此处为兜底断言——删除前先记录引用基线）
+- [ ] **Step 1: 写"失败测试"**（此处为兜底断言——删除前先记录引用基线。本仓执行 shell 为 bash，`grep -rn` 可直接用；若在 PowerShell 环境改用 `Get-ChildItem D:\flowweb\apps\web\src -Recurse -Include *.ts,*.tsx | Select-String 'FileUpload'`）
 
 Run: `grep -rn "FileUpload" D:/flowweb/apps/web/src --include="*.ts" --include="*.tsx" | grep -v "splitUploadService"`
 Expected: 仅 `FileUpload.tsx` 自身与 `FileUpload.test.tsx`（若出现其他引用则停下评估，spec §三判定仅测试引用）
