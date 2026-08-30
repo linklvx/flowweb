@@ -99,7 +99,7 @@ export function HomeBannerManagementTab() {
     void updateHomeBanner(b.id, { active }).then(() => {
       messageApi.success(active ? '已启用' : '已禁用');
       void load();
-    });
+    }).catch(() => { messageApi.error('更新失败'); void load(); });
   };
 
   const handleDelete = (b: HomeBannerInfo) => {

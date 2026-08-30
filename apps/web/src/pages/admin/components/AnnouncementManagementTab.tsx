@@ -49,6 +49,10 @@ export function AnnouncementManagementTab() {
 
   const handleSave = async () => {
     if (!form.message.trim()) { messageApi.error('公告内容不能为空'); return; }
+    if (!/^#[0-9a-fA-F]{3,8}$/.test(form.bgColor) || !/^#[0-9a-fA-F]{3,8}$/.test(form.textColor)) {
+      messageApi.error('颜色格式须为 # 开头的十六进制（如 #0f2761）');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -73,16 +77,18 @@ export function AnnouncementManagementTab() {
 
   const handleToggle = (a: AnnouncementInfo, active: boolean) => {
     if (!active) {
-      void updateAnnouncement(a.id, { active: false }).then(load);
+      void updateAnnouncement(a.id, { active: false }).then(load).catch(() => { messageApi.error('更新失败'); void load(); });
       return;
     }
     modal.confirm({
       title: '启用该公告？',
       content: '启用后将自动禁用其他公告。',
       onOk: async () => {
-        await updateAnnouncement(a.id, { active: true });
-        messageApi.success('已启用，其他公告已自动禁用');
-        void load();
+        try {
+          await updateAnnouncement(a.id, { active: true });
+          messageApi.success('已启用，其他公告已自动禁用');
+          void load();
+        } catch { messageApi.error('操作失败'); }
       },
     });
   };
@@ -92,9 +98,11 @@ export function AnnouncementManagementTab() {
       title: '删除该公告？',
       content: '删除后不可恢复。',
       onOk: async () => {
-        await deleteAnnouncement(a.id);
-        messageApi.success('已删除');
-        void load();
+        try {
+          await deleteAnnouncement(a.id);
+          messageApi.success('已删除');
+          void load();
+        } catch { messageApi.error('操作失败'); }
       },
     });
   };
