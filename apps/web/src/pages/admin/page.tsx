@@ -5,11 +5,14 @@ import { ModelTable } from './components/ModelTable';
 import { PricingRuleTable } from './components/PricingRuleTable';
 import { PlanManagementTab, SubscriptionManagementTab, CreditManagementTab, BannerManagementTab } from './components/SubscriptionTabs';
 import { SettingsTab } from './components/SettingsTab';
+import { AnnouncementManagementTab } from './components/AnnouncementManagementTab';
+import { HomeBannerManagementTab } from './components/HomeBannerManagementTab';
 
 export function AdminPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
-  const [section, setSection] = useState<'models' | 'subscription' | 'settings'>('models');
+  const [section, setSection] = useState<'models' | 'subscription' | 'homepage' | 'settings'>('models');
+  const [homeSubTab, setHomeSubTab] = useState<'announcement' | 'banners'>('announcement');
   const [subTab, setSubTab] = useState<'plans' | 'subscriptions' | 'credits' | 'banner'>('plans');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,13 +37,13 @@ export function AdminPage() {
     <div className="min-h-screen bg-[#0f0f0f] p-6">
       <h1 className="text-xl font-bold text-[#e2e8f0] mb-2">管理后台</h1>
       <div className="flex gap-3 mb-6">
-        {(['models', 'subscription', 'settings'] as const).map(s => (
+        {(['models', 'subscription', 'homepage', 'settings'] as const).map(s => (
           <button key={s} onClick={() => setSection(s)}
             className={`px-4 py-1.5 rounded-md text-sm border-none cursor-pointer transition-colors ${
               section === s ? 'bg-[#4ade80]/20 text-[#4ade80] font-bold' : 'bg-[#252525] text-[#888] hover:text-white'
             }`}
           >
-            {s === 'models' ? '模型管理' : s === 'subscription' ? '会员订阅' : '参数配置'}
+            {s === 'models' ? '模型管理' : s === 'subscription' ? '会员订阅' : s === 'homepage' ? '首页配置' : '参数配置'}
           </button>
         ))}
       </div>
@@ -62,6 +65,24 @@ export function AdminPage() {
           {subTab === 'subscriptions' && <SubscriptionManagementTab />}
           {subTab === 'credits' && <CreditManagementTab />}
           {subTab === 'banner' && <BannerManagementTab />}
+        </div>
+      )}
+
+      {section === 'homepage' && (
+        <div>
+          <div className="flex gap-2 mb-6">
+            {(['announcement', 'banners'] as const).map(t => (
+              <button key={t} onClick={() => setHomeSubTab(t)}
+                className={`px-3 py-1 rounded text-xs border border-[#444] cursor-pointer transition-colors ${
+                  homeSubTab === t ? 'bg-[#4ade80]/20 text-[#4ade80] border-[#4ade80]' : 'bg-[#1A1A1A] text-[#888] hover:text-white'
+                }`}
+              >
+                {t === 'announcement' ? '公告条' : '首页 Banner'}
+              </button>
+            ))}
+          </div>
+          {homeSubTab === 'announcement' && <AnnouncementManagementTab />}
+          {homeSubTab === 'banners' && <HomeBannerManagementTab />}
         </div>
       )}
 
