@@ -10,6 +10,12 @@ vi.mock('@/api/folderApi', () => ({
   deleteFolder: vi.fn(),
 }));
 vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
+// WorkspacePage 无条件挂 useTeams：给 getMyTeams 默认成功值，避免团队请求走真实网络
+const { getMyTeams: mockGetMyTeams } = vi.hoisted(() => ({ getMyTeams: vi.fn() }));
+vi.mock('@/api/teamApi', () => ({
+  getMyTeams: mockGetMyTeams,
+  teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
+}));
 vi.mock('@/api/templateApi', () => ({
   getTemplates: vi.fn(),
   updateTemplate: vi.fn(),
@@ -37,6 +43,7 @@ const folderDto = (id: string, name: string, canvasCount = 0) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetMyTeams.mockResolvedValue([]);
   vi.mocked(folderApi.getFolders).mockResolvedValue({
     folders: [folderDto('f1', '工作文件夹', 1), folderDto('f2', '项目文件夹', 0)],
   } as never);
@@ -54,8 +61,8 @@ describe('WorkspacePage 文件夹内新建画布', () => {
         <WorkspacePage />
       </MemoryRouter>
     );
-    // 直链触发两次初始加载（hook 的 root + effect 的 f1），等加载稳定后再操作
-    await waitFor(() => expect(templateApi.getTemplates).toHaveBeenCalledTimes(2));
+    // 直链挂载单请求：WorkspaceDimension 按 initialFolderId 直打 f1（Task 5 起不再双发）
+    await waitFor(() => expect(templateApi.getTemplates).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByRole('button', { name: /新建画布/ }));
     fireEvent.change(await screen.findByLabelText('画布名称'), { target: { value: '文件夹内新作' } });
     fireEvent.click(screen.getByRole('button', { name: '确 定' }));

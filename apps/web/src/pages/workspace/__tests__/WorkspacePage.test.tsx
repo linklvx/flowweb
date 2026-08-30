@@ -28,7 +28,7 @@ vi.mock('react-router', async (orig) => {
 import * as folderApi from '@/api/folderApi';
 import * as canvasApi from '@/api/canvasApi';
 import * as templateApi from '@/api/templateApi';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { WorkspacePage } from '../WorkspacePage';
 
 const navigate = vi.fn();
@@ -199,17 +199,19 @@ describe('WorkspacePage', () => {
     expect(screen.queryByTestId('canvas-card-c1')).not.toBeInTheDocument();
   });
 
-  it('?tab=team 渲染团队分组（我创建的/我加入的），过滤默认团队', async () => {
+  it('?tab=team 渲染团队页签（owned 前 joined 后平铺），过滤默认团队', async () => {
     mockGetMyTeams.mockResolvedValue([
       { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
-      { id: 't-owned', name: '我建的团', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
       { id: 't-joined', name: '加入的团', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, createdAt: '2026-08-02', memberCount: 5, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-owned', name: '我建的团', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     renderPage('/works?tab=team');
-    expect(await screen.findByText('我创建的')).toBeInTheDocument();
-    expect(screen.getByText('我加入的')).toBeInTheDocument();
-    expect(await screen.findByText('我建的团')).toBeInTheDocument();
-    expect(screen.getByText('加入的团')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('team-tabs-row')).toBeInTheDocument());
+    const tabs = screen.getByTestId('team-tabs-row').querySelectorAll('.ant-tabs-tab');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].textContent).toContain('我建的团');
+    expect(tabs[1].textContent).toContain('加入的团');
+    expect(screen.queryByText('我创建的')).not.toBeInTheDocument();
     expect(screen.queryByText('个人项目')).not.toBeInTheDocument();
   });
 
@@ -221,4 +223,81 @@ describe('WorkspacePage', () => {
     expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
   });
 
+});
+
+describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
+  const team = (id: string, isOwner: boolean) => ({ id, name: id, isOwner, isDefault: false, memberCount: 2 });
+
+  // MemoryRouter 不写 window.history，URL replace 断言经 useLocation 探针读取路由真实状态
+  function LocationProbe() {
+    const { search } = useLocation();
+    return <span data-testid="location-probe" data-search={search} />;
+  }
+  function renderWithProbe(initialUrl: string) {
+    return render(
+      <MemoryRouter initialEntries={[initialUrl]}>
+        <WorkspacePage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+  }
+  const probeSearch = () => screen.getByTestId('location-probe').getAttribute('data-search') ?? '';
+
+  it('团队页签：owned 在前 joined 在后、平铺无分组标题、默认选第一个', async () => {
+    mockGetMyTeams.mockResolvedValue([team('joined-1', false), team('owned-1', true)]);
+    renderWithProbe('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('team-tabs-row')).toBeInTheDocument());
+    const tabs = screen.getByTestId('team-tabs-row').querySelectorAll('.ant-tabs-tab');
+    expect(tabs[0].textContent).toContain('owned-1');
+    expect(tabs[1].textContent).toContain('joined-1');
+    expect(screen.queryByText('我创建的')).not.toBeInTheDocument();
+    await waitFor(() => expect(probeSearch()).toContain('teamId=owned-1')); // replace 补默认
+  });
+
+  it('非法 teamId 直链：replace 到第一个真实团队且不带 folder', async () => {
+    mockGetMyTeams.mockResolvedValue([team('owned-1', true)]);
+    renderWithProbe('/works?tab=team&teamId=bogus&folder=fff');
+    await waitFor(() => expect(screen.getByTestId('team-tabs-row')).toBeInTheDocument());
+    const search = probeSearch();
+    expect(search).not.toContain('folder=');
+    expect(search).toContain('teamId=owned-1');
+    // 维度组件从不带 folder 请求
+    expect(vi.mocked(templateApi.getTemplates)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'fff' }));
+  });
+
+  it('teams 加载失败：渲染失败+重试，不挂载维度组件（不死屏）', async () => {
+    mockGetMyTeams.mockRejectedValue(new Error('boom'));
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('teams-error')).toBeInTheDocument());
+    expect(screen.queryByTestId('workspace-grid')).not.toBeInTheDocument();
+  });
+
+  it('无真实团队：team-empty-state', async () => {
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
+  });
+
+  it('teams 未就绪：不挂载维度组件（不发画布请求）', () => {
+    mockGetMyTeams.mockReturnValue(new Promise(() => {}));
+    renderPage('/works?tab=team&teamId=t1');
+    expect(screen.queryByTestId('workspace-grid')).not.toBeInTheDocument();
+    expect(vi.mocked(templateApi.getTemplates)).not.toHaveBeenCalled();
+  });
+
+  it('切团队：维度组件 key 重挂载，搜索/筛选等本地 state 归零', async () => {
+    mockGetMyTeams.mockResolvedValue([team('t1', true), team('t2', true)]);
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('team-tabs-row')).toBeInTheDocument());
+    // 输入搜索词后切团队 → 新维度实例搜索框为空
+    const searchInput = screen.getByLabelText('搜索');
+    fireEvent.change(searchInput, { target: { value: 'abc' } });
+    const tab2 = screen.getByTestId('team-tabs-row').querySelectorAll('.ant-tabs-tab')[1];
+    fireEvent.click(tab2!);
+    await waitFor(() => {
+      const fresh = screen.getByLabelText('搜索') as HTMLInputElement;
+      expect(fresh.value).toBe('');
+    });
+  });
 });
