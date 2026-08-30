@@ -35,7 +35,7 @@ export default function MaterialLibraryModal() {
     <Modal title="我的素材库" open={isOpen} onCancel={handleClose} footer={null}
       width="90%" style={{ top: 50 }}
       className="material-library-modal">
-      <MaterialLibraryBrowser title="我的素材库" onApplyFile={handleApplyFile} />
+      <MaterialLibraryBrowser onApplyFile={handleApplyFile} />
     </Modal>
   );
 }

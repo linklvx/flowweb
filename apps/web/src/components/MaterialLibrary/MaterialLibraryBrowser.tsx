@@ -27,7 +27,7 @@ export interface MaterialLibraryBrowserProps {
   onApplyFile?: (file: MaterialFile) => void;
 }
 
-export function MaterialLibraryBrowser({ title = '我的素材库', onApplyFile }: MaterialLibraryBrowserProps) {
+export function MaterialLibraryBrowser({ title, onApplyFile }: MaterialLibraryBrowserProps) {
   const uploading = useMaterialLibraryStore((s) => s.uploading);
   const batchMode = useMaterialLibraryStore((s) => s.batchMode);
   const selectedFileIds = useMaterialLibraryStore((s) => s.selectedFileIds);
@@ -90,7 +90,7 @@ export function MaterialLibraryBrowser({ title = '我的素材库', onApplyFile 
         </div>
         <div className="material-library-main">
           <div className="main-header">
-            <span className="text-sm font-bold text-white mr-2">{title}</span>
+            {title ? <span className="text-sm font-bold text-white mr-2">{title}</span> : null}
             {batchMode ? (
               <div className="flex items-center gap-3">
                 <span className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>

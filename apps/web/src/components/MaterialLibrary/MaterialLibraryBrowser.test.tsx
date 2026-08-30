@@ -11,7 +11,6 @@ const mockGet = vi.fn();
 vi.mock('axios', () => ({
   default: { get: (...a: any[]) => mockGet(...a), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
-vi.mock('../../../stores/canvasStore', () => ({}));
 
 describe('MaterialLibraryBrowser', () => {
   beforeEach(() => {
