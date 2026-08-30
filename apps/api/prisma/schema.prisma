@@ -81,13 +81,14 @@ model Verification {
 
 model Announcement {
   id         String    @id @default(cuid())
-  message    String
-  linkUrl    String?
-  active     Boolean   @default(true)
+  message    String    @db.VarChar(200)
+  linkText   String?   @db.VarChar(32)
+  linkUrl    String?   @db.VarChar(500)
+  bgColor    String    @default("#0f2761") @db.VarChar(16)
+  textColor  String    @default("#ffffff") @db.VarChar(16)
+  active     Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-
-  @@index([active])
 }
 
 model ContentCard {
@@ -100,6 +101,20 @@ model ContentCard {
   active     Boolean   @default(true)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+model HomeBanner {
+  id        String   @id @default(cuid())
+  title     String?  @db.VarChar(128)
+  subtitle  String?  @db.VarChar(256)
+  linkUrl   String?  @db.VarChar(500)
+  imageKey  String   @db.VarChar(255)
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([active, sortOrder])
 }
