@@ -1,7 +1,7 @@
 # 素材库独立页 + works 团队页对齐 设计文档
 
 日期：2026-08-30
-状态：v5（用户 2026-08-30 逐节确认，含七轮设计审核修订；v5 写死 initialFolderId 取 URL 原始值与请求次数边界、nav 随 data 下沉、切 tab 重载登记、空串登记）
+状态：v6（用户 2026-08-30 逐节确认，含八轮设计审核修订；v6 补全 enterContext 重置清单（folders/selectedFileIds/renameModal）与有意不清清单、素材页 Browser key 重挂载）
 
 ## 背景
 
@@ -133,8 +133,23 @@
 不采 React Context 多实例（`getState()` 脱离 React 树调用点真实存在，迁移面大；且 SPA 单路由两场景不并发）。
 
 **收敛为单一入口 API `enterContext(ctx)`**（把时序约束编码进 API，杜绝多调用点各写三件套漏一处）：
-- 一次完成：`set({ context: ctx, selectedFolderId: null, batchMode: false, files: [] })` + `loadFolders()` + `loadFiles()`
-- 同步清空 `files` 避免瞬时显示上一团队文件
+- **完整重置清单**：
+
+```ts
+set({
+  context: ctx,
+  selectedFolderId: null,
+  folders: [],                     // 防 FolderTree 瞬时串台（与 files 同理）
+  files: [],                       // 防文件区瞬时串台
+  batchMode: false,
+  selectedFileIds: new Set(),      // 防跨团队批量误操作（见下）
+  renameModal: RENAME_MODAL_INIT,  // {open:false, folderId:null, defaultValue:''}
+})
+// 随后 loadFolders() + loadFiles()
+```
+
+- **selectedFileIds 必须清的依据**：现状仅 `close()`（:69）与 `exitBatchMode()`（:221）清集合，`enterBatchMode()`（:220）不清。独立页风险路径：团队 A 勾选 → 切团队 B（batchMode 置 false 但 id 集残留）→ B 进批量模式 → batchDelete/batchMove 在 B 的 context（teamId=B）下对 A 团队的 fileId 发操作——后端按 fileId 自证 creator/成员，用户是 A 成员则操作**实际生效**（UI 以为操作 B 实际删 A 的文件）。Modal 场景靠 close() 兜底从未暴露；独立页无 close 动作，是新场景引入的新缺陷
+- **有意不清**：`isOpen`（Modal/页面各自场景自管）、`fileGridSize`（用户缩放偏好，跨维度保留合理）、`uploading`/`uploadProgress`（上传在途由快照机制保证继续，清了反而丢进度条）、`loading`（随后的 load 自然置位）
 - 调用时机（4 处）：Modal `isOpen` 变 true（画布内，context 取 canvasStore 值）/ 页面挂载 / 切一级 tab / 切团队页签
 - 离开 /materials 不做 context 清理（无害：下次挂载 enterContext 覆盖），不实现卸载清理
 - **P3 登记（不阻塞）**：loadFolders/loadFiles 各自 finally 置 loading:false，先回的会提前关 loading（Modal:43 现状即如此）——后续可 Promise.all 收口或引用计数，本次不动
@@ -174,8 +189,8 @@
 - props：`title` + `onApplyFile?: (f: MaterialFile) => void`
   - Modal 版（画布内）：传 `onApplyFile` = 现有行为（requestAddMediaNode + close），「应用到画布」按钮保留
   - 页面版：**不传** `onApplyFile` → 仅「应用到画布」按钮不渲染（透传链 Browser→FileGrid→FileCard 两层，槽位模式同现有 onToggleFavorite/onDelete）；**hover 预览 Popover 保留**（ImagePreview/VideoPreview——独立素材管理同样需要预览），不得整删 Popover
-- Modal 版 = Modal 包装 Browser（画布内行为不变）
-- 页面版 = Navbar + 一级 tab 行 + （团队 tab 时）团队页签行 + Browser
+- Modal 版 = Modal 包装 Browser（画布内行为不变，无需 key）
+- 页面版 = Navbar + 一级 tab 行 + （团队 tab 时）团队页签行 + Browser，**Browser 以 `key={teamId ?? 'personal'}` 重挂载**——组件本地态（提取自 Modal 的 folderSelectorOpen/targetFolderId 等）随 key 归零，防 targetFolderId 残留 A 团队 folder id 使 B 团队批量移动目标 Select 异常。store 态由 enterContext 管、组件本地态交给 key 管，两层各归各位，与 works 共享组件方案完全同构
 
 ## 三、删除清单（FileUpload + TeamSection）
 
@@ -254,7 +269,8 @@ backups/、.claude/worktrees/ 下的 FileUpload 副本非生产路径，不动�
 ### 素材库页
 
 - 路由 + 一级 tab + 团队页签渲染（含无团队空态）
-- `enterContext` 注入规则：4 个时机均触发（context + 清 selectedFolderId/batchMode/files + reload）
+- `enterContext` 注入规则：4 个时机均触发完整重置（context + selectedFolderId/folders/files/batchMode/selectedFileIds/renameModal + reload）
+- **跨团队批量误操作回归**：团队 A 勾选若干文件后切团队 B，在 B 进批量模式触发 batchDelete/batchMove——断言请求体不含 A 团队残留 fileId
 - presign 参数断言：个人 tab 不传 teamId/projectId、团队 tab 传 teamId、Modal 场景传 projectId；`confirmUpload` 不带 teamId
 - 12 个 action 的 teamId 传递逐一断言
 - `uploadFile` 快照：上传过程中切 context，断言 presign 与 move 均用快照时 teamId、**且不触发旧视图刷新**（末尾刷新口径）
