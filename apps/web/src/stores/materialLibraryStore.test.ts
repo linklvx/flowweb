@@ -462,9 +462,9 @@ describe('materialLibraryStore - context 注入与快照（spec §二.4/§二.5�
     expect(mockPut).toHaveBeenCalledWith('/api/material/files/fid/move', { folderId: 'fa', teamId: 'A' });
     // confirm 不传 teamId（后端按 fileId 自证）
     expect(mockConfirmUpload).toHaveBeenCalledWith(expect.not.objectContaining({ teamId: expect.anything() }));
-    // 末尾不刷新旧视图（context 已变）
+    // 末尾不刷新：全程 setState 未走 enterContext，files GET 只可能来自末尾刷新——摘守卫必红
     const calls = mockGet.mock.calls.filter((c: any[]) => c[0] === '/api/material/files');
-    expect(calls.every((c: any[]) => c[1]?.params?.teamId !== 'A')).toBe(true);
+    expect(calls).toHaveLength(0);
   });
 
   it('loadFolders 替换型乱序：慢响应后到被丢弃', async () => {
