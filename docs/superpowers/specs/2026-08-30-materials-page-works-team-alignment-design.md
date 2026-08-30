@@ -1,7 +1,7 @@
 # 素材库独立页 + works 团队页对齐 设计文档
 
 日期：2026-08-30
-状态：v4（用户 2026-08-30 逐节确认，含六轮设计审核修订；v4 落实 initialFolderId 首帧单请求、useTeams 失败终态、非法 teamId replace 清 folder、DTO 精确清单、竞态职责分层）
+状态：v5（用户 2026-08-30 逐节确认，含七轮设计审核修订；v5 写死 initialFolderId 取 URL 原始值与请求次数边界、nav 随 data 下沉、切 tab 重载登记、空串登记）
 
 ## 背景
 
@@ -54,7 +54,21 @@
 - 提取共享组件：个人 tab 与「团队 tab + 选中团队」渲染**同一组件**（`WorkspaceToolbar` + `WorkspaceBreadcrumb` + grid/list + 弹窗组），唯一区别 `useWorkspaceData(teamId | undefined)`
 - `showTools` 恒为 true（不再对团队 tab 隐藏）；团队 tab 同样渲染面包屑
 - **切团队状态归零**：共享组件以 `key={teamId ?? 'personal'}` 重挂载——viewMode/search/filter/弹窗等本地 state（WorkspacePage.tsx:35-40）自然归零，避免跨团队搜索残留把新团队过滤成空态；同时是 teamId 闭包陈旧问题的双保险
-- **URL→loadFolder effect 下沉 + initialFolderId 首帧单请求**：现状 firstRender ref + URL folder 变化触发 loadFolder 的 effect 在父组件（WorkspacePage.tsx:75-82），firstRender **不随 key 重挂载重置**——切团队时子组件 mount effect 与父组件 effect 双发请求；且现状首帧逻辑「仅当 currentFolderId === null 才跳过」意味着**直链带 folder 时 mount effect 的 loadFolder(null) 与首帧 loadFolder(yyy) 双发**（个人页现状即如此，根请求被目标请求覆盖）。修法：`useWorkspaceData(teamId, initialFolderId)` 增加入参，mount effect 直接 `loadFolder(initialFolderId ?? null)`，下沉的 URL effect **首帧恒跳过**、只负责后续导航——全场景（根目录/直链 folder/切团队）挂载均 1 次请求，同时消掉个人页现状冗余根请求。父组件只产出「有效选中 teamId」；配合「teams 未就绪不挂载」，与消除 N 组并发的初衷一致
+- **URL→loadFolder effect 下沉 + initialFolderId 首帧单请求**：现状 firstRender ref + URL folder 变化触发 loadFolder 的 effect 在父组件（WorkspacePage.tsx:75-82），firstRender **不随 key 重挂载重置**——切团队时子组件 mount effect 与父组件 effect 双发请求；且现状首帧逻辑「仅当 currentFolderId === null 才跳过」意味着**直链带 folder 时 mount effect 的 loadFolder(null) 与首帧 loadFolder(yyy) 双发**（个人页现状即如此，根请求被目标请求覆盖）。修法：
+  - `useWorkspaceData(teamId, initialFolderId)` 增加入参，mount effect 直接 `loadFolder(initialFolderId ?? null)`，下沉的 URL effect **首帧恒跳过**、只负责后续导航
+  - **initialFolderId 必须取 URL 原始值 `searchParams.get('folder')`**，不能用 `useFolderNavigation` 过滤后的 `currentFolderId`——后者经 valid 过滤（useFolderNavigation.ts:41-42），挂载瞬间 folders 为空、任何 URL folder 都被判无效返回 null，会导致 mount 打根目录 + loaded 后 nav 跳成 yyy 再打一次 = 2 次退化
+  - **useFolderNavigation 随 data 一并下沉进共享组件**（其入参 folders + loaded 来自 data；面包屑 path 也在共享组件内消费）——父组件不再持有 data/nav，只产出「有效选中 teamId」
+  - **请求次数精确边界**：
+
+| 挂载场景 | 请求次数 | 机制 |
+|---|---|---|
+| 根目录 | 1 | mount `loadFolder(null)` |
+| 有效 folder 直链 | 1 | mount 直打 yyy；loaded 后 nav 值与初始一致、依赖不变，effect 不触发 |
+| 切团队（folder 已清空） | 1 | 同根目录 |
+| 无效 folder 直链 | 2（下限，不可消除） | mount 打 yyy 得空列表 → loaded 后 fallback（:12-19）replace 删 folder + message.info → URL effect 打根目录。判断有效性必须先拿到 folders 树 |
+
+  - 同时消掉个人页现状冗余根请求；配合「teams 未就绪不挂载」，与消除 N 组并发的初衷一致
+- **行为变化登记（key 方案固有代价，开发期可接受）**：personal ↔ team 一级 tab 切换会卸载/重挂载维度组件——切回个人 tab 重新拉个人列表，搜索词/滚动位置/分页 page 全部归零（现状 data 在父组件常驻、切 tab 不重拉）。素材页 enterContext 本就如此，仅 works 是行为变化
 - **renameFolder 依赖补全**：`useWorkspaceData.renameFolder` 的 useCallback 依赖数组（现状仅 `[folders]`）显式加入 teamId
 - `TeamSection` 组件删除，其职责被共享组件吸收（内部 state folderId 改为进 URL，与个人 tab 单一数据流一致）
 
@@ -178,7 +192,7 @@ backups/、.claude/worktrees/ 下的 FileUpload 副本非生产路径，不动�
 ## 四、后端改动（material 模块防御性加固）
 
 - **`ValidationPipe` 与装饰器必须成对**（只补装饰器不挂管道 = 防护为零，还留「已防护」错觉）：
-  - folder.controller.ts、file.controller.ts **类级**加 `@UsePipes(new ValidationPipe({ whitelist: true, transform: true }))`——不全局开启（main.ts 现无全局 pipe，全局开会波及所有裸 DTO 控制器，回归面不可控）。现状两 controller 类上均无 pipe（已复核）；works folder.controller 的 create/rename **方法级已挂**（:19/:27），works 侧防护齐全零改动再确认
+  - folder.controller.ts、file.controller.ts **类级**加 `@UsePipes(new ValidationPipe({ whitelist: true, transform: true }))`——不全局开启（main.ts 现无全局 pipe，全局开会波及所有裸 DTO 控制器，回归面不可控）。现状两 controller 类上均无 pipe（已复核）；works folder.controller 的 create/rename **方法级已挂**（:19/:26），works 侧防护齐全零改动再确认
   - **DTO 装饰器精确清单**（现状：batch-move-files.dto 已有完整装饰器无需动；真正裸奔 4 个 + 新建 1 个。whitelist 会剥离「无任何装饰器」的字段，漏标即静默丢弃）：
 
 | DTO | 字段 | 装饰器 |
@@ -196,6 +210,7 @@ backups/、.claude/worktrees/ 下的 FileUpload 副本非生产路径，不动�
 | | teamId 可选 | `@IsOptional() @IsString()` |
 
   - 装饰器规则：**可选可空**（`?:` 声明）用 `@IsOptional`（本身即对 null/undefined 放行，对齐仓内 batch-move 既有风格，不叠 ValidateIf）；**必填可空**（`!:` 声明、null 有语义）才用 ValidateIf 模式——@IsOptional 会把缺失的 undefined 一并放行，对必填字段失效
+  - **P4 登记（可选加固，不阻塞）**：必填可空字段的 `@ValidateIf(v => v !== null) @IsString()` 会放行 `''` 空串（IsString 接受空串但语义非法）；如需更严叠加 `@IsNotEmpty()`（null 已被 ValidateIf 放行、`''` 被拒）。本次目标不受影响，实现时顺手加亦可
   - file.controller.ts batchDelete 现为**内联类型** `body: { ids: string[]; teamId?: string }`（运行时无 class 元数据，管道跳过、whitelist 不生效）——用 BatchDeleteFilesDto 替换
 - **material folder.service update 收窄写入**：folder.service.ts:83 现为 `update({ where: { id }, data: dto })` 整体透传，dto 含 teamId 会执行 `SET teamId`（现因 findFirst 已按 resolved 过滤而幂等，属隐式不变量）——收窄为 `data: { name: dto.name }` 一行
 - 其余后端零改动（works folder rename/delete 的 query.teamId、material 全端点、presign ②级均已就绪；works folder.service.rename 为白名单式 `data:{name}`，无透传问题）
@@ -230,7 +245,8 @@ backups/、.claude/worktrees/ 下的 FileUpload 副本非生产路径，不动�
 - loaded 门控去掉 `tab==='personal'` 后，团队维度直链无效 folder 触发 fallback
 - 团队页签渲染：顺序（owned 前 joined 后）、平铺无分组标题、默认选第一个
 - 共享组件：个人/团队同构渲染、showTools 恒显、面包屑渲染
-- `key={teamId ?? 'personal'}` 重挂载：切团队后搜索/筛选/视图/弹窗 state 归零；**initialFolderId 机制下全场景挂载均只发 1 次请求**（根目录/直链 folder/切团队三场景分别断言请求计数=1）
+- `key={teamId ?? 'personal'}` 重挂载：切团队后搜索/筛选/视图/弹窗 state 归零；切一级 tab 重载（行为变化登记项）
+- **请求计数精确断言**：根目录/有效 folder 直链/切团队三场景 =1（initialFolderId 取 URL 原始值）；**无效 folder 直链单独用例 =2 且终态为根目录**（fallback replace 删 folder + message.info）
 - folder rename/delete 请求带 teamId（断言 query 参数）
 - 团队 tab 新建画布：创建请求带 teamId + 当前 folder；`next-untitled-name` 请求带 teamId
 - 无团队空状态（team-empty-state）
