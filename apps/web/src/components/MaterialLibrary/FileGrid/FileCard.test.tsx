@@ -4,7 +4,6 @@ import FileCard from './FileCard';
 
 const toggleFavorite = vi.hoisted(() => vi.fn());
 const deleteFile = vi.hoisted(() => vi.fn());
-const requestAddMediaNode = vi.hoisted(() => vi.fn());
 const closeLibrary = vi.hoisted(() => vi.fn());
 
 const mockLibraryStore = vi.hoisted(() => {
@@ -18,12 +17,6 @@ const mockLibraryStore = vi.hoisted(() => {
 
 vi.mock('../../../stores/materialLibraryStore', () => ({
   useMaterialLibraryStore: mockLibraryStore,
-}));
-
-vi.mock('../../../stores/canvasStore', () => ({
-  useCanvasStore: {
-    getState: () => ({ requestAddMediaNode }),
-  },
 }));
 
 // Mock antd Popover: render content alongside trigger for testing
@@ -45,7 +38,9 @@ vi.mock('antd', async () => {
 vi.mock('../FilePreviewPopover', () => ({
   default: ({ file, onApplyToCanvas }: any) => (
     <div data-testid="file-preview-popover" data-file-id={file.id}>
-      <button data-testid="apply-btn" onClick={() => onApplyToCanvas(file)}>应用到画布</button>
+      {onApplyToCanvas && (
+        <button data-testid="apply-btn" onClick={() => onApplyToCanvas(file)}>应用到画布</button>
+      )}
     </div>
   ),
 }));
@@ -138,8 +133,9 @@ describe('FileCard', () => {
 
   // ─── Apply to canvas ───
 
-  it('closes popover, calls store methods on apply', () => {
-    render(<FileCard file={file} isFinePointer={true} />);
+  it('closes popover and calls onApplyFile on apply', () => {
+    const onApplyFile = vi.fn();
+    render(<FileCard file={file} isFinePointer={true} onApplyFile={onApplyFile} />);
     // Open popover first
     fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
     // Click apply button in the popover
@@ -149,9 +145,26 @@ describe('FileCard', () => {
     const wrapper = screen.getByTestId('popover-wrapper');
     expect(wrapper.dataset.open).toBe('false');
 
-    // Store methods should be called
-    expect(requestAddMediaNode).toHaveBeenCalledWith(file);
-    expect(closeLibrary).toHaveBeenCalled();
+    // onApplyFile should be called with the file
+    expect(onApplyFile).toHaveBeenCalledWith(file);
+  });
+
+  // ─── FileCard onApplyFile 场景感知（spec §二.6） ───
+
+  it('未传 onApplyFile：不渲染"应用到画布"，但预览 Popover 仍可唤起', async () => {
+    render(<FileCard file={file} isFinePointer={true} />);
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    await waitFor(() => expect(screen.getByTestId('popover-content')).toBeInTheDocument()); // 预览保留
+    expect(screen.queryByText('应用到画布')).not.toBeInTheDocument(); // 按钮不渲染
+  });
+
+  it('传 onApplyFile：按钮渲染且点击回调', async () => {
+    const onApplyFile = vi.fn();
+    render(<FileCard file={file} isFinePointer={true} onApplyFile={onApplyFile} />);
+    fireEvent.mouseEnter(screen.getByTestId('popover-trigger'));
+    await waitFor(() => expect(screen.getByText('应用到画布')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('应用到画布'));
+    expect(onApplyFile).toHaveBeenCalledWith(file);
   });
 
   // ─── Scroll close ───

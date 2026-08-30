@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Popover } from 'antd';
 import { useMaterialLibraryStore } from '../../../stores/materialLibraryStore';
-import { useCanvasStore } from '../../../stores/canvasStore';
 import FilePreviewPopoverContent from '../FilePreviewPopover';
 import type { MaterialFile } from '@flowweb/shared';
 
@@ -10,12 +9,13 @@ interface FileCardProps {
   batchMode?: boolean;
   selected?: boolean;
   isFinePointer?: boolean;
+  onApplyFile?: (f: MaterialFile) => void;
   onToggleSelect?: () => void;
   onToggleFavorite?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
 
-export default function FileCard({ file, batchMode, selected, isFinePointer, onToggleSelect, onToggleFavorite, onDelete }: FileCardProps) {
+export default function FileCard({ file, batchMode, selected, isFinePointer, onApplyFile, onToggleSelect, onToggleFavorite, onDelete }: FileCardProps) {
   const storeToggleFavorite = useMaterialLibraryStore((s) => s.toggleFavorite);
   const storeDeleteFile = useMaterialLibraryStore((s) => s.deleteFile);
 
@@ -32,12 +32,6 @@ export default function FileCard({ file, batchMode, selected, isFinePointer, onT
     window.addEventListener('material-library:list-scroll', handler);
     return () => window.removeEventListener('material-library:list-scroll', handler);
   }, [popoverOpen]);
-
-  const handleApplyToCanvas = useCallback((f: MaterialFile) => {
-    setPopoverOpen(false);
-    useCanvasStore.getState().requestAddMediaNode(f);
-    useMaterialLibraryStore.getState().close();
-  }, []);
 
   const cardContent = (
     <div
@@ -132,7 +126,7 @@ export default function FileCard({ file, batchMode, selected, isFinePointer, onT
       content={
         <FilePreviewPopoverContent
           file={file}
-          onApplyToCanvas={handleApplyToCanvas}
+          onApplyToCanvas={onApplyFile ? (f) => { setPopoverOpen(false); onApplyFile(f); } : undefined}
         />
       }
     >

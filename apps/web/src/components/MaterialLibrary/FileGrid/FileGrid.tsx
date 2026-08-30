@@ -35,6 +35,7 @@ interface FileGridProps {
   batchMode?: boolean;
   selectedFileIds?: Set<string>;
   emptyText?: string;
+  onApplyFile?: (f: MaterialFile) => void;
   onToggleFavorite?: (id: string) => void;
   onDelete?: (id: string) => void;
   store?: FileGridStore;
@@ -114,6 +115,7 @@ export default function FileGrid(props: FileGridProps = {}) {
                   batchMode={batchMode}
                   selected={selectedFileIds.has(file.id)}
                   isFinePointer={isFinePointer}
+                  onApplyFile={props.onApplyFile}
                   onToggleSelect={() => getOps().toggleFileSelection?.(file.id)}
                   onToggleFavorite={props.onToggleFavorite}
                   onDelete={props.onDelete}

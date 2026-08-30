@@ -14,7 +14,7 @@ function formatDate(isoString: string): string {
 
 interface FilePreviewPopoverProps {
   file: MaterialFile;
-  onApplyToCanvas: (file: MaterialFile) => void;
+  onApplyToCanvas?: (file: MaterialFile) => void;
 }
 
 // ─── Error Placeholder ───
@@ -160,7 +160,7 @@ export default function FilePreviewPopoverContent({ file, onApplyToCanvas }: Fil
 
   const handleApply = useCallback(() => {
     setLoading(true);
-    onApplyToCanvas(file);
+    onApplyToCanvas?.(file);
   }, [file, onApplyToCanvas]);
 
   return (
@@ -181,14 +181,16 @@ export default function FilePreviewPopoverContent({ file, onApplyToCanvas }: Fil
             创建于 {formatDate(file.createdAt)}
           </span>
         </div>
-        <button
-          type="button"
-          className="flex h-10 w-full items-center justify-center rounded-lg bg-[#646464] text-sm font-semibold text-[#FAFAFA] hover:bg-[#757575] transition-colors disabled:opacity-60"
-          onClick={handleApply}
-          disabled={loading}
-        >
-          {loading ? '处理中...' : '应用到画布'}
-        </button>
+        {onApplyToCanvas ? (
+          <button
+            type="button"
+            className="flex h-10 w-full items-center justify-center rounded-lg bg-[#646464] text-sm font-semibold text-[#FAFAFA] hover:bg-[#757575] transition-colors disabled:opacity-60"
+            onClick={handleApply}
+            disabled={loading}
+          >
+            {loading ? '处理中...' : '应用到画布'}
+          </button>
+        ) : null}
       </div>
     </div>
   );
