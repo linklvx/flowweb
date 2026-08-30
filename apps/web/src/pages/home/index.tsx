@@ -1,24 +1,15 @@
-import { Navbar } from './components/Navbar';
-import { HeroSection } from './components/HeroSection';
-import { ContentSection } from './components/ContentSection';
 import { AIAssistantFAB } from './components/AIAssistantFAB';
-import { VipSubscribeModal } from '@/components/VipSubscribeModal';
-import { useVipModalStore } from '@/stores/vipModalStore';
-import { useNavigate } from 'react-router';
+import { BannerCarousel } from './components/BannerCarousel';
+import { CreateCanvasCard } from './components/CreateCanvasCard';
+import { Footer } from './components/Footer';
 
 export function HomePage() {
-  const vipModalVisible = useVipModalStore(s => s.visible);
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen bg-[#0f0f0f]">
-      <div className="sticky top-0 z-40">
-        <Navbar />
-      </div>
-      <HeroSection onStartCreate={() => { localStorage.removeItem('flowweb_projectId'); navigate('/canvas'); }} />
-      <ContentSection />
+    <div>
+      <BannerCarousel />
+      <CreateCanvasCard />
+      <Footer />
       <AIAssistantFAB />
-      {vipModalVisible && <VipSubscribeModal />}
     </div>
   );
 }
