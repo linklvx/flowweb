@@ -26,9 +26,9 @@
 
 body {
   margin: 0;
-  background: #0f0f0f;
+  background: #141414;
   color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* Tiptap dark theme content styles */
