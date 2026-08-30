@@ -74,6 +74,15 @@ describe('FilePreviewPopoverContent', () => {
     expect(screen.getByRole('button', { name: '应用到画布' })).toBeInTheDocument();
   });
 
+  // ─── onApplyToCanvas 缺省：不渲染应用按钮（mock 漂移防护，spec §二.6） ───
+
+  it('未传 onApplyToCanvas：不渲染"应用到画布"', () => {
+    const file = makeFile();
+    render(<FilePreviewPopoverContent file={file} />);
+
+    expect(screen.queryByText('应用到画布')).not.toBeInTheDocument();
+  });
+
   // ─── Date formatting ───
 
   it('formats date using dayjs', () => {

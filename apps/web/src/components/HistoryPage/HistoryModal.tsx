@@ -2,6 +2,8 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { HistorySidebar } from './HistorySidebar';
 import FileGrid from '../MaterialLibrary/FileGrid/FileGrid';
 import FileGridZoomControl from '../MaterialLibrary/FileGridZoomControl';
+import { useCanvasStore } from '@/stores/canvasStore';
+import type { MaterialFile } from '@flowweb/shared';
 import { Modal, message } from 'antd';
 import { useEffect } from 'react';
 
@@ -52,6 +54,11 @@ export function HistoryModal() {
       return;
     }
     await batchDelete();
+  };
+
+  const handleApplyFile = (f: MaterialFile) => {
+    useCanvasStore.getState().requestAddMediaNode(f);
+    close();
   };
 
   const emptyText = `暂无${activeTab === 'image' ? '图片' : activeTab === 'video' ? '视频' : '音频'}历史记录`;
@@ -120,6 +127,7 @@ export function HistoryModal() {
             batchMode={batchMode}
             selectedFileIds={selectedFileIds}
             emptyText={emptyText}
+            onApplyFile={handleApplyFile}
             onToggleFavorite={toggleFavorite}
             onDelete={deleteFile}
             store={{

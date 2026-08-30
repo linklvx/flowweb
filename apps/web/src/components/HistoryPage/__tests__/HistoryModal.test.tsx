@@ -8,28 +8,34 @@ const mockExitBatchMode = vi.fn();
 const mockSelectAllFiles = vi.fn();
 const mockBatchDelete = vi.fn();
 const mockToggleFileSelection = vi.fn();
+const mockRequestAddMediaNode = vi.hoisted(() => vi.fn());
+const fileGridSpy = vi.hoisted(() => vi.fn());
+
+const historyState = () => ({
+  isOpen: true,
+  activeTab: 'image',
+  files: [{ id: 'f1', mimeType: 'image/png', createdAt: '2026-01-01', isFavorite: false, originalName: 'test.png', size: 100 }],
+  counts: { image: 1, video: 0, audio: 0 },
+  fileGridSize: 200,
+  loading: false,
+  batchMode: false,
+  selectedFileIds: new Set<string>(),
+  close: mockClose,
+  enterBatchMode: mockEnterBatchMode,
+  exitBatchMode: mockExitBatchMode,
+  selectAllFiles: mockSelectAllFiles,
+  batchDelete: mockBatchDelete,
+  toggleFileSelection: mockToggleFileSelection,
+  deleteFile: vi.fn(),
+  toggleFavorite: vi.fn(),
+  setFileGridSize: vi.fn(),
+});
 
 vi.mock('@/stores/historyStore', () => ({
-  useHistoryStore: (selector: any) =>
-    selector({
-      isOpen: true,
-      activeTab: 'image',
-      files: [{ id: 'f1', mimeType: 'image/png', createdAt: '2026-01-01', isFavorite: false, originalName: 'test.png', size: 100 }],
-      counts: { image: 1, video: 0, audio: 0 },
-      fileGridSize: 200,
-      loading: false,
-      batchMode: false,
-      selectedFileIds: new Set<string>(),
-      close: mockClose,
-      enterBatchMode: mockEnterBatchMode,
-      exitBatchMode: mockExitBatchMode,
-      selectAllFiles: mockSelectAllFiles,
-      batchDelete: mockBatchDelete,
-      toggleFileSelection: mockToggleFileSelection,
-      deleteFile: vi.fn(),
-      toggleFavorite: vi.fn(),
-      setFileGridSize: vi.fn(),
-    }),
+  useHistoryStore: Object.assign(
+    (selector: any) => selector(historyState()),
+    { getState: () => historyState() },
+  ),
 }));
 
 vi.mock('antd', () => ({
@@ -42,11 +48,11 @@ vi.mock('antd', () => ({
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
-      const state = { addNode: vi.fn(), requestAddMediaNode: vi.fn() };
+      const state = { addNode: vi.fn(), requestAddMediaNode: mockRequestAddMediaNode };
       return selector ? selector(state) : state;
     }),
     {
-      getState: () => ({ requestAddMediaNode: vi.fn() }),
+      getState: () => ({ requestAddMediaNode: mockRequestAddMediaNode }),
       setState: vi.fn(),
       subscribe: vi.fn(() => vi.fn()),
     },
@@ -74,6 +80,23 @@ vi.mock('@/stores/materialLibraryStore', () => ({
 
 vi.mock('@/components/MaterialLibrary/FilePreviewPopover', () => ({
   default: () => null,
+}));
+
+// FileGrid mock：捕获 props（接线断言）+ 渲染 originalName + apply 触发按钮（行为用例）
+vi.mock('@/components/MaterialLibrary/FileGrid/FileGrid', () => ({
+  default: (props: any) => {
+    fileGridSpy(props);
+    return (
+      <div>
+        {(props.files ?? []).map((f: any) => (
+          <div key={f.id}>{f.originalName}</div>
+        ))}
+        <button data-testid="grid-apply-btn" onClick={() => props.onApplyFile?.((props.files ?? [])[0])}>
+          grid-apply
+        </button>
+      </div>
+    );
+  },
 }));
 
 describe('HistoryModal', () => {
@@ -115,5 +138,20 @@ describe('HistoryModal', () => {
   it('renders file grid with file card', () => {
     render(<HistoryModal />);
     expect(screen.getByText('test.png')).toBeInTheDocument();
+  });
+
+  // ─── onApplyFile 接线（审查补线：历史记录画布应用） ───
+
+  it('passes onApplyFile to FileGrid', () => {
+    render(<HistoryModal />);
+    const lastCall = fileGridSpy.mock.calls[fileGridSpy.mock.calls.length - 1][0];
+    expect(lastCall.onApplyFile).toBeTypeOf('function');
+  });
+
+  it('apply callback adds file to canvas and closes history modal', () => {
+    render(<HistoryModal />);
+    fireEvent.click(screen.getByTestId('grid-apply-btn'));
+    expect(mockRequestAddMediaNode).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }));
+    expect(mockClose).toHaveBeenCalled();
   });
 });

@@ -4,14 +4,13 @@ import FileCard from './FileCard';
 
 const toggleFavorite = vi.hoisted(() => vi.fn());
 const deleteFile = vi.hoisted(() => vi.fn());
-const closeLibrary = vi.hoisted(() => vi.fn());
 
 const mockLibraryStore = vi.hoisted(() => {
   const fn = vi.fn((selector?: (state: any) => any) => {
-    const state = { toggleFavorite, deleteFile, close: closeLibrary };
+    const state = { toggleFavorite, deleteFile };
     return selector ? selector(state) : state;
   });
-  (fn as any).getState = () => ({ toggleFavorite, deleteFile, close: closeLibrary });
+  (fn as any).getState = () => ({ toggleFavorite, deleteFile });
   return fn;
 });
 

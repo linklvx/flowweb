@@ -30,20 +30,6 @@ vi.mock('antd', async () => {
   return { ...(actual as any), Popover: ({ children }: any) => <div>{children}</div> };
 });
 
-vi.mock('../../../stores/canvasStore', () => ({
-  useCanvasStore: Object.assign(
-    vi.fn((selector?: any) => {
-      const state = { addNode: vi.fn(), requestAddMediaNode: vi.fn() };
-      return selector ? selector(state) : state;
-    }),
-    {
-      getState: () => ({ requestAddMediaNode: vi.fn() }),
-      setState: vi.fn(),
-      subscribe: vi.fn(() => vi.fn()),
-    },
-  ),
-}));
-
 vi.mock('../FilePreviewPopover', () => ({
   default: () => null,
 }));

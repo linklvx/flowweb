@@ -31,7 +31,8 @@ describe('MaterialLibraryModal', () => {
 
   it('should render when open', () => {
     render(<MaterialLibraryModal />);
-    expect(screen.getByText('我的素材库')).toBeInTheDocument();
+    // Modal 壳 title 与 Browser 头部 title 各渲染一处
+    expect(screen.getAllByText('我的素材库').length).toBeGreaterThan(0);
   });
 
   it('should render modal wrapper', () => {
@@ -48,6 +49,6 @@ describe('MaterialLibraryModal', () => {
   it('should not render when closed', () => {
     state = { isOpen: false, close, enterContext, uploading: false, selectedFolderId: null, batchMode: false, selectedFileIds: new Set(), folders: [], enterBatchMode: vi.fn(), exitBatchMode: vi.fn(), selectAllFiles: vi.fn(), batchDelete: vi.fn(), batchMove: vi.fn() };
     render(<MaterialLibraryModal />);
-    expect(screen.queryByText('我的素材库')).not.toBeInTheDocument();
+    expect(screen.queryAllByText('我的素材库')).toHaveLength(0);
   });
 });
