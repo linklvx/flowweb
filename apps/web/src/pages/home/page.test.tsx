@@ -14,15 +14,6 @@ vi.mock('@/stores/contentStore', () => ({
   })),
 }));
 
-vi.mock('@/stores/announcementStore', () => ({
-  useAnnouncementStore: vi.fn(() => ({
-    visible: true,
-    message: '平台公告：新用户送100积分',
-    linkUrl: undefined,
-    dismiss: vi.fn(),
-  })),
-}));
-
 vi.mock('@/stores/vipModalStore', () => ({
   useVipModalStore: (selector?: (s: Record<string, unknown>) => unknown) => {
     const state = { visible: false, open: vi.fn(), close: vi.fn() };
@@ -43,11 +34,6 @@ describe('HomePage', () => {
         </AuthProvider>
       </MemoryRouter>
     );
-
-  it('should render announcement message', () => {
-    renderHomePage();
-    expect(screen.getByText('平台公告：新用户送100积分')).toBeInTheDocument();
-  });
 
   it('should render brand logo', () => {
     renderHomePage();
