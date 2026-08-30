@@ -468,16 +468,35 @@ describe('materialLibraryStore - context 注入与快照（spec §二.4/§二.5�
   });
 
   it('loadFolders 替换型乱序：慢响应后到被丢弃', async () => {
-    let resolveSlow!: (v: any) => void;
+    let resolveSlowFolders!: (v: any) => void;
     mockGet.mockImplementation((url: string, cfg?: any) => {
-      if (cfg?.params?.teamId === 'A') return new Promise((r) => { resolveSlow = r; });
+      // 只挂起 folders+A 请求：断言对象是 folders，须保证 resolveSlowFolders 是 loadFolders(A) 的 resolver
+      if (url === '/api/material/folders' && cfg?.params?.teamId === 'A') {
+        return new Promise((r) => { resolveSlowFolders = r; });
+      }
       return Promise.resolve({ data: { data: { success: true, data: [{ id: 'b-folder' }] } } });
     });
     const store = useMaterialLibraryStore.getState();
     void store.enterContext({ teamId: 'A' });
     void store.enterContext({ teamId: 'B' });
     await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]));
-    resolveSlow({ data: { data: { success: true, data: [{ id: 'a-stale' }] } } });
-    await waitFor(() => expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }])); // A 被丢弃
+    resolveSlowFolders({ data: { data: { success: true, data: [{ id: 'a-stale' }] } } });
+    // macrotask flush：waitFor 首查是同步的、会跑在慢回包续体之前，必须先排空微任务再断言终态
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useMaterialLibraryStore.getState().folders).toEqual([{ id: 'b-folder' }]); // A 慢回包被序号守卫丢弃
+  });
+
+  it('uploadFile 末尾刷新正向：context 与 folder 未变 → loadFiles 以快照团队刷新', async () => {
+    useMaterialLibraryStore.setState({ context: { teamId: 'A', projectId: 'P' }, selectedFolderId: 'fa' });
+    mockPresignUpload.mockResolvedValue({ fileId: 'fid', uploadUrl: 'http://127.0.0.1:9000/flowai/k1', key: 'k1', fields: {} });
+    mockConfirmUpload.mockResolvedValue({});
+    mockPost.mockResolvedValue({ data: {} });
+    mockPut.mockResolvedValue({ data: {} });
+    mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
+
+    await useMaterialLibraryStore.getState().uploadFile(new File(['x'], 'a.png', { type: 'image/png' }));
+
+    const calls = mockGet.mock.calls.filter((c: any[]) => c[0] === '/api/material/files');
+    expect(calls.some((c: any[]) => c[1]?.params?.teamId === 'A')).toBe(true);
   });
 });
