@@ -6,6 +6,7 @@ const PUBLIC_PREFIXES = [
   '/api/node-types',
   '/api/auth',
   '/api/announcements',
+  '/api/home-banners',
   '/api/pricing/calculate',
   '/api/subscription',
   '/api/media/by-key',

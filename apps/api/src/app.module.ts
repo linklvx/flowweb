@@ -7,6 +7,7 @@ import Redis from 'ioredis';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
+import { HomeBannerModule } from './modules/home-banner/home-banner.module';
 import { ProjectModule } from './modules/project/project.module';
 import { TeamModule } from './modules/team/team.module';
 import { CollabModule } from './modules/collab/collab.module';
@@ -51,6 +52,7 @@ const env = validateEnv();
     PrismaModule,
     HealthModule,
     ContentModule,
+    HomeBannerModule,
     ProjectModule,
     TeamModule,
     CollabModule,
