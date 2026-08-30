@@ -64,4 +64,14 @@ describe('MaterialsPage', () => {
     renderPage('/materials?tab=team');
     await waitFor(() => expect(screen.getByTestId('materials-empty-state')).toBeInTheDocument());
   });
+
+  it('enterContext 时序：挂载/切团队各恰好一组 folders+files 请求（spec 切团队=1 次）', async () => {
+    mockGetMyTeams.mockResolvedValue([team('t1', true), team('t2', true)]);
+    renderWithProbe('/materials?tab=team&teamId=t1');
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/material/folders', { params: { teamId: 't1' } }));
+    mockGet.mockClear();
+    (await screen.findAllByRole('tab')).find((el) => el.textContent === 't2')!.click();
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/material/folders', { params: { teamId: 't2' } }));
+    expect(mockGet).toHaveBeenCalledTimes(2); // folders+files 各 1，无重复加载
+  });
 });
