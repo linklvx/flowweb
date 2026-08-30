@@ -21,13 +21,21 @@ describe('folderApi teamId 透传', () => {
     expect((global.fetch as any).mock.calls[0][0]).toBe('/api/folders');
   });
 
-  it('createFolder 传 teamId 时 body 带 teamId', async () => {
+  it('createFolder 传 teamId 时 query 带 teamId（后端 create 只认 @Query，body teamId 会被 whitelist 剥离落个人作用域）', async () => {
     (global.fetch as any).mockResolvedValue(ok({ id: 'f1' }));
     const { createFolder } = await import('./folderApi');
     await createFolder('新文件夹', 't-1');
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/folders?teamId=t-1');
     const init = (global.fetch as any).mock.calls[0][1];
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ name: '新文件夹', teamId: 't-1' });
+    expect(JSON.parse(init.body)).toEqual({ name: '新文件夹' });
+  });
+
+  it('createFolder 不传 teamId 时保持原 URL', async () => {
+    (global.fetch as any).mockResolvedValue(ok({ id: 'f1' }));
+    const { createFolder } = await import('./folderApi');
+    await createFolder('新文件夹');
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/folders');
   });
 });
 

@@ -16,9 +16,10 @@ export function getFolders(teamId?: string) {
 }
 
 export function createFolder(name: string, teamId?: string) {
-  return apiFetch<{ id: string }>('/folders', {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<{ id: string }>(`/folders${qs}`, {
     method: 'POST',
-    body: JSON.stringify(teamId ? { name, teamId } : { name }),
+    body: JSON.stringify({ name }),
   });
 }
 
