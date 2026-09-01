@@ -42,11 +42,13 @@ export default function MaterialsPage() {
   return (
     <div>
       <div className="pt-4">
-        <WorkspaceTabBar
-          activeTab={tab}
-          onTabChange={setTab}
-          labels={{ personal: '个人素材', team: '团队素材' }}
-        />
+        <div className="px-8 pt-2">
+          <WorkspaceTabBar
+            activeTab={tab}
+            onTabChange={setTab}
+            labels={{ personal: '个人素材', team: '团队素材' }}
+          />
+        </div>
         {tab === 'team' ? (
           state.status === 'loading' ? (
             <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
