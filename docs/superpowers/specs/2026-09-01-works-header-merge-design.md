@@ -117,7 +117,7 @@ const tabsRow = (
 1. **红**：新增 `WorkspaceToolbar.test.tsx`——① tabs 与工具组渲染于同一 `md:flex-row` 容器；② tab 点击透传 `onTabChange`；③ 无「导入」按钮、「新建文件夹」按钮存在。新增 Page 级用例——④ 团队 error/empty 分支下 tab 按钮存在于头部行容器（class 含 `md:flex-row`）内且可点击切回个人（现状 TabBar 不在此类容器中，断言可红）。预期失败
 2. **绿**：按文件清单实施（TabBar 去 padding → Toolbar 合并换皮 → Dimension props+children → Page 删 TabBar/children/异常态 → MaterialsPage wrapper）
 3. **重构**：孤儿 import 清理，tsc + eslint 零警告
-4. **验证**：现有测试全绿（TabBar 受控/激活态、Page 新建文件夹流程、folder-create、team-tabs-row 5 处引用）+ 新增测试通过 + 浏览器手动验证：个人/团队切换、团队 4 非成功分支 tabs 可点击
+4. **验证**：现有测试全绿（TabBar 受控/激活态、Page 新建文件夹流程、folder-create、team-tabs-row 5 处引用）+ 新增测试通过 + 浏览器手动验证：个人/团队切换、团队 4 非成功分支 tabs 可点击；DevTools 确认新建文件夹按钮 computed `font-family` 为 body 继承值（`font-[inherit]` 若未路由到 font-family 则改用任意属性写法 `[font-family:inherit]`）
 
 ## 八、不在范围
 
