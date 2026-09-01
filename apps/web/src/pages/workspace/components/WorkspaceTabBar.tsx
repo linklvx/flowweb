@@ -4,7 +4,7 @@ interface WorkspaceTabBarProps {
   labels?: { personal: string; team: string };
 }
 
-export function WorkspaceTabBar({ activeTab, onTabChange, labels = { personal: '个人', team: '团队项目' } }: WorkspaceTabBarProps) {
+export function WorkspaceTabBar({ activeTab, onTabChange, labels = { personal: '个人项目', team: '团队项目' } }: WorkspaceTabBarProps) {
   return (
     <div className="flex gap-2 text-lg items-center">
       <button

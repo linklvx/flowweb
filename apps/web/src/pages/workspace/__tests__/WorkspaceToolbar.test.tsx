@@ -16,7 +16,7 @@ const props = {
 describe('WorkspaceToolbar 头部合并', () => {
   it('tabs 与工具组渲染于同一 md:flex-row 行容器', () => {
     render(<WorkspaceToolbar {...props} />);
-    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    const row = screen.getByRole('button', { name: '个人项目' }).closest('div[class*="md:flex-row"]');
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByRole('button', { name: /新建文件夹/ })).toBeInTheDocument();
   });

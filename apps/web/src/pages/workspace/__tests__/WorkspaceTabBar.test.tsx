@@ -8,12 +8,12 @@ describe('WorkspaceTabBar', () => {
     render(<WorkspaceTabBar activeTab="personal" onTabChange={onTabChange} />);
     fireEvent.click(screen.getByRole('button', { name: '团队项目' }));
     expect(onTabChange).toHaveBeenCalledWith('team');
-    expect(screen.getByRole('button', { name: '个人' })).toHaveClass('border-b-2');
+    expect(screen.getByRole('button', { name: '个人项目' })).toHaveClass('border-b-2');
   });
 
   it('activeTab=team 时团队项目按钮为激活态', () => {
     render(<WorkspaceTabBar activeTab="team" onTabChange={vi.fn()} />);
     expect(screen.getByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
-    expect(screen.getByRole('button', { name: '个人' })).not.toHaveClass('border-b-2');
+    expect(screen.getByRole('button', { name: '个人项目' })).not.toHaveClass('border-b-2');
   });
 });

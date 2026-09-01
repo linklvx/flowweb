@@ -211,7 +211,8 @@ describe('WorkspacePage', () => {
     expect(tabs[0].textContent).toContain('我建的团');
     expect(tabs[1].textContent).toContain('加入的团');
     expect(screen.queryByText('我创建的')).not.toBeInTheDocument();
-    expect(screen.queryByText('个人项目')).not.toBeInTheDocument();
+    // 默认团队（teamDisplayName=个人项目）被过滤——scope 到团队 tabs，避免与 Tab 栏「个人项目」按钮撞文本
+    expect(screen.getByTestId('team-tabs-row').textContent).not.toContain('个人项目');
   });
 
   it('?tab=team 无真实团队时空状态引导', async () => {
@@ -276,9 +277,9 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     mockGetMyTeams.mockRejectedValue(new Error('boom'));
     renderPage('/works?tab=team');
     await waitFor(() => expect(screen.getByTestId('teams-error')).toBeInTheDocument());
-    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    const row = screen.getByRole('button', { name: '个人项目' }).closest('div[class*="md:flex-row"]');
     expect(row).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '个人' }));
+    fireEvent.click(screen.getByRole('button', { name: '个人项目' }));
     expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
   });
 
@@ -287,9 +288,9 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
     renderPage('/works?tab=team');
     await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
-    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    const row = screen.getByRole('button', { name: '个人项目' }).closest('div[class*="md:flex-row"]');
     expect(row).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '个人' }));
+    fireEvent.click(screen.getByRole('button', { name: '个人项目' }));
     expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
   });
 
