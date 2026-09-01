@@ -19,7 +19,8 @@
 | WorkspaceTabBar 另被 MaterialsPage 引用（labels 定制「个人素材/团队素材」） | MaterialsPage.tsx:45 |
 | Toolbar 内 Button 仅导入/新建文件夹 2 处；message 仅导入占位 1 处 | WorkspaceToolbar.tsx:72-73 |
 | `team-tabs-row` testid 被 Page 测试引用 5 处；`teams-error`/`team-empty-state` 各 1 处 | WorkspacePage.test.tsx |
-| index.css 无全局 `button:hover` 注入 | grep 核查 |
+| index.css 无全局 `button:hover` 注入，亦无 `button { font-family: inherit }` 规则（仅 body:31 有字体栈） | grep 核查 |
+| 参考代码 tabs 为 `ul.flex.gap-2` + `li.mx-3.py-1.5`——容器 gap 与按钮 margin 并存，与现状完全相同 | 用户提供的参考 HTML |
 
 ## 三、目标 DOM（正常态）
 
@@ -43,6 +44,9 @@
 - 激活态：`text-white border-b-2 border-white rounded-t-md`（下划线式，非背景填充）
 - 非激活态：`text-white/50 rounded-t-md`（不写 hover 类——全局无 button:hover 注入，写 `hover:bg-transparent` 反而暗示存在覆盖层）
 - 共同：`mx-3 py-1.5 bg-transparent cursor-pointer`
+- **间距组合写死**：容器 `gap-2`（8px）与按钮 `mx-3`（左右各 12px）并存——**沿用现状与参考代码的既有组合**（参考 `ul.flex.gap-2` + `li.mx-3.py-1.5`；现状同构），非笔误，改版前后 tabs 间距视觉零变化。水平间距用 `mx-3`（margin）而非 `px-3`，与参考代码字面一致：激活下划线宽度 = 文字宽度
+- **`rounded-t-md` 注明**：透明背景下无视觉作用，为对齐参考代码保留（无副作用）
+- **字体不处理**：TabBar 按钮现状即原生 button 且无 font-family 处理，非本次引入的差异，遵循精准修改不碰
 - 保留 `<button>` 元素与现有受控 props；`border-b-2` 断言不变，现有测试零改动
 
 ### 2. WorkspaceToolbar.tsx — 合并行容器 + 换皮 + 删导入按钮
@@ -50,7 +54,8 @@
 - 外层容器：`flex flex-col md:flex-row items-start gap-y-2 pt-2 pb-2 justify-between px-8`
 - 左区渲染 `<WorkspaceTabBar activeTab={activeTab} onTabChange={onTabChange} />`；右区现有工具组 div 加 `flex-wrap`（gap-2 已有）
 - **删除「导入」按钮**（无实际功能的 `message.info('即将上线')` 占位）
-- 「新建文件夹」按钮：antd `Button type="primary"` → 原生 button：`h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer` + `FolderAddOutlined`，文案与 `onClick={onCreateFolder}` 不变
+- 「新建文件夹」按钮：antd `Button type="primary"` → 原生 button：`h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer font-[inherit]` + `FolderAddOutlined`，文案与 `onClick={onCreateFolder}` 不变
+  - `font-[inherit]` 必要性：preflight: false 且 index.css 无 button 字体继承规则，antd Button（自带字体栈）换原生后会回退浏览器默认字体——本次改动引入的差异，必须补偿
 - 搜索框/显示全部 trigger/grid-list 容器/分隔线：样式不变（与参考一致），仅补 `transition-colors`
 
 ### 3. WorkspaceDimension.tsx — 接 props + children 插槽
@@ -61,6 +66,7 @@
 
 ### 4. WorkspacePage.tsx — 删 TabBar 渲染 + children 传团队 Tabs + 异常态补 tabs 行
 - 删除 `<WorkspaceTabBar/>` 直接渲染与 import
+- **`key` 为既有代码非本次新增**：现状即 `key="personal"` / `key={validTeamId}`，remount 是刻意设计（切维度强制重挂载，搜索/筛选/folder 本地 state 归零，见 WorkspacePage.tsx:59 注释），本次仅追加 props 不动 key 行为
 - 个人分支：`<WorkspaceDimension key="personal" activeTab="personal" onTabChange={setTab} />`
 - 团队 validTeamId 分支：团队 Tabs JSX（含 `px-8` 容器与 `team-tabs-row` testid，整体原样挪动）作为 `children` 传入 Dimension，`activeTab="team"` + `onTabChange={setTab}` + `key={validTeamId}`
 - **团队 4 个非成功分支补 tabs-only 行**（防「被困」，见第五节）
