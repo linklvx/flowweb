@@ -16,6 +16,14 @@ describe('CreateCanvasCard', () => {
     render(<CreateCanvasCard onClick={vi.fn()} />);
     expect(screen.getByText('新建画布')).toBeInTheDocument();
   });
+  it('等高结构：无写死占位，外壳 h-full、预览区 flex-1', () => {
+    const { container } = render(<CreateCanvasCard onClick={vi.fn()} />);
+    expect(container.querySelector('.h-\\[52px\\]')).toBeNull();
+    const shell = screen.getByRole('button', { name: '新建画布' });
+    expect(shell).toHaveClass('h-full');
+    const preview = shell.querySelector('div');
+    expect(preview).toHaveClass('flex-1');
+  });
 });
 
 describe('EmptyState', () => {
