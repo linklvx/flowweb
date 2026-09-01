@@ -8,3 +8,7 @@ dayjs.extend(relativeTime);
 export function formatRelativeTime(iso: string, now: Date = new Date()): string {
   return dayjs(iso).locale('zh-cn').from(dayjs(now).locale('zh-cn'));
 }
+
+export function formatDateTime(iso: string): string {
+  return dayjs(iso).format('YYYY-MM-DD HH:mm');
+}
