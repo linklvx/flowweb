@@ -69,12 +69,12 @@ describe('LoginModal', () => {
     renderModal({ bannerUrl });
     const bannerImg = screen.getByAltText('登录Banner');
     fireEvent.error(bannerImg);
-    expect(screen.getByText('FlowWeb')).toBeInTheDocument();
+    expect(screen.getByText('Flow123')).toBeInTheDocument();
   });
 
   it('should show banner fallback when no bannerUrl provided', () => {
     renderModal();
-    expect(screen.getByText('FlowWeb')).toBeInTheDocument();
+    expect(screen.getByText('Flow123')).toBeInTheDocument();
   });
 
   it('should render with custom bannerUrl', () => {

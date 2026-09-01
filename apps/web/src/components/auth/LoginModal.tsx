@@ -51,8 +51,8 @@ export function LoginModal({
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-b from-[#e8e8e8] to-[#f0f0f0] flex items-center justify-center">
-              <span className="text-[24px] font-semibold text-[#141414]">
-                FlowWeb
+              <span className="text-[24px] font-semibold italic tracking-[-0.04em] leading-none text-[#141414]">
+                Flow123
               </span>
             </div>
           )}
