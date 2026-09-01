@@ -41,8 +41,8 @@
 
 ### 1. WorkspaceTabBar.tsx — 去 padding，样式换皮
 - 容器去掉 `px-8 pt-2`，改为 `flex gap-2 text-lg items-center`（纯按钮组，布局归调用方；MaterialsPage 补偿见 5）
-- 激活态：`text-white border-b-2 border-white rounded-t-md`（下划线式，非背景填充）
-- 非激活态：`text-white/50 rounded-t-md`（不写 hover 类——全局无 button:hover 注入，写 `hover:bg-transparent` 反而暗示存在覆盖层）
+- 激活态：`text-white border-b-2 border-white border-x-0 border-t-0 rounded-t-md`（下划线式，非背景填充；`border-x-0 border-t-0` 压掉 UA 默认 outset 边框，preflight: false 下必要，沿用现状写法）
+- 非激活态：`text-white/50 border-none rounded-t-md`（`border-none` 同为压 UA 默认边框，不写 hover 类——全局无 button:hover 注入）
 - 共同：`mx-3 py-1.5 bg-transparent cursor-pointer`
 - **间距组合写死**：容器 `gap-2`（8px）与按钮 `mx-3`（左右各 12px）并存——**沿用现状与参考代码的既有组合**（参考 `ul.flex.gap-2` + `li.mx-3.py-1.5`；现状同构），非笔误，改版前后 tabs 间距视觉零变化。水平间距用 `mx-3`（margin）而非 `px-3`，与参考代码字面一致：激活下划线宽度 = 文字宽度
 - **`rounded-t-md` 注明**：透明背景下无视觉作用，为对齐参考代码保留（无副作用）
