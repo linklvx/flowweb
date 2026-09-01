@@ -36,7 +36,7 @@ export function InlineRename({ value, editing, onEditingChange, onConfirm, ariaL
   }
   return (
     <span className="group/name flex items-center min-w-0">
-      <span className="text-sm font-semibold truncate cursor-text">{value}</span>
+      <span className="text-sm font-semibold truncate cursor-text text-white">{value}</span>
       <button
         aria-label={ariaLabel}
         className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0 bg-transparent border-none cursor-pointer"

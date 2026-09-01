@@ -26,7 +26,7 @@ function renderFolder(overrides?: { folder?: Partial<FolderViewModel>; showCount
 describe('FolderCard', () => {
   it('渲染名称、画布数、编辑时间', () => {
     renderFolder();
-    expect(screen.getByText('项目文件夹')).toBeInTheDocument();
+    expect(screen.getByText('项目文件夹')).toHaveClass('text-white');
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
   });
@@ -66,6 +66,7 @@ describe('FolderCard', () => {
   it('variant="list" 渲染紧凑行（含菜单与数量）', () => {
     const { props } = renderFolder({ variant: 'list' });
     expect(screen.getByTestId('folder-card-f1').className).toContain('h-16');
+    expect(screen.getByText('项目文件夹')).toHaveClass('text-white');
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('重命名'));

@@ -25,7 +25,7 @@ describe('CanvasCard', () => {
   it('渲染标题与「编辑于」相对时间', () => {
     vi.setSystemTime(new Date('2026-08-18T12:00:00'));
     renderCard(base);
-    expect(screen.getByText('画布 1')).toBeInTheDocument();
+    expect(screen.getByText('画布 1')).toHaveClass('text-white');
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
     vi.useRealTimers();
   });

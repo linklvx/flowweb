@@ -51,7 +51,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
         <span className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg text-white/70 shrink-0">
           <FolderOutlined style={{ fontSize: 20 }} />
         </span>
-        <span className="flex-1 ml-3 text-sm font-semibold truncate group-hover/name">{folder.name}</span>
+        <span className="flex-1 ml-3 text-sm font-semibold truncate text-white group-hover/name">{folder.name}</span>
         {showCount && <span className="text-xs text-white/40 mr-4 shrink-0">{folder.canvasCount} 个画布</span>}
         {menuButton}
       </div>
@@ -70,7 +70,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
       <FolderStackPreview thumbnails={folder.thumbnails} />
       <div className="px-2 pt-2 pb-1">
         <span className="group/name flex items-center min-w-0">
-          <span className="text-sm font-semibold truncate">{folder.name}</span>
+          <span className="text-sm font-semibold truncate text-white">{folder.name}</span>
           <button
             aria-label="重命名文件夹"
             className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0 bg-transparent border-none cursor-pointer"
