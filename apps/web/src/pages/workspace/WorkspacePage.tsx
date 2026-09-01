@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Button, Tabs } from 'antd';
+import { Button, ConfigProvider, Tabs } from 'antd';
 import { teamDisplayName, type MyTeam } from '@/api/teamApi';
 import { useTeams } from './hooks/useTeams';
 import { WorkspaceTabBar } from './components/WorkspaceTabBar';
@@ -66,11 +66,24 @@ export function WorkspacePage() {
               dimensionLabel={teamDisplayName(realTeams.find((t) => t.id === validTeamId)!)}
             >
               <div className="px-8" data-testid="team-tabs-row">
-                <Tabs
-                  activeKey={validTeamId}
-                  onChange={setTeamId}
-                  items={realTeams.map((t) => ({ key: t.id, label: teamTabLabel(t) }))}
-                />
+                <ConfigProvider
+                  theme={{
+                    components: {
+                      Tabs: {
+                        itemColor: '#7a7a7a',
+                        itemHoverColor: '#a6a6a6',
+                        itemSelectedColor: '#f5f5f5',
+                        inkBarColor: '#f5f5f5',
+                      },
+                    },
+                  }}
+                >
+                  <Tabs
+                    activeKey={validTeamId}
+                    onChange={setTeamId}
+                    items={realTeams.map((t) => ({ key: t.id, label: teamTabLabel(t) }))}
+                  />
+                </ConfigProvider>
               </div>
             </WorkspaceDimension>
           ) : (
