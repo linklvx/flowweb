@@ -52,8 +52,8 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
         <div className="flex items-center cursor-pointer group/row">
           <div className="shrink-0" style={{ width: 32 }} />
           <div
-            className="grid flex-1 items-center gap-6 pl-4 pr-14 py-3 rounded-lg transition-colors group-hover/row:bg-white/5"
-            style={{ gridTemplateColumns: '72px 1fr 120px 150px 180px 180px' }}
+            className="grid flex-1 items-center gap-4 pl-4 pr-12 py-3 rounded-lg transition-colors group-hover/row:bg-white/5"
+            style={{ gridTemplateColumns: '72px 1fr 70px 100px 145px 145px' }}
           >
             <div className="flex items-center justify-start">
               <FolderListPreview thumbnails={folder.thumbnails} />

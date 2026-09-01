@@ -189,8 +189,8 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               <div className="flex items-center">
                 <div className="shrink-0" style={{ width: 32 }} />
                 <div
-                  className="grid flex-1 items-center gap-6 pl-4 pr-14 text-sm text-white/40"
-                  style={{ gridTemplateColumns: '72px 1fr 120px 150px 180px 180px' }}
+                  className="grid flex-1 items-center gap-4 pl-4 pr-12 text-sm text-white/40"
+                  style={{ gridTemplateColumns: '72px 1fr 70px 100px 145px 145px' }}
                 >
                   <div>预览</div>
                   <div>名称</div>
@@ -202,42 +202,45 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               </div>
               <div className="mx-12 mr-4 mt-4 border-b border-white/10" />
             </div>
-            <ul className="list-none pl-0 flex flex-col px-4 pb-5" data-testid="workspace-list">
-              {showCreateCanvasCard && (
-                <li data-testid="create-canvas-card" className="py-2">
-                  <button
-                    onClick={() => setCanvasModal(true)}
-                    className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
-                  >
-                    <PlusOutlined /> 新建画布
-                  </button>
-                </li>
-              )}
-              {items.map((item) => (
-                <li key={item.data.id}>
-                  {item.type === 'folder' ? (
-                    <FolderCard
-                      variant="list"
-                      folder={item.data}
-                      showCount={!searchQuery}
-                      onClick={() => onItemClick(item)}
-                      onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
-                      onDelete={handleDeleteFolder}
-                    />
-                  ) : (
-                    <CanvasCard
-                      variant="list"
-                      canvas={item.data}
-                      onClick={() => onItemClick(item)}
-                      onRename={data.renameCanvas}
-                      onMove={setMoveTarget}
-                      onTogglePublic={data.togglePublic}
-                      onDelete={(c) => { void data.deleteCanvas(c.id); }}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+            {/* 外层 div 承担左右 padding：ul 的 pl-0（preflight 防御）在 Tailwind 源序中会覆盖 px-4 的左 padding */}
+            <div className="px-4 pb-5">
+              <ul className="list-none pl-0 flex flex-col" data-testid="workspace-list">
+                {showCreateCanvasCard && (
+                  <li data-testid="create-canvas-card" className="py-2">
+                    <button
+                      onClick={() => setCanvasModal(true)}
+                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
+                    >
+                      <PlusOutlined /> 新建画布
+                    </button>
+                  </li>
+                )}
+                {items.map((item) => (
+                  <li key={item.data.id}>
+                    {item.type === 'folder' ? (
+                      <FolderCard
+                        variant="list"
+                        folder={item.data}
+                        showCount={!searchQuery}
+                        onClick={() => onItemClick(item)}
+                        onRequestRename={(f) => setFolderModal({ open: true, rename: f })}
+                        onDelete={handleDeleteFolder}
+                      />
+                    ) : (
+                      <CanvasCard
+                        variant="list"
+                        canvas={item.data}
+                        onClick={() => onItemClick(item)}
+                        onRename={data.renameCanvas}
+                        onMove={setMoveTarget}
+                        onTogglePublic={data.togglePublic}
+                        onDelete={(c) => { void data.deleteCanvas(c.id); }}
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
             {data.hasMore && !searchQuery && (
               <div className="px-4 pb-4">
                 <button

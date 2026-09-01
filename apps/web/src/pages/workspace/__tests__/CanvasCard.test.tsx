@@ -82,7 +82,7 @@ describe('CanvasCard', () => {
     renderCard(base, { variant: 'list' });
     const row = screen.getByTestId('canvas-card-c1');
     // jsdom inline style 序列化不稳定，用 getAttribute 子串断言（FolderStackPreview 先例）
-    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 120px 150px 180px 180px');
+    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 70px 100px 145px 145px');
     expect(screen.getByText('画布', { exact: true })).toBeInTheDocument();
     expect(screen.getByText('2026-08-18 09:00')).toBeInTheDocument();
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();

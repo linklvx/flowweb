@@ -68,7 +68,7 @@ describe('FolderCard', () => {
   it('variant="list" 渲染六列行：类型/内容/创建时间/堆叠预览', () => {
     const { container } = renderFolder({ variant: 'list' });
     const row = screen.getByTestId('folder-card-f1');
-    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 120px 150px 180px 180px');
+    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 70px 100px 145px 145px');
     expect(screen.getByText('文件夹', { exact: true })).toBeInTheDocument();
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
     expect(screen.getByText('2026-08-18 09:00')).toBeInTheDocument();
