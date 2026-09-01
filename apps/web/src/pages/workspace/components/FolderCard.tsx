@@ -1,10 +1,11 @@
 // components/FolderCard.tsx（重命名统一走 Modal：铅笔/菜单都只触发 onRequestRename）
 import { Dropdown, Tooltip } from 'antd';
-import { DeleteOutlined, EditOutlined, MoreOutlined, FolderOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { FolderViewModel } from '../types';
-import { formatRelativeTime } from '../utils/time';
+import { formatRelativeTime, formatDateTime } from '../utils/time';
 import { FolderStackPreview } from './FolderStackPreview';
+import { FolderListPreview } from './FolderListPreview';
 
 interface FolderCardProps {
   folder: FolderViewModel;
@@ -46,14 +47,30 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
         role="button"
         onClick={() => onClick(folder)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(folder); }}
-        className="h-16 px-4 flex items-center border-b border-white/5 hover:bg-white/5 cursor-pointer group/menu"
+        className="relative group/menu"
       >
-        <span className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg text-white/70 shrink-0">
-          <FolderOutlined style={{ fontSize: 20 }} />
-        </span>
-        <span className="flex-1 ml-3 text-sm font-semibold truncate text-white group-hover/name">{folder.name}</span>
-        {showCount && <span className="text-xs text-white/40 mr-4 shrink-0">{folder.canvasCount} 个画布</span>}
-        {menuButton}
+        <div className="flex items-center cursor-pointer group/row">
+          <div className="shrink-0" style={{ width: 32 }} />
+          <div
+            className="grid flex-1 items-center gap-6 pl-4 pr-14 py-3 rounded-lg transition-colors group-hover/row:bg-white/5"
+            style={{ gridTemplateColumns: '72px 1fr 120px 150px 180px 180px' }}
+          >
+            <div className="flex items-center justify-start">
+              <FolderListPreview thumbnails={folder.thumbnails} />
+            </div>
+            <div className="min-w-0">
+              <span className="text-sm text-white truncate">{folder.name}</span>
+            </div>
+            <div className="text-sm text-white">文件夹</div>
+            <div className="text-sm text-white">{showCount ? `${folder.canvasCount} 个画布` : ''}</div>
+            <div className="text-sm text-white whitespace-nowrap">{formatDateTime(folder.createdAt)}</div>
+            <div className="text-sm text-white whitespace-nowrap">编辑于 {formatRelativeTime(folder.updatedAt)}</div>
+          </div>
+        </div>
+        <div className="mx-12 mr-4 border-b border-white/10" />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex rounded-md bg-black/50 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">
+          {menuButton}
+        </div>
       </div>
     );
   }

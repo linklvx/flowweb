@@ -65,11 +65,25 @@ describe('FolderCard', () => {
     expect(screen.queryByDisplayValue('项目文件夹')).not.toBeInTheDocument();
   });
 
-  it('variant="list" 渲染紧凑行（含菜单与数量）', () => {
-    const { props } = renderFolder({ variant: 'list' });
-    expect(screen.getByTestId('folder-card-f1').className).toContain('h-16');
-    expect(screen.getByText('项目文件夹')).toHaveClass('text-white');
+  it('variant="list" 渲染六列行：类型/内容/创建时间/堆叠预览', () => {
+    const { container } = renderFolder({ variant: 'list' });
+    const row = screen.getByTestId('folder-card-f1');
+    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 120px 150px 180px 180px');
+    expect(screen.getByText('文件夹', { exact: true })).toBeInTheDocument();
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
+    expect(screen.getByText('2026-08-18 09:00')).toBeInTheDocument();
+    expect(screen.getByText(/编辑于/)).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-testid="stack-card"]')).toHaveLength(3);
+    expect(row.querySelector('.border-white\\/10')).toBeInTheDocument();
+  });
+
+  it('variant="list" showCount=false 内容列为空', () => {
+    renderFolder({ variant: 'list', showCount: false });
+    expect(screen.queryByText('3 个画布')).not.toBeInTheDocument();
+  });
+
+  it('variant="list" 菜单重命名仍触发 onRequestRename', () => {
+    const { props } = renderFolder({ variant: 'list' });
     fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('重命名'));
     expect(props.onRequestRename).toHaveBeenCalled();
