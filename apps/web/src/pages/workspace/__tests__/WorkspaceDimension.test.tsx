@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor, screen } from '@testing-library/react';
+import { render, waitFor, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { WorkspaceDimension } from '../components/WorkspaceDimension';
 
@@ -44,6 +44,17 @@ describe('WorkspaceDimension 共享组件', () => {
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
     expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
     expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
+    const grid = screen.getByTestId('workspace-grid');
+    expect(grid.className).toContain('list-none');
+    expect(grid.className).toContain('pl-0');
+  });
+
+  it('list 视图：ul 同样无黑点无缩进', async () => {
+    renderDim(undefined);
+    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    const list = await screen.findByTestId('workspace-list');
+    expect(list.className).toContain('list-none');
+    expect(list.className).toContain('pl-0');
   });
 
   it('团队维度：请求带 teamId', async () => {
