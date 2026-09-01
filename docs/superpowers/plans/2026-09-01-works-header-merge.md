@@ -604,4 +604,4 @@ EOF
 
 1. **Spec 覆盖**：§四.1→Task 2；§四.2→Task 3；§四.3→Task 4；§四.4→Task 5；§四.5→Task 2；§五→Task 5（4 分支 tabsRow）；§六→Task 3（import 清理）+Task 6（lint/tsc 验证门）；§七→Tasks 1-7 顺序一致。无缺口。
 2. **占位符扫描**：全部步骤含完整代码/命令/预期输出，无 TBD/TODO。
-3. **类型一致性**：`activeTab: 'personal' | 'team'` / `onTabChange: (tab: 'personal' | 'team') => void` 在 Toolbar（必传）、Dimension（可选默认）签名一致；`children?: React.ReactNode` 与 Task 5 用法一致；测试文件 props 常量与 Toolbar interface 字段一致。
+3. **类型一致性**：`activeTab: 'personal' | 'team'` / `onTabChange: (tab: 'personal' | 'team') => void` 在 Toolbar（必传）、Dimension（可选默认）签名一致；`children?: ReactNode`（`import type { ReactNode } from 'react'`）与 Task 5 用法一致；测试文件 props 常量与 Toolbar interface 字段一致。
