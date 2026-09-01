@@ -22,6 +22,13 @@ export function WorkspacePage() {
 
   const validTeamId = urlTeamId && realTeams.some((t) => t.id === urlTeamId) ? urlTeamId : null;
 
+  // 团队非成功分支的头部 tabs 行（spec §五）：容器类与合并行对齐，唯无 justify-between（单子元素）
+  const tabsRow = (
+    <div className="flex flex-col md:flex-row items-start gap-y-2 pt-2 pb-2 px-8">
+      <WorkspaceTabBar activeTab="team" onTabChange={setTab} />
+    </div>
+  );
+
   // 直链 teamId 回落三分支（spec §一.2）：teams 就绪后修正 URL（replace，不污染后退栈；不带 folder）
   useEffect(() => {
     if (tab !== 'team' || state.status !== 'success' || realTeams.length === 0) return;
@@ -33,22 +40,28 @@ export function WorkspacePage() {
   return (
     <div>
       <div className="pt-4">
-        <WorkspaceTabBar activeTab={tab} onTabChange={setTab} />
         {tab === 'team' ? (
           state.status === 'loading' ? (
-            <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
+            <>{tabsRow}<p className="text-sm text-[#888] px-8 pt-4">加载中…</p></>
           ) : state.status === 'error' ? (
-            <div className="flex flex-col items-center py-20 gap-3" data-testid="teams-error">
-              <p className="text-sm text-[#888]">团队列表加载失败</p>
-              <Button onClick={() => retry()}>重试</Button>
-            </div>
-          ) : realTeams.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="team-empty-state">
-              <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
-              <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
-            </div>
-          ) : validTeamId ? (
             <>
+              {tabsRow}
+              <div className="flex flex-col items-center py-20 gap-3" data-testid="teams-error">
+                <p className="text-sm text-[#888]">团队列表加载失败</p>
+                <Button onClick={() => retry()}>重试</Button>
+              </div>
+            </>
+          ) : realTeams.length === 0 ? (
+            <>
+              {tabsRow}
+              <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="team-empty-state">
+                <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
+                <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
+              </div>
+            </>
+          ) : validTeamId ? (
+            /* key=validTeamId：切团队强制重挂载维度组件，搜索/筛选/folder 等本地 state 归零（既有行为） */
+            <WorkspaceDimension key={validTeamId} teamId={validTeamId} activeTab="team" onTabChange={setTab}>
               <div className="px-8" data-testid="team-tabs-row">
                 <Tabs
                   activeKey={validTeamId}
@@ -56,15 +69,13 @@ export function WorkspacePage() {
                   items={realTeams.map((t) => ({ key: t.id, label: teamTabLabel(t) }))}
                 />
               </div>
-              {/* key=validTeamId：切团队强制重挂载维度组件，搜索/筛选/folder 等本地 state 归零 */}
-              <WorkspaceDimension key={validTeamId} teamId={validTeamId} />
-            </>
+            </WorkspaceDimension>
           ) : (
             // success 但 URL teamId 尚未补默认的过渡帧，与 loading 同形避免闪空
-            <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
+            <>{tabsRow}<p className="text-sm text-[#888] px-8 pt-4">加载中…</p></>
           )
         ) : (
-          <WorkspaceDimension key="personal" />
+          <WorkspaceDimension key="personal" activeTab="personal" onTabChange={setTab} />
         )}
       </div>
     </div>
