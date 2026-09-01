@@ -21,7 +21,9 @@
 
 **关键约束（preflight: false 专项）：**
 - 原生 `<button>` 必须带 `border-none bg-transparent`（或等价）压掉浏览器 UA 默认 `border: 2px outset` 与灰背景
+- 激活态 `border-b-2` 只设 width 不设 style，UA 默认 `border-style: outset` 下白色下边框与 solid 视觉差异极小——现状 TabBar 即此模式（既有行为，不在本次范围，仅标注）
 - antd Button 换原生 button 必须补 `font-[inherit]`（index.css 无 button 字体继承规则）
+- 原生 button 不加 `type="button"`（现状全部原生 button 均未设、无 `<form>` 包裹、精准修改不扩大 diff——仅记录最佳实践取舍）
 - 红测试阶段**不跑 tsc**（新 props 尚未实现，类型必报错；vitest 经 esbuild 剥离类型可正常运行）
 
 ---
@@ -72,7 +74,7 @@ describe('WorkspaceToolbar 头部合并', () => {
 });
 ```
 
-- [ ] **Step 2: WorkspacePage.test.tsx 追加用例**（插入到 `teams 加载失败：渲染失败+重试，不挂载维度组件（不死屏）` 用例之后）
+- [ ] **Step 2: WorkspacePage.test.tsx 追加 2 个用例**（插入到 `teams 加载失败：渲染失败+重试，不挂载维度组件（不死屏）` 用例之后）
 
 ```tsx
   it('团队 error 分支：tabs 位于头部行容器内且可切回个人', async () => {
@@ -84,13 +86,26 @@ describe('WorkspaceToolbar 头部合并', () => {
     fireEvent.click(screen.getByRole('button', { name: '个人' }));
     expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
   });
+
+  it('团队 empty 分支：tabs 位于头部行容器内且可切回个人', async () => {
+    // 只含默认团队 → realTeams 过滤后为 0（与既有 team-empty-state 用例同 mock 方式）
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
+    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    expect(row).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '个人' }));
+    expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
+  });
 ```
+
+（loading 与过渡帧为瞬态，单测不稳定不覆盖；error + empty 两个稳定态覆盖 tabsRow 回归足够）
 
 - [ ] **Step 3: 跑红**
 
 Run: `cd D:/flowweb/apps/web && pnpm vitest run src/pages/workspace/__tests__/WorkspaceToolbar.test.tsx src/pages/workspace/__tests__/WorkspacePage.test.tsx`
 
-Expected: **4 个新用例全 FAIL**——Toolbar 3 例因 `Unable to find a role="button" name="个人"`（现状 Toolbar 不渲染 tabs，且导入按钮存在）；Page 1 例因 `row` 为 null（现状 TabBar 容器无 `md:flex-row` 类）。其余既有用例 PASS。
+Expected: **5 个新用例全 FAIL**——Toolbar 3 例因 `Unable to find a role="button" name="个人"`（现状 Toolbar 不渲染 tabs，且导入按钮存在）；Page 2 例因 `row` 为 null（现状 TabBar 容器无 `md:flex-row` 类）。其余既有用例 PASS。
 
 - [ ] **Step 4: Commit**
 
@@ -327,7 +342,7 @@ interface WorkspaceDimensionProps {
   teamId?: string;
   activeTab?: 'personal' | 'team';
   onTabChange?: (tab: 'personal' | 'team') => void;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }
 
 /**
@@ -337,6 +352,8 @@ interface WorkspaceDimensionProps {
  */
 export function WorkspaceDimension({ teamId, activeTab = 'personal', onTabChange, children }: WorkspaceDimensionProps) {
 ```
+
+并在文件首行 react import 补类型导入（`import type { ReactNode } from 'react'`；模块内直接用 `React.ReactNode` 会报 UMD global 错误，react-jsx transform 下无 React 默认导入）。
 
 - [ ] **Step 2: Toolbar 调用处转发 + children 渲染位**
 
@@ -536,7 +553,7 @@ Expected: **0 error 0 warning**（重点验证 WorkspaceToolbar 无 `Button`/`me
 
 Run: `cd D:/flowweb/apps/web && pnpm exec tsc -b`
 
-Expected: **0 errors**（新 props 链路 Page→Dimension→Toolbar 类型贯通；`React.ReactNode` 无需额外 import——React 19 JSX transform 下 `React` 命名空间类型可用，若报错改为 `import type { ReactNode } from 'react'`）。
+Expected: **0 errors**（新 props 链路 Page→Dimension→Toolbar 类型贯通；Task 4 已直接采用 `import type { ReactNode } from 'react'` 写法，规避 UMD global 报错）。
 
 - [ ] **Step 4: 若全部通过，无需 commit（无新改动）；若有修复，修复后单独 commit**
 
@@ -560,6 +577,8 @@ EOF
 - [ ] **Step 1: 正常态布局验证**
 
 `preview_eval` 打开 `http://localhost:5173/works`（reload），`preview_snapshot` 确认：tabs（个人/团队项目）与工具组（搜索/显示全部/grid-list/新建文件夹）同行；`preview_inspect` 行容器 `display: flex; flex-direction: row`（宽屏）。
+
+顺手确认既有原生 button 无 UA 泄漏（本次未改其 bg/font，预期既有状态正常）：grid/list inactive 按钮 `background-color` 非 `buttonface` 浅灰、filter trigger `font-family` 与页面一致。异常则补 `bg-transparent` / `font-[inherit]`（现状代码本就如此渲染，仅确认）。
 
 - [ ] **Step 2: 团队 tab 验证**
 
