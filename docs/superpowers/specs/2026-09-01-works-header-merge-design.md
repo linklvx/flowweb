@@ -65,7 +65,7 @@
 - 转发 activeTab/onTabChange 给 Toolbar
 
 ### 4. WorkspacePage.tsx — 删 TabBar 渲染 + children 传团队 Tabs + 异常态补 tabs 行
-- 删除 `<WorkspaceTabBar/>` 直接渲染与 import
+- 删除 `<WorkspaceTabBar/>` 直接渲染（import 保留——tabsRow 复用该组件）
 - **`key` 为既有代码非本次新增**：现状即 `key="personal"` / `key={validTeamId}`，remount 是刻意设计（切维度强制重挂载，搜索/筛选/folder 本地 state 归零，见 WorkspacePage.tsx:59 注释），本次仅追加 props 不动 key 行为
 - 个人分支：`<WorkspaceDimension key="personal" activeTab="personal" onTabChange={setTab} />`
 - 团队 validTeamId 分支：团队 Tabs JSX（含 `px-8` 容器与 `team-tabs-row` testid，整体原样挪动）作为 `children` 传入 Dimension，`activeTab="team"` + `onTabChange={setTab}` + `key={validTeamId}`
