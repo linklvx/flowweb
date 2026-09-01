@@ -16,13 +16,15 @@ describe('CreateCanvasCard', () => {
     render(<CreateCanvasCard onClick={vi.fn()} />);
     expect(screen.getByText('新建画布')).toBeInTheDocument();
   });
-  it('等高结构：无写死占位，外壳 h-full、预览区 flex-1', () => {
+  it('等高结构：无写死占位，外壳 h-full 拉伸、预览区固定 4:3', () => {
     const { container } = render(<CreateCanvasCard onClick={vi.fn()} />);
     expect(container.querySelector('.h-\\[52px\\]')).toBeNull();
     const shell = screen.getByRole('button', { name: '新建画布' });
     expect(shell).toHaveClass('h-full');
+    expect(shell).toHaveClass('box-border'); // preflight:false 无全局 border-box，height+padding 组合必须显式声明
     const preview = shell.querySelector('div');
-    expect(preview).toHaveClass('flex-1');
+    expect(preview).not.toHaveClass('flex-1');
+    expect(preview).toHaveAttribute('style', expect.stringContaining('aspect-ratio: 4 / 3'));
   });
 });
 
