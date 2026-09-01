@@ -5,11 +5,12 @@ interface WorkspaceBreadcrumbProps {
   path: Folder[];
   currentFolderId: string | null;
   searchQuery: string;
+  dimensionLabel: string;
   onNavigate: (folderId: string | null) => void;
   onClearSearch: () => void;
 }
 
-export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, onNavigate, onClearSearch }: WorkspaceBreadcrumbProps) {
+export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, dimensionLabel, onNavigate, onClearSearch }: WorkspaceBreadcrumbProps) {
   if (searchQuery) {
     return (
       <div className="flex items-center gap-2 px-8 py-3 text-[13px]">
@@ -21,9 +22,12 @@ export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, onNavi
     );
   }
   return (
-    <nav className="flex items-center gap-2 px-8 py-3 text-[13px]" aria-label="面包屑">
+    <nav className="flex items-center gap-2 px-8 py-3 text-[13px]" aria-label="当前位置">
+      <span className="text-white/40">当前位置：</span>
+      <span className="text-white/40">{dimensionLabel}</span>
+      <span className="text-white/30">·</span>
       <button onClick={() => onNavigate(null)} className={currentFolderId ? 'text-white/60 hover:text-white/90 bg-transparent border-none cursor-pointer' : 'text-white/90 bg-transparent border-none cursor-default'}>
-        工作空间
+        根目录
       </button>
       {path.map((f, i) => (
         <span key={f.id} className="flex items-center gap-2">

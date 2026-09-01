@@ -77,7 +77,7 @@ describe('WorkspacePage', () => {
     fireEvent.click(await screen.findByTestId('folder-card-f1'));
     await waitFor(() => expect(templateApi.getTemplates).toHaveBeenLastCalledWith(
       expect.objectContaining({ folderId: 'f1' })));
-    fireEvent.click(screen.getByText('工作空间'));
+    fireEvent.click(screen.getByText('根目录'));
     await waitFor(() => expect(templateApi.getTemplates).toHaveBeenLastCalledWith(
       expect.objectContaining({ folderId: 'root' })));
   });
@@ -251,6 +251,8 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     expect(tabs[0].textContent).toContain('owned-1');
     expect(tabs[1].textContent).toContain('joined-1');
     expect(screen.queryByText('我创建的')).not.toBeInTheDocument();
+    // 当前位置指示器显示团队名（scope 到 nav，避免与团队 tabs label 撞文本）
+    await waitFor(() => expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('owned-1'));
     await waitFor(() => expect(probeSearch()).toContain('teamId=owned-1')); // replace 补默认
   });
 

@@ -62,22 +62,22 @@ describe('WorkspaceToolbar', () => {
 describe('WorkspaceBreadcrumb', () => {
   const f1: Folder = { id: 'f1', name: '文件夹一', parentId: null, createdAt: '', updatedAt: '' };
 
-  it('根视图仅显示「工作空间」', () => {
-    render(<WorkspaceBreadcrumb path={[]} currentFolderId={null} searchQuery="" onNavigate={vi.fn()} onClearSearch={vi.fn()} />);
-    expect(screen.getByText('工作空间')).toBeInTheDocument();
+  it('根视图显示「根目录」', () => {
+    render(<WorkspaceBreadcrumb path={[]} currentFolderId={null} searchQuery="" dimensionLabel="个人项目" onNavigate={vi.fn()} onClearSearch={vi.fn()} />);
+    expect(screen.getByText('根目录')).toBeInTheDocument();
   });
 
-  it('文件夹内显示层级，点击「工作空间」返回根', () => {
+  it('文件夹内显示层级，点击「根目录」返回根', () => {
     const onNavigate = vi.fn();
-    render(<WorkspaceBreadcrumb path={[f1]} currentFolderId="f1" searchQuery="" onNavigate={onNavigate} onClearSearch={vi.fn()} />);
+    render(<WorkspaceBreadcrumb path={[f1]} currentFolderId="f1" searchQuery="" dimensionLabel="个人项目" onNavigate={onNavigate} onClearSearch={vi.fn()} />);
     expect(screen.getByText('文件夹一')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('工作空间'));
+    fireEvent.click(screen.getByText('根目录'));
     expect(onNavigate).toHaveBeenCalledWith(null);
   });
 
   it('搜索态显示搜索词与清除按钮', () => {
     const onClearSearch = vi.fn();
-    render(<WorkspaceBreadcrumb path={[f1]} currentFolderId="f1" searchQuery="关键词" onNavigate={vi.fn()} onClearSearch={onClearSearch} />);
+    render(<WorkspaceBreadcrumb path={[f1]} currentFolderId="f1" searchQuery="关键词" dimensionLabel="个人项目" onNavigate={vi.fn()} onClearSearch={onClearSearch} />);
     expect(screen.getByText(/关键词/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('清除搜索'));
     expect(onClearSearch).toHaveBeenCalled();

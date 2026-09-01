@@ -47,6 +47,18 @@ describe('WorkspaceDimension 共享组件', () => {
     const grid = screen.getByTestId('workspace-grid');
     expect(grid.className).toContain('list-none');
     expect(grid.className).toContain('pl-0');
+    // 面包屑默认维度名=个人项目（scope 到 nav，避免与 Tab 栏「个人项目」撞文本）
+    expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('个人项目');
+  });
+
+  it('团队维度：dimensionLabel 透传到当前位置指示器', async () => {
+    render(
+      <MemoryRouter initialEntries={['/works']}>
+        <WorkspaceDimension teamId="t1" dimensionLabel="我的团队" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mockGetTemplates).toHaveBeenCalled());
+    expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('我的团队');
   });
 
   it('list 视图：ul 同样无黑点无缩进', async () => {

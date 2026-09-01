@@ -61,7 +61,10 @@ export function WorkspacePage() {
             </>
           ) : validTeamId ? (
             /* key=validTeamId：切团队强制重挂载维度组件，搜索/筛选/folder 等本地 state 归零（既有行为） */
-            <WorkspaceDimension key={validTeamId} teamId={validTeamId} activeTab="team" onTabChange={setTab}>
+            <WorkspaceDimension
+              key={validTeamId} teamId={validTeamId} activeTab="team" onTabChange={setTab}
+              dimensionLabel={teamDisplayName(realTeams.find((t) => t.id === validTeamId)!)}
+            >
               <div className="px-8" data-testid="team-tabs-row">
                 <Tabs
                   activeKey={validTeamId}

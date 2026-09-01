@@ -21,6 +21,7 @@ const byUpdatedDesc = (a: { updatedAt: string }, b: { updatedAt: string }) => b.
 
 interface WorkspaceDimensionProps {
   teamId?: string;
+  dimensionLabel?: string;
   activeTab?: 'personal' | 'team';
   onTabChange?: (tab: 'personal' | 'team') => void;
   children?: ReactNode;
@@ -31,7 +32,7 @@ interface WorkspaceDimensionProps {
  * 以 key={teamId ?? 'personal'} 重挂载实现切维度状态归零；nav+data+URL effect 全部内聚，
  * 父组件只产出有效选中 teamId。activeTab/onTabChange/children 供头部合并行（Tabs 左区 + 团队 Tabs 插槽）。
  */
-export function WorkspaceDimension({ teamId, activeTab = 'personal', onTabChange, children }: WorkspaceDimensionProps) {
+export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', activeTab = 'personal', onTabChange, children }: WorkspaceDimensionProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // initialFolderId 取 URL 原始值（未经 nav valid 过滤——挂载瞬间 folders 为空会被判无效）
@@ -129,6 +130,7 @@ export function WorkspaceDimension({ teamId, activeTab = 'personal', onTabChange
       <WorkspaceBreadcrumb
         path={nav.path} currentFolderId={nav.currentFolderId}
         searchQuery={searchQuery}
+        dimensionLabel={dimensionLabel}
         onNavigate={enterFolder}
         onClearSearch={() => setSearchQuery('')}
       />
