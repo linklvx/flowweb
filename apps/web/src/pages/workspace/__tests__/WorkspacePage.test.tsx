@@ -272,6 +272,27 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
     expect(screen.queryByTestId('workspace-grid')).not.toBeInTheDocument();
   });
 
+  it('团队 error 分支：tabs 位于头部行容器内且可切回个人', async () => {
+    mockGetMyTeams.mockRejectedValue(new Error('boom'));
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('teams-error')).toBeInTheDocument());
+    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    expect(row).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '个人' }));
+    expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
+  });
+
+  it('团队 empty 分支：tabs 位于头部行容器内且可切回个人', async () => {
+    // 只含默认团队 → realTeams 过滤后为 0（与既有 team-empty-state 用例同 mock 方式）
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    renderPage('/works?tab=team');
+    await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
+    const row = screen.getByRole('button', { name: '个人' }).closest('div[class*="md:flex-row"]');
+    expect(row).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '个人' }));
+    expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
+  });
+
   it('无真实团队：team-empty-state', async () => {
     mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
     renderPage('/works?tab=team');
