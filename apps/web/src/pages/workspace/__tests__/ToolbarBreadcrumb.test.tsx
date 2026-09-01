@@ -4,15 +4,11 @@ import { WorkspaceToolbar } from '../components/WorkspaceToolbar';
 import { WorkspaceBreadcrumb } from '../components/WorkspaceBreadcrumb';
 import type { Folder, ViewMode, FilterKind } from '../types';
 
-vi.mock('antd', async (orig) => {
-  const actual = await orig<typeof import('antd')>();
-  return { ...actual, message: { ...actual.message, info: vi.fn() } };
-});
-const { message } = await import('antd');
-
 describe('WorkspaceToolbar', () => {
   function renderToolbar(overrides?: Partial<Parameters<typeof WorkspaceToolbar>[0]>) {
     const props = {
+      activeTab: 'personal' as const,
+      onTabChange: vi.fn(),
       viewMode: 'grid' as ViewMode,
       onViewModeChange: vi.fn(),
       onSearchChange: vi.fn(),
@@ -54,12 +50,6 @@ describe('WorkspaceToolbar', () => {
     const { props } = renderToolbar();
     fireEvent.click(screen.getByLabelText('List view'));
     expect(props.onViewModeChange).toHaveBeenCalledWith('list');
-  });
-
-  it('导入按钮 toast「即将上线」', () => {
-    renderToolbar();
-    fireEvent.click(screen.getByLabelText('导入'));
-    expect(message.info).toHaveBeenCalledWith('即将上线');
   });
 
   it('新建文件夹按钮回调', () => {
