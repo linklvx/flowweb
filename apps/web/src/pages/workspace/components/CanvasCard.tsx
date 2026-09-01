@@ -4,7 +4,7 @@ import { DeleteOutlined, InboxOutlined, EditOutlined, EyeOutlined, EyeInvisibleO
 import type { MenuProps } from 'antd';
 import type { Canvas } from '../types';
 import { getCanvasGradient } from '../utils/gradient';
-import { formatRelativeTime } from '../utils/time';
+import { formatRelativeTime, formatDateTime } from '../utils/time';
 import { InlineRename } from './InlineRename';
 
 interface CanvasCardProps {
@@ -56,21 +56,37 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
         role="button"
         onClick={() => onClick(canvas)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(canvas); }}
-        className="h-16 px-4 flex items-center border-b border-white/5 hover:bg-white/5 cursor-pointer group/menu"
+        className="relative group/menu"
       >
-        <span className="w-12 h-12 rounded-lg shrink-0" style={{ background }} />
-        <div className="flex-1 ml-3 min-w-0">
-          <InlineRename
-            value={canvas.name}
-            editing={renaming}
-            onEditingChange={setRenaming}
-            ariaLabel="重命名画布"
-            onConfirm={(next) => onRename(canvas.id, next)}
-          />
+        <div className="flex items-center cursor-pointer group/row">
+          <div className="shrink-0" style={{ width: 32 }} />
+          <div
+            className="grid flex-1 items-center gap-6 pl-4 pr-14 py-3 rounded-lg transition-colors group-hover/row:bg-white/5"
+            style={{ gridTemplateColumns: '72px 1fr 120px 150px 180px 180px' }}
+          >
+            <div className="flex items-center justify-start">
+              <div className="shrink-0 overflow-hidden rounded-lg" style={{ width: 72, height: 48, background }} />
+            </div>
+            <div className="min-w-0 flex items-center">
+              <InlineRename
+                value={canvas.name}
+                editing={renaming}
+                onEditingChange={setRenaming}
+                ariaLabel="重命名画布"
+                onConfirm={(next) => onRename(canvas.id, next)}
+              />
+              {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 ml-1 shrink-0">公开</span>}
+            </div>
+            <div className="text-sm text-white">画布</div>
+            <div className="text-sm text-white" />
+            <div className="text-sm text-white whitespace-nowrap">{formatDateTime(canvas.createdAt)}</div>
+            <div className="text-sm text-white whitespace-nowrap">编辑于 {formatRelativeTime(canvas.updatedAt)}</div>
+          </div>
         </div>
-        {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 mr-4">公开</span>}
-        <span className="text-xs text-white/40 mr-4 shrink-0">编辑于 {formatRelativeTime(canvas.updatedAt)}</span>
-        {menuButton}
+        <div className="mx-12 mr-4 border-b border-white/10" />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex rounded-md bg-black/50 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">
+          {menuButton}
+        </div>
       </div>
     );
   }

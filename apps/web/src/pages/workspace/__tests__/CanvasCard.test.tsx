@@ -77,9 +77,34 @@ describe('CanvasCard', () => {
     expect(screen.getByDisplayValue('画布 1')).toBeInTheDocument();
   });
 
-  it('variant="list" 渲染紧凑行（含菜单）', () => {
+  it('variant="list" 渲染六列行：grid 列宽/类型/创建时间/编辑时间', () => {
+    vi.setSystemTime(new Date('2026-08-18T12:00:00'));
+    renderCard(base, { variant: 'list' });
+    const row = screen.getByTestId('canvas-card-c1');
+    // jsdom inline style 序列化不稳定，用 getAttribute 子串断言（FolderStackPreview 先例）
+    expect(row.querySelector('[style*="grid-template-columns"]')?.getAttribute('style')).toContain('72px 1fr 120px 150px 180px 180px');
+    expect(screen.getByText('画布', { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('2026-08-18 09:00')).toBeInTheDocument();
+    expect(screen.getByText(/编辑于/)).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('variant="list" 菜单 hover 显隐 + 行分隔线', () => {
+    const { container } = renderCard(base, { variant: 'list' });
+    const menuWrap = container.querySelector('.bg-black\\/50');
+    expect(menuWrap?.className).toContain('opacity-0');
+    expect(menuWrap?.className).toContain('group-hover/menu:opacity-100');
+    const row = screen.getByTestId('canvas-card-c1');
+    expect(row.querySelector('.border-white\\/10')).toBeInTheDocument();
+  });
+
+  it('variant="list" isPublic 标签跟随名称渲染', () => {
+    renderCard({ ...base, isPublic: true }, { variant: 'list' });
+    expect(screen.getByText('公开')).toBeInTheDocument();
+  });
+
+  it('variant="list" 菜单删除仍触发 onDelete', () => {
     const { props } = renderCard(base, { variant: 'list' });
-    expect(screen.getByTestId('canvas-card-c1').className).toContain('h-16');
     fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByText('删除'));
     expect(props.onDelete).toHaveBeenCalled();
