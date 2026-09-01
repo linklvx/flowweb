@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Dropdown, Button } from 'antd';
-import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, UploadOutlined, FolderAddOutlined } from '@ant-design/icons';
+import { Dropdown } from 'antd';
+import { SearchOutlined, DownOutlined, AppstoreOutlined, UnorderedListOutlined, FolderAddOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { FilterKind, ViewMode } from '../types';
-import { message } from 'antd';
+import { WorkspaceTabBar } from './WorkspaceTabBar';
 
 interface WorkspaceToolbarProps {
+  activeTab: 'personal' | 'team';
+  onTabChange: (tab: 'personal' | 'team') => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onSearchChange: (query: string) => void;
@@ -16,7 +18,7 @@ interface WorkspaceToolbarProps {
 
 const FILTER_LABEL: Record<FilterKind, string> = { all: '显示全部', folders: '仅文件夹', canvases: '仅画布' };
 
-export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateFolder }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeChange, onSearchChange, filter, onFilterChange, onCreateFolder }: WorkspaceToolbarProps) {
   const [text, setText] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -35,9 +37,10 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
   ];
 
   return (
-    <div className="flex flex-col md:flex-row items-start md:items-center gap-y-2 justify-between px-8 pb-2">
-      <div className="flex items-center gap-2">
-        <div className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 focus-within:ring-white/20" style={{ width: 160 }}>
+    <div className="flex flex-col md:flex-row items-start gap-y-2 pt-2 pb-2 justify-between px-8">
+      <WorkspaceTabBar activeTab={activeTab} onTabChange={onTabChange} />
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 focus-within:ring-white/20 transition-colors" style={{ width: 160 }}>
           <SearchOutlined className="text-[#646464] shrink-0" />
           <input
             aria-label="搜索"
@@ -47,7 +50,7 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
           />
         </div>
         <Dropdown menu={{ items: filterMenu, onClick: ({ key }) => onFilterChange(key as FilterKind) }} trigger={['click']}>
-          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none cursor-pointer">
+          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none cursor-pointer transition-colors">
             {FILTER_LABEL[filter]}
             <DownOutlined style={{ fontSize: 12 }} />
           </button>
@@ -56,21 +59,23 @@ export function WorkspaceToolbar({ viewMode, onViewModeChange, onSearchChange, f
           <button
             aria-label="Grid view"
             onClick={() => onViewModeChange('grid')}
-            className={`p-1.5 rounded-md border-none cursor-pointer ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}`}
+            className={`p-1.5 rounded-md border-none cursor-pointer transition-colors ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}`}
           >
             <AppstoreOutlined />
           </button>
           <button
             aria-label="List view"
             onClick={() => onViewModeChange('list')}
-            className={`p-1.5 rounded-md border-none cursor-pointer ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}`}
+            className={`p-1.5 rounded-md border-none cursor-pointer transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}`}
           >
             <UnorderedListOutlined />
           </button>
         </div>
         <div className="h-6 w-px bg-white/10 mx-1" />
-        <Button aria-label="导入" icon={<UploadOutlined />} onClick={() => message.info('即将上线')} style={{ width: 40 }} />
-        <Button type="primary" icon={<FolderAddOutlined />} onClick={onCreateFolder}>新建文件夹</Button>
+        <button
+          onClick={onCreateFolder}
+          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer font-[inherit]"
+        ><FolderAddOutlined />新建文件夹</button>
       </div>
     </div>
   );
