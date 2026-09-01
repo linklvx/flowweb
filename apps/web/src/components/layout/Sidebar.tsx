@@ -36,7 +36,9 @@ export function Sidebar({ topOffset }: Props) {
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
       <Link to="/" aria-label="首页" className="block pt-5 pb-4">
-        <img src="/img/LOGO.png" alt="Flow123" className="block h-7 w-auto" />
+        <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-white select-none whitespace-nowrap">
+          Flow123
+        </span>
       </Link>
 
       <button

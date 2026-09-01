@@ -21,7 +21,8 @@ describe('Sidebar', () => {
 
   it('渲染 Logo 与四项菜单', () => {
     renderSidebar();
-    expect(screen.getByAltText('Flow123')).toHaveAttribute('src', '/img/LOGO.png');
+    expect(screen.getByText('Flow123')).toBeInTheDocument();
+    expect(screen.getByText('Flow123').closest('a')).toHaveAttribute('href', '/');
     expect(screen.getByText('首页').closest('a')).toHaveAttribute('href', '/');
     expect(screen.getByText('模板广场').closest('a')).toHaveAttribute('href', '/templates');
     expect(screen.getByText('素材库').closest('a')).toHaveAttribute('href', '/materials');
