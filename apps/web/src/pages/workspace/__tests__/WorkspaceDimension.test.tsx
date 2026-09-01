@@ -69,6 +69,30 @@ describe('WorkspaceDimension 共享组件', () => {
     expect(list.className).toContain('pl-0');
   });
 
+  it('list 视图：bg-white/5 rounded-xl 外壳 + 表头六列 + 新建画布行', async () => {
+    renderDim(undefined);
+    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    const shell = await screen.findByTestId('workspace-list-shell');
+    expect(shell.className).toContain('bg-white/5');
+    expect(shell.className).toContain('rounded-xl');
+    for (const header of ['预览', '名称', '类型', '内容', '创建时间', '最近更新']) {
+      expect(screen.getByText(header, { exact: true })).toBeInTheDocument();
+    }
+    expect(screen.getByTestId('create-canvas-card')).toBeInTheDocument();
+  });
+
+  it('list 视图：hasMore 时加载更多在外壳内', async () => {
+    mockGetTemplates.mockResolvedValue({
+      templates: [{ id: 't1', name: '画布A', createdAt: '2026-09-01T10:00:00', updatedAt: '2026-09-01T10:00:00' }],
+      totalPages: 2,
+    });
+    renderDim(undefined);
+    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    const loadMore = await screen.findByTestId('load-more');
+    expect(loadMore).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-list-shell')).toContainElement(loadMore);
+  });
+
   it('团队维度：请求带 teamId', async () => {
     renderDim('t1');
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ teamId: 't1' })));

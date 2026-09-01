@@ -184,10 +184,27 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
           </>
         )}
         {data.status === 'success' && !isEmpty && viewMode === 'list' && (
-          <>
-            <ul className="list-none pl-0 flex flex-col" data-testid="workspace-list">
+          <div data-testid="workspace-list-shell" className="rounded-xl bg-white/5 overflow-hidden">
+            <div className="px-4 pt-5">
+              <div className="flex items-center">
+                <div className="shrink-0" style={{ width: 32 }} />
+                <div
+                  className="grid flex-1 items-center gap-6 pl-4 pr-14 text-sm text-white/40"
+                  style={{ gridTemplateColumns: '72px 1fr 120px 150px 180px 180px' }}
+                >
+                  <div>预览</div>
+                  <div>名称</div>
+                  <div>类型</div>
+                  <div>内容</div>
+                  <div>创建时间</div>
+                  <div>最近更新</div>
+                </div>
+              </div>
+              <div className="mx-12 mr-4 mt-4 border-b border-white/10" />
+            </div>
+            <ul className="list-none pl-0 flex flex-col px-4 pb-5" data-testid="workspace-list">
               {showCreateCanvasCard && (
-                <li data-testid="create-canvas-card" className="px-4 py-2">
+                <li data-testid="create-canvas-card" className="py-2">
                   <button
                     onClick={() => setCanvasModal(true)}
                     className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 bg-transparent cursor-pointer hover:border-white/40"
@@ -222,15 +239,17 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               ))}
             </ul>
             {data.hasMore && !searchQuery && (
-              <button
-                data-testid="load-more"
-                onClick={() => { void data.loadMore(); }}
-                className="mt-4 mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 bg-transparent cursor-pointer hover:border-white/40"
-              >
-                加载更多
-              </button>
+              <div className="px-4 pb-4">
+                <button
+                  data-testid="load-more"
+                  onClick={() => { void data.loadMore(); }}
+                  className="mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 bg-transparent cursor-pointer hover:border-white/40"
+                >
+                  加载更多
+                </button>
+              </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
