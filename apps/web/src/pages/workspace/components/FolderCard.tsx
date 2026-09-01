@@ -65,7 +65,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
       role="button"
       onClick={() => onClick(folder)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(folder); }}
-      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 cursor-pointer overflow-hidden relative group/menu"
+      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 cursor-pointer overflow-hidden relative group/menu h-full box-border"
     >
       <FolderStackPreview thumbnails={folder.thumbnails} />
       <div className="px-2 pt-2 pb-1">
