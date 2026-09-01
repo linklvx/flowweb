@@ -32,9 +32,9 @@ describe('LoginPage', () => {
     expect(outerDiv.className).toContain('justify-center');
   });
 
-  it('should render banner fallback with FlowWeb', () => {
+  it('should render banner fallback with Flow123', () => {
     renderPage();
-    expect(screen.getByText('FlowWeb')).toBeInTheDocument();
+    expect(screen.getByText('Flow123')).toBeInTheDocument();
   });
 
   it('should render phone login form, divider, wechat QR, and agreement footer', () => {
