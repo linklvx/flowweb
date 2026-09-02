@@ -63,6 +63,7 @@ describe('Sidebar', () => {
     const aside = screen.getByTestId('sidebar');
     expect(aside.className).toContain('box-border');
     expect(aside.className).toContain('border-r');
+    expect(aside.className).toContain('border-solid');
     expect(aside.className).toContain('border-[#ffffff18]');
     const navLink = screen.getByText('首页').closest('a');
     expect(navLink?.className).toContain('leading-[22px]');
