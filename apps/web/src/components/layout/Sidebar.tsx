@@ -103,13 +103,13 @@ export function Sidebar({ topOffset }: Props) {
             <Link
               to={item.href}
               aria-label={item.label}
-              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-2'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white ${
+              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-[13px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white ${
                 isActive(item.href)
                   ? 'bg-[#262626] font-medium'
                   : 'hover:bg-[#1e1e1e]'
               }`}
             >
-              <span className="w-5 h-5 flex items-center justify-center shrink-0">{item.icon}</span>
+              <span className="w-5 h-5 flex items-center justify-center shrink-0 text-[18px]">{item.icon}</span>
               {!collapsed && item.label}
             </Link>
           </Tooltip>
