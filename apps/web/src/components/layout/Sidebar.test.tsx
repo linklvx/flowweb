@@ -91,7 +91,9 @@ describe('Sidebar', () => {
   it('点击收起：data-collapsed=true 并写入 localStorage', () => {
     renderSidebar();
     fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }));
-    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-collapsed', 'true');
+    const aside = screen.getByTestId('sidebar');
+    expect(aside).toHaveAttribute('data-collapsed', 'true');
+    expect(aside.className).toContain('w-[68px]');
     expect(localStorage.getItem('sidebar.collapsed')).toBe('true');
   });
 
