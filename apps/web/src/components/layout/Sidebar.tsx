@@ -86,8 +86,8 @@ export function Sidebar({ topOffset }: Props) {
         <button
           onClick={() => startNewProject(navigate)}
           aria-label="新建项目"
-          className={`h-9 w-full my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
-            collapsed ? 'justify-center' : 'gap-2 px-2'
+          className={`h-9 my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
+            collapsed ? 'justify-center w-[36px]' : 'gap-2 px-2 w-full'
           }`}
         >
           <span className="w-5 h-5 flex items-center justify-center shrink-0">
@@ -103,7 +103,7 @@ export function Sidebar({ topOffset }: Props) {
             <Link
               to={item.href}
               aria-label={item.label}
-              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-[13px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
+              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center w-[36px]' : 'gap-[13px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
                 isActive(item.href)
                   ? 'bg-[#262626] font-medium'
                   : 'hover:bg-[#1e1e1e]'

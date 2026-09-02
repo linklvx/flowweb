@@ -118,13 +118,15 @@ describe('Sidebar', () => {
     expect(localStorage.getItem('sidebar.collapsed')).toBe('false');
   });
 
-  it('收起态：文字不渲染、aria-label 保留、图标行居中', () => {
+  it('收起态：文字不渲染、aria-label 保留、图标行居中且宽 36px', () => {
     localStorage.setItem('sidebar.collapsed', 'true');
     renderSidebar();
     expect(screen.queryByText('首页')).toBeNull();
     expect(screen.queryByText('Flow123')).toBeNull();
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('justify-center');
+    expect(screen.getByRole('link', { name: '首页' }).className).toContain('w-[36px]');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('justify-center');
+    expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('w-[36px]');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('justify-center');
   });
