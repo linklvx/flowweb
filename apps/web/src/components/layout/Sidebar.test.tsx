@@ -68,7 +68,8 @@ describe('Sidebar', () => {
     const navLink = screen.getByText('首页').closest('a');
     expect(navLink?.className).toContain('leading-[26px]');
     expect(navLink?.className).toContain('text-base');
-    expect(navLink?.className).toContain('h-9');
+    expect(navLink?.className).toContain('h-[46px]');
+    expect(navLink?.className).toContain('text-white');
     const createBtn = screen.getByRole('button', { name: /新建项目/ });
     expect(createBtn.className).toContain('leading-[22px]');
     const docBtn = screen.getByRole('button', { name: /文档中心/ });
