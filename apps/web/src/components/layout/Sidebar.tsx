@@ -32,7 +32,7 @@ export function Sidebar({ topOffset }: Props) {
   return (
     <aside
       data-testid="sidebar"
-      className="sticky left-0 self-start shrink-0 w-[240px] bg-[#141414] border-r border-[#262626] px-4 flex flex-col z-30"
+      className="sticky left-0 self-start shrink-0 box-border w-[240px] bg-[#141414] border-r border-[#ffffff18] px-4 flex flex-col z-30"
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
       <Link to="/" aria-label="首页" className="block pt-5 pb-4">
@@ -43,7 +43,7 @@ export function Sidebar({ topOffset }: Props) {
 
       <button
         onClick={() => startNewProject(navigate)}
-        className="h-9 w-full rounded-lg bg-[#00bfff] hover:brightness-110 text-black text-sm font-medium leading-5 flex items-center gap-2 px-2 border-none cursor-pointer transition-[filter] duration-150"
+        className="h-9 w-full rounded-lg bg-[#00bfff] hover:brightness-110 text-black text-sm font-medium leading-[22px] flex items-center gap-2 px-2 border-none cursor-pointer transition-[filter] duration-150"
       >
         <span className="w-5 h-5 flex items-center justify-center">
           <PlusOutlined className="text-base" />
@@ -56,7 +56,7 @@ export function Sidebar({ topOffset }: Props) {
           <Link
             key={item.href}
             to={item.href}
-            className={`h-9 rounded-lg px-2 flex items-center gap-2 no-underline text-sm leading-5 transition-colors ${
+            className={`h-9 rounded-lg px-2 flex items-center gap-2 no-underline text-sm leading-[22px] transition-colors ${
               isActive(item.href)
                 ? 'bg-[#262626] text-white font-medium'
                 : 'text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
@@ -84,7 +84,7 @@ export function Sidebar({ topOffset }: Props) {
         </button>
         <button
           onClick={() => message.info('敬请期待')}
-          className="h-9 rounded-lg px-2 flex items-center gap-2 text-[13px] text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors"
+          className="h-9 rounded-lg px-2 flex items-center gap-2 text-sm leading-[22px] text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors"
         >
           <QuestionCircleOutlined className="text-base" />
           文档中心
