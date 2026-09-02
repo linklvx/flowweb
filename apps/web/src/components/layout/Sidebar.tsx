@@ -76,7 +76,7 @@ export function Sidebar({ topOffset }: Props) {
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          className="size-9 rounded-lg flex items-center justify-center text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white border-none cursor-pointer transition-colors"
+          className="size-9 rounded-lg flex items-center justify-center text-white border-none cursor-pointer"
         >
           {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
         </button>

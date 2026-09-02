@@ -78,7 +78,10 @@ describe('Sidebar', () => {
 
   it('渲染折叠按钮：默认展开态 aria-label 为 收起侧边栏', () => {
     renderSidebar();
-    expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: '收起侧边栏' });
+    expect(btn).toBeInTheDocument();
+    expect(btn.className).toContain('text-white');
+    expect(btn.className).not.toContain('hover:bg');
   });
 
   it('点击收起：data-collapsed=true 并写入 localStorage', () => {
