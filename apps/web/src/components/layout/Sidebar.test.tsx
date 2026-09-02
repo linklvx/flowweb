@@ -88,6 +88,7 @@ describe('Sidebar', () => {
     expect(btn.className).toContain('bg-[#141414]');
     expect(btn.className).not.toContain('hover:bg');
     expect(btn.closest('header')?.className).toContain('h-[60px]');
+    expect(btn.querySelector('.anticon')?.className).toContain('text-[28px]');
   });
 
   it('点击收起：data-collapsed=true 并写入 localStorage', () => {
