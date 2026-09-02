@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
-  AppstoreOutlined, FolderOutlined, HomeOutlined, PictureOutlined,
-  PlusOutlined, QuestionCircleOutlined, WechatOutlined,
+  AppstoreOutlined, FolderOutlined, HomeOutlined, MenuFoldOutlined,
+  MenuUnfoldOutlined, PictureOutlined, PlusOutlined, QuestionCircleOutlined,
+  WechatOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
 import { startNewProject } from '@/utils/startNewProject';
@@ -15,6 +16,24 @@ const NAV_ITEMS = [
   { label: '工作空间', href: '/works', icon: <FolderOutlined /> },
 ];
 
+const SIDEBAR_KEY = 'sidebar.collapsed';
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistCollapsed(value: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, String(value));
+  } catch {
+    // 存储被禁（如隐私模式）时静默忽略，展开/收起本身仍可用
+  }
+}
+
 interface Props {
   /** 公告条区域总高：显示时 64，无公告时 0 */
   topOffset: number;
@@ -25,6 +44,13 @@ export function Sidebar({ topOffset }: Props) {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const [qrOpen, setQrOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    persistCollapsed(next);
+  };
 
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -32,14 +58,29 @@ export function Sidebar({ topOffset }: Props) {
   return (
     <aside
       data-testid="sidebar"
-      className="sticky left-0 self-start shrink-0 box-border w-[240px] bg-[#141414] border-r border-[#ffffff18] px-4 flex flex-col z-30"
+      data-collapsed={collapsed ? 'true' : undefined}
+      className={`sticky left-0 self-start shrink-0 box-border overflow-hidden transition-[width] duration-200 ease-out z-30 ${
+        collapsed ? 'w-12 px-2' : 'w-[240px] px-4'
+      } bg-[#141414] border-r border-[#ffffff18] flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
-      <Link to="/" aria-label="首页" className="block pt-5 pb-4">
-        <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-white select-none whitespace-nowrap">
-          Flow123
-        </span>
-      </Link>
+      <header className={`h-[50px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
+        {!collapsed && (
+          <Link to="/" aria-label="首页" className="block">
+            <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-white select-none whitespace-nowrap">
+              Flow123
+            </span>
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+          className="size-9 rounded-lg flex items-center justify-center text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white border-none cursor-pointer transition-colors"
+        >
+          {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+        </button>
+      </header>
 
       <button
         onClick={() => startNewProject(navigate)}

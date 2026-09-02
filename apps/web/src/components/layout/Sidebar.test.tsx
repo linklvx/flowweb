@@ -73,4 +73,31 @@ describe('Sidebar', () => {
     expect(docBtn.className).toContain('leading-[22px]');
     expect(docBtn.className).toContain('text-sm');
   });
+
+  it('渲染折叠按钮：默认展开态 aria-label 为 收起侧边栏', () => {
+    renderSidebar();
+    expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument();
+  });
+
+  it('点击收起：data-collapsed=true 并写入 localStorage', () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }));
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-collapsed', 'true');
+    expect(localStorage.getItem('sidebar.collapsed')).toBe('true');
+  });
+
+  it('持久化恢复：localStorage 预置 true 时初始即收起态', () => {
+    localStorage.setItem('sidebar.collapsed', 'true');
+    renderSidebar();
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-collapsed', 'true');
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument();
+  });
+
+  it('收起态再点击展开：data-collapsed 移除并写回 false', () => {
+    localStorage.setItem('sidebar.collapsed', 'true');
+    renderSidebar();
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }));
+    expect(screen.getByTestId('sidebar')).not.toHaveAttribute('data-collapsed');
+    expect(localStorage.getItem('sidebar.collapsed')).toBe('false');
+  });
 });
