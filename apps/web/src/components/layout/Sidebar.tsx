@@ -124,12 +124,12 @@ export function Sidebar({ topOffset }: Props) {
             aria-label="关注公众号"
             className={`rounded-lg flex items-center border-none cursor-pointer transition-colors ${
               collapsed
-                ? 'h-9 w-full justify-center text-sm text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
+                ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
                 : 'h-16 bg-[#1e1e1e] hover:bg-[#262626] justify-between px-3'
             }`}
           >
             {collapsed ? (
-              <span className="w-5 h-5 flex items-center justify-center">
+              <span className="w-5 h-5 flex items-center justify-center text-[18px]">
                 <WechatOutlined style={{ color: '#07c160' }} />
               </span>
             ) : (
@@ -149,9 +149,9 @@ export function Sidebar({ topOffset }: Props) {
           <button
             onClick={() => message.info('敬请期待')}
             aria-label="文档中心"
-            className={`h-9 rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-2'} text-sm leading-[22px] whitespace-nowrap text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors`}
+            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} text-sm leading-[22px] whitespace-nowrap text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors`}
           >
-            <QuestionCircleOutlined className="text-base" />
+            <QuestionCircleOutlined className="text-[18px]" />
             {!collapsed && '文档中心'}
           </button>
         </Tooltip>
