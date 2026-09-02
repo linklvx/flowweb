@@ -149,7 +149,7 @@ export function Sidebar({ topOffset }: Props) {
           <button
             onClick={() => message.info('敬请期待')}
             aria-label="文档中心"
-            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} text-sm leading-[22px] whitespace-nowrap text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors`}
+            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2 bg-[#141414]'} text-sm leading-[22px] whitespace-nowrap text-white hover:bg-[#1e1e1e] border-none cursor-pointer transition-colors`}
           >
             <QuestionCircleOutlined className="text-[18px]" />
             {!collapsed && '文档中心'}
