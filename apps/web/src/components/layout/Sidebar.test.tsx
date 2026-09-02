@@ -126,6 +126,7 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('justify-center');
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('w-[36px]');
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('self-center');
+    expect(screen.getByRole('link', { name: '首页' }).className).not.toContain('px-2');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('w-[36px]');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('self-center');
