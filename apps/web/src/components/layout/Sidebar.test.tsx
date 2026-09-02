@@ -85,7 +85,7 @@ describe('Sidebar', () => {
     const btn = screen.getByRole('button', { name: '收起侧边栏' });
     expect(btn).toBeInTheDocument();
     expect(btn.className).toContain('text-white');
-    expect(btn.className).toContain('bg-[#A52A2A]');
+    expect(btn.className).toContain('bg-[#141414]');
     expect(btn.className).not.toContain('hover:bg');
     expect(btn.closest('header')?.className).toContain('h-[60px]');
   });
