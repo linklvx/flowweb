@@ -20,6 +20,7 @@ describe('CreateCanvasCard', () => {
     render(<MemoryRouter><Probe /></MemoryRouter>);
     expect(screen.getByText('新建画布创作')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '新建画布' })).toBeInTheDocument();
+    expect(screen.getByTestId('create-canvas-card').className).toContain('mt-[32px]');
   });
 
   it('点击卡片：清 projectId 并跳 /canvas', () => {
