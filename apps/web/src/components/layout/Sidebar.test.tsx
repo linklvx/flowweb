@@ -126,7 +126,7 @@ describe('Sidebar', () => {
     expect(screen.queryByText('首页')).toBeNull();
     expect(screen.queryByText('Flow123')).toBeNull();
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('justify-center');
-    expect(screen.getByRole('link', { name: '首页' }).className).toContain('w-[36px]');
+    expect(screen.getByRole('link', { name: '首页' }).className).toContain('w-[38px]');
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('self-center');
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('mb-[5px]');
     expect(screen.getByRole('link', { name: '首页' }).className).not.toContain('px-2');
