@@ -5,7 +5,7 @@ import {
   MenuUnfoldOutlined, PictureOutlined, PlusOutlined, QuestionCircleOutlined,
   WechatOutlined,
 } from '@ant-design/icons';
-import { App } from 'antd';
+import { App, Tooltip } from 'antd';
 import { startNewProject } from '@/utils/startNewProject';
 import { WeChatFollowModal } from './WeChatFollowModal';
 
@@ -82,54 +82,79 @@ export function Sidebar({ topOffset }: Props) {
         </button>
       </header>
 
-      <button
-        onClick={() => startNewProject(navigate)}
-        className="h-9 w-full rounded-lg bg-[#00bfff] hover:brightness-110 text-black text-sm font-medium leading-[22px] flex items-center gap-2 px-2 border-none cursor-pointer transition-[filter] duration-150"
-      >
-        <span className="w-5 h-5 flex items-center justify-center">
-          <PlusOutlined className="text-base" />
-        </span>
-        新建项目
-      </button>
+      <Tooltip title={collapsed ? '新建项目' : ''} placement="right">
+        <button
+          onClick={() => startNewProject(navigate)}
+          aria-label="新建项目"
+          className={`h-9 w-full rounded-lg bg-[#00bfff] hover:brightness-110 text-black text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
+            collapsed ? 'justify-center' : 'gap-2 px-2'
+          }`}
+        >
+          <span className="w-5 h-5 flex items-center justify-center shrink-0">
+            <PlusOutlined className="text-base" />
+          </span>
+          {!collapsed && '新建项目'}
+        </button>
+      </Tooltip>
 
       <nav className="flex flex-col gap-0.5 mt-2">
         {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.href}
-            to={item.href}
-            className={`h-9 rounded-lg px-2 flex items-center gap-2 no-underline text-sm leading-[22px] transition-colors ${
-              isActive(item.href)
-                ? 'bg-[#262626] text-white font-medium'
-                : 'text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
-            }`}
-          >
-            <span className="w-5 h-5 flex items-center justify-center">{item.icon}</span>
-            {item.label}
-          </Link>
+          <Tooltip key={item.href} title={collapsed ? item.label : ''} placement="right">
+            <Link
+              to={item.href}
+              aria-label={item.label}
+              className={`h-9 rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-2'} no-underline text-sm leading-[22px] whitespace-nowrap transition-colors ${
+                isActive(item.href)
+                  ? 'bg-[#262626] text-white font-medium'
+                  : 'text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
+              }`}
+            >
+              <span className="w-5 h-5 flex items-center justify-center shrink-0">{item.icon}</span>
+              {!collapsed && item.label}
+            </Link>
+          </Tooltip>
         ))}
       </nav>
 
       <div className="mt-auto pb-4 flex flex-col gap-1">
-        <button
-          data-testid="wechat-follow-entry"
-          onClick={() => setQrOpen(true)}
-          className="h-16 rounded-lg bg-[#1e1e1e] hover:bg-[#262626] flex items-center justify-between px-3 border-none cursor-pointer transition-colors"
-        >
-          <span className="flex flex-col items-start">
-            <span className="text-xs font-medium text-white">关注公众号</span>
-            <span className="text-[11px] text-[#707070] mt-0.5">获取最新动态和福利</span>
-          </span>
-          <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(7,193,96,0.1)' }}>
-            <WechatOutlined className="text-lg" style={{ color: '#07c160' }} />
-          </span>
-        </button>
-        <button
-          onClick={() => message.info('敬请期待')}
-          className="h-9 rounded-lg px-2 flex items-center gap-2 text-sm leading-[22px] text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors"
-        >
-          <QuestionCircleOutlined className="text-base" />
-          文档中心
-        </button>
+        <Tooltip title={collapsed ? '关注公众号' : ''} placement="right">
+          <button
+            data-testid="wechat-follow-entry"
+            onClick={() => setQrOpen(true)}
+            aria-label="关注公众号"
+            className={`rounded-lg flex items-center border-none cursor-pointer transition-colors ${
+              collapsed
+                ? 'h-9 w-full justify-center text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
+                : 'h-16 bg-[#1e1e1e] hover:bg-[#262626] justify-between px-3'
+            }`}
+          >
+            {collapsed ? (
+              <span className="w-5 h-5 flex items-center justify-center">
+                <WechatOutlined style={{ color: '#07c160' }} />
+              </span>
+            ) : (
+              <>
+                <span className="flex flex-col items-start">
+                  <span className="text-xs font-medium text-white">关注公众号</span>
+                  <span className="text-[11px] text-[#707070] mt-0.5">获取最新动态和福利</span>
+                </span>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(7,193,96,0.1)' }}>
+                  <WechatOutlined className="text-lg" style={{ color: '#07c160' }} />
+                </span>
+              </>
+            )}
+          </button>
+        </Tooltip>
+        <Tooltip title={collapsed ? '文档中心' : ''} placement="right">
+          <button
+            onClick={() => message.info('敬请期待')}
+            aria-label="文档中心"
+            className={`h-9 rounded-lg px-2 flex items-center ${collapsed ? 'justify-center' : 'gap-2'} text-sm leading-[22px] whitespace-nowrap text-[#707070] hover:bg-[#1e1e1e] hover:text-[#a0a0a0] border-none cursor-pointer transition-colors`}
+          >
+            <QuestionCircleOutlined className="text-base" />
+            {!collapsed && '文档中心'}
+          </button>
+        </Tooltip>
       </div>
 
       <WeChatFollowModal open={qrOpen} onClose={() => setQrOpen(false)} />
