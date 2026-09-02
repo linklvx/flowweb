@@ -22,7 +22,7 @@ export function AppLayout() {
       <div className="flex flex-1 items-start">
         <Sidebar topOffset={topOffset} />
         <main className="flex-1 min-w-0 px-6">
-          <div className="h-[60px] sticky z-20 bg-[#141414]" style={{ top: topOffset }}>
+          <div className="h-[77px] sticky z-20 bg-[#141414]" style={{ top: topOffset }}>
             <TopActionBar />
           </div>
           <Outlet />

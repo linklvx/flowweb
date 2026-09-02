@@ -75,7 +75,7 @@ export function TopActionBar() {
   ];
 
   return (
-    <div data-testid="top-action-bar" className="h-[60px] flex items-center justify-end gap-2">
+    <div data-testid="top-action-bar" className="h-[77px] flex items-center justify-end gap-2">
       <Link to="/settings/credits" className={BTN}>
         <GiftOutlined className="text-base text-[#a0a0a0]" /> 赚积分
       </Link>
