@@ -72,6 +72,7 @@ describe('Sidebar', () => {
     expect(navLink?.className).toContain('text-white');
     const createBtn = screen.getByRole('button', { name: /新建项目/ });
     expect(createBtn.className).toContain('leading-[22px]');
+    expect(createBtn.className).toContain('my-[10px]');
     const docBtn = screen.getByRole('button', { name: /文档中心/ });
     expect(docBtn.className).toContain('leading-[22px]');
     expect(docBtn.className).toContain('text-sm');
