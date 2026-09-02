@@ -58,7 +58,7 @@ describe('Sidebar', () => {
     expect(mockInfo).toHaveBeenCalledWith('敬请期待');
   });
 
-  it('视觉对齐：边框 1px #ffffff18、box-border、leading-[22px] 三处统一', () => {
+  it('视觉对齐：边框 1px #ffffff18、box-border、行高字号规范', () => {
     renderSidebar();
     const aside = screen.getByTestId('sidebar');
     expect(aside.className).toContain('box-border');
@@ -66,7 +66,8 @@ describe('Sidebar', () => {
     expect(aside.className).toContain('[border-right-style:solid]');
     expect(aside.className).toContain('border-r-[#ffffff18]');
     const navLink = screen.getByText('首页').closest('a');
-    expect(navLink?.className).toContain('leading-[22px]');
+    expect(navLink?.className).toContain('leading-[26px]');
+    expect(navLink?.className).toContain('text-base');
     expect(navLink?.className).toContain('h-9');
     const createBtn = screen.getByRole('button', { name: /新建项目/ });
     expect(createBtn.className).toContain('leading-[22px]');
