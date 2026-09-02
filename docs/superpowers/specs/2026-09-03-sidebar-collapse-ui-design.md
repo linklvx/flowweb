@@ -27,7 +27,7 @@
 ### 2.3 过渡
 - `transition-[width]` 200ms ease-out；main 区（`flex-1`）随 aside 宽度自然 reflow，不加过渡
 - 文字处理：收起态文字**直接条件渲染**（切换瞬间消失，不做延迟卸载，省掉 onTransitionEnd/定时器）；`overflow-hidden` 仅作防御、`whitespace-nowrap` 只负责**展开态**防换行
-- **已知取舍（预期表现，非 bug）**：文字与图标对齐（约 6px）是瞬切、宽度是 200ms 渐变，收起瞬间图标会有一次约 6px 位移，不视为缺陷返工
+- **已知取舍（预期表现，非 bug）**：宽度是 200ms 渐变，而 justify-content/gap/padding 同帧瞬切。收起第 1 帧行已 `justify-center` 但宽度仍 ≈240px，图标中心从 ≈34 瞬跳至 ≈120（向右漂约 85px），随后随宽度收窄滑回归位 24——视觉为"先向中间散开、再收回"的来回漂移；终态像素正确。实机验收 200ms 过程：可接受则通过；不可接受走备选（行全程 `justify-start` 不切 justify，收态改固定居中缩进 `px-1.5`，图标首帧单向小跳约 10px 后纹丝不动；更顺滑可将 aside padding 纳入 `transition-[width,padding-left,padding-right]`），实机定夺
 
 ## 3. 视觉规范（对照）
 

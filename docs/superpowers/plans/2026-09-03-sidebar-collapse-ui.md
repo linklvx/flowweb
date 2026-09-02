@@ -15,6 +15,8 @@
 cd D:/flowweb/apps/web && pnpm vitest run src/components/layout/Sidebar.test.tsx
 ```
 
+**提交纪律**：每次 commit 前先 `git -C D:/flowweb status` 确认暂存仅本次任务的 `Sidebar.tsx` + `Sidebar.test.tsx` 两个文件。
+
 **现有测试基线**（[Sidebar.test.tsx](../../apps/web/src/components/layout/Sidebar.test.tsx) 5 用例，定位方式与新 aria-label 已核对无冲突）：
 - `beforeEach` 已含 `localStorage.clear()`（默认展开路径）
 - 用例 1 `getByText('首页')`/`('Flow123')`；用例 2 断言 className 含 `bg-[#262626]`；用例 3/5 用 `getByRole('button', { name: /新建项目|文档中心/ })`；用例 4 用 `getByTestId('wechat-follow-entry')`
@@ -166,12 +168,13 @@ function persistCollapsed(value: boolean): void {
 ```tsx
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
-  const toggleCollapsed = () =>
-    setCollapsed((prev) => {
-      persistCollapsed(!prev);
-      return !prev;
-    });
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    persistCollapsed(next);
+  };
 ```
+（副作用不放 setState updater——StrictMode/并发下 updater 可能重复调用）
 
 ④ aside 标签（Task 1 已改过色）替换为宽度切换 + 过渡 + data-collapsed：
 ```tsx
@@ -351,20 +354,22 @@ git -C D:/flowweb commit -m "feat(web): Sidebar 窄条形态——文字条件�
 
 ---
 
-### Task 4: 全量回归 + 浏览器实机验收
+### Task 4: 回归 + 浏览器实机验收
 
 **Files:** 无新改动（除非验收发现像素问题，微调后须回跑测试）
 
-- [ ] **Step 1: 全量回归**
+- [ ] **Step 1: 回归**
 
 Run: `cd D:/flowweb/apps/web && pnpm vitest run src/components/layout/Sidebar.test.tsx`
 Expected: 11 用例全 PASS
+
+（AppLayout.test.tsx 已 mock Sidebar（其 4 用例不受影响），跑 Sidebar 11 例即达标；如需双保险可加跑 `pnpm vitest run src/components/layout`，非必需）
 
 - [ ] **Step 2: 浏览器实机验收**（dev server 已在 5173 运行；若未运行用 preview_start "web"）
 
 逐项核对（对应 spec 验收标准）：
 1. `http://localhost:5173/` 展开态：右边框 1px 白色半透明；站标行右侧有折叠按钮；主内容区较之前宽 33px（240px 归一）
-2. 点击折叠：240→48px 平滑过渡（200ms）；收起瞬间图标约 6px 位移为**预期取舍非 bug**
+2. 点击折叠：240→48px 过渡；**重点实看这 200ms 过程**——因 justify/gap/padding 瞬切而宽度渐变，图标会"先向中间散开（向右漂约 85px）、再随收窄滑回归位"的来回漂移，终态像素正确；ease-out 较快，实机判断是否可接受
 3. 收起态：所有图标水平居中（与 header 展开按钮中线共线）；hover 出 Tooltip（右侧）；无文字残留、无溢出
 4. 刷新页面：收起状态保持
 5. 再点击展开：恢复 240px、站标/文字回归
@@ -373,10 +378,20 @@ Expected: 11 用例全 PASS
 
 - [ ] **Step 3: 验收发现问题的处理**
 
-像素级问题（如间距/居中偏差）→ 修 `Sidebar.tsx` class → 回跑 Step 1 全绿 → commit：
+a) 像素级问题（间距/居中偏差）→ 修 `Sidebar.tsx` class → 回跑 Step 1 全绿 → commit：
 ```bash
 git -C D:/flowweb add apps/web/src/components/layout/Sidebar.tsx
 git -C D:/flowweb commit -m "fix(web): Sidebar 验收像素微调"
+```
+
+b) 若 Step 2 第 2 条的过渡漂移观感不可接受，改用**固定轨道备选**（只改 class，不动状态/测试结构）：
+- 图标行全程 `justify-start`（删掉所有 `collapsed ? 'justify-center' : ...` 三目，导航/新建/公众号/文档中心四段）
+- 收起态行 padding 改固定居中缩进 `px-1.5`（6px）：图标左缘 = aside px-2(8) + 6 = 14，中心 = 8+6+10 = 24 正落窄条中线；首帧单向小跳约 10px 后纹丝不动，宽度动画只裁右侧文字，无来回漂移
+- 更顺滑可把 aside 过渡扩为 `transition-[width,padding-left,padding-right]`
+- 同步更新 Task 3 的 justify-center 断言为 px-1.5 断言 → 回跑全绿 → commit：
+```bash
+git -C D:/flowweb add apps/web/src/components/layout/Sidebar.tsx apps/web/src/components/layout/Sidebar.test.tsx
+git -C D:/flowweb commit -m "fix(web): Sidebar 收起过渡改固定轨道，消除图标来回漂移"
 ```
 
 ---
