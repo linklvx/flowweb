@@ -64,7 +64,7 @@ export function Sidebar({ topOffset }: Props) {
       } bg-[#141414] border-r [border-right-style:solid] border-r-[#ffffff18] flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
-      <header className={`h-[50px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
+      <header className={`h-[60px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
         {!collapsed && (
           <Link to="/" aria-label="首页" className="block">
             <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-white select-none whitespace-nowrap">

@@ -82,6 +82,7 @@ describe('Sidebar', () => {
     expect(btn).toBeInTheDocument();
     expect(btn.className).toContain('text-white');
     expect(btn.className).not.toContain('hover:bg');
+    expect(btn.closest('header')?.className).toContain('h-[60px]');
   });
 
   it('点击收起：data-collapsed=true 并写入 localStorage', () => {
