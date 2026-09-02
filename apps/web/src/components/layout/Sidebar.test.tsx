@@ -85,7 +85,7 @@ describe('Sidebar', () => {
     expect(docBtn.className).toContain('text-sm');
     expect(docBtn.className).toContain('bg-[#141414]');
     expect(docBtn.className).toContain('text-white');
-    expect(container.querySelector('.mt-auto')?.className).toContain('pb-[3px]');
+    expect(container.querySelector('.mt-auto')?.className).toContain('pb-[10px]');
   });
 
   it('渲染折叠按钮：默认展开态 aria-label 为 收起侧边栏', () => {

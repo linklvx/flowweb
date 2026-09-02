@@ -116,7 +116,7 @@ export function Sidebar({ topOffset }: Props) {
         ))}
       </nav>
 
-      <div className="mt-auto pb-[3px] flex flex-col gap-1">
+      <div className="mt-auto pb-[10px] flex flex-col gap-1">
         <Tooltip title={collapsed ? '关注公众号' : ''} placement="right">
           <button
             data-testid="wechat-follow-entry"
