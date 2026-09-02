@@ -86,7 +86,7 @@ export function Sidebar({ topOffset }: Props) {
         <button
           onClick={() => startNewProject(navigate)}
           aria-label="新建项目"
-          className={`h-9 w-full my-[10px] rounded-lg bg-[#00bfff] hover:brightness-110 text-black text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
+          className={`h-9 w-full my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
             collapsed ? 'justify-center' : 'gap-2 px-2'
           }`}
         >
