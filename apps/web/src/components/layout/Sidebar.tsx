@@ -103,7 +103,7 @@ export function Sidebar({ topOffset }: Props) {
             <Link
               to={item.href}
               aria-label={item.label}
-              className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-[13px] px-2 mb-[5px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
+              className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-[13px] px-2 mb-[5px]'} no-underline text-sm leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
                 isActive(item.href)
                   ? 'bg-[#262626] font-medium'
                   : 'hover:bg-[#1e1e1e]'
