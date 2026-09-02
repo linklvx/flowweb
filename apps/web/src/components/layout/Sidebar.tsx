@@ -124,7 +124,7 @@ export function Sidebar({ topOffset }: Props) {
             aria-label="关注公众号"
             className={`rounded-lg flex items-center border-none cursor-pointer transition-colors ${
               collapsed
-                ? 'h-9 w-full justify-center text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
+                ? 'h-9 w-full justify-center text-sm text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
                 : 'h-16 bg-[#1e1e1e] hover:bg-[#262626] justify-between px-3'
             }`}
           >
