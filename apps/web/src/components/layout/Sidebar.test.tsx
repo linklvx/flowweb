@@ -59,7 +59,7 @@ describe('Sidebar', () => {
   });
 
   it('视觉对齐：边框 1px #ffffff18、box-border、行高字号规范', () => {
-    renderSidebar();
+    const { container } = renderSidebar();
     const aside = screen.getByTestId('sidebar');
     expect(aside.className).toContain('box-border');
     expect(aside.className).toContain('border-r');
@@ -85,6 +85,7 @@ describe('Sidebar', () => {
     expect(docBtn.className).toContain('text-sm');
     expect(docBtn.className).toContain('bg-[#141414]');
     expect(docBtn.className).toContain('text-white');
+    expect(container.querySelector('.mt-auto')?.className).toContain('pb-[3px]');
   });
 
   it('渲染折叠按钮：默认展开态 aria-label 为 收起侧边栏', () => {
