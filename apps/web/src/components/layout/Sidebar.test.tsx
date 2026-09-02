@@ -70,6 +70,7 @@ describe('Sidebar', () => {
     expect(navLink?.className).toContain('text-base');
     expect(navLink?.className).toContain('h-[38px]');
     expect(navLink?.className).toContain('text-white');
+    expect(navLink?.className).toContain('hover:text-white');
     expect(navLink?.className).toContain('gap-[13px]');
     expect(navLink?.querySelector('span')?.className).toContain('text-[18px]');
     const createBtn = screen.getByRole('button', { name: /新建项目/ });
