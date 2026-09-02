@@ -52,6 +52,7 @@ describe('AppLayout', () => {
     expect(fetchActive).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('sidebar-mock')).toBeInTheDocument();
     expect(screen.getByTestId('top-action-bar-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('top-action-bar-mock').parentElement?.className).toContain('h-[60px]');
     expect(screen.getByText('首页内容')).toBeInTheDocument();
   });
 
