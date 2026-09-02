@@ -99,7 +99,7 @@ describe('Sidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }));
     const aside = screen.getByTestId('sidebar');
     expect(aside).toHaveAttribute('data-collapsed', 'true');
-    expect(aside.className).toContain('w-[68px]');
+    expect(aside.className).toContain('w-[78px]');
     expect(localStorage.getItem('sidebar.collapsed')).toBe('true');
   });
 
@@ -125,8 +125,10 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Flow123')).toBeNull();
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('justify-center');
     expect(screen.getByRole('link', { name: '首页' }).className).toContain('w-[36px]');
+    expect(screen.getByRole('link', { name: '首页' }).className).toContain('self-center');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('w-[36px]');
+    expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('self-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('justify-center');
   });

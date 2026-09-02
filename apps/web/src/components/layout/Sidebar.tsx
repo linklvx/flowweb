@@ -60,7 +60,7 @@ export function Sidebar({ topOffset }: Props) {
       data-testid="sidebar"
       data-collapsed={collapsed ? 'true' : undefined}
       className={`sticky left-0 self-start shrink-0 box-border overflow-hidden transition-[width] duration-200 ease-out z-30 ${
-        collapsed ? 'w-[68px] px-2' : 'w-[240px] px-4'
+        collapsed ? 'w-[78px] px-2' : 'w-[240px] px-4'
       } bg-[#141414] border-r [border-right-style:solid] border-r-[#ffffff18] flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
@@ -87,7 +87,7 @@ export function Sidebar({ topOffset }: Props) {
           onClick={() => startNewProject(navigate)}
           aria-label="新建项目"
           className={`h-9 my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
-            collapsed ? 'justify-center w-[36px]' : 'gap-2 px-2 w-full'
+            collapsed ? 'justify-center w-[36px] self-center' : 'gap-2 px-2 w-full'
           }`}
         >
           <span className="w-5 h-5 flex items-center justify-center shrink-0">
@@ -103,7 +103,7 @@ export function Sidebar({ topOffset }: Props) {
             <Link
               to={item.href}
               aria-label={item.label}
-              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center w-[36px]' : 'gap-[13px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
+              className={`h-[38px] rounded-lg px-2 flex items-center ${collapsed ? 'justify-center w-[36px] self-center' : 'gap-[13px]'} no-underline text-base leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
                 isActive(item.href)
                   ? 'bg-[#262626] font-medium'
                   : 'hover:bg-[#1e1e1e]'
