@@ -78,7 +78,7 @@ export function Sidebar({ topOffset }: Props) {
           aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
           className="size-9 rounded-lg flex items-center justify-center text-white bg-[#141414] border-none cursor-pointer"
         >
-          {collapsed ? <MenuUnfoldOutlined className="text-[26px]" /> : <MenuFoldOutlined className="text-[26px]" />}
+          {collapsed ? <MenuUnfoldOutlined className="text-[23px]" /> : <MenuFoldOutlined className="text-[23px]" />}
         </button>
       </header>
 
