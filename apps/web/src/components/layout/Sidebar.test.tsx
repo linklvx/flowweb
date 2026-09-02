@@ -138,10 +138,12 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('self-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('justify-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('w-[38px]');
+    expect(screen.getByTestId('wechat-follow-entry').className).toContain('bg-[#141414]');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('self-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('mb-[5px]');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('w-[38px]');
+    expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('bg-[#141414]');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('self-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('mb-[5px]');
   });
