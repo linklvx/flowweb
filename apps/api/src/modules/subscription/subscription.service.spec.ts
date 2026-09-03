@@ -26,6 +26,9 @@ describe('SubscriptionService - Plan CRUD', () => {
         update: vi.fn(),
         delete: vi.fn(),
       },
+      userSubscription: {
+        findFirst: vi.fn(),
+      },
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -40,7 +43,7 @@ describe('SubscriptionService - Plan CRUD', () => {
   describe('getPlans', () => {
     it('should return active plans sorted by sort order', async () => {
       prisma.subscriptionPlan.findMany.mockResolvedValue([
-        { id: 'p1', name: '普通会员', tier: 'basic', monthlyCredits: 9800, priceMonthly: 100, priceQuarterly: 280, priceAnnually: 1000, sort: 1, isActive: true },
+        { id: 'p1', name: '普通会员', tier: 'basic', monthlyCredits: 9800, priceMonthly: 100, priceQuarterly: 280, priceAnnually: 1000, sort: 1, isActive: true, storageLimitBytes: 53687091200n },
       ]);
 
       const result = await service.getPlans();
@@ -49,14 +52,22 @@ describe('SubscriptionService - Plan CRUD', () => {
         where: { isActive: true },
         orderBy: { sort: 'asc' },
       });
+      // BigInt 序列化回归（2026-09-03 /plans 500 最小复现）：storageLimitBytes 转 number，可过 JSON.stringify
+      expect(result[0].storageLimitBytes).toBe(53687091200);
+      expect(typeof result[0].storageLimitBytes).toBe('number');
+      expect(() => JSON.stringify(result)).not.toThrow();
     });
   });
 
   describe('getAllPlans (admin)', () => {
     it('should return all plans including inactive', async () => {
-      prisma.subscriptionPlan.findMany.mockResolvedValue([]);
+      prisma.subscriptionPlan.findMany.mockResolvedValue([
+        { id: 'p0', name: '下架档', tier: 'basic', monthlyCredits: 1, priceMonthly: 1, priceQuarterly: 1, priceAnnually: 1, sort: 0, isActive: false, storageLimitBytes: 1073741824n },
+      ]);
       const result = await service.getAllPlans();
       expect(prisma.subscriptionPlan.findMany).toHaveBeenCalledWith({ orderBy: { sort: 'asc' } });
+      expect(result[0].storageLimitBytes).toBe(1073741824);
+      expect(() => JSON.stringify(result)).not.toThrow();
     });
   });
 
@@ -94,6 +105,22 @@ describe('SubscriptionService - Plan CRUD', () => {
       prisma.subscriptionPlan.delete.mockResolvedValue({ id: 'p1' });
       await service.deletePlan('p1');
       expect(prisma.subscriptionPlan.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+    });
+  });
+
+  describe('getUpgradeAvailable', () => {
+    it('返回更高档套餐，plan 行 storageLimitBytes 转 number 且可 JSON 序列化', async () => {
+      prisma.userSubscription.findFirst.mockResolvedValue({ id: 's1', userId: 'u1', tier: 'basic' });
+      prisma.subscriptionPlan.findMany.mockResolvedValue([
+        { id: 'p1', tier: 'basic', sort: 1, isActive: true, storageLimitBytes: 53687091200n },
+        { id: 'p2', tier: 'pro', sort: 2, isActive: true, storageLimitBytes: 107374182400n },
+      ]);
+
+      const result = await service.getUpgradeAvailable('u1');
+
+      expect(result.map((p: any) => p.tier)).toEqual(['pro']);
+      expect(result[0].storageLimitBytes).toBe(107374182400);
+      expect(() => JSON.stringify(result)).not.toThrow();
     });
   });
 });

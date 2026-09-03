@@ -33,6 +33,12 @@ export interface UpdatePlanDto {
 
 const PERIOD_DAYS: Record<string, number> = { monthly: 30, quarterly: 90, annually: 365 };
 
+// SubscriptionPlan.storageLimitBytes 为 BigInt，无法经 Express JSON.stringify 序列化（抛 TypeError → 500），
+// 响应统一转 Number（对齐 admin-team-plan.controller.ts 既有约定）。导出纯函数供 AdminSubscriptionService 复用。
+export function serializeSubscriptionPlan<T extends { storageLimitBytes: bigint }>(plan: T) {
+  return { ...plan, storageLimitBytes: Number(plan.storageLimitBytes) };
+}
+
 @Injectable()
 export class SubscriptionService {
   constructor(
@@ -43,16 +49,18 @@ export class SubscriptionService {
   // ========== Plan CRUD ==========
 
   async getPlans() {
-    return this.prisma.subscriptionPlan.findMany({
+    const rows = await this.prisma.subscriptionPlan.findMany({
       where: { isActive: true },
       orderBy: { sort: 'asc' },
     });
+    return rows.map((p) => serializeSubscriptionPlan(p));
   }
 
   async getAllPlans() {
-    return this.prisma.subscriptionPlan.findMany({
+    const rows = await this.prisma.subscriptionPlan.findMany({
       orderBy: { sort: 'asc' },
     });
+    return rows.map((p) => serializeSubscriptionPlan(p));
   }
 
   async createPlan(dto: CreatePlanDto) {
@@ -95,7 +103,7 @@ export class SubscriptionService {
       where: { isActive: true },
       orderBy: { sort: 'asc' },
     });
-    return plans.filter(p => currentOrder[p.tier] > currentOrder[sub.tier]);
+    return plans.filter(p => currentOrder[p.tier] > currentOrder[sub.tier]).map(p => serializeSubscriptionPlan(p));
   }
 
   async upgradePreview(userId: string, targetPlanId: string, targetPeriod: string) {
