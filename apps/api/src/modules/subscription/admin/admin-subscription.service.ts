@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/exceptions/business.exception';
 import { clearPersonalTeamSubscription } from '../task/personal-team-ledger';
+import { serializeSubscriptionPlan } from '../subscription.service';
 
 @Injectable()
 export class AdminSubscriptionService {
@@ -25,7 +26,7 @@ export class AdminSubscriptionService {
       }),
       this.prisma.userSubscription.count({ where }),
     ]);
-    return { items, total, page, pageSize };
+    return { items: items.map(i => ({ ...i, plan: serializeSubscriptionPlan(i.plan) })), total, page, pageSize };
   }
 
   async getSubscription(id: string) {

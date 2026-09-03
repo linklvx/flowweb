@@ -123,4 +123,26 @@ describe('SubscriptionService - Plan CRUD', () => {
       expect(() => JSON.stringify(result)).not.toThrow();
     });
   });
+
+  describe('getMySubscription', () => {
+    it('有 active 订阅：嵌套 plan.storageLimitBytes 转 number 且可 JSON 序列化', async () => {
+      prisma.userSubscription.findFirst.mockResolvedValue({
+        id: 's1', userId: 'u1', tier: 'pro', status: 'active',
+        plan: { id: 'p2', name: 'Pro会员', tier: 'pro', storageLimitBytes: 107374182400n },
+      });
+
+      const result = await service.getMySubscription('u1');
+
+      expect(result!.plan.storageLimitBytes).toBe(107374182400);
+      expect(() => JSON.stringify(result)).not.toThrow();
+    });
+
+    it('无 active 订阅：保持 null', async () => {
+      prisma.userSubscription.findFirst.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('u1');
+
+      expect(result).toBeNull();
+    });
+  });
 });

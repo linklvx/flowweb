@@ -8,7 +8,7 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队 TeamBal
 
   beforeEach(() => {
     prisma = {
-      userSubscription: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+      userSubscription: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
       teamBalance: { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn(), create: vi.fn() },
       teamCreditTransaction: { create: vi.fn() },
@@ -55,6 +55,20 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队 TeamBal
 
       expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
       expect(prisma.teamBalance.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listSubscriptions', () => {
+    it('items[].plan.storageLimitBytes 转 number，可 JSON 序列化', async () => {
+      prisma.userSubscription.findMany.mockResolvedValue([
+        { id: 's1', userId: 'u1', tier: 'pro', status: 'active', createdAt: new Date('2026-09-01'), plan: { id: 'p2', tier: 'pro', storageLimitBytes: 107374182400n } },
+      ]);
+      prisma.userSubscription.count.mockResolvedValue(1);
+
+      const result = await service.listSubscriptions({});
+
+      expect(result.items[0].plan.storageLimitBytes).toBe(107374182400);
+      expect(() => JSON.stringify(result)).not.toThrow();
     });
   });
 

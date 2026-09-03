@@ -84,10 +84,11 @@ export class SubscriptionService {
   // ========== User Subscription ==========
 
   async getMySubscription(userId: string) {
-    return this.prisma.userSubscription.findFirst({
+    const sub = await this.prisma.userSubscription.findFirst({
       where: { userId, status: 'active' },
       include: { plan: true },
     });
+    return sub ? { ...sub, plan: serializeSubscriptionPlan(sub.plan) } : null;
   }
 
   // ========== Upgrade ==========
