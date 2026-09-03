@@ -6,14 +6,14 @@ interface WorkspaceTabBarProps {
 
 export function WorkspaceTabBar({ activeTab, onTabChange, labels = { personal: '个人项目', team: '团队项目' } }: WorkspaceTabBarProps) {
   return (
-    <div className="flex gap-2 text-lg items-center">
+    <div className="flex gap-2 text-[20px] items-center">
       <button
         onClick={() => onTabChange('personal')}
-        className={`mx-3 py-1.5 bg-transparent cursor-pointer rounded-t-md ${activeTab === 'personal' ? 'text-white border-b-2 border-white border-x-0 border-t-0' : 'text-white/50 border-none'}`}
+        className={`ml-0 mr-3 py-1.5 text-[20px] bg-transparent cursor-pointer rounded-t-md ${activeTab === 'personal' ? 'text-white border-b-2 border-white border-x-0 border-t-0' : 'text-white/50 border-none'}`}
       >{labels.personal}</button>
       <button
         onClick={() => onTabChange('team')}
-        className={`mx-3 py-1.5 bg-transparent cursor-pointer rounded-t-md ${activeTab === 'team' ? 'text-white border-b-2 border-white border-x-0 border-t-0' : 'text-white/50 border-none'}`}
+        className={`mx-[2px] py-1.5 text-[20px] bg-transparent cursor-pointer rounded-t-md ${activeTab === 'team' ? 'text-white border-b-2 border-white border-x-0 border-t-0' : 'text-white/50 border-none'}`}
       >{labels.team}</button>
     </div>
   );

@@ -16,4 +16,17 @@ describe('WorkspaceTabBar', () => {
     expect(screen.getByRole('button', { name: '团队项目' })).toHaveClass('border-b-2');
     expect(screen.getByRole('button', { name: '个人项目' })).not.toHaveClass('border-b-2');
   });
+
+  it('页签字体大小 20px', () => {
+    render(<WorkspaceTabBar activeTab="personal" onTabChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '个人项目' })).toHaveClass('text-[20px]');
+    expect(screen.getByRole('button', { name: '团队项目' })).toHaveClass('text-[20px]');
+  });
+
+  it('个人项目按钮 margin-left 0 / margin-right 12，团队项目按钮 margin 2px', () => {
+    render(<WorkspaceTabBar activeTab="personal" onTabChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '个人项目' })).toHaveClass('ml-0');
+    expect(screen.getByRole('button', { name: '个人项目' })).toHaveClass('mr-3');
+    expect(screen.getByRole('button', { name: '团队项目' })).toHaveClass('mx-[2px]');
+  });
 });
