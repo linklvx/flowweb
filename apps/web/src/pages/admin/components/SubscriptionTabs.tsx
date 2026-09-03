@@ -3,6 +3,9 @@ import { Table, Button, Tag, message, Modal, InputNumber, Input } from 'antd';
 
 const PLAN_COLORS: Record<string, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
 const API = '/api/admin/subscription';
+const GB = 1024 ** 3;
+// 裸除法对 53.25GB 会渲染两位小数，显式收敛：整除显示整数，否则 1 位小数
+const toGB = (b: number) => { const g = b / GB; return Number.isInteger(g) ? g : Number(g.toFixed(1)); };
 
 export function PlanManagementTab() {
   const [plans, setPlans] = useState<any[]>([]);
@@ -50,9 +53,13 @@ export function PlanManagementTab() {
     return <div onClick={() => setEditingCell(cellKey(record.id, field))} style={{ cursor: 'pointer', minHeight: 22 }}>{v}</div>;
   };
 
-  const renderNumberEdit = (v: number, record: any, field: string, min?: number) => {
+  const renderNumberEdit = (
+    v: number, record: any, field: string, min?: number,
+    opts?: { transform?: (val: number) => number; editProps?: { step?: number; precision?: number } },
+  ) => {
     if (editingCell === cellKey(record.id, field)) {
       numberRef.current = v;
+      const commit = () => save(record.id, field, opts?.transform ? opts.transform(numberRef.current) : numberRef.current);
       return (
         <InputNumber
           autoFocus
@@ -61,9 +68,10 @@ export function PlanManagementTab() {
           style={{ width: '100%' }}
           min={min ?? 0}
           onChange={val => { numberRef.current = val ?? 0; }}
-          onBlur={() => save(record.id, field, numberRef.current)}
-          onPressEnter={() => save(record.id, field, numberRef.current)}
+          onBlur={commit}
+          onPressEnter={commit}
           onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null); }}
+          {...(opts?.editProps ?? {})}
         />
       );
     }
@@ -75,6 +83,7 @@ export function PlanManagementTab() {
     { title: '名称', dataIndex: 'name', key: 'name', render: (v: string, r: any) => renderTextEdit(v, r, 'name') },
     { title: '档位', dataIndex: 'tier', key: 'tier', render: (v: string) => <Tag color={PLAN_COLORS[v]}>{v}</Tag> },
     { title: '月积分', dataIndex: 'monthlyCredits', key: 'monthlyCredits', render: (v: number, r: any) => renderNumberEdit(v, r, 'monthlyCredits') },
+    { title: '存储上限(GB)', dataIndex: 'storageLimitBytes', key: 'storageLimitBytes', render: (v: number, r: any) => renderNumberEdit(toGB(v), r, 'storageLimitBytes', 1, { transform: g => g * GB, editProps: { step: 1, precision: 0 } }) },
     { title: '包月原价', dataIndex: 'originalPriceMonthly', key: 'originalPriceMonthly', render: (v: number, r: any) => renderNumberEdit(v, r, 'originalPriceMonthly') },
     { title: '包月价', dataIndex: 'priceMonthly', key: 'priceMonthly', render: (v: number, r: any) => renderNumberEdit(v, r, 'priceMonthly') },
     { title: '包季原价', dataIndex: 'originalPriceQuarterly', key: 'originalPriceQuarterly', render: (v: number, r: any) => renderNumberEdit(v, r, 'originalPriceQuarterly') },

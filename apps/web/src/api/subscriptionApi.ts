@@ -3,6 +3,7 @@ import type { PublicBannerData, AdminBannerData, UpdateBannerDto } from '@flowwe
 
 export interface SubscriptionPlan {
   id: string; name: string; tier: string; monthlyCredits: number;
+  storageLimitBytes: number;
   priceMonthly: number; originalPriceMonthly: number;
   priceQuarterly: number; originalPriceQuarterly: number;
   priceAnnually: number; originalPriceAnnually: number;

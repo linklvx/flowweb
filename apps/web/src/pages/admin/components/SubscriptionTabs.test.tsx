@@ -3,8 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PlanManagementTab } from './SubscriptionTabs';
 
 const mockPlans = [
-  { id: 'plan1', name: '基础版', tier: 'basic', monthlyCredits: 100, priceMonthly: 50, originalPriceMonthly: 30, priceQuarterly: 135, originalPriceQuarterly: 90, priceAnnually: 480, originalPriceAnnually: 399, sort: 1, isActive: true },
-  { id: 'plan2', name: '专业版', tier: 'pro', monthlyCredits: 500, priceMonthly: 200, originalPriceMonthly: 150, priceQuarterly: 540, originalPriceQuarterly: 400, priceAnnually: 1920, originalPriceAnnually: 1500, sort: 2, isActive: true },
+  { id: 'plan1', name: '基础版', tier: 'basic', monthlyCredits: 100, storageLimitBytes: 80530636800, priceMonthly: 50, originalPriceMonthly: 30, priceQuarterly: 135, originalPriceQuarterly: 90, priceAnnually: 480, originalPriceAnnually: 399, sort: 1, isActive: true },
+  { id: 'plan2', name: '专业版', tier: 'pro', monthlyCredits: 500, storageLimitBytes: 57495537152, priceMonthly: 200, originalPriceMonthly: 150, priceQuarterly: 540, originalPriceQuarterly: 400, priceAnnually: 1920, originalPriceAnnually: 1500, sort: 2, isActive: true },
 ];
 
 describe('PlanManagementTab - inline editing', () => {
@@ -143,6 +143,62 @@ describe('PlanManagementTab - inline editing', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining('/api/admin/subscription/plans/plan1'),
         expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ name: '改名' }) }),
+      );
+    });
+  });
+
+  it('renders storage limit column in GB (integer and 1-decimal)', async () => {
+    mockFetch(mockPlans);
+    render(<PlanManagementTab />);
+    await waitFor(() => expect(screen.getByText('基础版')).toBeInTheDocument());
+    expect(screen.getByText('75')).toBeInTheDocument();    // 80530636800 bytes → 75 GB
+    expect(screen.getByText('53.5')).toBeInTheDocument();  // 57495537152 bytes → 53.5 GB
+  });
+
+  it('saves storage limit as bytes via PATCH on blur', async () => {
+    mockFetch(mockPlans);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockClear();
+
+    render(<PlanManagementTab />);
+    await waitFor(() => expect(screen.getByText('基础版')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('75'));
+    const input = screen.getByDisplayValue('75');
+    fireEvent.change(input, { target: { value: '60' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/api/admin/subscription/plans/plan1'),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ storageLimitBytes: 64424509440 }),
+        }),
+      );
+    });
+  });
+
+  it('saves storage limit as bytes via PATCH on Enter', async () => {
+    mockFetch(mockPlans);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockClear();
+
+    render(<PlanManagementTab />);
+    await waitFor(() => expect(screen.getByText('基础版')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('75'));
+    const input = screen.getByDisplayValue('75');
+    fireEvent.change(input, { target: { value: '60' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/api/admin/subscription/plans/plan1'),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ storageLimitBytes: 64424509440 }),
+        }),
       );
     });
   });
