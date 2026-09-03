@@ -26,6 +26,7 @@ export interface UpdatePlanDto {
   originalPriceQuarterly?: number;
   priceAnnually?: number;
   originalPriceAnnually?: number;
+  storageLimitBytes?: number;
   sort?: number;
   isActive?: boolean;
   tier?: 'basic' | 'pro' | 'max' | 'ultra';
@@ -63,18 +64,30 @@ export class SubscriptionService {
     return rows.map((p) => serializeSubscriptionPlan(p));
   }
 
+  // 非有限数 / 非整数 / <=0 一律拒绝（与前端 precision=0、min=1 对齐；不留 0GB 口子，不静默截断）。
+  // fallback 必须收敛 number 空间、校验通过后最后一步才转 BigInt——fallback 若为 bigint，
+  // Number.isFinite 恒 false（bigint 不做类型转换），create 默认路径必抛（v3 spec 缺陷，勿回退）。
+  private toStorageBytes(input: number | undefined, fallback?: number): bigint {
+    const v = input ?? fallback;
+    if (v == null || !Number.isFinite(v) || !Number.isInteger(v) || v <= 0)
+      throw new BusinessException('PLAN_STORAGE_LIMIT_INVALID', '存储上限非法');
+    return BigInt(v);
+  }
+
   async createPlan(dto: CreatePlanDto) {
-    return this.prisma.subscriptionPlan.create({
-      // storageLimitBytes 必填（BigInt）：未指定时默认 1GB 免费档
-      data: { ...dto, isActive: true, storageLimitBytes: dto.storageLimitBytes ?? 1073741824 },
+    const plan = await this.prisma.subscriptionPlan.create({
+      data: { ...dto, isActive: true, storageLimitBytes: this.toStorageBytes(dto.storageLimitBytes, 1073741824) },
     });
+    return serializeSubscriptionPlan(plan);
   }
 
   async updatePlan(id: string, dto: UpdatePlanDto) {
-    return this.prisma.subscriptionPlan.update({
+    const { storageLimitBytes, ...rest } = dto;
+    const plan = await this.prisma.subscriptionPlan.update({
       where: { id },
-      data: dto,
+      data: { ...rest, ...(storageLimitBytes != null ? { storageLimitBytes: this.toStorageBytes(storageLimitBytes) } : {}) },
     });
+    return serializeSubscriptionPlan(plan);
   }
 
   async deletePlan(id: string) {

@@ -72,32 +72,75 @@ describe('SubscriptionService - Plan CRUD', () => {
   });
 
   describe('createPlan', () => {
-    it('should create a plan with all fields', async () => {
+    it('未指定 storageLimitBytes 时默认 1GB（BigInt 入库），返回转 number', async () => {
       const dto = {
         name: 'Pro', tier: 'pro' as const, monthlyCredits: 19800,
         priceMonthly: 200, priceQuarterly: 560, priceAnnually: 2000, sort: 2,
       };
-      prisma.subscriptionPlan.create.mockResolvedValue({ id: 'p2', ...dto, isActive: true, storageLimitBytes: 1073741824 });
+      prisma.subscriptionPlan.create.mockResolvedValue({ id: 'p2', ...dto, isActive: true, storageLimitBytes: 1073741824n });
 
       const result = await service.createPlan(dto);
       expect(result.name).toBe('Pro');
       expect(result.tier).toBe('pro');
-      // 未指定 storageLimitBytes 时默认 1GB 免费档
       expect(prisma.subscriptionPlan.create).toHaveBeenCalledWith({
-        data: { ...dto, isActive: true, storageLimitBytes: 1073741824 },
+        data: { ...dto, isActive: true, storageLimitBytes: 1073741824n },
       });
+      expect(result.storageLimitBytes).toBe(1073741824);
+      expect(() => JSON.stringify(result)).not.toThrow();
+    });
+
+    it('显式 storageLimitBytes：BigInt 入库、返回转 number', async () => {
+      prisma.subscriptionPlan.create.mockResolvedValue({ id: 'p3', storageLimitBytes: 64424509440n });
+      const result = await service.createPlan({
+        name: 'X', tier: 'max', monthlyCredits: 1,
+        priceMonthly: 1, priceQuarterly: 1, priceAnnually: 1, storageLimitBytes: 64424509440,
+      });
+      expect(prisma.subscriptionPlan.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ storageLimitBytes: 64424509440n }),
+      }));
+      expect(result.storageLimitBytes).toBe(64424509440);
+    });
+
+    it('小数 storageLimitBytes 抛 PLAN_STORAGE_LIMIT_INVALID 且不落库', async () => {
+      await expect(service.createPlan({
+        name: 'X', tier: 'pro', monthlyCredits: 1,
+        priceMonthly: 1, priceQuarterly: 1, priceAnnually: 1, storageLimitBytes: 107374182.4,
+      })).rejects.toMatchObject({ errorCode: 'PLAN_STORAGE_LIMIT_INVALID' });
+      expect(prisma.subscriptionPlan.create).not.toHaveBeenCalled();
     });
   });
 
   describe('updatePlan', () => {
-    it('should update plan fields', async () => {
-      prisma.subscriptionPlan.update.mockResolvedValue({ id: 'p1', name: 'Updated' });
-      const result = await service.updatePlan('p1', { name: 'Updated' });
+    it('storageLimitBytes 合法值 BigInt 入库、其余字段原样透传、返回转 number', async () => {
+      prisma.subscriptionPlan.update.mockResolvedValue({ id: 'p1', name: 'Updated', storageLimitBytes: 64424509440n });
+
+      const result = await service.updatePlan('p1', { name: 'Updated', storageLimitBytes: 64424509440 });
+
+      expect(prisma.subscriptionPlan.update).toHaveBeenCalledWith({
+        where: { id: 'p1' },
+        data: { name: 'Updated', storageLimitBytes: 64424509440n },
+      });
+      expect(result.storageLimitBytes).toBe(64424509440);
+      expect(() => JSON.stringify(result)).not.toThrow();
+    });
+
+    it('storageLimitBytes 缺省：update 入参不含该键', async () => {
+      prisma.subscriptionPlan.update.mockResolvedValue({ id: 'p1', name: 'Updated', storageLimitBytes: 53687091200n });
+      await service.updatePlan('p1', { name: 'Updated' });
       expect(prisma.subscriptionPlan.update).toHaveBeenCalledWith({
         where: { id: 'p1' },
         data: { name: 'Updated' },
       });
     });
+
+    it.each([0, -1, 107374182.4, NaN, Infinity])(
+      '非法 storageLimitBytes(%s) 抛 PLAN_STORAGE_LIMIT_INVALID 且不落库',
+      async (bad) => {
+        await expect(service.updatePlan('p1', { storageLimitBytes: bad as number }))
+          .rejects.toMatchObject({ errorCode: 'PLAN_STORAGE_LIMIT_INVALID' });
+        expect(prisma.subscriptionPlan.update).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('deletePlan', () => {
