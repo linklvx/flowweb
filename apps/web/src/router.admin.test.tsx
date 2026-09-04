@@ -21,11 +21,24 @@ function flatten(routes: any[]): any[] {
 }
 
 describe('admin 路由树', () => {
-  it('/admin 子树含 8 叶子 + index 重定向', () => {
+  it('/admin 子树 8 叶子路径精确匹配 + index 重定向指向 /admin/models', () => {
     const all = flatten(router.routes);
-    const adminLeaf = all.filter((r) => typeof r.path === 'string'
-      && (r.path === 'models' || r.path.startsWith('subscription/') || r.path.startsWith('homepage/') || r.path === 'settings'));
-    expect(adminLeaf.length).toBe(8);
-    expect(all.some((r) => r.index === true && r.element)).toBe(true); // Navigate to /admin/models
+    // 叶子用精确集合断言（前缀计数法在路径拼错时仍会通过，如 subscription/foo）
+    const leafPaths = all
+      .filter((r) => typeof r.path === 'string'
+        && (r.path === 'models' || r.path.startsWith('subscription/') || r.path.startsWith('homepage/') || r.path === 'settings'))
+      .map((r) => r.path)
+      .sort();
+    expect(leafPaths).toEqual([
+      'homepage/announcement', 'homepage/banners', 'models', 'settings',
+      'subscription/banner', 'subscription/credits', 'subscription/plans', 'subscription/subscriptions',
+    ]);
+    // index 断言锚定到 /admin 子树内部（全局 some 会被其他 index 路由满足）
+    const adminParent = all.find((r) => r.path === '/admin');
+    expect(adminParent).toBeTruthy();
+    const layoutNode = adminParent!.children.find((r: any) => r.path === '');
+    expect(layoutNode).toBeTruthy();
+    const indexRoute = layoutNode!.children.find((r: any) => r.index === true);
+    expect(indexRoute?.element?.props?.to).toBe('/admin/models');
   });
 });
