@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { auth } from '../src/auth/auth';
 
 const prisma = new PrismaClient();
 
@@ -228,6 +229,19 @@ async function main() {
     }
   }
 
+  // 管理员账号：不存在则经 BetterAuth signUpEmail（正确哈希），存在则确保 ADMIN
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@flowweb.local';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin12345'; // better-auth minPasswordLength=8
+  const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (!existingAdmin) {
+    await auth.api.signUpEmail({ body: { email: adminEmail, password: adminPassword, name: 'Admin' } });
+    await prisma.user.update({ where: { email: adminEmail }, data: { role: 'ADMIN' } });
+    console.log(`Admin created: ${adminEmail}`);
+  } else if (existingAdmin.role !== 'ADMIN') {
+    await prisma.user.update({ where: { email: adminEmail }, data: { role: 'ADMIN' } });
+    console.log(`Admin promoted: ${adminEmail}`);
+  }
+
   console.log('Seed complete: Phase 1 cards + Phase 3 models + Phase 4 user balance + Phase 5 video models');
 }
 
@@ -238,4 +252,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    process.exit(0); // auth.ts 顶层 ioredis 连接会让进程挂起，必须显式退出
   });
