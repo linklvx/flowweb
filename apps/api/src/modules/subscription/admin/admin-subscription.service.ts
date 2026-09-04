@@ -29,10 +29,6 @@ export class AdminSubscriptionService {
     return { items: items.map(i => ({ ...i, plan: serializeSubscriptionPlan(i.plan) })), total, page, pageSize };
   }
 
-  async getSubscription(id: string) {
-    return this.prisma.userSubscription.findUnique({ where: { id }, include: { plan: true } });
-  }
-
   async cancelSubscription(id: string) {
     const sub = await this.prisma.userSubscription.findUnique({ where: { id } });
     if (!sub) throw new BusinessException('SUBSCRIPTION_NOT_FOUND');

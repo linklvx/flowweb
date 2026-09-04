@@ -90,10 +90,6 @@ export class SubscriptionService {
     return serializeSubscriptionPlan(plan);
   }
 
-  async deletePlan(id: string) {
-    return this.prisma.subscriptionPlan.delete({ where: { id } });
-  }
-
   // ========== User Subscription ==========
 
   async getMySubscription(userId: string) {

@@ -34,7 +34,7 @@ export interface TeamPlanRow {
   id: string;
   name: string;
   monthlyCredits: number;
-  storageLimitBytes: string;
+  storageLimitBytes: number;
   seatLimit: number;
   priceMonthly: number;
   isActive: boolean;

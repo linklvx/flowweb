@@ -24,7 +24,6 @@ describe('SubscriptionService - Plan CRUD', () => {
         findUnique: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
-        delete: vi.fn(),
       },
       userSubscription: {
         findFirst: vi.fn(),
@@ -141,14 +140,6 @@ describe('SubscriptionService - Plan CRUD', () => {
         expect(prisma.subscriptionPlan.update).not.toHaveBeenCalled();
       },
     );
-  });
-
-  describe('deletePlan', () => {
-    it('should delete a plan', async () => {
-      prisma.subscriptionPlan.delete.mockResolvedValue({ id: 'p1' });
-      await service.deletePlan('p1');
-      expect(prisma.subscriptionPlan.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
-    });
   });
 
   describe('getUpgradeAvailable', () => {
