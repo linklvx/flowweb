@@ -77,7 +77,11 @@ function BannerFormModal({ mode, record, onDone, trigger }: {
   return (
     <ModalForm<BannerFields>
       title={mode === 'create' ? '新建 Banner' : '编辑 Banner'} trigger={trigger}
-      modalProps={{ destroyOnClose: true }}
+      modalProps={{
+        destroyOnClose: true,
+        // 组件常驻（trigger 挂在行/工具栏），destroyOnClose 只销毁弹窗子树——关闭时重置上传 state，对齐旧组件「每次打开重置」
+        afterClose: () => setImageKey(record?.imageKey),
+      }}
       initialValues={record ? { title: record.title ?? undefined, subtitle: record.subtitle ?? undefined, linkUrl: record.linkUrl ?? undefined, sortOrder: record.sortOrder, active: record.active, imageKey: record.imageKey } : { sortOrder: 0, active: true }}
       onFinish={async (v) => {
         if (!imageKey) { message.error('请先上传图片'); return false; }
@@ -90,7 +94,7 @@ function BannerFormModal({ mode, record, onDone, trigger }: {
       }}
     >
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); }} />
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ''; /* 复位：连续选同一文件也能触发 */ }} />
       <div className="mb-4">
         <div className="mb-1 text-sm">图片（建议 1920×240，8:1，≤5MB，jpg/png/webp）</div>
         <Button onClick={() => fileRef.current?.click()} loading={uploading}>选择文件</Button>
