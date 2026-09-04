@@ -55,3 +55,7 @@ Node.prototype.insertBefore = function (this: Node, newNode: Node, referenceNode
   }
   return originalInsertBefore.call(this, newNode, referenceNode);
 } as typeof Node.prototype.insertBefore;
+
+// ProComponents（rc-virtual-list 等）依赖 scrollIntoView/scrollTo，jsdom 未实现
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
+if (!window.scrollTo) (window as any).scrollTo = () => {};
