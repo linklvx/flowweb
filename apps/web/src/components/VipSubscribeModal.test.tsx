@@ -135,7 +135,7 @@ describe('VipSubscribeModal', () => {
   // ─── 6. 4 plan cards ───
   it('should render 4 plan cards', () => {
     renderOpen();
-    const buttons = screen.getAllByText('立即开通');
+    const buttons = screen.getAllByText('立即订阅');
     expect(buttons).toHaveLength(4);
   });
 
@@ -231,10 +231,10 @@ describe('VipSubscribeModal', () => {
   // ─── 10. Team tab shows placeholder ───
   it('should show placeholder when team tab is clicked', () => {
     renderOpen();
-    const teamTab = screen.getByText('团队版会员');
+    const teamTab = screen.getByText('团队会员订阅');
     fireEvent.click(teamTab);
     expect(screen.getByText('敬请期待')).toBeInTheDocument();
-    expect(screen.queryByText('立即开通')).not.toBeInTheDocument();
+    expect(screen.queryByText('立即订阅')).not.toBeInTheDocument();
   });
 
   // ─── 11. Default selections ───
@@ -292,7 +292,7 @@ describe('VipSubscribeModal', () => {
     act(() => { useVipModalStore.getState().open(); });
     const { container } = render(<VipSubscribeModal />);
     // No plans loaded from API, so no plan cards
-    expect(screen.queryByText('立即开通')).not.toBeInTheDocument();
+    expect(screen.queryByText('立即订阅')).not.toBeInTheDocument();
   });
 
   // ─── Entrance animation ───

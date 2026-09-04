@@ -437,7 +437,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
             )}
           </div>
 
-          {/* ── Tabs: 创作会员 / 团队版会员 ── */}
+          {/* ── Tabs: 个人会员订阅 / 团队会员订阅 ── */}
           <div className="w-full flex justify-center mb-px mt-6">
             <div className="flex items-end gap-3">
               {(['creator', 'team'] as const).map(tab => (
@@ -448,7 +448,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                     activeTab === tab ? 'text-white' : 'text-[#888] hover:text-[#ccc]'
                   }`}
                 >
-                  {tab === 'creator' ? '创作会员' : '团队版会员'}
+                  {tab === 'creator' ? '个人会员订阅' : '团队会员订阅'}
                   {activeTab === tab && (
                     <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[3px] bg-[#4ade80] rounded-full" />
                   )}
@@ -489,7 +489,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                   ))}
                 </div>
                 <button className="flex items-center gap-1 text-sm text-[#888] bg-transparent border-none cursor-pointer hover:text-[#ccc]">
-                  会员超市
+                  个人积分充值
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M10.4 7.6a.6.6 0 0 1 0 .8l-4 4a.6.6 0 0 1-.8-.8L9.2 8 5.6 4.4a.6.6 0 1 1 .8-.8l4 4Z"/></svg>
                 </button>
               </div>
@@ -557,7 +557,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                             className="w-full py-2.5 rounded-lg text-sm font-medium border-none cursor-pointer text-white transition-opacity hover:opacity-90"
                             style={{ backgroundColor: TIER_COLORS[plan.tier] }}
                           >
-                            立即开通
+                            立即订阅
                           </button>
                         </div>
 
