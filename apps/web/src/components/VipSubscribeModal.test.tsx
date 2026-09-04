@@ -147,6 +147,11 @@ describe('VipSubscribeModal', () => {
     expect(screen.getByText('旗舰版')).toBeInTheDocument();
   });
 
+  it('说明区文案：订阅积分每30天进行重置（与后端发放周期一致）', () => {
+    renderOpen();
+    expect(screen.getByText(/订阅积分每30天进行重置/)).toBeInTheDocument();
+  });
+
   // ─── 7. Plan cards show API-driven data ───
   it('should display first price as the main price', () => {
     renderOpen();

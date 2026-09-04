@@ -72,7 +72,7 @@ const TIER_EXTRAS: Record<string, { concurrentLimit: number | null; storageSize:
 const FAQ_LIST: FaqItem[] = [
   {
     id: 'expiry', question: '积分有效期规则',
-    answer: '1、会员积分：月卡与年卡的积分配额均按月发放，自到账日起 31 天内有效，到期自动重置（上周期未使用积分清零 + 下发下周期月度积分）；\n2、充值通用积分：自到账日起 2 年内有效，到期清零，不退不换；\n3、模型专享积分：自到账日起 6 个月内有效，到期清零，不退不换；\n4、每日登录积分：赠送 20 积分，仅限当日使用，次日自动清零。',
+    answer: '1、会员积分：月卡与年卡的积分配额均按月发放，自到账日起 30 天内有效，到期自动重置（上周期未使用积分清零 + 下发下周期月度积分）；\n2、充值通用积分：自到账日起 2 年内有效，到期清零，不退不换；\n3、模型专享积分：自到账日起 6 个月内有效，到期清零，不退不换；\n4、每日登录积分：赠送 20 积分，仅限当日使用，次日自动清零。',
   },
   {
     id: 'refund', question: '会员&积分 退款规则',
@@ -609,7 +609,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="#919191" className="shrink-0 mt-0.5"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm1 7H7V7h2v4z"/></svg>
                   <span className="text-[#919191]">
                     免费用户登录每日赠送20积分，每日赠2次5折视频；云端存储空间3GB。
-                    <span className="text-white font-medium"> 订阅积分每31天进行重置。</span>
+                    <span className="text-white font-medium"> 订阅积分每30天进行重置。</span>
                   </span>
                 </div>
               </div>
