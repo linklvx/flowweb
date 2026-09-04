@@ -105,7 +105,7 @@ export function CreditsPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-[#e2e8f0] mb-6">积分与余额</h2>
+      <h2 className="text-lg font-bold text-[#e2e8f0] mb-6">个人积分充值与余额</h2>
       {error && <p className="text-[#ef4444] text-xs mb-4">{error}</p>}
 
       {/* ── 积分卡 ── */}

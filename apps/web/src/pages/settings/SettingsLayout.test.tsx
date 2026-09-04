@@ -30,7 +30,7 @@ describe('SettingsLayout', () => {
       </MemoryRouter>
     );
     expect(screen.getByText('个人资料')).toBeDefined();
-    expect(screen.getByText('积分与余额')).toBeDefined();
+    expect(screen.getByText('个人积分充值与余额')).toBeDefined();
     expect(screen.getByText('退出登录')).toBeDefined();
   });
 
