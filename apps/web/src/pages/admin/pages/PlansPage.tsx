@@ -8,7 +8,8 @@ import { PLAN_TIER_COLORS } from './tier-colors';
 const GB = 1024 ** 3;
 // 整除显示整数，否则 1 位小数（对齐原 toGB）
 const toGB = (b: number) => { const g = b / GB; return Number.isInteger(g) ? g : Number(g.toFixed(1)); };
-const nonNeg = { validator: (_: unknown, v: number) => v >= 0 ? Promise.resolve() : Promise.reject(new Error('需非负')) };
+// v == null：original* 可选字段留空（undefined）必须放行，否则空值卡死提交（浏览器验收发现）
+const nonNeg = { validator: (_: unknown, v: number) => (v == null || v >= 0) ? Promise.resolve() : Promise.reject(new Error('需非负')) };
 
 export default function PlansPage() {
   const ref = useRef<ActionType>(null);
