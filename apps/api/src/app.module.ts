@@ -32,6 +32,7 @@ import { RechargeModule } from './modules/recharge/recharge.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { StoryboardModule } from './modules/storyboard/storyboard.module';
 import { AuthGuard } from './auth/auth.guard';
+import { AdminGuard } from './auth/admin.guard';
 import { validateEnv } from './config/env';
 
 const env = validateEnv();
@@ -79,6 +80,7 @@ const env = validateEnv();
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: AdminGuard },
     {
       provide: 'REDIS_CLIENT',
       useFactory: () => new Redis(env.REDIS_URL),
