@@ -142,3 +142,47 @@ export async function uploadHomeBannerImage(file: File): Promise<{ imageKey: str
   const body = await res.json();
   return body.data ?? body;
 }
+
+// ===== 会员订阅管理（收敛自 SubscriptionTabs 裸 fetch，API 契约不变）=====
+// AdminPlanRow 对齐 SubscriptionPlan schema（12 字段，无 seatLimit —— 那是 TeamPlan）
+export interface AdminPlanRow {
+  id: string; name: string; tier: 'basic' | 'pro' | 'max' | 'ultra';
+  monthlyCredits: number; storageLimitBytes: number;
+  priceMonthly: number; originalPriceMonthly: number;
+  priceQuarterly: number; originalPriceQuarterly: number;
+  priceAnnually: number; originalPriceAnnually: number;
+  sort: number; isActive: boolean;
+}
+// 对齐 UserSubscription schema（status 小写枚举；无 startedAt/expiresAt）
+export interface AdminSubscriptionRow {
+  id: string; userId: string; planId: string;
+  tier: string; period: string; status: 'active' | 'expired' | 'upgraded';
+  paidAmount: number; totalCredits: number; consumedCredits: number;
+  subscribedAt: string; currentPeriodStart: string; currentPeriodEnd: string; nextGrantDate: string;
+  plan?: { name: string };
+}
+export type AdminSubscriptionPage = { items: AdminSubscriptionRow[]; total: number; page: number; pageSize: number };
+
+export function fetchAdminPlans(): Promise<AdminPlanRow[]> {
+  return apiFetch('/admin/subscription/plans');
+}
+export function createAdminPlan(data: Partial<AdminPlanRow>): Promise<AdminPlanRow> {
+  return apiFetch('/admin/subscription/plans', { method: 'POST', body: JSON.stringify(data) });
+}
+export function updateAdminPlan(id: string, data: Partial<AdminPlanRow>): Promise<AdminPlanRow> {
+  return apiFetch(`/admin/subscription/plans/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+export function fetchAdminSubscriptions(params: { page: number; pageSize: number }): Promise<AdminSubscriptionPage> {
+  const q = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) });
+  return apiFetch(`/admin/subscription/subscriptions?${q}`);
+}
+export function updateAdminSubscription(id: string, data: Partial<AdminSubscriptionRow>): Promise<AdminSubscriptionRow> {
+  return apiFetch(`/admin/subscription/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+/** 作废（后端仅认 status==='expired'，其余静默忽略） */
+export function cancelAdminSubscription(id: string): Promise<unknown> {
+  return apiFetch(`/admin/subscription/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'expired' }) });
+}
+export function grantCredits(body: { userId: string; amount: number; creditType: 'regular' | 'subscription' }): Promise<void> {
+  return apiFetch('/admin/subscription/credits/grant', { method: 'POST', body: JSON.stringify(body) });
+}
