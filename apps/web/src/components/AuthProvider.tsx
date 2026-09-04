@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import type { Role } from '@flowweb/shared';
 
 interface User {
   id: string;
@@ -10,6 +11,7 @@ interface User {
   updatedAt: string;
   phoneNumber?: string | null;
   phoneNumberVerified?: boolean;
+  role?: Role; // DB 加列后 /me 必返回；可选以兼容测试 fixture
 }
 
 interface AuthContextType {
