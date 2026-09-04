@@ -1,5 +1,9 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
-import { isAdmin } from '@flowweb/shared';
+
+// isAdmin 不从 @flowweb/shared 值导入：该包是纯 TS 源码包（main→src/index.ts，barrel 无扩展名相对导入），
+// Node 运行时 require 会 ERR_MODULE_NOT_FOUND（Vitest/Vite 可解析；api 侧仅 import type 安全，值导入会在启动时崩溃）。
+// shared 中的同名导出仍供 web 侧（RequireAdmin）使用，谓词语义保持一字不差。
+const isAdmin = (role: unknown): role is 'ADMIN' => role === 'ADMIN';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
