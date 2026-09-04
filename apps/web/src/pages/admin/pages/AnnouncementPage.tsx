@@ -82,9 +82,9 @@ export default function AnnouncementPage() {
 function AnnFormFields() {
   return (
     <>
-      <ProFormText name="message" label="内容" rules={[{ required: true, whitespace: true, message: '公告内容不能为空' }]} />
-      <ProFormText name="linkText" label="链接文字（可选）" />
-      <ProFormText name="linkUrl" label="链接 URL（可选）" />
+      <ProFormText name="message" label="内容" fieldProps={{ maxLength: 200 }} rules={[{ required: true, whitespace: true, message: '公告内容不能为空' }]} />
+      <ProFormText name="linkText" label="链接文字（可选）" fieldProps={{ maxLength: 32 }} />
+      <ProFormText name="linkUrl" label="链接 URL（可选）" fieldProps={{ maxLength: 200 }} />
       <ProFormText name="bgColor" label="背景色" initialValue="#0f2761" rules={[HEX_RULE]} />
       <ProFormText name="textColor" label="文字色" initialValue="#ffffff" rules={[HEX_RULE]} />
       {/* 新建默认不启用：启用走互斥事务，新建即启用会撞全局唯一启用索引 */}
