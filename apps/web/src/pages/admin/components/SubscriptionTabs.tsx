@@ -27,12 +27,14 @@ export function PlanManagementTab() {
   const save = async (id: string, field: string, value: any) => {
     setEditingCell(null);
     try {
-      await fetch(`${API}/plans/${id}`, {
+      // 裸 fetch 对 4xx 不 reject；须按响应体 code 判定（与 load 一致），否则 400 也弹「已更新」假成功
+      const r = await fetch(`${API}/plans/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: value }),
-      });
-      message.success('已更新');
+      }).then(d => d.json());
+      if (r.code === 0) message.success('已更新');
+      else message.error('更新失败');
       load();
     } catch { message.error('更新失败'); load(); }
   };

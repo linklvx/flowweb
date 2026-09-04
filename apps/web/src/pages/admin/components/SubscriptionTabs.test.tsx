@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { message } from 'antd';
 import { PlanManagementTab } from './SubscriptionTabs';
 
 const mockPlans = [
@@ -201,5 +202,26 @@ describe('PlanManagementTab - inline editing', () => {
         }),
       );
     });
+  });
+
+  it('PATCH 返回非 0 code（如后端 400）时弹「更新失败」而非假成功', async () => {
+    mockFetch(mockPlans);
+    render(<PlanManagementTab />);
+    await waitFor(() => expect(screen.getByText('基础版')).toBeInTheDocument());
+
+    const successSpy = vi.spyOn(message, 'success');
+    const errorSpy = vi.spyOn(message, 'error');
+    // 后端 400（如 storageLimitBytes 非法）时 fetch 仍 resolve，响应体 code !== 0
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockClear();
+    fetchSpy.mockResolvedValue({ json: () => Promise.resolve({ code: 1, message: '存储上限非法' }) } as Response);
+
+    fireEvent.click(screen.getByText('75'));
+    const input = screen.getByDisplayValue('75');
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('更新失败'));
+    expect(successSpy).not.toHaveBeenCalled();
   });
 });
