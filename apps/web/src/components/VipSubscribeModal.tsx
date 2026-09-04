@@ -26,11 +26,6 @@ interface VipPlan {
   };
 }
 
-interface FaqItem {
-  id: string;
-  question: string;
-  answer: string;
-}
 
 interface VipSubscribeModalProps {
   onSubscribe?: (tier: SubscriptionTier, period: SubscriptionPeriod) => void;
@@ -69,36 +64,6 @@ const TIER_EXTRAS: Record<string, { concurrentLimit: number | null; storageSize:
   ultra: { concurrentLimit: null, storageSize: '600GB', annualSavingPercent: 47 },
 };
 
-const FAQ_LIST: FaqItem[] = [
-  {
-    id: 'expiry', question: '积分有效期规则',
-    answer: '1、会员积分：月卡与年卡的积分配额均按月发放，自到账日起 30 天内有效，到期自动重置（上周期未使用积分清零 + 下发下周期月度积分）；\n2、充值通用积分：自到账日起 2 年内有效，到期清零，不退不换；\n3、模型专享积分：自到账日起 6 个月内有效，到期清零，不退不换；\n4、每日登录积分：赠送 20 积分，仅限当日使用，次日自动清零。',
-  },
-  {
-    id: 'refund', question: '会员&积分 退款规则',
-    answer: '会员与积分属于虚拟数字商品，开通后权益即时生效，因此一经购买不支持任何理由的退款或转让。建议您在支付前确认所选内容，如遇重复扣款或系统异常，请联系客服，我们会尽快为您处理。',
-  },
-  {
-    id: 'return', question: '积分返还规则',
-    answer: '若生成任务失败，被扣除的对应积分将在 2 小时内返还至原账户，在「积分明细页」原消耗记录条目中会展示"任务生成失败，积分已返还"提示。因个别原因导致延迟或未返还的情况，可联系平台客服进行处理。',
-  },
-  {
-    id: 'order', question: '积分消耗顺序',
-    answer: '积分消耗顺序规则：分为平台默认顺序、用户自定义顺序。\n1、平台默认消耗顺序：免费积分 ＞ 模型卡专享积分 ＞ 订阅会员积分 ＞ 通用充值类积分；\n其中，免费积分包含赠送的TV专属积分、赠送的指定模型专享积分、每日登录奖励积分等。\n若同一类型中的积分包含多个细分子类型，子类型之间的消耗顺序按到期时间，优先消耗早到期的；\n2、自定义积分消耗顺序：用户可在「个人中心-充值入口」、「模型卡购买页面」、「积分明细页」自主设置积分的消耗顺序。\n\n特别注意：模型赠送的限时免费生成次数，会优先于积分被最先使用。',
-  },
-  {
-    id: 'more', question: '如何获取更多积分',
-    answer: '若当前积分不足，可通过以下方式补充：\n- 升级会员：购买后立即生效，积分即时到账；\n- 单独充值通用积分：按需购买，灵活补充；\n- 单独充值模型专享积分：随用随充，性价比高，适用于对特定模型重度使用的用户。',
-  },
-  {
-    id: 'invoice', question: '发票申请与联系方式',
-    answer: '发票可在「订阅与开票」→「购买记录」中自助申请。如需企业合作，请联系 bd@liblib.ai；其他问题欢迎前往"帮助中心"查询。',
-  },
-  {
-    id: 'protect', question: '会员权益7天保护计划',
-    answer: '7 天内购买的会员，若遇同档位会员有新活动，且赠品力度更高，可申请按差额补发赠品。\n1、保价范围：指定模型的免费生成次数、专享积分赠送（会员）。\n2、保价条件：支付成功 ≤ 7 天，且会员仍在有效期内，仅限同档位、同周期、同类型赠品。每笔订单针对同一模型赠品，仅限申请 1 次；\n3、权益有效期：补发的权益与原会员同效期，到期未用自动清零，不可退款、转让。\n4、不参与保价范围：会员订单价格本身(即不退会员差价)；已下线/已结束的活动；通过平台赠送、邀请奖励等非现金方式开通的会员；\n5、特别注意：如未在保价有效期内主动领取保价权益，过期将不会补发；Happy Horse 1.0模型不参与保价。',
-  },
-];
 
 const PERIOD_LABELS: Record<SubscriptionPeriod, string> = { monthly: '包月', quarterly: '包季', annually: '包年' };
 const PERIOD_DISCOUNTS: Record<SubscriptionPeriod, string> = { monthly: '75折', quarterly: '74折', annually: '限时37折' };
@@ -258,7 +223,6 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
   const [period, setPeriod] = useState<SubscriptionPeriod>('monthly');
   const [activeTier, setActiveTier] = useState<SubscriptionTier>('pro');
   const [activeTab, setActiveTab] = useState<'creator' | 'team'>('creator');
-  const [expandedFaqs, setExpandedFaqs] = useState<Set<string>>(new Set());
   const { data: apiPlans } = useSubscriptionPlans();
   const { data: bannerData, refresh: refreshBanner } = usePublicBanner();
 
@@ -363,14 +327,6 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
     if (e.target === e.currentTarget) handleClose();
   }, [handleClose]);
 
-  const toggleFaq = useCallback((id: string) => {
-    setExpandedFaqs(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   const handleCardKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>, tier: SubscriptionTier) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -611,47 +567,6 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                     免费用户登录每日赠送20积分，每日赠2次5折视频；云端存储空间3GB。
                     <span className="text-white font-medium"> 订阅积分每30天进行重置。</span>
                   </span>
-                </div>
-              </div>
-
-              {/* ── FAQ Accordion ── */}
-              <div className="w-full max-w-[880px] mx-auto px-0 pb-10 pt-6">
-                <h2 className="text-center text-2xl font-semibold text-white mb-[60px]">常见问题</h2>
-                <div>
-                  {FAQ_LIST.map(faq => {
-                    const isOpen = expandedFaqs.has(faq.id);
-                    return (
-                      <div key={faq.id} className="border-b border-[#333]">
-                        <button
-                          onClick={() => toggleFaq(faq.id)}
-                          aria-expanded={isOpen}
-                          aria-controls={`faq-panel-${faq.id}`}
-                          className="w-full flex items-center justify-between py-6 text-left text-sm font-medium text-white bg-transparent border-none cursor-pointer hover:bg-transparent"
-                        >
-                          {faq.question}
-                          <svg
-                            viewBox="0 0 15 15"
-                            fill="currentColor"
-                            className={`w-4 h-4 text-[#888] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-                          >
-                            <path d="M3.1 6.2a.5.5 0 0 1 .7-.1L7.5 9.6l3.7-3.5a.5.5 0 0 1 .7.6l-4 3.8a.5.5 0 0 1-.7 0l-4-3.8a.5.5 0 0 1-.1-.8z" fillRule="evenodd" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        <div
-                          id={`faq-panel-${faq.id}`}
-                          role="region"
-                          aria-hidden={!isOpen}
-                          className={`overflow-hidden transition-all duration-200 ${
-                            isOpen ? 'max-h-[2000px] opacity-100 pb-6' : 'max-h-0 opacity-0'
-                          }`}
-                        >
-                          <div className="text-sm text-[#999] leading-8 whitespace-pre-wrap">
-                            {faq.answer}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
             </>

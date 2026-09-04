@@ -199,38 +199,12 @@ describe('VipSubscribeModal', () => {
     expect(screen.getAllByText('/年').length).toBeGreaterThan(0);
   });
 
-  // ─── 9. FAQ expand/collapse ───
-  it('should render FAQ items', () => {
+  // ─── 9. FAQ 区块已移除 ───
+  it('should NOT render FAQ section (removed)', () => {
     renderOpen();
-    expect(screen.getByText('积分有效期规则')).toBeInTheDocument();
-    expect(screen.getByText('会员&积分 退款规则')).toBeInTheDocument();
-  });
-
-  it('should toggle FAQ item on click', () => {
-    renderOpen();
-    const faqBtn = screen.getByText('积分有效期规则').closest('button')!;
-    expect(faqBtn).toHaveAttribute('aria-expanded', 'false');
-
-    fireEvent.click(faqBtn);
-    act(() => { vi.advanceTimersByTime(100); });
-    expect(faqBtn).toHaveAttribute('aria-expanded', 'true');
-
-    fireEvent.click(faqBtn);
-    act(() => { vi.advanceTimersByTime(100); });
-    expect(faqBtn).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('should allow multiple FAQs open simultaneously (non-exclusive)', () => {
-    renderOpen();
-    const faq1 = screen.getByText('积分有效期规则').closest('button')!;
-    const faq2 = screen.getByText('会员&积分 退款规则').closest('button')!;
-
-    fireEvent.click(faq1);
-    fireEvent.click(faq2);
-    act(() => { vi.advanceTimersByTime(100); });
-
-    expect(faq1).toHaveAttribute('aria-expanded', 'true');
-    expect(faq2).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByText('常见问题')).not.toBeInTheDocument();
+    expect(screen.queryByText('积分有效期规则')).not.toBeInTheDocument();
+    expect(screen.queryByText('会员&积分 退款规则')).not.toBeInTheDocument();
   });
 
   // ─── 10. Team tab shows placeholder ───
