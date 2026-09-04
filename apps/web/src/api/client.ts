@@ -15,10 +15,12 @@ export async function apiFetch<T>(path: string, options?: FetchOptions): Promise
     signal: options?.signal,
   });
   if (!res.ok) {
-    const err = Object.assign(
-      new Error(`API error: ${res.status} ${res.statusText}`),
-      { status: res.status },
-    );
+    let msg = `API error: ${res.status} ${res.statusText}`;
+    try {
+      const j = await res.clone().json();
+      if (j?.message) msg = j.message;
+    } catch { /* body 非 JSON，保留状态行 */ }
+    const err = Object.assign(new Error(msg), { status: res.status });
     throw err;
   }
   const json = await res.json();
