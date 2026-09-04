@@ -24,22 +24,22 @@ function makePlan(tier: string, name: string, firstPrice: number, regularPrice: 
 
 const PLANS_BY_PERIOD: Record<SubscriptionPeriod, any[]> = {
   monthly: [
-    makePlan('basic', '普通', 49, 66, 1500),
-    makePlan('pro', 'Pro', 149, 199, 4600),
-    makePlan('max', 'Max', 499, 669, 16300),
-    makePlan('ultra', 'Ultra', 999, 1299, 32800),
+    makePlan('basic', '基础版', 49, 66, 1500),
+    makePlan('pro', '专业版', 149, 199, 4600),
+    makePlan('max', '高级别', 499, 669, 16300),
+    makePlan('ultra', '旗舰版', 999, 1299, 32800),
   ],
   quarterly: [
-    makePlan('basic', '普通', 135, 180, 1500),
-    makePlan('pro', 'Pro', 400, 540, 4600),
-    makePlan('max', 'Max', 1400, 1800, 16300),
-    makePlan('ultra', 'Ultra', 2800, 3600, 32800),
+    makePlan('basic', '基础版', 135, 180, 1500),
+    makePlan('pro', '专业版', 400, 540, 4600),
+    makePlan('max', '高级别', 1400, 1800, 16300),
+    makePlan('ultra', '旗舰版', 2800, 3600, 32800),
   ],
   annually: [
-    makePlan('basic', '普通', 520, 720, 1500),
-    makePlan('pro', 'Pro', 1500, 2000, 4600),
-    makePlan('max', 'Max', 5400, 7200, 16300),
-    makePlan('ultra', 'Ultra', 10800, 14400, 32800),
+    makePlan('basic', '基础版', 520, 720, 1500),
+    makePlan('pro', '专业版', 1500, 2000, 4600),
+    makePlan('max', '高级别', 5400, 7200, 16300),
+    makePlan('ultra', '旗舰版', 10800, 14400, 32800),
   ],
 };
 
@@ -139,12 +139,12 @@ describe('VipSubscribeModal', () => {
     expect(buttons).toHaveLength(4);
   });
 
-  it('should render plan names: 普通, Pro, Max, Ultra', () => {
+  it('should render plan names: 基础版, 专业版, 高级别, 旗舰版', () => {
     renderOpen();
-    expect(screen.getByText('普通')).toBeInTheDocument();
-    expect(screen.getByText('Pro')).toBeInTheDocument();
-    expect(screen.getByText('Max')).toBeInTheDocument();
-    expect(screen.getByText('Ultra')).toBeInTheDocument();
+    expect(screen.getByText('基础版')).toBeInTheDocument();
+    expect(screen.getByText('专业版')).toBeInTheDocument();
+    expect(screen.getByText('高级别')).toBeInTheDocument();
+    expect(screen.getByText('旗舰版')).toBeInTheDocument();
   });
 
   // ─── 7. Plan cards show API-driven data ───
@@ -240,7 +240,7 @@ describe('VipSubscribeModal', () => {
   // ─── 11. Default selections ───
   it('should have Pro tier active by default', () => {
     renderOpen();
-    expect(screen.getByText('Pro')).toBeInTheDocument();
+    expect(screen.getByText('专业版')).toBeInTheDocument();
     const proCard = document.querySelector('[data-tier="pro"]');
     expect(proCard).not.toBeNull();
     expect(proCard?.className).toContain('border-[#4ade80]');

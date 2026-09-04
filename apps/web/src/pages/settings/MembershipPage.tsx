@@ -6,7 +6,7 @@ import { subscriptionApi } from '@/api/subscriptionApi';
 import { WeChatQRModal } from '@/components/WeChatQRModal';
 
 const PLAN_COLORS: Record<string, string> = { basic: '#9ca3af', pro: '#3b82f6', max: '#a855f7', ultra: '#f59e0b' };
-const PLAN_LABELS: Record<string, string> = { basic: '普通会员', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
+const PLAN_LABELS: Record<string, string> = { basic: '基础版', pro: '专业版', max: '高级别', ultra: '旗舰版' };
 const PERIOD_MAP: Record<string, string> = { monthly: '包月', quarterly: '包季', annually: '包年' };
 
 function PriceCell({ plan, period, onClick }: { plan: SubscriptionPlan; period: string; onClick: () => void }) {
