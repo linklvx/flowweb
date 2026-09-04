@@ -29,3 +29,21 @@ describe('TeamController.getDefault', () => {
     expect(() => controller.getDefault({} as any)).toThrow(UnauthorizedException);
   });
 });
+
+describe('GET /api/team/plans（成员只读上架套餐）', () => {
+  const mkController = (prisma: any) =>
+    new TeamController(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+
+  it('只查 isActive:true、按 sort 排序、BigInt 转 Number', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { id: 'p1', name: '月卡', storageLimitBytes: 107374182400n, isActive: true, sort: 1 },
+    ]);
+    const c = mkController({ teamPlan: { findMany } });
+    const plans = await (c as any).listActivePlans();
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: true }, orderBy: { sort: 'asc' } }),
+    );
+    expect(plans[0].storageLimitBytes).toBe(107374182400); // Number 非 BigInt
+    expect(typeof plans[0].storageLimitBytes).toBe('number');
+  });
+});

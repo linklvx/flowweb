@@ -163,7 +163,7 @@ export function createSubscriptionOrder(teamId: string, planId: string) {
 }
 
 export function listTeamPlans() {
-  return apiFetch<TeamPlanRow[]>('/admin/team-plans');
+  return apiFetch<TeamPlanRow[]>('/team/plans');
 }
 
 export function getTeamLimits(teamId: string) {

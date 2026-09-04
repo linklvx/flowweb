@@ -26,6 +26,18 @@ export class TeamController {
     return this.teamService.createTeam((req as any).user.id, body.name);
   }
 
+  /** 成员级只读：上架团队套餐（TeamBillingPage 用；admin 全量走 /api/admin/team-plans） */
+  @Get('plans')
+  @SkipTeamGuard()
+  async listActivePlans() {
+    const plans = await this.prisma.teamPlan.findMany({
+      where: { isActive: true },
+      orderBy: { sort: 'asc' },
+    });
+    // storageLimitBytes 为 BigInt，JSON 序列化会 500（对齐 admin-team-plan.controller 处理）
+    return plans.map((p) => ({ ...p, storageLimitBytes: Number(p.storageLimitBytes) }));
+  }
+
   @Get(':id/balance')
   getBalance(@Param('id') id: string, @Req() req: Request) {
     return this.teamCredit.getBalanceView(id, (req as any).user.id);
