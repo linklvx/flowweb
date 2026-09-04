@@ -7,3 +7,4 @@ export * from './types/subscription.types';
 export { SubscriptionError } from './constants/subscription-error';
 export type { SubscriptionErrorCode } from './constants/subscription-error';
 export * from './types/home.types';
+export * from './types/role.types';
