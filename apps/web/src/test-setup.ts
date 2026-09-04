@@ -56,6 +56,31 @@ Node.prototype.insertBefore = function (this: Node, newNode: Node, referenceNode
   return originalInsertBefore.call(this, newNode, referenceNode);
 } as typeof Node.prototype.insertBefore;
 
+// 上面的 insertBefore 拦截存在两条绕过路径（均实测命中）：
+// 1) rc-util injectCSS 非 prepend 时走 container.appendChild(style)；
+// 2) rc-util updateCSS 复用 head 中已存在的 <style> 时直接 existNode.innerHTML = css
+//    （同文件第 2+ 次 render 复用第 1 次留下的标签 → 畸形选择符再次入 DOM）。
+// 故在 HTMLStyleElement 的 innerHTML/textContent setter 层统一拦截。
+const sanitizeStyleText = (v: unknown) =>
+  typeof v === 'string' && (v.includes(')+:') || v.includes(':has(')) ? '' : v;
+const styleTextProps: Array<[Element | Node, 'innerHTML' | 'textContent']> = [
+  [Element.prototype, 'innerHTML'],
+  [Node.prototype, 'textContent'],
+];
+for (const [proto, prop] of styleTextProps) {
+  const desc = Object.getOwnPropertyDescriptor(proto, prop);
+  if (desc?.set) {
+    const descSet = desc.set;
+    Object.defineProperty(HTMLStyleElement.prototype, prop, {
+      configurable: true,
+      get: desc.get,
+      set(value: unknown) {
+        descSet.call(this as HTMLStyleElement, sanitizeStyleText(value));
+      },
+    });
+  }
+}
+
 // ProComponents（rc-virtual-list 等）依赖 scrollIntoView/scrollTo，jsdom 未实现
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 if (!window.scrollTo) (window as any).scrollTo = () => {};
