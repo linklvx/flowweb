@@ -146,7 +146,7 @@ export function MembershipPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-white mb-1">会员中心</h2>
+      <h2 className="text-lg font-bold text-white mb-1">个人会员订阅</h2>
       <div className="flex gap-3 mb-6 text-sm">
         <span className="text-[#888]">普通积分: <span className="text-white font-mono">{(credits ?? 0).toLocaleString()}</span></span>
         <span className="text-[#888]">订阅积分: <span className="text-white font-mono">{(subscriptionCredits ?? 0).toLocaleString()}</span></span>

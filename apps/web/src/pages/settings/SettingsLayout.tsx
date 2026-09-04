@@ -44,7 +44,7 @@ export function SettingsLayout() {
                 }`
               }
             >
-              会员中心
+              个人会员订阅
             </NavLink>
             <div className="mt-auto border-t border-[#333] pt-4">
               <button

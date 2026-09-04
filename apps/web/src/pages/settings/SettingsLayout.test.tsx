@@ -34,6 +34,19 @@ describe('SettingsLayout', () => {
     expect(screen.getByText('退出登录')).toBeDefined();
   });
 
+  it('导航链接名为「个人会员订阅」（原会员中心）', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings/profile']}>
+        <Routes>
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route path="profile" element={<div>Profile Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+    expect(screen.getByText('个人会员订阅')).toBeDefined();
+  });
+
   it('should render child route via Outlet', () => {
     render(
       <MemoryRouter initialEntries={['/settings/profile']}>
