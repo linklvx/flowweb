@@ -31,17 +31,17 @@ describe('role 防提权回归（P0-1，双路径）', () => {
     await auth.api.signUpEmail({ body: { email, password: 'password123', name: 'p2' } });
     // session cookie 值是 HMAC 签名的 token.signature，裸 token 会 UNAUTHORIZED——
     // 必须经 returnHeaders 取 better-auth 实际下发的 Set-Cookie
-    const signIn: any = await auth.api.signInEmail({
+    const signIn = await auth.api.signInEmail({
       body: { email, password: 'password123' },
       returnHeaders: true,
-    } as any);
+    });
     const setCookie: string = signIn.headers
       .getSetCookie()
-      .find((c: string) => c.startsWith('flowweb.session_token='));
+      .find((c: string) => c.startsWith('flowweb.session_token='))!;
     const headers = new Headers({ cookie: setCookie.split(';')[0] });
     await expect(
       auth.api.updateUser({ body: { name: 'x', role: 'ADMIN' } as any, headers }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/role is not allowed/);
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user?.role).toBe('USER');
     await cleanup(email);
