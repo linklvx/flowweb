@@ -64,7 +64,10 @@ export default function SettingsPage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetchAllSettings().then((all) => { setAllSettings(all); resetBaseline('wechat_pay', all); setLoaded(true); });
+    fetchAllSettings()
+      .then((all) => { setAllSettings(all); resetBaseline('wechat_pay', all); setLoaded(true); })
+      // 加载失败也要解除门控（否则永久 Spin 无反馈），降级为空表单可填写
+      .catch(() => { message.error('加载配置失败'); setLoaded(true); });
   }, []);
 
   const meta = FIELD_META[activeGroup];
@@ -88,7 +91,8 @@ export default function SettingsPage() {
     try {
       await saveSettings(meta.fields.filter((f) => !f.sensitive).map((f) => ({ key: f.key, value: values[f.key] ?? '' })));
       message.success('保存成功，请执行 pm2 restart flowweb-api 重启服务生效');
-      setAllSettings((prev) => ({ ...prev, [activeGroup]: (prev[activeGroup] ?? []).map((e) => (values[e.key] !== undefined ? { ...e, value: values[e.key] } : e)) }));
+      // 按字段全量重建（后端不返回敏感 key；原 map 更新会让「后端原本缺席的 key」保存后 entries 仍缺席 → diff 误判有变更）
+      setAllSettings((prev) => ({ ...prev, [activeGroup]: meta.fields.filter((f) => !f.sensitive).map((f) => ({ key: f.key, value: values[f.key] ?? '' })) }));
       setFormValues(Object.fromEntries(meta.fields.filter((f) => !f.sensitive).map((f) => [f.key, values[f.key] ?? '']))); // 保存成功后基线同步
     } catch (e) { message.error((e as Error).message); }
     finally { setSaving(false); }
