@@ -19,6 +19,13 @@ describe('AdminGuard', () => {
   it('前缀边界：/api/adminx 不拦', async () => {
     await expect(guard.canActivate(ctx('/api/adminx', { role: 'USER' }))).resolves.toBe(true);
   });
+  // Express 路由大小写不敏感，大写变体必须照拦（C1 回归）
+  it('大小写变体绕过防护：/API/admin/models USER → 403', async () => {
+    await expect(guard.canActivate(ctx('/API/admin/models', { role: 'USER' }))).rejects.toThrow('需要管理员权限');
+  });
+  it('大小写变体绕过防护：/Api/Admin 未登录 → 401', async () => {
+    await expect(guard.canActivate(ctx('/Api/Admin', undefined))).rejects.toThrow(UnauthorizedException);
+  });
   it('/api/admin 无尾斜杠精确命中：未登录 401', async () => {
     await expect(guard.canActivate(ctx('/api/admin', undefined))).rejects.toThrow(UnauthorizedException);
   });

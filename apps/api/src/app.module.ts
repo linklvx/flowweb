@@ -80,6 +80,7 @@ const env = validateEnv();
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
+    // AdminGuard 必须注册在 AuthGuard 之后（Nest APP_GUARD 按注册顺序执行，否则 req.user 尚未挂载）
     { provide: APP_GUARD, useClass: AdminGuard },
     {
       provide: 'REDIS_CLIENT',
