@@ -13,14 +13,14 @@ export class StoryboardController {
   @Post('stitch')
   @HttpCode(202)
   async stitch(@Param('projectId') projectId: string, @Body() body: any, @Req() req: Request) {
-    const userId = (req as any).user?.id ?? 'default-user';
+    const userId = (req as any).user?.id;
     await this.perm.assertEditor(projectId, userId);
     return this.service.createStitchTask(projectId, body, userId);
   }
 
   @Get('stitch/:taskId')
   async status(@Param('projectId') projectId: string, @Param('taskId') taskId: string, @Req() req: Request) {
-    const userId = (req as any).user?.id ?? 'default-user';
+    const userId = (req as any).user?.id;
     const role = await this.perm.resolve(projectId, userId);
     if (!role) throw new ForbiddenException('无项目访问权限');
     return this.service.getTaskStatus(projectId, taskId);

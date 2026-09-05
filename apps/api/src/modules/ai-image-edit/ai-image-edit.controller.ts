@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Inject, Req } from '@nestjs/common';
 import { AiImageEditService } from './ai-image-edit.service';
 
 @Controller('api/image-edit')
@@ -13,8 +13,9 @@ export class AiImageEditController {
     rect: { x: number; y: number; width: number; height: number };
     imageWidth: number;
     imageHeight: number;
-  }) {
+  }, @Req() req: any) {
     return this.service.enqueueOutpaint(
+      req.user.id,
       body.projectId,
       body.nodeId,
       body.fileId,
@@ -25,8 +26,9 @@ export class AiImageEditController {
   }
 
   @Post('erase')
-  async erase(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string }) {
+  async erase(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string }, @Req() req: any) {
     return this.service.enqueueErase(
+      req.user.id,
       body.projectId,
       body.nodeId,
       body.fileId,
@@ -35,8 +37,9 @@ export class AiImageEditController {
   }
 
   @Post('redraw')
-  async redraw(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number }) {
+  async redraw(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number }, @Req() req: any) {
     return this.service.enqueueRedraw(
+      req.user.id,
       body.projectId,
       body.nodeId,
       body.fileId,

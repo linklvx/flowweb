@@ -24,7 +24,7 @@ describe('AiImageEditController', () => {
   });
 
   describe('POST /api/image-edit/outpaint', () => {
-    it('should enqueue outpaint job with rect and return jobId', async () => {
+    it('should enqueue outpaint job with userId from req.user and return jobId', async () => {
       const body = {
         projectId: 'proj1',
         nodeId: 'node1',
@@ -33,32 +33,34 @@ describe('AiImageEditController', () => {
         imageWidth: 512,
         imageHeight: 512,
       };
-      const result = await controller.outpaint(body);
+      const req = { user: { id: 'u1' } } as any;
+      const result = await controller.outpaint(body, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
-        'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
+        'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
       );
       expect(result).toEqual({ jobId: 'job-outpaint-1' });
     });
   });
 
   describe('POST /api/image-edit/erase', () => {
-    it('should enqueue erase job and return jobId', async () => {
+    it('should enqueue erase job with userId from req.user and return jobId', async () => {
       const body = {
         projectId: 'proj1',
         nodeId: 'node1',
         fileId: 'file-1',
         maskFileId: 'mask-1',
       };
-      const result = await controller.erase(body);
+      const req = { user: { id: 'u1' } } as any;
+      const result = await controller.erase(body, req);
       expect(service.enqueueErase).toHaveBeenCalledWith(
-        'proj1', 'node1', 'file-1', 'mask-1',
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1',
       );
       expect(result).toEqual({ jobId: 'job-erase-1' });
     });
   });
 
   describe('POST /api/image-edit/redraw', () => {
-    it('should enqueue redraw job and return jobId', async () => {
+    it('should enqueue redraw job with userId from req.user and return jobId', async () => {
       const body = {
         projectId: 'proj1',
         nodeId: 'node1',
@@ -67,9 +69,10 @@ describe('AiImageEditController', () => {
         prompt: 'a beautiful sunset',
         strength: 70,
       };
-      const result = await controller.redraw(body);
+      const req = { user: { id: 'u1' } } as any;
+      const result = await controller.redraw(body, req);
       expect(service.enqueueRedraw).toHaveBeenCalledWith(
-        'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
       );
       expect(result).toEqual({ jobId: 'job-redraw-1' });
     });

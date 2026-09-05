@@ -1,35 +1,13 @@
 import {
   WebSocketGateway, WebSocketServer, SubscribeMessage,
-  OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit,
+  OnGatewayConnection, OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { auth } from '../../auth/auth';
 
 @WebSocketGateway({ namespace: '/execution', cors: { origin: '*' } })
-export class ExecutionGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
-
-  afterInit(server: any) {
-    server.use(async (socket: any, next: any) => {
-      const token = socket.handshake.auth?.token;
-      if (!token) {
-        socket.data.userId = 'default-user';
-        return next();
-      }
-      try {
-        const session = await auth.api.getSession({
-          headers: new Headers({ cookie: `flowweb.session_token=${token}` }),
-        });
-        if (!session) throw new Error('Invalid');
-        socket.data.userId = session.user.id;
-        next();
-      } catch {
-        socket.data.userId = 'default-user';
-        next();
-      }
-    });
-  }
 
   handleConnection(_client: Socket) {}
 

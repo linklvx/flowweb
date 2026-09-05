@@ -46,11 +46,11 @@ describe('StoryboardController', () => {
       expect(result).toEqual({ taskId: 'job1', status: 'PENDING' });
     });
 
-    it('无 user → 用 default-user', async () => {
+    it('无 user → userId 为 undefined（不回退 default-user，AuthGuard 负责拦截未登录）', async () => {
       const body = { fileIds: ['f1'], gridRows: 1, gridCols: 1, aspectRatio: '16:9', showIndex: false, resolution: '2K' };
       const req = {} as any;
       await controller.stitch('p1', body, req);
-      expect(service.createStitchTask).toHaveBeenCalledWith('p1', body, 'default-user');
+      expect(service.createStitchTask).toHaveBeenCalledWith('p1', body, undefined);
     });
 
     it('service 抛 BadRequestException → 400', async () => {

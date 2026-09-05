@@ -10,12 +10,8 @@ export class AiImageEditService {
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly queue: Queue<AiImageEditJobData>,
   ) {}
 
-  private getUserId(): string {
-    // TODO: replace with real authenticated user context
-    return 'default-user';
-  }
-
   async enqueueOutpaint(
+    userId: string,
     projectId: string,
     nodeId: string,
     fileId: string,
@@ -25,7 +21,7 @@ export class AiImageEditService {
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('outpaint', {
       taskType: 'outpaint',
-      userId: this.getUserId(),
+      userId,
       projectId,
       nodeId,
       fileId,
@@ -37,6 +33,7 @@ export class AiImageEditService {
   }
 
   async enqueueErase(
+    userId: string,
     projectId: string,
     nodeId: string,
     fileId: string,
@@ -44,7 +41,7 @@ export class AiImageEditService {
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('erase', {
       taskType: 'erase',
-      userId: this.getUserId(),
+      userId,
       projectId,
       nodeId,
       fileId,
@@ -54,6 +51,7 @@ export class AiImageEditService {
   }
 
   async enqueueRedraw(
+    userId: string,
     projectId: string,
     nodeId: string,
     fileId: string,
@@ -63,7 +61,7 @@ export class AiImageEditService {
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('redraw', {
       taskType: 'redraw',
-      userId: this.getUserId(),
+      userId,
       projectId,
       nodeId,
       fileId,
