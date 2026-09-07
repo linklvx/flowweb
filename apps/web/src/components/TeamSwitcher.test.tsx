@@ -23,7 +23,7 @@ function stubLocation() {
 
 const team = (id: string, name: string, isDefault = false) => ({
   id, name, role: 'OWNER' as const, status: 'ACTIVE', isDefault, isOwner: true,
-  createdAt: '2026-08-01', memberCount: 1,
+  createdAt: '2026-08-01', memberCount: 1, projectCount: 0,
   balance: { credits: 0, subscriptionCredits: 0 },
   subscription: null,
 });

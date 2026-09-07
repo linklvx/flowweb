@@ -23,7 +23,7 @@ import TeamBillingPage from './TeamBillingPage';
 
 const teamFixture = (overrides: Record<string, unknown> = {}) => ({
   id: 't-1', name: '梦幻团队', role: 'OWNER', status: 'ACTIVE',
-  isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 3,
+  isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 3, projectCount: 0,
   balance: { credits: 100, subscriptionCredits: 50 },
   subscription: { planName: '团队月卡', status: 'active', currentPeriodEnd: '2026-09-30' },
   ...overrides,

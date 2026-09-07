@@ -8,7 +8,7 @@ vi.mock('@/api/teamApi', () => ({
   teamDisplayName: (t: any) => t.name,
 }));
 
-const team = (id: string, isOwner: boolean, isDefault = false) => ({ id, name: id, isOwner, isDefault, memberCount: 1 });
+const team = (id: string, isOwner: boolean, isDefault = false) => ({ id, name: id, isOwner, isDefault, memberCount: 1, projectCount: 0 });
 
 describe('useTeams', () => {
   beforeEach(() => vi.clearAllMocks());

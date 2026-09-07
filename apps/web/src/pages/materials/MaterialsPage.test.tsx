@@ -16,7 +16,7 @@ vi.mock('axios', () => ({
   default: { get: (...a: any[]) => mockGet(...a), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
-const team = (id: string, isOwner: boolean) => ({ id, name: id, isOwner, isDefault: false, memberCount: 1 });
+const team = (id: string, isOwner: boolean) => ({ id, name: id, isOwner, isDefault: false, memberCount: 1, projectCount: 0 });
 const renderPage = (url = '/materials') =>
   render(<MemoryRouter initialEntries={[url]}><MaterialsPage /></MemoryRouter>);
 
@@ -59,7 +59,7 @@ describe('MaterialsPage', () => {
   });
 
   it('无真实团队：空态引导', async () => {
-    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1, projectCount: 0 }]);
     renderPage('/materials?tab=team');
     await waitFor(() => expect(screen.getByTestId('materials-empty-state')).toBeInTheDocument());
   });

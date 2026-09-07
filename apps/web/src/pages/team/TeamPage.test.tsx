@@ -29,7 +29,7 @@ vi.mock('@/components/AuthProvider', () => ({
 }));
 
 const team = {
-  id: 't1', name: '我的团队', role: 'OWNER' as const, status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2,
+  id: 't1', name: '我的团队', role: 'OWNER' as const, status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, projectCount: 0,
   balance: { credits: 400, subscriptionCredits: 100 },
   subscription: null,
 };
@@ -126,7 +126,7 @@ describe('TeamPage', () => {
 
   it('只有默认团队时空状态+新建团队按钮', async () => {
     api.getMyTeams.mockResolvedValue([
-      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 0 }, subscription: null },
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 0 }, subscription: null },
     ]);
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
@@ -135,8 +135,8 @@ describe('TeamPage', () => {
 
   it('选中默认团队时渲染个人项目精简面板（余额+订阅状态，无成员管理）', async () => {
     api.getMyTeams.mockResolvedValue([
-      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
-      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     localStorage.setItem('currentTeamId', 't1');
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
@@ -151,8 +151,8 @@ describe('TeamPage', () => {
   it('个人面板在有真实团队时提供团队切换 select', async () => {
     // 双团队 fixture 对齐「个人项目精简面板」用例：t1 默认（个人）、t2 真实团队
     api.getMyTeams.mockResolvedValue([
-      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
-      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     localStorage.setItem('currentTeamId', 't1');
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
@@ -168,8 +168,8 @@ describe('TeamPage', () => {
 
   it('个人精简面板充值按钮跳 /settings/credits、开通会员跳 /settings/membership', async () => {
     api.getMyTeams.mockResolvedValue([
-      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
-      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
+      { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     localStorage.setItem('currentTeamId', 't1');
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });

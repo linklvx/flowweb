@@ -200,9 +200,9 @@ describe('WorkspacePage', () => {
 
   it('?tab=team 渲染团队页签（owned 前 joined 后平铺），过滤默认团队', async () => {
     mockGetMyTeams.mockResolvedValue([
-      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
-      { id: 't-joined', name: '加入的团', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, createdAt: '2026-08-02', memberCount: 5, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
-      { id: 't-owned', name: '我建的团', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-joined', name: '加入的团', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, createdAt: '2026-08-02', memberCount: 5, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-owned', name: '我建的团', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-01', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     renderPage('/works?tab=team');
     await waitFor(() => expect(screen.getByTestId('team-tabs-row')).toBeInTheDocument());
@@ -217,7 +217,7 @@ describe('WorkspacePage', () => {
 
   it('?tab=team 无真实团队时空状态引导', async () => {
     mockGetMyTeams.mockResolvedValue([
-      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
+      { id: 't-default', name: 'A的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
     renderPage('/works?tab=team');
     expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
@@ -226,7 +226,7 @@ describe('WorkspacePage', () => {
 });
 
 describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
-  const team = (id: string, isOwner: boolean) => ({ id, name: id, isOwner, isDefault: false, memberCount: 2 });
+  const team = (id: string, isOwner: boolean) => ({ id, name: id, isOwner, isDefault: false, memberCount: 2, projectCount: 0 });
 
   // MemoryRouter 不写 window.history，URL replace 断言经 useLocation 探针读取路由真实状态
   function LocationProbe() {
@@ -287,7 +287,7 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
 
   it('团队 empty 分支：tabs 位于头部行容器内且可切回个人', async () => {
     // 只含默认团队 → realTeams 过滤后为 0（与既有 team-empty-state 用例同 mock 方式）
-    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1, projectCount: 0 }]);
     renderPage('/works?tab=team');
     await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
     const row = screen.getByRole('button', { name: '个人项目' }).closest('div[class*="md:flex-row"]');
@@ -297,7 +297,7 @@ describe('WorkspacePage 团队 tab（spec §一.1/§一.2）', () => {
   });
 
   it('无真实团队：team-empty-state', async () => {
-    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1 }]);
+    mockGetMyTeams.mockResolvedValue([{ id: 'd', name: '默认', isOwner: true, isDefault: true, memberCount: 1, projectCount: 0 }]);
     renderPage('/works?tab=team');
     await waitFor(() => expect(screen.getByTestId('team-empty-state')).toBeInTheDocument());
   });
