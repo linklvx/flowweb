@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, waitFor, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import MaterialsPage from './MaterialsPage';
+import { useTeamStore, _internal } from '@/stores/teamStore';
 
 const mockGetMyTeams = vi.fn();
 vi.mock('@/api/teamApi', () => ({
@@ -38,6 +39,8 @@ const probeSearch = () => screen.getByTestId('location-probe').getAttribute('dat
 describe('MaterialsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _internal.reset();
+    useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
     mockGet.mockResolvedValue({ data: { data: { success: true, data: [] } } });
   });
 

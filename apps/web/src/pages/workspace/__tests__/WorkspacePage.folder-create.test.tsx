@@ -28,6 +28,7 @@ vi.mock('react-router', async (orig) => {
 import * as folderApi from '@/api/folderApi';
 import * as canvasApi from '@/api/canvasApi';
 import * as templateApi from '@/api/templateApi';
+import { useTeamStore, _internal } from '@/stores/teamStore';
 import { useNavigate } from 'react-router';
 import { WorkspacePage } from '../WorkspacePage';
 
@@ -42,6 +43,8 @@ const folderDto = (id: string, name: string, canvasCount = 0) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _internal.reset();
+  useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
   mockGetMyTeams.mockResolvedValue([]);
   vi.mocked(folderApi.getFolders).mockResolvedValue({
     folders: [folderDto('f1', '工作文件夹', 1), folderDto('f2', '项目文件夹', 0)],
