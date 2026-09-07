@@ -147,7 +147,7 @@ describe('TeamService 基础 API', () => {
             team: {
               id: 't1', name: '团队A', status: 'ACTIVE', ownerId: 'u1', isDefault: false,
               createdAt: new Date('2026-01-01'),
-              _count: { members: 3 },
+              _count: { members: 3, projects: 2 },
               balance: { credits: 100, subscriptionCredits: 50 },
               subscriptions: [{ status: 'active', currentPeriodEnd: new Date('2026-09-27'), plan: { name: '专业版' } }],
             },
@@ -157,7 +157,7 @@ describe('TeamService 基础 API', () => {
             team: {
               id: 't2', name: '团队B', status: 'ACTIVE', ownerId: 'x', isDefault: false,
               createdAt: new Date('2026-02-01'),
-              _count: { members: 1 },
+              _count: { members: 1, projects: 0 },
               balance: { credits: 0, subscriptionCredits: 0 },
               subscriptions: [],
             },
@@ -172,13 +172,13 @@ describe('TeamService 基础 API', () => {
       }));
       expect(result).toEqual([
         {
-          id: 't1', name: '团队A', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, memberCount: 3,
+          id: 't1', name: '团队A', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, memberCount: 3, projectCount: 2,
           createdAt: new Date('2026-01-01'),
           balance: { credits: 100, subscriptionCredits: 50 },
           subscription: { planName: '专业版', status: 'active', currentPeriodEnd: new Date('2026-09-27') },
         },
         {
-          id: 't2', name: '团队B', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, memberCount: 1,
+          id: 't2', name: '团队B', role: 'MEMBER', status: 'ACTIVE', isDefault: false, isOwner: false, memberCount: 1, projectCount: 0,
           createdAt: new Date('2026-02-01'),
           balance: { credits: 0, subscriptionCredits: 0 },
           subscription: null,
@@ -198,7 +198,7 @@ describe('TeamService 基础 API', () => {
               id: 't-team', name: '梦幻团队', ownerId: 'someone-else', isDefault: false,
               balance: { credits: 5, subscriptionCredits: 0 },
               subscriptions: [{ plan: { name: '团队月卡' }, status: 'active', currentPeriodEnd: new Date('2026-09-30') }],
-              _count: { members: 3 },
+              _count: { members: 3, projects: 0 },
             },
           },
           {
@@ -207,7 +207,7 @@ describe('TeamService 基础 API', () => {
               id: 't-default', name: 'Alice的团队', ownerId: 'u1', isDefault: true,
               balance: { credits: 100, subscriptionCredits: 50 },
               subscriptions: [],
-              _count: { members: 1 },
+              _count: { members: 1, projects: 0 },
             },
           },
         ]),
@@ -229,9 +229,9 @@ describe('TeamService 基础 API', () => {
     it('非默认团队排序：我创建的（OWNER）优先于我加入的（MEMBER），同级按创建时间升序', async () => {
       prisma.teamMember = {
         findMany: vi.fn().mockResolvedValue([
-          { role: 'MEMBER', team: { id: 't-join-old', ownerId: 'x', isDefault: false, createdAt: new Date('2026-01-01'), balance: null, subscriptions: [], _count: { members: 2 } } },
-          { role: 'OWNER', team: { id: 't-mine-new', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-06-01'), balance: null, subscriptions: [], _count: { members: 1 } } },
-          { role: 'OWNER', team: { id: 't-mine-old', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-03-01'), balance: null, subscriptions: [], _count: { members: 1 } } },
+          { role: 'MEMBER', team: { id: 't-join-old', ownerId: 'x', isDefault: false, createdAt: new Date('2026-01-01'), balance: null, subscriptions: [], _count: { members: 2, projects: 0 } } },
+          { role: 'OWNER', team: { id: 't-mine-new', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-06-01'), balance: null, subscriptions: [], _count: { members: 1, projects: 0 } } },
+          { role: 'OWNER', team: { id: 't-mine-old', ownerId: 'u1', isDefault: false, createdAt: new Date('2026-03-01'), balance: null, subscriptions: [], _count: { members: 1, projects: 0 } } },
         ]),
       };
 

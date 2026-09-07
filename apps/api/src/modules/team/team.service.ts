@@ -79,7 +79,7 @@ export class TeamService {
               take: 1,
               include: { plan: { select: { name: true } } },
             },
-            _count: { select: { members: true } },
+            _count: { select: { members: true, projects: true } },
           },
         },
       },
@@ -113,6 +113,7 @@ export class TeamService {
         isDefault: m.team.isDefault,
         isOwner: m.team.ownerId === userId,
         memberCount: m.team._count.members,
+        projectCount: m.team._count.projects,
         createdAt: m.team.createdAt,
         balance: {
           credits: m.team.balance?.credits ?? 0,
