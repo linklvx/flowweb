@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { TeamSidebar } from './TeamSidebar';
 import { useTeamStore, _internal } from '@/stores/teamStore';
 import type { MyTeam } from '@/api/teamApi';
@@ -58,7 +58,7 @@ describe('TeamSidebar', () => {
     setSuccess('t2');
     render(<TeamSidebar onCreateTeam={vi.fn()} />);
     const card = screen.getByTestId('team-card-t2');
-    expect(card.textContent).toContain('5');   // 成员
+    expect(within(card).getByText('5')).toBeInTheDocument();   // 成员（完整匹配独立 span，'150' 不误中）
     expect(card.textContent).toContain('2');   // 项目
     expect(card.textContent).toContain('150'); // 积分 100+50
   });

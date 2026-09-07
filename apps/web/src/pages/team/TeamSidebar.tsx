@@ -12,7 +12,7 @@ function TeamCard({ team, active, onClick }: { team: MyTeam; active: boolean; on
       type="button"
       onClick={onClick}
       data-testid={`team-card-${team.id}`}
-      className={`w-full box-border p-3 rounded-lg text-left transition-all cursor-pointer border border-solid bg-transparent ${
+      className={`w-full box-border p-3 rounded-lg text-left transition-all cursor-pointer border border-solid bg-transparent font-[inherit] ${
         active
           ? 'bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 border-cyan-500/30'
           : 'border-transparent hover:bg-white/5'
@@ -81,7 +81,7 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
           <button
             type="button"
             onClick={() => { void fetchTeams().catch(() => undefined); }}
-            className="px-3 py-1 rounded border border-solid border-gray-600 text-gray-300 bg-transparent cursor-pointer"
+            className="px-3 py-1 rounded border border-solid border-gray-600 text-gray-300 bg-transparent cursor-pointer font-[inherit]"
           >
             重试
           </button>
