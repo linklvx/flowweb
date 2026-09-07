@@ -24,18 +24,18 @@
 - Modify: `apps/api/src/modules/team/team.service.ts:82`（_count）、`:115` 区域（行映射）
 - Test: `apps/api/src/modules/team/team.service.spec.ts:141-187`（`toEqual` 用例是唯一红绿承载点）
 
-- [ ] **Step 1: 改测试（两侧同补字段）**
+- [x] **Step 1: 改测试（两侧同补字段）**
 
 `team.service.spec.ts` 第一个 getMyTeams 用例：mock 侧两处 `_count: { members: 3 }` → `_count: { members: 3, projects: 2 }`、`_count: { members: 1 }` → `_count: { members: 1, projects: 0 }`；期望对象 `memberCount: 3,` 后加 `projectCount: 2,`、`memberCount: 1,` 后加 `projectCount: 0,`。
 
 第二个 describe（:190 起"个人项目化"）的 mock `_count` 共 5 处（:201、:210、:232-234）顺手一次补全 `projects: 0`（该组用 toMatchObject / 只比对 id 序，不承载红绿，补齐避免 undefined 混入）。
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter api exec vitest run src/modules/team/team.service.spec.ts`
 Expected: 第一个 getMyTeams 用例 FAIL（`projectCount: undefined` ≠ 期望数字）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 team.service.ts `getMyTeams`：
 ```ts
@@ -47,12 +47,12 @@ _count: { select: { members: true, projects: true } },
 projectCount: m.team._count.projects,
 ```
 
-- [ ] **Step 4: 跑测试确认绿**
+- [x] **Step 4: 跑测试确认绿**
 
 Run: `pnpm --filter api exec vitest run src/modules/team/team.service.spec.ts`
 Expected: 全部 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/team/team.service.ts apps/api/src/modules/team/team.service.spec.ts
@@ -67,7 +67,7 @@ git commit -m "feat(api): getMyTeams 返回 projectCount（_count.projects 聚�
 - Modify: `apps/web/src/api/teamApi.ts:3-14`（接口）、文件尾部（helper）
 - Test: `apps/web/src/api/teamApi.test.ts`（追加断言）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 teamApi.test.ts 追加（该文件已有 describe 结构，追加到合适的 describe 或新建 `describe('teamCreditsTotal', ...)`；import 处补 `teamCreditsTotal`）：
 ```ts
@@ -79,12 +79,12 @@ describe('teamCreditsTotal', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter web exec vitest run src/api/teamApi.test.ts`
 Expected: FAIL（teamCreditsTotal 未导出）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 teamApi.ts `MyTeam` 接口 `memberCount: number;` 后加：
 ```ts
@@ -98,14 +98,14 @@ export function teamCreditsTotal(balance: Pick<MyTeam, 'balance'>['balance']): n
 }
 ```
 
-- [ ] **Step 4: 跑测试 + 类型**
+- [x] **Step 4: 跑测试 + 类型**
 
 Run: `pnpm --filter web exec vitest run src/api/teamApi.test.ts`
 Expected: 该文件 PASS（此时其他 fixture 文件类型红属预期，运行时测试多数仍绿；Task 3 统一修）
 Run: `pnpm --filter web exec tsc -p tsconfig.json --noEmit`
 Expected: 报 7 个测试文件的 MyTeam 字面量缺 projectCount（记录文件清单，与 Task 3 对照）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/api/teamApi.ts apps/web/src/api/teamApi.test.ts
@@ -126,20 +126,20 @@ git commit -m "feat(web): MyTeam 加 projectCount + teamCreditsTotal 口径 help
 
 （注：`WorkspacePage.folder-create.test.tsx` 的 getMyTeams 仅 `mockResolvedValue([])` 无字面量可补，不在本任务——它只需 Task 5 的 store 清场。）
 
-- [ ] **Step 1: 机械补字段**
+- [x] **Step 1: 机械补字段**
 
 每个 MyTeam 字面量的 `memberCount: N,` 后加 `projectCount: 0,`（数字任意，0 即可——测试不断言它）。
 
 **定位说明（勿困惑）**：这些字面量均无 `: MyTeam` 类型标注（vi.fn() 擦除返回类型，基线 tsc 已 0 error），所以本任务**不产生类型红、0 红是正常预期**——补齐仅为未来类型标注兜底的一次性迁移。真正会类型红的是 Task 4/6 新建的带标注测试文件（自带该字段）。
 
-- [ ] **Step 2: 类型 + 全量测试门**
+- [x] **Step 2: 类型 + 全量测试门**
 
 Run: `pnpm --filter web exec tsc -p tsconfig.json --noEmit`
 Expected: 0 error
 Run: `pnpm --filter web test`
 Expected: 全绿（与改动前基线一致）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/web/src
@@ -154,7 +154,7 @@ git commit -m "test(web): 6 个含 MyTeam fixture 的测试文件补 projectCoun
 - Create: `apps/web/src/stores/teamStore.ts`
 - Test: Create `apps/web/src/stores/teamStore.test.ts`
 
-- [ ] **Step 1: 写失败测试（全量用例）**
+- [x] **Step 1: 写失败测试（全量用例）**
 
 ```ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -284,12 +284,12 @@ describe('teamStore', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter web exec vitest run src/stores/teamStore.test.ts`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现 teamStore.ts（完整文件）**
+- [x] **Step 3: 实现 teamStore.ts（完整文件）**
 
 ```ts
 import { create } from 'zustand';
@@ -418,12 +418,12 @@ export const _internal = {
 };
 ```
 
-- [ ] **Step 4: 跑测试确认绿**
+- [x] **Step 4: 跑测试确认绿**
 
 Run: `pnpm --filter web exec vitest run src/stores/teamStore.test.ts`
 Expected: 8 用例全 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/stores/teamStore.ts apps/web/src/stores/teamStore.test.ts
@@ -438,7 +438,7 @@ git commit -m "feat(web): teamStore——ensureTeams 去重/fetchTeams 强制 + 
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.ts`（整体重写，返回形状不变）
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.test.tsx`（仅 beforeEach 加清场）
 
-- [ ] **Step 1: 四个测试文件补 store 清场（单例污染链：上一用例残留 success → 下一用例 ensureTeams「success 跳过」→ 自己的 mock 不发请求 → 空态用例超时）**
+- [x] **Step 1: 四个测试文件补 store 清场（单例污染链：上一用例残留 success → 下一用例 ensureTeams「success 跳过」→ 自己的 mock 不发请求 → 空态用例超时）**
 
 (a) useTeams.test.tsx 头部 import 改为：
 ```ts
@@ -467,7 +467,7 @@ useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
 ```
 （无 beforeEach 的文件新建一个；源码零改动——清场只动测试）
 
-- [ ] **Step 2: 重写 useTeams.ts（完整文件，注意 retry 保持旧版吞错契约）**
+- [x] **Step 2: 重写 useTeams.ts（完整文件，注意 retry 保持旧版吞错契约）**
 
 ```ts
 import { useCallback, useEffect } from 'react';
@@ -504,12 +504,12 @@ export function useTeams() {
 }
 ```
 
-- [ ] **Step 3: 跑相关测试**
+- [x] **Step 3: 跑相关测试**
 
 Run: `pnpm --filter web exec vitest run src/pages/workspace/hooks/useTeams.test.tsx src/pages/workspace/__tests__/WorkspacePage.test.tsx src/pages/workspace/__tests__/WorkspacePage.folder-create.test.tsx src/pages/materials/MaterialsPage.test.tsx`
 Expected: 全 PASS（页面源码零改动；测试仅加清场）
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web/src/pages/workspace apps/web/src/pages/materials
@@ -524,7 +524,7 @@ git commit -m "refactor(web): useTeams 收编为 teamStore 适配层（形状不
 - Create: `apps/web/src/pages/team/TeamSidebar.tsx`
 - Test: Create `apps/web/src/pages/team/TeamSidebar.test.tsx`
 
-- [ ] **Step 1: 写失败测试（预置 store state，不 mock api）**
+- [x] **Step 1: 写失败测试（预置 store state，不 mock api）**
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -618,12 +618,12 @@ describe('TeamSidebar', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter web exec vitest run src/pages/team/TeamSidebar.test.tsx`
 Expected: FAIL（组件不存在）
 
-- [ ] **Step 3: 实现 TeamSidebar.tsx（完整文件）**
+- [x] **Step 3: 实现 TeamSidebar.tsx（完整文件）**
 
 ```tsx
 import {
@@ -750,12 +750,12 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认绿**
+- [x] **Step 4: 跑测试确认绿**
 
 Run: `pnpm --filter web exec vitest run src/pages/team/TeamSidebar.test.tsx`
 Expected: 7 用例全 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/pages/team/TeamSidebar.tsx apps/web/src/pages/team/TeamSidebar.test.tsx
@@ -771,7 +771,7 @@ git commit -m "feat(web): TeamSidebar——个人置顶+创建/加入分组+三�
 - Modify: `apps/web/src/pages/team/TeamPage.tsx`（重写为布局壳）
 - Test: Modify `apps/web/src/pages/team/TeamPage.test.tsx`
 
-- [ ] **Step 1: 先迁移测试（红）**
+- [x] **Step 1: 先迁移测试（红）**
 
 TeamPage.test.tsx 改动：
 
@@ -856,12 +856,12 @@ it('个人面板下点击右侧团队卡片切换到团队管理', async () => {
 
 (i) `team` fixture（:31-35）已在 Task 3 补过 projectCount，无需再动。
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter web exec vitest run src/pages/team/TeamPage.test.tsx`
 Expected: FAIL（team-sidebar/team-card 不存在、仍渲染 select）
 
-- [ ] **Step 3: 创建 TeamDetail.tsx（搬运 + 改造点）**
+- [x] **Step 3: 创建 TeamDetail.tsx（搬运 + 改造点）**
 
 新文件骨架：从 TeamPage.tsx **原样搬运**以下区块，再应用改动点：
 
@@ -965,7 +965,7 @@ void useTeamStore.getState().fetchTeams().then(refreshAll).catch(() => message.e
 
 10. 文件尾部去掉 `{createModal}` 与其定义（留在外层壳）。
 
-- [ ] **Step 4: 重写 TeamPage.tsx 为布局壳（完整文件）**
+- [x] **Step 4: 重写 TeamPage.tsx 为布局壳（完整文件）**
 
 ```tsx
 import { useEffect, useState } from 'react';
@@ -1047,14 +1047,14 @@ export default function TeamPage() {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认绿**
+- [x] **Step 5: 跑测试确认绿**
 
 Run: `pnpm --filter web exec vitest run src/pages/team/TeamPage.test.tsx`
 Expected: 全 PASS（含新集成断言用例）
 Run: `pnpm --filter web exec tsc -p tsconfig.json --noEmit`
 Expected: 0 error
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web/src/pages/team/TeamPage.tsx apps/web/src/pages/team/TeamDetail.tsx apps/web/src/pages/team/TeamPage.test.tsx
@@ -1069,7 +1069,7 @@ git commit -m "feat(web): /team 左侧团队列表布局——TeamDetail key 重
 - Modify: `apps/web/src/components/TeamSwitcher.tsx`（重写）
 - Test: Modify `apps/web/src/components/TeamSwitcher.test.tsx`
 
-- [ ] **Step 1: 迁移测试（红）**
+- [x] **Step 1: 迁移测试（红）**
 
 TeamSwitcher.test.tsx 改动：
 
@@ -1114,12 +1114,12 @@ it('③ 归一化：currentTeamId=dead 不在列表 → store 与 LS 回退 t1�
 
 (f) 用例 ④⑤⑥：断言不变（④ 只默认团队隐藏；⑤ 菜单序+✓；⑥ 无新建入口）。
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `pnpm --filter web exec vitest run src/components/TeamSwitcher.test.tsx`
 Expected: FAIL（组件仍走 localStorage/reload）
 
-- [ ] **Step 3: 重写 TeamSwitcher.tsx（完整文件）**
+- [x] **Step 3: 重写 TeamSwitcher.tsx（完整文件）**
 
 ```tsx
 import { useEffect } from 'react';
@@ -1165,12 +1165,12 @@ export function TeamSwitcher() {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认绿**
+- [x] **Step 4: 跑测试确认绿**
 
 Run: `pnpm --filter web exec vitest run src/components/TeamSwitcher.test.tsx`
 Expected: 6 用例全 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/components/TeamSwitcher.tsx apps/web/src/components/TeamSwitcher.test.tsx
@@ -1181,7 +1181,7 @@ git commit -m "refactor(web): TeamSwitcher 订阅 teamStore——无 reload 切�
 
 ### Task 9: 全量验证门 + 浏览器验收
 
-- [ ] **Step 1: 全量门**
+- [x] **Step 1: 全量门**
 
 Run: `pnpm --filter web exec tsc -p tsconfig.json --noEmit`
 Expected: 0 error
@@ -1193,7 +1193,7 @@ Run: `pnpm --filter web lint`
 Run: `pnpm --filter api lint`
 Expected: 均 0 error 0 warning（搬运后未使用导入之类问题在此拦截；Windows shell 下勿用 && 链接，分两次执行）
 
-- [ ] **Step 2: Commit（如有零星修正）**
+- [x] **Step 2: Commit（如有零星修正）**
 
 ```bash
 git add -A apps/web/src apps/api/src
@@ -1201,7 +1201,7 @@ git commit -m "test(team): 全量验证门通过"
 ```
 （无修正则跳过）
 
-- [ ] **Step 3: 浏览器验收（spec §9 九项，用 preview_* 工具）**
+- [x] **Step 3: 浏览器验收（spec §9 九项，用 preview_* 工具）**
 
 启动 dev server 后逐项验证并截图留证：
 1. 左列表：个人置顶 / 创建组 / 加入组 / 徽标 / 选中渐变态
@@ -1216,9 +1216,38 @@ git commit -m "test(team): 全量验证门通过"
 
 发现问题 → 修复 → 回归 Step 1 全量门（循环直至九项全过）。
 
-- [ ] **Step 4: 最终 Commit**
+- [x] **Step 4: 最终 Commit**
 
 ```bash
 git add docs
 git commit -m "docs(team): 浏览器验收记录（九项）"
 ```
+
+---
+
+## 浏览器验收记录（2026-09-08，spec §9 九项）
+
+环境：dev（web:5173 + api:3000 + 本地 PG/MinIO），账号 admin@flowweb.local，preview_* 工具实测。
+
+| # | 项目 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 左列表渲染 | ✅ | 个人项目置顶卡（UserOutlined 头像）+「创建的团队 2」（CrownFilled+徽标）+「加入的团队 1」（TeamOutlined+徽标，MEMBER 卡无皇冠）；无加入团队时该组整组不渲染（实证）；选中卡 `from-cyan-500/10` 渐变+青边框 |
+| 2 | 点击切换无刷新 | ✅ | 点「团队测试」卡：active 卡切换、右侧 header/成员跟随、`window.__noReload` 标记保持（无整页 reload）、URL 恒为 /team |
+| 3 | 顶栏 TeamSwitcher 同步 | ✅ | 切换后顶栏按钮文案即时变为新团队名（含切到加入团队场景），无 reload |
+| 4 | 创建团队 | ✅ | 「验收临时团队」创建后：sidebar 即时出现第 4 卡、自动切到新团队（active+右侧 header）、无 reload（弹窗关闭为 antd 默认 DOM 保留 display:none，非异常） |
+| 5 | 解散回退 | ✅ | 解散「验收改名团队」：列表移除、回退个人项目（active/LS/右侧面板三处一致）；「唯一团队禁用」分支浏览器不可达（唯一团队=默认团队=个人面板无解散按钮），由代码审查（全量 teams 口径）+单测覆盖 |
+| 6 | 重命名即时更新 | ✅ | 「验收临时团队」→「验收改名团队」：sidebar 卡片名与右侧 header 即时更新（upsert 链路），无 reload |
+| 7 | 公告 sticky 偏移 | ✅ | 注入公告：AnnouncementBar 出现，sidebar top 60→124px、maxHeight calc(100vh-124px)；置空恢复 60px/calc(100vh-60px)，响应式切换实证 |
+| 8 | preflight 目检 | ✅ | computed style 实证：卡片 button background-color rgba(0,0,0,0)（无 UA 灰底）、border-style solid（边框显示）、box-sizing border-box、font-family 继承全局栈（font-[inherit] 修复生效）、text-align left |
+| 9 | 积分双源一致 | ✅ | 个人项目：sidebar 卡 100 = 右侧「可用积分（通用 100·订阅 0）」100（teamCreditsTotal 同式）；团队场景 0=0 一致 |
+
+全量验证门：web tsc 0 error / web 2038 tests 全绿 / api（含 tsc）941 tests 全绿。lint 门：eslint 从未在本仓库声明安装（三级 package.json 均无），环境缺失非代码违规，跳过并记录。
+
+过程偏差登记：
+- plan Task 2 Step 4「tsc 报 7 文件红」预期过时（fixture 无类型标注，实际 0 红——与 Task 3 定位说明一致，非实现问题）
+- plan Task 4「8 用例」为笔误，实际测试代码 9 个 it 块，9 passed
+- 质量审查追加修复 a3c4239：TeamSidebar button 补 font-[inherit]（preflight 无继承，站内先例 WorkspaceToolbar）+ 统计断言 toContain('5') 被 '150' 吸收改 getByText 独立匹配
+- 新登记上线必修项 #17：teamStore 换账号后陈旧（spec「不做登出 reset」的「失效回退兜底」理由不成立——ensureTeams 在 success 态不进 load；works/materials 存量同病，本次把常驻顶栏纳入暴露面）
+- 既有 UX 观察（不在本次 scope）：MEMBER 视角右侧 header 仍显示「重命名」按钮（后端 TeamGuard 会 403 兜底，前端无 role 门控系搬运前既有行为）
+
+验收临时数据已清理（临时团队/用户删除，TeamMember 随 Cascade）。
