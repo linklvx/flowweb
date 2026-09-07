@@ -879,7 +879,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Table, Button, Modal, Input, Progress, Tag, message, Pagination, Switch } from 'antd';
 import {
-  changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
+  listMembers, changeRole, removeMember, setQuota, renameTeam, disbandTeam, transferOwnership,
   listJoinRequests, approveJoinRequest, rejectJoinRequest,
   getTeamBalanceView, listTeamTransactions,
   getTeamLimits, getTeamUsage,
@@ -1185,8 +1185,9 @@ Run: `pnpm --filter web test`
 Expected: 全绿
 Run: `pnpm --filter api test`
 Expected: 全绿（含 tsc）
-Run: `pnpm --filter web lint && pnpm --filter api lint`
-Expected: 0 error 0 warning（搬运后未使用导入之类问题在此拦截）
+Run: `pnpm --filter web lint`
+Run: `pnpm --filter api lint`
+Expected: 均 0 error 0 warning（搬运后未使用导入之类问题在此拦截；Windows shell 下勿用 && 链接，分两次执行）
 
 - [ ] **Step 2: Commit（如有零星修正）**
 
