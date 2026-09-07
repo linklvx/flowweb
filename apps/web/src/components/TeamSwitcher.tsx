@@ -1,39 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Dropdown, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
-import { getMyTeams, teamDisplayName, type MyTeam } from '@/api/teamApi';
+import { teamDisplayName } from '@/api/teamApi';
+import { useTeamStore } from '@/stores/teamStore';
 
-/** 顶栏团队切换器：只有默认团队（无真实团队）时整体隐藏；列表=个人项目（固定第一）+真实团队；新建团队入口在 /team 页 */
+/** 顶栏团队切换器：teamStore 驱动（挂载即 ensureTeams 拉取点）；只有默认团队时整体隐藏 */
 export function TeamSwitcher() {
-  const [teams, setTeams] = useState<MyTeam[] | null>(null);
-  const current = localStorage.getItem('currentTeamId');
-  const currentTeam = teams?.find((t) => t.id === current) ?? teams?.[0];
+  const teams = useTeamStore((s) => s.teams);
+  const status = useTeamStore((s) => s.status);
+  const currentTeamId = useTeamStore((s) => s.currentTeamId);
+  const ensureTeams = useTeamStore((s) => s.ensureTeams);
+  const switchTo = useTeamStore((s) => s.switchTo);
 
-  const load = useCallback(async () => {
-    const list = await getMyTeams();
-    setTeams(list);
-    // 解散回退：current 已不在列表 → 落回第一个（默认团队排第一）
-    const cur = localStorage.getItem('currentTeamId');
-    if (list.length && !list.some((t) => t.id === cur)) {
-      localStorage.setItem('currentTeamId', list[0].id);
-      location.reload();
-    }
-  }, []);
   useEffect(() => {
-    void load().catch((err) => message.error('团队列表加载失败：' + (err as Error).message));
-  }, [load]);
+    void ensureTeams();
+  }, [ensureTeams]);
 
-  const realTeams = (teams ?? []).filter((t) => !t.isDefault);
-  if (teams !== null && realTeams.length === 0) return null;
+  useEffect(() => {
+    if (status === 'error') message.error('团队列表加载失败');
+  }, [status]);
 
-  const switchTo = (id: string) => {
-    if (id === current) return;
-    localStorage.setItem('currentTeamId', id);
-    location.reload();
-  };
+  const realTeams = teams.filter((t) => !t.isDefault);
+  if (status === 'success' && realTeams.length === 0) return null;
 
-  const items: MenuProps['items'] = (teams ?? []).map((t) => ({
+  const currentTeam = teams.find((t) => t.id === currentTeamId) ?? teams[0];
+
+  const items: MenuProps['items'] = teams.map((t) => ({
     key: t.id,
     label: <span>{teamDisplayName(t)}{t.id === currentTeam?.id ? ' ✓' : ''}</span>,
   }));

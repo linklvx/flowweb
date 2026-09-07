@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TeamSwitcher } from './TeamSwitcher';
+import { useTeamStore, _internal } from '@/stores/teamStore';
 
 const api = vi.hoisted(() => ({
   getMyTeams: vi.fn(),
@@ -9,17 +10,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/api/teamApi', () => api);
-
-// jsdom 25 下 vi.spyOn(window.location, 'reload') 报 Cannot redefine，
-// 用 defineProperty 整体替换 window.location（探针验证可行）
-const mockReload = vi.fn();
-function stubLocation() {
-  Object.defineProperty(window, 'location', {
-    value: { ...window.location, reload: mockReload },
-    writable: true,
-    configurable: true,
-  });
-}
 
 const team = (id: string, name: string, isDefault = false) => ({
   id, name, role: 'OWNER' as const, status: 'ACTIVE', isDefault, isOwner: true,
@@ -32,36 +22,36 @@ describe('TeamSwitcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    mockReload.mockClear();
-    stubLocation();
+    _internal.reset();
+    useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
   });
 
   it('① 渲染列表 + 当前标记：currentTeamId=t2 → 按钮显示 B 团', async () => {
     api.getMyTeams.mockResolvedValue([team('t1', 'A 团'), team('t2', 'B 团')]);
-    localStorage.setItem('currentTeamId', 't2');
+    useTeamStore.setState({ currentTeamId: 't2' });
     render(<TeamSwitcher />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /B 团/ })).toBeInTheDocument(),
     );
   });
 
-  it('② 切换：点 A 团 → localStorage 写 t1 + reload', async () => {
+  it('② 切换：点 A 团 → store.currentTeamId=t1（无 reload）', async () => {
     api.getMyTeams.mockResolvedValue([team('t1', 'A 团'), team('t2', 'B 团')]);
-    localStorage.setItem('currentTeamId', 't2');
+    useTeamStore.setState({ currentTeamId: 't2' });
     render(<TeamSwitcher />);
     await screen.findByText('B 团');
     fireEvent.click(screen.getByRole('button', { name: /B 团/ }));
     fireEvent.click(await screen.findByText('A 团'));
-    await waitFor(() => expect(mockReload).toHaveBeenCalled());
+    await waitFor(() => expect(useTeamStore.getState().currentTeamId).toBe('t1'));
     expect(localStorage.getItem('currentTeamId')).toBe('t1');
   });
 
-  it('③ 解散回退：currentTeamId=dead 不在列表 → 写回 t1 + reload', async () => {
+  it('③ 归一化：currentTeamId=dead 不在列表 → store 与 LS 回退 t1（无 reload）', async () => {
     api.getMyTeams.mockResolvedValue([team('t1', 'A 团')]);
-    localStorage.setItem('currentTeamId', 'dead');
+    useTeamStore.setState({ currentTeamId: 'dead' });
     render(<TeamSwitcher />);
-    await waitFor(() => expect(localStorage.getItem('currentTeamId')).toBe('t1'));
-    expect(mockReload).toHaveBeenCalled();
+    await waitFor(() => expect(useTeamStore.getState().currentTeamId).toBe('t1'));
+    expect(localStorage.getItem('currentTeamId')).toBe('t1');
   });
 
   it('④ 只有默认团队时整体隐藏（渲染 null）', async () => {
