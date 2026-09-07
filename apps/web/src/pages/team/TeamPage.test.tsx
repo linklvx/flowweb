@@ -151,7 +151,7 @@ describe('TeamPage', () => {
     useTeamStore.setState({ currentTeamId: 't1' });
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
+    // sidebar 同名卡片文本也是「个人项目」，getByText 会多匹配；改按 heading role 精确匹配右侧面板 h2 标题
     expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
     expect(screen.getByTestId('personal-balance-total')).toHaveTextContent('150');
     expect(screen.queryByTestId('tab-members')).not.toBeInTheDocument();
@@ -180,9 +180,27 @@ describe('TeamPage', () => {
     useTeamStore.setState({ currentTeamId: 't1' });
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
+    // sidebar 同名卡片文本也是「个人项目」，getByText 会多匹配；改按 heading role 精确匹配右侧面板 h2 标题
     expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
     expect(screen.getByTestId('link-personal-recharge').getAttribute('href')).toBe('/settings/credits');
     expect(screen.getByTestId('link-personal-membership').getAttribute('href')).toBe('/settings/membership');
+  });
+
+  it('创建链路：createTeam 成功但 fetchTeams 失败 → 不 switchTo 且弹窗保持（防 currentTeam 悬空）', async () => {
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    await screen.findByText('张三'); // store 已 success（旧列表 t1/t2 保留），currentTeamId 归一为 t1
+    const before = useTeamStore.getState().currentTeamId;
+    api.createTeam.mockResolvedValue({ id: 't-new', name: '新团队' });
+    api.getMyTeams.mockRejectedValueOnce(new Error('refresh fail')); // fetchTeams 强制重拉走 getMyTeams
+    fireEvent.click(screen.getByRole('button', { name: '创建团队' }));
+    const input = await screen.findByPlaceholderText('团队名称');
+    fireEvent.change(input, { target: { value: '新团队' } });
+    fireEvent.click(screen.getByRole('button', { name: '创 建' })); // Modal okText 两字，antd 自动插空格
+    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('新团队'));
+    // spec §4：新 id 不在旧列表，switchTo 会让 currentTeam 悬空 → 失败分支必须跳过
+    await waitFor(() => expect(useTeamStore.getState().currentTeamId).toBe(before));
+    // 弹窗保持开启：输入框仍在文档、值未清空
+    expect(screen.getByPlaceholderText('团队名称')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('团队名称')).toHaveValue('新团队');
   });
 });
