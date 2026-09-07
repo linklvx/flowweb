@@ -114,7 +114,7 @@ git commit -m "feat(web): MyTeam 加 projectCount + teamCreditsTotal 口径 help
 
 ---
 
-### Task 3: 7 个 fixture 文件机械补 projectCount（保绿基线）
+### Task 3: 6 个 fixture 文件机械补 projectCount（一致性补齐，非红绿驱动）
 
 **Files（Modify，逐个补 `projectCount: <数字>` 到每个 MyTeam 字面量）：**
 1. `apps/web/src/pages/team/TeamPage.test.tsx`（:32 team fixture 及 :129/:138-139/:154-155/:171-172 内联字面量）
@@ -122,12 +122,15 @@ git commit -m "feat(web): MyTeam 加 projectCount + teamCreditsTotal 口径 help
 3. `apps/web/src/pages/workspace/hooks/useTeams.test.tsx`（:11 team 工厂）
 4. `apps/web/src/pages/materials/MaterialsPage.test.tsx`（:19 team 工厂、:62 内联）
 5. `apps/web/src/pages/workspace/__tests__/WorkspacePage.test.tsx`（:203-205/:220/:229/:290/:300）
-6. `apps/web/src/pages/workspace/__tests__/WorkspacePage.folder-create.test.tsx`（mock 默认值）
-7. `apps/web/src/pages/team/TeamBillingPage.test.tsx`（:26 teamFixture）
+6. `apps/web/src/pages/team/TeamBillingPage.test.tsx`（:26 teamFixture）
+
+（注：`WorkspacePage.folder-create.test.tsx` 的 getMyTeams 仅 `mockResolvedValue([])` 无字面量可补，不在本任务——它只需 Task 5 的 store 清场。）
 
 - [ ] **Step 1: 机械补字段**
 
-每个 MyTeam 字面量的 `memberCount: N,` 后加 `projectCount: 0,`（数字任意，0 即可——测试不断言它，只为类型完整）。部分文件 mock 写法宽松（缺 role 等也未红），是否类型红以 tsc 实跑为准，全量补齐一次迁移。
+每个 MyTeam 字面量的 `memberCount: N,` 后加 `projectCount: 0,`（数字任意，0 即可——测试不断言它）。
+
+**定位说明（勿困惑）**：这些字面量均无 `: MyTeam` 类型标注（vi.fn() 擦除返回类型，基线 tsc 已 0 error），所以本任务**不产生类型红、0 红是正常预期**——补齐仅为未来类型标注兜底的一次性迁移。真正会类型红的是 Task 4/6 新建的带标注测试文件（自带该字段）。
 
 - [ ] **Step 2: 类型 + 全量测试门**
 
@@ -140,7 +143,7 @@ Expected: 全绿（与改动前基线一致）
 
 ```bash
 git add apps/web/src
-git commit -m "test(web): 7 个 mock getMyTeams 的测试文件补 projectCount fixture（类型保绿基线）"
+git commit -m "test(web): 6 个含 MyTeam fixture 的测试文件补 projectCount（一致性补齐，0 红正常）"
 ```
 
 ---
@@ -554,7 +557,7 @@ const reset = () => {
 };
 
 describe('TeamSidebar', () => {
-  beforeEach(() => { vi.clearAllMocks(); reset(); });
+  beforeEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); reset(); });
 
   it('loading：渲染骨架占位', () => {
     render(<TeamSidebar onCreateTeam={vi.fn()} />);
@@ -951,13 +954,14 @@ onOk={async () => {
 void useTeamStore.getState().fetchTeams().then(refreshAll).catch(() => message.error('团队信息刷新失败'));
 ```
 
-9. 成员数同步（memberCount 变化必须刷 store，否则 sidebar 卡片数字陈旧）：移除成员（原 :368）与审批/拒绝（原 :430-431）的 `.then(refreshAll)` 统一改为：
+9. 成员数同步（memberCount 变化必须刷 store，否则 sidebar 卡片数字陈旧）。**只改这两处**：移除成员（原 :368 removeMember）与批准入团（原 :430 approveJoinRequest）的 `.then(refreshAll)` 改为：
 ```tsx
 .then(() => {
   void useTeamStore.getState().fetchTeams().catch(() => undefined);
   return refreshAll();
 })
 ```
+**不要顺手改**：拒绝申请（原 :431 reject——成员数不变，fetchTeams 纯冗余，仅保留 refreshAll）、改角色（原 :345 changeRole——memberCount 不变）。
 
 10. 文件尾部去掉 `{createModal}` 与其定义（留在外层壳）。
 
