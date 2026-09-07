@@ -49,7 +49,7 @@ TeamPage（布局壳：订阅 store 的 currentTeam/teams/status；持有 create
    │    · 选中态：bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 + border-cyan-500/30
    │    · 点击卡片 → store.switchTo(id)（个人项同样走 switchTo，不造特例）
    └─ section.flex-1.min-w-0（随文档流滚动）
-      └─ <TeamDetail key={team.id} team={currentTeam} />
+      └─ <TeamDetail key={team.id} team={currentTeam} onCreateTeam={() => setCreateOpen(true)} />
          ├─ team.isDefault → 个人面板（现 :160-203 搬入，删 select）
          └─ 团队管理（现 :222-495 搬入，删两个 select；tab/分页/七块数据（成员/余额/流水/限额/用量/加入申请/审计）/业务模态全内聚为本地 state）
 ```
@@ -89,11 +89,12 @@ interface TeamState {
 //            / selectJoinedTeams（!isDefault && !isOwner）——只 filter，不排序
 ```
 
-内部一个 `load(force)` 承载四件事：
-1. **in-flight 复用（仅 ensure 路径）**：TeamSwitcher 与 useTeams 同轮挂载（含 StrictMode 双调用）时 `/team/mine` 只打一次（去重目标）；`ensureTeams = load(false)`，`fetchTeams = load(true)`
+内部一个 `load(force)` 承载五件事：
+1. **in-flight 复用（仅 ensure 路径）**：TeamSwitcher、**TeamPage 自身**与 useTeams 同轮挂载（含 StrictMode 双调用）时 `/team/mine` 只打一次（去重目标）；TeamPage 挂载必须自己调 `ensureTeams()`——页面数据拉取不应依赖另一组件恰好挂载，且其测试独立 render 无 TopActionBar；`ensureTeams = load(false)`，`fetchTeams = load(true)`
 2. **force 优先级规则**：`force` 不复用进行中的 in-flight——令当前 inFlight 失效并新发起请求；旧请求回包因 seq 较小被丢弃；inFlight 句柄绑定发起时的 seq，只允许当代请求在 finally 里清自己（防止旧请求 finally 误清新句柄）。否则创建团队链路 `createTeam → fetchTeams → switchTo(newId)` 可能拿回不含新团队的旧列表
 3. **seq 守卫**：每次拉取自增序号，回包序号不符即丢弃（防慢响应 A 覆盖新请求 B）
-4. **currentTeamId 归一化**：有效保留；无效落 `list[0]` 并写 LS（收编 TeamSwitcher:17-21 解散兜底）；空列表置 null（防御保留，后端保证默认团队存在，teamApi.ts:47 注释佐证）
+4. **发起时 status 规则**：`teams.length === 0` 才置 `loading`；已有旧数据时 force 静默刷新、不动 status（保持 success 旧数据继续渲染）——否则「重拉失败保留上下文」会被骨架屏架空；error 态点重试时 teams 为空自然回 loading，三态自洽
+5. **currentTeamId 归一化**：有效保留；无效落 `list[0]` 并写 LS（收编 TeamSwitcher:17-21 解散兜底）；空列表置 null（防御保留，后端保证默认团队存在，teamApi.ts:47 注释佐证）
 
 不变量：
 - store 创建即 `loading` 初始态；**不在 store 内自动拉取**（AuthProvider user 未就绪），由登录态消费者 effect 调 `ensureTeams`
@@ -106,7 +107,7 @@ interface TeamState {
 
 | 操作 | 链路 |
 |---|---|
-| 创建团队 | `createTeam(name) → fetchTeams() → switchTo(newId)`（返回体只有 {id,name}，拼不出列表项，不手凑默认值） |
+| 创建团队 | `createTeam(name) → fetchTeams() → switchTo(newId)`（前端可用字段不足以构造列表项，不手凑默认值）。**失败分支**：fetchTeams 失败（后端团队已建成功）则 `message` 提示"已创建，稍后刷新"且**不 switchTo**——新 id 不在旧列表，切过去 currentTeam 悬空 |
 | 解散团队 | `disbandTeam(id) → store.remove(id)`（回退不变量在 store 内） |
 | 重命名 | `renameTeam(...) → store.upsert({id, name})` |
 | 转让所有权 / 审批入团（计数/角色集合变化） | `fetchTeams()` 强制重拉 |
@@ -146,7 +147,7 @@ interface TeamState {
 | 1 | 后端 team.service.spec `getMyTeams` 两个 describe（:141 起精确 `toEqual`、:190 起排序用例）都核对匹配器类型：`toEqual` 用例的 mock `_count` 与期望对象**两侧**同补 `projects`/`projectCount`（红绿承载点）；排序用例按其匹配器补 mock 仅为干净 | 未改 service 时 toEqual 两侧补后 undefined ≠ 期望数字 → 红；改 service → 绿 |
 | 2 | 前端 MyTeam 加 `projectCount` + `teamCreditsTotal` helper + teamApi.test 补 helper 断言（100+50=150，口径锁测试） | |
 | 3 | **7 个**mock getMyTeams 的测试文件机械补 `projectCount`（TeamPage / TeamSwitcher / useTeams / MaterialsPage / WorkspacePage / **WorkspacePage.folder-create** / TeamBillingPage 的 .test），保绿基线 | 注：部分文件 mock 写法类型宽松（现缺必填字段未红），是否类型红以 typecheck 实跑为准；全量补齐一次迁移 |
-| 4 | teamStore.test：初始化=LS 预置值且 switchTo 后改 LS 不影响 store（此后只写不读）；ensureTeams in-flight 去重（双挂载只打一次 /team/mine）；fetchTeams 强制重拉**且不复用进行中的 in-flight**（force 失效旧请求、seq 丢弃旧回包）；seq 丢弃慢响应；switchTo 写 LS 不导航；remove 当前项失效回退 list[0]；空列表→null；已有 teams 时重拉失败保留旧数据（维持 success，不进 error） | |
+| 4 | teamStore.test：初始化=LS 预置值且 switchTo 后改 LS 不影响 store（此后只写不读）；ensureTeams in-flight 去重（双挂载只打一次 /team/mine）；fetchTeams 强制重拉**且不复用进行中的 in-flight**（force 失效旧请求、seq 丢弃旧回包）；seq 丢弃慢响应；switchTo 写 LS 不导航；remove 当前项失效回退 list[0]；空列表→null；已有 teams 时重拉失败保留旧数据（维持 success，不进 error） | **测试隔离**：模块级 inFlight/seq 清不掉——store 导出测试专用 `_internal.reset()`（清 inFlight、seq 归零），afterEach 调用；seq 只比相对大小，跨用例递增无害，inFlight 必须清 |
 | 5 | TeamSidebar.test：loading 骨架 / error 重试 / success 三态；分组渲染（个人置顶 + 创建组 + 加入组 + 计数徽标=组长度）；「加入的团队」为 0 时整组不渲染；卡片三统计；点击卡片调 switchTo；个人项点击同样 switchTo；`+` 打开创建弹窗 | |
 | 6 | TeamPage 拆 TeamDetail（key 重挂载）、删两个 select 与空态分支、解散改 store.remove；TeamPage.test 迁移：select 切换用例（原 fireEvent.change select，见 TeamPage.test.tsx:118-175 区域）改点击列表项；空态用例（:127-134）改断言个人面板 + sidebar 创建入口；**集成断言：点击 B 卡片后 listMembers 以 B.id 被调用（无刷新核心承诺）** | |
 | 7 | TeamSwitcher 改订阅 store 并迁移测试（localStorage mock 断言 → store 驱动）；useTeams 适配层改造，useTeams.test 保绿 | |
