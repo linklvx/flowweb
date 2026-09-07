@@ -28,7 +28,7 @@
 
 `team.service.spec.ts` 第一个 getMyTeams 用例：mock 侧两处 `_count: { members: 3 }` → `_count: { members: 3, projects: 2 }`、`_count: { members: 1 }` → `_count: { members: 1, projects: 0 }`；期望对象 `memberCount: 3,` 后加 `projectCount: 2,`、`memberCount: 1,` 后加 `projectCount: 0,`。
 
-第二个 describe（:190 起"个人项目化"）的 mock `_count` 也顺手补 `projects: 0`（该组用 toMatchObject / 只比对 id 序，不承载红绿，补齐避免 undefined 混入）。
+第二个 describe（:190 起"个人项目化"）的 mock `_count` 共 5 处（:201、:210、:232-234）顺手一次补全 `projects: 0`（该组用 toMatchObject / 只比对 id 序，不承载红绿，补齐避免 undefined 混入）。
 
 - [ ] **Step 2: 跑测试确认红**
 
@@ -334,7 +334,10 @@ interface TeamState {
 export const useTeamStore = create<TeamState>((set, get) => {
   const normalize = (teams: MyTeam[]): { teams: MyTeam[]; currentTeamId: string | null } => {
     const cur = get().currentTeamId;
-    if (teams.length === 0) return { teams, currentTeamId: null };
+    if (teams.length === 0) {
+      persistTeamId(null);
+      return { teams, currentTeamId: null };
+    }
     if (cur && teams.some((t) => t.id === cur)) return { teams, currentTeamId: cur };
     persistTeamId(teams[0].id);
     return { teams, currentTeamId: teams[0].id };
@@ -432,9 +435,9 @@ git commit -m "feat(web): teamStore——ensureTeams 去重/fetchTeams 强制 + 
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.ts`（整体重写，返回形状不变）
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.test.tsx`（仅 beforeEach 加清场）
 
-- [ ] **Step 1: 先在测试中加清场（store 单例跨用例残留会让用例 2 拿到用例 1 的 success 缓存）**
+- [ ] **Step 1: 四个测试文件补 store 清场（单例污染链：上一用例残留 success → 下一用例 ensureTeams「success 跳过」→ 自己的 mock 不发请求 → 空态用例超时）**
 
-useTeams.test.tsx 头部 import 改为：
+(a) useTeams.test.tsx 头部 import 改为：
 ```ts
 import { useTeams } from './useTeams';
 import { useTeamStore, _internal } from '@/stores/teamStore';
@@ -449,10 +452,22 @@ beforeEach(() => {
 ```
 （两个用例本体与断言零改动——用例 1 断言 `['owned-1', 'joined-1']`：适配层 realTeams = owned 组 + joined 组拼接，结果一致）
 
-- [ ] **Step 2: 重写 useTeams.ts（完整文件）**
+(b) 同样的清场补进 3 个页面测试（它们经 useTeams 读同一 store 单例；MaterialsPage「无真实团队空态」、WorkspacePage「无真实团队空状态」两用例在前序用例残留非空 teams 时必然超时）：
+- `apps/web/src/pages/materials/MaterialsPage.test.tsx`
+- `apps/web/src/pages/workspace/__tests__/WorkspacePage.test.tsx`
+- `apps/web/src/pages/workspace/__tests__/WorkspacePage.folder-create.test.tsx`（当前全 mock `[]` 侥幸绿，统一补避免时序脆弱）
+
+每个文件：import 行加 `import { useTeamStore, _internal } from '@/stores/teamStore';`，已有 beforeEach 的 `vi.clearAllMocks()` 后追加：
+```ts
+_internal.reset();
+useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
+```
+（无 beforeEach 的文件新建一个；源码零改动——清场只动测试）
+
+- [ ] **Step 2: 重写 useTeams.ts（完整文件，注意 retry 保持旧版吞错契约）**
 
 ```ts
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { MyTeam } from '@/api/teamApi';
 import { useTeamStore, selectOwnedTeams, selectJoinedTeams } from '@/stores/teamStore';
 
@@ -472,24 +487,30 @@ export function useTeams() {
     void ensureTeams();
   }, [ensureTeams]);
 
+  // 旧版 retry 永不 reject（load 内部 try/catch）；消费页 onClick={() => retry()} 无 catch，
+  // fetchTeams 失败会 reject → 必须包一层维持吞错契约（错误已由 status==='error' 三态表达）
+  const retry = useCallback(() => {
+    void fetchTeams().catch(() => undefined);
+  }, [fetchTeams]);
+
   const realTeams = [...selectOwnedTeams(teams), ...selectJoinedTeams(teams)];
   const state: TeamsState = status === 'success'
     ? { status, teams }
     : { status };
-  return { state, realTeams, retry: fetchTeams };
+  return { state, realTeams, retry };
 }
 ```
 
 - [ ] **Step 3: 跑相关测试**
 
-Run: `pnpm --filter web exec vitest run src/pages/workspace/hooks/useTeams.test.tsx src/pages/workspace/__tests__/WorkspacePage.test.tsx src/pages/materials/MaterialsPage.test.tsx`
-Expected: 全 PASS（Workspace/Materials 页面零改动）
+Run: `pnpm --filter web exec vitest run src/pages/workspace/hooks/useTeams.test.tsx src/pages/workspace/__tests__/WorkspacePage.test.tsx src/pages/workspace/__tests__/WorkspacePage.folder-create.test.tsx src/pages/materials/MaterialsPage.test.tsx`
+Expected: 全 PASS（页面源码零改动；测试仅加清场）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/web/src/pages/workspace/hooks/useTeams.ts apps/web/src/pages/workspace/hooks/useTeams.test.tsx
-git commit -m "refactor(web): useTeams 收编为 teamStore 适配层（形状不变，删前端 ownerFirst 重排）"
+git add apps/web/src/pages/workspace apps/web/src/pages/materials
+git commit -m "refactor(web): useTeams 收编为 teamStore 适配层（形状不变、retry 吞错契约保持，删前端 ownerFirst 重排）"
 ```
 
 ---
@@ -509,7 +530,10 @@ import { TeamSidebar } from './TeamSidebar';
 import { useTeamStore, _internal } from '@/stores/teamStore';
 import type { MyTeam } from '@/api/teamApi';
 
-vi.mock('@/api/teamApi', () => ({ teamCreditsTotal: (b: { credits: number; subscriptionCredits: number }) => b.credits + b.subscriptionCredits }));
+vi.mock('@/api/teamApi', () => ({
+  teamCreditsTotal: (b: { credits: number; subscriptionCredits: number }) => b.credits + b.subscriptionCredits,
+  teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
+}));
 
 const team = (id: string, o: Partial<MyTeam> = {}): MyTeam => ({
   id, name: id, role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true,
@@ -751,9 +775,15 @@ TeamPage.test.tsx 改动：
 (a) 头部 import 增加：
 ```ts
 import { useTeamStore, _internal } from '@/stores/teamStore';
+import { within } from '@testing-library/react';
 ```
 
-(b) describe 内 beforeEach 改为：
+(b) hoisted api 工厂（:6-24）内补 TeamSidebar 依赖的 helper（整模块 mock 下缺失则渲染即崩）：
+```ts
+teamCreditsTotal: (b: { credits: number; subscriptionCredits: number }) => b.credits + b.subscriptionCredits,
+```
+
+(c) describe 内 beforeEach 改为：
 ```ts
 beforeEach(() => {
   vi.clearAllMocks();
@@ -764,7 +794,21 @@ beforeEach(() => {
 });
 ```
 
-(c) 用例 ⑪（:112-119）改写为点击列表项 + 集成断言：
+(d) 用例 ③（:69-76）改写为 within 作用域——sidebar 同屏后卡片积分 500/成员 2 与概览 total 500/席位 2 撞文本，getByText 多匹配直接抛错：
+```ts
+it('③ OverviewCard：剩余积分=总额+通用积分、席位 n/20、存储 1.0G/6.0G', async () => {
+  render(<MemoryRouter><TeamPage /></MemoryRouter>);
+  await screen.findByText('张三');
+  const detail = within(screen.getByTestId('team-detail'));
+  expect(detail.getByText('500')).toBeInTheDocument();
+  expect(detail.getByText('通用积分 400')).toBeInTheDocument();
+  expect(detail.getByText('2')).toBeInTheDocument();
+  expect(detail.getByText('1.0G')).toBeInTheDocument();
+});
+```
+（依赖 Step 4 布局壳 section 上的 `data-testid="team-detail"`；其余用例已核不撞，无需动）
+
+(e) 用例 ⑪（:112-119）改写为点击列表项 + 集成断言：
 ```ts
 it('⑪ 点击左侧列表项切换：store 更新且右侧数据以新 teamId 重拉（无刷新核心承诺）', async () => {
   render(<MemoryRouter><TeamPage /></MemoryRouter>);
@@ -775,7 +819,7 @@ it('⑪ 点击左侧列表项切换：store 更新且右侧数据以新 teamId �
 });
 ```
 
-(d) 空态用例（:127-134"只有默认团队时空状态"）改写——A1 下空态不可达，默认选中即个人面板：
+(f) 空态用例（:127-134"只有默认团队时空状态"）改写——A1 下空态不可达，默认选中即个人面板：
 ```ts
 it('只有默认团队时：渲染个人面板（无空态），创建入口在 sidebar', async () => {
   api.getMyTeams.mockResolvedValue([
@@ -788,7 +832,7 @@ it('只有默认团队时：渲染个人面板（无空态），创建入口在 
 });
 ```
 
-(e) "个人面板提供团队切换 select"（:151-167）改写为点击列表项：
+(g) "个人面板提供团队切换 select"（:151-167）改写为点击列表项：
 ```ts
 it('个人面板下点击右侧团队卡片切换到团队管理', async () => {
   api.getMyTeams.mockResolvedValue([
@@ -805,9 +849,9 @@ it('个人面板下点击右侧团队卡片切换到团队管理', async () => {
 });
 ```
 
-(f) 个人面板另两用例（:136-149、:169-181）：把 `localStorage.setItem('currentTeamId', 't1')` 替换为 `useTeamStore.setState({ currentTeamId: 't1' })`（store 初始化只读一次 LS，运行中 set LS 无效）；断言不变。
+(h) 个人面板另两用例（:136-149、:169-181）：把 `localStorage.setItem('currentTeamId', 't1')` 替换为 `useTeamStore.setState({ currentTeamId: 't1' })`（store 初始化只读一次 LS，运行中 set LS 无效）；断言不变。
 
-(g) `team` fixture（:31-35）已在 Task 3 补过 projectCount，无需再动。
+(i) `team` fixture（:31-35）已在 Task 3 补过 projectCount，无需再动。
 
 - [ ] **Step 2: 跑测试确认红**
 
@@ -907,7 +951,13 @@ onOk={async () => {
 void useTeamStore.getState().fetchTeams().then(refreshAll).catch(() => message.error('团队信息刷新失败'));
 ```
 
-9. 审批/拒绝（原 :430-431）：`.then(refreshAll)` 改为 `.then(() => { void useTeamStore.getState().fetchTeams().catch(() => undefined); return refreshAll(); })`
+9. 成员数同步（memberCount 变化必须刷 store，否则 sidebar 卡片数字陈旧）：移除成员（原 :368）与审批/拒绝（原 :430-431）的 `.then(refreshAll)` 统一改为：
+```tsx
+.then(() => {
+  void useTeamStore.getState().fetchTeams().catch(() => undefined);
+  return refreshAll();
+})
+```
 
 10. 文件尾部去掉 `{createModal}` 与其定义（留在外层壳）。
 
@@ -962,23 +1012,28 @@ export default function TeamPage() {
 
   const currentTeam = teams.find((t) => t.id === currentTeamId) ?? null;
 
+  // TeamSidebar 常驻（内部自带三态）；右侧 section 内部分流加载中/错误/TeamDetail
+  // —— spec §3「sidebar 两行骨架 + 右侧加载中 / 双侧错误态」，sidebar 的骨架/重试分支在真实页面可达
   return (
     <div className="text-[#e2e8f0]">
-      {status === 'loading' && <p className="text-sm text-[#888] p-8">加载中…</p>}
-      {status === 'error' && (
-        <div className="flex flex-col items-center py-20 gap-3" data-testid="team-load-error">
-          <p className="text-sm text-[#888]">团队列表加载失败</p>
-          <Button onClick={() => { void fetchTeams().catch(() => undefined); }}>重试</Button>
-        </div>
-      )}
-      {status === 'success' && currentTeam && (
-        <div className="flex items-start gap-6">
-          <TeamSidebar onCreateTeam={() => setCreateOpen(true)} />
-          <section className="flex-1 min-w-0">
+      <div className="flex items-start gap-6">
+        <TeamSidebar onCreateTeam={() => setCreateOpen(true)} />
+        <section className="flex-1 min-w-0" data-testid="team-detail">
+          {status !== 'success' && (
+            status === 'loading'
+              ? <p className="text-sm text-[#888] p-8">加载中…</p>
+              : (
+                <div className="flex flex-col items-center py-20 gap-3" data-testid="team-load-error">
+                  <p className="text-sm text-[#888]">团队列表加载失败</p>
+                  <Button onClick={() => { void fetchTeams().catch(() => undefined); }}>重试</Button>
+                </div>
+              )
+          )}
+          {status === 'success' && currentTeam && (
             <TeamDetail key={currentTeam.id} team={currentTeam} onCreateTeam={() => setCreateOpen(true)} />
-          </section>
-        </div>
-      )}
+          )}
+        </section>
+      </div>
       <Modal open={createOpen} title="新建团队" okText="创建" cancelText="取消" confirmLoading={creating}
         onCancel={() => setCreateOpen(false)} onOk={doCreateTeam}>
         <Input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="团队名称" />
@@ -1130,6 +1185,8 @@ Run: `pnpm --filter web test`
 Expected: 全绿
 Run: `pnpm --filter api test`
 Expected: 全绿（含 tsc）
+Run: `pnpm --filter web lint && pnpm --filter api lint`
+Expected: 0 error 0 warning（搬运后未使用导入之类问题在此拦截）
 
 - [ ] **Step 2: Commit（如有零星修正）**
 
