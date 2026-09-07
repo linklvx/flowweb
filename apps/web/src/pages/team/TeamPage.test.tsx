@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import TeamPage from './TeamPage';
+import { useTeamStore, _internal } from '@/stores/teamStore';
 
 const api = vi.hoisted(() => ({
   getMyTeams: vi.fn(),
@@ -20,6 +21,8 @@ const api = vi.hoisted(() => ({
   getTeamUsage: vi.fn(),
   // 新 TeamPage 调用 teamDisplayName；mock 工厂缺失则组件内 undefined 即崩
   teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
+  // TeamSidebar 依赖的 helper（整模块 mock 下缺失则渲染即崩）
+  teamCreditsTotal: (b: { credits: number; subscriptionCredits: number }) => b.credits + b.subscriptionCredits,
   createTeam: vi.fn(),
 }));
 
@@ -55,7 +58,13 @@ function setup() {
 }
 
 describe('TeamPage', () => {
-  beforeEach(() => { vi.clearAllMocks(); setup(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setup();
+    localStorage.clear();
+    _internal.reset();
+    useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
+  });
 
   it('① 布局：左导航 4 项 tab + 默认成员管理激活', async () => {
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
@@ -69,10 +78,11 @@ describe('TeamPage', () => {
   it('③ OverviewCard：剩余积分=总额+通用积分、席位 n/20、存储 1.0G/6.0G', async () => {
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     await screen.findByText('张三');
-    expect(screen.getByText('500')).toBeInTheDocument();
-    expect(screen.getByText('通用积分 400')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('1.0G')).toBeInTheDocument();
+    const detail = within(screen.getByTestId('team-detail'));
+    expect(detail.getByText('500')).toBeInTheDocument();
+    expect(detail.getByText('通用积分 400')).toBeInTheDocument();
+    expect(detail.getByText('2')).toBeInTheDocument();
+    expect(detail.getByText('1.0G')).toBeInTheDocument();
   });
 
   it('② 团队 ID 复制 + 邀请弹窗含链接', async () => {
@@ -109,13 +119,12 @@ describe('TeamPage', () => {
     expect(await screen.findByTestId('billing-page-marker')).toBeInTheDocument();
   });
 
-  it('⑪ 团队切换下拉：多团队显示并切换写 localStorage', async () => {
+  it('⑪ 点击左侧列表项切换：store 更新且右侧数据以新 teamId 重拉（无刷新核心承诺）', async () => {
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     await screen.findByText('张三');
-    const select = screen.getByTestId('team-switcher');
-    expect(select).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: 't2' } });
-    expect(localStorage.getItem('currentTeamId')).toBe('t2');
+    fireEvent.click(screen.getByTestId('team-card-t2'));
+    expect(useTeamStore.getState().currentTeamId).toBe('t2');
+    await waitFor(() => expect(api.listMembers).toHaveBeenCalledWith('t2', 1));
   });
 
   it('④ 预留席位占位行补齐（成员 2/20 → 18 个占位）', async () => {
@@ -124,13 +133,14 @@ describe('TeamPage', () => {
     expect(screen.getAllByText('— 空席位 —').length).toBe(18);
   });
 
-  it('只有默认团队时空状态+新建团队按钮', async () => {
+  it('只有默认团队时：渲染个人面板（无空态），创建入口在 sidebar', async () => {
     api.getMyTeams.mockResolvedValue([
       { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 0 }, subscription: null },
     ]);
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    expect(await screen.findByText(/还没有团队/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建团队' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建团队' })).toBeInTheDocument();
+    expect(screen.queryByText(/还没有团队/)).not.toBeInTheDocument();
   });
 
   it('选中默认团队时渲染个人项目精简面板（余额+订阅状态，无成员管理）', async () => {
@@ -138,7 +148,7 @@ describe('TeamPage', () => {
       { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
       { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
-    localStorage.setItem('currentTeamId', 't1');
+    useTeamStore.setState({ currentTeamId: 't1' });
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
@@ -148,22 +158,18 @@ describe('TeamPage', () => {
     await waitFor(() => expect(api.listMembers).not.toHaveBeenCalled());
   });
 
-  it('个人面板在有真实团队时提供团队切换 select', async () => {
-    // 双团队 fixture 对齐「个人项目精简面板」用例：t1 默认（个人）、t2 真实团队
+  it('个人面板下点击右侧团队卡片切换到团队管理', async () => {
     api.getMyTeams.mockResolvedValue([
       { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
       { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
-    localStorage.setItem('currentTeamId', 't1');
+    useTeamStore.setState({ currentTeamId: 't1' });
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
     expect(await screen.findByRole('heading', { name: '个人项目' })).toBeInTheDocument();
-    const select = screen.getByTestId('team-switcher');
-    expect(select).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: 't2' } });
-    // switchTeam 写 localStorage（location.reload 在 jsdom 仅告警不失败，对齐 ⑪ 号用例）
-    expect(localStorage.getItem('currentTeamId')).toBe('t2');
+    fireEvent.click(screen.getByTestId('team-card-t2'));
+    await waitFor(() => expect(useTeamStore.getState().currentTeamId).toBe('t2'));
+    expect(await screen.findByTestId('tab-members')).toBeInTheDocument();
   });
 
   it('个人精简面板充值按钮跳 /settings/credits、开通会员跳 /settings/membership', async () => {
@@ -171,7 +177,7 @@ describe('TeamPage', () => {
       { id: 't1', name: '我的团队', role: 'OWNER', status: 'ACTIVE', isDefault: true, isOwner: true, createdAt: '2026-08-01', memberCount: 1, projectCount: 0, balance: { credits: 100, subscriptionCredits: 50 }, subscription: { planName: 'pro', status: 'active', currentPeriodEnd: '2026-09-15' } },
       { id: 't2', name: '第二团队', role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true, createdAt: '2026-08-02', memberCount: 2, projectCount: 0, balance: { credits: 0, subscriptionCredits: 0 }, subscription: null },
     ]);
-    localStorage.setItem('currentTeamId', 't1');
+    useTeamStore.setState({ currentTeamId: 't1' });
     api.getTeamBalanceView.mockResolvedValue({ credits: 100, subscriptionCredits: 50, total: 150, quota: 0, used: 0 });
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
     // 面板新增切换 select 后默认团队 option 文本也是「个人项目」，改按 heading role 精确匹配 h2 标题
