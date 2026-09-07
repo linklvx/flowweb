@@ -9,6 +9,7 @@ export interface MyTeam {
   isOwner: boolean;
   createdAt: string;
   memberCount: number;
+  projectCount: number;
   balance: { credits: number; subscriptionCredits: number };
   subscription: { planName: string; status: string; currentPeriodEnd: string } | null;
 }
@@ -193,4 +194,9 @@ export function getAuditLogs(teamId: string, page = 1, pageSize = 20) {
 /** 显示名统一：默认团队（个人项目）在一切 UI 上显示为「个人项目」，不暴露「XX的团队」 */
 export function teamDisplayName(t: Pick<MyTeam, 'isDefault' | 'name'>): string {
   return t.isDefault ? '个人项目' : t.name;
+}
+
+/** 积分合计：与后端 getBalanceView 的 total 同式（credits + subscriptionCredits） */
+export function teamCreditsTotal(balance: Pick<MyTeam, 'balance'>['balance']): number {
+  return balance.credits + balance.subscriptionCredits;
 }

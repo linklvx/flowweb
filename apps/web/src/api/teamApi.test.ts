@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { teamDisplayName } from './teamApi';
+import { teamDisplayName, teamCreditsTotal } from './teamApi';
+
+describe('teamCreditsTotal', () => {
+  it('通用+订阅两池之和（与后端 getBalanceView total 同式）', () => {
+    expect(teamCreditsTotal({ credits: 100, subscriptionCredits: 50 })).toBe(150);
+    expect(teamCreditsTotal({ credits: 0, subscriptionCredits: 0 })).toBe(0);
+  });
+});
 
 describe('teamDisplayName', () => {
   it('默认团队显示「个人项目」', () => {
