@@ -8,6 +8,9 @@ vi.mock('@/api/teamApi', () => ({
   teamCreditsTotal: (b: { credits: number; subscriptionCredits: number }) => b.credits + b.subscriptionCredits,
   teamDisplayName: (t: { isDefault: boolean; name: string }) => (t.isDefault ? '个人项目' : t.name),
 }));
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+}));
 
 const team = (id: string, o: Partial<MyTeam> = {}): MyTeam => ({
   id, name: id, role: 'OWNER', status: 'ACTIVE', isDefault: false, isOwner: true,

@@ -8,6 +8,9 @@ vi.mock('@/api/teamApi', () => ({
   getMyTeams: (...args: any[]) => mockGetMyTeams(...args),
   teamDisplayName: (t: any) => t.name,
 }));
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+}));
 
 const team = (id: string, isOwner: boolean, isDefault = false) => ({ id, name: id, isOwner, isDefault, memberCount: 1, projectCount: 0 });
 

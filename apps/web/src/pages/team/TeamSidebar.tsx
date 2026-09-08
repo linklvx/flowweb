@@ -2,6 +2,7 @@ import {
   CrownFilled, FolderOutlined, PlusOutlined, SketchOutlined, TeamOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { useAnnouncementStore } from '@/stores/announcementStore';
+import { useAuth } from '@/components/AuthProvider';
 import { selectJoinedTeams, selectOwnedTeams, selectPersonalTeam, useTeamStore } from '@/stores/teamStore';
 import { teamCreditsTotal, teamDisplayName, type MyTeam } from '@/api/teamApi';
 
@@ -39,6 +40,7 @@ function TeamCard({ team, active, onClick }: { team: MyTeam; active: boolean; on
 }
 
 export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
+  const { user } = useAuth();
   const teams = useTeamStore((s) => s.teams);
   const status = useTeamStore((s) => s.status);
   const currentTeamId = useTeamStore((s) => s.currentTeamId);
@@ -80,7 +82,7 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
           <p className="mb-2">团队列表加载失败</p>
           <button
             type="button"
-            onClick={() => { void fetchTeams().catch(() => undefined); }}
+            onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}
             className="px-3 py-1 rounded border border-solid border-gray-600 text-gray-300 bg-transparent cursor-pointer font-[inherit]"
           >
             重试

@@ -37,7 +37,7 @@ describe('teamStore', () => {
     mockGetMyTeams.mockResolvedValue(LIST);
     useTeamStore.setState({ currentTeamId: 't1' });
     localStorage.setItem('currentTeamId', 'hacked');
-    return useTeamStore.getState().ensureTeams().then(() => {
+    return useTeamStore.getState().ensureTeams('u1').then(() => {
       expect(useTeamStore.getState().currentTeamId).toBe('t1');
     });
   });
@@ -45,19 +45,19 @@ describe('teamStore', () => {
   it('ensureTeams 去重：同轮双调用只打一次 /team/mine；success 后再调跳过', async () => {
     const d = deferred<MyTeam[]>();
     mockGetMyTeams.mockReturnValueOnce(d.promise);
-    const [a, b] = [useTeamStore.getState().ensureTeams(), useTeamStore.getState().ensureTeams()];
+    const [a, b] = [useTeamStore.getState().ensureTeams('u1'), useTeamStore.getState().ensureTeams('u1')];
     d.resolve(LIST);
     await Promise.all([a, b]);
     expect(mockGetMyTeams).toHaveBeenCalledTimes(1);
     expect(useTeamStore.getState().status).toBe('success');
-    await useTeamStore.getState().ensureTeams();
+    await useTeamStore.getState().ensureTeams('u1');
     expect(mockGetMyTeams).toHaveBeenCalledTimes(1);
   });
 
   it('归一化：currentTeamId 无效落 list[0] 并写 LS；有效保留', async () => {
     mockGetMyTeams.mockResolvedValue(LIST);
     useTeamStore.setState({ currentTeamId: 'dead' });
-    await useTeamStore.getState().ensureTeams();
+    await useTeamStore.getState().ensureTeams('u1');
     expect(useTeamStore.getState().currentTeamId).toBe('d');
     expect(localStorage.getItem('currentTeamId')).toBe('d');
   });
@@ -66,8 +66,8 @@ describe('teamStore', () => {
     const slow = deferred<MyTeam[]>();
     const fresh = deferred<MyTeam[]>();
     mockGetMyTeams.mockReturnValueOnce(slow.promise).mockReturnValueOnce(fresh.promise);
-    const ensure = useTeamStore.getState().ensureTeams();      // seq=1 慢
-    const force = useTeamStore.getState().fetchTeams();        // seq=2 夺权
+    const ensure = useTeamStore.getState().ensureTeams('u1');      // seq=1 慢
+    const force = useTeamStore.getState().fetchTeams('u1');        // seq=2 夺权
     slow.resolve([T_DEFAULT]);                                  // 旧回包：应被丢弃
     fresh.resolve(LIST);                                        // 新回包：落地
     await Promise.all([ensure.catch(() => undefined), force]);
@@ -77,14 +77,14 @@ describe('teamStore', () => {
 
   it('首次拉取失败 → error 终态且 ensureTeams 不抛；已有数据 force 失败 → 保留旧数据维持 success 且 fetchTeams 抛', async () => {
     mockGetMyTeams.mockRejectedValueOnce(new Error('boom'));
-    await useTeamStore.getState().ensureTeams();               // 不抛（三态兜底）
+    await useTeamStore.getState().ensureTeams('u1');               // 不抛（三态兜底）
     expect(useTeamStore.getState().status).toBe('error');
     expect(useTeamStore.getState().teams).toEqual([]);
 
     mockGetMyTeams.mockResolvedValueOnce(LIST);
-    await useTeamStore.getState().fetchTeams();
+    await useTeamStore.getState().fetchTeams('u1');
     mockGetMyTeams.mockRejectedValueOnce(new Error('boom2'));
-    await expect(useTeamStore.getState().fetchTeams()).rejects.toThrow('boom2');
+    await expect(useTeamStore.getState().fetchTeams('u1')).rejects.toThrow('boom2');
     expect(useTeamStore.getState().status).toBe('success');    // 保留
     expect(useTeamStore.getState().teams).toEqual(LIST);
   });
@@ -121,5 +121,71 @@ describe('teamStore', () => {
     expect(selectOwnedTeams(LIST).map((t) => t.id)).toEqual(['t1']);
     expect(selectJoinedTeams(LIST).map((t) => t.id)).toEqual(['t2']);
     expect(selectPersonalTeam([])).toBeNull();
+  });
+
+  describe('换账号失效（loadedUserId）', () => {
+    it('换号：A 成功后 ensureTeams(B) 清空重拉，currentTeamId 回落 B 的默认团队并覆盖 LS', async () => {
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      await useTeamStore.getState().ensureTeams('a');
+      expect(useTeamStore.getState().status).toBe('success');
+      useTeamStore.getState().switchTo('t2'); // A 会话选中 t2，LS=t2
+      const B_LIST = [team('bd', { isDefault: true, isOwner: true }), team('bt1', { name: 'B的团队' })];
+      mockGetMyTeams.mockResolvedValueOnce(B_LIST);
+      await useTeamStore.getState().ensureTeams('b');
+      expect(mockGetMyTeams).toHaveBeenCalledTimes(2);
+      expect(useTeamStore.getState().teams).toEqual(B_LIST);
+      expect(useTeamStore.getState().currentTeamId).toBe('bd'); // 不沿用 A 的 t2
+      expect(localStorage.getItem('currentTeamId')).toBe('bd');
+    });
+
+    it('换号清空时序：B 请求在途时 store 已同步清空为 loading/空列表', async () => {
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      await useTeamStore.getState().ensureTeams('a');
+      const d = deferred<MyTeam[]>();
+      mockGetMyTeams.mockReturnValueOnce(d.promise);
+      const p = useTeamStore.getState().ensureTeams('b');
+      expect(useTeamStore.getState().teams).toEqual([]); // 请求 resolve 前已清
+      expect(useTeamStore.getState().status).toBe('loading');
+      expect(useTeamStore.getState().currentTeamId).toBeNull();
+      d.resolve([T_DEFAULT]);
+      await p;
+      expect(useTeamStore.getState().status).toBe('success');
+    });
+
+    it('换号失败 → error 终态；同号再 ensure 重发（error 非短路）', async () => {
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      await useTeamStore.getState().ensureTeams('a');
+      mockGetMyTeams.mockRejectedValueOnce(new Error('boom'));
+      await useTeamStore.getState().ensureTeams('b'); // 吞错
+      expect(useTeamStore.getState().status).toBe('error');
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      await useTeamStore.getState().ensureTeams('b');
+      expect(useTeamStore.getState().status).toBe('success');
+    });
+
+    it('fetch 首拉确立 owner：fetchTeams(X) 成功后同号 ensure 短路不重拉', async () => {
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      await useTeamStore.getState().fetchTeams('x');
+      await useTeamStore.getState().ensureTeams('x');
+      expect(mockGetMyTeams).toHaveBeenCalledTimes(1);
+    });
+
+    it('A 在途时 B ensure：A 回包被 seq 丢弃，B 数据落地', async () => {
+      const slow = deferred<MyTeam[]>();
+      const bList = [team('bd2', { isDefault: true })];
+      mockGetMyTeams.mockReturnValueOnce(slow.promise).mockReturnValueOnce(Promise.resolve(bList));
+      const pa = useTeamStore.getState().ensureTeams('a'); // seq1 在途
+      const pb = useTeamStore.getState().ensureTeams('b'); // 换号 force，seq2
+      slow.resolve([T_DEFAULT]); // 旧包：丢弃
+      await Promise.all([pa, pb]);
+      expect(useTeamStore.getState().teams).toEqual(bList);
+    });
+
+    it('首拉不清 currentTeamId：owner 未立时保留既有选择（v4——首拉≠换号）', async () => {
+      mockGetMyTeams.mockResolvedValueOnce(LIST);
+      useTeamStore.setState({ currentTeamId: 't1' }); // 模拟 LS 读入
+      await useTeamStore.getState().ensureTeams('a');
+      expect(useTeamStore.getState().currentTeamId).toBe('t1'); // 有效即保留
+    });
   });
 });

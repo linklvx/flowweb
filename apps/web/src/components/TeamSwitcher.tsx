@@ -3,10 +3,12 @@ import { Dropdown, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
 import { teamDisplayName } from '@/api/teamApi';
+import { useAuth } from '@/components/AuthProvider';
 import { useTeamStore } from '@/stores/teamStore';
 
 /** 顶栏团队切换器：teamStore 驱动（挂载即 ensureTeams 拉取点）；只有默认团队时整体隐藏 */
 export function TeamSwitcher() {
+  const { user } = useAuth();
   const teams = useTeamStore((s) => s.teams);
   const status = useTeamStore((s) => s.status);
   const currentTeamId = useTeamStore((s) => s.currentTeamId);
@@ -14,8 +16,8 @@ export function TeamSwitcher() {
   const switchTo = useTeamStore((s) => s.switchTo);
 
   useEffect(() => {
-    void ensureTeams();
-  }, [ensureTeams]);
+    if (user) void ensureTeams(user.id);
+  }, [user, ensureTeams]);
 
   useEffect(() => {
     if (status === 'error') message.error('团队列表加载失败');

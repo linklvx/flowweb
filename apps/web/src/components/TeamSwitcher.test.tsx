@@ -11,6 +11,11 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/api/teamApi', () => api);
 
+const auth = vi.hoisted(() => ({ user: { id: 'a', name: 'A' } as { id: string; name: string } | null }));
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: auth.user, loading: false }),
+}));
+
 const team = (id: string, name: string, isDefault = false) => ({
   id, name, role: 'OWNER' as const, status: 'ACTIVE', isDefault, isOwner: true,
   createdAt: '2026-08-01', memberCount: 1, projectCount: 0,
@@ -24,6 +29,7 @@ describe('TeamSwitcher', () => {
     localStorage.clear();
     _internal.reset();
     useTeamStore.setState({ teams: [], status: 'loading', currentTeamId: null });
+    auth.user = { id: 'a', name: 'A' };
   });
 
   it('① 渲染列表 + 当前标记：currentTeamId=t2 → 按钮显示 B 团', async () => {
@@ -76,5 +82,24 @@ describe('TeamSwitcher', () => {
     render(<TeamSwitcher />);
     fireEvent.click(await screen.findByRole('button'));
     await waitFor(() => expect(screen.queryByText('新建团队')).not.toBeInTheDocument());
+  });
+
+  it('⑦ 换账号：user.id 变化 → 强制重拉，B 团队替换 A 团队', async () => {
+    api.getMyTeams.mockResolvedValue([team('a1', 'A团')]);
+    const { rerender } = render(<TeamSwitcher />);
+    await screen.findByText('A团');
+    api.getMyTeams.mockResolvedValue([team('b1', 'B团')]);
+    api.getMyTeams.mockClear();
+    auth.user = { id: 'b', name: 'B' };
+    rerender(<TeamSwitcher />);
+    await screen.findByText('B团');
+    expect(api.getMyTeams).toHaveBeenCalledTimes(1); // 换号强制重拉
+    expect(screen.queryByText('A团')).toBeNull();
+  });
+
+  it('⑧ 未登录 user=null：不发起任何拉取（if(user) 门控）', () => {
+    auth.user = null;
+    render(<TeamSwitcher />);
+    expect(api.getMyTeams).not.toHaveBeenCalled();
   });
 });

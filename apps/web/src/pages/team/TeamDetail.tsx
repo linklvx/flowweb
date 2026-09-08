@@ -284,7 +284,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
                               try {
                                 await transferOwnership(teamId, r.user.id);
                                 message.success('已转让所有权');
-                                void useTeamStore.getState().fetchTeams().then(refreshAll).catch(() => message.error('团队信息刷新失败'));
+                                void useTeamStore.getState().fetchTeams(user!.id).then(refreshAll).catch(() => message.error('团队信息刷新失败'));
                               } catch {
                                 message.error('转让失败');
                               }
@@ -297,7 +297,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
                           <Button size="small" onClick={() => { setQuotaTarget(r); setQuotaValue(String(r.monthlyQuota)); }}>配额度</Button>
                           <Button size="small" danger onClick={() => {
                             void removeMember(teamId, r.user.id).then(() => {
-                              void useTeamStore.getState().fetchTeams().catch(() => undefined);
+                              void useTeamStore.getState().fetchTeams(user!.id).catch(() => undefined);
                               return refreshAll();
                             });
                           }}>移除</Button>
@@ -364,7 +364,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
                   <div className="flex gap-2">
                     <Button size="small" type="primary" style={{ background: ACCENT, borderColor: ACCENT, color: '#000' }} onClick={() => {
                       void approveJoinRequest(teamId, r.id).then(() => {
-                        void useTeamStore.getState().fetchTeams().catch(() => undefined);
+                        void useTeamStore.getState().fetchTeams(user!.id).catch(() => undefined);
                         return refreshAll();
                       });
                     }}>批准</Button>

@@ -9,6 +9,9 @@ vi.mock('@/api/teamApi', () => ({
   getMyTeams: (...a: any[]) => mockGetMyTeams(...a),
   teamDisplayName: (t: any) => t.name,
 }));
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+}));
 vi.mock('@/components/MaterialLibrary/MaterialLibraryBrowser', () => ({
   MaterialLibraryBrowser: (p: any) => <div data-testid="browser">{p.title}</div>,
 }));

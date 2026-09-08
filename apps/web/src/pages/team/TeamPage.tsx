@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Button, Modal, Input, message } from 'antd';
 import { createTeam } from '@/api/teamApi';
+import { useAuth } from '@/components/AuthProvider';
 import { useTeamStore } from '@/stores/teamStore';
 import { TeamSidebar } from './TeamSidebar';
 import { TeamDetail } from './TeamDetail';
 
 /** /team 布局壳：订阅 store 三态；持有 createModal（sidebar 与右侧共用）；TeamDetail key 重挂载 */
 export default function TeamPage() {
+  const { user } = useAuth();
   const status = useTeamStore((s) => s.status);
   const teams = useTeamStore((s) => s.teams);
   const currentTeamId = useTeamStore((s) => s.currentTeamId);
@@ -18,7 +20,7 @@ export default function TeamPage() {
   const [creating, setCreating] = useState(false);
 
   // 页面自查数据，不依赖顶栏 TeamSwitcher 恰好挂载（独立 render 测试也无 TopActionBar）
-  useEffect(() => { void ensureTeams(); }, [ensureTeams]);
+  useEffect(() => { if (user) void ensureTeams(user.id); }, [user, ensureTeams]);
 
   // 创建链路：createTeam → fetchTeams 重拉 → switchTo；fetchTeams 失败不 switchTo（新 id 不在旧列表会悬空）
   const doCreateTeam = async () => {
@@ -33,7 +35,7 @@ export default function TeamPage() {
       return;
     }
     try {
-      await fetchTeams();
+      await fetchTeams(user!.id);
       useTeamStore.getState().switchTo(created.id);
       setCreateOpen(false);
       setCreateName('');
@@ -59,7 +61,7 @@ export default function TeamPage() {
               : (
                 <div className="flex flex-col items-center py-20 gap-3" data-testid="team-load-error">
                   <p className="text-sm text-[#888]">团队列表加载失败</p>
-                  <Button onClick={() => { void fetchTeams().catch(() => undefined); }}>重试</Button>
+                  <Button onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}>重试</Button>
                 </div>
               )
           )}

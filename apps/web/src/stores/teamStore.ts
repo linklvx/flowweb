@@ -22,16 +22,17 @@ function persistTeamId(id: string | null): void {
 
 let inFlight: Promise<MyTeam[]> | null = null;
 let seq = 0;
+let loadedUserId: string | null = null;
 
 interface TeamState {
   /** 信任后端排序（默认团队→OWNER→创建时间），前端只 filter 不重排 */
   teams: MyTeam[];
   status: 'loading' | 'error' | 'success';
   currentTeamId: string | null;
-  /** success 跳过；否则拉取并复用 in-flight（双挂载去重）。永不 reject（error 态由三态渲染兜底） */
-  ensureTeams: () => Promise<void>;
+  /** 换号检测 + success 跳过；否则拉取并复用 in-flight（双挂载去重）。永不 reject（error 态由三态渲染兜底） */
+  ensureTeams: (userId: string) => Promise<void>;
   /** 强制重拉：不复用 in-flight，失败 reject 由调用方 message 提示 */
-  fetchTeams: () => Promise<void>;
+  fetchTeams: (userId: string) => Promise<void>;
   /** 更新当前团队 + 持久记忆；不导航不校验（点击源保证 id 合法） */
   switchTo: (id: string) => void;
   /** 仅重命名等本地可推导字段（store 已有完整对象）；计数/角色变化走 fetchTeams */
@@ -52,7 +53,13 @@ export const useTeamStore = create<TeamState>((set, get) => {
     return { teams, currentTeamId: teams[0].id };
   };
 
-  const load = (force: boolean): Promise<MyTeam[]> => {
+  const load = (force: boolean, userId: string): Promise<MyTeam[]> => {
+    if (loadedUserId !== userId) {
+      const isSwitch = loadedUserId !== null; // 首拉（owner 未立）≠ 换号：不清 currentTeamId（保留 LS 记忆）
+      loadedUserId = userId; // 进入即记：扛 StrictMode 双 effect（第二发走同人路径复用 in-flight）
+      if (isSwitch) set({ teams: [], currentTeamId: null, status: 'loading' });
+      force = true;
+    }
     if (!force) {
       if (get().status === 'success') return Promise.resolve(get().teams);
       if (inFlight) return inFlight;
@@ -60,11 +67,14 @@ export const useTeamStore = create<TeamState>((set, get) => {
     const mySeq = ++seq;
     const request = getMyTeams().then(
       (teams) => {
-        if (mySeq === seq) set({ ...normalize(teams), status: 'success' });
+        if (mySeq === seq) {
+          loadedUserId = userId; // 成功回包统一确认归属（未经换号分支的 force 同样确立 owner）
+          set({ ...normalize(teams), status: 'success' });
+        }
         return teams;
       },
       (err) => {
-        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' });
+        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' }); // 旧代失败不置 error
         throw err;
       },
     );
@@ -82,11 +92,11 @@ export const useTeamStore = create<TeamState>((set, get) => {
     status: 'loading',
     currentTeamId: readSavedTeamId(),
 
-    ensureTeams: () => load(false).then(
+    ensureTeams: (userId) => load(false, userId).then(
       () => undefined,
       () => undefined, // 永不 reject：error 终态由消费组件三态渲染兜底
     ),
-    fetchTeams: () => load(true).then(() => undefined), // 失败透传，调用方 message
+    fetchTeams: (userId) => load(true, userId).then(() => undefined), // 失败透传，调用方 message
 
     switchTo: (id) => {
       set({ currentTeamId: id });
@@ -115,10 +125,11 @@ export const selectOwnedTeams = (teams: MyTeam[]): MyTeam[] =>
 export const selectJoinedTeams = (teams: MyTeam[]): MyTeam[] =>
   teams.filter((t) => !t.isDefault && !t.isOwner);
 
-/** 测试专用：清模块级 inFlight/seq（setState 清不掉它们） */
+/** 测试专用：清模块级 inFlight/seq/loadedUserId（setState 清不掉它们） */
 export const _internal = {
   reset() {
     inFlight = null;
     seq = 0;
+    loadedUserId = null;
   },
 };
