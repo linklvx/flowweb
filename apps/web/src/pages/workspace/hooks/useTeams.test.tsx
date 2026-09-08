@@ -53,7 +53,7 @@ describe('useTeams', () => {
     mockGetMyTeams.mockClear();
     first.unmount();
     const second = renderHook(() => useTeams());
-    await waitFor(() => expect(mockGetMyTeams).toHaveBeenCalledTimes(1)); // ensure 会跳过 → 当前红
+    await waitFor(() => expect(mockGetMyTeams).toHaveBeenCalledTimes(1)); // 旧 ensure 实现 success 短路不重发——回归哨兵
     await waitFor(() => expect(second.result.current.realTeams.map((t) => t.id)).toEqual(['owned-1', 'owned-2']));
   });
 });

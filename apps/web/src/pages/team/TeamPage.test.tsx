@@ -218,7 +218,7 @@ describe('TeamPage', () => {
     api.getMyTeams.mockClear();
     unmount();
     render(<MemoryRouter><TeamPage /></MemoryRouter>);
-    await waitFor(() => expect(api.getMyTeams).toHaveBeenCalledTimes(1)); // ensure 会跳过 → 当前红
+    await waitFor(() => expect(api.getMyTeams).toHaveBeenCalledTimes(1)); // 旧 ensure 实现 success 短路不重发——回归哨兵
     expect(await screen.findByText('新批准的团队')).toBeInTheDocument();
   });
 });
