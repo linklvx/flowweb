@@ -87,6 +87,7 @@ export class TeamService {
     });
     const rows = await Promise.all(memberships.map(async (m) => {
       // 订阅状态分叉：默认团队查个人订阅（UserSubscription），普通团队查 TeamSubscription
+      // 注意：默认团队每用户唯一——下方 isDefault 分支至多执行一次；若放开多 default 会退化为逐团队查询
       let subscription: { planName: string; status: string; currentPeriodEnd: Date } | null = null;
       if (m.team.isDefault) {
         const personal = await this.prisma.userSubscription.findFirst({
