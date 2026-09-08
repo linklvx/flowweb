@@ -80,7 +80,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 | 关注点 | 决策 | 理由 |
 |---|---|---|
 | loadedUserId 记录时机 | **换号分支进入即记** + 成功回包幂等确认 | 进入即记扛住 StrictMode 双 effect：若成功才记，第二发仍判"换号"再次 force（双请求+双清空）；进入即记后第二发走同人路径，非 success 态复用 in-flight。成功回包再记一次对 ensure 幂等，对 force 路径是唯一确立时机 |
-| 换号时 store 清理 | **仅真换号**（owner 已立：`loadedUserId !== null`）才 `teams: []`、`currentTeamId: null`、`status: 'loading'`；**首拉（owner=null，含整页刷新后 LS 记忆恢复）不清 currentTeamId** | 拉取期间显示骨架而非闪现 A 的团队列表（短暂信息错乱比空白更糟）。首拉不清的理由：整页刷新后 currentTeamId 来自 LS 恢复，清掉会丢失用户上次选中的团队；归一化沿用既有"有效保留"规则（teamStore.test 既有用例锁定此契约） |
+| 换号时 store 清理 | **仅真换号**（owner 已立：`loadedUserId !== null`）才 `teams: []`、`currentTeamId: null`、`status: 'loading'`；**首拉（owner=null，含整页刷新后 LS 记忆恢复）不清 currentTeamId** | 拉取期间不闪现 A 的团队列表（顶栏 TeamSwitcher 在 loading 态回落文字占位「团队」，侧栏走骨架——实现说明）。首拉不清的理由：整页刷新后 currentTeamId 来自 LS 恢复，清掉会丢失用户上次选中的团队；归一化沿用既有"有效保留"规则（teamStore.test 既有用例锁定此契约） |
 | localStorage 旧值 | **不主动清**，靠成功后 `normalize → persistTeamId(teams[0].id)` 覆盖 | store 模块只在加载时读一次 LS，运行期旧值不会被读到（内存 currentTeamId 已 null）；失败期间旧值无害，重试成功即覆盖 |
 | 拉取成功归一化 | currentTeamId 为 null → 回落 `teams[0]`（后端排序=默认团队优先） | 符合"新会话"直觉；A、B 同属某团队场景不再沿用 A 的选择，回落默认团队 |
 | 拉取失败 | status='error'（teams 已空）；loadedUserId 保持新值 | 下次挂载同 userId → `load(false, userId)` → error 非 success 短路 → 正常重发。无需回滚 loadedUserId |

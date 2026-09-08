@@ -40,7 +40,7 @@
 - Modify: `apps/web/src/stores/teamStore.ts`（load 重写 L55-78、签名 L31-34、`_internal` L118-124）
 - Test: `apps/web/src/stores/teamStore.test.ts`
 
-- [ ] **Step 1: 新增"换账号失效"用例组（写失败测试）**
+- [x] **Step 1: 新增"换账号失效"用例组（写失败测试）**
 
 在 teamStore.test.ts 的 `describe('teamStore', ...)` 内、`it('selectors...')` 用例之后追加（fixture `team`/`T_DEFAULT`/`LIST`/`deferred` 文件内已有）：
 
@@ -112,12 +112,12 @@
   });
 ```
 
-- [ ] **Step 2: 跑新用例确认失败**
+- [x] **Step 2: 跑新用例确认失败**
 
 Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
 Expected: FAIL——新用例中 `ensureTeams('a')` 传参在旧签名下被忽略，owner 概念不存在，"换号/短路/fetch 立 owner"断言均红（如第 1 条 `toHaveBeenCalledTimes(2)` 实际 1、第 4 条实际 2 等）。
 
-- [ ] **Step 3: 实现 store（最小实现）**
+- [x] **Step 3: 实现 store（最小实现）**
 
 teamStore.ts 三处修改。
 
@@ -197,12 +197,12 @@ export const _internal = {
 };
 ```
 
-- [ ] **Step 4: 跑新用例确认通过**
+- [x] **Step 4: 跑新用例确认通过**
 
 Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
 Expected: 新 describe 6 条 PASS。既有用例**大概率也绿**（vitest 不做类型检查，无参调用 `ensureTeams()` 运行时 userId=undefined：首调进换号分支记 owner=undefined、二调 undefined===undefined 同人短路——行为自洽），真正逼出 Step 5 迁移的是 Task 2 Step 10 的 `tsc --noEmit`（TS2554 缺参编译错）。勿因既有用例绿而跳过 Step 5。
 
-- [ ] **Step 5: 迁移既有用例（机械加参）**
+- [x] **Step 5: 迁移既有用例（机械加参）**
 
 teamStore.test.ts 既有用例中所有无参调用替换为带 `'u1'`（同用例内保持一致即可）：
 
@@ -218,7 +218,7 @@ teamStore.test.ts 既有用例中所有无参调用替换为带 `'u1'`（同用�
 - "运行中改 LS 不影响 store"（L34）：`ensureTeams('u1')` 是首拉（owner=null）→ 不清 `currentTeamId:'t1'` → normalize 保留 → 断言绿（正是 v4 语义）。
 - "ensureTeams 去重"（L45）：同轮双调，第一次进入换号分支记 owner='u1'，第二次同人 + loading 态复用 in-flight → 1 次请求；成功后再调短路 → 仍 1 次。绿。
 
-- [ ] **Step 6: store 测试全绿**
+- [x] **Step 6: store 测试全绿**
 
 Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
 Expected: 全部 PASS（此时消费组件尚未迁移——不跑全量、不提交，Task 2 末尾统一提交）。
@@ -235,7 +235,7 @@ Expected: 全部 PASS（此时消费组件尚未迁移——不跑全量、不�
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.ts`
 - Test: 上述组件对应测试 + `WorkspacePage.test.tsx`、`WorkspacePage.folder-create.test.tsx`、`MaterialsPage.test.tsx`
 
-- [ ] **Step 1: TeamSwitcher.tsx 改造**
+- [x] **Step 1: TeamSwitcher.tsx 改造**
 
 import 区加 `import { useAuth } from '@/components/AuthProvider';`，组件体与 effect 替换：
 
@@ -255,7 +255,7 @@ export function TeamSwitcher() {
 
 （其余渲染逻辑不变。）
 
-- [ ] **Step 2: TeamPage.tsx 改造（本任务挂载仍 ensure，Task 3 再改 fetch）**
+- [x] **Step 2: TeamPage.tsx 改造（本任务挂载仍 ensure，Task 3 再改 fetch）**
 
 import 区加 `import { useAuth } from '@/components/AuthProvider';`；组件体：
 
@@ -282,7 +282,7 @@ import 区加 `import { useAuth } from '@/components/AuthProvider';`；组件体
                   <Button onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}>重试</Button>
 ```
 
-- [ ] **Step 3: TeamSidebar.tsx 改造**
+- [x] **Step 3: TeamSidebar.tsx 改造**
 
 import 区加 `import { useAuth } from '@/components/AuthProvider';`；`TeamSidebar` 组件体（L42 区域）加：
 
@@ -296,7 +296,7 @@ import 区加 `import { useAuth } from '@/components/AuthProvider';`；`TeamSide
             onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}
 ```
 
-- [ ] **Step 4: TeamDetail.tsx 三处带参（组件已有 `const { user } = useAuth()`，:50；组件体**无**局部 fetchTeams selector——三处保持 `useTeamStore.getState()` 形式，diff 最小）**
+- [x] **Step 4: TeamDetail.tsx 三处带参（组件已有 `const { user } = useAuth()`，:50；组件体**无**局部 fetchTeams selector——三处保持 `useTeamStore.getState()` 形式，diff 最小）**
 
 - :287 整行替换：
 
@@ -312,7 +312,7 @@ import 区加 `import { useAuth } from '@/components/AuthProvider';`；`TeamSide
 
 （`user!.id`：三处均在写操作异步回调内，RequireAuth 保证非空；裸 `fetchTeams(...)` 是未定义标识符，勿写。）
 
-- [ ] **Step 5: useTeams.ts 改造（本任务挂载仍 ensure，Task 3 再改 fetch）**
+- [x] **Step 5: useTeams.ts 改造（本任务挂载仍 ensure，Task 3 再改 fetch）**
 
 整文件替换为：
 
@@ -353,7 +353,7 @@ export function useTeams() {
 }
 ```
 
-- [ ] **Step 6: TeamSwitcher.test.tsx 补 mock + 新增换号用例**
+- [x] **Step 6: TeamSwitcher.test.tsx 补 mock + 新增换号用例**
 
 (a) mock 区（`vi.mock('@/api/teamApi', () => api);` 之后）加可变 user 的 mock：
 
@@ -389,7 +389,7 @@ vi.mock('@/components/AuthProvider', () => ({
   });
 ```
 
-- [ ] **Step 7: useTeams.test.tsx 补 mock**
+- [x] **Step 7: useTeams.test.tsx 补 mock**
 
 mock 区（`vi.mock('@/api/teamApi', ...)` 之后）加：
 
@@ -401,11 +401,11 @@ vi.mock('@/components/AuthProvider', () => ({
 
 （既有 2 用例断言不变：beforeEach 重置 store 后首拉行为与旧版等价。）
 
-- [ ] **Step 8: TeamSidebar.test.tsx 补 mock**
+- [x] **Step 8: TeamSidebar.test.tsx 补 mock**
 
 同 Step 7 格式，加在 `vi.mock('@/api/teamApi', ...)` 之后。（"点击重试调 fetchTeams"用例 :40 是 spyOn 断言被调，带参调用不影响。）
 
-- [ ] **Step 9: WorkspacePage.test.tsx / WorkspacePage.folder-create.test.tsx / MaterialsPage.test.tsx 补 mock**
+- [x] **Step 9: WorkspacePage.test.tsx / WorkspacePage.folder-create.test.tsx / MaterialsPage.test.tsx 补 mock**
 
 三个文件均在各自 `vi.mock('@/api/teamApi', ...)` 块之后加同款：
 
@@ -417,14 +417,14 @@ vi.mock('@/components/AuthProvider', () => ({
 
 （这些页面经 useTeams 间接渲染 useAuth，无 mock 即崩；断言不变——重置态首拉请求次数与旧版相同。）
 
-- [ ] **Step 10: 全量回归 + 类型检查**
+- [x] **Step 10: 全量回归 + 类型检查**
 
 Run: `pnpm --filter @flowweb/web exec vitest run` 
 Expected: 全部 PASS
 Run: `pnpm --filter @flowweb/web exec tsc --noEmit`
 Expected: 无错误（必填签名下任何漏改调用点在此暴露）
 
-- [ ] **Step 11: Commit（Task 1 + Task 2 统一提交）**
+- [x] **Step 11: Commit（Task 1 + Task 2 统一提交）**
 
 ```bash
 git add apps/web/src/stores/teamStore.ts apps/web/src/stores/teamStore.test.ts apps/web/src/components/TeamSwitcher.tsx apps/web/src/components/TeamSwitcher.test.tsx apps/web/src/pages/team/TeamPage.tsx apps/web/src/pages/team/TeamSidebar.tsx apps/web/src/pages/team/TeamSidebar.test.tsx apps/web/src/pages/team/TeamDetail.tsx apps/web/src/pages/workspace/hooks/useTeams.ts apps/web/src/pages/workspace/hooks/useTeams.test.tsx apps/web/src/pages/workspace/__tests__/WorkspacePage.test.tsx apps/web/src/pages/workspace/__tests__/WorkspacePage.folder-create.test.tsx apps/web/src/pages/materials/MaterialsPage.test.tsx
@@ -440,7 +440,7 @@ git commit -m "feat(web): teamStore 换账号失效（loadedUserId，仅真换�
 - Modify: `apps/web/src/pages/workspace/hooks/useTeams.ts`（同）
 - Test: `apps/web/src/pages/team/TeamPage.test.tsx`、`apps/web/src/pages/workspace/hooks/useTeams.test.tsx`
 
-- [ ] **Step 1: TeamPage.test 新增重入用例（写失败测试）**
+- [x] **Step 1: TeamPage.test 新增重入用例（写失败测试）**
 
 describe 内末尾追加（fixture `team` 与 `setup()` 文件内已有）：
 
@@ -461,7 +461,7 @@ describe 内末尾追加（fixture `team` 与 `setup()` 文件内已有）：
   });
 ```
 
-- [ ] **Step 2: useTeams.test 新增重入用例（写失败测试）**
+- [x] **Step 2: useTeams.test 新增重入用例（写失败测试）**
 
 ```ts
   it('重入刷新：success 后重新挂载强制重拉（新团队可见）', async () => {
@@ -477,12 +477,12 @@ describe 内末尾追加（fixture `team` 与 `setup()` 文件内已有）：
   });
 ```
 
-- [ ] **Step 3: 跑两个新用例确认失败**
+- [x] **Step 3: 跑两个新用例确认失败**
 
 Run: `pnpm --filter @flowweb/web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
 Expected: 两条新用例 FAIL（挂载仍 ensure，success 态跳过 → `toHaveBeenCalledTimes(1)` 实际 0）；既有用例 PASS。
 
-- [ ] **Step 4: TeamPage.tsx 挂载改 fetch**
+- [x] **Step 4: TeamPage.tsx 挂载改 fetch**
 
 删除 `const ensureTeams = useTeamStore((s) => s.ensureTeams);` 行；挂载 effect 替换：
 
@@ -492,7 +492,7 @@ Expected: 两条新用例 FAIL（挂载仍 ensure，success 态跳过 → `toHav
   useEffect(() => { if (user) void fetchTeams(user.id).catch(() => undefined); }, [user, fetchTeams]);
 ```
 
-- [ ] **Step 5: useTeams.ts 挂载改 fetch**
+- [x] **Step 5: useTeams.ts 挂载改 fetch**
 
 删除 `const ensureTeams = useTeamStore((s) => s.ensureTeams);` 行；effect 替换：
 
@@ -504,19 +504,19 @@ Expected: 两条新用例 FAIL（挂载仍 ensure，success 态跳过 → `toHav
 
 （retry 不变。）
 
-- [ ] **Step 6: 跑两个文件确认全绿**
+- [x] **Step 6: 跑两个文件确认全绿**
 
 Run: `pnpm --filter @flowweb/web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
 Expected: 全部 PASS（新用例绿；既有用例不受影响——beforeEach 重置态下 ensure 与 fetch 首拉行为等价）。
 
-- [ ] **Step 7: 全量回归 + 类型检查**
+- [x] **Step 7: 全量回归 + 类型检查**
 
 Run: `pnpm --filter @flowweb/web exec vitest run` 
 Expected: 全部 PASS
 Run: `pnpm --filter @flowweb/web exec tsc --noEmit`
 Expected: 无错误
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/web/src/pages/team/TeamPage.tsx apps/web/src/pages/team/TeamPage.test.tsx apps/web/src/pages/workspace/hooks/useTeams.ts apps/web/src/pages/workspace/hooks/useTeams.test.tsx
@@ -530,7 +530,7 @@ git commit -m "feat(web): /team 与 works/materials 挂载改 fetchTeams 强制�
 **Files:**
 - Modify: `apps/api/src/modules/team/team.service.ts`（:89-91 注释区）
 
-- [ ] **Step 1: 加不变量注释（纯注释，无行为变化，无需测试）**
+- [x] **Step 1: 加不变量注释（纯注释，无行为变化，无需测试）**
 
 `getMyTeams` 的 map 内（:88-92 区域），在 `if (m.team.isDefault) {` 上方加一行注释：
 
@@ -542,12 +542,12 @@ git commit -m "feat(web): /team 与 works/materials 挂载改 fetchTeams 强制�
       if (m.team.isDefault) {
 ```
 
-- [ ] **Step 2: 后端 team 模块回归**
+- [x] **Step 2: 后端 team 模块回归**
 
 Run: `pnpm --filter @flowweb/api exec vitest run team.service`
 Expected: 全部 PASS（注释无行为影响）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/api/src/modules/team/team.service.ts
