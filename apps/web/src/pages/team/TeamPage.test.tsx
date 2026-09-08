@@ -27,8 +27,11 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/api/teamApi', () => api);
+const { stableUser } = vi.hoisted(() => ({ stableUser: { id: 'u1', name: '我' } }));
+// user 必须稳定引用（真实 AuthProvider 的 user 是 state）：每渲染新建对象会让
+// fetchTeams 的 [user] 依赖每帧重跑 → 强制重拉循环，重拉次数断言将失去语义
 vi.mock('@/components/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+  useAuth: () => ({ user: stableUser, loading: false }),
 }));
 
 const team = {
@@ -202,5 +205,20 @@ describe('TeamPage', () => {
     // 弹窗保持开启：输入框仍在文档、值未清空
     expect(screen.getByPlaceholderText('团队名称')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('团队名称')).toHaveValue('新团队');
+  });
+
+  it('⑫ 重入刷新：success 态重挂载强制重拉 /team/mine（他人侧变更可见）', async () => {
+    const { unmount } = render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    await waitFor(() => expect(useTeamStore.getState().status).toBe('success')); // 首挂成功
+    api.getMyTeams.mockResolvedValue([
+      team,
+      { ...team, id: 't2', name: '第二团队', role: 'MEMBER' as const, isOwner: false },
+      { ...team, id: 't3', name: '新批准的团队', role: 'MEMBER' as const, isOwner: false },
+    ]);
+    api.getMyTeams.mockClear();
+    unmount();
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    await waitFor(() => expect(api.getMyTeams).toHaveBeenCalledTimes(1)); // ensure 会跳过 → 当前红
+    expect(await screen.findByText('新批准的团队')).toBeInTheDocument();
   });
 });

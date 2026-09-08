@@ -9,8 +9,11 @@ vi.mock('@/api/teamApi', () => ({
   getMyTeams: (...a: any[]) => mockGetMyTeams(...a),
   teamDisplayName: (t: any) => t.name,
 }));
+// user 必须稳定引用（真实 AuthProvider 的 user 是 state）：每渲染新建对象会让
+// useTeams 挂载 fetchTeams 的 [user] 依赖每帧重跑 → 强制重拉无限循环卡死测试
+const { stableUser } = vi.hoisted(() => ({ stableUser: { id: 'u1', name: '我' } }));
 vi.mock('@/components/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+  useAuth: () => ({ user: stableUser, loading: false }),
 }));
 vi.mock('@/components/MaterialLibrary/MaterialLibraryBrowser', () => ({
   MaterialLibraryBrowser: (p: any) => <div data-testid="browser">{p.title}</div>,

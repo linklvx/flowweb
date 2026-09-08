@@ -13,12 +13,11 @@ export function useTeams() {
   const { user } = useAuth();
   const teams = useTeamStore((s) => s.teams);
   const status = useTeamStore((s) => s.status);
-  const ensureTeams = useTeamStore((s) => s.ensureTeams);
   const fetchTeams = useTeamStore((s) => s.fetchTeams);
 
   useEffect(() => {
-    if (user) void ensureTeams(user.id);
-  }, [user, ensureTeams]);
+    if (user) void fetchTeams(user.id).catch(() => undefined); // 每次进入拉新（#18）
+  }, [user, fetchTeams]);
 
   // 旧版 retry 永不 reject（load 内部 try/catch）；消费页 onClick={() => retry()} 无 catch，
   // fetchTeams 失败会 reject → 必须包一层维持吞错契约（错误已由 status==='error' 三态表达）

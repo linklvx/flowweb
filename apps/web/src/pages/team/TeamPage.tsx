@@ -12,15 +12,15 @@ export default function TeamPage() {
   const status = useTeamStore((s) => s.status);
   const teams = useTeamStore((s) => s.teams);
   const currentTeamId = useTeamStore((s) => s.currentTeamId);
-  const ensureTeams = useTeamStore((s) => s.ensureTeams);
   const fetchTeams = useTeamStore((s) => s.fetchTeams);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // 页面自查数据，不依赖顶栏 TeamSwitcher 恰好挂载（独立 render 测试也无 TopActionBar）
-  useEffect(() => { if (user) void ensureTeams(user.id); }, [user, ensureTeams]);
+  // 页面自查数据 + 每次进入强制拉新（他人侧变更：被批准入团/被移出/充值后返回）；
+  // 失败吞错——已有数据时 store 保留 success 静默旧数据，空列表失败走 error 三态
+  useEffect(() => { if (user) void fetchTeams(user.id).catch(() => undefined); }, [user, fetchTeams]);
 
   // 创建链路：createTeam → fetchTeams 重拉 → switchTo；fetchTeams 失败不 switchTo（新 id 不在旧列表会悬空）
   const doCreateTeam = async () => {

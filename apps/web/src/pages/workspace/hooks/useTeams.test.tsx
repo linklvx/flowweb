@@ -4,12 +4,15 @@ import { useTeams } from './useTeams';
 import { useTeamStore, _internal } from '@/stores/teamStore';
 
 const mockGetMyTeams = vi.fn();
+const { stableUser } = vi.hoisted(() => ({ stableUser: { id: 'u1', name: '我' } }));
 vi.mock('@/api/teamApi', () => ({
   getMyTeams: (...args: any[]) => mockGetMyTeams(...args),
   teamDisplayName: (t: any) => t.name,
 }));
+// user 必须稳定引用（真实 AuthProvider 的 user 是 state）：每渲染新建对象会让
+// fetchTeams 的 [user] 依赖每帧重跑 → 强制重拉循环，error 态被二次拉取打回 loading
 vi.mock('@/components/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'u1', name: '我' }, loading: false }),
+  useAuth: () => ({ user: stableUser, loading: false }),
 }));
 
 const team = (id: string, isOwner: boolean, isDefault = false) => ({ id, name: id, isOwner, isDefault, memberCount: 1, projectCount: 0 });
@@ -40,5 +43,17 @@ describe('useTeams', () => {
     mockGetMyTeams.mockResolvedValue([team('owned-1', true)]);
     result.current.retry();
     await waitFor(() => expect(result.current.state.status).toBe('success'));
+  });
+
+  it('重入刷新：success 后重新挂载强制重拉（新团队可见）', async () => {
+    mockGetMyTeams.mockResolvedValue([team('owned-1', true)]);
+    const first = renderHook(() => useTeams());
+    await waitFor(() => expect(first.result.current.state.status).toBe('success'));
+    mockGetMyTeams.mockResolvedValue([team('owned-1', true), team('owned-2', true)]);
+    mockGetMyTeams.mockClear();
+    first.unmount();
+    const second = renderHook(() => useTeams());
+    await waitFor(() => expect(mockGetMyTeams).toHaveBeenCalledTimes(1)); // ensure 会跳过 → 当前红
+    await waitFor(() => expect(second.result.current.realTeams.map((t) => t.id)).toEqual(['owned-1', 'owned-2']));
   });
 });
