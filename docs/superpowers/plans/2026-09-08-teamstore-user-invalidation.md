@@ -155,14 +155,12 @@ let loadedUserId: string | null = null;
     const mySeq = ++seq;
     const request = getMyTeams().then(
       (teams) => {
-        if (mySeq === seq) {
-          loadedUserId = userId; // 成功回包统一确认归属（未经换号分支的 force 同样确立 owner）
-          set({ ...normalize(teams), status: 'success' });
-        }
+        if (mySeq === seq) set({ ...normalize(teams), status: 'success' });
         return teams;
       },
       (err) => {
-        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' }); // 旧代失败不置 error
+        // 非当代回包不置 error；已有数据失败保留旧数据维持 success（owner 确立在入口分支，无需回包再写）
+        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' });
         throw err;
       },
     );
@@ -591,3 +589,5 @@ git commit -m "docs(api): getMyTeams 注明默认团队唯一性前提——isDe
 3. **Type consistency**：`ensureTeams(userId: string)`/`fetchTeams(userId: string)` 签名在 Task 1 定义、Task 2/3 调用一致；`_internal.reset()` 行为与测试清场四件套一致；`user!.id` 仅用于 TeamDetail 三处与 TeamPage 创建链路（异步回调），其余 `if (user)` 门控——规则与"关键约定"节一致。
 
 **外部审核修订记录（2026-09-08，执行前）**：①全部 pnpm filter 改完整包名 `@flowweb/web`/`@flowweb/api`（短名实测 No projects matched）；②TeamDetail 三处目标代码写全 `useTeamStore.getState().fetchTeams(user!.id)`（组件无局部 selector，裸标识符即 TS2304）；③补 TeamSwitcher 用例⑧ user=null 门控（spec §6 硬性要求）；④Task5 验收 8 措辞改 v4 语义（ensure 首拉非换号）+ F5 选中保持断言；⑤Task1 Step4 Expected 改准（vitest 不查类型，既有用例运行时自洽，迁移由 tsc 逼出）。不采纳：PowerShell `&&` 兼容提示（本执行环境为 bash）。
+
+**执行期修订记录（2026-09-08，Task 1+2 质量审查后，commit 7020b0d）**：⑥删除成功回包内 `loadedUserId = userId` 死赋值——质量审查证明任何 loadedUserId 变更必伴随 `++seq`，回调执行到该行时恒等；owner 确立全部在入口分支（spec v5 同步修正）。"fetch 首拉确立 owner"用例仍绿，行为零变化。⑦错误分支注释补全覆盖两个条件。

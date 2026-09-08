@@ -1,7 +1,7 @@
 # teamStore 换账号失效 + 团队入口重入刷新 设计文档
 
 日期：2026-09-08
-状态：已定稿（v2：吸收外部审核 P1——换号检测下沉 load + fetchTeams 必填 + 成功回包统一写 owner；v3：修正 E1/E2 事实错误 + E3/E5/E6 措辞精确化；v4：plan 编写阶段发现并修正"首拉≠换号"——仅 owner 已立的真换号才清空，首拉保留 LS 记忆的 currentTeamId）
+状态：已定稿（v2：吸收外部审核 P1——换号检测下沉 load + fetchTeams 必填；v3：修正 E1/E2 事实错误 + E3/E5/E6 措辞精确化；v4：plan 编写阶段发现并修正"首拉≠换号"——仅 owner 已立的真换号才清空，首拉保留 LS 记忆的 currentTeamId；v5：实现后质量审查发现并删除"成功回包统一写 owner"死赋值——owner 确立全部在入口分支）
 关联登记：上线必修项 #17、#18（project_launch_blockers memory，2026-09-08 team-settings-sidebar 任务审查发现）
 取代：2026-09-07-team-settings-sidebar-design.md §1 YAGNI 第 3 条（"换账号窗口期由失效回退兜底"——理由经推演不成立）与 §4.1 相关取舍（TeamPage 挂载 ensure 的 success-skip——他人侧变更不可见的连带后果）
 
@@ -60,10 +60,7 @@ const load = (force: boolean, userId: string): Promise<MyTeam[]> => {
   }
   const mySeq = ++seq;
   const request = getMyTeams().then((teams) => {
-    if (mySeq === seq) {
-      loadedUserId = userId;             // 成功回包统一确认归属（force 路径确立 owner 的唯一时机）
-      set({ ...normalize(teams), status: 'success' });
-    }
+    if (mySeq === seq) set({ ...normalize(teams), status: 'success' });
     return teams;
   }, /* 错误分支不变 */);
   /* inFlight 句柄绑定当代 seq、finally 守卫——全部不变 */
@@ -75,7 +72,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 
 - **两个 action 均 userId 必填**（本项目无向后兼容前提）：TS 编译期逼出全部调用点，漏传即编译错。失效判定内聚 store，组件只传"当前是谁"标量；store 与 auth 互不依赖。
 - **换号检测下沉 load**（v2，吸收审核 P1）：fetch 首拉也走换号分支——独立 render（无 TopActionBar 的测试）或未来不套 AppLayout 的登录态页面（/canvas 先例）以 fetch 为首拉时同样确立归属，消除对"TopActionBar 先于 Outlet"隐式 JSX 顺序的依赖。否则 owner 滞后 → 后续 ensure 误判换号 → 清空已拉列表、闪骨架、重复请求（无数据错乱，seq 兜底，但难排查）。
-- **成功回包统一写 owner**：对经过换号分支的调用是幂等确认（进入即记已写过）；对**未经过换号分支的 force**——即 owner 已确立后的写操作强刷（TeamDetail 写后同步、TeamPage 创建后刷新）——是归属的持续确认。owner 未确立时（如独立 render 的 fetch 首拉）必经换号分支（loadedUserId null ≠ userId），不存在"不写 owner 的拉取"。
+- **owner 确立全部在入口分支（v5 修正）**：任何 `loadedUserId` 变更必伴随 `++seq`（入口分支置 force=true 必达发请求），旧回调因 seq 不符整体跳过——成功回包内无需（也不会有效）再写 owner。原 v2 吸收的"成功回包统一写 owner"经实现后质量审查证明为死赋值，已删除；force 路径（含独立 render 首拉）的归属确立同样发生在入口进入即记处。
 - `_internal.reset()` 增清 `loadedUserId`（现有测试清场四件套即覆盖）。
 
 ### 3.2 换号分支语义（逐项定死）
