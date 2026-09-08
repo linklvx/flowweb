@@ -114,7 +114,7 @@
 
 - [ ] **Step 2: 跑新用例确认失败**
 
-Run: `pnpm --filter web exec vitest run src/stores/teamStore.test.ts`
+Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
 Expected: FAIL——新用例中 `ensureTeams('a')` 传参在旧签名下被忽略，owner 概念不存在，"换号/短路/fetch 立 owner"断言均红（如第 1 条 `toHaveBeenCalledTimes(2)` 实际 1、第 4 条实际 2 等）。
 
 - [ ] **Step 3: 实现 store（最小实现）**
@@ -201,8 +201,8 @@ export const _internal = {
 
 - [ ] **Step 4: 跑新用例确认通过**
 
-Run: `pnpm --filter web exec vitest run src/stores/teamStore.test.ts`
-Expected: 新 describe 6 条 PASS；既有用例可能红（无参调用传给必填参数——JS 运行时 userId=undefined 恒走换号分支，行为在重置态大多等价，但"success 后再调跳过"类会红）。既有用例迁移在 Step 5。
+Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
+Expected: 新 describe 6 条 PASS。既有用例**大概率也绿**（vitest 不做类型检查，无参调用 `ensureTeams()` 运行时 userId=undefined：首调进换号分支记 owner=undefined、二调 undefined===undefined 同人短路——行为自洽），真正逼出 Step 5 迁移的是 Task 2 Step 10 的 `tsc --noEmit`（TS2554 缺参编译错）。勿因既有用例绿而跳过 Step 5。
 
 - [ ] **Step 5: 迁移既有用例（机械加参）**
 
@@ -222,7 +222,7 @@ teamStore.test.ts 既有用例中所有无参调用替换为带 `'u1'`（同用�
 
 - [ ] **Step 6: store 测试全绿**
 
-Run: `pnpm --filter web exec vitest run src/stores/teamStore.test.ts`
+Run: `pnpm --filter @flowweb/web exec vitest run src/stores/teamStore.test.ts`
 Expected: 全部 PASS（此时消费组件尚未迁移——不跑全量、不提交，Task 2 末尾统一提交）。
 
 ---
@@ -298,13 +298,21 @@ import 区加 `import { useAuth } from '@/components/AuthProvider';`；`TeamSide
             onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}
 ```
 
-- [ ] **Step 4: TeamDetail.tsx 三处带参（组件已有 `const { user } = useAuth()`，:50）**
+- [ ] **Step 4: TeamDetail.tsx 三处带参（组件已有 `const { user } = useAuth()`，:50；组件体**无**局部 fetchTeams selector——三处保持 `useTeamStore.getState()` 形式，diff 最小）**
 
-- :287 `void useTeamStore.getState().fetchTeams().then(refreshAll).catch(() => message.error('团队信息刷新失败'));` → `fetchTeams(user!.id)`（其余链不变）
-- :300 `void useTeamStore.getState().fetchTeams().catch(() => undefined);` → `fetchTeams(user!.id)`
-- :367 同 :300 → `fetchTeams(user!.id)`
+- :287 整行替换：
 
-（`user!.id`：三处均在写操作异步回调内，RequireAuth 保证非空。）
+```ts
+                                void useTeamStore.getState().fetchTeams(user!.id).then(refreshAll).catch(() => message.error('团队信息刷新失败'));
+```
+
+- :300 与 :367 整行替换（两处相同）：
+
+```ts
+                              void useTeamStore.getState().fetchTeams(user!.id).catch(() => undefined);
+```
+
+（`user!.id`：三处均在写操作异步回调内，RequireAuth 保证非空；裸 `fetchTeams(...)` 是未定义标识符，勿写。）
 
 - [ ] **Step 5: useTeams.ts 改造（本任务挂载仍 ensure，Task 3 再改 fetch）**
 
@@ -375,6 +383,12 @@ vi.mock('@/components/AuthProvider', () => ({
     expect(api.getMyTeams).toHaveBeenCalledTimes(1); // 换号强制重拉
     expect(screen.queryByText('A团')).toBeNull();
   });
+
+  it('⑧ 未登录 user=null：不发起任何拉取（if(user) 门控）', () => {
+    auth.user = null;
+    render(<TeamSwitcher />);
+    expect(api.getMyTeams).not.toHaveBeenCalled();
+  });
 ```
 
 - [ ] **Step 7: useTeams.test.tsx 补 mock**
@@ -407,9 +421,9 @@ vi.mock('@/components/AuthProvider', () => ({
 
 - [ ] **Step 10: 全量回归 + 类型检查**
 
-Run: `pnpm --filter web exec vitest run` 
+Run: `pnpm --filter @flowweb/web exec vitest run` 
 Expected: 全部 PASS
-Run: `pnpm --filter web exec tsc --noEmit`
+Run: `pnpm --filter @flowweb/web exec tsc --noEmit`
 Expected: 无错误（必填签名下任何漏改调用点在此暴露）
 
 - [ ] **Step 11: Commit（Task 1 + Task 2 统一提交）**
@@ -467,7 +481,7 @@ describe 内末尾追加（fixture `team` 与 `setup()` 文件内已有）：
 
 - [ ] **Step 3: 跑两个新用例确认失败**
 
-Run: `pnpm --filter web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
+Run: `pnpm --filter @flowweb/web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
 Expected: 两条新用例 FAIL（挂载仍 ensure，success 态跳过 → `toHaveBeenCalledTimes(1)` 实际 0）；既有用例 PASS。
 
 - [ ] **Step 4: TeamPage.tsx 挂载改 fetch**
@@ -494,14 +508,14 @@ Expected: 两条新用例 FAIL（挂载仍 ensure，success 态跳过 → `toHav
 
 - [ ] **Step 6: 跑两个文件确认全绿**
 
-Run: `pnpm --filter web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
+Run: `pnpm --filter @flowweb/web exec vitest run src/pages/team/TeamPage.test.tsx src/pages/workspace/hooks/useTeams.test.tsx`
 Expected: 全部 PASS（新用例绿；既有用例不受影响——beforeEach 重置态下 ensure 与 fetch 首拉行为等价）。
 
 - [ ] **Step 7: 全量回归 + 类型检查**
 
-Run: `pnpm --filter web exec vitest run` 
+Run: `pnpm --filter @flowweb/web exec vitest run` 
 Expected: 全部 PASS
-Run: `pnpm --filter web exec tsc --noEmit`
+Run: `pnpm --filter @flowweb/web exec tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 8: Commit**
@@ -532,7 +546,7 @@ git commit -m "feat(web): /team 与 works/materials 挂载改 fetchTeams 强制�
 
 - [ ] **Step 2: 后端 team 模块回归**
 
-Run: `pnpm --filter api exec vitest run team.service`
+Run: `pnpm --filter @flowweb/api exec vitest run team.service`
 Expected: 全部 PASS（注释无行为影响）
 
 - [ ] **Step 3: Commit**
@@ -561,7 +575,7 @@ git commit -m "docs(api): getMyTeams 注明默认团队唯一性前提——isDe
 | 5 | 积分刷新 | TeamBillingPage 操作后返回 /team，侧栏积分=新值 |
 | 6 | 顶栏不重复拉取 | 同账号路由来回切换，preview_network 中 `/team/mine` 无新增 |
 | 7 | works/materials 重入 | 每次进入恰一次 `/team/mine`（生产单请求） |
-| 8 | 硬刷新 /team 双发 | F5 后恰 2 次 `/team/mine`（ensure 换号首发 + 页面 force），均 200 |
+| 8 | 硬刷新 /team 双发 + 选中保持 | F5 后恰 2 次 `/team/mine`（ensure 首拉（owner 未立，v4 不清 currentTeamId）+ TeamPage force），均 200；**F5 后当前选中团队不被重置**（v4 首拉保留 LS 记忆的用户可感行为，单测已锁机制、浏览器层补验） |
 | 9 | 同号重登 | 登出同账号再登录（LoginModal）→ 无 `/team/mine` 新增；随后进 /team 恰一次 |
 
 - [ ] **Step 3: 验收记录**（截图/网络面板证据；逐项通过后在本文档勾选；发现偏差回到对应 Task 修复）
@@ -575,3 +589,5 @@ git commit -m "docs(api): getMyTeams 注明默认团队唯一性前提——isDe
 1. **Spec coverage**：§3.1/3.2（loadedUserId、isSwitch、成功回包写 owner）→ Task 1；§4 挂载表与调用点迁移 → Task 2；§4 ensure→fetch + TeamSwitcher 保持 ensure → Task 2/3；§5 清单逐文件对应 Task 2/3；§6 测试清单 ①-⑥ → Task 1 Step 1（⑥拆为换号清空时序+首拉保留两条）、迁移 → Task 1 Step 5、TeamSwitcher 带参 → Task 2 Step 6、TeamPage/useTeams force → Task 3 Step 1/2、机械保绿 → Task 2 Step 6-9；§7 验收 → Task 5；§8 注意事项（E4 注释）→ Task 4。无缺口。
 2. **Placeholder scan**：无 TBD/TODO；所有代码步骤含完整代码；命令含期望输出。
 3. **Type consistency**：`ensureTeams(userId: string)`/`fetchTeams(userId: string)` 签名在 Task 1 定义、Task 2/3 调用一致；`_internal.reset()` 行为与测试清场四件套一致；`user!.id` 仅用于 TeamDetail 三处与 TeamPage 创建链路（异步回调），其余 `if (user)` 门控——规则与"关键约定"节一致。
+
+**外部审核修订记录（2026-09-08，执行前）**：①全部 pnpm filter 改完整包名 `@flowweb/web`/`@flowweb/api`（短名实测 No projects matched）；②TeamDetail 三处目标代码写全 `useTeamStore.getState().fetchTeams(user!.id)`（组件无局部 selector，裸标识符即 TS2304）；③补 TeamSwitcher 用例⑧ user=null 门控（spec §6 硬性要求）；④Task5 验收 8 措辞改 v4 语义（ensure 首拉非换号）+ F5 选中保持断言；⑤Task1 Step4 Expected 改准（vitest 不查类型，既有用例运行时自洽，迁移由 tsc 逼出）。不采纳：PowerShell `&&` 兼容提示（本执行环境为 bash）。
