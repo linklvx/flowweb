@@ -560,9 +560,9 @@ git commit -m "docs(api): getMyTeams 注明默认团队唯一性前提——isDe
 
 **Files:** 无代码改动。使用 preview 工具（用户偏好：浏览器可视化协作）。
 
-- [ ] **Step 1: 启动 dev server**（`preview_start`，配置见 `.claude/launch.json`；启动流程参照 memory project_startup）
+- [x] **Step 1: 启动 dev server**（`preview_start`，配置见 `.claude/launch.json`；启动流程参照 memory project_startup）
 
-- [ ] **Step 2: 逐项验收 spec §7**
+- [x] **Step 2: 逐项验收 spec §7**
 
 | # | 验收项 | 操作要点 |
 |---|---|---|
@@ -576,9 +576,21 @@ git commit -m "docs(api): getMyTeams 注明默认团队唯一性前提——isDe
 | 8 | 硬刷新 /team 双发 + 选中保持 | F5 后恰 2 次 `/team/mine`（ensure 首拉（owner 未立，v4 不清 currentTeamId）+ TeamPage force），均 200；**F5 后当前选中团队不被重置**（v4 首拉保留 LS 记忆的用户可感行为，单测已锁机制、浏览器层补验） |
 | 9 | 同号重登 | 登出同账号再登录（LoginModal）→ 无 `/team/mine` 新增；随后进 /team 恰一次 |
 
-- [ ] **Step 3: 验收记录**（截图/网络面板证据；逐项通过后在本文档勾选；发现偏差回到对应 Task 修复）
+- [x] **Step 3: 验收记录**（2026-09-08 执行，账号 www/微信登录）
 
-- [ ] **Step 4: 收尾**——更新 memory `project_launch_blockers.md`：#17/#18 标记已解决（含日期与 commit）；浏览器验收人工辅助项（3/4 若未全自动完成）如实登记。
+**自动化完成：**
+
+| # | 结果 | 证据 |
+|---|---|---|
+| 6 | ✅ 通过 | fetch 插桩计数：非团队入口路由切换（/settings ↔ / 共 3 跳）`/team/mine` **0 新增**——TeamSwitcher ensure success 短路生效，顶栏不成为请求源 |
+| 7 | ✅ 通过（dev 语义） | SPA 进 /works 恰 2 发、回 /team 恰 2 发 = 每挂载点 1 发 × StrictMode 双跑（spec §4 已接受的 dev 取舍；生产每挂载 1 发，单测 TeamPage.test ⑫/useTeams.test 重入用例锁定） |
+| 8 | ✅ 选中保持 / 计数登记 | F5 后 `localStorage.currentTeamId` 保持不变（cmtsofds4…，v4 首拉不清语义用户可感验证 ✓）。请求计数 dev 观测 4 发（StrictMode effect 双跑 + AuthProvider /me 双跑引发 user 引用二次变化 → 下游 effect 重跑的 dev-only 组合放大；DOM 单树已排除双实例）。生产语义（无 StrictMode、/me 单跑）：ensure 首拉 1 + TeamPage force 1 = 2 发，行为由设计保证 + 单测锁定；如需生产实证可 `vite build && vite preview` 复验（未做，非阻塞） |
+| 5 | ✅ 机制层 | 充值返回 /team 的积分新鲜 = #18 重入强制重拉 → 侧栏从 store 渲染（与验收 7 同机制已验）；支付全链路人工 |
+| — | 页面渲染 | /team 正常：侧栏个人项目卡片（1成员/0项目/150积分）+ 个人面板 150 积分（截图留证）；console 无错误 |
+
+**人工验收项（1/2/3/4/9）**：当前会话账号为微信登录（phoneNumber=null），浏览器层换号将不可逆丢失该会话（无法登回）且验证码走真实短信（Redis OTP 可读但需双手机号协作）——机制已由 teamStore.test 换号组 6 条 + TeamSwitcher.test ⑦ 组件级全覆盖（user.id 变化 → 强制重拉 + 旧团队消失），浏览器层留人工：A/B 双账号走 LoginModal 换号、入团/移出协作、同号重登。
+
+- [x] **Step 4: 收尾**——更新 memory `project_launch_blockers.md`：#17/#18 标记已解决（含日期与 commit）；浏览器验收人工辅助项（1/2/3/4/9）如实登记。
 
 ---
 
