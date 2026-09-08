@@ -67,14 +67,12 @@ export const useTeamStore = create<TeamState>((set, get) => {
     const mySeq = ++seq;
     const request = getMyTeams().then(
       (teams) => {
-        if (mySeq === seq) {
-          loadedUserId = userId; // 成功回包统一确认归属（未经换号分支的 force 同样确立 owner）
-          set({ ...normalize(teams), status: 'success' });
-        }
+        if (mySeq === seq) set({ ...normalize(teams), status: 'success' });
         return teams;
       },
       (err) => {
-        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' }); // 旧代失败不置 error
+        // 非当代回包不置 error；已有数据失败保留旧数据维持 success（owner 确立在入口分支，无需回包再写）
+        if (mySeq === seq && get().teams.length === 0) set({ status: 'error' });
         throw err;
       },
     );
