@@ -1,7 +1,7 @@
 # teamStore 换账号失效 + 团队入口重入刷新 设计文档
 
 日期：2026-09-08
-状态：待用户审阅（v2：吸收外部审核 P1——换号检测下沉 load + fetchTeams 必填 + 成功回包统一写 owner）
+状态：待用户审阅（v2：吸收外部审核 P1——换号检测下沉 load + fetchTeams 必填 + 成功回包统一写 owner；v3：修正 E1/E2 事实错误 + E3/E5/E6 措辞精确化）
 关联登记：上线必修项 #17、#18（project_launch_blockers memory，2026-09-08 team-settings-sidebar 任务审查发现）
 取代：2026-09-07-team-settings-sidebar-design.md §1 YAGNI 第 3 条（"换账号窗口期由失效回退兜底"——理由经推演不成立）与 §4.1 相关取舍（TeamPage 挂载 ensure 的 success-skip——他人侧变更不可见的连带后果）
 
@@ -19,7 +19,7 @@
 不在范围（YAGNI）：
 - 不做 logout reset（全仓惯例不变，失效由 userId 对比承担）
 - 不改 in-flight 复用逻辑（force 语义就是不复用，为同轮去重加"新鲜度判断"过度设计）
-- 不引入 Sentry 等前端监控上报重入静默失败（项目无 Sentry SDK；静默旧数据由下次成功拉取自愈）
+- 不为重入静默失败引入前端监控上报（前端未装 @sentry/react——后端已有 @sentry/nestjs 10.x，前端 SDK 本次不引入；静默旧数据由下次成功拉取自愈）
 - TeamBillingPage 绕 store 直连 `getMyTeams()` 的第四条数据路径不改（本就每次进入拉取，无 #17/#18 问题）
 - 登记的 Minor 项（doCreateTeam 失败文案、TeamSwitcher 错误提示丢 err.message 等）不在本次范围
 
@@ -74,7 +74,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 
 - **两个 action 均 userId 必填**（本项目无向后兼容前提）：TS 编译期逼出全部调用点，漏传即编译错。失效判定内聚 store，组件只传"当前是谁"标量；store 与 auth 互不依赖。
 - **换号检测下沉 load**（v2，吸收审核 P1）：fetch 首拉也走换号分支——独立 render（无 TopActionBar 的测试）或未来不套 AppLayout 的登录态页面（/canvas 先例）以 fetch 为首拉时同样确立归属，消除对"TopActionBar 先于 Outlet"隐式 JSX 顺序的依赖。否则 owner 滞后 → 后续 ensure 误判换号 → 清空已拉列表、闪骨架、重复请求（无数据错乱，seq 兜底，但难排查）。
-- **成功回包统一写 owner**：ensure 换号分支"进入即记"是防重复触发；force 路径（未经过换号分支，如 TeamPage 挂载首拉）成功后才确立归属。
+- **成功回包统一写 owner**：对经过换号分支的调用是幂等确认（进入即记已写过）；对**未经过换号分支的 force**——即 owner 已确立后的写操作强刷（TeamDetail 写后同步、TeamPage 创建后刷新）——是归属的持续确认。owner 未确立时（如独立 render 的 fetch 首拉）必经换号分支（loadedUserId null ≠ userId），不存在"不写 owner 的拉取"。
 - `_internal.reset()` 增清 `loadedUserId`（现有测试清场四件套即覆盖）。
 
 ### 3.2 换号分支语义（逐项定死）
@@ -86,7 +86,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 | localStorage 旧值 | **不主动清**，靠成功后 `normalize → persistTeamId(teams[0].id)` 覆盖 | store 模块只在加载时读一次 LS，运行期旧值不会被读到（内存 currentTeamId 已 null）；失败期间旧值无害，重试成功即覆盖 |
 | 拉取成功归一化 | currentTeamId 为 null → 回落 `teams[0]`（后端排序=默认团队优先） | 符合"新会话"直觉；A、B 同属某团队场景不再沿用 A 的选择，回落默认团队 |
 | 拉取失败 | status='error'（teams 已空）；loadedUserId 保持新值 | 下次挂载同 userId → `load(false, userId)` → error 非 success 短路 → 正常重发。无需回滚 loadedUserId |
-| 竞态 | 无需新增机制 | A 的 in-flight 被 seq 守卫天然丢弃（force ++seq 后旧回包不 set、finally 不清新句柄）；A 在途时 B 进来必走换号分支 force，不复用 A 的 in-flight |
+| 竞态 | 无需新增机制 | A 的 in-flight 被 seq 守卫天然丢弃（force ++seq 后旧回包不 set、finally 不清新句柄）；A 在途时 B 进来必走换号分支 force，不复用 A 的 in-flight。乱序/失败组合下由**最新代 seq 负责终态**：旧代成功被丢弃、旧代失败不置 error（错误分支 `mySeq === seq` 守卫），两发竞争无论谁先回包最终一致 |
 
 ### 3.3 不变量（沿袭 2026-09-07 spec §4，变更项加粗）
 
@@ -94,7 +94,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 - **`fetchTeams(userId)` 必填、失败 reject 由调用方处理**（原：无参）
 - store 不碰 antd message；错误提示归消费组件
 - **同账号登出再登入**：SPA 内存不丢，owner 仍为该用户 → TeamSwitcher 重挂 `ensureTeams(userId)` 走 success 短路不重拉；数据保鲜由 #18 入口页 force 承担（显式取舍：同号重登场景顶栏不主动刷新，进入 /team、works、materials 时拉新）
-- **重入 force 失败静默保留旧数据**：不引入监控上报（项目无 Sentry SDK，YAGNI），由下次成功拉取自愈；error 三态兜底仅覆盖 teams 为空的失败
+- **重入 force 失败静默保留旧数据**：不引入前端监控上报（前端未装 @sentry/react，YAGNI），由下次成功拉取自愈；error 三态兜底仅覆盖 teams 为空的失败
 
 ## 4. #18 设计：入口页挂载 ensure → fetch
 
@@ -116,7 +116,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 | 调用点 | 取 userId 方式 |
 |---|---|
 | TeamSidebar.tsx:83（error 重试） | 新增 `useAuth()` |
-| TeamPage.tsx:36（error 重试）/ :62（创建后） | 已有 useAuth 上下文（组件内已取 user） |
+| TeamPage.tsx:36（创建后刷新）/ :62（error 重试按钮） | **新增 `useAuth()`**（TeamPage 当前无 useAuth，仅 TeamDetail:50 有） |
 | TeamDetail.tsx:287 / :300 / :367（写操作后同步） | 已有 `useAuth()`（:50） |
 | useTeams.ts retry | 新增 useAuth 或经参数注入（plan 定，倾向组件内自取，与挂载同源） |
 
@@ -126,7 +126,7 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 |---|---|
 | `stores/teamStore.ts` | `load(force, userId)` 承载换号检测；`ensureTeams(userId)` / `fetchTeams(userId)` 必填；成功回包写 owner；模块级 `loadedUserId`；`_internal.reset()` 增清 |
 | `components/TeamSwitcher.tsx` | `useAuth()` 取 user；effect 改 `if (user) void ensureTeams(user.id)`，依赖数组含 user |
-| `pages/team/TeamPage.tsx` | 挂载改 `fetchTeams(user.id).catch(吞)`；:36/:62 两处调用点带参 |
+| `pages/team/TeamPage.tsx` | **新增 `useAuth()` 取 user**；挂载改 `fetchTeams(user.id).catch(吞)`；:36（创建后）/:62（重试）两处调用点带参 |
 | `pages/team/TeamSidebar.tsx` | :83 重试带参（新增 useAuth） |
 | `pages/team/TeamDetail.tsx` | :287/:300/:367 三处 fetchTeams 带参 |
 | `pages/workspace/hooks/useTeams.ts` | 挂载与 retry 改 `fetchTeams(user.id)`；**删除不再使用的 ensureTeams 选择器引用** |
@@ -160,5 +160,5 @@ fetchTeams: (userId: string) => load(true, userId).then(() => undefined), // 失
 - TeamSwitcher / TeamSidebar 改造后新增 `useAuth` 依赖——TeamSwitcher.test 按 TeamPage.test 先例补 `vi.mock('@/components/AuthProvider')`；TeamSidebar.test 若 setState 种状态路径不触发请求则无需 mock（实跑为准）
 - 换号分支的 `set` 与 `load` 主干之间无 await，同步执行——React 批处理下消费组件一次重渲染见 loading 态，无中间闪烁
 - `fetchTeams(user.id).catch(() => undefined)` 的吞错写法与 ensureTeams 内部吞错对齐（错误一律经 status 三态渲染，不写 unhandled rejection）；TeamDetail 写操作后同步的 fetchTeams 沿用各处现有 catch 处理
-- 后端零改动：getMyTeams 已核验无 N+1（主查询单 findMany JOIN + 默认团队至多 1 次订阅查询），频次上升量级（每页进入 +1 GET）可忽略，不加缓存
+- 后端零改动：getMyTeams 已核验无 N+1（主查询单 findMany JOIN + 默认团队至多 1 次订阅查询），频次上升量级（每页进入 +1 GET）可忽略，不加缓存。附带微任务（plan 中独立小步）："至多 1 次"依赖**每用户唯一默认团队**不变量，在 team.service.ts:91 isDefault 分支处加一行注释固化前提，防未来放开多 default 时静默退化为逐行查询
 - 不做向后兼容防护（开发测试阶段无用户数据）
