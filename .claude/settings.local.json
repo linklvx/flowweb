@@ -23,7 +23,12 @@
       "Bash(cp .claude/launch.json .claude/settings.local.json backups/v3.9/config-files/claude/)",
       "Bash(cp -r .superpowers backups/v3.9/config-files/superpowers)",
       "Bash(cp services/redis/redis.windows.conf services/redis/redis.windows-service.conf backups/v3.9/config-files/services/redis/)",
-      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v3.9/config-files/)"
+      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v3.9/config-files/)",
+      "Bash(cp apps/api/.env backups/v3.10/config-files/api.env)",
+      "Bash(cp .claude/launch.json .claude/settings.local.json backups/v3.10/config-files/claude/)",
+      "Bash(cp -r .superpowers backups/v3.10/config-files/superpowers)",
+      "Bash(cp services/redis/redis.windows.conf services/redis/redis.windows-service.conf backups/v3.10/config-files/services/redis/)",
+      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v3.10/config-files/)"
     ],
     "deny": [],
     "defaultMode": "bypassPermissions"
