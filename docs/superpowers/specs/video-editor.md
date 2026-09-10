@@ -117,7 +117,7 @@ function reconcileSourceEdges(data: ProjectData, editNodeId: string) {
 
 - **删除剪辑节点**：`canvasStore.deleteNode` 对 videoEdit 类型 fire-and-forget `DELETE /api/video-projects/by-node/:id`（否则成无入口孤儿；边由 deleteNode 现有逻辑级联清除；**DELETE 失败走 Sentry 上报**，避免静默孤儿无法排查）
 - **复制/粘贴剪辑节点**：一期 = **空工程**（新 nodeId，首次全屏编辑时 upsert），不深拷贝时间轴
-- **上游素材节点被删**：边级联消失，但 clip 仍引用 mediaId → **素材缺失态**：片段标红"素材已删除"、导出前置校验拦截缺失 mediaId、可在时间轴手动删除
+- **上游素材节点被删**：边级联消失，但 clip 仍引用 mediaId → **素材缺失态**：片段标红"素材已删除"、导出前置校验拦截缺失 mediaId、可在时间轴手动删除。**素材缺失态下连线对账（ensureAutoEdges）不重建连线**——toAdd 按画布现存节点过滤，clip 引用悬空 sourceNodeId 时跳过建边（防悬空边入库并经协作层持久化）
 - **左面板可选派生标记**："已连线但未入时间轴"的素材显示"已连线"次级标记（edge 集合派生，帮助理解自动边来源）
 
 ### 挂载结构

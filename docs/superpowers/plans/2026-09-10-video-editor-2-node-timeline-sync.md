@@ -25,6 +25,8 @@
 > **Task 5 执行期修正（2026-09-10，quality review I1 语义级修复）**：canPlaceAt 从"只看被放置片 transitionIn"重写为 **后片单侧 allowed**（spec 重叠规则原文：转场由后片 start 较大者的 transitionIn crossfade 单侧表达）——原实现有误放行（前片带 crossfade 与无转场后片重叠入库 → Plan 3 将渲染无转场双曝光）与误拒绝（对手后片带 crossfade 的合法前片靠近被弹开）双向缺陷，quality review 实证脚本确认。第 6 参更名 placedClip（形状不变，Task 9 moveClip 传 clip 对象兼容）。补测：后片视角重写 crossfade 用例 + 前片误放行/误拒绝双向 + I1 原始场景锁断言 + 自排除/左扫分支 + effOut 保留正路径 + audio 早退（13→19 用例）。附带：crossfadePredecessor audio/subtitle 早退窄化消除一处 as any。**Task 9 契约登记**：canPlaceAt 无 start≥0 下界（findNearestFreeStart 仅 left 侧守卫）——editorStore 调用方负责 clamp（Task 15 拖拽 Math.max(0, snapped.time) / Task 16 drop Math.max(0, pxToTime) 已承担）。
 >
 > **Task 7 执行期修正（2026-09-10）**：上限 50 用例终值 4→5（55 次 push 丢 i=0..4 共 5 个，past=[5..54]，50 次 undo 终值 5；计划注释"最老是 index 4"自相矛盾）。quality review 登记两项 Minor：history.ts 模块头补一行契约注释「T 实例入栈/跨栈后不可原地变更」（undo/redo 的 current 按引用跨栈——store 侧不可变更新是隐式前提，Task 9 顺手带上）；JSON 深拷丢 undefined 键与 DB JSON 列落盘形状一致（undo 还原态 = 重载态，无形状分叉，非问题）。
+>
+> **Task 8 执行期修正（2026-09-10，quality review I1 跨任务语义缺口）**：ensureAutoEdges 补**素材缺失态守卫**——deleteNode 删上游节点后 clip 仍引用（spec 生命周期素材缺失态），若对账不校验节点存在性会在下次结构变更时重建指向不存在节点的悬空边并持久化；修法为 toAdd 按 `cs.nodes` 现存 id 过滤（spec L120 同步补一句行为定义）。附带：ensureAutoEdges 首参改名 `editNodeId`（原 sourceNodeId 同名异义易混淆；Task 9 的 editorStore.sourceNodeId 字段语义即 editNodeId，位置传参兼容）；canvasStore 幂等用例补总边数断言；auto-edges 夹具 beforeEach 提供源节点（守卫生效后空画布建边被正确拒绝）。planAutoEdgeOps 的 filter 用类型谓词窄化（SubtitleClip 无 sourceNodeId 字段，as any 不必要）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -1331,6 +1333,7 @@ describe('边原语（自动连线支持：addEdge 可选 id / removeEdge / onCo
     expect(id1).toBe('auto:e1:s1');
     expect(id2).toBe('auto:e1:s1');
     expect(useCanvasStore.getState().edges.filter(e => e.id === 'auto:e1:s1')).toHaveLength(1); // 防 React Flow 双 key
+    expect(useCanvasStore.getState().edges).toHaveLength(1); // 退化"换新 id 重加"也会被总数抓住（review M3）
   });
   it('removeEdge 按 id 删除', () => {
     const cs = useCanvasStore.getState();
@@ -1403,7 +1406,15 @@ describe('planAutoEdgeOps（spec 定稿对账算法）', () => {
 
 describe('ensureAutoEdges（store 落地，幂等）', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+    // 守卫生效后夹具需提供源节点（执行期 I1：素材缺失守卫会拒绝空画布建边）
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's1', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's2', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+      ],
+      edges: [], selectedId: null,
+    });
   });
   it('建边 → 再跑一遍无新增（幂等）', () => {
     ensureAutoEdges('edit1', dataWith(['s1', 's2']));
@@ -1415,6 +1426,25 @@ describe('ensureAutoEdges（store 落地，幂等）', () => {
     ensureAutoEdges('edit1', dataWith(['s1']));
     ensureAutoEdges('edit1', dataWith([]));
     expect(useCanvasStore.getState().edges).toHaveLength(0);
+  });
+  it('素材缺失态：源节点已删（nodes 无该 id）→ 不重建悬空边（spec 生命周期）', () => {
+    useCanvasStore.setState({
+      nodes: [{ id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any],
+      edges: [], selectedId: null,
+    });
+    ensureAutoEdges('edit1', dataWith(['ghost'])); // ghost 节点不在画布
+    expect(useCanvasStore.getState().edges).toHaveLength(0);
+  });
+  it('源节点存在 → 正常建边（守卫不放过头）', () => {
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's1', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+      ],
+      edges: [], selectedId: null,
+    });
+    ensureAutoEdges('edit1', dataWith(['s1']));
+    expect(useCanvasStore.getState().edges).toHaveLength(1);
   });
 });
 ```
@@ -1507,11 +1537,16 @@ export function planAutoEdgeOps(
   return { toAdd, toRemove };
 }
 
-/** store 落地（编辑器每次片段增删 commit 后调用；幂等——addEdge 同 id no-op） */
-export function ensureAutoEdges(sourceNodeId: string, data: ProjectData): void {
+/** store 落地（编辑器每次片段增删 commit 后调用；幂等——addEdge 同 id no-op）。
+ *  素材缺失态守卫（spec 生命周期）：上游节点已删 → clip 仍引用但边不重建（防悬空边入库并经协作层持久化——执行期 I1 修复） */
+export function ensureAutoEdges(editNodeId: string, data: ProjectData): void {
   const cs = useCanvasStore.getState();
-  const ops = planAutoEdgeOps(data, cs.edges, sourceNodeId);
-  for (const a of ops.toAdd) cs.addEdge(a.source, a.target, undefined, undefined, a.id);
+  const ops = planAutoEdgeOps(data, cs.edges, editNodeId);
+  const nodeIds = new Set(cs.nodes.map((n) => n.id));
+  for (const a of ops.toAdd) {
+    if (!nodeIds.has(a.source)) continue;
+    cs.addEdge(a.source, a.target, undefined, undefined, a.id);
+  }
   for (const r of ops.toRemove) cs.removeEdge(r);
 }
 ```
