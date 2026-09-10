@@ -19,6 +19,8 @@
 **测试命令：** `pnpm -C apps/web test`（vitest run + tsc）；单文件 `pnpm -C apps/web exec vitest run src/stores/canvasStore.test.ts`
 
 > **执行期修订（subagent-driven 执行中，quality review 回写）**：Task 1 quality review 两项 Important 采纳——(1) canvasStore `videoEdit → width:320` 分支补单测（照 textInput width=300 先例，canvasStore.test.ts）；(2) VideoEditNode 选中态从紫边 `#6C5CE7` 对齐既有节点统一灰 ring（`border transparent + boxShadow 0 0 0 3px #9CA3AF`——兄弟节点 VideoGenNode/AudioGenNode/MultiImageNode 同构，spec 未规定节点本体选中色，同一画布同一交互语义必须视觉一致；Task 1 空壳与 Task 10 完整版代码块均已同步）。Task 17 验收表增"新建节点落点无偏移"项。
+>
+> **Task 3 执行期修正（2026-09-10，计划测试向量笔误 + 量化强化，控制器 node 验算批准）**：(a) quantizeTime(0.1+0.2,30) 期望 0.1→0.3（输入≈0.3s=9 帧，0.1 是 3 帧笔误）；(b) sourceTime 0.5× 档期望 2.5→3（公式 2+(3-1)*0.5）；(c) 100 次不漂移用例初始 duration 100→5（100 时终值 96.67 断言 50/FPS 必红）；(d) applyTrimLeft/Right 从"仅量化 Δ"升级为"成片时间结果每步量化回帧网格"（50 次累加 1/30 漂至 …685≠50/30，帧整数红线强制；sourceStart 保持连续浮点）；(e) -0 用例 toBeCloseTo→toBe(0)（R3 归一化落地后 toBeCloseTo 失去锁力，变异验证 toBe(0) 在删除归一化时必红——quality review I1）；(f) splitClipAt keyframes 访问 as any（SubtitleClip 无 keyframes 字段——shared 类型实形）。四轮审核均未抓到 (a)(b)(c)——数值验算须逐条执行，结构审查不可替代。M 级登记：splitClipAt 不校验切点范围（Task 9 store 侧已有 1 帧两侧校验承担）；前片 keyframes 未克隆（history JSON 深拷已隔离别名）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -361,7 +363,7 @@ describe('帧量化（帧整数为唯一真相）', () => {
   });
   it('quantizeTime 消除浮点尾差', () => {
     const noisy = 0.1 + 0.2;
-    expect(quantizeTime(noisy, 30)).toBe(0.1); // 3 帧精确
+    expect(quantizeTime(noisy, 30)).toBe(0.3); // 9 帧精确 0.3（执行期修正：计划原值 0.1 系 3 帧笔误——0.1+0.2≈0.3s）
   });
 });
 
@@ -369,7 +371,7 @@ describe('sourceTime 变速公式', () => {
   it('1×/0.5×/2× 三档', () => {
     const base = { sourceStart: 2, start: 1 } as const;
     expect(sourceTime(vc({ ...base, playbackSpeed: 1, duration: 10 }), 3)).toBe(4);
-    expect(sourceTime(vc({ ...base, playbackSpeed: 0.5 }), 3)).toBe(2.5);
+    expect(sourceTime(vc({ ...base, playbackSpeed: 0.5 }), 3)).toBe(3); // 执行期修正：2+(3-1)*0.5=3（计划原值 2.5 违反自身公式）
     expect(sourceTime(vc({ ...base, playbackSpeed: 2 }), 3)).toBe(6);
   });
 });
@@ -391,10 +393,11 @@ describe('trim guard（素材边界约束）', () => {
     expect(r.duration).toBe(15);      // duration 随左拉增大（左拉侧永不为负——R1 审核 P0-1 反例方向修正）
     expect(r.sourceStart).toBe(95);
   });
-  it('start=0 的片段左拉下界为 0（时间轴原点恒 0，start 不为负）', () => {
+  it('start=0 的片段左拉下界为 0 且 -0 已归一（时间轴原点恒 0，start 不为负）', () => {
     const g = trimLeftGuard(vc({ sourceStart: 100, duration: 10, start: 0 }), 200);
-    // 注意：Math.max(-100, -0) 返回 -0，而 toBe 是 Object.is 语义（-0 ≠ 0）——必须 toBeCloseTo
-    expect(g.minDelta).toBeCloseTo(0, 10);
+    // -0 归一锁：实现将 minDelta === 0 归一为 +0；toBe 是 Object.is 语义（-0 ≠ 0）——
+    // 删除归一化则 Math.max(-100, -0) 产 -0 本用例必红（执行期修正：R2 的 toBeCloseTo 在归一化落地后失去锁力）
+    expect(g.minDelta).toBe(0);
   });
   it('字幕/图片片（sourceLimit=-Infinity）左拉由时间轴 0 点兜底（R2 审核 P2-1：原实现对无源片 clampDelta 形同虚设）', () => {
     const sub = { id: 's1', trackId: 'tv', type: 'subtitle', start: 2, duration: 3, text: 'x', visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 } } as any;
@@ -426,7 +429,7 @@ describe('applyTrim（量化成片时间，源时间连续浮点）', () => {
     expect(r.sourceStart).toBe(2);
   });
   it('反复 trim 100 次不漂移/无缝隙（浮点纪律 TDD）', () => {
-    let c = vc({ start: 0, duration: 100, sourceStart: 0, playbackSpeed: 1 });
+    let c = vc({ start: 0, duration: 5, sourceStart: 0, playbackSpeed: 1 }); // 执行期修正：duration 5 时 100 帧修剪后 start=duration=50/FPS（计划原值 100 终值 96.67 必红）
     for (let i = 0; i < 50; i++) c = applyTrimLeft(c, 1 / FPS);
     for (let i = 0; i < 50; i++) c = applyTrimRight(c, -1 / FPS);
     expect(c.start).toBeCloseTo(50 / FPS, 10);
@@ -535,19 +538,23 @@ export function clampDelta(g: TrimGuard, delta: number): number {
   return Math.min(Math.max(delta, g.minDelta), g.maxDelta);
 }
 
-/** 左缘 trim：start += Δ；duration -= Δ；sourceStart += Δ * playbackSpeed（Δ 先量化） */
+/** 左缘 trim：start += Δ；duration -= Δ；sourceStart += Δ * playbackSpeed。
+ *  成片时间结果（start/duration）量化回帧网格——spec 红线：帧整数为唯一真相，反复 trim 累加浮点尾差必须被每步消除；
+ *  sourceStart 保持连续浮点（执行期修正：仅量化 Δ 时 50 次累加 1/30 漂至 1.6666666666666685 ≠ 50/30） */
 export function applyTrimLeft(clip: Clip, delta: number): Clip {
   const d = quantizeTime(delta);
+  const start = quantizeTime(clip.start + d);
+  const duration = quantizeTime(clip.duration - d);
   if (isTimed(clip)) {
-    return { ...clip, start: clip.start + d, duration: clip.duration - d, sourceStart: clip.sourceStart + d * clip.playbackSpeed };
+    return { ...clip, start, duration, sourceStart: clip.sourceStart + d * clip.playbackSpeed };
   }
-  return { ...clip, start: clip.start + d, duration: clip.duration - d };
+  return { ...clip, start, duration };
 }
 
-/** 右缘 trim：不改 sourceStart */
+/** 右缘 trim：不改 sourceStart（成片 duration 同样量化回帧网格） */
 export function applyTrimRight(clip: Clip, delta: number): Clip {
   const d = quantizeTime(delta);
-  return { ...clip, duration: clip.duration + d };
+  return { ...clip, duration: quantizeTime(clip.duration + d) };
 }
 
 /** 分割（spec 公式）：后片.sourceStart = 前.sourceStart + (cut - 前.start) * speed；转场/关键帧按语义重分配 */
@@ -563,10 +570,11 @@ export function splitClipAt(clip: Clip, cutPoint: number, backId: string): { fro
     transitionIn: undefined,
   };
   if (isTimed(clip)) backBase.sourceStart = clip.sourceStart + localCut * clip.playbackSpeed;
-  backBase.keyframes = (clip.keyframes ?? [])
+  // SubtitleClip 无 keyframes 字段（shared 类型实形）——as any 绕联合访问，运行时 ?? [] 兜底
+  backBase.keyframes = ((clip as any).keyframes ?? [])
     .filter((k: any) => k.t > localCut)
     .map((k: any) => ({ ...k, t: k.t - localCut }));
-  front.keyframes = (clip.keyframes ?? []).filter((k: any) => k.t <= localCut) as any;
+  (front as any).keyframes = ((clip as any).keyframes ?? []).filter((k: any) => k.t <= localCut);
   return { front, back: backBase as Clip };
 }
 ```
