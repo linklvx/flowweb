@@ -40,11 +40,11 @@ describe('selectActiveClips（视觉管线活跃判定）', () => {
   });
   it('renderOrder：视觉片按 track 索引升序、同轨按 start；字幕恒最后', () => {
     const d = data([
+      { trackId: 'ts', type: 'subtitle', clips: [sc('sub', 0, 5)] },
       { trackId: 't0', type: 'video', clips: [vc('v-low', 0, 5)] },
       { trackId: 't1', type: 'video', clips: [vc('v-late', 1, 2), vc('v-early', 0, 5)] },
-      { trackId: 'ts', type: 'subtitle', clips: [sc('sub', 0, 5)] },
     ]);
-    // t1 轨内按 start：early(0) 先于 late(1)；字幕最后（即使其 track 索引最大以外）
+    // t1 轨内按 start：early(0) 先于 late(1)；字幕最后（即使其 track 索引为 0——锁定独立语义，防单数组排序变体）
     expect(selectActiveClips(d, 1.5).map(x => x.clip.id)).toEqual(['v-low', 'v-early', 'v-late', 'sub']);
   });
   it('crossfade overlap 区间双片段都在（排序后后片自然在上层）', () => {
