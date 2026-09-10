@@ -1,4 +1,4 @@
-# Spec: Canvas 视频剪辑器（多轨时间轴 + 纯浏览器导出）v3.4
+# Spec: Canvas 视频剪辑器（多轨时间轴 + 纯浏览器导出）v3.5
 
 > v1（2026-09-10）：初版。
 > v2/v2.1（2026-09-10）：R1/R2 轮审核修订——模型补全、normalized、变速公式、A1 影子节点、pending→confirm、PATCH 单飞等。
@@ -6,7 +6,8 @@
 > v3.1（2026-09-10）：R3 轮复审修订——执行白名单、composite 死入口接管、空工程定义、自动连线 reconcile 算法定稿、节点播放资源纪律、能力检测分层、生命周期与产物节点收敛、验收清单修复（18 条）。
 > v3.2（2026-09-10）：R4 轮复审修订——白名单升级"类型+产物标记"（产物节点二次必挂规避）、origin 隔离拆独立任务、A1 补 insertNode/removeNode 原语与克隆字段清单、产物登记自建化、audio-engine 新建、波形抽峰纯函数化、帧整数真相、crossfade 音频规则、真机兼容矩阵、验收 19 条。
 > v3.3-final（2026-09-10）：R5 轮复审修订——socket 单例服务化（更正 useSocket 非单例的 R4 误判）、A1 克隆改 structuredClone 整份深拷、crossfade 音频统一线性 equal-gain、originOverride try/finally 与 transact 分流落地、三态/护栏表残留修正、P3×3 记录项。
-> v3.4（2026-09-10）：R6 轮复审修订——origin 隔离改独立入口 syncAutoEdgesToDoc（syncStoreToDoc 内分流不可落地）、撤销互斥显式化（时间轴数据不进画布 store）、影子事务 onRemote 短路（防全量重建闪烁）、克隆改 JSON 深拷、insertNode 与 fillDoc 逐键同构、产物上传改复用 presigned POST（零新依赖）、白名单过滤前置 emitNodeStatus + isExecutableNode 共享谓词、socket 迁移扩至 5 创建点、验收 25 条。采纳明细见附录 C。
+> v3.4（2026-09-10）：R6 轮复审修订——origin 隔离改独立入口 syncAutoEdgesToDoc（syncStoreToDoc 内分流不可落地）、撤销互斥显式化（时间轴数据不进画布 store）、影子事务 onRemote 短路（防全量重建闪烁）、克隆改 JSON 深拷、insertNode 与 fillDoc 逐键同构、产物上传改复用 presigned POST（零新依赖）、白名单过滤前置 emitNodeStatus + isExecutableNode 共享谓词、socket 迁移扩至 5 创建点、验收 25 条。
+> v3.5（2026-09-10）：R7 轮复审修订——订阅路径边处理跳过 auto: 前缀（P0-A 闭环：auto 边全生命周期只归 syncAutoEdgesToDoc）、removeEdge 新增登记、stopCapturing 编辑器 commit 接入、PUT→POST 三处统一、subscribeNodeEditResult（ImageGenNode edit-result 迁移去向）、快捷键禁用改 isGroupEditContext 早退、内存预估含视频内嵌音轨、ValidationPipe 自挂入正文、验收 28 条。采纳明细见附录 C。
 
 ## 目标与背景
 
@@ -54,7 +55,7 @@ video-editor/
 ### 剪辑节点（VideoEditNode，画布一等公民）
 
 - **添加方式（接管 composite 死入口）**：[AddNodeMenu.tsx](apps/web/src/pages/canvas/components/AddNodeMenu.tsx) 已存在 `{type:'composite', label:'视频合成', badge:'Beta'}` 菜单项，但 nodeTypeMap/nodeTypes/组件三处皆无——是点了会创建无法渲染节点的**死入口**，且语义与本功能重叠。**决策：直接接管**——菜单项改名"多轨道剪辑"（desc：多轨剪辑视频/音频/字幕，Beta 角标移除），type 注册名 `videoEdit`（nodeTypeMap 增加短名 `composite → videoEdit` 映射或直接改 type，`AddNodeMenu.test.tsx` composite 用例同步改写）；不保留第二个视频合并入口
-- **节点本体 UI**（依据节点设计图，白色宽卡片 + 左右 Handle，默认宽 320px 与节点体系协调）：
+- **节点本体 UI**（依据节点设计图，白色宽卡片 + 左右 Handle，**addNode 时显式设 width: 320**——addNode 对非 textInput 不写 width，产物位置计算的 fallback 链（measured→width→300）会在首渲染前落到 300 导致偏移不可复现）：
   - 标题栏：网格图标 + "多轨道剪辑"
   - 工具栏一行（一期轻量）：播放/暂停 + 时间码（简略 `00:00 / 00:00` M:SS 格式，与片段块的 HH:MM:SS:FF 注明为不同精度显示）| 右侧"⤢ 全屏编辑"文字链接
   - 时间刻度尺（随工程时长自适应；小宽度下最小刻度退化为 1s/格）
@@ -105,7 +106,7 @@ function reconcileSourceEdges(data: ProjectData, editNodeId: string) {
 规则文字化：
 1. **自动边 = 时间轴的派生视图**：手动删自动边，下次 reconcile 会**重建**（spec 明示，避免被报 bug）；手动拖入的边无 `auto:` 前缀，reconcile 不碰；时间轴为唯一数据源，手动连线**不反向加素材**；素材库来源（无 sourceNodeId）不建边
 2. `addEdge` 增加可选 id 参数（确定性建边幂等），小改不动现有调用
-3. **跨撤销栈隔离（独立入口方案，非 addEdge 小改的一部分）**：协作桥是订阅式自动同步——store 变化触发 `subscribe` 内写死 `syncStoreToDoc(Origin.LocalUser)`，单一 transact 单 origin 贯穿 nodes+edges 全部增删（[canvasCollabRuntime.ts](apps/web/src/stores/canvasCollabRuntime.ts) L71-119），且 syncStoreToDoc 的边删除是**单一循环遍历整个边集合**——"在其内部按前缀分流"不可落地。**定稿方案：分流入口移到 bridge 层参数**——协作桥新增独立方法 `syncAutoEdgesToDoc(editNodeId, origin=Origin.AutoEdge)`：只处理 `auto:`/`auto-out:` 前缀边的增删、独立 transact；reconcile 直接调用它（并配合 store 层 addEdgeById/removeEdge 同步 zustand），**订阅路径（nodes 与手动边 → LocalUser）完全不动**。`Origin` 常量需扩（现仅 {LocalUser, Server}，新增 AutoEdge），**刻意不加入 trackedOrigins**（保持仅 LocalUser 入栈）。`addEdge` 增加可选 id 参数（确定性幂等建边）仍是独立小改。**桥层测试**：断言自动边写入 ydoc 的 transaction.origin 为 AutoEdge、UndoManager.undoStack 不增长；手动边/节点写入仍 LocalUser 且入栈（证明分流无误伤）；编辑器撤销→reconcile 删边后画布 Ctrl+Z 不恢复该边
+3. **跨撤销栈隔离（独立入口方案，非 addEdge 小改的一部分）**：协作桥是订阅式自动同步——store 变化触发 `subscribe` 内写死 `syncStoreToDoc(Origin.LocalUser)`，单一 transact 单 origin 贯穿 nodes+edges 全部增删（[canvasCollabRuntime.ts](apps/web/src/stores/canvasCollabRuntime.ts) L71-119），且 syncStoreToDoc 的边删除是**单一循环遍历整个边集合**——"在其内部按前缀分流"不可落地。**定稿方案：分流入口移到 bridge 层参数**——协作桥新增独立方法 `syncAutoEdgesToDoc(editNodeId, origin=Origin.AutoEdge)`：只处理 `auto:`/`auto-out:` 前缀边的增删、独立 transact；reconcile 直接调用它并配合 store 层 addEdgeById/removeEdge 同步 zustand。**闭环关键（订阅路径必须"不认"auto 边）**：reconcile 的 store 侧 removeEdge 本身会触发订阅同步（LocalUser），若订阅路径的边清理循环照跑，会以 LocalUser 把 doc 里的 auto 边删掉（入栈！）——执行顺序靠时序运气。因此订阅路径的边处理**全部跳过 `auto:`/`auto-out:` 前缀**（edgeIds 构造、边删除循环、fillDoc(d,[],[e]) 新增分支都排除该前缀）——**auto 边全生命周期只归 syncAutoEdgesToDoc**。配套：`Origin` 常量扩（现仅 {LocalUser, Server}，新增 AutoEdge），**刻意不加入 trackedOrigins**；`canvasStore` 需**新增 `removeEdge(id)` 方法**（现无，只有 addEdge/onEdgesChange）与 `addEdge` 可选 id 参数（且 addEdgeById 对同 id 已存在须 no-op 断言，防 React Flow 双 key）；**编辑器 commit 点接入 `stopCapturing()`**（canvasUndo 现有机制，防 500ms 合并窗把编辑器前后的画布操作错误并栈）
    **撤销互斥显式定义（数据流澄清）**：时间轴数据只存 Prisma（VideoProject.data，PATCH 通道），**不进画布 Yjs store**——画布撤销栈唯一可能沾到的剪辑器痕迹就是 auto 边（origin 隔离后也不入栈）。互斥 = ① 编辑器打开期间画布快捷键层禁用（含画布 Ctrl+Z）；② 退出后画布栈不含任何时间轴/auto 边痕迹。既有画布 UndoManager `captureTimeout: 500`（500ms 内连续操作合并为一个栈项）为既有行为，登记不改
 4. **产物输出边**为一次性边，确定性 id `auto-out:${editId}:${productNodeId}`，不参与 reconcile
 5. **连线方向恒定**：素材 source → 剪辑 target；剪辑 source → 产物 target；自动边单向派生不可能成环，一期不做连线类型校验/环检测（手动边仅视觉，无执行语义——执行白名单保证剪辑节点不被执行）；onConnect 现状无判重（同一对节点可重复拖线，现状缺口非本功能引入）——**顺手在 onConnect 加同源判重**
@@ -253,14 +254,14 @@ trim（拖左缘 Δ 成片秒）：
 **A1 影子节点方案（regenerate 落地契约）**：
 
 - execute 链路事实（[execution.service.ts](apps/api/src/modules/execution/execution.service.ts)）：以 Yjs 节点为唯一数据源（`readCanvas` → 拓扑 scope → 执行 → `writeNodeData` 写回节点 data → `emitNodeStatus({nodeId,status})` 以 **nodeId 为键、不带 mediaId**，产物 fileId 在节点 data 里），积分走 teamCredit 循环内扣费
-- regenerate 实现：在 Yjs 画布克隆 sourceNode 为 `data.__ephemeral` 影子节点 → **服务端直调 `ExecutionService.execute(projectId, shadowNodeId)`**（**不走 HTTP、不带 x-yjs-sv**——若经 HTTP 携前端状态向量，影子节点可能被 sv 裁剪不可见；校验/上游收集/积分/队列/写回全部白捡）→ 接口返回 shadowNodeId；ValidationService 循环内逐节点查定价（N 次查询）为既有行为，登记不改
+- regenerate 实现：在 Yjs 画布克隆 sourceNode 为 `data.__ephemeral` 影子节点 → **服务端直调 `ExecutionService.execute(projectId, shadowNodeId)`**（**不走 HTTP、不带 x-yjs-sv**——若经 HTTP 携前端状态向量，影子节点可能被 sv 裁剪不可见；校验/上游收集/积分/队列/写回全部白捡）→ 接口返回 shadowNodeId；ValidationService 循环内逐节点查定价（N 次查询）为既有行为，登记不改；**A1 是同步执行占用 HTTP 连接（可能数分钟）——前端 axios 超时对 regenerate 单独放大或忽略**；edges 键名以 ydocBuilder.fillDoc（source/target）为准（readDocCanvas 返回 sourceId/targetId 属另一口径，照抄会错）
 - **后端 doc 原语缺口（必须新增）**：[collab-document.service.ts](apps/api/src/modules/collab/collab-document.service.ts) 现仅有 `writeNodeData`（只能 patch 已有节点 data）——需新增 `insertNode(projectId, node)` 与 `removeNode(projectId, nodeId)`（影子无连边无需动 edges），走现有 `withDoc` 直连。**insertNode 契约与 ydocBuilder.fillDoc 逐键同构**（type / parentId 条件写（null 时**省略键**，防 syncStoreToStore 差异循环）/ width?/height? 条件写 / position 独立 Y.Map（必写）/ data 独立 Y.Map），**建议直接抽取 fillDoc 的单节点构造逻辑复用**（跨端复制契约 + 往返测试）；删除"不写 position"选项——position 必写（缺 position 会破坏协作桥差异判定的 position 分支）
 - **克隆口径（整份深拷，禁止字段挑拣）**：影子节点孤立（getScope 只含自身）、拿不到上游边补参，且它是白名单内 videoGen/audioGen 会被 validation 校验 model——克隆实现为 **`JSON.parse(JSON.stringify(sourceNode.data))` 整份深拷**（Yjs readCanvas 的 toJSON 本就是 JSON 语义；structuredClone 对历史 data 中的非常规值可能抛 DataCloneError，JSON 方案无此险）后叠加 `__ephemeral` 标记；后端取词链为 `上游textContents → data.content → data.prompt`，且执行消费 content/endImageUrl/imageUrls/quality/duration/audio/resolution 等一长串字段——**逐字段白名单必漏，字段清单仅作 code review 对照**，不是实现依据
 - **影子事务防闪烁（关键）**：协作桥 `onRemote` 对任何非 LocalUser 事务 50ms 防抖后 `applyDocToStore` **全量重建** canvasStore.nodes/edges + applyGroupDerivations + refitExpandedGroups + 全量替换 nodeStore——影子 insert/remove 各触发一次全量重建（节点列表重排/分组 re-fit/编辑器期间 nodeStore 刷新）。规避：**insertNode/removeNode 使用专用 origin（如 Origin.ServerShadow），onRemote 判定影子事务时短路跳过 applyDocToStore**；`__ephemeral` 在 store 投影层与节点渲染层双重过滤照做（双保险）；socket 的 node:status payload 不带 fileId（gateway 只发 status），fileId 必须读 doc——影子读路径不受短路影响（短路只挡 store 重建，服务端读 doc 不经 onRemote）
 - 扣费/失败退费复用 teamCredit 既有路径，**不另建**
 - 备选 A2（抽 runNode 脱离 Yjs + 事件扩 requestId）架构更干净但需重构 execute 循环体，二期再说
 
-data 校验：class-validator 嵌套 DTO（防 `whitelist:true` 裸放 Json），ProjectData TS 类型放 `packages/shared/src/types/video-project.ts`（有 material-library.ts 先例）前后端共用。响应走全局 TransformInterceptor（前端 `code:0` 解包）。
+data 校验：class-validator 嵌套 DTO（ProjectData TS 类型放 `packages/shared/src/types/video-project.ts`，有 material-library.ts 先例，前后端共用）。**ValidationPipe 非全局**（main.ts 仅挂 HttpExceptionFilter + TransformInterceptor，各 controller 逐处 @UsePipes）——**新 controller 必须自挂 `@UsePipes(new ValidationPipe({whitelist:true, transform:true}))`**，否则校验不生效。响应走全局 TransformInterceptor（前端 `code:0` 解包）。
 
 ---
 
@@ -297,7 +298,7 @@ data 校验：class-validator 嵌套 DTO（防 `whitelist:true` 裸放 Json）�
 | 生成音频 | 弹输入框 → `POST /api/video-projects/regenerate`（音频分支）→ 返回 shadowNodeId，按其监听回流，done 后读节点 data 取 fileId 入资产库可拖入；明示扣积分 |
 | 片段重拍 | 读选中片段 sourceNodeId → regenerate（视频分支）→ 同上契约，新视频入库可替换；**nodeStore 中参数不可得则置灰** |
 
-socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实：`/execution` 现有 **5 个创建点**（useSocket Hook（page.tsx/useStitchTask 经它调用）+ AudioGenNode.tsx:54 + ImageGenNode.tsx:337/:936（同组件两处）+ VideoGenNode.tsx:349 直连），全部 cleanup 只 removeAllListeners **无 disconnect**（Socket 实例泄漏，N 个素材节点 = N 个实例；socket.io 传输层 multiplex 共享物理 ws，但实例/room/监听器 per-mount）；且影子节点被 `__ephemeral` 过滤不在 nodeStore，现有"状态→nodeStore"分发到不了编辑器。改造：① 全画布共享一个 `/execution` Socket，按当前 workflowId join 一次、切换/卸载 leave+disconnect；② 暴露 `subscribeNodeStatus(handler): unsubscribe`（统一监听 `node:status` 按 payload.nodeId 过滤分发——编辑器据此按 shadowNodeId 分发，见第三节 A1 契约）；③ **5 个创建点全部迁移**到该单例并补 disconnect。列入开发步骤 8 前置。
+socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实：`/execution` 现有 **5 个创建点**（useSocket Hook（page.tsx/useStitchTask 经它调用）+ AudioGenNode.tsx:54 + ImageGenNode.tsx:337/:936（同组件两处）+ VideoGenNode.tsx:349 直连），全部 cleanup 只 removeAllListeners **无 disconnect**（Socket 实例泄漏，N 个素材节点 = N 个实例）；**其中 ImageGenNode:936（editMode 下）监听的是 `node:edit-result`/`node:edit-failed` 独立事件（回填 fileId 退出编辑态）——迁移时必须保留此事件通道**（gateway 的 status 联合类型虽含 edit-result/edit-failed，但 execution.service 从未以 node:status 发射过它们）。改造：① 全画布共享一个 `/execution` Socket，按当前 workflowId join 一次、**connect/reconnect 后重 join**（现有直连都手写了 reconnect 重加入，单例同样要）、切换/卸载 leave+disconnect；② 暴露 `subscribeNodeStatus(handler): unsubscribe`（统一监听 `node:status` 按 payload.nodeId 过滤分发——编辑器据此按 shadowNodeId 分发，见第三节 A1 契约）**及 `subscribeNodeEditResult(handler): unsubscribe`**（分发 node:edit-result/edit-failed，图片 AI 编辑回填走它）；③ **5 个创建点全部迁移**到该单例并补 disconnect。列入开发步骤 8 前置。
 
 ---
 
@@ -308,7 +309,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 - **片段操作**：拖动（同类型跨轨自由重叠；**禁重叠与吸附仅同轨内**——同轨除 crossfade overlap 外冲突吸附最近空位，规则详见第三节）、边缘 trim（公式见第三节）、播放头分割、删除、撤销/重做
 - **历史栈事务性**：拖拽 rAF 级高频 setState **不入栈**，pointerup commit 时一次入栈；快照结构化克隆（禁持引用）；上限 50 步
 - **吸附**：片段边缘 ↔ 相邻边缘/播放头/整秒刻度，8px 阈值（换算为秒随 px/s 变化）
-- **缩放**：Ctrl+滚轮调 px/s，以播放头为中心；**编辑器挂载期间禁用画布快捷键层**（Delete/空格/Ctrl+滚轮在 document 捕获层 stopPropagation，防"删时间轴片段"穿透成"删画布节点"）
+- **缩放**：Ctrl+滚轮调 px/s，以播放头为中心；**编辑器打开期间禁用画布快捷键——落点为 `isGroupEditContext()`（useGroupKeyboard.ts 统一早退钩子）加"编辑器 store open 则返回 true"**（document keydown 是冒泡阶段监听，捕获层 stopPropagation 挡不住；isGroupEditContext 是现成早退点）；编辑器 open 状态放 `stores/videoEditorStore.ts`（避免 hooks→pages 反向依赖）；Delete/空格在画布层无处理器（CanvasKeyboardHandler 仅 Tab/Ctrl+0/Alt+Shift+F；React Flow 内置 deleteKeyCode 的 portal 隔离需实测，列入实施核验）
 - **波形**：现有 `hooks/useWaveformPeaks` 与 wavesurfer 实例耦合（首参必须传实例），**不能零成本复用**——将"从 AudioBuffer 抽固定数量峰值"的逻辑剥离为纯函数 `peaksFromAudioBuffer(buffer, count)`（可 TDD）+ 共享单例解码器产 AudioBuffer；时间轴 Canvas 自绘静态波形，峰值按 mediaId 缓存（不为每片段 new wavesurfer 实例）
 - 交互算法参考移植 opencut `timeline/`（drag-utils/snapping/group-move），适配 zustand4+antd5
 - **可测性红线**：像素↔秒换算、边缘命中宽度、8px 阈值行为全部抽纯函数；组件只绑 pointer 事件
@@ -329,14 +330,14 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 ## 七、导出管线（Web Worker + mediabunny）
 
 0. **导出弹层**：点击"导出"→ 小弹层选档（720p/1080p）+ 估算体积（码率×时长×1.2）+ 前置校验结果
-1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ 86MB/轨 × **音频轨数（按轨数动态计算，非静态文案）**，soundtouch 处理再产出等长 PCM，音频部分 ×2）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
+1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ 86MB/轨 × **（音频轨数 + 参与混音的含音频视频片数）**——视频内嵌音轨同样解码出等长 PCM 并过 soundtouch（×2），只按音频轨数会显著低估）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
 2. **Worker 执行**（懒加载 chunk，含编辑器页/mediabunny/polyfill 全部动态 import 拆包）：
    - `OfflineAudioContext` 离线混音（含变速不变调/soundtouch 处理/fade/音量关键帧）→ AudioBuffer
    - 逐帧：t → scene 纯函数 → OffscreenCanvas（720p=0.5× / 1080p=1×）→ VideoFrame → VideoEncoder H.264（硬编优先回退软编）
    - **VideoFrame 逐帧 close()（WebCodecs 资源纪律，code review 必查项）**
    - 音频 → AudioEncoder AAC；原生不支持时动态 import `@mediabunny/aac-encoder`
    - `Mp4OutputFormat`：**支持 File System Access API（仅 Chromium）时 StreamTarget 流式直写用户选定文件（导出前选位置）降内存峰值；否则回退 BufferTarget**——StreamTarget 不作通用推荐
-3. **产物登记（复用状态机语义，方法自建——勿误调 confirmUpload）**：代码事实——现有 confirm 有 ±1024 字节强校验（编码前估算 vs 实际字节必然超标→对象被删）、现有上传是 presigned **POST**、缩略图由 material.service 主动 enqueue（非 confirm 触发）。因此：**复用"pending→statObject→completed"状态机语义与配额口径**，但 generated 登记/确认两个方法**新写**于 video-project（或 media）模块：登记接口建 `type='generated'`、`status='pending'` 的 Media（估算大小过配额预检，metadata：来源 video-project/分辨率/时长）→ 返回 **PUT 预签名**（自建，非 POST）→ 浏览器 PUT → 确认时 statObject **以实际大小直接落库（不做 ±1024 预估比对）** → 置 `completed` + **主动 enqueue 缩略图**（仿 material.service.ts:82；注意：enqueue 必须传 `mimeType:'video/mp4'` 才走 consumer 视频分支；consumer 现固定抽第 1 秒而本功能允许前导黑场——**须给 consumer 加抽帧时间点参数**（job 现仅 {mediaId,key,mimeType}），取 `max(1, 0.1×总时长)`）；**上传通道复用现有 `generatePresignedPost`**（浏览器 FormData POST——MinioService 无 PUT 预签名且新增 PUT 需 @aws-sdk/s3-request-presigner 新依赖 + CORS/policy 放通，POST 通道零新依赖零配置改动）；不走 presign DTO 的 'uploaded' 通道（素材库类型过滤硬编码 `type='generated'`）；返回 fileId 为 uuid（Media 主键 uuid 非 cuid，前端勿假设 cuid）
+3. **产物登记（复用状态机语义，方法自建——勿误调 confirmUpload）**：代码事实——现有 confirm 有 ±1024 字节强校验（编码前估算 vs 实际字节必然超标→对象被删）、现有上传是 presigned **POST**、缩略图由 material.service 主动 enqueue（非 confirm 触发）。因此：**复用"pending→statObject→completed"状态机语义与配额口径**，但 generated 登记/确认两个方法**新写**于 video-project（或 media）模块：登记接口建 `type='generated'`、`status='pending'` 的 Media（估算大小过配额预检，metadata：来源 video-project/分辨率/时长）→ 返回 **presigned POST**（复用现有 `generatePresignedPost`，浏览器 FormData 上传——MinioService 无 PUT 预签名且新增 PUT 需新依赖 + CORS/policy 放通，POST 通道零新依赖零配置改动）→ 确认时 statObject **以实际大小直接落库（不做 ±1024 预估比对）** → 置 `completed` + **主动 enqueue 缩略图**（仿 material.service.ts:82；注意：enqueue 必须传 `mimeType:'video/mp4'` 才走 consumer 视频分支；consumer 现固定抽第 1 秒而本功能允许前导黑场——**须给 consumer 加抽帧时间点参数**（job 现仅 {mediaId,key,mimeType}），取 `max(1, 0.1×总时长)`）；不走 presign DTO 的 'uploaded' 通道（素材库类型过滤硬编码 `type='generated'`）；返回 fileId 为 uuid（Media 主键 uuid 非 cuid，前端勿假设 cuid）
 4. **产物自动上画布（v3 定案 + 收敛）**：confirm 成功后自动在画布创建**视频产物节点**：`addNode('videoGen', pos, {origin:'video-edit', videoProjectId, status:'done', fileId})`——最小 data 即可走播放展示（VideoGenNode 现有 done 分支）；+ 自动连线：剪辑节点输出 → 新节点输入（确定性 id `auto-out:`，见第二节）；**每次导出都新建独立产物节点**（命名"工程名 · 导出 N"），位置沿剪辑节点右侧固定步长偏移（仿 createDerivedExtNode GAP=80，重叠时步长递增，不做复杂避让算法）；**产物节点工具栏收敛（按真实按钮全量清单，共 8 个）**：VideoNodeToolbar 实际按钮为 剪辑(onTrim)/**裁剪（无 onClick 死按钮，维持现状不动）**/高清/解析/下载/全屏/音频分离/截帧——产物节点（`data.origin==='video-edit'`）**隐藏：高清/解析/音频分离/截帧**（产物为终态素材，不再二次加工）；**保留：剪辑(旧 trim，仅依赖 fileId)/下载/全屏**；死按钮"裁剪"按现状保留（全节点一致，不在本功能清理）；收起后可选 fitView 定位到新节点；toast"导出完成，已添加到画布"
 5. **导出中**：两段式进度（离线混音 % + 逐帧编码 %）；ETA 用前 30 帧试编码测速外推 + **每 500 帧滚动修正**（跨 GOP seek 成本不同，首测偏不准）；取消按钮；beforeunload 拦截
 6. **失败**：三分类（编码不支持/内存/未知，**含 worker.onerror / Worker OOM 被浏览器杀掉**归入内存/未知）+ 重试 / 降 720p
@@ -374,7 +375,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 | 组件 | VideoEditNode：只读预览渲染（片段色块/空态"+ 添加素材"）、播放/暂停、"全屏编辑"回调、Handle 存在性；**连线同步**（addClip→ensureEdge 幂等/移除源全部片段→删 edge/素材库来源跳过/手动连线不反向加素材）抽纯函数或 store 测试；旧 VideoNodeToolbar 不改动（既有用例天然回归） |
 | CanvasRenderer | 薄层不测 |
 
-### 手动验收清单（25 条）
+### 手动验收清单（28 条）
 
 1. 节点菜单添加"多轨道剪辑"→ 节点空态"+ 添加素材"，且菜单中无第二个视频合并入口（composite 已接管/下线）
 2. 旧"剪辑"（单段裁剪）与剪辑节点分别走通、互不影响
@@ -401,6 +402,9 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 23. **存量节点 data 的 regenerate 成功**：用含嵌套 prompt 对象的真实节点跑通，JSON 深拷不抛错、克隆节点 data 与源一致
 24. **产物上传直传成功**：presigned POST 浏览器 FormData 上传返回 2xx，confirm 以 statObject 实际大小落库（无 ±1024 误杀）
 25. **Socket 单例**：全画布 /execution 实例数为 1（打开 N 个视频/音频/图片节点后），卸载节点不残留连接；subscribeNodeStatus 能收到不在 nodeStore 的 shadowNodeId 事件
+26. **auto 边删除路径唯一性**：reconcile 删除 auto 边后，ydoc 中该边删除事务的 origin 唯一为 AutoEdge（订阅路径未参与）；反复"加片→删片"10 次，undoStack.length 严格不增长
+27. **编辑器期间快捷键隔离**：编辑器打开时按 Ctrl+Z / Delete / 空格，画布无任何节点/边变化、无 undo 栈变化；关闭后画布 Ctrl+Z 恢复正常（证明 isGroupEditContext 早退生效）
+28. **图片 AI 编辑结果回流**：socket 单例迁移后，editMode 下 AI 编辑完成仍能经 node:edit-result 回填 fileId 并退出编辑态（subscribeNodeEditResult 通道有效）
 
 ---
 
@@ -430,7 +434,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 
 0. **第一前置**：vendor opencut-classic 入仓 + 安装三依赖 + Prisma migration
 0.5. **关卡 Spike**：soundtouchjs 三项验证（附录 A），不过即切 WSOLA（+3~5 天预案）
-1. 后端 video-project CRUD/upsert + **collabDoc 新增 insertNode/removeNode（A1 原语）** + **generated 登记/确认自建**（PUT 预签名 + statObject 实际大小落库 + 缩略图自 enqueue，勿误调 confirmUpload）
+1. 后端 video-project CRUD/upsert + **collabDoc 新增 insertNode/removeNode（A1 原语）** + **generated 登记/确认自建**（presigned POST 直传 + statObject 实际大小落库 + 缩略图自 enqueue，勿误调 confirmUpload）
 2. **VideoEditNode 全链路注册**（上方清单）+ **执行白名单升级（同时挡 videoEdit 类型与 origin:'video-edit' 产物标记）** + 空外壳
 3. timeline 纯函数 TDD（公式/吸附/历史/连线 reconcile/帧整数不漂移）
 4. normalized store + 时间轴 UI（peaksFromAudioBuffer 纯函数化）+ 连线同步落地——**addEdge 可选 id（小改）与 origin 隔离（协作桥独立入口 syncAutoEdgesToDoc + Origin 扩 AutoEdge + 桥层测试）为两条独立任务**；步骤 2 的白名单谓词 isExecutableNode 单点共用
@@ -494,3 +498,11 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 - 采纳 P1 重点：P1-2 工具栏实为 8 按钮（补"裁剪"死按钮处置：维持现状）；P1-3 sourceNodeId 落点（nodeStore.data 挂载随 storeProjection 持久化）；P1-4 跨轨重叠不触发转场；P1-5 变速 PCM 调度前预处理 playbackRate 恒 1（防二次变调）；P1-9 自动保存指数退避重试 + 离线暂停；P1-12 regenerate 服务端直调 execute 不走 HTTP 不带 sv；P1-14 portal 措辞澄清（React 树挂画布根、DOM 经 portal 到 body）
 - 采纳 P2 重点：ValidationPipe 非全局（新 controller 自挂 @UsePipes——main.ts 无 useGlobalPipes 实测）；readDocCanvas 返回 sourceId/targetId 与消费方 source/target 口径差异登记；**驳回"CanvasProject.userId 可空导致外键失败"**（VideoProject.userId 取当前操作用户，与画布 userId 无关，已加注释防误读）；A1 同步执行占用 HTTP 连接的超时策略登记
 - 验收清单扩至 25 条（新增 20-25：origin 隔离/撤销互斥/A1 无闪烁/存量节点克隆/POST 直传/Socket 单例）
+
+### R7 轮（2026-09-10，v3.4→v3.5，结论"仅剩 1 个 P0，改完可开工；R6 报告 P0-2 自我更正——v3.4 的数据流澄清正确"）
+
+- 采纳 P0-A（唯一阻断）：reconcile 的 store 侧 removeEdge 会触发订阅同步以 LocalUser 删 doc 边（执行顺序靠时序运气）——**订阅路径边处理全部跳过 auto:/auto-out: 前缀**（edgeIds/删除循环/fillDoc 新增分支），auto 边全生命周期只归 syncAutoEdgesToDoc；配套：canvasStore 新增 removeEdge（实测无此方法）、addEdgeById 同 id no-op 断言、编辑器 commit 点接 stopCapturing（防 500ms 合并窗错误并栈）
+- 修复 v3.4 引入的内部矛盾 ×2：第三节/附录 B 残留"PUT 预签名"统一为 presigned POST（R6 部分采纳时漏改的两处）；ImageGenNode:936 实测监听 node:edit-result/edit-failed 独立事件（gateway 联合类型含但 service 从未以 node:status 发射）——单例增暴露 subscribeNodeEditResult，防图片 AI 编辑迁移后静默失效；补单例重连重 join 语义
+- 采纳 P1×2：快捷键禁用落点改 isGroupEditContext 早退（实测 document keydown 冒泡阶段、stopPropagation 无效；Delete/空格画布层无处理器系虚设，改实测 ReactFlow deleteKeyCode 项；编辑器 open 状态放 stores/ 防反向依赖）；内存预估口径改"音频轨数 + 含音频视频片数"（视频内嵌音轨同样 PCM×2）
+- 采纳 P2×6：ValidationPipe 自挂入第三节正文（附录记录不动正文不生效）；readDocCanvas 键名口径注明（edges 以 fillDoc 的 source/target 为准）；A1 同步执行的 axios 超时兜底；addEdgeById no-op；videoEdit 节点显式 width:320（防 fallback 链 300 偏移）；单例 connect/reconnect 重 join
+- 验收扩至 28 条（26 auto 边删除路径唯一性/27 快捷键隔离早退/28 图片编辑结果回流）
