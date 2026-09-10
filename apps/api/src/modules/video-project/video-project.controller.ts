@@ -40,4 +40,13 @@ export class VideoProjectController {
   confirmGenerated(@Body() dto: ConfirmGeneratedDto, @Req() req: any) {
     return this.generated.confirm(req.user?.id, dto);
   }
+
+  @Post('regenerate')
+  regenerate(@Body() dto: RegenerateDto, @Req() req: any) {
+    return this.svc.regenerate(req.user?.id, dto);
+  }
+  @Post('remove-shadow')
+  removeShadow(@Body() dto: RemoveShadowDto, @Req() req: any) {
+    return this.svc.removeShadow(req.user?.id, dto);
+  }
 }

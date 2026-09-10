@@ -62,4 +62,37 @@ export class VideoProjectService {
     await this.perm.assertEditor(proj.workflowId, userId);
     await this.prisma.videoProject.delete({ where: { sourceNodeId } });
   }
+
+  /**
+   * A1 影子节点克隆生成：
+   * 1. readCanvas 找 sourceNode → JSON 整份深拷 data（禁止字段挑拣——取词链 content 优先/prompt 嵌套）
+   * 2. insertNode 影子（shadow- 前缀 + __ephemeral 判据——前端 onRemote 以此短路防 applyDocToStore
+   *    全量重建闪烁；origin 不过网已实测，见 Task 9 跨端用例）
+   * 3. 服务端直调 execute（不走 HTTP、不带 x-yjs-sv——sv 裁剪会让影子不可见）
+   * 4. 不在此删影子：done 事件经 socket 回流后由前端读 data 取 fileId 再调 removeNodeByShadow
+   */
+  async regenerate(userId: string, dto: { sourceNodeId: string; workflowId: string; kind: 'video' | 'audio' }) {
+    await this.perm.assertEditor(dto.workflowId, userId);
+    const canvas = await this.collab.readCanvas(dto.workflowId);
+    const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
+    const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';
+    if (!src || src.type !== wantType) throw new BadRequestException('source node not found or kind mismatch');
+    const shadowId = `shadow-${dto.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const clonedData = JSON.parse(JSON.stringify(src.data ?? {})); // 整份深拷（Yjs toJSON 即 JSON 语义）
+    clonedData.__ephemeral = true;
+    await this.collab.insertNode(dto.workflowId, {
+      id: shadowId, type: wantType,
+      position: { x: -99999, y: -99999 }, // 次保险：主判据是 shadow- 前缀+__ephemeral（store 投影与渲染层双重过滤），position 仅让万一漏过滤的渲染远离视口
+      data: clonedData,
+    });
+    const result = await this.execution.execute(dto.workflowId, shadowId, userId); // 直调，无 sv
+    return { shadowNodeId: shadowId, result };
+  }
+
+  /** 前端 done 回流后调用：删影子节点（重复删 no-op 安全） */
+  async removeShadow(userId: string, dto: { workflowId: string; shadowNodeId: string }) {
+    await this.perm.assertEditor(dto.workflowId, userId);
+    await this.collab.removeNode(dto.workflowId, dto.shadowNodeId);
+    return { ok: true };
+  }
 }
