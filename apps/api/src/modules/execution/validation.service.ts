@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { availableCredits } from '../team/team.util';
+import { isExecutableNode } from './is-executable-node';
 
 export interface ValidationResult {
   valid: boolean;
@@ -18,7 +19,7 @@ export class ValidationService {
 
     // Collect model IDs from non-text nodes
     const modelIds = [...new Set(
-      nodes.filter(n => n.type !== 'textInput')
+      nodes.filter(n => isExecutableNode(n) && n.type !== 'textInput')
         .map(n => n.data?.model)
         .filter(Boolean)
     )];
@@ -30,6 +31,7 @@ export class ValidationService {
     const modelMap = new Map(models.map(m => [m.id, m]));
 
     for (const node of nodes) {
+      if (!isExecutableNode(node)) continue;
       if (node.type === 'textInput') continue;
       const data = node.data as any;
 

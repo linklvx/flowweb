@@ -6,6 +6,7 @@ import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { isExecutableNode } from './is-executable-node';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -63,6 +64,7 @@ export class ExecutionService {
     let totalDeducted = 0;
     const results: any[] = [];
     for (const node of orderedNodes) {
+      if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
 
       try {
