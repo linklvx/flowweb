@@ -29,7 +29,7 @@ describe('吸附（8px 阈值随 px/s 变化）', () => {
     expect(r.time).toBe(2);
     expect(r.snapped?.kind).toBe('clip-start');
   });
-  it('不命中返回原值', () => {
+  it('无显式点命中时整秒接住', () => {
     const pts = collectSnapPoints('me', [clip('a', 2, 3)], 0);
     const r = snapTime(4, pts, 100); // 距 2/5 均 1s+ > 0.08；整秒 4 距 0——整秒命中！
     expect(r.snapped?.kind).toBe('whole-second');
