@@ -153,6 +153,18 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
     c.dispose();
   });
 
+  it('flush 持续失败（connected）不绕退避——烧完额度返回 false 阻止关闭（review 残留）', async () => {
+    const deps = mkDeps({ patch: vi.fn().mockRejectedValue(new Error('500')) });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500 + 1000 + 4000 + 16000); // 首发+3 次退避全失败，停机
+    const p = c.flush(); // 无脏数据（dirty 已清）但 retryCount=3
+    const drained = await p;
+    expect(drained).toBe(false); // 最终失败——阻止关闭
+    expect(deps.patch).toHaveBeenCalledTimes(4); // flush 不再补发（不绕退避）
+    c.dispose();
+  });
+
   it('flush 在途排空 + 等待期新编辑也排空（M1）', async () => {
     let resolveFirst: (v: any) => void = () => {};
     const deps = mkDeps({ patch: vi.fn()

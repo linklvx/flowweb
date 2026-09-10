@@ -15,7 +15,7 @@ export interface AutosaveController {
   notifyChange(): void;
   /** 协作连接恢复 connected 时调用：有待存数据立即补发 */
   notifyConnected(): void;
-  /** 收起/ESC 用：立即执行排队保存并 await 排空；返回 false=有数据未能排空（离线或最终失败）——调用方应警告并阻止关闭 */
+  /** 收起/ESC 用：立即执行排队保存并 await 排空；false=有数据未能排空（离线或最终失败） */
   flush(): Promise<boolean>;
   /** SAVE_DOT error 手动重试：无条件补发当前 data（dirty 与否都发），退避额度重置 */
   retry(): void;
@@ -88,14 +88,16 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
       if (disposed) return false;
       clearDebounce();
       while (dirty || queued || inFlight || debounceTimer != null) {
-        if (!inFlight) {
-          if (!deps.isConnected()) return false; // 离线且有未保存数据——排空失败（I3：调用方应警告并阻止关闭）
-          await doSave(); // M1：等待期新编辑（dirty 复真）继续排空
+        if (!inFlight && debounceTimer == null) {
+          if (!deps.isConnected()) return false; // 离线且有未保存数据——排空失败
+          await doSave(); // 无退避在途才主动发（不绕退避——review 残留）
         } else {
-          await new Promise(r => setTimeout(r, 10));
+          await new Promise(r => setTimeout(r, 10)); // 在途/退避 timer 走着——等它自然执行
         }
       }
-      return true;
+      // retryCount===0：全部排空成功（成功路径清 0）；耗尽=最终失败——false 阻止关闭（数据留 editorStore）
+      // 409 冲突放行（retryCount 不增，用户已收 toast——半自动恢复语义）
+      return retryCount === 0;
     },
     dispose: () => {
       disposed = true;
