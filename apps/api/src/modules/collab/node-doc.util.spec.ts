@@ -30,6 +30,9 @@ describe('跨端同步实测（固化机制认知）', () => {
     const server = new Y.Doc();
     const client = new Y.Doc();
     server.on('update', (u) => Y.applyUpdate(client, u, 'network'));
+    // 观察者必须在影子写入之前注册——否则 observeDeep 未触发，断言落入 'unset' 恒真假绿窗口
+    let observedOrigin: unknown = 'unset';
+    client.getMap('nodes').observeDeep((events) => { observedOrigin = events[0].transaction.origin; });
     // 服务端以任意 origin 写入影子节点
     server.transact(() => {
       server.getMap('nodes').set('shadow-video-1', buildShadowNodeYMap({ id: 'shadow-video-1', type: 'videoGen', position: { x: 0, y: 0 }, data: { __ephemeral: true } }));
@@ -38,9 +41,6 @@ describe('跨端同步实测（固化机制认知）', () => {
     const shadow = client.getMap('nodes').get('shadow-video-1') as Y.Map<any>;
     expect(shadow).toBeDefined();
     expect((shadow.get('data') as Y.Map<any>).get('__ephemeral')).toBe(true);
-    let observedOrigin: unknown = 'unset';
-    client.getMap('nodes').observeDeep((events) => { observedOrigin = events[0].transaction.origin; });
-    client.transact(() => { client.getMap('nodes').set('local-1', new Y.Map()); }, 'server-shadow-伪造也不行');
-    expect(observedOrigin).not.toBe('server-shadow'); // origin 由应用侧决定——判据只能靠内容（前缀/__ephemeral）
+    expect(observedOrigin).toBe('network'); // 客户端 observe 到的是传输层 origin——服务端 'server-shadow' 不可见（update 二进制不含 origin）
   });
 });
