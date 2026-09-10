@@ -43,6 +43,8 @@
 > **Task 15 执行期修正（2026-09-11）**：控制器预验算批准 2 处向量修正——(a) trim 用例素材时长 10 用满（trimRightGuard maxDelta=0 夹死）→ addClip 后 setMediaInfo 15 给 guard 富余；(b) 键盘两用例补 `useVideoEditorStore.setState({ open: true })`（hook 首行 open 门卫，原用例必红）。jsdom 适配 3 处：pointer 事件用 `new MouseEvent('pointerdown')` 按 type 派发（jsdom 无 PointerEvent 构造器，项目既有先例）；elementFromPoint 加 ?. 防御 + offsetX 越块宽不判 trim（jsdom rect 全 0 伪影——真实浏览器 offsetX 恒在块内不可达，纯适配）；跨轨 mock 直接注入 + afterEach delete（vi.spyOn 属性不存在抛错）+ addTrack act 包裹。(I2 落实) ClipBlock onClick stopPropagation。卫生修复：pointercancel 与 up 同路径收口（触控/浏览器接管手势防 dragRef 残留）；DragState 死字段清理（pointerMoved/startClientY/startDuration 删、pointerMovedOnce 升正式字段去 as any）；字幕用例 act 包裹。登记：useEditorKeyboard.test.ts 不单独建（Files 清单与 Step 1 不一致，键盘覆盖并入 interact 2 用例——redo/空格/Backspace/INPUT guard 键位分支无直测，store 层有兜底）；空格 preventDefault 对聚焦按钮恰好防误删（取舍记录）；move 回原位等价快照入栈（引用比较最廉价实现，Task 17 观察后接受或登记）。Task 17 浏览器验收重点：I2 click 阻断（跨轨换轨 DOM 重建致 capture 释放时 click 落共同祖先——最坏选中丢失外观瑕疵非状态破坏）/startPxPerSec 缩放手感/等价快照。
 >
 > **Task 16 执行期修正（2026-09-11，quality review I1/M1-M2）**：(I1) **drop 轨道匹配补字幕轨守卫**——原条件 `trackType === 'audio' ? kind !== 'audio' : kind === 'audio'` 对 subtitle 轨走 else 分支不设防（视频/图片可拖入字幕轨建错型片段并持久化，违 spec 验收 5），重写为 `kind === 'audio' ? trackType !== 'audio' : trackType !== 'video'`（audio 片只进 audio 轨、video/image 只进 video 轨、字幕轨不接受 drop）+ 字幕轨 drop 忽略用例。控制器预验算批准：drop 用例 beforeEach 的 canvasStore 须提供 edit1/v1 节点（Task 8 素材缺失守卫会拒绝空画布建边，auto:edit1:v1 断言必红——守卫晚于计划测试编写，两轮审核均未重核）。(M1) useWorkflowAssets 空 ids 早退补 setLoading(false)（防在途请求被取消后 loading 永真）。(M2) metadata cast 收窄 `{ durationSec?: number }`。(基建) '已添加'用例 addClip act 包裹（zustand 微任务渲染 flush 先例）；stopCapturing 可选链安全（无 UndoManager no-op，无需 mock）。登记：entries 与 idsKey 同源派生安全（改节点 duration 配置不重查——fileId 集合不变，产品流可接受，Plan 3 有需求再扩 memo 签名）；JSON.parse 无 try（唯一写入方 AssetPanel 同源受控，YAGNI）。
+>
+> **Task 17 浏览器验收结论（2026-09-11，preview 工具实测）**：✅ 通过项——验收 1（菜单 8 项无重复合并入口/空态/宽 320 居中）、6 部分（字幕➕ 3s/Ctrl+Z 撤销）、15（自动保存 PATCH 200→刷新重进 2 字幕/4 轨/绿点还原一致）、19/21（3 次时间轴操作后画布 Ctrl+Z 不动剪辑节点 + 编辑器 Ctrl+Z 不动画布节点——双栈互斥实测）、20/26（origin 隔离 undoStack 单测佐证 + 浏览器无视觉回归）、27（编辑器开着按 Delete 画布节点不动——nokey/焦点移入/deleteKeyCode 三重防线实测）、增项落点（宽 320 居中）、增项标尺对齐（几何断言：标尺 t=0/轨道体 t=0/0s 片段三点 x 差=0——C1 角位修复实证）、增项 Ctrl 滚轮（defaultPrevented=true 证实非被动监听挂载；数值联动单测佐证）。⚪ 单测佐证项——验收 3/5 连线闭环与素材拖入（Task 16 的 7 用例含 ensureAutoEdges 真实边断言/决策 6 时长链/轨道守卫锁真行为；浏览器真实素材需生成链路产物——注入受生成节点 data 写入机制所限，Plan 3 有真实产物后自然覆盖）；验收 2（画布无旧剪辑节点共存，天然隔离）。**验收期修复 3 项**（Plan 1 遗留跨 plan 脱节，均 TDD）：(a) CreateVideoProjectDto data 改可选（service.upsertByNode 的 data? 语义脱节——首开 3 字段 upsert 被 400）；(b) service 缺省工程手写字面量 tracks:[] 改同构 4 轨内联（与 spec 默认轨脱节）；(c) 前端 upsertProject 显式传 createDefaultProjectData（API 不能值 import shared 纯源码包 barrel——admin.guard.ts 既有注释警告的架构约束）。**实测坑登记**：preview_eval 的动态 import 与页面主世界模块图隔离（一切 store 注入验证不可靠——读数 idle 的"双实例"假象根因）；nodeStore.nodes 由 applyDocToStore 远端回流填充（本地 canvasStore 修改不即时投影）。全量回归：web 214 文件 2218 测试 + api 126 文件 979 测试 + tsc -b 0 error。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -120,7 +122,7 @@ spec 附录 B"新类型全链路注册清单"逐项落地。执行白名单后�
 - Modify: `apps/web/src/pages/canvas/video-editor/types.ts`（+Clip union/VideoEditNodeData）
 - Test: `apps/web/src/collab/ydocBuilder.test.ts`（+videoEdit 往返用例）
 
-- [ ] **Step 1: AddNodeMenu 菜单项改写（接管 composite 死入口）**
+- [x] **Step 1: AddNodeMenu 菜单项改写（接管 composite 死入口）**
 
 [AddNodeMenu.tsx](apps/web/src/pages/canvas/components/AddNodeMenu.tsx) L95 整行替换：
 
@@ -130,7 +132,7 @@ spec 附录 B"新类型全链路注册清单"逐项落地。执行白名单后�
 
 （badge: 'Beta' 移除。）同时删除 L197 的 TODO 注释行 `// TODO: 后端支持 videoComposite 类型后改为 item.type 直接映射`（已直接映射）。
 
-- [ ] **Step 2: AddNodeMenu.test.tsx 用例同步改写**
+- [x] **Step 2: AddNodeMenu.test.tsx 用例同步改写**
 
 L65 `expect(screen.getByText('视频合成')).toBeInTheDocument();` 改为：
 
@@ -152,7 +154,7 @@ L107-113 composite 用例整体替换为：
 
 （菜单总数仍 8 项：7 节点 + 1 上传，既有 `menuItems.length === 8` 计数用例不需改。）
 
-- [ ] **Step 3: video-editor/types.ts 补 Clip union 与节点 data 类型**
+- [x] **Step 3: video-editor/types.ts 补 Clip union 与节点 data 类型**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/types.ts（在既有 re-export 之后追加）
@@ -171,7 +173,7 @@ export interface VideoEditNodeData {
 
 > **R1 审核 P2-1 登记（union 不动是 spec 定案）**：spec v3.6 附录 B 原文"新增 VideoEditNodeData 类型并在节点内收敛（nodeStore 无集中 NodeData 联合……是新增类型自律，**不是扩展现有 union**）"——VideoEditNodeData 收敛在 video-editor/types.ts 供组件自律使用，nodeStore.ts L171 的 NodeData 联合**刻意不加成员**（组件普遍 as any 现状下加 union 无编译收益，反增维护面）。
 
-- [ ] **Step 4: VideoEditNode 空壳组件（最小组件，保证 nodeTypes 注册即可渲染）**
+- [x] **Step 4: VideoEditNode 空壳组件（最小组件，保证 nodeTypes 注册即可渲染）**
 
 ```tsx
 // apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx
@@ -202,11 +204,11 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
 export const VideoEditNode = memo(VideoEditNodeComponent);
 ```
 
-- [ ] **Step 5: CanvasView 注册 nodeTypes**
+- [x] **Step 5: CanvasView 注册 nodeTypes**
 
 [CanvasView.tsx](apps/web/src/pages/canvas/components/CanvasView.tsx)：import 区（L22-28 附近）加 `import { VideoEditNode } from './nodes/VideoEditNode';`；nodeTypes 对象（L40-48）加一行 `videoEdit: VideoEditNode,`（`as any` 断言保持不动）。
 
-- [ ] **Step 6: canvasStore.addNode 显式 width:320**
+- [x] **Step 6: canvasStore.addNode 显式 width:320**
 
 [canvasStore.ts](apps/web/src/stores/canvasStore.ts) L183-186 的 `if (resolvedType === 'textInput') {...}` 块之后追加：
 
@@ -216,7 +218,7 @@ export const VideoEditNode = memo(VideoEditNodeComponent);
     }
 ```
 
-- [ ] **Step 7: ydocBuilder 往返测试（新类型刷新还原保障，注册清单要求项）**
+- [x] **Step 7: ydocBuilder 往返测试（新类型刷新还原保障，注册清单要求项）**
 
 [ydocBuilder.test.ts](apps/web/src/collab/ydocBuilder.test.ts) 文件末尾追加 describe（沿用该文件既有 `new Y.Doc() + fillDoc + readCanvasFromDoc` 模式）：
 
@@ -250,7 +252,7 @@ describe('videoEdit 新类型往返（刷新还原保障）', () => {
 });
 ```
 
-- [ ] **Step 8: 跑测试 + 提交（含 tsc 前移首验——R2 审核 P1-C：命令可用性第 1 个任务就暴露，别攒到 Task 17）**
+- [x] **Step 8: 跑测试 + 提交（含 tsc 前移首验——R2 审核 P1-C：命令可用性第 1 个任务就暴露，别攒到 Task 17）**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/components/AddNodeMenu.test.tsx src/collab/ydocBuilder.test.ts
@@ -271,7 +273,7 @@ git add apps/web/src && git commit -m "feat(video-editor): videoEdit 全链路�
 - Create: `apps/web/src/stores/videoEditorStore.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/capabilities.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/capabilities.test.ts
@@ -301,7 +303,7 @@ describe('detectVideoEditorCapabilities（编辑入口分层检测：解码器�
 });
 ```
 
-- [ ] **Step 2: 确认失败（Cannot find module）→ Step 3: 实现**
+- [x] **Step 2: 确认失败（Cannot find module）→ Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/capabilities.ts
@@ -342,7 +344,7 @@ export const useVideoEditorStore = create<VideoEditorState>((set) => ({
 }));
 ```
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/capabilities.test.ts
@@ -358,7 +360,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 能力检测三件 + 
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/clip-math.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/clip-math.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/clip-math.test.ts
@@ -506,7 +508,7 @@ describe('splitClipAt（播放头分割，spec 第三节公式）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/clip-math.ts
@@ -601,7 +603,7 @@ export function splitClipAt(clip: Clip, cutPoint: number, backId: string): { fro
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/clip-math.test.ts
@@ -617,7 +619,7 @@ git add apps/web/src/pages/canvas/video-editor/timeline && git commit -m "feat(v
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/view-scale.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/view-scale.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/view-scale.test.ts
@@ -702,7 +704,7 @@ describe('缩放锚定（Ctrl+滚轮以播放头为中心）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/view-scale.ts
@@ -771,7 +773,7 @@ export function anchorZoomScroll(input: {
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/view-scale.test.ts
@@ -786,7 +788,7 @@ git add apps/web/src/pages/canvas/video-editor/timeline && git commit -m "feat(v
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/overlap.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/overlap.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/overlap.test.ts
@@ -938,7 +940,7 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/overlap.ts
@@ -1024,7 +1026,7 @@ export function findNearestFreeStart(
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/overlap.test.ts
@@ -1040,7 +1042,7 @@ git add apps/web/src/pages/canvas/video-editor/timeline && git commit -m "feat(v
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/waveform.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/timecode.test.ts` + `waveform.test.ts`
 
-- [ ] **Step 1: 写失败测试（timecode）**
+- [x] **Step 1: 写失败测试（timecode）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/timecode.test.ts
@@ -1088,7 +1090,7 @@ describe('totalDuration（原点恒 0，总长 = max(end)；overlap 不重复计
 });
 ```
 
-- [ ] **Step 2: 写失败测试（waveform）**
+- [x] **Step 2: 写失败测试（waveform）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/waveform.test.ts
@@ -1123,7 +1125,7 @@ describe('peaksFromAudioBuffer（从 AudioBuffer 抽固定数量峰值——useW
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现**
+- [x] **Step 3: 确认失败 → 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/timecode.ts
@@ -1187,7 +1189,7 @@ export function peaksFromAudioBuffer(buffer: PeakSource, count: number, channel 
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/timecode.test.ts src/pages/canvas/video-editor/timeline/waveform.test.ts
@@ -1202,7 +1204,7 @@ git add apps/web/src/pages/canvas/video-editor/timeline && git commit -m "feat(v
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/history.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/history.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/history.test.ts
@@ -1258,7 +1260,7 @@ describe('历史栈（快照结构化克隆/上限 50/事务语义）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/history.ts
@@ -1295,7 +1297,7 @@ export function redoHistory<T>(h: History<T>, current: T): { history: History<T>
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/history.test.ts
@@ -1314,7 +1316,7 @@ spec 第二节连线同步的两条独立任务之一（addEdge 小改）；orig
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/auto-edges.ts`
 - Test: `apps/web/src/stores/autoEdgeIds.test.ts` + `canvasStore.test.ts` 增用例 + `auto-edges.test.ts`
 
-- [ ] **Step 1: 写失败测试（autoEdgeIds）**
+- [x] **Step 1: 写失败测试（autoEdgeIds）**
 
 ```ts
 // apps/web/src/stores/autoEdgeIds.test.ts
@@ -1334,7 +1336,7 @@ describe('自动边确定性 id（身份只依赖 id，不依赖会丢失的 edg
 });
 ```
 
-- [ ] **Step 2: 写失败测试（canvasStore 边原语，追加到既有 canvasStore.test.ts）**
+- [x] **Step 2: 写失败测试（canvasStore 边原语，追加到既有 canvasStore.test.ts）**
 
 ```ts
 // apps/web/src/stores/canvasStore.test.ts 文件末尾追加（沿用该文件 setState 重置 + getState 驱动模式）
@@ -1366,7 +1368,7 @@ describe('边原语（自动连线支持：addEdge 可选 id / removeEdge / onCo
 });
 ```
 
-- [ ] **Step 3: 写失败测试（planAutoEdgeOps 对账纯函数——spec 测试矩阵）**
+- [x] **Step 3: 写失败测试（planAutoEdgeOps 对账纯函数——spec 测试矩阵）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/auto-edges.test.ts
@@ -1465,7 +1467,7 @@ describe('ensureAutoEdges（store 落地，幂等）', () => {
 });
 ```
 
-- [ ] **Step 4: 确认失败 → Step 5: 实现**
+- [x] **Step 4: 确认失败 → Step 5: 实现**
 
 ```ts
 // apps/web/src/stores/autoEdgeIds.ts
@@ -1567,7 +1569,7 @@ export function ensureAutoEdges(editNodeId: string, data: ProjectData): void {
 }
 ```
 
-- [ ] **Step 6: 跑测试 + 提交**
+- [x] **Step 6: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/stores/autoEdgeIds.test.ts src/stores/canvasStore.test.ts src/pages/canvas/video-editor/timeline/auto-edges.test.ts
@@ -1584,7 +1586,7 @@ git add apps/web/src && git commit -m "feat(video-editor): autoEdgeIds 确定性
 - Create: `apps/web/src/pages/canvas/video-editor/store/editorStore.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/store/editorStore.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/store/editorStore.test.ts
@@ -1804,7 +1806,7 @@ describe('editorStore（normalized + transient 历史）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/store/editorStore.ts
@@ -2152,7 +2154,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
 });
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/store/editorStore.test.ts
@@ -2171,7 +2173,7 @@ spec 第二节节点本体 UI 全项。播放/暂停按钮 disabled 占位（Pla
 - Modify: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx`（Task 1 空壳 → 完整版）
 - Test: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 // apps/web/src/pages/canvas/components/nodes/VideoEditNode.test.tsx
@@ -2278,7 +2280,7 @@ describe('VideoEditNode 本体', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现完整版组件**
+- [x] **Step 2: 确认失败 → Step 3: 实现完整版组件**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components 内不重复；节点本体完整替换 Task 1 空壳
@@ -2395,7 +2397,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
 export const VideoEditNode = memo(VideoEditNodeComponent);
 ```
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/components/nodes/VideoEditNode.test.tsx
@@ -2414,7 +2416,7 @@ git add apps/web/src && git commit -m "feat(video-editor): VideoEditNode 本体�
 - Modify: `apps/web/src/pages/canvas/page.tsx:295-299`（挂载 Shell）
 - Test: `apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx` + `useGroupKeyboard` 增用例（并入 Shell 测试文件）
 
-- [ ] **Step 1: 写失败测试（BaseFullscreenModal 开关）**
+- [x] **Step 1: 写失败测试（BaseFullscreenModal 开关）**
 
 ```tsx
 // apps/web/src/components/BaseFullscreenModal.test.tsx
@@ -2438,7 +2440,7 @@ describe('BaseFullscreenModal closeOnBackdrop 开关', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → 实现 closeOnBackdrop**
+- [x] **Step 2: 确认失败 → 实现 closeOnBackdrop**
 
 [BaseFullscreenModal.tsx](apps/web/src/components/BaseFullscreenModal.tsx)：props 接口加 `closeOnBackdrop?: boolean;`（默认 true 保持现状），解构参数加 `closeOnBackdrop = true`，遮罩层 div（L65-71）的 onClick 改为：
 
@@ -2448,7 +2450,7 @@ describe('BaseFullscreenModal closeOnBackdrop 开关', () => {
       }}
 ```
 
-- [ ] **Step 3: 写失败测试（Shell + 快捷键隔离）**
+- [x] **Step 3: 写失败测试（Shell + 快捷键隔离）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx
@@ -2492,7 +2494,7 @@ describe('VideoEditorShell', () => {
 });
 ```
 
-- [ ] **Step 4: 确认失败 → Step 5: 实现 Shell + 占位 + 挂载 + isGroupEditContext**
+- [x] **Step 4: 确认失败 → Step 5: 实现 Shell + 占位 + 挂载 + isGroupEditContext**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/PreviewPlaceholder.tsx
@@ -2582,7 +2584,7 @@ export function isGroupEditContext(target: HTMLElement | null): boolean {
 
 （React 树挂画布根层保证画布不卸载、左面板可读整个 nodeStore；DOM 层经 BaseFullscreenModal 的 createPortal 挂 document.body——spec 挂载结构节。）
 
-- [ ] **Step 6: 跑测试 + 提交**
+- [x] **Step 6: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/components/BaseFullscreenModal.test.tsx src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx
@@ -2603,7 +2605,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 全屏外壳——clo
 - Modify: `apps/web/src/stores/canvasStore.ts:203`（deleteNode 对 videoEdit 级联删工程——spec 生命周期规则）
 - Test: `autosave.test.ts` + `canvasStore.test.ts` 增用例
 
-- [ ] **Step 1: 实现 api client（纯透传，无独立测试——apiFetch 惯例）**
+- [x] **Step 1: 实现 api client（纯透传，无独立测试——apiFetch 惯例）**
 
 ```ts
 // apps/web/src/api/videoProjectApi.ts
@@ -2639,7 +2641,7 @@ export function patchProject(id: string, body: { data: unknown; baseUpdatedAt: s
 
 （若 apiFetch 抛错未附 status：读 `apps/web/src/api/client.ts` 实际实现把 404 判断对齐其错误形状——`instanceof Error && (e as any).status === 404` 或 message 匹配，以现码为准。）
 
-- [ ] **Step 2: 写失败测试（autosave——spec 第三节自动保存全部规则）**
+- [x] **Step 2: 写失败测试（autosave——spec 第三节自动保存全部规则）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/persist/autosave.test.ts
@@ -2762,7 +2764,7 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现 autosave controller**
+- [x] **Step 3: 确认失败 → 实现 autosave controller**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/persist/autosave.ts
@@ -2859,7 +2861,7 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
 }
 ```
 
-- [ ] **Step 4: EditorTopBar 实现（三态状态点 + 收起 + 导出占位）**
+- [x] **Step 4: EditorTopBar 实现（三态状态点 + 收起 + 导出占位）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/EditorTopBar.tsx（替换 Task 11 占位）
@@ -2899,7 +2901,7 @@ export function EditorTopBar({ onManualRetry }: { onManualRetry?: () => void }) 
 }
 ```
 
-- [ ] **Step 5: Shell 接线（加载时序 + autosave 集成 + flush 后关闭）**
+- [x] **Step 5: Shell 接线（加载时序 + autosave 集成 + flush 后关闭）**
 
 [VideoEditorShell.tsx](apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx) 顶部逻辑替换为（布局 JSX 保持 Task 11 形状，`EditorTopBar` 传 `onManualRetry`）：
 
@@ -2984,7 +2986,7 @@ export function VideoEditorShell() {
 
 （`patchProject` 从 `@/api/videoProjectApi` import；loading/error 分支渲染放 TimelinePanel 内部统一处理，Shell 保持骨架。）
 
-- [ ] **Step 5.5: 删除剪辑节点级联删工程（spec 生命周期规则第 1 条——防无入口孤儿）**
+- [x] **Step 5.5: 删除剪辑节点级联删工程（spec 生命周期规则第 1 条——防无入口孤儿）**
 
 [videoProjectApi.ts](apps/web/src/api/videoProjectApi.ts) 追加：
 
@@ -3032,7 +3034,7 @@ describe('deleteNode videoEdit 级联删工程', () => {
 
 > 依赖边核验（审核已确认）：canvasStore → videoProjectApi → client（client.ts 零 import）→ 无环；canvasStore → api/mediaApi 是既有先例（L14），同层新增无碍。deleteTransformNode（L237-250）同样级联删边但不含 videoEdit 分支——videoEdit 不走 transform 流程，现状无影响，登记不改（R1 审核 P2-3）。
 
-- [ ] **Step 6: 跑测试 + 提交**
+- [x] **Step 6: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/persist/autosave.test.ts src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx
@@ -3050,7 +3052,7 @@ spec 第二节连线同步规则第 3 条 + v3.6 R8 P0-A2 定稿。机制认知�
 - Modify: `apps/web/src/stores/canvasCollabRuntime.ts`（syncStoreToDoc 跳前缀 + syncAutoEdgesToDoc + bindBridge 调用点 + onRemote 短路）
 - Test: `apps/web/src/stores/canvasUndo.test.ts` 增用例 + 新建 `apps/web/src/stores/canvasCollabRuntime.auto-edge.test.ts`
 
-- [ ] **Step 1: 写失败测试（canvasUndo——AutoEdge 不入栈）**
+- [x] **Step 1: 写失败测试（canvasUndo——AutoEdge 不入栈）**
 
 [canvasUndo.test.ts](apps/web/src/stores/canvasUndo.test.ts) 既有"local-user 入栈；server/null 不入栈"用例旁追加：
 
@@ -3066,7 +3068,7 @@ it('auto-edge origin 不入撤销栈（跨撤销栈隔离——spec 验收 20）
 
 （import 区把 `Origin` 解构补齐；若既有用例已有同构断言结构，跟随其 setup 模式。）
 
-- [ ] **Step 2: 写失败测试（桥层 auto 边对账 + 影子短路）**
+- [x] **Step 2: 写失败测试（桥层 auto 边对账 + 影子短路）**
 
 ```ts
 // apps/web/src/stores/canvasCollabRuntime.auto-edge.test.ts
@@ -3204,7 +3206,7 @@ describe('isShadowOnlyEvents（A1 影子事务短路判定——id 前缀，orig
 });
 ```
 
-- [ ] **Step 3: 确认失败 → Step 4: 实现**
+- [x] **Step 3: 确认失败 → Step 4: 实现**
 
 [canvasUndo.ts](apps/web/src/stores/canvasUndo.ts) L5-7 替换：
 
@@ -3301,7 +3303,7 @@ onRemote（initCollab 内 L201-211 附近）在 LocalUser 回环判断之后追�
 
 （observeDeep 两个绑定点 L212-213 的回调保持既有 events 参数透传到 onRemote。）
 
-- [ ] **Step 5: 跑测试 + 全量回归 + 提交**
+- [x] **Step 5: 跑测试 + 全量回归 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/stores/canvasCollabRuntime.auto-edge.test.ts src/stores/canvasUndo.test.ts
@@ -3322,7 +3324,7 @@ spec 第五节可测性红线：像素换算/命中/阈值全部纯函数（Task
 - Create: `apps/web/src/pages/canvas/video-editor/components/timeline/TimelineRuler.tsx` + `TrackRow.tsx` + `ClipBlock.tsx`
 - Test: `apps/web/src/pages/canvas/video-editor/components/timeline/TimelinePanel.render.test.tsx`
 
-- [ ] **Step 1: 写失败测试（静态渲染）**
+- [x] **Step 1: 写失败测试（静态渲染）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/timeline/TimelinePanel.render.test.tsx
@@ -3388,7 +3390,7 @@ describe('TimelinePanel 静态渲染', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现四个组件**
+- [x] **Step 2: 确认失败 → Step 3: 实现四个组件**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx
@@ -3620,7 +3622,7 @@ export function TimelinePanel() {
 }
 ```
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/components/timeline/TimelinePanel.render.test.tsx
@@ -3638,7 +3640,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 时间轴静态渲染
 - Create: `apps/web/src/pages/canvas/video-editor/hooks/useEditorKeyboard.ts`
 - Test: `TimelinePanel.interact.test.tsx` + `useEditorKeyboard.test.ts`
 
-- [ ] **Step 1: 写失败测试（交互——jsdom pointer 事件驱动 store 断言）**
+- [x] **Step 1: 写失败测试（交互——jsdom pointer 事件驱动 store 断言）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/timeline/TimelinePanel.interact.test.tsx
@@ -3774,7 +3776,7 @@ describe('TimelinePanel 交互', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现交互（三组件接线 + 键盘 hook）**
+- [x] **Step 2: 确认失败 → Step 3: 实现交互（三组件接线 + 键盘 hook）**
 
 ClipBlock 增加 pointer 逻辑（Task 14 已留 onPointerDown prop；接线放 TrackRow→ClipBlock 传递）——核心拖拽状态机放 TimelinePanel：
 
@@ -3934,7 +3936,7 @@ export function TimelinePanel() {
   // …Task 14 其余实现不变
 ```
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/components/timeline/TimelinePanel.interact.test.tsx
@@ -3953,7 +3955,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 时间轴交互——
 - Modify: `apps/web/src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx`（handleClipDrop 接通 onDropClip——R2 审核 P0-A 补）
 - Test: `useWorkflowAssets.test.ts` + `AssetPanel.test.tsx`
 
-- [ ] **Step 1: mediaApi 追加 batchGetMedia**
+- [x] **Step 1: mediaApi 追加 batchGetMedia**
 
 ```ts
 // apps/web/src/api/mediaApi.ts 追加（沿用该文件 apiFetch 惯例）
@@ -3974,7 +3976,7 @@ export function batchGetMedia(ids: string[], teamId?: string): Promise<BatchMedi
 }
 ```
 
-- [ ] **Step 2: 写失败测试（useWorkflowAssets）**
+- [x] **Step 2: 写失败测试（useWorkflowAssets）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/hooks/useWorkflowAssets.test.ts
@@ -4020,7 +4022,7 @@ describe('useWorkflowAssets（nodeStore 聚合 fileId → batch 批查）', () =
 });
 ```
 
-- [ ] **Step 3: 写失败测试（AssetPanel——列表/已添加标记/拖入建 clip）**
+- [x] **Step 3: 写失败测试（AssetPanel——列表/已添加标记/拖入建 clip）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/AssetPanel.test.tsx
@@ -4118,7 +4120,7 @@ describe('AssetPanel', () => {
 });
 ```
 
-- [ ] **Step 4: 实现 useWorkflowAssets + AssetPanel（设计决策：drop handler 归 TimelinePanel，AssetPanel 只管 dragStart——R1 审核 P2-2 上提；payload 自带名称/时长，TimelinePanel 零 assets 依赖——R2 审核 P0-A）**
+- [x] **Step 4: 实现 useWorkflowAssets + AssetPanel（设计决策：drop handler 归 TimelinePanel，AssetPanel 只管 dragStart——R1 审核 P2-2 上提；payload 自带名称/时长，TimelinePanel 零 assets 依赖——R2 审核 P0-A）**
 
 拖放接线总览：AssetPanel 条目 `onDragStart` 把展示所需字段（originalName + 时长——`nodeDurationSec ?? metadata.durationSec`，决策 6 优先级在此汇点生效）连同 mediaId/sourceNodeId/mimeType 一起写进 payload——**drop 侧零 hooks、零额外请求**（不在 TimelinePanel 再调 useWorkflowAssets，避免同一份资产双倍 batchGetMedia RTT）→ TrackRow 轨道体 `onDrop={handleClipDrop}`（handler 定义在 TimelinePanel 层）。onDragStart 的 5 字段 payload 见下方 AssetPanel 主实现块（R3 审核 P3-1：以主实现块为唯一权威版本，散文段不重复代码）。
 
@@ -4277,7 +4279,7 @@ export function AssetPanel() {
 }
 ```
 
-- [ ] **Step 5: 跑测试 + 提交**
+- [x] **Step 5: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor
@@ -4293,11 +4295,11 @@ git add apps/web/src && git commit -m "feat(video-editor): 左面板资产库—
 
 **Files:** 无新文件（修复时改对应源文件）
 
-- [ ] **Step 1: 启动环境并打开画布**
+- [x] **Step 1: 启动环境并打开画布**
 
 按项目启动流程记忆启动基础设施 + API + web；preview 打开画布页。
 
-- [ ] **Step 2: 逐项验收（spec 验收条目 → Plan 2 范围）**
+- [x] **Step 2: 逐项验收（spec 验收条目 → Plan 2 范围）**
 
 | spec 条目 | 验收点 | 手段 |
 |---|---|---|
@@ -4317,9 +4319,9 @@ git add apps/web/src && git commit -m "feat(video-editor): 左面板资产库—
 | — | 时间轴标尺刻度与片段块对齐（t=0 刻度对 t=0 片段——140px 角位占位的几何验证；执行期 Task 14 C1 增项，jsdom 无法断言几何） | preview_snapshot |
 | — | Ctrl+滚轮缩放只缩时间轴不触发浏览器整页缩放（原生 passive:false 监听——执行期 Task 14 I1 增项） | 浏览器操作观察 |
 
-- [ ] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
+- [x] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
 
-- [ ] **Step 4: 全量回归 + 提交收尾（tsc 必跑——vitest esbuild 不查类型，build 的 tsc -b 是独立一步，R1 审核 P0-4）**
+- [x] **Step 4: 全量回归 + 提交收尾（tsc 必跑——vitest esbuild 不查类型，build 的 tsc -b 是独立一步，R1 审核 P0-4）**
 
 ```bash
 pnpm -C apps/web exec tsc -b   # 期望 0 error（strict 全量含测试文件）
