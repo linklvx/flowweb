@@ -189,6 +189,12 @@ describe('canvasStore', () => {
     expect(node.height).toBe(300);
   });
 
+  it('addNode videoEdit should set default width=320', () => {
+    const nodeId = useCanvasStore.getState().addNode('videoEdit', { x: 100, y: 200 });
+    const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId)!;
+    expect(node.width).toBe(320);
+  });
+
   it('addNode text should also populate nodeStore with width/height', () => {
     const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     const nsNode = useNodeStore.getState().nodes[nodeId];

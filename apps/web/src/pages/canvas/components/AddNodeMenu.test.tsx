@@ -56,7 +56,7 @@ describe('AddNodeMenu', () => {
     expect(screen.getByText('添加节点')).toBeInTheDocument();
   });
 
-  it('renders all 6 node type items', () => {
+  it('renders all 7 node type items', () => {
     render(<AddNodeMenu isOpen={true} onClose={() => {}} triggerRef={{ current: null }} />);
     expect(screen.getByText('文本')).toBeInTheDocument();
     expect(screen.getByText('图片')).toBeInTheDocument();

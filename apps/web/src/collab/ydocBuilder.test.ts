@@ -55,6 +55,7 @@ describe('videoEdit 新类型往返（刷新还原保障）', () => {
   it('videoEdit 节点 + auto 边跨 doc 传播（协作可见性）', () => {
     const a = new Y.Doc();
     const b = new Y.Doc();
+    // source: 'src1' 故意悬空——fillDoc 无引用完整性校验，本用例只锁 type 透传与边的协作传播
     fillDoc(a, [{ id: 'n1', type: 'videoEdit', parentId: null, position: { x: 0, y: 0 }, data: {} } as any],
       [{ id: 'auto:n1:src1', source: 'src1', target: 'n1' }]);
     Y.applyUpdate(b, Y.encodeStateAsUpdate(a));

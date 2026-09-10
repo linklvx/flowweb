@@ -12,7 +12,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
           width: 316,
           border: '1px solid #E5E7EB',
           margin: 2,
-          ...(selected ? { border: '1px solid #6C5CE7', boxShadow: '0 0 0 3px rgba(108,92,231,0.25)' } : {}),
+          ...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}),
         }}
       >
         <NodeHandle type="target" testId="video-edit-target" />
