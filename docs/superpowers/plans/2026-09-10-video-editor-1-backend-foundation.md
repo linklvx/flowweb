@@ -311,7 +311,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.dto.spe
 
 ```ts
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsOptional, IsDateString, IsNumber, IsIn } from 'class-validator';
+import { IsString, IsObject, IsDateString, IsNumber, IsIn } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
@@ -530,15 +530,6 @@ describe('VideoProjectController', () => {
     await ctrl.deleteByNode('n1', req);
     expect(svc.deleteByNode).toHaveBeenCalledWith('n1', 'u1');
   });
-
-  // 模块编译冒烟——直接 new Service(mocks) 测不到 DI 接线（缺 BullModule.registerQueue/TeamModule import 启动即炸）
-  it('VideoProjectModule compiles（DI 接线冒烟）', async () => {
-    const { VideoProjectModule } = await import('./video-project.module');
-    const mod = await Test.createTestingModule({ imports: [VideoProjectModule] })
-      .overrideProvider(PrismaService).useValue({})
-      .compile();
-    expect(mod).toBeDefined();
-  });
 });
 ```
 
@@ -590,7 +581,6 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { VideoProjectController } from './video-project.controller';
 import { VideoProjectService } from './video-project.service';
-import { GeneratedMediaService } from './generated-media.service';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';            // StorageQuotaService + ProjectPermissionService 已 export——勿手动 provide（会造第二实例）
 import { ExecutionModule } from '../execution/execution.module'; // ExecutionService 已 export——无循环依赖，无需 forwardRef
@@ -604,12 +594,12 @@ import { THUMBNAIL_GENERATOR_QUEUE, THUMBNAIL_GENERATOR_CONNECTION } from '../ma
     BullModule.registerQueue({ name: THUMBNAIL_GENERATOR_QUEUE, configKey: THUMBNAIL_GENERATOR_CONNECTION }), // 队列非全局，本模块必须注册
   ],
   controllers: [VideoProjectController],
-  providers: [VideoProjectService, GeneratedMediaService],
+  providers: [VideoProjectService], // Task 10 时追加 GeneratedMediaService（本 task 不建占位空类）
 })
 export class VideoProjectModule {}
 ```
 
-> 注：MinioService 来自 @Global() 的 MinioModule 无需 import；Task 10 的 GeneratedMediaService 在本 task 先占位创建（空类），Task 10 填实现。Task 11 的 ExecutionService 经 ExecutionModule 注入构造器（`@Inject(ExecutionService) private readonly execution: ExecutionService`），**不用 forwardRef**。
+> 注：MinioService 来自 @Global() 的 MinioModule 无需 import；GeneratedMediaService 到 Task 10 创建文件时同步追加进 providers。Task 11 的 ExecutionService 经 ExecutionModule 注入构造器（`@Inject(ExecutionService) private readonly execution: ExecutionService`），**不用 forwardRef**。**不做整模块编译测试**：ExecutionModule 有 `{ provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) }` + 4 个 Bull 队列 + Processor、CollabModule 又两个 Redis 实例——`Test.createTestingModule({ imports: [VideoProjectModule] }).compile()` 会真实连接外部服务且 overrideProvider 对 import 进来的 provider 不可靠（本仓 createTestingModule({imports}) 零先例）——DI 接线由 Task 10 的 **provider 级 getQueueToken 冒烟**拦截（对齐 material.service.spec.ts 既有惯例）。
 
 `app.module.ts` 的 `imports` 数组追加 `VideoProjectModule`（import 路径 `./modules/video-project/video-project.module`）。
 
@@ -839,39 +829,52 @@ git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/r
 ```ts
 // apps/api/src/modules/video-project/generated-media.service.spec.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { getQueueToken } from '@nestjs/bullmq';
+import { ForbiddenException } from '@nestjs/common';
 import { GeneratedMediaService } from './generated-media.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
+import { StorageQuotaService } from '../team/storage-quota.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
+import { THUMBNAIL_GENERATOR_QUEUE } from '../material-library/constants/material-library.constants';
 
 describe('GeneratedMediaService（复用状态机语义，方法自建）', () => {
-  let svc: GeneratedMediaService; let prisma: any; let minio: any; let quota: any; let thumb: any;
-  const base = { teamId: 't1', userId: 'u1', workflowId: 'w1', videoProjectId: 'p1', resolution: '1080p', durationSec: 60 };
+  let svc: GeneratedMediaService; let prisma: any; let minio: any; let quota: any; let perm: any; let thumb: any;
+  const base = { userId: 'u1', workflowId: 'w1', videoProjectId: 'p1', resolution: '1080p', durationSec: 60 }; // 无 teamId——服务端派生
 
   beforeEach(() => {
-    prisma = { media: { create: vi.fn().mockResolvedValue({ id: 'm1' }), findUnique: vi.fn(), update: vi.fn().mockResolvedValue({ id: 'm1' }) } };
+    prisma = {
+      media: { create: vi.fn().mockResolvedValue({ id: 'm1' }), findUnique: vi.fn(), update: vi.fn().mockResolvedValue({ id: 'm1' }) },
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
+    };
     minio = {
       buildKey: vi.fn().mockReturnValue('results/u1/w1/n1/2026-09-10/uuid.mp4'),
       generatePresignedPost: vi.fn().mockResolvedValue({ url: 'http://minio/post', fields: { key: 'results/u1/w1/n1/2026-09-10/uuid.mp4' } }),
-      // AWS SDK HeadObjectCommand 真实形状：ContentLength（无 size 字段——P0-2 实测教训）
-      statObject: vi.fn().mockResolvedValue({ ContentLength: 12_345_678 }),
+      // statSize 是新方法：内部消化 HeadObjectCommand 的 ContentLength，直接返回数字
+      statSize: vi.fn().mockResolvedValue(12_345_678),
     };
     quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined) };
+    perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
     thumb = { add: vi.fn().mockResolvedValue(undefined) };
-    svc = new GeneratedMediaService(prisma, minio, quota, thumb);
+    svc = new GeneratedMediaService(prisma, minio, quota, perm, thumb);
   });
 
-  it('register（编码完成后调用，actualSize=Blob.size）: 建 pending Media + presigned POST + 配额终判', async () => {
+  it('register（编码完成后调用，actualSize=Blob.size）: teamId 服务端派生 + 建 pending Media + presigned POST + 配额终判', async () => {
     const r = await svc.register({ ...base, actualSize: 12_345_000 });
     expect(r.mediaId).toBe('m1');
     expect(r.upload.url).toBe('http://minio/post');
+    expect(perm.assertEditor).toHaveBeenCalledWith('w1', 'u1'); // 权限门
+    expect(prisma.canvasProject.findUnique).toHaveBeenCalledWith({ where: { id: 'w1' }, select: { teamId: true } }); // 派生而非客户端传入
     expect(quota.assertCanUpload).toHaveBeenCalledWith('t1', 12_345_000);
     expect(minio.generatePresignedPost).toHaveBeenCalledWith('results/u1/w1/n1/2026-09-10/uuid.mp4', 'video/mp4', 12_345_000);
-    expect(prisma.media.create.mock.calls[0][0].data).toMatchObject({ type: 'generated', status: 'pending', mimeType: 'video/mp4', size: 12_345_000 });
+    expect(prisma.media.create.mock.calls[0][0].data).toMatchObject({ teamId: 't1', type: 'generated', status: 'pending', mimeType: 'video/mp4', size: 12_345_000 });
   });
 
-  it('confirm: statSize 实际大小落库（ContentLength 口径）+ 缩略图 seekSec 从 metadata.durationSec 读', async () => {
+  it('confirm: statSize 实际大小落库 + 缩略图 seekSec 从 metadata.durationSec 读', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', metadata: { durationSec: 30 } });
     await svc.confirm('u1', { mediaId: 'm1' }); // 不再收 key/时长——均从 register 时落的记录读
-    expect(minio.statObject).toHaveBeenCalledWith('k.mp4');
+    expect(minio.statSize).toHaveBeenCalledWith('k.mp4');
     expect(prisma.media.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'm1' },
       data: expect.objectContaining({ status: 'completed', size: 12_345_678 }),
@@ -882,7 +885,23 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
 
   it('confirm: 归属校验失败拒绝', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other' });
-    await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow();
+    await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow(ForbiddenException);
+  });
+
+  // provider 级 DI 冒烟（本仓惯例 getQueueToken 模式）——整模块 compile 会撞 ExecutionModule/CollabModule 的
+  // Redis useFactory 真实连接（见 Task 7 注），故用此法拦截"忘写 BullModule.registerQueue"的接线错误
+  it('DI 可解析（@InjectQueue token 满足）', async () => {
+    const mod = await Test.createTestingModule({
+      providers: [
+        GeneratedMediaService,
+        { provide: PrismaService, useValue: {} },
+        { provide: MinioService, useValue: {} },
+        { provide: StorageQuotaService, useValue: {} },
+        { provide: ProjectPermissionService, useValue: {} },
+        { provide: getQueueToken(THUMBNAIL_GENERATOR_QUEUE), useValue: { add: vi.fn() } },
+      ],
+    }).compile();
+    expect(mod.get(GeneratedMediaService)).toBeDefined();
   });
 });
 ```
@@ -898,12 +917,13 @@ pnpm -C apps/api exec vitest run src/modules/video-project/generated-media.servi
 
 ```ts
 // apps/api/src/modules/video-project/generated-media.service.ts
-import { Injectable, Inject, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { StorageQuotaService } from '../storage/storage-quota.service';
+import { StorageQuotaService } from '../team/storage-quota.service'; // 实际在 team/ 模块（TeamModule 已 export）
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../material-library/constants/material-library.constants';
 
 @Injectable()
@@ -912,6 +932,7 @@ export class GeneratedMediaService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @InjectQueue(THUMBNAIL_GENERATOR_QUEUE) private readonly thumbnailQueue: Queue,
   ) {}
 
@@ -919,13 +940,22 @@ export class GeneratedMediaService {
    * 登记入口——**编码完成后调用**（前端持有 Blob，actualSize = Blob.size）。
    * 时序关键：generatePresignedPost 的 Conditions 含 content-length-range ±1024——
    * 编码前估算体积过不了该条件，必须用真实字节数（spec v3.6 时序修正）。
+   * teamId 服务端从 workflowId 派生（assertCanUpload 无成员校验——客户端传他团 teamId
+   * 会打他团配额并把产物记到他团名下；对齐 storage.service.presignUpload 的 projectId 派生先例）。
    */
-  async register(input: { teamId: string; userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number }) {
-    await this.quota.assertCanUpload(input.teamId, input.actualSize); // 配额终判（真实大小）
+  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number }) {
+    await this.perm.assertEditor(input.workflowId, input.userId);
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: input.workflowId },
+      select: { teamId: true },
+    });
+    if (!project) throw new BadRequestException('项目不存在');
+    const teamId = project.teamId;
+    await this.quota.assertCanUpload(teamId, input.actualSize); // 配额终判（真实大小）
     const key = this.minio.buildKey('generated', input.userId, { projectId: input.workflowId, ext: 'mp4' });
     const media = await this.prisma.media.create({
       data: {
-        userId: input.userId, teamId: input.teamId, projectId: input.workflowId,
+        userId: input.userId, teamId, projectId: input.workflowId,
         bucket: 'flowai', key, originalName: `export-${input.resolution}.mp4`,
         mimeType: 'video/mp4', size: input.actualSize,
         type: 'generated', status: 'pending',
@@ -967,7 +997,6 @@ export class GeneratedMediaService {
 
 ```ts
 export class RegisterGeneratedDto {
-  @IsString() teamId!: string;
   @IsString() workflowId!: string;
   @IsString() videoProjectId!: string;
   @IsIn(['720p', '1080p']) resolution!: string;
@@ -978,7 +1007,7 @@ export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
 export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
 ```
 
-（顶部 import 追加 `IsNumber, IsIn`。）Controller 路由签名相应改为 `@Body() dto: RegisterGeneratedDto` / `ConfirmGeneratedDto` / `RemoveShadowDto`。
+（顶部 import 追加 `IsNumber, IsIn`。RegisterGeneratedDto **不带 teamId**——服务端从 workflowId 派生（P0-B：assertCanUpload 无成员校验，客户端 teamId 是越权面）。）Controller 路由签名相应改为 `@Body() dto: RegisterGeneratedDto` / `ConfirmGeneratedDto` / `RemoveShadowDto`；同时 `video-project.module.ts` 的 providers 追加 `GeneratedMediaService`（Task 7 预留位）并补 import。
 
 Controller 追加（同文件，注入 GeneratedMediaService）：
 
@@ -1044,9 +1073,14 @@ describe('regenerate（A1 影子节点）', () => {
     expect(r.shadowNodeId).toBeTruthy();
   });
 
-  it('源节点不存在/非生成类型：400', async () => {
+  it('源节点类型不匹配：400（video/audio 两分支显式传 kind——防"缺省 kind 因错误原因通过"）', async () => {
     collab.readCanvas.mockResolvedValue({ nodes: [{ id: 'x', type: 'videoEdit', data: {} }], edges: [] });
-    await expect(svc.regenerate('u1', { sourceNodeId: 'x', workflowId: 'w1' })).rejects.toThrow(BadRequestException);
+    await expect(svc.regenerate('u1', { sourceNodeId: 'x', workflowId: 'w1', kind: 'video' })).rejects.toThrow(BadRequestException);
+    await expect(svc.regenerate('u1', { sourceNodeId: 'x', workflowId: 'w1', kind: 'audio' })).rejects.toThrow(BadRequestException);
+  });
+  it('源节点不存在：400', async () => {
+    collab.readCanvas.mockResolvedValue({ nodes: [], edges: [] });
+    await expect(svc.regenerate('u1', { sourceNodeId: 'nope', workflowId: 'w1', kind: 'video' })).rejects.toThrow(BadRequestException);
   });
 });
 ```
@@ -1066,7 +1100,8 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regener
   /**
    * A1 影子节点克隆生成：
    * 1. readCanvas 找 sourceNode → JSON 整份深拷 data（禁止字段挑拣——取词链 content 优先/prompt 嵌套）
-   * 2. insertNode 影子（SHADOW_ORIGIN 独立事务，防前端 applyDocToStore 全量重建闪烁）
+   * 2. insertNode 影子（shadow- 前缀 + __ephemeral 判据——前端 onRemote 以此短路防 applyDocToStore
+   *    全量重建闪烁；origin 不过网已实测，见 Task 9 跨端用例）
    * 3. 服务端直调 execute（不走 HTTP、不带 x-yjs-sv——sv 裁剪会让影子不可见）
    * 4. 不在此删影子：done 事件经 socket 回流后由前端读 data 取 fileId 再调 removeNodeByShadow
    */
@@ -1081,7 +1116,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regener
     clonedData.__ephemeral = true;
     await this.collab.insertNode(dto.workflowId, {
       id: shadowId, type: wantType,
-      position: { x: -99999, y: -99999 }, // 视口外（投影层仍会过滤，双保险）
+      position: { x: -99999, y: -99999 }, // 次保险：主判据是 shadow- 前缀+__ephemeral（store 投影与渲染层双重过滤），position 仅让万一漏过滤的渲染远离视口
       data: clonedData,
     });
     const result = await this.execution.execute(dto.workflowId, shadowId, userId); // 直调，无 sv
@@ -1116,7 +1151,7 @@ Controller 追加：
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project
 # 预期: 全部 PASS
-git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子节点（JSON 整份克隆/SHADOW_ORIGIN/服务端直调 execute）（TDD）"
+git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子节点（JSON 整份克隆/shadow- 前缀判据/服务端直调 execute）（TDD）"
 ```
 
 ---
@@ -1125,7 +1160,9 @@ git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子
 
 **Files:**
 - Create: `apps/api/src/modules/media/media-batch.service.ts`
-- Modify: `apps/api/src/modules/media/media.controller.ts`（+1 路由，前缀已是 `api/media`）
+- Create: `apps/api/src/modules/media/media.dto.ts`
+- Modify: `apps/api/src/modules/media/media.controller.ts`（+1 路由 + 构造器注入 MediaBatchService，前缀已是 `api/media`）
+- Modify: `apps/api/src/modules/media/media.module.ts`（providers 追加 MediaBatchService——PrismaService/MinioService 来自全局模块无需 import）
 - Test: `apps/api/src/modules/media/media-batch.service.spec.ts`
 
 - [ ] **Step 1: 写失败测试**
@@ -1133,18 +1170,37 @@ git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子
 ```ts
 // apps/api/src/modules/media/media-batch.service.spec.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import { MediaBatchService } from './media-batch.service';
 
 describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 type 硬编码过滤）', () => {
-  it('按 ids 批查且只返回归属团队的记录', async () => {
-    const prisma = { media: { findMany: vi.fn().mockResolvedValue([{ id: 'm1' }]) } };
-    const svc = new MediaBatchService(prisma as any);
+  let svc: MediaBatchService; let prisma: any; let minio: any;
+  beforeEach(() => {
+    prisma = {
+      media: { findMany: vi.fn().mockResolvedValue([{ id: 'm1', key: 'k1.mp4', thumbnailKey: 't1.jpg' }]) },
+      teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) }, // assertTeamMember 的查询形状（team.util.ts L29）
+    };
+    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://signed') }; // 构造器第 2 参——缺了 batchGet 必 TypeError
+    svc = new MediaBatchService(prisma, minio);
+  });
+
+  it('按 ids 批查 + 成员校验 + presigned URL', async () => {
     const r = await svc.batchGet('u1', 't1', ['m1', 'm2']);
+    expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ teamId: 't1', userId: 'u1' }) }));
     expect(prisma.media.findMany).toHaveBeenCalledWith({
       where: { id: { in: ['m1', 'm2'] }, teamId: 't1', deletedAt: null },
       select: expect.objectContaining({ id: true, key: true, mimeType: true }),
     });
     expect(r).toHaveLength(1);
+    expect(r[0].url).toBe('http://signed');
+    expect(r[0].thumbnailUrl).toBe('http://signed');
+  });
+
+  it('他团 teamId → 403（非成员不暴露存在性，findMany 不触发）', async () => {
+    prisma.teamMember.findFirst.mockResolvedValueOnce(null);
+    await expect(svc.batchGet('u1', 't-other', ['m1'])).rejects.toThrow(ForbiddenException);
+    expect(prisma.media.findMany).not.toHaveBeenCalled();
   });
 });
 ```
@@ -1156,6 +1212,7 @@ describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 t
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
+import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 
 @Injectable()
 export class MediaBatchService {
@@ -1164,11 +1221,14 @@ export class MediaBatchService {
     @Inject(MinioService) private readonly minio: MinioService,
   ) {}
 
-  /** 按 mediaId 集合查（避开 type='generated' 硬编码过滤）+ presigned URL——对齐 material.service L53-55 既有口径 */
-  async batchGet(_userId: string, teamId: string, ids: string[]) {
+  /** 按 mediaId 集合查（避开 type='generated' 硬编码过滤）+ presigned URL——对齐 material.service 既有口径；
+   *  teamId 走 resolveTeamId 同款门（folder.service.ts L19 先例）：缺省回落本人默认团队，外部传入必过 assertTeamMember（P0-B——纯客户端 teamId 是越权面） */
+  async batchGet(userId: string, teamId: string | undefined, ids: string[]) {
+    const resolved = teamId ?? (await getOwnerTeamId(this.prisma, userId));
+    await assertTeamMember(this.prisma, resolved, userId);
     const rows = await this.prisma.media.findMany({
-      where: { id: { in: ids }, teamId, deletedAt: null },
-      select: { id: true, key: true, originalName: true, mimeType: true, size: true, thumbnailKey: true, createdAt: true },
+      where: { id: { in: ids }, teamId: resolved, deletedAt: null },
+      select: { id: true, key: true, originalName: true, mimeType: true, size: true, thumbnailKey: true, metadata: true, createdAt: true },
     });
     return Promise.all(rows.map(async (r) => ({
       ...r,
@@ -1179,11 +1239,13 @@ export class MediaBatchService {
 }
 ```
 
-`media.controller.ts` 追加（teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
+`media.controller.ts` 追加（构造器注入 `private readonly batch: MediaBatchService`；teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
 
 ```ts
+  // @Query 裸 string 不过 ValidationPipe（class 级 @UsePipes 只作用于 body 的 metatype）——
+  // teamId 为 Prisma 等值 where 无注入面，越权已由 batchGet 内 assertTeamMember 封堵
   @Post('batch')
-  batch(@Req() req: any, @Query('teamId') teamId: string, @Body() dto: BatchGetMediaDto) {
+  batch(@Req() req: any, @Query('teamId') teamId: string | undefined, @Body() dto: BatchGetMediaDto) {
     return this.batch.batchGet(req.user?.id, teamId, dto.ids);
   }
 ```
@@ -1191,9 +1253,9 @@ export class MediaBatchService {
 `BatchGetMediaDto`（就近放 media 模块内新建 `media.dto.ts`）：
 
 ```ts
-import { IsArray, IsString } from 'class-validator';
+import { IsArray, IsString, ArrayMaxSize } from 'class-validator';
 export class BatchGetMediaDto {
-  @IsArray() @IsString({ each: true }) ids!: string[];
+  @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) ids!: string[]; // 上限防 findMany 被万级 ids 砸
 }
 ```
 
