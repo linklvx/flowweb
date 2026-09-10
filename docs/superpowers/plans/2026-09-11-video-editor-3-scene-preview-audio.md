@@ -14,14 +14,14 @@
 
 **关键决策（写代码前必读，含对 spec 的登记偏离）：**
 
-1. **video-cache 采用 vendor 实测形状 + UrlSource 取源（R2 审核 A3）**：`mediaId → Input+CanvasSink 常驻 + current/next 双帧 + 三段命中策略（next 命中→前移 / current 窗口有效→直返 / 前向迭代，>2s 跳跃重建 iterator）`+ LRU 上限 8 媒体淘汰 dispose——spec 说"LRU 帧缓存（参考 opencut video-cache）"，vendor 实际即此形状，非逐帧 LRU。CanvasSink 返回 WrappedCanvas（canvas 复用池，无需 close——VideoFrame close 纪律是导出路径 Plan 4 的事）。**视频取源用 mediabunny `UrlSource(url)`（HTTP Range 随机读，d.ts 实测导出）而非整文件 fetch blob**——vendor 的 File 本地磁盘随机读换成 fetch(url).blob() 是首帧延迟与内存大头（整 mp4 常驻）；音频解码/图片仍走 BlobSource/blob（PCM 与 ImageBitmap 反正要全量）。Task 14 验收含 MinIO/Nginx 链路 Range 206 验证——若反代吃掉 Range 头则 UrlSource 退化为整下载，需修 Nginx 配置。
+1. **video-cache 采用 vendor 实测形状 + UrlSource 取源（R2 审核 A3）**：`mediaId → Input+CanvasSink 常驻 + current/next 双帧 + 三段命中策略（next 命中→前移 / current 窗口有效→直返 / 前向迭代，>2s 跳跃重建 iterator）`+ LRU 上限 8 媒体淘汰 dispose——spec 说"LRU 帧缓存（参考 opencut video-cache）"，vendor 实际即此形状，非逐帧 LRU。CanvasSink 返回 WrappedCanvas（canvas 复用池，无需 close——VideoFrame close 纪律是导出路径 Plan 4 的事）。**视频取源用 mediabunny `UrlSource(url)`（HTTP Range 随机读，d.ts 实测导出）而非整文件 fetch blob**——vendor 的 File 本地磁盘随机读换成 fetch(url).blob() 是首帧延迟与内存大头（整 mp4 常驻）；音频解码/图片仍走 BlobSource/blob（PCM 与 ImageBitmap 反正要全量）。**Range 失败形态（R3 实测 source.js L699-714）：服务器不回 206 时 UrlSource 转入 sequential streaming + 缓存驱逐（"Reads into evicted regions will throw"）——不是变慢，是回拖/随机 seek 抛错 → renderFrameAt .catch 吞掉 → 黑帧**；编辑器恰是随机访问最密集场景，故 Task 14 验收必含"跨缓存容量向后拖拽 seek"项。修复路径（Nginx 反代 /flowai 吃掉 Range 头时）：`proxy_force_ranges on;` 或 `proxy_set_header Range $http_range; proxy_set_header If-Range $http_if_range;`。Content-Range 非 CORS safelisted 头，但 mediaApi L6 将 /flowai 前缀重写为同源相对路径（同源无 CORS）——若换 host/前缀需 MinIO CORS `ExposeHeaders: Content-Range`。
 2. **soundtouch 按 spike 定案路线**（docs/superpowers/spikes/soundtouch-spike.mjs CONCLUSION）：`SoundTouch + SimpleFilter + WebAudioBufferSource` 手动 extract 循环，非 PitchShifter 图节点（构造即 createScriptProcessor 强依赖 AudioContext，spike 已证伪）。尾部冲刷：输入补 16384 帧静音；输出裁剪按**期望长度 round(len/tempo) 截/补**（比"最后非零样本"确定——底噪会使非零扫描失效；tempo≠1 时 soundtouch 处理延迟导致输出与期望差 ~2%，尾部几十 ms 静音无感，且调度显式传 duration 不依赖 PCM 长度）。
 3. **变速 PCM 缓存 key = `${mediaId}:${speed}`**：prepare 时按需解码+伸缩；调度 offset = `(sourceStart + max(0, from-clip.start)*speed) / speed`（stretched 坐标系 = 原素材坐标 / speed）。
 4. **toBlack/toWhite 用全屏 overlay 色层**而非降 opacity（opacity 会透出下层轨画面，不符合"渐黑"语义；转场语义=整幅画面渐黑，overlay 在全部视觉层之后、字幕之前统一绘制）。
 5. **crossfade 画面 opacity 与音频增益同曲线**（spec 第六节 equal-gain 定案）：视频片内嵌音轨 gain ≡ interpolateClip 输出的 opacity（transform.opacity × 转场 alpha）——buildGainPoints 与 transitionEffect 单源共用 crossfadeContextOf；AudioClip 独立走 volume 关键帧 × fade 曲线。
 6. **音频调度偏离 spec 的 lookahead（50ms/0.1s 窗）——改一次性全量调度 + seek 重建**：lookahead 的动因是 opencut 流式取 buffer 场景；本项目 PCM 全内存预处理后（spec 内存预估已按全量 PCM 算），一次调度 N 个 AudioBufferSourceNode（N=片段数，15min 工程通常 <100）无性能问题，行为等价（音频不因视频解码慢而停）。登记偏离理由，浏览器验收以音画同步为准。**配套三条纪律（R1 审核 G4 + R2 审核 A1/A4）**：① prepare 解码+变速后**立即转 AudioBuffer 单份驻留**（bufferCache 按 `mediaId:speed`，PcmData 局部变量即弃——R2 A1：双份常驻按 spec 口径 345.6MB/轨 ×2 = 690MB/轨不可接受），releasePcm 一并清；② 拖拽 seek 三段式 `scrubBegin/scrubMove/scrubEnd`——down 时若在播放则 stop 音频 + setPlaying(false)（静音拖拽，rAF 循环退出），move 只 setPlayhead（暂停态单帧渲染出画），up 才 setPlaying(true) 经 effect playFrom 重锚重排；验收以"松手后音画同步"为准；③ **播放中编辑重排 100ms 前沿去抖**（R2 A4：时间轴拖片段 transient 60Hz 下 subscribe 直接 playFrom = 每秒几十次 stop+全量重排"机器枪"——去抖窗内只重置 timer，停止变化 100ms 后重排一次）。
 7. **AudioContext 全局单例 + suspend/resume，不 close**：audioEngine 模块级单例使实例数恒 1，物理满足"实例上限约 6"护栏（spec 边界护栏"收起时 close()"针对每次新建的实现，单例下 close 反而违反"复用全局单例"的节点纪律⑤）；收起时 stop sources + releasePcm + suspend 线程。**resume 修复（R1 审核 G2，P0）**：suspend 后二次打开编辑器时 getContext 因 ctx 已存在跳过 resume → currentTime 冻结 → engine.now() 恒定 → rAF 永不前进——prepare/playFrom 入口显式 resumeCtx()。
-8. **主时钟统一由 AudioEngine 承载**：`engine.now()` 单一时钟真相——有音频 PCM 用 ctx.currentTime 锚（ctx 手势内创建）、无音频片降级 performance.now 锚（不为时钟空转 AudioContext，spec 第六节）；seek = playFrom 重新锚定，视觉 rAF 与音频调度共用 now() 不漂移。
+8. **主时钟统一由 AudioEngine 承载**：`engine.now()` 单一时钟真相——有音频 PCM 用 ctx.currentTime 锚（ctx 手势内创建）、无音频片降级 performance.now 锚（不为时钟空转 AudioContext，spec 第六节）；seek = playFrom 重新锚定，视觉 rAF 与音频调度共用 now() 不漂移。**登记偏离（R1 提出两轮未落，R3 五-6 正式登记）**：prepare 的 needed 含 video 片（内嵌音轨须解码后才知道有无），纯视频工程（全部无音轨）也会在解码前建 ctx——与"无音频片不空转 ctx"字面意图不符但功能无害（ctx 建后若 hasPcm()=false 走 perf 时钟，ctx 挂起前空转一次），一期接受。
 9. **播放状态机放 editorStore（playing/preparing）+ 副作用编排集中在 hooks/playback.ts**：togglePlayback（prepare 异步完成后才 setPlaying(true)，音画同起点；preparing 态按钮 loading）/stopPlayback/seekPlayback 三函数被 PreviewPlayer、useEditorKeyboard（空格）、Ruler 拖拽共用——避免 keyboard hook 反向依赖组件。
 10. **节点迷你播放单播放态放 videoEditorStore.miniPlaybackNodeId**（播 B 停 A）；全屏 open 时 openEditor 直接清 miniPlaybackNodeId；IntersectionObserver/selected 变 false/移出 → 停 + videoCache.release(本工程 mediaIds)。
 11. **关键帧操作走 editorStore 专用 action**（addKeyframe 在播放头处取当前插值值、±半帧幂等；removeKeyframe；moveKeyframe 支持 transient 拖拽）——比 updateClip 拼 patch 可测；右面板其余修改全走既有 updateClip（浅 merge + 入历史）。
@@ -721,7 +721,7 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
   it('LRU：超过 maxMedia 淘汰最久未用并 dispose', async () => {
     const sinks = new Map<string, ReturnType<typeof makeSink>>();
     const svc = new VideoCacheService({
-      openSink: vi.fn(async (_b: Blob) => {
+      openSink: vi.fn(async (_url: string) => {
         const id = `m${sinks.size + 1}`;
         const s = makeSink(FRAMES); sinks.set(id, s); return s.handle;
       }),
@@ -754,6 +754,19 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     const svc = new VideoCacheService({ openSink });
     await Promise.all([svc.getFrame('m1', SRC, 1.5), svc.getFrame('m1', SRC, 2.5), svc.getFrame('m1', SRC, 3.5)]);
     expect(openSink).toHaveBeenCalledTimes(1);
+  });
+  it('取帧抛错 → release 自愈（entry 清空 + 下次重开，R3 3.3——UrlSource 预签名过期防永久黑帧）', async () => {
+    const { handle } = makeSink(FRAMES);
+    const goodCanvases = handle.canvases;
+    const openSink = vi.fn(async () => handle);
+    const svc = new VideoCacheService({ openSink });
+    expect(await svc.getFrame('m1', SRC, 2.5)).not.toBeNull();
+    handle.canvases = () => (async function* () { throw new Error('403 presigned expired'); })();
+    expect(await svc.getFrame('m1', SRC, 4.5)).toBeNull(); // 抛错被吃、返回 null
+    expect(svc.size).toBe(0);                              // entry 已释放（死 iterator 不残留）
+    handle.canvases = goodCanvases;
+    expect(await svc.getFrame('m1', SRC, 2.5)).not.toBeNull(); // 下次请求重开
+    expect(openSink).toHaveBeenCalledTimes(2);
   });
 });
 ```
@@ -850,7 +863,14 @@ export class VideoCacheService {
       this.entries.delete(mediaId); // LRU 触尾
       this.entries.set(mediaId, entry);
     }
-    return entry.getFrameAt(time);
+    try {
+      return await entry.getFrameAt(time);
+    } catch {
+      // R3 3.3：UrlSource 预签名过期/网络错误时 iterator 已死、entry 残留 → 该素材从此永久黑帧——
+      // 释放 entry 使下次请求重开 sink（新 URL 由调用方 mediaInfo 刷新后传入；一期限制见 spec 边界表"预签名过期"）
+      this.release(mediaId);
+      return null;
+    }
   }
 
   private evictIfNeeded(): void {
@@ -1635,6 +1655,8 @@ export class AudioEngine {
     return this.timeBase.baseMedia + (real - this.timeBase.baseReal);
   }
 
+  /** 命名历史沿用（R3 五-4 登记）：实现已是 AudioBuffer 单份驻留（A1）——语义即 hasAudioBuffer/releaseAudioBuffers。
+   *  Plan 4 导出路径消费时注意：此处查/清的是 AudioBuffer 缓存，PcmData 在 prepare 后即弃。 */
   hasPcm(key?: string): boolean { return key ? this.bufferCache.has(key) : this.bufferCache.size > 0; }
   releasePcm(): void { this.bufferCache.clear(); }
 
@@ -1976,13 +1998,6 @@ export interface FrameRenderDeps {
   renderer: { draw(visual: VisualLayer[], subtitles: SubtitleLayer[]): void };
 }
 
-export interface FrameRenderDeps {
-  video: { getFrame(mediaId: string, blob: Blob, time: number): Promise<import('./video-cache').WrappedFrame | null> };
-  images: { getImageBitmap(mediaId: string, blob: Blob): Promise<ImageBitmap | null> };
-  getBlob: (mediaId: string) => Promise<Blob | null>;
-  renderer: Pick<CanvasRenderer, 'draw'>;
-}
-
 /** 单帧渲染编排：selectActiveClips → interpolateClip → 取源（videoCache/imageCache）→ renderer.draw。
  *  deps 全量注入可测；生产装配在 hooks/playback.ts（makeFrameDeps）——renderer 层不 import store，依赖方向由 playback 层承担。 */
 export async function renderFrameAt(data: ProjectData, t: number, deps: FrameRenderDeps): Promise<void> {
@@ -2172,15 +2187,18 @@ describe('PreviewPlayer（控制条）', () => {
   it('暂停态：playhead 变化触发单帧渲染（G1/N5——R2 补测；jsdom canvas.getContext 默认 null 须 stub，EraseCanvas 先例）', async () => {
     const orig = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ __fake: true }) as unknown as CanvasRenderingContext2D);
-    ready();
-    const { unmount } = render(<PreviewPlayer />);
-    const { renderFrameAt } = await import('../renderer/render-frame');
-    vi.mocked(renderFrameAt).mockClear();
-    act(() => { useEditorStore.getState().setPlayhead(1); });
-    await waitFor(() => expect(renderFrameAt).toHaveBeenCalled());
-    expect(vi.mocked(renderFrameAt).mock.lastCall?.[1]).toBe(1); // (data, t, deps) 的 t 取最新 playhead
-    unmount();
-    HTMLCanvasElement.prototype.getContext = orig;
+    try { // R3 五-5：try/finally 恢复——用例失败不污染同文件后续用例
+      ready();
+      const { unmount } = render(<PreviewPlayer />);
+      const { renderFrameAt } = await import('../renderer/render-frame');
+      vi.mocked(renderFrameAt).mockClear();
+      act(() => { useEditorStore.getState().setPlayhead(1); });
+      await waitFor(() => expect(renderFrameAt).toHaveBeenCalled());
+      expect(vi.mocked(renderFrameAt).mock.lastCall?.[1]).toBe(1); // (data, t, deps) 的 t 取最新 playhead
+      unmount();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
   });
   it('空格键 toggle（useEditorKeyboard 挂载在 TimelinePanel 且需 videoEditorStore.open 门卫放行——R1 审核 B4）', async () => {
     ready();
@@ -2254,20 +2272,28 @@ export function seekPlayback(t: number): void {
 
 // ---- 拖拽 seek 三段式（G4 决策 6②：move 只动播放头，up 才重排）----
 let scrubWasPlaying = false;
+let scrubActive = false; // R3 五-3：running 守卫——标尺/画布等多 scrub 源交错时防串状态
 
 /** 标尺/画布拖拽开始：播放中则停音频+退 rAF（静音拖拽——决策 6②），仅移动播放头 */
 export function scrubBegin(t: number): void {
   const es = useEditorStore.getState();
+  if (scrubActive) { // 上一轮未 up（异常路径）——先按上轮状态收口再重入
+    if (scrubWasPlaying) es.setPlaying(true);
+  }
+  scrubActive = true;
   scrubWasPlaying = es.playing;
   if (es.playing) { audioEngine.stop(); es.setPlaying(false); } // rAF 循环随 playing=false 退出
   es.setPlayhead(clampT(t));
 }
 
 export function scrubMove(t: number): void {
+  if (!scrubActive) return;
   useEditorStore.getState().setPlayhead(clampT(t)); // 纯播放头——G1 暂停态单帧 effect 出画
 }
 
 export function scrubEnd(): void {
+  if (!scrubActive) return;
+  scrubActive = false;
   if (scrubWasPlaying) useEditorStore.getState().setPlaying(true); // effect 内 playFrom(playhead) 重锚（prepare 已缓存幂等）
 }
 
@@ -2312,6 +2338,8 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
       pendingRef.current = true;
       renderFrameAt(d, tt, deps).catch(() => {}).finally(() => {
         pendingRef.current = false;
+        // R3 §4.2 登记：尾追闭包的 d/deps 是发起那次渲染的（非最新 data）——播放中编辑/暂停拖拽期间可能
+        // 以"旧 data + 新 t"补渲一帧，下一 tick/effect 触发自愈（低危，接受）
         if (latestTRef.current !== tt) run(latestTRef.current); // 期间有更新 → 补渲染最新
       });
     };
@@ -2379,7 +2407,7 @@ import { useRef } from 'react';
 import { Slider, Tooltip } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
-import { togglePlayback, stopPlayback, seekPlayback } from '../hooks/playback';
+import { togglePlayback, seekPlayback } from '../hooks/playback'; // R3 五-5：stopPlayback 未使用（停止走 togglePlayback 的 playing 分支），删导入
 import { audioEngine } from '../audio-engine/engine';
 import { formatShortTime, totalDuration } from '../timeline/timecode';
 
@@ -3320,7 +3348,7 @@ ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (k
   ))}
 ```
 
-（菱形不挡片段拖拽外的命中：pointerdown 内 stopPropagation 由 TimelinePanel 的 handler 做。audio 片 volume 关键帧同样渲染——`(clip.type === 'audio' ? clip.keyframes.map(...)` 同款分支，testid 同前缀。）
+（菱形不挡片段拖拽外的命中：pointerdown 内 stopPropagation 由 TimelinePanel 的 handler 做。audio 片 volume 关键帧同样渲染——同款分支，testid 同前缀；**title 用 `音量 @ ${k.t.toFixed(2)}s`**（R3 五-2：VolumeKeyframe 无 property 字段，复用 k.property 会渲染 "undefined @ 1.00s"）。）
 
 TimelinePanel 增量：dragRef 的 kind 联合扩 `'keyframe'`；`onKeyframePointerDown(kfId, e)`：
 
@@ -3464,7 +3492,9 @@ export function useAudioPeaks(mediaId: string | undefined, url: string | undefin
 ClipBlock 增量（audio 片波形 canvas 层——Canvas 自绘静态波形；peaks 归一化渲染端处理：`peak / max`，研究 §6）：
 
 ```tsx
-// ClipBlock.tsx 顶部：
+// ClipBlock.tsx 顶部（R3 五-1：现码 L1 仅 `import { memo } from 'react'`——须扩为 { memo, useRef, useEffect }，
+// WaveformCanvas 直接用 useRef/useEffect，抄写即 TS2304）：
+import { memo, useRef, useEffect } from 'react';
 import { useAudioPeaks } from '../../hooks/useAudioPeaks';
 import { useEditorStore } from '../../store/editorStore';
 
@@ -3617,10 +3647,12 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 | — | 素材缺失：删除上游素材节点→片段标红"素材已删除" | 画布删节点 + snapshot |
 | — | 控制条迁移后撤销/重做/分割/删除可用；缩放滑杆与 Ctrl+滚轮联动；音量滑杆实际影响播放音量 | 操作 |
 | — | 暂停态单帧渲染（G1）：进编辑器即显示 playhead=0 帧而非黑屏；暂停后点画布/拖标尺即时出画 | 操作 + snapshot |
-| — | seek：暂停态点击画布单帧到位；播放中拖标尺=静音拖拽、**松手后音画同步**（G4/决策 6② 验收口径） | 操作 |
+| — | seek：暂停态点击画布单帧到位；播放中拖标尺=静音拖拽、**松手后音画同步**（G4/决策 6② 验收口径——**拖动过程中允许音画短暂不同步**：去抖窗内音频仍用旧调度，松手 ≤100ms 重排恢复，A4） | 操作 |
 | — | 编辑器收起后再进：无 AudioContext 泄漏（DevTools AudioContext 计数恒 1）；播放头位置不保留（重进=0）与数据保留 | 反复进出 10 次 |
 | — | 720p 预览降级：canvas 内部分辨率 1920×1080 CSS 缩放显示清晰 | inspect |
-| — | **Range 206 验证（A3 前置）**：`curl -I -H 'Range: bytes=0-1' <presigned GET url>` 返回 206——UrlSource 依赖 HTTP Range；若经 Nginx 反代（/flowai）返回 200 说明反代吃掉 Range 头，需修 Nginx 配置（proxy_set_header Range/ proxy_force_ranges）后再验 UrlSource 生效（DevTools Network 应见分段 206 请求而非整文件 200） | curl + DevTools Network |
+| — | **Range 206 验证（A3 前置）——服务侧 + 浏览器侧双验**：① `curl -I -H 'Range: bytes=0-1' <presigned GET url>` 返回 206（Nginx 反代 /flowai 若回 200 需修：`proxy_force_ranges on;` 或 `proxy_set_header Range $http_range; proxy_set_header If-Range $http_if_range;`）；② 浏览器侧 DevTools Network 观察播放/seek 期间**多次分段 206 请求**（非单次整文件 200）且 **console 无 mediabunny range 警告**（非 206 时 UrlSource 转 sequential+缓存驱逐、回拖抛错黑帧——curl 证明不了浏览器侧，决策 1） | curl + DevTools Network + console |
+| — | **回拖 seek 无黑帧（Range 链路终验）**：播放至中段 → 向后拖拽播放头到已播过的早期位置（跨越 UrlSource 缓存容量）+ 段落级回看反复数次——画面正常出帧无永久黑帧（sequential 退化模式的抛错形态恰好在此暴露） | preview 操作 |
+| — | **prepare 瞬时内存观测（§4.1）**：15min 级工程（或最长可用素材）首次点播放时 DevTools Memory/performance.memory 采样记录峰值——prepare 瞬时约为稳态 3-4 倍（解码拼接 chunks+merged、变速 padded+输出缓冲并存）；数字登记回本文件执行期记录，>2GB 异常 | DevTools Memory |
 | — | 多标签双解码口径（spec 边界表已登记）：同工程开两标签各自解码 PCM/取帧——行为可用无报错即过（一期接受，无跨标签共享） | 操作 |
 
 - [ ] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
@@ -3646,6 +3678,7 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - **登记偏离**：音频调度一次性全量替代 lookahead（决策 6，含 G4 两条配套纪律：AudioBuffer 按 key 复用 + 拖拽 scrub 三段式）；AudioContext suspend/resume 替代 close（决策 7，含 G2 resume 修复）；字幕 2 行截断具体化（决策 12，spec 已同步登记）；"设置"控件省略（边界节，spec 已留 TODO，待用户补充需求）；节点迷你播放不出声 + 媒体 url 经 batchGetMedia 现查（决策 16 / Task 9 定案）
 - **R1 轮审核修订（2026-09-11，11 项阻塞 + 10 项功能缺口全数采纳，2 项拍板落定）**：阻塞 B1-B8——mediabunny dispose 实形修正（CanvasSink 无 dispose/Input.dispose 返回 void）；setMediaUrlResolver 残留与 FrameRenderDeps 错位 import 清理（B2）；Task 6 offset 期望 1.5 验算修正（B3）；空格用例补 videoEditorStore.open 门卫（B4）；Task 11 pointer 事件改 MouseEvent 派发（B5）；既有测试迁移清单三处补全（B6）；onSubtitleAdd 闭包 playhead 连带（B7）；useRef/rafRef 上提/pointerMovedOnce 统一（B8）。缺口 G1-G10——暂停态单帧渲染 effect（G1/决策 18）；suspend 后 resume 冻结修复（G2）；crossfade 双窗口（G3/决策 17，三片链测试补齐）；拖拽 seek 静音 + up 重排（G4/决策 6②）；letterSpacing 参与 measure 与绘制（G5）；迷你播放删 prepare 不出声（G6/决策 16 拍板）；video-cache openSink in-flight 去重（G7）；stretchPcm 尾部非静音断言替代恒真假绿（G8）；ResizeObserver 接 M2（G9）；mediaApi mock/动态 import 清理/objectFit 删除（G10）。审核核验无误项（数值向量/依赖实形/soundtouchjs·mediabunny API 实形）已按其修正对齐
 - **R2 轮审核修订（2026-09-11，R1 修订核验 20/21 落实 + 新引入 3 必红 + 1 flaky + 5 架构项全数采纳）**：必红 N1-N3——decode.ts input.dispose().catch 残留补修（R1 只修 video-cache 一处）；Task 9 IO effect deps:[] 闭包捕获首渲染 projectData=null → stopMini 空 release，stopMiniRef/projectDataRef 统一三释放入口（N2）；关键帧选中模型定案 selectKeyframe(kfId, clipId) 双写（N3/决策 19，用例改"先选片段再点菱形"）。P1 N4-N6——stretchPcm 尾部断言改 200 样本窗口 max（单点采样 6.4% flaky，N4）；renderLatest 统一 playing tick 与暂停 effect 的 in-flight 去重 + G1 补测（N5/决策 18）；Ruler pointer capture 加 ?.（jsdom 无 PointerCapture，N6）。架构 A1-A5——engine AudioBuffer 单份驻留（pcmCache 删，prepare 即转，N 立减半，A1/决策 6①）；spec 内存预估 86→345.6MB/轨 修正 + 勘误③ + Plan 4 阈值口径同源（A2）；视频取源改 mediabunny UrlSource（HTTP Range，d.ts 实测导出；音频/图片保持 blob；Task 14 加 Range 206 验收，A3/决策 1）；播放中编辑重排 100ms 前沿去抖（A4/决策 6③）；StopwatchButton 改派生布尔订阅（A5/决策 20）。另：迷你播放 loadMediaUrls ref 命中跳过（省重复 RTT）；spec 边界表登记多标签双解码
+- **R3 轮审核修订（2026-09-11，R2 修订核验 11/11 落实 + 2 必红 + UrlSource 语义修正 + 3 架构残留全采纳）**：必红——Task 7 FrameRenderDeps 双声明残留删除（R2 改 import 未删旧接口块，TS2300+TS2304）；Task 4 LRU 用例 `_b: Blob` 改 `_url: string`（strictFunctionTypes 逆变）。UrlSource 语义（实测 source.js L699-714）——退化形态更正为"sequential 流式 + 缓存驱逐 + 回拖抛错黑帧"（非"退化为整下载"），决策 1 措辞重写 + Nginx 具体指令（proxy_force_ranges on / Range+If-Range set_header）+ Content-Range CORS 条件（/flowai 同源重写已验，换前缀需 ExposeHeaders）；Task 14 验收升级为服务侧+浏览器侧双验（多次 206 + console 无 range 警告）+ 新增跨缓存回拖 seek 无黑帧终验。自愈缺口（3.3）——video-cache getFrame 捕错 release(mediaId) 重开（含回归用例）；预签名 3600s 过期一期限制登记 spec 边界表。架构残留——prepare 瞬时峰值实测口径（稳态 3-4 倍，替换 spec"×2"）+ Task 14 内存观测项（§4.1 选①）；renderLatest 尾追旧 data 登记于实现注释（§4.2 低危）；A4 验收口径补"拖动过程中允许不同步"（§4.3）。历史小项——Task 12 ClipBlock 补 useRef/useEffect import 说明（五-1）；audio 菱形 title 用"音量"防 undefined（五-2）；scrub 加 scrubActive 守卫（五-3）；hasPcm/releasePcm 语义注释（五-4，Plan 4 消费提示）；纯视频工程建 ctx 偏离正式登记决策 8（五-6）；PreviewPlayer 测试 try/finally + 未用 stopPlayback 导入删除（五-5）
 - **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds
 
 ## 后续 Plan（另开文件）

@@ -337,7 +337,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 ## 七、导出管线（Web Worker + mediabunny）
 
 0. **导出弹层**：点击"导出"→ 小弹层选档（720p/1080p）+ 估算体积（码率×时长×1.2）+ 前置校验结果
-1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ **345.6MB/轨**（Plan 3 勘误③：原"86MB/轨"量级算错——按本算式实为 345.6MB） × **（音频轨数 + 参与混音的含音频视频片数）**——视频内嵌音轨同样解码出等长 PCM 并过 soundtouch（×2），只按音频轨数会显著低估；Plan 3 起 AudioBuffer 单份驻留，soundtouch 处理中的瞬时双份按 ×2 估算保留）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
+1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ **345.6MB/轨**（Plan 3 勘误③：原"86MB/轨"量级算错——按本算式实为 345.6MB） × **（音频轨数 + 参与混音的含音频视频片数）**——视频内嵌音轨同样解码出等长 PCM 并过 soundtouch，只按音频轨数会显著低估；Plan 3 起 **AudioBuffer 稳态单份驻留**；**prepare 瞬时峰值约为稳态 3-4 倍**（R3 实测口径：解码拼接 chunks+merged、变速 padded+输出缓冲并存——替换原"×2"乐观估算，Plan 3 验收含内存观测项）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
 2. **Worker 执行**（懒加载 chunk，含编辑器页/mediabunny/polyfill 全部动态 import 拆包）：
    - `OfflineAudioContext` 离线混音（含变速不变调/soundtouch 处理/fade/音量关键帧）→ AudioBuffer
    - 逐帧：t → scene 纯函数 → OffscreenCanvas（720p=0.5× / 1080p=1×）→ VideoFrame → VideoEncoder H.264（硬编优先回退软编）
@@ -364,6 +364,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 | AAC 编码缺失 | 静默动态 polyfill |
 | 多标签并发编辑 | updatedAt 乐观锁 409 提示（PATCH 单飞防自打自，见第三节） |
 | 多标签双解码 | 写侧有乐观锁，读侧（预览解码 PCM/取帧）无跨标签约束——同工程开多标签各自全量解码一遍，一期接受（Plan 3 R2 登记） |
+| 预签名 URL 过期（UrlSource） | presigned GET 有效期 3600s；长会话中段过期时 video-cache 释放 entry 重开自愈（同 URL 重试），但 URL 本身过期则需重开编辑器/重进画布刷新 mediaInfo——一期接受（Plan 3 R3 登记） |
 | 同节点重复创建 | sourceNodeId @unique + 服务端 upsert 幂等；**upsert 的 update 分支同样 select 全量返回** |
 | 打开等待 | POST 返回前只渲染空态加载占位、**禁止增删片段**（防本地/服务端轨 id 错位），失败转错误态 |
 | 无编辑权限（viewer） | GET 亦 assertEditor，入口按钮直接隐藏（前后端一致） |
