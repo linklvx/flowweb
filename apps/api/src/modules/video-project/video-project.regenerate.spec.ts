@@ -38,4 +38,9 @@ describe('regenerate（A1 影子节点）', () => {
     collab.readCanvas.mockResolvedValue({ nodes: [], edges: [] });
     await expect(svc.regenerate('u1', { sourceNodeId: 'nope', workflowId: 'w1', kind: 'video' })).rejects.toThrow(BadRequestException);
   });
+  it('removeShadow 拒绝非 shadow- 前缀 id（防借道删除任意协作节点）', async () => {
+    await expect(svc.removeShadow('u1', { workflowId: 'w1', shadowNodeId: 'node_123' }))
+      .rejects.toThrow(BadRequestException);
+    expect(collab.removeNode).not.toHaveBeenCalled();
+  });
 });

@@ -92,6 +92,7 @@ export class VideoProjectService {
   /** 前端 done 回流后调用：删影子节点（重复删 no-op 安全） */
   async removeShadow(userId: string, dto: { workflowId: string; shadowNodeId: string }) {
     await this.perm.assertEditor(dto.workflowId, userId);
+    if (!dto.shadowNodeId.startsWith('shadow-')) throw new BadRequestException('shadowNodeId 必须以 shadow- 前缀命名'); // 防借道：底层 removeNode 是任意节点原语，端点语义仅限影子
     await this.collab.removeNode(dto.workflowId, dto.shadowNodeId);
     return { ok: true };
   }
