@@ -1,5 +1,5 @@
 import type { SubtitleRenderState, VisualRenderState } from '../scene/interpolate';
-import { layoutSubtitleLines } from '../scene/subtitle-layout';
+import { layoutSubtitleLines, SUBTITLE_FONT } from '../scene/subtitle-layout';
 
 export const CANVAS_W = 1920;
 export const CANVAS_H = 1080;
@@ -57,7 +57,7 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     // G5：字间距参与 measure 与绘制（ctx.letterSpacing Chromium 99+；jsdom/旧浏览器赋值静默无效不抛）
     ctx.save();
-    const font = `${state.style.fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    const font = `${state.style.fontSize}px ${SUBTITLE_FONT}`;
     ctx.font = font;
     try { (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${state.style.letterSpacing}px`; } catch { /* 不支持则忽略 */ }
     const layout = layoutSubtitleLines(state.text, state.style, (s, f) => { ctx.font = f; return ctx.measureText(s).width; });

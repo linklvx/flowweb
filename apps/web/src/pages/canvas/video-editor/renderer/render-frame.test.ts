@@ -67,5 +67,6 @@ describe('renderFrameAt（单帧渲染编排）', () => {
     deps.getMediaUrl = vi.fn(() => undefined); // A3：视频源缺 url 跳过
     await renderFrameAt(dataWith([{ id: 'v', start: 0, duration: 5, type: 'video' }]), 0, deps);
     expect(deps.renderer.draw).toHaveBeenCalledWith([], []);
+    expect(deps.video.getFrame).not.toHaveBeenCalled(); // 无 url 守卫——不得向 videoCache 发起取帧
   });
 });

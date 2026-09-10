@@ -7,7 +7,7 @@ export const SUBTITLE_SPEC = {
   maxWidth: 1664,     // 最大宽自动换行
   maxLines: 2,        // 超长截断行数上限（决策 12）
 } as const;
-const SUBTITLE_FONT = '"PingFang SC", "Microsoft YaHei", sans-serif';
+export const SUBTITLE_FONT = '"PingFang SC", "Microsoft YaHei", sans-serif';
 
 export interface SubtitleLayout { lines: string[]; lineHeight: number; fontSize: number; }
 
