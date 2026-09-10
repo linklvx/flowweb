@@ -53,10 +53,11 @@ describe('trim guard（素材边界约束）', () => {
     expect(r.duration).toBe(15);      // duration 随左拉增大（左拉侧永不为负——R1 审核 P0-1 反例方向修正）
     expect((r as VideoClip).sourceStart).toBe(95);
   });
-  it('start=0 的片段左拉下界为 0（时间轴原点恒 0，start 不为负）', () => {
+  it('start=0 的片段左拉下界为 0 且 -0 已归一（时间轴原点恒 0，start 不为负）', () => {
     const g = trimLeftGuard(vc({ sourceStart: 100, duration: 10, start: 0 }), 200);
-    // 注意：Math.max(-100, -0) 返回 -0，而 toBe 是 Object.is 语义（-0 ≠ 0）——必须 toBeCloseTo
-    expect(g.minDelta).toBeCloseTo(0, 10);
+    // -0 归一锁：实现将 minDelta === 0 归一为 +0（clip-math.ts trimLeftGuard）；toBe 是 Object.is 语义
+    // （-0 ≠ 0）——若删除实现中的归一化，Math.max(-100, -0) 产 -0，本用例必红（toBeCloseTo 锁不住此差异）
+    expect(g.minDelta).toBe(0);
   });
   it('字幕/图片片（sourceLimit=-Infinity）左拉由时间轴 0 点兜底（R2 审核 P2-1：原实现对无源片 clampDelta 形同虚设）', () => {
     const sub = { id: 's1', trackId: 'tv', type: 'subtitle', start: 2, duration: 3, text: 'x', visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 } } as any;
