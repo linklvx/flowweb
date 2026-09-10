@@ -83,6 +83,19 @@ describe('crossfade 边界状态机（spec 第三节）', () => {
     d.tracks[0].clips.push('s1');
     expect(effectiveTransitions(d, 's1')).toEqual({ in: null, out: null, overlap: 0 });
   });
+  it('effOut 保留正路径：后片无 crossfade 时前片 transitionOut 原样保留', () => {
+    const d = data([
+      vclip('a', 0, 3, { transitionOut: { type: 'toBlack', duration: 1 } }),
+      vclip('b', 3.5, 2.5),
+    ]);
+    expect(effectiveTransitions(d, 'a').out?.type).toBe('toBlack');
+  });
+  it('audio 片早退无转场（与 subtitle 同路径）', () => {
+    const d = data([]);
+    d.clips['au1'] = { id: 'au1', trackId: 'tv', type: 'audio', start: 0, duration: 2, sourceStart: 0, mediaId: 'ma', volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] } as any;
+    d.tracks[0].clips.push('au1');
+    expect(effectiveTransitions(d, 'au1')).toEqual({ in: null, out: null, overlap: 0 });
+  });
 });
 
 describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）', () => {
@@ -93,10 +106,23 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
   it('同轨重叠拒绝', () => {
     expect(canPlaceAt(base, 'me', 1, 'tv', 1.5)).toBe(false);
   });
-  it('crossfade overlap ≤ duration 允许、超过拒绝', () => {
-    // 执行期修正（控制器验算）：4.2 → 与 b [5,8) 重叠 0.2 ≤ 0.5 允许；4.6 → 重叠 0.6 > 0.5 拒绝（计划原断言方向写反）
-    expect(canPlaceAt(base, 'me', 4.2, 'tv', 1, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(true);
-    expect(canPlaceAt(base, 'me', 4.6, 'tv', 1, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(false);
+  it('crossfade：被放置片为后片，与前片重叠 ≤ duration 允许、超过拒绝（spec 后片单侧表达）', () => {
+    // me [2.6,4.6) 为 a [0,3) 的后片：重叠 0.4 ≤ 0.5 允许；[2.4,4.4) 重叠 0.6 > 0.5 拒绝（执行期 I1 修正：原用例与 b 重叠方向写反）
+    expect(canPlaceAt(base, 'me', 2.6, 'tv', 2, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(true);
+    expect(canPlaceAt(base, 'me', 2.4, 'tv', 2, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(false);
+  });
+  it('被放置片为前片：allowed 由既有后片决定，对手无 crossfade 则拒绝（修复误放行）', () => {
+    // me [4.2,5.2) 与 b [5,8) 重叠 0.2——me 是前片，b 无 crossfade → 无转场依据的重叠拒绝
+    expect(canPlaceAt(base, 'me', 4.2, 'tv', 1)).toBe(false);
+  });
+  it('被放置片为前片：既有后片带 crossfade 时重叠 ≤ 其 duration 允许（修复误拒绝）', () => {
+    const withCf = data([vclip('a', 0, 3), vclip('b', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
+    // 前片 x [4.7,5.4) 与 b 重叠 0.4 ≤ 0.5（allowed 取 b 的 crossfade）→ 允许
+    expect(canPlaceAt(withCf, 'x', 4.7, 'tv', 0.7)).toBe(true);
+  });
+  it('移动既有片到空位：自排除分支（clipId 已在轨上）', () => {
+    expect(canPlaceAt(base, 'a', 3.5, 'tv', 1)).toBe(true); // a 移到 [3.5,4.5) 空位
+    expect(canPlaceAt(base, 'a', 0, 'tv', 3)).toBe(true);   // 原位重放
   });
   it('跨轨自由重叠', () => {
     const two: ProjectData = {
@@ -109,5 +135,10 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
     const s = findNearestFreeStart(base, 'me', 1, 'tv', 1.5); // 1 与 a(0-3) 冲突
     expect(canPlaceAt(base, 'me', s, 'tv', 1.5)).toBe(true);
     expect(s).toBe(3); // 右侧最近空位起点（a 结束于 3，b 从 5 开始，1.5 宽放得下）
+  });
+  it('冲突吸附最近空位：左侧命中分支', () => {
+    // desired 4.9 dur 1：右扫越走越深撞 b [5,8)，左扫到 4.0 时 [4,5) 与 a/b 均无重叠 → 返回 4
+    const s = findNearestFreeStart(base, 'me', 4.9, 'tv', 1);
+    expect(s).toBe(4);
   });
 });

@@ -10,7 +10,8 @@ export function clipsOnTrack(data: ProjectData, trackId: string): Clip[] {
 
 /** crossfade 前片：同轨相邻、start 更小者中最近的一个 */
 export function crossfadePredecessor(data: ProjectData, clip: Clip): Clip | null {
-  if ((clip as any).transitionIn?.type !== 'crossfade') return null; // AudioClip/SubtitleClip 无该字段——as any 绕联合访问（同 clip-math.ts 模式）
+  if (clip.type === 'audio' || clip.type === 'subtitle') return null; // audio/字幕无转场——窄化联合消除 as any
+  if (clip.transitionIn?.type !== 'crossfade') return null;
   const prev = clipsOnTrack(data, clip.trackId).filter(c => c.start < clip.start && c.id !== clip.id);
   return prev.length ? prev[prev.length - 1] : null;
 }
@@ -44,16 +45,18 @@ export function effectiveTransitions(data: ProjectData, clipId: string): Effecti
 }
 
 /** 同轨放置校验：禁重叠除 crossfade overlap（仅同轨；跨轨自由——图层叠加是多轨核心）。
- *  重叠量内联计算（要与 allowed 比较，需数量非布尔——R4 审核 P2-2：不留用不上的布尔 helper） */
+ *  spec 第三节：重叠区转场由后片（start 较大者）的 transitionIn crossfade 单侧表达——
+ *  allowed 逐对取 later 片的 crossfade duration（被放置片为后片时取 placedClip，为前片时取已入库对手片） */
 export function canPlaceAt(
   data: ProjectData, clipId: string, start: number, trackId: string, duration: number,
-  clipTransition?: { transitionIn?: Transition },
+  placedClip?: { transitionIn?: Transition },
 ): boolean {
   for (const c of clipsOnTrack(data, trackId)) {
     if (c.id === clipId) continue;
-    let allowed = 0;
-    if (clipTransition?.transitionIn?.type === 'crossfade') allowed = clipTransition.transitionIn.duration;
     const overlap = Math.min(start + duration, c.start + c.duration) - Math.max(start, c.start);
+    if (overlap <= 1e-9) continue;
+    const laterIn: Transition | undefined = start > c.start ? placedClip?.transitionIn : (c as any).transitionIn;
+    const allowed = laterIn?.type === 'crossfade' ? laterIn.duration : 0;
     if (overlap > allowed + 1e-9) return false;
   }
   return true;
