@@ -21,6 +21,8 @@
 > **执行期修订（subagent-driven 执行中，quality review 回写）**：Task 1 quality review 两项 Important 采纳——(1) canvasStore `videoEdit → width:320` 分支补单测（照 textInput width=300 先例，canvasStore.test.ts）；(2) VideoEditNode 选中态从紫边 `#6C5CE7` 对齐既有节点统一灰 ring（`border transparent + boxShadow 0 0 0 3px #9CA3AF`——兄弟节点 VideoGenNode/AudioGenNode/MultiImageNode 同构，spec 未规定节点本体选中色，同一画布同一交互语义必须视觉一致；Task 1 空壳与 Task 10 完整版代码块均已同步）。Task 17 验收表增"新建节点落点无偏移"项。
 >
 > **Task 3 执行期修正（2026-09-10，计划测试向量笔误 + 量化强化，控制器 node 验算批准）**：(a) quantizeTime(0.1+0.2,30) 期望 0.1→0.3（输入≈0.3s=9 帧，0.1 是 3 帧笔误）；(b) sourceTime 0.5× 档期望 2.5→3（公式 2+(3-1)*0.5）；(c) 100 次不漂移用例初始 duration 100→5（100 时终值 96.67 断言 50/FPS 必红）；(d) applyTrimLeft/Right 从"仅量化 Δ"升级为"成片时间结果每步量化回帧网格"（50 次累加 1/30 漂至 …685≠50/30，帧整数红线强制；sourceStart 保持连续浮点）；(e) -0 用例 toBeCloseTo→toBe(0)（R3 归一化落地后 toBeCloseTo 失去锁力，变异验证 toBe(0) 在删除归一化时必红——quality review I1）；(f) splitClipAt keyframes 访问 as any（SubtitleClip 无 keyframes 字段——shared 类型实形）。四轮审核均未抓到 (a)(b)(c)——数值验算须逐条执行，结构审查不可替代。M 级登记：splitClipAt 不校验切点范围（Task 9 store 侧已有 1 帧两侧校验承担）；前片 keyframes 未克隆（history JSON 深拷已隔离别名）。
+>
+> **Task 5 执行期修正（2026-09-10，quality review I1 语义级修复）**：canPlaceAt 从"只看被放置片 transitionIn"重写为 **后片单侧 allowed**（spec 重叠规则原文：转场由后片 start 较大者的 transitionIn crossfade 单侧表达）——原实现有误放行（前片带 crossfade 与无转场后片重叠入库 → Plan 3 将渲染无转场双曝光）与误拒绝（对手后片带 crossfade 的合法前片靠近被弹开）双向缺陷，quality review 实证脚本确认。第 6 参更名 placedClip（形状不变，Task 9 moveClip 传 clip 对象兼容）。补测：后片视角重写 crossfade 用例 + 前片误放行/误拒绝双向 + I1 原始场景锁断言 + 自排除/左扫分支 + effOut 保留正路径 + audio 早退（13→19 用例）。附带：crossfadePredecessor audio/subtitle 早退窄化消除一处 as any。**Task 9 契约登记**：canPlaceAt 无 start≥0 下界（findNearestFreeStart 仅 left 侧守卫）——editorStore 调用方负责 clamp（Task 15 拖拽 Math.max(0, snapped.time) / Task 16 drop Math.max(0, pxToTime) 已承担）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -853,6 +855,19 @@ describe('crossfade 边界状态机（spec 第三节）', () => {
     d.tracks[0].clips.push('s1');
     expect(effectiveTransitions(d, 's1')).toEqual({ in: null, out: null, overlap: 0 });
   });
+  it('effOut 保留正路径：后片无 crossfade 时前片 transitionOut 原样保留', () => {
+    const d = data([
+      vclip('a', 0, 3, { transitionOut: { type: 'toBlack', duration: 1 } }),
+      vclip('b', 3.5, 2.5),
+    ]);
+    expect(effectiveTransitions(d, 'a').out?.type).toBe('toBlack');
+  });
+  it('audio 片早退无转场（与 subtitle 同路径）', () => {
+    const d = data([]);
+    d.clips['au1'] = { id: 'au1', trackId: 'tv', type: 'audio', start: 0, duration: 2, sourceStart: 0, mediaId: 'ma', volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] } as any;
+    d.tracks[0].clips.push('au1');
+    expect(effectiveTransitions(d, 'au1')).toEqual({ in: null, out: null, overlap: 0 });
+  });
 });
 
 describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）', () => {
@@ -863,9 +878,25 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
   it('同轨重叠拒绝', () => {
     expect(canPlaceAt(base, 'me', 1, 'tv', 1.5)).toBe(false);
   });
-  it('crossfade overlap ≤ duration 允许、超过拒绝', () => {
-    expect(canPlaceAt(base, 'me', 4.6, 'tv', 1, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(true);
+  it('crossfade：被放置片为后片，与前片重叠 ≤ duration 允许、超过拒绝（spec 后片单侧表达）', () => {
+    // me [2.6,4.6) 为 a [0,3) 的后片：重叠 0.4 ≤ 0.5 允许；[2.4,4.4) 重叠 0.6 > 0.5 拒绝（执行期 I1 修正：原用例与 b 重叠方向写反）
+    expect(canPlaceAt(base, 'me', 2.6, 'tv', 2, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(true);
+    expect(canPlaceAt(base, 'me', 2.4, 'tv', 2, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(false);
+  });
+  it('被放置片为前片：allowed 由既有后片决定，对手无 crossfade 则拒绝（修复误放行）', () => {
+    // me [4.2,5.2) 与 b [5,8) 重叠 0.2——me 是前片，b 无 crossfade → 无转场依据的重叠拒绝
+    expect(canPlaceAt(base, 'me', 4.2, 'tv', 1)).toBe(false);
+    // I1 原始场景锁：placedClip 带 crossfade 但它是前片（对手 b 无 crossfade）→ 依旧拒绝
     expect(canPlaceAt(base, 'me', 4.2, 'tv', 1, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(false);
+  });
+  it('被放置片为前片：既有后片带 crossfade 时重叠 ≤ 其 duration 允许（修复误拒绝）', () => {
+    const withCf = data([vclip('a', 0, 3), vclip('b', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
+    // 前片 x [4.7,5.4) 与 b 重叠 0.4 ≤ 0.5（allowed 取 b 的 crossfade）→ 允许
+    expect(canPlaceAt(withCf, 'x', 4.7, 'tv', 0.7)).toBe(true);
+  });
+  it('移动既有片到空位：自排除分支（clipId 已在轨上）', () => {
+    expect(canPlaceAt(base, 'a', 3.5, 'tv', 1)).toBe(true); // a 移到 [3.5,4.5) 空位
+    expect(canPlaceAt(base, 'a', 0, 'tv', 3)).toBe(true);   // 原位重放
   });
   it('跨轨自由重叠', () => {
     const two: ProjectData = {
@@ -878,6 +909,11 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
     const s = findNearestFreeStart(base, 'me', 1, 'tv', 1.5); // 1 与 a(0-3) 冲突
     expect(canPlaceAt(base, 'me', s, 'tv', 1.5)).toBe(true);
     expect(s).toBe(3); // 右侧最近空位起点（a 结束于 3，b 从 5 开始，1.5 宽放得下）
+  });
+  it('冲突吸附最近空位：左侧命中分支', () => {
+    // desired 4.9 dur 1：右扫越走越深撞 b [5,8)，左扫到 4.0 时 [4,5) 与 a/b 均无重叠 → 返回 4
+    const s = findNearestFreeStart(base, 'me', 4.9, 'tv', 1);
+    expect(s).toBe(4);
   });
 });
 ```
@@ -897,6 +933,7 @@ export function clipsOnTrack(data: ProjectData, trackId: string): Clip[] {
 
 /** crossfade 前片：同轨相邻、start 更小者中最近的一个 */
 export function crossfadePredecessor(data: ProjectData, clip: Clip): Clip | null {
+  if (clip.type === 'audio' || clip.type === 'subtitle') return null; // audio/字幕无转场——窄化联合消除 as any
   if (clip.transitionIn?.type !== 'crossfade') return null;
   const prev = clipsOnTrack(data, clip.trackId).filter(c => c.start < clip.start && c.id !== clip.id);
   return prev.length ? prev[prev.length - 1] : null;
@@ -931,16 +968,20 @@ export function effectiveTransitions(data: ProjectData, clipId: string): Effecti
 }
 
 /** 同轨放置校验：禁重叠除 crossfade overlap（仅同轨；跨轨自由——图层叠加是多轨核心）。
- *  重叠量内联计算（要与 allowed 比较，需数量非布尔——R4 审核 P2-2：不留用不上的布尔 helper） */
+ *  spec 第三节（重叠规则）：转场由后片（start 较大者）的 transitionIn crossfade 单侧表达——
+ *  allowed 逐对取 later 片的 crossfade duration（被放置片为后片时取 placedClip，为前片时取已入库对手片）。
+ *  执行期修正（Task 5 quality review I1）：原"只看被放置片 transitionIn"有误放行（前片带 crossfade 与
+ *  无转场后片重叠入库）与误拒绝（对手后片带 crossfade 的合法前片靠近被弹开）双向缺陷 */
 export function canPlaceAt(
   data: ProjectData, clipId: string, start: number, trackId: string, duration: number,
-  clipTransition?: { transitionIn?: Transition },
+  placedClip?: { transitionIn?: Transition },
 ): boolean {
   for (const c of clipsOnTrack(data, trackId)) {
     if (c.id === clipId) continue;
-    let allowed = 0;
-    if (clipTransition?.transitionIn?.type === 'crossfade') allowed = clipTransition.transitionIn.duration;
     const overlap = Math.min(start + duration, c.start + c.duration) - Math.max(start, c.start);
+    if (overlap <= 1e-9) continue;
+    const laterIn: Transition | undefined = start > c.start ? placedClip?.transitionIn : (c as any).transitionIn;
+    const allowed = laterIn?.type === 'crossfade' ? laterIn.duration : 0;
     if (overlap > allowed + 1e-9) return false;
   }
   return true;
