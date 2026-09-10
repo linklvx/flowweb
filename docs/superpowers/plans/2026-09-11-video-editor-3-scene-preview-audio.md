@@ -2538,8 +2538,8 @@ export function PreviewPlayer() {
 其余修改点（精确到行为，执行者按现码对齐）：
 
 - **VideoEditorShell.tsx**：① `<PreviewPlaceholder />` 替换为 `<PreviewPlayer />`（删 PreviewPlaceholder.tsx 文件与其 import）；右列占位 span 替换为 `<PropertiesPanel />`（Task 10 实现——本 task 先建最小占位 `export function PropertiesPanel() { return <div data-testid="properties-panel" className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white" />; }` 防 import 断裂，Task 10 完整化）。② `handleClose` 内 flush 完成后、`close()` 之前调 `releaseEditorRuntime()`（import 自 hooks/playback）。③ 底部 `TimelinePanel` 之前的中列结构保持。
-- **AssetPanel.tsx**：`useWorkflowAssets` 的 items 就绪后同步 mediaInfo——组件体内 `useEffect(() => { if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }]))); }, [items])`（含既有工程重开的 url 回填，决策 13）。
-- **TimelinePanel.tsx**：⓪ 头部 import 改 `import { useEffect, useMemo, useRef, useState } from 'react';`（R5：现码 L1 仅 `{ useEffect, useRef }`——⑤ 的 useState 与 Task 13 的 useMemo 一次到位，落地即改防两处分别踩 TS2304）；① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine />`（**R4 无 props 化**：原 data/widthPx 仅喂未被使用的滚动内容宽 w——死代码删除；left = 140 + playhead 换算 px，放滚动内容 wrapper 内与 Ruler 同坐标系、140px 轨道头偏移几何一致，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
+- **AssetPanel.tsx**：`useWorkflowAssets` 的 items 就绪后同步 mediaInfo——组件体内 `useEffect(() => { if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }]))); }, [items])`（含既有工程重开的 url 回填，决策 13）；R6 import 前置：现码 L1 仅 `import { useState } from 'react';`——改 `import { useEffect, useState } from 'react';`。
+- **TimelinePanel.tsx**：⓪ 头部 import 改 `import { useEffect, useMemo, useRef, useState } from 'react';`（R5：现码 L1 仅 `{ useEffect, useRef }`——⑤ 的 useState 与 Task 13 的 useMemo 一次到位，落地即改防两处分别踩 TS2304）；① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine />`（**R4 无 props 化**：原 data/widthPx 仅喂未被使用的滚动内容宽 w——死代码删除；left = 140 + playhead 换算 px，放滚动内容 wrapper 内与 Ruler 同坐标系、140px 轨道头偏移几何一致，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 memo 化（R6：现码 L1 无任何 react import——补 `import { memo } from 'react';`，照 ClipBlock.tsx:19 既有具名内部函数风格 `export const TrackRow = memo(function TrackRow({ ... }: TrackRowProps) { ... })` 保留组件名；Task 11/13 新增 props 后续照常并入签名）；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
 
 ```tsx
   const [viewportW, setViewportW] = useState(940);
@@ -2553,7 +2553,7 @@ export function PreviewPlayer() {
   // Ruler 的 widthPx 传参改 viewportW - 140（test-setup.ts 已有 ResizeObserver mock；PlayheadLine 无 props 化后不依赖 widthPx）
 ```
 
-- **TimelineRuler.tsx**：playhead 改组件内自订阅 `const playhead = useEditorStore(s => s.playhead)`（props 删 playhead，调用方 TimelinePanel 同步删传参）；pointer 拖拽改 **scrub 三段式（G4/决策 6②：move 只动播放头，up 才重排音频——标尺拖拽高频 playFrom 的分配灾难封堵）**：
+- **TimelineRuler.tsx**：playhead 改组件内自订阅 `const playhead = useEditorStore(s => s.playhead)`（props 删 playhead，调用方 TimelinePanel 同步删传参）；R6 import 前置：补 `import { useEditorStore } from '../../store/editorStore';`（现码 L1-5 无 store import），scrub 改造删原 handlePointer 后 L3 `import { quantizeTime } from '../../timeline/clip-math';` 成孤儿一并删（量化不丢：setPlayhead 内部本就 quantizeTime，editorStore.ts:131；tsconfig.base 无 noUnusedLocals 非编译红线，按 CLAUDE.md 精准修改清孤儿）；既有 `import type React from 'react'`（L5）已支持新 handler 的 React.PointerEvent 注解——现码 L24 先例，无需补值 import；pointer 拖拽改 **scrub 三段式（G4/决策 6②：move 只动播放头，up 才重排音频——标尺拖拽高频 playFrom 的分配灾难封堵）**：
 
 ```tsx
 import { scrubBegin, scrubMove, scrubEnd } from '../../hooks/playback';
@@ -3410,7 +3410,7 @@ describe('时间轴关键帧菱形刻度', () => {
 
 editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ **`selectKeyframe(kfId: string | null, clipId?: string)`（N3/决策 19 双写：kfId 非空时同时写 `selectedKeyframeId: kfId` 与 `selectedClipId: clipId`——点击菱形即选中其片段，stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量；kfId 为 null 只清 selectedKeyframeId）**；既有 `selectClip` 补清 `selectedKeyframeId: null`（切换片段时关键帧选中失效，不变量保持）；**undo/redo 的 set 同步补 `selectedKeyframeId: null`**（R4：现码 L330/339 只清 selectedClipId——历史跳转后 selectedClipId 已 null、Delete 双真条件不触发，当前无害，但"双写联动"不变量要求 kf 选中不残留，Plan 4 消费前顺手收口）。
 
-ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent) => void`）：
+ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void`——R6：与 TrackRow 逐层同签名，bare `React.PointerEvent`（=PointerEvent<Element>）在 TrackRow→ClipBlock 透传时被 strictFunctionTypes 逆变拒绝 TS2322）：
 
 ```tsx
   {(clip.type === 'video' || clip.type === 'image') && clip.keyframes.map(k => (
@@ -3423,6 +3423,15 @@ ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (k
 
 （菱形不挡片段拖拽外的命中：pointerdown 内 stopPropagation 由 TimelinePanel 的 handler 做。audio 片 volume 关键帧同样渲染——同款分支，testid 同前缀；**title 用 `音量 @ ${k.t.toFixed(2)}s`**（R3 五-2：VolumeKeyframe 无 property 字段，复用 k.property 会渲染 "undefined @ 1.00s"）。）
 
+TrackRow 增量（R6：链条完整性——只在 TimelinePanel 侧加 handler 会断在中层，keyframe-ui.test 三用例全红）：TrackRowProps 增加同签名 prop，ClipBlock 渲染处（现码 L60-62）与 onPointerDown 并列透传：
+
+```tsx
+// TrackRowProps 增加：
+  onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void;
+// ClipBlock 渲染处透传：
+  onKeyframePointerDown={onKeyframePointerDown}
+```
+
 TimelinePanel 增量（R4 头部 import 前置：现码 L8 仅 `import type { Clip } from '../../types'` 且无 playback 导入——下方代码用 `(c as VideoClip)` 与 `seekPlayback`，不补则抄写即 TS2304）：
 
 ```ts
@@ -3433,7 +3442,7 @@ import { seekPlayback } from '../../hooks/playback';  // 新增（点击菱形�
 dragRef 的 kind 联合扩 `'keyframe'`；`onKeyframePointerDown(kfId, e)`：
 
 ```tsx
-const onKeyframePointerDown = (kfId: string, e: React.PointerEvent) => {
+const onKeyframePointerDown = (kfId: string, e: React.PointerEvent<HTMLDivElement>) => {
   if (e.button !== 0) return;
   e.stopPropagation();
   const es = useEditorStore.getState();
@@ -3692,7 +3701,9 @@ const missingSources = useMemo(
 TrackRow → ClipBlock 传递 `missing={c.sourceNodeId ? missingSourceNodeIds.has(c.sourceNodeId) : false}`；ClipBlock 红态：
 
 ```tsx
-  // style 增量：background: missing ? '#FEE2E2' : BLOCK_BG[clip.type]，border 色红 #EF4444
+  // style 增量：background: missing ? '#FEE2E2' : BLOCK_BG[clip.type]
+  // 边框优先级（R6 定案）：missing 红边压过选中边（素材缺失是更高优先级的告警态）——
+  //   border: `1px solid ${missing ? '#EF4444' : selected ? BLOCK_BAR[clip.type] : 'transparent'}`
   // label 区追加角标：
   {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
 ```
@@ -3740,7 +3751,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 | 10 | 关键帧增（秒表+菱形）/拖（菱形拖拽）/删（Delete）；插值正确（局部坐标、单点恒值、越界取端值——右面板改值+播放头观察） | 操作 + preview |
 | 6（补全） | 0.5×/2× 变速后公式正确（sourceTime 随速度——预览画面内容核对） | 变速 + 播放 |
 | — | 波形：音频片段显示静态波形（真实 peaks） | snapshot |
-| — | 素材缺失：删除上游素材节点→片段标红"素材已删除" | 画布删节点 + snapshot |
+| — | 素材缺失：删除上游素材节点→片段标红"素材已删除"（红底 + 红边，红边压过选中边——R6 优先级定案） | 画布删节点 + snapshot |
 | — | 控制条迁移后撤销/重做/分割/删除可用；缩放滑杆与 Ctrl+滚轮联动；音量滑杆实际影响播放音量 | 操作 |
 | — | 暂停态单帧渲染（G1）：进编辑器即显示 playhead=0 帧而非黑屏；暂停后点画布/拖标尺即时出画 | 操作 + snapshot |
 | — | seek：暂停态点击画布单帧到位；播放中拖标尺=静音拖拽、**松手后音画同步**（G4/决策 6② 验收口径——**拖动过程中允许音画短暂不同步**：去抖窗内音频仍用旧调度，松手 ≤100ms 重排恢复，A4） | 操作 |
@@ -3777,6 +3788,7 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - **R3 轮审核修订（2026-09-11，R2 修订核验 11/11 落实 + 2 必红 + UrlSource 语义修正 + 3 架构残留全采纳）**：必红——Task 7 FrameRenderDeps 双声明残留删除（R2 改 import 未删旧接口块，TS2300+TS2304）；Task 4 LRU 用例 `_b: Blob` 改 `_url: string`（strictFunctionTypes 逆变）。UrlSource 语义（实测 source.js L699-714）——退化形态更正为"sequential 流式 + 缓存驱逐 + 回拖抛错黑帧"（非"退化为整下载"），决策 1 措辞重写 + Nginx 具体指令（proxy_force_ranges on / Range+If-Range set_header）+ Content-Range CORS 条件（/flowai 同源重写已验，换前缀需 ExposeHeaders）；Task 14 验收升级为服务侧+浏览器侧双验（多次 206 + console 无 range 警告）+ 新增跨缓存回拖 seek 无黑帧终验。自愈缺口（3.3）——video-cache getFrame 捕错 release(mediaId) 重开（含回归用例）；预签名 3600s 过期一期限制登记 spec 边界表。架构残留——prepare 瞬时峰值实测口径（稳态 3-4 倍，替换 spec"×2"）+ Task 14 内存观测项（§4.1 选①）；renderLatest 尾追旧 data 登记于实现注释（§4.2 低危）；A4 验收口径补"拖动过程中允许不同步"（§4.3）。历史小项——Task 12 ClipBlock 补 useRef/useEffect import 说明（五-1）；audio 菱形 title 用"音量"防 undefined（五-2）；scrub 加 scrubActive 守卫（五-3）；hasPcm/releasePcm 语义注释（五-4，Plan 4 消费提示）；纯视频工程建 ctx 偏离正式登记决策 8（五-6）；PreviewPlayer 测试 try/finally + 未用 stopPlayback 导入删除（五-5）
 - **R4 轮审核修订（2026-09-11，R3 修订核验 7/7 落实 + Task 9 一根因两必红 + A3 自愈三收口全数采纳）**：必红两处（同根因）——①startMini 的 `await loadMediaUrls()` 先于 `setMiniPlaying(true)`：fireEvent.click 是同步 act 只 flush React 队列、不 flush 用户 promise 续体，点击返回时 miniPlaying 仍 false → 用例 1（画布断言紧跟 click）与用例 4（trigger(false) 时 miniPlayingRef 仍 false，随后微任务 flush 画布出现且无第二次 IO 触发）双双必红——setMiniPlaying(true) 提前至 await 之前（点击即时进播放态，URL 晚到首帧黑底、tick 每帧重读 mediaUrlsRef 到达后自动出画）；②rootRef 声明而增量 JSX 无任何一处挂载（现码 L48 根元素无 ref）→ IO effect 永远早退，用例 4 ioInstances 断言超时且资源纪律③真机整体失效——根元素补 `ref={rootRef}`；③补卸载清理 `useEffect(() => () => { if (miniPlayingRef.current) stopMiniRef.current(); }, [])`（节点删除/画布卸载时不残留 videoCache 条目与 ImageBitmap，deps:[] 经 ref 取最新闭包与 N2 同款）。健壮性三收口——④自愈冷却（坏源 rAF 30-60fps 每秒几十次 release+openSink → retryAfter 2s 冷却 + deps.now 注入可测 + console.warn 诊断痕迹；成功取帧解除冷却、LRU 淘汰不继承冷却、无参 release 会话终结清冷却、带参 release 冷却保留防立即重进再打网络）；⑤openSink rejection 纳入 try（原 `await import`/`new Input` 在 try 外，一 reject 则 getFrame reject 违反"失败→null"契约——openMediabunnySink 整段包 try，const held 窄化闭包）；⑥release 与在途 open 竞态（在途 open 解析后照样 entries.set 复活已释放的 Input/CanvasSink——generations 代数作废，"播放中点关闭"场景即 Task 14 反复进出验收的前置；带参/无参 release 均先物化 keys 再 ++）。小项五条——⑦Task 4 用例 10 适配冷却（now 注入推进时钟）+ 新增竞态用例 11（跑测注释 11 PASS）；⑧Task 11 补 TimelinePanel 头部 import（VideoClip/seekPlayback——现码 L8 仅 Clip，抄写即 TS2304）+ undo/redo 补清 selectedKeyframeId（双写联动不变量收口，Plan 4 消费前）；⑨Task 10 代码块改内联 commit（消除 commitClipPatch 假助手与"勿新增助手函数"注解的"散文对代码块错"自相矛盾——R1-R3 反复踩的形态）；⑩PlayheadLine 无 props 化（data/widthPx 仅喂未被使用的滚动内容宽 w，死代码删除；left = 140 + playhead 换算 px 与 Ruler 同坐标系说明并入挂载点）；⑪Task 13 追加用例复用既有夹具红态（v1.sourceNodeId='s1' 默认即红，getByText 唯一——夹具中仅 v1 带 sourceNodeId）+ 既有夹具红态影响知会登记（render.test 第 3 用例与 interact.test 夹具在本 task 后渲染红标，既有断言不含红标文案不受影响）
 - **R5 轮审核修订（2026-09-11，R4 修订核验 11/11 落实 + 1 必红 + 3 收口全数采纳）**：P0 必红（R4 自引入）——release() 内 `generations.clear()` 把同函数刚 bump 的代数抹平：无参路径 keys.forEach(+1) 后紧接 clear，在途 chain 捕获 gen=0、迟到完成时 `undefined ?? 0 = 0` 相等 → 不作废 → entries.set 复活已释放的 Input/CanvasSink，用例 11 的 disposed/size 两断言必红——删 `generations.clear()`（bump 值即作废凭据；保留计数无副作用：重进后新 chain 以 bump 后的值为基准捕获、比对相等正常放行；map 只增媒体数个 number 无内存顾虑；与 retryAfter.clear() 语义区分注释化——源健康度可跨会话清、实例代数不可清）；P1——open 失败路径补冷却（.then 内 `if (!handle)` 分支 set retryAfter：无视频轨/canDecode false/presigned 403 reject 三种来源原来只在 getFrameAt catch 设冷却，.finally 删 opening 后下一帧 renderLatest 再次 openSink，30-60 次/秒——R4④要堵的风暴换了条路径；与 P0 修法正交：用例 11 迟到 handle 非 null 走作废分支不设冷却、用例 5 单次调用不受影响）；P2 两处——Task 8 TimelinePanel 头部 import 目标形态一次写死 `{ useEffect, useMemo, useRef, useState }`（⓪ 项：现码 L1 仅 { useEffect, useRef }，⑤ 的 useState 与 Task 13 的 useMemo 落地即改防两处分别 TS2304）；Task 10 removeKeyframe 改 `as VideoClip` 单型视图（TransformKeyframe[] | VolumeKeyframe[] 联合上调 .filter 触发 TS2349 union 泛型签名互不兼容——与 moveKeyframe 同款谎报，audio 的 VolumeKeyframe 与 id 过滤结构兼容无运行时后果）；P3——Task 4 用例 3 注释修正（首次命中即返、iterator 挂起于 yield 不预取；顺序产出下 next 预存分支不触达，标题改"迭代前进消费下一帧命中"）
+- **R6 轮审核修订（2026-09-11，R5 修订核验 4/4 落实 + 3 处 import 缺项（同类第三发）+ 2 条 UI 细节定案）**：import 三处——TrackRow 现码 L1 无 react import（Task 8 ④ memo 化需补 `import { memo } from 'react';`，照 ClipBlock.tsx:19 既有具名内部函数风格保留组件名）；AssetPanel 现码 L1 仅 useState（Task 8 mergeMediaInfo effect 需补 useEffect）；TimelineRuler 现码无 store import（Task 8 自订阅需补 `import { useEditorStore } from '../../store/editorStore';`）+ scrub 改造删原 handlePointer 后 `quantizeTime` import 成孤儿一并删（量化不丢：setPlayhead 内部 quantizeTime，editorStore.ts:131；tsconfig.base 无 noUnusedLocals 非编译红线，按 CLAUDE.md 精准修改清孤儿；既有 `import type React from 'react'` 已支持 React.PointerEvent 注解——现码 L24 先例）。UI 细节两条——Task 11 TrackRow 新 prop 签名写死 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void` 且 ClipBlock 渲染处（现码 L60-62）与 onPointerDown 并列透传（只在 TimelinePanel 侧加 handler 断在中层，keyframe-ui.test 三用例全红；ClipBlock prop 注解同步对齐 `<HTMLDivElement>` 泛型——TrackRow→ClipBlock 透传在 strictFunctionTypes 逆变下 bare `React.PointerEvent`（Element）目标不收 HTMLDivElement 源参，TS2322）；Task 13 ClipBlock 边框优先级定案 `missing ? '#EF4444' : selected ? BLOCK_BAR[clip.type] : 'transparent'`（素材缺失是更高优先级告警态，红边压过选中边），Task 14 素材缺失验收按此预期
 - **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds；video-cache RETRY_COOLDOWN_MS 冷却（取帧失败 + open 失败双路径）与 generations 作废语义随 Task 4 契约继承（导出路径消费 getFrame 同样受冷却保护）
 
 ## 后续 Plan（另开文件）
