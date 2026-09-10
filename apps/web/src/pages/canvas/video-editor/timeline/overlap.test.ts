@@ -114,6 +114,8 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
   it('被放置片为前片：allowed 由既有后片决定，对手无 crossfade 则拒绝（修复误放行）', () => {
     // me [4.2,5.2) 与 b [5,8) 重叠 0.2——me 是前片，b 无 crossfade → 无转场依据的重叠拒绝
     expect(canPlaceAt(base, 'me', 4.2, 'tv', 1)).toBe(false);
+    // I1 原始场景锁：placedClip 带 crossfade 但它是前片（对手 b 无 crossfade）→ 依旧拒绝
+    expect(canPlaceAt(base, 'me', 4.2, 'tv', 1, { transitionIn: { type: 'crossfade', duration: 0.5 } })).toBe(false);
   });
   it('被放置片为前片：既有后片带 crossfade 时重叠 ≤ 其 duration 允许（修复误拒绝）', () => {
     const withCf = data([vclip('a', 0, 3), vclip('b', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
