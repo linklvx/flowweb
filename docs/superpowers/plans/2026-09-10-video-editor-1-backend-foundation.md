@@ -186,6 +186,7 @@ pnpm -C apps/api exec prisma generate
 ```bash
 pnpm -C apps/api test
 # 预期: 既有测试全绿（schema 追加不破坏现有）
+# 若 tsc 报 prisma.videoProject 不存在——Step 3 的 prisma generate 未生效，重跑一次即可
 git add apps/api/prisma && git commit -m "feat(db): VideoProject 模型（sourceNodeId 唯一/三关系级联/三索引）"
 ```
 
@@ -418,7 +419,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service
 
 ```ts
 // apps/api/src/modules/video-project/video-project.service.ts
-import { Injectable, Inject, ConflictException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -436,15 +437,16 @@ export class VideoProjectService {
   /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回；
    *  teamId 服务端从 workflowId 派生（assertEditor 只验 workflow 编辑权不验 teamId 归属——客户端传 teamId 会造不一致脏行） */
   async upsertByNode(input: { workflowId: string; sourceNodeId: string; userId: string; title: string; data?: unknown }) {
-    await this.perm.assertEditor(input.workflowId, input.userId); // workflow 不存在时 resolve 内部抛 404——下方 findUnique 必有值
+    await this.perm.assertEditor(input.workflowId, input.userId);
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: input.workflowId },
       select: { teamId: true },
     });
+    if (!project) throw new BadRequestException('项目不存在'); // 显式抛错（与 Task 10 register 统一）——防 assertEditor 契约变更时 project! 静默 TypeError
     return this.prisma.videoProject.upsert({
       where: { sourceNodeId: input.sourceNodeId },
       create: {
-        teamId: project!.teamId, userId: input.userId, workflowId: input.workflowId,
+        teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
         sourceNodeId: input.sourceNodeId, title: input.title,
         data: (input.data ?? { version: 1, fps: 30, tracks: [], clips: {} }) as object,
       },
@@ -1025,7 +1027,14 @@ import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGen
 
 同时 `video-project.module.ts` 的 providers 追加 `GeneratedMediaService`（Task 7 预留位）并补 import。
 
-Controller 追加（同文件，注入 GeneratedMediaService）：
+Controller 追加（同文件——**构造器改两参**，这是 Task 7 → Task 10 唯一一处构造器变更）：
+
+```ts
+  constructor(
+    private readonly svc: VideoProjectService,
+    private readonly generated: GeneratedMediaService,
+  ) {}
+```
 
 ```ts
   @Post('generated-media/register')
