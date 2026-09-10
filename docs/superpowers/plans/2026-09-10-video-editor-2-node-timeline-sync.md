@@ -18,6 +18,8 @@
 
 **测试命令：** `pnpm -C apps/web test`（vitest run + tsc）；单文件 `pnpm -C apps/web exec vitest run src/stores/canvasStore.test.ts`
 
+> **执行期修订（subagent-driven 执行中，quality review 回写）**：Task 1 quality review 两项 Important 采纳——(1) canvasStore `videoEdit → width:320` 分支补单测（照 textInput width=300 先例，canvasStore.test.ts）；(2) VideoEditNode 选中态从紫边 `#6C5CE7` 对齐既有节点统一灰 ring（`border transparent + boxShadow 0 0 0 3px #9CA3AF`——兄弟节点 VideoGenNode/AudioGenNode/MultiImageNode 同构，spec 未规定节点本体选中色，同一画布同一交互语义必须视觉一致；Task 1 空壳与 Task 10 完整版代码块均已同步）。Task 17 验收表增"新建节点落点无偏移"项。
+
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
 **关键决策（写代码前必读）：**
@@ -162,7 +164,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
           width: 316,
           border: '1px solid #E5E7EB',
           margin: 2,
-          ...(selected ? { border: '1px solid #6C5CE7', boxShadow: '0 0 0 3px rgba(108,92,231,0.25)' } : {}),
+          ...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}),
         }}
       >
         <NodeHandle type="target" testId="video-edit-target" />
@@ -2140,7 +2142,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
           width: 316,
           border: '1px solid #E5E7EB',
           margin: 2,
-          ...(selected ? { border: '1px solid #6C5CE7', boxShadow: '0 0 0 3px rgba(108,92,231,0.25)' } : {}),
+          ...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}),
         }}
       >
         <NodeHandle type="target" testId="video-edit-target" />
@@ -4095,6 +4097,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 左面板资产库—
 | 21 | 编辑器 Ctrl+Z 与画布 Ctrl+Z 互斥；退出后画布栈无时间轴痕迹 | 快捷键逐按验证 |
 | 26（部分） | 反复加片删片 10 次 undoStack 不增长（origin 唯一性单测已证，浏览器复查无视觉回归） | 操作观察 |
 | 27 | 编辑器打开时 Ctrl+Z/Delete/空格画布无变化；关闭后恢复 | 快捷键逐按 |
+| — | 新建 videoEdit 节点落点无偏移（width:320 端到端——单测锁 store 侧，此项锁渲染测量链；执行期 Task 1 quality review 增项） | preview_click + snapshot |
 
 - [ ] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
 
