@@ -1,3 +1,4 @@
+/** 契约：T 实例入栈/跨栈后不可原地变更——pushHistory 深拷入栈，但 undo/redo 的 current 按引用跨栈（store 侧全部不可变更新是前提） */
 export interface History<T> {
   past: T[];
   future: T[];
