@@ -1,5 +1,5 @@
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsDateString, IsNumber, IsIn } from 'class-validator';
+import { IsString, IsObject, IsDateString, IsIn } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
