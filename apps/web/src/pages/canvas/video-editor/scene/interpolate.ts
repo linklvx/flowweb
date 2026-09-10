@@ -81,12 +81,14 @@ export function transitionEffect(data: ProjectData, clip: VisualClip, tLocal: nu
   if (!skipIn && tin && tin.duration > 0 && tLocal < tin.duration) {
     const p = tLocal / tin.duration;
     if (tin.type === 'fadeIn') alpha *= p;
-    else overlay = { color: tin.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
+    else if (tin.type === 'toBlack' || tin.type === 'toWhite') overlay = { color: tin.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
+    // crossfade：无重叠区时 eff.in 保留原始 crossfade——永不作为独立转场施加（只经双窗口生效，防白闪）
   }
   if (tout && tout.duration > 0 && dur - tLocal < tout.duration) {
     const p = (dur - tLocal) / tout.duration;
     if (tout.type === 'fadeOut') alpha *= p;
-    else overlay = { color: tout.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
+    else if (tout.type === 'toBlack' || tout.type === 'toWhite') overlay = { color: tout.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
+    // 同上：transitionOut crossfade 语义由后片 transitionIn 表达，本片不施加
   }
   return { alpha, overlay };
 }

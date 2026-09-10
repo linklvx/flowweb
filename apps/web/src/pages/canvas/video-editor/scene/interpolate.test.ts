@@ -38,10 +38,10 @@ describe('interpolateTransform（五属性独立通道）', () => {
   it('各属性走各自关键帧，无关键帧属性取基准', () => {
     const c = vc('a', 0, 10, {
       transform: { x: 100, y: 50, scale: 2, rotation: 30, opacity: 0.8 },
-      keyframes: [kf(0, 'x', 0), kf(10, 'x', 200)],
+      keyframes: [kf(0, 'x', 0), kf(10, 'x', 300)],
     });
     const tr = interpolateTransform(c, 5);
-    expect(tr.x).toBeCloseTo(100, 10);
+    expect(tr.x).toBeCloseTo(150, 10);
     expect(tr.y).toBe(50); expect(tr.scale).toBe(2); expect(tr.rotation).toBe(30); expect(tr.opacity).toBe(0.8);
   });
 });
@@ -109,6 +109,7 @@ describe('transitionEffect（5 种转场，局部时间）', () => {
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 0).alpha).toBeCloseTo(0, 10);
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25).alpha).toBeCloseTo(0.5, 10);
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 1).alpha).toBe(1);
+    expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25).overlay).toBeNull(); // skipIn 防重复——crossfade 窗口内不得叠加独立 overlay（删 skipIn 则白闪变异被杀）
   });
   it('crossfade 前片：尾缘 1→0（与后片同曲线 equal-gain，spec 第六节）', () => {
     const d = data([vc('f', 0, 3), vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
@@ -145,6 +146,19 @@ describe('transitionEffect（5 种转场，局部时间）', () => {
     const r = transitionEffect(d, d.clips['b'] as VideoClip, 2.75); // rem=0.25<1 → overlay=0.75；无 front 窗 → alpha=1
     expect(r.alpha).toBe(1);
     expect(r.overlay).toEqual({ color: 'black', alpha: 0.75 });
+  });
+  it('crossfade 前片存在但零重叠：不作为独立转场施加（无白闪——质量审查发现）', () => {
+    const d = data([
+      vc('f', 0, 2),
+      vc('b', 3, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } }), // 间隔放置 overlap=0
+    ]);
+    expect(crossfadeContextOf(d, 'b')).toBeNull();      // 无重叠区无渐变
+    expect(transitionEffect(d, d.clips['b'] as VideoClip, 0)).toEqual({ alpha: 1, overlay: null });
+    expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25)).toEqual({ alpha: 1, overlay: null });
+  });
+  it('transitionOut 选 crossfade：语义由后片表达，本片不施加任何独立效果（无白闪）', () => {
+    const d = data([vc('a', 0, 4, { transitionOut: { type: 'crossfade', duration: 1 } })]);
+    expect(transitionEffect(d, d.clips['a'] as VideoClip, 3.5)).toEqual({ alpha: 1, overlay: null });
   });
 });
 
