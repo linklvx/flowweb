@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { VideoEditorShell } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
@@ -35,5 +35,13 @@ describe('VideoEditorShell', () => {
     expect(isGroupEditContext(document.body)).toBe(true);
     useVideoEditorStore.setState({ open: false });
     expect(isGroupEditContext(document.body)).toBe(false);
+  });
+  it('编辑器打开期间 Delete 通路隔离——根 div 带 nokey 且焦点移入壳内（C1 回归锁）', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    const shell = screen.getByTestId('video-editor-shell');
+    expect(shell.className).toContain('nokey');
+    // 焦点断言：open 后焦点应落在壳内（initialFocusRef 生效），而非残留画布按钮
+    await waitFor(() => expect(shell).toContainElement(document.activeElement as HTMLElement | null));
   });
 });

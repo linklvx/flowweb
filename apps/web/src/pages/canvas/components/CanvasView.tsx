@@ -14,6 +14,7 @@ import { RemoteCursors } from './RemoteCursors';
 import { useAuth } from '@/components/AuthProvider';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { findDropGroup } from '@/utils/groupDrop';
@@ -74,6 +75,8 @@ function CanvasViewComponent(_props: Props) {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
+  // 编辑器打开期间禁用 xyflow 的 Delete/Backspace 删节点（与 Shell nokey 双保险，spec 验收 27）
+  const editorOpen = useVideoEditorStore((s) => s.open);
   const authUser = (useAuth() as { user?: { id: string; name: string } } | null)?.user;
 
   // presence：本地用户 + 光标 50ms 节流上报（流坐标）
@@ -355,7 +358,7 @@ function CanvasViewComponent(_props: Props) {
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
         onNodeDragStop={handleNodeDragStop}
-        deleteKeyCode={['Backspace', 'Delete']}
+        deleteKeyCode={editorOpen ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
         maxZoom={3}

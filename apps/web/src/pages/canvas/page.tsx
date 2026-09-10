@@ -22,6 +22,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
 import { refitExpandedGroups } from '@/stores/canvasCollabRuntime';
@@ -326,6 +327,7 @@ function CanvasKeyboardHandler() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // TD-4：hydrate 窗口内忽略快捷键（遮罩封指针路径，这里封键盘路径）
       if (useCanvasStore.getState().isHydrating) return;
+      if (useVideoEditorStore.getState().open) return; // 视频编辑器打开期间画布快捷键全禁（spec 验收 27——Tab/Ctrl+0/Alt+Shift+F 不再开幽灵菜单/改视口）
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
