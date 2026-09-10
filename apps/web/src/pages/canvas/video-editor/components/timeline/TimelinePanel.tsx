@@ -19,11 +19,11 @@ export function TimelinePanel() {
   interface DragState {
     kind: 'move' | 'trim-left' | 'trim-right';
     clipId: string;
-    startClientX: number; startClientY: number;
-    startClipStart: number; startDuration: number;
+    startClientX: number;
+    startClipStart: number;
     /** 拖拽起始比例尺快照——整个拖拽用同一比例尺（拖拽途中 Ctrl+滚轮改缩放会让 dxSec 换算基准突变） */
     startPxPerSec: number;
-    pointerMoved: boolean;
+    pointerMovedOnce: boolean; // 首次 move 才 beginTransient——down-up 无位移不入栈历史
   }
   const dragRef = useRef<DragState | null>(null);
 
@@ -41,10 +41,10 @@ export function TimelinePanel() {
     dragRef.current = {
       kind: hit ? (hit === 'left' ? 'trim-left' : 'trim-right') : 'move',
       clipId: clip.id,
-      startClientX: e.clientX, startClientY: e.clientY,
-      startClipStart: clip.start, startDuration: clip.duration,
+      startClientX: e.clientX,
+      startClipStart: clip.start,
       startPxPerSec: pxPerSec, // 拖拽全程固定比例尺
-      pointerMoved: false,
+      pointerMovedOnce: false,
     };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
@@ -52,11 +52,10 @@ export function TimelinePanel() {
   const onWindowPointerMove = (e: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    d.pointerMoved = true;
     const dxSec = pxToTime(e.clientX - d.startClientX, d.startPxPerSec); // 拖拽全程固定比例尺
     const es = useEditorStore.getState();
     if (d.kind === 'move') {
-      if (!es.pendingSnapshot && !(d as any).pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
+      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       const target = d.startClipStart + dxSec;
       const snapped = snapTime(target, collectSnapPoints(d.clipId, Object.values(es.data?.clips ?? {}), es.playhead), d.startPxPerSec);
       // 跨轨拖动（spec 同类型跨轨自由重叠）：pointer 落点命中轨道行，类型兼容才换轨
@@ -74,7 +73,7 @@ export function TimelinePanel() {
       }
       es.moveClip(d.clipId, Math.max(0, snapped.time), targetTrackId, { transient: true });
     } else {
-      if (!es.pendingSnapshot && !(d as any).pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
+      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       es.trimClip(d.clipId, d.kind === 'trim-left' ? 'left' : 'right', dxSec, { transient: true });
     }
   };
@@ -91,9 +90,11 @@ export function TimelinePanel() {
   useEffect(() => {
     window.addEventListener('pointermove', onWindowPointerMove);
     window.addEventListener('pointerup', onWindowPointerUp);
+    window.addEventListener('pointercancel', onWindowPointerUp); // 触控/浏览器接管手势——与 up 同路径收口（review M2）
     return () => {
       window.removeEventListener('pointermove', onWindowPointerMove);
       window.removeEventListener('pointerup', onWindowPointerUp);
+      window.removeEventListener('pointercancel', onWindowPointerUp);
       dragRef.current = null;
     };
   }, []);

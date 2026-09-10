@@ -116,7 +116,7 @@ describe('TimelinePanel 交互', () => {
     ready();
     render(<TimelinePanel />);
     const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
-    useEditorStore.getState().setPlayhead(2);
+    act(() => { useEditorStore.getState().setPlayhead(2); }); // act 包裹：render 后的 store 更新须 flush 渲染（同跨轨用例）
     fireEvent.click(screen.getByTitle('该轨内新增字幕'));
     const clips = useEditorStore.getState().data!.tracks.find(t => t.id === subTrack.id)!.clips;
     expect(clips).toHaveLength(1);
