@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TimelinePanel } from './TimelinePanel';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
@@ -49,6 +49,7 @@ describe('TimelinePanel 静态渲染', () => {
     expect(screen.getByText(/视频A · 00:00:00:00/)).toBeInTheDocument();
     expect(screen.getByText(/音频B · 00:00:00:00/)).toBeInTheDocument();
     expect(screen.getByText('你好')).toBeInTheDocument(); // 字幕块显示文本
+    expect(screen.getByTestId('playhead-line')).toBeInTheDocument(); // 贯穿播放头（执行期 I3）
   });
   it('空轨渲染占位条，工具行有撤销/重做/分割/删除', () => {
     useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
@@ -57,5 +58,25 @@ describe('TimelinePanel 静态渲染', () => {
     expect(screen.getByText('重做')).toBeInTheDocument();
     expect(screen.getByText('分割')).toBeInTheDocument();
     expect(screen.getByText('删除')).toBeInTheDocument();
+  });
+  it('Ctrl+滚轮缩放：原生 wheel 监听改 pxPerSec（passive:false——I1）', () => {
+    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    // 判别力核心：wheel 必须以 { passive: false } 原生注册在滚动元素上（react-dom 根容器 wheel 是 passive，合成 onWheel 的 preventDefault 无效）
+    const addSpy = vi.spyOn(HTMLElement.prototype, 'addEventListener');
+    render(<TimelinePanel />);
+    // 注：React root 自身以 passive:true 委托 wheel，必须断言"存在 passive:false 注册"而非首个注册
+    const hasPassiveFalseWheel = addSpy.mock.calls.some(
+      ([type, , opts]) => type === 'wheel' && (opts as AddEventListenerOptions | undefined)?.passive === false,
+    );
+    expect(hasPassiveFalseWheel).toBe(true);
+    addSpy.mockRestore();
+    const panel = screen.getByTestId('timeline-panel');
+    const scroll = panel.querySelector('.overflow-x-auto') as HTMLElement;
+    const before = useEditorStore.getState().pxPerSec;
+    fireEvent.wheel(scroll, { ctrlKey: true, deltaY: -100 });
+    expect(useEditorStore.getState().pxPerSec).toBeGreaterThan(before);
+    const after = useEditorStore.getState().pxPerSec;
+    fireEvent.wheel(scroll, { ctrlKey: false, deltaY: -100 }); // 非 Ctrl 不缩放
+    expect(useEditorStore.getState().pxPerSec).toBe(after);
   });
 });

@@ -57,7 +57,7 @@ export function TrackRow({ track, data, onDropClip, onSubtitleAdd }: TrackRowPro
           if (!c) return null;
           return (
             <ClipBlock key={cid} clip={c} pxPerSec={pxPerSec} selected={selectedClipId === c.id}
-              mediaName={c.type === 'subtitle' ? undefined : (mediaInfo as any)[c.mediaId]?.name} />
+              mediaName={c.type === 'subtitle' ? undefined : mediaInfo[c.mediaId]?.name} />
           );
         })}
       </div>
