@@ -19,8 +19,8 @@
 3. **变速 PCM 缓存 key = `${mediaId}:${speed}`**：prepare 时按需解码+伸缩；调度 offset = `(sourceStart + max(0, from-clip.start)*speed) / speed`（stretched 坐标系 = 原素材坐标 / speed）。
 4. **toBlack/toWhite 用全屏 overlay 色层**而非降 opacity（opacity 会透出下层轨画面，不符合"渐黑"语义；转场语义=整幅画面渐黑，overlay 在全部视觉层之后、字幕之前统一绘制）。
 5. **crossfade 画面 opacity 与音频增益同曲线**（spec 第六节 equal-gain 定案）：视频片内嵌音轨 gain ≡ interpolateClip 输出的 opacity（transform.opacity × 转场 alpha）——buildGainPoints 与 transitionEffect 单源共用 crossfadeContextOf；AudioClip 独立走 volume 关键帧 × fade 曲线。
-6. **音频调度偏离 spec 的 lookahead（50ms/0.1s 窗）——改一次性全量调度 + seek 重建**：lookahead 的动因是 opencut 流式取 buffer 场景；本项目 PCM 全内存预处理后（spec 内存预估已按全量 PCM 算），一次调度 N 个 AudioBufferSourceNode（N=片段数，15min 工程通常 <100）无性能问题，行为等价（音频不因视频解码慢而停）。登记偏离理由，浏览器验收以音画同步为准。
-7. **AudioContext 全局单例 + suspend/resume，不 close**：audioEngine 模块级单例使实例数恒 1，物理满足"实例上限约 6"护栏（spec 边界护栏"收起时 close()"针对每次新建的实现，单例下 close 反而违反"复用全局单例"的节点纪律⑤）；收起时 stop sources + releasePcm + suspend 线程。
+6. **音频调度偏离 spec 的 lookahead（50ms/0.1s 窗）——改一次性全量调度 + seek 重建**：lookahead 的动因是 opencut 流式取 buffer 场景；本项目 PCM 全内存预处理后（spec 内存预估已按全量 PCM 算），一次调度 N 个 AudioBufferSourceNode（N=片段数，15min 工程通常 <100）无性能问题，行为等价（音频不因视频解码慢而停）。登记偏离理由，浏览器验收以音画同步为准。**配套两条纪律（R1 审核 G4，缺则拖拽 seek 是分配灾难）**：① AudioBuffer 按 `mediaId:speed` 缓存于 engine（pcmToCtxBuffer 不再每次 playFrom 全量复制——标尺拖拽高频重排下每帧重建 N 个全量 Buffer），releasePcm 一并清；② 拖拽 seek 三段式 `scrubBegin/scrubMove/scrubEnd`——down 时若在播放则 stop 音频 + setPlaying(false)（静音拖拽，rAF 循环退出），move 只 setPlayhead（暂停态单帧渲染出画），up 才 setPlaying(true) 经 effect playFrom 重锚重排；验收以"松手后音画同步"为准。
+7. **AudioContext 全局单例 + suspend/resume，不 close**：audioEngine 模块级单例使实例数恒 1，物理满足"实例上限约 6"护栏（spec 边界护栏"收起时 close()"针对每次新建的实现，单例下 close 反而违反"复用全局单例"的节点纪律⑤）；收起时 stop sources + releasePcm + suspend 线程。**resume 修复（R1 审核 G2，P0）**：suspend 后二次打开编辑器时 getContext 因 ctx 已存在跳过 resume → currentTime 冻结 → engine.now() 恒定 → rAF 永不前进——prepare/playFrom 入口显式 resumeCtx()。
 8. **主时钟统一由 AudioEngine 承载**：`engine.now()` 单一时钟真相——有音频 PCM 用 ctx.currentTime 锚（ctx 手势内创建）、无音频片降级 performance.now 锚（不为时钟空转 AudioContext，spec 第六节）；seek = playFrom 重新锚定，视觉 rAF 与音频调度共用 now() 不漂移。
 9. **播放状态机放 editorStore（playing/preparing）+ 副作用编排集中在 hooks/playback.ts**：togglePlayback（prepare 异步完成后才 setPlaying(true)，音画同起点；preparing 态按钮 loading）/stopPlayback/seekPlayback 三函数被 PreviewPlayer、useEditorKeyboard（空格）、Ruler 拖拽共用——避免 keyboard hook 反向依赖组件。
 10. **节点迷你播放单播放态放 videoEditorStore.miniPlaybackNodeId**（播 B 停 A）；全屏 open 时 openEditor 直接清 miniPlaybackNodeId；IntersectionObserver/selected 变 false/移出 → 停 + videoCache.release(本工程 mediaIds)。
@@ -29,6 +29,9 @@
 13. **媒体 blob 共享缓存 getMediaBlob(mediaId, url)**：video-cache 取帧与 audio 解码共用；url 来源 = editorStore.mediaInfo 扩 `url?` 字段，AssetPanel 挂载/刷新时 mergeMediaInfo 同步（含既有工程重开场景）。
 14. **TrackRow memo + playhead 订阅下沉**（Plan 2 M4 登记项）：TimelinePanel 不再订阅 playhead；TimelineRuler 自订阅；贯穿竖线抽 PlayheadLine 组件自订阅——播放头 30fps 更新不重渲全部轨道行。
 15. **渲染跳帧 = in-flight 去重**：rAF tick 内上一帧 renderFrameAt 未返回则跳过发起新请求（天然实现 spec"跳帧追赶、音频不停"）；seek 暂停态单帧渲染 await 完成再绘。
+16. **节点迷你播放不出声（R1 审核 G6 拍板）**：startMini 不调 audioEngine.prepare（整工程 PCM 解码+变速与"轻量 renderer"纪律冲突）——迷你播放视频帧经 videoCache 按需解码（播放的必要开销，缩略态零解码语义不变），音频静默；audio-engine 单例保留给编辑器主预览。
+17. **crossfade 双窗口（R1 审核 G3）**：crossfadeContextOf 输出 `{ backOverlap, frontOverlap }` 可同时携带（三片链 A/B/C 全 crossfade 时中间片两窗并存）——transitionEffect 与 buildGainPoints 对双窗口独立施加（alpha 相乘），两重叠区各自 1↔0、中点各 0.5（spec 第六节 equal-gain）；crossfade 入场窗口存在时跳过独立 fadeIn 施加防重复，未吞并的出场转场（如入 crossfade + 出 toBlack）正常叠加。
+18. **暂停态单帧渲染（R1 审核 G1，P0）**：usePreviewPlayback 补 `!playing` effect（依赖 playhead/data）——renderFrameAt 单帧绘制；进编辑器即渲染 playhead=0 帧而非黑屏，暂停后点画布/拖标尺即时出画（scrubMove 的视觉基础）。
 
 ## 文件结构总览
 
@@ -255,23 +258,31 @@ describe('interpolateTransform（五属性独立通道）', () => {
   });
 });
 
-describe('crossfadeContextOf（前后片角色判定）', () => {
-  it('后片：role=back + overlap', () => {
+describe('crossfadeContextOf（双窗口角色判定，决策 17）', () => {
+  it('后片：backOverlap=实际重叠量', () => {
     const d = data([vc('f', 0, 3), vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
-    expect(crossfadeContextOf(d, 'b')).toEqual({ role: 'back', overlap: 0.5 });
+    expect(crossfadeContextOf(d, 'b')).toEqual({ backOverlap: 0.5, frontOverlap: 0 });
   });
-  it('前片：role=front + overlap（前片自身无任何转场字段）', () => {
+  it('前片：frontOverlap=重叠量（前片自身无任何转场字段）', () => {
     const d = data([vc('f', 0, 3), vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
-    expect(crossfadeContextOf(d, 'f')).toEqual({ role: 'front', overlap: 0.5 });
+    expect(crossfadeContextOf(d, 'f')).toEqual({ backOverlap: 0, frontOverlap: 0.5 });
+  });
+  it('三片链 A/B/C 全 crossfade：中间片双窗口并存（R1 审核 G3）', () => {
+    const d = data([
+      vc('a', 0, 3),
+      vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } }),
+      vc('c', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } }),
+    ]);
+    expect(crossfadeContextOf(d, 'b')).toEqual({ backOverlap: 0.5, frontOverlap: 0.5 }); // b=[2.5,5.5)，c 从 5 起 → b/c 重叠 0.5
   });
   it('无 crossfade 参与 → null', () => {
     const d = data([vc('f', 0, 3), vc('b', 4, 3)]);
     expect(crossfadeContextOf(d, 'b')).toBeNull();
     expect(crossfadeContextOf(d, 'f')).toBeNull();
   });
-  it('后片 crossfade 但前邻不相邻（无重叠）→ 无 front 上下文（overlap=0 不参与渐变）', () => {
+  it('crossfade 但无实际重叠 → null（无重叠区无渐变）', () => {
     const d = data([vc('f', 0, 3), vc('b', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
-    expect(crossfadeContextOf(d, 'b')).toBeNull(); // eff.overlap=0 → back 也不生效（无重叠区无渐变）
+    expect(crossfadeContextOf(d, 'b')).toBeNull(); // eff.overlap=0
     expect(crossfadeContextOf(d, 'f')).toBeNull();
   });
 });
@@ -325,6 +336,27 @@ describe('transitionEffect（5 种转场，局部时间）', () => {
     const r = transitionEffect(d, d.clips['f'] as VideoClip, 2.75);
     expect(r.alpha).toBeCloseTo(0.5, 10); // crossfade 曲线生效
     expect(r.overlay).toBeNull();          // toBlack 被吞
+  });
+  it('三片链：中间片前缘入 + 尾缘出双窗口独立施加（G3——修复前中间片尾缘恒 1）', () => {
+    const d = data([
+      vc('a', 0, 3),
+      vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } }),
+      vc('c', 5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } }),
+    ]);
+    const te = (tl: number) => transitionEffect(d, d.clips['b'] as VideoClip, tl).alpha;
+    expect(te(0)).toBeCloseTo(0, 10);      // 前缘起点（back 窗口）
+    expect(te(1)).toBe(1);                 // 独立区
+    expect(te(2.75)).toBeCloseTo(0.5, 10); // 尾缘中点（front 窗口：局部 2.75，rem=0.25 → 0.5）
+    expect(te(3 - 1e-9)).toBeCloseTo(0, 10);
+  });
+  it('入 crossfade + 出 toBlack 组合：窗口 alpha 与未吞并的独立出场 overlay 同时生效（决策 17）', () => {
+    const d = data([
+      vc('a', 0, 3),
+      vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 }, transitionOut: { type: 'toBlack', duration: 1 } }),
+    ]);
+    const r = transitionEffect(d, d.clips['b'] as VideoClip, 2.75); // rem=0.25<1 → overlay=0.75；无 front 窗 → alpha=1
+    expect(r.alpha).toBe(1);
+    expect(r.overlay).toEqual({ color: 'black', alpha: 0.75 });
   });
 });
 
@@ -403,54 +435,58 @@ export function interpolateTransform(clip: VisualClip, tLocal: number): Transfor
   };
 }
 
-export interface CrossfadeContext { role: 'front' | 'back'; overlap: number; }
+export interface CrossfadeContext { backOverlap: number; frontOverlap: number; }
 
-/** crossfade 角色判定（渲染与音频增益共用——equal-gain 同曲线单源）：
- *  back = 本片 transitionIn crossfade 且与前片实际重叠（eff.overlap>0）；
- *  front = 存在后片 crossfade 且其 predecessor 是本片（尾部 overlap 区渐出）。 */
+/** crossfade 双窗口角色判定（渲染与音频增益共用——equal-gain 同曲线单源，决策 17）：
+ *  backOverlap = 本片 transitionIn crossfade 与前片的实际重叠（eff.overlap）；
+ *  frontOverlap = 存在后片 crossfade 指向本片（predecessor 是本片）时的尾部重叠。
+ *  两窗可并存（三片链中间片）；全零 → null（无重叠区无渐变）。 */
 export function crossfadeContextOf(data: ProjectData, clipId: string): CrossfadeContext | null {
   const clip = data.clips[clipId];
   if (!clip || clip.type === 'subtitle' || clip.type === 'audio') return null;
+  let backOverlap = 0;
+  let frontOverlap = 0;
   if (clip.transitionIn?.type === 'crossfade') {
     const eff = effectiveTransitions(data, clipId);
-    if (eff.in?.type === 'crossfade' && eff.overlap > 0) return { role: 'back', overlap: eff.overlap };
+    if (eff.in?.type === 'crossfade') backOverlap = eff.overlap;
   }
   const next = clipsOnTrack(data, clip.trackId)
     .find(c => c.start > clip.start && (c as VideoClip).transitionIn?.type === 'crossfade') as VideoClip | undefined;
   if (next && crossfadePredecessor(data, next)?.id === clipId) {
-    const overlap = clip.start + clip.duration - next.start;
-    if (overlap > 0) return { role: 'front', overlap };
+    frontOverlap = Math.max(0, clip.start + clip.duration - next.start);
   }
-  return null;
+  return backOverlap > 0 || frontOverlap > 0 ? { backOverlap, frontOverlap } : null;
 }
 
 export interface TransitionEffect { alpha: number; overlay: { color: 'black' | 'white'; alpha: number } | null; }
 
-/** 转场状态（局部时间）：crossfade 前后片同曲线线性 1↔0；fadeIn/fadeOut 乘 alpha；toBlack/toWhite 出 overlay 层 */
+/** 转场状态（局部时间）：crossfade 双窗口独立施加（back 前缘 0→1 / front 尾缘 1→0，中间片两窗 alpha 相乘）；
+ *  独立转场与窗口并存——crossfade 入场已由窗口施加时跳过 eff.in（防重复，此时 eff.in 必为 crossfade），
+ *  未吞并的出场转场（如入 crossfade + 出 toBlack）正常叠加。 */
 export function transitionEffect(data: ProjectData, clip: VisualClip, tLocal: number): TransitionEffect {
   let alpha = 1;
   let overlay: TransitionEffect['overlay'] = null;
   const dur = clip.duration;
   const cf = crossfadeContextOf(data, clip.id);
   const eff = effectiveTransitions(data, clip.id);
-  if (cf?.role === 'back') {
-    if (tLocal < cf.overlap) alpha *= tLocal / cf.overlap;
-  } else if (cf?.role === 'front') {
+  let skipIn = false;
+  if (cf) {
+    if (cf.backOverlap > 0 && tLocal < cf.backOverlap) alpha *= tLocal / cf.backOverlap;
     const rem = dur - tLocal;
-    if (rem < cf.overlap) alpha *= rem / cf.overlap;
-  } else {
-    const tin = eff.in;
-    const tout = eff.out;
-    if (tin && tin.duration > 0 && tLocal < tin.duration) {
-      const p = tLocal / tin.duration;
-      if (tin.type === 'fadeIn') alpha *= p;
-      else overlay = { color: tin.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
-    }
-    if (tout && tout.duration > 0 && dur - tLocal < tout.duration) {
-      const p = (dur - tLocal) / tout.duration;
-      if (tout.type === 'fadeOut') alpha *= p;
-      else overlay = { color: tout.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
-    }
+    if (cf.frontOverlap > 0 && rem < cf.frontOverlap) alpha *= rem / cf.frontOverlap;
+    skipIn = cf.backOverlap > 0;
+  }
+  const tin = eff.in;
+  const tout = eff.out;
+  if (!skipIn && tin && tin.duration > 0 && tLocal < tin.duration) {
+    const p = tLocal / tin.duration;
+    if (tin.type === 'fadeIn') alpha *= p;
+    else overlay = { color: tin.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
+  }
+  if (tout && tout.duration > 0 && dur - tLocal < tout.duration) {
+    const p = (dur - tLocal) / tout.duration;
+    if (tout.type === 'fadeOut') alpha *= p;
+    else overlay = { color: tout.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };
   }
   return { alpha, overlay };
 }
@@ -710,6 +746,13 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     expect(a?.timestamp).toBe(2);
     expect(b?.timestamp).toBe(4);
   });
+  it('in-flight 去重（G7）：同 mediaId 并发首取只 openSink 一次', async () => {
+    const { handle } = makeSink(FRAMES);
+    const openSink = vi.fn(async () => { await new Promise(r => setTimeout(r, 10)); return handle; });
+    const svc = new VideoCacheService({ openSink });
+    await Promise.all([svc.getFrame('m1', BLOB, 1.5), svc.getFrame('m1', BLOB, 2.5), svc.getFrame('m1', BLOB, 3.5)]);
+    expect(openSink).toHaveBeenCalledTimes(1);
+  });
 });
 ```
 
@@ -777,9 +820,10 @@ class MediaEntry {
   }
 }
 
-/** 帧缓存服务：mediaId → 常驻 CanvasSink + 三段命中（vendor 形状）+ LRU 上限淘汰 */
+/** 帧缓存服务：mediaId → 常驻 CanvasSink + 三段命中（vendor 形状）+ LRU 上限淘汰 + openSink in-flight 去重（G7） */
 export class VideoCacheService {
   private entries = new Map<string, MediaEntry>(); // Map 插入序 = LRU 序（访问即 delete+set 移尾）
+  private opening = new Map<string, Promise<MediaEntry | null>>(); // 同 tick 并发同 mediaId 只 openSink 一次（vendor initPromises 同款）
   constructor(private readonly deps: VideoCacheDeps) {}
 
   get size(): number { return this.entries.size; }
@@ -787,11 +831,19 @@ export class VideoCacheService {
   async getFrame(mediaId: string, blob: Blob, time: number): Promise<WrappedFrame | null> {
     let entry = this.entries.get(mediaId);
     if (!entry) {
-      const handle = await this.deps.openSink(blob);
-      if (!handle) return null; // 无视频轨/打开失败
-      entry = new MediaEntry(handle);
-      this.evictIfNeeded();
-      this.entries.set(mediaId, entry);
+      let opening = this.opening.get(mediaId);
+      if (!opening) {
+        opening = this.deps.openSink(blob).then((handle) => {
+          if (!handle) return null;
+          const e = new MediaEntry(handle);
+          this.evictIfNeeded();
+          this.entries.set(mediaId, e);
+          return e;
+        }).finally(() => { this.opening.delete(mediaId); });
+        this.opening.set(mediaId, opening);
+      }
+      entry = (await opening) ?? undefined;
+      if (!entry) return null; // 无视频轨/打开失败
     } else {
       this.entries.delete(mediaId); // LRU 触尾
       this.entries.set(mediaId, entry);
@@ -820,28 +872,31 @@ export class VideoCacheService {
   }
 }
 
-/** 生产装配：mediabunny CanvasSink（vendor video-cache/service.ts 同款） */
+/** 生产装配：mediabunny CanvasSink（vendor video-cache/service.ts 同款）。
+ *  B1 实测修正：CanvasSink 无 dispose 方法（mediabunny media-sink.d.ts 只有 getCanvas/canvases/canvasesAtTimestamps）；
+ *  Input.dispose() 返回 void 非 Promise（input.d.ts L158）——同步调用，异常用 try/catch。 */
 export async function openMediabunnySink(blob: Blob): Promise<SinkHandle | null> {
   const { Input, ALL_FORMATS, BlobSource, CanvasSink } = await import('mediabunny');
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
   try {
     const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) { await input.dispose(); return null; }
+    if (!track || !(await track.canDecode())) {
+      try { input.dispose(); } catch { /* 已释放 */ }
+      return null;
+    }
     const sink = new CanvasSink(track, { poolSize: 3, fit: 'contain' });
     return {
       canvases: (start: number) => sink.canvases(start) as unknown as SinkIterator,
-      dispose: () => { void sink.dispose?.(); void input.dispose(); },
+      dispose: () => { try { input.dispose(); } catch { /* 已释放 */ } }, // 资源主口是 input.dispose
     };
   } catch {
-    await input.dispose().catch(() => {});
+    try { input.dispose(); } catch { /* 已释放 */ }
     return null;
   }
 }
 
 export const videoCache = new VideoCacheService({ openSink: openMediabunnySink });
 ```
-
-（`sink.dispose?.()`——mediabunny CanvasSink 若无 dispose 方法则跳过，input.dispose 为资源主口；以实际 d.ts 为准，tsc 报错时按 d.ts 修正。）
 
 - [ ] **Step 4: 跑测试通过 + 提交**
 
@@ -873,7 +928,7 @@ grep -E '"types"|"typings"' apps/web/node_modules/soundtouchjs/package.json || e
 ```ts
 declare module 'soundtouchjs' {
   export class SoundTouch {
-    constructor(sampleRate?: number);
+    constructor(); // 实测无参（dist L24）——pitch/tempo/rate 均为可写属性
     tempo: number; pitch: number; rate: number;
   }
   export class SimpleFilter {
@@ -917,26 +972,29 @@ describe('stretchPcm（soundtouch 离线变速，spike 定案路线）', () => {
     const out = stretchPcm(input, 1);
     expect(out.channels[0].length).toBe(input.channels[0].length);
   });
-  it('tempo=2：输出长度 ≈ 一半（±3% soundtouch 处理延迟容差）', () => {
+  it('tempo=2：输出长度=期望值且尾部非静音（G8 假绿修复——长度恒等于 round(len/tempo)，±容差断言恒真无锁力）', () => {
     const input = stereo(sine(48000, 2, 440));
     const out = stretchPcm(input, 2);
     const expected = input.channels[0].length / 2;
-    expect(Math.abs(out.channels[0].length - expected) / expected).toBeLessThan(0.03);
+    expect(out.channels[0].length).toBe(Math.round(expected)); // 锁决策 2 契约：期望长度截/补
+    // spike 实测 2× 输出 0.980s（98%）——93% 处必须是真实信号非尾部补零
+    expect(Math.abs(out.channels[0][Math.floor(expected * 0.93)])).toBeGreaterThan(0.1);
   });
   it('tempo=2：主频保持 440Hz（变速不变调，±2% 容差）', () => {
     const out = stretchPcm(stereo(sine(48000, 2, 440)), 2);
     expect(Math.abs(dominantFreq(out.channels[0], out.sampleRate) - 440) / 440).toBeLessThan(0.02);
   });
-  it('tempo=0.5：长度 ≈ 两倍且主频保持', () => {
+  it('tempo=0.5：长度=期望值且尾部非静音（spike 实测 0.5× 输出 97%）且主频保持', () => {
     const out = stretchPcm(stereo(sine(48000, 1, 440)), 0.5);
     const expected = 48000 * 2;
-    expect(Math.abs(out.channels[0].length - expected) / expected).toBeLessThan(0.03);
+    expect(out.channels[0].length).toBe(Math.round(expected));
+    expect(Math.abs(out.channels[0][Math.floor(expected * 0.93)])).toBeGreaterThan(0.1);
     expect(Math.abs(dominantFreq(out.channels[0], out.sampleRate) - 440) / 440).toBeLessThan(0.02);
   });
   it('mono 输入：内部升双声道处理，输出仍单声道', () => {
     const out = stretchPcm(mono(sine(48000, 1, 440)), 2);
     expect(out.channels).toHaveLength(1);
-    expect(Math.abs(out.channels[0].length - 24000) / 24000).toBeLessThan(0.03);
+    expect(out.channels[0].length).toBe(24000);
   });
 });
 
@@ -1020,6 +1078,17 @@ describe('buildGainPoints（视频片内嵌音轨：与画面 opacity 同曲线 
     expect(valueAt(pb, 0.25)).toBeCloseTo(0.5, 10);
     expect(valueAt(pb, 1)).toBe(1);
   });
+  it('三片链 crossfade：中间片双窗口增益（尾缘中点 0.5——R1 审核 G3 修复前恒 1）', () => {
+    const d = proj([track('tv', 'video', ['a', 'b', 'c'])], {
+      a: vc('a', { start: 0, duration: 3 }),
+      b: vc('b', { start: 2.5, duration: 3, transitionIn: { type: 'crossfade', duration: 0.5 } }),
+      c: vc('c', { start: 5, duration: 3, transitionIn: { type: 'crossfade', duration: 0.5 } }),
+    });
+    const pb = buildGainPoints(d, 'b');
+    expect(valueAt(pb, 0)).toBeCloseTo(0, 10);
+    expect(valueAt(pb, 1)).toBe(1);
+    expect(valueAt(pb, 2.75)).toBeCloseTo(0.5, 10);
+  });
   it('opacity 关键帧参与音轨增益（画面透明=音量同曲线）', () => {
     const d = proj([track('tv', 'video', ['a'])], {
       a: vc('a', { keyframes: [{ id: 'k1', t: 0, property: 'opacity', value: 0, easing: 'linear' }, { id: 'k2', t: 4, property: 'opacity', value: 1, easing: 'linear' }] }),
@@ -1102,7 +1171,7 @@ export function stretchPcm(input: PcmData, tempo: number): PcmData {
     getChannelData: (i: number) => padded[i],
     duration: padded[0].length / input.sampleRate,
   } as unknown as AudioBuffer;
-  const st = new SoundTouch(input.sampleRate);
+  const st = new SoundTouch(); // 实测构造无参——采样率经 WebAudioBufferSource 的 buffer 携带
   st.tempo = tempo;
   const filter = new SimpleFilter(new WebAudioBufferSource(fakeBuffer), st);
   const inter = new Float32Array(EXTRACT_CHUNK * 2);
@@ -1178,11 +1247,13 @@ export function buildGainPoints(data: ProjectData, clipId: string): GainPoint[] 
     const cf = crossfadeContextOf(data, clipId);
     const eff = effectiveTransitions(data, clipId);
     if (cf) {
-      times.add(cf.role === 'back' ? Math.min(cf.overlap, dur) : Math.max(0, dur - cf.overlap));
-    } else {
-      if (eff.in && eff.in.duration > 0 && eff.in.type !== 'toBlack' && eff.in.type !== 'toWhite') times.add(Math.min(eff.in.duration, dur));
-      if (eff.out && eff.out.duration > 0 && eff.out.type !== 'toBlack' && eff.out.type !== 'toWhite') times.add(Math.max(0, dur - eff.out.duration));
+      // 双窗口拐点（决策 17 与 transitionEffect 同源）
+      if (cf.backOverlap > 0) times.add(Math.min(cf.backOverlap, dur));
+      if (cf.frontOverlap > 0) times.add(Math.max(0, dur - cf.frontOverlap));
     }
+    const skipIn = !!cf && cf.backOverlap > 0; // crossfade 入场已由窗口施加（防重复）
+    if (!skipIn && eff.in && eff.in.duration > 0 && eff.in.type !== 'toBlack' && eff.in.type !== 'toWhite') times.add(Math.min(eff.in.duration, dur));
+    if (eff.out && eff.out.duration > 0 && eff.out.type !== 'toBlack' && eff.out.type !== 'toWhite') times.add(Math.max(0, dur - eff.out.duration));
     gainAt = (tl) => {
       const v = clip as VisualClip;
       const opacity = interpolateTransform(v, tl).opacity;
@@ -1285,10 +1356,10 @@ function makeFakeCtx(sampleRate = 48000) {
   const ctx: AudioContextLike = {
     currentTime: 0, sampleRate, state: 'running',
     destination: { __dest: true },
-    createBuffer: (channels, length, sr) => ({
+    createBuffer: vi.fn((channels: number, length: number, sr: number) => ({
       numberOfChannels: channels, length, sampleRate: sr,
       getChannelData: () => new Float32Array(length),
-    }),
+    })),
     createBufferSource: () => {
       const s: BufferSourceLike = {
         buffer: null, connect: () => s, start: vi.fn(), stop: vi.fn(), onended: null,
@@ -1364,8 +1435,8 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
     await engine.prepare(d, async () => BLOB);
     engine.playFrom(d, 3);
     const src = fake.created.sources.at(-1)!;
-    // when=ctxNow(0)+max(0,2-3)=0；offset=(sourceStart 1+已消费 1×2)/2=1（stretched 坐标=原坐标/speed）；duration=4-1=3
-    expect(src.start).toHaveBeenCalledWith(0, 1, 3);
+    // when=ctxNow(0)+max(0,2-3)=0；offset=(sourceStart 1+已消费 (3-2)×2)/2=1.5（stretched 坐标=原坐标/speed，决策 3——B3 验算修正：(1+2)/2=1.5）；duration=4-1=3
+    expect(src.start).toHaveBeenCalledWith(0, 1.5, 3);
   });
 
   it('playFrom from < clip.start：when 映射到未来', async () => {
@@ -1448,6 +1519,27 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
     expect(engine.hasPcm('ma:1')).toBe(false);
   });
 
+  it('重复 playFrom 复用 AudioBuffer（G4：createBuffer 次数不随 playFrom 增长——拖拽 seek 分配纪律）', async () => {
+    vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
+    const d = proj([track('ta', 'audio', ['a'])], { a: au('a') });
+    await engine.prepare(d, async () => BLOB);
+    engine.playFrom(d, 0);
+    engine.playFrom(d, 2);
+    engine.playFrom(d, 3);
+    expect(fake.ctx.createBuffer).toHaveBeenCalledTimes(1); // 每 mediaId:speed 只建一次
+  });
+
+  it('suspend 后再次 playFrom：resume 被调（G2——currentTime 冻结修复，二次打开不黑屏）', async () => {
+    vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
+    const d = proj([track('ta', 'audio', ['a'])], { a: au('a') });
+    await engine.prepare(d, async () => BLOB);
+    engine.playFrom(d, 0);
+    engine.suspend();
+    (fake.ctx as { state: string }).state = 'suspended';
+    engine.playFrom(d, 1);
+    expect(fake.ctx.resume).toHaveBeenCalled();
+  });
+
   it('setMasterVolume：master gain 设置', () => {
     engine.setMasterVolume(0.5);
     expect(engine.getMasterVolume()).toBeCloseTo(0.5, 10);
@@ -1502,6 +1594,7 @@ export class AudioEngine {
   private masterVolume = 1;
   private sources: BufferSourceLike[] = [];
   private pcmCache = new Map<string, PcmData>();
+  private bufferCache = new Map<string, AudioBufferLike>(); // G4：AudioBuffer 按 key 复用，playFrom 重排不再全量复制
   private timeBase: TimeBase | null = null;
   private clockMode: ClockMode = 'ctx';
 
@@ -1532,7 +1625,7 @@ export class AudioEngine {
   }
 
   hasPcm(key?: string): boolean { return key ? this.pcmCache.has(key) : this.pcmCache.size > 0; }
-  releasePcm(): void { this.pcmCache.clear(); }
+  releasePcm(): void { this.pcmCache.clear(); this.bufferCache.clear(); }
 
   /** 播放前预处理：按 (mediaId:speed) 解码 + soundtouch 变速缓存（决策 3） */
   async prepare(data: ProjectData, getBlob: (mediaId: string) => Promise<Blob | null>): Promise<void> {
@@ -1557,9 +1650,10 @@ export class AudioEngine {
     this.setClockMode(this.hasPcm() ? 'ctx' : 'perf');
   }
 
-  /** 播放/seek 统一入口：stop 旧 source → 锚定时钟 → 全量调度（决策 6：一次性调度替代 lookahead） */
+  /** 播放/seek 统一入口：stop 旧 source → resume（G2：suspend 后二次打开 currentTime 冻结修复）→ 锚定时钟 → 全量调度（决策 6：一次性调度替代 lookahead + G4 AudioBuffer 复用） */
   playFrom(data: ProjectData, from: number): void {
     this.stopSources();
+    if (this.ctx) this.resumeCtx(); // G2：ctx 已存在时 getContext 不会 resume，必须显式恢复
     const real = this.clockMode === 'ctx' ? this.getContext().currentTime : performance.now() / 1000;
     this.timeBase = { mode: this.clockMode, baseMedia: from, baseReal: real };
     if (this.clockMode === 'perf') return; // 无音频：只锚时钟
@@ -1571,10 +1665,11 @@ export class AudioEngine {
         if (!clip || (clip.type !== 'video' && clip.type !== 'audio')) continue;
         const clipEnd = clip.start + clip.duration;
         if (clipEnd <= from) continue;
-        const pcm = this.pcmCache.get(`${clip.mediaId}:${clip.playbackSpeed}`);
+        const key = `${clip.mediaId}:${clip.playbackSpeed}`;
+        const pcm = this.pcmCache.get(key);
         if (!pcm) continue;
         const src = ctx.createBufferSource();
-        src.buffer = this.pcmToCtxBuffer(ctx, pcm);
+        src.buffer = this.bufferFor(ctx, key, pcm);
         const gain = ctx.createGain();
         src.connect(gain);
         gain.connect(this.master!);
@@ -1600,10 +1695,15 @@ export class AudioEngine {
     }
   }
 
-  private pcmToCtxBuffer(ctx: AudioContextLike, pcm: PcmData): AudioBufferLike {
-    const buffer = ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-    for (let ch = 0; ch < pcm.channels.length; ch++) buffer.getChannelData(ch).set(pcm.channels[ch]);
-    return buffer;
+  /** AudioBuffer 按 key 缓存复用（G4：拖拽 seek 高频 playFrom 下不重复全量复制 PCM） */
+  private bufferFor(ctx: AudioContextLike, key: string, pcm: PcmData): AudioBufferLike {
+    let buf = this.bufferCache.get(key);
+    if (!buf) {
+      buf = ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+      for (let ch = 0; ch < pcm.channels.length; ch++) buf.getChannelData(ch).set(pcm.channels[ch]);
+      this.bufferCache.set(key, buf);
+    }
+    return buf;
   }
 
   private stopSources(): void {
@@ -1751,14 +1851,14 @@ export class CanvasRenderer {
   private drawSubtitle({ state }: SubtitleLayer): void {
     if (!state.visible || !state.text) return;
     const ctx = this.ctx;
-    const layout = layoutSubtitleLines(
-      state.text, state.style,
-      (s, font) => { ctx.font = font; return ctx.measureText(s).width; },
-    );
+    // G5：字间距参与 measure 与绘制（ctx.letterSpacing Chromium 99+；jsdom/旧浏览器赋值静默无效不抛）
+    ctx.save();
+    const font = `${state.style.fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    ctx.font = font;
+    try { (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${state.style.letterSpacing}px`; } catch { /* 不支持则忽略 */ }
+    const layout = layoutSubtitleLines(state.text, state.style, (s, f) => { ctx.font = f; return ctx.measureText(s).width; });
     const blockH = layout.lines.length * layout.lineHeight;
     const firstLineCenterY = CANVAS_H - 96 - blockH + layout.lineHeight / 2; // 底边安全边距 96px
-    ctx.save();
-    ctx.font = `${state.style.fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = state.style.color;
@@ -1906,7 +2006,7 @@ git add apps/web/src/pages/canvas/video-editor/renderer && git commit -m "feat(v
 - Create: `apps/web/src/pages/canvas/video-editor/hooks/playback.ts`
 - Create: `apps/web/src/pages/canvas/video-editor/hooks/usePreviewPlayback.ts`
 - Create: `apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.tsx`（替换 PreviewPlaceholder 挂载点）
-- Modify: `apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx`（挂 PreviewPlayer + 收起释放 + setMediaUrlResolver 接线）
+- Modify: `apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx`（挂 PreviewPlayer + 收起释放）
 - Modify: `apps/web/src/pages/canvas/video-editor/components/AssetPanel.tsx`（mediaInfo url 同步）
 - Modify: `apps/web/src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx`（工具行四按钮迁走/playhead 订阅下沉/PlayheadLine）
 - Modify: `apps/web/src/pages/canvas/video-editor/components/timeline/TimelineRuler.tsx`（自订阅 playhead + 拖拽 seek）
@@ -1953,6 +2053,7 @@ import { useEditorStore } from '../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../types';
 import { togglePlayback, stopPlayback, seekPlayback } from '../hooks/playback';
 import { audioEngine } from '../audio-engine/engine';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
 vi.mock('../audio-engine/engine', () => ({
   audioEngine: {
@@ -2048,8 +2149,9 @@ describe('PreviewPlayer（控制条）', () => {
     fireEvent.click(screen.getByText('删除'));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
   });
-  it('空格键 toggle（useEditorKeyboard 挂载点在 TimelinePanel——与 PreviewPlayer 同页共存）', async () => {
+  it('空格键 toggle（useEditorKeyboard 挂载在 TimelinePanel 且需 videoEditorStore.open 门卫放行——R1 审核 B4）', async () => {
     ready();
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' }); // hook 首行 open 门卫（Plan 2 既有行为）
     const { TimelinePanel } = await import('./timeline/TimelinePanel');
     render(<><PreviewPlayer /><TimelinePanel /></>);
     fireEvent.keyDown(document, { key: ' ' });
@@ -2066,19 +2168,22 @@ import { useEditorStore } from '../store/editorStore';
 import { audioEngine } from '../audio-engine/engine';
 import { totalDuration } from '../timeline/timecode';
 import { resolveMediaBlob } from '../renderer/media-blob';
-import { setMediaUrlResolver } from '../renderer/render-frame';
 import { videoCache } from '../renderer/video-cache';
-import { getImageBitmap } from '../renderer/image-cache';
-import { CanvasRenderer, type FrameRenderDeps } from '../renderer/canvas-renderer';
+import { getImageBitmap, clearImageBitmaps } from '../renderer/image-cache';
+import { CanvasRenderer } from '../renderer/canvas-renderer';
+import type { FrameRenderDeps } from '../renderer/render-frame';
 
-// renderer 层 mediaUrl 解析接线（Task 7 注：生产装配在本层）
-setMediaUrlResolver((mediaId) => useEditorStore.getState().mediaInfo[mediaId]?.url);
+const clampT = (t: number) => {
+  const es = useEditorStore.getState();
+  return Math.max(0, Math.min(t, es.data ? totalDuration(es.data) : 0));
+};
+const resolveBlob = (mediaId: string) => resolveMediaBlob(mediaId, useEditorStore.getState().mediaInfo[mediaId]?.url);
 
 export function makeFrameDeps(ctx: CanvasRenderingContext2D): FrameRenderDeps {
   return {
     video: videoCache,
     images: { getImageBitmap },
-    getBlob: (mediaId) => resolveMediaBlob(mediaId, useEditorStore.getState().mediaInfo[mediaId]?.url),
+    getBlob: resolveBlob,
     renderer: new CanvasRenderer(ctx),
   };
 }
@@ -2090,8 +2195,7 @@ export async function togglePlayback(): Promise<void> {
   if (es.preparing) return;
   es.setPreparing(true);
   try {
-    await audioEngine.prepare(es.data, (mediaId) =>
-      resolveMediaBlob(mediaId, useEditorStore.getState().mediaInfo[mediaId]?.url));
+    await audioEngine.prepare(es.data, resolveBlob);
   } finally {
     useEditorStore.getState().setPreparing(false);
   }
@@ -2103,12 +2207,32 @@ export function stopPlayback(): void {
   useEditorStore.getState().setPlaying(false);
 }
 
+/** 单击/键盘 seek：setPlayhead + 播放中重锚重排（低频路径，直接 playFrom） */
 export function seekPlayback(t: number): void {
   const es = useEditorStore.getState();
   if (!es.data) return;
-  const tt = Math.max(0, Math.min(t, totalDuration(es.data)));
+  const tt = clampT(t);
   es.setPlayhead(tt);
-  if (es.playing) audioEngine.playFrom(es.data, tt); // 重锚时钟 + 重调度（决策 8）
+  if (es.playing) audioEngine.playFrom(es.data, tt); // G4：bufferCache 已复用，重排无全量复制
+}
+
+// ---- 拖拽 seek 三段式（G4 决策 6②：move 只动播放头，up 才重排）----
+let scrubWasPlaying = false;
+
+/** 标尺/画布拖拽开始：播放中则停音频+退 rAF（静音拖拽——决策 6②），仅移动播放头 */
+export function scrubBegin(t: number): void {
+  const es = useEditorStore.getState();
+  scrubWasPlaying = es.playing;
+  if (es.playing) { audioEngine.stop(); es.setPlaying(false); } // rAF 循环随 playing=false 退出
+  es.setPlayhead(clampT(t));
+}
+
+export function scrubMove(t: number): void {
+  useEditorStore.getState().setPlayhead(clampT(t)); // 纯播放头——G1 暂停态单帧 effect 出画
+}
+
+export function scrubEnd(): void {
+  if (scrubWasPlaying) useEditorStore.getState().setPlaying(true); // effect 内 playFrom(playhead) 重锚（prepare 已缓存幂等）
 }
 
 /** 编辑器收起时的运行时释放（spec 边界护栏） */
@@ -2117,10 +2241,7 @@ export function releaseEditorRuntime(): void {
   audioEngine.releasePcm();
   audioEngine.suspend();
   videoCache.release();
-  clearImageBitmapsSafe();
-}
-function clearImageBitmapsSafe(): void {
-  void import('../renderer/image-cache').then(m => m.clearImageBitmaps());
+  clearImageBitmaps();
 }
 ```
 
@@ -2134,11 +2255,26 @@ import { renderFrameAt } from '../renderer/render-frame';
 import { CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
 import { totalDuration } from '../timeline/timecode';
 
-/** 播放视觉循环：playing=true 起锚（音频由 engine.playFrom 同步起）→ rAF 每帧
- *  engine.now() → setPlayhead → renderFrameAt（in-flight 去重=跳帧追赶，决策 15）。
- *  播放中 data 变化（编辑）→ 音频 playFrom 重调度；视觉每帧 getState 读最新 data。 */
+/** 播放视觉循环 + 暂停态单帧渲染（G1/决策 18）：
+ *  playing=true：起锚（音频由 engine.playFrom 同步起）→ rAF 每帧 engine.now() → setPlayhead →
+ *  renderFrameAt（in-flight 去重=跳帧追赶，决策 15）。播放中 data 变化（编辑）→ 音频 playFrom 重调度；视觉每帧 getState 读最新 data。
+ *  playing=false：依赖 [playhead, data] 单帧渲染——进编辑器即出 playhead 帧（非黑屏）、暂停后 seek/拖标尺即时出画（scrubMove 的视觉基础）。 */
 export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>): void {
   const playing = useEditorStore(s => s.playing);
+  const playhead = useEditorStore(s => s.playhead);
+  const data = useEditorStore(s => s.data);
+
+  // 暂停态单帧（G1）
+  useEffect(() => {
+    if (playing || !data || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (canvas.width !== CANVAS_W) { canvas.width = CANVAS_W; canvas.height = CANVAS_H; }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    renderFrameAt(data, playhead, makeFrameDeps(ctx)).catch(() => {});
+  }, [playing, playhead, data, canvasRef]);
+
+  // 播放循环
   useEffect(() => {
     if (!playing) return;
     const canvas = canvasRef.current;
@@ -2200,7 +2336,7 @@ export function PreviewPlayer() {
       {/* 16:9 预览区 */}
       <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center p-3">
         <canvas data-testid="preview-canvas" width={1920} height={1080}
-          className="bg-black max-w-full max-h-full" style={{ aspectRatio: '16 / 9', width: '100%', objectFit: 'contain' }}
+          className="bg-black max-w-full max-h-full" style={{ aspectRatio: '16 / 9', width: '100%' }}
           onClick={(e) => { // 点击画布 seek（点击位置→时间）
             const rect = e.currentTarget.getBoundingClientRect();
             seekPlayback(((e.clientX - rect.left) / rect.width) * total);
@@ -2252,24 +2388,40 @@ export function PreviewPlayer() {
 
 - **VideoEditorShell.tsx**：① `<PreviewPlaceholder />` 替换为 `<PreviewPlayer />`（删 PreviewPlaceholder.tsx 文件与其 import）；右列占位 span 替换为 `<PropertiesPanel />`（Task 10 实现——本 task 先建最小占位 `export function PropertiesPanel() { return <div data-testid="properties-panel" className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white" />; }` 防 import 断裂，Task 10 完整化）。② `handleClose` 内 flush 完成后、`close()` 之前调 `releaseEditorRuntime()`（import 自 hooks/playback）。③ 底部 `TimelinePanel` 之前的中列结构保持。
 - **AssetPanel.tsx**：`useWorkflowAssets` 的 items 就绪后同步 mediaInfo——组件体内 `useEffect(() => { if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }]))); }, [items])`（含既有工程重开的 url 回填，决策 13）。
-- **TimelinePanel.tsx**：① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine widthPx={...} />` 与 Ruler 的挂载关系保持——PlayheadLine 放滚动内容 wrapper 内与 Ruler 同坐标系（140px 角位偏移与 Task 14 C1 几何一致）。④ TrackRow 导出改 `memo(TrackRow)`。
-- **TimelineRuler.tsx**：playhead 改组件内自订阅 `const playhead = useEditorStore(s => s.playhead)`（props 删 playhead，调用方 TimelinePanel 同步删传参）；onSeek 改调 `seekPlayback`（播放中 seek 保持播放）；pointer 拖拽持续 seek：
+- **TimelinePanel.tsx**：① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine data={data} widthPx={viewportW - 140} />` 与 Ruler 的挂载关系保持——PlayheadLine 放滚动内容 wrapper 内与 Ruler 同坐标系（140px 角位偏移与 Task 14 C1 几何一致；data 订阅保留在 panel，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
 
 ```tsx
+  const [viewportW, setViewportW] = useState(940);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Ruler/PlayheadLine 的 widthPx 传参统一改 viewportW - 140（test-setup.ts 已有 ResizeObserver mock）
+```
+
+- **TimelineRuler.tsx**：playhead 改组件内自订阅 `const playhead = useEditorStore(s => s.playhead)`（props 删 playhead，调用方 TimelinePanel 同步删传参）；pointer 拖拽改 **scrub 三段式（G4/决策 6②：move 只动播放头，up 才重排音频——标尺拖拽高频 playFrom 的分配灾难封堵）**：
+
+```tsx
+import { scrubBegin, scrubMove, scrubEnd } from '../../hooks/playback';
+  const timeAt = (clientX: number, el: HTMLElement) =>
+    Math.max(0, pxToTime(clientX - el.getBoundingClientRect().left, pxPerSec));
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    doSeek(e.clientX, e.currentTarget as HTMLElement);
+    scrubBegin(timeAt(e.clientX, e.currentTarget as HTMLElement));
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) doSeek(e.clientX, e.currentTarget as HTMLElement);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubMove(timeAt(e.clientX, e.currentTarget as HTMLElement));
   };
-  const doSeek = (clientX: number, el: HTMLElement) => {
-    const rect = el.getBoundingClientRect();
-    const t = Math.max(0, pxToTime(clientX - rect.left, pxPerSec));
-    seekPlayback(t);
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubEnd();
   };
-  // JSX：onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+  // JSX：onPointerDown/onPointerMove/onPointerUp 三挂（原 onSeek prop 删除）
 ```
+
+- **既有测试迁移清单（R1 审核 B6——除 TimelinePanel.render.test.tsx 第 4 用例外还有两处必红）**：① `TimelinePanel.interact.test.tsx` 的"分割按钮"（L100 附近 getByText('分割')）与"删除按钮"两用例——渲染处 `render(<TimelinePanel />)` 改 `render(<><PreviewPlayer /><TimelinePanel /></>)`（PreviewPlayer.test.tsx 同目录 import），四按钮断言不动；② `VideoEditorShell.test.tsx` 的 `getByTestId('preview-placeholder')` 断言改 `getByTestId('preview-canvas')`（Shell 测试已 vi.mock videoProjectApi，PreviewPlayer 组件挂载无网络请求、playing=false 无 effect 副作用，安全）。
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/timeline/PlayheadLine.tsx
@@ -2296,7 +2448,7 @@ export function PlayheadLine({ data, widthPx }: { data: ProjectData; widthPx: nu
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx src/pages/canvas/video-editor/components/timeline
-# 预期: 新用例 PASS + 既有 TimelinePanel 用例对工具行迁移的断言（"撤销/重做/分割/删除"文本查询）需同步改到 PreviewPlayer 查询——TimelinePanel.render.test.tsx 的第 4 用例（空轨渲染占位条，工具行有撤销/重做/分割/删除）把四按钮断言迁移/删除
+# 预期: 新用例 PASS + 既有测试迁移按上方"既有测试迁移清单（B6）"三处执行：render.test 第 4 用例四按钮断言迁移/删除、interact.test 分割/删除两用例补渲染 PreviewPlayer、Shell.test preview-placeholder 断言改 preview-canvas
 pnpm -C apps/web exec tsc -b
 pnpm -C apps/web test
 git add apps/web/src && git commit -m "feat(video-editor): 预览播放器——播放状态机/rAF 跳帧追赶/控制条迁移/主时钟（TDD）"
@@ -2357,10 +2509,9 @@ import type { ProjectData } from '@/pages/canvas/video-editor/types';
 
 vi.mock('@/api/videoProjectApi', () => ({ getProjectByNode: vi.fn() }));
 import { getProjectByNode } from '@/api/videoProjectApi';
-vi.mock('@/pages/canvas/video-editor/audio-engine/engine', () => ({
-  audioEngine: { prepare: vi.fn(async () => { }), playFrom: vi.fn(), stop: vi.fn(), now: vi.fn(() => 0), hasPcm: vi.fn(() => false), setClockMode: vi.fn(), suspend: vi.fn(), releasePcm: vi.fn() },
-}));
-vi.mock('@/pages/canvas/video-editor/renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) }));
+vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn(async () => []) })); // G10：loadMediaUrls 不发真 fetch
+// 决策 16 后组件不 import audioEngine——无 engine mock（playback.ts 的 engine 依赖也不在本组件链上）
+vi.mock('@/pages/canvas/video-editor/renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) })); // 播放循环隔离（rAF polyfill 下 renderFrameAt 空转，mini-canvas 存续由 t<total 保证）
 vi.mock('@/pages/canvas/video-editor/renderer/video-cache', () => ({ videoCache: { release: vi.fn() } }));
 vi.mock('@/pages/canvas/video-editor/renderer/image-cache', () => ({ clearImageBitmaps: vi.fn(), getImageBitmap: vi.fn(async () => null) }));
 
@@ -2448,13 +2599,15 @@ describe('VideoEditNode 迷你播放（资源纪律）', () => {
 VideoEditNode.tsx 修改（保持既有 缩略/refetch/capabilities 逻辑不动，增量如下——完整播放控制块）：
 
 ```tsx
-// 顶部新增 import：
-import { audioEngine } from '@/pages/canvas/video-editor/audio-engine/engine';
+// 顶部新增 import（B8：现码 L2 为 `import { memo, useEffect, useState } from 'react'` ——需扩为含 useRef；
+//   B2：FrameRenderDeps 定义在 renderer/render-frame.ts 非 canvas-renderer.ts，分开 import）：
+import { useRef } from 'react'; // 并入现有 react import 行
 import { renderFrameAt } from '@/pages/canvas/video-editor/renderer/render-frame';
+import type { FrameRenderDeps } from '@/pages/canvas/video-editor/renderer/render-frame';
 import { videoCache } from '@/pages/canvas/video-editor/renderer/video-cache';
 import { clearImageBitmaps, getImageBitmap } from '@/pages/canvas/video-editor/renderer/image-cache';
 import { resolveMediaBlob } from '@/pages/canvas/video-editor/renderer/media-blob';
-import { CanvasRenderer, CANVAS_W, CANVAS_H, type FrameRenderDeps } from '@/pages/canvas/video-editor/renderer/canvas-renderer';
+import { CanvasRenderer, CANVAS_W, CANVAS_H } from '@/pages/canvas/video-editor/renderer/canvas-renderer';
 import { batchGetMedia } from '@/api/mediaApi';
 
 // 组件体内新增（结构上：miniPlaying 本地态 + miniNodeId 订阅 + selected/IO/open 副作用 + 播放按钮替换 + 播放态渲染迷你画布替代缩略区）：
@@ -2464,12 +2617,12 @@ import { batchGetMedia } from '@/api/mediaApi';
   const rootRef = useRef<HTMLDivElement>(null);
   const miniPlayingRef = useRef(false); // IO/selected 回调读最新值
   miniPlayingRef.current = miniPlaying;
+  const rafRef = useRef(0); // B8：上提至 stopMini 之前（引用顺序即声明顺序，防执行者困惑）
 
   const stopMini = () => {
     setMiniPlaying(false);
-    audioEngine.stop();
     cancelAnimationFrame(rafRef.current);
-    // 资源纪律③：释放本工程解码与帧缓存（mediaIds 从 projectData 派生）
+    // 资源纪律③：释放本工程解码与帧缓存（mediaIds 从 projectData 派生）——无音频故不碰 audioEngine（决策 16）
     const mids = new Set(projectData ? Object.values(projectData.clips).map(c => c.mediaId) : []);
     for (const m of mids) videoCache.release(m);
     clearImageBitmaps();
@@ -2479,8 +2632,7 @@ import { batchGetMedia } from '@/api/mediaApi';
   const startMini = async () => {
     if (!projectData || !canPreview) return;
     useVideoEditorStore.getState().startMiniPlayback(id); // 播 B 停 A（他节点经 miniNodeId 副责停）
-    await loadMediaUrls();
-    await audioEngine.prepare(projectData, resolveMiniBlob);
+    await loadMediaUrls(); // 媒体 url 批查（视频帧/图片取源用；音频不参与——决策 16：轻量纪律，无 prepare）
     setMiniPlaying(true);
   };
 
@@ -2511,8 +2663,7 @@ import { batchGetMedia } from '@/api/mediaApi';
   };
   const resolveMiniBlob = (mediaId: string) => resolveMediaBlob(mediaId, mediaUrlsRef.current.get(mediaId));
 
-  // 播放循环（perf 时钟——节点迷你播放用 engine.now 的 perf 模式锚定，与编辑器同构但数据源是本地 projectData）
-  const rafRef = useRef(0);
+  // 播放循环（perf 时钟本地推进——决策 16：无音频，不建 AudioContext 不锚 engine；与编辑器同构但数据源是本地 projectData）
   useEffect(() => {
     if (!miniPlaying || !projectData || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -3025,6 +3176,12 @@ import { TimelinePanel } from './TimelinePanel';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData } from '../../types';
 
+// jsdom 无 PointerEvent 构造器——按本仓 TimelinePanel.interact.test.tsx 既有先例用 MouseEvent 按 type 派发（R1 审核 B5：
+// fireEvent.pointerDown 走 createEvent 的 window[EventType]||Event 回退，button/clientX 全丢 → if (e.button !== 0) 早退）
+const firePointer = (target: Element | Window, type: string, init: { button?: number; clientX?: number; clientY?: number } = {}) => {
+  fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, button: init.button ?? 0, clientX: init.clientX ?? 0, clientY: init.clientY ?? 0 }));
+};
+
 const ready = () => {
   const d = createDefaultProjectData();
   useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
@@ -3047,8 +3204,8 @@ describe('时间轴关键帧菱形刻度', () => {
     addVideoWithKf();
     render(<TimelinePanel />);
     const kf = screen.getByTestId(/^kf-/); // 首个菱形
-    fireEvent.pointerDown(kf, { button: 0, clientX: 160, clientY: 50 });
-    fireEvent.pointerUp(window);
+    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 });
+    firePointer(window, 'pointerup');
     expect(useEditorStore.getState().playhead).toBe(2); // kf.t=2 → 跳转
   });
 
@@ -3057,9 +3214,9 @@ describe('时间轴关键帧菱形刻度', () => {
     const id = addVideoWithKf();
     render(<TimelinePanel />);
     const kf = screen.getByTestId(/^kf-/);
-    fireEvent.pointerDown(kf, { button: 0, clientX: 160, clientY: 50 });
-    fireEvent.pointerMove(window, { clientX: 240, clientY: 50 }); // +80px = +1s @80px/s
-    fireEvent.pointerUp(window);
+    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 });
+    firePointer(window, 'pointermove', { clientX: 240, clientY: 50 }); // +80px = +1s @80px/s
+    firePointer(window, 'pointerup');
     const clip = useEditorStore.getState().data!.clips[id] as any;
     expect(clip.keyframes[0].t).toBe(3);
   });
@@ -3069,8 +3226,7 @@ describe('时间轴关键帧菱形刻度', () => {
     const id = addVideoWithKf();
     render(<TimelinePanel />);
     const kf = screen.getByTestId(/^kf-/);
-    const kfId = kf.dataset.testid!.slice('kf-'.length);
-    fireEvent.pointerDown(kf, { button: 0, clientX: 160, clientY: 50 }); // 选中关键帧（同时跳播放头）
+    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 }); // 选中关键帧（同时跳播放头）
     useEditorStore.getState().selectClip(id); // 同时有选中片段——关键帧优先
     fireEvent.keyDown(document, { key: 'Delete' });
     const clip = useEditorStore.getState().data!.clips[id] as any;
@@ -3111,13 +3267,13 @@ const onKeyframePointerDown = (kfId: string, e: React.PointerEvent) => {
   if (clip) seekPlayback(clip.start + ((clip as VideoClip).keyframes.find(k => k.id === kfId)!.t));
   dragRef.current = {
     kind: 'keyframe', clipId: clip!.id, kfId,
-    startClientX: e.clientX, startClientY: e.clientY,
+    startClientX: e.clientX,
     startKfT: (clip as VideoClip).keyframes.find(k => k.id === kfId)!.t,
-    startPxPerSec: pxPerSec, pointerMoved: false,
-  } as DragState;
+    startPxPerSec: pxPerSec, pointerMovedOnce: false, // B8：字段名对齐现码 DragState（Plan 2 执行期修正后 pointerMoved 已删、startClientY 不存在）
+  } as DragState & { kfId: string; startKfT: number };
   (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
 };
-// onWindowPointerMove 的 keyframe 分支：
+// onWindowPointerMove 的 keyframe 分支（pointerMovedOnce 与现码字段名统一，B8）：
 //   d.kfId → if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
 //   es.moveKeyframe(d.clipId, d.kfId, d.startKfT + dxSec, { transient: true })
 // onWindowPointerUp 不变（endTransient 统一收口）
@@ -3391,7 +3547,8 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 | — | 波形：音频片段显示静态波形（真实 peaks） | snapshot |
 | — | 素材缺失：删除上游素材节点→片段标红"素材已删除" | 画布删节点 + snapshot |
 | — | 控制条迁移后撤销/重做/分割/删除可用；缩放滑杆与 Ctrl+滚轮联动；音量滑杆实际影响播放音量 | 操作 |
-| — | seek：暂停态点击画布/拖拽标尺→单帧渲染到位再显示；播放中 seek 音画同步 | 操作 |
+| — | 暂停态单帧渲染（G1）：进编辑器即显示 playhead=0 帧而非黑屏；暂停后点画布/拖标尺即时出画 | 操作 + snapshot |
+| — | seek：暂停态点击画布单帧到位；播放中拖标尺=静音拖拽、**松手后音画同步**（G4/决策 6② 验收口径） | 操作 |
 | — | 编辑器收起后再进：无 AudioContext 泄漏（DevTools AudioContext 计数恒 1）；播放头位置不保留（重进=0）与数据保留 | 反复进出 10 次 |
 | — | 720p 预览降级：canvas 内部分辨率 1920×1080 CSS 缩放显示清晰 | inspect |
 
@@ -3415,7 +3572,8 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
   - 阶段 5：scene 纯函数 TDD（selectActiveClips/interpolateClip 含 Keyframe 边界与 5 转场）✓；主线程预览（主时钟/跳帧追赶/seek 等帧）✓；节点本体迷你播放（资源纪律五条）✓；全局 audio-engine 新建（实时/离线共用 PCM 纯函数——stretchPcm/resamplePcm/buildGainPoints 无上下文类型依赖）✓
   - 阶段 6：右面板四态 ✓；转场/关键帧编辑 UI（含 overlap 音频线性 equal-gain——buildGainPoints 单源）✓；波形真数据（peaksFromAudioBuffer 接线共享解码）✓；素材缺失态标红（Plan 2 交接项）✓
 - 浏览器验收 Task 14 清单通过；soundtouch spike①（音质人工判定）补做登记结论
-- **登记偏离**：音频调度一次性全量替代 lookahead（决策 6，理由与验收口径）；AudioContext suspend/resume 替代 close（决策 7，单例实例数恒 1）；字幕 2 行截断具体化（决策 12）；"设置"控件省略（边界节，待用户补充需求）；节点迷你播放媒体 url 经 batchGetMedia 现查（Task 9 定案）
+- **登记偏离**：音频调度一次性全量替代 lookahead（决策 6，含 G4 两条配套纪律：AudioBuffer 按 key 复用 + 拖拽 scrub 三段式）；AudioContext suspend/resume 替代 close（决策 7，含 G2 resume 修复）；字幕 2 行截断具体化（决策 12，spec 已同步登记）；"设置"控件省略（边界节，spec 已留 TODO，待用户补充需求）；节点迷你播放不出声 + 媒体 url 经 batchGetMedia 现查（决策 16 / Task 9 定案）
+- **R1 轮审核修订（2026-09-11，11 项阻塞 + 10 项功能缺口全数采纳，2 项拍板落定）**：阻塞 B1-B8——mediabunny dispose 实形修正（CanvasSink 无 dispose/Input.dispose 返回 void）；setMediaUrlResolver 残留与 FrameRenderDeps 错位 import 清理（B2）；Task 6 offset 期望 1.5 验算修正（B3）；空格用例补 videoEditorStore.open 门卫（B4）；Task 11 pointer 事件改 MouseEvent 派发（B5）；既有测试迁移清单三处补全（B6）；onSubtitleAdd 闭包 playhead 连带（B7）；useRef/rafRef 上提/pointerMovedOnce 统一（B8）。缺口 G1-G10——暂停态单帧渲染 effect（G1/决策 18）；suspend 后 resume 冻结修复（G2）；crossfade 双窗口（G3/决策 17，三片链测试补齐）；拖拽 seek 静音 + up 重排（G4/决策 6②）；letterSpacing 参与 measure 与绘制（G5）；迷你播放删 prepare 不出声（G6/决策 16 拍板）；video-cache openSink in-flight 去重（G7）；stretchPcm 尾部非静音断言替代恒真假绿（G8）；ResizeObserver 接 M2（G9）；mediaApi mock/动态 import 清理/objectFit 删除（G10）。审核核验无误项（数值向量/依赖实形/soundtouchjs·mediabunny API 实形）已按其修正对齐
 - **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds
 
 ## 后续 Plan（另开文件）

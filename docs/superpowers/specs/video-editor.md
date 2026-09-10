@@ -8,7 +8,7 @@
 > v3.3-final（2026-09-10）：R5 轮复审修订——socket 单例服务化（更正 useSocket 非单例的 R4 误判）、A1 克隆改 structuredClone 整份深拷、crossfade 音频统一线性 equal-gain、originOverride try/finally 与 transact 分流落地、三态/护栏表残留修正、P3×3 记录项。
 > v3.4（2026-09-10）：R6 轮复审修订——origin 隔离改独立入口 syncAutoEdgesToDoc（syncStoreToDoc 内分流不可落地）、撤销互斥显式化（时间轴数据不进画布 store）、影子事务 onRemote 短路（防全量重建闪烁）、克隆改 JSON 深拷、insertNode 与 fillDoc 逐键同构、产物上传改复用 presigned POST（零新依赖）、白名单过滤前置 emitNodeStatus + isExecutableNode 共享谓词、socket 迁移扩至 5 创建点、验收 25 条。
 > v3.5（2026-09-10）：R7 轮复审修订——订阅路径边处理跳过 auto: 前缀（P0-A 闭环：auto 边全生命周期只归 syncAutoEdgesToDoc）、removeEdge 新增登记、stopCapturing 编辑器 commit 接入、PUT→POST 三处统一、subscribeNodeEditResult（ImageGenNode edit-result 迁移去向）、快捷键禁用改 isGroupEditContext 早退、内存预估含视频内嵌音轨、ValidationPipe 自挂入正文、验收 28 条。
-> v3.6（2026-09-10）：R8 轮复审修订（终版）——syncAutoEdgesToDoc 改**无参幂等全量对账**并在订阅边变更分支调用（封住删节点级联留孤儿 auto 边）、附录 B 两处残留同步（等功率→equal-gain/25→29 条）、readDocCanvas 措辞软化（topology 有 src/tgt 归一化兜底）、白名单生效场景限定（全部执行/nodeIds 路径）、验收 29 条。**八轮审核收官，按附录 B 开发顺序直接开工。**（Plan 轮勘误 ×2：① 影子短路判据改 **id 前缀 shadow- + __ephemeral**——原 SHADOW_ORIGIN 两层证伪（withDoc 嵌套事务 origin 死代码 + Yjs origin 不过网）；② A1 fileId 事实修正——ai-download.processor 的 done 事件**带 fileId**（"gateway 只发 status"有误），权威来源仍是 doc、socket 时序不保证）
+> v3.6（2026-09-10）：R8 轮复审修订（终版）——syncAutoEdgesToDoc 改**无参幂等全量对账**并在订阅边变更分支调用（封住删节点级联留孤儿 auto 边）、附录 B 两处残留同步（等功率→equal-gain/25→29 条）、readDocCanvas 措辞软化（topology 有 src/tgt 归一化兜底）、白名单生效场景限定（全部执行/nodeIds 路径）、验收 29 条。**八轮审核收官，按附录 B 开发顺序直接开工。**（Plan 轮勘误 ×2：① 影子短路判据改 **id 前缀 shadow- + __ephemeral**——原 SHADOW_ORIGIN 两层证伪（withDoc 嵌套事务 origin 死代码 + Yjs origin 不过网）；② A1 fileId 事实修正——ai-download.processor 的 done 事件**带 fileId**（"gateway 只发 status"有误），权威来源仍是 doc、socket 时序不保证）。Plan 3 轮勘误 ×2（2026-09-11）：① 第六节字幕"超长截断"具体化为**最多 2 行、超出按 maxWidth 截断**（第三节 SubtitleClip.style 行同步）；② 第四节控制条四控件中"设置"**一期省略**（内容未定义，TODO 待定——音量/全屏/缩放三控件照做）
 
 ## 目标与背景
 
@@ -200,7 +200,7 @@ interface AudioClip extends BaseClip {
 }
 interface SubtitleClip extends BaseClip {
   type: 'subtitle'; text: string; visible: boolean;
-  style: { fontSize: number; color: string; letterSpacing: number }; // 默认 48 / #FFFFFF / 0
+  style: { fontSize: number; color: string; letterSpacing: number }; // 默认 48 / #FFFFFF / 0；渲染时最多 2 行（见第六节绘制规格）
 }
 // Keyframe.t 为片段局部时间 0..duration（秒）：移动片段不平移关键点；trim 左缘按局部坐标同步裁切
 // 插值边界：t 越首点取首点值、越末点取末点值、单点恒值、无关键帧取基准 transform/volume
@@ -280,7 +280,7 @@ data 校验：class-validator 嵌套 DTO（ProjectData TS 类型放 `packages/sh
 | 左面板 | Tab：资产库/字幕；搜索框；"全集资产"分组 = 当前画布（workflowId）视频/音频/图片节点产物 + 团队素材库；条目 = 缩略图+名称+"已添加"标记（纯派生：已在时间轴的 clip 的 mediaId 集合）；"+新建"上传走现有 presign 链路 |
 
 **左面板数据来源**：前端聚合——nodeStore 遍历当前 workflow 节点收集 fileId + 节点名 → 后端补 `POST /api/media/batch` 批量查详情/预签名（真实媒体前缀是 `api/media`（media.controller），目前仅单查/按 folder 查）→ 团队素材走现有 folder 接口；**避开 material.service 的 `type='generated'` 硬编码过滤**（直接按 mediaId 集合查）。
-| 中上 | 16:9 预览播放器；控制条：播放/时间码（当前黑+总长灰）、撤销/重做/分割/删除、**生成音频/添加字幕/片段重拍**（紫色文字按钮，触发时明示"将消耗团队积分"）、设置/音量/全屏/缩放滑杆四控件。**不设全局"速度 1×"控件**（片段变速在右面板，预览速率控件易与导出数据混淆，一期删除） |
+| 中上 | 16:9 预览播放器；控制条：播放/时间码（当前黑+总长灰）、撤销/重做/分割/删除、**生成音频/添加字幕/片段重拍**（紫色文字按钮，触发时明示"将消耗团队积分"）、设置/音量/全屏/缩放滑杆四控件（"设置"一期省略——内容未定义，TODO 待定，Plan 3 勘误②）。**不设全局"速度 1×"控件**（片段变速在右面板，预览速率控件易与导出数据混淆，一期删除） |
 | 中下 | 时间轴（第五节） |
 | 右面板 | **四态**：视频片段态 / 图片片段态 / 音频片段态 / 字幕态（见下） |
 
@@ -330,7 +330,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 - **降级策略**：播放中解码跟不上 → **跳帧追赶、音频不停**；seek → 等目标帧解码完成再绘
 - **音频**：AudioBufferSourceNode 按 start 调度 + **lookahead 调度**（50ms 定时器/0.1s 调度窗，seek 清队列）；**变速在调度前离线预处理成新 PCM（soundtouchjs），播放时 playbackRate 恒 1**——若 buffer 未预处理而用 playbackRate≠1 会二次变调；预览与导出共用同一 PCM 纯函数（audio-engine 设计意图）；**全部进混音总线的 PCM（独立音频片 + 视频片内嵌音轨）统一过 soundtouchjs 变速不变调**（muted 不处理）；混音走 GainNode（volume 关键帧/淡入淡出在调度时计算包络）
 - **crossfade overlap 段音频规则（线性 equal-gain）**：两段视频内嵌音轨在重叠区做**线性交叉淡化**——前片音频增益与画面 opacity 同曲线线性 1→0、后片 0→1（中点各 0.5 有约 -6dB 短暂凹陷，一期接受；与画面同曲线、scene 同源最简；等功率 cos/sin 方案二期再说），消除双倍音量/突兀，规则进 scene/混音纯函数测试
-- **字幕绘制规格（预览/导出共用绘制函数）**：1920×1080 基准——底部居中、底边安全边距 96px、最大宽 1664px 自动换行、字号 48px（720p 随 0.5× 整体缩）、超长截断
+- **字幕绘制规格（预览/导出共用绘制函数）**：1920×1080 基准——底部居中、底边安全边距 96px、最大宽 1664px 自动换行、字号 48px（720p 随 0.5× 整体缩）、超长截断（最多 2 行，超出按 maxWidth 截断——Plan 3 定案）
 
 ---
 
