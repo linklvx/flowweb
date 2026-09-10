@@ -1,5 +1,5 @@
 import { Popconfirm } from 'antd';
-import type { ProjectData, Track } from '../../types';
+import type { Clip, ProjectData, Track } from '../../types';
 import { totalDuration } from '../../timeline/timecode';
 import { timeToPx } from '../../timeline/view-scale';
 import { ClipBlock } from './ClipBlock';
@@ -12,9 +12,10 @@ interface TrackRowProps {
   data: ProjectData;
   onDropClip?: (e: React.DragEvent<HTMLDivElement>) => void;
   onSubtitleAdd?: (trackId: string) => void;
+  onClipPointerDown?: (clip: Clip, e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-export function TrackRow({ track, data, onDropClip, onSubtitleAdd }: TrackRowProps) {
+export function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown }: TrackRowProps) {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
   const mediaInfo = useEditorStore(s => s.mediaInfo);
@@ -57,7 +58,8 @@ export function TrackRow({ track, data, onDropClip, onSubtitleAdd }: TrackRowPro
           if (!c) return null;
           return (
             <ClipBlock key={cid} clip={c} pxPerSec={pxPerSec} selected={selectedClipId === c.id}
-              mediaName={c.type === 'subtitle' ? undefined : mediaInfo[c.mediaId]?.name} />
+              mediaName={c.type === 'subtitle' ? undefined : mediaInfo[c.mediaId]?.name}
+              onPointerDown={onClipPointerDown ? (e) => onClipPointerDown(c, e) : undefined} />
           );
         })}
       </div>
