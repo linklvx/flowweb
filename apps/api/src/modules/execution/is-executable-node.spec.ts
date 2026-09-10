@@ -15,4 +15,7 @@ describe('isExecutableNode（类型+产物标记双条件白名单）', () => {
   it('普通 videoGen（有 model）不误伤', () => {
     expect(isExecutableNode({ id: 'n', type: 'videoGen', data: { model: 'm' } })).toBe(true);
   });
+  it('__ephemeral 影子节点跳过（A1 残留兜底——客户端崩溃时影子永久残留 doc，防"全部执行"幽灵执行+扣费）', () => {
+    expect(isExecutableNode({ id: 'shadow-video-1', type: 'videoGen', data: { model: 'm', __ephemeral: true } })).toBe(false);
+  });
 });

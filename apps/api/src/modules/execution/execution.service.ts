@@ -64,7 +64,7 @@ export class ExecutionService {
     let totalDeducted = 0;
     const results: any[] = [];
     for (const node of orderedNodes) {
-      if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行
+      if (!isExecutableNode(node) && !(nodeId === node.id && String(node.id).startsWith('shadow-'))) continue; // 防剪辑/产物节点闪 loading 与误执行；__ephemeral 影子全局排除出白名单，但单 nodeId 直调（regenerate 唯一合法入口，影子 id 以 shadow- 开头）放行——nodeIds 批量模式 nodeId 为 undefined 不会误放行
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
 
       try {
