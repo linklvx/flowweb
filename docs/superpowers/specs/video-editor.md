@@ -372,7 +372,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 | scene 纯函数 | selectActiveClips（overlap 双片段/hidden 轨剔除）、interpolateClip（**Keyframe 边界：越首末点取端值/单点恒值/无点取基准**、线性插值/5 种转场输出/contain 基准默认值） |
 | store reducers | normalized 增删改、轨道/片段/字幕操作 |
 | 导出 controller | 依赖注入 mock：调用序列、两段进度、取消、**VideoFrame close 次数**、AAC polyfill 分支、错误三分类 |
-| API 测试 | CRUD + **upsert 幂等（并发双 POST 只一条）** + assertEditor 越权 403 + 乐观锁 409 + **执行白名单（含空剪辑节点 + origin:'video-edit' 产物节点的画布"全部执行"只跑真正待生成节点）**；跟随现有 supertest/spec 模式 |
+| API 测试 | CRUD + **upsert 幂等（并发双 POST 只一条）** + assertEditor 越权 403 + 乐观锁 409 + **执行白名单（含空剪辑节点 + origin:'video-edit' 产物节点的画布"全部执行"只跑真正待生成节点）**；本仓无 supertest 基建——单测走 vitest + mock prisma/perm 模式，"并发唯一性"由 DB @unique 约束物理兜底 + 手动 curl 冒烟覆盖（越权 403/归属校验已入 service 单测，Task 6 执行期修订 I1） |
 | 组件 | VideoEditNode：只读预览渲染（片段色块/空态"+ 添加素材"）、播放/暂停、"全屏编辑"回调、Handle 存在性；**连线同步**（addClip→ensureEdge 幂等/移除源全部片段→删 edge/素材库来源跳过/手动连线不反向加素材）抽纯函数或 store 测试；旧 VideoNodeToolbar 不改动（既有用例天然回归） |
 | CanvasRenderer | 薄层不测 |
 

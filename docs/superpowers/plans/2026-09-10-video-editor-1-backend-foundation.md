@@ -352,7 +352,7 @@ git commit -m "feat(video-project): ProjectData shared 类型 + DTO（TDD）"
 ```ts
 // apps/api/src/modules/video-project/video-project.service.spec.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 
 const mkPrisma = (over: any = {}) => ({
@@ -386,7 +386,7 @@ describe('VideoProjectService', () => {
   });
 
   it('patch 乐观锁：updatedAt 不匹配抛 409', async () => {
-    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p1', updatedAt: new Date('2026-09-10T01:00:00Z') });
+    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p1', workflowId: 'w1', updatedAt: new Date('2026-09-10T01:00:00Z') });
     await expect(svc.patch('p1', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T00:00:00Z' }))
       .rejects.toThrow(ConflictException);
     expect(prisma.videoProject.update).not.toHaveBeenCalled();
@@ -397,13 +397,34 @@ describe('VideoProjectService', () => {
     prisma.videoProject.update.mockResolvedValue({ id: 'p1', updatedAt: new Date('2026-09-10T02:00:00Z') });
     const r = await svc.patch('p1', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T01:00:00Z' });
     expect(perm.assertEditor).toHaveBeenCalledWith('w1', 'u1');
+    expect(prisma.videoProject.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { data: {} } });
     expect(r.updatedAt).toEqual(new Date('2026-09-10T02:00:00Z'));
+  });
+
+  it('patch 记录不存在 → 404', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue(null);
+    await expect(svc.patch('p404', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T00:00:00Z' }))
+      .rejects.toThrow(NotFoundException);
+    expect(prisma.videoProject.update).not.toHaveBeenCalled();
   });
 
   it('deleteByNode 仅删记录不级联 Media', async () => {
     prisma.videoProject.findUnique.mockResolvedValue({ id: 'p1', workflowId: 'w1' });
     await svc.deleteByNode('n1', 'u1');
     expect(prisma.videoProject.delete).toHaveBeenCalledWith({ where: { sourceNodeId: 'n1' } });
+  });
+
+  it('deleteByNode 记录不存在静默返回', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue(null);
+    await svc.deleteByNode('n404', 'u1');
+    expect(prisma.videoProject.delete).not.toHaveBeenCalled();
+  });
+
+  it('upsertByNode 归属校验：sourceNodeId 已属于其他画布 → 403 不返回数据', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p9', workflowId: 'other-workflow' });
+    await expect(svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', userId: 'u1', title: 'x' }))
+      .rejects.toThrow(ForbiddenException);
+    expect(prisma.videoProject.upsert).not.toHaveBeenCalled();
   });
 });
 ```
@@ -419,7 +440,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service
 
 ```ts
 // apps/api/src/modules/video-project/video-project.service.ts
-import { Injectable, Inject, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -443,6 +464,10 @@ export class VideoProjectService {
       select: { teamId: true },
     });
     if (!project) throw new BadRequestException('项目不存在'); // 显式抛错（与 Task 10 register 统一）——防 assertEditor 契约变更时 project! 静默 TypeError
+    const existing = await this.prisma.videoProject.findUnique({ where: { sourceNodeId: input.sourceNodeId } });
+    if (existing && existing.workflowId !== input.workflowId) {
+      throw new ForbiddenException('sourceNodeId 已属于其他画布'); // 归属校验——nodeId 全局唯一键下防跨画布读/抢占（质量评审 I1：update:{} 命中他人记录会原样返回全量行）
+    }
     return this.prisma.videoProject.upsert({
       where: { sourceNodeId: input.sourceNodeId },
       create: {
@@ -464,7 +489,7 @@ export class VideoProjectService {
   /** PATCH 单飞配合：乐观锁 baseUpdatedAt ≠ 库内值 → 409 */
   async patch(id: string, userId: string, dto: { data: object; baseUpdatedAt: string }) {
     const proj = await this.prisma.videoProject.findUnique({ where: { id } });
-    if (!proj) throw new ConflictException('project not found');
+    if (!proj) throw new NotFoundException('project not found'); // 404 语义——409 留给版本冲突（前端可静默停止自动保存，质量评审 M1）
     await this.perm.assertEditor(proj.workflowId, userId);
     if (proj.updatedAt.getTime() !== new Date(dto.baseUpdatedAt).getTime()) {
       throw new ConflictException('project modified elsewhere');
@@ -485,8 +510,10 @@ export class VideoProjectService {
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service.spec.ts
-# 预期: 4 PASS
+# 预期: 7 PASS
 ```
+
+> **执行期修订记录（2026-09-10 质量评审，提交 69ce425f）**：I1——upsertByNode 补 workflowId 归属校验（403，防 update:{} 命中他人记录原样返回全量行的跨画布越权读）；M1——patch 记录不存在改 404（原 409 语义错位，前端可静默停止自动保存）；M2/M4——fixture 补 workflowId 钉住权限先于时戳比对 + 三个分支用例。上方代码块已同步。
 
 - [ ] **Step 5: 提交**
 
@@ -1303,6 +1330,7 @@ git add apps/api/src && git commit -m "feat(media): POST /api/media/batch 批查
 - `pnpm -C apps/api test` 全绿；`pnpm -C apps/web test` 不受影响
 - 手动冒烟（可选）：本地起 API 后 `curl -X POST localhost:3000/api/video-projects -H 'Content-Type: application/json' -d '{...}'` 走 401（AuthGuard 生效即证明路由注册成功）
 - spec 对应：附录 B 阶段 0/0.5/1 全部落地；验收 13/23/24 的服务端侧就绪
+- **登记 gap（Task 6 质量评审 I2，已接受）**：spec 第九节"并发双 POST 只一条 / assertEditor 越权 403 真库断言"无集成测试落点——本仓无 supertest/测试库基建，一期以 DB `@unique` 约束物理兜底 + service 单测（越权/归属校验 mock 断言）+ 完成判定 curl 冒烟覆盖；spec 措辞已同步修正
 
 ## 后续 Plan（另开文件）
 
