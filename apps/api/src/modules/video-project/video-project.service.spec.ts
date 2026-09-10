@@ -33,6 +33,15 @@ describe('VideoProjectService', () => {
     expect(r.id).toBe('p1');
   });
 
+  it('upsertByNode 缺省 data 用 shared 默认工程（4 轨——Plan 2 浏览器验收发现原字面量 tracks:[] 脱节）', async () => {
+    prisma.videoProject.upsert.mockResolvedValue({ id: 'p1' });
+    await svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', userId: 'u1', title: 'x' });
+    const created = prisma.videoProject.upsert.mock.calls[0][0].create;
+    expect(created.data.version).toBe(1);
+    expect(created.data.tracks).toHaveLength(4); // 1 video + 1 subtitle + 2 audio
+    expect(created.data.tracks.map((t: any) => t.type)).toEqual(['video', 'subtitle', 'audio', 'audio']);
+  });
+
   it('upsertByNode 归属校验：sourceNodeId 已属于其他画布 → 403 不返回数据', async () => {
     prisma.videoProject.findUnique.mockResolvedValue({ id: 'p9', workflowId: 'other-workflow' });
     await expect(svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', userId: 'u1', title: 'x' }))

@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionService } from '../execution/execution.service';
+import { createDefaultProjectData } from '@flowweb/shared';
 
 @Injectable()
 export class VideoProjectService {
@@ -32,7 +33,7 @@ export class VideoProjectService {
       create: {
         teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
         sourceNodeId: input.sourceNodeId, title: input.title,
-        data: (input.data ?? { version: 1, fps: 30, tracks: [], clips: {} }) as object,
+        data: (input.data ?? createDefaultProjectData()) as object, // 缺省默认工程（1 视频+1 字幕+2 音频轨——与前端 createDefaultProjectData 同源；Plan 2 浏览器验收发现原手写字面量 tracks:[] 与 spec 默认轨脱节）
       },
       update: {}, // 已存在则原样返回全量（title/data 不动——编辑器加载用）
     });
