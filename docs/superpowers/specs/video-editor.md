@@ -246,11 +246,17 @@ trim（拖左缘 Δ 成片秒）：
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| POST | `/api/video-projects` | assertEditor(workflowId) | **服务端 upsert by sourceNodeId**（幂等防双击），写 userId/teamId/workflowId |
+| POST | `/api/video-projects` | assertEditor(workflowId) | **服务端 upsert by sourceNodeId**（幂等防双击 + **跨画布归属校验 403**），teamId 服务端派生；写 userId/workflowId |
 | GET | `/api/video-projects/by-node/:sourceNodeId` | assertEditor | 入口加载 |
-| PATCH | `/api/video-projects/:id` | assertEditor | 自动保存 + updatedAt 乐观锁（409） |
-| DELETE | `/api/video-projects/:id` | assertEditor | 仅删工程记录，引用 Media 不动 |
+| PATCH | `/api/video-projects/:id` | assertEditor | 自动保存 + updatedAt 乐观锁（409；记录不存在 404） |
+| DELETE | `/api/video-projects/by-node/:sourceNodeId` | assertEditor | 仅删工程记录，引用 Media 不动 |
 | POST | `/api/video-projects/regenerate` | assertEditor | **A1 影子节点克隆生成**（见下） |
+| POST | `/api/video-projects/remove-shadow` | assertEditor | 前端 done 回流后删影子；**shadow- 前缀强校验**（防借道删任意节点，Plan 1 final review 补） |
+| POST | `/api/video-projects/generated-media/register` | assertEditor | 编码完成后登记：派生 teamId + 配额终判 + 建 pending Media + presigned POST |
+| POST | `/api/video-projects/generated-media/confirm` | media.userId 所有权 | statSize 实际大小落库 + 缩略图 enqueue（seekSec=时长×0.1） |
+| POST | `/api/media/batch` | assertTeamMember | 左面板按 mediaId 集合批查 + presigned URL（@ArrayMaxSize 200） |
+
+> Plan 1 final review 登记项：① regenerate 直调路径下影子被 validateAll 跳过（__ephemeral 全局排除）——model 无定价时错误呈现路径与源节点直执行不一致（error 仍 emit，前端可见，可接受）；② confirm 不限 media.type/status（幂等无害，语义可二期收紧）；③ upsertByNode 的 data 兜底（空轨）与 createDefaultProjectData()（4 轨）两套默认并存——仅客户端漏传 data 时触发，前端正常路径不走。
 
 **A1 影子节点方案（regenerate 落地契约）**：
 

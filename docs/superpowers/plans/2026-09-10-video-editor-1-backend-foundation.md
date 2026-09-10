@@ -1344,6 +1344,7 @@ git add apps/api/src && git commit -m "feat(media): POST /api/media/batch 批查
 
 ## Plan 1 完成判定
 
+- **final review 结论（2026-09-10，Yes 可判定完成）**：975→976 API 测试 + 2049 web 测试全绿；8 路由 401 冒烟全过；spec 阶段 0/0.5/1 落地核对通过；9 端点权限盘点无越权残留。唯一 Important（removeShadow 未校验 shadow- 前缀——防借道删任意节点）已修复（提交 813dad7d）；spec API 表已同步补 4 端点 + DELETE 路径修正。
 - `pnpm -C apps/api test` 全绿；`pnpm -C apps/web test` 不受影响
 - 手动冒烟（可选）：本地起 API 后 `curl -X POST localhost:3000/api/video-projects -H 'Content-Type: application/json' -d '{...}'` 走 401（AuthGuard 生效即证明路由注册成功）
 - spec 对应：附录 B 阶段 0/0.5/1 全部落地；验收 13/23/24 的服务端侧就绪
