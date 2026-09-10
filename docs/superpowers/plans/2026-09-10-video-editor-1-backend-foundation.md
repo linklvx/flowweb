@@ -871,7 +871,8 @@ git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/r
 - Create: `apps/api/src/modules/video-project/generated-media.service.ts`
 - Modify: `apps/api/src/modules/video-project/video-project.controller.ts`（+2 路由）
 - Modify: `apps/api/src/modules/video-project/video-project.module.ts`（providers）
-- Test: `apps/api/src/modules/video-project/generated-media.service.spec.ts`
+- Modify: `apps/api/src/modules/material-library/consumers/thumbnail-generator.consumer.ts`（**执行期补**：job 解构 `seekSec?: number` + `timestamps: [seekSec ?? 1]`——spec L341 要求的抽帧时间点参数，原 Files 遗漏；默认 1 保持旧行为）
+- Test: `apps/api/src/modules/video-project/generated-media.service.spec.ts` + `apps/api/src/modules/material-library/consumers/thumbnail-generator.consumer.spec.ts`（执行期新建）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1091,6 +1092,8 @@ pnpm -C apps/api exec vitest run src/modules/video-project
 # 预期: 全部 PASS
 git add apps/api/src && git commit -m "feat(video-project): generated 登记接口（presigned POST 直传/实际大小落库/缩略图抽帧点）（TDD）"
 ```
+
+> **执行期修订记录（2026-09-10，提交 01107759 + 9bdd5045）**：① **Gap 1 闭合**——thumbnail consumer 补 seekSec 支持（spec L341"须给 consumer 加抽帧时间点参数"在原 Files 遗漏；`timestamps: [seekSec ?? 1]` + 新建 consumer spec 两用例，默认 1 回归保护）；② 伴随改动——storage.service.spec mock 同步 statSize（断言不变）/ controller.spec 补 GeneratedMediaService 空 provider / minio.service.spec +2 statSize 用例；③ Gap 2 登记（低危不阻塞）——generated confirm 无 assertOnConfirm 二次配额终判（content-length-range ±1024 已物理锁死上传大小与声明一致，并发绕过窗口 ≤1KB 不可利用；一期接受）。
 
 ---
 
