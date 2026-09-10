@@ -62,7 +62,7 @@ describe('AddNodeMenu', () => {
     expect(screen.getByText('图片')).toBeInTheDocument();
     expect(screen.getByText('扩展图片')).toBeInTheDocument();
     expect(screen.getByText('视频')).toBeInTheDocument();
-    expect(screen.getByText('视频合成')).toBeInTheDocument();
+    expect(screen.getByText('多轨道剪辑')).toBeInTheDocument();
     expect(screen.getByText('音频')).toBeInTheDocument();
     expect(screen.getByText('堆叠图片')).toBeInTheDocument();
   });
@@ -104,11 +104,11 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "composite" when clicking composite menu item', () => {
+  it('calls addNode with "videoEdit" when clicking video-edit menu item', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
-    fireEvent.click(screen.getByText('视频合成'));
-    expect(mockAddNode).toHaveBeenCalledWith('composite', expect.any(Object));
+    fireEvent.click(screen.getByText('多轨道剪辑'));
+    expect(mockAddNode).toHaveBeenCalledWith('videoEdit', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 

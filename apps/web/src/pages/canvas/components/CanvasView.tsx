@@ -25,6 +25,7 @@ import { ImageExtNode } from './nodes/ImageExtNode';
 import { VideoGenNode } from './nodes/VideoGenNode';
 import { AudioGenNode } from './nodes/AudioGenNode';
 import { MultiImageNode } from './nodes/MultiImageNode';
+import { VideoEditNode } from './nodes/VideoEditNode';
 import { GroupNode } from './groups/GroupNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
@@ -44,6 +45,7 @@ const nodeTypes: NodeTypes = {
   videoGen: VideoGenNode,
   audioGen: AudioGenNode,
   multiImageGen: MultiImageNode,
+  videoEdit: VideoEditNode,
   group: GroupNode,
 } as any;
 

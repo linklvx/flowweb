@@ -184,6 +184,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       node.width = 300;
       node.height = 300;
     }
+    if (resolvedType === 'videoEdit') {
+      node.width = 320; // spec：产物位置 fallback 链（measured→width→300）会落到 300 导致首渲染偏移
+    }
     set((s) => ({
       nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), node],
       selectedId: id,

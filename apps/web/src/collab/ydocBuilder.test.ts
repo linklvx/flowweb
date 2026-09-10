@@ -35,3 +35,31 @@ describe('ydocBuilder', () => {
     expect(readCanvasFromDoc(doc2).nodes).toHaveLength(2);
   });
 });
+
+describe('videoEdit 新类型往返（刷新还原保障）', () => {
+  it('fillDoc → readCanvasFromDoc 逐键还原（type/width/position/data）', () => {
+    const doc = new Y.Doc();
+    fillDoc(doc, [{
+      id: 'n1', type: 'videoEdit', parentId: null,
+      position: { x: 100, y: 200 }, width: 320, height: null,
+      data: { title: '工程' },
+    } as any], []);
+    const r = readCanvasFromDoc(doc);
+    const n = r.nodes.find((x: any) => x.id === 'n1') as any;
+    expect(n.type).toBe('videoEdit');
+    expect(n.width).toBe(320);
+    expect(n.parentId).toBeNull();
+    expect(n.position).toEqual({ x: 100, y: 200 });
+    expect(n.data).toEqual({ title: '工程' });
+  });
+  it('videoEdit 节点 + auto 边跨 doc 传播（协作可见性）', () => {
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+    fillDoc(a, [{ id: 'n1', type: 'videoEdit', parentId: null, position: { x: 0, y: 0 }, data: {} } as any],
+      [{ id: 'auto:n1:src1', source: 'src1', target: 'n1' }]);
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const rb = readCanvasFromDoc(b);
+    expect(rb.nodes.find((x: any) => x.id === 'n1')?.type).toBe('videoEdit');
+    expect(rb.edges.find((e: any) => e.id === 'auto:n1:src1')).toMatchObject({ source: 'src1', target: 'n1' });
+  });
+});

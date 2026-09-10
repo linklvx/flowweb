@@ -92,7 +92,7 @@ const ADD_NODE_ITEMS: MenuItem[] = [
   { type: 'image', label: '图片', desc: '海报、分镜、角色设计', icon: <ImageIcon /> },
   { type: 'imageExt', label: '扩展图片', desc: '图片扩展节点', icon: <ImageIcon /> },
   { type: 'video', label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
-  { type: 'composite', label: '视频合成', desc: '多个视频片段合为一个', icon: <CompositeIcon />, badge: 'Beta' },
+  { type: 'videoEdit', label: '多轨道剪辑', desc: '多轨剪辑视频/音频/字幕', icon: <CompositeIcon /> },
   { type: 'audio', label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },
   { type: 'multiImage', label: '堆叠图片', desc: '生成或上传一组风格统一的图片', icon: <StackedImageIcon /> },
 ];
@@ -194,7 +194,6 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
       }
       const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
       const centerY = (window.innerHeight / 2 - viewport.y) / viewport.zoom;
-      // TODO: 后端支持 videoComposite 类型后改为 item.type 直接映射
       addNode(item.type, { x: centerX - 125, y: centerY - 30 });
       onClose();
     },
