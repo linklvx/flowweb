@@ -1,8 +1,9 @@
-# Spec: Canvas 视频剪辑器（多轨时间轴 + 纯浏览器导出）v3
+# Spec: Canvas 视频剪辑器（多轨时间轴 + 纯浏览器导出）v3.1
 
-> v2（2026-09-10）：按架构审核 R1 轮修订——入口并存、数据模型补全、normalized 结构、变速公式、护栏修正、桥接方案 A、变速不变调。
-> v2.1（2026-09-10）：按 R2 轮复审修订——ImageClip、同轨重叠限定、regenerate A1 影子节点、产物 pending→confirm 时序、PATCH 单飞、R6-R22 缺口与打磨。
-> v3（2026-09-10）：**入口模型变更（用户产品决策）**——视频剪辑节点成为画布一等节点类型，上游素材随时间轴增删自动连线，导出产物自动创建视频节点并连到输出端。v2.1 的"视频节点工具栏按钮"方案作废。采纳明细见附录 C。
+> v1（2026-09-10）：初版。
+> v2/v2.1（2026-09-10）：R1/R2 轮审核修订——模型补全、normalized、变速公式、A1 影子节点、pending→confirm、PATCH 单飞等。
+> v3（2026-09-10）：**入口模型变更（用户产品决策）**——视频剪辑节点成为画布一等节点类型，上游素材随时间轴增删自动连线，导出产物自动创建视频节点并连到输出端。v2.1 的"视频节点工具栏按钮"方案作废。
+> v3.1（2026-09-10）：R3 轮复审修订——执行白名单、composite 死入口接管、空工程定义、自动连线 reconcile 算法定稿、节点播放资源纪律、能力检测分层、生命周期与产物节点收敛、验收清单修复（18 条）。采纳明细见附录 C。
 
 ## 目标与背景
 
@@ -46,41 +47,79 @@ video-editor/
 
 ### 剪辑节点（VideoEditNode，画布一等公民）
 
-- **添加方式**：接入现有节点面板添加流程（与视频/音频/图片生成节点同级），节点类型注册进 nodeTypes/nodeStore
-- **节点本体 UI**（依据节点设计图，白色宽卡片 + 左右 Handle）：
+- **添加方式（接管 composite 死入口）**：[AddNodeMenu.tsx](apps/web/src/pages/canvas/components/AddNodeMenu.tsx) 已存在 `{type:'composite', label:'视频合成', badge:'Beta'}` 菜单项，但 nodeTypeMap/nodeTypes/组件三处皆无——是点了会创建无法渲染节点的**死入口**，且语义与本功能重叠。**决策：直接接管**——菜单项改名"多轨道剪辑"（desc：多轨剪辑视频/音频/字幕，Beta 角标移除），type 注册名 `videoEdit`（nodeTypeMap 增加短名 `composite → videoEdit` 映射或直接改 type，`AddNodeMenu.test.tsx` composite 用例同步改写）；不保留第二个视频合并入口
+- **节点本体 UI**（依据节点设计图，白色宽卡片 + 左右 Handle，默认宽 320px 与节点体系协调）：
   - 标题栏：网格图标 + "多轨道剪辑"
-  - 工具栏一行（一期轻量）：播放/暂停 + 时间码 `00:00 / 00:00` | 右侧"⤢ 全屏编辑"文字链接
-  - 时间刻度尺（随工程时长自适应）
-  - 轨道区**只读缩略**：视频/音频片段色块 + 播放头位置；空态显示轨道占位条"+ 添加素材"
-  - Handle：左输入（接收上游素材连线）/ 右输出（产物连线），复用 NodeHandle 体系
-- **交互深度（一期定案）**：节点本体**只读预览 + 播放/暂停 + 全屏编辑入口**；剪切/删除/撤销重做等重交互一律进全屏编辑器（小尺寸内复杂交互不做）
+  - 工具栏一行（一期轻量）：播放/暂停 + 时间码（简略 `00:00 / 00:00` M:SS 格式，与片段块的 HH:MM:SS:FF 注明为不同精度显示）| 右侧"⤢ 全屏编辑"文字链接
+  - 时间刻度尺（随工程时长自适应；小宽度下最小刻度退化为 1s/格）
+  - 轨道区**只读缩略**：片段色块（缩略图拼贴，用已有 thumbnail 产物，**不逐帧解码**）+ 播放头位置；空态显示轨道占位条"+ 添加素材"
+  - Handle：左输入（接收上游素材连线）/ 右输出（产物连线），复用 NodeHandle 体系（单 target/source，无 id、无类型校验）
+- **节点播放资源纪律（v3 多节点并存独有风险）**：① **全局同时只播一个剪辑节点**（播 B 停 A）；② 仅点播放时起轻量 renderer，缩略态零解码；③ IntersectionObserver 移出视口/取消选中即暂停并释放解码与帧缓存；④ **全屏编辑器打开时节点本体播放全部暂停**（互斥）；⑤ 节点本体不新建 AudioContext，复用全局单例 audio engine
+- **节点上不显示"执行/生成"按钮**（它不是生成节点，见"执行白名单"）
+- **能力检测分层**：点"全屏编辑"检测 `VideoDecoder + AudioDecoder + OffscreenCanvas`（预览依赖解码器；AudioContext 首次手势 resume）；不满足则节点入口置灰 + tip；编码器检测（`VideoEncoder.isConfigSupported` 真实 1080p avc1 config + AAC 静默 polyfill）推迟到点"导出"时。兼容矩阵：Chrome/Edge 全量；Firefox 需较新版本；Safari 部分支持
+- **工程创建时机（统一）**：首次"全屏编辑"时 upsert（入口时序 POST 兜底）；添加节点不建工程——节点本体在工程不存在时即空态，省一次失败面；节点 id 先于工程存在
 - 旧 VideoNodeToolbar 的"剪辑"（onTrim 单段裁剪）链路**依然一字不动**，与本功能互不干扰
 
-### 连线同步规则（时间轴 ↔ 画布 edges，单向）
+### 执行白名单（P0：含剪辑节点画布"全部执行"必挂的规避）
 
-- **素材加入时间轴**（clip.sourceNodeId 存在的节点产物）→ 自动创建 edge：源节点输出 Handle → 剪辑节点输入 Handle；同一源节点至多一条（幂等）
-- **时间轴移除该源节点的全部片段** → 自动删除对应 edge
-- **素材库来源（无 sourceNodeId）不连线**
-- 同步方向**单向**：时间轴是数据源，时间轴操作驱动连线；用户在画布手动拖线到剪辑节点仅作视觉/依赖表达，**不反向自动加素材**
-- 实现走现有画布 store/Yjs edges 写入（与画布协作一致，无需新链路）
+代码事实：[validation.service.ts](apps/api/src/modules/execution/validation.service.ts) 对非 textInput 节点强制校验 `data.model` 存在且 active（剪辑节点无 model → 整画布执行 valid:false）；[execution.service.ts](apps/api/src/modules/execution/execution.service.ts) 非 textInput/非 videoGen 类型**兜底走图片生成调用**。
+
+- validation 与 execute 同步引入**执行类型白名单**：`textInput/imageGen/imageExtGen/videoGen/audioGen/multiImageGen`；白名单外类型（videoEdit、group 等）直接 `continue` 跳过——不校验、不执行、不计费
+- 对剪辑节点触发展开上游执行的能力一期不做（YAGNI）
+- A1 影子节点是 videoGen/audioGen 类型，天然在白名单内
+- 测试：画布含 videoEdit 空节点时"全部执行"只跑生成节点（API 测试）
+
+### 连线同步规则（定稿算法：确定性 id + 全量 reconcile + origin 隔离）
+
+**代码约束**（[canvasStore.ts](apps/web/src/stores/canvasStore.ts) / [canvasCollabRuntime.ts](apps/web/src/stores/canvasCollabRuntime.ts)）：`addEdge` 无判重且 id 内部生成（L451，需小改支持可选 id）；协作桥**仅持久化 edge 的 `{id, source, target}`**（edge.data/handle 刷新即丢）——自动边身份不能存 data，只能编码进**确定性 id**；`d.transact(fn, origin)` 支持 origin，Y.UndoManager trackedOrigins 仅收 local-user。
+
+```ts
+// 自动边 id 确定性派生（身份只依赖 id，不依赖会丢失的 edge.data）
+const autoEdgeId = (editNodeId: string, sourceNodeId: string) =>
+  `auto:${editNodeId}:${sourceNodeId}`;
+
+// 每次片段增删 commit 后（含 undo/redo 回放）全量 reconcile
+function reconcileSourceEdges(data: ProjectData, editNodeId: string) {
+  const expected = new Set(
+    Object.values(data.clips)
+      .filter(c => c.type !== 'subtitle' && c.sourceNodeId)
+      .map(c => c.sourceNodeId!));            // 时间轴引用到的源节点
+  const mine = edges.filter(e => e.target === editNodeId && e.id.startsWith('auto:'));
+  const have = new Set(mine.map(e => e.source));
+  for (const src of expected) if (!have.has(src)) addEdgeById(autoEdgeId(editNodeId, src), src, editNodeId); // 幂等建边
+  for (const e of mine) if (!expected.has(e.source)) removeEdge(e.id);       // 派生消失即删
+  // 手动边（id 无 auto: 前缀）：永不自动建、永不自动删
+}
+```
+
+规则文字化：
+1. **自动边 = 时间轴的派生视图**：手动删自动边，下次 reconcile 会**重建**（spec 明示，避免被报 bug）；手动拖入的边无 `auto:` 前缀，reconcile 不碰；时间轴为唯一数据源，手动连线**不反向加素材**；素材库来源（无 sourceNodeId）不建边
+2. `addEdge` 增加可选 id 参数（确定性建边幂等），小改不动现有调用
+3. **跨撤销栈隔离**：自动边写入画布 store 时协作桥以专用 origin（非 local-user）transact，**不入画布 Y.UndoManager**——自动边的撤销完全由编辑器历史栈 → reconcile 派生（避免"编辑器 Ctrl+Z 撤片段、画布 Ctrl+Z 又撤一条边"的错乱）
+4. **产物输出边**为一次性边，确定性 id `auto-out:${editId}:${productNodeId}`，不参与 reconcile
+5. **连线方向恒定**：素材 source → 剪辑 target；剪辑 source → 产物 target；自动边单向派生不可能成环，一期不做连线类型校验/环检测（手动边仅视觉，无执行语义——执行白名单保证剪辑节点不被执行）
+6. **测试矩阵**：加片建边 / 同源多片只一边 / 删全部片删边 / 素材库片不建边 / 手动边不被删 / 自动边判重 / 编辑器撤销后边跟随回滚 / 画布撤销栈不含自动边
+
+### 生命周期规则
+
+- **删除剪辑节点**：`canvasStore.deleteNode` 对 videoEdit 类型 fire-and-forget `DELETE /api/video-projects/by-node/:id`（否则成无入口孤儿；边由 deleteNode 现有逻辑级联清除）
+- **复制/粘贴剪辑节点**：一期 = **空工程**（新 nodeId，首次全屏编辑时 upsert），不深拷贝时间轴
+- **上游素材节点被删**：边级联消失，但 clip 仍引用 mediaId → **素材缺失态**：片段标红"素材已删除"、导出前置校验拦截缺失 mediaId、可在时间轴手动删除
+- **左面板可选派生标记**："已连线但未入时间轴"的素材显示"已连线"次级标记（edge 集合派生，帮助理解自动边来源）
 
 ### 挂载结构
 
-节点"全屏编辑"只写编辑器 store `{open:true, sourceNodeId: 剪辑节点id}`；编辑器本体挂**画布根层**（不进 VideoEditNode 内部，保证全屏遮罩与画布 React 树不卸载、左面板可读整个 nodeStore），基于 `components/BaseFullscreenModal.tsx` 封装外壳：底色亮色 #F7F8FA、**去掉点击外部关闭**（防误触丢编辑状态）、ESC 与"收起"统一走"挂起自动保存 flush 后关闭"。
+节点"全屏编辑"只写编辑器 store `{open:true, sourceNodeId: 剪辑节点id}`；编辑器本体挂**画布根层**（不进 VideoEditNode 内部，保证全屏遮罩与画布 React 树不卸载、左面板可读整个 nodeStore），基于 `components/BaseFullscreenModal.tsx` 封装外壳：底色亮色 #F7F8FA、**去掉点击外部关闭**（防误触丢编辑状态）、ESC 与"收起"统一走"挂起自动保存 flush 后关闭"；全屏打开期间节点本体播放全部暂停。
 
 ### 入口时序
 
 ```
-[节点面板添加"多轨道剪辑"节点] → 节点创建（空工程随节点创建 upsert 建立）
-[节点上"全屏编辑"] → 能力检测 → editorStore.open({sourceNodeId: 剪辑节点id})
+[节点菜单"多轨道剪辑"（接管 composite）] → addNode('videoEdit')（仅建节点，不建工程，本体空态）
+[节点上"全屏编辑"] → 能力检测（VideoDecoder/AudioDecoder/OffscreenCanvas）→ editorStore.open({sourceNodeId: 剪辑节点id})
 → 画布根层 VideoEditorShell 挂载（BaseFullscreenModal 定制）
-→ POST /api/video-projects（服务端 upsert by sourceNodeId，一次 RTT 幂等，update 分支亦返回全量）→ 加载工程
-→ 等待期间用本地构造 ProjectData（默认轨）乐观渲染，失败转错误态
+→ POST /api/video-projects（首次全屏编辑时 upsert by sourceNodeId，一次 RTT 幂等，update 分支亦返回全量）→ 加载工程
+→ 等待期间用本地构造空工程 ProjectData（默认轨 1 视频+1 字幕+2 音频 + 空 clips）乐观渲染，失败转错误态
 ```
-
-### WebCodecs 能力检测（修订）
-
-入口只卡两项：① `VideoEncoder.isConfigSupported`（**真实导出 config**：`codec:'avc1.640028'`、1920×1080、30fps、目标码率）② `OffscreenCanvas` 存在。**AAC/AudioEncoder 不在入口拦截**（Chrome 上 AAC isConfigSupported 常返回 false，正是 polyfill 的存在意义）；不满足统一提示"当前浏览器不支持视频剪辑，请使用最新版 Chrome/Edge"。兼容矩阵：Chrome/Edge 全量；Firefox 需较新版本；Safari 部分支持。
 
 ---
 
@@ -135,7 +174,7 @@ interface VideoClip extends BaseClip {
   keyframes: Keyframe[];
 }
 interface ImageClip extends BaseClip {
-  type: 'image'; mediaId: string; sourceNodeId?: string; // 连线同步依赖；无 sourceStart/变速/内嵌音轨，天然时长
+  type: 'image'; mediaId: string; sourceNodeId?: string; // 连线同步依赖；无 sourceStart/变速/内嵌音轨，无天然时长（默认拖入 5s，边缘可改）
   transform: { x: number; y: number; scale: number; rotation: number; opacity: number };
   transitionIn?: Transition; transitionOut?: Transition;
   keyframes: Keyframe[];
@@ -199,7 +238,7 @@ trim（拖左缘 Δ 成片秒）：
 
 - execute 链路事实（[execution.service.ts](apps/api/src/modules/execution/execution.service.ts)）：以 Yjs 节点为唯一数据源（`readCanvas` → 拓扑 scope → 执行 → `writeNodeData` 写回节点 data → `emitNodeStatus({nodeId,status})` 以 **nodeId 为键、不带 mediaId**，产物 fileId 在节点 data 里），积分走 teamCredit 循环内扣费
 - regenerate 实现：在 Yjs 画布克隆 sourceNode 为 `data.__ephemeral` 影子节点 → **直接复用 `execute(projectId, shadowNodeId)` 全链路**（校验/上游收集/积分/队列/写回全部白捡）→ 接口返回 shadowNodeId
-- 前端：socket 按 **shadowNodeId** 监听 node:status；done 后读影子节点 data 取 fileId 摘入资产库，再删影子节点；画布渲染层过滤 `__ephemeral` 节点（一期单人编辑，协作者闪烁风险可接受）
+- 前端：socket 按 **shadowNodeId** 监听 node:status；done 后读影子节点 data 取 fileId 摘入资产库，再删影子节点；**影子节点不写 position（或视口外），且在 store 投影层与节点渲染层双重过滤 `__ephemeral`**（防节点列表与迷你播放器闪现；一期单人编辑，协作者闪烁风险可接受）
 - 扣费/失败退费复用 teamCredit 既有路径，**不另建**
 - 备选 A2（抽 runNode 脱离 Yjs + 事件扩 requestId）架构更干净但需重构 execute 循环体，二期再说
 
@@ -247,7 +286,7 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
 ## 五、时间轴交互规格
 
 - **轨道**：三类（video/subtitle/audio）数量不限可增删；默认 1 视频+1 字幕+2 音频；字幕轨轨道头"➕"= **该轨内新增字幕**（非新增轨道）；**删除轨道 = 确认后连片段一起删**（入撤销栈），不做跨轨迁移
-- **标尺**：自适应刻度；紫色播放头（顶部圆点）可拖拽；片段块显示"名称 · 源时间码"（如 `视频生成需求 · 00:00:10:04`，HH:MM:SS:FF，30fps 非丢帧）——时间码格式化与 totalDuration（**overlap 区间不重复计时**：总长 = max(片.end) - min(片.start)）均抽纯函数入 TDD
+- **标尺**：自适应刻度；紫色播放头（顶部圆点）可拖拽；片段块显示"名称 · 源时间码"（如 `视频生成需求 · 00:00:10:04`，HH:MM:SS:FF，30fps 非丢帧；节点本体为简略 M:SS 显示，两者注明为不同精度）——时间码格式化与 totalDuration（**时间轴原点恒 0，总长 = max(片.end)**；片段不从 0 开始时前导为黑场并计入成片，此行为写明）均抽纯函数入 TDD
 - **片段操作**：拖动（同类型跨轨自由重叠；**禁重叠与吸附仅同轨内**——同轨除 crossfade overlap 外冲突吸附最近空位，规则详见第三节）、边缘 trim（公式见第三节）、播放头分割、删除、撤销/重做
 - **历史栈事务性**：拖拽 rAF 级高频 setState **不入栈**，pointerup commit 时一次入栈；快照结构化克隆（禁持引用）；上限 50 步
 - **吸附**：片段边缘 ↔ 相邻边缘/播放头/整秒刻度，8px 阈值（换算为秒随 px/s 变化）
@@ -279,7 +318,7 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
    - 音频 → AudioEncoder AAC；原生不支持时动态 import `@mediabunny/aac-encoder`
    - `Mp4OutputFormat`：**支持 File System Access API（仅 Chromium）时 StreamTarget 流式直写用户选定文件（导出前选位置）降内存峰值；否则回退 BufferTarget**——StreamTarget 不作通用推荐
 3. **产物登记（pending→confirm 状态机，对齐现有 storage.service）**：新增"generated 登记入口"接口——建 `type='generated'`、`status='pending'` 的 Media（估算大小过配额预检，metadata：来源 video-project/分辨率/时长）→ 返回预签名地址 → 浏览器 PUT → confirm 时 statObject 校验 → 置 `completed` 并触发缩略图 consumer。**复用现有状态机，不新写**；不走 presign DTO 的 'uploaded' 通道（素材库类型过滤硬编码 `type='generated'`）
-4. **产物自动上画布（v3 定案）**：confirm 成功后自动在画布创建**视频产物节点**（复用现有视频展示节点形态，可播放/可被下游引用）+ 自动连线：剪辑节点输出 Handle → 新节点输入 Handle；新节点位置放剪辑节点右侧附近空位（简单偏移 + 避让）；toast"导出完成，已添加到画布"
+4. **产物自动上画布（v3 定案 + 收敛）**：confirm 成功后自动在画布创建**视频产物节点**：`addNode('videoGen', pos, {origin:'video-edit', videoProjectId, status:'done', fileId})`——最小 data 即可走播放展示（VideoGenNode 现有 done 分支）；+ 自动连线：剪辑节点输出 → 新节点输入（确定性 id `auto-out:`，见第二节）；**每次导出都新建独立产物节点**（命名"工程名 · 导出 N"），位置沿剪辑节点右侧固定步长偏移（仿 createDerivedExtNode GAP=80，重叠时步长递增，不做复杂避让算法）；**产物节点工具栏收敛**：VideoNodeToolbar 按 `data.origin==='video-edit'` 隐藏依赖生成参数的按钮（重生成/高清/解析），保留下载/全屏/旧 trim（旧 trim 仅依赖 fileId）；收起后可选 fitView 定位到新节点；toast"导出完成，已添加到画布"
 5. **导出中**：两段式进度（离线混音 % + 逐帧编码 %）；ETA 用前 30 帧试编码测速外推 + **每 500 帧滚动修正**（跨 GOP seek 成本不同，首测偏不准）；取消按钮；beforeunload 拦截
 6. **失败**：三分类（编码不支持/内存/未知）+ 重试 / 降 720p
 
@@ -297,7 +336,7 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
 | AAC 编码缺失 | 静默动态 polyfill |
 | 多标签并发编辑 | updatedAt 乐观锁 409 提示（PATCH 单飞防自打自，见第三节） |
 | 同节点重复创建 | sourceNodeId @unique + 服务端 upsert 幂等；**upsert 的 update 分支同样 select 全量返回** |
-| 打开等待 | POST 返回前用本地构造 ProjectData（默认轨+源节点初始片）**乐观渲染**，失败转错误态，不白屏等 RTT |
+| 打开等待 | POST 返回前用本地构造空工程 ProjectData（默认轨+空 clips）**乐观渲染**，失败转错误态，不白屏等 RTT |
 | 无编辑权限（viewer） | GET 亦 assertEditor，入口按钮直接隐藏（前后端一致） |
 | **收起时的运行时释放** | `audioContext.close()`（AudioContext 实例数上限约 6，防泄漏）、终止全部 AudioBufferSource、中断 mediabunny 解码与 LRU、cancelAnimationFrame、revokeObjectURL 全部本地 URL；播放头位置保留、数据留在 store |
 
@@ -311,42 +350,30 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
 | scene 纯函数 | selectActiveClips（overlap 双片段/hidden 轨剔除）、interpolateClip（**Keyframe 边界：越首末点取端值/单点恒值/无点取基准**、线性插值/5 种转场输出/contain 基准默认值） |
 | store reducers | normalized 增删改、轨道/片段/字幕操作 |
 | 导出 controller | 依赖注入 mock：调用序列、两段进度、取消、**VideoFrame close 次数**、AAC polyfill 分支、错误三分类 |
-| API 测试 | CRUD + **upsert 幂等（并发双 POST 只一条）** + assertEditor 越权 403 + 乐观锁 409；跟随现有 supertest/spec 模式 |
+| API 测试 | CRUD + **upsert 幂等（并发双 POST 只一条）** + assertEditor 越权 403 + 乐观锁 409 + **执行白名单（含 videoEdit 的画布"全部执行"只跑生成节点）**；跟随现有 supertest/spec 模式 |
 | 组件 | VideoEditNode：只读预览渲染（片段色块/空态"+ 添加素材"）、播放/暂停、"全屏编辑"回调、Handle 存在性；**连线同步**（addClip→ensureEdge 幂等/移除源全部片段→删 edge/素材库来源跳过/手动连线不反向加素材）抽纯函数或 store 测试；旧 VideoNodeToolbar 不改动（既有用例天然回归） |
 | CanvasRenderer | 薄层不测 |
 
-### 手动验收清单（16 条）
+### 手动验收清单（18 条）
 
-1. 节点面板添加"多轨道剪辑"节点 → 节点呈现（空态"+ 添加素材"）→"全屏编辑"打开编辑器
-2. **旧"剪辑"（单段裁剪）与新剪辑节点分别走通、互不影响**
-3. **连线同步**：时间轴加入节点产物 → 画布自动连线；移除该源全部片段 → 连线删除；素材库来源不连线；手动拖线不反向加素材
-4. 素材拖入时间轴（三类轨正确）
-5. trim/拖动/分割/删除/撤销重做/吸附正确；0.5×/2× 变速后 trim/分割公式正确
-6. 播放预览音画同步；seek 帧精确；变速播放音调不变；节点本体播放/暂停与时间码正确
-7. 字幕添加+样式编辑实时反映
-8. 转场 5 种（fadeIn/fadeOut/crossfade/toBlack/toWhite）预览正确，crossfade overlap 拖拽配对正确
-9. 关键帧添加/拖动/删除 + 线性插值动画正确
-10. 导出 720p/1080p 真实编码 E2E；**素材库"视频"过滤 tab 可见产物**
-11. **导出后画布自动创建视频产物节点 + 输出端连线**
-12. Chrome 正常导出；模拟 WebCodecs 不支持走拦截提示
-13. 自动保存：编辑后刷新重进状态一致
-14. 导出中取消 / 关闭页面拦截
-15. **反复进出编辑器 10 次无 AudioContext/内存泄漏**
-16. 生成音频/片段重拍走通 regenerate（A1 影子节点）且积分扣费有明示
-17. **配额不足时导出前拦截**
-3. 素材拖入时间轴（三类轨正确）
-4. trim/拖动/分割/删除/撤销重做/吸附正确；0.5×/2× 变速后 trim/分割公式正确
-5. 播放预览音画同步；seek 帧精确；**变速播放音调不变**
-6. 字幕添加+样式编辑实时反映
-7. 转场 5 种（fadeIn/fadeOut/crossfade/toBlack/toWhite）预览正确，crossfade overlap 拖拽配对正确
-8. 关键帧添加/拖动/删除 + 线性插值动画正确
-9. 导出 720p/1080p 真实编码 E2E；**素材库"视频"过滤 tab 可见产物**
-10. Chrome 正常导出；模拟 WebCodecs 不支持走拦截提示
-11. 自动保存：编辑后刷新重进状态一致
-12. 导出中取消 / 关闭页面拦截
-13. **反复进出编辑器 10 次无 AudioContext/内存泄漏**
-14. **配额不足时导出前拦截**
-15. 生成音频/片段重拍走通 regenerate 接口且积分扣费有明示
+1. 节点菜单添加"多轨道剪辑"→ 节点空态"+ 添加素材"，且菜单中无第二个视频合并入口（composite 已接管/下线）
+2. 旧"剪辑"（单段裁剪）与剪辑节点分别走通、互不影响
+3. 连线同步：加带源片段→自动边（确定性 id、幂等不重复）；同源多片段仅一边；移除该源全部片段→边删；素材库片段不连线；手动拖线不被自动删除、手动删自动边在下次编辑后按派生规则重建
+4. 编辑器内撤销/重做片段增删，自动边跟随回滚；画布撤销栈不出现自动边条目
+5. 素材拖入三类轨正确（图片进视频轨、无变速项）
+6. trim/拖动/分割/删除/吸附正确；0.5×/2× 后公式正确；同轨禁重叠、跨轨可叠
+7. 预览音画同步、seek 精确、变速音调不变；节点本体播放/暂停/时间码正确；两个剪辑节点不会同时播放；移出视口释放
+8. 字幕添加与样式实时反映（绘制符合 96px/1664px 规格）
+9. 5 种转场正确，crossfade overlap 配对与退化（删前片→fadeIn）正确
+10. 关键帧增拖删与插值（局部坐标、单点恒值、越界取端值）正确
+11. 导出 720p/1080p E2E；素材库"视频"tab 可见产物（generated 通道）
+12. 导出后自动建视频产物节点 + 输出端连线，位置在右侧；重复导出产生独立新节点；产物节点无生成类按钮、旧 trim 可用
+13. 含剪辑节点的画布"全部执行"只跑生成节点，剪辑节点被跳过、不报错不扣费
+14. WebCodecs 不支持：编辑入口按解码能力置灰；导出编码不支持走拦截提示
+15. 自动保存后刷新重进状态一致（PATCH 单飞无自冲突 409）
+16. 导出中取消/关闭页面拦截；反复进出编辑器 10 次无 AudioContext/内存泄漏
+17. 生成音频/片段重拍走 A1 影子节点（shadowNodeId 回流、积分明示、__ephemeral 不闪现）
+18. 配额不足导出前拦截；删除剪辑节点后其 VideoProject 同步删除；上游素材删除后片段显缺失态且禁止导出
 
 ---
 
@@ -371,14 +398,16 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
 
 ## 附录 B：开发顺序建议（供 plan 阶段参考）
 
+**新类型全链路注册清单（P2-7，第 2 步执行时逐项核对）**：nodeTypes（[CanvasView.tsx](apps/web/src/pages/canvas/components/CanvasView.tsx) L40）→ nodeTypeMap 短名（[canvasStore.ts](apps/web/src/stores/canvasStore.ts) L47，接管 composite）→ AddNodeMenu 菜单项（L95，改写+测试同步）→ nodeStore NodeData 联合类型补 VideoEditNodeData → **collab/ydocBuilder fillDoc + readCanvasFromDoc 新类型往返实测（刷新还原）** → execution 白名单（validation.service L20 + execution.service L65 两处）。
+
 1. Prisma migration + video-project CRUD/upsert（含测试）
-2. **VideoEditNode 节点本体**（只读预览/全屏编辑入口/Handle/节点面板注册）+ 空 BaseFullscreenModal 外壳（可进出）
-3. timeline 纯函数 TDD（公式/吸附/历史/**连线同步规则**）——无 UI 依赖可独立验收
-4. normalized store + 时间轴 UI（复用 useWaveformPeaks）+ **连线同步落地（时间轴增删→画布 edges）**
-5. scene 纯函数 TDD + 主线程预览
+2. **VideoEditNode 节点本体**（按上方注册清单全链路 + 执行白名单）+ 空 BaseFullscreenModal 外壳（可进出）
+3. timeline 纯函数 TDD（公式/吸附/历史/**连线同步 reconcile 规则**）——无 UI 依赖可独立验收
+4. normalized store + 时间轴 UI（复用 useWaveformPeaks）+ **连线同步落地（确定性 id/addEdge 可选 id/origin 隔离）**
+5. scene 纯函数 TDD + 主线程预览 + 节点本体迷你播放（资源纪律）
 6. 右面板四态 + 转场/关键帧
-7. Worker 导出 controller（mock 先行）→ 真实编码 E2E → 产物登记入库 + **产物节点自动上画布连线**
-8. AI 三按钮（regenerate A1）+ 护栏 + 17 条手动验收
+7. Worker 导出 controller（mock 先行）→ 真实编码 E2E → 产物登记入库 + **产物节点自动上画布连线（origin 收敛）**
+8. AI 三按钮（regenerate A1 影子节点）+ 护栏 + 18 条手动验收
 
 ## 附录 C：审核采纳记录
 
@@ -402,3 +431,10 @@ socket：编辑器内 `/execution` namespace **单例连接**，join workflowId 
 - **导出产物（用户拍板：视频节点+自动连线）**：confirm 后自动创建视频产物节点（复用现有视频展示形态）+ 剪辑节点输出端→新节点连线，位置右侧偏移避让
 - **类型补字段**：AudioClip/ImageClip 补 `sourceNodeId?`（连线同步依赖）；VideoProject.sourceNodeId 语义 = 剪辑节点自身 id（@unique 不变：一剪辑节点一工程）
 - 旧"剪辑"（onTrim 单段裁剪）依然一字不动；A1 影子节点 regenerate 不受影响（上游连线反而显式可见）
+
+### R3 轮（2026-09-10，v3→v3.1，复审结论"一等节点方向成立，修完 P0 即可开工"）
+
+- 核验成立并采纳 P0×4：**P0-1 执行白名单**（validation 强制 data.model + execute 兜底图片调用均已实测——剪辑节点会让"全部执行"必挂，白名单两处排除 + 节点无执行按钮）；**P0-2 composite 死入口接管**（AddNodeMenu L95 死入口实测存在，改"多轨道剪辑" type=videoEdit，不留双入口）；**P0-3 v2 残留清理**（护栏表"源节点初始片"→空工程默认轨+空 clips；ImageClip"天然时长"措辞修正）；**P0-4 连线算法定稿**（addEdge 无判重 + edge.data 不持久化实测属实→确定性 id `auto:{editId}:{sourceId}` + commit 后全量 reconcile + 专用 Yjs origin 不入画布撤销栈 + 产物输出边 `auto-out:` + 8 项测试矩阵）
+- 采纳 P1×6：节点迷你播放资源纪律（全局单播放/缩略零解码/移出视口释放/全屏互斥/复用全局 audio engine）；能力检测分层（编辑入口测 VideoDecoder/AudioDecoder/OffscreenCanvas，导出才测 VideoEncoder+AAC polyfill——原方案漏了解码器）；生命周期（删节点级联删工程/复制=空工程/素材缺失态标红禁导出）；产物节点收敛（origin:'video-edit' 标记+隐藏生成类按钮+独立新节点步进偏移+命名"工程名·导出 N"）；连线类型规则（一期不校验类型/不检测环）；工程创建统一到首次全屏编辑 upsert
+- 采纳 P2×10：验收清单损坏修复（v3 编辑事故：旧清单 3-15 残留——以本轮 §18 条干净版整体替换）；totalDuration=max(end)+前导黑场行为写明；时间码两处精度注明；文档头版本笔误修正（v1 误写 v2）；节点默认宽 320+小宽度刻度策略；全链路注册清单（含 ydocBuilder 往返实测）入附录 B；左面板"已连线"派生标记（可选）；影子节点双重过滤+无 position；全屏打开停节点播放；其余 v2.1 机制确认无回退
+- 附：审核确认 V1-V7 全部成立（addNode 双 store+Yjs 同步/done 节点最小 data/createDerivedExtNode 先例/Handle 单口多边/删节点清边/A1 不受影响/旧 trim 无耦合）
