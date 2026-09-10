@@ -18,22 +18,15 @@
 - Create: `docs/vendor/opencut-classic/`（快照目录）
 - Create: `docs/vendor/opencut-classic/VENDOR.md`（来源/许可证/移植清单）
 
-- [ ] **Step 1: 拷贝快照入仓**
+- [ ] **Step 1: 拷贝快照入仓（PowerShell——本仓 shell 为 pwsh，bash 管道 tar 不可用）**
 
 快照源在 git-bash 的 `/tmp/opencut-classic`（= `C:\Users\link\AppData\Local\Temp\opencut-classic`，commit cf5e79e）。排除 `.git` 与 `node_modules`：
 
-```bash
-mkdir -p docs/vendor/opencut-classic
-cd /tmp/opencut-classic && git rev-parse HEAD
-# 记录输出（应为 cf5e79e 开头）
-cp -r /tmp/opencut-classic/apps/web/src/timeline docs/flowweb... 
-```
-
-完整命令（在仓库根 D:/flowweb 执行）：
-
-```bash
-mkdir -p docs/vendor/opencut-classic
-(cd /tmp/opencut-classic && tar cf - --exclude=.git --exclude=node_modules .) | (cd docs/vendor/opencut-classic && tar xf -)
+```powershell
+# 记录 commit hash（写入 VENDOR.md 用）
+git -C "$env:TEMP\opencut-classic" rev-parse HEAD
+# robocopy /E 递归 /XD 排除目录（robocopy 退出码 0-7 均为成功，非 0 不是错误）
+robocopy "$env:TEMP\opencut-classic" "D:\flowweb\docs\vendor\opencut-classic" /E /XD .git node_modules
 ```
 
 - [ ] **Step 2: 写 VENDOR.md**
@@ -52,10 +45,12 @@ mkdir -p docs/vendor/opencut-classic
 - 移植注意: 原库 React19/zustand5/Tailwind4，移植时适配本项目 React18/zustand4/antd5
 ```
 
-- [ ] **Step 3: 验证并提交**
+- [ ] **Step 3: 验证路径并提交**
 
-```bash
-ls docs/vendor/opencut-classic/LICENSE docs/vendor/opencut-classic/apps/web/src/timeline
+```powershell
+ls docs/vendor/opencut-classic/LICENSE
+ls docs/vendor/opencut-classic/apps/web/src/timeline, docs/vendor/opencut-classic/apps/web/src/services/renderer, docs/vendor/opencut-classic/apps/web/src/services/video-cache
+# 若任一路径不存在：ls docs/vendor/opencut-classic/apps/web/src 找实际目录名，同步修正 VENDOR.md 移植清单后再提交
 git add docs/vendor/opencut-classic && git commit -m "chore(vendor): opencut-classic MIT 快照入仓（timeline/renderer/video-cache 参考库）"
 ```
 
@@ -85,15 +80,21 @@ git add apps/web/package.json pnpm-lock.yaml && git commit -m "chore(deps): medi
 ### Task 3: soundtouchjs Go/No-Go Spike（半天关卡）
 
 **Files:**
-- Create: `docs/vendor/spikes/soundtouch-spike.html`（浏览器手工验证页）
-- Create: `docs/vendor/spikes/soundtouch-spike.mjs`（Node 离线验证）
+- Create: `docs/superpowers/spikes/soundtouch-spike.mjs`（Node 离线验证；放 spikes/ 不占 vendor/ 语义）
 
 验证三项（spec 附录 A）：① 0.5×/2× 音质；② Worker 内 ESM 导入；③ 离线整段 PCM 处理。任一不过 → 切 WSOLA 自实现（+3~5 天预案），**继续本 plan 其余任务不受阻（音频链在 Plan 3）**。
 
-- [ ] **Step 1: 写 Node 离线验证脚本**
+- [ ] **Step 1: 前置——确认库的 ESM 入口（决定 Spike ② 结论）**
+
+```bash
+cat apps/web/node_modules/soundtouchjs/package.json | grep -E '"main"|"module"|"exports"|"version"'
+# 若无 module/exports 字段（2021 老库可能只有 dist UMD）：Spike ② 结论=需 import 其 dist 路径包一层，记录到结论行
+```
+
+- [ ] **Step 2: 写 Node 离线验证脚本**
 
 ```js
-// docs/vendor/spikes/soundtouch-spike.mjs
+// docs/superpowers/spikes/soundtouch-spike.mjs
 // 验证③: Node 侧 ESM 导入 + 离线整段 PCM 变速
 import { PitchShifter } from 'soundtouchjs';
 
@@ -116,18 +117,18 @@ try {
 
 > 注：soundtouchjs 0.3.0 的离线用法以实测为准——若上述 API 不匹配，查 `docs/vendor/opencut-classic/apps/web/package.json` 锁的用法与其 `src/media/audio.ts` 调用方式修正脚本。**结论记入本文件末尾。**
 
-- [ ] **Step 2: 跑 Spike 并记录结论**
+- [ ] **Step 3: 跑 Spike 并记录结论**
 
 ```bash
-node docs/vendor/spikes/soundtouch-spike.mjs
+node docs/superpowers/spikes/soundtouch-spike.mjs
 ```
 
 在 spike 文件末尾追加结论行（示例）：`// CONCLUSION 2026-09-10: ③ PASS（2x tempo 输出 1s 等效）；② 于 Plan 3 Worker 内验证；① 浏览器音质人工判定`
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 4: 提交**
 
 ```bash
-git add docs/vendor/spikes && git commit -m "chore(spike): soundtouchjs Go/No-Go 验证（离线 PCM/ESM 导入）"
+git add docs/superpowers/spikes && git commit -m "chore(spike): soundtouchjs Go/No-Go 验证（离线 PCM/ESM 导入）"
 ```
 
 ---
@@ -244,15 +245,23 @@ export interface TransformKeyframe { id: string; t: number; property: 'x'|'y'|'s
 export interface VolumeKeyframe { id: string; t: number; value: number; easing: 'linear'; }
 export interface Transition { type: 'fadeIn'|'fadeOut'|'crossfade'|'toBlack'|'toWhite'; duration: number; }
 
+/** shared 层跨 Node/浏览器两侧运行——crypto.randomUUID 在 CJS Node/非 HTTPS 浏览器不可用，必须 fallback */
+let idCounter = 0;
+export function genId(prefix: string): string {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === 'function') return `${prefix}-${c.randomUUID()}`;
+  return `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+}
+
 /** 默认空工程：1 视频 + 1 字幕 + 2 音频，空 clips */
 export function createDefaultProjectData(): ProjectData {
   return {
     version: 1, fps: 30,
     tracks: [
-      { id: crypto.randomUUID(), type: 'video',    name: '视频',  muted: false, hidden: false, clips: [] },
-      { id: crypto.randomUUID(), type: 'subtitle', name: '字幕1', muted: false, hidden: false, clips: [] },
-      { id: crypto.randomUUID(), type: 'audio',    name: '音频1', muted: false, hidden: false, clips: [] },
-      { id: crypto.randomUUID(), type: 'audio',    name: '音频2', muted: false, hidden: false, clips: [] },
+      { id: genId('track'), type: 'video',    name: '视频',  muted: false, hidden: false, clips: [] },
+      { id: genId('track'), type: 'subtitle', name: '字幕1', muted: false, hidden: false, clips: [] },
+      { id: genId('track'), type: 'audio',    name: '音频1', muted: false, hidden: false, clips: [] },
+      { id: genId('track'), type: 'audio',    name: '音频2', muted: false, hidden: false, clips: [] },
     ],
     clips: {},
   };
@@ -302,7 +311,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.dto.spe
 
 ```ts
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsObject, IsOptional, IsDateString, IsNumber, IsIn } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
@@ -317,7 +326,7 @@ export class PatchVideoProjectDto {
 }
 export class RegenerateDto {
   @IsString() sourceNodeId!: string; // 素材源节点（非剪辑节点）
-  @IsString() kind!: 'video' | 'audio';
+  @IsIn(['video', 'audio']) kind!: 'video' | 'audio'; // @IsString 只验"是字符串"不验枚举——必须 @IsIn
 }
 ```
 
@@ -521,6 +530,15 @@ describe('VideoProjectController', () => {
     await ctrl.deleteByNode('n1', req);
     expect(svc.deleteByNode).toHaveBeenCalledWith('n1', 'u1');
   });
+
+  // 模块编译冒烟——直接 new Service(mocks) 测不到 DI 接线（缺 BullModule.registerQueue/TeamModule import 启动即炸）
+  it('VideoProjectModule compiles（DI 接线冒烟）', async () => {
+    const { VideoProjectModule } = await import('./video-project.module');
+    const mod = await Test.createTestingModule({ imports: [VideoProjectModule] })
+      .overrideProvider(PrismaService).useValue({})
+      .compile();
+    expect(mod).toBeDefined();
+  });
 });
 ```
 
@@ -569,18 +587,29 @@ export class VideoProjectController {
 ```ts
 // apps/api/src/modules/video-project/video-project.module.ts
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { VideoProjectController } from './video-project.controller';
 import { VideoProjectService } from './video-project.service';
-import { ProjectPermissionService } from '../team/project-permission.service';
-import { CollabModule } from '../collab/collab.module'; // 若模块名不同，按实际（find apps/api/src/modules/collab -name "*.module.ts"）
+import { GeneratedMediaService } from './generated-media.service';
+import { CollabModule } from '../collab/collab.module';
+import { TeamModule } from '../team/team.module';            // StorageQuotaService + ProjectPermissionService 已 export——勿手动 provide（会造第二实例）
+import { ExecutionModule } from '../execution/execution.module'; // ExecutionService 已 export——无循环依赖，无需 forwardRef
+import { THUMBNAIL_GENERATOR_QUEUE, THUMBNAIL_GENERATOR_CONNECTION } from '../material-library/constants/material-library.constants';
 
 @Module({
-  imports: [CollabModule],
+  imports: [
+    CollabModule,
+    TeamModule,
+    ExecutionModule,
+    BullModule.registerQueue({ name: THUMBNAIL_GENERATOR_QUEUE, configKey: THUMBNAIL_GENERATOR_CONNECTION }), // 队列非全局，本模块必须注册
+  ],
   controllers: [VideoProjectController],
-  providers: [VideoProjectService, ProjectPermissionService],
+  providers: [VideoProjectService, GeneratedMediaService],
 })
 export class VideoProjectModule {}
 ```
+
+> 注：MinioService 来自 @Global() 的 MinioModule 无需 import；Task 10 的 GeneratedMediaService 在本 task 先占位创建（空类），Task 10 填实现。Task 11 的 ExecutionService 经 ExecutionModule 注入构造器（`@Inject(ExecutionService) private readonly execution: ExecutionService`），**不用 forwardRef**。
 
 `app.module.ts` 的 `imports` 数组追加 `VideoProjectModule`（import 路径 `./modules/video-project/video-project.module`）。
 
@@ -679,44 +708,56 @@ git add apps/api/src/modules/execution && git commit -m "feat(execution): isExec
 
 ---
 
-### Task 9: collabDoc insertNode/removeNode 原语（TDD：fillDoc 逐键同构）
+### Task 9: collabDoc insertNode/removeNode 原语（TDD：fillDoc 同构 + 跨端同步实测）
+
+> **机制修正（Plan 审核 P0-1）**：原 SHADOW_ORIGIN 方案证伪——withDoc 的 `connection.transact(fn)` 无 origin 参数（Yjs 嵌套事务 origin 由最外层决定，内层 transact 的 origin 是死代码），且 **Yjs transaction.origin 不跨网络传输**（update 二进制不含 origin，客户端 applyUpdate 的 origin 是应用方自己的）——前端 onRemote 永远读不到服务端 origin。**短路判据改为影子节点 id 前缀 + `__ephemeral`**（跨网络可靠，Plan 2 的 onRemote 扫 events 命中的 nodes key 是否全部 `shadow-` 前缀）。
 
 **Files:**
-- Create: `apps/api/src/modules/collab/node-doc.util.ts`（单节点 Y.Map 构造，与 ydocBuilder.fillDoc 同构）
+- Create: `apps/api/src/modules/collab/node-doc.util.ts`
 - Modify: `apps/api/src/modules/collab/collab-document.service.ts`（新增两方法）
 - Test: `apps/api/src/modules/collab/node-doc.util.spec.ts`
 
-- [ ] **Step 1: 写失败测试（往返 + 契约）**
+- [ ] **Step 1: 写失败测试（同构契约 + 跨端同步实测——后者固化"origin 不过网"认知）**
 
 ```ts
 // apps/api/src/modules/collab/node-doc.util.spec.ts
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { buildNodeYMap, SHADOW_ORIGIN } from './node-doc.util';
+import { buildShadowNodeYMap } from './node-doc.util';
 
-describe('buildNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => {
-  it('parentId 为 null 时省略键（防差异循环）', () => {
-    const doc = new Y.Doc();
-    const m = buildNodeYMap(doc, { id: 's1', type: 'videoGen', position: { x: -99999, y: -99999 }, data: { model: 'm', __ephemeral: true } });
-    expect(m.get('parentId')).toBeUndefined();
+describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => {
+  it('type/position(Y.Map 必写)/data(Y.Map) 结构同构，影子 data 带 __ephemeral', () => {
+    const m = buildShadowNodeYMap({ id: 'shadow-video-x', type: 'videoGen', position: { x: -99999, y: -99999 }, data: { model: 'm', __ephemeral: true } });
     expect(m.get('type')).toBe('videoGen');
-  });
-  it('position 为独立 Y.Map 且必写', () => {
-    const doc = new Y.Doc();
-    const m = buildNodeYMap(doc, { id: 's1', type: 'videoGen', position: { x: 1, y: 2 }, data: {} });
     expect(m.get('position')).toBeInstanceOf(Y.Map);
-    expect((m.get('position') as Y.Map<any>).get('x')).toBe(1);
-  });
-  it('data 为独立 Y.Map，嵌套对象保真（prompt.text）', () => {
-    const doc = new Y.Doc();
-    const m = buildNodeYMap(doc, { id: 's1', type: 'videoGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'hello' } } });
+    expect((m.get('position') as Y.Map<any>).get('x')).toBe(-99999);
     const data = m.get('data') as Y.Map<any>;
     expect(data).toBeInstanceOf(Y.Map);
-    expect((data.get('prompt') as any).text).toBe('hello');
+    expect(data.get('__ephemeral')).toBe(true);
   });
-  it('SHADOW_ORIGIN 常量存在且非 local-user', () => {
-    expect(typeof SHADOW_ORIGIN).toBe('string');
-    expect(SHADOW_ORIGIN).not.toBe('local-user');
+  it('无 parentId 键（fillDoc 同构：parentId null 时省略，防差异循环）', () => {
+    const m = buildShadowNodeYMap({ id: 's', type: 'videoGen', position: { x: 0, y: 0 }, data: {} });
+    expect(m.get('parentId')).toBeUndefined();
+  });
+});
+
+describe('跨端同步实测（固化机制认知）', () => {
+  it('服务端 origin 不随 update 过网——客户端 applyUpdate 后 origin 是自己的，故短路判据必须用 id 前缀', () => {
+    const server = new Y.Doc();
+    const client = new Y.Doc();
+    server.on('update', (u) => Y.applyUpdate(client, u, 'network'));
+    // 服务端以任意 origin 写入影子节点
+    server.transact(() => {
+      server.getMap('nodes').set('shadow-video-1', buildShadowNodeYMap({ id: 'shadow-video-1', type: 'videoGen', position: { x: 0, y: 0 }, data: { __ephemeral: true } }));
+    }, 'server-shadow');
+    // 客户端视角：影子节点可见（data.__ephemeral 可判），但事务 origin 是 'network' 而非 'server-shadow'
+    const shadow = client.getMap('nodes').get('shadow-video-1') as Y.Map<any>;
+    expect(shadow).toBeDefined();
+    expect((shadow.get('data') as Y.Map<any>).get('__ephemeral')).toBe(true);
+    let observedOrigin: unknown = 'unset';
+    client.getMap('nodes').observeDeep((events) => { observedOrigin = events[0].transaction.origin; });
+    client.transact(() => { client.getMap('nodes').set('local-1', new Y.Map()); }, 'server-shadow-伪造也不行');
+    expect(observedOrigin).not.toBe('server-shadow'); // origin 由应用侧决定——判据只能靠内容（前缀/__ephemeral）
   });
 });
 ```
@@ -725,7 +766,7 @@ describe('buildNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => {
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/collab/node-doc.util.spec.ts
-# 预期: FAIL（Cannot find module）
+# 预期: FAIL（Cannot find module './node-doc.util'）
 ```
 
 - [ ] **Step 3: 写实现 + service 两方法**
@@ -734,63 +775,53 @@ pnpm -C apps/api exec vitest run src/modules/collab/node-doc.util.spec.ts
 // apps/api/src/modules/collab/node-doc.util.ts
 import * as Y from 'yjs';
 
-export const SHADOW_ORIGIN = 'server-shadow'; // onRemote 短路判定用（非 local-user，不进 UndoManager）
-
 export interface ShadowNodeInput {
-  id: string; type: string;
+  id: string; // 必须以 'shadow-' 前缀命名——前端 onRemote 以此为短路判据（origin 不过网，见 spec v3.6 修正）
+  type: 'videoGen' | 'audioGen';
   position: { x: number; y: number };
-  data: Record<string, unknown>;
+  data: Record<string, unknown>; // 必含 __ephemeral: true
 }
 
-/** 与前端 ydocBuilder.fillDoc 逐键同构：type / parentId?(null 省略) / width? / height? / position(Y.Map 必写) / data(Y.Map) */
-export function buildNodeYMap(doc: Y.Doc, n: ShadowNodeInput): Y.Map<unknown> {
+/** 与前端 ydocBuilder.fillDoc 逐键同构：type / parentId?(null 省略) / width?/height?(可选条件写) / position(Y.Map 必写) / data(Y.Map) */
+export function buildShadowNodeYMap(n: ShadowNodeInput): Y.Map<unknown> {
   const m = new Y.Map<unknown>();
   m.set('type', n.type);
+  if (n.width != null) m.set('width', n.width);
+  if (n.height != null) m.set('height', n.height);
   const position = new Y.Map<unknown>();
   position.set('x', n.position.x);
   position.set('y', n.position.y);
   m.set('position', position);
   const data = new Y.Map<unknown>();
-  doc.transact(() => {
-    for (const [k, v] of Object.entries(n.data)) data.set(k, v);
-  }, SHADOW_ORIGIN);
+  for (const [k, v] of Object.entries(n.data)) data.set(k, v);
   m.set('data', data);
   return m;
 }
 ```
 
-`collab-document.service.ts` 追加两方法（类内）：
+`collab-document.service.ts` 追加两方法（类内；顶部 `import { buildShadowNodeYMap } from './node-doc.util';`）：
 
 ```ts
-  /** A1 影子节点：整节点写入（独立 SHADOW_ORIGIN 事务，前端 onRemote 短路防全量重建闪烁） */
-  async insertNode(projectId: string, node: { id: string; type: string; position: { x: number; y: number }; data: Record<string, unknown> }) {
+  /** A1 影子节点：整节点写入。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
+  async insertNode(projectId: string, node: Parameters<typeof buildShadowNodeYMap>[0]) {
     await this.withDoc(projectId, (doc) => {
-      const m = buildNodeYMap(doc, node);
-      doc.getMap('nodes').transact(() => {
-        doc.getMap('nodes').set(node.id, m);
-      }, SHADOW_ORIGIN);
+      doc.getMap('nodes').set(node.id, buildShadowNodeYMap(node));
     });
   }
 
   async removeNode(projectId: string, nodeId: string) {
     await this.withDoc(projectId, (doc) => {
-      doc.getMap('nodes').transact(() => {
-        doc.getMap('nodes').delete(nodeId);
-      }, SHADOW_ORIGIN);
+      doc.getMap('nodes').delete(nodeId);
     });
   }
 ```
-
-顶部 `import { buildNodeYMap, SHADOW_ORIGIN } from './node-doc.util';`。
-
-> 注意：withDoc 若要求非 LocalUser origin 直连的等待语义，SHADOW_ORIGIN 事务与 Server 更新同通道——保持默认即可（onRemote 侧按 origin 短路是前端 Plan 2 的活）。
 
 - [ ] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/collab
 # 预期: 新 4 PASS + 既有 collab spec 全绿
-git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/removeNode 原语（fillDoc 同构/SHADOW_ORIGIN 独立事务）（TDD）"
+git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/removeNode 原语（fillDoc 同构；短路判据=shadow- 前缀，origin 不过网实测固化）（TDD）"
 ```
 
 ---
@@ -820,7 +851,8 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     minio = {
       buildKey: vi.fn().mockReturnValue('results/u1/w1/n1/2026-09-10/uuid.mp4'),
       generatePresignedPost: vi.fn().mockResolvedValue({ url: 'http://minio/post', fields: { key: 'results/u1/w1/n1/2026-09-10/uuid.mp4' } }),
-      statObject: vi.fn().mockResolvedValue({ size: 12_345_678 }),
+      // AWS SDK HeadObjectCommand 真实形状：ContentLength（无 size 字段——P0-2 实测教训）
+      statObject: vi.fn().mockResolvedValue({ ContentLength: 12_345_678 }),
     };
     quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined) };
     thumb = { add: vi.fn().mockResolvedValue(undefined) };
@@ -836,9 +868,10 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     expect(prisma.media.create.mock.calls[0][0].data).toMatchObject({ type: 'generated', status: 'pending', mimeType: 'video/mp4', size: 12_345_000 });
   });
 
-  it('confirm: statObject 实际大小落库 + enqueue 缩略图（video/mp4 + 抽帧点 seekSec）', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1' });
-    await svc.confirm('u1', { mediaId: 'm1', key: 'k.mp4', totalDurationSec: 30 });
+  it('confirm: statSize 实际大小落库（ContentLength 口径）+ 缩略图 seekSec 从 metadata.durationSec 读', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', metadata: { durationSec: 30 } });
+    await svc.confirm('u1', { mediaId: 'm1' }); // 不再收 key/时长——均从 register 时落的记录读
+    expect(minio.statObject).toHaveBeenCalledWith('k.mp4');
     expect(prisma.media.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'm1' },
       data: expect.objectContaining({ status: 'completed', size: 12_345_678 }),
@@ -849,7 +882,7 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
 
   it('confirm: 归属校验失败拒绝', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other' });
-    await expect(svc.confirm('u1', { mediaId: 'm1', key: 'k', totalDurationSec: 10 })).rejects.toThrow();
+    await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow();
   });
 });
 ```
@@ -903,33 +936,59 @@ export class GeneratedMediaService {
     return { mediaId: media.id, upload }; // upload: { url, fields }——前端 FormData 逐字段填 + file 最后追加
   }
 
-  /** 确认：statObject 实际大小落库（无 ±1024 比对——勿误调 storage.confirmUpload）+ 缩略图 enqueue */
-  async confirm(userId: string, dto: { mediaId: string; key: string; totalDurationSec: number }) {
+  /** 确认：statSize 实际大小落库（无 ±1024 比对——勿误调 storage.confirmUpload）+ 缩略图 seekSec 从 metadata 读 */
+  async confirm(userId: string, dto: { mediaId: string }) {
     const media = await this.prisma.media.findUnique({ where: { id: dto.mediaId } });
     if (!media || media.userId !== userId) throw new ForbiddenException('media not found');
-    const stats = await this.minio.statObject(dto.key);
-    const seekSec = Math.max(1, dto.totalDurationSec * 0.1); // 防前导黑场黑帧；consumer 需支持可选 seekSec（默认 1 保持旧行为）
+    const actualSize = await this.minio.statSize(media.key); // 统一口径（ContentLength ?? 0）——stats.size 不存在，真机必 undefined
+    const durationSec = Number((media.metadata as any)?.durationSec ?? 0);
+    const seekSec = Math.max(1, durationSec * 0.1); // 防前导黑场黑帧；consumer 需支持可选 seekSec（默认 1 保持旧行为）
     await this.thumbnailQueue.add('generate-thumbnail',
-      { mediaId: media.id, key: dto.key, mimeType: 'video/mp4', seekSec });
+      { mediaId: media.id, key: media.key, mimeType: 'video/mp4', seekSec });
     return this.prisma.media.update({
       where: { id: media.id },
-      data: { status: 'completed', size: stats.size },
+      data: { status: 'completed', size: actualSize },
     });
   }
 }
 ```
 
-> 实现时两个核对：① `thumbnail-generator.consumer.ts` 加可选 `seekSec` job 参数（默认 1 保持旧行为）；② Media 的 metadata/size 字段以 schema.prisma 实际为准（size 是 Int，15min 产物远低于 2.1GB 上限）。
+**MinioService 顺手加固**（`modules/minio/minio.service.ts` 追加，同口径防第三处踩坑；storage.service.ts L85 的 `stats.ContentLength ?? 0` 可同步改用它）：
+
+```ts
+  /** 统一大小口径：HeadObjectCommand 输出是 ContentLength（无 size 字段） */
+  async statSize(key: string): Promise<number> {
+    const stats = await this.statObject(key);
+    return stats.ContentLength ?? 0;
+  }
+```
+
+**三个新端点补 DTO**（ValidationPipe 对 `Record<string, any>` 不生效——whitelist/必填全空转，与 Task 7 红线自相矛盾）。`video-project.dto.ts` 追加：
+
+```ts
+export class RegisterGeneratedDto {
+  @IsString() teamId!: string;
+  @IsString() workflowId!: string;
+  @IsString() videoProjectId!: string;
+  @IsIn(['720p', '1080p']) resolution!: string;
+  @IsNumber() durationSec!: number;
+  @IsNumber() actualSize!: number; // 编码后真实字节（presigned POST ±1024 Conditions 要求）
+}
+export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
+export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
+```
+
+（顶部 import 追加 `IsNumber, IsIn`。）Controller 路由签名相应改为 `@Body() dto: RegisterGeneratedDto` / `ConfirmGeneratedDto` / `RemoveShadowDto`。
 
 Controller 追加（同文件，注入 GeneratedMediaService）：
 
 ```ts
   @Post('generated-media/register')
-  registerGenerated(@Body() dto: Record<string, any>, @Req() req: any) {
+  registerGenerated(@Body() dto: RegisterGeneratedDto, @Req() req: any) {
     return this.generated.register({ ...dto, userId: req.user?.id });
   }
   @Post('generated-media/confirm')
-  confirmGenerated(@Body() dto: Record<string, any>, @Req() req: any) {
+  confirmGenerated(@Body() dto: ConfirmGeneratedDto, @Req() req: any) {
     return this.generated.confirm(req.user?.id, dto);
   }
 ```
@@ -967,8 +1026,7 @@ describe('regenerate（A1 影子节点）', () => {
     prisma = { videoProject: { findUnique: vi.fn() } };
     collab = { readCanvas: vi.fn(), insertNode: vi.fn(), removeNode: vi.fn() };
     execution = { execute: vi.fn().mockResolvedValue({ success: true }) };
-    svc = new VideoProjectService(prisma, perm as any, collab as any);
-    (svc as any).execution = execution; // 注入（或走构造器，见 Step 3）
+    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any); // 构造器 4 参（与 Task 6 同签名+execution）
   });
 
   it('源节点存在且为生成类型：克隆影子→直调 execute（不带 sv）→返回 shadowNodeId', async () => {
@@ -976,13 +1034,13 @@ describe('regenerate（A1 影子节点）', () => {
       nodes: [{ id: 'src1', type: 'videoGen', position: { x: 1, y: 2 }, data: { model: 'm', prompt: { text: 't' } } }],
       edges: [],
     });
-    const r = await svc.regenerate('u1', { sourceNodeId: 'src1', workflowId: 'w1' });
+    const r = await svc.regenerate('u1', { sourceNodeId: 'src1', workflowId: 'w1', kind: 'video' });
     expect(collab.insertNode).toHaveBeenCalledWith('w1', expect.objectContaining({
-      id: expect.stringContaining('shadow'),
+      id: expect.stringContaining('shadow-'),
       type: 'videoGen',
       data: expect.objectContaining({ __ephemeral: true, model: 'm' }), // JSON 整份深拷
     }));
-    expect(execution.execute).toHaveBeenCalledWith('w1', expect.any(String), 'u1', undefined, undefined);
+    expect(execution.execute).toHaveBeenCalledWith('w1', expect.any(String), 'u1'); // 可选参不钉死为契约
     expect(r.shadowNodeId).toBeTruthy();
   });
 
@@ -1002,7 +1060,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regener
 
 - [ ] **Step 3: 写实现（service 追加方法；构造器注入 ExecutionService 用前向引用防循环依赖）**
 
-`video-project.service.ts` 追加（构造器加 `@Inject(forwardRef(() => ExecutionService)) private readonly execution: ExecutionService`，`import { forwardRef, Inject } from '@nestjs/common'`；module providers 相应调整）：
+`video-project.service.ts` 追加（构造器第 4 参 `@Inject(ExecutionService) private readonly execution: ExecutionService`——经 Task 7 的 ExecutionModule 注入，**不用 forwardRef**；Task 6 的既有测试同步补第 4 参 mock）：
 
 ```ts
   /**
@@ -1030,7 +1088,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regener
     return { shadowNodeId: shadowId, result };
   }
 
-  /** 前端 done 回流后调用：删影子节点（fire-and-forget 安全，重复删 no-op） */
+  /** 前端 done 回流后调用：删影子节点（重复删 no-op 安全） */
   async removeShadow(userId: string, dto: { workflowId: string; shadowNodeId: string }) {
     await this.perm.assertEditor(dto.workflowId, userId);
     await this.collab.removeNode(dto.workflowId, dto.shadowNodeId);
@@ -1046,7 +1104,7 @@ Controller 追加：
     return this.svc.regenerate(req.user?.id, dto);
   }
   @Post('remove-shadow')
-  removeShadow(@Body() dto: { workflowId: string; shadowNodeId: string }, @Req() req: any) {
+  removeShadow(@Body() dto: RemoveShadowDto, @Req() req: any) {
     return this.svc.removeShadow(req.user?.id, dto);
   }
 ```
@@ -1097,29 +1155,46 @@ describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 t
 // apps/api/src/modules/media/media-batch.service.ts
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
 
 @Injectable()
 export class MediaBatchService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minio: MinioService,
+  ) {}
 
-  /** 直接按 mediaId 集合查（避开 material.service 的 type='generated' 硬编码过滤） */
-  batchGet(_userId: string, teamId: string, ids: string[]) {
-    return this.prisma.media.findMany({
+  /** 按 mediaId 集合查（避开 type='generated' 硬编码过滤）+ presigned URL——对齐 material.service L53-55 既有口径 */
+  async batchGet(_userId: string, teamId: string, ids: string[]) {
+    const rows = await this.prisma.media.findMany({
       where: { id: { in: ids }, teamId, deletedAt: null },
       select: { id: true, key: true, originalName: true, mimeType: true, size: true, thumbnailKey: true, createdAt: true },
     });
+    return Promise.all(rows.map(async (r) => ({
+      ...r,
+      url: await this.minio.generatePresignedGetUrl(r.key, 3600),
+      thumbnailUrl: r.thumbnailKey ? await this.minio.generatePresignedGetUrl(r.thumbnailKey, 3600) : null,
+    })));
   }
 }
 ```
 
-`media.controller.ts` 追加（teamId 走 `@Query`，对齐 file.controller.ts 既有模式）：
+`media.controller.ts` 追加（teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
 
 ```ts
   @Post('batch')
-  @UsePipes(new ValidationPipe({ whitelist: true }))
-  batch(@Req() req: any, @Query('teamId') teamId: string, @Body() dto: { ids: string[] }) {
+  batch(@Req() req: any, @Query('teamId') teamId: string, @Body() dto: BatchGetMediaDto) {
     return this.batch.batchGet(req.user?.id, teamId, dto.ids);
   }
+```
+
+`BatchGetMediaDto`（就近放 media 模块内新建 `media.dto.ts`）：
+
+```ts
+import { IsArray, IsString } from 'class-validator';
+export class BatchGetMediaDto {
+  @IsArray() @IsString({ each: true }) ids!: string[];
+}
 ```
 
 - [ ] **Step 4: 跑测试 + 全量回归 + 提交**
