@@ -18,7 +18,7 @@
 - Create: `docs/vendor/opencut-classic/`（快照目录）
 - Create: `docs/vendor/opencut-classic/VENDOR.md`（来源/许可证/移植清单）
 
-- [ ] **Step 1: 拷贝快照入仓（PowerShell——本仓 shell 为 pwsh，bash 管道 tar 不可用）**
+- [x] **Step 1: 拷贝快照入仓（PowerShell——本仓 shell 为 pwsh，bash 管道 tar 不可用）**
 
 快照源在 git-bash 的 `/tmp/opencut-classic`（= `C:\Users\link\AppData\Local\Temp\opencut-classic`，commit cf5e79e）。排除 `.git` 与 `node_modules`：
 
@@ -29,7 +29,7 @@ git -C "$env:TEMP\opencut-classic" rev-parse HEAD
 robocopy "$env:TEMP\opencut-classic" "D:\flowweb\docs\vendor\opencut-classic" /E /XD .git node_modules
 ```
 
-- [ ] **Step 2: 写 VENDOR.md**
+- [x] **Step 2: 写 VENDOR.md**
 
 ```markdown
 # opencut-classic vendor 快照
@@ -45,7 +45,7 @@ robocopy "$env:TEMP\opencut-classic" "D:\flowweb\docs\vendor\opencut-classic" /E
 - 移植注意: 原库 React19/zustand5/Tailwind4，移植时适配本项目 React18/zustand4/antd5
 ```
 
-- [ ] **Step 3: 验证路径并提交**
+- [x] **Step 3: 验证路径并提交**
 
 ```powershell
 ls docs/vendor/opencut-classic/LICENSE
@@ -61,13 +61,13 @@ git add docs/vendor/opencut-classic && git commit -m "chore(vendor): opencut-cla
 **Files:**
 - Modify: `apps/web/package.json`
 
-- [ ] **Step 1: 安装**
+- [x] **Step 1: 安装**
 
 ```bash
 pnpm -C apps/web add mediabunny@^1.56.1 @mediabunny/aac-encoder@^1.56.1 soundtouchjs@0.3.0
 ```
 
-- [ ] **Step 2: 验证版本并提交**
+- [x] **Step 2: 验证版本并提交**
 
 ```bash
 grep -E "mediabunny|soundtouch" apps/web/package.json
@@ -84,14 +84,14 @@ git add apps/web/package.json pnpm-lock.yaml && git commit -m "chore(deps): medi
 
 验证三项（spec 附录 A）：① 0.5×/2× 音质；② Worker 内 ESM 导入；③ 离线整段 PCM 处理。任一不过 → 切 WSOLA 自实现（+3~5 天预案），**继续本 plan 其余任务不受阻（音频链在 Plan 3）**。
 
-- [ ] **Step 1: 前置——确认库的 ESM 入口（决定 Spike ② 结论）**
+- [x] **Step 1: 前置——确认库的 ESM 入口（决定 Spike ② 结论）**
 
 ```bash
 cat apps/web/node_modules/soundtouchjs/package.json | grep -E '"main"|"module"|"exports"|"version"'
 # 若无 module/exports 字段（2021 老库可能只有 dist UMD）：Spike ② 结论=需 import 其 dist 路径包一层，记录到结论行
 ```
 
-- [ ] **Step 2: 写 Node 离线验证脚本**
+- [x] **Step 2: 写 Node 离线验证脚本**
 
 ```js
 // docs/superpowers/spikes/soundtouch-spike.mjs
@@ -117,7 +117,7 @@ try {
 
 > 注：soundtouchjs 0.3.0 的离线用法以实测为准——若上述 API 不匹配，查 `docs/vendor/opencut-classic/apps/web/package.json` 锁的用法与其 `src/media/audio.ts` 调用方式修正脚本。**结论记入本文件末尾。**
 
-- [ ] **Step 3: 跑 Spike 并记录结论**
+- [x] **Step 3: 跑 Spike 并记录结论**
 
 ```bash
 node docs/superpowers/spikes/soundtouch-spike.mjs
@@ -125,7 +125,7 @@ node docs/superpowers/spikes/soundtouch-spike.mjs
 
 在 spike 文件末尾追加结论行（示例）：`// CONCLUSION 2026-09-10: ③ PASS（2x tempo 输出 1s 等效）；② 于 Plan 3 Worker 内验证；① 浏览器音质人工判定`
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add docs/superpowers/spikes && git commit -m "chore(spike): soundtouchjs Go/No-Go 验证（离线 PCM/ESM 导入）"
@@ -139,7 +139,7 @@ git add docs/superpowers/spikes && git commit -m "chore(spike): soundtouchjs Go/
 - Modify: `apps/api/prisma/schema.prisma`（新增 model + 三处反向字段）
 - Create: `apps/api/prisma/migrations/<本地时间戳>_add_video_project/migration.sql`（migrate dev 生成）
 
-- [ ] **Step 1: schema 增加 model（插在 VideoSeparateTask 之后）**
+- [x] **Step 1: schema 增加 model（插在 VideoSeparateTask 之后）**
 
 ```prisma
 model VideoProject {
@@ -163,7 +163,7 @@ model VideoProject {
 }
 ```
 
-- [ ] **Step 2: 三个既有模型补反向字段**
+- [x] **Step 2: 三个既有模型补反向字段**
 
 在 `model Team`、`model User`、`model CanvasProject` 的字段区各加一行：
 
@@ -171,7 +171,7 @@ model VideoProject {
   videoProjects VideoProject[]
 ```
 
-- [ ] **Step 3: 生成并应用 migration**
+- [x] **Step 3: 生成并应用 migration**
 
 记忆红线：migration 目录名用**本地时间戳**、需 CREATEDB 授权、禁 db push：
 
@@ -181,7 +181,7 @@ pnpm -C apps/api exec prisma migrate dev --name add_video_project
 pnpm -C apps/api exec prisma generate
 ```
 
-- [ ] **Step 4: 验证并提交**
+- [x] **Step 4: 验证并提交**
 
 ```bash
 pnpm -C apps/api test
@@ -200,7 +200,7 @@ git add apps/api/prisma && git commit -m "feat(db): VideoProject 模型（source
 - Test: `apps/api/src/modules/video-project/video-project.dto.spec.ts`
 - Create: `apps/api/src/modules/video-project/video-project.dto.ts`
 
-- [ ] **Step 1: 写 shared 类型（严格按 spec 第三节，strict 模式）**
+- [x] **Step 1: 写 shared 类型（严格按 spec 第三节，strict 模式）**
 
 ```ts
 // packages/shared/src/types/video-project.ts
@@ -271,7 +271,7 @@ export function createDefaultProjectData(): ProjectData {
 
 在 `packages/shared/src/index.ts`（若存在 barrel）追加 export；并在 `apps/web/src/pages/canvas/video-editor/types.ts` 写 `export * from '@flowweb/shared/types/video-project';`（若 shared 无 barrel 则按 material-library.ts 的既有导出方式对齐）。
 
-- [ ] **Step 2: 写 DTO 校验失败测试**
+- [x] **Step 2: 写 DTO 校验失败测试**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.dto.spec.ts
@@ -301,14 +301,14 @@ describe('video-project DTO', () => {
 });
 ```
 
-- [ ] **Step 3: 跑测试确认失败（模块不存在）**
+- [x] **Step 3: 跑测试确认失败（模块不存在）**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.dto.spec.ts
 # 预期: FAIL（Cannot find module './video-project.dto'）
 ```
 
-- [ ] **Step 4: 写 DTO**
+- [x] **Step 4: 写 DTO**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.dto.ts
@@ -331,7 +331,7 @@ export class RegenerateDto {
 }
 ```
 
-- [ ] **Step 5: 跑测试通过并提交**
+- [x] **Step 5: 跑测试通过并提交**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.dto.spec.ts
@@ -347,7 +347,7 @@ git commit -m "feat(video-project): ProjectData shared 类型 + DTO（TDD）"
 - Create: `apps/api/src/modules/video-project/video-project.service.ts`
 - Test: `apps/api/src/modules/video-project/video-project.service.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.service.spec.ts
@@ -429,14 +429,14 @@ describe('VideoProjectService', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service.spec.ts
 # 预期: FAIL（Cannot find module './video-project.service'）
 ```
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.service.ts
@@ -506,7 +506,7 @@ export class VideoProjectService {
 }
 ```
 
-- [ ] **Step 4: 跑测试通过**
+- [x] **Step 4: 跑测试通过**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service.spec.ts
@@ -515,7 +515,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.service
 
 > **执行期修订记录（2026-09-10 质量评审，提交 69ce425f）**：I1——upsertByNode 补 workflowId 归属校验（403，防 update:{} 命中他人记录原样返回全量行的跨画布越权读）；M1——patch 记录不存在改 404（原 409 语义错位，前端可静默停止自动保存）；M2/M4——fixture 补 workflowId 钉住权限先于时戳比对 + 三个分支用例。上方代码块已同步。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add apps/api/src/modules/video-project && git commit -m "feat(video-project): service upsert 幂等/乐观锁 409/assertEditor（TDD）"
@@ -531,7 +531,7 @@ git add apps/api/src/modules/video-project && git commit -m "feat(video-project)
 - Modify: `apps/api/src/app.module.ts`（imports 数组注册 VideoProjectModule）
 - Test: `apps/api/src/modules/video-project/video-project.controller.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.controller.spec.ts
@@ -572,14 +572,14 @@ describe('VideoProjectController', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.controller.spec.ts
 # 预期: FAIL（Cannot find module）
 ```
 
-- [ ] **Step 3: 写 controller + module 并注册**
+- [x] **Step 3: 写 controller + module 并注册**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.controller.ts
@@ -644,7 +644,7 @@ export class VideoProjectModule {}
 
 `app.module.ts` 的 `imports` 数组追加 `VideoProjectModule`（import 路径 `./modules/video-project/video-project.module`）。
 
-- [ ] **Step 4: 全量测试通过并提交**
+- [x] **Step 4: 全量测试通过并提交**
 
 ```bash
 pnpm -C apps/api test
@@ -662,7 +662,7 @@ git add apps/api/src && git commit -m "feat(video-project): controller/module �
 - Modify: `apps/api/src/modules/execution/execution.service.ts`（execute 循环**首行、emitNodeStatus 之前**跳过）
 - Test: `apps/api/src/modules/execution/is-executable-node.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/execution/is-executable-node.spec.ts
@@ -686,14 +686,14 @@ describe('isExecutableNode（类型+产物标记双条件白名单）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/execution/is-executable-node.spec.ts
 # 预期: FAIL（Cannot find module）
 ```
 
-- [ ] **Step 3: 写谓词并接入两处**
+- [x] **Step 3: 写谓词并接入两处**
 
 ```ts
 // apps/api/src/modules/execution/is-executable-node.ts
@@ -725,7 +725,7 @@ export function isExecutableNode(node: { type: string; data?: Record<string, unk
 
 同时 validateAll 顶部的 modelIds 收集 filter 改为 `nodes.filter(n => isExecutableNode(n) && n.type !== 'textInput')`（防 videoEdit 无 model 进 modelIds）。
 
-- [ ] **Step 4: 跑测试 + 既有 execution 测试不破**
+- [x] **Step 4: 跑测试 + 既有 execution 测试不破**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/execution/is-executable-node.spec.ts
@@ -733,7 +733,7 @@ pnpm -C apps/api exec vitest run src/modules/execution
 # 预期: 新 4 PASS + 既有 execution.*.spec 全绿
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add apps/api/src/modules/execution && git commit -m "feat(execution): isExecutableNode 白名单（类型+产物标记，validation/execute 前置过滤防 loading 闪烁）（TDD）"
@@ -750,7 +750,7 @@ git add apps/api/src/modules/execution && git commit -m "feat(execution): isExec
 - Modify: `apps/api/src/modules/collab/collab-document.service.ts`（新增两方法）
 - Test: `apps/api/src/modules/collab/node-doc.util.spec.ts`
 
-- [ ] **Step 1: 写失败测试（同构契约 + 跨端同步实测——后者固化"origin 不过网"认知）**
+- [x] **Step 1: 写失败测试（同构契约 + 跨端同步实测——后者固化"origin 不过网"认知）**
 
 ```ts
 // apps/api/src/modules/collab/node-doc.util.spec.ts
@@ -800,14 +800,14 @@ describe('跨端同步实测（固化机制认知）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/collab/node-doc.util.spec.ts
 # 预期: FAIL（Cannot find module './node-doc.util'）
 ```
 
-- [ ] **Step 3: 写实现 + service 两方法**
+- [x] **Step 3: 写实现 + service 两方法**
 
 ```ts
 // apps/api/src/modules/collab/node-doc.util.ts
@@ -855,7 +855,7 @@ export function buildShadowNodeYMap(n: ShadowNodeInput): Y.Map<unknown> {
   }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/collab
@@ -876,7 +876,7 @@ git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/r
 - Modify: `apps/api/src/modules/material-library/consumers/thumbnail-generator.consumer.ts`（**执行期补**：job 解构 `seekSec?: number` + `timestamps: [seekSec ?? 1]`——spec L341 要求的抽帧时间点参数，原 Files 遗漏；默认 1 保持旧行为）
 - Test: `apps/api/src/modules/video-project/generated-media.service.spec.ts` + `apps/api/src/modules/material-library/consumers/thumbnail-generator.consumer.spec.ts`（执行期新建）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/video-project/generated-media.service.spec.ts
@@ -958,14 +958,14 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/generated-media.service.spec.ts
 # 预期: FAIL（Cannot find module）
 ```
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```ts
 // apps/api/src/modules/video-project/generated-media.service.ts
@@ -1087,7 +1087,7 @@ Controller 追加（同文件——**构造器改两参**，这是 Task 7 → Ta
   }
 ```
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project
@@ -1106,7 +1106,7 @@ git add apps/api/src && git commit -m "feat(video-project): generated 登记接�
 - Modify: `apps/api/src/modules/video-project/video-project.controller.ts`（+1 路由）
 - Test: `apps/api/src/modules/video-project/video-project.regenerate.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/video-project/video-project.regenerate.spec.ts
@@ -1152,14 +1152,14 @@ describe('regenerate（A1 影子节点）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regenerate.spec.ts
 # 预期: FAIL（svc.regenerate 不是函数）
 ```
 
-- [ ] **Step 3: 写实现（service 追加方法；构造器注入 ExecutionService 用前向引用防循环依赖）**
+- [x] **Step 3: 写实现（service 追加方法；构造器注入 ExecutionService 用前向引用防循环依赖）**
 
 `video-project.service.ts` 追加方法（构造器第 4 参 `@Inject(ExecutionService) execution` 已在 Task 6 一次到位——经 Task 7 的 ExecutionModule 注入，**不用 forwardRef**）：
 
@@ -1215,7 +1215,7 @@ Controller 追加：
 
 > **执行期修订记录（2026-09-10，提交 3c23434b）**：Task 11 评审发现残留影子幽灵执行风险（客户端崩溃时影子永久残留 doc，在白名单内会被"全部执行"真实执行+扣费且用户不可见）——isExecutableNode 全局排除 `__ephemeral`（Task 8 代码块已同步）+ execute 循环白名单行为"单 nodeId 直调且 shadow- 前缀"放行（regenerate 唯一合法入口）。
 
-- [ ] **Step 4: 跑测试 + 提交**
+- [x] **Step 4: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/video-project
@@ -1234,7 +1234,7 @@ git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子
 - Modify: `apps/api/src/modules/media/media.module.ts`（providers 追加 MediaBatchService——PrismaService/MinioService 来自全局模块无需 import）
 - Test: `apps/api/src/modules/media/media-batch.service.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/media/media-batch.service.spec.ts
@@ -1274,7 +1274,7 @@ describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 t
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/api/src/modules/media/media-batch.service.ts
@@ -1308,7 +1308,7 @@ export class MediaBatchService {
 }
 ```
 
-`media.controller.ts` 追加（构造器注入 `private readonly batch: MediaBatchService`；teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
+`media.controller.ts` 追加（构造器注入 `private readonly batchService: MediaBatchService`——**执行期修订**：plan 原文参数名 `batch` 与方法名 `batch` 同名触发 TS2300，改 batchService 对齐既有 mediaService/minioService 命名；teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
 
 ```ts
   // 方法级 ValidationPipe（media.controller 无 class 级 pipe——不挂则 @ArrayMaxSize 等 DTO 装饰器纯装饰，
@@ -1332,7 +1332,7 @@ export class BatchGetMediaDto {
 }
 ```
 
-- [ ] **Step 4: 跑测试 + 全量回归 + 提交**
+- [x] **Step 4: 跑测试 + 全量回归 + 提交**
 
 ```bash
 pnpm -C apps/api test
