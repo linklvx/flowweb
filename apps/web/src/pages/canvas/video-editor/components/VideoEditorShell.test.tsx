@@ -1,12 +1,28 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { VideoEditorShell } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
+import { upsertProject } from '@/api/videoProjectApi';
+import { createDefaultProjectData } from '../types';
+import { useEditorStore } from '../store/editorStore';
+
+vi.mock('@/api/videoProjectApi', () => ({
+  upsertProject: vi.fn(),
+  patchProject: vi.fn(),
+  getProjectByNode: vi.fn().mockResolvedValue(null),
+  deleteProjectByNode: vi.fn(),
+}));
 
 describe('VideoEditorShell', () => {
   beforeEach(() => {
     useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
+    useEditorStore.getState().reset();
+    // Shell 接线后 open 即触发 upsertProject → loadProject；mock 全量 DTO（data 用真实默认工程形状）
+    vi.mocked(upsertProject).mockResolvedValue({
+      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', title: 't',
+      data: createDefaultProjectData(), updatedAt: 't0',
+    });
   });
   it('open=false 不渲染；open 后渲染全屏壳与占位区', () => {
     const { rerender } = render(<VideoEditorShell />);
@@ -24,11 +40,11 @@ describe('VideoEditorShell', () => {
     fireEvent.click(screen.getByTestId('video-editor-shell').parentElement!.parentElement!);
     expect(useVideoEditorStore.getState().open).toBe(true);
   });
-  it('收起按钮 → close', () => {
+  it('收起按钮 → close（经 handleClose：flush 排空后异步关，M1 检查点）', async () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
     fireEvent.click(screen.getByText('收起'));
-    expect(useVideoEditorStore.getState().open).toBe(false);
+    await waitFor(() => expect(useVideoEditorStore.getState().open).toBe(false));
   });
   it('编辑器 open 时 isGroupEditContext 恒 true（画布快捷键早退，spec 验收 27）', () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });

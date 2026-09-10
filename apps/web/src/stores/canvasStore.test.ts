@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import type { AiToolId, ImageNodeData } from './nodeStore';
+import { deleteProjectByNode } from '@/api/videoProjectApi';
+
+vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
 describe('canvasStore', () => {
   beforeEach(() => {
@@ -707,5 +710,17 @@ describe('边原语（自动连线支持：addEdge 可选 id / removeEdge / onCo
     cs.onConnect({ source: 'a', target: 'b' } as any);
     cs.onConnect({ source: 'a', target: 'b' } as any);
     expect(useCanvasStore.getState().edges.filter(e => e.source === 'a' && e.target === 'b')).toHaveLength(1);
+  });
+});
+
+describe('deleteNode videoEdit 级联删工程', () => {
+  it('删除 videoEdit 节点触发 deleteProjectByNode（fire-and-forget）', () => {
+    useCanvasStore.setState({
+      nodes: [{ id: 'e1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any],
+      edges: [],
+      selectedId: null,
+    });
+    useCanvasStore.getState().deleteNode('e1');
+    expect(vi.mocked(deleteProjectByNode)).toHaveBeenCalledWith('e1');
   });
 });
