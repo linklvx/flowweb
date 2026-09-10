@@ -79,10 +79,9 @@ export class StorageService {
     }
 
     // Verify file exists in MinIO
-    const stats = await this.minio.statObject(dto.key);
+    const actualSize = await this.minio.statSize(dto.key); // 统一大小口径（ContentLength ?? 0）
 
     // Verify file size (tolerance ±1024)
-    const actualSize = stats.ContentLength ?? 0;
     if (Math.abs(actualSize - dto.fileSize) > 1024) {
       await this.minio.delete(dto.key);
       await this.prisma.media.delete({ where: { id: dto.fileId } });

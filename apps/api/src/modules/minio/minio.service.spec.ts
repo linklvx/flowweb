@@ -40,6 +40,21 @@ describe('MinioService', () => {
     expect(key).toMatch(/^temp\/user1\/\d{4}-\d{2}-\d{2}\/[a-f0-9-]+\.bin$/);
   });
 
+  it('statSize 返回 HeadObject 的 ContentLength（统一大小口径）', async () => {
+    const mockSend = vi.fn().mockResolvedValue({ ContentLength: 12_345 });
+    (service as any).s3Client = { send: mockSend };
+
+    await expect(service.statSize('k.mp4')).resolves.toBe(12_345);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('statSize: ContentLength 缺失回落 0', async () => {
+    const mockSend = vi.fn().mockResolvedValue({});
+    (service as any).s3Client = { send: mockSend };
+
+    await expect(service.statSize('k.mp4')).resolves.toBe(0);
+  });
+
   it('should have getObject method', () => {
     expect(typeof service.getObject).toBe('function');
   });

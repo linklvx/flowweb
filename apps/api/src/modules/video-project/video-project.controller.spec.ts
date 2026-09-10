@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { VideoProjectController } from './video-project.controller';
 import { VideoProjectService } from './video-project.service';
+import { GeneratedMediaService } from './generated-media.service';
 
 describe('VideoProjectController', () => {
   let ctrl: VideoProjectController; let svc: any;
@@ -15,7 +16,10 @@ describe('VideoProjectController', () => {
     };
     const mod = await Test.createTestingModule({
       controllers: [VideoProjectController],
-      providers: [{ provide: VideoProjectService, useValue: svc }],
+      providers: [
+        { provide: VideoProjectService, useValue: svc },
+        { provide: GeneratedMediaService, useValue: {} }, // Task 10 构造器改两参——本组用例不触及 generated 路由，空 mock 即可
+      ],
     }).compile();
     ctrl = mod.get(VideoProjectController);
   });

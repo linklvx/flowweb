@@ -133,6 +133,12 @@ export class MinioService {
     );
   }
 
+  /** 统一大小口径：HeadObjectCommand 输出是 ContentLength（无 size 字段） */
+  async statSize(key: string): Promise<number> {
+    const stats = await this.statObject(key);
+    return stats.ContentLength ?? 0;
+  }
+
   /** Ensure the configured bucket exists; create it if missing */
   async ensureBucket(retries: number = 3, delay: number = 1000): Promise<void> {
     try {

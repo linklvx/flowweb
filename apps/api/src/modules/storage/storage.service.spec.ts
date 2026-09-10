@@ -38,7 +38,7 @@ describe('StorageService', () => {
           'X-Amz-Signature': 'mock',
         },
       }),
-      statObject: vi.fn().mockResolvedValue({ ContentLength: 2048000 }),
+      statSize: vi.fn().mockResolvedValue(2048000),
       delete: vi.fn().mockResolvedValue(undefined),
     };
     quota = {
@@ -139,7 +139,7 @@ describe('StorageService', () => {
   it('confirmUpload 团队成员可确认他人上传', async () => {
     prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team' });
     prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
-    minio.statObject.mockResolvedValue({ ContentLength: 100 });
+    minio.statSize.mockResolvedValue(100);
     await service.confirmUpload('u1', { fileId: 'm1', key: 'k', fileSize: 100 });
     expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ teamId: 't-team', userId: 'u1' }) }),
@@ -150,14 +150,14 @@ describe('StorageService', () => {
   it('confirmUpload 非成员 → 403/400 拒绝', async () => {
     prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team' });
     prisma.teamMember.findFirst.mockResolvedValue(null);
-    minio.statObject.mockResolvedValue({ ContentLength: 100 });
+    minio.statSize.mockResolvedValue(100);
     await expect(service.confirmUpload('u1', { fileId: 'm1', key: 'k', fileSize: 100 })).rejects.toThrow(ForbiddenException);
     expect(prisma.media.update).not.toHaveBeenCalled();
   });
 
   it('should reject confirm if fileSize mismatch', async () => {
     prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png' });
-    minio.statObject = vi.fn().mockResolvedValue({ ContentLength: 999 });
+    minio.statSize = vi.fn().mockResolvedValue(999);
     await expect(
       service.confirmUpload('user1', {
         fileId: 'media-1',
