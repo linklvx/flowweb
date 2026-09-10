@@ -682,3 +682,29 @@ describe('canvasStore', () => {
     });
   });
 });
+
+describe('边原语（自动连线支持：addEdge 可选 id / removeEdge / onConnect 判重）', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+  });
+  it('addEdge 带 deterministicId 幂等：同 id 已存在 no-op 返回同 id', () => {
+    const cs = useCanvasStore.getState();
+    const id1 = cs.addEdge('a', 'b', undefined, undefined, 'auto:e1:s1');
+    const id2 = cs.addEdge('a', 'b', undefined, undefined, 'auto:e1:s1');
+    expect(id1).toBe('auto:e1:s1');
+    expect(id2).toBe('auto:e1:s1');
+    expect(useCanvasStore.getState().edges.filter(e => e.id === 'auto:e1:s1')).toHaveLength(1); // 防 React Flow 双 key
+  });
+  it('removeEdge 按 id 删除', () => {
+    const cs = useCanvasStore.getState();
+    cs.addEdge('a', 'b', undefined, undefined, 'auto:e1:s1');
+    cs.removeEdge('auto:e1:s1');
+    expect(useCanvasStore.getState().edges).toHaveLength(0);
+  });
+  it('onConnect 同源判重：已存在同 source+target 边则跳过', () => {
+    const cs = useCanvasStore.getState();
+    cs.onConnect({ source: 'a', target: 'b' } as any);
+    cs.onConnect({ source: 'a', target: 'b' } as any);
+    expect(useCanvasStore.getState().edges.filter(e => e.source === 'a' && e.target === 'b')).toHaveLength(1);
+  });
+});

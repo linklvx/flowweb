@@ -99,7 +99,8 @@ interface CanvasState {
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
-  addEdge: (source: string, target: string, sourceHandle?: string, targetHandle?: string) => string;
+  addEdge: (source: string, target: string, sourceHandle?: string, targetHandle?: string, deterministicId?: string) => string;
+  removeEdge: (id: string) => void;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
   setNodeDraggable: (nodeId: string, draggable: boolean) => void;
@@ -451,11 +452,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     return id;
   },
 
-  addEdge: (source, target, sourceHandle, targetHandle) => {
-    const id = getId('edge');
+  addEdge: (source, target, sourceHandle, targetHandle, deterministicId) => {
+    const id = deterministicId ?? getId('edge');
+    // 确定性建边幂等：同 id 已存在 no-op（防 React Flow 双 key）
+    if (get().edges.some(e => e.id === id)) return id;
     const edge: Edge = { id, source, target, type: 'default', sourceHandle, targetHandle };
     set((s) => ({ edges: [...s.edges, edge] }));
     return id;
+  },
+
+  removeEdge: (id) => {
+    set((s) => ({ edges: s.edges.filter(e => e.id !== id) }));
   },
 
   createDerivedExtNode: (params) => {
@@ -570,6 +577,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   onConnect: (connection) => {
+    // 同源判重（spec 第二节顺手项：现状缺口非本功能引入，同一对节点重复拖线不再叠边）
+    if (get().edges.some(e => e.source === connection.source && e.target === connection.target)) return;
     const id = getId('edge');
     const edge: Edge = { id, ...connection };
     set((s) => ({ edges: [...s.edges, edge] }));
