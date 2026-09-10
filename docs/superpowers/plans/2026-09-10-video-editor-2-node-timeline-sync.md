@@ -41,6 +41,8 @@
 > **Task 14 执行期修正（2026-09-11，quality review C1/I1/I3/M1）**：(C1) **标尺-轨道坐标系 140px 错位**——轨道头 w-[140px] 使轨道体坐标系从 x=140 起、Ruler 从 x=0 起，t=0 刻度与 t=0 片段整体错开（80px/s 即 1.75s 视觉偏移；Task 15 拖拽/Task 16 drop/Plan 3 锚定全部构建在此坐标系上）。修法：滚动区内容外包 relative min-w-max wrapper，Ruler 行前加同宽 140px 角位占位（widthPx 相应 -140）；几何对齐由 Task 17 浏览器验收（已增项）。(I1) **onWheel preventDefault 无效**——react-dom 18 根容器把 wheel 注册为 passive，合成 preventDefault 是 no-op，Ctrl+滚轮会同时触发浏览器整页缩放；改 scrollRef 原生 `addEventListener('wheel', h, { passive: false })` + cleanup（Plan 3 接锚定换算时复用此监听）；测试用 addEventListener spy 断言 passive:false 注册（纯行为断言在 jsdom 下无判别力——事件委托使合成 onWheel 同样触发）。(I3) 贯穿播放头竖线（playhead-line testid，left=140+playhead×pxPerSec，pointer-events-none z-10，随内容滚动；原注释承诺但无人认领）。(M1) TrackRow 冗余 as any 清除。**Task 15 注意事项（I2 登记）**：轨道体 onClick→selectClip(null) 与片段选中相冲——ClipBlock onPointerDown 的 stopPropagation 挡不住后续 click 冒泡，按计划实现必踩"选中即反选"；修法任一：ClipBlock 同时阻断 click 冒泡，或反选移到轨道体 pointerdown 且校验 target 为轨道体自身。登记：M2 widthPx resize 不响应（Plan 3 ResizeObserver）；M4 panel 级 playhead 订阅全轨重渲（Plan 3 播放接入时 memo(TrackRow) 或订阅下沉）；M6 Shell 测试 act 警告（既有噪音）。三态守卫交换（error 提前 + loading 简化）为 TS 窄化必要（语义等价）。
 >
 > **Task 15 执行期修正（2026-09-11）**：控制器预验算批准 2 处向量修正——(a) trim 用例素材时长 10 用满（trimRightGuard maxDelta=0 夹死）→ addClip 后 setMediaInfo 15 给 guard 富余；(b) 键盘两用例补 `useVideoEditorStore.setState({ open: true })`（hook 首行 open 门卫，原用例必红）。jsdom 适配 3 处：pointer 事件用 `new MouseEvent('pointerdown')` 按 type 派发（jsdom 无 PointerEvent 构造器，项目既有先例）；elementFromPoint 加 ?. 防御 + offsetX 越块宽不判 trim（jsdom rect 全 0 伪影——真实浏览器 offsetX 恒在块内不可达，纯适配）；跨轨 mock 直接注入 + afterEach delete（vi.spyOn 属性不存在抛错）+ addTrack act 包裹。(I2 落实) ClipBlock onClick stopPropagation。卫生修复：pointercancel 与 up 同路径收口（触控/浏览器接管手势防 dragRef 残留）；DragState 死字段清理（pointerMoved/startClientY/startDuration 删、pointerMovedOnce 升正式字段去 as any）；字幕用例 act 包裹。登记：useEditorKeyboard.test.ts 不单独建（Files 清单与 Step 1 不一致，键盘覆盖并入 interact 2 用例——redo/空格/Backspace/INPUT guard 键位分支无直测，store 层有兜底）；空格 preventDefault 对聚焦按钮恰好防误删（取舍记录）；move 回原位等价快照入栈（引用比较最廉价实现，Task 17 观察后接受或登记）。Task 17 浏览器验收重点：I2 click 阻断（跨轨换轨 DOM 重建致 capture 释放时 click 落共同祖先——最坏选中丢失外观瑕疵非状态破坏）/startPxPerSec 缩放手感/等价快照。
+>
+> **Task 16 执行期修正（2026-09-11，quality review I1/M1-M2）**：(I1) **drop 轨道匹配补字幕轨守卫**——原条件 `trackType === 'audio' ? kind !== 'audio' : kind === 'audio'` 对 subtitle 轨走 else 分支不设防（视频/图片可拖入字幕轨建错型片段并持久化，违 spec 验收 5），重写为 `kind === 'audio' ? trackType !== 'audio' : trackType !== 'video'`（audio 片只进 audio 轨、video/image 只进 video 轨、字幕轨不接受 drop）+ 字幕轨 drop 忽略用例。控制器预验算批准：drop 用例 beforeEach 的 canvasStore 须提供 edit1/v1 节点（Task 8 素材缺失守卫会拒绝空画布建边，auto:edit1:v1 断言必红——守卫晚于计划测试编写，两轮审核均未重核）。(M1) useWorkflowAssets 空 ids 早退补 setLoading(false)（防在途请求被取消后 loading 永真）。(M2) metadata cast 收窄 `{ durationSec?: number }`。(基建) '已添加'用例 addClip act 包裹（zustand 微任务渲染 flush 先例）；stopCapturing 可选链安全（无 UndoManager no-op，无需 mock）。登记：entries 与 idsKey 同源派生安全（改节点 duration 配置不重查——fileId 集合不变，产品流可接受，Plan 3 有需求再扩 memo 签名）；JSON.parse 无 try（唯一写入方 AssetPanel 同源受控，YAGNI）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -4136,8 +4138,8 @@ const handleClipDrop = (e: React.DragEvent<HTMLDivElement>) => {
   const trackType = trackEl.dataset.trackType!;
   const kind = payload.mimeType.startsWith('video/') ? 'video'
     : payload.mimeType.startsWith('audio/') ? 'audio' : 'image';
-  // 轨道类型匹配（图片进视频轨；跨类型 drop 忽略）
-  if (trackType === 'audio' ? kind !== 'audio' : kind === 'audio') return;
+  // 轨道类型匹配（audio 片只进 audio 轨；video/image 片只进 video 轨——图片归视频轨；字幕轨不接受 drop——执行期 I1 修正：原条件对 subtitle 轨不设防，视频素材可拖入字幕轨建错型片段）
+  if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') return;
   const rect = trackEl.getBoundingClientRect();
   const start = quantizeTime(Math.max(0, pxToTime(e.clientX - rect.left, pxPerSec)));
   if (payload.originalName) {
