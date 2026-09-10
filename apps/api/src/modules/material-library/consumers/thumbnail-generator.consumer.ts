@@ -19,13 +19,13 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ mediaId: string; key: string; mimeType: string }>) {
-    const { mediaId, key, mimeType } = job.data;
+  async process(job: Job<{ mediaId: string; key: string; mimeType: string; seekSec?: number }>) {
+    const { mediaId, key, mimeType, seekSec } = job.data;
     try {
       if (mimeType.startsWith('image/')) {
         await this.processImage(mediaId, key);
       } else if (mimeType.startsWith('video/')) {
-        await this.processVideo(mediaId, key);
+        await this.processVideo(mediaId, key, seekSec);
       }
     } catch (error) {
       console.error('Thumbnail generation failed:', error);
@@ -56,7 +56,7 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
     });
   }
 
-  private async processVideo(mediaId: string, key: string) {
+  private async processVideo(mediaId: string, key: string, seekSec?: number) {
     const ffmpeg = await import('fluent-ffmpeg');
     // Use tmp package for automatic cleanup (handles Windows paths with spaces)
     const tempFile = tmp.fileSync({ postfix: '.mp4' });
@@ -75,7 +75,7 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
     await new Promise<void>((resolve, reject) => {
       ffmpeg.default(tempPath)
         .screenshots({
-          timestamps: [1],
+          timestamps: [seekSec ?? 1],
           filename: require('path').basename(thumbnailPath),
           folder: require('path').dirname(thumbnailPath),
           size: '300x225',
