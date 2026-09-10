@@ -3,9 +3,12 @@ import { useEffect } from 'react';
 import { message } from 'antd'; // Vite ESM：静态导入（require 不可用）
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 
 export function isGroupEditContext(target: HTMLElement | null): boolean {
+  // 视频编辑器打开期间画布快捷键禁用（spec 第五节；document keydown 是冒泡阶段，捕获层 stopPropagation 挡不住，此处为现成早退点）
+  if (useVideoEditorStore.getState().open) return true;
   const ns = useNodeStore.getState();
   if (ns.activeEditNodeId !== null || ns.activeTransformNodeId !== null) return true;
   const active = document.activeElement as HTMLElement | null;

@@ -217,3 +217,18 @@ describe('BaseFullscreenModal', () => {
     document.body.removeChild(btn);
   });
 });
+
+describe('BaseFullscreenModal closeOnBackdrop 开关', () => {
+  it('默认 true：点遮罩关闭（既有行为保持）', () => {
+    const onClose = vi.fn();
+    render(<BaseFullscreenModal open onClose={onClose} label="测试"><div /></BaseFullscreenModal>);
+    fireEvent.click(screen.getByRole('dialog').parentElement!); // dialog 的父级即遮罩层
+    expect(onClose).toHaveBeenCalled();
+  });
+  it('closeOnBackdrop=false：点遮罩不关闭（视频编辑器场景）', () => {
+    const onClose = vi.fn();
+    render(<BaseFullscreenModal open onClose={onClose} label="测试" closeOnBackdrop={false}><div /></BaseFullscreenModal>);
+    fireEvent.click(screen.getByRole('dialog').parentElement!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

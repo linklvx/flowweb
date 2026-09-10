@@ -11,6 +11,7 @@ import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryMo
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
 import { LightingModal } from './components/Lighting/LightingModal';
 import { Angle3DModal } from './components/Angle3D/Angle3DModal';
+import { VideoEditorShell } from './video-editor/components/VideoEditorShell';
 import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
@@ -296,6 +297,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <HistoryModal />
         <LightingModal />
         <Angle3DModal />
+        <VideoEditorShell />
         <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
         {isHydrating && (
           <div
