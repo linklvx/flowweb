@@ -31,7 +31,7 @@ export function AssetPanel() {
                 sourceNodeId: i.sourceNodeId || undefined,
                 mimeType: i.mimeType,
                 originalName: i.originalName,
-                durationSec: i.nodeDurationSec ?? (i.metadata as any)?.durationSec, // 决策 6：节点配置时长优先，metadata 兜底
+                durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, // 决策 6：节点配置时长优先，metadata 兜底
               }))}
               className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[#F7F8FA]">
               <div className="w-10 h-10 rounded-md bg-[#F2F3F5] shrink-0 overflow-hidden flex items-center justify-center">

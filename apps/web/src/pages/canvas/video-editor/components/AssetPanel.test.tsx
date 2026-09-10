@@ -94,4 +94,21 @@ describe('AssetPanel', () => {
     });
     expect(useCanvasStore.getState().edges.some(e => e.id === 'auto:edit1:v1')).toBe(true); // 连线闭环
   });
+
+  it('drop 到字幕轨 → 忽略（错型不入库——review I1）', async () => {
+    (batchGetMedia as any).mockResolvedValue([mkItem('m1', '视频A.mp4', 'video/mp4')]);
+    const { TimelinePanel } = await import('./timeline/TimelinePanel');
+    render(<TimelinePanel />);
+    const subTrackBody = document.querySelector('[data-track-type="subtitle"]')!;
+    const payload = JSON.stringify({
+      mediaId: 'm1', sourceNodeId: 'v1', mimeType: 'video/mp4',
+      originalName: '视频A.mp4', durationSec: 8,
+    });
+    fireEvent.drop(subTrackBody, {
+      dataTransfer: { getData: (type: string) => (type === 'application/x-clip' ? payload : '') },
+      clientX: 80,
+    });
+    const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
+    expect(subTrack.clips).toHaveLength(0); // 视频素材不进字幕轨
+  });
 });

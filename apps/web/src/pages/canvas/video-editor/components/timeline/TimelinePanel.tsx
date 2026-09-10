@@ -128,8 +128,8 @@ export function TimelinePanel() {
     const trackType = trackEl.dataset.trackType!;
     const kind = payload.mimeType.startsWith('video/') ? 'video'
       : payload.mimeType.startsWith('audio/') ? 'audio' : 'image';
-    // 轨道类型匹配（图片进视频轨；跨类型 drop 忽略）
-    if (trackType === 'audio' ? kind !== 'audio' : kind === 'audio') return;
+    // 轨道类型匹配（audio 片只进 audio 轨；video/image 片只进 video 轨——图片归视频轨；字幕轨不接受 drop（review I1））
+    if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') return;
     const rect = trackEl.getBoundingClientRect();
     const start = quantizeTime(Math.max(0, pxToTime(e.clientX - rect.left, pxPerSec)));
     if (payload.originalName) {

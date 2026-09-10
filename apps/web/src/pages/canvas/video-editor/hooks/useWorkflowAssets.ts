@@ -27,7 +27,7 @@ export function useWorkflowAssets(): { items: AssetItem[]; loading: boolean } {
   useEffect(() => {
     let cancelled = false;
     const ids = idsKey ? idsKey.split(',') : [];
-    if (ids.length === 0) { setItems([]); return; }
+    if (ids.length === 0) { setItems([]); setLoading(false); return; } // 补 setLoading——防在途请求被取消后 loading 永真（review M1）
     setLoading(true);
     batchGetMedia(ids)
       .then((rows) => {
