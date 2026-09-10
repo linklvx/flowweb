@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { svSatisfied } from './sv.util';
 import { svWaitTimeoutTotal } from './sv-wait.metrics';
+import { buildShadowNodeYMap } from './node-doc.util';
 
 @Injectable()
 export class CollabDocumentService {
@@ -88,6 +89,19 @@ export class CollabDocumentService {
         nodeMap.set('data', dataMap);
       }
       for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
+    });
+  }
+
+  /** A1 影子节点：整节点写入。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
+  async insertNode(projectId: string, node: Parameters<typeof buildShadowNodeYMap>[0]) {
+    await this.withDoc(projectId, (doc) => {
+      doc.getMap('nodes').set(node.id, buildShadowNodeYMap(node));
+    });
+  }
+
+  async removeNode(projectId: string, nodeId: string) {
+    await this.withDoc(projectId, (doc) => {
+      doc.getMap('nodes').delete(nodeId);
     });
   }
 }
