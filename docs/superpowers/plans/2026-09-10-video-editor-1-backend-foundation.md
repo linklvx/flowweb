@@ -583,14 +583,16 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.control
 
 ```ts
 // apps/api/src/modules/video-project/video-project.controller.ts
-import { Controller, Post, Get, Patch, Delete, Body, Param, Req, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Req, UsePipes, ValidationPipe, Inject } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 import { CreateVideoProjectDto, PatchVideoProjectDto } from './video-project.dto';
 
 @Controller('api/video-projects')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true })) // ValidationPipe 非全局，必须自挂
 export class VideoProjectController {
-  constructor(private readonly svc: VideoProjectService) {}
+  // @Inject 显式 token（执行期修订：本仓 vitest 走 esbuild 无 emitDecoratorMetadata，裸参数属性
+  // 在 TestingModule 下注入 undefined——全仓 23 个被测 controller 均用 @Inject，本仓惯例）
+  constructor(@Inject(VideoProjectService) private readonly svc: VideoProjectService) {}
 
   @Post()
   create(@Body() dto: CreateVideoProjectDto, @Req() req: any) {
@@ -1054,12 +1056,12 @@ import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGen
 
 同时 `video-project.module.ts` 的 providers 追加 `GeneratedMediaService`（Task 7 预留位）并补 import。
 
-Controller 追加（同文件——**构造器改两参**，这是 Task 7 → Task 10 唯一一处构造器变更）：
+Controller 追加（同文件——**构造器改两参**，这是 Task 7 → Task 10 唯一一处构造器变更；注意沿用 Task 7 执行期修订的 **@Inject 显式 token** 模式——裸参数属性在本仓 esbuild vitest 下注入 undefined）：
 
 ```ts
   constructor(
-    private readonly svc: VideoProjectService,
-    private readonly generated: GeneratedMediaService,
+    @Inject(VideoProjectService) private readonly svc: VideoProjectService,
+    @Inject(GeneratedMediaService) private readonly generated: GeneratedMediaService,
   ) {}
 ```
 
