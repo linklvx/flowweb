@@ -38,6 +38,7 @@ model User {
   teamJoinRequests TeamJoinRequest[]
   decidedTeamJoinRequests TeamJoinRequest[] @relation("TeamJoinRequestDecidedBy")
   projectMembers ProjectMember[]
+  videoProjects VideoProject[]
 }
 
 model Account {
@@ -170,6 +171,7 @@ model CanvasProject {
   canvasDoc CanvasDoc?
   projectMembers ProjectMember[]
   docUpdates CanvasDocUpdate[]
+  videoProjects VideoProject[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -431,6 +433,26 @@ model VideoSeparateTask {
   @@index([sourceFileId])
 }
 
+model VideoProject {
+  id           String        @id @default(cuid())
+  teamId       String
+  userId       String        // 取当前操作用户（assertEditor 通过者）——与 CanvasProject.userId 可空无关
+  workflowId   String        // CanvasProject.id：regenerate/socket room/资产过滤/级联删除
+  sourceNodeId String        @unique // 视频剪辑节点自身 nodeId——一剪辑节点一工程
+  title        String
+  data         Json
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  team      Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflow  CanvasProject @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([userId])
+  @@index([workflowId])
+}
+
 // ========== 会员订阅 ==========
 
 enum SubscriptionTier {
@@ -673,6 +695,7 @@ model Team {
   lightingTasks    LightingTask[]
   videoTrimTasks   VideoTrimTask[]
   videoSeparateTasks VideoSeparateTask[]
+  videoProjects       VideoProject[]
   subscriptions TeamSubscription[]
   orders       TeamRechargeOrder[]
   joinRequests TeamJoinRequest[]
