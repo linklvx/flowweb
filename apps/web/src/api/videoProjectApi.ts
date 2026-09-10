@@ -14,8 +14,8 @@ export interface VideoProjectDto {
 export async function getProjectByNode(sourceNodeId: string): Promise<VideoProjectDto | null> {
   try {
     return await apiFetch<VideoProjectDto>(`/video-projects/by-node/${sourceNodeId}`);
-  } catch (e: any) {
-    if (e?.status === 404) return null; // 工程不存在=空态（添加节点不建工程）
+  } catch (e) {
+    if ((e as { status?: number })?.status === 404) return null; // 工程不存在=空态（添加节点不建工程）
     throw e;
   }
 }

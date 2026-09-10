@@ -25,21 +25,24 @@ function GridIcon() {
 function VideoEditNodeComponent({ id, selected }: NodeProps) {
   const openEditor = useVideoEditorStore((s) => s.openEditor);
   const closedAt = useVideoEditorStore((s) => s.closedAt);
-  const closedSource = useVideoEditorStore((s) => s.sourceNodeId);
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
   const [{ canPreview }] = useState(detectVideoEditorCapabilities);
 
   useEffect(() => {
     let cancelled = false;
+    // closedAt 递增且 sourceNodeId 匹配本节点 → 编辑器关闭后刷新缩略；
+    // 挂载首取（closedAt===0 或 sourceNodeId 尚未指向任何节点）始终放行（M2 精确化）
+    const cs = useVideoEditorStore.getState();
+    const isMine = cs.sourceNodeId === id;
+    if (closedAt > 0 && !isMine) return;
     getProjectByNode(id)
       .then((p) => { if (!cancelled) setProjectData(p?.data ?? null); })
-      .catch(() => { if (!cancelled) setProjectData(null); });
+      .catch(() => { /* 失败保留现状：首载 null→空态，refetch 保留旧缩略（review M3） */ });
     return () => { cancelled = true; };
-    // closedAt 递增且匹配本节点 → 编辑器关闭后刷新缩略
-  }, [id, closedAt, closedSource]);
+  }, [id, closedAt]);
 
   const dur = projectData ? totalDuration(projectData) : 0;
-  const ratio = dur > 0 ? 288 / dur : 0; // 缩略区有效宽 288（316 - padding）
+  const ratio = dur > 0 ? 288 / dur : 0; // 缩略区有效宽 288（316−2 border−24 padding≈290 取整 288）
 
   return (
     <div className="relative canvas-node" data-testid={`video-edit-node-${id}`}>
@@ -64,14 +67,17 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
             className="text-[12px] text-[#86909C] bg-transparent border-0 cursor-not-allowed px-1">▶</button>
           <span className="text-[12px] text-[#86909C]">{formatShortTime(0)} / {formatShortTime(dur)}</span>
           <Tooltip title={canPreview ? '' : '当前浏览器不支持 WebCodecs，请使用最新版 Chrome/Edge'}>
-            <button
-              type="button"
-              className="ml-auto text-[12px] text-[#6C5CE7] bg-transparent border-0 px-1 py-0.5 cursor-pointer disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
-              disabled={!canPreview}
-              onClick={() => openEditor(id)}
-            >
-              ⤢ 全屏编辑
-            </button>
+            {/* disabled 控件不派发鼠标事件（Chromium 行为）且 antd5 Trigger 无 disabled 兼容包裹——span 包裹使 hover 可达（review C1） */}
+            <span className="ml-auto inline-flex">
+              <button
+                type="button"
+                className="text-[12px] text-[#6C5CE7] bg-transparent border-0 px-1 py-0.5 cursor-pointer disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
+                disabled={!canPreview}
+                onClick={() => openEditor(id)}
+              >
+                ⤢ 全屏编辑
+              </button>
+            </span>
           </Tooltip>
         </div>
         {/* 轨道区只读缩略：片段色块（thumbnail 拼贴 Plan 3 接，色块先行）+ 播放头位置 */}

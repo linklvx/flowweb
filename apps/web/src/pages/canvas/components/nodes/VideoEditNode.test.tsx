@@ -95,4 +95,23 @@ describe('VideoEditNode 本体', () => {
     expect(document.querySelector('[data-testid="video-edit-target"]')).toBeInTheDocument();
     expect(document.querySelector('[data-testid="video-edit-source"]')).toBeInTheDocument();
   });
+
+  it('能力不满足 → hover 全屏编辑显示不支持提示（Tooltip span 包裹——C1 回归锁）', async () => {
+    vi.unstubAllGlobals(); // 三件全缺
+    (getProjectByNode as any).mockResolvedValue(null);
+    renderNode();
+    await waitFor(() => expect(screen.getByText('+ 添加素材')).toBeInTheDocument());
+    fireEvent.mouseEnter(screen.getByText('⤢ 全屏编辑').closest('button')!.parentElement!);
+    const tip = await screen.findByText('当前浏览器不支持 WebCodecs，请使用最新版 Chrome/Edge');
+    expect(tip).toBeInTheDocument();
+  });
+
+  it('closedAt 递增但 sourceNodeId 指向其他节点 → 不 refetch（M2 精确化）', async () => {
+    (getProjectByNode as any).mockResolvedValue(null);
+    renderNode();
+    await waitFor(() => expect(getProjectByNode).toHaveBeenCalledTimes(1));
+    useVideoEditorStore.setState({ closedAt: 1, sourceNodeId: 'other-node' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(getProjectByNode).toHaveBeenCalledTimes(1); // 不匹配不重取
+  });
 });
