@@ -4347,6 +4347,7 @@ git add -A && git commit -m "test(video-editor): Plan 2 浏览器验收通过（
 - **R2 轮审核（2026-09-10）已闭合**：R1 四条驳回复核全部维持（审核方撤回）；采纳 P0-A（assets 悬空消除：payload 自带名称/时长）/P1-A（TrackRow 三 prop 正文传递）/P1-B（afterEach 收口 + 监听 useEffect 化）/P1-C 前半（tsc -b 前移 Task 1）/P2-1（无源片 -Infinity 边界用例）；驳回 P1-C 后半（preview 工具组：审核沙箱 ≠ 执行会话）；自修 -0/Object.is 陷阱（toBe(0) → toBeCloseTo）。无遗留阻塞项
 - **R3 轮审核（2026-09-10）已闭合**：P0-A 根因（修复未落实现块与断言）三处收口——AssetPanel 主实现块 5 字段 payload（唯一权威版本）/drop 用例补 duration+mediaInfo 断言（锁力归位）/TimelinePanel import 增量与 useEditorKeyboard 实现行；P2×3（-0 归一 /startPxPerSec 拖拽比例尺快照/TrackRow minWidth 修正）。
 - **R4 轮审核（2026-09-10）已闭合**：R3 六项复核全部真采纳。P1-1 方案 A——决策 6 第一优先级补代码路径（AssetItem.nodeDurationSec → payload `nodeDurationSec ?? metadata.durationSec`），测试向量 5s/8s 双值分解（dragStart 用例锁优先级解析、drop 用例锁消费契约，两侧独立回归可定位）；P2×3——Task 15 useEffect 移到监听函数定义后（防执行者误判）/intervalsOverlap 死代码删/Task 14 面板删未用 dur 与孤儿 import + Task 15 补 import 增量（view-scale 五函数 + CLIP_BLOCK_MIN_PX + Clip 类型）、Task 16 增量收敛 quantizeTime。四轮共 20 项修订，无遗留
+- **最终整体 review（2026-09-11，991a3fbf..6e0372a4 共 48 提交 +4051/-154）**：**Plan 2 完成判定通过**。附录 B 阶段 2/3/4 逐项核对无遗漏；17 轮执行期修正抽查 15+ 项全部在位无矛盾；浏览器验收 10 实测 + 2 单测佐证（降级登记）+ 验收期 3 项跨 plan 脱节 TDD 修复；边界干净零越界（预览/audio-engine/导出/socket/AI 按钮占位均标注归属）；遗留项全部登记可溯源。Suggestion 级新发现 3 项（VideoEditNodeData 待 Plan 3 消费/spec L241 title 措辞待对齐/api collab.gateway 既有计时 flake 放宽）——均不阻塞，已入交接清单。全量：web 214 文件 2218 测试 + api 126 文件 979 测试（978 绿 + 1 既有 flake 单跑全过）+ tsc -b 0 error。
 
 ## 后续 Plan（另开文件）
 
