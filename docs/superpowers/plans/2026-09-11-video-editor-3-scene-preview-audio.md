@@ -698,11 +698,11 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     expect(state.consumed).toBe(consumed); // current 窗口 [2,3) 直返
     expect((await svc.getFrame('m1', SRC, 2.9))?.timestamp).toBe(2);
   });
-  it('前进请求：next 帧窗口命中', async () => {
+  it('前进请求：迭代前进消费下一帧命中', async () => {
     const { handle } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    await svc.getFrame('m1', SRC, 2.5); // 消费至 ts=3（超前存 next）
-    const f = await svc.getFrame('m1', SRC, 3.2);
+    await svc.getFrame('m1', SRC, 2.5); // 命中 [2,3) 即返（iterator 挂起于 yield ts=2，不预取）
+    const f = await svc.getFrame('m1', SRC, 3.2); // |3.2-2|≤2 不重建 → 迭代前进消费 ts=3 命中（R5 注释修正：顺序产出下 next 预存分支不触达，真正覆盖 next 分支的是超前 yield 场景——vendor 流下由乱序/跳帧触发）
     expect(f?.timestamp).toBe(3);
   });
   it('大跳（>2s）重建 iterator：canvases 再次调用', async () => {
@@ -881,7 +881,12 @@ export class VideoCacheService {
       if (!opening) {
         const gen = this.generations.get(mediaId) ?? 0;
         opening = this.deps.openSink(url).then((handle) => {
-          if (!handle) return null;
+          if (!handle) {
+            // R5：open 失败（无视频轨/canDecode false/403 reject）同样进冷却——否则 .finally 删 opening 后
+            // 下一帧 renderLatest 再调 getFrame 再次 openSink（Input 构造 + moov range 请求），30-60 次/秒
+            this.retryAfter.set(mediaId, this.now() + RETRY_COOLDOWN_MS);
+            return null;
+          }
           if ((this.generations.get(mediaId) ?? 0) !== gen) { // R4：release 已发生 → 在途 open 作废
             try { handle.dispose(); } catch { /* 已释放 */ }
             return null;
@@ -924,7 +929,10 @@ export class VideoCacheService {
   }
 
   release(mediaId?: string): void {
-    // R4：先作废在途 open（keys 物化后再清 entries），再释放已驻留 entry
+    // R4：先作废在途 open（keys 物化后再清 entries），再释放已驻留 entry。
+    // R5：generations 不 clear——bump 值即作废凭据，clear 会把它抹平（在途 chain 捕获 gen=0、
+    // 迟到完成时 undefined ?? 0 = 0 相等 → 不作废 → 复活 entry，用例 11 两断言必红）；
+    // 保留计数无副作用：重进后新 chain 以 bump 后的值为基准捕获，比对相等正常放行。map 只增媒体数个 number。
     const keys = mediaId === undefined
       ? [...new Set([...this.entries.keys(), ...this.opening.keys()])]
       : [mediaId];
@@ -932,8 +940,7 @@ export class VideoCacheService {
     if (mediaId === undefined) {
       for (const e of this.entries.values()) e.dispose();
       this.entries.clear();
-      this.generations.clear();
-      this.retryAfter.clear(); // 会话终结（编辑器收起）——冷却不跨会话继承
+      this.retryAfter.clear(); // 会话终结（编辑器收起）——冷却不跨会话继承（与 generations 语义不同：retryAfter 是源健康度、新会话重试合理；generations 是实例代数、清了旧 chain 复活）
     } else {
       this.entries.get(mediaId)?.dispose();
       this.entries.delete(mediaId);
@@ -2532,7 +2539,7 @@ export function PreviewPlayer() {
 
 - **VideoEditorShell.tsx**：① `<PreviewPlaceholder />` 替换为 `<PreviewPlayer />`（删 PreviewPlaceholder.tsx 文件与其 import）；右列占位 span 替换为 `<PropertiesPanel />`（Task 10 实现——本 task 先建最小占位 `export function PropertiesPanel() { return <div data-testid="properties-panel" className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white" />; }` 防 import 断裂，Task 10 完整化）。② `handleClose` 内 flush 完成后、`close()` 之前调 `releaseEditorRuntime()`（import 自 hooks/playback）。③ 底部 `TimelinePanel` 之前的中列结构保持。
 - **AssetPanel.tsx**：`useWorkflowAssets` 的 items 就绪后同步 mediaInfo——组件体内 `useEffect(() => { if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }]))); }, [items])`（含既有工程重开的 url 回填，决策 13）。
-- **TimelinePanel.tsx**：① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine />`（**R4 无 props 化**：原 data/widthPx 仅喂未被使用的滚动内容宽 w——死代码删除；left = 140 + playhead 换算 px，放滚动内容 wrapper 内与 Ruler 同坐标系、140px 轨道头偏移几何一致，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
+- **TimelinePanel.tsx**：⓪ 头部 import 改 `import { useEffect, useMemo, useRef, useState } from 'react';`（R5：现码 L1 仅 `{ useEffect, useRef }`——⑤ 的 useState 与 Task 13 的 useMemo 一次到位，落地即改防两处分别踩 TS2304）；① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine />`（**R4 无 props 化**：原 data/widthPx 仅喂未被使用的滚动内容宽 w——死代码删除；left = 140 + playhead 换算 px，放滚动内容 wrapper 内与 Ruler 同坐标系、140px 轨道头偏移几何一致，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
 
 ```tsx
   const [viewportW, setViewportW] = useState(940);
@@ -3030,7 +3037,9 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
       const clip = s.data.clips[clipId] as Clip | undefined;
       if (!clip || clip.type === 'subtitle') return;
       commit((d) => {
-        const c = d.clips[clipId] as VideoClip | AudioClip;
+        // R5：as VideoClip 单型视图（与 moveKeyframe 同款）——TransformKeyframe[] | VolumeKeyframe[] 联合上
+        // 调 .filter 触发 TS2349（union 泛型签名互不兼容）；audio 的 VolumeKeyframe 与 id 过滤结构兼容，单型谎报无运行时后果
+        const c = d.clips[clipId] as VideoClip;
         return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: c.keyframes.filter(k => k.id !== kfId) } } };
       }, { structural: false });
       if (get().selectedKeyframeId === kfId) set({ selectedKeyframeId: null });
@@ -3767,7 +3776,8 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - **R2 轮审核修订（2026-09-11，R1 修订核验 20/21 落实 + 新引入 3 必红 + 1 flaky + 5 架构项全数采纳）**：必红 N1-N3——decode.ts input.dispose().catch 残留补修（R1 只修 video-cache 一处）；Task 9 IO effect deps:[] 闭包捕获首渲染 projectData=null → stopMini 空 release，stopMiniRef/projectDataRef 统一三释放入口（N2）；关键帧选中模型定案 selectKeyframe(kfId, clipId) 双写（N3/决策 19，用例改"先选片段再点菱形"）。P1 N4-N6——stretchPcm 尾部断言改 200 样本窗口 max（单点采样 6.4% flaky，N4）；renderLatest 统一 playing tick 与暂停 effect 的 in-flight 去重 + G1 补测（N5/决策 18）；Ruler pointer capture 加 ?.（jsdom 无 PointerCapture，N6）。架构 A1-A5——engine AudioBuffer 单份驻留（pcmCache 删，prepare 即转，N 立减半，A1/决策 6①）；spec 内存预估 86→345.6MB/轨 修正 + 勘误③ + Plan 4 阈值口径同源（A2）；视频取源改 mediabunny UrlSource（HTTP Range，d.ts 实测导出；音频/图片保持 blob；Task 14 加 Range 206 验收，A3/决策 1）；播放中编辑重排 100ms 前沿去抖（A4/决策 6③）；StopwatchButton 改派生布尔订阅（A5/决策 20）。另：迷你播放 loadMediaUrls ref 命中跳过（省重复 RTT）；spec 边界表登记多标签双解码
 - **R3 轮审核修订（2026-09-11，R2 修订核验 11/11 落实 + 2 必红 + UrlSource 语义修正 + 3 架构残留全采纳）**：必红——Task 7 FrameRenderDeps 双声明残留删除（R2 改 import 未删旧接口块，TS2300+TS2304）；Task 4 LRU 用例 `_b: Blob` 改 `_url: string`（strictFunctionTypes 逆变）。UrlSource 语义（实测 source.js L699-714）——退化形态更正为"sequential 流式 + 缓存驱逐 + 回拖抛错黑帧"（非"退化为整下载"），决策 1 措辞重写 + Nginx 具体指令（proxy_force_ranges on / Range+If-Range set_header）+ Content-Range CORS 条件（/flowai 同源重写已验，换前缀需 ExposeHeaders）；Task 14 验收升级为服务侧+浏览器侧双验（多次 206 + console 无 range 警告）+ 新增跨缓存回拖 seek 无黑帧终验。自愈缺口（3.3）——video-cache getFrame 捕错 release(mediaId) 重开（含回归用例）；预签名 3600s 过期一期限制登记 spec 边界表。架构残留——prepare 瞬时峰值实测口径（稳态 3-4 倍，替换 spec"×2"）+ Task 14 内存观测项（§4.1 选①）；renderLatest 尾追旧 data 登记于实现注释（§4.2 低危）；A4 验收口径补"拖动过程中允许不同步"（§4.3）。历史小项——Task 12 ClipBlock 补 useRef/useEffect import 说明（五-1）；audio 菱形 title 用"音量"防 undefined（五-2）；scrub 加 scrubActive 守卫（五-3）；hasPcm/releasePcm 语义注释（五-4，Plan 4 消费提示）；纯视频工程建 ctx 偏离正式登记决策 8（五-6）；PreviewPlayer 测试 try/finally + 未用 stopPlayback 导入删除（五-5）
 - **R4 轮审核修订（2026-09-11，R3 修订核验 7/7 落实 + Task 9 一根因两必红 + A3 自愈三收口全数采纳）**：必红两处（同根因）——①startMini 的 `await loadMediaUrls()` 先于 `setMiniPlaying(true)`：fireEvent.click 是同步 act 只 flush React 队列、不 flush 用户 promise 续体，点击返回时 miniPlaying 仍 false → 用例 1（画布断言紧跟 click）与用例 4（trigger(false) 时 miniPlayingRef 仍 false，随后微任务 flush 画布出现且无第二次 IO 触发）双双必红——setMiniPlaying(true) 提前至 await 之前（点击即时进播放态，URL 晚到首帧黑底、tick 每帧重读 mediaUrlsRef 到达后自动出画）；②rootRef 声明而增量 JSX 无任何一处挂载（现码 L48 根元素无 ref）→ IO effect 永远早退，用例 4 ioInstances 断言超时且资源纪律③真机整体失效——根元素补 `ref={rootRef}`；③补卸载清理 `useEffect(() => () => { if (miniPlayingRef.current) stopMiniRef.current(); }, [])`（节点删除/画布卸载时不残留 videoCache 条目与 ImageBitmap，deps:[] 经 ref 取最新闭包与 N2 同款）。健壮性三收口——④自愈冷却（坏源 rAF 30-60fps 每秒几十次 release+openSink → retryAfter 2s 冷却 + deps.now 注入可测 + console.warn 诊断痕迹；成功取帧解除冷却、LRU 淘汰不继承冷却、无参 release 会话终结清冷却、带参 release 冷却保留防立即重进再打网络）；⑤openSink rejection 纳入 try（原 `await import`/`new Input` 在 try 外，一 reject 则 getFrame reject 违反"失败→null"契约——openMediabunnySink 整段包 try，const held 窄化闭包）；⑥release 与在途 open 竞态（在途 open 解析后照样 entries.set 复活已释放的 Input/CanvasSink——generations 代数作废，"播放中点关闭"场景即 Task 14 反复进出验收的前置；带参/无参 release 均先物化 keys 再 ++）。小项五条——⑦Task 4 用例 10 适配冷却（now 注入推进时钟）+ 新增竞态用例 11（跑测注释 11 PASS）；⑧Task 11 补 TimelinePanel 头部 import（VideoClip/seekPlayback——现码 L8 仅 Clip，抄写即 TS2304）+ undo/redo 补清 selectedKeyframeId（双写联动不变量收口，Plan 4 消费前）；⑨Task 10 代码块改内联 commit（消除 commitClipPatch 假助手与"勿新增助手函数"注解的"散文对代码块错"自相矛盾——R1-R3 反复踩的形态）；⑩PlayheadLine 无 props 化（data/widthPx 仅喂未被使用的滚动内容宽 w，死代码删除；left = 140 + playhead 换算 px 与 Ruler 同坐标系说明并入挂载点）；⑪Task 13 追加用例复用既有夹具红态（v1.sourceNodeId='s1' 默认即红，getByText 唯一——夹具中仅 v1 带 sourceNodeId）+ 既有夹具红态影响知会登记（render.test 第 3 用例与 interact.test 夹具在本 task 后渲染红标，既有断言不含红标文案不受影响）
-- **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds；video-cache RETRY_COOLDOWN_MS 冷却与 generations 作废语义随 Task 4 契约继承（导出路径消费 getFrame 同样受冷却保护）
+- **R5 轮审核修订（2026-09-11，R4 修订核验 11/11 落实 + 1 必红 + 3 收口全数采纳）**：P0 必红（R4 自引入）——release() 内 `generations.clear()` 把同函数刚 bump 的代数抹平：无参路径 keys.forEach(+1) 后紧接 clear，在途 chain 捕获 gen=0、迟到完成时 `undefined ?? 0 = 0` 相等 → 不作废 → entries.set 复活已释放的 Input/CanvasSink，用例 11 的 disposed/size 两断言必红——删 `generations.clear()`（bump 值即作废凭据；保留计数无副作用：重进后新 chain 以 bump 后的值为基准捕获、比对相等正常放行；map 只增媒体数个 number 无内存顾虑；与 retryAfter.clear() 语义区分注释化——源健康度可跨会话清、实例代数不可清）；P1——open 失败路径补冷却（.then 内 `if (!handle)` 分支 set retryAfter：无视频轨/canDecode false/presigned 403 reject 三种来源原来只在 getFrameAt catch 设冷却，.finally 删 opening 后下一帧 renderLatest 再次 openSink，30-60 次/秒——R4④要堵的风暴换了条路径；与 P0 修法正交：用例 11 迟到 handle 非 null 走作废分支不设冷却、用例 5 单次调用不受影响）；P2 两处——Task 8 TimelinePanel 头部 import 目标形态一次写死 `{ useEffect, useMemo, useRef, useState }`（⓪ 项：现码 L1 仅 { useEffect, useRef }，⑤ 的 useState 与 Task 13 的 useMemo 落地即改防两处分别 TS2304）；Task 10 removeKeyframe 改 `as VideoClip` 单型视图（TransformKeyframe[] | VolumeKeyframe[] 联合上调 .filter 触发 TS2349 union 泛型签名互不兼容——与 moveKeyframe 同款谎报，audio 的 VolumeKeyframe 与 id 过滤结构兼容无运行时后果）；P3——Task 4 用例 3 注释修正（首次命中即返、iterator 挂起于 yield 不预取；顺序产出下 next 预存分支不触达，标题改"迭代前进消费下一帧命中"）
+- **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds；video-cache RETRY_COOLDOWN_MS 冷却（取帧失败 + open 失败双路径）与 generations 作废语义随 Task 4 契约继承（导出路径消费 getFrame 同样受冷却保护）
 
 ## 后续 Plan（另开文件）
 
