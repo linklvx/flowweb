@@ -758,7 +758,10 @@ import { buildShadowNodeYMap } from './node-doc.util';
 
 describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => {
   it('type/position(Y.Map 必写)/data(Y.Map) 结构同构，影子 data 带 __ephemeral', () => {
+    // yjs prelim 机制：孤儿 Y.Map 集成进 doc 前内容不可读（执行期修订：原版测试必然失败而非假绿）
+    const doc = new Y.Doc();
     const m = buildShadowNodeYMap({ id: 'shadow-video-x', type: 'videoGen', position: { x: -99999, y: -99999 }, data: { model: 'm', __ephemeral: true } });
+    doc.getMap('nodes').set('shadow-video-x', m);
     expect(m.get('type')).toBe('videoGen');
     expect(m.get('position')).toBeInstanceOf(Y.Map);
     expect((m.get('position') as Y.Map<any>).get('x')).toBe(-99999);
@@ -767,7 +770,9 @@ describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => 
     expect(data.get('__ephemeral')).toBe(true);
   });
   it('无 parentId 键（fillDoc 同构：parentId null 时省略，防差异循环）', () => {
+    const doc = new Y.Doc();
     const m = buildShadowNodeYMap({ id: 'shadow-x', type: 'videoGen', position: { x: 0, y: 0 }, data: {} });
+    doc.getMap('nodes').set('shadow-x', m);
     expect(m.get('parentId')).toBeUndefined();
   });
 });
@@ -777,6 +782,9 @@ describe('跨端同步实测（固化机制认知）', () => {
     const server = new Y.Doc();
     const client = new Y.Doc();
     server.on('update', (u) => Y.applyUpdate(client, u, 'network'));
+    // 观察者必须在影子写入之前注册——否则 observeDeep 未触发，断言落入 'unset' 恒真假绿窗口（执行期修订）
+    let observedOrigin: unknown = 'unset';
+    client.getMap('nodes').observeDeep((events) => { observedOrigin = events[0].transaction.origin; });
     // 服务端以任意 origin 写入影子节点
     server.transact(() => {
       server.getMap('nodes').set('shadow-video-1', buildShadowNodeYMap({ id: 'shadow-video-1', type: 'videoGen', position: { x: 0, y: 0 }, data: { __ephemeral: true } }));
@@ -785,10 +793,7 @@ describe('跨端同步实测（固化机制认知）', () => {
     const shadow = client.getMap('nodes').get('shadow-video-1') as Y.Map<any>;
     expect(shadow).toBeDefined();
     expect((shadow.get('data') as Y.Map<any>).get('__ephemeral')).toBe(true);
-    let observedOrigin: unknown = 'unset';
-    client.getMap('nodes').observeDeep((events) => { observedOrigin = events[0].transaction.origin; });
-    client.transact(() => { client.getMap('nodes').set('local-1', new Y.Map()); }, 'server-shadow-伪造也不行');
-    expect(observedOrigin).not.toBe('server-shadow'); // origin 由应用侧决定——判据只能靠内容（前缀/__ephemeral）
+    expect(observedOrigin).toBe('network'); // 客户端 observe 到的是传输层 origin——服务端 'server-shadow' 不可见（update 二进制不含 origin）
   });
 });
 ```
@@ -809,6 +814,7 @@ import * as Y from 'yjs';
 export interface ShadowNodeInput {
   id: string; // 必须以 'shadow-' 前缀命名——前端 onRemote 以此为短路判据（origin 不过网，见 spec v3.6 修正）
   type: 'videoGen' | 'audioGen';
+  width?: number; height?: number; // 条件写所需（执行期修订：实现引用 n.width/n.height，接口缺字段 TS strict 报错）
   position: { x: number; y: number };
   data: Record<string, unknown>; // 必含 __ephemeral: true
 }
@@ -851,9 +857,11 @@ export function buildShadowNodeYMap(n: ShadowNodeInput): Y.Map<unknown> {
 
 ```bash
 pnpm -C apps/api exec vitest run src/modules/collab
-# 预期: 新 4 PASS + 既有 collab spec 全绿
+# 预期: 新 3 PASS（同构 2 + 跨端 1）+ 既有 collab spec 全绿
 git add apps/api/src/modules/collab && git commit -m "feat(collab): insertNode/removeNode 原语（fillDoc 同构；短路判据=shadow- 前缀，origin 不过网实测固化）（TDD）"
 ```
+
+> **执行期修订记录（2026-09-10，提交 88e428b9 + 9b9b35a6）**：① 接口补可选 `width?/height?`（plan 代码块自相矛盾——实现引用 n.width/n.height 但接口无字段）；② 同构测试补"集成进 doc"前置两行（yjs 13.6.32 prelim 机制：孤儿 Y.Map 集成前 get 不可读——原版测试 1 必然失败、测试 2 靠"任何 get 都 undefined"假绿）；③ 跨端测试 observeDeep 前置注册 + 断言改 `toBe('network')`（原 `not.toBe('server-shadow')` 恒真假绿，锁力为零）。上方代码块已同步。
 
 ---
 
