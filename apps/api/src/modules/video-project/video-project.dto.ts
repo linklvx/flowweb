@@ -1,11 +1,11 @@
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsDateString, IsIn, IsNumber } from 'class-validator';
+import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
   @IsString() sourceNodeId!: string;
   @IsString() title!: string;
-  @IsObject() data!: object; // ProjectData 结构由前端 shared 类型保证；服务端挡非对象
+  @IsOptional() @IsObject() data?: object; // 可选——service.upsertByNode 缺省空工程（Plan 2 浏览器验收发现：DTO 必填与 service data? 语义脱节，首开编辑器 3 字段 upsert 被 400）
 }
 export class PatchVideoProjectDto {
   @IsObject() data!: object;
