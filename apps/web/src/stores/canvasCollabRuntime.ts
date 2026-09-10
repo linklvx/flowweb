@@ -253,6 +253,7 @@ export async function initCollab(projectId: string): Promise<void> {
   const onRemote = (events: any[]) => {
     const fromLocal = events.some((e) => e.transaction.origin === Origin.LocalUser);
     if (fromLocal) return;
+    if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边对账事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
     if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {

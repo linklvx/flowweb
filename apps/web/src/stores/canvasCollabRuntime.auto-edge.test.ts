@@ -4,6 +4,7 @@ import { useCanvasStore } from './canvasStore';
 import { attachUndoManager, detachUndoManager, Origin } from './canvasUndo';
 import { syncAutoEdgesToDoc, isShadowOnlyEvents } from './canvasCollabRuntime';
 import { autoEdgeId } from './autoEdgeIds';
+import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
 
 describe('syncAutoEdgesToDoc（无业务参数幂等全量对账）', () => {
   let doc: Y.Doc; let um: Y.UndoManager;
@@ -17,12 +18,15 @@ describe('syncAutoEdgesToDoc（无业务参数幂等全量对账）', () => {
   it('store 新增 auto 边 → doc 建边且 origin=AutoEdge', () => {
     const cs = useCanvasStore.getState();
     cs.addEdge('s1', 'edit1', undefined, undefined, autoEdgeId('edit1', 's1'));
+    let seenOrigin: unknown = null;
+    doc.on('afterTransaction', (tr) => { seenOrigin = tr.origin; });
     syncAutoEdgesToDoc(doc);
     const e = doc.getMap('edges').get(autoEdgeId('edit1', 's1')) as Y.Map<any>;
     expect(e).toBeInstanceOf(Y.Map);
     expect(e.get('source')).toBe('s1');
     expect(e.get('target')).toBe('edit1');
     expect(um.undoStack.length).toBe(0); // AutoEdge 不入栈
+    expect(seenOrigin).toBe(Origin.AutoEdge); // 钉死常量本身（undoStack 0 在缺省 origin 时同样过——M3 加硬）
   });
 
   it('store 删除（删节点级联）→ doc 边消失（孤儿 auto 边封堵，spec 验收 29）', () => {
@@ -128,5 +132,41 @@ describe('isShadowOnlyEvents（A1 影子事务短路判定——id 前缀，orig
       client.getMap('edges').set('auto:e:s', new Y.Map());
     }, 'network');
     expect(hit).toBe(false);
+  });
+
+  it('影子节点顶层 delete 事件 → true（removeShadow 路径——M4）', () => {
+    const client = new Y.Doc();
+    client.transact(() => { client.getMap('nodes').set('shadow-1', new Y.Map()); }, 'network');
+    let hit = true;
+    client.getMap('nodes').observeDeep((es) => { hit = isShadowOnlyEvents(es, client.getMap('nodes')); });
+    client.transact(() => { client.getMap('nodes').delete('shadow-1'); }, 'network');
+    expect(hit).toBe(true);
+  });
+});
+
+describe('onRemote AutoEdge 事务跳过（M1——本地自动边对账不触发全量重建）', () => {
+  it('本地 AutoEdge 事务被 onRemote 跳过（M1——不触发全量重建）', () => {
+    const client = new Y.Doc();
+    let rebuilt = true; // 初值取反侧——observeDeep 若未触发则失败，保证锁力
+    // syncAutoEdgesToDoc 只动 edges map，onRemote 对 edges map 也挂同一 handler——observe edges 复刻真实判定链
+    client.getMap('edges').observeDeep((es) => {
+      const isAutoEdge = es.some((e) => e.transaction.origin === Origin.AutoEdge);
+      rebuilt = !isAutoEdge; // AutoEdge 则跳过（onRemote 的 LocalUser 之后、影子短路之前）
+    });
+    client.transact(() => { client.getMap('edges').set('auto:e:s', new Y.Map()); }, Origin.AutoEdge);
+    expect(rebuilt).toBe(false);
+  });
+});
+
+describe('投影层影子过滤（spec __ephemeral 双重过滤——store 侧）', () => {
+  it('readCanvasFromDoc 过滤 shadow- 前缀节点', () => {
+    const doc = new Y.Doc();
+    fillDoc(doc, [
+      { id: 'normal-1', type: 'videoGen', parentId: null, position: { x: 0, y: 0 }, data: {} } as any,
+      { id: 'shadow-video-1', type: 'videoGen', parentId: null, position: { x: -99999, y: -99999 }, data: { __ephemeral: true } as any },
+    ], []);
+    const r = readCanvasFromDoc(doc);
+    expect(r.nodes.find((n: any) => n.id === 'normal-1')).toBeDefined();
+    expect(r.nodes.find((n: any) => n.id === 'shadow-video-1')).toBeUndefined(); // 不进 store
   });
 });

@@ -52,7 +52,9 @@ export function fillDoc(doc: Y.Doc, nodes: PlainNode[], edges: PlainEdge[]): voi
 }
 
 export function readCanvasFromDoc(doc: Y.Doc): { nodes: PlainNode[]; edges: PlainEdge[] } {
-  const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
+  const nodes = [...doc.getMap('nodes').entries()]
+    .filter(([nodeId]) => !nodeId.startsWith('shadow-')) // 影子节点不进 store（spec 双重过滤——投影层；后端 __ephemeral 为另一半）
+    .map(([id, v]) => {
     const m = v as Y.Map<any>;
     return {
       id,
