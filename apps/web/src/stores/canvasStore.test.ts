@@ -723,4 +723,12 @@ describe('deleteNode videoEdit 级联删工程', () => {
     useCanvasStore.getState().deleteNode('e1');
     expect(vi.mocked(deleteProjectByNode)).toHaveBeenCalledWith('e1');
   });
+  it('onNodesChange remove 路径也级联（键盘 Delete 手势——C1）', () => {
+    useCanvasStore.setState({
+      nodes: [{ id: 'e1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any],
+      edges: [], selectedId: null,
+    });
+    useCanvasStore.getState().onNodesChange([{ id: 'e1', type: 'remove' } as any]);
+    expect(vi.mocked(deleteProjectByNode)).toHaveBeenCalledWith('e1');
+  });
 });

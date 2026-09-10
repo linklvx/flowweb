@@ -32,6 +32,17 @@ function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${++counter}`;
 }
 
+/** videoEdit 节点删除时级联删 VideoProject（fire-and-forget；失败 console.error 留痕——deleteNode 与 onNodesChange removes 两条路径共用） */
+const cascadeDeleteVideoProject = (nodes: { id: string; type?: string }[], removedIds: string[]) => {
+  for (const id of removedIds) {
+    if (nodes.find((n) => n.id === id)?.type === 'videoEdit') {
+      deleteProjectByNode(id).catch((err) => {
+        console.error('[video-editor] delete project failed:', err); // 静默孤儿无法排查——失败必须留痕（项目暂无 Sentry 接入，console.error 先行）
+      });
+    }
+  }
+};
+
 // Module-level clipboard for group copy/paste
 let groupClipboard: { group: Node; children: Node[]; innerEdges: Edge[] } | null = null;
 
@@ -212,11 +223,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const state = get();
     state.cancelNodeProcess(id);
     // videoEdit 节点：级联删除 VideoProject（fire-and-forget——失败上报不阻塞画布删除；边由下方 edges.filter 级联清除）
-    if (state.nodes.find((n) => n.id === id)?.type === 'videoEdit') {
-      deleteProjectByNode(id).catch((err) => {
-        console.error('[video-editor] delete project failed:', err); // 静默孤儿无法排查——失败必须留痕（项目暂无 Sentry 接入，console.error 先行）
-      });
-    }
+    cascadeDeleteVideoProject(state.nodes, [id]);
     // B-2：结构 set 必须先于 nodeStore 清理——先清会触发 nodeStore 订阅提前 sync，被删节点走 nd.data 陈旧 fallback 瞬态覆写 doc data；结构 set 先行使其直接从投影消失
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
@@ -506,6 +513,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   updateViewport: (vp) => set({ viewport: vp }),
 
   onNodesChange: (changes) => {
+    // C1：键盘 Delete 手势路径——videoEdit 节点 remove 需在 applyNodeChanges 移除节点前用变更前 state 判型级联删工程
+    const removedIds = changes.filter((c) => c.type === 'remove').map((c) => (c as any).id);
+    if (removedIds.length > 0) cascadeDeleteVideoProject(get().nodes, removedIds);
     set((s) => {
       const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
       // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点

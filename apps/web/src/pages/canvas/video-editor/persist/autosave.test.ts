@@ -114,4 +114,61 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
     expect(deps.patch).toHaveBeenCalledTimes(1);
     c.dispose();
   });
+
+  it('retry：重试耗尽后点击红点无条件重发且退避额度重置（I1）', async () => {
+    let calls = 0;
+    const patch = vi.fn().mockImplementation(() => { calls++; return calls < 5 ? Promise.reject(new Error('net')) : Promise.resolve({ updatedAt: 't9' }); });
+    const deps = mkDeps({ patch });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500 + 1000 + 4000 + 16000 + 60000); // 首发+3 重试后停
+    expect(deps.patch).toHaveBeenCalledTimes(4);
+    c.retry(); // 手动重试
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deps.patch).toHaveBeenCalledTimes(5); // 无条件发出
+    expect(deps.onStateChange).toHaveBeenLastCalledWith('saved'); // 第 5 次成功
+    c.dispose();
+  });
+
+  it('retry 在 409 冲突后点击 → 重发（toast 重弹语义）', async () => {
+    const err = Object.assign(new Error('conflict'), { status: 409 });
+    const deps = mkDeps({ patch: vi.fn().mockRejectedValue(err) });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(deps.onConflict).toHaveBeenCalledTimes(1);
+    c.retry();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deps.patch).toHaveBeenCalledTimes(2);
+    expect(deps.onConflict).toHaveBeenCalledTimes(2); // 重弹——半自动恢复
+    c.dispose();
+  });
+
+  it('flush 返回 false：离线且有脏数据（I3——阻止关闭语义）', async () => {
+    const deps = mkDeps({ isConnected: () => false });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    const drained = await c.flush();
+    expect(drained).toBe(false);
+    c.dispose();
+  });
+
+  it('flush 在途排空 + 等待期新编辑也排空（M1）', async () => {
+    let resolveFirst: (v: any) => void = () => {};
+    const deps = mkDeps({ patch: vi.fn()
+      .mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }))
+      .mockResolvedValueOnce({ updatedAt: 't3' }) });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500); // 第一发在途
+    let v = 1;
+    deps.getData = () => ({ data: { v: ++v }, baseUpdatedAt: 't1' });
+    c.notifyChange(); // 排空等待期新编辑
+    const p = c.flush();
+    resolveFirst({ updatedAt: 't1' });
+    const drained = await vi.advanceTimersByTimeAsync(50).then(() => p);
+    expect(drained).toBe(true);
+    expect(deps.patch).toHaveBeenCalledTimes(2); // 新编辑也被排空
+    c.dispose();
+  });
 });

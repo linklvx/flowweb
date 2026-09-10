@@ -48,8 +48,9 @@ export function VideoEditorShell() {
       isConnected: () => useCanvasStore.getState().connStatus === 'connected',
     });
     autosaveRef.current = ctrl;
+    // prev.status==='ready'：loadProject 是唯一进入 ready 的写入点——过滤加载迁移的幻影 PATCH（I2）
     const unsubData = useEditorStore.subscribe((s, prev) => {
-      if (s.data !== prev.data && s.status === 'ready') ctrl.notifyChange();
+      if (s.data !== prev.data && s.status === 'ready' && prev.status === 'ready') ctrl.notifyChange();
     });
     let wasConnected = useCanvasStore.getState().connStatus === 'connected';
     const unsubConn = useCanvasStore.subscribe((s, prev) => {
@@ -60,11 +61,16 @@ export function VideoEditorShell() {
     return () => { unsubData(); unsubConn(); ctrl.dispose(); autosaveRef.current = null; };
   }, [open, sourceNodeId]);
 
-  // 关闭 = flush 排空后 close（spec：收起 flush 走同一队列并 await 排空再关；ESC 经 BaseFullscreenModal onClose 同路径）
+  // 关闭 = flush 排空后 close；排空失败（离线/最终保存失败）警告并阻止关闭——数据仍留在 editorStore
+  // 不变式：所有关闭路径必须经此函数（flush 排空先于 dispose，dispose 不取消在途 PATCH——review M2）
   const handleClose = () => {
     const ctrl = autosaveRef.current;
-    if (ctrl) { void ctrl.flush().catch(() => {}).finally(() => close()); }
-    else close();
+    if (ctrl) {
+      void ctrl.flush().then((drained) => {
+        if (!drained) { message.warning('当前离线或保存失败，存在未保存的修改——连接恢复后重试或手动重试后再收起'); return; }
+        close();
+      }).catch(() => close());
+    } else close();
   };
 
   if (!open) return null;
@@ -72,7 +78,7 @@ export function VideoEditorShell() {
     <BaseFullscreenModal open={open} onClose={handleClose} label="多轨剪辑" closeOnBackdrop={false} initialFocusRef={focusRef}>
       <div data-testid="video-editor-shell" ref={focusRef} tabIndex={-1}
         className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border nokey">
-        <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.flush(); }} />
+        <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} />
         <div className="flex flex-1 min-h-0">
           {/* 左面板（Task 16 实化） */}
           <div className="w-[260px] border-r border-[#E5E7EB] [border-right-style:solid] bg-white"

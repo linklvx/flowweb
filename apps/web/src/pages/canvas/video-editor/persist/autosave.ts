@@ -15,8 +15,10 @@ export interface AutosaveController {
   notifyChange(): void;
   /** 协作连接恢复 connected 时调用：有待存数据立即补发 */
   notifyConnected(): void;
-  /** 收起/ESC 用：立即执行排队保存并 await 排空 */
-  flush(): Promise<void>;
+  /** 收起/ESC 用：立即执行排队保存并 await 排空；返回 false=有数据未能排空（离线或最终失败）——调用方应警告并阻止关闭 */
+  flush(): Promise<boolean>;
+  /** SAVE_DOT error 手动重试：无条件补发当前 data（dirty 与否都发），退避额度重置 */
+  retry(): void;
   dispose(): void;
 }
 
@@ -54,7 +56,7 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
         deps.onStateChange('error'); // 重试期间状态点保持红
         debounceTimer = setTimeout(() => { debounceTimer = null; void doSave(); }, delay);
       } else {
-        deps.onStateChange('error'); // 3 次退避后停（红点可手动重试 = flush）
+        deps.onStateChange('error'); // 3 次退避后停（红点可手动重试 = retry）
       }
     } finally {
       inFlight = false;
@@ -76,11 +78,24 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
       if (disposed) return;
       if (dirty || queued) { clearDebounce(); void doSave(); }
     },
-    flush: async () => {
-      if (disposed) return;
+    retry: () => {
+      if (disposed || inFlight) return;
+      retryCount = 0; // 重置退避——用户显式重试获得完整 3 次额度
       clearDebounce();
-      if (dirty || queued) await doSave();
-      while (inFlight) await new Promise(r => setTimeout(r, 10)); // await 排空
+      void doSave(); // 无条件补发当前 data（dirty 与否都发——409 后重弹 toast 与"半自动恢复"语义一致）
+    },
+    flush: async (): Promise<boolean> => {
+      if (disposed) return false;
+      clearDebounce();
+      while (dirty || queued || inFlight || debounceTimer != null) {
+        if (!inFlight) {
+          if (!deps.isConnected()) return false; // 离线且有未保存数据——排空失败（I3：调用方应警告并阻止关闭）
+          await doSave(); // M1：等待期新编辑（dirty 复真）继续排空
+        } else {
+          await new Promise(r => setTimeout(r, 10));
+        }
+      }
+      return true;
     },
     dispose: () => {
       disposed = true;

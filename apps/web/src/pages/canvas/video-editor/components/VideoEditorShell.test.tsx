@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { VideoEditorShell } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
-import { upsertProject } from '@/api/videoProjectApi';
+import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { createDefaultProjectData } from '../types';
 import { useEditorStore } from '../store/editorStore';
 
@@ -59,5 +60,20 @@ describe('VideoEditorShell', () => {
     expect(shell.className).toContain('nokey');
     // 焦点断言：open 后焦点应落在壳内（initialFocusRef 生效），而非残留画布按钮
     await waitFor(() => expect(shell).toContainElement(document.activeElement as HTMLElement | null));
+  });
+  it('loadProject 迁移不触发 autosave（幻影 PATCH 过滤——I2）', async () => {
+    vi.useFakeTimers();
+    try {
+      useCanvasStore.setState({ connStatus: 'connected' }); // 在线才走 PATCH——否则离线早退使断言恒真
+      useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+      render(<VideoEditorShell />);
+      // upsertProject 已 resolve（microtask）→ loadProject 已跑 → 推进防抖窗口
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(vi.mocked(upsertProject)).toHaveBeenCalled();
+      expect(vi.mocked(patchProject)).not.toHaveBeenCalled(); // 零幻影 PATCH
+    } finally {
+      vi.useRealTimers();
+      useCanvasStore.setState({ connStatus: 'connecting' });
+    }
   });
 });
