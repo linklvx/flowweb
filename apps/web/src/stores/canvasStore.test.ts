@@ -694,6 +694,7 @@ describe('边原语（自动连线支持：addEdge 可选 id / removeEdge / onCo
     expect(id1).toBe('auto:e1:s1');
     expect(id2).toBe('auto:e1:s1');
     expect(useCanvasStore.getState().edges.filter(e => e.id === 'auto:e1:s1')).toHaveLength(1); // 防 React Flow 双 key
+    expect(useCanvasStore.getState().edges).toHaveLength(1); // 退化"换新 id 重加"也会被总数抓住
   });
   it('removeEdge 按 id 删除', () => {
     const cs = useCanvasStore.getState();

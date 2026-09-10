@@ -57,7 +57,15 @@ describe('planAutoEdgeOps（spec 定稿对账算法）', () => {
 
 describe('ensureAutoEdges（store 落地，幂等）', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+    // 守卫语义下建边需源节点真实在画布：夹具提供 edit1/s1/s2（个别用例自行 setState 覆盖）
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's1', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's2', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+      ],
+      edges: [], selectedId: null,
+    });
   });
   it('建边 → 再跑一遍无新增（幂等）', () => {
     ensureAutoEdges('edit1', dataWith(['s1', 's2']));
@@ -69,5 +77,24 @@ describe('ensureAutoEdges（store 落地，幂等）', () => {
     ensureAutoEdges('edit1', dataWith(['s1']));
     ensureAutoEdges('edit1', dataWith([]));
     expect(useCanvasStore.getState().edges).toHaveLength(0);
+  });
+  it('素材缺失态：源节点已删（nodes 无该 id）→ 不重建悬空边（spec 生命周期）', () => {
+    useCanvasStore.setState({
+      nodes: [{ id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any],
+      edges: [], selectedId: null,
+    });
+    ensureAutoEdges('edit1', dataWith(['ghost'])); // ghost 节点不在画布
+    expect(useCanvasStore.getState().edges).toHaveLength(0);
+  });
+  it('源节点存在 → 正常建边（守卫不放过头）', () => {
+    useCanvasStore.setState({
+      nodes: [
+        { id: 'edit1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any,
+        { id: 's1', type: 'videoGen', position: { x: 0, y: 0 }, data: {} } as any,
+      ],
+      edges: [], selectedId: null,
+    });
+    ensureAutoEdges('edit1', dataWith(['s1']));
+    expect(useCanvasStore.getState().edges).toHaveLength(1);
   });
 });
