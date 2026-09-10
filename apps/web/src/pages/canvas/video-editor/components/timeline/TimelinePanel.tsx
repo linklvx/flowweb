@@ -3,6 +3,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackRow } from './TrackRow';
 import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
+import { quantizeTime } from '../../timeline/clip-math';
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
 import type { Clip } from '../../types';
 import { useEditorKeyboard } from '../../hooks/useEditorKeyboard';
@@ -114,6 +115,37 @@ export function TimelinePanel() {
     return () => el.removeEventListener('wheel', onWheelNative);
   }, []);
 
+  // 左面板资产拖入（Task 16）：payload 由 dragStart 汇点解析（时长已定），此处只做轨道匹配 + 落点量化 + 入库
+  const handleClipDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData('application/x-clip');
+    if (!raw) return;
+    const payload = JSON.parse(raw) as {
+      mediaId: string; sourceNodeId?: string; mimeType: string;
+      originalName?: string; durationSec?: number;
+    };
+    const trackEl = e.currentTarget;
+    const trackType = trackEl.dataset.trackType!;
+    const kind = payload.mimeType.startsWith('video/') ? 'video'
+      : payload.mimeType.startsWith('audio/') ? 'audio' : 'image';
+    // 轨道类型匹配（图片进视频轨；跨类型 drop 忽略）
+    if (trackType === 'audio' ? kind !== 'audio' : kind === 'audio') return;
+    const rect = trackEl.getBoundingClientRect();
+    const start = quantizeTime(Math.max(0, pxToTime(e.clientX - rect.left, pxPerSec)));
+    if (payload.originalName) {
+      useEditorStore.getState().setMediaInfo(payload.mediaId, {
+        name: payload.originalName,
+        durationSec: payload.durationSec,
+      });
+    }
+    useEditorStore.getState().addClip({
+      type: kind, mediaId: payload.mediaId,
+      sourceNodeId: payload.sourceNodeId || undefined,
+      trackId: trackEl.dataset.trackId!,
+      start,
+    });
+  };
+
   if (status === 'error') {
     return <div data-testid="timeline-error" className="h-[280px] border-t border-[#E5E7EB] [border-top-style:solid] bg-white flex flex-col items-center justify-center gap-2">
       <span className="text-[13px] text-[#F53F3F]">{loadError ?? '加载失败'}</span>
@@ -155,7 +187,7 @@ export function TimelinePanel() {
           </div>
           {data.tracks.map(t => (
             <TrackRow key={t.id} track={t} data={data}
-              onDropClip={undefined /* Task 16 接通 handleClipDrop */}
+              onDropClip={handleClipDrop}
               onSubtitleAdd={(trackId) => useEditorStore.getState().addSubtitleClip(trackId, playhead)}
               onClipPointerDown={onClipPointerDown} />
           ))}

@@ -7,6 +7,22 @@ export async function getMediaUrl(fileId: string): Promise<{ url: string }> {
   return res;
 }
 
+export interface BatchMediaItem {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  thumbnailUrl: string | null;
+  metadata: Record<string, unknown>;
+}
+
+/** 左面板聚合：按 mediaId 集合批查 + presigned URL（POST /api/media/batch，Plan 1 Task 12 已就绪） */
+export function batchGetMedia(ids: string[], teamId?: string): Promise<BatchMediaItem[]> {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<BatchMediaItem[]>(`/media/batch${qs}`, { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
 /**
  * Get a presigned GET URL for a MinIO object key, rewritten through the Vite proxy.
  * Used for banner background images.

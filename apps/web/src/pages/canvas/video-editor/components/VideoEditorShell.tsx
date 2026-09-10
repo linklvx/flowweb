@@ -9,6 +9,7 @@ import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { EditorTopBar } from './EditorTopBar';
 import { PreviewPlaceholder } from './PreviewPlaceholder';
 import { TimelinePanel } from './timeline/TimelinePanel';
+import { AssetPanel } from './AssetPanel';
 
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
@@ -80,11 +81,8 @@ export function VideoEditorShell() {
         className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border nokey">
         <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} />
         <div className="flex flex-1 min-h-0">
-          {/* 左面板（Task 16 实化） */}
-          <div className="w-[260px] border-r border-[#E5E7EB] [border-right-style:solid] bg-white"
-            data-testid="asset-panel-placeholder">
-            <span className="text-[12px] text-[#86909C] p-3 inline-block">资产库（Task 16）</span>
-          </div>
+          {/* 左面板（Task 16 实化：画布产物资产库 + 拖入时间轴） */}
+          <AssetPanel />
           <div className="flex-1 flex flex-col min-w-0">
             <PreviewPlaceholder />
             <TimelinePanel />
