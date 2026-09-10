@@ -157,4 +157,58 @@ describe('editorStore（normalized + transient 历史）', () => {
     useEditorStore.getState().undo();
     expect(useEditorStore.getState().selectedClipId).toBeNull();
   });
+
+  it('trimClip 同轨邻居 clamp：右缘延长不得越过/加深后片（I1）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 60 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const a = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!; // [0,60)
+    const b = useEditorStore.getState().splitClip(a, 30)!; // a→[0,30) sourceStart 0；b→[30,60) sourceStart 30
+    // 素材 60s 富余：a 右延素材界 = 30、b 左拉素材界 = -30——邻居界（0）才是唯一约束，
+    // addClip 直建的片 sourceStart=0 素材界会掩盖邻居界，故经 split 造出 sourceStart 余量
+    useEditorStore.getState().trimClip(b, 'left', -10); // b 左缘左拉 → prev.end=30 是下界 → 夹 0（不产生重叠）
+    let d = useEditorStore.getState().data!;
+    expect(d.clips[b].start).toBe(30);
+    useEditorStore.getState().trimClip(a, 'right', 10); // a 右缘延长 → next.start=30 是上界 → 夹 0
+    d = useEditorStore.getState().data!;
+    expect(d.clips[a].start + d.clips[a].duration).toBe(30); // a 仍终于 30
+  });
+
+  it('moveClip 跨轨：clip 从原轨迁到目标轨（store 直测）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    const audioTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'audio')!;
+    const ok = useEditorStore.getState().moveClip(id, 5, audioTrack.id);
+    expect(ok).toBe(true);
+    const d = useEditorStore.getState().data!;
+    expect(d.clips[id].trackId).toBe(audioTrack.id);
+    expect(d.tracks.find(t => t.id === trackId)!.clips).not.toContain(id);
+    expect(d.tracks.find(t => t.id === audioTrack.id)!.clips).toContain(id);
+  });
+
+  it('endTransient 无变更返回 false（begin 后未动直接 end）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().beginTransient();
+    expect(useEditorStore.getState().endTransient()).toBe(false);
+    expect(useEditorStore.getState().history.past).toHaveLength(0); // 不入栈
+  });
+
+  it('undo/redo 清 pendingSnapshot（拖拽中 Ctrl+Z 不产生 bogus 记录）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    const depth = useEditorStore.getState().history.past.length;
+    useEditorStore.getState().beginTransient();
+    useEditorStore.getState().undo(); // 拖拽中撤销
+    expect(useEditorStore.getState().pendingSnapshot).toBeNull(); // 会话作废
+    expect(useEditorStore.getState().endTransient()).toBe(false); // 不产生 bogus 记录
+    expect(useEditorStore.getState().data!.tracks[0].clips).not.toContain(id); // undo 生效
+    expect(useEditorStore.getState().history.past.length).toBe(depth - 1);
+  });
 });

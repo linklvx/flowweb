@@ -6,7 +6,7 @@ import {
   quantizeTime, trimLeftGuard, trimRightGuard, clampDelta,
   applyTrimLeft, applyTrimRight, splitClipAt,
 } from '../timeline/clip-math';
-import { canPlaceAt, findNearestFreeStart } from '../timeline/overlap';
+import { canPlaceAt, findNearestFreeStart, clipsOnTrack } from '../timeline/overlap';
 import { ensureAutoEdges } from '../timeline/auto-edges';
 import { stopCapturing } from '@/stores/canvasUndo';
 
@@ -139,7 +139,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       const duration = input.type === 'image'
         ? 5
         : s.mediaInfo[input.mediaId]?.durationSec ?? 5; // 决策 6：未知兜底 5s
-      const start = quantizeTime(input.start);
+      const start = Math.max(0, quantizeTime(input.start)); // drop 直入口自防御（调用方已 clamp，此处兜底）
       let placed = start;
       // 新片未入库无 id——clipId 参数仅用于跳过同 id 比较，'' 语义等价 undefined（strict 下 string 不收 undefined）
       if (!canPlaceAt(s.data, '', start, input.trackId, duration)) {
@@ -208,8 +208,18 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return false;
       const clip = s.data.clips[clipId];
       if (!clip) return false;
-      const mediaDuration = s.mediaInfo[(clip as any).mediaId]?.durationSec ?? Infinity; // as any：SubtitleClip 无 mediaId → undefined 查不到 → Infinity（guard 无素材上限语义一致）
-      const guard = edge === 'left' ? trimLeftGuard(clip, mediaDuration) : trimRightGuard(clip, mediaDuration);
+      const mediaDuration = (clip as any).mediaId ? s.mediaInfo[(clip as any).mediaId]?.durationSec ?? Infinity : Infinity;
+      let guard = edge === 'left' ? trimLeftGuard(clip, mediaDuration) : trimRightGuard(clip, mediaDuration);
+      // 同轨邻居 clamp（spec 同轨禁重叠——trim 不是建立 crossfade 的途径）：
+      // 无重叠时不得产生（delta 上/下界=间隙），已有合法重叠（crossfade）时不得加深（界取 0）
+      const neighbors = clipsOnTrack(s.data, clip.trackId).filter(c => c.id !== clipId);
+      if (edge === 'right') {
+        const next = neighbors.find(c => c.start >= clip.start);
+        if (next) guard = { ...guard, maxDelta: Math.min(guard.maxDelta, Math.max(0, next.start - (clip.start + clip.duration))) };
+      } else {
+        const prev = [...neighbors].reverse().find(c => c.start < clip.start);
+        if (prev) guard = { ...guard, minDelta: Math.max(guard.minDelta, Math.min(0, prev.start + prev.duration - clip.start)) };
+      }
       const d = clampDelta(guard, deltaSec);
       const mutate = (data: ProjectData): ProjectData => {
         const c = data.clips[clipId];
@@ -260,10 +270,13 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     },
 
     updateClip: (clipId, patch) => {
-      commit((d) => ({
-        ...d,
-        clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
-      }), { structural: false });
+      commit((d) => {
+        if (!d.clips[clipId]) return d; // 不存在早退——防 {...undefined,...patch} 造假 clip 入库
+        return {
+          ...d,
+          clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
+        };
+      }, { structural: false });
     },
 
     addTrack: (type) => {
@@ -314,7 +327,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = undoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null });
+      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state); // 边跟随回滚
     },
 
@@ -323,7 +336,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = redoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null });
+      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state);
     },
   };
