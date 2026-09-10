@@ -1,6 +1,6 @@
 // apps/api/src/modules/video-project/video-project.service.spec.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 
 const mkPrisma = (over: any = {}) => ({
@@ -33,10 +33,18 @@ describe('VideoProjectService', () => {
     expect(r.id).toBe('p1');
   });
 
+  it('upsertByNode 归属校验：sourceNodeId 已属于其他画布 → 403 不返回数据', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p9', workflowId: 'other-workflow' });
+    await expect(svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', userId: 'u1', title: 'x' }))
+      .rejects.toThrow(ForbiddenException);
+    expect(prisma.videoProject.upsert).not.toHaveBeenCalled();
+  });
+
   it('patch 乐观锁：updatedAt 不匹配抛 409', async () => {
-    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p1', updatedAt: new Date('2026-09-10T01:00:00Z') });
+    prisma.videoProject.findUnique.mockResolvedValue({ id: 'p1', workflowId: 'w1', updatedAt: new Date('2026-09-10T01:00:00Z') });
     await expect(svc.patch('p1', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T00:00:00Z' }))
       .rejects.toThrow(ConflictException);
+    expect(perm.assertEditor).toHaveBeenCalledWith('w1', 'u1'); // 权限先于时戳比对
     expect(prisma.videoProject.update).not.toHaveBeenCalled();
   });
 
@@ -45,7 +53,21 @@ describe('VideoProjectService', () => {
     prisma.videoProject.update.mockResolvedValue({ id: 'p1', updatedAt: new Date('2026-09-10T02:00:00Z') });
     const r = await svc.patch('p1', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T01:00:00Z' });
     expect(perm.assertEditor).toHaveBeenCalledWith('w1', 'u1');
+    expect(prisma.videoProject.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { data: {} } });
     expect(r.updatedAt).toEqual(new Date('2026-09-10T02:00:00Z'));
+  });
+
+  it('patch 记录不存在 → 404', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue(null);
+    await expect(svc.patch('p404', 'u1', { data: {}, baseUpdatedAt: '2026-09-10T00:00:00Z' }))
+      .rejects.toThrow(NotFoundException);
+    expect(prisma.videoProject.update).not.toHaveBeenCalled();
+  });
+
+  it('deleteByNode 记录不存在静默返回', async () => {
+    prisma.videoProject.findUnique.mockResolvedValue(null);
+    await svc.deleteByNode('n404', 'u1');
+    expect(prisma.videoProject.delete).not.toHaveBeenCalled();
   });
 
   it('deleteByNode 仅删记录不级联 Media', async () => {

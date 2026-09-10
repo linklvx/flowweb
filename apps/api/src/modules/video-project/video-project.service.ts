@@ -1,5 +1,5 @@
 // apps/api/src/modules/video-project/video-project.service.ts
-import { Injectable, Inject, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -23,6 +23,10 @@ export class VideoProjectService {
       select: { teamId: true },
     });
     if (!project) throw new BadRequestException('项目不存在'); // 显式抛错（与 Task 10 register 统一）——防 assertEditor 契约变更时 project! 静默 TypeError
+    const existing = await this.prisma.videoProject.findUnique({ where: { sourceNodeId: input.sourceNodeId } });
+    if (existing && existing.workflowId !== input.workflowId) {
+      throw new ForbiddenException('sourceNodeId 已属于其他画布'); // 归属校验——nodeId 全局唯一键下防跨画布读/抢占
+    }
     return this.prisma.videoProject.upsert({
       where: { sourceNodeId: input.sourceNodeId },
       create: {
@@ -44,7 +48,7 @@ export class VideoProjectService {
   /** PATCH 单飞配合：乐观锁 baseUpdatedAt ≠ 库内值 → 409 */
   async patch(id: string, userId: string, dto: { data: object; baseUpdatedAt: string }) {
     const proj = await this.prisma.videoProject.findUnique({ where: { id } });
-    if (!proj) throw new ConflictException('project not found');
+    if (!proj) throw new NotFoundException('project not found'); // 404 语义——409 留给版本冲突（前端可静默停止自动保存）
     await this.perm.assertEditor(proj.workflowId, userId);
     if (proj.updatedAt.getTime() !== new Date(dto.baseUpdatedAt).getTime()) {
       throw new ConflictException('project modified elsewhere');
