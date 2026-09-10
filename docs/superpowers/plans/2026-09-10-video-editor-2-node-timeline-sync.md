@@ -29,6 +29,8 @@
 > **Task 8 执行期修正（2026-09-10，quality review I1 跨任务语义缺口）**：ensureAutoEdges 补**素材缺失态守卫**——deleteNode 删上游节点后 clip 仍引用（spec 生命周期素材缺失态），若对账不校验节点存在性会在下次结构变更时重建指向不存在节点的悬空边并持久化；修法为 toAdd 按 `cs.nodes` 现存 id 过滤（spec L120 同步补一句行为定义）。附带：ensureAutoEdges 首参改名 `editNodeId`（原 sourceNodeId 同名异义易混淆；Task 9 的 editorStore.sourceNodeId 字段语义即 editNodeId，位置传参兼容）；canvasStore 幂等用例补总边数断言；auto-edges 夹具 beforeEach 提供源节点（守卫生效后空画布建边被正确拒绝）。planAutoEdgeOps 的 filter 用类型谓词窄化（SubtitleClip 无 sourceNodeId 字段，as any 不必要）。
 >
 > **Task 9 执行期修正（2026-09-10，quality review I1 plan 级缺口 + M2/M3/M6）**：(I1) trimClip 补**同轨邻居 clamp**——原守卫只按素材边界，右缘延长可覆盖后片/左缘延长可覆盖前片制造无转场依据的非法重叠（同 Task 5 I1 失败模式，违反 spec 验收 6 同轨禁重叠）；语义定案"trim 不是建立 crossfade 的途径：无重叠不得产生（界=间隙），已有合法重叠不得加深（界=0）"，store 层中心收口覆盖全部调用方。测试夹具用 addClip[0,60)+splitClip(30) 构造（直放第二片冲突吸附到 60 且 sourceStart=0 素材界掩盖邻居界）。(M2) undo/redo 补 `pendingSnapshot: null`（拖拽中 Ctrl+Z 作废进行中会话，防 bogus undo 记录）。(M3) updateClip 存在性早退（防 {...undefined,...patch} 造假 clip）。(M6) addClip `Math.max(0, quantizeTime(start))` drop 入口自防御。补 4 用例（12→16）。strict 修正 3 处：canPlaceAt 第 2 参 undefined→''（签名 string）、moveClip 第 6 参 clip as any（弱类型检测）、trimClip mediaId as any（SubtitleClip 无该字段→Infinity 兜底一致）。登记不修：updateClip 早退/trim 夹 0 时 commit 仍推一条内容等价历史（pre-existing 机制行为，拖拽主路径 transient 不受影响）；addSubtitleClip/addTrack 非 ready 返回死 id（无触发路径）。Task 15 笔误同步修正：`es.history.pendingSnapshot`→`es.pendingSnapshot`（字段在顶层，两处）。
+>
+> **Task 10 执行期修正（2026-09-10，quality review C1 阻塞项 + M2-M5）**：(依赖倒置) videoProjectApi.ts 前置最小版（DTO+getProjectByNode 404→null——apiFetch 抛错带 status 已核 client.ts L23；upsert/patch 留 Task 12）。(C1) **Tooltip span 包裹 disabled 按钮**——disabled 控件不派发鼠标事件（Chromium 行为）且 antd5 Trigger 无 disabled 兼容包裹，原结构"能力置灰+提示"的提示半边在真实浏览器永不显示；span 包裹 + hover 回归用例锁死。(计划 bug) `useState(detectVideoEditorCapabilities)` 惰性初始化返回**对象**——单层解构 `[canPreview]` 拿到对象致 disabled 恒 false，修正双层解构 `[{ canPreview }]`（变异验证承重）。(M2) refetch 精确化：deps 收窄 [id, closedAt]，体内 getState 比对 sourceNodeId===id，closedAt===0 挂载首取放行（防晚挂载残留跳过）+ 负例用例。(M3) catch 保留现状（首载 null→空态/refetch 保留旧缩略——403/500 不吞成空态）。(M4) catch unknown 收窄 `(e as {status?: number})`。(测试基建) ReactFlowProvider 包裹 helper（xyflow Handle 无 Provider 必 throw）；时间码断言整串 '0:00 / 0:03'（JSX 文本节点合并）；后端 getByNode 实返带内 null 非 404（404 分支防御性，殊途同归空态——登记）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -2153,6 +2155,7 @@ git add apps/web/src/pages/canvas/video-editor && git commit -m "feat(video-edit
 spec 第二节节点本体 UI 全项。播放/暂停按钮 disabled 占位（Plan 3 renderer 激活）；工程数据 GET by-node + closedAt 版本号 refetch。
 
 **Files:**
+- Create: `apps/web/src/api/videoProjectApi.ts`（**依赖倒置前置**：组件需 getProjectByNode 而 Task 12 才建该文件——本 task 先建最小部分 DTO+getProjectByNode，upsert/patch/delete 留 Task 12 补全；执行期登记）
 - Modify: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx`（Task 1 空壳 → 完整版）
 - Test: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.test.tsx`
 
@@ -2171,8 +2174,11 @@ vi.mock('@/api/videoProjectApi', () => ({
   getProjectByNode: vi.fn(),
 }));
 
-// NodeProps 必填字段多——测试只传组件消费的三项，统一 as any
+// import 区补：import { ReactFlowProvider } from '@xyflow/react';
+// NodeProps 必填字段多——测试只传组件消费的三项，统一 as any；
+// NodeHandle 内 xyflow Handle 需 Provider 上下文——renderNode 统一包裹（项目节点测试惯例，执行期登记）
 const props = (id = 'n1') => ({ id, selected: false, dragging: false }) as any;
+const renderNode = () => render(<ReactFlowProvider><VideoEditNode {...props()} /></ReactFlowProvider>);
 
 const mkData = (): ProjectData => ({
   version: 1, fps: 30,
@@ -2201,7 +2207,7 @@ describe('VideoEditNode 本体', () => {
     (getProjectByNode as any).mockResolvedValue({ id: 'p1', data: mkData() });
     render(<VideoEditNode {...props()} />);
     await waitFor(() => expect(screen.getByTestId('node-clip-c1')).toBeInTheDocument());
-    expect(screen.getByText('0:03')).toBeInTheDocument(); // 总长 3s
+    expect(screen.getByText('0:00 / 0:03')).toBeInTheDocument(); // 时间码整串（JSX 文本节点合并——执行期修正）
   });
 
   it('全屏编辑 → videoEditorStore.openEditor(id)', async () => {
@@ -2233,10 +2239,29 @@ describe('VideoEditNode 本体', () => {
 
   it('左右 Handle 渲染（单 target/source）', async () => {
     (getProjectByNode as any).mockResolvedValue(null);
-    render(<VideoEditNode {...props()} />);
+    renderNode();
     await waitFor(() => expect(screen.getByText('+ 添加素材')).toBeInTheDocument());
     expect(document.querySelector('[data-testid="video-edit-target"]')).toBeInTheDocument();
     expect(document.querySelector('[data-testid="video-edit-source"]')).toBeInTheDocument();
+  });
+
+  it('能力不满足 → hover 全屏编辑显示不支持提示（Tooltip span 包裹——C1 回归锁，执行期）', async () => {
+    vi.unstubAllGlobals(); // 三件全缺
+    (getProjectByNode as any).mockResolvedValue(null);
+    renderNode();
+    await waitFor(() => expect(screen.getByText('+ 添加素材')).toBeInTheDocument());
+    fireEvent.mouseEnter(screen.getByText('⤢ 全屏编辑').closest('button')!.parentElement!);
+    const tip = await screen.findByText('当前浏览器不支持 WebCodecs，请使用最新版 Chrome/Edge');
+    expect(tip).toBeInTheDocument();
+  });
+
+  it('closedAt 递增但 sourceNodeId 指向其他节点 → 不 refetch（M2 精确化，执行期）', async () => {
+    (getProjectByNode as any).mockResolvedValue(null);
+    renderNode();
+    await waitFor(() => expect(getProjectByNode).toHaveBeenCalledTimes(1));
+    useVideoEditorStore.setState({ closedAt: 1, sourceNodeId: 'other-node' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(getProjectByNode).toHaveBeenCalledTimes(1); // 不匹配不重取
   });
 });
 ```
@@ -2272,21 +2297,24 @@ function GridIcon() {
 function VideoEditNodeComponent({ id, selected }: NodeProps) {
   const openEditor = useVideoEditorStore((s) => s.openEditor);
   const closedAt = useVideoEditorStore((s) => s.closedAt);
-  const closedSource = useVideoEditorStore((s) => s.sourceNodeId);
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
-  const [canPreview] = useState(detectVideoEditorCapabilities);
+  // 惰性检测一次——useState(fn) 返回检测结果对象，须双层解构取 canPreview（执行期修正：单层解构拿到对象致 disabled 恒 false）
+  const [{ canPreview }] = useState(detectVideoEditorCapabilities);
 
   useEffect(() => {
     let cancelled = false;
+    // closedAt 递增且 sourceNodeId 匹配本节点 → 编辑器关闭后刷新缩略；
+    // 挂载首取（closedAt===0）始终放行——防晚挂载节点因他人 closedAt 残留被跳过首取（review M2 精确化）
+    const cs = useVideoEditorStore.getState();
+    if (closedAt > 0 && cs.sourceNodeId !== id) return;
     getProjectByNode(id)
       .then((p) => { if (!cancelled) setProjectData(p?.data ?? null); })
-      .catch(() => { if (!cancelled) setProjectData(null); });
+      .catch(() => { /* 失败保留现状：首载 null→空态，refetch 保留旧缩略（review M3——403/500 不吞成空态） */ });
     return () => { cancelled = true; };
-    // closedAt 递增且匹配本节点 → 编辑器关闭后刷新缩略
-  }, [id, closedAt, closedSource]);
+  }, [id, closedAt]);
 
   const dur = projectData ? totalDuration(projectData) : 0;
-  const ratio = dur > 0 ? 288 / dur : 0; // 缩略区有效宽 288（316 - padding）
+  const ratio = dur > 0 ? 288 / dur : 0; // 缩略区有效宽 288（316−2 border−24 padding≈290 取整 288）
 
   return (
     <div className="relative canvas-node" data-testid={`video-edit-node-${id}`}>
@@ -2311,14 +2339,17 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
             className="text-[12px] text-[#86909C] bg-transparent border-0 cursor-not-allowed px-1">▶</button>
           <span className="text-[12px] text-[#86909C]">{formatShortTime(0)} / {formatShortTime(dur)}</span>
           <Tooltip title={canPreview ? '' : '当前浏览器不支持 WebCodecs，请使用最新版 Chrome/Edge'}>
-            <button
-              type="button"
-              className="ml-auto text-[12px] text-[#6C5CE7] bg-transparent border-0 px-1 py-0.5 cursor-pointer disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
-              disabled={!canPreview}
-              onClick={() => openEditor(id)}
-            >
-              ⤢ 全屏编辑
-            </button>
+            {/* disabled 控件不派发鼠标事件（Chromium 行为）且 antd5 Trigger 无 disabled 兼容包裹——span 包裹使 hover 可达（review C1）；ml-auto 移至 span */}
+            <span className="ml-auto inline-flex">
+              <button
+                type="button"
+                className="text-[12px] text-[#6C5CE7] bg-transparent border-0 px-1 py-0.5 cursor-pointer disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
+                disabled={!canPreview}
+                onClick={() => openEditor(id)}
+              >
+                ⤢ 全屏编辑
+              </button>
+            </span>
           </Tooltip>
         </div>
         {/* 轨道区只读缩略：片段色块（thumbnail 拼贴 Plan 3 接，色块先行）+ 播放头位置 */}
