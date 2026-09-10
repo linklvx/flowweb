@@ -11,6 +11,7 @@ import { pickStructNodes, pickStructEdges } from './canvasHistory';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
+import { isAutoEdgeId } from './autoEdgeIds';
 import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
@@ -105,9 +106,11 @@ function syncStoreToDoc(origin: string) {
       }
     }
     for (const id of [...edgesMap.keys()]) {
+      if (isAutoEdgeId(id)) continue; // auto 边删除只归 syncAutoEdgesToDoc（防订阅误删）
       if (!edgeIds.has(id)) edgesMap.delete(id);
     }
     for (const e of edges) {
+      if (isAutoEdgeId(e.id)) continue; // auto 边新增/更新只归 syncAutoEdgesToDoc
       const existing = edgesMap.get(e.id);
       if (!(existing instanceof Y.Map)) {
         fillDoc(d, [], [e]);
@@ -117,6 +120,52 @@ function syncStoreToDoc(origin: string) {
       if (existing.get('target') !== e.target) existing.set('target', e.target ?? '');
     }
   }, origin);
+}
+
+/** 自动边全量对账（无业务参数——id 自编码 editNodeId）：store 侧 auto 边为期望态，doc 补齐增删。
+ *  独立 transact origin=AutoEdge（不入画布撤销栈）。幂等——覆盖删节点级联/手删 auto 边/编辑器 reconcile 全场景。 */
+export function syncAutoEdgesToDoc(d: Y.Doc) {
+  const expected = useCanvasStore.getState().edges
+    .filter((e) => isAutoEdgeId(e.id))
+    .map((e) => ({ id: e.id, source: e.source, target: e.target }));
+  const edgesMap = d.getMap('edges');
+  const expectedIds = new Set(expected.map((e) => e.id));
+  const docAutoIds = [...edgesMap.keys()].filter(isAutoEdgeId);
+  const toAdd = expected.filter((e) => !edgesMap.get(e.id));
+  const toRemove = docAutoIds.filter((id) => !expectedIds.has(id));
+  if (toAdd.length === 0 && toRemove.length === 0) return;
+  d.transact(() => {
+    for (const e of toAdd) {
+      const m = new Y.Map();
+      m.set('source', e.source);
+      m.set('target', e.target);
+      edgesMap.set(e.id, m);
+    }
+    for (const id of toRemove) edgesMap.delete(id);
+  }, Origin.AutoEdge);
+}
+
+/** A1 影子事务短路判定（Plan 1 Task 9 固化：origin 不过网，跨网判据必须用 id 前缀）：
+ *  本次 events 全部仅涉及 nodes map 上 shadow- 前缀节点（含深层 data 写回）→ 跳过 applyDocToStore 全量重建（防闪烁，spec 验收 22） */
+export function isShadowOnlyEvents(events: Y.YEvent<any>[], nodesMap: Y.Map<any>): boolean {
+  for (const ev of events) {
+    let root: any = ev.target;
+    while (root?.parent != null) root = root.parent;
+    if (root !== nodesMap) return false; // edges/其他结构事件不短路
+    if (ev.path.length > 0) {
+      const nodeKey = ev.path[0];
+      if (typeof nodeKey !== 'string' || !nodeKey.startsWith('shadow-')) return false;
+    } else {
+      // nodes map 顶层 set/delete：所有变更 key 须为 shadow- 前缀
+      let hasKey = false;
+      for (const k of ev.keys.keys()) {
+        hasKey = true;
+        if (!k.startsWith('shadow-')) return false;
+      }
+      if (!hasKey) return false;
+    }
+  }
+  return true;
 }
 
 /** server doc → store（hydrate 模式，远端变更不入 undo 栈） */
@@ -149,7 +198,10 @@ function bindBridge(): () => void {
     if (state.projectId !== prev.projectId) return;
     const changed = !isEqual(pickStructNodes(state.nodes), pickStructNodes(prev.nodes))
       || !isEqual(pickStructEdges(state.edges), pickStructEdges(prev.edges));
-    if (changed) syncStoreToDoc(Origin.LocalUser);
+    if (changed) {
+      syncAutoEdgesToDoc(doc!); // 先 auto 边对账（覆盖删节点级联留孤儿场景），再常规同步（其内部已跳过 auto 前缀）
+      syncStoreToDoc(Origin.LocalUser);
+    }
   });
   const unsubNs = useNodeStore.subscribe((state, prev) => {
     if (useCanvasStore.getState().isHydrating) return;
@@ -201,6 +253,7 @@ export async function initCollab(projectId: string): Promise<void> {
   const onRemote = (events: any[]) => {
     const fromLocal = events.some((e) => e.transaction.origin === Origin.LocalUser);
     if (fromLocal) return;
+    if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
       if (currentPid !== projectId) return;

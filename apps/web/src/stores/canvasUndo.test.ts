@@ -27,6 +27,14 @@ describe('Y.UndoManager 集成（spec 4.2/4.4）', () => {
     expect(um.undoStack.length).toBe(1);
   });
 
+  it('auto-edge origin 不入撤销栈（跨撤销栈隔离——spec 验收 20）', () => {
+    const doc = new Y.Doc();
+    const um = attachUndoManager(doc);
+    doc.transact(() => { doc.getMap('edges').set('auto:e1:s1', new Y.Map()); }, Origin.AutoEdge);
+    expect(um.undoStack.length).toBe(0);
+    detachUndoManager();
+  });
+
   it('undo 恢复旧值，redo 恢复新值', () => {
     const doc = new Y.Doc();
     const um = attachUndoManager(doc);

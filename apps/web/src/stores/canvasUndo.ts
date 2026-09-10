@@ -3,8 +3,8 @@
 import * as Y from 'yjs';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
-// Server 为后端 withDoc transact 预留常量（后端尚未传 origin，凡 ≠ local-user 均不入栈/视为远端，功能无依赖）
-export const Origin = { LocalUser: 'local-user', Server: 'server' } as const;
+// Server 为后端 withDoc transact 预留常量；AutoEdge 为自动边专用 origin——刻意不加入 trackedOrigins（画布撤销栈不收自动边，spec 验收 20/26）
+export const Origin = { LocalUser: 'local-user', Server: 'server', AutoEdge: 'auto-edge' } as const;
 
 const STACK_LIMIT = 100;
 
