@@ -652,14 +652,14 @@ git add apps/web/src/pages/canvas/video-editor/scene && git commit -m "feat(vide
 - Create: `apps/web/src/pages/canvas/video-editor/renderer/video-cache.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/renderer/video-cache.test.ts`
 
-mediabunny API 形状（vendor 实测 + R2 A3 修订）：`new Input({source: new UrlSource(url), formats: ALL_FORMATS})`（UrlSource 走 HTTP Range 随机读——决策 1）→ `input.getPrimaryVideoTrack()` → `new CanvasSink(track, {poolSize, fit:'contain'})` → `sink.canvases(startTime)` AsyncGenerator<WrappedCanvas{canvas, timestamp, duration}>。本服务把 mediabunny 依赖收在 deps.openSink 注入点（jsdom 可测），生产装配在文件末尾。
+mediabunny API 形状（vendor 实测 + R2 A3 修订）：`new Input({source: new UrlSource(url), formats: ALL_FORMATS})`（UrlSource 走 HTTP Range 随机读——决策 1）→ `input.getPrimaryVideoTrack()` → `new CanvasSink(track, {poolSize, fit:'contain'})` → `sink.canvases(startTime)` AsyncGenerator<WrappedCanvas{canvas, timestamp, duration}>。本服务把 mediabunny 依赖收在 deps.openSink 注入点、自愈冷却时钟收在 deps.now 注入点（jsdom 可测——Date.now 不可控推进），生产装配在文件末尾。
 
 - [ ] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/video-cache.test.ts
 import { describe, it, expect, vi } from 'vitest';
-import { VideoCacheService, type SinkHandle, type WrappedFrame } from './video-cache';
+import { VideoCacheService, RETRY_COOLDOWN_MS, type SinkHandle, type WrappedFrame } from './video-cache';
 
 const SRC = 'http://minio/m1.mp4'; // UrlSource 直连（A3）——不再整文件 fetch blob
 
@@ -755,18 +755,37 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     await Promise.all([svc.getFrame('m1', SRC, 1.5), svc.getFrame('m1', SRC, 2.5), svc.getFrame('m1', SRC, 3.5)]);
     expect(openSink).toHaveBeenCalledTimes(1);
   });
-  it('取帧抛错 → release 自愈（entry 清空 + 下次重开，R3 3.3——UrlSource 预签名过期防永久黑帧）', async () => {
+  it('取帧抛错 → release 自愈 + 2s 冷却（entry 清空 + 越窗重开——R3 3.3 防永久黑帧 + R4 防每帧重开：坏源 rAF 30-60fps 下每秒几十次 release+openSink）', async () => {
+    let clock = 1000;
     const { handle } = makeSink(FRAMES);
     const goodCanvases = handle.canvases;
     const openSink = vi.fn(async () => handle);
-    const svc = new VideoCacheService({ openSink });
+    const svc = new VideoCacheService({ openSink, now: () => clock });
     expect(await svc.getFrame('m1', SRC, 2.5)).not.toBeNull();
     handle.canvases = () => (async function* () { throw new Error('403 presigned expired'); })();
-    expect(await svc.getFrame('m1', SRC, 4.5)).toBeNull(); // 抛错被吃、返回 null
+    expect(await svc.getFrame('m1', SRC, 4.5)).toBeNull(); // 抛错被吃、返回 null（lastTime=2，|4.5-2|>2 重建 iterator 即抛）
     expect(svc.size).toBe(0);                              // entry 已释放（死 iterator 不残留）
+    expect(await svc.getFrame('m1', SRC, 4.5)).toBeNull(); // R4：冷却窗内（clock=1000 < 3000）不再重开
+    expect(openSink).toHaveBeenCalledTimes(1);
     handle.canvases = goodCanvases;
+    clock += RETRY_COOLDOWN_MS + 1;                        // 越过冷却窗
     expect(await svc.getFrame('m1', SRC, 2.5)).not.toBeNull(); // 下次请求重开
     expect(openSink).toHaveBeenCalledTimes(2);
+  });
+  it('release 与在途 openSink 竞态：open 迟到完成 → dispose 不复活 entry（R4——"播放中点关闭"不残留活 Input/CanvasSink）', async () => {
+    let resolveOpen!: (h: SinkHandle | null) => void;
+    const state = { disposed: false };
+    const handle: SinkHandle = {
+      canvases: () => (async function* () {})(),
+      dispose: () => { state.disposed = true; },
+    };
+    const svc = new VideoCacheService({ openSink: () => new Promise<SinkHandle | null>(r => { resolveOpen = r; }) });
+    const p = svc.getFrame('m1', SRC, 0); // 在途（openSink 未决）
+    svc.release();                        // 收起/单媒体释放 → generations 作废在途 open
+    resolveOpen(handle);                  // open 迟到完成
+    expect(await p).toBeNull();
+    expect(state.disposed).toBe(true);
+    expect(svc.size).toBe(0);
   });
 });
 ```
@@ -780,9 +799,10 @@ import type { Input, CanvasSink } from 'mediabunny';
 export interface WrappedFrame { canvas: HTMLCanvasElement | OffscreenCanvas; timestamp: number; duration: number; }
 export type SinkIterator = AsyncGenerator<WrappedFrame, void, undefined>;
 export interface SinkHandle { canvases(start: number): SinkIterator; dispose(): void; }
-export interface VideoCacheDeps { openSink: (url: string) => Promise<SinkHandle | null>; maxMedia?: number; }
+export interface VideoCacheDeps { openSink: (url: string) => Promise<SinkHandle | null>; maxMedia?: number; now?: () => number; }
 
 const SEEK_REBUILD_GAP = 2; // 距上次消费 >2s 重建 iterator（vendor 同款）
+export const RETRY_COOLDOWN_MS = 2000; // R4：坏源自愈冷却——无冷却时 renderLatest 按 rAF 30-60fps 重试，每秒几十次 openSink（每次 Input 构造 + moov range 请求）
 
 class MediaEntry {
   current: WrappedFrame | null = null;
@@ -835,21 +855,37 @@ class MediaEntry {
   }
 }
 
-/** 帧缓存服务：mediaId → 常驻 CanvasSink + 三段命中（vendor 形状）+ LRU 上限淘汰 + openSink in-flight 去重（G7） */
+/** 帧缓存服务：mediaId → 常驻 CanvasSink + 三段命中（vendor 形状）+ LRU 上限淘汰 + openSink in-flight 去重（G7）
+ *  + 自愈三纪律（R4）：取帧抛错 release + 2s 冷却重试（坏源防每帧重开）；release 作废在途 open（generations 代数——
+ *  "播放中收起"不残留活 Input/CanvasSink 到 LRU/收起为止）。 */
 export class VideoCacheService {
   private entries = new Map<string, MediaEntry>(); // Map 插入序 = LRU 序（访问即 delete+set 移尾）
   private opening = new Map<string, Promise<MediaEntry | null>>(); // 同 tick 并发同 mediaId 只 openSink 一次（vendor initPromises 同款）
-  constructor(private readonly deps: VideoCacheDeps) {}
+  private retryAfter = new Map<string, number>();  // mediaId → 冷却截止时间戳（R4）
+  private generations = new Map<string, number>(); // mediaId → 已作废代数（R4：release 时 ++，在途 open 完成时比对）
+  private readonly now: () => number;
+  private readonly maxMedia: number;
+  constructor(private readonly deps: VideoCacheDeps) {
+    this.now = deps.now ?? Date.now;
+    this.maxMedia = deps.maxMedia ?? 8;
+  }
 
   get size(): number { return this.entries.size; }
 
   async getFrame(mediaId: string, url: string, time: number): Promise<WrappedFrame | null> {
+    const until = this.retryAfter.get(mediaId);
+    if (until !== undefined && this.now() < until) return null; // 冷却窗内不重开（R4）
     let entry = this.entries.get(mediaId);
     if (!entry) {
       let opening = this.opening.get(mediaId);
       if (!opening) {
+        const gen = this.generations.get(mediaId) ?? 0;
         opening = this.deps.openSink(url).then((handle) => {
           if (!handle) return null;
+          if ((this.generations.get(mediaId) ?? 0) !== gen) { // R4：release 已发生 → 在途 open 作废
+            try { handle.dispose(); } catch { /* 已释放 */ }
+            return null;
+          }
           const e = new MediaEntry(handle);
           this.evictIfNeeded();
           this.entries.set(mediaId, e);
@@ -864,32 +900,44 @@ export class VideoCacheService {
       this.entries.set(mediaId, entry);
     }
     try {
-      return await entry.getFrameAt(time);
+      const f = await entry.getFrameAt(time);
+      if (f) this.retryAfter.delete(mediaId); // 成功取帧解除冷却
+      return f;
     } catch {
       // R3 3.3：UrlSource 预签名过期/网络错误时 iterator 已死、entry 残留 → 该素材从此永久黑帧——
       // 释放 entry 使下次请求重开 sink（新 URL 由调用方 mediaInfo 刷新后传入；一期限制见 spec 边界表"预签名过期"）
-      this.release(mediaId);
+      console.warn('[video-cache] getFrame 失败，释放并 2s 后重试:', mediaId); // R4：诊断痕迹——冷却限频天然防刷屏
+      this.retryAfter.set(mediaId, this.now() + RETRY_COOLDOWN_MS);
+      this.release(mediaId); // 带参 release 不清 retryAfter——自愈冷却跨 release 继续生效
       return null;
     }
   }
 
   private evictIfNeeded(): void {
-    const max = this.deps.maxMedia ?? 8;
-    while (this.entries.size >= max) {
+    while (this.entries.size >= this.maxMedia) {
       const oldest = this.entries.keys().next().value as string | undefined;
       if (oldest === undefined) break;
       this.entries.get(oldest)?.dispose();
       this.entries.delete(oldest);
+      this.retryAfter.delete(oldest); // 容量淘汰非源坏——冷却不继承
     }
   }
 
   release(mediaId?: string): void {
+    // R4：先作废在途 open（keys 物化后再清 entries），再释放已驻留 entry
+    const keys = mediaId === undefined
+      ? [...new Set([...this.entries.keys(), ...this.opening.keys()])]
+      : [mediaId];
+    for (const k of keys) this.generations.set(k, (this.generations.get(k) ?? 0) + 1);
     if (mediaId === undefined) {
       for (const e of this.entries.values()) e.dispose();
       this.entries.clear();
+      this.generations.clear();
+      this.retryAfter.clear(); // 会话终结（编辑器收起）——冷却不跨会话继承
     } else {
       this.entries.get(mediaId)?.dispose();
       this.entries.delete(mediaId);
+      // retryAfter 保留：自愈路径 release 后冷却继续生效，防立即重进再打网络
     }
   }
 }
@@ -897,23 +945,27 @@ export class VideoCacheService {
 /** 生产装配：mediabunny CanvasSink（vendor video-cache/service.ts 同款）。
  *  B1 实测修正：CanvasSink 无 dispose 方法（mediabunny media-sink.d.ts 只有 getCanvas/canvases/canvasesAtTimestamps）；
  *  Input.dispose() 返回 void 非 Promise（input.d.ts L158）——同步调用，异常用 try/catch。
- *  R2 A3：视频取源 UrlSource（HTTP Range 随机读，决策 1）——presigned GET 直连，不整文件下载。 */
+ *  R2 A3：视频取源 UrlSource（HTTP Range 随机读，决策 1）——presigned GET 直连，不整文件下载。
+ *  R4：整段包 try——原 `await import` 与 `new Input` 在 try 外，一 reject 则 openSink reject 而非 null，
+ *  违反 getFrame"失败 → null"契约（预览侧调用方 .catch 兜住不炸，但 Plan 4 导出路径未必兜）。 */
 export async function openMediabunnySink(url: string): Promise<SinkHandle | null> {
-  const { Input, ALL_FORMATS, UrlSource, CanvasSink } = await import('mediabunny');
-  const input = new Input({ source: new UrlSource(url), formats: ALL_FORMATS });
+  let input: Input | null = null;
   try {
+    const { Input, ALL_FORMATS, UrlSource, CanvasSink } = await import('mediabunny');
+    input = new Input({ source: new UrlSource(url), formats: ALL_FORMATS });
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) {
       try { input.dispose(); } catch { /* 已释放 */ }
       return null;
     }
     const sink = new CanvasSink(track, { poolSize: 3, fit: 'contain' });
+    const held = input; // const 断言窄化——闭包内 TS 对 let 不保留窄化
     return {
       canvases: (start: number) => sink.canvases(start) as unknown as SinkIterator,
-      dispose: () => { try { input.dispose(); } catch { /* 已释放 */ } }, // 资源主口是 input.dispose
+      dispose: () => { try { held.dispose(); } catch { /* 已释放 */ } }, // 资源主口是 input.dispose
     };
   } catch {
-    try { input.dispose(); } catch { /* 已释放 */ }
+    if (input) { try { input.dispose(); } catch { /* 已释放 */ } }
     return null;
   }
 }
@@ -925,7 +977,7 @@ export const videoCache = new VideoCacheService({ openSink: openMediabunnySink }
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/renderer/video-cache.test.ts
-# 预期: 9 PASS
+# 预期: 11 PASS（三段命中/current/next/大跳/openSink null/LRU/release/串行链/in-flight 去重/自愈+冷却/竞态作废）
 git add apps/web/src/pages/canvas/video-editor/renderer && git commit -m "feat(video-editor): VideoCacheService——三段命中/LRU 淘汰/串行链/资源释放（TDD）"
 ```
 
@@ -2480,7 +2532,7 @@ export function PreviewPlayer() {
 
 - **VideoEditorShell.tsx**：① `<PreviewPlaceholder />` 替换为 `<PreviewPlayer />`（删 PreviewPlaceholder.tsx 文件与其 import）；右列占位 span 替换为 `<PropertiesPanel />`（Task 10 实现——本 task 先建最小占位 `export function PropertiesPanel() { return <div data-testid="properties-panel" className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white" />; }` 防 import 断裂，Task 10 完整化）。② `handleClose` 内 flush 完成后、`close()` 之前调 `releaseEditorRuntime()`（import 自 hooks/playback）。③ 底部 `TimelinePanel` 之前的中列结构保持。
 - **AssetPanel.tsx**：`useWorkflowAssets` 的 items 就绪后同步 mediaInfo——组件体内 `useEffect(() => { if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }]))); }, [items])`（含既有工程重开的 url 回填，决策 13）。
-- **TimelinePanel.tsx**：① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine data={data} widthPx={viewportW - 140} />` 与 Ruler 的挂载关系保持——PlayheadLine 放滚动内容 wrapper 内与 Ruler 同坐标系（140px 角位偏移与 Task 14 C1 几何一致；data 订阅保留在 panel，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
+- **TimelinePanel.tsx**：① 删除 `playhead` 订阅与贯穿竖线渲染（抽 PlayheadLine；**B7 连带**：L191 `onSubtitleAdd={(trackId) => ...addSubtitleClip(trackId, playhead)}` 的闭包 playhead 随订阅删除变未定义——改 `useEditorStore.getState().playhead`）；② 工具行删除 撤销/重做/分割/删除 四按钮（迁 PreviewPlayer），保留 +视频轨/+音频轨/pxPerSec 显示；③ 滚动区内容末尾（轨道列表后）追加 `<PlayheadLine />`（**R4 无 props 化**：原 data/widthPx 仅喂未被使用的滚动内容宽 w——死代码删除；left = 140 + playhead 换算 px，放滚动内容 wrapper 内与 Ruler 同坐标系、140px 轨道头偏移几何一致，render.test 的 playhead-line testid 不变）；④ TrackRow 导出改 `memo(TrackRow)`；⑤ **G9（Plan 2 M2 正式接）**：viewportW 经 ResizeObserver 维护 state——panel 不再订阅 playhead 后播放期间无每帧重渲，`scrollRef.current?.clientWidth` 直读会停在首帧值：
 
 ```tsx
   const [viewportW, setViewportW] = useState(940);
@@ -2491,7 +2543,7 @@ export function PreviewPlayer() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // Ruler/PlayheadLine 的 widthPx 传参统一改 viewportW - 140（test-setup.ts 已有 ResizeObserver mock）
+  // Ruler 的 widthPx 传参改 viewportW - 140（test-setup.ts 已有 ResizeObserver mock；PlayheadLine 无 props 化后不依赖 widthPx）
 ```
 
 - **TimelineRuler.tsx**：playhead 改组件内自订阅 `const playhead = useEditorStore(s => s.playhead)`（props 删 playhead，调用方 TimelinePanel 同步删传参）；pointer 拖拽改 **scrub 三段式（G4/决策 6②：move 只动播放头，up 才重排音频——标尺拖拽高频 playFrom 的分配灾难封堵）**：
@@ -2520,14 +2572,11 @@ import { scrubBegin, scrubMove, scrubEnd } from '../../hooks/playback';
 // apps/web/src/pages/canvas/video-editor/components/timeline/PlayheadLine.tsx
 import { useEditorStore } from '../../store/editorStore';
 import { timeToPx } from '../../timeline/view-scale';
-import { totalDuration } from '../../timeline/timecode';
-import type { ProjectData } from '../../types';
 
-/** 贯穿播放头竖线（自订阅——30fps 播放头更新不重渲轨道行，决策 14/M4） */
-export function PlayheadLine({ data, widthPx }: { data: ProjectData; widthPx: number }) {
+/** 贯穿播放头竖线（自订阅——30fps 播放头更新不重渲轨道行，决策 14/M4；R4 无 props 化：删除未被使用的滚动内容宽计算） */
+export function PlayheadLine() {
   const playhead = useEditorStore(s => s.playhead);
   const pxPerSec = useEditorStore(s => s.pxPerSec);
-  const w = Math.max(widthPx, timeToPx(totalDuration(data), pxPerSec) + 60);
   return (
     <div data-testid="playhead-line" className="absolute top-0 bottom-0 w-0.5 bg-[#6C5CE7] pointer-events-none z-10"
       style={{ left: 140 + timeToPx(playhead, pxPerSec) }} />
@@ -2730,8 +2779,8 @@ import { batchGetMedia } from '@/api/mediaApi';
   const startMini = async () => {
     if (!projectData || !canPreview) return;
     useVideoEditorStore.getState().startMiniPlayback(id); // 播 B 停 A（他节点经 miniNodeId 副责停）
+    setMiniPlaying(true); // R4：置位必须先于 await——fireEvent.click 是同步 act，只 flush React 队列不 flush 用户 promise 续体，置位若在 await 后则点击返回时 miniPlaying 仍 false（用例 1 的画布断言/用例 4 的 IO 回调读 ref 同根因必红）；先置位=点击即时进播放态，URL 晚到首帧黑底、tick 每帧重读 mediaUrlsRef 到达后自动出画
     if (mediaUrlsRef.current.size === 0) await loadMediaUrls(); // ref 已填充则跳过（R2：省重复 RTT 与重复签 URL）
-    setMiniPlaying(true);
   };
 
   // 互斥：他节点接管 → 停
@@ -2748,6 +2797,8 @@ import { batchGetMedia } from '@/api/mediaApi';
     io.observe(root);
     return () => io.disconnect();
   }, []);
+  // R4：卸载清理——节点删除/画布卸载时若在播：停播并释放（videoCache 条目与 ImageBitmap 不残留到 LRU/收起才回收）；deps:[] 经 ref 取最新闭包（N2 同款）
+  useEffect(() => () => { if (miniPlayingRef.current) stopMiniRef.current(); }, []);
   // 迷你播放媒体源解析：工程 clips 的 mediaId 集合 → batchGetMedia 批查 presigned url（节点场景无 mediaInfo，决策 10 配套）
   const mediaUrlsRef = useRef<Map<string, string>>(new Map());
   const loadMediaUrls = async () => {
@@ -2798,6 +2849,12 @@ import { batchGetMedia } from '@/api/mediaApi';
             className={`text-[12px] bg-transparent border-0 px-1 ${canPreview && projectData ? 'text-[#6C5CE7] cursor-pointer' : 'text-[#C9CDD4] cursor-not-allowed'}`}>
             {miniPlaying ? '⏸' : '▶'}
           </button>
+```
+
+根元素挂 ref（R4 必红②：rootRef 已声明且被 IO effect 读取，但增量 JSX 无任何一处挂载 → rootRef.current 恒 null、IO effect 永远早退——用例 4 的 ioInstances 断言超时，且资源纪律③"移出视口释放"真机整体失效）——现码 L48 根元素改：
+
+```tsx
+    <div ref={rootRef} className="relative canvas-node" data-testid={`video-edit-node-${id}`}>
 ```
 
 播放态渲染（轨道缩略区条件替换）：
@@ -2932,7 +2989,7 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
   removeKeyframe(clipId: string, kfId: string): void;
   moveKeyframe(clipId: string, kfId: string, t: number, opts?: { transient?: boolean }): boolean;
 
-// 实现区增加（updateClip 之后；patch 构造经既有 commit/transient 闭包内联，勿引入独立助手函数）：
+// 实现区增加（updateClip 之后；全部走既有 commit/transient 闭包内联——R4：消除 commitClipPatch 假助手与"勿新增助手函数"注解的自相矛盾）：
 ```ts
     addKeyframe: (clipId, property) => {
       const s = get();
@@ -2946,7 +3003,10 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
         if (exist) return exist.id;
         const value = interpolateTransform(clip, tLocal)[property];
         const kf: TransformKeyframe = { id: genId('kf'), t: tLocal, property, value, easing: 'linear' };
-        commitClipPatch(s, clipId, (c) => ({ keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) }));
+        commit((d) => {
+          const c = d.clips[clipId] as VideoClip;
+          return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
+        }, { structural: false });
         return kf.id;
       }
       if (clip.type === 'audio') {
@@ -2955,7 +3015,10 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
         if (exist) return exist.id;
         const value = keyframeValueAt(clip.keyframes.map(k => ({ t: k.t, value: k.value })), tLocal, clip.volume);
         const kf: VolumeKeyframe = { id: genId('kf'), t: tLocal, value, easing: 'linear' };
-        commitClipPatch(s, clipId, (c) => ({ keyframes: [...(c as AudioClip).keyframes, kf].sort((a, b) => a.t - b.t) }));
+        commit((d) => {
+          const c = d.clips[clipId] as AudioClip;
+          return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
+        }, { structural: false });
         return kf.id;
       }
       return null; // subtitle
@@ -2966,7 +3029,10 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
       if (!s.data) return;
       const clip = s.data.clips[clipId] as Clip | undefined;
       if (!clip || clip.type === 'subtitle') return;
-      commitClipPatch(s, clipId, (c) => ({ keyframes: (c as VideoClip).keyframes.filter(k => k.id !== kfId) }));
+      commit((d) => {
+        const c = d.clips[clipId] as VideoClip | AudioClip;
+        return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: c.keyframes.filter(k => k.id !== kfId) } } };
+      }, { structural: false });
       if (get().selectedKeyframeId === kfId) set({ selectedKeyframeId: null });
     },
 
@@ -2988,8 +3054,6 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
       return true;
     },
 ```
-
-**关键帧 patch 落地方式**：addKeyframe/removeKeyframe 内的 `commitClipPatch(s, clipId, ...)` 调用直接展开为既有 `commit((d) => { const c = d.clips[clipId] as VideoClip | AudioClip; return { ...d, clips: { ...d.clips, [clipId]: { ...c, ...patch } as Clip } }; })` 内联（store 工厂内已有 commit/transient 闭包，不新增独立助手函数）。
 
 - [ ] **Step 3: 写失败测试（PropertiesPanel 四态）→ 实现**
 
@@ -3335,7 +3399,7 @@ describe('时间轴关键帧菱形刻度', () => {
 
 - [ ] **Step 2: 确认失败 → 实现**
 
-editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ **`selectKeyframe(kfId: string | null, clipId?: string)`（N3/决策 19 双写：kfId 非空时同时写 `selectedKeyframeId: kfId` 与 `selectedClipId: clipId`——点击菱形即选中其片段，stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量；kfId 为 null 只清 selectedKeyframeId）**；既有 `selectClip` 补清 `selectedKeyframeId: null`（切换片段时关键帧选中失效，不变量保持）。
+editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ **`selectKeyframe(kfId: string | null, clipId?: string)`（N3/决策 19 双写：kfId 非空时同时写 `selectedKeyframeId: kfId` 与 `selectedClipId: clipId`——点击菱形即选中其片段，stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量；kfId 为 null 只清 selectedKeyframeId）**；既有 `selectClip` 补清 `selectedKeyframeId: null`（切换片段时关键帧选中失效，不变量保持）；**undo/redo 的 set 同步补 `selectedKeyframeId: null`**（R4：现码 L330/339 只清 selectedClipId——历史跳转后 selectedClipId 已 null、Delete 双真条件不触发，当前无害，但"双写联动"不变量要求 kf 选中不残留，Plan 4 消费前顺手收口）。
 
 ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent) => void`）：
 
@@ -3350,7 +3414,14 @@ ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (k
 
 （菱形不挡片段拖拽外的命中：pointerdown 内 stopPropagation 由 TimelinePanel 的 handler 做。audio 片 volume 关键帧同样渲染——同款分支，testid 同前缀；**title 用 `音量 @ ${k.t.toFixed(2)}s`**（R3 五-2：VolumeKeyframe 无 property 字段，复用 k.property 会渲染 "undefined @ 1.00s"）。）
 
-TimelinePanel 增量：dragRef 的 kind 联合扩 `'keyframe'`；`onKeyframePointerDown(kfId, e)`：
+TimelinePanel 增量（R4 头部 import 前置：现码 L8 仅 `import type { Clip } from '../../types'` 且无 playback 导入——下方代码用 `(c as VideoClip)` 与 `seekPlayback`，不补则抄写即 TS2304）：
+
+```ts
+import type { Clip, VideoClip } from '../../types';   // L8 改——VideoClip 新增
+import { seekPlayback } from '../../hooks/playback';  // 新增（点击菱形跳转播放头）
+```
+
+dragRef 的 kind 联合扩 `'keyframe'`；`onKeyframePointerDown(kfId, e)`：
 
 ```tsx
 const onKeyframePointerDown = (kfId: string, e: React.PointerEvent) => {
@@ -3617,7 +3688,23 @@ TrackRow → ClipBlock 传递 `missing={c.sourceNodeId ? missingSourceNodeIds.ha
   {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
 ```
 
-- [ ] **Step 3: 跑测试 + TimelinePanel.render.test.tsx 追加红态用例（渲染 missing 片段 → getByText('素材已删除')，夹具 canvasStore setState 不含 sourceNodeId）+ 提交**
+- [ ] **Step 3: 跑测试 + TimelinePanel.render.test.tsx 追加红态用例 + 提交**
+
+追加用例（R4：既有夹具 v1.sourceNodeId='s1' 而 canvasStore 默认无此节点 → 夹具默认即红态，直接复用，无需另造 missing 数据；夹具中仅 v1 带 sourceNodeId——a1/sub1 无，getByText 唯一成立）：
+
+```tsx
+// TimelinePanel.render.test.tsx 追加（顶部补 import { act } from '@testing-library/react' 与 import { useCanvasStore } from '@/stores/canvasStore'）：
+  it('素材缺失态：sourceNodeId 不在画布 → 红态角标；源节点回画布 → 消失', () => {
+    const d = dataWithClips(); // 夹具 v1 带 sourceNodeId: 's1'（canvasStore.nodes 默认不含 → 红态）
+    useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    render(<TimelinePanel />);
+    expect(screen.getByText('素材已删除')).toBeInTheDocument();
+    act(() => { useCanvasStore.setState({ nodes: [{ id: 's1', position: { x: 0, y: 0 }, data: {} } as never] }); });
+    expect(screen.queryByText('素材已删除')).not.toBeInTheDocument();
+  });
+```
+
+**既有夹具红态影响（R4 知会性登记）**：render.test 第 3 用例与 interact.test 的 addVideoClip（sourceNodeId: 's1'）在本 task 后均渲染红标——既有断言（testid/文案/交互）不含红标文案，不受影响不失败；执行者看到夹具片段带红角标属预期，勿误判为缺陷回改夹具。
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/timeline/missing-source.test.ts src/pages/canvas/video-editor/components/timeline/TimelinePanel.render.test.tsx
@@ -3679,7 +3766,8 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - **R1 轮审核修订（2026-09-11，11 项阻塞 + 10 项功能缺口全数采纳，2 项拍板落定）**：阻塞 B1-B8——mediabunny dispose 实形修正（CanvasSink 无 dispose/Input.dispose 返回 void）；setMediaUrlResolver 残留与 FrameRenderDeps 错位 import 清理（B2）；Task 6 offset 期望 1.5 验算修正（B3）；空格用例补 videoEditorStore.open 门卫（B4）；Task 11 pointer 事件改 MouseEvent 派发（B5）；既有测试迁移清单三处补全（B6）；onSubtitleAdd 闭包 playhead 连带（B7）；useRef/rafRef 上提/pointerMovedOnce 统一（B8）。缺口 G1-G10——暂停态单帧渲染 effect（G1/决策 18）；suspend 后 resume 冻结修复（G2）；crossfade 双窗口（G3/决策 17，三片链测试补齐）；拖拽 seek 静音 + up 重排（G4/决策 6②）；letterSpacing 参与 measure 与绘制（G5）；迷你播放删 prepare 不出声（G6/决策 16 拍板）；video-cache openSink in-flight 去重（G7）；stretchPcm 尾部非静音断言替代恒真假绿（G8）；ResizeObserver 接 M2（G9）；mediaApi mock/动态 import 清理/objectFit 删除（G10）。审核核验无误项（数值向量/依赖实形/soundtouchjs·mediabunny API 实形）已按其修正对齐
 - **R2 轮审核修订（2026-09-11，R1 修订核验 20/21 落实 + 新引入 3 必红 + 1 flaky + 5 架构项全数采纳）**：必红 N1-N3——decode.ts input.dispose().catch 残留补修（R1 只修 video-cache 一处）；Task 9 IO effect deps:[] 闭包捕获首渲染 projectData=null → stopMini 空 release，stopMiniRef/projectDataRef 统一三释放入口（N2）；关键帧选中模型定案 selectKeyframe(kfId, clipId) 双写（N3/决策 19，用例改"先选片段再点菱形"）。P1 N4-N6——stretchPcm 尾部断言改 200 样本窗口 max（单点采样 6.4% flaky，N4）；renderLatest 统一 playing tick 与暂停 effect 的 in-flight 去重 + G1 补测（N5/决策 18）；Ruler pointer capture 加 ?.（jsdom 无 PointerCapture，N6）。架构 A1-A5——engine AudioBuffer 单份驻留（pcmCache 删，prepare 即转，N 立减半，A1/决策 6①）；spec 内存预估 86→345.6MB/轨 修正 + 勘误③ + Plan 4 阈值口径同源（A2）；视频取源改 mediabunny UrlSource（HTTP Range，d.ts 实测导出；音频/图片保持 blob；Task 14 加 Range 206 验收，A3/决策 1）；播放中编辑重排 100ms 前沿去抖（A4/决策 6③）；StopwatchButton 改派生布尔订阅（A5/决策 20）。另：迷你播放 loadMediaUrls ref 命中跳过（省重复 RTT）；spec 边界表登记多标签双解码
 - **R3 轮审核修订（2026-09-11，R2 修订核验 11/11 落实 + 2 必红 + UrlSource 语义修正 + 3 架构残留全采纳）**：必红——Task 7 FrameRenderDeps 双声明残留删除（R2 改 import 未删旧接口块，TS2300+TS2304）；Task 4 LRU 用例 `_b: Blob` 改 `_url: string`（strictFunctionTypes 逆变）。UrlSource 语义（实测 source.js L699-714）——退化形态更正为"sequential 流式 + 缓存驱逐 + 回拖抛错黑帧"（非"退化为整下载"），决策 1 措辞重写 + Nginx 具体指令（proxy_force_ranges on / Range+If-Range set_header）+ Content-Range CORS 条件（/flowai 同源重写已验，换前缀需 ExposeHeaders）；Task 14 验收升级为服务侧+浏览器侧双验（多次 206 + console 无 range 警告）+ 新增跨缓存回拖 seek 无黑帧终验。自愈缺口（3.3）——video-cache getFrame 捕错 release(mediaId) 重开（含回归用例）；预签名 3600s 过期一期限制登记 spec 边界表。架构残留——prepare 瞬时峰值实测口径（稳态 3-4 倍，替换 spec"×2"）+ Task 14 内存观测项（§4.1 选①）；renderLatest 尾追旧 data 登记于实现注释（§4.2 低危）；A4 验收口径补"拖动过程中允许不同步"（§4.3）。历史小项——Task 12 ClipBlock 补 useRef/useEffect import 说明（五-1）；audio 菱形 title 用"音量"防 undefined（五-2）；scrub 加 scrubActive 守卫（五-3）；hasPcm/releasePcm 语义注释（五-4，Plan 4 消费提示）；纯视频工程建 ctx 偏离正式登记决策 8（五-6）；PreviewPlayer 测试 try/finally + 未用 stopPlayback 导入删除（五-5）
-- **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds
+- **R4 轮审核修订（2026-09-11，R3 修订核验 7/7 落实 + Task 9 一根因两必红 + A3 自愈三收口全数采纳）**：必红两处（同根因）——①startMini 的 `await loadMediaUrls()` 先于 `setMiniPlaying(true)`：fireEvent.click 是同步 act 只 flush React 队列、不 flush 用户 promise 续体，点击返回时 miniPlaying 仍 false → 用例 1（画布断言紧跟 click）与用例 4（trigger(false) 时 miniPlayingRef 仍 false，随后微任务 flush 画布出现且无第二次 IO 触发）双双必红——setMiniPlaying(true) 提前至 await 之前（点击即时进播放态，URL 晚到首帧黑底、tick 每帧重读 mediaUrlsRef 到达后自动出画）；②rootRef 声明而增量 JSX 无任何一处挂载（现码 L48 根元素无 ref）→ IO effect 永远早退，用例 4 ioInstances 断言超时且资源纪律③真机整体失效——根元素补 `ref={rootRef}`；③补卸载清理 `useEffect(() => () => { if (miniPlayingRef.current) stopMiniRef.current(); }, [])`（节点删除/画布卸载时不残留 videoCache 条目与 ImageBitmap，deps:[] 经 ref 取最新闭包与 N2 同款）。健壮性三收口——④自愈冷却（坏源 rAF 30-60fps 每秒几十次 release+openSink → retryAfter 2s 冷却 + deps.now 注入可测 + console.warn 诊断痕迹；成功取帧解除冷却、LRU 淘汰不继承冷却、无参 release 会话终结清冷却、带参 release 冷却保留防立即重进再打网络）；⑤openSink rejection 纳入 try（原 `await import`/`new Input` 在 try 外，一 reject 则 getFrame reject 违反"失败→null"契约——openMediabunnySink 整段包 try，const held 窄化闭包）；⑥release 与在途 open 竞态（在途 open 解析后照样 entries.set 复活已释放的 Input/CanvasSink——generations 代数作废，"播放中点关闭"场景即 Task 14 反复进出验收的前置；带参/无参 release 均先物化 keys 再 ++）。小项五条——⑦Task 4 用例 10 适配冷却（now 注入推进时钟）+ 新增竞态用例 11（跑测注释 11 PASS）；⑧Task 11 补 TimelinePanel 头部 import（VideoClip/seekPlayback——现码 L8 仅 Clip，抄写即 TS2304）+ undo/redo 补清 selectedKeyframeId（双写联动不变量收口，Plan 4 消费前）；⑨Task 10 代码块改内联 commit（消除 commitClipPatch 假助手与"勿新增助手函数"注解的"散文对代码块错"自相矛盾——R1-R3 反复踩的形态）；⑩PlayheadLine 无 props 化（data/widthPx 仅喂未被使用的滚动内容宽 w，死代码删除；left = 140 + playhead 换算 px 与 Ruler 同坐标系说明并入挂载点）；⑪Task 13 追加用例复用既有夹具红态（v1.sourceNodeId='s1' 默认即红，getByText 唯一——夹具中仅 v1 带 sourceNodeId）+ 既有夹具红态影响知会登记（render.test 第 3 用例与 interact.test 夹具在本 task 后渲染红标，既有断言不含红标文案不受影响）
+- **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds；video-cache RETRY_COOLDOWN_MS 冷却与 generations 作废语义随 Task 4 契约继承（导出路径消费 getFrame 同样受冷却保护）
 
 ## 后续 Plan（另开文件）
 
