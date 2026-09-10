@@ -316,7 +316,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 - **片段操作**：拖动（同类型跨轨自由重叠；**禁重叠与吸附仅同轨内**——同轨除 crossfade overlap 外冲突吸附最近空位，规则详见第三节）、边缘 trim（公式见第三节）、播放头分割、删除、撤销/重做
 - **历史栈事务性**：拖拽 rAF 级高频 setState **不入栈**，pointerup commit 时一次入栈；快照结构化克隆（禁持引用）；上限 50 步
 - **吸附**：片段边缘 ↔ 相邻边缘/播放头/整秒刻度，8px 阈值（换算为秒随 px/s 变化）
-- **缩放**：Ctrl+滚轮调 px/s，以播放头为中心；**编辑器打开期间禁用画布快捷键——落点为 `isGroupEditContext()`（useGroupKeyboard.ts 统一早退钩子）加"编辑器 store open 则返回 true"**（document keydown 是冒泡阶段监听，捕获层 stopPropagation 挡不住；isGroupEditContext 是现成早退点）；编辑器 open 状态放 `stores/videoEditorStore.ts`（避免 hooks→pages 反向依赖）；Delete/空格在画布层无处理器（CanvasKeyboardHandler 仅 Tab/Ctrl+0/Alt+Shift+F；React Flow 内置 deleteKeyCode 的 portal 隔离需实测，列入实施核验）
+- **缩放**：Ctrl+滚轮调 px/s，以播放头为中心；**编辑器打开期间禁用画布快捷键——落点为 `isGroupEditContext()`（useGroupKeyboard.ts 统一早退钩子）加"编辑器 store open 则返回 true"**（document keydown 是冒泡阶段监听，捕获层 stopPropagation 挡不住；isGroupEditContext 是现成早退点）；编辑器 open 状态放 `stores/videoEditorStore.ts`（避免 hooks→pages 反向依赖）。**Delete 隔离核验结论（2026-09-11 执行期实测）**：React Flow 的 deleteKeyCode 走 useGlobalKeyHandler 挂 document 冒泡、portal 挂 body 不构成隔离，且焦点残留画布按钮时 button 非 input 守卫失效——三重防线落定：编辑器壳根 div 加 `nokey` class（isInputDOMNode 的 closest('.nokey') 逃生门）+ `initialFocusRef` 焦点移入壳内（div 需 tabIndex=-1 才可聚焦）+ CanvasView `deleteKeyCode` 随 editorOpen 置空数组；CanvasKeyboardHandler（Tab/Ctrl+0/Alt+Shift+F）同加 store open 早退
 - **波形**：现有 `hooks/useWaveformPeaks` 与 wavesurfer 实例耦合（首参必须传实例），**不能零成本复用**——将"从 AudioBuffer 抽固定数量峰值"的逻辑剥离为纯函数 `peaksFromAudioBuffer(buffer, count)`（可 TDD）+ 共享单例解码器产 AudioBuffer；时间轴 Canvas 自绘静态波形，峰值按 mediaId 缓存（不为每片段 new wavesurfer 实例）
 - 交互算法参考移植 opencut `timeline/`（drag-utils/snapping/group-move），适配 zustand4+antd5
 - **可测性红线**：像素↔秒换算、边缘命中宽度、8px 阈值行为全部抽纯函数；组件只绑 pointer 事件

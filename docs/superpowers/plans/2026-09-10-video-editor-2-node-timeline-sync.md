@@ -31,6 +31,8 @@
 > **Task 9 执行期修正（2026-09-10，quality review I1 plan 级缺口 + M2/M3/M6）**：(I1) trimClip 补**同轨邻居 clamp**——原守卫只按素材边界，右缘延长可覆盖后片/左缘延长可覆盖前片制造无转场依据的非法重叠（同 Task 5 I1 失败模式，违反 spec 验收 6 同轨禁重叠）；语义定案"trim 不是建立 crossfade 的途径：无重叠不得产生（界=间隙），已有合法重叠不得加深（界=0）"，store 层中心收口覆盖全部调用方。测试夹具用 addClip[0,60)+splitClip(30) 构造（直放第二片冲突吸附到 60 且 sourceStart=0 素材界掩盖邻居界）。(M2) undo/redo 补 `pendingSnapshot: null`（拖拽中 Ctrl+Z 作废进行中会话，防 bogus undo 记录）。(M3) updateClip 存在性早退（防 {...undefined,...patch} 造假 clip）。(M6) addClip `Math.max(0, quantizeTime(start))` drop 入口自防御。补 4 用例（12→16）。strict 修正 3 处：canPlaceAt 第 2 参 undefined→''（签名 string）、moveClip 第 6 参 clip as any（弱类型检测）、trimClip mediaId as any（SubtitleClip 无该字段→Infinity 兜底一致）。登记不修：updateClip 早退/trim 夹 0 时 commit 仍推一条内容等价历史（pre-existing 机制行为，拖拽主路径 transient 不受影响）；addSubtitleClip/addTrack 非 ready 返回死 id（无触发路径）。Task 15 笔误同步修正：`es.history.pendingSnapshot`→`es.pendingSnapshot`（字段在顶层，两处）。
 >
 > **Task 10 执行期修正（2026-09-10，quality review C1 阻塞项 + M2-M5）**：(依赖倒置) videoProjectApi.ts 前置最小版（DTO+getProjectByNode 404→null——apiFetch 抛错带 status 已核 client.ts L23；upsert/patch 留 Task 12）。(C1) **Tooltip span 包裹 disabled 按钮**——disabled 控件不派发鼠标事件（Chromium 行为）且 antd5 Trigger 无 disabled 兼容包裹，原结构"能力置灰+提示"的提示半边在真实浏览器永不显示；span 包裹 + hover 回归用例锁死。(计划 bug) `useState(detectVideoEditorCapabilities)` 惰性初始化返回**对象**——单层解构 `[canPreview]` 拿到对象致 disabled 恒 false，修正双层解构 `[{ canPreview }]`（变异验证承重）。(M2) refetch 精确化：deps 收窄 [id, closedAt]，体内 getState 比对 sourceNodeId===id，closedAt===0 挂载首取放行（防晚挂载残留跳过）+ 负例用例。(M3) catch 保留现状（首载 null→空态/refetch 保留旧缩略——403/500 不吞成空态）。(M4) catch unknown 收窄 `(e as {status?: number})`。(测试基建) ReactFlowProvider 包裹 helper（xyflow Handle 无 Provider 必 throw）；时间码断言整串 '0:00 / 0:03'（JSX 文本节点合并）；后端 getByNode 实返带内 null 非 404（404 分支防御性，殊途同归空态——登记）。
+>
+> **Task 11 执行期修正（2026-09-11，quality review C1/I1——spec 验收 27 的 Delete 通路真实缺口）**：(C1) xyflow `deleteKeyCode` 走 useGlobalKeyHandler 挂 document 冒泡，**portal 挂 body 不构成隔离**（spec L319 原"需实测"核验为不隔离，结论已回写 spec），且编辑器打开后焦点残留画布"全屏编辑"按钮（button 非 input，isInputDOMNode 失守）→ 按 Delete 删掉正在编辑的节点。三重防线：Shell 根 div 加 `nokey` class（isInputDOMNode 的 closest('.nokey') 逃生门）+ `initialFocusRef` 焦点移入壳内（**div 需 `tabIndex={-1}` 才可聚焦**——普通 div 的 focus() 是 no-op）+ CanvasView `deleteKeyCode={editorOpen ? [] : [...]}` 随开禁用。(I1) page.tsx CanvasKeyboardHandler（Tab/Ctrl+0/Alt+Shift+F）加 store open 早退（编辑器打开时 Tab 不再开幽灵 AddNodeMenu、Ctrl+0 不改视口）。BaseFullscreenModal.test.tsx 实为既有文件（13 用例）——追加非新建；EditorTopBar 占位版含收起按钮（计划原占位无收起但用例要求——plan 内部矛盾化解）。回归用例：nokey class + 焦点移入断言；Tab 隔离留 Task 17 浏览器验收。**Task 12 检查点（M1 提醒）**：ESC（Shell onClose）与收起按钮（EditorTopBar 直调）必须统一走 flush 后关闭，收起按钮不可绕过 flush。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -2496,6 +2498,7 @@ export function PreviewPlaceholder() {
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx
+import { useRef } from 'react';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { EditorTopBar } from './EditorTopBar';        // Task 12 实现，本 task 先建最小占位（见 Step 5 注）
@@ -2505,11 +2508,13 @@ import { TimelinePanel } from './timeline/TimelinePanel'; // Task 14 实现，�
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
   const close = useVideoEditorStore((s) => s.close);
+  const focusRef = useRef<HTMLDivElement>(null);
   if (!open) return null;
   return (
-    <BaseFullscreenModal open={open} onClose={close} label="多轨剪辑" closeOnBackdrop={false}>
-      <div data-testid="video-editor-shell"
-        className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border">
+    <BaseFullscreenModal open={open} onClose={close} label="多轨剪辑" closeOnBackdrop={false} initialFocusRef={focusRef}>
+      {/* nokey=xyflow isInputDOMNode 逃生门 + tabIndex=-1 使 div 可聚焦 + initialFocusRef 焦点移入壳内（执行期 C1——三重 Delete 通路隔离） */}
+      <div ref={focusRef} tabIndex={-1} data-testid="video-editor-shell"
+        className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border nokey">
         <EditorTopBar />
         <div className="flex flex-1 min-h-0">
           {/* 左面板（Task 16 实化） */}
@@ -2532,7 +2537,23 @@ export function VideoEditorShell() {
 }
 ```
 
-> **Step 5 注（占位组件先行）**：本 task 同步创建两个最小占位避免 import 断裂，后续 task 替换实现——`EditorTopBar.tsx`（`export function EditorTopBar() { return <div data-testid="editor-top-bar" className="h-12 flex items-center px-4 bg-white border-b border-[#E5E7EB] [border-bottom-style:solid]"><span className="text-[15px] font-medium text-[#1F2329]">多轨剪辑</span></div>; }`）；`timeline/TimelinePanel.tsx`（`export function TimelinePanel() { return <div data-testid="timeline-panel" className="h-[280px] border-t border-[#E5E7EB] [border-top-style:solid] bg-white" />; }`）。
+> **Step 5 注（占位组件先行）**：本 task 同步创建两个最小占位避免 import 断裂，后续 task 替换实现——`EditorTopBar.tsx`（**占位版含最小收起按钮**接 store.close——Step 3 的"收起 → close"用例依赖此按钮，Task 12 完整化时保留）：
+>
+> ```tsx
+> import { useVideoEditorStore } from '@/stores/videoEditorStore';
+> export function EditorTopBar() {
+>   const close = useVideoEditorStore((s) => s.close);
+>   return (
+>     <div data-testid="editor-top-bar" className="h-12 flex items-center px-4 bg-white border-b border-[#E5E7EB] [border-bottom-style:solid]">
+>       <span className="text-[15px] font-medium text-[#1F2329]">多轨剪辑</span>
+>       <button type="button" onClick={close}
+>         className="ml-auto text-[14px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-2 py-1">收起</button>
+>     </div>
+>   );
+> }
+> ```
+>
+> `timeline/TimelinePanel.tsx`（`export function TimelinePanel() { return <div data-testid="timeline-panel" className="h-[280px] border-t border-[#E5E7EB] [border-top-style:solid] bg-white" />; }`）。
 
 [useGroupKeyboard.ts](apps/web/src/hooks/useGroupKeyboard.ts) L8-9 开头插入（import 区加 `import { useVideoEditorStore } from '@/stores/videoEditorStore';`）：
 
