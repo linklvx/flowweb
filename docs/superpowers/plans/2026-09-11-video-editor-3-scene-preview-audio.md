@@ -14,12 +14,12 @@
 
 **关键决策（写代码前必读，含对 spec 的登记偏离）：**
 
-1. **video-cache 采用 vendor 实测形状**：`mediaId → Input+CanvasSink 常驻 + current/next 双帧 + 三段命中策略（next 命中→前移 / current 窗口有效→直返 / 前向迭代，>2s 跳跃重建 iterator）`+ LRU 上限 8 媒体淘汰 dispose——spec 说"LRU 帧缓存（参考 opencut video-cache）"，vendor 实际（docs/vendor/opencut-classic/apps/web/src/services/video-cache/service.ts）即此形状，非逐帧 LRU。CanvasSink 返回 WrappedCanvas（canvas 复用池，无需 close——VideoFrame close 纪律是导出路径 Plan 4 的事）。
+1. **video-cache 采用 vendor 实测形状 + UrlSource 取源（R2 审核 A3）**：`mediaId → Input+CanvasSink 常驻 + current/next 双帧 + 三段命中策略（next 命中→前移 / current 窗口有效→直返 / 前向迭代，>2s 跳跃重建 iterator）`+ LRU 上限 8 媒体淘汰 dispose——spec 说"LRU 帧缓存（参考 opencut video-cache）"，vendor 实际即此形状，非逐帧 LRU。CanvasSink 返回 WrappedCanvas（canvas 复用池，无需 close——VideoFrame close 纪律是导出路径 Plan 4 的事）。**视频取源用 mediabunny `UrlSource(url)`（HTTP Range 随机读，d.ts 实测导出）而非整文件 fetch blob**——vendor 的 File 本地磁盘随机读换成 fetch(url).blob() 是首帧延迟与内存大头（整 mp4 常驻）；音频解码/图片仍走 BlobSource/blob（PCM 与 ImageBitmap 反正要全量）。Task 14 验收含 MinIO/Nginx 链路 Range 206 验证——若反代吃掉 Range 头则 UrlSource 退化为整下载，需修 Nginx 配置。
 2. **soundtouch 按 spike 定案路线**（docs/superpowers/spikes/soundtouch-spike.mjs CONCLUSION）：`SoundTouch + SimpleFilter + WebAudioBufferSource` 手动 extract 循环，非 PitchShifter 图节点（构造即 createScriptProcessor 强依赖 AudioContext，spike 已证伪）。尾部冲刷：输入补 16384 帧静音；输出裁剪按**期望长度 round(len/tempo) 截/补**（比"最后非零样本"确定——底噪会使非零扫描失效；tempo≠1 时 soundtouch 处理延迟导致输出与期望差 ~2%，尾部几十 ms 静音无感，且调度显式传 duration 不依赖 PCM 长度）。
 3. **变速 PCM 缓存 key = `${mediaId}:${speed}`**：prepare 时按需解码+伸缩；调度 offset = `(sourceStart + max(0, from-clip.start)*speed) / speed`（stretched 坐标系 = 原素材坐标 / speed）。
 4. **toBlack/toWhite 用全屏 overlay 色层**而非降 opacity（opacity 会透出下层轨画面，不符合"渐黑"语义；转场语义=整幅画面渐黑，overlay 在全部视觉层之后、字幕之前统一绘制）。
 5. **crossfade 画面 opacity 与音频增益同曲线**（spec 第六节 equal-gain 定案）：视频片内嵌音轨 gain ≡ interpolateClip 输出的 opacity（transform.opacity × 转场 alpha）——buildGainPoints 与 transitionEffect 单源共用 crossfadeContextOf；AudioClip 独立走 volume 关键帧 × fade 曲线。
-6. **音频调度偏离 spec 的 lookahead（50ms/0.1s 窗）——改一次性全量调度 + seek 重建**：lookahead 的动因是 opencut 流式取 buffer 场景；本项目 PCM 全内存预处理后（spec 内存预估已按全量 PCM 算），一次调度 N 个 AudioBufferSourceNode（N=片段数，15min 工程通常 <100）无性能问题，行为等价（音频不因视频解码慢而停）。登记偏离理由，浏览器验收以音画同步为准。**配套两条纪律（R1 审核 G4，缺则拖拽 seek 是分配灾难）**：① AudioBuffer 按 `mediaId:speed` 缓存于 engine（pcmToCtxBuffer 不再每次 playFrom 全量复制——标尺拖拽高频重排下每帧重建 N 个全量 Buffer），releasePcm 一并清；② 拖拽 seek 三段式 `scrubBegin/scrubMove/scrubEnd`——down 时若在播放则 stop 音频 + setPlaying(false)（静音拖拽，rAF 循环退出），move 只 setPlayhead（暂停态单帧渲染出画），up 才 setPlaying(true) 经 effect playFrom 重锚重排；验收以"松手后音画同步"为准。
+6. **音频调度偏离 spec 的 lookahead（50ms/0.1s 窗）——改一次性全量调度 + seek 重建**：lookahead 的动因是 opencut 流式取 buffer 场景；本项目 PCM 全内存预处理后（spec 内存预估已按全量 PCM 算），一次调度 N 个 AudioBufferSourceNode（N=片段数，15min 工程通常 <100）无性能问题，行为等价（音频不因视频解码慢而停）。登记偏离理由，浏览器验收以音画同步为准。**配套三条纪律（R1 审核 G4 + R2 审核 A1/A4）**：① prepare 解码+变速后**立即转 AudioBuffer 单份驻留**（bufferCache 按 `mediaId:speed`，PcmData 局部变量即弃——R2 A1：双份常驻按 spec 口径 345.6MB/轨 ×2 = 690MB/轨不可接受），releasePcm 一并清；② 拖拽 seek 三段式 `scrubBegin/scrubMove/scrubEnd`——down 时若在播放则 stop 音频 + setPlaying(false)（静音拖拽，rAF 循环退出），move 只 setPlayhead（暂停态单帧渲染出画），up 才 setPlaying(true) 经 effect playFrom 重锚重排；验收以"松手后音画同步"为准；③ **播放中编辑重排 100ms 前沿去抖**（R2 A4：时间轴拖片段 transient 60Hz 下 subscribe 直接 playFrom = 每秒几十次 stop+全量重排"机器枪"——去抖窗内只重置 timer，停止变化 100ms 后重排一次）。
 7. **AudioContext 全局单例 + suspend/resume，不 close**：audioEngine 模块级单例使实例数恒 1，物理满足"实例上限约 6"护栏（spec 边界护栏"收起时 close()"针对每次新建的实现，单例下 close 反而违反"复用全局单例"的节点纪律⑤）；收起时 stop sources + releasePcm + suspend 线程。**resume 修复（R1 审核 G2，P0）**：suspend 后二次打开编辑器时 getContext 因 ctx 已存在跳过 resume → currentTime 冻结 → engine.now() 恒定 → rAF 永不前进——prepare/playFrom 入口显式 resumeCtx()。
 8. **主时钟统一由 AudioEngine 承载**：`engine.now()` 单一时钟真相——有音频 PCM 用 ctx.currentTime 锚（ctx 手势内创建）、无音频片降级 performance.now 锚（不为时钟空转 AudioContext，spec 第六节）；seek = playFrom 重新锚定，视觉 rAF 与音频调度共用 now() 不漂移。
 9. **播放状态机放 editorStore（playing/preparing）+ 副作用编排集中在 hooks/playback.ts**：togglePlayback（prepare 异步完成后才 setPlaying(true)，音画同起点；preparing 态按钮 loading）/stopPlayback/seekPlayback 三函数被 PreviewPlayer、useEditorKeyboard（空格）、Ruler 拖拽共用——避免 keyboard hook 反向依赖组件。
@@ -31,7 +31,9 @@
 15. **渲染跳帧 = in-flight 去重**：rAF tick 内上一帧 renderFrameAt 未返回则跳过发起新请求（天然实现 spec"跳帧追赶、音频不停"）；seek 暂停态单帧渲染 await 完成再绘。
 16. **节点迷你播放不出声（R1 审核 G6 拍板）**：startMini 不调 audioEngine.prepare（整工程 PCM 解码+变速与"轻量 renderer"纪律冲突）——迷你播放视频帧经 videoCache 按需解码（播放的必要开销，缩略态零解码语义不变），音频静默；audio-engine 单例保留给编辑器主预览。
 17. **crossfade 双窗口（R1 审核 G3）**：crossfadeContextOf 输出 `{ backOverlap, frontOverlap }` 可同时携带（三片链 A/B/C 全 crossfade 时中间片两窗并存）——transitionEffect 与 buildGainPoints 对双窗口独立施加（alpha 相乘），两重叠区各自 1↔0、中点各 0.5（spec 第六节 equal-gain）；crossfade 入场窗口存在时跳过独立 fadeIn 施加防重复，未吞并的出场转场（如入 crossfade + 出 toBlack）正常叠加。
-18. **暂停态单帧渲染（R1 审核 G1，P0）**：usePreviewPlayback 补 `!playing` effect（依赖 playhead/data）——renderFrameAt 单帧绘制；进编辑器即渲染 playhead=0 帧而非黑屏，暂停后点画布/拖标尺即时出画（scrubMove 的视觉基础）。
+18. **暂停态单帧渲染（R1 审核 G1，P0）+ in-flight 去重共用（R2 审核 N5）**：usePreviewPlayback 补 `!playing` effect（依赖 playhead/data）——renderFrameAt 单帧绘制；进编辑器即渲染 playhead=0 帧而非黑屏，暂停后点画布/拖标尺即时出画（scrubMove 的视觉基础）。**renderLatest(deps, data, t) 统一收口 playing tick 与暂停 effect**（pendingRef + latestTRef：in-flight 时只记最新 t、完成后补渲染一次）——否则 scrubMove/拖片段 60Hz 每帧发起全帧渲染（含视频 seek），MediaEntry 串行链把上百次 seek 排队执行。
+19. **关键帧选中模型（R2 审核 N3）**：`selectKeyframe(kfId, clipId)` **同时写 selectedKeyframeId 与 selectedClipId**（点击菱形即选中其片段——stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量）；selectClip 切换清 selectedKeyframeId（保持）；useEditorKeyboard Delete 分支 `selectedKeyframeId && selectedClipId` 双真才删关键帧（无错配空 patch 脏历史）。
+20. **右面板秒表订阅派生布尔（R2 审核 A5）**：StopwatchButton 不订阅 playhead 本身，selector 返回"播放头处该属性存在关键帧"的布尔（zustand Object.is 比较，播放 30fps 不重渲整个 PropertiesPanel 的 InputNumber/Select/textarea 群）。
 
 ## 文件结构总览
 
@@ -650,7 +652,7 @@ git add apps/web/src/pages/canvas/video-editor/scene && git commit -m "feat(vide
 - Create: `apps/web/src/pages/canvas/video-editor/renderer/video-cache.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/renderer/video-cache.test.ts`
 
-mediabunny API 形状（vendor 实测，docs/vendor/.../video-cache/service.ts）：`new Input({source: new BlobSource(blob), formats: ALL_FORMATS})` → `input.getPrimaryVideoTrack()` → `new CanvasSink(track, {poolSize, fit:'contain'})` → `sink.canvases(startTime)` AsyncGenerator<WrappedCanvas{canvas, timestamp, duration}>。本服务把 mediabunny 依赖收在 deps.openSink 注入点（jsdom 可测），生产装配在文件末尾。
+mediabunny API 形状（vendor 实测 + R2 A3 修订）：`new Input({source: new UrlSource(url), formats: ALL_FORMATS})`（UrlSource 走 HTTP Range 随机读——决策 1）→ `input.getPrimaryVideoTrack()` → `new CanvasSink(track, {poolSize, fit:'contain'})` → `sink.canvases(startTime)` AsyncGenerator<WrappedCanvas{canvas, timestamp, duration}>。本服务把 mediabunny 依赖收在 deps.openSink 注入点（jsdom 可测），生产装配在文件末尾。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -659,7 +661,7 @@ mediabunny API 形状（vendor 实测，docs/vendor/.../video-cache/service.ts�
 import { describe, it, expect, vi } from 'vitest';
 import { VideoCacheService, type SinkHandle, type WrappedFrame } from './video-cache';
 
-const BLOB = new Blob(['x']);
+const SRC = 'http://minio/m1.mp4'; // UrlSource 直连（A3）——不再整文件 fetch blob
 
 function makeSink(frames: { timestamp: number; duration: number }[]) {
   const state = { canvasesCalls: number, consumed: number, disposed: false };
@@ -684,37 +686,37 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
   it('顺序请求：迭代到目标帧窗口', async () => {
     const { handle } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    const f = await svc.getFrame('m1', BLOB, 2.5);
+    const f = await svc.getFrame('m1', SRC, 2.5);
     expect(f?.timestamp).toBe(2);
   });
   it('current 命中：同窗口重复请求不再消费 generator', async () => {
     const { handle, state } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    await svc.getFrame('m1', BLOB, 2.5);
+    await svc.getFrame('m1', SRC, 2.5);
     const consumed = state.consumed;
-    await svc.getFrame('m1', BLOB, 2.9);
+    await svc.getFrame('m1', SRC, 2.9);
     expect(state.consumed).toBe(consumed); // current 窗口 [2,3) 直返
-    expect((await svc.getFrame('m1', BLOB, 2.9))?.timestamp).toBe(2);
+    expect((await svc.getFrame('m1', SRC, 2.9))?.timestamp).toBe(2);
   });
   it('前进请求：next 帧窗口命中', async () => {
     const { handle } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    await svc.getFrame('m1', BLOB, 2.5); // 消费至 ts=3（超前存 next）
-    const f = await svc.getFrame('m1', BLOB, 3.2);
+    await svc.getFrame('m1', SRC, 2.5); // 消费至 ts=3（超前存 next）
+    const f = await svc.getFrame('m1', SRC, 3.2);
     expect(f?.timestamp).toBe(3);
   });
   it('大跳（>2s）重建 iterator：canvases 再次调用', async () => {
     const { handle, state } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    await svc.getFrame('m1', BLOB, 0.5);
+    await svc.getFrame('m1', SRC, 0.5);
     const calls = state.canvasesCalls;
-    await svc.getFrame('m1', BLOB, 8.2);
+    await svc.getFrame('m1', SRC, 8.2);
     expect(state.canvasesCalls).toBe(calls + 1);
-    expect((await svc.getFrame('m1', BLOB, 8.2))?.timestamp).toBe(8);
+    expect((await svc.getFrame('m1', SRC, 8.2))?.timestamp).toBe(8);
   });
   it('openSink 返回 null（无视频轨/失败）→ getFrame null', async () => {
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(null) });
-    expect(await svc.getFrame('m1', BLOB, 0)).toBeNull();
+    expect(await svc.getFrame('m1', SRC, 0)).toBeNull();
   });
   it('LRU：超过 maxMedia 淘汰最久未用并 dispose', async () => {
     const sinks = new Map<string, ReturnType<typeof makeSink>>();
@@ -725,16 +727,16 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
       }),
       maxMedia: 2,
     });
-    await svc.getFrame('m1', BLOB, 0.5);
-    await svc.getFrame('m2', BLOB, 0.5);
-    await svc.getFrame('m3', BLOB, 0.5); // m1 最久未用被淘汰
+    await svc.getFrame('m1', SRC, 0.5);
+    await svc.getFrame('m2', SRC, 0.5);
+    await svc.getFrame('m3', SRC, 0.5); // m1 最久未用被淘汰
     expect(sinks.get('m1')!.state.disposed).toBe(true);
     expect(svc.size).toBe(2);
   });
   it('release(mediaId)：指定媒体释放', async () => {
     const { handle, state } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    await svc.getFrame('m1', BLOB, 0.5);
+    await svc.getFrame('m1', SRC, 0.5);
     svc.release('m1');
     expect(state.disposed).toBe(true);
     expect(svc.size).toBe(0);
@@ -742,7 +744,7 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
   it('串行链：并发请求不交错（后请求等待前完成）', async () => {
     const { handle } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
-    const [a, b] = await Promise.all([svc.getFrame('m1', BLOB, 2.5), svc.getFrame('m1', BLOB, 4.5)]);
+    const [a, b] = await Promise.all([svc.getFrame('m1', SRC, 2.5), svc.getFrame('m1', SRC, 4.5)]);
     expect(a?.timestamp).toBe(2);
     expect(b?.timestamp).toBe(4);
   });
@@ -750,7 +752,7 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     const { handle } = makeSink(FRAMES);
     const openSink = vi.fn(async () => { await new Promise(r => setTimeout(r, 10)); return handle; });
     const svc = new VideoCacheService({ openSink });
-    await Promise.all([svc.getFrame('m1', BLOB, 1.5), svc.getFrame('m1', BLOB, 2.5), svc.getFrame('m1', BLOB, 3.5)]);
+    await Promise.all([svc.getFrame('m1', SRC, 1.5), svc.getFrame('m1', SRC, 2.5), svc.getFrame('m1', SRC, 3.5)]);
     expect(openSink).toHaveBeenCalledTimes(1);
   });
 });
@@ -765,7 +767,7 @@ import type { Input, CanvasSink } from 'mediabunny';
 export interface WrappedFrame { canvas: HTMLCanvasElement | OffscreenCanvas; timestamp: number; duration: number; }
 export type SinkIterator = AsyncGenerator<WrappedFrame, void, undefined>;
 export interface SinkHandle { canvases(start: number): SinkIterator; dispose(): void; }
-export interface VideoCacheDeps { openSink: (blob: Blob) => Promise<SinkHandle | null>; maxMedia?: number; }
+export interface VideoCacheDeps { openSink: (url: string) => Promise<SinkHandle | null>; maxMedia?: number; }
 
 const SEEK_REBUILD_GAP = 2; // 距上次消费 >2s 重建 iterator（vendor 同款）
 
@@ -828,12 +830,12 @@ export class VideoCacheService {
 
   get size(): number { return this.entries.size; }
 
-  async getFrame(mediaId: string, blob: Blob, time: number): Promise<WrappedFrame | null> {
+  async getFrame(mediaId: string, url: string, time: number): Promise<WrappedFrame | null> {
     let entry = this.entries.get(mediaId);
     if (!entry) {
       let opening = this.opening.get(mediaId);
       if (!opening) {
-        opening = this.deps.openSink(blob).then((handle) => {
+        opening = this.deps.openSink(url).then((handle) => {
           if (!handle) return null;
           const e = new MediaEntry(handle);
           this.evictIfNeeded();
@@ -874,10 +876,11 @@ export class VideoCacheService {
 
 /** 生产装配：mediabunny CanvasSink（vendor video-cache/service.ts 同款）。
  *  B1 实测修正：CanvasSink 无 dispose 方法（mediabunny media-sink.d.ts 只有 getCanvas/canvases/canvasesAtTimestamps）；
- *  Input.dispose() 返回 void 非 Promise（input.d.ts L158）——同步调用，异常用 try/catch。 */
-export async function openMediabunnySink(blob: Blob): Promise<SinkHandle | null> {
-  const { Input, ALL_FORMATS, BlobSource, CanvasSink } = await import('mediabunny');
-  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+ *  Input.dispose() 返回 void 非 Promise（input.d.ts L158）——同步调用，异常用 try/catch。
+ *  R2 A3：视频取源 UrlSource（HTTP Range 随机读，决策 1）——presigned GET 直连，不整文件下载。 */
+export async function openMediabunnySink(url: string): Promise<SinkHandle | null> {
+  const { Input, ALL_FORMATS, UrlSource, CanvasSink } = await import('mediabunny');
+  const input = new Input({ source: new UrlSource(url), formats: ALL_FORMATS });
   try {
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) {
@@ -965,6 +968,13 @@ const dominantFreq = (d: Float32Array, sr: number) => {
   for (let i = 1; i < d.length; i++) if ((d[i - 1] < 0 && d[i] >= 0) || (d[i - 1] >= 0 && d[i] < 0)) z++;
   return (z / 2) * (sr / d.length);
 };
+/** 尾部信号窗口最大绝对值（R2 N4：单点采样 |sinθ|<0.1 概率 6.4% 会 flaky——440Hz 周期 109 样本，
+ *  任意 200 样本窗口必含峰值区 max≈1；补零区 max=0。零 flake 且锁住"尾部是真实信号非补零"） */
+const tailMax = (arr: Float32Array, from: number): number => {
+  let m = 0;
+  for (let i = from; i < Math.min(arr.length, from + 200); i++) m = Math.max(m, Math.abs(arr[i]));
+  return m;
+};
 
 describe('stretchPcm（soundtouch 离线变速，spike 定案路线）', () => {
   it('tempo=1 恒等（长度与内容）', () => {
@@ -977,8 +987,8 @@ describe('stretchPcm（soundtouch 离线变速，spike 定案路线）', () => {
     const out = stretchPcm(input, 2);
     const expected = input.channels[0].length / 2;
     expect(out.channels[0].length).toBe(Math.round(expected)); // 锁决策 2 契约：期望长度截/补
-    // spike 实测 2× 输出 0.980s（98%）——93% 处必须是真实信号非尾部补零
-    expect(Math.abs(out.channels[0][Math.floor(expected * 0.93)])).toBeGreaterThan(0.1);
+    // spike 实测 2× 输出 0.980s（98%）——93% 位置起的 200 样本窗口必须是真实信号非尾部补零（N4 max-窗口）
+    expect(tailMax(out.channels[0], Math.floor(expected * 0.93))).toBeGreaterThan(0.3);
   });
   it('tempo=2：主频保持 440Hz（变速不变调，±2% 容差）', () => {
     const out = stretchPcm(stereo(sine(48000, 2, 440)), 2);
@@ -988,7 +998,7 @@ describe('stretchPcm（soundtouch 离线变速，spike 定案路线）', () => {
     const out = stretchPcm(stereo(sine(48000, 1, 440)), 0.5);
     const expected = 48000 * 2;
     expect(out.channels[0].length).toBe(Math.round(expected));
-    expect(Math.abs(out.channels[0][Math.floor(expected * 0.93)])).toBeGreaterThan(0.1);
+    expect(tailMax(out.channels[0], Math.floor(expected * 0.93))).toBeGreaterThan(0.3); // N4 max-窗口
     expect(Math.abs(dominantFreq(out.channels[0], out.sampleRate) - 440) / 440).toBeLessThan(0.02);
   });
   it('mono 输入：内部升双声道处理，输出仍单声道', () => {
@@ -1333,7 +1343,7 @@ export async function decodeMediaPcm(blob: Blob, targetRate: number): Promise<Pc
   } catch {
     return null;
   } finally {
-    await input.dispose().catch(() => {});
+    try { input.dispose(); } catch { /* 已释放——Input.dispose() 返回 void（R2 审核 N1：B1 当时两处只修了 video-cache 一处） */ }
   }
 }
 ```
@@ -1593,8 +1603,9 @@ export class AudioEngine {
   private master: GainNodeLike | null = null;
   private masterVolume = 1;
   private sources: BufferSourceLike[] = [];
-  private pcmCache = new Map<string, PcmData>();
-  private bufferCache = new Map<string, AudioBufferLike>(); // G4：AudioBuffer 按 key 复用，playFrom 重排不再全量复制
+  /** A1 单份驻留（R2）：只存 AudioBuffer——prepare 解码+变速后立即转换，PcmData 局部变量即弃。
+   *  双份常驻（PcmData + AudioBuffer）按 spec 口径 345.6MB/轨 ×2 = 690MB/轨不可接受。 */
+  private bufferCache = new Map<string, AudioBufferLike>();
   private timeBase: TimeBase | null = null;
   private clockMode: ClockMode = 'ctx';
 
@@ -1624,10 +1635,10 @@ export class AudioEngine {
     return this.timeBase.baseMedia + (real - this.timeBase.baseReal);
   }
 
-  hasPcm(key?: string): boolean { return key ? this.pcmCache.has(key) : this.pcmCache.size > 0; }
-  releasePcm(): void { this.pcmCache.clear(); this.bufferCache.clear(); }
+  hasPcm(key?: string): boolean { return key ? this.bufferCache.has(key) : this.bufferCache.size > 0; }
+  releasePcm(): void { this.bufferCache.clear(); }
 
-  /** 播放前预处理：按 (mediaId:speed) 解码 + soundtouch 变速缓存（决策 3） */
+  /** 播放前预处理：按 (mediaId:speed) 解码 + soundtouch 变速 → **立即转 AudioBuffer 单份驻留**（决策 3 + A1） */
   async prepare(data: ProjectData, getBlob: (mediaId: string) => Promise<Blob | null>): Promise<void> {
     const needed = new Set<string>();
     for (const c of Object.values(data.clips)) {
@@ -1637,7 +1648,7 @@ export class AudioEngine {
     const ctx = this.getContext(); // 手势链路内创建
     const targetRate = ctx.sampleRate;
     for (const key of needed) {
-      if (this.pcmCache.has(key)) continue;
+      if (this.bufferCache.has(key)) continue;
       const sep = key.lastIndexOf(':');
       const mediaId = key.slice(0, sep);
       const speed = Number(key.slice(sep + 1));
@@ -1645,7 +1656,8 @@ export class AudioEngine {
       if (!blob) continue;
       const raw = await decodeMediaPcm(blob, targetRate);
       if (!raw) continue; // 无音轨（纯视频/图片）
-      this.pcmCache.set(key, speed === 1 ? raw : stretchPcm(raw, speed));
+      const pcm = speed === 1 ? raw : stretchPcm(raw, speed);
+      this.bufferCache.set(key, this.toBuffer(ctx, pcm)); // A1：PcmData 即弃，只留 AudioBuffer
     }
     this.setClockMode(this.hasPcm() ? 'ctx' : 'perf');
   }
@@ -1666,10 +1678,10 @@ export class AudioEngine {
         const clipEnd = clip.start + clip.duration;
         if (clipEnd <= from) continue;
         const key = `${clip.mediaId}:${clip.playbackSpeed}`;
-        const pcm = this.pcmCache.get(key);
-        if (!pcm) continue;
+        const buffer = this.bufferCache.get(key);
+        if (!buffer) continue;
         const src = ctx.createBufferSource();
-        src.buffer = this.bufferFor(ctx, key, pcm);
+        src.buffer = buffer; // A1：prepare 已建好，playFrom 零复制（G4）
         const gain = ctx.createGain();
         src.connect(gain);
         gain.connect(this.master!);
@@ -1695,14 +1707,10 @@ export class AudioEngine {
     }
   }
 
-  /** AudioBuffer 按 key 缓存复用（G4：拖拽 seek 高频 playFrom 下不重复全量复制 PCM） */
-  private bufferFor(ctx: AudioContextLike, key: string, pcm: PcmData): AudioBufferLike {
-    let buf = this.bufferCache.get(key);
-    if (!buf) {
-      buf = ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-      for (let ch = 0; ch < pcm.channels.length; ch++) buf.getChannelData(ch).set(pcm.channels[ch]);
-      this.bufferCache.set(key, buf);
-    }
+  /** PcmData → AudioBuffer 一次性转换（A1：转换后 PcmData 由调用方丢弃，单份驻留） */
+  private toBuffer(ctx: AudioContextLike, pcm: PcmData): AudioBufferLike {
+    const buf = ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+    for (let ch = 0; ch < pcm.channels.length; ch++) buf.getChannelData(ch).set(pcm.channels[ch]);
     return buf;
   }
 
@@ -1750,7 +1758,8 @@ CanvasRenderer 按 spec 测试策略为薄绘制层**不测**；renderFrameAt �
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/media-blob.ts
-/** 媒体 blob 共享缓存（video-cache 取帧与 audio 解码共用，决策 13）；上限 8 个 LRU 淘汰（revoke 无需——blob 无 objectURL） */
+/** 媒体 blob 共享缓存（R2 A3 后服务音频解码与图片 ImageBitmap——视频取帧改 UrlSource 直连不经此，决策 1/13）；
+ *  上限 8 个 LRU 淘汰（音频 PCM 与图片通常远小于视频，按个数上限一期够用） */
 const cache = new Map<string, Promise<Blob>>();
 
 export async function getMediaBlob(mediaId: string, url: string): Promise<Blob | null> {
@@ -1880,13 +1889,14 @@ import type { VideoCacheService, WrappedFrame } from './video-cache';
 import type { CanvasRenderer } from './canvas-renderer';
 import type { ProjectData, VideoClip } from '../types';
 
-const mkDeps = (over: { frame?: WrappedFrame | null; bitmap?: { width: number; height: number } | null } = {}): FrameRenderDeps & { video: { getFrame: ReturnType<typeof vi.fn> }; images: { getImageBitmap: ReturnType<typeof vi.fn> }; getBlob: ReturnType<typeof vi.fn> } => {
+const mkDeps = (over: { frame?: WrappedFrame | null; bitmap?: { width: number; height: number } | null; url?: string } = {}): FrameRenderDeps & { video: { getFrame: ReturnType<typeof vi.fn> }; images: { getImageBitmap: ReturnType<typeof vi.fn> }; getMediaUrl: ReturnType<typeof vi.fn>; getBlob: ReturnType<typeof vi.fn> } => {
   const deps = {
     video: { getFrame: vi.fn(async () => over.frame ?? null) },
     images: { getImageBitmap: vi.fn(async () => over.bitmap ?? null) },
+    getMediaUrl: vi.fn(() => over.url ?? 'http://u-mv'),
     getBlob: vi.fn(async () => new Blob(['x'])),
     renderer: { draw: vi.fn() },
-  } as unknown as FrameRenderDeps & { video: { getFrame: ReturnType<typeof vi.fn> }; images: { getImageBitmap: ReturnType<typeof vi.fn> }; getBlob: ReturnType<typeof vi.fn> };
+  } as unknown as FrameRenderDeps & { video: { getFrame: ReturnType<typeof vi.fn> }; images: { getImageBitmap: ReturnType<typeof vi.fn> }; getMediaUrl: ReturnType<typeof vi.fn>; getBlob: ReturnType<typeof vi.fn> };
   return deps;
 };
 
@@ -1915,11 +1925,11 @@ const dataWith = (clips: { id: string; start: number; duration: number; type: 'v
 };
 
 describe('renderFrameAt（单帧渲染编排）', () => {
-  it('视频片取帧：sourceTime 传给 videoCache，帧 canvas 进 draw', async () => {
+  it('视频片取帧：url+sourceTime 传给 videoCache，帧 canvas 进 draw', async () => {
     const frame = { canvas: { width: 1920, height: 1080 }, timestamp: 0, duration: 1 } as unknown as WrappedFrame;
     const deps = mkDeps({ frame });
     await renderFrameAt(dataWith([{ id: 'v', start: 0, duration: 5, type: 'video' }]), 2, deps);
-    expect(deps.video.getFrame).toHaveBeenCalledWith('mv', expect.any(Blob), 2);
+    expect(deps.video.getFrame).toHaveBeenCalledWith('mv', 'http://u-mv', 2);
     expect(deps.renderer.draw).toHaveBeenCalledWith(
       [expect.objectContaining({ srcW: 1920, srcH: 1080 })],
       [],
@@ -1937,9 +1947,9 @@ describe('renderFrameAt（单帧渲染编排）', () => {
     expect(subs).toHaveLength(1);
     expect(subs[0].state.text).toBe('字幕');
   });
-  it('取帧失败/无 blob：层跳过不炸（draw 仍执行）', async () => {
+  it('取帧失败/无 url：层跳过不炸（draw 仍执行）', async () => {
     const deps = mkDeps({ frame: null });
-    deps.getBlob = vi.fn(async () => null);
+    deps.getMediaUrl = vi.fn(() => undefined); // A3：视频源缺 url 跳过
     await renderFrameAt(dataWith([{ id: 'v', start: 0, duration: 5, type: 'video' }]), 0, deps);
     expect(deps.renderer.draw).toHaveBeenCalledWith([], []);
   });
@@ -1953,10 +1963,18 @@ describe('renderFrameAt（单帧渲染编排）', () => {
 import type { ProjectData } from '../types';
 import { selectActiveClips } from '../scene/active-clips';
 import { interpolateClip, type SubtitleRenderState, type VisualRenderState } from '../scene/interpolate';
-import { CanvasRenderer, type SubtitleLayer, type VisualLayer } from './canvas-renderer';
-import { getImageBitmap } from './image-cache';
-import { resolveMediaBlob } from './media-blob';
-import { videoCache } from './video-cache';
+import type { SubtitleLayer, VisualLayer } from './canvas-renderer';
+import type { WrappedFrame } from './video-cache';
+
+/** deps 全量注入可测。视频片经 UrlSource 取帧（A3——getMediaUrl 直连 presigned URL）；
+ *  图片片与未来其他 blob 消费走 getBlob（createImageBitmap 需全量 blob）。 */
+export interface FrameRenderDeps {
+  video: { getFrame(mediaId: string, url: string, time: number): Promise<WrappedFrame | null> };
+  images: { getImageBitmap(mediaId: string, blob: Blob): Promise<ImageBitmap | null> };
+  getMediaUrl: (mediaId: string) => string | undefined;
+  getBlob: (mediaId: string) => Promise<Blob | null>;
+  renderer: { draw(visual: VisualLayer[], subtitles: SubtitleLayer[]): void };
+}
 
 export interface FrameRenderDeps {
   video: { getFrame(mediaId: string, blob: Blob, time: number): Promise<import('./video-cache').WrappedFrame | null> };
@@ -1979,9 +1997,9 @@ export async function renderFrameAt(data: ProjectData, t: number, deps: FrameRen
       const bmp = await deps.images.getImageBitmap(clip.mediaId, blob);
       if (bmp) visual.push({ source: bmp, srcW: bmp.width, srcH: bmp.height, state });
     } else {
-      const blob = await deps.getBlob(clip.mediaId);
-      if (!blob) continue;
-      const frame = await deps.video.getFrame(clip.mediaId, blob, (state as { sourceTime: number }).sourceTime!);
+      const url = deps.getMediaUrl(clip.mediaId);
+      if (!url) continue;
+      const frame = await deps.video.getFrame(clip.mediaId, url, (state as { sourceTime: number }).sourceTime!);
       if (frame) visual.push({ source: frame.canvas, srcW: frame.canvas.width, srcH: frame.canvas.height, state });
     }
   }
@@ -2047,7 +2065,7 @@ export interface MediaInfo { name: string; durationSec: number | undefined; url?
 ```ts
 // apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { PreviewPlayer } from './PreviewPlayer';
 import { useEditorStore } from '../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../types';
@@ -2068,6 +2086,7 @@ vi.mock('../audio-engine/engine', () => ({
     releasePcm: vi.fn(),
   },
 }));
+vi.mock('../renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) }));
 
 const ready = (data?: ProjectData) => {
   const d = data ?? createDefaultProjectData();
@@ -2149,6 +2168,20 @@ describe('PreviewPlayer（控制条）', () => {
     fireEvent.click(screen.getByText('删除'));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
   });
+
+  it('暂停态：playhead 变化触发单帧渲染（G1/N5——R2 补测；jsdom canvas.getContext 默认 null 须 stub，EraseCanvas 先例）', async () => {
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ __fake: true }) as unknown as CanvasRenderingContext2D);
+    ready();
+    const { unmount } = render(<PreviewPlayer />);
+    const { renderFrameAt } = await import('../renderer/render-frame');
+    vi.mocked(renderFrameAt).mockClear();
+    act(() => { useEditorStore.getState().setPlayhead(1); });
+    await waitFor(() => expect(renderFrameAt).toHaveBeenCalled());
+    expect(vi.mocked(renderFrameAt).mock.lastCall?.[1]).toBe(1); // (data, t, deps) 的 t 取最新 playhead
+    unmount();
+    HTMLCanvasElement.prototype.getContext = orig;
+  });
   it('空格键 toggle（useEditorKeyboard 挂载在 TimelinePanel 且需 videoEditorStore.open 门卫放行——R1 审核 B4）', async () => {
     ready();
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' }); // hook 首行 open 门卫（Plan 2 既有行为）
@@ -2179,11 +2212,14 @@ const clampT = (t: number) => {
 };
 const resolveBlob = (mediaId: string) => resolveMediaBlob(mediaId, useEditorStore.getState().mediaInfo[mediaId]?.url);
 
+const mediaUrlOf = (mediaId: string) => useEditorStore.getState().mediaInfo[mediaId]?.url;
+
 export function makeFrameDeps(ctx: CanvasRenderingContext2D): FrameRenderDeps {
   return {
     video: videoCache,
     images: { getImageBitmap },
-    getBlob: resolveBlob,
+    getMediaUrl: mediaUrlOf, // A3：视频 UrlSource 直连（决策 1）
+    getBlob: resolveBlob,    // 图片 ImageBitmap 用（音频解码亦经 resolveBlob）
     renderer: new CanvasRenderer(ctx),
   };
 }
@@ -2247,22 +2283,40 @@ export function releaseEditorRuntime(): void {
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/hooks/usePreviewPlayback.ts
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { audioEngine } from '../audio-engine/engine';
 import { makeFrameDeps } from './playback';
-import { renderFrameAt } from '../renderer/render-frame';
+import { renderFrameAt, type FrameRenderDeps } from '../renderer/render-frame';
 import { CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
 import { totalDuration } from '../timeline/timecode';
+import type { ProjectData } from '../types';
 
 /** 播放视觉循环 + 暂停态单帧渲染（G1/决策 18）：
- *  playing=true：起锚（音频由 engine.playFrom 同步起）→ rAF 每帧 engine.now() → setPlayhead →
- *  renderFrameAt（in-flight 去重=跳帧追赶，决策 15）。播放中 data 变化（编辑）→ 音频 playFrom 重调度；视觉每帧 getState 读最新 data。
- *  playing=false：依赖 [playhead, data] 单帧渲染——进编辑器即出 playhead 帧（非黑屏）、暂停后 seek/拖标尺即时出画（scrubMove 的视觉基础）。 */
+ *  renderLatest(deps, data, t) 统一收口两条路径（N5）：pendingRef + latestTRef——in-flight 时只记最新 t、
+ *  完成后补渲染一次；否则 scrubMove/拖片段 60Hz 每帧发起全帧渲染（含视频 seek），MediaEntry 串行链排队上百次。
+ *  playing=true：起锚（音频由 engine.playFrom 同步起）→ rAF 每帧 engine.now() → setPlayhead → renderLatest（跳帧追赶，决策 15）。
+ *  播放中 data 变化（编辑）→ 音频 playFrom **100ms 前沿去抖**重排（A4/决策 6③：transient 60Hz 下不"机器枪"）。
+ *  playing=false：依赖 [playhead, data] 单帧渲染——进编辑器即出 playhead 帧（非黑屏）、暂停后 seek/拖标尺即时出画。 */
 export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>): void {
   const playing = useEditorStore(s => s.playing);
   const playhead = useEditorStore(s => s.playhead);
   const data = useEditorStore(s => s.data);
+  const pendingRef = useRef(false);
+  const latestTRef = useRef(0);
+
+  const renderLatest = (deps: FrameRenderDeps, d: ProjectData, t: number): void => {
+    latestTRef.current = t;
+    if (pendingRef.current) return; // in-flight 去重（N5）
+    const run = (tt: number): void => {
+      pendingRef.current = true;
+      renderFrameAt(d, tt, deps).catch(() => {}).finally(() => {
+        pendingRef.current = false;
+        if (latestTRef.current !== tt) run(latestTRef.current); // 期间有更新 → 补渲染最新
+      });
+    };
+    run(t);
+  };
 
   // 暂停态单帧（G1）
   useEffect(() => {
@@ -2271,7 +2325,7 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     if (canvas.width !== CANVAS_W) { canvas.width = CANVAS_W; canvas.height = CANVAS_H; }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    renderFrameAt(data, playhead, makeFrameDeps(ctx)).catch(() => {});
+    renderLatest(makeFrameDeps(ctx), data, playhead);
   }, [playing, playhead, data, canvasRef]);
 
   // 播放循环
@@ -2286,7 +2340,6 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     const deps = makeFrameDeps(ctx);
     audioEngine.playFrom(es0.data, es0.playhead); // 时钟锚定 + 音频调度
     let raf = 0;
-    let pending = false;
     const tick = () => {
       const s = useEditorStore.getState();
       if (!s.playing || !s.data) return;
@@ -2294,17 +2347,28 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
       s.setPlayhead(t);
       const total = totalDuration(s.data);
       if (total > 0 && t >= total) { audioEngine.stop(); s.setPlaying(false); return; }
-      if (!pending) {
-        pending = true;
-        renderFrameAt(s.data, t, deps).catch(() => {}).finally(() => { pending = false; });
-      }
+      renderLatest(deps, s.data, t); // N5：in-flight 去重（跳帧追赶，决策 15）
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+    // A4/决策 6③：播放中编辑（拖片段 transient 60Hz）重排 100ms 前沿去抖——停止变化后重排一次
+    let rescheduleTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = useEditorStore.subscribe((s, prev) => {
-      if (s.data !== prev.data && s.playing) audioEngine.playFrom(s.data, audioEngine.now());
+      if (s.data !== prev.data && s.playing && audioEngine.hasPcm()) {
+        if (rescheduleTimer != null) clearTimeout(rescheduleTimer);
+        rescheduleTimer = setTimeout(() => {
+          rescheduleTimer = null;
+          const st = useEditorStore.getState();
+          if (st.playing && st.data) audioEngine.playFrom(st.data, audioEngine.now());
+        }, 100);
+      }
     });
-    return () => { unsub(); cancelAnimationFrame(raf); audioEngine.stop(); };
+    return () => {
+      unsub();
+      if (rescheduleTimer != null) clearTimeout(rescheduleTimer);
+      cancelAnimationFrame(raf);
+      audioEngine.stop();
+    };
   }, [playing, canvasRef]);
 }
 ```
@@ -2408,15 +2472,16 @@ export function PreviewPlayer() {
 import { scrubBegin, scrubMove, scrubEnd } from '../../hooks/playback';
   const timeAt = (clientX: number, el: HTMLElement) =>
     Math.max(0, pxToTime(clientX - el.getBoundingClientRect().left, pxPerSec));
+  // N6：jsdom 无 PointerCapture API（仓内既有风格 setPointerCapture?.——TimelinePanel L50）；hasPointerCapture 可选链 + ?? false
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     scrubBegin(timeAt(e.clientX, e.currentTarget as HTMLElement));
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubMove(timeAt(e.clientX, e.currentTarget as HTMLElement));
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId) ?? false) scrubMove(timeAt(e.clientX, e.currentTarget as HTMLElement));
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubEnd();
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId) ?? false) scrubEnd();
   };
   // JSX：onPointerDown/onPointerMove/onPointerUp 三挂（原 onSeek prop 删除）
 ```
@@ -2618,21 +2683,26 @@ import { batchGetMedia } from '@/api/mediaApi';
   const miniPlayingRef = useRef(false); // IO/selected 回调读最新值
   miniPlayingRef.current = miniPlaying;
   const rafRef = useRef(0); // B8：上提至 stopMini 之前（引用顺序即声明顺序，防执行者困惑）
-
-  const stopMini = () => {
+  const projectDataRef = useRef<ProjectData | null>(null); // N2：释放入口读最新工程数据（IO effect deps:[] 闭包捕获的是首渲染 null）
+  projectDataRef.current = projectData;
+  // N2：IO effect deps:[] 捕获首渲染闭包 → 三个释放入口统一走 ref 取最新实例
+  const stopMiniRef = useRef<() => void>(() => {});
+  stopMiniRef.current = () => {
     setMiniPlaying(false);
     cancelAnimationFrame(rafRef.current);
-    // 资源纪律③：释放本工程解码与帧缓存（mediaIds 从 projectData 派生）——无音频故不碰 audioEngine（决策 16）
-    const mids = new Set(projectData ? Object.values(projectData.clips).map(c => c.mediaId) : []);
+    // 资源纪律③：释放本工程解码与帧缓存（mediaIds 从最新 projectData 派生）；无音频故不碰 audioEngine（决策 16）
+    const pd = projectDataRef.current;
+    const mids = new Set(pd ? Object.values(pd.clips).map(c => c.mediaId) : []);
     for (const m of mids) videoCache.release(m);
     clearImageBitmaps();
     if (useVideoEditorStore.getState().miniPlaybackNodeId === id) useVideoEditorStore.getState().stopMiniPlayback();
   };
+  const stopMini = () => stopMiniRef.current();
 
   const startMini = async () => {
     if (!projectData || !canPreview) return;
     useVideoEditorStore.getState().startMiniPlayback(id); // 播 B 停 A（他节点经 miniNodeId 副责停）
-    await loadMediaUrls(); // 媒体 url 批查（视频帧/图片取源用；音频不参与——决策 16：轻量纪律，无 prepare）
+    if (mediaUrlsRef.current.size === 0) await loadMediaUrls(); // ref 已填充则跳过（R2：省重复 RTT 与重复签 URL）
     setMiniPlaying(true);
   };
 
@@ -2640,12 +2710,12 @@ import { batchGetMedia } from '@/api/mediaApi';
   useEffect(() => { if (miniPlaying && miniNodeId !== id) stopMini(); }, [miniNodeId]);
   // 取消选中 → 停
   useEffect(() => { if (!selected && miniPlaying) stopMini(); }, [selected]);
-  // IO 视口监听（资源纪律③）
+  // IO 视口监听（资源纪律③）——回调经 stopMiniRef 取最新闭包（N2）
   useEffect(() => {
     const root = rootRef.current;
     if (!root || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver((entries) => {
-      if (!entries[0].isIntersecting && miniPlayingRef.current) stopMini();
+      if (!entries[0].isIntersecting && miniPlayingRef.current) stopMiniRef.current();
     });
     io.observe(root);
     return () => io.disconnect();
@@ -2673,7 +2743,8 @@ import { batchGetMedia } from '@/api/mediaApi';
     const deps: FrameRenderDeps = {
       video: videoCache,
       images: { getImageBitmap },
-      getBlob: resolveMiniBlob,
+      getMediaUrl: (mediaId) => mediaUrlsRef.current.get(mediaId), // A3：UrlSource 直连
+      getBlob: resolveMiniBlob, // 图片 ImageBitmap 用
       renderer: new CanvasRenderer(ctx),
     };
     let t0 = performance.now() / 1000;
@@ -2982,21 +3053,18 @@ const TRANSITION_TYPES = [
   { value: 'crossfade', label: '交叉淡化' }, { value: 'toBlack', label: '渐黑' }, { value: 'toWhite', label: '渐白' },
 ];
 
-function StopwatchButton({ clipId, property, label }: { clipId: string; property: 'x' | 'y' | 'scale' | 'rotation' | 'opacity'; label: string }) {
-  const playhead = useEditorStore(s => s.playhead);
-  const data = useEditorStore(s => s.data);
-  const clip = data?.clips[clipId] as VideoClip | ImageClip | undefined;
-  const tLocal = clip ? playhead - clip.start : -1;
-  const active = !!clip?.keyframes.some(k => k.property === property && Math.abs(k.t - tLocal) < 0.5 / 30);
+function StopwatchButton({ clip, property, label }: { clip: VideoClip | ImageClip; property: 'x' | 'y' | 'scale' | 'rotation' | 'opacity'; label: string }) {
+  // A5/决策 20：订阅派生布尔而非 playhead（zustand Object.is 比较——播放 30fps 时布尔不变即不重渲整个 PropertiesPanel）
+  const active = useEditorStore(s =>
+    clip.keyframes.some(k => k.property === property && Math.abs(k.t - (s.playhead - clip.start)) < 0.5 / 30));
   return (
     <button type="button" data-testid={`stopwatch-${property}`} title={`${active ? '删除' : '添加'} ${label} 关键帧`}
       onClick={() => {
         const es = useEditorStore.getState();
-        if (!clip) return;
-        const tl = playhead - clip.start;
+        const tl = es.playhead - clip.start; // 点击时取最新播放头（订阅不持有它）
         const hit = clip.keyframes.find(k => k.property === property && Math.abs(k.t - tl) < 0.5 / 30);
-        if (hit) es.removeKeyframe(clipId, hit.id);
-        else es.addKeyframe(clipId, property);
+        if (hit) es.removeKeyframe(clip.id, hit.id);
+        else es.addKeyframe(clip.id, property);
       }}
       className={`text-[12px] bg-transparent border-0 cursor-pointer px-1 ${active ? 'text-[#6C5CE7]' : 'text-[#C9CDD4]'}`}>⏱</button>
   );
@@ -3019,7 +3087,7 @@ function TransformRow({ clip, row }: { clip: VideoClip | ImageClip; row: (typeof
       <InputNumber aria-label={label} size="small" step={row.step} min={row.min} max={row.max} value={clip.transform[property]}
         onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { transform: { ...clip.transform, [property]: v } }); }}
         className="flex-1" />
-      <StopwatchButton clipId={clip.id} property={property} label={label} />
+      <StopwatchButton clip={clip} property={property} label={label} />
     </div>
   );
 }
@@ -3221,16 +3289,17 @@ describe('时间轴关键帧菱形刻度', () => {
     expect(clip.keyframes[0].t).toBe(3);
   });
 
-  it('Delete 优先删除选中关键帧（其次选中片段）', () => {
+  it('Delete 优先删除选中关键帧（其次选中片段）——N3 定案：先选片段再点菱形（两 id 双写联动）', () => {
     ready();
     const id = addVideoWithKf();
     render(<TimelinePanel />);
+    useEditorStore.getState().selectClip(id); // 先选片段
     const kf = screen.getByTestId(/^kf-/);
-    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 }); // 选中关键帧（同时跳播放头）
-    useEditorStore.getState().selectClip(id); // 同时有选中片段——关键帧优先
+    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 }); // 点菱形：双写 selectedKeyframeId + selectedClipId（同时跳播放头）
+    expect(useEditorStore.getState().selectedClipId).toBe(id); // 双写保证联动（直接点菱形也选中其片段）
     fireEvent.keyDown(document, { key: 'Delete' });
     const clip = useEditorStore.getState().data!.clips[id] as any;
-    expect(clip.keyframes).toHaveLength(0);      // 关键帧被删
+    expect(clip.keyframes).toHaveLength(0);      // 关键帧优先被删
     expect(useEditorStore.getState().data!.tracks[0].clips).toContain(id); // 片段保留
   });
 });
@@ -3238,7 +3307,7 @@ describe('时间轴关键帧菱形刻度', () => {
 
 - [ ] **Step 2: 确认失败 → 实现**
 
-editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ `selectKeyframe(id: string | null)`。
+editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ **`selectKeyframe(kfId: string | null, clipId?: string)`（N3/决策 19 双写：kfId 非空时同时写 `selectedKeyframeId: kfId` 与 `selectedClipId: clipId`——点击菱形即选中其片段，stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量；kfId 为 null 只清 selectedKeyframeId）**；既有 `selectClip` 补清 `selectedKeyframeId: null`（切换片段时关键帧选中失效，不变量保持）。
 
 ClipBlock 增量（视觉片渲染菱形；props 加 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent) => void`）：
 
@@ -3260,10 +3329,10 @@ const onKeyframePointerDown = (kfId: string, e: React.PointerEvent) => {
   if (e.button !== 0) return;
   e.stopPropagation();
   const es = useEditorStore.getState();
-  es.selectKeyframe(kfId);
-  // 点击跳转播放头（spec 第四节：可点击跳转）
   const clip = Object.values(es.data?.clips ?? {}).find(c =>
     (c.type === 'video' || c.type === 'image' || c.type === 'audio') && (c as VideoClip).keyframes.some(k => k.id === kfId));
+  es.selectKeyframe(kfId, clip?.id); // N3/决策 19：双写 selectedKeyframeId + selectedClipId（stopPropagation 挡了片段选中路径）
+  // 点击跳转播放头（spec 第四节：可点击跳转）
   if (clip) seekPlayback(clip.start + ((clip as VideoClip).keyframes.find(k => k.id === kfId)!.t));
   dragRef.current = {
     kind: 'keyframe', clipId: clip!.id, kfId,
@@ -3551,6 +3620,8 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 | — | seek：暂停态点击画布单帧到位；播放中拖标尺=静音拖拽、**松手后音画同步**（G4/决策 6② 验收口径） | 操作 |
 | — | 编辑器收起后再进：无 AudioContext 泄漏（DevTools AudioContext 计数恒 1）；播放头位置不保留（重进=0）与数据保留 | 反复进出 10 次 |
 | — | 720p 预览降级：canvas 内部分辨率 1920×1080 CSS 缩放显示清晰 | inspect |
+| — | **Range 206 验证（A3 前置）**：`curl -I -H 'Range: bytes=0-1' <presigned GET url>` 返回 206——UrlSource 依赖 HTTP Range；若经 Nginx 反代（/flowai）返回 200 说明反代吃掉 Range 头，需修 Nginx 配置（proxy_set_header Range/ proxy_force_ranges）后再验 UrlSource 生效（DevTools Network 应见分段 206 请求而非整文件 200） | curl + DevTools Network |
+| — | 多标签双解码口径（spec 边界表已登记）：同工程开两标签各自解码 PCM/取帧——行为可用无报错即过（一期接受，无跨标签共享） | 操作 |
 
 - [ ] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
 
@@ -3574,6 +3645,7 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - 浏览器验收 Task 14 清单通过；soundtouch spike①（音质人工判定）补做登记结论
 - **登记偏离**：音频调度一次性全量替代 lookahead（决策 6，含 G4 两条配套纪律：AudioBuffer 按 key 复用 + 拖拽 scrub 三段式）；AudioContext suspend/resume 替代 close（决策 7，含 G2 resume 修复）；字幕 2 行截断具体化（决策 12，spec 已同步登记）；"设置"控件省略（边界节，spec 已留 TODO，待用户补充需求）；节点迷你播放不出声 + 媒体 url 经 batchGetMedia 现查（决策 16 / Task 9 定案）
 - **R1 轮审核修订（2026-09-11，11 项阻塞 + 10 项功能缺口全数采纳，2 项拍板落定）**：阻塞 B1-B8——mediabunny dispose 实形修正（CanvasSink 无 dispose/Input.dispose 返回 void）；setMediaUrlResolver 残留与 FrameRenderDeps 错位 import 清理（B2）；Task 6 offset 期望 1.5 验算修正（B3）；空格用例补 videoEditorStore.open 门卫（B4）；Task 11 pointer 事件改 MouseEvent 派发（B5）；既有测试迁移清单三处补全（B6）；onSubtitleAdd 闭包 playhead 连带（B7）；useRef/rafRef 上提/pointerMovedOnce 统一（B8）。缺口 G1-G10——暂停态单帧渲染 effect（G1/决策 18）；suspend 后 resume 冻结修复（G2）；crossfade 双窗口（G3/决策 17，三片链测试补齐）；拖拽 seek 静音 + up 重排（G4/决策 6②）；letterSpacing 参与 measure 与绘制（G5）；迷你播放删 prepare 不出声（G6/决策 16 拍板）；video-cache openSink in-flight 去重（G7）；stretchPcm 尾部非静音断言替代恒真假绿（G8）；ResizeObserver 接 M2（G9）；mediaApi mock/动态 import 清理/objectFit 删除（G10）。审核核验无误项（数值向量/依赖实形/soundtouchjs·mediabunny API 实形）已按其修正对齐
+- **R2 轮审核修订（2026-09-11，R1 修订核验 20/21 落实 + 新引入 3 必红 + 1 flaky + 5 架构项全数采纳）**：必红 N1-N3——decode.ts input.dispose().catch 残留补修（R1 只修 video-cache 一处）；Task 9 IO effect deps:[] 闭包捕获首渲染 projectData=null → stopMini 空 release，stopMiniRef/projectDataRef 统一三释放入口（N2）；关键帧选中模型定案 selectKeyframe(kfId, clipId) 双写（N3/决策 19，用例改"先选片段再点菱形"）。P1 N4-N6——stretchPcm 尾部断言改 200 样本窗口 max（单点采样 6.4% flaky，N4）；renderLatest 统一 playing tick 与暂停 effect 的 in-flight 去重 + G1 补测（N5/决策 18）；Ruler pointer capture 加 ?.（jsdom 无 PointerCapture，N6）。架构 A1-A5——engine AudioBuffer 单份驻留（pcmCache 删，prepare 即转，N 立减半，A1/决策 6①）；spec 内存预估 86→345.6MB/轨 修正 + 勘误③ + Plan 4 阈值口径同源（A2）；视频取源改 mediabunny UrlSource（HTTP Range，d.ts 实测导出；音频/图片保持 blob；Task 14 加 Range 206 验收，A3/决策 1）；播放中编辑重排 100ms 前沿去抖（A4/决策 6③）；StopwatchButton 改派生布尔订阅（A5/决策 20）。另：迷你播放 loadMediaUrls ref 命中跳过（省重复 RTT）；spec 边界表登记多标签双解码
 - **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds
 
 ## 后续 Plan（另开文件）

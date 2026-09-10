@@ -8,7 +8,7 @@
 > v3.3-final（2026-09-10）：R5 轮复审修订——socket 单例服务化（更正 useSocket 非单例的 R4 误判）、A1 克隆改 structuredClone 整份深拷、crossfade 音频统一线性 equal-gain、originOverride try/finally 与 transact 分流落地、三态/护栏表残留修正、P3×3 记录项。
 > v3.4（2026-09-10）：R6 轮复审修订——origin 隔离改独立入口 syncAutoEdgesToDoc（syncStoreToDoc 内分流不可落地）、撤销互斥显式化（时间轴数据不进画布 store）、影子事务 onRemote 短路（防全量重建闪烁）、克隆改 JSON 深拷、insertNode 与 fillDoc 逐键同构、产物上传改复用 presigned POST（零新依赖）、白名单过滤前置 emitNodeStatus + isExecutableNode 共享谓词、socket 迁移扩至 5 创建点、验收 25 条。
 > v3.5（2026-09-10）：R7 轮复审修订——订阅路径边处理跳过 auto: 前缀（P0-A 闭环：auto 边全生命周期只归 syncAutoEdgesToDoc）、removeEdge 新增登记、stopCapturing 编辑器 commit 接入、PUT→POST 三处统一、subscribeNodeEditResult（ImageGenNode edit-result 迁移去向）、快捷键禁用改 isGroupEditContext 早退、内存预估含视频内嵌音轨、ValidationPipe 自挂入正文、验收 28 条。
-> v3.6（2026-09-10）：R8 轮复审修订（终版）——syncAutoEdgesToDoc 改**无参幂等全量对账**并在订阅边变更分支调用（封住删节点级联留孤儿 auto 边）、附录 B 两处残留同步（等功率→equal-gain/25→29 条）、readDocCanvas 措辞软化（topology 有 src/tgt 归一化兜底）、白名单生效场景限定（全部执行/nodeIds 路径）、验收 29 条。**八轮审核收官，按附录 B 开发顺序直接开工。**（Plan 轮勘误 ×2：① 影子短路判据改 **id 前缀 shadow- + __ephemeral**——原 SHADOW_ORIGIN 两层证伪（withDoc 嵌套事务 origin 死代码 + Yjs origin 不过网）；② A1 fileId 事实修正——ai-download.processor 的 done 事件**带 fileId**（"gateway 只发 status"有误），权威来源仍是 doc、socket 时序不保证）。Plan 3 轮勘误 ×2（2026-09-11）：① 第六节字幕"超长截断"具体化为**最多 2 行、超出按 maxWidth 截断**（第三节 SubtitleClip.style 行同步）；② 第四节控制条四控件中"设置"**一期省略**（内容未定义，TODO 待定——音量/全屏/缩放三控件照做）
+> v3.6（2026-09-10）：R8 轮复审修订（终版）——syncAutoEdgesToDoc 改**无参幂等全量对账**并在订阅边变更分支调用（封住删节点级联留孤儿 auto 边）、附录 B 两处残留同步（等功率→equal-gain/25→29 条）、readDocCanvas 措辞软化（topology 有 src/tgt 归一化兜底）、白名单生效场景限定（全部执行/nodeIds 路径）、验收 29 条。**八轮审核收官，按附录 B 开发顺序直接开工。**（Plan 轮勘误 ×2：① 影子短路判据改 **id 前缀 shadow- + __ephemeral**——原 SHADOW_ORIGIN 两层证伪（withDoc 嵌套事务 origin 死代码 + Yjs origin 不过网）；② A1 fileId 事实修正——ai-download.processor 的 done 事件**带 fileId**（"gateway 只发 status"有误），权威来源仍是 doc、socket 时序不保证）。Plan 3 轮勘误 ×2（2026-09-11）：① 第六节字幕"超长截断"具体化为**最多 2 行、超出按 maxWidth 截断**（第三节 SubtitleClip.style 行同步）；② 第四节控制条四控件中"设置"**一期省略**（内容未定义，TODO 待定——音量/全屏/缩放三控件照做）。Plan 3 R2 轮勘误 ×2（2026-09-11）：③ 第七节内存预估"≈86MB/轨"量级算错，按自身算式修正为 **345.6MB/轨**（>1GB 警告阈值口径同源修正，Plan 4 执行）；④ 预览取帧新增 **Range 206 前置验证**（UrlSource 依赖 HTTP Range，Nginx 反代若吃掉 Range 头需配置修正——Plan 3 Task 14 验收项）
 
 ## 目标与背景
 
@@ -337,7 +337,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 ## 七、导出管线（Web Worker + mediabunny）
 
 0. **导出弹层**：点击"导出"→ 小弹层选档（720p/1080p）+ 估算体积（码率×时长×1.2）+ 前置校验结果
-1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ 86MB/轨 × **（音频轨数 + 参与混音的含音频视频片数）**——视频内嵌音轨同样解码出等长 PCM 并过 soundtouch（×2），只按音频轨数会显著低估）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
+1. **前置校验**：总时长 ≤15 分钟（超限拦截）；`VideoEncoder.isConfigSupported` 复检；**团队存储配额预检**（StorageQuotaService.assertCanUpload 同款口径，避免编码数分钟后上传 4xx）；内存预估 = 音频 PCM（15min×48kHz×立体声×4B ≈ **345.6MB/轨**（Plan 3 勘误③：原"86MB/轨"量级算错——按本算式实为 345.6MB） × **（音频轨数 + 参与混音的含音频视频片数）**——视频内嵌音轨同样解码出等长 PCM 并过 soundtouch（×2），只按音频轨数会显著低估；Plan 3 起 AudioBuffer 单份驻留，soundtouch 处理中的瞬时双份按 ×2 估算保留）+ 编码峰值 + mux 缓冲，>1GB 警告但放行；警告结合 `navigator.deviceMemory` 分级提示；**"音频分块流式混音、不整段持有全部 PCM"登记为二期优化**
 2. **Worker 执行**（懒加载 chunk，含编辑器页/mediabunny/polyfill 全部动态 import 拆包）：
    - `OfflineAudioContext` 离线混音（含变速不变调/soundtouch 处理/fade/音量关键帧）→ AudioBuffer
    - 逐帧：t → scene 纯函数 → OffscreenCanvas（720p=0.5× / 1080p=1×）→ VideoFrame → VideoEncoder H.264（硬编优先回退软编）
@@ -363,6 +363,7 @@ socket：**新建模块级单例 socket 服务（非 Hook）**——代码事实
 | 导出中关闭页面 | beforeunload 拦截确认 |
 | AAC 编码缺失 | 静默动态 polyfill |
 | 多标签并发编辑 | updatedAt 乐观锁 409 提示（PATCH 单飞防自打自，见第三节） |
+| 多标签双解码 | 写侧有乐观锁，读侧（预览解码 PCM/取帧）无跨标签约束——同工程开多标签各自全量解码一遍，一期接受（Plan 3 R2 登记） |
 | 同节点重复创建 | sourceNodeId @unique + 服务端 upsert 幂等；**upsert 的 update 分支同样 select 全量返回** |
 | 打开等待 | POST 返回前只渲染空态加载占位、**禁止增删片段**（防本地/服务端轨 id 错位），失败转错误态 |
 | 无编辑权限（viewer） | GET 亦 assertEditor，入口按钮直接隐藏（前后端一致） |
