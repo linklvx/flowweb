@@ -73,6 +73,23 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     expect(sinks.get('m1')!.state.disposed).toBe(true);
     expect(svc.size).toBe(2);
   });
+  it('LRU 触尾：命中访问移到最近使用端（变异守护——删 delete+set 则退化为 FIFO）', async () => {
+    const sinks = new Map<string, ReturnType<typeof makeSink>>();
+    const svc = new VideoCacheService({
+      openSink: vi.fn(async (_url: string) => {
+        const id = `m${sinks.size + 1}`;
+        const s = makeSink(FRAMES); sinks.set(id, s); return s.handle;
+      }),
+      maxMedia: 2,
+    });
+    await svc.getFrame('m1', SRC, 0.5);
+    await svc.getFrame('m2', SRC, 0.5);
+    await svc.getFrame('m1', SRC, 0.5); // 触尾：m1 变最近使用
+    await svc.getFrame('m3', SRC, 0.5); // 淘汰的应是 m2（最久未用），非 m1
+    expect(sinks.get('m2')!.state.disposed).toBe(true);
+    expect(sinks.get('m1')!.state.disposed).toBe(false);
+    expect(svc.size).toBe(2);
+  });
   it('release(mediaId)：指定媒体释放', async () => {
     const { handle, state } = makeSink(FRAMES);
     const svc = new VideoCacheService({ openSink: vi.fn().mockResolvedValue(handle) });
