@@ -23,6 +23,8 @@
 > **Task 3 执行期修正（2026-09-10，计划测试向量笔误 + 量化强化，控制器 node 验算批准）**：(a) quantizeTime(0.1+0.2,30) 期望 0.1→0.3（输入≈0.3s=9 帧，0.1 是 3 帧笔误）；(b) sourceTime 0.5× 档期望 2.5→3（公式 2+(3-1)*0.5）；(c) 100 次不漂移用例初始 duration 100→5（100 时终值 96.67 断言 50/FPS 必红）；(d) applyTrimLeft/Right 从"仅量化 Δ"升级为"成片时间结果每步量化回帧网格"（50 次累加 1/30 漂至 …685≠50/30，帧整数红线强制；sourceStart 保持连续浮点）；(e) -0 用例 toBeCloseTo→toBe(0)（R3 归一化落地后 toBeCloseTo 失去锁力，变异验证 toBe(0) 在删除归一化时必红——quality review I1）；(f) splitClipAt keyframes 访问 as any（SubtitleClip 无 keyframes 字段——shared 类型实形）。四轮审核均未抓到 (a)(b)(c)——数值验算须逐条执行，结构审查不可替代。M 级登记：splitClipAt 不校验切点范围（Task 9 store 侧已有 1 帧两侧校验承担）；前片 keyframes 未克隆（history JSON 深拷已隔离别名）。
 >
 > **Task 5 执行期修正（2026-09-10，quality review I1 语义级修复）**：canPlaceAt 从"只看被放置片 transitionIn"重写为 **后片单侧 allowed**（spec 重叠规则原文：转场由后片 start 较大者的 transitionIn crossfade 单侧表达）——原实现有误放行（前片带 crossfade 与无转场后片重叠入库 → Plan 3 将渲染无转场双曝光）与误拒绝（对手后片带 crossfade 的合法前片靠近被弹开）双向缺陷，quality review 实证脚本确认。第 6 参更名 placedClip（形状不变，Task 9 moveClip 传 clip 对象兼容）。补测：后片视角重写 crossfade 用例 + 前片误放行/误拒绝双向 + I1 原始场景锁断言 + 自排除/左扫分支 + effOut 保留正路径 + audio 早退（13→19 用例）。附带：crossfadePredecessor audio/subtitle 早退窄化消除一处 as any。**Task 9 契约登记**：canPlaceAt 无 start≥0 下界（findNearestFreeStart 仅 left 侧守卫）——editorStore 调用方负责 clamp（Task 15 拖拽 Math.max(0, snapped.time) / Task 16 drop Math.max(0, pxToTime) 已承担）。
+>
+> **Task 7 执行期修正（2026-09-10）**：上限 50 用例终值 4→5（55 次 push 丢 i=0..4 共 5 个，past=[5..54]，50 次 undo 终值 5；计划注释"最老是 index 4"自相矛盾）。quality review 登记两项 Minor：history.ts 模块头补一行契约注释「T 实例入栈/跨栈后不可原地变更」（undo/redo 的 current 按引用跨栈——store 侧不可变更新是隐式前提，Task 9 顺手带上）；JSON 深拷丢 undefined 键与 DB JSON 列落盘形状一致（undo 还原态 = 重载态，无形状分叉，非问题）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -1220,7 +1222,7 @@ describe('历史栈（快照结构化克隆/上限 50/事务语义）', () => {
     expect(h.past.length).toBe(50);
     let cur = snap(999);
     for (let i = 0; i < 50; i++) { const u = undoHistory(h, cur)!; cur = u.state; h = u.history; }
-    expect(readV(cur)).toBe(4); // 55 次 push 的最老是第 5 次（index 4）
+    expect(readV(cur)).toBe(5); // 执行期修正：55 次 push 丢 i=0..4 共 5 个，past=[5..54]，50 次 undo 终值 5（计划原值 4 与自身账目矛盾——index 4 是被丢的最后一个）
   });
   it('新操作清空 redo 栈', () => {
     let h = createHistory<ProjectData>();
