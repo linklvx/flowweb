@@ -6,6 +6,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useEditorStore } from '../store/editorStore';
 import { createAutosaveController, type AutosaveController } from '../persist/autosave';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
+import { createDefaultProjectData } from '../types';
 import { EditorTopBar } from './EditorTopBar';
 import { PreviewPlaceholder } from './PreviewPlaceholder';
 import { TimelinePanel } from './timeline/TimelinePanel';
@@ -27,7 +28,7 @@ export function VideoEditorShell() {
     const es = useEditorStore.getState();
     es.reset();
     useEditorStore.setState({ status: 'loading' });
-    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑' })
+    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: createDefaultProjectData() }) // 首建默认 4 轨工程（执行期修正——update 分支忽略 data 幂等安全）
       .then((p) => { if (!cancelled) useEditorStore.getState().loadProject(p); })
       .catch((e: Error) => { if (!cancelled) useEditorStore.getState().setLoadError(e.message); });
     return () => { cancelled = true; };

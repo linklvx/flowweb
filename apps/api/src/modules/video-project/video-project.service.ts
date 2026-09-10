@@ -4,7 +4,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionService } from '../execution/execution.service';
-import { createDefaultProjectData } from '@flowweb/shared';
 
 @Injectable()
 export class VideoProjectService {
@@ -14,6 +13,15 @@ export class VideoProjectService {
     @Inject(CollabDocumentService) private readonly collab: CollabDocumentService,
     @Inject(ExecutionService) private readonly execution: ExecutionService, // Task 11 regenerate 用——签名一次到位，避免 Task 11 中途改构造器
   ) {}
+
+  /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：1 视频+1 字幕+2 音频）。
+   *  不能值 import @flowweb/shared——纯 TS 源码包 barrel 无扩展名相对导入，Node ESM 运行时解析失败（见 admin.guard.ts 注释）；
+   *  前端 upsert 会显式传 data，此处仅为 API 直调方的防御缺省（Plan 2 浏览器验收发现原字面量 tracks:[] 与 spec 默认轨脱节） */
+  private static defaultProjectData(): object {
+    const track = (type: 'video' | 'subtitle' | 'audio', name: string) =>
+      ({ id: `track-${crypto.randomUUID()}`, type, name, muted: false, hidden: false, clips: [] });
+    return { version: 1, fps: 30, tracks: [track('video', '视频'), track('subtitle', '字幕1'), track('audio', '音频1'), track('audio', '音频2')], clips: {} };
+  }
 
   /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回；
    *  teamId 服务端从 workflowId 派生（assertEditor 只验 workflow 编辑权不验 teamId 归属——客户端传 teamId 会造不一致脏行） */
@@ -33,7 +41,7 @@ export class VideoProjectService {
       create: {
         teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
         sourceNodeId: input.sourceNodeId, title: input.title,
-        data: (input.data ?? createDefaultProjectData()) as object, // 缺省默认工程（1 视频+1 字幕+2 音频轨——与前端 createDefaultProjectData 同源；Plan 2 浏览器验收发现原手写字面量 tracks:[] 与 spec 默认轨脱节）
+        data: (input.data ?? VideoProjectService.defaultProjectData()) as object,
       },
       update: {}, // 已存在则原样返回全量（title/data 不动——编辑器加载用）
     });

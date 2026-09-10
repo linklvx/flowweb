@@ -10,8 +10,9 @@ export interface VideoProjectDto {
   updatedAt: string;
 }
 
-/** 首次全屏编辑 upsert by sourceNodeId（幂等防双击；update 分支亦返回全量） */
-export function upsertProject(input: { workflowId: string; sourceNodeId: string; title: string }): Promise<VideoProjectDto> {
+/** 首次全屏编辑 upsert by sourceNodeId（幂等防双击；update 分支亦返回全量）。
+ *  data 由前端显式传（shared barrel 仅 Vite 侧可值导入——API 纯 TS 源码包运行时约束，服务端只留防御缺省——执行期修正） */
+export function upsertProject(input: { workflowId: string; sourceNodeId: string; title: string; data?: unknown }): Promise<VideoProjectDto> {
   return apiFetch<VideoProjectDto>('/video-projects', { method: 'POST', body: JSON.stringify(input) });
 }
 
