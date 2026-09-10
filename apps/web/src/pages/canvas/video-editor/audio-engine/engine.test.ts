@@ -84,6 +84,14 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
     expect(engine.hasPcm('mv:2')).toBe(false);
   });
 
+  it('prepare 幂等：同 data 二次 prepare 全命中缓存不重解码（跨调用守护——Task 8 每次播放前调 prepare 的性能关键路径）', async () => {
+    vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
+    const d = proj([track('ta', 'audio', ['a'])], { a: au('a') });
+    await engine.prepare(d, async () => BLOB);
+    await engine.prepare(d, async () => BLOB);
+    expect(decodeMediaPcm).toHaveBeenCalledTimes(1);
+  });
+
   it('playFrom：source.start 参数——when 未来映射/offset 变速换算/duration 成片时长', async () => {
     vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
     const d = proj([track('ta', 'audio', ['a'])], {
@@ -106,6 +114,17 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
     expect(src.start).toHaveBeenCalledWith(1 + 5, 0, 4);
   });
 
+  it('playFrom 跳过已播完片段（clipEnd <= from 不调度——防负 duration 死 source）', async () => {
+    vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
+    const d = proj([track('ta', 'audio', ['a', 'b'])], {
+      a: au('a', { start: 0, duration: 2 }),
+      b: au('b', { start: 5, duration: 2 }),
+    });
+    await engine.prepare(d, async () => BLOB);
+    engine.playFrom(d, 4); // a 已播完（end=2≤4）跳过；b 未到（start=5）调度
+    expect(fake.created.sources).toHaveLength(1);
+  });
+
   it('now()：主时钟锚定与推进（音频时钟）', async () => {
     vi.mocked(decodeMediaPcm).mockResolvedValue(PCM());
     const d = proj([track('ta', 'audio', ['a'])], { a: au('a') });
@@ -123,6 +142,16 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
     }), 5);
     expect(engine.getContextCreated()).toBe(false); // 不为时钟空转 ctx（spec 第六节）
     expect(engine.now()).toBeGreaterThanOrEqual(5);
+  });
+
+  it('perf 时钟推进：真实 performance.now 驱动 now() 严格递增（变异守护——冻结时钟恒返 base 则红）', async () => {
+    engine.setClockMode('perf');
+    engine.playFrom(proj([track('tv', 'video', ['i'])], {
+      i: { id: 'i', trackId: 'tv', type: 'video', start: 0, duration: 4, sourceStart: 0, mediaId: 'x', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] } as never,
+    }), 5);
+    const t0 = engine.now();
+    await new Promise(r => setTimeout(r, 25));
+    expect(engine.now()).toBeGreaterThan(t0);
   });
 
   it('seek（播放中）：旧 source 全部 stop + 重调度 + 时钟重锚', async () => {
