@@ -27,6 +27,8 @@
 > **Task 7 执行期修正（2026-09-10）**：上限 50 用例终值 4→5（55 次 push 丢 i=0..4 共 5 个，past=[5..54]，50 次 undo 终值 5；计划注释"最老是 index 4"自相矛盾）。quality review 登记两项 Minor：history.ts 模块头补一行契约注释「T 实例入栈/跨栈后不可原地变更」（undo/redo 的 current 按引用跨栈——store 侧不可变更新是隐式前提，Task 9 顺手带上）；JSON 深拷丢 undefined 键与 DB JSON 列落盘形状一致（undo 还原态 = 重载态，无形状分叉，非问题）。
 >
 > **Task 8 执行期修正（2026-09-10，quality review I1 跨任务语义缺口）**：ensureAutoEdges 补**素材缺失态守卫**——deleteNode 删上游节点后 clip 仍引用（spec 生命周期素材缺失态），若对账不校验节点存在性会在下次结构变更时重建指向不存在节点的悬空边并持久化；修法为 toAdd 按 `cs.nodes` 现存 id 过滤（spec L120 同步补一句行为定义）。附带：ensureAutoEdges 首参改名 `editNodeId`（原 sourceNodeId 同名异义易混淆；Task 9 的 editorStore.sourceNodeId 字段语义即 editNodeId，位置传参兼容）；canvasStore 幂等用例补总边数断言；auto-edges 夹具 beforeEach 提供源节点（守卫生效后空画布建边被正确拒绝）。planAutoEdgeOps 的 filter 用类型谓词窄化（SubtitleClip 无 sourceNodeId 字段，as any 不必要）。
+>
+> **Task 9 执行期修正（2026-09-10，quality review I1 plan 级缺口 + M2/M3/M6）**：(I1) trimClip 补**同轨邻居 clamp**——原守卫只按素材边界，右缘延长可覆盖后片/左缘延长可覆盖前片制造无转场依据的非法重叠（同 Task 5 I1 失败模式，违反 spec 验收 6 同轨禁重叠）；语义定案"trim 不是建立 crossfade 的途径：无重叠不得产生（界=间隙），已有合法重叠不得加深（界=0）"，store 层中心收口覆盖全部调用方。测试夹具用 addClip[0,60)+splitClip(30) 构造（直放第二片冲突吸附到 60 且 sourceStart=0 素材界掩盖邻居界）。(M2) undo/redo 补 `pendingSnapshot: null`（拖拽中 Ctrl+Z 作废进行中会话，防 bogus undo 记录）。(M3) updateClip 存在性早退（防 {...undefined,...patch} 造假 clip）。(M6) addClip `Math.max(0, quantizeTime(start))` drop 入口自防御。补 4 用例（12→16）。strict 修正 3 处：canPlaceAt 第 2 参 undefined→''（签名 string）、moveClip 第 6 参 clip as any（弱类型检测）、trimClip mediaId as any（SubtitleClip 无该字段→Infinity 兜底一致）。登记不修：updateClip 早退/trim 夹 0 时 commit 仍推一条内容等价历史（pre-existing 机制行为，拖拽主路径 transient 不受影响）；addSubtitleClip/addTrack 非 ready 返回死 id（无触发路径）。Task 15 笔误同步修正：`es.history.pendingSnapshot`→`es.pendingSnapshot`（字段在顶层，两处）。
 
 **本 plan 边界（不做，留 Plan 3/4）：** 预览播放/主时钟/audio-engine/scene 纯函数（Plan 3）；右面板四态/转场关键帧编辑 UI/变速 UI/真波形数据（Plan 3，本 plan 落 store 与纯函数基础）；节点本体迷你播放（Plan 3，按钮 disabled 占位）；导出/产物节点上画布/socket 单例迁移/AI 三按钮（Plan 4）。
 
@@ -1731,6 +1733,60 @@ describe('editorStore（normalized + transient 历史）', () => {
     useEditorStore.getState().undo();
     expect(useEditorStore.getState().selectedClipId).toBeNull();
   });
+
+  it('trimClip 同轨邻居 clamp：右缘延长不得越过/加深后片（执行期 I1）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 60 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    // 夹具用 splitClip 构造：addClip 直放第二片会冲突吸附到 60 且 sourceStart=0 素材界掩盖邻居界；
+    // split 后 a=[0,30)/b=[30,60) 且 b.sourceStart=30 素材界真富余（-30），邻居界才具判别力
+    const a = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    const b = useEditorStore.getState().splitClip(a, 30)!;
+    useEditorStore.getState().trimClip(b, 'left', -10); // b 左拉 → prev.end=30 是下界 → 夹 0（不产生重叠）
+    let d = useEditorStore.getState().data!;
+    expect(d.clips[b].start).toBe(30);
+    useEditorStore.getState().trimClip(a, 'right', 10);  // a 右延 → next.start=30 是上界 → 夹 0
+    d = useEditorStore.getState().data!;
+    expect(d.clips[a].start + d.clips[a].duration).toBe(30); // a 仍终于 30
+  });
+
+  it('moveClip 跨轨：clip 从原轨迁到目标轨（store 直测）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    const audioTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'audio')!;
+    const ok = useEditorStore.getState().moveClip(id, 5, audioTrack.id);
+    expect(ok).toBe(true);
+    const d = useEditorStore.getState().data!;
+    expect(d.clips[id].trackId).toBe(audioTrack.id);
+    expect(d.tracks.find(t => t.id === trackId)!.clips).not.toContain(id);
+    expect(d.tracks.find(t => t.id === audioTrack.id)!.clips).toContain(id);
+  });
+
+  it('endTransient 无变更返回 false（begin 后未动直接 end）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().beginTransient();
+    expect(useEditorStore.getState().endTransient()).toBe(false);
+    expect(useEditorStore.getState().history.past).toHaveLength(0); // 不入栈
+  });
+
+  it('undo/redo 清 pendingSnapshot（拖拽中 Ctrl+Z 不产生 bogus 记录）', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    const depth = useEditorStore.getState().history.past.length;
+    useEditorStore.getState().beginTransient();
+    useEditorStore.getState().undo(); // 拖拽中撤销
+    expect(useEditorStore.getState().pendingSnapshot).toBeNull(); // 会话作废
+    expect(useEditorStore.getState().endTransient()).toBe(false); // 不产生 bogus 记录
+    expect(useEditorStore.getState().data!.tracks[0].clips).not.toContain(id); // undo 生效
+    expect(useEditorStore.getState().history.past.length).toBe(depth - 1);
+  });
 });
 ```
 
@@ -1746,7 +1802,7 @@ import {
   quantizeTime, trimLeftGuard, trimRightGuard, clampDelta,
   applyTrimLeft, applyTrimRight, splitClipAt,
 } from '../timeline/clip-math';
-import { canPlaceAt, findNearestFreeStart } from '../timeline/overlap';
+import { canPlaceAt, findNearestFreeStart, clipsOnTrack } from '../timeline/overlap';
 import { ensureAutoEdges } from '../timeline/auto-edges';
 import { stopCapturing } from '@/stores/canvasUndo';
 
@@ -1879,7 +1935,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       const duration = input.type === 'image'
         ? 5
         : s.mediaInfo[input.mediaId]?.durationSec ?? 5; // 决策 6：未知兜底 5s
-      const start = quantizeTime(input.start);
+      const start = Math.max(0, quantizeTime(input.start)); // drop 直入口自防御（执行期 M6）
       let placed = start;
       if (!canPlaceAt(s.data, undefined, start, input.trackId, duration)) {
         placed = findNearestFreeStart(s.data, undefined, start, input.trackId, duration); // 冲突吸附最近空位
@@ -1947,13 +2003,22 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return false;
       const clip = s.data.clips[clipId];
       if (!clip) return false;
-      const mediaDuration = s.mediaInfo[clip.mediaId]?.durationSec ?? Infinity;
-      const guard = edge === 'left' ? trimLeftGuard(clip, mediaDuration) : trimRightGuard(clip, mediaDuration);
+      const mediaDuration = (clip as any).mediaId ? s.mediaInfo[(clip as any).mediaId]?.durationSec ?? Infinity : Infinity;
+      let guard = edge === 'left' ? trimLeftGuard(clip, mediaDuration) : trimRightGuard(clip, mediaDuration);
+      // 同轨邻居 clamp（spec 禁重叠——trim 不是建立 crossfade 的途径；执行期 I1 修复）：
+      // 无重叠时不得产生（界=间隙），已有合法重叠（crossfade）时不得加深（界=0）
+      const neighbors = clipsOnTrack(s.data, clip.trackId).filter(c => c.id !== clipId);
+      if (edge === 'right') {
+        const next = neighbors.find(c => c.start >= clip.start);
+        if (next) guard = { ...guard, maxDelta: Math.min(guard.maxDelta, Math.max(0, next.start - (clip.start + clip.duration))) };
+      } else {
+        const prev = [...neighbors].reverse().find(c => c.start < clip.start);
+        if (prev) guard = { ...guard, minDelta: Math.max(guard.minDelta, Math.min(0, prev.start + prev.duration - clip.start)) };
+      }
       const d = clampDelta(guard, deltaSec);
       const mutate = (data: ProjectData): ProjectData => {
         const c = data.clips[clipId];
         const next = edge === 'left' ? applyTrimLeft(c, d) : applyTrimRight(c, d);
-        // trim 左缘可能造成同轨重叠（缩时长的左移不会，保护性再校验）
         return { ...data, clips: { ...data.clips, [clipId]: next } };
       };
       if (opts?.transient) transient(mutate);
@@ -2000,10 +2065,13 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     },
 
     updateClip: (clipId, patch) => {
-      commit((d) => ({
-        ...d,
-        clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
-      }), { structural: false });
+      commit((d) => {
+        if (!d.clips[clipId]) return d; // 不存在早退——防 {...undefined,...patch} 造假 clip 入库（执行期 M3）
+        return {
+          ...d,
+          clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
+        };
+      }, { structural: false });
     },
 
     addTrack: (type) => {
@@ -2054,7 +2122,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = undoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null });
+      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话（执行期 M2）
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state); // 边跟随回滚
     },
 
@@ -2063,7 +2131,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = redoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null });
+      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null });
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state);
     },
   };
@@ -3696,7 +3764,7 @@ const onWindowPointerMove = (e: PointerEvent) => {
   const dxSec = pxToTime(e.clientX - d.startClientX, d.startPxPerSec); // 拖拽全程固定比例尺（R3 审核 P2）
   const es = useEditorStore.getState();
   if (d.kind === 'move') {
-    if (!es.history.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
+    if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
     const target = d.startClipStart + dxSec;
     const snapped = snapTime(target, collectSnapPoints(d.clipId, Object.values(es.data?.clips ?? {}), es.playhead), d.startPxPerSec);
     // 跨轨拖动（spec 第五节"同类型跨轨自由重叠"）：pointer 落点命中轨道行，类型兼容才换轨
@@ -3712,7 +3780,7 @@ const onWindowPointerMove = (e: PointerEvent) => {
     }
     es.moveClip(d.clipId, Math.max(0, snapped.time), targetTrackId, { transient: true });
   } else {
-    if (!es.history.pendingSnapshot && !(d as any).pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
+    if (!es.pendingSnapshot && !(d as any).pointerMovedOnce) { es.beginTransient(); (d as any).pointerMovedOnce = true; }
     es.trimClip(d.clipId, d.kind === 'trim-left' ? 'left' : 'right', dxSec, { transient: true });
   }
 };
