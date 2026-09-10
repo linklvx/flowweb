@@ -25,14 +25,15 @@ describe('VideoEditorShell', () => {
       data: createDefaultProjectData(), updatedAt: 't0',
     });
   });
-  it('open=false 不渲染；open 后渲染全屏壳与占位区', () => {
+  it('open=false 不渲染；open 后渲染全屏壳与占位区', async () => {
     const { rerender } = render(<VideoEditorShell />);
     expect(screen.queryByTestId('video-editor-shell')).not.toBeInTheDocument();
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     rerender(<VideoEditorShell />);
     expect(screen.getByTestId('video-editor-shell')).toBeInTheDocument();
     expect(screen.getByTestId('preview-placeholder')).toBeInTheDocument();
-    expect(screen.getByTestId('timeline-panel')).toBeInTheDocument();
+    // 入口时序（Task 14）：面板先 loading 禁编辑，loadProject resolve 后才就绪为 timeline-panel
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
   });
   it('点遮罩不关闭（closeOnBackdrop=false 透传）', () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
