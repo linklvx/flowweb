@@ -282,7 +282,7 @@ import { CreateVideoProjectDto, PatchVideoProjectDto } from './video-project.dto
 describe('video-project DTO', () => {
   it('合法 create 通过', async () => {
     const dto = plainToInstance(CreateVideoProjectDto, {
-      workflowId: 'wp1', sourceNodeId: 'node-1', teamId: 't1', title: 'x',
+      workflowId: 'wp1', sourceNodeId: 'node-1', title: 'x',
       data: { version: 1, fps: 30, tracks: [], clips: {} },
     });
     expect(await validate(dto)).toHaveLength(0);
@@ -316,7 +316,6 @@ import { IsString, IsObject, IsDateString, IsNumber, IsIn } from 'class-validato
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
   @IsString() sourceNodeId!: string;
-  @IsString() teamId!: string;
   @IsString() title!: string;
   @IsObject() data!: object; // ProjectData 结构由前端 shared 类型保证；服务端挡非对象
 }
@@ -326,6 +325,7 @@ export class PatchVideoProjectDto {
 }
 export class RegenerateDto {
   @IsString() sourceNodeId!: string; // 素材源节点（非剪辑节点）
+  @IsString() workflowId!: string;   // 漏了它 whitelist 会剥离 → svc.assertEditor(undefined) 真机挂（服务层测试直传对象测不到）
   @IsIn(['video', 'audio']) kind!: 'video' | 'audio'; // @IsString 只验"是字符串"不验枚举——必须 @IsIn
 }
 ```
@@ -362,22 +362,25 @@ const mkPrisma = (over: any = {}) => ({
     delete: vi.fn(),
     ...over,
   },
+  canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) }, // teamId 派生查询
 });
 const perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
 const collab = { readCanvas: vi.fn() };
+const execution = { execute: vi.fn() }; // 第 4 参——Task 11 regenerate 用，签名一次到位（避免中途改构造器）
 
 describe('VideoProjectService', () => {
   let svc: VideoProjectService; let prisma: any;
   beforeEach(() => {
     prisma = mkPrisma();
-    svc = new VideoProjectService(prisma, perm as any, collab as any);
+    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any);
   });
 
-  it('upsertByNode 幂等：并发双调用只产生一条记录', async () => {
+  it('upsertByNode 幂等：并发双调用只产生一条记录 + teamId 服务端派生', async () => {
     prisma.videoProject.upsert.mockResolvedValue({ id: 'p1', sourceNodeId: 'n1', data: { version: 1 } });
-    const r = await svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', teamId: 't1', userId: 'u1', title: 'x' });
+    const r = await svc.upsertByNode({ workflowId: 'w1', sourceNodeId: 'n1', userId: 'u1', title: 'x' });
     expect(prisma.videoProject.upsert).toHaveBeenCalledTimes(1);
     expect(prisma.videoProject.upsert.mock.calls[0][0].where).toEqual({ sourceNodeId: 'n1' });
+    expect(prisma.videoProject.upsert.mock.calls[0][0].create).toMatchObject({ teamId: 't1' }); // 派生值（勿信客户端——assertEditor 只验 workflow 编辑权不验 teamId 归属）
     expect(r.id).toBe('p1');
   });
 
@@ -419,6 +422,7 @@ import { Injectable, Inject, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { ExecutionService } from '../execution/execution.service';
 
 @Injectable()
 export class VideoProjectService {
@@ -426,15 +430,21 @@ export class VideoProjectService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly collab: CollabDocumentService,
+    @Inject(ExecutionService) private readonly execution: ExecutionService, // Task 11 regenerate 用——签名一次到位，避免 Task 11 中途改构造器
   ) {}
 
-  /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回 */
-  async upsertByNode(input: { workflowId: string; sourceNodeId: string; teamId: string; userId: string; title: string; data?: unknown }) {
-    await this.perm.assertEditor(input.workflowId, input.userId);
+  /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回；
+   *  teamId 服务端从 workflowId 派生（assertEditor 只验 workflow 编辑权不验 teamId 归属——客户端传 teamId 会造不一致脏行） */
+  async upsertByNode(input: { workflowId: string; sourceNodeId: string; userId: string; title: string; data?: unknown }) {
+    await this.perm.assertEditor(input.workflowId, input.userId); // workflow 不存在时 resolve 内部抛 404——下方 findUnique 必有值
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: input.workflowId },
+      select: { teamId: true },
+    });
     return this.prisma.videoProject.upsert({
       where: { sourceNodeId: input.sourceNodeId },
       create: {
-        teamId: input.teamId, userId: input.userId, workflowId: input.workflowId,
+        teamId: project!.teamId, userId: input.userId, workflowId: input.workflowId,
         sourceNodeId: input.sourceNodeId, title: input.title,
         data: (input.data ?? { version: 1, fps: 30, tracks: [], clips: {} }) as object,
       },
@@ -519,7 +529,7 @@ describe('VideoProjectController', () => {
   });
 
   it('POST upsert 透传 userId', async () => {
-    await ctrl.create({ workflowId: 'w1', sourceNodeId: 'n1', teamId: 't1', title: 'x', data: {} } as any, req);
+    await ctrl.create({ workflowId: 'w1', sourceNodeId: 'n1', title: 'x', data: {} } as any, req);
     expect(svc.upsertByNode).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1' }));
   });
   it('GET by-node 透传', async () => {
@@ -726,7 +736,7 @@ describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => 
     expect(data.get('__ephemeral')).toBe(true);
   });
   it('无 parentId 键（fillDoc 同构：parentId null 时省略，防差异循环）', () => {
-    const m = buildShadowNodeYMap({ id: 's', type: 'videoGen', position: { x: 0, y: 0 }, data: {} });
+    const m = buildShadowNodeYMap({ id: 'shadow-x', type: 'videoGen', position: { x: 0, y: 0 }, data: {} });
     expect(m.get('parentId')).toBeUndefined();
   });
 });
@@ -983,7 +993,7 @@ export class GeneratedMediaService {
 }
 ```
 
-**MinioService 顺手加固**（`modules/minio/minio.service.ts` 追加，同口径防第三处踩坑；storage.service.ts L85 的 `stats.ContentLength ?? 0` 可同步改用它）：
+**MinioService 顺手加固**（`modules/minio/minio.service.ts` 追加，同口径防第三处踩坑；storage.service.ts L85 的 `stats.ContentLength ?? 0` **顺手改用** `statSize()`——防两套口径并存）：
 
 ```ts
   /** 统一大小口径：HeadObjectCommand 输出是 ContentLength（无 size 字段） */
@@ -1007,7 +1017,13 @@ export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
 export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
 ```
 
-（顶部 import 追加 `IsNumber, IsIn`。RegisterGeneratedDto **不带 teamId**——服务端从 workflowId 派生（P0-B：assertCanUpload 无成员校验，客户端 teamId 是越权面）。）Controller 路由签名相应改为 `@Body() dto: RegisterGeneratedDto` / `ConfirmGeneratedDto` / `RemoveShadowDto`；同时 `video-project.module.ts` 的 providers 追加 `GeneratedMediaService`（Task 7 预留位）并补 import。
+（顶部 import 追加 `IsNumber, IsIn`。RegisterGeneratedDto **不带 teamId**——服务端从 workflowId 派生（P0-B：assertCanUpload 无成员校验，客户端 teamId 是越权面）。）Controller 路由签名相应改为 `@Body() dto: RegisterGeneratedDto` / `ConfirmGeneratedDto` / `RemoveShadowDto`；`video-project.controller.ts` 顶部 DTO import 行同步扩为全部六个（Task 11 追加路由时不再改 import）：
+
+```ts
+import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGeneratedDto, ConfirmGeneratedDto, RemoveShadowDto } from './video-project.dto';
+```
+
+同时 `video-project.module.ts` 的 providers 追加 `GeneratedMediaService`（Task 7 预留位）并补 import。
 
 Controller 追加（同文件，注入 GeneratedMediaService）：
 
@@ -1055,7 +1071,7 @@ describe('regenerate（A1 影子节点）', () => {
     prisma = { videoProject: { findUnique: vi.fn() } };
     collab = { readCanvas: vi.fn(), insertNode: vi.fn(), removeNode: vi.fn() };
     execution = { execute: vi.fn().mockResolvedValue({ success: true }) };
-    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any); // 构造器 4 参（与 Task 6 同签名+execution）
+    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any); // 构造器 4 参（Task 6 已一次到位）
   });
 
   it('源节点存在且为生成类型：克隆影子→直调 execute（不带 sv）→返回 shadowNodeId', async () => {
@@ -1094,7 +1110,7 @@ pnpm -C apps/api exec vitest run src/modules/video-project/video-project.regener
 
 - [ ] **Step 3: 写实现（service 追加方法；构造器注入 ExecutionService 用前向引用防循环依赖）**
 
-`video-project.service.ts` 追加（构造器第 4 参 `@Inject(ExecutionService) private readonly execution: ExecutionService`——经 Task 7 的 ExecutionModule 注入，**不用 forwardRef**；Task 6 的既有测试同步补第 4 参 mock）：
+`video-project.service.ts` 追加方法（构造器第 4 参 `@Inject(ExecutionService) execution` 已在 Task 6 一次到位——经 Task 7 的 ExecutionModule 注入，**不用 forwardRef**）：
 
 ```ts
   /**
@@ -1161,7 +1177,7 @@ git add apps/api/src && git commit -m "feat(video-project): regenerate A1 影子
 **Files:**
 - Create: `apps/api/src/modules/media/media-batch.service.ts`
 - Create: `apps/api/src/modules/media/media.dto.ts`
-- Modify: `apps/api/src/modules/media/media.controller.ts`（+1 路由 + 构造器注入 MediaBatchService，前缀已是 `api/media`）
+- Modify: `apps/api/src/modules/media/media.controller.ts`（+1 路由 + 方法级 ValidationPipe + 构造器注入 MediaBatchService，前缀已是 `api/media`）
 - Modify: `apps/api/src/modules/media/media.module.ts`（providers 追加 MediaBatchService——PrismaService/MinioService 来自全局模块无需 import）
 - Test: `apps/api/src/modules/media/media-batch.service.spec.ts`
 
@@ -1242,13 +1258,17 @@ export class MediaBatchService {
 `media.controller.ts` 追加（构造器注入 `private readonly batch: MediaBatchService`；teamId 走 `@Query` 对齐 file.controller.ts 模式；DTO 补齐防 Record 空转）：
 
 ```ts
-  // @Query 裸 string 不过 ValidationPipe（class 级 @UsePipes 只作用于 body 的 metatype）——
+  // 方法级 ValidationPipe（media.controller 无 class 级 pipe——不挂则 @ArrayMaxSize 等 DTO 装饰器纯装饰，
+  // ids 不校验不剥离）；@Query 裸 string 依然不经过 pipe（ValidationPipe 只作用 body 的 metatype）——
   // teamId 为 Prisma 等值 where 无注入面，越权已由 batchGet 内 assertTeamMember 封堵
   @Post('batch')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   batch(@Req() req: any, @Query('teamId') teamId: string | undefined, @Body() dto: BatchGetMediaDto) {
     return this.batch.batchGet(req.user?.id, teamId, dto.ids);
   }
 ```
+
+（`media.controller.ts` 顶部 import 追加 `Post, Body, UsePipes, ValidationPipe` from '@nestjs/common' 与 `BatchGetMediaDto` from './media.dto'。）
 
 `BatchGetMediaDto`（就近放 media 模块内新建 `media.dto.ts`）：
 
