@@ -703,6 +703,7 @@ const EXECUTABLE_TYPES = new Set(['textInput', 'imageGen', 'imageExtGen', 'video
 export function isExecutableNode(node: { type: string; data?: Record<string, unknown> | null }): boolean {
   if (!EXECUTABLE_TYPES.has(node.type)) return false;
   if ((node.data as any)?.origin === 'video-edit') return false; // 导出产物节点：无 model，跳过防误重跑扣费
+  if ((node.data as any)?.__ephemeral === true) return false; // A1 影子残留兜底（Task 11 执行期补）：影子全局排除，regenerate 直调路径在 execute 循环单独放行
   return true;
 }
 ```
@@ -715,10 +716,11 @@ export function isExecutableNode(node: { type: string; data?: Record<string, unk
 
 （随后的 textInput 判断可保留不动——谓词已涵盖，保留无碍。）
 
-`execution.service.ts` 的 execute 循环（L65 `for (const node of orderedNodes) {` 之后、`this.gateway.emitNodeStatus(...'loading')` **之前**）插入：
+`execution.service.ts` 的 execute 循环（L65 `for (const node of orderedNodes) {` 之后、`this.gateway.emitNodeStatus(...'loading')` **之前**）插入（Task 11 执行期修订后的最终形态——__ephemeral 影子全局排除 + regenerate 单节点直调放行）：
 
 ```ts
-      if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行
+      // 防剪辑/产物节点闪 loading 与误执行；影子唯一放行口 = regenerate 的单 nodeId 直调（nodeIds 批量模式 nodeId 为 undefined，批量中影子仍被排除）
+      if (!isExecutableNode(node) && !(nodeId === node.id && String(node.id).startsWith('shadow-'))) continue;
 ```
 
 同时 validateAll 顶部的 modelIds 收集 filter 改为 `nodes.filter(n => isExecutableNode(n) && n.type !== 'textInput')`（防 videoEdit 无 model 进 modelIds）。
@@ -1210,6 +1212,8 @@ Controller 追加：
 ```
 
 > execute 为同步串行可能数分钟——前端 axios 对这两个端点单独放大超时（Plan 4 处理）。
+
+> **执行期修订记录（2026-09-10，提交 3c23434b）**：Task 11 评审发现残留影子幽灵执行风险（客户端崩溃时影子永久残留 doc，在白名单内会被"全部执行"真实执行+扣费且用户不可见）——isExecutableNode 全局排除 `__ephemeral`（Task 8 代码块已同步）+ execute 循环白名单行为"单 nodeId 直调且 shadow- 前缀"放行（regenerate 唯一合法入口）。
 
 - [ ] **Step 4: 跑测试 + 提交**
 
