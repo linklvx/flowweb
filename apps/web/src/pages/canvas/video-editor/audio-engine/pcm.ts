@@ -48,7 +48,7 @@ export function stretchPcm(input: PcmData, tempo: number): PcmData {
     getChannelData: (i: number) => padded[i],
     duration: padded[0].length / input.sampleRate,
   } as unknown as AudioBuffer;
-  const st = new SoundTouch(); // 实测构造无参——采样率经 WebAudioBufferSource 的 buffer 携带
+  const st = new SoundTouch(); // 实测构造无参——库不消费 sampleRate：Stretch 内部硬编码 44100 计算窗参（48k 下窗时长约短 8%，仅影响 WSOLA 窗长最优性，不影响变速比与音高——审查登记）
   st.tempo = tempo;
   const filter = new SimpleFilter(new WebAudioBufferSource(fakeBuffer), st);
   const inter = new Float32Array(EXTRACT_CHUNK * 2);

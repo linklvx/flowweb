@@ -35,6 +35,7 @@ describe('stretchPcm（soundtouch 离线变速，spike 定案路线）', () => {
     const input = stereo(sine(48000, 0.5, 440));
     const out = stretchPcm(input, 1);
     expect(out.channels[0].length).toBe(input.channels[0].length);
+    expect(out.channels[0]).not.toBe(input.channels[0]); // 拷贝语义：tempo≠1 恒返新数组，tempo=1 同样不别名输入（与 resamplePcm 同采样率零拷贝直返的约定相反——见各自注释）
   });
   it('tempo=2：输出长度=期望值且尾部非静音（G8 假绿修复——长度恒等于 round(len/tempo)，±容差断言恒真无锁力）', () => {
     const input = stereo(sine(48000, 2, 440));
@@ -74,5 +75,9 @@ describe('resamplePcm（线性插值）', () => {
     const out = resamplePcm(mono(sine(48000, 1, 440)), 24000);
     expect(out.channels[0].length).toBe(24000);
     expect(out.sampleRate).toBe(24000);
+  });
+  it('线性插值精度：[0,1] sr2→4 期望 [0, 0.5, 1, 1]（变异守护——nearest-neighbor 变体必红）', () => {
+    const out = resamplePcm({ sampleRate: 2, channels: [new Float32Array([0, 1])] }, 4);
+    expect(Array.from(out.channels[0])).toEqual([0, 0.5, 1, 1]);
   });
 });
