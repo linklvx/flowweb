@@ -61,24 +61,22 @@ export function crossfadeContextOf(data: ProjectData, clipId: string): Crossfade
 export interface TransitionEffect { alpha: number; overlay: { color: 'black' | 'white'; alpha: number } | null; }
 
 /** 转场状态（局部时间）：crossfade 双窗口独立施加（back 前缘 0→1 / front 尾缘 1→0，中间片两窗 alpha 相乘）；
- *  独立转场与窗口并存——crossfade 入场已由窗口施加时跳过 eff.in（防重复，此时 eff.in 必为 crossfade），
- *  未吞并的出场转场（如入 crossfade + 出 toBlack）正常叠加。 */
+ *  独立转场与窗口并存——crossfade 类型永不作为独立转场施加（零重叠/出场位置均无效果，防白闪——
+ *  语义只经双窗口表达）；未吞并的出场转场（如入 crossfade + 出 toBlack）正常叠加。 */
 export function transitionEffect(data: ProjectData, clip: VisualClip, tLocal: number): TransitionEffect {
   let alpha = 1;
   let overlay: TransitionEffect['overlay'] = null;
   const dur = clip.duration;
   const cf = crossfadeContextOf(data, clip.id);
   const eff = effectiveTransitions(data, clip.id);
-  let skipIn = false;
   if (cf) {
     if (cf.backOverlap > 0 && tLocal < cf.backOverlap) alpha *= tLocal / cf.backOverlap;
     const rem = dur - tLocal;
     if (cf.frontOverlap > 0 && rem < cf.frontOverlap) alpha *= rem / cf.frontOverlap;
-    skipIn = cf.backOverlap > 0;
   }
   const tin = eff.in;
   const tout = eff.out;
-  if (!skipIn && tin && tin.duration > 0 && tLocal < tin.duration) {
+  if (tin && tin.duration > 0 && tLocal < tin.duration) {
     const p = tLocal / tin.duration;
     if (tin.type === 'fadeIn') alpha *= p;
     else if (tin.type === 'toBlack' || tin.type === 'toWhite') overlay = { color: tin.type === 'toBlack' ? 'black' : 'white', alpha: 1 - p };

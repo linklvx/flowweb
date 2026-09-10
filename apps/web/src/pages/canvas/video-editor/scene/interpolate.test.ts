@@ -109,7 +109,7 @@ describe('transitionEffect（5 种转场，局部时间）', () => {
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 0).alpha).toBeCloseTo(0, 10);
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25).alpha).toBeCloseTo(0.5, 10);
     expect(transitionEffect(d, d.clips['b'] as VideoClip, 1).alpha).toBe(1);
-    expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25).overlay).toBeNull(); // skipIn 防重复——crossfade 窗口内不得叠加独立 overlay（删 skipIn 则白闪变异被杀）
+    expect(transitionEffect(d, d.clips['b'] as VideoClip, 0.25).overlay).toBeNull(); // crossfade 永不作为独立转场施加（类型守卫）——窗口内不得叠加独立 overlay
   });
   it('crossfade 前片：尾缘 1→0（与后片同曲线 equal-gain，spec 第六节）', () => {
     const d = data([vc('f', 0, 3), vc('b', 2.5, 3, { transitionIn: { type: 'crossfade', duration: 0.5 } })]);
