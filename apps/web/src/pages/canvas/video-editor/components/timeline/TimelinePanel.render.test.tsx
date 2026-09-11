@@ -56,10 +56,10 @@ describe('TimelinePanel 静态渲染', () => {
   it('空轨渲染占位条，控制条有撤销/重做/分割/删除（Task 8 迁入预览控制条——补渲染 PreviewPlayer 保持断言语义）', () => {
     useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
     render(<><PreviewPlayer /><TimelinePanel /></>);
-    expect(screen.getByText('撤销')).toBeInTheDocument();
-    expect(screen.getByText('重做')).toBeInTheDocument();
-    expect(screen.getByText('分割')).toBeInTheDocument();
-    expect(screen.getByText('删除')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重做' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '分割' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
   });
   it('Ctrl+滚轮缩放：原生 wheel 监听改 pxPerSec（passive:false——I1）', () => {
     useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });

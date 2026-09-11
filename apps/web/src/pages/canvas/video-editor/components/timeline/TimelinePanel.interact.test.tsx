@@ -98,7 +98,7 @@ describe('TimelinePanel 交互', () => {
     useEditorStore.getState().selectClip(id);
     useEditorStore.getState().setPlayhead(4);
     render(<><PreviewPlayer /><TimelinePanel /></>); // 分割按钮已迁预览控制条（Task 8）
-    fireEvent.click(screen.getByText('分割'));
+    fireEvent.click(screen.getByRole('button', { name: '分割' }));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
   });
 
@@ -107,7 +107,7 @@ describe('TimelinePanel 交互', () => {
     const id = addVideoClip(0);
     useEditorStore.getState().selectClip(id);
     render(<><PreviewPlayer /><TimelinePanel /></>); // 删除按钮已迁预览控制条（Task 8）
-    fireEvent.click(screen.getByText('删除'));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
     useEditorStore.getState().undo();
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(1);

@@ -83,10 +83,10 @@ describe('PreviewPlayer（控制条）', () => {
     render(<PreviewPlayer />);
     expect(screen.getByTestId('preview-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('preview-play-btn')).toBeInTheDocument();
-    expect(screen.getByText('撤销')).toBeInTheDocument();
-    expect(screen.getByText('重做')).toBeInTheDocument();
-    expect(screen.getByText('分割')).toBeInTheDocument();
-    expect(screen.getByText('删除')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重做' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '分割' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
     expect(screen.getByTestId('volume-slider')).toBeInTheDocument();
     expect(screen.getByTestId('zoom-slider')).toBeInTheDocument();
     expect(screen.getByText(/0:03/)).toBeInTheDocument(); // 总长 3s
@@ -102,8 +102,20 @@ describe('PreviewPlayer（控制条）', () => {
     ready();
     useEditorStore.getState().selectClip('v1');
     render(<PreviewPlayer />);
-    fireEvent.click(screen.getByText('删除'));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
+  });
+
+  it('撤销/重做/分割/删除为图标按钮（原生 title 含快捷键——不用 antd Tooltip）', () => {
+    ready();
+    render(<PreviewPlayer />);
+    const undo = screen.getByRole('button', { name: '撤销' }); // name 匹配 aria-label
+    expect(undo.querySelector('svg')).toBeTruthy(); // 图标
+    expect(undo.getAttribute('title')).toContain('Ctrl+Z'); // 原生 title 属性
+    expect(screen.getByRole('button', { name: '重做' }).querySelector('svg')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '分割' }).getAttribute('title')).toContain('S');
+    expect(screen.getByRole('button', { name: '删除' }).querySelector('svg')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '删除' }).getAttribute('title')).toContain('Delete');
   });
 
   it('暂停态：playhead 变化触发单帧渲染（G1/N5——R2 补测；jsdom canvas.getContext 默认 null 须 stub，EraseCanvas 先例）', async () => {

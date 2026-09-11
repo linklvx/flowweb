@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { App as AntdApp, Slider, Tooltip } from 'antd';
+import { DeleteOutlined, RedoOutlined, ScissorOutlined, UndoOutlined } from '@ant-design/icons';
 import { useEditorStore } from '../store/editorStore';
 import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
 import { togglePlayback, seekPlayback } from '../hooks/playback'; // R3 五-5：stopPlayback 未使用（停止走 togglePlayback 的 playing 分支），删导入
@@ -84,16 +85,16 @@ export function PreviewPlayer() {
           <span className="text-[var(--ve-text-dim)]"> / {formatShortTime(total)}</span>
         </span>
         <span className="text-[var(--ve-text-dim)] mx-1">|</span>
-        <button type="button" onClick={() => useEditorStore.getState().undo()}
-          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">撤销</button>
-        <button type="button" onClick={() => useEditorStore.getState().redo()}
-          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">重做</button>
-        <button type="button" title="在播放头处分割选中片段"
+        <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" onClick={() => useEditorStore.getState().undo()}
+          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><UndoOutlined /></button>
+        <button type="button" aria-label="重做" title="重做 Ctrl+Shift+Z" onClick={() => useEditorStore.getState().redo()}
+          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><RedoOutlined /></button>
+        <button type="button" aria-label="分割" title="分割 S（在播放头处）"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead); }}
-          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">分割</button>
-        <button type="button" title="删除选中片段"
+          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><ScissorOutlined /></button>
+        <button type="button" aria-label="删除" title="删除 Delete"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
-          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">删除</button>
+          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><DeleteOutlined /></button>
         <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]" style={{ borderLeftStyle: 'solid' }}>
           <button type="button" className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
