@@ -42,6 +42,15 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     expect(prisma.media.create.mock.calls[0][0].data).toMatchObject({ teamId: 't1', type: 'generated', status: 'pending', mimeType: 'video/mp4', size: 12_345_000 });
   });
 
+  it('register 480p/900s 接受；显式 width/height 落 metadata（不传则无该键——勘误⑦：resolution 无法表达 9:16 的 1080×1920）', async () => {
+    await svc.register({ ...base, resolution: '480p', durationSec: 900, actualSize: 100 });
+    expect(prisma.media.create.mock.calls[0][0].data.metadata).toEqual(
+      { origin: 'video-project', videoProjectId: 'p1', resolution: '480p', durationSec: 900 }); // toEqual 忽略 undefined 键——未传即无该键
+    await svc.register({ ...base, resolution: '480p', durationSec: 10, actualSize: 100, width: 854, height: 480 });
+    expect(prisma.media.create.mock.calls[1][0].data.metadata).toEqual(
+      { origin: 'video-project', videoProjectId: 'p1', resolution: '480p', durationSec: 10, width: 854, height: 480 });
+  });
+
   it('confirm: statSize 实际大小落库 + 缩略图 seekSec 从 metadata.durationSec 读', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', metadata: { durationSec: 30 } });
     await svc.confirm('u1', { mediaId: 'm1' }); // 不再收 key/时长——均从 register 时落的记录读

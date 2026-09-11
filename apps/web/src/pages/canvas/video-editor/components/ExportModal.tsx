@@ -107,9 +107,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
       try {
         const r = await j.promise;
         const file = r.fsa && handle ? await handle.getFile() : r.blob; // R3-1：按 fsa 标记择源（回退 Buffer 时读 blob，防 0 字节静默上传）
-        // upload 层 resolution 尚未放开 480p（Task 17 DTO/Task 19 width-height 一并收口）——运行时仍发实际值，
-        // DTO 未放开前选 480p register 必 400（R13 决策⑤预期行为），此处仅窄化类型
-        const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution: resolution as '720p' | '1080p', durationSec, file });
+        const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, file });
         createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, currentEditorProjectTitle() || '多轨剪辑');
         void message.success('导出完成，已添加到画布');
         onClose();

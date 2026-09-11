@@ -1,5 +1,5 @@
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber, Min } from 'class-validator';
+import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber, Min, Max } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
@@ -20,8 +20,10 @@ export class RegenerateDto {
 export class RegisterGeneratedDto {
   @IsString() workflowId!: string;
   @IsString() videoProjectId!: string;
-  @IsIn(['720p', '1080p']) resolution!: string;
-  @IsNumber() durationSec!: number;
+  @IsIn(['480p', '720p', '1080p']) resolution!: string;
+  @IsNumber() @Min(0) @Max(900) durationSec!: number; // 15min 上限服务端同步（spec 5.5）
+  @IsOptional() @IsNumber() @Min(1) width?: number;  // 产物尺寸（metadata 存档——resolution 无法表达 9:16 的 1080×1920）；可选防老前端 400
+  @IsOptional() @IsNumber() @Min(1) height?: number;
   @IsNumber() actualSize!: number; // 编码后真实字节（presigned POST ±1024 Conditions 要求）
 }
 export class ConfirmGeneratedDto { @IsString() mediaId!: string; }

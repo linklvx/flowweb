@@ -25,7 +25,7 @@ export class GeneratedMediaService {
    * teamId 服务端从 workflowId 派生（assertCanUpload 无成员校验——客户端传他团 teamId
    * 会打他团配额并把产物记到他团名下；对齐 storage.service.presignUpload 的 projectId 派生先例）。
    */
-  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number }) {
+  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number; width?: number; height?: number }) {
     await this.perm.assertEditor(input.workflowId, input.userId);
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: input.workflowId },
@@ -41,7 +41,7 @@ export class GeneratedMediaService {
         bucket: 'flowai', key, originalName: `export-${input.resolution}.mp4`,
         mimeType: 'video/mp4', size: input.actualSize,
         type: 'generated', status: 'pending',
-        metadata: { origin: 'video-project', videoProjectId: input.videoProjectId, resolution: input.resolution, durationSec: input.durationSec },
+        metadata: { origin: 'video-project', videoProjectId: input.videoProjectId, resolution: input.resolution, durationSec: input.durationSec, width: input.width, height: input.height },
       },
     });
     const upload = await this.minio.generatePresignedPost(key, 'video/mp4', input.actualSize);
