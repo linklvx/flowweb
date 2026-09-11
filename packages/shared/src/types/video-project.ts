@@ -1,4 +1,6 @@
 // packages/shared/src/types/video-project.ts
+/** 导出档位 = 目标短边（spec 5.3）——shared 定义，web/api 两侧派生消费 */
+export type ExportResolution = '480p' | '720p' | '1080p';
 export interface ProjectData {
   version: 1;
   fps: 30;

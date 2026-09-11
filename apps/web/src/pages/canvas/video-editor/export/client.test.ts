@@ -20,7 +20,7 @@ describe('runExportJob（主线程 client）', () => {
     vi.stubGlobal('Worker', FakeWorker as unknown as typeof Worker);
     const { runExportJob } = await import('./client');
     const p = runExportJob(
-      { data: { version: 1, fps: 30, tracks: [], clips: {} } as never, resolution: '720p', mediaUrls: {} },
+      { data: { version: 1, fps: 30, tracks: [], clips: {} } as never, resolution: '720p', targetSize: { width: 1280, height: 720 }, mediaUrls: {} },
       { onProgress: vi.fn() },
     );
     const w = FakeWorker.instances[0];
@@ -37,7 +37,7 @@ describe('runExportJob（主线程 client）', () => {
     FakeWorker.instances = [];
     vi.stubGlobal('Worker', FakeWorker as unknown as typeof Worker);
     const { runExportJob } = await import('./client');
-    const p = runExportJob({ data: {} as never, resolution: '720p', mediaUrls: {} }, { onProgress: vi.fn() });
+    const p = runExportJob({ data: {} as never, resolution: '720p', targetSize: { width: 1280, height: 720 }, mediaUrls: {} }, { onProgress: vi.fn() });
     FakeWorker.instances[0].emit({ type: 'error', category: 'memory', message: 'OOM' });
     await expect(p.promise).rejects.toMatchObject({ category: 'memory' });
     vi.unstubAllGlobals();
@@ -48,7 +48,7 @@ describe('runExportJob（主线程 client）', () => {
     vi.stubGlobal('Worker', FakeWorker as unknown as typeof Worker);
     const { runExportJob } = await import('./client');
     const progress = vi.fn(); const eta = vi.fn();
-    const p = runExportJob({ data: {} as never, resolution: '720p', mediaUrls: {} }, { onProgress: progress, onEta: eta });
+    const p = runExportJob({ data: {} as never, resolution: '720p', targetSize: { width: 1280, height: 720 }, mediaUrls: {} }, { onProgress: progress, onEta: eta });
     const w = FakeWorker.instances[0];
     w.emit({ type: 'progress', phase: 'encode', ratio: 0.5 });
     w.emit({ type: 'eta', etaSec: 42 });
@@ -64,7 +64,7 @@ describe('runExportJob（主线程 client）', () => {
     FakeWorker.instances = [];
     vi.stubGlobal('Worker', FakeWorker as unknown as typeof Worker);
     const { runExportJob } = await import('./client');
-    const p = runExportJob({ data: {} as never, resolution: '720p', mediaUrls: {} }, { onProgress: vi.fn() });
+    const p = runExportJob({ data: {} as never, resolution: '720p', targetSize: { width: 1280, height: 720 }, mediaUrls: {} }, { onProgress: vi.fn() });
     FakeWorker.instances[0].emit({ type: 'done', buffer: null, fsa: true });
     const r = await p.promise;
     expect(r.blob.size).toBe(0);

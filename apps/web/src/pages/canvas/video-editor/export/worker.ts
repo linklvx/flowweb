@@ -9,16 +9,19 @@ import { mixdownTimeline, MIX_SAMPLE_RATE, type MixdownPcm } from '../audio-engi
 import { decodeMediaPcmRaw } from '../audio-engine/decode';
 import { stretchPcm } from '../audio-engine/pcm';
 import { VideoCacheService, openMediabunnySink } from '../renderer/video-cache';
-import { CanvasRenderer, BASE_CANVAS_W, BASE_CANVAS_H } from '../renderer/canvas-renderer';
-import { EXPORT_BITRATES } from './precheck';
+import { CanvasRenderer } from '../renderer/canvas-renderer';
+import { EXPORT_BITRATES, exportPixelRatio } from './precheck';
 import { createEtaTracker } from './eta';
+import { canvasSizeOf } from '../timeline/canvas-size';
 import { totalDuration } from '../timeline/timecode';
+import type { ExportResolution } from '@flowweb/shared';
 import type { ProjectData } from '../types';
 import type { StreamTargetChunk } from 'mediabunny';
 
 export interface WorkerRunParams {
   data: ProjectData;
-  resolution: '720p' | '1080p';
+  resolution: ExportResolution;
+  targetSize: { width: number; height: number }; // computeExportSize 主线程单点求值（取偶短边档位）
   mediaUrls: Record<string, string>;            // mediaId → presigned GET url
   saveFileHandle: FileSystemFileHandle | null;  // FSA 优先，null 回退 BufferTarget
 }
@@ -39,14 +42,13 @@ function classifyError(err: unknown): 'unsupported' | 'memory' | 'unknown' {
 }
 
 async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffer: ArrayBuffer | null; fsa: boolean }> {
-  const { data, resolution, mediaUrls, saveFileHandle } = params;
-  const scale = resolution === '720p' ? 0.5 : 1;
+  const { data, resolution, targetSize, mediaUrls, saveFileHandle } = params;
 
-  // 合成 canvas（逻辑坐标 1920×1080 不变，720p 整体 0.5×）
-  // R9-4 中间态：BASE_* 同值改名保编译绿——targetSize 语义改造属 Task 16（届时删除本中间态导入）
-  const offscreen = new OffscreenCanvas(Math.round(BASE_CANVAS_W * scale), Math.round(BASE_CANVAS_H * scale));
+  // 合成 canvas：物理像素 = targetSize（computeExportSize 取偶短边档位），逻辑坐标仍按 canvasSizeOf(data) 绘制
+  const offscreen = new OffscreenCanvas(targetSize.width, targetSize.height);
   const ctx2d = offscreen.getContext('2d')!;
-  ctx2d.scale(scale, scale);
+  const size = canvasSizeOf(data);
+  ctx2d.scale(targetSize.width / size.width, targetSize.height / size.height);
 
   // 视频帧缓存（Worker 独立实例）
   const videoCache = new VideoCacheService({ openSink: openMediabunnySink });
@@ -115,7 +117,8 @@ async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffe
     }
     const output = new Output({ format, target });
     const canvasSource = new CanvasSource(offscreen, {
-      codec: 'avc', bitrate: EXPORT_BITRATES[resolution].video, keyFrameInterval: 2,
+      // 码率按像素量缩放（spec 5.3：21:9 比 16:9 多像素）——exportPixelRatio 含 clamp（窄画布不降码率）
+      codec: 'avc', bitrate: Math.round(EXPORT_BITRATES[resolution].video * exportPixelRatio(canvasSizeOf(data), resolution)), keyFrameInterval: 2,
     });
     output.addVideoTrack(canvasSource, { frameRate: EXPORT_FPS });
     let audioSource: InstanceType<typeof AudioSampleSource> | null = null;

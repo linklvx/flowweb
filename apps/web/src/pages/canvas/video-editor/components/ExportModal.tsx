@@ -5,7 +5,9 @@ import { useEditorStore } from '../store/editorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { totalDuration } from '../timeline/timecode';
-import { runPrecheck, estimateSizeBytes, type ExportResolution } from '../export/precheck';
+import { canvasSizeOf } from '../timeline/canvas-size';
+import { runPrecheck, estimateSizeBytes, computeExportSize } from '../export/precheck';
+import type { ExportResolution } from '@flowweb/shared';
 import { detectExportCapabilities } from '../capabilities';
 import { exportPrecheck } from '@/api/videoProjectApi';
 import { runExportJob, pickSaveFile, ExportJobError } from '../export/client';
@@ -52,7 +54,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
   const quotaReqRef = useRef(0); // R4-10：配额预检请求序号（切档竞态守卫）
 
   const durationSec = useMemo(() => (data ? totalDuration(data) : 0), [data]);
-  const sizeBytes = useMemo(() => estimateSizeBytes(resolution, durationSec), [resolution, durationSec]);
+  const sizeBytes = useMemo(() => estimateSizeBytes(canvasSizeOf(data), resolution, durationSec), [data, resolution, durationSec]);
   const precheck = useMemo(
     () => (data && caps ? runPrecheck(
       data,
@@ -67,7 +69,8 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
     if (!open) return;
     setPhase('config'); setFail(null); setQuotaError(null); setProgress({ phase: 'mix', ratio: 0 }); setEtaSec(null);
     // R5：补 catch——动态 import 失败（chunk 网络错）时 then 无 catch 会永 pending：按钮永久禁用且无提示
-    void detectExportCapabilities().then(setCaps).catch(() => setCaps({ video: false, audio: false }));
+    // R9-9：首参 deps 传 undefined 走默认值——probeSize 是第二参（最坏档 1080p 探测，9:16/21:9 不失真）
+    void detectExportCapabilities(undefined, computeExportSize(canvasSizeOf(data), '1080p')).then(setCaps).catch(() => setCaps({ video: false, audio: false }));
   }, [open]);
 
   useEffect(() => {
@@ -95,7 +98,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
       const mediaUrls: Record<string, string> = {};
       for (const [id, info] of Object.entries(mediaInfo)) if (info.url) mediaUrls[id] = info.url;
       const j = runExportJob(
-        { data, resolution, mediaUrls },
+        { data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
         { onProgress: (p, r) => setProgress({ phase: p, ratio: r }), onEta: setEtaSec },
         handle,
       );
@@ -104,7 +107,9 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
       try {
         const r = await j.promise;
         const file = r.fsa && handle ? await handle.getFile() : r.blob; // R3-1：按 fsa 标记择源（回退 Buffer 时读 blob，防 0 字节静默上传）
-        const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, file });
+        // upload 层 resolution 尚未放开 480p（Task 17 DTO/Task 19 width-height 一并收口）——运行时仍发实际值，
+        // DTO 未放开前选 480p register 必 400（R13 决策⑤预期行为），此处仅窄化类型
+        const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution: resolution as '720p' | '1080p', durationSec, file });
         createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, currentEditorProjectTitle() || '多轨剪辑');
         void message.success('导出完成，已添加到画布');
         onClose();
@@ -131,7 +136,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
         <div className="flex flex-col gap-3 pt-2" data-testid="export-config">
           <div className="flex items-center gap-3">
             <span className="text-[13px] text-[var(--ve-text)]">清晰度</span>
-            <Radio.Group value={resolution} onChange={(e) => setResolution(e.target.value)} options={[{ label: '720p', value: '720p' }, { label: '1080p', value: '1080p' }]} optionType="button" buttonStyle="solid" />
+            <Radio.Group value={resolution} onChange={(e) => setResolution(e.target.value)} options={[{ label: '480p', value: '480p' }, { label: '720p', value: '720p' }, { label: '1080p', value: '1080p' }]} optionType="button" buttonStyle="solid" />
           </div>
           <div className="text-[12px] text-[var(--ve-text-dim)]">
             时长 {Math.round(durationSec)}s · 预计体积 {fmtSize(sizeBytes)}{('showSaveFilePicker' in window) ? ' · 直写本地文件' : ' · 内存缓冲'}

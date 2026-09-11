@@ -1,7 +1,8 @@
 // apps/web/src/pages/canvas/video-editor/export/client.ts
+import type { ExportResolution } from '@flowweb/shared';
 import type { ProjectData } from '../types';
 
-export interface ExportJobParams { data: ProjectData; resolution: '720p' | '1080p'; mediaUrls: Record<string, string>; }
+export interface ExportJobParams { data: ProjectData; resolution: ExportResolution; targetSize: { width: number; height: number }; mediaUrls: Record<string, string>; }
 export interface ExportJobResult { blob: Blob; fsa: boolean; } // fsa=true 且调用方持 handle → getFile() 择源
 export class ExportJobError extends Error {
   constructor(public category: 'unsupported' | 'memory' | 'unknown' | 'canceled', message: string) { super(message); }

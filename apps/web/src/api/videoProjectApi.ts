@@ -1,4 +1,5 @@
 // apps/web/src/api/videoProjectApi.ts
+import type { ExportResolution } from '@flowweb/shared';
 import { apiFetch } from './client';
 
 export interface VideoProjectDto {
@@ -48,7 +49,7 @@ export function removeShadowNode(workflowId: string, shadowNodeId: string): Prom
   return apiFetch<void>('/video-projects/remove-shadow', { method: 'POST', body: JSON.stringify({ workflowId, shadowNodeId }) });
 }
 
-export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: '720p' | '1080p'; durationSec: number; actualSize: number; }
+export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; actualSize: number; }
 export interface RegisterGeneratedResult { mediaId: string; upload: { url: string; fields: Record<string, string> } }
 
 export function registerGeneratedMedia(input: RegisterGeneratedInput): Promise<RegisterGeneratedResult> {

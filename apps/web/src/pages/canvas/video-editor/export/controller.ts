@@ -1,8 +1,8 @@
 // apps/web/src/pages/canvas/video-editor/export/controller.ts
+import type { ExportResolution } from '@flowweb/shared';
 import type { ProjectData } from '../types';
 import { totalDuration } from '../timeline/timecode';
 import { renderFrameAt, type FrameRenderDeps } from '../renderer/render-frame';
-import type { ExportResolution } from './precheck';
 
 export const EXPORT_FPS = 30;
 export class ExportCanceledError extends Error {

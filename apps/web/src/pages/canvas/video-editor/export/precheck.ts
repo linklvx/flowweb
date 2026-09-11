@@ -1,19 +1,35 @@
 // apps/web/src/pages/canvas/video-editor/export/precheck.ts
+import type { ExportResolution } from '@flowweb/shared'; // 类型上移 shared——precheck 自身 satisfies 消费必须引入
 import type { ProjectData } from '../types';
 import { totalDuration } from '../timeline/timecode';
 
 export const EXPORT_BITRATES = {
+  '480p': { video: 2_500_000, audio: 96_000 },
   '720p': { video: 5_000_000, audio: 128_000 },
   '1080p': { video: 12_000_000, audio: 128_000 },
-} as const;
-export type ExportResolution = keyof typeof EXPORT_BITRATES;
+} as const satisfies Record<ExportResolution, { video: number; audio: number }>; // as const 必须在前——satisfies 在前报 TS1355；shared 联合漏改表键即编译红
 
 export const MAX_EXPORT_DURATION_SEC = 900; // 15 分钟上限
 export const MEMORY_WARN_BYTES = 1024 ** 3; // >1GB 警告放行
 
-export function estimateSizeBytes(resolution: ExportResolution, durationSec: number): number {
+export function computeExportSize(canvasSize: { width: number; height: number }, tier: ExportResolution) {
+  const targetShort = parseInt(tier, 10); // 480/720/1080
+  const scale = targetShort / Math.min(canvasSize.width, canvasSize.height); // 档位=目标短边（spec 5.3）
+  return { width: Math.round(canvasSize.width * scale / 2) * 2, height: Math.round(canvasSize.height * scale / 2) * 2 };
+}
+
+// ratio 单点——clamp（Math.max(1, …)）收进函数内部，估算/编码两端同调（窄画布不降码率，质量取向）。
+// 注意「16:9 ratio=1」仅 720p/1080p 精确成立；480p 因取偶 854×480 → ≈1.00078，勿写 toBe(1) 用例。
+export function exportPixelRatio(canvasSize: { width: number; height: number }, resolution: ExportResolution): number {
+  const out = computeExportSize(canvasSize, resolution);
+  const tierPx = parseInt(resolution, 10) ** 2 * (1920 / 1080); // 档位参考像素（16:9 基准）
+  return Math.max(1, (out.width * out.height) / tierPx);
+}
+
+export function estimateSizeBytes(canvasSize: { width: number; height: number }, resolution: ExportResolution, durationSec: number): number {
   const { video, audio } = EXPORT_BITRATES[resolution];
-  return Math.round(((video + audio) / 8) * durationSec * 1.2); // 码率×时长×1.2
+  // 21:9 的 480p 输出 1138×480 勿按 2560×1080 画布像素高估——ratio 经 exportPixelRatio（含 clamp）
+  return Math.round(((video * exportPixelRatio(canvasSize, resolution) + audio) / 8) * durationSec * 1.2);
 }
 
 /** 48kHz 立体声 float32 × (音频轨数 + 视频片数) × 3.5 瞬时系数（视频内嵌音轨保守全算） */

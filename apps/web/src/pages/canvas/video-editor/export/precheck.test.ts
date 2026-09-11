@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { estimateSizeBytes, estimateMemoryBytes, runPrecheck } from './precheck';
+import { computeExportSize, estimateSizeBytes, estimateMemoryBytes, runPrecheck } from './precheck';
+import { CANVAS_PRESETS } from '../timeline/canvas-size';
 import type { ProjectData, VideoClip, AudioClip, SubtitleClip } from '../types';
+
+const TIERS = ['480p', '720p', '1080p'] as const;
 
 const vc = (id: string, mediaId: string, start: number, duration: number, trackId = 't-video'): VideoClip => ({
   id, trackId, type: 'video', start, duration, sourceStart: 0, mediaId, playbackSpeed: 1,
@@ -16,12 +19,28 @@ const mk = (clips: (VideoClip | AudioClip | SubtitleClip)[], tracks: { id: strin
   clips: Object.fromEntries(clips.map((c) => [c.id, c])),
 });
 
+describe('computeExportSize（档位=目标短边，取偶，单点）', () => {
+  it.each(CANVAS_PRESETS.flatMap((p) => TIERS.map((t) => [p.label, t, p.size] as const)))(
+    '%s @ %s 全偶数', (_label, tier, size) => {
+      const out = computeExportSize(size, tier);
+      expect(out.width % 2).toBe(0);
+      expect(out.height % 2).toBe(0);
+      expect(Math.min(out.width, out.height)).toBe(parseInt(tier)); // 短边=档位
+    });
+  it('16:9 480p = 854×480（853.33 取偶）', () => {
+    expect(computeExportSize({ width: 1920, height: 1080 }, '480p')).toEqual({ width: 854, height: 480 });
+  });
+  it('9:16 1080p = 1080×1920（非 608×1080——短边口径）', () => {
+    expect(computeExportSize({ width: 1080, height: 1920 }, '1080p')).toEqual({ width: 1080, height: 1920 });
+  });
+});
+
 describe('estimateSizeBytes（码率×时长×1.2）', () => {
   it('720p 60s ≈ 46.15MB（数值字面量钉子——复刻实现公式是同义反复）', () => {
-    expect(estimateSizeBytes('720p', 60)).toBe(46_152_000); // (5M+128k)/8×60×1.2
+    expect(estimateSizeBytes({ width: 1920, height: 1080 }, '720p', 60)).toBe(46_152_000); // (5M+128k)/8×60×1.2
   });
   it('1080p 900s（15min 上限）≈ 1.64GB 口径仅数值断言', () => {
-    expect(estimateSizeBytes('1080p', 900)).toBeGreaterThan(1.5 * 1024 ** 3);
+    expect(estimateSizeBytes({ width: 1920, height: 1080 }, '1080p', 900)).toBeGreaterThan(1.5 * 1024 ** 3);
   });
 });
 
