@@ -96,17 +96,17 @@ export function PreviewPlayer() {
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
           className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><DeleteOutlined /></button>
         <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]" style={{ borderLeftStyle: 'solid' }}>
-          <button type="button" className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
+          <button type="button" className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
               内包 <span className="inline-block"> 承接 mouseenter（验收 17 的 Tooltip 文案核对依赖此结构） */}
           <Tooltip title="音频生成暂未接入，待供应商接入后开放">
             <span className="inline-block">
-              <button type="button" disabled className="text-[12px] text-[#6C5CE7] bg-transparent border-0 px-0 disabled:opacity-40" data-testid="gen-audio-btn">生成音频</button>
+              <button type="button" disabled className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 px-0 disabled:opacity-40" data-testid="gen-audio-btn">生成音频</button>
             </span>
           </Tooltip>
           <Tooltip title={canRetake ? '将消耗团队积分' : '选中带源视频片段后可重拍'}>
             <span className="inline-block">
-              <button type="button" disabled={!canRetake || shadowBusy} className="text-[12px] text-[#6C5CE7] bg-transparent border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
+              <button type="button" disabled={!canRetake || shadowBusy} className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
             </span>
           </Tooltip>
         </div>

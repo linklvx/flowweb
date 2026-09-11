@@ -7,18 +7,27 @@ import { useEditorStore } from '../store/editorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { placeAssetInTrack, assetKindOf } from '../timeline/placement';
+import { ensurePoster } from '../renderer/poster';
 
 // 批3-3：三种卡片（全集资产/团队素材/生成结果）点击入轨归一化——形状差异由各 onClick 映射，此处只消费统一形状。
-// durationSec 缺省 5 同 drag payload 口径（addClip 未知兜底一致）；setMediaInfo 按 MediaInfo 现有签名四字段（thumbnailUrl Task 10 加）
+// durationSec 缺省 5 同 drag payload 口径（addClip 未知兜底一致）；无 thumbnailUrl 的视频素材 fire-and-forget 取首帧海报（批3-4）
 function addAssetToTimeline(norm: {
-  mediaId: string; mimeType: string; name: string; durationSec: number; url?: string; sourceNodeId?: string;
+  mediaId: string; mimeType: string; name: string; durationSec: number; url?: string; sourceNodeId?: string; thumbnailUrl?: string;
 }) {
   const es = useEditorStore.getState();
   if (!es.data) return;
-  es.setMediaInfo(norm.mediaId, { name: norm.name, durationSec: norm.durationSec, url: norm.url, mimeType: norm.mimeType });
+  es.setMediaInfo(norm.mediaId, { name: norm.name, durationSec: norm.durationSec, url: norm.url, mimeType: norm.mimeType, thumbnailUrl: norm.thumbnailUrl });
   const placement = placeAssetInTrack(es.data, { mimeType: norm.mimeType });
   const trackId = placement.createNewTrack ? es.addTrack(placement.newTrackType!) : placement.trackId;
   es.addClip({ type: assetKindOf(norm.mimeType), mediaId: norm.mediaId, sourceNodeId: norm.sourceNodeId, trackId, start: placement.start });
+  // poster fire-and-forget：视频素材缺帧缩略图时取首帧（同步函数内发起，异步写回经白名单只补缺）
+  if (!norm.thumbnailUrl && norm.mimeType.startsWith('video/') && norm.url) {
+    void ensurePoster(norm.url).then((poster) => {
+      if (poster) useEditorStore.getState().setMediaInfo(norm.mediaId, {
+        name: norm.name, durationSec: norm.durationSec, url: norm.url, mimeType: norm.mimeType, thumbnailUrl: poster,
+      });
+    });
+  }
 }
 
 export function AssetPanel() {
@@ -88,6 +97,7 @@ export function AssetPanel() {
                 mediaId: i.mediaId, mimeType: i.mimeType, name: i.originalName,
                 durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec ?? 5, // 决策 6 同 drag payload 口径
                 url: i.url, sourceNodeId: i.sourceNodeId || undefined,
+                thumbnailUrl: i.thumbnailUrl ?? undefined,
               })}
               onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
                 mediaId: i.mediaId,
@@ -119,6 +129,7 @@ export function AssetPanel() {
               onClick={() => addAssetToTimeline({
                 mediaId: it.mediaId, mimeType: it.mimeType, name: it.name,
                 durationSec: it.durationSec ?? 5, url: it.url,
+                thumbnailUrl: it.thumbnailUrl ?? undefined,
                 // sourceNodeId 省略——素材库来源不建边（同 drag payload 口径）
               })}
               onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({

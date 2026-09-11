@@ -84,6 +84,38 @@ describe('TimelinePanel 静态渲染', () => {
     fireEvent.wheel(scroll, { ctrlKey: false, deltaY: -100 }); // 非 Ctrl 不缩放
     expect(useEditorStore.getState().pxPerSec).toBe(after);
   });
+  it('视频片段渲染帧缩略图平铺：background-image=thumbnailUrl + repeat-x + auto 100%', () => {
+    const d = dataWithClips();
+    useEditorStore.setState({
+      status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+      mediaInfo: { m1: { name: '视频A', durationSec: 10, thumbnailUrl: 'http://x/t.jpg' } },
+    });
+    render(<TimelinePanel />);
+    const el = screen.getByTestId('clip-block-v1') as HTMLElement;
+    // jsdom CSSOM 序列化 url 值带双引号——只断前缀
+    expect(el.style.backgroundImage).toContain('url(');
+    expect(el.style.backgroundRepeat).toBe('repeat-x'); // 逐字精确断言（实测可靠）
+    expect(el.style.backgroundSize).toBe('auto 100%');
+  });
+
+  it('轨道色表：subtitle #5DBAA0 / audio #8F5DBA / video 兜底 var(--ve-track-video)', () => {
+    const d = dataWithClips();
+    useEditorStore.setState({
+      status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+      mediaInfo: { m1: { name: '视频A', durationSec: 10 }, m2: { name: '音频B', durationSec: 5 } },
+    });
+    // 夹具 v1 带 sourceNodeId:'s1'（missing 红底会盖过色表）——先注入节点解除红态，与下方 missing 用例口径一致
+    act(() => { useCanvasStore.setState({ nodes: [{ id: 's1', position: { x: 0, y: 0 }, data: {} } as never] }); });
+    render(<TimelinePanel />);
+    // jest-dom 两侧过 CSSOM 归一：'#5DBAA0' ↔ 'rgb(93, 186, 160)'、'#8F5DBA' ↔ 'rgb(143, 93, 186)'
+    expect(screen.getByTestId('clip-block-sub1')).toHaveStyle({ backgroundColor: '#5DBAA0' });
+    expect(screen.getByTestId('clip-block-a1')).toHaveStyle({ backgroundColor: '#8F5DBA' });
+    // var() 原样字符串——jsdom 不解析 CSS 变量
+    expect((screen.getByTestId('clip-block-v1') as HTMLElement).style.backgroundColor).toBe('var(--ve-track-video)');
+    // 恢复全局 canvasStore（测试隔离，同 missing 用例）
+    act(() => { useCanvasStore.setState({ nodes: [] }); });
+  });
+
   it('素材缺失态：sourceNodeId 不在画布 → 红态角标；源节点回画布 → 消失', () => {
     const d = dataWithClips(); // 夹具 v1 带 sourceNodeId: 's1'（canvasStore.nodes 默认不含 → 红态）
     useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });

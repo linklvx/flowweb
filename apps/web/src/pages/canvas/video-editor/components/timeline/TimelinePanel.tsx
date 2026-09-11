@@ -230,9 +230,9 @@ export function TimelinePanel() {
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ve-border)] [border-bottom-style:solid]">
         <div className="ml-auto flex items-center gap-1">
           <button type="button" onClick={() => useEditorStore.getState().addTrack('video')}
-            className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-1">+ 视频轨</button>
+            className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-1">+ 视频轨</button>
           <button type="button" onClick={() => useEditorStore.getState().addTrack('audio')}
-            className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-1">+ 音频轨</button>
+            className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-1">+ 音频轨</button>
           <span className="text-[11px] text-[var(--ve-text-dim)]">{pxPerSec.toFixed(0)} px/s</span>
         </div>
       </div>

@@ -35,7 +35,7 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
         <div className="ml-auto flex items-center gap-0.5">
           {track.type === 'subtitle' && (
             <button type="button" title="该轨内新增字幕" onClick={() => onSubtitleAdd?.(track.id)}
-              className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-1">➕</button>
+              className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-1">➕</button>
           )}
           <button type="button" title={track.muted ? '取消静音' : '静音'} onClick={() => toggleTrack(track.id, 'muted')}
             className={`text-[11px] bg-transparent border-0 cursor-pointer px-0.5 ${track.muted ? 'text-[#F53F3F]' : 'text-[var(--ve-text-dim)]'}`}>M</button>

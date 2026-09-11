@@ -212,6 +212,20 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(useEditorStore.getState().history.past.length).toBe(depth - 1);
   });
 
+  it('setMediaInfo 第四字段 thumbnailUrl 只补缺不覆盖（白名单同步）', () => {
+    const es = useEditorStore.getState();
+    es.setMediaInfo('m1', { name: 'a', durationSec: 5, thumbnailUrl: 't1' } as never);
+    es.setMediaInfo('m1', { name: 'b', durationSec: 6, thumbnailUrl: undefined } as never);
+    expect(useEditorStore.getState().mediaInfo.m1.thumbnailUrl).toBe('t1'); // 不被 undefined 覆盖
+  });
+
+  it('mergeMediaInfo 同法补缺 thumbnailUrl', () => {
+    const es = useEditorStore.getState();
+    es.mergeMediaInfo({ m2: { name: 'a', durationSec: 5, thumbnailUrl: 't2' } as never });
+    es.mergeMediaInfo({ m2: { name: 'b', durationSec: 6 } }); // 同 id 不带 thumbnailUrl
+    expect(useEditorStore.getState().mediaInfo.m2.thumbnailUrl).toBe('t2'); // 保留
+  });
+
   it('P0-7：setMediaInfo 整条替换不擦既有 url/mimeType/durationSec（drop 回调 payload 字段不全场景）', () => {
     const s = useEditorStore.getState();
     s.setMediaInfo('m1', { name: 'a', durationSec: 3, url: 'http://old', mimeType: 'video/mp4' });

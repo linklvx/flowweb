@@ -49,7 +49,7 @@ export function TimelineRuler({ data, pxPerSec, widthPx }: RulerProps) {
         </div>
       ))}
       {/* 播放头（紫色，贯穿到轨道区由面板统一渲染竖线） */}
-      <div className="absolute top-0 bottom-0 w-0.5 bg-[#6C5CE7]" style={{ left: timeToPx(playhead, pxPerSec) }} data-testid="playhead-ruler" />
+      <div className="absolute top-0 bottom-0 w-0.5 bg-[var(--ve-accent)]" style={{ left: timeToPx(playhead, pxPerSec) }} data-testid="playhead-ruler" />
     </div>
   );
 }

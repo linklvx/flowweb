@@ -6,7 +6,7 @@ export function PlayheadLine() {
   const playhead = useEditorStore(s => s.playhead);
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   return (
-    <div data-testid="playhead-line" className="absolute top-0 bottom-0 w-0.5 bg-[#6C5CE7] pointer-events-none z-10"
+    <div data-testid="playhead-line" className="absolute top-0 bottom-0 w-0.5 bg-[var(--ve-accent)] pointer-events-none z-10"
       style={{ left: 140 + timeToPx(playhead, pxPerSec) }} />
   );
 }

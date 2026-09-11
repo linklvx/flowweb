@@ -5,8 +5,9 @@ import { timeToPx } from '../../timeline/view-scale';
 import { useAudioPeaks } from '../../hooks/useAudioPeaks';
 import { useEditorStore } from '../../store/editorStore';
 
-const BLOCK_BG: Record<Clip['type'], string> = { video: '#EDE9FE', image: '#E0E7FF', audio: '#DCF7E8', subtitle: '#FFF6DC' };
-const BLOCK_BAR: Record<Clip['type'], string> = { video: '#6C5CE7', image: '#5B7CFA', audio: '#43CC80', subtitle: '#FFC53D' };
+// opencut 轨道色表（批3-4）：video/image 兜底暗底走 --ve-track-video，音频紫、字幕青；BAR 同步暗化
+const BLOCK_BG: Record<Clip['type'], string> = { video: 'var(--ve-track-video)', image: 'var(--ve-track-video)', audio: '#8F5DBA', subtitle: '#5DBAA0' };
+const BLOCK_BAR: Record<Clip['type'], string> = { video: '#6C5CE7', image: '#5B7CFA', audio: '#8F5DBA', subtitle: '#5DBAA0' };
 
 export const CLIP_BLOCK_MIN_PX = 8;
 
@@ -24,7 +25,7 @@ function WaveformCanvas({ mediaId }: { mediaId: string }) {
     const { width: w, height: h } = canvas;
     ctx.clearRect(0, 0, w, h);
     const max = Math.max(...peaks, 1e-6);
-    ctx.fillStyle = '#43CC80';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // 波形白：色表深底（#8F5DBA）上可读，替代旧绿
     const bw = w / peaks.length;
     for (let i = 0; i < peaks.length; i++) {
       const barH = (peaks[i] / max) * (h * 0.8);
@@ -49,6 +50,8 @@ interface ClipBlockProps {
 export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, missing, mediaName, onPointerDown, onKeyframePointerDown }: ClipBlockProps) {
   const left = timeToPx(clip.start, pxPerSec);
   const width = Math.max(CLIP_BLOCK_MIN_PX, timeToPx(clip.duration, pxPerSec));
+  // selector 订阅（非 getState）：poster 异步写回 mediaInfo 后要触发已挂载片段重渲染
+  const thumb = useEditorStore((s) => (clip.type === 'video' || clip.type === 'image') ? s.mediaInfo[clip.mediaId]?.thumbnailUrl : undefined);
   const label = clip.type === 'subtitle'
     ? clip.text
     : `${mediaName ?? clip.mediaId} · ${formatTimecode(clip.type === 'video' || clip.type === 'audio' ? clip.sourceStart : 0)}`;
@@ -59,14 +62,17 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mis
       onClick={(e) => e.stopPropagation()} // pointerdown 的 stopPropagation 挡不住后续 click 冒泡到轨道体的 selectClip(null)（Task 14 I2）
       className="absolute top-1 bottom-1 rounded-md overflow-hidden box-border cursor-grab select-none"
       style={{
-        left, width, background: missing ? '#FEE2E2' : BLOCK_BG[clip.type],
+        left, width,
+        // 长写并行声明——禁 background 简写与 backgroundImage 混排（简写会清掉 image）
+        backgroundColor: missing ? '#7f1d1d' : BLOCK_BG[clip.type],
+        ...(thumb ? { backgroundImage: `url(${thumb})`, backgroundRepeat: 'repeat-x', backgroundSize: 'auto 100%' } : {}),
         // 边框优先级（R6 定案）：missing 红边压过选中边（素材缺失是更高优先级的告警态）
         border: `1px solid ${missing ? '#EF4444' : selected ? BLOCK_BAR[clip.type] : 'transparent'}`,
         boxShadow: selected ? `0 0 0 2px ${BLOCK_BAR[clip.type]}40` : undefined,
       }}
     >
       <div className="h-full flex items-center px-1.5" style={{ borderLeft: `3px solid ${BLOCK_BAR[clip.type]}` }}>
-        <span className="text-[11px] text-[var(--ve-text)] truncate whitespace-nowrap" style={{ minWidth: 0 }}>
+        <span className="text-[11px] text-white/85 truncate whitespace-nowrap" style={{ minWidth: 0 }}>
           {label}
         </span>
         {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
