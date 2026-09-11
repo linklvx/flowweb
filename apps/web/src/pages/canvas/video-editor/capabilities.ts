@@ -27,12 +27,15 @@ export async function detectExportCapabilities(deps: ExportCapsDeps = {
 }): Promise<ExportCapabilities> {
   if (typeof VideoEncoder === 'undefined' && typeof AudioEncoder === 'undefined') return { video: false, audio: false };
   const mb = await deps.loadMediabunny();
-  const video = await mb.canEncodeVideo('avc', { width: 1920, height: 1080, bitrate: 12_000_000 }).catch(() => false);
-  let audio = await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48_000, bitrate: 128_000 }).catch(() => false);
+  const video = await mb.canEncodeVideo('avc', { width: 1920, height: 1080, bitrate: 12_000_000 })
+    .catch((e) => { console.warn('[capabilities] 编码检测异常:', e); return false; });
+  let audio = await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48_000, bitrate: 128_000 })
+    .catch((e) => { console.warn('[capabilities] 编码检测异常:', e); return false; });
   if (!audio) {
     // AAC 静默动态 polyfill（注册后复测）
     (await deps.loadAacPolyfill()).registerAacEncoder();
-    audio = await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48_000, bitrate: 128_000 }).catch(() => false);
+    audio = await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48_000, bitrate: 128_000 })
+      .catch((e) => { console.warn('[capabilities] 编码检测异常:', e); return false; });
   }
   return { video: Boolean(video), audio: Boolean(audio) };
 }

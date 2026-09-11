@@ -1,5 +1,5 @@
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber } from 'class-validator';
+import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber, Min } from 'class-validator';
 
 export class CreateVideoProjectDto {
   @IsString() workflowId!: string;
@@ -28,5 +28,5 @@ export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
 export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
 export class ExportPrecheckDto {
   @IsString() workflowId!: string;
-  @IsNumber() estimatedSize!: number; // 前端估算字节（预检用——register 时才以真实大小终判）
+  @IsNumber() @Min(0) estimatedSize!: number; // 前端估算字节（预检用——register 时才以真实大小终判）；负值无意义拒收
 }

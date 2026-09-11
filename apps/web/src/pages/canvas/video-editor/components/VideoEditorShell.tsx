@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
@@ -12,12 +12,14 @@ import { PreviewPlayer } from './PreviewPlayer';
 import { PropertiesPanel } from './PropertiesPanel';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { AssetPanel } from './AssetPanel';
+import { ExportModal } from './ExportModal';
 import { releaseEditorRuntime } from '../hooks/playback';
 
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
   const sourceNodeId = useVideoEditorStore((s) => s.sourceNodeId);
   const close = useVideoEditorStore((s) => s.close);
+  const [exportOpen, setExportOpen] = useState(false);
   // 焦点移入壳内：编辑器打开后 Delete/Backspace 的事件目标落在 nokey 壳内，
   // xyflow isInputDOMNode（target.closest('.nokey')）命中 → 不再删除画布选中节点
   const focusRef = useRef<HTMLDivElement>(null);
@@ -83,7 +85,7 @@ export function VideoEditorShell() {
     <BaseFullscreenModal open={open} onClose={handleClose} label="多轨剪辑" closeOnBackdrop={false} initialFocusRef={focusRef}>
       <div data-testid="video-editor-shell" ref={focusRef} tabIndex={-1}
         className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border nokey">
-        <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} />
+        <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} onExport={() => setExportOpen(true)} />
         <div className="flex flex-1 min-h-0">
           {/* 左面板（Task 16 实化：画布产物资产库 + 拖入时间轴） */}
           <AssetPanel />
@@ -95,6 +97,7 @@ export function VideoEditorShell() {
           <PropertiesPanel />
         </div>
       </div>
+      <ExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
     </BaseFullscreenModal>
   );
 }

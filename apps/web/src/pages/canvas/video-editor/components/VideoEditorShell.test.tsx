@@ -21,7 +21,7 @@ describe('VideoEditorShell', () => {
     useEditorStore.getState().reset();
     // Shell 接线后 open 即触发 upsertProject → loadProject；mock 全量 DTO（data 用真实默认工程形状）
     vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', title: 't',
+      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
       data: createDefaultProjectData(), updatedAt: 't0',
     });
   });

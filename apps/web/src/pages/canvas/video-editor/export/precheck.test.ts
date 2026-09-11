@@ -28,11 +28,11 @@ describe('estimateSizeBytes（码率×时长×1.2）', () => {
 describe('estimateMemoryBytes（345.6MB/轨口径按实际时长线性 × 3.5 瞬时）', () => {
   it('900s 单视频片无音频轨 = 345.6MB × 1 × 3.5', () => {
     const data = mk([vc('v', 'm1', 0, 900)], [{ id: 't-video', type: 'video' }]);
-    expect(estimateMemoryBytes(data, 900)).toBe(Math.round(900 * 48000 * 2 * 4 * 1 * 3.5));
+    expect(estimateMemoryBytes(data, 900)).toBe(1_209_600_000); // 900×48000×2×4×1×3.5（字面量钉子——复刻实现公式是同义反复）
   });
   it('音频轨数与视频片数都计入（视频内嵌音轨保守全算）', () => {
     const data = mk([vc('v', 'm1', 0, 10), ac('a', 'm2', 0, 10)], [{ id: 't-video', type: 'video' }, { id: 't-audio1', type: 'audio' }]);
-    expect(estimateMemoryBytes(data, 10)).toBe(Math.round(10 * 48000 * 2 * 4 * 2 * 3.5));
+    expect(estimateMemoryBytes(data, 10)).toBe(26_880_000); // 10×48000×2×4×2×3.5
   });
 });
 

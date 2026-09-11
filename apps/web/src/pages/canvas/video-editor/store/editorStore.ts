@@ -28,6 +28,8 @@ interface EditorState {
   projectId: string | null;
   sourceNodeId: string | null;
   baseUpdatedAt: string | null;
+  title: string | null; // 导出弹层标题取值（spec L241 初始取源节点名——byNode 返回整行已含）
+  teamId: string | null; // Task 12 useTeamAssets 团队上下文
   data: ProjectData | null;
   status: EditorStatus;
   loadError: string | null;
@@ -42,7 +44,7 @@ interface EditorState {
   history: History<ProjectData>;
   pendingSnapshot: ProjectData | null;
 
-  loadProject(p: { id: string; sourceNodeId: string; updatedAt: string; data: ProjectData }): void;
+  loadProject(p: { id: string; sourceNodeId: string; updatedAt: string; data: ProjectData; title?: string; teamId?: string }): void;
   setLoadError(msg: string): void;
   reset(): void;
   setSaveState(s: SaveState): void;
@@ -114,6 +116,8 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     projectId: null,
     sourceNodeId: null,
     baseUpdatedAt: null,
+    title: null,
+    teamId: null,
     data: null,
     status: 'idle',
     loadError: null,
@@ -130,13 +134,14 @@ export const useEditorStore = create<EditorState>()((set, get) => {
 
     loadProject: (p) => set({
       projectId: p.id, sourceNodeId: p.sourceNodeId, baseUpdatedAt: p.updatedAt,
+      title: p.title ?? null, teamId: p.teamId ?? null,
       data: p.data, status: 'ready', loadError: null,
       history: createHistory<ProjectData>(), pendingSnapshot: null,
       selectedClipId: null, playhead: 0, playing: false, preparing: false,
     }),
     setLoadError: (msg) => set({ status: 'error', loadError: msg }),
     reset: () => set({
-      projectId: null, sourceNodeId: null, baseUpdatedAt: null, data: null,
+      projectId: null, sourceNodeId: null, baseUpdatedAt: null, title: null, teamId: null, data: null,
       status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null, selectedKeyframeId: null,
       playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
       history: createHistory<ProjectData>(), pendingSnapshot: null,

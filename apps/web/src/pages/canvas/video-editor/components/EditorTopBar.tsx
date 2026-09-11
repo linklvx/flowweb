@@ -6,8 +6,8 @@ const SAVE_DOT: Record<string, { color: string; title: string }> = {
   error: { color: '#F53F3F', title: '保存失败，点击重试' },
 };
 
-/** onClose 由 Shell 传入（handleClose——flush 排空后关闭，M1 检查点：收起不可绕过 flush）；onManualRetry 接 autosave flush */
-export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; onManualRetry?: () => void }) {
+/** onClose 由 Shell 传入（handleClose——flush 排空后关闭，M1 检查点：收起不可绕过 flush）；onManualRetry 接 autosave flush；onExport 开导出弹层 */
+export function EditorTopBar({ onClose, onManualRetry, onExport }: { onClose: () => void; onManualRetry?: () => void; onExport?: () => void }) {
   const saveState = useEditorStore((s) => s.saveState);
   const dot = SAVE_DOT[saveState];
   return (
@@ -19,8 +19,8 @@ export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; 
         style={{ background: dot.color }} data-testid="save-state-dot" />
       <span className="text-[12px] text-[#86909C]">16:9</span>
       <div className="ml-auto flex items-center gap-3">
-        <button type="button" disabled title="导出（Plan 4 开放）"
-          className="text-[14px] text-white bg-[#1F2329] rounded-full px-4 py-1.5 border-0 cursor-not-allowed opacity-50">
+        <button type="button" onClick={onExport}
+          className="text-[14px] text-white bg-[#1F2329] rounded-full px-4 py-1.5 border-0">
           导出
         </button>
         <button type="button" onClick={onClose}

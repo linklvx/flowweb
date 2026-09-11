@@ -5,6 +5,7 @@ export interface VideoProjectDto {
   id: string;
   sourceNodeId: string;
   workflowId: string;
+  teamId: string; // 运行时 getByNode/upsert 回 Prisma 整行恒含（Shell 传 p.teamId → loadProject）
   title: string;
   data: import('@flowweb/shared').ProjectData;
   updatedAt: string;
