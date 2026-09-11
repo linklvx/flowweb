@@ -151,11 +151,13 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     const svc1 = new VideoCacheService({ openSink: async () => null, now: () => now });
     expect(await svc1.getFrame('m1', 'http://x', 0)).toBeNull();
     // ② openSink reject（403 等）——getFrame 的 `await opening` 无 catch，reject 直穿 getFrame
-    const svc2 = new VideoCacheService({ openSink: async () => { throw new Error('403'); }, now: () => now });
+    const openSinkSpy = vi.fn(async () => { throw new Error('403'); });
+    const svc2 = new VideoCacheService({ openSink: openSinkSpy, now: () => now });
     expect(await svc2.getFrame('m2', 'http://x', 0)).toBeNull(); // 修复前：本行 rejects
     // 冷却生效：2s 内重开被冷却跳过（仍 null 且无第二次 open）
     now += 1000;
     expect(await svc2.getFrame('m2', 'http://x', 0)).toBeNull();
+    expect(openSinkSpy).toHaveBeenCalledTimes(1); // 冷却强钉子——重开被跳过（warn 计数无法区分是否重开）
     expect(warnSpy.mock.calls.filter((a) => String(a[0]).includes('[video-cache]')).length).toBeGreaterThanOrEqual(2);
     warnSpy.mockRestore();
   });

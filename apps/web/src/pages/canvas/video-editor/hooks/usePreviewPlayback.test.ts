@@ -47,4 +47,22 @@ describe('usePreviewPlayback（暂停态单帧渲染）', () => {
     });
     expect(renderFrameAt).toHaveBeenCalledTimes(2); // mediaInfo 进 deps + 代数尾追（renderLatest 升级）→ 补帧
   });
+  it('代数尾追：首帧在途（pending）期间 mediaInfo 变化 → finally 后以最新状态补渲（防退化回仅比 t）', async () => {
+    // 不冲刷首帧——deferred 钉住首帧 promise，保证 pendingRef=true 的窗口真实存在
+    // （若用默认已 resolve 的 mock，微任务冲刷后 pendingRef 已复位，只会走到上一用例的直接 run 分支）
+    let resolveFirst!: () => void;
+    renderFrameAt.mockImplementationOnce(() => new Promise<void>((r) => { resolveFirst = r; }));
+    renderHook(() => usePreviewPlayback(canvasRef));
+    expect(renderFrameAt).toHaveBeenCalledTimes(1); // 首帧在途
+    // pending 期间 setState url 回填：act 内 effect 同步重跑 → renderLatest 记新代数（reqRef+1）但 pendingRef=true 直接 return
+    await act(async () => {
+      useEditorStore.setState((s) => ({ mediaInfo: { ...s.mediaInfo, mi: { name: 'i', durationSec: 5, url: 'http://x/i.png' } } }));
+    });
+    expect(renderFrameAt).toHaveBeenCalledTimes(1); // in-flight 去重——同 t 的新请求未立即发起
+    resolveFirst(); // 首帧完成 → finally 发现 reqRef 已变 → 以 latestRef 最新状态追渲
+    await act(async () => {});
+    expect(renderFrameAt).toHaveBeenCalledTimes(2); // finally 尾追补帧
+    // 同 t 的第二次渲染 = 代数判据（含同 t 的 mediaInfo 变化）区别于"仅比 t"（吞同 t 则本行红）的实证
+    expect(renderFrameAt.mock.calls[1][1]).toBe(renderFrameAt.mock.calls[0][1]);
+  });
 });
