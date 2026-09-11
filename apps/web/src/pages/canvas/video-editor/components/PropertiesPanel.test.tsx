@@ -18,14 +18,18 @@ const videoClip = (d: ReturnType<typeof createDefaultProjectData>) => {
 };
 const audioClip = (d: ReturnType<typeof createDefaultProjectData>) => {
   const id = 'a1';
-  d.clips[id] = { id, trackId: d.tracks[2].id, type: 'audio', start: 0, duration: 5, sourceStart: 0, mediaId: 'ma', volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] };
-  d.tracks[2].clips.push(id);
+  const track = { id: 'ta1', type: 'audio' as const, name: '音频1', muted: false, hidden: false, clips: [] }; // 单轨默认值下显式建音频轨（与生产动态建轨对齐）
+  d.tracks.push(track);
+  d.clips[id] = { id, trackId: track.id, type: 'audio', start: 0, duration: 5, sourceStart: 0, mediaId: 'ma', volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] };
+  track.clips.push(id);
   return id;
 };
 const subClip = (d: ReturnType<typeof createDefaultProjectData>) => {
   const id = 's1';
-  d.clips[id] = { id, trackId: d.tracks[1].id, type: 'subtitle', start: 0, duration: 3, text: '旧文本', visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 } };
-  d.tracks[1].clips.push(id);
+  const track = { id: 'ts1', type: 'subtitle' as const, name: '字幕1', muted: false, hidden: false, clips: [] }; // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
+  d.tracks.push(track);
+  d.clips[id] = { id, trackId: track.id, type: 'subtitle', start: 0, duration: 3, text: '旧文本', visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 } };
+  track.clips.push(id);
   return id;
 };
 

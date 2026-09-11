@@ -71,7 +71,7 @@ export function VideoEditorShell() {
     const es = useEditorStore.getState();
     es.reset();
     useEditorStore.setState({ status: 'loading' });
-    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: createDefaultProjectData() }) // 首建默认 4 轨工程（执行期修正——update 分支忽略 data 幂等安全）
+    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: createDefaultProjectData() }) // 首建默认单空视频轨工程（勘误③：其余轨道随素材动态创建——update 分支忽略 data 幂等安全）
       .then((p) => { if (!cancelled) useEditorStore.getState().loadProject(p); })
       .catch((e: Error) => { if (!cancelled) useEditorStore.getState().setLoadError(e.message); });
     return () => { cancelled = true; };

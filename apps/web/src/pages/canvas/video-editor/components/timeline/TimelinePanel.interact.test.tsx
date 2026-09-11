@@ -115,11 +115,11 @@ describe('TimelinePanel 交互', () => {
 
   it('字幕轨头 ➕ → 播放头处新增 3s 字幕', () => {
     ready();
+    const subTrackId = useEditorStore.getState().addTrack('subtitle'); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
     render(<TimelinePanel />);
-    const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
     act(() => { useEditorStore.getState().setPlayhead(2); }); // act 包裹：render 后的 store 更新须 flush 渲染（同跨轨用例）
     fireEvent.click(screen.getByTitle('该轨内新增字幕'));
-    const clips = useEditorStore.getState().data!.tracks.find(t => t.id === subTrack.id)!.clips;
+    const clips = useEditorStore.getState().data!.tracks.find(t => t.id === subTrackId)!.clips;
     expect(clips).toHaveLength(1);
     expect((useEditorStore.getState().data!.clips[clips[0]] as any).duration).toBe(3);
   });

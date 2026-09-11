@@ -119,6 +119,7 @@ describe('AssetPanel', () => {
   it('drop 到字幕轨 → 忽略（错型不入库——review I1）', async () => {
     (batchGetMedia as any).mockResolvedValue([mkItem('m1', '视频A.mp4', 'video/mp4')]);
     const { TimelinePanel } = await import('./timeline/TimelinePanel');
+    act(() => { useEditorStore.getState().addTrack('subtitle'); }); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
     render(<TimelinePanel />);
     const subTrackBody = document.querySelector('[data-track-type="subtitle"]')!;
     const payload = JSON.stringify({

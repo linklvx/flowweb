@@ -61,8 +61,8 @@ describe('editorStore（normalized + transient 历史）', () => {
 
   it('addSubtitleClip：3s + 默认文本', () => {
     useEditorStore.getState().loadProject(proj());
-    const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
-    const id = useEditorStore.getState().addSubtitleClip(subTrack.id, 1);
+    const subTrackId = useEditorStore.getState().addTrack('subtitle'); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
+    const id = useEditorStore.getState().addSubtitleClip(subTrackId, 1);
     const c = useEditorStore.getState().data!.clips[id] as any;
     expect(c.type).toBe('subtitle');
     expect(c.duration).toBe(3);
@@ -181,13 +181,13 @@ describe('editorStore（normalized + transient 历史）', () => {
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
     const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
-    const audioTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'audio')!;
-    const ok = useEditorStore.getState().moveClip(id, 5, audioTrack.id);
+    const audioTrackId = useEditorStore.getState().addTrack('audio'); // 单轨默认值下显式建音频轨（与生产动态建轨对齐）
+    const ok = useEditorStore.getState().moveClip(id, 5, audioTrackId);
     expect(ok).toBe(true);
     const d = useEditorStore.getState().data!;
-    expect(d.clips[id].trackId).toBe(audioTrack.id);
+    expect(d.clips[id].trackId).toBe(audioTrackId);
     expect(d.tracks.find(t => t.id === trackId)!.clips).not.toContain(id);
-    expect(d.tracks.find(t => t.id === audioTrack.id)!.clips).toContain(id);
+    expect(d.tracks.find(t => t.id === audioTrackId)!.clips).toContain(id);
   });
 
   it('endTransient 无变更返回 false（begin 后未动直接 end）', () => {

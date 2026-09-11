@@ -16,13 +16,15 @@ export class VideoProjectService {
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // Task 5 exportPrecheck 配额预检
   ) {}
 
-  /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：1 视频+1 字幕+2 音频）。
+  /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：单条空视频轨，其余轨道随素材动态创建——spec 勘误③）。
    *  不能值 import @flowweb/shared——纯 TS 源码包 barrel 无扩展名相对导入，Node ESM 运行时解析失败（见 admin.guard.ts 注释）；
    *  前端 upsert 会显式传 data，此处仅为 API 直调方的防御缺省（Plan 2 浏览器验收发现原字面量 tracks:[] 与 spec 默认轨脱节） */
   private static defaultProjectData(): object {
-    const track = (type: 'video' | 'subtitle' | 'audio', name: string) =>
-      ({ id: `track-${crypto.randomUUID()}`, type, name, muted: false, hidden: false, clips: [] });
-    return { version: 1, fps: 30, tracks: [track('video', '视频'), track('subtitle', '字幕1'), track('audio', '音频1'), track('audio', '音频2')], clips: {} };
+    return {
+      version: 1, fps: 30,
+      tracks: [{ id: `track-${crypto.randomUUID()}`, type: 'video', name: '视频', muted: false, hidden: false, clips: [] }],
+      clips: {},
+    };
   }
 
   /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回；

@@ -49,15 +49,12 @@ export function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
 }
 
-/** 默认空工程：1 视频 + 1 字幕 + 2 音频，空 clips */
+/** 默认空工程：仅 1 条空视频轨，其余轨道随素材动态创建（spec 勘误③），空 clips */
 export function createDefaultProjectData(): ProjectData {
   return {
     version: 1, fps: 30,
     tracks: [
-      { id: genId('track'), type: 'video',    name: '视频',  muted: false, hidden: false, clips: [] },
-      { id: genId('track'), type: 'subtitle', name: '字幕1', muted: false, hidden: false, clips: [] },
-      { id: genId('track'), type: 'audio',    name: '音频1', muted: false, hidden: false, clips: [] },
-      { id: genId('track'), type: 'audio',    name: '音频2', muted: false, hidden: false, clips: [] },
+      { id: genId('track'), type: 'video', name: '视频', muted: false, hidden: false, clips: [] },
     ],
     clips: {},
   };

@@ -48,8 +48,8 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
   });
   it('addKeyframe 音频片 volume 通道（VolumeKeyframe 无 property 字段）', () => {
     ready();
-    const d = useEditorStore.getState().data!;
-    const auId = useEditorStore.getState().addClip({ type: 'audio', mediaId: 'ma', trackId: d.tracks.find(t => t.type === 'audio')!.id, start: 0 })!;
+    const trackId = useEditorStore.getState().addTrack('audio'); // 单轨默认值下显式建音频轨（与生产动态建轨对齐）
+    const auId = useEditorStore.getState().addClip({ type: 'audio', mediaId: 'ma', trackId, start: 0 })!;
     useEditorStore.getState().setPlayhead(1);
     const kfId = useEditorStore.getState().addKeyframe(auId, 'volume');
     const clip = useEditorStore.getState().data!.clips[auId] as any;
@@ -58,9 +58,9 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
   });
   it('addKeyframe 类型不匹配（音频片加 transform 属性/视频片加 volume）→ null', () => {
     ready();
-    const d = useEditorStore.getState().data!;
     const id = addVideo();
-    const auId = useEditorStore.getState().addClip({ type: 'audio', mediaId: 'ma', trackId: d.tracks.find(t => t.type === 'audio')!.id, start: 0 })!;
+    const trackId = useEditorStore.getState().addTrack('audio'); // 单轨默认值下显式建音频轨（与生产动态建轨对齐）
+    const auId = useEditorStore.getState().addClip({ type: 'audio', mediaId: 'ma', trackId, start: 0 })!;
     expect(useEditorStore.getState().addKeyframe(auId, 'scale')).toBeNull();
     expect(useEditorStore.getState().addKeyframe(id, 'volume')).toBeNull();
   });
@@ -87,8 +87,8 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
   });
   it('字幕片 addKeyframe → null（无关键帧语义）', () => {
     ready();
-    const d = useEditorStore.getState().data!;
-    const subId = useEditorStore.getState().addSubtitleClip(d.tracks.find(t => t.type === 'subtitle')!.id, 0);
+    const subTrackId = useEditorStore.getState().addTrack('subtitle'); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
+    const subId = useEditorStore.getState().addSubtitleClip(subTrackId, 0);
     expect(useEditorStore.getState().addKeyframe(subId, 'scale')).toBeNull();
   });
 });
