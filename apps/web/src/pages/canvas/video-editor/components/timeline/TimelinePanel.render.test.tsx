@@ -10,8 +10,8 @@ const dataWithClips = (): ProjectData => {
   const d = createDefaultProjectData();
   const videoTrack = d.tracks[0];
   // 单轨默认值下显式建音频/字幕轨（与生产动态建轨对齐）
-  const audioTrack = { id: 'ta1', type: 'audio' as const, name: '音频1', muted: false, hidden: false, clips: [] };
-  const subTrack = { id: 'ts1', type: 'subtitle' as const, name: '字幕1', muted: false, hidden: false, clips: [] };
+  const audioTrack = { id: 'ta1', type: 'audio' as const, name: '音频1', muted: false, hidden: false, clips: [] as string[] };
+  const subTrack = { id: 'ts1', type: 'subtitle' as const, name: '字幕1', muted: false, hidden: false, clips: [] as string[] };
   d.tracks.push(audioTrack, subTrack);
   const v1 = { id: 'v1', trackId: videoTrack.id, type: 'video' as const, start: 0, duration: 3, sourceStart: 0, mediaId: 'm1', sourceNodeId: 's1', playbackSpeed: 1 as const, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] };
   const a1 = { id: 'a1', trackId: audioTrack.id, type: 'audio' as const, start: 1, duration: 2, sourceStart: 0, mediaId: 'm2', playbackSpeed: 1 as const, volume: 1, fade: { in: 0, out: 0 }, keyframes: [] };
