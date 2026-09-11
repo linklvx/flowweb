@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -169,6 +169,20 @@ vi.mock('axios', () => ({
     post: vi.fn().mockResolvedValue({}),
   },
 }));
+
+const { subscribeNodeEditResultMock } = vi.hoisted(() => ({
+  subscribeNodeEditResultMock: vi.fn((_h: (p: any) => void) => () => {}),
+}));
+
+vi.mock('@/services/executionSocket', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    // 组件挂订阅的两个入口 mock 掉（handler 由测试捕获注入）；ensure/teardown 走真实导出（本测试图内无人调用）
+    subscribeNodeStatus: vi.fn(() => () => {}),
+    subscribeNodeEditResult: subscribeNodeEditResultMock,
+  };
+});
 
 // Mock ImageThumbnailBar to avoid dnd-kit dependency in tests
 vi.mock('./prompt-input/ImageThumbnailBar', () => ({
@@ -716,5 +730,54 @@ describe('ImageGenNode', () => {
       </ReactFlowProvider>
     );
     expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).not.toBeNull();
+  });
+
+  // ── edit-result 回填订阅（组件级钉子：editMode 真值才挂订阅，handler 按 nodeId 过滤后分流）──
+  // 夹具取最小路径：直接给 nodeData 配 editMode: 'crop'（既有 crop 测试同款），组件挂载即触发订阅
+
+  describe('edit-result 回填订阅', () => {
+    const renderInEditMode = () => {
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'crop' };
+      renderNode();
+    };
+
+    const fireEditResult = (payload: any) => {
+      expect(subscribeNodeEditResultMock).toHaveBeenCalled();
+      const calls = subscribeNodeEditResultMock.mock.calls;
+      act(() => calls[calls.length - 1][0](payload));
+    };
+
+    it('failed payload：editError 置位（文案上屏）且 processing 复位', () => {
+      renderInEditMode();
+      expect(subscribeNodeEditResultMock).toHaveBeenCalledTimes(1);
+      fireEditResult({ nodeId: 'img1', failed: true, error: 'boom' });
+      const portalRoot = document.getElementById('node-toolbar-portal')!;
+      expect(portalRoot.textContent).toContain('boom');
+      // processing false 的可观测代理：crop 保存按钮未进入「保存中...」禁用态
+      const saveBtn = Array.from(portalRoot.querySelectorAll('button')).find(
+        (b) => b.textContent?.includes('保存')
+      ) as HTMLButtonElement;
+      expect(saveBtn).toBeTruthy();
+      expect(saveBtn.textContent).not.toContain('保存中');
+      expect(saveBtn.disabled).toBe(false);
+    });
+
+    it('成功 payload：updateConfig({ fileId, editMode: null }) + activeEditNodeId 清空', () => {
+      renderInEditMode();
+      mockUpdateConfig.mockClear();
+      mockSetActiveEditNodeId.mockClear();
+      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f1' });
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { fileId: 'f1', editMode: null });
+      expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
+    });
+
+    it('其它 nodeId：无任何状态变化（nodeId 过滤）', () => {
+      renderInEditMode();
+      mockUpdateConfig.mockClear();
+      mockSetActiveEditNodeId.mockClear();
+      fireEditResult({ nodeId: 'other', failed: false, fileId: 'f9' });
+      expect(mockUpdateConfig).not.toHaveBeenCalled();
+      expect(mockSetActiveEditNodeId).not.toHaveBeenCalled();
+    });
   });
 });

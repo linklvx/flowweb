@@ -28,6 +28,8 @@ export function ensureExecutionSocket(projectId: string): Socket {
     // socket.io-client 4.x Socket 级无 'reconnect' 事件（那是 Manager 事件——SocketReservedEvents 仅
     // connect/connect_error/disconnect）；重连成功必再触发 connect → joinCurrent 天然覆盖重连重 join，勿加坏监听
     socket.on('connect', () => joinCurrent(socket!));
+    // 迁移前三个组件各有此诊断（收编单例时丢失）——恢复，便于排查网关未起/代理断连
+    socket.on('connect_error', (err: Error) => console.warn('[executionSocket] connect_error:', err.message));
     socket.on('node:status', (data: NodeStatusPayload) => {
       // 决策 1 勘误：edit-result/edit-failed 是 status 值非事件名——统一在此分流（修复 ImageGenNode 坏监听）
       if (data.status === 'edit-result' || data.status === 'edit-failed') {
