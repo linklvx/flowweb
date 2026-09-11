@@ -75,12 +75,19 @@ import { ConfigProvider, App as AntdApp } from 'antd'; // ← 替换 `import { m
 
 export function VideoEditorShell() {
   // ...现有 state/effect 全部保留...
-  const shellRef = useRef<HTMLDivElement>(null);        // ← 新增
+  // ⚠ useRef 类型必须显式含 null：useRef<HTMLDivElement>(null) 在 @types/react 18 下推出 RefObject
+  // （current 只读），回调 ref 内赋值会 TS 报错
+  const focusRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);  // 弹层容器 ref
   const { message } = AntdApp.useApp();                 // ← 新增（:53 onConflict 与 :76 handleClose 内的 message.warning 来源替换，调用代码不变）
   // ...
   return (
     <BaseFullscreenModal open={open} onClose={handleClose} label="多轨剪辑" closeOnBackdrop={false} initialFocusRef={focusRef}>
-      <div data-testid="video-editor-shell" ref={focusRef} tabIndex={-1}
+      {/* ⚠ 一个元素只能有一个 ref 属性——回调 ref 合并两个目标（R3 必改①：漏挂 shellRef 则
+          shellRef.current 恒 null，getPopupContainer 永远回退 body，修复静默失效且测试红）。
+          MutableRefObject<HTMLDivElement|null> 可赋给 BaseFullscreenModal 的 initialFocusRef?: RefObject<HTMLElement> ✓ */}
+      <div data-testid="video-editor-shell" tabIndex={-1}
+        ref={(el) => { focusRef.current = el; shellRef.current = el; }}
         className="fixed inset-0 bg-[#F7F8FA] flex flex-col box-border nokey">
         {/* 批 1：弹层作用域——antd 弹层挂进壳内（高于壳 z-[100000] 的层叠由 DOM 顺序保证），
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null） */}
@@ -196,7 +203,7 @@ import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
 - `bg-[#F7F8FA]`（Shell:87）→ `bg-[var(--ve-bg)]`
 - `border-[#E5E7EB]` → `border-[var(--ve-border)]`
 - `text-[#1F2329]` → `text-[var(--ve-text)]`
-- `text-[#4E5969]` → `text-[var(--ve-text)]`（次要文字同主文字，暗色下次要靠透明度：`text-[var(--ve-text)]/80` 可选，保持简单先同值）
+- `text-[#4E5969]` → `text-[var(--ve-text)]`（次要文字同主文字——勿用斜杠透明度写法，淡化场景一律 --ve-text-dim）
 - `text-[#86909C]` → `text-[var(--ve-text-dim)]`（专用 token——**禁用 `text-[var(--ve-text)]/60` 斜杠写法**，Tailwind3 对 var() 无法解析透明度通道）
 - `bg-[#1F2329]`（导出按钮）→ `bg-[var(--ve-accent)]`
 - 涉及文件：`EditorTopBar.tsx`、`PreviewPlayer.tsx`（含控制条 :75）、`PropertiesPanel.tsx`、`AssetPanel.tsx`、`TimelinePanel.tsx`、`TimelineRuler.tsx`、`TrackRow.tsx`
@@ -255,25 +262,25 @@ const saveLayout = (groupId: string) => (sizes: number[]) => {
 };
 
 <div className="flex flex-1 min-h-0">
-  <PanelGroup direction="vertical" id="ve-vertical"
-    onLayout={saveLayout('ve-vertical')}
-    defaultSize={saved?.panels['ve-vertical']} /* 库 API 名以装包实测为准（defaultSize 与 onLayout 签名） */>
-    <Panel defaultSize={70} minSize={30}>
+  <PanelGroup direction="vertical" id="ve-vertical" onLayout={saveLayout('ve-vertical')}>
+    {/* ⚠ v2 的尺寸 prop 属于 Panel，PanelGroup 无 defaultSize（R3 必改⑤）——
+        恢复布局 = 把保存的尺寸数组按序映射回各 Panel 的 defaultSize */}
+    <Panel defaultSize={saved?.panels['ve-vertical']?.[0] ?? 70} minSize={30}>
       <PanelGroup direction="horizontal" id="ve-horizontal" onLayout={saveLayout('ve-horizontal')}>
-        <Panel defaultSize={20} minSize={15} maxSize={40}><AssetPanel /></Panel>
+        <Panel defaultSize={saved?.panels['ve-horizontal']?.[0] ?? 20} minSize={15} maxSize={40}><AssetPanel /></Panel>
         <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" />
-        <Panel minSize={30}><PreviewPlayer /></Panel>
+        <Panel defaultSize={saved?.panels['ve-horizontal']?.[1] ?? 48} minSize={30}><PreviewPlayer /></Panel>
         <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" />
-        <Panel defaultSize={22} minSize={15} maxSize={40}><PropertiesPanel /></Panel>
+        <Panel defaultSize={saved?.panels['ve-horizontal']?.[2] ?? 22} minSize={15} maxSize={40}><PropertiesPanel /></Panel>
       </PanelGroup>
     </Panel>
     <PanelResizeHandle className="h-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-row-resize" />
-    <Panel defaultSize={30} minSize={15} maxSize={70}><TimelinePanel /></Panel>
+    <Panel defaultSize={saved?.panels['ve-vertical']?.[1] ?? 30} minSize={15} maxSize={70}><TimelinePanel /></Panel>
   </PanelGroup>
 </div>
 ```
 
-说明：onLayout 只写 localStorage 不 setState（避免拖动每帧重渲风暴）。库 API 形态（PanelGroup 接收 sizes 数组的方式）装包后以实测为准，持久化契约（键/版本/结构）不变。
+说明：onLayout 只写 localStorage 不 setState（避免拖动每帧重渲风暴）。若 onLayout 首次挂载即触发并覆盖 saved，需在 saveLayout 内忽略与 saved 相同的首次回调（装包实测，登记待核实）。
 
 同步改动：
 - `TimelinePanel.tsx:216` 的 `h-[280px]` 固定高删除（Panel 提供高度，内部 `flex flex-col min-h-0` 自适应）
@@ -663,7 +670,13 @@ const visibleStart = Math.max(0, pxToTime(scrollLeft, pxPerSec) - interval);    
 const visibleEnd = pxToTime(scrollLeft + viewportW, pxPerSec) + interval;              // 右溢出
 const endSec = Math.min(dur + interval, visibleEnd);
 for (let t = Math.ceil(Math.max(0, visibleStart) / interval) * interval; t <= endSec; t += interval) ticks.push(Number(t.toFixed(4)));
-// scrollLeft 由父级 TimelinePanel 透传（props 加 scrollLeft；总宽 style 计算不变）
+// ⚠ scrollLeft 必须有响应式来源（R3 建议⑥）：scrollLeft 是 DOM 滚动位非 React state——
+// TimelinePanel 在 scrollRef 上加 onScroll（rAF 节流写 state）：
+//   const [scrollLeft, setScrollLeft] = useState(0);
+//   const onScroll = () => { requestAnimationFrame(() => setScrollLeft(el.scrollLeft)); };
+// 并把 state 透传 props。漏了这层，右滚后新进视口的刻度不渲染（窗口外空白）。
+// Task 11 的 wheel handler 写 el.scrollLeft = scrollLeft（直接写 DOM）后，同样要同步刷该 state
+// （同一 rAF 里 set，或 el.dispatchEvent(Event('scroll')) 触发 onScroll 路径）。
 ```
 
 同步性能验收断言（interact.test）：
@@ -881,7 +894,9 @@ const label = CANVAS_PRESETS.find((p) => p.size.width === current.width && p.siz
     onClick: ({ key }) => {
       const es = useEditorStore.getState();
       const preset = CANVAS_PRESETS.find((p) => p.label === key)!;
-      es.beginTransient?.(); es.setCanvasSize(preset.size); es.endTransient?.(); // 历史栈 API 以 editorStore 实测为准（beginTransient/endTransient 既有）
+      es.setCanvasSize(preset.size); // ⚠ 不包 beginTransient/endTransient（R3 必改④）——
+      // setCanvasSize 内部已走 commit() 完整入栈；外层再包 transient 会双入栈（commit 先入 S0，
+      // endTransient 又发现 S0!==S1 再入一次），一次切比例产生两条历史
     } }}
 >
   <button data-testid="aspect-ratio-button" className="text-[12px] text-[var(--ve-text)] bg-transparent border border-[var(--ve-border)] rounded px-2 py-0.5 cursor-pointer">{label} ▾</button>
@@ -927,18 +942,21 @@ it('fontSize 基准 1080 高：9:16（1920 高）下 48 渲染为 85.33；bottom
 
 - [ ] **Step 2: 跑红 → 实现**
 
-canvas-renderer（评审第 12 条两条约束）：
+canvas-renderer（基准常量保留 + 每帧参数注入——R3 建议⑦修正构造器方案）：
 
 ```ts
 // ① 基准常量改名保留（不删——fontSize/maxWidth/bottomMargin 全以 1920×1080 基准定义，删了会再冒魔法数）：
 export const BASE_CANVAS_W = 1920;  // 原 CANVAS_W——仅供基准换算（如 size.height / BASE_CANVAS_H）
 export const BASE_CANVAS_H = 1080;  // 原 CANVAS_H
-// ② CanvasRenderer.draw(visual, subtitles) 拿不到 data——"内部 canvasSizeOf(data)"不可行。
-//    定案：构造器接收 canvasSize（new CanvasRenderer(canvasSize)），renderFrameAt 调用点与测试同步传参：
-const size = this.canvasSize;                  // 构造器注入（切比例时由调用方重建或 setSize）
-const contain = Math.min(size.width / srcW, size.height / srcH);
-// :65 字幕：const bottomMargin = 96 * (size.height / BASE_CANVAS_H); const y = size.height - bottomMargin;
-// CANVAS_W/CANVAS_H 其余消费点（VideoEditNode 迷你预览/usePreviewPlayback 守卫）改 canvasSizeOf(data) 或构造注入
+// ② canvasSize 用**每帧参数**而非构造器注入——构造器方案在播放循环里会陈旧（usePreviewPlayback
+//    播放 effect 依赖 [playing, canvasRef]，播放中切比例 renderer 仍持旧尺寸，要暂停才更新）。
+//    renderFrameAt 本身拿得到 data ⇒ draw 加第三参，无状态可陈旧、不改 makeFrameDeps 签名：
+draw(visual, subtitles, canvasSizeOf(data)): void {   // CanvasRenderer.draw 签名扩展
+  const size = canvasSizeOf(data);
+  const contain = Math.min(size.width / srcW, size.height / srcH);
+  // :65 字幕：const bottomMargin = 96 * (size.height / BASE_CANVAS_H); const y = size.height - bottomMargin;
+}
+// CANVAS_W/CANVAS_H 其余消费点（VideoEditNode 迷你预览/usePreviewPlayback 守卫）改 canvasSizeOf(data)
 ```
 
 subtitle-layout：
@@ -1088,7 +1106,7 @@ export type SaveTarget =
   | { kind: 'fsa'; handle: FileSystemFileHandle }
   | { kind: 'opfs'; handle: FileSystemFileHandle }   // OPFS 句柄同 FileSystemFileHandle 形状（getFile/createWritable 同接口）
   | { kind: 'canceled' };
-export async function pickSaveTarget(suggestedName: string): Promise<SaveTarget> {
+export async function pickSaveTarget(suggestedName: string, onDegraded?: (reason: 'security') => void): Promise<SaveTarget> {
   if (!('showSaveFilePicker' in window)) {
     // 非 Chromium：OPFS 中转（无需用户手势，spec 6.1）
     const root = await navigator.storage.getDirectory();
@@ -1101,7 +1119,13 @@ export async function pickSaveTarget(suggestedName: string): Promise<SaveTarget>
     return { kind: 'fsa', handle };
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return { kind: 'canceled' }; // 用户取消——必须中止不回退（P1-E）
-    // 非取消异常（弹窗拦截等）：OPFS 兜底
+    if (e instanceof DOMException && e.name === 'SecurityError') {
+      // 激活窗口耗尽/弹窗拦截（R3 必改②）——经 onDegraded 回调提示调用方（"未能打开保存对话框，已改用应用内中转"），
+      // 不得与普通异常混入静默降级（用户选的保存位置被静默忽略是最差体验）；回调注入便于 jsdom 测试
+      onDegraded?.('security');
+      const root = await navigator.storage.getDirectory();
+      return { kind: 'opfs', handle: await root.getFileHandle(`export-${crypto.randomUUID()}.mp4`, { create: true }) };
+    }
     const root = await navigator.storage.getDirectory();
     const handle = await root.getFileHandle(`export-${crypto.randomUUID()}.mp4`, { create: true });
     return { kind: 'opfs', handle };
@@ -1154,6 +1178,9 @@ it('画布路径：编码完成 getFile 上传+建节点；本地路径：a[down
 it('上传成功建节点失败 → fail 态提示 + 重试按钮仅补建节点（不重复上传）', async () => {
   // mock createProductNode throw → store.pendingProduct 记录 {mediaId, title} → 重试只调 createProductNode
 });
+it('成功导出后 pendingProduct 清空（R3 必改③——防重复建节点）', async () => {
+  // mock 全链路成功 → expect(useEditorStore.getState().pendingProduct).toBeNull()
+});
 ```
 
 - [ ] **Step 2: 跑红 → 实现（组件骨架）**
@@ -1168,20 +1195,23 @@ const startExport = async () => {
   try {
     // …既有守卫/precheck 不变…
     // ⚠ 手势红线（spec D4）：pickSaveTarget 必须在点击处理器同步链内调用——showSaveFilePicker 需
-    // transient user activation，编码数分钟后的 await 链再调必抛 SecurityError。
+    // transient user activation（~5s 窗口），编码数分钟后的 await 链再调必抛 SecurityError。
     // "目的地后置"仅指画布/本地分支在编码完成后分流，句柄获取始终在此处（手势内）。
+    // ⚠ R3 必改②：手势链上不得插入任何 await（含 OPFS 残留扫描——目录迭代+getFile 会耗尽激活窗口，
+    // 导致 picker 抛 SecurityError 被静默降级，违反本红线）。扫描放 job 起来之后 fire-and-forget：
     const target = await pickSaveTarget(fileName);
     if (target.kind === 'canceled') { void message.info('已取消导出，未开始编码'); return; } // P1-E
     const j = runExportJob({ data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
       { onProgress, onEta }, target.handle);
+    void cleanupStaleOpfsExports(); // 编码期间顺带清理过期残留（fire-and-forget，try/catch 全包——Firefox 无痕 getDirectory 拒绝时静默跳过）
     setPhase('exporting'); armBeforeunload();
     try {
       const r = await j.promise;
       const file = r.fsa ? await target.handle.getFile() : r.blob;
       if (destination === 'canvas') {
         const { mediaId } = await uploadExportedProduct({ ..., width: out.width, height: out.height, file });
-        useEditorStore.getState().setPendingProduct({ mediaId, title: currentEditorProjectTitle() }); // store 持久化（spec 6.4——弹层关闭不丢）
-        createProductNode(...); void message.success('导出完成，已添加到画布');
+        await publishProduct(mediaId, currentEditorProjectTitle() || '多轨剪辑'); // R3 必改③：set→create→clear 收拢一个 helper
+        void message.success('导出完成，已添加到画布');
       } else {
         const url = URL.createObjectURL(file);
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
@@ -1226,8 +1256,9 @@ const startExport = async () => {
         {pendingProduct && (
           <Button data-testid="retry-product-node" onClick={() => {
             const p = useEditorStore.getState().pendingProduct!;
-            try { createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), p.mediaId, p.title); useEditorStore.getState().clearPendingProduct(); void message.success('产物节点已补建'); }
-            catch (e) { void message.error(`补建失败：${(e as Error).message}`); } // 不清 pendingProduct——可再试
+            void publishProduct(p.mediaId, p.title)  // 复用同一 helper（set→create→clear）
+              .then(() => void message.success('产物节点已补建'))
+              .catch((e: Error) => void message.error(`补建失败：${e.message}`)); // 失败留存可再试
           }}>重试（仅补建产物节点）</Button>
         )}
         <div className="flex justify-end gap-2">
@@ -1242,19 +1273,29 @@ const startExport = async () => {
     )
   }
 >
-  <span /* 锚定由 EditorTopBar 导出按钮承担：Popover 包裹在 TopBar 按钮外或按钮转发 ref——实现时把 Popover 移入 EditorTopBar，onExport prop 改为打开 Popover */ />
+  {/* children = EditorTopBar 的导出按钮（trigger）——R3 建议⑧：归属已在下方"结构落位"定案，无实现期决策 */}
 </Popover>
 ```
 
-结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写。OPFS 残留回收：`startExport` 开头扫过期（`navigator.storage.getDirectory()` → 迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h → removeEntry）——替代本地路径的即时清理，兼收上次崩溃残留（评审第 4 条）。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
+结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写，**批 1 的 Shell 级归属断言同批把 `.ant-modal-wrap` 选择器改为 `.ant-popover`**（容器归属断言逻辑不变——否则批 6 落地留红灯）。OPFS 残留回收 `cleanupStaleOpfsExports()`（模块级：`navigator.storage.getDirectory()` → 迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h → removeEntry；**整体 try/catch 静默**——Firefox 无痕模式 getDirectory 拒绝，不得影响导出主流程；迭代器 TS 形态见待核实点）——在 startExport 的 job 启动后 fire-and-forget（见上方 R3 必改②），替代本地路径的即时清理，兼收上次崩溃残留。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
 
-editorStore 补：
+editorStore 补 + **publishProduct 模块级 helper**（R3 必改③：成功路径漏 clear 会让 pendingProduct 常驻 → 重试按钮常在 → 再点建重复节点。收拢一个入口，成功与重试共用）：
 
 ```ts
+// editorStore：
 pendingProduct: null as { mediaId: string; title: string } | null,
 setPendingProduct: (p) => set({ pendingProduct: p }),
 clearPendingProduct: () => set({ pendingProduct: null }),
-// createProductNode 成功后 clear；重试路径读 pendingProduct 仅调 createProductNode（不重复上传，spec 6.4）
+
+// ExportModal.tsx 模块级（createProductNode 抛错时 pendingProduct 留存供重试；成功即 clear）：
+const publishProduct = async (mediaId: string, title: string) => {
+  const es = useEditorStore.getState();
+  es.setPendingProduct({ mediaId, title });        // 先落 store——create 中途抛错/弹层被收起均可重试
+  try {
+    createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, title);
+    useEditorStore.getState().clearPendingProduct();
+  } catch (e) { throw e; } // 向上抛——调用方 catch 呈现失败态（素材已入库，仅节点未建）
+};
 ```
 
 - [ ] **Step 3: 跑绿 + 既有 ExportModal 用例语义迁移（config/progress/precheck 用例改 Popover 查询）+ Commit**
@@ -1352,5 +1393,6 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 - Spec 覆盖：12 问题 + P0-A/B + P1-D/E + 标尺性能 + 拖拽静默丢弃 + 失败半途 + revoke + 收起语义——对应 Task 1-20 全段落（附录 B 矩阵逐条可指认）。
 - 类型一致性：SaveTarget/pickSaveTarget（Task 18↔19）、canvasSizeOf/CANVAS_PRESETS/remapForCanvasSize（Task 14↔15↔16）、computeExportSize（Task 16↔17↔19）、applyCanvasSize（Task 13↔15）、setPendingProduct（Task 19↔批7 呼应）已交叉核对。
 - **R2 修订（2026-09-12 plan 评审 14 条全采纳）**：①批 1 回归测试改真实 Shell 夹具（自证式夹具删除）②TTL 改复用 expiresAt（Media 无 updatedAt）③滚轮锚定扣 TRACK_HEADER_W=140 + scrollRef 名修正 + 提常量④OPFS 本地路径不即时清理（改导出开头扫过期）⑤placement 删 canPlaceAt 死代码（轨尾追加无重叠可能）+ 夹具写实⑥Popover 归属定案 EditorTopBar（删 Shell exportOpen/onExport）+ 补建重试按钮落地 + canceled 分支保留⑦持久化改 onLayout 自管 `{version:1, panels}`（弃 autoSaveId）⑧--ve-text-dim 专用 token（Tailwind3 var() 不支持斜杠透明度）⑨estimateSizeBytes 改输出像素⑩backgroundColor 长写 + selector 订阅⑪setCanvasSize 走 commit()（含 stopCapturing）⑫BASE_CANVAS_W/H 保留 + CanvasRenderer 构造器注入 canvasSize⑬纪律段补 shared 测试命令。⑭ResizeObserver 已 stub（test-setup.ts:17）无需处理。
-- 已知实现期待核实点（执行者 First Step 必读，R2 后收敛）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout/defaultSize API 形态 ② AssetPanel 条目字段名（Task 9）③ VideoEditNode 实际路径（Task 15 Glob）④ mediabunny sink 工厂导入路径（Task 10 ensurePoster）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
+- **R3 修订（2026-09-12 plan 评审二轮 5 必改+3 建议+4 小项全采纳）**：①回调 ref 合并挂载 shellRef（useRef 显式 null 类型）②OPFS 扫描挪 job 后 fire-and-forget + SecurityError onDegraded 单独分支（手势链零 await）③publishProduct helper 收拢 set→create→clear + 成功清空用例④Dropdown 删残留 transient 包裹（防双入栈）⑤PanelGroup 无 defaultSize——恢复布局改 Panel 级按序映射⑥标尺 scrollLeft 响应式来源（onScroll rAF 节流）⑦canvasSize 改每帧参数（弃构造器注入防播放中陈旧）⑧删 Popover 归属占位注释。小项：批 1 断言批 6 同步 .ant-popover / 删 "/80" 半句 / OPFS 迭代 TS 形态入待核实 / OPFS 扫描全 try-catch。
+- 已知实现期待核实点（执行者 First Step 必读，R3 后 5 条）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout 首次挂载是否即触发（防覆盖 saved）② AssetPanel 条目字段名（Task 9）③ VideoEditNode 实际路径（Task 15 Glob）④ mediabunny sink 工厂导入路径（Task 10 ensurePoster）⑤ OPFS 目录异步迭代器的 TS 形态（root.entries()/keys() 在 TS5.6 DOM lib 下能否 for await——Task 19 cleanupStaleOpfsExports）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
