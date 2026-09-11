@@ -26,3 +26,7 @@ export class RegisterGeneratedDto {
 }
 export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
 export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
+export class ExportPrecheckDto {
+  @IsString() workflowId!: string;
+  @IsNumber() estimatedSize!: number; // 前端估算字节（预检用——register 时才以真实大小终判）
+}

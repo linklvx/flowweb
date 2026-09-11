@@ -16,12 +16,13 @@ const mkPrisma = (over: any = {}) => ({
 const perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
 const collab = { readCanvas: vi.fn() };
 const execution = { execute: vi.fn() }; // 第 4 参——Task 11 regenerate 用，签名一次到位（避免中途改构造器）
+const quota = { assertCanUpload: vi.fn() }; // 第 5 参——Task 5 exportPrecheck 配额预检
 
 describe('VideoProjectService', () => {
   let svc: VideoProjectService; let prisma: any;
   beforeEach(() => {
     prisma = mkPrisma();
-    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any);
+    svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any, quota as any);
   });
 
   it('upsertByNode 幂等：并发双调用只产生一条记录 + teamId 服务端派生', async () => {

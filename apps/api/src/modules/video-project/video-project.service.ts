@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionService } from '../execution/execution.service';
+import { StorageQuotaService } from '../team/storage-quota.service'; // 实际在 team/ 模块（TeamModule 已 export，与 generated-media.service 同款引法）
 
 @Injectable()
 export class VideoProjectService {
@@ -12,6 +13,7 @@ export class VideoProjectService {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly collab: CollabDocumentService,
     @Inject(ExecutionService) private readonly execution: ExecutionService, // Task 11 regenerate 用——签名一次到位，避免 Task 11 中途改构造器
+    @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // Task 5 exportPrecheck 配额预检
   ) {}
 
   /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：1 视频+1 字幕+2 音频）。
@@ -103,6 +105,19 @@ export class VideoProjectService {
     await this.perm.assertEditor(dto.workflowId, userId);
     if (!dto.shadowNodeId.startsWith('shadow-')) throw new BadRequestException('shadowNodeId 必须以 shadow- 前缀命名'); // 防借道：底层 removeNode 是任意节点原语，端点语义仅限影子
     await this.collab.removeNode(dto.workflowId, dto.shadowNodeId);
+    return { ok: true };
+  }
+
+  /** 导出前置配额预检——编码数分钟前拦截，避免上传时 4xx；只读不建 Media（落库留给 generated-media.register） */
+  async exportPrecheck(userId: string, dto: { workflowId: string; estimatedSize: number }): Promise<{ ok: true }> {
+    // 先鉴权再查库（防未授权存在性探测）
+    await this.perm.assertEditor(dto.workflowId, userId); // 参数序 (projectId, userId)
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: dto.workflowId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('画布不存在');
+    await this.quota.assertCanUpload(project.teamId, dto.estimatedSize); // teamId 服务端从 workflowId 派生（与 register 同款）
     return { ok: true };
   }
 }

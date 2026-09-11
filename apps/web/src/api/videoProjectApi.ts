@@ -33,3 +33,32 @@ export async function getProjectByNode(sourceNodeId: string): Promise<VideoProje
     throw e;
   }
 }
+
+export interface RegenerateInput { workflowId: string; sourceNodeId: string; kind: 'video' | 'audio'; }
+export interface RegenerateResult { shadowNodeId: string; result?: { success: boolean; errors?: string[] } }
+
+/** regenerate 后端返回 { shadowNodeId, result }——result 含 success/errors。execute 的 error 事件在第一轮
+ *  HTTP 往返内就可能已 emit（订阅必错过）——带出 result 供早失败立即反馈 */
+export function regenerateNode(input: RegenerateInput): Promise<RegenerateResult> {
+  return apiFetch<RegenerateResult>('/video-projects/regenerate', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function removeShadowNode(workflowId: string, shadowNodeId: string): Promise<void> {
+  return apiFetch<void>('/video-projects/remove-shadow', { method: 'POST', body: JSON.stringify({ workflowId, shadowNodeId }) });
+}
+
+export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: '720p' | '1080p'; durationSec: number; actualSize: number; }
+export interface RegisterGeneratedResult { mediaId: string; upload: { url: string; fields: Record<string, string> } }
+
+export function registerGeneratedMedia(input: RegisterGeneratedInput): Promise<RegisterGeneratedResult> {
+  return apiFetch<RegisterGeneratedResult>('/video-projects/generated-media/register', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function confirmGeneratedMedia(mediaId: string): Promise<unknown> {
+  return apiFetch<unknown>('/video-projects/generated-media/confirm', { method: 'POST', body: JSON.stringify({ mediaId }) });
+}
+
+/** 导出前置配额预检——编码前调用，配额不足时 4xx 立即失败（避免编码数分钟后上传才报错） */
+export function exportPrecheck(workflowId: string, estimatedSize: number): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>('/video-projects/export-precheck', { method: 'POST', body: JSON.stringify({ workflowId, estimatedSize }) });
+}
