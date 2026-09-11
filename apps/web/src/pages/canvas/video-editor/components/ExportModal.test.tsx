@@ -84,6 +84,34 @@ describe('ExportModal', () => {
     expect(await screen.findByTestId('export-progress')).toBeTruthy();
   });
 
+  it('I-1 防重入：pickSaveFile await 窗口内双击开始 → runExportJob 仅一次（否则双 Worker 双上传双配额）', async () => {
+    runJob.mockClear(); // beforeEach 未 reset 调用计数（前一用例已点过开始）——本用例只关心自己的增量
+    render(<ExportModal open onClose={vi.fn()} />);
+    const btn = await screen.findByRole('button', { name: /开始导出/ });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    fireEvent.click(btn);
+    fireEvent.click(btn); // 第二击落在第一次 await pickSaveFile 的让出窗口内（phase 仍是 config）
+    await new Promise((r) => setTimeout(r, 0)); // 冲刷两次 startExport 的全部微任务再断言
+    expect(runJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('I-2 beforeunload 模块级守卫：导出中 Modal 卸载守卫仍在；导出结束（finally）后拆除', async () => {
+    let resolveJob!: (v: unknown) => void;
+    runJob.mockImplementation(() => ({ promise: new Promise((r) => { resolveJob = r; }), cancel: vi.fn() }));
+    const { unmount } = render(<ExportModal open onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /开始导出/ }));
+    await waitFor(() => expect(runJob).toHaveBeenCalled());
+    unmount(); // 模拟收起编辑器 → Shell return null → Modal 卸载
+    const during = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(during);
+    expect(during.defaultPrevented).toBe(true); // 收起后关页仍被拦（R2-N12 后台完成语义）
+    resolveJob({ blob: new Blob(['x']), fsa: false });
+    await new Promise((r) => setTimeout(r, 0)); // 走完 finally（upload mock resolve → onClose → disarm）
+    const after = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+  });
+
   it('编码器不支持（detectExportCapabilities video=false）→ 拦截提示', async () => {
     detectCaps.mockResolvedValue({ video: false, audio: true });
     render(<ExportModal open onClose={vi.fn()} />);

@@ -42,5 +42,8 @@ describe('uploadExportedProduct（编码完成后登记→presigned POST 直传�
     expect(fd.get('key')).toBe('k');
     expect(fd.get('policy')).toBe('p');
     expect(fd.get('file')).toBeInstanceOf(Blob);
+    // M-1 强断言：不仅存在，且顺序正确（file 必须在 fields 之后）
+    const keys = Array.from(fd.keys());
+    expect(keys.indexOf('file')).toBeGreaterThan(keys.indexOf('policy'));
   });
 });

@@ -18,6 +18,20 @@ const currentEditorProjectId = () => useEditorStore.getState().projectId ?? '';
 const currentEditorProjectTitle = () => useEditorStore.getState().title ?? '';
 const currentEditorSourceNodeId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
 
+// I-2：beforeunload 模块级守卫——以在飞 job 为依据安装/拆除，不随 Modal 卸载（收起编辑器后关页仍拦，对齐 R2-N12 后台完成语义）
+const beforeunloadHandler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+let beforeunloadArmed = false;
+const armBeforeunload = () => {
+  if (beforeunloadArmed) return;
+  beforeunloadArmed = true;
+  window.addEventListener('beforeunload', beforeunloadHandler);
+};
+const disarmBeforeunload = () => {
+  if (!beforeunloadArmed) return;
+  beforeunloadArmed = false;
+  window.removeEventListener('beforeunload', beforeunloadHandler);
+};
+
 function fmtSize(bytes: number): string {
   return bytes > 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)}GB` : `${(bytes / 1024 ** 2).toFixed(0)}MB`;
 }
@@ -33,6 +47,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
   const [etaSec, setEtaSec] = useState<number | null>(null);
   const [fail, setFail] = useState<{ category: string; message: string } | null>(null);
   const [job, setJob] = useState<{ cancel(): void } | null>(null);
+  const startingRef = useRef(false); // I-1：入口同步锁——pickSaveFile await 窗口防重入（双击=双 Worker 双上传双配额）
   const quotaReqRef = useRef(0); // R4-10：配额预检请求序号（切档竞态守卫）
 
   const durationSec = useMemo(() => (data ? totalDuration(data) : 0), [data]);
@@ -63,47 +78,47 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
       .catch((e: Error) => { if (quotaReqRef.current === req) setQuotaError(e.message || '存储配额不足'); });
   }, [open, precheck, sizeBytes]);
 
-  // 导出中 beforeunload 拦截（spec §7.5/§8）——R5：preventDefault 外补 returnValue=''（Chromium 确认框要求）
-  useEffect(() => {
-    if (phase !== 'exporting') return;
-    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', h);
-    return () => window.removeEventListener('beforeunload', h);
-  }, [phase]);
-
   const blocked = !!precheck && (precheck.errors.length > 0 || !!quotaError);
 
   const startExport = async () => {
-    if (!data) return;
-    if (!currentCanvasProjectId() || !currentEditorProjectId() || !currentEditorSourceNodeId()) {
-      void message.warning('工程尚未就绪，请稍候重试'); // R4-1：静默 return 用户无感知——补提示
-      return;
-    } // R3-4：真值守卫（工程未就绪/上下文缺失不发单）
-    setFail(null);
-    const handle = await pickSaveFile(`${currentEditorProjectTitle() || '导出'}.mp4`); // 用户手势内（决策 4）
-    const mediaUrls: Record<string, string> = {};
-    for (const [id, info] of Object.entries(mediaInfo)) if (info.url) mediaUrls[id] = info.url;
-    const j = runExportJob(
-      { data, resolution, mediaUrls },
-      { onProgress: (p, r) => setProgress({ phase: p, ratio: r }), onEta: setEtaSec },
-      handle,
-    );
-    setJob(j); setPhase('exporting');
+    if (startingRef.current) return; // I-1：pickSaveFile await 窗口防重入
+    startingRef.current = true;
     try {
-      const r = await j.promise;
-      const file = r.fsa && handle ? await handle.getFile() : r.blob; // R3-1：按 fsa 标记择源（回退 Buffer 时读 blob，防 0 字节静默上传）
-      const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, file });
-      createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, currentEditorProjectTitle() || '多轨剪辑');
-      void message.success('导出完成，已添加到画布');
-      onClose();
-    } catch (err) {
-      if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; }
-      const category = err instanceof ExportJobError ? err.category : 'unknown';
-      // R2-后端语义：precheck 与 register 相隔数分钟，期间配额可能被他处占用 → register 400——文案特判
-      const quotaHit = /存储空间不足|配额|quota/i.test((err as Error).message); // R3-3：后端实测文案为"存储空间不足"（storage-quota.service.ts:29）
-      setFail({ category, message: quotaHit ? '存储配额在导出期间被占用，请清理团队存储后重试' : (err as Error).message });
-      setPhase('config');
-    } finally { setJob(null); }
+      if (!data) return;
+      if (!currentCanvasProjectId() || !currentEditorProjectId() || !currentEditorSourceNodeId()) {
+        void message.warning('工程尚未就绪，请稍候重试'); // R4-1：静默 return 用户无感知——补提示
+        return;
+      } // R3-4：真值守卫（工程未就绪/上下文缺失不发单）
+      setFail(null);
+      const handle = await pickSaveFile(`${currentEditorProjectTitle() || '导出'}.mp4`); // 用户手势内（决策 4）
+      const mediaUrls: Record<string, string> = {};
+      for (const [id, info] of Object.entries(mediaInfo)) if (info.url) mediaUrls[id] = info.url;
+      const j = runExportJob(
+        { data, resolution, mediaUrls },
+        { onProgress: (p, r) => setProgress({ phase: p, ratio: r }), onEta: setEtaSec },
+        handle,
+      );
+      setJob(j); setPhase('exporting');
+      armBeforeunload(); // I-2：在飞 job 期间武装（模块级——Modal 卸载不再拆守卫）
+      try {
+        const r = await j.promise;
+        const file = r.fsa && handle ? await handle.getFile() : r.blob; // R3-1：按 fsa 标记择源（回退 Buffer 时读 blob，防 0 字节静默上传）
+        const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, file });
+        createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, currentEditorProjectTitle() || '多轨剪辑');
+        void message.success('导出完成，已添加到画布');
+        onClose();
+      } catch (err) {
+        if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; }
+        const category = err instanceof ExportJobError ? err.category : 'unknown';
+        // R2-后端语义：precheck 与 register 相隔数分钟，期间配额可能被他处占用 → register 400——文案特判
+        const quotaHit = /存储空间不足|配额|quota/i.test((err as Error).message); // R3-3：后端实测文案为"存储空间不足"（storage-quota.service.ts:29）
+        setFail({ category, message: quotaHit ? '存储配额在导出期间被占用，请清理团队存储后重试' : (err as Error).message });
+        setPhase('config');
+      } finally {
+        setJob(null);
+        disarmBeforeunload(); // I-2：done/error/cancel（含成功 onClose 后）一律拆除——disarm 在 finally 而非 catch
+      }
+    } finally { startingRef.current = false; }
   };
 
   return (
@@ -121,7 +136,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
             时长 {Math.round(durationSec)}s · 预计体积 {fmtSize(sizeBytes)}{('showSaveFilePicker' in window) ? ' · 直写本地文件' : ' · 内存缓冲'}
           </div>
           {precheck?.errors.map((e, i) => <div key={i} className="text-[12px] text-[#F53F3F]">✕ {e.message}</div>)}
-          {quotaError && <div className="text-[12px] text-[#F53F3F]">✕ 存储配额不足：{quotaError}</div>}
+          {quotaError && <div className="text-[12px] text-[#F53F3F]">✕ {quotaError}</div>}
           {precheck?.warnings.map((w, i) => (
             <div key={i} className="text-[12px] text-[#FF7D00]">
               ⚠ {w.message}{typeof navigator !== 'undefined' && (navigator as unknown as { deviceMemory?: number }).deviceMemory !== undefined && (navigator as unknown as { deviceMemory: number }).deviceMemory <= 4 ? '（当前设备内存较低，强烈建议 720p）' : ''}
