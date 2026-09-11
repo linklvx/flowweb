@@ -213,7 +213,8 @@ export function ExportPopover() {
             {fail && <div className="text-[12px] text-[#F53F3F]">上次导出失败（{fail.category}）：{fail.message}——可重试或降 720p</div>}
             {pendingProduct && (
               <Button data-testid="retry-product-node" onClick={() => {
-                const p = useEditorStore.getState().pendingProduct!;
+                const p = useEditorStore.getState().pendingProduct;
+                if (!p) return;
                 void publishProduct(p.mediaId, p.title)
                   .then(() => void message.success('产物节点已补建'))
                   .catch((e: Error) => void message.error(`补建失败：${e.message}`));
