@@ -20,7 +20,7 @@ function StopwatchButton({ clip, property, label }: { clip: VideoClip | ImageCli
         if (hit) es.removeKeyframe(clip.id, hit.id);
         else es.addKeyframe(clip.id, property);
       }}
-      className={`text-[12px] bg-transparent border-0 cursor-pointer px-1 ${active ? 'text-[#6C5CE7]' : 'text-[#C9CDD4]'}`}>⏱</button>
+      className={`text-[12px] bg-transparent border-0 cursor-pointer px-1 ${active ? 'text-[#6C5CE7]' : 'text-[var(--ve-text-dim)]'}`}>⏱</button>
   );
 }
 
@@ -37,7 +37,7 @@ function TransformRow({ clip, row }: { clip: VideoClip | ImageClip; row: (typeof
   const { property, label } = row;
   return (
     <div className="flex items-center gap-2 py-1">
-      <span className="text-[12px] text-[#4E5969] w-14 shrink-0">{label}</span>
+      <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">{label}</span>
       <InputNumber aria-label={label} size="small" step={row.step} min={row.min} max={row.max} value={clip.transform[property]}
         onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { transform: { ...clip.transform, [property]: v } }); }}
         className="flex-1" />
@@ -52,7 +52,7 @@ function TransitionEditor({ clip, edge }: { clip: VideoClip | ImageClip; edge: '
     useEditorStore.getState().updateClip(clip.id, type ? { [edge]: { type, duration: t?.duration ?? 0.5 } } : { [edge]: undefined });
   return (
     <div className="flex items-center gap-2 py-1">
-      <span className="text-[12px] text-[#4E5969] w-14 shrink-0">{edge === 'transitionIn' ? '入场转场' : '出场转场'}</span>
+      <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">{edge === 'transitionIn' ? '入场转场' : '出场转场'}</span>
       <Select size="small" allowClear placeholder="无" value={t?.type} options={TRANSITION_TYPES} onChange={v => patch(v)}
         className="flex-1" />
       {t && (
@@ -71,20 +71,20 @@ export function PropertiesPanel() {
   if (!clip) {
     return (
       <div data-testid="properties-panel" data-testid-empty="1"
-        className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white p-3 box-border">
-        <div data-testid="properties-empty" className="text-[12px] text-[#C9CDD4] text-center py-8">未选中片段</div>
+        className="w-[280px] shrink-0 border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 box-border">
+        <div data-testid="properties-empty" className="text-[12px] text-[var(--ve-text-dim)] text-center py-8">未选中片段</div>
       </div>
     );
   }
   return (
     <div data-testid="properties-panel"
-      className="w-[280px] shrink-0 border-l border-[#E5E7EB] [border-left-style:solid] bg-white p-3 overflow-y-auto box-border">
+      className="w-[280px] shrink-0 border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 overflow-y-auto box-border">
       {clip.type === 'video' && (
         <div className="flex flex-col">
-          <div className="text-[13px] font-medium text-[#1F2329] py-1.5">视频片段</div>
+          <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">视频片段</div>
           {TRANSFORM_ROWS.map(row => <TransformRow key={row.property} clip={clip} row={row} />)}
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">播放速度</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">播放速度</span>
             <Segmented aria-label="播放速度" size="small" value={String(clip.playbackSpeed)}
               options={[{ label: '0.5×', value: '0.5' }, { label: '1×', value: '1' }, { label: '2×', value: '2' }]}
               onChange={v => useEditorStore.getState().updateClip(clip.id, { playbackSpeed: Number(v) as 0.5 | 1 | 2 })} />
@@ -95,7 +95,7 @@ export function PropertiesPanel() {
       )}
       {clip.type === 'image' && (
         <div className="flex flex-col">
-          <div className="text-[13px] font-medium text-[#1F2329] py-1.5">图片片段</div>
+          <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">图片片段</div>
           {TRANSFORM_ROWS.map(row => <TransformRow key={row.property} clip={clip} row={row} />)}
           <TransitionEditor clip={clip} edge="transitionIn" />
           <TransitionEditor clip={clip} edge="transitionOut" />
@@ -103,27 +103,27 @@ export function PropertiesPanel() {
       )}
       {clip.type === 'audio' && (
         <div className="flex flex-col">
-          <div className="text-[13px] font-medium text-[#1F2329] py-1.5">音频片段</div>
+          <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">音频片段</div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">音量</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">音量</span>
             <InputNumber aria-label="音量" size="small" min={0} max={2} step={0.1} value={clip.volume}
               onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { volume: v }); }}
               className="flex-1" />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">淡入</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">淡入</span>
             <InputNumber aria-label="淡入" size="small" min={0} max={5} step={0.1} value={clip.fade.in}
               onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { fade: { ...clip.fade, in: v } }); }}
               className="flex-1" addonAfter="s" />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">淡出</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">淡出</span>
             <InputNumber aria-label="淡出" size="small" min={0} max={5} step={0.1} value={clip.fade.out}
               onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { fade: { ...clip.fade, out: v } }); }}
               className="flex-1" addonAfter="s" />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">播放速度</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">播放速度</span>
             <Segmented aria-label="播放速度" size="small" value={String(clip.playbackSpeed)}
               options={[{ label: '0.5×', value: '0.5' }, { label: '1×', value: '1' }, { label: '2×', value: '2' }]}
               onChange={v => useEditorStore.getState().updateClip(clip.id, { playbackSpeed: Number(v) as 0.5 | 1 | 2 })} />
@@ -132,17 +132,17 @@ export function PropertiesPanel() {
       )}
       {clip.type === 'subtitle' && (
         <div className="flex flex-col">
-          <div className="text-[13px] font-medium text-[#1F2329] py-1.5">字幕</div>
+          <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">字幕</div>
           <textarea aria-label="字幕文本" value={clip.text} rows={3}
             onChange={e => useEditorStore.getState().updateClip(clip.id, { text: e.target.value })}
-            className="w-full text-[12px] border border-[#E5E7EB] [border-style:solid] rounded-md p-1.5 box-border" />
+            className="w-full text-[12px] bg-[var(--ve-panel)] text-[var(--ve-text)] border border-[var(--ve-border)] [border-style:solid] rounded-md p-1.5 box-border" />
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">显示字幕</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">显示字幕</span>
             <Switch aria-label="显示字幕" size="small" checked={clip.visible}
               onChange={v => useEditorStore.getState().updateClip(clip.id, { visible: v })} />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">字号</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">字号</span>
             <Slider aria-label="字号" className="flex-1" min={12} max={120} value={clip.style.fontSize}
               onChange={v => useEditorStore.getState().updateClip(clip.id, { style: { ...clip.style, fontSize: v as number } })} />
             <InputNumber size="small" min={12} max={120} value={clip.style.fontSize}
@@ -150,13 +150,13 @@ export function PropertiesPanel() {
               className="w-16" />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">字体颜色</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">字体颜色</span>
             <input type="color" aria-label="字体颜色" value={clip.style.color}
               onChange={e => useEditorStore.getState().updateClip(clip.id, { style: { ...clip.style, color: e.target.value } })}
-              className="w-8 h-6 border border-[#E5E7EB] [border-style:solid] rounded cursor-pointer" />
+              className="w-8 h-6 border border-[var(--ve-border)] [border-style:solid] rounded cursor-pointer" />
           </div>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[12px] text-[#4E5969] w-14 shrink-0">字间距</span>
+            <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">字间距</span>
             <InputNumber aria-label="字间距" size="small" min={0} max={20} step={0.5} value={clip.style.letterSpacing}
               onChange={v => { if (v !== null) useEditorStore.getState().updateClip(clip.id, { style: { ...clip.style, letterSpacing: v } }); }}
               className="flex-1" />

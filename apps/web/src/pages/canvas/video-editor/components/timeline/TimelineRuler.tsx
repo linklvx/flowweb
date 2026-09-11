@@ -36,7 +36,7 @@ export function TimelineRuler({ data, pxPerSec, widthPx }: RulerProps) {
   };
   return (
     <div data-testid="timeline-ruler"
-      className="relative h-7 border-b border-[#E5E7EB] [border-bottom-style:solid] bg-white cursor-pointer select-none"
+      className="relative h-7 border-b border-[var(--ve-border)] [border-bottom-style:solid] bg-[var(--ve-panel)] cursor-pointer select-none"
       style={{ width: Math.max(widthPx, timeToPx(dur, pxPerSec) + 60) }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -44,8 +44,8 @@ export function TimelineRuler({ data, pxPerSec, widthPx }: RulerProps) {
     >
       {ticks.map(t => (
         <div key={t} className="absolute top-0 bottom-0 flex items-end" style={{ left: timeToPx(t, pxPerSec) }}>
-          <div className="w-px h-2 bg-[#C9CDD4]" />
-          <span className="absolute left-1 top-0.5 text-[10px] text-[#86909C]">{t}s</span>
+          <div className="w-px h-2 bg-[var(--ve-border)]" />
+          <span className="absolute left-1 top-0.5 text-[10px] text-[var(--ve-text-dim)]">{t}s</span>
         </div>
       ))}
       {/* 播放头（紫色，贯穿到轨道区由面板统一渲染竖线） */}

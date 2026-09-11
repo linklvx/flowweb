@@ -66,7 +66,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mis
       }}
     >
       <div className="h-full flex items-center px-1.5" style={{ borderLeft: `3px solid ${BLOCK_BAR[clip.type]}` }}>
-        <span className="text-[11px] text-[#4E5969] truncate whitespace-nowrap" style={{ minWidth: 0 }}>
+        <span className="text-[11px] text-[var(--ve-text)] truncate whitespace-nowrap" style={{ minWidth: 0 }}>
           {label}
         </span>
         {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
@@ -79,7 +79,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mis
         <div key={k.id} data-testid={`kf-${k.id}`}
           title={clip.type === 'audio' ? `音量 @ ${k.t.toFixed(2)}s` : `${k.property} @ ${k.t.toFixed(2)}s`}
           onPointerDown={(e) => onKeyframePointerDown?.(k.id, e)}
-          className="absolute w-2 h-2 bg-white border border-[#6C5CE7] rotate-45 cursor-pointer z-[1]"
+          className="absolute w-2 h-2 bg-[var(--ve-panel)] border border-[#6C5CE7] rotate-45 cursor-pointer z-[1]"
           style={{ left: timeToPx(k.t, pxPerSec) - 4, top: '50%', marginTop: -4 }} />
       ))}
     </div>

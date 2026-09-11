@@ -24,6 +24,18 @@
   --z-panel: 400;
 }
 
+/* ===== Video Editor dark tokens（spec 批2；复用 --canvas-controls-*，不造第二套） ===== */
+:root {
+  --ve-bg: #141414;                          /* 壳底 = 全局 body */
+  --ve-panel: var(--canvas-controls-bg);      /* rgb(38,38,38) 面板 */
+  --ve-border: var(--canvas-controls-border); /* rgb(54,54,54) */
+  --ve-text: #e2e8f0;                         /* 正文 = body 同值 */
+  --ve-text-dim: rgba(226, 232, 240, 0.6);    /* 淡化文本专用 token */
+  --ve-text-control: var(--canvas-controls-text); /* rgb(247,247,247) 控件 */
+  --ve-accent: #6C5CE7;
+  --ve-track-video: #1f1f1f;                  /* 批3 video 兜底底 */
+}
+
 body {
   margin: 0;
   background: #141414;

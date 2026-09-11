@@ -130,10 +130,10 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
       {phase === 'config' && (
         <div className="flex flex-col gap-3 pt-2" data-testid="export-config">
           <div className="flex items-center gap-3">
-            <span className="text-[13px] text-[#1F2329]">清晰度</span>
+            <span className="text-[13px] text-[var(--ve-text)]">清晰度</span>
             <Radio.Group value={resolution} onChange={(e) => setResolution(e.target.value)} options={[{ label: '720p', value: '720p' }, { label: '1080p', value: '1080p' }]} optionType="button" buttonStyle="solid" />
           </div>
-          <div className="text-[12px] text-[#86909C]">
+          <div className="text-[12px] text-[var(--ve-text-dim)]">
             时长 {Math.round(durationSec)}s · 预计体积 {fmtSize(sizeBytes)}{('showSaveFilePicker' in window) ? ' · 直写本地文件' : ' · 内存缓冲'}
           </div>
           {precheck?.errors.map((e, i) => <div key={i} className="text-[12px] text-[#F53F3F]">✕ {e.message}</div>)}
@@ -154,7 +154,7 @@ export function ExportModal({ open, onClose }: { open: boolean; onClose: () => v
         <div className="flex flex-col gap-3 pt-2" data-testid="export-progress">
           <div className="text-[13px]">{progress.phase === 'mix' ? '离线混音中…' : '逐帧编码中…'}</div>
           <Progress percent={Math.round((progress.phase === 'mix' ? 0.2 : 0.2 + progress.ratio * 0.8) * 100)} status="active" strokeColor="#6C5CE7" />
-          {etaSec != null && <div className="text-[12px] text-[#86909C]">预计剩余 {etaSec > 60 ? `${Math.floor(etaSec / 60)}分${Math.round(etaSec % 60)}秒` : `${Math.round(etaSec)}秒`}</div>}
+          {etaSec != null && <div className="text-[12px] text-[var(--ve-text-dim)]">预计剩余 {etaSec > 60 ? `${Math.floor(etaSec / 60)}分${Math.round(etaSec % 60)}秒` : `${Math.round(etaSec)}秒`}</div>}
           <div className="flex justify-end"><Button danger onClick={() => job?.cancel()}>取消导出</Button></div>
         </div>
       )}

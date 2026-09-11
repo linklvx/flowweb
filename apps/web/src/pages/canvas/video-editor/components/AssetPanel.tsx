@@ -29,11 +29,11 @@ export function AssetPanel() {
   }, [items]);
 
   return (
-    <div data-testid="asset-panel" className="w-[260px] shrink-0 border-r border-[#E5E7EB] [border-right-style:solid] bg-white flex flex-col min-h-0 box-border">
-      <div className="p-2 border-b border-[#F2F3F5] [border-bottom-style:solid] flex items-center gap-2">
+    <div data-testid="asset-panel" className="w-[260px] shrink-0 border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] flex flex-col min-h-0 box-border">
+      <div className="p-2 border-b border-[var(--ve-border)] [border-bottom-style:solid] flex items-center gap-2">
         <Input placeholder="搜索资产" value={keyword} onChange={e => setKeyword(e.target.value)} size="small" />
         <label data-testid="asset-upload-btn"
-          className={`text-[12px] text-[#722ED1] cursor-pointer shrink-0 select-none${uploading ? ' opacity-40 pointer-events-none' : ''}`}>
+          className={`text-[12px] text-[var(--ve-accent)] cursor-pointer shrink-0 select-none${uploading ? ' opacity-40 pointer-events-none' : ''}`}>
           + 新建
           <input type="file" className="hidden" accept="video/*,audio/*,image/*"
             onChange={async (e) => {
@@ -63,8 +63,8 @@ export function AssetPanel() {
         </label>
       </div>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="px-2 py-1 text-[12px] text-[#86909C]">全集资产</div>
-        {loading && <div className="px-2 text-[12px] text-[#86909C]">加载中…</div>}
+        <div className="px-2 py-1 text-[12px] text-[var(--ve-text-dim)]">全集资产</div>
+        {loading && <div className="px-2 text-[12px] text-[var(--ve-text-dim)]">加载中…</div>}
         <ul className="list-none pl-0 m-0">
           {filtered.map(i => (
             <li key={i.mediaId}
@@ -77,21 +77,21 @@ export function AssetPanel() {
                 originalName: i.originalName,
                 durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, // 决策 6：节点配置时长优先，metadata 兜底
               }))}
-              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[#F7F8FA]">
-              <div className="w-10 h-10 rounded-md bg-[#F2F3F5] shrink-0 overflow-hidden flex items-center justify-center">
+              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+              <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
                 {i.thumbnailUrl
                   ? <img src={i.thumbnailUrl} alt="" className="w-full h-full object-cover" />
-                  : <span className="text-[10px] text-[#86909C]">{i.kind === 'audio' ? '音' : i.kind === 'video' ? '视' : '图'}</span>}
+                  : <span className="text-[10px] text-[var(--ve-text-dim)]">{i.kind === 'audio' ? '音' : i.kind === 'video' ? '视' : '图'}</span>}
               </div>
-              <span className="text-[12px] text-[#4E5969] truncate" style={{ minWidth: 0 }}>{i.originalName}</span>
+              <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{i.originalName}</span>
               {addedMediaIds.has(i.mediaId)
                 && <span className="ml-auto text-[10px] text-[#00B42A] shrink-0">已添加</span>}
             </li>
           ))}
         </ul>
-        {!loading && filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-[#C9CDD4]">暂无资产</div>}
+        {!loading && filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-[var(--ve-text-dim)]">暂无资产</div>}
         {/* spec 全集资产 = 画布产物 + 团队素材库——团队素材（folder 接口未按目录下钻，一期只根目录） */}
-        <div className="px-2 py-1 mt-2 text-[12px] text-[#86909C]">团队素材</div>
+        <div className="px-2 py-1 mt-2 text-[12px] text-[var(--ve-text-dim)]">团队素材</div>
         <ul className="list-none pl-0 m-0">
           {team.items.map((it) => (
             <li key={it.mediaId}
@@ -103,23 +103,23 @@ export function AssetPanel() {
                 originalName: it.name,
                 durationSec: it.durationSec, // sourceNodeId 省略：素材库来源不建边（spec §二 规则 1，同生成结果分支）
               }))}
-              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[#F7F8FA]">
-              <div className="w-10 h-10 rounded-md bg-[#F2F3F5] shrink-0 overflow-hidden flex items-center justify-center">
+              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+              <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
                 {it.thumbnailUrl
                   ? <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" />
-                  : <span className="text-[10px] text-[#86909C]">{it.mimeType.startsWith('audio/') ? '音' : it.mimeType.startsWith('video/') ? '视' : '图'}</span>}
+                  : <span className="text-[10px] text-[var(--ve-text-dim)]">{it.mimeType.startsWith('audio/') ? '音' : it.mimeType.startsWith('video/') ? '视' : '图'}</span>}
               </div>
-              <span className="text-[12px] text-[#4E5969] truncate" style={{ minWidth: 0 }}>{it.name}</span>
+              <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{it.name}</span>
               {addedMediaIds.has(it.mediaId)
                 && <span className="ml-auto text-[10px] text-[#00B42A] shrink-0">已添加</span>}
             </li>
           ))}
         </ul>
-        {team.items.length === 0 && !team.loading && <div className="px-2 py-3 text-[12px] text-[#C9CDD4]">暂无团队素材</div>}
+        {team.items.length === 0 && !team.loading && <div className="px-2 py-3 text-[12px] text-[var(--ve-text-dim)]">暂无团队素材</div>}
         {/* 生成结果（A1 影子产物——watchShadowJob 回填 mediaInfo；sourceNodeId 省略：素材库来源不建边 spec §二 规则 1） */}
         {generatedMediaIds.length > 0 && (
           <>
-            <div className="px-2 py-1 mt-2 text-[12px] text-[#86909C]">生成结果</div>
+            <div className="px-2 py-1 mt-2 text-[12px] text-[var(--ve-text-dim)]">生成结果</div>
             <ul className="list-none pl-0 m-0">
               {generatedMediaIds.map((mediaId) => {
                 const info = mediaInfo[mediaId];
@@ -135,11 +135,11 @@ export function AssetPanel() {
                       originalName: info?.name ?? mediaId,
                       durationSec: info?.durationSec,
                     }))}
-                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[#F7F8FA]">
-                    <div className="w-10 h-10 rounded-md bg-[#F2F3F5] shrink-0 overflow-hidden flex items-center justify-center">
-                      <span className="text-[10px] text-[#86909C]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
+                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+                    <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
+                      <span className="text-[10px] text-[var(--ve-text-dim)]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
                     </div>
-                    <span className="text-[12px] text-[#4E5969] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
+                    <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
                   </li>
                 );
               })}

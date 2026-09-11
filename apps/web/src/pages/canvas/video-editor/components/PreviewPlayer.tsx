@@ -60,7 +60,7 @@ export function PreviewPlayer() {
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-[#F7F8FA]">
+    <div className="flex-1 min-h-0 flex flex-col bg-[var(--ve-bg)]">
       {/* 16:9 预览区 */}
       <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center p-3">
         {/* 偏离登记：计划 JSX 笔误——canvas 缺 ref={canvasRef}，hook 拿不到画布致播放循环/单帧渲染全失效（G1 用例红揭示），按计划目标语义补上 */}
@@ -73,28 +73,28 @@ export function PreviewPlayer() {
       </div>
       {/* 控制条（spec 第四节：播放/时间码/撤销/重做/分割/删除 + 音量/全屏/缩放滑杆） */}
       <div data-testid="preview-control-bar"
-        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-white border-t border-[#E5E7EB] [border-top-style:solid] box-border">
+        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--ve-panel)] border-t border-[var(--ve-border)] [border-top-style:solid] box-border">
         <button type="button" data-testid="preview-play-btn" disabled={preparing}
           onClick={() => { void togglePlayback(); }}
-          className="text-[16px] text-[#1F2329] bg-transparent border-0 cursor-pointer px-2 disabled:opacity-50">
+          className="text-[16px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-2 disabled:opacity-50">
           {preparing ? '…' : playing ? '⏸' : '▶'}
         </button>
-        <span className="text-[12px] text-[#1F2329] tabular-nums">
+        <span className="text-[12px] text-[var(--ve-text)] tabular-nums">
           {formatShortTime(playhead)}
-          <span className="text-[#86909C]"> / {formatShortTime(total)}</span>
+          <span className="text-[var(--ve-text-dim)]"> / {formatShortTime(total)}</span>
         </span>
-        <span className="text-[#C9CDD4] mx-1">|</span>
+        <span className="text-[var(--ve-text-dim)] mx-1">|</span>
         <button type="button" onClick={() => useEditorStore.getState().undo()}
-          className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1.5">撤销</button>
+          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">撤销</button>
         <button type="button" onClick={() => useEditorStore.getState().redo()}
-          className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1.5">重做</button>
+          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">重做</button>
         <button type="button" title="在播放头处分割选中片段"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead); }}
-          className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1.5">分割</button>
+          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">分割</button>
         <button type="button" title="删除选中片段"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
-          className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1.5">删除</button>
-        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[#E5E7EB]" style={{ borderLeftStyle: 'solid' }}>
+          className="text-[12px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">删除</button>
+        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]" style={{ borderLeftStyle: 'solid' }}>
           <button type="button" className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
               内包 <span className="inline-block"> 承接 mouseenter（验收 17 的 Tooltip 文案核对依赖此结构） */}
@@ -119,7 +119,7 @@ export function PreviewPlayer() {
           </Tooltip>
           <button type="button" title="全屏"
             onClick={() => { const el = containerRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }}
-            className="text-[14px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1.5">⛶</button>
+            className="text-[14px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">⛶</button>
           <Tooltip title="时间轴缩放">
             <span data-testid="zoom-slider" className="inline-flex">
               <Slider className="w-24" min={10} max={500} value={pxPerSec}
