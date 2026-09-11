@@ -21,6 +21,14 @@ const addVideoClip = (start = 0) => {
 const firePointer = (target: EventTarget, type: string, opts: MouseEventInit = {}) =>
   target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...opts }));
 
+// jsdom 同样无 DragEvent——fireEvent.drop 造的是 Event 基类（dataTransfer 由 testing-library 特殊注入但 clientX 不透传→NaN）。
+// 同 firePointer 先例：MouseEvent 携带 type='drop' + clientX，dataTransfer 用 defineProperty 注入
+const fireDrop = (target: EventTarget, payload: string, clientX: number) => {
+  const ev = new MouseEvent('drop', { bubbles: true, cancelable: true, clientX });
+  Object.defineProperty(ev, 'dataTransfer', { value: { getData: (t: string) => (t === 'application/x-clip' ? payload : '') } });
+  target.dispatchEvent(ev);
+};
+
 describe('TimelinePanel 交互', () => {
   beforeEach(() => {
     useEditorStore.getState().reset();
@@ -90,6 +98,25 @@ describe('TimelinePanel 交互', () => {
     firePointer(window, 'pointerup');
     expect(useEditorStore.getState().data!.clips[id].trackId).toBe(track2.id);
     expect(useEditorStore.getState().data!.tracks[0].clips).not.toContain(id);
+  });
+
+  it('拖拽音频落到视频轨：不静默丢弃——自动建音频轨并按落点 x 放置', () => {
+    ready(); // 默认单视频轨
+    render(<TimelinePanel />);
+    const trackBody = document.querySelector('[data-track-type="video"]')!;
+    const payload = JSON.stringify({ mediaId: 'm2', mimeType: 'audio/mp3', originalName: '音乐B.mp3', durationSec: 6 });
+    fireDrop(trackBody, payload, trackBody.getBoundingClientRect().left + 160); // 160px = 2s @80px/s
+    const d = useEditorStore.getState().data!;
+    const aTrack = d.tracks.find(t => t.type === 'audio');
+    expect(aTrack).toBeTruthy(); // 错型不再静默丢弃——自动建音频轨
+    expect(aTrack!.clips).toHaveLength(1);
+    const clip = d.clips[aTrack!.clips[0]];
+    expect(clip.type).toBe('audio');
+    expect((clip as any).mediaId).toBe('m2');
+    expect(clip.duration).toBe(6); // payload 已解析时长契约
+    expect(clip.start).toBe(2); // 落点量化（rect 取被悬停轨——start 语义按 drop 位置）
+    expect(d.tracks[0].clips).toHaveLength(0); // 视频轨未收错型片段
+    expect(useEditorStore.getState().mediaInfo['m2']).toMatchObject({ name: '音乐B.mp3', durationSec: 6, mimeType: 'audio/mp3' });
   });
 
   it('分割按钮：播放头切中选中片段 → 两片', () => {

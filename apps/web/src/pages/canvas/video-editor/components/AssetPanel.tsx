@@ -6,6 +6,20 @@ import { useTeamAssets } from '../hooks/useTeamAssets';
 import { useEditorStore } from '../store/editorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { placeAssetInTrack, assetKindOf } from '../timeline/placement';
+
+// 批3-3：三种卡片（全集资产/团队素材/生成结果）点击入轨归一化——形状差异由各 onClick 映射，此处只消费统一形状。
+// durationSec 缺省 5 同 drag payload 口径（addClip 未知兜底一致）；setMediaInfo 按 MediaInfo 现有签名四字段（thumbnailUrl Task 10 加）
+function addAssetToTimeline(norm: {
+  mediaId: string; mimeType: string; name: string; durationSec: number; url?: string; sourceNodeId?: string;
+}) {
+  const es = useEditorStore.getState();
+  if (!es.data) return;
+  es.setMediaInfo(norm.mediaId, { name: norm.name, durationSec: norm.durationSec, url: norm.url, mimeType: norm.mimeType });
+  const placement = placeAssetInTrack(es.data, { mimeType: norm.mimeType });
+  const trackId = placement.createNewTrack ? es.addTrack(placement.newTrackType!) : placement.trackId;
+  es.addClip({ type: assetKindOf(norm.mimeType), mediaId: norm.mediaId, sourceNodeId: norm.sourceNodeId, trackId, start: placement.start });
+}
 
 export function AssetPanel() {
   const { message } = AntdApp.useApp(); // 批1-2：静态 message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -70,6 +84,11 @@ export function AssetPanel() {
             <li key={i.mediaId}
               data-testid={`asset-item-${i.mediaId}`}
               draggable
+              onClick={() => addAssetToTimeline({
+                mediaId: i.mediaId, mimeType: i.mimeType, name: i.originalName,
+                durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec ?? 5, // 决策 6 同 drag payload 口径
+                url: i.url, sourceNodeId: i.sourceNodeId || undefined,
+              })}
               onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
                 mediaId: i.mediaId,
                 sourceNodeId: i.sourceNodeId || undefined,
@@ -97,6 +116,11 @@ export function AssetPanel() {
             <li key={it.mediaId}
               data-testid={`team-asset-item-${it.mediaId}`}
               draggable
+              onClick={() => addAssetToTimeline({
+                mediaId: it.mediaId, mimeType: it.mimeType, name: it.name,
+                durationSec: it.durationSec ?? 5, url: it.url,
+                // sourceNodeId 省略——素材库来源不建边（同 drag payload 口径）
+              })}
               onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
                 mediaId: it.mediaId,
                 mimeType: it.mimeType,
@@ -129,6 +153,13 @@ export function AssetPanel() {
                   <li key={mediaId}
                     data-testid={`generated-item-${mediaId}`}
                     draggable={Boolean(info?.mimeType)}
+                    onClick={() => {
+                      if (!info?.mimeType) return; // 同 draggable 守卫——mimeType 就绪才可入轨（拒绝来源不明资产）
+                      addAssetToTimeline({
+                        mediaId, mimeType: info.mimeType, name: info.name ?? mediaId,
+                        durationSec: info.durationSec ?? 5, url: info.url,
+                      });
+                    }}
                     onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
                       mediaId,
                       mimeType: info?.mimeType ?? '',

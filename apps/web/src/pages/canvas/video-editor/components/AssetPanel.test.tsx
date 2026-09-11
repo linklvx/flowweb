@@ -116,7 +116,7 @@ describe('AssetPanel', () => {
     expect(useCanvasStore.getState().edges.some(e => e.id === 'auto:edit1:v1')).toBe(true); // 连线闭环
   });
 
-  it('drop 到字幕轨 → 忽略（错型不入库——review I1）', async () => {
+  it('drop 到字幕轨 → 忽略且不新建任何轨（错型不入库——review I1；批3-3 补轨数/片段总数断言封假绿：防改道逻辑让片段溜进新轨而字幕轨仍空）', async () => {
     (batchGetMedia as any).mockResolvedValue([mkItem('m1', '视频A.mp4', 'video/mp4')]);
     const { TimelinePanel } = await import('./timeline/TimelinePanel');
     act(() => { useEditorStore.getState().addTrack('subtitle'); }); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
@@ -126,12 +126,66 @@ describe('AssetPanel', () => {
       mediaId: 'm1', sourceNodeId: 'v1', mimeType: 'video/mp4',
       originalName: '视频A.mp4', durationSec: 8,
     });
+    const before = useEditorStore.getState().data!;
     fireEvent.drop(subTrackBody, {
       dataTransfer: { getData: (type: string) => (type === 'application/x-clip' ? payload : '') },
       clientX: 80,
     });
-    const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
+    const after = useEditorStore.getState().data!;
+    expect(after.tracks).toHaveLength(before.tracks.length); // 轨数不变——不新建视频/音频轨
+    expect(Object.keys(after.clips)).toHaveLength(Object.keys(before.clips).length); // 片段总数不变——彻底无副作用
+    const subTrack = after.tracks.find(t => t.type === 'subtitle')!;
     expect(subTrack.clips).toHaveLength(0); // 视频素材不进字幕轨
+  });
+
+  it('点击素材卡片自动入轨（视频→视频轨追加轨尾）', async () => {
+    (batchGetMedia as any).mockResolvedValue([mkItem('m1', '视频A.mp4', 'video/mp4')]);
+    render(<AssetPanel />);
+    await waitFor(() => expect(screen.getByText('视频A.mp4')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('asset-item-m1'));
+    const d = useEditorStore.getState().data!;
+    const vTrack = d.tracks[0]; // 默认单视频轨
+    expect(vTrack.clips).toHaveLength(1);
+    const clip = d.clips[vTrack.clips[0]];
+    expect(clip.type).toBe('video');
+    expect((clip as any).mediaId).toBe('m1');
+    expect(clip.start).toBe(0); // 空轨轨尾 = 0
+    expect(clip.duration).toBe(5); // nodeDurationSec（beforeEach v1 节点 duration 5——同 drag payload 口径）
+    expect((clip as any).sourceNodeId).toBe('v1'); // 全集资产带来源——入轨即建边
+    expect(useCanvasStore.getState().edges.some(e => e.id === 'auto:edit1:v1')).toBe(true); // 连线闭环
+  });
+
+  it('点击团队素材/生成结果卡片同法入轨（三种卡片形状归一化）', async () => {
+    (batchGetMedia as any).mockResolvedValue([]); // 本用例聚焦团队素材 + 生成结果
+    axiosGet.mockResolvedValueOnce({ data: { code: 0, message: 'ok', data: { success: true, data: [
+      { id: 't1', originalName: '团队音频.mp3', mimeType: 'audio/mpeg', url: 'https://minio/flowai/t1', thumbnailUrl: null, metadata: { durationSec: 4 } },
+    ] } } }); // Once：一次性消费后回落 hoisted 默认空列表——不跨用例污染上传用例
+    render(<AssetPanel />);
+    await waitFor(() => expect(screen.getByText('团队音频.mp3')).toBeInTheDocument());
+    // 默认单视频轨、无音频轨 → 点击自动建音频轨入轨
+    fireEvent.click(screen.getByTestId('team-asset-item-t1'));
+    let d = useEditorStore.getState().data!;
+    const aTrack = d.tracks.find(t => t.type === 'audio');
+    expect(aTrack).toBeTruthy();
+    expect(aTrack!.clips).toHaveLength(1);
+    const aClip = d.clips[aTrack!.clips[0]];
+    expect(aClip.type).toBe('audio');
+    expect((aClip as any).mediaId).toBe('t1');
+    expect(aClip.duration).toBe(4); // metadata.durationSec
+    expect((aClip as any).sourceNodeId).toBeUndefined(); // 素材库来源不建边
+    // 生成结果：mimeType 缺失点击不入轨（同 draggable 守卫口径——拒绝来源不明资产）
+    act(() => { useEditorStore.getState().addGeneratedMedia('g0', { name: '未知产物', durationSec: undefined, mimeType: '' }); });
+    fireEvent.click(screen.getByTestId('generated-item-g0'));
+    expect(d.tracks.find(t => t.type === 'video')!.clips).toHaveLength(0); // 无 mimeType 点击无副作用
+    // mimeType 就绪后点击 → 图片归视频轨
+    act(() => { useEditorStore.getState().addGeneratedMedia('g1', { name: '生成图.png', durationSec: undefined, url: 'http://g1', mimeType: 'image/png' }); });
+    fireEvent.click(screen.getByTestId('generated-item-g1'));
+    d = useEditorStore.getState().data!;
+    const gClip = Object.values(d.clips).find(c => (c as any).mediaId === 'g1');
+    expect(gClip).toBeTruthy();
+    expect(gClip!.type).toBe('image');
+    expect(gClip!.trackId).toBe(d.tracks[0].id); // 视频轨
+    expect(gClip!.start).toBe(0); // 空视频轨轨尾
   });
 
   it('"+新建"上传：presignUpload → FormData POST → confirmUpload → 刷新团队素材 + mergeMediaInfo（遗留①：上传产物入面板）', async () => {

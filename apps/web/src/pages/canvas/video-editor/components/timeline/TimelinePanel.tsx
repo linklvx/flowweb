@@ -6,6 +6,7 @@ import { PlayheadLine } from './PlayheadLine';
 import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
 import { quantizeTime } from '../../timeline/clip-math';
 import { missingSourceNodeIds } from '../../timeline/missing-source';
+import { placeAssetInTrack } from '../../timeline/placement'; // 批3-3：错型 drop 建轨改道
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
 import type { Clip, VideoClip } from '../../types';
 import { seekPlayback } from '../../hooks/playback'; // 点击菱形跳转播放头
@@ -177,27 +178,38 @@ export function TimelinePanel() {
       mediaId: string; sourceNodeId?: string; mimeType: string;
       originalName?: string; durationSec?: number;
     };
+    // R7-N2：函数声明置于回调体顶部（严格模式块内 function 是块级作用域）——错型改道分支与兼容路径两处调用同函数作用域可见。
+    // rect 取自 ev.currentTarget（被悬停轨）——trackId 换参不影响量化落点语义
+    function dropIntoTrack(trackId: string, ev: React.DragEvent<HTMLDivElement>) {
+      const rect = ev.currentTarget.getBoundingClientRect();
+      const start = quantizeTime(Math.max(0, pxToTime(ev.clientX - rect.left, pxPerSec)));
+      if (payload.originalName) {
+        useEditorStore.getState().setMediaInfo(payload.mediaId, {
+          name: payload.originalName,
+          durationSec: payload.durationSec,
+          mimeType: payload.mimeType, // R4-5②：payload.mimeType 就在手，与 setMediaInfo 保字段双保险
+        });
+      }
+      useEditorStore.getState().addClip({
+        type: kind, mediaId: payload.mediaId,
+        sourceNodeId: payload.sourceNodeId || undefined,
+        trackId,
+        start,
+      });
+    }
     const trackEl = e.currentTarget;
     const trackType = trackEl.dataset.trackType!;
     const kind = payload.mimeType.startsWith('video/') ? 'video'
       : payload.mimeType.startsWith('audio/') ? 'audio' : 'image';
-    // 轨道类型匹配（audio 片只进 audio 轨；video/image 片只进 video 轨——图片归视频轨；字幕轨不接受 drop（review I1））
-    if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') return;
-    const rect = trackEl.getBoundingClientRect();
-    const start = quantizeTime(Math.max(0, pxToTime(e.clientX - rect.left, pxPerSec)));
-    if (payload.originalName) {
-      useEditorStore.getState().setMediaInfo(payload.mediaId, {
-        name: payload.originalName,
-        durationSec: payload.durationSec,
-        mimeType: payload.mimeType, // R4-5②：payload.mimeType 就在手（:182-183 已消费），与 setMediaInfo 保字段双保险
-      });
+    if (trackType === 'subtitle') return; // 字幕轨不接受 drop（review I1）——先于错型改道短路，防片段溜进其它轨
+    // 轨道类型匹配：audio↔video 错型不再静默丢弃——走建轨策略改道（批3-3）；video/image 同进视频轨（图片归视频轨）恒兼容
+    if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') {
+      const es = useEditorStore.getState();
+      const p = placeAssetInTrack(es.data!, { mimeType: payload.mimeType });
+      dropIntoTrack(p.createNewTrack ? es.addTrack(p.newTrackType!) : p.trackId, e);
+      return; // 关键：改道后绝不继续走被悬停轨的 trackId 分支
     }
-    useEditorStore.getState().addClip({
-      type: kind, mediaId: payload.mediaId,
-      sourceNodeId: payload.sourceNodeId || undefined,
-      trackId: trackEl.dataset.trackId!,
-      start,
-    });
+    dropIntoTrack(trackEl.dataset.trackId!, e); // 兼容路径
   }, [pxPerSec]);
 
   if (status === 'error') {
