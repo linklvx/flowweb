@@ -34,6 +34,18 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
     expect(a).toBe(b);
     expect((useEditorStore.getState().data!.clips[id] as any).keyframes).toHaveLength(1);
   });
+  it('addKeyframe 取当前插值值而非基准（单点通道恒值覆盖基准——变异守护：恒基准变异体必红）', () => {
+    ready();
+    const id = addVideo();
+    useEditorStore.getState().setPlayhead(1);
+    useEditorStore.getState().addKeyframe(id, 'scale')!; // t=1 记录 v=1（单点通道）
+    useEditorStore.getState().updateClip(id, { transform: { ...(useEditorStore.getState().data!.clips[id] as any).transform, scale: 2 } }); // 基准改 2
+    useEditorStore.getState().setPlayhead(2);
+    useEditorStore.getState().addKeyframe(id, 'scale')!; // 正确实现：单点通道恒值 1（基准被覆盖）；变异体：基准 2
+    const clip = useEditorStore.getState().data!.clips[id] as any;
+    expect(clip.keyframes).toHaveLength(2);
+    expect(clip.keyframes[1]).toMatchObject({ t: 2, value: 1 });
+  });
   it('addKeyframe 音频片 volume 通道（VolumeKeyframe 无 property 字段）', () => {
     ready();
     const d = useEditorStore.getState().data!;
