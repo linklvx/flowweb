@@ -1,6 +1,7 @@
 import type { ProjectData } from '../types';
 import { selectActiveClips } from '../scene/active-clips';
 import { interpolateClip, type SubtitleRenderState, type VisualRenderState } from '../scene/interpolate';
+import { canvasSizeOf, type CanvasSize } from '../timeline/canvas-size';
 import type { SubtitleLayer, VisualLayer } from './canvas-renderer';
 import type { WrappedFrame } from './video-cache';
 
@@ -11,7 +12,7 @@ export interface FrameRenderDeps {
   images: { getImageBitmap(mediaId: string, blob: Blob): Promise<ImageBitmap | null> };
   getMediaUrl: (mediaId: string) => string | undefined;
   getBlob: (mediaId: string) => Promise<Blob | null>;
-  renderer: { draw(visual: VisualLayer[], subtitles: SubtitleLayer[]): void };
+  renderer: { draw(visual: VisualLayer[], subtitles: SubtitleLayer[], size: CanvasSize): void };
 }
 
 /** 单帧渲染编排：selectActiveClips → interpolateClip → 取源（videoCache/imageCache）→ renderer.draw。
@@ -34,5 +35,5 @@ export async function renderFrameAt(data: ProjectData, t: number, deps: FrameRen
       if (frame) visual.push({ source: frame.canvas, srcW: frame.canvas.width, srcH: frame.canvas.height, state });
     }
   }
-  deps.renderer.draw(visual, subs);
+  deps.renderer.draw(visual, subs, canvasSizeOf(data));
 }

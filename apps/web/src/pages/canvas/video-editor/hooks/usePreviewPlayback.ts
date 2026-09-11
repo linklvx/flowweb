@@ -3,11 +3,11 @@ import { useEditorStore } from '../store/editorStore';
 import { audioEngine } from '../audio-engine/engine';
 import { makeFrameDeps } from './playback';
 import { renderFrameAt, type FrameRenderDeps } from '../renderer/render-frame';
-import { CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
+import { canvasSizeOf } from '../timeline/canvas-size';
 import { totalDuration } from '../timeline/timecode';
 import type { ProjectData } from '../types';
 
-/** canvas.width 赋值会清空画布并重置 2D 上下文——属性（PreviewPlayer）与守卫（本 hook 两处）必须同源走此函数：
+/** canvas.width 赋值会清空画布并重置 2D 上下文——属性（PreviewPlayer）与守卫（本 hook 三处）必须同源走此函数：
  * 尺寸一致时不触碰（幂等），防 60Hz 每帧重设 + 闪黑 */
 export function applyCanvasSize(canvas: HTMLCanvasElement, w: number, h: number): boolean {
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; return true; }
@@ -26,6 +26,7 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
   const playhead = useEditorStore(s => s.playhead);
   const data = useEditorStore(s => s.data);
   const mediaInfo = useEditorStore(s => s.mediaInfo); // 遗留②：url 回填（mediaInfo 变化）触发暂停态补帧
+  const size = useEditorStore((s) => canvasSizeOf(s.data)); // C 档运行时画布（引用稳定：同引用/模块常量，不随无关重渲空转）
   const pendingRef = useRef(false);
   const reqRef = useRef(0);
   const latestRef = useRef<{ deps: FrameRenderDeps; d: ProjectData; t: number } | null>(null);
@@ -46,11 +47,19 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     run();
   };
 
+  // R11 登记1：canvasSize 变化（含播放中切换）重设 backing store——playing effect deps [playing, canvasRef]
+  // 不含 size，播放中切比例该 effect 不重跑；独立 effect 订阅值变化即收口播放/暂停两态。
+  // canvas.width 赋值清空画布：播放态由 rAF 循环下一帧重绘、暂停态由下方单帧 effect（data 已含 canvasSize）补渲。
+  // 必须先于下方两 effect 声明——挂载时先重设尺寸再出首帧，防首帧被清
+  useEffect(() => {
+    if (canvasRef.current) applyCanvasSize(canvasRef.current, size.width, size.height);
+  }, [size, canvasRef]);
+
   // 暂停态单帧（G1）
   useEffect(() => {
     if (playing || !data || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    applyCanvasSize(canvas, CANVAS_W, CANVAS_H);
+    applyCanvasSize(canvas, size.width, size.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     renderLatest(makeFrameDeps(ctx), data, playhead);
@@ -62,7 +71,8 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     const canvas = canvasRef.current;
     const es0 = useEditorStore.getState();
     if (!canvas || !es0.data) return;
-    applyCanvasSize(canvas, CANVAS_W, CANVAS_H);
+    const size0 = canvasSizeOf(es0.data); // 起播时点读最新画布（subscription size 可能与 effect 闭包错拍）
+    applyCanvasSize(canvas, size0.width, size0.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const deps = makeFrameDeps(ctx);

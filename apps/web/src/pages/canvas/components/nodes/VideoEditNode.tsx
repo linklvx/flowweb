@@ -13,7 +13,8 @@ import type { FrameRenderDeps } from '@/pages/canvas/video-editor/renderer/rende
 import { videoCache } from '@/pages/canvas/video-editor/renderer/video-cache';
 import { clearImageBitmaps, getImageBitmap } from '@/pages/canvas/video-editor/renderer/image-cache';
 import { resolveMediaBlob } from '@/pages/canvas/video-editor/renderer/media-blob';
-import { CanvasRenderer, CANVAS_W, CANVAS_H } from '@/pages/canvas/video-editor/renderer/canvas-renderer';
+import { CanvasRenderer } from '@/pages/canvas/video-editor/renderer/canvas-renderer';
+import { canvasSizeOf } from '@/pages/canvas/video-editor/timeline/canvas-size';
 import { batchGetMedia } from '@/api/mediaApi';
 
 const TRACK_COLORS: Record<string, string> = { video: '#6C5CE7', image: '#6C5CE7', audio: '#95DE64', subtitle: '#FFD666' };
@@ -116,7 +117,8 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
   useEffect(() => {
     if (!miniPlaying || !projectData || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+    const size = canvasSizeOf(projectData); // backing store 随工程比例（C 档画布）
+    canvas.width = size.width; canvas.height = size.height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const deps: FrameRenderDeps = {
@@ -140,6 +142,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
   }, [miniPlaying, projectData]);
 
   const dur = projectData ? totalDuration(projectData) : 0;
+  const canvasSize = canvasSizeOf(projectData); // C 档画布（null → 兜底 1920×1080）
   const ratio = dur > 0 ? 288 / dur : 0; // 缩略区有效宽 288（316−2 border−24 padding≈290 取整 288）
 
   return (
@@ -185,8 +188,11 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
         {/* 轨道区：播放时渲染迷你画布替代只读缩略（片段色块 + 播放头位置） */}
         {miniPlaying ? (
           <div className="px-3 pb-3">
+            {/* CSS 比例随工程画布（spec 5.4）：maxHeight ≈ 既有 16:9 预览高（内容宽 290×9/16）防纵向画布节点高度剧变；
+                objectFit contain 使钳制后 letterbox 而非拉伸变形（16:9 时比例吻合为 no-op） */}
             <canvas data-testid="node-mini-canvas" ref={canvasRef}
-              className="w-full bg-black rounded-md" style={{ aspectRatio: '16 / 9' }} />
+              className="w-full bg-black rounded-md"
+              style={{ aspectRatio: `${canvasSize.width} / ${canvasSize.height}`, maxHeight: 163, objectFit: 'contain' }} />
           </div>
         ) : (
           <div className="px-3 pb-3 flex flex-col gap-1" data-testid="node-track-thumb">

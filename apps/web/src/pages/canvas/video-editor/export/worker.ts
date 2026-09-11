@@ -9,7 +9,7 @@ import { mixdownTimeline, MIX_SAMPLE_RATE, type MixdownPcm } from '../audio-engi
 import { decodeMediaPcmRaw } from '../audio-engine/decode';
 import { stretchPcm } from '../audio-engine/pcm';
 import { VideoCacheService, openMediabunnySink } from '../renderer/video-cache';
-import { CanvasRenderer, CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
+import { CanvasRenderer, BASE_CANVAS_W, BASE_CANVAS_H } from '../renderer/canvas-renderer';
 import { EXPORT_BITRATES } from './precheck';
 import { createEtaTracker } from './eta';
 import { totalDuration } from '../timeline/timecode';
@@ -43,7 +43,8 @@ async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffe
   const scale = resolution === '720p' ? 0.5 : 1;
 
   // 合成 canvas（逻辑坐标 1920×1080 不变，720p 整体 0.5×）
-  const offscreen = new OffscreenCanvas(Math.round(CANVAS_W * scale), Math.round(CANVAS_H * scale));
+  // R9-4 中间态：BASE_* 同值改名保编译绿——targetSize 语义改造属 Task 16（届时删除本中间态导入）
+  const offscreen = new OffscreenCanvas(Math.round(BASE_CANVAS_W * scale), Math.round(BASE_CANVAS_H * scale));
   const ctx2d = offscreen.getContext('2d')!;
   ctx2d.scale(scale, scale);
 

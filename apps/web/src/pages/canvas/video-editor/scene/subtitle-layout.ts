@@ -1,4 +1,5 @@
 import type { SubtitleClip } from '../types';
+import type { CanvasSize } from '../timeline/canvas-size';
 
 /** 字幕绘制规格（spec 第六节）：1920×1080 基准，720p 随 0.5× 整体缩放由 renderer 的 ctx.scale 处理 */
 export const SUBTITLE_SPEC = {
@@ -12,14 +13,20 @@ export const SUBTITLE_FONT = '"PingFang SC", "Microsoft YaHei", sans-serif';
 export interface SubtitleLayout { lines: string[]; lineHeight: number; fontSize: number; }
 
 /** 换行/截断纯函数：measure 由渲染端注入（ctx.measureText），测试注入假实现。
- *  行为：\n 分段；段内按 maxWidth 逐字换行；超过 maxLines 截断（第 maxLines 行按 maxWidth 切，不加省略号）。 */
+ *  行为：\n 分段；段内按 maxWidth 逐字换行；超过 maxLines 截断（第 maxLines 行按 maxWidth 切，不加省略号）。
+ *  size 为运行时画布（C 档，spec 5.2）：fontSize/maxWidth 以 1920×1080 基准定义、按高/宽比例派生，
+ *  缺省第四参 = 基准（既有工程行为逐位不变）。 */
 export function layoutSubtitleLines(
   text: string,
   style: SubtitleClip['style'],
   measure: (s: string, font: string) => number,
+  size: CanvasSize = { width: SUBTITLE_SPEC.canvasW, height: SUBTITLE_SPEC.canvasH },
 ): SubtitleLayout {
-  const font = `${style.fontSize}px ${SUBTITLE_FONT}`;
-  const fits = (s: string) => measure(s, font) <= SUBTITLE_SPEC.maxWidth;
+  const scaleH = size.height / SUBTITLE_SPEC.canvasH; // 基准坐标系 1080 高（既有工程 48 语义不变）
+  const scaleW = size.width / SUBTITLE_SPEC.canvasW;
+  const fontSize = style.fontSize * scaleH;           // style.fontSize 语义 = 基准 1080 高像素
+  const font = `${fontSize}px ${SUBTITLE_FONT}`;
+  const fits = (s: string) => measure(s, font) <= SUBTITLE_SPEC.maxWidth * scaleW; // maxWidth 按宽比例派生
   const lines: string[] = [];
   for (const para of text.split('\n')) {
     let line = '';
@@ -37,5 +44,5 @@ export function layoutSubtitleLines(
   }
   // 截断：已达上限时丢余段；第 maxLines 行保证自身不超宽（逐字累加天然保证）
   const capped = lines.slice(0, SUBTITLE_SPEC.maxLines);
-  return { lines: capped, lineHeight: Math.round(style.fontSize * 1.4), fontSize: style.fontSize };
+  return { lines: capped, lineHeight: Math.round(fontSize * 1.4), fontSize };
 }

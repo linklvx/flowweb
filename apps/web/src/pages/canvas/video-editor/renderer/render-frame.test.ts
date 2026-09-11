@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderFrameAt, type FrameRenderDeps } from './render-frame';
 import type { VideoCacheService, WrappedFrame } from './video-cache';
-import type { CanvasRenderer } from './canvas-renderer';
+import { CanvasRenderer } from './canvas-renderer';
 import type { ProjectData, VideoClip } from '../types';
 
 const mkDeps = (over: { frame?: WrappedFrame | null; bitmap?: { width: number; height: number } | null; url?: string } = {}): FrameRenderDeps & { video: { getFrame: ReturnType<typeof vi.fn> }; images: { getImageBitmap: ReturnType<typeof vi.fn> }; getMediaUrl: ReturnType<typeof vi.fn>; getBlob: ReturnType<typeof vi.fn> } => {
@@ -48,6 +48,7 @@ describe('renderFrameAt（单帧渲染编排）', () => {
     expect(deps.renderer.draw).toHaveBeenCalledWith(
       [expect.objectContaining({ srcW: 1920, srcH: 1080 })],
       [],
+      { width: 1920, height: 1080 }, // R9-3：第三参 size——夹具无 canvasSize → 兜底基准
     );
   });
   it('图片片走 imageCache；字幕进 subtitles 数组', async () => {
@@ -66,7 +67,27 @@ describe('renderFrameAt（单帧渲染编排）', () => {
     const deps = mkDeps({ frame: null });
     deps.getMediaUrl = vi.fn(() => undefined); // A3：视频源缺 url 跳过
     await renderFrameAt(dataWith([{ id: 'v', start: 0, duration: 5, type: 'video' }]), 0, deps);
-    expect(deps.renderer.draw).toHaveBeenCalledWith([], []);
+    expect(deps.renderer.draw).toHaveBeenCalledWith([], [], { width: 1920, height: 1080 });
     expect(deps.video.getFrame).not.toHaveBeenCalled(); // 无 url 守卫——不得向 videoCache 发起取帧
+  });
+  it('canvasSize 9:16 时渲染尺寸随 canvasSizeOf，源素材 contain 居中（源 16:9 → 留边）', async () => {
+    // 真实 CanvasRenderer + mock ctx——drawVisual 的 contain 是 9:16 画布唯一观测点（R11-A1）
+    const fillRect = vi.fn();
+    const translate = vi.fn();
+    const drawImage = vi.fn();
+    const ctx = {
+      fillStyle: '', globalAlpha: 1, font: '', textAlign: '', textBaseline: '',
+      fillRect, translate, drawImage, save: vi.fn(), restore: vi.fn(),
+      measureText: () => ({ width: 0 }),
+    } as unknown as CanvasRenderingContext2D;
+    const frame = { canvas: { width: 1920, height: 1080 }, timestamp: 0, duration: 1 } as unknown as WrappedFrame;
+    const deps = { ...mkDeps({ frame }), renderer: new CanvasRenderer(ctx) };
+    const d = dataWith([{ id: 'v', start: 0, duration: 5, type: 'video' }]);
+    d.canvasSize = { width: 1080, height: 1920 };
+    await renderFrameAt(d, 2, deps);
+    expect(fillRect).toHaveBeenCalledWith(0, 0, 1080, 1920); // 黑底随运行时画布（:24 消费点）
+    expect(translate).toHaveBeenCalledWith(540, 960); // 中心 translate 随运行时画布（:49 消费点）
+    // contain = min(1080/1920, 1920/1080) = 0.5625 → 绘制 1080×607.5 居中（宽撑满、上下留边——:42 消费点）
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), -540, -303.75, 1080, 607.5);
   });
 });
