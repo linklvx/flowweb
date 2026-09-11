@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { PreviewPlayer } from './PreviewPlayer';
 import { useEditorStore } from '../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../types';
-import { togglePlayback, stopPlayback, seekPlayback } from '../hooks/playback';
+import { togglePlayback, stopPlayback, seekPlayback, scrubBegin, scrubMove, scrubEnd } from '../hooks/playback';
 import { audioEngine } from '../audio-engine/engine';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
@@ -131,5 +131,54 @@ describe('PreviewPlayer（控制条）', () => {
     render(<><PreviewPlayer /><TimelinePanel /></>);
     fireEvent.keyDown(document, { key: ' ' });
     await waitFor(() => expect(useEditorStore.getState().playing).toBe(true));
+  });
+});
+
+describe('scrub 三段式（G4/决策 6②：静音拖拽——down 停音频退 rAF，move 只动播放头，up 才恢复）', () => {
+  beforeEach(() => { vi.clearAllMocks(); useEditorStore.getState().reset(); scrubEnd(); /* 模块级 scrub 状态复位 */ });
+
+  it('scrubBegin 播放中：stop 音频 + playing=false + playhead 到位', async () => {
+    ready();
+    await togglePlayback();
+    (audioEngine.stop as ReturnType<typeof vi.fn>).mockClear();
+    scrubBegin(1.5);
+    expect(audioEngine.stop).toHaveBeenCalled();
+    expect(useEditorStore.getState().playing).toBe(false);
+    expect(useEditorStore.getState().playhead).toBe(1.5);
+  });
+  it('scrubMove：active 时只动 playhead 不碰引擎；未 begin 时 no-op', async () => {
+    ready();
+    await togglePlayback();
+    scrubBegin(0);
+    // 偏离登记（计划笔误补丁）：原稿 clearAllMocks 在 scrubBegin 之前——而 scrubBegin 播放中必调 stop
+    // （playback.ts 静音拖拽），其后断言 stop 未被调恒假失败；清桩移到 begin 后 move 前，精确验证「move 本身不碰引擎」
+    vi.clearAllMocks();
+    scrubMove(2);
+    expect(useEditorStore.getState().playhead).toBe(2);
+    expect(audioEngine.playFrom).not.toHaveBeenCalled();
+    expect(audioEngine.stop).not.toHaveBeenCalled();
+    scrubEnd();
+    vi.clearAllMocks();
+    scrubMove(3); // 未 begin——no-op
+    expect(useEditorStore.getState().playhead).toBe(2);
+  });
+  it('scrubEnd：wasPlaying=true 恢复播放；wasPlaying=false 保持暂停', async () => {
+    ready();
+    await togglePlayback();
+    scrubBegin(0);
+    scrubEnd();
+    expect(useEditorStore.getState().playing).toBe(true); // 恢复
+    stopPlayback();
+    scrubBegin(1);
+    scrubEnd();
+    expect(useEditorStore.getState().playing).toBe(false); // 本就暂停——不恢复
+  });
+  it('scrubBegin 暂停态：不停音频，只动播放头', () => {
+    ready();
+    scrubBegin(0.5);
+    expect(audioEngine.stop).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().playing).toBe(false);
+    expect(useEditorStore.getState().playhead).toBe(0.5);
+    scrubEnd();
   });
 });

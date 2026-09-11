@@ -74,7 +74,7 @@ export function VideoEditorShell() {
         if (!drained) { message.warning('当前离线或保存失败，存在未保存的修改——连接恢复后重试或手动重试后再收起'); return; }
         releaseEditorRuntime(); // 收起释放运行时（spec 边界护栏）——flush 成功、close() 之前
         close();
-      }).catch(() => close());
+      }).catch(() => { releaseEditorRuntime(); close(); }); // flush reject（异常路径）同样释放——各释放操作幂等
     } else close();
   };
 

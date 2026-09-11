@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackRow } from './TrackRow';
@@ -8,6 +8,12 @@ import { quantizeTime } from '../../timeline/clip-math';
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
 import type { Clip } from '../../types';
 import { useEditorKeyboard } from '../../hooks/useEditorKeyboard';
+
+// TrackRow memo 生效性：不依赖组件态（getState 自取 playhead）——模块级常量，引用恒稳定
+const handleSubtitleAdd = (trackId: string) => {
+  const s = useEditorStore.getState();
+  s.addSubtitleClip(trackId, s.playhead);
+};
 
 export function TimelinePanel() {
   const status = useEditorStore(s => s.status);
@@ -39,7 +45,9 @@ export function TimelinePanel() {
   }
   const dragRef = useRef<DragState | null>(null);
 
-  const onClipPointerDown = (clip: Clip, e: React.PointerEvent) => {
+  // TrackRow memo 生效性：deps 内 data/pxPerSec 变化时 TrackRow 本就因同名 props 变化重渲，
+  // 其余 panel 级重渲（viewport resize 等）回调保持稳定不架空 memo
+  const onClipPointerDown = useCallback((clip: Clip, e: React.PointerEvent) => {
     if (e.button !== 0 || status !== 'ready' || !data) return;
     e.stopPropagation();
     useEditorStore.getState().selectClip(clip.id); // getState 风格——面板无需为此多挂一个 selector
@@ -59,7 +67,7 @@ export function TimelinePanel() {
       pointerMovedOnce: false,
     };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
+  }, [status, data, pxPerSec]);
 
   const onWindowPointerMove = (e: PointerEvent) => {
     const d = dragRef.current;
@@ -127,7 +135,8 @@ export function TimelinePanel() {
   }, []);
 
   // 左面板资产拖入（Task 16）：payload 由 dragStart 汇点解析（时长已定），此处只做轨道匹配 + 落点量化 + 入库
-  const handleClipDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  // TrackRow memo 生效性：只捕获 pxPerSec（store 写入经 getState）——除缩放外恒稳定
+  const handleClipDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const raw = e.dataTransfer.getData('application/x-clip');
     if (!raw) return;
@@ -155,7 +164,7 @@ export function TimelinePanel() {
       trackId: trackEl.dataset.trackId!,
       start,
     });
-  };
+  }, [pxPerSec]);
 
   if (status === 'error') {
     return <div data-testid="timeline-error" className="h-[280px] border-t border-[#E5E7EB] [border-top-style:solid] bg-white flex flex-col items-center justify-center gap-2">
@@ -191,7 +200,7 @@ export function TimelinePanel() {
           {data.tracks.map(t => (
             <TrackRow key={t.id} track={t} data={data}
               onDropClip={handleClipDrop}
-              onSubtitleAdd={(trackId) => { const s = useEditorStore.getState(); s.addSubtitleClip(trackId, s.playhead); }}
+              onSubtitleAdd={handleSubtitleAdd}
               onClipPointerDown={onClipPointerDown} />
           ))}
           {/* I3：贯穿播放头竖线（自订阅——标尺+轨道全域，随内容滚动；pointer-events-none 不挡交互） */}
