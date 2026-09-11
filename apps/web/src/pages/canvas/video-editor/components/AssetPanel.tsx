@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Input, message } from 'antd';
+import { App as AntdApp, Input } from 'antd';
 import axios from 'axios';
 import { useWorkflowAssets } from '../hooks/useWorkflowAssets';
 import { useTeamAssets } from '../hooks/useTeamAssets';
@@ -8,6 +8,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 
 export function AssetPanel() {
+  const { message } = AntdApp.useApp(); // 批1-2：静态 message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
   const { items, loading } = useWorkflowAssets();
   const [keyword, setKeyword] = useState('');
   const [teamKey, setTeamKey] = useState(0); // 上传完成后 +1 触发团队素材刷新

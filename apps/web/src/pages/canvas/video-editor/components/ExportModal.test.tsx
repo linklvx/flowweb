@@ -4,6 +4,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // mock：videoProjectApi.exportPrecheck / client runExportJob / capabilities / upload 与 product-node
 // （后两者已在 Task 9 建成——mock 仅为组件测试隔离上传/上画布副作用，真实行为在 Task 9 自测）
+// 批1-2：组件 message 改经 App.useApp()——antd context 默认值无 static 回退，裸渲染必须 stub（Modal/Radio/Progress/Button 经 ...orig 保真；四键齐全防未来通道撞 is not a function）
+const { messageSuccess, messageError, messageWarning, messageInfo, confirmMock } = vi.hoisted(() => ({
+  messageSuccess: vi.fn(), messageError: vi.fn(), messageWarning: vi.fn(), messageInfo: vi.fn(), confirmMock: vi.fn(),
+}));
+vi.mock('antd', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('antd')>();
+  return {
+    ...orig,
+    App: { ...orig.App, useApp: () => ({ message: { success: messageSuccess, error: messageError, warning: messageWarning, info: messageInfo }, modal: { confirm: confirmMock } }) },
+  };
+});
 const precheckApi = vi.fn();
 vi.mock('@/api/videoProjectApi', () => ({ exportPrecheck: (...a: unknown[]) => precheckApi(...a) }));
 vi.mock('../export/upload', () => ({ uploadExportedProduct: vi.fn().mockResolvedValue({ mediaId: 'uuid-1' }) }));

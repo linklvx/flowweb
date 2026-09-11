@@ -1,14 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { confirmMock, watchMock, regenMock } = vi.hoisted(() => ({
+const { confirmMock, watchMock, regenMock, messageSuccess, messageError, messageWarning, messageInfo } = vi.hoisted(() => ({
   confirmMock: vi.fn((opts: { onOk?: () => unknown; content?: string }) => { opts.onOk?.(); }),
   watchMock: vi.fn(async (..._a: unknown[]) => { }),
   regenMock: vi.fn(),
+  messageSuccess: vi.fn(), messageError: vi.fn(), messageWarning: vi.fn(), messageInfo: vi.fn(),
 }));
 vi.mock('antd', async (importOriginal) => {
   const orig = await importOriginal<typeof import('antd')>();
-  return { ...orig, Modal: { ...orig.Modal, confirm: confirmMock } }; // 仅覆 confirm——Slider/Tooltip/message 保真实现
+  return {
+    ...orig, // Slider/Tooltip 等保真
+    // 批1-2：组件 modal/message 改经 App.useApp()——antd context 默认值无 static 回退，裸渲染必须 stub（四键齐全防未来通道撞 is not a function）
+    App: { ...orig.App, useApp: () => ({ message: { success: messageSuccess, error: messageError, warning: messageWarning, info: messageInfo }, modal: { confirm: confirmMock } }) },
+  };
 });
 vi.mock('../hooks/shadowJob', () => ({ watchShadowJob: watchMock }));
 vi.mock('@/api/videoProjectApi', () => ({ regenerateNode: regenMock }));

@@ -1,5 +1,4 @@
 // apps/web/src/pages/canvas/video-editor/hooks/shadowJob.ts
-import { message } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { subscribeNodeStatus } from '@/services/executionSocket';
 import { readNodeFileIdFromDoc } from '@/stores/canvasCollabRuntime';
@@ -19,6 +18,7 @@ export async function watchShadowJob(
   kind: 'video' | 'audio',
   hint: { name: string; durationSec?: number },
   initial?: { success: boolean; errors?: string[] }, // R6-P2-1：regenerate HTTP 响应自带的 execute 结果——success=false 时立即失败（error 事件在订阅前已 emit，错过即 120s 干等）
+  notify?: { success(m: string): void; error(m: string): void }, // 批1-2：App.useApp() 上下文 toast 实例子集（模块级函数无法用 hook，由唯一生产调用方 PreviewPlayer 传入）——不传即静默无 toast（显式设计，无静态兜底）
 ): Promise<void> {
   useEditorStore.getState().startShadowJob(shadowNodeId, kind);
   useEditorStore.getState().updateShadowJob(shadowNodeId, { status: 'downloading' });
@@ -41,10 +41,10 @@ export async function watchShadowJob(
     // （静默不可拖）；kind 是权威来源（watchShadowJob 入参），不重犯 N10 的音频错标 video（kind=audio 时给 audio/*）
     if (!mimeType) mimeType = kind === 'audio' ? 'audio/mpeg' : 'video/mp4';
     useEditorStore.getState().addGeneratedMedia(fileId, { name, durationSec, ...(url ? { url } : {}), mimeType });
-    void message.success(kind === 'audio' ? '音频生成完成，已入资产面板' : '视频生成完成，已入资产面板');
+    notify?.success(kind === 'audio' ? '音频生成完成，已入资产面板' : '视频生成完成，已入资产面板');
   } catch (err) {
     useEditorStore.getState().updateShadowJob(shadowNodeId, { status: 'error', error: String((err as Error).message ?? err) });
-    void message.error(`生成失败：${(err as Error).message ?? '未知错误'}`);
+    notify?.error(`生成失败：${(err as Error).message ?? '未知错误'}`);
   } finally {
     const workflowId = useCanvasStore.getState().projectId;
     if (workflowId) void removeShadowNode(workflowId, shadowNodeId).catch(() => { /* 删除失败留影子，__ephemeral 全局排除不扣费 */ });

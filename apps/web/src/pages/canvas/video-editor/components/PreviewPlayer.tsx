@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Modal, Slider, Tooltip, message } from 'antd';
+import { App as AntdApp, Slider, Tooltip } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
 import { togglePlayback, seekPlayback } from '../hooks/playback'; // R3 五-5：stopPlayback 未使用（停止走 togglePlayback 的 playing 分支），删导入
@@ -11,6 +11,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 export function PreviewPlayer() {
+  const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   usePreviewPlayback(canvasRef);
@@ -42,7 +43,7 @@ export function PreviewPlayer() {
     && (retakeSource.data as { origin?: string } | undefined)?.origin !== 'video-edit'; // 仅真实视频分支（spec §4）——imageGen 源/产物节点置灰
   const onRetake = () => {
     if (!retakeSource) return;
-    Modal.confirm({
+    modal.confirm({
       title: '片段重拍', content: '将消耗团队积分，确认重新生成该片段的视频？',
       onOk: async () => {
         try {
@@ -50,7 +51,7 @@ export function PreviewPlayer() {
           if (!workflowId) return;
           const { shadowNodeId, result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video' });
           // R6-P2-1：result 透传——早失败（扣费失败/参数错）在 HTTP 往返内已 emit error（订阅错过），靠 initial 立即反馈
-          void watchShadowJob(shadowNodeId, 'video', { name: `${(retakeSource.data as { label?: string })?.label ?? '重拍'}` }, result);
+          void watchShadowJob(shadowNodeId, 'video', { name: `${(retakeSource.data as { label?: string })?.label ?? '重拍'}` }, result, { success: message.success, error: message.error }); // notify：生成完成/失败 toast 落壳内
         } catch (err) {
           void message.error(`重拍请求失败：${(err as Error).message}`); // R7-P3：HTTP 4xx/网络错——antd confirm onOk reject 只停 loading 无任何提示
         }

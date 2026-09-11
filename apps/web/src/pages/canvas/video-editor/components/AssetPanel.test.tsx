@@ -18,10 +18,16 @@ const { axiosGet, axiosPost } = vi.hoisted(() => ({
 }));
 vi.mock('axios', () => ({ default: { get: (...a: unknown[]) => axiosGet(...a), post: (...a: unknown[]) => axiosPost(...a) } }));
 vi.mock('@/api/storageApi', () => ({ presignUpload: vi.fn(), confirmUpload: vi.fn() }));
-const { messageSuccess, messageError } = vi.hoisted(() => ({ messageSuccess: vi.fn(), messageError: vi.fn() }));
+const { messageSuccess, messageError, messageWarning, messageInfo, confirmMock } = vi.hoisted(() => ({
+  messageSuccess: vi.fn(), messageError: vi.fn(), messageWarning: vi.fn(), messageInfo: vi.fn(), confirmMock: vi.fn(),
+}));
 vi.mock('antd', async (importOriginal) => {
   const orig = await importOriginal<typeof import('antd')>();
-  return { ...orig, message: { ...orig.message, success: messageSuccess, error: messageError } }; // 仅覆 message——Input 保真
+  return {
+    ...orig, // Input 等保真
+    // 批1-2：组件 message 改经 App.useApp()——antd context 默认值无 static 回退，裸渲染必须 stub（四键齐全防未来通道撞 is not a function）
+    App: { ...orig.App, useApp: () => ({ message: { success: messageSuccess, error: messageError, warning: messageWarning, info: messageInfo }, modal: { confirm: confirmMock } }) },
+  };
 });
 
 const mkItem = (id: string, name: string, mime: string, metadata: Record<string, unknown> = {}): BatchMediaItem =>

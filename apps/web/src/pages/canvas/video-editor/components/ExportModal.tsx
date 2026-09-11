@@ -1,6 +1,6 @@
 // apps/web/src/pages/canvas/video-editor/components/ExportModal.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Radio, Progress, Button, message } from 'antd';
+import { App as AntdApp, Modal, Radio, Progress, Button } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
@@ -37,6 +37,7 @@ function fmtSize(bytes: number): string {
 }
 
 export function ExportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { message } = AntdApp.useApp(); // 批1-2：静态 message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例（稳定引用，startExport 闭包内直接用）
   const data = useEditorStore((s) => s.data);
   const mediaInfo = useEditorStore((s) => s.mediaInfo);
   const [resolution, setResolution] = useState<ExportResolution>('720p');
