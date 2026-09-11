@@ -23,7 +23,7 @@
 |---|---|---|
 | 1 | `components/PopupScope.test.tsx` | `components/VideoEditorShell.tsx`、`AssetPanel.tsx`、`ExportModal.tsx`、`PreviewPlayer.tsx` |
 | 2 | — | `VideoEditorShell.tsx`、`PreviewPlayer.tsx`、`index.css`（全局，仅加编辑器段） |
-| 3 | `timeline/placement.ts`（+test） | `types.ts`（shared 同步）、`store/editorStore.ts`、`components/AssetPanel.tsx`、`components/timeline/TimelinePanel.tsx`、`components/timeline/ClipBlock.tsx`、`components/timeline/TimelineRuler.tsx`、`hooks/useEditorKeyboard.ts` |
+| 3 | `timeline/placement.ts`（+test）、`renderer/poster.ts`（+test） | `types.ts`（shared 同步）、`store/editorStore.ts`、`components/AssetPanel.tsx`、`components/timeline/TimelinePanel.tsx`、`components/timeline/ClipBlock.tsx`、`components/timeline/TimelineRuler.tsx`、`hooks/useEditorKeyboard.ts`、`renderer/canvas-renderer.ts`（提取 openPosterSink） |
 | 4+5 | `timeline/canvas-size.ts`（+test） | `types.ts`、`PreviewPlayer.tsx`、`hooks/usePreviewPlayback.ts`、`renderer/canvas-renderer.ts`、`scene/subtitle-layout.ts`、`export/precheck.ts`、`export/worker.ts`、`components/EditorTopBar.tsx`、`VideoEditNode.tsx`、api 端 `video-project.dto.ts`、`generated-media.service.ts` |
 | 6 | — | `export/client.ts`、`export/worker.ts`、`export/upload.ts`、`components/ExportModal.tsx`（重构为 Popover）、`store/editorStore.ts` |
 | 7 | — | api 端 `generated-media.service.ts`、`temp-cleanup.processor.ts`、`video-project.dto.ts` |
@@ -92,8 +92,6 @@ export function VideoEditorShell() {
         {/* 批 1：弹层作用域——antd 弹层挂进壳内（高于壳 z-[100000] 的层叠由 DOM 顺序保证），
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null） */}
         <ConfigProvider getPopupContainer={() => shellRef.current ?? document.body}>
-        {/* ⚠ 删除旧注释"ref={focusRef} 与 shellRef 并存……新增独立 ref"——一个元素只能有一个 ref 属性，
-            以本块上方回调合并写法为准（R4 小项：stale 注释与实现矛盾） */}
           <AntdApp>
             <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} onExport={() => setExportOpen(true)} />
             <div className="flex flex-1 min-h-0">
@@ -112,8 +110,6 @@ export function VideoEditorShell() {
   );
 }
 ```
-
-注意：`ref={focusRef}` 与 `shellRef` 并存（focusRef 管焦点、shellRef 管弹层容器），合并为一个 ref 数组亦可但**精准修改优先：新增独立 ref**。
 
 - [ ] **Step 4: 跑既有测试确认无回归**
 
@@ -593,10 +589,11 @@ vi.mock('./canvas-renderer', () => ({
 }));
 import { ensurePoster } from './poster';
 import { openPosterSink } from './canvas-renderer';
+const fakePosterCanvas = { toDataURL: () => 'data:image/jpeg;base64,AAA' } as unknown as HTMLCanvasElement; // 桩一行给足返回值（R5 小项——免一轮红→查）
 describe('ensurePoster（一次性首帧海报）', () => {
   it('成功：取 t=0 帧 → JPEG dataURL，且用后关闭 sink', async () => {
     const close = vi.fn();
-    vi.mocked(openPosterSink).mockResolvedValue({ frameToCanvas: vi.fn().mockReturnValue(fakeCanvas320w), close } as never);
+    vi.mocked(openPosterSink).mockResolvedValue({ frameToCanvas: vi.fn().mockResolvedValue(fakePosterCanvas), close } as never);
     const r = await ensurePoster('m1', 'http://x/v.mp4');
     expect(r).toMatch(/^data:image\/jpeg;base64,/);
     expect(close).toHaveBeenCalledOnce();
@@ -698,9 +695,12 @@ const onWheel = (e: WheelEvent) => {
 
 ```tsx
 // :19-23 全量循环替换为视口窗口：
+// ⚠ 统一口径规则（R5 必改②，三处消费共用）：凡在 scrollRef 内容坐标系里做时间↔像素换算，必须扣
+// TRACK_HEADER_W——标尺局部坐标原点在内容 x=140 之后（可见区在标尺局部坐标 = [scrollLeft-140,
+// scrollLeft+viewportW-140]）。滚轮（Step 3）/标尺（本处）/吸附指示线（Task 12）三条路径同源。
 const ticks: number[] = [];
-const visibleStart = Math.max(0, pxToTime(scrollLeft, pxPerSec) - interval);           // 左溢出一格
-const visibleEnd = pxToTime(scrollLeft + viewportW, pxPerSec) + interval;              // 右溢出
+const visibleStart = Math.max(0, pxToTime(scrollLeft - TRACK_HEADER_W, pxPerSec) - interval); // 扣轨头列宽——不扣则左缘 140px 无刻度带（pxPerSec=10 时 14s 空白，-interval 溢出盖不住）
+const visibleEnd = pxToTime(scrollLeft + viewportW, pxPerSec) + interval;              // 终点 ✓：widthPx=viewportW-140 已隐含扣减，勿误传父级完整 W
 const endSec = Math.min(dur + interval, visibleEnd);
 for (let t = Math.ceil(Math.max(0, visibleStart) / interval) * interval; t <= endSec; t += interval) ticks.push(Number(t.toFixed(4)));
 // ⚠ scrollLeft 必须有响应式来源（R3 建议⑥）：scrollLeft 是 DOM 滚动位非 React state——
@@ -966,7 +966,7 @@ git commit -m "feat(video-editor): 批5-1 canvasSize C 档——6 档 Dropdown/�
 ### Task 15: 消费方改造（renderer/字幕/节点卡片）
 
 **Files:**
-- Modify: `renderer/canvas-renderer.ts:4-5,42-51,65`、`scene/subtitle-layout.ts:4-9`、`components/nodes/VideoEditNode.tsx:119,150`（路径以 Glob 实测为准）
+- Modify: `renderer/canvas-renderer.ts:4-5,42-51,65`、`scene/subtitle-layout.ts:4-9`、`apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx:119,150`（R4 已核实路径）
 - Test: `render-frame.test.ts`、subtitle-layout 既有测试
 
 - [ ] **Step 1: 写失败测试**
@@ -1319,7 +1319,7 @@ const startExport = async () => {
 </Popover>
 ```
 
-结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写，**批 1 的 Shell 级归属断言同批把 `.ant-modal-wrap` 选择器改为 `.ant-popover`**（容器归属断言逻辑不变——否则批 6 落地留红灯）。OPFS 残留回收 `cleanupStaleOpfsExports()`（模块级：`navigator.storage.getDirectory()` → 迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h → removeEntry；**整体 try/catch 静默**——Firefox 无痕模式 getDirectory 拒绝，不得影响导出主流程；迭代器 TS 形态见待核实点）——在 startExport 的 job 启动后 fire-and-forget（见上方 R3 必改②），替代本地路径的即时清理，兼收上次崩溃残留。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
+结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写，**批 1 的 Shell 级归属断言同批把 `.ant-modal-wrap` 选择器改为 `.ant-popover`**（容器归属断言逻辑不变——否则批 6 落地留红灯）。OPFS 残留回收 `cleanupStaleOpfsExports()`（模块级：`navigator.storage.getDirectory()` → 迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h → removeEntry；**整体 try/catch 静默**——Firefox 无痕模式 getDirectory 拒绝，不得影响导出主流程。迭代器 TS 形态直接用兜底写法：`for await (const name of (root as unknown as { keys(): AsyncIterableIterator<string> }).keys())`——TS DOM lib 的 keys() 类型如可直接用则去强转）——在 startExport 的 job 启动后 fire-and-forget（见上方 R3 必改②），替代本地路径的即时清理，兼收上次崩溃残留。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
 
 editorStore 补 + **publishProduct 模块级 helper**（R3 必改③：成功路径漏 clear 会让 pendingProduct 常驻 → 重试按钮常在 → 再点建重复节点。收拢一个入口，成功与重试共用）：
 
@@ -1388,13 +1388,17 @@ if (input.clientRequestId) {
   }
 }
 // metadata 加 clientRequestId 存档
-// **前端 id 生命周期（R4 必改①，两处缺一不可）**：clientRequestId = "一次导出尝试"——
-// startExport 开头 const reqIdRef = useRef<string | null>(null); reqIdRef.current ??= crypto.randomUUID();
-// 进入上传前传 reqIdRef.current；导出结束（成功/失败/canceled 的 finally）reqIdRef.current = null;
-// ⚠ 禁止组件级 useRef 长期隐式复用——同会话第二次导出会命中幂等拿到第一次的 key/size：
+// **前端 id 生命周期（R5 必改①修正声明位置）**：clientRequestId = "一次导出尝试"——
+// ref 与 startingRef 并列声明在**组件体**（:50 旁；startExport 是事件处理器，渲染期外调
+// useRef 直接抛 Invalid hook call）：
+//   组件体：const exportReqIdRef = useRef<string | null>(null);
+//   startExport 内：exportReqIdRef.current ??= crypto.randomUUID();  // 首次进入生成；同一次尝试内 register 重试复用
+//   上传时传 exportReqIdRef.current；外层 finally（startingRef.current = false 处）exportReqIdRef.current = null;
+// ⚠ 禁止组件级长期隐式复用——同会话第二次导出会命中幂等拿到第一次的 key/size：
 // 上传覆盖第一次产物 + content-length-range 按首帧字节 ±1024 钉死 → 第二次重编码必超范围 → MinIO 400。
-// 已知接受项（同段登记）：findFirst+create 无唯一约束，同 id 并发双建——startingRef 前端串行化 +
-// 每次导出独立 id 下实际不可达，不阻断。
+// 已知接受项（同段登记）：① findFirst+create 无唯一约束，同 id 并发双建——startingRef 前端串行化 +
+// 每次导出独立 id 下实际不可达 ② metadata.path JSON 过滤走全表扫+逐行取值（无索引）——量级可控
+// （单团队导出频次低），若未来成热路径需 raw SQL 表达式索引或改独立列。
 // register() 写 expiresAt = now + 24h（Media 模型无 updatedAt 字段——schema.prisma :286-309 仅 createdAt/expiresAt，
 // 评审第 2 条：复用既有 expiresAt 语义，in-flight 行因 expiresAt 在未来天然不被收走）：
 //   prisma.media.create({ data: { ..., expiresAt: new Date(Date.now() + 24 * 3600_000) } })
@@ -1445,6 +1449,7 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 - 类型一致性：SaveTarget/pickSaveTarget（Task 18↔19）、canvasSizeOf/CANVAS_PRESETS/remapForCanvasSize（Task 14↔15↔16）、computeExportSize（Task 16↔17↔19）、applyCanvasSize（Task 13↔15）、setPendingProduct（Task 19↔批7 呼应）已交叉核对。
 - **R2 修订（2026-09-12 plan 评审 14 条全采纳）**：①批 1 回归测试改真实 Shell 夹具（自证式夹具删除）②TTL 改复用 expiresAt（Media 无 updatedAt）③滚轮锚定扣 TRACK_HEADER_W=140 + scrollRef 名修正 + 提常量④OPFS 本地路径不即时清理（改导出开头扫过期）⑤placement 删 canPlaceAt 死代码（轨尾追加无重叠可能）+ 夹具写实⑥Popover 归属定案 EditorTopBar（删 Shell exportOpen/onExport）+ 补建重试按钮落地 + canceled 分支保留⑦持久化改 onLayout 自管 `{version:1, panels}`（弃 autoSaveId）⑧--ve-text-dim 专用 token（Tailwind3 var() 不支持斜杠透明度）⑨estimateSizeBytes 改输出像素⑩backgroundColor 长写 + selector 订阅⑪setCanvasSize 走 commit()（含 stopCapturing）⑫BASE_CANVAS_W/H 保留 + CanvasRenderer 构造器注入 canvasSize⑬纪律段补 shared 测试命令。⑭ResizeObserver 已 stub（test-setup.ts:17）无需处理。
 - **R3 修订（2026-09-12 plan 评审二轮）**：回调 ref 合并挂载 shellRef/OPFS 扫描挪 job 后+SecurityError onDegraded/publishProduct 收拢/Dropdown 删双入栈/Panel 级 defaultSize/标尺 scrollLeft 响应式/canvasSize 每帧参数/删占位注释——8 条全采纳。
+- **R5 修订（2026-09-12 plan 评审四轮 2 必改+6 小项全采纳）**：①exportReqIdRef 声明移回组件体（事件处理器内调 useRef 必抛 Invalid hook call——startExport 内只碰 .current，外层 finally 清空）②标尺窗口起点扣 TRACK_HEADER_W（140 第三处消费，固化为"scrollRef 内容坐标系换算必扣轨头"统一规则——滚轮/标尺/吸附线三处同源）。小项：Task 1 stale"并存"注意段整删（第三次清理）/OPFS 迭代器悬空引用改内联兜底写法（for await + keys() 强转）/批 3 文件表补 poster.ts（Create）与 canvas-renderer.ts（Modify）/Task 15 路径确定化/poster 桩 toDataURL 一行/幂等无索引登记接受项（与并发双建同段）。
 - **R4 修订（2026-09-12 plan 评审三轮 3 必改+4 建议+9 小项全采纳）**：①clientRequestId 生命周期收紧"一次导出尝试"（组件级 useRef 跨导出复用会静默毁首产物——幂等命中旧 key+content-length-range 钉死必 400）+ 幂等查询加 status:'pending'②拖拽分支全形态（不兼容轨一律改道+必须早退+newTrackType 勿硬编码+dropIntoTrack TDZ 提升声明）③骨架补回 setJob(j)（取消按钮防空转）。建议：横向默认 22/56/22 和=100+saved 惰性初始化/rAF single-flight+标尺 memo/吸附线 +TRACK_HEADER_W 同源/worker 三处同源（scale+OffscreenCanvas+encoder config）。小项：ensurePoster 补 mock 单测（TDD 铁律）/stale 注释与受控注释清理/ExportResolution 随码率表自动扩展/本地路径验收口径"下次导出后无残留"/幂等并发缺口登记接受项/.ant-tick 类名勘误+jsdom 滚动限制/publishProduct 删空壳 try/catch/壳 chrome 暗色目检。**R4 已核实消解**：canvas-controls 变量名✓（index.css:17-19）、addTrack 返回 id✓（:413）、createProductNode 同步✓、open 复位五项✓（:65-70）、手势链无隐藏 await✓（:88-93）、VideoEditNode 路径=components/nodes/VideoEditNode.tsx（Task 15 git add 范围 pages/canvas 勿缩）。
 - 已知实现期待核实点（R4 后 2 条）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout 首次挂载是否即触发（防覆盖 saved）② mediabunny sink 工厂导入路径与 poster 所需接口形态（Task 10 openPosterSink——video-cache/canvas-renderer 内实测提取）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
