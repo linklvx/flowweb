@@ -87,7 +87,7 @@ apps/web/src/
 - Create: `apps/web/src/pages/canvas/video-editor/scene/active-clips.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/scene/active-clips.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/active-clips.test.ts
@@ -154,14 +154,14 @@ describe('selectActiveClips（视觉管线活跃判定）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败**
+- [x] **Step 2: 确认失败**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/scene/active-clips.test.ts
 # 预期: FAIL（Cannot find module './active-clips'）
 ```
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/active-clips.ts
@@ -192,7 +192,7 @@ export function selectActiveClips(data: ProjectData, t: number): ActiveClip[] {
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/scene/active-clips.test.ts
@@ -208,7 +208,7 @@ git add apps/web/src/pages/canvas/video-editor/scene && git commit -m "feat(vide
 - Create: `apps/web/src/pages/canvas/video-editor/scene/interpolate.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/scene/interpolate.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/interpolate.test.ts
@@ -397,7 +397,7 @@ describe('interpolateClip（整合输出）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/interpolate.ts
@@ -531,7 +531,7 @@ export function interpolateClip(data: ProjectData, clipId: string, t: number): R
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/scene/interpolate.test.ts
@@ -547,7 +547,7 @@ git add apps/web/src/pages/canvas/video-editor/scene && git commit -m "feat(vide
 - Create: `apps/web/src/pages/canvas/video-editor/scene/subtitle-layout.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/scene/subtitle-layout.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/subtitle-layout.test.ts
@@ -590,7 +590,7 @@ describe('layoutSubtitleLines（1920×1080 基准，measure 注入）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/scene/subtitle-layout.ts
@@ -637,7 +637,7 @@ export function layoutSubtitleLines(
 }
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/scene/subtitle-layout.test.ts
@@ -654,7 +654,7 @@ git add apps/web/src/pages/canvas/video-editor/scene && git commit -m "feat(vide
 
 mediabunny API 形状（vendor 实测 + R2 A3 修订）：`new Input({source: new UrlSource(url), formats: ALL_FORMATS})`（UrlSource 走 HTTP Range 随机读——决策 1）→ `input.getPrimaryVideoTrack()` → `new CanvasSink(track, {poolSize, fit:'contain'})` → `sink.canvases(startTime)` AsyncGenerator<WrappedCanvas{canvas, timestamp, duration}>。本服务把 mediabunny 依赖收在 deps.openSink 注入点、自愈冷却时钟收在 deps.now 注入点（jsdom 可测——Date.now 不可控推进），生产装配在文件末尾。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/video-cache.test.ts
@@ -790,7 +790,7 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → Step 3: 实现**
+- [x] **Step 2: 确认失败 → Step 3: 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/video-cache.ts
@@ -980,7 +980,7 @@ export async function openMediabunnySink(url: string): Promise<SinkHandle | null
 export const videoCache = new VideoCacheService({ openSink: openMediabunnySink });
 ```
 
-- [ ] **Step 4: 跑测试通过 + 提交**
+- [x] **Step 4: 跑测试通过 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/renderer/video-cache.test.ts
@@ -998,7 +998,7 @@ git add apps/web/src/pages/canvas/video-editor/renderer && git commit -m "feat(v
 - Test: `apps/web/src/pages/canvas/video-editor/audio-engine/pcm.test.ts` + `gain.test.ts`
 - Create（条件）: `apps/web/src/types/soundtouchjs.d.ts`（包无类型声明时）
 
-- [ ] **Step 1: 检查 soundtouchjs 类型声明**
+- [x] **Step 1: 检查 soundtouchjs 类型声明**
 
 ```bash
 ls apps/web/node_modules/soundtouchjs/dist/
@@ -1026,7 +1026,7 @@ declare module 'soundtouchjs' {
 
 （以实际导出为准微调——spike 已实测 SoundTouch/SimpleFilter/WebAudioBufferSource 存在。）
 
-- [ ] **Step 2: 写失败测试（pcm）**
+- [x] **Step 2: 写失败测试（pcm）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/pcm.test.ts
@@ -1101,7 +1101,7 @@ describe('resamplePcm（线性插值）', () => {
 });
 ```
 
-- [ ] **Step 3: 写失败测试（gain）**
+- [x] **Step 3: 写失败测试（gain）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/gain.test.ts
@@ -1207,7 +1207,7 @@ describe('gainValueAt（折线求值）', () => {
 });
 ```
 
-- [ ] **Step 4: 确认失败 → 实现 pcm.ts + gain.ts**
+- [x] **Step 4: 确认失败 → 实现 pcm.ts + gain.ts**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/pcm.ts
@@ -1365,7 +1365,7 @@ export function buildGainPoints(data: ProjectData, clipId: string): GainPoint[] 
 
 （`VisualClip` 若 interpolate.ts 未导出，在该文件 `export type VisualClip = VideoClip | ImageClip;` 并同步本 import。）
 
-- [ ] **Step 5: 跑测试通过 + tsc + 提交**
+- [x] **Step 5: 跑测试通过 + tsc + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/audio-engine/pcm.test.ts src/pages/canvas/video-editor/audio-engine/gain.test.ts
@@ -1383,7 +1383,7 @@ git add apps/web/src/pages/canvas/video-editor/audio-engine apps/web/src/types &
 - Create: `apps/web/src/pages/canvas/video-editor/audio-engine/engine.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/audio-engine/engine.test.ts`
 
-- [ ] **Step 1: 实现 decode.ts（mediabunny AudioBufferSink 薄封装——vendor media/audio.ts resolveAudioBufferForAsset 形状；真浏览器路径，jsdom 测试经 vi.mock 覆盖，不单独建 spec）**
+- [x] **Step 1: 实现 decode.ts（mediabunny AudioBufferSink 薄封装——vendor media/audio.ts resolveAudioBufferForAsset 形状；真浏览器路径，jsdom 测试经 vi.mock 覆盖，不单独建 spec）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/decode.ts
@@ -1427,7 +1427,7 @@ export async function decodeMediaPcm(blob: Blob, targetRate: number): Promise<Pc
 }
 ```
 
-- [ ] **Step 2: 写失败测试（engine）**
+- [x] **Step 2: 写失败测试（engine）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/engine.test.ts
@@ -1636,7 +1636,7 @@ describe('AudioEngine（调度/主时钟/资源纪律）', () => {
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现 engine.ts**
+- [x] **Step 3: 确认失败 → 实现 engine.ts**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/audio-engine/engine.ts
@@ -1814,7 +1814,7 @@ export class AudioEngine {
 export const audioEngine = new AudioEngine();
 ```
 
-- [ ] **Step 4: 跑测试 + tsc + 提交**
+- [x] **Step 4: 跑测试 + tsc + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/audio-engine
@@ -1835,7 +1835,7 @@ CanvasRenderer 按 spec 测试策略为薄绘制层**不测**；renderFrameAt �
 - Create: `apps/web/src/pages/canvas/video-editor/renderer/render-frame.ts`
 - Test: `apps/web/src/pages/canvas/video-editor/renderer/render-frame.test.ts`
 
-- [ ] **Step 1: 实现三个小模块（无独立测试——纯缓存/薄层）**
+- [x] **Step 1: 实现三个小模块（无独立测试——纯缓存/薄层）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/media-blob.ts
@@ -1960,7 +1960,7 @@ export class CanvasRenderer {
 }
 ```
 
-- [ ] **Step 2: 写失败测试（renderFrameAt）**
+- [x] **Step 2: 写失败测试（renderFrameAt）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/render-frame.test.ts
@@ -2037,7 +2037,7 @@ describe('renderFrameAt（单帧渲染编排）', () => {
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现 render-frame.ts**
+- [x] **Step 3: 确认失败 → 实现 render-frame.ts**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/renderer/render-frame.ts
@@ -2081,7 +2081,7 @@ export async function renderFrameAt(data: ProjectData, t: number, deps: FrameRen
 }
 ```
 
-- [ ] **Step 4: 跑测试 + tsc + 提交**
+- [x] **Step 4: 跑测试 + tsc + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/renderer
@@ -2107,7 +2107,7 @@ git add apps/web/src/pages/canvas/video-editor/renderer && git commit -m "feat(v
 - Delete: `apps/web/src/pages/canvas/video-editor/components/PreviewPlaceholder.tsx`
 - Test: `apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx`
 
-- [ ] **Step 1: editorStore 扩展（状态字段——行为已由 playback/hook 承载，store 侧只加纯状态）**
+- [x] **Step 1: editorStore 扩展（状态字段——行为已由 playback/hook 承载，store 侧只加纯状态）**
 
 ```ts
 // editorStore.ts 修改点（类型区 + 初始值 + reset/loadProject）：
@@ -2134,7 +2134,7 @@ export interface MediaInfo { name: string; durationSec: number | undefined; url?
 // reset() 与 loadProject() 均补 playing: false, preparing: false
 ```
 
-- [ ] **Step 2: 写失败测试（playback 状态机 + PreviewPlayer 控制条）**
+- [x] **Step 2: 写失败测试（playback 状态机 + PreviewPlayer 控制条）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx
@@ -2270,7 +2270,7 @@ describe('PreviewPlayer（控制条）', () => {
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现 playback.ts + usePreviewPlayback.ts + PreviewPlayer + 组件修改**
+- [x] **Step 3: 确认失败 → 实现 playback.ts + usePreviewPlayback.ts + PreviewPlayer + 组件修改**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/hooks/playback.ts
@@ -2593,7 +2593,7 @@ export function PlayheadLine() {
 
 - **useEditorKeyboard.ts**：空格分支从"仅 preventDefault"改为 `e.preventDefault(); void togglePlayback();`（import playback——决策 9，避免 hook 依赖组件）。
 
-- [ ] **Step 4: 跑测试 + tsc + 全量回归 + 提交**
+- [x] **Step 4: 跑测试 + tsc + 全量回归 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx src/pages/canvas/video-editor/components/timeline
@@ -2612,7 +2612,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 预览播放器——
 - Modify: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx`（播放激活 + 迷你画布 + 互斥/IO/selected 释放）
 - Test: `apps/web/src/pages/canvas/components/nodes/VideoEditNode.miniplay.test.tsx`
 
-- [ ] **Step 1: videoEditorStore 扩展**
+- [x] **Step 1: videoEditorStore 扩展**
 
 ```ts
 // stores/videoEditorStore.ts 全量替换（在既有三字段上加迷你播放单播放态，决策 10）：
@@ -2644,7 +2644,7 @@ export const useVideoEditorStore = create<VideoEditorState>((set) => ({
 
 （既有测试引用 `useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 })`——新增字段有默认值，setState 部分更新不破。）
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 ```tsx
 // apps/web/src/pages/canvas/components/nodes/VideoEditNode.miniplay.test.tsx
@@ -2743,7 +2743,7 @@ describe('VideoEditNode 迷你播放（资源纪律）', () => {
 });
 ```
 
-- [ ] **Step 3: 确认失败 → 实现 VideoEditNode 迷你播放**
+- [x] **Step 3: 确认失败 → 实现 VideoEditNode 迷你播放**
 
 VideoEditNode.tsx 修改（保持既有 缩略/refetch/capabilities 逻辑不动，增量如下——完整播放控制块）：
 
@@ -2877,7 +2877,7 @@ import { batchGetMedia } from '@/api/mediaApi';
         )}
 ```
 
-- [ ] **Step 4: 跑测试 + 既有 VideoEditNode 测试回归 + 提交**
+- [x] **Step 4: 跑测试 + 既有 VideoEditNode 测试回归 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/components/nodes/VideoEditNode.miniplay.test.tsx src/pages/canvas/components/nodes/VideoEditNode.test.tsx
@@ -2895,7 +2895,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 节点迷你播放—
 - Create: `apps/web/src/pages/canvas/video-editor/components/PropertiesPanel.tsx`（替换 Task 8 占位）
 - Test: `apps/web/src/pages/canvas/video-editor/store/editorStore.keyframe.test.ts` + `components/PropertiesPanel.test.tsx`
 
-- [ ] **Step 1: 写失败测试（store keyframe actions）**
+- [x] **Step 1: 写失败测试（store keyframe actions）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/store/editorStore.keyframe.test.ts
@@ -2983,7 +2983,7 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → 实现 store actions（editorStore.ts 增量）**
+- [x] **Step 2: 确认失败 → 实现 store actions（editorStore.ts 增量）**
 
 ```ts
 // editorStore.ts 顶部 import 增量：
@@ -3064,7 +3064,7 @@ import type { TransformKeyframe, VolumeKeyframe } from '../types'; // 已有则�
     },
 ```
 
-- [ ] **Step 3: 写失败测试（PropertiesPanel 四态）→ 实现**
+- [x] **Step 3: 写失败测试（PropertiesPanel 四态）→ 实现**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/PropertiesPanel.test.tsx 核心用例（写入文件）：
@@ -3315,7 +3315,7 @@ export function PropertiesPanel() {
 }
 ```
 
-- [ ] **Step 4: 跑测试 + tsc + 提交**
+- [x] **Step 4: 跑测试 + tsc + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/store/editorStore.keyframe.test.ts src/pages/canvas/video-editor/components/PropertiesPanel.test.tsx
@@ -3335,7 +3335,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 关键帧 store actio
 - Modify: `apps/web/src/pages/canvas/video-editor/hooks/useEditorKeyboard.ts`（Delete 优先删选中关键帧）
 - Test: `apps/web/src/pages/canvas/video-editor/components/timeline/keyframe-ui.test.tsx`
 
-- [ ] **Step 1: 写失败测试（核心用例——文件含 helper 复用 TimelinePanel.interact.test.tsx 的 ready/addVideoClip 模式）**
+- [x] **Step 1: 写失败测试（核心用例——文件含 helper 复用 TimelinePanel.interact.test.tsx 的 ready/addVideoClip 模式）**
 
 ```tsx
 // apps/web/src/pages/canvas/video-editor/components/timeline/keyframe-ui.test.tsx
@@ -3406,7 +3406,7 @@ describe('时间轴关键帧菱形刻度', () => {
 });
 ```
 
-- [ ] **Step 2: 确认失败 → 实现**
+- [x] **Step 2: 确认失败 → 实现**
 
 editorStore 增量：State 加 `selectedKeyframeId: string | null`（初始 null，reset 清空）+ **`selectKeyframe(kfId: string | null, clipId?: string)`（N3/决策 19 双写：kfId 非空时同时写 `selectedKeyframeId: kfId` 与 `selectedClipId: clipId`——点击菱形即选中其片段，stopPropagation 已挡片段选中路径，双写保证 Delete 的两 id 联动不变量；kfId 为 null 只清 selectedKeyframeId）**；既有 `selectClip` 补清 `selectedKeyframeId: null`（切换片段时关键帧选中失效，不变量保持）；**undo/redo 的 set 同步补 `selectedKeyframeId: null`**（R4：现码 L330/339 只清 selectedClipId——历史跳转后 selectedClipId 已 null、Delete 双真条件不触发，当前无害，但"双写联动"不变量要求 kf 选中不残留，Plan 4 消费前顺手收口）。
 
@@ -3481,7 +3481,7 @@ useEditorKeyboard Delete 分支改造：
 
 （selectedKeyframeId 与 selectedClipId 联动：removeKeyframe 内已清 selectedKeyframeId；selectClip 切换时清 selectedKeyframeId——store 的 selectClip 补 `selectedKeyframeId: null`。）
 
-- [ ] **Step 3: 跑测试 + 回归 + 提交**
+- [x] **Step 3: 跑测试 + 回归 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/components/timeline/keyframe-ui.test.tsx src/pages/canvas/video-editor/components/timeline/TimelinePanel.interact.test.tsx
@@ -3498,7 +3498,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 时间轴关键帧菱
 - Modify: `apps/web/src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx`（audio 片波形层）
 - Test: `apps/web/src/pages/canvas/video-editor/hooks/useAudioPeaks.test.ts`
 
-- [ ] **Step 1: 写失败测试（useAudioPeaks）**
+- [x] **Step 1: 写失败测试（useAudioPeaks）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/hooks/useAudioPeaks.test.ts
@@ -3537,7 +3537,7 @@ describe('useAudioPeaks（mediaId 缓存——模块级 Map 跨用例存活，�
 });
 ```
 
-- [ ] **Step 2: 实现 useAudioPeaks + ClipBlock 波形层**
+- [x] **Step 2: 实现 useAudioPeaks + ClipBlock 波形层**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/hooks/useAudioPeaks.ts
@@ -3614,7 +3614,7 @@ function WaveformCanvas({ mediaId }: { mediaId: string }) {
 // audio 片渲染：label 行下叠加 {clip.type === 'audio' && <WaveformCanvas mediaId={clip.mediaId} />}
 ```
 
-- [ ] **Step 3: 跑测试 + 提交**
+- [x] **Step 3: 跑测试 + 提交**
 
 ```bash
 pnpm -C apps/web exec vitest run src/pages/canvas/video-editor/hooks/useAudioPeaks.test.ts
@@ -3632,7 +3632,7 @@ git add apps/web/src && git commit -m "feat(video-editor): 波形真数据——
 - Modify: `apps/web/src/pages/canvas/video-editor/components/timeline/TrackRow.tsx` + `ClipBlock.tsx`（missing prop 传递与红态）
 - Test: `apps/web/src/pages/canvas/video-editor/timeline/missing-source.test.ts`
 
-- [ ] **Step 1: 写失败测试（纯函数 + 组件红态合并入纯函数用例文件；组件红态断言并入 TimelinePanel.render.test.tsx 追加用例）**
+- [x] **Step 1: 写失败测试（纯函数 + 组件红态合并入纯函数用例文件；组件红态断言并入 TimelinePanel.render.test.tsx 追加用例）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/missing-source.test.ts
@@ -3667,7 +3667,7 @@ describe('missingSourceNodeIds（素材缺失态派生——spec 生命周期第
 });
 ```
 
-- [ ] **Step 2: 确认失败 → 实现**
+- [x] **Step 2: 确认失败 → 实现**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/missing-source.ts
@@ -3709,7 +3709,7 @@ TrackRow → ClipBlock 传递 `missing={c.sourceNodeId ? missingSourceNodeIds.ha
   {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
 ```
 
-- [ ] **Step 3: 跑测试 + TimelinePanel.render.test.tsx 追加红态用例 + 提交**
+- [x] **Step 3: 跑测试 + TimelinePanel.render.test.tsx 追加红态用例 + 提交**
 
 追加用例（R4：既有夹具 v1.sourceNodeId='s1' 而 canvasStore 默认无此节点 → 夹具默认即红态，直接复用，无需另造 missing 数据；夹具中仅 v1 带 sourceNodeId——a1/sub1 无，getByText 唯一成立）：
 
@@ -3740,9 +3740,9 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 
 **Files:** 无新文件（修复改对应源文件）
 
-- [ ] **Step 1: 启动环境并准备素材（真实媒体文件：一段 >5s 的 mp4 + 一张图片）**
+- [x] **Step 1: 启动环境并准备素材（真实媒体文件：一段 >5s 的 mp4 + 一张图片）**
 
-- [ ] **Step 2: 逐项验收**
+- [x] **Step 2: 逐项验收**
 
 | spec 条目 | 验收点 | 手段 |
 |---|---|---|
@@ -3763,9 +3763,9 @@ git add apps/web/src && git commit -m "feat(video-editor): 素材缺失态片段
 | — | **prepare 瞬时内存观测（§4.1）**：15min 级工程（或最长可用素材）首次点播放时 DevTools Memory/performance.memory 采样记录峰值——prepare 瞬时约为稳态 3-4 倍（解码拼接 chunks+merged、变速 padded+输出缓冲并存）；数字登记回本文件执行期记录，>2GB 异常 | DevTools Memory |
 | — | 多标签双解码口径（spec 边界表已登记）：同工程开两标签各自解码 PCM/取帧——行为可用无报错即过（一期接受，无跨标签共享） | 操作 |
 
-- [ ] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
+- [x] **Step 3: 缺陷修复循环（发现 → 复现测试 → TDD 修复 → 复验）**
 
-- [ ] **Step 4: 全量回归 + 提交收尾**
+- [x] **Step 4: 全量回归 + 提交收尾**
 
 ```bash
 pnpm -C apps/web exec tsc -b
@@ -3773,6 +3773,41 @@ pnpm -C apps/web test && pnpm -C apps/api test
 # 预期: 全绿（api 不受本 plan 影响）
 git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（spec 条目 6/7/8/9/10 + 资源纪律实测）"
 ```
+
+### Task 14 执行期验收记录（2026-09-11，preview 工具实测）
+
+**环境**：本地 PG/Redis/MinIO + api(3000)/web(5173) dev server；素材注入 = 应用自身 presign+confirm 管道上传统媒体（主测视频 985e5a36 10.1s 带音轨 / 纯视频 3140551 5.4s 无音轨 / 0.png / mp3），经 `useCanvasStore.addNode(type, pos, { fileId, status:'success' })`（与应用生成完成同路径 setFileResult 语义）建产物节点——生成链路（第三方 API 积分）不可用于验收数据，此路径为计划 Step 1 预授权的替代。
+
+**逐项结论**：
+
+| 验收点 | 结果 | 证据 |
+|---|---|---|
+| 预览播放推进 | ✓ | prepare(preparing 门卫)→playing，playhead 0→3.07 @1.02× 实时；播放中像素逐帧变化（左区 134→162→130） |
+| 暂停态单帧（G1） | ✓ | 点击画布 seek 30%→5.07s 即时出画；进编辑器即渲染 playhead 帧 |
+| 字幕（条目 8） | ✓ | 文本/字号 48→96/颜色红/字间距实时反映（像素级）；40+ 字自动换行恰 2 行截断、底距 96 视觉核对 |
+| 转场（条目 9） | ✓ | crossfade 中点 [102,79,75]≈两片均值；toBlack 130→7、toWhite→249；fadeOut 比值恰 0.10；fadeIn 早期 10/晚期 132；前片独立出场被 crossfade 吞并（spec 定案）；删前片→退化 fadeIn（比值 0.14≈alpha 0.1） |
+| 关键帧（条目 10） | ✓ | 秒表添加 tLocal=3 正确；菱形渲染/点击跳播放头(2+1=3)/拖拽 +80px→t+1/Delete 优先删 kf 留片段；scale 1→2 插值像素分化（视频区→图片区） |
+| 变速（条目 6） | ✓ | 同 playhead 1×/2× 9 点指纹全异 + 回 1× 确定性 |
+| 波形 | ✓ | audio 片 canvas 260×30 绿峰 42px/非空 2092（peaks 真数据） |
+| 素材缺失 | ✓ | 删源节点→角标"素材已删除"+红底 #FEE2E2（删前 false→删后 true 双向）；级联：预览该片段跳层黑（与时间轴标红语义一致） |
+| 控制条 | ✓ | 分割 8→9/撤销→8/重做→9/删除→8/双 undo 恢复；音量/全屏/缩放滑杆在位 |
+| scrub 三段式 | ✓（活模块直驱） | 播放中 scrubBegin(3)→playing=false+ph=3；move 只动 ph；end→恢复播放从 6.5 续播 7.3（重锚重排）。标尺 UI 合成事件不可达（见发现④），单测 4 用例+活模块联动双重覆盖 |
+| AudioContext 泄漏 | ✓ | reload 后 patch 构造计数，开关编辑器 10 轮计数恒 1；重开 playhead=0 重置、8 clips 数据保留 |
+| 720p 降级 | ✓ | canvas 内部 1920×1080 + CSS 缩放 |
+| Range 206 双验 | ✓ | 服务侧 presigned GET + Range:bytes=0-1 → 206 + Content-Range "bytes 0-1/24390720"；浏览器侧播放/seek 期间多次分段 206 + console 无 range 警告 |
+| 回拖 seek 无黑帧 | ✓ | 素材齐全下 尾13→头3→中8→尾14→头2.5→中9 六次 >2s 大跳全出帧（115/208/43/112/208/43）+ 确定性（两次同点全等） |
+| prepare 内存 | ✓（口径登记） | 10s 素材 JS 堆瞬时 +12MB（117→129）/稳态 +10MB；performance.memory 只测 JS 堆——AudioBuffer native 驻留不可见（DevTools Memory 人工可选）；无 >2GB 异常 |
+| 多标签双解码 | —（登记） | window.open 弹窗被拦——模块态（audioEngine/videoCache/peaksCache）每页实例天然隔离无共享路径，人工可选开双标签 |
+| spike① 变速音调人工判定 | —（登记） | 无扬声器自动化路径；spike 已验 440Hz 主频保持，浏览器侧同一 stretchPcm 实现，留人工听感 |
+
+**执行期发现与登记**：
+
+1. **范围缺口（上报用户裁量）**：spec L280-282"全集资产 = 画布产物 + 团队素材库"且"+新建"上传走 presign 链路——Plan 2 占位注释写"团队素材 Plan 3 实化"但 **Plan 3 无此任务**（七轮审核均未覆盖）：当前"+上传"链路只写节点 referenceVideo（生成参考），不经 fileId 不入资产面板；团队素材分支仍是死占位。验收数据靠生成产物语义注入绕过。建议并入 Plan 4 或另开小 plan。
+2. **低危 UX**：编辑器刚打开、AssetPanel url 未回填完成前的 seek 渲染会缺图片层且暂不自愈（G1 effect 依赖 [playing,playhead,data] 不含 mediaInfo）——下次 seek/edit 自愈。
+3. **诊断痕迹缺口（改进项）**：video-cache openSink 失败路径（403/无轨）静默进冷却无 console.warn（R4 的 warn 只在 getFrameAt catch）——排查黑帧时无痕迹，建议 Plan 4 顺手补一行。
+4. **合成事件限制（非缺陷）**：标尺 scrub 的 `setPointerCapture(合成 pointerId)` 对不存在指针抛 NotFoundError 中断 handler——真实指针 pointerId 恒有效不受影响。
+5. **环境残留知会**：console 6 条 HMR Failed to reload TrackRow 为子代理编辑中途瞬态（终态 tsc/测试全绿），刷新后无新错。
+6. 黑帧疑点排查过程记录：素材缺失验收删源节点后 t=4/10 黑帧 = 预期级联（无 url 跳层），重建产物节点后恢复——非 Range/缓存缺陷。
 
 ---
 
@@ -3791,6 +3826,7 @@ git add -A && git commit -m "test(video-editor): Plan 3 浏览器验收通过（
 - **R5 轮审核修订（2026-09-11，R4 修订核验 11/11 落实 + 1 必红 + 3 收口全数采纳）**：P0 必红（R4 自引入）——release() 内 `generations.clear()` 把同函数刚 bump 的代数抹平：无参路径 keys.forEach(+1) 后紧接 clear，在途 chain 捕获 gen=0、迟到完成时 `undefined ?? 0 = 0` 相等 → 不作废 → entries.set 复活已释放的 Input/CanvasSink，用例 11 的 disposed/size 两断言必红——删 `generations.clear()`（bump 值即作废凭据；保留计数无副作用：重进后新 chain 以 bump 后的值为基准捕获、比对相等正常放行；map 只增媒体数个 number 无内存顾虑；与 retryAfter.clear() 语义区分注释化——源健康度可跨会话清、实例代数不可清）；P1——open 失败路径补冷却（.then 内 `if (!handle)` 分支 set retryAfter：无视频轨/canDecode false/presigned 403 reject 三种来源原来只在 getFrameAt catch 设冷却，.finally 删 opening 后下一帧 renderLatest 再次 openSink，30-60 次/秒——R4④要堵的风暴换了条路径；与 P0 修法正交：用例 11 迟到 handle 非 null 走作废分支不设冷却、用例 5 单次调用不受影响）；P2 两处——Task 8 TimelinePanel 头部 import 目标形态一次写死 `{ useEffect, useMemo, useRef, useState }`（⓪ 项：现码 L1 仅 { useEffect, useRef }，⑤ 的 useState 与 Task 13 的 useMemo 落地即改防两处分别 TS2304）；Task 10 removeKeyframe 改 `as VideoClip` 单型视图（TransformKeyframe[] | VolumeKeyframe[] 联合上调 .filter 触发 TS2349 union 泛型签名互不兼容——与 moveKeyframe 同款谎报，audio 的 VolumeKeyframe 与 id 过滤结构兼容无运行时后果）；P3——Task 4 用例 3 注释修正（首次命中即返、iterator 挂起于 yield 不预取；顺序产出下 next 预存分支不触达，标题改"迭代前进消费下一帧命中"）
 - **R6 轮审核修订（2026-09-11，R5 修订核验 4/4 落实 + 3 处 import 缺项（同类第三发）+ 2 条 UI 细节定案）**：import 三处——TrackRow 现码 L1 无 react import（Task 8 ④ memo 化需补 `import { memo } from 'react';`，照 ClipBlock.tsx:19 既有具名内部函数风格保留组件名）；AssetPanel 现码 L1 仅 useState（Task 8 mergeMediaInfo effect 需补 useEffect）；TimelineRuler 现码无 store import（Task 8 自订阅需补 `import { useEditorStore } from '../../store/editorStore';`）+ scrub 改造删原 handlePointer 后 `quantizeTime` import 成孤儿一并删（量化不丢：setPlayhead 内部 quantizeTime，editorStore.ts:131；tsconfig.base 无 noUnusedLocals 非编译红线，按 CLAUDE.md 精准修改清孤儿；既有 `import type React from 'react'` 已支持 React.PointerEvent 注解——现码 L24 先例）。UI 细节两条——Task 11 TrackRow 新 prop 签名写死 `onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void` 且 ClipBlock 渲染处（现码 L60-62）与 onPointerDown 并列透传（只在 TimelinePanel 侧加 handler 断在中层，keyframe-ui.test 三用例全红；ClipBlock prop 注解同步对齐 `<HTMLDivElement>` 泛型——R6 前形态的 TrackRow→ClipBlock 透传是"窄参 handler → bare 槽位"，被逆变拒绝 TS2322；R7 轮 tsc 实证双向并精确化表述：bare handler → 窄参槽位合法（TimelinePanel.tsx:31→TrackRow.tsx:15 现存先例）、窄参 handler → bare 槽位才报错）；Task 13 ClipBlock 边框优先级定案 `missing ? '#EF4444' : selected ? BLOCK_BAR[clip.type] : 'transparent'`（素材缺失是更高优先级告警态，红边压过选中边），Task 14 素材缺失验收按此预期
 - **R7 轮审核修订（2026-09-11，R6 修订核验 5/5 落实 + §二逆变方向论断驳回（tsc 实证）+ §三/§四 采纳）**：§二——R7 称 R6 的 strictFunctionTypes 逆变论断方向反了；仓内 tsc scratch 双向实证**维持 R6 原判**：窄参 handler（`PointerEvent<HTMLDivElement>`）赋给 bare 槽位（`PointerEvent<Element>`）报 TS2322（错误消息即 `PointerEvent<Element> is not assignable to PointerEvent<HTMLDivElement>`，R6 前计划形态的 TrackRow→ClipBlock 边界正是此向）；反方向 bare handler 赋给窄参槽位合法——R7 引的 TimelinePanel.tsx:31→TrackRow.tsx:15 现存先例属安全向，与 R6 所修边界不同向，不构成反证。采纳其精神：计划两处注释升级为双向精确表述（防通则误用导致后续反向放宽或不必要 cast）。§三采纳——Task 12 WaveformCanvas 落点写明"文件顶层（模块作用域，与 ClipBlock 同级）"：声明在 ClipBlock 函数体内成嵌套组件定义，每次重渲产生新组件类型 → canvas 子树卸载重建、effect 反复跑（peaks 有缓存不重解码但 DOM 全新）。§四采纳——Task 13 ClipBlockProps 点明增加 `missing?: boolean;` 并参数解构取出（与 Task 11 onKeyframePointerDown 并列，防 prop 链条断中层）
+- **执行完成记录（2026-09-11，subagent-driven 14 任务全数落地）**：14 任务 × 两阶段审查（规格符合性 + 质量变异审查）全闭环；执行期修正可追溯——计划笔误/计划-现码矛盾适配 18 处（canvas 漏 ref、测试 TS7006/TS2339、antd Slider 吞 testid、StrictFifoSamplePipe 语法笔误、soundtouch 度量分母、dragState 可选字段等，均各任务报告登记）；变异审查补强守护用例 14 个（字幕恒最后/插值取值/LRU 触尾/prepare 幂等/clipEnd 跳过/perf 时钟/双写联动/undo 清理/拖拽历史/无 url 守卫/插值精度/拷贝语义/scrub 三段式/卸载释放）；执行期实现修复 3 处（transitionEffect crossfade 零重叠白闪 + 类型守卫吞 skipIn 死变量、迷你播放 mediaUrls 陈旧黑帧、flush 失败收起释放）；Task 14 浏览器验收逐项结论与 6 项发现登记见上方执行期验收记录（发现①全集资产范围缺口上报用户裁量）
 - **交接 Plan 4**：Worker 导出 controller 复用 scene 纯函数与 renderFrameAt 结构（OfflineAudioContext 路径走 stretchPcm/buildGainPoints 同源）；导出前置校验消费 missingSourceNodeIds；video-cache RETRY_COOLDOWN_MS 冷却（取帧失败 + open 失败双路径）与 generations 作废语义随 Task 4 契约继承（导出路径消费 getFrame 同样受冷却保护）
 
 ## 后续 Plan（另开文件）
