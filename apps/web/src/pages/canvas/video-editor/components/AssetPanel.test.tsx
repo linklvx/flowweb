@@ -6,8 +6,23 @@ import { createDefaultProjectData } from '../types';
 import { batchGetMedia, type BatchMediaItem } from '@/api/mediaApi';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
 
 vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn() }));
+
+// R4-10：挂 useTeamAssets 后组件 mount 即发 axios.get——不打真 XHR（句柄模块级暴露，上传用例断言复用）。
+// 响应实形：TransformInterceptor 包 {code,data,message} → res.data.data = {success,data:[]}（双层 data）
+const { axiosGet, axiosPost } = vi.hoisted(() => ({
+  axiosGet: vi.fn().mockResolvedValue({ data: { code: 0, message: 'ok', data: { success: true, data: [] } } }),
+  axiosPost: vi.fn().mockResolvedValue({ status: 200 }),
+}));
+vi.mock('axios', () => ({ default: { get: (...a: unknown[]) => axiosGet(...a), post: (...a: unknown[]) => axiosPost(...a) } }));
+vi.mock('@/api/storageApi', () => ({ presignUpload: vi.fn(), confirmUpload: vi.fn() }));
+const { messageSuccess } = vi.hoisted(() => ({ messageSuccess: vi.fn() }));
+vi.mock('antd', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('antd')>();
+  return { ...orig, message: { ...orig.message, success: messageSuccess, error: vi.fn() } }; // 仅覆 message——Input 保真
+});
 
 const mkItem = (id: string, name: string, mime: string, metadata: Record<string, unknown> = {}): BatchMediaItem =>
   ({ id, originalName: name, mimeType: mime, url: `http://${id}`, thumbnailUrl: null, size: 1, metadata });
@@ -110,5 +125,27 @@ describe('AssetPanel', () => {
     });
     const subTrack = useEditorStore.getState().data!.tracks.find(t => t.type === 'subtitle')!;
     expect(subTrack.clips).toHaveLength(0); // 视频素材不进字幕轨
+  });
+
+  it('"+新建"上传：presignUpload → FormData POST → confirmUpload → 刷新团队素材 + mergeMediaInfo（遗留①：上传产物入面板）', async () => {
+    (batchGetMedia as any).mockResolvedValue([]); // beforeEach 建了 v1 节点 → 全集资产 hook 会调 batchGetMedia（本用例聚焦团队素材）
+    useCanvasStore.setState({ projectId: 'wf1' }); // R4-9 夹具前置：presign 透传画布 projectId（后端解析归属团队）
+    (presignUpload as any).mockResolvedValue({ fileId: 'up-1', uploadUrl: 'https://minio/flowai/up', key: 'k', fields: { policy: 'p' } });
+    (confirmUpload as any).mockResolvedValue({ fileId: 'up-1' });
+    const { container } = render(<AssetPanel />);
+    await waitFor(() => expect(screen.getByText('暂无团队素材')).toBeInTheDocument()); // 首次加载空列表（hoisted 默认 mock）
+    // 上传"完成后的服务端状态"——二次拉取（teamKey+1 刷新路径）返回含 up-1
+    axiosGet.mockResolvedValue({ data: { code: 0, message: 'ok', data: { success: true, data: [
+      { id: 'up-1', originalName: '上传a.mp4', mimeType: 'video/mp4', url: 'https://minio/flowai/a', thumbnailUrl: null, metadata: { durationSec: 3 } },
+    ] } } });
+    const file = new File(['x'], '上传a.mp4', { type: 'video/mp4' });
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    await waitFor(() => expect(messageSuccess).toHaveBeenCalledWith('上传完成'));
+    expect(presignUpload).toHaveBeenCalledWith(expect.objectContaining({ fileName: '上传a.mp4', type: 'uploaded', projectId: 'wf1' })); // R4-9：projectId 透传
+    expect(axiosPost).toHaveBeenCalledWith('/flowai/up', expect.any(FormData)); // uploadUrl 经 /flowai 同源改写（materialLibraryStore 同款）
+    expect(confirmUpload).toHaveBeenCalledWith({ fileId: 'up-1', key: 'k', fileSize: file.size });
+    expect(axiosGet.mock.calls.filter((c: unknown[]) => c[0] === '/api/material/files').length).toBeGreaterThanOrEqual(2); // setTeamKey+1 刷新路径
+    expect(screen.getByText('上传a.mp4')).toBeInTheDocument(); // 团队素材列表刷新含 up-1
+    expect(useEditorStore.getState().mediaInfo['up-1']).toMatchObject({ name: '上传a.mp4', url: '/flowai/a', mimeType: 'video/mp4', durationSec: 3 }); // P1-9
   });
 });
