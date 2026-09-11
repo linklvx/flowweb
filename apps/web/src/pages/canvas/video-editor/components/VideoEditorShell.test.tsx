@@ -62,6 +62,19 @@ describe('VideoEditorShell', () => {
     // 焦点断言：open 后焦点应落在壳内（initialFocusRef 生效），而非残留画布按钮
     await waitFor(() => expect(shell).toContainElement(document.activeElement as HTMLElement | null));
   });
+  it('P0-A 回归：壳内 antd 弹层挂载容器归属壳节点（删 Shell 的 ConfigProvider 后此用例必红）', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // 就绪（upsert → loadProject）
+    fireEvent.click(screen.getByText('导出')); // 打开导出弹层（批 6 前仍是 Modal）
+    await waitFor(() => {
+      const wrap = document.querySelector('.ant-modal-wrap');
+      expect(wrap).toBeTruthy();
+      // 容器归属断言（真红点）：Modal 挂进壳内而非 body 直挂——
+      // 无 ConfigProvider(getPopupContainer) 时 wrap.closest(壳) === null，用例红
+      expect((wrap as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
+    });
+  });
   it('loadProject 迁移不触发 autosave（幻影 PATCH 过滤——I2）', async () => {
     vi.useFakeTimers();
     try {
