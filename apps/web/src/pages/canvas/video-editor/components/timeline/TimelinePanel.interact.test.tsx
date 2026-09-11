@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { TimelinePanel } from './TimelinePanel';
+import { TimelineRuler } from './TimelineRuler';
 import { PreviewPlayer } from '../PreviewPlayer';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
+import { TRACK_HEADER_W } from '../../timeline/view-scale';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { ensurePoster } from '../../renderer/poster';
 
@@ -185,5 +187,19 @@ describe('TimelinePanel 交互', () => {
     render(<TimelinePanel />);
     fireEvent.keyDown(document, { key: 'Delete' });
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
+  });
+
+  it('标尺只渲染视口内刻度：900s/500pxps 视口 1000px 时刻度元素 < 300（窗口化——全量 3601 tick div 性能坑）', () => {
+    const d = createDefaultProjectData();
+    d.clips['c-long'] = {
+      id: 'c-long', trackId: d.tracks[0].id, type: 'video', start: 0, duration: 900, sourceStart: 0,
+      mediaId: 'm1', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [],
+    };
+    d.tracks[0].clips.push('c-long');
+    // jsdom 不派发滚动事件也不做真实布局——窗口化用例直接给定 scrollLeft prop 断言输出数量
+    // 每个刻度渲 1 个 span（刻度线是 div，标签是 span）——按 span 计数
+    render(<TimelineRuler data={d} pxPerSec={500} widthPx={1000 - TRACK_HEADER_W} scrollLeft={0} />);
+    const tickCount = screen.getByTestId('timeline-ruler').querySelectorAll('span').length;
+    expect(tickCount).toBeLessThan(300); // 全量为 3602；窗口化后视口（1000px → interval 0.25）内仅 10
   });
 });

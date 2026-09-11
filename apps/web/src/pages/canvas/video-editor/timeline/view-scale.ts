@@ -62,3 +62,15 @@ export function anchorZoomScroll(input: {
   const anchorOffset = input.anchorTime * input.oldPxPerSec - input.scrollLeft; // 锚点距视口左的距离
   return { scrollLeft: Math.max(0, input.anchorTime * input.newPxPerSec - anchorOffset) };
 }
+
+/** Ctrl+滚轮 exp 缩放曲线（opencut zoom-controller）：deltaY capped ±30，滚下（正）缩小、滚上（负）放大 */
+export const ZOOM_WHEEL_FACTOR = 300;
+export const ZOOM_BUTTON_FACTOR = 1.7;
+export function zoomByDelta(deltaY: number, currentPxPerSec: number): number {
+  const capped = Math.max(-30, Math.min(30, deltaY));
+  return currentPxPerSec * Math.exp(-capped / ZOOM_WHEEL_FACTOR);
+}
+
+/** 轨道头列宽——全仓 4 处硬编码统一常量（TimelinePanel 轨头角位类名与 widthPx、PlayheadLine left 偏移、TrackRow 轨头类名）。
+ *  声明在本纯常量+纯函数模块（R7-S3）：消费方 TimelineRuler/PlayheadLine 若从 TimelinePanel 导入会循环导入；PlayheadLine 已 import timeToPx 自它，天然无环 */
+export const TRACK_HEADER_W = 140;

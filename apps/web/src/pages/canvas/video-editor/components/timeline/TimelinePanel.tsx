@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackRow } from './TrackRow';
 import { PlayheadLine } from './PlayheadLine';
-import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
+import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints, zoomByDelta, anchorZoomScroll, TRACK_HEADER_W } from '../../timeline/view-scale';
 import { quantizeTime } from '../../timeline/clip-math';
 import { missingSourceNodeIds } from '../../timeline/missing-source';
 import { placeAssetInTrack } from '../../timeline/placement'; // 批3-3：错型 drop 建轨改道
@@ -32,6 +32,19 @@ export function TimelinePanel() {
     () => missingSourceNodeIds(data, new Set(canvasNodes.map(n => n.id))),
     [data, canvasNodes]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // R3⑥ 滚动响应式：scrollLeft 经 rAF single-flight 节流入 state——TimelineRuler 窗口化数据源（标尺只随视口滚动重渲）
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const rafRef = useRef(0);
+  const onScroll = () => {
+    if (rafRef.current) return; // single-flight：在飞帧不再排
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      setScrollLeft(scrollRef.current?.scrollLeft ?? 0);
+    });
+  };
+  // R17-F3：缩放后 scrollLeft 延迟到 useLayoutEffect 写入——wheel 事件当下 React 未重渲、内容宽仍是旧布局，
+  // 同步写会被浏览器 clamp 到旧 scrollWidth-clientWidth → 靠右端锚点漂移
+  const pendingScrollLeftRef = useRef<number | null>(null);
   useEditorKeyboard();
 
   // G9（Plan 2 M2 正式接）：viewportW 经 ResizeObserver 维护 state——panel 不订阅 playhead 后
@@ -83,7 +96,9 @@ export function TimelinePanel() {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   }, [status, data, pxPerSec]);
 
-  const onKeyframePointerDown = (kfId: string, e: React.PointerEvent<HTMLDivElement>) => {
+  // TrackRow memo 生效性：useCallback 固定引用（deps pxPerSec）——scrollLeft state 使 panel 随滚动重渲，
+  // 裸函数每帧新引用会击穿 TrackRow memo（R3⑥ 窗口化配套）
+  const onKeyframePointerDown = useCallback((kfId: string, e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation(); // 挡片段拖拽/片段选中路径——选中经 selectKeyframe 双写
     const es = useEditorStore.getState();
@@ -99,7 +114,7 @@ export function TimelinePanel() {
       startPxPerSec: pxPerSec, pointerMovedOnce: false, // B8：字段名对齐现码 DragState（pointerMovedOnce 机制与 moveClip/trimClip 同款）
     } as DragState & { kfId: string; startKfT: number };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
+  }, [pxPerSec]);
 
   const onWindowPointerMove = (e: PointerEvent) => {
     const d = dragRef.current;
@@ -155,19 +170,43 @@ export function TimelinePanel() {
   }, []);
 
   // Ctrl+滚轮缩放：原生监听 passive:false——react-dom 根容器 wheel 是 passive，合成 preventDefault 无效（执行期 I1）
-  // scrollLeft 锚定换算 Plan 3 接入（anchorZoomScroll 已就绪）；一期直接调 pxPerSec
+  // exp 曲线（zoomByDelta）+ 鼠标/播放头锚定（anchorZoomScroll 接线，Plan 3）
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onWheelNative = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault(); // 阻浏览器缩放
       const es = useEditorStore.getState();
-      es.setPxPerSec(es.pxPerSec * (e.deltaY < 0 ? 1.1 : 0.9));
+      const old = es.pxPerSec;
+      const next = Math.min(500, Math.max(10, zoomByDelta(e.deltaY, old))); // 上限 500 暂留（store setPxPerSec 同 clamp）
+      const rect = el.getBoundingClientRect();
+      // 坐标口径红线：滚动区首行含 140px 轨头角位——clientX-rect.left 含该偏移必须扣除，否则锚点偏 140/pxPerSec 秒
+      //（对照：drop 路径用轨道体自身 rect 无此问题，两处口径不同）
+      const cursorOffsetPx = e.clientX - rect.left - TRACK_HEADER_W;
+      // 鼠标距视口偏 15% 内锚播放头（opencut 阈值），其余锚光标处时间
+      const anchorTime = es.playhead > 0 && (Math.abs(cursorOffsetPx / rect.width) > 0.15)
+        ? pxToTime(cursorOffsetPx + el.scrollLeft, old)
+        : es.playhead;
+      // 解构改名防遮蔽组件级 scrollLeft state；viewportW 是既有签名死参（实现未消费）——传参无害勿赋语义
+      const { scrollLeft: nextScrollLeft } = anchorZoomScroll({ scrollLeft: el.scrollLeft, anchorTime, oldPxPerSec: old, newPxPerSec: next, viewportW: rect.width - TRACK_HEADER_W });
+      if (next === old) return; // R19③：clamp 端 zoomByDelta 回弹同值——zustand 同值不通知 → effect 不跑 → pending 残留；必须在 pending 赋值之前
+      pendingScrollLeftRef.current = nextScrollLeft; // R17-F3：不同步写 el.scrollLeft——此刻 React 未重渲，目标值被旧布局 clamp
+      es.setPxPerSec(next);
     };
     el.addEventListener('wheel', onWheelNative, { passive: false });
     return () => el.removeEventListener('wheel', onWheelNative);
   }, []);
+
+  // R17-F3 提交后落（useLayoutEffect——DOM 已按新 pxPerSec 布局，写入不被 clamp）；
+  // R18-G1：同一 effect 内同步刷标尺窗口化 state——否则缩放那一帧用「新 pxPerSec+旧 scrollLeft」算窗口错一帧
+  useLayoutEffect(() => {
+    if (pendingScrollLeftRef.current != null && scrollRef.current) {
+      scrollRef.current.scrollLeft = pendingScrollLeftRef.current;
+      setScrollLeft(pendingScrollLeftRef.current);
+      pendingScrollLeftRef.current = null;
+    }
+  }, [pxPerSec]);
 
   // 左面板资产拖入（Task 16）：payload 由 dragStart 汇点解析（时长已定），此处只做轨道匹配 + 落点量化 + 入库
   // TrackRow memo 生效性：只捕获 pxPerSec（store 写入经 getState）——除缩放外恒稳定
@@ -247,12 +286,12 @@ export function TimelinePanel() {
           <span className="text-[11px] text-[var(--ve-text-dim)]">{pxPerSec.toFixed(0)} px/s</span>
         </div>
       </div>
-      {/* 滚动区：角位 + 标尺（与轨道头 140px 对齐——时间轴空间契约）+ 轨道；内容 wrapper relative 供贯穿播放头定位 */}
-      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-auto min-h-0">
+      {/* 滚动区：角位 + 标尺（与轨道头 TRACK_HEADER_W 对齐——时间轴空间契约）+ 轨道；内容 wrapper relative 供贯穿播放头定位 */}
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-x-auto overflow-y-auto min-h-0">
         <div className="relative min-w-max">
           <div className="flex">
-            <div className="w-[140px] shrink-0 h-7 border-b border-[var(--ve-border)] [border-bottom-style:solid] bg-[var(--ve-panel)] box-border" />
-            <TimelineRuler data={data} pxPerSec={pxPerSec} widthPx={viewportW - 140} />
+            <div className="shrink-0 h-7 border-b border-[var(--ve-border)] [border-bottom-style:solid] bg-[var(--ve-panel)] box-border" style={{ width: TRACK_HEADER_W }} />
+            <TimelineRuler data={data} pxPerSec={pxPerSec} widthPx={viewportW - TRACK_HEADER_W} scrollLeft={scrollLeft} />
           </div>
           {data.tracks.map(t => (
             <TrackRow key={t.id} track={t} data={data}

@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Popconfirm } from 'antd';
 import type { Clip, ProjectData, Track } from '../../types';
 import { totalDuration } from '../../timeline/timecode';
-import { timeToPx } from '../../timeline/view-scale';
+import { timeToPx, TRACK_HEADER_W } from '../../timeline/view-scale';
 import { ClipBlock } from './ClipBlock';
 import { useEditorStore } from '../../store/editorStore';
 
@@ -29,8 +29,8 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
 
   return (
     <div data-testid={`track-row-${track.id}`} className="flex border-b border-[var(--ve-border)] [border-bottom-style:solid]">
-      {/* 轨道头 */}
-      <div className="w-[140px] shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] box-border">
+      {/* 轨道头（width 用 TRACK_HEADER_W 常量——与 TimelinePanel 角位/标尺/播放头同一空间契约） */}
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] box-border" style={{ width: TRACK_HEADER_W }}>
         <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{TRACK_ICON[track.type]} {track.name}</span>
         <div className="ml-auto flex items-center gap-0.5">
           {track.type === 'subtitle' && (

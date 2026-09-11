@@ -1,7 +1,7 @@
 // apps/web/src/pages/canvas/video-editor/timeline/view-scale.test.ts
 import { describe, it, expect } from 'vitest';
 import {
-  timeToPx, pxToTime, snapThresholdSec, collectSnapPoints, snapTime, edgeHitTest, anchorZoomScroll,
+  timeToPx, pxToTime, snapThresholdSec, collectSnapPoints, snapTime, edgeHitTest, anchorZoomScroll, zoomByDelta,
 } from './view-scale';
 import type { Clip } from '../types';
 
@@ -76,5 +76,18 @@ describe('缩放锚定（Ctrl+滚轮以播放头为中心）', () => {
     // 播放头 10s 在视口 x=300（viewportW 800, scrollLeft 500, pxPerSec 80）
     const r = anchorZoomScroll({ scrollLeft: 500, anchorTime: 10, oldPxPerSec: 80, newPxPerSec: 160, viewportW: 800 });
     expect(r.scrollLeft).toBe(10 * 160 - 300); // 锚点仍距视口左 300px
+  });
+});
+
+describe('zoomByDelta（opencut exp 曲线）', () => {
+  it('delta 正（滚下）缩小、负（滚上）放大，capped ±30', () => {
+    expect(zoomByDelta(100, 100)).toBeLessThan(100);   // 缩小
+    expect(zoomByDelta(-100, 100)).toBeGreaterThan(100); // 放大
+    expect(zoomByDelta(10000, 100)).toBeGreaterThan(20);  // capped 不至于跳变到极小
+  });
+  it('anchorZoomScroll 接线后锚点视口位置不变（既有死代码激活回归）', () => {
+    const r = anchorZoomScroll({ scrollLeft: 200, anchorTime: 5, oldPxPerSec: 40, newPxPerSec: 80, viewportW: 800 });
+    // 锚点距视口左原 = 5*40-200 = 0；新 scrollLeft = 5*80-0 = 400
+    expect(r.scrollLeft).toBe(400);
   });
 });
