@@ -11,7 +11,7 @@
 **执行纪律（每个 implementer 必读）：**
 - TDD 铁律：NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST。每任务先写测试看红，再实现看绿。
 - CLAUDE.md 四原则：编码前先思考/简洁优先/精准修改/目标驱动。不动任务清单外的代码。
-- 测试命令：`cd D:/flowweb && pnpm --filter @flowweb/web test -- --run <文件路径>`（web 端）；`pnpm --filter @flowweb/api test -- --run <路径>`（api 端）。
+- 测试命令：`cd D:/flowweb && pnpm --filter @flowweb/web test -- --run <文件路径>`（web 端）；`pnpm --filter @flowweb/api test -- --run <路径>`（api 端）；`pnpm --filter @flowweb/shared test`（shared 端）。
 - 提交信息带批次前缀，如 `feat(video-editor): 批1 层级修复——…`。
 - 既有验收资产不得回退：`startingRef` 重入锁、`beforeunload` 模块级守卫、autosave flush 关闭路径。
 
@@ -40,50 +40,30 @@
 
 **Files:**
 - Modify: `apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx`
-- Test: `apps/web/src/pages/canvas/video-editor/components/PopupScope.test.tsx`（Create）
+- Test: `apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx`（追加用例——**不用自建夹具文件**：自证式测试测的是夹具不是 Shell，删掉 Shell 的 ConfigProvider 后依然全绿，无回归保护价值）
 
-- [ ] **Step 1: 写失败测试——弹层挂载容器必须在壳内**
+- [ ] **Step 1: 写失败测试——真实 Shell 内触发弹层，断言挂载容器归属壳**
 
 ```tsx
-// apps/web/src/pages/canvas/video-editor/components/PopupScope.test.tsx
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { ConfigProvider, App as AntdApp } from 'antd';
-
-// 与 Shell 相同的作用域结构被测：这里直接测真实 VideoEditorShell 太重（需画布 store 夹具），
-// 测"Shell 渲染出的弹层容器在壳内"用 ExportModal 的触发链路集成测（Task 2 Step 4）。
-// 本文件测机制骨架：ConfigProvider getPopupContainer 指向壳 div 后，Modal 挂载进壳。
-describe('编辑器弹层作用域', () => {
-  it('Modal 挂载容器落在壳节点内（非 document.body 直挂）', async () => {
-    const shellRef = { current: null as HTMLDivElement | null };
-    const {container} = render(
-      <div data-testid="video-editor-shell" ref={(el) => { shellRef.current = el; }}>
-        <ConfigProvider getPopupContainer={() => shellRef.current ?? document.body}>
-          <AntdApp>
-            <ScopeProbeModal open />
-          </AntdApp>
-        </ConfigProvider>
-      </div>
-    );
-    await waitFor(() => {
-      const mask = document.querySelector('.ant-modal-mask') ?? container.querySelector('.ant-modal');
-      expect(mask).toBeTruthy();
-      // 断言：Modal 的根层容器在壳内（closest 链），不在 body 直挂
-      expect((mask as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
-    });
+// VideoEditorShell.test.tsx 追加（复用既有夹具：vi.mock upsertProject/patchProject 已就绪，
+// 渲染真实 <VideoEditorShell /> 并 waitFor upsertProject 已调用——既有用例同款流程）
+it('P0-A 回归：壳内 antd 弹层挂载容器归属壳节点（删 Shell 的 ConfigProvider 后此用例必红）', async () => {
+  // 既有夹具渲染 + 就绪等待后：
+  fireEvent.click(screen.getByText('导出'));   // 打开导出弹层（批 6 前仍是 Modal）
+  await waitFor(() => {
+    const wrap = document.querySelector('.ant-modal-wrap');
+    expect(wrap).toBeTruthy();
+    // 容器归属断言（真红点）：Modal 挂进壳内而非 body 直挂——
+    // 无 ConfigProvider(getPopupContainer) 时 wrap.closest(壳) === null，用例红
+    expect((wrap as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
   });
 });
-
-import { Modal } from 'antd';
-function ScopeProbeModal({ open }: { open: boolean }) {
-  return <Modal open={open} title="探针">{null}</Modal>;
-}
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **Step 2: 跑测试确认失败（生产代码的真红）**
 
-Run: `cd D:/flowweb && pnpm --filter @flowweb/web test -- --run src/pages/canvas/video-editor/components/PopupScope.test.tsx`
-Expected: FAIL——现状 Shell 无 ConfigProvider（本测试自带 ConfigProvider 是探针结构；真正的失败断言点：先注释掉 ConfigProvider 包裹跑一次见红，确认断言有效后再恢复）。做法：先写不带 ConfigProvider 的版本跑红，再加上 ConfigProvider 跑绿。
+Run: `cd D:/flowweb && pnpm --filter @flowweb/web test -- --run src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx`
+Expected: FAIL——`.ant-modal-wrap` 为 null（Modal 尚未挂进壳/或挂到 body 使 closest 为 null）。注意 exportOpen 由 Shell 内部 state 控制，若既有夹具未暴露导出按钮点击路径（EditorTopBar 渲染需 saveState），按既有夹具补 waitFor 即可，**不得改用自建探针夹具**。
 
 - [ ] **Step 3: 改造 VideoEditorShell——加 ConfigProvider + AntdApp + shellRef，Shell 内 2 处静态 message 改 useApp()**
 
@@ -152,21 +132,7 @@ git commit -m "feat(video-editor): 批1-1 编辑器弹层作用域——壳内 C
 
 - [ ] **Step 3: PreviewPlayer——`Modal.confirm`（:45 片段重拍）改 `modal.confirm`，`message.error`（:55）改 `message.error`；`const { message, modal } = AntdApp.useApp();` 放组件体首行；删除 `import { Modal, ... } from 'antd'` 中的 Modal（Slider/Tooltip/message 若仍被用则保留，message 导入删除）**
 
-- [ ] **Step 4: 集成断言——ExportModal 测试补挂载容器用例**
-
-在 `ExportModal.test.tsx` 追加：
-
-```tsx
-it('导出弹层挂载在壳作用域内（P0-A 回归）', async () => {
-  // 复用该文件既有夹具渲染 ExportModal（open=true）
-  // 断言 .ant-modal-wrap 的最近弹层容器在测试容器内而非 body 直挂——
-  // 经由 ConfigProvider 包裹的渲染路径（夹具需补 ConfigProvider+AntdApp，与 Shell 同构）
-  const wrap = document.querySelector('.ant-modal-wrap');
-  expect(wrap).toBeTruthy();
-});
-```
-
-- [ ] **Step 5: 跑批 1 全部测试 + Commit**
+- [ ] **Step 4: 跑批 1 全部测试（含 Task 1 的 Shell 级归属断言——ExportModal 单渲染无壳，归属断言只放 Shell 级，此处不重复）+ Commit**
 
 Run: `cd D:/flowweb && pnpm --filter @flowweb/web test -- --run src/pages/canvas/video-editor`
 Expected: 全 PASS
@@ -206,6 +172,7 @@ git commit -m "feat(video-editor): 批1-2 编辑器内 8 处静态 message/Modal
   --ve-panel: var(--canvas-controls-bg);      /* rgb(38,38,38) 面板 */
   --ve-border: var(--canvas-controls-border); /* rgb(54,54,54) */
   --ve-text: #e2e8f0;                         /* 正文 = body 同值 */
+  --ve-text-dim: rgba(226, 232, 240, 0.6);    /* 淡化文本专用 token——Tailwind3 无法对 var() 用 /透明度修饰符（生成声明被静默丢弃），禁止 text-[var(--ve-text)]/60 写法 */
   --ve-text-control: var(--canvas-controls-text); /* rgb(247,247,247) 控件 */
   --ve-accent: #6C5CE7;
   --ve-track-video: #1f1f1f;                  /* 批3 video 兜底底 */
@@ -230,7 +197,7 @@ import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
 - `border-[#E5E7EB]` → `border-[var(--ve-border)]`
 - `text-[#1F2329]` → `text-[var(--ve-text)]`
 - `text-[#4E5969]` → `text-[var(--ve-text)]`（次要文字同主文字，暗色下次要靠透明度：`text-[var(--ve-text)]/80` 可选，保持简单先同值）
-- `text-[#86909C]` → `text-[var(--ve-text)] opacity-60`（保留写法：`text-[var(--ve-text)]/60`）
+- `text-[#86909C]` → `text-[var(--ve-text-dim)]`（专用 token——**禁用 `text-[var(--ve-text)]/60` 斜杠写法**，Tailwind3 对 var() 无法解析透明度通道）
 - `bg-[#1F2329]`（导出按钮）→ `bg-[var(--ve-accent)]`
 - 涉及文件：`EditorTopBar.tsx`、`PreviewPlayer.tsx`（含控制条 :75）、`PropertiesPanel.tsx`、`AssetPanel.tsx`、`TimelinePanel.tsx`、`TimelineRuler.tsx`、`TrackRow.tsx`
 
@@ -252,28 +219,47 @@ git commit -m "feat(video-editor): 批2-1 暗黑扁平主题——darkAlgorithm 
 Run: `cd D:/flowweb && pnpm --filter @flowweb/web add react-resizable-panels`
 Expected: 安装成功（React18 兼容，v2.x）
 
-- [ ] **Step 2: 写失败测试——布局结构（面板组 + 持久化键）**
+- [ ] **Step 2: 写失败测试——布局结构（面板组 + 持久化契约）**
 
 ```tsx
 // VideoEditorShell.test.tsx 追加
-it('布局为可调面板组：垂直(主区/时间轴) + 水平(素材/预览/属性)，持久化键 ve-panel-sizes', () => {
-  // 渲染 Shell（复用既有夹具），断言：
-  expect(document.querySelector('[data-panel-group-id="ve-vertical"]')).toBeTruthy();
-  expect(document.querySelector('[data-panel-group-id="ve-horizontal"]')).toBeTruthy();
-  expect(document.querySelectorAll('[data-panel-group-id="ve-horizontal"] [data-panel]')).toHaveLength(3);
+it('布局为可调面板组：垂直(主区/时间轴) + 水平(素材/预览/属性) 各两级', () => {
+  // 渲染 Shell（复用既有夹具），断言两级面板组与 3 个水平面板。
+  // ⚠ 选择器实测前置：v2 面板 DOM 属性可能是 data-panel-id / data-panel-group-id 而非 data-panel——
+  // 装包后先用 jsdom 打印真实属性再定断言（data-panel 极可能匹配不到导致假红）。
+  expect(document.querySelectorAll('[data-panel-group-id]').length).toBeGreaterThanOrEqual(2);
+  // 实测后补精确断言（组 id 命名 ve-vertical/ve-horizontal 由实现写入）
 });
 ```
 
-- [ ] **Step 3: 实现布局改造**
+- [ ] **Step 3: 实现布局改造（onLayout 自管持久化——spec 契约：键名 `ve-panel-sizes`、版本 v1、migrate 预留）**
 
 ```tsx
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
-// Shell 中段布局替换（EditorTopBar/各面板内容不变）：
+// 持久化契约（对齐 opencut panel-store 模式：自管 {version, panels}，不用库内建 autoSaveId——
+// 其键名/序列化由库控制无版本语义，不满足 spec"键名+版本+migrate"冻结条款）
+const PANEL_STORAGE_KEY = 've-panel-sizes';
+function loadPanelSizes(): { version: 1; panels: Record<string, number[]> } | null {
+  try {
+    const raw = localStorage.getItem(PANEL_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { version: number } : null;
+    return parsed?.version === 1 ? parsed as { version: 1; panels: Record<string, number[]> } : null; // 版本不符走默认（migrate 挂点）
+  } catch { return null; }
+}
+// Shell 内：
+const saved = loadPanelSizes();
+const saveLayout = (groupId: string) => (sizes: number[]) => {
+  const cur = loadPanelSizes();
+  localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, [groupId]: sizes } }));
+};
+
 <div className="flex flex-1 min-h-0">
-  <PanelGroup direction="vertical" id="ve-vertical" autoSaveId="ve-panel-sizes">
+  <PanelGroup direction="vertical" id="ve-vertical"
+    onLayout={saveLayout('ve-vertical')}
+    defaultSize={saved?.panels['ve-vertical']} /* 库 API 名以装包实测为准（defaultSize 与 onLayout 签名） */>
     <Panel defaultSize={70} minSize={30}>
-      <PanelGroup direction="horizontal" id="ve-horizontal" autoSaveId="ve-panel-sizes-h">
+      <PanelGroup direction="horizontal" id="ve-horizontal" onLayout={saveLayout('ve-horizontal')}>
         <Panel defaultSize={20} minSize={15} maxSize={40}><AssetPanel /></Panel>
         <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" />
         <Panel minSize={30}><PreviewPlayer /></Panel>
@@ -287,12 +273,12 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 </div>
 ```
 
-说明：`autoSaveId` 即 react-resizable-panels 内建 localStorage 持久化（键为 `react-resizable-panels:${autoSaveId}`，含版本语义）——**用它，不手写持久化**（spec"键名定死"以 autoSaveId 值落实：`ve-panel-sizes` / `ve-panel-sizes-h`）。
+说明：onLayout 只写 localStorage 不 setState（避免拖动每帧重渲风暴）。库 API 形态（PanelGroup 接收 sizes 数组的方式）装包后以实测为准，持久化契约（键/版本/结构）不变。
 
 同步改动：
 - `TimelinePanel.tsx:216` 的 `h-[280px]` 固定高删除（Panel 提供高度，内部 `flex flex-col min-h-0` 自适应）
 - `AssetPanel.tsx:31` 的 `w-[260px] shrink-0`、`PropertiesPanel.tsx:74/81` 的 `w-[280px] shrink-0` 删除（Panel 控宽）
-- TimelinePanel 视口测量：`viewportW` 改 ResizeObserver 监听容器（现有 `:232 widthPx={viewportW - 140}` 契约保留，140 轨道头宽不变）；ResizeObserver 回调仅 set 宽度 state，Panel 拖动时由库节流
+- TimelinePanel 视口测量：**已有 ResizeObserver 维护 viewportW state（:34-38，G9 注释）——无需改动**；`:232 widthPx={viewportW - 140}` 契约保留（140 提常量见批 3 Task 11）
 
 - [ ] **Step 4: 跑测试（新用例绿 + 既有全绿）**
 
@@ -396,6 +382,11 @@ git commit -m "feat(video-editor): 批3-1 初始工程单空视频轨（勘误�
 import { describe, it, expect } from 'vitest';
 import { placeAssetInTrack } from './placement';
 import { createDefaultProjectData } from '../types';
+import type { ProjectData, AudioClip } from '../types';
+
+const audioClip = (id: string, start: number, duration: number, trackId: string): AudioClip =>
+  ({ id, trackId, type: 'audio', start, duration, sourceStart: 0, mediaId: 'ma', volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] });
+
 describe('placeAssetInTrack', () => {
   it('视频素材进已有空视频轨，起点 0', () => {
     const d = createDefaultProjectData();
@@ -404,19 +395,20 @@ describe('placeAssetInTrack', () => {
     expect(r.start).toBe(0);
     expect(r.createNewTrack).toBe(false);
   });
-  it('轨尾口径 = 该轨 max(start+duration)，非全局时长——轨短于全局时不留空隙', () => {
+  it('无音频轨时放音频 → 标记建轨；轨尾口径 = 该轨 max(start+duration) 而非全局时长', () => {
     const d = createDefaultProjectData();
-    // 视频轨已有 0-10s 片段，另假设全局（无其他轨）即 10s；音频轨不存在
+    // 视频轨已有 0-10s 片段（全局时长 10）
     d.clips.c1 = { id: 'c1', trackId: d.tracks[0].id, type: 'video', start: 0, duration: 10, sourceStart: 0, mediaId: 'm', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] } as never;
     d.tracks[0].clips.push('c1');
     const r = placeAssetInTrack(d, { mimeType: 'audio/mp3', durationSec: 3 });
     expect(r.createNewTrack).toBe(true);   // 无音频轨 → 建
     expect(r.start).toBe(0);               // 新轨从 0
-    // 再放第二条音频：轨尾 = 3（该轨），而非全局 10
-    const d2 = { ...d, tracks: d.tracks.map(t => t.type === 'audio' ? t : t) };
-    // （夹具细节：为第二条断言重建含音频轨的 d2，audio 轨含 0-3s 片段）
+    // 显式补建音频轨 + 一条 0-3s 片段（不依赖 addTrack——纯函数测试直接构造数据）：
+    const d2: ProjectData = { ...d, tracks: [...d.tracks, { id: 'ta', type: 'audio', name: '音频1', muted: false, hidden: false, clips: ['a1'] }], clips: { ...d.clips, a1: audioClip('a1', 0, 3, 'ta') } };
     const r2 = placeAssetInTrack(d2, { mimeType: 'audio/mp3', durationSec: 2 });
-    expect(r2.start).toBe(3);
+    expect(r2.createNewTrack).toBe(false);
+    expect(r2.trackId).toBe('ta');
+    expect(r2.start).toBe(3);              // 该轨轨尾 3，而非全局 10（轨尾口径用例）
   });
   it('mimeType 三分类：video/* 与 image/* → video 轨，audio/* → audio 轨', () => {
     const d = createDefaultProjectData();
@@ -425,12 +417,11 @@ describe('placeAssetInTrack', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → 实现**
+- [ ] **Step 2: 跑红 → 实现（简洁优先：轨尾追加位置与轨内片段不可能重叠，无需重叠判定——canPlaceAt 依赖删除）**
 
 ```ts
 // apps/web/src/pages/canvas/video-editor/timeline/placement.ts
 import type { ProjectData, Track } from '../types';
-import { canPlaceAt } from './overlap'; // 仓内既有（能力复用，勿重写重叠判定）
 
 export type AssetKind = 'video' | 'audio' | 'image';
 export function assetKindOf(mimeType: string): AssetKind {
@@ -439,21 +430,16 @@ export function assetKindOf(mimeType: string): AssetKind {
   return 'image';
 }
 export interface PlacementResult { trackId: string; start: number; createNewTrack: boolean; newTrackType?: Track['type']; }
-/** 动态建轨策略（spec 3.1）：按 mimeType 选首个可容纳的类型轨 → 无则标记建轨 → 起点 = 该轨 max(start+duration)（空轨 0） */
+/** 动态建轨策略（spec 3.1 / D8）：取该类型第一条轨 → 起点 = 该轨 max(start+duration)（空轨 0）；无该类型轨 → 标记建轨。
+ *  轨尾追加位与轨内既有片段不可能重叠，故不做重叠判定（原 canPlaceAt 依赖为死代码，评审第 5 条删除）。 */
 export function placeAssetInTrack(data: ProjectData, asset: { mimeType: string; durationSec: number }): PlacementResult {
-  const kind = assetKindOf(asset.mimeType);
-  const trackType: Track['type'] = kind === 'audio' ? 'audio' : 'video'; // 图片归视频轨
-  const candidates = data.tracks.filter((t) => t.type === trackType);
-  const trackEnd = (t: Track) => Math.max(0, ...t.clips.map((id) => { const c = data.clips[id]; return c ? c.start + c.duration : 0; }));
-  for (const t of candidates) {
-    const start = trackEnd(t);
-    if (canPlaceAt(data, t.id, start, asset.durationSec)) return { trackId: t.id, start, createNewTrack: false };
-  }
-  return { trackId: '', start: 0, createNewTrack: true, newTrackType: trackType };
+  const trackType: Track['type'] = assetKindOf(asset.mimeType) === 'audio' ? 'audio' : 'video'; // 图片归视频轨
+  const track = data.tracks.find((t) => t.type === trackType);
+  if (!track) return { trackId: '', start: 0, createNewTrack: true, newTrackType: trackType };
+  const start = Math.max(0, ...track.clips.map((id) => { const c = data.clips[id]; return c ? c.start + c.duration : 0; }));
+  return { trackId: track.id, start, createNewTrack: false };
 }
 ```
-
-（`canPlaceAt` 若签名不同以仓内 overlap.ts 实测为准——plan 假设其存在，执行时先读 overlap.ts 对齐签名；若其语义不含"轨内区间空闲"则退化为 trackEnd 追加必然无重叠，直接用 trackEnd 即可，删除 canPlaceAt 依赖。）
 
 - [ ] **Step 3: 跑绿 → Commit**
 
@@ -571,12 +557,12 @@ ClipBlock：
 
 ```tsx
 const BLOCK_BG: Record<Clip['type'], string> = { video: 'var(--ve-track-video)', image: 'var(--ve-track-video)', audio: '#8F5DBA', subtitle: '#5DBAA0' };
-// 组件内（video/image 且有缩略图时叠加 tile；底色常驻在 image 之下，零就绪分支）：
-const thumb = clip.type !== 'subtitle' && clip.type !== 'audio' ? useEditorStore.getState().mediaInfo[clip.mediaId]?.thumbnailUrl : undefined;
-// （订阅式：const thumb = useEditorStore(s => clip.type === 'video' || clip.type === 'image' ? s.mediaInfo[clip.mediaId]?.thumbnailUrl : undefined)）
+// 组件内——必须用 selector 订阅（非 getState）：ensurePoster 异步写回 mediaInfo 后要触发已挂载片段重渲染
+const thumb = useEditorStore((s) => (clip.type === 'video' || clip.type === 'image') ? s.mediaInfo[clip.mediaId]?.thumbnailUrl : undefined);
 style={{
   left, width,
-  background: missing ? '#7f1d1d' : BLOCK_BG[clip.type],
+  // ⚠ 长写并行声明——禁用 background 简写 + backgroundImage 混排（简写会清掉 image，"海报偶尔消失"型陷阱，评审第 10 条）
+  backgroundColor: missing ? '#7f1d1d' : BLOCK_BG[clip.type],
   ...(thumb ? { backgroundImage: `url(${thumb})`, backgroundRepeat: 'repeat-x', backgroundSize: 'auto 100%' } : {}),
   border: /* 同现有逻辑，BAR 色同步暗化：video #6C5CE7 / image #5B7CFA / audio #8F5DBA / subtitle #5DBAA0 */,
 }}
@@ -646,8 +632,11 @@ export function zoomByDelta(deltaY: number, currentPxPerSec: number): number {
 
 - [ ] **Step 3: TimelinePanel wheel handler 替换（:157-168）**
 
+**坐标口径红线（评审第 3 条）**：监听容器是 `scrollRef`（TimelinePanel.tsx:32，**不是 containerRef——该名不存在**），且该滚动区首行含 140px 轨头角位（:231）——`e.clientX - rect.left` 含 140px 偏移，必须扣除，否则锚点必偏 140/pxPerSec 秒（对照：drop 路径用轨道体自身 rect 无此问题，两处口径不同勿照抄）。140 同步提常量（消除 :232 的第二处硬编码）：
+
 ```tsx
-const el = containerRef.current!; // 既有监听容器
+// TimelinePanel 顶部：export const TRACK_HEADER_W = 140; // 轨道头列宽（:232 widthPx={viewportW - TRACK_HEADER_W} 同步替换）
+const el = scrollRef.current!; // 既有监听容器（:32）
 const onWheel = (e: WheelEvent) => {
   if (!(e.ctrlKey || e.metaKey)) return;
   e.preventDefault(); // 阻浏览器缩放（capture + passive:false，监听注册保持既有方式）
@@ -655,10 +644,11 @@ const onWheel = (e: WheelEvent) => {
   const old = es.pxPerSec;
   const next = Math.min(500, Math.max(10, zoomByDelta(e.deltaY, old))); // 上限 500 暂留——标尺窗口化后评估放宽（spec 3.4）
   const rect = el.getBoundingClientRect();
-  const anchorTime = es.playhead > 0 && (Math.abs((e.clientX - rect.left) / rect.width) > 0.15)
-    ? pxToTime(e.clientX - rect.left + el.scrollLeft, old)  // 鼠标锚定（视口偏 15% 内锚播放头，opencut 阈值）
+  const cursorOffsetPx = e.clientX - rect.left - TRACK_HEADER_W; // 扣轨头（滚动区含 140px 角位列）
+  const anchorTime = es.playhead > 0 && (Math.abs(cursorOffsetPx / rect.width) > 0.15)
+    ? pxToTime(cursorOffsetPx + el.scrollLeft, old)  // 鼠标锚定（视口偏 15% 内锚播放头，opencut 阈值）
     : es.playhead;
-  const { scrollLeft } = anchorZoomScroll({ scrollLeft: el.scrollLeft, anchorTime, oldPxPerSec: old, newPxPerSec: next, viewportW: rect.width });
+  const { scrollLeft } = anchorZoomScroll({ scrollLeft: el.scrollLeft, anchorTime, oldPxPerSec: old, newPxPerSec: next, viewportW: rect.width - TRACK_HEADER_W });
   es.setPxPerSec(next);
   el.scrollLeft = scrollLeft; // 接线既有死代码 anchorZoomScroll（spec 3.4）
 };
@@ -862,15 +852,16 @@ export function remapForCanvasSize(clips: Clip[], from: CanvasSize, to: CanvasSi
 
 shared `ProjectData`（:3 后）加 `canvasSize?: { width: number; height: number };`。
 
-editorStore 加 action：
+editorStore 加 action——**必须走既有统一入栈路径 `commit()`**（editorStore.ts:104，内部含 stopCapturing 断画布合并窗；手写 set + begin/endTransient 漏 stopCapturing 且绕过 ensureAutoEdges，评审第 11 条）：
 
 ```ts
-setCanvasSize: (size) => set((s) => {
-  if (!s.data) return {};
-  const clips = remapForCanvasSize(Object.values(s.data.clips), canvasSizeOf(s.data), size);
-  return { data: { ...s.data, canvasSize: size, clips: Object.fromEntries(clips.map((c) => [c.id, c])) } };
-}),
-// 历史栈：调用方以 beginTransient/endTransient 包裹（与既有编辑动作一致——setCanvasSize 在组件 onClick 里包）
+setCanvasSize: (size) => {
+  commit((d) => {
+    const clips = remapForCanvasSize(Object.values(d.clips), canvasSizeOf(d), size);
+    return { ...d, canvasSize: size, clips: Object.fromEntries(clips.map((c) => [c.id, c])) };
+  }, { structural: false }); // 结构不变（tracks 不动）——与 moveClip 同款 opts
+},
+// 调用方（EditorTopBar）无需再包 transient——commit 即完整入栈（undo 可回退比例切换）
 ```
 
 - [ ] **Step 4: EditorTopBar 比例 Dropdown（:20 硬编码替换）**
@@ -936,13 +927,18 @@ it('fontSize 基准 1080 高：9:16（1920 高）下 48 渲染为 85.33；bottom
 
 - [ ] **Step 2: 跑红 → 实现**
 
-canvas-renderer：
+canvas-renderer（评审第 12 条两条约束）：
 
 ```ts
-// 删除模块级 CANVAS_W/CANVAS_H 常量消费点，绘制函数签名加 canvasSize 参数（或内部 canvasSizeOf(data)）：
-const size = canvasSizeOf(data);
+// ① 基准常量改名保留（不删——fontSize/maxWidth/bottomMargin 全以 1920×1080 基准定义，删了会再冒魔法数）：
+export const BASE_CANVAS_W = 1920;  // 原 CANVAS_W——仅供基准换算（如 size.height / BASE_CANVAS_H）
+export const BASE_CANVAS_H = 1080;  // 原 CANVAS_H
+// ② CanvasRenderer.draw(visual, subtitles) 拿不到 data——"内部 canvasSizeOf(data)"不可行。
+//    定案：构造器接收 canvasSize（new CanvasRenderer(canvasSize)），renderFrameAt 调用点与测试同步传参：
+const size = this.canvasSize;                  // 构造器注入（切比例时由调用方重建或 setSize）
 const contain = Math.min(size.width / srcW, size.height / srcH);
-// :65 字幕：const bottomMargin = 96 * (size.height / 1080); const y = size.height - bottomMargin;
+// :65 字幕：const bottomMargin = 96 * (size.height / BASE_CANVAS_H); const y = size.height - bottomMargin;
+// CANVAS_W/CANVAS_H 其余消费点（VideoEditNode 迷你预览/usePreviewPlayback 守卫）改 canvasSizeOf(data) 或构造注入
 ```
 
 subtitle-layout：
@@ -1009,9 +1005,10 @@ export function computeExportSize(canvasSize: { width: number; height: number },
 }
 export function estimateSizeBytes(canvasSize: { width: number; height: number }, resolution: ExportResolution, durationSec: number): number {
   const { video, audio } = EXPORT_BITRATES[resolution];
-  const px = canvasSize.width * canvasSize.height;
-  const basePx = 1920 * 1080;
-  return Math.round(((video * Math.max(1, px / basePx) + audio) / 8) * durationSec * 1.2); // 码率按像素量重定（spec 5.3——21:9 多 33% 像素）
+  const out = computeExportSize(canvasSize, resolution);        // 按输出像素（评审第 9 条）——
+  const outPx = out.width * out.height;                          // 21:9 的 480p 输出 1138×480 勿按 2560×1080 画布像素高估
+  const tierPx = parseInt(resolution, 10) ** 2 * (1920 / 1080); // 档位参考像素（16:9 基准——16:9 各档结果与旧口径一致）
+  return Math.round(((video * Math.max(1, outPx / tierPx) + audio) / 8) * durationSec * 1.2);
 }
 ```
 
@@ -1180,7 +1177,7 @@ const startExport = async () => {
     setPhase('exporting'); armBeforeunload();
     try {
       const r = await j.promise;
-      const file = r.fsa && target.kind !== 'canceled' ? await target.handle.getFile() : r.blob;
+      const file = r.fsa ? await target.handle.getFile() : r.blob;
       if (destination === 'canvas') {
         const { mediaId } = await uploadExportedProduct({ ..., width: out.width, height: out.height, file });
         useEditorStore.getState().setPendingProduct({ mediaId, title: currentEditorProjectTitle() }); // store 持久化（spec 6.4——弹层关闭不丢）
@@ -1189,10 +1186,15 @@ const startExport = async () => {
         const url = URL.createObjectURL(file);
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60_000); // 延迟 revoke——不抄同步 revoke 截断先例（spec 6.2）
+        // ⚠ 本地路径**不在此处 cleanupOpfsTarget**——a.click() 是 fire-and-forget，浏览器还在读 OPFS 文件时
+        // removeEntry 会截断下载（评审第 4 条竞态）。画布路径安全（upload 已 await 完成）。
       }
       setOpen(false);
-    } catch (err) { /* 既有 error 分辙 + cleanupOpfsTarget(target) */ }
-    finally { setJob(null); disarmBeforeunload(); void cleanupOpfsTarget(target); } // 三路径清理（spec 6.1）
+    } catch (err) {
+      if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; } // 保留既有 canceled 分支（原 :111）——回 config 不关闭
+      /* 既有 error 分辙（quotaHit 特判等）保留 */
+    }
+    finally { setJob(null); disarmBeforeunload(); if (destination === 'canvas') void cleanupOpfsTarget(target); } // 仅画布路径即时清理
   } finally { startingRef.current = false; }
 };
 <Popover
@@ -1221,6 +1223,13 @@ const startExport = async () => {
           <Select value="mp4" disabled options={[{ value: 'mp4', label: 'MP4' }]} />
         </div>
         {/* precheck errors/warnings/fail 渲染保留（既有逻辑） */}
+        {pendingProduct && (
+          <Button data-testid="retry-product-node" onClick={() => {
+            const p = useEditorStore.getState().pendingProduct!;
+            try { createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), p.mediaId, p.title); useEditorStore.getState().clearPendingProduct(); void message.success('产物节点已补建'); }
+            catch (e) { void message.error(`补建失败：${(e as Error).message}`); } // 不清 pendingProduct——可再试
+          }}>重试（仅补建产物节点）</Button>
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={() => setOpen(false)}>取消</Button>
           <Button type="primary" disabled={blocked || !precheck} onClick={() => void startExport()} data-testid="export-start">确认</Button>
@@ -1237,7 +1246,7 @@ const startExport = async () => {
 </Popover>
 ```
 
-结构落位：ExportModal.tsx 导出 `ExportPopover({ children })`，EditorTopBar 的导出按钮作 children（trigger）。Shell 的 `exportOpen` state 移除（Popover 自管 open）。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
+结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写。OPFS 残留回收：`startExport` 开头扫过期（`navigator.storage.getDirectory()` → 迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h → removeEntry）——替代本地路径的即时清理，兼收上次崩溃残留（评审第 4 条）。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
 
 editorStore 补：
 
@@ -1274,8 +1283,9 @@ it('confirm 超限回滚：usage+actualSize 超限 → 删对象+删记录+抛 4
 it('register 幂等：同 clientRequestId 返回同一条 Media（不新建行）', async () => {
   // 两次 register 同 id → prisma.media.create 仅一次，第二次返回首条
 });
-it('TTL 回收 generated pending >24h：删记录 + 删 MinIO 对象；24h 内/in-flight 不回收', async () => {
-  // 夹具：pending generated createdAt 25h 前 / 1h 前各一 → processor 跑后仅 25h 前被删且 minio.delete 被调
+it('TTL 回收 generated pending：expiresAt<now 删记录+删对象；confirm 成功置 expiresAt=null 不被回收', async () => {
+  // 夹具：pending generated expiresAt 1h 前 / 23h 后各一 → processor 跑后仅过期者被删且 minio.delete 被调
+  // confirm 成功路径断言：media.update 含 expiresAt: null（completed 产物不进 24h 回收）
 });
 ```
 
@@ -1294,18 +1304,21 @@ if (input.clientRequestId) {
   }
 }
 // metadata 加 clientRequestId 存档
+// register() 写 expiresAt = now + 24h（Media 模型无 updatedAt 字段——schema.prisma :286-309 仅 createdAt/expiresAt，
+// 评审第 2 条：复用既有 expiresAt 语义，in-flight 行因 expiresAt 在未来天然不被收走）：
+//   prisma.media.create({ data: { ..., expiresAt: new Date(Date.now() + 24 * 3600_000) } })
 // confirm() 接终判（spec 批7——导出链曾是唯一无终判通道）：
 await this.quota.assertOnConfirm(media.id, actualSize, media.key, media.bucket); // 超限内部已删对象+记录并抛
-// temp-cleanup.processor.ts process() 追加第二段：
-const staleGenerated = await this.prisma.media.findMany({
-  where: { type: 'generated', status: 'pending',
-    updatedAt: { lt: new Date(Date.now() - 24 * 3600_000) } }, // 24h TTL（in-flight 自然排除——updatedAt 新）
+// temp-cleanup.processor.ts 的过期过滤扩为 OR（不新增第二段查询——与 temp 同语义同字段）：
+const expiredMedias = await this.prisma.media.findMany({
+  where: {
+    expiresAt: { lt: new Date() },
+    OR: [{ type: 'temp' }, { type: 'generated', status: 'pending' }],
+  },
   take: 1000, select: { id: true, key: true },
 });
-for (const m of staleGenerated) {
-  try { await this.minio.delete(m.key); } catch { /* 对象不存在继续删记录 */ }
-  await this.prisma.media.delete({ where: { id: m.id } });
-}
+// 既有循环不动（已含 minio.delete + media.delete——generated pending 复用同删除路径）
+// 注意：confirm 成功路径要把 expiresAt 置 null（completed 产物不该被 24h 回收）——media.update({ data: { status: 'completed', size: actualSize, expiresAt: null } })
 ```
 
 前端 upload.ts 的 registerGeneratedMedia 入参带 `clientRequestId: crypto.randomUUID()`，**同一导出会话重试复用同一 id**（存组件 useRef，不随重试重生成）。
@@ -1338,5 +1351,6 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 
 - Spec 覆盖：12 问题 + P0-A/B + P1-D/E + 标尺性能 + 拖拽静默丢弃 + 失败半途 + revoke + 收起语义——对应 Task 1-20 全段落（附录 B 矩阵逐条可指认）。
 - 类型一致性：SaveTarget/pickSaveTarget（Task 18↔19）、canvasSizeOf/CANVAS_PRESETS/remapForCanvasSize（Task 14↔15↔16）、computeExportSize（Task 16↔17↔19）、applyCanvasSize（Task 13↔15）、setPendingProduct（Task 19↔批7 呼应）已交叉核对。
-- 已知实现期待核实点（执行者 First Step 必读）：① overlap.ts canPlaceAt 签名（Task 8）② editorStore beginTransient/endTransient 公开 API 名（Task 14/既译）③ AssetPanel 条目字段名（Task 9）④ VideoEditNode 实际路径（Task 15 Glob）⑤ react-resizable-panels autoSaveId 持久化行为（Task 5）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
+- **R2 修订（2026-09-12 plan 评审 14 条全采纳）**：①批 1 回归测试改真实 Shell 夹具（自证式夹具删除）②TTL 改复用 expiresAt（Media 无 updatedAt）③滚轮锚定扣 TRACK_HEADER_W=140 + scrollRef 名修正 + 提常量④OPFS 本地路径不即时清理（改导出开头扫过期）⑤placement 删 canPlaceAt 死代码（轨尾追加无重叠可能）+ 夹具写实⑥Popover 归属定案 EditorTopBar（删 Shell exportOpen/onExport）+ 补建重试按钮落地 + canceled 分支保留⑦持久化改 onLayout 自管 `{version:1, panels}`（弃 autoSaveId）⑧--ve-text-dim 专用 token（Tailwind3 var() 不支持斜杠透明度）⑨estimateSizeBytes 改输出像素⑩backgroundColor 长写 + selector 订阅⑪setCanvasSize 走 commit()（含 stopCapturing）⑫BASE_CANVAS_W/H 保留 + CanvasRenderer 构造器注入 canvasSize⑬纪律段补 shared 测试命令。⑭ResizeObserver 已 stub（test-setup.ts:17）无需处理。
+- 已知实现期待核实点（执行者 First Step 必读，R2 后收敛）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout/defaultSize API 形态 ② AssetPanel 条目字段名（Task 9）③ VideoEditNode 实际路径（Task 15 Glob）④ mediabunny sink 工厂导入路径（Task 10 ensurePoster）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
