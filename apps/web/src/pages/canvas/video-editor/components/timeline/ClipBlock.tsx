@@ -1,12 +1,39 @@
-import { memo } from 'react';
+import { memo, useRef, useEffect } from 'react';
 import type { Clip, VideoClip } from '../../types';
 import { formatTimecode } from '../../timeline/timecode';
 import { timeToPx } from '../../timeline/view-scale';
+import { useAudioPeaks } from '../../hooks/useAudioPeaks';
+import { useEditorStore } from '../../store/editorStore';
 
 const BLOCK_BG: Record<Clip['type'], string> = { video: '#EDE9FE', image: '#E0E7FF', audio: '#DCF7E8', subtitle: '#FFF6DC' };
 const BLOCK_BAR: Record<Clip['type'], string> = { video: '#6C5CE7', image: '#5B7CFA', audio: '#43CC80', subtitle: '#FFC53D' };
 
 export const CLIP_BLOCK_MIN_PX = 8;
+
+// 文件顶层新增（与 ClipBlock 同级，模块作用域）——R7：若声明在 ClipBlock 函数体内则成嵌套组件定义，
+// ClipBlock 每次重渲（选中/pxPerSec/拖拽 transient）都产生新组件类型 → canvas 子树卸载重建、effect 反复跑：
+function WaveformCanvas({ mediaId }: { mediaId: string }) {
+  const url = useEditorStore(s => s.mediaInfo[mediaId]?.url);
+  const peaks = useAudioPeaks(mediaId, url);
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !peaks) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { width: w, height: h } = canvas;
+    ctx.clearRect(0, 0, w, h);
+    const max = Math.max(...peaks, 1e-6);
+    ctx.fillStyle = '#43CC80';
+    const bw = w / peaks.length;
+    for (let i = 0; i < peaks.length; i++) {
+      const barH = (peaks[i] / max) * (h * 0.8);
+      ctx.fillRect(i * bw, (h - barH) / 2, Math.max(1, bw - 0.5), barH);
+    }
+  }, [peaks]);
+  return <canvas ref={ref} width={260} height={30} data-testid={`waveform-${mediaId}`}
+    className="absolute inset-x-1 bottom-0.5 w-[calc(100%-8px)] h-[30px] pointer-events-none" />;
+}
 
 interface ClipBlockProps {
   clip: Clip;
@@ -40,6 +67,8 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, med
           {label}
         </span>
       </div>
+      {/* 波形层：audio 片在 label 容器之后叠加 Canvas 自绘静态波形（peaks 归一化渲染端处理） */}
+      {clip.type === 'audio' && <WaveformCanvas mediaId={clip.mediaId} />}
       {/* 关键帧菱形（video/image 变换 + audio 音量同款分支；as VideoClip 单型视图同 store R5 先例，
           audio 的 title 走音量文案挡 VolumeKeyframe 无 property 的运行时 undefined） */}
       {(clip.type === 'video' || clip.type === 'image' || clip.type === 'audio') && (clip as VideoClip).keyframes.map(k => (
