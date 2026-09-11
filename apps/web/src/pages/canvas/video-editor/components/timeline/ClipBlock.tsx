@@ -39,12 +39,14 @@ interface ClipBlockProps {
   clip: Clip;
   pxPerSec: number;
   selected: boolean;
+  /** 素材缺失态（sourceNodeId 对应画布节点已删）→ 红底红边 + "素材已删除"角标 */
+  missing?: boolean;
   mediaName?: string;
   onPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mediaName, onPointerDown, onKeyframePointerDown }: ClipBlockProps) {
+export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, missing, mediaName, onPointerDown, onKeyframePointerDown }: ClipBlockProps) {
   const left = timeToPx(clip.start, pxPerSec);
   const width = Math.max(CLIP_BLOCK_MIN_PX, timeToPx(clip.duration, pxPerSec));
   const label = clip.type === 'subtitle'
@@ -57,8 +59,9 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, med
       onClick={(e) => e.stopPropagation()} // pointerdown 的 stopPropagation 挡不住后续 click 冒泡到轨道体的 selectClip(null)（Task 14 I2）
       className="absolute top-1 bottom-1 rounded-md overflow-hidden box-border cursor-grab select-none"
       style={{
-        left, width, background: BLOCK_BG[clip.type],
-        border: `1px solid ${selected ? BLOCK_BAR[clip.type] : 'transparent'}`,
+        left, width, background: missing ? '#FEE2E2' : BLOCK_BG[clip.type],
+        // 边框优先级（R6 定案）：missing 红边压过选中边（素材缺失是更高优先级的告警态）
+        border: `1px solid ${missing ? '#EF4444' : selected ? BLOCK_BAR[clip.type] : 'transparent'}`,
         boxShadow: selected ? `0 0 0 2px ${BLOCK_BAR[clip.type]}40` : undefined,
       }}
     >
@@ -66,6 +69,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, med
         <span className="text-[11px] text-[#4E5969] truncate whitespace-nowrap" style={{ minWidth: 0 }}>
           {label}
         </span>
+        {missing && <span className="text-[10px] text-[#EF4444] ml-1 shrink-0">素材已删除</span>}
       </div>
       {/* 波形层：audio 片在 label 容器之后叠加 Canvas 自绘静态波形（peaks 归一化渲染端处理） */}
       {clip.type === 'audio' && <WaveformCanvas mediaId={clip.mediaId} />}

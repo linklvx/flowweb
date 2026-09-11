@@ -15,9 +15,11 @@ interface TrackRowProps {
   onSubtitleAdd?: (trackId: string) => void;
   onClipPointerDown?: (clip: Clip, e: React.PointerEvent<HTMLDivElement>) => void;
   onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void;
+  /** 缺失素材的 sourceNodeId 集合（TimelinePanel 从 canvasStore.nodes 派生）——命中片段标红 */
+  missingSourceNodeIds?: Set<string>;
 }
 
-export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown, onKeyframePointerDown }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown, onKeyframePointerDown, missingSourceNodeIds }: TrackRowProps) {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
   const mediaInfo = useEditorStore(s => s.mediaInfo);
@@ -59,7 +61,9 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
           const c = data.clips[cid];
           if (!c) return null;
           return (
+            // strict 适配：Clip 联合上 SubtitleClip 无 sourceNodeId（计划写法 TS2339）——先排除 subtitle 收窄再取
             <ClipBlock key={cid} clip={c} pxPerSec={pxPerSec} selected={selectedClipId === c.id}
+              missing={c.type !== 'subtitle' && c.sourceNodeId ? missingSourceNodeIds?.has(c.sourceNodeId) : false}
               mediaName={c.type === 'subtitle' ? undefined : mediaInfo[c.mediaId]?.name}
               onPointerDown={onClipPointerDown ? (e) => onClipPointerDown(c, e) : undefined}
               onKeyframePointerDown={onKeyframePointerDown} />

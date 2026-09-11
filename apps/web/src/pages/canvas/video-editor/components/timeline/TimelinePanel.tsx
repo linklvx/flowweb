@@ -5,10 +5,12 @@ import { TrackRow } from './TrackRow';
 import { PlayheadLine } from './PlayheadLine';
 import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
 import { quantizeTime } from '../../timeline/clip-math';
+import { missingSourceNodeIds } from '../../timeline/missing-source';
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
 import type { Clip, VideoClip } from '../../types';
 import { seekPlayback } from '../../hooks/playback'; // 点击菱形跳转播放头
 import { useEditorKeyboard } from '../../hooks/useEditorKeyboard';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 // TrackRow memo 生效性：不依赖组件态（getState 自取 playhead）——模块级常量，引用恒稳定
 const handleSubtitleAdd = (trackId: string) => {
@@ -21,6 +23,13 @@ export function TimelinePanel() {
   const loadError = useEditorStore(s => s.loadError);
   const data = useEditorStore(s => s.data);
   const pxPerSec = useEditorStore(s => s.pxPerSec);
+  // 素材缺失态派生（spec 生命周期第 3 条）：订阅 canvasStore.nodes——低频，与 playhead 无关。
+  // 局部变量名用 missingSet 而非 missingSourceNodeIds：后者与 import 的派生函数同名，const 遮蔽后
+  // useMemo 回调内解析到局部变量自身会递归引用（计划代码命名陷阱，最小适配并登记）
+  const canvasNodes = useCanvasStore(s => s.nodes);
+  const missingSet = useMemo(
+    () => missingSourceNodeIds(data, new Set(canvasNodes.map(n => n.id))),
+    [data, canvasNodes]);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEditorKeyboard();
 
@@ -224,6 +233,7 @@ export function TimelinePanel() {
           </div>
           {data.tracks.map(t => (
             <TrackRow key={t.id} track={t} data={data}
+              missingSourceNodeIds={missingSet}
               onDropClip={handleClipDrop}
               onSubtitleAdd={handleSubtitleAdd}
               onClipPointerDown={onClipPointerDown}

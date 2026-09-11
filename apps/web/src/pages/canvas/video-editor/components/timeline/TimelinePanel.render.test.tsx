@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { TimelinePanel } from './TimelinePanel';
 import { PreviewPlayer } from '../PreviewPlayer';
 import { useEditorStore } from '../../store/editorStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
 
 const dataWithClips = (): ProjectData => {
@@ -79,5 +80,15 @@ describe('TimelinePanel 静态渲染', () => {
     const after = useEditorStore.getState().pxPerSec;
     fireEvent.wheel(scroll, { ctrlKey: false, deltaY: -100 }); // 非 Ctrl 不缩放
     expect(useEditorStore.getState().pxPerSec).toBe(after);
+  });
+  it('素材缺失态：sourceNodeId 不在画布 → 红态角标；源节点回画布 → 消失', () => {
+    const d = dataWithClips(); // 夹具 v1 带 sourceNodeId: 's1'（canvasStore.nodes 默认不含 → 红态）
+    useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    render(<TimelinePanel />);
+    expect(screen.getByText('素材已删除')).toBeInTheDocument();
+    act(() => { useCanvasStore.setState({ nodes: [{ id: 's1', position: { x: 0, y: 0 }, data: {} } as never] }); });
+    expect(screen.queryByText('素材已删除')).not.toBeInTheDocument();
+    // 恢复全局 canvasStore（本用例动了 nodes——后续/他文件用例依赖默认空 nodes，测试隔离）
+    act(() => { useCanvasStore.setState({ nodes: [] }); });
   });
 });
