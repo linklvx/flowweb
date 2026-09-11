@@ -153,7 +153,7 @@
 
 ---
 
-## 附录 A：video-editor.md v3.6 勘误登记（7 处）
+## 附录 A：video-editor.md v3.6 勘误登记（10 处）
 
 | # | v3.6 原条款 | 修订为 |
 |---|---|---|
@@ -164,6 +164,9 @@
 | ⑤ | §七 :346 FSA StreamTarget 直写本地 | FSA/OPFS 磁盘中转，目的地（画布/本地）后置到编码完成后分流 |
 | ⑥ | §四 :283 控制条文字按钮 | 图标化（antd icons）+ Tooltip 快捷键提示，控制条位置与四按钮结构不变 |
 | ⑦ | §七 分辨率 720p/1080p 两档 | 480P/720P/1080P 三档（DTO @IsIn 同步 + @Max(900) 时长上限 + metadata 补 w/h） |
+| ⑧ | §七 OPFS 生命周期"成功/失败/取消三条路径均 removeEntry" | 本地路径 a.click() 是 fire-and-forget，浏览器仍在读 OPFS 文件时 removeEntry 会截断下载——清理延迟到**下次导出开头扫描**（sessionOpfsKeys 本会话 key 全清但跳过本次在用 key + 24h 外陌生 export-*.mp4 兜底；R13-2026-09-12 登记） |
+| ⑨ | §四 控制条 + §九 组件测试的 antd Tooltip 快捷键提示 | 改**原生 title** 属性（antd Tooltip 不写原生 title，"实现用 Tooltip、测试断言原生 title"自相矛盾；沿用仓内 :90/:93 既有原生 title 风格；R13-2026-09-12 登记） |
+| ⑩ | §七 "OPFS 失败回退 BufferTarget + 内存警告前置到 UI 明示（非仅 precheck 一行）" | 实现形态定案：worker createWritable 失败回退 BufferTarget（r.fsa=false）时导出完成路径 message.warning 事件级明示（"已回退内存缓冲，本次导出占用内存较高"）——config 态 precheck 的 memoryEstimateBytes 行保留，两者覆盖不同事件（R13-2026-09-12 登记） |
 
 ## 附录 B：原始 12 问题覆盖矩阵
 
