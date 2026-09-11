@@ -92,6 +92,8 @@ export function VideoEditorShell() {
         {/* 批 1：弹层作用域——antd 弹层挂进壳内（高于壳 z-[100000] 的层叠由 DOM 顺序保证），
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null） */}
         <ConfigProvider getPopupContainer={() => shellRef.current ?? document.body}>
+        {/* ⚠ 删除旧注释"ref={focusRef} 与 shellRef 并存……新增独立 ref"——一个元素只能有一个 ref 属性，
+            以本块上方回调合并写法为准（R4 小项：stale 注释与实现矛盾） */}
           <AntdApp>
             <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} onExport={() => setExportOpen(true)} />
             <div className="flex flex-1 min-h-0">
@@ -254,8 +256,9 @@ function loadPanelSizes(): { version: 1; panels: Record<string, number[]> } | nu
     return parsed?.version === 1 ? parsed as { version: 1; panels: Record<string, number[]> } : null; // 版本不符走默认（migrate 挂点）
   } catch { return null; }
 }
-// Shell 内：
-const saved = loadPanelSizes();
+// Shell 内（R4 建议：saved 惰性初始化一次——组件体内裸调 loadPanelSizes() 每次重渲重读 localStorage，
+// 若库在 prop 变化时重应用 defaultSize 会导致拖动回弹；useState 惰性形一次性根除）：
+const [saved] = useState(() => loadPanelSizes());
 const saveLayout = (groupId: string) => (sizes: number[]) => {
   const cur = loadPanelSizes();
   localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, [groupId]: sizes } }));
@@ -264,12 +267,13 @@ const saveLayout = (groupId: string) => (sizes: number[]) => {
 <div className="flex flex-1 min-h-0">
   <PanelGroup direction="vertical" id="ve-vertical" onLayout={saveLayout('ve-vertical')}>
     {/* ⚠ v2 的尺寸 prop 属于 Panel，PanelGroup 无 defaultSize（R3 必改⑤）——
-        恢复布局 = 把保存的尺寸数组按序映射回各 Panel 的 defaultSize */}
+        恢复布局 = 把保存的尺寸数组按序映射回各 Panel 的 defaultSize。
+        ⚠ R4：横向三档默认和必须 =100（20+48+22=90 会右侧留缝）——定 22/56/22 */}
     <Panel defaultSize={saved?.panels['ve-vertical']?.[0] ?? 70} minSize={30}>
       <PanelGroup direction="horizontal" id="ve-horizontal" onLayout={saveLayout('ve-horizontal')}>
-        <Panel defaultSize={saved?.panels['ve-horizontal']?.[0] ?? 20} minSize={15} maxSize={40}><AssetPanel /></Panel>
+        <Panel defaultSize={saved?.panels['ve-horizontal']?.[0] ?? 22} minSize={15} maxSize={40}><AssetPanel /></Panel>
         <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" />
-        <Panel defaultSize={saved?.panels['ve-horizontal']?.[1] ?? 48} minSize={30}><PreviewPlayer /></Panel>
+        <Panel defaultSize={saved?.panels['ve-horizontal']?.[1] ?? 56} minSize={30}><PreviewPlayer /></Panel>
         <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" />
         <Panel defaultSize={saved?.panels['ve-horizontal']?.[2] ?? 22} minSize={15} maxSize={40}><PropertiesPanel /></Panel>
       </PanelGroup>
@@ -495,21 +499,23 @@ const onCardClick = (item: AssetItem) => {
 
 （item 字段名以 AssetPanel 实测为准；setMediaInfo 的白名单第四字段在 Task 10 一并加——此处 url/mimeType 已有三字段覆盖。）
 
-TimelinePanel drop 分支（:184-185）替换：
+TimelinePanel drop 分支（:184-185）替换（R4 必改②全形态：不兼容轨一律改道 + **必须早退**——漏 return 会穿透到原分支把 audio clip 加进被悬停的视频轨；建轨类型用 `p.newTrackType!` 勿硬编码 'audio'）：
 
 ```tsx
 // 旧：if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') return;
-// 新：不兼容 → 走建轨策略（spec 3.1：拖音频进单视频轨场景 100% 触发，不得静默丢弃）
+// 新：不兼容 → 走建轨策略改道（spec 3.1：拖音频进单视频轨场景 100% 触发，不得静默丢弃）
+// ⚠ dropIntoTrack 必须是提升的 function 声明或定义在本分支**之前**——提取既有 drop 体为
+// 局部 const 箭头函数时，早退分支在事件时调用会踩 TDZ（Cannot access before initialization）
+function dropIntoTrack(trackId: string, e: React.DragEvent<HTMLDivElement>) {
+  /* 既有 drop 体（setMediaInfo + addClip，trackId 换参）——量化落点逻辑不变 */
+}
 if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') {
   const es = useEditorStore.getState();
-  const placement = placeAssetInTrack(es.data!, { mimeType: payload.mimeType, durationSec: payload.durationSec });
-  if (placement.createNewTrack) {
-    const newTrackId = es.addTrack('audio');
-    // 建轨后按落点 x 放置（复用下方既有量化逻辑，trackId 换 newTrackId）
-    dropIntoTrack(newTrackId, e); // 提取既有 drop 体为局部函数（精准重构，逻辑不变）
-    return;
-  }
+  const p = placeAssetInTrack(es.data!, { mimeType: payload.mimeType, durationSec: payload.durationSec });
+  dropIntoTrack(p.createNewTrack ? es.addTrack(p.newTrackType!) : p.trackId, e);
+  return; // ← 关键：不兼容轨绝不继续走原（被悬停轨）trackId 分支
 }
+dropIntoTrack(trackEl.dataset.trackId!, e); // 兼容路径不变
 ```
 
 - [ ] **Step 3: 跑绿 + 既有交互用例全绿 + Commit**
@@ -577,20 +583,47 @@ style={{
 // 文字标签色 text-[#4E5969] → text-white/85（tile 之上可读）
 ```
 
-回退取帧（thumbnailUrl 为空时，常态分支——生成结果素材无缩略图）：ClipBlock 层不处理；在 AssetPanel 回填链路补一步——素材入轨（addClip 后）若无 thumbnailUrl 且 mimeType 是 video/*，**用 mediabunny sink 工厂做一次性取帧**（spec v1.0-final 修正：不走播放用 video-cache——其为播放头双帧窗口 LRU 设计，多片段取静态海报会互相淘汰反复重建 sink）：
+回退取帧（thumbnailUrl 为空时，常态分支——生成结果素材无缩略图）：**独立子步骤 TDD**（R4 小项：只有注释没有实现/测试违反 plan 开头的 TDD 铁律）。先写测试（mock sink 工厂）：
+
+```ts
+// renderer/poster.test.ts
+import { describe, it, expect, vi } from 'vitest';
+vi.mock('./canvas-renderer', () => ({
+  openPosterSink: vi.fn(), // sink 工具函数名以实测为准——从 canvas-renderer/video-cache 提取的可复用打开器
+}));
+import { ensurePoster } from './poster';
+import { openPosterSink } from './canvas-renderer';
+describe('ensurePoster（一次性首帧海报）', () => {
+  it('成功：取 t=0 帧 → JPEG dataURL，且用后关闭 sink', async () => {
+    const close = vi.fn();
+    vi.mocked(openPosterSink).mockResolvedValue({ frameToCanvas: vi.fn().mockReturnValue(fakeCanvas320w), close } as never);
+    const r = await ensurePoster('m1', 'http://x/v.mp4');
+    expect(r).toMatch(/^data:image\/jpeg;base64,/);
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('失败：抛错返回 null（静默保持兜底底色）', async () => {
+    vi.mocked(openPosterSink).mockRejectedValue(new Error('decode fail'));
+    expect(await ensurePoster('m1', 'http://x/v.mp4')).toBeNull();
+  });
+});
+```
+
+实现（spec v1.0-final：不走播放用 video-cache——播放头双帧窗口 LRU 会互相淘汰静态海报）：
 
 ```ts
 // 新增 renderer/poster.ts（一次性首帧海报，与播放缓存隔离）
-import { canvasFromMedia } from './canvas-renderer'; // sink 工厂以实测导入路径为准（openMediabunnySink/CanvasSink 所在模块）
 export async function ensurePoster(mediaId: string, url: string): Promise<string | null> {
+  let sink: Awaited<ReturnType<typeof openPosterSink>> | null = null;
   try {
-    // 打开 mediabunny sink → 取 t=0 首帧 VideoSample → drawImage 到离屏 canvas（上限 320 宽，JPEG 0.7）
-    // → dataURL 返回；用后即关 sink（一次性，不进任何 LRU）
-    return dataUrl;
-  } catch { return null; } // 失败静默保持兜底底色（非致命路径）
+    sink = await openPosterSink(url);                       // mediabunny 打开（导入路径以实测为准）
+    const frameCanvas = await sink.frameToCanvas(0, 320);   // t=0 首帧 → 离屏 canvas，上限 320 宽
+    return frameCanvas.toDataURL('image/jpeg', 0.7);
+  } catch { return null; }                                   // 失败静默保持兜底底色（非致命路径）
+  finally { sink?.close(); }                                 // 用后即关——一次性，不进任何 LRU
 }
-// AssetPanel 入轨处：const poster = await ensurePoster(item.mediaId, item.url);
-// if (poster) useEditorStore.getState().setMediaInfo(item.mediaId, { thumbnailUrl: poster });
+// AssetPanel 入轨处：if (!item.thumbnailUrl && item.mimeType.startsWith('video/')) {
+//   const poster = await ensurePoster(item.mediaId, item.url);
+//   if (poster) useEditorStore.getState().setMediaInfo(item.mediaId, { thumbnailUrl: poster }); }
 // mediaInfo 不入 autosave（Shell 只订阅 s.data）——写回安全幂等（spec 批 3.2）
 ```
 
@@ -671,19 +704,28 @@ const visibleEnd = pxToTime(scrollLeft + viewportW, pxPerSec) + interval;       
 const endSec = Math.min(dur + interval, visibleEnd);
 for (let t = Math.ceil(Math.max(0, visibleStart) / interval) * interval; t <= endSec; t += interval) ticks.push(Number(t.toFixed(4)));
 // ⚠ scrollLeft 必须有响应式来源（R3 建议⑥）：scrollLeft 是 DOM 滚动位非 React state——
-// TimelinePanel 在 scrollRef 上加 onScroll（rAF 节流写 state）：
+// TimelinePanel 在 scrollRef 上加 onScroll（rAF 节流写 state，**single-flight 守卫** R4 建议：
+// 无守卫每个滚动事件排一帧 → 滚动期整条时间轴每帧重渲，窗口化省下的 DOM 又被 React 渲染吃掉）：
 //   const [scrollLeft, setScrollLeft] = useState(0);
-//   const onScroll = () => { requestAnimationFrame(() => setScrollLeft(el.scrollLeft)); };
-// 并把 state 透传 props。漏了这层，右滚后新进视口的刻度不渲染（窗口外空白）。
-// Task 11 的 wheel handler 写 el.scrollLeft = scrollLeft（直接写 DOM）后，同样要同步刷该 state
-// （同一 rAF 里 set，或 el.dispatchEvent(Event('scroll')) 触发 onScroll 路径）。
+//   const rafRef = useRef(0);
+//   const onScroll = () => {
+//     if (rafRef.current) return;                          // single-flight：在飞帧不再排
+//     rafRef.current = requestAnimationFrame(() => { rafRef.current = 0; setScrollLeft(el.scrollLeft); });
+//   };
+// 并把 state 透传 props + **TimelineRuler memo 化**（React.memo——scrollLeft 变化只重渲标尺，
+// TrackRow/ClipBlock 不随滚动重渲）。jsdom 测试注意：jsdom 不派发滚动事件也不做真实布局，
+// 窗口化用例直接给定 scrollLeft prop 断言输出，勿依赖 fireEvent.scroll 自动重算。
+// Task 11 的 wheel handler 写 el.scrollLeft = scrollLeft（直接写 DOM）后，同步刷该 state
+// （同一 rAF 里 set，或 el.dispatchEvent(new Event('scroll')) 触发 onScroll 路径）。
 ```
 
 同步性能验收断言（interact.test）：
 
 ```tsx
-it('标尺只渲染视口内刻度：900s/500pxps 视口 1000px 时 ticks ≤ 视口容量+2', () => {
-  // 夹具 900s 工程 pxPerSec=500（interval=0.25）→ 全量 3600 div；窗口化后断言 document 内 .ant-tick 类元素数 < 300
+it('标尺只渲染视口内刻度：900s/500pxps 视口 1000px 时刻度元素 < 300', () => {
+  // 夹具 900s 工程 pxPerSec=500（interval=0.25）→ 全量 3600 个 tick div；
+  // 窗口化后按组件真实刻度类名/加 data-testid 查询（⚠ 勿用 .ant-tick——那是 antd 类名空间，
+  // TimelineRuler 刻度不是 antd 组件）。直接给定 scrollLeft prop（jsdom 不派发滚动事件）断言输出数量。
 });
 ```
 
@@ -725,11 +767,11 @@ it('s 键分割选中片段于播放头；Ctrl+S 不分割不拦截', () => {
 ```tsx
 {dragState?.snappedTime != null && (
   <div data-testid="snap-guide" className="absolute top-0 bottom-0 w-0.5 bg-[var(--ve-accent)] pointer-events-none z-[2]"
-    style={{ left: timeToPx(dragState.snappedTime, pxPerSec) }} />
+    style={{ left: TRACK_HEADER_W + timeToPx(dragState.snappedTime, pxPerSec) }} />
 )}
 ```
 
-（dragState 扩展 `snappedTime?: number | null`，pointermove 写入、pointerup 清空——吸附判定复用既有 snapTime 返回的 snapped 点，无新逻辑。）
+（dragState 扩展 `snappedTime?: number | null`，pointermove 写入、pointerup 清空——吸附判定复用既有 snapTime 返回的 snapped 点，无新逻辑。**⚠ left 基准与挂载容器同源（R4 建议）**：指示线挂在含 140px 轨头的滚动内容 wrapper 内（`relative min-w-max` 那层）⇒ 必须 `+ TRACK_HEADER_W`——与 R2 修掉的滚轮 140px 偏移同类口径问题，两路径勿混。）
 
 - [ ] **Step 4: 跑绿 + Commit**
 
@@ -1030,7 +1072,7 @@ export function estimateSizeBytes(canvasSize: { width: number; height: number },
 }
 ```
 
-调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`，worker 内 `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)`）；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
+调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`）。**⚠ worker 侧三处必须同源（R4 建议——只改 ctx.scale 会"缩了没变小"）**：① `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)` ② **OffscreenCanvas 创建尺寸 = targetSize**（否则导出仍是画布分辨率、metadata 报的目标值与实际不符） ③ **VideoEncoder config 的 width/height = targetSize**。另 `ExportResolution` 类型（precheck.ts:9 `keyof typeof EXPORT_BITRATES`）随码率表加 '480p' 自动扩展——Task 19 的 `{ value: '480p' }` 依赖此类型，先落码率表再写选项；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
 
 - [ ] **Step 3: 跑绿 + 既有 precheck 用例（18 组合 + estimate 签名变化的调用方修正）+ Commit**
 
@@ -1187,7 +1229,7 @@ it('成功导出后 pendingProduct 清空（R3 必改③——防重复建节点
 
 ```tsx
 import { Popover, Select, Input, Progress, Button, App as AntdApp } from 'antd';
-const [open, setOpen] = useState(false);          // 受控（onExport 打开）
+const [open, setOpen] = useState(false);          // 受控（点击导出按钮打开——R4 小项：onExport prop 已删，注释同步）
 const [destination, setDestination] = useState<'canvas' | 'local'>('canvas');
 const [fileName, setFileName] = useState(`${title || '导出'}.mp4`);
 const startExport = async () => {
@@ -1204,7 +1246,7 @@ const startExport = async () => {
     const j = runExportJob({ data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
       { onProgress, onEta }, target.handle);
     void cleanupStaleOpfsExports(); // 编码期间顺带清理过期残留（fire-and-forget，try/catch 全包——Firefox 无痕 getDirectory 拒绝时静默跳过）
-    setPhase('exporting'); armBeforeunload();
+    setJob(j); setPhase('exporting'); armBeforeunload(); // ⚠ setJob(j) 必须保留（R4 必改③——现网 :101 同款；丢了则取消按钮 job?.cancel() 空转、进度区拿不到 job）
     try {
       const r = await j.promise;
       const file = r.fsa ? await target.handle.getFile() : r.blob;
@@ -1291,10 +1333,8 @@ clearPendingProduct: () => set({ pendingProduct: null }),
 const publishProduct = async (mediaId: string, title: string) => {
   const es = useEditorStore.getState();
   es.setPendingProduct({ mediaId, title });        // 先落 store——create 中途抛错/弹层被收起均可重试
-  try {
-    createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, title);
-    useEditorStore.getState().clearPendingProduct();
-  } catch (e) { throw e; } // 向上抛——调用方 catch 呈现失败态（素材已入库，仅节点未建）
+  createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, title); // 同步（product-node.ts:9 返回 nodeId）——抛错自然向上传（R4 小项：删空壳 try/catch）
+  useEditorStore.getState().clearPendingProduct();
 };
 ```
 
@@ -1334,10 +1374,13 @@ it('TTL 回收 generated pending：expiresAt<now 删记录+删对象；confirm �
 
 ```ts
 // RegisterGeneratedDto 加：@IsOptional() @IsString() clientRequestId?: string;
-// register() 开头：
+// register() 幂等分支——**查询必须带 status: 'pending' 约束（R4 必改①）**：
 if (input.clientRequestId) {
   const existing = await this.prisma.media.findFirst({
-    where: { metadata: { path: ['clientRequestId'], equals: input.clientRequestId } },
+    where: {
+      metadata: { path: ['clientRequestId'], equals: input.clientRequestId },
+      status: 'pending',  // 已 completed 的同 id 命中即语义错误（复用旧产物——第二次导出会静默覆盖第一次的 key 并让两节点指向同一 media）
+    },
   });
   if (existing) {
     const upload = await this.minio.generatePresignedPost(existing.key, 'video/mp4', existing.size);
@@ -1345,6 +1388,13 @@ if (input.clientRequestId) {
   }
 }
 // metadata 加 clientRequestId 存档
+// **前端 id 生命周期（R4 必改①，两处缺一不可）**：clientRequestId = "一次导出尝试"——
+// startExport 开头 const reqIdRef = useRef<string | null>(null); reqIdRef.current ??= crypto.randomUUID();
+// 进入上传前传 reqIdRef.current；导出结束（成功/失败/canceled 的 finally）reqIdRef.current = null;
+// ⚠ 禁止组件级 useRef 长期隐式复用——同会话第二次导出会命中幂等拿到第一次的 key/size：
+// 上传覆盖第一次产物 + content-length-range 按首帧字节 ±1024 钉死 → 第二次重编码必超范围 → MinIO 400。
+// 已知接受项（同段登记）：findFirst+create 无唯一约束，同 id 并发双建——startingRef 前端串行化 +
+// 每次导出独立 id 下实际不可达，不阻断。
 // register() 写 expiresAt = now + 24h（Media 模型无 updatedAt 字段——schema.prisma :286-309 仅 createdAt/expiresAt，
 // 评审第 2 条：复用既有 expiresAt 语义，in-flight 行因 expiresAt 在未来天然不被收走）：
 //   prisma.media.create({ data: { ..., expiresAt: new Date(Date.now() + 24 * 3600_000) } })
@@ -1362,7 +1412,7 @@ const expiredMedias = await this.prisma.media.findMany({
 // 注意：confirm 成功路径要把 expiresAt 置 null（completed 产物不该被 24h 回收）——media.update({ data: { status: 'completed', size: actualSize, expiresAt: null } })
 ```
 
-前端 upload.ts 的 registerGeneratedMedia 入参带 `clientRequestId: crypto.randomUUID()`，**同一导出会话重试复用同一 id**（存组件 useRef，不随重试重生成）。
+前端 upload.ts 的 registerGeneratedMedia 入参带 `clientRequestId`（id 生命周期见上方 R4 必改①定案：一次导出尝试内复用、结束即清空）。
 
 - [ ] **Step 3: 跑绿（api 全量）+ Commit**
 
@@ -1376,10 +1426,11 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 ## 总验收清单（浏览器，全部通过后收尾）
 
 - [ ] 点导出 → Popover 可见且选项联动（文件名/位置/分辨率/格式 disabled）
-- [ ] 目的地=画布：导出→上传→画布产物节点出现；目的地=本地：浏览器下载完整 MP4（>1min 视频无截断）
-- [ ] FSA picker 取消 → 提示且零编码；非 Chromium（Firefox）→ OPFS 中转导出成功且无磁盘垃圾（about:opfs 之类抽查或代码审查）
+- [ ] 目的地=画布：导出→上传→画布产物节点出现；目的地=本地：浏览器下载完整 MP4（>1min 视频无截断）；**本地路径验收口径 = "下次导出后无 OPFS 残留"**（24h TTL + 导出时扫描的设计下，即时无残留不可达——R4 小项）
+- [ ] FSA picker 取消 → 提示且零编码；非 Chromium（Firefox）→ OPFS 中转导出成功
+- [ ] 同会话连续两次导出（均成功）：两个产物节点指向**不同** media，第二次内容不覆盖第一次（R4 必改①回归）
 - [ ] 三栏拖拽调宽 + 时间轴满屏 + 刷新后尺寸保持
-- [ ] 暗色主题全组件无亮色残留（antd 弹层/toast 同暗色）
+- [ ] 暗色主题全组件无亮色残留（antd 弹层/toast 同暗色；**BaseFullscreenModal 自身 chrome 若有标题条/关闭按钮一并目检**——壳 fixed inset-0 覆盖下不应露出亮色缝，R4 小项）
 - [ ] 点击视频素材 → 视频轨轨尾追加 + 帧缩略图平铺；拖音频到视频轨 → 自动建音频轨
 - [ ] Ctrl+滚轮：光标处锚定缩放，900s 工程 500px/s 无卡顿（ticks 窗口化）
 - [ ] S 分割 / Ctrl+S 不劫持；吸附指示线拖动可见
@@ -1393,6 +1444,7 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 - Spec 覆盖：12 问题 + P0-A/B + P1-D/E + 标尺性能 + 拖拽静默丢弃 + 失败半途 + revoke + 收起语义——对应 Task 1-20 全段落（附录 B 矩阵逐条可指认）。
 - 类型一致性：SaveTarget/pickSaveTarget（Task 18↔19）、canvasSizeOf/CANVAS_PRESETS/remapForCanvasSize（Task 14↔15↔16）、computeExportSize（Task 16↔17↔19）、applyCanvasSize（Task 13↔15）、setPendingProduct（Task 19↔批7 呼应）已交叉核对。
 - **R2 修订（2026-09-12 plan 评审 14 条全采纳）**：①批 1 回归测试改真实 Shell 夹具（自证式夹具删除）②TTL 改复用 expiresAt（Media 无 updatedAt）③滚轮锚定扣 TRACK_HEADER_W=140 + scrollRef 名修正 + 提常量④OPFS 本地路径不即时清理（改导出开头扫过期）⑤placement 删 canPlaceAt 死代码（轨尾追加无重叠可能）+ 夹具写实⑥Popover 归属定案 EditorTopBar（删 Shell exportOpen/onExport）+ 补建重试按钮落地 + canceled 分支保留⑦持久化改 onLayout 自管 `{version:1, panels}`（弃 autoSaveId）⑧--ve-text-dim 专用 token（Tailwind3 var() 不支持斜杠透明度）⑨estimateSizeBytes 改输出像素⑩backgroundColor 长写 + selector 订阅⑪setCanvasSize 走 commit()（含 stopCapturing）⑫BASE_CANVAS_W/H 保留 + CanvasRenderer 构造器注入 canvasSize⑬纪律段补 shared 测试命令。⑭ResizeObserver 已 stub（test-setup.ts:17）无需处理。
-- **R3 修订（2026-09-12 plan 评审二轮 5 必改+3 建议+4 小项全采纳）**：①回调 ref 合并挂载 shellRef（useRef 显式 null 类型）②OPFS 扫描挪 job 后 fire-and-forget + SecurityError onDegraded 单独分支（手势链零 await）③publishProduct helper 收拢 set→create→clear + 成功清空用例④Dropdown 删残留 transient 包裹（防双入栈）⑤PanelGroup 无 defaultSize——恢复布局改 Panel 级按序映射⑥标尺 scrollLeft 响应式来源（onScroll rAF 节流）⑦canvasSize 改每帧参数（弃构造器注入防播放中陈旧）⑧删 Popover 归属占位注释。小项：批 1 断言批 6 同步 .ant-popover / 删 "/80" 半句 / OPFS 迭代 TS 形态入待核实 / OPFS 扫描全 try-catch。
-- 已知实现期待核实点（执行者 First Step 必读，R3 后 5 条）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout 首次挂载是否即触发（防覆盖 saved）② AssetPanel 条目字段名（Task 9）③ VideoEditNode 实际路径（Task 15 Glob）④ mediabunny sink 工厂导入路径（Task 10 ensurePoster）⑤ OPFS 目录异步迭代器的 TS 形态（root.entries()/keys() 在 TS5.6 DOM lib 下能否 for await——Task 19 cleanupStaleOpfsExports）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
+- **R3 修订（2026-09-12 plan 评审二轮）**：回调 ref 合并挂载 shellRef/OPFS 扫描挪 job 后+SecurityError onDegraded/publishProduct 收拢/Dropdown 删双入栈/Panel 级 defaultSize/标尺 scrollLeft 响应式/canvasSize 每帧参数/删占位注释——8 条全采纳。
+- **R4 修订（2026-09-12 plan 评审三轮 3 必改+4 建议+9 小项全采纳）**：①clientRequestId 生命周期收紧"一次导出尝试"（组件级 useRef 跨导出复用会静默毁首产物——幂等命中旧 key+content-length-range 钉死必 400）+ 幂等查询加 status:'pending'②拖拽分支全形态（不兼容轨一律改道+必须早退+newTrackType 勿硬编码+dropIntoTrack TDZ 提升声明）③骨架补回 setJob(j)（取消按钮防空转）。建议：横向默认 22/56/22 和=100+saved 惰性初始化/rAF single-flight+标尺 memo/吸附线 +TRACK_HEADER_W 同源/worker 三处同源（scale+OffscreenCanvas+encoder config）。小项：ensurePoster 补 mock 单测（TDD 铁律）/stale 注释与受控注释清理/ExportResolution 随码率表自动扩展/本地路径验收口径"下次导出后无残留"/幂等并发缺口登记接受项/.ant-tick 类名勘误+jsdom 滚动限制/publishProduct 删空壳 try/catch/壳 chrome 暗色目检。**R4 已核实消解**：canvas-controls 变量名✓（index.css:17-19）、addTrack 返回 id✓（:413）、createProductNode 同步✓、open 复位五项✓（:65-70）、手势链无隐藏 await✓（:88-93）、VideoEditNode 路径=components/nodes/VideoEditNode.tsx（Task 15 git add 范围 pages/canvas 勿缩）。
+- 已知实现期待核实点（R4 后 2 条）：① react-resizable-panels v2 的面板 DOM 属性名（data-panel vs data-panel-id——Task 5 断言前实测）与 onLayout 首次挂载是否即触发（防覆盖 saved）② mediabunny sink 工厂导入路径与 poster 所需接口形态（Task 10 openPosterSink——video-cache/canvas-renderer 内实测提取）。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
