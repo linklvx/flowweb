@@ -51,20 +51,33 @@ describe('时间轴关键帧菱形刻度', () => {
     firePointer(window, 'pointerup');
     const clip = useEditorStore.getState().data!.clips[id] as any;
     expect(clip.keyframes[0].t).toBe(3);
+    useEditorStore.getState().undo(); // 一次拖拽恰好一条历史（pointerup 入栈）
+    expect((useEditorStore.getState().data!.clips[id] as any).keyframes[0].t).toBe(2);
   });
 
-  it('Delete 优先删除选中关键帧（其次选中片段）——N3 定案：先选片段再点菱形（两 id 双写联动）', () => {
+  it('Delete 优先删除选中关键帧（其次选中片段）——N3 定案：点菱形双写两 id（未预选片段的直接点击路径）', () => {
     ready();
     const id = addVideoWithKf();
     useVideoEditorStore.setState({ open: true }); // 控制器批准修正：useEditorKeyboard 首行检查 open（同 interact.test 先例）
     render(<TimelinePanel />);
-    useEditorStore.getState().selectClip(id); // 先选片段
+    // 不预选片段——直接点菱形：selectKeyframe 双写 selectedKeyframeId + selectedClipId（变异：只写 kfId 则下断言红）
     const kf = screen.getByTestId(/^kf-/);
-    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 }); // 点菱形：双写 selectedKeyframeId + selectedClipId（同时跳播放头）
-    expect(useEditorStore.getState().selectedClipId).toBe(id); // 双写保证联动（直接点菱形也选中其片段）
+    firePointer(kf, 'pointerdown', { clientX: 160, clientY: 50 });
+    expect(useEditorStore.getState().selectedClipId).toBe(id);       // 双写联动（直接点菱形也选中其片段）
+    expect(useEditorStore.getState().selectedKeyframeId).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Delete' });
     const clip = useEditorStore.getState().data!.clips[id] as any;
-    expect(clip.keyframes).toHaveLength(0);      // 关键帧优先被删
+    expect(clip.keyframes).toHaveLength(0);                          // 关键帧优先被删（两真条件成立的前提即双写）
     expect(useEditorStore.getState().data!.tracks[0].clips).toContain(id); // 片段保留
+  });
+
+  it('undo/redo 后 selectedKeyframeId 清空（R4 收口守护——历史跳转后 kf 选中不残留）', () => {
+    ready();
+    const id = addVideoWithKf();
+    useEditorStore.getState().selectKeyframe(
+      (useEditorStore.getState().data!.clips[id] as any).keyframes[0].id, id);
+    expect(useEditorStore.getState().selectedKeyframeId).toBeTruthy();
+    useEditorStore.getState().undo(); // addKeyframe 那条历史
+    expect(useEditorStore.getState().selectedKeyframeId).toBeNull();
   });
 });
