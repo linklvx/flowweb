@@ -98,7 +98,7 @@ vi.mock('@/stores/canvasStore', () => ({
 vi.mock('@/services/executionSocket', () => ({
   subscribeNodeStatus: subscribeNodeStatusMock,
   subscribeNodeEditResult: vi.fn(() => () => {}),
-  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn() })),
+  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn(), on: vi.fn(), connected: false })),
   teardownExecutionSocket: vi.fn(),
 }));
 

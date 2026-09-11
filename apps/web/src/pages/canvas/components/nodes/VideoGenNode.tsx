@@ -2,7 +2,7 @@ import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { subscribeNodeStatus } from '@/services/executionSocket';
+import { subscribeNodeStatus, ensureExecutionSocket } from '@/services/executionSocket';
 import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -84,14 +84,19 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   // Audio separate state
   const [audioSeparatingType, setAudioSeparatingType] = useState<'vocal' | 'background' | 'split' | null>(null);
   const [separateTaskId, setSeparateTaskId] = useState<string | null>(null);
-  // trim/separate 的 socket 通知通道显式不启用（传 null 走轮询）——接线属行为变化，超出本任务范围，登记不启用
-  const separateStatus = useVideoSeparateTask(separateTaskId, null, id);
+  // trim/separate 任务快路径：单例 socket（useAsyncMediaTask 内部精确 on/off——不影响单例其它 handler）。
+  // 勘误：原 socketRef.current 并非恒 null（mount effect 赋值后触发任务时的 re-render 传的是真 socket，
+  // 快路径生效过）——迁移时传 null 会退化为 3s 纯轮询，此处接单例恢复原语义（socket 推送 + 10s 轮询兜底）。
+  // ensure 幂等（page.tsx 已建连，此处仅取引用）；projectId 缺失时 null 走纯轮询兜底。
+  const projectId = useCanvasStore((s) => s.projectId);
+  const taskSocket = projectId ? ensureExecutionSocket(projectId) : null;
+  const separateStatus = useVideoSeparateTask(separateTaskId, taskSocket, id);
 
   // Trim panel state
   const [trimMode, setTrimMode] = useState(false);
   const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
   const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
-  const trimStatus = useTrimTaskStatus(trimTaskId, null, id);
+  const trimStatus = useTrimTaskStatus(trimTaskId, taskSocket, id);
 
   // HD panel state
   const [hdPanelOpen, setHdPanelOpen] = useState(false);
