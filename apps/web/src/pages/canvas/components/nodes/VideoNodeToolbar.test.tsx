@@ -223,4 +223,19 @@ describe('VideoNodeToolbar', () => {
     const hdBtn = screen.getByText('高清').closest('button')!;
     expect(hdBtn).not.toHaveAttribute('data-active');
   });
+
+  // ── productMode（产物节点收敛）────────────────────────
+
+  it('productMode（产物节点）：隐藏 高清/解析/截帧/音频分离，保留 剪辑/裁剪/下载/全屏（收敛定案）', () => {
+    const fn = vi.fn();
+    render(<VideoNodeToolbar show onFullscreen={fn} onDownload={fn} onTrim={fn} productMode />);
+    expect(screen.getByText('剪辑')).toBeInTheDocument();
+    expect(screen.getByText('裁剪')).toBeInTheDocument();
+    expect(screen.getByLabelText('下载')).toBeInTheDocument();
+    expect(screen.getByLabelText('全屏')).toBeInTheDocument();
+    expect(screen.queryByText('高清')).not.toBeInTheDocument();
+    expect(screen.queryByText('解析')).not.toBeInTheDocument();
+    expect(screen.queryByText('视频截帧')).not.toBeInTheDocument();
+    expect(screen.queryByText('音频分离')).not.toBeInTheDocument();
+  });
 });

@@ -327,8 +327,8 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const nodeWidth = internalNode?.width ?? containerWidth;
   const nodeHeight = internalNode?.height ?? containerHeight;
 
-  // Editable title
-  const [label, setLabel] = useState('Video');
+  // Editable title（产物节点 data 首渲染即含 label——初始化一次到位；普通节点无 label 行为不变）
+  const [label, setLabel] = useState((nodeData as { label?: string } | undefined)?.label ?? 'Video');
   const [draft, setDraft] = useState(label);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(label);
@@ -644,7 +644,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       )}
 
       {/* Floating toolbar — only when selected and video loaded, hidden during trim */}
-      <VideoNodeToolbar show={isSingleSelected && hasMedia && !trimMode} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} onHD={() => setHdPanelOpen(prev => !prev)} hdPanelOpen={hdPanelOpen} />
+      <VideoNodeToolbar show={isSingleSelected && hasMedia && !trimMode} productMode={(nodeData as { origin?: string } | undefined)?.origin === 'video-edit'} onFullscreen={handleOpenFullscreen} fullscreenTriggerRef={fullscreenTriggerRef} onDownload={handleDownload} onTrim={handleOpenTrim} onCaptureFrame={handleCaptureFrame} capturingType={capturingType} onAudioSeparate={handleAudioSeparate} audioSeparatingType={audioSeparatingType} onHD={() => setHdPanelOpen(prev => !prev)} hdPanelOpen={hdPanelOpen} />
 
       {/* Title bar */}
       <div

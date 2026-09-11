@@ -59,4 +59,16 @@ describe('runExportJob（主线程 client）', () => {
     expect(w.terminated).toBe(true);
     vi.unstubAllGlobals();
   });
+
+  it('fsa:true 的 done → 空 Blob + fsa 标记 true（Task 9 upload 侧 getFile() 择源的契约缝合点）', async () => {
+    FakeWorker.instances = [];
+    vi.stubGlobal('Worker', FakeWorker as unknown as typeof Worker);
+    const { runExportJob } = await import('./client');
+    const p = runExportJob({ data: {} as never, resolution: '720p', mediaUrls: {} }, { onProgress: vi.fn() });
+    FakeWorker.instances[0].emit({ type: 'done', buffer: null, fsa: true });
+    const r = await p.promise;
+    expect(r.blob.size).toBe(0);
+    expect(r.fsa).toBe(true);
+    vi.unstubAllGlobals();
+  });
 });

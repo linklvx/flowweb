@@ -13,6 +13,8 @@ interface VideoNodeToolbarProps {
   audioSeparatingType?: 'vocal' | 'background' | 'split' | null;
   onHD?: () => void;
   hdPanelOpen?: boolean;
+  /** 产物节点（origin=video-edit）收敛：隐藏 高清/解析/截帧/音频分离，仅保留 剪辑/裁剪/下载/全屏 */
+  productMode?: boolean;
 }
 
 // ── Original SVG icons ─────────────────────────────────
@@ -133,7 +135,7 @@ const DIVIDER_STYLE: React.CSSProperties = {
   borderLeft: '0.5px solid var(--canvas-controls-border)',
 };
 
-function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType, onAudioSeparate, audioSeparatingType, onHD, hdPanelOpen }: VideoNodeToolbarProps) {
+function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, onDownload, onTrim, onCaptureFrame, capturingType, onAudioSeparate, audioSeparatingType, onHD, hdPanelOpen, productMode }: VideoNodeToolbarProps) {
   const [frameCaptureOpen, setFrameCaptureOpen] = useState(false);
   const [audioSeparateOpen, setAudioSeparateOpen] = useState(false);
   const isAnyCapturing = capturingType != null;
@@ -166,6 +168,9 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
             <span>裁剪</span>
           </button>
 
+          {/* 高清/解析/截帧/音频分离 —— 产物节点收敛隐藏（productMode） */}
+          {!productMode && (
+            <>
           {/* 高清 */}
           <button
             type="button"
@@ -329,6 +334,8 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
               </button>
             </span>
           </Dropdown>
+            </>
+          )}
 
           {/* Divider */}
           <div style={DIVIDER_STYLE} />

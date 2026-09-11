@@ -167,6 +167,13 @@ describe('VideoGenNode', () => {
     expect(input.value).toBe('Video');
   });
 
+  it('should initialize title from data.label when present（产物节点标题接线）', () => {
+    setMockNodeData({ fileId: 'p-file', status: 'done', model: '', referenceVideo: undefined, label: 'x · 导出 1' });
+    renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    expect(input.value).toBe('x · 导出 1');
+  });
+
   it('should save title on blur', () => {
     renderNode();
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
