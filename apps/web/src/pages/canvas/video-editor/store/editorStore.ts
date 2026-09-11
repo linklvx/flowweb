@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Clip, ProjectData, Track, VideoClip, ImageClip, AudioClip, SubtitleClip } from '../types';
+import type { Clip, ProjectData, Track, VideoClip, ImageClip, AudioClip, SubtitleClip, TransformKeyframe, VolumeKeyframe } from '../types';
 import { genId } from '../types';
 import { createHistory, pushHistory, undoHistory, redoHistory, type History } from '../timeline/history';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../timeline/clip-math';
 import { canPlaceAt, findNearestFreeStart, clipsOnTrack } from '../timeline/overlap';
 import { ensureAutoEdges } from '../timeline/auto-edges';
+import { keyframeValueAt, interpolateTransform } from '../scene/interpolate';
 import { stopCapturing } from '@/stores/canvasUndo';
 
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -32,6 +33,7 @@ interface EditorState {
   loadError: string | null;
   saveState: SaveState;
   selectedClipId: string | null;
+  selectedKeyframeId: string | null;
   playhead: number;
   pxPerSec: number;
   playing: boolean;
@@ -60,6 +62,9 @@ interface EditorState {
   splitClip(clipId: string, at: number): string | null;
   removeClip(clipId: string): void;
   updateClip(clipId: string, patch: Record<string, unknown>): void;
+  addKeyframe(clipId: string, property: TransformKeyframe['property'] | 'volume'): string | null;
+  removeKeyframe(clipId: string, kfId: string): void;
+  moveKeyframe(clipId: string, kfId: string, t: number, opts?: { transient?: boolean }): boolean;
   addTrack(type: Track['type']): string;
   removeTrack(trackId: string): void;
   toggleTrack(trackId: string, key: 'muted' | 'hidden'): void;
@@ -112,6 +117,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     loadError: null,
     saveState: 'saved',
     selectedClipId: null,
+    selectedKeyframeId: null,
     playhead: 0,
     pxPerSec: 80,
     playing: false,
@@ -129,7 +135,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     setLoadError: (msg) => set({ status: 'error', loadError: msg }),
     reset: () => set({
       projectId: null, sourceNodeId: null, baseUpdatedAt: null, data: null,
-      status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null,
+      status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null, selectedKeyframeId: null,
       playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
       history: createHistory<ProjectData>(), pendingSnapshot: null,
     }),
@@ -293,6 +299,71 @@ export const useEditorStore = create<EditorState>()((set, get) => {
           clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
         };
       }, { structural: false });
+    },
+
+    addKeyframe: (clipId, property) => {
+      const s = get();
+      if (!s.data || s.status !== 'ready') return null;
+      const clip = s.data.clips[clipId];
+      if (!clip) return null;
+      const tLocal = Math.min(clip.duration, Math.max(0, quantizeTime(s.playhead - clip.start)));
+      if (clip.type === 'video' || clip.type === 'image') {
+        if (property === 'volume') return null;
+        const exist = clip.keyframes.find(k => k.property === property && Math.abs(k.t - tLocal) < 0.5 / 30);
+        if (exist) return exist.id;
+        const value = interpolateTransform(clip, tLocal)[property];
+        const kf: TransformKeyframe = { id: genId('kf'), t: tLocal, property, value, easing: 'linear' };
+        commit((d) => {
+          const c = d.clips[clipId] as VideoClip;
+          return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
+        }, { structural: false });
+        return kf.id;
+      }
+      if (clip.type === 'audio') {
+        if (property !== 'volume') return null;
+        const exist = clip.keyframes.find(k => Math.abs(k.t - tLocal) < 0.5 / 30);
+        if (exist) return exist.id;
+        const value = keyframeValueAt(clip.keyframes.map(k => ({ t: k.t, value: k.value })), tLocal, clip.volume);
+        const kf: VolumeKeyframe = { id: genId('kf'), t: tLocal, value, easing: 'linear' };
+        commit((d) => {
+          const c = d.clips[clipId] as AudioClip;
+          return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
+        }, { structural: false });
+        return kf.id;
+      }
+      return null; // subtitle
+    },
+
+    removeKeyframe: (clipId, kfId) => {
+      const s = get();
+      if (!s.data) return;
+      const clip = s.data.clips[clipId] as Clip | undefined;
+      if (!clip || clip.type === 'subtitle') return;
+      commit((d) => {
+        // R5：as VideoClip 单型视图（与 moveKeyframe 同款）——TransformKeyframe[] | VolumeKeyframe[] 联合上
+        // 调 .filter 触发 TS2349（union 泛型签名互不兼容）；audio 的 VolumeKeyframe 与 id 过滤结构兼容，单型谎报无运行时后果
+        const c = d.clips[clipId] as VideoClip;
+        return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: c.keyframes.filter(k => k.id !== kfId) } } };
+      }, { structural: false });
+      if (get().selectedKeyframeId === kfId) set({ selectedKeyframeId: null });
+    },
+
+    moveKeyframe: (clipId, kfId, t, opts) => {
+      const s = get();
+      if (!s.data) return false;
+      const clip = s.data.clips[clipId] as Clip | undefined;
+      if (!clip || clip.type === 'subtitle') return false;
+      const tt = Math.min(clip.duration, Math.max(0, quantizeTime(t)));
+      const mutate = (d: ProjectData): ProjectData => {
+        const c = d.clips[clipId] as VideoClip;
+        return {
+          ...d,
+          clips: { ...d.clips, [clipId]: { ...c, keyframes: c.keyframes.map(k => k.id === kfId ? { ...k, t: tt } : k).sort((a, b) => a.t - b.t) } as Clip },
+        };
+      };
+      if (opts?.transient) transient(mutate);
+      else commit(mutate, { structural: false });
+      return true;
     },
 
     addTrack: (type) => {
