@@ -14,9 +14,10 @@ interface TrackRowProps {
   onDropClip?: (e: React.DragEvent<HTMLDivElement>) => void;
   onSubtitleAdd?: (trackId: string) => void;
   onClipPointerDown?: (clip: Clip, e: React.PointerEvent<HTMLDivElement>) => void;
+  onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown, onKeyframePointerDown }: TrackRowProps) {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
   const mediaInfo = useEditorStore(s => s.mediaInfo);
@@ -60,7 +61,8 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
           return (
             <ClipBlock key={cid} clip={c} pxPerSec={pxPerSec} selected={selectedClipId === c.id}
               mediaName={c.type === 'subtitle' ? undefined : mediaInfo[c.mediaId]?.name}
-              onPointerDown={onClipPointerDown ? (e) => onClipPointerDown(c, e) : undefined} />
+              onPointerDown={onClipPointerDown ? (e) => onClipPointerDown(c, e) : undefined}
+              onKeyframePointerDown={onKeyframePointerDown} />
           );
         })}
       </div>

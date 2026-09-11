@@ -52,6 +52,8 @@ interface EditorState {
   setPlaying(v: boolean): void;
   setPreparing(v: boolean): void;
   selectClip(id: string | null): void;
+  /** N3/决策 19 双写：kfId 非空时同时写 selectedKeyframeId 与 selectedClipId（点菱形即选中其片段，Delete 两 id 联动）；null 只清关键帧选中 */
+  selectKeyframe(kfId: string | null, clipId?: string): void;
   setMediaInfo(mediaId: string, info: MediaInfo): void;
   mergeMediaInfo(entries: Record<string, MediaInfo>): void; // AssetPanel items → url/名称回填（仅填缺失键，不覆盖已有）
 
@@ -145,7 +147,12 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     setPxPerSec: (v) => set({ pxPerSec: Math.min(500, Math.max(10, v)) }),
     setPlaying: (v) => set({ playing: v }),
     setPreparing: (v) => set({ preparing: v }),
-    selectClip: (id) => set({ selectedClipId: id }),
+    selectClip: (id) => set({ selectedClipId: id, selectedKeyframeId: null }), // 切换片段时关键帧选中失效（不变量）
+    selectKeyframe: (kfId, clipId) => set(
+      kfId === null
+        ? { selectedKeyframeId: null }
+        : { selectedKeyframeId: kfId, selectedClipId: clipId ?? null },
+    ),
     setMediaInfo: (mediaId, info) => set((s) => ({ mediaInfo: { ...s.mediaInfo, [mediaId]: info } })),
     mergeMediaInfo: (entries) => set((s) => {
       const next = { ...s.mediaInfo };
@@ -414,7 +421,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = undoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
+      set({ data: r.state, history: r.history, selectedClipId: null, selectedKeyframeId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state); // 边跟随回滚
     },
 
@@ -423,7 +430,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       if (!s.data) return;
       const r = redoHistory(s.history, s.data);
       if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
+      set({ data: r.state, history: r.history, selectedClipId: null, selectedKeyframeId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
       if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state);
     },
   };

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { Clip } from '../../types';
+import type { Clip, VideoClip } from '../../types';
 import { formatTimecode } from '../../timeline/timecode';
 import { timeToPx } from '../../timeline/view-scale';
 
@@ -14,9 +14,10 @@ interface ClipBlockProps {
   selected: boolean;
   mediaName?: string;
   onPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onKeyframePointerDown?: (kfId: string, e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mediaName, onPointerDown }: ClipBlockProps) {
+export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mediaName, onPointerDown, onKeyframePointerDown }: ClipBlockProps) {
   const left = timeToPx(clip.start, pxPerSec);
   const width = Math.max(CLIP_BLOCK_MIN_PX, timeToPx(clip.duration, pxPerSec));
   const label = clip.type === 'subtitle'
@@ -39,6 +40,15 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, med
           {label}
         </span>
       </div>
+      {/* 关键帧菱形（video/image 变换 + audio 音量同款分支；as VideoClip 单型视图同 store R5 先例，
+          audio 的 title 走音量文案挡 VolumeKeyframe 无 property 的运行时 undefined） */}
+      {(clip.type === 'video' || clip.type === 'image' || clip.type === 'audio') && (clip as VideoClip).keyframes.map(k => (
+        <div key={k.id} data-testid={`kf-${k.id}`}
+          title={clip.type === 'audio' ? `音量 @ ${k.t.toFixed(2)}s` : `${k.property} @ ${k.t.toFixed(2)}s`}
+          onPointerDown={(e) => onKeyframePointerDown?.(k.id, e)}
+          className="absolute w-2 h-2 bg-white border border-[#6C5CE7] rotate-45 cursor-pointer z-[1]"
+          style={{ left: timeToPx(k.t, pxPerSec) - 4, top: '50%', marginTop: -4 }} />
+      ))}
     </div>
   );
 });

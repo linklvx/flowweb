@@ -14,7 +14,12 @@ export function useEditorKeyboard() {
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
       const es = useEditorStore.getState();
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (es.selectedClipId) { e.preventDefault(); es.removeClip(es.selectedClipId); }
+        e.preventDefault();
+        if (es.selectedKeyframeId && es.selectedClipId) {
+          es.removeKeyframe(es.selectedClipId, es.selectedKeyframeId); // 关键帧优先
+        } else if (es.selectedClipId) {
+          es.removeClip(es.selectedClipId);
+        }
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault(); es.undo();
       } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {

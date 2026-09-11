@@ -6,7 +6,8 @@ import { PlayheadLine } from './PlayheadLine';
 import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
 import { quantizeTime } from '../../timeline/clip-math';
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
-import type { Clip } from '../../types';
+import type { Clip, VideoClip } from '../../types';
+import { seekPlayback } from '../../hooks/playback'; // 点击菱形跳转播放头
 import { useEditorKeyboard } from '../../hooks/useEditorKeyboard';
 
 // TrackRow memo 生效性：不依赖组件态（getState 自取 playhead）——模块级常量，引用恒稳定
@@ -35,13 +36,16 @@ export function TimelinePanel() {
   }, []);
 
   interface DragState {
-    kind: 'move' | 'trim-left' | 'trim-right';
+    kind: 'move' | 'trim-left' | 'trim-right' | 'keyframe';
     clipId: string;
     startClientX: number;
     startClipStart: number;
     /** 拖拽起始比例尺快照——整个拖拽用同一比例尺（拖拽途中 Ctrl+滚轮改缩放会让 dxSec 换算基准突变） */
     startPxPerSec: number;
     pointerMovedOnce: boolean; // 首次 move 才 beginTransient——down-up 无位移不入栈历史
+    /** keyframe 拖拽专用（move/trim 不读写）——仅 keyframe kind 写入，pointermove 分支以 ! 断言读取 */
+    kfId?: string;
+    startKfT?: number;
   }
   const dragRef = useRef<DragState | null>(null);
 
@@ -69,6 +73,24 @@ export function TimelinePanel() {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   }, [status, data, pxPerSec]);
 
+  const onKeyframePointerDown = (kfId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation(); // 挡片段拖拽/片段选中路径——选中经 selectKeyframe 双写
+    const es = useEditorStore.getState();
+    const clip = Object.values(es.data?.clips ?? {}).find(c =>
+      (c.type === 'video' || c.type === 'image' || c.type === 'audio') && (c as VideoClip).keyframes.some(k => k.id === kfId));
+    es.selectKeyframe(kfId, clip?.id); // N3/决策 19：双写 selectedKeyframeId + selectedClipId（stopPropagation 挡了片段选中路径）
+    // 点击跳转播放头（spec 第四节：可点击跳转）
+    if (clip) seekPlayback(clip.start + (clip as VideoClip).keyframes.find(k => k.id === kfId)!.t);
+    dragRef.current = {
+      kind: 'keyframe', clipId: clip!.id, kfId,
+      startClientX: e.clientX,
+      startKfT: (clip as VideoClip).keyframes.find(k => k.id === kfId)!.t,
+      startPxPerSec: pxPerSec, pointerMovedOnce: false, // B8：字段名对齐现码 DragState（pointerMovedOnce 机制与 moveClip/trimClip 同款）
+    } as DragState & { kfId: string; startKfT: number };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
   const onWindowPointerMove = (e: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
@@ -92,6 +114,9 @@ export function TimelinePanel() {
         if (compatible) targetTrackId = trackEl.dataset.trackId;
       }
       es.moveClip(d.clipId, Math.max(0, snapped.time), targetTrackId, { transient: true });
+    } else if (d.kind === 'keyframe') {
+      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
+      es.moveKeyframe(d.clipId, d.kfId!, d.startKfT! + dxSec, { transient: true });
     } else {
       if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       es.trimClip(d.clipId, d.kind === 'trim-left' ? 'left' : 'right', dxSec, { transient: true });
@@ -201,7 +226,8 @@ export function TimelinePanel() {
             <TrackRow key={t.id} track={t} data={data}
               onDropClip={handleClipDrop}
               onSubtitleAdd={handleSubtitleAdd}
-              onClipPointerDown={onClipPointerDown} />
+              onClipPointerDown={onClipPointerDown}
+              onKeyframePointerDown={onKeyframePointerDown} />
           ))}
           {/* I3：贯穿播放头竖线（自订阅——标尺+轨道全域，随内容滚动；pointer-events-none 不挡交互） */}
           <PlayheadLine />
