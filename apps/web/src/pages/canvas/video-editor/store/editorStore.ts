@@ -8,6 +8,7 @@ import {
 } from '../timeline/clip-math';
 import { canPlaceAt, findNearestFreeStart, clipsOnTrack } from '../timeline/overlap';
 import { ensureAutoEdges } from '../timeline/auto-edges';
+import { canvasSizeOf, remapForCanvasSize, type CanvasSize } from '../timeline/canvas-size';
 import { keyframeValueAt, interpolateTransform } from '../scene/interpolate';
 import { stopCapturing } from '@/stores/canvasUndo';
 
@@ -78,6 +79,8 @@ interface EditorState {
   addTrack(type: Track['type']): string;
   removeTrack(trackId: string): void;
   toggleTrack(trackId: string, key: 'muted' | 'hidden'): void;
+  /** 切 C 档画布：canvasSize 落库 + 既有片段 transform/keyframes 中心点重映射（commit 入栈，undo 可回退） */
+  setCanvasSize(size: CanvasSize): void;
 
   beginTransient(): void;
   endTransient(): boolean;
@@ -427,6 +430,14 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         ...d,
         tracks: d.tracks.map(t => t.id === trackId ? { ...t, [key]: !t[key] } : t),
       }), { structural: false });
+    },
+
+    // 结构不变（tracks 不动）——与 moveClip 同款 opts；commit 即完整入栈，调用方无需再包 transient
+    setCanvasSize: (size) => {
+      commit((d) => {
+        const clips = remapForCanvasSize(Object.values(d.clips), canvasSizeOf(d), size);
+        return { ...d, canvasSize: size, clips: Object.fromEntries(clips.map((c) => [c.id, c])) };
+      }, { structural: false });
     },
 
     beginTransient: () => {

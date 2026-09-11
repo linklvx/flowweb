@@ -4,7 +4,7 @@ vi.mock('@/stores/canvasUndo', () => ({ stopCapturing: vi.fn() }));
 vi.mock('../timeline/auto-edges', () => ({ ensureAutoEdges: vi.fn() }));
 
 import { useEditorStore } from './editorStore';
-import { createDefaultProjectData, type ProjectData } from '../types';
+import { createDefaultProjectData, type ProjectData, type VideoClip } from '../types';
 import { stopCapturing } from '@/stores/canvasUndo';
 import { ensureAutoEdges } from '../timeline/auto-edges';
 
@@ -188,6 +188,31 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(d.clips[id].trackId).toBe(audioTrackId);
     expect(d.tracks.find(t => t.id === trackId)!.clips).not.toContain(id);
     expect(d.tracks.find(t => t.id === audioTrackId)!.clips).toContain(id);
+  });
+
+  it('setCanvasSize：canvasSize 落库 + transform/keyframes 中心点重映射 + commit 入栈 undo 可回退', () => {
+    useEditorStore.getState().loadProject(proj());
+    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
+    const st = useEditorStore.getState();
+    const trackId = st.data!.tracks[0].id;
+    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
+    useEditorStore.getState().updateClip(id, {
+      transform: { x: 1920, y: 540, scale: 1, rotation: 0, opacity: 1 },
+      keyframes: [{ id: 'k1', t: 1, property: 'x', value: 1920, easing: 'linear' }],
+    });
+    const depth = useEditorStore.getState().history.past.length;
+    useEditorStore.getState().setCanvasSize({ width: 1080, height: 1920 });
+    const d = useEditorStore.getState().data!;
+    expect(d.canvasSize).toEqual({ width: 1080, height: 1920 });
+    const clip = d.clips[id] as VideoClip;
+    expect(clip.transform.x).toBeCloseTo(1080);  // 1920/1920*1080
+    expect(clip.transform.y).toBeCloseTo(960);   // 540/1080*1920
+    expect(clip.keyframes[0].value).toBeCloseTo(1080); // 关键帧绝对值同步（spec 5.1）
+    expect(useEditorStore.getState().history.past.length).toBe(depth + 1); // commit 完整入栈
+    useEditorStore.getState().undo();
+    const d0 = useEditorStore.getState().data!;
+    expect(d0.canvasSize).toBeUndefined();
+    expect((d0.clips[id] as VideoClip).transform.x).toBe(1920);
   });
 
   it('endTransient 无变更返回 false（begin 后未动直接 end）', () => {

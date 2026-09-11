@@ -7,6 +7,7 @@ import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { createDefaultProjectData } from '../types';
 import { useEditorStore } from '../store/editorStore';
+import { LAST_ASPECT_KEY } from '../timeline/canvas-size';
 
 vi.mock('@/api/videoProjectApi', () => ({
   upsertProject: vi.fn(),
@@ -85,6 +86,31 @@ describe('VideoEditorShell', () => {
     expect(document.querySelector('[data-panel-group-id="ve-vertical"]')).not.toBeNull();
     expect(document.querySelector('[data-panel-group-id="ve-horizontal"]')).not.toBeNull();
     expect(document.querySelectorAll('[data-panel-id]').length).toBe(5); // vertical 2 + horizontal 3
+  });
+  it('顶栏比例按钮存在且点击切换 canvasSize（走真实 store）+ 记忆写入', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
+    expect(screen.getByTestId('aspect-ratio-button')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('aspect-ratio-button'));
+    await waitFor(() => expect(screen.getByText('9:16（1080×1920）')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('9:16（1080×1920）'));
+    await waitFor(() => expect(useEditorStore.getState().data!.canvasSize).toEqual({ width: 1080, height: 1920 }));
+    expect(localStorage.getItem(LAST_ASPECT_KEY)).toBe('9:16');
+  });
+  it('新建工程默认画布用记忆比例（LAST_ASPECT_KEY——spec 5.1 D6 显式不静默）', async () => {
+    localStorage.setItem(LAST_ASPECT_KEY, '9:16');
+    try {
+      useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+      render(<VideoEditorShell />);
+      await waitFor(() => expect(vi.mocked(upsertProject)).toHaveBeenCalled());
+      const calls = vi.mocked(upsertProject).mock.calls; // 本文件 beforeEach 无 clearAllMocks——取最后一次调用
+      expect(calls[calls.length - 1][0]).toMatchObject({
+        data: { canvasSize: { width: 1080, height: 1920 } },
+      });
+    } finally {
+      localStorage.removeItem(LAST_ASPECT_KEY);
+    }
   });
   it('loadProject 迁移不触发 autosave（幻影 PATCH 过滤——I2）', async () => {
     vi.useFakeTimers();

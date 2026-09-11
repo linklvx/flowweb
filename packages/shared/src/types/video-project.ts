@@ -2,6 +2,7 @@
 export interface ProjectData {
   version: 1;
   fps: 30;
+  canvasSize?: { width: number; height: number }; // C 档画布（spec 5.1 D6），缺省兜底 1920×1080
   tracks: Track[];
   clips: Record<string, VideoClip | ImageClip | AudioClip | SubtitleClip>;
 }

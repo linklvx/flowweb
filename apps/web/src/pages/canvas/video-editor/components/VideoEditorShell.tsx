@@ -8,6 +8,7 @@ import { useEditorStore } from '../store/editorStore';
 import { createAutosaveController, type AutosaveController } from '../persist/autosave';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { createDefaultProjectData } from '../types';
+import { CANVAS_PRESETS, DEFAULT_CANVAS_SIZE, LAST_ASPECT_KEY } from '../timeline/canvas-size';
 import { EditorTopBar } from './EditorTopBar';
 import { PreviewPlayer } from './PreviewPlayer';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -71,7 +72,10 @@ export function VideoEditorShell() {
     const es = useEditorStore.getState();
     es.reset();
     useEditorStore.setState({ status: 'loading' });
-    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: createDefaultProjectData() }) // 首建默认单空视频轨工程（勘误③：其余轨道随素材动态创建——update 分支忽略 data 幂等安全）
+    // 新建工程默认画布：记忆比例优先（spec 5.1 D6——Dropdown 内 last-hint 行显式标注，不静默）
+    const lastPreset = localStorage.getItem(LAST_ASPECT_KEY); // '16:9' 等 label
+    const defaultData = { ...createDefaultProjectData(), canvasSize: CANVAS_PRESETS.find((p) => p.label === lastPreset)?.size ?? DEFAULT_CANVAS_SIZE };
+    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: defaultData }) // 首建默认单空视频轨工程（勘误③：其余轨道随素材动态创建——update 分支忽略 data 幂等安全）
       .then((p) => { if (!cancelled) useEditorStore.getState().loadProject(p); })
       .catch((e: Error) => { if (!cancelled) useEditorStore.getState().setLoadError(e.message); });
     return () => { cancelled = true; };
