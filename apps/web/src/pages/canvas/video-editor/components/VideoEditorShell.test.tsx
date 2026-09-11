@@ -75,6 +75,17 @@ describe('VideoEditorShell', () => {
       expect((wrap as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
     });
   });
+  it('布局为可调面板组：垂直(主区/时间轴) + 水平(素材/预览/属性) 各两级', async () => {
+    // 复用 P0-A 渲染等待方式（upsert → loadProject 就绪）
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
+    // v2 DOM 属性 data-panel-group-id/data-panel-id（组 id ve-vertical/ve-horizontal 由实现写入）
+    expect(document.querySelectorAll('[data-panel-group-id]').length).toBeGreaterThanOrEqual(2);
+    expect(document.querySelector('[data-panel-group-id="ve-vertical"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel-group-id="ve-horizontal"]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-panel-id]').length).toBe(5); // vertical 2 + horizontal 3
+  });
   it('loadProject 迁移不触发 autosave（幻影 PATCH 过滤——I2）', async () => {
     vi.useFakeTimers();
     try {

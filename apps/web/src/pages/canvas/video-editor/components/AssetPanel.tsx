@@ -29,7 +29,7 @@ export function AssetPanel() {
   }, [items]);
 
   return (
-    <div data-testid="asset-panel" className="w-[260px] shrink-0 border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] flex flex-col min-h-0 box-border">
+    <div data-testid="asset-panel" className="h-full border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] flex flex-col min-h-0 box-border">
       <div className="p-2 border-b border-[var(--ve-border)] [border-bottom-style:solid] flex items-center gap-2">
         <Input placeholder="搜索资产" value={keyword} onChange={e => setKeyword(e.target.value)} size="small" />
         <label data-testid="asset-upload-btn"

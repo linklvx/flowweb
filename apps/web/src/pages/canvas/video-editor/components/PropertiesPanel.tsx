@@ -71,14 +71,14 @@ export function PropertiesPanel() {
   if (!clip) {
     return (
       <div data-testid="properties-panel" data-testid-empty="1"
-        className="w-[280px] shrink-0 border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 box-border">
+        className="h-full border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 box-border">
         <div data-testid="properties-empty" className="text-[12px] text-[var(--ve-text-dim)] text-center py-8">未选中片段</div>
       </div>
     );
   }
   return (
     <div data-testid="properties-panel"
-      className="w-[280px] shrink-0 border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 overflow-y-auto box-border">
+      className="h-full border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 overflow-y-auto box-border">
       {clip.type === 'video' && (
         <div className="flex flex-col">
           <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">视频片段</div>

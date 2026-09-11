@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -22,6 +23,17 @@ function ShellToastBridge({ apiRef }: { apiRef: MutableRefObject<{ warning: (m: 
   return null;
 }
 
+// 持久化契约（对齐 opencut panel-store 模式：自管 {version, panels}，不用库内建 autoSaveId——
+// 其键名/序列化由库控制无版本语义）
+const PANEL_STORAGE_KEY = 've-panel-sizes';
+function loadPanelSizes(): { version: 1; panels: Record<string, number[]> } | null {
+  try {
+    const raw = localStorage.getItem(PANEL_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { version: number } : null;
+    return parsed?.version === 1 ? parsed as { version: 1; panels: Record<string, number[]> } : null; // 版本不符走默认（migrate 挂点）
+  } catch { return null; }
+}
+
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
   const sourceNodeId = useVideoEditorStore((s) => s.sourceNodeId);
@@ -37,6 +49,20 @@ export function VideoEditorShell() {
   // getContainer 不继承调用方容器，会挂到 body 被壳盖。onConflict/handleClose 只在 open=true 可达，
   // 此时 bridge 必挂载，无 null 窗口
   const toastApiRef = useRef<{ warning: (m: string) => void } | null>(null);
+
+  // saved 惰性初始化一次——裸调 loadPanelSizes() 每次重渲重读 localStorage，若库在 prop 变化时
+  // 重应用 defaultSize 会导致拖动回弹
+  const [saved] = useState(() => loadPanelSizes());
+  // onLayout 拖拽期间逐帧触发，localStorage.setItem 同步写逐帧落盘有卡顿风险——
+  // onLayout 只缓存进 ref，PanelResizeHandle 的 onDragging(isDragging=false) 拖拽结束时一次落盘
+  const pendingSizesRef = useRef<Record<string, number[]>>({});
+  const saveLayout = (groupId: string) => (sizes: number[]) => { pendingSizesRef.current[groupId] = sizes; };
+  const flushLayout = () => {
+    if (Object.keys(pendingSizesRef.current).length === 0) return;
+    const cur = loadPanelSizes();
+    localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, ...pendingSizesRef.current } }));
+    pendingSizesRef.current = {};
+  };
 
   // 入口时序：open → reset + loading → POST upsert → loadProject
   useEffect(() => {
@@ -112,14 +138,23 @@ export function VideoEditorShell() {
             <ShellToastBridge apiRef={toastApiRef} />
             <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} onExport={() => setExportOpen(true)} />
             <div className="flex flex-1 min-h-0">
-              {/* 左面板（Task 16 实化：画布产物资产库 + 拖入时间轴） */}
-              <AssetPanel />
-              <div className="flex-1 flex flex-col min-w-0">
-                <PreviewPlayer />
-                <TimelinePanel />
-              </div>
-              {/* 右面板（Plan 3 四态；Task 8 最小占位，Task 10 完整化） */}
-              <PropertiesPanel />
+              {/* v2 的尺寸 prop 属于 Panel，PanelGroup 无 defaultSize——恢复布局 = 保存的尺寸数组按序映射回各 Panel 的 defaultSize。
+                  横向三档默认和必须 =100（22/56/22） */}
+              <PanelGroup direction="vertical" id="ve-vertical" onLayout={saveLayout('ve-vertical')}>
+                <Panel defaultSize={saved?.panels['ve-vertical']?.[0] ?? 70} minSize={30}>
+                  <PanelGroup direction="horizontal" id="ve-horizontal" onLayout={saveLayout('ve-horizontal')}>
+                    {/* 左面板（Task 16 实化：画布产物资产库 + 拖入时间轴） */}
+                    <Panel defaultSize={saved?.panels['ve-horizontal']?.[0] ?? 22} minSize={15} maxSize={40}><AssetPanel /></Panel>
+                    <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" onDragging={(isDragging) => { if (!isDragging) flushLayout(); }} />
+                    <Panel defaultSize={saved?.panels['ve-horizontal']?.[1] ?? 56} minSize={30}><PreviewPlayer /></Panel>
+                    <PanelResizeHandle className="w-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-col-resize" onDragging={(isDragging) => { if (!isDragging) flushLayout(); }} />
+                    {/* 右面板（Plan 3 四态；Task 8 最小占位，Task 10 完整化） */}
+                    <Panel defaultSize={saved?.panels['ve-horizontal']?.[2] ?? 22} minSize={15} maxSize={40}><PropertiesPanel /></Panel>
+                  </PanelGroup>
+                </Panel>
+                <PanelResizeHandle className="h-1 bg-[var(--ve-border)] hover:bg-[var(--ve-accent)] transition-colors cursor-row-resize" onDragging={(isDragging) => { if (!isDragging) flushLayout(); }} />
+                <Panel defaultSize={saved?.panels['ve-vertical']?.[1] ?? 30} minSize={15} maxSize={70}><TimelinePanel /></Panel>
+              </PanelGroup>
             </div>
             <ExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
           </AntdApp>

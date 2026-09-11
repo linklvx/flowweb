@@ -201,19 +201,19 @@ export function TimelinePanel() {
   }, [pxPerSec]);
 
   if (status === 'error') {
-    return <div data-testid="timeline-error" className="h-[280px] border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex flex-col items-center justify-center gap-2">
+    return <div data-testid="timeline-error" className="h-full border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex flex-col items-center justify-center gap-2">
       <span className="text-[13px] text-[#F53F3F]">{loadError ?? '加载失败'}</span>
     </div>;
   }
   if (status === 'loading' || !data) {
-    return <div data-testid="timeline-loading" className="h-[280px] border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex items-center justify-center">
+    return <div data-testid="timeline-loading" className="h-full border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex items-center justify-center">
       <span className="text-[13px] text-[var(--ve-text-dim)]">工程加载中…（禁止编辑）</span>
     </div>;
   }
 
   return (
     <div data-testid="timeline-panel"
-      className="h-[280px] border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex flex-col min-h-0 box-border">
+      className="h-full border-t border-[var(--ve-border)] [border-top-style:solid] bg-[var(--ve-panel)] flex flex-col min-h-0 box-border">
       {/* 工具行（撤销/重做/分割/删除已迁预览控制条——Plan 3） */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ve-border)] [border-bottom-style:solid]">
         <div className="ml-auto flex items-center gap-1">
