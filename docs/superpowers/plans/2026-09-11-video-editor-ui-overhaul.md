@@ -273,7 +273,10 @@ const flushLayout = () => {
   localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, ...pendingSizesRef.current } }));
   pendingSizesRef.current = {};
 };
-// 两个 PanelResizeHandle 均加：onDragging={(isDragging) => { if (!isDragging) flushLayout(); }}
+// ⚠ 三个 PanelResizeHandle（水平组 2 个 cursor-col-resize + 垂直组 1 个 cursor-row-resize）**全部**挂
+// onDragging={(isDragging) => { if (!isDragging) flushLayout(); }}（R8-N9：只挂两个则垂直方向拖动永不落盘，
+// "刷新后尺寸保持"验收漏一半）。键盘 resize 是否触发 onDragging 未经证实——实现期键盘调宽后若刷新丢尺寸，
+// 在 Panel 的 onResize 兜底 flush（登记待实测，非阻断）。
 
 <div className="flex flex-1 min-h-0">
   <PanelGroup direction="vertical" id="ve-vertical" onLayout={saveLayout('ve-vertical')}>
@@ -630,12 +633,15 @@ style={{
 
 **R6-B8 前置事实（已一手核实）**：全仓无 openPosterSink/frameToCanvas/poster.ts；video-cache.ts:171-193 实物是 `openMediabunnySink(url)` 返回 `{ canvases(start), dispose() }`——不含单帧取画布接口，且被 export/worker.ts:11 消费**不宜改名/改签名**。故 poster.ts **自建**一次性工厂（不经 video-cache，spec v1.0-final：播放 LRU 双帧窗口会互相淘汰静态海报）；mediabunny `CanvasSink` 有 `getCanvas(ts)`（video-cache.ts:166 注释记录的 d.ts 事实），资源主口是 `Input.dispose()`（CanvasSink 自身无 dispose）。测试 mock 直接对齐真实 mediabunny API 形状（vi.mock('mediabunny')，与 vitest 惯例一致）。
 **R7-N1 修正（对 mediabunny@1.56.1 d.ts 一手核实）**：① `getCanvas(timestamp)` 返回 `WrappedCanvas = { canvas: HTMLCanvasElement | OffscreenCanvas; timestamp; duration }`（mediabunny.d.ts:5414）——**不是 canvas 本身**，取 `frame.canvas`；② `InputOptions.formats` **必填**（d.ts:2518）——`new Input({ source })` 编译报错，须 `formats: ALL_FORMATS`（与 video-cache.ts:175 同款）；③ poster 仅主线程使用，getCanvas 在 DOM 语境产 HTMLCanvasElement（media-sink.js:1448），但恒绘制进新 canvas 归一化类型（不早退返回 src）。
+**R8-N6 补记**：apps/web **未安装 canvas 包**——jsdom 下 `document.createElement('canvas')` 的 `getContext()`/`toDataURL()` 均走 notImplemented 返回 null，`toJpegDataUrl` 内部新建的 out canvas 必须在测试里整体桩化（mkCanvas 只覆盖了 mediabunny mock 链路的**源** canvas，覆盖不到 `document.createElement` 产物——无桩则 `null.drawImage` TypeError 被 ensurePoster catch 吞掉返回 null，断言必红且报错被掩盖）。桩法参照仓内先例 `apps/web/src/hooks/useThumbnails.test.ts:62-94`（createMockCanvas + createElementSpy 只劫持 canvas tag 其余 passthrough）。（行号出处口径统一：R7 引 mediabunny.d.ts:5414/:2516 为打包单文件 d.ts；分文件视图为 media-sink.d.ts:178-180（WrappedCanvas/getCanvas）/input.d.ts:21-23（formats 必填）——同一内容两种视图。）
 
 ```ts
 // renderer/poster.test.ts
 // R7-N1：桩形状对齐 mediabunny@1.56.1 真实 API——getCanvas 返回 WrappedCanvas {canvas,timestamp,duration}
 // （非 canvas 本身）；InputOptions.formats 必填（mock 须提供 ALL_FORMATS 占位）
-import { describe, it, expect, vi } from 'vitest';
+// R8-N6：jsdom 无 canvas 包——toJpegDataUrl 内部 document.createElement('canvas') 必须 spy 桩化
+// （先例 useThumbnails.test.ts:62-94：createElementSpy 只劫持 canvas tag，其余 passthrough 原实现）
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 const dispose = vi.fn();
 const getCanvas = vi.fn();
 vi.mock('mediabunny', () => ({
@@ -647,8 +653,22 @@ vi.mock('mediabunny', () => ({
   CanvasSink: class { constructor(public track: unknown, public opts: unknown) {} // eslint-disable-line
     getCanvas = (ts: number) => getCanvas(ts); },
 }));
+// （TDZ 注意：vi.mock 工厂引用上方 const——工厂在首次动态 import('mediabunny') 时才执行，届时模块顶层
+//  const 已初始化，预计无 TDZ；实测若报 Cannot access before initialization 改 vi.hoisted() 包一层）
 import { ensurePoster } from './poster';
-const mkCanvas = (w: number) => ({ width: w, height: Math.round(w * 9 / 16),
+// R8-N6：out canvas 桩——toJpegDataUrl 的 document.createElement('canvas') 产物（getContext + toDataURL 双桩）
+const outCtx = { drawImage: vi.fn() };
+const outCanvas = { getContext: () => outCtx, toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,OUT') } as unknown as HTMLCanvasElement;
+let createElementSpy: ReturnType<typeof vi.spyOn> | null = null;
+beforeAll(() => {
+  const orig = document.createElement.bind(document);
+  createElementSpy = vi.spyOn(document, 'createElement').mockImplementation(
+    ((tag: string, ...rest: unknown[]) => (tag === 'canvas' ? outCanvas : orig(tag, ...rest))) as typeof document.createElement,
+  );
+});
+afterAll(() => { createElementSpy?.mockRestore(); });
+beforeEach(() => { dispose.mockClear(); getCanvas.mockClear(); outCtx.drawImage.mockClear(); }); // R8：模块级 vi.fn 跨用例累积——手动清调用记录（用例 1 的 toHaveBeenCalledOnce 依赖此清理）
+const mkCanvas = (w: number) => ({ width: w, height: Math.round(w * 9 / 16),   // 源 canvas——只进 mock 链路
   getContext: () => ({ drawImage: vi.fn() }),
   toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,AAA') } as unknown as HTMLCanvasElement);
 const wrapped = (c: HTMLCanvasElement) => ({ canvas: c, timestamp: 0, duration: 0.04 }); // WrappedCanvas 形状
@@ -658,6 +678,7 @@ describe('ensurePoster（一次性首帧海报）', () => {
     const r = await ensurePoster('http://x/v.mp4');
     expect(r).toMatch(/^data:image\/jpeg;base64,/);
     expect(getCanvas).toHaveBeenCalledWith(0);
+    expect(outCtx.drawImage).toHaveBeenCalled();           // R8：经 out canvas 桩绘制（非早退）
     expect(dispose).toHaveBeenCalledOnce();
   });
   it('源 ≤320 宽：同样经新 canvas 输出（恒绘制——顺带归一化 HTMLCanvasElement 类型，R7-N1 虚警防护）', async () => {
@@ -1204,7 +1225,7 @@ export function estimateSizeBytes(canvasSize: { width: number; height: number },
 }
 ```
 
-调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`）。**⚠ worker 侧两处必须同源（R6-B11 修正：原"三处"之一不成立——worker 无显式 VideoEncoder 尺寸配置，编码尺寸由 mediabunny CanvasSource 从 OffscreenCanvas 隐式决定，全文件已核）**：① **OffscreenCanvas 创建尺寸 = targetSize**（:46，否则导出仍是画布分辨率、metadata 报的目标值与实际不符） ② `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)`（:48——逻辑坐标仍按 canvasSize 绘制，物理像素缩到 targetSize）。另 `ExportResolution` 类型从 precheck.ts 导出（`keyof typeof EXPORT_BITRATES`），client.ts/worker.ts/upload.ts/videoProjectApi.ts 四处 resolution 字段改 `ExportResolution` 引用；ExportModal Radio options（:133）加 `{ label: '480P', value: '480p' }`；capabilities 探测参数化（R7 小项②：**第二参** probeSize——现签名 `detectExportCapabilities(deps?)` 只有一参（capabilities.ts:24），ExportModal.tsx:69 现无参调用；加 `probeSize = { width: 1920, height: 1080 }` 第二参，:30 的 canEncodeVideo config 用 probeSize——默认值保既有单测不变，ExportModal :69 调用点传 `computeExportSize(canvasSizeOf(data), '1080p')` 最坏档探测）；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
+调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`，**且 sizeBytes 的 useMemo deps 补 data**（现 :54 为 `[resolution, durationSec]`——不含 data 则 Popover 开着切比例后配额预检仍用旧尺寸，R8-N10 附）；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`）。**⚠ worker 侧两处必须同源（R6-B11 修正：原"三处"之一不成立——worker 无显式 VideoEncoder 尺寸配置，编码尺寸由 mediabunny CanvasSource 从 OffscreenCanvas 隐式决定，全文件已核）**：① **OffscreenCanvas 创建尺寸 = targetSize**（:46，否则导出仍是画布分辨率、metadata 报的目标值与实际不符） ② `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)`（:48——逻辑坐标仍按 canvasSize 绘制，物理像素缩到 targetSize）。另 `ExportResolution` 类型从 precheck.ts 导出（`keyof typeof EXPORT_BITRATES`），client.ts/worker.ts/upload.ts/videoProjectApi.ts 四处 resolution 字段改 `ExportResolution` 引用；ExportModal Radio options（:133）加 `{ label: '480P', value: '480p' }`；capabilities 探测参数化（R7 小项②：**第二参** probeSize——现签名 `detectExportCapabilities(deps?)` 只有一参（capabilities.ts:24），ExportModal.tsx:69 现无参调用；加 `probeSize = { width: 1920, height: 1080 }` 第二参，:30 的 canEncodeVideo config 用 probeSize——默认值保既有单测不变，ExportModal :69 调用点传 `computeExportSize(canvasSizeOf(data), '1080p')` 最坏档探测）；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
 
 - [ ] **Step 3: 跑绿 + 既有 precheck 用例（18 组合 + estimate 签名变化的调用方修正）+ Commit**
 
@@ -1293,6 +1314,17 @@ describe('pickSaveTarget（P1-E 三态）', () => {
     expect(r.kind).toBe('opfs');
   });
 });
+describe('openOpfsTarget（画布路径专用，R7-N3/R8-N8）', () => {
+  it('开随机 key 的 OPFS 文件并登记 sessionOpfsKeys（deps 注入——jsdom 无 navigator.storage）', async () => {
+    const root = { getFileHandle: vi.fn().mockResolvedValue({ name: 'export-x.mp4' }) };
+    const { openOpfsTarget, sessionOpfsKeys } = await import('./client');
+    sessionOpfsKeys.clear();
+    const r = await openOpfsTarget({ deps: { getOpfsRoot: () => Promise.resolve(root as never) } });
+    expect(r.kind).toBe('opfs');
+    expect(root.getFileHandle).toHaveBeenCalledWith(expect.stringMatching(/^export-.+\.mp4$/), { create: true });
+    expect([...sessionOpfsKeys][0]).toMatch(/^export-.+\.mp4$/); // 登记——下次导出开头扫描即清的依据
+  });
+});
 ```
 
 - [ ] **Step 2: 跑红 → client.ts 实现（R6：deps 注入——jsdom 无 showSaveFilePicker 亦无 navigator.storage，OPFS 分支必须可注入才可测；capabilities.ts ExportCapsDeps 同款先例）**
@@ -1336,8 +1368,9 @@ export async function pickSaveTarget(
   }
 }
 // R7-N3：画布路径专用——不弹 FSA picker 直接开 OPFS（无手势依赖，用户无需为"导出到画布"选本地保存位置）
-export async function openOpfsTarget(): Promise<SaveTarget> {
-  const root = await navigator.storage.getDirectory();
+// R8-N8：deps 注入与 pickSaveTarget 同款（jsdom 无 navigator.storage，裸调不可测——plan 自定 TDD 铁律不得自破）
+export async function openOpfsTarget(deps: Pick<SaveTargetDeps, 'getOpfsRoot'> = {}): Promise<SaveTarget> {
+  const root = await (deps.getOpfsRoot?.() ?? navigator.storage.getDirectory());
   const handle = await root.getFileHandle(`export-${crypto.randomUUID()}.mp4`, { create: true });
   sessionOpfsKeys.add(handle.name);
   return { kind: 'opfs', handle };
@@ -1406,6 +1439,16 @@ it('上传成功建节点失败 → fail 态提示 + 重试按钮仅补建节点
 it('成功导出后 pendingProduct 清空（R3 必改③——防重复建节点）', async () => {
   // mock 全链路成功 → expect(useEditorStore.getState().pendingProduct).toBeNull()
 });
+it('R8-N5 回退择源：worker 回退 Buffer（fsa:false）→ 画布路径上传 blob 而非 0 字节句柄文件', async () => {
+  // mock runExportJob resolve { blob: 非空 Blob(size>0), fsa: false } + openOpfsTarget 返回 opfs 句柄
+  // （其 getFile 若被调须返回 0 字节 File——用 size:0 的 new File([], 'x.mp4') 显式暴露被误用的后果）
+  // 断言 uploadExportedProduct 收到的 file.size > 0（即 blob 而非 handle.getFile() 产物）——
+  // 对应 client.test.ts:63 契约缝合点的组件侧闭环
+});
+it('R8-N7 OPFS 打开失败（Firefox 无痕 getDirectory 拒绝）→ fail 态提示而非 unhandled rejection', async () => {
+  // mock openOpfsTarget reject(new Error('...')) → 断言 fail 分辙文案出现（"上次导出失败"）、
+  // phase 回 config、Popover 仍可交互——而非静默（promise rejection 无 catch）
+});
 ```
 
 - [ ] **Step 2: 跑红 → 实现（组件骨架）**
@@ -1415,6 +1458,14 @@ import { Popover, Select, Input, Progress, Button, App as AntdApp } from 'antd';
 const [open, setOpen] = useState(false);          // 受控（点击导出按钮打开——R4 小项：onExport prop 已删，注释同步）
 const [destination, setDestination] = useState<'canvas' | 'local'>('canvas');
 const [fileName, setFileName] = useState(`${title || '导出'}.mp4`);
+// R8-N7：job 失败与前置段异常（OPFS 打开等）共用同一 fail 分辙——canceled 特判收进 helper（原 :111 语义不变）
+const onExportFail = (err: unknown) => {
+  if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; }
+  const category = err instanceof ExportJobError ? err.category : 'unknown';
+  const quotaHit = /存储空间不足|配额|quota/i.test((err as Error).message); // R3-3：后端实测文案"存储空间不足"
+  setFail({ category, message: quotaHit ? '存储配额在导出期间被占用，请清理团队存储后重试' : (err as Error).message });
+  setPhase('config');
+};
 const startExport = async () => {
   if (startingRef.current) return; startingRef.current = true;   // 重入锁保留（I-1）
   try {
@@ -1431,21 +1482,29 @@ const startExport = async () => {
       ? await openOpfsTarget()
       : await pickSaveTarget(fileName, { onDegraded: () => { void message.info('未能打开保存对话框，已改用应用内中转'); } }); // R7-S2：onDegraded 接线——不接线则 R3② 的"不得静默降级"端到端落空
     if (target.kind === 'canceled') { void message.info('已取消导出，未开始编码'); return; } // P1-E
-    const j = runExportJob({ data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
+    const out = computeExportSize(canvasSizeOf(data), resolution); // R8-N10：一次定义两处消费（targetSize + upload 的 width/height——原骨架此处内联、下方 out 未定义必编译错）
+    const j = runExportJob({ data, resolution, mediaUrls, targetSize: out },
       { onProgress, onEta }, target.handle);
     void cleanupStaleOpfsExports(); // 编码期间顺带清理过期残留（fire-and-forget，try/catch 全包——Firefox 无痕 getDirectory 拒绝时静默跳过）
     setJob(j); setPhase('exporting'); armBeforeunload(); // ⚠ setJob(j) 必须保留（R4 必改③——现网 :101 同款；丢了则取消按钮 job?.cancel() 空转、进度区拿不到 job）
     try {
-      await j.promise; // ExportJobResult.fsa = !!fsaWritable（OPFS 句柄亦真——磁盘中转统一判据，Task 18）
+      // ⚠ R8-N5：恢复 r.fsa 择源（R7 版误删）。worker 的 createWritable() 失败（OPFS 配额耗尽/IO 错——浏览器
+      // 真实可触发）会回退 BufferTarget：数据只在 blob、句柄文件仍是 {create:true} 的 0 字节。不择源则：
+      // 画布/本地读 handle.getFile() 拿 0 字节静默上传/下载；本地 FSA 分支更是 blob 被丢弃、用户分文未得却见
+      // "导出完成"（静默数据丢失）。既有契约：现网 ExportModal.tsx:105 `r.fsa && handle ? getFile() : r.blob`
+      // （注释明示"防 0 字节静默上传"）+ client.test.ts:63 契约缝合点用例——属"既有验收资产不得回退"纪律范围。
+      const r = await j.promise; // ExportJobResult { blob, fsa }——fsa 即 Task 18 diskWritable（OPFS 句柄亦真）
       if (destination === 'canvas') {
-        const file = await target.handle.getFile();              // 画布恒为 opfs 句柄——零内存读回
+        const file = r.fsa ? await target.handle.getFile() : r.blob; // 择源——回退 Buffer 时读 blob
         const { mediaId } = await uploadExportedProduct({ ..., width: out.width, height: out.height, file });
         await publishProduct(mediaId, currentEditorProjectTitle() || '多轨剪辑'); // R3 必改③：set→create→clear 收拢一个 helper
         void message.success('导出完成，已添加到画布');
-      } else if (target.kind === 'fsa') {
+      } else if (target.kind === 'fsa' && r.fsa) {
         void message.success('导出完成，已保存到所选位置');        // R7-N3：worker 已直写——不得再 a.click()（两份文件）
       } else {
-        const file = await target.handle.getFile();              // 本地无 FSA → OPFS 中转，读回触发下载
+        // 本地 OPFS 中转（读回下载）**或** FSA 句柄 createWritable 失败回退 Buffer（blob 兜底下载）——
+        // 两种情况都必须产出真实文件，不择源静默提示成功 = 静默数据丢失（R8-N5）
+        const file = r.fsa ? await target.handle.getFile() : r.blob;
         const url = URL.createObjectURL(file);
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60_000);      // 延迟 revoke——不抄同步 revoke 截断先例（spec 6.2）
@@ -1454,10 +1513,14 @@ const startExport = async () => {
       }
       setOpen(false);
     } catch (err) {
-      if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; } // 保留既有 canceled 分支（原 :111）——回 config 不关闭
-      /* 既有 error 分辙（quotaHit 特判等）保留 */
+      onExportFail(err); // canceled 特判 + quotaHit 分辙均收在 helper（原 :111 语义不变）
     }
-    finally { setJob(null); disarmBeforeunload(); if (destination === 'canvas') void cleanupOpfsTarget(target); } // 画布路径即时清理（upload 已 await 无竞态；失败亦经此清不完整残留）
+    finally { setJob(null); disarmBeforeunload(); if (destination === 'canvas') void cleanupOpfsTarget(target); } // 画布路径即时清理（upload 已 await 无竞态；失败亦经此清不完整残留；r.fsa=false 时清 0 字节空壳无碍）
+  } catch (err) {
+    // ⚠ R8-N7：前置段会抛——openOpfsTarget/pickSaveTarget 内 OPFS 打开（navigator.storage.getDirectory()）
+    // 在 Firefox 无痕等场景 reject；旧 pickSaveFile 是 catch { return null; } 吞一切不可能抛，新分流路径必须兜。
+    // 不兜则 void startExport() 成 unhandled rejection：startingRef 已被 finally 复位（按钮恢复）但零提示零产物。
+    onExportFail(err);
   } finally { startingRef.current = false; }
 };
 <Popover
@@ -1654,6 +1717,7 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 - [ ] 点导出 → Popover 可见且选项联动（文件名/位置/分辨率/格式 disabled）
 - [ ] 目的地=画布：**不弹保存对话框**（R7-N3）→ 导出→上传→画布产物节点出现；目的地=本地：Chromium 弹保存框 → **所选位置文件完整可播且下载目录无第二份**（R7-N3：FSA 直写不 a.click）；非 Chromium → 浏览器下载完整 MP4（>1min 无截断）；**OPFS 残留验收口径 = "下次导出后无 OPFS 残留"**（R6-B12：sessionOpfsKeys 登记本会话 key、下次导出开头扫描即清；24h 阈值只管陌生 key）
 - [ ] FSA picker 取消 → 提示且零编码；非 Chromium（Firefox）→ OPFS 中转导出成功
+- [ ] **R8-N5 回退场景**：模拟 `createWritable()` 失败（OPFS 配额临界——大文件压一次）→ 画布上传/本地下载必须是真实非空文件，**不得产出 0 字节产物或静默数据丢失**（r.fsa 择源兜底读 blob）
 - [ ] 同会话连续两次导出（均成功）：两个产物节点指向**不同** media，第二次内容不覆盖第一次（R4 必改①回归）
 - [ ] 三栏拖拽调宽 + 时间轴满屏 + 刷新后尺寸保持
 - [ ] 暗色主题全组件无亮色残留（antd 弹层/toast 同暗色；**BaseFullscreenModal 自身 chrome 若有标题条/关闭按钮一并目检**——壳 fixed inset-0 覆盖下不应露出亮色缝，R4 小项）
@@ -1698,8 +1762,16 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
   - **S5** Task 15 canvas-renderer 基准消费点全列 :24/:34/:49/:70（机械替换 BASE_* 能编译但 9:16 画错——黑底/overlay fillRect、中心 translate、字幕水平中心四处必须用运行时 size）。
   - **S6** 批 6 收起后完成 toast 随 AntdApp 卸载静默丢失——登记已知行为（产物节点照建；静态 message 兜底会脱离壳暗色，不为一条 toast 开双通道）。
   - 小项×4：批 2 文件表补 Task 4 实涉 5 组件 + package.json/capabilities probeSize 明确为**第二参**（现签名一参，:69 无参调用）/Task 17 代码块补 @IsOptional() 与 Max import（与散文结论一致）/pendingProduct 补 EditorState 接口声明。
-  - **不采纳 1 项（理由登记）**：Task 5 断言改用 getPanelGroupElement(id) 的可选建议——`data-panel-group-id` 属性选择器已被 R7 评审对 v2 constants.d.ts（declarations/src/constants.d.ts）一手证实，而该 helper 在 2.1.9 的导出可用性反而未经证实，保守保留属性选择器。
+  - **不采纳 1 项（理由登记；R8 理由更正）**：Task 5 断言改用 getPanelGroupElement(id) 的可选建议——`data-panel-group-id` 属性选择器已被 R7 评审对 v2 constants.d.ts（declarations/src/constants.d.ts）一手证实；R8 评审进而对 v2 index.d.ts 证实 getPanelGroupElement **确在导出清单**（原"导出可用性未经证实"表述作废）——结论不变，理由更正为**两种写法等价、属性选择器零额外导入**，保守保留属性选择器。
   - **toast 通道澄清补记（R7 第三节）**：批 1 修复同时覆盖 toast（message/useMessage.js:90 getContainer 链 + z=12010 同被壳覆盖）——Task 3 Step 2 补记为第二红点，批 2"toast 同暗色"前提成立依据。
+- **R8 修订（2026-09-12 plan 评审八轮·R7 修订版审核：3 阻断+3 小项+2 实测注意+1 理由更正，全部采纳，断言逐条对仓内源码一手复核属实）**：
+  - **N5（阻断）** Task 19 恢复 `const r = await j.promise; const file = r.fsa ? await target.handle.getFile() : r.blob;` 择源——R7 分流骨架误删。worker 的 `createWritable().catch(() => null)` 回退 BufferTarget 是既有设计（worker.ts:95/:113/:192 fsa 标记回传 + client.test.ts:63 契约缝合点用例 + 现网 ExportModal.tsx:105 注释"防 0 字节静默上传"——属"既有验收资产不得回退"纪律）；不择源则回退发生时画布上传/本地下载 0 字节文件、本地 FSA 分支 blob 被丢却提示成功（静默数据丢失）。三分支与 r.fsa 交叉定案：画布/本地下载分支均择源；本地 FSA 分支 `target.kind==='fsa' && r.fsa` 才直写成功仅提示，r.fsa=false 落 else 走 blob 兜底下载。验收清单补"回退场景不得 0 字节"项。
+  - **N6（阻断）** Task 10 poster.test.ts 补 out canvas 桩——apps/web 未装 canvas 包，jsdom `document.createElement('canvas')` 的 getContext()/toDataURL() 均 notImplemented 返回 null；R7 的 mkCanvas 只覆盖 mediabunny mock 链路的源 canvas，覆盖不到 toJpegDataUrl 内部新建 canvas（无桩则 null.drawImage TypeError 被 catch 吞、断言必红且报错被掩盖）。桩法：createElementSpy 只劫持 canvas tag 其余 passthrough（先例 apps/web/src/hooks/useThumbnails.test.ts:62-94）+ beforeEach mockClear（模块级 vi.fn 跨用例累积）+ TDZ 注意（vi.hoisted 备选）+ mediabunny 行号出处口径统一（打包单文件 d.ts:5414/:2516 ↔ 分文件 media-sink.d.ts:178-180/input.d.ts:21-23）。
+  - **N7（阻断）** Task 19 startExport 外层补 catch → onExportFail——旧 pickSaveFile 是 `catch { return null; }` 吞一切不可能抛；新 openOpfsTarget/pickSaveTarget 的 OPFS 打开（navigator.storage.getDirectory()）在 Firefox 无痕等场景 reject，不兜则 `void startExport()` 成 unhandled rejection（startingRef 被 finally 复位、按钮恢复但零提示零产物）。canceled 特判+quotaHit 分辙收进 onExportFail helper，内层（job 失败）外层（前置段异常）共用，原 :111 语义不变。Step 1 补对应用例两条（N5 择源/N7 fail 态）。
+  - **N8（小）** Task 18 openOpfsTarget 加 `deps?: Pick<SaveTargetDeps, 'getOpfsRoot'>` 注入 + 补单测（随机 key 形状 + sessionOpfsKeys 登记）——裸 navigator.storage 在 jsdom 不可测，plan 自定 TDD 铁律不得自破。
+  - **N9（小）** Task 5 onDragging 落盘注释"两个 handle"更正"**三个** PanelResizeHandle（水平组 2 + 垂直组 1）全部挂"——漏挂垂直组则主区/时间轴拖动永不落盘，"刷新后尺寸保持"验收漏一半；键盘 resize 是否触发 onDragging 登记待实测（Panel.onResize 兜底 flush 备选）。
+  - **N10（小）** Task 19 骨架补 `const out = computeExportSize(canvasSizeOf(data), resolution);` 一次定义两处消费（原骨架 targetSize 内联、upload 处 out 未定义必编译错）；Task 16 sizeBytes useMemo deps 补 data（现 :54 `[resolution, durationSec]` 不含 data——Popover 开着切比例后配额预检用旧尺寸）。
+  - **R7 修复项确认**：评审逐条独立证实 N1/N2/N4/S1/S3/S4/S5/S6+小项×4 全部准确落地（S4 的 handle 计数由本轮 N9 更正）；v2 onDragging API 签名（PanelResizeHandle.d.ts）证实成立。
 - **R4 修订（2026-09-12 plan 评审三轮 3 必改+4 建议+9 小项全采纳）**：①clientRequestId 生命周期收紧"一次导出尝试"（组件级 useRef 跨导出复用会静默毁首产物——幂等命中旧 key+content-length-range 钉死必 400）+ 幂等查询加 status:'pending'②拖拽分支全形态（不兼容轨一律改道+必须早退+newTrackType 勿硬编码+dropIntoTrack TDZ 提升声明）③骨架补回 setJob(j)（取消按钮防空转）。建议：横向默认 22/56/22 和=100+saved 惰性初始化/rAF single-flight+标尺 memo/吸附线 +TRACK_HEADER_W 同源/worker 三处同源（scale+OffscreenCanvas+encoder config）。小项：ensurePoster 补 mock 单测（TDD 铁律）/stale 注释与受控注释清理/ExportResolution 随码率表自动扩展/本地路径验收口径"下次导出后无残留"/幂等并发缺口登记接受项/.ant-tick 类名勘误+jsdom 滚动限制/publishProduct 删空壳 try/catch/壳 chrome 暗色目检。**R4 已核实消解**：canvas-controls 变量名✓（index.css:17-19）、addTrack 返回 id✓（:413）、createProductNode 同步✓、open 复位五项✓（:65-70）、手势链无隐藏 await✓（:88-93）、VideoEditNode 路径=components/nodes/VideoEditNode.tsx（Task 15 git add 范围 pages/canvas 勿缩）。
-- 已知实现期待核实点（R7 后剩 1 条，已无害化）：① react-resizable-panels v2 onLayout 首次挂载是否即触发——S4 改 ref 缓存 + onDragging 落盘后，首次触发最多多 flush 一次等值数据（空写防护），不再有覆盖 saved 风险；装包后照实测登记即可。DOM 属性名已由 R6/R7 两轮对 v2 发布包核实成立。原②（mediabunny poster 接口）R7-N1 已按 d.ts 一手核实修正（frame.canvas + formats 必填），无待核实面。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
+- 已知实现期待核实点（R8 后剩 2 条，均无害化/非阻断）：① react-resizable-panels v2 onLayout 首次挂载是否即触发——S4 改 ref 缓存 + onDragging 落盘后，首次触发最多多 flush 一次等值数据（空写防护），不再有覆盖 saved 风险；装包后照实测登记即可。② v2 handle 键盘 resize 是否触发 onDragging（R8-N9 附注）——不触发则键盘调宽后刷新丢该次尺寸，Panel.onResize 兜底 flush 为备选修法，非阻断。DOM 属性名已由 R6/R7 两轮对 v2 发布包核实成立；mediabunny poster 接口 R7-N1 已按 d.ts 一手核实修正（frame.canvas + formats 必填），无待核实面。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
