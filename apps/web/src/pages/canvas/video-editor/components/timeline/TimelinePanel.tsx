@@ -189,6 +189,7 @@ export function TimelinePanel() {
       useEditorStore.getState().setMediaInfo(payload.mediaId, {
         name: payload.originalName,
         durationSec: payload.durationSec,
+        mimeType: payload.mimeType, // R4-5②：payload.mimeType 就在手（:182-183 已消费），与 setMediaInfo 保字段双保险
       });
     }
     useEditorStore.getState().addClip({

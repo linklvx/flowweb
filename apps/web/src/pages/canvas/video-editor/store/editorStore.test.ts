@@ -221,4 +221,17 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(kept.mimeType).toBe('video/mp4'); // 修复前 undefined
     expect(kept.durationSec).toBe(3); // 修复前 undefined → addClip 兜 5s
   });
+
+  it('shadowJobs 状态机字段：startShadowJob/updateShadowJob/removeShadowJob + generatedMediaIds', () => {
+    const s = useEditorStore.getState();
+    s.startShadowJob('shadow-video-1', 'video');
+    expect(useEditorStore.getState().shadowJobs['shadow-video-1']).toEqual({ kind: 'video', status: 'running' });
+    s.updateShadowJob('shadow-video-1', { status: 'downloading' });
+    expect(useEditorStore.getState().shadowJobs['shadow-video-1'].status).toBe('downloading');
+    s.addGeneratedMedia('media-9', { name: '生成音频', durationSec: 10 });
+    expect(useEditorStore.getState().generatedMediaIds).toEqual(['media-9']);
+    expect(useEditorStore.getState().mediaInfo['media-9']).toMatchObject({ name: '生成音频', durationSec: 10 });
+    s.removeShadowJob('shadow-video-1');
+    expect(useEditorStore.getState().shadowJobs['shadow-video-1']).toBeUndefined();
+  });
 });

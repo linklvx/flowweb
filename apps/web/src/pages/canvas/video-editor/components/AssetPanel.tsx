@@ -7,6 +7,8 @@ export function AssetPanel() {
   const { items, loading } = useWorkflowAssets();
   const [keyword, setKeyword] = useState('');
   const data = useEditorStore(s => s.data);
+  const generatedMediaIds = useEditorStore(s => s.generatedMediaIds);
+  const mediaInfo = useEditorStore(s => s.mediaInfo);
 
   const addedMediaIds = new Set(
     data ? Object.values(data.clips).map(c => (c as any).mediaId).filter(Boolean) : [],
@@ -15,7 +17,7 @@ export function AssetPanel() {
 
   // items 就绪同步 mediaInfo（含既有工程重开的 url 回填，决策 13）——仅填缺失键，不覆盖已有
   useEffect(() => {
-    if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }])));
+    if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url, mimeType: i.mimeType }])));
   }, [items]);
 
   return (
@@ -51,6 +53,36 @@ export function AssetPanel() {
           ))}
         </ul>
         {!loading && filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-[#C9CDD4]">暂无资产</div>}
+        {/* 生成结果（A1 影子产物——watchShadowJob 回填 mediaInfo；sourceNodeId 省略：素材库来源不建边 spec §二 规则 1） */}
+        {generatedMediaIds.length > 0 && (
+          <>
+            <div className="px-2 py-1 mt-2 text-[12px] text-[#86909C]">生成结果</div>
+            <ul className="list-none pl-0 m-0">
+              {generatedMediaIds.map((mediaId) => {
+                const info = mediaInfo[mediaId];
+                return (
+                  // R1（P1-7）+R2-N10+R3-5：mimeType 必有才可拖（draggable 随其有无）——拒绝来源不明资产，而非错型入库；
+                  // 空串/缺失判 image 落视频轨会建空白图片片，'video/mp4' 兜底会把音频产物建成 video 片黑屏
+                  <li key={mediaId}
+                    data-testid={`generated-item-${mediaId}`}
+                    draggable={Boolean(info?.mimeType)}
+                    onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
+                      mediaId,
+                      mimeType: info?.mimeType ?? '',
+                      originalName: info?.name ?? mediaId,
+                      durationSec: info?.durationSec,
+                    }))}
+                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[#F7F8FA]">
+                    <div className="w-10 h-10 rounded-md bg-[#F2F3F5] shrink-0 overflow-hidden flex items-center justify-center">
+                      <span className="text-[10px] text-[#86909C]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
+                    </div>
+                    <span className="text-[12px] text-[#4E5969] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
         {/* spec 全集资产 = 画布产物 + 团队素材库——团队素材分支 Plan 3（folder 接口接入后实化） */}
         <div className="px-2 py-1 mt-2 border-t border-[#F2F3F5] [border-top-style:solid] text-[12px] text-[#C9CDD4]">团队素材（Plan 3）</div>
       </div>

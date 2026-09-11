@@ -43,6 +43,8 @@ interface EditorState {
   mediaInfo: Record<string, MediaInfo>;
   history: History<ProjectData>;
   pendingSnapshot: ProjectData | null;
+  shadowJobs: Record<string, { kind: 'video' | 'audio'; status: 'running' | 'downloading' | 'error'; error?: string }>;
+  generatedMediaIds: string[];
 
   loadProject(p: { id: string; sourceNodeId: string; updatedAt: string; data: ProjectData; title?: string; teamId?: string }): void;
   setLoadError(msg: string): void;
@@ -58,6 +60,10 @@ interface EditorState {
   selectKeyframe(kfId: string | null, clipId?: string): void;
   setMediaInfo(mediaId: string, info: MediaInfo): void;
   mergeMediaInfo(entries: Record<string, MediaInfo>): void; // AssetPanel items → url/名称回填（仅填缺失键，不覆盖已有）
+  startShadowJob(shadowNodeId: string, kind: 'video' | 'audio'): void;
+  updateShadowJob(shadowNodeId: string, patch: Partial<{ status: 'running' | 'downloading' | 'error'; error: string }>): void;
+  removeShadowJob(shadowNodeId: string): void;
+  addGeneratedMedia(mediaId: string, info: MediaInfo): void;
 
   addClip(input: AddClipInput): string | null;
   addSubtitleClip(trackId: string, start: number, text?: string): string;
@@ -131,6 +137,8 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     mediaInfo: {},
     history: createHistory<ProjectData>(),
     pendingSnapshot: null,
+    shadowJobs: {} as Record<string, { kind: 'video' | 'audio'; status: 'running' | 'downloading' | 'error'; error?: string }>,
+    generatedMediaIds: [] as string[],
 
     loadProject: (p) => set({
       projectId: p.id, sourceNodeId: p.sourceNodeId, baseUpdatedAt: p.updatedAt,
@@ -145,6 +153,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null, selectedKeyframeId: null,
       playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
       history: createHistory<ProjectData>(), pendingSnapshot: null,
+      shadowJobs: {}, generatedMediaIds: [], // R1（P0-6）：reset 是编辑器重开清理点——漏加会跨工程残留
     }),
     setSaveState: (v) => set({ saveState: v }),
     setBaseUpdatedAt: (t) => set({ baseUpdatedAt: t }),
@@ -176,6 +185,12 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       }
       return { mediaInfo: next };
     }),
+
+    startShadowJob: (shadowNodeId, kind) => set((s) => ({ shadowJobs: { ...s.shadowJobs, [shadowNodeId]: { kind, status: 'running' } } })),
+    updateShadowJob: (shadowNodeId, patch) => set((s) => ({ shadowJobs: { ...s.shadowJobs, [shadowNodeId]: { ...s.shadowJobs[shadowNodeId], ...patch } } })),
+    removeShadowJob: (shadowNodeId) => set((s) => { const next = { ...s.shadowJobs }; delete next[shadowNodeId]; return { shadowJobs: next }; }),
+    // R1（P0-6）：mergeMediaInfo 形参是 Record<string, MediaInfo>（Object.entries 消费）——非 entries 数组
+    addGeneratedMedia: (mediaId, info) => { get().mergeMediaInfo({ [mediaId]: info }); set((s) => ({ generatedMediaIds: [...s.generatedMediaIds, mediaId] })); },
 
     addClip: (input) => {
       const s = get();

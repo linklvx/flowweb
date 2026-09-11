@@ -38,6 +38,20 @@ let unbindStores: (() => void) | null = null;
 export function getAwareness(): AwarenessBridge | null {
   return awarenessBridge;
 }
+
+/** A1 影子产物读取（决策 2：spec"必须读 doc"——前端内存 ydoc 直读，零网络）。
+ *  返回 null = doc 无该节点或尚无 fileId（ai-download 异步回写未完成）。
+ *  R4-10：doc 形状已实证——fillDoc（ydocBuilder.ts:40-43）/后端 writeNodeData（collab-document.service.ts:82-93）
+ *  均为 nodes→Y.Map、data→Y.Map、键名 fileId；instanceof 守卫替代 as 强转（结构异常返回 null 不抛）。 */
+export function readNodeFileIdFromDoc(nodeId: string): string | null {
+  if (!doc) return null;
+  const node = doc.getMap('nodes').get(nodeId);
+  if (!(node instanceof Y.Map)) return null;
+  const data = node.get('data');
+  if (!(data instanceof Y.Map)) return null;
+  const fid = data.get('fileId');
+  return typeof fid === 'string' ? fid : null;
+}
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let currentPid: string | null = null;
 
