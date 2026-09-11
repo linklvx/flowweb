@@ -3,7 +3,7 @@ import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useEditorStore } from '../store/editorStore';
 import { togglePlayback } from './playback';
 
-/** 编辑器内键盘：Delete 删片段 / Ctrl+Z·Ctrl+Shift+Z·Ctrl+Y 撤销重做 / 空格防滚动（播放 Plan 3）。
+/** 编辑器内键盘：Delete 删片段 / Ctrl+Z·Ctrl+Shift+Z·Ctrl+Y 撤销重做 / 空格防滚动（播放 Plan 3）/ S 分割选中片段（排除 Ctrl/Cmd+S）。
  *  画布层快捷键已被 isGroupEditContext 早退禁用（Task 11）——本 hook 只服务编辑器 open 期间。
  *  挂载点定死：TimelinePanel 组件体内调用（时间轴是唯一消费方，Shell 不该管键盘） */
 export function useEditorKeyboard() {
@@ -27,6 +27,9 @@ export function useEditorKeyboard() {
       } else if (e.key === ' ') {
         e.preventDefault(); // 防页面滚动；播放/暂停 toggle（决策 9——hook 依赖 playback 模块而非组件）
         void togglePlayback();
+      } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); // 分割快捷键排除 Ctrl/Cmd+S（浏览器保存语义不拦截）
+        if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead);
       }
     };
     document.addEventListener('keydown', handler);

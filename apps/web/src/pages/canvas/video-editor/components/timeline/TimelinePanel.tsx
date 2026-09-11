@@ -75,6 +75,12 @@ export function TimelinePanel() {
   }
   const dragRef = useRef<DragState | null>(null);
 
+  // 拖动吸附指示线（批3-6）：ref 镜像存上一次值——onWindowPointerMove 注册于 useEffect(..., []) 是首渲闭包，
+  // 函数体内直读 state snapGuideTime 恒为首值 null ⇒ "!== state" 守卫恒真失效；吸附点跳变远低于 move 频率，
+  // 仅值变化才 setState，避免每帧重渲
+  const [snapGuideTime, setSnapGuideTime] = useState<number | null>(null);
+  const snapGuideRef = useRef<number | null>(null);
+
   // TrackRow memo 生效性：deps 内 data/pxPerSec 变化时 TrackRow 本就因同名 props 变化重渲，
   // 其余 panel 级重渲（viewport resize 等）回调保持稳定不架空 memo
   const onClipPointerDown = useCallback((clip: Clip, e: React.PointerEvent) => {
@@ -141,6 +147,9 @@ export function TimelinePanel() {
           : elType === 'video'; // video/image 片只在视频轨间移动（图片归视频轨）
         if (compatible) targetTrackId = trackEl.dataset.trackId;
       }
+      // 吸附指示线：值变化才 setState（ref 镜像守卫，见声明处）
+      const nextGuide = snapped.snapped != null ? snapped.time : null;
+      if (nextGuide !== snapGuideRef.current) { snapGuideRef.current = nextGuide; setSnapGuideTime(nextGuide); }
       es.moveClip(d.clipId, Math.max(0, snapped.time), targetTrackId, { transient: true });
     } else if (d.kind === 'keyframe') {
       if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
@@ -154,6 +163,8 @@ export function TimelinePanel() {
   const onWindowPointerUp = () => {
     const d = dragRef.current;
     dragRef.current = null; // 监听常驻（useEffect 管理），pointerup 只结束本次拖拽
+    snapGuideRef.current = null; // 指示线随拖拽结束清理（同值 setState React bail out，无拖拽时零开销）
+    setSnapGuideTime(null);
     if (!d) return;
     useEditorStore.getState().endTransient(); // pointerup 一次入栈
   };
@@ -306,6 +317,11 @@ export function TimelinePanel() {
           ))}
           {/* I3：贯穿播放头竖线（自订阅——标尺+轨道全域，随内容滚动；pointer-events-none 不挡交互） */}
           <PlayheadLine />
+          {/* 批3-6 拖动吸附指示线：挂含轨头的滚动内容层 ⇒ left 补偿 TRACK_HEADER_W（口径同 PlayheadLine） */}
+          {snapGuideTime != null && (
+            <div data-testid="snap-guide" className="absolute top-0 bottom-0 w-0.5 bg-[var(--ve-accent)] pointer-events-none z-[2]"
+              style={{ left: TRACK_HEADER_W + timeToPx(snapGuideTime, pxPerSec) }} />
+          )}
         </div>
       </div>
     </div>

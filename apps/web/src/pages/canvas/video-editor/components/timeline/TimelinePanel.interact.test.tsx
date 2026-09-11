@@ -88,6 +88,24 @@ describe('TimelinePanel 交互', () => {
     expect(useEditorStore.getState().data!.clips[b].start).toBe(10);
   });
 
+  it('拖动吸附指示线：非吸附不显示 → 吸附显示（left 含轨头 140）→ pointerup 消失', () => {
+    ready();
+    addVideoClip(0); // a [0,10) 提供吸附点（右缘 10s）
+    const b = addVideoClip(11); // b [11,21) 被拖动
+    render(<TimelinePanel />);
+    const block = screen.getByTestId(`clip-block-${b}`);
+    firePointer(block, 'pointerdown', { button: 0, clientX: 1000, clientY: 50 }); // offsetX 越界 → move 拖拽
+    // target = 11 - 70/80 = 10.125s：距吸附点 10 有 10px（@80px/s）> 8px 阈值 → 不吸附
+    act(() => { firePointer(window, 'pointermove', { clientX: 930, clientY: 50 }); });
+    expect(screen.queryByTestId('snap-guide')).toBeNull();
+    // target = 11 - 75/80 = 10.0625s：距 10 有 5px ≤ 8px → 吸附（显式点 clip-end 与整秒等距，显式点胜出）
+    act(() => { firePointer(window, 'pointermove', { clientX: 925, clientY: 50 }); });
+    expect(screen.getByTestId('snap-guide').style.left)
+      .toBe(`${TRACK_HEADER_W + 10 * 80}px`); // 挂在含轨头的滚动内容层——left 必须补偿 140px
+    act(() => { firePointer(window, 'pointerup'); });
+    expect(screen.queryByTestId('snap-guide')).toBeNull();
+  });
+
   it('跨轨拖动：拖到同类视频轨换轨（elementFromPoint 命中）', async () => {
     ready();
     const id = addVideoClip(0);
@@ -187,6 +205,26 @@ describe('TimelinePanel 交互', () => {
     render(<TimelinePanel />);
     fireEvent.keyDown(document, { key: 'Delete' });
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
+  });
+
+  it('s 键分割选中片段于播放头；Ctrl+S 不分割不拦截', () => {
+    ready();
+    const id = addVideoClip(0);
+    useEditorStore.getState().selectClip(id);
+    useEditorStore.getState().setPlayhead(4);
+    useVideoEditorStore.setState({ open: true });
+    render(<TimelinePanel />);
+    fireEvent.keyDown(document, { key: 's' });
+    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
+    // Ctrl+S 是浏览器保存语义——不分割（back [4,10) 中段 7 若误触即变 3 片）且不 preventDefault。
+    // fireEvent 返回 dispatch 布尔非事件对象——原生 KeyboardEvent 派发后直读 defaultPrevented（同 firePointer 原生 dispatch 先例）
+    const back = useEditorStore.getState().data!.tracks[0].clips[1];
+    useEditorStore.getState().selectClip(back);
+    useEditorStore.getState().setPlayhead(7);
+    const ev = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => { document.dispatchEvent(ev); });
+    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it('标尺只渲染视口内刻度：900s/500pxps 视口 1000px 时刻度元素 < 300（窗口化——全量 3601 tick div 性能坑）', () => {
