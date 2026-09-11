@@ -14,7 +14,7 @@ import { stopCapturing } from '@/stores/canvasUndo';
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SaveState = 'saved' | 'saving' | 'error';
 
-export interface MediaInfo { name: string; durationSec: number | undefined; url?: string; }
+export interface MediaInfo { name: string; durationSec: number | undefined; url?: string; mimeType?: string; }
 
 export interface AddClipInput {
   type: 'video' | 'image' | 'audio';
@@ -153,11 +153,21 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         ? { selectedKeyframeId: null }
         : { selectedKeyframeId: kfId, selectedClipId: clipId ?? null },
     ),
-    setMediaInfo: (mediaId, info) => set((s) => ({ mediaInfo: { ...s.mediaInfo, [mediaId]: info } })),
+    // P0-7：整条替换不擦既有字段（TimelinePanel drop 回调 payload 只有 name/durationSec——
+    // 直接覆盖会抹掉 AssetPanel 已回填的 url/mimeType 与时长，图片片段从此无源可渲、addClip 兜 5s）
+    setMediaInfo: (mediaId, info) => set((s) => ({ mediaInfo: { ...s.mediaInfo, [mediaId]: {
+      ...info,
+      url: info.url ?? s.mediaInfo[mediaId]?.url,
+      mimeType: info.mimeType ?? s.mediaInfo[mediaId]?.mimeType,
+      durationSec: info.durationSec ?? s.mediaInfo[mediaId]?.durationSec,
+    } } })),
     mergeMediaInfo: (entries) => set((s) => {
       const next = { ...s.mediaInfo };
       for (const [id, info] of Object.entries(entries)) {
-        next[id] = next[id] ? { ...next[id], url: next[id].url ?? info.url } : info;
+        // R8-4：与 setMediaInfo 对称——既有键三字段只补缺不覆盖
+        next[id] = next[id]
+          ? { ...next[id], url: next[id].url ?? info.url, mimeType: next[id].mimeType ?? info.mimeType, durationSec: next[id].durationSec ?? info.durationSec }
+          : info;
       }
       return { mediaInfo: next };
     }),

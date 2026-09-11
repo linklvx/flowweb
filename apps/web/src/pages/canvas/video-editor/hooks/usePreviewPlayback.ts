@@ -8,31 +8,35 @@ import { totalDuration } from '../timeline/timecode';
 import type { ProjectData } from '../types';
 
 /** 播放视觉循环 + 暂停态单帧渲染（G1/决策 18）：
- *  renderLatest(deps, data, t) 统一收口两条路径（N5）：pendingRef + latestTRef——in-flight 时只记最新 t、
- *  完成后补渲染一次；否则 scrubMove/拖片段 60Hz 每帧发起全帧渲染（含视频 seek），MediaEntry 串行链排队上百次。
+ *  renderLatest(deps, data, t) 统一收口两条路径（N5）：pendingRef + reqRef 请求代数——in-flight 时只记最新请求、
+ *  完成后代数不一致即以最新 deps/data 补渲染一次（同 t 的 mediaInfo 变化也推进代数——遗留②保证补帧）；
+ *  否则 scrubMove/拖片段 60Hz 每帧发起全帧渲染（含视频 seek），MediaEntry 串行链排队上百次。
  *  playing=true：起锚（音频由 engine.playFrom 同步起）→ rAF 每帧 engine.now() → setPlayhead → renderLatest（跳帧追赶，决策 15）。
  *  播放中 data 变化（编辑）→ 音频 playFrom **100ms 前沿去抖**重排（A4/决策 6③：transient 60Hz 下不"机器枪"）。
- *  playing=false：依赖 [playhead, data] 单帧渲染——进编辑器即出 playhead 帧（非黑屏）、暂停后 seek/拖标尺即时出画。 */
+ *  playing=false：依赖 [playhead, data, mediaInfo] 单帧渲染——进编辑器即出 playhead 帧（非黑屏）、暂停后 seek/拖标尺即时出画、url 回填自愈补帧（遗留②）。 */
 export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>): void {
   const playing = useEditorStore(s => s.playing);
   const playhead = useEditorStore(s => s.playhead);
   const data = useEditorStore(s => s.data);
+  const mediaInfo = useEditorStore(s => s.mediaInfo); // 遗留②：url 回填（mediaInfo 变化）触发暂停态补帧
   const pendingRef = useRef(false);
-  const latestTRef = useRef(0);
+  const reqRef = useRef(0);
+  const latestRef = useRef<{ deps: FrameRenderDeps; d: ProjectData; t: number } | null>(null);
 
   const renderLatest = (deps: FrameRenderDeps, d: ProjectData, t: number): void => {
-    latestTRef.current = t;
+    ++reqRef.current; // 自增值直接作废旧请求，无需具名 req 变量
+    latestRef.current = { deps, d, t }; // 同 t 的 mediaInfo 变化也触发代数 +1（仅比 t 会吞同 t 补帧）
     if (pendingRef.current) return; // in-flight 去重（N5）
-    const run = (tt: number): void => {
+    const run = (): void => {
       pendingRef.current = true;
-      renderFrameAt(d, tt, deps).catch(() => {}).finally(() => {
+      const at = reqRef.current;
+      const cur = latestRef.current!;
+      renderFrameAt(cur.d, cur.t, cur.deps).catch(() => {}).finally(() => {
         pendingRef.current = false;
-        // R3 §4.2 登记：尾追闭包的 d/deps 是发起那次渲染的（非最新 data）——播放中编辑/暂停拖拽期间可能
-        // 以"旧 data + 新 t"补渲一帧，下一 tick/effect 触发自愈（低危，接受）
-        if (latestTRef.current !== tt) run(latestTRef.current); // 期间有更新 → 补渲染最新
+        if (reqRef.current !== at) run(); // 期间有新请求（含同 t）→ 以最新 deps/data 补渲（R3 §4.2 旧闭包问题随代数尾追消除）
       });
     };
-    run(t);
+    run();
   };
 
   // 暂停态单帧（G1）
@@ -43,7 +47,7 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     renderLatest(makeFrameDeps(ctx), data, playhead);
-  }, [playing, playhead, data, canvasRef]);
+  }, [playing, playhead, data, mediaInfo, canvasRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 播放循环
   useEffect(() => {

@@ -211,4 +211,14 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(useEditorStore.getState().data!.tracks[0].clips).not.toContain(id); // undo 生效
     expect(useEditorStore.getState().history.past.length).toBe(depth - 1);
   });
+
+  it('P0-7：setMediaInfo 整条替换不擦既有 url/mimeType/durationSec（drop 回调 payload 字段不全场景）', () => {
+    const s = useEditorStore.getState();
+    s.setMediaInfo('m1', { name: 'a', durationSec: 3, url: 'http://old', mimeType: 'video/mp4' });
+    s.setMediaInfo('m1', { name: 'a', durationSec: undefined }); // TimelinePanel drop 形状（无 url/mimeType，durationSec 可 undefined）
+    const kept = useEditorStore.getState().mediaInfo['m1'];
+    expect(kept.url).toBe('http://old'); // 修复前 undefined
+    expect(kept.mimeType).toBe('video/mp4'); // 修复前 undefined
+    expect(kept.durationSec).toBe(3); // 修复前 undefined → addClip 兜 5s
+  });
 });

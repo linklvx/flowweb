@@ -88,6 +88,7 @@ export class VideoCacheService {
           if (!handle) {
             // R5：open 失败（无视频轨/canDecode false/403 reject）同样进冷却——否则 .finally 删 opening 后
             // 下一帧 renderLatest 再调 getFrame 再次 openSink（Input 构造 + moov range 请求），30-60 次/秒
+            console.warn('[video-cache] openSink 失败（null handle）:', mediaId); // 遗留③：所有失败路径至少一行痕迹
             this.retryAfter.set(mediaId, this.now() + RETRY_COOLDOWN_MS);
             return null;
           }
@@ -102,8 +103,16 @@ export class VideoCacheService {
         }).finally(() => { this.opening.delete(mediaId); });
         this.opening.set(mediaId, opening);
       }
-      entry = (await opening) ?? undefined;
-      if (!entry) return null; // 无视频轨/打开失败
+      try {
+        entry = (await opening) ?? undefined;
+      } catch (err) {
+        // 遗留③：openSink reject 不再直穿 getFrame——转 null + warn + 冷却（否则注入坏 openSink 时
+        // rAF 30-60 次/秒重开风暴——冷却限频是 warn 不刷屏的前提）
+        console.warn('[video-cache] openSink 失败:', mediaId, err);
+        this.retryAfter.set(mediaId, this.now() + RETRY_COOLDOWN_MS);
+        return null;
+      }
+      if (!entry) return null; // 无视频轨/打开失败（warn 与冷却在上方 then 的 null handle 分支）
     } else {
       this.entries.delete(mediaId); // LRU 触尾
       this.entries.set(mediaId, entry);
@@ -167,6 +176,7 @@ export async function openMediabunnySink(url: string): Promise<SinkHandle | null
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) {
       try { input.dispose(); } catch { /* 已释放 */ }
+      console.warn('[video-cache] openSink 失败（无视频轨）:', url);
       return null;
     }
     const sink = new CanvasSink(track, { poolSize: 3, fit: 'contain' });
@@ -175,8 +185,9 @@ export async function openMediabunnySink(url: string): Promise<SinkHandle | null
       canvases: (start: number) => sink.canvases(start) as unknown as SinkIterator,
       dispose: () => { try { held.dispose(); } catch { /* 已释放 */ } }, // 资源主口是 input.dispose
     };
-  } catch {
+  } catch (err) {
     if (input) { try { input.dispose(); } catch { /* 已释放 */ } }
+    console.warn('[video-cache] openSink 失败:', url, err);
     return null;
   }
 }

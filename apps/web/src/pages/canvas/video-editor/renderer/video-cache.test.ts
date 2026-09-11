@@ -144,4 +144,19 @@ describe('VideoCacheService（三段命中 + LRU）', () => {
     expect(state.disposed).toBe(true);
     expect(svc.size).toBe(0);
   });
+  it('遗留③：openSink 失败三形态（resolve null / reject / null handle）均返回 null + console.warn + 进冷却（open 段 reject 原直穿）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let now = 0;
+    // ① openSink resolve null（无视频轨/打开失败分支）
+    const svc1 = new VideoCacheService({ openSink: async () => null, now: () => now });
+    expect(await svc1.getFrame('m1', 'http://x', 0)).toBeNull();
+    // ② openSink reject（403 等）——getFrame 的 `await opening` 无 catch，reject 直穿 getFrame
+    const svc2 = new VideoCacheService({ openSink: async () => { throw new Error('403'); }, now: () => now });
+    expect(await svc2.getFrame('m2', 'http://x', 0)).toBeNull(); // 修复前：本行 rejects
+    // 冷却生效：2s 内重开被冷却跳过（仍 null 且无第二次 open）
+    now += 1000;
+    expect(await svc2.getFrame('m2', 'http://x', 0)).toBeNull();
+    expect(warnSpy.mock.calls.filter((a) => String(a[0]).includes('[video-cache]')).length).toBeGreaterThanOrEqual(2);
+    warnSpy.mockRestore();
+  });
 });
