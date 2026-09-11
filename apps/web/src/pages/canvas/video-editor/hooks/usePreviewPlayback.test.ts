@@ -4,7 +4,7 @@ import { renderHook, act } from '@testing-library/react';
 const renderFrameAt = vi.fn(async (..._a: unknown[]) => {}); // rest 形参——转发 spread 不触发 TS2556
 vi.mock('../renderer/render-frame', () => ({ renderFrameAt: (...a: unknown[]) => renderFrameAt(...a) }));
 
-import { usePreviewPlayback } from './usePreviewPlayback';
+import { usePreviewPlayback, applyCanvasSize } from './usePreviewPlayback';
 import { useEditorStore } from '../store/editorStore';
 
 // R7-P3：真实参数——现签名 usePreviewPlayback(canvasRef) 纯形参，测试以真实 canvas 元素接入
@@ -64,5 +64,17 @@ describe('usePreviewPlayback（暂停态单帧渲染）', () => {
     expect(renderFrameAt).toHaveBeenCalledTimes(2); // finally 尾追补帧
     // 同 t 的第二次渲染 = 代数判据（含同 t 的 mediaInfo 变化）区别于"仅比 t"（吞同 t 则本行红）的实证
     expect(renderFrameAt.mock.calls[1][1]).toBe(renderFrameAt.mock.calls[0][1]);
+  });
+});
+
+describe('applyCanvasSize（canvas.width 赋值清空画布并重置 2D 上下文——属性与守卫必须同源走此函数）', () => {
+  it('尺寸不同：赋值并返回 true；尺寸相同：不触碰画布（幂等防每帧重设闪黑）返回 false', () => {
+    const c = document.createElement('canvas');
+    c.width = 1920; c.height = 1080;
+    expect(applyCanvasSize(c, 1280, 720)).toBe(true);
+    expect(c.width).toBe(1280);
+    expect(c.height).toBe(720);
+    expect(applyCanvasSize(c, 1280, 720)).toBe(false); // 幂等——不重赋值
+    expect(c.width).toBe(1280); // 仍为已设值（未被重置）
   });
 });

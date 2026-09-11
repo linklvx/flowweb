@@ -65,8 +65,10 @@ export function PreviewPlayer() {
       {/* 16:9 预览区 */}
       <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center p-3">
         {/* 偏离登记：计划 JSX 笔误——canvas 缺 ref={canvasRef}，hook 拿不到画布致播放循环/单帧渲染全失效（G1 用例红揭示），按计划目标语义补上 */}
+        {/* spec 4.1：删内联 width:100%/aspectRatio——替换元素靠 max-w-full max-h-full + 内在尺寸自动 contain 保比例（非 16:9 素材不变形）；
+            width/height 属性 1920/1080 与重置守卫同源（usePreviewPlayback 的 applyCanvasSize / CANVAS_W·CANVAS_H） */}
         <canvas ref={canvasRef} data-testid="preview-canvas" width={1920} height={1080}
-          className="bg-black max-w-full max-h-full" style={{ aspectRatio: '16 / 9', width: '100%' }}
+          className="bg-black max-w-full max-h-full"
           onClick={(e) => { // 点击画布 seek（点击位置→时间）
             const rect = e.currentTarget.getBoundingClientRect();
             seekPlayback(((e.clientX - rect.left) / rect.width) * total);

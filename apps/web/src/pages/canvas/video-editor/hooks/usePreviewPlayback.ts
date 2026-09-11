@@ -7,6 +7,13 @@ import { CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
 import { totalDuration } from '../timeline/timecode';
 import type { ProjectData } from '../types';
 
+/** canvas.width 赋值会清空画布并重置 2D 上下文——属性（PreviewPlayer）与守卫（本 hook 两处）必须同源走此函数：
+ * 尺寸一致时不触碰（幂等），防 60Hz 每帧重设 + 闪黑 */
+export function applyCanvasSize(canvas: HTMLCanvasElement, w: number, h: number): boolean {
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; return true; }
+  return false;
+}
+
 /** 播放视觉循环 + 暂停态单帧渲染（G1/决策 18）：
  *  renderLatest(deps, data, t) 统一收口两条路径（N5）：pendingRef + reqRef 请求代数——in-flight 时只记最新请求、
  *  完成后代数不一致即以最新 deps/data 补渲染一次（同 t 的 mediaInfo 变化也推进代数——遗留②保证补帧）；
@@ -43,7 +50,7 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
   useEffect(() => {
     if (playing || !data || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    if (canvas.width !== CANVAS_W) { canvas.width = CANVAS_W; canvas.height = CANVAS_H; }
+    applyCanvasSize(canvas, CANVAS_W, CANVAS_H);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     renderLatest(makeFrameDeps(ctx), data, playhead);
@@ -55,7 +62,7 @@ export function usePreviewPlayback(canvasRef: React.RefObject<HTMLCanvasElement 
     const canvas = canvasRef.current;
     const es0 = useEditorStore.getState();
     if (!canvas || !es0.data) return;
-    if (canvas.width !== CANVAS_W) { canvas.width = CANVAS_W; canvas.height = CANVAS_H; }
+    applyCanvasSize(canvas, CANVAS_W, CANVAS_H);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const deps = makeFrameDeps(ctx);

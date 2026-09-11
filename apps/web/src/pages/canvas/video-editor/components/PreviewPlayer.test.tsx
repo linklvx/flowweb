@@ -4,6 +4,7 @@ import { PreviewPlayer } from './PreviewPlayer';
 import { useEditorStore } from '../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../types';
 import { togglePlayback, stopPlayback, seekPlayback, scrubBegin, scrubMove, scrubEnd } from '../hooks/playback';
+import * as playback from '../hooks/playback'; // 守护用例 spy 模块导出用（组件经命名导入取用——vite-node 下动态属性访问，spy 可拦截）
 import { audioEngine } from '../audio-engine/engine';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
@@ -143,6 +144,25 @@ describe('PreviewPlayer（控制条）', () => {
     render(<><PreviewPlayer /><TimelinePanel /></>);
     fireEvent.keyDown(document, { key: ' ' });
     await waitFor(() => expect(useEditorStore.getState().playing).toBe(true));
+  });
+
+  it('预览 canvas 自适应 contain：无 width:100%/aspectRatio 内联样式（靠替换元素内在尺寸，spec 4.1）', () => {
+    ready();
+    render(<PreviewPlayer />);
+    const canvas = screen.getByTestId('preview-canvas') as HTMLCanvasElement;
+    const style = canvas.getAttribute('style') ?? '';
+    expect(style).not.toContain('width');        // 无内联 width:100%（强制铺满容器）
+    expect(style).not.toContain('aspect-ratio'); // 无内联 aspect-ratio（强制 16:9 变形非 16:9 素材）
+    expect(canvas.className).toContain('max-w-full');
+    expect(canvas.className).toContain('max-h-full');
+  });
+
+  it('删内联样式后画布点击 seek 绑定仍在（守护——重写防 onClick 静默丢失；jsdom 无布局 rect 全 0，勿断言 playhead 具体值）', () => {
+    ready();
+    const seekSpy = vi.spyOn(playback, 'seekPlayback');
+    render(<PreviewPlayer />);
+    fireEvent.click(screen.getByTestId('preview-canvas'), { clientX: 10 });
+    expect(seekSpy).toHaveBeenCalled();
   });
 });
 
