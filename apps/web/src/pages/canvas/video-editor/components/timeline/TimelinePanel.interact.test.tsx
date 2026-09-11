@@ -5,6 +5,9 @@ import { PreviewPlayer } from '../PreviewPlayer';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
+import { ensurePoster } from '../../renderer/poster';
+
+vi.mock('../../renderer/poster', () => ({ ensurePoster: vi.fn() }));
 
 const ready = (data?: ProjectData) => {
   const d = data ?? createDefaultProjectData();
@@ -117,6 +120,20 @@ describe('TimelinePanel 交互', () => {
     expect(clip.start).toBe(2); // 落点量化（rect 取被悬停轨——start 语义按 drop 位置）
     expect(d.tracks[0].clips).toHaveLength(0); // 视频轨未收错型片段
     expect(useEditorStore.getState().mediaInfo['m2']).toMatchObject({ name: '音乐B.mp3', durationSec: 6, mimeType: 'audio/mp3' });
+  });
+
+  it('drop 视频 payload 带 url 无 thumbnailUrl → fire-and-forget 取首帧回写（拖拽路径对称点击 poster 回退，批3-4）', async () => {
+    ready();
+    vi.mocked(ensurePoster).mockResolvedValue('data:image/jpeg;base64,poster');
+    render(<TimelinePanel />);
+    const trackBody = document.querySelector('[data-track-type="video"]')!;
+    const payload = JSON.stringify({ mediaId: 'm2', mimeType: 'video/mp4', originalName: '视频C.mp4', durationSec: 7, url: 'http://c' });
+    fireDrop(trackBody, payload, trackBody.getBoundingClientRect().left + 80);
+    await act(async () => {}); // flush fire-and-forget 微任务（ensurePoster 异步写回）
+    expect(ensurePoster).toHaveBeenCalledWith('http://c');
+    expect(useEditorStore.getState().mediaInfo['m2']).toMatchObject({
+      name: '视频C.mp4', durationSec: 7, url: 'http://c', mimeType: 'video/mp4', thumbnailUrl: 'data:image/jpeg;base64,poster',
+    });
   });
 
   it('分割按钮：播放头切中选中片段 → 两片', () => {

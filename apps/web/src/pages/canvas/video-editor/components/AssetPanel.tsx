@@ -105,6 +105,7 @@ export function AssetPanel() {
                 mimeType: i.mimeType,
                 originalName: i.originalName,
                 durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, // 决策 6：节点配置时长优先，metadata 兜底
+                url: i.url, thumbnailUrl: i.thumbnailUrl ?? undefined, // 批3-4：与 onClick norm 同源——drop 路径 poster 回退取帧的取数来源
               }))}
               className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
               <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
@@ -137,6 +138,7 @@ export function AssetPanel() {
                 mimeType: it.mimeType,
                 originalName: it.name,
                 durationSec: it.durationSec, // sourceNodeId 省略：素材库来源不建边（spec §二 规则 1，同生成结果分支）
+                url: it.url, thumbnailUrl: it.thumbnailUrl ?? undefined, // 批3-4：同全集资产——drop 路径 poster 回退取帧
               }))}
               className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
               <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
@@ -176,6 +178,7 @@ export function AssetPanel() {
                       mimeType: info?.mimeType ?? '',
                       originalName: info?.name ?? mediaId,
                       durationSec: info?.durationSec,
+                      url: info?.url, // 批3-4：生成结果无缩略图——video 产物靠 drop 侧 ensurePoster 回退取帧
                     }))}
                     className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
                     <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">

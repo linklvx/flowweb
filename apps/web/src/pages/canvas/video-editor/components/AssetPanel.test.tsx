@@ -86,8 +86,9 @@ describe('AssetPanel', () => {
     fireEvent.dragStart(screen.getByTestId('asset-item-m1'), { dataTransfer: { setData } });
     expect(setData).toHaveBeenCalledWith('application/x-clip', expect.any(String));
     const payload = JSON.parse(setData.mock.calls[0][1] as string);
-    expect(payload).toMatchObject({ mediaId: 'm1', sourceNodeId: 'v1', originalName: '视频A.mp4' });
+    expect(payload).toMatchObject({ mediaId: 'm1', sourceNodeId: 'v1', originalName: '视频A.mp4', url: 'http://m1' }); // 批3-4：url 随 payload 下发——drop 路径 poster 回退取帧的取数来源
     expect(payload.durationSec).toBe(5); // 节点 5s 胜出 metadata 8s——优先级在此锁死
+    expect(payload.thumbnailUrl).toBeUndefined(); // mkItem thumbnailUrl null → ?? undefined 被 JSON.stringify 丢弃（无缩略图语义，drop 侧据此触发取帧）
   });
 
   it('drop 到视频轨 → addClip（带 sourceNodeId，连线同步闭环起点）', async () => {

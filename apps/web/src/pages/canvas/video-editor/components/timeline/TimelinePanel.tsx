@@ -7,6 +7,7 @@ import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '..
 import { quantizeTime } from '../../timeline/clip-math';
 import { missingSourceNodeIds } from '../../timeline/missing-source';
 import { placeAssetInTrack } from '../../timeline/placement'; // 批3-3：错型 drop 建轨改道
+import { ensurePoster } from '../../renderer/poster'; // 批3-4：拖拽入轨 poster 回退取帧（对称点击路径）
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
 import type { Clip, VideoClip } from '../../types';
 import { seekPlayback } from '../../hooks/playback'; // 点击菱形跳转播放头
@@ -176,7 +177,7 @@ export function TimelinePanel() {
     if (!raw) return;
     const payload = JSON.parse(raw) as {
       mediaId: string; sourceNodeId?: string; mimeType: string;
-      originalName?: string; durationSec?: number;
+      originalName?: string; durationSec?: number; url?: string; thumbnailUrl?: string;
     };
     // R7-N2：函数声明置于回调体顶部（严格模式块内 function 是块级作用域）——错型改道分支与兼容路径两处调用同函数作用域可见。
     // rect 取自 ev.currentTarget（被悬停轨）——trackId 换参不影响量化落点语义
@@ -188,6 +189,7 @@ export function TimelinePanel() {
           name: payload.originalName,
           durationSec: payload.durationSec,
           mimeType: payload.mimeType, // R4-5②：payload.mimeType 就在手，与 setMediaInfo 保字段双保险
+          url: payload.url, thumbnailUrl: payload.thumbnailUrl, // 批3-4：拖拽路径与点击同源下发（白名单 thumbnailUrl 只补缺，undefined 不覆盖）
         });
       }
       useEditorStore.getState().addClip({
@@ -196,6 +198,15 @@ export function TimelinePanel() {
         trackId,
         start,
       });
+      // 批3-4 poster fire-and-forget：对称点击路径（addAssetToTimeline）——视频 payload 缺缩略图时取首帧回写（白名单只补缺）
+      const { url } = payload;
+      if (!payload.thumbnailUrl && payload.mimeType.startsWith('video/') && url) {
+        void ensurePoster(url).then((poster) => {
+          if (poster) useEditorStore.getState().setMediaInfo(payload.mediaId, {
+            name: payload.originalName ?? '', durationSec: payload.durationSec ?? 5, url, mimeType: payload.mimeType, thumbnailUrl: poster,
+          });
+        });
+      }
     }
     const trackEl = e.currentTarget;
     const trackType = trackEl.dataset.trackType!;
