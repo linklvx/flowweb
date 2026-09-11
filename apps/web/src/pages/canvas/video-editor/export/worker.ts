@@ -6,7 +6,7 @@
 // （Web Audio [Exposed=Window]）——Worker 代码零 Web Audio 依赖。
 import { runExport, EXPORT_FPS, type ExportOutput } from './controller';
 import { mixdownTimeline, MIX_SAMPLE_RATE, type MixdownPcm } from '../audio-engine/mixdown';
-import { decodeMediaPcm } from '../audio-engine/decode';
+import { decodeMediaPcmRaw } from '../audio-engine/decode';
 import { stretchPcm } from '../audio-engine/pcm';
 import { VideoCacheService, openMediabunnySink } from '../renderer/video-cache';
 import { CanvasRenderer, CANVAS_W, CANVAS_H } from '../renderer/canvas-renderer';
@@ -78,7 +78,7 @@ async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffe
     if (pcmCache.has(key)) return pcmCache.get(key) ?? null;
     const blob = await getBlob(mediaId);
     if (!blob) return null;
-    const raw = await decodeMediaPcm(blob, MIX_SAMPLE_RATE);
+    const raw = await decodeMediaPcmRaw(blob, MIX_SAMPLE_RATE);
     if (!raw) return null; // 无音轨
     const pcm = speed === 1 ? raw : stretchPcm(raw, speed);
     pcmCache.set(key, pcm);

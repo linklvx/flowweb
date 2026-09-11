@@ -37,3 +37,49 @@ export async function decodeMediaPcm(blob: Blob, targetRate: number): Promise<Pc
     try { input.dispose(); } catch { /* 已释放——Input.dispose() 返回 void（R2 审核 N1：B1 当时两处只修了 video-cache 一处） */ }
   }
 }
+
+/** Worker 安全解码（导出专用）：AudioSampleSink + copyTo('f32-planar')——AudioBufferSink 产出 Web Audio
+ *  的 AudioBuffer（[Exposed=Window]，Worker 内 ReferenceError），读侧与写侧（AudioSampleSource）同理不可进 Worker。
+ *  主线程预览继续用 decodeMediaPcm（AudioBufferSink 版，喂 Web Audio）。 */
+export async function decodeMediaPcmRaw(blob: Blob, targetRate: number): Promise<PcmData | null> {
+  const { Input, ALL_FORMATS, BlobSource, AudioSampleSink } = await import('mediabunny');
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  try {
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) return null;
+    const sink = new AudioSampleSink(track);
+    const chunks: Float32Array[][] = [];
+    let len = 0;
+    let sampleRate = targetRate;
+    let channels = 1;
+    for await (const s of sink.samples(0)) {
+      try {
+        sampleRate = s.sampleRate;
+        channels = s.numberOfChannels;
+        const cs: Float32Array[] = [];
+        for (let ch = 0; ch < channels; ch++) {
+          const dst = new Float32Array(s.numberOfFrames);
+          s.copyTo(dst, { planeIndex: ch, format: 'f32-planar' });
+          cs.push(dst);
+        }
+        chunks.push(cs);
+        len += cs[0].length;
+      } finally {
+        s.close(); // AudioSample 用后即弃（与写侧 add 后 close 同源纪律）
+      }
+    }
+    if (len === 0) return null;
+    const merged: Float32Array[] = [];
+    for (let ch = 0; ch < channels; ch++) {
+      const c = new Float32Array(len);
+      let off = 0;
+      for (const cs of chunks) { c.set(cs[ch], off); off += cs[ch].length; }
+      merged.push(c);
+    }
+    return resamplePcm({ sampleRate, channels: merged }, targetRate);
+  } catch {
+    return null;
+  } finally {
+    try { input.dispose(); } catch { /* 已释放 */ }
+  }
+}
