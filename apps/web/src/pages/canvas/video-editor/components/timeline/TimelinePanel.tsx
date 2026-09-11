@@ -50,13 +50,16 @@ export function TimelinePanel() {
   // G9（Plan 2 M2 正式接）：viewportW 经 ResizeObserver 维护 state——panel 不订阅 playhead 后
   // 播放期间无每帧重渲，scrollRef.current.clientWidth 直读会停在首帧值
   const [viewportW, setViewportW] = useState(940);
+  // 批3-5：scrollRef 滚动容器只在面板就绪分支进 DOM（下方条件渲染早退）——挂监听 effect 必须以
+  // 该存在性为依赖，loading→ready 转换时重跑注册；否则 [] 依赖下首次挂载（loading JSX）早退，监听全程缺失
+  const panelReady = status !== 'loading' && status !== 'error' && !!data;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [panelReady]);
 
   interface DragState {
     kind: 'move' | 'trim-left' | 'trim-right' | 'keyframe';
@@ -196,7 +199,7 @@ export function TimelinePanel() {
     };
     el.addEventListener('wheel', onWheelNative, { passive: false });
     return () => el.removeEventListener('wheel', onWheelNative);
-  }, []);
+  }, [panelReady]);
 
   // R17-F3 提交后落（useLayoutEffect——DOM 已按新 pxPerSec 布局，写入不被 clamp）；
   // R18-G1：同一 effect 内同步刷标尺窗口化 state——否则缩放那一帧用「新 pxPerSec+旧 scrollLeft」算窗口错一帧

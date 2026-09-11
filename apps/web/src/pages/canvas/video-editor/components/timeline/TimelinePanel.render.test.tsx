@@ -84,6 +84,20 @@ describe('TimelinePanel 静态渲染', () => {
     fireEvent.wheel(scroll, { ctrlKey: false, deltaY: -100 }); // 非 Ctrl 不缩放
     expect(useEditorStore.getState().pxPerSec).toBe(after);
   });
+  it('批3-5 回归：loading 态挂载 → ready 后 Ctrl+滚轮仍缩放（wheel 监听随 status 转换重注册）', async () => {
+    useEditorStore.setState({ status: 'loading', data: null });
+    render(<TimelinePanel />);
+    expect(screen.getByTestId('timeline-loading')).toBeInTheDocument();
+    // 真实入口时序：异步 loadProject resolve → ready，scrollRef 滚动容器此刻才进 DOM——
+    // 注册 effect 若不随该转换重跑（[] 依赖 + 早退 JSX），监听全程缺失、缩放失效
+    await act(async () => {
+      useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    });
+    const scroll = screen.getByTestId('timeline-panel').querySelector('.overflow-x-auto') as HTMLElement;
+    const before = useEditorStore.getState().pxPerSec;
+    fireEvent.wheel(scroll, { ctrlKey: true, deltaY: -100 });
+    expect(useEditorStore.getState().pxPerSec).toBeGreaterThan(before);
+  });
   it('视频片段渲染帧缩略图平铺：background-image=thumbnailUrl + repeat-x + auto 100%', () => {
     const d = dataWithClips();
     useEditorStore.setState({
