@@ -49,7 +49,7 @@ export function removeShadowNode(workflowId: string, shadowNodeId: string): Prom
   return apiFetch<void>('/video-projects/remove-shadow', { method: 'POST', body: JSON.stringify({ workflowId, shadowNodeId }) });
 }
 
-export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; actualSize: number; }
+export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width?: number; height?: number; actualSize: number; } // width/height 尺寸存档（后端 RegisterGeneratedDto 批5-4 可选字段；Task 19 起前端必传——resolution 无法表达 9:16 的 1080×1920）
 export interface RegisterGeneratedResult { mediaId: string; upload: { url: string; fields: Record<string, string> } }
 
 export function registerGeneratedMedia(input: RegisterGeneratedInput): Promise<RegisterGeneratedResult> {

@@ -67,11 +67,11 @@ describe('VideoEditorShell', () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // 就绪（upsert → loadProject）
-    fireEvent.click(screen.getByText('导出')); // 打开导出弹层（批 6 前仍是 Modal）
+    fireEvent.click(screen.getByText('导出')); // 打开导出弹层（Task 19 起为 ExportPopover——批 1 壳内归属语义不变）
     await waitFor(() => {
-      const wrap = document.querySelector('.ant-modal-wrap');
+      const wrap = document.querySelector('.ant-popover');
       expect(wrap).toBeTruthy();
-      // 容器归属断言（真红点）：Modal 挂进壳内而非 body 直挂——
+      // 容器归属断言（真红点）：Popover 弹层挂进壳内而非 body 直挂——
       // 无 ConfigProvider(getPopupContainer) 时 wrap.closest(壳) === null，用例红
       expect((wrap as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
     });

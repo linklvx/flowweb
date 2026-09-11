@@ -12,17 +12,6 @@ export interface ExportJobHandle {
   cancel(): void;
 }
 
-/** FSA picker 需用户手势——由调用方（ExportModal）在点击处理器内先调本函数拿 handle */
-export async function pickSaveFile(suggestedName: string): Promise<FileSystemFileHandle | null> {
-  if (!('showSaveFilePicker' in window)) return null;
-  try {
-    return await (window as unknown as { showSaveFilePicker: (o: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
-      suggestedName,
-      types: [{ description: 'MP4 视频', accept: { 'video/mp4': ['.mp4'] } }],
-    });
-  } catch { return null; } // 用户取消 picker
-}
-
 // P1-E 三态保存目标：canceled 必须中止（用户取消后不再白跑几分钟 CPU）；非 Chromium 无 FSA → OPFS 中转
 // （navigator.storage.getDirectory() 无需手势）。jsdom 既无 showSaveFilePicker 也无 navigator.storage——deps 注入才可测
 // （capabilities.ts ExportCapsDeps 同款先例）。
@@ -80,8 +69,31 @@ export async function cleanupOpfsTarget(target: SaveTarget): Promise<void> {
   sessionOpfsKeys.delete(target.handle.name);
 }
 export { sessionOpfsKeys };
-// （cleanupStaleOpfsExports 的实现体在 Task 19 结构落位段补——本任务只建三态+登记+fastStart。签名
-// cleanupStaleOpfsExports(keepName?: string)，**不要在本任务实现**，保持任务边界）
+// Task 19：OPFS 残留清理（导出启动时 fire-and-forget 调用）。
+// ① 先清本会话登记 key 但跳过 keepName（本次在用的中转——不排除则 worker createWritable 撞并发
+//    removeEntry → NotFoundError → .catch(()=>null) 回退 Buffer → P0-B 磁盘中转静默失效）；
+// ② 再迭代根目录匹配 export-*.mp4 且 lastModified > 24h 的陌生 key → removeEntry
+//    （24h 门槛防误删其他标签页在飞文件）。
+// 整体 try/catch 静默——Firefox 无痕 getDirectory 拒绝不得影响导出主流程。
+export async function cleanupStaleOpfsExports(keepName?: string): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    for (const name of [...sessionOpfsKeys]) {
+      if (name === keepName) continue;
+      try { await root.removeEntry(name); } catch { /* 已不存在——幂等 */ }
+      sessionOpfsKeys.delete(name);
+    }
+    // 陌生 key 迭代：TS DOM lib 未声明 keys() 迭代器时的形态兜底（如可直接用可去强转）
+    for await (const name of (root as unknown as { keys(): AsyncIterableIterator<string> }).keys()) {
+      if (name === keepName || sessionOpfsKeys.has(name)) continue; // 会话 key 已在 ① 处理
+      if (!/^export-.+\.mp4$/.test(name)) continue;
+      try {
+        const f = await (await root.getFileHandle(name)).getFile(); // lastModified 经 getFile() 取
+        if (Date.now() - f.lastModified > 24 * 60 * 60 * 1000) await root.removeEntry(name);
+      } catch { /* 单文件失败不阻断整体 */ }
+    }
+  } catch { /* navigator.storage 缺失/无痕模式拒绝——静默 */ }
+}
 
 export function runExportJob(
   params: ExportJobParams,

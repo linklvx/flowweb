@@ -1,6 +1,7 @@
 import { Dropdown } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { CANVAS_PRESETS, canvasSizeOf, LAST_ASPECT_KEY } from '../timeline/canvas-size';
+import { ExportPopover } from './ExportModal'; // Task 19：导出按钮整体搬入 Popover 组件内部（open 由 Popover 自管，Shell 不再接 onExport）
 
 const SAVE_DOT: Record<string, { color: string; title: string }> = {
   saved: { color: '#00B42A', title: '已保存' },
@@ -8,8 +9,8 @@ const SAVE_DOT: Record<string, { color: string; title: string }> = {
   error: { color: '#F53F3F', title: '保存失败，点击重试' },
 };
 
-/** onClose 由 Shell 传入（handleClose——flush 排空后关闭，M1 检查点：收起不可绕过 flush）；onManualRetry 接 autosave flush；onExport 开导出弹层 */
-export function EditorTopBar({ onClose, onManualRetry, onExport }: { onClose: () => void; onManualRetry?: () => void; onExport?: () => void }) {
+/** onClose 由 Shell 传入（handleClose——flush 排空后关闭，M1 检查点：收起不可绕过 flush）；onManualRetry 接 autosave flush */
+export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; onManualRetry?: () => void }) {
   const saveState = useEditorStore((s) => s.saveState);
   const data = useEditorStore((s) => s.data);
   const current = canvasSizeOf(data);
@@ -41,10 +42,7 @@ export function EditorTopBar({ onClose, onManualRetry, onExport }: { onClose: ()
           className="text-[12px] text-[var(--ve-text)] bg-transparent border border-[var(--ve-border)] rounded px-2 py-0.5 cursor-pointer">{label} ▾</button>
       </Dropdown>
       <div className="ml-auto flex items-center gap-3">
-        <button type="button" onClick={onExport}
-          className="text-[14px] text-white bg-[var(--ve-accent)] rounded-full px-4 py-1.5 border-0">
-          导出
-        </button>
+        <ExportPopover />
         <button type="button" onClick={onClose}
           className="text-[14px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-2 py-1">
           收起

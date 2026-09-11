@@ -14,7 +14,6 @@ import { PreviewPlayer } from './PreviewPlayer';
 import { PropertiesPanel } from './PropertiesPanel';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { AssetPanel } from './AssetPanel';
-import { ExportModal } from './ExportModal';
 import { releaseEditorRuntime } from '../hooks/playback';
 
 // bridge：挂在内层 <AntdApp> 之下才能取到壳作用域 message 实例（返回 null 零 DOM）——Shell 函数体顶层
@@ -39,7 +38,7 @@ export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
   const sourceNodeId = useVideoEditorStore((s) => s.sourceNodeId);
   const close = useVideoEditorStore((s) => s.close);
-  const [exportOpen, setExportOpen] = useState(false);
+  // Task 19：导出弹层改 Popover 归 EditorTopBar（open 由 Popover 自管）——Shell 不再有 exportOpen state
   // 焦点移入壳内：编辑器打开后 Delete/Backspace 的事件目标落在 nokey 壳内，
   // xyflow isInputDOMNode（target.closest('.nokey')）命中 → 不再删除画布选中节点
   // ⚠ useRef 类型显式含 null：useRef<HTMLDivElement>(null) 推出 RefObject（current 只读），回调 ref 内赋值 TS 报错
@@ -140,7 +139,7 @@ export function VideoEditorShell() {
         >
           <AntdApp component={false}>
             <ShellToastBridge apiRef={toastApiRef} />
-            <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} onExport={() => setExportOpen(true)} />
+            <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} />
             <div className="flex flex-1 min-h-0">
               {/* v2 的尺寸 prop 属于 Panel，PanelGroup 无 defaultSize——恢复布局 = 保存的尺寸数组按序映射回各 Panel 的 defaultSize。
                   横向三档默认和必须 =100（22/56/22） */}
@@ -160,7 +159,6 @@ export function VideoEditorShell() {
                 <Panel defaultSize={saved?.panels['ve-vertical']?.[1] ?? 30} minSize={15} maxSize={70}><TimelinePanel /></Panel>
               </PanelGroup>
             </div>
-            <ExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
           </AntdApp>
         </ConfigProvider>
       </div>
