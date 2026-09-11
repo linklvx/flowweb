@@ -72,4 +72,16 @@ describe('mixdownTimeline（导出离线混音——复用 buildGainPoints/gainV
     await mixdownTimeline(data, async () => mkPcm(2), (r) => seen.push(r));
     expect(seen).toEqual([0.5, 1]);
   });
+  it('变速坐标：speed=2 时源坐标 = sourceStart/speed（stretched PCM 坐标系实证）', async () => {
+    // 源 PCM 3s，stretched 后 1.5s（速度 2 倍）；片 sourceStart=1（原坐标）→ stretched 源起点 0.5s=24000 样本
+    const stretched = mkPcm(1.5); // channels 长度 72000，全 1
+    const data = mk([ac('a', 'm1', 0, 1, { sourceStart: 1, playbackSpeed: 2 })]);
+    const r = await mixdownTimeline(data, async (_mid, speed) => {
+      expect(speed).toBe(2); // PcmResolver 的 speed 参数被真实消费
+      return { sampleRate: MIX_SAMPLE_RATE, channels: stretched.channels };
+    });
+    // srcStart = round(1/2*48000)=24000；nSamples = min(48000, 48000, 72000-24000=48000)=48000
+    expect(r!.left[0]).toBeCloseTo(1, 5);      // 从 stretched[24000] 取
+    expect(r!.left.length).toBe(1 * MIX_SAMPLE_RATE);
+  });
 });
