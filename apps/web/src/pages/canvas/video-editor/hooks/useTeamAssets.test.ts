@@ -38,7 +38,7 @@ describe('useTeamAssets（团队素材库实化——spec §4 左面板"全集�
     const { result } = renderHook(() => useTeamAssets());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(getFiles).toHaveBeenCalledWith('/api/material/files?teamId=team-9');
-    useEditorStore.setState({ teamId: null } as never); // 清理——不污染其它用例
+    await act(async () => { useEditorStore.setState({ teamId: null } as never); }); // 清理——不污染其它用例（M1：async act 同步收尾 effect 重跑的 axios 续体，杜绝 act 警告）
   });
   it('R5-P1-5：挂载时 teamId 为 null（loadProject 未回）→ 先默认团队；teamId 到达后自动重拉带 query', async () => {
     getFiles.mockResolvedValue(ok([]));
@@ -49,6 +49,6 @@ describe('useTeamAssets（团队素材库实化——spec §4 左面板"全集�
     expect(getFiles).toHaveBeenLastCalledWith('/api/material/files'); // 首次：默认团队
     act(() => useEditorStore.setState({ teamId: 'team-9' } as never)); // loadProject 异步回写（真实时序）
     await waitFor(() => expect(getFiles).toHaveBeenLastCalledWith('/api/material/files?teamId=team-9'));
-    useEditorStore.setState({ teamId: null } as never); // 清理
+    await act(async () => { useEditorStore.setState({ teamId: null } as never); }); // 清理（M1 同上）
   });
 });

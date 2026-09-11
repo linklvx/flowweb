@@ -39,6 +39,11 @@ export function AssetPanel() {
               const file = e.target.files?.[0];
               e.target.value = '';
               if (!file) return;
+              // review I-2：accept 仅是选择器提示（"所有文件"可绕过）——pdf 客户端前置拒绝，否则上传"成功"后被 useTeamAssets mime 过滤隐形（困惑+白占配额）。
+              // materialLibraryStore.uploadFile 同款先例（mime 前置 + 大小前置）；口径放宽含 audio。大小取 2GB：先例 video 100MB 不足 15min 剪辑素材，编辑器场景放宽
+              const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+              if (!/^(video|audio|image)\//.test(file.type)) { void message.error('仅支持视频、音频、图片文件'); return; }
+              if (file.size > MAX_FILE_SIZE) { void message.error('文件超过大小限制'); return; }
               setUploading(true);
               try {
                 // R4-9：传 projectId——后端解析画布 teamId + assertMember（storage.service 三级回落第 1 级），

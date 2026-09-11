@@ -18,10 +18,10 @@ const { axiosGet, axiosPost } = vi.hoisted(() => ({
 }));
 vi.mock('axios', () => ({ default: { get: (...a: unknown[]) => axiosGet(...a), post: (...a: unknown[]) => axiosPost(...a) } }));
 vi.mock('@/api/storageApi', () => ({ presignUpload: vi.fn(), confirmUpload: vi.fn() }));
-const { messageSuccess } = vi.hoisted(() => ({ messageSuccess: vi.fn() }));
+const { messageSuccess, messageError } = vi.hoisted(() => ({ messageSuccess: vi.fn(), messageError: vi.fn() }));
 vi.mock('antd', async (importOriginal) => {
   const orig = await importOriginal<typeof import('antd')>();
-  return { ...orig, message: { ...orig.message, success: messageSuccess, error: vi.fn() } }; // 仅覆 message——Input 保真
+  return { ...orig, message: { ...orig.message, success: messageSuccess, error: messageError } }; // 仅覆 message——Input 保真
 });
 
 const mkItem = (id: string, name: string, mime: string, metadata: Record<string, unknown> = {}): BatchMediaItem =>
@@ -147,5 +147,28 @@ describe('AssetPanel', () => {
     expect(axiosGet.mock.calls.filter((c: unknown[]) => c[0] === '/api/material/files').length).toBeGreaterThanOrEqual(2); // setTeamKey+1 刷新路径
     expect(screen.getByText('上传a.mp4')).toBeInTheDocument(); // 团队素材列表刷新含 up-1
     expect(useEditorStore.getState().mediaInfo['up-1']).toMatchObject({ name: '上传a.mp4', url: '/flowai/a', mimeType: 'video/mp4', durationSec: 3 }); // P1-9
+  });
+
+  it('上传负路径：非媒体文件（pdf）客户端前置拒绝——message.error 且 presign 未调（review I-2：accept 仅提示可绕过，防隐形上传占配额）', async () => {
+    (batchGetMedia as any).mockResolvedValue([]);
+    axiosGet.mockResolvedValue({ data: { code: 0, message: 'ok', data: { success: true, data: [] } } }); // 正向用例覆写过实现——还原空列表（mockResolvedValue 跨用例存续）
+    const { container } = render(<AssetPanel />);
+    await waitFor(() => expect(screen.getByText('暂无团队素材')).toBeInTheDocument());
+    const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' });
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    expect(messageError).toHaveBeenCalledWith('仅支持视频、音频、图片文件');
+    expect(presignUpload).not.toHaveBeenCalled();
+  });
+
+  it('上传负路径：超 2GB 客户端前置拒绝——message.error 且 presign 未调（I-2：编辑器素材放宽值，先例 100MB 不足 15min 视频剪辑）', async () => {
+    (batchGetMedia as any).mockResolvedValue([]);
+    axiosGet.mockResolvedValue({ data: { code: 0, message: 'ok', data: { success: true, data: [] } } }); // 同上
+    const { container } = render(<AssetPanel />);
+    await waitFor(() => expect(screen.getByText('暂无团队素材')).toBeInTheDocument());
+    const file = new File(['x'], 'big.mp4', { type: 'video/mp4' });
+    Object.defineProperty(file, 'size', { value: 2 * 1024 * 1024 * 1024 + 1 }); // 实例覆写免真分配 2GB
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    expect(messageError).toHaveBeenCalledWith('文件超过大小限制');
+    expect(presignUpload).not.toHaveBeenCalled();
   });
 });
