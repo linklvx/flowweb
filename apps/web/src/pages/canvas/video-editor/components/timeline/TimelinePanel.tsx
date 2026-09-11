@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackRow } from './TrackRow';
+import { PlayheadLine } from './PlayheadLine';
 import { timeToPx, pxToTime, edgeHitTest, snapTime, collectSnapPoints } from '../../timeline/view-scale';
 import { quantizeTime } from '../../timeline/clip-math';
 import { CLIP_BLOCK_MIN_PX } from './ClipBlock';
@@ -13,9 +14,19 @@ export function TimelinePanel() {
   const loadError = useEditorStore(s => s.loadError);
   const data = useEditorStore(s => s.data);
   const pxPerSec = useEditorStore(s => s.pxPerSec);
-  const playhead = useEditorStore(s => s.playhead);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEditorKeyboard();
+
+  // G9（Plan 2 M2 正式接）：viewportW 经 ResizeObserver 维护 state——panel 不订阅 playhead 后
+  // 播放期间无每帧重渲，scrollRef.current.clientWidth 直读会停在首帧值
+  const [viewportW, setViewportW] = useState(940);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   interface DragState {
     kind: 'move' | 'trim-left' | 'trim-right';
@@ -160,15 +171,8 @@ export function TimelinePanel() {
   return (
     <div data-testid="timeline-panel"
       className="h-[280px] border-t border-[#E5E7EB] [border-top-style:solid] bg-white flex flex-col min-h-0 box-border">
-      {/* 工具行（Plan 3 迁入预览控制条） */}
+      {/* 工具行（撤销/重做/分割/删除已迁预览控制条——Plan 3） */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#F2F3F5] [border-bottom-style:solid]">
-        <button type="button" className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1" onClick={() => useEditorStore.getState().undo()}>撤销</button>
-        <button type="button" className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1" onClick={() => useEditorStore.getState().redo()}>重做</button>
-        <span className="text-[12px] text-[#C9CDD4]">|</span>
-        <button type="button" className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1" title="在播放头处分割选中片段"
-          onClick={() => { const s = useEditorStore.getState(); if (s.selectedClipId) s.splitClip(s.selectedClipId, s.playhead); }}>分割</button>
-        <button type="button" className="text-[12px] text-[#4E5969] bg-transparent border-0 cursor-pointer px-1" title="删除选中片段"
-          onClick={() => { const s = useEditorStore.getState(); if (s.selectedClipId) s.removeClip(s.selectedClipId); }}>删除</button>
         <div className="ml-auto flex items-center gap-1">
           <button type="button" onClick={() => useEditorStore.getState().addTrack('video')}
             className="text-[12px] text-[#6C5CE7] bg-transparent border-0 cursor-pointer px-1">+ 视频轨</button>
@@ -182,19 +186,16 @@ export function TimelinePanel() {
         <div className="relative min-w-max">
           <div className="flex">
             <div className="w-[140px] shrink-0 h-7 border-b border-[#E5E7EB] [border-bottom-style:solid] bg-[#FAFBFC] box-border" />
-            <TimelineRuler data={data} pxPerSec={pxPerSec} playhead={playhead} widthPx={(scrollRef.current?.clientWidth ?? 940) - 140}
-              onSeek={t => useEditorStore.getState().setPlayhead(t)} />
+            <TimelineRuler data={data} pxPerSec={pxPerSec} widthPx={viewportW - 140} />
           </div>
           {data.tracks.map(t => (
             <TrackRow key={t.id} track={t} data={data}
               onDropClip={handleClipDrop}
-              onSubtitleAdd={(trackId) => useEditorStore.getState().addSubtitleClip(trackId, playhead)}
+              onSubtitleAdd={(trackId) => { const s = useEditorStore.getState(); s.addSubtitleClip(trackId, s.playhead); }}
               onClipPointerDown={onClipPointerDown} />
           ))}
-          {/* I3：贯穿播放头竖线（标尺+轨道全域，随内容滚动；pointer-events-none 不挡交互） */}
-          <div data-testid="playhead-line"
-            className="absolute top-0 bottom-0 w-0.5 bg-[#6C5CE7] pointer-events-none z-10"
-            style={{ left: 140 + playhead * pxPerSec }} />
+          {/* I3：贯穿播放头竖线（自订阅——标尺+轨道全域，随内容滚动；pointer-events-none 不挡交互） */}
+          <PlayheadLine />
         </div>
       </div>
     </div>

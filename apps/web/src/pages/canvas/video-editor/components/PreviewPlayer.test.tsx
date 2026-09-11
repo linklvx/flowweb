@@ -1,0 +1,135 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { PreviewPlayer } from './PreviewPlayer';
+import { useEditorStore } from '../store/editorStore';
+import { createDefaultProjectData, type ProjectData } from '../types';
+import { togglePlayback, stopPlayback, seekPlayback } from '../hooks/playback';
+import { audioEngine } from '../audio-engine/engine';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
+
+vi.mock('../audio-engine/engine', () => ({
+  audioEngine: {
+    prepare: vi.fn(async () => { }),
+    playFrom: vi.fn(),
+    stop: vi.fn(),
+    now: vi.fn(() => 0),
+    hasPcm: vi.fn(() => true),
+    setClockMode: vi.fn(),
+    setMasterVolume: vi.fn(),
+    suspend: vi.fn(),
+    releasePcm: vi.fn(),
+  },
+}));
+vi.mock('../renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) }));
+
+const ready = (data?: ProjectData) => {
+  const d = data ?? createDefaultProjectData();
+  d.clips['v1'] = { id: 'v1', trackId: d.tracks[0].id, type: 'video', start: 0, duration: 3, sourceStart: 0, mediaId: 'm1', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] };
+  d.tracks[0].clips.push('v1');
+  useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't', playhead: 0, playing: false, preparing: false });
+};
+
+describe('playback 状态机（togglePlayback/stopPlayback/seekPlayback）', () => {
+  beforeEach(() => { vi.clearAllMocks(); useEditorStore.getState().reset(); });
+
+  it('toggle：prepare 完成后才 setPlaying(true)（音画同起点，决策 14 流程）', async () => {
+    ready();
+    await togglePlayback();
+    expect(audioEngine.prepare).toHaveBeenCalled();
+    expect(useEditorStore.getState().playing).toBe(true);
+    expect(useEditorStore.getState().preparing).toBe(false);
+  });
+  it('toggle 期间再 toggle 被 preparing 门卫挡住', async () => {
+    ready();
+    let resolvePrepare!: () => void;
+    (audioEngine.prepare as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise<void>(r => { resolvePrepare = r; }));
+    const first = togglePlayback();
+    expect(useEditorStore.getState().preparing).toBe(true);
+    await togglePlayback(); // preparing 中——直接返回
+    expect(audioEngine.prepare).toHaveBeenCalledTimes(1);
+    resolvePrepare();
+    await first;
+    expect(useEditorStore.getState().playing).toBe(true);
+    // 偏离登记（计划笔误补丁）：本用例的 mockImplementation（永挂 promise）经 clearAllMocks 不重置、
+    // 会泄漏到后续用例使 prepare 永不 resolve——用毕显式还原 factory 的 async no-op 实现
+    (audioEngine.prepare as ReturnType<typeof vi.fn>).mockImplementation(async () => { });
+  });
+  it('stop：engine.stop + playing=false', async () => {
+    ready();
+    await togglePlayback();
+    stopPlayback();
+    expect(audioEngine.stop).toHaveBeenCalled();
+    expect(useEditorStore.getState().playing).toBe(false);
+  });
+  it('seek 播放中：setPlayhead + playFrom 重调度；暂停中只 setPlayhead', async () => {
+    ready();
+    await togglePlayback();
+    seekPlayback(1.5);
+    expect(useEditorStore.getState().playhead).toBe(1.5);
+    expect(audioEngine.playFrom).toHaveBeenCalled();
+    stopPlayback();
+    vi.clearAllMocks();
+    seekPlayback(2);
+    expect(useEditorStore.getState().playhead).toBe(2);
+    expect(audioEngine.playFrom).not.toHaveBeenCalled();
+  });
+});
+
+describe('PreviewPlayer（控制条）', () => {
+  beforeEach(() => { vi.clearAllMocks(); useEditorStore.getState().reset(); });
+
+  it('渲染 16:9 画布与控制条：播放/时间码/撤销/重做/分割/删除/音量/全屏/缩放滑杆', () => {
+    ready();
+    render(<PreviewPlayer />);
+    expect(screen.getByTestId('preview-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('preview-play-btn')).toBeInTheDocument();
+    expect(screen.getByText('撤销')).toBeInTheDocument();
+    expect(screen.getByText('重做')).toBeInTheDocument();
+    expect(screen.getByText('分割')).toBeInTheDocument();
+    expect(screen.getByText('删除')).toBeInTheDocument();
+    expect(screen.getByTestId('volume-slider')).toBeInTheDocument();
+    expect(screen.getByTestId('zoom-slider')).toBeInTheDocument();
+    expect(screen.getByText(/0:03/)).toBeInTheDocument(); // 总长 3s
+  });
+  it('播放按钮 → togglePlayback；playing 态文案切换', async () => {
+    ready();
+    render(<PreviewPlayer />);
+    fireEvent.click(screen.getByTestId('preview-play-btn'));
+    await waitFor(() => expect(useEditorStore.getState().playing).toBe(true));
+    expect(screen.getByTestId('preview-play-btn').textContent).toBe('⏸');
+  });
+  it('删除按钮删选中片段（控制条迁移后行为不丢）', () => {
+    ready();
+    useEditorStore.getState().selectClip('v1');
+    render(<PreviewPlayer />);
+    fireEvent.click(screen.getByText('删除'));
+    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
+  });
+
+  it('暂停态：playhead 变化触发单帧渲染（G1/N5——R2 补测；jsdom canvas.getContext 默认 null 须 stub，EraseCanvas 先例）', async () => {
+    const orig = HTMLCanvasElement.prototype.getContext;
+    // 偏离登记（计划笔误补丁）：返回 cast 成 CanvasRenderingContext2D 与 getContext 联合重载（bitmaprenderer）冲突 TS2322——
+    // cast 移到函数整体，运行时行为不变（返回 { __fake: true } 原对象）；EraseCanvas.test 先例同因以 any 返回过检
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ __fake: true })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+    try { // R3 五-5：try/finally 恢复——用例失败不污染同文件后续用例
+      ready();
+      const { unmount } = render(<PreviewPlayer />);
+      const { renderFrameAt } = await import('../renderer/render-frame');
+      vi.mocked(renderFrameAt).mockClear();
+      act(() => { useEditorStore.getState().setPlayhead(1); });
+      await waitFor(() => expect(renderFrameAt).toHaveBeenCalled());
+      expect(vi.mocked(renderFrameAt).mock.lastCall?.[1]).toBe(1); // (data, t, deps) 的 t 取最新 playhead
+      unmount();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
+  });
+  it('空格键 toggle（useEditorKeyboard 挂载在 TimelinePanel 且需 videoEditorStore.open 门卫放行——R1 审核 B4）', async () => {
+    ready();
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' }); // hook 首行 open 门卫（Plan 2 既有行为）
+    const { TimelinePanel } = await import('./timeline/TimelinePanel');
+    render(<><PreviewPlayer /><TimelinePanel /></>);
+    fireEvent.keyDown(document, { key: ' ' });
+    await waitFor(() => expect(useEditorStore.getState().playing).toBe(true));
+  });
+});

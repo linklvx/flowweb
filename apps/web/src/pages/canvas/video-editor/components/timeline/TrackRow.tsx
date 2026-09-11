@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Popconfirm } from 'antd';
 import type { Clip, ProjectData, Track } from '../../types';
 import { totalDuration } from '../../timeline/timecode';
@@ -15,7 +16,7 @@ interface TrackRowProps {
   onClipPointerDown?: (clip: Clip, e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-export function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown }: TrackRowProps) {
+export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointerDown }: TrackRowProps) {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
   const mediaInfo = useEditorStore(s => s.mediaInfo);
@@ -65,4 +66,4 @@ export function TrackRow({ track, data, onDropClip, onSubtitleAdd, onClipPointer
       </div>
     </div>
   );
-}
+});

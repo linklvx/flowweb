@@ -8,9 +8,11 @@ import { createAutosaveController, type AutosaveController } from '../persist/au
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { createDefaultProjectData } from '../types';
 import { EditorTopBar } from './EditorTopBar';
-import { PreviewPlaceholder } from './PreviewPlaceholder';
+import { PreviewPlayer } from './PreviewPlayer';
+import { PropertiesPanel } from './PropertiesPanel';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { AssetPanel } from './AssetPanel';
+import { releaseEditorRuntime } from '../hooks/playback';
 
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
@@ -70,6 +72,7 @@ export function VideoEditorShell() {
     if (ctrl) {
       void ctrl.flush().then((drained) => {
         if (!drained) { message.warning('当前离线或保存失败，存在未保存的修改——连接恢复后重试或手动重试后再收起'); return; }
+        releaseEditorRuntime(); // 收起释放运行时（spec 边界护栏）——flush 成功、close() 之前
         close();
       }).catch(() => close());
     } else close();
@@ -85,13 +88,11 @@ export function VideoEditorShell() {
           {/* 左面板（Task 16 实化：画布产物资产库 + 拖入时间轴） */}
           <AssetPanel />
           <div className="flex-1 flex flex-col min-w-0">
-            <PreviewPlaceholder />
+            <PreviewPlayer />
             <TimelinePanel />
           </div>
-          {/* 右面板（Plan 3 四态） */}
-          <div className="w-[280px] border-l border-[#E5E7EB] [border-left-style:solid] bg-white">
-            <span className="text-[12px] text-[#86909C] p-3 inline-block">属性面板（Plan 3）</span>
-          </div>
+          {/* 右面板（Plan 3 四态；Task 8 最小占位，Task 10 完整化） */}
+          <PropertiesPanel />
         </div>
       </div>
     </BaseFullscreenModal>

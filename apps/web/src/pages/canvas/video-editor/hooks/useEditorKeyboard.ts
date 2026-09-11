@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useEditorStore } from '../store/editorStore';
+import { togglePlayback } from './playback';
 
 /** 编辑器内键盘：Delete 删片段 / Ctrl+Z·Ctrl+Shift+Z·Ctrl+Y 撤销重做 / 空格防滚动（播放 Plan 3）。
  *  画布层快捷键已被 isGroupEditContext 早退禁用（Task 11）——本 hook 只服务编辑器 open 期间。
@@ -19,7 +20,8 @@ export function useEditorKeyboard() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
         e.preventDefault(); es.redo();
       } else if (e.key === ' ') {
-        e.preventDefault(); // 防页面滚动；播放/暂停 Plan 3 主时钟接入
+        e.preventDefault(); // 防页面滚动；播放/暂停 toggle（决策 9——hook 依赖 playback 模块而非组件）
+        void togglePlayback();
       }
     };
     document.addEventListener('keydown', handler);

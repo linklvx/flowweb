@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { TimelinePanel } from './TimelinePanel';
+import { PreviewPlayer } from '../PreviewPlayer';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
@@ -96,7 +97,7 @@ describe('TimelinePanel 交互', () => {
     const id = addVideoClip(0);
     useEditorStore.getState().selectClip(id);
     useEditorStore.getState().setPlayhead(4);
-    render(<TimelinePanel />);
+    render(<><PreviewPlayer /><TimelinePanel /></>); // 分割按钮已迁预览控制条（Task 8）
     fireEvent.click(screen.getByText('分割'));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
   });
@@ -105,7 +106,7 @@ describe('TimelinePanel 交互', () => {
     ready();
     const id = addVideoClip(0);
     useEditorStore.getState().selectClip(id);
-    render(<TimelinePanel />);
+    render(<><PreviewPlayer /><TimelinePanel /></>); // 删除按钮已迁预览控制条（Task 8）
     fireEvent.click(screen.getByText('删除'));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
     useEditorStore.getState().undo();

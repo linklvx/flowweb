@@ -31,7 +31,7 @@ describe('VideoEditorShell', () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     rerender(<VideoEditorShell />);
     expect(screen.getByTestId('video-editor-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('preview-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('preview-canvas')).toBeInTheDocument(); // PreviewPlayer 替换 PreviewPlaceholder（Task 8）
     // 入口时序（Task 14）：面板先 loading 禁编辑，loadProject resolve 后才就绪为 timeline-panel
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
   });

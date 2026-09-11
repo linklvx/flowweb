@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Input } from 'antd';
 import { useWorkflowAssets } from '../hooks/useWorkflowAssets';
 import { useEditorStore } from '../store/editorStore';
@@ -12,6 +12,11 @@ export function AssetPanel() {
     data ? Object.values(data.clips).map(c => (c as any).mediaId).filter(Boolean) : [],
   );
   const filtered = items.filter(i => i.originalName.includes(keyword));
+
+  // items 就绪同步 mediaInfo（含既有工程重开的 url 回填，决策 13）——仅填缺失键，不覆盖已有
+  useEffect(() => {
+    if (items.length) useEditorStore.getState().mergeMediaInfo(Object.fromEntries(items.map(i => [i.mediaId, { name: i.originalName, durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, url: i.url }])));
+  }, [items]);
 
   return (
     <div data-testid="asset-panel" className="w-[260px] shrink-0 border-r border-[#E5E7EB] [border-right-style:solid] bg-white flex flex-col min-h-0 box-border">

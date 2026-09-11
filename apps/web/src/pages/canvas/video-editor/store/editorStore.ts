@@ -13,7 +13,7 @@ import { stopCapturing } from '@/stores/canvasUndo';
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SaveState = 'saved' | 'saving' | 'error';
 
-export interface MediaInfo { name: string; durationSec: number | undefined; }
+export interface MediaInfo { name: string; durationSec: number | undefined; url?: string; }
 
 export interface AddClipInput {
   type: 'video' | 'image' | 'audio';
@@ -34,6 +34,8 @@ interface EditorState {
   selectedClipId: string | null;
   playhead: number;
   pxPerSec: number;
+  playing: boolean;
+  preparing: boolean;
   mediaInfo: Record<string, MediaInfo>;
   history: History<ProjectData>;
   pendingSnapshot: ProjectData | null;
@@ -45,8 +47,11 @@ interface EditorState {
   setBaseUpdatedAt(t: string): void;
   setPlayhead(t: number): void;
   setPxPerSec(v: number): void;
+  setPlaying(v: boolean): void;
+  setPreparing(v: boolean): void;
   selectClip(id: string | null): void;
   setMediaInfo(mediaId: string, info: MediaInfo): void;
+  mergeMediaInfo(entries: Record<string, MediaInfo>): void; // AssetPanel items → url/名称回填（仅填缺失键，不覆盖已有）
 
   addClip(input: AddClipInput): string | null;
   addSubtitleClip(trackId: string, start: number, text?: string): string;
@@ -109,6 +114,8 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     selectedClipId: null,
     playhead: 0,
     pxPerSec: 80,
+    playing: false,
+    preparing: false,
     mediaInfo: {},
     history: createHistory<ProjectData>(),
     pendingSnapshot: null,
@@ -117,21 +124,30 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       projectId: p.id, sourceNodeId: p.sourceNodeId, baseUpdatedAt: p.updatedAt,
       data: p.data, status: 'ready', loadError: null,
       history: createHistory<ProjectData>(), pendingSnapshot: null,
-      selectedClipId: null, playhead: 0,
+      selectedClipId: null, playhead: 0, playing: false, preparing: false,
     }),
     setLoadError: (msg) => set({ status: 'error', loadError: msg }),
     reset: () => set({
       projectId: null, sourceNodeId: null, baseUpdatedAt: null, data: null,
       status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null,
-      playhead: 0, pxPerSec: 80, mediaInfo: {},
+      playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
       history: createHistory<ProjectData>(), pendingSnapshot: null,
     }),
     setSaveState: (v) => set({ saveState: v }),
     setBaseUpdatedAt: (t) => set({ baseUpdatedAt: t }),
     setPlayhead: (t) => set({ playhead: Math.max(0, quantizeTime(t)) }),
     setPxPerSec: (v) => set({ pxPerSec: Math.min(500, Math.max(10, v)) }),
+    setPlaying: (v) => set({ playing: v }),
+    setPreparing: (v) => set({ preparing: v }),
     selectClip: (id) => set({ selectedClipId: id }),
     setMediaInfo: (mediaId, info) => set((s) => ({ mediaInfo: { ...s.mediaInfo, [mediaId]: info } })),
+    mergeMediaInfo: (entries) => set((s) => {
+      const next = { ...s.mediaInfo };
+      for (const [id, info] of Object.entries(entries)) {
+        next[id] = next[id] ? { ...next[id], url: next[id].url ?? info.url } : info;
+      }
+      return { mediaInfo: next };
+    }),
 
     addClip: (input) => {
       const s = get();

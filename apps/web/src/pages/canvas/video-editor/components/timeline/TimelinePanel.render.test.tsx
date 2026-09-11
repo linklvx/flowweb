@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TimelinePanel } from './TimelinePanel';
+import { PreviewPlayer } from '../PreviewPlayer';
 import { useEditorStore } from '../../store/editorStore';
 import { createDefaultProjectData, type ProjectData } from '../../types';
 
@@ -51,9 +52,9 @@ describe('TimelinePanel 静态渲染', () => {
     expect(screen.getByText('你好')).toBeInTheDocument(); // 字幕块显示文本
     expect(screen.getByTestId('playhead-line')).toBeInTheDocument(); // 贯穿播放头（执行期 I3）
   });
-  it('空轨渲染占位条，工具行有撤销/重做/分割/删除', () => {
+  it('空轨渲染占位条，控制条有撤销/重做/分割/删除（Task 8 迁入预览控制条——补渲染 PreviewPlayer 保持断言语义）', () => {
     useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
-    render(<TimelinePanel />);
+    render(<><PreviewPlayer /><TimelinePanel /></>);
     expect(screen.getByText('撤销')).toBeInTheDocument();
     expect(screen.getByText('重做')).toBeInTheDocument();
     expect(screen.getByText('分割')).toBeInTheDocument();
