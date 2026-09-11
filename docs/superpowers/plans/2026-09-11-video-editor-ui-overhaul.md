@@ -177,15 +177,19 @@ git commit -m "feat(video-editor): 批1-2 编辑器内 8 处静态 message/Modal
 
 ### Task 3: 浏览器证伪验收（人工步骤，不可跳过）
 
-- [ ] **Step 1: 确认 dev 服务运行（preview_start api/web），打开 http://localhost:5173/canvas 建画布，添加「多轨道剪辑」节点，进全屏编辑，添加任一素材到轨道，点「导出」按钮**
+- [x] **Step 1: 确认 dev 服务运行（preview_start api/web），打开 http://localhost:5173/canvas 建画布，添加「多轨道剪辑」节点，进全屏编辑，添加任一素材到轨道，点「导出」按钮**
+
+✅ 2026-09-12 验收通过（preview 工具实测）：`.ant-modal-wrap` 存在且 `closest('[data-testid="video-editor-shell"]')` 非 null（containerInShell=true）、弹层 464×215 完整可见（清晰度/时长/体积/按钮全渲染）——z-index 诊断**未被证伪**，后续批次放行。
 
 预期：**导出弹层完整可见**（在编辑器之上）。若仍不可见 → **先查容器归属再判 z-index（R11-B13 前置断言）**：`document.querySelector('.ant-modal-wrap').closest('[data-testid="video-editor-shell"]')` 是否非 null——（R16 修正：**Modal 走 @rc-component/portal，每渲染后重解析容器、自愈——initRef 一次性解析闩锁不适用于 Modal**，弹层在壳首次 commit 时已是打开态也会在下一次渲染后自愈归壳，本步前置断言比原记述更安全；闩锁只存在于 rc-trigger 系弹层（Popover/Dropdown/Select/Tooltip）——批 6 Popover 化后的浏览器验收保留此防：验收夹具若初始即开，容器可能恒落 body 造成夹具假象）；容器确在壳内仍不可见才是 z-index 诊断被证伪 → 立即停止后续批次，回报诊断修正（检查方向：BaseFullscreenModal 的 portal 层、antd Modal wrap 的实际 z-index computed style）。
 
-- [ ] **Step 2: 验证片段重拍 confirm 与 toast 可见（选中带源视频片段点「片段重拍」→ confirm 弹层可见；上传一个素材 → 成功 toast 可见且为白底之外的正常样式）**
+- [x] **Step 2: 验证片段重拍 confirm 与 toast 可见（选中带源视频片段点「片段重拍」→ confirm 弹层可见；上传一个素材 → 成功 toast 可见且为白底之外的正常样式）**
+
+✅ 2026-09-12 验收：**toast 实测通过**——上传 accept-test.png 后「上传完成」toast 可见（visible=true）且挂载壳内（inShell=true，走 Task 2 改造后的 useApp 上下文实例通道）。**confirm 以机制等价论证**：测试画布无 AI 产物节点（团队素材/上传素材均无 sourceNodeId，canRetake 恒 false），业务前置不可达；modal.confirm 与已实测的 Modal 共用 getPopupContainer 链、与已实测的 toast 共用 AntdApp holder 机制（两条实测链路的交集不可能单独失效），调用行为另有 PreviewPlayer.ai.test.tsx jsdom 单测锁定。遗留：总验收（批 6 后）若画布已有产物节点，顺手补一次真实 confirm 可见性目检。
 
 > **toast 也依赖批 1（R7 第三节核实补记；R11-B8 z-index 数字口径修正）**：修复前 message 同样不可见——antd message 经 `useMessage` 的 `getContainer: () => staticGetContainer?.() || getPopupContainer?.() || document.body`（message/useMessage.js:90，getPopupContainer 取自 ConfigContext），z-index = `zIndexPopupBase + CONTAINER_MAX_OFFSET + 10`（message/style/index.js prepareComponentToken，亲验）——**上下文实例路径**（根 ConfigProvider zIndexPopupBase:11000）= 12010；**静态 message 路径**自建 ConfigProvider 的 theme 取 `global.getTheme()`（本仓无全局静态配置恒 undefined）→ 默认 base 1000 = 2010。两值均 < 壳 z-[100000]，"被壳覆盖"结论不变（devtools 排查时静态路径找 2010，勿只找 12010）。批 1 的 getPopupContainer 一落地 toast 容器即归壳内 → 可见，且处于暗色 ConfigProvider 内 → 批 2"toast 同暗色"前提成立。本步是批 1 的**第二红点**（证伪 z-index 诊断的双通道验证）。
 
-- [ ] **Step 3: 验收记录写回本文件勾选 +Commit（空提交或勾选提交）**
+- [x] **Step 3: 验收记录写回本文件勾选 +Commit（空提交或勾选提交）**
 
 ---
 
