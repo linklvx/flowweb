@@ -12,7 +12,8 @@ export class ExportCanceledError extends Error {
 /** mediabunny Output 装配抽象（Worker 真实实现/测试 mock；audioTrack 在 hasAudio 时才非 null）。
  *  音频契约是 raw f32（channels + sampleRate）——AudioBuffer/Web Audio 不进 Worker；
  *  交织/分块/AudioSample 构造是装配侧（Task 8）内部细节，controller 只调一次 add。
- *  createOutput 是 async——Worker 侧 AAC 守卫在 hasAudio 分支内 await。 */
+ *  createOutput 是 async——Worker 侧 AAC 守卫在 hasAudio 分支内 await。
+ *  非 abort 错误（start/add/finalize 抛错）不做 output.cancel()——半成品处置归 Worker 生命周期（terminate 丢弃 FSA swap/整体回收），勿在此补 cancel-on-error。 */
 export interface ExportOutput {
   videoTrack: { add(timestamp: number, duration: number): Promise<void> };
   audioTrack: { add(channels: Float32Array[], sampleRate: number): Promise<void> } | null;

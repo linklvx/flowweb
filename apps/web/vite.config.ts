@@ -5,6 +5,8 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Worker 拆包：默认 'iife' 强制 inlineDynamicImports，会把 mediabunny/aac-polyfill 动态 import 内联进 worker 单文件
+  worker: { format: 'es' },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

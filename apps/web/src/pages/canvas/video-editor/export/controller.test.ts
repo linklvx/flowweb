@@ -53,6 +53,8 @@ describe('runExport 编排（jsdom 无 WebCodecs——deps 全 mock）', () => {
     expect(calls.videoAdd[0]).toBe(0);
     expect(calls.videoAdd[1]).toBeCloseTo(1 / 30, 6);
     expect(calls.videoAdd[29]).toBeCloseTo(29 / 30, 6);
+    const created = await (deps.createOutput as ReturnType<typeof vi.fn>).mock.results[0].value; // async 契约——results[0].value 是 Promise
+    expect((created.videoTrack.add as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBeCloseTo(1 / EXPORT_FPS, 6); // add 第二参 duration 钉住
     expect(calls.start).toBe(1);
     expect(calls.finalize).toBe(1);
   });
