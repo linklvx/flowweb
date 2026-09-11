@@ -2,7 +2,7 @@ import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { io } from 'socket.io-client';
+import { subscribeNodeStatus } from '@/services/executionSocket';
 import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -80,18 +80,18 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
 
   // Frame capture state
   const [capturingType, setCapturingType] = useState<'current' | 'first' | 'last' | null>(null);
-  const socketRef = useRef<any>(null);
 
   // Audio separate state
   const [audioSeparatingType, setAudioSeparatingType] = useState<'vocal' | 'background' | 'split' | null>(null);
   const [separateTaskId, setSeparateTaskId] = useState<string | null>(null);
-  const separateStatus = useVideoSeparateTask(separateTaskId, socketRef.current, id);
+  // trim/separate 的 socket 通知通道显式不启用（传 null 走轮询）——接线属行为变化，超出本任务范围，登记不启用
+  const separateStatus = useVideoSeparateTask(separateTaskId, null, id);
 
   // Trim panel state
   const [trimMode, setTrimMode] = useState(false);
   const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
   const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
-  const trimStatus = useTrimTaskStatus(trimTaskId, socketRef?.current, id);
+  const trimStatus = useTrimTaskStatus(trimTaskId, null, id);
 
   // HD panel state
   const [hdPanelOpen, setHdPanelOpen] = useState(false);
@@ -344,55 +344,19 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
 
   const titleText = label || 'Video';
 
-  // Socket.io for real-time video generation status updates
+  // Real-time video generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
   useEffect(() => {
-    const socket = io('/execution', { transports: ['websocket', 'polling'] });
-    socketRef.current = socket;
-
-    const projectId = useCanvasStore.getState().projectId;
-
-    const joinRoom = () => {
-      if (projectId) {
-        socket.emit('join', projectId);
-      }
-    };
-
-    socket.on('connect', () => {
-      console.log('[VideoGenNode] socket connected, joining', projectId || '(no projectId, skipping)');
-      joinRoom();
-    });
-
-    socket.on('reconnect', () => {
-      console.log('[VideoGenNode] socket reconnected, re-joining', projectId || '(no projectId, skipping)');
-      joinRoom();
-    });
-
-    socket.on('connect_error', (err: any) => {
-      console.error('[VideoGenNode] socket connect error:', err.message);
-    });
-
-    socket.on('node:status', (data: any) => {
-      console.log('[VideoGenNode] received node:status:', data);
+    const off = subscribeNodeStatus((data) => {
       if (data.nodeId !== id) return;
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
       } else if (data.status === 'done' && data.fileId) {
-        console.log('[VideoGenNode] setting fileId:', data.fileId);
         useNodeStore.getState().setFileResult(id, data.fileId);
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
       }
-      if (data.credits && typeof data.credits === 'object') {
-        window.dispatchEvent(new CustomEvent('credits:update', { detail: data.credits }));
-      }
     });
-
-    return () => {
-      if (projectId) {
-        socket.emit('leave', projectId);
-      }
-      socket.removeAllListeners();
-    };
+    return off;
   }, [id]);
 
   // Unmount cleanup for in-progress separate task

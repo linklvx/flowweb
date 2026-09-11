@@ -5,15 +5,22 @@ import { useStitchTask } from './useStitchTask';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 vi.mock('@/api/client', () => ({ apiFetch: vi.fn() }));
-// P2-1：useSocket 返回 ref 形态；组件外直接调 hook 会抛 Invalid hook call，须 mock + renderHook。
-// mockSocketRef.current 可按用例注入假 socket（null = 快路径不存在，仅轮询）。
-const mockSocketRef = vi.hoisted(() => ({ current: null as any }));
-vi.mock('@/hooks/useSocket', () => ({ useSocket: () => mockSocketRef }));
+// 单例迁移：start() 内经 ensureExecutionSocket 拿 Socket 实例注册 once——mock 须返回带 once/off 的 fake Socket
+const mockSocket = vi.hoisted(() => ({
+  once: vi.fn(),
+  off: vi.fn(),
+}));
+vi.mock('@/services/executionSocket', () => ({
+  ensureExecutionSocket: vi.fn(() => mockSocket),
+  teardownExecutionSocket: vi.fn(),
+  subscribeNodeStatus: vi.fn(() => () => {}),
+  subscribeNodeEditResult: vi.fn(() => () => {}),
+}));
 
 describe('useStitchTask', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSocketRef.current = null;
+    mockSocket.once.mockReset(); // 清上一用例的 once 实现（消耗型快路径按用例注入）
     useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
   });
 
@@ -45,11 +52,9 @@ describe('useStitchTask', () => {
       .mockResolvedValueOnce({ taskId: 't1' })                       // POST stitch
       .mockResolvedValue({ status: 'COMPLETED', fileId: 'out1', width: 100, height: 50 }); // 后续每次轮询
     // 假 socket：注册 once 后 1s 推送 COMPLETED
-    mockSocketRef.current = {
-      once: (_evt: string, cb: (evt: any) => void) => {
-        setTimeout(() => cb({ taskId: 't1', status: 'COMPLETED', fileId: 'out1', width: 100, height: 50 }), 1000);
-      },
-    };
+    mockSocket.once.mockImplementation((_evt: string, cb: (evt: any) => void) => {
+      setTimeout(() => cb({ taskId: 't1', status: 'COMPLETED', fileId: 'out1', width: 100, height: 50 }), 1000);
+    });
     vi.useFakeTimers();
     try {
       const { result } = renderHook(() => useStitchTask('p1'));

@@ -2,22 +2,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AudioGenNode } from './AudioGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
-import { io } from 'socket.io-client';
 
 // All shared state must be hoisted for vi.mock factories
-const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
-  const mockSocket = {
-    on: vi.fn().mockReturnThis(),
-    emit: vi.fn().mockReturnThis(),
-    removeAllListeners: vi.fn().mockReturnThis(),
-    close: vi.fn(),
-  };
+const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
+  // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
+  const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceAudio: undefined };
   let storeSetStatus = vi.fn();
   let storeSetFileResult = vi.fn();
 
   return {
-    mockSocket,
+    subscribeNodeStatusMock,
     getMockNodeData: () => mockNodeData,
     setMockNodeData: (d: any) => { mockNodeData = d; },
     getStoreSetStatus: () => storeSetStatus,
@@ -78,8 +73,11 @@ vi.mock('@/stores/canvasStore', () => ({
   ),
 }));
 
-vi.mock('socket.io-client', () => ({
-  io: vi.fn(() => mockSocket),
+vi.mock('@/services/executionSocket', () => ({
+  subscribeNodeStatus: subscribeNodeStatusMock,
+  subscribeNodeEditResult: vi.fn(() => () => {}),
+  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn() })),
+  teardownExecutionSocket: vi.fn(),
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -113,8 +111,6 @@ describe('AudioGenNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
-    mockSocket.on.mockReturnThis();
-    mockSocket.emit.mockReturnThis();
   });
 
   const baseNodeProps = {
@@ -245,49 +241,22 @@ describe('AudioGenNode', () => {
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
 
-  // ─── Socket.io ───
-
-  it('should connect to socket.io on mount', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
-    let connectHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'connect') connectHandler = handler;
-      return mockSocket;
-    });
-    renderNode();
-    connectHandler!();
-    expect(io).toHaveBeenCalledWith('/execution', expect.objectContaining({ transports: expect.any(Array) }));
-    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
-  });
-
-  it('should disconnect socket.io on unmount', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
-    const { unmount } = renderNode();
-    unmount();
-    expect(mockSocket.removeAllListeners).toHaveBeenCalled();
-  });
+  // ─── Socket.io（经 executionSocket 单例 subscribeNodeStatus 触发）───
 
   it('should update status to loading on socket node:status event', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
     renderNode();
-    statusHandler!({ nodeId: 'a1', status: 'loading' });
+    expect(subscribeNodeStatusMock).toHaveBeenCalledWith(expect.any(Function));
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
+    statusHandler({ nodeId: 'a1', status: 'loading' });
     expect(getStoreSetStatus()).toHaveBeenCalledWith('a1', 'loading');
   });
 
   it('should set fileId and done on socket node:status done event', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceAudio: undefined });
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
     renderNode();
-    statusHandler!({ nodeId: 'a1', status: 'done', fileId: 'gen-audio-001' });
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
+    statusHandler({ nodeId: 'a1', status: 'done', fileId: 'gen-audio-001' });
     expect(getStoreSetFileResult()).toHaveBeenCalledWith('a1', 'gen-audio-001');
   });
 

@@ -84,6 +84,14 @@ describe('executionSocket 单例服务', () => {
     expect((handler.mock.calls[0][0] as CustomEvent).detail).toEqual({ credits: 1, subscriptionCredits: 2, total: 3 });
   });
 
+  it('已连接时 ensure 新 projectId 立即 join（Task 2 review 遗留——connected 即 join 分支）', async () => {
+    const { ensureExecutionSocket } = await import('./executionSocket');
+    ensureExecutionSocket('p1');
+    fakeSocket.connected = true;
+    ensureExecutionSocket('p2');
+    expect(emitSpy).toHaveBeenCalledWith('join', 'p2');
+  });
+
   it('teardown disconnect 且下次 ensure 重建', async () => {
     const { ensureExecutionSocket, teardownExecutionSocket } = await import('./executionSocket');
     ensureExecutionSocket('p1');

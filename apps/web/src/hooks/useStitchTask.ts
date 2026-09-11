@@ -1,12 +1,11 @@
 // useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成（doc 同步自动入 undo 栈）
 import { useCallback, useRef } from 'react';
-import { useSocket } from '@/hooks/useSocket';
+import { ensureExecutionSocket } from '@/services/executionSocket';
 import { createStitchTask, getStitchTask, type StitchParams } from '@/api/stitchApi';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 export function useStitchTask(projectId: string) {
   const running = useRef(false);
-  const socket = useSocket(projectId); // Hooks 规则：顶层调用一次，start 闭包引用
 
   const spawnResultNode = useCallback(
     (
@@ -66,8 +65,10 @@ export function useStitchTask(projectId: string) {
             outcome = r;
             resolve();
           };
-          // Socket 快路径：useSocket 返回 MutableRefObject<Socket|null>，必须经 .current 取实例
-          socket.current?.once('storyboard:stitch:completed', (evt: any) => {
+          // Socket 快路径：单例 ensure 直接返回 Socket 实例；once 注册保持在 start() 内部
+          //（回调闭包 taskId/settle；消耗型 once 未触发时残留至下次命中 taskId 早退——与现状一致）
+          const socket = ensureExecutionSocket(projectId);
+          socket.once('storyboard:stitch:completed', (evt: any) => {
             if (evt.taskId !== taskId) return;
             if (evt.status === 'COMPLETED' && evt.fileId) {
               settle('COMPLETED', { fileId: evt.fileId, url: evt.url, width: evt.width, height: evt.height, failedCount: evt.failedCount });
@@ -101,7 +102,7 @@ export function useStitchTask(projectId: string) {
       }
       return { outcome, failedCount };
     },
-    [projectId, spawnResultNode, socket]
+    [projectId, spawnResultNode]
   );
 
   return { start };

@@ -2,22 +2,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
-import { io } from 'socket.io-client';
 
 // All shared state must be hoisted for vi.mock factories
-const { mockSocket, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
-  const mockSocket = {
-    on: vi.fn().mockReturnThis(),
-    emit: vi.fn().mockReturnThis(),
-    removeAllListeners: vi.fn().mockReturnThis(),
-    close: vi.fn(),
-  };
+const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
+  // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
+  const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
   let storeSetStatus = vi.fn();
   let storeSetFileResult = vi.fn();
 
   return {
-    mockSocket,
+    subscribeNodeStatusMock,
     getMockNodeData: () => mockNodeData,
     setMockNodeData: (d: any) => { mockNodeData = d; },
     getStoreSetStatus: () => storeSetStatus,
@@ -80,11 +75,10 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
-const { mockCanvasProjectId, setMockCanvasProjectId } = vi.hoisted(() => {
+const { mockCanvasProjectId } = vi.hoisted(() => {
   let projectId: string | null = 'test-project';
   return {
     mockCanvasProjectId: () => projectId,
-    setMockCanvasProjectId: (v: string | null) => { projectId = v; },
   };
 });
 
@@ -101,8 +95,11 @@ vi.mock('@/stores/canvasStore', () => ({
   ),
 }));
 
-vi.mock('socket.io-client', () => ({
-  io: vi.fn(() => mockSocket),
+vi.mock('@/services/executionSocket', () => ({
+  subscribeNodeStatus: subscribeNodeStatusMock,
+  subscribeNodeEditResult: vi.fn(() => () => {}),
+  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn() })),
+  teardownExecutionSocket: vi.fn(),
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -131,9 +128,6 @@ describe('VideoGenNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    // Restore mockSocket.on default behavior after clearAllMocks
-    mockSocket.on.mockReturnThis();
-    mockSocket.emit.mockReturnThis();
   });
 
   const baseNodeProps = {
@@ -301,116 +295,40 @@ describe('VideoGenNode', () => {
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
 
-  // ─── Socket.io real-time status updates ───
-
-  it('should connect to socket.io on mount and join project room', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    setMockCanvasProjectId('test-project');
-    let connectHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'connect') connectHandler = handler;
-      return mockSocket;
-    });
-    renderNode();
-    // Simulate socket connect event
-    connectHandler!();
-    expect(io).toHaveBeenCalledWith('/execution', expect.objectContaining({ transports: expect.any(Array) }));
-    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
-  });
-
-  it('should not join any room when projectId is null', () => {
-    setMockCanvasProjectId(null);
-    let connectHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'connect') connectHandler = handler;
-      return mockSocket;
-    });
-    renderNode();
-    connectHandler!();
-    // Should NOT emit join when projectId is null
-    const joinCalls = (mockSocket.emit as any).mock.calls.filter(
-      (call: string[]) => call[0] === 'join',
-    );
-    expect(joinCalls.length).toBe(0);
-    setMockCanvasProjectId('test-project'); // restore
-  });
-
-  it('should re-join room on socket reconnect', () => {
-    setMockCanvasProjectId('test-project');
-    let reconnectHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'reconnect') reconnectHandler = handler;
-      return mockSocket;
-    });
-    renderNode();
-    // Simulate reconnect
-    reconnectHandler!();
-    expect(mockSocket.emit).toHaveBeenCalledWith('join', 'test-project');
-  });
-
-  it('should leave room on unmount', () => {
-    setMockCanvasProjectId('test-project');
-    const { unmount } = renderNode();
-    unmount();
-    expect(mockSocket.emit).toHaveBeenCalledWith('leave', 'test-project');
-  });
-
-  it('should disconnect socket.io on unmount', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    const { unmount } = renderNode();
-    unmount();
-    expect(mockSocket.removeAllListeners).toHaveBeenCalled();
-  });
+  // ─── Socket.io real-time status updates（经 executionSocket 单例 subscribeNodeStatus 触发）───
 
   it('should update node status to loading when socket emits node:status loading', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    // Capture the 'node:status' handler
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
     renderNode();
-    expect(statusHandler).not.toBeNull();
+    expect(subscribeNodeStatusMock).toHaveBeenCalledWith(expect.any(Function));
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
     // Simulate status event for this node
-    statusHandler!({ nodeId: 'v1', status: 'loading' });
+    statusHandler({ nodeId: 'v1', status: 'loading' });
     expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'loading');
   });
 
   it('should update fileId and set done when socket emits node:status done', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
     renderNode();
-    statusHandler!({ nodeId: 'v1', status: 'done', fileId: 'gen-vid-456' });
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
+    statusHandler({ nodeId: 'v1', status: 'done', fileId: 'gen-vid-456' });
     expect(getStoreSetFileResult()).toHaveBeenCalledWith('v1', 'gen-vid-456');
   });
 
   it('should set status to error when socket emits node:status error', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
     renderNode();
-    statusHandler!({ nodeId: 'v1', status: 'error' });
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
+    statusHandler({ nodeId: 'v1', status: 'error' });
     expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'error');
   });
 
   it('should ignore socket events for other nodes', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    let statusHandler: Function | null = null;
-    mockSocket.on.mockImplementation((event: string, handler: Function) => {
-      if (event === 'node:status') statusHandler = handler;
-      return mockSocket;
-    });
-    getStoreSetStatus().mockClear();
     renderNode();
-    statusHandler!({ nodeId: 'other-node', status: 'loading' });
+    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
+    getStoreSetStatus().mockClear();
+    statusHandler({ nodeId: 'other-node', status: 'loading' });
     expect(getStoreSetStatus()).not.toHaveBeenCalled();
   });
 

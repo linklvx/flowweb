@@ -2,7 +2,7 @@ import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { io } from 'socket.io-client';
+import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore } from '@/stores/nodeStore';
 import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -333,49 +333,19 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
 
+  // Real-time image generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
   useEffect(() => {
-    const socket = io('/execution', { transports: ['websocket', 'polling'] });
-
-    const projectId = useCanvasStore.getState().projectId;
-
-    const joinRoom = () => {
-      if (projectId) socket.emit('join', projectId);
-    };
-
-    socket.on('connect', () => {
-      console.log('[ImageGenNode] socket connected, joining', projectId || '(no projectId, skipping)');
-      joinRoom();
-    });
-
-    socket.on('reconnect', () => {
-      console.log('[ImageGenNode] socket reconnected, re-joining', projectId || '(no projectId, skipping)');
-      joinRoom();
-    });
-
-    socket.on('connect_error', (err: any) => {
-      console.error('[ImageGenNode] socket connect error:', err.message);
-    });
-
-    socket.on('node:status', (data: any) => {
-      console.log('[ImageGenNode] received node:status:', data);
+    const off = subscribeNodeStatus((data) => {
       if (data.nodeId !== id) return;
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
       } else if (data.status === 'done' && data.fileId) {
-        console.log('[ImageGenNode] setting fileId:', data.fileId);
         useNodeStore.getState().setFileResult(id, data.fileId);
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
       }
-      if (data.credits && typeof data.credits === 'object') {
-        window.dispatchEvent(new CustomEvent('credits:update', { detail: data.credits }));
-      }
     });
-
-    return () => {
-      if (projectId) socket.emit('leave', projectId);
-      socket.removeAllListeners();
-    };
+    return off;
   }, [id]);
 
   // ---- Floating upload button ----
@@ -930,34 +900,22 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     return () => clearInterval(timer);
   }, [editMode, updateEraseUndoRedo]);
 
-  // Socket.io edit result handlers
+  // AI 编辑回填：edit-result/edit-failed 是 node:status 的 status 值（原独立事件名 node:edit-result
+  // 从未被 emit——坏监听，回填现修复为经单例 subscribeNodeEditResult 按 status 值分流）
   useEffect(() => {
     if (!editMode) return;
-    const socket = io('/execution', { transports: ['websocket', 'polling'] });
-
-    const projectId = useCanvasStore.getState().projectId;
-
-    const joinRoom = () => {
-      if (projectId) socket.emit('join', projectId);
-    };
-
-    socket.on('connect', () => joinRoom());
-    socket.on('reconnect', () => joinRoom());
-    socket.on('node:edit-result', (data: any) => {
-      if (data.nodeId !== id) return;
-      updateConfig(id, { fileId: data.fileId, editMode: null });
-      useNodeStore.getState().setActiveEditNodeId(null);
-      setProcessing(false);
+    const off = subscribeNodeEditResult((p) => {
+      if (p.nodeId !== id) return;
+      if (p.failed) {
+        setEditError(p.error || 'AI 处理失败');
+        setProcessing(false);
+      } else if (p.fileId) {
+        updateConfig(id, { fileId: p.fileId, editMode: null });
+        useNodeStore.getState().setActiveEditNodeId(null);
+        setProcessing(false);
+      }
     });
-    socket.on('node:edit-failed', (data: any) => {
-      if (data.nodeId !== id) return;
-      setEditError(data.error || 'AI 处理失败');
-      setProcessing(false);
-    });
-    return () => {
-      if (projectId) socket.emit('leave', projectId);
-      socket.removeAllListeners();
-    };
+    return off;
   }, [editMode, id, updateConfig]);
 
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl && !editMode;

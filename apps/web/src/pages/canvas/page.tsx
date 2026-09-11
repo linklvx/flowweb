@@ -18,7 +18,7 @@ import { ProjectTitle } from './components/ProjectTitle';
 import { useCanvasPersistence } from './hooks/useCanvasPersistence';
 import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
 import { hydrateNodes } from '@/utils/nodeOrder';
-import { useSocket } from '@/hooks/useSocket';
+import { ensureExecutionSocket, teardownExecutionSocket } from '@/services/executionSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
@@ -206,7 +206,12 @@ export function CanvasPage() {
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
   useCanvasPersistence(projectId);
-  useSocket(projectId);
+
+  // /execution socket 单例生命周期挂画布 page（mount ensure / unmount teardown；节点组件只 subscribe 不建连）
+  useEffect(() => {
+    ensureExecutionSocket(projectId);
+    return () => teardownExecutionSocket();
+  }, [projectId]);
 
   // AddNodeMenu state — shared by + button and right-click triggers
   const menuIsOpen = useMenuStore((s) => s.isOpen);
