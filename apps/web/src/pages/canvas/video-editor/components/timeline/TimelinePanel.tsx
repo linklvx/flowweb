@@ -24,8 +24,7 @@ export function TimelinePanel() {
   const data = useEditorStore(s => s.data);
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   // 素材缺失态派生（spec 生命周期第 3 条）：订阅 canvasStore.nodes——低频，与 playhead 无关。
-  // 局部变量名用 missingSet 而非 missingSourceNodeIds：后者与 import 的派生函数同名，const 遮蔽后
-  // useMemo 回调内解析到局部变量自身会递归引用（计划代码命名陷阱，最小适配并登记）
+  // 局部变量名用 missingSet：与 import 的派生函数 missingSourceNodeIds 保持名称距离，防日后误写遮蔽
   const canvasNodes = useCanvasStore(s => s.nodes);
   const missingSet = useMemo(
     () => missingSourceNodeIds(data, new Set(canvasNodes.map(n => n.id))),
