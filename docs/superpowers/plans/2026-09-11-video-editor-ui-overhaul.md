@@ -22,7 +22,7 @@
 | 批 | Create | Modify |
 |---|---|---|
 | 1 | — | `components/VideoEditorShell.tsx`、`AssetPanel.tsx`、`ExportModal.tsx`、`PreviewPlayer.tsx` |
-| 2 | — | `VideoEditorShell.tsx`、`PreviewPlayer.tsx`、`PreviewPlayer.test.tsx`、`components/timeline/TimelinePanel.render.test.tsx`、`components/timeline/TimelinePanel.interact.test.tsx`（R6-B4：getByText→getByRole 同步）、`index.css`（全局，仅加编辑器段） |
+| 2 | — | `VideoEditorShell.tsx`、`PreviewPlayer.tsx`（+test）、`EditorTopBar.tsx`、`PropertiesPanel.tsx`、`AssetPanel.tsx`、`components/timeline/TimelinePanel.tsx`（+render/interact 两个 test——R6-B4 getByText→getByRole 同步）、`TimelineRuler.tsx`、`TrackRow.tsx`（R7 小项①：Task 4 亮→暗映射实际涉及的 5 组件此前漏列）、`apps/web/package.json`（Task 5 依赖）、`index.css`（全局，仅加编辑器段） |
 | 3 | `timeline/placement.ts`（+test）、`renderer/poster.ts`（+test） | `types.ts`（shared 同步）、api 端 `video-project.service.ts`（defaultProjectData 单轨同步）、`store/editorStore.ts`、`components/AssetPanel.tsx`、`components/timeline/TimelinePanel.tsx`、`components/timeline/PlayheadLine.tsx`（140 常量）、`components/timeline/ClipBlock.tsx`、`components/timeline/TimelineRuler.tsx`、`hooks/useEditorKeyboard.ts` |
 | 4+5 | `timeline/canvas-size.ts`（+test） | `types.ts`、`PreviewPlayer.tsx`、`hooks/usePreviewPlayback.ts`、`renderer/canvas-renderer.ts`、`scene/subtitle-layout.ts`、`export/precheck.ts`、`export/worker.ts`、`export/client.ts`、`export/upload.ts`、`api/videoProjectApi.ts`（R6-B11：resolution 联合改派生）、`capabilities.ts`（探测尺寸参数化）、`components/EditorTopBar.tsx`、`components/nodes/VideoEditNode.tsx`、api 端 `video-project.dto.ts`、`generated-media.service.ts` |
 | 6 | — | `export/client.ts`、`export/worker.ts`、`export/upload.ts`、`components/ExportModal.tsx`（重构为 Popover）+ `ExportModal.test.tsx`（mock 工厂重写——pickSaveTarget 三态，R6）、`store/editorStore.ts` |
@@ -161,6 +161,8 @@ git commit -m "feat(video-editor): 批1-2 编辑器内 8 处静态 message/Modal
 
 - [ ] **Step 2: 验证片段重拍 confirm 与 toast 可见（选中带源视频片段点「片段重拍」→ confirm 弹层可见；上传一个素材 → 成功 toast 可见且为白底之外的正常样式）**
 
+> **toast 也依赖批 1（R7 第三节核实补记）**：修复前 message 同样不可见——antd message 经 `useMessage` 的 `getContainer: () => staticGetContainer?.() || getPopupContainer?.() || document.body`（message/useMessage.js:90，getPopupContainer 取自 ConfigContext），z-index = 12010（zIndexPopupBase + CONTAINER_MAX_OFFSET + 10，message/style/index.js:145）≈ 同样被壳 z-[100000] 覆盖。批 1 的 getPopupContainer 一落地 toast 容器即归壳内 → 可见，且处于暗色 ConfigProvider 内 → 批 2"toast 同暗色"前提成立。本步是批 1 的**第二红点**（证伪 z-index 诊断的双通道验证）。
+
 - [ ] **Step 3: 验收记录写回本文件勾选 +Commit（空提交或勾选提交）**
 
 ---
@@ -260,10 +262,18 @@ function loadPanelSizes(): { version: 1; panels: Record<string, number[]> } | nu
 // Shell 内（R4 建议：saved 惰性初始化一次——组件体内裸调 loadPanelSizes() 每次重渲重读 localStorage，
 // 若库在 prop 变化时重应用 defaultSize 会导致拖动回弹；useState 惰性形一次性根除）：
 const [saved] = useState(() => loadPanelSizes());
-const saveLayout = (groupId: string) => (sizes: number[]) => {
+// R7-S4：onLayout 拖拽期间逐帧触发，localStorage.setItem 同步写逐帧落盘有卡顿风险——
+// onLayout 只缓存进 ref，PanelResizeHandle 的 onDragging(isDragging=false)（v2 导出
+// PanelResizeHandleOnDragging）拖拽结束时一次落盘：
+const pendingSizesRef = useRef<Record<string, number[]>>({});
+const saveLayout = (groupId: string) => (sizes: number[]) => { pendingSizesRef.current[groupId] = sizes; };
+const flushLayout = () => {
+  if (Object.keys(pendingSizesRef.current).length === 0) return;
   const cur = loadPanelSizes();
-  localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, [groupId]: sizes } }));
+  localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify({ version: 1, panels: { ...cur?.panels, ...pendingSizesRef.current } }));
+  pendingSizesRef.current = {};
 };
+// 两个 PanelResizeHandle 均加：onDragging={(isDragging) => { if (!isDragging) flushLayout(); }}
 
 <div className="flex flex-1 min-h-0">
   <PanelGroup direction="vertical" id="ve-vertical" onLayout={saveLayout('ve-vertical')}>
@@ -285,7 +295,7 @@ const saveLayout = (groupId: string) => (sizes: number[]) => {
 </div>
 ```
 
-说明：onLayout 只写 localStorage 不 setState（避免拖动每帧重渲风暴）。若 onLayout 首次挂载即触发并覆盖 saved，需在 saveLayout 内忽略与 saved 相同的首次回调（装包实测，登记待核实）。
+说明：R7-S4 后 onLayout 只写 ref 不落盘（避免拖拽逐帧同步 localStorage 卡顿），落盘集中在 onDragging(false)（拖拽结束）——首次挂载若触发 onLayout 也只进 ref，拖拽未发生则 flushLayout 空写防护（pendingSizes 空 Map 早退），"首次回调覆盖 saved"问题随之消解；onLayout 首次挂载是否触发仍留装包实测登记（无害化——最多多 flush 一次等值数据）。
 
 同步改动：
 - `TimelinePanel.tsx:216` 的 `h-[280px]` 固定高删除（Panel 提供高度，内部 `flex flex-col min-h-0` 自适应）
@@ -357,12 +367,12 @@ git commit -m "feat(video-editor): 批2-3 控制条撤销/重做/分割/删除�
 ### Task 7: 初始单轨 + 测试夹具修复
 
 **Files:**
-- Modify: `packages/shared/src/types/video-project.ts:52-64`、api 端 `video-project.service.ts:19-26`（defaultProjectData 手抄 4 轨副本同步单轨——R6-B6）、`components/VideoEditorShell.tsx:35` 附近「4 轨」注释、测试夹具 6 文件（下详）
+- Modify: `packages/shared/src/types/video-project.ts:52-64`、api 端 `video-project.service.ts:19-26`（defaultProjectData 手抄 4 轨副本同步单轨——R6-B6）+ `video-project.service.spec.ts:37-43`（**R7-N4：断言默认 4 轨的 spec——`expect(created.data.tracks).toHaveLength(4)` / `toEqual(['video','subtitle','audio','audio'])` 改 1 轨 + `['video']`，测试名"4 轨"文案同步；全仓唯一断言默认轨的 api 测试，R6 漏列**）、`components/VideoEditorShell.tsx:35` 附近「4 轨」注释、测试夹具 6 文件（下详）
 - Test: shared 包既有测试 + web 侧受影响夹具
 
 > **R6-B6 影响面实测全量（6 文件 7 行）**——单轨化后 `.find(t => t.type === 'audio'|'subtitle')!` 返回 undefined 直接 TypeError（非断言失败）：
 > ① `PropertiesPanel.test.tsx:15-28`（tracks[2] :21-22 / tracks[1] :27-28）② `TimelinePanel.render.test.tsx:11-18`（tracks[1] :12 / tracks[2] :14,:18）③ `store/editorStore.test.ts:64,184` ④ `store/editorStore.keyframe.test.ts:52,63,91` ⑤ `components/AssetPanel.test.tsx:126` ⑥ `components/timeline/TimelinePanel.interact.test.tsx:119`。
-> 不受影响（已核）：`renderer/render-frame.test.ts:22-28` 自建 tracks 字面量、`scene/interpolate.test.ts:193` 自行覆写 tracks[0]。
+> 不受影响（已核）：`renderer/render-frame.test.ts:22-28` 自建 tracks 字面量、`scene/interpolate.test.ts:193` 自行覆写 tracks[0]；api 侧 `video-project.dto.spec.ts:10` 自带 tracks:[] 不受影响。
 > 行为变化登记（无需改码）：`editorStore.addTrack` 命名取同型轨计数+1 自适配，首条音频轨从「音频3」变「音频1」。
 
 - [ ] **Step 1: 写失败测试**
@@ -383,7 +393,7 @@ describe('createDefaultProjectData', () => {
 
 - [ ] **Step 2: 跑红 → 改实现（tracks 数组只留视频轨一项）→ 跑绿（shared + web 全量）**
 
-- [ ] **Step 3: 修受影响夹具（上方 R6-B6 全量名单 6 文件）**：夹具改为显式 `addTrack('audio'|'subtitle')` 后取新轨 id，或手写 tracks 数组——与生产动态建轨路径一致。api 侧 `video-project.service.ts` defaultProjectData 的 tracks 字面量同步改单视频轨（注释「1 视频+1 字幕+2 音频」一并改），`VideoEditorShell.tsx:35`「首建默认 4 轨工程」注释同步。
+- [ ] **Step 3: 修受影响夹具（上方 R6-B6 全量名单 6 文件）**：夹具改为显式 `addTrack('audio'|'subtitle')` 后取新轨 id，或手写 tracks 数组——与生产动态建轨路径一致。api 侧 `video-project.service.ts` defaultProjectData 的 tracks 字面量同步改单视频轨（注释「1 视频+1 字幕+2 音频」一并改）+ `video-project.service.spec.ts:37-43` 断言改 1 轨（R7-N4），`VideoEditorShell.tsx:35`「首建默认 4 轨工程」注释同步。
 
 - [ ] **Step 4: 全量测试（shared + web + api 三端）+ Commit**
 
@@ -529,19 +539,19 @@ function addAssetToTimeline(norm: {
 
 （setMediaInfo 的 thumbnailUrl 白名单第四字段在 Task 10 一并加——此处三字段已有。）
 
-TimelinePanel drop 分支（:184-185）替换（R4 必改② + **R6-B14 必改**：先判字幕轨保持忽略——原分支同时覆盖「错型改道」与「字幕轨拒绝」两种语义，整条替换会让字幕轨 drop 也去新建视频轨，废掉 review I1「错型不入库」既定决策且既有用例假绿）：
+TimelinePanel drop 分支（:184-185）替换（R4 必改② + R6-B14 + **R7-N2 必改**：dropIntoTrack 是函数声明，ESM 恒严格模式下块内 function 声明是**块级作用域**——声明必须提升到 handleClipDrop 函数体顶部，两处调用（错型改道分支 + 兼容路径）都在函数作用域内可见；写在 if 块内则块外调用 Cannot find name）：
 
 ```tsx
+// handleClipDrop 函数体顶部（payload 解析之后、轨道匹配之前）：
+function dropIntoTrack(trackId: string, e: React.DragEvent<HTMLDivElement>) {
+  /* 既有 drop 体（setMediaInfo + addClip，trackId 换参）——量化落点逻辑不变（rect 取自 e.currentTarget 不受 trackId 换参影响） */
+}
 // 旧：if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') return;
-// 新（语义拆分）：
+// 新（语义拆分——R6-B14：先判字幕轨保持忽略，原分支同时覆盖「错型改道」与「字幕轨拒绝」两种语义，
+// 整条替换会让字幕轨 drop 也去新建视频轨，废掉 review I1「错型不入库」既定决策且既有用例假绿）：
 if (trackType === 'subtitle') return; // 字幕轨不接受 drop（review I1 保持——改道只针对 audio↔video 错型）
 if (kind === 'audio' ? trackType !== 'audio' : trackType !== 'video') {
   // audio↔video 错型 → 走建轨策略改道（spec 3.1：拖音频进单视频轨场景 100% 触发，不得静默丢弃）
-  // ⚠ dropIntoTrack 必须是提升的 function 声明或定义在本分支**之前**——提取既有 drop 体为
-  // 局部 const 箭头函数时，早退分支在事件时调用会踩 TDZ（Cannot access before initialization）
-  function dropIntoTrack(trackId: string, e: React.DragEvent<HTMLDivElement>) {
-    /* 既有 drop 体（setMediaInfo + addClip，trackId 换参）——量化落点逻辑不变 */
-  }
   const es = useEditorStore.getState();
   const p = placeAssetInTrack(es.data!, { mimeType: payload.mimeType, durationSec: payload.durationSec });
   dropIntoTrack(p.createNewTrack ? es.addTrack(p.newTrackType!) : p.trackId, e);
@@ -618,14 +628,18 @@ style={{
 
 回退取帧（thumbnailUrl 为空时，常态分支——生成结果素材无缩略图）：**独立子步骤 TDD**（R4 小项：只有注释没有实现/测试违反 plan 开头的 TDD 铁律）。
 
-**R6-B8 前置事实（已一手核实）**：全仓无 openPosterSink/frameToCanvas/poster.ts；video-cache.ts:171-193 实物是 `openMediabunnySink(url)` 返回 `{ canvases(start), dispose() }`——不含单帧取画布接口，且被 export/worker.ts:11 消费**不宜改名/改签名**。故 poster.ts **自建**一次性工厂（不经 video-cache，spec v1.0-final：播放 LRU 双帧窗口会互相淘汰静态海报）；mediabunny `CanvasSink` 有 `getCanvas(ts)`（video-cache.ts:166 注释记录的 d.ts 事实），资源主口是 `Input.dispose()`（CanvasSink 自身无 dispose）。测试 mock 直接对齐真实 mediabunny API 形状（vi.mock('mediabunny')，与 vitest 惯例一致）：
+**R6-B8 前置事实（已一手核实）**：全仓无 openPosterSink/frameToCanvas/poster.ts；video-cache.ts:171-193 实物是 `openMediabunnySink(url)` 返回 `{ canvases(start), dispose() }`——不含单帧取画布接口，且被 export/worker.ts:11 消费**不宜改名/改签名**。故 poster.ts **自建**一次性工厂（不经 video-cache，spec v1.0-final：播放 LRU 双帧窗口会互相淘汰静态海报）；mediabunny `CanvasSink` 有 `getCanvas(ts)`（video-cache.ts:166 注释记录的 d.ts 事实），资源主口是 `Input.dispose()`（CanvasSink 自身无 dispose）。测试 mock 直接对齐真实 mediabunny API 形状（vi.mock('mediabunny')，与 vitest 惯例一致）。
+**R7-N1 修正（对 mediabunny@1.56.1 d.ts 一手核实）**：① `getCanvas(timestamp)` 返回 `WrappedCanvas = { canvas: HTMLCanvasElement | OffscreenCanvas; timestamp; duration }`（mediabunny.d.ts:5414）——**不是 canvas 本身**，取 `frame.canvas`；② `InputOptions.formats` **必填**（d.ts:2518）——`new Input({ source })` 编译报错，须 `formats: ALL_FORMATS`（与 video-cache.ts:175 同款）；③ poster 仅主线程使用，getCanvas 在 DOM 语境产 HTMLCanvasElement（media-sink.js:1448），但恒绘制进新 canvas 归一化类型（不早退返回 src）。
 
 ```ts
 // renderer/poster.test.ts
+// R7-N1：桩形状对齐 mediabunny@1.56.1 真实 API——getCanvas 返回 WrappedCanvas {canvas,timestamp,duration}
+// （非 canvas 本身）；InputOptions.formats 必填（mock 须提供 ALL_FORMATS 占位）
 import { describe, it, expect, vi } from 'vitest';
 const dispose = vi.fn();
 const getCanvas = vi.fn();
 vi.mock('mediabunny', () => ({
+  ALL_FORMATS: [],
   Input: class { constructor(public opts: unknown) {} // eslint-disable-line
     getPrimaryVideoTrack = vi.fn().mockResolvedValue({ canDecode: () => Promise.resolve(true) });
     dispose = dispose; },
@@ -637,52 +651,57 @@ import { ensurePoster } from './poster';
 const mkCanvas = (w: number) => ({ width: w, height: Math.round(w * 9 / 16),
   getContext: () => ({ drawImage: vi.fn() }),
   toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,AAA') } as unknown as HTMLCanvasElement);
+const wrapped = (c: HTMLCanvasElement) => ({ canvas: c, timestamp: 0, duration: 0.04 }); // WrappedCanvas 形状
 describe('ensurePoster（一次性首帧海报）', () => {
-  it('成功：getCanvas(0) 首帧 → 缩至 ≤320 宽 → JPEG dataURL，且 Input.dispose 用后即调', async () => {
-    getCanvas.mockResolvedValue(mkCanvas(1920));  // 源 1920 宽——必须缩到 320
+  it('成功：getCanvas(0) → frame.canvas → 恒绘制进新 canvas（≤320 宽）→ JPEG dataURL，且 Input.dispose 用后即调', async () => {
+    getCanvas.mockResolvedValue(wrapped(mkCanvas(1920)));  // 源 1920 宽——必须缩到 320
     const r = await ensurePoster('http://x/v.mp4');
     expect(r).toMatch(/^data:image\/jpeg;base64,/);
     expect(getCanvas).toHaveBeenCalledWith(0);
     expect(dispose).toHaveBeenCalledOnce();
   });
-  it('源 ≤320 宽不缩放直接 toDataURL', async () => {
-    getCanvas.mockResolvedValue(mkCanvas(320));
+  it('源 ≤320 宽：同样经新 canvas 输出（恒绘制——顺带归一化 HTMLCanvasElement 类型，R7-N1 虚警防护）', async () => {
+    getCanvas.mockResolvedValue(wrapped(mkCanvas(320)));
     expect(await ensurePoster('http://x/v.mp4')).toMatch(/^data:image\/jpeg;base64,/);
   });
-  it('失败/无视频轨：返回 null（静默保持兜底底色）且 dispose 仍被调（finally）', async () => {
+  it('失败/无视频轨/getCanvas 返回 null：返回 null（静默保持兜底底色）且 dispose 仍被调（finally）', async () => {
     getCanvas.mockRejectedValue(new Error('decode fail'));
     expect(await ensurePoster('http://x/v.mp4')).toBeNull();
     expect(dispose).toHaveBeenCalled();
+    getCanvas.mockResolvedValue(null);
+    expect(await ensurePoster('http://x/v.mp4')).toBeNull();
   });
 });
 ```
 
-实现：
+实现（R7-N1 修正：`frame.canvas` 取画布——getCanvas 返回 WrappedCanvas 对象；`formats: ALL_FORMATS` 必填与 video-cache.ts:175 同款）：
 
 ```ts
 // 新增 renderer/poster.ts（一次性首帧海报，与播放缓存隔离）
 export async function ensurePoster(url: string): Promise<string | null> {
   let input: { dispose(): void } | null = null;
   try {
-    const { Input, UrlSource, CanvasSink } = await import('mediabunny');
-    const inp = new Input({ source: new UrlSource(url) });
+    const { Input, UrlSource, CanvasSink, ALL_FORMATS } = await import('mediabunny');
+    const inp = new Input({ source: new UrlSource(url), formats: ALL_FORMATS }); // formats 必填（input.d.ts）——与 video-cache.ts:175 同款
     input = inp;
     const track = await inp.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) return null;
     const sink = new CanvasSink(track, { fit: 'contain' });   // CanvasSink 无 dispose——资源主口是 Input.dispose
-    const frame = await sink.getCanvas(0);                     // t=0 首帧
+    const frame = await sink.getCanvas(0);                     // t=0 首帧，WrappedCanvas | null
     if (!frame) return null;
-    return shrinkToMaxWidth(frame, 320).toDataURL('image/jpeg', 0.7);
+    return toJpegDataUrl(frame.canvas, 320);
   } catch { return null; }                                     // 失败静默保持兜底底色（非致命路径）
   finally { try { input?.dispose(); } catch { /* 已释放 */ } } // 用后即关——一次性，不进任何 LRU
 }
-function shrinkToMaxWidth(src: HTMLCanvasElement, maxW: number): HTMLCanvasElement {
-  if (src.width <= maxW) return src;                           // 不依赖 CanvasSink width 选项存在与否的未核实面——手动等比缩
-  const scale = maxW / src.width;
+/** 恒绘制进新 HTMLCanvasElement（≤maxW 等比缩）——不做早退返回 src：frame.canvas 是
+ *  HTMLCanvasElement | OffscreenCanvas 联合（OffscreenCanvas 无 toDataURL），恒绘归一化类型。 */
+function toJpegDataUrl(src: HTMLCanvasElement | OffscreenCanvas, maxW: number): string {
+  const w = Math.min(maxW, src.width);
+  const scale = w / src.width;
   const out = document.createElement('canvas');
-  out.width = maxW; out.height = Math.max(1, Math.round(src.height * scale));
-  out.getContext('2d')!.drawImage(src, 0, 0, out.width, out.height);
-  return out;
+  out.width = w; out.height = Math.max(1, Math.round(src.height * scale));
+  out.getContext('2d')!.drawImage(src as CanvasImageSource, 0, 0, out.width, out.height);
+  return out.toDataURL('image/jpeg', 0.7);
 }
 // AssetPanel addAssetToTimeline 尾部（同步函数内 fire-and-forget——不阻塞入轨交互）：
 //   if (!norm.thumbnailUrl && norm.mimeType.startsWith('video/') && norm.url) {
@@ -743,7 +762,10 @@ export function zoomByDelta(deltaY: number, currentPxPerSec: number): number {
 **坐标口径红线（评审第 3 条）**：监听容器是 `scrollRef`（TimelinePanel.tsx:32，**不是 containerRef——该名不存在**），且该滚动区首行含 140px 轨头角位（:231）——`e.clientX - rect.left` 含 140px 偏移，必须扣除，否则锚点必偏 140/pxPerSec 秒（对照：drop 路径用轨道体自身 rect 无此问题，两处口径不同勿照抄）。140 同步提常量（消除 :232 的第二处硬编码）：
 
 ```tsx
-// TimelinePanel 顶部：export const TRACK_HEADER_W = 140; // 轨道头列宽——全仓三处硬编码统一替换：:231 w-[140px] 类名、:232 widthPx={viewportW-140}、PlayheadLine.tsx:10 left:140+…（R6：第三处原漏）
+// R7-S3：TRACK_HEADER_W 声明在 timeline/view-scale.ts（非 TimelinePanel.tsx 顶部）——
+// 消费方 TimelineRuler/PlayheadLine 都是 TimelinePanel 的子组件，从 TimelinePanel 导入常量会循环导入
+// （可运行但脆弱）；view-scale.ts 是纯常量+纯函数模块（PlayheadLine.tsx:2 已 import timeToPx 自它），天然无环。
+// view-scale.ts：export const TRACK_HEADER_W = 140; // 轨道头列宽——全仓三处硬编码统一替换：TimelinePanel:231 w-[140px] 类名、:232 widthPx={viewportW-140}、PlayheadLine.tsx:10 left:140+…（R6：第三处原漏）
 const el = scrollRef.current!; // 既有监听容器（:32）
 const onWheel = (e: WheelEvent) => {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -1088,7 +1110,13 @@ draw(visual, subtitles, canvasSizeOf(data)): void {   // CanvasRenderer.draw 签
   const contain = Math.min(size.width / srcW, size.height / srcH);
   // :65 字幕：const bottomMargin = 96 * (size.height / BASE_CANVAS_H); const y = size.height - bottomMargin;
 }
-// CANVAS_W/CANVAS_H 其余消费点（VideoEditNode 迷你预览/usePreviewPlayback 守卫）改 canvasSizeOf(data)
+// ⚠ R7-S5：CANVAS_W/CANVAS_H 在 canvas-renderer 内的消费点全列（机械改名会编译报错提示，但机械替换成
+// BASE_* 就能编译通过且 9:16 下画错——黑边不满/中心偏移/字幕错位；四处必须改用运行时 size）：
+//   :24 黑底 fillRect(0, 0, size.width, size.height)
+//   :34 overlay fillRect(0, 0, size.width, size.height)（toBlack/toWhite 全屏）
+//   :49 中心 translate(size.width / 2 + transform.x, size.height / 2 + transform.y)
+//   :70 字幕水平中心 fillText(line, size.width / 2, ...)（:65 y 同段已在上方注释）
+// CANVAS_W/CANVAS_H 仓内其余消费点（VideoEditNode 迷你预览/usePreviewPlayback 守卫）改 canvasSizeOf(data)
 ```
 
 subtitle-layout（R6-B10：按实物 `layoutSubtitleLines` 改造——加可选第四参 canvasSize，缺省基准既有行为逐位不变）：
@@ -1176,7 +1204,7 @@ export function estimateSizeBytes(canvasSize: { width: number; height: number },
 }
 ```
 
-调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`）。**⚠ worker 侧两处必须同源（R6-B11 修正：原"三处"之一不成立——worker 无显式 VideoEncoder 尺寸配置，编码尺寸由 mediabunny CanvasSource 从 OffscreenCanvas 隐式决定，全文件已核）**：① **OffscreenCanvas 创建尺寸 = targetSize**（:46，否则导出仍是画布分辨率、metadata 报的目标值与实际不符） ② `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)`（:48——逻辑坐标仍按 canvasSize 绘制，物理像素缩到 targetSize）。另 `ExportResolution` 类型从 precheck.ts 导出（`keyof typeof EXPORT_BITRATES`），client.ts/worker.ts/upload.ts/videoProjectApi.ts 四处 resolution 字段改 `ExportResolution` 引用；ExportModal Radio options（:133）加 `{ label: '480P', value: '480p' }`；capabilities 探测参数化（detectExportCapabilities 加第三参 `probeSize = { width: 1920, height: 1080 }`，:30 的 canEncodeVideo config 用 probeSize——默认值保既有单测不变，ExportModal 传 `computeExportSize(canvasSizeOf(data), '1080p')` 最坏档探测）；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
+调用点同步：ExportModal 的 `estimateSizeBytes(resolution, durationSec)` → `estimateSizeBytes(canvasSizeOf(data), resolution, durationSec)`；worker :43 的 `resolution === '720p' ? 0.5 : 1` 删除，改消费主线程传入的 `targetSize`（postMessage params 加 `targetSize: { width, height }`）。**⚠ worker 侧两处必须同源（R6-B11 修正：原"三处"之一不成立——worker 无显式 VideoEncoder 尺寸配置，编码尺寸由 mediabunny CanvasSource 从 OffscreenCanvas 隐式决定，全文件已核）**：① **OffscreenCanvas 创建尺寸 = targetSize**（:46，否则导出仍是画布分辨率、metadata 报的目标值与实际不符） ② `ctx.scale(targetSize.width / size.width, targetSize.height / size.height)`（:48——逻辑坐标仍按 canvasSize 绘制，物理像素缩到 targetSize）。另 `ExportResolution` 类型从 precheck.ts 导出（`keyof typeof EXPORT_BITRATES`），client.ts/worker.ts/upload.ts/videoProjectApi.ts 四处 resolution 字段改 `ExportResolution` 引用；ExportModal Radio options（:133）加 `{ label: '480P', value: '480p' }`；capabilities 探测参数化（R7 小项②：**第二参** probeSize——现签名 `detectExportCapabilities(deps?)` 只有一参（capabilities.ts:24），ExportModal.tsx:69 现无参调用；加 `probeSize = { width: 1920, height: 1080 }` 第二参，:30 的 canEncodeVideo config 用 probeSize——默认值保既有单测不变，ExportModal :69 调用点传 `computeExportSize(canvasSizeOf(data), '1080p')` 最坏档探测）；upload 的 register 入参带 `width/height`（Task 18 后端接收）。
 
 - [ ] **Step 3: 跑绿 + 既有 precheck 用例（18 组合 + estimate 签名变化的调用方修正）+ Commit**
 
@@ -1207,10 +1235,13 @@ it('metadata 落库含 width/height', async () => {
 - [ ] **Step 2: 跑红 → DTO 改造**
 
 ```ts
+// import 行（:2）同步补 Max（现无——R7 小项③）；width/height 带 @IsOptional()（与同段散文结论一致——
+// 单次发版前端随后补传，必填会 400 老前端）：
+import { ..., Max } from 'class-validator';
 @IsIn(['480p', '720p', '1080p']) resolution!: string;
 @IsNumber() @Min(0) @Max(900) durationSec!: number; // 15min 上限服务端同步（spec 5.5）
-@IsNumber() @Min(1) width!: number;    // 产物尺寸（metadata 存档——resolution 无法表达 9:16 的 1080×1920）
-@IsNumber() @Min(1) height!: number;
+@IsOptional() @IsNumber() @Min(1) width?: number;    // 产物尺寸（metadata 存档——resolution 无法表达 9:16 的 1080×1920）
+@IsOptional() @IsNumber() @Min(1) height?: number;
 ```
 
 generated-media.service register 的 metadata（:44）加 `width: input.width, height: input.height`；前端 upload.ts 的 registerGeneratedMedia 入参同步（width/height 来自 computeExportSize——批 6 ExportModal 重构时一并接，本任务后端先行不破前端：DTO 新增必填字段会影响现有前端调用！**部署顺序注意**：DTO 加必填 width/height 后老前端 400——故本任务与批 6 Task 20 的前端调用同 PR 合入，或字段暂设 `@IsOptional()`，批 6 落地后收紧。**取 @IsOptional() 方案**（单次发版，前端随后补传）。
@@ -1304,6 +1335,13 @@ export async function pickSaveTarget(
     return openOpfs();                                                 // 其余异常（含 SecurityError 降级）→ OPFS
   }
 }
+// R7-N3：画布路径专用——不弹 FSA picker 直接开 OPFS（无手势依赖，用户无需为"导出到画布"选本地保存位置）
+export async function openOpfsTarget(): Promise<SaveTarget> {
+  const root = await navigator.storage.getDirectory();
+  const handle = await root.getFileHandle(`export-${crypto.randomUUID()}.mp4`, { create: true });
+  sessionOpfsKeys.add(handle.name);
+  return { kind: 'opfs', handle };
+}
 // R6-B12：本会话创建的 OPFS key 登记（模块级）——本地路径 a.click() 是 fire-and-forget 不能即时
 // removeEntry（截断下载，R2④），成功清理延后到下次导出开头；无此 Set 则一天内连导 N 次留 N 份大文件
 // （24h 年龄阈值对本会话 key 过松）。陌生 key 仍按 24h 阈值清（防误删其他标签页在飞文件）。
@@ -1340,7 +1378,7 @@ git commit -m "feat(video-editor): 批6-1 SaveTarget 三态（canceled 中止/OP
 
 **Files:**
 - Modify: `components/ExportModal.tsx`（大改，重命名组件语义为导出 Popover 但文件名不变——精准修改）、`export/upload.ts`、`store/editorStore.ts`（补建节点 store）
-- Test: `ExportModal.test.tsx` 全面改写（**R6 必改子步骤 0：先重写 mock 工厂**——现 :13-17 mock 只导出 `{ runExportJob, pickSaveFile, ExportJobError }`，改用 pickSaveTarget 后 7 个用例整批 TypeError；mock 改为导出 `pickSaveTarget`（可按用例 mockResolvedValue 三态）+ `cleanupOpfsTarget`/`sessionOpfsKeys` 空实现 + `cleanupStaleOpfsExports` 空实现；jsdom 既无 showSaveFilePicker 也无 navigator.storage，组件测试一律走 mock 不触真实现——纯函数侧已由 Task 18 deps 注入用例覆盖）
+- Test: `ExportModal.test.tsx` 全面改写（**R6 必改子步骤 0：先重写 mock 工厂**——现 :13-17 mock 只导出 `{ runExportJob, pickSaveFile, ExportJobError }`，改用 pickSaveTarget 后 7 个用例整批 TypeError；mock 改为导出 `pickSaveTarget`（可按用例 mockResolvedValue 三态）+ `openOpfsTarget`（R7-N3 画布路径）+ `cleanupOpfsTarget`/`sessionOpfsKeys` 空实现 + `cleanupStaleOpfsExports` 空实现；jsdom 既无 showSaveFilePicker 也无 navigator.storage，组件测试一律走 mock 不触真实现——纯函数侧已由 Task 18 deps 注入用例覆盖）
 
 - [ ] **Step 0: 重写 ExportModal.test.tsx mock 工厂（上注）——先跑既有 7 用例确认 mock 缺口（红），再改写为 pickSaveTarget 三态 mock（组件用例按 destination/canceled/fsa 分支各配 mockResolvedValue）**
 
@@ -1355,8 +1393,12 @@ it('canceled → 不调 runExportJob 且提示「已取消导出，未开始编�
 it('导出中 Popover 不可外部关闭（open 受控 + onOpenChange 导出中拒绝）', () => {
   // phase exporting 时触发 onOpenChange(false) → open 保持 true
 });
-it('画布路径：编码完成 getFile 上传+建节点；本地路径：a[download] 且 revoke 延迟', async () => {
-  // mock 链路；本地路径断言 revokeObjectURL 在 click 后 >1s 或 download 事件后（vi.useFakeTimers）
+it('画布路径：不弹 FSA picker（直接 openOpfsTarget）→ 编码完成 getFile 上传+建节点+即时清理', async () => {
+  // mock openOpfsTarget 返回 opfs 句柄 → 断言 pickSaveTarget 未被调；上传后 cleanupOpfsTarget 被调
+});
+it('本地路径三分支（R7-N3）：FSA → worker 直写后不 a.click 不 createObjectURL；OPFS → a[download] 且 revoke 延迟', async () => {
+  // FSA：mock pickSaveTarget 返回 {kind:'fsa'} → 断言 URL.createObjectURL 未被调（双份文件防线）
+  // OPFS：mock 返回 {kind:'opfs'} → createObjectURL + a.click，revokeObjectURL 在 60s 后（vi.useFakeTimers）
 });
 it('上传成功建节点失败 → fail 态提示 + 重试按钮仅补建节点（不重复上传）', async () => {
   // mock createProductNode throw → store.pendingProduct 记录 {mediaId, title} → 重试只调 createProductNode
@@ -1377,37 +1419,45 @@ const startExport = async () => {
   if (startingRef.current) return; startingRef.current = true;   // 重入锁保留（I-1）
   try {
     // …既有守卫/precheck 不变…
-    // ⚠ 手势红线（spec D4）：pickSaveTarget 必须在点击处理器同步链内调用——showSaveFilePicker 需
-    // transient user activation（~5s 窗口），编码数分钟后的 await 链再调必抛 SecurityError。
-    // "目的地后置"仅指画布/本地分支在编码完成后分流，句柄获取始终在此处（手势内）。
-    // ⚠ R3 必改②：手势链上不得插入任何 await（含 OPFS 残留扫描——目录迭代+getFile 会耗尽激活窗口，
-    // 导致 picker 抛 SecurityError 被静默降级，违反本红线）。扫描放 job 起来之后 fire-and-forget：
-    const target = await pickSaveTarget(fileName);
+    // ⚠ R7-N3 必改：句柄获取按目的地分流（原"统一 FSA 优先"与目的地语义冲突——
+    //   画布+FSA：用户为"导出到画布"被迫选本地保存位置，磁盘留一份未索要的文件；
+    //   本地+FSA：worker StreamTarget 已直写所选位置，再 a.click() 触发浏览器下载 = 用户拿两份文件）：
+    //   · destination === 'canvas' → openOpfsTarget()（无手势依赖，不弹 picker）
+    //   · destination === 'local' → pickSaveTarget(fileName, { onDegraded })（FSA 优先）
+    // ⚠ 手势红线（spec D4，语义随分流收窄）：FSA picker 仅 local 路径调用，且必须在点击处理器同步链内
+    //   （showSaveFilePicker 需 transient user activation ~5s 窗口，编码数分钟后的 await 链再调必抛
+    //   SecurityError）。⚠ R3 必改②：手势链上不得插入任何 await（含 OPFS 残留扫描）。扫描放 job 起来之后：
+    const target = destination === 'canvas'
+      ? await openOpfsTarget()
+      : await pickSaveTarget(fileName, { onDegraded: () => { void message.info('未能打开保存对话框，已改用应用内中转'); } }); // R7-S2：onDegraded 接线——不接线则 R3② 的"不得静默降级"端到端落空
     if (target.kind === 'canceled') { void message.info('已取消导出，未开始编码'); return; } // P1-E
     const j = runExportJob({ data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
       { onProgress, onEta }, target.handle);
     void cleanupStaleOpfsExports(); // 编码期间顺带清理过期残留（fire-and-forget，try/catch 全包——Firefox 无痕 getDirectory 拒绝时静默跳过）
     setJob(j); setPhase('exporting'); armBeforeunload(); // ⚠ setJob(j) 必须保留（R4 必改③——现网 :101 同款；丢了则取消按钮 job?.cancel() 空转、进度区拿不到 job）
     try {
-      const r = await j.promise;
-      const file = r.fsa ? await target.handle.getFile() : r.blob;
+      await j.promise; // ExportJobResult.fsa = !!fsaWritable（OPFS 句柄亦真——磁盘中转统一判据，Task 18）
       if (destination === 'canvas') {
+        const file = await target.handle.getFile();              // 画布恒为 opfs 句柄——零内存读回
         const { mediaId } = await uploadExportedProduct({ ..., width: out.width, height: out.height, file });
         await publishProduct(mediaId, currentEditorProjectTitle() || '多轨剪辑'); // R3 必改③：set→create→clear 收拢一个 helper
         void message.success('导出完成，已添加到画布');
+      } else if (target.kind === 'fsa') {
+        void message.success('导出完成，已保存到所选位置');        // R7-N3：worker 已直写——不得再 a.click()（两份文件）
       } else {
+        const file = await target.handle.getFile();              // 本地无 FSA → OPFS 中转，读回触发下载
         const url = URL.createObjectURL(file);
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000); // 延迟 revoke——不抄同步 revoke 截断先例（spec 6.2）
-        // ⚠ 本地路径**不在此处 cleanupOpfsTarget**——a.click() 是 fire-and-forget，浏览器还在读 OPFS 文件时
-        // removeEntry 会截断下载（评审第 4 条竞态）。画布路径安全（upload 已 await 完成）。
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);      // 延迟 revoke——不抄同步 revoke 截断先例（spec 6.2）
+        // ⚠ 本地 OPFS 路径**不在此处 cleanupOpfsTarget**——a.click() 是 fire-and-forget，浏览器还在读
+        // OPFS 文件时 removeEntry 会截断下载。残留靠 sessionOpfsKeys 下次导出扫描清理（R6-B12）。
       }
       setOpen(false);
     } catch (err) {
       if (err instanceof ExportJobError && err.category === 'canceled') { setPhase('config'); return; } // 保留既有 canceled 分支（原 :111）——回 config 不关闭
       /* 既有 error 分辙（quotaHit 特判等）保留 */
     }
-    finally { setJob(null); disarmBeforeunload(); if (destination === 'canvas') void cleanupOpfsTarget(target); } // 仅画布路径即时清理
+    finally { setJob(null); disarmBeforeunload(); if (destination === 'canvas') void cleanupOpfsTarget(target); } // 画布路径即时清理（upload 已 await 无竞态；失败亦经此清不完整残留）
   } finally { startingRef.current = false; }
 };
 <Popover
@@ -1460,12 +1510,12 @@ const startExport = async () => {
 </Popover>
 ```
 
-结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写，**批 1 的 Shell 级归属断言同批把 `.ant-modal-wrap` 选择器改为 `.ant-popover`**（容器归属断言逻辑不变——否则批 6 落地留红灯）。OPFS 残留回收 `cleanupStaleOpfsExports()`（模块级：**① 先清 `sessionOpfsKeys` 全部 key（R6-B12——上次本地导出的下载早已完成，无年龄门槛；不清则一天连导 N 次留 N 份大文件）② 再迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h 的陌生 key → removeEntry（24h 门槛防误删其他标签页在飞文件）**；**整体 try/catch 静默**——Firefox 无痕模式 getDirectory 拒绝，不得影响导出主流程。迭代器 TS 形态直接用兜底写法：`for await (const name of (root as unknown as { keys(): AsyncIterableIterator<string> }).keys())`——TS DOM lib 的 keys() 类型如可直接用则去强转）——在 startExport 的 job 启动后 fire-and-forget（见上方 R3 必改②），替代本地路径的即时清理，兼收上次崩溃残留。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。
+结构落位（评审第 6 条定案，不留实现期决策）：**ExportPopover 归 EditorTopBar**——`ExportModal.tsx` 导出 `ExportPopover`，内部 Popover 的 children = EditorTopBar 的导出按钮（trigger）；**删除 Shell 的 `exportOpen` state 与 EditorTopBar 的 `onExport` prop**（Popover 自管 open），Shell 不再渲染 `<ExportModal>`；`EditorTopBar.test.tsx` / `VideoEditorShell.test.tsx` 中 onExport/exportOpen 相关断言同批改写，**批 1 的 Shell 级归属断言同批把 `.ant-modal-wrap` 选择器改为 `.ant-popover`**（容器归属断言逻辑不变——否则批 6 落地留红灯）。OPFS 残留回收 `cleanupStaleOpfsExports()`（模块级：**① 先清 `sessionOpfsKeys` 全部 key（R6-B12——上次本地导出的下载早已完成，无年龄门槛；不清则一天连导 N 次留 N 份大文件）② 再迭代根目录匹配 `export-*.mp4` 且 lastModified > 24h 的陌生 key → removeEntry（24h 门槛防误删其他标签页在飞文件）**；**整体 try/catch 静默**——Firefox 无痕模式 getDirectory 拒绝，不得影响导出主流程。迭代器 TS 形态直接用兜底写法：`for await (const name of (root as unknown as { keys(): AsyncIterableIterator<string> }).keys())`——TS DOM lib 的 keys() 类型如可直接用则去强转）——在 startExport 的 job 启动后 fire-and-forget（见上方 R3 必改②），替代本地路径的即时清理，兼收上次崩溃残留。**收起编辑器语义登记**：Popover 随壳卸载、导出继续、完成建节点（R2-N12 后台完成语义保持——beforeunload 模块级守卫已在批外保留）。**R7-S6 已知行为登记**：收起后 `message.success('导出完成，已添加到画布')` 的 holder 随 AntdApp/壳卸载而不存在——完成 toast 静默丢失（产物节点照建、验收项照绿），一期接受不加兜底（改静态 message 会脱离壳作用域暗色，为一条 toast 不值得双通道）。
 
 editorStore 补 + **publishProduct 模块级 helper**（R3 必改③：成功路径漏 clear 会让 pendingProduct 常驻 → 重试按钮常在 → 再点建重复节点。收拢一个入口，成功与重试共用）：
 
 ```ts
-// editorStore：
+// editorStore（R7 小项④：state 字段与两个 action 均进 EditorState 接口声明——同 setCanvasSize 惯例）：
 pendingProduct: null as { mediaId: string; title: string } | null,
 setPendingProduct: (p) => set({ pendingProduct: p }),
 clearPendingProduct: () => set({ pendingProduct: null }),
@@ -1493,8 +1543,9 @@ git commit -m "feat(video-editor): 批6-2 导出 Popover 化——目的地分�
 ### Task 20: confirm 终判 + clientRequestId 幂等 + TTL 回收
 
 **Files:**
-- Modify: `apps/api/src/modules/video-project/generated-media.service.ts`、`video-project.dto.ts`、`temp-cleanup.processor.ts`、`temp-cleanup.module.ts`（**R6-B13 必改：调度注册——现状 processor 是零入队者死代码**，全仓 grep 仅 constants/module/processor 三处引用、无 producer 无 repeat 注册，不补调度则"24h TTL 回收"只是纸面功能）、`generated-media.service.spec.ts`（:28 quota mock 只有 assertCanUpload——confirm 终判接入后补 assertOnConfirm mock）、`temp-cleanup.processor.spec.ts`（:41-45 断言 `{ type:'temp', expiresAt }` where——OR 扩展后同步）
-- Test: api 侧 service/processor 测试
+- Modify: `apps/api/src/modules/video-project/generated-media.service.ts`、`video-project.dto.ts`、`temp-cleanup.processor.ts`、`temp-cleanup.module.ts`（providers 注册调度服务——**R6-B13 必改：调度注册，现状 processor 是零入队者死代码**，全仓 grep 仅 constants/module/processor 三处引用、无 producer 无 repeat 注册，不补调度则"24h TTL 回收"只是纸面功能）、`generated-media.service.spec.ts`（:28 quota mock 只有 assertCanUpload——confirm 终判接入后补 assertOnConfirm mock）、`temp-cleanup.processor.spec.ts`（:41-45 断言 `{ type:'temp', expiresAt }` where——OR 扩展后同步）
+- Create: `apps/api/src/modules/temp-cleanup/temp-cleanup.scheduler.service.ts`（+spec——R7-S1：镜像 subscription-scheduler.service.ts 先例的独立 @Injectable() 调度服务，remove-then-add + tz:'UTC'）
+- Test: api 侧 service/processor/scheduler 测试
 
 > **R6-B13(1) 事实更正**：R2② 原记述"Media 无 updatedAt（schema :286-309 仅 createdAt/expiresAt）"**有误**——updatedAt 在 schema.prisma:315（模型跨 286-333；type/status 为 String 非 enum，@@index([expiresAt]) 在 :330）。**复用 expiresAt 的决定保留，理由更正**：storage-quota.service.ts:15-22 的 getUsage 只统计 `status:'completed', deletedAt:null`——pending 行天然不计配额，与 updatedAt 无关；expiresAt 既有语义（临时文件过期）与 generated pending 的 24h TTL 同字段同索引，OR 扩展复用最省。
 
@@ -1513,8 +1564,9 @@ it('TTL 回收 generated pending：expiresAt<now 删记录+删对象；confirm �
   // confirm 成功路径断言：media.update 含 expiresAt: null（completed 产物不进 24h 回收）
   // + generated-media.service.spec.ts 的 quota mock 补 assertOnConfirm（:28 现只有 assertCanUpload）
 });
-it('module 启动注册 hourly repeatable job（R6-B13(2)——processor 现状零入队者）', async () => {
-  // mock Queue：onModuleInit 后 add 被以 { repeat: { pattern: '17 * * * *' }, jobId: 'temp-cleanup-hourly' } 调用
+it('调度注册：先清旧 repeatable 再 add（镜像 subscription-scheduler 先例——R7-S1）', async () => {
+  // mock Queue（getRepeatableJobs 返回一条旧记录）：onModuleInit 后
+  // removeRepeatableByKey 被调（先于 add），add 被以 { repeat: { pattern: '17 * * * *', tz: 'UTC' }, jobId: 'temp-cleanup-hourly' } 调用
 });
 ```
 
@@ -1563,23 +1615,27 @@ const expiredMedias = await this.prisma.media.findMany({
 // 既有循环不动（已含 minio.delete + media.delete——generated pending 复用同删除路径）
 // 注意：confirm 成功路径要把 expiresAt 置 null（completed 产物不该被 24h 回收）——media.update({ data: { status: 'completed', size: actualSize, expiresAt: null } })
 
-// R6-B13(2) 必改：调度注册（现状 processor 零入队者——module 只 registerQueue 无 repeat 无 producer，死代码）。
-// temp-cleanup.module.ts 实现 OnModuleInit，注册 hourly repeatable job（BullMQ 按 name+repeat 配置幂等，多实例/重启不重复）：
-@Module({
-  imports: [BullModule.registerQueue({ name: TEMP_CLEANUP_QUEUE_NAME })],
-  providers: [TempCleanupProcessor],
-})
-export class TempCleanupModule implements OnModuleInit {
+// R6-B13(2) 必改 + R7-S1 修订：调度注册（现状 processor 零入队者——module 只 registerQueue 无 repeat 无 producer，死代码）。
+// 仓内已有完全对应先例：modules/subscription/task/subscription-scheduler.service.ts:12-29——
+// @Injectable() 独立调度服务（非 Module 类挂 OnModuleInit）+ 先 getRepeatableJobs/removeRepeatableByKey 清旧
+// （注释明示"avoid duplicates on restart"——反证"BullMQ 按 name+repeat 天然幂等"不成立，勿依赖）+ tz:'UTC'。
+// 镜像先例新建 temp-cleanup.scheduler.service.ts：
+@Injectable()
+export class TempCleanupSchedulerService implements OnModuleInit {
   constructor(@InjectQueue(TEMP_CLEANUP_QUEUE_NAME) private readonly queue: Queue) {}
-  async onModuleInit(): Promise<void> {
+  async onModuleInit() {
+    // Remove existing repeatable jobs to avoid duplicates on restart（先例同款——subscription-scheduler:13-18）
+    const jobs = await this.queue.getRepeatableJobs();
+    for (const job of jobs) await this.queue.removeRepeatableByKey(job.key);
     await this.queue.add('temp-cleanup', undefined, {
-      repeat: { pattern: '17 * * * *' },   // 每小时（避开整点扎堆，详见 CronCreate 同理）
-      jobId: 'temp-cleanup-hourly',        // 固定 jobId——防多实例重复注册
-    }).catch(() => undefined);             // Redis 不可达不阻断应用启动
+      repeat: { pattern: '17 * * * *', tz: 'UTC' },   // 每小时（避开整点扎堆）+ tz 显式（先例同款）
+      jobId: 'temp-cleanup-hourly',
+    });
   }
 }
+// temp-cleanup.module.ts：providers: [TempCleanupProcessor, TempCleanupSchedulerService]
 // processor 是 WorkerHost 子类（process(_job) 方法承接任意 job name）——无需改动承接侧。
-// TDD：module 单测 mock Queue 断言 add 被以 { repeat: { pattern } , jobId } 调用（新 temp-cleanup.module.spec.ts）。
+// TDD：scheduler 单测 mock Queue——断言 removeRepeatableByKey 先于 add 被调、add 以 { repeat: { pattern, tz:'UTC' }, jobId } 调用（新 temp-cleanup.scheduler.spec.ts）。
 ```
 
 前端 upload.ts 的 registerGeneratedMedia 入参带 `clientRequestId`（id 生命周期见上方 R4 必改①定案：一次导出尝试内复用、结束即清空）。
@@ -1596,7 +1652,7 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 ## 总验收清单（浏览器，全部通过后收尾）
 
 - [ ] 点导出 → Popover 可见且选项联动（文件名/位置/分辨率/格式 disabled）
-- [ ] 目的地=画布：导出→上传→画布产物节点出现；目的地=本地：浏览器下载完整 MP4（>1min 视频无截断）；**本地路径验收口径 = "下次导出后无 OPFS 残留"**（R6-B12 修订后成立：sessionOpfsKeys 登记本会话 key、下次导出开头扫描即清——不再依赖 24h 阈值等待；原"24h TTL 下即时无残留不可达"的矛盾已消除）
+- [ ] 目的地=画布：**不弹保存对话框**（R7-N3）→ 导出→上传→画布产物节点出现；目的地=本地：Chromium 弹保存框 → **所选位置文件完整可播且下载目录无第二份**（R7-N3：FSA 直写不 a.click）；非 Chromium → 浏览器下载完整 MP4（>1min 无截断）；**OPFS 残留验收口径 = "下次导出后无 OPFS 残留"**（R6-B12：sessionOpfsKeys 登记本会话 key、下次导出开头扫描即清；24h 阈值只管陌生 key）
 - [ ] FSA picker 取消 → 提示且零编码；非 Chromium（Firefox）→ OPFS 中转导出成功
 - [ ] 同会话连续两次导出（均成功）：两个产物节点指向**不同** media，第二次内容不覆盖第一次（R4 必改①回归）
 - [ ] 三栏拖拽调宽 + 时间轴满屏 + 刷新后尺寸保持
@@ -1630,6 +1686,20 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
   - **B13** Task 20 三处：updatedAt 事实更正（schema:315 实有——R2② 记述错误；复用 expiresAt 理由换为 getUsage 只统计 completed）+ temp-cleanup 调度注册子任务（现状零入队者死代码，module OnModuleInit 注册 hourly repeatable job + jobId 固定）+ 2 个 spec 文件入清单（processor.spec where 断言/generated spec quota mock 补 assertOnConfirm）。
   - 细节×4：editorStore:161 空注释步骤删除/140px 硬编码实为 3 处（补 PlayheadLine.tsx:10 入 TRACK_HEADER_W 替换）/标尺终点多渲 140px 表述更正/Task 14 补 EditorState 接口声明（仓内惯例）。
 - **R6 已核实消解**（评审对 plan 待核实点①的收敛）：react-resizable-panels v2 DOM 属性确为 data-panel-group-id/data-panel-id（v2 已发布包核对）——Task 5 断言选择器成立，剩 onLayout 首次挂载是否触发仍留实测。
+- **R7 修订（2026-09-12 plan 评审六轮·R6 修订版审核 4 阻断+6 建议+4 小项采纳，断言逐条对包类型/仓内文件一手复核）**：
+  - **N1** Task 10 poster 对齐 mediabunny@1.56.1 真实 API（d.ts 核实）：getCanvas 返回 WrappedCanvas{canvas,timestamp,duration}（:5414）**非 canvas 本身**——取 `frame.canvas`；InputOptions.formats **必填**（:2518）——`new Input({source, formats: ALL_FORMATS})` 与 video-cache.ts:175 同款；toJpegDataUrl 恒绘制进新 HTMLCanvasElement（归一化 OffscreenCanvas 联合，不早退返回 src）；mock 桩同步（返回 wrapped 对象 + ALL_FORMATS 占位）——原 R6 桩与实现同错会假绿。
+  - **N2** Task 9 dropIntoTrack 提升到 handleClipDrop **函数体顶部**（R6 版误放 if 块内——ESM 恒严格模式块内 function 声明是块级作用域，块外调用 Cannot find name，与自注"必须提升"矛盾）。
+  - **N3** Task 18/19 句柄获取按目的地分流（原"统一 FSA 优先"两冲突：本地+FSA 直写后再 a.click=用户拿两份文件；画布+FSA=为导画布被迫选本地位置且留垃圾文件）：画布→`openOpfsTarget()` 不弹 picker（OPFS 无手势依赖）；本地→pickSaveTarget（FSA 优先），FSA 分支直写完成后仅提示不 a.click，无 FSA→OPFS+a.click+延迟 revoke。D4 手势红线语义收窄（FSA picker 仅 local 路径手势内）。验收清单本地路径口径同步（FSA=所选位置文件且下载目录无第二份）。
+  - **N4** Task 7 补 `video-project.service.spec.ts:37-43`（断言默认 4 轨——全仓唯一断言默认轨的 api 测试，R6 漏列，单轨化必红）。
+  - **S1** Task 20 调度改镜像仓内先例 subscription-scheduler.service.ts:12-29（独立 @Injectable() 服务非 Module 挂 OnModuleInit；**先 getRepeatableJobs+removeRepeatableByKey 清旧再 add**——先例注释反证"BullMQ 按 name+repeat 天然幂等"不成立；tz:'UTC'）。
+  - **S2** Task 19 pickSaveTarget 调用点接线 onDegraded（+message.info 提示）——不接线则 R3②"不得静默降级"端到端落空。
+  - **S3** TRACK_HEADER_W 声明移 timeline/view-scale.ts（原 TimelinePanel.tsx 顶部——消费方 TimelineRuler/PlayheadLine 是其子组件，循环导入；view-scale 是纯常量模块且 PlayheadLine 已 import 之）。
+  - **S4** Task 5 onLayout 拖拽逐帧同步写 localStorage 改 ref 缓存 + PanelResizeHandle onDragging(false) 拖拽结束一次落盘（空写防护；"首次挂载覆盖 saved"随之无害化）。
+  - **S5** Task 15 canvas-renderer 基准消费点全列 :24/:34/:49/:70（机械替换 BASE_* 能编译但 9:16 画错——黑底/overlay fillRect、中心 translate、字幕水平中心四处必须用运行时 size）。
+  - **S6** 批 6 收起后完成 toast 随 AntdApp 卸载静默丢失——登记已知行为（产物节点照建；静态 message 兜底会脱离壳暗色，不为一条 toast 开双通道）。
+  - 小项×4：批 2 文件表补 Task 4 实涉 5 组件 + package.json/capabilities probeSize 明确为**第二参**（现签名一参，:69 无参调用）/Task 17 代码块补 @IsOptional() 与 Max import（与散文结论一致）/pendingProduct 补 EditorState 接口声明。
+  - **不采纳 1 项（理由登记）**：Task 5 断言改用 getPanelGroupElement(id) 的可选建议——`data-panel-group-id` 属性选择器已被 R7 评审对 v2 constants.d.ts（declarations/src/constants.d.ts）一手证实，而该 helper 在 2.1.9 的导出可用性反而未经证实，保守保留属性选择器。
+  - **toast 通道澄清补记（R7 第三节）**：批 1 修复同时覆盖 toast（message/useMessage.js:90 getContainer 链 + z=12010 同被壳覆盖）——Task 3 Step 2 补记为第二红点，批 2"toast 同暗色"前提成立依据。
 - **R4 修订（2026-09-12 plan 评审三轮 3 必改+4 建议+9 小项全采纳）**：①clientRequestId 生命周期收紧"一次导出尝试"（组件级 useRef 跨导出复用会静默毁首产物——幂等命中旧 key+content-length-range 钉死必 400）+ 幂等查询加 status:'pending'②拖拽分支全形态（不兼容轨一律改道+必须早退+newTrackType 勿硬编码+dropIntoTrack TDZ 提升声明）③骨架补回 setJob(j)（取消按钮防空转）。建议：横向默认 22/56/22 和=100+saved 惰性初始化/rAF single-flight+标尺 memo/吸附线 +TRACK_HEADER_W 同源/worker 三处同源（scale+OffscreenCanvas+encoder config）。小项：ensurePoster 补 mock 单测（TDD 铁律）/stale 注释与受控注释清理/ExportResolution 随码率表自动扩展/本地路径验收口径"下次导出后无残留"/幂等并发缺口登记接受项/.ant-tick 类名勘误+jsdom 滚动限制/publishProduct 删空壳 try/catch/壳 chrome 暗色目检。**R4 已核实消解**：canvas-controls 变量名✓（index.css:17-19）、addTrack 返回 id✓（:413）、createProductNode 同步✓、open 复位五项✓（:65-70）、手势链无隐藏 await✓（:88-93）、VideoEditNode 路径=components/nodes/VideoEditNode.tsx（Task 15 git add 范围 pages/canvas 勿缩）。
-- 已知实现期待核实点（R6 后剩 1 条）：① react-resizable-panels v2 onLayout 首次挂载是否即触发（防覆盖 saved——Task 5 装包后实测，DOM 属性名 data-panel-group-id/data-panel-id 已由 R6 评审对 v2 发布包核实成立）。原②（mediabunny sink 工厂）已消解——R6-B8 核实仓内无 openPosterSink，poster.ts 改自建（CanvasSink.getCanvas），测试 vi.mock('mediabunny') 对齐真实 API，无待核实面。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
+- 已知实现期待核实点（R7 后剩 1 条，已无害化）：① react-resizable-panels v2 onLayout 首次挂载是否即触发——S4 改 ref 缓存 + onDragging 落盘后，首次触发最多多 flush 一次等值数据（空写防护），不再有覆盖 saved 风险；装包后照实测登记即可。DOM 属性名已由 R6/R7 两轮对 v2 发布包核实成立。原②（mediabunny poster 接口）R7-N1 已按 d.ts 一手核实修正（frame.canvas + formats 必填），无待核实面。核实不符时以仓内实测为准并在 plan 勘误登记，不得硬套本 plan 代码。
 
