@@ -1,13 +1,14 @@
-# Spec: 多轨道剪辑器 UI/交互层深度改造（对齐 opencut）v1.0
+# Spec: 多轨道剪辑器 UI/交互层深度改造（对齐 opencut）v1.0-final
 
 > 2026-09-11 定稿。经五轮设计评审收敛（三轮外部评审断言全部一手验证后采纳）。
+> **2026-09-12 spec 审核冻结（v1.0-final）**：①antd 源码文件名勘误 useZOffset→`useZIndex.js` ②D4 补手势语义红线（FSA 句柄须在点击手势内获取，"后置"仅目的地分支决策——编码后调 picker 必抛 SecurityError）③批 3.2 回退取帧弃用播放 video-cache，改 sink 工厂一次性取帧（LRU 双帧窗口互斥静态海报）。审核者连带自纠：render-frame.test.ts:22-28 自建 tracks 不受单轨改动影响（夹具影响面收敛为 2 个文件）。
 > 本 spec 是 [video-editor.md](video-editor.md)（v3.6）的增量改造文档；对 v3.6 的 7 处条款反转见「附录 A 勘误登记」。
 
 ## 背景与目标
 
 现有剪辑器功能逻辑完备（store/scene/renderer/audio-engine/export 纯函数 + 测试覆盖），但 UI 交互壳简陋且存在两个阻塞级缺陷：
 
-1. **P0-A 层级缺陷**：编辑器壳 `z-[100000]`（BaseFullscreenModal.tsx:70）不透明覆盖，而 antd 弹层 z-index = `zIndexPopupBase(11000) + 100 = 11100`（App.tsx:11 + antd useZOffset 源码），且 Modal/message 静态方法 portal 到 body 不读调用方容器——**ExportModal、Modal.confirm（片段重拍）、全部 message.* 在编辑器内不可见**。用户症状即原始问题 12「点击导出没反应」的第一根因。
+1. **P0-A 层级缺陷**：编辑器壳 `z-[100000]`（BaseFullscreenModal.tsx:70）不透明覆盖，而 antd 弹层 z-index = `zIndexPopupBase(11000) + 100 = 11100`（App.tsx:11 + antd `es/_util/hooks/useZIndex.js`，CONTAINER_OFFSET=100 于该文件 :9），且 Modal/message 静态方法 portal 到 body 不读调用方容器——**ExportModal、Modal.confirm（片段重拍）、全部 message.* 在编辑器内不可见**。用户症状即原始问题 12「点击导出没反应」的第一根因。
 2. **P0-B 内存架构约束**：presign 通道仅有 POST 且 Conditions 锁 `content-length-range ±1024`（minio.service.ts），上传必须有磁盘背书的 File/Blob；15min 1080p ≈1.35GB，无磁盘中转（FSA StreamTarget，Plan 4 决策 4）必爆堆。**移除 FSA = 回退已拍板架构**。
 
 同时按用户需求对齐 opencut-classic（`docs/vendor/opencut-classic/`，MIT vendor 快照）的交互质量：暗色扁平、resizable 布局、帧缩略图、缩放锚定、点击入轨、比例选择等 12 项（见「附录 B 覆盖矩阵」）。
@@ -19,7 +20,7 @@
 | D1 | 整合策略 = **深度移植交互层**（时间轴交互算法/resizable 布局/缩略图方案移植；store 数据模型保留不换——换了破坏画布 Yjs 协作/自动连线/产物节点集成） |
 | D2 | 导出位置 = **画布（默认）/ 本地 二选一** |
 | D3 | 分辨率 = **480P / 720P（默认）/ 1080P 三档** |
-| D4 | 导出写盘 = **方案 A：磁盘中转保留（FSA 优先，OPFS 回退）+ 目的地选择后置到编码完成后**；原生 picker 退出关键路径 |
+| D4 | 导出写盘 = **方案 A：磁盘中转保留（FSA 优先，OPFS 回退）+ 「画布/本地」分支决策后置到编码完成后**。**手势语义（实现红线）**：磁盘句柄获取（FSA picker）仍在点击手势内完成——`showSaveFilePicker` 需 transient user activation，编码数分钟后的 await 链再调必抛 SecurityError（现状 ExportModal.tsx:93 即手势内调用）；"后置"的仅是目的地**分支决策**，picker 退出的是「唯一写盘通道」地位而非用户手势 |
 | D5 | 片段语义色 = **照搬 opencut 色表**（放弃 v3.6 亮色语义色，勘误②） |
 | D6 | 画布比例 = **C 档全量**：canvasSize 字段 + 6 档 + 全部消费方 + 新建可选默认 + 记忆（显式标注来源，不静默） |
 | D7 | 后端导出链缺陷（P1-D）= **纳入本次，独立批 7** |
@@ -67,7 +68,7 @@
 ### 3.2 帧缩略图（问题 4）
 - `MediaInfo` 加 `thumbnailUrl?` 字段——**setMediaInfo/mergeMediaInfo 三字段白名单同步加第四字段**（editorStore.ts:172-187，否则静默吞掉）。
 - 平铺：ClipBlock `background-image: url(thumbnailUrl)` + `background-repeat: repeat-x` + `background-size: auto 100%`（**素材固有比例，不写死 16/9**——opencut 写死会让竖版拉伸）；tile 未就绪时见 `background-color` 深色兜底（CSS 天然层序：底色常驻、tile 作 image 叠加，**零 JS 就绪分支**）。
-- 回退取帧按**常态分支**设计（画布「生成结果」素材无 thumbnailUrl——AssetPanel.tsx:138-139 只有文字占位——恰是最常见入轨素材）：复用 renderer/video-cache 取首帧；导出产物有缩略图（generated-media.service.ts:58-59 排队生成）。
+- 回退取帧按**常态分支**设计（画布「生成结果」素材无 thumbnailUrl——AssetPanel.tsx:138-139 只有文字占位——恰是最常见入轨素材）：**不走播放用 video-cache**（其为播放设计：媒体级 LRU 上限 + 播放头双帧窗口，给多片段取静态海报会互相淘汰反复重建 sink）——用同一 sink 工厂做**一次性**「t=0 首帧 → canvas → JPEG dataURL」写回 `MediaInfo.thumbnailUrl`（取一次即命中第四字段白名单；mediaInfo 不入 autosave——VideoEditorShell.tsx:58-59 只订阅 s.data——写回安全幂等）。导出产物有缩略图（generated-media.service.ts:58-59 排队生成）。
 
 ### 3.3 轨道色表（问题 1 关联，勘误②）
 - 本项目 Track 仅 3 类，色表映射：video → `background-color: #1f1f1f`（兜底底，tile 覆盖）、subtitle → `#5DBAA0`、audio → `#8F5DBA`。opencut 的 graphic `#BA5D7A` / effect `#5d93ba` 弃用（无对应轨类型）。
@@ -110,7 +111,7 @@
 ## 批 6｜导出改造（问题 12：P0-B 方案 A + P1-E + UI）
 
 ### 6.1 写盘通道（P0-B）
-- 编码始终磁盘中转：Chromium FSA StreamTarget（现状）；**非 Chromium/无手势场景 OPFS**（`navigator.storage.getDirectory()` 无需用户手势，Chrome/FF/Safari 16.4+）。
+- 编码始终磁盘中转：Chromium FSA StreamTarget（**句柄获取在点击手势内**，见 D4 手势语义红线）；**非 Chromium/无手势场景 OPFS**（`navigator.storage.getDirectory()` 无需用户手势，Chrome/FF/Safari 16.4+）。
 - **fastStart 判据改 `diskTarget != null`**（worker.ts:100 现为 `fsaWritable ? {fastStart:false} : auto`——漏改则 OPFS 走 auto → in-memory mux，P0-B 原样复活）。
 - OPFS 生命周期：随机 key；成功/失败/取消三条路径均 `removeEntry`（防磁盘垃圾）；OPFS 失败（配额/隐私模式）回退 BufferTarget + **内存警告前置到 UI 明示**（非仅 precheck 一行）。
 - **P1-E 三态**：`SaveTarget = {kind:'fsa', handle} | {kind:'opfs'} | {kind:'canceled'}`——canceled 必须中止（TDD：canceled → runExportJob 零调用）；现状三态压 null 后无条件继续 = 用户取消后白跑几分钟 CPU + 多出素材和节点（client.ts:15-23 + ExportModal.tsx:93）。canceled 给一行提示「已取消导出，未开始编码」。

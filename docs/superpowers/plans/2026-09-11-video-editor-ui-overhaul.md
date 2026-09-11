@@ -584,7 +584,22 @@ style={{
 // 文字标签色 text-[#4E5969] → text-white/85（tile 之上可读）
 ```
 
-回退取帧（thumbnailUrl 为空时，常态分支——生成结果素材无缩略图）：ClipBlock 层不处理；在 AssetPanel 回填链路补一步——素材入轨（addClip 后）若无 thumbnailUrl 且 mimeType 是 video/*，调 `renderer/video-cache.ts` 既有取帧能力取首帧 → `canvas.toDataURL('image/jpeg', 0.7)` → `setMediaInfo(mediaId, { thumbnailUrl })`。video-cache 接口以实测为准（Explore 报告确认其为 CanvasSink LRU）；若取帧接口需要 url+time，包装为 `ensureThumbnail(mediaId, url): Promise<string | null>` 放 `renderer/video-cache.ts`，失败返回 null 静默保持底色。
+回退取帧（thumbnailUrl 为空时，常态分支——生成结果素材无缩略图）：ClipBlock 层不处理；在 AssetPanel 回填链路补一步——素材入轨（addClip 后）若无 thumbnailUrl 且 mimeType 是 video/*，**用 mediabunny sink 工厂做一次性取帧**（spec v1.0-final 修正：不走播放用 video-cache——其为播放头双帧窗口 LRU 设计，多片段取静态海报会互相淘汰反复重建 sink）：
+
+```ts
+// 新增 renderer/poster.ts（一次性首帧海报，与播放缓存隔离）
+import { canvasFromMedia } from './canvas-renderer'; // sink 工厂以实测导入路径为准（openMediabunnySink/CanvasSink 所在模块）
+export async function ensurePoster(mediaId: string, url: string): Promise<string | null> {
+  try {
+    // 打开 mediabunny sink → 取 t=0 首帧 VideoSample → drawImage 到离屏 canvas（上限 320 宽，JPEG 0.7）
+    // → dataURL 返回；用后即关 sink（一次性，不进任何 LRU）
+    return dataUrl;
+  } catch { return null; } // 失败静默保持兜底底色（非致命路径）
+}
+// AssetPanel 入轨处：const poster = await ensurePoster(item.mediaId, item.url);
+// if (poster) useEditorStore.getState().setMediaInfo(item.mediaId, { thumbnailUrl: poster });
+// mediaInfo 不入 autosave（Shell 只订阅 s.data）——写回安全幂等（spec 批 3.2）
+```
 
 - [ ] **Step 3: 跑绿 + Commit**
 
@@ -1155,10 +1170,13 @@ const startExport = async () => {
   if (startingRef.current) return; startingRef.current = true;   // 重入锁保留（I-1）
   try {
     // …既有守卫/precheck 不变…
+    // ⚠ 手势红线（spec D4）：pickSaveTarget 必须在点击处理器同步链内调用——showSaveFilePicker 需
+    // transient user activation，编码数分钟后的 await 链再调必抛 SecurityError。
+    // "目的地后置"仅指画布/本地分支在编码完成后分流，句柄获取始终在此处（手势内）。
     const target = await pickSaveTarget(fileName);
     if (target.kind === 'canceled') { void message.info('已取消导出，未开始编码'); return; } // P1-E
     const j = runExportJob({ data, resolution, mediaUrls, targetSize: computeExportSize(canvasSizeOf(data), resolution) },
-      { onProgress, onEta }, target.kind === 'canceled' ? null : target.handle);
+      { onProgress, onEta }, target.handle);
     setPhase('exporting'); armBeforeunload();
     try {
       const r = await j.promise;
