@@ -75,7 +75,12 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
     if (!projectData || !canPreview) return;
     useVideoEditorStore.getState().startMiniPlayback(id); // 播 B 停 A（他节点经 miniNodeId 副责停）
     setMiniPlaying(true); // R4：置位必须先于 await——fireEvent.click 是同步 act，只 flush React 队列不 flush 用户 promise 续体，置位若在 await 后则点击返回时 miniPlaying 仍 false（用例 1 的画布断言/用例 4 的 IO 回调读 ref 同根因必红）；先置位=点击即时进播放态，URL 晚到首帧黑底、tick 每帧重读 mediaUrlsRef 到达后自动出画
-    if (mediaUrlsRef.current.size === 0) await loadMediaUrls(); // ref 已填充则跳过（R2：省重复 RTT 与重复签 URL）
+    // R2 陈旧收口（审查 Important）：按当前工程 mediaId 覆盖判断而非 size===0——
+    // 播过 → 编辑加素材 → 再播 的场景新素材无 url 会静默黑帧
+    const needIds = new Set(Object.values(projectData.clips).filter(c => c.type !== 'subtitle').map(c => c.mediaId));
+    let urlsStale = false;
+    for (const mid of needIds) if (!mediaUrlsRef.current.has(mid)) { urlsStale = true; break; }
+    if (urlsStale) await loadMediaUrls();
   };
 
   // 互斥：他节点接管 → 停

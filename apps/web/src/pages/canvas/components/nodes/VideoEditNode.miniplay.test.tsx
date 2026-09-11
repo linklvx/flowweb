@@ -3,14 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { VideoEditNode } from './VideoEditNode';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
-import { audioEngine } from '@/pages/canvas/video-editor/audio-engine/engine';
 import type { ProjectData } from '@/pages/canvas/video-editor/types';
 
 vi.mock('@/api/videoProjectApi', () => ({ getProjectByNode: vi.fn() }));
 import { getProjectByNode } from '@/api/videoProjectApi';
 vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn(async () => []) })); // G10：loadMediaUrls 不发真 fetch
 // 决策 16 后组件不 import audioEngine——无 engine mock（playback.ts 的 engine 依赖也不在本组件链上）
-vi.mock('@/pages/canvas/video-editor/renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) })); // 播放循环隔离（rAF polyfill 下 renderFrameAt 空转，mini-canvas 存续由 t<total 保证）
+vi.mock('@/pages/canvas/video-editor/renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) })); // 播放循环隔离（jsdom getContext 返回 null → 播放 effect 早退，rAF 循环实际不启动；renderFrameAt mock 防 deps 构造路径意外触发）
 vi.mock('@/pages/canvas/video-editor/renderer/video-cache', () => ({ videoCache: { release: vi.fn() } }));
 vi.mock('@/pages/canvas/video-editor/renderer/image-cache', () => ({ clearImageBitmaps: vi.fn(), getImageBitmap: vi.fn(async () => null) }));
 
@@ -89,5 +88,16 @@ describe('VideoEditNode 迷你播放（资源纪律）', () => {
     fireEvent.click(screen.getByTestId('node-play-btn'));
     rerender(<ReactFlowProvider><VideoEditNode {...props('n1', false)} /></ReactFlowProvider>);
     await waitFor(() => expect(screen.queryByTestId('node-mini-canvas')).not.toBeInTheDocument());
+  });
+
+  it('卸载（节点删除/画布卸载）中播放 → 停止并释放（资源纪律③——卸载清理 effect）', async () => {
+    const { videoCache } = await import('@/pages/canvas/video-editor/renderer/video-cache');
+    const { unmount } = renderNode();
+    await waitFor(() => expect(screen.getByTestId('node-track-thumb')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('node-play-btn'));
+    expect(screen.getByTestId('node-mini-canvas')).toBeInTheDocument();
+    (videoCache.release as ReturnType<typeof vi.fn>).mockClear();
+    unmount();
+    expect(videoCache.release).toHaveBeenCalled();
   });
 });
