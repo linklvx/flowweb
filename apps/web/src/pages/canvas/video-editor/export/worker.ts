@@ -94,17 +94,18 @@ async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffe
   const { Output, Mp4OutputFormat, CanvasSource, AudioSampleSource, AudioSample, BufferTarget, StreamTarget, canEncodeAudio } = await import('mediabunny');
   const canAac = () => canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: MIX_SAMPLE_RATE, bitrate: 128_000 }).catch(() => false);
 
-  // createWritable 是 Promise——"能不能写"判定前置 await；失败（句柄失效/权限撤销）→ 回退 BufferTarget
-  const fsaWritable = saveFileHandle ? await saveFileHandle.createWritable().catch(() => null) : null;
+  // createWritable 是 Promise——"能不能写"判定前置 await；失败（句柄失效/权限撤销）→ 回退 BufferTarget。
+  // 磁盘中转统一判据 diskWritable（FSA 或 OPFS 的 writable 同形）——漏改则 OPFS 走 auto = in-memory mux，P0-B 复活
+  const diskWritable = saveFileHandle ? await saveFileHandle.createWritable().catch(() => null) : null;
   let bufferResult: ArrayBuffer | null = null;
   const makeBufferTarget = () => new BufferTarget({ onFinalize: (buffer: ArrayBuffer) => { bufferResult = buffer; } });
   const createOutput = async (opts: { hasAudio: boolean }): Promise<ExportOutput> => {
-    // fastStart 显式——FSA 流式路径必须 false（moov 尾置顺序写，内存有界前提）；Buffer 路径默认 auto
-    const format = fsaWritable ? new Mp4OutputFormat({ fastStart: false }) : new Mp4OutputFormat();
+    // fastStart 显式——磁盘中转流式路径必须 false（moov 尾置顺序写，内存有界前提）；Buffer 路径默认 auto
+    const format = diskWritable ? new Mp4OutputFormat({ fastStart: false }) : new Mp4OutputFormat();
     let target: InstanceType<typeof BufferTarget> | InstanceType<typeof StreamTarget>;
-    if (fsaWritable) {
-      // FSA StreamTarget 流式直写（WritableStream<StreamTargetChunk> 适配 FileSystemWritableFileStream）
-      const writable = fsaWritable;
+    if (diskWritable) {
+      // 磁盘中转 StreamTarget 流式直写（WritableStream<StreamTargetChunk> 适配 FileSystemWritableFileStream）
+      const writable = diskWritable;
       target = new StreamTarget(new WritableStream<StreamTargetChunk>({
         async write(chunk) {
           await writable.write({ type: 'write', position: chunk.position, data: chunk.data });
@@ -192,8 +193,8 @@ async function runInWorker(params: WorkerRunParams, post: Post): Promise<{ buffe
     blobCache.clear(); // 源文件 blob 同弃——长工程多素材的堆占用不等到 terminate 才释放
   }
 
-  // fsa 标记随 done 回传——主线程据此择源（FSA 成功读文件 / 回退读 buffer）
-  return { buffer: bufferResult, fsa: !!fsaWritable };
+  // fsa 标记随 done 回传——主线程据此择源（磁盘中转成功读文件 / 回退读 buffer）；diskWritable 即真值来源
+  return { buffer: bufferResult, fsa: !!diskWritable };
 }
 
 // DOM lib 下 self 是 Window 类型——onmessage 赋值类型兼容，Worker 运行时 self 为 DedicatedWorkerGlobalScope；
