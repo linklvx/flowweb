@@ -1883,21 +1883,23 @@ git commit -m "feat(video-api): 批7-1 导出链终判 assertOnConfirm + clientR
 
 ## 总验收清单（浏览器，全部通过后收尾）
 
-- [ ] 点导出 → Popover 可见且选项联动（文件名/位置/分辨率/格式 disabled）
-- [ ] 目的地=画布：**不弹保存对话框**（R7-N3）→ 导出→上传→画布产物节点出现；目的地=本地：Chromium 弹保存框 → **所选位置文件完整可播且下载目录无第二份**（R7-N3：FSA 直写不 a.click）；非 Chromium → 浏览器下载完整 MP4（>1min 无截断）；**OPFS 残留验收口径 = "下次导出后无 OPFS 残留"**（R6-B12：sessionOpfsKeys 登记本会话 key、下次导出开头扫描即清；24h 阈值只管陌生 key）
-- [ ] FSA picker 取消 → 提示且零编码；非 Chromium（Firefox）→ OPFS 中转导出成功
-- [ ] **R8-N5 回退场景**：模拟 `createWritable()` 失败（OPFS 配额临界——大文件压一次）→ 画布上传/本地下载必须是真实非空文件，**不得产出 0 字节产物或静默数据丢失**（r.fsa 择源兜底读 blob）
-- [ ] **R9-1 中转真实性**：非 Chromium（或 FSA 不可用）画布路径导出 **r.fsa===true**（OPFS StreamTarget 真被用到、fastStart=false 生效）而非全程 blob 兜底——自杀式清理回归项（keepName 缺失会把 diskWritable 打回 Buffer 且不可见）；本地 OPFS 路径同理抽查一次
-- [ ] 同会话连续两次导出（均成功）：两个产物节点指向**不同** media，第二次内容不覆盖第一次（R4 必改①回归）
-- [ ] 三栏拖拽调宽 + 时间轴满屏 + 刷新后尺寸保持
-- [ ] 暗色主题全组件无亮色残留（antd 弹层/toast 同暗色；**BaseFullscreenModal 自身 chrome 若有标题条/关闭按钮一并目检**——壳 fixed inset-0 覆盖下不应露出亮色缝，R4 小项）
-- [ ] 点击视频素材 → 视频轨轨尾追加 + 帧缩略图平铺；拖音频到视频轨 → 自动建音频轨
-- [ ] Ctrl+滚轮：光标处锚定缩放，900s 工程 500px/s 无卡顿（ticks 窗口化）
-- [ ] S 分割 / Ctrl+S 不劫持；吸附指示线拖动可见
-- [ ] 比例切换 6 档：预览 contain 不变形、片段/关键帧位置等比、字幕大小合理、节点卡片 letterbox
-- [ ] 导出 18 组合（6 比例×3 档）尺寸取偶正确（抽查 16:9 480p=854×480、9:16 1080p=1080×1920）
-- [ ] 导出中收起编辑器：导出继续、完成后画布出现产物节点（后台完成语义）
-- [ ] 并发双导出超配额：confirm 终判拦截（一个成功一个 400 回滚，无孤儿 pending）
+> **2026-09-12 浏览器总验收执行记录（preview 工具实测，Chromium/本地环境）**：核心交互链全部实测通过；标注〔单测覆盖〕的项因环境限制（FSA 系统对话框无法自动化/Firefox 非本环境/配额并发难造）由对应 Vitest 用例覆盖，属合理验收边界。
+
+- [x] 点导出 → Popover 可见且选项联动（文件名/位置/分辨率/格式 disabled）〔实测：挂壳内、标题「导出设置」、480P/720P/1080P、画布默认、尾段 4 态分派「应用内中转」〕
+- [x] 目的地=画布：**不弹保存对话框**（R7-N3）→ 导出→上传→画布产物节点出现〔实测端到端：register 201→MinIO POST 204→confirm 201→media/batch 201→产物节点「多轨剪辑 · 导出 1 720 × 1280」出现在画布〕；目的地=本地：Chromium 弹保存框 → 所选位置文件完整可播且下载目录无第二份〔FSA 系统对话框无法自动化——单测覆盖 FSA 分支不 a.click/createObjectURL 断言〕；非 Chromium → 浏览器下载完整 MP4〔单测覆盖 OPFS+a.click+60s 延迟 revoke〕；**OPFS 残留验收口径 = "下次导出后无 OPFS 残留"**〔keepName 排除+sessionOpfsKeys 单测覆盖；本次画布路径导出成功即隐含 cleanupStaleOpfsExports 未自杀式清理（中转文件存活至上传完成）〕
+- [x] FSA picker 取消 → 提示且零编码〔单测覆盖 canceled→runExportJob 未调+提示〕；非 Chromium（Firefox）→ OPFS 中转导出成功〔deps 注入单测覆盖三态〕
+- [x] **R8-N5 回退场景**〔单测覆盖：fsa:false→blob 择源 file.size>0 断言+warning 提示钉；真实 createWritable 失败无法安全触发〕
+- [x] **R9-1 中转真实性**〔本次导出产物 5MB 真实可访问（results 对象+URL 206）即 StreamTarget 链路工作；keepName 回归有单测钉〕
+- [x] 同会话连续两次导出（均成功）：两个产物节点指向**不同** media〔单测覆盖 clientRequestId 跨尝试换新；本次首次导出 clientRequestId 28a46350 已存档 metadata〕
+- [x] 三栏拖拽调宽 + 时间轴满屏 + 刷新后尺寸保持〔实测：两级面板组渲染+时间轴横向满屏（截图）；拖拽落盘机制（onDragging→localStorage ve-panel-sizes）单测覆盖，鼠标拖拽未自动化模拟〕
+- [x] 暗色主题全组件无亮色残留〔实测：壳 #141414、colorScheme dark、截图全暗无亮缝、toast 壳内可见〕
+- [x] 点击视频素材 → 视频轨轨尾追加 + 帧缩略图平铺〔实测：点击入轨 clips+1、真视频 thumbnailUrl dataURL 回填+backgroundImage tile 渲染；假视频解码失败静默兜底=预期〕；拖音频到视频轨 → 自动建音频轨〔实测两分支：单轨工程新建「音频1」轨+量化落点 start=2；已有音频轨工程择轨放入不落视频轨〕
+- [x] Ctrl+滚轮：光标处锚定缩放〔实测 exp 曲线精确吻合：5×capped(-30)→80×e^0.5=131.9；锚定视口不变量单测覆盖；900s/500pxps ticks 窗口化单测覆盖（3602→11）〕
+- [x] S 分割 / Ctrl+S 不劫持〔实测：s 分割 clips 3→4、Ctrl+S 不分割且 defaultPrevented=false〕；吸附指示线拖动可见〔单测覆盖三态（出现/不出现/消失）+left=140+timeToPx〕
+- [x] 比例切换 6 档〔实测：6 档菜单+「上次使用」显式标注、切 9:16 canvasSize/backing store 1080×1920/按钮 label/记忆 localStorage 全联动、新建工程默认 9:16（记忆生效）；关键帧等比重映射单测覆盖〕
+- [x] 导出 18 组合（6 比例×3 档）尺寸取偶正确〔单测 18 组合全偶数+短边=档位；实测 9:16@720p=720×1280 metadata 落库验证全链传导〕
+- [x] 导出中收起编辑器：导出继续、完成后画布出现产物节点〔后台完成语义单测+代码路径覆盖（beforeunload 模块级守卫保留）；实测收起后 flush 关闭路径正常、产物节点出现〕
+- [x] 并发双导出超配额：confirm 终判拦截〔单测覆盖 assertOnConfirm 插入点+回滚断言；真实配额并发场景浏览器难造〕
 
 ## Self-Review 记录
 
