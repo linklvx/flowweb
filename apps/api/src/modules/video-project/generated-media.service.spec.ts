@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { GeneratedMediaService } from './generated-media.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
@@ -16,7 +16,7 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
 
   beforeEach(() => {
     prisma = {
-      media: { create: vi.fn().mockResolvedValue({ id: 'm1' }), findUnique: vi.fn(), update: vi.fn().mockResolvedValue({ id: 'm1' }) },
+      media: { create: vi.fn().mockResolvedValue({ id: 'm1' }), findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue({ id: 'm1' }) },
       canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     };
     minio = {
@@ -25,7 +25,7 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
       // statSize 是新方法：内部消化 HeadObjectCommand 的 ContentLength，直接返回数字
       statSize: vi.fn().mockResolvedValue(12_345_678),
     };
-    quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined) };
+    quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertOnConfirm: vi.fn().mockResolvedValue(undefined) };
     perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
     thumb = { add: vi.fn().mockResolvedValue(undefined) };
     svc = new GeneratedMediaService(prisma, minio, quota, perm, thumb);
@@ -66,6 +66,56 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
   it('confirm: 归属校验失败拒绝', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other' });
     await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow(ForbiddenException);
+  });
+
+  // —— 批7-1（P1-D）：confirm 终判 + clientRequestId 幂等 + generated pending 24h TTL ——
+
+  it('confirm 超限回滚：assertOnConfirm 抛（其内部已删对象+删行）→ BadRequestException 传播且 thumbnailQueue.add 未被调（插入点在 add 之前——缩略图不得指向死行）', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', bucket: 'flowai', metadata: { durationSec: 30 } });
+    quota.assertOnConfirm.mockRejectedValue(new BadRequestException('存储空间不足，上传已取消'));
+    await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow(BadRequestException);
+    expect(quota.assertOnConfirm).toHaveBeenCalledWith('m1', 12_345_678, 'k.mp4', 'flowai'); // actualSize=statSize 终判口径
+    expect(thumb.add).not.toHaveBeenCalled();
+    expect(prisma.media.update).not.toHaveBeenCalled(); // 行已被 assertOnConfirm 删——再 update 即 P2025
+  });
+
+  it('register 幂等：同 clientRequestId 返回同一条 Media（不新建行、不重估配额——插入点在 assertCanUpload 之前重试不被二次拦截；assertEditor 权限门不绕过）', async () => {
+    prisma.media.findFirst.mockResolvedValue({ id: 'm0', key: 'k0.mp4', size: 100 });
+    const r = await svc.register({ ...base, actualSize: 100, clientRequestId: 'req-1' });
+    expect(perm.assertEditor).toHaveBeenCalledWith('w1', 'u1'); // 幂等分支仍在编辑器门之后
+    expect(prisma.media.findFirst).toHaveBeenCalledWith({
+      where: {
+        userId: 'u1', // R18②：作用域化——防枚举他人 clientRequestId 命中他人 pending 行
+        metadata: { path: ['clientRequestId'], equals: 'req-1' },
+        status: 'pending', // completed 同 id 命中即语义错误（复用旧产物=静默覆盖首产物 key）
+      },
+    });
+    expect(r.mediaId).toBe('m0');
+    expect(minio.generatePresignedPost).toHaveBeenCalledWith('k0.mp4', 'video/mp4', 100);
+    expect(prisma.media.create).not.toHaveBeenCalled();
+    expect(quota.assertCanUpload).not.toHaveBeenCalled();
+  });
+
+  it('register 写 expiresAt = now+24h（generated pending 24h TTL 回收）', async () => {
+    await svc.register({ ...base, actualSize: 100 });
+    const expiresAt = prisma.media.create.mock.calls[0][0].data.expiresAt as Date;
+    expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + 23 * 3600_000);
+  });
+
+  it('register 落 metadata.clientRequestId（幂等查询的写侧——find 过滤 path clientRequestId 必须有持久化来源）', async () => {
+    await svc.register({ ...base, actualSize: 100, clientRequestId: 'req-2' });
+    expect(prisma.media.findFirst).toHaveBeenCalled();
+    expect(prisma.media.create.mock.calls[0][0].data.metadata).toEqual(
+      { origin: 'video-project', videoProjectId: 'p1', resolution: '1080p', durationSec: 60, clientRequestId: 'req-2' });
+  });
+
+  it('confirm 成功置 expiresAt=null（completed 产物不进 24h 回收）', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', bucket: 'flowai', metadata: { durationSec: 30 } });
+    await svc.confirm('u1', { mediaId: 'm1' });
+    expect(prisma.media.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'm1' },
+      data: expect.objectContaining({ status: 'completed', expiresAt: null }),
+    }));
   });
 
   // provider 级 DI 冒烟（本仓惯例 getQueueToken 模式）——整模块 compile 会撞 ExecutionModule/CollabModule 的

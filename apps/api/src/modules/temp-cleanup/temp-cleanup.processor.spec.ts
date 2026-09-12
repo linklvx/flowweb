@@ -40,11 +40,14 @@ describe('TempCleanupProcessor', () => {
 
     expect(prisma.media.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          type: 'temp',
+        // R18③：精确对象（objectContaining 里的 type:'temp' 单字段会"回绿但 OR 分支零覆盖"）——
+        // temp 与 generated pending 共用 expiresAt 过期语义，completed 产物豁免
+        where: {
           expiresAt: expect.any(Object),
-        }),
+          OR: [{ type: 'temp' }, { type: 'generated', status: 'pending' }],
+        },
         take: 1000,
+        select: { id: true, key: true },
       }),
     );
     expect(minio.delete).toHaveBeenCalledTimes(2);

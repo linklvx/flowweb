@@ -66,6 +66,10 @@ export function ExportPopover() {
   const [job, setJob] = useState<{ cancel(): void } | null>(null);
   const startingRef = useRef(false); // I-1：入口同步锁——pickSaveTarget await 窗口防重入（双击=双 Worker 双上传双配额）
   const quotaReqRef = useRef(0); // R4-10：配额预检请求序号（切档竞态守卫）
+  // R5①/R19①：本次导出尝试的幂等键——ref 而非 state（不触发渲染）；声明在组件体（事件处理器内 useRef 必抛
+  // Invalid hook call）。外层 finally 置 null 防跨尝试复用——复用旧 id 命中服务端幂等拿首产物 key/size：
+  // 覆盖首产物 + content-length-range 钉死旧体积 → MinIO 400
+  const exportReqIdRef = useRef<string | null>(null);
 
   const durationSec = useMemo(() => (data ? totalDuration(data) : 0), [data]);
   const sizeBytes = useMemo(() => estimateSizeBytes(canvasSizeOf(data), resolution, durationSec), [data, resolution, durationSec]);
@@ -144,7 +148,8 @@ export function ExportPopover() {
         if (!r.fsa) void message.warning('已回退内存缓冲（磁盘直写不可用），本次导出占用内存较高'); // R13 决策⑥
         if (destination === 'canvas') {
           const file = r.fsa ? await target.handle.getFile() : r.blob; // R8-N5 择源——回退 Buffer 时读 blob（防 0 字节静默上传）
-          const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, width: out.width, height: out.height, file });
+          const reqId = (exportReqIdRef.current ??= crypto.randomUUID()); // 首次生成；同尝试内 register 重试复用同幂等键（R19①）
+          const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, width: out.width, height: out.height, file, clientRequestId: reqId });
           await publishProduct(mediaId, currentEditorProjectTitle() || '多轨剪辑'); // R3③ 收拢 helper（建节点失败 → fail 态 + 重试仅补建）
           void message.success('导出完成，已添加到画布');
         } else if (target.kind === 'fsa' && r.fsa) {
@@ -169,7 +174,7 @@ export function ExportPopover() {
     } catch (err) {
       // R8-N7：前置段会抛——openOpfsTarget/pickSaveTarget 的 OPFS 打开在 Firefox 无痕等场景 reject，不兜则 unhandled rejection
       onExportFail(err);
-    } finally { startingRef.current = false; }
+    } finally { startingRef.current = false; exportReqIdRef.current = null; } // 幂等键随尝试结束作废（R16②跨尝试换新）
   };
 
   return (

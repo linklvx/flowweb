@@ -3,13 +3,14 @@ import axios from 'axios';
 import type { ExportResolution } from '@flowweb/shared';
 import { registerGeneratedMedia, confirmGeneratedMedia } from '@/api/videoProjectApi';
 
-export interface UploadProductInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width: number; height: number; file: Blob | File; }
+export interface UploadProductInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width: number; height: number; file: Blob | File; clientRequestId: string; }
 
 /** 编码完成后登记（actualSize 过配额终判；width/height 尺寸存档——resolution 无法表达 9:16 的 1080×1920，
  *  R13① 必填防第二求值点）→ presigned POST 浏览器 FormData 直传（零新依赖）→ confirm 实际大小落库+缩略图。
- *  File（FSA getFile 零内存读回）与 Blob 同走 FormData。 */
+ *  File（FSA getFile 零内存读回）与 Blob 同走 FormData。
+ *  register 失败重试一次（R19①）：同 clientRequestId 原参再调——网络抖动重入命中服务端幂等分支返回同一 Media，零重编码成本。 */
 export async function uploadExportedProduct(input: UploadProductInput): Promise<{ mediaId: string }> {
-  const { mediaId, upload } = await registerGeneratedMedia({
+  const registerReq = {
     workflowId: input.workflowId,
     videoProjectId: input.videoProjectId,
     resolution: input.resolution,
@@ -17,7 +18,15 @@ export async function uploadExportedProduct(input: UploadProductInput): Promise<
     width: input.width,
     height: input.height,
     actualSize: input.file.size,
-  });
+    clientRequestId: input.clientRequestId,
+  };
+  let result;
+  try {
+    result = await registerGeneratedMedia(registerReq);
+  } catch {
+    result = await registerGeneratedMedia(registerReq);
+  }
+  const { mediaId, upload } = result;
   const fd = new FormData();
   Object.entries(upload.fields).forEach(([k, v]) => fd.append(k, v));
   fd.append('file', input.file);

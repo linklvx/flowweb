@@ -25,6 +25,7 @@ export class RegisterGeneratedDto {
   @IsOptional() @IsNumber() @Min(1) width?: number;  // 产物尺寸（metadata 存档——resolution 无法表达 9:16 的 1080×1920）；可选防老前端 400
   @IsOptional() @IsNumber() @Min(1) height?: number;
   @IsNumber() actualSize!: number; // 编码后真实字节（presigned POST ±1024 Conditions 要求）
+  @IsOptional() @IsString() clientRequestId?: string; // 幂等键（同 id 重入返回同 Media——不显式声明会被 whitelist 静默剥离）
 }
 export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
 export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }

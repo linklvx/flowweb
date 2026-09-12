@@ -25,8 +25,24 @@ export class GeneratedMediaService {
    * teamId 服务端从 workflowId 派生（assertCanUpload 无成员校验——客户端传他团 teamId
    * 会打他团配额并把产物记到他团名下；对齐 storage.service.presignUpload 的 projectId 派生先例）。
    */
-  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number; width?: number; height?: number }) {
+  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number; width?: number; height?: number; clientRequestId?: string }) {
     await this.perm.assertEditor(input.workflowId, input.userId);
+    // 幂等重入（P1-D）：同 clientRequestId 的 register 重试返回同一 Media/presigned——插入点在
+    // project 查询与 assertCanUpload 之前（插后者重试被二次配额拦截）、assertEditor 之后（不得绕过权限门）；
+    // userId 作用域化防枚举他人 clientRequestId 命中他人 pending 行（R18②）
+    if (input.clientRequestId) {
+      const existing = await this.prisma.media.findFirst({
+        where: {
+          userId: input.userId,
+          metadata: { path: ['clientRequestId'], equals: input.clientRequestId },
+          status: 'pending', // completed 同 id 命中即语义错误（复用旧产物=第二次导出静默覆盖首产物 key）
+        },
+      });
+      if (existing) {
+        const upload = await this.minio.generatePresignedPost(existing.key, 'video/mp4', existing.size);
+        return { mediaId: existing.id, upload };
+      }
+    }
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: input.workflowId },
       select: { teamId: true },
@@ -41,7 +57,8 @@ export class GeneratedMediaService {
         bucket: 'flowai', key, originalName: `export-${input.resolution}.mp4`,
         mimeType: 'video/mp4', size: input.actualSize,
         type: 'generated', status: 'pending',
-        metadata: { origin: 'video-project', videoProjectId: input.videoProjectId, resolution: input.resolution, durationSec: input.durationSec, width: input.width, height: input.height },
+        expiresAt: new Date(Date.now() + 24 * 3600_000), // 对象未 confirm 前可回收（temp-cleanup 按 expiresAt 扫 generated pending）
+        metadata: { origin: 'video-project', videoProjectId: input.videoProjectId, resolution: input.resolution, durationSec: input.durationSec, width: input.width, height: input.height, clientRequestId: input.clientRequestId },
       },
     });
     const upload = await this.minio.generatePresignedPost(key, 'video/mp4', input.actualSize);
@@ -53,13 +70,16 @@ export class GeneratedMediaService {
     const media = await this.prisma.media.findUnique({ where: { id: dto.mediaId } });
     if (!media || media.userId !== userId) throw new ForbiddenException('media not found');
     const actualSize = await this.minio.statSize(media.key); // 统一口径（ContentLength ?? 0）——stats.size 不存在，真机必 undefined
+    // 配额终判（Q7）：插 statSize 后、thumbnailQueue.add 前——超限时 assertOnConfirm 内部已删对象+删行，
+    // 插 add 后缩略图任务指向死行、插 update 后 P2025（R13④）
+    await this.quota.assertOnConfirm(media.id, actualSize, media.key, media.bucket);
     const durationSec = Number((media.metadata as any)?.durationSec ?? 0);
     const seekSec = Math.max(1, durationSec * 0.1); // 防前导黑场黑帧；consumer 需支持可选 seekSec（默认 1 保持旧行为）
     await this.thumbnailQueue.add('generate-thumbnail',
       { mediaId: media.id, key: media.key, mimeType: 'video/mp4', seekSec });
     return this.prisma.media.update({
       where: { id: media.id },
-      data: { status: 'completed', size: actualSize },
+      data: { status: 'completed', size: actualSize, expiresAt: null }, // completed 不进 24h 回收
     });
   }
 }

@@ -17,11 +17,11 @@ export class TempCleanupProcessor extends WorkerHost {
   }
 
   async process(_job: Job): Promise<{ cleaned: number }> {
-    // 1. Find expired temp files
+    // 1. Find expired temp files（P1-D：generated pending 共用 expiresAt 过期语义——completed 置 expiresAt=null 豁免）
     const expiredMedias = await this.prisma.media.findMany({
       where: {
-        type: 'temp',
         expiresAt: { lt: new Date() },
+        OR: [{ type: 'temp' }, { type: 'generated', status: 'pending' }],
       },
       take: 1000,
       select: { id: true, key: true },

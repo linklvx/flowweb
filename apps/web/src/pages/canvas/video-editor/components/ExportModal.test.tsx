@@ -235,6 +235,23 @@ describe('ExportPopover（导出弹层）', () => {
     expect(screen.getByTestId('export-config')).toBeTruthy(); // phase 回 config，弹层仍可交互
     expect(runJob).not.toHaveBeenCalled();
   });
+
+  it('clientRequestId 每次导出尝试独立：跨尝试换新（防组件级长期复用——复用旧 id 命中幂等拿首产物 key/size → 覆盖首产物 + content-length-range 钉死 → MinIO 400）', async () => {
+    await openPopover();
+    let btn = await enableStart();
+    fireEvent.click(btn);
+    await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
+    const first = uploadMock.mock.calls[0][0].clientRequestId;
+    expect(first).toBeTruthy();
+    // 第一次成功已收起——重开第二次导出（走完取第二次的值）
+    fireEvent.click(await screen.findByTestId('export-trigger'));
+    btn = await enableStart();
+    fireEvent.click(btn);
+    await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(2));
+    const second = uploadMock.mock.calls[1][0].clientRequestId;
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first); // R5①/R16②：跨尝试必须换新
+  });
 });
 
 // —— 既有 ExportModal 7 用例语义迁移（R10-1 渲染约定 / R9-6 按钮查询 / R13② 大写档位文案）——
