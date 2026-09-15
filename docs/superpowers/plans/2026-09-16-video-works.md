@@ -14,6 +14,259 @@
 
 ---
 
+## ⚠️ 执行前必读：落地约定与勘误（本节优先于正文片段，冲突处以本节为准）
+
+> 本节经三轮 plan 审核核定，修正正文代码片段与仓库真实 API 的偏差。**执行任何任务前先通读本节**；正文相应片段不再逐一回改，以本节代码为准。
+
+### C1. 全局落地约定（4 条，覆盖多数阻断项）
+
+| # | 约定 | 依据 |
+|---|---|---|
+| C1-1 | **前端 API 调用一律不带 `/api` 前缀**：`apiFetch('/video-works?...')`（client.ts:1 `BASE_URL='/api'` 已内置）。正文所有 `apiFetch(\`/api/video-works...\`)` 去掉 `/api`。**唯一例外**：multipart 上传不能走 apiFetch（硬编码 JSON Content-Type 冲掉 boundary）——用裸 `fetch('/api/admin/video-works/upload-cover', { method:'POST', body: formData, credentials:'include' })`，响应解析 `body.data ?? body`（先例 adminApi.ts:133-144 注释明写） | client.ts:1,11；mediaApi.ts:4 |
+| C1-2 | **测试双栈约定**：api 侧 `import { describe, it, expect, beforeEach, vi } from 'vitest'` + `vi.fn()`（正文所有 `jest.fn()/jest.Mock` 替换为 `vi.fn()` / `import type { Mock } from 'vitest'`——api 跑 tsc，`jest` 未定义直接编译红）；web 侧路由导入一律 `from 'react-router'`（**react-router-dom 包不存在**，web/package.json 只有 react-router@^7；MemoryRouter/createMemoryRouter/RouterProvider/useParams/useNavigate/useLocation 全部从 react-router 导出） | api package.json:8；media.service.spec.ts:2；web package.json:39 |
+| C1-3 | **全屏壳（z-[100000]）内禁用 antd 静态方法**：静态 `message.success/error/warning` 落 z≈11100 被壳盖住（App.tsx:11 zIndexPopupBase 11000）。壳内组件统一 `import { App as AntdApp } from 'antd'` + `const { message } = AntdApp.useApp()`（先例 AssetPanel.tsx:34 注释、ExportModal.tsx:52）。**实施强化（D18）**：嵌套 ConfigProvider（zIndexPopupBase:100000）从"只包 LoginModal"提升为**包住 VideoPlayerModal 全部内容**——一次抬高壳内所有 antd 弹层（登录框/toast/校验）。测试需 `<AntdApp>` 包裹或 stub message（先例 ExportModal.test.tsx:7 注释警告）。另：**Esc 双关守卫**——LoginModal 的 Esc 关闭后事件仍达 document 监听会连关播放 Modal，VideoPlayerModal 的 close 回调首行加 `if (showLogin) { setShowLogin(false); return; }` | AssetPanel.tsx:34；BaseFullscreenModal.tsx:51-64 |
+| C1-4 | **关键组件真实 API**：MinIO 写对象是 `this.minio.upload(key, buffer, contentType)`（**无 putObject/uploadBuffer**）；上传键一律 `this.minio.buildKey('uploaded', 'system', { ext })` → `uploads/system/{date}/{uuid}.{ext}`（内置 randomUUID，与 D17 白名单精确对齐，**勿手拼 key 勿用 uuid 包**——该包非依赖，仓库用 node:crypto）。`isLoggedIn()` 不存在——用 `const { user } = useAuth()` 判 `!user`（AuthProvider.tsx:17-23，App.tsx:16 AuthProvider 包住 RouterProvider，公开路由可用 hook）。EmptyState/CardGridSkeleton 是 **workspace 私有组件**（pages/workspace/components/，EmptyState 必填 variant+onAction）——/videos 不复用，内联 ≤5 行空态/骨架（D2 孤岛） | minio.service.ts:46-57,105；admin-banner.controller.ts:27-57；nodeStore 类型真值 |
+
+### C2. 正文代码块勘误（按 Task 序）
+
+**Task 1.1 Step 4**：shadow-database 命令的 `\|\| echo` 兜底会把失败变"假成功"——改为断言 diff 输出为空：
+
+```bash
+cd apps/api
+DIFF=$(pnpm exec prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url "$SHADOW_URL" 2>&1)
+[ -z "$DIFF" ] && echo "OK: 零差异" || { echo "FAIL: $DIFF"; exit 1; }
+```
+
+（Windows 本机执行注记：Task 0.1/1.1/11.2 中 `grep|cut|sed`/`$(...)` 为 bash-only，本机 bash 可用；若换 PowerShell 需等价改写。）**另**：Step 3 预期文案"含 5 张表 DDL"应为"4 张表 + 1 enum + Media 索引"。
+
+**Task 1.3**：module 骨架**先建 `video-work-clone.service.ts` 空壳类**（`@Injectable() export class VideoWorkCloneService {}`），providers 直接全量列出，不留注释中间态；REDIS_CLIENT 工厂照抄 **media.module.ts** 模式（`validateEnv().REDIS_URL` 或 auth.module.ts:13-20 的 `process.env.REDIS_URL || 'redis://localhost:6379/0'` 兜底，勿裸 `new Redis(undefined)`）：
+
+```ts
+providers: [
+  VideoWorkService,
+  VideoWorkCloneService,   // 空壳，Task 6.1 填充
+  RateLimiterService,      // 类形式直接 provide（auth.module.ts:13-20 先例），无需 useFactory 包一层
+  { provide: 'REDIS_CLIENT', useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'), inject: [] },
+],
+```
+
+（注：RateLimiterService 构造注入 `'REDIS_CLIENT'`——同模块内 token 可解析。AppModule 级 REDIS_CLIENT 是私有 provider，功能模块拿不到，自备判断正确。）
+
+**Task 2.1**：controller spec 的 service mock **补全 controller 实际调用的全部方法**（正文 mock 漏了 `listAllCategories/listAllTags/listAllWorks/createWork/updateWork/getWork/removeWork/uploadCover/getSettings/updateSettings/listCandidates`——用 `jest.fn()`→`vi.fn()` 逐个列出或 `new Proxy` 兜底，推荐逐个列出）。**AdminVideoWorkController 类级挂 ValidationPipe（正文缺失，安全边界）**：
+
+```ts
+@Controller('api/admin/video-works')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) // 仓库无全局 pipe（main.ts:89-90 只挂 filter+interceptor）——不挂则 DTO 装饰器纯装饰，{...dto} 会把 publishedAt 等任意字段透传进 Prisma（先例 admin-home-banner.controller.ts:12）
+export class AdminVideoWorkController { ... }
+```
+
+VideoWorkController（公开侧 body 端点 view/like/clone 同理，类级挂载）。
+
+**Task 2.2**：controller 片段括号修正：
+
+```ts
+@Get('candidates')
+listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+  return this.service.listCandidates(Math.max(1, Number(page) || 1), Math.min(50, Math.max(1, Number(pageSize) || 20)));
+}
+```
+
+**Task 2.3**：DTO 的 `@IsEnum(['DRAFT','PUBLISHED'])` 功能成立（class-validator 0.14 按值匹配）但错误消息为空——换 `@IsIn(['DRAFT', 'PUBLISHED'] as const)` 文案更干净。**updateWork 下架不清 publishedAt 是有意行为**（再次上架保留原发布日期，spec §3.2"重新下架再发布不重置"）。
+
+**Task 2.5**：整体替换为照抄 banner 先例（minio.service.ts:105 upload 三参 + buildKey；controller 挂 FileInterceptor + limits + fileFilter，先例 admin-banner.controller.ts:39-66）：
+
+```ts
+// controller
+@Post('upload-cover')
+@UseInterceptors(FileInterceptor('file', {
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^(image\/(png|jpe?g|webp))$/.test(file.mimetype)),
+}))
+uploadCover(@UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string }) { // 仓库无 @types/multer——内联类型，勿用 Express.Multer.File
+  if (!file) throw new BadRequestException('file is required');
+  return this.service.uploadCover(file.buffer, file.mimetype);
+}
+
+// service
+async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {
+  // magic-number（WebP 查 12 字节：RIFF(0-3) + 偏移 8-11 WEBP——banner 同款，勿只查 4 字节）
+  const isPng = buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  const isJpg = buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isWebp = buffer.length > 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+  const ext = isPng ? 'png' : isJpg ? 'jpg' : isWebp ? 'webp' : null;
+  if (!ext) throw new BadRequestException('仅支持 png/jpg/webp');
+  const key = this.minio.buildKey('uploaded', 'system', { ext });
+  await this.minio.upload(key, buffer, mimetype);
+  return { key };
+}
+```
+
+（spec 断言相应改为 `minio.upload` 收到 `(key, buffer, mimetype)` 且 key 匹配 `^uploads/system/`。）
+
+**Task 3.3**：匿名短路断言与实现矛盾修正（presignWork 也调 redis.get）——断言收窄：
+
+```ts
+it('liked 初始态：匿名 false 且未查询 like 键（匿名短路——URL 缓存的 get 不在此限）', async () => {
+  // ... setup 同正文
+  const getCalls = (service as any).redis.get.mock.calls as string[][];
+  const d = await service.getDetail('w1', null);
+  expect(d.liked).toBe(false);
+  expect(getCalls.flat().some((k: any) => String(k).startsWith('videoWork:like:'))).toBe(false); // 只断言 like 键未查
+});
+```
+
+**Task 4.3**：$executeRaw tagged template 断言修正（mock 第 1 参是模板字符串数组）：
+
+```ts
+// mock：prisma.$executeRaw = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => Promise.resolve(1));
+it('GREATEST 下界与参数序', async () => {
+  // ... setup
+  const call = (prisma.$executeRaw as any).mock.calls[0];
+  expect(call[0].join('?')).toContain('GREATEST("likeCount" + ?, 0)'); // SQL 模板拼接
+  expect(call.slice(1)).toEqual([delta, 'w1']);                        // 值序：(delta, id)
+});
+```
+
+**Task 5.1 WHITELIST 真值表（B6 修正——imageExtGen 键集纠错）**：
+
+```ts
+export const WHITELIST: Record<string, string[]> = {
+  textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt=string
+  imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution'],  // aiTool 不在此（imageExtGen 专属）
+  imageExtGen: ['prompt', 'aiTool'],                                 // extConfig 整体剥（内嵌 prompt.html）；style/model 等在 extConfig 内、随 extConfig 一起剥
+  videoGen: ['model', 'ratio', 'prompt', 'trimStart', 'trimEnd', 'label'],  // label 运行期由导出写入（nodeStore 未声明，PreviewPlayer 以断言读）
+  audioGen: ['model', 'content'],
+  multiImageGen: ['prompt', 'label'],
+  videoEdit: [],
+  group: ['groupType', 'cells', 'name'],
+};
+```
+
+**补独立用例（测试与实现同错的盲区）**：`imageExtGen 喂 { aiTool:'grid_25', extConfig:{ model:'m', prompt:{ text:'t', html:'<x>' } }, style:'s' } → 输出只有 aiTool+prompt('t')，无 extConfig 无 html 无 style`。**nodeTypes 全覆盖测试的清单来源注意**：NODE_TYPES 常量只有 6 键（不含 videoEdit/group），权威注册表是 **CanvasView.tsx:42-51 的 nodeTypes**——覆盖测试按 CanvasView 清单写，注释同步更正（正文"NODE_TYPES 为唯一真值"表述不准，spec D8 语义不变、真值来源更正为 CanvasView nodeTypes）。
+
+**Task 5.1 ensureParentFirst 环防护（B7 修正——互指 parentId 递归爆栈）**，照抄仓内 nodeOrder.ts:4 的 visiting 先例：
+
+```ts
+export function ensureParentFirst(nodes: RawNode[]): RawNode[] {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const emitted = new Set<string>();
+  const visiting = new Set<string>();  // 环守卫：A↔B 互指命中即跳过（nodeOrder.ts 同款）
+  const out: RawNode[] = [];
+  const visit = (n: RawNode) => {
+    if (emitted.has(n.id) || visiting.has(n.id)) return;  // visiting 命中=环，跳过不爆栈
+    visiting.add(n.id);
+    const p = n.parentId ? byId.get(n.parentId) : undefined;
+    if (p) visit(p);                                       // 悬空 parentId：byId 未命中 → 安全跳过
+    emitted.add(n.id); out.push(n);
+    visiting.delete(n.id);
+  };
+  for (const n of nodes) visit(n);
+  return out;
+}
+```
+
+**Task 5.1 快照 position 兜底**：readCanvas 的 position 可为 undefined（collab-document.service.ts:70 `?.toJSON()`）——buildFilteredSnapshot 输出前加 `position: n.position ?? { x: 0, y: 0 }`。
+
+**Task 6.1**：①新 id 生成器加随机片段防同毫秒重名：`const newId = () => \`vw${Date.now().toString(36)}_${(crypto as any).randomUUID?.().slice(0,8) ?? seq++}\``（node:crypto randomUUID）；②**multiImageGen 的态字段是 `nodeStatus` 非 `status`**（nodeStore.ts:153-161 必填）——resetStatusIdle 分支按类型回填：
+
+```ts
+if (opts.resetStatusIdle) {
+  data[node.type === 'multiImageGen' ? 'nodeStatus' : 'status'] = 'idle';
+}
+```
+
+③**已知状态登记（非 bug 勿修）**：Promise.race 超时后底层 create 仍可能跑完——CanvasProject+ProjectMember 行已建、doc 写失败留空工程，或用户看到 503 但工程实际建成了（开发期无存量数据接受，spec §4.7 已登记"create 的 DB 行先建、doc 后写"）。④ 克隆 id 断言：`JSON.stringify` 检查旧 id 时 mock 的 idMap 若实现失误返回 undefined，stringify 成 null——断言 `not.toContain('"child1"')` 仍有效，保留。
+
+**Task 7.1**：正文所有 apiFetch 路径去 `/api`（C1-1）；`import type` 强制（shared 是纯 TS 源码包，值导入 ESM 解析失败——video-project.service.ts:20 注释）：`import type { ... } from '@flowweb/shared'`（以 web 侧既有 import 别名为准）。**toFlowaiUrl 不从 mediaApi 提取**（避免批次 0 的 banner 改动面）——直接复制那一行正则进 videoWorkApi.ts（YAGNI）。
+
+**Task 7.2**：`from 'react-router-dom'`→`from 'react-router'`（C1-2）；EmptyState/CardGridSkeleton 替换为内联：
+
+```tsx
+{loading ? (
+  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+    {Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-video rounded-lg bg-white/5 animate-pulse" />)}
+  </div>
+) : items.length === 0 ? (
+  <div className="py-24 text-center text-white/40 text-sm">暂无作品</div>
+) : ( ...网格... )}
+```
+
+**VideoCard 的 Link 必须带 state（M4——fromList 否则是死代码）**：
+
+```tsx
+<Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card ...>
+```
+
+**Task 7.3 测试**：`from 'react-router'`；Task 10.1 的路由存在性断言不用 JSON.stringify（React element 不含组件名且可能循环引用）——用 router.admin.test.tsx:19-21 同款 flatten：
+
+```ts
+import { flatten } from '../router.admin.test.utils'; // 或复制该测试文件内的 flatten 实现
+expect(flatten(router.routes).some((r: any) => r.path === '/admin/content/video-works')).toBe(true);
+```
+
+**Task 8.x 执行顺序调整（先叶子后外壳）**：正文顺序 8.1→8.2→8.3→8.4 会留下死占位与不可编译中间态。**按此顺序执行**：8.2 PlayView → 8.3 CarouselBar → 9.1 ProcessSnapshot → 9.2 ProcessView → **8.1 外壳（此时直接集成全部真实子组件）** → 8.4 页内登录。Task 编号不变（plan 勾选框仍按任务跟踪），仅执行序调整。8.1 外壳测试装配修正（P0-4）：
+
+```tsx
+// renderAt 用真实 VideosPage（Modal 由其内部挂载，D5 单路由不重挂同时成立）
+const router = createMemoryRouter([{ path: '/videos/:id?', element: <VideosPage /> }],
+  { initialEntries: initial === '/videos/w1' ? [{ pathname: '/videos/w1', state }] : [initial] });
+render(<AntdApp><RouterProvider router={router} /></AntdApp>);  // AntdApp 包裹（C1-3 message context）
+```
+
+**四场景补区分度断言**：`列表带 ?page=2&categoryId=x 进入 → 关闭后查询串仍在`（navigate(-1) 保留查询串；replace 会丢——这是模式 A 与朴素 replace 的可测差异）。PlayView props 与外壳对齐（onDetailRefresh 必传：外壳传 `() => fetchVideoWorkDetail(id).then(setDetail)`）。
+
+**Task 8.2**：①message 改 `AntdApp.useApp().message`（C1-3）；②onError 测试先点「立即观看」再 fireEvent.error（idle 态无 video 元素）；③viewCount/likeCount 断言收进 `data-testid="desc-panel"`（`/10/` 会命中无关文本）；④onLike 的 `isLoggedIn()` → `const { user } = useAuth(); if (!user)`（C1-4）。
+
+**Task 8.3**：CarouselBar 的 useEffect 依赖去掉 currentId（每次轮播切换重取列表）——用 ref 持有 currentId 仅用于过滤：
+
+```tsx
+const currentIdRef = useRef(currentId); currentIdRef.current = currentId;
+useEffect(() => { /* 请求依赖 [settings, categoryId]；过滤用 currentIdRef.current */ }, [settings, categoryId]);
+```
+
+（**实施决定登记**：公开读取轮播设置落为 `GET /api/video-works/settings`——spec §4.2 端点表已同步补行；声明序在 `:id` 之前。）
+
+**Task 8.4**：ConfigProvider 提升包住 Modal 全部内容（C1-3）；data-zprovider 锚点保留在 Provider 包裹层。
+
+**Task 9.1（B8/P1-4 定案）**：group **不走 RF 内置 group 类型**（内置渲染 null、无 Handle——断言 6≠8 必红且连组边静默消失）。自定义 GroupFrame 注册进 nodeTypes：
+
+```tsx
+function GroupFrame({ data }: any) {
+  return (
+    <div data-group-type={String((data as any).__groupType ?? 'normal')}
+      className="w-full h-full min-h-[120px] rounded-xl border border-dashed border-white/25 bg-white/5 box-border">
+      <div className="px-2 py-1 text-[11px] text-white/50">{String((data as any).__name ?? '')}</div>
+      <Handle type="target" position={Position.Left} />
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 group（v12 允许）
+// nodes 映射：type: n.type === 'group' ? 'group' : 'simple'（group data 注入 __groupType/__name）
+```
+
+（**jsdom 边界**：勿断言 `.react-flow__edge` 路径/handle bounds——test-setup 把 ResizeObserver 打成空实现、jsdom 25 无 DOMMatrix，测量路径不跑；Handle 计数 + data-group-type 结构断言 + 浏览器手工验收 #8 的分工不变。）
+
+**Task 10.1**：①`adminFetch` 不存在——全部 `apiFetch`（去 /api，C1-1）；②uploadCover 前端走裸 fetch multipart（C1-1 例外）；③AdminLayout 实际只有 模型管理/会员订阅/首页配置/参数配置 四项、**无"内容管理"分组**——直接新建顶级菜单项「视频作品」（/admin/content/video-works）；④路由注册：router.tsx admin 子路由加 lazy 叶子（参照既有 admin 叶子写法）。
+
+**Task 11.2**：部署清单补一行——**packages/shared 必须同步上传**（deploy_full 覆盖、deploy_api 不覆盖；web 构建依赖工作区包解析新类型）。
+
+### C3. spec 同步（1 处）
+
+spec §4.2 端点表补行：`GET /settings | 公开读取轮播设置（非敏感运营开关；声明序在 :id 之前）`——消除代码与冻结文档的分叉（plan Task 8.3 实施决定回流）。
+
+### C4. 已知边界登记（执行中勿当 bug 修）
+
+- clone 超时/部分失败孤儿工程行（见 Task 6.1 ③）。
+- 同一 uploads/system/ 域两种 TTL：by-key 固定 900s、作品 videoKey/coverKey 3600s+3500s 缓存——同对象双入口双有效期，登记不改。
+- 限流本地永不生效（IP_WHITELIST 含 127.0.0.1/::1）——手工验收表"限流 429"仅由单测覆盖，浏览器不验。
+- 候选索引 [type,status,deletedAt] 不覆盖 mimeType/JSON/createdAt 排序——数据量增长后可改 [type,status,deletedAt,createdAt]，本期接受。
+- RateLimiterService 多模块各自实例化（AuthModule/VideoWorkModule 各一）——Redis 连接不同实例，无功能影响。
+
+---
+
+---
+
 ## 文件结构总览
 
 ```
