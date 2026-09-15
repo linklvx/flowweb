@@ -2865,7 +2865,7 @@ git commit -m "feat(video-work): 批次5 process 端点（404 前置/5s 超时 5
 - Create: `apps/api/src/modules/video-work/video-work-clone.service.spec.ts`
 - Modify: `video-work.module.ts`（providers + VideoWorkCloneService）
 
-- [ ] **Step 1: 写失败测试（四元重映射 fixture——spec §7.7 核心）**
+- [x] **Step 1: 写失败测试（四元重映射 fixture——spec §7.7 核心）**
 
 ```ts
 import { Test } from '@nestjs/testing';
@@ -3017,7 +3017,7 @@ describe('VideoWorkCloneService.clone', () => {
 
 （svc.clone 返回 `{ projectId }`——上方四条用例的断言已全部改为经 `projectService.create.mock.calls[0]` 取 create 收到的 nodes/edges，第六轮已落地、勿再改回解构 clone 返回值的写法。）
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 // video-work-clone.service.ts
@@ -3104,12 +3104,12 @@ export class VideoWorkCloneService {
 
 （`RawNode` 类型从 snapshot-filter.util 导入；module providers 追加 VideoWorkCloneService。）
 
-- [ ] **Step 4: 跑绿（全部四元/白名单/超时/限流断言通过）**
+- [x] **Step 4: 跑绿（全部四元/白名单/超时/限流断言通过）**
 
 Run: `pnpm --filter @flowweb/api test -- video-work-clone`
 Expected: PASS
 
-- [ ] **Step 5: Clone 端点 + 未登录 401**
+- [x] **Step 5: Clone 端点 + 未登录 401**
 
 controller（video-work.controller.ts）：
 
@@ -3137,7 +3137,7 @@ it('POST :id/clone 登录 → 调 cloneService.clone(id, userId)', async () => {
 
 Template 不参与（上方用例已断言 `prisma.template.count` 未被调用——比"静态检查 import"强，满足 spec §7.7"Template 行数与 importCount 不变"；第八轮升级）。
 
-- [ ] **Step 6: 批次 5-6 全量回归 + Commit**
+- [x] **Step 6: 批次 5-6 全量回归 + Commit**
 
 ```bash
 pnpm --filter @flowweb/api test
@@ -3145,6 +3145,7 @@ git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次6 克隆（共用白名单/四元重映射禁兜底/status idle/整体超时/每用户限流）"
 ```
 
+> **批次 6 执行记录（2026-09-16）**：提交 424b529f（clone.service 空壳→实现 + spec 8 用例 + controller clone 端点 + 2 用例）。四元重映射双防线（idMap 统一重映射 + edges 双侧 filter 第二防线）、cells 三分支 `?? null` 不收缩不抛错、**无 `|| id` 兜底**、整体 Promise.race 10s 超时（race 输家 rejection 内建消化 + finally 清定时器）、限流 (userId,'video-work:clone',3600,10) 先于校验（与 like 同型）、Template 零参与（template.count 未调用断言）、ProjectService.create 四参不传 teamId。全量 **133 files / 1091 tests** 全绿。spec 合规审查 ✅（spec 与 plan **逐字节 diff 一致**，重映射逐行核过）；代码质量审查 ✅ Yes → Minor 补强 ad142853（孤立注释清理 + 空画布克隆用例 + parentId 降级用例，**1093 tests**）。**已裁定偏差 1 处（第三次同型，归并登记）**：clone 方法补 async——plan 片段"同步 throw"与 plan 测试"rejects 断言"矛盾，测试侧取胜；批次 2 uploadCover/批次 4 toggleLike 同型，仓内已有先例注释。**登记未修项**：被剥节点的子节点位置跳变（position 相对坐标被当绝对坐标——当前 shadow-/videoEdit 实际无子节点，可达性趋近零，展示层边界与 viewport 丢失同类）；10s 超时 create 部分完成残留（D3 明文接受）。**api 侧（批次 0-6）至此全部完成**。
 ---
 
 ## 批次 7：前端列表页（/videos）
