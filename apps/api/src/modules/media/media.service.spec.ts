@@ -126,5 +126,9 @@ describe('MediaService', () => {
     it('空 key 拒绝', async () => {
       await expect(service.getPresignedUrlByKey('   ')).rejects.toThrow(BadRequestException);
     });
+
+    it('undefined key（不带 query 调用）拒绝', async () => {
+      await expect(service.getPresignedUrlByKey(undefined as any)).rejects.toThrow(BadRequestException);
+    });
   });
 });
