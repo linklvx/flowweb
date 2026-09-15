@@ -2023,7 +2023,7 @@ git commit -m "feat(video-work): 批次3 详情端点（liked 初始态/两开�
 - Modify: `apps/api/src/common/services/rate-limiter.service.ts`
 - Modify: `apps/api/src/common/services/rate-limiter.service.spec.ts`（已存在，追加）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // 第七轮：变量名对齐既有文件——rate-limiter.service.spec.ts 的替身叫 mockRedis、实例叫 service
@@ -2047,7 +2047,7 @@ describe('checkUserRateLimit', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（service 追加方法）**
+- [x] **Step 2: 跑红 → Step 3: 实现（service 追加方法）**
 
 ```ts
 /** 用户维度固定窗口限流（不走 IP 白名单——与来源 IP 无关，spec §4.5） */
@@ -2059,7 +2059,7 @@ async checkUserRateLimit(userId: string, action: string, windowSec: number, max:
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- rate-limiter
@@ -2072,7 +2072,7 @@ git commit -m "feat(video-work): 批次4 checkUserRateLimit（用户维度限流
 **Files:**
 - Modify: `video-work.service.ts` + `video-work.controller.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加）**
+- [x] **Step 1: 写失败测试（service spec 追加）**
 
 ```ts
 describe('recordView', () => {
@@ -2112,7 +2112,7 @@ describe('recordView', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 service（注入 RateLimiterService——module 已 provide）：
 
@@ -2154,7 +2154,7 @@ it('POST :id/view 传 getClientIp 结果给 service', async () => {
 });
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work
@@ -2167,7 +2167,7 @@ git commit -m "feat(video-work): 批次4 view 计数（IP 去重 NX + 限流 + S
 **Files:**
 - Modify: `video-work.service.ts` + `video-work.controller.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加）**
+- [x] **Step 1: 写失败测试（service spec 追加）**
 
 ```ts
 describe('toggleLike', () => {
@@ -2227,7 +2227,7 @@ it('POST like 未登录 req.user 为空 → 401', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 service：
 
@@ -2258,13 +2258,15 @@ toggleLike(@Param('id') id: string, @Req() req: any) {
 }
 ```
 
-- [ ] **Step 4: 跑绿 + 批次 3-4 回归 → Step 5: Commit**
+- [x] **Step 4: 跑绿 + 批次 3-4 回归 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test
 git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次4 like 端点（登录 userId 去重/SET NX 原子/GREATEST 下界/返回 liked）"
 ```
+
+> **批次 4 执行记录（2026-09-16）**：三任务提交 5ff2bd3a（4.1 checkUserRateLimit——INCR+首次 EXPIRE，key `ratelimit:user:{action}:{userId}`，不走 IP_WHITELIST，rate-limiter 13 tests 既有零改动）/893a4a9f（4.2 view——SET NX EX 3600 原子 IP 去重·ipHash=sha256 前 16 位非明文·StrictMode 双发仍 1·限流 429·DRAFT 404）/f20ee162（4.3 like——401/SET NX EX 7776000 原子·NX 失败 -1+del·GREATEST tagged template·响应 {liked,likeCount}·限流参数钉死）+ 同 commit 批次 3 落点（**likeKey 私有静态方法收敛**两点归一、**categories miss 用例**）。全量 **131 files / 1051 tests** 全绿（1037+14）。spec 合规审查 ✅；代码质量审查 ✅ + **Important 修补 836cf410**（NX/EX/TTL/限流参数断言缺口——mock 脚本化使丢参重构不红；补 3 断言并**证伪验证**：临时删 'NX' 参数恰好只红新断言）+ 复核 ✅。**已裁定偏差 1 处**：controller 401 方法补 async（plan 代码块矛盾：同步 throw vs 测试 rejects——与批次 2 uploadCover 同型）。**登记未修 Minor（均冻结设计/既有模式）**：≥3 并发 toggle 亚毫秒窗口净 -1 漂移（NX 失败分支无条件 del 的固有代价，GREATEST 钳位+限流压顶）；INCR/EXPIRE 非原子窗口（既有 checkIpRateLimit 逐字镜像，将来两方法一起修）；view 先 404 后限流 vs like 反之（plan 逐字）；90 天 TTL 过期后 liked=false 而计数不回退（键驻留权衡固有属性）。ipHash 64 位前缀定位=规避明文 PII 驻留而非密码学匿名（IPv4 可字典还原，spec 冻结口径）。
 
 ---
 
