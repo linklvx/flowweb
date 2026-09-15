@@ -138,6 +138,13 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[1].data.prompt).toBe('数量 2 < 10 的猫');        // .text 原文，不再 strip
   });
 
+  it('injectThumbnails: true 时保留注入的 thumbnailUrl 且剥 fileId', () => {
+    const input: RawCanvasData = { nodes: [rawNode('n1', 'imageGen', { prompt: { text: 'a' }, fileId: 'f1', thumbnailUrl: 'http://x/ok.webp' })], edges: [] };
+    const out = buildFilteredSnapshot(input, { ...base, injectThumbnails: true });
+    expect(out.nodes[0].data.thumbnailUrl).toBe('http://x/ok.webp'); // 注入字段在白名单外但 injectThumbnails 分支放行（util :92-94）
+    expect(out.nodes[0].data).not.toHaveProperty('fileId');
+  });
+
   it('未知类型默认全剥 data（仅结构字段）', () => {
     const input: RawCanvasData = { nodes: [rawNode('n1', 'futureType', { secret: 'x', nice: 'y' })], edges: [] };
     const out = buildFilteredSnapshot(input, base);
@@ -199,5 +206,10 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     const out = buildFilteredSnapshot(input, base);
     expect(out.nodes[0].data.content).not.toContain('<');
     expect(out.nodes[0].data.content).toBe('ok');
+  });
+
+  it('实体编码变体：tiptap 常规存储形态 &lt;img...&gt; 单次解码重生标签形文本（安全性依赖 React 文本节点渲染，非无标签输出）', () => {
+    const out = stripHtmlToText('<p>a</p>&lt;img src=x&gt;');
+    expect(out).toBe('a<img src=x>'); // 钉实际行为：剥标签（&lt;/&gt; 不匹配标签正则）→ 实体解码在后，单次解码即得标签形字符串
   });
 });

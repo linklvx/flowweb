@@ -468,6 +468,30 @@ describe('getProcessSnapshot（安全验收）', () => {
     await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
   });
 
+  it('管线终点：injectThumbnails 注入的 thumbnailUrl 过滤后仍在节点 data 上、fileId 键级剥除', async () => {
+    setup();
+    prisma.media.findMany = vi.fn().mockResolvedValue([{ id: 'f1', thumbnailKey: 'thumbnails/f1.webp' }]);
+    const out = await service.getProcessSnapshot('w1');
+    const n2 = out.nodes.find((n: any) => n.id === 'n2')!; // n2 带 fileId:'f1'（rawCanvas）
+    expect(n2.data.thumbnailUrl).toBe('http://minio/presigned'); // presign 返回值沿用文件级 setup 的 minio mock
+    expect(n2.data).not.toHaveProperty('fileId'); // 注入阶段保留 → 白名单阶段剥除（管线顺序终点形态）
+  });
+
+  it('下线失效双机制①（守卫优先于缓存）：DRAFT 翻转后即使缓存有残留也 404 且不触 readCanvas', async () => {
+    setup();
+    await service.getProcessSnapshot('w1'); // 第一次 PUBLISHED：生产缓存（redis Map 已写入键）+ readCanvas 1 次
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, status: 'DRAFT' }); // 只翻转状态——不重建 redis，缓存残留
+    await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
+    expect((service as any).collabDoc.readCanvas).toHaveBeenCalledTimes(1); // 守卫在缓存读取之前，未因缓存命中被短路
+  });
+
+  it('下线失效双机制②：updateWork → redis.del(videoWork:process:w1)（写路径失效）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await service.updateWork('w1', { title: 'x' } as any);
+    expect((service as any).redis.del).toHaveBeenCalledWith('videoWork:process:w1');
+  });
+
   it('readCanvas 挂起 → 有界超时 503', async () => {
     setup();
     (service as any).collabDoc.readCanvas = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve

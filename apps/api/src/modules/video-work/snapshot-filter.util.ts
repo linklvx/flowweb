@@ -44,7 +44,9 @@ export const WHITELIST: Record<string, string[]> = {
 /** HTML → 纯文本（红线 2 的服务端半边）：剥全部标签，解码基础实体。
  *  已知边界（第十三轮登记，勿修）：顺序替换存在二次解码——源码字面 `&amp;lt;`（用户想显示 "&lt;"）
  *  先解出 & 得 "&lt;"、随即被 &lt; 规则命中变 "<"，仅显示层差异；输出走 JSON → React 文本节点渲染，
- *  无 HTML 解析、不构成 XSS 面。改一次性回调解码反而破坏 &amp; 正常语义，得不偿失。 */
+ *  无 HTML 解析、不构成 XSS 面。改一次性回调解码反而破坏 &amp; 正常语义，得不偿失。
+ *  单次解码 `&lt;tag&gt;`（tiptap 对字面尖括号文本的常规存储形态）同样重生标签形文本——安全性同依赖
+ *  React 文本节点渲染（JSON 输出路径），勿在其他 HTML 渲染上下文复用本函数输出。 */
 export function stripHtmlToText(html: string): string {
   return html
     .replace(/<[^>]*>/g, '')
