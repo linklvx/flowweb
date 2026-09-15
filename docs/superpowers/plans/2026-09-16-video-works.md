@@ -414,7 +414,7 @@ apps/web/src/
 
 **Files:** 无代码改动；产出核查记录（写入本 plan 的执行记录或 PR 描述）。
 
-- [ ] **Step 1: 查询存量 key**（第八轮：本机 psql 不在 PATH——改用 api 依赖里的 pg 直查，在 apps/api 目录下执行（命令自带 cd）；连接串实测可连）
+- [x] **Step 1: 查询存量 key**（第八轮：本机 psql 不在 PATH——改用 api 依赖里的 pg 直查，在 apps/api 目录下执行（命令自带 cd）；连接串实测可连）
 
 ```bash
 cd apps/api && node -e "const {Client}=require('pg');const c=new Client({connectionString:'postgresql://flowweb:flowweb_dev@localhost:5432/flowweb'});c.connect().then(()=>c.query('SELECT id, \"backgroundImageKey\" FROM subscription_banner WHERE \"backgroundImageKey\" IS NOT NULL')).then(r=>{console.log(JSON.stringify(r.rows,null,2));process.exit(0)}).catch(e=>{console.error('ERR',e.message);process.exit(1)})"
@@ -424,12 +424,12 @@ cd apps/api && node -e "const {Client}=require('pg');const c=new Client({connect
 
 Expected: 列出所有非空 key。
 
-- [ ] **Step 2: 逐个比对前缀**
+- [x] **Step 2: 逐个比对前缀**
 
 规则：每个 key 必须 `startsWith('uploads/system/')`。全部符合 → 记录"核查通过"。
 若有不符合（如 `uploads/banner-bg.png`）：在 admin 后台重新上传封面覆盖该值（走 admin-banner 上传端点会自动生成规范 key），或在本 plan 执行记录中登记"已知视觉回退"并知会用户——登记时注明 VipSubscribeModal 有 backgroundImageKey→backgroundImageUrl→渐变 三级 fallback（VipSubscribeModal.tsx:152-189），不规范 key 仅退次选图、不会裂（第八轮放松措辞）。
 
-- [ ] **Step 3: 无需提交（纯核查），记录结果供批次 0 验收引用**
+- [x] **Step 3: 无需提交（纯核查），记录结果供批次 0 验收引用**
 
 ### Task 0.2: MediaService.getPresignedUrlByKey（TDD）
 
@@ -437,7 +437,7 @@ Expected: 列出所有非空 key。
 - Modify: `apps/api/src/modules/media/media.service.ts`
 - Test: `apps/api/src/modules/media/media.service.spec.ts`（已存在，追加用例）
 
-- [ ] **Step 1: 写失败测试（追加到 media.service.spec.ts）**
+- [x] **Step 1: 写失败测试（追加到 media.service.spec.ts）**
 
 ```ts
 describe('getPresignedUrlByKey', () => {
@@ -466,12 +466,12 @@ describe('getPresignedUrlByKey', () => {
 
 注意：mock 装配沿用该 spec 文件既有替身——变量名是 `service`/`prisma`/`minio`/`redis`（media.service.spec.ts:8-12；minio 是裸 `let minio: any` 变量、不是 service 属性——第八轮对齐，原写 `mediaService['minio']` 是 TS2304 编译红）。**导入精确化（第七轮）**：spec 文件已导入 ForbiddenException/NotFoundException（media.service.spec.ts:6）——只补 `BadRequestException`；**media.service.ts:1 现只有 NotFoundException**——实现侧需同时补 `ForbiddenException, BadRequestException` 两个。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter @flowweb/api test -- media.service.spec`
 Expected: FAIL（getPresignedUrlByKey 不存在，TS 编译错误即红）
 
-- [ ] **Step 3: 实现（media.service.ts 追加方法）**
+- [x] **Step 3: 实现（media.service.ts 追加方法）**
 
 ```ts
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'; // 顶部改导入——media.service.ts:1 现只有 NotFoundException，Forbidden/BadRequest 均新增
@@ -487,12 +487,12 @@ async getPresignedUrlByKey(rawKey: string): Promise<string> {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter @flowweb/api test -- media.service.spec`
 Expected: PASS 全绿
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/media/media.service.ts apps/api/src/modules/media/media.service.spec.ts
@@ -504,7 +504,7 @@ git commit -m "feat(video-work): 批次0 MediaService.getPresignedUrlByKey——
 **Files:**
 - Modify: `apps/api/src/modules/media/media.controller.ts:23-28`（getUrlByKey 方法）
 
-- [ ] **Step 1: 修改 controller（该文件无既有 controller spec，行为已由 Task 0.2 service 用例覆盖）**
+- [x] **Step 1: 修改 controller（该文件无既有 controller spec，行为已由 Task 0.2 service 用例覆盖）**
 
 ```ts
 @Get('by-key')
@@ -516,22 +516,24 @@ async getUrlByKey(@Query('key') key: string) {
 
 同时删除该方法内原有的 `if (!key) throw new BadRequestException(...)`（service 已做）与对 `this.minioService` 的直接调用。**已核验（第五轮）**：minioService 在该 controller 其余方法零使用、`BadRequestException` 的唯一使用点就是被删的 :25 行——**MinioService 的 import+注入、BadRequestException 的 import 一并删除**（media.controller.ts:1-15），不留未用导入。
 
-- [ ] **Step 2: 全量 api 测试**
+- [x] **Step 2: 全量 api 测试**
 
 Run: `pnpm --filter @flowweb/api test`
 Expected: PASS（含既有全部用例）
 
-- [ ] **Step 3: 手工端到端验收（批次 0 验收项）**
+- [x] **Step 3: 手工端到端验收（批次 0 验收项）**
 
 本地起 api + web 后，浏览器**未登录**打开 `http://localhost:5173/` → 打开会员订阅弹窗 → banner 正常显示图片（非默认渐变）；DevTools Network 中 `/api/media/by-key` 请求返回 200。
 再手工验证反例：`curl "http://localhost:3000/api/media/by-key?key=results/user1/a.mp4"` → 403。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/media/media.controller.ts
 git commit -m "feat(video-work): 批次0 by-key controller 改调 service（校验下沉，D17）"
 ```
+
+> **批次 0 执行记录（2026-09-16）**：Task 0.1 核查通过——subscription_banner 共 1 行、backgroundImageKey 非空 **0 行**，零存量 key 需比对前缀，无需重传覆盖/登记视觉回退（key 为 NULL 时 VipSubscribeModal 走 backgroundImageUrl→渐变 三级 fallback 正常路径）。Task 0.2/0.3 提交 be26f44b + 97fde83b（+质量审查补 undefined 用例 ff569af3）；spec 合规审查 ✅、代码质量审查 ✅ Ready to merge。端到端 curl 实测：`key=uploads/system/2026-01-01/test.png` → 200、`key=results/user1/a.mp4` → **403（修复前实测 200）**；浏览器 banner 验收因零存量非空 key 无验证对象（必走 fallback），由 curl 端点验收覆盖。api 全量 998 tests + media.service.spec 12 tests 全绿。
 
 ---
 
