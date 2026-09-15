@@ -1,4 +1,8 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException, Body, Controller, Delete, Get, Inject, Param, Post, Put, Query,
+  UploadedFile, UseInterceptors, UsePipes, ValidationPipe,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { VideoWorkService } from './video-work.service';
 import { CreateVideoCategoryDto, UpdateVideoCategoryDto } from './dto/video-category.dto';
 import { CreateVideoTagDto, UpdateVideoTagDto } from './dto/video-tag.dto';
@@ -24,6 +28,20 @@ export class AdminVideoWorkController {
   @Get('candidates')
   listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
     return this.service.listCandidates(Math.max(1, Number(page) || 1), Math.min(50, Math.max(1, Number(pageSize) || 20)));
+  }
+
+  @Post('upload-cover')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowed.includes(file.mimetype)) return cb(new BadRequestException('仅支持 jpg/png/webp'), false); // 显式抛——静默拒绝会让用户看到 'file is required'（banner 先例 admin-home-banner.controller.ts:45）
+      cb(null, true);
+    },
+  }))
+  async uploadCover(@UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string }) { // 仓库无 @types/multer——内联类型；async 对齐 banner 先例（admin-home-banner.controller.ts:50）——同步 throw 会绕过 rejects 断言
+    if (!file) throw new BadRequestException('file is required');
+    return this.service.uploadCover(file.buffer, file.mimetype);
   }
 
   // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）

@@ -162,4 +162,16 @@ export class VideoWorkService {
     await this.prisma.videoWork.delete({ where: { id } });
     await this.invalidateWorkCaches(id);
   }
+
+  async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {
+    // magic-number（WebP 查 12 字节：RIFF(0-3) + 偏移 8-11 WEBP——banner 同款 admin-home-banner.controller.ts:54-57）
+    const isPng = buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+    const isJpg = buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    const isWebp = buffer.length > 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+    const ext = isPng ? 'png' : isJpg ? 'jpg' : isWebp ? 'webp' : null;
+    if (!ext) throw new BadRequestException('仅支持 png/jpg/webp');
+    const key = this.minio.buildKey('uploaded', 'system', { ext }); // uploads/system/{date}/{uuid}.{ext}——勿手拼 key 勿用 uuid 包（C1-4）
+    await this.minio.upload(key, buffer, mimetype); // upload(key, buffer, contentType) 三参（minio.service.ts:105）
+    return { key };
+  }
 }

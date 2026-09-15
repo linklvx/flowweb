@@ -72,10 +72,21 @@ describe('AdminVideoWorkController categories/tags', () => {
     const proto = AdminVideoWorkController.prototype;
     const names = Object.getOwnPropertyNames(proto).filter(n => n !== 'constructor');
     const idRoutes = ['getWork', 'updateWork', 'deleteWork'].map(n => names.indexOf(n)).filter(i => i >= 0);
-    const staticRoutes = ['listCategories', 'listTags', 'listCandidates']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
+    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
     for (const s of staticRoutes) {
       expect(names.indexOf(s)).toBeGreaterThan(-1);
       expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // spec §4.2 红线
     }
+  });
+
+  it('uploadCover 转发 service（buffer/mimetype）', async () => {
+    service.uploadCover = vi.fn().mockResolvedValue({ key: 'uploads/system/xxx.webp' });
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'); // PNG 魔数头
+    const res = await controller.uploadCover({ buffer: png, mimetype: 'image/png', originalname: 'x.png' } as any);
+    expect(service.uploadCover).toHaveBeenCalledWith(png, 'image/png');
+    expect(res.key).toContain('uploads/system/');
+  });
+  it('缺文件 → 400 file is required', async () => {
+    await expect(controller.uploadCover(undefined as any)).rejects.toThrow(BadRequestException);
   });
 });

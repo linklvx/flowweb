@@ -155,3 +155,17 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
     expect(minio.delete).not.toHaveBeenCalled();           // 红线：只删 DB 行，禁删对象（spec §4.3）
   });
 });
+
+describe('uploadCover（magic-number + system 域）', () => {
+  it('非图片字节 → 400（mimetype 伪装拦截）', async () => {
+    await expect(service.uploadCover(Buffer.from('not an image'), 'image/png')).rejects.toThrow(BadRequestException);
+  });
+  it('合法 PNG → buildKey("uploaded","system") + upload(key, buffer, mimetype) 三参、key 匹配 ^uploads/system/', async () => {
+    minio.buildKey = vi.fn().mockReturnValue('uploads/system/2026-09-16/abc.png');
+    minio.upload = vi.fn().mockResolvedValue(undefined);
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const res = await service.uploadCover(png, 'image/png');
+    expect(minio.upload).toHaveBeenCalledWith('uploads/system/2026-09-16/abc.png', png, 'image/png'); // 三参（C2 定稿断言，第八轮落进正文）
+    expect(res.key).toMatch(/^uploads\/system\//);
+  });
+});
