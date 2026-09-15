@@ -156,6 +156,39 @@ export class VideoWorkService {
   }
   async getWorkById(id: string) { return this.prisma.videoWork.findUnique({ where: { id } }); }
 
+  /** 公开列表（spec §4.2：item 只含 5 字段，无 videoUrl） */
+  async listPublished(categoryId: string | undefined, page: number, pageSize: number) {
+    const where: any = { status: 'PUBLISHED' };
+    if (categoryId) where.categoryId = categoryId; // plain filter
+    const [rows, total] = await Promise.all([
+      this.prisma.videoWork.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { publishedAt: 'desc' }, { id: 'asc' }], // id tiebreaker
+        select: { id: true, title: true, coverKey: true, durationSec: true, tags: true },
+        skip: (page - 1) * pageSize, take: pageSize,
+      }),
+      this.prisma.videoWork.count({ where }),
+    ]);
+    const items = await Promise.all(rows.map(async r => ({
+      id: r.id, title: r.title, durationSec: r.durationSec, tags: r.tags,
+      coverUrl: r.coverKey ? await this.presignWork(r.coverKey) : null,
+    })));
+    return { items, total, page, pageSize };
+  }
+
+  /** 公开类型列表（active + 30-60s 缓存；admin 改动时 Task 2.1 已删缓存） */
+  async listCategoriesPublic() {
+    const cached = await this.redis.get(VideoWorkService.CATEGORY_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+    const rows = await this.prisma.videoCategory.findMany({
+      where: { active: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, name: true, sortOrder: true },
+    });
+    await this.redis.set(VideoWorkService.CATEGORY_CACHE_KEY, JSON.stringify(rows), 'EX', 60);
+    return rows;
+  }
+
   /** 删除红线（spec §4.3）：只删 DB 行，禁止 minio.delete——videoKey 与源 Media 指向同一对象。
    *  HomeBanner "先删对象再删行"先例不可照抄；coverKey 自有上传对象 v1 也统一不删。 */
   async removeWork(id: string) {

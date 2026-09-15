@@ -187,3 +187,30 @@ describe('settings 轮播设置', () => {
     await expect(service.updateSettings({ carouselEnabled: true, carouselScope: 'xx' as any })).rejects.toThrow(BadRequestException);
   });
 });
+
+describe('listPublished', () => {
+  it('orderBy 含 id tiebreaker（spec §4.2）', async () => {
+    prisma.videoWork.findMany = vi.fn().mockResolvedValue([]);
+    prisma.videoWork.count = vi.fn().mockResolvedValue(0);
+    await service.listPublished(undefined, 1, 20);
+    expect(prisma.videoWork.findMany.mock.calls[0][0].orderBy).toEqual([
+      { sortOrder: 'asc' }, { publishedAt: 'desc' }, { id: 'asc' },
+    ]);
+  });
+
+  it('categoryId 为 plain filter（不校验 active）', async () => {
+    prisma.videoWork.findMany = vi.fn().mockResolvedValue([]);
+    prisma.videoWork.count = vi.fn().mockResolvedValue(0);
+    await service.listPublished('any-cat', 1, 20);
+    expect(prisma.videoWork.findMany.mock.calls[0][0].where.categoryId).toBe('any-cat');
+  });
+
+  it('listCategoriesPublic 命中缓存第二次不查 DB', async () => {
+    prisma.videoCategory.findMany = vi.fn().mockResolvedValue([]);
+    const redisGet = (service as any).redis.get.mockResolvedValue('[]');
+    await service.listCategoriesPublic();
+    await service.listCategoriesPublic();
+    expect(prisma.videoCategory.findMany).toHaveBeenCalledTimes(0); // 全部命中缓存
+    redisGet.mockReset();
+  });
+});
