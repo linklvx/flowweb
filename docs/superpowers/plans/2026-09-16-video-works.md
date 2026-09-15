@@ -3301,7 +3301,7 @@ const fmtDuration = (sec: number | null) => {
 export function VideoCard({ work }: { work: VideoWorkListItem }) {
   const duration = fmtDuration(work.durationSec);
   return (
-    <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)] transition-colors bg-[var(--vw-card-bg)] box-border">
+    <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-solid border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)] transition-colors bg-[var(--vw-card-bg)] box-border">
       {/* 第七轮：补 state:{fromList:true}（C2 M4——否则关闭算法死代码）+ 改用 Task 7.3 登记的 --vw-* token（原硬编码使 token 成死变量） */}
       <div className="relative aspect-video bg-[#262626]">
         {work.coverUrl
@@ -3485,6 +3485,8 @@ pnpm --filter @flowweb/web exec tsc -b   # 批次收尾类型门禁（build 的�
 git add apps/web/src/router.tsx apps/web/src/components/layout/Sidebar.tsx apps/web/src/index.css apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 模板广场后插入 + token + 不重挂用例"
 ```
+
+> **批次 7 勘误（2026-09-16，质量审查三轮 Important——plan 逐字缺陷）**：①VideoCard 的 `border border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)]` 在 preflight:false（tailwind.config.ts corePlugins.preflight=false）下 `border` utility 只产出 border-width、不产出 border-style，CSS 规范 border-style:none 使 width used value 为 0 → 边框/hover 永不渲染——修正为 `border` 后加 `border-solid`（Task 7.2 代码块已同步；仓内先例 PropertiesPanel.tsx:138 `[border-style:solid]`）；②VideosPage 列表请求无 .catch——接口失败时 finally 置 loading=false → items [] → 渲染误导性"暂无作品" + unhandled rejection（同文件 categories 有 .catch 不一致）——补 `failed` state，catch 置位，空态分支前内联一行错误文案（C1-4）；③列表 effect deps [categoryId,page] 无竞态防护——快速切 tab 旧响应后到反向覆盖新数据——effect 内 `let stale = false` + cleanup `stale = true` + then/catch/finally 内 `if (!stale)` 收口。测试补两用例（VideosPage.test.tsx，先红后绿）：「接口失败 → 渲染错误提示而非暂无作品」「快速切换 tab 时旧响应不覆盖新数据」。②③以本勘误块为准（正文 Task 7.2 VideosPage 代码块不再改写）。
 
 ---
 
