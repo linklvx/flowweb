@@ -16,7 +16,7 @@
 
 ## ⚠️ 执行前必读：落地约定与勘误（本节优先于正文片段，冲突处以本节为准）
 
-> 本节经三轮 plan 审核核定，修正正文代码片段与仓库真实 API 的偏差。**执行任何任务前先通读本节**；正文相应片段不再逐一回改，以本节代码为准。
+> 本节经七轮 plan 审核核定。**第七轮起正文与勘误已归一：全部修正已真回写正文对应位置（C5-C7 为逐轮执行记录），执行以正文为准**；本节保留作为审核审计记录与"为什么这样写"的依据索引。若发现正文与本节冲突，以更晚轮次（C7 > C6 > C5 > C2 > C1）为准并回改。
 
 ### C1. 全局落地约定（4 条，覆盖多数阻断项）
 
@@ -24,7 +24,7 @@
 |---|---|---|
 | C1-1 | **前端 API 调用一律不带 `/api` 前缀**：`apiFetch('/video-works?...')`（client.ts:1 `BASE_URL='/api'` 已内置）。**已机械回写正文全部 apiFetch 路径——含 Task 10.1 admin 侧 16 处（admin 先例 adminApi.ts:29 `apiFetch('/admin/node-types')` 不带 /api；`adminFetch` 函数不存在，一律 apiFetch）**。**唯一例外**：multipart 上传不能走 apiFetch（硬编码 JSON Content-Type 冲掉 boundary）——用裸 `fetch('/api/admin/video-works/upload-cover', { method:'POST', body: formData, credentials:'include' })`（**此处必须带 /api**，逐字对齐 adminApi.ts:137 先例），响应解析 `body.data ?? body`（先例 adminApi.ts:133-144 注释明写） | client.ts:1,11；mediaApi.ts:4；adminApi.ts:29,133-144 |
 | C1-2 | **测试双栈约定**：api 侧 `import { describe, it, expect, beforeEach, vi } from 'vitest'` + `vi.fn()`（**已机械回写**：正文全部 `vi.fn()`/`Mock`；用到 `Mock` 类型的 spec 文件顶部补 `import type { Mock } from 'vitest'`——api 跑 tsc，`jest` 未定义直接编译红）；web 侧路由导入一律 `from 'react-router'`（**已机械回写全文 import**；react-router-dom 包不存在，web/package.json 只有 react-router@^7；MemoryRouter/createMemoryRouter/RouterProvider/useParams/useNavigate/useLocation 全部从 react-router 导出） | api package.json:8；media.service.spec.ts:2；web package.json:39 |
-| C1-3 | **全屏壳（z-[100000]）内 toast/弹层机制（第五轮修正——单嵌套 ConfigProvider 抬不起 useApp() toast）**：①静态 `message.*` 落 body、z≈2010（AssetPanel.tsx:34 注释实测值）被壳盖住，禁用；②壳是 createPortal(document.body)（BaseFullscreenModal.tsx:68-80）但 React context 按组件树走——**壳内组件 `AntdApp.useApp()` 解析到根 App（App.tsx:15，holder 挂 body、z 基座 11000）→ 壳内 toast 仍被盖；嵌套 ConfigProvider 只能抬 Modal 类弹层（读最近 Provider token），追不到根 App 的 holder**。**正确配方 = 照抄 VideoEditorShell.tsx:127-141（仓库已验证，同为 BaseFullscreenModal 壳）：壳根 div 挂 shellRef，内容包两层——嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase:100000 } }} getPopupContainer={() => shellRef.current ?? document.body}>` 内再 `<AntdApp component={false}>`（component={false} 必须：默认渲染 div.ant-app 打断壳布局）；PlayView/ProcessView 渲染在内层 App 之下，直接 `const { message } = AntdApp.useApp()`（holder 渲染在壳 DOM 内 → 可见，无需 bridge）**。LoginModal（antd Modal）读最近 Provider token → z=100100 > 壳 100000，D18 不变；其内部 useApp() 也解析到内层 App → toast 同样可见。**两层各自的作用（勿"简化"掉任一层，第六轮 N9）**：getPopupContainer 是常规路径（弹层挂进壳 DOM）；zIndexPopupBase:100000 是首帧/兜底路径（shellRef 未挂载首帧 getPopupContainer 回退 body——VideoEditorShell.tsx:128-129 注释："漏挂 shellRef 则永远回退 body，弹层作用域修复静默失效"，此时唯一撑住可见性的是 token 的 100100>100000）。**Esc 双关守卫是承重机制（勿删；机制措辞第六轮修正）**：rc-dialog 9.6.0 的 ESC 处理在 `onWrapperKeyDown`（Dialog/index.js:144-148）——挂在 dialog 包装**节点**上（React onKeyDown）且 e.stopPropagation()。焦点在登录框内 → 事件在 wrapper 节点被截、冒泡不到 document，壳不受影响；**焦点不在登录框内**（点了壳内其它区域/焦点在 body）→ 事件不经 rc-dialog 的 wrapper、直达 document → BaseFullscreenModal 监听触发——无守卫时关掉的是整个播放 Modal；守卫（close 回调首行 `if (showLogin) { setShowLogin(false); return; }`）使该场景只关登录层。副作用登记为有意：登录层开着时点壳 ✕ 只关登录层。**测试装配**：渲染链含 useAuth 的测试文件必须 `vi.mock('@/components/AuthProvider', ...)`（context 默认 `null!`，裸渲染解构即抛，AuthProvider.tsx:25,56）；message stub 四键齐全或测试树包 `<AntdApp>`（先例 AssetPanel.test.tsx:28、ExportModal.test.tsx:7） | VideoEditorShell.tsx:19-24,127-141；AssetPanel.tsx:34；BaseFullscreenModal.tsx:57,68-80；App.tsx:8-19；rc-dialog Dialog/index.js:144-148 |
+| C1-3 | **全屏壳（z-[100000]）内 toast/弹层机制（第五轮修正——单嵌套 ConfigProvider 抬不起 useApp() toast）**：①静态 `message.*` 落 body、z≈2010（AssetPanel.tsx:34 注释实测值）被壳盖住，禁用；②壳是 createPortal(document.body)（BaseFullscreenModal.tsx:68-80）但 React context 按组件树走——**壳内组件 `AntdApp.useApp()` 解析到根 App（App.tsx:15，holder 挂 body、z 基座 11000）→ 壳内 toast 仍被盖；嵌套 ConfigProvider 只能抬 Modal 类弹层（读最近 Provider token），追不到根 App 的 holder**。**正确配方（第七轮措辞修正：**结构**照抄 VideoEditorShell.tsx:127-141（同为 BaseFullscreenModal 壳）——getPopupContainer 进壳 + `<AntdApp component={false}>`（component={false} 必须：默认渲染 div.ant-app 打断壳布局）；**`theme token zIndexPopupBase:100000` 是本 plan 新增层，先例没有**（其 theme 只有 darkAlgorithm、弹层从不落 body 故不需要；本功能 LoginModal 需要它保首帧回退路径，勿以"先例没有"为由删掉）。另**有意不加 darkAlgorithm**：LoginModal 全仓均为浅色渲染（TopActionBar 先例），加了反而换肤。配方：壳根 div 挂 shellRef，内容包两层——嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase:100000 } }} getPopupContainer={() => shellRef.current ?? document.body}>` 内再 `<AntdApp component={false}>`；PlayView/ProcessView 渲染在内层 App 之下，直接 `const { message } = AntdApp.useApp()`（holder 渲染在壳 DOM 内 → 可见，无需 bridge）**。LoginModal（antd Modal）读最近 Provider token → z=100100 > 壳 100000，D18 不变；其内部 useApp() 也解析到内层 App → toast 同样可见。**两层各自的作用（勿"简化"掉任一层，第六轮 N9）**：getPopupContainer 是常规路径（弹层挂进壳 DOM）；zIndexPopupBase:100000 是首帧/兜底路径（shellRef 未挂载首帧 getPopupContainer 回退 body——VideoEditorShell.tsx:128-129 注释："漏挂 shellRef 则永远回退 body，弹层作用域修复静默失效"，此时唯一撑住可见性的是 token 的 100100>100000）。**Esc 双关守卫是承重机制（勿删；机制措辞第六轮修正）**：rc-dialog 9.6.0 的 ESC 处理在 `onWrapperKeyDown`（Dialog/index.js:144-148）——挂在 dialog 包装**节点**上（React onKeyDown）且 e.stopPropagation()。焦点在登录框内 → 事件在 wrapper 节点被截、冒泡不到 document，壳不受影响；**焦点不在登录框内**（点了壳内其它区域/焦点在 body）→ 事件不经 rc-dialog 的 wrapper、直达 document → BaseFullscreenModal 监听触发——无守卫时关掉的是整个播放 Modal；守卫（close 回调首行 `if (showLogin) { setShowLogin(false); return; }`）使该场景只关登录层。副作用登记为有意：登录层开着时点壳 ✕ 只关登录层。**测试装配**：渲染链含 useAuth 的测试文件必须 `vi.mock('@/components/AuthProvider', ...)`（context 默认 `null!`，裸渲染解构即抛，AuthProvider.tsx:25,56）；message stub 四键齐全或测试树包 `<AntdApp>`（先例 AssetPanel.test.tsx:28、ExportModal.test.tsx:7） | VideoEditorShell.tsx:19-24,127-141；AssetPanel.tsx:34；BaseFullscreenModal.tsx:57,68-80；App.tsx:8-19；rc-dialog Dialog/index.js:144-148 |
 | C1-4 | **关键组件真实 API**：MinIO 写对象是 `this.minio.upload(key, buffer, contentType)`（**无 putObject/uploadBuffer**）；上传键一律 `this.minio.buildKey('uploaded', 'system', { ext })` → `uploads/system/{date}/{uuid}.{ext}`（内置 randomUUID，与 D17 白名单精确对齐，**勿手拼 key 勿用 uuid 包**——该包非依赖，仓库用 node:crypto）。`isLoggedIn()` 不存在——用 `const { user } = useAuth()` 判 `!user`（AuthProvider.tsx:17-23，App.tsx:16 AuthProvider 包住 RouterProvider，公开路由可用 hook）。EmptyState/CardGridSkeleton 是 **workspace 私有组件**（pages/workspace/components/，EmptyState 必填 variant+onAction）——/videos 不复用，内联 ≤5 行空态/骨架（D2 孤岛） | minio.service.ts:46-57,105；admin-home-banner.controller.ts:39-66（第六轮更正路径——原引"admin-banner.controller.ts:27-57"是订阅 banner 文件）；nodeStore 类型真值 |
 
 ### C2. 正文代码块勘误（按 Task 序）
@@ -33,7 +33,11 @@
 
 ```bash
 cd apps/api
-SHADOW_URL=$(grep DATABASE_URL .env | cut -d= -f2 | sed 's/flowweb$/flowweb_shadow/')  # $SHADOW_URL 必须先定义——原片段引用了未定义变量（空串行为不可预期）
+# 第七轮修正：.env 的 DATABASE_URL 带双引号且行尾是 "（sed 's/flowweb$/' 不匹配）→ 原命令会把"带引号的原库 URL"当 shadow 库传给 prisma（重置风险）。
+# 先 tr -d '"' 去引号、再锚定路径段 /flowweb$ 替换；并断言替换确实发生。
+SHADOW_URL=$(grep -E '^DATABASE_URL' .env | cut -d= -f2- | tr -d '"' | sed 's#/flowweb$#/flowweb_shadow#')
+ORIG_URL=$(grep -E '^DATABASE_URL' .env | cut -d= -f2- | tr -d '"')
+[ "$SHADOW_URL" != "$ORIG_URL" ] || { echo "FAIL: shadow URL 未生效（检查 .env 格式）"; exit 1; }
 DIFF=$(pnpm exec prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url "$SHADOW_URL" 2>&1)
 [ -z "$DIFF" ] && echo "OK: 零差异" || { echo "FAIL: $DIFF"; exit 1; }
 ```
@@ -74,7 +78,7 @@ listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
 
 **Task 2.3**：DTO 的 `@IsEnum(['DRAFT','PUBLISHED'])` 功能成立（class-validator 0.14 按值匹配）但错误消息为空——换 `@IsIn(['DRAFT', 'PUBLISHED'] as const)` 文案更干净。**updateWork 下架不清 publishedAt 是有意行为**（再次上架保留原发布日期，spec §3.2"重新下架再发布不重置"）。
 
-**Task 2.5**：整体替换为照抄 banner 先例（minio.service.ts:105 upload 三参 + buildKey；controller 挂 FileInterceptor + limits + fileFilter，先例 admin-banner.controller.ts:39-66）：
+**Task 2.5**：整体替换为照抄 banner 先例（minio.service.ts:105 upload 三参 + buildKey；controller 挂 FileInterceptor + limits + fileFilter，先例 **admin-home-banner**.controller.ts:39-66——第七轮修正文件名，"admin-banner.controller.ts" 是订阅 banner 文件且行号不符）：
 
 ```ts
 // controller
@@ -179,7 +183,7 @@ if (opts.resetStatusIdle) {
 
 ③**已知状态登记（非 bug 勿修）**：Promise.race 超时后底层 create 仍可能跑完——CanvasProject+ProjectMember 行已建、doc 写失败留空工程，或用户看到 503 但工程实际建成了（开发期无存量数据接受，spec §4.7 已登记"create 的 DB 行先建、doc 后写"）。④ 克隆 id 断言：`JSON.stringify` 检查旧 id 时 mock 的 idMap 若实现失误返回 undefined，stringify 成 null——断言 `not.toContain('"child1"')` 仍有效，保留。
 
-**Task 7.1**：正文所有 apiFetch 路径去 `/api`（C1-1）；`import type` 强制（shared 是纯 TS 源码包，值导入 ESM 解析失败——video-project.service.ts:20 注释）：`import type { ... } from '@flowweb/shared'`（以 web 侧既有 import 别名为准）。**toFlowaiUrl 不从 mediaApi 提取**（避免批次 0 的 banner 改动面）——直接复制那一行正则进 videoWorkApi.ts（YAGNI）。
+**Task 7.1**：正文所有 apiFetch 路径去 `/api`（C1-1，已机械回写）；shared 导入（第七轮归属修正）：**`import type` 是 API 侧硬约束**（纯 TS 源码包 barrel 无扩展名相对导入，Node ESM 运行时解析失败——video-project.service.ts:20 注释/admin.guard.ts:3-5）；**web 侧无此约束**（全仓 49 个文件值导入 @flowweb/shared 正常走打包器）——videoWorkApi.ts 只用类型，顺手 `import type { ... } from '@flowweb/shared'` 即可、勿当"禁令"理解。**toFlowaiUrl 不从 mediaApi 提取**（避免批次 0 的 banner 改动面）——直接复制那一行正则进 videoWorkApi.ts（YAGNI）。
 
 **Task 7.2**：路由导入已机械回写为 `from 'react-router'`（C1-2）；EmptyState/CardGridSkeleton 替换为内联：
 
@@ -266,9 +270,9 @@ const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 gr
 
 **Task 11.2**：部署清单补一行——**packages/shared 必须同步上传**（deploy_full 覆盖、deploy_api 不覆盖；web 构建依赖工作区包解析新类型，**且服务器 `nest build` 的 tsc 也要解析 @flowweb/shared 类型——shared 不是新版会直接编译失败**，deploy.sh:53-62）。
 
-### C3. spec 同步（2 处）
+### C3. spec 同步（第七轮重写：①②已完成，本轮 ③-⑥）
 
-① spec §4.2 端点表补行：`GET /settings | 公开读取轮播设置（非敏感运营开关；声明序在 :id 之前）`——消除代码与冻结文档的分叉（plan Task 8.3 实施决定回流）。② spec §4.6 白名单表 imageGen/imageExtGen 合并行补**字段分布注记**（aspectRatio 根级通用两类都有 / aiTool 仅 imageExtGen 根级 / style·model·prompt 等仅 imageGen 根级，缺失字段 no-op）——与 C2 Task 5.1 拆分表语义等价的有意偏离回流（第六轮补记，避免将来增量者按合并行误解字段归属）。
+①✅ spec §4.2 端点表 `GET /settings` 行已补（第五轮）。②✅ spec §4.6 合并行字段分布注记已补（第五轮）。**仍待同步**：③ spec D8（决策清单第 8 行）仍写"type 键唯一真值 = NODE_TYPES（nodeStore.ts:6-13）"——与 §4.6 正文/C2 的"权威注册表 = CanvasView.tsx:42-51（8 键）"分叉，本轮同步；④ spec §5.4"骨架屏/空态复用 CardGridSkeleton / EmptyState 模式"→ 更正为"内联轻量骨架/空态"（两组件是 workspace 私有，C1-4 已核验）；⑤ spec §7 测试触点自相矛盾（"auth.guard.spec 无需改动" vs "新增 by-key 行为用例（批次 0）"）——裁定**前者胜出**（by-key 行为用例在 media.service.spec；auth.guard 仅 Task 3.1 新增 /api/video-works 前缀用例），同步措辞；⑥ spec §4.2 canClone 措辞"原始开关值"→ 显式"与 canViewProcess 同一 canvasProject.findUnique 画布存在校验"（plan Task 3.3 实现如此、更合理，回流）。
 
 ### C4. 已知边界登记（执行中勿当 bug 修）
 
@@ -277,6 +281,31 @@ const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 gr
 - 限流本地永不生效（IP_WHITELIST 含 127.0.0.1/::1）——手工验收表"限流 429"仅由单测覆盖，浏览器不验。
 - 候选索引 [type,status,deletedAt] 不覆盖 mimeType/JSON/createdAt 排序——数据量增长后可改 [type,status,deletedAt,createdAt]，本期接受。
 - RateLimiterService 多模块各自实例化（AuthModule/VideoWorkModule 各一）——Redis 连接不同实例，无功能影响。
+- **like 计数不可对账（第七轮 A1 登记）**：SET NX→DEL 非原子（并发双击可致 likeCount 与键集合瞬态漂移）+ 90 天 TTL 过期后同用户可再点赞 → likeCount 只增不减、无上界。互动量语义（D6）接受；需精确对账则改 VideoWorkLike 唯一行表 + 计数派生（后续增强）。
+- **空 Y.Doc 快照 200 空白（第七轮 A6 登记）**：canvasProject DB 行在、doc 从未持久化时 readCanvas 返回空 nodes/edges → 前端渲染空画布无提示（503 超时不覆盖）。开发期无存量数据接受；如需防护加 nodes/edges 双空 → 404。
+- **AuthGuard 每请求新建 PrismaClient（既有问题，第七轮登记）**：带陈旧 cookie 的游客访问 /videos 列表/详情，每次都 new PrismaClient + 会话查询 + $disconnect（auth.guard.ts:29-41）——本功能是首个公开高频入口、放大该路径；匿名快路径的"零 Redis 调用"优化会被这层吃掉。不在本期修，登记。
+- **apiFetch 的 e.status 仅在 HTTP 非 2xx 时挂载（client.ts:23 vs :28）**：`json.code!==0` 的 200 分支抛错无 .status → PlayView/ProcessView 的 `e.status===401/429` 判断静默失配。当前 HttpExceptionFilter 用真实状态码、该分支不可达；若后端响应形态变化需重审。
+- **D10 下架时效对封面不成立（第七轮显式化）**：videoKey（results/...）不在 by-key 白名单域 → ≤1h 失效 ✓；但 upload-cover 的封面写 uploads/system/ → 拿到 key 者可经公开 by-key 无限续期封面图（仅图片、仅封面）。接受并登记。
+- **AdminVideoWorkController 单 controller 管 6 类资源（第七轮 A4 登记）**：categories/tags/candidates/works/upload-cover/settings 集中一处（spec §4.1 冻结结构、home-banner 双 controller 先例）。接受；若后续膨胀按 A4 建议拆 2-3 个 controller。
+- **god service 接缝（第七轮建议登记）**：VideoWorkService ≈ 公开 7 + 后台 9 端点 + 快照构造。批次 5 定稿后若超 ~350 行，把 injectThumbnails + getProcessSnapshot + presign 收敛为 video-work-snapshot.service.ts（与 video-work-clone.service.ts 同构，不违背 D2）。
+
+### C7. 第七轮审核修正（2026-09-16，全部已真回写正文/勘误节——本节为执行记录）
+
+> 三份并行报告（两份含 antd/rc-dialog 源码级复核）。核验排除 0 项旧版误报、采纳全部阻断+主要项：
+
+1. **B1**：Task 0.1 SQL 表名 `subscription_banner`（schema.prisma:545 是全仓唯一 @@map；列名引号保留）+ 密码 flowweb_dev（.env 实值；"123456" 是 postgres 超级用户密码）。
+2. **B2**：/videos/:id? lazy 元素补 **Suspense 边界**（AppLayout 无 Suspense、公开组现有 3 路由全静态、react-router 7 SPA 无隐式边界 → 直链首屏白屏；照抄 AdminLazy router.tsx:22-24）。
+3. **B3**：buildFilteredSnapshot 补 **__ephemeral 标记过滤**（spec §4.6 字面；当前与 shadow- 前缀共生但白名单不依赖命名约定）+ 专用夹具（无前缀带标记也剥）。
+4. **B4**：Task 3.3 readCanvas 断言改**无条件**（`if (collabDoc)` 条件式在实现改名/漏注入时静默变绿——spec §7.6 红线）。
+5. **B5/A2**：PlayView onError 补 **retriedRef 一次性守卫**（防对象已删的 错误→重取→再错误 无限循环）+ 双 error 用例；z-index 不变量以 Task 8.1 注释"勿删 token 层"钉住（jsdom 测不出、导出常量断言亦近恒真，注释+手工验收 #6 是可执行防线）。
+6. **F2**：Task 7.3 补 getPublicSettings/recordView mock + **getPublicSettings mock 为 {carouselEnabled:false}**（关轮播——否则 Modal 内 CarouselBar 二次调列表端点击垮 toHaveBeenCalledTimes(1)）；Task 8.1 场景 fixture 已含。
+7. **F3**：invalidateWorkCaches 前移 **Task 2.3 就地定义**（Task 2.4 也调用——前向引用 Task 5.3 让批次 2 tsc 红）；Task 5.3 仅收敛常量。
+8. **F4**：SHADOW_URL 命令改 `tr -d '"'` + `s#/flowweb$#/flowweb_shadow#` + 替换生效断言（.env 带引号、原 sed 不匹配 → 会把原库当 shadow 库）。
+9. **F5**：Task 8.2 测试块补全 harness（imports/mocks/vi.hoisted AuthProvider/detail fixture/renderPlay）；修语法错（少右括号）；onError 断言改 onDetailRefresh 回调（PlayView 自身不拉详情）；viewCount 断言收进 desc-panel。Task 8.4 renderModalWithNeedLogin 改本文件内定义（跨测试文件复用局部函数不可能）。
+10. **F6**：UpdateVideoWorkDto 补类体（不声明 videoKey/videoMediaId → forbidNonWhitelisted 下后台再提交即 400——"不支持换源"语义定死）。
+11. **B2'/mock 名**：Task 2.1 mock 改 listAllCategories/listAllTags（controller 实际调用名——原 mock 是 TypeError）；Task 3.1 switchToHttp 改函数形态 `{ switchToHttp: () => ({ getRequest: ... }) }`（auth.guard.spec.ts:31 既有形态；对象形态 TypeError）；Task 4.1 变量名对齐既有文件 mockRedis/service。
+12. **签名一次到位（架构建议①）**：Task 1.3 骨架的 service/controller 构造注入全量声明（video-project.service.ts:15 注释同款惯例）——后续任务只加方法，spec 文件 providers 从创建即完整（第六轮 4.2/6.2 两个"补 provider"补丁作废）。
+13. **杂项**：公开 settings 端点自 Task 8.3 前移 Task 3.2（后端改动不留前端批次；Task 3.3 声明序断言同步）；view 去重 key 改 **ipHash**（sha256 截断 16——spec §4.5 写的就是 ipHash，Redis 不驻留明文 IP）；Task 2.2 candidates previewUrl 改走 presignWork（A5——与列表/详情/缩略图同缓存纪律，原逐行裸签名 50 次/页）；Task 0.2 导入精确化；C2 Task 2.5 文件名更正；C2 Task 7.1 import-type 归属修正（API 侧约束/web 侧自由）；C1-3"照抄先例"改为"结构照抄 + token 为本 plan 新增层（勿删）+ 有意不加 darkAlgorithm（LoginModal 全仓浅色）"；VideoCard 改用 --vw-* token（杀死变量）；C4 新增 7 条登记（A1/A6/AuthGuard PrismaClient/apiFetch status/D10 封面例外/A4/快照 service 接缝）；C6 #10 诊断修正。
 
 ### C5. 第五轮审核修正（2026-09-16；其中 Task 5.1 WHITELIST/Task 6.1 resetStatusIdle/Task 9.1 GroupFrame/Task 8.1 harness 四项当轮只改了勘误节，**第六轮已全部真回写正文**——见 C6）
 
@@ -312,7 +341,7 @@ message stub（组件用 AntdApp.useApp() 时）：测试树包 `<AntdApp>` 或 
 7. **Task 6.1 四处测试取参**：clone() 只返回 { projectId }——四条用例改经 `projectService.create.mock.calls[0][2]/[3]` 取 nodes/edges（旧解构是 TS2339 + undefined.find）。
 8. **Task 7.3**：VideosPageStub（全文未定义，TS2304/ReferenceError）→ import 真实 VideosPage（本任务无 Modal 断言照样成立，批次 8 挂载后回归保持绿）。
 9. **Task 8.1**：壳根 div `relative h-full w-full` → **`fixed inset-0`**（VideoEditorShell.tsx:132 同款——BaseFullscreenModal 的 dialog 包装无尺寸类，百分比高度在 auto 父级解析为 auto，壳内容塌 0 高度；jsdom 无布局测不出、手工验收 #3 才暴露）；renderAt 换真实 VideosPage；四场景改点真实卡片（VideoCard Link 自带 state）+ fixture 补 w2 + **场景5（?page=2&categoryId=x 关闭后查询串保留）升格正式用例**；补 AuthProvider/getPublicSettings/recordView mock。
-10. **Task 8.2/8.3/8.4**：PlayView 简介浮层加 `data-testid="desc-panel"`；onError 用例先点「立即观看」（idle 态无 video 元素）；CarouselBar 测试补 renderBar helper（显式 mock getPublicSettings——漏 mock 时 auto-mock undefined → .catch 兜成 enabled:true → disabled 用例必红）+ 点击切换用例落地；Task 8.4 login-modal-root 由 mock LoginModal 提供（真实组件无此 testid）+ **Esc 守卫真用例**（捕获壳 onClose → 断言只关登录层、播放 Modal 仍在——守卫此前无测试）。
+10. **Task 8.2/8.3/8.4**：PlayView 简介浮层加 `data-testid="desc-panel"`；onError 用例先点「立即观看」（idle 态无 video 元素）；CarouselBar 测试补 renderBar helper（显式 mock getPublicSettings——漏 mock 时 auto-mock 返回 undefined → `getPublicSettings().then` 是**同步 TypeError**（.catch 接不到同步 throw），用例以 unhandled error 变红；第七轮修正诊断——原写".catch 兜成 enabled:true"的机制不成立，按错误方向排查会绕路）+ 点击切换用例落地；Task 8.4 login-modal-root 由 mock LoginModal 提供（真实组件无此 testid）+ **Esc 守卫真用例**（捕获壳 onClose → 断言只关登录层、播放 Modal 仍在——守卫此前无测试）。
 11. **Task 9.1/9.2/10.1/10.2**：ProcessSnapshot 正文换 GroupFrame 定案（含 __groupType/__name 显式映射 + 双 Handle；删恒真的 `[dangerouslysetinnerhtml]` querySelector 断言）；ProcessView 三处 render 补必填 onNeedLogin + 未登录克隆用例落地；Task 10.1 Files 行更正（顶级菜单项，非"内容管理区"）+ JSON.stringify 断言换内联 flatten + 相对路径 + 表格列/ModalForm 用例落地；Task 10.2 三条空壳用例落地。
 12. **杂项**：Task 1.3 矛盾注释段删除（代码已 import 克隆空壳）；Task 2.1 controller 正文补类级 @UsePipes；Task 2.3 DTO 正文 @IsEnum→@IsIn；C1-3 补两层各自作用（getPopupContainer 常规路径 / token 首帧兜底路径）与 Esc 真实机制（rc-dialog onWrapperKeyDown 挂 dialog 节点 + stopPropagation——守卫承重场景是"焦点不在登录框内"）；C1-4 引用路径更正（admin-home-banner.controller.ts:39-66）；C3 补 §4.6 注记记录；C5 AuthProvider 模板改 vi.hoisted + beforeEach 复位。
 
@@ -374,8 +403,10 @@ apps/web/src/
 - [ ] **Step 1: 查询存量 key**
 
 ```bash
-psql "postgresql://flowweb:123456@localhost:5432/flowweb" -c 'SELECT id, "backgroundImageKey" FROM "SubscriptionBanner" WHERE "backgroundImageKey" IS NOT NULL;'
+psql "postgresql://flowweb:flowweb_dev@localhost:5432/flowweb" -c 'SELECT id, "backgroundImageKey" FROM subscription_banner WHERE "backgroundImageKey" IS NOT NULL;'
 ```
+
+（第七轮修正：①表名用 `subscription_banner`——schema.prisma:545 是全仓唯一 `@@map("subscription_banner")`，查 "SubscriptionBanner" 直接 relation does not exist；列名引号保留（只有表被 map）。②密码 flowweb_dev——.env `DATABASE_URL` 用的是该值，"123456" 是 postgres 超级用户密码，flowweb 用户连不上。）
 
 Expected: 列出所有非空 key。
 
@@ -419,7 +450,7 @@ describe('getPresignedUrlByKey', () => {
 });
 ```
 
-注意：mock 装配沿用该 spec 文件既有的 Prisma/Minio/Redis 替身（文件顶部已有）；`ForbiddenException/BadRequestException` 从 `@nestjs/common` 导入。
+注意：mock 装配沿用该 spec 文件既有的 Prisma/Minio/Redis 替身（文件顶部已有）。**导入精确化（第七轮）**：spec 文件已导入 ForbiddenException/NotFoundException（media.service.spec.ts:6）——只补 `BadRequestException`；**media.service.ts:1 现只有 NotFoundException**——实现侧需同时补 `ForbiddenException, BadRequestException` 两个。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -429,7 +460,7 @@ Expected: FAIL（getPresignedUrlByKey 不存在，TS 编译错误即红）
 - [ ] **Step 3: 实现（media.service.ts 追加方法）**
 
 ```ts
-import { BadRequestException, ForbiddenException } from '@nestjs/common'; // 顶部补导入
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'; // 顶部改导入——media.service.ts:1 现只有 NotFoundException，Forbidden/BadRequest 均新增
 
 /** 公开 by-key 兑换（唯一合法域：运营公开素材 uploads/system/）。
  *  仅 trim 规范化（禁止二次解码——Express 已解码一次，再解 %2F..%2F 会绕过前缀），
@@ -747,32 +778,56 @@ export class VideoWorkModule {}
 注意：克隆服务空壳类 `video-work-clone.service.ts` 与骨架同建（上方 import + providers 已全量列出，无中间态）；REDIS_CLIENT 提供模式**已核验定案**（AppModule 级 REDIS_CLIENT 是私有 provider、功能模块拿不到——自备 `{ provide: 'REDIS_CLIENT', useFactory: ... }`，先例 media.module.ts / auth.module.ts:13-20），无需再 grep。
 
 ```ts
-// video-work.service.ts（空壳，后续任务填充）
-import { Injectable } from '@nestjs/common';
+// video-work.service.ts（空壳，构造签名一次到位——第七轮：video-project.service.ts:15 注释同款惯例
+// "签名一次到位，避免 Task N 中途改构造器"。后续任务只加方法、不动构造/providers，
+// spec 文件从创建起就 provide 全部依赖、永不需要二次编辑）
+import { Injectable, Inject } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MinioService } from '../minio/minio.service';
+import { RateLimiterService } from '../../common/services/rate-limiter.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
+import Redis from 'ioredis';
 
 @Injectable()
 export class VideoWorkService {
-  // Task 2.x/3.x/4.x/5.3 逐步填充
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,             // @Global
+    @Inject(MinioService) private readonly minio: MinioService,                 // @Global（presign，无删除能力——删除红线）
+    @Inject('REDIS_CLIENT') private readonly redis: Redis,                      // Task 2.1 缓存/3.3 liked/4.x 计数
+    @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService, // Task 4.2 view 限流
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）
+  ) {}
+  // Task 2.x/3.x/4.x/5.3 逐步填充方法
 }
 ```
 
 ```ts
-// video-work.controller.ts（空壳）
-import { Controller } from '@nestjs/common';
+// video-work.controller.ts（空壳，签名一次到位——rateLimiter 供 Task 4.2 getClientIp、cloneService 供 Task 6.2）
+import { Controller, Inject } from '@nestjs/common';
+import { VideoWorkService } from './video-work.service';
+import { VideoWorkCloneService } from './video-work-clone.service';
+import { RateLimiterService } from '../../common/services/rate-limiter.service';
 
 @Controller('api/video-works')
 export class VideoWorkController {
-  // Task 3.x/4.x/5.3/6.2 逐步填充
+  constructor(
+    @Inject(VideoWorkService) private readonly service: VideoWorkService,
+    @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService,
+    @Inject(VideoWorkCloneService) private readonly cloneService: VideoWorkCloneService, // Task 6.1 前是空壳类，可注入
+  ) {}
+  // Task 3.x/4.x/5.3/6.2 逐步填充方法
 }
 ```
 
 ```ts
 // admin-video-work.controller.ts（空壳）
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
+import { VideoWorkService } from './video-work.service';
 
 @Controller('api/admin/video-works')
 export class AdminVideoWorkController {
-  // Task 2.x 逐步填充
+  constructor(@Inject(VideoWorkService) private readonly service: VideoWorkService) {}
+  // Task 2.x 逐步填充方法
 }
 ```
 
@@ -820,11 +875,13 @@ describe('AdminVideoWorkController categories/tags', () => {
 
   beforeEach(async () => {
     service = {
-      listCategories: vi.fn().mockResolvedValue([]),
+      // 第七轮：方法名必须与 controller 实际调用一致——controller 是 listAllCategories()/listAllTags()
+      // （admin 端返回全部含 inactive），mock 写 listCategories/listTags 是 TypeError（B1）
+      listAllCategories: vi.fn().mockResolvedValue([]),
       createCategory: vi.fn().mockResolvedValue({ id: 'c1' }),
       updateCategory: vi.fn().mockResolvedValue({ id: 'c1' }),
       deleteCategory: vi.fn().mockResolvedValue(undefined),
-      listTags: vi.fn().mockResolvedValue([]),
+      listAllTags: vi.fn().mockResolvedValue([]),
       createTag: vi.fn().mockResolvedValue({ id: 't1' }),
       updateTag: vi.fn().mockResolvedValue({ id: 't1' }),
       deleteTag: vi.fn().mockResolvedValue(undefined),
@@ -836,9 +893,9 @@ describe('AdminVideoWorkController categories/tags', () => {
     controller = moduleRef.get(AdminVideoWorkController);
   });
 
-  it('GET categories 调 service.listCategories', async () => {
+  it('GET categories 调 service.listAllCategories', async () => {
     await controller.listCategories();
-    expect(service.listCategories).toHaveBeenCalled();
+    expect(service.listAllCategories).toHaveBeenCalled();
   });
 
   it('POST categories 传 DTO 给 service', async () => {
@@ -858,7 +915,7 @@ describe('AdminVideoWorkController categories/tags', () => {
     await controller.createTag({ name: '悬疑', sortOrder: 0, active: true });
     await controller.updateTag('t1', { active: false });
     await controller.deleteTag('t1');
-    expect(service.listTags).toHaveBeenCalled();
+    expect(service.listAllTags).toHaveBeenCalled();
     expect(service.createTag).toHaveBeenCalledWith({ name: '悬疑', sortOrder: 0, active: true });
   });
 });
@@ -1119,9 +1176,20 @@ async listCandidates(page: number, pageSize: number): Promise<{ items: Candidate
     width: (r.metadata as any)?.width ?? null,
     height: (r.metadata as any)?.height ?? null,
     createdAt: r.createdAt.toISOString(),
-    previewUrl: await this.minio.generatePresignedGetUrl(r.key, 900).catch(() => null),
+    previewUrl: await this.presignWork(r.key).catch(() => null), // 第七轮 A5：走 presignWork 短缓存（与列表/详情/缩略图同纪律）——原逐行裸签名 50 次/页
   })));
   return { items, total };
+}
+
+// presign + 短缓存纪律（TTL < URL TTL，media.service.ts:16-31 同款）——本任务即定义（Task 3.2 列表/3.3 详情/5.2 缩略图复用；
+// 第七轮前移：原定义在 Task 3.2 会造成本任务的前向引用 tsc 红）
+private async presignWork(key: string): Promise<string> {
+  const cacheKey = `videoWork:url:${key}`;
+  const cached = await this.redis.get(cacheKey);
+  if (cached) return cached;
+  const url = await this.minio.generatePresignedGetUrl(key, 3600);
+  await this.redis.set(cacheKey, url, 'EX', 3500);
+  return url;
 }
 ```
 
@@ -1217,7 +1285,31 @@ export class CreateVideoWorkDto {
 }
 ```
 
-`update-video-work.dto.ts` 同构但**除 videoKey/videoMediaId 外全部可选**（换源视频=重建作品更清晰，v1 不支持 update 换源；title/authorName 也变可选）。
+`update-video-work.dto.ts`（第七轮补类体——四个 DTO 唯它无代码，"同构但可选"配合 forbidNonWhitelisted 决定换源字段是 400 还是忽略，两种读法都通，必须定死：**不声明 videoKey/videoMediaId 字段 → 后台再提交即 400**（v1 不支持换源，换源=重建作品））：
+
+```ts
+import { IsString, IsInt, IsBoolean, IsOptional, IsArray, IsIn, MaxLength, ArrayMaxSize } from 'class-validator';
+
+export class UpdateVideoWorkDto {
+  @IsOptional() @IsString() @MaxLength(200) title?: string;          // 可选（仅改状态/计数等场景）
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(64) authorName?: string;
+  @IsOptional() @IsString() categoryId?: string | null;
+  @IsOptional() @IsString() @MaxLength(512) coverKey?: string;       // 封面可换（上传新图）
+  @IsOptional() @IsString() canvasProjectId?: string | null;
+  @IsOptional() @IsInt() durationSec?: number;
+  @IsOptional() @IsInt() width?: number;
+  @IsOptional() @IsInt() height?: number;
+  @IsOptional() @IsInt() viewCount?: number;
+  @IsOptional() @IsInt() likeCount?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsIn(['DRAFT', 'PUBLISHED'] as const) status?: 'DRAFT' | 'PUBLISHED';
+  @IsOptional() @IsBoolean() allowViewProcess?: boolean;
+  @IsOptional() @IsBoolean() allowClone?: boolean;
+  // 无 videoKey/videoMediaId（换源=重建）、无 publishedAt（服务端专用）
+}
+```
 
 service 实现：
 
@@ -1246,8 +1338,14 @@ async updateWork(id: string, dto: UpdateVideoWorkDto) {
   // 发布语义：转 PUBLISHED 且原 publishedAt 为空 → 设 now；已有则不动
   if (merged.status === 'PUBLISHED' && !existing.publishedAt) data.publishedAt = new Date();
   const row = await this.prisma.videoWork.update({ where: { id }, data });
-  await this.invalidateWorkCaches(id); // 详情/快照缓存（Task 5.3 定义）
+  await this.invalidateWorkCaches(id);
   return row;
+}
+
+// 第七轮：本任务就地定义（Task 2.4 removeWork 也调用——前向引用 Task 5.3 会让批次 2 的 tsc 编译红、
+// 违反"每任务红-绿-提交"）。Task 5.3 仅把 key 收敛进 PROCESS_CACHE 常量，方法体不变。
+private async invalidateWorkCaches(id: string) {
+  await this.redis.del(`videoWork:process:${id}`);
 }
 
 private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean; canvasProjectId?: string | null }) {
@@ -1497,9 +1595,10 @@ git commit -m "feat(video-work): 批次2 settings 端点（singleton upsert + �
 
 ```ts
 it('/api/video-works 前缀公开放行', async () => {
-  // 沿用该文件既有测试的 guard 实例化与 mock request 构造方式
-  const req = { path: '/api/video-works', headers: {} };
-  await expect(guard.canActivate({ switchToHttp: { getRequest: () => req } } as any)).resolves.toBe(true);
+  // 第七轮修正：switchToHttp 是方法不是对象——guard 内部调 context.switchToHttp().getRequest()，
+  // 对象形态直接 TypeError（Step 2 红错位置错、Step 4 永不绿）。既有 spec 的正确形态：auth.guard.spec.ts:31
+  const ctx = { switchToHttp: () => ({ getRequest: () => ({ path: '/api/video-works', headers: {} }) }) };
+  await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
 });
 ```
 
@@ -1536,22 +1635,29 @@ import { Test } from '@nestjs/testing';
 import type { Mock } from 'vitest'; // 显式导入（同 Task 2.1 注）
 import { VideoWorkController } from './video-work.controller';
 import { VideoWorkService } from './video-work.service';
-// 第六轮：controller 构造注入随任务增长（4.2 RateLimiterService / 6.2 VideoWorkCloneService）——
-// 各任务在下方 providers 数组追加对应 useValue mock（Task 4.2/6.2 有明确步骤），本文件创建时只留 VideoWorkService
+import { VideoWorkCloneService } from './video-work-clone.service';
+import { RateLimiterService } from '../../common/services/rate-limiter.service';
+// 第七轮：controller 构造签名自 Task 1.3 一次到位（service+rateLimiter+cloneService）——providers 创建即完整，
+// 后续任务只往 service mock 补方法，providers 永不二次编辑（第六轮"各任务追加 provider"的补丁作废）
 
 describe('VideoWorkController（公开）', () => {
   let controller: VideoWorkController;
   let service: Record<string, Mock>;
-  // service mock 随任务补齐 controller 实际调用的方法：getDetail(3.3)/recordView(4.2)/toggleLike(4.3)/getProcess(5.3)/clone(6.2)/getSettings(8.3)
+  // service mock 随任务补齐 controller 实际调用的方法：getDetail(3.3)/recordView(4.2)/toggleLike(4.3)/getProcess(5.3)/clone(6.2)/getSettings(3.2 本任务即加)
 
   beforeEach(async () => {
     service = {
       listPublished: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
       listCategoriesPublic: vi.fn().mockResolvedValue([]),
+      getSettings: vi.fn().mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' }),
     };
     const moduleRef = await Test.createTestingModule({
       controllers: [VideoWorkController],
-      providers: [{ provide: VideoWorkService, useValue: service }],
+      providers: [
+        { provide: VideoWorkService, useValue: service },
+        { provide: RateLimiterService, useValue: { getClientIp: vi.fn().mockReturnValue('1.2.3.4'), checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true) } },
+        { provide: VideoWorkCloneService, useValue: { clone: vi.fn().mockResolvedValue({ projectId: 'new-p' }) } },
+      ],
     }).compile();
     controller = moduleRef.get(VideoWorkController);
   });
@@ -1624,15 +1730,7 @@ async listPublished(categoryId: string | undefined, page: number, pageSize: numb
   return { items, total, page, pageSize };
 }
 
-private async presignWork(key: string): Promise<string> {
-  // presign+短缓存纪律参照 media.service（TTL < URL TTL）——轮播/列表高频
-  const cacheKey = `videoWork:url:${key}`;
-  const cached = await this.redis.get(cacheKey);
-  if (cached) return cached;
-  const url = await this.minio.generatePresignedGetUrl(key, 3600);
-  await this.redis.set(cacheKey, url, 'EX', 3500);
-  return url;
-}
+// presignWork 已在 Task 2.2 定义（第七轮前移——本任务 listPublished 复用，勿重复定义）
 
 /** 公开类型列表（active + 30-60s 缓存；admin 改动时 Task 2.1 已删缓存） */
 async listCategoriesPublic() {
@@ -1651,16 +1749,19 @@ async listCategoriesPublic() {
 controller：
 
 ```ts
-// video-work.controller.ts（categories 静态段在最前）
+// video-work.controller.ts（categories/settings 静态段在最前；settings 第七轮自 Task 8.3 前移——后端端点不留在前端批次）
 import { Controller, Get, Query, Param, Post, Req, Inject, NotFoundException } from '@nestjs/common';
 import { VideoWorkService } from './video-work.service';
 
 @Controller('api/video-works')
 export class VideoWorkController {
-  constructor(@Inject(VideoWorkService) private readonly service: VideoWorkService) {}
+  constructor(@Inject(VideoWorkService) private readonly service: VideoWorkService) {} // Task 1.3 骨架另有 rateLimiter/cloneService 注入
 
   @Get('categories')
   listCategories() { return this.service.listCategoriesPublic(); }
+
+  @Get('settings') // 公开轮播设置（service.getSettings() Task 2.6 已定义——admin/公开共用）
+  getSettings() { return this.service.getSettings(); }
 
   @Get()
   list(@Query('categoryId') categoryId: string | undefined,
@@ -1721,9 +1822,10 @@ describe('getDetail', () => {
     expect(redisGet.mock.calls.flat().some((k: any) => String(k).startsWith('videoWork:like:'))).toBe(false); // 只断言 like 键未查
   });
 
-  it('路由声明序：categories 静态段先于 :id（Task 3.2 移入——本任务首写 getDetail，indexOf 不再是 -1；settings 断言由 Task 8.3 加入）', () => {
+  it('路由声明序：categories/settings 静态段先于 :id（Task 3.2 移入——本任务首写 getDetail；settings 端点第七轮已前移至 Task 3.2，此处一并断言）', () => {
     const names = Object.getOwnPropertyNames(VideoWorkController.prototype).filter(n => n !== 'constructor');
     expect(names.indexOf('listCategories')).toBeLessThan(names.indexOf('getDetail'));
+    expect(names.indexOf('getSettings')).toBeLessThan(names.indexOf('getDetail'));
   });
 
   it('liked 初始态：已登录读同一 like key（videoWork:like:{workId}:{userId}）', async () => {
@@ -1735,13 +1837,12 @@ describe('getDetail', () => {
     expect((service as any).redis.get).toHaveBeenCalledWith('videoWork:like:w1:user9');
   });
 
-  it('详情端点不触发 readCanvas（canvasProject 校验只 findUnique）', async () => {
+  it('详情端点不触发 readCanvas（canvasProject 校验只 findUnique）——第七轮改无条件断言（spec §7.6 红线：条件式 `if (collabDoc)` 在实现改字段名/漏注入时静默变绿）', async () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
     prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
     await service.getDetail('w1', null);
-    // service 不注入 CollabDocumentService 的 readCanvas 到详情路径——用 spy 验证（若注入了 collabDoc）
-    const collabDoc = (service as any).collabDoc;
-    if (collabDoc) expect(collabDoc.readCanvas).not.toHaveBeenCalled();
+    const readCanvas = (service as any).collabDoc.readCanvas; // Task 1.3 签名一次到位——构造注入必然存在（Task 2.2 spec providers 已提供）
+    expect(readCanvas).not.toHaveBeenCalled();
   });
 });
 ```
@@ -1803,21 +1904,23 @@ git commit -m "feat(video-work): 批次3 详情端点（liked 初始态/两开�
 - [ ] **Step 1: 写失败测试**
 
 ```ts
+// 第七轮：变量名对齐既有文件——rate-limiter.service.spec.ts 的替身叫 mockRedis、实例叫 service
+// （裸写 redis/limiter 是 TS2304 编译红，错误信息与业务无关易误判环境问题）
 describe('checkUserRateLimit', () => {
   it('用户维度固定窗口：window 内超 max → false', async () => {
-    redis.incr = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(11);
-    redis.expire = vi.fn();
-    expect(await limiter.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(true);
-    expect(await limiter.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(false);
+    mockRedis.incr = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(11);
+    mockRedis.expire = vi.fn();
+    expect(await service.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(true);
+    expect(await service.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(false);
   });
   it('key 形如 ratelimit:user:{action}:{userId}', async () => {
-    redis.incr = vi.fn().mockResolvedValue(1); redis.expire = vi.fn();
-    await limiter.checkUserRateLimit('u1', 'act', 60, 5);
-    expect(redis.incr).toHaveBeenCalledWith('ratelimit:user:act:u1');
+    mockRedis.incr = vi.fn().mockResolvedValue(1); mockRedis.expire = vi.fn();
+    await service.checkUserRateLimit('u1', 'act', 60, 5);
+    expect(mockRedis.incr).toHaveBeenCalledWith('ratelimit:user:act:u1');
   });
   it('不走 IP_WHITELIST（用户维度与 IP 无关）', async () => {
-    redis.incr = vi.fn().mockResolvedValue(1); redis.expire = vi.fn();
-    expect(await limiter.checkUserRateLimit('u1', 'act', 60, 5)).toBe(true); // 本地 127.0.0.1 请求也照常计数
+    mockRedis.incr = vi.fn().mockResolvedValue(1); mockRedis.expire = vi.fn();
+    expect(await service.checkUserRateLimit('u1', 'act', 60, 5)).toBe(true); // 本地 127.0.0.1 请求也照常计数
   });
 });
 ```
@@ -1888,14 +1991,16 @@ service（注入 RateLimiterService——module 已 provide）：
 
 ```ts
 import { ThrottlerException } from '@nestjs/throttler';
+import { createHash } from 'crypto';
 
 async recordView(id: string, ip: string) {
   const w = await this.prisma.videoWork.findUnique({ where: { id }, select: { status: true } });
   if (!w || w.status !== 'PUBLISHED') throw new NotFoundException();
   const allowed = await this.rateLimiter.checkIpRateLimit(ip, 'video-work:view', 60, 30);
   if (!allowed) throw new ThrottlerException();
-  // SET NX 原子去重（1h）
-  const ok = await this.redis.set(`videoWork:view:${id}:${ip}`, '1', 'EX', 3600, 'NX');
+  // SET NX 原子去重（1h）——key 存哈希不存明文 IP（spec §4.5 写的就是 ipHash：Redis 内长期驻留客户端明文 IP 是刻意规避的 PII 留存，第七轮对齐）
+  const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+  const ok = await this.redis.set(`videoWork:view:${id}:${ipHash}`, '1', 'EX', 3600, 'NX');
   if (ok !== 'OK') return { counted: false };
   await this.prisma.videoWork.update({ where: { id }, data: { viewCount: { increment: 1 } } });
   return { counted: true };
@@ -1911,7 +2016,7 @@ recordView(@Param('id') id: string, @Req() req: any) {
 }
 ```
 
-（controller 注入 RateLimiterService 仅供 getClientIp。**controller spec 同步装配（第六轮——不补则 TestingModule 解析构造参数失败、整文件红）**：providers 追加 `{ provide: RateLimiterService, useValue: { getClientIp: vi.fn().mockReturnValue('1.2.3.4'), checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true) } }`，service mock 补 `recordView: vi.fn().mockResolvedValue({ counted: true })`。）
+（controller 构造签名自 Task 1.3 一次到位（含 rateLimiter/cloneService），controller spec 的 providers 创建即完整——**本任务只需往 service mock 补 `recordView: vi.fn().mockResolvedValue({ counted: true })` 并加下述用例**；第七轮：第六轮"追加 provider"补丁作废。）
 
 **controller spec 追加**：
 
@@ -2119,21 +2224,36 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值�
     expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
   });
 
-  it('videoEdit 节点与 shadow- 前缀节点及相连边剥除', () => {
+  it('videoEdit 节点与 shadow- 前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（第七轮——spec §4.6 字面，防前缀约定松动）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('n1', 'videoGen', { model: 'm' }),
         rawNode('n2', 'videoEdit', { timeline: [1] }),
         rawNode('shadow-tmp', 'imageGen', { prompt: { text: 'x', html: 'y' } }),
+        rawNode('n3', 'videoGen', { model: 'm', __ephemeral: true }), // 无 shadow- 前缀、带标记
       ],
       edges: [
         { id: 'e1', sourceId: 'n1', targetId: 'n2' },
         { id: 'e2', sourceId: 'n1', targetId: 'shadow-tmp' },
+        { id: 'e3', sourceId: 'n1', targetId: 'n3' },
       ],
     };
     const out = buildFilteredSnapshot(input, base);
     expect(out.nodes.map(n => n.id)).toEqual(['n1']);
     expect(out.edges).toEqual([]);
+  });
+
+  it('剥离范围收口（第七轮）：audioGen.content 是纯文本旁白——含尖括号的正常文本原样保留；PromptValue.text 不做二次 strip', () => {
+    const input: RawCanvasData = {
+      nodes: [
+        rawNode('a1', 'audioGen', { model: 'tts', content: '若 3 < 5 且 6 > 4 则对', fileId: 'f', status: 'done' }),
+        rawNode('i1', 'imageGen', { prompt: { text: '数量 2 < 10 的猫', html: '<p>x</p>' }, style: 's' }),
+      ],
+      edges: [],
+    };
+    const out = buildFilteredSnapshot(input, base);
+    expect(out.nodes[0].data.content).toBe('若 3 < 5 且 6 > 4 则对'); // 不剥——audioGen content 非 HTML
+    expect(out.nodes[1].data.prompt).toBe('数量 2 < 10 的猫');        // .text 原文，不再 strip
   });
 
   it('未知类型默认全剥 data（仅结构字段）', () => {
@@ -2232,12 +2352,12 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
   for (const field of allowed) {
     if (!(field in node.data)) continue;
     const v = node.data[field];
-    if (field === 'content' && typeof v === 'string') {
-      data.content = stripHtmlToText(v);           // textInput.content 是 tiptap HTML
+    if (field === 'content' && node.type === 'textInput' && typeof v === 'string') {
+      data.content = stripHtmlToText(v);           // 仅 textInput.content 是 tiptap HTML；audioGen.content 是纯文本旁白——误剥会把 "3 < 5" 吃成 "3 5"（第七轮收口）
     } else if (field === 'prompt') {
       data.prompt = (v && typeof v === 'object')
-        ? stripHtmlToText(String((v as any).text ?? ''))  // PromptValue → 只取 .text（红线 1：永不返回 .html）
-        : v;                                               // textInput/multiImageGen 的 string prompt
+        ? String((v as any).text ?? '')            // PromptValue → 只取 .text 原文（红线 1：永不返回 .html；.text 本身是纯文本，勿再 strip——防正常尖括号文本被吃）
+        : v;                                       // textInput/multiImageGen 的 string prompt
     } else {
       data[field] = v;
     }
@@ -2259,6 +2379,7 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
   const kept = raw.nodes.filter(n => {
     if (opts.dropTypes.includes(n.type)) { dropped.add(n.id); return false; }
     if (opts.dropIdPrefixes.some(p => n.id.startsWith(p))) { dropped.add(n.id); return false; }
+    if ((n.data as { __ephemeral?: unknown })?.__ephemeral === true) { dropped.add(n.id); return false; } // 第七轮：spec §4.6 字面要求的 __ephemeral 标记过滤——当前仓库该标记与 shadow- 前缀共生（node-doc.util.ts 不变量），但白名单不依赖命名约定
     return true;
   });
   const edges = raw.edges
@@ -2489,10 +2610,8 @@ private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new ServiceUnavailableException('画布读取超时')), ms))]);
 }
 
-/** 作品编辑/上下架/删除时清缓存（§4.6；updateWork/removeWork 已调用） */
-async invalidateWorkCaches(id: string) {
-  await this.redis.del(VideoWorkService.PROCESS_CACHE(id));
-}
+/** invalidateWorkCaches 已在 Task 2.3 就地定义（第七轮消前向引用）——本任务仅把字面量 key 收敛为
+ *  PROCESS_CACHE 常量（方法签名/调用点不变，勿重复定义） */
 ```
 
 （若 Task 2.3/2.4 的 `invalidateWorkCaches` 当时是空实现/不存在，本步补齐并被既有调用引用。）
@@ -2770,19 +2889,15 @@ clone(@Param('id') id: string, @Req() req: any) {
 }
 ```
 
-controller spec 追加（**第六轮——controller 新增 cloneService 构造注入，providers 不同步补则整文件 DI 红**）：
+controller spec 追加（providers 自 Task 3.2 创建即含 cloneService mock（签名一次到位，第七轮）——从 moduleRef 取实例断言）：
 
 ```ts
-// describe 作用域声明：let cloneSvc: { clone: Mock };
-// beforeEach 的 providers 数组追加（Task 3.2 创建的装配）：
-{ provide: VideoWorkCloneService, useValue: cloneSvc = { clone: vi.fn().mockResolvedValue({ projectId: 'new-p' }) } },
-// service mock 补：clone 不经过 VideoWorkService（cloneService 直调），无需加 service 方法
-
 it('POST :id/clone 未登录 req 无 user → 401', async () => {
   await expect(controller.clone('w1', { /* req 无 user */ } as any)).rejects.toThrow(UnauthorizedException);
 });
 
 it('POST :id/clone 登录 → 调 cloneService.clone(id, userId)', async () => {
+  const cloneSvc = moduleRef.get(VideoWorkCloneService); // beforeEach 里 moduleRef 提升到 describe 作用域即可
   await controller.clone('w1', { user: { id: 'u1' } } as any);
   expect(cloneSvc.clone).toHaveBeenCalledWith('w1', 'u1');
 });
@@ -2946,7 +3061,8 @@ const fmtDuration = (sec: number | null) => {
 export function VideoCard({ work }: { work: VideoWorkListItem }) {
   const duration = fmtDuration(work.durationSec);
   return (
-    <Link to={`/videos/${work.id}`} data-card className="block rounded-lg overflow-hidden border border-white/10 hover:border-white/25 transition-colors bg-[#1e1e1e] box-border">
+    <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)] transition-colors bg-[var(--vw-card-bg)] box-border">
+      {/* 第七轮：补 state:{fromList:true}（C2 M4——否则关闭算法死代码）+ 改用 Task 7.3 登记的 --vw-* token（原硬编码使 token 成死变量） */}
       <div className="relative aspect-video bg-[#262626]">
         {work.coverUrl
           ? <img src={work.coverUrl} alt={work.title} className="w-full h-full object-cover" loading="lazy" />
@@ -3071,6 +3187,11 @@ it('Modal 开关前后 fetchVideoWorks 仅调用 1 次（断言点在动画后�
   vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [{ id: 'w1', title: 'T', coverUrl: null, durationSec: 1, tags: [] }], total: 1, page: 1, pageSize: 20 });
   vi.mocked(api.fetchVideoCategories).mockResolvedValue([]);
   vi.mocked(api.fetchVideoWorkDetail).mockResolvedValue({ id: 'w1', title: 'T', videoUrl: '/flowai/v.mp4', coverUrl: null, categoryId: null, viewCount: 0, likeCount: 0, liked: false, description: null, authorName: 'a', publishedAt: '2026-09-01', width: null, height: null, canViewProcess: false, canClone: false, durationSec: 1, tags: [] } as any);
+  // 第七轮 F2：批次 8 挂载 Modal 后这两项必须 mock——getPublicSettings 返回 undefined 是同步 TypeError
+  // （automock 无实现）；且必须关轮播（enabled:false）——否则 CarouselBar 复用列表端点（pageSize=11）
+  // 第二次调用 fetchVideoWorks 会击穿 toHaveBeenCalledTimes(1)
+  vi.mocked(api.getPublicSettings).mockResolvedValue({ carouselEnabled: false, carouselScope: 'all' });
+  vi.mocked(api.recordView).mockResolvedValue(undefined);
 
   const router = createMemoryRouter([
     { path: '/videos/:id?', element: <VideosPage /> },
@@ -3084,16 +3205,16 @@ it('Modal 开关前后 fetchVideoWorks 仅调用 1 次（断言点在动画后�
 });
 ```
 
-（批次 8 挂载 Modal 后，`router.navigate('/videos/w1')` 会触发详情请求（fetchVideoWorkDetail 已 mock）——若 Modal 内部还有其它 API 调用（view 埋点 recordView），一并 vi.mocked 补 mockResolvedValue，保持本用例聚焦列表计数。admin 路由存在性断言放在 Task 10.1。）
-
 - [ ] **Step 2: 跑红 → Step 3: 实现**
 
 router.tsx 公开组追加（**lazy**，spec §5.1；与既有 lazy 页面写法一致——grep `lazy(` 参照）：
 
 ```tsx
 const VideosPage = lazy(() => import('./pages/videos/VideosPage').then(m => ({ default: m.VideosPage })));
-// 公开组 children 追加：
-{ path: '/videos/:id?', element: <VideosPage /> },   // 可选参数单路由（防两条平级路由整页重挂）
+// 公开组 children 追加（第七轮：lazy 元素必须自带 Suspense 边界——AppLayout 无 Suspense、公开组现有 3 条路由全是
+// 静态 import、react-router 7 SPA 不提供隐式边界 → 不包则 /videos 直链首屏 chunk 加载期间整个 root 无 fallback 白屏；
+// 照抄 router.tsx:22-24 AdminLazy 同款）：
+{ path: '/videos/:id?', element: <Suspense fallback={<div className="flex justify-center p-16"><Spin /></div>}><VideosPage /></Suspense> },   // 可选参数单路由（防两条平级路由整页重挂）
 ```
 
 Sidebar.tsx NAV_ITEMS 在「模板广场」后插入（D14）：
@@ -3250,8 +3371,8 @@ export function VideoPlayerModal() {
   }, [id]);
 
   /** 关闭算法（模式 A）：fromList → navigate(-1)；否则 replace /videos。
-   *  首行 Esc 守卫是承重机制（C1-3 第五轮）：壳的 document 监听先于 LoginModal 的 rc-dialog 监听注册
-   *  且 BaseFullscreenModal:57 用 stopImmediatePropagation——无守卫时 Esc 会关掉整个播放 Modal */
+   *  首行 Esc 守卫是承重机制（C1-3 第七轮措辞修正）：焦点不在登录框内时 Esc 事件不经 rc-dialog 的
+   *  wrapper 节点、直达 document 触发壳关闭——无守卫时关掉的是整个播放 Modal；守卫使该场景只关登录层 */
   const close = useCallback(() => {
     if (showLogin) { setShowLogin(false); return; } // 登录层开着 → 只关登录层（Task 8.4 接入 state）
     if ((location.state as any)?.fromList) navigate(-1);
@@ -3262,9 +3383,11 @@ export function VideoPlayerModal() {
 
   return (
     <BaseFullscreenModal open onClose={close} label="视频作品预览" closeOnBackdrop={false}>
-      {/* 弹层作用域两层配方（C1-3 第五轮，照抄 VideoEditorShell.tsx:127-141）：壳根挂 shellRef，
-          ConfigProvider（token 抬 z + getPopupContainer 进壳）内嵌 AntdApp component={false}
-          （防 div.ant-app 破坏布局）——PlayView/ProcessView 的 useApp() toast 才真正可见 */}
+      {/* 弹层作用域两层配方（C1-3 第七轮措辞修正）：getPopupContainer 进壳 + AntdApp component={false}
+          照抄 VideoEditorShell.tsx:136-141 结构；⚠ zIndexPopupBase:100000 是本 plan 新增层（先例没有——其弹层从不落
+          body 故不需要），勿删：shellRef 未挂载首帧 getPopupContainer 回退 body 时，它是登录框可见性
+          （100100 > 壳 100000）的唯一保障（删掉则 11100 < 100000 被壳盖住，jsdom 测不出、手工验收 #6 才暴露）。
+          PlayView/ProcessView 的 useApp() toast 依赖内层 AntdApp（holder 渲染在壳 DOM 内） */}
       <div data-zprovider="true" ref={shellRef} className="fixed inset-0 bg-black text-white">
       {/* 第六轮：fixed inset-0（VideoEditorShell.tsx:132 同款）——BaseFullscreenModal 的 dialog 包装 div 无尺寸类，
           relative h-full 的百分比在 auto 高度父级上解析为 auto → 壳内容塌成 0 高度（jsdom 无布局测不出，手工验收 #3 才暴露；
@@ -3303,7 +3426,32 @@ git commit -m "feat(video-work): 批次8 Modal 外壳（模式A关闭算法四�
 - [ ] **Step 1: 写失败测试**
 
 ```tsx
+// 文件顶部装配（第七轮补全——原块无 harness，renderPlay/detail 全程未定义即 ReferenceError）：
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
+import { App as AntdApp } from 'antd';
+import * as api from '@/api/videoWorkApi';
+import { PlayView } from '../PlayView';
+
+vi.mock('@/api/videoWorkApi');
+// C5 模板（PlayView 链上 useAuth）——vi.hoisted 与 vi.mock 平级声明
+const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
+vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authCtx }));
+
+const detail = { id: 'w1', title: '末班地铁', videoUrl: '/flowai/v.mp4', coverUrl: null, categoryId: null,
+  viewCount: 10, likeCount: 5, liked: false, description: '简介', authorName: '作者', publishedAt: '2026-09-01T00:00:00Z',
+  width: null, height: null, canViewProcess: false, canClone: false, durationSec: 100, tags: ['悬疑'] };
+
+function renderPlay(d = detail, onDetailRefresh: Mock = vi.fn()) {
+  // onError 自愈回调由外壳注入（PlayView 自身不拉详情——旧断言 fetchVideoWorkDetail 计数无法成立，第七轮改断言回调）
+  render(<AntdApp><PlayView detail={d} onViewProcess={() => {}} onNeedLogin={() => {}} onDetailRefresh={onDetailRefresh} /></AntdApp>);
+  return { onDetailRefresh };
+}
+
 describe('PlayView', () => {
+  beforeEach(() => { vi.mocked(api.fetchVideoWorkDetail).mockResolvedValue(detail as any); });
+
   it('顶栏：作者名 + 发布于 {publishedAt}（D13 日期定案）', async () => {
     renderPlay(detail);
     expect(screen.getByText('作者')).toBeInTheDocument();
@@ -3326,23 +3474,26 @@ describe('PlayView', () => {
   });
 
   it('分享：clipboard 写入当前 URL + message', async () => {
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } };
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } }); // 第七轮修语法错（原少右括号）
     renderPlay(detail);
     fireEvent.click(screen.getByRole('button', { name: /分享/ }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
   });
 
-  it('视频 onError → 重拉详情刷新 URL（TTL 自愈）', async () => {
-    renderPlay(detail);
+  it('视频 onError → 触发一次 onDetailRefresh 自愈（TTL 过期换新 URL；第二次 error 不再重试——第七轮加重试上限防对象已删的无限循环）', async () => {
+    const { onDetailRefresh } = renderPlay(detail);
     fireEvent.click(screen.getByRole('button', { name: /立即观看/ })); // 先进入播放态——idle 态无 video 元素（C2 Task 8.2 ②）
     fireEvent.error(screen.getByTestId('video'));
-    await waitFor(() => expect(api.fetchVideoWorkDetail).toHaveBeenCalledTimes(2));
+    expect(onDetailRefresh).toHaveBeenCalledTimes(1);
+    fireEvent.error(screen.getByTestId('video')); // 同一实例再次 error（对象已删场景）
+    expect(onDetailRefresh).toHaveBeenCalledTimes(1); // retriedRef 一次性守卫
   });
 
-  it('viewCount/likeCount 展示：简介浮层显示观看数、喜欢钮带计数（§6）', () => {
+  it('viewCount/likeCount 展示收进 desc-panel（C2 Task 8.2 ③——裸 /10/ 会误中无关文本）', () => {
     renderPlay(detail); // viewCount:10 likeCount:5
-    expect(screen.getByText(/10/)).toBeInTheDocument();
-    expect(screen.getByText(/5/)).toBeInTheDocument();
+    const panel = screen.getByTestId('desc-panel');
+    expect(panel).toHaveTextContent('10');   // 观看数
+    expect(screen.getByRole('button', { name: /喜欢/ })).toHaveTextContent('5');
   });
 });
 ```
@@ -3351,7 +3502,7 @@ describe('PlayView', () => {
 
 ```tsx
 // PlayView.tsx
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { App as AntdApp } from 'antd';
 import { useAuth } from '@/components/AuthProvider';
 import { fetchVideoWorkDetail, toggleLike } from '@/api/videoWorkApi';
@@ -3368,6 +3519,7 @@ export function PlayView({ detail, onViewProcess, onNeedLogin, onDetailRefresh }
   const [liked, setLiked] = useState(detail.liked);
   const [likeCount, setLikeCount] = useState(detail.likeCount);
   const [playing, setPlaying] = useState(false);
+  const retriedRef = useRef(false);       // 第七轮：onError 一次性自愈守卫——对象已从 MinIO 删除时防 错误→重取→新URL→再错误 无限循环
   const { message } = AntdApp.useApp();   // 壳内上下文实例（C1-3——静态 message 落 body z≈2010 被壳盖）
   const { user } = useAuth();             // isLoggedIn() 不存在（C1-4）
 
@@ -3404,7 +3556,7 @@ export function PlayView({ detail, onViewProcess, onNeedLogin, onDetailRefresh }
         {playing ? (
           <video data-testid="video" src={detail.videoUrl} controls autoPlay playsInline
             className="h-full w-full object-contain"
-            onError={() => onDetailRefresh()} />
+            onError={() => { if (!retriedRef.current) { retriedRef.current = true; onDetailRefresh(); } }} />
         ) : (
           <div className="flex items-center gap-3">
             <button onClick={() => setPlaying(true)} aria-label="立即观看"
@@ -3537,7 +3689,7 @@ export function CarouselBar({ currentId, categoryId, onSwitch }: {
 }
 ```
 
-api 补充：`export async function getPublicSettings(): Promise<VideoWorkSettings> { return apiFetch('/video-works/settings'); }`；后端 controller 静态段追加 `@Get('settings') getSettings() { return this.service.getSettings(); }`（settings 静态段已在 admin 侧验证声明序，公开侧同规则）+ 一条 controller 测试。
+api 补充：`export async function getPublicSettings(): Promise<VideoWorkSettings> { return apiFetch('/video-works/settings'); }`。**后端端点第七轮已前移至 Task 3.2**（公开 controller 静态段 `@Get('settings')`——后端改动不留在前端批次；声明序断言 Task 3.3 已含 getSettings），本任务纯前端。
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
 
@@ -3561,6 +3713,13 @@ git commit -m "feat(video-work): 批次8 底部轮播（设置驱动/11取10/rep
 vi.mock('@/components/auth/LoginModal', () => ({
   LoginModal: () => <div data-testid="login-modal-root" />,
 }));
+// 第七轮：renderModalWithNeedLogin 在本文件内定义（原写"复用 Task 8.1 的 renderAt"——那是另一测试文件的
+// 局部函数，跨文件复用不可能；本文件自建同款装配）：
+function renderModalWithNeedLogin() {
+  const router = createMemoryRouter([{ path: '/videos/:id?', element: <VideosPage /> }], { initialEntries: ['/videos/w1'] });
+  render(<RouterProvider router={router} />);
+  return router;
+}
 
 describe('播放 Modal 内页内登录', () => {
   it('onNeedLogin → 渲染 LoginModal 且在壳根（data-zprovider）之内', async () => {

@@ -21,7 +21,7 @@
 | D5 | 播放页形态 = 全屏 Modal（非独立详情页） | 列表页点击卡片弹 Modal；分享直链 `/videos/:id` 渲染列表并自动弹 Modal；浏览器返回键/Esc/返回钮关闭 |
 | D6 | 观看/喜欢 = 真实计数 + 后台可改数值 | like 为 toggle 端点（详见 §4.5 计数语义） |
 | D7 | 标签 = 后台标签池 + 自由输入 | VideoTag 池表 + 作品 `tags String[]` 存实际值 |
-| D8 | 创作过程快照展示业务内容、剥离内部 id | 学习价值优先；安全隐患（内部 id/素材 URL/XSS 面）由服务端白名单封死（§4.6）；白名单 type 键以 `NODE_TYPES`（nodeStore.ts:6-13）为唯一真值 |
+| D8 | 创作过程快照展示业务内容、剥离内部 id | 学习价值优先；安全隐患（内部 id/素材 URL/XSS 面）由服务端白名单封死（§4.6）；白名单 type 键以 **CanvasView.tsx:42-51 的 nodeTypes 注册表（8 键，含 videoEdit/group）**为唯一真值——nodeStore 的 NODE_TYPES 常量只有 6 键、不是全集（第七轮与 §4.6 正文对齐） |
 | D9 | 克隆 = 工作流配方（白名单剥离） | 克隆与快照**共用同一白名单函数**（安全默认：未列出字段一律剥，白名单外强制重置 status:'idle'）；克隆差异仅"剥离 videoEdit/shadow- 节点及相连边 + **四元重发 id**（id/parentId/edges source+target/group.data.cells，容忍 null 占位）"——克隆体节点在但产物资源位为空（用户重新生成）；限制"含 videoEdit 禁克隆"解除 |
 | D10 | 下架时效 ≤1h | presign 3600s 直连；下架后列表/详情立即 404，存量 URL 最长 1h 失效；不做流式端点。**依赖 D17 by-key 前置修复**（否则已提取 key 者可无限续期） |
 | D11 | 底部轮播 = 后台全局设置 | VideoWorkSetting 单行表：carouselEnabled（默认 true）/ carouselScope（all\|category，默认 all）；仅存在于播放 Modal 内 |
@@ -152,7 +152,7 @@ apps/api/src/modules/video-work/
 | GET | `/` | 列表：`?categoryId=&page=&pageSize=`；仅 PUBLISHED；categoryId 为 plain filter（不校验 active/存在性）；pageSize 手写 clamp 至 [1,50]；orderBy `[sortOrder asc, publishedAt desc, {id:'asc'}]`（id tiebreaker 防并列行翻页重复/遗漏——批量发布时 sortOrder 全 0 且 publishedAt 相同的场景）；返回 `{items,total,page,pageSize}`，item **只含** id/title/coverUrl(presign 3600s)/durationSec/tags——列表不返回 videoUrl（防批量爬直链） |
 | GET | `/categories` | active 类型列表；Redis 缓存 30-60s（公开免登录端点，切 tab 高频）；admin 改类型/标签时**主动删缓存**（残余 ≤60s 延迟接受） |
 | GET | `/settings` | 公开读取轮播设置（carouselEnabled/carouselScope，非敏感运营开关，播放 Modal 前端取用；声明序在 `:id` 之前） |
-| GET | `/:id` | 详情：PUBLISHED 否则 404；返回 + videoUrl(presign 3600s) + coverUrl + **categoryId**（轮播 scope=category 取当前作品类型用） + viewCount/likeCount + **liked 初始态**（`req.user ? Redis GET : false`——公开前缀下 optional auth 已挂 req.user；缺它则 B 设备首渲染显示"未赞"、用户想点赞实际执行了取消。**实现约束：①匿名路径必须短路，不发起 Redis 调用（热点路径匿名占绝大多数）；②liked 读取与 like 端点必须用同一个 Redis key（videoWork:like:{workId}:{userId}），key 不一致会复现"看似未赞、点击执行取消"bug；③含用户态字段（liked）→ 该端点不可加共享/CDN 缓存（除非按用户 Vary），本期无缓存、登记**） + description + tags + authorName + publishedAt + durationSec/width/height + **canViewProcess**（allowViewProcess && PUBLISHED && canvasProjectId 非空，一次 canvasProject.findUnique 校验画布存在）+ **canClone**（allowClone && PUBLISHED && canvasProjectId 非空，原始开关值）。**详情端点禁止 readCanvas**（videoEdit 判定在 process/clone 中做，见 §4.6/§4.7）——公开热点端点不得冷载 Yjs doc |
+| GET | `/:id` | 详情：PUBLISHED 否则 404；返回 + videoUrl(presign 3600s) + coverUrl + **categoryId**（轮播 scope=category 取当前作品类型用） + viewCount/likeCount + **liked 初始态**（`req.user ? Redis GET : false`——公开前缀下 optional auth 已挂 req.user；缺它则 B 设备首渲染显示"未赞"、用户想点赞实际执行了取消。**实现约束：①匿名路径必须短路，不发起 Redis 调用（热点路径匿名占绝大多数）；②liked 读取与 like 端点必须用同一个 Redis key（videoWork:like:{workId}:{userId}），key 不一致会复现"看似未赞、点击执行取消"bug；③含用户态字段（liked）→ 该端点不可加共享/CDN 缓存（除非按用户 Vary），本期无缓存、登记**） + description + tags + authorName + publishedAt + durationSec/width/height + **canViewProcess**（allowViewProcess && PUBLISHED && canvasProjectId 非空，一次 canvasProject.findUnique 校验画布存在）+ **canClone**（allowClone && PUBLISHED && 画布存在——与 canViewProcess 同一 canvasProject.findUnique 校验；第七轮回流措辞，否则按钮可点进 404）。**详情端点禁止 readCanvas**（videoEdit 判定在 process/clone 中做，见 §4.6/§4.7）——公开热点端点不得冷载 Yjs doc |
 | POST | `/:id/view` | 观看 +1（匿名，Redis IP 去重 1h + 限流，见 §4.5）；前端仅在**打开播放 Modal 时**埋点（单点，StrictMode 双发由服务端去重兜住并有用例钉死） |
 | POST | `/:id/like` | 喜欢 toggle ±1（**要求登录** D15，未登录 401；userId 去重，见 §4.5）；返回 `{liked, likeCount}`（服务端状态权威，跨设备一致，配合详情 liked 初始态无需 localStorage 层） |
 | GET | `/:id/process` | 创作过程快照（PUBLISHED + allowViewProcess + 画布存在，否则 404；readCanvas 有界超时→503；Redis 缓存 TTL 300s；白名单见 §4.6） |
@@ -345,7 +345,7 @@ apps/web/src/pages/admin/pages/VideoWorksPage.tsx   # 后台管理
 - 视频/封面/缩略图 URL 走 **/flowai/<key> 同源改写**（复用 mediaApi.ts:6 的改写约定——视频 seek 依赖同源拿 Content-Range、img 避 CORS），videoWorkApi 沿用同一改写函数。
 - 视频 onError → 重拉详情刷新 presign URL。
 - **未登录交互一律页内 LoginModal 不跳转（D18）**：复用 components/auth/LoginModal（登录成功仅 refresh()+onClose()，无 navigate，用户留在 /videos；先例 TopActionBar.tsx）。**实施红线：播放 Modal 内用嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase: 100000 } }}>` 包住 LoginModal**（antd Modal z = base+100 = 100100 > BaseFullscreenModal 的 100000；内层 message/校验弹层一起抬高；LoginModal 邮箱分支切换的 AuthModal 也在 Provider 子树内天然覆盖；不改 LoginModal 签名、无 dev 告警）。登录成功不自动重试原操作，保持按钮可点。
-- 骨架屏/空态复用 CardGridSkeleton / EmptyState 模式。
+- 骨架屏/空态**内联轻量实现**（CardGridSkeleton/EmptyState 是 workspace 私有组件——EmptyState 必填 variant+onAction，/videos 不复用，D2 孤岛；第七轮更正原"复用"表述）。
 - **播放 Modal 外壳复用 BaseFullscreenModal**（portal 到 body、z-[100000]、Esc、body 滚动锁、焦点恢复）。antd 5.22.5 的 Modal `styles` prop 可用（bodyStyle/maskStyle 已 deprecated 指向 styles，仓内 LoginModal.tsx:36/WeChatFollowModal.tsx:15 在用）——className 与 styles 两条路都行。
 
 ### 5.5 列表卡片（D13）
@@ -397,7 +397,7 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 8. view 埋点仅在打开 Modal 时触发一次（StrictMode effect 双发下服务端计数仍 1）。
 9. 自建断言 /admin/content/video-works 路由存在（router.admin.test 过滤器硬编码不含 content/，既有测试不改、明确接受该覆盖方式）。
 
-**测试触点**：auth.guard.spec.ts **新增** by-key 行为用例（批次 0，既有 7 条断言无 by-key、无需改动）；Sidebar.test.tsx **确认无需改动**（既有用例断言 4 个具体项各自 href、非计数——已查证，加第 5 项不红，勿白跑误改）。
+**测试触点**：auth.guard.spec.ts **无需改动**（by-key 行为用例在 media.service.spec——by-key 留在白名单、guard 0 行改动；既有 13 个 it 无 by-key 相关，第七轮消除"无需改动 vs 新增用例"的自相矛盾并修正计数）；/api/video-works 前缀放行用例由实施计划 Task 3.1 新增。Sidebar.test.tsx **确认无需改动**（既有用例断言 4 个具体项各自 href、非计数——已查证，加第 5 项不红，勿白跑误改）。
 
 **验证命令**：web 侧无独立 typecheck 脚本（tsc -b 在 build 内）→ 用 `pnpm --filter @flowweb/web build`；api 侧 `pnpm --filter @flowweb/api test`。
 
