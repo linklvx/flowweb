@@ -189,6 +189,28 @@ export class VideoWorkService {
     return rows;
   }
 
+  async getDetail(id: string, userId: string | null) {
+    const w = await this.prisma.videoWork.findUnique({ where: { id } });
+    if (!w || w.status !== 'PUBLISHED') throw new NotFoundException();
+    const canvasExists = w.canvasProjectId
+      ? !!(await this.prisma.canvasProject.findUnique({ where: { id: w.canvasProjectId }, select: { id: true } }))
+      : false;
+    const [videoUrl, coverUrl] = await Promise.all([
+      this.presignWork(w.videoKey),
+      w.coverKey ? this.presignWork(w.coverKey) : Promise.resolve(null),
+    ]);
+    const liked = userId ? await this.redis.get(`videoWork:like:${id}:${userId}`).then(v => v === '1') : false; // 匿名短路，同 key（§4.2 约束）
+    return {
+      id: w.id, title: w.title, description: w.description, authorName: w.authorName,
+      categoryId: w.categoryId, videoUrl, coverUrl,
+      viewCount: w.viewCount, likeCount: w.likeCount, liked, tags: w.tags,
+      publishedAt: w.publishedAt?.toISOString() ?? null,
+      durationSec: w.durationSec, width: w.width, height: w.height,
+      canViewProcess: w.allowViewProcess && canvasExists,  // 详情禁 readCanvas（§4.2）
+      canClone: w.allowClone && canvasExists,               // 原始开关值 + 画布存在
+    };
+  }
+
   /** 删除红线（spec §4.3）：只删 DB 行，禁止 minio.delete——videoKey 与源 Media 指向同一对象。
    *  HomeBanner "先删对象再删行"先例不可照抄；coverKey 自有上传对象 v1 也统一不删。 */
   async removeWork(id: string) {

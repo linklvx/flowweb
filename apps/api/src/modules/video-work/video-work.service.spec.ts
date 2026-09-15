@@ -5,6 +5,7 @@ import type { Mock } from 'vitest'; // 显式导入（同 Task 2.1 注）
 import { BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { VideoWorkService } from './video-work.service';
+import { VideoWorkController } from './video-work.controller'; // getDetail describe 的路由声明序用例断言原型方法序
 import { PrismaService } from '../../prisma/prisma.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';   // service 构造注入（Task 4.2 起）
 import { CollabDocumentService } from '../collab/collab-document.service';        // service 构造注入（Task 5.3 起）
@@ -212,5 +213,59 @@ describe('listPublished', () => {
     await service.listCategoriesPublic();
     expect(prisma.videoCategory.findMany).toHaveBeenCalledTimes(0); // 全部命中缓存
     redisGet.mockReset();
+  });
+});
+
+describe('getDetail', () => {
+  const work = {
+    id: 'w1', title: 't', description: 'd', authorName: 'a', categoryId: 'c1',
+    videoKey: 'vk', coverKey: 'ck', canvasProjectId: 'p1',
+    viewCount: 10, likeCount: 5, tags: ['x'], publishedAt: new Date(), durationSec: 100, width: 16, height: 9,
+    allowViewProcess: true, allowClone: true, status: 'PUBLISHED',
+  };
+
+  it('DRAFT → 404', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, status: 'DRAFT' });
+    await expect(service.getDetail('w1', null)).rejects.toThrow(NotFoundException);
+  });
+
+  it('画布不存在（findUnique null）→ canViewProcess/canClone=false 且不抛', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue(null);
+    const d = await service.getDetail('w1', null);
+    expect(d.canViewProcess).toBe(false);
+    expect(d.canClone).toBe(false);
+  });
+
+  it('liked 初始态：匿名 false 且未查询 like 键（匿名短路——C2 Task 3.3 收窄版：presignWork 的 URL 缓存也会 redis.get，全量 not.toHaveBeenCalled 必红）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
+    const redisGet = (service as any).redis.get;
+    const d = await service.getDetail('w1', null);
+    expect(d.liked).toBe(false);
+    expect(redisGet.mock.calls.flat().some((k: any) => String(k).startsWith('videoWork:like:'))).toBe(false); // 只断言 like 键未查
+  });
+
+  it('路由声明序：categories/settings 静态段先于 :id（Task 3.2 移入——本任务首写 getDetail；settings 端点第七轮已前移至 Task 3.2，此处一并断言）', () => {
+    const names = Object.getOwnPropertyNames(VideoWorkController.prototype).filter(n => n !== 'constructor');
+    expect(names.indexOf('listCategories')).toBeLessThan(names.indexOf('getDetail'));
+    expect(names.indexOf('getSettings')).toBeLessThan(names.indexOf('getDetail'));
+  });
+
+  it('liked 初始态：已登录读同一 like key（videoWork:like:{workId}:{userId}）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
+    (service as any).redis.get.mockResolvedValue('1');
+    const d = await service.getDetail('w1', 'user9');
+    expect(d.liked).toBe(true);
+    expect((service as any).redis.get).toHaveBeenCalledWith('videoWork:like:w1:user9');
+  });
+
+  it('详情端点不触发 readCanvas（canvasProject 校验只 findUnique）——第七轮改无条件断言（spec §7.6 红线：条件式 `if (collabDoc)` 在实现改字段名/漏注入时静默变绿）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
+    await service.getDetail('w1', null);
+    const readCanvas = (service as any).collabDoc.readCanvas; // Task 1.3 签名一次到位——构造注入必然存在（Task 2.2 spec providers 已提供）
+    expect(readCanvas).not.toHaveBeenCalled();
   });
 });

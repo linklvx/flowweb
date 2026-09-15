@@ -28,5 +28,10 @@ export class VideoWorkController {
     return this.service.listPublished(categoryId, p, ps);
   }
 
-  // Task 3.3 getDetail / Task 4.x view/like / Task 5.3 process / Task 6.2 clone 追加
+  @Get(':id')
+  getDetail(@Param('id') id: string, @Req() req: any) {
+    return this.service.getDetail(id, req.user?.id ?? null);
+  }
+
+  // Task 4.x view/like / Task 5.3 process / Task 6.2 clone 追加
 }
