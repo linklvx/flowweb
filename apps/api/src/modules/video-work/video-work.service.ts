@@ -15,5 +15,44 @@ export class VideoWorkService {
     @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService, // Task 4.2 view 限流
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）
   ) {}
-  // Task 2.x/3.x/4.x/5.3 逐步填充方法
+
+  // —— 类型（改类型/标签后删缓存，spec §4.2 categories 缓存失效） ——
+  private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
+
+  //（第十一轮：删孤儿 listCategories()——公开端走 listCategoriesPublic（Task 3.2）、admin 端走 listAllCategories，全 plan 无第三调用者）
+  async listAllCategories() {
+    return this.prisma.videoCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+  }
+  async createCategory(dto: { name: string; sortOrder?: number; active?: boolean }) {
+    const row = await this.prisma.videoCategory.create({ data: dto });
+    await this.invalidateCategoryCache();
+    return row;
+  }
+  async updateCategory(id: string, dto: { name?: string; sortOrder?: number; active?: boolean }) {
+    const row = await this.prisma.videoCategory.update({ where: { id }, data: dto });
+    await this.invalidateCategoryCache();
+    return row;
+  }
+  async deleteCategory(id: string) {
+    await this.prisma.videoCategory.delete({ where: { id } }); // 作品侧 categoryId onDelete: SetNull
+    await this.invalidateCategoryCache();
+  }
+
+  // —— 标签池（仅录入建议，删池不清洗作品 tags，spec §3.2） ——
+  async listAllTags() {
+    return this.prisma.videoTag.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+  }
+  async createTag(dto: { name: string; sortOrder?: number; active?: boolean }) {
+    return this.prisma.videoTag.create({ data: dto });
+  }
+  async updateTag(id: string, dto: { name?: string; sortOrder?: number; active?: boolean }) {
+    return this.prisma.videoTag.update({ where: { id }, data: dto });
+  }
+  async deleteTag(id: string) {
+    await this.prisma.videoTag.delete({ where: { id } });
+  }
+
+  private async invalidateCategoryCache() {
+    await this.redis.del(VideoWorkService.CATEGORY_CACHE_KEY);
+  }
 }
