@@ -49,5 +49,11 @@ export class VideoWorkController {
     return this.service.toggleLike(id, req.user.id);
   }
 
-  // Task 5.3 process / Task 6.2 clone 追加
+  @Post(':id/clone')
+  async clone(@Param('id') id: string, @Req() req: any) {
+    if (!req.user?.id) throw new UnauthorizedException(); // 公开前缀下 optional auth（D4）；async——401 以 promise rejection 送达，同步 throw 会逸出 .rejects 断言（toggleLike D15 同款）
+    return this.cloneService.clone(id, req.user.id);
+  }
+
+  // Task 5.3 process 追加
 }

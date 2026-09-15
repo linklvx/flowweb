@@ -53,4 +53,14 @@ describe('VideoWorkController（公开）', () => {
   it('POST like 未登录 req.user 为空 → 401', async () => {
     await expect(controller.toggleLike('w1', { /* req 无 user */ } as any)).rejects.toThrow(UnauthorizedException);
   });
+
+  it('POST :id/clone 未登录 req 无 user → 401', async () => {
+    await expect(controller.clone('w1', { /* req 无 user */ } as any)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('POST :id/clone 登录 → 调 cloneService.clone(id, userId)', async () => {
+    const cloneSvc = moduleRef.get(VideoWorkCloneService); // moduleRef 已在 Task 3.2 提升到 describe 作用域（第十一轮落实——原"提升即可"只活在注释，局部 const 到不了本用例是 TS2304）
+    await controller.clone('w1', { user: { id: 'u1' } } as any);
+    expect(cloneSvc.clone).toHaveBeenCalledWith('w1', 'u1');
+  });
 });
