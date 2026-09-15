@@ -1,9 +1,9 @@
 // 空壳，构造签名一次到位——后续任务只加方法、不动构造/providers，spec 文件从创建起就 provide 全部依赖、永不需要二次编辑
-import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
-import type { RawCanvasData } from './snapshot-filter.util';
+import { buildFilteredSnapshot, type RawCanvasData } from './snapshot-filter.util';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -24,6 +24,8 @@ export class VideoWorkService {
 
   // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
   private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
+
+  private static readonly PROCESS_CACHE = (id: string) => `videoWork:process:${id}`;
 
   // like 键构造收敛为单一来源（批次 3 登记落点）：getDetail 读 liked / toggleLike 写删共用，防两处模板漂移
   private static likeKey(workId: string, userId: string): string {
@@ -142,7 +144,7 @@ export class VideoWorkService {
   // 第七轮：本任务就地定义（Task 2.4 removeWork 也调用——前向引用 Task 5.3 会让批次 2 的 tsc 编译红、
   // 违反"每任务红-绿-提交"）。Task 5.3 仅把 key 收敛进 PROCESS_CACHE 常量，方法体不变。
   private async invalidateWorkCaches(id: string) {
-    await this.redis.del(`videoWork:process:${id}`);
+    await this.redis.del(VideoWorkService.PROCESS_CACHE(id));
   }
 
   private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean; canvasProjectId?: string | null }) {
@@ -240,6 +242,35 @@ export class VideoWorkService {
       if (typeof fid === 'string' && urlById.has(fid)) (n.data as any).thumbnailUrl = urlById.get(fid)!;
     }
     return raw;
+  }
+
+  async getProcessSnapshot(id: string) {
+    const w = await this.prisma.videoWork.findUnique({ where: { id } });
+    if (!w || w.status !== 'PUBLISHED' || !w.allowViewProcess || !w.canvasProjectId) throw new NotFoundException();
+    const canvas = await this.prisma.canvasProject.findUnique({ where: { id: w.canvasProjectId }, select: { id: true } });
+    if (!canvas) throw new NotFoundException(); // gateway 空 doc 坑前置校验（§4.6）
+
+    const cacheKey = VideoWorkService.PROCESS_CACHE(id);
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    const raw = await this.withTimeout(this.collabDoc.readCanvas(w.canvasProjectId), 5000) as RawCanvasData;
+    const withThumbs = await this.injectThumbnails(raw);
+    const filtered = buildFilteredSnapshot(withThumbs, {
+      dropTypes: [], dropIdPrefixes: ['shadow-'],   // 快照不剥 videoEdit（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定
+      resetStatusIdle: false, injectThumbnails: true,
+    });
+    const result = { workId: id, title: w.title, ...filtered };
+    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）
+    return result;
+  }
+
+  /** 有界等待（readCanvas 无读取超时——内部只有 SV 等待 3s；Promise.race 外套）。finally 清 timer——
+   *  否则每次调用悬挂一个 5s 定时器，拖慢测试收尾/进程退出（第八轮） */
+  private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    let t: ReturnType<typeof setTimeout>;
+    return Promise.race([p, new Promise<never>((_, rej) => { t = setTimeout(() => rej(new ServiceUnavailableException('画布读取超时')), ms); })])
+      .finally(() => clearTimeout(t));
   }
 
   async recordView(id: string, ip: string) {

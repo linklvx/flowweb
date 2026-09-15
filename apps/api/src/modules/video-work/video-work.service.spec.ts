@@ -391,3 +391,86 @@ describe('injectThumbnails', () => {
     expect(out.nodes[0].data.fileId).toBe('f1');                        // 注入阶段保留 fileId，过滤阶段剥（管线顺序）
   });
 });
+
+describe('getProcessSnapshot（安全验收）', () => {
+  const work = { id: 'w1', title: 't', canvasProjectId: 'p1', allowViewProcess: true, status: 'PUBLISHED' };
+  const rawCanvas = {
+    nodes: [
+      { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>', prompt: 'p' } },
+      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png' } },
+      { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
+      { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
+      { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', collapsed: false } },
+    ],
+    edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }],
+  };
+
+  function setup(over: any = {}) {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, ...over });
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
+    prisma.media.findMany = vi.fn().mockResolvedValue([]);
+    (service as any).collabDoc = { readCanvas: vi.fn().mockResolvedValue(rawCanvas) };
+    // 第十轮：Map 支撑的 get/set——原 get 恒 null + set 空 vi.fn()，"缓存命中第二次不触 readCanvas"必红
+    //（第二次 get 仍 null → 重算 → readCanvas 被调 2 次）。对照 Task 3.2 命中用例（mockResolvedValue('[]')）。
+    const cache = new Map<string, string>();
+    (service as any).redis.get = vi.fn(async (k: string) => cache.get(k) ?? null); // 未写过 → null（首调无缓存）
+    (service as any).redis.set = vi.fn(async (k: string, v: string) => { cache.set(k, v); return 'OK'; });
+  }
+
+  it('键级断言：响应全 key 不含敏感字段（递归收集）', async () => {
+    setup();
+    const out = await service.getProcessSnapshot('w1');
+    const collectKeys = (o: any): string[] =>
+      Array.isArray(o) ? o.flatMap(collectKeys) :
+      o && typeof o === 'object' ? [...Object.keys(o), ...Object.values(o).flatMap(collectKeys)] : [];
+    const keys = collectKeys(out);
+    for (const banned of ['html', 'fileId', 'mediaUrl', 'referencedImageIds', 'allImages', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'generationBatchId', 'mediaName', 'videoProjectId', 'origin', 'sourceId']) {
+      expect(keys).not.toContain(banned);
+    }
+  });
+
+  it('正向断言：textInput 纯文本 / imageGen prompt.text / videoGen label / multiImageGen prompt / group groupType+cells 原样（防 key 写错全绿——spec §7.6 全五类配对）', async () => {
+    setup();
+    const out = await service.getProcessSnapshot('w1');
+    const n1 = out.nodes.find((n: any) => n.id === 'n1')!;
+    const n2 = out.nodes.find((n: any) => n.id === 'n2')!;
+    const n3 = out.nodes.find((n: any) => n.id === 'n3')!;
+    const n4 = out.nodes.find((n: any) => n.id === 'n4')!;
+    const g = out.nodes.find((n: any) => n.id === 'g1')!;
+    expect(n1.data.content).toBe('一只猫在窗台上');
+    expect(n2.data.prompt).toBe('cat');
+    expect(n3.data.label).toBe('末班地铁 · 导出 1');
+    expect(n4.data.prompt).toBe('分镜提示');
+    expect(g.data.groupType).toBe('storyboard');
+    expect(g.data.cells).toEqual(['n1', 'ghost-id', null]); // 原样返回逐项比对（含悬空 id/null——勿写"全项可在 nodes 中找到"，悬空 id 是已接受行为会红在已知项上）
+    const edit = out.nodes.find((n: any) => n.id === 'n35')!;
+    expect(edit).toBeTruthy();      // videoEdit 节点保留（spec:228，第八轮）
+    expect(edit.data).toEqual({});  // data 全剥（timeline/draft 不外泄）
+  });
+
+  it('edges 有 source/target 无 sourceId；缓存命中第二次不触 readCanvas', async () => {
+    setup();
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.edges[0]).toEqual({ id: 'e1', source: 'n1', target: 'n2' }); // 第十轮补：edges 正向断言（原只覆盖"无 sourceId"半边，与用例标题不符）
+    await service.getProcessSnapshot('w1');
+    const readCanvas = (service as any).collabDoc.readCanvas;
+    expect(readCanvas).toHaveBeenCalledTimes(1);
+  });
+
+  it('DRAFT 或 allowViewProcess=false 或画布不存在 → 404', async () => {
+    setup({ status: 'DRAFT' });
+    await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
+    setup({ allowViewProcess: false });
+    await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
+    setup();  // 第十一轮：mockResolvedValue 是替换语义——不复位则 allowViewProcess:false 残留，下一断言在第一守卫就 404，"画布不存在"分支零覆盖（假绿）
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue(null);
+    await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('readCanvas 挂起 → 有界超时 503', async () => {
+    setup();
+    (service as any).collabDoc.readCanvas = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve
+    await expect(service.getProcessSnapshot('w1')).rejects.toThrow(ServiceUnavailableException);
+  }, 10000);
+});

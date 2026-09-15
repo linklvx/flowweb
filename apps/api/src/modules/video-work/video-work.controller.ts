@@ -33,6 +33,11 @@ export class VideoWorkController {
     return this.service.getDetail(id, req.user?.id ?? null);
   }
 
+  @Get(':id/process')
+  getProcess(@Param('id') id: string) {
+    return this.service.getProcessSnapshot(id);
+  }
+
   @Post(':id/view')
   recordView(@Param('id') id: string, @Req() req: any) {
     return this.service.recordView(id, this.rateLimiter.getClientIp(req));
