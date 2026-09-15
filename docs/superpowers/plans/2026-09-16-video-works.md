@@ -29,7 +29,7 @@
 
 **C1-5（第十轮新增）**：api 侧 spec 块凡 `toThrow(异常类)` 的，宿主文件头必须 import 对应类（`@nestjs/common` / `@nestjs/throttler`）——api test 第一步是 tsc，缺导入是 TS2304、红因与 plan 声明不符。四个 spec 头已随任务配齐（2.1 BadRequest / 2.2 四类 / 3.2 Unauthorized / 6.1 四类），后续追加新异常时同步补。
 
-**C1-6（第十二轮新增，web 侧文件级铁律）**：仓内 web vitest **未开 clearMocks/restoreMocks/mockReset**（vite.config.ts:29-33 仅 globals/environment/setupFiles；test-setup.ts 亦无 afterEach 清理）——mock 的**实现**与**调用历史**都跨用例存活（两个独立症状：实现存活如 Task 9.2 曾靠上用例 mock 才绿；历史存活如 not.toHaveBeenCalled 撞前用例残留计数）。凡断言 `toHaveBeenCalledTimes(n)` / `not.toHaveBeenCalled()` / 依赖 `mock.calls[i]` 的测试文件，beforeEach（或公共 render helper）**首行必须 `vi.clearAllMocks()`**——只清记录保留实现，其后重新声明本文件依赖的 mockResolvedValue。api 侧免疫（各 spec beforeEach 重建 prisma/minio 等替身，天然无残留）。先例：ExportModal.test.tsx:73（"旧 I-1 坑"注释）、AnnouncementPage.test.tsx:19。本 plan 落点：Task 8.1/8.3/9.2。
+**C1-6（第十二轮新增，web 侧文件级铁律）**：仓内 web vitest **未开 clearMocks/restoreMocks/mockReset**（vite.config.ts:29-33 仅 globals/environment/setupFiles；test-setup.ts 亦无 afterEach 清理）——mock 的**实现**与**调用历史**都跨用例存活（两个独立症状：实现存活如 Task 9.2 曾靠上用例 mock 才绿；历史存活如 not.toHaveBeenCalled 撞前用例残留计数）。凡断言 `toHaveBeenCalledTimes(n)` / `not.toHaveBeenCalled()` / 依赖 `mock.calls[i]` 的测试文件，beforeEach（或公共 render helper）**首行必须 `vi.clearAllMocks()`**——只清记录保留实现，其后重新声明本文件依赖的 mockResolvedValue。api 侧免疫（各 spec beforeEach 重建 prisma/minio 等替身，天然无残留）。先例：ExportModal.test.tsx:73（"旧 I-1 坑"注释）、AnnouncementPage.test.tsx:19。本 plan 落点：Task 8.1/8.3/9.2。**豁免（第十三轮补）**：单用例文件（如 Task 7.3 route.integration 全文一例）、或断言对象为用例体内新建的局部替身（如 Task 8.2 的 onDetailRefresh——局部 vi.fn 无跨用例共享面）天然无残留，无需清理，勿照字面加无意义行。
 
 ### C2. 正文代码块勘误（按 Task 序；历史记录——已回写正文，冲突以正文为准，勿按本节执行）
 
@@ -2431,6 +2431,8 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     const b = rawNode('b', 'group', { groupType: 'normal' }, { parentId: 'a' });
     const out = ensureParentFirst([a, b]);
     expect(out.map(n => n.id).sort()).toEqual(['a', 'b']);
+    // 第十三轮补：钉 visiting 提前返回的输出序——visit(a) 先递归父 b、b 先 emit（父先子后），out=[b,a]
+    expect(out.map(n => n.id)).toEqual(['b', 'a']);
   });
 
   it('节点缺 data/position（readCanvas 两个 ?.toJSON() 可为 undefined）→ 兜底不抛、输出空 data 与原点', () => {
@@ -2439,8 +2441,16 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[0].position).toEqual({ x: 0, y: 0 });
   });
 
-  it('stripHtmlToText 剥标签并解码基础实体', () => {
-    expect(stripHtmlToText('<p>猫&nbsp;&amp;&lt;狗&gt;</p>')).toBe('猫 & <狗>');
+  // 第十三轮补：width/height 归一（TDD 缺口——第十一轮加了实现 ?? undefined 但无用例，违反本 plan TDD 铁律）
+  it('width/height 为 null（readCanvas 的 m.get(...) ?? null，collab-document.service.ts:68-69）→ 归一为 undefined', () => {
+    const out = buildFilteredSnapshot({ nodes: [{ id: 'n1', type: 'imageGen', width: null, height: null } as any], edges: [] }, base);
+    expect(out.nodes[0].width).toBeUndefined();
+    expect(out.nodes[0].height).toBeUndefined();
+  });
+
+  it('stripHtmlToText 剥标签并解码基础实体（同实体多次亦被 /g 全替换）', () => {
+    // 夹具含两个 &nbsp;（第十三轮修：原夹具仅一个，期望串 "猫 & <狗>" 的 & 与 < 之间空格无处可来——必红）
+    expect(stripHtmlToText('<p>猫&nbsp;&amp;&nbsp;&lt;狗&gt;</p>')).toBe('猫 & <狗>');
   });
 });
 ```
@@ -2496,7 +2506,10 @@ export const WHITELIST: Record<string, string[]> = {
   group: ['groupType', 'cells', 'name'],
 };
 
-/** HTML → 纯文本（红线 2 的服务端半边）：剥全部标签，解码基础实体 */
+/** HTML → 纯文本（红线 2 的服务端半边）：剥全部标签，解码基础实体。
+ *  已知边界（第十三轮登记，勿修）：顺序替换存在二次解码——源码字面 `&amp;lt;`（用户想显示 "&lt;"）
+ *  先解出 & 得 "&lt;"、随即被 &lt; 规则命中变 "<"，仅显示层差异；输出走 JSON → React 文本节点渲染，
+ *  无 HTML 解析、不构成 XSS 面。改一次性回调解码反而破坏 &amp; 正常语义，得不偿失。 */
 export function stripHtmlToText(html: string): string {
   return html
     .replace(/<[^>]*>/g, '')
@@ -3231,7 +3244,6 @@ describe('VideosPage（D13 卡片裁剪）', () => {
   it('卡片只含 封面/时长/标题/标签——不含作者/日期/计数', async () => {
     render(<MemoryRouter><VideosPage /></MemoryRouter>);
     await waitFor(() => screen.getByText('末班地铁'));
-    const card = screen.getByText('末班地铁').closest('a, [data-card]');
     expect(screen.getByText('03:24')).toBeInTheDocument();      // 204s → mm:ss 角标
     expect(screen.getByText('悬疑')).toBeInTheDocument();
     // D13：不渲染作者/日期/观看/喜欢
@@ -4529,7 +4541,7 @@ ModalForm 字段（完整清单，spec §5.6）：
 7. 封面（Upload，customRequest→uploadCover→写 coverKey；提示"留空使用视频缩略图"）
 8. 排序（ProFormDigit）
 9. 状态（Radio DRAFT/PUBLISHED）
-10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关）——**第十二轮 P2-2：联动必须显式订阅**——allowClone 的 ProFormSwitch 包 `dependencies={['allowViewProcess']}`（或 ProFormDependency/Form.useWatch）后按订阅值算 disabled；antd Form.Item 兄弟字段值变化**不触发**本字段重渲染，裸 `form.getFieldValue('allowViewProcess')` 读陈旧值、开关联动断言停在 false；**两 Switch 显式 `aria-label`="允许查看创作过程"/"允许克隆"**——第十一轮：Form.Item label→Switch button 的 accessible name 传递仓内零先例（5 处 switch 断言全裸查询，唯一带名先例 PropertiesPanel.tsx:141 是组件自写 aria-label），测试 getByRole('switch', { name: ... }) 依赖这两个属性）
+10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关）——**第十二轮 P2-2：联动必须显式订阅**——allowClone 的 ProFormSwitch 包 `dependencies={['allowViewProcess']}`（或 ProFormDependency/Form.useWatch）后按订阅值算 disabled；**承重的是订阅本身（第十三轮精确化：dependencies 内部即包一层 ProFormDependency、依赖值变化时重跑本字段 props——订阅到位后 `disabled={!form.getFieldValue('allowViewProcess')}` 与 useWatch 两种取值写法均读到新值，不必纠结选型）**；antd Form.Item 兄弟字段值变化**不触发**本字段重渲染，裸 `form.getFieldValue('allowViewProcess')` 读陈旧值、开关联动断言停在 false；**两 Switch 显式 `aria-label`="允许查看创作过程"/"允许克隆"**——第十一轮：Form.Item label→Switch button 的 accessible name 传递仓内零先例（5 处 switch 断言全裸查询，唯一带名先例 PropertiesPanel.tsx:141 是组件自写 aria-label），测试 getByRole('switch', { name: ... }) 依赖这两个属性）
 11. viewCount / likeCount（ProFormDigit，后台可调）
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
