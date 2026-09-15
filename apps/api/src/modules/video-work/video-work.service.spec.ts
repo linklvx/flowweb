@@ -214,6 +214,18 @@ describe('listPublished', () => {
     expect(prisma.videoCategory.findMany).toHaveBeenCalledTimes(0); // 全部命中缓存
     redisGet.mockReset();
   });
+
+  // 批次 3 质量审查 Minor（plan 级缺口补齐）：miss 路径——查 DB 一次并回写缓存（键值同 CATEGORY_CACHE_KEY 实际常量）
+  it('listCategoriesPublic 缓存 miss → findMany 1 次 + set(key, json, EX, 60)', async () => {
+    prisma.videoCategory.findMany = vi.fn().mockResolvedValue([{ id: 'c1', name: 'AI真人影视', sortOrder: 1 }]);
+    (service as any).redis.get = vi.fn().mockResolvedValue(null);
+    (service as any).redis.set = vi.fn().mockResolvedValue('OK');
+    const rows = await service.listCategoriesPublic();
+    expect(prisma.videoCategory.findMany).toHaveBeenCalledTimes(1);
+    expect((service as any).redis.set).toHaveBeenCalledWith(
+      'videoWork:categories', JSON.stringify(rows), 'EX', 60,
+    );
+  });
 });
 
 describe('getDetail', () => {
@@ -303,5 +315,53 @@ describe('recordView', () => {
   it('DRAFT 作品 → 404', async () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT' });
     await expect(service.recordView('w1', '1.1.1.1')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('toggleLike', () => {
+  // 未登录 401 在 controller spec 断言（本文件只测登录路径；第六轮删除空体占位用例——恒绿假覆盖）
+  it('限流：checkUserRateLimit 拒绝 → 429（spec §7.5"限流 429"——view/clone 均已限流，like 第八轮补齐）', async () => {
+    (service as any).rateLimiter.checkUserRateLimit = vi.fn().mockResolvedValue(false);
+    await expect(service.toggleLike('w1', 'u1')).rejects.toThrow(ThrottlerException);
+    expect((service as any).rateLimiter.checkUserRateLimit).toHaveBeenCalledWith('u1', 'video-work:like', 60, 30);
+  });
+
+  it('首次点赞：NX 成功 → +1 且返回 liked:true', async () => {
+    (service as any).redis.set = vi.fn().mockResolvedValue('OK');
+    prisma.$executeRaw = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => Promise.resolve(1)); // tagged template mock
+    // findUnique 被调两次（先查 status、后回读 likeCount）——$executeRaw 是 mock 不真改库，须序列化给值（第六轮）
+    prisma.videoWork.findUnique = vi.fn()
+      .mockResolvedValueOnce({ status: 'PUBLISHED' })
+      .mockResolvedValueOnce({ likeCount: 5 });
+    const res = await service.toggleLike('w1', 'u1');
+    const call = (prisma.$executeRaw as any).mock.calls[0];
+    expect(call[0].join('?')).toContain('GREATEST("likeCount" + ?, 0)'); // SQL 模板拼接（C2 Task 4.3 统一式）
+    expect(call.slice(1)).toEqual([1, 'w1']);                            // 值序 (delta, id)，字面量
+    expect(res).toEqual({ liked: true, likeCount: 5 });
+  });
+
+  it('再点取消：NX 失败 → -1 删键', async () => {
+    (service as any).redis.set = vi.fn().mockResolvedValue(null); // NX 失败=已赞
+    (service as any).redis.del = vi.fn();
+    prisma.$executeRaw = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => Promise.resolve(1));
+    prisma.videoWork.findUnique = vi.fn()
+      .mockResolvedValueOnce({ status: 'PUBLISHED' })
+      .mockResolvedValueOnce({ likeCount: 4 });
+    const res = await service.toggleLike('w1', 'u1');
+    const call = (prisma.$executeRaw as any).mock.calls[0];
+    expect(call[0].join('?')).toContain('GREATEST("likeCount" + ?, 0)');
+    expect(call.slice(1)).toEqual([-1, 'w1']);
+    expect((service as any).redis.del).toHaveBeenCalledWith('videoWork:like:w1:u1');
+    expect(res).toEqual({ liked: false, likeCount: 4 });
+  });
+
+  it('GREATEST 下界：likeCount=0 时取消不再减（SQL 层保护）', async () => {
+    (service as any).redis.set = vi.fn().mockResolvedValue(null);
+    prisma.$executeRaw = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => Promise.resolve(1));
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'PUBLISHED', likeCount: 0 });
+    await service.toggleLike('w1', 'u1');
+    const call = (prisma.$executeRaw as any).mock.calls[0];
+    expect(call[0].join('?')).toContain('GREATEST("likeCount" + ?, 0)');
+    expect(call.slice(1)).toEqual([-1, 'w1']);
   });
 });

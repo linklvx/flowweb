@@ -22,6 +22,7 @@ describe('VideoWorkController（公开）', () => {
       listCategoriesPublic: vi.fn().mockResolvedValue([]),
       getSettings: vi.fn().mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' }),
       recordView: vi.fn().mockResolvedValue({ counted: true }),
+      toggleLike: vi.fn().mockResolvedValue({ liked: true, likeCount: 1 }),
     };
     moduleRef = await Test.createTestingModule({
       controllers: [VideoWorkController],
@@ -47,5 +48,9 @@ describe('VideoWorkController（公开）', () => {
   it('POST :id/view 传 getClientIp 结果给 service', async () => {
     await controller.recordView('w1', { headers: {} });
     expect(service.recordView).toHaveBeenCalledWith('w1', '1.2.3.4');
+  });
+
+  it('POST like 未登录 req.user 为空 → 401', async () => {
+    await expect(controller.toggleLike('w1', { /* req 无 user */ } as any)).rejects.toThrow(UnauthorizedException);
   });
 });

@@ -24,6 +24,11 @@ export class VideoWorkService {
   // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
   private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
 
+  // like 键构造收敛为单一来源（批次 3 登记落点）：getDetail 读 liked / toggleLike 写删共用，防两处模板漂移
+  private static likeKey(workId: string, userId: string): string {
+    return `videoWork:like:${workId}:${userId}`;
+  }
+
   //（第十一轮：删孤儿 listCategories()——公开端走 listCategoriesPublic（Task 3.2）、admin 端走 listAllCategories，全 plan 无第三调用者）
   async listAllCategories() {
     return this.prisma.videoCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
@@ -201,7 +206,7 @@ export class VideoWorkService {
       this.presignWork(w.videoKey),
       w.coverKey ? this.presignWork(w.coverKey) : Promise.resolve(null),
     ]);
-    const liked = userId ? await this.redis.get(`videoWork:like:${id}:${userId}`).then(v => v === '1') : false; // 匿名短路，同 key（§4.2 约束）
+    const liked = userId ? await this.redis.get(VideoWorkService.likeKey(id, userId)).then(v => v === '1') : false; // 匿名短路，同 key（§4.2 约束）
     return {
       id: w.id, title: w.title, description: w.description, authorName: w.authorName,
       categoryId: w.categoryId, videoUrl, coverUrl,
@@ -231,6 +236,21 @@ export class VideoWorkService {
     if (ok !== 'OK') return { counted: false };
     await this.prisma.videoWork.update({ where: { id }, data: { viewCount: { increment: 1 } } });
     return { counted: true };
+  }
+
+  async toggleLike(id: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+    const allowed = await this.rateLimiter.checkUserRateLimit(userId, 'video-work:like', 60, 30); // spec §7.5 限流（第八轮补）
+    if (!allowed) throw new ThrottlerException();
+    const w = await this.prisma.videoWork.findUnique({ where: { id }, select: { status: true } });
+    if (!w || w.status !== 'PUBLISHED') throw new NotFoundException();
+    const key = VideoWorkService.likeKey(id, userId);
+    const nx = await this.redis.set(key, '1', 'EX', 7776000, 'NX'); // 90 天（§4.5）
+    let delta: number;
+    if (nx === 'OK') delta = 1;
+    else { await this.redis.del(key); delta = -1; } // NX 原子判断，勿 GET-再-SET（并发双击 +2）
+    await this.prisma.$executeRaw`UPDATE "VideoWork" SET "likeCount" = GREATEST("likeCount" + ${delta}, 0) WHERE id = ${id}`;
+    const row = await this.prisma.videoWork.findUnique({ where: { id }, select: { likeCount: true } });
+    return { liked: delta === 1, likeCount: row?.likeCount ?? 0 };
   }
 
   async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {

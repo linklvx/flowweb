@@ -1,5 +1,5 @@
 // 空壳，签名一次到位——rateLimiter 供 Task 4.2 getClientIp、cloneService 供 Task 6.2
-import { Controller, Get, Query, Param, Post, Req, Inject, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Query, Param, Post, Req, Inject, UnauthorizedException } from '@nestjs/common';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
@@ -38,5 +38,11 @@ export class VideoWorkController {
     return this.service.recordView(id, this.rateLimiter.getClientIp(req));
   }
 
-  // Task 4.3 like / Task 5.3 process / Task 6.2 clone 追加
+  @Post(':id/like')
+  async toggleLike(@Param('id') id: string, @Req() req: any) {
+    if (!req.user?.id) throw new UnauthorizedException(); // D15：登录才能点赞（async——401 以 promise rejection 送达，同步 throw 会逸出 .rejects 断言）
+    return this.service.toggleLike(id, req.user.id);
+  }
+
+  // Task 5.3 process / Task 6.2 clone 追加
 }
