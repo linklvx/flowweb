@@ -8,6 +8,7 @@ import { CreateVideoCategoryDto, UpdateVideoCategoryDto } from './dto/video-cate
 import { CreateVideoTagDto, UpdateVideoTagDto } from './dto/video-tag.dto';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
+import { UpdateVideoWorkSettingsDto } from './dto/update-video-work-settings.dto';
 
 @Controller('api/admin/video-works')
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) // 类级挂载（C2 Task 2.1——仓库无全局 pipe，不挂则 {...dto} 把 publishedAt 等任意字段透传进 Prisma；先例 admin-home-banner.controller.ts:12）
@@ -42,6 +43,11 @@ export class AdminVideoWorkController {
   async uploadCover(@UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string }) { // 仓库无 @types/multer——内联类型；async 对齐 banner 先例（admin-home-banner.controller.ts:50）——同步 throw 会绕过 rejects 断言
     if (!file) throw new BadRequestException('file is required');
     return this.service.uploadCover(file.buffer, file.mimetype);
+  }
+
+  @Get('settings') getSettings() { return this.service.getSettings(); }
+  @Put('settings') updateSettings(@Body() dto: UpdateVideoWorkSettingsDto) {
+    return this.service.updateSettings(dto);
   }
 
   // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）

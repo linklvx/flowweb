@@ -174,4 +174,18 @@ export class VideoWorkService {
     await this.minio.upload(key, buffer, mimetype); // upload(key, buffer, contentType) 三参（minio.service.ts:105）
     return { key };
   }
+
+  async getSettings(): Promise<{ carouselEnabled: boolean; carouselScope: 'all' | 'category' }> {
+    const row = await this.prisma.videoWorkSetting.findUnique({ where: { id: 'singleton' } });
+    return { carouselEnabled: row?.carouselEnabled ?? true, carouselScope: (row?.carouselScope as 'all' | 'category') ?? 'all' };
+  }
+  async updateSettings(dto: { carouselEnabled: boolean; carouselScope: 'all' | 'category' }) {
+    if (dto.carouselScope !== 'all' && dto.carouselScope !== 'category') throw new BadRequestException('carouselScope 仅 all|category');
+    await this.prisma.videoWorkSetting.upsert({
+      where: { id: 'singleton' },
+      create: { id: 'singleton', carouselEnabled: dto.carouselEnabled, carouselScope: dto.carouselScope },
+      update: { carouselEnabled: dto.carouselEnabled, carouselScope: dto.carouselScope },
+    });
+    return this.getSettings();
+  }
 }

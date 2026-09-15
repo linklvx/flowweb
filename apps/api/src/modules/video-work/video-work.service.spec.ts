@@ -169,3 +169,21 @@ describe('uploadCover（magic-number + system 域）', () => {
     expect(res.key).toMatch(/^uploads\/system\//);
   });
 });
+
+describe('settings 轮播设置', () => {
+  it('无行返回默认值（不依赖 DB 有行）', async () => {
+    prisma.videoWorkSetting.findUnique = vi.fn().mockResolvedValue(null);
+    const s = await service.getSettings();
+    expect(s).toEqual({ carouselEnabled: true, carouselScope: 'all' });
+  });
+  it('PUT 走 upsert singleton 行', async () => {
+    prisma.videoWorkSetting.upsert = vi.fn().mockResolvedValue({});
+    await service.updateSettings({ carouselEnabled: false, carouselScope: 'category' });
+    expect(prisma.videoWorkSetting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'singleton' } }),
+    );
+  });
+  it('carouselScope 非法值 → 400', async () => {
+    await expect(service.updateSettings({ carouselEnabled: true, carouselScope: 'xx' as any })).rejects.toThrow(BadRequestException);
+  });
+});

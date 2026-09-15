@@ -72,7 +72,7 @@ describe('AdminVideoWorkController categories/tags', () => {
     const proto = AdminVideoWorkController.prototype;
     const names = Object.getOwnPropertyNames(proto).filter(n => n !== 'constructor');
     const idRoutes = ['getWork', 'updateWork', 'deleteWork'].map(n => names.indexOf(n)).filter(i => i >= 0);
-    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
+    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover', 'getSettings']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
     for (const s of staticRoutes) {
       expect(names.indexOf(s)).toBeGreaterThan(-1);
       expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // spec §4.2 红线
