@@ -369,3 +369,25 @@ describe('toggleLike', () => {
     expect(call.slice(1)).toEqual([-1, 'w1']);
   });
 });
+
+describe('injectThumbnails', () => {
+  it('收集 fileId 批量查 Media.thumbnailKey → presign 注入 data.thumbnailUrl，响应不含 fileId', async () => {
+    prisma.media.findMany = vi.fn().mockResolvedValue([
+      { id: 'f1', thumbnailKey: 'thumbnails/f1.webp' },
+      { id: 'f2', thumbnailKey: null },
+    ]);
+    minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/thumbs');
+    const raw = {
+      nodes: [
+        { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'a', html: 'b' }, fileId: 'f1' } },
+        { id: 'n2', type: 'videoGen', position: { x: 0, y: 0 }, data: { model: 'm', fileId: 'f2' } },
+      ],
+      edges: [],
+    };
+    const out = await service.injectThumbnails(raw as any);
+    expect(prisma.media.findMany).toHaveBeenCalledWith({ where: { id: { in: ['f1', 'f2'] } }, select: { id: true, thumbnailKey: true } });
+    expect(out.nodes[0].data.thumbnailUrl).toBe('http://minio/thumbs'); // 有 thumbnail 的注入
+    expect(out.nodes[1].data.thumbnailUrl).toBeUndefined();             // 无 thumbnail 不注入（前端占位）
+    expect(out.nodes[0].data.fileId).toBe('f1');                        // 注入阶段保留 fileId，过滤阶段剥（管线顺序）
+  });
+});

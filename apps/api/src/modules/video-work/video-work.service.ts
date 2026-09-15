@@ -3,6 +3,7 @@ import { Injectable, Inject, BadRequestException, NotFoundException } from '@nes
 import { ThrottlerException } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
+import type { RawCanvasData } from './snapshot-filter.util';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -223,6 +224,22 @@ export class VideoWorkService {
   async removeWork(id: string) {
     await this.prisma.videoWork.delete({ where: { id } });
     await this.invalidateWorkCaches(id);
+  }
+
+  /** 产物缩略图注入（spec §4.6）：收集 fileId → 批量查 thumbnailKey → presign 注入 → 下游白名单剥 fileId */
+  async injectThumbnails(raw: RawCanvasData): Promise<RawCanvasData> {
+    const fileIds = [...new Set(raw.nodes.map(n => (n.data as any)?.fileId).filter((f): f is string => !!f))];
+    if (fileIds.length === 0) return raw;
+    const medias = await this.prisma.media.findMany({ where: { id: { in: fileIds } }, select: { id: true, thumbnailKey: true } });
+    const urlById = new Map<string, string>();
+    await Promise.all(medias.filter(m => m.thumbnailKey).map(async m => {
+      urlById.set(m.id, await this.presignWork(m.thumbnailKey!)); // presign 3600s + 短缓存复用
+    }));
+    for (const n of raw.nodes) {
+      const fid = (n.data as any)?.fileId;
+      if (typeof fid === 'string' && urlById.has(fid)) (n.data as any).thumbnailUrl = urlById.get(fid)!;
+    }
+    return raw;
   }
 
   async recordView(id: string, ip: string) {
