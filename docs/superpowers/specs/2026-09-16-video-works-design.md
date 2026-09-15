@@ -30,7 +30,7 @@
 | D14 | 复用暗色 AppLayout + Sidebar | 项目为暗色主题+左侧 Sidebar（无顶部导航）；Sidebar 在「模板广场」后插入「视频作品」（同为内容发现类），pathname 前缀匹配自动高亮；播放 Modal 经 portal 全屏黑底不受主题影响；mockup 的浅色顶栏仅作布局示意 |
 | D15 | 登录才能点赞 | like 端点要求登录（userId 去重，语义正确、不可刷）；view 计数保持匿名 IP 去重（触发时机=打开播放 Modal 时，单点埋点） |
 | D16 | canvasProjectId 来源 = /candidates 返回的 Media.projectId | 导出登记时 Media.projectId 即 workflowId（= CanvasProject.id）；不走 metadata.videoProjectId（VideoProject 随剪辑节点级联删） |
-| D17 | **by-key 修复为本功能前置**（批次 0） | presign URL 路径必含对象 key，公开的 /api/media/by-key 可无限续期、击穿 D10。**修复方案：by-key 保留在 PUBLIC_PREFIXES（auth.guard 0 行改动），仅改 handler——key 仅 `trim()` 后精确匹配 `^uploads/system/`（尾斜杠天然挡 `uploads/systematic-`）放行，**禁止 decodeURIComponent 二次解码**（Express 已解码一次，二次解码 `uploads/system%2F..%2Fx` 会变 `uploads/system/../x` 绕过前缀检查；S3 key 按字面量处理，`..` 不会被解析），其余一律 403（不做 key 归属解析——key 内 userId 是上传者非团队归属，按它判权会绕过 teamId 隔离；非 banner 的合法读取本就有正路 GET /api/media/:fileId/url）**。理由：移出白名单则守卫在 handler 前拦截，匿名会员弹窗 banner（VipSubscribeModal 对游客无条件渲染）必裂而 handler 放行分支成死代码。**上线前运行时数据核查（批次 0 第一项）**：backgroundImageKey 是持久化 DB 值且可后台手填（spec fixture 即有 `uploads/banner-bg.png` 类非规范值）——SELECT SubscriptionBanner.backgroundImageKey / HomeBanner.imageKey 逐个比对 `^uploads/system/`，不符合则重传覆盖或登记为已知视觉回退（不默认格式一定对） |
+| D17 | **by-key 修复为本功能前置**（批次 0） | presign URL 路径必含对象 key，公开的 /api/media/by-key 可无限续期、击穿 D10。**修复方案：by-key 保留在 PUBLIC_PREFIXES（auth.guard 0 行改动），校验下沉 `MediaService.getPresignedUrlByKey`——key 仅 `trim()` 后精确匹配 `^uploads/system/`（尾斜杠天然挡 `uploads/systematic-`）放行且校验/签名用同一 normalized 值，**禁止 decodeURIComponent 二次解码**（Express 已解码一次，二次解码 `uploads/system%2F..%2Fx` 会变 `uploads/system/../x` 绕过前缀检查；S3 key 按字面量处理），其余一律 403（不做 key 归属解析——key 内 userId 是上传者非团队归属，按它判权会绕过 teamId 隔离；非 banner 的合法读取本就有正路 GET /api/media/:fileId/url）**。理由：移出白名单则守卫在 handler 前拦截，匿名会员弹窗 banner（VipSubscribeModal 对游客无条件渲染）必裂而 handler 放行分支成死代码。**上线前运行时数据核查（批次 0 第一项，范围收窄为 SubscriptionBanner.backgroundImageKey——唯一 by-key 消费方；HomeBanner 走服务端 presign 不受影响）**：backgroundImageKey 是持久化 DB 值且可后台手填（spec fixture 即有 `uploads/banner-bg.png` 类非规范值）——逐行比对 `^uploads/system/`，不符合则重传覆盖或登记为已知视觉回退（不默认格式一定对） |
 | D18 | 未登录交互用页内 LoginModal，不跳转 | 复用 components/auth/LoginModal（登录成功仅 refresh()+onClose()，无 navigate）；**播放 Modal 内用嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase: 100000 } }}>` 包住 LoginModal**（antd Modal 实际 z = base+100 = 100100 > BaseFullscreenModal 的 100000）。选 Provider 而非 zIndex prop 的三条理由：①覆盖面——一次抬高子树内全部弹层（message/校验提示/邮箱分支切换的 AuthModal），prop 只管 Modal 自身；②零侵入——不改 LoginModal 公共签名（TopActionBar 等既有调用方不动）；③唯一路径——BaseFullscreenModal 是自定义 Tailwind z-[100000] 组件、不提供 antd zIndexContext，getPopupContainer 类方案不适用，抬 token base 是唯一有效路径。（注：prop 方案其实也不触发 dev 告警——useZIndex 对 customZIndex 跳过阈值检查——但仅剩"改签名"一条路时仍不如 Provider） |
 
 ## 3. 数据模型
@@ -141,7 +141,7 @@ apps/api/src/modules/video-work/
 
 样板参照 `modules/home-banner/`（公开+admin 双 controller 共用一个 service）。注册：`app.module.ts` imports +1。
 
-**跨模块触点清单**（对账用）：`auth.guard.ts` PUBLIC_PREFIXES +1 行（/api/video-works）；`media.controller.ts` by-key handler 改造（批次 0，auth.guard 0 行）；`common/services/rate-limiter.service.ts` +checkUserRateLimit（向后兼容加法）；`app.module.ts` imports +1；schema.prisma 新表+索引；前端 `router.tsx`（+lazy 路由）、`Sidebar.tsx`（NAV_ITEMS +1 项）、`index.css`（新 token 定义）。
+**跨模块触点清单**（对账用）：`auth.guard.ts` PUBLIC_PREFIXES +1 行（/api/video-works）；`media.controller.ts` + `media.service.ts` by-key 改造（批次 0，校验下沉 service，auth.guard 0 行）；`common/services/rate-limiter.service.ts` +checkUserRateLimit（向后兼容加法）+ `rate-limiter.service.spec.ts` 追加用例（spec 已存在）；`app.module.ts` imports +1；schema.prisma 新表+索引；前端 `router.tsx`（+lazy 路由）、`Sidebar.tsx`（NAV_ITEMS +1 项）、`index.css`（新 token 定义）。
 
 **路由声明顺序红线**：controller 内静态段路由（`categories`）必须声明在参数路由（`:id`）之前，否则被吃掉。spec 断言 `GET /api/video-works/categories` 命中 categories handler。
 
@@ -208,10 +208,12 @@ metadata JSON 无索引 → JSON 条件不走索引，但 where 基础列（type
 ```ts
 {
   workId, title,
-  nodes: Array<{ id, type, position:{x,y}, width?, height?, parentId?, data: WhitelistedData }>,
+  nodes: Array<{ id, type, position:{x,y}, width?, height?, parentId?, data: WhitelistedData }>,  // 必须父先子后（见下）
   edges: Array<{ id, source, target }>  // readCanvas 返回 {id, sourceId, targetId}，服务端显式映射
 }
 ```
+
+**nodes 父先子后排序（必须）**：readCanvas 返回 Y.Map 插入序——"先有子节点、后建组"的画布天然子先父后；React Flow v12 单趟建树要求父先子后（子先出现时 parentId 被忽略、子节点贴左上角、组框空——静默错位，项目内已有 ensureParentOrder 工具与 hydrateNodes 加载路径兜底，但快照是全新消费方不经这些路径）。**服务端构造响应时按依赖序输出**（纯函数可单测，对全部消费方一致；克隆侧无需同改——克隆体加载路径有 hydrateNodes 兜底）。
 
 **data 字段白名单表**（按真实类型键；未列出的字段一律剥离；未知类型默认全剥）：
 
@@ -304,7 +306,7 @@ async clone(workId, userId) {
 
 **关闭算法（模式 A：state 标记，勿用 location.key——直链打开时 history 无上一条，navigate(-1) 无动作或退出站点，且该字段全仓 0 先例）**：
 - 列表页点卡片：`navigate(/videos/${id}, { state: { fromList: true } })`
-- 轮播切换：`navigate(/videos/${id}, { replace: true, state: location.state })`——**继承 state**（见 §4.2 轮播口径）
+- 轮播切换：`navigate(/videos/${id}, { replace: true, state: location.state })`——**继承 state 且原值透传**（勿写 `{ ...location.state }`——null 展开变 {}，混两种语义；显式 `state: undefined` 行为等同不传，安全）
 - 关闭：`location.state?.fromList ? navigate(-1) : navigate('/videos', { replace: true })`
 - 场景行为：列表进入 → 关闭/后退回列表 ✓；直链进入 → 关闭 replace 到列表、后退退出站点 ✓；直链→轮播→关闭 → 落列表不退出 ✓；F5 后 history.state 保留、行为不变 ✓
 
@@ -329,8 +331,10 @@ apps/web/src/pages/admin/pages/VideoWorksPage.tsx   # 后台管理
 
 - **不得复用 CanvasView.tsx**（耦合 6 个 store + 9 种业务节点组件 + collab runtime）。
 - 新组件只依赖 `@xyflow/react` + 静态快照数据；节点用简版自定义节点（类型图标 + 标题 + 白名单文本），零 store/API 依赖。
-- **v1 画组框**：parentId 驱动层级 + group 简框渲染（groupType 区分 storyboard/普通组样式），与 §4.6 保留 cells/groupType 对齐。
+- **红线：每个简版节点必须渲染默认 Handle（target 左 / source 右，无 id）**——RF v12 边定位依赖 handle bounds，节点无 Handle 时每条边命中 error008 被静默丢弃（节点方框渲染出来、零连线）；快照边无 handleId，正好对应默认 handle。结构用例：`.react-flow__handle` 数量 === nodes.length × 2。
+- **v1 画组框**：parentId 驱动层级 + group 简框渲染（groupType 区分 storyboard/普通组样式），与 §4.6 保留 cells/groupType 对齐（cells 悬空 id 原样返回不消费）。
 - 文本一律文本节点渲染（红线 2，禁 innerHTML）。
+- publishedAt 类型可空，但播放 Modal 仅对 PUBLISHED 展示（恒非空）——UI 侧写"依赖服务端保证非空"或渲染占位，**勿用 `publishedAt!` 绕过类型检查**。
 
 ### 5.4 交互细节
 
@@ -371,12 +375,12 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 每批次红-绿-重构循环；关键用例（controller spec 形态沿用仓库惯例：Test.createTestingModule 后直接调方法，**无 supertest/e2e**——路由顺序类断言用 `Object.getOwnPropertyNames(Controller.prototype)` 声明序，或列为 curl 手工验收步骤）：
 
 **后端（service/controller spec）**：
-1. **by-key 修复（批次 0，handler 级）**：key trim 后匹配 `^uploads/system/` 放行（含 `uploads/systematic-x` 绕过反例 403、二次解码反例 `uploads/system%2F..%2Fx` 403）；其余匿名/登录一律 403；**测试落点：media.controller.spec.ts 不存在——新建该 spec，或前缀校验下沉 MediaService 复用既有 media.service.spec 的 mock 装配（plan 定）**；**端到端验收：未登录打开 / → 会员弹窗 banner 正常显示（非默认渐变）+ by-key 对该 key 返回 200**；**运行时数据核查**（SubscriptionBanner/HomeBanner 存量 key 比对，不符合则重传或登记视觉回退）。auth.guard.spec 无需改动（by-key 留在白名单）。
+1. **by-key 修复（批次 0，**校验下沉 MediaService**）**：新增 `MediaService.getPresignedUrlByKey(key)`（trim → 匹配 `^uploads/system/` → presign **同一个 normalized 值**——校验与签名不得一值一样；controller 变薄恢复"controller 只调 service"结构并顺带修正现有 getUrlByKey 绕过 service 层的问题）；放行用例 + 绕过反例（`uploads/systematic-x` 403、二次解码 `uploads/system%2F..%2Fx` 403）+ 其余一律 403；**复用既有 media.service.spec 的 mock 装配追加用例（media.controller.spec.ts 不存在，不新建）**；**端到端验收：未登录打开 / → 会员弹窗 banner 正常显示（非默认渐变）+ by-key 对该 key 返回 200**；**运行时数据核查收窄为 SubscriptionBanner.backgroundImageKey**（唯一 by-key 消费方；HomeBanner 走服务端 presign 不受影响，勿白排查）。auth.guard.spec 无需改动（by-key 留在白名单）。
 2. 候选列表口径：metadata.origin='video-project' 断言（非画布导出的 generated 不出现）；**返回 projectId + canvasExists（批量单查）**。admin 端点 403 由既有 admin.guard.spec 路径前缀语义覆盖（controller spec 不经守卫测不到，不重复）。
 3. 路由声明序：categories/tags/settings/candidates 静态段在 :id 之前（getOwnPropertyNames 断言）。
 4. view 去重：同 IP 1h 内重复请求只 +1；**StrictMode 双发（两次连续请求）计数仍为 1**。
 5. like：匿名 401；登录 toggle +1/-1（SET NX 原子）且响应 `{liked,likeCount}` 正确（跨请求一致）；GREATEST 下界（刷到 0 不为负）；限流 429。
-6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**group 的 groupType/cells 在**）；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target 无 sourceId；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
+6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**group 的 groupType/cells 在——cells 断言写"原样返回"逐项比对（含悬空 id/null），勿写"全项可在 nodes 中找到"**（悬空 id 是已接受行为，会红在已知项上））；**nodes 父先子后（fixture 造子先父后的 readCanvas 返回 → 断言 index(parent) < index(child)）**；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target 无 sourceId；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
 7. 克隆：新项目含 nodes/edges（含 parentId/width/height）；节点 id 已重发；克隆体 data key 不含剥离集字段（含 **thumbnailUrl**）且 **status 重置 idle**、无 `__fromMulti/__ephemeral`；无 videoEdit/shadow- 节点及相连边；**四元重映射（fixture：分镜组 group(groupType:'storyboard', cells:[子id, null, 悬空id]) + parentId 指向组的子节点 → 断言：存活子节点新 id 均出现在新 cells 中（测试不变量）；悬空/被剥槽位 → null；数组长度不变；无旧 id 残留）**；Template 行数与 importCount 不变；未登录 401；canvasProjectId 空/不存在 → 404；**create 阶段挂起 → 整体有界超时 503**；保存校验（(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400）。
 8. 发布自动设 publishedAt；请求体带 publishedAt 被忽略；详情返回 liked 初始态（已赞用户 true / 匿名 false 且匿名路径零 Redis 调用）；**列表 orderBy 含 id tiebreaker（并列翻页无重复/遗漏）**。
 9. candidates 分页；pageSize=9999 clamp 50；settings 无行返回默认值。
@@ -384,10 +388,10 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 **前端（Vitest + TestingLibrary）**：
 1. 列表渲染：卡片只含 封面/时长/标题/标签（断言不含作者/日期/计数节点）。
 2. /videos/:id 自动开 Modal；**关闭算法（模式 A）四场景**：列表进入（state.fromList）→ 关闭 navigate(-1) 回列表、后退回列表；直链进入（无 state）→ 关闭 replace 到 /videos、后退离开站点；**直链→轮播（继承 null state）→关闭 → 落 /videos 不退出站点**；列表→轮播（继承 fromList）→关闭 → 回列表而非上一个作品。
-3. **单路由不重挂**：Modal 开关前后列表 API 调用次数为 1（spy）——守住"可选参数路由复用同一实例"这一 D5 承重墙（防将来被拆成两条路由后承诺静默失效）。
+3. **单路由不重挂**：Modal 开关前后列表 API 调用次数为 1（spy，**断言点在 Modal 出场动画之后**——antd Modal 动画期间组件仍在树内，过早断言假绿）——守住"可选参数路由复用同一实例"这一 D5 承重墙（防将来被拆成两条路由后承诺静默失效）。
 4. canViewProcess=false 时不渲染「查看制作过程」按钮；顶栏日期显示"发布于 {publishedAt}"（字段断言）。
 5. 喜欢：未登录打开页内 LoginModal（不跳转）；**jsdom 侧只做结构断言（ConfigProvider 包裹存在且 token.zIndexPopupBase===100000——z-index 层叠效果 jsdom 测不出，勿写"可交互"断言假绿）**；真实层级效果登记为浏览器手工验收：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal；已赞用户初始 liked=true（详情返回）；toggle 以响应 liked 为准。
-6. ProcessSnapshot 纯文本渲染（无 dangerouslySetInnerHTML）；组框渲染（storyboard/普通组样式区分）。
+6. ProcessSnapshot 纯文本渲染（无 dangerouslySetInnerHTML）；组框渲染（storyboard/普通组样式区分）；**`.react-flow__handle` 数量 === nodes.length × 2**（缺 Handle 则边全丢，结构断言 jsdom 可测）。
 7. onError 触发详情重拉。
 8. view 埋点仅在打开 Modal 时触发一次（StrictMode effect 双发下服务端计数仍 1）。
 9. 自建断言 /admin/content/video-works 路由存在（router.admin.test 过滤器硬编码不含 content/，既有测试不改、明确接受该覆盖方式）。
@@ -400,13 +404,13 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 
 | 批 | 内容 | 验收 |
 |---|---|---|
-| **0（前置）** | **by-key 修复**（D17）：**第一项运行时数据核查**（SubscriptionBanner/HomeBanner 存量 key 比对 `^uploads/system/`，不符合则重传覆盖或登记视觉回退）→ **保留在 PUBLIC_PREFIXES（auth.guard 0 行），仅改 handler**——key trim 后精确匹配 `^uploads/system/`（禁二次解码），其余一律 403；枚举核查 uploads/system/ 全部写入方与公开读图来源 | by-key 用例全绿（含 systematic-/二次解码绕过反例）；存量核查完成；**端到端：未登录打开 / → 会员弹窗 banner 正常显示 + by-key 200**；D10 前提成立 |
+| **0（前置）** | **by-key 修复**（D17）：**第一项运行时数据核查**（SubscriptionBanner.backgroundImageKey 比对 `^uploads/system/`，不符合则重传覆盖或登记视觉回退）→ **保留在 PUBLIC_PREFIXES（auth.guard 0 行），校验下沉 MediaService.getPresignedUrlByKey**——key trim 后精确匹配 `^uploads/system/`（禁二次解码、校验/签名同值），其余一律 403 | by-key 用例全绿（含 systematic-/二次解码绕过反例）；存量核查完成；**端到端：未登录打开 / → 会员弹窗 banner 正常显示 + by-key 200**；D10 前提成立 |
 | 1 | schema + migration（prisma migrate dev --name add_video_work，含声明式 Media 候选索引）+ 模块骨架 | migrate deploy 后 diff 零差异（声明式索引保证）；模块可启动 |
 | 2 | 后台 CRUD（含 allowViewProcess×空画布 400）+ 类型/标签 CRUD（改时删缓存）+ 候选列表（projectId+canvasExists）+ 封面上传（magic-number）+ 设置端点（默认值兜底） | service spec 覆盖候选口径与保存校验 |
 | 3 | 公开列表 + 详情（categoryId/两开关）+ presign + PUBLIC_PREFIXES | 匿名 curl 200；DRAFT 404；详情 readCanvas 0 次 |
 | 4 | view 计数（IP 去重）+ like（登录 userId 去重、返回 liked）+ checkUserRateLimit + 限流 | 去重/下界/429/匿名 401/StrictMode 用例全绿 |
-| 5 | 创作过程快照（产物缩略图注入过 /flowai、edges 映射、shadow- 过滤）+ ProcessSnapshot 只读渲染（含组框） | 键级+正向安全断言全绿 |
-| 6 | 克隆（共用白名单参数化 + videoEdit/shadow- 剥离 + 四元重映射禁兜底 + status idle + 整体有界超时）+ LoginModal 页内登录（嵌套 ConfigProvider 抬 z） | 四元重映射断言 + Template 不变 + LoginModal 可交互 |
+| 5 | 创作过程快照（产物缩略图注入过 /flowai、edges 映射、shadow- 过滤、**nodes 父先子后排序**）+ ProcessSnapshot 只读渲染（含组框、**Handle 红线**） | 键级+正向安全断言全绿（含排序与 Handle 结构断言） |
+| 6 | 克隆（共用白名单参数化 + videoEdit/shadow- 剥离 + 四元重映射禁兜底 + status idle + 整体有界超时）+ LoginModal 页内登录（嵌套 ConfigProvider 抬 z） | 四元重映射断言 + Template 不变 + LoginModal 可交互（**浏览器手工验收**：未登录在播放 Modal 内点喜欢 → 登录框可见可点） |
 | 后续增强 | readCanvas sv 钉版（快照版本绑定，消除 ≤5min 漂移） | — |
 
 **上线顺序（修正）**：deploy.sh 的 api 模式上传**只含 apps/api/src，不含 prisma/（schema.prisma 与 migrations/ 都没有）**——直接 migrate deploy 会空跑（No pending migrations），且 generate 用旧 schema → `prisma.videoWork` 运行时 undefined（TS 本地过、服务器炸）。**部署清单 = schema.prisma + migrations/ 两者**。顺序：全量部署（或手动上传 prisma/ 目录）→ `npx prisma migrate deploy` → 重启 api。db push 禁用。
