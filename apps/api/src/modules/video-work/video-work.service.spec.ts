@@ -296,6 +296,8 @@ describe('recordView', () => {
     await service.recordView('w1', '1.2.3.4');
     expect(prisma.videoWork.update).toHaveBeenCalledTimes(1);
     expect(prisma.videoWork.update).toHaveBeenCalledWith({ where: { id: 'w1' }, data: { viewCount: { increment: 1 } } });
+    // set 被换新 mock 两次，此处 calls[0] 指第二次（NX 失败）调用——非键参数与第一次相同；键含 ipHash 故切片断言
+    expect((service as any).redis.set.mock.calls[0].slice(1)).toEqual(['1', 'EX', 3600, 'NX']);
   });
 
   it('StrictMode 双发（同 IP 连续两次）计数仍 1 —— spec §7.4', async () => {
@@ -310,6 +312,7 @@ describe('recordView', () => {
   it('限流超限 → 429（ThrottlerException 语义）', async () => {
     (service as any).rateLimiter.checkIpRateLimit = vi.fn().mockResolvedValue(false);
     await expect(service.recordView('w1', '9.9.9.9')).rejects.toThrow(ThrottlerException);
+    expect((service as any).rateLimiter.checkIpRateLimit).toHaveBeenCalledWith('9.9.9.9', 'video-work:view', 60, 30);
   });
 
   it('DRAFT 作品 → 404', async () => {
@@ -338,6 +341,7 @@ describe('toggleLike', () => {
     expect(call[0].join('?')).toContain('GREATEST("likeCount" + ?, 0)'); // SQL 模板拼接（C2 Task 4.3 统一式）
     expect(call.slice(1)).toEqual([1, 'w1']);                            // 值序 (delta, id)，字面量
     expect(res).toEqual({ liked: true, likeCount: 5 });
+    expect((service as any).redis.set.mock.calls[0].slice(1)).toEqual(['1', 'EX', 7776000, 'NX']);
   });
 
   it('再点取消：NX 失败 → -1 删键', async () => {
