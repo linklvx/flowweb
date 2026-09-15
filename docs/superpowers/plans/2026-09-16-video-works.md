@@ -18,7 +18,7 @@
 
 > 第八轮归一：C1 约定表、C5 测试装配模板、C4 边界清单长期有效；**C2/C6/C7 为历史审核记录，其修正均已回写正文——记录与正文冲突时一律以正文为准**。已知被正文取代的勘误实例：①C2"Task 2.5"的 fileFilter 单行静默拒绝版（`cb(null, regex.test)`）已被正文显式抛错版取代（`cb(new BadRequestException, false)`——admin-home-banner.controller.ts:42 与 subscription/admin-banner.controller.ts:30 两处先例同款）；②C7-F4 的 shadow 库方案整体废止（正文 Task 1.1 Step 4 已改 `--from-schema-datasource` 免 shadow 方案）。
 
-### C1. 全局落地约定（C1-1～C1-5 共 5 条，覆盖多数阻断项）
+### C1. 全局落地约定（C1-1～C1-6 共 6 条，覆盖多数阻断项）
 
 | # | 约定 | 依据 |
 |---|---|---|
@@ -28,6 +28,8 @@
 | C1-4 | **关键组件真实 API**：MinIO 写对象是 `this.minio.upload(key, buffer, contentType)`（**无 putObject/uploadBuffer**）；上传键一律 `this.minio.buildKey('uploaded', 'system', { ext })` → `uploads/system/{date}/{uuid}.{ext}`（内置 randomUUID，与 D17 白名单精确对齐，**勿手拼 key 勿用 uuid 包**——该包非依赖，仓库用 node:crypto）。`isLoggedIn()` 不存在——用 `const { user } = useAuth()` 判 `!user`（AuthProvider.tsx:17-23，App.tsx:16 AuthProvider 包住 RouterProvider，公开路由可用 hook）。EmptyState/CardGridSkeleton 是 **workspace 私有组件**（pages/workspace/components/，EmptyState 必填 variant+onAction）——/videos 不复用，内联 ≤5 行空态/骨架（D2 孤岛） | minio.service.ts:46-57,105；admin-home-banner.controller.ts:39-66（第六轮更正路径——原引"admin-banner.controller.ts:27-57"是订阅 banner 文件）；nodeStore 类型真值 |
 
 **C1-5（第十轮新增）**：api 侧 spec 块凡 `toThrow(异常类)` 的，宿主文件头必须 import 对应类（`@nestjs/common` / `@nestjs/throttler`）——api test 第一步是 tsc，缺导入是 TS2304、红因与 plan 声明不符。四个 spec 头已随任务配齐（2.1 BadRequest / 2.2 四类 / 3.2 Unauthorized / 6.1 四类），后续追加新异常时同步补。
+
+**C1-6（第十二轮新增，web 侧文件级铁律）**：仓内 web vitest **未开 clearMocks/restoreMocks/mockReset**（vite.config.ts:29-33 仅 globals/environment/setupFiles；test-setup.ts 亦无 afterEach 清理）——mock 的**实现**与**调用历史**都跨用例存活（两个独立症状：实现存活如 Task 9.2 曾靠上用例 mock 才绿；历史存活如 not.toHaveBeenCalled 撞前用例残留计数）。凡断言 `toHaveBeenCalledTimes(n)` / `not.toHaveBeenCalled()` / 依赖 `mock.calls[i]` 的测试文件，beforeEach（或公共 render helper）**首行必须 `vi.clearAllMocks()`**——只清记录保留实现，其后重新声明本文件依赖的 mockResolvedValue。api 侧免疫（各 spec beforeEach 重建 prisma/minio 等替身，天然无残留）。先例：ExportModal.test.tsx:73（"旧 I-1 坑"注释）、AnnouncementPage.test.tsx:19。本 plan 落点：Task 8.1/8.3/9.2。
 
 ### C2. 正文代码块勘误（按 Task 序；历史记录——已回写正文，冲突以正文为准，勿按本节执行）
 
@@ -2420,6 +2422,26 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
   it('nodeTypes 注册表全覆盖：WHITELIST keys ⊇ VIDEO_WORK_NODE_TYPES（shared 锚定，第八轮裁定——替代本文件硬编码清单的自指断言；配套 web 侧锚定见 Task 9.3）', () => {
     for (const t of VIDEO_WORK_NODE_TYPES) expect(Object.keys(WHITELIST)).toContain(t);
   });
+
+  // 第十二轮 T1/补强：两处"因缺陷而生"的防御分支此前零用例（违反本 plan TDD 铁律）——readCanvas 的
+  // position/data 均为 ?.toJSON()（collab-document.service.ts:70-71）可为 undefined、互指 parentId 会爆栈，
+  // 都是 readCanvas 真实可达形态。顺带消费 import 的 ensureParentFirst/stripHtmlToText（原未用导入）。
+  it('ensureParentFirst 互指 parentId（A↔B）不死循环不爆栈，两节点均保留（visiting 环守卫——C2-B7）', () => {
+    const a = rawNode('a', 'group', { groupType: 'normal' }, { parentId: 'b' });
+    const b = rawNode('b', 'group', { groupType: 'normal' }, { parentId: 'a' });
+    const out = ensureParentFirst([a, b]);
+    expect(out.map(n => n.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('节点缺 data/position（readCanvas 两个 ?.toJSON() 可为 undefined）→ 兜底不抛、输出空 data 与原点', () => {
+    const out = buildFilteredSnapshot({ nodes: [{ id: 'n1', type: 'imageGen' } as any], edges: [] }, base);
+    expect(out.nodes[0].data).toEqual({});
+    expect(out.nodes[0].position).toEqual({ x: 0, y: 0 });
+  });
+
+  it('stripHtmlToText 剥标签并解码基础实体', () => {
+    expect(stripHtmlToText('<p>猫&nbsp;&amp;&lt;狗&gt;</p>')).toBe('猫 & <狗>');
+  });
 });
 ```
 
@@ -2528,7 +2550,10 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
     if (node.type === 'multiImageGen') data.nodeStatus = 'idle';
     else if (['imageGen', 'imageExtGen', 'videoGen', 'audioGen'].includes(node.type)) data.status = 'idle';
   }
-  return { ...node, position: node.position ?? { x: 0, y: 0 }, data }; // position 兜底：readCanvas 的 position 可 undefined（collab-document.service.ts:70 ?.toJSON()），shared SnapshotNode.position 必填
+  // position 兜底：readCanvas 的 position 可 undefined（collab-document.service.ts:70 ?.toJSON()），shared SnapshotNode.position 必填；
+  // width/height 归一：readCanvas 是 m.get('width') ?? null（:68-69）→ 实际 number|null，而 RawNode/shared 声明 number|undefined——
+  // 在边界把 null 折成 undefined（第十二轮：类型不撒谎，下游 RF 拿到一致的 undefined=未测量）
+  return { ...node, width: node.width ?? undefined, height: node.height ?? undefined, position: node.position ?? { x: 0, y: 0 }, data };
 }
 
 export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {
@@ -3483,6 +3508,7 @@ function renderAt(initial: string, state?: any) {
 
 describe('关闭算法（模式 A：state.fromList）', () => {
   beforeEach(() => {
+    vi.clearAllMocks(); // 第十二轮 C1-6：仓内未开 clearMocks，调用历史跨用例累积——场景1 已产生 1 次 recordView，不清则场景2 的 toHaveBeenCalledTimes(1) 拿到 2（clearAllMocks 只清记录，下方 mockResolvedValue 随即重新声明）
     vi.mocked(api.fetchVideoWorkDetail).mockImplementation(async (id: string) => (id === 'w2' ? detailW2 : detail) as any);
     vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: listItems, total: 2, page: 1, pageSize: 20 }); // 列表+轮播同源（轮播 pageSize=11 同端点）
     vi.mocked(api.fetchVideoCategories).mockResolvedValue([]);
@@ -3552,8 +3578,10 @@ import { PlayView } from './PlayView';          // Task 8.2
 import { ProcessView } from './ProcessView';    // Task 9.2
 import { CarouselBar } from './CarouselBar';    // Task 8.3
 
-/** 弹层 z 基座（第十一轮 S2）：token 与 data-zprovider 锚点同源——测试断言锚点值为字面量 '100000'，
- *  删 Provider 层 / 改 token 值任一都会使 Task 8.4 结构断言变红（jsdom 测不出层叠，但配方结构与常量值可测） */
+/** 弹层 z 基座（第十一轮 S2 引入、第十二轮口径修正）：token 与 data-zprovider 锚点同源——Task 8.4 断言锚点值为
+ *  字面量 '100000'，**改本常量即红**（值耦合，这是该断言真正钉住的东西）。ConfigProvider/AntdApp 均为 context
+ *  组件无 DOM 痕迹，"Provider 包裹存在"那半边 jsdom 不可测（删层重写时若保留锚点 div，断言仍绿）——层叠正确性
+ *  由浏览器手工验收 #6 兜底（C7-B5"注释+手工验收"防线），勿声称"删层即红" */
 const VIDEO_MODAL_Z_BASE = 100000;
 
 export function VideoPlayerModal() {
@@ -3596,8 +3624,9 @@ export function VideoPlayerModal() {
           壳内 PlayView/CarouselBar/关闭钮全是绝对定位不贡献静态高度，必须由视口尺寸的内含块撑起） */}
         <ConfigProvider theme={{ token: { zIndexPopupBase: VIDEO_MODAL_Z_BASE } }} getPopupContainer={() => shellRef.current ?? document.body}>
           <AntdApp component={false}>
-            {/* 第十一轮 S2：data-zprovider 锚点从壳根挪进 Provider 内层并绑定 token 常量——原挂壳根时删掉 ConfigProvider/AntdApp 层
-                断言照样绿（假防线）；display:contents 使锚点 div 不产生布局盒（壳内绝对定位元素的参照物仍是壳根 fixed）。 */}
+            {/* 第十一轮 S2：data-zprovider 锚点从壳根挪进 Provider 内层并绑定 token 常量（断言钉住**值耦合**：改
+                VIDEO_MODAL_Z_BASE 即红；"Provider 包裹存在"jsdom 不可测——context 组件无 DOM，层叠正确性走手工验收 #6）；
+                display:contents 使锚点 div 不产生布局盒（壳内绝对定位元素的参照物仍是壳根 fixed）。 */}
             <div data-zprovider={String(VIDEO_MODAL_Z_BASE)} style={{ display: 'contents' }}>
               {view === 'play'
                 ? <PlayView detail={detail} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail)} />
@@ -3818,7 +3847,7 @@ git commit -m "feat(video-work): 批次8 播放视图（发布于 publishedAt/�
 ```tsx
 // 第八轮补 harness（原块无 import 头——照抄即 ReferenceError；CarouselBar 不用 useAuth，无需 AuthProvider mock）：
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest'; // 第十二轮：删未用的 beforeEach 导入（本文件靠 renderBar 首行清理）
 import * as api from '@/api/videoWorkApi';
 import { CarouselBar } from '../CarouselBar';
 
@@ -3827,6 +3856,7 @@ vi.mock('@/api/videoWorkApi');
 // renderBar helper 必须显式 mock getPublicSettings——组件内部自取设置，漏 mock 时 auto-mock 返回
 // undefined → getPublicSettings() 返回 undefined、.then 是同步 TypeError（.catch 接不到同步 throw）→ 用例以 unhandled error 红
 function renderBar(settings: { carouselEnabled: boolean; carouselScope: 'all' | 'category' }, currentId = 'w0', categoryId: string | null = null) {
+  vi.clearAllMocks(); // 第十二轮 C1-6/S1：未清记录时 null 降级用例的 mock.calls[0] 是上一用例（scope=all）留下的调用——断言恒绿（假防线）。清记录保实现，下方 getPublicSettings 随即重新声明
   vi.mocked(api.getPublicSettings).mockResolvedValue(settings as any);
   const onSwitch = vi.fn();
   render(<CarouselBar currentId={currentId} categoryId={categoryId} onSwitch={onSwitch} />);
@@ -3937,9 +3967,8 @@ git commit -m "feat(video-work): 批次8 底部轮播（设置驱动/11取10/rep
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import { App as AntdApp } from 'antd';
 import * as api from '@/api/videoWorkApi';
-import { VideosPage } from '../VideosPage'; // 第十一轮：原 '../../VideosPage' 多一级（__tests__/ 下应为 ../X，同仓全部先例）
+import { VideosPage } from '../VideosPage'; // 第十一轮：原 '../../VideosPage' 多一级（__tests__/ 下应为 ../X，同仓全部先例）；第十二轮删未用的 AntdApp 导入（本文件 render 不包 App 组件）
 
 vi.mock('@/api/videoWorkApi');
 const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
@@ -3987,9 +4016,10 @@ describe('播放 Modal 内页内登录', () => {
     renderModalWithNeedLogin(); // 本文件自建装配（真实 VideosPage）+ AuthProvider mock（user:null）
     fireEvent.click(screen.getByRole('button', { name: /喜欢/ })); // 未登录触发
     await waitFor(() => screen.getByTestId('login-modal-root'));
-    // 第十一轮 S2：锚点在 Provider 内层并带 token 值——删 ConfigProvider/AntdApp 层（锚点随层消失）、
-    // 或 token 常量改值（String(值) ≠ '100000'）任一即红。原 closest('[data-zprovider="true"]') 挂壳根，
-    // 删层断言照样绿，是假防线（与 spec §7 前端5"ConfigProvider 包裹存在且 token===100000"不符）。
+    // 第十一轮 S2 引入、第十二轮口径修正：断言钉住**值耦合**——VIDEO_MODAL_Z_BASE 改值即 String(值) ≠ '100000' 红；
+    // "Provider 包裹存在"jsdom 不可测（ConfigProvider/AntdApp 是 context 组件无 DOM 痕迹，删层重写保留锚点 div 仍绿），
+    // 层叠正确性走浏览器手工验收 #6（spec §7 前端5 已同步此口径）。原 closest('[data-zprovider="true"]') 挂壳根，
+    // 连值耦合都没有，是假防线。
     const anchor = screen.getByTestId('login-modal-root').closest('[data-zprovider]');
     expect(anchor?.getAttribute('data-zprovider')).toBe('100000');
   });
@@ -4191,7 +4221,7 @@ import { ProcessView } from '../ProcessView';
 vi.mock('@/api/videoWorkApi');
 const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
 vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authCtx }));
-beforeEach(() => { authCtx.user = null; });
+beforeEach(() => { vi.clearAllMocks(); authCtx.user = null; }); // 第十二轮 C1-6：未清记录时"未登录克隆"用例的 not.toHaveBeenCalled() 撞上一用例（克隆成功已真实调 cloneWork）残留——clearAllMocks 只清记录，各用例体内自声明 mockResolvedValue
 
 const snap = {
   workId: 'w1', title: 't',
@@ -4364,7 +4394,7 @@ git commit -m "feat(video-work): 批次9 nodeTypes 覆盖锚定（shared 清单�
 
 ```tsx
 // 第八轮补 harness + renderWithProviders 定义（原块用而未定义；包装照 HomeBannersPage.test.tsx:17 内联三行）：
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'; // within——Task 10.2 tabpanel 撞名用（第十二轮 P1）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { App as AntdApp } from 'antd';
@@ -4384,8 +4414,9 @@ beforeEach(() => {
   vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([] as any);
   vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([] as any);
   vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [], total: 0 } as any);
-  // 第十一轮：getSettings 兜底——Task 10.2 给页面加"播放页设置"tab 后，本文件全量回归渲染的页面会拉设置，
-  // automock 返回 undefined 是 .then 同步 TypeError（C7-F2 同款），10.1 的用例在批次 10 后全炸
+  // 第十一轮加、第十二轮修正理由：antd Tabs 懒渲染——非激活过的 pane 不挂载，未点「播放页设置」tab 时
+  // CarouselSettingsCard 不存在、不调 getSettings（原"页面会拉设置"不成立）。默认值是纯防御（防实现改页面级
+  // 预取、或本文件用例点过设置 tab 后其他 tab 用例回归时残留调用拿到 undefined），保留无害。
   vi.mocked(adminVideoWorkApi.getSettings).mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' });
 });
 
@@ -4498,7 +4529,7 @@ ModalForm 字段（完整清单，spec §5.6）：
 7. 封面（Upload，customRequest→uploadCover→写 coverKey；提示"留空使用视频缩略图"）
 8. 排序（ProFormDigit）
 9. 状态（Radio DRAFT/PUBLISHED）
-10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关）；**两 Switch 显式 `aria-label`="允许查看创作过程"/"允许克隆"**——第十一轮：Form.Item label→Switch button 的 accessible name 传递仓内零先例（5 处 switch 断言全裸查询，唯一带名先例 PropertiesPanel.tsx:141 是组件自写 aria-label），测试 getByRole('switch', { name: ... }) 依赖这两个属性）
+10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关）——**第十二轮 P2-2：联动必须显式订阅**——allowClone 的 ProFormSwitch 包 `dependencies={['allowViewProcess']}`（或 ProFormDependency/Form.useWatch）后按订阅值算 disabled；antd Form.Item 兄弟字段值变化**不触发**本字段重渲染，裸 `form.getFieldValue('allowViewProcess')` 读陈旧值、开关联动断言停在 false；**两 Switch 显式 `aria-label`="允许查看创作过程"/"允许克隆"**——第十一轮：Form.Item label→Switch button 的 accessible name 传递仓内零先例（5 处 switch 断言全裸查询，唯一带名先例 PropertiesPanel.tsx:141 是组件自写 aria-label），测试 getByRole('switch', { name: ... }) 依赖这两个属性）
 11. viewCount / likeCount（ProFormDigit，后台可调）
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
@@ -4526,7 +4557,11 @@ it('类型管理 tab：ProTable 列 name/sortOrder/active + 新增入口', async
   renderWithProviders(<VideoWorksPage />);
   fireEvent.click(screen.getByRole('tab', { name: '视频类型' }));
   await waitFor(() => screen.getByText('AI真人影视'));
-  for (const col of ['名称', '排序', '启用']) expect(screen.getByText(col)).toBeInTheDocument();
+  // 第十二轮 P1：rc-tabs 不卸载已激活面板（destroyInactiveTabPane 默认 false，rc-tabs@15.4.0 TabPanelList/index.js:38
+  // removeOnLeave:false；TabPane.js:16 aria-hidden）——切走后作品面板仍挂载，其「排序」列头与类型表撞名、getByText 抛
+  // Found multiple elements。within(激活 panel) 收敛：getByRole('tabpanel') 默认排除 aria-hidden → 唯一命中当前面板
+  const panel = within(screen.getByRole('tabpanel'));
+  for (const col of ['名称', '排序', '启用']) expect(panel.getByText(col)).toBeInTheDocument();
 });
 it('标签管理 tab：同构', async () => {
   vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([{ id: 't1', name: '悬疑', sortOrder: 0, active: true }] as any);
@@ -4557,7 +4592,9 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
   { key: 'settings', label: '播放页设置', children: <CarouselSettingsCard /> },
 ]} />
 
-// CarouselSettingsCard：Form initialValue=getSettings；Switch carouselEnabled + Radio.Group carouselScope(all|category)；
+// CarouselSettingsCard：**settings 加载完成后才渲染 Form（`if (!settings) return null`）**——第十二轮 m1：antd Form 无
+// initialValue prop、initialValues 只在首挂载时生效，异步到达的 getSettings 数据不会让 radio 变选中（除非 form.setFieldsValue），
+// 直接写 initialValues 会让 toBeChecked 初值断言红。Switch carouselEnabled + Radio.Group carouselScope(all|category)；
 // 保存按钮文案钉死「保存设置」（第十一轮——两字"保存"被 antd 插空格成"保 存"，测试 /保存/ 不匹配）；保存→updateSettings→message.success
 ```
 

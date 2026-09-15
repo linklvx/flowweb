@@ -391,7 +391,7 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 2. /videos/:id 自动开 Modal；**关闭算法（模式 A）四场景**：列表进入（state.fromList）→ 关闭 navigate(-1) 回列表、后退回列表；直链进入（无 state）→ 关闭 replace 到 /videos、后退离开站点；**直链→轮播（继承 null state）→关闭 → 落 /videos 不退出站点**；列表→轮播（继承 fromList）→关闭 → 回列表而非上一个作品。
 3. **单路由不重挂**：Modal 开关前后列表 API 调用次数为 1（spy，**断言点在 Modal 出场动画之后**——antd Modal 动画期间组件仍在树内，过早断言假绿）——守住"可选参数路由复用同一实例"这一 D5 承重墙（防将来被拆成两条路由后承诺静默失效）。
 4. canViewProcess=false 时不渲染「查看制作过程」按钮；顶栏日期显示"发布于 {publishedAt}"（字段断言）。
-5. 喜欢：未登录打开页内 LoginModal（不跳转）；**jsdom 侧只做结构断言（ConfigProvider 包裹存在且 token.zIndexPopupBase===100000——z-index 层叠效果 jsdom 测不出，勿写"可交互"断言假绿）**；真实层级效果登记为浏览器手工验收：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal；已赞用户初始 liked=true（详情返回）；toggle 以响应 liked 为准。
+5. 喜欢：未登录打开页内 LoginModal（不跳转）；**jsdom 侧只做 token 值耦合断言（DOM 锚点 data-zprovider 与 ConfigProvider token 同读一个常量、改值即红——"Provider 包裹存在"与 z-index 层叠效果 jsdom 均测不出：ConfigProvider/AntdApp 是 context 组件无 DOM 痕迹，勿写"可交互"断言假绿；第十二轮口径修正）**；真实层级效果登记为浏览器手工验收：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal；已赞用户初始 liked=true（详情返回）；toggle 以响应 liked 为准。
 6. ProcessSnapshot 纯文本渲染（无 dangerouslySetInnerHTML）；组框渲染（storyboard/普通组样式区分）；**`.react-flow__handle` 数量 === nodes.length × 2**（缺 Handle 则边全丢，结构断言 jsdom 可测）。
 7. onError 触发详情重拉。
 8. view 埋点仅在打开 Modal 时触发一次（StrictMode effect 双发下服务端计数仍 1）。
