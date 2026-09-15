@@ -71,4 +71,11 @@ describe('AuthGuard', () => {
     await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
     expect((req as any).user).toBeUndefined();
   });
+
+  it('/api/video-works 前缀公开放行', async () => {
+    // 第七轮修正：switchToHttp 是方法不是对象——guard 内部调 context.switchToHttp().getRequest()，
+    // 对象形态直接 TypeError（Step 2 红错位置错、Step 4 永不绿）。既有 spec 的正确形态：auth.guard.spec.ts:31
+    const ctx = { switchToHttp: () => ({ getRequest: () => ({ path: '/api/video-works', headers: {} }) }) };
+    await expect(guard.canActivate(ctx as any)).resolves.toBe(true);
+  });
 });

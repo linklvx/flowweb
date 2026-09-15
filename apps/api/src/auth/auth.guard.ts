@@ -10,6 +10,7 @@ const PUBLIC_PREFIXES = [
   '/api/pricing/calculate',
   '/api/subscription',
   '/api/media/by-key',
+  '/api/video-works',   // D4：前缀放行 + handler 自守，clone/like 在 handler 内验 req.user
   '/api/recharge/notify',
   '/metrics',
 ];
