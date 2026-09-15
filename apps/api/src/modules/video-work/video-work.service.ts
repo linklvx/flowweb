@@ -19,7 +19,7 @@ export class VideoWorkService {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）
   ) {}
 
-  // —— 类型（改类型/标签后删缓存，spec §4.2 categories 缓存失效） ——
+  // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
   private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
 
   //（第十一轮：删孤儿 listCategories()——公开端走 listCategoriesPublic（Task 3.2）、admin 端走 listAllCategories，全 plan 无第三调用者）
