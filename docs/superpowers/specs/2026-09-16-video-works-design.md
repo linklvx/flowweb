@@ -221,7 +221,7 @@ metadata JSON 无索引 → JSON 条件不走索引，但 where 基础列（type
 | 节点类型 | 保留字段 | 剥离示例（必须） |
 |---|---|---|
 | textInput | content（**HTML→纯文本转换后**）、prompt（string） | — |
-| imageGen / imageExtGen | prompt?.text、style、model、quality、ratio、resolution、aspectRatio、aiTool | fileId、mediaUrl、referenceImage、mediaName、allImages（整个字段，含 url）、prompt.html、prompt.referencedImageIds、extConfig（**整体剥离**——内含嵌套 prompt.html，将来若保留须先剥 extConfig.prompt）、generationBatchId、editMode、status |
+| imageGen / imageExtGen | prompt?.text、style、model、quality、ratio、resolution、aspectRatio、aiTool（**本行为两类并集，缺失字段 no-op**——nodeStore.ts:101-127 字段实际分布：aspectRatio 根级通用两类都有；aiTool 仅 imageExtGen 根级；style/model/quality/ratio/resolution/prompt 仅 imageGen 根级，ext 节点的这些值在 extConfig 内随整体剥离、其提示词 v1 不外显） | fileId、mediaUrl、referenceImage、mediaName、allImages（整个字段，含 url）、prompt.html、prompt.referencedImageIds、extConfig（**整体剥离**——内含嵌套 prompt.html，将来若保留须先剥 extConfig.prompt）、generationBatchId、editMode、status |
 | videoGen | model、ratio、prompt?.text、trimStart、trimEnd、**label**（导出产物节点用户可见项目名，自由文本零风险；product-node.ts） | fileId、mediaUrl、referenceVideo、allImages、trimmedFileId、trimTaskStatus、status、**origin/videoProjectId**（产物节点的内部标识） |
 | audioGen | model、content | fileId、referenceAudio、status |
 | multiImageGen | prompt（string）、label | images（整个字段，含 url）、generationBatchId、nodeStatus、mainImageIndex、expanded |
