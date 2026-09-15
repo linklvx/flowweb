@@ -55,4 +55,27 @@ describe('AdminVideoWorkController categories/tags', () => {
     expect(service.listAllTags).toHaveBeenCalled();
     expect(service.createTag).toHaveBeenCalledWith({ name: '悬疑', sortOrder: 0, active: true });
   });
+
+  it('GET / 作品列表分页透传', async () => {
+    service.listAllWorks = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    await controller.listWorks('1', '20');
+    expect(service.listAllWorks).toHaveBeenCalledWith(1, 20);
+  });
+
+  it('DELETE 只调 removeWork（service 内不调 minio.delete——红线在 service 测试断言）', async () => {
+    service.removeWork = vi.fn().mockResolvedValue(undefined);
+    await controller.deleteWork('w1');
+    expect(service.removeWork).toHaveBeenCalledWith('w1');
+  });
+
+  it('路由声明序：静态段（categories/tags/candidates）先于作品 :id（渐进式——本任务 :id 首次出现；uploadCover 由 Task 2.5、getSettings 由 Task 2.6 各自追加进 staticRoutes 数组，追加前引用是 -1 恒红）', () => {
+    const proto = AdminVideoWorkController.prototype;
+    const names = Object.getOwnPropertyNames(proto).filter(n => n !== 'constructor');
+    const idRoutes = ['getWork', 'updateWork', 'deleteWork'].map(n => names.indexOf(n)).filter(i => i >= 0);
+    const staticRoutes = ['listCategories', 'listTags', 'listCandidates']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
+    for (const s of staticRoutes) {
+      expect(names.indexOf(s)).toBeGreaterThan(-1);
+      expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // spec §4.2 红线
+    }
+  });
 });

@@ -2,6 +2,8 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Inject, UsePipe
 import { VideoWorkService } from './video-work.service';
 import { CreateVideoCategoryDto, UpdateVideoCategoryDto } from './dto/video-category.dto';
 import { CreateVideoTagDto, UpdateVideoTagDto } from './dto/video-tag.dto';
+import { CreateVideoWorkDto } from './dto/create-video-work.dto';
+import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 
 @Controller('api/admin/video-works')
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) // 类级挂载（C2 Task 2.1——仓库无全局 pipe，不挂则 {...dto} 把 publishedAt 等任意字段透传进 Prisma；先例 admin-home-banner.controller.ts:12）
@@ -25,4 +27,13 @@ export class AdminVideoWorkController {
   }
 
   // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）
+
+  // ==== 作品 CRUD（:id 参数路由，声明在全部静态段之后——spec §4.2 红线） ====
+  @Get() listWorks(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    return this.service.listAllWorks(Math.max(1, Number(page) || 1), Math.min(50, Math.max(1, Number(pageSize) || 20)));
+  }
+  @Post() createWork(@Body() dto: CreateVideoWorkDto) { return this.service.createWork(dto); }
+  @Get(':id') getWork(@Param('id') id: string) { return this.service.getWorkById(id); }
+  @Put(':id') updateWork(@Param('id') id: string, @Body() dto: UpdateVideoWorkDto) { return this.service.updateWork(id, dto); }
+  @Delete(':id') deleteWork(@Param('id') id: string) { return this.service.removeWork(id); }
 }

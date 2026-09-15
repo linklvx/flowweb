@@ -146,4 +146,20 @@ export class VideoWorkService {
       throw new BadRequestException('允许克隆必须同时允许查看创作过程（allowClone 依赖 allowViewProcess）');
     }
   }
+
+  async listAllWorks(page: number, pageSize: number) {
+    const [items, total] = await Promise.all([
+      this.prisma.videoWork.findMany({ orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }], skip: (page-1)*pageSize, take: pageSize }),
+      this.prisma.videoWork.count(),
+    ]);
+    return { items, total };
+  }
+  async getWorkById(id: string) { return this.prisma.videoWork.findUnique({ where: { id } }); }
+
+  /** 删除红线（spec §4.3）：只删 DB 行，禁止 minio.delete——videoKey 与源 Media 指向同一对象。
+   *  HomeBanner "先删对象再删行"先例不可照抄；coverKey 自有上传对象 v1 也统一不删。 */
+  async removeWork(id: string) {
+    await this.prisma.videoWork.delete({ where: { id } });
+    await this.invalidateWorkCaches(id);
+  }
 }

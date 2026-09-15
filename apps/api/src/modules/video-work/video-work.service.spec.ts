@@ -146,4 +146,12 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
     await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', durationSec: 12.6 } as any);
     expect((prisma.videoWork.create as Mock).mock.calls[0][0].data.durationSec).toBe(13);
   });
+
+  it('removeWork 不触碰 MinIO（删除红线——MinioService 的删除方法真名是 delete，minio.service.ts:117；全类无 removeObject，原断言恒真抓不到任何真实调用，第八轮修正）', async () => {
+    prisma.videoWork.delete = vi.fn().mockResolvedValue({});
+    minio.delete = vi.fn().mockResolvedValue(undefined);   // 替身显式提供 delete——实现真调用会让下方断言红
+    await service.removeWork('w1');
+    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
+    expect(minio.delete).not.toHaveBeenCalled();           // 红线：只删 DB 行，禁删对象（spec §4.3）
+  });
 });
