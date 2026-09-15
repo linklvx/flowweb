@@ -269,3 +269,39 @@ describe('getDetail', () => {
     expect(readCanvas).not.toHaveBeenCalled();
   });
 });
+
+describe('recordView', () => {
+  // 第十一轮：实现第一行就是 findUnique + status 校验——文件级 findUnique 是裸 vi.fn()（undefined），
+  // 不补桩则①②在首个 await 抛 NotFoundException（update 计数=0）、③期望 Throttler 实得 NotFound，三条全红。
+  // describe 级 beforeEach 在文件级之后执行，DRAFT 用例自带覆盖不受影响。
+  beforeEach(() => { prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'PUBLISHED' }); });
+
+  it('同 IP 1h 内重复请求只 +1（Redis 去重）', async () => {
+    prisma.videoWork.update = vi.fn().mockResolvedValue({});
+    (service as any).redis.set = vi.fn().mockResolvedValue('OK');      // 第一次 NX 成功
+    await service.recordView('w1', '1.2.3.4');
+    (service as any).redis.set = vi.fn().mockResolvedValue(null);      // 第二次 NX 失败
+    await service.recordView('w1', '1.2.3.4');
+    expect(prisma.videoWork.update).toHaveBeenCalledTimes(1);
+    expect(prisma.videoWork.update).toHaveBeenCalledWith({ where: { id: 'w1' }, data: { viewCount: { increment: 1 } } });
+  });
+
+  it('StrictMode 双发（同 IP 连续两次）计数仍 1 —— spec §7.4', async () => {
+    let call = 0;
+    (service as any).redis.set = vi.fn().mockImplementation(() => Promise.resolve(call++ === 0 ? 'OK' : null));
+    prisma.videoWork.update = vi.fn().mockResolvedValue({});
+    await service.recordView('w9', '5.5.5.5');
+    await service.recordView('w9', '5.5.5.5');
+    expect(prisma.videoWork.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('限流超限 → 429（ThrottlerException 语义）', async () => {
+    (service as any).rateLimiter.checkIpRateLimit = vi.fn().mockResolvedValue(false);
+    await expect(service.recordView('w1', '9.9.9.9')).rejects.toThrow(ThrottlerException);
+  });
+
+  it('DRAFT 作品 → 404', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT' });
+    await expect(service.recordView('w1', '1.1.1.1')).rejects.toThrow(NotFoundException);
+  });
+});

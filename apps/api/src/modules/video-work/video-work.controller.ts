@@ -33,5 +33,10 @@ export class VideoWorkController {
     return this.service.getDetail(id, req.user?.id ?? null);
   }
 
-  // Task 4.x view/like / Task 5.3 process / Task 6.2 clone 追加
+  @Post(':id/view')
+  recordView(@Param('id') id: string, @Req() req: any) {
+    return this.service.recordView(id, this.rateLimiter.getClientIp(req));
+  }
+
+  // Task 4.3 like / Task 5.3 process / Task 6.2 clone 追加
 }

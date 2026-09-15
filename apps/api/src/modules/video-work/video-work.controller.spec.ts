@@ -21,6 +21,7 @@ describe('VideoWorkController（公开）', () => {
       listPublished: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
       listCategoriesPublic: vi.fn().mockResolvedValue([]),
       getSettings: vi.fn().mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' }),
+      recordView: vi.fn().mockResolvedValue({ counted: true }),
     };
     moduleRef = await Test.createTestingModule({
       controllers: [VideoWorkController],
@@ -41,5 +42,10 @@ describe('VideoWorkController（公开）', () => {
   it('GET /categories 已注册（声明顺序断言在 Task 3.3 首写 :id 路由时补——本任务 getDetail 尚不存在，indexOf=-1 恒红）', () => {
     const names = Object.getOwnPropertyNames(VideoWorkController.prototype).filter(n => n !== 'constructor');
     expect(names.indexOf('listCategories')).toBeGreaterThan(-1);
+  });
+
+  it('POST :id/view 传 getClientIp 结果给 service', async () => {
+    await controller.recordView('w1', { headers: {} });
+    expect(service.recordView).toHaveBeenCalledWith('w1', '1.2.3.4');
   });
 });

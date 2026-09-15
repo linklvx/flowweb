@@ -1,5 +1,7 @@
 // 空壳，构造签名一次到位——后续任务只加方法、不动构造/providers，spec 文件从创建起就 provide 全部依赖、永不需要二次编辑
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
+import { createHash } from 'crypto';
 import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
@@ -216,6 +218,19 @@ export class VideoWorkService {
   async removeWork(id: string) {
     await this.prisma.videoWork.delete({ where: { id } });
     await this.invalidateWorkCaches(id);
+  }
+
+  async recordView(id: string, ip: string) {
+    const w = await this.prisma.videoWork.findUnique({ where: { id }, select: { status: true } });
+    if (!w || w.status !== 'PUBLISHED') throw new NotFoundException();
+    const allowed = await this.rateLimiter.checkIpRateLimit(ip, 'video-work:view', 60, 30);
+    if (!allowed) throw new ThrottlerException();
+    // SET NX 原子去重（1h）——key 存哈希不存明文 IP（spec §4.5 写的就是 ipHash：Redis 内长期驻留客户端明文 IP 是刻意规避的 PII 留存，第七轮对齐）
+    const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+    const ok = await this.redis.set(`videoWork:view:${id}:${ipHash}`, '1', 'EX', 3600, 'NX');
+    if (ok !== 'OK') return { counted: false };
+    await this.prisma.videoWork.update({ where: { id }, data: { viewCount: { increment: 1 } } });
+    return { counted: true };
   }
 
   async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {
