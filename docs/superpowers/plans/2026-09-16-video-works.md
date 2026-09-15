@@ -2280,7 +2280,7 @@ git commit -m "feat(video-work): 批次4 like 端点（登录 userId 去重/SET 
 
 纯函数、零依赖（Prisma/Minio 均不注入）——快照与克隆共用（D9），选项参数区分差异。
 
-- [ ] **Step 1: 写失败测试（骨架 + 白名单键级行为）**
+- [x] **Step 1: 写失败测试（骨架 + 白名单键级行为）**
 
 ```ts
 import {
@@ -2465,12 +2465,12 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
 });
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 Run: `pnpm --filter @flowweb/api test -- snapshot-filter`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现 snapshot-filter.util.ts**
+- [x] **Step 3: 实现 snapshot-filter.util.ts**
 
 ```ts
 /** 快照/克隆共用白名单纯函数（spec §4.6/§4.7，D9）。
@@ -2597,7 +2597,7 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
 
 注意 `ensureParentFirst` 对悬空 parentId（指向已删节点）天然安全：`byId.get` 未命中 → 跳过父，自身正常输出。
 
-- [ ] **Step 4: 跑绿（补父先子后与悬空 parentId 专项用例）**
+- [x] **Step 4: 跑绿（补父先子后与悬空 parentId 专项用例）**
 
 spec 文件追加：
 
@@ -2619,7 +2619,7 @@ describe('ensureParentFirst（spec §4.6 排序）', () => {
 Run: `pnpm --filter @flowweb/api test -- snapshot-filter`
 Expected: PASS 全绿
 
-- [ ] **Step 5: 危险夹具用例（XSS 红线终验）**
+- [x] **Step 5: 危险夹具用例（XSS 红线终验）**
 
 ```ts
 it('危险夹具：content 嵌 <img onerror> → 输出纯文本无标签残留', () => {
@@ -2642,7 +2642,7 @@ git commit -m "feat(video-work): 批次5 快照/克隆共用白名单纯函数�
 **Files:**
 - Modify: `video-work.service.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加）**
+- [x] **Step 1: 写失败测试（service spec 追加）**
 
 ```ts
 describe('injectThumbnails', () => {
@@ -2668,7 +2668,7 @@ describe('injectThumbnails', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 /** 产物缩略图注入（spec §4.6）：收集 fileId → 批量查 thumbnailKey → presign 注入 → 下游白名单剥 fileId */
@@ -2688,7 +2688,7 @@ async injectThumbnails(raw: RawCanvasData): Promise<RawCanvasData> {
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work.service.spec
@@ -2701,7 +2701,7 @@ git commit -m "feat(video-work): 批次5 缩略图注入（批量单查/presign/
 **Files:**
 - Modify: `video-work.service.ts` + `video-work.controller.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加，含安全验收键级+正向）**
+- [x] **Step 1: 写失败测试（service spec 追加，含安全验收键级+正向）**
 
 ```ts
 describe('getProcessSnapshot（安全验收）', () => {
@@ -2788,7 +2788,7 @@ describe('getProcessSnapshot（安全验收）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 service（注入 CollabDocumentService——module 已 import CollabModule）：
 
@@ -2844,13 +2844,15 @@ getProcess(@Param('id') id: string) {
 
 注意声明位置：`process` 也是静态段风格但带 `:id` 前缀（`/:id/process` 与 `/:id` 不冲突——参数+静态混合段，NestJS 不会吞），仍建议声明在 `getDetail` 之后无碍；`categories` 已在文件最前。
 
-- [ ] **Step 4: 跑绿 + 批次 5 回归 → Step 5: Commit**
+- [x] **Step 4: 跑绿 + 批次 5 回归 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test
 git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次5 process 端点（404 前置/5s 超时 503/300s 缓存/安全验收全绿）"
 ```
+
+> **批次 5 执行记录（2026-09-16）**：三任务提交 25e18cfe（5.1 snapshot-filter.util——白名单 8 类型逐字节同 plan/stripHtmlToText 含十三轮登记/ensureParentFirst 环安全 [b,a]/危险夹具，19 tests）/b7635e88（5.2 injectThumbnails——批量查+presign+注入后剥 fileId）/c19e3d76（5.3 getProcessSnapshot——三重 404 守卫在缓存读之前/withTimeout 5s→503 finally 清理/Redis 300s 过滤后缓存/编辑删除缓存）。全量 **132 files / 1076 tests** 全绿。spec 合规审查 ✅（白名单与 plan **逐字节 diff 一致**零额外保留、键级断言真递归含 Object.values、/flowai 改写确认属 Task 7.1 web 侧——API 返回裸 presign 合乎 plan）；代码质量审查 **With fixes** → 3 Important 修补 4be5ef0f + 复核 ✅（**零实现改动**，+5 用例至 **1081 tests**）：I-1 thumbnailUrl 管线终点断言（util+service 两半，证伪：注释注入行两用例均红）；I-2 下线失效双机制钉住（DRAFT 翻转缓存残留下 404+readCanvas 仍 1 次；updateWork→del process 键）；I-3 stripHtmlToText 实体边界登记补全（夹具实体形态钉实际行为 + JSDoc 补单次解码边界——**decode-first 重构不采纳**，第十三轮勿修裁定维持）。**已裁定偏差 1 处**：5.1 Step 4/5 describe 落点置于首 describe 块内（plan 字面文件级引用块内 base 是 TS2304，代码逐字未动）。**登记未修 Minor**：M-1 缩略图复合 TTL 失配（presign 缓存 3500s+快照 300s>3600s 签名——约 6% 窗口尾吐过期 URL，前端占位只兜无 URL 不兜 403）；M-2 fileId 收集 truthy 过滤非类型过滤（plan 逐字，number 形态会 Prisma 500 自伤型）；M-3 超时用例真实等待 5s（全套件 +5s）；M-4 各类型 banned 清单部分非 exact-key-set。**设计边界登记（R9 已裁定）**：/process 无路由级限流（全局 ThrottlerGuard 未挂）、冷 key 无 single-flight（并发首击各开 hocuspocus 直连）——防爬依赖 300s 缓存+5s 有界读。**plan 回写债**：4be5ef0f 的 5 条补测用例下轮 plan 修订时回写正文（文档=实现纪律）。
 
 ---
 
