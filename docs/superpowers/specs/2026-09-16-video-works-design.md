@@ -152,7 +152,7 @@ apps/api/src/modules/video-work/
 | GET | `/` | 列表：`?categoryId=&page=&pageSize=`；仅 PUBLISHED；categoryId 为 plain filter（不校验 active/存在性）；pageSize 手写 clamp 至 [1,50]；orderBy `[sortOrder asc, publishedAt desc, {id:'asc'}]`（id tiebreaker 防并列行翻页重复/遗漏——批量发布时 sortOrder 全 0 且 publishedAt 相同的场景）；返回 `{items,total,page,pageSize}`，item **只含** id/title/coverUrl(presign 3600s)/durationSec/tags——列表不返回 videoUrl（防批量爬直链） |
 | GET | `/categories` | active 类型列表；Redis 缓存 30-60s（公开免登录端点，切 tab 高频）；admin 改类型/标签时**主动删缓存**（残余 ≤60s 延迟接受） |
 | GET | `/settings` | 公开读取轮播设置（carouselEnabled/carouselScope，非敏感运营开关，播放 Modal 前端取用；声明序在 `:id` 之前） |
-| GET | `/:id` | 详情：PUBLISHED 否则 404；返回 + videoUrl(presign 3600s) + coverUrl + **categoryId**（轮播 scope=category 取当前作品类型用） + viewCount/likeCount + **liked 初始态**（`req.user ? Redis GET : false`——公开前缀下 optional auth 已挂 req.user；缺它则 B 设备首渲染显示"未赞"、用户想点赞实际执行了取消。**实现约束：①匿名路径必须短路，不发起 Redis 调用（热点路径匿名占绝大多数）；②liked 读取与 like 端点必须用同一个 Redis key（videoWork:like:{workId}:{userId}），key 不一致会复现"看似未赞、点击执行取消"bug；③含用户态字段（liked）→ 该端点不可加共享/CDN 缓存（除非按用户 Vary），本期无缓存、登记**） + description + tags + authorName + publishedAt + durationSec/width/height + **canViewProcess**（allowViewProcess && PUBLISHED && canvasProjectId 非空，一次 canvasProject.findUnique 校验画布存在）+ **canClone**（allowClone && PUBLISHED && 画布存在——与 canViewProcess 同一 canvasProject.findUnique 校验；第七轮回流措辞，否则按钮可点进 404）。**详情端点禁止 readCanvas**（videoEdit 判定在 process/clone 中做，见 §4.6/§4.7）——公开热点端点不得冷载 Yjs doc |
+| GET | `/:id` | 详情：PUBLISHED 否则 404；返回 + videoUrl(presign 3600s) + coverUrl + **categoryId**（轮播 scope=category 取当前作品类型用） + viewCount/likeCount + **liked 初始态**（`req.user ? Redis GET : false`——公开前缀下 optional auth 已挂 req.user；缺它则 B 设备首渲染显示"未赞"、用户想点赞实际执行了取消。**实现约束：①匿名路径必须短路，不发起 Redis 调用（热点路径匿名占绝大多数）；②liked 读取与 like 端点必须用同一个 Redis key（videoWork:like:{workId}:{userId}），key 不一致会复现"看似未赞、点击执行取消"bug；③含用户态字段（liked）→ 该端点不可加共享/CDN 缓存（除非按用户 Vary），本期无缓存、登记**） + description + tags + authorName + publishedAt + durationSec/width/height + **canViewProcess**（allowViewProcess && PUBLISHED && canvasProjectId 非空，一次 canvasProject.findUnique 校验画布存在）+ **canClone**（allowClone && PUBLISHED && 画布存在——与 canViewProcess 同一 canvasProject.findUnique 校验；第七轮回流措辞，否则按钮可点进 404）。**详情端点禁止 readCanvas**（videoEdit 的 data 剥离在 process、整节点剥除仅在 clone——见 §4.6/§4.7，第八轮归一）——公开热点端点不得冷载 Yjs doc |
 | POST | `/:id/view` | 观看 +1（匿名，Redis IP 去重 1h + 限流，见 §4.5）；前端仅在**打开播放 Modal 时**埋点（单点，StrictMode 双发由服务端去重兜住并有用例钉死） |
 | POST | `/:id/like` | 喜欢 toggle ±1（**要求登录** D15，未登录 401；userId 去重，见 §4.5）；返回 `{liked, likeCount}`（服务端状态权威，跨设备一致，配合详情 liked 初始态无需 localStorage 层） |
 | GET | `/:id/process` | 创作过程快照（PUBLISHED + allowViewProcess + 画布存在，否则 404；readCanvas 有界超时→503；Redis 缓存 TTL 300s；白名单见 §4.6） |
@@ -166,7 +166,7 @@ apps/api/src/modules/video-work/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/`、`/:id` PUT/DELETE | 作品 CRUD；**保存校验：(allowViewProcess \|\| allowClone)=true 且 canvasProjectId 为空 → 400**（两开关同一失效模式——后台开着、前台按钮永不出现；后台 UI 对两开关同步禁用）；发布时服务端自动设 publishedAt（请求体不接受该字段）；viewCount/likeCount 可直接编辑（覆盖式）。**删除红线：DELETE 只删 DB 行，禁止调用 minio.delete**——videoKey 与源 Media 指向同一 MinIO 对象（自持副本非所有权），删对象会击穿素材库；HomeBanner"先删对象再删行"的先例**不可照抄**；coverKey 自有上传对象 v1 也统一不删（零风险，后续手动清理） |
+| GET/POST | `/`、`/:id` PUT/DELETE | 作品 CRUD；**保存校验：(allowViewProcess \|\| allowClone)=true 且 canvasProjectId 为空 → 400**（两开关同一失效模式——后台开着、前台按钮永不出现；后台 UI 对两开关同步禁用）；**allowClone=true 且 allowViewProcess=false → 400**（第八轮裁定：克隆入口在创作过程视图顶栏，"可克隆不可看过程"是前端不可达死开关——校验耦合：允许克隆必须允许看过程；后台 UI 联动：关闭 allowViewProcess 时强制关闭并禁用 allowClone）；发布时服务端自动设 publishedAt（请求体不接受该字段）；viewCount/likeCount 可直接编辑（覆盖式）。**删除红线：DELETE 只删 DB 行，禁止调用 minio.delete**——videoKey 与源 Media 指向同一 MinIO 对象（自持副本非所有权），删对象会击穿素材库；HomeBanner"先删对象再删行"的先例**不可照抄**；coverKey 自有上传对象 v1 也统一不删（零风险，后续手动清理） |
 | GET | `/candidates` | 候选视频池：分页 + orderBy createdAt desc；口径见 §4.4；返回 id/key/**projectId（→canvasProjectId 来源，D16）**/**canvasExists（批量 `canvasProject.findMany({where:{id:{in:projectIds}}})` 一次查防 N+1；Media.projectId 可空 → false；false 时后台列表标注/禁选——画布可能已被用户删除，否则上架后 process/clone 全 404）**/thumbnailKey/durationSec/width/height/createdAt + 预览 presign URL。**跨团队可见是有意设计**（admin 策展全站导出，登记 R10），非越权缺口 |
 | POST | `/upload-cover` | multipart 封面上传（本模块自有端点，不复用 HomeBanner 的）；校验 magic-number 为图片（先例 admin-home-banner.controller.ts） |
 | GET/POST/PUT/DELETE | `/categories`、`/tags` 子资源 | 类型/标签池 CRUD（静态段路由先于 `:id` 声明） |
@@ -197,7 +197,7 @@ metadata JSON 无索引 → JSON 条件不走索引，但 where 基础列（type
 
 ### 4.6 创作过程快照 + 字段白名单（D8，安全核心）
 
-**type 键唯一真值来源 = `NODE_TYPES`（nodeStore.ts:6-13）**：`imageGen / imageExtGen / textInput / videoGen / audioGen / multiImageGen` + 注册表另有 `videoEdit / group`（CanvasView.tsx:42-51）。**实现注记**：NODE_TYPES 位于 apps/web，API 侧无法 import——服务端白名单是一份**静态照抄表**，"唯一真值"仅为语义约定，真正的防线是 nodeTypes 全覆盖测试（靠人工同步清单）。**注记**：`isTextNode`（nodeStore.ts:207）用 `'text'` 判断、nodeStore 部分测试 fixture 也用 `'text'`——与 NODE_TYPES.TEXT=`'textInput'` 不符，**白名单实现勿参照**（既有不一致不在本任务修，按 CLAUDE.md 只指出）。
+**type 键唯一真值来源 = `CanvasView.tsx:42-51` 的 nodeTypes 注册表（8 键：`imageGen / imageExtGen / textInput / videoGen / audioGen / multiImageGen / videoEdit / group`）**——nodeStore 的 NODE_TYPES（nodeStore.ts:6-13）只有 6 键、不是全集（与 D8 一致，第八轮归一）。**实现注记**：注册表位于 apps/web，API 侧无法 import——两侧共锚 `packages/shared` 的 `VIDEO_WORK_NODE_TYPES` 常量（第八轮裁定）：api 测试断言 WHITELIST 键 ⊇ shared 清单、web 测试断言 CanvasView nodeTypes 键 ⊆ shared 清单（CanvasView 导出 nodeTypes），清单任一侧漂移即测试红——替代"人工同步清单"的自指防线。**注记**：`isTextNode`（nodeStore.ts:207）用 `'text'` 判断、nodeStore 部分测试 fixture 也用 `'text'`——与 NODE_TYPES.TEXT=`'textInput'` 不符，**白名单实现勿参照**（既有不一致不在本任务修，按 CLAUDE.md 只指出）。
 
 **三条红线**：
 1. PromptValue 对象只取 `.text`，**永不返回 `.html`**（tiptap 富文本 → 存储型 XSS 源）；注意 `textInput.prompt` 与 `multiImageGen.prompt` 是**纯 string**（非 PromptValue），直接保留；`extConfig` **锁死整体剥离**——其内嵌 `prompt:{text?,html?}`（nodeStore.ts:17-24），实现时严禁"顺手保留 ratio/resolution"从中挑字段，那会把嵌套 html 带出来。
@@ -311,7 +311,7 @@ async clone(workId, userId) {
 - 关闭：`location.state?.fromList ? navigate(-1) : navigate('/videos', { replace: true })`
 - 场景行为：列表进入 → 关闭/后退回列表 ✓；直链进入 → 关闭 replace 到列表、后退退出站点 ✓；直链→轮播→关闭 → 落列表不退出 ✓；F5 后 history.state 保留、行为不变 ✓
 
-**Sidebar 入口**：NAV_ITEMS 加第 5 项「视频作品」（`/videos`，VideoCameraOutlined 图标）；Sidebar 高亮是 pathname.startsWith 前缀匹配，`/videos/:id` 自动保持高亮，无需额外处理。
+**Sidebar 入口**：NAV_ITEMS 在「模板广场」后插入「视频作品」（`/videos`，VideoCameraOutlined 图标；现状 4 项 → 插入后 5 项，与 D14 插入位置一致）；Sidebar 高亮是 pathname.startsWith 前缀匹配，`/videos/:id` 自动保持高亮，无需额外处理。
 
 **新页面必须 `lazy()` 懒加载**（router.admin.test.tsx 会连带加载 router 静态 import，与既有约定一致）。
 
@@ -332,14 +332,14 @@ apps/web/src/pages/admin/pages/VideoWorksPage.tsx   # 后台管理
 
 - **不得复用 CanvasView.tsx**（耦合 6 个 store + 9 种业务节点组件 + collab runtime）。
 - 新组件只依赖 `@xyflow/react` + 静态快照数据；节点用简版自定义节点（类型图标 + 标题 + 白名单文本），零 store/API 依赖。
-- **红线：每个简版节点必须渲染默认 Handle（target 左 / source 右，无 id）**——RF v12 边定位依赖 handle bounds，节点无 Handle 时每条边命中 error008 被静默丢弃（节点方框渲染出来、零连线）；快照边无 handleId，正好对应默认 handle。结构用例：`.react-flow__handle` 数量 === nodes.length × 2。
+- **红线：每个简版节点必须渲染默认 Handle（target 左 / source 右，无 id）**——RF v12 边定位依赖 handle bounds：节点无 Handle 时在 handleBounds 初始化检查处被静默丢弃（isNodeInitialized 早退，**不报 error008**——error008 仅在 handle id 解析不到时触发，@xyflow/system@0.0.76 :1360-1385；两种情形均为节点方框渲染出来、零连线，第八轮精度修正）；快照边无 handleId，正好对应默认 handle。结构用例：`.react-flow__handle` 数量 === nodes.length × 2。
 - **v1 画组框**：parentId 驱动层级 + group 简框渲染（groupType 区分 storyboard/普通组样式），与 §4.6 保留 cells/groupType 对齐（cells 悬空 id 原样返回不消费）。
 - 文本一律文本节点渲染（红线 2，禁 innerHTML）。
 - publishedAt 类型可空，但播放 Modal 仅对 PUBLISHED 展示（恒非空）——UI 侧写"依赖服务端保证非空"或渲染占位，**勿用 `publishedAt!` 绕过类型检查**。
 
 ### 5.4 交互细节
 
-- 中央按钮组按作品动态渲染：「查看制作过程」仅 canViewProcess；「复制项目」仅 canClone（在创作过程视图顶栏，按钮语义为"克隆工作流"——产物资源位为空需重新生成）。**克隆成功后 toast + 「打开画布」入口：`navigate(\`/canvas?projectId=${projectId}\`)`（先例 WorkspaceDimension.tsx:93,110、TemplatePreviewPage.tsx:27,69）**。
+- 中央按钮组按作品动态渲染：「查看制作过程」仅 canViewProcess；「复制项目」仅 canClone（在创作过程视图顶栏，按钮语义为"克隆工作流"——产物资源位为空需重新生成；保存校验已耦合 allowClone→allowViewProcess（§4.3），canClone=true 蕴含 canViewProcess=true，无不可达组合）。**克隆成功后 toast + 「打开画布」入口：`navigate(\`/canvas?projectId=${projectId}\`)`（先例 WorkspaceDimension.tsx:93,110、TemplatePreviewPage.tsx:27,69）**。
 - 喜欢 toggle：**未登录 → 页内打开 LoginModal（D18）**；登录后点/再点调 POST /:id/like，**初始态与响应均以服务端 liked 为准**（详情已返 liked 初始态，无需 localStorage 兜底）。
 - 分享：`navigator.clipboard.writeText(location.href)` + message 提示。
 - 视频/封面/缩略图 URL 走 **/flowai/<key> 同源改写**（复用 mediaApi.ts:6 的改写约定——视频 seek 依赖同源拿 Content-Range、img 避 CORS），videoWorkApi 沿用同一改写函数。
@@ -367,7 +367,7 @@ apps/web/src/pages/admin/pages/VideoWorksPage.tsx   # 后台管理
 Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.html`（三屏，**浅色顶栏仅作布局示意——实际为暗色 AppLayout + 左侧 Sidebar，D14**）。
 
 - **列表页（暗色）**：AppLayout 内容区 + 圆角 pill 类型 tab + 4 列卡片网格 + 居中分页。色彩沿用 index.css **实际存在**的 token（--ve-*、--canvas-controls-*、--edge-flow-color 等）；如需新 token（卡片面/边框）在 index.css 显式定义并登记——勿引用不存在的 token（--canvas-bg-dot/--canvas-node-border/--canvas-edge 全仓 0 匹配）。
-- **播放 Modal**：portal 全屏黑底（100dvh，不受主题影响）；封面背景层（opacity .55）+ 上黑下渐变遮罩；顶栏（返回钮 rgba(50,50,50,.45) 毛玻璃 / 头像 / 作者名 / 分隔线 / 标题 | **"发布于 {publishedAt}"**（日期字段定案：显示 publishedAt 而非 updatedAt，与策展发布语义及列表排序字段一致）+ "含 AI 生成内容"）；中央按钮组（白色"立即观看"主钮 / 毛玻璃"查看制作过程" / **喜欢圆钮带 likeCount 计数** / 分享圆钮）；左下简介浮层（**常显**（非 hover）——含标签 chips + **观看次数 viewCount**，需求属性需可见）；底部轮播条（16:9 缩略卡，当前项白 ring，其余 50% 遮罩）。
+- **播放 Modal**：portal 全屏黑底（100dvh，不受主题影响）；封面背景层（opacity .55）+ 上黑下渐变遮罩；顶栏（返回钮 rgba(50,50,50,.45) 毛玻璃 / 头像 / 作者名 / 分隔线 / 标题 | **"发布于 {publishedAt}"**（日期字段定案：显示 publishedAt 而非 updatedAt，与策展发布语义及列表排序字段一致）+ "含 AI 生成内容"）；中央按钮组（白色"立即观看"主钮 / 毛玻璃"查看制作过程" / **喜欢圆钮带 likeCount 计数** / 分享圆钮）；左下简介浮层（**常显**（非 hover）——含标签 chips + **观看次数 viewCount**，需求属性需可见）；底部轮播条（16:9 缩略卡，50% 遮罩——当前作品已被前端过滤、不在轮播中，无"当前项高亮"，与 §4.2 过滤口径一致，第八轮消除本节与 §4.2 的矛盾）。
 - **创作过程视图**（Modal 内，暗色）：顶栏（作品标题 / 工作流视图切换 / 复制项目按钮（品牌主色 #4ade80 系）/ 关闭 ✕）+ 点阵暗底画布 + 缩放控件。节点卡：暗色卡面 + 类型图标 + 类型名+序号 + 白名单文本（含产物缩略图 thumbnailUrl）；连线用 --edge-flow-color 系。
 - 主色用项目现有 token；**不引入 #09caf5**（liblib 参考色，项目内不存在）。
 
@@ -381,7 +381,7 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 3. 路由声明序：categories/tags/settings/candidates 静态段在 :id 之前（getOwnPropertyNames 断言）。
 4. view 去重：同 IP 1h 内重复请求只 +1；**StrictMode 双发（两次连续请求）计数仍为 1**。
 5. like：匿名 401；登录 toggle +1/-1（SET NX 原子）且响应 `{liked,likeCount}` 正确（跨请求一致）；GREATEST 下界（刷到 0 不为负）；限流 429。
-6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**group 的 groupType/cells 在——cells 断言写"原样返回"逐项比对（含悬空 id/null），勿写"全项可在 nodes 中找到"**（悬空 id 是已接受行为，会红在已知项上））；**nodes 父先子后（fixture 造子先父后的 readCanvas 返回 → 断言 index(parent) < index(child)）**；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target 无 sourceId；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
+6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**videoEdit 节点保留且 data 为空对象（仅结构字段——快照不剥 videoEdit，剥除是克隆差异 D9）**、**group 的 groupType/cells 在——cells 断言写"原样返回"逐项比对（含悬空 id/null），勿写"全项可在 nodes 中找到"**（悬空 id 是已接受行为，会红在已知项上））；**nodes 父先子后（fixture 造子先父后的 readCanvas 返回 → 断言 index(parent) < index(child)）**；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target 无 sourceId；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
 7. 克隆：新项目含 nodes/edges（含 parentId/width/height）；节点 id 已重发；克隆体 data key 不含剥离集字段（含 **thumbnailUrl**）且 **status 重置 idle**、无 `__fromMulti/__ephemeral`；无 videoEdit/shadow- 节点及相连边；**四元重映射（fixture：分镜组 group(groupType:'storyboard', cells:[子id, null, 悬空id]) + parentId 指向组的子节点 → 断言：存活子节点新 id 均出现在新 cells 中（测试不变量）；悬空/被剥槽位 → null；数组长度不变；无旧 id 残留）**；Template 行数与 importCount 不变；未登录 401；canvasProjectId 空/不存在 → 404；**create 阶段挂起 → 整体有界超时 503**；保存校验（(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400）。
 8. 发布自动设 publishedAt；请求体带 publishedAt 被忽略；详情返回 liked 初始态（已赞用户 true / 匿名 false 且匿名路径零 Redis 调用）；**列表 orderBy 含 id tiebreaker（并列翻页无重复/遗漏）**。
 9. candidates 分页；pageSize=9999 clamp 50；settings 无行返回默认值。

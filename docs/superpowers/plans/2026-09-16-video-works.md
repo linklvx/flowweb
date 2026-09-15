@@ -8,15 +8,15 @@
 
 **Tech Stack:** NestJS 10 + Prisma + PostgreSQL + Redis + MinIO；React 18 + antd 5.22.5 + @xyflow/react v12 + Tailwind；Vitest 全栈 strict TS。
 
-**Spec:** `docs/superpowers/specs/2026-09-16-video-works-design.md`（449 行，六轮审核冻结）。执行本 plan 前须通读 spec 的 D1-D18 决策与 §4.6 白名单表、§4.7 克隆伪代码——本 plan 引用其结论不重复论证。
+**Spec:** `docs/superpowers/specs/2026-09-16-video-works-design.md`（七轮审核冻结；第八轮勘误归一——spec 与 plan 的分叉已全部消除）。执行本 plan 前须通读 spec 的 D1-D18 决策与 §4.6 白名单表、§4.7 克隆伪代码——本 plan 引用其结论不重复论证。
 
-**TDD 铁律:** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST。每任务红-绿-提交。测试命令：api `pnpm --filter @flowweb/api test`；web `pnpm --filter @flowweb/web test`（tsc 检查含在各自 test/build 内）。纯文件操作类任务（migration/DB 核查）无测试对象，按步骤执行但验证不可省。
+**TDD 铁律:** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST。每任务红-绿-提交。测试命令：api `pnpm --filter @flowweb/api test`（含 tsc -p tsconfig.spec.json --noEmit）；web `pnpm --filter @flowweb/web test`（**仅 vitest、无类型检查**）——**每个 web 批次（7/8/9/10）收尾必须加跑 `pnpm --filter @flowweb/web build`**（tsc -b；tsconfig include:["src"] 连测试文件一起查，否则批次 7-10 的类型错误堆积到批次 11 才暴露，第八轮修正）。纯文件操作类任务（migration/DB 核查）无测试对象，按步骤执行但验证不可省。
 
 ---
 
-## ⚠️ 执行前必读：落地约定与勘误（本节优先于正文片段，冲突处以本节为准）
+## ⚠️ 执行前必读：落地约定与勘误（**正文为唯一权威**——单一规则，勿再按勘误层执行）
 
-> 本节经七轮 plan 审核核定。**第七轮起正文与勘误已归一：全部修正已真回写正文对应位置（C5-C7 为逐轮执行记录），执行以正文为准**；本节保留作为审核审计记录与"为什么这样写"的依据索引。若发现正文与本节冲突，以更晚轮次（C7 > C6 > C5 > C2 > C1）为准并回改。
+> 第八轮归一：C1 约定表、C5 测试装配模板、C4 边界清单长期有效；**C2/C6/C7 为历史审核记录，其修正均已回写正文——记录与正文冲突时一律以正文为准**。已知被正文取代的勘误实例：①C2"Task 2.5"的 fileFilter 单行静默拒绝版（`cb(null, regex.test)`）已被正文显式抛错版取代（`cb(new BadRequestException, false)`——admin-home-banner.controller.ts:42 与 subscription/admin-banner.controller.ts:30 两处先例同款）；②C7-F4 的 shadow 库方案整体废止（正文 Task 1.1 Step 4 已改 `--from-schema-datasource` 免 shadow 方案）。
 
 ### C1. 全局落地约定（4 条，覆盖多数阻断项）
 
@@ -24,12 +24,12 @@
 |---|---|---|
 | C1-1 | **前端 API 调用一律不带 `/api` 前缀**：`apiFetch('/video-works?...')`（client.ts:1 `BASE_URL='/api'` 已内置）。**已机械回写正文全部 apiFetch 路径——含 Task 10.1 admin 侧 16 处（admin 先例 adminApi.ts:29 `apiFetch('/admin/node-types')` 不带 /api；`adminFetch` 函数不存在，一律 apiFetch）**。**唯一例外**：multipart 上传不能走 apiFetch（硬编码 JSON Content-Type 冲掉 boundary）——用裸 `fetch('/api/admin/video-works/upload-cover', { method:'POST', body: formData, credentials:'include' })`（**此处必须带 /api**，逐字对齐 adminApi.ts:137 先例），响应解析 `body.data ?? body`（先例 adminApi.ts:133-144 注释明写） | client.ts:1,11；mediaApi.ts:4；adminApi.ts:29,133-144 |
 | C1-2 | **测试双栈约定**：api 侧 `import { describe, it, expect, beforeEach, vi } from 'vitest'` + `vi.fn()`（**已机械回写**：正文全部 `vi.fn()`/`Mock`；用到 `Mock` 类型的 spec 文件顶部补 `import type { Mock } from 'vitest'`——api 跑 tsc，`jest` 未定义直接编译红）；web 侧路由导入一律 `from 'react-router'`（**已机械回写全文 import**；react-router-dom 包不存在，web/package.json 只有 react-router@^7；MemoryRouter/createMemoryRouter/RouterProvider/useParams/useNavigate/useLocation 全部从 react-router 导出） | api package.json:8；media.service.spec.ts:2；web package.json:39 |
-| C1-3 | **全屏壳（z-[100000]）内 toast/弹层机制（第五轮修正——单嵌套 ConfigProvider 抬不起 useApp() toast）**：①静态 `message.*` 落 body、z≈2010（AssetPanel.tsx:34 注释实测值）被壳盖住，禁用；②壳是 createPortal(document.body)（BaseFullscreenModal.tsx:68-80）但 React context 按组件树走——**壳内组件 `AntdApp.useApp()` 解析到根 App（App.tsx:15，holder 挂 body、z 基座 11000）→ 壳内 toast 仍被盖；嵌套 ConfigProvider 只能抬 Modal 类弹层（读最近 Provider token），追不到根 App 的 holder**。**正确配方（第七轮措辞修正：**结构**照抄 VideoEditorShell.tsx:127-141（同为 BaseFullscreenModal 壳）——getPopupContainer 进壳 + `<AntdApp component={false}>`（component={false} 必须：默认渲染 div.ant-app 打断壳布局）；**`theme token zIndexPopupBase:100000` 是本 plan 新增层，先例没有**（其 theme 只有 darkAlgorithm、弹层从不落 body 故不需要；本功能 LoginModal 需要它保首帧回退路径，勿以"先例没有"为由删掉）。另**有意不加 darkAlgorithm**：LoginModal 全仓均为浅色渲染（TopActionBar 先例），加了反而换肤。配方：壳根 div 挂 shellRef，内容包两层——嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase:100000 } }} getPopupContainer={() => shellRef.current ?? document.body}>` 内再 `<AntdApp component={false}>`；PlayView/ProcessView 渲染在内层 App 之下，直接 `const { message } = AntdApp.useApp()`（holder 渲染在壳 DOM 内 → 可见，无需 bridge）**。LoginModal（antd Modal）读最近 Provider token → z=100100 > 壳 100000，D18 不变；其内部 useApp() 也解析到内层 App → toast 同样可见。**两层各自的作用（勿"简化"掉任一层，第六轮 N9）**：getPopupContainer 是常规路径（弹层挂进壳 DOM）；zIndexPopupBase:100000 是首帧/兜底路径（shellRef 未挂载首帧 getPopupContainer 回退 body——VideoEditorShell.tsx:128-129 注释："漏挂 shellRef 则永远回退 body，弹层作用域修复静默失效"，此时唯一撑住可见性的是 token 的 100100>100000）。**Esc 双关守卫是承重机制（勿删；机制措辞第六轮修正）**：rc-dialog 9.6.0 的 ESC 处理在 `onWrapperKeyDown`（Dialog/index.js:144-148）——挂在 dialog 包装**节点**上（React onKeyDown）且 e.stopPropagation()。焦点在登录框内 → 事件在 wrapper 节点被截、冒泡不到 document，壳不受影响；**焦点不在登录框内**（点了壳内其它区域/焦点在 body）→ 事件不经 rc-dialog 的 wrapper、直达 document → BaseFullscreenModal 监听触发——无守卫时关掉的是整个播放 Modal；守卫（close 回调首行 `if (showLogin) { setShowLogin(false); return; }`）使该场景只关登录层。副作用登记为有意：登录层开着时点壳 ✕ 只关登录层。**测试装配**：渲染链含 useAuth 的测试文件必须 `vi.mock('@/components/AuthProvider', ...)`（context 默认 `null!`，裸渲染解构即抛，AuthProvider.tsx:25,56）；message stub 四键齐全或测试树包 `<AntdApp>`（先例 AssetPanel.test.tsx:28、ExportModal.test.tsx:7） | VideoEditorShell.tsx:19-24,127-141；AssetPanel.tsx:34；BaseFullscreenModal.tsx:57,68-80；App.tsx:8-19；rc-dialog Dialog/index.js:144-148 |
+| C1-3 | **全屏壳（z-[100000]）内 toast/弹层机制（第五轮修正——单嵌套 ConfigProvider 抬不起 useApp() toast）**：①静态 `message.*` 落 body、z≈2010（AssetPanel.tsx:34 注释实测值）被壳盖住，禁用；②壳是 createPortal(document.body)（BaseFullscreenModal.tsx:68-80）但 React context 按组件树走——**壳内组件 `AntdApp.useApp()` 解析到根 App（App.tsx:15，holder 挂 body、z 基座 11000）→ 壳内 toast 仍被盖；嵌套 ConfigProvider 只能抬 Modal 类弹层（读最近 Provider token），追不到根 App 的 holder**。**正确配方（第七轮措辞修正：**结构**照抄 VideoEditorShell.tsx:127-141（同为 BaseFullscreenModal 壳）——getPopupContainer 进壳 + `<AntdApp component={false}>`（component={false} 必须：默认渲染 div.ant-app 打断壳布局）；**`theme token zIndexPopupBase:100000` 是本 plan 新增层，先例没有**（其 theme 只有 darkAlgorithm、弹层从不落 body 故不需要；本功能 LoginModal 需要它保首帧回退路径，勿以"先例没有"为由删掉）。另**有意不加 darkAlgorithm**：LoginModal 全仓均为浅色渲染（TopActionBar 先例），加了反而换肤。配方：壳根 div 挂 shellRef，内容包两层——嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase:100000 } }} getPopupContainer={() => shellRef.current ?? document.body}>` 内再 `<AntdApp component={false}>`；PlayView/ProcessView 渲染在内层 App 之下，直接 `const { message } = AntdApp.useApp()`（holder 渲染在壳 DOM 内 → 可见，无需 bridge）**。LoginModal（antd Modal）读最近 Provider token → z=100100 > 壳 100000，D18 不变。（第九轮删旧注：LoginModal 自身不调用 useApp/message——components/auth/ 下零命中；嵌套 AntdApp 层服务的是 PlayView/ProcessView 的 toast，勿据此写"LoginModal 弹 toast"断言。）**两层各自的作用（勿"简化"掉任一层，第六轮 N9）**：getPopupContainer 是常规路径（弹层挂进壳 DOM）；zIndexPopupBase:100000 是首帧/兜底路径（shellRef 未挂载首帧 getPopupContainer 回退 body——VideoEditorShell.tsx:128-129 注释："漏挂 shellRef 则永远回退 body，弹层作用域修复静默失效"，此时唯一撑住可见性的是 token 的 100100>100000）。**Esc 双关守卫是承重机制（勿删；机制措辞第六轮修正）**：rc-dialog 9.6.0 的 ESC 处理在 `onWrapperKeyDown`（Dialog/index.js:144-148）——挂在 dialog 包装**节点**上（React onKeyDown）且 e.stopPropagation()。焦点在登录框内 → 事件在 wrapper 节点被截、冒泡不到 document，壳不受影响（第八轮源码级复核维持本结论：React 18 合成 e.stopPropagation() 会调用 nativeEvent.stopPropagation()，且 antd Modal portal 到 body、React 委托监听在 portal 容器——原生传播止于 body，document 上的壳监听收不到；曾有第八轮外审称"合成事件不阻断原生冒泡、两种焦点场景壳都会触发"，该机制论不成立，勿据其改写）；**焦点不在登录框内**（点了壳内其它区域/焦点在 body）→ 事件不经 rc-dialog 的 wrapper、直达 document → BaseFullscreenModal 监听触发——无守卫时关掉的是整个播放 Modal；守卫（close 回调首行 `if (showLogin) { setShowLogin(false); return; }`）使该场景只关登录层。副作用登记为有意：登录层开着时点壳 ✕ 只关登录层。**测试装配**：渲染链含 useAuth 的测试文件必须 `vi.mock('@/components/AuthProvider', ...)`（context 默认 `null!`，裸渲染解构即抛，AuthProvider.tsx:25,56）；message stub 四键齐全或测试树包 `<AntdApp>`（先例 AssetPanel.test.tsx:28、ExportModal.test.tsx:7） | VideoEditorShell.tsx:19-24,127-141；AssetPanel.tsx:34；BaseFullscreenModal.tsx:57,68-80；App.tsx:8-19；rc-dialog Dialog/index.js:144-148 |
 | C1-4 | **关键组件真实 API**：MinIO 写对象是 `this.minio.upload(key, buffer, contentType)`（**无 putObject/uploadBuffer**）；上传键一律 `this.minio.buildKey('uploaded', 'system', { ext })` → `uploads/system/{date}/{uuid}.{ext}`（内置 randomUUID，与 D17 白名单精确对齐，**勿手拼 key 勿用 uuid 包**——该包非依赖，仓库用 node:crypto）。`isLoggedIn()` 不存在——用 `const { user } = useAuth()` 判 `!user`（AuthProvider.tsx:17-23，App.tsx:16 AuthProvider 包住 RouterProvider，公开路由可用 hook）。EmptyState/CardGridSkeleton 是 **workspace 私有组件**（pages/workspace/components/，EmptyState 必填 variant+onAction）——/videos 不复用，内联 ≤5 行空态/骨架（D2 孤岛） | minio.service.ts:46-57,105；admin-home-banner.controller.ts:39-66（第六轮更正路径——原引"admin-banner.controller.ts:27-57"是订阅 banner 文件）；nodeStore 类型真值 |
 
-### C2. 正文代码块勘误（按 Task 序）
+### C2. 正文代码块勘误（按 Task 序；历史记录——已回写正文，冲突以正文为准，勿按本节执行）
 
-**Task 1.1 Step 4**：shadow-database 命令的 `\|\| echo` 兜底会把失败变"假成功"——改为断言 diff 输出为空：
+**Task 1.1 Step 4**（**第八轮已废止——本段 shadow 方案整体不再使用**，正文 Task 1.1 Step 4 已改 `--from-schema-datasource` 免 shadow 方案；下文保留仅为审计记录）：shadow-database 命令的 `\|\| echo` 兜底会把失败变"假成功"——改为断言 diff 输出为空：
 
 ```bash
 cd apps/api
@@ -270,9 +270,9 @@ const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 gr
 
 **Task 11.2**：部署清单补一行——**packages/shared 必须同步上传**（deploy_full 覆盖、deploy_api 不覆盖；web 构建依赖工作区包解析新类型，**且服务器 `nest build` 的 tsc 也要解析 @flowweb/shared 类型——shared 不是新版会直接编译失败**，deploy.sh:53-62）。
 
-### C3. spec 同步（第七轮重写：①②已完成，本轮 ③-⑥）
+### C3. spec 同步（**已全部完成，本节无待办——勿再按旧文执行**）
 
-①✅ spec §4.2 端点表 `GET /settings` 行已补（第五轮）。②✅ spec §4.6 合并行字段分布注记已补（第五轮）。**仍待同步**：③ spec D8（决策清单第 8 行）仍写"type 键唯一真值 = NODE_TYPES（nodeStore.ts:6-13）"——与 §4.6 正文/C2 的"权威注册表 = CanvasView.tsx:42-51（8 键）"分叉，本轮同步；④ spec §5.4"骨架屏/空态复用 CardGridSkeleton / EmptyState 模式"→ 更正为"内联轻量骨架/空态"（两组件是 workspace 私有，C1-4 已核验）；⑤ spec §7 测试触点自相矛盾（"auth.guard.spec 无需改动" vs "新增 by-key 行为用例（批次 0）"）——裁定**前者胜出**（by-key 行为用例在 media.service.spec；auth.guard 仅 Task 3.1 新增 /api/video-works 前缀用例），同步措辞；⑥ spec §4.2 canClone 措辞"原始开关值"→ 显式"与 canViewProcess 同一 canvasProject.findUnique 画布存在校验"（plan Task 3.3 实现如此、更合理，回流）。
+①②（第五轮）③④⑤⑥（第七轮）均已完成并经第八轮逐条复核现状（spec:24 D8 8 键真值 / §5.4:348 内联 / §7:400 已调和 13 it / §4.2:155 canClone 回流）。第八轮归一时另修复了最后残留与新增同步项：§4.6 开篇句（NODE_TYPES → CanvasView 8 键 + shared 锚定）、§4.3 allowClone→allowViewProcess 耦合校验、§5.3 error008 措辞精度、§6 轮播"当前项"矛盾、§7.6 videoEdit 保留正向断言、§5.1 Sidebar 插入位置措辞。
 
 ### C4. 已知边界登记（执行中勿当 bug 修）
 
@@ -289,7 +289,7 @@ const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 gr
 - **AdminVideoWorkController 单 controller 管 6 类资源（第七轮 A4 登记）**：categories/tags/candidates/works/upload-cover/settings 集中一处（spec §4.1 冻结结构、home-banner 双 controller 先例）。接受；若后续膨胀按 A4 建议拆 2-3 个 controller。
 - **god service 接缝（第七轮建议登记）**：VideoWorkService ≈ 公开 7 + 后台 9 端点 + 快照构造。批次 5 定稿后若超 ~350 行，把 injectThumbnails + getProcessSnapshot + presign 收敛为 video-work-snapshot.service.ts（与 video-work-clone.service.ts 同构，不违背 D2）。
 
-### C7. 第七轮审核修正（2026-09-16，全部已真回写正文/勘误节——本节为执行记录）
+### C7. 第七轮审核修正（执行记录——已回写正文，冲突以正文为准）
 
 > 三份并行报告（两份含 antd/rc-dialog 源码级复核）。核验排除 0 项旧版误报、采纳全部阻断+主要项：
 
@@ -300,16 +300,16 @@ const nodeTypes = { simple: SimpleNode, group: GroupFrame };  // 覆盖内置 gr
 5. **B5/A2**：PlayView onError 补 **retriedRef 一次性守卫**（防对象已删的 错误→重取→再错误 无限循环）+ 双 error 用例；z-index 不变量以 Task 8.1 注释"勿删 token 层"钉住（jsdom 测不出、导出常量断言亦近恒真，注释+手工验收 #6 是可执行防线）。
 6. **F2**：Task 7.3 补 getPublicSettings/recordView mock + **getPublicSettings mock 为 {carouselEnabled:false}**（关轮播——否则 Modal 内 CarouselBar 二次调列表端点击垮 toHaveBeenCalledTimes(1)）；Task 8.1 场景 fixture 已含。
 7. **F3**：invalidateWorkCaches 前移 **Task 2.3 就地定义**（Task 2.4 也调用——前向引用 Task 5.3 让批次 2 tsc 红）；Task 5.3 仅收敛常量。
-8. **F4**：SHADOW_URL 命令改 `tr -d '"'` + `s#/flowweb$#/flowweb_shadow#` + 替换生效断言（.env 带引号、原 sed 不匹配 → 会把原库当 shadow 库）。
+8. **F4**（**第八轮已整体废止**）：shadow 库方案废止——本机无 flowweb_shadow 库（实测库列表仅 flowweb/flowweb_pbase/postgres/template*）且 psql 不在 PATH；正文 Task 1.1 Step 4 已改用 `migrate diff --from-schema-datasource --to-schema-datamodel --exit-code`（免 shadow，Prisma CLI 自动读 .env 并去引号）。
 9. **F5**：Task 8.2 测试块补全 harness（imports/mocks/vi.hoisted AuthProvider/detail fixture/renderPlay）；修语法错（少右括号）；onError 断言改 onDetailRefresh 回调（PlayView 自身不拉详情）；viewCount 断言收进 desc-panel。Task 8.4 renderModalWithNeedLogin 改本文件内定义（跨测试文件复用局部函数不可能）。
 10. **F6**：UpdateVideoWorkDto 补类体（不声明 videoKey/videoMediaId → forbidNonWhitelisted 下后台再提交即 400——"不支持换源"语义定死）。
 11. **B2'/mock 名**：Task 2.1 mock 改 listAllCategories/listAllTags（controller 实际调用名——原 mock 是 TypeError）；Task 3.1 switchToHttp 改函数形态 `{ switchToHttp: () => ({ getRequest: ... }) }`（auth.guard.spec.ts:31 既有形态；对象形态 TypeError）；Task 4.1 变量名对齐既有文件 mockRedis/service。
 12. **签名一次到位（架构建议①）**：Task 1.3 骨架的 service/controller 构造注入全量声明（video-project.service.ts:15 注释同款惯例）——后续任务只加方法，spec 文件 providers 从创建即完整（第六轮 4.2/6.2 两个"补 provider"补丁作废）。
 13. **杂项**：公开 settings 端点自 Task 8.3 前移 Task 3.2（后端改动不留前端批次；Task 3.3 声明序断言同步）；view 去重 key 改 **ipHash**（sha256 截断 16——spec §4.5 写的就是 ipHash，Redis 不驻留明文 IP）；Task 2.2 candidates previewUrl 改走 presignWork（A5——与列表/详情/缩略图同缓存纪律，原逐行裸签名 50 次/页）；Task 0.2 导入精确化；C2 Task 2.5 文件名更正；C2 Task 7.1 import-type 归属修正（API 侧约束/web 侧自由）；C1-3"照抄先例"改为"结构照抄 + token 为本 plan 新增层（勿删）+ 有意不加 darkAlgorithm（LoginModal 全仓浅色）"；VideoCard 改用 --vw-* token（杀死变量）；C4 新增 7 条登记（A1/A6/AuthGuard PrismaClient/apiFetch status/D10 封面例外/A4/快照 service 接缝）；C6 #10 诊断修正。
 
-### C5. 第五轮审核修正（2026-09-16；其中 Task 5.1 WHITELIST/Task 6.1 resetStatusIdle/Task 9.1 GroupFrame/Task 8.1 harness 四项当轮只改了勘误节，**第六轮已全部真回写正文**——见 C6）
+### C5. web 测试装配模板（**长期有效**）+ 第五轮回写记录
 
-**已机械回写正文（执行时勿再动）**：①`jest.fn()`→`vi.fn()`、`jest.Mock`→`Mock` 全文替换（用到 Mock 类型的 spec 顶部补 `import type { Mock } from 'vitest'`）；②`from 'react-router-dom'`→`from 'react-router'` 全文替换；③公开侧 apiFetch 路径去 `/api`；④Task 10.1 adminVideoWorkApi 16 处去 `/api` + `adminFetch`→`apiFetch`（multipart 行保留裸 fetch + /api）。**已就地修正的正文错误代码**：Task 2.2（import 裸包名/括号）、Task 2.3 第三条测试（findUnique mock + toBeUndefined）、Task 2.5（upload 三参/buildKey/fileFilter 显式抛）、Task 4.3 三条 $executeRaw 断言（join('?') + 字面量值序）、Task 5.1 imageGen 用例（aiTool→aspectRatio）、Task 5.3 fixture（+videoGen label/multiImageGen/group cells 正向断言）、Task 1.3 骨架（删未用导入/克隆空壳进 providers/env 兜底）、Task 0.3（删未用导入定案）、Task 2.6（UpdateVideoWorkSettingsDto class）、Task 6.1（newId 简化/resetStatusIdle 限类型）。
+第五轮的 4 项机械替换（vi.fn/react-router/apiFetch 去 /api/adminFetch 消除）与 10 处正文错误修正均已回写正文（执行时勿再动；逐项明细见 git 历史）。
 
 **web 测试装配模板（渲染链含 useAuth 的测试文件必加——AuthProvider.tsx:25 context 默认 `null!`，裸渲染 `const { user } = useAuth()` 解构即抛）**：
 
@@ -328,7 +328,7 @@ message stub（组件用 AntdApp.useApp() 时）：测试树包 `<AntdApp>` 或 
 
 **对账清单补全（批次 11 回归范围）**：正文"修改的既有文件"另含 `apps/web/src/api/adminApi.ts`（Task 10.1 追加 adminVideoWorkApi）、`apps/web/src/pages/videos/VideosPage.tsx`（Task 8.1 挂载 Modal + 删 activeWorkId 解构）、`docs/superpowers/specs/2026-09-16-video-works-design.md`（C3 settings 行 + §4.6 字段分布注记）。router.admin.test.tsx **不改**（spec §7 前端9 冻结）。
 
-### C6. 第六轮审核修正（2026-09-16，全部已真回写正文/勘误节——本节为执行记录）
+### C6. 第六轮审核修正（执行记录——已回写正文，冲突以正文为准）
 
 > 三份并行报告核验结论：部分指控基于提交前旧版（react-router-dom 残留 / apiFetch /api 残留 / Task 2.3 三参调用——第五轮已修）；其余 14 处"勘误已改、正文仍旧"的分叉 + 3 项新发现全部属实，本轮一次性真回写：
 
@@ -363,6 +363,7 @@ apps/api/src/modules/video-work/
 ├── dto/update-video-work.dto.ts          # Task 2.3
 ├── dto/video-category.dto.ts             # Task 2.1
 ├── dto/video-tag.dto.ts                  # Task 2.1
+├── dto/update-video-work-settings.dto.ts # Task 2.6
 ├── video-work.service.spec.ts
 ├── video-work.controller.spec.ts
 ├── admin-video-work.controller.spec.ts
@@ -379,8 +380,11 @@ apps/web/src/
 │   ├── VideoPlayerModal.tsx              # 播放 Modal（Task 8.1/8.2）
 │   ├── CarouselBar.tsx                   # 底部轮播（Task 8.3）
 │   ├── ProcessSnapshot.tsx               # 只读画布（Task 9.1）
+│   ├── ProcessView.tsx                   # 创作过程视图（Task 9.2）
 │   └── __tests__/*.test.tsx
 ├── pages/admin/pages/VideoWorksPage.tsx  # 后台管理（Task 10.1/10.2）
+├── pages/canvas/components/nodeTypes.coverage.test.tsx # Task 9.3（shared 锚定；与 CanvasView.test.tsx 同级）
+├── pages/canvas/components/CanvasView.tsx  # Task 9.3 导出 nodeTypes（仅加 export 一词）
 ├── router.tsx / components/layout/Sidebar.tsx / index.css   # Task 7.3 修改
 
 修改的既有文件（对账清单，与 spec §4.1 一致）：
@@ -390,6 +394,11 @@ apps/web/src/
 - apps/api/src/app.module.ts（Task 1.3）
 - apps/api/prisma/schema.prisma（Task 1.1）
 - apps/web/src/router.tsx / Sidebar.tsx / index.css（Task 7.3）
+- apps/web/src/api/adminApi.ts（Task 10.1 追加 adminVideoWorkApi）
+- apps/web/src/pages/videos/VideosPage.tsx（Task 8.1 挂载 Modal + 删 activeWorkId 解构）
+- apps/api/src/auth/auth.guard.spec.ts（Task 3.1 追加 /api/video-works 前缀放行用例——guard 本体仅 +1 行）
+- packages/shared/src/index.ts（Task 1.2 barrel）/ apps/web CanvasView.tsx（Task 9.3 导出 nodeTypes）
+- docs/superpowers/specs/2026-09-16-video-works-design.md（第八轮归一同步）
 ```
 
 ---
@@ -400,20 +409,20 @@ apps/web/src/
 
 **Files:** 无代码改动；产出核查记录（写入本 plan 的执行记录或 PR 描述）。
 
-- [ ] **Step 1: 查询存量 key**
+- [ ] **Step 1: 查询存量 key**（第八轮：本机 psql 不在 PATH——改用 api 依赖里的 pg 直查，在 apps/api 目录下执行（命令自带 cd）；连接串实测可连）
 
 ```bash
-psql "postgresql://flowweb:flowweb_dev@localhost:5432/flowweb" -c 'SELECT id, "backgroundImageKey" FROM subscription_banner WHERE "backgroundImageKey" IS NOT NULL;'
+cd apps/api && node -e "const {Client}=require('pg');const c=new Client({connectionString:'postgresql://flowweb:flowweb_dev@localhost:5432/flowweb'});c.connect().then(()=>c.query('SELECT id, \"backgroundImageKey\" FROM subscription_banner WHERE \"backgroundImageKey\" IS NOT NULL')).then(r=>{console.log(JSON.stringify(r.rows,null,2));process.exit(0)}).catch(e=>{console.error('ERR',e.message);process.exit(1)})"
 ```
 
-（第七轮修正：①表名用 `subscription_banner`——schema.prisma:545 是全仓唯一 `@@map("subscription_banner")`，查 "SubscriptionBanner" 直接 relation does not exist；列名引号保留（只有表被 map）。②密码 flowweb_dev——.env `DATABASE_URL` 用的是该值，"123456" 是 postgres 超级用户密码，flowweb 用户连不上。）
+（表名 `subscription_banner`——schema.prisma:545 是全仓唯一 `@@map("subscription_banner")`，查 "SubscriptionBanner" 直接 relation does not exist；列名引号保留。密码 flowweb_dev——.env `DATABASE_URL` 用的是该值，"123456" 是 postgres 超级用户密码。pg@^8.22.0 在 apps/api dependencies。）
 
 Expected: 列出所有非空 key。
 
 - [ ] **Step 2: 逐个比对前缀**
 
 规则：每个 key 必须 `startsWith('uploads/system/')`。全部符合 → 记录"核查通过"。
-若有不符合（如 `uploads/banner-bg.png`）：在 admin 后台重新上传封面覆盖该值（走 admin-banner 上传端点会自动生成规范 key），或在本 plan 执行记录中登记"已知视觉回退"并知会用户。
+若有不符合（如 `uploads/banner-bg.png`）：在 admin 后台重新上传封面覆盖该值（走 admin-banner 上传端点会自动生成规范 key），或在本 plan 执行记录中登记"已知视觉回退"并知会用户——登记时注明 VipSubscribeModal 有 backgroundImageKey→backgroundImageUrl→渐变 三级 fallback（VipSubscribeModal.tsx:152-189），不规范 key 仅退次选图、不会裂（第八轮放松措辞）。
 
 - [ ] **Step 3: 无需提交（纯核查），记录结果供批次 0 验收引用**
 
@@ -429,28 +438,28 @@ Expected: 列出所有非空 key。
 describe('getPresignedUrlByKey', () => {
   it('uploads/system/ 前缀放行并 presign 同一个规范化值', async () => {
     const key = 'uploads/system/2026-01-01/abc.png';
-    mediaService['minio'].generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/url');
-    const url = await mediaService.getPresignedUrlByKey(`  ${key}  `); // 带空白验证 trim
+    minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/url'); // 第八轮：既有替身变量是裸 minio（media.service.spec.ts:10），非 service['minio']
+    const url = await service.getPresignedUrlByKey(`  ${key}  `); // 带空白验证 trim
     expect(url).toBe('http://minio/url');
-    expect(mediaService['minio'].generatePresignedGetUrl).toHaveBeenCalledWith(key, 900); // 签名用 trim 后的同一值
+    expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith(key, 900); // 签名用 trim 后的同一值
   });
 
   it('非 system 前缀一律 403（含登录场景语义，方法级不区分）', async () => {
-    await expect(mediaService.getPresignedUrlByKey('uploads/user1/a.png')).rejects.toThrow(ForbiddenException);
-    await expect(mediaService.getPresignedUrlByKey('results/user1/p/n/x.mp4')).rejects.toThrow(ForbiddenException);
+    await expect(service.getPresignedUrlByKey('uploads/user1/a.png')).rejects.toThrow(ForbiddenException);
+    await expect(service.getPresignedUrlByKey('results/user1/p/n/x.mp4')).rejects.toThrow(ForbiddenException);
   });
 
   it('尾斜杠边界：uploads/systematic-x 不放行', async () => {
-    await expect(mediaService.getPresignedUrlByKey('uploads/systematic-x/evil.png')).rejects.toThrow(ForbiddenException);
+    await expect(service.getPresignedUrlByKey('uploads/systematic-x/evil.png')).rejects.toThrow(ForbiddenException);
   });
 
   it('空 key 拒绝', async () => {
-    await expect(mediaService.getPresignedUrlByKey('   ')).rejects.toThrow(BadRequestException);
+    await expect(service.getPresignedUrlByKey('   ')).rejects.toThrow(BadRequestException);
   });
 });
 ```
 
-注意：mock 装配沿用该 spec 文件既有的 Prisma/Minio/Redis 替身（文件顶部已有）。**导入精确化（第七轮）**：spec 文件已导入 ForbiddenException/NotFoundException（media.service.spec.ts:6）——只补 `BadRequestException`；**media.service.ts:1 现只有 NotFoundException**——实现侧需同时补 `ForbiddenException, BadRequestException` 两个。
+注意：mock 装配沿用该 spec 文件既有替身——变量名是 `service`/`prisma`/`minio`/`redis`（media.service.spec.ts:8-12；minio 是裸 `let minio: any` 变量、不是 service 属性——第八轮对齐，原写 `mediaService['minio']` 是 TS2304 编译红）。**导入精确化（第七轮）**：spec 文件已导入 ForbiddenException/NotFoundException（media.service.spec.ts:6）——只补 `BadRequestException`；**media.service.ts:1 现只有 NotFoundException**——实现侧需同时补 `ForbiddenException, BadRequestException` 两个。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -613,16 +622,21 @@ model VideoWorkSetting {
 cd apps/api && pnpm exec prisma migrate dev --name add_video_work
 ```
 
-Expected: 生成新 migration 目录（本地时间戳前缀，含 5 张表 DDL + Media 索引）；`prisma generate` 自动执行。
+Expected: 生成新 migration 目录（本地时间戳前缀，含 **4 张表 + 1 enum** 的 DDL + Media 候选索引）；`prisma generate` 自动执行。
+**红线**：migrate dev 若检测 drift 提示 reset，一律拒绝（选 No/中止）——开发库有真实数据；drift 处置另行人工判断。（shadow 库由 Prisma 自动创建；.env 无 shadowDatabaseUrl，既有迁移此前均 migrate dev 生成，CREATEDB 路径已验证可用。）
 
-- [ ] **Step 4: 验证 diff 零差异**
+- [ ] **Step 4: 验证 diff 零差异（第八轮改法：免 shadow 库——直接拿真实库比 schema）**
 
 ```bash
-cd apps/api && pnpm exec prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url "$(grep DATABASE_URL .env | cut -d= -f2 | sed 's/flowweb$/flowweb_shadow/')" 2>/dev/null || echo "shadow db 不存在时用 migrate status 代替"
-pnpm exec prisma migrate status
+cd apps/api
+# Prisma CLI 自动加载 ./.env（dotenv 去引号），--from-schema-datasource 读 DATABASE_URL 连真实库
+pnpm exec prisma migrate diff --from-schema-datasource ./prisma/schema.prisma --to-schema-datamodel ./prisma/schema.prisma --exit-code
+echo "exit=$?"   # 0 = 零差异；2 = 有差异（schema 与迁移/库不一致，必须修复后重跑）；1 = 命令用法错误
+pnpm exec prisma migrate status   # 全部 applied、无 pending（含 add_video_work）
 ```
 
-Expected: `migrate status` 显示全部 migration applied（含新的 add_video_work），无 pending。
+（原 shadow-database-url 方案废止：本机无 flowweb_shadow 库，且 .env 的 DATABASE_URL **带双引号**——旧命令的 `sed 's/flowweb$/'` 因行尾是 `"` 不匹配，会把带引号的原库 URL 传给 --shadow-database-url（重置风险），`|| echo` 再把失败伪装成成功。）
+**口径登记（第九轮）**：`--from-schema-datasource` 验的是"库 == schema"，不含"migrations 能重放出该 schema"（后者才是生产 migrate deploy 的路径）——与 spec §8"migrate deploy 后 diff 零差异"验收口径一致，接受；若将来要同时守住可重放性，补一条 createdb flowweb_shadow 后的 `--from-migrations` 断言（需 shadow 库，本期不做）。
 
 - [ ] **Step 5: 全量测试 + Commit**
 
@@ -722,6 +736,14 @@ export interface CandidateMedia {
   createdAt: string;
   previewUrl: string | null;
 }
+
+/** 快照白名单的跨端锚定清单（第八轮裁定，spec §4.6 实现注记）：
+ *  真值仍是 CanvasView.tsx:42-51 的 nodeTypes 注册表（8 键）——本常量是两侧测试的锚：
+ *  api 断言 WHITELIST 键 ⊇ 本清单（Task 5.1）、web 断言 CanvasView nodeTypes 键 ⊆ 本清单（Task 9.3）。
+ *  CanvasView 新增节点类型而清单未同步时任一侧测试红——替代"人工同步 + 自指测试"防线。 */
+export const VIDEO_WORK_NODE_TYPES = [
+  'imageGen', 'imageExtGen', 'textInput', 'videoGen', 'audioGen', 'multiImageGen', 'videoEdit', 'group',
+] as const;
 ```
 
 - [ ] **Step 2: barrel 追加导出（packages/shared/src/index.ts）**
@@ -745,6 +767,7 @@ git commit -m "feat(video-work): 批次1 shared 响应类型"
 - Create: `apps/api/src/modules/video-work/video-work.service.ts`（空壳）
 - Create: `apps/api/src/modules/video-work/video-work.controller.ts`（空壳）
 - Create: `apps/api/src/modules/video-work/admin-video-work.controller.ts`（空壳）
+- Create: `apps/api/src/modules/video-work/video-work-clone.service.ts`（空壳类，与骨架同建——第八轮补进 Files，原只在 C2 散文）
 - Modify: `apps/api/src/app.module.ts`（imports 数组 + VideoWorkModule）
 
 - [ ] **Step 1: 创建空壳文件**
@@ -870,8 +893,9 @@ import { VideoWorkService } from './video-work.service';
 
 describe('AdminVideoWorkController categories/tags', () => {
   let controller: AdminVideoWorkController;
-  let service: { listCategories: Mock; createCategory: Mock; updateCategory: Mock; deleteCategory: Mock;
-                 listTags: Mock; createTag: Mock; updateTag: Mock; deleteTag: Mock; };
+  // 第八轮：Record<string, Mock>——原窄注解还是旧方法名（listCategories/listTags），与下方赋值（listAllCategories/listAllTags）
+  // 是 TS2741+TS2353；且 Task 2.4/2.5/2.6 补方法时窄注解需逐任务 lockstep。Record 让后续任务直接加 vi.fn() 行即可。
+  let service: Record<string, Mock>;
 
   beforeEach(async () => {
     service = {
@@ -1076,12 +1100,15 @@ import { CollabDocumentService } from '../collab/collab-document.service';      
 import { MinioService } from '../minio/minio.service';
 import Redis from 'ioredis';
 
-describe('VideoWorkService.listCandidates', () => {
-  let service: VideoWorkService;
-  let prisma: { media: { findMany: Mock; count: Mock }; canvasProject: { findMany: Mock } };
-  let minio: { generatePresignedGetUrl: Mock };
+// 第九轮：替身提升为模块级 + any——后续任务（2.3/2.4/2.5/2.6/3.2/3.3/4.2/4.3/5.3）追加的是**同级** describe，
+// 引用 describe 内声明是 TS2304；窄类型另挡后续赋值（prisma.videoWork.* / prisma.videoWorkSetting.* /
+// prisma.videoCategory.* / prisma.$executeRaw / minio.delete/buildKey/upload 均 TS2339——api test 第一步是 tsc）。
+// any 先例：media.service.spec.ts:10-12、video-work-clone.service.spec。vitest 文件级 beforeEach 对本文件全部 describe 生效。
+let service: VideoWorkService;
+let prisma: any;
+let minio: any;
 
-  beforeEach(async () => {
+beforeEach(async () => {
     prisma = {
       media: {
         findMany: vi.fn().mockResolvedValue([{
@@ -1107,6 +1134,9 @@ describe('VideoWorkService.listCandidates', () => {
     }).compile();
     service = moduleRef.get(VideoWorkService);
   });
+
+// 第九轮：describe 开行移到文件级 beforeEach 之后（首任务用例从下一行开始；后续任务直接追加同级 describe 即可引用替身）
+describe('VideoWorkService.listCandidates', () => {
 
   it('口径：type=generated + video/mp4 + completed + 未删除 + metadata.origin=video-project', async () => {
     await service.listCandidates(1, 20);
@@ -1225,6 +1255,18 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
       allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
     await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
       allowViewProcess: false, allowClone: true, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('allowClone=true 且 allowViewProcess=false → 400（第八轮裁定：克隆入口在创作过程视图顶栏——开关耦合，防前端不可达死开关；update 语义=合并现有值后判定）', async () => {
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', canvasProjectId: 'p1',
+      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow(BadRequestException);
+    // 现有 allowViewProcess=true：单独开 allowClone 不 400
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: true, allowClone: false, canvasProjectId: 'p1' });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await expect(service.updateWork('w1', { allowClone: true } as any)).resolves.toBeTruthy();
+    // 现有 allowViewProcess=false：开 allowClone → 400
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: 'p1' });
+    await expect(service.updateWork('w1', { allowClone: true } as any)).rejects.toThrow(BadRequestException);
   });
 
   it('发布动作：status 转 PUBLISHED 且 publishedAt 为空 → 服务端设 now；请求体带 publishedAt 被忽略', async () => {
@@ -1352,6 +1394,10 @@ private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean
   if ((w.allowViewProcess || w.allowClone) && !w.canvasProjectId) {
     throw new BadRequestException('开启创作过程/克隆需要画布来源（canvasProjectId）');
   }
+  // 第八轮裁定（spec §4.3）：克隆入口在创作过程视图顶栏——允许克隆必须允许看过程，防"可克隆不可看过程"死开关
+  if (w.allowClone && !w.allowViewProcess) {
+    throw new BadRequestException('允许克隆必须同时允许查看创作过程（allowClone 依赖 allowViewProcess）');
+  }
 }
 ```
 
@@ -1432,11 +1478,12 @@ controller 追加（文件末尾，静态段全部之后）：
 service 测试追加红线断言：
 
 ```ts
-it('removeWork 不触碰 MinIO（删除红线）', async () => {
+it('removeWork 不触碰 MinIO（删除红线——MinioService 的删除方法真名是 delete，minio.service.ts:117；全类无 removeObject，原断言恒真抓不到任何真实调用，第八轮修正）', async () => {
   prisma.videoWork.delete = vi.fn().mockResolvedValue({});
+  minio.delete = vi.fn().mockResolvedValue(undefined);   // 替身显式提供 delete——实现真调用会让下方断言红
   await service.removeWork('w1');
   expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
-  expect((service as any).minio?.removeObject).toBeUndefined(); // service 不注入删除能力
+  expect(minio.delete).not.toHaveBeenCalled();           // 红线：只删 DB 行，禁删对象（spec §4.3）
 });
 ```
 
@@ -1453,18 +1500,38 @@ git commit -m "feat(video-work): 批次2 作品 admin CRUD（删除红线：只�
 **Files:**
 - Modify: `admin-video-work.controller.ts` + `video-work.service.ts`
 
-- [ ] **Step 1: 写失败测试（controller spec 追加）**
+- [ ] **Step 1: 写失败测试**（第八轮修正归属：magic-number 在 **service**——controller 只有 fileFilter 拦 mimetype（单测直调不经 multer）与 !file 检查；原 controller 用例把 service mock 掉后断言 400 是永红。magic-number/三参断言进 service spec，controller spec 只测转发与缺文件）
+
+controller spec 追加：
 
 ```ts
-it('uploadCover 校验 magic-number 非图片 → 400', async () => {
-  const fakeFile = { buffer: Buffer.from('not an image'), mimetype: 'image/png', originalname: 'x.png' } as any;
-  await expect(controller.uploadCover(fakeFile)).rejects.toThrow(BadRequestException);
-});
-it('合法 PNG 通过并返回 key', async () => {
-  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'); // PNG 魔数头
+it('uploadCover 转发 service（buffer/mimetype）', async () => {
   service.uploadCover = vi.fn().mockResolvedValue({ key: 'uploads/system/xxx.webp' });
-  const res = await controller.uploadCover({ buffer: png, mimetype: 'image/png' } as any);
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'); // PNG 魔数头
+  const res = await controller.uploadCover({ buffer: png, mimetype: 'image/png', originalname: 'x.png' } as any);
+  expect(service.uploadCover).toHaveBeenCalledWith(png, 'image/png');
   expect(res.key).toContain('uploads/system/');
+});
+it('缺文件 → 400 file is required', async () => {
+  await expect(controller.uploadCover(undefined as any)).rejects.toThrow(BadRequestException);
+});
+```
+
+service spec（video-work.service.spec.ts）追加：
+
+```ts
+describe('uploadCover（magic-number + system 域）', () => {
+  it('非图片字节 → 400（mimetype 伪装拦截）', async () => {
+    await expect(service.uploadCover(Buffer.from('not an image'), 'image/png')).rejects.toThrow(BadRequestException);
+  });
+  it('合法 PNG → buildKey('uploaded','system') + upload(key, buffer, mimetype) 三参、key 匹配 ^uploads/system/', async () => {
+    minio.buildKey = vi.fn().mockReturnValue('uploads/system/2026-09-16/abc.png');
+    minio.upload = vi.fn().mockResolvedValue(undefined);
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const res = await service.uploadCover(png, 'image/png');
+    expect(minio.upload).toHaveBeenCalledWith('uploads/system/2026-09-16/abc.png', png, 'image/png'); // 三参（C2 定稿断言，第八轮落进正文）
+    expect(res.key).toMatch(/^uploads\/system\//);
+  });
 });
 ```
 
@@ -1501,6 +1568,7 @@ async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {
 ```
 
 **实施注意（已核验，勿再探查）**：MinioService 写对象就是 `upload(key, buffer, contentType)`（minio.service.ts:105，无 putObject/uploadBuffer/presignedPut）；上传先例 = admin-home-banner.controller.ts:39-66（FileInterceptor + limits + fileFilter + magic-number + buildKey + upload 三参），上方代码即照抄该先例。
+**跑绿前置（第八轮落实注释里的承诺）**：把 `'uploadCover'` 追加进 Task 2.4 的 staticRoutes 数组（渐进式断言——追加前 getOwnPropertyNames 对该键 -1 属预期红）。
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
 
@@ -1510,7 +1578,7 @@ git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次2 封面上传（magic-number + system 公开域）"
 ```
 
-### Task 2.6: settings 轮播设置端点（默认值兜底）
+### Task 2.6: settings 轮播设置端点（默认值兜底；跑绿前置：把 `'getSettings'` 追加进 Task 2.4 的 staticRoutes 数组——第八轮落实注释承诺）
 
 **Files:**
 - Modify: `admin-video-work.controller.ts` + `video-work.service.ts`
@@ -1589,7 +1657,7 @@ git commit -m "feat(video-work): 批次2 settings 端点（singleton upsert + �
 
 **Files:**
 - Modify: `apps/api/src/auth/auth.guard.ts:3-15`（PUBLIC_PREFIXES 数组 +1 行）
-- Modify: `apps/api/src/auth/auth.guard.spec.ts`（新增一条用例，既有 7 条断言不动）
+- Modify: `apps/api/src/auth/auth.guard.spec.ts`（新增一条用例，既有 13 个用例不动——第九轮更正计数，spec:400 同口径）
 
 - [ ] **Step 1: 写失败测试（auth.guard.spec.ts 追加）**
 
@@ -1752,10 +1820,17 @@ controller：
 // video-work.controller.ts（categories/settings 静态段在最前；settings 第七轮自 Task 8.3 前移——后端端点不留在前端批次）
 import { Controller, Get, Query, Param, Post, Req, Inject, NotFoundException } from '@nestjs/common';
 import { VideoWorkService } from './video-work.service';
+import { VideoWorkCloneService } from './video-work-clone.service';
+import { RateLimiterService } from '../../common/services/rate-limiter.service';
 
 @Controller('api/video-works')
 export class VideoWorkController {
-  constructor(@Inject(VideoWorkService) private readonly service: VideoWorkService) {} // Task 1.3 骨架另有 rateLimiter/cloneService 注入
+  // 第八轮：三参与 Task 1.3 骨架完全一致（整块粘贴不会丢注入——Task 4.2 recordView 用 rateLimiter、6.2 用 cloneService）
+  constructor(
+    @Inject(VideoWorkService) private readonly service: VideoWorkService,
+    @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService,
+    @Inject(VideoWorkCloneService) private readonly cloneService: VideoWorkCloneService,
+  ) {}
 
   @Get('categories')
   listCategories() { return this.service.listCategoriesPublic(); }
@@ -2045,6 +2120,11 @@ git commit -m "feat(video-work): 批次4 view 计数（IP 去重 NX + 限流 + S
 ```ts
 describe('toggleLike', () => {
   // 未登录 401 在 controller spec 断言（本文件只测登录路径；第六轮删除空体占位用例——恒绿假覆盖）
+  it('限流：checkUserRateLimit 拒绝 → 429（spec §7.5"限流 429"——view/clone 均已限流，like 第八轮补齐）', async () => {
+    (service as any).rateLimiter.checkUserRateLimit = vi.fn().mockResolvedValue(false);
+    await expect(service.toggleLike('w1', 'u1')).rejects.toThrow(ThrottlerException);
+    expect((service as any).rateLimiter.checkUserRateLimit).toHaveBeenCalledWith('u1', 'video-work:like', 60, 30);
+  });
 
   it('首次点赞：NX 成功 → +1 且返回 liked:true', async () => {
     (service as any).redis.set = vi.fn().mockResolvedValue('OK');
@@ -2101,6 +2181,8 @@ service：
 
 ```ts
 async toggleLike(id: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+  const allowed = await this.rateLimiter.checkUserRateLimit(userId, 'video-work:like', 60, 30); // spec §7.5 限流（第八轮补）
+  if (!allowed) throw new ThrottlerException();
   const w = await this.prisma.videoWork.findUnique({ where: { id }, select: { status: true } });
   if (!w || w.status !== 'PUBLISHED') throw new NotFoundException();
   const key = `videoWork:like:${id}:${userId}`;
@@ -2151,12 +2233,16 @@ import {
   buildFilteredSnapshot, WHITELIST, stripHtmlToText, ensureParentFirst,
   type RawCanvasData, type FilterOptions,
 } from './snapshot-filter.util';
+import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // api 侧首个值导入（全仓既有 spec 均 import type）——仅测试文件、由 vitest/Vite 转译不走 Node 运行时，不违反 C2 Task 7.1 的"API 源码禁值导入"；勿当违规删掉（删了就退回自指清单）
 
 const rawNode = (id: string, type: string, data: Record<string, unknown>, extra: any = {}) =>
   ({ id, type, position: { x: 0, y: 0 }, data, ...extra });
 
-describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值为准）', () => {
-  const base: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false };
+describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTypes 8 键为真值、shared VIDEO_WORK_NODE_TYPES 锚定——第八轮更正）', () => {
+  // 两个口径（第八轮裁定，spec:228/D9）：快照【不】剥 videoEdit——保留节点、data 全剥（WHITELIST['videoEdit']=[]）；
+  // 剥除是克隆独有差异。下方白名单用例走快照口径 base；剥除行为用例走克隆口径 cloneOpts。
+  const base: FilterOptions = { dropTypes: [], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false };       // 快照口径（getProcessSnapshot 实参）
+  const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false }; // 克隆口径（clone 实参）
 
   it('textInput：content HTML→纯文本、prompt（string）直保留', () => {
     const input: RawCanvasData = {
@@ -2187,6 +2273,21 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值�
     for (const banned of ['html', 'fileId', 'mediaUrl', 'allImages', 'referenceImage', 'mediaName', 'generationBatchId', 'extConfig', 'referencedImageIds', 'status']) {
       expect(keys).not.toContain(banned);
     }
+  });
+
+  it('imageExtGen：aiTool/aspectRatio 保留（根级专属）；extConfig 整体剥离、style/prompt 不外显（第五轮 C2 独立用例——第八轮回写正文）', () => {
+    const input: RawCanvasData = {
+      nodes: [rawNode('n1', 'imageExtGen', {
+        aiTool: 'grid_25', aspectRatio: 1, style: 's',
+        extConfig: { model: 'm2', prompt: { text: 't', html: '<x>' } },
+      })],
+      edges: [],
+    };
+    const out = buildFilteredSnapshot(input, base);
+    const d = out.nodes[0].data;
+    expect(d.aiTool).toBe('grid_25');
+    expect(d.aspectRatio).toBe(1);
+    expect(Object.keys(d).sort()).toEqual(['aiTool', 'aspectRatio']); // 无 extConfig 无 html 无 style 无 prompt（ext 节点提示词在 extConfig 内随整体剥离）
   });
 
   it('videoGen：label/model/ratio/prompt.text/trim 保留；origin/videoProjectId/fileId 剥离', () => {
@@ -2224,7 +2325,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值�
     expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
   });
 
-  it('videoEdit 节点与 shadow- 前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（第七轮——spec §4.6 字面，防前缀约定松动）', () => {
+  it('克隆口径：videoEdit 与 shadow- 前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（spec §4.6 字面）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('n1', 'videoGen', { model: 'm' }),
@@ -2238,9 +2339,21 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值�
         { id: 'e3', sourceId: 'n1', targetId: 'n3' },
       ],
     };
-    const out = buildFilteredSnapshot(input, base);
+    const out = buildFilteredSnapshot(input, cloneOpts);
     expect(out.nodes.map(n => n.id)).toEqual(['n1']);
     expect(out.edges).toEqual([]);
+  });
+
+  it('快照口径：videoEdit 节点保留、data 全剥为 {}、连线保留（spec:228"仅结构字段→全部 data"——剥除仅是克隆差异 D9，第八轮裁定）', () => {
+    const input: RawCanvasData = {
+      nodes: [rawNode('n1', 'videoGen', { model: 'm' }), rawNode('n2', 'videoEdit', { timeline: [1], draft: '内部时间轴' })],
+      edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }],
+    };
+    const out = buildFilteredSnapshot(input, base);
+    const edit = out.nodes.find(n => n.id === 'n2')!;
+    expect(edit).toBeTruthy();          // 节点保留（前端 TYPE_LABEL 有"视频剪辑"）
+    expect(edit.data).toEqual({});      // data 全剥
+    expect(out.edges).toHaveLength(1);  // 连线保留
   });
 
   it('剥离范围收口（第七轮）：audioGen.content 是纯文本旁白——含尖括号的正常文本原样保留；PromptValue.text 不做二次 strip', () => {
@@ -2262,9 +2375,8 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 NODE_TYPES 真值�
     expect(out.nodes[0].data).toEqual({});
   });
 
-  it('nodeTypes 注册表全覆盖：白名单表 keys ⊇ [imageGen,imageExtGen,textInput,videoGen,audioGen,multiImageGen,videoEdit,group]', () => {
-    const registered = ['imageGen', 'imageExtGen', 'textInput', 'videoGen', 'audioGen', 'multiImageGen', 'videoEdit', 'group'];
-    for (const t of registered) expect(Object.keys(WHITELIST)).toContain(t);
+  it('nodeTypes 注册表全覆盖：WHITELIST keys ⊇ VIDEO_WORK_NODE_TYPES（shared 锚定，第八轮裁定——替代本文件硬编码清单的自指断言；配套 web 侧锚定见 Task 9.3）', () => {
+    for (const t of VIDEO_WORK_NODE_TYPES) expect(Object.keys(WHITELIST)).toContain(t);
   });
 });
 ```
@@ -2296,7 +2408,7 @@ export interface RawEdge { id: string; sourceId: string; targetId: string }
 export interface RawCanvasData { nodes: RawNode[]; edges: RawEdge[] }
 
 export interface FilterOptions {
-  dropTypes: string[];        // 快照与克隆同用：videoEdit；克隆另含 shadow-（经 dropIdPrefixes）
+  dropTypes: string[];        // 克隆传 ['videoEdit']；快照传 []（videoEdit 保留节点、data 全剥——spec:228/D9，第八轮裁定）
   dropIdPrefixes: string[];
   resetStatusIdle: boolean;   // 克隆 true（防"已完成却无产物"）
   injectThumbnails: boolean;  // 快照 true（由调用方在过滤前注入 data.thumbnailUrl，见 Task 5.2）
@@ -2371,7 +2483,7 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
     if (node.type === 'multiImageGen') data.nodeStatus = 'idle';
     else if (['imageGen', 'imageExtGen', 'videoGen', 'audioGen'].includes(node.type)) data.status = 'idle';
   }
-  return { ...node, data };
+  return { ...node, position: node.position ?? { x: 0, y: 0 }, data }; // position 兜底：readCanvas 的 position 可 undefined（collab-document.service.ts:70 ?.toJSON()），shared SnapshotNode.position 必填
 }
 
 export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {
@@ -2506,6 +2618,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>', prompt: 'p' } },
       { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png' } },
       { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
+      { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', collapsed: false } },
     ],
@@ -2547,6 +2660,9 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect(n4.data.prompt).toBe('分镜提示');
     expect(g.data.groupType).toBe('storyboard');
     expect(g.data.cells).toEqual(['n1', 'ghost-id', null]); // 原样返回逐项比对（含悬空 id/null——勿写"全项可在 nodes 中找到"，悬空 id 是已接受行为会红在已知项上）
+    const edit = out.nodes.find((n: any) => n.id === 'n35')!;
+    expect(edit).toBeTruthy();      // videoEdit 节点保留（spec:228，第八轮）
+    expect(edit.data).toEqual({});  // data 全剥（timeline/draft 不外泄）
   });
 
   it('edges 有 source/target 无 sourceId；缓存命中第二次不触 readCanvas', async () => {
@@ -2597,7 +2713,7 @@ async getProcessSnapshot(id: string) {
   const raw = await this.withTimeout(this.collabDoc.readCanvas(w.canvasProjectId), 5000) as RawCanvasData;
   const withThumbs = await this.injectThumbnails(raw);
   const filtered = buildFilteredSnapshot(withThumbs, {
-    dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'],
+    dropTypes: [], dropIdPrefixes: ['shadow-'],   // 快照不剥 videoEdit（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定
     resetStatusIdle: false, injectThumbnails: true,
   });
   const result = { workId: id, title: w.title, ...filtered };
@@ -2605,9 +2721,12 @@ async getProcessSnapshot(id: string) {
   return result;
 }
 
-/** 有界等待（readCanvas 无读取超时——内部只有 SV 等待 3s；Promise.race 外套） */
+/** 有界等待（readCanvas 无读取超时——内部只有 SV 等待 3s；Promise.race 外套）。finally 清 timer——
+ *  否则每次调用悬挂一个 5s 定时器，拖慢测试收尾/进程退出（第八轮） */
 private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new ServiceUnavailableException('画布读取超时')), ms))]);
+  let t: ReturnType<typeof setTimeout>;
+  return Promise.race([p, new Promise<never>((_, rej) => { t = setTimeout(() => rej(new ServiceUnavailableException('画布读取超时')), ms); })])
+    .finally(() => clearTimeout(t));
 }
 
 /** invalidateWorkCaches 已在 Task 2.3 就地定义（第七轮消前向引用）——本任务仅把字面量 key 收敛为
@@ -2667,7 +2786,7 @@ describe('VideoWorkCloneService.clone', () => {
     nodes: [
       { id: 'child1', type: 'videoGen', parentId: 'grp', position: { x: 1, y: 1 }, data: { model: 'm', fileId: 'f1', status: 'done', label: 'L' } },
       { id: 'grp', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['child1', 'edit1', null, 'ghost'] } },
-      { id: 'child2', type: 'imageGen', parentId: 'grp', position: { x: 2, y: 2 }, data: { prompt: { text: 'p', html: 'h' }, allImages: [{ url: 'u' }] } },
+      { id: 'child2', type: 'imageGen', parentId: 'grp', position: { x: 2, y: 2 }, data: { prompt: { text: 'p', html: 'h' }, allImages: [{ url: 'u' }], __fromMulti: 'x' } }, // __fromMulti 清单外字段，克隆不得带走（spec:385）
       { id: 'edit1', type: 'videoEdit', parentId: 'grp', position: { x: 3, y: 3 }, data: { timeline: [] } },
       { id: 'shadow-x', type: 'imageGen', position: { x: 4, y: 4 }, data: {} },
     ],
@@ -2679,7 +2798,7 @@ describe('VideoWorkCloneService.clone', () => {
   });
 
   beforeEach(async () => {
-    prisma = { videoWork: { findUnique: vi.fn() }, canvasProject: { findUnique: vi.fn() } };
+    prisma = { videoWork: { findUnique: vi.fn() }, canvasProject: { findUnique: vi.fn() }, template: { count: vi.fn() } }; // template 供"Template 不参与"断言（第八轮）
     collabDoc = { readCanvas: vi.fn() };
     projectService = { create: vi.fn() };
     rateLimiter = { checkUserRateLimit: vi.fn().mockResolvedValue(true) };
@@ -2748,6 +2867,9 @@ describe('VideoWorkCloneService.clone', () => {
     const child2 = passedNodes.find((n: any) => n.type === 'imageGen' && n.id !== 'shadow-x');
     expect(JSON.stringify(passedNodes)).not.toContain('allImages');
     expect(JSON.stringify(passedNodes)).not.toContain('thumbnailUrl');
+    expect(JSON.stringify(passedNodes)).not.toContain('__fromMulti'); // spec:385 清单外字段不带走（fixture 已造）
+    expect(JSON.stringify(passedNodes)).not.toContain('__ephemeral');
+    expect(prisma.template.count).not.toHaveBeenCalled();              // spec §7.7：Template 行数/importCount 不变——clone 不触 template
   });
 
   it('边：相连被剥节点的边一并剥除；存活边 source/target 已重映射', async () => {
@@ -2774,7 +2896,7 @@ describe('VideoWorkCloneService.clone', () => {
     setup();
     projectService.create.mockImplementation(() => new Promise(() => {}));
     await expect(svc.clone('w1', 'u1')).rejects.toThrow(ServiceUnavailableException);
-  }, 10000);
+  }, 15000); // 第九轮：测试超时必须 > CLONE_TIMEOUT_MS(10s)——同值时谁先到点取决于调度，flaky（Task 5.3 的 5000/10000 组合无此问题）
 
   it('标题加 (副本) 后缀；归属 ProjectService.create（不传 teamId）', async () => {
     setup();
@@ -2797,7 +2919,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
-import { buildFilteredSnapshot, type RawCanvasData, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
+import { buildFilteredSnapshot, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
 
 const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create 内部 withDoc 同样会挂起）
 
@@ -2822,7 +2944,8 @@ export class VideoWorkCloneService {
 
     const run = async () => {
       const raw = await this.collabDoc.readCanvas(w.canvasProjectId!) as RawCanvasData;
-      // 与快照共用白名单（D9）：克隆分支 resetStatusIdle + 不注入缩略图 + 额外剥 shadow-（快照也剥，口径一致）
+      // 与快照共用白名单（D9）：克隆分支 resetStatusIdle + 不注入缩略图 + 剥 videoEdit/shadow-
+      // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一）
       const filtered = buildFilteredSnapshot(raw, {
         dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'],
         resetStatusIdle: true, injectThumbnails: false,
@@ -2831,10 +2954,11 @@ export class VideoWorkCloneService {
       const project = await this.projectService.create(`${w.title} (副本)`, userId, nodes, edges);
       return { projectId: project.id };
     };
+    let timer: ReturnType<typeof setTimeout>;
     return Promise.race([
       run(),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new ServiceUnavailableException('克隆超时')), CLONE_TIMEOUT_MS)),
-    ]);
+      new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new ServiceUnavailableException('克隆超时')), CLONE_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer)); // 第八轮：与 withTimeout 同款清理，防悬挂定时器
   }
 
   /** 四元重映射（spec §4.7 红线）：id / parentId / edges source+target / group.data.cells。
@@ -2903,7 +3027,7 @@ it('POST :id/clone 登录 → 调 cloneService.clone(id, userId)', async () => {
 });
 ```
 
-Template 不参与（无 templateService 调用——断言 clone service 不依赖 TemplateService，静态检查 import 即可）。
+Template 不参与（上方用例已断言 `prisma.template.count` 未被调用——比"静态检查 import"强，满足 spec §7.7"Template 行数与 importCount 不变"；第八轮升级）。
 
 - [ ] **Step 6: 批次 5-6 全量回归 + Commit**
 
@@ -2922,14 +3046,14 @@ git commit -m "feat(video-work): 批次6 克隆（共用白名单/四元重映�
 **Files:**
 - Create: `apps/web/src/api/videoWorkApi.ts`
 
-- [ ] **Step 1: 实现（api 封装无独立测试对象——由页面测试覆盖；/flowai 改写函数从 mediaApi 提取共用或复制同款）**
+- [ ] **Step 1: 实现（api 封装无独立测试对象——由页面测试覆盖；/flowai 改写函数在本文件复制同款正则，**不**从 mediaApi 提取共用——第八轮裁定=C2 原案：提取会动 mediaApi/批次 0 改动面，D2 孤岛原则；全仓 54 处改写均为各文件自持同款正则）**
 
-先看 `apps/web/src/api/mediaApi.ts:6` 的改写实现，将改写逻辑提为可复用函数（若 mediaApi 内是内联 replace，导出同名函数或在本文件复制同一行——**优先提取共用**，精准修改）：
+照 `apps/web/src/api/mediaApi.ts:6` 的改写正则在本文件复制同一行：
 
 ```ts
 import { apiFetch } from './client';
 import type {
-  VideoWorkListResult, VideoWorkDetail, VideoCategoryItem, ProcessSnapshotData,
+  VideoWorkListResult, VideoWorkDetail, VideoCategoryItem, ProcessSnapshotData, VideoWorkSettings,
 } from '@flowweb/shared'; // 以 web 侧 shared 导入别名为准（grep 既有 import 方式）
 
 /** /flowai 同源改写（视频 seek 依赖同源拿 Content-Range、img 避 CORS——mediaApi.ts:6 同款） */
@@ -2940,7 +3064,10 @@ export async function fetchVideoWorks(params: { categoryId?: string; page?: numb
   if (params.categoryId) q.set('categoryId', params.categoryId);
   q.set('page', String(params.page ?? 1));
   q.set('pageSize', String(params.pageSize ?? 20));
-  return apiFetch(`/video-works?${q.toString()}`);
+  const r = await apiFetch<VideoWorkListResult>(`/video-works?${q.toString()}`); // 第九轮：显式类型参——apiFetch<T> 无推断位，裸调用 T=unknown，下方 r.items 是 TS2571
+  // 列表封面也过 /flowai（spec §5.4"沿用同一改写函数"——dev 下 MINIO_ENDPOINT=127.0.0.1:9000 直连碰巧能显示，
+  // 生产 presign URL 是内网地址不可达、列表封面全裂；第八轮补，原只改写了详情/快照）
+  return { ...r, items: r.items.map(it => ({ ...it, coverUrl: it.coverUrl ? toFlowaiUrl(it.coverUrl) : null })) };
 }
 
 export async function fetchVideoCategories(): Promise<VideoCategoryItem[]> {
@@ -2948,7 +3075,7 @@ export async function fetchVideoCategories(): Promise<VideoCategoryItem[]> {
 }
 
 export async function fetchVideoWorkDetail(id: string): Promise<VideoWorkDetail> {
-  const d = await apiFetch(`/video-works/${id}`);
+  const d = await apiFetch<VideoWorkDetail>(`/video-works/${id}`); // 显式类型参（同上，第九轮）
   return { ...d, videoUrl: toFlowaiUrl(d.videoUrl), coverUrl: d.coverUrl ? toFlowaiUrl(d.coverUrl) : null };
 }
 
@@ -2961,7 +3088,7 @@ export async function toggleLike(id: string): Promise<{ liked: boolean; likeCoun
 }
 
 export async function fetchProcessSnapshot(id: string): Promise<ProcessSnapshotData> {
-  const snap = await apiFetch(`/video-works/${id}/process`);
+  const snap = await apiFetch<ProcessSnapshotData>(`/video-works/${id}/process`); // 显式类型参（同上，第九轮）
   for (const n of snap.nodes) {
     if (typeof n.data.thumbnailUrl === 'string') n.data.thumbnailUrl = toFlowaiUrl(n.data.thumbnailUrl);
   }
@@ -2971,14 +3098,19 @@ export async function fetchProcessSnapshot(id: string): Promise<ProcessSnapshotD
 export async function cloneWork(id: string): Promise<{ projectId: string }> {
   return apiFetch(`/video-works/${id}/clone`, { method: 'POST' });
 }
+
+/** 公开轮播设置（第八轮自 Task 8.3 前移至此——Task 7.3 测试已 mock 该导出，automock 下缺失导出是同步 TypeError） */
+export async function getPublicSettings(): Promise<VideoWorkSettings> {
+  return apiFetch('/video-works/settings');
+}
 ```
 
 - [ ] **Step 2: 编译验证 + Commit**
 
 ```bash
-pnpm --filter @flowweb/web exec tsc -b --dry 2>/dev/null || pnpm --filter @flowweb/web build
+pnpm --filter @flowweb/web build   # 第九轮：原 "tsc -b --dry || build" 是空跑——--dry 只列出将构建的工程、不做类型检查且退出 0，|| 右侧永不执行
 git add apps/web/src/api/videoWorkApi.ts
-git commit -m "feat(video-work): 批次7 videoWorkApi（/flowai 改写共用）"
+git commit -m "feat(video-work): 批次7 videoWorkApi（/flowai 改写同款复制）"
 ```
 
 ### Task 7.2: VideoCard + VideosPage 列表（TDD）
@@ -3237,8 +3369,9 @@ index.css 追加本功能 token（§6：显式定义并登记）：
 
 ```bash
 pnpm --filter @flowweb/web test
+pnpm --filter @flowweb/web build   # 批次收尾类型门禁（头部铁律，第九轮落到命令块）
 git add apps/web/src/router.tsx apps/web/src/components/layout/Sidebar.tsx apps/web/src/index.css apps/web/src/pages/videos/
-git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 第5项 + token + 不重挂用例"
+git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 模板广场后插入 + token + 不重挂用例"
 ```
 
 ---
@@ -3249,6 +3382,7 @@ git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 
 
 **Files:**
 - Create: `apps/web/src/pages/videos/VideoPlayerModal.tsx`
+- Modify: `apps/web/src/pages/videos/VideosPage.tsx`（挂载 Modal + 删 activeWorkId——第八轮把 C2 的执行序步骤落进本任务 Files/Steps，原只在勘误层）
 - Test: `apps/web/src/pages/videos/__tests__/VideoPlayerModal.test.tsx`
 
 - [ ] **Step 1: 写失败测试（关闭算法四场景——spec §7 前端 2）**
@@ -3409,10 +3543,13 @@ export function VideoPlayerModal() {
 }
 ```
 
-- [ ] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）→ Step 5: Commit**
+- [ ] **Step 3b: 接线 VideosPage（必做——本任务测试渲染真实 VideosPage 找 `data-testid="modal"`，不接线四场景全红；第八轮把该步骤从勘误层落进正文）**：把 Task 7.2 留下的 `{/* 批次 8：<VideoPlayerModal workId={activeWorkId} /> 在此挂载 */}` 占位注释替换为 `<VideoPlayerModal />`（组件内部自取 `useParams().id`），并删除随之无用的 `const { id: activeWorkId } = useParams();` 解构。
+
+- [ ] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）+ 批次收尾 `pnpm --filter @flowweb/web build`（类型门禁，见头部铁律）→ Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- VideoPlayerModal
+pnpm --filter @flowweb/web build   # 批次 8 中段类型门禁（批次收尾在 8.4；第九轮落到命令块）
 git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次8 Modal 外壳（模式A关闭算法四场景/state 原值透传）"
 ```
@@ -3505,7 +3642,7 @@ describe('PlayView', () => {
 import { useState, useCallback, useRef } from 'react';
 import { App as AntdApp } from 'antd';
 import { useAuth } from '@/components/AuthProvider';
-import { fetchVideoWorkDetail, toggleLike } from '@/api/videoWorkApi';
+import { toggleLike } from '@/api/videoWorkApi'; // fetchVideoWorkDetail 不 import——PlayView 自身不拉详情（onError 自愈由外壳 onDetailRefresh 回调注入；勿留未用导入，第八轮删）
 import type { VideoWorkDetail } from '@flowweb/shared';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) : '');
@@ -3607,8 +3744,16 @@ git commit -m "feat(video-work): 批次8 播放视图（发布于 publishedAt/�
 - [ ] **Step 1: 写失败测试**
 
 ```tsx
-// 第六轮：renderBar helper 必须显式 mock getPublicSettings——组件内部自取设置，漏 mock 时 auto-mock 返回
-// undefined → .then 抛错被 .catch 兜成默认 {enabled:true} → 用例 1（disabled 不渲染）必红
+// 第八轮补 harness（原块无 import 头——照抄即 ReferenceError；CarouselBar 不用 useAuth，无需 AuthProvider mock）：
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as api from '@/api/videoWorkApi';
+import { CarouselBar } from '../CarouselBar';
+
+vi.mock('@/api/videoWorkApi');
+
+// renderBar helper 必须显式 mock getPublicSettings——组件内部自取设置，漏 mock 时 auto-mock 返回
+// undefined → getPublicSettings() 返回 undefined、.then 是同步 TypeError（.catch 接不到同步 throw）→ 用例以 unhandled error 红
 function renderBar(settings: { carouselEnabled: boolean; carouselScope: 'all' | 'category' }, currentId = 'w0', categoryId: string | null = null) {
   vi.mocked(api.getPublicSettings).mockResolvedValue(settings as any);
   const onSwitch = vi.fn();
@@ -3689,7 +3834,7 @@ export function CarouselBar({ currentId, categoryId, onSwitch }: {
 }
 ```
 
-api 补充：`export async function getPublicSettings(): Promise<VideoWorkSettings> { return apiFetch('/video-works/settings'); }`。**后端端点第七轮已前移至 Task 3.2**（公开 controller 静态段 `@Get('settings')`——后端改动不留在前端批次；声明序断言 Task 3.3 已含 getSettings），本任务纯前端。
+**API 前置已就绪（第八轮）**：`getPublicSettings()` 已在 Task 7.1 定义（Task 7.3 测试即依赖该导出——前移避免 automock 缺导出的同步 TypeError），本任务无 API 改动。后端端点第七轮已前移至 Task 3.2（公开 controller 静态段 `@Get('settings')`；声明序断言 Task 3.3 已含 getSettings），本任务纯前端。
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
 
@@ -3708,6 +3853,43 @@ git commit -m "feat(video-work): 批次8 底部轮播（设置驱动/11取10/rep
 - [ ] **Step 1: 写失败测试（jsdom 结构断言——z-index 层叠效果走浏览器手工验收，§7.5）**
 
 ```tsx
+// 第八轮补 harness（原块无 import 头；渲染链经 VideosPage 含 useAuth → 需 C5 模板 AuthProvider mock。
+// 若下文用例块已含相同声明则勿重复 vi.mock 同模块两次）：
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createMemoryRouter, RouterProvider } from 'react-router';
+import { App as AntdApp } from 'antd';
+import * as api from '@/api/videoWorkApi';
+import { VideosPage } from '../../VideosPage';
+
+vi.mock('@/api/videoWorkApi');
+const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
+vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authCtx }));
+// 第九轮：automock 无 mockResolvedValue → fetchVideoWorks/fetchVideoWorkDetail 返回 undefined、.then 是同步
+// TypeError（C7-F2 为 8.3 诊断的同款形态）→ Modal 永不渲染、getByRole('喜欢') 抛错。照 Task 8.1 补四件套；
+// getPublicSettings 关轮播防 CarouselBar 二次调列表。
+const detailFixture = { id: 'w1', title: '末班地铁', videoUrl: '/flowai/v.mp4', coverUrl: null, categoryId: null,
+  viewCount: 10, likeCount: 5, liked: false, description: '简介', authorName: '作者', publishedAt: '2026-09-01T00:00:00Z',
+  width: null, height: null, canViewProcess: false, canClone: false, durationSec: 100, tags: ['悬疑'] };
+beforeEach(() => {
+  authCtx.user = null;
+  vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [{ id: 'w1', title: '末班地铁', coverUrl: null, durationSec: 100, tags: [] }], total: 1, page: 1, pageSize: 20 });
+  vi.mocked(api.fetchVideoCategories).mockResolvedValue([]);
+  vi.mocked(api.fetchVideoWorkDetail).mockResolvedValue(detailFixture as any);
+  vi.mocked(api.getPublicSettings).mockResolvedValue({ carouselEnabled: false, carouselScope: 'all' });
+  vi.mocked(api.recordView).mockResolvedValue(undefined);
+});
+
+// 第九轮：BaseFullscreenModal 落成真 mock——原只在 Esc 用例的注释里：onCloseRef 未定义是 ReferenceError/TS2304、
+// getByTestId('modal') 无来源必红。vi.hoisted 捕获 onClose（vi.mock 工厂被提升，工厂内引用外部变量必须经 vi.hoisted——C5 同款）。
+const onCloseRef = vi.hoisted(() => ({ current: undefined as undefined | (() => void) }));
+vi.mock('@/components/BaseFullscreenModal', () => ({
+  BaseFullscreenModal: ({ open, onClose, children }: any) => {
+    onCloseRef.current = onClose;
+    return open ? <div data-testid="modal">{children}</div> : null;
+  },
+}));
+
 // 第六轮：login-modal-root 由 mock 提供（真实 LoginModal 无此 testid——直接断言会 getByTestId 抛错）。
 // mock 保留 data-zprovider 语义：mock 渲染在壳根 div 内（非 portal），closest 断言在 DOM 上可达。
 vi.mock('@/components/auth/LoginModal', () => ({
@@ -3723,19 +3905,13 @@ function renderModalWithNeedLogin() {
 
 describe('播放 Modal 内页内登录', () => {
   it('onNeedLogin → 渲染 LoginModal 且在壳根（data-zprovider）之内', async () => {
-    renderModalWithNeedLogin(); // 复用 Task 8.1 的 renderAt（真实 VideosPage）+ AuthProvider mock（user:null）
+    renderModalWithNeedLogin(); // 本文件自建装配（真实 VideosPage）+ AuthProvider mock（user:null）
     fireEvent.click(screen.getByRole('button', { name: /喜欢/ })); // 未登录触发
     await waitFor(() => screen.getByTestId('login-modal-root'));
     expect(screen.getByTestId('login-modal-root').closest('[data-zprovider="true"]')).toBeTruthy();
   });
 
-  it('Esc 守卫（承重）：登录层开着时触发壳 onClose → 只关登录层、播放 Modal 仍在（第六轮新增——否则守卫永远没有测试）', async () => {
-    // 文件顶部 BaseFullscreenModal 的 vi.mock 改为可捕获 onClose 的形式：
-    //   const onCloseRef = { current: undefined as undefined | (() => void) };
-    //   vi.mock('@/components/BaseFullscreenModal', () => ({
-    //     BaseFullscreenModal: ({ open, onClose, children }: any) => { onCloseRef.current = onClose;
-    //       return open ? <div data-testid="modal">{children}</div> : null; },
-    //   }));
+  it('Esc 守卫（承重）：登录层开着时触发壳 onClose → 只关登录层、播放 Modal 仍在（第六轮新增——否则守卫永远没有测试；第九轮：mock 从注释落成文件顶部真代码）', async () => {
     renderModalWithNeedLogin();
     fireEvent.click(screen.getByRole('button', { name: /喜欢/ }));
     await waitFor(() => screen.getByTestId('login-modal-root'));
@@ -3759,6 +3935,7 @@ describe('播放 Modal 内页内登录', () => {
 
 ```bash
 pnpm --filter @flowweb/web test -- LoginInModal
+pnpm --filter @flowweb/web build   # 批次收尾类型门禁（第九轮落到命令块）
 git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次8 页内登录（嵌套 ConfigProvider 抬 z，D18）"
 ```
@@ -3796,13 +3973,14 @@ describe('ProcessSnapshot（spec §5.3 红线）', () => {
   it('每个节点渲染默认 Handle×2：.react-flow__handle 数 === nodes×2', () => {
     const { container } = render(<ProcessSnapshot snapshot={snap} />);
     const handles = container.querySelectorAll('.react-flow__handle');
-    expect(handles.length).toBe(snap.nodes.length * 2);   // 缺 Handle → 边全丢（error008）
+    expect(handles.length).toBe(snap.nodes.length * 2);   // 缺 Handle → 边全丢（isNodeInitialized 早退静默丢弃、不报 error008——spec §5.3 第八轮措辞，plan 第九轮对齐）
   });
 
-  it('纯文本渲染：content 文本直出（XSS 夹具正向断言——服务端已剥标签，前端只走文本节点）', () => {
-    const withXssPayload = { ...snap, nodes: [{ ...snap.nodes[0], data: { content: '一只猫在窗台上' } }] };
-    const { getByText } = render(<ProcessSnapshot snapshot={withXssPayload} />);
-    expect(getByText('一只猫在窗台上')).toBeInTheDocument(); // React 文本节点自动转义即安全（旧 [dangerouslysetinnerhtml] querySelector 是恒真空断言，第六轮删）
+  it('纯文本渲染：content 含 XSS 载荷时以字面文本显示、不产生 img（第八轮：真喂载荷——旧夹具无任何 HTML 是恒真断言，"XSS 夹具"名不副实）', () => {
+    const withXssPayload = { ...snap, nodes: [{ ...snap.nodes[0], data: { content: '<img src=x onerror=alert(1)>一只猫在窗台上' } }] };
+    const { container, getByText } = render(<ProcessSnapshot snapshot={withXssPayload} />);
+    expect(getByText('<img src=x onerror=alert(1)>一只猫在窗台上')).toBeInTheDocument(); // 字面文本整串（React 文本节点自动转义）
+    expect(container.querySelectorAll('img')).toHaveLength(0); // 该 fixture 无 thumbnailUrl——出现任何 img 即 dangerouslySetInnerHTML 侧漏
   });
 
   it('缩略图展示：thumbnailUrl 渲染为 img', () => {
@@ -3917,16 +4095,34 @@ git commit -m "feat(video-work): 批次9 只读快照渲染（Handle 红线×2/�
 - [ ] **Step 1: 写失败测试**
 
 ```tsx
-// 文件顶部装配（第六轮）：AuthProvider mock（C5 模板，onNeedLogin 必填 prop 三处 render 都要传）+ AntdApp 包裹/stub
-vi.mock('@/components/AuthProvider', () => {
-  const ctx = { user: null, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() };
-  return { useAuth: () => ctx };
-});
+// 文件顶部装配（第八轮补全 harness）：import 头 + api mock + AuthProvider mock（C5 模板）+
+// 本文件自有 snap fixture（原引用 Task 9.1 测试文件的局部 fixture，跨文件不存在）。
+// ProcessView 用 useNavigate——所有 render 必须包 Router（原三处裸 render 是 invariant 抛错）。
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter, createMemoryRouter, RouterProvider } from 'react-router';
+import { App as AntdApp } from 'antd';
+import * as api from '@/api/videoWorkApi';
+import { ProcessView } from '../ProcessView';
+
+vi.mock('@/api/videoWorkApi');
+const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
+vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authCtx }));
+beforeEach(() => { authCtx.user = null; });
+
+const snap = {
+  workId: 'w1', title: 't',
+  nodes: [
+    { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '一只猫' } },
+    { id: 'g1', type: 'group', position: { x: 500, y: 0 }, data: { groupType: 'storyboard', cells: ['n1'] } },
+  ],
+  edges: [{ id: 'e1', source: 'n1', target: 'g1' }],
+} as any;
 
 describe('ProcessView', () => {
   it('顶栏：作品标题 + 返回 + 复制项目按钮（canClone=false 不渲染）', async () => {
     vi.mocked(api.fetchProcessSnapshot).mockResolvedValue(snap as any);
-    render(<ProcessView workId="w1" title="t" canClone={false} onBack={() => {}} onNeedLogin={() => {}} />);
+    render(<MemoryRouter><ProcessView workId="w1" title="t" canClone={false} onBack={() => {}} onNeedLogin={() => {}} /></MemoryRouter>);
     await waitFor(() => screen.getByTestId('process-snapshot'));
     expect(screen.queryByRole('button', { name: /复制项目/ })).toBeNull();
   });
@@ -3934,7 +4130,7 @@ describe('ProcessView', () => {
   it('克隆成功 → toast + 「打开画布」跳 /canvas?projectId=（先例 WorkspaceDimension.tsx:93）', async () => {
     vi.mocked(api.cloneWork).mockResolvedValue({ projectId: 'new-p' });
     const router = createMemoryRouter([{ path: '/', element: <ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /> }], { initialEntries: ['/'] });
-    render(<RouterProvider router={router} />);
+    render(<AntdApp><RouterProvider router={router} /></AntdApp>); // AntdApp 必包——克隆成功路径 message.success 走 useApp()，antd 默认 context 是 {message:{}} → TypeError 成 unhandled rejection（第八轮）
     await waitFor(() => screen.getByTestId('process-snapshot'));
     fireEvent.click(screen.getByRole('button', { name: /复制项目/ }));
     await waitFor(() => screen.getByRole('button', { name: /打开画布/ }));
@@ -3946,7 +4142,7 @@ describe('ProcessView', () => {
   it('未登录克隆 → onNeedLogin 被调（页内 LoginModal，不跳转）（第六轮落地）', async () => {
     vi.mocked(api.fetchProcessSnapshot).mockResolvedValue(snap as any);
     const onNeedLogin = vi.fn();
-    render(<AntdApp><ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={onNeedLogin} /></AntdApp>);
+    render(<MemoryRouter><AntdApp><ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={onNeedLogin} /></AntdApp></MemoryRouter>);
     await waitFor(() => screen.getByTestId('process-snapshot'));
     fireEvent.click(screen.getByRole('button', { name: /复制项目/ }));
     expect(onNeedLogin).toHaveBeenCalled();     // ctx.user=null（顶部 mock 默认）
@@ -3955,7 +4151,7 @@ describe('ProcessView', () => {
 
   it('快照 503/404 → 错误态 + 返回按钮（不白屏）', async () => {
     vi.mocked(api.fetchProcessSnapshot).mockRejectedValue(new Error('x'));
-    render(<ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} />);
+    render(<MemoryRouter><ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /></MemoryRouter>);
     await waitFor(() => screen.getByText(/暂时无法加载/));
   });
 });
@@ -4036,6 +4232,37 @@ git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次9 创作过程视图（复制项目/打开画布/503 容错）"
 ```
 
+### Task 9.3: nodeTypes 覆盖锚定测试（shared，第八轮新增——真防线替代自指清单，裁决 B6）
+
+**Files:**
+- Create: `apps/web/src/pages/canvas/components/nodeTypes.coverage.test.tsx`（与 CanvasView.test.tsx 同级——第九轮修正路径：CanvasView 真身在 `pages/canvas/components/` 而非 `pages/canvas/`，glob 全仓仅此一处）
+- Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx`（nodeTypes 声明加 `export`——仅 1 词，不改任何渲染逻辑）
+
+- [ ] **Step 1: 写失败测试**
+
+```ts
+import { it, expect } from 'vitest'; // 第九轮补：web 侧显式导入 vitest——vite-env.d.ts 只有 vite/client、无 vitest/globals 类型声明，tsc -b 门禁下 it/expect 是 TS2304（vitest run 因 globals:true 反而能过，典型"只被 build 门禁抓到"）；全仓 244 个 web 测试文件同款惯例（CanvasView.test.tsx:1）
+import { nodeTypes } from './CanvasView'; // 同目录 import（先例 CanvasView.test.tsx:3）。模块级 import 无渲染副作用——canvasCollabRuntime 顶层仅 import + let（连接惰性建），CanvasView.test.tsx 已有整图 import 先例；本测试仅 import 不渲染
+import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared';
+
+it('CanvasView nodeTypes 注册表键 ⊆ shared VIDEO_WORK_NODE_TYPES（快照白名单防演进遗漏——新增节点类型未同步清单时本测试红）', () => {
+  const keys = Object.keys(nodeTypes);
+  expect(keys.length).toBeGreaterThanOrEqual(8); // 现状 8 键
+  for (const key of keys) expect(VIDEO_WORK_NODE_TYPES).toContain(key);
+});
+```
+
+- [ ] **Step 2: 跑红（nodeTypes 未导出 → TS2306）→ Step 3: 实现（CanvasView.tsx 的 nodeTypes 声明加 export）**
+
+- [ ] **Step 4: 跑绿 + web 回归（`pnpm --filter @flowweb/web test` + `pnpm --filter @flowweb/web build`）→ Step 5: Commit**
+
+```bash
+git add apps/web/src/pages/canvas/
+git commit -m "feat(video-work): 批次9 nodeTypes 覆盖锚定（shared 清单，CanvasView/WHITELIST 双侧红线）"
+```
+
+（配套 api 侧锚定 = Task 5.1 覆盖测试已改为 import `VIDEO_WORK_NODE_TYPES` 断言 WHITELIST ⊇ 清单。防线语义：CanvasView 新增类型而 shared 未同步 → 本测试红（web 侧）；shared 有而 WHITELIST 缺 → Task 5.1 红（api 侧）。）
+
 ---
 
 ## 批次 10：Admin 前端
@@ -4051,7 +4278,18 @@ git commit -m "feat(video-work): 批次9 创作过程视图（复制项目/打�
 - [ ] **Step 1: 写失败测试（含 admin 路由存在性——router.admin.test 覆盖缺口的自我补偿，spec §7 触点）**
 
 ```tsx
+// 第八轮补 harness + renderWithProviders 定义（原块用而未定义；包装照 HomeBannersPage.test.tsx:17 内联三行）：
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import { App as AntdApp } from 'antd';
+import type { ReactElement } from 'react';
 import { router } from '@/router';
+import { VideoWorksPage } from '../VideoWorksPage';
+import { adminVideoWorkApi } from '@/api/adminApi';
+
+vi.mock('@/api/adminApi');
+const renderWithProviders = (ui: ReactElement) => render(<MemoryRouter><AntdApp>{ui}</AntdApp></MemoryRouter>);
 
 // flatten 内联（router.admin.test.tsx:19-21 同款局部函数——勿 import 测试文件：连带其 vi.mock 副作用）
 const flatten = (routes: any[]): any[] =>
@@ -4081,6 +4319,23 @@ it('ModalForm 含候选下拉（candidates）/两开关/标签 tags 模式/封�
   await waitFor(() => screen.getByText(/候选视频/));
   expect(screen.getByText(/允许查看创作过程|查看制作过程/)).toBeInTheDocument(); // 两开关（allowViewProcess/allowClone）
   expect(screen.getByText(/标签/)).toBeInTheDocument();
+});
+
+it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已有画布作品：关 allowViewProcess → allowClone 被强制关并禁用（第九轮修正：原断言挂在"新增"空表单下——无 canvasProjectId 时两开关本来 disabled、click 是 no-op、断言恒真）', async () => {
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [{
+    id: 'w1', title: '末班地铁', categoryId: 'c1', status: 'PUBLISHED', canvasProjectId: 'p1',
+    allowViewProcess: true, allowClone: true,
+    viewCount: 10, likeCount: 5, sortOrder: 0, updatedAt: '2026-09-01T00:00:00Z',
+  }], total: 1 } as any);
+  vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([{ id: 'c1', name: 'AI真人影视', sortOrder: 0, active: true }] as any);
+  vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([] as any);
+  renderWithProviders(<VideoWorksPage />);
+  await waitFor(() => screen.getByText('末班地铁'));
+  fireEvent.click(screen.getByRole('button', { name: /编辑/ })); // 编辑入口——ModalForm initialValues 带 canvasProjectId，两开关初始可点
+  await waitFor(() => screen.getByText(/允许查看创作过程|查看制作过程/));
+  expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled(); // 前置：有画布 → 初始可点（防再写空转断言）
+  fireEvent.click(screen.getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })); // 关闭
+  expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeDisabled(); // 联动禁用（后端 400 校验的前端半边）
 });
 ```
 
@@ -4145,7 +4400,7 @@ ModalForm 字段（完整清单，spec §5.6）：
 7. 封面（Upload，customRequest→uploadCover→写 coverKey；提示"留空使用视频缩略图"）
 8. 排序（ProFormDigit）
 9. 状态（Radio DRAFT/PUBLISHED）
-10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**——保存校验的前端半边）
+10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关））
 11. viewCount / likeCount（ProFormDigit，后台可调）
 
 - [ ] **Step 4: 跑绿 → Step 5: Commit**
@@ -4160,6 +4415,7 @@ git commit -m "feat(video-work): 批次10 admin 作品管理（候选选片/两�
 
 **Files:**
 - Modify: `VideoWorksPage.tsx`（页内 Tabs 第二/三个 tab）
+- Modify: `apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx`（追加用例——第九轮补：renderWithProviders/mock 均在 Task 10.1 建立的该文件内，勿新开文件）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -4192,7 +4448,7 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（两个轻量 ProTable + 设置卡片 Form）**
+- [ ] **Step 2: 跑红 → Step 3: 实现（两个轻量 ProTable + 设置卡片 Form；Tabs 为新增结构——HomeBannersPage 无 Tabs 先例，可参照的只有其 ProTable/ModalForm/上传内联）**
 
 ```tsx
 <Tabs items={[
@@ -4209,6 +4465,7 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 
 ```bash
 pnpm --filter @flowweb/web test
+pnpm --filter @flowweb/web build   # 批次收尾类型门禁（第九轮落到命令块）
 git add apps/web/src/pages/admin/
 git commit -m "feat(video-work): 批次10 类型/标签管理 + 轮播设置卡片"
 ```
@@ -4271,8 +4528,8 @@ npx prisma migrate deploy
 
 ## Plan 自审记录（writing-plans Self-Review）
 
-1. **Spec 覆盖对照**：批次 0=D17/§4.3 by-key；批次 1=§3 schema/shared；批次 2=§4.3 后台 API 全量；批次 3=§4.2 公开列表/详情/categories；批次 4=§4.5 计数；批次 5=§4.6 快照（白名单/排序/Handle 依赖在 9.1/缩略图/端点）；批次 6=§4.7 克隆；批次 7=§5.1/5.2/5.5/D13/D14；批次 8=§5.4/D5/D15/D18/D11；批次 9=§5.3/D8/D9 前端半边；批次 10=§5.6；批次 11=§8 上线顺序+R12。**发现并补齐**：spec §4.2 未明确"公开读取轮播设置"的端点——Task 8.3 落为 `GET /api/video-works/settings`（非敏感运营开关，公开），实施决定已在文中标注。
-2. **占位符扫描**：Task 8.1 的 PlayView/ProcessView/CarouselBar 有"最简占位"阶段（仅外壳联动 data-testid），后续任务替换为真实实现——这是分批 TDD 的灰度策略而非未完成项，替换任务明确（8.2/8.3/9.2）。upload-cover 的 MinIO 写入方法标注"以 grep 实际方法为准"——因 MinioService 方法名未在六轮审核中锁定，实施第一步先探明再落（避免 plan 写死错误 API）。
+1. **Spec 覆盖对照**：批次 0=D17/§4.3 by-key；批次 1=§3 schema/shared；批次 2=§4.3 后台 API 全量；批次 3=§4.2 公开列表/详情/categories；批次 4=§4.5 计数；批次 5=§4.6 快照（白名单/排序/Handle 依赖在 9.1/缩略图/端点）；批次 6=§4.7 克隆；批次 7=§5.1/5.2/5.5/D13/D14；批次 8=§5.4/D5/D15/D18/D11；批次 9=§5.3/D8/D9 前端半边；批次 10=§5.6；批次 11=§8 上线顺序+R12。**发现并补齐**：spec §4.2 未明确"公开读取轮播设置"的端点——落为 `GET /api/video-works/settings`（非敏感运营开关，公开；后端 Task 3.2、前端封装 Task 7.1，第九轮更新——原记"Task 8.3"已两轮前移）。
+2. **占位符扫描**：无未承接占位——Task 8.1 按 C2 执行序（8.2→8.3→9.1→9.2→8.1→8.4）集成全部真实子组件，并在 Step 3b 完成 VideosPage 挂载接线（第八轮落进正文，原"最简占位阶段"表述作废）。upload-cover 的 MinIO API 已定案 `upload(key, buffer, contentType)` 三参（C1-4 / minio.service.ts:105 / Task 2.5 三处一致——"以 grep 为准"的占位表述作废，第八轮）。
 3. **类型一致性**：shared `VideoWorkDetail/ProcessSnapshotData/CandidateMedia` 在 Task 1.2 定义，Task 3.3/5.2/5.3/7.1/8.2/9.1 引用一致；`buildFilteredSnapshot(raw, opts)` 签名在 5.1 定义、5.3/6.1 复用一致；`toggleLike` 返回 `{liked,likeCount}` 在 4.3/7.1/8.2 一致；Redis key `videoWork:like:{workId}:{userId}` 在 3.3/4.3 同键（§4.2 约束落实）。
 
 
