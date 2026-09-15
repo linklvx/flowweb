@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Inject, UsePipes, ValidationPipe } from '@nestjs/common';
 import { VideoWorkService } from './video-work.service';
 import { CreateVideoCategoryDto, UpdateVideoCategoryDto } from './dto/video-category.dto';
 import { CreateVideoTagDto, UpdateVideoTagDto } from './dto/video-tag.dto';
@@ -18,6 +18,11 @@ export class AdminVideoWorkController {
   @Post('tags') createTag(@Body() dto: CreateVideoTagDto) { return this.service.createTag(dto); }
   @Put('tags/:id') updateTag(@Param('id') id: string, @Body() dto: UpdateVideoTagDto) { return this.service.updateTag(id, dto); }
   @Delete('tags/:id') deleteTag(@Param('id') id: string) { return this.service.deleteTag(id); }
+
+  @Get('candidates')
+  listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    return this.service.listCandidates(Math.max(1, Number(page) || 1), Math.min(50, Math.max(1, Number(pageSize) || 20)));
+  }
 
   // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）
 }
