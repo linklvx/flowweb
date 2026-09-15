@@ -892,7 +892,7 @@ git commit -m "feat(video-work): 批次1 模块骨架（双 controller 空壳 + 
 - Modify: `admin-video-work.controller.ts`
 - Create: `apps/api/src/modules/video-work/admin-video-work.controller.spec.ts`
 
-- [ ] **Step 1: 写失败测试（admin-video-work.controller.spec.ts 新建）**
+- [x] **Step 1: 写失败测试（admin-video-work.controller.spec.ts 新建）**
 
 ```ts
 import { Test } from '@nestjs/testing';
@@ -955,12 +955,12 @@ describe('AdminVideoWorkController categories/tags', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter @flowweb/api test -- admin-video-work.controller.spec`
 Expected: FAIL（controller 方法不存在）
 
-- [ ] **Step 3: 写 DTO + service 方法 + controller**
+- [x] **Step 3: 写 DTO + service 方法 + controller**
 
 ```ts
 // dto/video-category.dto.ts
@@ -1070,16 +1070,16 @@ export class AdminVideoWorkController {
 
 注意：admin 端 listCategories 返回**全部**（含 inactive，管理用）；公开端（Task 3.2）才过滤 active + 走缓存。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter @flowweb/api test -- admin-video-work.controller.spec`
 Expected: PASS
 
-- [ ] **Step 5: 路由声明序断言——本任务不写（第六轮修正：引用尚不存在的方法名是必红占位，findIndex=-1 → toBeGreaterThan(-1) 失败）**
+- [x] **Step 5: 路由声明序断言——本任务不写（第六轮修正：引用尚不存在的方法名是必红占位，findIndex=-1 → toBeGreaterThan(-1) 失败）**
 
 声明序断言**渐进式落在后续任务**：Task 2.4（作品 :id 首次出现，断言 categories/tags/candidates 在其前）→ Task 2.5 数组补 `uploadCover` → Task 2.6 补 `getSettings`（全部静态段到位后的终态断言）。本步骤无代码。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 ```bash
@@ -1096,7 +1096,7 @@ git commit -m "feat(video-work): 批次2 类型/标签池 CRUD + 改动删缓存
 - Modify: `admin-video-work.controller.ts`
 - Create: `apps/api/src/modules/video-work/video-work.service.spec.ts`
 
-- [ ] **Step 1: 写失败测试（video-work.service.spec.ts 新建）**
+- [x] **Step 1: 写失败测试（video-work.service.spec.ts 新建）**
 
 ```ts
 import { Test } from '@nestjs/testing';
@@ -1207,12 +1207,12 @@ describe('category CRUD 缓存失效', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter @flowweb/api test -- video-work.service.spec`
 Expected: FAIL（listCandidates 不存在）
 
-- [ ] **Step 3: 实现（service 追加）**
+- [x] **Step 3: 实现（service 追加）**
 
 ```ts
 import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
@@ -1271,7 +1271,7 @@ listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + Commit**
+- [x] **Step 4: 跑测试确认通过 + Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work.service.spec
@@ -1285,7 +1285,7 @@ git commit -m "feat(video-work): 批次2 candidates 候选池（口径+分页+ca
 - Create: `dto/create-video-work.dto.ts`、`dto/update-video-work.dto.ts`
 - Modify: `video-work.service.ts`
 
-- [ ] **Step 1: 写失败测试（video-work.service.spec.ts 追加 describe）**
+- [x] **Step 1: 写失败测试（video-work.service.spec.ts 追加 describe）**
 
 ```ts
 describe('createWork/updateWork 保存校验与发布语义', () => {
@@ -1334,7 +1334,7 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
 
 （updateWork 第二参数为 dto、第三参数为现有行——service 内先查现有行再合并判断，测试 mock prisma.videoWork.findUnique。）
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 // dto/create-video-work.dto.ts
@@ -1440,7 +1440,7 @@ private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work.service.spec
@@ -1453,7 +1453,7 @@ git commit -m "feat(video-work): 批次2 作品 CRUD service（保存校验/发�
 **Files:**
 - Modify: `admin-video-work.controller.ts`（作品路由，声明在全部静态段之后）
 
-- [ ] **Step 1: 写失败测试（admin-video-work.controller.spec.ts 追加）**
+- [x] **Step 1: 写失败测试（admin-video-work.controller.spec.ts 追加）**
 
 ```ts
 it('GET / 作品列表分页透传', async () => {
@@ -1480,7 +1480,7 @@ it('路由声明序：静态段（categories/tags/candidates）先于作品 :id�
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 service 追加：
 
@@ -1526,7 +1526,7 @@ it('removeWork 不触碰 MinIO（删除红线——MinioService 的删除方法�
 });
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- admin-video-work.controller.spec
@@ -1539,7 +1539,7 @@ git commit -m "feat(video-work): 批次2 作品 admin CRUD（删除红线：只�
 **Files:**
 - Modify: `admin-video-work.controller.ts` + `video-work.service.ts`
 
-- [ ] **Step 1: 写失败测试**（第八轮修正归属：magic-number 在 **service**——controller 只有 fileFilter 拦 mimetype（单测直调不经 multer）与 !file 检查；原 controller 用例把 service mock 掉后断言 400 是永红。magic-number/三参断言进 service spec，controller spec 只测转发与缺文件）
+- [x] **Step 1: 写失败测试**（第八轮修正归属：magic-number 在 **service**——controller 只有 fileFilter 拦 mimetype（单测直调不经 multer）与 !file 检查；原 controller 用例把 service mock 掉后断言 400 是永红。magic-number/三参断言进 service spec，controller spec 只测转发与缺文件）
 
 controller spec 追加：
 
@@ -1574,7 +1574,7 @@ describe('uploadCover（magic-number + system 域）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 // controller
@@ -1609,7 +1609,7 @@ async uploadCover(buffer: Buffer, mimetype: string): Promise<{ key: string }> {
 **实施注意（已核验，勿再探查）**：MinioService 写对象就是 `upload(key, buffer, contentType)`（minio.service.ts:105，无 putObject/uploadBuffer/presignedPut）；上传先例 = admin-home-banner.controller.ts:39-66（FileInterceptor + limits + fileFilter + magic-number + buildKey + upload 三参），上方代码即照抄该先例。
 **跑绿前置（第八轮落实注释里的承诺）**：把 `'uploadCover'` 追加进 Task 2.4 的 staticRoutes 数组（渐进式断言——追加前 getOwnPropertyNames 对该键 -1 属预期红）。
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- admin-video-work.controller.spec
@@ -1622,7 +1622,7 @@ git commit -m "feat(video-work): 批次2 封面上传（magic-number + system �
 **Files:**
 - Modify: `admin-video-work.controller.ts` + `video-work.service.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加）**
+- [x] **Step 1: 写失败测试（service spec 追加）**
 
 ```ts
 it('无行返回默认值（不依赖 DB 有行）', async () => {
@@ -1642,7 +1642,7 @@ it('carouselScope 非法值 → 400', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 // service
@@ -1680,13 +1680,15 @@ export class UpdateVideoWorkSettingsDto {
 }
 ```
 
-- [ ] **Step 4: 跑绿 + 批次 2 全量回归 → Step 5: Commit**
+- [x] **Step 4: 跑绿 + 批次 2 全量回归 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test
 git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次2 settings 端点（singleton upsert + 默认值兜底）"
 ```
+
+> **批次 2 执行记录（2026-09-16）**：六任务 TDD 全链提交 8e51efae（2.1 类型/标签 CRUD）/00dba968（2.2 candidates）/e0a1fbf1（2.3 作品 CRUD service）/c0691ae0（2.4 admin controller+删除红线）/8712832b（2.5 upload-cover）/a5104217（2.6 settings），全量 **130 files / 1025 tests** 全绿（基线 999+26 吻合）。spec 合规审查 ✅（十红线全达标：删除禁 minio.delete 有钉子测试、五静态段路由序渐进断言、ValidationPipe 类级、保存校验双 400、publishedAt 服务端设、durationSec 取整、候选口径+canvasExists 批量单查、magic-number 三格式、settings 默认值兜底）；代码质量审查 ✅ Ready to merge（+注释修正 e99d6a49）。**已裁定机械偏差 3 处**（plan 代码块 strict 编译必要修复，均对齐仓库先例）：①DTO 必填属性加 `!`（TS2564，先例 create-home-banner.dto.ts:25）；②2.5 it 标题内层引号笔误改双引号（断言零改动）；③2.5 controller uploadCover 补 async（先例 admin-home-banner.controller.ts:50）。**登记未修 Minor**：updateWork `data: any` 类型收窄（plan 逐字，后续批次不动它）；上传 Content-Type 透传客户端 mimetype（与 banner 先例一致）；路由序白名单式断言无前向防护（plan 指定形态）。**批次 3 提醒**：公开 categories 缓存键复用 service 内 CATEGORY_CACHE_KEY 常量（勿复制字面量）；updateWork/removeWork 只 del process 缓存、公开列表残余 ≤60s 已裁定接受。
 
 ---
 
