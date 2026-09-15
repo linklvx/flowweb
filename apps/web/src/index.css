@@ -36,6 +36,13 @@
   --ve-track-video: #1f1f1f;                  /* 批3 video 兜底底 */
 }
 
+/* ===== Video Works 作品列表 token（spec 2026-09-16 §6：显式定义并登记） ===== */
+:root {
+  --vw-card-bg: #1e1e1e;        /* 作品卡面 */
+  --vw-card-border: rgba(255,255,255,0.10);
+  --vw-card-border-hover: rgba(255,255,255,0.25);
+}
+
 body {
   margin: 0;
   background: #141414;

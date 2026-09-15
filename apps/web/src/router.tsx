@@ -18,6 +18,7 @@ const SubscriptionBannerPage = lazy(() => import('@/pages/admin/pages/Subscripti
 const AnnouncementPage = lazy(() => import('@/pages/admin/pages/AnnouncementPage'));
 const HomeBannersPage = lazy(() => import('@/pages/admin/pages/HomeBannersPage'));
 const SettingsPage = lazy(() => import('@/pages/admin/pages/SettingsPage'));
+const VideosPage = lazy(() => import('./pages/videos/VideosPage').then(m => ({ default: m.VideosPage })));
 
 const AdminLazy = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<div className="flex justify-center p-16"><Spin /></div>}>{children}</Suspense>
@@ -40,6 +41,10 @@ export const router = createBrowserRouter([
       { path: '/', element: <HomePage /> },
       { path: '/templates', element: <TemplateMarketPage /> },
       { path: '/templates/:id', element: <TemplatePreviewPage /> },
+      // 可选参数单路由（防两条平级路由整页重挂）；lazy 元素必须自带 Suspense 边界——AppLayout 无 Suspense、
+      // 公开组现有路由全是静态 import、react-router 7 SPA 不提供隐式边界 → 不包则 /videos 直链首屏
+      // chunk 加载期间整个 root 无 fallback 白屏（照抄 AdminLazy 同款）
+      { path: '/videos/:id?', element: <Suspense fallback={<div className="flex justify-center p-16"><Spin /></div>}><VideosPage /></Suspense> },
     ],
   },
   { path: '/login', element: <LoginPage /> },
