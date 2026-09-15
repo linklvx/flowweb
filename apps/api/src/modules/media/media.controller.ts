@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards, UsePipes, Req, Inject, BadRequestException, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, UseGuards, UsePipes, Req, Inject, ValidationPipe } from '@nestjs/common';
 import { MediaService } from './media.service';
 import { MediaBatchService } from './media-batch.service';
 import { BatchGetMediaDto } from './media.dto';
-import { MinioService } from '../minio/minio.service';
 import { AuthGuard } from '../../auth/auth.guard';
 
 @Controller('api/media')
@@ -10,7 +9,6 @@ import { AuthGuard } from '../../auth/auth.guard';
 export class MediaController {
   constructor(
     @Inject(MediaService) private readonly mediaService: MediaService,
-    @Inject(MinioService) private readonly minioService: MinioService,
     @Inject(MediaBatchService) private readonly batchService: MediaBatchService,
   ) {}
 
@@ -22,8 +20,7 @@ export class MediaController {
 
   @Get('by-key')
   async getUrlByKey(@Query('key') key: string) {
-    if (!key) throw new BadRequestException('key is required');
-    const url = await this.minioService.generatePresignedGetUrl(key, 900);
+    const url = await this.mediaService.getPresignedUrlByKey(key); // 校验下沉 service，controller 变薄
     return { url };
   }
 
