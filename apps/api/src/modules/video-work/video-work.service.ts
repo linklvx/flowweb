@@ -1,6 +1,8 @@
 // 空壳，构造签名一次到位——后续任务只加方法、不动构造/providers，spec 文件从创建起就 provide 全部依赖、永不需要二次编辑
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
+import { CreateVideoWorkDto } from './dto/create-video-work.dto';
+import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
@@ -99,5 +101,49 @@ export class VideoWorkService {
     const url = await this.minio.generatePresignedGetUrl(key, 3600);
     await this.redis.set(cacheKey, url, 'EX', 3500);
     return url;
+  }
+
+  async createWork(dto: CreateVideoWorkDto) {
+    this.assertProcessFlags(dto as any);
+    const published = dto.status === 'PUBLISHED';
+    return this.prisma.videoWork.create({ data: {
+      ...dto,
+      durationSec: dto.durationSec != null ? Math.round(dto.durationSec) : undefined,
+      publishedAt: published ? new Date() : null,   // 请求体无此字段，服务端设
+    } });
+  }
+
+  async updateWork(id: string, dto: UpdateVideoWorkDto) {
+    const existing = await this.prisma.videoWork.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('作品不存在');
+    const merged = {
+      allowViewProcess: dto.allowViewProcess ?? existing.allowViewProcess,
+      allowClone: dto.allowClone ?? existing.allowClone,
+      canvasProjectId: dto.canvasProjectId !== undefined ? dto.canvasProjectId : existing.canvasProjectId,
+      status: dto.status ?? existing.status,
+    } as any;
+    this.assertProcessFlags(merged);
+    const data: any = { ...dto, durationSec: dto.durationSec != null ? Math.round(dto.durationSec) : undefined };
+    // 发布语义：转 PUBLISHED 且原 publishedAt 为空 → 设 now；已有则不动
+    if (merged.status === 'PUBLISHED' && !existing.publishedAt) data.publishedAt = new Date();
+    const row = await this.prisma.videoWork.update({ where: { id }, data });
+    await this.invalidateWorkCaches(id);
+    return row;
+  }
+
+  // 第七轮：本任务就地定义（Task 2.4 removeWork 也调用——前向引用 Task 5.3 会让批次 2 的 tsc 编译红、
+  // 违反"每任务红-绿-提交"）。Task 5.3 仅把 key 收敛进 PROCESS_CACHE 常量，方法体不变。
+  private async invalidateWorkCaches(id: string) {
+    await this.redis.del(`videoWork:process:${id}`);
+  }
+
+  private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean; canvasProjectId?: string | null }) {
+    if ((w.allowViewProcess || w.allowClone) && !w.canvasProjectId) {
+      throw new BadRequestException('开启创作过程/克隆需要画布来源（canvasProjectId）');
+    }
+    // 第八轮裁定（spec §4.3）：克隆入口在创作过程视图顶栏——允许克隆必须允许看过程，防"可克隆不可看过程"死开关
+    if (w.allowClone && !w.allowViewProcess) {
+      throw new BadRequestException('允许克隆必须同时允许查看创作过程（allowClone 依赖 allowViewProcess）');
+    }
   }
 }

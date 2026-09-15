@@ -104,3 +104,46 @@ describe('category CRUD 缓存失效', () => {
     expect((service as any).redis.del).toHaveBeenCalledWith('videoWork:categories');
   });
 });
+
+describe('createWork/updateWork 保存校验与发布语义', () => {
+  it('(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400', async () => {
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
+      allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
+      allowViewProcess: false, allowClone: true, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('allowClone=true 且 allowViewProcess=false → 400（第八轮裁定：克隆入口在创作过程视图顶栏——开关耦合，防前端不可达死开关；update 语义=合并现有值后判定）', async () => {
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', canvasProjectId: 'p1',
+      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow(BadRequestException);
+    // 现有 allowViewProcess=true：单独开 allowClone 不 400
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: true, allowClone: false, canvasProjectId: 'p1' });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await expect(service.updateWork('w1', { allowClone: true } as any)).resolves.toBeTruthy();
+    // 现有 allowViewProcess=false：开 allowClone → 400
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: 'p1' });
+    await expect(service.updateWork('w1', { allowClone: true } as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('发布动作：status 转 PUBLISHED 且 publishedAt 为空 → 服务端设 now；请求体带 publishedAt 被忽略', async () => {
+    prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', status: 'PUBLISHED', publishedAt: new Date('2000-01-01') } as any);
+    const data = (prisma.videoWork.create as Mock).mock.calls[0][0].data;
+    expect(data.publishedAt.getFullYear()).toBeGreaterThan(2025); // now，非请求体的 2000
+  });
+
+  it('再次下架上架不重置 publishedAt（已有 publishedAt → update payload 不写该键）', async () => {
+    // updateWork 签名是 (id, dto)——现有行由 service 内部 findUnique 查，此处必须 mock（文件级 videoWork.findUnique 是裸 vi.fn() 返回 undefined——第十一轮修正：原"桩不含 videoWork"表述已过期，第十轮已配齐命名空间）
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'PUBLISHED', publishedAt: new Date('2026-01-01'), allowViewProcess: false, allowClone: false, canvasProjectId: null });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await service.updateWork('w1', { status: 'PUBLISHED' } as any);
+    const data = (prisma.videoWork.update as Mock).mock.calls[0][0].data;
+    expect(data.publishedAt).toBeUndefined(); // 不动原值 = payload 不含该键（Prisma update 未设键即保留 DB 原值）
+  });
+
+  it('durationSec 小数取整（12.6 → 13）', async () => {
+    prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', durationSec: 12.6 } as any);
+    expect((prisma.videoWork.create as Mock).mock.calls[0][0].data.durationSec).toBe(13);
+  });
+});
