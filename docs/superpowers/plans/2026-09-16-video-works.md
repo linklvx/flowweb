@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-16-video-works-design.md`（七轮审核冻结；第八轮勘误归一——spec 与 plan 的分叉已全部消除）。执行本 plan 前须通读 spec 的 D1-D18 决策与 §4.6 白名单表、§4.7 克隆伪代码——本 plan 引用其结论不重复论证。
 
-**TDD 铁律:** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST。每任务红-绿-提交。测试命令：api `pnpm --filter @flowweb/api test`（含 tsc -p tsconfig.spec.json --noEmit）；web `pnpm --filter @flowweb/web test`（**仅 vitest、无类型检查**）——**每个 web 批次（7/8/9/10）收尾必须加跑 `pnpm --filter @flowweb/web build`**（tsc -b；tsconfig include:["src"] 连测试文件一起查，否则批次 7-10 的类型错误堆积到批次 11 才暴露，第八轮修正）。纯文件操作类任务（migration/DB 核查）无测试对象，按步骤执行但验证不可省。
+**TDD 铁律:** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST。每任务红-绿-提交。测试命令：api `pnpm --filter @flowweb/api test`（含 tsc -p tsconfig.spec.json --noEmit）；web `pnpm --filter @flowweb/web test`（**仅 vitest、无类型检查**）——**每个 web 批次（7/8/9/10）收尾必须加跑 `pnpm --filter @flowweb/web exec tsc -b`**（=build 脚本的类型半边，emit 到 dist 无害、比整跑 vite build 快；tsconfig include:["src"] 连测试文件一起查，否则类型错误堆积到批次 11 才暴露。第八轮立规、第十轮由 build 减负为 tsc -b，批次 11.1 仍跑全量 build）。纯文件操作类任务（migration/DB 核查）无测试对象，按步骤执行但验证不可省。
 
 ---
 
@@ -26,6 +26,8 @@
 | C1-2 | **测试双栈约定**：api 侧 `import { describe, it, expect, beforeEach, vi } from 'vitest'` + `vi.fn()`（**已机械回写**：正文全部 `vi.fn()`/`Mock`；用到 `Mock` 类型的 spec 文件顶部补 `import type { Mock } from 'vitest'`——api 跑 tsc，`jest` 未定义直接编译红）；web 侧路由导入一律 `from 'react-router'`（**已机械回写全文 import**；react-router-dom 包不存在，web/package.json 只有 react-router@^7；MemoryRouter/createMemoryRouter/RouterProvider/useParams/useNavigate/useLocation 全部从 react-router 导出） | api package.json:8；media.service.spec.ts:2；web package.json:39 |
 | C1-3 | **全屏壳（z-[100000]）内 toast/弹层机制（第五轮修正——单嵌套 ConfigProvider 抬不起 useApp() toast）**：①静态 `message.*` 落 body、z≈2010（AssetPanel.tsx:34 注释实测值）被壳盖住，禁用；②壳是 createPortal(document.body)（BaseFullscreenModal.tsx:68-80）但 React context 按组件树走——**壳内组件 `AntdApp.useApp()` 解析到根 App（App.tsx:15，holder 挂 body、z 基座 11000）→ 壳内 toast 仍被盖；嵌套 ConfigProvider 只能抬 Modal 类弹层（读最近 Provider token），追不到根 App 的 holder**。**正确配方（第七轮措辞修正：**结构**照抄 VideoEditorShell.tsx:127-141（同为 BaseFullscreenModal 壳）——getPopupContainer 进壳 + `<AntdApp component={false}>`（component={false} 必须：默认渲染 div.ant-app 打断壳布局）；**`theme token zIndexPopupBase:100000` 是本 plan 新增层，先例没有**（其 theme 只有 darkAlgorithm、弹层从不落 body 故不需要；本功能 LoginModal 需要它保首帧回退路径，勿以"先例没有"为由删掉）。另**有意不加 darkAlgorithm**：LoginModal 全仓均为浅色渲染（TopActionBar 先例），加了反而换肤。配方：壳根 div 挂 shellRef，内容包两层——嵌套 `<ConfigProvider theme={{ token:{ zIndexPopupBase:100000 } }} getPopupContainer={() => shellRef.current ?? document.body}>` 内再 `<AntdApp component={false}>`；PlayView/ProcessView 渲染在内层 App 之下，直接 `const { message } = AntdApp.useApp()`（holder 渲染在壳 DOM 内 → 可见，无需 bridge）**。LoginModal（antd Modal）读最近 Provider token → z=100100 > 壳 100000，D18 不变。（第九轮删旧注：LoginModal 自身不调用 useApp/message——components/auth/ 下零命中；嵌套 AntdApp 层服务的是 PlayView/ProcessView 的 toast，勿据此写"LoginModal 弹 toast"断言。）**两层各自的作用（勿"简化"掉任一层，第六轮 N9）**：getPopupContainer 是常规路径（弹层挂进壳 DOM）；zIndexPopupBase:100000 是首帧/兜底路径（shellRef 未挂载首帧 getPopupContainer 回退 body——VideoEditorShell.tsx:128-129 注释："漏挂 shellRef 则永远回退 body，弹层作用域修复静默失效"，此时唯一撑住可见性的是 token 的 100100>100000）。**Esc 双关守卫是承重机制（勿删；机制措辞第六轮修正）**：rc-dialog 9.6.0 的 ESC 处理在 `onWrapperKeyDown`（Dialog/index.js:144-148）——挂在 dialog 包装**节点**上（React onKeyDown）且 e.stopPropagation()。焦点在登录框内 → 事件在 wrapper 节点被截、冒泡不到 document，壳不受影响（第八轮源码级复核维持本结论：React 18 合成 e.stopPropagation() 会调用 nativeEvent.stopPropagation()，且 antd Modal portal 到 body、React 委托监听在 portal 容器——原生传播止于 body，document 上的壳监听收不到；曾有第八轮外审称"合成事件不阻断原生冒泡、两种焦点场景壳都会触发"，该机制论不成立，勿据其改写）；**焦点不在登录框内**（点了壳内其它区域/焦点在 body）→ 事件不经 rc-dialog 的 wrapper、直达 document → BaseFullscreenModal 监听触发——无守卫时关掉的是整个播放 Modal；守卫（close 回调首行 `if (showLogin) { setShowLogin(false); return; }`）使该场景只关登录层。副作用登记为有意：登录层开着时点壳 ✕ 只关登录层。**测试装配**：渲染链含 useAuth 的测试文件必须 `vi.mock('@/components/AuthProvider', ...)`（context 默认 `null!`，裸渲染解构即抛，AuthProvider.tsx:25,56）；message stub 四键齐全或测试树包 `<AntdApp>`（先例 AssetPanel.test.tsx:28、ExportModal.test.tsx:7） | VideoEditorShell.tsx:19-24,127-141；AssetPanel.tsx:34；BaseFullscreenModal.tsx:57,68-80；App.tsx:8-19；rc-dialog Dialog/index.js:144-148 |
 | C1-4 | **关键组件真实 API**：MinIO 写对象是 `this.minio.upload(key, buffer, contentType)`（**无 putObject/uploadBuffer**）；上传键一律 `this.minio.buildKey('uploaded', 'system', { ext })` → `uploads/system/{date}/{uuid}.{ext}`（内置 randomUUID，与 D17 白名单精确对齐，**勿手拼 key 勿用 uuid 包**——该包非依赖，仓库用 node:crypto）。`isLoggedIn()` 不存在——用 `const { user } = useAuth()` 判 `!user`（AuthProvider.tsx:17-23，App.tsx:16 AuthProvider 包住 RouterProvider，公开路由可用 hook）。EmptyState/CardGridSkeleton 是 **workspace 私有组件**（pages/workspace/components/，EmptyState 必填 variant+onAction）——/videos 不复用，内联 ≤5 行空态/骨架（D2 孤岛） | minio.service.ts:46-57,105；admin-home-banner.controller.ts:39-66（第六轮更正路径——原引"admin-banner.controller.ts:27-57"是订阅 banner 文件）；nodeStore 类型真值 |
+
+**C1-5（第十轮新增）**：api 侧 spec 块凡 `toThrow(异常类)` 的，宿主文件头必须 import 对应类（`@nestjs/common` / `@nestjs/throttler`）——api test 第一步是 tsc，缺导入是 TS2304、红因与 plan 声明不符。四个 spec 头已随任务配齐（2.1 BadRequest / 2.2 四类 / 3.2 Unauthorized / 6.1 四类），后续追加新异常时同步补。
 
 ### C2. 正文代码块勘误（按 Task 序；历史记录——已回写正文，冲突以正文为准，勿按本节执行）
 
@@ -397,7 +399,7 @@ apps/web/src/
 - apps/web/src/api/adminApi.ts（Task 10.1 追加 adminVideoWorkApi）
 - apps/web/src/pages/videos/VideosPage.tsx（Task 8.1 挂载 Modal + 删 activeWorkId 解构）
 - apps/api/src/auth/auth.guard.spec.ts（Task 3.1 追加 /api/video-works 前缀放行用例——guard 本体仅 +1 行）
-- packages/shared/src/index.ts（Task 1.2 barrel）/ apps/web CanvasView.tsx（Task 9.3 导出 nodeTypes）
+- packages/shared/src/index.ts（Task 1.2 barrel）/ apps/web/src/pages/canvas/components/CanvasView.tsx（Task 9.3 导出 nodeTypes）
 - docs/superpowers/specs/2026-09-16-video-works-design.md（第八轮归一同步）
 ```
 
@@ -888,6 +890,7 @@ git commit -m "feat(video-work): 批次1 模块骨架（双 controller 空壳 + 
 ```ts
 import { Test } from '@nestjs/testing';
 import type { Mock } from 'vitest'; // 必须显式导入——vitest/globals 只声明运行时全局、无 Mock 类型（先例 canvas-doc-update.repository.spec.ts:2）
+import { BadRequestException } from '@nestjs/common'; // 第十轮（C1-5）：Task 2.5 缺文件用例 toThrow 用
 import { AdminVideoWorkController } from './admin-video-work.controller';
 import { VideoWorkService } from './video-work.service';
 
@@ -1093,6 +1096,10 @@ git commit -m "feat(video-work): 批次2 类型/标签池 CRUD + 改动删缓存
 ```ts
 import { Test } from '@nestjs/testing';
 import type { Mock } from 'vitest'; // 显式导入（同 Task 2.1 注）
+// 第十轮（C1-5）：宿主文件异常类导入一次配齐——后续用例 toThrow(BadRequest 2.3/2.5/2.6、NotFound 3.3/4.2、
+// Throttler 4.2/4.3、ServiceUnavailable 5.3)全靠它，缺任一即 TS2304、红因与 plan 声明不符
+import { BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import { VideoWorkService } from './video-work.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';   // service 构造注入（Task 4.2 起）
@@ -1109,6 +1116,9 @@ let prisma: any;
 let minio: any;
 
 beforeEach(async () => {
+    // 第十轮：命名空间一次配齐（与 providers"创建即完整"同思路）——any 只放宽了类型，命名空间缺失时
+    // prisma.videoWork.create = vi.fn() 仍是运行时 TypeError: Cannot set properties of undefined（第九轮遗留：
+    // 原 TS2339 编译红只是被搬进运行时，没有消失）。方法给空 vi.fn()，各用例用自己的 mockResolvedValue(Once) 覆盖。
     prisma = {
       media: {
         findMany: vi.fn().mockResolvedValue([{
@@ -1117,9 +1127,14 @@ beforeEach(async () => {
         }]),
         count: vi.fn().mockResolvedValue(1),
       },
-      canvasProject: { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }]) },
+      canvasProject: { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }]), findUnique: vi.fn() },
+      videoWork: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+      videoCategory: { findMany: vi.fn().mockResolvedValue([]) },
+      videoWorkSetting: { findUnique: vi.fn(), upsert: vi.fn() },
+      videoTag: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+      $executeRaw: vi.fn(),
     };
-    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://minio/presigned') };
+    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://minio/presigned'), buildKey: vi.fn(), upload: vi.fn(), delete: vi.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         VideoWorkService,
@@ -1701,6 +1716,7 @@ git commit -m "feat(video-work): 批次3 PUBLIC_PREFIXES 放行 /api/video-works
 // video-work.controller.spec.ts
 import { Test } from '@nestjs/testing';
 import type { Mock } from 'vitest'; // 显式导入（同 Task 2.1 注）
+import { UnauthorizedException } from '@nestjs/common'; // 第十轮（C1-5）：Task 4.3 like 401 / 6.2 clone 401 用例 toThrow 用
 import { VideoWorkController } from './video-work.controller';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
@@ -2233,7 +2249,7 @@ import {
   buildFilteredSnapshot, WHITELIST, stripHtmlToText, ensureParentFirst,
   type RawCanvasData, type FilterOptions,
 } from './snapshot-filter.util';
-import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // api 侧首个值导入（全仓既有 spec 均 import type）——仅测试文件、由 vitest/Vite 转译不走 Node 运行时，不违反 C2 Task 7.1 的"API 源码禁值导入"；勿当违规删掉（删了就退回自指清单）
+import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // api 侧首个值导入（既有 4 处 shared 导入均为 import type 且全在 src 源码——spec 值导入是首例）——仅测试文件、由 vitest/Vite 转译不走 Node 运行时（admin.guard.ts:3-5 注释同款判断；tsconfig exclude **/*.spec.ts，永不进 dist），不违反 C2 Task 7.1 的"API 源码禁值导入"；勿当违规删掉（删了就退回自指清单）
 
 const rawNode = (id: string, type: string, data: Record<string, unknown>, extra: any = {}) =>
   ({ id, type, position: { x: 0, y: 0 }, data, ...extra });
@@ -2242,7 +2258,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
   // 两个口径（第八轮裁定，spec:228/D9）：快照【不】剥 videoEdit——保留节点、data 全剥（WHITELIST['videoEdit']=[]）；
   // 剥除是克隆独有差异。下方白名单用例走快照口径 base；剥除行为用例走克隆口径 cloneOpts。
   const base: FilterOptions = { dropTypes: [], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false };       // 快照口径（getProcessSnapshot 实参）
-  const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false }; // 克隆口径（clone 实参）
+  const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false }; // 剥除口径——仅 dropXxx 维度与 clone 一致（clone 真实实参另传 resetStatusIdle:true；本组用例只测剥除行为，第十轮注）
 
   it('textInput：content HTML→纯文本、prompt（string）直保留', () => {
     const input: RawCanvasData = {
@@ -2630,8 +2646,11 @@ describe('getProcessSnapshot（安全验收）', () => {
     prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
     prisma.media.findMany = vi.fn().mockResolvedValue([]);
     (service as any).collabDoc = { readCanvas: vi.fn().mockResolvedValue(rawCanvas) };
-    (service as any).redis.get = vi.fn().mockResolvedValue(null); // 无缓存
-    (service as any).redis.set = vi.fn();
+    // 第十轮：Map 支撑的 get/set——原 get 恒 null + set 空 vi.fn()，"缓存命中第二次不触 readCanvas"必红
+    //（第二次 get 仍 null → 重算 → readCanvas 被调 2 次）。对照 Task 3.2 命中用例（mockResolvedValue('[]')）。
+    const cache = new Map<string, string>();
+    (service as any).redis.get = vi.fn(async (k: string) => cache.get(k) ?? null); // 未写过 → null（首调无缓存）
+    (service as any).redis.set = vi.fn(async (k: string, v: string) => { cache.set(k, v); return 'OK'; });
   }
 
   it('键级断言：响应全 key 不含敏感字段（递归收集）', async () => {
@@ -2667,7 +2686,8 @@ describe('getProcessSnapshot（安全验收）', () => {
 
   it('edges 有 source/target 无 sourceId；缓存命中第二次不触 readCanvas', async () => {
     setup();
-    await service.getProcessSnapshot('w1');
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.edges[0]).toEqual({ id: 'e1', source: 'n1', target: 'n2' }); // 第十轮补：edges 正向断言（原只覆盖"无 sourceId"半边，与用例标题不符）
     await service.getProcessSnapshot('w1');
     const readCanvas = (service as any).collabDoc.readCanvas;
     expect(readCanvas).toHaveBeenCalledTimes(1);
@@ -2769,6 +2789,9 @@ git commit -m "feat(video-work): 批次5 process 端点（404 前置/5s 超时 5
 
 ```ts
 import { Test } from '@nestjs/testing';
+// 第十轮（C1-5）：校验/限流/超时用例 toThrow 用的四个异常类——原块头零 @nestjs 导入
+import { NotFoundException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import { VideoWorkCloneService } from './video-work-clone.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -3108,7 +3131,7 @@ export async function getPublicSettings(): Promise<VideoWorkSettings> {
 - [ ] **Step 2: 编译验证 + Commit**
 
 ```bash
-pnpm --filter @flowweb/web build   # 第九轮：原 "tsc -b --dry || build" 是空跑——--dry 只列出将构建的工程、不做类型检查且退出 0，|| 右侧永不执行
+pnpm --filter @flowweb/web exec tsc -b   # 第九轮：原 "tsc -b --dry || build" 是空跑——--dry 只列工程不做检查且退出 0；第十轮统一为 tsc -b（build 的类型半边）
 git add apps/web/src/api/videoWorkApi.ts
 git commit -m "feat(video-work): 批次7 videoWorkApi（/flowai 改写同款复制）"
 ```
@@ -3369,7 +3392,7 @@ index.css 追加本功能 token（§6：显式定义并登记）：
 
 ```bash
 pnpm --filter @flowweb/web test
-pnpm --filter @flowweb/web build   # 批次收尾类型门禁（头部铁律，第九轮落到命令块）
+pnpm --filter @flowweb/web exec tsc -b   # 批次收尾类型门禁（build 的类型半边，第十轮减负；11.1 跑全量 build）
 git add apps/web/src/router.tsx apps/web/src/components/layout/Sidebar.tsx apps/web/src/index.css apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 模板广场后插入 + token + 不重挂用例"
 ```
@@ -3545,11 +3568,11 @@ export function VideoPlayerModal() {
 
 - [ ] **Step 3b: 接线 VideosPage（必做——本任务测试渲染真实 VideosPage 找 `data-testid="modal"`，不接线四场景全红；第八轮把该步骤从勘误层落进正文）**：把 Task 7.2 留下的 `{/* 批次 8：<VideoPlayerModal workId={activeWorkId} /> 在此挂载 */}` 占位注释替换为 `<VideoPlayerModal />`（组件内部自取 `useParams().id`），并删除随之无用的 `const { id: activeWorkId } = useParams();` 解构。
 
-- [ ] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）+ 批次收尾 `pnpm --filter @flowweb/web build`（类型门禁，见头部铁律）→ Step 5: Commit**
+- [ ] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）+ 批次中段类型门禁 `pnpm --filter @flowweb/web exec tsc -b`（见下方命令块与头部铁律）→ Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- VideoPlayerModal
-pnpm --filter @flowweb/web build   # 批次 8 中段类型门禁（批次收尾在 8.4；第九轮落到命令块）
+pnpm --filter @flowweb/web exec tsc -b   # 批次 8 中段类型门禁（批次收尾在 8.4；第十轮起用 tsc -b）
 git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次8 Modal 外壳（模式A关闭算法四场景/state 原值透传）"
 ```
@@ -3927,15 +3950,15 @@ describe('播放 Modal 内页内登录', () => {
 ```tsx
 // VideoPlayerModal 内（Task 8.1 骨架已含 showLogin state/shellRef/Esc 守卫；本任务只需渲染行已就位 + 本测试）
 {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
-// LoginModal 是 antd Modal：读最近 ConfigProvider token → z=100100 > 壳 100000（D18）；
-// 其内部 useApp() 解析到壳内嵌 AntdApp → toast 可见；Esc 守卫在 close 回调首行（Task 8.1 已写）
+// LoginModal 是 antd Modal：读最近 ConfigProvider token → z=100100 > 壳 100000（D18）。
+// Esc 守卫在 close 回调首行（Task 8.1 已写）。（第十轮删"其内部 useApp() 解析到内层 App → toast 可见"——LoginModal 不调用 useApp/message，C1-3 第九轮已纠正同款说法）
 ```
 
 - [ ] **Step 4: 跑绿；浏览器手工验收登记（批次 11 清单项）：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- LoginInModal
-pnpm --filter @flowweb/web build   # 批次收尾类型门禁（第九轮落到命令块）
+pnpm --filter @flowweb/web exec tsc -b   # 批次收尾类型门禁（build 的类型半边，第十轮减负；11.1 跑全量 build）
 git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次8 页内登录（嵌套 ConfigProvider 抬 z，D18）"
 ```
@@ -4252,9 +4275,9 @@ it('CanvasView nodeTypes 注册表键 ⊆ shared VIDEO_WORK_NODE_TYPES（快照�
 });
 ```
 
-- [ ] **Step 2: 跑红（nodeTypes 未导出 → TS2306）→ Step 3: 实现（CanvasView.tsx 的 nodeTypes 声明加 export）**
+- [ ] **Step 2: 跑红（nodeTypes 未导出 → TS2305 "Module has no exported member"——第十轮更正，原写 TS2306 是"文件不是模块"）→ Step 3: 实现（CanvasView.tsx 的 nodeTypes 声明加 export）**
 
-- [ ] **Step 4: 跑绿 + web 回归（`pnpm --filter @flowweb/web test` + `pnpm --filter @flowweb/web build`）→ Step 5: Commit**
+- [ ] **Step 4: 跑绿 + web 回归（`pnpm --filter @flowweb/web test` + `pnpm --filter @flowweb/web exec tsc -b`）→ Step 5: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/
@@ -4290,6 +4313,16 @@ import { adminVideoWorkApi } from '@/api/adminApi';
 
 vi.mock('@/api/adminApi');
 const renderWithProviders = (ui: ReactElement) => render(<MemoryRouter><AntdApp>{ui}</AntdApp></MemoryRouter>);
+
+// 第十轮：文件级 mock 复位 + 默认四件套——原各用例 mock"越界存活"且无复位（Vitest 默认不 reset），
+// 调换用例顺序或 -t 单跑即露。clearAllMocks 只清调用记录不清实现；默认值供未显式 mock 的用例兜底，用例可再覆盖。
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [], total: 0 } as any);
+  vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([] as any);
+  vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([] as any);
+  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [], total: 0 } as any);
+});
 
 // flatten 内联（router.admin.test.tsx:19-21 同款局部函数——勿 import 测试文件：连带其 vi.mock 副作用）
 const flatten = (routes: any[]): any[] =>
@@ -4331,7 +4364,7 @@ it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已
   vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([] as any);
   renderWithProviders(<VideoWorksPage />);
   await waitFor(() => screen.getByText('末班地铁'));
-  fireEvent.click(screen.getByRole('button', { name: /编辑/ })); // 编辑入口——ModalForm initialValues 带 canvasProjectId，两开关初始可点
+  fireEvent.click(screen.getByText('编辑')); // 编辑入口——role 无关查询（先例 HomeBannersPage.tsx:39 的编辑 trigger 是 <a>、role=link 非 button，第十轮更正）；ModalForm initialValues 带 canvasProjectId，两开关初始可点
   await waitFor(() => screen.getByText(/允许查看创作过程|查看制作过程/));
   expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled(); // 前置：有画布 → 初始可点（防再写空转断言）
   fireEvent.click(screen.getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })); // 关闭
@@ -4384,7 +4417,7 @@ VideoWorksPage.tsx 骨架（ProTable + ModalForm，完整字段清单，模式�
     { title: '喜欢', dataIndex: 'likeCount', editable: true },
     { title: '排序', dataIndex: 'sortOrder' },
     { title: '更新时间', dataIndex: 'updatedAt', render: v => new Date(v).toLocaleString() },
-    // 操作：编辑/发布/下架/删除（Popconfirm）
+    // 操作：编辑/发布/下架/删除（Popconfirm）。编辑 trigger 照 HomeBannersPage.tsx:39 先例用 <a>（role=link）——测试须用 getByText 查询，勿写 getByRole('button')（第十轮定死，消除"测试假设未规定 markup"）
   ]}
   request={async (params) => { const r = await adminVideoWorkApi.listWorks(params.current, params.pageSize); return { data: r.items, total: r.total, success: true }; }}
 />
@@ -4465,7 +4498,7 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 
 ```bash
 pnpm --filter @flowweb/web test
-pnpm --filter @flowweb/web build   # 批次收尾类型门禁（第九轮落到命令块）
+pnpm --filter @flowweb/web exec tsc -b   # 批次收尾类型门禁（build 的类型半边，第十轮减负；11.1 跑全量 build）
 git add apps/web/src/pages/admin/
 git commit -m "feat(video-work): 批次10 类型/标签管理 + 轮播设置卡片"
 ```
