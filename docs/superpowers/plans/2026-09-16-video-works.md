@@ -1700,7 +1700,7 @@ git commit -m "feat(video-work): 批次2 settings 端点（singleton upsert + �
 - Modify: `apps/api/src/auth/auth.guard.ts:3-15`（PUBLIC_PREFIXES 数组 +1 行）
 - Modify: `apps/api/src/auth/auth.guard.spec.ts`（新增一条用例，既有 13 个用例不动——第九轮更正计数，spec:400 同口径）
 
-- [ ] **Step 1: 写失败测试（auth.guard.spec.ts 追加）**
+- [x] **Step 1: 写失败测试（auth.guard.spec.ts 追加）**
 
 ```ts
 it('/api/video-works 前缀公开放行', async () => {
@@ -1711,7 +1711,7 @@ it('/api/video-works 前缀公开放行', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（数组加一行）**
+- [x] **Step 2: 跑红 → Step 3: 实现（数组加一行）**
 
 ```ts
 const PUBLIC_PREFIXES = [
@@ -1722,7 +1722,7 @@ const PUBLIC_PREFIXES = [
 ];
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- auth.guard.spec
@@ -1736,7 +1736,7 @@ git commit -m "feat(video-work): 批次3 PUBLIC_PREFIXES 放行 /api/video-works
 - Modify: `video-work.service.ts` + `video-work.controller.ts`
 - Create: `apps/api/src/modules/video-work/video-work.controller.spec.ts`
 
-- [ ] **Step 1: 写失败测试（controller spec 新建；service 查询逻辑在 service spec 追加）**
+- [x] **Step 1: 写失败测试（controller spec 新建；service 查询逻辑在 service spec 追加）**
 
 ```ts
 // video-work.controller.spec.ts
@@ -1818,7 +1818,7 @@ describe('listPublished', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 service：
 
@@ -1896,7 +1896,7 @@ export class VideoWorkController {
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work
@@ -1909,7 +1909,7 @@ git commit -m "feat(video-work): 批次3 公开列表（tiebreaker/clamp/字段�
 **Files:**
 - Modify: `video-work.service.ts` + `video-work.controller.ts`
 
-- [ ] **Step 1: 写失败测试（service spec 追加）**
+- [x] **Step 1: 写失败测试（service spec 追加）**
 
 ```ts
 describe('getDetail', () => {
@@ -1967,7 +1967,7 @@ describe('getDetail', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```ts
 // service
@@ -2003,13 +2003,15 @@ getDetail(@Param('id') id: string, @Req() req: any) {
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/api test -- video-work
 git add apps/api/src/modules/video-work/
 git commit -m "feat(video-work): 批次3 详情端点（liked 初始态/两开关/禁 readCanvas）"
 ```
+
+> **批次 3 执行记录（2026-09-16）**：三任务提交 6784fc8c（3.1 PUBLIC_PREFIXES +`/api/video-works`，guard 仅 +1 行含 D4 注释，auth.guard.spec 14 绿）/f572aae7（3.2 listPublished——id tiebreaker 三元组/select 5 字段**无 videoUrl**/clamp；listCategoriesPublic 复用 CATEGORY_CACHE_KEY TTL 60s；公开 controller 静态段先于 :id）/06e8ddf4（3.3 getDetail——PUBLISHED 404/liked 匿名短路零 Redis·登录读 like 键/两开关单次 canvasProject.findUnique 同源/禁 readCanvas 无条件断言）。全量 **131 files / 1037 tests** 全绿（基线 1025+12）。spec 合规审查 ✅（逐字对齐、关键断言无弱化）；代码质量审查 ✅ Ready to merge。**已裁定偏差 1 处**：service.spec 补 `import { VideoWorkController }`（plan 测试块漏 import 行，机械必要）。**登记未修 Minor（批次 4 落点）**：①like 键模板 `videoWork:like:${id}:${userId}` 内联——Task 4.3 实现时收敛为 `likeKey(workId, userId)` 私有方法（届时 getDetail 与 toggleLike 两构造点归一）；②listCategoriesPublic 缓存 miss 路径（findMany 1 次 + set EX 60）无测试覆盖——plan 级缺口，批次 4 追加用例时补；③controller.spec 的 UnauthorizedException 为批次 4 预埋导入（C1-5 前移，落地即消化）。索引核对：列表 orderBy 走 [status,sortOrder,publishedAt desc] 索引序 + id tiebreaker 增量排序（plan 有意取舍）。
 
 ---
 
