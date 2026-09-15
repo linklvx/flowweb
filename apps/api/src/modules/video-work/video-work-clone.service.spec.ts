@@ -14,13 +14,14 @@ describe('VideoWorkCloneService.clone', () => {
 
   const work = { id: 'w1', title: '春天的背面', canvasProjectId: 'p1', allowClone: true, status: 'PUBLISHED' };
 
-  /** fixture：分镜组（cells 含 存活子/被剥槽位/null/悬空 id）+ 组外节点 + videoEdit + shadow- */
+  /** fixture：分镜组（cells 含 存活子/被剥槽位/null/悬空 id）+ 组外节点 + videoEdit + shadow- + parentId 指向被剥 shadow- 的存活节点 */
   const rawCanvas = () => ({
     nodes: [
       { id: 'child1', type: 'videoGen', parentId: 'grp', position: { x: 1, y: 1 }, width: 320, height: 240, data: { model: 'm', fileId: 'f1', status: 'done', label: 'L' } }, // width/height——spec §7 后端7 透传断言（第十一轮补）
       { id: 'grp', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['child1', 'edit1', null, 'ghost'] } },
       { id: 'child2', type: 'imageGen', position: { x: 2, y: 2 }, data: { prompt: { text: 'p', html: 'h' }, allImages: [{ url: 'u' }], __fromMulti: 'x' } }, // 组外节点；__fromMulti 清单外字段，克隆不得带走（spec:385）。第十一轮删 parentId:'grp'——原值与 cells 不含 child2 自相矛盾，测试不变量会把 child2 计入 aliveChildren 而"不在 cells"假红
       { id: 'edit1', type: 'videoEdit', parentId: 'grp', position: { x: 3, y: 3 }, data: { timeline: [] } },
+      { id: 'child3', type: 'imageGen', parentId: 'shadow-x', position: { x: 5, y: 5 }, data: { prompt: { text: 'orphan-p', html: 'x' } } }, // 存活但 parentId 指向被剥 shadow 节点——克隆体降级 null（批次6 Minor）；标记用 prompt 因 imageGen 白名单无 label
       { id: 'shadow-x', type: 'imageGen', position: { x: 4, y: 4 }, data: {} },
     ],
     edges: [
@@ -95,6 +96,15 @@ describe('VideoWorkCloneService.clone', () => {
     for (const c of aliveChildren) expect(grp.data.cells).toContain(c.id);
   });
 
+  it('parentId 降级：存活节点 parentId 指向被剥 shadow- 节点 → 克隆体 null（与 cells 同语义）', async () => {
+    setup();
+    await svc.clone('w1', 'u1');
+    const passedNodes = projectService.create.mock.calls[0][2];
+    const child3 = passedNodes.find((n: any) => n.data?.prompt === 'orphan-p'); // imageGen 白名单剥 label——定位用 prompt.text 透传值
+    expect(child3).toBeDefined();
+    expect(child3.parentId).toBeNull();
+  });
+
   it('白名单共用：克隆体 data 不含 fileId/allImages/html/status(done)——status 重置 idle；不注入 thumbnailUrl', async () => {
     setup();
     await svc.clone('w1', 'u1');
@@ -128,6 +138,15 @@ describe('VideoWorkCloneService.clone', () => {
     const oldIds = ['child1', 'grp', 'child2', 'edit1', 'shadow-x'];
     const serialized = JSON.stringify({ nodes, edges });
     for (const oid of oldIds) expect(serialized).not.toContain(`"${oid}"`);
+  });
+
+  it('空画布克隆退化：readCanvas 空 nodes/edges → 正常返回 projectId，create 收到空数组', async () => {
+    setup();
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [], edges: [] }); // 后置覆盖 setup() 的 rawCanvas——mockResolvedValue 是替换语义
+    const result = await svc.clone('w1', 'u1');
+    expect(result.projectId).toBe('new-p');
+    expect(projectService.create.mock.calls[0][2]).toEqual([]);   // create(title, userId, nodes, edges) 第 3 参
+    expect(projectService.create.mock.calls[0][3]).toEqual([]);   // 第 4 参
   });
 
   it('create 阶段挂起 → 整体有界超时 503（read+create 同一等待）', async () => {
