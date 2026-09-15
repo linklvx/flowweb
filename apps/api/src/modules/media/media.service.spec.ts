@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MediaService } from './media.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('MediaService', () => {
   let service: MediaService;
@@ -103,5 +103,28 @@ describe('MediaService', () => {
     await expect(
       service.getMediaUrl('media-1', 'user2'),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  describe('getPresignedUrlByKey', () => {
+    it('uploads/system/ 前缀放行并 presign 同一个规范化值', async () => {
+      const key = 'uploads/system/2026-01-01/abc.png';
+      minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/url');
+      const url = await service.getPresignedUrlByKey(`  ${key}  `); // 带空白验证 trim
+      expect(url).toBe('http://minio/url');
+      expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith(key, 900); // 签名用 trim 后的同一值
+    });
+
+    it('非 system 前缀一律 403（含登录场景语义，方法级不区分）', async () => {
+      await expect(service.getPresignedUrlByKey('uploads/user1/a.png')).rejects.toThrow(ForbiddenException);
+      await expect(service.getPresignedUrlByKey('results/user1/p/n/x.mp4')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('尾斜杠边界：uploads/systematic-x 不放行', async () => {
+      await expect(service.getPresignedUrlByKey('uploads/systematic-x/evil.png')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('空 key 拒绝', async () => {
+      await expect(service.getPresignedUrlByKey('   ')).rejects.toThrow(BadRequestException);
+    });
   });
 });

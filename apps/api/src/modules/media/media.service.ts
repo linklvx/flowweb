@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { assertTeamMember } from '../team/team.util';
@@ -29,5 +29,15 @@ export class MediaService {
     const url = await this.minio.generatePresignedGetUrl(media.key, 900);
     await this.redis.set(cacheKey, url, 'EX', 840);
     return url;
+  }
+
+  /** 公开 by-key 兑换（唯一合法域：运营公开素材 uploads/system/）。
+   *  仅 trim 规范化（禁止二次解码——Express 已解码一次，再解 %2F..%2F 会绕过前缀），
+   *  校验与签名必须用同一个 normalized 值。其余 key 一律 403（正路是 GET /api/media/:fileId/url）。 */
+  async getPresignedUrlByKey(rawKey: string): Promise<string> {
+    const key = (rawKey ?? '').trim();
+    if (!key) throw new BadRequestException('key is required');
+    if (!key.startsWith('uploads/system/')) throw new ForbiddenException();
+    return this.minio.generatePresignedGetUrl(key, 900);
   }
 }
