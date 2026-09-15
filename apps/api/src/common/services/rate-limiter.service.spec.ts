@@ -103,4 +103,24 @@ describe('RateLimiterService', () => {
       expect(ip).toBe('10.0.0.1');
     });
   });
+
+  // 第七轮：变量名对齐既有文件——rate-limiter.service.spec.ts 的替身叫 mockRedis、实例叫 service
+  // （裸写 redis/limiter 是 TS2304 编译红，错误信息与业务无关易误判环境问题）
+  describe('checkUserRateLimit', () => {
+    it('用户维度固定窗口：window 内超 max → false', async () => {
+      mockRedis.incr = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(11);
+      mockRedis.expire = vi.fn();
+      expect(await service.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(true);
+      expect(await service.checkUserRateLimit('u1', 'video-work:clone', 3600, 10)).toBe(false);
+    });
+    it('key 形如 ratelimit:user:{action}:{userId}', async () => {
+      mockRedis.incr = vi.fn().mockResolvedValue(1); mockRedis.expire = vi.fn();
+      await service.checkUserRateLimit('u1', 'act', 60, 5);
+      expect(mockRedis.incr).toHaveBeenCalledWith('ratelimit:user:act:u1');
+    });
+    it('不走 IP_WHITELIST（用户维度与 IP 无关）', async () => {
+      mockRedis.incr = vi.fn().mockResolvedValue(1); mockRedis.expire = vi.fn();
+      expect(await service.checkUserRateLimit('u1', 'act', 60, 5)).toBe(true); // 本地 127.0.0.1 请求也照常计数
+    });
+  });
 });

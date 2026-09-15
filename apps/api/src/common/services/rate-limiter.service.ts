@@ -32,6 +32,14 @@ export class RateLimiterService {
     return count <= max;
   }
 
+  /** 用户维度固定窗口限流（不走 IP 白名单——与来源 IP 无关，spec §4.5） */
+  async checkUserRateLimit(userId: string, action: string, windowSec: number, max: number): Promise<boolean> {
+    const key = `ratelimit:user:${action}:${userId}`;
+    const count = await this.redis.incr(key);
+    if (count === 1) await this.redis.expire(key, windowSec);
+    return count <= max;
+  }
+
   /** 提取真实客户端 IP（兼容 APISIX 网关） */
   getClientIp(req: Request): string {
     const forwarded = req.headers['x-forwarded-for'] as string | undefined;
