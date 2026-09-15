@@ -544,7 +544,7 @@ git commit -m "feat(video-work): 批次0 by-key controller 改调 service（校�
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`（文件末尾追加模型；Media model 内追加索引）
 
-- [ ] **Step 1: 追加 4 个 model（schema.prisma 末尾）**
+- [x] **Step 1: 追加 4 个 model（schema.prisma 末尾）**
 
 ```prisma
 enum VideoWorkStatus {
@@ -615,7 +615,7 @@ model VideoWorkSetting {
 }
 ```
 
-- [ ] **Step 2: Media model 追加候选索引（声明式，保 migrate diff 零差异）**
+- [x] **Step 2: Media model 追加候选索引（声明式，保 migrate diff 零差异）**
 
 在 `model Media` 的现有 `@@index` 行旁追加：
 
@@ -623,7 +623,7 @@ model VideoWorkSetting {
   @@index([type, status, deletedAt])
 ```
 
-- [ ] **Step 3: 生成 migration**
+- [x] **Step 3: 生成 migration**
 
 ```bash
 cd apps/api && pnpm exec prisma migrate dev --name add_video_work
@@ -632,7 +632,7 @@ cd apps/api && pnpm exec prisma migrate dev --name add_video_work
 Expected: 生成新 migration 目录（本地时间戳前缀，含 **4 张表 + 1 enum** 的 DDL + Media 候选索引）；`prisma generate` 自动执行。
 **红线**：migrate dev 若检测 drift 提示 reset，一律拒绝（选 No/中止）——开发库有真实数据；drift 处置另行人工判断。（shadow 库由 Prisma 自动创建；.env 无 shadowDatabaseUrl，既有迁移此前均 migrate dev 生成，CREATEDB 路径已验证可用。）
 
-- [ ] **Step 4: 验证 diff 零差异（第八轮改法：免 shadow 库——直接拿真实库比 schema）**
+- [x] **Step 4: 验证 diff 零差异（第八轮改法：免 shadow 库——直接拿真实库比 schema）**
 
 ```bash
 cd apps/api
@@ -645,7 +645,7 @@ pnpm exec prisma migrate status   # 全部 applied、无 pending（含 add_video
 （原 shadow-database-url 方案废止：本机无 flowweb_shadow 库，且 .env 的 DATABASE_URL **带双引号**——旧命令的 `sed 's/flowweb$/'` 因行尾是 `"` 不匹配，会把带引号的原库 URL 传给 --shadow-database-url（重置风险），`|| echo` 再把失败伪装成成功。）
 **口径登记（第九轮）**：`--from-schema-datasource` 验的是"库 == schema"，不含"migrations 能重放出该 schema"（后者才是生产 migrate deploy 的路径）——与 spec §8"migrate deploy 后 diff 零差异"验收口径一致，接受；若将来要同时守住可重放性，补一条 createdb flowweb_shadow 后的 `--from-migrations` 断言（需 shadow 库，本期不做）。
 
-- [ ] **Step 5: 全量测试 + Commit**
+- [x] **Step 5: 全量测试 + Commit**
 
 ```bash
 pnpm --filter @flowweb/api test
@@ -659,7 +659,7 @@ git commit -m "feat(video-work): 批次1 schema——VideoWork/VideoCategory/Vid
 - Create: `packages/shared/src/types/video-work.ts`
 - Modify: `packages/shared/src/index.ts`（barrel 追加 1 行）
 
-- [ ] **Step 1: 写类型文件（纯类型无测试对象，编译即验证）**
+- [x] **Step 1: 写类型文件（纯类型无测试对象，编译即验证）**
 
 ```ts
 /** 视频作品展示（spec 2026-09-16 §4.2 契约） */
@@ -753,13 +753,13 @@ export const VIDEO_WORK_NODE_TYPES = [
 ] as const;
 ```
 
-- [ ] **Step 2: barrel 追加导出（packages/shared/src/index.ts）**
+- [x] **Step 2: barrel 追加导出（packages/shared/src/index.ts）**
 
 ```ts
 export * from './types/video-work';
 ```
 
-- [ ] **Step 3: 验证编译并提交**
+- [x] **Step 3: 验证编译并提交**
 
 ```bash
 pnpm --filter @flowweb/shared build 2>/dev/null || cd packages/shared && pnpm exec tsc --noEmit
@@ -777,7 +777,7 @@ git commit -m "feat(video-work): 批次1 shared 响应类型"
 - Create: `apps/api/src/modules/video-work/video-work-clone.service.ts`（空壳类，与骨架同建——第八轮补进 Files，原只在 C2 散文）
 - Modify: `apps/api/src/app.module.ts`（imports 数组 + VideoWorkModule）
 
-- [ ] **Step 1: 创建空壳文件**
+- [x] **Step 1: 创建空壳文件**
 
 ```ts
 // video-work.module.ts
@@ -861,9 +861,9 @@ export class AdminVideoWorkController {
 }
 ```
 
-- [ ] **Step 2: app.module.ts imports 数组追加 `VideoWorkModule`**（找到既有 modules import 列表，按字母序或文件尾惯例插入 + 顶部 import）
+- [x] **Step 2: app.module.ts imports 数组追加 `VideoWorkModule`**（找到既有 modules import 列表，按字母序或文件尾惯例插入 + 顶部 import）
 
-- [ ] **Step 3: 验证 api 可启动 + 全量测试**
+- [x] **Step 3: 验证 api 可启动 + 全量测试**
 
 ```bash
 pnpm --filter @flowweb/api test
@@ -871,12 +871,14 @@ pnpm --filter @flowweb/api test
 
 Expected: 编译通过、全部既有用例 PASS。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/video-work/ apps/api/src/app.module.ts
 git commit -m "feat(video-work): 批次1 模块骨架（双 controller 空壳 + module 注册）"
 ```
+
+> **批次 1 执行记录（2026-09-16）**：Task 1.1 提交 92f0ec33——migration `20260915212910_add_video_work`（enum+4 表+Media_type_status_deletedAt_idx+FK SetNull），migrate dev 无 drift，diff 零差异 exit=0、17 migrations 全 applied；Task 1.2 提交 cb732693——shared 类型照抄 plan，tsc 零错误；Task 1.3 提交 4cd98e03——五文件骨架照抄，app.module 注册于 VideoProjectModule 后。验证：api 全量 **999 tests** 全绿（= 998 基线 + 批次 0 补的 undefined 用例）、`nest build` + `node dist/main.js` 启动日志确认 VideoWorkModule DI 链与双 controller 路由装配、常驻 dev 实例热重载后 health 200。spec 合规审查 ✅（审查者独立复验库状态+启动）、代码质量审查 ✅ Ready to merge（3 Minor 均冻结设计/量级可忽略：inject:[] 冗余为 plan 逐字、categoryId 排序索引量级不扩、carouselScope DB 无约束由 DTO 校验兜底）。环境注记：prisma generate 因常驻 dev server 锁 query_engine dll 报 EPERM——TS 客户端已完整生成、引擎版本未变无影响；**未来升级 Prisma 版本前必须先停 dev server 再 generate**。
 
 ---
 
