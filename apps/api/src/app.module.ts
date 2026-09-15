@@ -20,6 +20,7 @@ import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { AdminSubscriptionModule } from './modules/subscription/admin/admin-subscription.module';
 import { SubscriptionTaskModule } from './modules/subscription/task/subscription-task.module';
 import { VideoProjectModule } from './modules/video-project/video-project.module';
+import { VideoWorkModule } from './modules/video-work/video-work.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
@@ -79,6 +80,7 @@ const env = validateEnv();
     AdminSubscriptionModule,
     SubscriptionTaskModule,
     VideoProjectModule,
+    VideoWorkModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
