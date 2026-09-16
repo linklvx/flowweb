@@ -18,6 +18,7 @@ const SubscriptionBannerPage = lazy(() => import('@/pages/admin/pages/Subscripti
 const AnnouncementPage = lazy(() => import('@/pages/admin/pages/AnnouncementPage'));
 const HomeBannersPage = lazy(() => import('@/pages/admin/pages/HomeBannersPage'));
 const SettingsPage = lazy(() => import('@/pages/admin/pages/SettingsPage'));
+const VideoWorksPage = lazy(() => import('@/pages/admin/pages/VideoWorksPage').then(m => ({ default: m.VideoWorksPage })));
 const VideosPage = lazy(() => import('./pages/videos/VideosPage').then(m => ({ default: m.VideosPage })));
 
 const AdminLazy = ({ children }: { children: ReactNode }) => (
@@ -71,6 +72,7 @@ export const router = createBrowserRouter([
               { path: 'homepage/announcement', element: <AnnouncementPage /> },
               { path: 'homepage/banners', element: <HomeBannersPage /> },
               { path: 'settings', element: <SettingsPage /> },
+              { path: 'content/video-works', element: <VideoWorksPage /> },
             ],
           },
         ],

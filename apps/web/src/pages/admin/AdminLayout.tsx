@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { App as AntdApp, Button, ConfigProvider, Spin } from 'antd';
 import { ProConfigProvider, ProLayout, zhCNIntl } from '@ant-design/pro-components';
 import {
-  AppstoreOutlined, CrownOutlined, HomeOutlined, LogoutOutlined, SettingOutlined,
+  AppstoreOutlined, CrownOutlined, HomeOutlined, LogoutOutlined, PlaySquareOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import 'dayjs/locale/zh-cn';
@@ -30,6 +30,7 @@ const menuRoute = {
       ],
     },
     { path: '/admin/settings', name: '参数配置', icon: <SettingOutlined /> },
+    { path: '/admin/content/video-works', name: '视频作品', icon: <PlaySquareOutlined /> },
   ],
 };
 

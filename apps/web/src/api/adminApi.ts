@@ -186,3 +186,31 @@ export function cancelAdminSubscription(id: string): Promise<unknown> {
 export function grantCredits(body: { userId: string; amount: number; creditType: 'regular' | 'subscription' }): Promise<void> {
   return apiFetch('/admin/subscription/credits/grant', { method: 'POST', body: JSON.stringify(body) });
 }
+
+// ========== 视频作品管理（spec 2026-09-16 §4.2；C1-1：admin 路径不带 /api——先例 :29 fetchNodeTypes） ==========
+
+export const adminVideoWorkApi = {
+  // admin 路径不带 /api（adminApi.ts:29 先例 apiFetch('/admin/node-types')）；adminFetch 不存在，一律 apiFetch（C1-1）
+  listWorks: (page = 1, pageSize = 20) => apiFetch(`/admin/video-works?page=${page}&pageSize=${pageSize}`),
+  createWork: (data: unknown) => apiFetch('/admin/video-works', { method: 'POST', body: JSON.stringify(data) }),
+  updateWork: (id: string, data: unknown) => apiFetch(`/admin/video-works/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteWork: (id: string) => apiFetch(`/admin/video-works/${id}`, { method: 'DELETE' }),
+  listCandidates: (page = 1) => apiFetch(`/admin/video-works/candidates?page=${page}&pageSize=20`),
+  // 唯一例外：multipart 走裸 fetch 且必须带 /api（apiFetch 硬编码 JSON Content-Type 冲掉 boundary；C1-1，先例 adminApi.ts:133-144）
+  uploadCover: async (file: File): Promise<{ key: string }> => {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch('/api/admin/video-works/upload-cover', { method: 'POST', body: fd, credentials: 'include' });
+    const body = await res.json();
+    return body.data ?? body;
+  },
+  listCategories: () => apiFetch('/admin/video-works/categories'),
+  createCategory: (d: unknown) => apiFetch('/admin/video-works/categories', { method: 'POST', body: JSON.stringify(d) }),
+  updateCategory: (id: string, d: unknown) => apiFetch(`/admin/video-works/categories/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteCategory: (id: string) => apiFetch(`/admin/video-works/categories/${id}`, { method: 'DELETE' }),
+  listTags: () => apiFetch('/admin/video-works/tags'),
+  createTag: (d: unknown) => apiFetch('/admin/video-works/tags', { method: 'POST', body: JSON.stringify(d) }),
+  updateTag: (id: string, d: unknown) => apiFetch(`/admin/video-works/tags/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteTag: (id: string) => apiFetch(`/admin/video-works/tags/${id}`, { method: 'DELETE' }),
+  getSettings: () => apiFetch('/admin/video-works/settings'),
+  updateSettings: (d: unknown) => apiFetch('/admin/video-works/settings', { method: 'PUT', body: JSON.stringify(d) }),
+};
