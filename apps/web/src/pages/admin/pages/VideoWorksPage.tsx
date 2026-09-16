@@ -222,7 +222,7 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
           },
           onChange: (id: string) => {
             const c = candRef.current.get(id);
-            if (!c) return;
+            if (!c) { selCandRef.current = null; return; } // allowClear 清空时同步清候选，防 onFinish 用残留值
             selCandRef.current = c; // C-1 勘误：onFinish 从此取候选数据（回填仅供展示——canvasProjectId 驱动 ProFormDependency 两开关联动）
             // 选中后回填 videoKey/videoMediaId/canvasProjectId/durationSec/width/height/coverKey 兜底（plan 字段 1）
             form.setFieldsValue({
