@@ -200,6 +200,12 @@ export const adminVideoWorkApi = {
   uploadCover: async (file: File): Promise<{ key: string }> => {
     const fd = new FormData(); fd.append('file', file);
     const res = await fetch('/api/admin/video-works/upload-cover', { method: 'POST', body: fd, credentials: 'include' });
+    // I-1 勘误：补 res.ok 检查（照抄 :133-144 先例被漏抄的错误半边）——否则错误信封 {code:-1,data:null} 走 body.data??body
+    // 返回信封本身，key undefined + 调用点弹假成功
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { message?: string }).message || '上传失败');
+    }
     const body = await res.json();
     return body.data ?? body;
   },

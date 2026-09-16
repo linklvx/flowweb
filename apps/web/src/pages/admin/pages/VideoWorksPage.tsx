@@ -148,6 +148,7 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
   const [coverKey, setCoverKey] = useState<string | undefined>(record?.coverKey ?? undefined);
   const [uploading, setUploading] = useState(false);
   const candRef = useRef<Map<string, CandidateItem>>(new Map());
+  const selCandRef = useRef<CandidateItem | null>(null); // 选中候选唯一数据源（批次10勘误 C-1：rc-field-form onFinish 只含已注册字段——videoKey 等候选字段仅靠 setFieldsValue 写入、从未注册，v.videoKey 恒 undefined 致门禁永远拦截）
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async (file: File) => {
@@ -162,8 +163,8 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
       title={mode === 'create' ? '新增作品' : '编辑作品'} trigger={trigger} form={form} width={640}
       modalProps={{
         destroyOnClose: true,
-        // 组件常驻（trigger 挂在行/工具栏），关闭时重置上传 state（HomeBannersPage 同款）
-        afterClose: () => setCoverKey(record?.coverKey ?? undefined),
+        // 组件常驻（trigger 挂在行/工具栏），关闭时重置上传 state（HomeBannersPage 同款）；selCandRef 同步清空防残留上次选择
+        afterClose: () => { setCoverKey(record?.coverKey ?? undefined); selCandRef.current = null; },
       }}
       initialValues={record ? {
         videoMediaId: record.videoMediaId ?? undefined,
@@ -176,11 +177,27 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
         sortOrder: 0, status: 'DRAFT', allowViewProcess: false, allowClone: false, viewCount: 0, likeCount: 0, tags: [],
       }}
       onFinish={async (v) => {
-        if (!v.videoKey) { message.error('请先选择候选视频'); return false; }
+        // C-1 勘误：门禁判 !cand（选中候选 ref）而非 !v.videoKey，且仅 create 生效；edit 不重选候选直接保存必须可用
+        const cand = selCandRef.current;
+        if (mode === 'create' && !cand) { message.error('请先选择候选视频'); return false; }
+        // edit 剔除 videoKey/videoMediaId（UpdateVideoWorkDto 禁字段——forbidNonWhitelisted 400；换源=重建）
+        const { videoKey: _vk, videoMediaId: _vm, ...form } = v;
         try {
-          const payload = { ...v, coverKey: coverKey ?? null };
-          if (mode === 'create') await adminVideoWorkApi.createWork(payload);
-          else if (record) await adminVideoWorkApi.updateWork(record.id, payload);
+          if (mode === 'create') {
+            // 五字段从 cand 组装（含 coverKey 缩略图兜底已在 onChange 做过）
+            await adminVideoWorkApi.createWork({
+              ...form,
+              videoKey: cand!.key,
+              videoMediaId: cand!.id,
+              canvasProjectId: cand!.canvasExists ? cand!.projectId : null,
+              durationSec: cand!.durationSec ?? null,
+              width: cand!.width ?? null,
+              height: cand!.height ?? null,
+              coverKey: coverKey ?? null,
+            });
+          } else if (record) {
+            await adminVideoWorkApi.updateWork(record.id, { ...form, coverKey: coverKey ?? null });
+          }
           message.success('已保存'); onDone(); return true;
         } catch (e) { message.error((e as Error).message); return false; }
       }}
@@ -206,6 +223,7 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
           onChange: (id: string) => {
             const c = candRef.current.get(id);
             if (!c) return;
+            selCandRef.current = c; // C-1 勘误：onFinish 从此取候选数据（回填仅供展示——canvasProjectId 驱动 ProFormDependency 两开关联动）
             // 选中后回填 videoKey/videoMediaId/canvasProjectId/durationSec/width/height/coverKey 兜底（plan 字段 1）
             form.setFieldsValue({
               videoKey: c.key,
