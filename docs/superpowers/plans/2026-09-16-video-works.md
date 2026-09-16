@@ -4096,7 +4096,7 @@ git commit -m "feat(video-work): 批次8 页内登录（嵌套 ConfigProvider �
 - Create: `apps/web/src/pages/videos/ProcessSnapshot.tsx`
 - Test: `apps/web/src/pages/videos/__tests__/ProcessSnapshot.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 import { render } from '@testing-library/react';
@@ -4141,7 +4141,7 @@ describe('ProcessSnapshot（spec §5.3 红线）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```tsx
 // ProcessSnapshot.tsx —— 零 store 依赖（§5.3 禁复用 CanvasView），只依赖 @xyflow/react + 静态数据
@@ -4224,7 +4224,7 @@ export function ProcessSnapshot({ snapshot }: { snapshot: ProcessSnapshotData })
 
 （组框定案见上方实现与 C2 Task 9.1：自定义 GroupFrame（含双 Handle + data-group-type + __name 标题）覆盖内置 group——内置渲染 null 无 Handle。若覆盖内置类型后行为异常，类型名换非保留名 'vwGroup'（nodes 映射同步），测试断言的是 data-group-type 而非类型字符串、零测试改动。jsdom 边界：勿断言 `.react-flow__edge` 路径/handle bounds——test-setup 的 ResizeObserver 是空实现、jsdom 25 无 DOMMatrix，测量路径不跑；Handle 计数 + data-group-type 结构断言 + 浏览器手工验收 #8 的分工不变。）
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- ProcessSnapshot
@@ -4238,7 +4238,7 @@ git commit -m "feat(video-work): 批次9 只读快照渲染（Handle 红线×2/�
 - Create: `apps/web/src/pages/videos/ProcessView.tsx`
 - Test: `apps/web/src/pages/videos/__tests__/ProcessView.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 // 文件顶部装配（第八轮补全 harness）：import 头 + api mock + AuthProvider mock（C5 模板）+
@@ -4304,7 +4304,7 @@ describe('ProcessView', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```tsx
 // ProcessView.tsx
@@ -4371,7 +4371,7 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
 
 （VideoPlayerModal 外壳的 ProcessView 调用补上 onNeedLogin（Task 8.1 修正版已传）；判登录与 PlayView 同源 useAuth。）
 
-- [ ] **Step 4: 跑绿（批次 7-9 联动：外壳测试中的 ProcessView 占位换真实实现后全绿）→ Step 5: Commit**
+- [x] **Step 4: 跑绿（批次 7-9 联动：外壳测试中的 ProcessView 占位换真实实现后全绿）→ Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test
@@ -4385,7 +4385,7 @@ git commit -m "feat(video-work): 批次9 创作过程视图（复制项目/打�
 - Create: `apps/web/src/pages/canvas/components/nodeTypes.coverage.test.tsx`（与 CanvasView.test.tsx 同级——第九轮修正路径：CanvasView 真身在 `pages/canvas/components/` 而非 `pages/canvas/`，glob 全仓仅此一处）
 - Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx`（nodeTypes 声明加 `export`——仅 1 词，不改任何渲染逻辑）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 import { it, expect } from 'vitest'; // 第九轮补：web 侧显式导入 vitest——vite-env.d.ts 只有 vite/client、无 vitest/globals 类型声明，tsc -b 门禁下 it/expect 是 TS2304（vitest run 因 globals:true 反而能过，典型"只被 build 门禁抓到"）；全仓 244 个 web 测试文件同款惯例（CanvasView.test.tsx:1）
@@ -4399,9 +4399,9 @@ it('CanvasView nodeTypes 注册表键 ⊆ shared VIDEO_WORK_NODE_TYPES（快照�
 });
 ```
 
-- [ ] **Step 2: 跑红（nodeTypes 未导出 → TS2305 "Module has no exported member"——第十轮更正，原写 TS2306 是"文件不是模块"）→ Step 3: 实现（CanvasView.tsx 的 nodeTypes 声明加 export）**
+- [x] **Step 2: 跑红（nodeTypes 未导出 → TS2305 "Module has no exported member"——第十轮更正，原写 TS2306 是"文件不是模块"）→ Step 3: 实现（CanvasView.tsx 的 nodeTypes 声明加 export）**
 
-- [ ] **Step 4: 跑绿 + web 回归（`pnpm --filter @flowweb/web test` + `pnpm --filter @flowweb/web exec tsc -b`）→ Step 5: Commit**
+- [x] **Step 4: 跑绿 + web 回归（`pnpm --filter @flowweb/web test` + `pnpm --filter @flowweb/web exec tsc -b`）→ Step 5: Commit**
 
 ```bash
 git add apps/web/src/pages/canvas/
@@ -4411,6 +4411,8 @@ git commit -m "feat(video-work): 批次9 nodeTypes 覆盖锚定（shared 清单�
 （配套 api 侧锚定 = Task 5.1 覆盖测试已改为 import `VIDEO_WORK_NODE_TYPES` 断言 WHITELIST ⊇ 清单。防线语义：CanvasView 新增类型而 shared 未同步 → 本测试红（web 侧）；shared 有而 WHITELIST 缺 → Task 5.1 红（api 侧）。）
 
 > **批次 9 勘误（2026-09-16，质量审查 Important——plan 设计缺口）**：①ProcessView onClone 无 in-flight 防双击——异步期间按钮可再点，双击重复 cloneWork（服务端 10/h 限流都放行 → 重复建"(副本)"项目白耗配额）——补 cloning state + 入口短路 + finally 复位 + 按钮 disabled（测试：可控 pending 下双击仅 1 次调用）；②ProcessView.test 路由补 `/canvas` 空路由消 "No route matches" 噪音。**登记不修**：克隆成功后视图切换（process→play→process 卸载重挂）cloned 状态丢失、按钮重现可再克隆（plan 冻结设计，危害由 10/h 限流兜住）；ProcessView fetch 无 stale 守卫（workId 挂载期稳定+卸载 setState 是 no-op，无实际 bug，批次 8 外壳已有守卫风格不一致仅登记）；SimpleNode 死参数 selected（plan 原文，elementsSelectable=false 下恒 false）；proOptions hideAttribution（plan:4215 明确要求的许可决策记录在案）。
+
+> **批次 9 执行记录（2026-09-16）**：三任务提交 00842a1f（9.1 ProcessSnapshot——零 store 依赖只读渲染/SimpleNode+GroupFrame 自定义覆盖内置 group 规避无 Handle/Handle target 左 source 右无 id/只读 props；4 用例含 Handle=nodes×2、XSS 载荷字面显示+img=0、data-group-type=storyboard）/88057443（9.2 ProcessView——顶栏/#4ade80 双按钮/navigate /canvas?projectId=/503 容错/C1-6 beforeEach；**批次 8 占位 12 行整体替换、占位注释已删**；外壳联动全绿）/ed4a9151（9.3 锚定——CanvasView `const`→`export const` 1 词 + coverage 测试落位 pages/canvas/components/；8 键 ⊆ shared 清单，与 Task 5.1 api 侧 ⊇ 构成双向防线）。web 全量 **253 files/2527 tests** + tsc -b 零错误。spec 合规审查 ✅（三实现逐字对齐、零依赖孤岛 grep 验证）；代码质量审查 ✅ Yes → 勘误 970a1741 + 修复 aca0c426 + 复核 ✅（**2528 tests**：克隆 in-flight 防双击 cloning state+disabled[双击用例先红后绿]、测试 /canvas 路由消音——**realm 补丁第三次命中**[route.integration→批次 8→本批]，先例复用模式确立）。**已裁定偏差 1 处**：9.2 克隆成功用例补 `authCtx.user={id:'u1'}`（plan 测试原文遗漏——第十二轮 beforeEach 复位后未同步，plan:325 自身惯例+PlayView 先例，实现零改动）。**手工验收提醒（批次 11）**：jsdom 无测量路径——浏览器端 fitView/handle 边连接真实性必须手工验收 #8 兜底。
 
 ---
 
