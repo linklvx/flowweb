@@ -39,7 +39,7 @@ describe('CarouselBar', () => {
     vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 11 });
     renderBar({ carouselEnabled: true, carouselScope: 'category' }, 'w1', null);
     await waitFor(() => expect(api.fetchVideoWorks).toHaveBeenCalled());
-    expect(api.fetchVideoWorks.mock.calls[0][0].categoryId).toBeUndefined(); // 实现 categoryId ?? undefined——降级全量
+    expect(vi.mocked(api.fetchVideoWorks).mock.calls[0]?.[0]?.categoryId).toBeUndefined(); // 实现 categoryId ?? undefined——降级全量（上一 waitFor 已保证有调用；参数可选故 [0]?.[0]?. 收窄过 tsc）
   });
   it('点击切换调 onSwitch（第六轮落地——原为空壳用例）', async () => {
     vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [
