@@ -14,6 +14,7 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
   const [snap, setSnap] = useState<ProcessSnapshotData | null>(null);
   const [error, setError] = useState(false);
   const [cloned, setCloned] = useState<{ projectId: string } | null>(null);
+  const [cloning, setCloning] = useState(false);   // in-flight 防双击（异步期间按钮可再点 → 重复 cloneWork）
   const { message } = AntdApp.useApp();   // 壳内上下文实例（C1-3）
   const { user } = useAuth();
 
@@ -23,6 +24,8 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
 
   const onClone = async () => {
     if (!user) { onNeedLogin(); return; }   // D18（isLoggedIn 不存在，C1-4）
+    if (cloning) return;
+    setCloning(true);
     try {
       const res = await cloneWork(workId);
       setCloned(res);
@@ -31,6 +34,8 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
       if (e.status === 401) onNeedLogin();
       else if (e.status === 429) message.warning('克隆太频繁，请稍后再试');
       else message.error('克隆失败');
+    } finally {
+      setCloning(false);
     }
   };
 
@@ -40,7 +45,7 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
         <button onClick={onBack} className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">‹ 返回</button>
         <span className="flex-1 truncate text-sm">{title} · 创作过程</span>
         {canClone && !cloned && (
-          <button onClick={onClone} className="rounded-lg bg-[#4ade80] text-[#111] px-3.5 py-1.5 text-sm font-semibold hover:opacity-90">复制项目</button>
+          <button onClick={onClone} disabled={cloning} className="rounded-lg bg-[#4ade80] text-[#111] px-3.5 py-1.5 text-sm font-semibold hover:opacity-90">复制项目</button>
         )}
         {cloned && (
           <button onClick={() => navigate(`/canvas?projectId=${cloned.projectId}`)}

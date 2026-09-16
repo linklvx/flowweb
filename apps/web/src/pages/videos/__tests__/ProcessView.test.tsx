@@ -1,7 +1,7 @@
 // 文件顶部装配（第八轮补全 harness）：import 头 + api mock + AuthProvider mock（C5 模板）+
 // 本文件自有 snap fixture（原引用 Task 9.1 测试文件的局部 fixture，跨文件不存在）。
 // ProcessView 用 useNavigate——所有 render 必须包 Router（原三处裸 render 是 invariant 抛错）。
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, createMemoryRouter, RouterProvider } from 'react-router';
 import { App as AntdApp } from 'antd';
@@ -12,6 +12,17 @@ vi.mock('@/api/videoWorkApi');
 const authCtx = vi.hoisted(() => ({ user: null as null | { id: string }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }));
 vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authCtx }));
 beforeEach(() => { vi.clearAllMocks(); authCtx.user = null; }); // 第十二轮 C1-6：未清记录时"未登录克隆"用例的 not.toHaveBeenCalled() 撞上一用例（克隆成功已真实调 cloneWork）残留——clearAllMocks 只清记录，各用例体内自声明 mockResolvedValue
+
+// 环境补丁（同款先例 route.integration.test.tsx:18-23）：jsdom/undici realm 错配——克隆成功用例 navigate('/canvas')
+// 命中真路由后 react-router new Request(url, { signal }) 以 jsdom AbortSignal 击穿 undici brandCheck 抛
+// TypeError（unhandled rejection 使退出码 1）。剥离 signal 让 undici 自建同 realm AbortSignal；
+// 路由无 loader，request.signal 无消费方。
+class RealmSafeRequest extends Request {
+  constructor(input: string | URL, init?: RequestInit) {
+    super(input, { ...init, signal: undefined } as RequestInit);
+  }
+}
+vi.stubGlobal('Request', RealmSafeRequest);
 
 const snap = {
   workId: 'w1', title: 't',
@@ -34,7 +45,7 @@ describe('ProcessView', () => {
     authCtx.user = { id: 'u1' }; // 登录态才走 cloneWork（plan:325 harness 惯例/PlayView.test.tsx:39 先例——plan 原文漏补：第十二轮 beforeEach 复位 user=null 后本用例未同步，onClone 短路 onNeedLogin、「打开画布」永不出现）
     vi.mocked(api.fetchProcessSnapshot).mockResolvedValue(snap as any); // 第十一轮：原靠上一用例的 mock 实现残留才绿（Vitest 默认不 reset 实现）——-t 单跑/换序即 .then undefined 同步 TypeError
     vi.mocked(api.cloneWork).mockResolvedValue({ projectId: 'new-p' });
-    const router = createMemoryRouter([{ path: '/', element: <ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /> }], { initialEntries: ['/'] });
+    const router = createMemoryRouter([{ path: '/', element: <ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /> }, { path: '/canvas', element: null }], { initialEntries: ['/'] }); // /canvas 空路由：navigate 落地消 "No route matches" 噪音
     render(<AntdApp><RouterProvider router={router} /></AntdApp>); // AntdApp 必包——克隆成功路径 message.success 走 useApp()，antd 默认 context 是 {message:{}} → TypeError 成 unhandled rejection（第八轮）
     await waitFor(() => screen.getByTestId('process-snapshot'));
     fireEvent.click(screen.getByRole('button', { name: /复制项目/ }));
@@ -58,5 +69,20 @@ describe('ProcessView', () => {
     vi.mocked(api.fetchProcessSnapshot).mockRejectedValue(new Error('x'));
     render(<MemoryRouter><ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /></MemoryRouter>);
     await waitFor(() => screen.getByText(/暂时无法加载/));
+  });
+
+  it('克隆 in-flight 期间再点不重复发请求（防双击）', async () => {
+    authCtx.user = { id: 'u1' };
+    vi.mocked(api.fetchProcessSnapshot).mockResolvedValue(snap as any);
+    let resolveClone!: (v: { projectId: string }) => void; // 可控 pending promise：resolve 前按钮可点但请求不得重复
+    vi.mocked(api.cloneWork).mockImplementationOnce(() => new Promise((res) => { resolveClone = res; }));
+    const router = createMemoryRouter([{ path: '/', element: <ProcessView workId="w1" title="t" canClone={true} onBack={() => {}} onNeedLogin={() => {}} /> }, { path: '/canvas', element: null }], { initialEntries: ['/'] });
+    render(<AntdApp><RouterProvider router={router} /></AntdApp>);
+    await waitFor(() => screen.getByTestId('process-snapshot'));
+    fireEvent.click(screen.getByRole('button', { name: /复制项目/ })); // 第一次点击 → cloneWork 调 1 次、pending 未 resolve
+    fireEvent.click(screen.getByRole('button', { name: /复制项目/ })); // 未 resolve 时再点
+    expect(api.cloneWork).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveClone({ projectId: 'new-p' }); }); // resolve 后正常收尾
+    await waitFor(() => screen.getByRole('button', { name: /打开画布/ }));
   });
 });
