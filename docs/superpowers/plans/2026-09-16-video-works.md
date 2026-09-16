@@ -4410,6 +4410,8 @@ git commit -m "feat(video-work): 批次9 nodeTypes 覆盖锚定（shared 清单�
 
 （配套 api 侧锚定 = Task 5.1 覆盖测试已改为 import `VIDEO_WORK_NODE_TYPES` 断言 WHITELIST ⊇ 清单。防线语义：CanvasView 新增类型而 shared 未同步 → 本测试红（web 侧）；shared 有而 WHITELIST 缺 → Task 5.1 红（api 侧）。）
 
+> **批次 9 勘误（2026-09-16，质量审查 Important——plan 设计缺口）**：①ProcessView onClone 无 in-flight 防双击——异步期间按钮可再点，双击重复 cloneWork（服务端 10/h 限流都放行 → 重复建"(副本)"项目白耗配额）——补 cloning state + 入口短路 + finally 复位 + 按钮 disabled（测试：可控 pending 下双击仅 1 次调用）；②ProcessView.test 路由补 `/canvas` 空路由消 "No route matches" 噪音。**登记不修**：克隆成功后视图切换（process→play→process 卸载重挂）cloned 状态丢失、按钮重现可再克隆（plan 冻结设计，危害由 10/h 限流兜住）；ProcessView fetch 无 stale 守卫（workId 挂载期稳定+卸载 setState 是 no-op，无实际 bug，批次 8 外壳已有守卫风格不一致仅登记）；SimpleNode 死参数 selected（plan 原文，elementsSelectable=false 下恒 false）；proOptions hideAttribution（plan:4215 明确要求的许可决策记录在案）。
+
 ---
 
 ## 批次 10：Admin 前端
