@@ -4427,7 +4427,7 @@ git commit -m "feat(video-work): 批次9 nodeTypes 覆盖锚定（shared 清单�
 - Modify: `apps/web/src/api/adminApi.ts`（追加 videoWork 系列）
 - Test: `apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx`
 
-- [ ] **Step 1: 写失败测试（含 admin 路由存在性——router.admin.test 覆盖缺口的自我补偿，spec §7 触点）**
+- [x] **Step 1: 写失败测试（含 admin 路由存在性——router.admin.test 覆盖缺口的自我补偿，spec §7 触点）**
 
 ```tsx
 // 第八轮补 harness + renderWithProviders 定义（原块用而未定义；包装照 HomeBannersPage.test.tsx:17 内联三行）：
@@ -4505,7 +4505,7 @@ it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（adminApi + 页面）**
+- [x] **Step 2: 跑红 → Step 3: 实现（adminApi + 页面）**
 
 adminApi.ts 追加（沿用该文件既有 fetch 封装风格）：
 
@@ -4569,7 +4569,7 @@ ModalForm 字段（完整清单，spec §5.6）：
 10. allowViewProcess / allowClone（ProFormSwitch；**无 canvasProjectId（未选候选或候选无画布）时两开关 disabled + tooltip 提示**；**allowViewProcess 关闭时 allowClone 强制关 + disabled**（第八轮裁定：后端 400 校验（Task 2.3 assertProcessFlags）的前端半边，防保存出"可克隆不可看过程"死开关）——**第十二轮 P2-2：联动必须显式订阅**——allowClone 的 ProFormSwitch 包 `dependencies={['allowViewProcess']}`（或 ProFormDependency/Form.useWatch）后按订阅值算 disabled；**承重的是订阅本身（第十三轮精确化：dependencies 内部即包一层 ProFormDependency、依赖值变化时重跑本字段 props——订阅到位后 `disabled={!form.getFieldValue('allowViewProcess')}` 与 useWatch 两种取值写法均读到新值，不必纠结选型）**；antd Form.Item 兄弟字段值变化**不触发**本字段重渲染，裸 `form.getFieldValue('allowViewProcess')` 读陈旧值、开关联动断言停在 false；**两 Switch 显式 `aria-label`="允许查看创作过程"/"允许克隆"**——第十一轮：Form.Item label→Switch button 的 accessible name 传递仓内零先例（5 处 switch 断言全裸查询，唯一带名先例 PropertiesPanel.tsx:141 是组件自写 aria-label），测试 getByRole('switch', { name: ... }) 依赖这两个属性）
 11. viewCount / likeCount（ProFormDigit，后台可调）
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- VideoWorksPage
@@ -4583,7 +4583,7 @@ git commit -m "feat(video-work): 批次10 admin 作品管理（候选选片/两�
 - Modify: `VideoWorksPage.tsx`（页内 Tabs 第二/三个 tab）
 - Modify: `apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx`（追加用例——第九轮补：renderWithProviders/mock 均在 Task 10.1 建立的该文件内，勿新开文件）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 // 第六轮落地（原为空壳用例）
@@ -4619,7 +4619,7 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（两个轻量 ProTable + 设置卡片 Form；Tabs 为新增结构——HomeBannersPage 无 Tabs 先例，可参照的只有其 ProTable/ModalForm/上传内联）**
+- [x] **Step 2: 跑红 → Step 3: 实现（两个轻量 ProTable + 设置卡片 Form；Tabs 为新增结构——HomeBannersPage 无 Tabs 先例，可参照的只有其 ProTable/ModalForm/上传内联）**
 
 ```tsx
 <Tabs items={[
@@ -4635,7 +4635,7 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 // 保存按钮文案钉死「保存设置」（第十一轮——两字"保存"被 antd 插空格成"保 存"，测试 /保存/ 不匹配）；保存→updateSettings→message.success
 ```
 
-- [ ] **Step 4: 跑绿 + web 全量回归 → Step 5: Commit**
+- [x] **Step 4: 跑绿 + web 全量回归 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test
@@ -4645,6 +4645,8 @@ git commit -m "feat(video-work): 批次10 类型/标签管理 + 轮播设置卡�
 ```
 
 > **批次 10 勘误（2026-09-16，质量审查 Critical+Important——plan 设计缺口）**：①WorkFormModal 保存路径整体失效——rc-field-form onFinish 值只含**已注册字段**，videoKey/canvasProjectId/durationSec/width/height 仅靠候选 onChange setFieldsValue 写入、从未注册 → v.videoKey 恒 undefined → 「请先选择候选视频」门禁永远拦截（实测 createWork/updateWork 从未被调用；既有 7 用例全绿因零提交路径覆盖）。修正：candRef 做唯一数据源，create 模式 onFinish 从 cand 组装五字段+videoMediaId（门禁判 !cand 仅 create 生效）；edit 模式 payload 剔除 videoKey/videoMediaId（UpdateVideoWorkDto 禁字段+forbidNonWhitelisted 400）、不依赖候选池。补提交路径用例两条（create 载荷五字段/edit 载荷无禁字段）。②uploadCover 裸 fetch 补 res.ok 检查（先例 adminApi.ts:133-144 的错误半边被 plan 漏抄）——后端错误体 data:null 时 `body.data ?? body` 返回错误信封致 key undefined+假成功 toast。**登记不修**：候选下拉只取第一页 pageSize=20（plan 层简化，规模上来再加 scroll-pagination）；设置 tab getSettings 失败后无重试入口；联动测试未断言"强制关"值半边（后端 400 兜底）；文件 408 行为仓内 admin 最大单文件（四块职责清晰暂不拆）。**批次 11 手工验收增补**：浏览器真实走一遍「新增作品（选候选→保存→列表出现）」与「编辑作品（不改候选→保存）」往返。
+
+> **批次 10 执行记录（2026-09-16）**：两任务提交 49497ca7（10.1 VideoWorksPage——WorksTable 6 列/WorkFormModal 候选下拉 canvasExists 禁选+回填/两开关双层 ProFormDependency 联动/viewCount·likeCount 可调/封面原生 input 上传；adminApi.ts 追加 adminVideoWorkApi 16 项 C1-1 无 /api+uploadCover 裸 fetch 例外；AdminLayout 菜单+router admin 叶子 content/video-works——**plan commit 命令漏 router.tsx 已补入 commit**）/fba8da8c（10.2 类型/标签 Tab（TaxonomyTable 共用泛化）+轮播设置卡片 admin settings 端点）。web 全量 **254 files/2535 tests** + tsc -b 零错误。spec 合规审查 ✅（16 项逐行/表单 11 字段全集/联动订阅确认）；代码质量审查 **No（Critical）** → 勘误 d03c1d84 + 修复 390a765e + 复核 ✅（**2538 tests**，见上勘误块）：C-1 保存路径整体失效（onFinish 注册字段语义——create/edit 提交用例先红后绿，证伪还原修复前恰两用例红）、I-1 uploadCover res.ok（500→「封面超限」不再假成功）、复核残留边界 allowClear 守卫 7a0a0f22。**已裁定事项**：10.1 一条 getByText(/标签/) 撞名收敛 within(dialog)（plan 内部冲突，第十二轮同款手法）；pro-components 2.8.10 类型微调两处；realm 补丁未命中（MemoryRouter 直渲染）；Upload 字段 vs HomeBannersPage 原生 input 先例（功能等价）；editable 未用（第十轮定案弹窗编辑）。**登记不修**见上勘误块四项。
 
 ---
 
