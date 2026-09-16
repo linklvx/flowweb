@@ -169,3 +169,32 @@ it('uploadCover 上传失败（fetch 500）→ 弹错误不弹假成功、coverK
   expect(within(dialog).getByText('未上传')).toBeInTheDocument();                // coverKey 未写
   vi.mocked(adminVideoWorkApi.uploadCover).mockReset(); // mockImplementation 不被 clearAllMocks 清除，手动复位防泄漏
 });
+
+// —— 最终收尾审查（2026-09-16）I-1：候选下拉 previewUrl 过 /flowai 同源改写——生产 presign URL 是内网地址不可达、
+// 缩略图必裂（批次 8 列表封面同因，videoWorkApi.ts:15-16 注释）；本地 127.0.0.1:9000 可直连故 dev 验收不暴露。
+// 修复前 mapper 根本未透传 previewUrl（option.data 上恒 undefined、img 不渲染），双重缺陷一次修。
+it('候选下拉缩略图：previewUrl 过 /flowai 改写（I-1：mapper 透传 + toFlowaiUrl，img src 不再是原始 presign host）', async () => {
+  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [{ id: 'm1', key: 'results/x.mp4', projectId: 'p1', canvasExists: true, thumbnailKey: null, durationSec: 10, width: 16, height: 9, createdAt: '2026-09-01', previewUrl: 'http://minio:9000/flowai/results/x.mp4' }], total: 1 } as any); // fixture 命中 toFlowaiUrl 正则 ^https?://[^/]+/flowai
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(() => within(dialog).getByText(/候选视频/));
+  fireEvent.mouseDown(within(dialog).getByText('从候选池选择')); // antd Select jsdom 开下拉（同文件 122 行先例）
+  await screen.findByText('results/x.mp4'); // 下拉已展开（portal 到 body）
+  const img = await waitFor(() => {
+    const el = document.body.querySelector('.ant-select-dropdown img');
+    expect(el).not.toBeNull(); // 修复前：mapper 未透传 previewUrl → img 根本不渲染（红）
+    return el as HTMLImageElement;
+  });
+  expect(img.getAttribute('src')).toBe('/flowai/results/x.mp4'); // 修复后非原始 host（minio:9000）——同源路径
+});
+
+// —— 最终收尾审查（2026-09-16）I-2：候选下拉原固定 listCandidates(1)（api 侧 pageSize=20），候选池超 20 后 UI 不可达；
+// API controller 有 Math.min(50,...) clamp（admin-video-work.controller.ts:31），上限取满 50。
+it('候选下拉请求满额 pageSize：listCandidates(1, 50)（I-2：API clamp 上限 50，修复前固定 (1)→20）', async () => {
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(() => within(dialog).getByText(/候选视频/));
+  await waitFor(() => expect(adminVideoWorkApi.listCandidates).toHaveBeenCalledWith(1, 50)); // 修复前：listCandidates(1)（红）
+});

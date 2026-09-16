@@ -6,6 +6,7 @@ import {
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { App as AntdApp, Button, Form, Popconfirm, Radio, Switch, Tabs } from 'antd';
 import { adminVideoWorkApi } from '@/api/adminApi';
+import { toFlowaiUrl } from '@/api/videoWorkApi';
 
 interface VideoWorkRow {
   id: string;
@@ -236,12 +237,14 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
           },
         }}
         request={async () => {
-          const r = await adminVideoWorkApi.listCandidates(1) as { items: CandidateItem[]; total: number };
+          const r = await adminVideoWorkApi.listCandidates(1, 50) as { items: CandidateItem[]; total: number }; // pageSize 50=API clamp 上限（超 20 候选池 UI 不可达）
           candRef.current = new Map(r.items.map((c) => [c.id, c]));
           return r.items.map((c) => ({
             label: c.canvasExists ? c.key : `${c.key}（画布已删除）`, // canvasExists=false 标注（plan 字段 1）
             value: c.id,
             disabled: !c.canvasExists,
+            // I-1：透传 previewUrl 供 optionRender 且过 /flowai 同源改写——生产 presign 是内网地址不可达（videoWorkApi.ts 列表封面同款）
+            previewUrl: c.previewUrl ? toFlowaiUrl(c.previewUrl) : null,
           }));
         }}
       />

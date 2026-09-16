@@ -195,7 +195,7 @@ export const adminVideoWorkApi = {
   createWork: (data: unknown) => apiFetch('/admin/video-works', { method: 'POST', body: JSON.stringify(data) }),
   updateWork: (id: string, data: unknown) => apiFetch(`/admin/video-works/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteWork: (id: string) => apiFetch(`/admin/video-works/${id}`, { method: 'DELETE' }),
-  listCandidates: (page = 1) => apiFetch(`/admin/video-works/candidates?page=${page}&pageSize=20`),
+  listCandidates: (page = 1, pageSize = 20) => apiFetch(`/admin/video-works/candidates?page=${page}&pageSize=${pageSize}`), // pageSize clamp 上限 50（admin-video-work.controller.ts Math.min(50,...)）
   // 唯一例外：multipart 走裸 fetch 且必须带 /api（apiFetch 硬编码 JSON Content-Type 冲掉 boundary；C1-1，先例 adminApi.ts:133-144）
   uploadCover: async (file: File): Promise<{ key: string }> => {
     const fd = new FormData(); fd.append('file', file);
