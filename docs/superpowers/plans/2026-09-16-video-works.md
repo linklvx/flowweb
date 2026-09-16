@@ -4082,6 +4082,8 @@ git add apps/web/src/pages/videos/
 git commit -m "feat(video-work): 批次8 页内登录（嵌套 ConfigProvider 抬 z，D18）"
 ```
 
+> **批次 8 勘误（2026-09-16，质量审查 Important——plan 逐字缺陷）**：①PlayView onLike 的 useCallback deps `[detail.id]` 缺 `user`——登录后闭包持旧 user:null，再点喜欢反复弹登录框（变异测试实锤），修正 deps 为 `[detail.id, user]`；②VideoPlayerModal 详情 effect 无 stale 守卫——快速轮播切换旧响应覆盖/晚到 404 误踢回列表，补 stale 标记（同批次 7 VideosPage 模式）；③onDetailRefresh 自愈重拉无 .catch——失败 unhandled rejection+黑屏，补 `.catch(() => {})`；④CarouselBar 列表拉取补 catch 对齐 settings 风格。**z 层机制归因修正（结论不变、归因修正防误删）**：实测 antd Modal z = zIndexPopupBase **+10**（modal/style 源码，100010 而非 100100，仍 > 壳 100000 结论成立）；antd Modal 始终 portal 到 body **不受 getPopupContainer 影响**（该层只管 Trigger 类弹层）——对 LoginModal 本体唯一承重层是 zIndexPopupBase；getPopupContainer 层承重的是壳内其他 Trigger 弹层与 message holder。两层配方保留结论不变，勿据"Modal 不走 getPopupContainer"删该层。另登记：StrictMode dev 下 recordView/详情双发（生产与测试不受影响，"恰 1 次"生产成立——批次 11 手工验收若核 dev 库计数需知此偏差）。
+
 ---
 
 ## 批次 9：创作过程视图（ProcessSnapshot 只读渲染）
