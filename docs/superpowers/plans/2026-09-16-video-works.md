@@ -3155,7 +3155,7 @@ git commit -m "feat(video-work): 批次6 克隆（共用白名单/四元重映�
 **Files:**
 - Create: `apps/web/src/api/videoWorkApi.ts`
 
-- [ ] **Step 1: 实现（api 封装无独立测试对象——由页面测试覆盖；/flowai 改写函数在本文件复制同款正则，**不**从 mediaApi 提取共用——第八轮裁定=C2 原案：提取会动 mediaApi/批次 0 改动面，D2 孤岛原则；全仓 54 处改写均为各文件自持同款正则）**
+- [x] **Step 1: 实现（api 封装无独立测试对象——由页面测试覆盖；/flowai 改写函数在本文件复制同款正则，**不**从 mediaApi 提取共用——第八轮裁定=C2 原案：提取会动 mediaApi/批次 0 改动面，D2 孤岛原则；全仓 54 处改写均为各文件自持同款正则）**
 
 照 `apps/web/src/api/mediaApi.ts:6` 的改写正则在本文件复制同一行：
 
@@ -3214,7 +3214,7 @@ export async function getPublicSettings(): Promise<VideoWorkSettings> {
 }
 ```
 
-- [ ] **Step 2: 编译验证 + Commit**
+- [x] **Step 2: 编译验证 + Commit**
 
 ```bash
 pnpm --filter @flowweb/web exec tsc -b   # 第九轮：原 "tsc -b --dry || build" 是空跑——--dry 只列工程不做检查且退出 0；第十轮统一为 tsc -b（build 的类型半边）
@@ -3228,7 +3228,7 @@ git commit -m "feat(video-work): 批次7 videoWorkApi（/flowai 改写同款复�
 - Create: `apps/web/src/pages/videos/VideoCard.tsx`、`VideosPage.tsx`
 - Test: `apps/web/src/pages/videos/__tests__/VideosPage.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 import { render, screen, waitFor } from '@testing-library/react';
@@ -3280,12 +3280,12 @@ describe('VideosPage（D13 卡片裁剪）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 Run: `pnpm --filter @flowweb/web test -- VideosPage`
 Expected: FAIL（组件不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```tsx
 // VideoCard.tsx（D13：只有封面+时长+标题+标签）
@@ -3397,7 +3397,7 @@ export function VideosPage() {
 }
 ```
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- VideosPage
@@ -3411,7 +3411,7 @@ git commit -m "feat(video-work): 批次7 列表页（D13 卡片裁剪/tab/分页
 - Modify: `apps/web/src/router.tsx`（公开组 + lazy）、`apps/web/src/components/layout/Sidebar.tsx:12-17`、`apps/web/src/index.css`（新 token）
 - Test: `apps/web/src/pages/videos/__tests__/route.integration.test.tsx`
 
-- [ ] **Step 1: 写失败测试（单路由不重挂——D5 承重墙 + admin 路由存在性）**
+- [x] **Step 1: 写失败测试（单路由不重挂——D5 承重墙 + admin 路由存在性）**
 
 ```tsx
 import { render, waitFor, act } from '@testing-library/react';
@@ -3449,7 +3449,7 @@ it('Modal 开关前后 fetchVideoWorks 仅调用 1 次（断言点在动画后�
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 router.tsx 公开组追加（**lazy**，spec §5.1；与既有 lazy 页面写法一致——grep `lazy(` 参照）：
 
@@ -3477,7 +3477,7 @@ index.css 追加本功能 token（§6：显式定义并登记）：
 }
 ```
 
-- [ ] **Step 4: 跑绿 + 既有路由/Sidebar 测试回归（Sidebar.test 无计数断言应全绿）→ Step 5: Commit**
+- [x] **Step 4: 跑绿 + 既有路由/Sidebar 测试回归（Sidebar.test 无计数断言应全绿）→ Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test
@@ -3487,6 +3487,8 @@ git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 
 ```
 
 > **批次 7 勘误（2026-09-16，质量审查三轮 Important——plan 逐字缺陷）**：①VideoCard 的 `border border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)]` 在 preflight:false（tailwind.config.ts corePlugins.preflight=false）下 `border` utility 只产出 border-width、不产出 border-style，CSS 规范 border-style:none 使 width used value 为 0 → 边框/hover 永不渲染——修正为 `border` 后加 `border-solid`（Task 7.2 代码块已同步；仓内先例 PropertiesPanel.tsx:138 `[border-style:solid]`）；②VideosPage 列表请求无 .catch——接口失败时 finally 置 loading=false → items [] → 渲染误导性"暂无作品" + unhandled rejection（同文件 categories 有 .catch 不一致）——补 `failed` state，catch 置位，空态分支前内联一行错误文案（C1-4）；③列表 effect deps [categoryId,page] 无竞态防护——快速切 tab 旧响应后到反向覆盖新数据——effect 内 `let stale = false` + cleanup `stale = true` + then/catch/finally 内 `if (!stale)` 收口。测试补两用例（VideosPage.test.tsx，先红后绿）：「接口失败 → 渲染错误提示而非暂无作品」「快速切换 tab 时旧响应不覆盖新数据」。②③以本勘误块为准（正文 Task 7.2 VideosPage 代码块不再改写）。
+
+> **批次 7 执行记录（2026-09-16）**：三任务提交 5305497e（7.1 videoWorkApi——8 导出/toFlowaiUrl 与 mediaApi.ts:6 逐字符同款/封面视频缩略图全过改写/recordView 静默失败；无独立 spec 按 plan，tsc 验证）/50809ac1（7.2 VideoCard 16:9+角标+单行标题+chips+state fromList、VideosPage Tabs+分页+内联骨架空态；3 用例含 D13 四不存在断言）/a5ba5ce7（7.3 router 单条 `/videos/:id?` lazy+Suspense（AdminLazy 先例）、Sidebar 4→5 模板广场后插入、index.css 三 token、route.integration 不重挂断言 Modal 开关前后 fetchVideoWorks 恰 1 次）。web 全量 **246 files / 2496 tests** 全绿 + tsc -b 零错误。spec 合规审查 ✅（逐字一致零偏差、9 红线全过）；代码质量审查 **With fixes** → 勘误 ce9cbf1a + 修复 f7c11de4 + 复核 ✅（**2498 tests**：border-solid/失败态用例/竞态用例均先红后绿——三 Important 皆为 plan 逐字缺陷，见上勘误块）。**已裁定事项**：①realm 补丁（route.integration 的 `vi.stubGlobal('Request')` 剥 signal——react-router 7.15 navigate() 在 jsdom 下 undici AbortSignal brandCheck 引发 unhandled rejection 退出码 1；断言本体未动纯环境装配；vitest forks+isolate 下不 restore 无跨文件污染——**批次 8 路由类测试命中同题照抄该补丁**）；②7.3 跑红空洞（测试自带 createMemoryRouter 不依赖 router.tsx，实现前即绿——plan 测试设计特性，实现验证面=全量回归+tsc；**注意该用例防不住 router.tsx 退化两条平级路由的回归**，批次 8 复用时勿误信覆盖面）。**登记未修 Minor**：M-1 route.integration 未用 describe import（noUnusedLocals 未开静默）；M-2 `?page=abc` NaN 传 antd Pagination（后端兜回 1 数据不坏）；M-3 token 定义在 7.3 而 VideoCard 在 7.2（bisect 窗口）；M-4 loading 隐藏分页器闪烁。**项目级规约登记**：preflight:false 下 `border` 类必须配 `border-solid`（第二次踩坑——PropertiesPanel 先例 + 本批 VideoCard）。
 
 ---
 
