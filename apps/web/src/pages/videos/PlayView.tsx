@@ -29,7 +29,7 @@ export function PlayView({ detail, onViewProcess, onNeedLogin, onDetailRefresh }
       if (e.status === 401) onNeedLogin();
       else message.error('操作失败');
     }
-  }, [detail.id]);
+  }, [detail.id, user]);
 
   const onShare = useCallback(async () => {
     await navigator.clipboard.writeText(window.location.href);

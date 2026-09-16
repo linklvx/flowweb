@@ -27,9 +27,13 @@ export function VideoPlayerModal() {
 
   useEffect(() => {
     if (!id) { setDetail(null); setView('play'); return; }   // id 消失 → 关闭并复位
+    let stale = false;   // 竞态守卫（批次 8 勘误②，同批次 7 VideosPage 模式）——快速轮播切换时旧响应晚到不覆盖/晚到 404 不误踢回列表
     setDetail(null); setView('play');
-    fetchVideoWorkDetail(id).then(setDetail).catch(() => navigate('/videos', { replace: true })); // 404 → 回列表
+    fetchVideoWorkDetail(id)
+      .then(d => { if (!stale) setDetail(d); })
+      .catch(() => { if (!stale) navigate('/videos', { replace: true }); }); // 404 → 回列表
     recordView(id);                                          // view 单点埋点（打开时，D15）
+    return () => { stale = true; };
   }, [id]);
 
   /** 关闭算法（模式 A）：fromList → navigate(-1)；否则 replace /videos。
@@ -61,7 +65,7 @@ export function VideoPlayerModal() {
                 display:contents 使锚点 div 不产生布局盒（壳内绝对定位元素的参照物仍是壳根 fixed）。 */}
             <div data-zprovider={String(VIDEO_MODAL_Z_BASE)} style={{ display: 'contents' }}>
               {view === 'play'
-                ? <PlayView detail={detail} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail)} />
+                ? <PlayView detail={detail} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail).catch(() => {})} />
                 : <ProcessView workId={detail.id} title={detail.title} canClone={detail.canClone} onBack={() => setView('play')} onNeedLogin={() => setShowLogin(true)} />}
               <CarouselBar currentId={detail.id} categoryId={detail.categoryId} onSwitch={(wid) =>
                 navigate(`/videos/${wid}`, { replace: true, state: location.state })} />  {/* 继承 state 原值透传（§5.1） */}

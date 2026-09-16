@@ -16,7 +16,7 @@ export function CarouselBar({ currentId, categoryId, onSwitch }: {
     fetchVideoWorks({
       categoryId: settings.carouselScope === 'category' ? (categoryId ?? undefined) : undefined, // null → 降级 all
       page: 1, pageSize: 11,
-    }).then(r => setAll(r.items)); // 11 条取回，不在此时过滤
+    }).then(r => setAll(r.items)).catch(() => {}); // 11 条取回，不在此时过滤（勘误④：失败静默，对齐上方 settings 的 catch 风格）
   }, [settings, categoryId]);
 
   const items = all.filter(w => w.id !== currentId).slice(0, 10); // 渲染期派生：恒排除当前作品（轮播切换 currentId 变化即重算，无残留）

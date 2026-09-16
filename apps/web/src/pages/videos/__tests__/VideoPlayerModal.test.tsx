@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '@/api/videoWorkApi';
@@ -34,9 +34,9 @@ const listItems = [ // 列表含 w1/w2 两卡（场景 1/4 点真实卡片进入
   { id: 'w2', title: '第二作品', coverUrl: null, durationSec: 90, tags: [] },
 ];
 
-function renderAt(initial: string, state?: any) {
+function renderAt(initial: string) {
   const router = createMemoryRouter([{ path: '/videos/:id?', element: <VideosPage /> }],
-    { initialEntries: initial === '/videos/w1' ? [{ pathname: '/videos/w1', state }] : [initial] });
+    { initialEntries: [initial] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -94,5 +94,22 @@ describe('关闭算法（模式 A：state.fromList）', () => {
     fireEvent.click(screen.getByTestId('close-btn'));
     await waitFor(() => expect(router.state.location.pathname).toBe('/videos'));
     expect(router.state.location.search).toBe('?page=2&categoryId=x'); // navigate(-1) 保留查询串；replace 会丢
+  });
+
+  it('快速切换 w1→w2 时旧响应晚到不覆盖（无 stale 守卫时 w1 响应晚到覆盖已展示的 w2 标题）', async () => {
+    let resolveW1!: (v: any) => void;
+    let resolveW2!: (v: any) => void;
+    vi.mocked(api.fetchVideoWorkDetail)
+      .mockImplementationOnce(() => new Promise(res => { resolveW1 = res; })) // w1 可控 pending
+      .mockImplementationOnce(() => new Promise(res => { resolveW2 = res; })); // w2 可控 pending
+    const router = renderAt('/videos/w1');
+    await waitFor(() => expect(api.fetchVideoWorkDetail).toHaveBeenCalledTimes(1)); // w1 请求在途（Modal 未渲染——detail null 整壳返回 null）
+    await act(async () => { await router.navigate('/videos/w2'); }); // w1 resolve 前切到 w2
+    await waitFor(() => expect(api.fetchVideoWorkDetail).toHaveBeenCalledWith('w2'));
+    resolveW2(detailW2); // w2 响应先到
+    await waitFor(() => expect(within(screen.getByTestId('modal')).getByText('第二作品')).toBeInTheDocument()); // w2 正常展示（within 收窄——列表卡片同名文本会误中）
+    resolveW1(detail); // w1 旧响应晚到
+    await waitFor(() => { expect(within(screen.getByTestId('modal')).queryByText('末班地铁')).toBeNull(); }); // 不被覆盖
+    expect(within(screen.getByTestId('modal')).getByText('第二作品')).toBeInTheDocument();
   });
 });

@@ -46,6 +46,20 @@ describe('PlayView', () => {
     await waitFor(() => expect(btn).toHaveAttribute('data-liked', 'false')); // 响应为准
   });
 
+  it('登录后 user 变化——再点喜欢走 toggleLike 而非再弹登录（deps 缺 user 时闭包持旧 null → onNeedLogin 变 2）', async () => {
+    authCtx.user = null; // 初始未登录（先例用例可能残留登录态，显式复位）
+    const onNeedLogin = vi.fn();
+    vi.mocked(api.toggleLike).mockResolvedValue({ liked: true, likeCount: 6 });
+    const { rerender } = render(<AntdApp><PlayView detail={detail} onViewProcess={() => {}} onNeedLogin={onNeedLogin} onDetailRefresh={vi.fn()} /></AntdApp>);
+    fireEvent.click(screen.getByRole('button', { name: /喜欢/ }));
+    await waitFor(() => expect(onNeedLogin).toHaveBeenCalledTimes(1)); // 未登录 → 弹登录
+    authCtx.user = { id: 'u1' }; // 登录成功（同一 mock 实例改值）
+    rerender(<AntdApp><PlayView detail={detail} onViewProcess={() => {}} onNeedLogin={onNeedLogin} onDetailRefresh={vi.fn()} /></AntdApp>);
+    fireEvent.click(screen.getByRole('button', { name: /喜欢/ }));
+    await waitFor(() => expect(api.toggleLike).toHaveBeenCalledWith('w1'));
+    expect(onNeedLogin).toHaveBeenCalledTimes(1); // 闭包过期时此处变 2
+  });
+
   it('分享：clipboard 写入当前 URL + message', async () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } }); // 第七轮修语法错（原少右括号）
     renderPlay(detail);
