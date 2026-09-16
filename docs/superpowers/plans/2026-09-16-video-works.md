@@ -4644,6 +4644,8 @@ git add apps/web/src/pages/admin/
 git commit -m "feat(video-work): 批次10 类型/标签管理 + 轮播设置卡片"
 ```
 
+> **批次 10 勘误（2026-09-16，质量审查 Critical+Important——plan 设计缺口）**：①WorkFormModal 保存路径整体失效——rc-field-form onFinish 值只含**已注册字段**，videoKey/canvasProjectId/durationSec/width/height 仅靠候选 onChange setFieldsValue 写入、从未注册 → v.videoKey 恒 undefined → 「请先选择候选视频」门禁永远拦截（实测 createWork/updateWork 从未被调用；既有 7 用例全绿因零提交路径覆盖）。修正：candRef 做唯一数据源，create 模式 onFinish 从 cand 组装五字段+videoMediaId（门禁判 !cand 仅 create 生效）；edit 模式 payload 剔除 videoKey/videoMediaId（UpdateVideoWorkDto 禁字段+forbidNonWhitelisted 400）、不依赖候选池。补提交路径用例两条（create 载荷五字段/edit 载荷无禁字段）。②uploadCover 裸 fetch 补 res.ok 检查（先例 adminApi.ts:133-144 的错误半边被 plan 漏抄）——后端错误体 data:null 时 `body.data ?? body` 返回错误信封致 key undefined+假成功 toast。**登记不修**：候选下拉只取第一页 pageSize=20（plan 层简化，规模上来再加 scroll-pagination）；设置 tab getSettings 失败后无重试入口；联动测试未断言"强制关"值半边（后端 400 兜底）；文件 408 行为仓内 admin 最大单文件（四块职责清晰暂不拆）。**批次 11 手工验收增补**：浏览器真实走一遍「新增作品（选候选→保存→列表出现）」与「编辑作品（不改候选→保存）」往返。
+
 ---
 
 ## 批次 11：端到端验收与部署
