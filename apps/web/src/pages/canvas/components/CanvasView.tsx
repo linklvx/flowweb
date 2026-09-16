@@ -39,7 +39,7 @@ import { GridSizeDropdown } from './groups/GridSizeDropdown';
 import { StitchButton } from './groups/StitchButton';
 import type { StoryboardConfig } from '@/types/group';
 
-const nodeTypes: NodeTypes = {
+export const nodeTypes: NodeTypes = {
   textInput: TextInputNode,
   imageGen: ImageGenNode,
   imageExtGen: ImageExtNode,
