@@ -4,7 +4,7 @@ import {
   ProFormSelect, ProFormSwitch, ProFormRadio, ProFormDependency,
 } from '@ant-design/pro-components';
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
-import { App as AntdApp, Button, Form, Popconfirm } from 'antd';
+import { App as AntdApp, Button, Form, Popconfirm, Radio, Switch, Tabs } from 'antd';
 import { adminVideoWorkApi } from '@/api/adminApi';
 
 interface VideoWorkRow {
@@ -44,6 +44,13 @@ interface CandidateItem {
   previewUrl: string | null;
 }
 
+interface TaxonomyRow {
+  id: string;
+  name: string;
+  sortOrder: number;
+  active: boolean;
+}
+
 type WorkFormValues = {
   videoMediaId?: string;
   videoKey?: string;
@@ -64,7 +71,14 @@ type WorkFormValues = {
 export function VideoWorksPage() {
   return (
     <PageContainer title="视频作品">
-      <WorksTable />
+      <Tabs
+        items={[
+          { key: 'works', label: '作品', children: <WorksTable /> },
+          { key: 'categories', label: '视频类型', children: <TaxonomyTable noun="类型" list={adminVideoWorkApi.listCategories} create={adminVideoWorkApi.createCategory} update={adminVideoWorkApi.updateCategory} remove={adminVideoWorkApi.deleteCategory} /> },
+          { key: 'tags', label: '标签池', children: <TaxonomyTable noun="标签" list={adminVideoWorkApi.listTags} create={adminVideoWorkApi.createTag} update={adminVideoWorkApi.updateTag} remove={adminVideoWorkApi.deleteTag} /> },
+          { key: 'settings', label: '播放页设置', children: <CarouselSettingsCard /> },
+        ]}
+      />
     </PageContainer>
   );
 }
@@ -251,19 +265,20 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
                 tooltip={noCanvas ? '需先选择有画布的候选视频' : '开启后播放页可查看创作过程快照'}
                 disabled={noCanvas}
                 fieldProps={{
+                  // rc-switch 运行时透传 aria-*，ProFormSwitch fieldProps 类型未收录——as any 收敛
                   'aria-label': '允许查看创作过程',
                   onChange: (checked: boolean) => {
                     if (!checked) form.setFieldsValue({ allowClone: false }); // 强制关（后端 400 校验的前端半边）
                   },
-                }}
+                } as any}
               />
-              <ProFormDependency name={['allowViewProcess']} noStyle>
+              <ProFormDependency name={['allowViewProcess']}>
                 {({ allowViewProcess }) => (
                   <ProFormSwitch
                     name="allowClone" label="允许克隆"
                     tooltip={noCanvas ? '需先选择有画布的候选视频' : !allowViewProcess ? '需先开启「允许查看创作过程」' : '开启后播放页可一键克隆到我的画布'}
                     disabled={noCanvas || !allowViewProcess}
-                    fieldProps={{ 'aria-label': '允许克隆' }}
+                    fieldProps={{ 'aria-label': '允许克隆' } as any} // 同上：类型未收录 aria-*，运行时透传
                   />
                 )}
               </ProFormDependency>
@@ -275,6 +290,118 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
       <ProFormDigit name="viewCount" label="观看数（后台可调）" initialValue={0} />
       <ProFormDigit name="likeCount" label="喜欢数（后台可调）" initialValue={0} />
     </ModalForm>
+  );
+}
+
+// —— 类型 / 标签管理（同构轻量 CRUD，spec §5.6） ——
+
+function TaxonomyTable({ noun, list, create, update, remove }: {
+  noun: string;
+  list: () => Promise<unknown>;
+  create: (d: unknown) => Promise<unknown>;
+  update: (id: string, d: unknown) => Promise<unknown>;
+  remove: (id: string) => Promise<unknown>;
+}) {
+  const ref = useRef<ActionType>(null);
+  const { message } = AntdApp.useApp();
+
+  const columns: ProColumns<TaxonomyRow>[] = [
+    { title: '名称', dataIndex: 'name' },
+    { title: '排序', dataIndex: 'sortOrder', width: 70 },
+    {
+      title: '启用', dataIndex: 'active', width: 80,
+      render: (_, r) => (
+        <Switch checked={r.active} onChange={(checked) => {
+          void update(r.id, { active: checked }).then(() => { message.success(checked ? '已启用' : '已禁用'); ref.current?.reload(); }).catch((e: Error) => message.error(e.message));
+        }} />
+      ),
+    },
+    {
+      title: '操作', valueType: 'option', width: 120,
+      render: (_, r) => [
+        <TaxonomyFormModal key="edit" noun={noun} mode="edit" record={r} create={create} update={update} onDone={() => ref.current?.reload()} trigger={<a>编辑</a>} />,
+        <Popconfirm key="del" title={`确认删除该${noun}？`} onConfirm={async () => {
+          try { await remove(r.id); message.success('已删除'); ref.current?.reload(); }
+          catch (e) { message.error((e as Error).message); }
+        }}>
+          <a style={{ color: '#ff7875' }}>删除</a>
+        </Popconfirm>,
+      ],
+    },
+  ];
+
+  return (
+    <ProTable<TaxonomyRow> rowKey="id" search={false} size="middle" columns={columns} actionRef={ref}
+      request={async () => { const d = await list() as TaxonomyRow[]; return { data: d, success: true, total: d.length }; }}
+      toolBarRender={() => [
+        <TaxonomyFormModal key="create" noun={noun} mode="create" create={create} update={update} onDone={() => ref.current?.reload()} trigger={<Button type="primary">{`新增${noun}`}</Button>} />,
+      ]}
+    />
+  );
+}
+
+function TaxonomyFormModal({ noun, mode, record, create, update, onDone, trigger }: {
+  noun: string; mode: 'create' | 'edit'; record?: TaxonomyRow;
+  create: (d: unknown) => Promise<unknown>; update: (id: string, d: unknown) => Promise<unknown>;
+  onDone: () => void; trigger: React.ReactElement;
+}) {
+  const { message } = AntdApp.useApp();
+  return (
+    <ModalForm<TaxonomyRow>
+      title={mode === 'create' ? `新增${noun}` : `编辑${noun}`} trigger={trigger}
+      modalProps={{ destroyOnClose: true }}
+      initialValues={record ?? { sortOrder: 0, active: true }}
+      onFinish={async (v) => {
+        try {
+          const payload = { name: v.name?.trim(), sortOrder: v.sortOrder, active: v.active };
+          if (mode === 'create') await create(payload);
+          else if (record) await update(record.id, payload);
+          message.success('已保存'); onDone(); return true;
+        } catch (e) { message.error((e as Error).message); return false; }
+      }}
+    >
+      <ProFormText name="name" label="名称" rules={[{ required: true, message: '请输入名称' }, { max: 64, message: '最多 64 字' }]} fieldProps={{ maxLength: 64 }} />
+      <ProFormDigit name="sortOrder" label="排序" initialValue={0} />
+      <ProFormSwitch name="active" label="启用" initialValue={true} />
+    </ModalForm>
+  );
+}
+
+// —— 轮播设置卡片（spec §5.6：carouselEnabled + carouselScope，读写 /settings） ——
+
+type VideoWorkSettings = { carouselEnabled: boolean; carouselScope: 'all' | 'category' };
+
+function CarouselSettingsCard() {
+  const { message } = AntdApp.useApp();
+  const [settings, setSettings] = useState<VideoWorkSettings | null>(null);
+
+  useEffect(() => {
+    adminVideoWorkApi.getSettings()
+      .then((d) => setSettings(d as VideoWorkSettings))
+      .catch((e: Error) => message.error(e.message));
+  }, [message]);
+
+  // antd Form 无 initialValue、initialValues 只在首挂载生效——异步到达的 getSettings 数据必须在渲染 Form 前就位（plan 第十二轮 m1）
+  if (!settings) return null;
+
+  return (
+    <Form
+      layout="vertical" style={{ maxWidth: 420 }} initialValues={settings}
+      onFinish={async (v) => {
+        try {
+          await adminVideoWorkApi.updateSettings(v);
+          message.success('已保存'); setSettings(v);
+        } catch (e) { message.error((e as Error).message); }
+      }}
+    >
+      <Form.Item name="carouselEnabled" label="轮播开启" valuePropName="checked">
+        <Switch />
+      </Form.Item>
+      <Form.Item name="carouselScope" label="轮播范围">
+        <Radio.Group options={[{ label: '全部作品', value: 'all' }, { label: '同类型', value: 'category' }]} />
+      </Form.Item>
+      <Button type="primary" htmlType="submit">保存设置</Button>
+    </Form>
   );
 }
 

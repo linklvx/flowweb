@@ -52,7 +52,10 @@ it('ModalForm 含候选下拉（candidates）/两开关/标签 tags 模式/封�
   fireEvent.click(screen.getByRole('button', { name: /新增/ })); // 按钮文案钉死「新增作品」（第十一轮：≥3 字不触发 antd 两字插空格坑——写"新增"两字会变"新 增"致 /新增/ 不匹配；写"新建作品"则不含"新增"子串同样不匹配，实现侧 toolBarRender 必须用「新增作品」）
   await waitFor(() => screen.getByText(/候选视频/));
   expect(screen.getByText(/允许查看创作过程|查看制作过程/)).toBeInTheDocument(); // 两开关（allowViewProcess/allowClone）
-  expect(screen.getByText(/标签/)).toBeInTheDocument();
+  // 本批次实施发现（plan 十三轮未覆盖的内部冲突）：Task 10.2 落地 Tabs 后「标签池」tab 名与本弹层字段 label
+  // 同含「标签」子串，全局 getByText(/标签/) 抛 Found multiple；而 10.2 用例把 tab 名钉死「标签池」（getByRole 精确
+  // 匹配）不可改。按 plan 第十二轮 P1 对同款撞名的既定手法 within() 收敛——这里收敛到弹层（role=dialog）
+  expect(within(screen.getByRole('dialog')).getByText(/标签/)).toBeInTheDocument();
 });
 
 it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已有画布作品：关 allowViewProcess → allowClone 被强制关并禁用（第九轮修正：原断言挂在"新增"空表单下——无 canvasProjectId 时两开关本来 disabled、click 是 no-op、断言恒真）', async () => {
@@ -70,4 +73,36 @@ it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已
   expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled(); // 前置：有画布 → 初始可点（防再写空转断言）
   fireEvent.click(screen.getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })); // 关闭
   expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeDisabled(); // 联动禁用（后端 400 校验的前端半边）
+});
+
+// 第六轮落地（原为空壳用例）
+it('类型管理 tab：ProTable 列 name/sortOrder/active + 新增入口', async () => {
+  vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([
+    { id: 'c1', name: 'AI真人影视', sortOrder: 0, active: true }, { id: 'c2', name: 'MV', sortOrder: 1, active: false },
+  ] as any);
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('tab', { name: '视频类型' }));
+  await waitFor(() => screen.getByText('AI真人影视'));
+  // 第十二轮 P1：rc-tabs 不卸载已激活面板（destroyInactiveTabPane 默认 false，rc-tabs@15.4.0 TabPanelList/index.js:38
+  // removeOnLeave:false；TabPane.js:16 aria-hidden）——切走后作品面板仍挂载，其「排序」列头与类型表撞名、getByText 抛
+  // Found multiple elements。within(激活 panel) 收敛：getByRole('tabpanel') 默认排除 aria-hidden → 唯一命中当前面板
+  const panel = within(screen.getByRole('tabpanel'));
+  for (const col of ['名称', '排序', '启用']) expect(panel.getByText(col)).toBeInTheDocument();
+});
+it('标签管理 tab：同构', async () => {
+  vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([{ id: 't1', name: '悬疑', sortOrder: 0, active: true }] as any);
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('tab', { name: '标签池' }));
+  await waitFor(() => screen.getByText('悬疑'));
+});
+it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', async () => {
+  vi.mocked(adminVideoWorkApi.getSettings).mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' });
+  vi.mocked(adminVideoWorkApi.updateSettings).mockResolvedValue({ carouselEnabled: true, carouselScope: 'category' });
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('tab', { name: '播放页设置' }));
+  // 第十一轮 S3：原 getByText(/全部作品/) 只证标签存在（initialValue 写错成 category 也绿）——radio 的 checked 才反映初值
+  await waitFor(() => expect(screen.getByRole('radio', { name: /全部作品/ })).toBeChecked());
+  fireEvent.click(screen.getByText(/同类型/));        // 切 scope=category
+  fireEvent.click(screen.getByRole('button', { name: /保存/ })); // 按钮文案钉死「保存设置」（≥3 字不触发 antd 两字插空格——"保存"两字会变"保 存"致 /保存/ 不匹配）
+  await waitFor(() => expect(adminVideoWorkApi.updateSettings).toHaveBeenCalledWith({ carouselEnabled: true, carouselScope: 'category' }));
 });
