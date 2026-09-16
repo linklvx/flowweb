@@ -3501,7 +3501,7 @@ git commit -m "feat(video-work): 批次7 路由 /videos/:id?（lazy）+ Sidebar 
 - Modify: `apps/web/src/pages/videos/VideosPage.tsx`（挂载 Modal + 删 activeWorkId——第八轮把 C2 的执行序步骤落进本任务 Files/Steps，原只在勘误层）
 - Test: `apps/web/src/pages/videos/__tests__/VideoPlayerModal.test.tsx`
 
-- [ ] **Step 1: 写失败测试（关闭算法四场景——spec §7 前端 2）**
+- [x] **Step 1: 写失败测试（关闭算法四场景——spec §7 前端 2）**
 
 ```tsx
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -3592,7 +3592,7 @@ describe('关闭算法（模式 A：state.fromList）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现外壳**
+- [x] **Step 2: 跑红 → Step 3: 实现外壳**
 
 ```tsx
 // VideoPlayerModal.tsx（外壳：路由驱动开关 + 关闭算法 + 视图切换）
@@ -3673,9 +3673,9 @@ export function VideoPlayerModal() {
 }
 ```
 
-- [ ] **Step 3b: 接线 VideosPage（必做——本任务测试渲染真实 VideosPage 找 `data-testid="modal"`，不接线四场景全红；第八轮把该步骤从勘误层落进正文）**：把 Task 7.2 留下的 `{/* 批次 8：<VideoPlayerModal workId={activeWorkId} /> 在此挂载 */}` 占位注释替换为 `<VideoPlayerModal />`（组件内部自取 `useParams().id`），并删除随之无用的 `const { id: activeWorkId } = useParams();` 解构。
+- [x] **Step 3b: 接线 VideosPage（必做——本任务测试渲染真实 VideosPage 找 `data-testid="modal"`，不接线四场景全红；第八轮把该步骤从勘误层落进正文）**：把 Task 7.2 留下的 `{/* 批次 8：<VideoPlayerModal workId={activeWorkId} /> 在此挂载 */}` 占位注释替换为 `<VideoPlayerModal />`（组件内部自取 `useParams().id`），并删除随之无用的 `const { id: activeWorkId } = useParams();` 解构。
 
-- [ ] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）+ 批次中段类型门禁 `pnpm --filter @flowweb/web exec tsc -b`（见下方命令块与头部铁律）→ Step 5: Commit**
+- [x] **Step 4: 跑绿（按 C2 Task 8.x 执行序，本任务在 8.2/8.3/9.1/9.2 之后执行——直接集成全部真实子组件，四场景+场景5 全绿）+ 批次中段类型门禁 `pnpm --filter @flowweb/web exec tsc -b`（见下方命令块与头部铁律）→ Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- VideoPlayerModal
@@ -3690,7 +3690,7 @@ git commit -m "feat(video-work): 批次8 Modal 外壳（模式A关闭算法四�
 - Create: `apps/web/src/pages/videos/PlayView.tsx`
 - Test: `apps/web/src/pages/videos/__tests__/PlayView.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 // 文件顶部装配（第七轮补全——原块无 harness，renderPlay/detail 全程未定义即 ReferenceError）：
@@ -3765,7 +3765,7 @@ describe('PlayView', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```tsx
 // PlayView.tsx
@@ -3857,7 +3857,7 @@ export function PlayView({ detail, onViewProcess, onNeedLogin, onDetailRefresh }
 
 （onLike 判登录用 `const { user } = useAuth()`（C1-4，isLoggedIn 不存在）；Modal 外壳的 onDetailRefresh 重新 fetch 详情并 setDetail；PlayView 渲染在外壳内层 AntdApp 之下，useApp() toast 可见（C1-3）。）
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- PlayView
@@ -3871,7 +3871,7 @@ git commit -m "feat(video-work): 批次8 播放视图（发布于 publishedAt/�
 - Create: `apps/web/src/pages/videos/CarouselBar.tsx`
 - Test: `apps/web/src/pages/videos/__tests__/CarouselBar.test.tsx`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```tsx
 // 第八轮补 harness（原块无 import 头——照抄即 ReferenceError；CarouselBar 不用 useAuth，无需 AuthProvider mock）：
@@ -3931,7 +3931,7 @@ describe('CarouselBar', () => {
 
 （设置来自 admin settings 的公开读取——**公开端点需返回轮播设置**：在 GET /api/video-works/categories 同域追加或在列表响应附 settings。**实施决定**：公开端点 `GET /api/video-works/settings`（无需鉴权的两个运营开关，非敏感）——service 复用 getSettings()，controller 静态段追加一行，测试一条。）
 
-- [ ] **Step 2: 跑红 → Step 3: 实现**
+- [x] **Step 2: 跑红 → Step 3: 实现**
 
 ```tsx
 // CarouselBar.tsx
@@ -3974,7 +3974,7 @@ export function CarouselBar({ currentId, categoryId, onSwitch }: {
 
 **API 前置已就绪（第八轮）**：`getPublicSettings()` 已在 Task 7.1 定义（Task 7.3 测试即依赖该导出——前移避免 automock 缺导出的同步 TypeError），本任务无 API 改动。后端端点第七轮已前移至 Task 3.2（公开 controller 静态段 `@Get('settings')`；声明序断言 Task 3.3 已含 getSettings），本任务纯前端。
 
-- [ ] **Step 4: 跑绿 → Step 5: Commit**
+- [x] **Step 4: 跑绿 → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- CarouselBar
@@ -3988,7 +3988,7 @@ git commit -m "feat(video-work): 批次8 底部轮播（设置驱动/11取10/rep
 - Modify: `apps/web/src/pages/videos/VideoPlayerModal.tsx`（onNeedLogin 落地）
 - Test: `apps/web/src/pages/videos/__tests__/LoginInModal.test.tsx`
 
-- [ ] **Step 1: 写失败测试（jsdom 结构断言——z-index 层叠效果走浏览器手工验收，§7.5）**
+- [x] **Step 1: 写失败测试（jsdom 结构断言——z-index 层叠效果走浏览器手工验收，§7.5）**
 
 ```tsx
 // 第八轮补 harness（原块无 import 头；渲染链经 VideosPage 含 useAuth → 需 C5 模板 AuthProvider mock。
@@ -4064,7 +4064,7 @@ describe('播放 Modal 内页内登录', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红 → Step 3: 实现（Modal 内登录层——第五轮：登录层不再自带 Provider，外壳已在壳根包两层 ConfigProvider+AntdApp，见 C1-3/Task 8.1 修正后的实现片段）**
+- [x] **Step 2: 跑红 → Step 3: 实现（Modal 内登录层——第五轮：登录层不再自带 Provider，外壳已在壳根包两层 ConfigProvider+AntdApp，见 C1-3/Task 8.1 修正后的实现片段）**
 
 ```tsx
 // VideoPlayerModal 内（Task 8.1 骨架已含 showLogin state/shellRef/Esc 守卫；本任务只需渲染行已就位 + 本测试）
@@ -4073,7 +4073,7 @@ describe('播放 Modal 内页内登录', () => {
 // Esc 守卫在 close 回调首行（Task 8.1 已写）。（第十轮删"其内部 useApp() 解析到内层 App → toast 可见"——LoginModal 不调用 useApp/message，C1-3 第九轮已纠正同款说法）
 ```
 
-- [ ] **Step 4: 跑绿；浏览器手工验收登记（批次 11 清单项）：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal → Step 5: Commit**
+- [x] **Step 4: 跑绿；浏览器手工验收登记（批次 11 清单项）：未登录 → 播放 Modal 内点喜欢 → 登录框可见可点、Esc 先关登录框不误关播放 Modal → Step 5: Commit**
 
 ```bash
 pnpm --filter @flowweb/web test -- LoginInModal
@@ -4083,6 +4083,8 @@ git commit -m "feat(video-work): 批次8 页内登录（嵌套 ConfigProvider �
 ```
 
 > **批次 8 勘误（2026-09-16，质量审查 Important——plan 逐字缺陷）**：①PlayView onLike 的 useCallback deps `[detail.id]` 缺 `user`——登录后闭包持旧 user:null，再点喜欢反复弹登录框（变异测试实锤），修正 deps 为 `[detail.id, user]`；②VideoPlayerModal 详情 effect 无 stale 守卫——快速轮播切换旧响应覆盖/晚到 404 误踢回列表，补 stale 标记（同批次 7 VideosPage 模式）；③onDetailRefresh 自愈重拉无 .catch——失败 unhandled rejection+黑屏，补 `.catch(() => {})`；④CarouselBar 列表拉取补 catch 对齐 settings 风格。**z 层机制归因修正（结论不变、归因修正防误删）**：实测 antd Modal z = zIndexPopupBase **+10**（modal/style 源码，100010 而非 100100，仍 > 壳 100000 结论成立）；antd Modal 始终 portal 到 body **不受 getPopupContainer 影响**（该层只管 Trigger 类弹层）——对 LoginModal 本体唯一承重层是 zIndexPopupBase；getPopupContainer 层承重的是壳内其他 Trigger 弹层与 message holder。两层配方保留结论不变，勿据"Modal 不走 getPopupContainer"删该层。另登记：StrictMode dev 下 recordView/详情双发（生产与测试不受影响，"恰 1 次"生产成立——批次 11 手工验收若核 dev 库计数需知此偏差）。
+
+> **批次 8 执行记录（2026-09-16）**：四任务提交 c7fb454e（8.2 PlayView——顶栏发布于/喜欢响应为准/分享/onError retriedRef 一次性自愈）/653a9b77（8.3 CarouselBar——设置驱动 11 取 10/categoryId 透传/null 降级/replace 切换 state 透传）/a97195d9（8.1 VideoPlayerModal——BaseFullscreenModal 壳/C1-3 三层配方/关闭算法模式 A 四场景+查询串保留/view 埋点恰 1 次/Esc 双关守卫 + ProcessView 占位 + VideosPage 接线）/47212e6f（8.4 LoginInModal.test——zprovider 值耦合断言 + Esc 守卫变异验证）。**执行顺序 8.2→8.3→8.1→8.4**（plan 正文 3511 行等处明确 8.1 import PlayView/CarouselBar——按 plan 依赖非派发序）。web 全量 **250 files / 2516 tests** 全绿 + tsc -b 零错误。spec 合规审查 ✅（三实现文件与 plan 逐字一致、9 红线全过）；代码质量审查 **With fixes** → 勘误 dfeb4d12 + 修复 f580771e + 复核 ✅（**2518 tests**：onLike deps 补 user[变异实锤登录后点赞死循环]/详情 stale 守卫/自愈 catch，I-1/I-2 均先红后绿——见上勘误块）。**已裁定事项**：realm 补丁复用（批次 7 传递命中）；三处 plan 逐字测试缺陷最小修复（PlayView 喜欢用例补 authCtx.user——D18 守卫短路 plan 自相矛盾/两用例 getByRole→findByRole/CarouselBar vi.mocked 形态）；ProcessView 占位（plan:4370 自述，批次 9.2 覆盖勿忘删占位注释）；8.4 红阶段结构性退化+变异验证补偿（plan 自述骨架已含守卫）。**批次 11 手工验收追加三项**（jsdom 覆盖不到）：登录后点赞闭环、播放中自愈路径（拔网线/无效 URL）、快速连点轮播。
 
 ---
 
