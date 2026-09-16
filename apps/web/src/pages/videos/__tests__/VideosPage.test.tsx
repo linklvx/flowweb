@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { VideosPage } from '../VideosPage';
@@ -43,5 +43,31 @@ describe('VideosPage（D13 卡片裁剪）', () => {
     render(<MemoryRouter><VideosPage /></MemoryRouter>);
     await waitFor(() => screen.getByRole('tab', { name: 'AI真人影视' }));
     expect(screen.getByRole('tab', { name: '全部' })).toBeInTheDocument();
+  });
+
+  it('接口失败 → 渲染错误提示而非暂无作品', async () => {
+    vi.mocked(api.fetchVideoWorks).mockRejectedValueOnce(new Error('network down'));
+    render(<MemoryRouter><VideosPage /></MemoryRouter>);
+    expect(await screen.findByText(/加载失败/)).toBeInTheDocument();
+    expect(screen.queryByText('暂无作品')).toBeNull();
+  });
+
+  it('快速切换 tab 时旧响应不覆盖新数据', async () => {
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+    const resultA: VideoWorkListResult = { items: [{ id: 'wa', title: '旧数据A', coverUrl: null, durationSec: null, tags: [] }], total: 1, page: 1, pageSize: 20 };
+    const resultB: VideoWorkListResult = { items: [{ id: 'wb', title: '新数据B', coverUrl: null, durationSec: null, tags: [] }], total: 1, page: 1, pageSize: 20 };
+    // 第一次调用（tab all）返回 pending A，第二次调用（tab B）返回 pending B；先 resolve B 再 resolve A
+    vi.mocked(api.fetchVideoWorks)
+      .mockImplementationOnce(() => new Promise<VideoWorkListResult>(res => { resolveA = () => res(resultA); }))
+      .mockImplementationOnce(() => new Promise<VideoWorkListResult>(res => { resolveB = () => res(resultB); }));
+    render(<MemoryRouter><VideosPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'AI真人影视' }));
+    await act(async () => {
+      resolveB();
+      resolveA();
+    });
+    expect(screen.getByText('新数据B')).toBeInTheDocument();
+    expect(screen.queryByText('旧数据A')).toBeNull();
   });
 });

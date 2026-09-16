@@ -17,14 +17,19 @@ export function VideosPage() {
   const [total, setTotal] = useState(0);
   const [categories, setCategories] = useState<VideoCategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => { fetchVideoCategories().then(setCategories).catch(() => {}); }, []);
 
   useEffect(() => {
+    let stale = false;
     setLoading(true);
+    setFailed(false);
     fetchVideoWorks({ categoryId, page, pageSize: 20 })
-      .then(r => { setItems(r.items); setTotal(r.total); })
-      .finally(() => setLoading(false));
+      .then(r => { if (!stale) { setItems(r.items); setTotal(r.total); } })
+      .catch(() => { if (!stale) setFailed(true); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
   }, [categoryId, page]);
 
   const onTabChange = useCallback((key: string) => {
@@ -47,6 +52,8 @@ export function VideosPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
           {Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-video rounded-lg bg-white/5 animate-pulse" />)}
         </div>
+      ) : failed ? (
+        <div className="py-24 text-center text-white/40 text-sm">加载失败，请稍后重试</div>
       ) : items.length === 0 ? (
         <div className="py-24 text-center text-white/40 text-sm">暂无作品</div>
       ) : (
