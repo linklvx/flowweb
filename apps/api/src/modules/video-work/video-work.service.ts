@@ -164,6 +164,17 @@ export class VideoWorkService {
     // 发布语义：转 PUBLISHED 且原 publishedAt 为空 → 设 now；已有则不动
     if (merged.status === 'PUBLISHED' && !existing.publishedAt) data.publishedAt = new Date();
     const row = await this.prisma.videoWork.update({ where: { id }, data });
+    // 换封面删旧（spec §4.6）：DB 更新成功后才删旧对象（新封面已 uploadCover 成功才进表单——顺序保证不丢封面）；
+    // 排他防御性（UI 不产生共享 key，防 API 直调把 banner 对象当封面挂进来互删）
+    if (dto.coverKey !== undefined && existing.coverKey && dto.coverKey !== existing.coverKey
+      && existing.coverKey.startsWith('uploads/system/')) {
+      try {
+        const used = await this.prisma.videoWork.count({ where: { coverKey: existing.coverKey, NOT: { id } } });
+        if (!used) await this.minio.delete(existing.coverKey);
+      } catch (e) {
+        console.error('[updateWork] 旧封面清理失败（登记后续清理）', { id, error: e });
+      }
+    }
     await this.invalidateWorkCaches(id);
     return row;
   }
@@ -250,10 +261,38 @@ export class VideoWorkService {
     };
   }
 
-  /** 删除红线（spec §4.3）：只删 DB 行，禁止 minio.delete——videoKey 与源 Media 指向同一对象。
-   *  HomeBanner "先删对象再删行"先例不可照抄；coverKey 自有上传对象 v1 也统一不删。 */
+  /** 红线改写（spec §4.6）：旧"只删 DB 行禁 minio.delete"的前提是候选池模型（videoKey 与源 Media 共享对象）；
+   *  新模型 videoKey 是平台自有上传对象（uploads/system/ 域，F2 的 platform-team 不变量支撑）。
+   *  域判断仅视频侧可靠——封面侧 system 域是封面/banner 三子系统共用（banner 无台账），排他只能靠 coverKey 字符串比对。
+   *  缓存失效是卫生动作（已签 URL 在 TTL 内仍可播——真正阻止播放的是对象删除）。 */
   async removeWork(id: string) {
+    const w = await this.prisma.videoWork.findUnique({ where: { id } });
+    if (!w) throw new NotFoundException('作品不存在'); // 先查后删——裸 delete 抛 P2025 变 500
+
+    try {
+      if (w.videoKey.startsWith('uploads/system/')) {
+        // 排他以 videoMediaId 为主（同一 Media 行 key 唯一，裸 key 可跨域重复）；防御性——UI 不产生共享，防存量脏数据/API 直调
+        const shared = await this.prisma.videoWork.count({ where: { videoMediaId: w.videoMediaId, NOT: { id: w.id } } });
+        if (!shared) await this.minio.delete(w.videoKey);
+      }
+      if (w.coverKey?.startsWith('uploads/system/')) {
+        const coverUsed = await this.prisma.videoWork.count({ where: { coverKey: w.coverKey, NOT: { id: w.id } } });
+        if (!coverUsed) await this.minio.delete(w.coverKey);
+      }
+    } catch (e) {
+      // 尽力而为不阻断：MinIO 抖动仅记日志，作品删除照常成功（失败对象登记后续清理任务）
+      console.error('[removeWork] 对象清理失败（登记后续清理）', { id, error: e });
+    }
+
+    // Media 软删释放平台配额（getUsage 条件 status='completed' AND deletedAt=null）；失败不阻断
+    // （显式 try/catch 而非 .catch() 链——与"尽力而为"自洽，且不依赖调用方返回 thenable）
+    if (w.videoMediaId) {
+      try { await this.prisma.media.update({ where: { id: w.videoMediaId }, data: { deletedAt: new Date() } }); }
+      catch (e) { console.error('[removeWork] Media 软删失败（配额未释放，登记清理）', { id, error: e }); }
+    }
+
     await this.prisma.videoWork.delete({ where: { id } });
+    try { await this.redis.del(`videoWork:url:${w.videoKey}`); } catch { /* 卫生动作失败可忍 */ }
     await this.invalidateWorkCaches(id);
   }
 

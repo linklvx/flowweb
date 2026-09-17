@@ -39,7 +39,7 @@ beforeEach(async () => {
       videoTag: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       $executeRaw: vi.fn(),
     };
-    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://minio/presigned'), buildKey: vi.fn(), upload: vi.fn(), delete: vi.fn() };
+    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://minio/presigned'), buildKey: vi.fn(), upload: vi.fn(), delete: vi.fn().mockResolvedValue(undefined) }; // delete 补默认 resolved（Task 5：removeWork/updateWork 删对象——裸 vi.fn() 返回 undefined，实现里 await 链会 TypeError）
     const moduleRef = await Test.createTestingModule({
       providers: [
         VideoWorkService,
@@ -50,7 +50,7 @@ beforeEach(async () => {
         { provide: RateLimiterService, useValue: { checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true), getClientIp: vi.fn().mockReturnValue('1.2.3.4') } },
         { provide: CollabDocumentService, useValue: { readCanvas: vi.fn() } },
         { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertMember: vi.fn(), getUsage: vi.fn().mockResolvedValue(0), assertOnConfirm: vi.fn().mockResolvedValue(undefined) } },
-        { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn() } },
+        { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn().mockResolvedValue(undefined) } }, // del 补默认 resolved（Task 5：removeWork URL 缓存失效——裸 vi.fn() 返回 undefined，实现里 await 链会 TypeError）
       ],
     }).compile();
     // Task 4 F2 默认匹配行——createWork 用例 payload 传 videoKey:'k' + videoMediaId:'m1' 时直接过；
@@ -126,12 +126,50 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
     expect((prisma.videoWork.create as Mock).mock.calls[0][0].data.durationSec).toBe(13);
   });
 
-  it('removeWork 不触碰 MinIO（删除红线——MinioService 的删除方法真名是 delete，minio.service.ts:117；全类无 removeObject，原断言恒真抓不到任何真实调用，第八轮修正）', async () => {
+  it('removeWork 平台域作品：删对象 + Media 软删 + 缓存失效（videoWork:url:key + process）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', videoKey: 'uploads/system/2026-09-18/a.mp4', videoMediaId: 'm1', coverKey: 'uploads/system/c.jpg' });
+    prisma.videoWork.count = vi.fn().mockResolvedValue(0); // 排他：无共享
     prisma.videoWork.delete = vi.fn().mockResolvedValue({});
-    minio.delete = vi.fn().mockResolvedValue(undefined);   // 替身显式提供 delete——实现真调用会让下方断言红
+    minio.delete = vi.fn().mockResolvedValue(undefined);
     await service.removeWork('w1');
-    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
-    expect(minio.delete).not.toHaveBeenCalled();           // 红线：只删 DB 行，禁删对象（spec §4.3）
+    expect(minio.delete).toHaveBeenCalledWith('uploads/system/2026-09-18/a.mp4'); // 平台域删对象（非真空——findUnique 已 stub）
+    expect(minio.delete).toHaveBeenCalledWith('uploads/system/c.jpg');             // 封面同域同删
+    expect(prisma.media.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'm1' }, data: expect.objectContaining({ deletedAt: expect.any(Date) }) })); // 软删释放平台配额
+    expect((service as any).redis.del).toHaveBeenCalledWith('videoWork:url:uploads/system/2026-09-18/a.mp4'); // 卫生动作：防将来"删对象但保留行"路径
+    expect(prisma.videoWork.delete).toHaveBeenCalledWith({ where: { id: 'w1' } });
+  });
+
+  it('removeWork 存量 results/ 域作品：只删 DB 行不删对象（旧红线保留的半边——旧对象与源 Media 共享）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w2', videoKey: 'results/u1/p1/n1/d/v.mp4', videoMediaId: 'm2', coverKey: null });
+    prisma.videoWork.delete = vi.fn().mockResolvedValue({});
+    await service.removeWork('w2');
+    expect(minio.delete).not.toHaveBeenCalled(); // 域外不删
+    expect(prisma.videoWork.delete).toHaveBeenCalledWith({ where: { id: 'w2' } });
+  });
+
+  it('removeWork 行不存在 → 404（先查后删——裸 delete 抛 P2025 变 500）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(null);
+    await expect(service.removeWork('w-404')).rejects.toThrow(NotFoundException);
+  });
+
+  it('removeWork 排他：videoMediaId 被其他作品引用 → 不删对象（防存量共享/直调；封面 coverKey 字符串比对）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w3', videoKey: 'uploads/system/a.mp4', videoMediaId: 'm3', coverKey: 'uploads/system/c.jpg' });
+    prisma.videoWork.count = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0); // 第一次=videoMediaId 排他(共享)，第二次=coverKey 排他(独占)
+    prisma.videoWork.delete = vi.fn().mockResolvedValue({});
+    await service.removeWork('w3');
+    expect(minio.delete).not.toHaveBeenCalledWith('uploads/system/a.mp4'); // 共享视频不删
+    expect(minio.delete).toHaveBeenCalledWith('uploads/system/c.jpg');     // 独占封面照删
+  });
+
+  it('removeWork MinIO 抖动不阻断（尽力而为——失败仅记日志，作品删除照常成功）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w4', videoKey: 'uploads/system/a.mp4', videoMediaId: 'm4', coverKey: null });
+    prisma.videoWork.count = vi.fn().mockResolvedValue(0);
+    prisma.videoWork.delete = vi.fn().mockResolvedValue({});
+    minio.delete = vi.fn().mockRejectedValue(new Error('minio down'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(service.removeWork('w4')).resolves.toBeUndefined(); // 不抛
+    expect(prisma.videoWork.delete).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });
 
@@ -608,5 +646,23 @@ describe('updateWork 画布校验 dto-only 口径（勿用 merged——死画布
     prisma.canvasProject.findUnique.mockResolvedValue(null); // p-404 不存在——若画布校验抢跑会抛'画布不存在'而非 flags 文案
     await expect(service.updateWork('w1', { allowClone: true, canvasProjectId: 'p-404' } as any))
       .rejects.toThrow('允许克隆必须同时允许查看创作过程'); // merged：existing.allowViewProcess=false + dto.allowClone=true → flags 先抛
+  });
+});
+
+describe('updateWork 换封面删旧（spec §4.6：DB 更新成功后才删旧对象）', () => {
+  it('换封面：DB 更新后删旧封面对象（排他——被其他作品引用则不删）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null, coverKey: 'uploads/system/old.jpg' });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    prisma.videoWork.count = vi.fn().mockResolvedValue(0);
+    await service.updateWork('w1', { coverKey: 'uploads/system/new.jpg' } as any);
+    expect(minio.delete).toHaveBeenCalledWith('uploads/system/old.jpg');
+  });
+
+  it('换封面：旧 coverKey 被引用 → 不删（同一 key 挂多作品的防御性互斥）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null, coverKey: 'uploads/system/shared.jpg' });
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    prisma.videoWork.count = vi.fn().mockResolvedValue(1); // 被另一作品引用
+    await service.updateWork('w1', { coverKey: 'uploads/system/new.jpg' } as any);
+    expect(minio.delete).not.toHaveBeenCalled();
   });
 });
