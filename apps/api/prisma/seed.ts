@@ -261,6 +261,8 @@ async function main() {
   await prisma.teamSubscription.upsert({
     // 无自然键——固定 id。必须 upsert：partial unique index team_subscription_one_active（migration 20260829201000:105）
     // 下裸 create 二次 seed 必冲突。改此固定 id 前先清旧 active 行，否则同撞该索引。
+    // 例外（Task 6 审查）：若 platform-team 被误购真实套餐（回调会关旧行新建 active），重跑 seed 会撞该索引
+    // fail-loud——索引防静默作废已购订阅是对的；先删误购 active 行再 seed 即自愈。
     where: { id: 'platform-subscription' },
     update: { status: 'active', currentPeriodEnd: new Date('2099-01-01') },
     create: { id: 'platform-subscription', teamId: 'platform-team', planId: 'platform-storage', status: 'active', paidAmount: 0, currentPeriodStart: new Date(), currentPeriodEnd: new Date('2099-01-01') },
