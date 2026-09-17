@@ -189,7 +189,8 @@ Expected: FAIL——victim 用例 statSize 收到 'victim/obj'（现实现读 dt
 `apps/api/src/modules/video-project/generated-media.service.ts:75`：
 
 ```ts
-      await this.quota.assertOnConfirm(media.id, actualSize); // D1：key/bucket 已由服务内部读行——传的就是行内值，语义等价
+      await this.quota.assertOnConfirm(media.id, actualSize); // D1：key/bucket 已由服务内部读行——这里传的本来就是行内值（:70 已 findUnique 取 media），
+                                                              // 收口后语义完全等价、零行为变化——是签名收窄的机械连带，非顺手改
 ```
 
 （原 `assertOnConfirm(media.id, actualSize, media.key, media.bucket)`。）
@@ -240,7 +241,7 @@ git commit -m "fix(storage): confirm 服务层收口 D1——Media 行为唯一�
 ```ts
 /** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——api 侧共用（presignVideo/createWork F2/api spec）。
  *  seed 侧是独立字面量（seed.ts 不在 tsc 范围，不 import src——跨 rootDir 别扭）：
- *  **改 id 时必须连同 seed.ts（2 处）与 seed spec（1 处）共 5 处同步**——
+ *  **改 id 时必须连同 seed.ts（两个 id 共 6 次字面量）与 seed spec（2 次）全部同步**——
  *  F2 漏改 = 每次建作品 400"视频文件不存在"且无编译期提示（本设计唯一"改一处坏远处不报错"耦合）。 */
 export const PLATFORM_TEAM_ID = 'platform-team';
 export const PLATFORM_OWNER_ID = 'platform-owner';
@@ -997,7 +998,7 @@ git commit -m "feat(seed): 平台资产团队五行（platform-owner/1TB isActiv
 
 ```ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react'; // waitFor 必须显式 import——globals:true 只给 vitest 全局（VideoWorksPage.test.tsx:2 同款）
 import { probeVideoFile } from '../probeVideoFile';
 
 // jsdom 无 URL.createObjectURL/revokeObjectURL——直接赋桩 + 还原（ExportModal.test.tsx:148-152 先例；
@@ -1149,16 +1150,18 @@ export async function probeVideoFile(file: File): Promise<ProbeResult> {
     video.addEventListener('error', () => reject(new Error('decode')), { once: true });
   });
 
+  let probeTimer: ReturnType<typeof setTimeout>;
   try {
     const m = await Promise.race([
       metadata,
-      new Promise<never>((_, rej) => { setTimeout(() => rej(new Error('timeout')), PROBE_TIMEOUT_MS); }),
+      new Promise<never>((_, rej) => { probeTimer = setTimeout(() => rej(new Error('timeout')), PROBE_TIMEOUT_MS); }),
     ]);
     const coverBlob = await captureFrame(video, m.rawDuration);
     return { ok: true, durationSec: m.durationSec, width: m.width, height: m.height, coverBlob };
   } catch {
     return { ok: false, reason: 'decode' }; // video error 或 10s 超时
   } finally {
+    clearTimeout(probeTimer!); // 成功路径也清——悬挂 10s timer 是 fake-timers 环境的隐患（与 captureFrame 的清理纪律一致）
     cleanup();
   }
 }
@@ -1470,7 +1473,12 @@ it('门禁：未上传视频提交 → "请先上传成品视频"，createWork �
 
 it('afterClose → abort signal + 状态机重置（组件常驻 trigger 宿主不卸载——abort 必须挂 afterClose 非 useEffect cleanup）', async () => {
   let capturedSignal: AbortSignal | undefined;
-  vi.mocked(uploadToPresignedPost).mockImplementation(async ({ signal }) => { capturedSignal = signal; return new Promise(() => {}); }); // 永不 resolve——模拟直传中
+  // mock 必须"abort 即 reject"（axios 真实行为是 reject CanceledError）——只挂住不监听 abort 的话，
+  // 实现的 catch 永不执行、"上传已取消"永不出、waitFor 超时红
+  vi.mocked(uploadToPresignedPost).mockImplementation(({ signal }) => new Promise((_, rej) => {
+    capturedSignal = signal;
+    signal?.addEventListener('abort', () => rej(new DOMException('canceled', 'AbortError')));
+  }));
   renderWithProviders(<VideoWorksPage />);
   fireEvent.click(screen.getByRole('button', { name: /新增/ }));
   const dialog = await screen.findByRole('dialog');
@@ -1522,7 +1530,12 @@ it('封面提交时上传：抽帧 blob 在 onFinish 才 uploadCover（孤儿归
 });
 ```
 
-（`:135` edit 提交用例与 `:157` uploadCover 失败用例本任务不动——Task 11 处理。）
+（`:135` edit 提交用例归 Task 11；`:157` uploadCover 失败用例**本任务连带改 selector**——视频上传区插在封面之前后，`dialog.querySelector('input[type=file]')` 在 DOM 顺序上先命中视频框、封面用例会拿到"仅支持 MP4 格式"而红：
+
+```ts
+  // :166 原选择器收窄（视频 input 在封面之前，裸 input[type=file] 命中视频框）
+  await user.upload(dialog.querySelector('input[accept="image/jpeg,image/png,image/webp"]') as HTMLInputElement, new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
+```）
 
 - [ ] **Step 2: 跑测试确认红**
 
@@ -1614,7 +1627,7 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
 ```tsx
       modalProps={{
         destroyOnClose: true,
-        // 组件常驻（trigger 挂在行/工具栏），关闭重置全部上传状态；abort 防关弹层白传 1GB
+        // WorkFormModal 组件常驻（trigger 挂在行/工具栏；销毁的是弹层内容非本组件），关闭重置全部上传状态；abort 防关弹层白传 1GB
         afterClose: () => {
           setCoverKey(record?.coverKey ?? undefined);
           abortRef.current?.abort();
@@ -1720,10 +1733,11 @@ it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控�
   vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' } as any);
   renderWithProviders(<VideoWorksPage />);
   await waitFor(() => screen.getByText('末班地铁'));
-  expect(adminVideoWorkApi.canvasCheck).not.toHaveBeenCalled(); // 初始校验挂弹层打开时机——列表渲染（每行一个常驻 Modal 实例）不打 N 个请求
+  expect(adminVideoWorkApi.canvasCheck).not.toHaveBeenCalled(); // 初始校验挂 onOpenChange——WorkFormModal 是每行一个的常驻 trigger 宿主组件（弹层内容才 destroyOnClose），useEffect([]) 会在列表渲染时就打 N 个请求
   fireEvent.click(screen.getByText('编辑'));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByText(/当前视频：10s \/ 1920×1080/)).toBeInTheDocument();  // 只读信息条
+  expect(within(dialog).getByLabelText('源画布（可选）')).toHaveValue('p1');          // initialValues 确实播种到字段——门禁"文本===初值"判据的前提钉死（initialValues 没落字段这里立刻红）
   expect(within(dialog).queryByRole('button', { name: /选择 MP4 文件/ })).not.toBeInTheDocument(); // edit 无上传控件
   await waitFor(() => expect(within(dialog).getByText(/画布：源画布（作者 张三）/)).toBeInTheDocument()); // 打开即初始校验回显
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: '早班高铁' } });
@@ -1798,7 +1812,13 @@ it('画布 404 → 红字"画布不存在"；未校验通过（乱码未 blur）
 });
 ```
 
-（`:63` 开关联动用例：`canvasProjectId: 'p1'` + `allowViewProcess: true` 的 edit 行会触发初始校验——mock canvasCheck resolve 后原断言语义保持；本步骤内一并修正其 mock。）
+（`:63` 开关联动用例同批小改：edit 行 `canvasProjectId: 'p1'` 打开弹层会触发 onOpenChange 初始校验——beforeEach 已有 canvasCheck resolve 默认值，但"初始 enabled"断言必须包 waitFor（verified 驱动下 enabled 依赖异步校验落定）：
+
+```ts
+  await waitFor(() => expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled()); // 包 waitFor：verified 依赖 canvasCheck resolve
+```
+
+其余断言不动。）
 
 - [ ] **Step 2: 跑测试确认红**
 
@@ -1815,7 +1835,10 @@ WorkFormModal 追加状态与初始校验：
   // —— 源画布（可选）：输入即注册字段（防 C-1），校验结果只做回显+门禁，不写回表单值 ——
   const [canvasVerified, setCanvasVerified] = useState<{ id: string; name: string; ownerName: string | null } | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
-  const initialCanvasTextRef = useRef(''); // edit 打开时的初始文本——"未改动"判定基准（与后端 dto-only 口径对齐）
+  // 渲染期"未改动"判定（红/黄互斥的事实源）——与 onFinish 用同一判据：文本 === record 初值
+  const canvasTextWatch = Form.useWatch('canvasProjectId', form) ?? '';
+  const initialCanvasText = mode === 'edit' && record?.canvasProjectId ? record.canvasProjectId : '';
+  const canvasUntouched = String(canvasTextWatch).trim() === initialCanvasText.trim();
 
   const checkCanvas = async (text: string) => {
     const id = parseCanvasRef(text);
@@ -1830,15 +1853,15 @@ WorkFormModal 追加状态与初始校验：
   };
 ```
 
-初始校验挂**弹层打开时机**（modalProps 追加——勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻实例，mount effect 会在列表渲染时对每行各打一次 canvas-check，用户还没点"编辑"就打 N 个请求）：
+初始校验挂 **ModalForm 顶层 `onOpenChange`** prop（非 modalProps.afterOpenChange——那是 rc-motion 动效回调，jsdom 依赖降级路径；onOpenChange 是 useMergedState 纯状态回调零 motion 依赖、仓内 10 处先例。勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻 trigger 宿主组件，mount effect 会在列表渲染时对每行各打一次 canvas-check）：
 
 ```tsx
-        afterOpenChange: (open: boolean) => {
-          if (!open) return;
-          const initial = mode === 'edit' && record?.canvasProjectId ? record.canvasProjectId : '';
-          initialCanvasTextRef.current = initial;
-          if (initial) void checkCanvas(initial);
-        },
+    <ModalForm
+      onOpenChange={(open) => {
+        if (!open) return;
+        if (mode === 'edit' && record?.canvasProjectId) void checkCanvas(record.canvasProjectId); // 打开即回显
+      }}
+      ...
 ```
 
 （import 追加 `import { parseCanvasRef } from '../utils/parseCanvasRef';`）
@@ -1892,14 +1915,21 @@ WorkFormModal 追加状态与初始校验：
       </ProFormDependency>
 ```
 
-`onFinish` 开头追加画布门禁 + payload 组装（create 与 edit 共用）。**门禁与后端 dto-only 口径对齐**：文本与初始值相同（用户未动）→ 放行且 payload **省略** canvasProjectId（后端不动已存值——死画布存量作品也能改标题保存）；被改动且未重新校验 → 拦截：
+`onFinish` 开头追加画布门禁 + payload 组装（create 与 edit 共用）。**门禁与后端 dto-only 口径对齐**：文本与初始值相同（用户未动）→ 放行且 payload **省略** canvasProjectId（后端不动已存值——死画布存量作品也能改标题保存）；被改动且未重新校验 → 拦截。
+
+**先改 Task 10 引入的解构行**（canvasProjectId 已是注册字段，`...form` 会原样带出原始文本，把"未改动则省略"抵消掉——not.toHaveProperty 用例必红）：
 
 ```tsx
-        // 画布门禁（spec §5.3 状态机）：未改动 → 放行省略；改动未重新校验 → 阻止
+        const { videoKey: _vk, videoMediaId: _vm, canvasProjectId: _cp, ...form } = v; // 画布字段从 form 剥离——payload 是否带它由下方门禁决定
+```
+
+门禁（onFinish 顶部、解构行之后；`canvasUntouched`/`parsedCanvasId` 与 payload 组装在同一直属作用域，中间隔着封面上传的 await——const 已在 await 前求值，勿挪进 try 内新作用域）：
+
+```tsx
         const canvasText = String(form.getFieldValue('canvasProjectId') ?? '').trim();
         const parsedCanvasId = parseCanvasRef(canvasText);
-        const canvasUntouched = canvasText === initialCanvasTextRef.current.trim();
-        if (!canvasUntouched && canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
+        const untouched = canvasText === initialCanvasText.trim(); // 与渲染期 canvasUntouched 同判据（文本===record 初值），两处勿各算各的
+        if (!untouched && canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
           message.error(canvasVerified ? '画布已修改，请重新校验' : (canvasError ?? '画布不存在，请重新校验'));
           return false;
         }
@@ -1908,19 +1938,17 @@ WorkFormModal 追加状态与初始校验：
 payload 组装（createWork 与 updateWork 的 spread 中显式给）：
 
 ```tsx
-              // 未动画布 → 省略（edit：后端不动已存值；create：无画布即 undefined）；动了 → 解析值（空文本=显式清除 null）
-              ...(canvasUntouched ? {} : { canvasProjectId: parsedCanvasId ?? null }),
+              ...(untouched ? {} : { canvasProjectId: parsedCanvasId ?? null }), // 未动 → 省略（后端不动已存值）；动了 → 解析值（空文本=显式清除 null）
 ```
 
-死画布的 edit 回显：`canvasError && canvasUntouched && canvasText` 时显示**黄字警告**而非红字硬拦（与门禁一致）——在画布回显区块追加：
+红/黄回显互斥（同一 canvasError 下不能同屏"画布不存在"+"源画布已删除"）——替换 Task 11 先前的红字块：
 
 ```tsx
-      {canvasError && canvasTextUntouchedInitial && (
+      {canvasError && !canvasUntouched && <div className="mb-2 -mt-2 text-xs text-red-500">画布不存在</div>}
+      {canvasError && canvasUntouched && mode === 'edit' && record?.canvasProjectId && (
         <div className="mb-2 -mt-2 text-xs text-amber-500">源画布已删除，保存将保留原关联</div>
       )}
 ```
-
-（`canvasTextUntouchedInitial` 需渲染期可知——用 `canvasError && mode === 'edit' && record?.canvasProjectId && !canvasVerified` 近似即可：edit 初始文本非空 + 校验失败 + 未验证通过 = 未改动的死画布；改动后 onChange 已把 canvasError 清空、blur 重新校验覆盖，语义等价。实现按此简化，变量名直接内联条件。）
 
 edit 只读信息条（上传区位置、`mode === 'edit'` 分支）：
 
@@ -1942,7 +1970,7 @@ edit 只读信息条（上传区位置、`mode === 'edit'` 分支）：
 - [ ] **Step 4: 跑测试确认绿 + 全量 + 提交**
 
 `cd D:/flowweb/apps/web && npm test`
-Expected: PASS（全部用例，含 Task 10 skip 的 :63 恢复）
+Expected: PASS（全部用例——`:63` 在 Task 10 未被 skip，本任务的 verified 驱动改造后其 mock 已含 canvasCheck resolve）
 
 ```bash
 cd D:/flowweb && git add apps/web/src/pages/admin/pages/VideoWorksPage.tsx apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx
