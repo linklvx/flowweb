@@ -1075,6 +1075,18 @@ describe('probeVideoFile', () => {
     expect(r).toEqual({ ok: true, durationSec: null, width: null, height: null, coverBlob: null });
   });
 
+  it('duration=Infinity + readyState≥2 → durationSec=null 但抽帧照走且 currentTime=1（第十轮：守卫拦 duration 勿 seek(0)——前导黑帧高发，数值守卫与抽帧互不阻断的正例）', async () => {
+    const spy = setupSpies();
+    const p = probeVideoFile(new File(['x'], 'a.mp4', { type: 'video/mp4' }));
+    const v = spy.video;
+    def(v, 'duration', Infinity); def(v, 'videoWidth', 1280); def(v, 'videoHeight', 720); def(v, 'readyState', 2);
+    fireEvent(v, new Event('loadedmetadata'));
+    await waitFor(() => expect(v.currentTime).toBe(1)); // 非 0——rawDuration=0 分支的 seek 目标（防回归 seek(0) 抽黑帧）
+    fireEvent(v, new Event('seeked'));
+    const r = await p;
+    expect(r).toEqual({ ok: true, durationSec: null, width: 1280, height: 720, coverBlob: expect.any(Blob) });
+  });
+
   it('metadata 正常但 seeked 永不到来 → captureFrame 超时兜底 coverBlob=null（真实浏览器 seek 偶尔不回调——实现必须兜底防挂死）', async () => {
     vi.useFakeTimers();
     try {
@@ -1403,6 +1415,7 @@ beforeEach 的 `:22` 行 `vi.mocked(adminVideoWorkApi.listCandidates)...` **删�
   vi.mocked(confirmUpload).mockResolvedValue({ fileId: 'm1' });
   vi.mocked(probeVideoFile).mockResolvedValue({ ok: true, durationSec: 12, width: 1920, height: 1080, coverBlob: new Blob(['c'], { type: 'image/jpeg' }) });
   vi.mocked(uploadToPresignedPost).mockResolvedValue(undefined);
+  vi.mocked(adminVideoWorkApi.uploadCover).mockResolvedValue({ key: 'uploads/system/frame.jpg' }); // 第十轮自查：probe 默认带 coverBlob → 一切提交用例的 onFinish 都走 uploadCover——无默认值则 await undefined 解构 TypeError → return false → createWork 永不被调、用例超时红（:157 用例自己的 importActual 透传会覆盖此默认值，其 mockReset 后下用例 beforeEach 重设——无冲突）
 ```
 
 文件头追加 URL 赋桩（jsdom 无 createObjectURL/revokeObjectURL——probe 成功后 `setCoverPreview(URL.createObjectURL(...))` 与 afterClose 的 `URL.revokeObjectURL` 两条路都会 TypeError；**必须赋桩而非 stubGlobal 整体替换**——onFinish 里 parseCanvasRef 会 `new URL(...)`，`{...URL}` 展开 plain object 后 new 直接 "not a constructor"；ExportModal.test.tsx:148-152 赋桩先例）：
@@ -1415,7 +1428,7 @@ beforeEach(() => {
 });
 ```
 
-删除 `:176-190`（I-1 previewUrl 改写）与 `:194-200`（I-2 pageSize）两条纯候选用例。改写 `:49` 用例：
+删除 `:115-133`（旧候选版 create 提交用例——第十轮 A1：其覆盖由本任务新增的「create 提交：上传成品视频+必填」用例整体取代；不删则 Step 3 删 adminApi.listCandidates 后 ：116 是 tsc TS2339 + 运行期 vi.mocked(undefined) TypeError，Step 4 的 PASS 不可达，且 ：122-123 的候选下拉交互已随下拉消失）、`:176-190`（I-1 previewUrl 改写）与 `:194-200`（I-2 pageSize）三条纯候选用例。改写 `:49` 用例：
 
 ```ts
 it('ModalForm 含成品视频上传区/两开关/标签 tags 模式/封面控件（候选下拉已删）', async () => {
@@ -1783,7 +1796,7 @@ it('画布状态机：粘贴 URL → blur 校验回显 → payload 带解析后 
   await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'cparsed' })));
 });
 
-it('画布状态机：校验通过后改动文本 → 提交阻止"画布已修改，请重新校验"+两开关回禁用且值落回 false（B3+B2）', async () => {
+it('画布状态机：校验通过后改动文本 → 提交阻止"画布已修改，请重新校验"+两开关回禁用（值不动——第十轮收窄：churn 不落 false，B2 防线由门禁承担；B3）', async () => {
   vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
   const dialog = await openCreateAndUpload();
   const canvasInput = within(dialog).getByLabelText('源画布（可选）');
@@ -1796,12 +1809,52 @@ it('画布状态机：校验通过后改动文本 → 提交阻止"画布已修�
   expect(viewSwitch).toBeChecked();
   fireEvent.change(canvasInput, { target: { value: 'p1-changed' } }); // 校验后改动 → verified 失效
   await waitFor(() => expect(viewSwitch).toBeDisabled()); // 开关回禁用
-  expect(viewSwitch).not.toBeChecked(); // B2（第九轮必修3）：值同时落回 false——只禁用不落值会把 true 冻结在表单里，画布清空后提交必带 allowViewProcess:true 撞 assertProcessFlags 400 且开关已禁用无法自救
+  expect(viewSwitch).toBeChecked(); // 第十轮收窄：文本 churn **不动开关值**（edit 场景敲错字又改回原文若落 false 会静默关掉存量开关）——本路径的 400 防线由门禁拦截承担（下方 createWork not called）；落 false 只发生在 checkCanvas 空文本/catch 分支（见清空用例）
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
   fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(screen.getByText('画布已修改，请重新校验')).toBeInTheDocument());
   expect(adminVideoWorkApi.createWork).not.toHaveBeenCalled();
+});
+
+it('画布状态机：校验通过→开开关→清空文本 blur → 开关值落 false（B2 收窄落点：清空=放弃画布，防 true 残留撞 400）+ 提交成功（create 清空回初值 → untouched → payload 省略 canvasProjectId）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  const viewSwitch = within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  await waitFor(() => expect(viewSwitch).toBeEnabled());
+  fireEvent.click(viewSwitch); // 开
+  expect(viewSwitch).toBeChecked();
+  fireEvent.change(canvasInput, { target: { value: '' } }); // 清空
+  fireEvent.blur(canvasInput); // 真实浏览器点确定前输入框必先 blur（jsdom fireEvent.click 不自动 blur——显式化）
+  await waitFor(() => expect(viewSwitch).toBeDisabled());
+  expect(viewSwitch).not.toBeChecked(); // checkCanvas 空文本分支落 false——canvasProjectId 省略落 null 后 allowViewProcess:true 必撞 assertProcessFlags 400
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledTimes(1));
+  const payload = vi.mocked(adminVideoWorkApi.createWork).mock.calls[0][0] as Record<string, unknown>;
+  expect(payload.allowViewProcess).toBe(false);
+  expect(payload).not.toHaveProperty('canvasProjectId'); // '' === create 初值 '' → untouched → 省略（后端落 null）
+});
+
+it('画布状态机：校验通过→改出去→改回原值（未 blur）→ 等价放行不弹"已修改"（第十轮 C1：verifiedRef.id 与当前解析一致即视同已验证——否则文本与已验证值相同的提交也遭拦）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText(/画布：n/)).toBeInTheDocument());
+  fireEvent.change(canvasInput, { target: { value: 'x' } });  // 改出去
+  fireEvent.change(canvasInput, { target: { value: 'p1' } }); // 改回原值（未 blur——canvasVerified 已清、verifiedRef 仍在）
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'p1' })); // 等价放行——修复前弹"画布已修改，请重新校验"、createWork 不被调
 });
 
 it('画布 404 → 红字"画布不存在"；未校验通过（乱码未 blur）提交 → 阻止', async () => {
@@ -1875,7 +1928,14 @@ WorkFormModal 追加状态与初始校验：
 
   const checkCanvas = async (text: string) => {
     const id = parseCanvasRef(text);
-    if (!id) { verifiedRef.current = null; setCanvasVerified(null); setCanvasError(null); return; }
+    if (!id) {
+      // 空文本也作废在飞校验（第十轮 B1：否则"粘 p1→blur 在飞→清空→再 blur"后旧请求 resolve 会把已清空表单写回"已验证"）
+      canvasCheckSeq.current++;
+      verifiedRef.current = null;
+      setCanvasVerified(null); setCanvasError(null);
+      form.setFieldsValue({ allowViewProcess: false, allowClone: false }); // 收窄落 false 落点①：清空=放弃画布，防 true 残留撞 400
+      return;
+    }
     const seq = ++canvasCheckSeq.current;
     try {
       const c = await adminVideoWorkApi.canvasCheck(id);
@@ -1887,11 +1947,12 @@ WorkFormModal 追加状态与初始校验：
       if (seq !== canvasCheckSeq.current) return;
       verifiedRef.current = null;
       setCanvasVerified(null); setCanvasError('画布不存在');
+      form.setFieldsValue({ allowViewProcess: false, allowClone: false }); // 收窄落 false 落点②：校验失败同理
     }
   };
 ```
 
-初始校验挂 **ModalForm 顶层 `onOpenChange`** prop（非 modalProps.afterOpenChange——那是 rc-motion 动效回调，jsdom 依赖降级路径。onOpenChange 的依据是 pro-form 源码而非仓内先例：@ant-design/pro-form@2.32.0 `es/layouts/ModalForm/index.d.ts:32` 顶层 prop + `index.js:43-49` useMergedState 直连零 motion 依赖——**仓内 10 处 onOpenChange 全是 Popover/Dropdown、ModalForm 零先例**，后人勿按"先例"去找。另注意它在触发器 click 内同步触发、弹层内容尚未挂载——回调内勿读表单字段（checkCanvas 只用 record 值，安全）。勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻 trigger 宿主组件，mount effect 会在列表渲染时对每行各打一次 canvas-check）：
+初始校验挂 **ModalForm 顶层 `onOpenChange`** prop（非 modalProps.afterOpenChange——那是 rc-motion 动效回调，jsdom 依赖降级路径。onOpenChange 的依据是 pro-form 源码而非仓内先例：@ant-design/pro-form@2.32.0 `es/layouts/ModalForm/index.d.ts:29` 顶层 prop + `index.js:43-49` useMergedState 直连零 motion 依赖——**仓内 10 处 onOpenChange 全是 Popover/Dropdown、ModalForm 零先例**，后人勿按"先例"去找。另注意它在触发器 click 内同步触发、弹层内容尚未挂载——回调内勿读表单字段（checkCanvas 只用 record 值，安全）。勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻 trigger 宿主组件，mount effect 会在列表渲染时对每行各打一次 canvas-check）：
 
 ```tsx
     <ModalForm
@@ -1917,13 +1978,15 @@ Task 10 的 `modalProps.afterClose` 块末尾追加（canvas 状态是 Task 11 �
       <ProFormText name="canvasProjectId" label="源画布（可选）" placeholder="粘贴画布 ID 或画布页 URL"
         fieldProps={{
           onBlur: (e) => void checkCanvas(e.target.value),
-          // 文本改动即失效（state 清、verifiedRef 不清——必修1 的文案判据）+ 两开关落 false（必修3）：
-          // 只禁用不落值会把 true 冻结在表单里——画布清空后提交必带 allowViewProcess:true 撞 assertProcessFlags 400，
-          // 且开关已禁用用户无法关掉它（死结）；与"关 view 强制关 clone"同源写一处。
+          // 文本改动即失效（state 清、verifiedRef 不清——必修1 的文案判据）：
+          // 落 false **不在此处**（第十轮收窄）——edit 场景敲错字又改回原文会静默关掉存量"创作过程/克隆"开关，
+          // 超出防 400 目标；落 false 只在 checkCanvas 空文本/catch 两分支（真实浏览器点确定前输入框必先 blur，
+          // jsdom fireEvent.click 不自动 blur——测试显式 fireEvent.blur）。B2 两条 400 路径（清空/校验失败）照堵，
+          // "改文本未重校验"路径由 onFinish 门禁拦截承担。
           // 此处 form 是组件作用域的表单实例（无 A1 影子问题——影子只在 onFinish 解构之后）
           onChange: (e) => {
+            canvasCheckSeq.current++; // 文本失效即作废在飞校验（第十轮 B1 三路之一：onChange/空文本/afterClose）
             setCanvasVerified(null); setCanvasError(null);
-            form.setFieldsValue({ allowViewProcess: false, allowClone: false });
           },
         }}
       />
@@ -1982,9 +2045,12 @@ Task 10 的 `modalProps.afterClose` 块末尾追加（canvas 状态是 Task 11 �
         const parsedCanvasId = parseCanvasRef(canvasText);
         const untouched = canvasText === initialCanvasText.trim(); // 与渲染期 canvasUntouched 同判据（文本===record 初值），两处勿各算各的
         if (!untouched && canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
-          // 文案判据是 verifiedRef（必修1）——canvasVerified 已被 onChange 清 null，判它则"画布已修改"永不可达
-          message.error(verifiedRef.current ? '画布已修改，请重新校验' : (canvasError ?? '画布不存在，请重新校验'));
-          return false;
+          // 等价放行（第十轮 C1）：改出去又改回已验证文本（未 blur）——verifiedRef.id 与当前解析一致即视同已验证
+          if (verifiedRef.current?.id !== parsedCanvasId) {
+            // 文案判据是 verifiedRef（必修1）——canvasVerified 已被 onChange 清 null，判它则"画布已修改"永不可达
+            message.error(verifiedRef.current ? '画布已修改，请重新校验' : (canvasError ?? '画布不存在，请重新校验'));
+            return false;
+          }
         }
 ```
 
@@ -2027,7 +2093,7 @@ Expected: PASS（全部用例——`:63` 在 Task 10 未被 skip，本任务的 
 
 ```bash
 cd D:/flowweb && git add apps/web/src/pages/admin/pages/VideoWorksPage.tsx apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx
-git commit -m "feat(admin): 源画布输入状态机（注册字段+canvasCheck 回显+改动失效+开关 verified 驱动+失效落 false）+verifiedRef 文案判据+afterClose 画布重置+seq 守卫+edit 只读信息条（presign 封面缩略图）"
+git commit -m "feat(admin): 源画布输入状态机（注册字段+canvasCheck 回显+改动失效+开关 verified 驱动+空文本/校验失败落 false 收窄）+verifiedRef 文案判据+等价文本放行+afterClose 画布重置+seq 三路守卫+edit 只读信息条（presign 封面缩略图）"
 ```
 
 ---
