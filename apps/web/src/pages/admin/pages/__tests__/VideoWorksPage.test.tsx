@@ -8,8 +8,21 @@ import type { ReactElement } from 'react';
 import { router } from '@/router';
 import { VideoWorksPage } from '../VideoWorksPage';
 import { adminVideoWorkApi } from '@/api/adminApi';
+import { probeVideoFile } from '@/pages/admin/utils/probeVideoFile';
+import { uploadToPresignedPost } from '@/pages/admin/utils/uploadToPresignedPost';
+import { confirmUpload } from '@/api/storageApi';
 
 vi.mock('@/api/adminApi');
+vi.mock('@/pages/admin/utils/probeVideoFile', () => ({ probeVideoFile: vi.fn() }));
+vi.mock('@/pages/admin/utils/uploadToPresignedPost', () => ({ uploadToPresignedPost: vi.fn() }));
+vi.mock('@/api/storageApi', () => ({ presignUpload: vi.fn(), confirmUpload: vi.fn() }));
+
+const urlBag = URL as unknown as { createObjectURL: () => string; revokeObjectURL: () => void };
+beforeEach(() => {
+  urlBag.createObjectURL = vi.fn().mockReturnValue('blob:cover') as any;
+  urlBag.revokeObjectURL = vi.fn() as any;
+});
+
 const renderWithProviders = (ui: ReactElement) => render(<MemoryRouter><AntdApp>{ui}</AntdApp></MemoryRouter>);
 
 // 第十轮：文件级 mock 复位 + 默认四件套——原各用例 mock"越界存活"且无复位（Vitest 默认不 reset），
@@ -19,7 +32,12 @@ beforeEach(() => {
   vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [], total: 0 } as any);
   vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([] as any);
   vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([] as any);
-  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [], total: 0 } as any);
+  vi.mocked(adminVideoWorkApi.presignVideo).mockResolvedValue({ fileId: 'm1', uploadUrl: 'http://127.0.0.1:9000/flowai', key: 'uploads/system/a.mp4', fields: { key: 'uploads/system/a.mp4' } });
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' });
+  vi.mocked(confirmUpload).mockResolvedValue({ fileId: 'm1' });
+  vi.mocked(probeVideoFile).mockResolvedValue({ ok: true, durationSec: 12, width: 1920, height: 1080, coverBlob: new Blob(['c'], { type: 'image/jpeg' }) });
+  vi.mocked(uploadToPresignedPost).mockResolvedValue(undefined);
+  vi.mocked(adminVideoWorkApi.uploadCover).mockResolvedValue({ key: 'uploads/system/frame.jpg' }); // probe 默认带 coverBlob → 一切提交用例的 onFinish 都走 uploadCover——无默认值则 await undefined 解构 TypeError → return false → createWork 永不被调、用例超时红（:157 用例自己的 importActual 透传会覆盖此默认值，其 mockReset 后下用例 beforeEach 重设——无冲突）
   // 第十一轮加、第十二轮修正理由：antd Tabs 懒渲染——非激活过的 pane 不挂载，未点「播放页设置」tab 时
   // CarouselSettingsCard 不存在、不调 getSettings（原"页面会拉设置"不成立）。默认值是纯防御（防实现改页面级
   // 预取、或本文件用例点过设置 tab 后其他 tab 用例回归时残留调用拿到 undefined），保留无害。
@@ -46,18 +64,17 @@ it('作品表格列：标题/类型/状态/观看/喜欢/排序（第六轮落�
   expect(screen.getByText('10')).toBeInTheDocument();  // 观看数
 });
 
-it('ModalForm 含候选下拉（candidates）/两开关/标签 tags 模式/封面控件（第六轮落地）', async () => {
-  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [{ id: 'm1', key: 'k', projectId: 'p1', canvasExists: true, thumbnailKey: null, durationSec: 10, width: 16, height: 9, createdAt: '2026-09-01', previewUrl: null }], total: 1 } as any);
+it('ModalForm 含成品视频上传区/两开关/标签 tags 模式/封面控件（候选下拉已删）', async () => {
   vi.mocked(adminVideoWorkApi.listCategories).mockResolvedValue([{ id: 'c1', name: 'AI真人影视', sortOrder: 0, active: true }] as any);
   vi.mocked(adminVideoWorkApi.listTags).mockResolvedValue([{ id: 't1', name: '悬疑', sortOrder: 0, active: true }] as any);
   renderWithProviders(<VideoWorksPage />);
-  fireEvent.click(screen.getByRole('button', { name: /新增/ })); // 按钮文案钉死「新增作品」（第十一轮：≥3 字不触发 antd 两字插空格坑——写"新增"两字会变"新 增"致 /新增/ 不匹配；写"新建作品"则不含"新增"子串同样不匹配，实现侧 toolBarRender 必须用「新增作品」）
-  await waitFor(() => screen.getByText(/候选视频/));
-  expect(screen.getByText(/允许查看创作过程|查看制作过程/)).toBeInTheDocument(); // 两开关（allowViewProcess/allowClone）
-  // 本批次实施发现（plan 十三轮未覆盖的内部冲突）：Task 10.2 落地 Tabs 后「标签池」tab 名与本弹层字段 label
-  // 同含「标签」子串，全局 getByText(/标签/) 抛 Found multiple；而 10.2 用例把 tab 名钉死「标签池」（getByRole 精确
-  // 匹配）不可改。按 plan 第十二轮 P1 对同款撞名的既定手法 within() 收敛——这里收敛到弹层（role=dialog）
-  expect(within(screen.getByRole('dialog')).getByText(/标签/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(() => within(dialog).getByText(/成品视频/));
+  expect(within(dialog).getByRole('button', { name: /选择 MP4 文件/ })).toBeInTheDocument();
+  expect(within(dialog).queryByText(/候选视频/)).not.toBeInTheDocument(); // 候选下拉已删
+  expect(within(dialog).getByText(/允许查看创作过程|查看制作过程/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/留空则用视频截帧封面/)).toBeInTheDocument();
 });
 
 it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已有画布作品：关 allowViewProcess → allowClone 被强制关并禁用（第九轮修正：原断言挂在"新增"空表单下——无 canvasProjectId 时两开关本来 disabled、click 是 no-op、断言恒真）', async () => {
@@ -112,26 +129,6 @@ it('轮播设置卡片：开关 + 范围单选，保存调 updateSettings', asyn
 // —— 批次 10 质量审查 C-1：提交路径用例（原 7 用例零提交路径覆盖——候选字段仅靠 setFieldsValue 写入、从未注册，
 // onFinish 的 v.videoKey 恒 undefined → 门禁永远拦截，createWork/updateWork 从未被调；审查者实测复现）——
 
-it('create 提交：选中候选+填必填保存 → createWork 载荷含候选五字段（videoKey/canvasProjectId/durationSec/width/height）+videoMediaId（C-1：数据源改 candRef，不依赖未注册字段）', async () => {
-  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [{ id: 'm1', key: 'videos/demo.mp4', projectId: 'p1', canvasExists: true, thumbnailKey: null, durationSec: 10, width: 1920, height: 1080, createdAt: '2026-09-01', previewUrl: null }], total: 1 } as any);
-  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
-  renderWithProviders(<VideoWorksPage />);
-  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
-  const dialog = await screen.findByRole('dialog');
-  await waitFor(() => within(dialog).getByText(/候选视频/));
-  fireEvent.mouseDown(within(dialog).getByText('从候选池选择')); // antd Select jsdom 开下拉惯例（mousedown 冒泡至 selector）
-  fireEvent.click(await screen.findByText('videos/demo.mp4'));  // 选中候选（dropdown portal 到 body）
-  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: '测试标题' } });
-  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: '作者甲' } });
-  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ })); // 两字插空格坑（同文件 52 行注释）
-  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledTimes(1));
-  expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({
-    title: '测试标题', authorName: '作者甲',
-    videoKey: 'videos/demo.mp4', videoMediaId: 'm1', canvasProjectId: 'p1',
-    durationSec: 10, width: 1920, height: 1080,
-  }));
-});
-
 it('edit 提交：不重选候选直接改标题保存 → updateWork 被调且载荷无 videoKey/videoMediaId、标题已更新（C-1：UpdateVideoWorkDto 禁字段——forbidNonWhitelisted 400，换源=重建；不依赖候选池）', async () => {
   vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [{
     id: 'w1', title: '末班地铁', description: null, authorName: '作者甲', categoryId: null,
@@ -163,38 +160,104 @@ it('uploadCover 上传失败（fetch 500）→ 弹错误不弹假成功、coverK
   fireEvent.click(screen.getByRole('button', { name: /新增/ }));
   const dialog = await screen.findByRole('dialog');
   // user-event v14 只拦截 pointer-events:none，不查 display——直接对隐藏 input 上传（SubscriptionBannerPage.test.tsx:38-41 先例）
-  await user.upload(dialog.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
+  // 原选择器收窄（视频 input 在封面之前，裸 input[type=file] 命中视频框）
+  await user.upload(dialog.querySelector('input[accept="image/jpeg,image/png,image/webp"]') as HTMLInputElement, new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
   await waitFor(() => expect(screen.getByText('封面超限')).toBeInTheDocument()); // 错误提示（uploadCover throw err.message）
   expect(screen.queryByText('已上传，保存后生效')).not.toBeInTheDocument();      // 假成功不弹（修复前：信封被当成功值——红）
   expect(within(dialog).getByText('未上传')).toBeInTheDocument();                // coverKey 未写
   vi.mocked(adminVideoWorkApi.uploadCover).mockReset(); // mockImplementation 不被 clearAllMocks 清除，手动复位防泄漏
 });
 
-// —— 最终收尾审查（2026-09-16）I-1：候选下拉 previewUrl 过 /flowai 同源改写——生产 presign URL 是内网地址不可达、
-// 缩略图必裂（批次 8 列表封面同因，videoWorkApi.ts:15-16 注释）；本地 127.0.0.1:9000 可直连故 dev 验收不暴露。
-// 修复前 mapper 根本未透传 previewUrl（option.data 上恒 undefined、img 不渲染），双重缺陷一次修。
-it('候选下拉缩略图：previewUrl 过 /flowai 改写（I-1：mapper 透传 + toFlowaiUrl，img src 不再是原始 presign host）', async () => {
-  vi.mocked(adminVideoWorkApi.listCandidates).mockResolvedValue({ items: [{ id: 'm1', key: 'results/x.mp4', projectId: 'p1', canvasExists: true, thumbnailKey: null, durationSec: 10, width: 16, height: 9, createdAt: '2026-09-01', previewUrl: 'http://minio:9000/flowai/results/x.mp4' }], total: 1 } as any); // fixture 命中 toFlowaiUrl 正则 ^https?://[^/]+/flowai
+const openCreateAndUpload = async () => {
   renderWithProviders(<VideoWorksPage />);
   fireEvent.click(screen.getByRole('button', { name: /新增/ }));
   const dialog = await screen.findByRole('dialog');
-  await waitFor(() => within(dialog).getByText(/候选视频/));
-  fireEvent.mouseDown(within(dialog).getByText('从候选池选择')); // antd Select jsdom 开下拉（同文件 122 行先例）
-  await screen.findByText('results/x.mp4'); // 下拉已展开（portal 到 body）
-  const img = await waitFor(() => {
-    const el = document.body.querySelector('.ant-select-dropdown img');
-    expect(el).not.toBeNull(); // 修复前：mapper 未透传 previewUrl → img 根本不渲染（红）
-    return el as HTMLImageElement;
-  });
-  expect(img.getAttribute('src')).toBe('/flowai/results/x.mp4'); // 修复后非原始 host（minio:9000）——同源路径
+  const input = dialog.querySelector('input[accept="video/mp4"]') as HTMLInputElement;
+  expect(input.style.display).toBe('none'); // 内联锚点：antd :where 特异性 (0,2,1) 压 Tailwind .hidden——防回退
+  fireEvent.change(input, { target: { files: [new File(['v'], 'final.mp4', { type: 'video/mp4' })] } });
+  await waitFor(() => expect(within(dialog).getByText(/已上传：final\.mp4/)).toBeInTheDocument());
+  return dialog;
+};
+
+it('create 提交：上传成品视频+必填 → createWork 载荷含五字段（durationSec 已取整）', async () => {
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  const dialog = await openCreateAndUpload();
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: '测试标题' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: '作者甲' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledTimes(1));
+  expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({
+    title: '测试标题', authorName: '作者甲',
+    videoKey: 'uploads/system/a.mp4', videoMediaId: 'm1',
+    durationSec: 12, width: 1920, height: 1080,
+  }));
 });
 
-// —— 最终收尾审查（2026-09-16）I-2：候选下拉原固定 listCandidates(1)（api 侧 pageSize=20），候选池超 20 后 UI 不可达；
-// API controller 有 Math.min(50,...) clamp（admin-video-work.controller.ts:31），上限取满 50。
-it('候选下拉请求满额 pageSize：listCandidates(1, 50)（I-2：API clamp 上限 50，修复前固定 (1)→20）', async () => {
+it('门禁：未上传视频提交 → "请先上传成品视频"，createWork 不被调', async () => {
   renderWithProviders(<VideoWorksPage />);
   fireEvent.click(screen.getByRole('button', { name: /新增/ }));
   const dialog = await screen.findByRole('dialog');
-  await waitFor(() => within(dialog).getByText(/候选视频/));
-  await waitFor(() => expect(adminVideoWorkApi.listCandidates).toHaveBeenCalledWith(1, 50)); // 修复前：listCandidates(1)（红）
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(screen.getByText('请先上传成品视频')).toBeInTheDocument());
+  expect(adminVideoWorkApi.createWork).not.toHaveBeenCalled();
+});
+
+it('afterClose → abort signal + 状态机重置（组件常驻 trigger 宿主不卸载——abort 必须挂 afterClose 非 useEffect cleanup）', async () => {
+  let capturedSignal: AbortSignal | undefined;
+  // mock 必须"abort 即 reject"（axios 真实行为是 reject CanceledError）——只挂住不监听 abort 的话，
+  // 实现的 catch 永不执行、"上传已取消"永不出、waitFor 超时红
+  vi.mocked(uploadToPresignedPost).mockImplementation(({ signal }) => new Promise((_, rej) => {
+    capturedSignal = signal;
+    signal?.addEventListener('abort', () => rej(new DOMException('canceled', 'AbortError')));
+  }));
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.change(dialog.querySelector('input[accept="video/mp4"]') as HTMLInputElement,
+    { target: { files: [new File(['v'], 'big.mp4', { type: 'video/mp4' })] } });
+  await waitFor(() => expect(capturedSignal).toBeTruthy());
+  fireEvent.click(within(dialog).getByRole('button', { name: /取\s*消/ })); // 关弹层
+  await waitFor(() => expect(screen.getByText('上传已取消')).toBeInTheDocument());
+  expect(capturedSignal!.aborted).toBe(true); // 真实 abort——白传 1GB 防线
+  // 重开弹层不残留上次状态（正面断言）
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog2 = await screen.findByRole('dialog');
+  await waitFor(() => expect(within(dialog2).queryByText(/已上传：big\.mp4/)).not.toBeInTheDocument());
+});
+
+it('前置拦截：非 mp4 → "仅支持 MP4 格式"，presignVideo 不被调（accept 只是选择器过滤，JS 判断不可省）', async () => {
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.change(dialog.querySelector('input[accept="video/mp4"]') as HTMLInputElement,
+    { target: { files: [new File(['v'], 'a.mov', { type: 'video/quicktime' })] } });
+  await waitFor(() => expect(screen.getByText('仅支持 MP4 格式')).toBeInTheDocument());
+  expect(adminVideoWorkApi.presignVideo).not.toHaveBeenCalled();
+});
+
+it('可播放性闸门：probe decode 失败 → "浏览器无法解码"（服务端无真实 MIME 校验——这是唯一防线）', async () => {
+  vi.mocked(probeVideoFile).mockResolvedValue({ ok: false, reason: 'decode' } as any);
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.change(dialog.querySelector('input[accept="video/mp4"]') as HTMLInputElement,
+    { target: { files: [new File(['v'], 'hevc.mp4', { type: 'video/mp4' })] } });
+  await waitFor(() => expect(screen.getByText('浏览器无法解码，请导出 H.264 编码 MP4')).toBeInTheDocument());
+  expect(adminVideoWorkApi.presignVideo).not.toHaveBeenCalled();
+});
+
+it('封面提交时上传：抽帧 blob 在 onFinish 才 uploadCover（孤儿归零）；手选封面后（coverTouched）不再上传 blob', async () => {
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  vi.mocked(adminVideoWorkApi.uploadCover).mockResolvedValue({ key: 'uploads/system/frame.jpg' } as any);
+  const dialog = await openCreateAndUpload();
+  expect(adminVideoWorkApi.uploadCover).not.toHaveBeenCalled(); // probe 后只存内存——不上传
+  expect(within(dialog).getByText('将使用视频截帧作封面')).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledTimes(1)); // 提交时一次
+  expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledWith(expect.any(File)); // new File([blob],'cover.jpg')
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ coverKey: 'uploads/system/frame.jpg' })));
 });

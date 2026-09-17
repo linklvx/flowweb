@@ -7,6 +7,9 @@ import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { App as AntdApp, Button, Form, Popconfirm, Radio, Switch, Tabs } from 'antd';
 import { adminVideoWorkApi } from '@/api/adminApi';
 import { toFlowaiUrl } from '@/api/videoWorkApi';
+import { confirmUpload } from '@/api/storageApi';
+import { probeVideoFile } from '@/pages/admin/utils/probeVideoFile';
+import { uploadToPresignedPost } from '@/pages/admin/utils/uploadToPresignedPost';
 
 interface VideoWorkRow {
   id: string;
@@ -29,20 +32,6 @@ interface VideoWorkRow {
   allowViewProcess: boolean;
   allowClone: boolean;
   updatedAt: string;
-}
-
-// 对齐 CandidateMedia（shared/types/video-work.ts）
-interface CandidateItem {
-  id: string;
-  key: string;
-  projectId: string | null;
-  canvasExists: boolean;
-  thumbnailKey: string | null;
-  durationSec: number | null;
-  width: number | null;
-  height: number | null;
-  createdAt: string;
-  previewUrl: string | null;
 }
 
 interface TaxonomyRow {
@@ -148,15 +137,60 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
   const [form] = Form.useForm();
   const [coverKey, setCoverKey] = useState<string | undefined>(record?.coverKey ?? undefined);
   const [uploading, setUploading] = useState(false);
-  const candRef = useRef<Map<string, CandidateItem>>(new Map());
-  const selCandRef = useRef<CandidateItem | null>(null); // 选中候选唯一数据源（批次10勘误 C-1：rc-field-form onFinish 只含已注册字段——videoKey 等候选字段仅靠 setFieldsValue 写入、从未注册，v.videoKey 恒 undefined 致门禁永远拦截）
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleUpload = async (file: File) => {
+  // —— 成品视频上传状态机（组件常驻 trigger 宿主——重置挂 afterClose，useEffect cleanup 不会执行）——
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [video, setVideo] = useState<{ videoKey: string; videoMediaId: string; fileName: string; fileSize: number; durationSec: number | null; width: number | null; height: number | null } | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // —— 封面（提交时上传：blob 留内存 + objectURL 预览——竞态与孤儿双消除，spec §5.4）——
+  const coverBlobRef = useRef<Blob | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const coverTouchedRef = useRef(false);
+
+  const handleUpload = async (file: File) => { // 封面手动上传（现有路径）
     setUploading(true);
-    try { const { key } = await adminVideoWorkApi.uploadCover(file); setCoverKey(key); message.success('已上传，保存后生效'); }
-    catch (e) { message.error((e as Error).message); }
+    try {
+      const { key } = await adminVideoWorkApi.uploadCover(file);
+      setCoverKey(key); coverTouchedRef.current = true; // 手选后抽帧 blob 不再使用
+      if (coverPreview) URL.revokeObjectURL(coverPreview);
+      setCoverPreview(null);
+      message.success('已上传，保存后生效');
+    } catch (e) { message.error((e as Error).message); }
     finally { setUploading(false); }
+  };
+
+  const handleVideoSelected = async (file: File) => {
+    // 前置拦截（中文即时提示，别等 presign 400——那是 "Bad Request Exception" 无细节）
+    if (file.type !== 'video/mp4') { message.error('仅支持 MP4 格式'); return; }
+    if (file.size > 1024 * 1024 * 1024) { message.error('视频不得超过 1GB'); return; }
+    const probe = await probeVideoFile(file);
+    if (!probe.ok) { message.error('浏览器无法解码，请导出 H.264 编码 MP4'); return; } // 可播放性闸门
+    if (probe.coverBlob && !coverTouchedRef.current) {
+      coverBlobRef.current = probe.coverBlob;
+      setCoverPreview(URL.createObjectURL(probe.coverBlob)); // 只预览，onFinish 才 uploadCover
+    }
+    setVideoUploading(true); setVideoProgress(0);
+    const ac = new AbortController(); abortRef.current = ac; // signal 贯穿 presign/直传/confirm 三段
+    try {
+      const presign = await adminVideoWorkApi.presignVideo({ fileName: file.name, fileSize: file.size, fileType: file.type }, ac.signal);
+      await uploadToPresignedPost({
+        url: toFlowaiUrl(presign.uploadUrl), // 同源改写：桶非公开读 + dev CORS
+        fields: presign.fields, file,
+        onProgress: (p) => setVideoProgress(p), // 包一层钉类型（Dispatch<SetStateAction> 直赋协变侥幸，显式包一层防后续签名漂移）
+        signal: ac.signal,
+      });
+      await confirmUpload({ fileId: presign.fileId, key: presign.key, fileSize: file.size }, ac.signal);
+      setVideo({ videoKey: presign.key, videoMediaId: presign.fileId, fileName: file.name, fileSize: file.size,
+        durationSec: probe.durationSec, width: probe.width, height: probe.height });
+    } catch (e) {
+      if (ac.signal.aborted) message.info('上传已取消');
+      else message.error(`上传失败：${(e as Error).message}`);
+      // 悬挂 pending 说明：直传失败未 confirm 的 Media 行不占配额、永不过期（temp 清理抓不到 uploaded）——已知台账噪音，登记后续清理
+    } finally { setVideoUploading(false); abortRef.current = null; }
   };
 
   return (
@@ -164,8 +198,14 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
       title={mode === 'create' ? '新增作品' : '编辑作品'} trigger={trigger} form={form} width={640}
       modalProps={{
         destroyOnClose: true,
-        // 组件常驻（trigger 挂在行/工具栏），关闭时重置上传 state（HomeBannersPage 同款）；selCandRef 同步清空防残留上次选择
-        afterClose: () => { setCoverKey(record?.coverKey ?? undefined); selCandRef.current = null; },
+        // WorkFormModal 组件常驻（trigger 挂在行/工具栏；销毁的是弹层内容非本组件），关闭重置全部上传状态；abort 防关弹层白传 1GB
+        afterClose: () => {
+          setCoverKey(record?.coverKey ?? undefined);
+          abortRef.current?.abort();
+          setVideo(null); setVideoUploading(false); setVideoProgress(0);
+          if (coverPreview) URL.revokeObjectURL(coverPreview);
+          setCoverPreview(null); coverBlobRef.current = null; coverTouchedRef.current = false;
+        },
       }}
       initialValues={record ? {
         videoMediaId: record.videoMediaId ?? undefined,
@@ -178,26 +218,25 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
         sortOrder: 0, status: 'DRAFT', allowViewProcess: false, allowClone: false, viewCount: 0, likeCount: 0, tags: [],
       }}
       onFinish={async (v) => {
-        // C-1 勘误：门禁判 !cand（选中候选 ref）而非 !v.videoKey，且仅 create 生效；edit 不重选候选直接保存必须可用
-        const cand = selCandRef.current;
-        if (mode === 'create' && !cand) { message.error('请先选择候选视频'); return false; }
-        // edit 剔除 videoKey/videoMediaId（UpdateVideoWorkDto 禁字段——forbidNonWhitelisted 400；换源=重建）
-        const { videoKey: _vk, videoMediaId: _vm, ...form } = v;
+        if (mode === 'create' && !video) { message.error('请先上传成品视频'); return false; }
+        const { videoKey: _vk, videoMediaId: _vm, ...rest } = v; // edit 剔除（UpdateVideoWorkDto 禁字段——forbidNonWhitelisted 400；换源=重建）。剩余值命名 rest 勿 form——onFinish 内 form 一词保留给表单实例（第九轮 A1：同名影子令 form.getFieldValue 是 undefined、每次提交 TypeError 且浏览器静默）
+        let finalCover = coverKey;
+        if (mode === 'create' && !coverTouchedRef.current && coverBlobRef.current) {
+          try {
+            const { key } = await adminVideoWorkApi.uploadCover(new File([coverBlobRef.current], 'cover.jpg', { type: 'image/jpeg' }));
+            finalCover = key;
+          } catch (e) { message.error(`封面上传失败：${(e as Error).message}`); return false; } // 失败阻断——视频已 confirm 无引用属 §9② 清理范围，非遗漏
+        }
         try {
           if (mode === 'create') {
-            // 五字段从 cand 组装（含 coverKey 缩略图兜底已在 onChange 做过）
             await adminVideoWorkApi.createWork({
-              ...form,
-              videoKey: cand!.key,
-              videoMediaId: cand!.id,
-              canvasProjectId: cand!.canvasExists ? cand!.projectId : null,
-              durationSec: cand!.durationSec ?? null,
-              width: cand!.width ?? null,
-              height: cand!.height ?? null,
-              coverKey: coverKey ?? null,
+              ...rest,
+              videoKey: video!.videoKey, videoMediaId: video!.videoMediaId,
+              durationSec: video!.durationSec, width: video!.width, height: video!.height,
+              coverKey: finalCover ?? null,
             });
           } else if (record) {
-            await adminVideoWorkApi.updateWork(record.id, { ...form, coverKey: coverKey ?? null });
+            await adminVideoWorkApi.updateWork(record.id, { ...rest, coverKey: finalCover ?? null });
           }
           message.success('已保存'); onDone(); return true;
         } catch (e) { message.error((e as Error).message); return false; }
@@ -207,48 +246,21 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ''; /* 复位：连续选同一文件也能触发 */ }} />
 
-      <ProFormSelect
-        name="videoMediaId" label="候选视频" placeholder="从候选池选择"
-        fieldProps={{
-          showSearch: true,
-          optionFilterProp: 'label',
-          // 缩略图预览（plan 字段 1）
-          optionRender: (option) => {
-            const c = option.data as CandidateItem & { label?: string };
-            return (
-              <span className="flex items-center gap-2">
-                {c.previewUrl ? <img src={c.previewUrl} alt="" style={{ height: 24 }} /> : null}
-                <span>{String(option.label ?? '')}</span>
-              </span>
-            );
-          },
-          onChange: (id: string) => {
-            const c = candRef.current.get(id);
-            if (!c) { selCandRef.current = null; return; } // allowClear 清空时同步清候选，防 onFinish 用残留值
-            selCandRef.current = c; // C-1 勘误：onFinish 从此取候选数据（回填仅供展示——canvasProjectId 驱动 ProFormDependency 两开关联动）
-            // 选中后回填 videoKey/videoMediaId/canvasProjectId/durationSec/width/height/coverKey 兜底（plan 字段 1）
-            form.setFieldsValue({
-              videoKey: c.key,
-              canvasProjectId: c.canvasExists ? c.projectId : null,
-              durationSec: c.durationSec ?? undefined,
-              width: c.width ?? undefined,
-              height: c.height ?? undefined,
-            });
-            setCoverKey((prev) => prev ?? c.thumbnailKey ?? undefined);
-          },
-        }}
-        request={async () => {
-          const r = await adminVideoWorkApi.listCandidates(1, 50) as { items: CandidateItem[]; total: number }; // pageSize 50=API clamp 上限（超 20 候选池 UI 不可达）
-          candRef.current = new Map(r.items.map((c) => [c.id, c]));
-          return r.items.map((c) => ({
-            label: c.canvasExists ? c.key : `${c.key}（画布已删除）`, // canvasExists=false 标注（plan 字段 1）
-            value: c.id,
-            disabled: !c.canvasExists,
-            // I-1：透传 previewUrl 供 optionRender 且过 /flowai 同源改写——生产 presign 是内网地址不可达（videoWorkApi.ts 列表封面同款）
-            previewUrl: c.previewUrl ? toFlowaiUrl(c.previewUrl) : null,
-          }));
-        }}
-      />
+      {mode === 'create' && (
+        <div className="mb-4">
+          <div className="mb-1 text-sm">成品视频（上传后不可更换，更换需删除作品重建——会丢观看/喜欢数）</div>
+          {/* 内联 display:none：antd :where().ant-form input[type=file] 特异性 (0,2,1) 压 Tailwind .hidden 致原生控件暴露 */}
+          <input ref={videoInputRef} type="file" accept="video/mp4" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleVideoSelected(f); e.target.value = ''; /* 复位：连续选同一文件 */ }} />
+          <Button onClick={() => videoInputRef.current?.click()} loading={videoUploading}>选择 MP4 文件（≤1GB）</Button>
+          {videoUploading && <span className="ml-2 text-xs text-gray-500">直传中 {videoProgress}%</span>}
+          {video && !videoUploading && (
+            <div className="mt-1 text-xs text-gray-600">
+              已上传：{video.fileName}（{(video.fileSize / 1024 / 1024).toFixed(1)}MB{video.durationSec != null ? ` / ${video.durationSec}s` : ''}{video.width != null ? ` / ${video.width}×${video.height}` : ''}）
+            </div>
+          )}
+        </div>
+      )}
       <ProFormText name="title" label="标题" rules={[{ required: true, message: '请输入标题' }, { max: 200, message: '最多 200 字' }]} fieldProps={{ maxLength: 200 }} />
       <ProFormTextArea name="description" label="简介" fieldProps={{ maxLength: 2000 }} rules={[{ max: 2000, message: '最多 2000 字' }]} />
       <ProFormText name="authorName" label="作者名" rules={[{ required: true, message: '请输入作者名' }, { max: 64, message: '最多 64 字' }]} fieldProps={{ maxLength: 64 }} />
@@ -267,9 +279,10 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
       />
 
       <div className="mb-4">
-        <div className="mb-1 text-sm">封面（留空使用视频缩略图）</div>
+        <div className="mb-1 text-sm">封面（留空则用视频截帧封面）</div>
         <Button onClick={() => fileRef.current?.click()} loading={uploading}>选择文件</Button>
-        <span className="ml-2 text-xs text-gray-400">{coverKey ? `已上传：${coverKey}` : '未上传'}</span>
+        {coverPreview && <img src={coverPreview} alt="封面预览" style={{ height: 48 }} className="ml-2 inline-block align-middle" />}
+        <span className="ml-2 text-xs text-gray-400">{coverKey ? `已上传：${coverKey}` : coverPreview ? '将使用视频截帧作封面' : '未上传'}</span>
       </div>
 
       <ProFormDigit name="sortOrder" label="排序" initialValue={0} />

@@ -196,7 +196,6 @@ export const adminVideoWorkApi = {
   createWork: (data: unknown) => apiFetch('/admin/video-works', { method: 'POST', body: JSON.stringify(data) }),
   updateWork: (id: string, data: unknown) => apiFetch(`/admin/video-works/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteWork: (id: string) => apiFetch(`/admin/video-works/${id}`, { method: 'DELETE' }),
-  listCandidates: (page = 1, pageSize = 20) => apiFetch(`/admin/video-works/candidates?page=${page}&pageSize=${pageSize}`), // pageSize clamp 上限 50（admin-video-work.controller.ts Math.min(50,...)）
   presignVideo: (data: { fileName: string; fileSize: number; fileType: string }, signal?: AbortSignal): Promise<PresignResponse> =>
     apiFetch('/admin/video-works/presign-video', { method: 'POST', body: JSON.stringify(data), signal }),
   canvasCheck: (id: string): Promise<{ id: string; name: string; ownerName: string | null; updatedAt: string }> =>
