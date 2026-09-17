@@ -6,6 +6,9 @@ import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 
 import { buildFilteredSnapshot, type RawCanvasData } from './snapshot-filter.util';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
+import { PresignVideoDto } from './dto/presign-video.dto';
+import { StorageQuotaService } from '../team/storage-quota.service';
+import { PLATFORM_TEAM_ID, PLATFORM_OWNER_ID } from '../team/team.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
@@ -20,6 +23,7 @@ export class VideoWorkService {
     @Inject('REDIS_CLIENT') private readonly redis: Redis,                      // Task 2.1 缓存/3.3 liked/4.x 计数
     @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService, // Task 4.2 view 限流
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）
+    @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // presignVideo 平台配额闸（Task 2）
   ) {}
 
   // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
@@ -67,6 +71,31 @@ export class VideoWorkService {
 
   private async invalidateCategoryCache() {
     await this.redis.del(VideoWorkService.CATEGORY_CACHE_KEY);
+  }
+
+  /** admin 成品视频预签（spec §4.2）。为何不复用 StorageService.presignUpload：那边 buildKey(dto.type, userId)
+   *  与 Media.userId=登录用户——key 归属与 Media.userId 恒等于调用者，正是平台团队形态要去掉的（且走个人团队配额）。 */
+  async presignVideo(dto: PresignVideoDto) {
+    // 语义校验（中文文案必达前端——见 DTO 头注释）
+    if (dto.fileType !== 'video/mp4') throw new BadRequestException('仅支持 MP4 格式（video/mp4）');
+    const ONE_GB = 1024 * 1024 * 1024; // 上限不得超 ~2GiB：Media.size 是 Postgres Int（再高需迁 BigInt）
+    if (dto.fileSize < 1) throw new BadRequestException('文件为空');
+    if (dto.fileSize > ONE_GB) throw new BadRequestException('视频不得超过 1GB');
+
+    await this.quota.assertCanUpload(PLATFORM_TEAM_ID, dto.fileSize); // 配额支点：platform-team，两道闸照跑
+
+    const key = this.minio.buildKey('uploaded', 'system', { ext: 'mp4' }); // ext 硬编码：fileName.split 可能给出 MP4/txt
+    const media = await this.prisma.media.create({ data: {
+      userId: PLATFORM_OWNER_ID, teamId: PLATFORM_TEAM_ID, bucket: 'flowai', key,
+      originalName: dto.fileName, mimeType: dto.fileType,
+      size: dto.fileSize,                    // 必须落库——confirm 的 D1 大小事实源
+      status: 'pending', type: 'uploaded',   // 禁 temp：expiresAt=+7d 会被 temp-cleanup 删掉已发布作品视频
+      expiresAt: null,
+    } });
+    // contentType 形参是死参（createPresignedPost 未用、policy 有意不钉 $Content-Type）——服务端无真实 MIME 强校验，
+    // 真实防线是前端 probeVideoFile 可播放性闸门。预签 fileSize 必须是请求体精确值（policy 钉 ±1024，传 1GB 常量会把正常上传打成 403）。
+    const { url, fields } = await this.minio.generatePresignedPost(key, dto.fileType, dto.fileSize, 3600);
+    return { fileId: media.id, uploadUrl: url, key, fields };
   }
 
   /** 候选视频池（spec §4.4 口径，admin 策展全站——跨团队有意设计 D16/R10） */

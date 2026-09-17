@@ -9,6 +9,7 @@ import { CreateVideoTagDto, UpdateVideoTagDto } from './dto/video-tag.dto';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { UpdateVideoWorkSettingsDto } from './dto/update-video-work-settings.dto';
+import { PresignVideoDto } from './dto/presign-video.dto';
 
 @Controller('api/admin/video-works')
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) // 类级挂载（C2 Task 2.1——仓库无全局 pipe，不挂则 {...dto} 把 publishedAt 等任意字段透传进 Prisma；先例 admin-home-banner.controller.ts:12）
@@ -49,6 +50,9 @@ export class AdminVideoWorkController {
   @Put('settings') updateSettings(@Body() dto: UpdateVideoWorkSettingsDto) {
     return this.service.updateSettings(dto);
   }
+
+  @Post('presign-video')
+  presignVideo(@Body() dto: PresignVideoDto) { return this.service.presignVideo(dto); } // Task 2：静态段声明（:id 之前）
 
   // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）
 

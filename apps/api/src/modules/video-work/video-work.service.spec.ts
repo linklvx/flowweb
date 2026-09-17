@@ -9,6 +9,7 @@ import { VideoWorkController } from './video-work.controller'; // getDetail desc
 import { PrismaService } from '../../prisma/prisma.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';   // service 构造注入（Task 4.2 起）
 import { CollabDocumentService } from '../collab/collab-document.service';        // service 构造注入（Task 5.3 起）
+import { StorageQuotaService } from '../team/storage-quota.service'; // 文件头 import 区追加
 import { MinioService } from '../minio/minio.service';
 import Redis from 'ioredis';
 
@@ -49,6 +50,7 @@ beforeEach(async () => {
         // 不预置则后续任务一加注入本 spec 整文件编译红。两个 mock 一次配齐，后续任务直接用。
         { provide: RateLimiterService, useValue: { checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true), getClientIp: vi.fn().mockReturnValue('1.2.3.4') } },
         { provide: CollabDocumentService, useValue: { readCanvas: vi.fn() } },
+        { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertMember: vi.fn(), getUsage: vi.fn().mockResolvedValue(0), assertOnConfirm: vi.fn().mockResolvedValue(undefined) } },
         { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn() } },
       ],
     }).compile();
@@ -497,4 +499,28 @@ describe('getProcessSnapshot（安全验收）', () => {
     (service as any).collabDoc.readCanvas = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve
     await expect(service.getProcessSnapshot('w1')).rejects.toThrow(ServiceUnavailableException);
   }, 10000);
+});
+
+describe('presignVideo（admin 成品视频预签）', () => {
+  const base = { fileName: 'final.mp4', fileSize: 1000, fileType: 'video/mp4' };
+
+  it('语义校验在 service 抛中文（装饰器 message 是数组→前端只见 Bad Request Exception，中文到不了响应体）', async () => {
+    await expect(service.presignVideo({ ...base, fileType: 'video/quicktime' } as any)).rejects.toThrow('仅支持 MP4 格式（video/mp4）');
+    await expect(service.presignVideo({ ...base, fileSize: 0 } as any)).rejects.toThrow('文件为空');
+    await expect(service.presignVideo({ ...base, fileSize: 1024 * 1024 * 1024 + 1 } as any)).rejects.toThrow('视频不得超过 1GB');
+  });
+
+  it('配额支点：quota.assertCanUpload 用 platform-team（勿改成管理员个人团队）', async () => {
+    minio.buildKey = vi.fn().mockReturnValue('uploads/system/2026-09-18/a.mp4');
+    prisma.media.create = vi.fn().mockResolvedValue({ id: 'm-vid' });
+    minio.generatePresignedPost = vi.fn().mockResolvedValue({ url: 'http://127.0.0.1:9000/flowai', fields: { key: 'uploads/system/2026-09-18/a.mp4' } });
+    await service.presignVideo({ ...base, fileName: 'x.TXT' } as any); // fileName 扩展名脏值也要过——ext 恒 mp4
+    expect((service as any).quota.assertCanUpload).toHaveBeenCalledWith('platform-team', 1000);
+    expect(minio.buildKey).toHaveBeenCalledWith('uploaded', 'system', { ext: 'mp4' });
+    expect(prisma.media.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      userId: 'platform-owner', teamId: 'platform-team', type: 'uploaded', status: 'pending',
+      size: 1000, mimeType: 'video/mp4', originalName: 'x.TXT', expiresAt: null, // size 落库=confirm 大小事实源；禁 temp（7d 清理 footgun）
+    }) }));
+    expect(minio.generatePresignedPost).toHaveBeenCalledWith('uploads/system/2026-09-18/a.mp4', 'video/mp4', 1000, 3600); // expiresIn 3600（默认 900 慢网 1GB 会中途过期）
+  });
 });

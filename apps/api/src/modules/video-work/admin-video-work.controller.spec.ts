@@ -72,7 +72,7 @@ describe('AdminVideoWorkController categories/tags', () => {
     const proto = AdminVideoWorkController.prototype;
     const names = Object.getOwnPropertyNames(proto).filter(n => n !== 'constructor');
     const idRoutes = ['getWork', 'updateWork', 'deleteWork'].map(n => names.indexOf(n)).filter(i => i >= 0);
-    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover', 'getSettings']; // Task 2.5 += 'uploadCover'；Task 2.6 += 'getSettings'
+    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover', 'getSettings', 'presignVideo']; // Task 2 += 'presignVideo'（POST 纳入属防御性完整性——:id 是 GET 吃不掉它，防将来改 @Get）
     for (const s of staticRoutes) {
       expect(names.indexOf(s)).toBeGreaterThan(-1);
       expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // spec §4.2 红线
@@ -88,5 +88,12 @@ describe('AdminVideoWorkController categories/tags', () => {
   });
   it('缺文件 → 400 file is required', async () => {
     await expect(controller.uploadCover(undefined as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('presign-video 转发 DTO 给 service', async () => {
+    service.presignVideo = vi.fn().mockResolvedValue({ fileId: 'm1', uploadUrl: 'http://x', key: 'k', fields: {} });
+    const res = await controller.presignVideo({ fileName: 'a.mp4', fileSize: 1, fileType: 'video/mp4' });
+    expect(service.presignVideo).toHaveBeenCalledWith({ fileName: 'a.mp4', fileSize: 1, fileType: 'video/mp4' });
+    expect(res.fileId).toBe('m1');
   });
 });

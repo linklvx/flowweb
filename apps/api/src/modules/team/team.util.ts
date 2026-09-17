@@ -37,3 +37,10 @@ export async function assertTeamMember(
 export function availableCredits(b: { credits: number; subscriptionCredits: number }): number {
   return b.credits + b.subscriptionCredits;
 }
+
+/** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——api 侧共用（presignVideo/createWork F2/api spec）。
+ *  seed 侧是独立字面量（seed.ts 不在 tsc 范围，不 import src——跨 rootDir 别扭）：
+ *  **改 id 时必须连同 seed.ts（两个 id 共 6 次字面量）与 seed spec（2 次）全部同步**——
+ *  F2 漏改 = 每次建作品 400"视频文件不存在"且无编译期提示（本设计唯一"改一处坏远处不报错"耦合）。 */
+export const PLATFORM_TEAM_ID = 'platform-team';
+export const PLATFORM_OWNER_ID = 'platform-owner';
