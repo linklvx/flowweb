@@ -93,7 +93,8 @@ function BannerFormModal({ mode, record, onDone, trigger }: {
         } catch (e) { message.error((e as Error).message); return false; }
       }}
     >
-      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+      {/* inline style 而非 .hidden：antd :where().ant-form input[type=file] 特异性 (0,2,1) 压 Tailwind .hidden (0,1,0) 致原生控件暴露 */}
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ''; /* 复位：连续选同一文件也能触发 */ }} />
       <div className="mb-4">
         <div className="mb-1 text-sm">图片（建议 1920×240，8:1，≤5MB，jpg/png/webp）</div>
