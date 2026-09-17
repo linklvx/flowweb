@@ -274,7 +274,7 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 
 **deploy 模式精确口径**（已核 deploy.sh）：deploy_full（默认无参）上传 apps/ packages/ 全目录（含 prisma/）并跑 pnpm install（含 devDependencies → tsx 在位）→ `cd apps/api && npx prisma db seed` 可直接跑；deploy_api 只上传 apps/api/src（:55-56）→ 不含 prisma/ 也不跑 install，seed 依赖 devDependency tsx（apps/api/package.json:54/65）→ api 模式后 seed 会失败，须先补传 seed.ts。运维顺序：跑全量 deploy.sh → cd apps/api && npx prisma db seed → 重启。
 
-**生产运维前置（阻塞项，三件套）**：A1 同源改写后 1GB 的 POST 穿 Nginx（仓内无 nginx 配置可验证；现有上传都是几 MB 素材从未触碰上限，"现在能用"不证明 1GB 能用）：① `client_max_body_size` 取 **>1024m**（如 1100m——multipart 编码后比原始 1GB 大，恰设 1024m 仍会 413）；② 读/体超时放宽（`proxy_read_timeout`/`client_body_timeout` 默认 60s，慢网 1GB → 504）；③ **`proxy_request_buffering 保持 on`，只确认 `client_body_temp_path` 磁盘余量**——勿为省磁盘改 off：off 会让 Nginx 以 chunked 转发，而 S3/MinIO 的 POST Object 需要 Content-Length，无 Content-Length 的 presigned POST 直接被拒 → **全站上传挂**（反向钉死）。dev 无此问题（Vite 代理不限体积，POST/大体积都通——/flowai 代理无方法限制已核）。
+**生产运维前置（阻塞项，三件套）**：A1 同源改写后 1GB 的 POST 穿 Nginx（仓内无 nginx 配置可验证；现有上传都是几 MB 素材从未触碰上限，"现在能用"不证明 1GB 能用）：① `client_max_body_size` 取 **>1024m**（如 1100m——multipart 编码后比原始 1GB 大，恰设 1024m 仍会 413）；② 读/体超时放宽（`proxy_read_timeout`/`client_body_timeout` 默认 60s，慢网 1GB → 504）；③ **`proxy_request_buffering 保持 on`（勿改 off）**，只确认 `client_body_temp_path` 磁盘余量——off 会让 Nginx 以 chunked 转发，而 S3/MinIO 的 POST Object 需要 Content-Length，无 Content-Length 的 presigned POST 直接被拒 → **全站上传挂**（反向钉死）。dev 无此问题（Vite 代理不限体积，POST/大体积都通——/flowai 代理无方法限制已核）。
 
 ## 9. 登记后续项
 

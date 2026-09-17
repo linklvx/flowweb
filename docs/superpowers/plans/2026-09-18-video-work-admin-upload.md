@@ -23,8 +23,12 @@
 - Modify: `apps/api/src/modules/team/storage-quota.service.ts:35-49`（assertOnConfirm 删 key/bucket 形参）
 - Modify: `apps/api/src/modules/storage/storage.service.ts:69-101`（confirmUpload 一律读 media 行）
 - Modify: `apps/api/src/modules/storage/dto/confirm.dto.ts`（@deprecated 注释）
+- Modify: `apps/api/src/modules/video-project/generated-media.service.ts:75`（**第二调用方**——签名收窄必须同批，否则 TS2554 全仓 api 测试编译红）
 - Test: `apps/api/src/modules/team/storage-quota.service.spec.ts:53-70`
 - Test: `apps/api/src/modules/storage/storage.service.spec.ts:123-169`
+- Test: `apps/api/src/modules/video-project/generated-media.service.spec.ts:77`（四参断言 → 两参）
+
+> 注意：spec §4.3 说"与 generated-media 的 confirm 无关勿动"指的是**那个端点**（generated-media/confirm 路由），不是这里被共享的 `assertOnConfirm` 方法——签名一变，它的调用点必须跟着改。
 
 - [ ] **Step 1: 写失败测试（storage-quota.service.spec.ts）**
 
@@ -128,13 +132,14 @@ Expected: FAIL——TS 编译错（实参 2 个 vs 形参 4 个）或运行时 d
     expect(prisma.media.update).not.toHaveBeenCalled();
   });
 
-  it('should reject confirm if fileSize mismatch（D1 后判据 = actualSize vs media.size）', async () => {
+  it('should reject confirm if fileSize mismatch（D1 后判据 = actualSize vs media.size；请求体 key 与 fixture 不同——防"实现回退 dto.key 也绿"的真空断言）', async () => {
     prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png', size: 2048000 });
     minio.statSize = vi.fn().mockResolvedValue(999); // 真实对象 999 ≠ 行内 size 2048000
     await expect(
-      service.confirmUpload('user1', { fileId: 'media-1', key: 'uploads/u1/test.png', fileSize: 999 }),
+      service.confirmUpload('user1', { fileId: 'media-1', key: 'victim/obj', fileSize: 999 }), // 请求体 key 故意不同
     ).rejects.toThrow(); // 请求体 fileSize=999（旧实现会放行——新实现不读它，仍按行内 size 拒）
-    expect(minio.delete).toHaveBeenCalledWith('uploads/u1/test.png'); // 清理也用行内 key
+    expect(minio.delete).toHaveBeenCalledWith('uploads/u1/test.png'); // 清理也用行内 key（非 victim——攻击 A 独立钉子）
+    expect(minio.delete).not.toHaveBeenCalledWith('victim/obj');
   });
 ```
 
@@ -179,6 +184,22 @@ Expected: FAIL——victim 用例 statSize 收到 'victim/obj'（现实现读 dt
   }
 ```
 
+- [ ] **Step 6.5: 第二调用方同批改（generated-media）**
+
+`apps/api/src/modules/video-project/generated-media.service.ts:75`：
+
+```ts
+      await this.quota.assertOnConfirm(media.id, actualSize); // D1：key/bucket 已由服务内部读行——传的就是行内值，语义等价
+```
+
+（原 `assertOnConfirm(media.id, actualSize, media.key, media.bucket)`。）
+
+`generated-media.service.spec.ts:77`：
+
+```ts
+    expect(quota.assertOnConfirm).toHaveBeenCalledWith('m1', 12_345_678);
+```
+
 - [ ] **Step 7: ConfirmUploadDto 加 @deprecated 注释（字段保留，前端 12 处调用点零改动）**
 
 ```ts
@@ -194,11 +215,11 @@ export class ConfirmUploadDto {
 - [ ] **Step 8: 全绿 + 全量回归 + 提交**
 
 `cd D:/flowweb/apps/api && npm test`
-Expected: PASS（本任务只动 storage 两个 spec，其余不受影响）
+Expected: PASS——波及面：storage 两个 spec + **generated-media.service.spec.ts（:77 四参断言已同批改两参，不改则 tsc/断言双红）**
 
 ```bash
-cd D:/flowweb && git add apps/api/src/modules/team/storage-quota.service.ts apps/api/src/modules/team/storage-quota.service.spec.ts apps/api/src/modules/storage/storage.service.ts apps/api/src/modules/storage/storage.service.spec.ts apps/api/src/modules/storage/dto/confirm.dto.ts
-git commit -m "fix(storage): confirm 服务层收口 D1——Media 行为唯一事实源（statSize/delete/配额一律行内 key/size），关死 mismatch+配额两条任意对象删除链；assertOnConfirm 删 key/bucket 死参"
+cd D:/flowweb && git add apps/api/src/modules/team/storage-quota.service.ts apps/api/src/modules/team/storage-quota.service.spec.ts apps/api/src/modules/storage/storage.service.ts apps/api/src/modules/storage/storage.service.spec.ts apps/api/src/modules/storage/dto/confirm.dto.ts apps/api/src/modules/video-project/generated-media.service.ts apps/api/src/modules/video-project/generated-media.service.spec.ts
+git commit -m "fix(storage): confirm 服务层收口 D1——Media 行为唯一事实源（statSize/delete/配额一律行内 key/size），关死 mismatch+配额两条任意对象删除链；assertOnConfirm 删 key/bucket 死参（含 generated-media 调用点同批）"
 ```
 
 ---
@@ -217,8 +238,10 @@ git commit -m "fix(storage): confirm 服务层收口 D1——Media 行为唯一�
 - [ ] **Step 1: team.util.ts 追加常量（文件尾）**
 
 ```ts
-/** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——seed/presign-video/createWork F2/seed spec 四处共用。
- *  改 id 必须四处同步：F2 漏改 = 每次建作品 400"视频文件不存在"且无编译期提示（本设计唯一"改一处坏远处不报错"耦合）。 */
+/** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——api 侧共用（presignVideo/createWork F2/api spec）。
+ *  seed 侧是独立字面量（seed.ts 不在 tsc 范围，不 import src——跨 rootDir 别扭）：
+ *  **改 id 时必须连同 seed.ts（2 处）与 seed spec（1 处）共 5 处同步**——
+ *  F2 漏改 = 每次建作品 400"视频文件不存在"且无编译期提示（本设计唯一"改一处坏远处不报错"耦合）。 */
 export const PLATFORM_TEAM_ID = 'platform-team';
 export const PLATFORM_OWNER_ID = 'platform-owner';
 ```
@@ -531,11 +554,11 @@ git commit -m "feat(video-work): canvas-check 画布回显（ownerName 回落链
         findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(1),
         findUnique: vi.fn(),   // Task 4 F2：PK 查 mediaId
-        update: vi.fn(),       // Task 5 removeWork：软删
+        update: vi.fn().mockResolvedValue({}),  // Task 5 removeWork：软删——默认 resolved（裸 vi.fn() 返回 undefined，实现里 .catch 链会 TypeError）
       },
 ```
 
-（原 `findMany` 的候选形状默认值改 `[]`——候选 describe 已删，旧形状无消费者。）
+（原 `findMany` 的候选形状默认值改 `[]`——**前置条件：Task 3 Step 1 已删 `describe('VideoWorkService.listCandidates')`**（:61/:71/:84 三条用例依赖该默认形状）；若单独回滚 Task 4，必须先确认该 describe 不在文件中。）
 
 (b) `videoWork` 命名空间 `count` 补默认值（裸 vi.fn() 返回 undefined，排他 `undefined > 0` 恒 false 是真空绿）：
 
@@ -562,10 +585,10 @@ git commit -m "feat(video-work): canvas-check 画布回显（ownerName 回落链
 
 （四处同理：:114 → `'开启创作过程/克隆需要画布来源'`；:118-119 → `'允许克隆必须同时允许查看创作过程'`；:126 updateWork 侧同文案。）
 
-(b) `:118` 用例的 createWork 侧带 `canvasProjectId: 'p1'`——F2 顺序在画布校验之后，flags 先抛仍绿；但画布校验用 `findCanvasRef`，需给该用例加 stub（`canvasProject.findUnique` 文件级是裸 vi.fn()）：
+(b) `:118` 用例的 createWork 侧带 `canvasProjectId: 'p1'`——**flags 先抛（顺序 flags→画布→F2），画布校验实际不会跑**；stub 留作防御性（若有人把顺序调转会以正确文案红而非 TypeError），非必需：
 
 ```ts
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'n', updatedAt: new Date(), user: null, team: { owner: { name: 'o' } } });
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'n', updatedAt: new Date(), user: null, team: { owner: { name: 'o' } } }); // 防御性：正常时序 flags 先抛、此 stub 不被消费
 ```
 
 (c) 文件尾追加新 describe：
@@ -707,6 +730,18 @@ git commit -m "feat(video-work): createWork F2 videoKey 五条件不变量（PK+
 - Modify: `apps/api/src/modules/video-work/video-work.service.ts`（removeWork :224-229 + updateWork 换封面）
 - Test: `apps/api/src/modules/video-work/video-work.service.spec.ts`（翻转 :151-157 钉子为非真空三态 + 新用例）
 
+- [ ] **Step 0: spec 基建——文件级 mock 默认 resolved（裸 vi.fn() 返回 undefined，实现里的 await 链会 TypeError）**
+
+`video-work.service.spec.ts` 文件级 beforeEach 的 `minio`（:42）与 `REDIS_CLIENT`（:52）：
+
+```ts
+    minio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('http://minio/presigned'), buildKey: vi.fn(), upload: vi.fn(), delete: vi.fn().mockResolvedValue(undefined) }; // delete 补默认 resolved（Task 5）
+    // providers 里：
+        { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn().mockResolvedValue(undefined) } }, // del 补默认 resolved（Task 5）
+```
+
+（先例：同文件 :153 用例内 `minio.delete = vi.fn().mockResolvedValue(undefined)`——现在提升为文件级默认。）
+
 - [ ] **Step 1: 写失败测试（翻转钉子用例）**
 
 替换 `:151-157` 的 removeWork 红线用例（旧用例不 stub findUnique 是真空绿——裸 vi.fn() 返回 undefined → 无 key → not.toHaveBeenCalled 恒真，验不到任何东西）：
@@ -809,12 +844,14 @@ Expected: FAIL——现 removeWork 无 findUnique/404/对象删除
     }
 
     // Media 软删释放平台配额（getUsage 条件 status='completed' AND deletedAt=null）；失败不阻断
+    // （显式 try/catch 而非 .catch() 链——与"尽力而为"自洽，且不依赖调用方返回 thenable）
     if (w.videoMediaId) {
-      await this.prisma.media.update({ where: { id: w.videoMediaId }, data: { deletedAt: new Date() } }).catch(() => {});
+      try { await this.prisma.media.update({ where: { id: w.videoMediaId }, data: { deletedAt: new Date() } }); }
+      catch (e) { console.error('[removeWork] Media 软删失败（配额未释放，登记清理）', { id, error: e }); }
     }
 
     await this.prisma.videoWork.delete({ where: { id } });
-    await this.redis.del(`videoWork:url:${w.videoKey}`).catch(() => {});
+    try { await this.redis.del(`videoWork:url:${w.videoKey}`); } catch { /* 卫生动作失败可忍 */ }
     await this.invalidateWorkCaches(id);
   }
 ```
@@ -826,8 +863,12 @@ updateWork——`const row = await this.prisma.videoWork.update(...)` 之后、`
     // 排他防御性（UI 不产生共享 key，防 API 直调把 banner 对象当封面挂进来互删）
     if (dto.coverKey !== undefined && existing.coverKey && dto.coverKey !== existing.coverKey
       && existing.coverKey.startsWith('uploads/system/')) {
-      const used = await this.prisma.videoWork.count({ where: { coverKey: existing.coverKey, NOT: { id } } });
-      if (!used) await this.minio.delete(existing.coverKey).catch(() => {});
+      try {
+        const used = await this.prisma.videoWork.count({ where: { coverKey: existing.coverKey, NOT: { id } } });
+        if (!used) await this.minio.delete(existing.coverKey);
+      } catch (e) {
+        console.error('[updateWork] 旧封面清理失败（登记后续清理）', { id, error: e });
+      }
     }
 ```
 
@@ -849,16 +890,16 @@ git commit -m "feat(video-work): removeWork 域分治（平台域删+排他+Medi
 - Modify: `apps/api/prisma/seed.ts`（:229 管理员块之后追加）
 - Create: `apps/api/src/modules/team/platform-team.seed.spec.ts`
 
-- [ ] **Step 1: 写失败测试（连真库 spec——auth.role.spec.ts:5 先例）**
+- [ ] **Step 1: 写失败测试（连真库 spec——src/auth/auth.role.spec.ts:5 先例）**
 
-`apps/api/src/modules/team/platform-team.seed.spec.ts`（放 src/ 下：tsconfig.spec.json include 只有 ["src"]，放 prisma/ 则 tsc 看不见）：
+`apps/api/src/modules/team/platform-team.seed.spec.ts`（放 src/ 下：tsconfig.spec.json include 只有 ["src"]，放 prisma/ 则 tsc 看不见；另注意 prisma/seed.ts 本身不在任何 tsc 范围——类型保护靠 `prisma db seed` 时 tsx 报错，这是已知盲区）：
 
 ```ts
 import { PrismaClient } from '@prisma/client';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { describe, it, expect, afterAll } from 'vitest';
 
-// 连真库（auth.role.spec.ts:5 先例）——前提：本地已跑 `prisma db seed`。未 seed 的环境此 spec 红（与先例相同前提）。
+// 连真库（apps/api/src/auth/auth.role.spec.ts:5 先例：new PrismaClient() 直连）——前提：本地已跑 `prisma db seed`。未 seed 的环境此 spec 红（与先例相同前提）。
 // 钉死原因：订阅缺失/过期/非 active 时 getLimits 静默回落 6GiB 不报错——失效极难排查，必须自动化而非手工步骤。
 const prisma = new PrismaClient();
 
@@ -959,83 +1000,104 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import { probeVideoFile } from '../probeVideoFile';
 
-// jsdom 未实现 objectURL（FilePreviewPopover.test.tsx:29-39 先例）
+// jsdom 无 URL.createObjectURL/revokeObjectURL——直接赋桩 + 还原（ExportModal.test.tsx:148-152 先例；
+// 勿 vi.stubGlobal('URL', {...URL}) 整体替换——同文件任何 new URL(...) 会变 "not a constructor"）
+const urlBag = URL as unknown as { createObjectURL: () => string; revokeObjectURL: () => void };
+const origCreate = urlBag.createObjectURL;
+const origRevoke = urlBag.revokeObjectURL;
 const createObjectURL = vi.fn().mockReturnValue('blob:mock');
 const revokeObjectURL = vi.fn();
-vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
 
 // jsdom 的 duration/videoWidth/videoHeight/readyState 是只读 IDL 属性（ESM 严格模式直赋抛 TypeError）——
-// 四处全走 defineProperty（VideoGenNode.test.tsx:376-377 先例）；readyState 默认 0，不 stub 抽帧会被跳过
+// 四处全走 defineProperty（VideoGenNode.test.tsx:376-377 先例）；readyState 默认 0，不 stub 抽帧会被跳过。
+// canvas getContext jsdom 默认 null——createElement spy 里一并 stub（EraseCanvas/PreviewPlayer 先例）。
 const def = (el: HTMLElement, prop: string, value: unknown) =>
   Object.defineProperty(el, prop, { value, configurable: true });
 
-const makeVideoSpy = () => {
+const setupSpies = () => {
   const orig = document.createElement.bind(document);
-  const videos: HTMLVideoElement[] = [];
+  let video: HTMLVideoElement | null = null;
+  const toBlob = vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['x'], { type: 'image/jpeg' })));
   vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
     const el = orig(tag);
-    if (tag === 'video') videos.push(el as HTMLVideoElement);
+    if (tag === 'video') video = el as HTMLVideoElement;
+    if (tag === 'canvas') {
+      (el as HTMLCanvasElement).getContext = () => ({ drawImage: vi.fn() } as any);
+      (el as HTMLCanvasElement).toBlob = toBlob as any;
+    }
     return el;
   });
-  return { get video() { return videos[0]; }, videos };
+  return { get video() { return video!; }, toBlob };
 };
 
 describe('probeVideoFile', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
-  afterEach(() => { vi.restoreAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    urlBag.createObjectURL = createObjectURL as any;
+    urlBag.revokeObjectURL = revokeObjectURL as any;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    urlBag.createObjectURL = origCreate;
+    urlBag.revokeObjectURL = origRevoke;
+  });
 
-  it('loadedmetadata → 元数据（12.345 → durationSec=12 钉取整）+ 抽帧 coverBlob', async () => {
-    const spy = makeVideoSpy();
-    const toBlob = vi.fn((_cb: (b: Blob | null) => void) => _cb(new Blob(['x'], { type: 'image/jpeg' })));
+  it('loadedmetadata → 元数据（12.345 → durationSec=12 钉取整）+ seeked → 抽帧 coverBlob', async () => {
+    const spy = setupSpies();
     const p = probeVideoFile(new File(['x'], 'a.mp4', { type: 'video/mp4' }));
-    const v = await vi.waitFor(() => { expect(spy.video).toBeTruthy(); return spy.video!; });
+    const v = spy.video; // createElement 同步执行——无需 waitFor
     def(v, 'duration', 12.345); def(v, 'videoWidth', 1920); def(v, 'videoHeight', 1080); def(v, 'readyState', 2);
-    // canvas.getContext jsdom 默认 null——stub（EraseCanvas/PreviewPlayer 先例）
-    const origCreate = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreate(tag);
-      if (tag === 'canvas') {
-        (el as HTMLCanvasElement).getContext = () => ({ drawImage: vi.fn() } as any);
-        (el as HTMLCanvasElement).toBlob = toBlob as any;
-      }
-      return el;
-    });
     fireEvent(v, new Event('loadedmetadata'));
+    // jsdom 的 currentTime setter 只写字段不发 seeked——同步点：实现已执行 currentTime = min(1, 12.345/2)
+    await waitFor(() => expect(v.currentTime).toBe(1));
+    fireEvent(v, new Event('seeked'));
     const r = await p;
     expect(r).toEqual({ ok: true, durationSec: 12, width: 1920, height: 1080, coverBlob: expect.any(Blob) });
     expect(revokeObjectURL).toHaveBeenCalled();
   });
 
   it('video error → { ok:false, reason:"decode" }（可播放性闸门——拦 HEVC/ProRes/.mov）', async () => {
-    const spy = makeVideoSpy();
+    const spy = setupSpies();
     const p = probeVideoFile(new File(['x'], 'a.mov', { type: 'video/quicktime' }));
-    const v = await vi.waitFor(() => spy.video!);
-    fireEvent(v, new Event('error'));
+    fireEvent(spy.video, new Event('error'));
     await expect(p).resolves.toEqual({ ok: false, reason: 'decode' });
     expect(revokeObjectURL).toHaveBeenCalled();
   });
 
-  it('数值守卫：duration=Infinity / 宽高=0 → 对应字段 null，非整体失败（真实 MP4 形态）', async () => {
-    const spy = makeVideoSpy();
+  it('数值守卫：duration=Infinity / 宽高=0 / readyState<2 → 字段 null + 抽帧跳过，非整体失败（真实 MP4 形态）', async () => {
+    const spy = setupSpies();
     const p = probeVideoFile(new File(['x'], 'a.mp4', { type: 'video/mp4' }));
-    const v = await vi.waitFor(() => spy.video!);
+    const v = spy.video;
     def(v, 'duration', Infinity); def(v, 'videoWidth', 0); def(v, 'videoHeight', 0); def(v, 'readyState', 0);
     fireEvent(v, new Event('loadedmetadata'));
-    // readyState 0 → 抽帧守卫跳过，coverBlob null（元数据缺失与抽帧互不阻断）
-    const r = await p;
+    const r = await p; // 守卫跳过抽帧——无需 seeked，直接 settle
     expect(r).toEqual({ ok: true, durationSec: null, width: null, height: null, coverBlob: null });
+  });
+
+  it('metadata 正常但 seeked 永不到来 → captureFrame 超时兜底 coverBlob=null（真实浏览器 seek 偶尔不回调——实现必须兜底防挂死）', async () => {
+    vi.useFakeTimers();
+    try {
+      const spy = setupSpies();
+      const p = probeVideoFile(new File(['x'], 'a.mp4', { type: 'video/mp4' }));
+      const v = spy.video;
+      def(v, 'duration', 30); def(v, 'videoWidth', 1280); def(v, 'videoHeight', 720); def(v, 'readyState', 2);
+      fireEvent(v, new Event('loadedmetadata'));
+      await vi.advanceTimersByTimeAsync(5_000); // CAPTURE_TIMEOUT_MS
+      const r = await p;
+      expect(r).toEqual({ ok: true, durationSec: 30, width: 1280, height: 720, coverBlob: null }); // 不挂死、元数据照返
+    } finally { vi.useRealTimers(); }
   });
 
   it('事件永不触发 → 10s 超时 decode，且清理真实发生（revokeObjectURL 调用 + src 清空）', async () => {
     vi.useFakeTimers();
     try {
-      const spy = makeVideoSpy();
+      const spy = setupSpies();
       const p = probeVideoFile(new File(['x'], 'a.mp4', { type: 'video/mp4' }));
-      const v = await vi.waitFor(() => spy.video!);
+      const v = spy.video;
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(p).resolves.toEqual({ ok: false, reason: 'decode' });
       expect(revokeObjectURL).toHaveBeenCalled();
-      expect(v.getAttribute('src')).toBeNull(); // 超时分支也要终止解码（10s 后解码仍在跑）
+      expect(v.getAttribute('src')).toBeNull();
     } finally { vi.useRealTimers(); }
   });
 });
@@ -1057,8 +1119,9 @@ export type ProbeResult =
   | { ok: true; durationSec: number | null; width: number | null; height: number | null; coverBlob: Blob | null }
   | { ok: false; reason: 'decode' };
 
-const COVER_MAX_W = 1280;   // 封面限宽（抽帧 jpeg 过大无意义）
+const COVER_MAX_W = 1280;        // 封面限宽（抽帧 jpeg 过大无意义）
 const PROBE_TIMEOUT_MS = 10_000; // 畸形文件事件永不触发——不兜底则 Promise 永不 settle + objectURL 泄漏
+const CAPTURE_TIMEOUT_MS = 5_000; // seek 不回调兜底（真实浏览器偶发）——没封面比挂死好
 
 export async function probeVideoFile(file: File): Promise<ProbeResult> {
   const url = URL.createObjectURL(file);
@@ -1068,8 +1131,8 @@ export async function probeVideoFile(file: File): Promise<ProbeResult> {
   video.src = url;
 
   const cleanup = () => {
+    // src 清空即释放（真实浏览器可再调 load() 中止解码；jsdom 的 load 是 notImplemented 噪音，故不调）
     video.removeAttribute('src');
-    video.load(); // 中止解码（超时分支也要停——否则 10s 后解码仍在跑）
     URL.revokeObjectURL(url);
   };
 
@@ -1102,7 +1165,8 @@ export async function probeVideoFile(file: File): Promise<ProbeResult> {
 
 async function captureFrame(video: HTMLVideoElement, duration: number): Promise<Blob | null> {
   if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return null; // HAVE_CURRENT_DATA——drawImage 前置
-  return new Promise((resolve) => {
+  let t: ReturnType<typeof setTimeout>;
+  const frame = new Promise<Blob | null>((resolve) => {
     const onSeeked = () => {
       video.removeEventListener('seeked', onSeeked);
       const canvas = document.createElement('canvas');
@@ -1114,7 +1178,9 @@ async function captureFrame(video: HTMLVideoElement, duration: number): Promise<
     };
     video.addEventListener('seeked', onSeeked);
     video.currentTime = Math.min(1, duration / 2); // <1s 短视频 seek(1) 被夹到末帧可能抽到黑帧
+    t = setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS); // seek 不回调兜底——勿让整个 probe 挂死
   });
+  return frame.finally(() => clearTimeout(t));
 }
 ```
 
@@ -1228,13 +1294,16 @@ export async function uploadToPresignedPost(args: {
 }
 ```
 
-`adminApi.ts`——`listCandidates` 行（:198）替换为：
+`adminApi.ts`——`listCandidates` 行（:198）替换为（**返回类型必须标注**：apiFetch 无推断位时 T=unknown，调用点读 `.uploadUrl` 等会 TS2571；signal 形参照 storageApi.presignUpload 先例——三段贯穿 abort）：
 
 ```ts
-  presignVideo: (data: { fileName: string; fileSize: number; fileType: string }) =>
-    apiFetch('/admin/video-works/presign-video', { method: 'POST', body: JSON.stringify(data) }),
-  canvasCheck: (id: string) => apiFetch(`/admin/video-works/canvas-check?id=${encodeURIComponent(id)}`),
+  presignVideo: (data: { fileName: string; fileSize: number; fileType: string }, signal?: AbortSignal): Promise<PresignResponse> =>
+    apiFetch('/admin/video-works/presign-video', { method: 'POST', body: JSON.stringify(data), signal }),
+  canvasCheck: (id: string): Promise<{ id: string; name: string; ownerName: string | null; updatedAt: string }> =>
+    apiFetch(`/admin/video-works/canvas-check?id=${encodeURIComponent(id)}`),
 ```
+
+文件头追加 `import type { PresignResponse } from './storageApi';`（复用既有导出，勿另造类型）。
 
 - [ ] **Step 4: 跑测试确认绿 + 提交**
 
@@ -1303,7 +1372,7 @@ git commit -m "feat(admin): parseCanvasRef——裸 ID/URL/相对 URL/带引号/
 
 ## Task 10: WorkFormModal 改造——成品视频上传区 + 封面提交时上传 + afterClose abort
 
-> Task 10 完成后：候选下拉已删、上传流水线可用、create 门禁生效。画布输入框与开关联动的 verified 驱动在 Task 11（本任务两开关维持现有 ProFormDependency 逻辑，中间态禁用）。
+> Task 10 完成后：候选下拉已删、上传流水线可用、create 门禁生效。画布输入框与开关联动的 verified 驱动在 Task 11。**本任务不动两开关的 disabled 逻辑**（仍按 canvasProjectId 字段值驱动）——edit 的 initialValues 仍带画布值，`:63` 开关联动用例照旧绿（其 mock 不变），无临时 skip。
 
 **Files:**
 - Modify: `apps/web/src/pages/admin/pages/VideoWorksPage.tsx`（WorkFormModal 整体改造）
@@ -1323,13 +1392,24 @@ vi.mock('@/pages/admin/utils/uploadToPresignedPost', () => ({ uploadToPresignedP
 vi.mock('@/api/storageApi', () => ({ presignUpload: vi.fn(), confirmUpload: vi.fn() }));
 ```
 
-beforeEach 的 `:22` 行 `vi.mocked(adminVideoWorkApi.listCandidates)...` **删除**（API 已无此方法），追加默认值：
+beforeEach 的 `:22` 行 `vi.mocked(adminVideoWorkApi.listCandidates)...` **删除**（API 已无此方法），追加默认值（canvasCheck 默认值防用例间泄漏——本文件 :15-16 注释自证 clearAllMocks 不清实现）：
 
 ```ts
   vi.mocked(adminVideoWorkApi.presignVideo).mockResolvedValue({ fileId: 'm1', uploadUrl: 'http://127.0.0.1:9000/flowai', key: 'uploads/system/a.mp4', fields: { key: 'uploads/system/a.mp4' } });
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' });
   vi.mocked(confirmUpload).mockResolvedValue({ fileId: 'm1' });
   vi.mocked(probeVideoFile).mockResolvedValue({ ok: true, durationSec: 12, width: 1920, height: 1080, coverBlob: new Blob(['c'], { type: 'image/jpeg' }) });
   vi.mocked(uploadToPresignedPost).mockResolvedValue(undefined);
+```
+
+文件头追加 URL 赋桩（jsdom 无 createObjectURL/revokeObjectURL——probe 成功后 `setCoverPreview(URL.createObjectURL(...))` 与 afterClose 的 `URL.revokeObjectURL` 两条路都会 TypeError；**必须赋桩而非 stubGlobal 整体替换**——onFinish 里 parseCanvasRef 会 `new URL(...)`，`{...URL}` 展开 plain object 后 new 直接 "not a constructor"；ExportModal.test.tsx:148-152 赋桩先例）：
+
+```ts
+const urlBag = URL as unknown as { createObjectURL: () => string; revokeObjectURL: () => void };
+beforeEach(() => {
+  urlBag.createObjectURL = vi.fn().mockReturnValue('blob:cover') as any;
+  urlBag.revokeObjectURL = vi.fn() as any;
+});
 ```
 
 删除 `:176-190`（I-1 previewUrl 改写）与 `:194-200`（I-2 pageSize）两条纯候选用例。改写 `:49` 用例：
@@ -1511,10 +1591,12 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
     setVideoUploading(true); setVideoProgress(0);
     const ac = new AbortController(); abortRef.current = ac; // signal 贯穿 presign/直传/confirm 三段
     try {
-      const presign = await adminVideoWorkApi.presignVideo({ fileName: file.name, fileSize: file.size, fileType: file.type });
+      const presign = await adminVideoWorkApi.presignVideo({ fileName: file.name, fileSize: file.size, fileType: file.type }, ac.signal);
       await uploadToPresignedPost({
         url: toFlowaiUrl(presign.uploadUrl), // 同源改写：桶非公开读 + dev CORS
-        fields: presign.fields, file, onProgress: setVideoProgress, signal: ac.signal,
+        fields: presign.fields, file,
+        onProgress: (p) => setVideoProgress(p), // 包一层钉类型（Dispatch<SetStateAction> 直赋协变侥幸，显式包一层防后续签名漂移）
+        signal: ac.signal,
       });
       await confirmUpload({ fileId: presign.fileId, key: presign.key, fileSize: file.size }, ac.signal);
       setVideo({ videoKey: presign.key, videoMediaId: presign.fileId, fileName: file.name, fileSize: file.size,
@@ -1606,7 +1688,7 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
 - [ ] **Step 4: 跑测试确认绿 + 提交**
 
 `cd D:/flowweb/apps/web && npx vitest run src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx`
-Expected: PASS（`:63` 开关联动用例可能因画布字段无写入源而失败——该用例归 Task 11 处理，本任务若红可临时 skip 并注明，Task 11 恢复）
+Expected: PASS（`:63` 开关联动用例不受影响——两开关 disabled 逻辑本任务未动，edit initialValues 仍带画布值）
 
 ```bash
 cd D:/flowweb && git add apps/web/src/pages/admin/pages/VideoWorksPage.tsx apps/web/src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx
@@ -1632,17 +1714,18 @@ const mockWorkRow = (over: Record<string, unknown> = {}) => ({
   updatedAt: '2026-09-01T00:00:00Z', ...over,
 });
 
-it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控件；改标题保存 payload 无 videoKey/videoMediaId、画布可改', async () => {
+it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控件；改标题保存 payload 无 videoKey/videoMediaId、未动画布则 payload 省略 canvasProjectId（后端不动已存值）', async () => {
   vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ coverUrl: 'http://127.0.0.1:9000/flowai/uploads/system/c.jpg?X-Amz-Signature=s' })], total: 1 } as any);
   vi.mocked(adminVideoWorkApi.updateWork).mockResolvedValue({ id: 'w1' } as any);
   vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' } as any);
   renderWithProviders(<VideoWorksPage />);
   await waitFor(() => screen.getByText('末班地铁'));
+  expect(adminVideoWorkApi.canvasCheck).not.toHaveBeenCalled(); // 初始校验挂弹层打开时机——列表渲染（每行一个常驻 Modal 实例）不打 N 个请求
   fireEvent.click(screen.getByText('编辑'));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByText(/当前视频：10s \/ 1920×1080/)).toBeInTheDocument();  // 只读信息条
   expect(within(dialog).queryByRole('button', { name: /选择 MP4 文件/ })).not.toBeInTheDocument(); // edit 无上传控件
-  await waitFor(() => expect(within(dialog).getByText(/画布：源画布（作者 张三）/)).toBeInTheDocument()); // edit 初始自动校验回显
+  await waitFor(() => expect(within(dialog).getByText(/画布：源画布（作者 张三）/)).toBeInTheDocument()); // 打开即初始校验回显
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: '早班高铁' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(adminVideoWorkApi.updateWork).toHaveBeenCalledTimes(1));
@@ -1650,7 +1733,24 @@ it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控�
   expect(payload).not.toHaveProperty('videoKey');
   expect(payload).not.toHaveProperty('videoMediaId');
   expect(payload.title).toBe('早班高铁');
-  expect(payload.canvasProjectId).toBe('p1'); // 未改画布 → 原值透传（dto-only：null/undefined 服务端跳过）
+  expect(payload).not.toHaveProperty('canvasProjectId'); // 未动画布 → 省略（后端 dto-only：undefined 不动已存值）
+});
+
+it('edit + 死画布（canvasCheck 404）+ 未动画布文本 → 可保存（黄字警告不硬拦——与后端 dto-only 口径一致，防"连改标题都存不了"陷阱）；两开关禁用', async () => {
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ canvasProjectId: 'p-dead', allowViewProcess: false, allowClone: false })], total: 1 } as any);
+  vi.mocked(adminVideoWorkApi.updateWork).mockResolvedValue({ id: 'w1' } as any);
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockRejectedValue(new Error('画布不存在') as any);
+  renderWithProviders(<VideoWorksPage />);
+  await waitFor(() => screen.getByText('末班地铁'));
+  fireEvent.click(screen.getByText('编辑'));
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(() => expect(within(dialog).getByText('源画布已删除，保存将保留原关联')).toBeInTheDocument()); // 黄字警告非红字硬拦
+  await waitFor(() => expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeDisabled()); // verified=null → 禁用
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 'x' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.updateWork).toHaveBeenCalledTimes(1)); // 未动文本 → 放行
+  const payload = vi.mocked(adminVideoWorkApi.updateWork).mock.calls[0][1] as Record<string, unknown>;
+  expect(payload).not.toHaveProperty('canvasProjectId'); // 省略——后端不动已存值，不触发画布校验
 });
 
 it('画布状态机：粘贴 URL → blur 校验回显 → payload 带解析后 ID（C-1 家族回归：注册字段 onFinish 现算）', async () => {
@@ -1674,9 +1774,9 @@ it('画布状态机：校验通过后改动文本 → 提交阻止"画布已修�
   fireEvent.change(canvasInput, { target: { value: 'p1' } });
   fireEvent.blur(canvasInput);
   await waitFor(() => expect(within(dialog).getByText(/画布：n/)).toBeInTheDocument());
-  expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeEnabled();
+  await waitFor(() => expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeEnabled()); // 包 waitFor：enabled 依赖 canvasCheck resolve 后的 setState
   fireEvent.change(canvasInput, { target: { value: 'p1-changed' } }); // 校验后改动 → verified 失效
-  expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeDisabled(); // 开关回禁用
+  await waitFor(() => expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeDisabled()); // 开关回禁用
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
   fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
@@ -1715,6 +1815,7 @@ WorkFormModal 追加状态与初始校验：
   // —— 源画布（可选）：输入即注册字段（防 C-1），校验结果只做回显+门禁，不写回表单值 ——
   const [canvasVerified, setCanvasVerified] = useState<{ id: string; name: string; ownerName: string | null } | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
+  const initialCanvasTextRef = useRef(''); // edit 打开时的初始文本——"未改动"判定基准（与后端 dto-only 口径对齐）
 
   const checkCanvas = async (text: string) => {
     const id = parseCanvasRef(text);
@@ -1727,12 +1828,17 @@ WorkFormModal 追加状态与初始校验：
       setCanvasVerified(null); setCanvasError('画布不存在');
     }
   };
+```
 
-  // edit 打开时初始校验已关联画布（组件常驻、record 不变——effect 只需跑一次）
-  useEffect(() => {
-    if (mode === 'edit' && record?.canvasProjectId) void checkCanvas(record.canvasProjectId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+初始校验挂**弹层打开时机**（modalProps 追加——勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻实例，mount effect 会在列表渲染时对每行各打一次 canvas-check，用户还没点"编辑"就打 N 个请求）：
+
+```tsx
+        afterOpenChange: (open: boolean) => {
+          if (!open) return;
+          const initial = mode === 'edit' && record?.canvasProjectId ? record.canvasProjectId : '';
+          initialCanvasTextRef.current = initial;
+          if (initial) void checkCanvas(initial);
+        },
 ```
 
 （import 追加 `import { parseCanvasRef } from '../utils/parseCanvasRef';`）
@@ -1786,19 +1892,35 @@ WorkFormModal 追加状态与初始校验：
       </ProFormDependency>
 ```
 
-`onFinish` 开头追加画布门禁 + payload 组装（create 与 edit 共用）：
+`onFinish` 开头追加画布门禁 + payload 组装（create 与 edit 共用）。**门禁与后端 dto-only 口径对齐**：文本与初始值相同（用户未动）→ 放行且 payload **省略** canvasProjectId（后端不动已存值——死画布存量作品也能改标题保存）；被改动且未重新校验 → 拦截：
 
 ```tsx
-        // 画布门禁（spec §5.3 状态机）：文本非空但未校验通过/校验后改动 → 阻止
+        // 画布门禁（spec §5.3 状态机）：未改动 → 放行省略；改动未重新校验 → 阻止
         const canvasText = String(form.getFieldValue('canvasProjectId') ?? '').trim();
         const parsedCanvasId = parseCanvasRef(canvasText);
-        if (canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
+        const canvasUntouched = canvasText === initialCanvasTextRef.current.trim();
+        if (!canvasUntouched && canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
           message.error(canvasVerified ? '画布已修改，请重新校验' : (canvasError ?? '画布不存在，请重新校验'));
           return false;
         }
 ```
 
-create 的 createWork 调用处 spread 前追加 `canvasProjectId: parsedCanvasId ?? null,`（edit 的 updateWork 同样——空文本 = 显式清除，dto-only 服务端跳过 null 不校验）。
+payload 组装（createWork 与 updateWork 的 spread 中显式给）：
+
+```tsx
+              // 未动画布 → 省略（edit：后端不动已存值；create：无画布即 undefined）；动了 → 解析值（空文本=显式清除 null）
+              ...(canvasUntouched ? {} : { canvasProjectId: parsedCanvasId ?? null }),
+```
+
+死画布的 edit 回显：`canvasError && canvasUntouched && canvasText` 时显示**黄字警告**而非红字硬拦（与门禁一致）——在画布回显区块追加：
+
+```tsx
+      {canvasError && canvasTextUntouchedInitial && (
+        <div className="mb-2 -mt-2 text-xs text-amber-500">源画布已删除，保存将保留原关联</div>
+      )}
+```
+
+（`canvasTextUntouchedInitial` 需渲染期可知——用 `canvasError && mode === 'edit' && record?.canvasProjectId && !canvasVerified` 近似即可：edit 初始文本非空 + 校验失败 + 未验证通过 = 未改动的死画布；改动后 onChange 已把 canvasError 清空、blur 重新校验覆盖，语义等价。实现按此简化，变量名直接内联条件。）
 
 edit 只读信息条（上传区位置、`mode === 'edit'` 分支）：
 
@@ -1836,8 +1958,9 @@ git commit -m "feat(admin): 源画布输入状态机（注册字段+canvasCheck 
 ```bash
 cd D:/flowweb/apps/api && npm test
 cd D:/flowweb/apps/web && npm test
+cd D:/flowweb/apps/web && npx tsc -b --noEmit
 ```
-Expected: 全绿。重点核对清单：storage 两个 spec（D1 victim 断言）、video-work service spec（F2 negative/文案断言/removeWork 三态）、controller spec（staticRoutes 最终数组）、seed spec（1TB）、VideoWorksPage 全部用例。
+Expected: 全绿 + 零 TS 错误。**web 的 npm test 只是 `vitest run` 不含 tsc**（类型检查在 build 里——apps/web/package.json:8-9），本改动碰严格模式的面不小（VideoWorkRow.coverUrl、onProgress 签名、updateWork payload 的 canvasProjectId: string | null），必须显式跑。重点核对清单：storage 两个 spec（D1 victim 断言）、generated-media spec（两参断言）、video-work service spec（F2 negative/文案断言/removeWork 三态）、controller spec（staticRoutes 最终数组）、seed spec（1TB）、VideoWorksPage 全部用例。
 
 - [ ] **Step 2: 浏览器验收（spec §7.3）**
 
@@ -1848,7 +1971,7 @@ Expected: 全绿。重点核对清单：storage 两个 spec（D1 victim 断言�
 3. HEVC/.mov 文件 → 闸门文案"浏览器无法解码"
 4. >1GB 文件 → 前置拦截"视频不得超过 1GB"
 5. Network 面板：上传请求 URL 以 `/flowai/` 开头且 200/204（toFlowaiUrl 改写生效证据）；confirm 请求打到 `/api/storage/confirm`（全路径——仓内有两个 /confirm 路由）
-6. 删除一个新建作品 → psql 查 Media 行 `deleted_at` 非空（软删）+ MinIO 对象已删（或登记清理）
+6. 删除一个新建作品 → psql 查 Media 行软删（Prisma 字段 deletedAt，schema 无 @map 时 DB 列同名——psql 需双引号 `"deletedAt"`）+ MinIO 对象已删（或登记清理）
 7. 关弹层中断上传 → "上传已取消"提示 + 无残留状态
 
 - [ ] **Step 3: 上线顺序提醒（写给部署者，spec §8）**
