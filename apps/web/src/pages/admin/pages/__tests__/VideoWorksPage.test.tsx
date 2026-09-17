@@ -89,9 +89,11 @@ it('开关联动（裁决：allowClone 依赖 allowViewProcess）——编辑已
   await waitFor(() => screen.getByText('末班地铁'));
   fireEvent.click(screen.getByText('编辑')); // 编辑入口——role 无关查询（先例 HomeBannersPage.tsx:39 的编辑 trigger 是 <a>、role=link 非 button，第十轮更正）；ModalForm initialValues 带 canvasProjectId，两开关初始可点
   await waitFor(() => screen.getByText(/允许查看创作过程|查看制作过程/));
-  expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled(); // 前置：有画布 → 初始可点（防再写空转断言）
-  fireEvent.click(screen.getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })); // 关闭
-  expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeDisabled(); // 联动禁用（后端 400 校验的前端半边）
+  await waitFor(() => expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeEnabled()); // 包 waitFor：enabled 依赖 canvasCheck resolve 后 canvasVerified 落定（beforeEach 默认值已供 resolve）
+  const viewSwitch = screen.getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  expect(viewSwitch).toBeChecked(); // 前置：fixture allowViewProcess=true → 初始开（防 click 打在禁用开关上 no-op、后续 toBeDisabled 沦为假绿）
+  fireEvent.click(viewSwitch); // 关闭
+  await waitFor(() => expect(screen.getByRole('switch', { name: /允许克隆/ }) as HTMLButtonElement).toBeDisabled()); // 联动禁用同样包 waitFor（禁用依赖 setFieldsValue 重渲染）
 });
 
 // 第六轮落地（原为空壳用例）
@@ -179,6 +181,14 @@ const openCreateAndUpload = async () => {
   return dialog;
 };
 
+const mockWorkRow = (over: Record<string, unknown> = {}) => ({
+  id: 'w1', title: '末班地铁', description: null, authorName: '作者甲', categoryId: null,
+  videoKey: 'videos/old.mp4', videoMediaId: 'm9', coverKey: null, coverUrl: null, canvasProjectId: 'p1',
+  durationSec: 10, width: 1920, height: 1080, viewCount: 1, likeCount: 2, tags: [],
+  sortOrder: 0, status: 'DRAFT', allowViewProcess: false, allowClone: false,
+  updatedAt: '2026-09-01T00:00:00Z', ...over,
+});
+
 it('create 提交：上传成品视频+必填 → createWork 载荷含五字段（durationSec 已取整）', async () => {
   vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
   const dialog = await openCreateAndUpload();
@@ -258,6 +268,156 @@ it('封面提交时上传：抽帧 blob 在 onFinish 才 uploadCover（孤儿归
   fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledTimes(1)); // 提交时一次
-  expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledWith(expect.any(File)); // new File([blob],'cover.jpg')
+  const coverFile = vi.mocked(adminVideoWorkApi.uploadCover).mock.calls[0][0] as File; // Task 10 审查 M-3：收窄文件名/type——服务端 ext 推导依赖文件名
+  expect(coverFile.name).toBe('cover.jpg');
+  expect(coverFile.type).toBe('image/jpeg');
   await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ coverKey: 'uploads/system/frame.jpg' })));
+});
+
+it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控件；改标题保存 payload 无 videoKey/videoMediaId、未动画布则 payload 省略 canvasProjectId（后端不动已存值）', async () => {
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ coverUrl: 'http://127.0.0.1:9000/flowai/uploads/system/c.jpg?X-Amz-Signature=s' })], total: 1 } as any);
+  vi.mocked(adminVideoWorkApi.updateWork).mockResolvedValue({ id: 'w1' } as any);
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' } as any);
+  renderWithProviders(<VideoWorksPage />);
+  await waitFor(() => screen.getByText('末班地铁'));
+  expect(adminVideoWorkApi.canvasCheck).not.toHaveBeenCalled(); // 初始校验挂 onOpenChange——WorkFormModal 是每行一个的常驻 trigger 宿主组件（弹层内容才 destroyOnClose），useEffect([]) 会在列表渲染时就打 N 个请求
+  fireEvent.click(screen.getByText('编辑'));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText(/当前视频：10s \/ 1920×1080/)).toBeInTheDocument();  // 只读信息条
+  expect(within(dialog).getByLabelText('源画布（可选）')).toHaveValue('p1');          // initialValues 确实播种到字段——门禁"文本===初值"判据的前提钉死（initialValues 没落字段这里立刻红）
+  expect(within(dialog).queryByRole('button', { name: /选择 MP4 文件/ })).not.toBeInTheDocument(); // edit 无上传控件
+  await waitFor(() => expect(within(dialog).getByText(/画布：源画布（作者 张三）/)).toBeInTheDocument()); // 打开即初始校验回显
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: '早班高铁' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.updateWork).toHaveBeenCalledTimes(1));
+  const payload = vi.mocked(adminVideoWorkApi.updateWork).mock.calls[0][1] as Record<string, unknown>;
+  expect(payload).not.toHaveProperty('videoKey');
+  expect(payload).not.toHaveProperty('videoMediaId');
+  expect(payload.title).toBe('早班高铁');
+  expect(payload).not.toHaveProperty('canvasProjectId'); // 未动画布 → 省略（后端 dto-only：undefined 不动已存值）
+});
+
+it('edit + 死画布（canvasCheck 404）+ 未动画布文本 → 可保存且存量开关不被静默关（第十一轮②：预填校验失败 resetSwitches=false——开关 true 与黄字"保留原关联"一致，后端 flags 用 merged 已存 canvasProjectId 非空不 400）', async () => {
+  // fixture 故意 true/true（画布删除前建的合法存量）——断言"预填 404 不落 false"必须开关初值真，false 初值验不出"被改"
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ canvasProjectId: 'p-dead', allowViewProcess: true, allowClone: true })], total: 1 } as any);
+  vi.mocked(adminVideoWorkApi.updateWork).mockResolvedValue({ id: 'w1' } as any);
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockRejectedValue(new Error('画布不存在') as any);
+  renderWithProviders(<VideoWorksPage />);
+  await waitFor(() => screen.getByText('末班地铁'));
+  fireEvent.click(screen.getByText('编辑'));
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(() => expect(within(dialog).getByText('源画布已删除，保存将保留原关联')).toBeInTheDocument()); // 黄字警告非红字硬拦
+  const viewSwitch = within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  await waitFor(() => expect(viewSwitch).toBeDisabled()); // verified=null → 禁用
+  expect(viewSwitch).toBeChecked(); // 第十一轮②：预填 404 不落 false——存量 true 保持（落 false 则此断言红、黄字在骗人）
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 'x' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.updateWork).toHaveBeenCalledTimes(1)); // 未动文本 → 放行
+  const payload = vi.mocked(adminVideoWorkApi.updateWork).mock.calls[0][1] as Record<string, unknown>;
+  expect(payload).not.toHaveProperty('canvasProjectId'); // 省略——后端不动已存值，不触发画布校验
+  expect(payload.allowViewProcess).toBe(true); // 开关原样进 payload——未被预填校验静默改（改动即红）
+});
+
+it('画布状态机：粘贴 URL → blur 校验回显 → payload 带解析后 ID（C-1 家族回归：注册字段 onFinish 现算）', async () => {
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'cparsed', name: '我的画布', ownerName: null, updatedAt: '2026-09-01' } as any);
+  const dialog = await openCreateAndUpload(); // Task 10 定义的 helper
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'http://localhost:5173/canvas?projectId=cparsed' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText('画布：我的画布（团队画布）')).toBeInTheDocument()); // ownerName null → 团队画布
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'cparsed' })));
+});
+
+it('画布状态机：校验通过后改动文本 → 提交阻止"画布已修改，请重新校验"+两开关回禁用（值不动——第十轮收窄：churn 不落 false，B2 防线由门禁承担；B3）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText(/画布：n/)).toBeInTheDocument());
+  const viewSwitch = within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  await waitFor(() => expect(viewSwitch).toBeEnabled()); // 包 waitFor：enabled 依赖 canvasCheck resolve 后的 setState
+  fireEvent.click(viewSwitch); // 开（create 初值 false）——为 B2 断言铺状态
+  expect(viewSwitch).toBeChecked();
+  fireEvent.change(canvasInput, { target: { value: 'p1-changed' } }); // 校验后改动 → verified 失效
+  await waitFor(() => expect(viewSwitch).toBeDisabled()); // 开关回禁用
+  expect(viewSwitch).toBeChecked(); // 第十轮收窄：文本 churn **不动开关值**（edit 场景敲错字又改回原文若落 false 会静默关掉存量开关）——本路径的 400 防线由门禁拦截承担（下方 createWork not called）；落 false 只发生在 checkCanvas 空文本/catch 分支（见清空用例）
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(screen.getByText('画布已修改，请重新校验')).toBeInTheDocument());
+  expect(adminVideoWorkApi.createWork).not.toHaveBeenCalled();
+});
+
+it('画布状态机：校验通过→开开关→清空文本 blur → 开关值落 false（B2 收窄落点：清空=放弃画布，防 true 残留撞 400）+ 提交成功（create 清空回初值 → untouched → payload 省略 canvasProjectId）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  const viewSwitch = within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  await waitFor(() => expect(viewSwitch).toBeEnabled());
+  fireEvent.click(viewSwitch); // 开
+  expect(viewSwitch).toBeChecked();
+  fireEvent.change(canvasInput, { target: { value: '' } }); // 清空
+  fireEvent.blur(canvasInput); // 真实浏览器点确定前输入框必先 blur（jsdom fireEvent.click 不自动 blur——显式化）
+  await waitFor(() => expect(viewSwitch).toBeDisabled());
+  expect(viewSwitch).not.toBeChecked(); // checkCanvas 空文本分支落 false——canvasProjectId 省略落 null 后 allowViewProcess:true 必撞 assertProcessFlags 400
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledTimes(1));
+  const payload = vi.mocked(adminVideoWorkApi.createWork).mock.calls[0][0] as Record<string, unknown>;
+  expect(payload.allowViewProcess).toBe(false);
+  expect(payload).not.toHaveProperty('canvasProjectId'); // '' === create 初值 '' → untouched → 省略（后端落 null）
+});
+
+it('画布状态机：校验通过→改出去→改回原值（未 blur）→ 等价放行不弹"已修改"（第十轮 C1：verifiedRef.id 与当前解析一致即视同已验证——否则文本与已验证值相同的提交也遭拦）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: 'n', ownerName: 'o', updatedAt: '2026-09-01' } as any);
+  vi.mocked(adminVideoWorkApi.createWork).mockResolvedValue({ id: 'w9' } as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText(/画布：n/)).toBeInTheDocument());
+  fireEvent.change(canvasInput, { target: { value: 'x' } });  // 改出去
+  fireEvent.change(canvasInput, { target: { value: 'p1' } }); // 改回原值（未 blur——canvasVerified 已清、verifiedRef 仍在）
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'p1' }))); // 等价放行——修复前弹"画布已修改，请重新校验"、createWork 不被调
+});
+
+it('画布 404 → 红字"画布不存在"；未校验通过（乱码未 blur）提交 → 阻止', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockRejectedValue(new Error('画布不存在') as any);
+  const dialog = await openCreateAndUpload();
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'garbage' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText('画布不存在')).toBeInTheDocument());
+  fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
+  fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(adminVideoWorkApi.createWork).not.toHaveBeenCalled());
+});
+
+it('afterClose 画布状态重置：校验通过→取消→重开，绿字消失+两开关禁用（第九轮必修2：canvasVerified 不重置则重开"假画布"——resetFields 已清字段、verified 却残留 → 两开关可点 → 提交 payload 无 canvasProjectId 撞 assertProcessFlags 400，绿字在骗人）', async () => {
+  vi.mocked(adminVideoWorkApi.canvasCheck).mockResolvedValue({ id: 'p1', name: '源画布', ownerName: '张三', updatedAt: '2026-09-01' } as any);
+  renderWithProviders(<VideoWorksPage />);
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  const dialog = await screen.findByRole('dialog');
+  const canvasInput = within(dialog).getByLabelText('源画布（可选）');
+  fireEvent.change(canvasInput, { target: { value: 'p1' } });
+  fireEvent.blur(canvasInput);
+  await waitFor(() => expect(within(dialog).getByText(/画布：源画布/)).toBeInTheDocument()); // 先证存在（防 not 断言空转）
+  fireEvent.click(within(dialog).getByRole('button', { name: /取\s*消/ }));
+  fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+  await screen.findByRole('dialog');
+  await waitFor(() => expect(screen.queryByText(/画布：源画布/)).not.toBeInTheDocument()); // 绿字不残留
+  await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeDisabled()); // verified 已清——修复前此断言红（残留 verified → enabled）
 });
