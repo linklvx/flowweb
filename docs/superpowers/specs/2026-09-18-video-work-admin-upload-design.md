@@ -18,7 +18,9 @@
 |---|---|
 | 删 | 前端候选下拉及 candRef/selCandRef（VideoWorksPage.tsx:209-250,151-152,182-198）；`adminApi.listCandidates`（adminApi.ts:198）；后端 `GET /candidates`（controller:29-32）+ `service.listCandidates`（video-work.service.ts:73-103）；`CandidateMedia` 类型（shared/video-work.ts，仅 service 使用，index.ts 是 export * 无需动）；controller.spec staticRoutes 数组中的 `'listCandidates'` 与 service.spec 整块 `describe('listCandidates')`（video-work.service.spec.ts:59-85）**必须同批**（只删 describe 不改数组，守卫测试 names.indexOf 悬空名直接红）；web 测试连带（VideoWorksPage.test.tsx:22 全局 mock、:115 create 提交、:194 pageSize 满额、fixtures :50/:177）；DTO 注释失真（create-video-work.dto.ts:9/10/12 "取自 candidate.*" 三处，本次孤立内容同批改掉） |
 | 加 | 成品视频上传（预签直传）、画布关联、canvas-check、对象清理（域判断）、平台团队 seed、confirm 服务层安全收口（D1 方案 a）、两个前端工具模块 |
-| 不变 | 编辑不可换视频源（换源=删除重建，UI 文案钉住代价：丢观看/喜欢数）；`allowViewProcess`/`allowClone` 联动；表单其余字段 |
+| 不变 | 编辑不可换视频源（换源=删除重建，UI 文案钉住代价：丢观看/喜欢数）；`allowViewProcess`/`allowClone` 联动；表单其余字段；封面区文案失真同批修（VideoWorksPage.tsx:270"留空使用视频缩略图"→"留空则用视频截帧封面"，旧语义是候选 thumbnailKey 兜底） |
+
+**测试连带总表**（实现批次红先的完整清单，防"批次一开整片红"）：controller.spec staticRoutes + service.spec listCandidates describe（§4.4/§2）；storage.service.spec fixture 两类对齐 + mismatch 重写（§4.3）；**storage-quota.service.spec 签名/断言/fixture（§4.3 assertOnConfirm 删形参）**；**video-work.service.spec prisma.media 命名空间补 findUnique + 5 处 createWork stub + 泛型断言升级（§4.5 F2）**；removeWork 钉子翻转三态（§4.6）；web 侧候选用例（§2）。
 
 ## 3. 上传链路总览
 
@@ -81,9 +83,12 @@ seed.ts 追加（全部固定 id、幂等 upsert；**顺序依赖：TeamMember �
 
 受害者 key 无需猜测（getDetail 返回的 videoUrl 就是 `presignedGetUrl(w.videoKey)`，路径带完整 key，前端 DOM 直接可见）→ **任意登录用户可删任意已发布作品的视频/封面对象**。
 
-修法：`confirmUpload` 内部一律改用 `media.key`/`media.size`（statSize/delete/大小核对/配额**全部**），请求体只用来定位行——两条攻击同时关死。**禁止 `media.size ?? dto.fileSize` 回落**（会让"media 行为唯一事实源"静默失效，fixture 缺陷再次不可见）。**DTO 三字段保留不动**（key/fileSize 标 `@deprecated` 注释"服务端已改用 media.key/media.size，保留兼容"）——storage.controller **没有** ValidationPipe（仓内无全局 pipe，ConfirmUploadDto 零装饰器），多余字段既不被剥也不被拒、只被忽略，故前端 `storageApi.confirmUpload` 及全部 12 处调用点（mediaUploadUtils/splitUploadService/materialLibraryStore/各生成节点/useImageUpload 等）与 8 份测试断言**零改动**；"删 DTO 字段"是顺带洁癖，会拖 ~20 个无关文件回归，明确不做（挂 forbidNonWhitelisted 更是红线：会把仍传三字段的全站上传打成 400）。
+修法：`confirmUpload` 内部一律改用 `media.key`/`media.size`（statSize/delete/大小核对/配额**全部**），请求体只用来定位行——两条攻击同时关死。**`assertOnConfirm` 直接删掉 `key` 形参**：它已在 :36 findUnique 读了行、行里就有 key → `assertOnConfirm(mediaId, actualSize, bucket)`，内部用 `media.key`——**参数消失 = 编译期不可能再被误用**（比"要求调用方传 media.key"强一个量级，后者下次仍可能传错；现有 spec 恰以"传什么删什么"被测试固化：storage-quota.service.spec.ts:59-61）。**禁止 `media.size ?? dto.fileSize` 回落**（会让"media 行为唯一事实源"静默失效，fixture 缺陷再次不可见）。**DTO 三字段保留不动**（key/fileSize 标 `@deprecated` 注释"服务端已改用 media.key/media.size，保留兼容"）——storage.controller **没有** ValidationPipe（仓内无全局 pipe，ConfirmUploadDto 零装饰器），多余字段既不被剥也不被拒、只被忽略，故前端 `storageApi.confirmUpload` 及全部 12 处调用点（mediaUploadUtils/splitUploadService/materialLibraryStore/各生成节点/useImageUpload 等）与 8 份测试断言**零改动**；"删 DTO 字段"是顺带洁癖，会拖 ~20 个无关文件回归，明确不做（挂 forbidNonWhitelisted 更是红线：会把仍传三字段的全站上传打成 400）。
 
-**spec 连带口径（必须同批，比"补字段"更严）**：storage.service.spec.ts media fixture 缺 `size` 是 **3 处**（:124/:140/:159；:140/:151 连 key 都没有，今天靠请求体 key 活着）。修复是**对齐**而非补字段：① fixture `size` 与该用例请求体 `fileSize` 差值 ≤1024（否则成功路径用例以"大小不匹配"翻红）；② `minio.statSize` 返回值显式给出（assertOnConfirm 配额终判也读 actualSize）；③ D1 后 mismatch 用例（:158-169）会**变红**（服务端不读 dto.fileSize → resolve → rejects.toThrow 失败），按新语义重写；④ :139-148 成员用例补齐后才真正覆盖"成员可确认+大小一致→completed"。
+**spec 连带口径（必须同批，比"补字段"更严）**：
+- storage.service.spec.ts fixture 缺失是**两类**：`:124/:159` 需补 `size`（read media.size 的用例）、`:140/:151` 需补 `key`（成员用例，今天靠请求体 key 活着）——别混成一条"补 size"
+- 修复是**对齐**而非补字段：① fixture `size` 与该用例请求体 `fileSize` 差值 ≤1024（否则成功路径用例以"大小不匹配"翻红）；② `minio.statSize` 返回值显式给出（assertOnConfirm 配额终判也读 actualSize）；③ D1 后 mismatch 用例（:158-169）会**变红**（服务端不读 dto.fileSize → resolve → rejects.toThrow 失败），按新语义重写；④ :139-148 成员用例补齐后才真正覆盖"成员可确认+大小一致→completed"
+- storage-quota.service.spec.ts 同批：:59/:68 调用签名改三参（去 key）、:61 断言 `delete('media.key')`、:54/:67 fixture 补 `key`
 
 与 generated-media 的 confirm（`/video-projects/generated-media/confirm`，创建者独占 + 无比对 + 清 expiresAt，语义完全不同）无关，勿动。
 
@@ -100,14 +105,26 @@ seed.ts 追加（全部固定 id、幂等 upsert；**顺序依赖：TeamMember �
 
 `canvasProjectId` 非空时经 `findCanvasRef` 查存在性，不存在 → 400 "画布不存在"。**为空时不校验、允许创建**（null 分支，spec 覆盖）。
 
-**videoKey 服务端不变量（F2，把约定升级为不变量）**：createWork 现对 videoKey 只做类型/长度校验就 spread 落库，"必属平台域"只是前端约定。加校验：videoKey 必须对应一条**真实存在**的 Media 行（`type='uploaded'` 且 `deletedAt:null` 且 `status='completed'`），否则 400 "视频文件不存在或未完成上传"——D1 的教训是"服务端不相信请求体"，此处同源；旧候选池 create 路径已删，无兼容问题。
+**videoKey 服务端不变量（F2，把约定升级为不变量；插入位置钉在 assertProcessFlags 之后**——放之前会让 flags 两条用例静默失去覆盖）**：createWork 现对 videoKey 只做类型/长度校验就 spread 落库，"必属平台域"只是前端约定。加校验（**PK 查 + 交叉校验**，勿按 key 查——Media.key 无索引，全站最大表顺序扫）：
+
+```ts
+if (!dto.videoMediaId) throw new BadRequestException('视频文件不存在或未完成上传');
+const m = await this.prisma.media.findUnique({ where: { id: dto.videoMediaId } });
+if (!m || m.deletedAt || m.status !== 'completed' || m.type !== 'uploaded'
+    || m.teamId !== 'platform-team' || m.key !== dto.videoKey)
+  throw new BadRequestException('视频文件不存在或未完成上传');
+```
+
+五条件 + key 交叉校验的用意：① `teamId='platform-team'` 把"平台域"从约定升级为服务端不变量（普通用户的上传素材同样满足 uploaded+completed，须排除）；② `m.key === dto.videoKey` 关掉"合法 key + 别人的 mediaId"（removeWork 的 Media 软删用的正是 videoMediaId，两字段不一致会软删无关行）。D1 的教训是"服务端不相信请求体"，此处同源；旧候选池 create 路径已删且 createWork 无其他调用者（仅 controller:59 与 spec），无兼容问题。
+
+**spec 连带（不补则批次一开整片 TypeError 红）**：video-work.service.spec.ts:28-34 的 prisma.media mock 命名空间只有 findMany/count → `media.findUnique is not a function`。同批：① mock 命名空间补 `findUnique`；② 5 处 createWork 用例（:110-115/:118 flags、:129-134 publishedAt、:145-148 durationSec 取整）stub 匹配行（或 beforeEach 给默认行）；③ 两处泛型 `toThrow(BadRequestException)` 升级为断言文案（否则 F2 插入位置会静默改变断言含义——与 §4.3 防的是同一类事故）。
 
 ### 4.6 对象清理（域判断 + 排他 + 缓存失效；红线改写）
 
 **旧红线及取代理由（§10 注释必写）**：video-work.service.ts:224-231 现有红线"只删 DB 行，禁止 minio.delete——videoKey 与源 Media 指向同一对象"。其前提是候选池模型；新模型 videoKey 是平台自有上传对象（uploads/system/ 域），前提消失。存量作品两种 key 形态并存（旧 `results/...` 共享对象、新 `uploads/system/...` 平台独占），**域判断收口**：
 
 - `removeWork`：
-  1. 仅当 key 以 `uploads/system/` 前缀（平台域）才删 MinIO 对象；`results/` 等旧域**只删 DB 行不删对象**。删对象前**排他以 videoMediaId 为主**（`count({ where: { videoMediaId, NOT: { id } } }) > 0` → 不删）：同一 Media 行的 key 唯一，而裸 key 字符串可能跨域重复；videoKey/coverKey 字符串比对仅作辅助。存量风险（域前缀是约定不是不变量）：旧候选作品 videoKey 恰以 `uploads/system/` 开头（历史上素材上传产物当过源）时删它会删共享对象——mediaId 排他即防此例。排他属**防御性**校验（新 UI 不可能产生共享，防的是 API 直调与存量脏数据）
+  1. 仅当 key 以 `uploads/system/` 前缀（平台域）才删 MinIO 对象；`results/` 等旧域**只删 DB 行不删对象**。域判断比直觉更可靠：`uploads/system/` 在全仓只有 3 个写入点且全是图片（uploadCover/home-banner/admin-banner），素材上传走 `buildKey(dto.type, 真实userId)` → 永远不会是字面量 `system`。但**勿信"平台域 = 本作品独占"**——该域是三个子系统共用（作品封面/首页 banner/订阅 banner），banner 与封面都不建 Media 行，videoMediaId 排他对封面无帮助；**封面排他只能靠 VideoWork.coverKey 字符串比对**（硬化需 banner 表反查，登记 §9）。视频对象排他**以 videoMediaId 为主**（`count({ where: { videoMediaId, NOT: { id } } }) > 0` → 不删）：同一 Media 行 key 唯一，裸 key 可跨域重复。排他属**防御性**校验（新 UI 不可能产生共享，防的是 API 直调——如管理员直调把 coverKey 设成 banner 的 key）
   2. 先 `findUnique` 取行再删（现状 delete 直接抛 P2025 → 500；语义钉住：行不存在 → 404）
   3. videoMediaId 对应 Media 行置 `deletedAt`（软删释放平台配额；getUsage 条件 status='completed' AND deletedAt:null）
   4. **缓存失效（C3）**：删对象后同步 `redis.del('videoWork:url:' + key)`（presignWork 短缓存约 58min），否则删了还能播
@@ -163,11 +180,11 @@ uploadToPresignedPost(args: { url: string; fields: Record<string,string>; file: 
 
 ### 5.4 封面区（提交时上传：竞态与孤儿双消除）
 
-抽帧 `coverBlob` **留内存**，UI 用本地 objectURL 预览 + 文案"将使用视频截帧作封面"；**onFinish 提交时才 uploadCover**（`if (!coverTouched)`）。效果：①竞态不存在（手选封面仍是最后一次写入，且不会发生"直传几分钟里抽帧静默覆盖手选"）；②抽帧孤儿归零（probe 后立即上传的方案在每次重选文件时都会产生一张无引用封面，第三类清理只能 MinIO 前缀列举+反查，比 Media 行筛难一个量级——直接不产生）；③代价仅提交时多几百毫秒。手选封面放弃提交产生的孤儿是**既有现象**（现在就有），登记 §9 不在本批。afterClose 重置 coverBlob/coverTouched/objectURL（revoke）。
+抽帧 `coverBlob` **留内存**，UI 用本地 objectURL 预览 + 文案"将使用视频截帧作封面"（区标题同步改"留空则用视频截帧封面"，旧文案指候选 thumbnailKey 兜底已失真）；**onFinish 提交时才 uploadCover**（`if (!coverTouched)`）。效果：①竞态不存在（手选封面仍是最后一次写入，且不会发生"直传几分钟里抽帧静默覆盖手选"）；②抽帧孤儿归零（probe 后立即上传的方案在每次重选文件时都会产生一张无引用封面，第三类清理只能 MinIO 前缀列举+反查，比 Media 行筛难一个量级——直接不产生）；③代价仅提交时多几百毫秒。手选封面放弃提交产生的孤儿是**既有现象**（现在 VideoWorksPage.tsx:155-157 就是选中即 uploadCover），登记 §9 不在本批。afterClose 重置 coverBlob/coverTouched/objectURL（revoke）。**封面 onFinish 上传失败的路径**：作品未创建，但视频已直传+confirm（Media completed 无引用）——正落 §9② 清理范围，勿误以为漏了。
 
 ### 5.5 edit 模式形态
 
-edit 不显示上传控件，显示**只读信息条**：当前视频时长/分辨率 + 封面缩略图 + 可换封面（现有封面区）。画布输入照常。文案："上传后不可更换视频，更换需删除作品重建（会丢观看/喜欢数）"。零后端改动（listAllWorks 已返回全部字段）。**信息条只读 VideoWork 行自身字段**（durationSec/width/height 存在行上）——**不解析 videoKey**（旧域作品的 key 可能指向已删对象，勿去 sign 它做缩略图；封面缩略图用 coverKey，为空则占位）。
+edit 不显示上传控件，显示**只读信息条**：当前视频时长/分辨率 + 封面缩略图 + 可换封面（现有封面区）。画布输入照常。文案："上传后不可更换视频，更换需删除作品重建（会丢观看/喜欢数）"。零后端改动（listAllWorks 已返回全部字段）。**信息条只读 VideoWork 行自身字段**（durationSec/width/height 存在行上）——**不解析 videoKey**（旧域作品的 key 可能指向已删对象，勿去 sign 它做缩略图）。封面缩略图是**全新代码**（该页今天没有 <img>）：edit 用 `<img src={'/flowai/' + coverKey}>` + onError → 占位（旧封面对象可能已被删）；create 用 §5.4 的本地 objectURL。
 
 ### 5.6 表单状态与门禁
 
@@ -182,7 +199,7 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 | 选文件非 mp4 / >1GB | 前端即时 message.error（中文原因），不进上传 |
 | 探测 video error / 10s 超时 | "浏览器无法解码，请导出 H.264 编码 MP4"（可播放性闸门，拦截 HEVC/ProRes/.mov） |
 | 探测数值守卫不过 | 对应字段留 null，仍可上传（作品缺时长/分辨率可接受） |
-| presign 400 | 中文原因透传 |
+| presign 400 | 中文原因透传（service 语义校验）；**例外**：类型层失败（如 fileSize 非整数，@IsInt 装饰器承担）返回**英文约束消息**且无法用装饰器中文修好——前端 §5.2 已有类型/大小前置拦截，正常路径不会走到 |
 | 直传 403 | "上传超时（签名过期），请重试" |
 | 直传其他失败/取消 | state 回落"未上传"，可重试；afterClose abort |
 | confirm 大小不匹配 | 后端自动删对象+记录，前端透传文案 |
@@ -196,9 +213,9 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 ### 7.1 后端 spec
 
 1. presign-video：mp4+1GB 边界通过；非 mp4 / <1 / >1GB → **service 层断言中文文案**（`rejects.toThrow('仅支持 MP4')` 等——只断言 400 会漏必修①：装饰器 message 到不了响应体）；**PresignVideoDto 带结构装饰器**（类级 forbidNonWhitelisted 下裸 DTO 恒 400）；Media 归属（userId=platform-owner、teamId=platform-team、type=uploaded）；**断言用 platform-team 调 quota.assertCanUpload**（配额支点防回退）；generatePresignedPost 收到 3600；ext 恒 'mp4'（fileName 传 x.TXT 也产 .mp4 key）
-2. confirm D1 安全回归（先红后绿）：请求体传 `key:'victim/obj'` + 故意不符的 fileSize → **断言 statSize 与 minio.delete 收到的都是 media.key**（victim 不被删——覆盖攻击 A mismatch 分支与攻击 B assertOnConfirm 配额分支**两条**删除路径；不写"旧字段被拒"断言：controller 无 pipe，多余字段只被忽略）；**fixture 对齐口径**：3 处补 size（:124/:140/:159）且与请求体 fileSize 差值 ≤1024、statSize 返回值显式给出；mismatch 用例（:158-169）按新语义重写（D1 后服务端不读 dto.fileSize，旧断言必红）；**禁止 `media.size ?? dto.fileSize` 回落实现**（回落会让本组安全断言失效）
+2. confirm D1 安全回归（先红后绿）：请求体传 `key:'victim/obj'` + 故意不符的 fileSize → **断言 statSize 与 minio.delete 收到的都是 media.key**（victim 不被删——覆盖攻击 A mismatch 分支与攻击 B assertOnConfirm 配额分支**两条**删除路径；不写"旧字段被拒"断言：controller 无 pipe，多余字段只被忽略）；fixture 两类对齐（:124/:159 补 size、:140/:151 补 key；size 与请求体 fileSize 差 ≤1024、statSize 显式给出）；mismatch 用例（:158-169）按新语义重写；**storage-quota.service.spec 同批**（:59/:68 三参签名、:61 断言 delete(media.key)、:54/:67 fixture 补 key）；**禁止 `media.size ?? dto.fileSize` 回落实现**（回落会让本组安全断言失效）
 3. canvas-check：存在 → {id,name,ownerName,updatedAt}；团队画布 ownerName 回落 team.owner.name；不存在 → 404
-4. createWork：canvasProjectId 不存在 400；**为空不校验允许创建**（null 分支）；durationSec 传 null 通过；**videoKey 不变量**（F2：指向不存在/非 uploaded/软删 Media 行 → 400 "视频文件不存在或未完成上传"）
+4. createWork：canvasProjectId 不存在 400；**为空不校验允许创建**（null 分支）；durationSec 传 null 通过；**videoKey 不变量五条件**（F2：不存在/软删/非 completed/非 uploaded/非 platform-team/mediaId 与 key 交叉不符 → 400 "视频文件不存在或未完成上传"；**插入位置钉在 assertProcessFlags 之后**）；**连带**：prisma.media mock 命名空间补 findUnique（:28-34 只有 findMany/count，否则整片 TypeError 非 400）+ 5 处 createWork 用例 stub 匹配行（:110-115/:118/:129-134/:145-148）+ 两处泛型 toThrow 升级为文案断言
 5. updateWork：画布校验同上；换封面删旧对象（排他：旧 coverKey 被其他作品引用 → 不删）；新封面失败 → 旧封面仍在
 6. removeWork（**翻转钉子用例必须非真空**：既有 :151-157 mock 了 minio.delete 但没 stub videoWork.findUnique——裸 vi.fn() 返回 undefined → 无 key → not.toHaveBeenCalled 恒真，真空绿验不到新语义）：① stub findUnique 返回 `videoKey:'uploads/system/…'` 行 → **断言 delete 被调用**；② 另一例 `videoKey:'results/…'` → 断言不调 delete；③ findUnique → null → 404（先查后删，别让 P2025 → 500）；④ Media 软删 + **redis.del('videoWork:url:'+key) 缓存失效**；⑤ MinIO 失败不阻断（mock delete 抛错仍成功）
 7. seed spec（自动化）：`getLimits('platform-team').storageLimitBytes === 1024 ** 4`（number 比较）
@@ -244,7 +261,7 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 - 新增管理员需手动加入 platform-team 才能 confirm（当前仅 seed 管理员）
 - removeWork 清理失败对象的兜底清理任务
 - VideoWork.videoKey/coverKey 无索引，排他查询全表扫（作品量小可接受；量大再加索引）
-- admin 套餐管理页可见 platform-storage 行并可改限/上架——命名已带"勿上架"红线，如需彻底硬化再加 isSystem 过滤
+- admin 套餐管理页可见 platform-storage 行并可改限/上架——命名已带"勿上架"红线，如需彻底硬化再加 isSystem 过滤；封面排他硬化（banner 表反查，防 API 直调把 coverKey 设成 banner 对象——UI 不可能，低严重度）
 - confirm DTO 的 key/fileSize 兼容字段清理（12 处前端调用点 + 8 份测试，待某批全站上传链改动时顺带；**清理时必须保留 victim key 安全回归用例**——它是唯一能证明 D1 洞已关的钉子）
 - edit 不可换源代价已用 UI 文案缓解；失误率高再考虑"重建时继承 viewCount/likeCount"工具
 
@@ -253,13 +270,14 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 | 位置 | 注释 |
 |---|---|
 | presign-video | 语义校验在 service 抛**中文字符串异常**的原因（装饰器 message 是数组 → initMessage 兜底 → 前端只见 "Bad Request Exception"）；type 必须 'uploaded' 禁 temp（7d 清理 footgun）；fileSize 上限不得超 ~2GiB（Media.size 是 Postgres Int，超出需迁 BigInt）；teamId 固定 platform-team 是配额支点；**为何不复用 presignUpload**（key/Media.userId 恒等于调用者，正是 B 形态要去掉的）；预签传**精确** file.size（policy 钉 content-length-range ±1024，超差 403——与签名过期同症状，排查注意） |
-| storage confirm（D1） | 就地读 media.key/media.size 的安全理由（**攻击 A** mismatch 分支 + **攻击 B** assertOnConfirm 配额分支，两条都吃请求体 key：自 presign 造 pending 行 + 传受害者 key → delete(dto.key)，key 经公开 URL 可得）；禁止 `media.size ?? dto.fileSize` 回落；DTO key/fileSize 保留兼容、服务端不读（勿"顺手"挂 forbidNonWhitelisted pipe——会把全站仍传三字段的上传打成 400） |
+| storage confirm（D1） | 就地读 media.key/media.size 的安全理由（**攻击 A** mismatch 分支 + **攻击 B** assertOnConfirm 配额分支，两条都吃请求体 key：自 presign 造 pending 行 + 传受害者 key → delete(dto.key)，key 经公开 URL 可得）；assertOnConfirm **删 key 形参**（内部读行，编译期防误用）；禁止 `media.size ?? dto.fileSize` 回落；DTO key/fileSize 保留兼容、服务端不读（勿"顺手"挂 forbidNonWhitelisted pipe——会把全站仍传三字段的上传打成 400） |
 | canvas-check / findCanvasRef | admin-only + 有意绕过画布 owner 校验（admin 策展跨用户），非漏洞；getDetail 保留轻量 boolean 查询是**有意取舍**（公开热路径不加 join）；"CanvasProject 加软删/可见性时 getDetail:205 与本函数两处都要改" |
 | controller 静态段 | canvasCheck/presignVideo 必须是**类方法**（prototype 顺序守卫对类字段箭头函数恒红）且声明在 :id 段之前（:id 吃 GET 静态段；presignVideo 是 POST，纳入数组属防御性完整性而非"会被吃"） |
-| removeWork | **取代旧红线**（旧：只删 DB 行禁 minio.delete；理由：旧前提是 videoKey 与源 Media 共享对象，新模型平台域独占）+ 域判断（仅 uploads/system/ 删对象；前缀是约定不是不变量）+ **排他以 videoMediaId 为主**（裸 key 可跨域重复；防存量脏数据）+ 缓存失效 |
+| removeWork | **取代旧红线**（旧：只删 DB 行禁 minio.delete；理由：旧前提是 videoKey 与源 Media 共享对象，新模型平台域独占）+ 域判断（仅 uploads/system/ 删对象；视频侧有 F2 platform-team 不变量支撑，**封面侧仍是约定**——system 域是封面/banner 三子系统共用，勿信"平台域=本作品独占"）+ **视频排他以 videoMediaId 为主、封面靠 coverKey 字符串比对** + 缓存失效 |
 | seed | platform-team isDefault:false 承重（true 回落个人订阅分支）；TeamPlan isActive:false + 命名"勿上架"（admin 套餐页可见可翻转，运维红线）；TeamSubscription partial unique index → 必须 upsert（改固定 id 前先清旧 active 行，否则同撞索引）；TeamMember 在 admin 创建之后（admin id 由 BetterAuth 生成，须按 email 查回） |
 | confirm | 确认者须为 platform-team 成员 |
-| 前端表单 | 悬挂 pending 行是已知台账噪音（§9）；abort 挂 afterClose 的原因（组件常驻不卸载） |
+| 前端表单 | 悬挂 pending 行是已知台账噪音（§9）；abort 挂 afterClose 的原因（组件常驻不卸载）；封面 onFinish 上传失败时视频已 confirm 无引用——§9② 覆盖，非遗漏 |
+| createWork（F2） | videoKey 不变量五条件（存在+completed+uploaded+未软删+platform-team）+ mediaId/key 交叉校验；PK 查 mediaId（key 无索引勿按 key 查）；插入位置在 assertProcessFlags 之后 |
 | 上传 input | 内联 display:none 的特异性原因；e.target.value='' 复位原因 |
 | uploadToPresignedPost | 裸 axios/裸请求的硬要求（apiFetch/应用实例拦截器改 Content-Type，S3 policy 敏感）；fields 前 file 后的 S3 要求；403=签名过期（或体积超差）映射 |
 | probeVideoFile | 超时分支同样 removeEventListener + src='' + revoke；seek 目标 Math.min(1, duration/2) 防短视黑帧 |
