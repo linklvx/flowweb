@@ -1765,8 +1765,9 @@ it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控�
   expect(payload).not.toHaveProperty('canvasProjectId'); // 未动画布 → 省略（后端 dto-only：undefined 不动已存值）
 });
 
-it('edit + 死画布（canvasCheck 404）+ 未动画布文本 → 可保存（黄字警告不硬拦——与后端 dto-only 口径一致，防"连改标题都存不了"陷阱）；两开关禁用', async () => {
-  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ canvasProjectId: 'p-dead', allowViewProcess: false, allowClone: false })], total: 1 } as any);
+it('edit + 死画布（canvasCheck 404）+ 未动画布文本 → 可保存且存量开关不被静默关（第十一轮②：预填校验失败 resetSwitches=false——开关 true 与黄字"保留原关联"一致，后端 flags 用 merged 已存 canvasProjectId 非空不 400）', async () => {
+  // fixture 故意 true/true（画布删除前建的合法存量）——断言"预填 404 不落 false"必须开关初值真，false 初值验不出"被改"
+  vi.mocked(adminVideoWorkApi.listWorks).mockResolvedValue({ items: [mockWorkRow({ canvasProjectId: 'p-dead', allowViewProcess: true, allowClone: true })], total: 1 } as any);
   vi.mocked(adminVideoWorkApi.updateWork).mockResolvedValue({ id: 'w1' } as any);
   vi.mocked(adminVideoWorkApi.canvasCheck).mockRejectedValue(new Error('画布不存在') as any);
   renderWithProviders(<VideoWorksPage />);
@@ -1774,12 +1775,15 @@ it('edit + 死画布（canvasCheck 404）+ 未动画布文本 → 可保存（�
   fireEvent.click(screen.getByText('编辑'));
   const dialog = await screen.findByRole('dialog');
   await waitFor(() => expect(within(dialog).getByText('源画布已删除，保存将保留原关联')).toBeInTheDocument()); // 黄字警告非红字硬拦
-  await waitFor(() => expect(within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ })).toBeDisabled()); // verified=null → 禁用
+  const viewSwitch = within(dialog).getByRole('switch', { name: /允许查看创作过程|查看制作过程/ });
+  await waitFor(() => expect(viewSwitch).toBeDisabled()); // verified=null → 禁用
+  expect(viewSwitch).toBeChecked(); // 第十一轮②：预填 404 不落 false——存量 true 保持（落 false 则此断言红、黄字在骗人）
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 'x' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(adminVideoWorkApi.updateWork).toHaveBeenCalledTimes(1)); // 未动文本 → 放行
   const payload = vi.mocked(adminVideoWorkApi.updateWork).mock.calls[0][1] as Record<string, unknown>;
   expect(payload).not.toHaveProperty('canvasProjectId'); // 省略——后端不动已存值，不触发画布校验
+  expect(payload.allowViewProcess).toBe(true); // 开关原样进 payload——未被预填校验静默改（改动即红）
 });
 
 it('画布状态机：粘贴 URL → blur 校验回显 → payload 带解析后 ID（C-1 家族回归：注册字段 onFinish 现算）', async () => {
@@ -1854,7 +1858,7 @@ it('画布状态机：校验通过→改出去→改回原值（未 blur）→ �
   fireEvent.change(within(dialog).getByLabelText('标题'), { target: { value: 't' } });
   fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
-  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'p1' })); // 等价放行——修复前弹"画布已修改，请重新校验"、createWork 不被调
+  await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ canvasProjectId: 'p1' }))); // 等价放行——修复前弹"画布已修改，请重新校验"、createWork 不被调
 });
 
 it('画布 404 → 红字"画布不存在"；未校验通过（乱码未 blur）提交 → 阻止', async () => {
@@ -1915,8 +1919,9 @@ WorkFormModal 追加状态与初始校验：
   const [canvasError, setCanvasError] = useState<string | null>(null);
   // verifiedRef（第九轮必修1）：onChange 清 state 但**不清它**——门禁文案"画布已修改"的唯一判据。
   // 若判 canvasVerified，"校验通过→改文本"时它已被 onChange 清 null，三元式永远落到"画布不存在"（钦定文案成死分支）。
-  // text 记校验时原始文本：粘 URL 直接提交时校验还在飞（ref=null）会误弹"画布不存在"，已知误导、登记不处理（第九轮小项3）。
-  const verifiedRef = useRef<{ id: string; text: string } | null>(null);
+  // 只存 id（第十一轮 C4：text 是死字段已删——等价放行判据是 id 比对，不用原始文本）。
+  // 已知限制：粘 URL 后校验还在飞（ref=null）时直接提交会误弹"画布不存在"，误导、登记不处理（第九轮小项3）。
+  const verifiedRef = useRef<{ id: string } | null>(null);
   // 序号守卫（第九轮必修2）：canvasCheck 无 signal，关弹层/重新输入后飞行中的 resolve 落定会把已重置状态写回来
   const canvasCheckSeq = useRef(0);
   // 渲染期"未改动"判定（红/黄互斥的事实源）——与 onFinish 用同一判据：文本 === record 初值。
@@ -1926,7 +1931,7 @@ WorkFormModal 追加状态与初始校验：
   const initialCanvasText = mode === 'edit' && record?.canvasProjectId ? record.canvasProjectId : '';
   const canvasUntouched = String(canvasTextWatch).trim() === initialCanvasText.trim();
 
-  const checkCanvas = async (text: string) => {
+  const checkCanvas = async (text: string, resetSwitches = true) => {
     const id = parseCanvasRef(text);
     if (!id) {
       // 空文本也作废在飞校验（第十轮 B1：否则"粘 p1→blur 在飞→清空→再 blur"后旧请求 resolve 会把已清空表单写回"已验证"）
@@ -1940,25 +1945,31 @@ WorkFormModal 追加状态与初始校验：
     try {
       const c = await adminVideoWorkApi.canvasCheck(id);
       if (seq !== canvasCheckSeq.current) return; // 过期校验（已关弹层/已重新输入）——勿写回
-      verifiedRef.current = { id: c.id, text };
+      verifiedRef.current = { id: c.id };
       setCanvasVerified({ id: c.id, name: c.name, ownerName: c.ownerName });
       setCanvasError(null);
     } catch {
       if (seq !== canvasCheckSeq.current) return;
       verifiedRef.current = null;
       setCanvasVerified(null); setCanvasError('画布不存在');
-      form.setFieldsValue({ allowViewProcess: false, allowClone: false }); // 收窄落 false 落点②：校验失败同理
+      // 收窄落 false 落点②（第十一轮②再收窄）：仅用户主动输入坏 ID（blur 路径）才落——预填校验失败
+      //（onOpenChange 传 resetSwitches=false）不动存量开关：黄字承诺"保留原关联"，落 false 会静默关掉
+      // 存量开关（文案骗人）；开关保持 true 无害——后端 updateWork flags 用 merged（existing.canvasProjectId
+      // 已存非空 → 不 400）。catch 同时承担"用户填坏 ID"与"预填画布已失效"两语义，靠此参数分治。
+      if (resetSwitches) form.setFieldsValue({ allowViewProcess: false, allowClone: false });
     }
   };
 ```
 
-初始校验挂 **ModalForm 顶层 `onOpenChange`** prop（非 modalProps.afterOpenChange——那是 rc-motion 动效回调，jsdom 依赖降级路径。onOpenChange 的依据是 pro-form 源码而非仓内先例：@ant-design/pro-form@2.32.0 `es/layouts/ModalForm/index.d.ts:29` 顶层 prop + `index.js:43-49` useMergedState 直连零 motion 依赖——**仓内 10 处 onOpenChange 全是 Popover/Dropdown、ModalForm 零先例**，后人勿按"先例"去找。另注意它在触发器 click 内同步触发、弹层内容尚未挂载——回调内勿读表单字段（checkCanvas 只用 record 值，安全）。勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻 trigger 宿主组件，mount effect 会在列表渲染时对每行各打一次 canvas-check）：
+初始校验挂 **ModalForm 顶层 `onOpenChange`** prop（非 modalProps.afterOpenChange——那是 rc-motion 动效回调，jsdom 依赖降级路径。onOpenChange 的依据是 pro-form 源码而非仓内先例：@ant-design/pro-form@2.32.0 `es/layouts/ModalForm/index.d.ts:32` 顶层 prop（:29 是 @deprecated visible 的 JSDoc 行，勿引）+ `index.js:43-49` useMergedState 直连零 motion 依赖——**仓内 onOpenChange 生产用法 6 处（FileCard/ExportModal/CreditsDropdown/ImageNodeToolbar/VideoNodeToolbar×2，全是 Popover/Dropdown）+ 测试提及 4 处，ModalForm 零先例**，后人勿按"先例"去找。另注意它在触发器 click 内同步触发、弹层内容尚未挂载——回调内勿读表单字段（checkCanvas 只用 record 值，安全）。勿用 `useEffect(..., [])`：WorkFormModal 是每行一个的常驻 trigger 宿主组件，mount effect 会在列表渲染时对每行各打一次 canvas-check）：
 
 ```tsx
     <ModalForm
       onOpenChange={(open) => {
         if (!open) return;
-        if (mode === 'edit' && record?.canvasProjectId) void checkCanvas(record.canvasProjectId); // 打开即回显
+        // 预填校验传 resetSwitches=false（第十一轮②）：死画布存量作品打开弹层即 404，若落 false 会静默关存量开关
+        //——黄字承诺"保留原关联"；开关 true + 后端 merged 判据（已存 canvasProjectId 非空）不会 400，不动用户数据
+        if (mode === 'edit' && record?.canvasProjectId) void checkCanvas(record.canvasProjectId, false); // 打开即回显（只回显）
       }}
       ...
 ```
@@ -1979,10 +1990,12 @@ Task 10 的 `modalProps.afterClose` 块末尾追加（canvas 状态是 Task 11 �
         fieldProps={{
           onBlur: (e) => void checkCanvas(e.target.value),
           // 文本改动即失效（state 清、verifiedRef 不清——必修1 的文案判据）：
+          // **verifiedRef 是已验证事实的记录，不由文本变更作废**——门禁用 id 比对天然覆盖"改出去又改回"
+          //（第十轮 C1 等价放行就靠这条，勿在 onChange 里"顺手"清它——看起来自然，清了等价放行静默死）。
           // 落 false **不在此处**（第十轮收窄）——edit 场景敲错字又改回原文会静默关掉存量"创作过程/克隆"开关，
           // 超出防 400 目标；落 false 只在 checkCanvas 空文本/catch 两分支（真实浏览器点确定前输入框必先 blur，
           // jsdom fireEvent.click 不自动 blur——测试显式 fireEvent.blur）。B2 两条 400 路径（清空/校验失败）照堵，
-          // "改文本未重校验"路径由 onFinish 门禁拦截承担。
+          // "改文本未重校验"路径由 onFinish 门禁拦截承担（外加 safeFlags 兜底——见 onFinish 注释）。
           // 此处 form 是组件作用域的表单实例（无 A1 影子问题——影子只在 onFinish 解构之后）
           onChange: (e) => {
             canvasCheckSeq.current++; // 文本失效即作废在飞校验（第十轮 B1 三路之一：onChange/空文本/afterClose）
@@ -2044,8 +2057,15 @@ Task 10 的 `modalProps.afterClose` 块末尾追加（canvas 状态是 Task 11 �
         const canvasText = String(_cp ?? '').trim(); // 第九轮 A1：读解构出的 _cp——此处若写 form.getFieldValue，form 是上面的剩余值对象（影子），getFieldValue 是 undefined → 每次提交 TypeError、createWork 永不被调且浏览器静默
         const parsedCanvasId = parseCanvasRef(canvasText);
         const untouched = canvasText === initialCanvasText.trim(); // 与渲染期 canvasUntouched 同判据（文本===record 初值），两处勿各算各的
+        // safeFlags 兜底（第十一轮 B1）：清空画布文本若未经 blur 提交，开关可能仍 true → 后端 assertProcessFlags 400
+        // 且开关禁用成死结（disabled+true 点不动，须重粘有效画布才脱困）。当前路径不可达——本表单无
+        // htmlType="submit" 按钮、Enter 不触发隐式提交（pro-form Submitter 是 onClick→submit()，es/components/
+        // Submitter/index.js:55-65 已核）；覆盖式兜底不依赖事件时序，为将来加提交按钮保险。必须是 payload 覆盖
+        // 而非 form.setFieldsValue——后者改不了本次已收集的 v，本次照样 400。
+        const safeFlags = canvasText ? {} : { allowViewProcess: false, allowClone: false };
         if (!untouched && canvasText && (!canvasVerified || canvasVerified.id !== parsedCanvasId)) {
           // 等价放行（第十轮 C1）：改出去又改回已验证文本（未 blur）——verifiedRef.id 与当前解析一致即视同已验证
+          //（成立前提：onChange 不清 verifiedRef——见 onChange 注释，勿在那里"顺手"清它）
           if (verifiedRef.current?.id !== parsedCanvasId) {
             // 文案判据是 verifiedRef（必修1）——canvasVerified 已被 onChange 清 null，判它则"画布已修改"永不可达
             message.error(verifiedRef.current ? '画布已修改，请重新校验' : (canvasError ?? '画布不存在，请重新校验'));
@@ -2057,10 +2077,11 @@ Task 10 的 `modalProps.afterClose` 块末尾追加（canvas 状态是 Task 11 �
 payload 组装（createWork 与 updateWork 的 spread 中显式给）：
 
 ```tsx
+              ...safeFlags,                                                    // 第十一轮 B1 兜底：无画布文本时开关安全化 false（覆盖 rest，见门禁段注释）
               ...(untouched ? {} : { canvasProjectId: parsedCanvasId ?? null }), // 未动 → 省略（后端不动已存值）；动了 → 解析值（空文本=显式清除 null）
 ```
 
-红/黄回显互斥（同一 canvasError 下不能同屏"画布不存在"+"源画布已删除"）——替换 Task 11 先前的红字块：
+红/黄回显互斥（同一 canvasError 下不能同屏"画布不存在"+"源画布已删除"）——**删除上面画布字段块末尾的 `{canvasError && <div …text-red-500…>{canvasError}</div>}` 红字 div 再插入以下两块**（两段并存会令 getByText('画布不存在') 抛 multiple，用例集体红）：
 
 ```tsx
       {canvasError && !canvasUntouched && <div className="mb-2 -mt-2 text-xs text-red-500">画布不存在</div>}
