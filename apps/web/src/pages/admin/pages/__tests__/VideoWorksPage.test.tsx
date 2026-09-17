@@ -284,6 +284,7 @@ it('edit：只读信息条（时长/分辨率/封面缩略图）且无上传控�
   fireEvent.click(screen.getByText('编辑'));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByText(/当前视频：10s \/ 1920×1080/)).toBeInTheDocument();  // 只读信息条
+  expect(within(dialog).getByAltText('当前封面')).toHaveAttribute('src', '/flowai/uploads/system/c.jpg?X-Amz-Signature=s'); // toFlowaiUrl 改写钉死——简化掉这层则生产封面 403 裂图（commit 34125430 同族事故），测试却全绿
   expect(within(dialog).getByLabelText('源画布（可选）')).toHaveValue('p1');          // initialValues 确实播种到字段——门禁"文本===初值"判据的前提钉死（initialValues 没落字段这里立刻红）
   expect(within(dialog).queryByRole('button', { name: /选择 MP4 文件/ })).not.toBeInTheDocument(); // edit 无上传控件
   await waitFor(() => expect(within(dialog).getByText(/画布：源画布（作者 张三）/)).toBeInTheDocument()); // 打开即初始校验回显
