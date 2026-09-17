@@ -27,14 +27,13 @@ beforeEach(async () => {
     // 原 TS2339 编译红只是被搬进运行时，没有消失）。方法给空 vi.fn()，各用例用自己的 mockResolvedValue(Once) 覆盖。
     prisma = {
       media: {
-        findMany: vi.fn().mockResolvedValue([{
-          id: 'm1', key: 'results/u1/p1/n1/d/v.mp4', projectId: 'p1', thumbnailKey: 'thumbnails/m1.webp',
-          metadata: { durationSec: 12.6, width: 1280, height: 720 }, createdAt: new Date('2026-09-01'),
-        }]),
+        findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(1),
+        findUnique: vi.fn(),   // Task 4 F2：PK 查 mediaId
+        update: vi.fn().mockResolvedValue({}),  // Task 5 removeWork：软删——默认 resolved（裸 vi.fn() 返回 undefined，实现里 .catch 链会 TypeError）
       },
       canvasProject: { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }]), findUnique: vi.fn() },
-      videoWork: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+      videoWork: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn(), findMany: vi.fn(), count: vi.fn().mockResolvedValue(0) },
       videoCategory: { findMany: vi.fn().mockResolvedValue([]) },
       videoWorkSetting: { findUnique: vi.fn(), upsert: vi.fn() },
       videoTag: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -54,6 +53,9 @@ beforeEach(async () => {
         { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn() } },
       ],
     }).compile();
+    // Task 4 F2 默认匹配行——createWork 用例 payload 传 videoKey:'k' + videoMediaId:'m1' 时直接过；
+    // negative 用例自行 mockResolvedValueOnce 覆盖（证明默认行没把断言架空）
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', key: 'k', status: 'completed', type: 'uploaded', teamId: 'platform-team', deletedAt: null });
     service = moduleRef.get(VideoWorkService);
   });
 
@@ -80,27 +82,28 @@ describe('category CRUD 缓存失效', () => {
 
 describe('createWork/updateWork 保存校验与发布语义', () => {
   it('(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400', async () => {
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
-      allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
-      allowViewProcess: false, allowClone: true, canvasProjectId: undefined } as any)).rejects.toThrow(BadRequestException);
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1',
+      allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow('开启创作过程/克隆需要画布来源'); // 泛型 toThrow(BadRequestException) 升级为文案（F2 插入位置 flags→画布→F2 的唯一漂移探测器）
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1',
+      allowViewProcess: false, allowClone: true, canvasProjectId: undefined } as any)).rejects.toThrow('开启创作过程/克隆需要画布来源');
   });
 
   it('allowClone=true 且 allowViewProcess=false → 400（第八轮裁定：克隆入口在创作过程视图顶栏——开关耦合，防前端不可达死开关；update 语义=合并现有值后判定）', async () => {
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', canvasProjectId: 'p1',
-      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow(BadRequestException);
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'n', updatedAt: new Date(), user: null, team: { owner: { name: 'o' } } }); // 防御性：正常时序 flags 先抛、此 stub 不被消费
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', canvasProjectId: 'p1',
+      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow('允许克隆必须同时允许查看创作过程');
     // 现有 allowViewProcess=true：单独开 allowClone 不 400
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: true, allowClone: false, canvasProjectId: 'p1' });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     await expect(service.updateWork('w1', { allowClone: true } as any)).resolves.toBeTruthy();
     // 现有 allowViewProcess=false：开 allowClone → 400
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: 'p1' });
-    await expect(service.updateWork('w1', { allowClone: true } as any)).rejects.toThrow(BadRequestException);
+    await expect(service.updateWork('w1', { allowClone: true } as any)).rejects.toThrow('允许克隆必须同时允许查看创作过程');
   });
 
   it('发布动作：status 转 PUBLISHED 且 publishedAt 为空 → 服务端设 now；请求体带 publishedAt 被忽略', async () => {
     prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
-    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', status: 'PUBLISHED', publishedAt: new Date('2000-01-01') } as any);
+    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', status: 'PUBLISHED', publishedAt: new Date('2000-01-01') } as any);
     const data = (prisma.videoWork.create as Mock).mock.calls[0][0].data;
     expect(data.publishedAt.getFullYear()).toBeGreaterThan(2025); // now，非请求体的 2000
   });
@@ -116,7 +119,7 @@ describe('createWork/updateWork 保存校验与发布语义', () => {
 
   it('durationSec 小数取整（12.6 → 13）', async () => {
     prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
-    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', durationSec: 12.6 } as any);
+    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', durationSec: 12.6 } as any);
     expect((prisma.videoWork.create as Mock).mock.calls[0][0].data.durationSec).toBe(13);
   });
 
@@ -529,5 +532,71 @@ describe('listAllWorks（edit 信息条封面支撑）', () => {
     prisma.videoWork.count = vi.fn().mockResolvedValue(1);
     const res = await service.listAllWorks(1, 20);
     expect(res.items[0].coverUrl).toBeNull();
+  });
+});
+
+describe('createWork 画布校验 + F2 videoKey 不变量（顺序钉死：flags→画布→F2）', () => {
+  it('画布不存在 → 400 画布不存在（findCanvasRef）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue(null);
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', canvasProjectId: 'p-404' } as any))
+      .rejects.toThrow('画布不存在');
+  });
+
+  it('canvasProjectId 空 → 不校验画布、允许创建（null 分支）', async () => {
+    prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', canvasProjectId: undefined } as any)).resolves.toBeTruthy();
+    expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('F2：无 videoMediaId → 400（先于 media.findUnique）', async () => {
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k' } as any))
+      .rejects.toThrow('视频文件不存在或未完成上传');
+    expect(prisma.media.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('F2 五条件 negative（默认匹配行之外的行 → 400，证明 beforeEach 行没架空断言）', async () => {
+    for (const bad of [
+      null,                                                                                 // 不存在
+      { id: 'm1', key: 'k', status: 'completed', type: 'uploaded', teamId: 'platform-team', deletedAt: new Date() },   // 软删
+      { id: 'm1', key: 'k', status: 'pending', type: 'uploaded', teamId: 'platform-team', deletedAt: null },           // 未完成
+      { id: 'm1', key: 'k', status: 'completed', type: 'generated', teamId: 'platform-team', deletedAt: null },        // 非上传
+      { id: 'm1', key: 'k', status: 'completed', type: 'uploaded', teamId: 'personal-team', deletedAt: null },         // 非平台团队
+      { id: 'm1', key: 'other-key', status: 'completed', type: 'uploaded', teamId: 'platform-team', deletedAt: null }, // key 交叉不符
+    ]) {
+      prisma.media.findUnique.mockResolvedValueOnce(bad as any);
+      await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1' } as any))
+        .rejects.toThrow('视频文件不存在或未完成上传');
+    }
+  });
+
+  it('F2：PK 查 mediaId（勿按 key 查——Media.key 无索引全表扫）', async () => {
+    prisma.videoWork.create = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1' } as any);
+    expect(prisma.media.findUnique).toHaveBeenCalledWith({ where: { id: 'm1' } });
+    expect(prisma.videoWork.create).toHaveBeenCalled();
+  });
+});
+
+describe('updateWork 画布校验 dto-only 口径（勿用 merged——死画布存量作品连改标题都会 400）', () => {
+  const existing = (over: Record<string, unknown> = {}) => ({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: 'p-dead', ...over });
+
+  it('显式传不存在的画布 → 400', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(existing());
+    prisma.canvasProject.findUnique.mockResolvedValue(null);
+    await expect(service.updateWork('w1', { canvasProjectId: 'p-404' } as any)).rejects.toThrow('画布不存在');
+  });
+
+  it('传 null → 跳过校验、已存值不动（dto-only：null 是"显式清除"语义，不查存在性）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(existing());
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await expect(service.updateWork('w1', { canvasProjectId: null } as any)).resolves.toBeTruthy();
+    expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('存量作品画布已删 + 仅改标题 → 成功（merged 口径下此用例红——旧语义容忍死画布，getDetail 用 canvasExists 降级不报错）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(existing({ canvasProjectId: 'p-dead' }));
+    prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
+    await expect(service.updateWork('w1', { title: '新标题' } as any)).resolves.toBeTruthy();
+    expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled(); // dto 未带画布 → 不查
   });
 });

@@ -6,10 +6,10 @@ export class CreateVideoWorkDto {
   @IsString() @MaxLength(64) authorName!: string;
   @IsOptional() @IsString() categoryId?: string;
 
-  @IsString() @MaxLength(512) videoKey!: string;          // 取自 candidate.key
-  @IsOptional() @IsString() videoMediaId?: string;        // 取自 candidate.id
+  @IsString() @MaxLength(512) videoKey!: string;          // 成品视频对象键（presign-video 返回的 key，F2 校验与 videoMediaId 交叉一致）
+  @IsOptional() @IsString() videoMediaId?: string;        // presign-video 建的 Media 行 id（platform-team 归属，F2 必填校验在 service）
   @IsOptional() @IsString() @MaxLength(512) coverKey?: string;
-  @IsOptional() @IsString() canvasProjectId?: string;     // 取自 candidate.projectId（D16）
+  @IsOptional() @IsString() canvasProjectId?: string;     // 源画布（可选；非空时 findCanvasRef 校验存在性）
 
   @IsOptional() @IsInt() durationSec?: number;
   @IsOptional() @IsInt() width?: number;

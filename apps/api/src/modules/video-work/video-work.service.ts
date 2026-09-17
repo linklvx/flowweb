@@ -126,6 +126,18 @@ export class VideoWorkService {
 
   async createWork(dto: CreateVideoWorkDto) {
     this.assertProcessFlags(dto as any);
+    // 画布校验（spec §4.5）：非空才查；为空允许创建（null 分支）
+    if (dto.canvasProjectId && !(await this.findCanvasRef(dto.canvasProjectId)))
+      throw new BadRequestException('画布不存在');
+    // F2 videoKey 不变量（spec §4.5）——服务端不相信请求体（D1 同源教训）：
+    // PK 查 mediaId（Media.key 无索引勿按 key 查）；teamId=platform-team 把"平台域"从约定升级为不变量
+    // （普通用户上传素材同样满足 uploaded+completed，须排除）；key 交叉校验防"合法 key+别人的 mediaId"
+    //（removeWork 的 Media 软删用的正是 videoMediaId，两字段不一致会软删无关行）。
+    if (!dto.videoMediaId) throw new BadRequestException('视频文件不存在或未完成上传');
+    const m = await this.prisma.media.findUnique({ where: { id: dto.videoMediaId } });
+    if (!m || m.deletedAt || m.status !== 'completed' || m.type !== 'uploaded'
+      || m.teamId !== PLATFORM_TEAM_ID || m.key !== dto.videoKey)
+      throw new BadRequestException('视频文件不存在或未完成上传');
     const published = dto.status === 'PUBLISHED';
     return this.prisma.videoWork.create({ data: {
       ...dto,
@@ -144,6 +156,10 @@ export class VideoWorkService {
       status: dto.status ?? existing.status,
     } as any;
     this.assertProcessFlags(merged);
+    // 画布校验 dto-only（spec §4.5）：只校验 dto 显式提供的非空值。勿用 merged——源画布已被删的存量作品
+    // 连改标题都 400，要先清画布+关两开关才存得出去（体验陷阱）；flags 的 merged 是另一语义，勿混。
+    if (dto.canvasProjectId && !(await this.findCanvasRef(dto.canvasProjectId)))
+      throw new BadRequestException('画布不存在');
     const data: any = { ...dto, durationSec: dto.durationSec != null ? Math.round(dto.durationSec) : undefined };
     // 发布语义：转 PUBLISHED 且原 publishedAt 为空 → 设 now；已有则不动
     if (merged.status === 'PUBLISHED' && !existing.publishedAt) data.publishedAt = new Date();
