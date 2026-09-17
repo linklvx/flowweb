@@ -18,7 +18,7 @@ import Redis from 'ioredis';
 export class VideoWorkService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,             // @Global
-    @Inject(MinioService) private readonly minio: MinioService,                 // @Global（presign，无删除能力——删除红线）
+    @Inject(MinioService) private readonly minio: MinioService,                 // @Global（presign + removeWork/updateWork 域分治对象清理——Task 5 红线改写）
     @Inject('REDIS_CLIENT') private readonly redis: Redis,                      // Task 2.1 缓存/3.3 liked/4.x 计数
     @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService, // Task 4.2 view 限流
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）

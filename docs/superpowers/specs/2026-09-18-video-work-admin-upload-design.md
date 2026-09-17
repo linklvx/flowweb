@@ -282,6 +282,7 @@ edit 不显示上传控件，显示**只读信息条**：当前视频时长/分�
 - **手选封面放弃提交的孤儿对象**（既有现象，本批 §5.4 已消除抽帧侧孤儿——提交时上传；手选侧 uploadCover 后放弃提交仍会留下无引用封面，如需清理同 ② 按引用反查）
 - 新增管理员需手动加入 platform-team 才能 confirm（当前仅 seed 管理员）
 - removeWork 清理失败对象的兜底清理任务
+- **共享 videoMediaId 提前软删（Task 5 审查 I2，已知取舍）**：removeWork 的 Media 软删无条件于排他——同一 videoMediaId 挂多作品（仅 API 直调可造，UI/F2 不产生）时先删者即软删释放配额，存活作品对象仍在但 getUsage 不再计（配额少算）。方向安全（少算不阻断上传），主路径不为病态输入加 `!shared` 闸；播放不受影响（presignWork 不读 Media.deletedAt）
 - VideoWork.videoKey/coverKey 无索引，排他查询全表扫（作品量小可接受；量大再加索引）
 - admin 套餐管理页可见 platform-storage 行并可改限/上架——命名已带"勿上架"红线，如需彻底硬化再加 isSystem 过滤；封面排他硬化（banner 表反查，防 API 直调把 coverKey 设成 banner 对象——UI 不可能，低严重度）
 - confirm DTO 的 key/fileSize 兼容字段清理（12 处前端调用点 + 8 份测试，待某批全站上传链改动时顺带；**清理时必须保留 victim key 安全回归用例**——它是唯一能证明 D1 洞已关的钉子）

@@ -62,7 +62,7 @@ describe('AdminVideoWorkController categories/tags', () => {
     expect(service.listAllWorks).toHaveBeenCalledWith(1, 20);
   });
 
-  it('DELETE 只调 removeWork（service 内不调 minio.delete——红线在 service 测试断言）', async () => {
+  it('DELETE 只调 removeWork（对象清理红线在 service 测试断言——controller 只转发）', async () => {
     service.removeWork = vi.fn().mockResolvedValue(undefined);
     await controller.deleteWork('w1');
     expect(service.removeWork).toHaveBeenCalledWith('w1');
