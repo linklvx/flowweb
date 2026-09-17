@@ -1545,7 +1545,9 @@ it('封面提交时上传：抽帧 blob 在 onFinish 才 uploadCover（孤儿归
   fireEvent.change(within(dialog).getByLabelText('作者名'), { target: { value: 'a' } });
   fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledTimes(1)); // 提交时一次
-  expect(adminVideoWorkApi.uploadCover).toHaveBeenCalledWith(expect.any(File)); // new File([blob],'cover.jpg')
+  const coverFile = vi.mocked(adminVideoWorkApi.uploadCover).mock.calls[0][0] as File; // Task 10 审查 M-3：收窄文件名/type——服务端 ext 推导依赖文件名
+  expect(coverFile.name).toBe('cover.jpg');
+  expect(coverFile.type).toBe('image/jpeg');
   await waitFor(() => expect(adminVideoWorkApi.createWork).toHaveBeenCalledWith(expect.objectContaining({ coverKey: 'uploads/system/frame.jpg' })));
 });
 ```
@@ -1614,17 +1616,21 @@ function WorkFormModal({ mode, record, onDone, trigger }: {
   };
 
   const handleVideoSelected = async (file: File) => {
+    // ac 提到最前（Task 10 审查 I-1）：probe 窗口内关弹层时 afterClose 的 abort() 不能打在 null 上——
+    // 否则 probe 落定后流水线照常启动（不可中止的隐形直传 + setVideo 残留到重开弹层，违背"重开不残留"不变量）
+    const ac = new AbortController(); abortRef.current = ac; // signal 贯穿 presign/直传/confirm 三段
     // 前置拦截（中文即时提示，别等 presign 400——那是 "Bad Request Exception" 无细节）
     if (file.type !== 'video/mp4') { message.error('仅支持 MP4 格式'); return; }
     if (file.size > 1024 * 1024 * 1024) { message.error('视频不得超过 1GB'); return; }
     const probe = await probeVideoFile(file);
+    if (ac.signal.aborted) return; // probe 落定时弹层已关——勿启动上传、勿写封面预览（objectURL 泄漏）
     if (!probe.ok) { message.error('浏览器无法解码，请导出 H.264 编码 MP4'); return; } // 可播放性闸门
     if (probe.coverBlob && !coverTouchedRef.current) {
+      if (coverPreview) URL.revokeObjectURL(coverPreview); // 重选视频先 revoke 旧预览（Task 10 审查 M-1——afterClose 只 revoke 最新一个）
       coverBlobRef.current = probe.coverBlob;
       setCoverPreview(URL.createObjectURL(probe.coverBlob)); // 只预览，onFinish 才 uploadCover
     }
     setVideoUploading(true); setVideoProgress(0);
-    const ac = new AbortController(); abortRef.current = ac; // signal 贯穿 presign/直传/confirm 三段
     try {
       const presign = await adminVideoWorkApi.presignVideo({ fileName: file.name, fileSize: file.size, fileType: file.type }, ac.signal);
       await uploadToPresignedPost({
