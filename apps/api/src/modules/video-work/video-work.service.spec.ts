@@ -58,36 +58,6 @@ beforeEach(async () => {
   });
 
 // 第九轮：describe 开行移到文件级 beforeEach 之后（首任务用例从下一行开始；后续任务直接追加同级 describe 即可引用替身）
-describe('VideoWorkService.listCandidates', () => {
-
-  it('口径：type=generated + video/mp4 + completed + 未删除 + metadata.origin=video-project', async () => {
-    await service.listCandidates(1, 20);
-    const where = prisma.media.findMany.mock.calls[0][0].where;
-    expect(where.type).toBe('generated');
-    expect(where.mimeType).toBe('video/mp4');
-    expect(where.status).toBe('completed');
-    expect(where.deletedAt).toBeNull();
-    expect(where.metadata).toEqual({ path: ['origin'], equals: 'video-project' });
-  });
-
-  it('canvasExists 批量单查（findMany in，非逐条 findUnique）', async () => {
-    const res = await service.listCandidates(1, 20);
-    expect(prisma.canvasProject.findMany).toHaveBeenCalledWith({ where: { id: { in: ['p1'] } }, select: { id: true } });
-    expect(res.items[0].canvasExists).toBe(true);
-    expect(prisma.canvasProject.findMany).toHaveBeenCalledTimes(1);
-  });
-
-  it('projectId 为空 → canvasExists=false', async () => {
-    prisma.media.findMany.mockResolvedValue([{ id: 'm2', key: 'k', projectId: null, thumbnailKey: null, metadata: {}, createdAt: new Date() }]);
-    const res = await service.listCandidates(1, 20);
-    expect(res.items[0].canvasExists).toBe(false);
-  });
-
-  it('durationSec 取整入库口径（12.6 → 13）', async () => {
-    const res = await service.listCandidates(1, 20);
-    expect(res.items[0].durationSec).toBe(13);
-  });
-});
 
 // 第十一轮：补 invalidateCategoryCache 服务端覆盖——Task 2.1 的 category/tag CRUD 由 controller spec 的
 // service mock 驱动、service 侧此前零用例，spec §4.2"admin 改类型时主动删缓存"无测试钉住（redis 即文件级
@@ -514,13 +484,50 @@ describe('presignVideo（admin 成品视频预签）', () => {
     minio.buildKey = vi.fn().mockReturnValue('uploads/system/2026-09-18/a.mp4');
     prisma.media.create = vi.fn().mockResolvedValue({ id: 'm-vid' });
     minio.generatePresignedPost = vi.fn().mockResolvedValue({ url: 'http://127.0.0.1:9000/flowai', fields: { key: 'uploads/system/2026-09-18/a.mp4' } });
-    await service.presignVideo({ ...base, fileName: 'x.TXT' } as any); // fileName 扩展名脏值也要过——ext 恒 mp4
+    const res = await service.presignVideo({ ...base, fileName: 'x.TXT' } as any); // fileName 扩展名脏值也要过——ext 恒 mp4
+    expect(res).toEqual({ fileId: 'm-vid', uploadUrl: 'http://127.0.0.1:9000/flowai', key: 'uploads/system/2026-09-18/a.mp4', fields: { key: 'uploads/system/2026-09-18/a.mp4' } });
     expect((service as any).quota.assertCanUpload).toHaveBeenCalledWith('platform-team', 1000);
     expect(minio.buildKey).toHaveBeenCalledWith('uploaded', 'system', { ext: 'mp4' });
     expect(prisma.media.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       userId: 'platform-owner', teamId: 'platform-team', type: 'uploaded', status: 'pending',
+      key: 'uploads/system/2026-09-18/a.mp4', // 与预签 key 一致性钉子——confirm 的 statSize 事实源
       size: 1000, mimeType: 'video/mp4', originalName: 'x.TXT', expiresAt: null, // size 落库=confirm 大小事实源；禁 temp（7d 清理 footgun）
     }) }));
     expect(minio.generatePresignedPost).toHaveBeenCalledWith('uploads/system/2026-09-18/a.mp4', 'video/mp4', 1000, 3600); // expiresIn 3600（默认 900 慢网 1GB 会中途过期）
+  });
+});
+
+describe('canvasCheck（admin 画布存在性回显）', () => {
+  it('存在 + 个人画布 → ownerName=user.name', async () => {
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1', name: '我的画布', updatedAt: new Date('2026-09-01'), user: { name: '张三' }, team: { owner: { name: '张三' } } });
+    const res = await service.canvasCheck('p1');
+    expect(res).toMatchObject({ id: 'p1', name: '我的画布', ownerName: '张三' });
+    expect(res.updatedAt).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  it('团队画布（userId=null）→ ownerName 回落 team.owner.name（不得出现 null）', async () => {
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p2', name: '团队画布', updatedAt: new Date('2026-09-01'), user: null, team: { owner: { name: '老板' } } });
+    const res = await service.canvasCheck('p2');
+    expect(res.ownerName).toBe('老板');
+  });
+
+  it('不存在 → 404 画布不存在', async () => {
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue(null);
+    await expect(service.canvasCheck('p-404')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('listAllWorks（edit 信息条封面支撑）', () => {
+  it('coverKey 非空 → presign coverUrl（裸 /flowai/ key 在生产 403——桶非公开读）', async () => {
+    prisma.videoWork.findMany = vi.fn().mockResolvedValue([{ id: 'w1', coverKey: 'uploads/system/c.jpg' }]);
+    prisma.videoWork.count = vi.fn().mockResolvedValue(1);
+    const res = await service.listAllWorks(1, 20);
+    expect(res.items[0].coverUrl).toBe('http://minio/presigned'); // minio.generatePresignedGetUrl 文件级 mock 固定值
+  });
+  it('coverKey 空 → coverUrl null', async () => {
+    prisma.videoWork.findMany = vi.fn().mockResolvedValue([{ id: 'w2', coverKey: null }]);
+    prisma.videoWork.count = vi.fn().mockResolvedValue(1);
+    const res = await service.listAllWorks(1, 20);
+    expect(res.items[0].coverUrl).toBeNull();
   });
 });

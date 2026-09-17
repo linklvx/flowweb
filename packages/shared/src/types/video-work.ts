@@ -67,19 +67,6 @@ export interface ProcessSnapshotData {
   edges: SnapshotEdge[];
 }
 
-export interface CandidateMedia {
-  id: string;
-  key: string;
-  projectId: string | null;
-  canvasExists: boolean;
-  thumbnailKey: string | null;
-  durationSec: number | null;
-  width: number | null;
-  height: number | null;
-  createdAt: string;
-  previewUrl: string | null;
-}
-
 /** 快照白名单的跨端锚定清单（第八轮裁定，spec §4.6 实现注记）：
  *  真值仍是 CanvasView.tsx:42-51 的 nodeTypes 注册表（8 键）——本常量是两侧测试的锚：
  *  api 断言 WHITELIST 键 ⊇ 本清单（Task 5.1）、web 断言 CanvasView nodeTypes 键 ⊆ 本清单（Task 9.3）。

@@ -68,14 +68,15 @@ describe('AdminVideoWorkController categories/tags', () => {
     expect(service.removeWork).toHaveBeenCalledWith('w1');
   });
 
-  it('路由声明序：静态段（categories/tags/candidates）先于作品 :id（渐进式——本任务 :id 首次出现；uploadCover 由 Task 2.5、getSettings 由 Task 2.6 各自追加进 staticRoutes 数组，追加前引用是 -1 恒红）', () => {
+  // 标题同步（原"categories/tags/candidates"已过期）+ 数组换名：'listCandidates' → 'canvasCheck'（删方法与去名必须同批，悬空名直接红）
+  it('路由声明序：静态段（categories/tags/canvas-check/presign-video）先于作品 :id', () => {
     const proto = AdminVideoWorkController.prototype;
     const names = Object.getOwnPropertyNames(proto).filter(n => n !== 'constructor');
     const idRoutes = ['getWork', 'updateWork', 'deleteWork'].map(n => names.indexOf(n)).filter(i => i >= 0);
-    const staticRoutes = ['listCategories', 'listTags', 'listCandidates', 'uploadCover', 'getSettings', 'presignVideo']; // Task 2 += 'presignVideo'（POST 纳入属防御性完整性——:id 是 GET 吃不掉它，防将来改 @Get）
+    const staticRoutes = ['listCategories', 'listTags', 'canvasCheck', 'uploadCover', 'getSettings', 'presignVideo'];
     for (const s of staticRoutes) {
       expect(names.indexOf(s)).toBeGreaterThan(-1);
-      expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // spec §4.2 红线
+      expect(Math.min(...idRoutes)).toBeGreaterThan(names.indexOf(s)); // :id 吃 GET 静态段（canvas-check 返回 200+null 而非 404）
     }
   });
 
@@ -95,5 +96,11 @@ describe('AdminVideoWorkController categories/tags', () => {
     const res = await controller.presignVideo({ fileName: 'a.mp4', fileSize: 1, fileType: 'video/mp4' });
     expect(service.presignVideo).toHaveBeenCalledWith({ fileName: 'a.mp4', fileSize: 1, fileType: 'video/mp4' });
     expect(res.fileId).toBe('m1');
+  });
+
+  it('canvas-check 转发 query id', async () => {
+    service.canvasCheck = vi.fn().mockResolvedValue({ id: 'p1', name: 'x', ownerName: null, updatedAt: '2026-09-01' });
+    await controller.canvasCheck('p1');
+    expect(service.canvasCheck).toHaveBeenCalledWith('p1');
   });
 });

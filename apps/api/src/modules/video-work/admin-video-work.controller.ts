@@ -27,11 +27,6 @@ export class AdminVideoWorkController {
   @Put('tags/:id') updateTag(@Param('id') id: string, @Body() dto: UpdateVideoTagDto) { return this.service.updateTag(id, dto); }
   @Delete('tags/:id') deleteTag(@Param('id') id: string) { return this.service.deleteTag(id); }
 
-  @Get('candidates')
-  listCandidates(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
-    return this.service.listCandidates(Math.max(1, Number(page) || 1), Math.min(50, Math.max(1, Number(pageSize) || 20)));
-  }
-
   @Post('upload-cover')
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -54,7 +49,10 @@ export class AdminVideoWorkController {
   @Post('presign-video')
   presignVideo(@Body() dto: PresignVideoDto) { return this.service.presignVideo(dto); } // Task 2：静态段声明（:id 之前）
 
-  // Task 2.2+ 追加：candidates / upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）
+  @Get('canvas-check')
+  canvasCheck(@Query('id') id: string) { return this.service.canvasCheck(id); } // @Query 原始类型保持——类 DTO 反而任何多余 query 参数 400（whitelist 对原始类型不生效）
+
+  // Task 2.2+ 追加：upload-cover / settings / 作品 :id CRUD（声明在全部静态段之后）
 
   // ==== 作品 CRUD（:id 参数路由，声明在全部静态段之后——spec §4.2 红线） ====
   @Get() listWorks(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {

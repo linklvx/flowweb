@@ -2,7 +2,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { createHash } from 'crypto';
-import type { CandidateMedia } from '@flowweb/shared'; // 裸包名——shared 无 exports map（package.json 只有 main/types→src/index.ts），子路径 '@flowweb/shared/types/video-work' 不可解析，api 侧 tsc 直接 TS2307（先例 content.service.ts:3）
 import { buildFilteredSnapshot, type RawCanvasData } from './snapshot-filter.util';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
@@ -98,37 +97,20 @@ export class VideoWorkService {
     return { fileId: media.id, uploadUrl: url, key, fields };
   }
 
-  /** 候选视频池（spec §4.4 口径，admin 策展全站——跨团队有意设计 D16/R10） */
-  async listCandidates(page: number, pageSize: number): Promise<{ items: CandidateMedia[]; total: number }> {
-    const skip = (page - 1) * pageSize;
-    const where = {
-      status: 'completed' as const,
-      deletedAt: null,
-      type: 'generated' as const,
-      mimeType: 'video/mp4',
-      metadata: { path: ['origin'], equals: 'video-project' },
-    };
-    const [rows, total] = await Promise.all([
-      this.prisma.media.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize }),
-      this.prisma.media.count({ where }),
-    ]);
-    const projectIds = [...new Set(rows.map(r => r.projectId).filter((p): p is string => !!p))];
-    const existing = projectIds.length
-      ? new Set((await this.prisma.canvasProject.findMany({ where: { id: { in: projectIds } }, select: { id: true } })).map(p => p.id))
-      : new Set<string>();
-    const items: CandidateMedia[] = await Promise.all(rows.map(async r => ({
-      id: r.id,
-      key: r.key,
-      projectId: r.projectId,
-      canvasExists: !!r.projectId && existing.has(r.projectId),
-      thumbnailKey: r.thumbnailKey,
-      durationSec: r.metadata && typeof (r.metadata as any).durationSec === 'number' ? Math.round((r.metadata as any).durationSec) : null,
-      width: (r.metadata as any)?.width ?? null,
-      height: (r.metadata as any)?.height ?? null,
-      createdAt: r.createdAt.toISOString(),
-      previewUrl: await this.presignWork(r.key).catch(() => null), // 第七轮 A5：走 presignWork 短缓存（与列表/详情/缩略图同纪律）——原逐行裸签名 50 次/页
-    })));
-    return { items, total };
+  /** admin 画布回显。getDetail:205 保留内联轻量 boolean 查询是**有意取舍**（公开热路径不加 join）；
+   *  CanvasProject 将来加软删/可见性条件时，getDetail:205 与本函数两处都要改。 */
+  private async findCanvasRef(id: string) {
+    return this.prisma.canvasProject.findUnique({
+      where: { id },
+      select: { id: true, name: true, updatedAt: true, user: { select: { name: true } }, team: { select: { owner: { select: { name: true } } } } },
+    });
+  }
+
+  /** admin-only（AdminGuard /api/admin/ 前缀）+ 有意不做画布 owner 校验——admin 策展跨用户，非漏洞 */
+  async canvasCheck(id: string) {
+    const c = await this.findCanvasRef(id);
+    if (!c) throw new NotFoundException('画布不存在');
+    return { id: c.id, name: c.name, ownerName: c.user?.name ?? c.team.owner.name, updatedAt: c.updatedAt.toISOString() };
   }
 
   // presign + 短缓存纪律（TTL < URL TTL，media.service.ts:16-31 同款）——本任务即定义（Task 3.2 列表/3.3 详情/5.2 缩略图复用；
@@ -187,10 +169,12 @@ export class VideoWorkService {
   }
 
   async listAllWorks(page: number, pageSize: number) {
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.videoWork.findMany({ orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }], skip: (page-1)*pageSize, take: pageSize }),
       this.prisma.videoWork.count(),
     ]);
+    // edit 信息条封面：裸 /flowai/+coverKey 不成立（桶非公开读，presign 查询串才是授权凭据）——列表顺手 presign（短缓存同 listPublished:184）
+    const items = await Promise.all(rows.map(async r => ({ ...r, coverUrl: r.coverKey ? await this.presignWork(r.coverKey) : null })));
     return { items, total };
   }
   async getWorkById(id: string) { return this.prisma.videoWork.findUnique({ where: { id } }); }
