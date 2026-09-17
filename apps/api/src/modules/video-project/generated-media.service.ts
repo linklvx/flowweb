@@ -72,7 +72,8 @@ export class GeneratedMediaService {
     const actualSize = await this.minio.statSize(media.key); // 统一口径（ContentLength ?? 0）——stats.size 不存在，真机必 undefined
     // 配额终判（Q7）：插 statSize 后、thumbnailQueue.add 前——超限时 assertOnConfirm 内部已删对象+删行，
     // 插 add 后缩略图任务指向死行、插 update 后 P2025（R13④）
-    await this.quota.assertOnConfirm(media.id, actualSize, media.key, media.bucket);
+    await this.quota.assertOnConfirm(media.id, actualSize); // D1：key/bucket 已由服务内部读行——这里传的本来就是行内值（:70 已 findUnique 取 media），
+                                                            // 收口后语义完全等价、零行为变化——是签名收窄的机械连带，非顺手改
     const durationSec = Number((media.metadata as any)?.durationSec ?? 0);
     const seekSec = Math.max(1, durationSec * 0.1); // 防前导黑场黑帧；consumer 需支持可选 seekSec（默认 1 保持旧行为）
     await this.thumbnailQueue.add('generate-thumbnail',

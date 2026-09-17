@@ -74,7 +74,7 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', bucket: 'flowai', metadata: { durationSec: 30 } });
     quota.assertOnConfirm.mockRejectedValue(new BadRequestException('存储空间不足，上传已取消'));
     await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow(BadRequestException);
-    expect(quota.assertOnConfirm).toHaveBeenCalledWith('m1', 12_345_678, 'k.mp4', 'flowai'); // actualSize=statSize 终判口径
+    expect(quota.assertOnConfirm).toHaveBeenCalledWith('m1', 12_345_678); // actualSize=statSize 终判口径
     expect(thumb.add).not.toHaveBeenCalled();
     expect(prisma.media.update).not.toHaveBeenCalled(); // 行已被 assertOnConfirm 删——再 update 即 P2025
   });

@@ -67,7 +67,6 @@ export class StorageService {
   }
 
   async confirmUpload(userId: string, dto: ConfirmUploadDto) {
-    // 团队化：上传记录按 id 查，creator 之外须为 media.teamId 成员方可确认
     const media = await this.prisma.media.findFirst({
       where: { id: dto.fileId },
     });
@@ -78,20 +77,19 @@ export class StorageService {
       await assertTeamMember(this.prisma, media.teamId, userId);
     }
 
-    // Verify file exists in MinIO
-    const actualSize = await this.minio.statSize(dto.key); // 统一大小口径（ContentLength ?? 0）
+    // D1 服务层收口：一律以 media 行为唯一事实源。dto.key/dto.fileSize 已不读——
+    // 请求体 key 曾流入 statSize/minio.delete（mismatch 分支）与 assertOnConfirm（配额分支），
+    // 构成任意对象删除面。禁止回退 `media.size ?? dto.fileSize`（会让本性质静默失效）。
+    const actualSize = await this.minio.statSize(media.key);
 
-    // Verify file size (tolerance ±1024)
-    if (Math.abs(actualSize - dto.fileSize) > 1024) {
-      await this.minio.delete(dto.key);
+    if (Math.abs(actualSize - media.size) > 1024) {
+      await this.minio.delete(media.key);
       await this.prisma.media.delete({ where: { id: dto.fileId } });
       throw new BadRequestException('文件大小不匹配，请重新上传');
     }
 
-    // Q7：confirm 二次校验（两并发 presign 可同过，此处按 actualSize 终判）
-    await this.quota.assertOnConfirm(dto.fileId, actualSize, dto.key, media.bucket);
+    await this.quota.assertOnConfirm(dto.fileId, actualSize);
 
-    // Update Media status (id is unique PK, safe to use alone after ownership verified)
     await this.prisma.media.update({
       where: { id: dto.fileId },
       data: { status: 'completed', size: actualSize },

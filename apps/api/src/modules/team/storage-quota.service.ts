@@ -31,15 +31,17 @@ export class StorageQuotaService {
   }
 
   /** confirm 二次校验（Q7：两并发 presign 可同过，confirm 按 actualSize 终判）；
-   * 超限：删 MinIO 对象 + 删 pending Media + 抛错 */
-  async assertOnConfirm(mediaId: string, actualSize: number, key: string, bucket: string): Promise<void> {
+   * 超限：删 MinIO 对象 + 删 pending Media + 抛错。
+   * D1：key 形参已删（bucket 本就是死参）——删的是行内 media.key。原 key 形参吃请求体，
+   * 构成任意对象删除面（自 presign 造 pending 行 + 传受害者 key 即可删任意已发布作品对象）。 */
+  async assertOnConfirm(mediaId: string, actualSize: number): Promise<void> {
     const media = await this.prisma.media.findUnique({ where: { id: mediaId } });
     if (!media?.teamId) return;
     const { storageLimitBytes } = await this.subscription.getLimits(media.teamId);
     const usage = await this.getUsage(media.teamId);
     if (usage + actualSize > storageLimitBytes) {
       try {
-        await this.minio.delete(key);
+        await this.minio.delete(media.key);
       } catch {
         // 对象不存在——继续删记录
       }

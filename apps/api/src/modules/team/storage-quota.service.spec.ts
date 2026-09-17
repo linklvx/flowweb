@@ -51,21 +51,21 @@ describe('StorageQuotaService', () => {
   });
 
   it('③ confirm 二次校验（Q7）：超限删对象+删记录+抛错（事务断言顺序）', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1' });
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1', key: 'uploads/u1/a.png' }); // fixture 必须含 key——删的是行内 key（D1）
     const order: string[] = [];
     minio.delete.mockImplementation(async () => { order.push('minio'); });
     prisma.media.delete.mockImplementation(async () => { order.push('media'); });
 
-    await expect(service.assertOnConfirm('m1', 550, 'k1', 'flowai')).rejects.toThrow('存储空间不足');
+    await expect(service.assertOnConfirm('m1', 550)).rejects.toThrow('存储空间不足'); // D1：删 key/bucket 形参，两参
 
-    expect(minio.delete).toHaveBeenCalledWith('k1');
+    expect(minio.delete).toHaveBeenCalledWith('uploads/u1/a.png'); // 行内 key，非请求体
     expect(prisma.media.delete).toHaveBeenCalledWith({ where: { id: 'm1' } });
     expect(order).toEqual(['minio', 'media']);
   });
 
   it('③ confirm：未超限不动', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1' });
-    await expect(service.assertOnConfirm('m1', 400, 'k1', 'flowai')).resolves.toBeUndefined();
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1', key: 'uploads/u1/a.png' });
+    await expect(service.assertOnConfirm('m1', 400)).resolves.toBeUndefined();
     expect(minio.delete).not.toHaveBeenCalled();
   });
 

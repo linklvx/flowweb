@@ -121,7 +121,7 @@ describe('StorageService', () => {
   });
 
   it('should confirm upload and update status to completed', async () => {
-    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png' });
+    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png', size: 2048000 }); // fixture 补 size 且与请求体 fileSize 差 ≤1024
     const result = await service.confirmUpload('user1', {
       fileId: 'media-1',
       key: 'uploads/u1/test.png',
@@ -136,8 +136,16 @@ describe('StorageService', () => {
     );
   });
 
+  it('D1 victim key：请求体传任意 key 也不生效——statSize/delete 收到的都是 media.key', async () => {
+    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/system/real.mp4', size: 2048000 });
+    minio.statSize.mockResolvedValue(2048000);
+    await service.confirmUpload('user1', { fileId: 'media-1', key: 'victim/obj', fileSize: 1 }); // 攻击载荷：受害者 key + 伪造大小
+    expect(minio.statSize).toHaveBeenCalledWith('uploads/system/real.mp4'); // 用行内 key 探测
+    expect(prisma.media.update).toHaveBeenCalled();                          // 正常完成，victim 无感
+  });
+
   it('confirmUpload 团队成员可确认他人上传', async () => {
-    prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team' });
+    prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k', size: 100 }); // fixture 补 key+size
     prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
     minio.statSize.mockResolvedValue(100);
     await service.confirmUpload('u1', { fileId: 'm1', key: 'k', fileSize: 100 });
@@ -148,23 +156,20 @@ describe('StorageService', () => {
   });
 
   it('confirmUpload 非成员 → 403/400 拒绝', async () => {
-    prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team' });
+    prisma.media.findFirst.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k' }); // 授权在 statSize 之前，无需 size
     prisma.teamMember.findFirst.mockResolvedValue(null);
     minio.statSize.mockResolvedValue(100);
     await expect(service.confirmUpload('u1', { fileId: 'm1', key: 'k', fileSize: 100 })).rejects.toThrow(ForbiddenException);
     expect(prisma.media.update).not.toHaveBeenCalled();
   });
 
-  it('should reject confirm if fileSize mismatch', async () => {
-    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png' });
-    minio.statSize = vi.fn().mockResolvedValue(999);
+  it('should reject confirm if fileSize mismatch（D1 后判据 = actualSize vs media.size；请求体 key 与 fixture 不同——防"实现回退 dto.key 也绿"的真空断言）', async () => {
+    prisma.media.findFirst = vi.fn().mockResolvedValue({ id: 'media-1', userId: 'user1', teamId: 'team1', status: 'pending', key: 'uploads/u1/test.png', size: 2048000 });
+    minio.statSize = vi.fn().mockResolvedValue(999); // 真实对象 999 ≠ 行内 size 2048000
     await expect(
-      service.confirmUpload('user1', {
-        fileId: 'media-1',
-        key: 'uploads/u1/test.png',
-        fileSize: 2048000,
-      }),
-    ).rejects.toThrow();
-    expect(minio.delete).toHaveBeenCalled();
+      service.confirmUpload('user1', { fileId: 'media-1', key: 'victim/obj', fileSize: 999 }), // 请求体 key 故意不同
+    ).rejects.toThrow(); // 请求体 fileSize=999（旧实现会放行——新实现不读它，仍按行内 size 拒）
+    expect(minio.delete).toHaveBeenCalledWith('uploads/u1/test.png'); // 清理也用行内 key（非 victim——攻击 A 独立钉子）
+    expect(minio.delete).not.toHaveBeenCalledWith('victim/obj');
   });
 });
