@@ -82,16 +82,19 @@ describe('category CRUD 缓存失效', () => {
 
 describe('createWork/updateWork 保存校验与发布语义', () => {
   it('(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400', async () => {
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1',
-      allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow('开启创作过程/克隆需要画布来源'); // 泛型 toThrow(BadRequestException) 升级为文案（F2 插入位置 flags→画布→F2 的唯一漂移探测器）
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1',
+    // 泛型 toThrow(BadRequestException) 升级为文案 + **不补 videoMediaId**（spec §4.5 前提）——F2 若抢跑到 flags 之前，
+    // 此用例会抛'视频文件不存在或未完成上传'而非 flags 文案 → 红。补了 mediaId + 默认匹配行会让 F2 在任何顺序下通过，
+    // 顺序不可观测（Task 4 审查 I-1）。顺序正确（flags 先抛）时不查 media、此用例绿。
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
+      allowViewProcess: true, allowClone: false, canvasProjectId: undefined } as any)).rejects.toThrow('开启创作过程/克隆需要画布来源');
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k',
       allowViewProcess: false, allowClone: true, canvasProjectId: undefined } as any)).rejects.toThrow('开启创作过程/克隆需要画布来源');
   });
 
   it('allowClone=true 且 allowViewProcess=false → 400（第八轮裁定：克隆入口在创作过程视图顶栏——开关耦合，防前端不可达死开关；update 语义=合并现有值后判定）', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'n', updatedAt: new Date(), user: null, team: { owner: { name: 'o' } } }); // 防御性：正常时序 flags 先抛、此 stub 不被消费
-    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', videoMediaId: 'm1', canvasProjectId: 'p1',
-      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow('允许克隆必须同时允许查看创作过程');
+    await expect(service.createWork({ title: 't', authorName: 'a', videoKey: 'k', canvasProjectId: 'p1',
+      allowViewProcess: false, allowClone: true } as any)).rejects.toThrow('允许克隆必须同时允许查看创作过程'); // 同样不补 videoMediaId（顺序探测器，见首条 flags 用例注）
     // 现有 allowViewProcess=true：单独开 allowClone 不 400
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: true, allowClone: false, canvasProjectId: 'p1' });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
@@ -586,7 +589,7 @@ describe('updateWork 画布校验 dto-only 口径（勿用 merged——死画布
     await expect(service.updateWork('w1', { canvasProjectId: 'p-404' } as any)).rejects.toThrow('画布不存在');
   });
 
-  it('传 null → 跳过校验、已存值不动（dto-only：null 是"显式清除"语义，不查存在性）', async () => {
+  it('传 null → 跳过存在性校验、显式清除已存值（dto-only：null 是"显式清除"语义，undefined 才是不动）', async () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue(existing());
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     await expect(service.updateWork('w1', { canvasProjectId: null } as any)).resolves.toBeTruthy();
@@ -598,5 +601,12 @@ describe('updateWork 画布校验 dto-only 口径（勿用 merged——死画布
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     await expect(service.updateWork('w1', { title: '新标题' } as any)).resolves.toBeTruthy();
     expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled(); // dto 未带画布 → 不查
+  });
+
+  it('顺序钉子：flags（merged）先于画布校验——allowClone 耦合带不存在画布时抛 flags 文案（画布抢跑则此用例红）', async () => {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue(existing({ allowViewProcess: false }));
+    prisma.canvasProject.findUnique.mockResolvedValue(null); // p-404 不存在——若画布校验抢跑会抛'画布不存在'而非 flags 文案
+    await expect(service.updateWork('w1', { allowClone: true, canvasProjectId: 'p-404' } as any))
+      .rejects.toThrow('允许克隆必须同时允许查看创作过程'); // merged：existing.allowViewProcess=false + dto.allowClone=true → flags 先抛
   });
 });
