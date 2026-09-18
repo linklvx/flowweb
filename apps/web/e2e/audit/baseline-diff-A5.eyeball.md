@@ -26,3 +26,48 @@
 | canvas wrapper colorMode dark + selection/bg 钉回 | **PASS** | 实测 wrapper class `react-flow bg-[#000000] dark`、画板内 --fw-border 解析 #333（.light 撞名已修）；Background transparent/selection 蓝值钉回以 A2 commit 像素 diff 0/1,024,000 留证 |
 | disabled cursor not-allowed | **登记** | 交互态不入快照（informational；index.css 全局行 A4-a 已落） |
 | divide 线涌现（TeamBillingPage:140） | **登记** | 团队账单页不在 8 门禁页；emergence-adjudication-A4.json 已登记 |
+
+---
+
+## A6 验收记录（2026-09-18，A 段收口）
+
+### (0,1,0) 档顺序核验（§2.6-3 余项 → 升格为 A1 组5 常驻测试）
+
+方法：门禁页无交互态禁用 antd Button 可作常驻断言（disabled 态需倒计时/提交中触发，属交互路径），
+按首选路径升格为规则级测试（`e2e/a1-preflight.spec.ts` A1-5）：直读 `document.styleSheets` 全局顶层
+规则序（统一计数，跨域 sheet 抛错跳过），定位 antd 禁用态类规则 vs 产品 sheet 内 preflight
+`:disabled`/`[hidden]`（(0,1,0) 档）+ index.css `button:disabled`（(0,1,1)），断言文档序方向。
+未改任何 src/config——纯测试守卫。
+
+实测（/login，PhoneLoginForm 挂载 antd Input/Button；preview 产物 = 门禁同一构建
+`dist/assets/index-1YM-LGm0.css`，共 6 sheet，产品 sheet=5）：
+
+| 规则 | sheet | 全局规则序 | 判定 |
+|---|---|---|---|
+| `:where(.css-4l8fmu).ant-input-outlined.ant-input-disabled, :where(.css-4l8fmu).ant-input-outlined[disabled]` | 1（antd cssinjs） | 24 | antd 禁用态类规则 |
+| `:disabled` → cursor:default | 5（产品） | 584 | preflight (0,1,0) 档 |
+| `[hidden]:where(:not([hidden=until-found]))` → display:none | 5（产品） | 587 | preflight (0,1,0) 档 |
+| `button:disabled, button[aria-disabled=true], [role=button][aria-disabled=true]` → cursor:not-allowed | 5（产品） | 1480 | index.css (0,1,1) |
+
+结论：24 < 584 < 587 < 1480——产品层（含 preflight (0,1,0) 档规则）整体落位 antd 之后，平 (0,1,0) 档
+文档序后者胜恒归产品层；`button:disabled` (0,1,1) 另以特异性压 preflight `:disabled`
+（not-allowed 落地，目检表上行「disabled cursor」条目即此规则）。G5 已入默认门禁，方向回归即红。
+@xyflow/react/dist/style.css 复核为**并入同一产物 sheet**（非独立路由 chunk，.react-flow__* 在
+index-1YM-LGm0.css 内 101,729 字节）——其层序由同一 G4/G5 守卫覆盖，无独立顺序风险。
+
+### §2.6 六条验收
+
+| # | 条目 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | Playwright computed-style 实证（裸 button 四项归零 / §0.1 分体模型双臂 / 恒浅岛根双保险） | **PASS** | A1 组1–组3 常驻绿（默认套件 11 passed 中的 5 条）：裸按钮四边 solid+0px、padding 0、font-size=父级、background rgba(0,0,0,0)；选中臂 solid+bottom 2px/余 0；裸 border div 1px rgb(51,51,51)；未选中臂 solid+全 0（A4 后绿）；岛根 borderColor rgb(229,231,235) + --fw-border=#e5e7eb 双断言 |
+| 2 | 意外清单为空——机械 diff 判定（两层口径） | **PASS** | `node scripts/css-baseline-diff.mjs` exit 0：意外项属性 0 + 几何 0 = 0；涌现登记闸 offender=0/漂移=0（authorized=60）；配对闸 offender=0；A4 验证 style翻转变宽0=4229/涌现93边24站/表单抵消4/other=0。机械报告 `e2e/audit/baseline-diff-A5.md`（重跑覆盖）+ 本文件上方 §2.4 目检表（人工档） |
+| 3 | 产物 CSS 顺序断言（含 (0,1,0) 档） | **PASS** | A1 组4（元素级：antd cssinjs STYLE 先于产物 LINK，注入顺序回归即红）+ 组5（规则级，上节实测）；@xyflow 样式并入产物 sheet 同守卫覆盖 |
+| 4 | 涌现裁定清单 + 浅/深基线截图留档（B 段对照用） | **PASS** | `e2e/audit/emergence-adjudication-A4.json`（bareBorder 118 逐处裁定/borderColorExplicit 144 批量保留/divide/auxiliaryAudits/visualVerification）+ `e2e/baseline/before-A0/`、`e2e/baseline/after-A/` 双基线齐备（8 门禁页 json+png 成对同构） |
+| 5 | ESLint 可执行 + 新增行禁令拦截 fixture | **PASS** | `pnpm --filter @flowweb/web lint`：flowweb/no-color-hex 523 baselined, 0 new → PASS；拦截 fixture `scripts/__tests__/lint-gate.fixture.test.mjs`（规则拦截 + 增量门禁两组）入 vitest 计数 |
+| 6 | vitest 全绿（必要不充分，兜 TS/逻辑回归） | **PASS** | `npx vitest run`：258 files / 2605 tests passed（一次通过无 flake）；`npx tsc -b` 0 错误 |
+
+**A 段收口基线**：默认门禁 = `npx playwright test` 11 passed（4 env + 7 a1）+ 5 collector skip /
+differ exit 0 三闸 PASS / lint PASS 523+0 / vitest 2605 全绿 / tsc 0。
+遗留小项（非验收项，登记不阻塞）：differ 预期登记文本中「A1_RED 组1 四项归零门禁覆盖」字样已过时
+（A1_RED 守卫 A6 移除，组1 现为常驻门禁）——属 `css-baseline-diff.mjs` 预期字符串与 A5 归档历史措辞，
+纯标签性陈旧，随下次 differ 触碰顺手更正即可。

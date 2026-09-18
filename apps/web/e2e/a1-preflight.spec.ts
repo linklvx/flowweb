@@ -1,15 +1,13 @@
-// A1 红用例（TDD red）：preflight 重开（A2）前的验收断言冻结。当前 preflight:false 状态下，
-// 组1 / 组2（选中臂 + 裸 border div）/ 组3 必须红且红因正确（实际值 = UA 样式，见各断言 message）；
-// 组2 未选中臂红（A4 删 border-none 才绿，其红即 A4 验收信号）；组4 顺序守卫现在绿、A2 后必须保持绿。
+// A1 常驻回归门禁（A6 起并入默认 `npx playwright test`）：基础层守卫冻结集，永久防回归——
+// 组1 裸按钮四属性归零（border/padding/font-size/background-color）/ 组2 分体模型双臂（选中臂 + 裸
+// border div + 未选中臂）/ 组3 login 岛根双保险（computed border-color + --fw-border 直读）/
+// 组4 产品 CSS 顺序守卫（antd STYLE 先于产物 LINK）/ 组5 (0,1,0) 档顺序核验（A6 增，规则级直读
+// document.styleSheets）。
 //
-// 调用方式（默认 `npx playwright test` 不跑本文件——env 守卫跳过，默认门禁维持 4 passed）：
-//   A1_RED=1 npx playwright test e2e/a1-preflight.spec.ts
-//
-// 生命周期：
-//   A2 验证 = 带 env 跑：组1 / 组2 选中臂+裸 border div / 组3 全绿；组2 未选中臂仍红（border-none (0,1,0)
-//     恒压 preflight `*` (0,0,0)）。
-//   A4 验证（删 WorkspaceTabBar 未选中臂 border-none）= 带 env 跑：本文件全部绿。
-//   A6 = 删除下方 env 守卫，本套并入默认回归门禁（A1 不自行移除）。
+// 历史（TDD red-first）：A1 红先写——preflight:false 下组1/组2 选中臂+裸 border div/组3 必红且红因=UA 样式
+// 实测（见各断言 message）；组4 当时已绿防注入顺序回归。A2 preflight 重开后前三组转绿；A4 删 WorkspaceTabBar
+// 未选中臂 border-none 后未选中臂转绿——至此 6/6 恒绿，A6 增组5 后 7/7。describe/test 标题中【红→A2 绿】
+// 【A4 前恒红】等字样为各阶段验收史标注，非当前状态。
 //
 // 探针裁定（judgment，依据 e2e/audit/audit-A0.json 注册表 + 源码逐个复核）：
 // * 组1 用合成裸按钮：注册表 4 个推荐探针候选（VideoNodeToolbar 视频截帧/音频分离/下载/全屏）全部携带
@@ -39,8 +37,6 @@ import { test, expect, type Page } from '@playwright/test';
 
 const HERE = import.meta.dirname!;
 const USER_STATE = path.join(HERE, '.auth', 'user.json');
-
-test.skip(!process.env.A1_RED, 'A1 红用例专用：A1_RED=1 npx playwright test e2e/a1-preflight.spec.ts（A6 时移除本守卫并入默认门禁）');
 
 /** 已登录 /works（gate USER storageState）；门禁画布行可见即就绪 */
 async function openWorks(page: Page) {
@@ -225,5 +221,83 @@ test.describe('A1-4【现在绿，A2 后必须仍绿】产品 CSS 顺序守卫',
     expect(s.productIdx, `[G4] 未找到 vite 产物 CSS link（/assets/*.css）；实际 head 序列=${s.headOrder}`).toBeGreaterThanOrEqual(0);
     expect(s.antdIdx, `[G4] antd cssinjs style 必须先于产品 CSS link（现序防回归：产品层对 antd 平 specificity 可胜）；实际 head 序列=${s.headOrder}`).toBeLessThan(s.productIdx);
     await ctx.close();
+  });
+});
+
+test.describe('A1-5【A6 增】(0,1,0) 档顺序核验（§2.6-3 余项）', () => {
+  // 平 specificity（(0,1,0) 档）时级联按文档序取后者：preflight 的 :disabled/[hidden]（(0,1,0) 档）要胜过
+  // antd 同档类选择器（如 .ant-btn{cursor:pointer}），必须文档序位于 antd 注入之后。G4 已断言元素级顺序
+  // （antd STYLE 先于产物 LINK）；本组下钻规则级——直读 document.styleSheets 定位全局规则序：antd 禁用态
+  // 类规则（.ant-btn:disabled 族随 Button 挂载整包注入）必须先于产品 sheet 内 preflight
+  // :disabled{cursor:default}、[hidden]{display:none}（两规则 (0,1,0)）与 index.css
+  // button:disabled{cursor:not-allowed}（(0,1,1)，经特异性压 preflight，位序同向佐证产品层最后落位）。
+  test('antd 禁用态类规则先于产品 :disabled/[hidden] 规则（文档序平局归产品层）', async ({ page }) => {
+    await openLogin(page); // PhoneLoginForm 挂载 antd Input/Button → 其样式（含禁用态规则）整包注入
+    // 自包含快照函数（page.evaluate 直传，禁闭包依赖）：全 sheet 顶层规则序统一计数（跨域 sheet cssRules
+    // 抛 SecurityError 则跳过该 sheet，计数口径一致）；未命中以 -1/空串回传，断言期统一判定
+    const snapStylesheets = () => {
+      const isProductSheet = (i: number) => {
+        const n = document.styleSheets[i].ownerNode as HTMLLinkElement | null;
+        return !!n && n.tagName === 'LINK' && /\/assets\/[^/]+\.css$/.test(n.getAttribute('href') ?? '');
+      };
+      const locate = (from: number, to: number, pred: (r: CSSStyleRule) => boolean) => {
+        let g = 0;
+        for (let i = 0; i <= to && i < document.styleSheets.length; i++) {
+          let rules: CSSRuleList;
+          try {
+            rules = document.styleSheets[i].cssRules;
+          } catch {
+            continue;
+          }
+          for (let j = 0; j < rules.length; j++) {
+            const r = rules[j];
+            if (i >= from && r instanceof CSSStyleRule && pred(r)) return { global: g, sheetIdx: i, selectorText: r.selectorText };
+            g++;
+          }
+        }
+        return null;
+      };
+      let productSheetIdx = -1;
+      for (let i = 0; i < document.styleSheets.length; i++) {
+        if (isProductSheet(i)) {
+          productSheetIdx = i;
+          break;
+        }
+      }
+      const flat = (h: { global: number; sheetIdx: number; selectorText: string } | null) => h ?? { global: -1, sheetIdx: -1, selectorText: '' };
+      // antd 禁用态类规则只在产品 sheet 之前的 sheet 里找（其位序本就必须 < 产品 sheet）
+      const antd = productSheetIdx >= 0 ? locate(0, productSheetIdx - 1, (r) => r.selectorText.includes('.ant-') && /:disabled|\[disabled\]/.test(r.selectorText)) : null;
+      const pre = (pred: (r: CSSStyleRule) => boolean) => (productSheetIdx >= 0 ? locate(productSheetIdx, productSheetIdx, pred) : null);
+      return {
+        productSheetIdx,
+        antdDisabled: flat(antd),
+        preflightDisabled: flat(pre((r) => r.selectorText === ':disabled' && r.style.cursor === 'default')),
+        preflightHidden: flat(pre((r) => r.selectorText.includes('[hidden]') && r.style.display === 'none')),
+        productButtonDisabled: flat(pre((r) => r.selectorText.includes('button:disabled') && r.style.cursor === 'not-allowed')),
+      };
+    };
+    await expect
+      .poll(
+        async () => {
+          const s = await page.evaluate(snapStylesheets);
+          return [s.productSheetIdx, s.antdDisabled.global, s.preflightDisabled.global, s.preflightHidden.global, s.productButtonDisabled.global].every((v) => v >= 0);
+        },
+        { message: '规则级定位（antd 禁用态规则注入 + 产品 sheet 内 preflight/button:disabled 规则出现）', timeout: 10_000 },
+      )
+      .toBe(true);
+    const s = await page.evaluate(snapStylesheets);
+    const brief = JSON.stringify(s);
+    const dump = `快照=${brief}`;
+    expect(s.productSheetIdx, `[G5] 未找到 vite 产物 CSS sheet（/assets/*.css）；${dump}`).toBeGreaterThanOrEqual(0);
+    expect(s.antdDisabled.global, `[G5] 产品 sheet 之前未定位到 antd 禁用态类规则（.ant-*:disabled/[disabled]）——cssinjs 未注入或注入点回归；${dump}`).toBeGreaterThanOrEqual(0);
+    expect(s.preflightDisabled.selectorText, `[G5] 产品 sheet 内未定位到 preflight :disabled{cursor:default}（(0,1,0) 档）；${dump}`).toBe(':disabled');
+    expect(s.preflightHidden.selectorText, `[G5] 产品 sheet 内未定位到 preflight [hidden]{display:none}（(0,1,0) 档）；${dump}`).toContain('[hidden]');
+    expect(s.productButtonDisabled.selectorText, `[G5] 产品 sheet 内未定位到 index.css button:disabled{cursor:not-allowed}（(0,1,1)）；${dump}`).toContain('button:disabled');
+    expect(s.antdDisabled.sheetIdx, `[G5] antd 禁用态规则 sheet 位必须先于产品 sheet；${dump}`).toBeLessThan(s.productSheetIdx);
+    // 方向断言（全局规则序）：平 (0,1,0) 档文档序后者胜 → antd 禁用态规则必须先于产品三规则
+    expect(s.antdDisabled.global, `[G5] antd 禁用态规则(${s.antdDisabled.selectorText})必须先于产品 :disabled 规则(${s.preflightDisabled.selectorText})——平 (0,1,0) 档文档序后者胜；${dump}`).toBeLessThan(s.preflightDisabled.global);
+    expect(s.antdDisabled.global, `[G5] antd 禁用态规则(${s.antdDisabled.selectorText})必须先于产品 [hidden] 规则(${s.preflightHidden.selectorText})；${dump}`).toBeLessThan(s.preflightHidden.global);
+    expect(s.antdDisabled.global, `[G5] antd 禁用态规则(${s.antdDisabled.selectorText})必须先于产品 button:disabled 规则(${s.productButtonDisabled.selectorText})；${dump}`).toBeLessThan(s.productButtonDisabled.global);
+    await test.info().attach('G5-stylesheet-order', { body: JSON.stringify(s, null, 2), contentType: 'application/json' });
   });
 });
