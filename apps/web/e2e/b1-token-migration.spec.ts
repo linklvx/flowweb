@@ -121,9 +121,9 @@ const STATIC_PROBES: Array<TokenProbe & { page: 'works' | 'login' }> = [
     id: 'topbar-赚积分-前景',
     page: 'works',
     prop: 'color',
-    computed: 'rgb(208, 208, 208)', // #d0d0d0 无对应 token → 字面保留
+    computed: 'rgb(226, 232, 240)', // B2-b 语义通道：#d0d0d0(208) 并入正文 --fw-text（Δ25/255，档位角色同为正文前景）
     locate: (page) => page.getByRole('link', { name: '赚积分' }),
-    why: 'text-[#d0d0d0] 非 token 精确值，B2 机械替换不改写，computed 恒定',
+    why: 'text-[#d0d0d0] → text-text（B2-b 灰阶归并；differExpectedPairs 已登记 color 配对 rgb(208,208,208)→rgb(226,232,240)）',
   },
   {
     id: 'login-横幅-恒浅岛深字',

@@ -14,7 +14,7 @@
       "scripts/css-baseline-diff.mjs B2 预期类别（differExpectedPairs——配对命中即吸收，未登记即意外）",
       "B6 预期变化清单（浅色档视觉复核 + 目检表）"
     ],
-    "totalCount": { "codemodReplacements": 370, "textOnAccentSites": 5, "border333Removals": 28 },
+    "totalCount": { "codemodReplacements": 370, "textOnAccentSites": 5, "border333Removals": 28, "b2bSemanticSwaps": 278, "b2bWhitelistKeeps": 43 },
     "computedPairNormalization": "chromium 序列化口径直比（rgb(226, 232, 240) / rgba(255, 255, 255, 0.45)）；differ 侧统一去空格小写后比对"
   },
   "channel1": {
@@ -81,29 +81,81 @@
       "border-white 精确 ×2(WorkspaceTabBar 选中臂下划线)、from-black/60|70（渐变）、bg-black 族 ×17、text-black 非强调填充 ×8——无 token 等价保留"
     ]
   },
+  "b2bSemanticChannel": {
+    "name": "B2-b 残存语义裁决（312 → 白名单外 0）：灰阶按有效亮度归并 dim/text 档、卡面邻值归并 surface/surface-dim、alpha-hex 归并 overlay、#333 非边框逐位裁定",
+    "date": "2026-09-18",
+    "luminanceBasis": "暗色档实际底色上的有效值：dim-1/2/3 在 #141414 上≈#5A5A5A/#7E7E7E/#A1A1A1，在 #1A1A1A 卡上≈#5F/#81/#A1；overlay-1/2/3 在 #141414 上≈#20/#2C/#43。按位点底色取最近档（Δ≤20/255 为主，最大 #444→dim-1 Δ27 为调试文本可读性提升）",
+    "familyDecisions": [
+      { "family": "灰阶梯 text（#888×95/#666×26/#ccc×41/#555×10/#a8a8a8/#a0a0a0/#aaa/#999/#bbb/#919191/#707070/#646464/#444/#d0d0d0）", "mapped": 269, "to": "#888/#707070→dim-2；#666/#555/#646464/#444→dim-1；#999/#aaa/#a8a8a8/#a0a0a0/#bbb/#919191→dim-3；#ccc/#d0d0d0→text", "kept": 0 },
+      { "family": "卡面族 bg/border（#1A1A1A×21/#1a1a1a×4/#1F1F1F×3/#1C1C1C×4/#252525×11/hover×1/#242424/#2a2a2a×9/#222×2/#252525 边/#262626/#0f0f0f×6/#111×3）", "mapped": 66, "to": "bg→bg-surface（Δ1-4）/bg-surface-dim（Δ1-2）/bg-bg（Δ3-5）；边→border-surface-dim（Δ1-4）——悬停态与卡面漂移≤4/255 不可感知，平铺大面也全在 Δ5 内", "kept": 0 },
+      { "family": "alpha-hex 8 位（#ffffff15×3/#ffffff08/#ffffff10/#ffffff18）", "mapped": 6, "to": "overlay-2/overlay-1/overlay-1/overlay-2（有效 alpha 最近档，Δ≤0.03）", "kept": 0 },
+      { "family": "#333 非边框（bg×2/hover:bg×1/text×3）", "mapped": 3, "to": "bg-surface-dim（Δ13/255 头像占位/分隔条——占位元素不可辨）；text×3 白名单（dim-1 Δ39 无近邻）", "kept": 3 },
+      { "family": "accent-[#4ade80]", "mapped": 1, "to": "accent-accent（产物 CSS 实证 .accent-accent{accent-color:var(--fw-accent)} 编译通过）", "kept": 0 },
+      { "family": "un-tiered white/NN（border-white×2/white·15×2/hover:white·15×1/hover:border-white·40×4/bg-white×2/bg-white·40×1）", "mapped": 12, "to": "border-text-strong×2（TabBar 选中臂，Δ8）；border-overlay-2×2（.15 等距取暗档）；hover:bg-overlay-3（基座 overlay-2——取 2 档 hover 无效，任务书缺省档在此位点读断，按就近可用档偏离）；hover:border-text-dim-3×4（有效值 Δ39 最近）；bg-text-strong×2（轮播选中点/旋钮钮头，Δ8）；bg-overlay-3×1（非选中点 .4→.2）", "kept": 0 },
+      { "family": "档位徽章/科技蓝/强调 hover 变体/反白 CTA/场景底色/特例", "mapped": 0, "kept": 43, "to": "白名单（见 whitelistKeeps 对应家族）" }
+    ],
+    "testSyncs": [
+      "src/components/layout/Sidebar.test.tsx（border-r-[#ffffff18]→border-r-overlay-2 含用例名）",
+      "src/pages/canvas/components/ProjectTitle.test.tsx（border-[#555]→border-text-dim-1 含用例名）",
+      "src/pages/workspace/__tests__/__snapshots__/SupportComponents.test.tsx.snap（bg-[#1F1F1F]→bg-surface ×10）",
+      "e2e/b1-token-migration.spec.ts（静态探针 topbar-赚积分 rgb(208,208,208)→rgb(226,232,240) 钉 B2-b 归并后值）"
+    ]
+  },
   "differExpectedPairs": {
-    "note": "css-baseline-diff.mjs B2 预期类别消费：color（表单控件采集）/borderColor（全元素采集）变化的 (before,after) 配对命中本表即吸收；未登记配对 = 意外（门禁 exit 1）。backgroundColor 不在冻结属性集（A0 冻结不可复采）——B2 值变化经 b1 探针 computed 零回退 + B6 目检覆盖。等值换（通道①③与 overlay/dim 暗色精确档）computed 不变，天然不产生 diff 条目，不入本表。",
+    "note": "css-baseline-diff.mjs B2 预期类别消费：color（表单控件采集）/borderColor（全元素采集）变化的 (before,after) 配对命中本表即吸收；未登记配对 = 意外（门禁 exit 1）。backgroundColor 不在冻结属性集（A0 冻结不可复采）——B2 值变化经 b1 探针 computed 零回退 + B6 目检覆盖。等值换（通道①③与 overlay/dim 暗色精确档）computed 不变，天然不产生 diff 条目，不入本表。B2-b 追加（siteCount=全改写位点数；门禁页实际渲染命中为子集，未渲染配对吸收 0 条无害）。",
     "pairs": [
-      { "prop": "color", "before": "rgb(255, 255, 255)", "after": "rgb(226, 232, 240)", "siteCount": 98, "family": "text-white→text-text" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.8)", "after": "rgb(226, 232, 240)", "siteCount": 7, "family": "text-white/80→text-text" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.9)", "after": "rgb(226, 232, 240)", "siteCount": 8, "family": "text-white/90→text-text" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.4)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 5, "family": "text-white/40→dim-2" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.5)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 9, "family": "text-white/50→dim-2" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.55)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 2, "family": "text-white/55→dim-3" },
-      { "prop": "color", "before": "rgba(255, 255, 255, 0.7)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 4, "family": "text-white/70→dim-3" },
-      { "prop": "color", "before": "rgb(0, 0, 0)", "after": "rgb(20, 20, 20)", "siteCount": 5, "family": "text-black→text-on-accent" }
+      { "prop": "color", "before": "rgb(255, 255, 255)", "after": "rgb(226, 232, 240)", "siteCount": 98, "family": "B2a text-white→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.8)", "after": "rgb(226, 232, 240)", "siteCount": 7, "family": "B2a text-white/80→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.9)", "after": "rgb(226, 232, 240)", "siteCount": 8, "family": "B2a text-white/90→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.4)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 5, "family": "B2a text-white/40→dim-2" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.5)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 9, "family": "B2a text-white/50→dim-2" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.55)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 2, "family": "B2a text-white/55→dim-3" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.7)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 4, "family": "B2a text-white/70→dim-3" },
+      { "prop": "color", "before": "rgb(0, 0, 0)", "after": "rgb(20, 20, 20)", "siteCount": 5, "family": "B2a text-black→text-on-accent" },
+      { "prop": "color", "before": "rgb(136, 136, 136)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 95, "family": "B2b #888→dim-2（含 hover:×1/disabled:0——营销域 disabled 位点未迁）" },
+      { "prop": "color", "before": "rgb(102, 102, 102)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 26, "family": "B2b #666→dim-1" },
+      { "prop": "color", "before": "rgb(204, 204, 204)", "after": "rgb(226, 232, 240)", "siteCount": 41, "family": "B2b #ccc→text（静态 ×21 + hover: ×20；含 canvas 门禁页 antd 成员 Button）" },
+      { "prop": "color", "before": "rgb(85, 85, 85)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 10, "family": "B2b #555→dim-1" },
+      { "prop": "color", "before": "rgb(208, 208, 208)", "after": "rgb(226, 232, 240)", "siteCount": 2, "family": "B2b #d0d0d0→text（TopActionBar BTN/CreateCanvasCard(home)；B1 静态探针同步钉新值）" },
+      { "prop": "color", "before": "rgb(17, 17, 17)", "after": "rgb(20, 20, 20)", "siteCount": 2, "family": "B2b #111→on-accent（协作头像字/科技蓝 CTA 字）" },
+      { "prop": "color", "before": "rgb(15, 15, 15)", "after": "rgb(20, 20, 20)", "siteCount": 3, "family": "B2b #0f0f0f→on-accent（bg-accent 按钮上文本 ×3）" },
+      { "prop": "color", "before": "rgb(168, 168, 168)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 4, "family": "B2b #a8a8a8→dim-3" },
+      { "prop": "color", "before": "rgb(160, 160, 160)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 3, "family": "B2b #a0a0a0→dim-3" },
+      { "prop": "color", "before": "rgb(170, 170, 170)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 4, "family": "B2b #aaa→dim-3" },
+      { "prop": "color", "before": "rgb(112, 112, 112)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 2, "family": "B2b #707070→dim-2" },
+      { "prop": "color", "before": "rgb(100, 100, 100)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 2, "family": "B2b #646464→dim-1（搜索图标+placeholder）" },
+      { "prop": "color", "before": "rgb(68, 68, 68)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 1, "family": "B2b #444→dim-1（CanvasTopBar 调试 pid 文本）" },
+      { "prop": "color", "before": "rgb(153, 153, 153)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 1, "family": "B2b #999→dim-3（KSP 关闭图标）" },
+      { "prop": "color", "before": "rgb(187, 187, 187)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 1, "family": "B2b #bbb→dim-3（KSP 快捷键标签）" },
+      { "prop": "color", "before": "rgb(145, 145, 145)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 1, "family": "B2b #919191→dim-3（Vip 弹窗脚注）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.094)", "after": "rgba(255, 255, 255, 0.1)", "siteCount": 1, "family": "B2b border-r-#ffffff18→overlay-2（Sidebar 右边——works/videos 门禁页恒渲染）" },
+      { "prop": "borderColor", "before": "rgb(255, 255, 255)", "after": "rgb(247, 247, 247)", "siteCount": 2, "family": "B2b border-white→border-text-strong（TabBar 选中臂下划线 ×2——works 门禁页渲染）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.15)", "after": "rgba(255, 255, 255, 0.1)", "siteCount": 2, "family": "B2b border-white/15→overlay-2（CreditsDropdown ×2——.15 等距取更暗档）" },
+      { "prop": "borderColor", "before": "rgb(42, 42, 42)", "after": "rgb(38, 38, 38)", "siteCount": 9, "family": "B2b border-#2a2a2a→border-surface-dim" },
+      { "prop": "borderColor", "before": "rgb(34, 34, 34)", "after": "rgb(38, 38, 38)", "siteCount": 2, "family": "B2b border-#222→border-surface-dim（TeamDetail 分区分隔）" },
+      { "prop": "borderColor", "before": "rgb(37, 37, 37)", "after": "rgb(38, 38, 38)", "siteCount": 1, "family": "B2b border-#252525→border-surface-dim（MembershipPage 表行）" },
+      { "prop": "borderColor", "before": "rgb(36, 36, 36)", "after": "rgb(38, 38, 38)", "siteCount": 1, "family": "B2b border-#242424→border-surface-dim（Vip 卡边）" },
+      { "prop": "borderColor", "before": "rgb(85, 85, 85)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 8, "family": "B2b border-#555→border-text-dim-1（静态 ×1 + hover: ×7）" },
+      { "prop": "borderColor", "before": "rgb(17, 17, 17)", "after": "rgb(20, 20, 20)", "siteCount": 1, "family": "B2b border-#111→border-on-accent（协作头像描边）" },
+      { "prop": "borderColor", "before": "rgb(54, 54, 54)", "after": "rgba(255, 255, 255, 0.1)", "siteCount": 1, "family": "B2b border-#363636→border-overlay-2（KSP 区块分隔，oklab 面板上有效值 Δ5）" }
     ]
   },
   "whitelistKeeps": {
-    "note": "本批刻意不改写的字面值家族（值+理由）；B2-b 语义化通道与 domain semantify 17 另裁",
+    "note": "B2-a/B2-b 两批合计刻意不改写的字面值家族（值+理由）；B2-b 语义通道已落（见 b2bSemanticChannel），domain semantify 17 另裁",
     "families": [
       { "family": "board 画板恒深域（canvas/components/{nodes,edges,groups} 全部字面值）", "reason": "D4：React Flow viewport 内节点工具恒深，不随站点主题化", "representatives": "VideoConfigPanel text-[#4ade80]、ConnectionLine hover:bg-[#ef4444]、TextNodeToolbar rgb(247,247,247)、ImageFullscreenViewer/VideoFullscreenViewer/TextNodeFullscreen 全屏查看器" },
       { "family": "videos 整域（pages/videos/** 全部字面色）", "reason": "D4：视频播放域恒深；B1 spec 注释明确不采 videos 探针", "representatives": "VideoCard bg-[#262626]、ProcessView bg-[#141414]/bg-[#1e1e1e]/bg-[#4ade80]、PlayView text-[#4ade80]、CarouselBar:29 hover:ring-white/60（恒深 keep，非通道 ring 4 位点）" },
       { "family": "video-editor 岛 + MaterialLibrary 岛", "reason": "D4 岛内恒深：自带暗色自持 UI（--ve-*/MaterialLibraryModal.css B2-b 另裁）", "representatives": "ClipBlock 内联选区色、FilePreviewPopover bg-[#262626]、FolderTree/FolderContextMenu white/NN" },
       { "family": "营销/登录页（login、register、AuthModal、PhoneLoginForm、auth/LoginModal、WeChatQRLogin）", "reason": "D4 固有样式岛：自持浅色/自绘暗色卡（AuthModal 已 @deprecated）；B1 探针恒浅岛 bg-[#f5f5f5] 红线未触碰", "representatives": "register border-[#333]×4 + bg-[#4ade80] + text-[#e2e8f0]、AuthModal text-[#e2e8f0]/bg-[#4ade80]/text-[#4ade80]、#1F6DFF 营销蓝全域豁免" },
       { "family": "#6C5CE7 全域豁免", "reason": "任务书白名单：品牌紫全域豁免", "representatives": "未在跟随域迁移文件出现，防后续批次误迁" },
-      { "family": "跟随域非精确值 hex（312 处残存，B2 机械通道后仍保留）", "reason": "机械通道仅精确等值替换；非 token 值强改写会造成 1/255 漂移（B1 登记教训）", "representatives": "灰阶梯 #888×91/#666×26/#555×10/#ccc×13/#444/#a0a0a0×3/#707070×2/#d0d0d0×2 等；卡面 #1A1A1A×17/#1F1F1F×3/#252525×10/#1C1C1C×4/#1a1a1a×4/#242424/#2a2a2a×9/#222×2/#363636/#0f0f0f×6/#111×3/#141820×2/#0a0e1a×2/#000000；档位徽章 #f59e0b×5/#a855f7×2/#3b82f6×2/#9ca3af×2；品牌/科技蓝 #5DDCFF×4(hover ×2)/#07b8dd/#09CAF5；悬停深浅 #22c55e/#3bbf6f×3/#ff6b6b/#7ce4ff/#e8e8e8/#e5e5e5/#e0e0e0/#f0f0f0；alpha-hex #ffffff15×3/#ffffff08/#ffffff10/#ffffff18（Sidebar 分隔线）；斜杠族 bg-[#4ade80]/10|15|20、hover:border-[#4ade80]/50（var 键配 /NN 零输出无 token 等价）；accent-[#4ade80]（accent-color 表单属性非四通道）；bg-[#333]×2/text-[#333]×3（#333 通道仅 border）；#f7f7f7/#1a1a2e（NodePalette/ImageWithFallback 特例）；text-[#f59e0b]×5（档位徽章文本随填充保留）" },
-      { "family": "跟随域 white/NN 无档位映射", "reason": "五通道映射只覆盖 5|10|20 与 text 档位表；/15 /25 /40、bg-white 精确、border-white 精确、bg-black 族、text-black 非强调填充 ×8 无 token 等价", "representatives": "hover:bg-white/15、border-white/15×2、hover:border-white/40×4、border-white×2（TabBar 选中臂）、bg-white×10、bg-black/40|50|60|70|80×17、from-black/60|70、text-black（TopActionBar:91/94/128、CanvasTopBar:151/154、TeamDetail:133/243、CreateCanvasCard(home):32——填充为 #f59e0b/#9ca3af/bg-white/antd 菜单）" },
+      { "family": "跟随域档位徽章四色 + 随附文本（B2-b 保留）", "reason": "套餐/积分档位状态色（amber/purple/blue/gray），无语义 token 等价；徽章底与其上黑字为一个视觉单元", "representatives": "bg-[#f59e0b]×3+text-[#f59e0b]×5+TeamDetail bg-[#f59e0b] CTA+TeamBilling Button 内联 style、bg-[#a855f7]×2、bg-[#3b82f6]×2、bg-[#9ca3af]×2（TopActionBar:91-94/CanvasTopBar:151-154 各 ×4 + CreditsPage/TeamDetail/TeamBilling 文本 ×7）；其上 text-black（amber/gray 亮度需黑字）随底保留" },
+      { "family": "跟随域科技蓝/品牌蓝（B2-b 保留）", "reason": "充值/团队产品线的自有强调色系（#5DDCFF 主 + 派生 hover/文本），与 --fw-accent 绿并列的第二强调轴，强并会造成色相漂移", "representatives": "border/bg/text/border-b-[#5DDCFF]×7、hover:bg-[#7ce4ff]、hover:text-[#5DDCFF]、text-[#07b8dd]（Vip 限时活动）、text-[#09CAF5]（KSP 节标题）、hover:border-[#4893FF]（TopActionBar BTN）——CreditsPage/TeamBilling/TeamDetail/KSP/VipSubscribeModal" },
+      { "family": "跟随域强调 hover 亮/暗变体（B2-b 保留）", "reason": "饱和填充上的 hover 拾亮一步变体——映射到 token 会与基色同值失去反馈；无 hover 档 token", "representatives": "hover:bg-[#3bbf6f]×3（bg-accent 按钮拾亮）、hover:bg-[#22c55e]×1（AIAssistantFAB）、hover:text-[#ff6b6b]×1（danger 文本拾亮）" },
+      { "family": "跟随域反白 CTA（B2-b 保留）", "reason": "深底上的纯白实心按钮（登录/充值/新建）——浅色档 surface=#ffffff 会把暗底站点的按钮染成不可辨，纯白是跨主题刻意恒定值", "representatives": "TopActionBar 登录/注册 bg-white+hover:bg-[#e8e8e8]+text-black、ConfirmModal secondary bg-white+hover:bg-[#e5e5e5]+text-[#1A1A1A]、CreditsDropdown 充值卡 bg-white+hover:bg-zinc-100（配 zinc/amber 浅色子卡自成体系）、CreateCanvasCard(home) 新建按钮 bg-white+hover:bg-[#f0f0f0]+text-black" },
+      { "family": "跟随域场景底色（B2-b 保留）", "reason": "3D 视口/React Flow 画布的场景后底——纯黑/深 navy 是渲染对比刻意值，非界面表面层级", "representatives": "CanvasView bg-[#000000]（React Flow viewport）、Angle3D/Lighting ThreePreview bg-[#0a0e1a]×2 + ControlPanel bg-[#141820]×2（3D 场景底）" },
+      { "family": "跟随域 #333 非边框文本 + NodePalette/ImageWithFallback 特例（B2-b 保留）", "reason": "text-#333=超暗装饰分隔（Footer ｜×2/TeamDetail 空席位占位），dim-1 Δ39/255 无近邻档强改会亮一档；NodePalette 浅色面板岛、ImageWithFallback 图片占位 navy 为 B2-a 已登记特例", "representatives": "text-[#333]×3、NodePalette bg-[#f7f7f7]+hover:bg-[#e0e0e0]、ImageWithFallback bg-[#1a1a2e]" },
+      { "family": "跟随域斜杠族（hex+slash，B2-a 起保留；B2-b 复核仍成立）", "reason": "var() 单值键配 /NN 零输出（slash-gate 常驻拦截新增）；hex+slash 编译可用且无 token 等价——透明度轴本身即语义", "representatives": "bg-[#4ade80]/10|15|20、hover:border-[#4ade80]/50、bg-[#5DDCFF]/10、bg-[#666]/15、bg-[#888]/10、bg-[#f59e0b]/15、bg-[#ef4444]/15、hover:bg-[#252525]/50、bg-[#1A1A1A]/90×4、bg-[#1C1C1C]/95×2、hover:bg-[#4ade80]/10×2（B2-a 漏计的精确等值 hover 形，slash 形保留）" },
+      { "family": "跟随域 white/NN 无档位映射残余（B2-b 后）", "reason": "B2-b 已裁走 border-white/15×2→overlay-2、border-white×2→text-strong、hover:border-white/40×4→text-dim-3、hover:bg-white/15→overlay-3（基座 overlay-2 上取 3 档保反馈，偏离任务书缺省 2 档已登记）、bg-white 指示点/旋钮→text-strong、bg-white/40→overlay-3；余下为反白 CTA（另列）与 bg-black 蒙层族", "representatives": "bg-black/40|50|60|70|80×17（遮罩蒙层）、from-black/60|70（渐变）、text-black 非强调填充 ×8（TopActionBar:91/94/128、CanvasTopBar:151/154、TeamDetail:133/243、CreateCanvasCard(home):32——填充为档位徽章/反白/antd 菜单）；bg-white/[0.08]、hover:bg-white/[0.1]（CreditsDropdown 括号 alpha 形——审计 colorDebt 口径外，随反白子卡保留）" },
       { "family": "内联 style 语义色与 Three/canvas-renderer 输出色", "reason": "任务书白名单：inline style 通道归 B2-b（ClipBlock 选区、WechatOutlined #07c160、userColor 协作色、ConfigProvider antd token #252525/#3a3a3a 等）" },
       { "family": "测试夹具数据", "reason": "测试文件内字面值为断言/夹具，随源同步不单独迁移", "representatives": "board 域测试（TextConfigPanel.test/TextNodeToolbar.test）、videos 测试四件——断言保留字面值即绿" }
     ]

@@ -1,6 +1,6 @@
 {
  "page": "works",
- "collectedAt": "2026-09-18T23:05:38.100Z",
+ "collectedAt": "2026-09-18T23:38:29.870Z",
  "url": "http://localhost:5173/works",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 144,
@@ -506,12 +506,12 @@
    },
    "borderColor": {
     "t": "rgb(51, 51, 51)",
-    "r": "rgba(255, 255, 255, 0.094)",
+    "r": "rgba(255, 255, 255, 0.1)",
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "081ff37e",
-   "clsLen": 160
+   "clsHash": "f7a47617",
+   "clsLen": 158
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/header[0]",
@@ -2229,8 +2229,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "728e605c",
-   "clsLen": 33
+   "clsHash": "e0969697",
+   "clsLen": 34
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/div[0]/button[0]/span[1]",
@@ -2737,8 +2737,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249
+   "clsHash": "e93a3196",
+   "clsLen": 247
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]/span[0]",
@@ -2776,8 +2776,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "fa3f2d21",
-   "clsLen": 45
+   "clsHash": "e60a7d3f",
+   "clsLen": 46
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]/span[0]/svg[0]",
@@ -2893,9 +2893,9 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249,
-   "color": "rgb(208, 208, 208)"
+   "clsHash": "e93a3196",
+   "clsLen": 247,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/button[0]/span[0]",
@@ -2933,8 +2933,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "3bc3fd00",
-   "clsLen": 46
+   "clsHash": "582948fe",
+   "clsLen": 47
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/button[0]/span[0]/svg[0]",
@@ -3050,8 +3050,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249
+   "clsHash": "e93a3196",
+   "clsLen": 247
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[1]/span[0]",
@@ -3357,13 +3357,13 @@
     "l": "solid"
    },
    "borderColor": {
-    "t": "rgb(255, 255, 255)",
-    "r": "rgb(255, 255, 255)",
-    "b": "rgb(255, 255, 255)",
-    "l": "rgb(255, 255, 255)"
+    "t": "rgb(247, 247, 247)",
+    "r": "rgb(247, 247, 247)",
+    "b": "rgb(247, 247, 247)",
+    "l": "rgb(247, 247, 247)"
    },
-   "clsHash": "4ca61edb",
-   "clsLen": 112,
+   "clsHash": "fff6e709",
+   "clsLen": 118,
    "color": "rgb(226, 232, 240)"
   },
   {
@@ -3520,8 +3520,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "67e92217",
-   "clsLen": 46
+   "clsHash": "c2dff5a8",
+   "clsLen": 47
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[1]/div[0]/div[0]/div[1]/div[0]/span[0]/svg[0]",
@@ -3637,8 +3637,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "019e2a47",
-   "clsLen": 93,
+   "clsHash": "a7cf8c18",
+   "clsLen": 94,
    "color": "rgb(226, 232, 240)"
   },
   {
@@ -4226,8 +4226,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "922254a2",
-   "clsLen": 123,
+   "clsHash": "19d5842e",
+   "clsLen": 124,
    "color": "rgb(226, 232, 240)"
   },
   {
@@ -4696,8 +4696,8 @@
     "b": "rgba(255, 255, 255, 0.2)",
     "l": "rgba(255, 255, 255, 0.2)"
    },
-   "clsHash": "457e0d32",
-   "clsLen": 134
+   "clsHash": "8465bf4a",
+   "clsLen": 136
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[1]/div[0]/div[1]/ul[0]/li[0]/div[0]/div[0]",
@@ -5008,8 +5008,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "7e5798bd",
-   "clsLen": 199
+   "clsHash": "0a6d77e6",
+   "clsLen": 197
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[1]/div[0]/div[1]/ul[0]/li[1]/div[0]/div[0]",

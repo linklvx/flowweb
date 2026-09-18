@@ -1,6 +1,6 @@
 {
  "page": "material-modal",
- "collectedAt": "2026-09-18T23:05:42.894Z",
+ "collectedAt": "2026-09-18T23:38:34.587Z",
  "url": "http://localhost:5173/canvas?projectId=gate-canvas-1",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 215,
@@ -158,8 +158,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "c7fa7356",
-   "clsLen": 46
+   "clsHash": "491e84e2",
+   "clsLen": 39
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]",
@@ -275,8 +275,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "b291ff0e",
-   "clsLen": 23
+   "clsHash": "52df805e",
+   "clsLen": 27
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/span[1]",
@@ -314,8 +314,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "4ec00e66",
-   "clsLen": 46
+   "clsHash": "cc02886e",
+   "clsLen": 50
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/span[2]",
@@ -353,8 +353,8 @@
     "b": "rgba(0, 0, 0, 0)",
     "l": "rgba(0, 0, 0, 0)"
    },
-   "clsHash": "794ba0c4",
-   "clsLen": 136
+   "clsHash": "af05b715",
+   "clsLen": 138
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/button[0]",
@@ -392,9 +392,9 @@
     "b": "rgba(0, 0, 0, 0)",
     "l": "rgba(0, 0, 0, 0)"
    },
-   "clsHash": "a6584c66",
-   "clsLen": 97,
-   "color": "rgb(204, 204, 204)"
+   "clsHash": "b2a286c7",
+   "clsLen": 95,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/button[0]/span[0]",
@@ -4495,13 +4495,13 @@
     "l": "solid"
    },
    "borderColor": {
-    "t": "rgb(17, 17, 17)",
-    "r": "rgb(17, 17, 17)",
-    "b": "rgb(17, 17, 17)",
-    "l": "rgb(17, 17, 17)"
+    "t": "rgb(20, 20, 20)",
+    "r": "rgb(20, 20, 20)",
+    "b": "rgb(20, 20, 20)",
+    "l": "rgb(20, 20, 20)"
    },
-   "clsHash": "1266fd03",
-   "clsLen": 108
+   "clsHash": "8e530d17",
+   "clsLen": 114
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[1]",
@@ -4813,8 +4813,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "d8f93599",
-   "clsLen": 79
+   "clsHash": "acb8c68c",
+   "clsLen": 83
   },
   {
    "key": "dom:div[1]/div[0]/div[0]",

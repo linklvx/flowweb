@@ -1,0 +1,43 @@
+{
+ "phase": "before",
+ "samples": {
+  "tabbar-selected-border": {
+   "sel": "div.flex.gap-2.text-\\[20px\\] > button:first-child",
+   "borderBottomColor": "rgb(255, 255, 255)",
+   "color": "rgb(226, 232, 240)"
+  },
+  "sidebar-border-r": {
+   "sel": "aside[data-testid=\"sidebar\"]",
+   "borderRightColor": "rgba(255, 255, 255, 0.094)"
+  },
+  "topbar-vip-btn-color": {
+   "sel": "div[data-testid=\"top-action-bar\"] button:has-text(\"会员充值\")",
+   "color": "rgb(208, 208, 208)"
+  },
+  "canvas-card-bg": {
+   "sel": "div[data-testid^=\"canvas-card-\"]",
+   "backgroundColor": "rgb(31, 31, 31)"
+  },
+  "tpl-tab-inactive": {
+   "sel": "div.flex.gap-1 > button:has-text(\"官方模板\")",
+   "color": "rgb(136, 136, 136)"
+  },
+  "tpl-search-bg": {
+   "sel": "input[placeholder=\"搜索模板...\"]",
+   "backgroundColor": "rgb(26, 26, 26)"
+  },
+  "settings-nav-bg": {
+   "sel": "nav.w-48",
+   "backgroundColor": "rgb(26, 26, 26)"
+  },
+  "settings-navlink-inactive": {
+   "sel": "nav.w-48 a:not([class*=\"accent-text\"])",
+   "color": "rgb(136, 136, 136)"
+  },
+  "join-invalid-bg": {
+   "sel": "div.min-h-screen.bg-\\[\\#111\\]",
+   "backgroundColor": "rgb(17, 17, 17)",
+   "color": "rgb(226, 232, 240)"
+  }
+ }
+}

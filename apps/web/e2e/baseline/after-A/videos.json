@@ -1,6 +1,6 @@
 {
  "page": "videos",
- "collectedAt": "2026-09-18T23:05:39.184Z",
+ "collectedAt": "2026-09-18T23:38:30.939Z",
  "url": "http://localhost:5173/videos",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 123,
@@ -506,12 +506,12 @@
    },
    "borderColor": {
     "t": "rgb(51, 51, 51)",
-    "r": "rgba(255, 255, 255, 0.094)",
+    "r": "rgba(255, 255, 255, 0.1)",
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "081ff37e",
-   "clsLen": 160
+   "clsHash": "f7a47617",
+   "clsLen": 158
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/header[0]",
@@ -2229,8 +2229,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "728e605c",
-   "clsLen": 33
+   "clsHash": "e0969697",
+   "clsLen": 34
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/div[0]/button[0]/span[1]",
@@ -2737,8 +2737,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249
+   "clsHash": "e93a3196",
+   "clsLen": 247
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]/span[0]",
@@ -2776,8 +2776,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "fa3f2d21",
-   "clsLen": 45
+   "clsHash": "e60a7d3f",
+   "clsLen": 46
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]/span[0]/svg[0]",
@@ -2893,9 +2893,9 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249,
-   "color": "rgb(208, 208, 208)"
+   "clsHash": "e93a3196",
+   "clsLen": 247,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/button[0]/span[0]",
@@ -2933,8 +2933,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "3bc3fd00",
-   "clsLen": 46
+   "clsHash": "582948fe",
+   "clsLen": 47
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/button[0]/span[0]/svg[0]",
@@ -3050,8 +3050,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "91f6789d",
-   "clsLen": 249
+   "clsHash": "e93a3196",
+   "clsLen": 247
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[1]/span[0]",
