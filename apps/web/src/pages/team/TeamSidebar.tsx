@@ -16,16 +16,16 @@ function TeamCard({ team, active, onClick }: { team: MyTeam; active: boolean; on
       className={`w-full p-3 rounded-lg text-left transition-all border border-solid bg-transparent ${
         active
           ? 'bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 border-cyan-500/30'
-          : 'border-transparent hover:bg-white/5'
+          : 'border-transparent hover:bg-overlay-1'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-emerald-500/20">
-          {team.isDefault ? <UserOutlined className="text-white" /> : <span className="text-lg font-medium text-white">{team.name.slice(0, 1)}</span>}
+          {team.isDefault ? <UserOutlined className="text-text" /> : <span className="text-lg font-medium text-text">{team.name.slice(0, 1)}</span>}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium truncate text-white text-sm">{teamDisplayName(team)}</span>
+            <span className="font-medium truncate text-text text-sm">{teamDisplayName(team)}</span>
             {!team.isDefault && team.isOwner && <CrownFilled className="text-xs shrink-0 text-amber-400" />}
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -64,7 +64,7 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
         <h3 className="text-sm font-medium text-gray-400">我的团队</h3>
         <button
           type="button" title="创建团队" aria-label="创建团队" onClick={onCreateTeam}
-          className="p-1.5 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
+          className="p-1.5 text-gray-400 hover:text-text hover:bg-overlay-1 rounded-md transition-colors"
         >
           <PlusOutlined className="text-sm" />
         </button>
@@ -72,8 +72,8 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
 
       {status === 'loading' && (
         <div data-testid="sidebar-loading" className="space-y-2">
-          <div className="h-16 rounded-lg bg-white/5 animate-pulse" />
-          <div className="h-16 rounded-lg bg-white/5 animate-pulse" />
+          <div className="h-16 rounded-lg bg-overlay-1 animate-pulse" />
+          <div className="h-16 rounded-lg bg-overlay-1 animate-pulse" />
         </div>
       )}
 

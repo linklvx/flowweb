@@ -107,18 +107,18 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
 
   if (isPersonal) {
     return (
-      <div className="text-[#e2e8f0]">
+      <div className="text-text">
         <div className="max-w-2xl mx-auto p-8" data-testid="personal-panel">
           <h2 className="text-lg font-bold mb-1">个人项目</h2>
           <p className="text-sm text-[#888] mb-6">个人项目的积分、订阅与作品独立于团队，无需团队管理。</p>
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-white/5 rounded-lg p-4">
+            <div className="bg-overlay-1 rounded-lg p-4">
               <p className="text-3xl font-bold text-[#f59e0b]" data-testid="personal-balance-total">
                 {(balance?.total ?? 0).toLocaleString()}
               </p>
               <p className="text-xs text-[#888] mt-1">可用积分（通用 {balance?.credits ?? 0} · 订阅 {balance?.subscriptionCredits ?? 0}）</p>
             </div>
-            <div className="bg-white/5 rounded-lg p-4">
+            <div className="bg-overlay-1 rounded-lg p-4">
               {team.subscription ? (
                 <>
                   <p className="text-base font-bold">{team.subscription.planName}</p>
@@ -131,7 +131,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
           </div>
           <div className="flex gap-3">
             <Link to="/settings/credits" data-testid="link-personal-recharge" className="px-4 py-1.5 rounded-md bg-[#f59e0b] text-black text-sm no-underline">充值</Link>
-            <Link to="/settings/membership" data-testid="link-personal-membership" className="px-4 py-1.5 rounded-md bg-[#4ade80] text-black text-sm no-underline">开通/管理会员</Link>
+            <Link to="/settings/membership" data-testid="link-personal-membership" className="px-4 py-1.5 rounded-md bg-accent text-on-accent text-sm no-underline">开通/管理会员</Link>
             <Button size="small" onClick={onCreateTeam}>新建团队</Button>
           </div>
         </div>
@@ -157,7 +157,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
   const placeholderRows = Math.max(0, seatLimit - members.total);
 
   return (
-    <div className="text-[#e2e8f0]">
+    <div className="text-text">
       {/* Header */}
       <div className="border-b border-[#222] px-8 py-4 flex items-center gap-4">
         <div className="flex items-center gap-2">

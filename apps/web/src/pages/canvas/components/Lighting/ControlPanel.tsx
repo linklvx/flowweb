@@ -64,7 +64,7 @@ export function ControlPanel({
           max={100}
           value={params.brightness}
           onChange={(e) => onParamsChange({ brightness: Number(e.target.value) })}
-          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1.5 bg-overlay-2 rounded-full appearance-none cursor-pointer accent-blue-500"
         />
       </div>
 
@@ -98,7 +98,7 @@ export function ControlPanel({
           role="switch"
           aria-checked={params.rimLight}
           className={`w-9 h-5 rounded-full transition-colors border-0 shadow-none outline-none ${
-            params.rimLight ? 'bg-blue-500' : 'bg-white/10'
+            params.rimLight ? 'bg-blue-500' : 'bg-overlay-2'
           }`}
           onClick={() => onParamsChange({ rimLight: !params.rimLight })}
         >
@@ -122,8 +122,8 @@ export function ControlPanel({
         disabled={isGenerating}
         className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors border-0 shadow-none outline-none ${
           isGenerating
-            ? 'bg-blue-500/50 text-white/50 cursor-not-allowed'
-            : 'bg-blue-500 hover:bg-blue-600 text-white'
+            ? 'bg-blue-500/50 text-text-dim-2 cursor-not-allowed'
+            : 'bg-blue-500 hover:bg-blue-600 text-text'
         }`}
         onClick={onGenerate}
       >

@@ -60,7 +60,7 @@ export function Angle3DPreview({
         <span className="text-xs text-neutral-500">拖拽旋转视角 · 滚轮缩放</span>
         <button
           type="button"
-          className="text-xs px-2 py-1 rounded bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-neutral-200 transition-colors border-0 shadow-none outline-none"
+          className="text-xs px-2 py-1 rounded bg-overlay-1 text-neutral-400 hover:bg-overlay-2 hover:text-neutral-200 transition-colors border-0 shadow-none outline-none"
           onClick={handleReset}
         >
           重置

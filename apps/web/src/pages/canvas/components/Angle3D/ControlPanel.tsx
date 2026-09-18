@@ -47,7 +47,7 @@ export function ControlPanel({
           value={params.horizontalAngle}
           disabled={disabled}
           onChange={(e) => onParamsChange({ horizontalAngle: Number(e.target.value) })}
-          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1.5 bg-overlay-2 rounded-full appearance-none cursor-pointer accent-blue-500"
         />
       </div>
 
@@ -63,7 +63,7 @@ export function ControlPanel({
           value={params.verticalAngle}
           disabled={disabled}
           onChange={(e) => onParamsChange({ verticalAngle: Number(e.target.value) })}
-          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1.5 bg-overlay-2 rounded-full appearance-none cursor-pointer accent-blue-500"
         />
       </div>
 
@@ -80,7 +80,7 @@ export function ControlPanel({
           value={params.zoom}
           disabled={disabled}
           onChange={(e) => onParamsChange({ zoom: Number(e.target.value) })}
-          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1.5 bg-overlay-2 rounded-full appearance-none cursor-pointer accent-blue-500"
         />
       </div>
 
@@ -96,8 +96,8 @@ export function ControlPanel({
         disabled={isProcessing || disabled}
         className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors border-0 shadow-none outline-none ${
           isProcessing
-            ? 'bg-blue-500/50 text-white/50 cursor-not-allowed'
-            : 'bg-blue-500 hover:bg-blue-600 text-white'
+            ? 'bg-blue-500/50 text-text-dim-2 cursor-not-allowed'
+            : 'bg-blue-500 hover:bg-blue-600 text-text'
         }`}
         onClick={onGenerate}
       >

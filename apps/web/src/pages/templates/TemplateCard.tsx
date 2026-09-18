@@ -26,9 +26,9 @@ export function TemplateCard({ id, name, description, coverUrl, importCount, isO
       </div>
       <div className="p-3">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-sm font-medium text-[#e2e8f0] truncate group-hover:text-[#4ade80] transition-colors">{name}</h3>
+          <h3 className="text-sm font-medium text-text truncate group-hover:text-accent-text transition-colors">{name}</h3>
           {category === 'OFFICIAL' && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-[#4ade80]/10 text-[#4ade80] rounded">官方</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-[#4ade80]/10 text-accent-text rounded">官方</span>
           )}
           {isOwner && (
             <span className="text-[10px] px-1.5 py-0.5 bg-[#888]/10 text-[#888] rounded">我的</span>

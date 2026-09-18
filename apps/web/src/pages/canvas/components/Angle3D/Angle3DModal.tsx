@@ -132,11 +132,11 @@ export const Angle3DModal = memo(function Angle3DModal() {
       aria-modal
       aria-label="3D 角度"
     >
-      <div className="w-full mx-5 max-w-[1400px] h-[calc(100vh-40px)] max-h-[876px] rounded-[16px] bg-[#1C1C1C]/95 border border-white/10 flex flex-col overflow-hidden">
+      <div className="w-full mx-5 max-w-[1400px] h-[calc(100vh-40px)] max-h-[876px] rounded-[16px] bg-[#1C1C1C]/95 border border-overlay-2 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-overlay-1 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-base font-semibold text-white">🎥 3D 角度</span>
+            <span className="text-base font-semibold text-text">🎥 3D 角度</span>
             <a
               href="#"
               className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
@@ -149,7 +149,7 @@ export const Angle3DModal = memo(function Angle3DModal() {
           <button
             ref={closeBtnRef}
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors border-0 shadow-none outline-none"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-overlay-2 text-neutral-400 hover:text-text transition-colors border-0 shadow-none outline-none"
             onClick={closeModal}
             aria-label="关闭3D角度"
           >
@@ -186,14 +186,14 @@ export const Angle3DModal = memo(function Angle3DModal() {
               <div className="flex gap-3 justify-center">
                 <button
                   type="button"
-                  className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors !border-0 !shadow-none !outline-none !ring-0"
+                  className="px-4 py-2 rounded-lg bg-blue-500 text-text text-sm hover:bg-blue-600 transition-colors !border-0 !shadow-none !outline-none !ring-0"
                   onClick={() => replaceCurrentNode(resultUrl)}
                 >
                   替换当前节点
                 </button>
                 <button
                   type="button"
-                  className="px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition-colors !border-0 !shadow-none !outline-none !ring-0"
+                  className="px-4 py-2 rounded-lg bg-overlay-2 text-text text-sm hover:bg-overlay-3 transition-colors !border-0 !shadow-none !outline-none !ring-0"
                   onClick={() => createNewNode(resultUrl)}
                 >
                   新建图片节点
@@ -206,11 +206,11 @@ export const Angle3DModal = memo(function Angle3DModal() {
         {/* Error overlay */}
         {taskStatus === 'failed' && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
-            <div className="bg-[#1C1C1C] border border-white/10 rounded-xl p-6 max-w-sm text-center">
+            <div className="bg-[#1C1C1C] border border-overlay-2 rounded-xl p-6 max-w-sm text-center">
               <p className="text-red-400 text-sm mb-4">{errorMessage || '生成失败，请重试'}</p>
               <button
                 type="button"
-                className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 transition-colors border-0 shadow-none outline-none"
+                className="px-4 py-2 rounded-lg bg-blue-500 text-text text-sm hover:bg-blue-600 transition-colors border-0 shadow-none outline-none"
                 onClick={handleRetry}
               >
                 重试

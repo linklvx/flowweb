@@ -19,7 +19,7 @@ export default function JoinPage() {
     }
   }, [loading, user, navigate, teamId]);
 
-  if (!teamId) return <div className="min-h-screen bg-[#111] text-[#e2e8f0] p-10">无效的邀请链接</div>;
+  if (!teamId) return <div className="min-h-screen bg-[#111] text-text p-10">无效的邀请链接</div>;
   if (!user) return null;
 
   const submit = async () => {
@@ -36,7 +36,7 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#111] text-[#e2e8f0] flex items-center justify-center">
+    <div className="min-h-screen bg-[#111] text-text flex items-center justify-center">
       <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-8 w-full max-w-md">
         <h2 className="text-lg font-bold mb-2">加入团队</h2>
         <div className="text-xs text-[#666] mb-4">团队 ID：{teamId}</div>
@@ -48,7 +48,7 @@ export default function JoinPage() {
           placeholder="向团队管理员介绍自己"
           data-testid="join-message"
         />
-        {error && <div className="text-xs text-[#ef4444] mt-2" data-testid="join-error">{error}</div>}
+        {error && <div className="text-xs text-accent-danger mt-2" data-testid="join-error">{error}</div>}
         <Button
           className="mt-4" block loading={submitting}
           type="primary" style={{ background: '#5DDCFF', borderColor: '#5DDCFF', color: '#000' }}

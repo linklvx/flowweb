@@ -32,9 +32,9 @@ describe('Sidebar', () => {
   it('当前页菜单高亮（/materials 下素材库激活）', () => {
     renderSidebar('/materials');
     const el = screen.getByText('素材库').closest('a');
-    expect(el?.className).toContain('bg-[#262626]');
+    expect(el?.className).toContain('bg-surface-dim');
     const home = screen.getByText('首页').closest('a');
-    expect(home?.className).not.toContain('bg-[#262626]');
+    expect(home?.className).not.toContain('bg-surface-dim');
   });
 
   it('新建项目：清 projectId（跳转由 startNewProject 单测覆盖）', () => {
@@ -67,8 +67,8 @@ describe('Sidebar', () => {
     expect(navLink?.className).toContain('leading-[26px]');
     expect(navLink?.className).toContain('text-[15px]');
     expect(navLink?.className).toContain('h-[38px]');
-    expect(navLink?.className).toContain('text-white');
-    expect(navLink?.className).toContain('hover:text-white');
+    expect(navLink?.className).toContain('text-text');
+    expect(navLink?.className).toContain('hover:text-text');
     expect(navLink?.className).toContain('gap-[13px]');
     expect(navLink?.className).not.toContain('pb-[10px]');
     expect(navLink?.className).toContain('mb-[5px]');
@@ -76,13 +76,13 @@ describe('Sidebar', () => {
     const createBtn = screen.getByRole('button', { name: /新建项目/ });
     expect(createBtn.className).toContain('leading-[22px]');
     expect(createBtn.className).toContain('my-[10px]');
-    expect(createBtn.className).toContain('bg-[#262626]');
-    expect(createBtn.className).toContain('text-white');
+    expect(createBtn.className).toContain('bg-surface-dim');
+    expect(createBtn.className).toContain('text-text');
     const docBtn = screen.getByRole('button', { name: /文档中心/ });
     expect(docBtn.className).toContain('leading-[22px]');
     expect(docBtn.className).toContain('text-sm');
-    expect(docBtn.className).toContain('bg-[#141414]');
-    expect(docBtn.className).toContain('text-white');
+    expect(docBtn.className).toContain('bg-bg');
+    expect(docBtn.className).toContain('text-text');
     expect(container.querySelector('.mt-auto')?.className).toContain('pb-[6px]');
   });
 
@@ -90,8 +90,8 @@ describe('Sidebar', () => {
     renderSidebar();
     const btn = screen.getByRole('button', { name: '收起侧边栏' });
     expect(btn).toBeInTheDocument();
-    expect(btn.className).toContain('text-white');
-    expect(btn.className).toContain('bg-[#141414]');
+    expect(btn.className).toContain('text-text');
+    expect(btn.className).toContain('bg-bg');
     expect(btn.className).not.toContain('hover:bg');
     expect(btn.closest('header')?.className).toContain('h-[60px]');
     expect(btn.querySelector('.anticon')?.className).toContain('text-[23px]');
@@ -136,12 +136,12 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: '新建项目' }).className).toContain('self-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('justify-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('w-[38px]');
-    expect(screen.getByTestId('wechat-follow-entry').className).toContain('bg-[#141414]');
+    expect(screen.getByTestId('wechat-follow-entry').className).toContain('bg-bg');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('self-center');
     expect(screen.getByTestId('wechat-follow-entry').className).toContain('mb-[5px]');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('justify-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('w-[38px]');
-    expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('bg-[#141414]');
+    expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('bg-bg');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('self-center');
     expect(screen.getByRole('button', { name: '文档中心' }).className).toContain('mb-[5px]');
   });

@@ -36,10 +36,10 @@ export function InlineRename({ value, editing, onEditingChange, onConfirm, ariaL
   }
   return (
     <span className="group/name flex items-center min-w-0">
-      <span className="text-sm font-semibold truncate cursor-text text-white">{value}</span>
+      <span className="text-sm font-semibold truncate cursor-text text-text">{value}</span>
       <button
         aria-label={ariaLabel}
-        className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0"
+        className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-text-dim-3 shrink-0"
         onClick={(e) => { e.stopPropagation(); onEditingChange(true); }}
       >
         <EditOutlined style={{ fontSize: 12 }} />

@@ -54,7 +54,7 @@ export function ThreePreview({
         ref={thumbnailRef}
         width={480}
         height={360}
-        className="absolute top-3 right-3 w-[240px] h-[180px] rounded border border-white/10 z-10 opacity-90"
+        className="absolute top-3 right-3 w-[240px] h-[180px] rounded border border-overlay-2 z-10 opacity-90"
       />
 
       {/* Bottom-left: hint + reset */}
@@ -62,7 +62,7 @@ export function ThreePreview({
         <span className="text-xs text-neutral-500">主光源·拖拽移动光源</span>
         <button
           type="button"
-          className="text-xs px-2 py-1 rounded bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-neutral-200 transition-colors"
+          className="text-xs px-2 py-1 rounded bg-overlay-1 text-neutral-400 hover:bg-overlay-2 hover:text-neutral-200 transition-colors"
           onClick={handleReset}
         >
           重置

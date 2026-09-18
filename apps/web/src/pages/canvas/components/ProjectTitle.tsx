@@ -61,11 +61,11 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
 
   return (
     <>
-    <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+    <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
       <Link
         to="/works"
         title="返回工作空间"
-        className="text-white font-bold text-sm select-none hover:opacity-80 transition-opacity"
+        className="text-text font-bold text-sm select-none hover:opacity-80 transition-opacity"
       >
         💦 Flow123
       </Link>
@@ -86,13 +86,13 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
               setEditing(false);
             }
           }}
-          className="bg-[#252525] border border-[#555] rounded px-1.5 py-0.5 text-xs text-[#e2e8f0] outline-none min-w-[120px]"
+          className="bg-[#252525] border border-[#555] rounded px-1.5 py-0.5 text-xs text-text outline-none min-w-[120px]"
           maxLength={30}
         />
       ) : (
         <span
           onClick={startEdit}
-          className="text-xs text-[#ccc] cursor-pointer hover:text-white transition-colors border border-transparent hover:border-[#555] rounded px-1.5 py-0.5"
+          className="text-xs text-[#ccc] cursor-pointer hover:text-text transition-colors border border-transparent hover:border-[#555] rounded px-1.5 py-0.5"
           title="点击编辑项目名称"
         >
           {name}

@@ -4,7 +4,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 export function SaveStatusIndicator() {
   const status = useCanvasStore((s) => s.connStatus);
   if (status === 'connected') {
-    return <span className="text-xs text-[#4ade80] px-1">已连接</span>;
+    return <span className="text-xs text-accent-text px-1">已连接</span>;
   }
   if (status === 'connecting') {
     return <span className="text-xs text-[#888] px-1">连接中…</span>;
@@ -12,7 +12,7 @@ export function SaveStatusIndicator() {
   return (
     <button
       onClick={() => location.reload()}
-      className="text-xs text-[#ef4444] hover:text-[#ff6b6b] transition-colors px-0 py-0"
+      className="text-xs text-accent-danger hover:text-[#ff6b6b] transition-colors px-0 py-0"
     >
       连接断开，点击重试
     </button>

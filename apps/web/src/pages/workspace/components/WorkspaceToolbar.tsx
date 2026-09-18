@@ -40,41 +40,41 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
     <div className="flex flex-col md:flex-row items-start gap-y-2 pt-2 pb-2 justify-between px-8">
       <WorkspaceTabBar activeTab={activeTab} onTabChange={onTabChange} />
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 focus-within:ring-white/20 transition-colors" style={{ width: 160 }}>
+        <div className="h-10 px-3 flex items-center gap-1 bg-overlay-1 rounded-lg ring-1 ring-inset ring-overlay-2 focus-within:ring-overlay-3 transition-colors" style={{ width: 160 }}>
           <SearchOutlined className="text-[#646464] shrink-0" />
           <input
             aria-label="搜索"
             type="text" placeholder="搜索" value={text}
             onChange={(e) => handleSearch(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-[#646464] min-w-0 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-text placeholder:text-[#646464] min-w-0 focus:outline-none"
           />
         </div>
         <Dropdown menu={{ items: filterMenu, onClick: ({ key }) => onFilterChange(key as FilterKind) }} trigger={['click']}>
-          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none transition-colors">
+          <button className="h-10 px-3 flex items-center gap-1 bg-overlay-1 rounded-lg ring-1 ring-inset ring-overlay-2 hover:bg-overlay-2 text-text text-sm border-none transition-colors">
             {FILTER_LABEL[filter]}
             <DownOutlined style={{ fontSize: 12 }} />
           </button>
         </Dropdown>
-        <div className="p-1 flex items-center gap-2 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10">
+        <div className="p-1 flex items-center gap-2 bg-overlay-1 rounded-lg ring-1 ring-inset ring-overlay-2">
           <button
             aria-label="Grid view"
             onClick={() => onViewModeChange('grid')}
-            className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-overlay-2 text-text' : 'text-text-dim-3 hover:bg-overlay-1 bg-transparent'}`}
           >
             <AppstoreOutlined />
           </button>
           <button
             aria-label="List view"
             onClick={() => onViewModeChange('list')}
-            className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-overlay-2 text-text' : 'text-text-dim-3 hover:bg-overlay-1 bg-transparent'}`}
           >
             <UnorderedListOutlined />
           </button>
         </div>
-        <div className="h-6 w-px bg-white/10 mx-1" />
+        <div className="h-6 w-px bg-overlay-2 mx-1" />
         <button
           onClick={onCreateFolder}
-          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors"
+          className="h-10 px-3 flex items-center gap-1 bg-overlay-2 hover:bg-white/15 rounded-lg text-text text-sm font-medium transition-colors"
         ><FolderAddOutlined />新建文件夹</button>
       </div>
     </div>

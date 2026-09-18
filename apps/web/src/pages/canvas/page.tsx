@@ -156,14 +156,14 @@ export function CanvasPage() {
     const isInaccessible = loadError === 'inaccessible';
     return (
       <div className="flex h-screen bg-[#0f0f0f] flex-col items-center justify-center gap-5">
-        <span className="text-white/70 text-sm">
+        <span className="text-text-dim-3 text-sm">
           {isInaccessible ? '画布不存在或无权访问' : '画布加载失败，请检查网络后重试'}
         </span>
         <div className="flex gap-3">
           <button
             type="button"
             onClick={handleRetry}
-            className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
+            className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
           >
             重试
           </button>
@@ -171,7 +171,7 @@ export function CanvasPage() {
             <button
               type="button"
               onClick={() => navigate('/works')}
-              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
+              className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
             >
               返回工作空间
             </button>
@@ -179,7 +179,7 @@ export function CanvasPage() {
             <button
               type="button"
               onClick={handleCreateNew}
-              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
+              className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
             >
               新建画布
             </button>
@@ -312,7 +312,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
             aria-live="polite"
             className="absolute inset-0 z-40 flex items-center justify-center bg-black/50"
           >
-            <div className="flex flex-col items-center gap-2 text-white">
+            <div className="flex flex-col items-center gap-2 text-text">
               <Spin />
               <span>画布加载中</span>
             </div>

@@ -49,7 +49,7 @@ export default function TeamBillingPage() {
   if (teams === null) return <div />;
   if (!team) {
     return (
-      <div className="text-white">
+      <div className="text-text">
         <p className="max-w-xl mx-auto py-24 text-sm text-[#888]" data-testid="billing-forbidden">无权访问该团队或团队不存在。<Link to="/team" className="text-[#5DDCFF]">返回团队管理</Link></p>
       </div>
     );
@@ -87,24 +87,24 @@ export default function TeamBillingPage() {
   };
 
   const statusBadge = (s: string) =>
-    s === 'SUCCESS' ? <span className="text-[#4ade80]">成功</span>
+    s === 'SUCCESS' ? <span className="text-accent-text">成功</span>
     : s === 'PENDING' ? <span className="text-[#f59e0b]">待支付</span>
     : <span className="text-[#888]">{s === 'CLOSED' ? '已关闭' : '失败'}</span>;
 
   return (
-    <div className="text-white">
+    <div className="text-text">
       <div className="max-w-4xl mx-auto p-8">
         <div className="flex items-center gap-3 mb-6">
           <h2 className="text-lg font-bold">{teamDisplayName(team)} · 账单</h2>
           {team.subscription && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-[#4ade80]/20 text-[#4ade80]">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-[#4ade80]/20 text-accent-text">
               {team.subscription.planName} · 至 {new Date(team.subscription.currentPeriodEnd).toLocaleDateString()}
             </span>
           )}
           <Link to="/team" className="ml-auto text-xs text-[#888] no-underline">返回团队管理</Link>
         </div>
 
-        <div className="bg-white/5 rounded-lg p-4 mb-6">
+        <div className="bg-overlay-1 rounded-lg p-4 mb-6">
           <p className="text-3xl font-bold text-[#f59e0b]" data-testid="billing-balance-total">{(balance?.total ?? 0).toLocaleString()}</p>
           <p className="text-xs text-[#888] mt-1">可用积分（通用 {balance?.credits ?? 0} · 订阅 {balance?.subscriptionCredits ?? 0}）</p>
         </div>
@@ -113,7 +113,7 @@ export default function TeamBillingPage() {
         <div className="grid grid-cols-6 gap-2 mb-4">
           {PRESET_AMOUNTS.map((yuan) => (
             <button key={yuan} onClick={() => setSelected(yuan)}
-              className={`py-3 rounded-lg text-sm border ${selected === yuan ? 'border-[#5DDCFF] bg-[#5DDCFF]/10 text-white' : 'border-white/10 text-[#888]'}`}>
+              className={`py-3 rounded-lg text-sm border ${selected === yuan ? 'border-[#5DDCFF] bg-[#5DDCFF]/10 text-text' : 'border-overlay-2 text-[#888]'}`}>
               <div>¥{yuan}</div>
               <div className="text-xs opacity-70">{yuan * 10} 积分</div>
             </button>
@@ -126,9 +126,9 @@ export default function TeamBillingPage() {
         <h3 className="text-sm font-bold mt-8 mb-3">团队套餐订阅</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           {plans.map((p) => (
-            <div key={p.id} className="bg-white/5 rounded-lg p-4 flex flex-col gap-2">
+            <div key={p.id} className="bg-overlay-1 rounded-lg p-4 flex flex-col gap-2">
               <p className="text-base font-bold">{p.name}</p>
-              <p className="text-2xl font-bold text-[#4ade80]">¥{(p.priceMonthly / 100).toFixed(0)}<span className="text-xs text-[#888]">/月</span></p>
+              <p className="text-2xl font-bold text-accent-text">¥{(p.priceMonthly / 100).toFixed(0)}<span className="text-xs text-[#888]">/月</span></p>
               <p className="text-xs text-[#888]">月发放 {p.monthlyCredits} 积分 · {p.seatLimit} 席位</p>
               <Button size="small" onClick={() => void doSubscribe(p.id)}>开通团队订阅</Button>
             </div>
@@ -137,11 +137,11 @@ export default function TeamBillingPage() {
         {team.subscription && <p className="text-xs text-[#666] mb-4">已有生效订阅，到期后可再次开通。</p>}
 
         <h3 className="text-sm font-bold mt-8 mb-3">订单记录（充值 + 订阅）</h3>
-        <div className="divide-y divide-white/5">
+        <div className="divide-y divide-overlay-1">
           {orders.items.map((o) => (
             <div key={o.id} className="flex items-center justify-between py-2 text-sm">
               <span className="font-mono text-xs text-[#888]">{o.outTradeNo}</span>
-              <span className="text-xs px-1.5 py-0.5 rounded bg-white/10 text-[#aaa]">{o.kind === 'subscription' ? '订阅' : '充值'}</span>
+              <span className="text-xs px-1.5 py-0.5 rounded bg-overlay-2 text-[#aaa]">{o.kind === 'subscription' ? '订阅' : '充值'}</span>
               <span>+¥{(o.amountFen / 100).toFixed(2)}</span>
               {statusBadge(o.status)}
               <span className="text-xs text-[#666]">{new Date(o.createdAt).toLocaleString()}</span>

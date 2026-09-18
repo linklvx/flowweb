@@ -20,11 +20,11 @@ export function MoveToFolderModal({ open, folders, currentFolderId, onOk, onCanc
     return (
       <div
         onClick={() => !isCurrent && setSelected(id)}
-        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer ${isCurrent ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/5'} ${isSelected ? 'bg-white/10' : ''}`}
+        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer ${isCurrent ? 'opacity-40 cursor-not-allowed' : 'hover:bg-overlay-1'} ${isSelected ? 'bg-overlay-2' : ''}`}
         data-testid={`move-target-${id ?? 'root'}`}
       >
-        <span className="text-sm text-white/90">{label}</span>
-        {isCurrent && <span className="text-xs text-white/50">当前位置</span>}
+        <span className="text-sm text-text">{label}</span>
+        {isCurrent && <span className="text-xs text-text-dim-2">当前位置</span>}
       </div>
     );
   };

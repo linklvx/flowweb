@@ -105,12 +105,12 @@ export function CreditsPanelContent({
 
   if (error) {
     return (
-      <div className="w-96 p-4 flex flex-col items-center gap-2 text-white/60">
+      <div className="w-96 p-4 flex flex-col items-center gap-2 text-text-dim-3">
         <span className="text-sm">{error}</span>
         <button
           type="button"
           onClick={onRetry}
-          className="text-xs text-amber-200/80 hover:text-amber-100 bg-white/5 rounded-lg px-3 py-1 border border-white/10 transition-colors"
+          className="text-xs text-amber-200/80 hover:text-amber-100 bg-overlay-1 rounded-lg px-3 py-1 border border-overlay-2 transition-colors"
         >
           重试
         </button>
@@ -122,7 +122,7 @@ export function CreditsPanelContent({
 
   return (
     <div
-      className="w-96 flex flex-col overflow-hidden rounded-[1.75rem] border border-zinc-900/90 p-3 text-white"
+      className="w-96 flex flex-col overflow-hidden rounded-[1.75rem] border border-zinc-900/90 p-3 text-text"
       style={{
         backgroundImage: 'linear-gradient(160deg, #111111 0%, #171717 52%, #101828 100%)',
         boxShadow: '0 20px 60px rgba(15,23,42,0.16)',
@@ -139,7 +139,7 @@ export function CreditsPanelContent({
 
       {/* ── Total credits card ── */}
       <div
-        className="relative overflow-hidden rounded-[1.375rem] border border-white/10 p-3.5"
+        className="relative overflow-hidden rounded-[1.375rem] border border-overlay-2 p-3.5"
         style={{
           backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
@@ -153,12 +153,12 @@ export function CreditsPanelContent({
           }}
         />
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/10"
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-overlay-2 ring-1 ring-overlay-2"
             style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12)' }}>
             <WalletIcon className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-xs uppercase tracking-[0.16em] text-white/45">账户</div>
+            <div className="text-xs uppercase tracking-[0.16em] text-text-dim-2">账户</div>
             <div className="text-sm font-semibold">可用积分</div>
           </div>
         </div>
@@ -175,16 +175,16 @@ export function CreditsPanelContent({
           >
             {formatNumber(total)}
           </div>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-1 text-xs text-white/55">
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-1 text-xs text-text-dim-3">
             <span className="font-semibold text-violet-200/80">
               {formatNumber(subscriptionCredits)}
             </span>
-            <span className="text-white/40">订阅积分</span>
-            <span className="px-0.5 text-white/30">+</span>
+            <span className="text-text-dim-2">订阅积分</span>
+            <span className="px-0.5 text-text-dim-1">+</span>
             <span className="font-semibold text-amber-200/85">
               {formatNumber(credits)}
             </span>
-            <span className="text-white/40">通用积分</span>
+            <span className="text-text-dim-2">通用积分</span>
           </div>
         </div>
       </div>
@@ -203,7 +203,7 @@ export function CreditsPanelContent({
             <div className="flex min-w-0 items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-violet-200/90">
               <span className="truncate">订阅积分</span>
               <button type="button" aria-label="查看订阅积分说明"
-                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-violet-100/80 transition hover:bg-white/10 hover:text-white">
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-violet-100/80 transition hover:bg-overlay-2 hover:text-text">
                 <HelpIcon className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -237,7 +237,7 @@ export function CreditsPanelContent({
           <div className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-amber-200/90">
             <span>通用积分</span>
             <button type="button" aria-label="查看积分说明"
-              className="inline-flex h-4 w-4 items-center justify-center rounded-full text-amber-100/80 transition hover:bg-white/10 hover:text-white">
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full text-amber-100/80 transition hover:bg-overlay-2 hover:text-text">
               <HelpIcon className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -268,7 +268,7 @@ export function CreditsPanelContent({
           style={{ boxShadow: '0 18px 44px -12px rgba(255,255,255,0.22)' }}
         >
           <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-amber-200/40 blur-2xl" />
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-text">
             <WalletIcon className="h-5 w-5" />
           </span>
           <span className="relative min-w-0 flex-1">
@@ -290,14 +290,14 @@ export function CreditsPanelContent({
           }}
         >
           <span className="pointer-events-none absolute -left-6 -bottom-6 h-20 w-20 rounded-full bg-rose-300/15 blur-2xl" />
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.08] text-white">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.08] text-text">
             <GiftIcon className="h-5 w-5" />
           </span>
           <span className="relative min-w-0 flex-1">
-            <span className="block text-[0.9375rem] font-bold leading-tight text-white">邀请好友 · 一起赢积分</span>
-            <span className="mt-0.5 block text-[0.6875rem] font-medium text-white/55">邀请好友共享积分奖励</span>
+            <span className="block text-[0.9375rem] font-bold leading-tight text-text">邀请好友 · 一起赢积分</span>
+            <span className="mt-0.5 block text-[0.6875rem] font-medium text-text-dim-3">邀请好友共享积分奖励</span>
           </span>
-          <ChevronRightIcon className="relative h-4 w-4 shrink-0 text-white/45 transition group-hover:translate-x-0.5 group-hover:text-white" />
+          <ChevronRightIcon className="relative h-4 w-4 shrink-0 text-text-dim-2 transition group-hover:translate-x-0.5 group-hover:text-text" />
         </button>
       </div>
     </div>
@@ -359,7 +359,7 @@ function CreditsDropdownComponent() {
         aria-label="查看积分明细"
         aria-live="polite"
         onMouseLeave={() => { manualCloseRef.current = false; }}
-        className="text-sm text-white whitespace-nowrap tracking-wider border-none"
+        className="text-sm text-text whitespace-nowrap tracking-wider border-none"
       >
         <span aria-label={`总积分 ${formatNumber(total)}`}>⚡ {formatNumber(total)}</span>
       </button>

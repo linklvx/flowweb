@@ -75,7 +75,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
     avatarUrl ? (
       <img src={avatarUrl} alt={displayName} className={`${size} rounded-full object-cover`} />
     ) : (
-      <span className={`${size} rounded-full bg-[#4ade80] text-black text-sm font-bold flex items-center justify-center`}>
+      <span className={`${size} rounded-full bg-accent text-on-accent text-sm font-bold flex items-center justify-center`}>
         {firstLetter}
       </span>
     );
@@ -87,9 +87,9 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
         <div className="flex items-center gap-3 px-2 py-1 min-w-[180px]">
           {avatarNode('w-10 h-10 text-sm')}
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium text-[#e2e8f0] truncate">{displayName}</span>
+            <span className="text-sm font-medium text-text truncate">{displayName}</span>
             {!store.loading && (
-              <span className="text-sm text-white">⚡ {(store.credits + (store.isSubscriptionActive() ? store.subscriptionCredits : 0)).toLocaleString()} 积分</span>
+              <span className="text-sm text-text">⚡ {(store.credits + (store.isSubscriptionActive() ? store.subscriptionCredits : 0)).toLocaleString()} 积分</span>
             )}
           </div>
         </div>
@@ -126,7 +126,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
     <>
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         {onlineUsers.length > 0 && (
-          <div className="flex items-center -space-x-1.5 bg-[#1A1A1A]/90 backdrop-blur px-2 py-1.5 rounded-full border border-[#333] shadow-lg" data-testid="online-users">
+          <div className="flex items-center -space-x-1.5 bg-[#1A1A1A]/90 backdrop-blur px-2 py-1.5 rounded-full border shadow-lg" data-testid="online-users">
             {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (
               <span
                 key={i}
@@ -140,17 +140,17 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
           </div>
         )}
         {user && (
-          <div className="bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+          <div className="bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
             <SaveStatusIndicator />
           </div>
         )}
-        <div className="relative flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border border-[#333] shadow-lg">
+        <div className="relative flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
           {!store.loading && <CreditsDropdown />}
           {!store.loading && store.tier && (
             <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
               store.tier === 'ultra' ? 'bg-[#f59e0b] text-black' :
-              store.tier === 'max' ? 'bg-[#a855f7] text-white' :
-              store.tier === 'pro' ? 'bg-[#3b82f6] text-white' :
+              store.tier === 'max' ? 'bg-[#a855f7] text-text' :
+              store.tier === 'pro' ? 'bg-[#3b82f6] text-text' :
               'bg-[#9ca3af] text-black'
             }`}>
               {{ basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' }[store.tier] ?? store.tier}
@@ -184,7 +184,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
           ) : (
             <Link
               to="/login"
-              className="px-2 py-0.5 rounded-full text-xs border border-[#4ade80] text-[#4ade80] no-underline hover:bg-[#4ade80]/10 transition-colors"
+              className="px-2 py-0.5 rounded-full text-xs border border-accent text-accent-text no-underline hover:bg-[#4ade80]/10 transition-colors"
             >
               登录
             </Link>

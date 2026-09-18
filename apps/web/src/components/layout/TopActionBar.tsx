@@ -11,7 +11,7 @@ import { useCreditsStore } from '@/stores/creditsStore';
 
 const TIER_LABEL: Record<string, string> = { basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
 
-const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-[#262626] hover:border-[#444] hover:text-white text-[13px] leading-5 text-[#d0d0d0] px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
+const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-surface-dim hover:border-[#444] hover:text-text text-[13px] leading-5 text-[#d0d0d0] px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
 
 export function TopActionBar() {
   const { user, logout } = useAuth();
@@ -42,7 +42,7 @@ export function TopActionBar() {
     avatarUrl ? (
       <img src={avatarUrl} alt={displayName} className={`${size} rounded-full object-cover block`} />
     ) : (
-      <span className={`${size} rounded-full bg-[#4ade80] text-black text-sm font-bold flex items-center justify-center`}>
+      <span className={`${size} rounded-full bg-accent text-on-accent text-sm font-bold flex items-center justify-center`}>
         {firstLetter}
       </span>
     );
@@ -55,8 +55,8 @@ export function TopActionBar() {
         <div className="flex items-center gap-3 px-2 py-1 min-w-[180px]">
           {avatarNode('w-10 h-10 text-sm')}
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium text-[#e2e8f0] truncate">{displayName}</span>
-            <span className="text-sm text-white">⚡ {totalCredits.toLocaleString()} 积分</span>
+            <span className="text-sm font-medium text-text truncate">{displayName}</span>
+            <span className="text-sm text-text">⚡ {totalCredits.toLocaleString()} 积分</span>
           </div>
         </div>
       ),
@@ -85,12 +85,12 @@ export function TopActionBar() {
       {user ? (
         <>
           <Link to="/settings/membership" className={BTN}>
-            <span className="text-[13px] font-medium text-white">⚡ {totalCredits.toLocaleString()}</span>
+            <span className="text-[13px] font-medium text-text">⚡ {totalCredits.toLocaleString()}</span>
             {tier && (
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
                 tier === 'ultra' ? 'bg-[#f59e0b] text-black'
-                  : tier === 'max' ? 'bg-[#a855f7] text-white'
-                  : tier === 'pro' ? 'bg-[#3b82f6] text-white'
+                  : tier === 'max' ? 'bg-[#a855f7] text-text'
+                  : tier === 'pro' ? 'bg-[#3b82f6] text-text'
                   : 'bg-[#9ca3af] text-black'
               }`}>
                 {TIER_LABEL[tier] ?? tier}

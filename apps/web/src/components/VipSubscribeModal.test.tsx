@@ -222,7 +222,7 @@ describe('VipSubscribeModal', () => {
     expect(screen.getByText('专业版')).toBeInTheDocument();
     const proCard = document.querySelector('[data-tier="pro"]');
     expect(proCard).not.toBeNull();
-    expect(proCard?.className).toContain('border-[#4ade80]');
+    expect(proCard?.className).toContain('border-accent');
   });
 
   // ─── 12. Accessibility attributes ───
@@ -246,7 +246,7 @@ describe('VipSubscribeModal', () => {
     const basicCard = document.querySelector('[data-tier="basic"]') as HTMLElement;
     expect(basicCard).not.toBeNull();
     fireEvent.click(basicCard);
-    expect(basicCard.className).toContain('border-[#4ade80]');
+    expect(basicCard.className).toContain('border-accent');
   });
 
   // ─── 15. Cards layout ───

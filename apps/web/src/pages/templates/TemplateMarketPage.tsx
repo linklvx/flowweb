@@ -37,15 +37,15 @@ export function TemplateMarketPage() {
   return (
     <div>
       <div className="py-8">
-        <h1 className="text-2xl font-bold text-[#e2e8f0] mb-6">模板广场</h1>
+        <h1 className="text-2xl font-bold text-text mb-6">模板广场</h1>
 
-        <div className="flex gap-1 mb-6 border-b border-[#333]">
+        <div className="flex gap-1 mb-6 border-b">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => { setTab(t.key); setPage(1); }}
               className={`px-4 py-2 text-sm border-b-2 transition-colors bg-transparent ${
-                tab === t.key ? 'text-[#4ade80] border-[#4ade80]' : 'text-[#888] border-transparent hover:text-[#ccc]'
+                tab === t.key ? 'text-accent-text border-accent' : 'text-[#888] border-transparent hover:text-[#ccc]'
               }`}
             >
               {t.label}
@@ -59,12 +59,12 @@ export function TemplateMarketPage() {
             placeholder="搜索模板..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="flex-1 px-3 py-2 bg-[#1A1A1A] border border-[#333] rounded text-sm text-[#e2e8f0] placeholder-[#555] outline-none focus:border-[#4ade80]"
+            className="flex-1 px-3 py-2 bg-[#1A1A1A] border rounded text-sm text-text placeholder-[#555] outline-none focus:border-accent"
           />
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as any)}
-            className="px-3 py-2 bg-[#1A1A1A] border border-[#333] rounded text-sm text-[#e2e8f0] outline-none cursor-pointer"
+            className="px-3 py-2 bg-[#1A1A1A] border rounded text-sm text-text outline-none cursor-pointer"
           >
             <option value="importCount">最热门</option>
             <option value="newest">最新</option>
@@ -91,7 +91,7 @@ export function TemplateMarketPage() {
                     key={p}
                     onClick={() => setPage(p)}
                     className={`px-3 py-1 text-sm rounded bg-transparent border transition-colors ${
-                      p === page ? 'border-[#4ade80] text-[#4ade80]' : 'border-[#333] text-[#888] hover:border-[#555]'
+                      p === page ? 'border-accent text-accent-text' : 'text-[#888] hover:border-[#555]'
                     }`}
                   >
                     {p}

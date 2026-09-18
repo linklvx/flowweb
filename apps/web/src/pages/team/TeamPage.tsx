@@ -51,7 +51,7 @@ export default function TeamPage() {
   // TeamSidebar 常驻（内部自带三态）；右侧 section 内部分流加载中/错误/TeamDetail
   // —— spec §3「sidebar 两行骨架 + 右侧加载中 / 双侧错误态」，sidebar 的骨架/重试分支在真实页面可达
   return (
-    <div className="text-[#e2e8f0]">
+    <div className="text-text">
       <div className="flex items-start gap-6">
         <TeamSidebar onCreateTeam={() => setCreateOpen(true)} />
         <section className="flex-1 min-w-0" data-testid="team-detail">

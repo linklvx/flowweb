@@ -20,9 +20,9 @@ function formatDate(iso: string) {
 function statusBadge(status: string) {
   const map: Record<string, { label: string; color: string }> = {
     PENDING: { label: '处理中', color: 'bg-[#f59e0b]/15 text-[#f59e0b]' },
-    SUCCESS: { label: '成功', color: 'bg-[#4ade80]/15 text-[#4ade80]' },
+    SUCCESS: { label: '成功', color: 'bg-[#4ade80]/15 text-accent-text' },
     CLOSED:  { label: '已关闭', color: 'bg-[#666]/15 text-[#888]' },
-    FAILED:  { label: '失败', color: 'bg-[#ef4444]/15 text-[#ef4444]' },
+    FAILED:  { label: '失败', color: 'bg-[#ef4444]/15 text-accent-danger' },
   };
   const item = map[status] || map.PENDING;
   return (
@@ -105,12 +105,12 @@ export function CreditsPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-[#e2e8f0] mb-6">个人积分充值与余额</h2>
-      {error && <p className="text-[#ef4444] text-xs mb-4">{error}</p>}
+      <h2 className="text-lg font-bold text-text mb-6">个人积分充值与余额</h2>
+      {error && <p className="text-accent-danger text-xs mb-4">{error}</p>}
 
       {/* ── 积分卡 ── */}
       <div className="max-w-2xl mb-8">
-        <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6">
+        <div className="bg-[#1a1a1a] border rounded-xl p-6">
           <div className="text-center py-4">
             <p className="text-4xl font-bold text-[#f59e0b] mb-2">
               {balance.credits.toLocaleString()}
@@ -125,7 +125,7 @@ export function CreditsPage() {
 
       {/* ── 充值：默认团队积分（1 元 = 10 积分）── */}
       <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-5 max-w-2xl mb-8">
-        <h3 className="text-sm font-bold text-[#e2e8f0] mb-1">充值</h3>
+        <h3 className="text-sm font-bold text-text mb-1">充值</h3>
         <p className="text-xs text-[#888] mb-4">积分归属默认团队（1 元 = 10 积分）；团队订阅与席位管理见 团队管理。</p>
         <div className="grid grid-cols-3 gap-3">
           {PRESET_AMOUNTS.map((yuan) => (
@@ -135,10 +135,10 @@ export function CreditsPage() {
               className={`rounded-lg p-4 border text-center transition-colors ${
                 selectedAmount === yuan
                   ? 'border-[#5DDCFF] bg-[#5DDCFF]/10'
-                  : 'border-[#333] bg-[#111] hover:border-[#666]'
+                  : 'bg-[#111] hover:border-[#666]'
               }`}
             >
-              <div className="text-lg font-bold text-[#e2e8f0]">{yuan * 10}</div>
+              <div className="text-lg font-bold text-text">{yuan * 10}</div>
               <div className="text-xs text-[#666]">¥{yuan}</div>
             </button>
           ))}
@@ -179,14 +179,14 @@ export function CreditsPage() {
               orders.map((o) => (
                 <div
                   key={o.id}
-                  className="bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-3 flex items-center justify-between text-sm"
+                  className="bg-[#1a1a1a] border rounded-lg px-4 py-3 flex items-center justify-between text-sm"
                 >
                   <div>
                     <span className="text-[#ccc] font-mono text-xs">{o.outTradeNo}</span>
                     {statusBadge(o.status)}
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="text-[#4ade80] font-mono">
+                    <span className="text-accent-text font-mono">
                       +¥{(o.amountFen / 100).toFixed(2)}
                     </span>
                     <span className="text-xs text-[#666]">{formatDate(o.createdAt)}</span>

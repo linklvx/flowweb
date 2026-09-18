@@ -13,11 +13,11 @@ function PriceCell({ plan, period, onClick }: { plan: SubscriptionPlan; period: 
   const price = period === 'monthly' ? plan.priceMonthly : period === 'quarterly' ? plan.priceQuarterly : plan.priceAnnually;
   return (
     <td className="p-3 text-center">
-      <div className="text-lg font-bold text-white">¥{(price ?? 0).toLocaleString()}</div>
+      <div className="text-lg font-bold text-text">¥{(price ?? 0).toLocaleString()}</div>
       <div className="text-xs text-[#888]">{PERIOD_MAP[period]}</div>
       <button
         onClick={onClick}
-        className="mt-2 px-4 py-1.5 text-xs rounded-md text-white transition-colors"
+        className="mt-2 px-4 py-1.5 text-xs rounded-md text-text transition-colors"
         style={{ backgroundColor: PLAN_COLORS[plan.tier] || '#4ade80' }}
       >
         立即订阅
@@ -34,11 +34,11 @@ function UpgradeModal({ visible, plan, period, preview, loading, onConfirm, onCl
   return (
     <Modal open={visible} onCancel={onClose} footer={null} title="升级确认" width={480}>
       <div className="text-sm text-[#ccc] space-y-3 py-2">
-        <div className="flex justify-between"><span>目标套餐</span><span className="text-white font-bold">{plan.name} {PERIOD_MAP[period]}</span></div>
-        <div className="flex justify-between"><span>目标原价</span><span className="text-white">¥{preview?.originalPrice?.toLocaleString()}</span></div>
-        <div className="flex justify-between"><span>可抵扣</span><span className="text-[#4ade80]">-¥{preview?.deductibleAmount?.toLocaleString()}</span></div>
-        <hr className="border-[#333]" />
-        <div className="flex justify-between text-base"><span>应付</span><span className="text-[#4ade80] font-bold">¥{preview?.payableAmount?.toLocaleString()}</span></div>
+        <div className="flex justify-between"><span>目标套餐</span><span className="text-text font-bold">{plan.name} {PERIOD_MAP[period]}</span></div>
+        <div className="flex justify-between"><span>目标原价</span><span className="text-text">¥{preview?.originalPrice?.toLocaleString()}</span></div>
+        <div className="flex justify-between"><span>可抵扣</span><span className="text-accent-text">-¥{preview?.deductibleAmount?.toLocaleString()}</span></div>
+        <hr />
+        <div className="flex justify-between text-base"><span>应付</span><span className="text-accent-text font-bold">¥{preview?.payableAmount?.toLocaleString()}</span></div>
         <div className="text-xs text-[#666]">首月发放 {preview?.firstMonthCredits?.toLocaleString()} 订阅积分</div>
       </div>
       <div className="flex justify-end gap-3 mt-4">
@@ -146,43 +146,43 @@ export function MembershipPage() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-white mb-1">个人会员订阅</h2>
+      <h2 className="text-lg font-bold text-text mb-1">个人会员订阅</h2>
       <div className="flex gap-3 mb-6 text-sm">
-        <span className="text-[#888]">普通积分: <span className="text-white font-mono">{(credits ?? 0).toLocaleString()}</span></span>
-        <span className="text-[#888]">订阅积分: <span className="text-white font-mono">{(subscriptionCredits ?? 0).toLocaleString()}</span></span>
+        <span className="text-[#888]">普通积分: <span className="text-text font-mono">{(credits ?? 0).toLocaleString()}</span></span>
+        <span className="text-[#888]">订阅积分: <span className="text-text font-mono">{(subscriptionCredits ?? 0).toLocaleString()}</span></span>
         {subscriptionCreditsExpiry && <span className="text-[#666] text-xs">(到期: {new Date(subscriptionCreditsExpiry).toLocaleDateString()})</span>}
       </div>
 
       {/* Subscribed: Current plan details */}
       {sub && sub.status === 'active' && (
         <div className="space-y-6">
-          <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6">
+          <div className="bg-[#1A1A1A] border rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <Tag color={PLAN_COLORS[sub.tier] ?? undefined}>{PLAN_LABELS[sub.tier]}</Tag>
-              <span className="text-white font-bold text-lg">{sub.plan?.name ?? PLAN_LABELS[sub.tier]}</span>
+              <span className="text-text font-bold text-lg">{sub.plan?.name ?? PLAN_LABELS[sub.tier]}</span>
               <span className="text-[#888] text-sm">{PERIOD_MAP[sub.period]}</span>
             </div>
             <div className="grid grid-cols-4 gap-4 text-sm">
-              <div><span className="text-[#888]">月积分额度</span><div className="text-white font-mono text-base">{sub.plan?.monthlyCredits?.toLocaleString()}</div></div>
-              <div><span className="text-[#888]">已发放次数</span><div className="text-white">{sub.grantCount}</div></div>
-              <div><span className="text-[#888]">周期到期</span><div className="text-white">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</div></div>
-              <div><span className="text-[#888]">下次发放</span><div className="text-white">{new Date(sub.nextGrantDate).toLocaleDateString()}</div></div>
+              <div><span className="text-[#888]">月积分额度</span><div className="text-text font-mono text-base">{sub.plan?.monthlyCredits?.toLocaleString()}</div></div>
+              <div><span className="text-[#888]">已发放次数</span><div className="text-text">{sub.grantCount}</div></div>
+              <div><span className="text-[#888]">周期到期</span><div className="text-text">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</div></div>
+              <div><span className="text-[#888]">下次发放</span><div className="text-text">{new Date(sub.nextGrantDate).toLocaleDateString()}</div></div>
             </div>
           </div>
 
           {/* Upgrade section */}
-          <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6">
-            <h3 className="text-white text-base font-bold mb-3">升级套餐</h3>
+          <div className="bg-[#1A1A1A] border rounded-lg p-6">
+            <h3 className="text-text text-base font-bold mb-3">升级套餐</h3>
             <div className="grid grid-cols-3 gap-3">
               {(plans as any[]).filter((p: any) => (({ basic: 0, pro: 1, max: 2, ultra: 3 } as Record<string,number>)[p.tier] > (({ basic: 0, pro: 1, max: 2, ultra: 3 } as Record<string,number>)[sub!.tier] ?? 0))).map((p: any) => (
                 ['monthly', 'quarterly', 'annually'].map(per => (
                   <button
                     key={`${p.id}-${per}`}
-                    className="bg-[#252525] border border-[#444] rounded-lg p-3 text-left hover:border-[#4ade80] transition-colors"
+                    className="bg-[#252525] border border-[#444] rounded-lg p-3 text-left hover:border-accent transition-colors"
                     onClick={() => { setUpgradePlan(p); setUpgradePeriod(per); }}
                   >
-                    <div className="text-white font-bold">{p.name} {PERIOD_MAP[per]}</div>
-                    <div className="text-[#4ade80] text-lg font-mono mt-1">
+                    <div className="text-text font-bold">{p.name} {PERIOD_MAP[per]}</div>
+                    <div className="text-accent-text text-lg font-mono mt-1">
                       ¥{per === 'monthly' ? p.priceMonthly : per === 'quarterly' ? p.priceQuarterly : p.priceAnnually}
                     </div>
                     <div className="text-xs text-[#666] mt-1">月授{p.monthlyCredits.toLocaleString()} 积分</div>
@@ -224,10 +224,10 @@ export function MembershipPage() {
 
       {(!sub || sub.status !== 'active') && (
         /* Unsubscribed: Plan comparison table */
-        <div className="bg-[#1A1A1A] border border-[#333] rounded-lg p-6 overflow-x-auto">
+        <div className="bg-[#1A1A1A] border rounded-lg p-6 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#333] text-[#888]">
+              <tr className="border-b text-[#888]">
                 <th className="text-left p-3">套餐</th>
                 <th className="p-3 text-center">月积分</th>
                 <th className="p-3 text-center">包月</th>
@@ -240,11 +240,11 @@ export function MembershipPage() {
                 <tr key={plan.id} className="border-b border-[#252525] hover:bg-[#252525]/50">
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-white font-bold">{plan.name}</span>
+                      <span className="text-text font-bold">{plan.name}</span>
                       <Tag color={PLAN_COLORS[plan.tier]}>{PLAN_LABELS[plan.tier]}</Tag>
                     </div>
                   </td>
-                  <td className="p-3 text-center text-[#4ade80] font-mono text-base">{plan.monthlyCredits.toLocaleString()}</td>
+                  <td className="p-3 text-center text-accent-text font-mono text-base">{plan.monthlyCredits.toLocaleString()}</td>
                   <PriceCell plan={plan} period="monthly" onClick={() => handleSubscribe(plan, 'monthly')} />
                   <PriceCell plan={plan} period="quarterly" onClick={() => handleSubscribe(plan, 'quarterly')} />
                   <PriceCell plan={plan} period="annually" onClick={() => handleSubscribe(plan, 'annually')} />
@@ -259,7 +259,7 @@ export function MembershipPage() {
             title="确认订阅"
           >
             <p className="text-sm text-[#ccc]">
-              确认订阅 <span className="text-white font-bold">{selectedPlan?.name}</span> {PERIOD_MAP[selectedPeriod] || ''}？
+              确认订阅 <span className="text-text font-bold">{selectedPlan?.name}</span> {PERIOD_MAP[selectedPeriod] || ''}？
             </p>
             <div className="flex justify-end gap-3 mt-4">
               <Button onClick={() => setSelectedPlan(null)}>取消</Button>

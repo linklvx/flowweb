@@ -41,7 +41,7 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
       <button
         aria-label="更多操作"
         onClick={(e) => e.stopPropagation()}
-        className="p-1.5 rounded-md text-white/80 border-none z-30 hover:bg-white/10"
+        className="p-1.5 rounded-md text-text border-none z-30 hover:bg-overlay-2"
       >
         <MoreOutlined />
       </button>
@@ -61,7 +61,7 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
         <div className="flex items-center cursor-pointer group/row">
           <div className="shrink-0" style={{ width: 32 }} />
           <div
-            className="grid flex-1 items-center gap-4 pl-4 pr-12 py-3 rounded-lg transition-colors group-hover/row:bg-white/5"
+            className="grid flex-1 items-center gap-4 pl-4 pr-12 py-3 rounded-lg transition-colors group-hover/row:bg-overlay-1"
             style={{ gridTemplateColumns: '72px 1fr 70px 100px 145px 145px' }}
           >
             <div className="flex items-center justify-start">
@@ -75,15 +75,15 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
                 ariaLabel="重命名画布"
                 onConfirm={(next) => onRename(canvas.id, next)}
               />
-              {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 ml-1 shrink-0">公开</span>}
+              {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-overlay-2 ml-1 shrink-0">公开</span>}
             </div>
-            <div className="text-sm text-white">画布</div>
-            <div className="text-sm text-white" />
-            <div className="text-sm text-white whitespace-nowrap">{formatDateTime(canvas.createdAt)}</div>
-            <div className="text-sm text-white whitespace-nowrap">编辑于 {formatRelativeTime(canvas.updatedAt)}</div>
+            <div className="text-sm text-text">画布</div>
+            <div className="text-sm text-text" />
+            <div className="text-sm text-text whitespace-nowrap">{formatDateTime(canvas.createdAt)}</div>
+            <div className="text-sm text-text whitespace-nowrap">编辑于 {formatRelativeTime(canvas.updatedAt)}</div>
           </div>
         </div>
-        <div className="mx-12 mr-4 border-b border-white/10" />
+        <div className="mx-12 mr-4 border-b border-overlay-2" />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex rounded-md bg-black/50 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">
           {menuButton}
         </div>
@@ -98,7 +98,7 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
       role="button"
       onClick={() => onClick(canvas)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(canvas); }}
-      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 pb-2 overflow-hidden relative group/menu h-full"
+      className="rounded-2xl bg-[#1F1F1F] hover:bg-surface-dim outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 pb-2 overflow-hidden relative group/menu h-full"
     >
       <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: '4 / 3' }}>
         <div className="absolute inset-0 transition-transform duration-200 group-hover/menu:scale-110" style={{ background }} />
@@ -111,11 +111,11 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
           ariaLabel="重命名画布"
           onConfirm={(next) => onRename(canvas.id, next)}
         />
-        <div className="flex items-center justify-between text-xs text-white/50">
+        <div className="flex items-center justify-between text-xs text-text-dim-2">
           <Tooltip title={new Date(canvas.updatedAt).toLocaleString()}>
             <span>编辑于 {formatRelativeTime(canvas.updatedAt)}</span>
           </Tooltip>
-          {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10">公开</span>}
+          {canvas.isPublic && <span className="text-[10px] px-1.5 py-0.5 rounded bg-overlay-2">公开</span>}
         </div>
       </div>
       <div className="absolute top-4 right-4 opacity-0 group-hover/menu:opacity-100 transition-opacity duration-200">

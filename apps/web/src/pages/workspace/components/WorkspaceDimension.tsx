@@ -176,7 +176,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               <button
                 data-testid="load-more"
                 onClick={() => { void data.loadMore(); }}
-                className="mt-4 mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 hover:border-white/40"
+                className="mt-4 mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
               >
                 加载更多
               </button>
@@ -184,12 +184,12 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
           </>
         )}
         {data.status === 'success' && !isEmpty && viewMode === 'list' && (
-          <div data-testid="workspace-list-shell" className="rounded-xl bg-white/5 overflow-hidden">
+          <div data-testid="workspace-list-shell" className="rounded-xl bg-overlay-1 overflow-hidden">
             <div className="px-4 pt-5">
               <div className="flex items-center">
                 <div className="shrink-0" style={{ width: 32 }} />
                 <div
-                  className="grid flex-1 items-center gap-4 pl-4 pr-12 text-sm text-white/40"
+                  className="grid flex-1 items-center gap-4 pl-4 pr-12 text-sm text-text-dim-2"
                   style={{ gridTemplateColumns: '72px 1fr 70px 100px 145px 145px' }}
                 >
                   <div>预览</div>
@@ -200,7 +200,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                   <div>最近更新</div>
                 </div>
               </div>
-              <div className="mx-12 mr-4 mt-4 border-b border-white/10" />
+              <div className="mx-12 mr-4 mt-4 border-b border-overlay-2" />
             </div>
             {/* 外层 div 承担左右 padding：ul 依赖 preflight 的 margin/padding 归零重置，不自带水平 padding */}
             <div className="px-4 pb-5">
@@ -209,7 +209,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                   <li data-testid="create-canvas-card" className="py-2">
                     <button
                       onClick={() => setCanvasModal(true)}
-                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 hover:border-white/40"
+                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
                     >
                       <PlusOutlined /> 新建画布
                     </button>
@@ -246,7 +246,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                 <button
                   data-testid="load-more"
                   onClick={() => { void data.loadMore(); }}
-                  className="mx-auto block px-6 py-2 border border-white/20 rounded-lg text-sm text-white/70 hover:border-white/40"
+                  className="mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
                 >
                   加载更多
                 </button>

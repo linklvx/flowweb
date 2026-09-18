@@ -17,12 +17,12 @@ export function AppLayout() {
   const topOffset = announcement ? 64 : 0;
 
   return (
-    <div className="min-w-[1200px] min-h-screen bg-[#141414] flex flex-col">
+    <div className="min-w-[1200px] min-h-screen bg-bg flex flex-col">
       <AnnouncementBar />
       <div className="flex flex-1 items-start">
         <Sidebar topOffset={topOffset} />
         <main className="flex-1 min-w-0 px-6">
-          <div className="h-[60px] sticky z-20 bg-[#141414]" style={{ top: topOffset }}>
+          <div className="h-[60px] sticky z-20 bg-bg" style={{ top: topOffset }}>
             <TopActionBar />
           </div>
           <Outlet />

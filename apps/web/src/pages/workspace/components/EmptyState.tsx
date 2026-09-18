@@ -16,9 +16,9 @@ export function EmptyState({ variant, onAction }: { variant: Variant; onAction: 
   const cfg = CONFIG[variant];
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-3" data-testid={`empty-state-${variant}`}>
-      <span className="text-5xl text-white/30">{cfg.icon}</span>
-      <p className="text-sm text-white/90 m-0">{cfg.title}</p>
-      <p className="text-xs text-white/50 m-0">{cfg.hint}</p>
+      <span className="text-5xl text-text-dim-1">{cfg.icon}</span>
+      <p className="text-sm text-text m-0">{cfg.title}</p>
+      <p className="text-xs text-text-dim-2 m-0">{cfg.hint}</p>
       <Button type="primary" onClick={onAction}>{cfg.action}</Button>
     </div>
   );

@@ -62,13 +62,13 @@ export function Sidebar({ topOffset }: Props) {
       data-collapsed={collapsed ? 'true' : undefined}
       className={`sticky left-0 self-start shrink-0 overflow-hidden transition-[width] duration-200 ease-out z-30 ${
         collapsed ? 'w-[78px] px-2' : 'w-[240px] px-4'
-      } bg-[#141414] border-r border-r-[#ffffff18] flex flex-col`}
+      } bg-bg border-r border-r-[#ffffff18] flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
       <header className={`h-[60px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
         {!collapsed && (
           <Link to="/" aria-label="首页" className="block">
-            <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-white select-none whitespace-nowrap">
+            <span className="text-[22px] font-semibold italic tracking-[-0.04em] leading-none text-text select-none whitespace-nowrap">
               Flow123
             </span>
           </Link>
@@ -77,7 +77,7 @@ export function Sidebar({ topOffset }: Props) {
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          className="size-9 rounded-lg flex items-center justify-center text-white bg-[#141414]"
+          className="size-9 rounded-lg flex items-center justify-center text-text bg-bg"
         >
           {collapsed ? <MenuUnfoldOutlined className="text-[23px]" /> : <MenuFoldOutlined className="text-[23px]" />}
         </button>
@@ -87,7 +87,7 @@ export function Sidebar({ topOffset }: Props) {
         <button
           onClick={() => startNewProject(navigate)}
           aria-label="新建项目"
-          className={`h-9 my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none transition-[filter] duration-150 ${
+          className={`h-9 my-[10px] rounded-lg bg-surface-dim hover:brightness-110 text-text text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none transition-[filter] duration-150 ${
             collapsed ? 'justify-center w-[36px] self-center' : 'gap-2 px-2 w-full'
           }`}
         >
@@ -104,10 +104,10 @@ export function Sidebar({ topOffset }: Props) {
             <Link
               to={item.href}
               aria-label={item.label}
-              className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-[13px] px-2 mb-[5px]'} no-underline text-[15px] leading-[26px] whitespace-nowrap transition-colors text-white hover:text-white ${
+              className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-[13px] px-2 mb-[5px]'} no-underline text-[15px] leading-[26px] whitespace-nowrap transition-colors text-text hover:text-text ${
                 isActive(item.href)
-                  ? 'bg-[#262626] font-medium'
-                  : 'hover:bg-[#1e1e1e]'
+                  ? 'bg-surface-dim font-medium'
+                  : 'hover:bg-surface'
               }`}
             >
               <span className="w-5 h-5 flex items-center justify-center shrink-0 text-[18px]">{item.icon}</span>
@@ -125,8 +125,8 @@ export function Sidebar({ topOffset }: Props) {
             aria-label="关注公众号"
             className={`rounded-lg flex items-center border-none transition-colors ${
               collapsed
-                ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] bg-[#141414] text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
-                : 'h-16 bg-[#1e1e1e] hover:bg-[#262626] justify-between px-3'
+                ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] bg-bg text-[#a0a0a0] hover:bg-surface hover:text-text'
+                : 'h-16 bg-surface hover:bg-surface-dim justify-between px-3'
             }`}
           >
             {collapsed ? (
@@ -136,7 +136,7 @@ export function Sidebar({ topOffset }: Props) {
             ) : (
               <>
                 <span className="flex flex-col items-start">
-                  <span className="text-xs font-medium text-white">关注公众号</span>
+                  <span className="text-xs font-medium text-text">关注公众号</span>
                   <span className="text-[11px] text-[#707070] mt-0.5">获取最新动态和福利</span>
                 </span>
                 <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(7,193,96,0.1)' }}>
@@ -150,7 +150,7 @@ export function Sidebar({ topOffset }: Props) {
           <button
             onClick={() => message.info('敬请期待')}
             aria-label="文档中心"
-            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} bg-[#141414] text-sm leading-[22px] whitespace-nowrap text-white hover:bg-[#1e1e1e] border-none transition-colors`}
+            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} bg-bg text-sm leading-[22px] whitespace-nowrap text-text hover:bg-surface border-none transition-colors`}
           >
             <QuestionCircleOutlined className="text-[18px]" />
             {!collapsed && '文档中心'}

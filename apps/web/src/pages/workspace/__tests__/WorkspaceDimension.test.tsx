@@ -58,11 +58,11 @@ describe('WorkspaceDimension 共享组件', () => {
     expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('我的团队');
   });
 
-  it('list 视图：bg-white/5 rounded-xl 外壳 + 表头六列 + 新建画布行', async () => {
+  it('list 视图：bg-overlay-1 rounded-xl 外壳 + 表头六列 + 新建画布行', async () => {
     renderDim(undefined);
     fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
     const shell = await screen.findByTestId('workspace-list-shell');
-    expect(shell.className).toContain('bg-white/5');
+    expect(shell.className).toContain('bg-overlay-1');
     expect(shell.className).toContain('rounded-xl');
     for (const header of ['预览', '名称', '类型', '内容', '创建时间', '最近更新']) {
       expect(screen.getByText(header, { exact: true })).toBeInTheDocument();

@@ -10,140 +10,140 @@ exports[`CardGridSkeleton > snapshot 锁定结构 1`] = `
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
     <div
       class="rounded-2xl bg-[#1F1F1F] p-2 animate-pulse"
     >
       <div
-        class="w-full rounded-xl bg-white/10"
+        class="w-full rounded-xl bg-overlay-2"
         style="aspect-ratio: 4 / 3;"
       />
       <div
-        class="mt-2 h-4 w-2/3 rounded bg-white/10"
+        class="mt-2 h-4 w-2/3 rounded bg-overlay-2"
       />
       <div
-        class="mt-1.5 h-3 w-1/3 rounded bg-white/10"
+        class="mt-1.5 h-3 w-1/3 rounded bg-overlay-2"
       />
     </div>
   </div>

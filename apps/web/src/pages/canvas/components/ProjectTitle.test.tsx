@@ -89,7 +89,7 @@ describe('ProjectTitle', () => {
     renderTitle();
     const link = screen.getByRole('link', { name: /Flow123/ });
     expect(link).toHaveAttribute('href', '/works');
-    expect(link.className).toContain('text-white');
+    expect(link.className).toContain('text-text');
   });
 
   it('folderPath 为空显示 主目录/ 前缀', () => {
@@ -121,7 +121,7 @@ describe('ProjectTitle', () => {
     fireEvent.click(screen.getByText('未命名项目'));
     const input = screen.getByDisplayValue('未命名项目');
     expect(input.className).toContain('border-[#555]');
-    expect(input.className).not.toContain('border-[#4ade80]');
+    expect(input.className).not.toContain('border-accent');
     expect(input.className).toContain('min-w-[120px]');
   });
 });
