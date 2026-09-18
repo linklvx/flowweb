@@ -50,13 +50,16 @@ async function main() {
   const team = await prisma.team.findFirst({ where: { ownerId: user.id, isDefault: true } });
   if (!team) throw new Error('gate user default team missing (bootstrapPersonalTeam failed?)');
 
-  // 画布：CanvasProject + CanvasDoc（update 分支重写 state——被测试运行污染后重跑自愈回初始 2 节点）
+  // 画布：CanvasProject + CanvasDoc 快照重写 + CanvasDocUpdate 增量行清残——自愈无条件成立：
+  // 载入 = 快照 + 全量 update 重放（collab.gateway.loadDocument），只重写快照不清残时，
+  // 残留增量会在干净快照上重放出污染（Yjs 墓碑复活再删 fixture 节点）
   await prisma.canvasProject.upsert({
     where: { id: GATE.projectId },
     update: {},
     create: { id: GATE.projectId, name: 'A0-0 门禁画布', userId: user.id, teamId: team.id },
   });
   const state = buildCanvasState();
+  await prisma.canvasDocUpdate.deleteMany({ where: { projectId: GATE.projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId: GATE.projectId },
     update: { state },

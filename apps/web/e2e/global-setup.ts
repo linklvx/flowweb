@@ -43,6 +43,7 @@ export default async function globalSetup() {
   await waitForPort(3001);
 
   // (c) 真实 UI 登录：浏览器填 /login 表单提交（非 API 直造 session），cookie 随 5173 同源落下
+  // 本流程依赖遗留登录链路：/login 页与 AuthModal 均已 @deprecated（待 LoginModal 替换）——替换落地时须同步更新此处（选择器已锚定 AuthModal.tsx:33-34）
   const browser = await chromium.launch();
   const context = await browser.newContext({ baseURL: BASE_URL });
   const page = await context.newPage();
