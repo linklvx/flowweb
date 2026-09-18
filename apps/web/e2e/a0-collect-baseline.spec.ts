@@ -4,7 +4,9 @@
 //
 // 调用方式（默认 `npx playwright test` 不跑本文件——env 守卫跳过）：
 //   COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts
-// 产物：e2e/baseline/before-A0/<page>.json + <page>.png + meta.json（含基线 commit）
+// 产物：e2e/baseline/<dir>/<page>.json + <page>.png + meta.json（含基线 commit）
+// 输出目录可用 BASELINE_DIR 覆盖（相对 e2e/baseline/ 的目录名；默认 before-A0 不动）：
+//   A 段后复采（A5 diff 用）：COLLECT_BASELINE=1 BASELINE_DIR=after-A npx playwright test e2e/a0-collect-baseline.spec.ts
 //
 // 加载稳定性纪律：目标元素出现 + 固定沉降等待；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 import { execSync } from 'node:child_process';
@@ -13,7 +15,10 @@ import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 
 const HERE = import.meta.dirname!;
-const OUT_DIR = path.join(HERE, 'baseline', 'before-A0');
+// 约束：目录名仅允许字母数字连字符（防路径逃逸/分隔符注入写错位置）
+const BASELINE_DIR = process.env.BASELINE_DIR ?? 'before-A0';
+if (!/^[a-zA-Z0-9-]+$/.test(BASELINE_DIR)) throw new Error(`[baseline] BASELINE_DIR 非法目录名: ${BASELINE_DIR}`);
+const OUT_DIR = path.join(HERE, 'baseline', BASELINE_DIR);
 const VIEWPORT = { width: 1280, height: 800 };
 const SETTLE_MS = 800; // 目标元素出现后的固定沉降（动画/字体收尾），不做 networkidle
 
@@ -234,8 +239,8 @@ test.describe('A0 before-基线采集', () => {
           commit: getCommit(),
           collectedAt: new Date().toISOString(),
           viewport: VIEWPORT,
-          invocation: 'COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts',
-          theme: '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）',
+          invocation: `COLLECT_BASELINE=1${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
+          theme: BASELINE_DIR === 'before-A0' ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）' : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
           stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],

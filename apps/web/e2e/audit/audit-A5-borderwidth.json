@@ -1,0 +1,183 @@
+{
+  "meta": {
+    "task": "A5 回补：A4 删除类 border-width 验证（plan A4-2——border-box 下加边框不改 rect，几何层必漏，属性层 width 才是判据）",
+    "before": "137c29af11523085273edb085bbb14f078673da7",
+    "after": "5333c32aa785936ecaeb113935f7573affd1b910",
+    "diffSource": "e2e/audit/baseline-diff-A5.json"
+  },
+  "styleFlipWidthZero": 4229,
+  "emergentWidthSides": 93,
+  "emergentWidthSites": [
+    {
+      "page": "canvas",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "canvas",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]/span[2]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "canvas",
+      "key": "tid:online-users@0",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "canvas",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[0]/span[0]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "canvas",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[1]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "canvas",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "login",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]/div[1]/div[0]/div[0]/div[1]/div[0]",
+      "tag": "div",
+      "side": "r",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]/span[2]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "tid:online-users@0",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[0]/span[0]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[1]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "material-modal",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "register",
+      "key": "dom:div[0]/div[0]/div[0]/form[0]",
+      "tag": "form",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "dom:div[0]/div[0]/div[0]/div[0]/span[2]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "tid:online-users@0",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[0]/span[0]",
+      "tag": "span",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[1]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "video-editor",
+      "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]",
+      "tag": "div",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "videos",
+      "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]",
+      "tag": "a",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "videos",
+      "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[1]",
+      "tag": "a",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "works",
+      "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]",
+      "tag": "a",
+      "side": "l",
+      "after": "1px"
+    },
+    {
+      "page": "works",
+      "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[1]",
+      "tag": "a",
+      "side": "l",
+      "after": "1px"
+    }
+  ],
+  "formVanished": 4,
+  "other": [],
+  "conclusion": "A4 删除零副作用实证：style 翻转而宽度恒 0 共 4229 边（border-none/box-border 等补偿删除 no-op）；涌现宽度 0→N 93 边/24 站点（对应 emergence-adjudication-A4 登记 33 非零代码位点）；表单 UA 边框抵消 N→0 4 边（裸 button 归零族）；无非预期宽度变化"
+}
