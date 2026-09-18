@@ -1,0 +1,593 @@
+{
+  "meta": {
+    "task": "A4-c 涌现裁定（preflight 重开 A2 后 border 宽度类真实渲染的逐处裁定 + 带色/divide 批量登记 + 修剪执行）",
+    "date": "2026-09-18",
+    "baseCommit": "e37414e8（A4-b 落地后工作树）",
+    "auditSource": "e2e/audit/audit-A0.json（冻结，commit 137c29af）；行号漂移已按 file+ctx 文本重定位",
+    "recheckSnapshot": "e2e/audit/audit-A4c.json（同清单重扫：bare 118 / colored 144 / divide 2 tokens=1 site / textarea 6——与冻结值一致，A4-a/b 未触及本族）",
+    "headline": "修剪 0 处：42 个非零宽度项中 33 个代码位点全部携带显式色证据（同串色类/模板分支色/inline borderColor），涌现边框全部为设计色而非默认 #333；76 个 border-0 宽 0 无涌现；13 个测试项随代码保留。唯一真无色位（AnnotationToolbar 色板钮）有 inline borderColor。",
+    "trimEdits": []
+  },
+  "bareBorder": {
+    "total": 118,
+    "keep": 118,
+    "trim": 0,
+    "nonzeroCodeSites": [
+      {
+        "key": "src/components/layout/AnnouncementBar.tsx#button@0",
+        "file": "src/components/layout/AnnouncementBar.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "inline style borderColor rgba(255,255,255,0.5)——公告链接胶囊钮，色证在 inline"
+      },
+      {
+        "key": "src/components/VipSubscribeModal.tsx#button@0",
+        "file": "src/components/VipSubscribeModal.tsx",
+        "tag": "button",
+        "token": "border-2",
+        "verdict": "保留",
+        "rationale": "模板双分支显式色 border-[#4ade80]/border-transparent（周期选择器）"
+      },
+      {
+        "key": "src/components/VipSubscribeModal.tsx#HTMLDivElement@0",
+        "file": "src/components/VipSubscribeModal.tsx",
+        "tag": "HTMLDivElement",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#4ade80]/border-[#242424]（套餐卡，未选臂另有 hover:border）"
+      },
+      {
+        "key": "src/pages/canvas/components/AddNodeMenu.tsx#div@0",
+        "file": "src/pages/canvas/components/AddNodeMenu.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "inline borderColor var(--canvas-controls-border)；实测 1px rgb(54,54,54)（菜单面板）"
+      },
+      {
+        "key": "src/pages/canvas/components/Angle3D/AnglePresetButtons.tsx#button@0",
+        "file": "src/pages/canvas/components/Angle3D/AnglePresetButtons.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-blue-500/30 / border-transparent（预设芯片）"
+      },
+      {
+        "key": "src/pages/canvas/components/CreditsDropdown.tsx#div@0",
+        "file": "src/pages/canvas/components/CreditsDropdown.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串显式色 border-zinc-900/90 + inline 渐变底（积分卡容器）"
+      },
+      {
+        "key": "src/pages/canvas/components/CreditsDropdown.tsx#div@1",
+        "file": "src/pages/canvas/components/CreditsDropdown.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-violet-400/15（左卡）"
+      },
+      {
+        "key": "src/pages/canvas/components/CreditsDropdown.tsx#div@2",
+        "file": "src/pages/canvas/components/CreditsDropdown.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-amber-400/15（右卡）"
+      },
+      {
+        "key": "src/pages/canvas/components/Lighting/LightPresetButtons.tsx#button@0",
+        "file": "src/pages/canvas/components/Lighting/LightPresetButtons.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "激活分支串 border-blue-500/30；未激活分支 border border-transparent——两分支均有色"
+      },
+      {
+        "key": "src/pages/canvas/components/Lighting/ViewToggle.tsx#button@0",
+        "file": "src/pages/canvas/components/Lighting/ViewToggle.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-blue-500/30 / border-transparent（radio 分段钮·透视）"
+      },
+      {
+        "key": "src/pages/canvas/components/Lighting/ViewToggle.tsx#button@1",
+        "file": "src/pages/canvas/components/Lighting/ViewToggle.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同上（radio 分段钮·正面）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx#button@1",
+        "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "inline borderColor（选中 TEXT_COLOR/未选 rgba(255,255,255,0.2)）颜色预设色板钮；同族 :254 border-white/20 模式互证"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.1] + bg-[#2a2a2a]（模型下拉面板）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.1]（生成数量下拉）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx#button@0",
+        "file": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#4a4a4a]/border-[#363636]（分辨率钮）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx#button@1",
+        "file": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同上（比例钮）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx#(root)@1",
+        "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
+        "tag": "(root)",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "dropdownPanel 常量串四处使用全部 inline borderColor:BAR_BORDER + inline bg"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/MultiImageNode.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.06] + inline bg/backdrop-blur（图层栈帧=真实表面）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextConfigPanel.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/TextConfigPanel.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.1]（模型下拉）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+        "tag": "div",
+        "token": "border-b",
+        "verdict": "保留",
+        "rationale": "同串 border-b border-white/[0.08]（全屏编辑工具条分隔线）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.15] + bg-black/60 backdrop-blur（浮动工具条）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#div@0",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.1]（弹层一）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#button@0",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#4a4a4a]/border-[#363636]（分辨率钮）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#button@1",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同上（比例钮）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#button@2",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同上（时长钮）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#button@3",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同上（音频开关）"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx#div@1",
+        "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
+        "tag": "div",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "同串 border-white/[0.1]（弹层二）"
+      },
+      {
+        "key": "src/pages/settings/CreditsPage.tsx#button@0",
+        "file": "src/pages/settings/CreditsPage.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#5DDCFF]/border-[#333]（充值金额钮；实测两分支色）"
+      },
+      {
+        "key": "src/pages/team/TeamBillingPage.tsx#button@0",
+        "file": "src/pages/team/TeamBillingPage.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#5DDCFF]/border-white/10（金额选择钮）"
+      },
+      {
+        "key": "src/pages/team/TeamDetail.tsx#button@0",
+        "file": "src/pages/team/TeamDetail.tsx",
+        "tag": "button",
+        "token": "border-b-2",
+        "verdict": "保留",
+        "rationale": "双分支 border-b-[#5DDCFF]/border-b-transparent（页签）"
+      },
+      {
+        "key": "src/pages/team/TeamSidebar.tsx#button@0",
+        "file": "src/pages/team/TeamSidebar.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-cyan-500/30/border-transparent（团队卡）"
+      },
+      {
+        "key": "src/pages/templates/TemplateMarketPage.tsx#button@0",
+        "file": "src/pages/templates/TemplateMarketPage.tsx",
+        "tag": "button",
+        "token": "border-b-2",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#4ade80]/border-transparent（页签；实测激活 2px #4ade80/未选 transparent）"
+      },
+      {
+        "key": "src/pages/templates/TemplateMarketPage.tsx#button@1",
+        "file": "src/pages/templates/TemplateMarketPage.tsx",
+        "tag": "button",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "双分支 border-[#4ade80]/border-[#333]+hover:border-[#555]（分页钮）"
+      }
+    ],
+    "zeroWidthBatch": {
+      "count": 72,
+      "token": "border-0",
+      "verdict": "保留",
+      "files": [
+        "src/components/HistoryPage/HistorySidebar.tsx",
+        "src/pages/canvas/components/AddNodeMenu.tsx",
+        "src/pages/canvas/components/Angle3D/Angle3DModal.tsx",
+        "src/pages/canvas/components/Angle3D/Angle3DPreview.tsx",
+        "src/pages/canvas/components/Angle3D/ControlPanel.tsx",
+        "src/pages/canvas/components/CanvasToolbar.tsx",
+        "src/pages/canvas/components/Lighting/ControlPanel.tsx",
+        "src/pages/canvas/components/Lighting/LightingModal.tsx",
+        "src/pages/canvas/components/Lighting/PromptInput.tsx",
+        "src/pages/canvas/components/NodePalette.tsx",
+        "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
+        "src/pages/canvas/components/nodes/AudioConfigPanel.tsx",
+        "src/pages/canvas/components/nodes/EditToolbar.tsx",
+        "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
+        "src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx",
+        "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
+        "src/pages/canvas/components/nodes/TextConfigPanel.tsx",
+        "src/pages/canvas/components/nodes/TransformToolbar.tsx",
+        "src/pages/canvas/components/nodes/VideoEditNode.tsx",
+        "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx",
+        "src/pages/canvas/page.tsx",
+        "src/pages/canvas/video-editor/components/EditorTopBar.tsx",
+        "src/pages/canvas/video-editor/components/ExportModal.tsx",
+        "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
+        "src/pages/canvas/video-editor/components/PropertiesPanel.tsx",
+        "src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx",
+        "src/pages/canvas/video-editor/components/timeline/TrackRow.tsx",
+        "src/pages/templates/TemplateCard.tsx",
+        "src/pages/videos/CarouselBar.tsx"
+      ],
+      "rationale": "宽度 0：preflight 重开前后视觉恒无（无涌现可裁定）；与 preflight *{border-width:0} 冗余但防御性保留——antd 宿主上仍压制 antd 自带 border-width；A4-c 修剪判据为视觉涌现导向，宽 0 不适用（border-none 纯冗余清理属 A4-b 已完成范围，border-0 不同类）"
+    },
+    "testItems": [
+      {
+        "key": "src/components/layout/Sidebar.test.tsx#(root)@0",
+        "file": "src/components/layout/Sidebar.test.tsx",
+        "tag": "(root)",
+        "token": "border-r",
+        "verdict": "保留",
+        "rationale": "类断言；代码 Sidebar.tsx border-r + border-r-[#ffffff18] 保留，断言同步无需变"
+      },
+      {
+        "key": "src/pages/canvas/components/AddNodeMenu.test.tsx#AddNodeMenu@0",
+        "file": "src/pages/canvas/components/AddNodeMenu.test.tsx",
+        "tag": "AddNodeMenu",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "测试描述文本（非类断言），含英文单词 border"
+      },
+      {
+        "key": "src/pages/canvas/components/AddNodeMenu.test.tsx#AddNodeMenu@1",
+        "file": "src/pages/canvas/components/AddNodeMenu.test.tsx",
+        "tag": "AddNodeMenu",
+        "token": "border-0",
+        "verdict": "保留",
+        "rationale": "类断言 border-0；代码保留，同步无需变"
+      },
+      {
+        "key": "src/pages/canvas/components/CanvasToolbar.test.tsx#CanvasToolbar@0",
+        "file": "src/pages/canvas/components/CanvasToolbar.test.tsx",
+        "tag": "CanvasToolbar",
+        "token": "border-0",
+        "verdict": "保留",
+        "rationale": "类断言 border-0；代码保留"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/MultiImageNode.test.tsx#(root)@0",
+        "file": "src/pages/canvas/components/nodes/MultiImageNode.test.tsx",
+        "tag": "(root)",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "测试描述文本"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextInputNode.test.tsx#(root)@0",
+        "file": "src/pages/canvas/components/nodes/TextInputNode.test.tsx",
+        "tag": "(root)",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "测试描述文本"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextInputNode.test.tsx#(root)@1",
+        "file": "src/pages/canvas/components/nodes/TextInputNode.test.tsx",
+        "tag": "(root)",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "测试描述文本"
+      },
+      {
+        "key": "src/pages/canvas/components/nodes/TextInputNode.test.tsx#(root)@2",
+        "file": "src/pages/canvas/components/nodes/TextInputNode.test.tsx",
+        "tag": "(root)",
+        "token": "border",
+        "verdict": "保留",
+        "rationale": "测试描述文本"
+      },
+      {
+        "key": "src/pages/videos/__tests__/CarouselBar.test.tsx#(root)@0",
+        "file": "src/pages/videos/__tests__/CarouselBar.test.tsx",
+        "tag": "(root)",
+        "token": "border-0",
+        "verdict": "保留",
+        "rationale": "describe 描述文本（含 border-0 字样）"
+      },
+      {
+        "key": "src/pages/videos/__tests__/CarouselBar.test.tsx#(root)@1",
+        "file": "src/pages/videos/__tests__/CarouselBar.test.tsx",
+        "tag": "(root)",
+        "token": "border-0",
+        "verdict": "保留",
+        "rationale": "类断言 border-0；代码保留"
+      },
+      {
+        "key": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx#WorkspaceTabBar@0",
+        "file": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx",
+        "tag": "WorkspaceTabBar",
+        "token": "border-b-2",
+        "verdict": "保留",
+        "rationale": "类断言 border-b-2（激活臂 border-b-2 border-white 保留）"
+      },
+      {
+        "key": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx#WorkspaceTabBar@1",
+        "file": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx",
+        "tag": "WorkspaceTabBar",
+        "token": "border-b-2",
+        "verdict": "保留",
+        "rationale": "类断言 border-b-2"
+      },
+      {
+        "key": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx#WorkspaceTabBar@2",
+        "file": "src/pages/workspace/__tests__/WorkspaceTabBar.test.tsx",
+        "tag": "WorkspaceTabBar",
+        "token": "border-b-2",
+        "verdict": "保留",
+        "rationale": "类断言 border-b-2"
+      }
+    ]
+  },
+  "borderColorExplicit": {
+    "count": 144,
+    "verdict": "批量保留",
+    "exceptions": [],
+    "notes": [
+      "扫描全清单：色值与宿主表面自洽（暗面板 #333/#2a2a2a/#363636/#444/#555、强调 #4ade80/#5DDCFF、--ve-*/--vw-*/--canvas-* token、spinner border-t-transparent 家族）",
+      "VideoEditNode 的 #F0F0F0/#E5E7EB 浅色值非异常：该节点为白皮卡片（bg-white + text-[#1F2329] + 根 inline border #E5E7EB），浅色边与白皮自洽",
+      "测试文件 5 项（Sidebar.test / VipSubscribeModal.test×2 / ProjectTitle.test×2）为断言串，随代码保留"
+    ]
+  },
+  "divide": {
+    "site": "src/pages/team/TeamBillingPage.tsx#div@0（冻结行 140，A4 后现值仍 140）",
+    "tokens": "divide-y divide-white/5",
+    "verdict": "登记涌现，不编辑",
+    "expectedChange": "现状无分隔线 → 涌现 1px rgba(255,255,255,0.05) 行间分隔线",
+    "rationale": "divide-y 提供宽度、divide-white/5 提供色，preflight 重开后 children border-top 真实渲染；显式色=意图信号"
+  },
+  "auxiliaryAudits": {
+    "deadVisual": {
+      "duty": "无 bg 元素依赖 border 成视觉——preflight 重开后这些边框真实渲染，检查是否破碎/孤立",
+      "method": "对 bare 118 + colored 144 全部\"无 bg 类\"宿主核查 inline style 与设计意图",
+      "findings": [
+        {
+          "site": "RatioResolutionPopover/AiToolActionPopup/ImageExtConfigPanel/VideoConfigPanel 弹层根（border-[#363636] 无 bg 类）",
+          "verdict": "健康",
+          "note": "四处均有 inline backgroundColor oklab(0.269/0.95)+blur(32px)——真实表面，涌现边框为毛玻璃弹层描边"
+        },
+        {
+          "site": "CreditsDropdown 积分卡容器/子卡（无 bg 类）",
+          "verdict": "健康",
+          "note": "inline backgroundImage 渐变——真实表面"
+        },
+        {
+          "site": "MultiImageNode 图层栈帧 absolute rounded-xl border-white/[0.06]（无 bg 类）",
+          "verdict": "健康（by-design）",
+          "note": "inline bg rgba(255,255,255,0.03)+backdrop-blur——半透明图层帧叠于图像内容上"
+        },
+        {
+          "site": "TextNodeToolbar（bg-black/60）、各 config 下拉（bg-[#2a2a2a]）",
+          "verdict": "健康",
+          "note": "自带 bg 类"
+        }
+      ],
+      "conclusion": "0 处破损/孤立：所有\"border 即视觉\"的候选均另有 inline/类底色；涌现边框均落在真实表面上"
+    },
+    "textareaContrast": {
+      "duty": "清单 6 个 textarea 计算色 vs 节点底色对比度（登记现状问题，不修）",
+      "method": "WCAG 2.x 相对亮度静态计算（色值取自 className/inline/父容器实底；--ve-panel=rgb(38,38,38)、--ve-text=#e2e8f0 取自 index.css token）",
+      "items": [
+        {
+          "site": "src/pages/canvas/components/Lighting/PromptInput.tsx:12",
+          "fg": "#ffffff (text-white)",
+          "bg": "bg-white/5 叠 LightingModal #1C1C1C ≈ #272727",
+          "ratio": "14.9:1",
+          "verdict": "AAA 通过"
+        },
+        {
+          "site": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx:193",
+          "fg": "#ccc (text-[#ccc])",
+          "bg": "bg-transparent 叠面板 #222222",
+          "ratio": "9.9:1",
+          "verdict": "AAA 通过"
+        },
+        {
+          "site": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx:159",
+          "fg": "#ccc (inline color)",
+          "bg": "inline rgb(28,28,28)",
+          "ratio": "10.6:1",
+          "verdict": "AAA 通过（色在 inline 非 Tailwind 类，审计 hasExplicitTextColor=false 的唯一非缺色例）"
+        },
+        {
+          "site": "src/pages/canvas/components/nodes/TextConfigPanel.tsx:192",
+          "fg": "#ccc (text-[#ccc])",
+          "bg": "bg-transparent 叠面板 #222222",
+          "ratio": "9.9:1",
+          "verdict": "AAA 通过"
+        },
+        {
+          "site": "src/pages/canvas/components/SaveAsTemplateDialog.tsx:39",
+          "fg": "#e2e8f0 (text-[#e2e8f0])",
+          "bg": "#252525 (bg-[#252525])",
+          "ratio": "12.4:1",
+          "verdict": "AAA 通过"
+        },
+        {
+          "site": "src/pages/canvas/video-editor/components/PropertiesPanel.tsx:136",
+          "fg": "#e2e8f0 (--ve-text)",
+          "bg": "rgb(38,38,38) (--ve-panel)",
+          "ratio": "12.3:1",
+          "verdict": "AAA 通过"
+        }
+      ],
+      "advisory": [
+        "placeholder 对比度（顺带登记，非正文）：PromptInput placeholder-neutral-500 #737373 vs #272727 ≈ 3.2:1；SaveAsTemplateDialog placeholder-[#555] vs #252525 ≈ 2.1:1——均低于 AA 正文线，属既有设计取舍（弱化提示文字），登记不修",
+        "实测说明：SaveAsTemplateDialog 需经 antd Dropdown（合成事件无法开启，antd5 已知怪癖）——live 校验未成行，静态计算色值全部为确定值（无渐变/图片底），结论可信"
+      ],
+      "conclusion": "6/6 正文对比度 AAA（≥9.9:1）；无新增问题，登记为现状基线"
+    }
+  },
+  "visualVerification": {
+    "method": "vite preview（audit --rebuild 同源 dist）+ gate 用户会话；getComputedStyle 实测 borderWidth/Color + 截图",
+    "sampledPages": 6,
+    "sampledKeeps": 15,
+    "samples": [
+      {
+        "page": "/login",
+        "element": "AuthModal 面板 bg-[#222222] border-[#3a3a3a]",
+        "computed": "1px solid rgb(58,58,58)",
+        "verdict": " sane——暗面板细描边"
+      },
+      {
+        "page": "/login",
+        "element": "邮箱/密码 input ×2（border-[#3a3a3a]）",
+        "computed": "1px solid rgb(58,58,58)",
+        "verdict": "sane"
+      },
+      {
+        "page": "/works",
+        "element": "WorkspaceTabBar 激活页签（bare border-b-2 keep）",
+        "computed": "border-bottom 2px solid rgb(255,255,255)，top/x 0",
+        "verdict": "sane——白下划线页签"
+      },
+      {
+        "page": "/videos",
+        "element": "VideoCard ×5（border-[var(--vw-card-border)]）",
+        "computed": "1px solid rgba(255,255,255,0.1) on #1e1e1e",
+        "verdict": "sane"
+      },
+      {
+        "page": "/canvas",
+        "element": "ProjectTitle + CanvasTopBar 药丸 ×4（border-[#333]）",
+        "computed": "1px solid rgb(51,51,51) on rgba(26,26,26,.9)",
+        "verdict": "sane"
+      },
+      {
+        "page": "/canvas",
+        "element": "AddNodeMenu 菜单面板（bare border keep + inline var）",
+        "computed": "1px solid rgb(54,54,54) on rgb(38,38,38)（截图留档）",
+        "verdict": "sane——标准菜单描边，无布局破损"
+      },
+      {
+        "page": "/settings/credits",
+        "element": "卡片 ×2（border-[#333]/[#2a2a2a]）",
+        "computed": "1px solid rgb(51,51,51)/rgb(42,42,42)",
+        "verdict": "sane"
+      },
+      {
+        "page": "/settings/credits",
+        "element": "充值金额钮（bare border keep，模板双分支）",
+        "computed": "选中 100¥10=1px rgb(93,220,255) on rgba(93,220,255,.1)；未选 300¥30=1px rgb(51,51,51) on #111",
+        "verdict": "sane——旗舰证据：bare 宽度类+分支色按设计渲染"
+      },
+      {
+        "page": "/templates",
+        "element": "页签 ×3（bare border-b-2 keep，模板双分支）",
+        "computed": "激活 社区模板=2px solid rgb(74,222,128)；未选=2px transparent",
+        "verdict": "sane"
+      },
+      {
+        "page": "/templates",
+        "element": "搜索 input（border-[#333]）",
+        "computed": "1px solid rgb(51,51,51)",
+        "verdict": "sane"
+      }
+    ],
+    "notEyeballed": "CreditsDropdown/AnnotationToolbar/EraseBottomToolbar 弹层等 antd 悬浮触发件——合成事件无法开启（antd5 怪癖），按源码分支证据裁定；分页钮未渲染（单页）",
+    "conclusion": "抽样全 sane：所有涌现边框均为设计色（无意外 #333 默认值命中），无布局破损、无双线；全保留裁定与实测一致"
+  }
+}
