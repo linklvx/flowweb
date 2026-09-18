@@ -125,7 +125,6 @@ test.describe('B0-2 html.dark：仅命中深色块', () => {
       expectAllTokens(s, DARK, 'G2-dark');
       expect(s.__colorScheme, '[G2] html.dark color-scheme 期望 dark').toBe('dark');
     } finally {
-      await page.evaluate(() => document.documentElement.classList.remove('dark')).catch(() => {});
       await ctx.close();
     }
   });
@@ -142,7 +141,6 @@ test.describe('B0-3 html.light：双命中源序裁定（D8 预验证）', () =>
       expectAllTokens(s, LIGHT, 'G3-light源序胜');
       expect(s.__colorScheme, '[G3] html.light color-scheme 期望 light（.light 块源序在后压 :root,.dark 的 dark）').toBe('light');
     } finally {
-      await page.evaluate(() => document.documentElement.classList.remove('light')).catch(() => {});
       await ctx.close();
     }
   });
@@ -151,9 +149,9 @@ test.describe('B0-3 html.light：双命中源序裁定（D8 预验证）', () =>
 test.describe('B0-4 login 恒浅岛：岛根浅色值生效、html 保持深色', () => {
   test('岛根（div.light）抽查浅色值 + html --fw-border=#333（岛作用域机制预验证）', async ({ page }) => {
     await openLogin(page);
-    const root = page.locator('div[class~="bg-[#f5f5f5]"]').first();
+    const root = page.locator('div.light').first();
     await expect(root).toBeVisible();
-    const s = await readTokens(page, 'div[class~="bg-[#f5f5f5]"]');
+    const s = await readTokens(page, 'div.light');
     // 抽查 3 枚覆盖三族：面（bg）/边（border）/文本（text-dim-2）——全量三态断言已由组1-3 覆盖
     expect(s['--fw-bg'], '[G4] 岛根 --fw-bg 期望浅色值 #f7f8fa').toBe('#f7f8fa');
     expect(s['--fw-border'], '[G4] 岛根 --fw-border 期望 #e5e7eb（A2 起既有）').toBe('#e5e7eb');

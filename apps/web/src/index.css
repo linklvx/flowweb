@@ -9,7 +9,9 @@
  * ⚠ 源序约束（D8，B1 有断言守卫）：.light 块必须写在 :root,.dark 之后——html.light 同时命中
  * :root 与 .light（同 (0,1,0) 特异性），级联取文档序后者，.light 在前则浅色永远输给深色。
  * :root = 无 JS 回退 = 深色（D3）；.dark 显式挂类与 :root 同块同值（机制等价）。
- * color-scheme 同块声明：html.light 双命中时 .light 的 light 靠源序胜出。 */
+ * color-scheme 同块声明：html.light 双命中时 .light 的 light 靠源序胜出。
+ * 两侧 token 值均刻意单值：深色侧 rgba / 浅色侧不透明 hex 不对称是有意的——alpha 烤进字面值
+ * （斜杠禁令，spec §3.1），勿"统一格式化"两侧写法。 */
 :root,
 .dark {
   color-scheme: dark;

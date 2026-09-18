@@ -136,7 +136,7 @@ A0-0 工具链+门禁环境就位 → A0 审计(六路)+before基线 → A1 红�
 2. `index.css`：**`:root,.dark {…深} / .light {…浅}`（.light 在后）** + ::placeholder 覆盖 + A 段单值块并入
 3. Tailwind colors 同名映射（单值；**开斜杠键白名单默认全关**，开时 `--x-rgb` 裸通道值双档同约定）
 4. 域 token 按**第⑤路产物**裁定（v1.3 补间接链）：--canvas-handle-*/--edge-flow-*/--canvas-shadow-*/--z-panel 永不并入；**--canvas-controls-* 按引用点宿主域**——AddNodeMenu 15 处+HistorySidebar 2 处（壳）**语义化**，画板/video-editor 引用保留；--ve-*/--vw-* 域内保留；**--ve-border: var(--canvas-controls-border)（index.css:31）间接链**——--canvas-controls-border 若语义化，恒深域 --ve-border 静默联动，B0 依第⑤路变量引用图裁定（border 直接引用点全在恒深域 → 保留，链无害，登记）
-5. **斜杠检测自此常驻**（⑤路）
+5. **斜杠检测自此常驻**（⑤路；**B0 实现偏差登记**：门禁实现为源码字面量扫描 `--slash-gate`（免构建快速通道），非 spec §3.1 的"DOM class→产物 CSS 存在性"形——静态类串等价且更省；动态拼接类名是盲区，**B5/B6 验收电池补产物存在性检查**兜住）
 - **verify**：**html 无类=深色（单列断言——三态中唯一被 C1 改语义的状态）/ html.dark=深色 / html.light=浅值**（源序翻转口径三分开，v1.2）；斜杠检测 0 违例；**浅色目标基线不在 B0 采（移 B6）**
 
 ### B1 红用例

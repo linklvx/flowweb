@@ -31,7 +31,7 @@
         "excluded": "--canvas-shadow-menu×1（neverMerge 族）与 --z-panel×2（neverMerge 族）随行不动"
       },
       {
-        "file": "src/components/HistorySidebar.tsx",
+        "file": "src/components/HistoryPage/HistorySidebar.tsx",
         "canvasControlsRefs": 2,
         "byToken": { "--canvas-controls-text": 1, "--canvas-controls-hover": 1 },
         "note": "route⑤ 反例登记组件：路径在 components/ 但消费画布壳 token → 跟随域"
