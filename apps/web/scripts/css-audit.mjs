@@ -2,8 +2,10 @@
 // A0 CSS 审计脚本（五路输出 → e2e/audit/audit-A0.json + audit-A0.md）
 // 纪律：只读分析，不改任何源文件。稳定键 = 文件 + 宿主元素签名（tag + 文件内序号），非行号。
 // 注意：@序号 键在同族更早条目被删除时会整体前移（A4 将删数百条）——diff 配对优先内容字段（file/tag/token/ctx），序号键仅兜底。
-// 用法：node scripts/css-audit.mjs [--rebuild]
+// 用法：node scripts/css-audit.mjs [--rebuild|--slash-gate]
 //   --rebuild 强制重跑 pnpm build（默认：dist/assets/*.css 缺失才构建）
+//   --slash-gate 斜杠零输出常驻门禁（B0 起）：route④ 单独快速通道——免构建，扫源码 class 现场，
+//     var() 单值颜色键配 /NN 透明度的任何用法（如 bg-surface/50 → 零输出）即 exit 1。B5/B6 并入验收电池。
 import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -421,25 +423,28 @@ function collectRoute3(occs, classPresent) {
 /* ------------------------------------------------------------------ *
  * Route ④ 斜杠零输出检测基线：var() 型 token 键 + /NN 的组合（现状应为 0）
  * 另登记现存 [#hex]/NN 用法（合法——hex+斜杠可用），供 B0 后 diff。
+ * B0 起此路兼任常驻门禁（--slash-gate）：键提取支持连字符键名（surface-dim/text-dim-1 等）
+ * 且只收 var() 单值；违规匹配按「颜色属性前缀-颜色名」整段取色名（旧版 (?:[a-z-]+)- 会把
+ * surface-dim 截成 dim，靠配置侧同款截断巧合对齐——两病相消不可靠，已改精确形）。
  * ------------------------------------------------------------------ */
 function collectRoute4(occs, files) {
   const configText = fs.readFileSync(path.join(ROOT, 'tailwind.config.ts'), 'utf8');
-  const colorEntries = [...configText.matchAll(/([a-zA-Z][a-zA-Z0-9]*)\s*:\s*['"]([^'"]+)['"]/g)]
+  const colorEntries = [...configText.matchAll(/['"]?([a-zA-Z][a-zA-Z0-9-]*)['"]?\s*:\s*['"](var\(--[a-zA-Z0-9-]+\))['"]/g)]
     .map((m) => ({ key: m[1], value: m[2] }));
-  const varValuedKeys = colorEntries.filter((e) => /^var\(--/.test(e.value));
+  const varValuedKeys = colorEntries;
   const varSlashTokens = occs.filter((o) => /\[var\(--[^)]+\)\]\/\d+$/.test(o.token) || /-\[var\(--[^)]+\)\]:\d+$/.test(o.token));
   const hexSlash = occs.filter((o) => /\[#[0-9a-fA-F]{3,8}[a-zA-Z0-9]*\]\/\d+$/.test(o.token));
-  // var 键名 + /NN 直接组合（如未来 token 化后 text-canvas-text/60）——现状无 var 键，恒 0
+  // var 键名 + /NN 直接组合（B0 后如 bg-surface/50、text-text-dim-2/60）——var 单值键无法拆 alpha，零输出
   const varKeys = new Set(varValuedKeys.map((e) => e.key));
   const varKeySlash = occs.filter((o) => {
-    const m = o.token.match(new RegExp('^' + V + '(?:[a-z-]+)-([a-zA-Z][a-zA-Z0-9-]*)(?:\\/\\d+)$'));
+    const m = o.token.match(new RegExp('^' + V + `(?:${COLOR_PROPS})-([a-zA-Z][a-zA-Z0-9-]*)(?:\\/\\d+)$`));
     return m && varKeys.has(m[1]);
   });
   return {
     varValuedColorKeys: varValuedKeys,
     varSlashViolations: { count: varSlashTokens.length + varKeySlash.length, items: [...varSlashTokens, ...varKeySlash] },
     hexSlashBaseline: { count: hexSlash.length, items: withKeys(hexSlash) },
-    note: 'B0 落地 var() 型颜色键后，此路转为产物 CSS 存在性回归检查；当前基线冻结为 0',
+    note: 'B0 已落地 var() 型颜色键（15 语义键 + borderColor.DEFAULT 桥）；--slash-gate 常驻门禁消费此路',
   };
 }
 
@@ -721,7 +726,27 @@ function renderMd(audit) {
   return L.join('\n');
 }
 
+/* ------------------------------------------------------------------ *
+ * --slash-gate 常驻门禁（B0 起）：route④ 单独快速通道——免构建免产物 CSS，
+ * 违规 > 0 即 exit 1（offender 逐条）。B5/B6 并入验收电池调用。
+ * ------------------------------------------------------------------ */
+function slashGate() {
+  const files = listSourceFiles();
+  const occs = scanOccurrences(files);
+  const r4 = collectRoute4(occs, files);
+  console.log(`[slash-gate] var() 单值颜色键 ${r4.varValuedColorKeys.length} 个：${r4.varValuedColorKeys.map((e) => e.key).join(', ')}`);
+  if (r4.varSlashViolations.count > 0) {
+    for (const v of r4.varSlashViolations.items) {
+      console.error(`[slash-gate] 违例 ${v.file}:${v.line} \`${v.token}\`——var() 单值键配 /NN 透明度将零输出`);
+    }
+    console.error(`[slash-gate] FAIL：${r4.varSlashViolations.count} 处 var 键/斜杠违例`);
+    process.exit(1);
+  }
+  console.log('[slash-gate] PASS：var 键/斜杠违例 0');
+}
+
 function main() {
+  if (process.argv.includes('--slash-gate')) return slashGate();
   const started = new Date();
   const files = listSourceFiles();
   const { css: prodCss, files: prodCssFiles } = loadProdCss();

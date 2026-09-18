@@ -2,16 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== 基础层边色桥（spec 2026-09-18-css-base-layer-theme-design D2）=====
- * preflight 的 *{border-color:var(--fw-border)} 消费此变量；默认 #333 = 项目习惯边色（暗色站点值）。 */
-:root {
-  --fw-border: #333;
+/* ===== B0 语义 token 双套（spec 2026-09-18-css-base-layer-theme-design B 段）=====
+ * 深色值 = 现状实测收编（body #141414 / --vw-card-bg #1e1e1e / --ve-text #e2e8f0 / 控件文本 rgb(247,247,247)）；
+ * 浅色值 = B0 校准定稿（对比度记录见 B0 提交说明：accent-text #15803d 5.02:1@white·4.72:1@bg；
+ * danger #dc2626 4.83:1@white；dim 阶梯 2.39/4.55/7.11 镜像深色阶梯 2.71/4.54/7.13）。
+ * ⚠ 源序约束（D8，B1 有断言守卫）：.light 块必须写在 :root,.dark 之后——html.light 同时命中
+ * :root 与 .light（同 (0,1,0) 特异性），级联取文档序后者，.light 在前则浅色永远输给深色。
+ * :root = 无 JS 回退 = 深色（D3）；.dark 显式挂类与 :root 同块同值（机制等价）。
+ * color-scheme 同块声明：html.light 双命中时 .light 的 light 靠源序胜出。 */
+:root,
+.dark {
+  color-scheme: dark;
+  --fw-bg: #141414;            /* 站点底 = body 现值 */
+  --fw-surface: #1e1e1e;       /* 卡面 = --vw-card-bg 现值 */
+  --fw-surface-dim: #262626;   /* 次级面（凹陷区/输入底） */
+  --fw-border: #333;           /* preflight *{border-color} 桥（D2，项目习惯边色） */
+  --fw-text: #e2e8f0;          /* 正文 = body/--ve-text 现值 */
+  --fw-text-strong: rgb(247, 247, 247); /* 强文本 = --canvas-controls-text 现值 */
+  --fw-text-dim-1: rgba(255, 255, 255, 0.3);  /* 淡化阶梯（装饰/占位层级，刻意低于 AA） */
+  --fw-text-dim-2: rgba(255, 255, 255, 0.45);
+  --fw-text-dim-3: rgba(255, 255, 255, 0.6);
+  --fw-accent: #4ade80;        /* 强调填充 */
+  --fw-accent-text: #4ade80;   /* 强调前景文本 */
+  --fw-on-accent: #141414;     /* 强调填充上的文本 */
+  --fw-accent-danger: #ef4444; /* 危险/删除 */
+  --fw-overlay-1: rgba(255, 255, 255, 0.05);  /* 覆盖阶梯（hover/按下/禁用蒙层） */
+  --fw-overlay-2: rgba(255, 255, 255, 0.1);
+  --fw-overlay-3: rgba(255, 255, 255, 0.2);
 }
 
-/* .light = 恒浅岛作用域（login/register），B 段将扩展为完整双套 */
 .light {
-  --fw-border: #e5e7eb;
   color-scheme: light;
+  --fw-bg: #f7f8fa;
+  --fw-surface: #ffffff;
+  --fw-surface-dim: #f0f1f2;
+  --fw-border: #e5e7eb;
+  --fw-text: #1f2329;
+  --fw-text-strong: #111827;
+  --fw-text-dim-1: #9ca3af;
+  --fw-text-dim-2: #6b7280;
+  --fw-text-dim-3: #4b5563;
+  --fw-accent: #4ade80;
+  --fw-accent-text: #15803d;   /* 填充色直接作前景在浅底不足 4.5:1，前景档加深（4.72:1@#f7f8fa） */
+  --fw-on-accent: #141414;
+  --fw-accent-danger: #dc2626; /* ≥4.5:1@white（#ef4444 在白底仅 3.76:1） */
+  --fw-overlay-1: rgba(0, 0, 0, 0.03);
+  --fw-overlay-2: rgba(0, 0, 0, 0.06);
+  --fw-overlay-3: rgba(0, 0, 0, 0.12);
+}
+
+/* ::placeholder 语义化（B0）：选 dim-2——占位文本是唯一描述预期输入的功能文本，dim-1 过淡
+ * （浅底 2.39:1）、dim-3 过强（7.11:1 与正文争层级）；dim-2 ≈4.5-4.8:1 恰好可用。
+ * 选择子必须镜像 preflight 的 input::placeholder,textarea::placeholder（(0,0,2)）——裸
+ * ::placeholder (0,0,1) 会特异性落败；本规则源序在后，平特异性时胜出。作者侧
+ * placeholder:* 工具类 (0,1,1) 与 antd 类作用域规则保持更高优先级不受影响。
+ * 变更登记：A2 起过渡值 preflight #9ca3af（gray-400）→ 语义 dim-2（浅=#6b7280/深=rgba(255,255,255,0.45)）。 */
+input::placeholder,
+textarea::placeholder {
+  color: var(--fw-text-dim-2);
 }
 
 /* 项目级默认值改变（preflight :disabled{cursor:default} → not-allowed，spec 2026-09-18 §2.2 登记）；既有 6 处 disabled:cursor-not-allowed (0,2,0) 继续覆盖无害 */

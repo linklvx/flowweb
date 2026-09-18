@@ -20,6 +20,28 @@ const config: Config = {
           dark: '#1A1A1A',
           darker: '#111',
         },
+        /* B0 语义 token 同名映射（plan 锁定：键名 = --fw- 后缀，单值 var()）。
+         * 用法形态：bg-bg / bg-surface / bg-surface-dim / text-text / text-text-strong /
+         * text-text-dim-2 / text-accent-text / bg-accent / text-on-accent / bg-accent-danger /
+         * bg-overlay-1 …（--fw-border 不入 colors——borderColor.DEFAULT 桥已覆盖裸 border）。
+         * ⚠ 斜杠键全关（硬约束）：全部为单值 var()，无 rgb(var()/alpha-value 包装——
+         * `bg-surface/50` 等斜杠透明度用法将零输出（var() 字面值无法拆 alpha），
+         * 使用侧由 `node scripts/css-audit.mjs --slash-gate` 常驻门禁拦截。 */
+        bg: 'var(--fw-bg)',
+        surface: 'var(--fw-surface)',
+        'surface-dim': 'var(--fw-surface-dim)',
+        text: 'var(--fw-text)',
+        'text-strong': 'var(--fw-text-strong)',
+        'text-dim-1': 'var(--fw-text-dim-1)',
+        'text-dim-2': 'var(--fw-text-dim-2)',
+        'text-dim-3': 'var(--fw-text-dim-3)',
+        accent: 'var(--fw-accent)',
+        'accent-text': 'var(--fw-accent-text)',
+        'on-accent': 'var(--fw-on-accent)',
+        'accent-danger': 'var(--fw-accent-danger)',
+        'overlay-1': 'var(--fw-overlay-1)',
+        'overlay-2': 'var(--fw-overlay-2)',
+        'overlay-3': 'var(--fw-overlay-3)',
       },
       borderColor: {
         DEFAULT: 'var(--fw-border)',

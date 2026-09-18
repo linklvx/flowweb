@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "task": "B0 域 token 裁定注册表（plan B0-4）",
+    "date": "2026-09-18",
+    "sources": [
+      "e2e/audit/audit-A0.json route⑤（tokenRefs/graphEdges，@ 210247dc 前采集）",
+      "B0 现场复核（grep 逐文件，AddNodeMenu 15 + HistorySidebar 2 与 audit 一致；另发现 route⑤ 正则漏计 --z-panel 2 处，本表补登）"
+    ],
+    "consumer": "B2 执行改写；本表只登记不改码"
+  },
+  "neverMerge": {
+    "patterns": ["--canvas-handle-*", "--edge-flow-*", "--canvas-shadow-*", "--z-panel"],
+    "rationale": "画布机制 token（手柄/连线动画/阴影/层级），与主题无关的恒定视觉机制，永不并入语义套",
+    "currentProductRefs": [
+      { "token": "--canvas-handle-bg", "count": 1, "file": "src/pages/canvas/components/nodes/NodeHandle.tsx" },
+      { "token": "--canvas-handle-icon", "count": 1, "file": "src/pages/canvas/components/nodes/NodeHandle.tsx" },
+      { "token": "--edge-flow-color", "count": 1, "file": "src/pages/canvas/components/edges/EdgeFlowParticles.tsx" },
+      { "token": "--edge-highlight-color", "count": 1, "file": "src/pages/canvas/components/edges/ConnectionLine.tsx" },
+      { "token": "--canvas-shadow-menu", "count": 1, "file": "src/pages/canvas/components/AddNodeMenu.tsx" },
+      { "token": "--canvas-shadow-dropdown", "count": 2, "files": ["src/pages/canvas/components/nodes/VideoNodeToolbar.tsx", "src/pages/canvas/components/nodes/VideoTrimPanel.tsx"] },
+      { "token": "--z-panel", "count": 2, "file": "src/pages/canvas/components/AddNodeMenu.tsx", "note": "route⑤ TOKEN_VAR_RE 只匹配 canvas|ve|vw 前缀，漏计此两处（z-[calc(var(--z-panel)-1)] / z-[var(--z-panel)]）——本表补登" }
+    ]
+  },
+  "semantifyB2": {
+    "rationale": "跟随域（画布壳）宿主——主题化时随站点走，B2 换语义 token",
+    "targets": [
+      {
+        "file": "src/pages/canvas/components/AddNodeMenu.tsx",
+        "canvasControlsRefs": 15,
+        "byToken": { "--canvas-controls-bg": 1, "--canvas-controls-border": 1, "--canvas-controls-text": 4, "--canvas-controls-hover": 6, "--canvas-controls-active": 3 },
+        "excluded": "--canvas-shadow-menu×1（neverMerge 族）与 --z-panel×2（neverMerge 族）随行不动"
+      },
+      {
+        "file": "src/components/HistorySidebar.tsx",
+        "canvasControlsRefs": 2,
+        "byToken": { "--canvas-controls-text": 1, "--canvas-controls-hover": 1 },
+        "note": "route⑤ 反例登记组件：路径在 components/ 但消费画布壳 token → 跟随域"
+      }
+    ],
+    "total": 17
+  },
+  "keepAsIs": {
+    "rationale": "画板恒深域（board：React Flow viewport 内节点工具）与岛内恒深域（video-editor 自持暗色）——不随站点主题化，域 token 原样保留",
+    "boardHosts": [
+      { "file": "src/pages/canvas/components/nodes/VideoHDPanel.tsx", "canvasControlsRefs": 8 },
+      { "file": "src/pages/canvas/components/nodes/VideoNodeToolbar.tsx", "canvasControlsRefs": 5 },
+      { "file": "src/pages/canvas/components/nodes/VideoTrimPanel.tsx", "canvasControlsRefs": 3 }
+    ],
+    "islandHosts": [
+      { "file": "src/pages/canvas/video-editor/components/AssetPanel.tsx", "canvasControlsRefs": 3 }
+    ],
+    "domainTokenFamilies": {
+      "--ve-*": { "productRefs": 114, "byToken": { "--ve-text": 34, "--ve-border": 25, "--ve-text-dim": 22, "--ve-accent": 15, "--ve-panel": 14, "--ve-bg": 2, "--ve-track-video": 2 }, "host": "src/pages/canvas/video-editor/（岛内恒深）" },
+      "--vw-*": { "productRefs": 6, "byToken": { "--vw-close-reserve": 2, "--vw-carousel-reserve": 1, "--vw-card-bg": 1, "--vw-card-border": 1, "--vw-card-border-hover": 1 }, "host": "src/pages/videos/（作品列表/预览弹层，含 2 个几何 px token 非颜色）" }
+    }
+  },
+  "indirectChain": {
+    "edges": [
+      { "from": "--ve-panel", "to": "--canvas-controls-bg", "file": "src/index.css", "reverifiedLine": 97 },
+      { "from": "--ve-border", "to": "--canvas-controls-border", "file": "src/index.css", "reverifiedLine": 98 },
+      { "from": "--ve-text-control", "to": "--canvas-controls-text", "file": "src/index.css", "reverifiedLine": 101 }
+    ],
+    "verdict": "KEEP",
+    "rationale": "B0 现场复核三边仍在（index.css ve 块）。--canvas-controls-* 直接引用方全在恒深域（board 节点工具 + AssetPanel 岛），B2 仅改写 AddNodeMenu/HistorySidebar（跟随域）两处——:root 上的 --canvas-controls-* 声明保持深色常值，间接链消费方（--ve-* 岛内恒深）取值不变，链无害。B2 改写完成后如出现跟随域新直接引用，需回本表重审。"
+  }
+}
