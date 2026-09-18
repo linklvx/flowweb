@@ -30,7 +30,6 @@ describe('FolderCard', () => {
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
     expect(screen.getByTestId('folder-card-f1')).toHaveClass('h-full');
-    expect(screen.getByTestId('folder-card-f1')).toHaveClass('box-border');
   });
 
   it('showCount=false（搜索态）不显示画布数', () => {

@@ -188,7 +188,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
         )}
       </button>
 
-      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
+      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full">
         {/* Prompt textarea */}
         <textarea
           ref={textareaRef}
@@ -202,7 +202,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
             });
           }}
           placeholder="描述你要生成的音频内容。例如：一段轻快的钢琴曲，带有雨声背景。"
-          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none box-border scrollbar-dark"
+          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"
         />
 
         {/* Bottom bar: Model (left) + Voice + Credits + Execute (right) */}

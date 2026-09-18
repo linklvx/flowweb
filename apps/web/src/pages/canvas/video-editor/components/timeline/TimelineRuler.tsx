@@ -44,7 +44,7 @@ export const TimelineRuler = memo(function TimelineRuler({ data, pxPerSec, width
   };
   return (
     <div data-testid="timeline-ruler"
-      className="relative h-7 border-b border-[var(--ve-border)] [border-bottom-style:solid] bg-[var(--ve-panel)] cursor-pointer select-none"
+      className="relative h-7 border-b border-[var(--ve-border)] bg-[var(--ve-panel)] cursor-pointer select-none"
       style={{ width: Math.max(widthPx, timeToPx(dur, pxPerSec) + 60) }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

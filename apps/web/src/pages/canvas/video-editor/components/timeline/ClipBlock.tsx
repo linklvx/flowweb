@@ -60,7 +60,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mis
       data-testid={`clip-block-${clip.id}`}
       onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()} // pointerdown 的 stopPropagation 挡不住后续 click 冒泡到轨道体的 selectClip(null)（Task 14 I2）
-      className="absolute top-1 bottom-1 rounded-md overflow-hidden box-border cursor-grab select-none"
+      className="absolute top-1 bottom-1 rounded-md overflow-hidden cursor-grab select-none"
       style={{
         left, width,
         // 长写并行声明——禁 background 简写与 backgroundImage 混排（简写会清掉 image）

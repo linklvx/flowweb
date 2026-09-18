@@ -44,9 +44,6 @@ describe('WorkspaceDimension 共享组件', () => {
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalledTimes(1));
     expect(mockGetTemplates).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'root' }));
     expect(await screen.findByTestId('create-canvas-card')).toBeInTheDocument();
-    const grid = screen.getByTestId('workspace-grid');
-    expect(grid.className).toContain('list-none');
-    expect(grid.className).toContain('pl-0');
     // 面包屑默认维度名=个人项目（scope 到 nav，避免与 Tab 栏「个人项目」撞文本）
     expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('个人项目');
   });
@@ -59,14 +56,6 @@ describe('WorkspaceDimension 共享组件', () => {
     );
     await waitFor(() => expect(mockGetTemplates).toHaveBeenCalled());
     expect(screen.getByRole('navigation', { name: '当前位置' }).textContent).toContain('我的团队');
-  });
-
-  it('list 视图：ul 同样无黑点无缩进', async () => {
-    renderDim(undefined);
-    fireEvent.click(await screen.findByRole('button', { name: 'List view' }));
-    const list = await screen.findByTestId('workspace-list');
-    expect(list.className).toContain('list-none');
-    expect(list.className).toContain('pl-0');
   });
 
   it('list 视图：bg-white/5 rounded-xl 外壳 + 表头六列 + 新建画布行', async () => {

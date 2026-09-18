@@ -252,7 +252,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
         ref={panelRef}
         data-panel
         onTransitionEnd={handleTransitionEnd}
-        className={`pointer-events-auto relative box-border rounded-2xl p-4 md:p-6 mx-4 mb-6 backdrop-blur-lg transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
+        className={`pointer-events-auto relative rounded-2xl p-4 md:p-6 mx-4 mb-6 backdrop-blur-lg transition-all duration-200 ${animating ? 'translate-y-3 opacity-0' : 'translate-y-0 opacity-100'}`}
         style={{
           background: 'oklab(0.26861 0.0000122264 0.00000536442 / 0.95)',
           border: '0.444px solid #363636',

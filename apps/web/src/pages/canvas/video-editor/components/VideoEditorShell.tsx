@@ -129,7 +129,7 @@ export function VideoEditorShell() {
           永远回退 body，弹层作用域修复静默失效） */}
       <div data-testid="video-editor-shell" tabIndex={-1}
         ref={(el) => { focusRef.current = el; shellRef.current = el; }}
-        className="fixed inset-0 bg-[var(--ve-bg)] [color-scheme:dark] flex flex-col box-border nokey">
+        className="fixed inset-0 bg-[var(--ve-bg)] [color-scheme:dark] flex flex-col nokey">
         {/* 批 1：弹层作用域——antd 弹层挂进壳内而非 body 直挂（z-index 低于壳被盖）。
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null）。
             <AntdApp> 必须 component={false}：默认渲染 div.ant-app（block、高度 auto）打断壳 flex flex-col 布局 */}

@@ -11,7 +11,7 @@ const fmtDuration = (sec: number | null) => {
 export function VideoCard({ work }: { work: VideoWorkListItem }) {
   const duration = fmtDuration(work.durationSec);
   return (
-    <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-solid border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)] transition-colors bg-[var(--vw-card-bg)] box-border">
+    <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-solid border-[var(--vw-card-border)] hover:border-[var(--vw-card-border-hover)] transition-colors bg-[var(--vw-card-bg)]">
       {/* 第七轮：补 state:{fromList:true}（C2 M4——否则关闭算法死代码）+ 改用 Task 7.3 登记的 --vw-* token（原硬编码使 token 成死变量） */}
       <div className="relative aspect-video bg-[#262626]">
         {work.coverUrl
@@ -23,7 +23,7 @@ export function VideoCard({ work }: { work: VideoWorkListItem }) {
           </span>
         )}
       </div>
-      <div className="p-2.5 box-border">
+      <div className="p-2.5">
         <div className="text-[13px] font-medium text-white truncate">{work.title}</div>
         {work.tags.length > 0 && (
           <div className="mt-1.5 flex gap-1.5 flex-wrap">

@@ -36,7 +36,7 @@ export function LoginPage() {
             </div>
           )}
 
-          <div className="flex gap-0 pl-10 h-[550px] box-border rounded-t-[12px]">
+          <div className="flex gap-0 pl-10 h-[550px] rounded-t-[12px]">
             <PhoneLoginForm onLoginSuccess={() => { window.location.href = '/canvas'; }} />
 
             {/* Divider */}

@@ -108,7 +108,7 @@ export function AuthModal({ onClose }: Props) {
                 placeholder="邮箱"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none box-border"
+                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none"
                 required
               />
               <input
@@ -116,7 +116,7 @@ export function AuthModal({ onClose }: Props) {
                 placeholder="密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-4 focus:outline-none box-border"
+                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-4 focus:outline-none"
                 required
               />
               <button
@@ -134,7 +134,7 @@ export function AuthModal({ onClose }: Props) {
                 placeholder="用户名"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none box-border"
+                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none"
                 required
               />
               <input
@@ -142,7 +142,7 @@ export function AuthModal({ onClose }: Props) {
                 placeholder="邮箱"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none box-border"
+                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-3 focus:outline-none"
                 required
               />
               <input
@@ -150,7 +150,7 @@ export function AuthModal({ onClose }: Props) {
                 placeholder="密码（至少8位）"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-4 focus:outline-none box-border"
+                className="w-full bg-transparent border border-[#3a3a3a] rounded-md px-3 py-2.5 text-sm text-[#ccc] placeholder-[#666] mb-4 focus:outline-none"
                 required
               />
               <button

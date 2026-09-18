@@ -42,7 +42,7 @@ export function VideosPage() {
   }, [setSearchParams]);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto box-border">
+    <div className="p-6 max-w-[1400px] mx-auto">
       <Tabs
         activeKey={categoryId ?? 'all'}
         onChange={onTabChange}

@@ -148,7 +148,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
   return (
     <div ref={rootRef} className="relative canvas-node" data-testid={`video-edit-node-${id}`}>
       <div
-        className="bg-white rounded-lg overflow-hidden box-border"
+        className="bg-white rounded-lg overflow-hidden"
         style={{
           width: 316,
           border: '1px solid #E5E7EB',
@@ -158,7 +158,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
       >
         <NodeHandle type="target" testId="video-edit-target" />
         {/* 标题栏 */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#F0F0F0] [border-bottom-style:solid]">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#F0F0F0]">
           <GridIcon />
           <span className="text-[14px] font-medium text-[#1F2329]">多轨道剪辑</span>
         </div>
@@ -211,7 +211,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
                 </div>
               ))
             ) : (
-              <div className="h-[28px] rounded-md border border-dashed border-[#E5E7EB] [border-top-style:dashed] flex items-center justify-center">
+              <div className="h-[28px] rounded-md border border-dashed border-[#E5E7EB] flex items-center justify-center">
                 <span className="text-[12px] text-[#86909C]">+ 添加素材</span>
               </div>
             )}

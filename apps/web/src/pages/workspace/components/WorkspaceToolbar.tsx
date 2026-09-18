@@ -50,7 +50,7 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
           />
         </div>
         <Dropdown menu={{ items: filterMenu, onClick: ({ key }) => onFilterChange(key as FilterKind) }} trigger={['click']}>
-          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none cursor-pointer transition-colors font-[inherit]">
+          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none cursor-pointer transition-colors">
             {FILTER_LABEL[filter]}
             <DownOutlined style={{ fontSize: 12 }} />
           </button>
@@ -74,7 +74,7 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
         <div className="h-6 w-px bg-white/10 mx-1" />
         <button
           onClick={onCreateFolder}
-          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer font-[inherit]"
+          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer"
         ><FolderAddOutlined />新建文件夹</button>
       </div>
     </div>

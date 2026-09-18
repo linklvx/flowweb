@@ -187,7 +187,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
         )}
       </button>
 
-      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full box-border">
+      <div className="pt-3 px-3 pb-1.5 flex flex-col gap-2 h-full">
         {/* Prompt */}
         <textarea
           ref={textareaRef}
@@ -202,7 +202,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             });
           }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
-          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none box-border scrollbar-dark"
+          className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"
         />
 
         {/* Model (left) + Credits + Execute (right) */}

@@ -76,7 +76,7 @@ export function PreviewPlayer() {
       </div>
       {/* 控制条（spec 第四节：播放/时间码/撤销/重做/分割/删除 + 音量/全屏/缩放滑杆） */}
       <div data-testid="preview-control-bar"
-        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--ve-panel)] border-t border-[var(--ve-border)] [border-top-style:solid] box-border">
+        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--ve-panel)] border-t border-[var(--ve-border)]">
         <button type="button" data-testid="preview-play-btn" disabled={preparing}
           onClick={() => { void togglePlayback(); }}
           className="text-[16px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-2 disabled:opacity-50">
@@ -97,7 +97,7 @@ export function PreviewPlayer() {
         <button type="button" aria-label="删除" title="删除 Delete"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
           className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><DeleteOutlined /></button>
-        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]" style={{ borderLeftStyle: 'solid' }}>
+        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]">
           <button type="button" className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
               内包 <span className="inline-block"> 承接 mouseenter（验收 17 的 Tooltip 文案核对依赖此结构） */}

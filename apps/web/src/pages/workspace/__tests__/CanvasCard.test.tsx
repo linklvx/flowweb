@@ -28,7 +28,6 @@ describe('CanvasCard', () => {
     expect(screen.getByText('画布 1')).toHaveClass('text-white');
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
     expect(screen.getByTestId('canvas-card-c1')).toHaveClass('h-full');
-    expect(screen.getByTestId('canvas-card-c1')).toHaveClass('box-border');
     vi.useRealTimers();
   });
 

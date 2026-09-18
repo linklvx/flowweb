@@ -33,11 +33,9 @@ describe('WorkspaceToolbar 头部合并', () => {
     expect(screen.getByRole('button', { name: /新建文件夹/ })).toBeInTheDocument();
   });
 
-  it('UA 泄漏防护：非激活视图按钮透明背景，trigger 继承字体', () => {
+  it('UA 泄漏防护：非激活视图按钮透明背景', () => {
     render(<WorkspaceToolbar {...props} />);
     const listBtn = screen.getByRole('button', { name: 'List view' });
     expect(listBtn.className).toContain('bg-transparent');
-    const trigger = screen.getByRole('button', { name: /显示全部/ });
-    expect(trigger.className).toContain('font-[inherit]');
   });
 });

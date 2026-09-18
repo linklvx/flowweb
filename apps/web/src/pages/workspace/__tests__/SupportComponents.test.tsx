@@ -21,7 +21,6 @@ describe('CreateCanvasCard', () => {
     expect(container.querySelector('.h-\\[52px\\]')).toBeNull();
     const shell = screen.getByRole('button', { name: '新建画布' });
     expect(shell).toHaveClass('h-full');
-    expect(shell).toHaveClass('box-border'); // preflight:false 无全局 border-box，height+padding 组合必须显式声明
     const preview = shell.querySelector('div');
     expect(preview).toHaveClass('h-full'); // 撑满外壳 content 高，上下空隙=左右 p-2；独行时回退 aspect-ratio 保底
     expect(preview).not.toHaveClass('flex-1');

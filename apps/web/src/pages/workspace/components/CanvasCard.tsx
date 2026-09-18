@@ -98,7 +98,7 @@ export function CanvasCard({ canvas, variant = 'grid', onClick, onRename, onMove
       role="button"
       onClick={() => onClick(canvas)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(canvas); }}
-      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 pb-2 cursor-pointer overflow-hidden relative group/menu h-full box-border"
+      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 pb-2 cursor-pointer overflow-hidden relative group/menu h-full"
     >
       <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: '4 / 3' }}>
         <div className="absolute inset-0 transition-transform duration-200 group-hover/menu:scale-110" style={{ background }} />

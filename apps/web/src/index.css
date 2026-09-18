@@ -14,6 +14,13 @@
   color-scheme: light;
 }
 
+/* 项目级默认值改变（preflight :disabled{cursor:default} → not-allowed，spec 2026-09-18 §2.2 登记）；既有 6 处 disabled:cursor-not-allowed (0,2,0) 继续覆盖无害 */
+button:disabled,
+button[aria-disabled='true'],
+[role='button'][aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
 /* Canvas handle color tokens */
 :root {
   --canvas-handle-bg: #9CA3AF;

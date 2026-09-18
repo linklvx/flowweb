@@ -29,7 +29,7 @@ const FALLBACK_DEFAULT = { w: 280, h: 120 }; // 未知类型默认——canvasSt
 function SimpleNode({ data }: any) {
   const d = data as { __type: string; __label: string; content?: string; prompt?: string; thumbnailUrl?: string };
   return (
-    <div className="relative w-full h-full box-border overflow-hidden rounded-lg border border-white/15 bg-[#1e1e1e]" data-node-type={d.__type}>
+    <div className="relative w-full h-full overflow-hidden rounded-lg border border-white/15 bg-[#1e1e1e]" data-node-type={d.__type}>
       {d.thumbnailUrl && <img src={d.thumbnailUrl} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />}
       <div className="absolute bottom-0 inset-x-0 bg-black/60 px-2.5 py-1.5">
         <div className="text-[11px] font-semibold text-white/80">{d.__label}</div>
@@ -47,7 +47,7 @@ function SimpleNode({ data }: any) {
 function GroupFrame({ data }: any) {
   return (
     <div data-group-type={String((data as any).__groupType ?? 'normal')}
-      className="w-full h-full min-h-[120px] rounded-xl border border-dashed border-white/25 bg-white/5 box-border">
+      className="w-full h-full min-h-[120px] rounded-xl border border-dashed border-white/25 bg-white/5">
       <div className="px-2 py-1 text-[11px] text-white/50">{String((data as any).__name ?? '')}</div>
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />

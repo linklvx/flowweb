@@ -1101,7 +1101,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               }
             }}
             placeholder="请输入标题"
-            className="nodrag absolute inset-0 box-border w-full p-0 h-auto bg-transparent text-inherit border-none outline-none"
+            className="nodrag absolute inset-0 w-full h-auto bg-transparent border-none outline-none"
             style={{ fontSize: 12, lineHeight: '18px', minWidth: 0 }}
             aria-label="节点标题"
             maxLength={20}

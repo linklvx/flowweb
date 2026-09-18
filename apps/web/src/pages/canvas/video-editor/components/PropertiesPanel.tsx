@@ -71,14 +71,14 @@ export function PropertiesPanel() {
   if (!clip) {
     return (
       <div data-testid="properties-panel" data-testid-empty="1"
-        className="h-full border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 box-border">
+        className="h-full border-l border-[var(--ve-border)] bg-[var(--ve-panel)] p-3">
         <div data-testid="properties-empty" className="text-[12px] text-[var(--ve-text-dim)] text-center py-8">未选中片段</div>
       </div>
     );
   }
   return (
     <div data-testid="properties-panel"
-      className="h-full border-l border-[var(--ve-border)] [border-left-style:solid] bg-[var(--ve-panel)] p-3 overflow-y-auto box-border">
+      className="h-full border-l border-[var(--ve-border)] bg-[var(--ve-panel)] p-3 overflow-y-auto">
       {clip.type === 'video' && (
         <div className="flex flex-col">
           <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">视频片段</div>
@@ -135,7 +135,7 @@ export function PropertiesPanel() {
           <div className="text-[13px] font-medium text-[var(--ve-text)] py-1.5">字幕</div>
           <textarea aria-label="字幕文本" value={clip.text} rows={3}
             onChange={e => useEditorStore.getState().updateClip(clip.id, { text: e.target.value })}
-            className="w-full text-[12px] bg-[var(--ve-panel)] text-[var(--ve-text)] border border-[var(--ve-border)] [border-style:solid] rounded-md p-1.5 box-border" />
+            className="w-full text-[12px] bg-[var(--ve-panel)] text-[var(--ve-text)] border border-[var(--ve-border)] rounded-md p-1.5" />
           <div className="flex items-center gap-2 py-1">
             <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">显示字幕</span>
             <Switch aria-label="显示字幕" size="small" checked={clip.visible}
@@ -153,7 +153,7 @@ export function PropertiesPanel() {
             <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">字体颜色</span>
             <input type="color" aria-label="字体颜色" value={clip.style.color}
               onChange={e => useEditorStore.getState().updateClip(clip.id, { style: { ...clip.style, color: e.target.value } })}
-              className="w-8 h-6 border border-[var(--ve-border)] [border-style:solid] rounded cursor-pointer" />
+              className="w-8 h-6 border border-[var(--ve-border)] rounded cursor-pointer" />
           </div>
           <div className="flex items-center gap-2 py-1">
             <span className="text-[12px] text-[var(--ve-text)] w-14 shrink-0">字间距</span>

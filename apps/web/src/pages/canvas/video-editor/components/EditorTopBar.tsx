@@ -18,7 +18,7 @@ export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; 
   const dot = SAVE_DOT[saveState];
   return (
     <div data-testid="editor-top-bar"
-      className="h-12 flex items-center gap-4 px-4 bg-[var(--ve-panel)] border-b border-[var(--ve-border)] [border-bottom-style:solid] box-border">
+      className="h-12 flex items-center gap-4 px-4 bg-[var(--ve-panel)] border-b border-[var(--ve-border)]">
       <span className="text-[15px] font-medium text-[var(--ve-text)]">多轨剪辑</span>
       <button type="button" title={dot.title} onClick={onManualRetry}
         className="w-2.5 h-2.5 rounded-full border-0 cursor-pointer"

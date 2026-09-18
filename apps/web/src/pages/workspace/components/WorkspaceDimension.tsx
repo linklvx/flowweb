@@ -113,7 +113,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
     }
   };
 
-  const gridClass = 'list-none pl-0 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4';
+  const gridClass = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4';
 
   const isEmpty = items.length === 0 && !showCreateCanvasCard;
 
@@ -202,9 +202,9 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               </div>
               <div className="mx-12 mr-4 mt-4 border-b border-white/10" />
             </div>
-            {/* 外层 div 承担左右 padding：ul 的 pl-0（preflight 防御）在 Tailwind 源序中会覆盖 px-4 的左 padding */}
+            {/* 外层 div 承担左右 padding：ul 依赖 preflight 的 margin/padding 归零重置，不自带水平 padding */}
             <div className="px-4 pb-5">
-              <ul className="list-none pl-0 flex flex-col" data-testid="workspace-list">
+              <ul className="flex flex-col" data-testid="workspace-list">
                 {showCreateCanvasCard && (
                   <li data-testid="create-canvas-card" className="py-2">
                     <button

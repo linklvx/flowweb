@@ -60,9 +60,9 @@ export function Sidebar({ topOffset }: Props) {
     <aside
       data-testid="sidebar"
       data-collapsed={collapsed ? 'true' : undefined}
-      className={`sticky left-0 self-start shrink-0 box-border overflow-hidden transition-[width] duration-200 ease-out z-30 ${
+      className={`sticky left-0 self-start shrink-0 overflow-hidden transition-[width] duration-200 ease-out z-30 ${
         collapsed ? 'w-[78px] px-2' : 'w-[240px] px-4'
-      } bg-[#141414] border-r [border-right-style:solid] border-r-[#ffffff18] flex flex-col`}
+      } bg-[#141414] border-r border-r-[#ffffff18] flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
       <header className={`h-[60px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>

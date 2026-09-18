@@ -28,9 +28,9 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
   const selectClip = useEditorStore(s => s.selectClip);
 
   return (
-    <div data-testid={`track-row-${track.id}`} className="flex border-b border-[var(--ve-border)] [border-bottom-style:solid]">
+    <div data-testid={`track-row-${track.id}`} className="flex border-b border-[var(--ve-border)]">
       {/* 轨道头（width 用 TRACK_HEADER_W 常量——与 TimelinePanel 角位/标尺/播放头同一空间契约） */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] [border-right-style:solid] bg-[var(--ve-panel)] box-border" style={{ width: TRACK_HEADER_W }}>
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] bg-[var(--ve-panel)]" style={{ width: TRACK_HEADER_W }}>
         <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{TRACK_ICON[track.type]} {track.name}</span>
         <div className="ml-auto flex items-center gap-0.5">
           {track.type === 'subtitle' && (

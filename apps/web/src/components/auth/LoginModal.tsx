@@ -60,7 +60,7 @@ export function LoginModal({
 
         {/* Form area */}
         <div className="bg-[#FFF] relative z-[1] -mt-[15px] pt-8">
-          <div className="flex gap-0 pl-10 h-[550px] box-border rounded-t-[12px]">
+          <div className="flex gap-0 pl-10 h-[550px] rounded-t-[12px]">
             <PhoneLoginForm
               onLoginSuccess={() => {
                 refresh();
