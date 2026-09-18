@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== 基础层边色桥（spec 2026-09-18-css-base-layer-theme-design D2）=====
+ * preflight 的 *{border-color:var(--fw-border)} 消费此变量；默认 #333 = 项目习惯边色（暗色站点值）。 */
+:root {
+  --fw-border: #333;
+}
+
+/* .light = 恒浅岛作用域（login/register），B 段将扩展为完整双套 */
+.light {
+  --fw-border: #e5e7eb;
+  color-scheme: light;
+}
+
 /* Canvas handle color tokens */
 :root {
   --canvas-handle-bg: #9CA3AF;
@@ -49,16 +61,6 @@
 :root {
   --vw-close-reserve: 108px;    /* 顶栏右侧为壳级关闭钮预留（关闭钮 ≈92px + 间隙） */
   --vw-carousel-reserve: 125px; /* ④ 按钮组底部为轮播条预留 */
-}
-
-/* R3 限定版 button reset（spec v3.1 裁定）：preflight:false 下 <button> 带 UA border/padding/cursor。
- * :where 保持 (0,0,1)——压 UA 样式、不压任何显式类与 antd 类选择器 (0,1,0)。
- * 勿加 :not(.ant-btn)：:not() 参数特异性 (0,1,0) 计入 → 整条 (0,1,1) 反压 Tailwind 工具类 (0,1,0)
- * 清零壳内按钮 padding（构建产物无 @layer，工具类靠特异性取胜是唯一防线；jsdom 测不出，仅目视可辨）。 */
-:where([data-vw-shell]) button {
-  border: 0;
-  padding: 0;
-  cursor: pointer;
 }
 
 body {

@@ -165,7 +165,7 @@ describe('P5b 轮播条件渲染（view === \'play\' && !playing）', () => {
     await waitFor(() => expect(screen.getByTestId('carousel-item-w1p')).toBeInTheDocument()); // w2p 页轮播显示 w1p 卡 → playing 已复位
   });
 
-  it('壳根 data-vw-shell（R3 作用域锚点）+ [color-scheme:dark]（原生 controls 深色，B1）', async () => {
+  it('壳根 data-vw-shell（壳作用域锚点，R3 reset 已被 preflight 取代退役）+ [color-scheme:dark]（原生 controls 深色，B1）', async () => {
     renderAt('/videos/w1p');
     await screen.findByTestId('modal');
     const shell = screen.getByTestId('modal').firstElementChild; // BaseFullscreenModal mock 直通 children → 首子即壳根 div

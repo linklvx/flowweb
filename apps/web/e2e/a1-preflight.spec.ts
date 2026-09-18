@@ -98,6 +98,7 @@ test.describe('A1-2【红→A2 绿 / 未选中臂→A4 绿】分体模型 border
     const ctx = await browser.newContext({ storageState: USER_STATE });
     const page = await ctx.newPage();
     await openWorks(page);
+    // 唯一性前提：gate USER 无真实团队 → TeamSwitcher 渲染 null → 该角色名在 /works 唯一；若 gate 夹具未来获得真实团队，此定位器需重新收窄
     const tab = page.getByRole('button', { name: '个人项目' }); // audit 探针登记选择器
     await expect(tab).toBeVisible();
     const s = await tab.evaluate((el) => {
@@ -153,6 +154,7 @@ test.describe('A1-2【红→A2 绿 / 未选中臂→A4 绿】分体模型 border
     const ctx = await browser.newContext({ storageState: USER_STATE });
     const page = await ctx.newPage();
     await openWorks(page);
+    // 唯一性前提：gate USER 无真实团队 → TeamSwitcher 渲染 null → 该角色名在 /works 唯一；若 gate 夹具未来获得真实团队，此定位器需重新收窄
     const tab = page.getByRole('button', { name: '团队项目' }); // audit 探针登记选择器
     await expect(tab).toBeVisible();
     const s = await tab.evaluate((el) => {

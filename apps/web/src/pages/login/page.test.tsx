@@ -25,6 +25,7 @@ describe('LoginPage', () => {
   it('should render with full-screen dark background and centered card', () => {
     const { container } = renderPage();
     const outerDiv = container.firstChild as HTMLElement;
+    expect(outerDiv.className).toContain('light'); // 恒浅岛根类（A2）——钉住 .light 作用域锚点
     expect(outerDiv.className).toContain('min-h-screen');
     expect(outerDiv.className).toContain('bg-[#f5f5f5]');
     expect(outerDiv.className).toContain('flex');

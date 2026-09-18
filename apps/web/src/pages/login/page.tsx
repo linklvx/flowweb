@@ -15,8 +15,9 @@ export function LoginPage() {
     return <AuthModal onClose={() => setShowEmailLogin(false)} />;
   }
 
+  // 恒浅岛根（spec D4），B 段扩展
   return (
-    <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center">
+    <div className="light min-h-screen bg-[#f5f5f5] flex items-center justify-center">
       <div className="w-[720px] rounded-[16px] overflow-hidden shadow-lg">
         {/* Banner */}
         <div className="h-[140px] rounded-t-[16px] overflow-hidden">
