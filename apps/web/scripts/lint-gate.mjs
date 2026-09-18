@@ -9,6 +9,9 @@
  * 用法：
  *   node scripts/lint-gate.mjs                 # 门禁（验收命令：pnpm --filter @flowweb/web lint）
  *   UPDATE_BASELINE=1 node scripts/lint-gate.mjs   # 或 --update-baseline：重采 baseline（B5 控制的动作，勿日常使用）
+ *
+ * 退出码契约：0 = PASS（0 新增违例）；1 = 新增违例或 baseline 文件缺失；2 = 运行异常。
+ * （依赖 Set.prototype.intersection，需 Node >=22——已由 package.json engines 声明。）
  */
 import { ESLint } from 'eslint';
 import { createHash } from 'node:crypto';

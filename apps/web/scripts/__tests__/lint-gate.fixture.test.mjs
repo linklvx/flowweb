@@ -32,6 +32,14 @@ describe('flowweb/no-color-hex 规则拦截（fixture）', () => {
     expect(lintFixture("const cls = 'text-[#1F6DFF]';")).toHaveLength(1);
   });
 
+  it('多行模板字面量：报错锚定 hex 所在 quasi 行，而非起始反引号行（报错行文本须含 hex）', () => {
+    const code = ['const cls = `', '  flex items-center', '  bg-[#123456]', '`;'].join('\n');
+    const messages = lintFixture(code);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].line).toBe(3); // hex 在第 3 行，而非反引号起始的第 1 行
+    expect(code.split('\n')[messages[0].line - 1]).toContain('bg-[#123456]');
+  });
+
   it('非拦截面不误报：w-[#]、bg-[url(#…)]、rgba(、shadow-[0_0_…#…]、style 对象字面量', () => {
     expect(lintFixture("const a = 'w-[#abcde]';")).toHaveLength(0);
     expect(lintFixture("const a = 'bg-[url(#fragment)]';")).toHaveLength(0);

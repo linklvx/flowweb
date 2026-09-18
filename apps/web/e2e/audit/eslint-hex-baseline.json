@@ -1,7 +1,7 @@
 {
   "meta": {
     "ruleId": "flowweb/no-color-hex",
-    "capturedAt": "2026-09-18T18:17:24.771Z",
+    "capturedAt": "2026-09-18T18:52:38.293Z",
     "keyFormat": "{ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号，行移动不触发；同文件同文本多行塌缩为一键（O3 已接受）",
     "count": 523,
     "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建"
@@ -96,8 +96,8 @@
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|1f4c3a7c914dae19e81e8791d1d4c9103059ebbac4cbab854dacc89813db07b0",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|44571bcda364e74ff6eddece9a83d1f9c545427f9a566b7b1d276700618ef0d6",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|6ea6b963ba6bb6cc9ac1d87eb2ba9e82f66080b52bd11d4cb71ee6db5e6435f9",
-    "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|8c9db530ca238cfcb25b2657b2ca20b6a86ce4c9b081291d782f1dfd3bdc2fa1",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|b042153262fe01740ad337347a3e767d6d22f2b7b885f06bdbd3c741ebaf7f93",
+    "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|b87956985eb04dbf811c0b3f5cce2e04a8314c4d1f54683a4d5b78ce66d5eada",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|d068ced8517d4c0eedb077dd9305bb1e83f09c4b946a9affe63d1b4b3e25dd54",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|d50a862557ce16d87faab3cbc1130066a6afb6bbf551b8f6a2b9762e4b4ec8c5",
     "flowweb/no-color-hex|src/components/layout/Sidebar.tsx|e8043cdb7dc7c578bba56e7584c84fb5a20945279ae3174d3d0199b4096252fc",

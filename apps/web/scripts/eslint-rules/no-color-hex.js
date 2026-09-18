@@ -8,6 +8,7 @@
  * 明确不拦（O3 口径，防误报）：
  *   - rgba( / hsl( 字面量（`bg-[rgba(0,0,0,.5)]`）——0 hex ≠ 0 颜色字面量，已知接受；
  *   - `w-[#…]` 等非颜色前缀；`bg-[url(#fragment)]`（前缀后是 `u` 非 `#`）；`shadow-[0_0_10px_#fff]`；
+ *   - `ring-offset-[#…]`——真实 Tailwind 颜色类但不在 spec O3 15 前缀表内，当前 src 0 用法；B5 重采时对前缀表显式再裁定；
  *   - style 对象字面量（`style={{color:'#fff'}}`）——字符串内容正则天然不触及，归 B2-2 逐处判定通道。
  * 违例报于所在字符串节点（一个字符串含多个 hex 类记 1 条；增量口径由 lint-gate.mjs 的 baseline 承担）。
  */
@@ -36,10 +37,30 @@ export const noColorHex = {
       },
       TemplateLiteral(node) {
         for (const quasi of node.quasis) {
-          if (quasi.value.cooked && COLOR_HEX_CLASS_RE.test(quasi.value.cooked)) {
-            context.report({ node, messageId: 'hexForbidden' });
-            return;
-          }
+          const text = quasi.value.cooked;
+          if (!text) continue;
+          const match = COLOR_HEX_CLASS_RE.exec(text);
+          if (!match) continue;
+          // 锚 hex 所在行（多行模板报错行可见+改前导文本不重键）：quasi.loc.start 是起始反引号后一格
+          // （首 quasi 时仍在反引号行），须按 cooked 内换行偏移换算 hex 实际行列——门禁键 = 行文本 hash。
+          const coreIndex = match.index === 0 ? 0 : match.index + 1; // 跳过正则捕获的前导字符（可能是 \n）
+          const beforeHex = text.slice(0, coreIndex);
+          const linesBefore = beforeHex.split('\n');
+          const line = quasi.loc.start.line + linesBefore.length - 1;
+          const column =
+            linesBefore.length === 1
+              ? quasi.loc.start.column + beforeHex.length
+              : beforeHex.length - (beforeHex.lastIndexOf('\n') + 1);
+          const coreLength = match[0].length - (coreIndex - match.index);
+          context.report({
+            node,
+            loc: {
+              start: { line, column },
+              end: { line, column: column + coreLength },
+            },
+            messageId: 'hexForbidden',
+          });
+          return;
         }
       },
     };
