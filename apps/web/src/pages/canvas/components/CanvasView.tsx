@@ -375,8 +375,11 @@ function CanvasViewComponent(_props: Props) {
         noWheelClassName="nowheel"
         proOptions={{ hideAttribution: true }}
         className="bg-[#000000]"
+        // 画板恒深（D4）+ wrapper 运行时类不得为 light（与 .light 令牌岛撞名，.light 会使子树取浅色 token 值）；对齐 ProcessSnapshot
+        colorMode="dark"
       >
-        <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} />
+        {/* bgColor="transparent"：钉死 .react-flow__background 底色（dark 皮肤默认会给 #141414 染灰整块板面，与修复前 transparent 不一致） */}
+        <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} bgColor="transparent" />
         {minimapOpen && (
   <MiniMap
     style={{

@@ -118,11 +118,11 @@ A0-0 工具链+门禁环境就位 → A0 审计(六路)+before基线 → A1 红�
 1. 全删类：`box-border` 46 / `[border-*-style:*]` **solid 类名 18 处代码 + dashed 1 处（VideoEditNode.tsx:214，与 border-dashed 同串纯冗余）**（+测试断言字符串 Sidebar.test.tsx:66 随源码同步删；+内联 1 处 PreviewPlayer.tsx:100 borderLeftStyle 顺带删）/ `font-[inherit]` 5 / `list-none pl-0` 5 处代码 + 测试断言 4 处同步 / textarea 覆盖层 `text-inherit`+`p-0`（**裸 border-dashed 不构成清理类：4 处全带宽度，preflight 前后行为一致**）
 2. 子集删（精确口径）：`cursor-pointer` 210 中 button/[role=button] 子集；`bg-transparent` 133 中 button 与 input[type=button/reset/submit]（hover:/条件表达式保留）；`border-none` 94——**静态规则为主（v1.3，取代 diff 反推主流程）**：border-none 只设 border-style、无"遮挡宽度"能力 → **同串有宽度类（含带值 border-b-2）→ 保留**（实测全仓真冲突不存在）；**无宽度类 → 纯冗余可删且删后宽度不变**（本就无宽度）；**antd 宿主（祖先/自身含 ant- 前缀类）一律跳过**（静态兜底，防未采样路由漏网）；`opacity-0 group-hover:opacity-100` 宿主人工裁定——**A5 属性层 border-width 校验作兜底**（非主流程：border-box 下加边框不改 rect、几何层必漏，**属性层 border-*-width 才是判据**——实现时勿从属性集省掉）；A5 回补清单回写审计 JSON
 3. disabled 光标：index.css 一行 `button:disabled, button[aria-disabled="true"], [role="button"][aria-disabled="true"] { cursor: not-allowed }`（aria-disabled **产品净 1 处** VideoTrimPanel.tsx:168，另 3 行为测试——v1.3 口径订正）；预期变化清单登记为**"项目级默认值改变"（preflight default → not-allowed）而非 bug 修复**；既有 6 处 `disabled:cursor-not-allowed` (0,2,0) 继续覆盖无害
-4. 涌现裁定（O6① 拆列驱动：裸 border ~324 逐处"保留/修剪"、border-[color] ~238 预登记"几乎全保留"批量过、**divide 线 1 处（TeamBillingPage:140）登记预期变化"现状无分隔线→涌现"**）；5. 死视觉附带审计（textarea 5）；6. 测试断言同步换口径；7. **未选臂断言转绿验收**
+4. 涌现裁定（O6① 拆列驱动：裸 border ~324 逐处"保留/修剪"、border-[color] ~238 预登记"几乎全保留"批量过、**divide 线 1 处（TeamBillingPage:140）登记预期变化"现状无分隔线→涌现"**）；5. 死视觉附带审计（textarea 5）；6. 测试断言同步换口径；7. **未选臂断言转绿验收**；**画板内裸 border 裁定前提（A2 修复登记）：canvas ReactFlow wrapper 已钉 colorMode="dark"——裁定画板内裸 border 取值时子树 `--fw-border` 解析 #333（非 #e5e7eb），无 .light 撞名残留**
 - **verify**：审计 diff 逐条勾销；未选臂组绿；vitest 全绿
 
 ### A5 目检 + 机械 diff 收口
-1. after 快照（另存 `baseline/after-A/`）→ **三层 diff**：属性层聚合（**border-*-width 必在属性集内**——border-box 下加边框不改 rect、几何层必漏，属性层是 border-none 删除的唯一判据）/ 几何层逐元素 rect / line-height 二分统计（对照 A0 冻结值）；A4 border-width 校验结果回写审计 JSON
+1. after 快照（另存 `baseline/after-A/`）→ **三层 diff**：属性层聚合（**border-*-width 必在属性集内**——border-box 下加边框不改 rect、几何层必漏，属性层是 border-none 删除的唯一判据；**border-*-color 亦必入属性集（A2 修复补登）**：颜色分叉（如 #e5e7eb vs #333 撞名类症状）宽度层测不出，只有 color 维可捕捉）/ 几何层逐元素 rect / line-height 二分统计（对照 A0 冻结值）；A4 border-width 校验结果回写审计 JSON
 2. §2.4 目检清单逐条（含补三项：a 下划线 19 处 Link、hr/table/fieldset/iframe、img/video max-width 裸媒体）
 - **verify**：机械 diff 意外项=0；目检勾完；两代基线并存
 
@@ -180,6 +180,7 @@ A0-0 工具链+门禁环境就位 → A0 审计(六路)+before基线 → A1 红�
 ### C2 接线
 1. App.tsx algorithm 派生；2. AdminLayout 落点实测（ProLayout className→根 DOM，否则包裹 div 防满高）+ dark 类 + 注释追加；3. VideoEditorShell 壳根 dark；4. login/register 组件根 Provider+light（LoginModal 方案 A 定稿）；5. videos 域页根双通道（/canvas 勿包）；6. **CanvasView colorMode 实测驱动裁定（v1.3 收窄+留档措辞固化：ReactFlow 默认 'light'（dist:3598）→ wrapper 现状恒挂 light 类且不跟随 OS（useState('light') 恒值分支、effect 仅 system 监听 matchMedia）；补 dark=light→dark 皮肤切换=行为变更——对比范围仅 **MiniMap（--xy-minimap-*，已全内联预期零差异）+ Controls（--xy-controls-button-*)** 两类，Edges/--xy-node-* 已自绘不全量扫；零差异→不补，留档写"**库默认 light 皮肤+自绘完整+--xy-* 消费点清点为零/已覆盖**"（勿写"测不出差异"）；有差异→逐处裁定；ProcessSnapshot 已钉不动）**；7. [color-scheme:dark] 保留+来由注释
 - **verify**：岛三组绿；CanvasView 裁定留档
+- **C2-6 裁定已提前至 A2 修复完成（2026-09-18，结果事实）**：CanvasView 已钉 `colorMode="dark"`——A2 复核".light 类名无占用"漏了 @xyflow/react wrapper 运行时默认挂 light 类（dist esm:3598/3606），与 `.light` 令牌岛撞名致整个画板子树 `--fw-border` 取 #e5e7eb（实测 wrapper 上解析值）。提前实测消费者清单：wrapper 自身 bg 零差（`bg-[#000000]` 与 `.react-flow` 同特异性 (0,1,0)、utilities 后序获胜）/ MiniMap 全内联证实零差 / Controls 未渲染 / Handle 已被 NodeHandle.css 归零；**两处非零差均不在 v1.3 预判的 MiniMap/Controls 通道**——`.react-flow__background` 底色（dark 默认 #141414，补 `bgColor="transparent"` 钉回）与内置 selection rect（蓝→浅灰蓝，index.css 钉回 light 皮肤蓝值）；钉后与 light 态同 seed 同 build 像素 diff=0/1,024,000（视觉零差成立）；证据＝本条计算样式实测值 + 截图（未入库，本地 apps/web/e2e/test-results/probe-{colormode,light-control}.png，临时 Playwright 探针采集）。
 
 ### C3 JS 通道接线（清点驱动）
 React Flow 实例清点（ProcessSnapshot 钉/CanvasView 裁定/其他接 store 或空集记录）；WaveSurfer/canvas 重绘按宿主域（恒深不接线）

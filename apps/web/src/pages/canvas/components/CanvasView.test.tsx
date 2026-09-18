@@ -87,6 +87,18 @@ describe('CanvasView', () => {
     expect(container.querySelector('.react-flow')).toBeInTheDocument();
   });
 
+  // wrapper 运行时类不得为 light：与 .light 令牌岛（index.css --fw-border:#e5e7eb）撞名会使整个画板子树取浅色 token（A2 修复）
+  it('wrapper 钉 colorMode="dark"（不挂 light 运行时类）', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const wrapperClass = container.querySelector('.react-flow')!.className;
+    expect(wrapperClass).toContain('dark');
+    expect(wrapperClass).not.toContain('light');
+  });
+
   it('should render without errors', () => {
     const { container } = render(
       <ReactFlowProvider>
