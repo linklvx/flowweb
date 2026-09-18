@@ -1,0 +1,39 @@
+{
+  "commit": "b4384096f572dc48c0de59c4124ada6b236d98a1",
+  "collectedAt": "2026-09-18T16:11:28.285Z",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "invocation": "COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts",
+  "theme": "现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）",
+  "stableKeyFormat": "data-testid 优先，否则 DOM 路径(标签[同标签序号]/…)",
+  "classNameStorage": "djb2 十六进制哈希 + 长度（不存原串）",
+  "excludedRegions": [
+    "canvas/WebGL 元素",
+    "video 元素",
+    "波形容器（data-testid/class 含 wave）",
+    "纯时间文本（mm:ss|h:mm:ss）"
+  ],
+  "computedPropertySet": [
+    "rect(x,y,w,h)",
+    "padding(四边)",
+    "borderWidth(四边)",
+    "fontSize",
+    "lineHeight",
+    "boxSizing",
+    "borderStyle(四边)",
+    "borderColor(四边)",
+    "color(仅 input/textarea/select/button)"
+  ],
+  "pages": [
+    "admin-models",
+    "canvas",
+    "login",
+    "material-modal",
+    "register",
+    "video-editor",
+    "videos",
+    "works"
+  ]
+}

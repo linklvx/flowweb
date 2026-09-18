@@ -1,0 +1,481 @@
+{
+ "page": "register",
+ "collectedAt": "2026-09-18T16:11:15.815Z",
+ "url": "http://localhost:5173/register",
+ "title": "Flow123 - AI 多模态内容创作平台",
+ "elementCount": 12,
+ "elements": [
+  {
+   "key": "dom:",
+   "tag": "body",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1280,
+    "h": 800
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "16px",
+   "lineHeight": "normal",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(226, 232, 240)",
+    "r": "rgb(226, 232, 240)",
+    "b": "rgb(226, 232, 240)",
+    "l": "rgb(226, 232, 240)"
+   },
+   "clsHash": null,
+   "clsLen": 0
+  },
+  {
+   "key": "dom:div[0]",
+   "tag": "div",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1280,
+    "h": 800
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "16px",
+   "lineHeight": "normal",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(226, 232, 240)",
+    "r": "rgb(226, 232, 240)",
+    "b": "rgb(226, 232, 240)",
+    "l": "rgb(226, 232, 240)"
+   },
+   "clsHash": null,
+   "clsLen": 0
+  },
+  {
+   "key": "dom:div[0]/div[0]",
+   "tag": "div",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1280,
+    "h": 800
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "22px",
+   "boxSizing": "border-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgba(0, 0, 0, 0.88)",
+    "r": "rgba(0, 0, 0, 0.88)",
+    "b": "rgba(0, 0, 0, 0.88)",
+    "l": "rgba(0, 0, 0, 0.88)"
+   },
+   "clsHash": "a725b2ac",
+   "clsLen": 18
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]",
+   "tag": "div",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1280,
+    "h": 800
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "22px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgba(0, 0, 0, 0.88)",
+    "r": "rgba(0, 0, 0, 0.88)",
+    "b": "rgba(0, 0, 0, 0.88)",
+    "l": "rgba(0, 0, 0, 0.88)"
+   },
+   "clsHash": "6b5d85f9",
+   "clsLen": 58
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]",
+   "tag": "form",
+   "rect": {
+    "x": 416,
+    "y": 200,
+    "w": 448,
+    "h": 399
+   },
+   "padding": {
+    "t": "32px",
+    "r": "32px",
+    "b": "32px",
+    "l": "32px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "22px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(51, 51, 51)",
+    "r": "rgb(51, 51, 51)",
+    "b": "rgb(51, 51, 51)",
+    "l": "rgb(51, 51, 51)"
+   },
+   "clsHash": "0a1d05d3",
+   "clsLen": 53
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/h1[0]",
+   "tag": "h1",
+   "rect": {
+    "x": 448,
+    "y": 246,
+    "w": 384,
+    "h": 28
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "20px",
+   "lineHeight": "28px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(226, 232, 240)",
+    "r": "rgb(226, 232, 240)",
+    "b": "rgb(226, 232, 240)",
+    "l": "rgb(226, 232, 240)"
+   },
+   "clsHash": "8f15e3c9",
+   "clsLen": 37
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/input[0]",
+   "tag": "input",
+   "rect": {
+    "x": 448,
+    "y": 298,
+    "w": 410,
+    "h": 46
+   },
+   "padding": {
+    "t": "12px",
+    "r": "12px",
+    "b": "12px",
+    "l": "12px"
+   },
+   "borderWidth": {
+    "t": "1px",
+    "r": "1px",
+    "b": "1px",
+    "l": "1px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "20px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "inset",
+    "r": "inset",
+    "b": "inset",
+    "l": "inset"
+   },
+   "borderColor": {
+    "t": "rgb(51, 51, 51)",
+    "r": "rgb(51, 51, 51)",
+    "b": "rgb(51, 51, 51)",
+    "l": "rgb(51, 51, 51)"
+   },
+   "clsHash": "4da87203",
+   "clsLen": 86,
+   "color": "rgb(204, 204, 204)"
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/input[1]",
+   "tag": "input",
+   "rect": {
+    "x": 448,
+    "y": 356,
+    "w": 410,
+    "h": 46
+   },
+   "padding": {
+    "t": "12px",
+    "r": "12px",
+    "b": "12px",
+    "l": "12px"
+   },
+   "borderWidth": {
+    "t": "1px",
+    "r": "1px",
+    "b": "1px",
+    "l": "1px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "20px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "inset",
+    "r": "inset",
+    "b": "inset",
+    "l": "inset"
+   },
+   "borderColor": {
+    "t": "rgb(51, 51, 51)",
+    "r": "rgb(51, 51, 51)",
+    "b": "rgb(51, 51, 51)",
+    "l": "rgb(51, 51, 51)"
+   },
+   "clsHash": "4da87203",
+   "clsLen": 86,
+   "color": "rgb(204, 204, 204)"
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/input[2]",
+   "tag": "input",
+   "rect": {
+    "x": 448,
+    "y": 414,
+    "w": 410,
+    "h": 46
+   },
+   "padding": {
+    "t": "12px",
+    "r": "12px",
+    "b": "12px",
+    "l": "12px"
+   },
+   "borderWidth": {
+    "t": "1px",
+    "r": "1px",
+    "b": "1px",
+    "l": "1px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "20px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "inset",
+    "r": "inset",
+    "b": "inset",
+    "l": "inset"
+   },
+   "borderColor": {
+    "t": "rgb(51, 51, 51)",
+    "r": "rgb(51, 51, 51)",
+    "b": "rgb(51, 51, 51)",
+    "l": "rgb(51, 51, 51)"
+   },
+   "clsHash": "4da87204",
+   "clsLen": 86,
+   "color": "rgb(204, 204, 204)"
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/button[0]",
+   "tag": "button",
+   "rect": {
+    "x": 448,
+    "y": 476,
+    "w": 384,
+    "h": 48
+   },
+   "padding": {
+    "t": "12px",
+    "r": "6px",
+    "b": "12px",
+    "l": "6px"
+   },
+   "borderWidth": {
+    "t": "2px",
+    "r": "2px",
+    "b": "2px",
+    "l": "2px"
+   },
+   "fontSize": "14px",
+   "lineHeight": "20px",
+   "boxSizing": "border-box",
+   "borderStyle": {
+    "t": "outset",
+    "r": "outset",
+    "b": "outset",
+    "l": "outset"
+   },
+   "borderColor": {
+    "t": "rgb(0, 0, 0)",
+    "r": "rgb(0, 0, 0)",
+    "b": "rgb(0, 0, 0)",
+    "l": "rgb(0, 0, 0)"
+   },
+   "clsHash": "62b2521f",
+   "clsLen": 79,
+   "color": "rgb(0, 0, 0)"
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/p[0]",
+   "tag": "p",
+   "rect": {
+    "x": 448,
+    "y": 540,
+    "w": 384,
+    "h": 16
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "12px",
+   "lineHeight": "16px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(136, 136, 136)",
+    "r": "rgb(136, 136, 136)",
+    "b": "rgb(136, 136, 136)",
+    "l": "rgb(136, 136, 136)"
+   },
+   "clsHash": "a1ffeb6c",
+   "clsLen": 36
+  },
+  {
+   "key": "dom:div[0]/div[0]/div[0]/form[0]/p[0]/a[0]",
+   "tag": "a",
+   "rect": {
+    "x": 658,
+    "y": 540,
+    "w": 24,
+    "h": 16
+   },
+   "padding": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "borderWidth": {
+    "t": "0px",
+    "r": "0px",
+    "b": "0px",
+    "l": "0px"
+   },
+   "fontSize": "12px",
+   "lineHeight": "16px",
+   "boxSizing": "content-box",
+   "borderStyle": {
+    "t": "none",
+    "r": "none",
+    "b": "none",
+    "l": "none"
+   },
+   "borderColor": {
+    "t": "rgb(74, 222, 128)",
+    "r": "rgb(74, 222, 128)",
+    "b": "rgb(74, 222, 128)",
+    "l": "rgb(74, 222, 128)"
+   },
+   "clsHash": "8d8f2c18",
+   "clsLen": 14
+  }
+ ]
+}
