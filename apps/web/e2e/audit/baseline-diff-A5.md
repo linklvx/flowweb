@@ -1,7 +1,7 @@
 # A5 三层基线 diff 报告（before-A0 × after-A）
 
 - before：`before-A0` @ 137c29af11523085273edb085bbb14f078673da7（采集 2026-09-18T16:41:29.639Z）
-- after：`after-A` @ 5333c32aa785936ecaeb113935f7573affd1b910（采集 2026-09-18T20:32:06.790Z）
+- after：`after-A` @ 2c512d60c931eb49da27f159f84c03acb6544c8e（采集 2026-09-18T23:05:48.541Z）
 - 门禁：**PASS（三闸全过）**（意外项闸：属性 0 + 几何 0；涌现登记闸：offender 0 / 映射漂移 0；配对闸：offender 0；R:registered 已登记例外另计）
 
 ## 1. 配对统计（稳定键 tid:@n / dom: 路径）
@@ -50,8 +50,16 @@
 | lineHeight.normal→20px | 1 | P:lh-html-1.5（html{line-height:1.5} 根传播——normal→1.5×自身字号；html 1.5 在 16px 根=24px；部分表单/按钮后代承接 antd 祖先既有因子而非 1.5，§4 拆桶行细计） |
 | color.rgb(16, 16, 16)→rgba(255, 255, 255, 0.35) | 1 | P:表单控件 color:inherit（buttontext/canvastext→继承色） |
 | fontSize.13.3333px→16px | 1 | P:表单控件 font-size:100%→inherit + UA 按钮字号(13.3333px)后代继承传播 |
-| color.rgb(255, 255, 255)→rgb(226, 232, 240) | 1 | P:表单控件 color:inherit（buttontext/canvastext→继承色） |
 | fontSize.13.3333px→13px | 1 | P:表单控件 font-size:100%→inherit + UA 按钮字号(13.3333px)后代继承传播 |
+
+### 2b. B2 预期类别（注册配对吸收，b2-migration-registry.json）
+
+- 注册配对 8 组；本 diff 吸收 **20** 条（命中即预期；未登记 color 配对即意外——见 §6）
+  - `color rgb(255, 255, 255)→rgb(226, 232, 240)` ×15
+  - `color rgba(255, 255, 255, 0.7)→rgba(255, 255, 255, 0.6)` ×2
+  - `color rgba(255, 255, 255, 0.5)→rgba(255, 255, 255, 0.45)` ×1
+  - `color rgba(255, 255, 255, 0.9)→rgb(226, 232, 240)` ×1
+  - `color rgba(255, 255, 255, 0.8)→rgb(226, 232, 240)` ×1
 
 ## 3. 几何层归因汇总（w/h/x/y/padding/border-width/font-size 逐条）
 

@@ -1,6 +1,6 @@
 {
  "page": "canvas",
- "collectedAt": "2026-09-18T20:32:00.187Z",
+ "collectedAt": "2026-09-18T23:05:41.910Z",
  "url": "http://localhost:5173/canvas?projectId=gate-canvas-1",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 123,
@@ -197,8 +197,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "80f34972",
-   "clsLen": 136
+   "clsHash": "ce9ac5f3",
+   "clsLen": 122
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/a[0]",
@@ -236,8 +236,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "d808d569",
-   "clsLen": 76
+   "clsHash": "5ab5b7ad",
+   "clsLen": 75
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/span[0]",
@@ -353,8 +353,8 @@
     "b": "rgba(0, 0, 0, 0)",
     "l": "rgba(0, 0, 0, 0)"
    },
-   "clsHash": "3a7bf820",
-   "clsLen": 137
+   "clsHash": "794ba0c4",
+   "clsLen": 136
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/button[0]",
@@ -4461,8 +4461,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "b559788f",
-   "clsLen": 116
+   "clsHash": "57821650",
+   "clsLen": 102
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[0]/span[0]",
@@ -4539,8 +4539,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "abba9a52",
-   "clsLen": 85
+   "clsHash": "d0440ed3",
+   "clsLen": 71
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[1]/span[0]",
@@ -4578,8 +4578,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "1a80427b",
-   "clsLen": 27
+   "clsHash": "4edb98ba",
+   "clsLen": 29
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]",
@@ -4617,8 +4617,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "a5cfb3c5",
-   "clsLen": 118
+   "clsHash": "afa54b06",
+   "clsLen": 104
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]/button[0]",
@@ -4656,9 +4656,9 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "37e98971",
-   "clsLen": 63,
-   "color": "rgb(255, 255, 255)"
+   "clsHash": "83770af5",
+   "clsLen": 62,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]/button[0]/span[0]",
@@ -4774,8 +4774,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "58e843a4",
-   "clsLen": 107
+   "clsHash": "a900284c",
+   "clsLen": 108
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[3]/div[2]/span[1]",

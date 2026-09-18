@@ -90,6 +90,21 @@ function loadBaseline(dir) {
 const before = loadBaseline(BEFORE_DIR);
 const after = loadBaseline(AFTER_DIR);
 
+/* B2 预期类别（b2-migration-registry.json 消费）：B2a 机械颜色迁移的值变化配对闸——
+ * color（仅表单控件采集）/borderColor（全元素采集）的 (before,after) 命中注册表 → 吸收（预期）；
+ * 未登记的新 color 配对 → 意外（闸）；borderColor 未登记配对维持原三路（桥值/OVERRIDES/意外）。
+ * backgroundColor 不在 A0 冻结属性集（不可复采）——B2 值变化经 b1 探针 computed 零回退 + B6 目检覆盖。
+ * A1_COLOR_PAIRS = B2 前既存配对（A 段表单重置 color:inherit / antd 暗色 token），非 B2 产物不闸。 */
+const B2_REGISTRY_PATH = path.join(ROOT, 'e2e', 'audit', 'b2-migration-registry.json');
+const B2_REGISTRY = JSON.parse(fs.readFileSync(B2_REGISTRY_PATH, 'utf8'));
+const normColorVal = (s) => String(s).replace(/\s+/g, '').toLowerCase();
+const b2Pairs = new Set(B2_REGISTRY.differExpectedPairs.pairs.map((p) => `${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+const A1_COLOR_PAIRS = new Set([
+  'color|rgb(0,0,0)|rgba(0,0,0,0.88)', // antd 暗色 colorText 按钮（A 段既有，29 处族）
+  'color|rgb(16,16,16)|rgba(255,255,255,0.35)', // UA buttontext → white/35（A 段表单重置族）
+]);
+const b2Absorbed = {}; // `${prop} ${before}→${after}` → 计数
+
 const bucketCount = {}; // 属性层：桶名 → 计数（桶名 "family.pair"）
 const causeCount = {}; // 几何层：cause → 计数
 const causeItems = {}; // 几何层：cause → 明细（审查可追溯——意外=0 的证明力靠预期项可查）
@@ -156,11 +171,16 @@ for (const page of Object.keys(before.pages).sort()) {
         }
       }
       if (bc !== ac) {
-        bump(bucketCount, `borderColor.→${ac}`);
-        if (ac !== BRIDGE_DARK && ac !== BRIDGE_LIGHT) {
-          const item = { page, key, tag: a.tag, prop: `border-${s}-color`, before: bc, after: ac };
-          if (reg) propRegistered.push({ ...item, rationale: reg });
-          else propUnexpected.push(item);
+        const b2Key = `borderColor|${normColorVal(bc)}|${normColorVal(ac)}`;
+        if (b2Pairs.has(b2Key)) {
+          bump(b2Absorbed, `borderColor ${bc}→${ac}`);
+        } else {
+          bump(bucketCount, `borderColor.→${ac}`);
+          if (ac !== BRIDGE_DARK && ac !== BRIDGE_LIGHT) {
+            const item = { page, key, tag: a.tag, prop: `border-${s}-color`, before: bc, after: ac };
+            if (reg) propRegistered.push({ ...item, rationale: reg });
+            else propUnexpected.push(item);
+          }
         }
       }
     }
@@ -192,8 +212,16 @@ for (const page of Object.keys(before.pages).sort()) {
       }
     }
     if (b.color != null && a.color != null && b.color !== a.color) {
-      // 仅表单控件有采集；preflight color:inherit —— 预期=表单重置族，聚合不逐条
-      bump(bucketCount, `color.${b.color}→${a.color}`);
+      // 仅表单控件有采集；三类：B2 注册配对（吸收）/ A 段表单重置-antd 既有配对（聚合不逐条）/ 其余=意外（B2 起闸）
+      const b2Key = `color|${normColorVal(b.color)}|${normColorVal(a.color)}`;
+      if (b2Pairs.has(b2Key)) {
+        bump(b2Absorbed, `color ${b.color}→${a.color}`);
+      } else {
+        bump(bucketCount, `color.${b.color}→${a.color}`);
+        if (!A1_COLOR_PAIRS.has(b2Key)) {
+          propUnexpected.push({ page, key, tag: a.tag, prop: 'color', before: b.color, after: a.color });
+        }
+      }
     }
 
     /* ---------------- 几何层 ---------------- */
@@ -324,7 +352,7 @@ const report = {
     before: { dir: BEFORE_DIR, commit: before.meta.commit, collectedAt: before.meta.collectedAt },
     after: { dir: AFTER_DIR, commit: after.meta.commit, collectedAt: after.meta.collectedAt },
     generatedAt: new Date().toISOString(),
-    classifier: { cascadeMax: CASCADE_MAX, bridgeExpected: [BRIDGE_DARK, BRIDGE_LIGHT], overrides: Object.keys(OVERRIDES).length },
+    classifier: { cascadeMax: CASCADE_MAX, bridgeExpected: [BRIDGE_DARK, BRIDGE_LIGHT], overrides: Object.keys(OVERRIDES).length, b2Registry: 'e2e/audit/b2-migration-registry.json（differExpectedPairs 配对闸：color/borderColor 命中即吸收，未登记 color 配对即意外）' },
   },
   gate: {
     unexpectedTotal: gate, propertyUnexpected: propUnexpected.length, geometryUnexpected: geomUnexpected.length,
@@ -337,6 +365,12 @@ const report = {
     registryDrift, offenders: emergenceOffenders,
   },
   pairingGate: { runtimeIdPattern: RUNTIME_ID_KEY.source, offenders: pairingOffenders },
+  b2ExpectedGate: {
+    registry: 'e2e/audit/b2-migration-registry.json',
+    pairsRegistered: b2Pairs.size,
+    absorbedTotal: Object.values(b2Absorbed).reduce((x, y) => x + y, 0),
+    absorbedByPair: Object.fromEntries(Object.entries(b2Absorbed).sort((a, b) => b[1] - a[1])),
+  },
   pairing,
   propertyLayer: { buckets: Object.fromEntries(Object.entries(bucketCount).sort((a, b) => b[1] - a[1])), unexpected: propUnexpected, registered: propRegistered },
   geometryLayer: { summary: Object.fromEntries(Object.entries(causeCount).sort((a, b) => b[1] - a[1])), items: causeItems, cascadeHistogram: cascadeHist, unexpected: geomUnexpected, registered: geomRegistered },
@@ -411,12 +445,20 @@ md.push(`- after：\`${AFTER_DIR}\` @ ${after.meta.commit}（采集 ${after.meta
 const gatePass = gate === 0 && hardGate === 0;
 md.push(`- 门禁：**${gatePass ? 'PASS（三闸全过）' : 'FAIL'}**（意外项闸：属性 ${propUnexpected.length} + 几何 ${geomUnexpected.length}；涌现登记闸：offender ${emergenceOffenders.length} / 映射漂移 ${registryDrift.length}；配对闸：offender ${pairingOffenders.length}；R:registered 已登记例外另计）`, '');
 md.push('## 1. 配对统计（稳定键 tid:@n / dom: 路径）', '', '| page | before | after | paired | removed | added |', '|---|---|---|---|---|---|');
+
 for (const [p, s] of Object.entries(pairing)) md.push(`| ${p} | ${s.before ?? '-'} | ${s.after ?? '-'} | ${s.paired ?? '-'} | ${s.removed ?? '-'} | ${s.added ?? '-'} |`);
 for (const n of PAIRING_NOTES) md.push(`- ${n}`);
 md.push('', '## 2. 属性层（聚合分桶）', '', '| 桶 | 计数 | 预期类别 |', '|---|---|---|');
 for (const [k, v] of Object.entries(bucketCount).sort((a, b) => b[1] - a[1])) {
   const fam = `${k.split('.')[0]}.*`;
   md.push(`| ${k} | ${v} | ${bucketMeta[k] ?? bucketMeta[fam] ?? '—'} |`);
+}
+md.push('', '### 2b. B2 预期类别（注册配对吸收，b2-migration-registry.json）', '');
+{
+  const total = Object.values(b2Absorbed).reduce((x, y) => x + y, 0);
+  md.push(`- 注册配对 ${b2Pairs.size} 组；本 diff 吸收 **${total}** 条（命中即预期；未登记 color 配对即意外——见 §6）`);
+  for (const [p, n] of Object.entries(b2Absorbed).sort((a, b) => b[1] - a[1])) md.push(`  - \`${p}\` ×${n}`);
+  if (!total) md.push('  - （无——B2a 等值换不产生 diff 条目，值变化配对在采集页无表单控件命中时为 0）');
 }
 md.push('', '## 3. 几何层归因汇总（w/h/x/y/padding/border-width/font-size 逐条）', '', '| 归因 | 条数 | 说明 |', '|---|---|---|');
 for (const [c, n] of Object.entries(causeCount).sort((a, b) => b[1] - a[1])) md.push(`| ${c} | ${n} | ${causeDesc[c] ?? ''} |`);
@@ -460,5 +502,6 @@ console.log(`[diff] 配对：${Object.values(pairing).map((s) => `${s.paired ?? 
 console.log(`[diff] 几何归因：${JSON.stringify(causeCount)}`);
 console.log(`[diff] line-height changed/unchanged = ${lhChanged}/${lhUnchanged}（拆桶 form-inherit=${lhFormInherit} / html-1.5=${lhHtml15}，其中承接 antd 因子 ${lhAntdFactor}）`);
 console.log(`[diff] A4 验证：style翻转变宽0=${bwVal.styleFlipWidthZero}，涌现=${bwVal.emergentSides.length}边/${emergentSites.length}站，表单抵消=${bwVal.formVanished}，other=${bwVal.other.length}`);
+console.log(`[diff] B2 预期类别：注册配对 ${b2Pairs.size} 组，吸收 ${Object.values(b2Absorbed).reduce((x, y) => x + y, 0)} 条 ${JSON.stringify(b2Absorbed)}`);
 console.log(`[gate] 意外项：属性 ${propUnexpected.length} + 几何 ${geomUnexpected.length} = ${gate}；涌现登记闸 offender=${emergenceOffenders.length}/漂移=${registryDrift.length}（authorized=${authorizedFiles.size}）；配对闸 offender=${pairingOffenders.length}`);
 process.exit(gatePass ? 0 : 1);

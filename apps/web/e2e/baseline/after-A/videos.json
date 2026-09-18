@@ -1,6 +1,6 @@
 {
  "page": "videos",
- "collectedAt": "2026-09-18T20:31:57.492Z",
+ "collectedAt": "2026-09-18T23:05:39.184Z",
  "url": "http://localhost:5173/videos",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 123,
@@ -158,8 +158,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "c0f865ec",
-   "clsLen": 54
+   "clsHash": "90fa13ab",
+   "clsLen": 47
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]",
@@ -197,8 +197,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "35d5ada6",
-   "clsLen": 34
+   "clsHash": "6c4f0a85",
+   "clsLen": 27
   },
   {
    "key": "tid:announcement-bar@0",
@@ -314,9 +314,9 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "a0635afc",
-   "clsLen": 137,
-   "color": "rgba(255, 255, 255, 0.7)"
+   "clsHash": "02be3465",
+   "clsLen": 139,
+   "color": "rgba(255, 255, 255, 0.6)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[0]/div[0]/button[0]/span[0]",
@@ -510,8 +510,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "c5ae64ff",
-   "clsLen": 167
+   "clsHash": "081ff37e",
+   "clsLen": 160
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/header[0]",
@@ -627,8 +627,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "00961a4f",
-   "clsLen": 105
+   "clsHash": "46047173",
+   "clsLen": 104
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/header[0]/button[0]",
@@ -666,9 +666,9 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "fdcb9dc5",
-   "clsLen": 74,
-   "color": "rgb(255, 255, 255)"
+   "clsHash": "e2991e28",
+   "clsLen": 66,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/header[0]/button[0]/span[0]",
@@ -823,9 +823,9 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "76d00aa5",
-   "clsLen": 203,
-   "color": "rgb(255, 255, 255)"
+   "clsHash": "21462de6",
+   "clsLen": 204,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/button[0]/span[0]",
@@ -1097,8 +1097,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "687f6397",
-   "clsLen": 185
+   "clsHash": "c2d6f60b",
+   "clsLen": 181
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/nav[0]/a[0]/span[0]",
@@ -1292,8 +1292,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "687f6397",
-   "clsLen": 185
+   "clsHash": "c2d6f60b",
+   "clsLen": 181
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/nav[0]/a[1]/span[0]",
@@ -1487,7 +1487,7 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "fafacd34",
+   "clsHash": "89e50b79",
    "clsLen": 191
   },
   {
@@ -1682,8 +1682,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "687f6397",
-   "clsLen": 185
+   "clsHash": "c2d6f60b",
+   "clsLen": 181
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/nav[0]/a[3]/span[0]",
@@ -1877,8 +1877,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "687f6397",
-   "clsLen": 185
+   "clsHash": "c2d6f60b",
+   "clsLen": 181
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/nav[0]/a[4]/span[0]",
@@ -2111,7 +2111,7 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "36795b5d",
+   "clsHash": "a41f8526",
    "clsLen": 116,
    "color": "rgba(0, 0, 0, 0.88)"
   },
@@ -2190,8 +2190,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "cecc4afa",
-   "clsLen": 30
+   "clsHash": "c0711bfe",
+   "clsLen": 29
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/div[0]/button[0]/span[0]/span[1]",
@@ -2424,9 +2424,9 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "3a473ee4",
-   "clsLen": 162,
-   "color": "rgb(255, 255, 255)"
+   "clsHash": "3555a973",
+   "clsLen": 152,
+   "color": "rgb(226, 232, 240)"
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/aside[0]/div[0]/button[1]/span[0]",
@@ -2659,8 +2659,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "eca83200",
-   "clsLen": 33
+   "clsHash": "d351201f",
+   "clsLen": 26
   },
   {
    "key": "tid:top-action-bar@0",
@@ -2737,8 +2737,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "d0a0e49c",
-   "clsLen": 248
+   "clsHash": "91f6789d",
+   "clsLen": 249
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[0]/span[0]",
@@ -2893,8 +2893,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "d0a0e49c",
-   "clsLen": 248,
+   "clsHash": "91f6789d",
+   "clsLen": 249,
    "color": "rgb(208, 208, 208)"
   },
   {
@@ -3050,8 +3050,8 @@
     "b": "rgba(255, 255, 255, 0.1)",
     "l": "rgba(255, 255, 255, 0.1)"
    },
-   "clsHash": "d0a0e49c",
-   "clsLen": 248
+   "clsHash": "91f6789d",
+   "clsLen": 249
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[0]/div[0]/a[1]/span[0]",
@@ -3089,8 +3089,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "844ffff3",
-   "clsLen": 34
+   "clsHash": "976595d7",
+   "clsLen": 33
   },
   {
    "key": "tid:user-avatar@0",
@@ -3167,8 +3167,8 @@
     "b": "rgb(51, 51, 51)",
     "l": "rgb(51, 51, 51)"
    },
-   "clsHash": "a70f65d7",
-   "clsLen": 95
+   "clsHash": "bc0b90df",
+   "clsLen": 96
   },
   {
    "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[1]",

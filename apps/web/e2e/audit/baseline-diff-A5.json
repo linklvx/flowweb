@@ -7,17 +7,18 @@
   },
   "after": {
    "dir": "after-A",
-   "commit": "5333c32aa785936ecaeb113935f7573affd1b910",
-   "collectedAt": "2026-09-18T20:32:06.790Z"
+   "commit": "2c512d60c931eb49da27f159f84c03acb6544c8e",
+   "collectedAt": "2026-09-18T23:05:48.541Z"
   },
-  "generatedAt": "2026-09-18T21:59:58.043Z",
+  "generatedAt": "2026-09-18T23:08:35.880Z",
   "classifier": {
    "cascadeMax": 40,
    "bridgeExpected": [
     "rgb(51, 51, 51)",
     "rgb(229, 231, 235)"
    ],
-   "overrides": 0
+   "overrides": 0,
+   "b2Registry": "e2e/audit/b2-migration-registry.json（differExpectedPairs 配对闸：color/borderColor 命中即吸收，未登记 color 配对即意外）"
   }
  },
  "gate": {
@@ -47,6 +48,18 @@
  "pairingGate": {
   "runtimeIdPattern": "^(?:(?:rf__node-node|video-edit-node-node)_\\d+_\\d+|track-row-track-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
   "offenders": []
+ },
+ "b2ExpectedGate": {
+  "registry": "e2e/audit/b2-migration-registry.json",
+  "pairsRegistered": 8,
+  "absorbedTotal": 20,
+  "absorbedByPair": {
+   "color rgb(255, 255, 255)→rgb(226, 232, 240)": 15,
+   "color rgba(255, 255, 255, 0.7)→rgba(255, 255, 255, 0.6)": 2,
+   "color rgba(255, 255, 255, 0.5)→rgba(255, 255, 255, 0.45)": 1,
+   "color rgba(255, 255, 255, 0.9)→rgb(226, 232, 240)": 1,
+   "color rgba(255, 255, 255, 0.8)→rgb(226, 232, 240)": 1
+  }
  },
  "pairing": {
   "admin-models": {
@@ -106,9 +119,9 @@
     "tid:track-row-track-5910b92c-332d-4cd5-a257-4581198f0f27@0"
    ],
    "addedKeys": [
-    "tid:rf__node-node_1789763523018_1@0",
-    "tid:video-edit-node-node_1789763523018_1@0",
-    "tid:track-row-track-35addd2b-faae-41da-8e73-09cdf7010a47@0"
+    "tid:rf__node-node_1789772744769_1@0",
+    "tid:video-edit-node-node_1789772744769_1@0",
+    "tid:track-row-track-b89b2576-7dc5-4327-a520-6c7c840928d3@0"
    ]
   },
   "videos": {
@@ -159,7 +172,6 @@
    "lineHeight.normal→20px": 1,
    "color.rgb(16, 16, 16)→rgba(255, 255, 255, 0.35)": 1,
    "fontSize.13.3333px→16px": 1,
-   "color.rgb(255, 255, 255)→rgb(226, 232, 240)": 1,
    "fontSize.13.3333px→13px": 1
   },
   "unexpected": [],

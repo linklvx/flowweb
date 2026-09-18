@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "task": "B2-a 机械通道颜色迁移——预期变化注册表（B6 预期变化清单种子）",
+    "date": "2026-09-18",
+    "baseCommit": "2c512d60（B1 红用例落定后、B2-a 改写前）",
+    "scope": "跟随域宿主三通道机械替换：①hex 精确等值→token 工具类（静态 className 子串）②white/NN 五通道档位归并（bg/border/ring/divide/text，变体前缀随行）③border-[#333] 删色类留裸宽度类走 preflight var(--fw-border) 桥",
+    "domainKeepRules": "D4：board 子树（canvas/components/{nodes,edges,groups}）、videos 整域、video-editor 岛、MaterialLibrary 岛、admin 岛、全屏查看器、营销页（login/register/AuthModal/PhoneLoginForm 固有样式）——字面值一律保留，本批未触碰",
+    "inputs": [
+      "e2e/audit/audit-A0.json route①（hex 债 + 三列归属）route②（white/NN 五通道）",
+      "e2e/audit/domain-token-adjudication-B0.json（neverMerge/semantify/keep——B2-b 范围）",
+      "e2e/b1-token-migration.spec.ts 六探针（本批 TDD 绿化目标）"
+    ],
+    "consumers": [
+      "scripts/css-baseline-diff.mjs B2 预期类别（differExpectedPairs——配对命中即吸收，未登记即意外）",
+      "B6 预期变化清单（浅色档视觉复核 + 目检表）"
+    ],
+    "totalCount": { "codemodReplacements": 370, "textOnAccentSites": 5, "border333Removals": 28 },
+    "computedPairNormalization": "chromium 序列化口径直比（rgb(226, 232, 240) / rgba(255, 255, 255, 0.45)）；differ 侧统一去空格小写后比对"
+  },
+  "channel1": {
+    "name": "hex 精确等值 → token 工具类（静态 className 子串，模板字面量静态段含内）",
+    "computedInvariance": "全部精确等值：暗色档 token 值 = 原字面值，迁移前后 computed 不变（B1-3 零回退对照钉死）",
+    "swaps": [
+      { "from": "bg-[#141414]", "to": "bg-bg", "count": 8, "files": ["src/components/VipSubscribeModal.tsx", "src/components/layout/AnnouncementBar.tsx", "src/components/layout/AppLayout.tsx", "src/components/layout/Sidebar.tsx"] },
+      { "from": "bg-[#1e1e1e]", "to": "bg-surface", "count": 7, "files": ["src/components/layout/Sidebar.tsx", "src/pages/home/components/BannerCarousel.tsx", "src/pages/home/components/CreateCanvasCard.tsx"] },
+      { "from": "bg-[#262626]", "to": "bg-surface-dim", "count": 6, "files": ["src/components/layout/Sidebar.tsx", "src/components/layout/TopActionBar.tsx", "src/pages/workspace/components/CanvasCard.tsx", "src/pages/workspace/components/FolderCard.tsx"] },
+      { "from": "text-[#e2e8f0]", "to": "text-text", "count": 25, "files": ["src/components/layout/TopActionBar.tsx", "src/pages/canvas/components/CanvasTopBar.tsx", "src/pages/canvas/components/ConfirmModal.tsx", "src/pages/canvas/components/ProjectTitle.tsx", "src/pages/canvas/components/SaveAsTemplateDialog.tsx", "src/pages/join/JoinPage.tsx", "src/pages/settings/CreditsPage.tsx", "src/pages/settings/ProfilePage.tsx", "src/pages/team/TeamDetail.tsx", "src/pages/team/TeamPage.tsx", "src/pages/templates/TemplateCard.tsx", "src/pages/templates/TemplateMarketPage.tsx", "src/pages/templates/TemplatePreviewPage.tsx"] },
+      { "from": "bg-[#4ade80]", "to": "bg-accent", "count": 9, "files": ["src/components/VipSubscribeModal.tsx", "src/components/layout/TopActionBar.tsx", "src/pages/canvas/components/CanvasTopBar.tsx", "src/pages/canvas/components/SaveAsTemplateDialog.tsx", "src/pages/home/components/AIAssistantFAB.tsx", "src/pages/settings/ProfilePage.tsx", "src/pages/team/TeamDetail.tsx", "src/pages/templates/TemplatePreviewPage.tsx"], "note": "仅无斜杠形式；bg-[#4ade80]/10|15|20 斜杠族保留（var() 键配 /NN 零输出，无 token 等价）" },
+      { "from": "text-[#4ade80]", "to": "text-accent-text", "count": 21, "files": ["src/components/VipSubscribeModal.tsx", "src/pages/canvas/components/CanvasTopBar.tsx", "src/pages/canvas/components/SaveStatusIndicator.tsx", "src/pages/settings/CreditsPage.tsx", "src/pages/settings/MembershipPage.tsx", "src/pages/settings/ProfilePage.tsx", "src/pages/settings/SettingsLayout.tsx", "src/pages/team/TeamBillingPage.tsx", "src/pages/templates/TemplateCard.tsx", "src/pages/templates/TemplateMarketPage.tsx", "src/pages/templates/TemplatePreviewPage.tsx"], "note": "含 group-hover:/hover: 变体各 1" },
+      { "from": "border-[#4ade80]", "to": "border-accent", "count": 12, "files": ["src/components/VipSubscribeModal.tsx", "src/pages/canvas/components/CanvasTopBar.tsx", "src/pages/canvas/components/SaveAsTemplateDialog.tsx", "src/pages/settings/MembershipPage.tsx", "src/pages/settings/ProfilePage.tsx", "src/pages/settings/SettingsLayout.tsx", "src/pages/templates/TemplateMarketPage.tsx"], "note": "含 hover:/focus: 变体（MembershipPage:181 hover、SaveAsTemplateDialog:40/TemplateMarketPage:62 focus）" },
+      { "from": "text-[#ef4444]", "to": "text-accent-danger", "count": 8, "files": ["src/pages/canvas/components/SaveAsTemplateDialog.tsx", "src/pages/canvas/components/SaveStatusIndicator.tsx", "src/pages/join/JoinPage.tsx", "src/pages/settings/CreditsPage.tsx", "src/pages/settings/ProfilePage.tsx", "src/pages/settings/SettingsLayout.tsx", "src/pages/templates/TemplatePreviewPage.tsx"], "note": "含 hover: 变体（SettingsLayout:52）" },
+      { "from": "border-[#ef4444]", "to": "border-accent-danger", "count": 1, "files": ["src/pages/templates/TemplatePreviewPage.tsx"], "note": "hover: 变体（:96 hover:border-[#ef4444]）" }
+    ],
+    "subtotal": 97
+  },
+  "channel3": {
+    "name": "border-[#333] 删色类（通道③；宽度类裸留，色走 preflight *{border-color:var(--fw-border)} 桥=#333 同值）",
+    "computedInvariance": "borderTopColor 等 rgb(51, 51, 51) → rgb(51, 51, 51) 不变（B1-2 探针 6 classAbsent 断言防回潮）",
+    "removals": {
+      "from": "border-[#333]",
+      "action": "删除该类（含一个前导空格），保留裸 border/border-b/border-r 宽度类；<hr> 与三元分支两处残留空白同批清理",
+      "count": 28,
+      "files": ["src/pages/canvas/components/CanvasTopBar.tsx:3", "src/pages/canvas/components/ConfirmModal.tsx:1", "src/pages/canvas/components/ProjectTitle.tsx:1", "src/pages/canvas/components/SaveAsTemplateDialog.tsx:3", "src/pages/settings/CreditsPage.tsx:3", "src/pages/settings/MembershipPage.tsx:5", "src/pages/settings/ProfilePage.tsx:3", "src/pages/settings/SettingsLayout.tsx:2", "src/pages/templates/TemplateMarketPage.tsx:4", "src/pages/templates/TemplatePreviewPage.tsx:3"]
+    },
+    "keptSiblings": [
+      "border-[#444]/[#555]/[#2a2a2a]/[#242424]/[#252525]/[#222]/[#363636] 及其 hover: 变体——非 token 精确值，保留（B2-b 语义化裁决）",
+      "bg-[#333]（VipSubscribeModal:503/ProfilePage:61）、text-[#333]（Footer/TeamDetail:262）——#333 通道仅 border 用法删除，bg/text 无 token 等价保留",
+      "register/page.tsx border-[#333] ×4——营销页整域保留（D4）"
+    ]
+  },
+  "channel2": {
+    "name": "white/NN 五通道档位归并（bg/border/ring/divide/text；变体前缀 hover:/focus:/focus-within:/group-hover:/group-hover/row: 随子串替换天然保留）",
+    "exactEqualSwaps": [
+      { "from": "bg-white/5", "to": "bg-overlay-1", "count": 29, "computed": "rgba(255, 255, 255, 0.05) 不变", "files": ["Angle3DPreview", "AnglePresetButtons", "CreditsDropdown", "LightPresetButtons", "PromptInput×2", "ThreePreview", "ViewToggle×3", "TeamBillingPage×2", "TeamDetail×2", "TeamSidebar×4", "CanvasCard", "CreateCanvasCard(ws)×2", "FolderCard", "MoveToFolderModal", "WorkspaceDimension", "WorkspaceToolbar×5（含 hover:×5 内含）"] },
+      { "from": "bg-white/10", "to": "bg-overlay-2", "count": 38, "computed": "rgba(255, 255, 255, 0.1) 不变", "files": ["AnnouncementBar×2(hover:)", "Angle3DModal×2", "Angle3DPreview", "AnglePresetButtons", "Angle3DControlPanel×3", "CreditsDropdown×3", "LightingControlPanel×2", "LightPresetButtons", "LightingModal×2", "PromptInput", "ThreePreview", "ViewToggle×2", "canvas/page×3", "TeamBillingPage", "CanvasCard×3", "CardGridSkeleton×3", "FolderCard", "MoveToFolderModal", "WorkspaceToolbar×5"] },
+      { "from": "bg-white/20", "to": "bg-overlay-3", "count": 5, "computed": "rgba(255, 255, 255, 0.2) 不变", "files": ["Angle3DModal(hover:)", "LightingModal(hover:)", "canvas/page×3(hover:)"] },
+      { "from": "border-white/5", "to": "border-overlay-1", "count": 2, "computed": "rgba(255, 255, 255, 0.05) 不变", "files": ["Angle3DModal", "LightingModal"] },
+      { "from": "border-white/10", "to": "border-overlay-2", "count": 13, "computed": "rgba(255, 255, 255, 0.1) 不变", "files": ["VipSubscribeModal", "Angle3DModal×2", "CreditsDropdown×2", "LightingModal×2", "PromptInput", "ThreePreview", "TeamBillingPage", "CanvasCard", "FolderCard", "WorkspaceDimension"] },
+      { "from": "border-white/20", "to": "border-overlay-3", "count": 5, "computed": "rgba(255, 255, 255, 0.2) 不变", "files": ["PromptInput(focus:)", "CreateCanvasCard(ws)", "WorkspaceDimension×3"] },
+      { "from": "ring-white/10", "to": "ring-overlay-2", "count": 4, "computed": "rgba(255, 255, 255, 0.1) 不变", "files": ["CreditsDropdown:156", "WorkspaceToolbar:43/53/58"] },
+      { "from": "ring-white/20", "to": "ring-overlay-3", "count": 1, "computed": "rgba(255, 255, 255, 0.2) 不变", "files": ["WorkspaceToolbar:43(focus-within:)"] },
+      { "from": "divide-white/5", "to": "divide-overlay-1", "count": 1, "computed": "rgba(255, 255, 255, 0.05) 不变", "files": ["TeamBillingPage:140"] },
+      { "from": "text-white/30", "to": "text-text-dim-1", "count": 4, "computed": "rgba(255, 255, 255, 0.3) 不变（= dim-1 暗色档）", "files": ["CreditsDropdown:183", "EmptyState:19", "WorkspaceBreadcrumb:28/34（B1 探针 3 落 :28 分隔点）"] },
+      { "from": "text-white/45", "to": "text-text-dim-2", "count": 2, "computed": "rgba(255, 255, 255, 0.45) 不变（= dim-2 暗色档）", "files": ["CreditsDropdown:161/300"] },
+      { "from": "text-white/60", "to": "text-text-dim-3", "count": 8, "computed": "rgba(255, 255, 255, 0.6) 不变（= dim-3 暗色档）", "files": ["CreditsDropdown:108", "FolderCard:93", "InlineRename:42", "WorkspaceBreadcrumb:29/37", "WorkspaceDimension:212", "WorkspaceToolbar:62/69"] }
+    ],
+    "tierMergeSwaps": [
+      { "from": "text-white/40", "to": "text-text-dim-2", "count": 5, "computedBefore": "rgba(255, 255, 255, 0.4)", "computedAfter": "rgba(255, 255, 255, 0.45)", "rationale": "碎档归并默认 dim-2（任务书 /40 视觉权重缺省档）", "files": ["CreditsDropdown:182/187", "WorkspaceBreadcrumb:26/27", "WorkspaceDimension:192"] },
+      { "from": "text-white/50", "to": "text-text-dim-2", "count": 9, "computedBefore": "rgba(255, 255, 255, 0.5)", "computedAfter": "rgba(255, 255, 255, 0.45)", "rationale": "50→45 半档下沉并入 dim-2", "files": ["Angle3DControlPanel:99", "LightingControlPanel:125", "CanvasCard:114", "EmptyState:21", "FolderCard:99", "MoveToFolderModal:27", "WorkspaceBreadcrumb:18", "WorkspaceTabBar:12/16"] },
+      { "from": "text-white/55", "to": "text-text-dim-3", "count": 2, "computedBefore": "rgba(255, 255, 255, 0.55)", "computedAfter": "rgba(255, 255, 255, 0.6)", "rationale": "55 最近邻 60（Δ5<Δ10）→ dim-3", "files": ["CreditsDropdown:178/298"] },
+      { "from": "text-white/70", "to": "text-text-dim-3", "count": 4, "computedBefore": "rgba(255, 255, 255, 0.7)", "computedAfter": "rgba(255, 255, 255, 0.6)", "rationale": "70→60 半档下沉并入 dim-3", "files": ["AnnouncementBar:37", "canvas/page:159", "WorkspaceDimension:179/249"] },
+      { "from": "text-white/80", "to": "text-text", "count": 7, "computedBefore": "rgba(255, 255, 255, 0.8)", "computedAfter": "rgb(226, 232, 240)", "rationale": "/80~/90 高档并入正文 --fw-text（登记预期变化）", "files": ["canvas/page:166/174/182", "BannerCarousel:71", "CanvasCard:44", "CreateCanvasCard(ws):16", "FolderCard:35"] },
+      { "from": "text-white/90", "to": "text-text", "count": 8, "computedBefore": "rgba(255, 255, 255, 0.9)", "computedAfter": "rgb(226, 232, 240)", "rationale": "同上", "files": ["EmptyState:20", "MoveToFolderModal:26", "WorkspaceBreadcrumb:17/18(hover:)/29(+hover:)/37(+hover:)"] },
+      { "from": "text-white", "to": "text-text", "count": 98, "computedBefore": "rgb(255, 255, 255)", "computedAfter": "rgb(226, 232, 240)", "rationale": "精确白并入正文色（含 hover:×7、group-hover:×1 变体；最大单族——VipSubscribeModal×12、MembershipPage×16、Sidebar×8 等 23 文件）", "files": ["VipSubscribeModal:12", "AnnouncementBar:1", "Sidebar:8", "TopActionBar:5", "WeChatFollowModal:1", "Angle3DModal:5", "Angle3DControlPanel:1", "CanvasTopBar:3", "CreditsDropdown:8", "LightingControlPanel:1", "LightingModal:5", "PromptInput:1", "ProjectTitle:2", "canvas/page:1", "BannerCarousel:3", "MembershipPage:16", "TeamBillingPage:3", "TeamSidebar:4", "CanvasCard:4", "FolderCard:6", "InlineRename:1", "WorkspaceTabBar:2", "WorkspaceToolbar:5"] },
+      { "from": "text-black", "to": "text-on-accent", "count": 5, "computedBefore": "rgb(0, 0, 0)", "computedAfter": "rgb(20, 20, 20)", "rationale": "仅限已核实「文本落在强调填充上」的 5 位点（填充同步 bg-accent）；其余 text-black ×8 保留（见 whitelist）", "files": ["TopActionBar:45（B1 探针 2 头像）", "CanvasTopBar:78", "ProfilePage:98", "TeamDetail:134", "AIAssistantFAB:11"] }
+    ],
+    "subtotal": 245,
+    "unmappedTierKeeps": [
+      "bg-white/15(hover:, WorkspaceToolbar:77)、bg-white/40(BannerCarousel:98 指示点)、bg-white 精确 ×10、bg-white/90(hover:, videos 域)——无 5|10|20 档映射/无精确 token，保留",
+      "border-white/15 ×2(CreditsDropdown)、/25 ×1、/40(hover:) ×4——无档映射保留（B2-b 裁决）",
+      "border-white 精确 ×2(WorkspaceTabBar 选中臂下划线)、from-black/60|70（渐变）、bg-black 族 ×17、text-black 非强调填充 ×8——无 token 等价保留"
+    ]
+  },
+  "differExpectedPairs": {
+    "note": "css-baseline-diff.mjs B2 预期类别消费：color（表单控件采集）/borderColor（全元素采集）变化的 (before,after) 配对命中本表即吸收；未登记配对 = 意外（门禁 exit 1）。backgroundColor 不在冻结属性集（A0 冻结不可复采）——B2 值变化经 b1 探针 computed 零回退 + B6 目检覆盖。等值换（通道①③与 overlay/dim 暗色精确档）computed 不变，天然不产生 diff 条目，不入本表。",
+    "pairs": [
+      { "prop": "color", "before": "rgb(255, 255, 255)", "after": "rgb(226, 232, 240)", "siteCount": 98, "family": "text-white→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.8)", "after": "rgb(226, 232, 240)", "siteCount": 7, "family": "text-white/80→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.9)", "after": "rgb(226, 232, 240)", "siteCount": 8, "family": "text-white/90→text-text" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.4)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 5, "family": "text-white/40→dim-2" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.5)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 9, "family": "text-white/50→dim-2" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.55)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 2, "family": "text-white/55→dim-3" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.7)", "after": "rgba(255, 255, 255, 0.6)", "siteCount": 4, "family": "text-white/70→dim-3" },
+      { "prop": "color", "before": "rgb(0, 0, 0)", "after": "rgb(20, 20, 20)", "siteCount": 5, "family": "text-black→text-on-accent" }
+    ]
+  },
+  "whitelistKeeps": {
+    "note": "本批刻意不改写的字面值家族（值+理由）；B2-b 语义化通道与 domain semantify 17 另裁",
+    "families": [
+      { "family": "board 画板恒深域（canvas/components/{nodes,edges,groups} 全部字面值）", "reason": "D4：React Flow viewport 内节点工具恒深，不随站点主题化", "representatives": "VideoConfigPanel text-[#4ade80]、ConnectionLine hover:bg-[#ef4444]、TextNodeToolbar rgb(247,247,247)、ImageFullscreenViewer/VideoFullscreenViewer/TextNodeFullscreen 全屏查看器" },
+      { "family": "videos 整域（pages/videos/** 全部字面色）", "reason": "D4：视频播放域恒深；B1 spec 注释明确不采 videos 探针", "representatives": "VideoCard bg-[#262626]、ProcessView bg-[#141414]/bg-[#1e1e1e]/bg-[#4ade80]、PlayView text-[#4ade80]、CarouselBar:29 hover:ring-white/60（恒深 keep，非通道 ring 4 位点）" },
+      { "family": "video-editor 岛 + MaterialLibrary 岛", "reason": "D4 岛内恒深：自带暗色自持 UI（--ve-*/MaterialLibraryModal.css B2-b 另裁）", "representatives": "ClipBlock 内联选区色、FilePreviewPopover bg-[#262626]、FolderTree/FolderContextMenu white/NN" },
+      { "family": "营销/登录页（login、register、AuthModal、PhoneLoginForm、auth/LoginModal、WeChatQRLogin）", "reason": "D4 固有样式岛：自持浅色/自绘暗色卡（AuthModal 已 @deprecated）；B1 探针恒浅岛 bg-[#f5f5f5] 红线未触碰", "representatives": "register border-[#333]×4 + bg-[#4ade80] + text-[#e2e8f0]、AuthModal text-[#e2e8f0]/bg-[#4ade80]/text-[#4ade80]、#1F6DFF 营销蓝全域豁免" },
+      { "family": "#6C5CE7 全域豁免", "reason": "任务书白名单：品牌紫全域豁免", "representatives": "未在跟随域迁移文件出现，防后续批次误迁" },
+      { "family": "跟随域非精确值 hex（312 处残存，B2 机械通道后仍保留）", "reason": "机械通道仅精确等值替换；非 token 值强改写会造成 1/255 漂移（B1 登记教训）", "representatives": "灰阶梯 #888×91/#666×26/#555×10/#ccc×13/#444/#a0a0a0×3/#707070×2/#d0d0d0×2 等；卡面 #1A1A1A×17/#1F1F1F×3/#252525×10/#1C1C1C×4/#1a1a1a×4/#242424/#2a2a2a×9/#222×2/#363636/#0f0f0f×6/#111×3/#141820×2/#0a0e1a×2/#000000；档位徽章 #f59e0b×5/#a855f7×2/#3b82f6×2/#9ca3af×2；品牌/科技蓝 #5DDCFF×4(hover ×2)/#07b8dd/#09CAF5；悬停深浅 #22c55e/#3bbf6f×3/#ff6b6b/#7ce4ff/#e8e8e8/#e5e5e5/#e0e0e0/#f0f0f0；alpha-hex #ffffff15×3/#ffffff08/#ffffff10/#ffffff18（Sidebar 分隔线）；斜杠族 bg-[#4ade80]/10|15|20、hover:border-[#4ade80]/50（var 键配 /NN 零输出无 token 等价）；accent-[#4ade80]（accent-color 表单属性非四通道）；bg-[#333]×2/text-[#333]×3（#333 通道仅 border）；#f7f7f7/#1a1a2e（NodePalette/ImageWithFallback 特例）；text-[#f59e0b]×5（档位徽章文本随填充保留）" },
+      { "family": "跟随域 white/NN 无档位映射", "reason": "五通道映射只覆盖 5|10|20 与 text 档位表；/15 /25 /40、bg-white 精确、border-white 精确、bg-black 族、text-black 非强调填充 ×8 无 token 等价", "representatives": "hover:bg-white/15、border-white/15×2、hover:border-white/40×4、border-white×2（TabBar 选中臂）、bg-white×10、bg-black/40|50|60|70|80×17、from-black/60|70、text-black（TopActionBar:91/94/128、CanvasTopBar:151/154、TeamDetail:133/243、CreateCanvasCard(home):32——填充为 #f59e0b/#9ca3af/bg-white/antd 菜单）" },
+      { "family": "内联 style 语义色与 Three/canvas-renderer 输出色", "reason": "任务书白名单：inline style 通道归 B2-b（ClipBlock 选区、WechatOutlined #07c160、userColor 协作色、ConfigProvider antd token #252525/#3a3a3a 等）" },
+      { "family": "测试夹具数据", "reason": "测试文件内字面值为断言/夹具，随源同步不单独迁移", "representatives": "board 域测试（TextConfigPanel.test/TextNodeToolbar.test）、videos 测试四件——断言保留字面值即绿" }
+    ]
+  },
+  "testSyncs": [
+    "src/components/layout/Sidebar.test.tsx（bg-[#262626]→bg-surface-dim ×2 含 not.toContain、bg-[#141414]→bg-bg ×5、text-white→text-text ×5、hover:text-white→hover:text-text）",
+    "src/pages/canvas/components/ProjectTitle.test.tsx（text-white→text-text、not.toContain border-[#4ade80]→border-accent）",
+    "src/components/VipSubscribeModal.test.tsx（border-[#4ade80]→border-accent ×2）",
+    "src/pages/workspace/__tests__/CanvasCard.test.tsx（toHaveClass text-white→text-text；querySelector .border-white\\/10→.border-overlay-2）",
+    "src/pages/workspace/__tests__/FolderCard.test.tsx（toHaveClass text-white→text-text；querySelector 同上）",
+    "src/pages/workspace/__tests__/WorkspaceDimension.test.tsx（bg-white/5→bg-overlay-1 断言+用例名）",
+    "src/pages/workspace/__tests__/__snapshots__/SupportComponents.test.tsx.snap（CardGridSkeleton bg-white/10→bg-overlay-2 ×30）"
+  ]
+}
+
