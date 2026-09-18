@@ -10,7 +10,7 @@
    "commit": "5333c32aa785936ecaeb113935f7573affd1b910",
    "collectedAt": "2026-09-18T20:32:06.790Z"
   },
-  "generatedAt": "2026-09-18T20:44:42.437Z",
+  "generatedAt": "2026-09-18T21:26:27.655Z",
   "classifier": {
    "cascadeMax": 40,
    "bridgeExpected": [
@@ -24,7 +24,29 @@
   "unexpectedTotal": 0,
   "propertyUnexpected": 0,
   "geometryUnexpected": 0,
+  "emergenceOffenders": 0,
+  "registryDrift": 0,
+  "pairingOffenders": 0,
   "passed": true
+ },
+ "emergenceGate": {
+  "authorizedFiles": 60,
+  "registrySources": {
+   "bareNonzeroSites": 33,
+   "colored144": 144,
+   "extra": [
+    {
+     "file": "src/components/auth/PhoneLoginForm.tsx",
+     "why": "border-r border-[rgba(13,13,13,0.2)]（:92）显式作者色；colored-144 扫描未含 rgba 形 token"
+    }
+   ]
+  },
+  "registryDrift": [],
+  "offenders": []
+ },
+ "pairingGate": {
+  "runtimeIdPattern": "^(?:(?:rf__node-node|video-edit-node-node)_\\d+_\\d+|track-row-track-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+  "offenders": []
  },
  "pairing": {
   "admin-models": {

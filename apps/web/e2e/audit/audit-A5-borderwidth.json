@@ -179,5 +179,5 @@
   ],
   "formVanished": 4,
   "other": [],
-  "conclusion": "A4 删除零副作用实证：style 翻转而宽度恒 0 共 4229 边（border-none/box-border 等补偿删除 no-op）；涌现宽度 0→N 93 边/24 站点（对应 emergence-adjudication-A4 登记 33 非零代码位点）；表单 UA 边框抵消 N→0 4 边（裸 button 归零族）；无非预期宽度变化"
+  "conclusion": "A4 删除零副作用实证：style 翻转而宽度恒 0 共 4229 边（border-none/box-border 等补偿删除 no-op）；涌现宽度 0→N 93 边/24 站点（涌现站点属 A4-c colored-144 批量保留族——同串显式作者色，非 33 bare 位点子集；门禁页渲染子集，登记闸按页核验）；表单 UA 边框抵消 N→0 4 边（裸 button 归零族）；无非预期宽度变化"
 }
