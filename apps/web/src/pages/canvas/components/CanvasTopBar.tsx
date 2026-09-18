@@ -131,7 +131,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
               <span
                 key={i}
                 title={o.user.name}
-                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-[#111] font-bold border border-[#111]"
+                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-on-accent font-bold border border-on-accent"
                 style={{ background: userColor(o.user.id) }}
               >
                 {o.user.name.slice(0, 1)}
@@ -190,7 +190,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
             </Link>
           )}
           {/* debug: projectId */}
-          <span className="absolute -bottom-8 right-0 text-[10px] text-[#444] whitespace-nowrap select-all">
+          <span className="absolute -bottom-8 right-0 text-[10px] text-text-dim-1 whitespace-nowrap select-all">
             pid: {projectId}
           </span>
         </div>

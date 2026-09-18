@@ -103,7 +103,7 @@ export function ControlPanel({
           onClick={() => onParamsChange({ rimLight: !params.rimLight })}
         >
           <div
-            className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${
+            className={`w-3.5 h-3.5 rounded-full bg-text-strong transition-transform ${
               params.rimLight ? 'translate-x-[14px]' : '-translate-x-[3px]'
             }`}
           />

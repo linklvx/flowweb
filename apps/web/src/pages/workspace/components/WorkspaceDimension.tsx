@@ -176,7 +176,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
               <button
                 data-testid="load-more"
                 onClick={() => { void data.loadMore(); }}
-                className="mt-4 mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
+                className="mt-4 mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-text-dim-3"
               >
                 加载更多
               </button>
@@ -209,7 +209,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                   <li data-testid="create-canvas-card" className="py-2">
                     <button
                       onClick={() => setCanvasModal(true)}
-                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
+                      className="h-12 w-full flex items-center justify-center gap-2 border border-dashed border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-text-dim-3"
                     >
                       <PlusOutlined /> 新建画布
                     </button>
@@ -246,7 +246,7 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                 <button
                   data-testid="load-more"
                   onClick={() => { void data.loadMore(); }}
-                  className="mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-white/40"
+                  className="mx-auto block px-6 py-2 border border-overlay-3 rounded-lg text-sm text-text-dim-3 hover:border-text-dim-3"
                 >
                   加载更多
                 </button>

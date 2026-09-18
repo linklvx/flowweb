@@ -69,8 +69,8 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
       >
         💦 Flow123
       </Link>
-      <span className="text-[#555] select-none">/</span>
-      <span className="text-[#888] select-none max-w-[200px] truncate" title={prefix}>
+      <span className="text-text-dim-1 select-none">/</span>
+      <span className="text-text-dim-2 select-none max-w-[200px] truncate" title={prefix}>
         {prefix}
       </span>
       {editing ? (
@@ -86,19 +86,19 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
               setEditing(false);
             }
           }}
-          className="bg-[#252525] border border-[#555] rounded px-1.5 py-0.5 text-xs text-text outline-none min-w-[120px]"
+          className="bg-surface-dim border border-text-dim-1 rounded px-1.5 py-0.5 text-xs text-text outline-none min-w-[120px]"
           maxLength={30}
         />
       ) : (
         <span
           onClick={startEdit}
-          className="text-xs text-[#ccc] cursor-pointer hover:text-text transition-colors border border-transparent hover:border-[#555] rounded px-1.5 py-0.5"
+          className="text-xs text-text cursor-pointer hover:text-text transition-colors border border-transparent hover:border-text-dim-1 rounded px-1.5 py-0.5"
           title="点击编辑项目名称"
         >
           {name}
         </span>
       )}
-      <Button size="small" type="text" className="text-[#ccc]" onClick={() => setShowMembers(true)}>
+      <Button size="small" type="text" className="text-text" onClick={() => setShowMembers(true)}>
         成员
       </Button>
     </div>

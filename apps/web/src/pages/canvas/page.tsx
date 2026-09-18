@@ -155,7 +155,7 @@ export function CanvasPage() {
   if (loadError) {
     const isInaccessible = loadError === 'inaccessible';
     return (
-      <div className="flex h-screen bg-[#0f0f0f] flex-col items-center justify-center gap-5">
+      <div className="flex h-screen bg-bg flex-col items-center justify-center gap-5">
         <span className="text-text-dim-3 text-sm">
           {isInaccessible ? '画布不存在或无权访问' : '画布加载失败，请检查网络后重试'}
         </span>
@@ -192,8 +192,8 @@ export function CanvasPage() {
   // 等待项目就绪后才渲染
   if (!projectId) {
     return (
-      <div className="flex h-screen bg-[#0f0f0f] items-center justify-center">
-        <span className="text-[#555]">加载画布...</span>
+      <div className="flex h-screen bg-bg items-center justify-center">
+        <span className="text-text-dim-1">加载画布...</span>
       </div>
     );
   }
@@ -293,7 +293,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   return (
     <ReactFlowProvider>
       <CanvasKeyboardHandler />
-      <div className="h-screen bg-[#0f0f0f] relative overflow-hidden">
+      <div className="h-screen bg-bg relative overflow-hidden">
         <ProjectTitle projectId={projectId} projectName={projectName} folderPath={folderPath} onNameChange={onNameChange} />
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />

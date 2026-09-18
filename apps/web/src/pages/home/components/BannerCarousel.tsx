@@ -95,7 +95,7 @@ export function BannerCarousel() {
                 aria-label={`跳转到第 ${i + 1} 张`}
                 onClick={() => setIndex(i)}
                 className={`rounded-full p-0 transition-all duration-300 ${
-                  i === currentIndex ? 'w-4 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/40'
+                  i === currentIndex ? 'w-4 h-1.5 bg-text-strong' : 'w-1.5 h-1.5 bg-overlay-3'
                 }`}
               />
             ))}

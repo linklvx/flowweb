@@ -51,15 +51,15 @@ export default function MaterialsPage() {
         </div>
         {tab === 'team' ? (
           state.status === 'loading' ? (
-            <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
+            <p className="text-sm text-text-dim-2 px-8 pt-4">加载中…</p>
           ) : state.status === 'error' ? (
             <div className="flex flex-col items-center py-20 gap-3" data-testid="teams-error">
-              <p className="text-sm text-[#888]">团队列表加载失败</p>
+              <p className="text-sm text-text-dim-2">团队列表加载失败</p>
               <Button onClick={() => retry()}>重试</Button>
             </div>
           ) : realTeams.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="materials-empty-state">
-              <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
+              <p className="text-sm text-text-dim-2">还没有团队，创建一个开始协作吧</p>
               <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
             </div>
           ) : validTeamId ? (
@@ -76,7 +76,7 @@ export default function MaterialsPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-[#888] px-8 pt-4">加载中…</p>
+            <p className="text-sm text-text-dim-2 px-8 pt-4">加载中…</p>
           )
         ) : (
           <div className="px-8 pb-10">

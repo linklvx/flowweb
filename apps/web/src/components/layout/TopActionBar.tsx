@@ -11,7 +11,7 @@ import { useCreditsStore } from '@/stores/creditsStore';
 
 const TIER_LABEL: Record<string, string> = { basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
 
-const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-surface-dim hover:border-[#444] hover:text-text text-[13px] leading-5 text-[#d0d0d0] px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
+const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-surface-dim hover:border-overlay-3 hover:text-text text-[13px] leading-5 text-text px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
 
 export function TopActionBar() {
   const { user, logout } = useAuth();
@@ -77,10 +77,10 @@ export function TopActionBar() {
   return (
     <div data-testid="top-action-bar" className="h-[60px] flex items-center justify-end gap-2">
       <Link to="/settings/credits" className={BTN}>
-        <GiftOutlined className="text-base text-[#a0a0a0]" /> 赚积分
+        <GiftOutlined className="text-base text-text-dim-3" /> 赚积分
       </Link>
       <button onClick={openVipModal} className={BTN}>
-        <CrownOutlined className="text-base text-[#a0a0a0]" /> 会员充值
+        <CrownOutlined className="text-base text-text-dim-3" /> 会员充值
       </button>
       {user ? (
         <>

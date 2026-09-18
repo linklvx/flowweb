@@ -7,7 +7,7 @@ export function SaveStatusIndicator() {
     return <span className="text-xs text-accent-text px-1">已连接</span>;
   }
   if (status === 'connecting') {
-    return <span className="text-xs text-[#888] px-1">连接中…</span>;
+    return <span className="text-xs text-text-dim-2 px-1">连接中…</span>;
   }
   return (
     <button

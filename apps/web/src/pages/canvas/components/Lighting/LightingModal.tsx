@@ -158,7 +158,7 @@ export const LightingModal = memo(function LightingModal() {
         {/* Error overlay */}
         {taskStatus === TS.FAILED && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
-            <div className="bg-[#1C1C1C] border border-overlay-2 rounded-xl p-6 max-w-sm text-center">
+            <div className="bg-surface border border-overlay-2 rounded-xl p-6 max-w-sm text-center">
               <p className="text-red-400 text-sm mb-4">{errorMessage || '生成失败，请重试'}</p>
               <button
                 type="button"
@@ -187,7 +187,7 @@ function ResultOverlay({
 }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
-      <div className="bg-[#1C1C1C] border-0 rounded-xl p-6 max-w-lg text-center space-y-4">
+      <div className="bg-surface border-0 rounded-xl p-6 max-w-lg text-center space-y-4">
         <img src={resultUrl} alt="生成结果" className="max-w-full max-h-64 rounded-lg object-contain" />
         <div className="flex gap-3 justify-center">
           <button

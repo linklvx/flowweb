@@ -110,22 +110,22 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
       <div className="text-text">
         <div className="max-w-2xl mx-auto p-8" data-testid="personal-panel">
           <h2 className="text-lg font-bold mb-1">个人项目</h2>
-          <p className="text-sm text-[#888] mb-6">个人项目的积分、订阅与作品独立于团队，无需团队管理。</p>
+          <p className="text-sm text-text-dim-2 mb-6">个人项目的积分、订阅与作品独立于团队，无需团队管理。</p>
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-overlay-1 rounded-lg p-4">
               <p className="text-3xl font-bold text-[#f59e0b]" data-testid="personal-balance-total">
                 {(balance?.total ?? 0).toLocaleString()}
               </p>
-              <p className="text-xs text-[#888] mt-1">可用积分（通用 {balance?.credits ?? 0} · 订阅 {balance?.subscriptionCredits ?? 0}）</p>
+              <p className="text-xs text-text-dim-2 mt-1">可用积分（通用 {balance?.credits ?? 0} · 订阅 {balance?.subscriptionCredits ?? 0}）</p>
             </div>
             <div className="bg-overlay-1 rounded-lg p-4">
               {team.subscription ? (
                 <>
                   <p className="text-base font-bold">{team.subscription.planName}</p>
-                  <p className="text-xs text-[#888] mt-1">有效期至 {new Date(team.subscription.currentPeriodEnd).toLocaleDateString()}</p>
+                  <p className="text-xs text-text-dim-2 mt-1">有效期至 {new Date(team.subscription.currentPeriodEnd).toLocaleDateString()}</p>
                 </>
               ) : (
-                <p className="text-sm text-[#888]">暂无订阅</p>
+                <p className="text-sm text-text-dim-2">暂无订阅</p>
               )}
             </div>
           </div>
@@ -159,7 +159,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
   return (
     <div className="text-text">
       {/* Header */}
-      <div className="border-b border-[#222] px-8 py-4 flex items-center gap-4">
+      <div className="border-b border-surface-dim px-8 py-4 flex items-center gap-4">
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold">{teamDisplayName(team)}</span>
           <Tag color={isOwner ? 'gold' : isAdmin ? 'cyan' : 'default'}>{ROLE_LABEL[team.role]}</Tag>
@@ -172,10 +172,10 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
           )}
         </div>
         <Button size="small" type="text" onClick={() => setRenameOpen(true)} disabled={!isAdmin}>重命名</Button>
-        <span className="text-xs text-[#666]">
+        <span className="text-xs text-text-dim-1">
           团队 ID：
           <button
-            className="text-[#888] hover:text-[#5DDCFF]"
+            className="text-text-dim-2 hover:text-[#5DDCFF]"
             onClick={() => { navigator.clipboard?.writeText(teamId); message.success('已复制'); }}
             data-testid="team-id-copy"
           >
@@ -202,35 +202,35 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
 
       {/* Overview cards */}
       <div className="px-8 py-5 grid grid-cols-4 gap-4">
-        <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-4">
-          <div className="text-xs text-[#888] mb-1">剩余积分</div>
+        <div className="bg-surface border border-surface-dim rounded-lg p-4">
+          <div className="text-xs text-text-dim-2 mb-1">剩余积分</div>
           <div className="text-2xl font-bold" style={{ color: ACCENT }}>{total}</div>
-          <div className="text-xs text-[#666] mt-1">通用积分 {balance?.credits ?? 0}</div>
+          <div className="text-xs text-text-dim-1 mt-1">通用积分 {balance?.credits ?? 0}</div>
         </div>
-        <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-4">
-          <div className="text-xs text-[#888] mb-1">席位</div>
-          <div className="text-2xl font-bold">{members.total}<span className="text-sm text-[#666]">/{seatLimit}</span></div>
+        <div className="bg-surface border border-surface-dim rounded-lg p-4">
+          <div className="text-xs text-text-dim-2 mb-1">席位</div>
+          <div className="text-2xl font-bold">{members.total}<span className="text-sm text-text-dim-1">/{seatLimit}</span></div>
         </div>
-        <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-4">
-          <div className="text-xs text-[#888] mb-1">存储</div>
-          <div className="text-2xl font-bold">{fmtBytes(usage)}<span className="text-sm text-[#666]">/{fmtBytes(storageLimit)}</span></div>
+        <div className="bg-surface border border-surface-dim rounded-lg p-4">
+          <div className="text-xs text-text-dim-2 mb-1">存储</div>
+          <div className="text-2xl font-bold">{fmtBytes(usage)}<span className="text-sm text-text-dim-1">/{fmtBytes(storageLimit)}</span></div>
           <Progress percent={Math.min(100, Math.round((usage / storageLimit) * 100))} showInfo={false} strokeColor={ACCENT} size="small" />
         </div>
-        <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-4">
-          <div className="text-xs text-[#888] mb-1">到期时间</div>
+        <div className="bg-surface border border-surface-dim rounded-lg p-4">
+          <div className="text-xs text-text-dim-2 mb-1">到期时间</div>
           <div className="text-2xl font-bold">{team.subscription ? new Date(team.subscription.currentPeriodEnd).toLocaleDateString() : '--'}</div>
-          <div className="text-xs text-[#666] mt-1">下次发放权益时间 --</div>
+          <div className="text-xs text-text-dim-1 mt-1">下次发放权益时间 --</div>
         </div>
       </div>
 
       {/* Tabs nav */}
-      <div className="px-8 flex gap-1 border-b border-[#222]">
+      <div className="px-8 flex gap-1 border-b border-surface-dim">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 text-sm border-b-2 bg-transparent ${
-              tab === t.key ? 'border-b-[#5DDCFF] text-[#5DDCFF]' : 'border-b-transparent text-[#888] hover:text-[#ccc]'
+              tab === t.key ? 'border-b-[#5DDCFF] text-[#5DDCFF]' : 'border-b-transparent text-text-dim-2 hover:text-text'
             }`}
             data-testid={`tab-${t.key}`}
           >
@@ -265,7 +265,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
                   title: '本月用量/额度', render: (_: any, r: any) => r.placeholder ? '-' : (
                     <span className="flex items-center gap-2">
                       <Progress percent={r.monthlyQuota > 0 ? Math.min(100, Math.round((r.monthlyUsed / r.monthlyQuota) * 100)) : 0} showInfo={false} strokeColor={ACCENT} style={{ width: 80 }} size="small" />
-                      <span className="text-xs text-[#888]">{r.monthlyUsed}/{r.monthlyQuota > 0 ? r.monthlyQuota : '不限'}</span>
+                      <span className="text-xs text-text-dim-2">{r.monthlyUsed}/{r.monthlyQuota > 0 ? r.monthlyQuota : '不限'}</span>
                     </span>
                   ),
                 },
@@ -337,11 +337,11 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
         )}
 
         {tab === 'permissions' && (
-          <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-6 max-w-md">
+          <div className="bg-surface border border-surface-dim rounded-lg p-6 max-w-md">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">加入需审批</div>
-                <div className="text-xs text-[#666] mt-1">关闭后通过邀请链接加入将直接入团</div>
+                <div className="text-xs text-text-dim-1 mt-1">关闭后通过邀请链接加入将直接入团</div>
               </div>
               <Switch
                 checkedChildren="开" unCheckedChildren="关"
@@ -390,7 +390,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
                 {
                   title: '摘要',
                   render: (_: any, r: AuditLogRow) => (
-                    <div className="text-xs text-[#888] break-all">
+                    <div className="text-xs text-text-dim-2 break-all">
                       {r.remark && <div>{r.remark}</div>}
                       {r.beforeValue != null && <div>前：{JSON.stringify(r.beforeValue)}</div>}
                       {r.afterValue != null && <div>后：{JSON.stringify(r.afterValue)}</div>}
@@ -416,9 +416,9 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
       </Modal>
 
       <Modal open={inviteOpen} title="邀请成员" footer={null} onCancel={() => setInviteOpen(false)}>
-        <div className="text-xs text-[#888] mb-2">团队 ID</div>
+        <div className="text-xs text-text-dim-2 mb-2">团队 ID</div>
         <Input value={teamId} readOnly />
-        <div className="text-xs text-[#888] mt-3 mb-2">邀请链接</div>
+        <div className="text-xs text-text-dim-2 mt-3 mb-2">邀请链接</div>
         <Input value={`${location.origin}/join?team=${teamId}`} readOnly />
         <Button className="mt-3" type="primary" style={{ background: ACCENT, borderColor: ACCENT, color: '#000' }}
           onClick={() => { navigator.clipboard?.writeText(`${location.origin}/join?team=${teamId}`); message.success('链接已复制'); }}>

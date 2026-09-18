@@ -41,15 +41,15 @@ function ConfirmModalComponent() {
       onClick={onClose}
     >
       <div
-        className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-xl p-6 w-full max-w-sm"
+        className="bg-surface border border-surface-dim rounded-xl p-6 w-full max-w-sm"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-base font-medium text-text mb-2">{title}</p>
-        <p className="text-sm text-[#888] mb-5">{content}</p>
+        <p className="text-sm text-text-dim-2 mb-5">{content}</p>
         <div className="flex gap-3 justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 border text-[#888] rounded-lg text-sm hover:border-[#555] transition-colors"
+            className="px-4 py-2 border text-text-dim-2 rounded-lg text-sm hover:border-text-dim-1 transition-colors"
           >
             {cancelText}
           </button>

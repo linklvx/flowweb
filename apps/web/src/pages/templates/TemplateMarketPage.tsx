@@ -45,7 +45,7 @@ export function TemplateMarketPage() {
               key={t.key}
               onClick={() => { setTab(t.key); setPage(1); }}
               className={`px-4 py-2 text-sm border-b-2 transition-colors bg-transparent ${
-                tab === t.key ? 'text-accent-text border-accent' : 'text-[#888] border-transparent hover:text-[#ccc]'
+                tab === t.key ? 'text-accent-text border-accent' : 'text-text-dim-2 border-transparent hover:text-text'
               }`}
             >
               {t.label}
@@ -59,12 +59,12 @@ export function TemplateMarketPage() {
             placeholder="搜索模板..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="flex-1 px-3 py-2 bg-[#1A1A1A] border rounded text-sm text-text placeholder-[#555] outline-none focus:border-accent"
+            className="flex-1 px-3 py-2 bg-surface border rounded text-sm text-text placeholder-text-dim-1 outline-none focus:border-accent"
           />
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as any)}
-            className="px-3 py-2 bg-[#1A1A1A] border rounded text-sm text-text outline-none cursor-pointer"
+            className="px-3 py-2 bg-surface border rounded text-sm text-text outline-none cursor-pointer"
           >
             <option value="importCount">最热门</option>
             <option value="newest">最新</option>
@@ -72,7 +72,7 @@ export function TemplateMarketPage() {
         </div>
 
         {loading ? (
-          <div className="text-center text-[#555] py-12">加载中...</div>
+          <div className="text-center text-text-dim-1 py-12">加载中...</div>
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -81,7 +81,7 @@ export function TemplateMarketPage() {
               ))}
             </div>
             {data?.templates?.length === 0 && (
-              <div className="text-center text-[#555] py-12">暂无模板</div>
+              <div className="text-center text-text-dim-1 py-12">暂无模板</div>
             )}
 
             {data && data.totalPages > 1 && (
@@ -91,7 +91,7 @@ export function TemplateMarketPage() {
                     key={p}
                     onClick={() => setPage(p)}
                     className={`px-3 py-1 text-sm rounded bg-transparent border transition-colors ${
-                      p === page ? 'border-accent text-accent-text' : 'text-[#888] hover:border-[#555]'
+                      p === page ? 'border-accent text-accent-text' : 'text-text-dim-2 hover:border-text-dim-1'
                     }`}
                   >
                     {p}

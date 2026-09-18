@@ -57,10 +57,10 @@ export default function TeamPage() {
         <section className="flex-1 min-w-0" data-testid="team-detail">
           {status !== 'success' && (
             status === 'loading'
-              ? <p className="text-sm text-[#888] p-8">加载中…</p>
+              ? <p className="text-sm text-text-dim-2 p-8">加载中…</p>
               : (
                 <div className="flex flex-col items-center py-20 gap-3" data-testid="team-load-error">
-                  <p className="text-sm text-[#888]">团队列表加载失败</p>
+                  <p className="text-sm text-text-dim-2">团队列表加载失败</p>
                   <Button onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}>重试</Button>
                 </div>
               )

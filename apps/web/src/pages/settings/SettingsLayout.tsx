@@ -15,12 +15,12 @@ export function SettingsLayout() {
     <div className="flex flex-col">
       <div className="flex-1 w-full pt-6">
         <div className="flex h-full min-w-0">
-          <nav className="w-48 flex-shrink-0 bg-[#1A1A1A] border-r flex flex-col py-4">
+          <nav className="w-48 flex-shrink-0 bg-surface border-r flex flex-col py-4">
             <NavLink
               to="/settings/profile"
               className={({ isActive }) =>
                 `px-4 py-2 text-sm no-underline transition-colors ${
-                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-[#888] hover:text-[#ccc]'
+                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-text-dim-2 hover:text-text'
                 }`
               }
             >
@@ -30,7 +30,7 @@ export function SettingsLayout() {
               to="/settings/credits"
               className={({ isActive }) =>
                 `px-4 py-2 text-sm no-underline transition-colors ${
-                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-[#888] hover:text-[#ccc]'
+                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-text-dim-2 hover:text-text'
                 }`
               }
             >
@@ -40,7 +40,7 @@ export function SettingsLayout() {
               to="/settings/membership"
               className={({ isActive }) =>
                 `px-4 py-2 text-sm no-underline transition-colors ${
-                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-[#888] hover:text-[#ccc]'
+                  isActive ? 'text-accent-text bg-[#4ade80]/10 border-r-2 border-accent' : 'text-text-dim-2 hover:text-text'
                 }`
               }
             >
@@ -49,7 +49,7 @@ export function SettingsLayout() {
             <div className="mt-auto border-t pt-4">
               <button
                 onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-accent-danger transition-colors"
+                className="w-full text-left px-4 py-2 text-sm text-text-dim-2 hover:text-accent-danger transition-colors"
               >
                 退出登录
               </button>

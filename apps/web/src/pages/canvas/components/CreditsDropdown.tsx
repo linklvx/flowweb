@@ -221,7 +221,7 @@ export function CreditsPanelContent({
           </div>
           <div className="mt-1 truncate text-[0.6875rem] font-medium text-violet-100/70">
             {scope === 'team'
-              ? <span className="text-xs text-[#888]">{subscriptionCredits > 0 ? '团队订阅积分' : '暂无团队订阅'}</span>
+              ? <span className="text-xs text-text-dim-2">{subscriptionCredits > 0 ? '团队订阅积分' : '暂无团队订阅'}</span>
               : formatExpiry(subscriptionCreditsExpiry, isActive)}
           </div>
         </div>
@@ -282,7 +282,7 @@ export function CreditsPanelContent({
         <button
           type="button"
           onClick={onInvite}
-          className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-white/15 px-4 py-3.5 text-left transition hover:bg-white/[0.1]"
+          className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-overlay-2 px-4 py-3.5 text-left transition hover:bg-white/[0.1]"
           style={{
             background: 'linear-gradient(180deg, rgba(255,255,255,0.04), transparent)',
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -290,7 +290,7 @@ export function CreditsPanelContent({
           }}
         >
           <span className="pointer-events-none absolute -left-6 -bottom-6 h-20 w-20 rounded-full bg-rose-300/15 blur-2xl" />
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.08] text-text">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-overlay-2 bg-white/[0.08] text-text">
             <GiftIcon className="h-5 w-5" />
           </span>
           <span className="relative min-w-0 flex-1">

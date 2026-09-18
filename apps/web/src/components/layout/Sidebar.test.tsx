@@ -58,11 +58,11 @@ describe('Sidebar', () => {
     expect(mockInfo).toHaveBeenCalledWith('敬请期待');
   });
 
-  it('视觉对齐：边框 1px #ffffff18、行高字号规范', () => {
+  it('视觉对齐：边框 1px overlay-2、行高字号规范', () => {
     const { container } = renderSidebar();
     const aside = screen.getByTestId('sidebar');
     expect(aside.className).toContain('border-r');
-    expect(aside.className).toContain('border-r-[#ffffff18]');
+    expect(aside.className).toContain('border-r-overlay-2');
     const navLink = screen.getByText('首页').closest('a');
     expect(navLink?.className).toContain('leading-[26px]');
     expect(navLink?.className).toContain('text-[15px]');

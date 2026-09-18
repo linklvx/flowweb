@@ -8,7 +8,7 @@ export function CreateCanvasCard() {
     <div
       data-testid="create-canvas-card"
       onClick={() => startNewProject(navigate)}
-      className="group relative h-[200px] w-full mt-[32px] mb-8 rounded-xl border-[0.5px] border-[rgba(8,182,221,0.5)] hover:border-[rgba(8,182,221,0.8)] bg-[#1a1a1a] hover:bg-surface hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col items-center justify-center gap-4"
+      className="group relative h-[200px] w-full mt-[32px] mb-8 rounded-xl border-[0.5px] border-[rgba(8,182,221,0.5)] hover:border-[rgba(8,182,221,0.8)] bg-surface hover:bg-surface hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col items-center justify-center gap-4"
     >
       <div
         className="absolute inset-0 pointer-events-none"
@@ -31,7 +31,7 @@ export function CreateCanvasCard() {
       >
         <PlusOutlined className="text-[24px] text-black" />
       </button>
-      <span className="text-[15px] font-medium leading-6 text-[#d0d0d0] group-hover:scale-105 transition-transform duration-200">
+      <span className="text-[15px] font-medium leading-6 text-text group-hover:scale-105 transition-transform duration-200">
         新建画布创作
       </span>
     </div>

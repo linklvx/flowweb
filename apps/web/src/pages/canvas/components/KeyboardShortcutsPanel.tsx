@@ -22,7 +22,7 @@ interface ShortcutSection {
 /* ---------- SVG icon components ---------- */
 
 const ZoomInIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-overlay-3">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <g clipPath="url(#zoomin_clip)">
         <path d="M7.59985 0.667969C7.45261 0.668004 7.33325 0.787316 7.33325 0.93457V7.33789H0.932861C0.785765 7.3381 0.66626 7.45735 0.66626 7.60449V8.4043C0.66626 8.55144 0.785765 8.67069 0.932861 8.6709H7.33325V15.0684C7.33351 15.2154 7.45276 15.3349 7.59985 15.335H8.39966C8.54678 15.335 8.66601 15.2154 8.66626 15.0684V8.6709H15.0667C15.2139 8.67086 15.3333 8.55155 15.3333 8.4043V7.60449C15.3333 7.45724 15.2139 7.33793 15.0667 7.33789H8.66626V0.93457C8.66626 0.787294 8.54693 0.667969 8.39966 0.667969H7.59985Z" fill="#999" />
@@ -37,7 +37,7 @@ const ZoomInIcon = () => (
 );
 
 const ZoomOutIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-overlay-3">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M1.96582 7.39844C1.89218 7.39844 1.83203 7.45859 1.83203 7.53223V8.46582C1.83214 8.53937 1.89225 8.59863 1.96582 8.59863H13.5654C13.639 8.59863 13.6991 8.53937 13.6992 8.46582V7.53223C13.6992 7.45859 13.6391 7.39844 13.5654 7.39844H1.96582Z" fill="#999" />
     </svg>
@@ -99,7 +99,7 @@ const MousePanIcon = () => (
 );
 
 const DeleteKeyIcon = () => (
-  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-[#444]">
+  <span className="flex shrink-0 items-center justify-center w-6 h-6 rounded-md border-[0.5px] border-overlay-3">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M7.33325 5.9987L11.3333 9.9987M11.3333 5.9987L7.33325 9.9987M5.33321 3.33203C5.00194 3.33205 4.68253 3.45539 4.43721 3.67803L1.55188 7.5047C1.48303 7.56719 1.42801 7.64339 1.39035 7.72841C1.3527 7.81343 1.33325 7.90538 1.33325 7.99836C1.33325 8.09135 1.3527 8.1833 1.39035 8.26832C1.42801 8.35334 1.48303 8.42954 1.55188 8.49203L4.43721 12.3194C4.68253 12.542 5.00194 12.6653 5.33321 12.6654H13.3332C13.6868 12.6654 14.026 12.5249 14.276 12.2748C14.5261 12.0248 14.6665 11.6857 14.6665 11.332V4.66536C14.6665 4.31174 14.5261 3.9726 14.276 3.72256C14.026 3.47251 13.6868 3.33203 13.3332 3.33203H5.33321Z" stroke="#999" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -264,9 +264,9 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="关闭快捷键面板"
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[#3a3a3a]"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-overlay-3"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 17.1864 17.1854" fill="currentColor" className="text-[#999]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 17.1864 17.1854" fill="currentColor" className="text-text-dim-3">
               <path d="M15.7959 0.117157C15.9521 -0.0390524 16.2051 -0.0390524 16.3613 0.117157L17.0693 0.824189C17.2254 0.980406 17.2255 1.23442 17.0693 1.39059L9.86618 8.59274L17.0693 15.7949C17.2254 15.9511 17.2255 16.2051 17.0693 16.3613L16.3613 17.0683C16.2051 17.2245 15.9521 17.2244 15.7959 17.0683L8.59274 9.86618L1.39059 17.0683C1.23442 17.2245 0.981382 17.2244 0.825165 17.0683L0.117157 16.3613C-0.0390524 16.2051 -0.0390524 15.9511 0.117157 15.7949L7.31931 8.59274L0.117157 1.39059C-0.0390524 1.23439 -0.0390524 0.980398 0.117157 0.824189L0.825165 0.117157C0.981375 -0.0390524 1.23439 -0.0390524 1.39059 0.117157L8.59274 7.31931L15.7959 0.117157Z" />
             </svg>
           </button>
@@ -275,18 +275,18 @@ export function KeyboardShortcutsPanel({ isOpen, onClose }: Props) {
           {SECTIONS.map((section, si) => (
             <div key={section.title} className="flex md:flex-row gap-0">
               {si > 0 && (
-                <div className="hidden md:block w-px bg-[#363636] shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />
+                <div className="hidden md:block w-px bg-overlay-2 shrink-0 self-stretch mr-4 lg:mr-6" aria-hidden="true" />
               )}
-              <section className={`flex w-full min-w-0 flex-col gap-3 border-b border-[#363636] pb-5 last:border-b-0 last:pb-0 md:shrink-0 md:border-b-0 md:pb-0 ${section.width}`}>
+              <section className={`flex w-full min-w-0 flex-col gap-3 border-b border-overlay-2 pb-5 last:border-b-0 last:pb-0 md:shrink-0 md:border-b-0 md:pb-0 ${section.width}`}>
                 <h3 className="text-sm font-medium text-[#09CAF5]">{section.title}</h3>
                 <div className="flex flex-col gap-3">
                   {section.items.map((item) => (
                     <div key={item.label} className="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
-                      <span className="text-sm text-[#bbb] leading-snug shrink-0 pr-2">{item.label}</span>
+                      <span className="text-sm text-text-dim-3 leading-snug shrink-0 pr-2">{item.label}</span>
                       <div className="flex items-center gap-2 text-sm md:shrink-0 md:justify-end">
                         {item.keys.flatMap((key, ki) => {
                           const els: React.ReactNode[] = [];
-                          if (ki > 0) els.push(<span key={`sep-${item.label}-${ki}`} className="text-[#888] text-sm">+</span>);
+                          if (ki > 0) els.push(<span key={`sep-${item.label}-${ki}`} className="text-text-dim-2 text-sm">+</span>);
                           els.push(<span key={`k-${item.label}-${ki}`}>{renderKey(key, ki)}</span>);
                           return els;
                         })}

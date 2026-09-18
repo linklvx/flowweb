@@ -19,7 +19,7 @@ export default function JoinPage() {
     }
   }, [loading, user, navigate, teamId]);
 
-  if (!teamId) return <div className="min-h-screen bg-[#111] text-text p-10">无效的邀请链接</div>;
+  if (!teamId) return <div className="min-h-screen bg-bg text-text p-10">无效的邀请链接</div>;
   if (!user) return null;
 
   const submit = async () => {
@@ -36,11 +36,11 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#111] text-text flex items-center justify-center">
-      <div className="bg-[#1A1A1A] border border-[#2a2a2a] rounded-lg p-8 w-full max-w-md">
+    <div className="min-h-screen bg-bg text-text flex items-center justify-center">
+      <div className="bg-surface border border-surface-dim rounded-lg p-8 w-full max-w-md">
         <h2 className="text-lg font-bold mb-2">加入团队</h2>
-        <div className="text-xs text-[#666] mb-4">团队 ID：{teamId}</div>
-        <div className="text-xs text-[#888] mb-1">留言（可选）</div>
+        <div className="text-xs text-text-dim-1 mb-4">团队 ID：{teamId}</div>
+        <div className="text-xs text-text-dim-2 mb-1">留言（可选）</div>
         <Input.TextArea
           value={message_}
           onChange={(e) => setMessage_(e.target.value)}

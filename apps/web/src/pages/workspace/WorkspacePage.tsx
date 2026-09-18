@@ -42,12 +42,12 @@ export function WorkspacePage() {
       <div className="pt-4">
         {tab === 'team' ? (
           state.status === 'loading' ? (
-            <>{tabsRow}<p className="text-sm text-[#888] px-8 pt-4">加载中…</p></>
+            <>{tabsRow}<p className="text-sm text-text-dim-2 px-8 pt-4">加载中…</p></>
           ) : state.status === 'error' ? (
             <>
               {tabsRow}
               <div className="flex flex-col items-center py-20 gap-3" data-testid="teams-error">
-                <p className="text-sm text-[#888]">团队列表加载失败</p>
+                <p className="text-sm text-text-dim-2">团队列表加载失败</p>
                 <Button onClick={() => retry()}>重试</Button>
               </div>
             </>
@@ -55,7 +55,7 @@ export function WorkspacePage() {
             <>
               {tabsRow}
               <div className="flex flex-col items-center justify-center py-20 gap-3" data-testid="team-empty-state">
-                <p className="text-sm text-[#888]">还没有团队，创建一个开始协作吧</p>
+                <p className="text-sm text-text-dim-2">还没有团队，创建一个开始协作吧</p>
                 <Button type="primary" onClick={() => navigate('/team')}>前往创建团队</Button>
               </div>
             </>
@@ -88,7 +88,7 @@ export function WorkspacePage() {
             </WorkspaceDimension>
           ) : (
             // success 但 URL teamId 尚未补默认的过渡帧，与 loading 同形避免闪空
-            <>{tabsRow}<p className="text-sm text-[#888] px-8 pt-4">加载中…</p></>
+            <>{tabsRow}<p className="text-sm text-text-dim-2 px-8 pt-4">加载中…</p></>
           )
         ) : (
           <WorkspaceDimension key="personal" activeTab="personal" onTabChange={setTab} />
@@ -99,5 +99,5 @@ export function WorkspacePage() {
 }
 
 function teamTabLabel(t: MyTeam) {
-  return <span>{teamDisplayName(t)}<span className="text-xs text-[#888] ml-1">{t.memberCount}</span></span>;
+  return <span>{teamDisplayName(t)}<span className="text-xs text-text-dim-2 ml-1">{t.memberCount}</span></span>;
 }

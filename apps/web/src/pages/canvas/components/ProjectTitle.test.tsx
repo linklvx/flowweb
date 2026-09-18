@@ -116,11 +116,11 @@ describe('ProjectTitle', () => {
     expect(prefix.className).toContain('max-w-[200px]');
   });
 
-  it('编辑输入框边框为深灰 #555 且最小宽 120px', () => {
+  it('编辑输入框边框为深灰 text-dim-1 且最小宽 120px', () => {
     renderTitle();
     fireEvent.click(screen.getByText('未命名项目'));
     const input = screen.getByDisplayValue('未命名项目');
-    expect(input.className).toContain('border-[#555]');
+    expect(input.className).toContain('border-text-dim-1');
     expect(input.className).not.toContain('border-accent');
     expect(input.className).toContain('min-w-[120px]');
   });

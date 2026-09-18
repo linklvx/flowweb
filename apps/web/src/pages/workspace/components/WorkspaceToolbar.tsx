@@ -41,12 +41,12 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
       <WorkspaceTabBar activeTab={activeTab} onTabChange={onTabChange} />
       <div className="flex items-center gap-2 flex-wrap">
         <div className="h-10 px-3 flex items-center gap-1 bg-overlay-1 rounded-lg ring-1 ring-inset ring-overlay-2 focus-within:ring-overlay-3 transition-colors" style={{ width: 160 }}>
-          <SearchOutlined className="text-[#646464] shrink-0" />
+          <SearchOutlined className="text-text-dim-1 shrink-0" />
           <input
             aria-label="搜索"
             type="text" placeholder="搜索" value={text}
             onChange={(e) => handleSearch(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-text placeholder:text-[#646464] min-w-0 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-text placeholder:text-text-dim-1 min-w-0 focus:outline-none"
           />
         </div>
         <Dropdown menu={{ items: filterMenu, onClick: ({ key }) => onFilterChange(key as FilterKind) }} trigger={['click']}>
@@ -74,7 +74,7 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
         <div className="h-6 w-px bg-overlay-2 mx-1" />
         <button
           onClick={onCreateFolder}
-          className="h-10 px-3 flex items-center gap-1 bg-overlay-2 hover:bg-white/15 rounded-lg text-text text-sm font-medium transition-colors"
+          className="h-10 px-3 flex items-center gap-1 bg-overlay-2 hover:bg-overlay-3 rounded-lg text-text text-sm font-medium transition-colors"
         ><FolderAddOutlined />新建文件夹</button>
       </div>
     </div>

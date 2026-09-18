@@ -125,8 +125,8 @@ function BannerCountdown({ endAt, onExpired }: { endAt: string; onExpired: () =>
         { value: time.secs, unit: '秒' },
       ].map(({ value, unit }) => (
         <div key={unit} className="flex flex-col items-center">
-          <span className="font-mono text-2xl font-bold text-text bg-[#ffffff15] rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
-          <span className="text-xs text-[#888] mt-1">{unit}</span>
+          <span className="font-mono text-2xl font-bold text-text bg-overlay-2 rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
+          <span className="text-xs text-text-dim-2 mt-1">{unit}</span>
         </div>
       ))}
     </div>
@@ -201,7 +201,7 @@ function BannerWithImage({ data, onCountdownExpired }: { data: any; onCountdownE
     <div className="w-full rounded-xl overflow-hidden flex items-center justify-between px-8 py-6" style={bgStyle}>
       <div>
         <h2 id="vip-modal-title" className="text-xl font-bold text-text m-0">{data.title}</h2>
-        <p className="text-sm text-[#a8a8a8] mt-1 m-0">{data.subtitle}</p>
+        <p className="text-sm text-text-dim-3 mt-1 m-0">{data.subtitle}</p>
       </div>
       {data.countdownEndAt && (
         <BannerCountdown endAt={data.countdownEndAt} onExpired={onCountdownExpired} />
@@ -338,7 +338,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
   if (!visible && !exiting) return null;
 
   const backdropClasses = [
-    'fixed inset-0 z-[100] bg-[#0f0f0f] overflow-hidden transition-opacity duration-200',
+    'fixed inset-0 z-[100] bg-bg overflow-hidden transition-opacity duration-200',
     showTransition && !exiting ? 'opacity-100' : 'opacity-0',
   ].join(' ');
 
@@ -355,7 +355,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
           ref={closeBtnRef}
           onClick={handleClose}
           aria-label="关闭会员弹窗"
-          className="fixed top-4 right-4 z-10 w-8 h-8 flex items-center justify-center rounded text-[#888] hover:text-text hover:bg-[#333] transition-colors"
+          className="fixed top-4 right-4 z-10 w-8 h-8 flex items-center justify-center rounded text-text-dim-2 hover:text-text hover:bg-surface-dim transition-colors"
         >
           ✕
         </button>
@@ -376,7 +376,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
               >
                 <div>
                   <h2 id="vip-modal-title" className="text-xl font-bold text-text m-0">会员限时折扣｜年卡低至 37折，Seedance 2.0 低至 0.37元/秒</h2>
-                  <p className="text-sm text-[#a8a8a8] mt-1 m-0">Seedance 2.5 即将上线，抢先锁定会员</p>
+                  <p className="text-sm text-text-dim-3 mt-1 m-0">Seedance 2.5 即将上线，抢先锁定会员</p>
                 </div>
                 <div className="flex gap-3 items-center">
                   {[
@@ -384,8 +384,8 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                     { value: '16', unit: '分' }, { value: '50', unit: '秒' },
                   ].map(({ value, unit }) => (
                     <div key={unit} className="flex flex-col items-center">
-                      <span className="font-mono text-2xl font-bold text-text bg-[#ffffff15] rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
-                      <span className="text-xs text-[#888] mt-1">{unit}</span>
+                      <span className="font-mono text-2xl font-bold text-text bg-overlay-2 rounded-lg px-3 py-1 min-w-[48px] text-center">{value}</span>
+                      <span className="text-xs text-text-dim-2 mt-1">{unit}</span>
                     </div>
                   ))}
                 </div>
@@ -401,7 +401,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`relative px-4 py-2 text-base font-medium bg-transparent transition-colors ${
-                    activeTab === tab ? 'text-text' : 'text-[#888] hover:text-[#ccc]'
+                    activeTab === tab ? 'text-text' : 'text-text-dim-2 hover:text-text'
                   }`}
                 >
                   {tab === 'creator' ? '个人会员订阅' : '团队会员订阅'}
@@ -416,7 +416,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
 
           {/* ── Team placeholder ── */}
           {activeTab === 'team' ? (
-            <div className="flex items-center justify-center py-20 text-[#888] text-lg">
+            <div className="flex items-center justify-center py-20 text-text-dim-2 text-lg">
               敬请期待
             </div>
           ) : (
@@ -431,20 +431,20 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                       onClick={() => setPeriod(p)}
                       className={`relative px-4 py-2 rounded-lg text-sm font-medium border-2 transition-all ${
                         period === p
-                          ? 'border-accent bg-[#252525] text-text'
-                          : 'border-transparent bg-transparent text-[#888] hover:text-[#ccc]'
+                          ? 'border-accent bg-surface-dim text-text'
+                          : 'border-transparent bg-transparent text-text-dim-2 hover:text-text'
                       }`}
                     >
                       {PERIOD_LABELS[p]}
                       <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                        p === 'annually' ? 'bg-red-500/20 text-red-400' : 'bg-[#ffffff15] text-[#a8a8a8]'
+                        p === 'annually' ? 'bg-red-500/20 text-red-400' : 'bg-overlay-2 text-text-dim-3'
                       }`}>
                         {PERIOD_DISCOUNTS[p]}
                       </span>
                     </button>
                   ))}
                 </div>
-                <button className="flex items-center gap-1 text-sm text-[#888] hover:text-[#ccc]">
+                <button className="flex items-center gap-1 text-sm text-text-dim-2 hover:text-text">
                   个人积分充值
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M10.4 7.6a.6.6 0 0 1 0 .8l-4 4a.6.6 0 0 1-.8-.8L9.2 8 5.6 4.4a.6.6 0 1 1 .8-.8l4 4Z"/></svg>
                 </button>
@@ -465,8 +465,8 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                         onKeyDown={(e) => handleCardKeyDown(e as KeyboardEvent<HTMLDivElement>, plan.tier)}
                         className={`flex-1 min-w-0 flex flex-col rounded-2xl border transition-all duration-300 ${
                           isActive
-                            ? 'border-accent bg-[#252525]'
-                            : 'border-[#242424] bg-bg hover:border-[#4ade80]/50 hover:bg-[#252525]'
+                            ? 'border-accent bg-surface-dim'
+                            : 'border-surface-dim bg-bg hover:border-[#4ade80]/50 hover:bg-surface-dim'
                         }`}
                       >
                         {/* Header */}
@@ -476,13 +476,13 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                             <div className="flex-1" />
                           </div>
                           <div className="flex items-baseline gap-1 mt-1">
-                            <span className="text-xs text-[#888]">¥</span>
+                            <span className="text-xs text-text-dim-2">¥</span>
                             <span className="text-3xl font-bold text-text">{plan.price}</span>
-                            <span className="text-sm text-[#888]">{PERIOD_UNIT[period]}</span>
-                            <span className="text-sm text-[#555] line-through ml-2">¥{plan.originalPrice}</span>
+                            <span className="text-sm text-text-dim-2">{PERIOD_UNIT[period]}</span>
+                            <span className="text-sm text-text-dim-1 line-through ml-2">¥{plan.originalPrice}</span>
                           </div>
                           <div className="flex items-center justify-between mt-3">
-                            <span className="text-xs text-[#888]">1积分≈{plan.tier === 'basic' ? '0.039' : plan.tier === 'pro' ? '0.037' : plan.tier === 'max' ? '0.037' : '0.03'}元</span>
+                            <span className="text-xs text-text-dim-2">1积分≈{plan.tier === 'basic' ? '0.039' : plan.tier === 'pro' ? '0.037' : plan.tier === 'max' ? '0.037' : '0.03'}元</span>
                             <button className="text-xs text-accent-text flex items-center gap-1 hover:underline">
                               买年卡立省{plan.annualSavingPercent}%
                               <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M10.4 7.6a.6.6 0 0 1 0 .8l-4 4a.6.6 0 0 1-.8-.8L9.2 8 5.6 4.4a.6.6 0 1 1 .8-.8l4 4Z"/></svg>
@@ -492,16 +492,16 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
 
                         {/* Credits */}
                         <div className="px-5 pb-3">
-                          <div className="bg-[#ffffff08] rounded-lg p-3">
+                          <div className="bg-overlay-1 rounded-lg p-3">
                             <div className="flex items-baseline gap-1">
                               <span className="text-xl font-bold text-text">{plan.monthlyPoints.toLocaleString()}</span>
-                              <span className="text-sm text-[#888]">积分/月</span>
+                              <span className="text-sm text-text-dim-2">积分/月</span>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-[#666] mt-1">
+                            <div className="flex items-center gap-2 text-xs text-text-dim-1 mt-1">
                               <span>最多生成约</span>
-                              <span className="text-[#aaa]">{plan.imageEstimate.toLocaleString()} 张图片</span>
-                              <span className="w-px h-3 bg-[#333]" />
-                              <span className="text-[#aaa]">{plan.videoEstimate.toLocaleString()} 个视频</span>
+                              <span className="text-text-dim-3">{plan.imageEstimate.toLocaleString()} 张图片</span>
+                              <span className="w-px h-3 bg-surface-dim" />
+                              <span className="text-text-dim-3">{plan.videoEstimate.toLocaleString()} 个视频</span>
                             </div>
                           </div>
                         </div>
@@ -527,26 +527,26 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                                 限时活动
                               </span>
                               {plan.rights.limited.map((r, i) => (
-                                <div key={i} className="flex items-center gap-2 text-[#ccc] leading-7">
+                                <div key={i} className="flex items-center gap-2 text-text leading-7">
                                   <svg width="12" height="12" viewBox="0 0 16 16" fill="#4ade80"><path d="M13.5 4.5L6.5 11.5 2.5 7.5l1-1 3 3 6-6 1 1z"/></svg>
                                   {r}
                                 </div>
                               ))}
                             </div>
-                            <div className="border-t border-[#ffffff10] my-2" />
+                            <div className="border-t border-overlay-1 my-2" />
                             {/* General rights */}
                             {plan.rights.general.map((r, i) => (
-                              <div key={i} className="flex items-center gap-2 text-[#ccc] leading-7">
+                              <div key={i} className="flex items-center gap-2 text-text leading-7">
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="#4ade80"><path d="M13.5 4.5L6.5 11.5 2.5 7.5l1-1 3 3 6-6 1 1z"/></svg>
                                 {r}
                               </div>
                             ))}
                             {/* Exclusive features */}
                             <div className="mt-3 mb-2">
-                              <span className="text-[#a8a8a8] font-medium">独家功能</span>
+                              <span className="text-text-dim-3 font-medium">独家功能</span>
                             </div>
                             {plan.rights.exclusive.map((r, i) => (
-                              <div key={i} className="flex items-center gap-2 text-[#ccc] leading-7">
+                              <div key={i} className="flex items-center gap-2 text-text leading-7">
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="#4ade80"><path d="M13.5 4.5L6.5 11.5 2.5 7.5l1-1 3 3 6-6 1 1z"/></svg>
                                 {r}
                               </div>
@@ -560,10 +560,10 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
               </div>
 
               {/* ── Footer text ── */}
-              <div className="flex items-center justify-between pt-5 pb-11 text-xs text-[#666] gap-3 px-4 w-full">
+              <div className="flex items-center justify-between pt-5 pb-11 text-xs text-text-dim-1 gap-3 px-4 w-full">
                 <div className="flex gap-1 items-start">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="#919191" className="shrink-0 mt-0.5"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm1 7H7V7h2v4z"/></svg>
-                  <span className="text-[#919191]">
+                  <span className="text-text-dim-3">
                     免费用户登录每日赠送20积分，每日赠2次5折视频；云端存储空间3GB。
                     <span className="text-text font-medium"> 订阅积分每30天进行重置。</span>
                   </span>

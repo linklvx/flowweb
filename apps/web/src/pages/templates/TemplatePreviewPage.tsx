@@ -38,17 +38,17 @@ export function TemplatePreviewPage() {
     navigate(isWorks ? '/works' : '/templates');
   };
 
-  if (loading) return <div className="flex items-center justify-center py-16 text-[#555]">加载中...</div>;
-  if (!template) return <div className="flex items-center justify-center py-16 text-[#555]">模板不存在</div>;
+  if (loading) return <div className="flex items-center justify-center py-16 text-text-dim-1">加载中...</div>;
+  if (!template) return <div className="flex items-center justify-center py-16 text-text-dim-1">模板不存在</div>;
 
   const content = (
     <div className="py-8">
-      <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] mb-4">
+      <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-text-dim-2 hover:text-text mb-4">
         ← 返回{isWorks ? '工作空间' : '模板广场'}
       </button>
 
-      <div className="bg-[#1A1A1A] border rounded-lg overflow-hidden">
-        <div className="aspect-video bg-[#252525] flex items-center justify-center text-[#555]">
+      <div className="bg-surface border rounded-lg overflow-hidden">
+        <div className="aspect-video bg-surface-dim flex items-center justify-center text-text-dim-1">
           {template.coverUrl ? (
             <img src={template.coverUrl} alt={template.name} className="w-full h-full object-cover" />
           ) : (
@@ -57,8 +57,8 @@ export function TemplatePreviewPage() {
         </div>
         <div className="p-6">
           <h1 className="text-xl font-bold text-text mb-2">{template.name}</h1>
-          {template.description && <p className="text-sm text-[#888] mb-4">{template.description}</p>}
-          <div className="flex items-center gap-4 text-sm text-[#666] mb-6">
+          {template.description && <p className="text-sm text-text-dim-2 mb-4">{template.description}</p>}
+          <div className="flex items-center gap-4 text-sm text-text-dim-1 mb-6">
             <span>⬇ {template.importCount} 次导入</span>
             {template.category === 'OFFICIAL' && <span className="text-accent-text">官方模板</span>}
           </div>
@@ -67,7 +67,7 @@ export function TemplatePreviewPage() {
             {template.isOwner && template.projectId && (
               <button
                 onClick={() => navigate(`/canvas?projectId=${template.projectId}`)}
-                className="px-6 py-2 bg-accent text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] transition-colors"
+                className="px-6 py-2 bg-accent text-on-accent rounded font-medium text-sm hover:bg-[#3bbf6f] transition-colors"
               >
                 打开项目
               </button>
@@ -76,7 +76,7 @@ export function TemplatePreviewPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="px-6 py-2 bg-accent text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 transition-colors"
+                className="px-6 py-2 bg-accent text-on-accent rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 transition-colors"
               >
                 {importing ? '导入中...' : '一键导入到画布'}
               </button>
@@ -85,7 +85,7 @@ export function TemplatePreviewPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="px-4 py-2 border text-[#888] rounded text-sm hover:border-[#555] transition-colors"
+                className="px-4 py-2 border text-text-dim-2 rounded text-sm hover:border-text-dim-1 transition-colors"
               >
                 {importing ? '导入中...' : '创建副本'}
               </button>

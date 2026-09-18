@@ -62,7 +62,7 @@ export function Sidebar({ topOffset }: Props) {
       data-collapsed={collapsed ? 'true' : undefined}
       className={`sticky left-0 self-start shrink-0 overflow-hidden transition-[width] duration-200 ease-out z-30 ${
         collapsed ? 'w-[78px] px-2' : 'w-[240px] px-4'
-      } bg-bg border-r border-r-[#ffffff18] flex flex-col`}
+      } bg-bg border-r border-r-overlay-2 flex flex-col`}
       style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}
     >
       <header className={`h-[60px] flex items-center shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
@@ -125,7 +125,7 @@ export function Sidebar({ topOffset }: Props) {
             aria-label="关注公众号"
             className={`rounded-lg flex items-center border-none transition-colors ${
               collapsed
-                ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] bg-bg text-[#a0a0a0] hover:bg-surface hover:text-text'
+                ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] bg-bg text-text-dim-3 hover:bg-surface hover:text-text'
                 : 'h-16 bg-surface hover:bg-surface-dim justify-between px-3'
             }`}
           >
@@ -137,7 +137,7 @@ export function Sidebar({ topOffset }: Props) {
               <>
                 <span className="flex flex-col items-start">
                   <span className="text-xs font-medium text-text">关注公众号</span>
-                  <span className="text-[11px] text-[#707070] mt-0.5">获取最新动态和福利</span>
+                  <span className="text-[11px] text-text-dim-2 mt-0.5">获取最新动态和福利</span>
                 </span>
                 <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(7,193,96,0.1)' }}>
                   <WechatOutlined className="text-lg" style={{ color: '#07c160' }} />
