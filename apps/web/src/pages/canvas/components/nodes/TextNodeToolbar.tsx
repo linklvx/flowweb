@@ -157,7 +157,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
   // Button base class + active state
   const btnClass = (active = false) =>
-    `flex items-center justify-center w-8 h-8 rounded-full hover:bg-white/10 transition-colors cursor-pointer border-none bg-transparent text-white/70 ${
+    `flex items-center justify-center w-8 h-8 rounded-full hover:bg-white/10 transition-colors bg-transparent text-white/70 ${
       active ? 'bg-white/20' : ''
     }`;
 
@@ -236,7 +236,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
             {/* Reset button */}
             <button
               aria-label="重置颜色"
-              className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110 bg-[#3a3a3a] relative cursor-pointer before:content-[''] before:absolute before:inset-0 before:m-auto before:w-[14px] before:h-[1.5px] before:bg-white/50 before:rotate-45"
+              className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110 bg-[#3a3a3a] relative before:content-[''] before:absolute before:inset-0 before:m-auto before:w-[14px] before:h-[1.5px] before:bg-white/50 before:rotate-45"
               onClick={() => handleColorSelect(null)}
               title="重置颜色"
             />
@@ -245,7 +245,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
               <button
                 key={color}
                 aria-label={label}
-                className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110 cursor-pointer"
+                className="size-6 rounded-full border border-white/20 transition-transform hover:scale-110"
                 style={{ backgroundColor: color }}
                 onClick={() => handleColorSelect(color)}
                 title={label}

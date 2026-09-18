@@ -49,21 +49,21 @@ function ConfirmModalComponent() {
         <div className="flex gap-3 justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-[#333] text-[#888] rounded-lg text-sm bg-transparent cursor-pointer hover:border-[#555] transition-colors"
+            className="px-4 py-2 border border-[#333] text-[#888] rounded-lg text-sm hover:border-[#555] transition-colors"
           >
             {cancelText}
           </button>
           {onSecondary && secondaryText && (
             <button
               onClick={onSecondary}
-              className="px-4 py-2 bg-white text-[#1A1A1A] rounded-lg text-sm font-medium cursor-pointer hover:bg-[#e5e5e5] transition-colors border-none"
+              className="px-4 py-2 bg-white text-[#1A1A1A] rounded-lg text-sm font-medium hover:bg-[#e5e5e5] transition-colors"
             >
               {secondaryText}
             </button>
           )}
           <button
             onClick={onPrimary}
-            className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border-none"
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             style={{ backgroundColor: primaryStyle.bg, color: primaryStyle.text, border: primaryStyle.border }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = primaryStyle.hover; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = primaryStyle.bg; }}

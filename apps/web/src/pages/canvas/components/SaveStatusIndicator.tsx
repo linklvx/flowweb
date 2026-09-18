@@ -12,7 +12,7 @@ export function SaveStatusIndicator() {
   return (
     <button
       onClick={() => location.reload()}
-      className="text-xs bg-transparent border-none cursor-pointer text-[#ef4444] hover:text-[#ff6b6b] transition-colors px-0 py-0"
+      className="text-xs text-[#ef4444] hover:text-[#ff6b6b] transition-colors px-0 py-0"
     >
       连接断开，点击重试
     </button>

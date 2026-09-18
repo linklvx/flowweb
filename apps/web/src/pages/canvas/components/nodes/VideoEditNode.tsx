@@ -167,7 +167,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
           <button type="button" data-testid="node-play-btn"
             disabled={!canPreview || !projectData}
             onClick={() => { if (miniPlaying) stopMini(); else void startMini(); }}
-            className={`text-[12px] bg-transparent border-0 px-1 ${canPreview && projectData ? 'text-[#6C5CE7] cursor-pointer' : 'text-[#C9CDD4] cursor-not-allowed'}`}>
+            className={`text-[12px] bg-transparent border-0 px-1 ${canPreview && projectData ? 'text-[#6C5CE7]' : 'text-[#C9CDD4] cursor-not-allowed'}`}>
             {miniPlaying ? '⏸' : '▶'}
           </button>
           <span className="text-[12px] text-[#86909C]">{formatShortTime(0)} / {formatShortTime(dur)}</span>
@@ -176,7 +176,7 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
             <span className="ml-auto inline-flex">
               <button
                 type="button"
-                className="text-[12px] text-[#6C5CE7] bg-transparent border-0 px-1 py-0.5 cursor-pointer disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
+                className="text-[12px] text-[#6C5CE7] border-0 px-1 py-0.5 disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
                 disabled={!canPreview}
                 onClick={() => openEditor(id)}
               >

@@ -122,8 +122,8 @@ function TransformToolbarComponent({
   const portalRoot = document.getElementById('node-toolbar-portal');
   if (!portalRoot) return null;
 
-  const btnBaseClass = 'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors cursor-pointer border-0';
-  const iconBtnClass = 'flex items-center justify-center rounded-lg transition-colors h-8 w-8 p-2 border-0 cursor-pointer';
+  const btnBaseClass = 'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors border-0';
+  const iconBtnClass = 'flex items-center justify-center rounded-lg transition-colors h-8 w-8 p-2 border-0';
 
   return createPortal(
     <div
@@ -229,7 +229,7 @@ function TransformToolbarComponent({
         <button
           type="button"
           aria-label="保存旋转"
-          className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+          className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 disabled:cursor-not-allowed disabled:opacity-70"
           style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
           disabled={isSaving}
           onClick={onSave}

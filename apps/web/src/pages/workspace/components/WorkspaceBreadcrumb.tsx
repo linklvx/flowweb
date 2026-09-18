@@ -15,7 +15,7 @@ export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, dimens
     return (
       <div className="flex items-center gap-2 px-8 py-3 text-[13px]">
         <span className="text-white/90">搜索 “{searchQuery}”</span>
-        <button aria-label="清除搜索" onClick={onClearSearch} className="text-white/50 hover:text-white/90 border-none bg-transparent cursor-pointer">
+        <button aria-label="清除搜索" onClick={onClearSearch} className="text-white/50 hover:text-white/90">
           <CloseOutlined style={{ fontSize: 12 }} />
         </button>
       </div>
@@ -26,7 +26,7 @@ export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, dimens
       <span className="text-white/40">当前位置：</span>
       <span className="text-white/40">{dimensionLabel}</span>
       <span className="text-white/30">·</span>
-      <button onClick={() => onNavigate(null)} className={currentFolderId ? 'text-white/60 hover:text-white/90 bg-transparent border-none cursor-pointer' : 'text-white/90 bg-transparent border-none cursor-default'}>
+      <button onClick={() => onNavigate(null)} className={currentFolderId ? 'text-white/60 hover:text-white/90 bg-transparent' : 'text-white/90 bg-transparent cursor-default'}>
         根目录
       </button>
       {path.map((f, i) => (
@@ -34,7 +34,7 @@ export function WorkspaceBreadcrumb({ path, currentFolderId, searchQuery, dimens
           <span className="text-white/30">/</span>
           <button
             onClick={() => onNavigate(f.id)}
-            className={i === path.length - 1 ? 'text-white/90 bg-transparent border-none cursor-default' : 'text-white/60 hover:text-white/90 bg-transparent border-none cursor-pointer'}
+            className={i === path.length - 1 ? 'text-white/90 bg-transparent cursor-default' : 'text-white/60 hover:text-white/90 bg-transparent'}
           >
             {f.name}
           </button>

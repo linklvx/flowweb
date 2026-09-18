@@ -35,7 +35,7 @@ export function TeamSwitcher() {
 
   return (
     <Dropdown menu={{ items, onClick: ({ key }) => switchTo(key) }} trigger={['click']} placement="bottomRight">
-      <button className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-700 transition-colors border-none cursor-pointer">
+      <button className="flex items-center gap-1.5 rounded-full bg-gray-800/80 px-4 py-1.5 text-xs text-[#ccc] no-underline hover:bg-gray-700 transition-colors border-none">
         {currentTeam ? teamDisplayName(currentTeam) : '团队'} <DownOutlined className="text-[10px]" />
       </button>
     </Dropdown>

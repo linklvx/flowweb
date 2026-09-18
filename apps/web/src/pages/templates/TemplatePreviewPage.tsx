@@ -43,7 +43,7 @@ export function TemplatePreviewPage() {
 
   const content = (
     <div className="py-8">
-      <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] bg-transparent border-none cursor-pointer mb-4">
+      <button onClick={() => navigate(isWorks ? '/works' : '/templates')} className="text-xs text-[#888] hover:text-[#ccc] mb-4">
         ← 返回{isWorks ? '工作空间' : '模板广场'}
       </button>
 
@@ -67,7 +67,7 @@ export function TemplatePreviewPage() {
             {template.isOwner && template.projectId && (
               <button
                 onClick={() => navigate(`/canvas?projectId=${template.projectId}`)}
-                className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] transition-colors cursor-pointer border-none"
+                className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] transition-colors"
               >
                 打开项目
               </button>
@@ -76,7 +76,7 @@ export function TemplatePreviewPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 transition-colors cursor-pointer border-none"
+                className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 transition-colors"
               >
                 {importing ? '导入中...' : '一键导入到画布'}
               </button>
@@ -85,7 +85,7 @@ export function TemplatePreviewPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="px-4 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors cursor-pointer bg-transparent"
+                className="px-4 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors"
               >
                 {importing ? '导入中...' : '创建副本'}
               </button>
@@ -93,7 +93,7 @@ export function TemplatePreviewPage() {
             {template.isOwner && (
               <button
                 onClick={handleDelete}
-                className="px-4 py-2 border border-[#333] text-[#ef4444] rounded text-sm hover:border-[#ef4444] transition-colors cursor-pointer bg-transparent"
+                className="px-4 py-2 border border-[#333] text-[#ef4444] rounded text-sm hover:border-[#ef4444] transition-colors"
               >
                 删除
               </button>

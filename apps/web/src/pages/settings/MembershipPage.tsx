@@ -17,7 +17,7 @@ function PriceCell({ plan, period, onClick }: { plan: SubscriptionPlan; period: 
       <div className="text-xs text-[#888]">{PERIOD_MAP[period]}</div>
       <button
         onClick={onClick}
-        className="mt-2 px-4 py-1.5 text-xs rounded-md text-white border-none cursor-pointer transition-colors"
+        className="mt-2 px-4 py-1.5 text-xs rounded-md text-white transition-colors"
         style={{ backgroundColor: PLAN_COLORS[plan.tier] || '#4ade80' }}
       >
         立即订阅
@@ -178,7 +178,7 @@ export function MembershipPage() {
                 ['monthly', 'quarterly', 'annually'].map(per => (
                   <button
                     key={`${p.id}-${per}`}
-                    className="bg-[#252525] border border-[#444] rounded-lg p-3 text-left hover:border-[#4ade80] transition-colors cursor-pointer"
+                    className="bg-[#252525] border border-[#444] rounded-lg p-3 text-left hover:border-[#4ade80] transition-colors"
                     onClick={() => { setUpgradePlan(p); setUpgradePeriod(per); }}
                   >
                     <div className="text-white font-bold">{p.name} {PERIOD_MAP[per]}</div>

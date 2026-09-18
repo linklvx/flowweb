@@ -24,7 +24,7 @@ export function AnnouncementBar() {
               e.stopPropagation();
               window.open(linkUrl, '_blank', 'noopener noreferrer');
             }}
-            className="shrink-0 rounded-full border bg-transparent hover:bg-white/10 text-[13px] leading-none px-3 py-1 cursor-pointer"
+            className="shrink-0 rounded-full border hover:bg-white/10 text-[13px] leading-none px-3 py-1"
             style={{ color: textColor, borderColor: 'rgba(255,255,255,0.5)' }}
           >
             {linkText}
@@ -34,7 +34,7 @@ export function AnnouncementBar() {
           aria-label="关闭公告"
           data-testid="announcement-close-btn"
           onClick={(e) => { e.stopPropagation(); dismiss(); }}
-          className="absolute right-3 w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center border-none cursor-pointer text-white/70 hover:text-white transition-colors"
+          className="absolute right-3 w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors"
         >
           <CloseOutlined className="text-sm" />
         </button>

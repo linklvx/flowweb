@@ -45,11 +45,11 @@ export function SaveAsTemplateDialog({ projectId, projectName, onClose, onSaved 
         {error && <p className="text-xs text-[#ef4444] mb-2">{error}</p>}
         <div className="flex gap-3 justify-end">
           <button onClick={onClose}
-            className="px-6 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors cursor-pointer bg-transparent">
+            className="px-6 py-2 border border-[#333] text-[#888] rounded text-sm hover:border-[#555] transition-colors">
             取消
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer border-none">
+            className="px-6 py-2 bg-[#4ade80] text-[#0f0f0f] rounded font-medium text-sm hover:bg-[#3bbf6f] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

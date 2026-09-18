@@ -95,13 +95,13 @@ export function ProfilePage() {
               <button
                 onClick={handleSave}
                 disabled={!canSave}
-                className="px-4 py-2 bg-[#4ade80] text-black rounded-lg text-sm font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                className="px-4 py-2 bg-[#4ade80] text-black rounded-lg text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
                 {saving ? '保存中...' : '保存'}
               </button>
               <button
                 onClick={handleCancel}
-                className="px-4 py-2 border border-[#555] text-[#ccc] rounded-lg text-sm bg-transparent cursor-pointer hover:border-[#888] transition-colors"
+                className="px-4 py-2 border border-[#555] text-[#ccc] rounded-lg text-sm hover:border-[#888] transition-colors"
               >
                 取消
               </button>
@@ -129,7 +129,7 @@ export function ProfilePage() {
             )}
             <button
               onClick={() => setEditing(true)}
-              className="px-4 py-2 border border-[#4ade80] text-[#4ade80] rounded-lg text-sm bg-transparent cursor-pointer hover:bg-[#4ade80]/10 transition-colors"
+              className="px-4 py-2 border border-[#4ade80] text-[#4ade80] rounded-lg text-sm hover:bg-[#4ade80]/10 transition-colors"
             >
               编辑资料
             </button>

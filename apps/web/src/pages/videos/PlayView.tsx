@@ -90,21 +90,21 @@ export function PlayView({ detail, playing, onPlayingChange, onViewProcess, onNe
             <div className="flex items-center justify-center gap-3 px-4 md:px-8 pb-[calc(var(--vw-carousel-reserve)+50px)]">
               {/* U4：圆形白底播放图标（文字移除，aria-label 供无障碍/测试） */}
               <button onClick={() => onPlayingChange(true)} aria-label="立即观看"
-                className="border-none h-9 w-9 md:h-10 md:w-10 rounded-full bg-white text-[#171717] flex items-center justify-center hover:bg-white/90">
+                className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-white text-[#171717] flex items-center justify-center hover:bg-white/90">
                 <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
                   <path d="M0 2.4a2.4 2.4 0 0 1 3.73-2l10.8 7.2a2.4 2.4 0 0 1 0 4l-10.8 7.2a2.4 2.4 0 0 1-3.73-2zm2.73-.5a.6.6 0 0 0-.93.5v14.4c0 .48.53.76.93.5l10.8-7.2a.6.6 0 0 0 0-1z" fill="currentColor" transform="translate(1.5 0) scale(0.833333)" />
                 </svg>
               </button>
               {detail.canViewProcess && (
                 <button onClick={onViewProcess} aria-label="查看制作过程"
-                  className="border-none h-9 md:h-10 rounded-full bg-[#2f2f2f] text-white px-4 text-sm hover:bg-[#3a3a3a]">⌗ 查看制作过程</button>
+                  className="h-9 md:h-10 rounded-full bg-[#2f2f2f] text-white px-4 text-sm hover:bg-[#3a3a3a]">⌗ 查看制作过程</button>
               )}
               {/* U5：只显图标（likeCount 不渲染） */}
               <button onClick={onLike} aria-label="喜欢" data-liked={liked}
-                className={`border-none h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2f2f2f] hover:bg-[#3a3a3a] flex items-center justify-center ${liked ? 'text-[#4ade80]' : 'text-white'}`}>♥</button>
+                className={`h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2f2f2f] hover:bg-[#3a3a3a] flex items-center justify-center ${liked ? 'text-[#4ade80]' : 'text-white'}`}>♥</button>
               {/* U6：圆形分享 */}
               <button onClick={onShare} aria-label="分享"
-                className="border-none h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2f2f2f] text-white flex items-center justify-center text-sm hover:bg-[#3a3a3a]">⇪</button>
+                className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#2f2f2f] text-white flex items-center justify-center text-sm hover:bg-[#3a3a3a]">⇪</button>
             </div>
           </div>
         )}

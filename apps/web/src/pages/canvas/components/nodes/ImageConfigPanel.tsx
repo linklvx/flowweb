@@ -98,7 +98,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       {/* Maximize / Restore button — top-right corner */}
       <button
         type="button"
-        className="absolute top-2 right-2 shrink-0 focus:outline-none cursor-pointer p-1 bg-transparent text-white/60 border-none shadow-none outline-none"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-white/60 shadow-none outline-none"
         data-testid="canvas-node-generation-input-bar-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}

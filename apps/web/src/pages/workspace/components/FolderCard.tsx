@@ -32,7 +32,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
       <button
         aria-label="更多操作"
         onClick={(e) => e.stopPropagation()}
-        className="p-1.5 rounded-md text-white/80 border-none cursor-pointer z-30 bg-transparent hover:bg-white/10"
+        className="p-1.5 rounded-md text-white/80 border-none z-30 hover:bg-white/10"
       >
         <MoreOutlined />
       </button>
@@ -82,7 +82,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
       role="button"
       onClick={() => onClick(folder)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(folder); }}
-      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 cursor-pointer overflow-hidden relative group/menu h-full"
+      className="rounded-2xl bg-[#1F1F1F] hover:bg-[#262626] outline outline-white/[0.08] hover:outline-white/[0.16] -outline-offset-1 transition-all duration-200 p-2 overflow-hidden relative group/menu h-full"
     >
       <FolderStackPreview thumbnails={folder.thumbnails} />
       <div className="px-2 pt-2 pb-1">
@@ -90,7 +90,7 @@ export function FolderCard({ folder, showCount, variant = 'grid', onClick, onReq
           <span className="text-sm font-semibold truncate text-white">{folder.name}</span>
           <button
             aria-label="重命名文件夹"
-            className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0 bg-transparent border-none cursor-pointer"
+            className="opacity-0 group-hover/name:opacity-100 transition-opacity duration-150 p-0.5 ml-1 text-white/60 shrink-0"
             onClick={(e) => { e.stopPropagation(); onRequestRename(folder); }}
           >
             <EditOutlined style={{ fontSize: 12 }} />

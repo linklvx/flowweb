@@ -94,7 +94,7 @@ function VideoFullscreenViewerComponent({
           ref={closeBtnRef}
           type="button"
           aria-label="关闭全屏查看"
-          className="absolute top-3 right-3 z-10 flex w-11 h-11 justify-center items-center rounded-[8px] bg-white/[0.06] hover:bg-white/[0.12] text-white/60 hover:text-white/85 transition-colors cursor-pointer border-0"
+          className="absolute top-3 right-3 z-10 flex w-11 h-11 justify-center items-center rounded-[8px] bg-white/[0.06] hover:bg-white/[0.12] text-white/60 hover:text-white/85 transition-colors border-0"
           onClick={onClose}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -186,7 +186,7 @@ function VideoFullscreenViewerComponent({
               className={`gap-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring flex h-8 py-2 px-0 justify-center items-center self-stretch rounded-[8px] border-[1.33px] border-white/10 bg-[#646464] backdrop-blur-[50px] text-primary-foreground text-xs font-semibold leading-none w-full select-none ${
                 downloadDisabled
                   ? 'cursor-not-allowed opacity-50'
-                  : 'shadow cursor-pointer hover:bg-[#757575]'
+                  : 'shadow hover:bg-[#757575]'
               }`}
             >
               {downloadText}

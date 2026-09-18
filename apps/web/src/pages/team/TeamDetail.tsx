@@ -175,7 +175,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
         <span className="text-xs text-[#666]">
           团队 ID：
           <button
-            className="text-[#888] hover:text-[#5DDCFF] cursor-pointer bg-transparent border-none"
+            className="text-[#888] hover:text-[#5DDCFF]"
             onClick={() => { navigator.clipboard?.writeText(teamId); message.success('已复制'); }}
             data-testid="team-id-copy"
           >
@@ -229,7 +229,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm border-b-2 bg-transparent cursor-pointer ${
+            className={`px-4 py-2 text-sm border-b-2 bg-transparent ${
               tab === t.key ? 'border-b-[#5DDCFF] text-[#5DDCFF]' : 'border-b-transparent text-[#888] hover:text-[#ccc]'
             }`}
             data-testid={`tab-${t.key}`}
@@ -240,7 +240,7 @@ export function TeamDetail({ team, onCreateTeam }: TeamDetailProps) {
         <div className="flex-1" />
         <button
           onClick={() => setInviteOpen(true)}
-          className="my-1 px-4 rounded text-sm font-bold text-black cursor-pointer border-none"
+          className="my-1 px-4 rounded text-sm font-bold text-black"
           style={{ background: ACCENT }}
         >
           邀请成员

@@ -113,7 +113,7 @@ export default function TeamBillingPage() {
         <div className="grid grid-cols-6 gap-2 mb-4">
           {PRESET_AMOUNTS.map((yuan) => (
             <button key={yuan} onClick={() => setSelected(yuan)}
-              className={`py-3 rounded-lg text-sm border cursor-pointer ${selected === yuan ? 'border-[#5DDCFF] bg-[#5DDCFF]/10 text-white' : 'border-white/10 text-[#888]'}`}>
+              className={`py-3 rounded-lg text-sm border ${selected === yuan ? 'border-[#5DDCFF] bg-[#5DDCFF]/10 text-white' : 'border-white/10 text-[#888]'}`}>
               <div>¥{yuan}</div>
               <div className="text-xs opacity-70">{yuan * 10} 积分</div>
             </button>

@@ -122,7 +122,7 @@ export function AuthModal({ onClose }: Props) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#4ade80] text-black font-medium py-2.5 rounded-lg cursor-pointer text-sm disabled:opacity-50"
+                className="w-full bg-[#4ade80] text-black font-medium py-2.5 rounded-lg text-sm disabled:opacity-50"
               >
                 {loading ? '...' : '登录'}
               </button>
@@ -156,7 +156,7 @@ export function AuthModal({ onClose }: Props) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#4ade80] text-black font-medium py-2.5 rounded-lg cursor-pointer text-sm disabled:opacity-50"
+                className="w-full bg-[#4ade80] text-black font-medium py-2.5 rounded-lg text-sm disabled:opacity-50"
               >
                 {loading ? '...' : '注册'}
               </button>
@@ -168,14 +168,14 @@ export function AuthModal({ onClose }: Props) {
             {mode === 'login' ? (
               <>
                 还没有账号？
-                <button onClick={() => switchMode('register')} className="text-[#4ade80] bg-transparent border-none cursor-pointer">
+                <button onClick={() => switchMode('register')} className="text-[#4ade80]">
                   注册
                 </button>
               </>
             ) : (
               <>
                 已有账号？
-                <button onClick={() => switchMode('login')} className="text-[#4ade80] bg-transparent border-none cursor-pointer">
+                <button onClick={() => switchMode('login')} className="text-[#4ade80]">
                   登录
                 </button>
               </>

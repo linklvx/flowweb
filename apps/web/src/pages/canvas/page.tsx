@@ -163,7 +163,7 @@ export function CanvasPage() {
           <button
             type="button"
             onClick={handleRetry}
-            className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+            className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
           >
             重试
           </button>
@@ -171,7 +171,7 @@ export function CanvasPage() {
             <button
               type="button"
               onClick={() => navigate('/works')}
-              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
             >
               返回工作空间
             </button>
@@ -179,7 +179,7 @@ export function CanvasPage() {
             <button
               type="button"
               onClick={handleCreateNew}
-              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm cursor-pointer border-0"
+              className="px-4 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm border-0"
             >
               新建画布
             </button>

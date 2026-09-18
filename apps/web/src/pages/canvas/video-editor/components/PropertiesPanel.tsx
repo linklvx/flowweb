@@ -20,7 +20,7 @@ function StopwatchButton({ clip, property, label }: { clip: VideoClip | ImageCli
         if (hit) es.removeKeyframe(clip.id, hit.id);
         else es.addKeyframe(clip.id, property);
       }}
-      className={`text-[12px] bg-transparent border-0 cursor-pointer px-1 ${active ? 'text-[var(--ve-accent)]' : 'text-[var(--ve-text-dim)]'}`}>⏱</button>
+      className={`text-[12px] bg-transparent border-0 px-1 ${active ? 'text-[var(--ve-accent)]' : 'text-[var(--ve-text-dim)]'}`}>⏱</button>
   );
 }
 

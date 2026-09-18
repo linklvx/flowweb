@@ -77,14 +77,14 @@ export function BannerCarousel() {
           <button
             aria-label="上一张"
             onClick={prev}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur text-white flex items-center justify-center border-none cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <LeftOutlined className="text-base" />
           </button>
           <button
             aria-label="下一张"
             onClick={next}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur text-white flex items-center justify-center border-none cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <RightOutlined className="text-base" />
           </button>
@@ -94,7 +94,7 @@ export function BannerCarousel() {
                 key={b.id}
                 aria-label={`跳转到第 ${i + 1} 张`}
                 onClick={() => setIndex(i)}
-                className={`rounded-full border-none cursor-pointer p-0 transition-all duration-300 ${
+                className={`rounded-full p-0 transition-all duration-300 ${
                   i === currentIndex ? 'w-4 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/40'
                 }`}
               />

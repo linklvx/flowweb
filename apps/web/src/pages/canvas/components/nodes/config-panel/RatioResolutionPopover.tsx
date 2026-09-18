@@ -44,7 +44,7 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
         data-testid="canvas-node-image-ratio-select"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+        className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
       >
         <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
           <div className="rounded-[2px]" style={{ width: icon.w, height: icon.h, border: '1.5px solid currentColor' }} />
@@ -65,7 +65,7 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
                   key={res}
                   type="button"
                   onClick={() => onResolutionChange(res)}
-                  className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
+                  className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 ${
                     resolution === res ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                   }`}
                 >{res}</button>
@@ -80,7 +80,7 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
                   key={r.label}
                   type="button"
                   onClick={() => onRatioChange(r.label)}
-                  className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 cursor-pointer ${
+                  className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 ${
                     ratio === r.label ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                   }`}
                 >

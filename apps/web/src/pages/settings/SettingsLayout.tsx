@@ -49,7 +49,7 @@ export function SettingsLayout() {
             <div className="mt-auto border-t border-[#333] pt-4">
               <button
                 onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-[#ef4444] bg-transparent border-none cursor-pointer transition-colors"
+                className="w-full text-left px-4 py-2 text-sm text-[#888] hover:text-[#ef4444] transition-colors"
               >
                 退出登录
               </button>

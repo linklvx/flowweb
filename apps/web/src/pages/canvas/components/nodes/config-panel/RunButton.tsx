@@ -11,7 +11,7 @@ function RunButtonComponent({ loading, onClick, disabled }: RunButtonProps) {
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className="size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+      className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {loading ? '⏳' : (
         <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-3 text-[#999]" width="12" height="12" viewBox="0 0 18 18">

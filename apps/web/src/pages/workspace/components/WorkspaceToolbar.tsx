@@ -46,11 +46,11 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
             aria-label="搜索"
             type="text" placeholder="搜索" value={text}
             onChange={(e) => handleSearch(e.target.value)}
-            className="flex-1 bg-transparent border-none text-sm text-white placeholder:text-[#646464] min-w-0 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-white placeholder:text-[#646464] min-w-0 focus:outline-none"
           />
         </div>
         <Dropdown menu={{ items: filterMenu, onClick: ({ key }) => onFilterChange(key as FilterKind) }} trigger={['click']}>
-          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none cursor-pointer transition-colors">
+          <button className="h-10 px-3 flex items-center gap-1 bg-white/5 rounded-lg ring-1 ring-inset ring-white/10 hover:bg-white/10 text-white text-sm border-none transition-colors">
             {FILTER_LABEL[filter]}
             <DownOutlined style={{ fontSize: 12 }} />
           </button>
@@ -59,14 +59,14 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
           <button
             aria-label="Grid view"
             onClick={() => onViewModeChange('grid')}
-            className={`p-1.5 rounded-md border-none cursor-pointer transition-colors ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
           >
             <AppstoreOutlined />
           </button>
           <button
             aria-label="List view"
             onClick={() => onViewModeChange('list')}
-            className={`p-1.5 rounded-md border-none cursor-pointer transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 bg-transparent'}`}
           >
             <UnorderedListOutlined />
           </button>
@@ -74,7 +74,7 @@ export function WorkspaceToolbar({ activeTab, onTabChange, viewMode, onViewModeC
         <div className="h-6 w-px bg-white/10 mx-1" />
         <button
           onClick={onCreateFolder}
-          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors border-none cursor-pointer"
+          className="h-10 px-3 flex items-center gap-1 bg-white/10 hover:bg-white/15 rounded-lg text-white text-sm font-medium transition-colors"
         ><FolderAddOutlined />新建文件夹</button>
       </div>
     </div>

@@ -132,7 +132,7 @@ function AnnotationToolbarComponent({
   if (!portalRoot) return null;
 
   const toolBtnClass =
-    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0';
+    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0';
 
   const colorInputRef = useRef<HTMLInputElement>(null);
 
@@ -167,7 +167,7 @@ function AnnotationToolbarComponent({
         {/* Exit / Label */}
         <button
           type="button"
-          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
+          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
           style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
           onClick={onCancel}
           disabled={isSaving}
@@ -224,7 +224,7 @@ function AnnotationToolbarComponent({
             <button
               type="button"
               aria-label={`颜色 ${preset}`}
-              className="h-4 w-4 rounded-full cursor-pointer border border-solid shrink-0"
+              className="h-4 w-4 rounded-full border border-solid shrink-0"
               style={{
                 backgroundColor: preset,
                 borderColor: color === preset ? TEXT_COLOR : 'rgba(255,255,255,0.2)',
@@ -251,7 +251,7 @@ function AnnotationToolbarComponent({
         />
         <button
           type="button"
-          className="h-4 w-4 rounded-full border border-solid border-white/20 cursor-pointer shrink-0"
+          className="h-4 w-4 rounded-full border border-solid border-white/20 shrink-0"
           style={{ backgroundColor: color }}
           onClick={() => colorInputRef.current?.click()}
           disabled={isSaving}
@@ -328,7 +328,7 @@ function AnnotationToolbarComponent({
         <button
           type="button"
           aria-label="保存标注"
-          className="h-7 cursor-pointer rounded-lg px-4 text-[13px] font-medium transition-colors border-0 disabled:cursor-not-allowed disabled:opacity-70 whitespace-nowrap"
+          className="h-7 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 disabled:cursor-not-allowed disabled:opacity-70 whitespace-nowrap"
           style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
           disabled={isSaving}
           onClick={onSave}

@@ -23,7 +23,7 @@ function GenerateCountSelectorComponent({ count, options = [1, 2, 4, 8], onChang
         type="button"
         data-testid="canvas-node-image-count-select"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="group relative inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-[#f5f5f5] transition-all active:bg-white/[0.1] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed border-none bg-transparent cursor-pointer"
+        className="group relative inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-[#f5f5f5] transition-all active:bg-white/[0.1] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label={`Generate ${count} variations`}
         disabled={disabled}
       >
@@ -40,7 +40,7 @@ function GenerateCountSelectorComponent({ count, options = [1, 2, 4, 8], onChang
               key={n}
               type="button"
               onClick={() => { onChange(n); setOpen(false); }}
-              className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${n === count ? 'bg-white/10' : ''}`}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 bg-transparent text-[#ccc] ${n === count ? 'bg-white/10' : ''}`}
             >
               {n}×
             </button>

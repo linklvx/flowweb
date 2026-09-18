@@ -120,13 +120,13 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
   const totalCredits = creditCost * generateCount;
 
   const btnClass =
-    'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] bg-transparent text-[13px] leading-normal transition-colors cursor-pointer border-0';
+    'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] text-[13px] leading-normal transition-colors border-0';
 
   // Dropdown opens upward (bottom-full mb-1)
   const dropdownPanel =
     'absolute bottom-full left-0 mb-1 rounded-lg p-1 border z-50 min-w-full';
   const dropdownItem =
-    'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] cursor-pointer hover:bg-[rgba(255,255,255,0.08)] whitespace-nowrap w-full border-0';
+    'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] hover:bg-[rgba(255,255,255,0.08)] whitespace-nowrap w-full border-0';
 
   const isRedraw = editMode === 'redraw';
 
@@ -332,7 +332,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
             </span>
             <button
               type="button"
-              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
               style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
               disabled={isProcessing}
               onClick={onGenerate}

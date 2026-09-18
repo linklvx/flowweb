@@ -118,7 +118,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                       key={m.id}
                       type="button"
                       style={MENU_ITEM_STYLE}
-                      className="bg-transparent transition-colors hover:bg-white/10"
+                      className="transition-colors hover:bg-white/10"
                       onClick={() => setSelectedModel(m.id)}
                     >
                       {m.name}
@@ -127,7 +127,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                 </div>
               )}
             >
-              <button type="button" data-testid="hd-model-trigger" style={TRIGGER_STYLE} className="bg-transparent transition-colors hover:bg-white/10">
+              <button type="button" data-testid="hd-model-trigger" style={TRIGGER_STYLE} className="transition-colors hover:bg-white/10">
                 <div className="flex min-w-0 items-center gap-2">
                   <ModelIcon />
                   <span className="truncate text-[13px]" style={{ color: 'var(--canvas-controls-text)' }}>{modelName}</span>
@@ -153,7 +153,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                       key={r}
                       type="button"
                       style={MENU_ITEM_STYLE}
-                      className="bg-transparent transition-colors hover:bg-white/10"
+                      className="transition-colors hover:bg-white/10"
                       onClick={() => setSelectedResolution(r)}
                     >
                       {r}
@@ -162,7 +162,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                 </div>
               )}
             >
-              <button type="button" data-testid="hd-resolution-trigger" style={TRIGGER_STYLE} className="bg-transparent transition-colors hover:bg-white/10">
+              <button type="button" data-testid="hd-resolution-trigger" style={TRIGGER_STYLE} className="transition-colors hover:bg-white/10">
                 <span className="truncate text-[13px]" style={{ color: 'var(--canvas-controls-text)' }}>{selectedResolution}</span>
                 <ChevronDownIcon />
               </button>
@@ -185,7 +185,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                       key={fps}
                       type="button"
                       style={MENU_ITEM_STYLE}
-                      className="bg-transparent transition-colors hover:bg-white/10"
+                      className="transition-colors hover:bg-white/10"
                       onClick={() => setSelectedFps(fps)}
                     >
                       {fps}
@@ -194,7 +194,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
                 </div>
               )}
             >
-              <button type="button" data-testid="hd-fps-trigger" style={TRIGGER_STYLE} className="bg-transparent transition-colors hover:bg-white/10">
+              <button type="button" data-testid="hd-fps-trigger" style={TRIGGER_STYLE} className="transition-colors hover:bg-white/10">
                 <span className="truncate text-[13px]" style={{ color: 'var(--canvas-controls-text)' }}>{selectedFps}</span>
                 <ChevronDownIcon />
               </button>
@@ -217,7 +217,7 @@ function VideoHDPanelComponent({ nodeId: _nodeId, fileId }: VideoHDPanelProps) {
               type="button"
               data-testid="hd-submit-btn"
               disabled={!fileId}
-              className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#3a3a3a] border-none transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ border: 'none' }}
               onClick={(e) => e.stopPropagation()}
             >

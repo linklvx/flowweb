@@ -109,7 +109,7 @@ function AiToolActionPopupComponent({ open, onClose, onSelect }: AiToolActionPop
                     key={tool.id}
                     type="button"
                     onClick={() => onSelect(tool.id)}
-                    className="group flex h-[52px] w-full cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 border-none bg-transparent text-[#999] hover:bg-white/5"
+                    className="group flex h-[52px] w-full items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 text-[#999] hover:bg-white/5"
                   >
                     <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-white/5">
                       {tool.icon}

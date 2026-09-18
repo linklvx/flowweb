@@ -77,7 +77,7 @@ export function Sidebar({ topOffset }: Props) {
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          className="size-9 rounded-lg flex items-center justify-center text-white bg-[#141414] border-none cursor-pointer"
+          className="size-9 rounded-lg flex items-center justify-center text-white bg-[#141414]"
         >
           {collapsed ? <MenuUnfoldOutlined className="text-[23px]" /> : <MenuFoldOutlined className="text-[23px]" />}
         </button>
@@ -87,7 +87,7 @@ export function Sidebar({ topOffset }: Props) {
         <button
           onClick={() => startNewProject(navigate)}
           aria-label="新建项目"
-          className={`h-9 my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none cursor-pointer transition-[filter] duration-150 ${
+          className={`h-9 my-[10px] rounded-lg bg-[#262626] hover:brightness-110 text-white text-sm font-medium leading-[22px] whitespace-nowrap flex items-center border-none transition-[filter] duration-150 ${
             collapsed ? 'justify-center w-[36px] self-center' : 'gap-2 px-2 w-full'
           }`}
         >
@@ -123,7 +123,7 @@ export function Sidebar({ topOffset }: Props) {
             data-testid="wechat-follow-entry"
             onClick={() => setQrOpen(true)}
             aria-label="关注公众号"
-            className={`rounded-lg flex items-center border-none cursor-pointer transition-colors ${
+            className={`rounded-lg flex items-center border-none transition-colors ${
               collapsed
                 ? 'h-[38px] w-[38px] justify-center self-center mb-[5px] bg-[#141414] text-[#a0a0a0] hover:bg-[#1e1e1e] hover:text-white'
                 : 'h-16 bg-[#1e1e1e] hover:bg-[#262626] justify-between px-3'
@@ -150,7 +150,7 @@ export function Sidebar({ topOffset }: Props) {
           <button
             onClick={() => message.info('敬请期待')}
             aria-label="文档中心"
-            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} bg-[#141414] text-sm leading-[22px] whitespace-nowrap text-white hover:bg-[#1e1e1e] border-none cursor-pointer transition-colors`}
+            className={`h-[38px] rounded-lg flex items-center ${collapsed ? 'justify-center w-[38px] self-center mb-[5px]' : 'gap-2 px-2'} bg-[#141414] text-sm leading-[22px] whitespace-nowrap text-white hover:bg-[#1e1e1e] border-none transition-colors`}
           >
             <QuestionCircleOutlined className="text-[18px]" />
             {!collapsed && '文档中心'}

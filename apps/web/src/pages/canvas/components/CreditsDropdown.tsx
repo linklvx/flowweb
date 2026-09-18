@@ -359,7 +359,7 @@ function CreditsDropdownComponent() {
         aria-label="查看积分明细"
         aria-live="polite"
         onMouseLeave={() => { manualCloseRef.current = false; }}
-        className="text-sm text-white whitespace-nowrap tracking-wider bg-transparent border-none cursor-pointer"
+        className="text-sm text-white whitespace-nowrap tracking-wider border-none"
       >
         <span aria-label={`总积分 ${formatNumber(total)}`}>⚡ {formatNumber(total)}</span>
       </button>

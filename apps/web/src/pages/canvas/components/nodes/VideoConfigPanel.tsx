@@ -217,7 +217,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     >
       <button
         type="button"
-        className="absolute top-2 right-2 shrink-0 focus:outline-none cursor-pointer p-1 bg-transparent text-white/60 border-none shadow-none outline-none"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-white/60 shadow-none outline-none"
         data-testid="canvas-node-generation-input-bar-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}
@@ -273,7 +273,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
               type="button"
               data-testid="canvas-node-video-model-select"
               onClick={(e) => { e.stopPropagation(); setModelOpen((v) => !v); }}
-              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0">
                 <path d="M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.21841 15.0029 8.76562C15.2029 8.8518 15.4064 8.9289 15.6113 9.00195C14.0914 9.54303 12.7055 10.4153 11.5576 11.5605L11.5566 11.5615C10.412 12.7102 9.5406 14.0963 8.99902 15.6162C8.45764 14.0958 7.58633 12.7095 6.44043 11.5615L6.43945 11.5605L6.17578 11.3066C5.08059 10.2858 3.78911 9.50275 2.38281 9.00195C3.90333 8.45997 5.29032 7.58857 6.43945 6.44336L6.44043 6.44238C7.58587 5.29322 8.45678 3.90579 8.99805 2.38477Z" stroke="#A3A3A3" strokeWidth="1.33" />
@@ -290,7 +290,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                     key={m.id}
                     type="button"
                     onClick={() => handleModelSelect(m.id)}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 bg-transparent text-[#ccc] ${
                       m.id === model ? 'bg-white/10' : ''
                     }`}
                   >
@@ -307,7 +307,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
             data-testid="canvas-node-video-config-select"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setConfigOpen((v) => !v); }}
-            className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5] border-none bg-transparent cursor-pointer"
+            className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
           >
             <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
               <div className="rounded-[2px]" style={{ width: ratioIcon(ratio).w, height: ratioIcon(ratio).h, border: '1.5px solid currentColor' }} />
@@ -340,7 +340,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                       key={res}
                       type="button"
                       onClick={() => updateConfig(nodeId, { resolution: res } as any)}
-                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
+                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 ${
                         resolution === res ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                       }`}
                     >{res}</button>
@@ -356,7 +356,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                       key={r.label}
                       type="button"
                       onClick={() => { updateConfig(nodeId, { ratio: r.label } as any); }}
-                      className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 cursor-pointer ${
+                      className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-solid px-1 py-3 transition-colors duration-200 ${
                         ratio === r.label ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                       }`}
                     >
@@ -377,7 +377,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                       key={d}
                       type="button"
                       onClick={() => updateConfig(nodeId, { duration: d } as any)}
-                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
+                      className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 ${
                         duration === d ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                       }`}
                     >{d}s</button>
@@ -392,7 +392,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                     type="button"
                     data-testid="canvas-node-video-audio-toggle"
                     onClick={() => updateConfig(nodeId, { audio: !audio } as any)}
-                    className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-solid text-[13px] transition-colors duration-200 cursor-pointer ${
+                    className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-solid text-[13px] transition-colors duration-200 ${
                       audio ? 'border-[#4a4a4a] bg-white/10 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                     }`}
                   >
@@ -411,7 +411,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
             <button
               aria-label="语音输入"
               onClick={toggleVoice}
-              className={`size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none transition-colors hover:bg-white/10 active:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`size-7 shrink-0 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed ${
                 listening ? 'bg-white/20 text-[#4ade80]' : 'bg-transparent text-white/70'
               }`}
               title={listening ? '停止录音' : '语音输入'}
@@ -426,7 +426,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                 type="button"
                 data-testid="canvas-node-video-count-select"
                 onClick={(e) => { e.stopPropagation(); setCountOpen((v) => !v); }}
-                className="group relative inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-[#f5f5f5] transition-all active:bg-white/[0.1] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed border-none bg-transparent cursor-pointer"
+                className="group relative inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-[#f5f5f5] transition-all active:bg-white/[0.1] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label={`Generate ${generateCount} variations`}
               >
                 <span className="count-tooltip absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 text-xs font-normal text-white bg-[#3a3a3a] rounded-md whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">生成数量</span>
@@ -442,7 +442,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
                       key={n}
                       type="button"
                       onClick={() => { setGenerateCount(n); setCountOpen(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 border-none bg-transparent cursor-pointer text-[#ccc] ${
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 bg-transparent text-[#ccc] ${
                         n === generateCount ? 'bg-white/10' : ''
                       }`}
                     >
@@ -464,7 +464,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
             <button
               onClick={handleGenerate}
               disabled={executing}
-              className="size-7 shrink-0 flex items-center justify-center rounded-lg cursor-pointer border-none bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {executing ? '⏳' : (
                 <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-3 text-[#999]" width="12" height="12" viewBox="0 0 18 18">

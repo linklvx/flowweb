@@ -27,7 +27,7 @@ export function CreateCanvasCard() {
       <button
         aria-label="新建画布"
         onClick={(e) => { e.stopPropagation(); startNewProject(navigate); }}
-        className="w-[120px] h-[56px] rounded-2xl bg-white hover:bg-[#f0f0f0] hover:scale-105 active:scale-95 shadow-[0_4px_24px_rgba(0,0,0,0.3)] flex items-center justify-center border-none cursor-pointer transition-all duration-200"
+        className="w-[120px] h-[56px] rounded-2xl bg-white hover:bg-[#f0f0f0] hover:scale-105 active:scale-95 shadow-[0_4px_24px_rgba(0,0,0,0.3)] flex items-center justify-center transition-all duration-200"
       >
         <PlusOutlined className="text-[24px] text-black" />
       </button>

@@ -13,7 +13,7 @@ function TeamCard({ team, active, onClick }: { team: MyTeam; active: boolean; on
       type="button"
       onClick={onClick}
       data-testid={`team-card-${team.id}`}
-      className={`w-full p-3 rounded-lg text-left transition-all cursor-pointer border border-solid bg-transparent ${
+      className={`w-full p-3 rounded-lg text-left transition-all border border-solid bg-transparent ${
         active
           ? 'bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 border-cyan-500/30'
           : 'border-transparent hover:bg-white/5'
@@ -64,7 +64,7 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
         <h3 className="text-sm font-medium text-gray-400">我的团队</h3>
         <button
           type="button" title="创建团队" aria-label="创建团队" onClick={onCreateTeam}
-          className="p-1.5 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-colors bg-transparent border-none cursor-pointer"
+          className="p-1.5 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
         >
           <PlusOutlined className="text-sm" />
         </button>
@@ -83,7 +83,7 @@ export function TeamSidebar({ onCreateTeam }: { onCreateTeam: () => void }) {
           <button
             type="button"
             onClick={() => { if (user) void fetchTeams(user.id).catch(() => undefined); }}
-            className="px-3 py-1 rounded border border-solid border-gray-600 text-gray-300 bg-transparent cursor-pointer"
+            className="px-3 py-1 rounded border border-solid border-gray-600 text-gray-300"
           >
             重试
           </button>

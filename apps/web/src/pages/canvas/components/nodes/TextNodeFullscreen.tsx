@@ -76,7 +76,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
   if (!open) return null;
 
   const btnBase =
-    'flex items-center justify-center cursor-pointer focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed text-[#d4d4d4] hover:bg-white/10 rounded-md aspect-square h-7 w-7 p-0 border-none bg-transparent transition-colors';
+    'flex items-center justify-center focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed text-[#d4d4d4] hover:bg-white/10 rounded-md aspect-square h-7 w-7 p-0 transition-colors';
 
   const btnActive = (active: boolean) =>
     `${btnBase} ${active ? 'bg-white/20' : ''}`;

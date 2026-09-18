@@ -38,7 +38,6 @@ describe('WorkspaceBreadcrumb 当前位置指示器', () => {
       currentFolderId: 'child',
     });
     const root = screen.getByText('根目录');
-    expect(root).toHaveClass('cursor-pointer');
     fireEvent.click(root);
     expect(props.onNavigate).toHaveBeenCalledWith(null);
     fireEvent.click(screen.getByText('顶层'));

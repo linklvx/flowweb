@@ -93,7 +93,7 @@ export function WeChatQRLogin({
 
       <button
         type="button"
-        className="mt-[17px] w-[196px] h-[40px] rounded-[8px] border border-[rgba(0,0,0,0.1)] bg-[#FFF] text-[#929292] text-[14px] cursor-pointer hover:border-[#4893FF] hover:!text-[#4893FF] transition-colors"
+        className="mt-[17px] w-[196px] h-[40px] rounded-[8px] border border-[rgba(0,0,0,0.1)] bg-[#FFF] text-[#929292] text-[14px] hover:border-[#4893FF] hover:!text-[#4893FF] transition-colors"
         onClick={() => onAlternativeLogin?.()}
       >
         邮箱登录

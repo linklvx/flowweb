@@ -11,7 +11,7 @@ interface Props {
   onToggleSnap: () => void;
 }
 
-const BTN = 'tb-btn flex items-center justify-center appearance-none border-0 cursor-pointer rounded-lg transition-colors';
+const BTN = 'tb-btn flex items-center justify-center appearance-none border-0 rounded-lg transition-colors';
 const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
 const BTN_BG_ACTIVE: React.CSSProperties = { backgroundColor: 'rgb(58, 58, 58)' };
 const ICON_WRAP = 'flex items-center justify-center overflow-hidden';

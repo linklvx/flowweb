@@ -32,7 +32,7 @@ export function RegisterPage() {
           className="w-full bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-3 text-sm text-[#ccc] mb-3" required />
         <input type="password" placeholder="密码（至少8位）" value={password} onChange={e => setPassword(e.target.value)}
           className="w-full bg-[#0f0f0f] border border-[#333] rounded-md px-3 py-3 text-sm text-[#ccc] mb-4" required />
-        <button type="submit" className="w-full bg-[#4ade80] text-black font-bold py-3 rounded-lg cursor-pointer text-sm">
+        <button type="submit" className="w-full bg-[#4ade80] text-black font-bold py-3 rounded-lg text-sm">
           注册
         </button>
         <p className="text-xs text-[#888] mt-4 text-center">

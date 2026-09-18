@@ -44,7 +44,7 @@ export function TemplateMarketPage() {
             <button
               key={t.key}
               onClick={() => { setTab(t.key); setPage(1); }}
-              className={`px-4 py-2 text-sm border-b-2 transition-colors bg-transparent cursor-pointer ${
+              className={`px-4 py-2 text-sm border-b-2 transition-colors bg-transparent ${
                 tab === t.key ? 'text-[#4ade80] border-[#4ade80]' : 'text-[#888] border-transparent hover:text-[#ccc]'
               }`}
             >
@@ -90,7 +90,7 @@ export function TemplateMarketPage() {
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`px-3 py-1 text-sm rounded bg-transparent border cursor-pointer transition-colors ${
+                    className={`px-3 py-1 text-sm rounded bg-transparent border transition-colors ${
                       p === page ? 'border-[#4ade80] text-[#4ade80]' : 'border-[#333] text-[#888] hover:border-[#555]'
                     }`}
                   >

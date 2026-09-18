@@ -187,7 +187,7 @@ describe('PlayView P3 UI', () => {
     playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   });
 
-  it('按钮组：次要钮深灰实底白字 + 4 钮 border-none；立即观看/分享圆形（U4/U6）；喜欢无数字（U5）', () => {
+  it('按钮组：次要钮深灰实底白字；立即观看/分享圆形（U4/U6）；喜欢无数字（U5）', () => {
     renderPlay({ ...detail, canViewProcess: true, likeCount: 6 });
     const watch = screen.getByRole('button', { name: /立即观看/ });
     expect(watch.className).toContain('bg-white');
@@ -203,9 +203,6 @@ describe('PlayView P3 UI', () => {
     const share = screen.getByRole('button', { name: /分享/ });
     expect(share.className).toContain('bg-[#2f2f2f]');
     expect(share.className).toContain('w-9');                      // U6 圆形
-    for (const name of [/立即观看/, /查看制作过程/, /喜欢/, /分享/]) {
-      expect(screen.getByRole('button', { name }).className).toContain('border-none');
-    }
   });
 
   it('布局：UI 列 pointer-events-none + ③④ 区块 auto + 渐变遮罩 + ④ 容器 pb reserve+50px（U3）+ 按钮组居中（U2）', () => {

@@ -400,7 +400,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`relative px-4 py-2 text-base font-medium border-none bg-transparent cursor-pointer transition-colors ${
+                  className={`relative px-4 py-2 text-base font-medium bg-transparent transition-colors ${
                     activeTab === tab ? 'text-white' : 'text-[#888] hover:text-[#ccc]'
                   }`}
                 >
@@ -429,7 +429,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                     <button
                       key={p}
                       onClick={() => setPeriod(p)}
-                      className={`relative px-4 py-2 rounded-lg text-sm font-medium border-2 transition-all cursor-pointer ${
+                      className={`relative px-4 py-2 rounded-lg text-sm font-medium border-2 transition-all ${
                         period === p
                           ? 'border-[#4ade80] bg-[#252525] text-white'
                           : 'border-transparent bg-transparent text-[#888] hover:text-[#ccc]'
@@ -444,7 +444,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                     </button>
                   ))}
                 </div>
-                <button className="flex items-center gap-1 text-sm text-[#888] bg-transparent border-none cursor-pointer hover:text-[#ccc]">
+                <button className="flex items-center gap-1 text-sm text-[#888] hover:text-[#ccc]">
                   个人积分充值
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M10.4 7.6a.6.6 0 0 1 0 .8l-4 4a.6.6 0 0 1-.8-.8L9.2 8 5.6 4.4a.6.6 0 1 1 .8-.8l4 4Z"/></svg>
                 </button>
@@ -463,7 +463,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                         tabIndex={0}
                         onClick={() => setActiveTier(plan.tier)}
                         onKeyDown={(e) => handleCardKeyDown(e as KeyboardEvent<HTMLDivElement>, plan.tier)}
-                        className={`flex-1 min-w-0 flex flex-col rounded-2xl border transition-all duration-300 cursor-pointer ${
+                        className={`flex-1 min-w-0 flex flex-col rounded-2xl border transition-all duration-300 ${
                           isActive
                             ? 'border-[#4ade80] bg-[#252525]'
                             : 'border-[#242424] bg-[#141414] hover:border-[#4ade80]/50 hover:bg-[#252525]'
@@ -483,7 +483,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                           </div>
                           <div className="flex items-center justify-between mt-3">
                             <span className="text-xs text-[#888]">1积分≈{plan.tier === 'basic' ? '0.039' : plan.tier === 'pro' ? '0.037' : plan.tier === 'max' ? '0.037' : '0.03'}元</span>
-                            <button className="text-xs text-[#4ade80] bg-transparent border-none cursor-pointer flex items-center gap-1 hover:underline">
+                            <button className="text-xs text-[#4ade80] flex items-center gap-1 hover:underline">
                               买年卡立省{plan.annualSavingPercent}%
                               <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M10.4 7.6a.6.6 0 0 1 0 .8l-4 4a.6.6 0 0 1-.8-.8L9.2 8 5.6 4.4a.6.6 0 1 1 .8-.8l4 4Z"/></svg>
                             </button>
@@ -510,7 +510,7 @@ export function VipSubscribeModal({ onSubscribe: _onSubscribe, plansByPeriod }: 
                         <div className="px-5 pb-3">
                           <button
                             onClick={(e) => { e.stopPropagation(); _onSubscribe?.(plan.tier, period); }}
-                            className="w-full py-2.5 rounded-lg text-sm font-medium border-none cursor-pointer text-white transition-opacity hover:opacity-90"
+                            className="w-full py-2.5 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
                             style={{ backgroundColor: TIER_COLORS[plan.tier] }}
                           >
                             立即订阅

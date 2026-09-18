@@ -11,7 +11,7 @@ import { useCreditsStore } from '@/stores/creditsStore';
 
 const TIER_LABEL: Record<string, string> = { basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
 
-const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-[#262626] hover:border-[#444] hover:text-white text-[13px] leading-5 text-[#d0d0d0] px-2.5 flex items-center gap-1 no-underline cursor-pointer transition-colors duration-150';
+const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-[#262626] hover:border-[#444] hover:text-white text-[13px] leading-5 text-[#d0d0d0] px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
 
 export function TopActionBar() {
   const { user, logout } = useAuth();
@@ -125,7 +125,7 @@ export function TopActionBar() {
         <button
           data-testid="login-register-btn"
           onClick={() => setShowLoginModal(true)}
-          className="h-8 rounded-lg bg-white hover:bg-[#e8e8e8] text-black text-[13px] font-medium leading-5 px-4 border-none cursor-pointer transition-colors duration-150"
+          className="h-8 rounded-lg bg-white hover:bg-[#e8e8e8] text-black text-[13px] font-medium leading-5 px-4 transition-colors duration-150"
         >
           登录/注册
         </button>

@@ -8,7 +8,7 @@ interface NodePaletteProps {
 }
 
 const SIDEBAR_BTN =
-  'flex items-center justify-center rounded-lg transition-colors h-8 w-8 border-0 cursor-pointer';
+  'flex items-center justify-center rounded-lg transition-colors h-8 w-8 border-0';
 const SIDEBAR_BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
 const SIDEBAR_BTN_HOVER_BG = 'rgb(78, 78, 78)';
 

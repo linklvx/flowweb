@@ -132,7 +132,7 @@ export function CreditsPage() {
             <button
               key={yuan}
               onClick={() => setSelectedAmount(yuan)}
-              className={`rounded-lg p-4 cursor-pointer border text-center transition-colors ${
+              className={`rounded-lg p-4 border text-center transition-colors ${
                 selectedAmount === yuan
                   ? 'border-[#5DDCFF] bg-[#5DDCFF]/10'
                   : 'border-[#333] bg-[#111] hover:border-[#666]'
@@ -146,7 +146,7 @@ export function CreditsPage() {
         <button
           onClick={() => void handleRecharge()}
           disabled={recharging}
-          className="mt-4 w-full py-2.5 rounded-lg text-sm font-bold bg-[#5DDCFF] text-[#111] hover:bg-[#7ce4ff] disabled:opacity-50 border-none cursor-pointer"
+          className="mt-4 w-full py-2.5 rounded-lg text-sm font-bold bg-[#5DDCFF] text-[#111] hover:bg-[#7ce4ff] disabled:opacity-50"
         >
           {recharging ? '创建订单中…' : `微信支付 ¥${selectedAmount}`}
         </button>
@@ -156,7 +156,7 @@ export function CreditsPage() {
       <div className="max-w-2xl">
         <button
           onClick={() => setShowOrders(!showOrders)}
-          className="flex items-center gap-2 text-sm text-[#888] hover:text-[#ccc] transition-colors mb-3 bg-transparent border-none cursor-pointer"
+          className="flex items-center gap-2 text-sm text-[#888] hover:text-[#ccc] transition-colors mb-3"
         >
           <svg
             viewBox="0 0 15 15"
@@ -199,14 +199,14 @@ export function CreditsPage() {
                 <button
                   disabled={ordersPage <= 1}
                   onClick={() => loadOrders(ordersPage - 1)}
-                  className="px-3 py-1 text-xs rounded bg-[#252525] text-[#888] hover:text-[#ccc] disabled:opacity-40 border-none cursor-pointer"
+                  className="px-3 py-1 text-xs rounded bg-[#252525] text-[#888] hover:text-[#ccc] disabled:opacity-40"
                 >
                   上一页
                 </button>
                 <button
                   disabled={ordersPage * 20 >= ordersTotal}
                   onClick={() => loadOrders(ordersPage + 1)}
-                  className="px-3 py-1 text-xs rounded bg-[#252525] text-[#888] hover:text-[#ccc] disabled:opacity-40 border-none cursor-pointer"
+                  className="px-3 py-1 text-xs rounded bg-[#252525] text-[#888] hover:text-[#ccc] disabled:opacity-40"
                 >
                   下一页
                 </button>

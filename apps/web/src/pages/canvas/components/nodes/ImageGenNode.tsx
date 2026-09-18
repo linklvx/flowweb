@@ -1101,7 +1101,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               }
             }}
             placeholder="请输入标题"
-            className="nodrag absolute inset-0 w-full h-auto bg-transparent border-none outline-none"
+            className="nodrag absolute inset-0 w-full h-auto bg-transparent outline-none"
             style={{ fontSize: 12, lineHeight: '18px', minWidth: 0 }}
             aria-label="节点标题"
             maxLength={20}
@@ -1224,7 +1224,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           {/* Replace button — only for user-uploaded images (not AI-generated) */}
           {showReplaceButton && (
             <button
-              className="nodrag nopan absolute top-2 right-2 z-5 flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 cursor-pointer border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              className="nodrag nopan absolute top-2 right-2 z-5 flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >

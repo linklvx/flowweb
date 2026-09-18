@@ -128,7 +128,7 @@ function PaintToolbar({
   const ACTIVE_BG = 'rgba(255,255,255,0.1)';
 
   const toolBtnClass =
-    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0';
+    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0';
 
   // Slider track: 64px wide, thumb: 12px
   const trackW = 64;
@@ -152,7 +152,7 @@ function PaintToolbar({
       {/* Mode label / Exit */}
         <button
           type="button"
-          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
+          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
           style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
           onClick={onCancel}
           disabled={isSaving}
@@ -329,7 +329,7 @@ function EditToolbarComponent({
   const portalRoot = document.getElementById('node-toolbar-portal');
   if (!portalRoot) return null;
 
-  const btnBaseClass = 'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors cursor-pointer border-0';
+  const btnBaseClass = 'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors border-0';
 
   const isCrop = editMode === 'crop';
   const isAi = editMode === 'outpaint' || editMode === 'erase' || editMode === 'redraw';
@@ -367,7 +367,7 @@ function EditToolbarComponent({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] cursor-pointer border-0"
+              className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
               style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
               onClick={onCancel}
               disabled={isSaving}
@@ -378,7 +378,7 @@ function EditToolbarComponent({
             <button
               type="button"
               aria-label="重置扩图"
-              className="size-8 cursor-pointer rounded-lg flex items-center justify-center hover:bg-white/10 bg-transparent transition-colors border-0"
+              className="size-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors border-0"
               style={{ color: TEXT_COLOR }}
               onClick={() => {
                 if (onOutpaintRatioChange && imageW && imageH) {
@@ -397,7 +397,7 @@ function EditToolbarComponent({
             <button
               type="button"
               disabled
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 bg-transparent text-[13px] leading-normal transition-colors cursor-not-allowed border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 text-[13px] leading-normal transition-colors cursor-not-allowed border-0"
               style={{ color: 'rgb(115, 115, 115)' }}
             >
               <span className="whitespace-nowrap">PRO</span>
@@ -420,7 +420,7 @@ function EditToolbarComponent({
               return (
                 <button
                   type="button"
-                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
                   style={{ color: TEXT_COLOR }}
                   onClick={() => {
                     const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ratios.length : 1;
@@ -440,7 +440,7 @@ function EditToolbarComponent({
             })()}
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">2K</span>
@@ -450,7 +450,7 @@ function EditToolbarComponent({
             </button>
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 bg-transparent text-[13px] leading-normal transition-colors text-fg-default cursor-pointer border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">1张</span>
@@ -474,7 +474,7 @@ function EditToolbarComponent({
                   <button
                     type="button"
                     data-testid="outpaint-generate"
-                    className="bg-white flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
+                    className="bg-white flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 border-0"
                     disabled={isSaving}
                     onClick={onGenerate}
                   >
@@ -530,7 +530,7 @@ function EditToolbarComponent({
           {onSave && (
             <button
               type="button"
-              className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+              className="h-8 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 disabled:cursor-not-allowed disabled:opacity-70"
               style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
               disabled={isSaving}
               onClick={onSave}

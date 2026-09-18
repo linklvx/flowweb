@@ -276,7 +276,7 @@ function SubGridPanel({
                   <button
                     key={`${row}-${col}`}
                     type="button"
-                    className="h-8 w-8 rounded transition-colors duration-75 cursor-pointer"
+                    className="h-8 w-8 rounded transition-colors duration-75"
                     style={{
                       border: 0,
                       backgroundColor: isPreview ? 'rgba(59,130,246,0.4)' : 'rgba(64,64,64,0.5)',
@@ -510,7 +510,7 @@ function ImageNodeToolbarComponent({
                   <button
                     key={item.label}
                     type="button"
-                    className="flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
+                    className="flex w-full items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
                     style={{
                       color: 'rgb(247,247,247)',
                       background: hoveredPreset === item.label ? 'rgba(255,255,255,0.08)' : 'transparent',
@@ -531,7 +531,7 @@ function ImageNodeToolbarComponent({
 
                 <button
                   type="button"
-                  className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
                   style={{
                     color: 'rgb(247,247,247)',
                     background: subMenuOpen ? 'rgba(255,255,255,0.08)' : 'transparent',

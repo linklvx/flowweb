@@ -79,7 +79,7 @@ export function PreviewPlayer() {
         className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--ve-panel)] border-t border-[var(--ve-border)]">
         <button type="button" data-testid="preview-play-btn" disabled={preparing}
           onClick={() => { void togglePlayback(); }}
-          className="text-[16px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-2 disabled:opacity-50">
+          className="text-[16px] text-[var(--ve-text)] border-0 px-2 disabled:opacity-50">
           {preparing ? '…' : playing ? '⏸' : '▶'}
         </button>
         <span className="text-[12px] text-[var(--ve-text)] tabular-nums">
@@ -88,27 +88,27 @@ export function PreviewPlayer() {
         </span>
         <span className="text-[var(--ve-text-dim)] mx-1">|</span>
         <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" onClick={() => useEditorStore.getState().undo()}
-          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><UndoOutlined /></button>
+          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><UndoOutlined /></button>
         <button type="button" aria-label="重做" title="重做 Ctrl+Shift+Z" onClick={() => useEditorStore.getState().redo()}
-          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><RedoOutlined /></button>
+          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><RedoOutlined /></button>
         <button type="button" aria-label="分割" title="分割 S（在播放头处）"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead); }}
-          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><ScissorOutlined /></button>
+          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><ScissorOutlined /></button>
         <button type="button" aria-label="删除" title="删除 Delete"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
-          className="text-[15px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5 hover:text-white"><DeleteOutlined /></button>
+          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><DeleteOutlined /></button>
         <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]">
-          <button type="button" className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 cursor-pointer px-0" onClick={onAddSubtitle}>添加字幕</button>
+          <button type="button" className="text-[12px] text-[var(--ve-accent)] border-0 px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
               内包 <span className="inline-block"> 承接 mouseenter（验收 17 的 Tooltip 文案核对依赖此结构） */}
           <Tooltip title="音频生成暂未接入，待供应商接入后开放">
             <span className="inline-block">
-              <button type="button" disabled className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 px-0 disabled:opacity-40" data-testid="gen-audio-btn">生成音频</button>
+              <button type="button" disabled className="text-[12px] text-[var(--ve-accent)] border-0 px-0 disabled:opacity-40" data-testid="gen-audio-btn">生成音频</button>
             </span>
           </Tooltip>
           <Tooltip title={canRetake ? '将消耗团队积分' : '选中带源视频片段后可重拍'}>
             <span className="inline-block">
-              <button type="button" disabled={!canRetake || shadowBusy} className="text-[12px] text-[var(--ve-accent)] bg-transparent border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
+              <button type="button" disabled={!canRetake || shadowBusy} className="text-[12px] text-[var(--ve-accent)] border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
             </span>
           </Tooltip>
         </div>
@@ -122,7 +122,7 @@ export function PreviewPlayer() {
           </Tooltip>
           <button type="button" title="全屏"
             onClick={() => { const el = containerRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }}
-            className="text-[14px] text-[var(--ve-text)] bg-transparent border-0 cursor-pointer px-1.5">⛶</button>
+            className="text-[14px] text-[var(--ve-text)] border-0 px-1.5">⛶</button>
           <Tooltip title="时间轴缩放">
             <span data-testid="zoom-slider" className="inline-flex">
               <Slider className="w-24" min={10} max={500} value={pxPerSec}
