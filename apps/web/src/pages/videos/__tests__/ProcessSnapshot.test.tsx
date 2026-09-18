@@ -1,6 +1,7 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { ProcessSnapshot } from '../ProcessSnapshot';
+import { ProcessSnapshot, FALLBACK } from '../ProcessSnapshot';
+import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared';
 import type { ProcessSnapshotData } from '@flowweb/shared';
 
 const snap: ProcessSnapshotData = {
@@ -36,5 +37,69 @@ describe('ProcessSnapshot（spec §5.3 红线）', () => {
   it('组框：groupType=storyboard 渲染分镜样式（data-group-type 标记）', () => {
     const { container } = render(<ProcessSnapshot snapshot={snap} />);
     expect(container.querySelector('[data-group-type="storyboard"]')).toBeTruthy();
+  });
+});
+
+// ─── 兜底表与满框版式（spec v3.1 P5a）───
+// fixture 追加：ve1=videoEdit 无持久化尺寸（canvasStore 建节点只设 width、协作持久化只存 width/height，
+// 未拖拽的 videoEdit 快照无 height——兜底表是主路径）；cx1=未知类型（snapshot-filter 保留未知类型节点）
+const snap2: ProcessSnapshotData = {
+  ...snap,
+  nodes: [
+    ...snap.nodes,
+    { id: 've1', type: 'videoEdit', position: { x: 800, y: 0 }, data: {} },
+    { id: 'cx1', type: 'customX', position: { x: 900, y: 0 }, data: {} },
+  ],
+};
+
+describe('ProcessSnapshot 兜底表（spec v3.1 P5a 红线）', () => {
+  it('videoEdit 无持久化尺寸 → wrapper inline style 320×110', () => {
+    render(<ProcessSnapshot snapshot={snap2} />);
+    const ve = screen.getByTestId('rf__node-ve1');
+    expect(ve.style.width).toBe('320px');
+    expect(ve.style.height).toBe('110px');
+  });
+
+  it('未知类型 → 280×120（nodeHasDimensions && 判定的兜底默认）', () => {
+    render(<ProcessSnapshot snapshot={snap2} />);
+    const cx = screen.getByTestId('rf__node-cx1');
+    expect(cx.style.width).toBe('280px');
+    expect(cx.style.height).toBe('120px');
+  });
+
+  it('红线：全部节点 visibility 非 hidden 且 inline 尺寸非空（jsdom RO no-op → measured 恒 undefined，钉兜底表穷尽性）', () => {
+    const { container } = render(<ProcessSnapshot snapshot={snap2} />);
+    const nodes = container.querySelectorAll('.react-flow__node');
+    expect(nodes.length).toBe(snap2.nodes.length);
+    for (const n of nodes) {
+      const el = n as HTMLElement;
+      expect(el.style.visibility).not.toBe('hidden');
+      expect(el.style.width).not.toBe('');
+      expect(el.style.height).not.toBe('');
+    }
+  });
+
+  it('coverage：FALLBACK ⊇ VIDEO_WORK_NODE_TYPES（与 canvas 侧 nodeTypes ⊆ 清单构成两环全链条——删任一侧不红，勿拆）', () => {
+    for (const t of VIDEO_WORK_NODE_TYPES) {
+      expect(FALLBACK[t]).toBeDefined();
+    }
+  });
+
+  it('SimpleNode 满框版式：根 w-full h-full + 缩略图铺满 + 底部信息条', () => {
+    const { container } = render(<ProcessSnapshot snapshot={snap2} />);
+    const inner = screen.getByTestId('rf__node-n2').querySelector('div'); // wrapper 之下第一个 div = SimpleNode 根
+    expect(inner?.className).toContain('w-full');
+    expect(inner?.className).toContain('h-full');
+    const thumb = container.querySelector('img[src="/flowai/th.webp"]');
+    expect(thumb?.className).toContain('absolute');
+    expect(thumb?.className).toContain('inset-0');
+    expect(screen.getByTestId('rf__node-n2').innerHTML).toContain('bg-black/60'); // 底部信息条
+  });
+
+  it('transform 对齐：wrapper translate 与快照 position 一致（模板无空格；有 parentId 的 n3 按 positionAbsolute 绝对坐标 g1(500,0)+n3(520,20)）', () => {
+    render(<ProcessSnapshot snapshot={snap2} />);
+    expect(screen.getByTestId('rf__node-n1').style.transform).toMatch(/translate\(0px,0px\)/);
+    expect(screen.getByTestId('rf__node-n2').style.transform).toMatch(/translate\(300px,0px\)/);
+    expect(screen.getByTestId('rf__node-n3').style.transform).toMatch(/translate\(1020px,20px\)/);
   });
 });

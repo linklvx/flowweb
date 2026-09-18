@@ -23,12 +23,12 @@ export function CarouselBar({ currentId, categoryId, onSwitch }: {
 
   if (!settings?.carouselEnabled || items.length === 0) return null;
   return (
-    <div data-testid="carousel" className="absolute bottom-0 inset-x-0 flex gap-2 px-4 py-3 overflow-x-auto z-10">
+    <div data-testid="carousel" className="absolute bottom-0 inset-x-0 flex gap-2 px-4 py-3 overflow-x-auto z-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {items.map(w => (
         <button key={w.id} data-testid={`carousel-item-${w.id}`} onClick={() => onSwitch(w.id)}
-          className="relative shrink-0 w-[110px] aspect-video rounded-md overflow-hidden ring-1 ring-white/20 hover:ring-white/60 transition-all">
-          {w.coverUrl ? <img src={w.coverUrl} alt={w.title} className="w-full h-full object-cover" loading="lazy" />
-                       : <div className="w-full h-full bg-white/10" />}
+          className="relative shrink-0 w-[180px] aspect-video rounded-lg overflow-hidden border-0 p-0 hover:ring-1 hover:ring-white/60 transition-all">
+          {w.coverUrl ? <img src={w.coverUrl} alt={w.title} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                       : <div className="absolute inset-0 bg-white/10" />}
         </button>
       ))}
     </div>

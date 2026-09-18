@@ -113,3 +113,70 @@ describe('关闭算法（模式 A：state.fromList）', () => {
     expect(within(screen.getByTestId('modal')).getByText('第二作品')).toBeInTheDocument();
   });
 });
+
+// ─── P5b 轮播条件渲染 + 壳根属性（spec v3.1 裁定 A）───
+const detailP = { ...detail, id: 'w1p', title: '可看过程', canViewProcess: true };
+const detailW2P = { ...detail, id: 'w2p', title: '第二作品P', canViewProcess: true };
+const listItemsP = [ // 轮播数据：两作品互为对方卡片
+  { id: 'w1p', title: '可看过程', coverUrl: null, durationSec: 100, tags: [] },
+  { id: 'w2p', title: '第二作品P', coverUrl: null, durationSec: 90, tags: [] },
+];
+
+describe('P5b 轮播条件渲染（view === \'play\' && !playing）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.fetchVideoWorkDetail).mockImplementation(async (id: string) => (id === 'w2p' ? detailW2P : detailP) as any);
+    vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: listItemsP, total: 2, page: 1, pageSize: 20 });
+    vi.mocked(api.fetchVideoCategories).mockResolvedValue([]);
+    vi.mocked(api.getPublicSettings).mockResolvedValue({ carouselEnabled: true, carouselScope: 'all' });
+    vi.mocked(api.recordView).mockResolvedValue(undefined);
+    vi.mocked(api.fetchProcessSnapshot).mockResolvedValue({ workId: 'w1p', title: '可看过程', nodes: [], edges: [] } as any);
+    // play spy：用例点「立即观看」进播放态 → effect playing 分支直调 play()（jsdom notImplemented 打噪音不红，spy 保输出干净）
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+  });
+
+  it('process 视图：轮播不渲染；返回 play 恢复', async () => {
+    renderAt('/videos/w1p');
+    await screen.findByTestId('carousel-item-w2p');
+    fireEvent.click(screen.getByRole('button', { name: /查看制作过程/ }));
+    await waitFor(() => expect(screen.queryByTestId('carousel')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /返回/ }));
+    await waitFor(() => expect(screen.getByTestId('carousel-item-w2p')).toBeInTheDocument());
+  });
+
+  it('播放态：轮播不渲染；暂停保持播放态（轮播仍隐藏），播完才回预览恢复', async () => {
+    renderAt('/videos/w1p');
+    await screen.findByTestId('carousel-item-w2p');
+    fireEvent.click(screen.getByRole('button', { name: /立即观看/ }));
+    await waitFor(() => expect(screen.queryByTestId('carousel')).toBeNull());
+    fireEvent.pause(screen.getByTestId('video'));                          // 点视频=原生暂停，UI 不回预览
+    await new Promise(res => setTimeout(res, 100));
+    expect(screen.queryByTestId('carousel')).toBeNull();                    // 仍播放态
+    fireEvent.ended(screen.getByTestId('video'));                          // 播完=回预览
+    await waitFor(() => expect(screen.getByTestId('carousel-item-w2p')).toBeInTheDocument());
+  });
+
+  it('播放态下切作品 → 轮播恢复（钉外壳 id-effect setPlaying(false) 复位——漏则停在无轮播伪播放态）', async () => {
+    const router = renderAt('/videos/w1p');
+    await screen.findByTestId('carousel-item-w2p');
+    fireEvent.click(screen.getByRole('button', { name: /立即观看/ }));
+    await waitFor(() => expect(screen.queryByTestId('carousel')).toBeNull());
+    await act(async () => { await router.navigate('/videos/w2p'); });
+    await waitFor(() => expect(screen.getByTestId('carousel-item-w1p')).toBeInTheDocument()); // w2p 页轮播显示 w1p 卡 → playing 已复位
+  });
+
+  it('壳根 data-vw-shell（R3 作用域锚点）+ [color-scheme:dark]（原生 controls 深色，B1）', async () => {
+    renderAt('/videos/w1p');
+    await screen.findByTestId('modal');
+    const shell = screen.getByTestId('modal').firstElementChild; // BaseFullscreenModal mock 直通 children → 首子即壳根 div
+    expect(shell?.hasAttribute('data-vw-shell')).toBe(true);
+    expect(shell?.className).toContain('[color-scheme:dark]');
+  });
+
+  it('关闭钮只显示 ✕（U7b：去「关闭」文字，data-testid 定位不变）', async () => {
+    renderAt('/videos/w1p');
+    await screen.findByTestId('modal');
+    const btn = screen.getByTestId('close-btn');
+    expect(btn.textContent?.trim()).toBe('✕');
+  });
+});

@@ -22,13 +22,14 @@ export function VideoPlayerModal() {
   const navigate = useNavigate();
   const [detail, setDetail] = useState<VideoWorkDetail | null>(null);
   const [view, setView] = useState<'play' | 'process'>('play');
+  const [playing, setPlaying] = useState(false);        // 裁定 A：playing 上提外壳（播放态隐藏轮播 + P5b 条件）；id 变化必须复位——漏则切作品后停在无轮播伪播放态死状态
   const [showLogin, setShowLogin] = useState(false);   // Task 8.4 页内登录（D18）
   const shellRef = useRef<HTMLDivElement | null>(null); // 弹层容器（getPopupContainer，C1-3 两层配方）
 
   useEffect(() => {
-    if (!id) { setDetail(null); setView('play'); return; }   // id 消失 → 关闭并复位
+    if (!id) { setDetail(null); setView('play'); setPlaying(false); return; }   // id 消失 → 关闭并复位
     let stale = false;   // 竞态守卫（批次 8 勘误②，同批次 7 VideosPage 模式）——快速轮播切换时旧响应晚到不覆盖/晚到 404 不误踢回列表
-    setDetail(null); setView('play');
+    setDetail(null); setView('play'); setPlaying(false);
     fetchVideoWorkDetail(id)
       .then(d => { if (!stale) setDetail(d); })
       .catch(() => { if (!stale) navigate('/videos', { replace: true }); }); // 404 → 回列表
@@ -54,7 +55,7 @@ export function VideoPlayerModal() {
           body 故不需要），勿删：shellRef 未挂载首帧 getPopupContainer 回退 body 时，它是登录框可见性
           （100100 > 壳 100000）的唯一保障（删掉则 11100 < 100000 被壳盖住，jsdom 测不出、手工验收 #6 才暴露）。
           PlayView/ProcessView 的 useApp() toast 依赖内层 AntdApp（holder 渲染在壳 DOM 内） */}
-      <div ref={shellRef} className="fixed inset-0 bg-black text-white">
+      <div ref={shellRef} data-vw-shell className="fixed inset-0 bg-black text-white [color-scheme:dark]">
       {/* 第六轮：fixed inset-0（VideoEditorShell.tsx:132 同款）——BaseFullscreenModal 的 dialog 包装 div 无尺寸类，
           relative h-full 的百分比在 auto 高度父级上解析为 auto → 壳内容塌成 0 高度（jsdom 无布局测不出，手工验收 #3 才暴露；
           壳内 PlayView/CarouselBar/关闭钮全是绝对定位不贡献静态高度，必须由视口尺寸的内含块撑起） */}
@@ -65,12 +66,14 @@ export function VideoPlayerModal() {
                 display:contents 使锚点 div 不产生布局盒（壳内绝对定位元素的参照物仍是壳根 fixed）。 */}
             <div data-zprovider={String(VIDEO_MODAL_Z_BASE)} style={{ display: 'contents' }}>
               {view === 'play'
-                ? <PlayView detail={detail} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail).catch(() => {})} />
+                ? <PlayView detail={detail} playing={playing} onPlayingChange={setPlaying} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail).catch(() => {})} />
                 : <ProcessView workId={detail.id} title={detail.title} canClone={detail.canClone} onBack={() => setView('play')} onNeedLogin={() => setShowLogin(true)} />}
-              <CarouselBar currentId={detail.id} categoryId={detail.categoryId} onSwitch={(wid) =>
-                navigate(`/videos/${wid}`, { replace: true, state: location.state })} />  {/* 继承 state 原值透传（§5.1） */}
+              {view === 'play' && !playing && (  // P5b/裁定 A：process 与播放态均不渲染（播放态隐藏使 controls 落可点区，P0-1 第二根因）
+                <CarouselBar currentId={detail.id} categoryId={detail.categoryId} onSwitch={(wid) =>
+                  navigate(`/videos/${wid}`, { replace: true, state: location.state })} />  /* 继承 state 原值透传（§5.1） */
+              )}
               {showLogin && <LoginModal onClose={() => setShowLogin(false)} />} {/* 读最近 Provider token → z=100100；D18 */}
-              <button data-testid="close-btn" onClick={close} className="absolute top-3 right-3 z-10 rounded-lg bg-[rgba(50,50,50,0.45)] px-3 py-1.5 text-sm backdrop-blur-[6px]">✕ 关闭</button>
+              <button data-testid="close-btn" onClick={close} aria-label="关闭" className="absolute top-3 right-3 z-10 rounded-lg bg-[rgba(50,50,50,0.45)] px-3 py-1.5 text-sm backdrop-blur-[6px]">✕</button>
             </div>
           </AntdApp>
         </ConfigProvider>

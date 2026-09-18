@@ -50,4 +50,44 @@ describe('CarouselBar', () => {
     fireEvent.click(await screen.findByTestId('carousel-item-w2'));
     expect(onSwitch).toHaveBeenCalledWith('w2');
   });
+
+  // ─── P2 卡片版式（spec v3.1：180px + rounded-lg + UA 归一 + hover-only ring）───
+  it('卡片：w-[180px] rounded-lg + border-0 p-0（UA 归一）+ 封面 absolute inset-0 填充', async () => {
+    vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [
+      { id: 'w0', title: 't0', coverUrl: null, durationSec: 1, tags: [] },
+      { id: 'w2', title: 't2', coverUrl: '/flowai/c.jpg', durationSec: 1, tags: [] },
+    ], total: 2, page: 1, pageSize: 11 });
+    renderBar({ carouselEnabled: true, carouselScope: 'all' }, 'w0');
+    const card = await screen.findByTestId('carousel-item-w2');
+    for (const cls of ['w-[180px]', 'aspect-video', 'rounded-lg', 'border-0', 'p-0']) {
+      expect(card.className).toContain(cls);
+    }
+    const img = card.querySelector('img');
+    expect(img?.className).toContain('absolute');
+    expect(img?.className).toContain('inset-0');
+    expect(img?.className).toContain('object-cover');
+  });
+
+  it('ring 口径（T5 hover-only）：默认无 ring-1、hover 才现——classList 精确匹配防子串误判', async () => {
+    vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [
+      { id: 'w0', title: 't0', coverUrl: null, durationSec: 1, tags: [] },
+      { id: 'w2', title: 't2', coverUrl: null, durationSec: 1, tags: [] },
+    ], total: 2, page: 1, pageSize: 11 });
+    renderBar({ carouselEnabled: true, carouselScope: 'all' }, 'w0');
+    const card = await screen.findByTestId('carousel-item-w2');
+    expect(card.classList.contains('ring-1')).toBe(false);   // not.toContain('ring-1') 会误伤含 hover:ring-1 的正确实现
+    expect(card.classList.contains('hover:ring-1')).toBe(true);
+    expect(card.classList.contains('hover:ring-white/60')).toBe(true);
+  });
+
+  it('轮播条隐藏滚动条（T3：Windows 经典滚动条占 ~17px 布局高，reserve 常量失真的唯一误差源）', async () => {
+    vi.mocked(api.fetchVideoWorks).mockResolvedValue({ items: [
+      { id: 'w0', title: 't0', coverUrl: null, durationSec: 1, tags: [] },
+      { id: 'w2', title: 't2', coverUrl: null, durationSec: 1, tags: [] },
+    ], total: 2, page: 1, pageSize: 11 });
+    renderBar({ carouselEnabled: true, carouselScope: 'all' }, 'w0');
+    const bar = await screen.findByTestId('carousel');
+    expect(bar.classList.contains('[scrollbar-width:none]')).toBe(true);
+    expect(bar.classList.contains('[&::-webkit-scrollbar]:hidden')).toBe(true);
+  });
 });
