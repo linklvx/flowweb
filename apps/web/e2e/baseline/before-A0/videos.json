@@ -1,6 +1,6 @@
 {
  "page": "videos",
- "collectedAt": "2026-09-18T16:11:18.517Z",
+ "collectedAt": "2026-09-18T16:41:20.037Z",
  "url": "http://localhost:5173/videos",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 123,
@@ -201,7 +201,7 @@
    "clsLen": 34
   },
   {
-   "key": "tid:announcement-bar",
+   "key": "tid:announcement-bar@0",
    "tag": "div",
    "rect": {
     "x": 8,
@@ -279,7 +279,7 @@
    "clsLen": 43
   },
   {
-   "key": "tid:announcement-close-btn",
+   "key": "tid:announcement-close-btn@0",
    "tag": "button",
    "rect": {
     "x": 1236,
@@ -475,7 +475,7 @@
    "clsLen": 23
   },
   {
-   "key": "tid:sidebar",
+   "key": "tid:sidebar@0",
    "tag": "aside",
    "rect": {
     "x": 0,
@@ -2076,7 +2076,7 @@
    "clsLen": 36
   },
   {
-   "key": "tid:wechat-follow-entry",
+   "key": "tid:wechat-follow-entry@0",
    "tag": "button",
    "rect": {
     "x": 16,
@@ -2663,7 +2663,7 @@
    "clsLen": 33
   },
   {
-   "key": "tid:top-action-bar",
+   "key": "tid:top-action-bar@0",
    "tag": "div",
    "rect": {
     "x": 264,
@@ -3093,7 +3093,7 @@
    "clsLen": 34
   },
   {
-   "key": "tid:user-avatar",
+   "key": "tid:user-avatar@0",
    "tag": "span",
    "rect": {
     "x": 1224,

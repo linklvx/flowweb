@@ -1,6 +1,6 @@
 {
  "page": "video-editor",
- "collectedAt": "2026-09-18T16:11:25.256Z",
+ "collectedAt": "2026-09-18T16:41:26.649Z",
  "url": "http://localhost:5173/canvas?projectId=gate-canvas-1",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 252,
@@ -1064,7 +1064,7 @@
    "clsLen": 29
   },
   {
-   "key": "tid:rf__wrapper",
+   "key": "tid:rf__wrapper@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -1259,7 +1259,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__edge-gate-edge-1",
+   "key": "tid:rf__edge-gate-edge-1@0",
    "tag": "g",
    "rect": {
     "x": 344,
@@ -1454,7 +1454,7 @@
    "clsLen": 17
   },
   {
-   "key": "tid:rf__node-gate-node-1",
+   "key": "tid:rf__node-gate-node-1@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -1806,7 +1806,7 @@
    "clsLen": 39
   },
   {
-   "key": "tid:target-handle",
+   "key": "tid:target-handle@0",
    "tag": "div",
    "rect": {
     "x": -2,
@@ -2157,7 +2157,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:source-handle",
+   "key": "tid:source-handle@0",
    "tag": "div",
    "rect": {
     "x": 552,
@@ -2352,7 +2352,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__node-gate-node-2",
+   "key": "tid:rf__node-gate-node-2@0",
    "tag": "div",
    "rect": {
     "x": 360,
@@ -2704,7 +2704,7 @@
    "clsLen": 39
   },
   {
-   "key": "tid:target-handle",
+   "key": "tid:target-handle@1",
    "tag": "div",
    "rect": {
     "x": 358,
@@ -3055,7 +3055,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:source-handle",
+   "key": "tid:source-handle@1",
    "tag": "div",
    "rect": {
     "x": 912,
@@ -3250,7 +3250,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__node-node_1789747884233_1",
+   "key": "tid:rf__node-node_1789749685643_1@0",
    "tag": "div",
    "rect": {
     "x": 515,
@@ -3289,7 +3289,7 @@
    "clsLen": 79
   },
   {
-   "key": "tid:video-edit-node-node_1789747884233_1",
+   "key": "tid:video-edit-node-node_1789749685643_1@0",
    "tag": "div",
    "rect": {
     "x": 515,
@@ -3367,7 +3367,7 @@
    "clsLen": 46
   },
   {
-   "key": "tid:video-edit-target",
+   "key": "tid:video-edit-target@0",
    "tag": "div",
    "rect": {
     "x": 513,
@@ -3874,7 +3874,7 @@
    "clsLen": 35
   },
   {
-   "key": "tid:node-play-btn",
+   "key": "tid:node-play-btn@0",
    "tag": "button",
    "rect": {
     "x": 530,
@@ -4032,7 +4032,7 @@
    "color": "rgb(108, 92, 231)"
   },
   {
-   "key": "tid:node-track-thumb",
+   "key": "tid:node-track-thumb@0",
    "tag": "div",
    "rect": {
     "x": 518,
@@ -4149,7 +4149,7 @@
    "clsLen": 26
   },
   {
-   "key": "tid:video-edit-source",
+   "key": "tid:video-edit-source@0",
    "tag": "div",
    "rect": {
     "x": 833,
@@ -4383,7 +4383,7 @@
    "clsLen": 27
   },
   {
-   "key": "tid:rf__background",
+   "key": "tid:rf__background@0",
    "tag": "svg",
    "rect": {
     "x": 0,
@@ -5520,7 +5520,7 @@
    "clsLen": 51
   },
   {
-   "key": "tid:online-users",
+   "key": "tid:online-users@0",
    "tag": "div",
    "rect": {
     "x": 1018,
@@ -5950,7 +5950,7 @@
    "clsLen": 86
   },
   {
-   "key": "tid:video-editor-shell",
+   "key": "tid:video-editor-shell@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -5989,7 +5989,7 @@
    "clsLen": 82
   },
   {
-   "key": "tid:editor-top-bar",
+   "key": "tid:editor-top-bar@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -6067,7 +6067,7 @@
    "clsLen": 45
   },
   {
-   "key": "tid:save-state-dot",
+   "key": "tid:save-state-dot@0",
    "tag": "button",
    "rect": {
     "x": 92,
@@ -6107,7 +6107,7 @@
    "color": "rgb(255, 255, 255)"
   },
   {
-   "key": "tid:aspect-ratio-button",
+   "key": "tid:aspect-ratio-button@0",
    "tag": "button",
    "rect": {
     "x": 120,
@@ -6186,7 +6186,7 @@
    "clsLen": 31
   },
   {
-   "key": "tid:export-trigger",
+   "key": "tid:export-trigger@0",
    "tag": "button",
    "rect": {
     "x": 1148,
@@ -6461,7 +6461,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:asset-panel",
+   "key": "tid:asset-panel@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -6579,7 +6579,7 @@
    "color": "rgba(255, 255, 255, 0.85)"
   },
   {
-   "key": "tid:asset-upload-btn",
+   "key": "tid:asset-upload-btn@0",
    "tag": "label",
    "rect": {
     "x": 235,
@@ -6969,7 +6969,7 @@
    "clsLen": 51
   },
   {
-   "key": "tid:preview-control-bar",
+   "key": "tid:preview-control-bar@0",
    "tag": "div",
    "rect": {
     "x": 284,
@@ -7008,7 +7008,7 @@
    "clsLen": 134
   },
   {
-   "key": "tid:preview-play-btn",
+   "key": "tid:preview-play-btn@0",
    "tag": "button",
    "rect": {
     "x": 296,
@@ -7911,7 +7911,7 @@
    "clsLen": 12
   },
   {
-   "key": "tid:gen-audio-btn",
+   "key": "tid:gen-audio-btn@0",
    "tag": "button",
    "rect": {
     "x": 629,
@@ -8069,7 +8069,7 @@
    "clsLen": 31
   },
   {
-   "key": "tid:volume-slider",
+   "key": "tid:volume-slider@0",
    "tag": "span",
    "rect": {
     "x": 740,
@@ -8344,7 +8344,7 @@
    "color": "rgb(226, 232, 240)"
   },
   {
-   "key": "tid:zoom-slider",
+   "key": "tid:zoom-slider@0",
    "tag": "span",
    "rect": {
     "x": 878,
@@ -8657,7 +8657,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:properties-panel",
+   "key": "tid:properties-panel@0",
    "tag": "div",
    "rect": {
     "x": 1000,
@@ -8696,7 +8696,7 @@
    "clsLen": 103
   },
   {
-   "key": "tid:properties-empty",
+   "key": "tid:properties-empty@0",
    "tag": "div",
    "rect": {
     "x": 1013,
@@ -8813,7 +8813,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:timeline-panel",
+   "key": "tid:timeline-panel@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -9205,7 +9205,7 @@
    "clsLen": 107
   },
   {
-   "key": "tid:timeline-ruler",
+   "key": "tid:timeline-ruler@0",
    "tag": "div",
    "rect": {
     "x": 140,
@@ -9478,7 +9478,7 @@
    "clsLen": 61
   },
   {
-   "key": "tid:playhead-ruler",
+   "key": "tid:playhead-ruler@0",
    "tag": "div",
    "rect": {
     "x": 140,
@@ -9517,7 +9517,7 @@
    "clsLen": 51
   },
   {
-   "key": "tid:track-row-track-370f8857-89c5-46b4-94a0-62ce276c0888",
+   "key": "tid:track-row-track-5910b92c-332d-4cd5-a257-4581198f0f27@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -9832,7 +9832,7 @@
    "clsLen": 45
   },
   {
-   "key": "tid:playhead-line",
+   "key": "tid:playhead-line@0",
    "tag": "div",
    "rect": {
     "x": 140,

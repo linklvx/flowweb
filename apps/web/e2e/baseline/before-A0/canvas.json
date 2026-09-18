@@ -1,6 +1,6 @@
 {
  "page": "canvas",
- "collectedAt": "2026-09-18T16:11:21.285Z",
+ "collectedAt": "2026-09-18T16:41:22.776Z",
  "url": "http://localhost:5173/canvas?projectId=gate-canvas-1",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 123,
@@ -1064,7 +1064,7 @@
    "clsLen": 29
   },
   {
-   "key": "tid:rf__wrapper",
+   "key": "tid:rf__wrapper@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -1259,7 +1259,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__edge-gate-edge-1",
+   "key": "tid:rf__edge-gate-edge-1@0",
    "tag": "g",
    "rect": {
     "x": 344,
@@ -1454,7 +1454,7 @@
    "clsLen": 17
   },
   {
-   "key": "tid:rf__node-gate-node-1",
+   "key": "tid:rf__node-gate-node-1@0",
    "tag": "div",
    "rect": {
     "x": 0,
@@ -1806,7 +1806,7 @@
    "clsLen": 39
   },
   {
-   "key": "tid:target-handle",
+   "key": "tid:target-handle@0",
    "tag": "div",
    "rect": {
     "x": -2,
@@ -2157,7 +2157,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:source-handle",
+   "key": "tid:source-handle@0",
    "tag": "div",
    "rect": {
     "x": 552,
@@ -2352,7 +2352,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__node-gate-node-2",
+   "key": "tid:rf__node-gate-node-2@0",
    "tag": "div",
    "rect": {
     "x": 360,
@@ -2704,7 +2704,7 @@
    "clsLen": 39
   },
   {
-   "key": "tid:target-handle",
+   "key": "tid:target-handle@1",
    "tag": "div",
    "rect": {
     "x": 358,
@@ -3055,7 +3055,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:source-handle",
+   "key": "tid:source-handle@1",
    "tag": "div",
    "rect": {
     "x": 912,
@@ -3289,7 +3289,7 @@
    "clsLen": 27
   },
   {
-   "key": "tid:rf__background",
+   "key": "tid:rf__background@0",
    "tag": "svg",
    "rect": {
     "x": 0,
@@ -4426,7 +4426,7 @@
    "clsLen": 51
   },
   {
-   "key": "tid:online-users",
+   "key": "tid:online-users@0",
    "tag": "div",
    "rect": {
     "x": 1018,

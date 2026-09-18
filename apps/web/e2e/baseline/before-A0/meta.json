@@ -1,13 +1,13 @@
 {
-  "commit": "b4384096f572dc48c0de59c4124ada6b236d98a1",
-  "collectedAt": "2026-09-18T16:11:28.285Z",
+  "commit": "137c29af11523085273edb085bbb14f078673da7",
+  "collectedAt": "2026-09-18T16:41:29.639Z",
   "viewport": {
     "width": 1280,
     "height": 800
   },
   "invocation": "COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts",
   "theme": "现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）",
-  "stableKeyFormat": "data-testid 优先，否则 DOM 路径(标签[同标签序号]/…)",
+  "stableKeyFormat": "data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)",
   "classNameStorage": "djb2 十六进制哈希 + 长度（不存原串）",
   "excludedRegions": [
     "canvas/WebGL 元素",

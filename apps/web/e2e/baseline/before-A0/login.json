@@ -1,6 +1,6 @@
 {
  "page": "login",
- "collectedAt": "2026-09-18T16:11:14.891Z",
+ "collectedAt": "2026-09-18T16:41:16.422Z",
  "url": "http://localhost:5173/login",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 40,
@@ -789,7 +789,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:error-line",
+   "key": "tid:error-line@0",
    "tag": "div",
    "rect": {
     "x": 320,

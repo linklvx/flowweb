@@ -1,6 +1,6 @@
 // A0 before-基线采集（现状/暗色基线；浅色主题基线刻意延后到 B6）。
 // 与断言分离：本 spec 只写原始 JSON + 截图 + meta；A5 的 diff/断言脚本另行编写（结构保证可配对：
-// 每条元素记录带稳定键 = data-testid 优先，否则 DOM 路径 + 标签 + 同标签序号）。
+// 每条元素记录带稳定键 = data-testid 优先（同 testid 重复时按 0 基 DOM 序加 @n 后缀），否则 DOM 路径 + 标签 + 同标签序号）。
 //
 // 调用方式（默认 `npx playwright test` 不跑本文件——env 守卫跳过）：
 //   COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts
@@ -40,10 +40,17 @@ async function snapshotDom(page: Page) {
       if (el.children.length === 0 && /^\s*\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*$/.test(el.textContent ?? '')) return 'time-text';
       return null;
     };
-    // 元素配对稳定键：data-testid 优先；否则 DOM 路径（标签 + 同标签兄弟序号，锚定 body）
+    // 元素配对稳定键：data-testid 优先；否则 DOM 路径（标签 + 同标签兄弟序号，锚定 body）。
+    // 同 testid 页内重复（如双门禁节点各带 target/source handle 对）→ 按 0 基 DOM 序加后缀
+    // tid:<id>@<n>（首现 @0、次现 @1…，唯一 testid 恒 @0）——防重复键静默互相覆盖。
+    const tidSeen = new Map<string, number>();
     const stableKey = (el: Element): string => {
       const tid = el.getAttribute('data-testid');
-      if (tid) return `tid:${tid}`;
+      if (tid) {
+        const n = tidSeen.get(tid) ?? 0;
+        tidSeen.set(tid, n + 1);
+        return `tid:${tid}@${n}`;
+      }
       const parts: string[] = [];
       let cur: Element | null = el;
       while (cur && cur.tagName !== 'BODY' && cur.tagName !== 'HTML') {
@@ -101,6 +108,14 @@ async function collectPage(page: Page, name: string, marker: () => Promise<void>
   await marker();
   await page.waitForTimeout(SETTLE_MS);
   const snap = await snapshotDom(page);
+  // 采集后稳定键唯一性断言（fail-loud）：重复键会让未来 differ 静默丢记录——有重复即抛错不落盘
+  const keyCount = new Map<string, number>();
+  for (const el of snap.elements) {
+    const k = (el as { key: string }).key;
+    keyCount.set(k, (keyCount.get(k) ?? 0) + 1);
+  }
+  const dupes = [...keyCount.entries()].filter(([, n]) => n > 1).map(([k, n]) => `${k}×${n}`);
+  if (dupes.length) throw new Error(`[baseline] ${name} 存在重复稳定键: ${dupes.join(', ')}`);
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(path.join(OUT_DIR, `${name}.json`), JSON.stringify({ page: name, collectedAt: new Date().toISOString(), ...snap }, null, 1));
   await page.screenshot({ path: path.join(OUT_DIR, `${name}.png`) });
@@ -221,14 +236,14 @@ test.describe('A0 before-基线采集', () => {
           viewport: VIEWPORT,
           invocation: 'COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts',
           theme: '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）',
-          stableKeyFormat: 'data-testid 优先，否则 DOM 路径(标签[同标签序号]/…)',
+          stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],
           computedPropertySet: [
             'rect(x,y,w,h)', 'padding(四边)', 'borderWidth(四边)', 'fontSize', 'lineHeight',
             'boxSizing', 'borderStyle(四边)', 'borderColor(四边)', 'color(仅 input/textarea/select/button)',
           ],
-          pages: fs.readdirSync(OUT_DIR).filter((f) => f.endsWith('.json') && f !== 'meta.json').map((f) => f.replace('.json', '')),
+          pages: fs.readdirSync(OUT_DIR).filter((f) => f.endsWith('.json') && f !== 'meta.json').sort().map((f) => f.replace('.json', '')),
         },
         null,
         2,

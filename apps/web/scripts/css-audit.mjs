@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A0 CSS 审计脚本（五路输出 → e2e/audit/audit-A0.json + audit-A0.md）
 // 纪律：只读分析，不改任何源文件。稳定键 = 文件 + 宿主元素签名（tag + 文件内序号），非行号。
+// 注意：@序号 键在同族更早条目被删除时会整体前移（A4 将删数百条）——diff 配对优先内容字段（file/tag/token/ctx），序号键仅兜底。
 // 用法：node scripts/css-audit.mjs [--rebuild]
 //   --rebuild 强制重跑 pnpm build（默认：dist/assets/*.css 缺失才构建）
 import { execSync, spawnSync } from 'node:child_process';
@@ -65,7 +66,7 @@ function extractLiterals(text, out = [], base = 0) {
           const interpStart = i + 2;
           let depth = 1;
           let j = interpStart;
-          while (j < n && depth > 0) { // 大括号计数定位插值体边界（嵌套对象/三元安全）
+          while (j < n && depth > 0) { // 大括号计数定位插值体边界（嵌套对象/三元安全；不跳过字符串字面量内的大括号——${x === "}}" 会错位，仓库现状无此形态）
             if (text[j] === '{') depth++;
             else if (text[j] === '}') depth--;
             else if (text[j] === '\\') j++;
@@ -372,18 +373,26 @@ function collectRoute3(occs, classPresent) {
   const uncertain = [];
   const seen = new Set();
   const literalIsClassString = new Map(); // ctx → 是否类字符串字面量（≥1 真类 + 类密度判据，拦测试标题等英文散文）
+  // 权衡：密度闸要求字面量含 ≥1 真类 → 整串全由（疑似类形状却无一存活的）死类组成的字面量被整串跳过
+  // ——死类少计模式。allDeadSkipped 把这类跳过计量化，供 B3 复查时作为可见信号。
+  const allDeadCtx = new Set();
+  let allDeadSkipped = 0;
   const qualifies = (ctx) => {
     if (!literalIsClassString.has(ctx)) {
       const toks = ctx.split(/\s+/).filter(Boolean);
       const real = toks.filter((t) => classPresent(t)).length;
       literalIsClassString.set(ctx, real >= 1 && (toks.length <= 3 || real / toks.length >= 0.4));
+      if (real === 0 && toks.length && toks.every((t) => looksLikeUtility(t))) allDeadCtx.add(ctx);
     }
     return literalIsClassString.get(ctx);
   };
   for (const o of occs) {
     if (!isContentFile(o.file)) continue;
     if (!looksLikeUtility(o.token)) continue;
-    if (!qualifies(o.ctx)) continue; // 散文/URL/data 属性值等非类字符串字面量——整串跳过
+    if (!qualifies(o.ctx)) { // 散文/URL/data 属性值等非类字符串字面量——整串跳过
+      if (allDeadCtx.has(o.ctx)) allDeadSkipped++; // 全死字面量：密度闸的已知少计，见 allDeadSkipped
+      continue;
+    }
     if (o.token.endsWith('-') || o.token.endsWith(':')) continue; // 拼接残片
     const k = `${o.file}|${o.token}|${o.start ?? o.line}`;
     if (seen.has(k)) continue;
@@ -405,6 +414,7 @@ function collectRoute3(occs, classPresent) {
   return {
     dead: { total: dead.length, families: family(dead) },
     uncertain: { total: uncertain.length, families: family(uncertain) },
+    allDeadSkipped,
   };
 }
 
@@ -533,7 +543,22 @@ function collectProbes(files) {
   for (const file of files.filter((f) => f.endsWith('.tsx'))) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(/<button\b/g)) {
-      const close = text.indexOf('>', m.index);
+      // 引号感知 + 表达式容器深度感知的开标签终结扫描：inline handler（onClick={() => fn()}）含更早的
+      // '>'，比较运算（disabled={n >= max}）同理——朴素 indexOf 会把 tagText 截断在 className 之前
+      // → 裸按钮登记假阳性（修复前 119 中 78 假）。规则：引号内字符不解析；{} 内的 '>' 不终结标签；
+      // 深度 0 且前置非 '='（防 =>）的 '>' 才是开标签终结。
+      let q = null;
+      let depth = 0;
+      let close = -1;
+      for (let i = m.index; i < text.length; i++) {
+        const ch = text[i];
+        if (q) { if (ch === q) q = null; continue; }
+        if (ch === '"' || ch === "'") { q = ch; continue; }
+        if (ch === '{') { depth++; continue; }
+        if (ch === '}') { depth = Math.max(0, depth - 1); continue; }
+        if (ch === '>' && depth === 0 && text[i - 1] !== '=') { close = i; break; }
+      }
+      if (close === -1) continue; // 扫到 EOF 无终结符（残缺/非标签形态）——不登记
       const tagText = text.slice(m.index, close + 1);
       const line = text.slice(0, m.index).split('\n').length;
       const aria = tagText.match(/aria-label\s*=\s*"([^"]*)"/);
@@ -636,6 +661,7 @@ function renderMd(audit) {
   p('## Route ③ 死类家族（compile-diff，content globs 内，动态拼接单列存疑）');
   p();
   p(`- 判死总数：**${audit.route3.dead.total}**（参考 ~25-27）；动态拼接存疑：${audit.route3.uncertain.total}`);
+  p(`- 全死字面量被密度闸整串跳过（死类少计模式）：**${audit.route3.allDeadSkipped}** 次——判据要求字面量含 ≥1 真类，全由死类组成的类串不可见，B3 复查信号`);
   p();
   p('| 类 token | 总次 | 产品次 |');
   p('|---|---|---|');
@@ -688,6 +714,7 @@ function renderMd(audit) {
   p('- border-[color] 计入 `[#hex]` 与 `[var(--…)]` 两形（后者现值域 token，同属"宽度+显式色"裁定列）');
   p('- 死类判定 = 类字符串字面量内的静态完整 token（content globs 内、产物 CSS 无规则）；判据三重：字面量需含真类（密度≥40%）、token 需完整工具类形状（纯前缀裸词/以 - 结尾的拼接残片不判）、模板插值边缘 token 只入存疑');
   p('- 与 grep 口径的已解释偏差：① grep 子串匹配会把测试标题里黏连中文的类名计入（bg-white/NN 差 1）；② grep 行数把同行多类少记（text-white 参考 213）；③ ring-white 参考按宿主元素 5 记、本表按出现次 7 记（WorkspaceToolbar:43 同点 ring-white/10 + focus-within:ring-white/20）');
+  p('- 裸 <button> 探针表本轮重冻 119 → 40（产品 31 + 测试 9，探针候选 4）：修复前开标签扫描被 inline handler 的 ">"（=>）截断，119 条中 78 假；比修复预估 ~41 再少 1 = CreditsPage.tsx 上一页/下一页按钮 disabled={ordersPage * 20 >= ordersTotal} 的 ">=" 截断假阳性（表达式容器深度感知后剔除，该按钮实有 className）');
   p('- 产物 CSS 类存在性判定 = 解析选择子类名集合后精确比对（含反转义），免疫 2xl: 等前缀数字的 hex 转义形态（\\32xl）');
   p('- 颜色债口径含颜色属性全族（bg/text/border/ring/fill/stroke/from/via/to/divide/outline/shadow/decoration/accent/caret）的 `[#hex]` 任意值');
   p('- audit 明细（含全部 items/稳定键）见 audit-A0.json');
@@ -730,7 +757,7 @@ function main() {
   console.log(`[audit] ① 颜色债 ${audit.route1.colorDebt.count} | 裸边框 ${audit.route1.bareBorder.count} | border-[color] ${audit.route1.borderColorExplicit.count} | divide ${audit.route1.divide.count} | textarea ${audit.route1.textarea.count} | 四格阵 ${audit.route1.fourGrid.codeCount}+${audit.route1.fourGrid.testCount}+${audit.route1.fourGrid.inlineCount}`);
   console.log(`[audit] ① white/black 归属 board=${audit.route1.themeUtilityAttribution.columns.board.count} island=${audit.route1.themeUtilityAttribution.columns.island.count} following=${audit.route1.themeUtilityAttribution.columns.following.count}`);
   console.log(`[audit] ② bg-white/NN ${audit.route2.bgWhite.count} | border-white/NN ${audit.route2.borderWhite.count} | text-white/NN ${audit.route2.textWhite.count} | ring-white/NN ${audit.route2.ringWhite.count} | divide-white ${audit.route2.divideWhite.count}`);
-  console.log(`[audit] ③ 死类 ${audit.route3.dead.total} | 存疑 ${audit.route3.uncertain.total}`);
+  console.log(`[audit] ③ 死类 ${audit.route3.dead.total} | 存疑 ${audit.route3.uncertain.total} | 全死跳过 ${audit.route3.allDeadSkipped}`);
   console.log(`[audit] ④ var 键/NN 违规 ${audit.route4.varSlashViolations.count} | [#hex]/NN ${audit.route4.hexSlashBaseline.count}`);
   console.log(`[audit] ⑤ token 引用 ${audit.route5.tokenRefs.total} | 引用图边 ${audit.route5.graphEdges.length} | D4 草案 ${audit.route5.draftBoardList.length} 组件`);
 }

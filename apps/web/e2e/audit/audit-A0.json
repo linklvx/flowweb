@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generatedAt": "2026-09-18T16:13:20.648Z",
-    "commit": "b4384096f572dc48c0de59c4124ada6b236d98a1",
+    "generatedAt": "2026-09-18T16:40:03.124Z",
+    "commit": "137c29af11523085273edb085bbb14f078673da7",
     "node": "v24.14.1",
     "tailwind": "3.4.19",
     "prodCssFiles": [
@@ -25752,7 +25752,8 @@
     "uncertain": {
       "total": 0,
       "families": []
-    }
+    },
+    "allDeadSkipped": 101
   },
   "route4": {
     "varValuedColorKeys": [],
@@ -28350,28 +28351,10 @@
   },
   "probes": {
     "bareButtons": {
-      "productCount": 110,
+      "productCount": 31,
       "testCount": 9,
       "note": "A1-1 四属性归零断言靶点：登记\"无 className 的 <button>\"；父级 font-size 基准由 before 基线快照的 fontSize 字段承接（本表登记哪些元素合格——login/register 页与带 aria-label 者为优先探针）",
       "items": [
-        {
-          "file": "src/components/AuthModal.tsx",
-          "line": 171,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/AuthModal.tsx",
-          "line": 178,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
         {
           "file": "src/components/HistoryPage/__tests__/HistoryModal.test.tsx",
           "line": 94,
@@ -28380,60 +28363,6 @@
           "hasStyleAttr": false,
           "probeCandidate": false,
           "isTest": true
-        },
-        {
-          "file": "src/components/layout/AnnouncementBar.tsx",
-          "line": 21,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/layout/AnnouncementBar.tsx",
-          "line": 33,
-          "tag": "button",
-          "ariaLabel": "关闭公告",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/components/layout/Sidebar.tsx",
-          "line": 87,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/layout/Sidebar.tsx",
-          "line": 122,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/layout/Sidebar.tsx",
-          "line": 150,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/layout/TopActionBar.tsx",
-          "line": 125,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
         },
         {
           "file": "src/components/MaterialLibrary/FileGrid/FileCard.test.tsx",
@@ -28454,33 +28383,6 @@
           "isTest": true
         },
         {
-          "file": "src/components/VipSubscribeModal.tsx",
-          "line": 400,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/VipSubscribeModal.tsx",
-          "line": 429,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/components/VipSubscribeModal.tsx",
-          "line": 511,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
           "file": "src/pages/canvas/components/CanvasView.tsx",
           "line": 494,
           "tag": "button",
@@ -28499,20 +28401,11 @@
           "isTest": false
         },
         {
-          "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-          "line": 357,
-          "tag": "button",
-          "ariaLabel": "查看积分明细",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
           "file": "src/pages/canvas/components/groups/AspectRatioDropdown.tsx",
           "line": 34,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28521,7 +28414,7 @@
           "line": 45,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28530,7 +28423,7 @@
           "line": 51,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28539,7 +28432,7 @@
           "line": 64,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28638,7 +28531,7 @@
           "line": 87,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28665,7 +28558,7 @@
           "line": 150,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28674,7 +28567,7 @@
           "line": 168,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28692,34 +28585,7 @@
           "line": 30,
           "tag": "button",
           "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/AiToolActionPopup.tsx",
-          "line": 108,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx",
-          "line": 212,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx",
-          "line": 229,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
+          "hasStyleAttr": true,
           "probeCandidate": false,
           "isTest": false
         },
@@ -28733,69 +28599,6 @@
           "isTest": true
         },
         {
-          "file": "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.tsx",
-          "line": 22,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.tsx",
-          "line": 39,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx",
-          "line": 42,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx",
-          "line": 64,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/config-panel/RatioResolutionPopover.tsx",
-          "line": 79,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/ImageExtConfigPanel.tsx",
-          "line": 191,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/ImageExtConfigPanel.tsx",
-          "line": 243,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
           "file": "src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx",
           "line": 16,
           "tag": "button",
@@ -28803,123 +28606,6 @@
           "hasStyleAttr": false,
           "probeCandidate": false,
           "isTest": true
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/TextConfigPanel.tsx",
-          "line": 212,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/TextConfigPanel.tsx",
-          "line": 229,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
-          "line": 220,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 272,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 289,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 305,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 339,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 355,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 376,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 391,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 425,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-          "line": 441,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-          "line": 167,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
         },
         {
           "file": "src/pages/canvas/components/nodes/VideoNodeToolbar.tsx",
@@ -29003,15 +28689,6 @@
           "isTest": true
         },
         {
-          "file": "src/pages/canvas/components/SaveStatusIndicator.tsx",
-          "line": 13,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
           "file": "src/pages/canvas/page.test.tsx",
           "line": 332,
           "tag": "button",
@@ -29030,132 +28707,6 @@
           "isTest": true
         },
         {
-          "file": "src/pages/canvas/page.tsx",
-          "line": 171,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 80,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 90,
-          "tag": "button",
-          "ariaLabel": "撤销",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 92,
-          "tag": "button",
-          "ariaLabel": "重做",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 94,
-          "tag": "button",
-          "ariaLabel": "分割",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 97,
-          "tag": "button",
-          "ariaLabel": "删除",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
-          "line": 123,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/PropertiesPanel.tsx",
-          "line": 15,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx",
-          "line": 296,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx",
-          "line": 298,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/timeline/TrackRow.tsx",
-          "line": 37,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/timeline/TrackRow.tsx",
-          "line": 40,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/canvas/video-editor/components/timeline/TrackRow.tsx",
-          "line": 42,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/home/components/BannerCarousel.tsx",
-          "line": 93,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
           "file": "src/pages/home/components/CreateCanvasCard.test.tsx",
           "line": 11,
           "tag": "button",
@@ -29163,267 +28714,6 @@
           "hasStyleAttr": false,
           "probeCandidate": false,
           "isTest": true
-        },
-        {
-          "file": "src/pages/home/components/CreateCanvasCard.tsx",
-          "line": 27,
-          "tag": "button",
-          "ariaLabel": "新建画布",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/CreditsPage.tsx",
-          "line": 132,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/CreditsPage.tsx",
-          "line": 146,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/CreditsPage.tsx",
-          "line": 157,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/CreditsPage.tsx",
-          "line": 199,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/CreditsPage.tsx",
-          "line": 206,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/settings/ProfilePage.tsx",
-          "line": 130,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/team/TeamBillingPage.tsx",
-          "line": 115,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/team/TeamDetail.tsx",
-          "line": 229,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/team/TeamDetail.tsx",
-          "line": 241,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/team/TeamSidebar.tsx",
-          "line": 83,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/templates/TemplateMarketPage.tsx",
-          "line": 44,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/templates/TemplateMarketPage.tsx",
-          "line": 90,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/templates/TemplatePreviewPage.tsx",
-          "line": 46,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/templates/TemplatePreviewPage.tsx",
-          "line": 68,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/videos/CarouselBar.tsx",
-          "line": 28,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/videos/PlayView.tsx",
-          "line": 92,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/videos/ProcessView.tsx",
-          "line": 61,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/CanvasCard.tsx",
-          "line": 41,
-          "tag": "button",
-          "ariaLabel": "更多操作",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/FolderCard.tsx",
-          "line": 32,
-          "tag": "button",
-          "ariaLabel": "更多操作",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceBreadcrumb.tsx",
-          "line": 29,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceBreadcrumb.tsx",
-          "line": 35,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceDimension.tsx",
-          "line": 176,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceDimension.tsx",
-          "line": 210,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceDimension.tsx",
-          "line": 246,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceTabBar.tsx",
-          "line": 10,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceTabBar.tsx",
-          "line": 14,
-          "tag": "button",
-          "ariaLabel": null,
-          "hasStyleAttr": false,
-          "probeCandidate": false,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceToolbar.tsx",
-          "line": 59,
-          "tag": "button",
-          "ariaLabel": "Grid view",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
-        },
-        {
-          "file": "src/pages/workspace/components/WorkspaceToolbar.tsx",
-          "line": 66,
-          "tag": "button",
-          "ariaLabel": "List view",
-          "hasStyleAttr": false,
-          "probeCandidate": true,
-          "isTest": false
         }
       ]
     },

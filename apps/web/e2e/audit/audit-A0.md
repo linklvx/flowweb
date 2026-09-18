@@ -1,7 +1,7 @@
 # A0 CSS 审计报告（before 基线冻结）
 
-- 生成时间：2026-09-18T16:13:20.648Z
-- 基线 commit：`b4384096f572dc48c0de59c4124ada6b236d98a1`
+- 生成时间：2026-09-18T16:40:03.124Z
+- 基线 commit：`137c29af11523085273edb085bbb14f078673da7`
 - 产物 CSS：dist/assets/index-Dx6BxzyI.css（compile-diff 的"产物侧"）
 - 统计口径：按**类字符串出现次**计（任务参考值为 grep 行数口径，同行多次/含 `text-white/NN` 子串等会造成偏差——本表为冻结权威口径）
 - 稳定键：`file#tag@序号`（宿主元素签名，非行号）；行号仅辅助人读
@@ -44,6 +44,7 @@
 ## Route ③ 死类家族（compile-diff，content globs 内，动态拼接单列存疑）
 
 - 判死总数：**30**（参考 ~25-27）；动态拼接存疑：0
+- 全死字面量被密度闸整串跳过（死类少计模式）：**101** 次——判据要求字面量含 ≥1 真类，全由死类组成的类串不可见，B3 复查信号
 
 | 类 token | 总次 | 产品次 |
 |---|---|---|
@@ -162,7 +163,7 @@
 
 ## Probe 登记（A1 断言靶点）
 
-- 裸 `<button>`（无 className）：产品 110 + 测试 9；优先探针=login/register 页与带 aria-label 者（父级 font-size 基准由基线快照承接）
+- 裸 `<button>`（无 className）：产品 31 + 测试 9；优先探针=login/register 页与带 aria-label 者（父级 font-size 基准由基线快照承接）
 - WorkspaceTabBar 双臂：选中 `text-white border-b-2 border-white border-x-0 border-t-0` / 未选中 `text-white/50 border-none`；选择器 `getByRole("button", { name: "个人项目" })`
 - aria-disabled 现状：4 行（产品 1 + 测试 3 = 4 行）
 
@@ -172,6 +173,7 @@
 - border-[color] 计入 `[#hex]` 与 `[var(--…)]` 两形（后者现值域 token，同属"宽度+显式色"裁定列）
 - 死类判定 = 类字符串字面量内的静态完整 token（content globs 内、产物 CSS 无规则）；判据三重：字面量需含真类（密度≥40%）、token 需完整工具类形状（纯前缀裸词/以 - 结尾的拼接残片不判）、模板插值边缘 token 只入存疑
 - 与 grep 口径的已解释偏差：① grep 子串匹配会把测试标题里黏连中文的类名计入（bg-white/NN 差 1）；② grep 行数把同行多类少记（text-white 参考 213）；③ ring-white 参考按宿主元素 5 记、本表按出现次 7 记（WorkspaceToolbar:43 同点 ring-white/10 + focus-within:ring-white/20）
+- 裸 <button> 探针表本轮重冻 119 → 40（产品 31 + 测试 9，探针候选 4）：修复前开标签扫描被 inline handler 的 ">"（=>）截断，119 条中 78 假；比修复预估 ~41 再少 1 = CreditsPage.tsx 上一页/下一页按钮 disabled={ordersPage * 20 >= ordersTotal} 的 ">=" 截断假阳性（表达式容器深度感知后剔除，该按钮实有 className）
 - 产物 CSS 类存在性判定 = 解析选择子类名集合后精确比对（含反转义），免疫 2xl: 等前缀数字的 hex 转义形态（\32xl）
 - 颜色债口径含颜色属性全族（bg/text/border/ring/fill/stroke/from/via/to/divide/outline/shadow/decoration/accent/caret）的 `[#hex]` 任意值
 - audit 明细（含全部 items/稳定键）见 audit-A0.json
