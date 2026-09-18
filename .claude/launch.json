@@ -56,6 +56,22 @@
       "cwd": "${workspaceFolder}/apps/web"
     },
     {
+      "name": "web-preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@flowweb/web",
+        "exec",
+        "vite",
+        "preview",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
+      "port": 5173,
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "minio",
       "runtimeExecutable": "minio.exe",
       "runtimeArgs": [
