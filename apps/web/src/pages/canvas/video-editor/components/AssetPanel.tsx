@@ -88,7 +88,7 @@ export function AssetPanel() {
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="px-2 py-1 text-[12px] text-[var(--ve-text-dim)]">全集资产</div>
         {loading && <div className="px-2 text-[12px] text-[var(--ve-text-dim)]">加载中…</div>}
-        <ul className="m-0">
+        <ul>
           {filtered.map(i => (
             <li key={i.mediaId}
               data-testid={`asset-item-${i.mediaId}`}
@@ -122,7 +122,7 @@ export function AssetPanel() {
         {!loading && filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-[var(--ve-text-dim)]">暂无资产</div>}
         {/* spec 全集资产 = 画布产物 + 团队素材库——团队素材（folder 接口未按目录下钻，一期只根目录） */}
         <div className="px-2 py-1 mt-2 text-[12px] text-[var(--ve-text-dim)]">团队素材</div>
-        <ul className="m-0">
+        <ul>
           {team.items.map((it) => (
             <li key={it.mediaId}
               data-testid={`team-asset-item-${it.mediaId}`}
@@ -157,7 +157,7 @@ export function AssetPanel() {
         {generatedMediaIds.length > 0 && (
           <>
             <div className="px-2 py-1 mt-2 text-[12px] text-[var(--ve-text-dim)]">生成结果</div>
-            <ul className="m-0">
+            <ul>
               {generatedMediaIds.map((mediaId) => {
                 const info = mediaInfo[mediaId];
                 return (
