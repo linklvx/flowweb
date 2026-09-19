@@ -1,0 +1,68 @@
+{
+  "commit": "670e541eb55cbc6cb49240df9501ec387f6a9f8f",
+  "collectedAt": "2026-09-19T01:31:50.617Z",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "invocation": "COLLECT_BASELINE=1 LIGHT_BASELINE=1 BASELINE_DIR=light-B6 npx playwright test e2e/a0-collect-baseline.spec.ts",
+  "theme": "浅色目标基线（C 段浅色对照目标）：html 注入 .light（B 期无主题切换 UI，测试侧注入即机制，快照/截图前）；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主（--fw-* 消费者≈0，C2 接线前 html.light 对其基本无效果=预期）",
+  "lightInjection": {
+    "mechanism": "collectPage 内 page.evaluate classList.add(\"light\")（每页加载后、SETTLE/快照/截图前；goto 重建文档故逐页重注入）",
+    "islandInvarianceProbes": [
+      {
+        "id": "videos-封面底-#262626字面",
+        "expected": "rgb(38, 38, 38)",
+        "actual": "rgb(38, 38, 38)",
+        "pass": true
+      },
+      {
+        "id": "canvas-html根--fw-bg翻浅(注入生效)",
+        "expected": "#f7f8fa",
+        "actual": "#f7f8fa",
+        "pass": true
+      },
+      {
+        "id": "canvas-画板wrapper--fw-bg钉深",
+        "expected": "#141414",
+        "actual": "#141414",
+        "pass": true
+      },
+      {
+        "id": "video-editor-壳底--ve-bg自持",
+        "expected": "rgb(20, 20, 20)",
+        "actual": "rgb(20, 20, 20)",
+        "pass": true
+      }
+    ]
+  },
+  "stableKeyFormat": "data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)",
+  "classNameStorage": "djb2 十六进制哈希 + 长度（不存原串）",
+  "excludedRegions": [
+    "canvas/WebGL 元素",
+    "video 元素",
+    "波形容器（data-testid/class 含 wave）",
+    "纯时间文本（mm:ss|h:mm:ss）"
+  ],
+  "computedPropertySet": [
+    "rect(x,y,w,h)",
+    "padding(四边)",
+    "borderWidth(四边)",
+    "fontSize",
+    "lineHeight",
+    "boxSizing",
+    "borderStyle(四边)",
+    "borderColor(四边)",
+    "color(仅 input/textarea/select/button)"
+  ],
+  "pages": [
+    "admin-models",
+    "canvas",
+    "login",
+    "material-modal",
+    "register",
+    "video-editor",
+    "videos",
+    "works"
+  ]
+}

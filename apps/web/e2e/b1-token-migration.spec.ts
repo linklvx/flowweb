@@ -1,12 +1,13 @@
-// B1 红用例（plan B1：B2 颜色迁移的行为钉子）——默认套件跳过（B1_RED=1 才启用），生命周期：
-//   B2 迁移落地 → 本文件全绿；B6 撤 B1_RED 守卫 → 三组转常驻默认门禁（同 a1 A6 收口模式）。
+// B1 常驻门禁（plan B1：B2 颜色迁移的行为钉子；B2 迁移落地转绿，B6 撤 B1_RED 守卫转常驻默认套件——终态）：
+//   三组永久回归守卫——源序结构（B1-1：.light 块全局规则序晚于 :root,.dark，防 CSS 重排致浅色恒输）/
+//   token 工具类落产品元素（B1-2：className 含 token 类 + computed 零回退）/ 暗色零回退对照（B1-3：冻结深色现状值）。
 //
-// plan-B1 三条对账（v1.2）：
-//   plan-1「源序断言（html.light 浅值）」行为半已由 b0-token-blocks 组3 落地（绿）；结构半 = 本文件
-//     B1-1【绿·结构守卫】（D8：.light 块全局规则序必须晚于 :root,.dark 块，防未来 CSS 重排使浅色恒输）；
-//   plan-2「token 工具类生效」= 本文件 B1-2（未迁移前唯一红组；红因 = className 缺 token 工具类，
-//     每条断言 message 带实际 className）；B2 三通道改写后转绿；
-//   plan-3「暗色零回退对照」= 本文件 B1-3（现绿，B2 后必须仍绿）。
+// plan-B1 三条对账（v1.2，B6 终态）：
+//   plan-1「源序断言（html.light 浅值）」行为半由 b0-token-blocks 组3 落地（绿）；结构半 = 本文件
+//     B1-1【结构守卫】（D8：.light 块全局规则序必须晚于 :root,.dark 块，防未来 CSS 重排使浅色恒输）；
+//   plan-2「token 工具类生效」= 本文件 B1-2（B2 三通道改写后绿——className 含 token 工具类 +
+//     border 桥删字面类，回潮即红）；
+//   plan-3「暗色零回退对照」= 本文件 B1-3（B2 迁移前后 computed 同值，冻结深色现状值永久钉死）。
 //
 // 探针域裁定（judgment，依据 e2e/audit/domain-token-adjudication-B0.json + spec D4 + 源码逐个复核）：
 //   全部取「跟随域」宿主（AppLayout chrome / 画布壳 = B2 会改写的宿主），恒深域字面值保留集一律不采——
@@ -33,8 +34,6 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 
 const HERE = import.meta.dirname!;
 const USER_STATE = path.join(HERE, '.auth', 'user.json');
-
-test.skip(!process.env.B1_RED, 'B1 红用例专用：B1_RED=1 npx playwright test e2e/b1-token-migration.spec.ts（B2 迁移后转绿，B6 撤守卫转常驻）');
 
 type ColorProp = 'backgroundColor' | 'color' | 'borderTopColor';
 
@@ -250,7 +249,7 @@ test.describe('B1-1【绿·结构守卫】D8 源序结构断言（.light 块在 
   });
 });
 
-test.describe('B1-2【红→B2 绿】token 工具类落到产品元素（未迁移前唯一红组）', () => {
+test.describe('B1-2【常驻】token 工具类落到产品元素（B2 改写后绿，字面类回潮即红）', () => {
   test('/works 跟随域四探针：computed 零回退先行 + className 缺 token 工具类（红因）', async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: USER_STATE });
     const page = await ctx.newPage();

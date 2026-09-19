@@ -7,6 +7,12 @@
 // 产物：e2e/baseline/<dir>/<page>.json + <page>.png + meta.json（含基线 commit）
 // 输出目录可用 BASELINE_DIR 覆盖（相对 e2e/baseline/ 的目录名；默认 before-A0 不动）：
 //   A 段后复采（A5 diff 用）：COLLECT_BASELINE=1 BASELINE_DIR=after-A npx playwright test e2e/a0-collect-baseline.spec.ts
+//   B6 浅色目标基线（C 段浅色对照目标）：COLLECT_BASELINE=1 LIGHT_BASELINE=1 BASELINE_DIR=light-B6 npx playwright test e2e/a0-collect-baseline.spec.ts
+//     —— B 期无主题切换 UI，测试侧注入 html.light 即机制（页加载后、快照/截图前）。
+//     D4 语义：岛/画板不受动——login 岛本征浅色；canvas 画板 wrapper colorMode=dark 钉深
+//     （:root,.dark 块在 wrapper 重新声明 --fw-*，覆盖 html.light 继承浅值）；videos/video-editor/
+//     admin 恒深域用字面值与自持 token（--vw-*/--ve-*，:root 定义非主题块），html.light 只翻转
+//     跟随域 --fw-* 消费者。采集时附岛不变性探针（结果落 meta，失败即红）。
 //
 // 加载稳定性纪律：目标元素出现 + 固定沉降等待；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 import { execSync } from 'node:child_process';
@@ -21,6 +27,17 @@ if (!/^[a-zA-Z0-9-]+$/.test(BASELINE_DIR)) throw new Error(`[baseline] BASELINE_
 const OUT_DIR = path.join(HERE, 'baseline', BASELINE_DIR);
 const VIEWPORT = { width: 1280, height: 800 };
 const SETTLE_MS = 800; // 目标元素出现后的固定沉降（动画/字体收尾），不做 networkidle
+const LIGHT = !!process.env.LIGHT_BASELINE; // 浅色目标基线模式（B6）：html.light 注入后再快照
+
+/** 浅色采集岛不变性探针结果（LIGHT 模式专用；afterAll 落 meta） */
+const LIGHT_PROBES: Array<{ id: string; expected: string; actual: string; pass: boolean }> = [];
+
+/** html.light 下恒深域值不得翻转（D4）——断言失败即红，结果记录进 meta 作 B6 证据 */
+async function probeInvariance(page: Page, id: string, read: () => Promise<string>, expectedDark: string) {
+  const actual = await read();
+  LIGHT_PROBES.push({ id, expected: expectedDark, actual, pass: actual === expectedDark });
+  expect(actual, `[light-B6 岛不变性/${id}] html.light 注入下恒深域值必须保持深色值`).toBe(expectedDark);
+}
 
 test.skip(!process.env.COLLECT_BASELINE, 'A0 基线采集专用：COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts');
 
@@ -111,6 +128,7 @@ async function snapshotDom(page: Page) {
 /** 采集一页：等标记元素 → 沉降 → DOM 快照 JSON + 视口截图 */
 async function collectPage(page: Page, name: string, marker: () => Promise<void>) {
   await marker();
+  if (LIGHT) await page.evaluate(() => document.documentElement.classList.add('light'));
   await page.waitForTimeout(SETTLE_MS);
   const snap = await snapshotDom(page);
   // 采集后稳定键唯一性断言（fail-loud）：重复键会让未来 differ 静默丢记录——有重复即抛错不落盘
@@ -156,6 +174,14 @@ test.describe('A0 before-基线采集', () => {
       await page.goto('/videos');
       await expect(page.getByText('A0-0 门禁样例视频').first()).toBeVisible({ timeout: 15_000 });
     });
+    if (LIGHT) {
+      // videos 整域恒深（D4 保留）：封面底 #262626 字面值不随 html.light 翻转
+      await probeInvariance(page, 'videos-封面底-#262626字面', () => page.evaluate(() => {
+        const card = Array.from(document.querySelectorAll('a[data-card]'))
+          .find((a) => a.textContent?.includes('A0-0 门禁样例视频'));
+        return card ? getComputedStyle(card.querySelector('.aspect-video')!).backgroundColor : '(未找到门禁卡)';
+      }), 'rgb(38, 38, 38)');
+    }
     await ctx.close();
   });
 
@@ -167,6 +193,11 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.locator('.react-flow')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 10_000 });
     });
+    if (LIGHT) {
+      // D4 语义双证：html 根 --fw-bg 翻浅（注入生效正向对照）+ 画板 wrapper 经 .dark 块重新声明保持深色
+      await probeInvariance(page, 'canvas-html根--fw-bg翻浅(注入生效)', () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
+      await probeInvariance(page, 'canvas-画板wrapper--fw-bg钉深', () => page.evaluate(() => getComputedStyle(document.querySelector('.react-flow')!).getPropertyValue('--fw-bg').trim()), '#141414');
+    }
     await collectPage(page, 'material-modal', async () => {
       await page.getByRole('button', { name: '素材库' }).click();
       await expect(page.getByText('我的素材库').first()).toBeVisible({ timeout: 10_000 });
@@ -191,6 +222,10 @@ test.describe('A0 before-基线采集', () => {
       await page.getByRole('button', { name: '⤢ 全屏编辑' }).first().click();
       await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
     });
+    if (LIGHT) {
+      // video-editor 岛自持 token：--ve-bg 定义在 :root（非主题块），html.light 不翻转
+      await probeInvariance(page, 'video-editor-壳底--ve-bg自持', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).backgroundColor), 'rgb(20, 20, 20)');
+    }
 
     // 清理：Esc 关编辑器（flush 后 close）→ 逐个选中并删除全部 videoEdit 节点 → 断言画布复原为 gate 双节点
     await page.keyboard.press('Escape');
@@ -239,8 +274,13 @@ test.describe('A0 before-基线采集', () => {
           commit: getCommit(),
           collectedAt: new Date().toISOString(),
           viewport: VIEWPORT,
-          invocation: `COLLECT_BASELINE=1${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
-          theme: BASELINE_DIR === 'before-A0' ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）' : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
+          invocation: `COLLECT_BASELINE=1${LIGHT ? ' LIGHT_BASELINE=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
+          theme: LIGHT
+            ? '浅色目标基线（C 段浅色对照目标）：html 注入 .light（B 期无主题切换 UI，测试侧注入即机制，快照/截图前）；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主（--fw-* 消费者≈0，C2 接线前 html.light 对其基本无效果=预期）'
+            : BASELINE_DIR === 'before-A0'
+              ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
+              : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
+          ...(LIGHT ? { lightInjection: { mechanism: 'collectPage 内 page.evaluate classList.add("light")（每页加载后、SETTLE/快照/截图前；goto 重建文档故逐页重注入）', islandInvarianceProbes: LIGHT_PROBES } } : {}),
           stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],
