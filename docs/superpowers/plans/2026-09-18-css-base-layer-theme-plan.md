@@ -231,3 +231,7 @@ register/page.tsx 深色（#0f0f0f/#1a1a1a/#333）→ 浅色营销风对齐 logi
 1. **LoginModal@VideoPlayerModal：方案 A 恒浅全仓一致**——实证 VideoPlayerModal.tsx:62 Provider 只设 zIndexPopupBase 无 algorithm → 该宿主现状本就浅色渲染（黑壳白弹窗=现状非新增断层），A=零行为变更、B 才引入变更；先例 video-works.md:27 一致
 2. **C4 入口：TopActionBar**——chrome 跟随主题全局可见；/videos 恒深域内入口控件是 chrome 一部分不做岛（已知接受项）
 3. **--fw-accent=#4ade80（填充）+ 新增 --fw-accent-text（前景，浅色档 #16a34a 系）+ 删 --fw-accent-success（同值）**；#6C5CE7 按字面值全域豁免（含 VideoEditNode canvas 域 8 处）；营销蓝豁免；将来恒深域强调色另立 token 不复用 accent
+
+## 9. 实施后记（2026-09-19）
+
+A/B/C 三段按计划全部任务完成、逐段审查通过；实施期实证订正（§0.3-4 cssinjs prepend 注入方向、A5 box-sizing 回归未复现、O5 岛归属两处翻转、O4 进程勘误等八项）汇总见 spec v1.9 修订记录。工程基线定格：web 默认门禁 20+ 测试套件、全量 vitest 2627 用例绿，ESLint 双新规则（行禁任意值 hex + no-theme-utility）与 scripts/css-audit.mjs differ/斜杠双门禁常驻；三套基线快照落盘备查——before-A0（缺陷特征化）、after-A（边框涌现修剪）、light-B6（浅色基线）。
