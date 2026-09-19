@@ -71,6 +71,11 @@
   - `color rgba(255, 255, 255, 0.9)→rgb(226, 232, 240)` ×1
   - `color rgba(255, 255, 255, 0.8)→rgb(226, 232, 240)` ×1
 
+### 2c. D 段预期类别（注册配对吸收，canvas-migration-registry.json——D 对 attrSetVersion=D1 时生效）
+
+- 注册配对 0 组（page 限定 0 + 全局 0）；本 diff 吸收 **0** 条（命中层级记入条目：[page] 优先 / [global] 兜底）
+  - （无——A5 旧对不读 D 注册表；D 对下采集页未命中任何注册色对时为 0）
+
 ## 3. 几何层归因汇总（w/h/x/y/padding/border-width/font-size 逐条）
 
 | 归因 | 条数 | 说明 |

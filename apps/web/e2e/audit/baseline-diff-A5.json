@@ -10,7 +10,8 @@
    "commit": "6ac941f579f994653f30fd4f41371ed631cf8867",
    "collectedAt": "2026-09-19T00:28:36.047Z"
   },
-  "generatedAt": "2026-09-19T04:27:10.323Z",
+  "generatedAt": "2026-09-19T22:05:48.792Z",
+  "attrSetVersion": "A0",
   "classifier": {
    "cascadeMax": 40,
    "bridgeExpected": [
@@ -70,6 +71,12 @@
    "color rgba(255, 255, 255, 0.9)→rgb(226, 232, 240)": 1,
    "color rgba(255, 255, 255, 0.8)→rgb(226, 232, 240)": 1
   }
+ },
+ "dExpectedGate": {
+  "registry": "e2e/audit/canvas-migration-registry.json",
+  "pairsRegistered": 0,
+  "absorbedTotal": 0,
+  "absorbedByPair": {}
  },
  "pairing": {
   "admin-models": {
