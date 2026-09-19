@@ -170,7 +170,7 @@ describe('AddNodeMenu', () => {
     const menuItems = screen.getAllByRole('menuitem');
     for (const item of menuItems) {
       const iconContainer = item.firstElementChild as HTMLElement;
-      expect(iconContainer).toHaveStyle({ backgroundColor: 'var(--canvas-controls-hover)' });
+      expect(iconContainer).toHaveStyle({ backgroundColor: 'var(--fw-overlay-1)' });
     }
   });
 

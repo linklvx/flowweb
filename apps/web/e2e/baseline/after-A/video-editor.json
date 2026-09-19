@@ -1,6 +1,6 @@
 {
  "page": "video-editor",
- "collectedAt": "2026-09-18T23:38:37.403Z",
+ "collectedAt": "2026-09-19T00:04:24.889Z",
  "url": "http://localhost:5173/canvas?projectId=gate-canvas-1",
  "title": "Flow123 - AI 多模态内容创作平台",
  "elementCount": 252,
@@ -3250,7 +3250,7 @@
    "clsLen": 0
   },
   {
-   "key": "tid:rf__node-node_1789774716420_1@0",
+   "key": "tid:rf__node-node_1789776263892_1@0",
    "tag": "div",
    "rect": {
     "x": 515,
@@ -3289,7 +3289,7 @@
    "clsLen": 79
   },
   {
-   "key": "tid:video-edit-node-node_1789774716420_1@0",
+   "key": "tid:video-edit-node-node_1789776263892_1@0",
    "tag": "div",
    "rect": {
     "x": 515,
@@ -9517,7 +9517,7 @@
    "clsLen": 51
   },
   {
-   "key": "tid:track-row-track-0d571f65-6609-4dfc-9c2e-7cec8dd97c15@0",
+   "key": "tid:track-row-track-eb7fd7f4-28ce-4e25-9449-973d178e34bf@0",
    "tag": "div",
    "rect": {
     "x": 0,

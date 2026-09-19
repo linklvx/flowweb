@@ -282,7 +282,7 @@ export function CreditsPanelContent({
         <button
           type="button"
           onClick={onInvite}
-          className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-overlay-2 px-4 py-3.5 text-left transition hover:bg-white/[0.1]"
+          className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-overlay-2 px-4 py-3.5 text-left transition hover:bg-overlay-2"
           style={{
             background: 'linear-gradient(180deg, rgba(255,255,255,0.04), transparent)',
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -290,7 +290,7 @@ export function CreditsPanelContent({
           }}
         >
           <span className="pointer-events-none absolute -left-6 -bottom-6 h-20 w-20 rounded-full bg-rose-300/15 blur-2xl" />
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-overlay-2 bg-white/[0.08] text-text">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-overlay-2 bg-overlay-2 text-text">
             <GiftIcon className="h-5 w-5" />
           </span>
           <span className="relative min-w-0 flex-1">

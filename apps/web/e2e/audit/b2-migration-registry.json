@@ -101,6 +101,73 @@
       "e2e/b1-token-migration.spec.ts（静态探针 topbar-赚积分 rgb(208,208,208)→rgb(226,232,240) 钉 B2-b 归并后值）"
     ]
   },
+  "deferredToC2": {
+    "name": "B2-c 通道1：antd ConfigProvider 组件 token 位点——钉深保留（零码改动），C2 algorithm 接线后重裁",
+    "date": "2026-09-18",
+    "rationale": "App.tsx Provider 现跑 antd 默认（浅色）algorithm，这些位点把浮层/选中色按住为暗色；B 段删除即浅色回归（B6 暗色零回退复核必红）。C2 将 App algorithm 接到主题 store 后，darkAlgorithm 原生供给 colorBgElevated 等暗档浮层色——届时本组位点移除或改为主题化引用。",
+    "sites": [
+      { "file": "src/components/layout/TopActionBar.tsx", "lines": "100-111", "component": "Dropdown", "values": { "colorBgElevated": "#252525", "colorText": "#e2e8f0", "controlItemBgHover": "#3a3a3a", "borderRadiusLG": 12, "paddingXXS": 6 }, "ui": "顶栏用户菜单浮层（works/videos 门禁页入口恒渲染）" },
+      { "file": "src/pages/canvas/components/CanvasTopBar.tsx", "lines": "160-171", "component": "Dropdown", "values": { "colorBgElevated": "#252525", "colorText": "#e2e8f0", "controlItemBgHover": "#3a3a3a", "borderRadiusLG": 12, "paddingXXS": 6 }, "ui": "画布页用户菜单浮层（与 TopActionBar 同款拷贝）" },
+      { "file": "src/pages/workspace/WorkspacePage.tsx", "lines": "69-79", "component": "Tabs", "values": { "itemColor": "#7a7a7a", "itemHoverColor": "#a6a6a6", "itemSelectedColor": "#f5f5f5", "inkBarColor": "#f5f5f5" }, "ui": "团队维度 Tabs（成员名单横排页签）" }
+    ],
+    "computedInvariance": "JS 主题对象字符串，非 className/CSS——本批无任何码改动，渲染与 differ 天然不变",
+    "whyKept": "B 段删除即浅色回归；C2 algorithm 接线后 dark 算法原生供给，届时移除或主题化"
+  },
+  "b2cChannels": {
+    "name": "B2-c 收尾三通道：MaterialLibraryModal.css token 化 / 域 token 语义化 17 / inline-JS 通道逐处裁定",
+    "date": "2026-09-18",
+    "channel2": {
+      "file": "src/components/MaterialLibrary/MaterialLibraryModal.css",
+      "hostAdjudication": {
+        "verdict": "following（跟随域）→ token 化（spec §3.2：写死值岛反转与 algorithm 都改不动）",
+        "evidence": [
+          "渲染宿主 src/pages/canvas/page.tsx:302 <MaterialLibraryModal/>——画布页壳层（与 AddNodeMenu/CanvasTopBar 同级渲染），非 board 节点子树、非 video-editor 岛组件",
+          "antd Modal 未设 getContainer → 门户口直挂 document.body，DOM 上不处于任何岛根类作用域（岛恒深无锚点）",
+          "文件无自持域 token 族（区别于 --ve-* 岛）——B2-a 白名单『MaterialLibrary 岛』条目自注『MaterialLibraryModal.css B2-b 另裁』即悬置裁定，本批落定为跟随域；该家族其余代表（FolderTree/FolderContextMenu/FilePreviewPopover .tsx）维持原白名单不动"
+        ]
+      },
+      "stats": { "codeColorLiteralsBefore": 79, "tokenized": 47, "keptLiteral": 32, "keptLiteralNature": "蓝=上传/进入/拖放、红=删除、绿=移动 操作三色族（内容语义调色板，同档位徽章裁定）刻意字面；#4ade80 前景恰为 --fw-accent-text 深色精确值故 token 化" },
+      "valueMapping": [
+        "#1a1a1a×4→var(--fw-surface)（Δ4，B2-b 卡面族同裁）",
+        "#252525×1→var(--fw-surface-dim)（Δ1）",
+        "#fff×3→var(--fw-text-strong)（Δ8）",
+        "#4ade80×2→var(--fw-accent-text)（深色精确等值；含 disabled 回落形）",
+        "rgba(255,255,255,.06)×6→overlay-1（最近档 Δ.01）；.08×4→overlay-1（B2-b #ffffff08 先例）",
+        ".12×5→overlay-2（最近档）；.1×2→overlay-2（精确）；.15×2→overlay-2（B2-b /15 等距取暗档同裁）；.22×2→overlay-3（最近档）",
+        ".3×1→text-dim-1（精确）；.25×1→text-dim-1（Δ.05）",
+        ".4×1→text-dim-2、.5×4→text-dim-2（B2-b /40//50 同裁；.5 为树缩进线 border-color）",
+        ".65×1→text-dim-3、.7×2→text-dim-3（B2-b /70 同裁）",
+        ".75×2→text、.8×1/.85×1/.9×2→text（≥.8 并入正文 + .75 有效亮度最近档，B2-b /80~/90 同裁）"
+      ],
+      "antdOverridesKept": "6 条 .ant-modal-* 覆写选择子（(0,2,0)）原样保留，仅值换 var()——特异性与层叠行为不变"
+    },
+    "channel3": {
+      "semantify17": [
+        { "file": "src/pages/canvas/components/AddNodeMenu.tsx", "refs": 15, "map": { "--canvas-controls-bg": "rgb(38,38,38)=#262626 精确→var(--fw-surface-dim)", "--canvas-controls-border": "rgb(54,54,54)→var(--fw-border)（#333，Δ3）", "--canvas-controls-text": "rgb(247,247,247) 精确→var(--fw-text-strong)", "--canvas-controls-hover": "rgba(255,255,255,0.08)→var(--fw-overlay-1)（B2-b #ffffff08 先例）", "--canvas-controls-active": "rgba(255,255,255,0.12)→var(--fw-overlay-2)（最近档）" }, "byTokenCounts": { "bg": 1, "border": 1, "text": 4, "hover": 6, "active": 3 }, "neverMergeUntouched": "--canvas-shadow-menu×1、--z-panel×2 随行不动" },
+        { "file": "src/components/HistoryPage/HistorySidebar.tsx", "refs": 2, "map": { "--canvas-controls-text": "精确→var(--fw-text-strong)", "--canvas-controls-hover": "→var(--fw-overlay-1)" } }
+      ],
+      "testSyncs": ["src/pages/canvas/components/AddNodeMenu.test.tsx:173 toHaveStyle backgroundColor var(--canvas-controls-hover)→var(--fw-overlay-1)（先红后绿）"],
+      "followingInlineRefsZero": {
+        "gate": "第⑤路跟随域 0 内联引用（本表 gate 证据）",
+        "evidence": "grep -rn canvas-controls apps/web/src（产品码）= 19 处 = B0 keepAsIs 精确集合：board VideoHDPanel×8 + VideoNodeToolbar×5 + VideoTrimPanel×3 + video-editor 岛 AssetPanel×3；跟随域（AddNodeMenu/HistorySidebar）0 残留；index.css :root 声明与 --ve-* 间接链（B0 verdict KEEP）原样未动",
+        "snapshot": "e2e/audit/audit-B2c.json（route5.tokenRefs）"
+      }
+    },
+    "channel4": {
+      "policy": "品牌色→白名单（理由）；跟随壳层渐变面板→端点命中 token 则 token 化否则白名单为刻意；动态身份色→白名单（运行时计算，非主题债）；仅编辑两处括号 alpha className 漏网 + 内联样式中的清晰 token 命中（本批：仅前者，渐变卡内 0.05 端点与 0.04 同视觉单元整卡保留）",
+      "edits": [
+        { "file": "src/pages/canvas/components/CreditsDropdown.tsx", "sites": [":285 hover:bg-white/[0.1]→hover:bg-overlay-2（精确等值）", ":293 bg-white/[0.08]→bg-overlay-2（Δ.02 任务书裁双归 overlay-2，卡与图标底一致）"], "rationale": "className 通道括号 alpha 形漏网（审计 colorDebt 口径外）；backgroundColor 不在冻结属性集——differ 无条目，登记值变化即证" }
+      ],
+      "whitelistAdds": [
+        { "family": "品牌色：微信绿", "reason": "WeChat 品牌标准色，跨主题恒定", "representatives": "Sidebar.tsx:134/143 WechatOutlined style color #07c160 ×2" },
+        { "family": "TIER_COLORS 档位内容调色板", "reason": "套餐档位状态色（内容语义，同档位徽章裁定）+ admin 岛 D4 域保留双重身份", "representatives": "pages/admin/pages/tier-colors.ts（定义）+ PlansPage/SubscriptionsPage（消费）" },
+        { "family": "VipSubscribeModal BannerWithImage 营销渐变", "reason": "限时活动 banner 美术方向（navy 三停渐变），端点无 token 等价，深底营销卡跨主题刻意恒定", "representatives": "VipSubscribeModal.tsx:138/146/375 linear-gradient(135deg,#1a1a2e,#16213e,#0f3460) ×3" },
+        { "family": "userColor 协作动态身份色", "reason": "运行时按用户 ID 哈希的身份色（协作头像/光标），非静态主题债", "representatives": "collab/awareness.ts（定义）+ CanvasTopBar.tsx/RemoteCursors.tsx（消费）" },
+        { "family": "oklab 玻璃面板底", "reason": "毛玻璃浮层刻意值 oklab(0.26861 …/0.95)≈#2b2b2b@95%+blur，无 token 等价（B2-b border-#363636 位点同面板已裁）", "representatives": "KeyboardShortcutsPanel.tsx:257（跟随壳层）；nodes/{AiToolActionPopup,config-panel/RatioResolutionPopover,ImageExtConfigPanel,VideoConfigPanel} 同值四处属 board 域家族已覆盖" },
+        { "family": "CreditsDropdown 邀请卡玻璃内联", "reason": "装饰性玻璃卡一体处理：渐变 0.04 端点无 token 等价，inset 高光 0.05 虽=overlay-1 精确但与渐变端点同一视觉单元，整卡保留字面；bg-rose-300/15 光晕随卡", "representatives": "CreditsDropdown.tsx:287-288 linear-gradient(180deg,rgba(255,255,255,0.04),transparent)+inset 0 1px 0 rgba(255,255,255,0.05)" }
+      ]
+    }
+  },
   "differExpectedPairs": {
     "note": "css-baseline-diff.mjs B2 预期类别消费：color（表单控件采集）/borderColor（全元素采集）变化的 (before,after) 配对命中本表即吸收；未登记配对 = 意外（门禁 exit 1）。backgroundColor 不在冻结属性集（A0 冻结不可复采）——B2 值变化经 b1 探针 computed 零回退 + B6 目检覆盖。等值换（通道①③与 overlay/dim 暗色精确档）computed 不变，天然不产生 diff 条目，不入本表。B2-b 追加（siteCount=全改写位点数；门禁页实际渲染命中为子集，未渲染配对吸收 0 条无害）。",
     "pairs": [
@@ -137,7 +204,13 @@
       { "prop": "borderColor", "before": "rgb(36, 36, 36)", "after": "rgb(38, 38, 38)", "siteCount": 1, "family": "B2b border-#242424→border-surface-dim（Vip 卡边）" },
       { "prop": "borderColor", "before": "rgb(85, 85, 85)", "after": "rgba(255, 255, 255, 0.3)", "siteCount": 8, "family": "B2b border-#555→border-text-dim-1（静态 ×1 + hover: ×7）" },
       { "prop": "borderColor", "before": "rgb(17, 17, 17)", "after": "rgb(20, 20, 20)", "siteCount": 1, "family": "B2b border-#111→border-on-accent（协作头像描边）" },
-      { "prop": "borderColor", "before": "rgb(54, 54, 54)", "after": "rgba(255, 255, 255, 0.1)", "siteCount": 1, "family": "B2b border-#363636→border-overlay-2（KSP 区块分隔，oklab 面板上有效值 Δ5）" }
+      { "prop": "borderColor", "before": "rgb(54, 54, 54)", "after": "rgba(255, 255, 255, 0.1)", "siteCount": 1, "family": "B2b border-#363636→border-overlay-2（KSP 区块分隔，oklab 面板上有效值 Δ5）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.06)", "after": "rgba(255, 255, 255, 0.05)", "siteCount": 6, "family": "B2c MaterialLibraryModal.css 分隔线→overlay-1（弹层头/侧栏/主头 border，最近档 Δ.01）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.08)", "after": "rgba(255, 255, 255, 0.05)", "siteCount": 5, "family": "B2c MaterialLibraryModal.css 卡边/按钮边→overlay-1（B2-b #ffffff08 同裁；含 batch-btn 未渲染位点）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.5)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 4, "family": "B2c MaterialLibraryModal.css 树缩进线→text-dim-2（B2-b /50 同裁；树空时不渲染，吸收 0 无害）" },
+      { "prop": "color", "before": "rgba(255, 255, 255, 0.75)", "after": "rgb(226, 232, 240)", "siteCount": 2, "family": "B2c MaterialLibraryModal.css 按钮标签→text（有效亮度最近档；new-folder-btn 门禁页渲染 + batch-btn 未渲染）" },
+      { "prop": "borderColor", "before": "rgba(255, 255, 255, 0.4)", "after": "rgba(255, 255, 255, 0.45)", "siteCount": 1, "family": "B2c MaterialLibraryModal.css ant-modal-close 色→dim-2 的 currentColor 边框随动（零宽边，纯计算值变化）" },
+      { "prop": "borderColor", "before": "rgb(54, 54, 54)", "after": "rgb(51, 51, 51)", "siteCount": 1, "family": "B2c AddNodeMenu 面板边语义化（--canvas-controls-border→--fw-border Δ3；门禁页菜单未开，未渲染配对吸收 0 无害）" }
     ]
   },
   "whitelistKeeps": {
@@ -156,7 +229,7 @@
       { "family": "跟随域 #333 非边框文本 + NodePalette/ImageWithFallback 特例（B2-b 保留）", "reason": "text-#333=超暗装饰分隔（Footer ｜×2/TeamDetail 空席位占位），dim-1 Δ39/255 无近邻档强改会亮一档；NodePalette 浅色面板岛、ImageWithFallback 图片占位 navy 为 B2-a 已登记特例", "representatives": "text-[#333]×3、NodePalette bg-[#f7f7f7]+hover:bg-[#e0e0e0]、ImageWithFallback bg-[#1a1a2e]" },
       { "family": "跟随域斜杠族（hex+slash，B2-a 起保留；B2-b 复核仍成立）", "reason": "var() 单值键配 /NN 零输出（slash-gate 常驻拦截新增）；hex+slash 编译可用且无 token 等价——透明度轴本身即语义", "representatives": "bg-[#4ade80]/10|15|20、hover:border-[#4ade80]/50、bg-[#5DDCFF]/10、bg-[#666]/15、bg-[#888]/10、bg-[#f59e0b]/15、bg-[#ef4444]/15、hover:bg-[#252525]/50、bg-[#1A1A1A]/90×4、bg-[#1C1C1C]/95×2、hover:bg-[#4ade80]/10×2（B2-a 漏计的精确等值 hover 形，slash 形保留）" },
       { "family": "跟随域 white/NN 无档位映射残余（B2-b 后）", "reason": "B2-b 已裁走 border-white/15×2→overlay-2、border-white×2→text-strong、hover:border-white/40×4→text-dim-3、hover:bg-white/15→overlay-3（基座 overlay-2 上取 3 档保反馈，偏离任务书缺省 2 档已登记）、bg-white 指示点/旋钮→text-strong、bg-white/40→overlay-3；余下为反白 CTA（另列）与 bg-black 蒙层族", "representatives": "bg-black/40|50|60|70|80×17（遮罩蒙层）、from-black/60|70（渐变）、text-black 非强调填充 ×8（TopActionBar:91/94/128、CanvasTopBar:151/154、TeamDetail:133/243、CreateCanvasCard(home):32——填充为档位徽章/反白/antd 菜单）；bg-white/[0.08]、hover:bg-white/[0.1]（CreditsDropdown 括号 alpha 形——审计 colorDebt 口径外，随反白子卡保留）" },
-      { "family": "内联 style 语义色与 Three/canvas-renderer 输出色", "reason": "任务书白名单：inline style 通道归 B2-b（ClipBlock 选区、WechatOutlined #07c160、userColor 协作色、ConfigProvider antd token #252525/#3a3a3a 等）" },
+      { "family": "内联 style 语义色与 Three/canvas-renderer 输出色", "reason": "任务书白名单：inline style 通道归 B2-b（ClipBlock 选区、WechatOutlined #07c160、userColor 协作色、ConfigProvider antd token #252525/#3a3a3a 等）——B2-c 已逐处细化裁定，见 b2cChannels.channel4.whitelistAdds 与 deferredToC2" },
       { "family": "测试夹具数据", "reason": "测试文件内字面值为断言/夹具，随源同步不单独迁移", "representatives": "board 域测试（TextConfigPanel.test/TextNodeToolbar.test）、videos 测试四件——断言保留字面值即绿" }
     ]
   },

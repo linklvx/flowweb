@@ -2,7 +2,7 @@
   "meta": {
     "task": "A5 回补：A4 删除类 border-width 验证（plan A4-2——border-box 下加边框不改 rect，几何层必漏，属性层 width 才是判据）",
     "before": "137c29af11523085273edb085bbb14f078673da7",
-    "after": "a22470cdf6b7163095df117432af67c1fbe71754",
+    "after": "b9a23a72ad61f6de17b010096c262c508429934e",
     "diffSource": "e2e/audit/baseline-diff-A5.json"
   },
   "styleFlipWidthZero": 4229,

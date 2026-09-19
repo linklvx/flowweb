@@ -300,8 +300,8 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
         aria-label="添加节点菜单"
         className="fixed z-[var(--z-panel)] flex w-[200px] flex-col gap-0.5 rounded-2xl p-2 border"
         style={{
-          backgroundColor: 'var(--canvas-controls-bg)',
-          borderColor: 'var(--canvas-controls-border)',
+          backgroundColor: 'var(--fw-surface-dim)',
+          borderColor: 'var(--fw-border)',
           boxShadow: 'var(--canvas-shadow-menu)',
           backdropFilter: 'blur(32px)',
           WebkitBackdropFilter: 'blur(32px)',
@@ -310,7 +310,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
       >
       <h4
         className="-mt-1 mb-1 mx-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
-        style={{ color: 'var(--canvas-controls-text)' }}
+        style={{ color: 'var(--fw-text-strong)' }}
       >
         添加节点
       </h4>
@@ -321,24 +321,24 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
           type="button"
           role="menuitem"
           className={MENU_ITEM_CLASS}
-          style={{ color: 'var(--canvas-controls-text)' }}
+          style={{ color: 'var(--fw-text-strong)' }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-1)';
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
           }}
           onMouseDown={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-2)';
           }}
           onMouseUp={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-1)';
           }}
           onClick={() => handleItemClick(item)}
         >
           <div
             className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
-            style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+            style={{ backgroundColor: 'var(--fw-overlay-1)' }}
           >
             {item.icon}
           </div>
@@ -349,7 +349,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
                 {item.badge && (
                   <span
                     className="rounded px-1.5 py-0.5 text-[10px] leading-3 opacity-60"
-                    style={{ backgroundColor: 'var(--canvas-controls-active)' }}
+                    style={{ backgroundColor: 'var(--fw-overlay-2)' }}
                   >
                     {item.badge}
                   </span>
@@ -365,7 +365,7 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
 
       <h4
         className="m-1 px-2 py-1 text-sm font-medium leading-5 opacity-60"
-        style={{ color: 'var(--canvas-controls-text)' }}
+        style={{ color: 'var(--fw-text-strong)' }}
       >
         添加资源
       </h4>
@@ -380,26 +380,26 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
             className={MENU_ITEM_CLASS}
             disabled={isUploadItem && uploading}
             style={{
-              color: 'var(--canvas-controls-text)',
+              color: 'var(--fw-text-strong)',
               ...(isUploadItem && uploading ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
             }}
             onMouseEnter={(e) => {
-              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-1)';
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
             }}
             onMouseDown={(e) => {
-              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-active)';
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-2)';
             }}
             onMouseUp={(e) => {
-              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--canvas-controls-hover)';
+              if (!uploading) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--fw-overlay-1)';
             }}
             onClick={() => handleItemClick(item)}
           >
             <div
               className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg"
-              style={{ backgroundColor: 'var(--canvas-controls-hover)' }}
+              style={{ backgroundColor: 'var(--fw-overlay-1)' }}
             >
               {item.icon}
             </div>

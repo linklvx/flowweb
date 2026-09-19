@@ -7,10 +7,10 @@
   },
   "after": {
    "dir": "after-A",
-   "commit": "a22470cdf6b7163095df117432af67c1fbe71754",
-   "collectedAt": "2026-09-18T23:38:40.323Z"
+   "commit": "b9a23a72ad61f6de17b010096c262c508429934e",
+   "collectedAt": "2026-09-19T00:04:27.765Z"
   },
-  "generatedAt": "2026-09-18T23:38:43.090Z",
+  "generatedAt": "2026-09-19T00:04:53.294Z",
   "classifier": {
    "cascadeMax": 40,
    "bridgeExpected": [
@@ -51,16 +51,21 @@
  },
  "b2ExpectedGate": {
   "registry": "e2e/audit/b2-migration-registry.json",
-  "pairsRegistered": 34,
-  "absorbedTotal": 43,
+  "pairsRegistered": 40,
+  "absorbedTotal": 60,
   "absorbedByPair": {
    "color rgb(255, 255, 255)→rgb(226, 232, 240)": 15,
    "borderColor rgb(17, 17, 17)→rgb(20, 20, 20)": 12,
+   "borderColor rgba(255, 255, 255, 0.08)→rgba(255, 255, 255, 0.05)": 8,
+   "borderColor rgba(255, 255, 255, 0.4)→rgba(255, 255, 255, 0.45)": 4,
    "borderColor rgb(255, 255, 255)→rgb(247, 247, 247)": 4,
    "color rgb(204, 204, 204)→rgb(226, 232, 240)": 3,
+   "borderColor rgba(255, 255, 255, 0.06)→rgba(255, 255, 255, 0.05)": 3,
    "color rgba(255, 255, 255, 0.7)→rgba(255, 255, 255, 0.6)": 2,
    "borderColor rgba(255, 255, 255, 0.094)→rgba(255, 255, 255, 0.1)": 2,
    "color rgb(208, 208, 208)→rgb(226, 232, 240)": 2,
+   "color rgba(255, 255, 255, 0.4)→rgba(255, 255, 255, 0.45)": 1,
+   "color rgba(255, 255, 255, 0.75)→rgb(226, 232, 240)": 1,
    "color rgba(255, 255, 255, 0.5)→rgba(255, 255, 255, 0.45)": 1,
    "color rgba(255, 255, 255, 0.9)→rgb(226, 232, 240)": 1,
    "color rgba(255, 255, 255, 0.8)→rgb(226, 232, 240)": 1
@@ -124,9 +129,9 @@
     "tid:track-row-track-5910b92c-332d-4cd5-a257-4581198f0f27@0"
    ],
    "addedKeys": [
-    "tid:rf__node-node_1789774716420_1@0",
-    "tid:video-edit-node-node_1789774716420_1@0",
-    "tid:track-row-track-0d571f65-6609-4dfc-9c2e-7cec8dd97c15@0"
+    "tid:rf__node-node_1789776263892_1@0",
+    "tid:video-edit-node-node_1789776263892_1@0",
+    "tid:track-row-track-eb7fd7f4-28ce-4e25-9449-973d178e34bf@0"
    ]
   },
   "videos": {
