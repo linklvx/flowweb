@@ -2,14 +2,22 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
-import { CrownOutlined, GiftOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons';
+import { CrownOutlined, DesktopOutlined, GiftOutlined, LogoutOutlined, MoonOutlined, SettingOutlined, SunOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '@/components/AuthProvider';
 import { LoginModal } from '@/components/auth/LoginModal';
 import { TeamSwitcher } from '@/components/TeamSwitcher';
 import { useVipModalStore } from '@/stores/vipModalStore';
 import { useCreditsStore } from '@/stores/creditsStore';
+import { setMode, useTheme, type ThemeMode } from '@/stores/themeStore';
 
 const TIER_LABEL: Record<string, string> = { basic: '普通', pro: 'Pro', max: 'Max', ultra: 'Ultra' };
+
+/** C4 主题三态循环（plan §8 序：浅→深→跟随）：当前态驱动图标/aria/title，点击切下一档 */
+const THEME_CYCLE: Record<ThemeMode, { Icon: typeof SunOutlined; label: string; next: ThemeMode }> = {
+  light: { Icon: SunOutlined, label: '浅色', next: 'dark' },
+  dark: { Icon: MoonOutlined, label: '深色', next: 'system' },
+  system: { Icon: DesktopOutlined, label: '跟随系统', next: 'light' },
+};
 
 const BTN = 'h-8 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] hover:bg-surface-dim hover:border-overlay-3 hover:text-text text-[13px] leading-5 text-text px-2.5 flex items-center gap-1 no-underline transition-colors duration-150';
 
@@ -22,6 +30,8 @@ export function TopActionBar() {
   const subscriptionCredits = useCreditsStore(s => s.subscriptionCredits);
   const tier = useCreditsStore(s => s.tier);
   const fetchBalance = useCreditsStore(s => s.fetchBalance);
+  const { mode: themeMode } = useTheme();
+  const { Icon: ThemeIcon, label: themeLabel, next: themeNext } = THEME_CYCLE[themeMode];
 
   const handleLogout = useCallback(async () => {
     navigate('/');
@@ -76,6 +86,15 @@ export function TopActionBar() {
 
   return (
     <div data-testid="top-action-bar" className="h-[60px] flex items-center justify-end gap-2">
+      {/* C4 主题切换：chrome 跟随主题（本钮用 token 工具类）；恒深域（videos 等）内本钮可见=D4 已知接受项，不做岛 */}
+      <button
+        onClick={() => setMode(themeNext)}
+        aria-label={`切换主题，当前：${themeLabel}`}
+        title={`主题：${themeLabel}（点击切换为${THEME_CYCLE[themeNext].label}）`}
+        className="h-8 w-8 rounded-lg border border-overlay-2 bg-overlay-1 hover:bg-surface-dim hover:border-overlay-3 text-text-dim-3 hover:text-text flex items-center justify-center transition-colors duration-150"
+      >
+        <ThemeIcon className="text-base" />
+      </button>
       <Link to="/settings/credits" className={BTN}>
         <GiftOutlined className="text-base text-text-dim-3" /> 赚积分
       </Link>

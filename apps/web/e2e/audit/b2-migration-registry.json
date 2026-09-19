@@ -1099,6 +1099,11 @@
     "representatives": "bg-[#4ade80]/10|15|20、hover:border-[#4ade80]/50、bg-[#5DDCFF]/10、bg-[#666]/15、bg-[#888]/10、bg-[#f59e0b]/15、bg-[#ef4444]/15、hover:bg-[#252525]/50、bg-[#1A1A1A]/90×4、bg-[#1C1C1C]/95×2、hover:bg-[#4ade80]/10×2（B2-a 漏计的精确等值 hover 形，slash 形保留）"
    },
    {
+    "family": "画布壳层玻璃药丸 bg-[#1A1A1A]/90（B6 handover 裁定，C4 rider 入册）",
+    "reason": "画布 SHELL chrome 浮于恒黑画板之上——深色玻璃锚定的是画板的黑（React Flow viewport bg-[#000000]，D4 两主题恒黑）而非站点主题：浅色全局下画板仍黑、深玻璃药丸在黑底上依旧正确，深色全局同然，即两主题皆对（anchored-to-board）。slash 形本无 token 等价（斜杠族通例），且 90% 不透明 + backdrop-blur 玻璃为整体视觉单元，拆解即失语义",
+    "representatives": "CanvasTopBar.tsx:129（在线头像药丸）/143（协作态药丸）/147（工具药丸）、ProjectTitle.tsx:64（标题药丸）×4"
+   },
+   {
     "family": "跟随域 white/NN 无档位映射残余（B2-b 后）",
     "reason": "B2-b 已裁走 border-white/15×2→overlay-2、border-white×2→text-strong、hover:border-white/40×4→text-dim-3、hover:bg-white/15→overlay-3（基座 overlay-2 上取 3 档保反馈，偏离任务书缺省 2 档已登记）、bg-white 指示点/旋钮→text-strong、bg-white/40→overlay-3；余下为反白 CTA（另列）与 bg-black 蒙层族",
     "representatives": "bg-black/40|50|60|70|80×17（遮罩蒙层）、from-black/60|70（渐变）、text-black 非强调填充 ×8（TopActionBar:91/94/128、CanvasTopBar:151/154、TeamDetail:133/243、CreateCanvasCard(home):32——填充为档位徽章/反白/antd 菜单）；bg-white/[0.08]、hover:bg-white/[0.1]（CreditsDropdown 括号 alpha 形——审计 colorDebt 口径外，随反白子卡保留）"

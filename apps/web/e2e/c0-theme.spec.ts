@@ -17,6 +17,8 @@
 //     react-flow wrapper 自带 light/dark 运行时类同名实证合法；全仓 dark: 使用实测 0）。
 //   组6 岛断言只落 Playwright【声明条目，无独立用例】：vitest 不落岛/颜色断言——test-setup 清空含 :has( 的
 //     antd 样式 + jsdom 不解析 CSS 变量，vitest 拿不到可判颜色（spec §8 D8）。
+//   组7 切换 UI【红→C4 绿】TopActionBar 三态循环钮（plan §8 序：浅→深→跟随）+ LoginModal 恒浅活体断言
+//     【守卫，现状应绿】（C2 复核遗留项：rootClassName="light" 落 .ant-modal-root，宿主深下后代经继承取浅值）。
 //
 // 加载稳定性纪律：目标元素出现 + 有界超时；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 // 上下文纪律：每用例独立新 context（storageState 不跨用例泄漏）；localStorage theme 经 addInitScript
@@ -363,3 +365,111 @@ function collectDarkPrefix(page: Page, rootSelector: string) {
     return hits;
   }, rootSelector);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 组7【红→C4 绿】切换 UI（TopActionBar 三态循环钮，plan C4 + §8 裁定：入口=TopActionBar、
+//   循环序 浅→深→跟随；/videos 恒深域内 chrome 切换钮可见 = D4 已知接受项，不做岛）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 三态 → aria-label 态名 + antd 图标类（当前态驱动图标/aria/title，点击切下一档） */
+const THEME_UI: Record<'light' | 'dark' | 'system', { label: string; icon: string }> = {
+  light: { label: '浅色', icon: 'anticon-sun' },
+  dark: { label: '深色', icon: 'anticon-moon' },
+  system: { label: '跟随系统', icon: 'anticon-desktop' },
+};
+
+/** 断切换钮处于预期态：aria-label 锚定可见 + 图标随态（返回钮 locator 供点击） */
+async function expectThemeButton(page: Page, mode: 'light' | 'dark' | 'system') {
+  const { label, icon } = THEME_UI[mode]!;
+  const btn = page.getByRole('button', { name: `切换主题，当前：${label}`, exact: true });
+  await expect(btn, `[G7] 切换钮应存在且 aria-label 锚定为「切换主题，当前：${label}」`).toBeVisible();
+  await expect(btn.locator(`.${icon}`), `[G7] ${label} 档图标应为 .${icon}`).toBeVisible();
+  return btn;
+}
+
+test('G7 三态循环：默认深 → 跟随系统（OS live 翻转不重载）→ 浅（显式压 OS）→ 深；aria/图标随态', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, null); // 无存储默认深（D3）
+  const page = await ctx.newPage();
+  try {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await openWorks(page);
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/初始默认深]');
+    const btn = await expectThemeButton(page, 'dark');
+    await expect(btn).toHaveAttribute('title', '主题：深色（点击切换为跟随系统）');
+
+    // 点击 1：dark → system（plan §8 序：深 → 跟随）——OS 深解析仍 html.dark，但存储已写 system
+    await btn.click();
+    await expectThemeButton(page, 'system');
+    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/system] 存储应写 system').toBe('system');
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/system@OS深]');
+
+    // system 档 OS live 翻转（不重载）：matchMedia change 监听重解析 → html.light
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect
+      .poll(async () => (await readHtmlTheme(page)).themeClasses.join(','), {
+        message: '[G7/system live flip] OS dark→light 后 html 应翻 .light（不重载）',
+        timeout: 5_000,
+      })
+      .toBe('light');
+    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/system live] 存储应保持 system').toBe('system');
+
+    // 点击 2：system → light（显式档）——html.light、存储 light
+    (await expectThemeButton(page, 'system')).click();
+    await expectThemeButton(page, 'light');
+    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/light] 存储应写 light').toBe('light');
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅]');
+
+    // 显式浅压 OS（live 变体，spec §4.1：显式选择永不被 OS 覆盖）——OS 翻深 html 仍浅
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(300); // change 事件窗口（若误重解析此时早已翻转）
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅压 OS 深]');
+
+    // 点击 3：light → dark（循环闭合）
+    (await expectThemeButton(page, 'light')).click();
+    await expectThemeButton(page, 'dark');
+    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/dark] 存储应写 dark').toBe('dark');
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/循环回深]');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('G7 切换钮存在于 /works 与 /videos 顶栏（aria 锚定；videos 恒深域内可见=D4 已知接受项）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, null); // 默认深——两页 html.dark
+  const page = await ctx.newPage();
+  try {
+    await openWorks(page);
+    await expectThemeButton(page, 'dark');
+    await openVideos(page);
+    await expectThemeButton(page, 'dark');
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/videos 宿主]');
+  } finally {
+    await ctx.close();
+  }
+});
+
+// 【守卫，现状应绿】C2 复核遗留项（LoginModal 方案 A 活体断言）：宿主 html.dark 下经 TopActionBar
+// 登录钮打开 LoginModal——rootClassName="light" 落 .ant-modal-root，弹层后代经继承取 .light 浅值
+test('G7 LoginModal 恒浅活体：宿主 html.dark（显式深）下经顶栏登录钮打开，岛根 .light 命中 + --fw-bg 浅值', async ({ browser }) => {
+  const ctx = await browser.newContext(); // 匿名（TopActionBar 登录钮仅未登录态渲染；/works RequireAuth 弹回，用公开组 / ）
+  await ctx.addInitScript((t) => localStorage.setItem('theme', t), 'dark');
+  const page = await ctx.newPage();
+  try {
+    await page.goto('/');
+    await expect(page.getByTestId('login-register-btn')).toBeVisible({ timeout: 15_000 });
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/宿主深]');
+    await page.getByTestId('login-register-btn').click();
+    const content = page.locator('.ant-modal-content').first(); // LoginModal 唯一弹层（rootClassName 岛根无盒高，锚内容卡）
+    await expect(content).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.ant-modal-root.light').first(), '[G7] rootClassName="light" 应落 .ant-modal-root').toBeAttached();
+    const state = await content.evaluate((el) => ({
+      islandLight: el.closest('.light') !== null,
+      fwBg: getComputedStyle(el).getPropertyValue('--fw-bg'),
+    }));
+    expect(state.islandLight, '[G7] 弹层内容 closest(".light") 应命中岛根（.ant-modal-root.light）').toBe(true);
+    expect(norm(state.fwBg), '[G7] 弹层内 --fw-bg 必须为浅值 #f7f8fa（岛作用域不随宿主深）').toBe('#f7f8fa');
+    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/宿主仍深]');
+  } finally {
+    await ctx.close();
+  }
+});
