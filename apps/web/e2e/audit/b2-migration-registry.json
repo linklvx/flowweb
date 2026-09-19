@@ -545,13 +545,33 @@
   ]
  },
  "deferredToC2": {
-  "name": "B2-c 通道1：antd ConfigProvider 组件 token 位点——钉深保留（零码改动），C2 algorithm 接线后重裁",
+  "name": "B2-c 通道1：antd ConfigProvider 组件 token 位点——C2 已移除（2026-09-18，App algorithm 派生后 darkAlgorithm 原生供给）",
   "date": "2026-09-18",
   "rationale": "App.tsx Provider 现跑 antd 默认（浅色）algorithm，这些位点把浮层/选中色按住为暗色；B 段删除即浅色回归（B6 暗色零回退复核必红）。C2 将 App algorithm 接到主题 store 后，darkAlgorithm 原生供给 colorBgElevated 等暗档浮层色——届时本组位点移除或改为主题化引用。",
+  "c2Removal": {
+   "date": "2026-09-18",
+   "change": "三处 ConfigProvider 组件 token 覆盖整体移除（TopActionBar/CanvasTopBar 的 Dropdown 块、WorkspacePage 的 Tabs 块）——dark 档由 App 派生的 darkAlgorithm 原生供给，light 档随跟随域转浅（chrome 跟随主题，D4）",
+   "evidence": {
+    "method": "antd theme.getDesignToken(darkAlgorithm) 权威值 + Playwright 临时探针 DOM 实测（works 页用户下拉浮层 / videos 页 Tabs，产物构建）",
+    "dropdownDarkAlgorithm": {
+     "colorBgElevated": "#1f1f1f（实测 menuBg=rgb(31,31,31)；旧钉 #252525，Δ6/255 微暗——登记预期变化）",
+     "colorText": "rgba(255,255,255,0.85)（旧钉 #e2e8f0=rgb(226,232,240)，亮度相当）",
+     "controlItemBgHover": "rgba(255,255,255,0.08)（实测 hover 底；旧钉 #3a3a3a，同族白色叠加）",
+     "borderRadiusLG": "8（实测 menuRadius=8px；旧钉 12→antd 缺省 8，形状微收）",
+     "paddingXXS": "4（旧钉 6→antd 缺省 4，浮层首末项边距微收 2px）"
+    },
+    "tabsDarkAlgorithm": {
+     "itemColor": "rgba(255,255,255,0.85)=colorText（实测 idle；旧钉 #7a7a7a 灰→更亮一档）",
+     "itemSelectedColor": "#1668dc=colorPrimary（实测 selected/ink=rgb(22,104,220)；旧钉 #f5f5f5 近白→antd 暗色原生蓝选中。对比度 #1668dc@#141414≈3.55:1 为 antd 暗色主题全库缺省（非本仓回归），且与既有 antd Tabs 全仓一致（VideosPage Tabs 迁移前即 #1677ff 蓝选中）——登记预期变化非 BADLY）",
+     "inkBarColor": "#1668dc=colorPrimary（同上）"
+    },
+    "differImpact": "零条目：differ 冻结 before-A0×after-A 双基线（历史对照），且采集属性集内 color 仅表单控件（input/textarea/select/button）、backgroundColor 不在冻结集——Dropdown 菜单项（li）/Tabs 页签（div）均不被捕获，无需新增 differExpectedPairs 配对"
+    }
+  },
   "sites": [
    {
     "file": "src/components/layout/TopActionBar.tsx",
-    "lines": "100-111",
+    "lines": "100-111（C2 移除）",
     "component": "Dropdown",
     "values": {
      "colorBgElevated": "#252525",
@@ -564,7 +584,7 @@
    },
    {
     "file": "src/pages/canvas/components/CanvasTopBar.tsx",
-    "lines": "160-171",
+    "lines": "160-171（C2 移除）",
     "component": "Dropdown",
     "values": {
      "colorBgElevated": "#252525",
@@ -577,7 +597,7 @@
    },
    {
     "file": "src/pages/workspace/WorkspacePage.tsx",
-    "lines": "69-79",
+    "lines": "69-79（C2 移除）",
     "component": "Tabs",
     "values": {
      "itemColor": "#7a7a7a",

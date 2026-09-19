@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from 'antd';
+import { ConfigProvider, Modal, theme as antdTheme } from 'antd';
 import { PhoneLoginForm } from './PhoneLoginForm';
 import { useAuth } from '@/components/AuthProvider';
 import { WeChatQRLogin } from './WeChatQRLogin';
@@ -25,20 +25,25 @@ export function LoginModal({
   }
 
   return (
-    <Modal
-      open
-      centered
-      destroyOnClose
-      footer={null}
-      closable
-      onCancel={onClose}
-      width={720}
-      styles={{
-        content: { padding: 0, background: 'transparent' },
-        body: { padding: 0 },
-      }}
-      className="[&_.ant-modal-content]:bg-transparent [&_.ant-modal-content]:p-0"
-    >
+    // 恒浅岛双通道（方案 A，spec O5 定稿/video-works.md:27 先例）：defaultAlgorithm 经 context 穿透
+    // portal 管 body 挂载弹层；rootClassName 落 .ant-modal-root 使后代经继承取 .light 的 --fw-* 浅值。
+    // 双宿主（TopActionBar chrome / VideoPlayerModal videos 域）免逐宿主特裁——现状本就浅渲染，零行为变更
+    <ConfigProvider theme={{ algorithm: antdTheme.defaultAlgorithm }}>
+      <Modal
+        open
+        centered
+        destroyOnClose
+        footer={null}
+        closable
+        onCancel={onClose}
+        width={720}
+        styles={{
+          content: { padding: 0, background: 'transparent' },
+          body: { padding: 0 },
+        }}
+        className="[&_.ant-modal-content]:bg-transparent [&_.ant-modal-content]:p-0"
+        rootClassName="light"
+      >
       <div className="rounded-[16px] overflow-hidden">
         {/* Banner */}
         <div className="h-[140px] rounded-t-[16px] overflow-hidden">
@@ -83,6 +88,7 @@ export function LoginModal({
           <AgreementFooter />
         </div>
       </div>
-    </Modal>
+      </Modal>
+    </ConfigProvider>
   );
 }

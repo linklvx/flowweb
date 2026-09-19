@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { ConfigProvider, Dropdown } from 'antd';
+import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { CrownOutlined, GiftOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '@/components/AuthProvider';
@@ -97,29 +97,17 @@ export function TopActionBar() {
               </span>
             )}
           </Link>
-          <ConfigProvider
-            theme={{
-              components: {
-                Dropdown: {
-                  colorBgElevated: '#252525',
-                  colorText: '#e2e8f0',
-                  controlItemBgHover: '#3a3a3a',
-                  borderRadiusLG: 12,
-                  paddingXXS: 6,
-                },
-              },
-            }}
+          {/* C2 移除 deferredToC2 钉深覆盖（B2-c 登记）：App algorithm 已随主题派生——dark 档由 darkAlgorithm
+              原生供给浮层暗色（实测值见 b2-migration-registry deferredToC2 移除记录），light 档随跟随域转浅 */}
+          <TeamSwitcher />
+          <Dropdown
+            menu={{ items: userMenuItems }}
+            trigger={['hover']}
+            placement="bottomRight"
+            align={{ offset: [0, 6] }}
           >
-            <TeamSwitcher />
-            <Dropdown
-              menu={{ items: userMenuItems }}
-              trigger={['hover']}
-              placement="bottomRight"
-              align={{ offset: [0, 6] }}
-            >
-              <span data-testid="user-avatar" className="cursor-pointer">{avatarNode('w-8 h-8')}</span>
-            </Dropdown>
-          </ConfigProvider>
+            <span data-testid="user-avatar" className="cursor-pointer">{avatarNode('w-8 h-8')}</span>
+          </Dropdown>
         </>
       ) : (
         <button

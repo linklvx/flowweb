@@ -44,6 +44,7 @@ export default function AdminLayout() {
         theme={{
           // 不传 algorithm：嵌套 theme 的 child.algorithm 整体覆盖 parent（useTheme.js 合并语义），
           // 显式传 darkAlgorithm 会覆盖 ProConfigProvider dark 注入的 proTheme.darkAlgorithm —— 暗色统一交给 ProConfigProvider
+          // 本子树恒深，不跟随全局（spec D4）——CSS 变量通道由下方 ProLayout 根 dark 类补齐（岛双通道，spec §3.1）
           token: { colorPrimary: '#4ade80' },
           components: { Button: { primaryColor: 'rgba(0,0,0,0.88)' } }, // Q3 路径 A：实心按钮文字色是 Button 组件 token primaryColor
         }}
@@ -75,6 +76,9 @@ function AdminLayoutInner() {
   return (
     <ProLayout
       title="FlowWeb 管理后台"
+      // 岛根 dark 类（C2，spec D4）：ProLayout className 落在其根 DOM div（pro-layout/es/ProLayout.js:441
+      // 非 pure 模式根节点）——整个 admin 子树（侧栏/头部/内容）在 html.light 下仍取 .dark 的 --fw-* 深色值
+      className="dark"
       layout="side"
       navTheme="realDark"
       fixSiderbar

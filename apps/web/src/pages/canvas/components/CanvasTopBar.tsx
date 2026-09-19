@@ -5,7 +5,7 @@ import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { userColor } from '@/collab/awareness';
 import type { AwarenessState } from '@/collab/awareness';
 import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
-import { Dropdown, ConfigProvider } from 'antd';
+import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { UserOutlined, SettingOutlined, LogoutOutlined, SaveOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
@@ -157,30 +157,18 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
             </span>
           )}
           {user ? (
-            <ConfigProvider
-              theme={{
-                components: {
-                  Dropdown: {
-                    colorBgElevated: '#252525',
-                    colorText: '#e2e8f0',
-                    controlItemBgHover: '#3a3a3a',
-                    borderRadiusLG: 12,
-                    paddingXXS: 6,
-                  },
-                },
-              }}
+            /* C2 移除 deferredToC2 钉深覆盖（B2-c 登记，与 TopActionBar 同款）：App algorithm 已随主题派生，
+               dark 档 darkAlgorithm 原生供给浮层暗色、light 档随画布壳跟随域转浅 */
+            <Dropdown
+              menu={{ items: userMenuItems }}
+              trigger={['hover']}
+              placement="bottomRight"
+              align={{ offset: [0, 6] }}
             >
-              <Dropdown
-                menu={{ items: userMenuItems }}
-                trigger={['hover']}
-                placement="bottomRight"
-                align={{ offset: [0, 6] }}
-              >
-                <span className="cursor-pointer">
-                  {avatarNode('w-5 h-5 text-[10px]')}
-                </span>
-              </Dropdown>
-            </ConfigProvider>
+              <span className="cursor-pointer">
+                {avatarNode('w-5 h-5 text-[10px]')}
+              </span>
+            </Dropdown>
           ) : (
             <Link
               to="/login"

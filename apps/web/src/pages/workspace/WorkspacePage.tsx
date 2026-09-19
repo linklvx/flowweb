@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Button, ConfigProvider, Tabs } from 'antd';
+import { Button, Tabs } from 'antd';
 import { teamDisplayName, type MyTeam } from '@/api/teamApi';
 import { useTeams } from './hooks/useTeams';
 import { WorkspaceTabBar } from './components/WorkspaceTabBar';
@@ -66,24 +66,13 @@ export function WorkspacePage() {
               dimensionLabel={teamDisplayName(realTeams.find((t) => t.id === validTeamId)!)}
             >
               <div className="px-8" data-testid="team-tabs-row">
-                <ConfigProvider
-                  theme={{
-                    components: {
-                      Tabs: {
-                        itemColor: '#7a7a7a',
-                        itemHoverColor: '#a6a6a6',
-                        itemSelectedColor: '#f5f5f5',
-                        inkBarColor: '#f5f5f5',
-                      },
-                    },
-                  }}
-                >
-                  <Tabs
-                    activeKey={validTeamId}
-                    onChange={setTeamId}
-                    items={realTeams.map((t) => ({ key: t.id, label: teamTabLabel(t) }))}
-                  />
-                </ConfigProvider>
+                {/* C2 移除 deferredToC2 钉深覆盖（B2-c 登记）：App algorithm 已随主题派生——dark 档
+                    darkAlgorithm 原生供给选中态浅字深底（实测值见 b2-migration-registry deferredToC2），light 档随跟随域转浅 */}
+                <Tabs
+                  activeKey={validTeamId}
+                  onChange={setTeamId}
+                  items={realTeams.map((t) => ({ key: t.id, label: teamTabLabel(t) }))}
+                />
               </div>
             </WorkspaceDimension>
           ) : (
