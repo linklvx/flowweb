@@ -420,7 +420,7 @@ function EditToolbarComponent({
               return (
                 <button
                   type="button"
-                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
+                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
                   style={{ color: TEXT_COLOR }}
                   onClick={() => {
                     const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ratios.length : 1;
@@ -440,7 +440,7 @@ function EditToolbarComponent({
             })()}
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">2K</span>
@@ -450,7 +450,7 @@ function EditToolbarComponent({
             </button>
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors text-fg-default border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">1张</span>

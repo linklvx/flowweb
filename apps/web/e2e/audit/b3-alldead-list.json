@@ -1,0 +1,911 @@
+[
+ {
+  "file": "src/collab/ydocBuilder.ts",
+  "line": 56,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-"
+ },
+ {
+  "file": "src/components/layout/AppLayout.test.tsx",
+  "line": 23,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-action-bar-mock"
+ },
+ {
+  "file": "src/components/layout/AppLayout.test.tsx",
+  "line": 54,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-action-bar-mock"
+ },
+ {
+  "file": "src/components/layout/AppLayout.test.tsx",
+  "line": 55,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-action-bar-mock"
+ },
+ {
+  "file": "src/components/layout/TopActionBar.test.tsx",
+  "line": 57,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-action-bar"
+ },
+ {
+  "file": "src/components/layout/TopActionBar.tsx",
+  "line": 78,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-action-bar"
+ },
+ {
+  "file": "src/components/MaterialLibrary/FileGrid/FileCard.test.tsx",
+  "line": 82,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/plain"
+ },
+ {
+  "file": "src/components/MaterialLibrary/FileGrid/FileCard.test.tsx",
+  "line": 179,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "material-library:list-scroll"
+ },
+ {
+  "file": "src/components/MaterialLibrary/FileGrid/FileCard.tsx",
+  "line": 32,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "material-library:list-scroll"
+ },
+ {
+  "file": "src/components/MaterialLibrary/FileGrid/FileCard.tsx",
+  "line": 33,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "material-library:list-scroll"
+ },
+ {
+  "file": "src/components/MaterialLibrary/FileGrid/FileGrid.tsx",
+  "line": 61,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "material-library:list-scroll"
+ },
+ {
+  "file": "src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx",
+  "line": 53,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "content/video-works"
+ },
+ {
+  "file": "src/pages/admin/pages/__tests__/VideoWorksPage.test.tsx",
+  "line": 303,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "p-dead"
+ },
+ {
+  "file": "src/pages/canvas/components/CanvasView.tsx",
+  "line": 181,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "storyboard:fill-cell"
+ },
+ {
+  "file": "src/pages/canvas/components/CanvasView.tsx",
+  "line": 192,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "storyboard:fill-cell"
+ },
+ {
+  "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
+  "line": 91,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/groups/selectionTokens.ts",
+  "line": 28,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.test.tsx",
+  "line": 61,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "storyboard:fill-cell"
+ },
+ {
+  "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
+  "line": 54,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "storyboard:fill-cell"
+ },
+ {
+  "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
+  "line": 57,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/AudioWaveform.tsx",
+  "line": 137,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "border-box"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/AudioWaveform.tsx",
+  "line": 244,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
+  "line": 146,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
+  "line": 165,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "border-box"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/MultiImageNode.test.tsx",
+  "line": 355,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "left:"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/MultiImageNode.test.tsx",
+  "line": 356,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top:"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
+  "line": 409,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "border-overlay"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.tsx",
+  "line": 389,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/html"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/prompt-input/useImageUpload.test.ts",
+  "line": 348,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text-node"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/prompt-input/useImageUpload.test.ts",
+  "line": 348,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text-node"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/prompt-input/useImageUpload.test.ts",
+  "line": 350,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text-node"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextInputNode.tsx",
+  "line": 33,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-left"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextInputNode.tsx",
+  "line": 33,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-right"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextInputNode.tsx",
+  "line": 33,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-left"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextInputNode.tsx",
+  "line": 33,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-right"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextInputNode.tsx",
+  "line": 189,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "border-overlay"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+  "line": 67,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/html"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+  "line": 67,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/html"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+  "line": 68,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/plain"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+  "line": 68,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/plain"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+  "line": 119,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/html"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+  "line": 119,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/html"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+  "line": 120,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/plain"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+  "line": 120,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "text/plain"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/TransformToolbar.tsx",
+  "line": 34,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "rotate-90-clip"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoGenNode.test.tsx",
+  "line": 171,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "p-file"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoHDPanel.tsx",
+  "line": 61,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "space-between"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoNodeToolbar.tsx",
+  "line": 119,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoTrimPanel.tsx",
+  "line": 135,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "space-between"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoTrimPanel.tsx",
+  "line": 154,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "space-between"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoTrimTimeline.tsx",
+  "line": 210,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "left-handle"
+ },
+ {
+  "file": "src/pages/canvas/components/nodes/VideoTrimTimeline.tsx",
+  "line": 256,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "right-handle"
+ },
+ {
+  "file": "src/pages/canvas/components/ProjectMembersPanel.tsx",
+  "line": 62,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "space-between"
+ },
+ {
+  "file": "src/pages/canvas/components/RemoteCursors.tsx",
+  "line": 39,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "nowrap"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/components/EditorTopBar.tsx",
+  "line": 41,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "aspect-ratio-button"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/components/PreviewPlayer.test.tsx",
+  "line": 155,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "aspect-ratio"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx",
+  "line": 94,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "aspect-ratio-button"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx",
+  "line": 95,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "aspect-ratio-button"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 36,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 39,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 44,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 51,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-2"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 53,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-2"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 62,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-3"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 63,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-3"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
+  "line": 71,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-audio-4"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 266,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 267,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 268,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 269,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 273,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/store/editorStore.test.ts",
+  "line": 274,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/pages/canvas/video-editor/timeline/auto-edges.ts",
+  "line": 22,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "auto:"
+ },
+ {
+  "file": "src/router.tsx",
+  "line": 75,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "content/video-works"
+ },
+ {
+  "file": "src/stores/autoEdgeIds.ts",
+  "line": 13,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "auto:"
+ },
+ {
+  "file": "src/stores/autoEdgeIds.ts",
+  "line": 13,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "auto-out:"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 88,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 108,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 117,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 121,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 139,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 142,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 166,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.auto-edge.test.ts",
+  "line": 170,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-video-1"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.ts",
+  "line": 28,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "https:"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.ts",
+  "line": 171,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.ts",
+  "line": 177,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "shadow-"
+ },
+ {
+  "file": "src/stores/canvasCollabRuntime.ts",
+  "line": 244,
+  "isTest": false,
+  "template": true,
+  "dynamic": true,
+  "tokens": 1,
+  "ctx": "project: "
+ },
+ {
+  "file": "src/stores/canvasStore.ts",
+  "line": 746,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "blob:"
+ },
+ {
+  "file": "src/stores/nodeStore.test.ts",
+  "line": 246,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "to-delete"
+ },
+ {
+  "file": "src/stores/nodeStore.test.ts",
+  "line": 253,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "to-delete"
+ },
+ {
+  "file": "src/stores/nodeStore.test.ts",
+  "line": 255,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "to-delete"
+ },
+ {
+  "file": "src/stores/nodeStore.test.ts",
+  "line": 256,
+  "isTest": true,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "to-delete"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 15,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-left"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 15,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-right"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 15,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-left"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 15,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-right"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 79,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-left"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 81,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "top-right"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 83,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-left"
+ },
+ {
+  "file": "src/utils/resizeUtils.ts",
+  "line": 85,
+  "isTest": false,
+  "template": false,
+  "dynamic": false,
+  "tokens": 1,
+  "ctx": "bottom-right"
+ }
+]

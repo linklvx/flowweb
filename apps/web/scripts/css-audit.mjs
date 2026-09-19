@@ -377,6 +377,10 @@ function collectRoute3(occs, classPresent) {
   const literalIsClassString = new Map(); // ctx → 是否类字符串字面量（≥1 真类 + 类密度判据，拦测试标题等英文散文）
   // 权衡：密度闸要求字面量含 ≥1 真类 → 整串全由（疑似类形状却无一存活的）死类组成的字面量被整串跳过
   // ——死类少计模式。allDeadSkipped 把这类跳过计量化，供 B3 复查时作为可见信号。
+  // B3 复查实证（e2e/audit/b3-alldead-list.json）：A0 时代的 101 条全为单 token 假阳性——
+  // 'text/plain' MIME / whiteSpace:'nowrap' 等内联样式值 / data-testid / 'shadow-' ID 前缀 / 'auto:' 模板残片，
+  // 形状与工具类词表重叠但绝非类字符串；多 token 才是本计量的标的（"整串 wholesale 死类串"）。
+  // 故单 token 全死字面量不计入——真实单死类站点由主 dead 路的密度闸口径覆盖（需 ≥1 真类同串）。
   const allDeadCtx = new Set();
   let allDeadSkipped = 0;
   const qualifies = (ctx) => {
@@ -384,7 +388,7 @@ function collectRoute3(occs, classPresent) {
       const toks = ctx.split(/\s+/).filter(Boolean);
       const real = toks.filter((t) => classPresent(t)).length;
       literalIsClassString.set(ctx, real >= 1 && (toks.length <= 3 || real / toks.length >= 0.4));
-      if (real === 0 && toks.length && toks.every((t) => looksLikeUtility(t))) allDeadCtx.add(ctx);
+      if (real === 0 && toks.length >= 2 && toks.every((t) => looksLikeUtility(t))) allDeadCtx.add(ctx);
     }
     return literalIsClassString.get(ctx);
   };
@@ -666,7 +670,7 @@ function renderMd(audit) {
   p('## Route ③ 死类家族（compile-diff，content globs 内，动态拼接单列存疑）');
   p();
   p(`- 判死总数：**${audit.route3.dead.total}**（参考 ~25-27）；动态拼接存疑：${audit.route3.uncertain.total}`);
-  p(`- 全死字面量被密度闸整串跳过（死类少计模式）：**${audit.route3.allDeadSkipped}** 次——判据要求字面量含 ≥1 真类，全由死类组成的类串不可见，B3 复查信号`);
+  p(`- 全死字面量被密度闸整串跳过（死类少计模式）：**${audit.route3.allDeadSkipped}** 次（≥2 token 整串；单 token 假阳性不计——B3 实证 101 条全为样式值/MIME/testid 形状）——判据要求字面量含 ≥1 真类，全由死类组成的类串不可见，B3 复查信号`);
   p();
   p('| 类 token | 总次 | 产品次 |');
   p('|---|---|---|');

@@ -182,7 +182,7 @@ function ImageFullscreenViewerComponent({
               {/* 提示词 */}
               <section className="space-y-2">
                 <span className="text-sm font-semibold leading-5 text-neutral-400">提示词</span>
-                <div className="relative h-[180px] self-stretch rounded-[12px] bg-white/5 text-sm leading-5 font-normal text-popover-foreground text-left overflow-hidden">
+                <div className="relative h-[180px] self-stretch rounded-[12px] bg-white/5 text-sm leading-5 font-normal text-neutral-200 text-left overflow-hidden">
                   <div className="h-full pt-2 pl-3 pb-3 pr-1.5 overflow-y-auto image-fv-sidebar">
                     {prompt || '暂无提示词'}
                   </div>
@@ -194,20 +194,20 @@ function ImageFullscreenViewerComponent({
                 <span className="text-sm font-semibold leading-5 text-neutral-400">信息</span>
                 <div className="flex flex-col items-start gap-2 py-2 px-2.5 self-stretch rounded-[12px] bg-white/5">
                   <div className="flex items-start text-sm gap-3">
-                    <span className="text-sm font-normal leading-[150%] text-muted-foreground shrink-0">模型:</span>
-                    <span className="text-sm font-normal leading-[150%] text-popover-foreground truncate min-w-0">{model}</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-400 shrink-0">模型:</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-200 truncate min-w-0">{model}</span>
                   </div>
                   <div className="flex items-start text-sm gap-3">
-                    <span className="text-sm font-normal leading-[150%] text-muted-foreground shrink-0">质量:</span>
-                    <span className="text-sm font-normal leading-[150%] text-popover-foreground truncate min-w-0">{quality}</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-400 shrink-0">质量:</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-200 truncate min-w-0">{quality}</span>
                   </div>
                   <div className="flex items-start text-sm gap-3">
-                    <span className="text-sm font-normal leading-[150%] text-muted-foreground shrink-0">宽高比:</span>
-                    <span className="text-sm font-normal leading-[150%] text-popover-foreground truncate min-w-0">{ratio}</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-400 shrink-0">宽高比:</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-200 truncate min-w-0">{ratio}</span>
                   </div>
                   <div className="flex items-start text-sm gap-3">
-                    <span className="text-sm font-normal leading-[150%] text-muted-foreground shrink-0">图片尺寸:</span>
-                    <span className="text-sm font-normal leading-[150%] text-popover-foreground truncate min-w-0">{sizeDisplay}</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-400 shrink-0">图片尺寸:</span>
+                    <span className="text-sm font-normal leading-[150%] text-neutral-200 truncate min-w-0">{sizeDisplay}</span>
                   </div>
                 </div>
               </section>
@@ -221,7 +221,7 @@ function ImageFullscreenViewerComponent({
               disabled={downloadDisabled}
               title={!displayUrl ? '图片加载失败，无法下载' : undefined}
               onClick={handleDownload}
-              className={`gap-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring flex h-8 py-2 px-0 justify-center items-center self-stretch rounded-[8px] border-[1.33px] border-white/10 bg-[#646464] backdrop-blur-[50px] text-primary-foreground text-xs font-semibold leading-none w-full select-none ${
+              className={`gap-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 flex h-8 py-2 px-0 justify-center items-center self-stretch rounded-[8px] border-[1.33px] border-white/10 bg-[#646464] backdrop-blur-[50px] text-white text-xs font-semibold leading-none w-full select-none ${
                 downloadDisabled
                   ? 'cursor-not-allowed opacity-50'
                   : 'shadow hover:bg-[#757575]'

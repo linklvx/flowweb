@@ -7,10 +7,10 @@
   },
   "after": {
    "dir": "after-A",
-   "commit": "b9a23a72ad61f6de17b010096c262c508429934e",
-   "collectedAt": "2026-09-19T00:04:27.765Z"
+   "commit": "6ac941f579f994653f30fd4f41371ed631cf8867",
+   "collectedAt": "2026-09-19T00:28:36.047Z"
   },
-  "generatedAt": "2026-09-19T00:04:53.294Z",
+  "generatedAt": "2026-09-19T00:28:38.637Z",
   "classifier": {
    "cascadeMax": 40,
    "bridgeExpected": [
@@ -51,7 +51,7 @@
  },
  "b2ExpectedGate": {
   "registry": "e2e/audit/b2-migration-registry.json",
-  "pairsRegistered": 40,
+  "pairsRegistered": 43,
   "absorbedTotal": 60,
   "absorbedByPair": {
    "color rgb(255, 255, 255)→rgb(226, 232, 240)": 15,
@@ -129,9 +129,9 @@
     "tid:track-row-track-5910b92c-332d-4cd5-a257-4581198f0f27@0"
    ],
    "addedKeys": [
-    "tid:rf__node-node_1789776263892_1@0",
-    "tid:video-edit-node-node_1789776263892_1@0",
-    "tid:track-row-track-eb7fd7f4-28ce-4e25-9449-973d178e34bf@0"
+    "tid:rf__node-node_1789777712167_1@0",
+    "tid:video-edit-node-node_1789777712167_1@0",
+    "tid:track-row-track-068794c5-a535-4c01-9e88-0f0806040c96@0"
    ]
   },
   "videos": {
@@ -190,7 +190,7 @@
  "geometryLayer": {
   "summary": {
    "P:form-reset": 533,
-   "C:cascade": 480,
+   "C:cascade": 481,
    "P:emergent-border": 118,
    "P:media-block": 82,
    "P:box-sizing-flip": 33,
@@ -4481,6 +4481,15 @@
      "before": 412,
      "after": 409,
      "delta": -3
+    },
+    {
+     "page": "works",
+     "key": "dom:div[0]/div[0]/div[0]/div[1]/main[0]/div[1]/div[0]/div[1]/ul[0]/li[1]/div[0]/div[1]/div[0]/span[0]",
+     "tag": "span",
+     "prop": "w",
+     "before": 85,
+     "after": 92,
+     "delta": 7
     },
     {
      "page": "works",
@@ -11653,7 +11662,8 @@
    "y-8": 10,
    "h+6": 8,
    "y-5": 5,
-   "y-9": 2
+   "y-9": 2,
+   "w+7": 1
   },
   "unexpected": [],
   "registered": []

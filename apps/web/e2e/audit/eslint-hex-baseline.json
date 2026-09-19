@@ -4,7 +4,8 @@
     "capturedAt": "2026-09-18T23:47:18.720Z",
     "keyFormat": "{ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号，行移动不触发；同文件同文本多行塌缩为一键（O3 已接受）",
     "count": 261,
-    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建"
+    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建",
+    "rekeyNote": "B3 死类处置改写 2 行（下载按钮 className 行内 #646464/#757575 hex 不变、行文本变）——纯 re-key 2 键，总量 261 不变，非 UPDATE_BASELINE 重采"
   },
   "keys": [
     "flowweb/no-color-hex|src/components/AuthModal.tsx|0e3819516da6900126f6039da6d08bb2498abdba6da5c06e02917735e24707c8",
@@ -103,8 +104,8 @@
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageExtConfigPanel.tsx|e7dba170d6db10dee448a4a2b80c9f5e05c96f5d5ea87af0179050c6bccf1717",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageExtConfigPanel.tsx|f91a409e78744425f3be3f229fdef9461414c6f3a95fa427db0c2e6937d1b0c3",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx|0eb5e3b92ce0b23ff45157306dd08cce474be7d9e4cb5baae9ffe9d317956498",
-    "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx|59c22929a74f882a2722fae27d2bbe80239310bc781f66a2f336e8cbb9d232b1",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx|9fb6783569cfb583f955e6f3500757649361a74887b0242a587d9c50bbf0fb8b",
+    "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx|be7c0e8c7e24783963b32ff97223f74b16d5f0a0df8d94b883d8c6244d02b70d",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx|da9bf1e2e1678b440512c0aac48ede87abfe42bf512ccd8dfd8743cb8e037868",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageGenNode.tsx|78236917c7d24ac084b6738e72627c6878e51b109f698f0f8f64ff51f7fbcd34",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/ImageGenNode.tsx|a6685b9bdb47fa718bf34e1aa80f781106dbc6131bdcf7b32854859049e49fbc",
@@ -174,8 +175,8 @@
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoEditNode.tsx|c49590db188588ede44bef71d236be9f38eca227779d00aa72f9eb3aa44815c5",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoEditNode.tsx|eb5653fbdfef5ab8e85f5f2192beaef5df0ae91fd54eac6a025089cab529f8a8",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx|0eb5e3b92ce0b23ff45157306dd08cce474be7d9e4cb5baae9ffe9d317956498",
-    "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx|59c22929a74f882a2722fae27d2bbe80239310bc781f66a2f336e8cbb9d232b1",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx|9fb6783569cfb583f955e6f3500757649361a74887b0242a587d9c50bbf0fb8b",
+    "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx|be7c0e8c7e24783963b32ff97223f74b16d5f0a0df8d94b883d8c6244d02b70d",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx|da9bf1e2e1678b440512c0aac48ede87abfe42bf512ccd8dfd8743cb8e037868",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoGenNode.tsx|059d867e13fda72e0fc1e0dba09210df2887528af62a13dfdd43b65cc3190a08",
     "flowweb/no-color-hex|src/pages/canvas/components/nodes/VideoGenNode.tsx|78236917c7d24ac084b6738e72627c6878e51b109f698f0f8f64ff51f7fbcd34",

@@ -58,10 +58,10 @@ function TrashIcon() {
 }
 
 const menuItemClass =
-  'hover:bg-white/10 relative flex cursor-pointer items-center rounded-sm px-2 outline-hidden select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-white/90';
+  'hover:bg-white/10 relative flex cursor-pointer items-center rounded-sm px-2 select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-white/90';
 
 const destructiveItemClass =
-  'hover:bg-red-400/10 relative flex cursor-pointer items-center rounded-sm px-2 outline-hidden select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-red-400';
+  'hover:bg-red-400/10 relative flex cursor-pointer items-center rounded-sm px-2 select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-red-400';
 
 export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, onRename }: Props) {
   const { modal } = App.useApp();
