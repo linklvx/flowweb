@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "formula": "WCAG 2.x relative luminance，(L1+.05)/(L2+.05)，全文同公式同口径",
+    "gamma": "线性化常数 0.055（((c+0.055)/1.055)^2.4，WCAG 2.x 正式式）。仲裁定案：#767676@white=4.54 与 #777777@white=4.48 两组 WCAG 公布名值只在 0.055 下成立——自检双锚即判别式。错植指纹两族勿混引：加数错植 (c+0.05)/1.055 → #555555 2.76 / #767676 4.63 / #777777 4.56；除数错植 (c+0.055)/1.05 → 2.84 / 4.50 / 4.44——任一族都过不了 4.54/4.48 双锚",
+    "tolerance": 0.01,
+    "selfCheck": [
+      { "fg": "#FFFFFF", "bg": "#000000", "expect": 21.00, "why": "极值锚" },
+      { "fg": "#767676", "bg": "#FFFFFF", "expect": 4.54, "why": "经典 AA 贴线灰（WCAG 公布名值；0.05 错植给 4.50——区分力锚①）" },
+      { "fg": "#777777", "bg": "#FFFFFF", "expect": 4.48, "why": "WCAG 公布名值（0.05 错植给 4.44——区分力锚②，双锚锁死 0.055）" },
+      { "fg": "#555555", "bg": "#000000", "expect": 2.82, "why": "本 spec 深档网格点（0.055 下 L=0.0908→2.816；2.76 系 0.05 错植输出——审核两轮实证同一负例）" }
+    ]
+  },
+  "pairs": [
+    { "id": "P2-深档点", "fg": "#555555", "bg": "#000000", "specExpect": 2.82, "spec": "§2 P2" },
+    { "id": "P2-浅档点-DCDCDC弃用", "fg": "#DCDCDC", "bg": "#F5F5F5", "specExpect": 1.26, "spec": "§2 P2" },
+    { "id": "P2-浅档点-C8C8C8", "fg": "#C8C8C8", "bg": "#F5F5F5", "specExpect": 1.53, "spec": "§2 P2（spec :120 的 1.55 系内部不一致笔误——spec v1.5.1 :326 已自行登记勘误、正确值 1.53；本表按 1.53 入册引用既有登记，勿改 spec :120 原文——勘误条管辖，两处改会互相打脸）" },
+    { "id": "P2-边线@浅板", "fg": "#3B82F6", "bg": "#F5F5F5", "specExpect": 3.37, "spec": "§8.1 edge-flow" },
+    { "id": "P2-边高亮深档-999@浅板", "fg": "#999999", "bg": "#F5F5F5", "specExpect": 2.61, "spec": "§8.1 edge-highlight 换值动因" },
+    { "id": "P2-边高亮浅档-6B7280@浅板", "fg": "#6B7280", "bg": "#F5F5F5", "specExpect": 4.43, "spec": "§8.1" },
+    { "id": "P6-手柄深档-bg@白卡", "fg": "#9CA3AF", "bg": "#FFFFFF", "specExpect": 2.54, "spec": "§8.1" },
+    { "id": "P6-手柄浅档-bg@白卡", "fg": "#6B7280", "bg": "#FFFFFF", "specExpect": 4.83, "spec": "§8.1" },
+    { "id": "P6-手柄浅档-bg@板", "fg": "#6B7280", "bg": "#F5F5F5", "specExpect": 4.43, "spec": "§8.1" },
+    { "id": "P6-手柄icon浅档@白卡", "fg": "#4B5563", "bg": "#FFFFFF", "specExpect": 7.56, "spec": "第五轮订正（v1.5.2 变更登记）：NodeHandle circle fill=transparent——icon 实落卡面非手柄底，spec §8.1 浅档 #FFFFFF 白字白卡 1.0:1 不可见 → #4B5563" },
+    { "id": "P6-手柄icon深档@深卡", "fg": "#6B7280", "bg": "#1E1E1E", "specExpect": 3.45, "spec": "现状深档（icon 深值@bg-surface 深卡 ≥3 复核）" },
+    { "id": "P6-手柄hover-icon浅档@白卡", "fg": "#111827", "bg": "#FFFFFF", "specExpect": 17.74, "spec": "第五轮订正：hover 仍 transparent fill——hover-icon 浅档 #FFFFFF 同样不可见 → #111827（与 hover 环同色系）。第六轮勘误：第五轮手算 18.53 系 g 通道误植（0x18=24 当了 17）——新加行的 specExpect 一律以脚本首跑输出回填，禁手算定稿（台账存在的意义即此）" },
+    { "id": "面-面-卡面@板底(浅)", "fg": "#FFFFFF", "bg": "#F5F5F5", "spec": "分离度观测行（specExpect 空=无 drift 牙齿）：WCAG 1.4.11 UI 边界 3:1 适用性由 B6 目检裁定——浅档浮层/板分离度依赖边框+阴影承担" },
+    { "id": "面-面-surface-dim@板底(浅)", "fg": "#F0F1F2", "bg": "#F5F5F5", "spec": "分离度观测行：--canvas-controls-bg 浅值 vs 板 ≈1.04——B6 必看（工具条/面板浮板感）" },
+    { "id": "面-面-overlay2边@板底(浅)", "fg": "#F0F0F0", "bg": "#F5F5F5", "spec": "分离度观测行：rgba(0,0,0,0.06) 压白卡合成色 vs 板——B6 必看（卡边可辨性）" },
+    { "id": "面-面-深档对照", "fg": "#262626", "bg": "#000000", "spec": "分离度观测行：深档工具条@板 ≈1.39——浅档同量级的分离度靠边框/阴影补" },
+    { "id": "P9-欠账现状", "fg": "#6C5CE7", "bg": "#262626", "specExpect": 3.11, "spec": "§2 P9" },
+    { "id": "P9-图形档白字", "fg": "#FFFFFF", "bg": "#6C5CE7", "specExpect": 4.86, "spec": "§2 P9" },
+    { "id": "P9-图形档浅位", "fg": "#6C5CE7", "bg": "#F0F1F2", "specExpect": 4.30, "spec": "§2 P9" },
+    { "id": "P9-文字档深@262626", "fg": "#9B8CF7", "bg": "#262626", "specExpect": 5.40, "spec": "§2 P9" },
+    { "id": "P9-文字档深@141414", "fg": "#9B8CF7", "bg": "#141414", "specExpect": 6.57, "spec": "§2 P9" },
+    { "id": "P9-文字档浅@f0f1f2", "fg": "#5F4FD1", "bg": "#F0F1F2", "specExpect": 5.27, "spec": "§2 P9" },
+    { "id": "P9-文字档浅@f7f8fa", "fg": "#5F4FD1", "bg": "#F7F8FA", "specExpect": 5.61, "spec": "§2 P9" },
+    { "id": "P4-GridIcon@白卡", "fg": "#6C5CE7", "bg": "#FFFFFF", "specExpect": 4.86, "spec": "§11.4" },
+    { "id": "P4-GridIcon@深卡", "fg": "#6C5CE7", "bg": "#1E1E1E", "specExpect": 3.43, "spec": "§11.4" },
+    { "id": "P4-品牌浅底反证-5DDCFF", "fg": "#5DDCFF", "bg": "#FFFFFF", "specExpect": 1.60, "spec": "§4 通道2 反证：深档品牌值直接落浅底不合格 → 双值变体 token 或迁恒深面，禁当『浅色档接受值』引用" },
+    { "id": "P4-品牌浅底反证-4ade80", "fg": "#4ADE80", "bg": "#FFFFFF", "specExpect": 1.74, "spec": "§4 通道2 反证：#4ade80(--fw-accent 深值)落白底 1.74 → 前景必须走 --fw-accent-text 双档（浅 #15803d@white≈5.02）" }
+  ]
+}
