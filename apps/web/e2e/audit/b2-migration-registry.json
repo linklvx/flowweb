@@ -1222,5 +1222,55 @@
     "text-fg-default/outline-hidden 删除 ×5：死类本无规则，删除计算零变化"
    ]
   }
+ },
+ "b4DesignConstantWhitelist": {
+  "task": "B4 测试改造——inline-style 设计常量断言登记（不迁移不加 token，未来清扫跳过；每处已加行注释「设计常量白名单（B 段登记）」）",
+  "date": "2026-09-18",
+  "policy": "测试断言生产内联色常量的位点保留字面值断言——被断言的生产值本身是白名单设计常量（board 画板 D4 恒深/恒深岛自持配色/营销品牌色），非主题债",
+  "entries": [
+   {
+    "testFile": "src/pages/canvas/video-editor/components/timeline/TimelinePanel.render.test.tsx:115-131",
+    "constant": "opencut 轨道色表 #5DBAA0(subtitle)/#8F5DBA(audio)/var(--ve-track-video)（生产源 ClipBlock BLOCK_BG）",
+    "whyKept": "video-editor 岛 --ve-* 自持恒深配色，轨道色表本身即断言标的（B1 式钉死），非可主题化表面"
+   },
+   {
+    "testFile": "src/pages/canvas/components/CanvasToolbar.test.tsx:91,126-142",
+    "constant": "BTN_BG rgb(38,38,38)/BTN_BG_ACTIVE rgb(58,58,58) 按钮态底色",
+    "whyKept": "画板壳工具栏内联常量表（画板域恒深），激活/还原态切换行为断言依赖该常量"
+   },
+   {
+    "testFile": "src/components/layout/AnnouncementBar.test.tsx:31",
+    "constant": "公告条品牌深蓝底 rgb(15,39,97)=#0F2761",
+    "whyKept": "营销品牌色跨主题恒定（同 WeChat 绿/品牌紫白名单家族）"
+   },
+   {
+    "testFile": "src/pages/canvas/components/groups/NormalGroupRenderer.test.tsx:33",
+    "constant": "分组深色底 rgba(26,26,26,0.6)",
+    "whyKept": "board 画板域 D4 恒深字面值"
+   },
+   {
+    "testFile": "src/pages/canvas/components/groups/StoryboardGroupRenderer.test.tsx:91,99",
+    "constant": "组框恒定深边 rgb(51,51,51)=#333 / 格子选中乳白边 rgb(255,255,240)",
+    "whyKept": "board 画板域 D4 恒深字面值"
+   },
+   {
+    "testFile": "src/pages/canvas/components/nodes/VideoTrimTimeline.test.tsx:75,101",
+    "constant": "裁剪时间线底/无视频兜底底 rgb(26,26,26)=#1a1a1a",
+    "whyKept": "board 画板域 D4 恒深字面值"
+   }
+  ],
+  "notWhitelisted": "AddNodeMenu.test toHaveStyle var(--fw-overlay-1) 为 token 断言（期望终态形态）非设计常量；几何/布局内联断言（left/top/transform/cursor 等）无色值不涉本表",
+  "b4NegativeAssertionSweep": {
+   "gate": "grep not.toContain | grep -iE '#hex|text-white|bg-white' = 0（B2 机械同步后无残留字面负断言；not.toMatch/not.toHaveClass 色彩模式扫同样 0）",
+   "colorishFound": 4,
+   "updated": 0,
+   "deleted": 0,
+   "items": [
+    "Sidebar.test.tsx:37 not.toContain('bg-surface-dim')——B2 已同步 token 形，守卫非激活菜单项无高亮底，有意义",
+    "ProjectTitle.test.tsx:124 not.toContain('border-accent')——B2 已同步（原 not.toContain('border-[#4ade80]') 空绿隐患消除），守卫编辑框非强调边，有意义",
+    "TeamSidebar.test.tsx:57 not.toContain('from-cyan-500/10')——生产 TeamSidebar.tsx:18 活动态仍有该类，守卫非激活卡无渐变，有意义非空绿",
+    "Sidebar.test.tsx:95 not.toContain('hover:bg')——交互守卫（收起钮无 hover 底），非色 token"
+   ]
+  }
  }
 }

@@ -28,6 +28,7 @@ describe('AnnouncementBar', () => {
     render(<AnnouncementBar />);
     const bar = screen.getByTestId('announcement-bar');
     expect(screen.getByText('平台公告：新功能上线')).toBeInTheDocument();
+    // 设计常量白名单（B 段登记）：公告条品牌深蓝底 #0F2761（营销品牌色，跨主题恒定）
     expect(bar.style.backgroundColor).toBe('rgb(15, 39, 97)');
   });
 

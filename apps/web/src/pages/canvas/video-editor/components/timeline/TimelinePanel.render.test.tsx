@@ -121,6 +121,7 @@ describe('TimelinePanel 静态渲染', () => {
     // 夹具 v1 带 sourceNodeId:'s1'（missing 红底会盖过色表）——先注入节点解除红态，与下方 missing 用例口径一致
     act(() => { useCanvasStore.setState({ nodes: [{ id: 's1', position: { x: 0, y: 0 }, data: {} } as never] }); });
     render(<TimelinePanel />);
+    // 设计常量白名单（B 段登记）：opencut 轨道色表（ClipBlock BLOCK_BG），video-editor 岛恒深自持，色表本身即断言标的
     // jest-dom 两侧过 CSSOM 归一：'#5DBAA0' ↔ 'rgb(93, 186, 160)'、'#8F5DBA' ↔ 'rgb(143, 93, 186)'
     expect(screen.getByTestId('clip-block-sub1')).toHaveStyle({ backgroundColor: '#5DBAA0' });
     expect(screen.getByTestId('clip-block-a1')).toHaveStyle({ backgroundColor: '#8F5DBA' });

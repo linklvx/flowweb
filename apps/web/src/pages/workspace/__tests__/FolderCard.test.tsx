@@ -26,7 +26,7 @@ function renderFolder(overrides?: { folder?: Partial<FolderViewModel>; showCount
 describe('FolderCard', () => {
   it('渲染名称、画布数、编辑时间', () => {
     renderFolder();
-    expect(screen.getByText('项目文件夹')).toHaveClass('text-text');
+    expect(screen.getByText('项目文件夹')).toBeInTheDocument();
     expect(screen.getByText('3 个画布')).toBeInTheDocument();
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
     expect(screen.getByTestId('folder-card-f1')).toHaveClass('h-full');
@@ -73,7 +73,8 @@ describe('FolderCard', () => {
     expect(screen.getByText('2026-08-18 09:00')).toBeInTheDocument();
     expect(screen.getByText(/编辑于/)).toBeInTheDocument();
     expect(container.querySelectorAll('[data-testid="stack-card"]')).toHaveLength(3);
-    expect(row.querySelector('.border-overlay-2')).toBeInTheDocument();
+    // 行分隔线按结构锚定（.border-b）而非色 token 类——分隔线存在性是本用例契约，颜色随主题走
+    expect(row.querySelector('.border-b')).toBeInTheDocument();
   });
 
   it('variant="list" showCount=false 内容列为空', () => {

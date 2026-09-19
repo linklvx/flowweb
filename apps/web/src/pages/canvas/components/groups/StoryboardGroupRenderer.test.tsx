@@ -88,6 +88,7 @@ describe('StoryboardGroupRenderer', () => {
   it('组框边框恒定深色（选中态无高亮边框，选中反馈仅有上方悬浮工具条）', () => {
     const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
     const root = container.firstElementChild as HTMLElement;
+    // 设计常量白名单（B 段登记）：分镜组框恒定深边 #333（board 画板域 D4 恒深字面值）
     expect(root.style.borderColor).toBe('rgb(51, 51, 51)');
   });
 
@@ -96,6 +97,7 @@ describe('StoryboardGroupRenderer', () => {
     const cell = (container.firstElementChild as HTMLElement).children[0] as HTMLElement;
     fireEvent.click(cell);
     expect(cell.style.borderWidth).toBe('1px');
+    // 设计常量白名单（B 段登记）：格子选中乳白边 rgb(255,255,240)（board 画板域 D4 恒深字面值）
     expect(cell.style.borderColor).toBe('rgb(255, 255, 240)');
   });
 

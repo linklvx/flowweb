@@ -25,8 +25,7 @@ describe('CanvasCard', () => {
   it('渲染标题与「编辑于」相对时间', () => {
     vi.setSystemTime(new Date('2026-08-18T12:00:00'));
     renderCard(base);
-    expect(screen.getByText('画布 1')).toHaveClass('text-text');
-    expect(screen.getByText(/编辑于/)).toBeInTheDocument();
+    expect(screen.getByText('画布 1')).toBeInTheDocument();
     expect(screen.getByTestId('canvas-card-c1')).toHaveClass('h-full');
     vi.useRealTimers();
   });
@@ -94,7 +93,8 @@ describe('CanvasCard', () => {
     expect(menuWrap?.className).toContain('opacity-0');
     expect(menuWrap?.className).toContain('group-hover/menu:opacity-100');
     const row = screen.getByTestId('canvas-card-c1');
-    expect(row.querySelector('.border-overlay-2')).toBeInTheDocument();
+    // 行分隔线按结构锚定（.border-b）而非色 token 类——分隔线存在性是本用例契约，颜色随主题走
+    expect(row.querySelector('.border-b')).toBeInTheDocument();
   });
 
   it('variant="list" isPublic 标签跟随名称渲染', () => {

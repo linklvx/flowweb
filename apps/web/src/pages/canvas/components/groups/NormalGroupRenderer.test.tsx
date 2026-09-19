@@ -30,6 +30,7 @@ describe('NormalGroupRenderer 展开态', () => {
     const { rerender } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
     const box = screen.getByTestId('group-box');
     expect(box.style.border).toBe('');
+    // 设计常量白名单（B 段登记）：分组深色底 rgba(26,26,26,0.6)（board 画板域 D4 恒深字面值）
     expect(box.style.background).toContain('rgba(26, 26, 26, 0.6)');
     rerender(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={true} />);
     expect(screen.getByTestId('group-box').style.border).toBe('');

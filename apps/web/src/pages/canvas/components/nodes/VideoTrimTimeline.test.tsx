@@ -72,6 +72,7 @@ describe('VideoTrimTimeline', () => {
     expect(timeline.style.height).toBe('60px');
     expect(timeline.style.borderRadius).toBe('6px');
     expect(timeline.style.overflow).toBe('hidden');
+    // 设计常量白名单（B 段登记）：裁剪时间线底 #1a1a1a（board 画板域 D4 恒深字面值）
     expect(timeline.style.backgroundColor).toBe('rgb(26, 26, 26)'); // #1a1a1a
   });
 
@@ -98,6 +99,7 @@ describe('VideoTrimTimeline', () => {
   it('should show solid background when no videoSrc (fallback)', () => {
     const { container } = renderTimeline({ videoSrc: null });
     const root = container.firstElementChild! as HTMLElement;
+    // 设计常量白名单（B 段登记）：无视频兜底底 #1a1a1a（board 画板域 D4 恒深字面值）
     expect(root.style.backgroundColor).toBe('rgb(26, 26, 26)');
     expect(container.querySelectorAll('img').length).toBe(0);
   });

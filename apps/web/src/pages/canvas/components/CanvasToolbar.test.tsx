@@ -88,6 +88,7 @@ describe('CanvasToolbar', () => {
       screen.getByLabelText('放大'),
     ];
     for (const btn of buttons) {
+      // 设计常量白名单（B 段登记）：画板工具栏 BTN_BG 内联常量（CanvasToolbar.tsx rgb(38,38,38)/rgb(58,58,58)，画板域恒深）
       expect(btn.style.backgroundColor).toBe('rgb(38, 38, 38)');
     }
   });
@@ -123,6 +124,7 @@ describe('CanvasToolbar', () => {
 
   it('should highlight minimap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
+    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
@@ -130,6 +132,7 @@ describe('CanvasToolbar', () => {
 
   it('should highlight snap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} snapEnabled={false} />);
+    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
     expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(38, 38, 38)');
     rerender(<CanvasToolbar {...defaultProps} snapEnabled={true} />);
     expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(58, 58, 58)');
@@ -137,6 +140,7 @@ describe('CanvasToolbar', () => {
 
   it('should revert minimap button background when deactivated', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
+    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
     expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
