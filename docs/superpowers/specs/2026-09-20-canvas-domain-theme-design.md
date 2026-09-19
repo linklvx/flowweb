@@ -1,7 +1,7 @@
-# 画布域主题跟随设计（C8）spec v1.4
+# 画布域主题跟随设计（C8）spec v1.5（定稿冻结）
 
-- 日期：2026-09-20（v1.1-v1.3 五轮收口；v1.4 第六轮收口——P10 用户裁定 TRACK_COLORS 统一到 ve 色表、"深档零 diff"适用范围收窄至 D0-0/D0/D1a 并给 D1b 出有意变更清单、--ve-accent-text 整键移 D1b、§11.4 表头三类值+GridIcon 补录、#3a3a3a 语义分组、反补岛守卫写死对象、a0:250 双断言、对比度台账脚本化、完成判据机理句、inline-style 分区、AuthModal 范围外登记等）
-- 状态：待评审
+- 日期：2026-09-20（v1.1-v1.4 六轮收口；v1.5 第七轮收尾定稿——§9.2 等值键并域+单次登记规则、§10.3 守卫过滤表达式可执行化、§10 像素 diff 参照系、SVG 呈现属性通则、GridIcon 字面恒定、P10 叶子模块、自检向量、D0-0 四步排序。**本版起冻结：后续改动走变更登记，不再逐轮全审；实施期分歧以 registry 产出与 contrast-table.mjs 实测为准**）
+- 状态：定稿（待用户最终确认后进 plan）
 - 关联：`2026-09-18-css-base-layer-theme-design.md`（v1.9，本 spec 是其画布域解封续篇）、c5-portal-census.json、c7-accepted-items.md、b6-acceptance.md、domain-token-adjudication-B0.json、b2-migration-registry.json
 - 需求来源：用户提出「Canvas 画布页面的节点卡、悬浮工具条、底部面板、画布颜色等元素跟随主题（浅色下变浅）；主题只分浅色/深色两档，无跟随系统，默认深色」；六轮架构审核修订 + 用户 10 项产品裁定（P1-P10）。
 
@@ -81,10 +81,10 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 
 「深色档零 diff」现有仪器不可判：a0 采集器冻结集**无 backgroundColor、color 仅表单控件**（a0-collect-baseline.spec.ts:105-137）；b1 探针仅 /works 4 + /canvas 2（都在 CanvasTopBar，画板子树 0 条）；videos/ve 域 0 条（b1 文件头 :15-17 明示）。
 
-**动作**（交付物三件——只采集不判定=仪器仍不判；**第 0 步前置**：确认四进程环境与 fixture（gate-canvas-1/gate-node-1/样例视频）就位——扩了采集器却采不到基线等于白做，before-D 时间窗不可补）：
+**动作**（交付物三件——只采集不判定=仪器仍不判；**执行顺序四步固定（v1.5）**：⑴ 确认四进程环境与 fixture（gate-canvas-1/gate-node-1/样例视频/preview:5173）就位——扩了采集器却采不到基线等于白做，before-D 时间窗不可补 → ⑵ 扩 a0 采集器+扩 differ 属性集（**同一 commit**，含 attrSetVersion）→ ⑶ **自比自跑**（同一 HEAD 采两次比对定 0 噪声基线——全元素 color 继承噪声先测预算；若非 0，就地扩展分类器"预期项"白名单并把预算写进本 spec，**勿带噪声进 D1a**）→ ⑷ 采 before-D（8 页）入档，此后才开始 D0 代码改动）：
 1. **采集器扩展**：a0 全元素冻结 `backgroundColor` + `color`（color 不再限于 FORM_CONTROL）。
 2. **differ 侧同步扩展（独立基线对，不动 A5 既有冻结）**：css-baseline-diff.mjs:96 曾有意识排除 backgroundColor（"不可复采"）——本期**新增独立 D 段基线对 before-D/after-D**（新属性集含 backgroundColor+全元素 color + 新分类器分支）；**before-A0/after-A/light-B6 三套旧基线保持旧属性集冻结不动**（A5 differ 归宿=保留，继续管 A/B 段回归；§12.3"differ exit 0"指 **D 对**）。属性集版本号 `attrSetVersion` 随基线冻结；**"两侧属性集不一致判失败"限定同代基线对之间（before-D ↔ after-D）**，跨代比对走"属性缺失=不判"分支（否则旧基线全废）；颜色序列化统一 rgb() 归一化（对齐 BRIDGE_DARK 口径，防 hex/rgb 混比）；before-D **自比自跑一次定 0 噪声基线**（全元素继承色噪声先测预算，否则 D1a"深档 0 diff"被噪声淹没）。
-3. **D 段探针族**（b1 同构，先钉当前深值）：画板 wrapper 底/dot 色、节点卡底、CanvasTopBar 药丸内前景、videos 卡面/播放壳面、ve 壳底/面板/轨道面/预览垫底、WeChatFollowModal 面与前景。**helper 语义适配（v1.4）**：probeInvariance 语义是"html.light 下保持深值"（islandInvarianceProbes 落盘键）——D 段翻转类探针（画板/跟随面）新增 `probeFlip`（或 kind:'invariant'|'flip' 参数）+ meta 键名分流，防后人读 meta 误判画板为恒深岛。**对比度台账脚本 contrast-table.mjs 一并交付**：输入配对表（P2/P9/§4/§8.1/§13 全部在册数字），输出 spec 可直接粘贴的表格——历轮人工复算同格分歧（2.82/2.96、3.11/3.72、5.40/5.30）以此终结，全文数字以脚本出表为准。
+3. **D 段探针族**（b1 同构，先钉当前深值）：画板 wrapper 底/dot 色、节点卡底、CanvasTopBar 药丸内前景、videos 卡面/播放壳面、ve 壳底/面板/轨道面/预览垫底、WeChatFollowModal 面与前景。**helper 语义适配（v1.4）**：probeInvariance 语义是"html.light 下保持深值"（islandInvarianceProbes 落盘键）——D 段翻转类探针（画板/跟随面）新增 `probeFlip`（或 kind:'invariant'|'flip' 参数）+ meta 键名分流，防后人读 meta 误判画板为恒深岛。**对比度台账脚本 contrast-table.mjs 一并交付**：输入配对表（P2/P9/§4/§8.1/§13 全部在册数字），输出 spec 可直接粘贴的表格——历轮人工复算同格分歧（2.82/2.96、3.11/3.72、5.40/5.30）以此终结，全文数字以脚本出表为准。**内建自检向量（v1.5，不通过 exit 1）**：#FFFFFF/#000000=21.00、#767676/#FFFFFF=4.54（经典 AA 贴线灰）、#555555/#000000=2.82（本 spec 深档网格点，历轮争议点）——三组过则全文表格有共同标尺。
 4. before-D 在改动前 HEAD 采（8 页）——唯一时间窗，错过不可补；与 fixture（gate-canvas-1/gate-node-1/A0-0 样例视频）同 PR 锁定。**registry 清单两用**：D0-0 产出的迁移文件全集**同时**反向写入 PAGE_REGISTRY_FILES 三页数组**与**涌现授权集（emergence-adjudication-A4.json bare 非零位点 / route① colored-144 / EXTRA_AUTHORIZED_FILES 附理由三者之一）——只写前者开工首跑即 registryDrift 红（授权集是涌现闸第二半，§3 E 表口径，v1.3 补 §6 动作）。
 5. **after-D 门禁语义定义（v1.3 补，防 D1a 后验收失控）**：after-D **不是一次性采集产物**——每次段验收时按当前 checkout 重新采集 working 侧快照与 before-D 比对。D1a 期望 0 diff；D1b/D2/D3 的期望 diff 由各自段 differExpectedPairs 逐条配对吸收，**未登记配对=失败**（沿用 B2 机制）。不写清则实施者 D3 后首跑见巨量 diff，面临 UPDATE_BASELINE=1（B5 禁）或误判失败两错。
 6. 论据登记：clsHash/clsLen 不参与闸门（differ 只比几何与属性）→ D3 类名 token 替换不误伤配对闸，此即"baseline 不重采"的机制论据。
@@ -176,7 +176,7 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 ### 9.2 新增键与消费点改指（--ve-accent-text 整键落 D1b）
 
 - **新增 `--ve-accent-text`**：深 `#9B8CF7` / 浅 `#5F4FD1`（P9；v1.4 从 §8.1 表移出——整键定义+消费点接线同落 D1b，D1a 表内零死键零新键）。
-- **D1b 有意变更总清单（v1.4 新增——该段全部深色档变更在此逐条配对 differExpectedPairs，未配对=失败）**：① P9 8 处文字钮改指 accent-text（深档 #6C5CE7→#9B8CF7，逐点表 §11.4）；② §9.1 不等值键收敛（--ve-border/--canvas-controls-border #363636→#333 约 30 处、--canvas-controls-hover .08→.10、--vw-card-border-hover .25→.20、--ve-text-dim 收敛案）；③ AssetPanel 3 处 hover 改指 --fw-overlay-2（.08→.10 浅深两档均变）；④ WeChatFollowModal 岛拆除（D3 断言反转前置项）。**"深色档 0 diff"适用范围收窄为 D0-0/D0/D1a 三段（v1.4）**——D1b 起 after-D 期望 diff 全部由本清单配对吸收，§15 验收锚同步改写。
+- **D1b 有意变更总清单（v1.4 新增、v1.5 补全——该段全部深色档变更在此逐条配对 differExpectedPairs，未配对=失败）**：① P9 8 处文字钮改指 accent-text（深档 #6C5CE7→#9B8CF7，逐点表 §11.4；**其余 7 处——填充钮 1+分隔柄 3+播放头/吸附线 3——维持 --ve-accent 不改指**，15 处一起改指会让播放头/分隔柄用上文字档亮紫=视觉噪声）；② §9.1 不等值键收敛（--ve-border/--canvas-controls-border #363636→#333 约 30 处、--canvas-controls-hover .08→.10、--vw-card-border-hover .25→.20、--ve-text-dim 收敛案）；③ AssetPanel 3 处 hover 改指 --fw-overlay-2；④ WeChatFollowModal 岛拆除（D3 断言反转前置项）；⑤ **等值键并域消费点改指（v1.5 补裁定①）**：--ve-panel→--fw-surface-dim（14 处）、--ve-text→--fw-text（34 处）、--ve-bg→--fw-bg（2 处）≈50 处——三键深值全等故**深档零 diff 无需配对**，浅档首次一致；§8.1 浅值列"=--fw-* 浅值"即并域目标，不留双轨（每键单主）。**单次登记规则**：--canvas-controls-hover 的 diff 在 ②③ 中只登记一次（按先改定义后改消费的顺序落 ②）——同一变化两条登记会让配对闸重复计数。**"深色档 0 diff"适用范围收窄为 D0-0/D0/D1a 三段（v1.4）**——D1b 起 after-D 期望 diff 全部由本清单配对吸收，§15 验收锚同步改写。
 
 ### 9.3 AssetPanel 与 WeChatFollowModal
 
@@ -190,13 +190,21 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 
 1. CanvasView.tsx:379 `colorMode="dark"` → `colorMode={mode}`；板面三机制协同——:377 `bg-[#000000]` → `bg-[var(--canvas-board-bg)]`（**必须留在 Tailwind utility 层**：产物 CSS 实证 .react-flow 字节 0 < .bg-[#...] 字节 50943，同特异性源序 utility 胜；移 inline/删则 dark 皮肤 `--xy-background-color-default:#141414` 复现）、:382 `bgColor="transparent"` 保留。
 2. **对账工装**：同 seed 同 build 像素 diff（c7 §2#8 先例 0/1,024,000），两主题态各跑；重点复测 `--xy-minimap-*`/`--xy-controls-button-*`。index.css:212-216 A2 selection 钉值：**先临时撤钉对比**——差异为零则删除钉值（钉值失效+门禁恢复有效），非零则画板根（CanvasView.tsx:341 wrapper 父层）局部钉 `--xy-*`；禁全局 !important。
-3. **wrapper 镜像断言 + 反补岛守卫**（v1.3 扩、v1.4 对象写死）：**最强形态 `expect(wrapperClasses).toEqual([htmlClass])`**——`.react-flow` 运行时类数组恰等于 html 主题类（两档各测：html.dark→恰 ['dark']、html.light→恰 ['light']）——一条断言同时覆盖镜像（防常量化生成 --fw-* 岛）与反补岛（防给画板根补 .dark 消探针红）。⚠ 对象是 xyflow wrapper `.react-flow` 本身，非 CanvasView:341 外层 div（后者两档类数组都应为空，如需另测写死选择器，勿混指）。a0:221 探针**改视觉真值**：wrapper backgroundColor computed（深 rgb(0,0,0) → 浅 rgb(245,245,245)，对应 --canvas-board-bg，走 probeFlip helper §6），"D4 语义双证"注释同步改写；**a0:250 ve 壳定稿双断言**（v1.4）：① `getPropertyValue('--ve-bg')` html.light 下取浅值（语义层归属跟随）+ ② 壳根 backgroundColor 等于该浅值（视觉层实渲染）——不保留任何"恒深"方向断言（随 ve 迁移必红）。
+3. **wrapper 镜像断言 + 反补岛守卫**（v1.5 写法可执行化——`.react-flow` 原始 classList 含库基础类 `react-flow`、utility 类 `bg-[var(--canvas-board-bg)]` 等，**裸 `toEqual(['dark'])` 必红**，红后的两条错误修法：退化 `toContain`=反补岛失效（补了 .dark 依然绿）、硬编码类数组=库升级即红）。正确写法（两档各测）：
+
+```ts
+const wrapperThemeClasses = Array.from(wrapper.classList).filter(c => c === 'light' || c === 'dark');
+const htmlThemeClasses = Array.from(document.documentElement.classList).filter(c => c === 'light' || c === 'dark');
+expect(wrapperThemeClasses, 'wrapper 主题类恰一个且等于 html 类').toEqual(htmlThemeClasses);
+```
+
+恰一个 → 防常量化（与 html 不同类即红）；恰一个且相等 → 防补岛（html.light 下补 .dark 得 ['light','dark'] 长度 2 即红）；不受 xyflow 附加类影响；与 c0:57-66 readHtmlTheme 同口径。对象是 xyflow wrapper `.react-flow` 本身（CanvasView.test.tsx:97 现有选择器可直接复用），非 CanvasView:341 外层 div。a0:221 探针**改视觉真值**：wrapper backgroundColor computed（深 rgb(0,0,0) → 浅 rgb(245,245,245)，对应 --canvas-board-bg，走 probeFlip helper §6），"D4 语义双证"注释同步改写；**a0:250 ve 壳定稿双断言**（v1.4）：① `getPropertyValue('--ve-bg')` html.light 下取浅值（语义层归属跟随）+ ② 壳根 backgroundColor 等于该浅值（视觉层实渲染）——不保留任何"恒深"方向断言（随 ve 迁移必红）。
 4. CanvasView.test.tsx:90-100 改写：`not.toContain('light')` 在 colorMode={mode} 下成恒真废测 → 改镜像断言；:90 注释（A2 溯源）同步改写为新裁定。
 5. MiniMap 内联 JS 色（:384-394 rgb(50,50,50)/rgb(70,70,70)/nodeColor rgb(160,160,160)）进 D3 清单双值化；maskColor rgba(0,0,0,.35) 中性遮罩留。⚠ **nodeColor 是函数 prop 落 SVG 属性，var() 代换不保证生效**（本段唯一投 var() 存疑点）——直接用 JS 分支取色（CanvasView 已有 mode）；style 属性里的 backgroundColor/border 可安全走 var()。
 6. **初始化顺序契约**：main.tsx:9 `initThemeSync()` 先于 `createRoot().render()`（:23）保留并加注释——v1.2 理由修正：懒初始化 + 内联脚本使首帧实际与调用顺序**无关**（useSyncExternalStore 首渲染 getSnapshot 即 ensureInit），该调用是**显式声明初始化契约**（不依赖懒加载副作用），非"不加就闪"（防后人据错误因果去"修"不存在的问题）。
 7. **ProcessSnapshot 整块=内容承载面恒深**（v1.2 裁定修正，原"改镜像"作废）：过程快照是画面视口（P6 判据），:89 `colorMode="dark"` **保留**、:91 网格点 `#3a3a3a` **保留不动**（深档零 diff 天然成立，无需统一到 --canvas-board-dot——那会引入 #555555≠#3a3a3a 的深档 diff）；登记为内容域不变式。ProcessSnapshot.test:96 bg-black/60 中性遮罩亦留。
 
-**验收**：深色档像素 diff = 0；--xy-* 复测表逐属性登记；镜像断言绿。
+**验收**：**以 D1b 后 checkout 为参照，D2 前后深色档像素 diff = 0**（v1.5 补参照系——D2 在 D1b 之后执行，P9 提亮/Δ3 收敛等深档有意变更已落地，参照 before-D 必假红然后被当"已知差异"糊掉=工装失守；只验 D2 自身零变化）；--xy-* 复测表逐属性登记；镜像断言绿。
 
 ## 11. D3 全量迁移（按域原子对：翻实现+翻断言同 commit）
 
@@ -210,14 +218,14 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 - **涌现登记两处同步**：D3 引入新可见边框（border-width 0→N）时，emergence-adjudication-A4.json 授权集（或 EXTRA_AUTHORIZED_FILES 附理由）+ PAGE_REGISTRY_FILES 对应页数组，缺一闸门 exit 1（§3 E 表）。
 - **媒体容器自持底色 checklist**（机械检查项，非目检，P6 判据落地）：grep 卡内 `<img|<video>` 祖先链，每个媒体容器自持深底（透明 PNG/未加载图/poster 未到时不得露浅底）；文本/标注类内容容器则整体跟随（P6 判据"不会被完全覆盖"分支）。
 - **完成判据机理句（v1.4 补，防误读）**：两条 lint 门禁与 differ 都是"无意外变化"闸——**漏改=零 diff 不报红**（lint 只拦不新增、differ 只抓深档意外变化）。故 D3 完成判据只能来自三处：**registry 清单逐条核销 + 浅色档探针（每面取期望浅值）+ B6 目检**；differ exit 0 ≠ 迁移完成。
-- **inline-style 分区（v1.4 补）**：style 对象内直接色字面（backgroundColor|color|fill|stroke|borderColor|boxShadow 等）**两条 lint 规则都拦不到**——实测画布域 ≥63 处/25 文件（TextNodeToolbar 7、GridSizeDropdown 6、AudioWaveform 6、VideoHDPanel 6、VideoTrimTimeline 5、selectionTokens.ts 4 常量表；常量色表 BLOCK_BG/BLOCK_BAR/TRACK_COLORS/COLOR_PRESETS 另计，63 是下界）→ registry 增 inline-style 独立分区，核销唯一靠清单+目检。
+- **inline-style + SVG 呈现属性分区（v1.4 建、v1.5 更名扩面）**：style 对象内直接色字面（backgroundColor|color|fill|stroke|borderColor|boxShadow 等）与 **SVG 呈现属性**（stroke=/fill=/stop-color=，如 GridIcon rect、ConnectionLine:97、EdgeFlowParticles:24、RemoteCursors:30）**两条 lint 规则都拦不到**（一条只拦 class 串 hex、一条只拦 white/black 类名）——估算 ≥63 处/25 文件（TextNodeToolbar 7、GridSizeDropdown 6、AudioWaveform 6、VideoHDPanel 6、VideoTrimTimeline 5、selectionTokens.ts 4；常量色表另计；**估算值仅说明分区必要性，以脚本产出为准**）→ registry 增本分区，核销唯一靠清单+目检。**SVG 呈现属性通则（v1.5 合并三处同根因为一条）**：SVG 呈现属性不可用 CSS 变量代换（`stroke="var(--x)"` 不生效）——一律走 JS 分支取色；适用点=§10.5 MiniMap nodeColor、§11.4 ExportModal Progress strokeColor、GridIcon 等；节点组件内的 JS 分支禁自读 store（§11.1 禁 useTheme），由 CanvasView 经 props 传入或维持字面（见 GridIcon 裁定）。
 - **浅底重校清单**：OutpaintSelectionOverlay `bg-white/30` 网格线（落媒体上→第四通道保留字面）；透明 PNG 棋盘格/涂抹蒙版/裁剪遮罩逐个裁定"贴媒体 or 贴卡壳"；NodePalette（#0f0f0f/#e0e0e0/#f7f7f7）、ProjectTitle（#1A1A1A）——后两者在 PAGE_REGISTRY_FILES（css-baseline-diff.mjs:56-60），改动同步那张映射表；**#3a3a3a 族（v1.4 语义分组改写）**：9 源文件 11 点分两组——**A 组 size-7 图标钮 ×5**（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467，逐字同款）与 **B 组 tooltip 底 ×2**（GenerateCountSelector:30/VideoConfigPanel:432，逐字同款）**各自强制同键一次改齐**（tooltip 底翻浅后其上 text-white 需同步改 text-text=P7 应用）；**C–F 四处按语义各自裁定勿塌成一个键**（C=MultiImageNode:292 节点徽章、D=TextNodeToolbar:228 文本节点默认底【内容容器，P6 判据分支】、E=TextNodeToolbar:239 划线色板、F=AudioWaveform:272 波形基线图形线——并入按钮面键会造成语义污染）；3 条测试断言同 commit（AudioConfigPanel.test:99 class*= 正则形态易漏、VideoHDPanel.test:73）；**动画类元素浅档可见性专项**（edge particles 靠 opacity 动画/播放头/吸附线——静态对比达标 ≠ 动画可见，逐个目检留档）。
 
 ### 11.2 专项裁定
 
 | 专项 | 处理 |
 |---|---|
-| VideoEditNode | P4：跟随主题变深卡（bg-surface/text-text 等 token 化）；有意变更进 differExpectedPairs + 目检；**#E5E7EB 巧合等值登记**（:154 inline border 与 --fw-border 浅值同值——"浅档等值/深档变更"双向预期标注，最易误判回归的组合）；:129 mini 播放器 JS 通道色（复用 canvas-renderer #000/#FFF）登记 c3 census 不可迁移；**TRACK_COLORS 统一=P10 用户裁定 A**（v1.4 定案）：三行统一到 ve BLOCK_BAR 共享常量（禁指向 --ve-track-video——BLOCK_BG 面色当类型色=深板近黑回归）；深档三行变色=有意变更登记 differExpectedPairs（§9.2 清单模式同款），B6 目检单独看此卡（三重变更叠加：P4+P10+#E5E7EB） |
+| VideoEditNode | P4：跟随主题变深卡（bg-surface/text-text 等 token 化）；有意变更进 differExpectedPairs + 目检；**#E5E7EB 巧合等值登记**（:154 inline border 与 --fw-border 浅值同值——"浅档等值/深档变更"双向预期标注，最易误判回归的组合）；:129 mini 播放器 JS 通道色（复用 canvas-renderer #000/#FFF）登记 c3 census 不可迁移；**TRACK_COLORS 统一=P10 用户裁定 A**（v1.4 定案）：三行统一到 ve BLOCK_BAR 共享常量（禁指向 --ve-track-video——BLOCK_BG 面色当类型色=深板近黑回归）；**共享常量放叶子模块**（v1.5：`video-editor/timeline/block-colors.ts` 级别，先例 VideoEditNode:17 已从 timeline/canvas-size 叶子导入——勿从 ClipBlock.tsx 导出，否则把 useAudioPeaks/editorStore 整条依赖链拉进画布节点 chunk）；深档三行变色=有意变更登记 differExpectedPairs（§9.2 清单模式同款），B6 目检单独看此卡（三重变更叠加：P4+P10+#E5E7EB） |
 | AnnotationToolbar | **P7 第二反例专项**：五件一起翻（BAR_BG 深底/:332 恒白保存钮/:230/:254 白系选中环与分隔线/:135/:170 白系 hover）——浅色下"白上加白"糊一片，按 P7 原子检查。**v1.3 补**：本组件改动多为 **inline style**（:111/:135/:161/:170/:187/:199/:211/:230/:305/:317/:332），no-theme-utility 拦不到 style 对象——**零 lint 守卫**，必须进 registry 显式清单 + B6 目检，否则全仓最易漏改（漏改后果恰是 P7 反例本身）；COLOR_PRESETS:60 含 #000000 黑笔：预设不换，P6 已登记 |
 | CreditsDropdown | P5：浅色重做（ui-ux-pro-max 出浅色稿，D3 开工前交稿）；深色档现状冻结；深色渐变基底/glow（:127/:271）与 52 处字面随稿替换；邀请卡族中性色保留（通道 3）；药丸宿主（CanvasTopBar :147）同步 chrome 化结案 P7 反例① |
 | 播放壳（P3） | **前置 DOM 拆分**：画面垫底元素从壳根独立（媒体容器自持固定深底，P6 判据）——现状 letterbox 与 chrome 共用 VideoPlayerModal.tsx:58 同一壳根，不拆则两条裁定落同一 class；拆出后壳根/画面外 chrome（外框/关闭钮/轮播条）token 化跟随，**压画面浮层保持深 scrim+白字恒定**（第四通道）；删壳根 dark 类与 [color-scheme:dark]。**[color-scheme] 局部保留通则（v1.2 补）**：恒深内容承载面若含原生控件（<video controls>、滚动条、range 滑杆），html.light 下会渲染浅色控件压在深媒体面上——此类面**自带局部 [color-scheme:dark] 声明**（第四通道一部分），PlayView 播放态 controls 在其中；ve 壳 VideoEditorShell.tsx:134 同审。PlayView/ProcessView/VideoCard/CarouselBar 随域迁移（**ProcessSnapshot 除外=整块内容承载恒深**，§10.7）；VideoPlayerModal.test.tsx:168-173 断言同步 |
@@ -245,7 +253,8 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 | ClipBlock:10 BLOCK_BAR video 行 | **字面** | 内容类型色恒定；与 TRACK_COLORS 抽共享常量（P10） |
 | ClipBlock:88 菱形手柄 border | **字面** | D3 改 var(--ve-accent)（图形档） |
 | VideoEditNode:20 TRACK_COLORS | **字面** | P10：统一到 BLOCK_BAR 共享常量（用户裁定 A） |
-| VideoEditNode:25-28 GridIcon ×4 rect stroke | **字面 svg 属性**（v1.4 补录） | D3 改图形档——svg 属性同 var() 存疑风险，实测或 JS 分支；登记防漂移 |
+| VideoEditNode:25-28 GridIcon ×4 rect stroke | **字面 svg 属性**（v1.4 补录） | **保持字面恒定（v1.5 裁定）**：双档均达标（白卡 4.86 ✅/深卡 #1e1e1e 上 3.43 ≥3 ✅），登记"品牌图形档字面"防漂移——不改 var()（svg 属性不生效）也不走 JS 分支（节点组件禁 useTheme，为四枚装饰 rect 传 mode 不值） |
+| PlayheadLine:9 / TimelineRuler:60 / TimelinePanel:322（播放头/吸附线） | var()/字面 | **图形档维持 --ve-accent 不变**（v1.5 补录——P9 15 处中"不改指 7 处"的 3 处，与 §9.2①括注对账；浅档可见性走 §11.1 动画专项目检） |
 
 **P9 文字钮逐点表**（8 处，differExpectedPairs 一一配对）：AssetPanel:59 / PreviewPlayer:101 / PreviewPlayer:106 / PreviewPlayer:111 / PropertiesPanel:23 / TrackRow:38 / TimelinePanel:297 / TimelinePanel:299。
 
@@ -272,8 +281,8 @@ G8① antd 通道探针（:522 关闭钮色 >180 = darkAlgorithm）反向后**�
 | e2e | c0 G3（:208-226） | 改 OS 零影响 + matchMedia 计数 0 |
 | e2e | c0 G4 ve 壳（:278-315） | 反转载浅值 |
 | e2e | c0 G7 三态（:398-443）+ /videos 叙事（:379,:445） | 两态化；videos 叙事改跟随；**钮存在性断言扩三页** /works、/videos、/canvas（新钮落地验证） |
-| e2e | c0 G8①②③（:507-579） | ①②反转；③双岛论断消亡重写 |
-| e2e | a0 探针 ×4（:200,:220,:221,:250） | **v1.3 分级**：①:221 画板 wrapper 探针**改造**（原探 --fw-bg 钉深依赖 wrapper .dark 块重声明，D2 后必红且诱导补岛回退——改探 backgroundColor 视觉真值 rgb(0,0,0)→rgb(245,245,245)，§10.3；配反补岛守卫断言 wrapper 无 .dark 类）；②:250 ve 壳**双断言定稿**（§10.3 v1.4：语义层 --ve-bg html.light 取浅值 + 视觉层壳根 backgroundColor=该浅值；不保留任何恒深方向断言）；③:200/:204 videos 封面 **保持**（VideoCard:16=封面占位底=P6 内容垫底恒深，registry 登记）；④:220 canvas html 根 **保持** #f7f8fa（浅色档正向对照） |
+| e2e | c0 G8①②③（:507-579） | ①②反转；③双岛论断消亡重写（G8③ 判据改 <180 与镜像断言口径见 §10.3/§12.1） |
+| e2e | a0 探针 ×4（:200,:220,:221,:250） | **v1.3 分级**：①:221 画板 wrapper 探针**改造**（原探 --fw-bg 钉深依赖 wrapper .dark 块重声明，D2 后必红且诱导补岛回退——改探 backgroundColor 视觉真值 rgb(0,0,0)→rgb(245,245,245)，§10.3；配 §10.3 镜像断言=反补岛守卫同条）；②:250 ve 壳**双断言定稿**（§10.3 v1.4：语义层 --ve-bg html.light 取浅值 + 视觉层壳根 backgroundColor=该浅值；不保留任何恒深方向断言）；③:200/:204 videos 封面 **保持**（VideoCard:16=封面占位底=P6 内容垫底恒深，registry 登记）；④:220 canvas html 根 **保持** #f7f8fa（浅色档正向对照） |
 | e2e | a0 叙事注释（:15-18,:303,:305） | 重写 |
 | 单测 | CanvasView.test.tsx:90-100 | 镜像断言 |
 | 单测 | canvas+videos 域颜色断言 ≥24 条（以 registry 测试分区脚本产出为准；实测：CanvasToolbar.test ×7 rgb(38,38,38) 族、CanvasView.test:183 MiniMap、VideoTrimTimeline.test:76/103、VideoHDPanel.test:73、TextInputNode.test:197/206、TextNodeToolbar.test:171/180、TextConfigPanel.test:119、StoryboardGroupRenderer.test:92/101（改双主题可见性断言）、ProcessSnapshot.test:96、VideoPlayerModal.test:168-173、PlayView.test:193-225、ProcessView.test:50-61、CarouselBar.test:79-80） | 随实现逐条改（D3 各域原子对内同步） |
@@ -291,7 +300,7 @@ C0（改造后新形态全绿）、vitest 全绿、lint 双规则、css-audit �
 
 1. `'system'` 残留用户一次性回落深色（P8，开发期无用户数据影响为零）。
 2. antd cssinjs 晚一帧的切换瞬时不一致面积变大（ve/videos/canvas 三域同帧重渲染）——D4 实测留档（含大画布 ≥50 节点切换耗时/掉帧读数）。
-3. **过渡中间态**（纪律登记；v1.3 补 D1b↔D2 锁成三把）：D2 之后～D3 板面批次完成前，浅色档画布不可用（板已浅、字面仍深的混排）；D1b 之后～D2 之前同样混排（var 间接链已删、消费点已并域）；D1a 之后～D3 之前，板内 3 个 `--canvas-controls-*` 消费点（VideoHDPanel:93/VideoNodeToolbar:99/VideoTrimPanel:126）浅色档取浅值落黑板——深色档零 diff 恒成立，纪律要求 **D1b↔D2↔D3 板面批次连续收口**，禁止在中间态用浅色档验收画布。
+3. **过渡中间态**（纪律登记；v1.3 补 D1b↔D2 锁成三把）：D2 之后～D3 板面批次完成前，浅色档画布不可用（板已浅、字面仍深的混排）；D1b 之后～D2 之前同样混排（var 间接链已删、消费点已并域）；D1a 之后～D3 之前，板内 3 个 `--canvas-controls-*` 消费点（VideoHDPanel:93/VideoNodeToolbar:99/VideoTrimPanel:126）浅色档取浅值落黑板——深色档**无未登记 diff**（v1.5 措辞对齐 §15.3），纪律要求 **D1b↔D2↔D3 板面批次连续收口**，禁止在中间态用浅色档验收画布。
 4. --ve-track-video：浅色编辑器中 clip 轨道块保持深色=有意设计（与浅面板形成媒体区对比；clip 块通常有缩略铺满，未就绪/纯音频轨露深底）——B6 目检勿判缺陷。
 5. 浅色档网格点对比度 1.53:1 天然低于深档 2.82:1（P2，目检认可）。
 6. VideoEditNode 深色档白→深、CreditsDropdown 浅色重做、--ve-accent-text 深档文字提亮 #6C5CE7→#9B8CF7（P9，8 处文字钮，修复现状 @#262626 3.11 欠账至 5.40）、**TRACK_COLORS 三行统一到 BLOCK_BAR（P10 用户裁定 A：image/audio/subtitle 深档变色）**、#363636→#333 等 Δ3 级收敛——全部登记 differExpectedPairs（D1b 清单 §9.2 / D3 域原子对清单），属有意变更非回归。
@@ -308,4 +317,4 @@ D0-0（仪器/before-D/探针钉深）→ D0（两态六件套+G 门禁改写，
 **顺序三段约束**（v1.2 补全为双向锁）：
 1. **D1 必须先于 D2**：wrapper 的 .dark 类是 D1 期间画板子树的实际值域（先翻 colorMode 则画板在 D1 未完成时取浅值立刻坏）。
 2. **D2 与 D3 板面批次连续收口**（或把 colorMode 翻转并入 D3 板面批次首个 commit）：D2 之后～D3 板面完成前浅色档画布不可用（§13.3），这是唯一可能被验收流程误踩的窗口。
-3. **浅色档验收不得落在 D2–D3 空隙内**；**"深色档零 diff"验收锚适用范围=D0-0/D0/D1a 三段**（v1.4 收窄）——D1b 起深档 diff 由 §9.2 总清单配对吸收（未配对=失败），D3 各域由域原子对清单吸收；"全程零 diff"旧表述作废。
+3. **浅色档验收不得落在 D2–D3 空隙内**；**"深色档零 diff"验收锚适用范围=D0-0/D0/D1a 三段**（v1.4 收窄）——D1b 起深档 diff 由 §9.2 总清单配对吸收（未配对=失败），D3 各域由域原子对清单吸收；"全程零 diff"旧表述作废（过渡期深档口径=**无未登记 diff**，v1.5 措辞对齐 §13.3）。
