@@ -9,6 +9,9 @@
 //   A 段后复采（A5 diff 用）：COLLECT_BASELINE=1 BASELINE_DIR=after-A npx playwright test e2e/a0-collect-baseline.spec.ts
 //   B6 浅色目标基线（C 段浅色对照目标）：COLLECT_BASELINE=1 LIGHT_BASELINE=1 BASELINE_DIR=light-B6 npx playwright test e2e/a0-collect-baseline.spec.ts
 //     —— B 期无主题切换 UI，测试侧注入 html.light 即机制（页加载后、快照/截图前）。
+//   C7 真实浅色对照采集（真实路径）：COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=<tmp 目录，勿覆写基线> …
+//     —— localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 内联
+//     主题脚本）→ 真实浅色档挂 html.light；采集时逐页断言 html 类恰为 "light"（结果落 meta.realLight）。
 //     D4 语义：岛/画板不受动——login 岛本征浅色；canvas 画板 wrapper colorMode=dark 钉深
 //     （:root,.dark 块在 wrapper 重新声明 --fw-*，覆盖 html.light 继承浅值）；videos/video-editor/
 //     admin 恒深域用字面值与自持 token（--vw-*/--ve-*，:root 定义非主题块），html.light 只翻转
@@ -18,7 +21,7 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
 const HERE = import.meta.dirname!;
 // 约束：目录名仅允许字母数字连字符（防路径逃逸/分隔符注入写错位置）
@@ -28,15 +31,25 @@ const OUT_DIR = path.join(HERE, 'baseline', BASELINE_DIR);
 const VIEWPORT = { width: 1280, height: 800 };
 const SETTLE_MS = 800; // 目标元素出现后的固定沉降（动画/字体收尾），不做 networkidle
 const LIGHT = !!process.env.LIGHT_BASELINE; // 浅色目标基线模式（B6）：html.light 注入后再快照
+const REAL_LIGHT = !!process.env.REAL_LIGHT; // 真实浅色路径模式（C7 对照）：localStorage theme=light → C1 内联脚本
+const ANY_LIGHT = LIGHT || REAL_LIGHT; // 浅色采集（两机制之一）——岛不变性探针共用
 
-/** 浅色采集岛不变性探针结果（LIGHT 模式专用；afterAll 落 meta） */
+/** 浅色采集岛不变性探针结果（LIGHT/REAL_LIGHT 模式共用；afterAll 落 meta） */
 const LIGHT_PROBES: Array<{ id: string; expected: string; actual: string; pass: boolean }> = [];
 
-/** html.light 下恒深域值不得翻转（D4）——断言失败即红，结果记录进 meta 作 B6 证据 */
+/** 真实浅色路径逐页 html 类记录（REAL_LIGHT 专用；afterAll 落 meta.realLight） */
+const REAL_LIGHT_HTML: Array<{ page: string; htmlClass: string; ok: boolean }> = [];
+
+/** html.light 下恒深域值不得翻转（D4）——断言失败即红，结果记录进 meta 作浅色采集证据 */
 async function probeInvariance(page: Page, id: string, read: () => Promise<string>, expectedDark: string) {
   const actual = await read();
   LIGHT_PROBES.push({ id, expected: expectedDark, actual, pass: actual === expectedDark });
-  expect(actual, `[light-B6 岛不变性/${id}] html.light 注入下恒深域值必须保持深色值`).toBe(expectedDark);
+  expect(actual, `[浅色采集/岛不变性/${id}] html.light 下恒深域值必须保持深色值`).toBe(expectedDark);
+}
+
+/** REAL_LIGHT：预置 theme=light（init script 先于一切页面脚本——C1 内联脚本读到显式浅色档） */
+function seedRealLight(target: BrowserContext | Page) {
+  return target.addInitScript(() => localStorage.setItem('theme', 'light'));
 }
 
 test.skip(!process.env.COLLECT_BASELINE, 'A0 基线采集专用：COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts');
@@ -129,6 +142,12 @@ async function snapshotDom(page: Page) {
 async function collectPage(page: Page, name: string, marker: () => Promise<void>) {
   await marker();
   if (LIGHT) await page.evaluate(() => document.documentElement.classList.add('light'));
+  if (REAL_LIGHT) {
+    // 真实路径自证：C1 内联脚本应已挂 html.light 且恰一类（localStorage theme=light 显式档）
+    const cls = await page.evaluate(() => document.documentElement.className);
+    REAL_LIGHT_HTML.push({ page: name, htmlClass: cls, ok: cls === 'light' });
+    expect(cls, `[real-light/${name}] 真实浅色路径 html 类必须恰为 "light"（theme=light → C1 内联脚本）；实际="${cls}"`).toBe('light');
+  }
   await page.waitForTimeout(SETTLE_MS);
   const snap = await snapshotDom(page);
   // 采集后稳定键唯一性断言（fail-loud）：重复键会让未来 differ 静默丢记录——有重复即抛错不落盘
@@ -153,6 +172,7 @@ function getCommit() {
 test.describe('A0 before-基线采集', () => {
   test('login + register（公开页）', async ({ page }) => {
     await page.setViewportSize(VIEWPORT);
+    if (REAL_LIGHT) await seedRealLight(page); // page 级 init script：对后续全部导航生效（先于页面脚本）
     await collectPage(page, 'login', async () => {
       await page.goto('/login');
       await expect(page.getByRole('button', { name: '邮箱登录' })).toBeVisible();
@@ -165,6 +185,7 @@ test.describe('A0 before-基线采集', () => {
 
   test('works + videos（USER 会话）', async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: path.join(HERE, '.auth', 'user.json'), viewport: VIEWPORT });
+    if (REAL_LIGHT) await seedRealLight(ctx);
     const page = await ctx.newPage();
     await collectPage(page, 'works', async () => {
       await page.goto('/works');
@@ -174,7 +195,7 @@ test.describe('A0 before-基线采集', () => {
       await page.goto('/videos');
       await expect(page.getByText('A0-0 门禁样例视频').first()).toBeVisible({ timeout: 15_000 });
     });
-    if (LIGHT) {
+    if (ANY_LIGHT) {
       // videos 整域恒深（D4 保留）：封面底 #262626 字面值不随 html.light 翻转
       await probeInvariance(page, 'videos-封面底-#262626字面', () => page.evaluate(() => {
         const card = Array.from(document.querySelectorAll('a[data-card]'))
@@ -187,14 +208,15 @@ test.describe('A0 before-基线采集', () => {
 
   test('canvas 画布页 + 材料库弹层 OPEN（USER 会话）', async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: path.join(HERE, '.auth', 'user.json'), viewport: VIEWPORT });
+    if (REAL_LIGHT) await seedRealLight(ctx);
     const page = await ctx.newPage();
     await collectPage(page, 'canvas', async () => {
       await page.goto('/canvas?projectId=gate-canvas-1');
       await expect(page.locator('.react-flow')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 10_000 });
     });
-    if (LIGHT) {
-      // D4 语义双证：html 根 --fw-bg 翻浅（注入生效正向对照）+ 画板 wrapper 经 .dark 块重新声明保持深色
+    if (ANY_LIGHT) {
+      // D4 语义双证：html 根 --fw-bg 翻浅（浅色档生效正向对照）+ 画板 wrapper 经 .dark 块重新声明保持深色
       await probeInvariance(page, 'canvas-html根--fw-bg翻浅(注入生效)', () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
       await probeInvariance(page, 'canvas-画板wrapper--fw-bg钉深', () => page.evaluate(() => getComputedStyle(document.querySelector('.react-flow')!).getPropertyValue('--fw-bg').trim()), '#141414');
     }
@@ -210,6 +232,7 @@ test.describe('A0 before-基线采集', () => {
    *  可见性断言锚 data-testid=video-editor-shell——dialog 外层包 fixed 子元素自身零尺寸，toBeVisible 恒 false */
   test('video-editor DOM 骨架（USER 会话，含节点清理）', async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: path.join(HERE, '.auth', 'user.json'), viewport: VIEWPORT });
+    if (REAL_LIGHT) await seedRealLight(ctx);
     const page = await ctx.newPage();
     await page.goto('/canvas?projectId=gate-canvas-1');
     await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 20_000 });
@@ -222,7 +245,7 @@ test.describe('A0 before-基线采集', () => {
       await page.getByRole('button', { name: '⤢ 全屏编辑' }).first().click();
       await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
     });
-    if (LIGHT) {
+    if (ANY_LIGHT) {
       // video-editor 岛自持 token：--ve-bg 定义在 :root（非主题块），html.light 不翻转
       await probeInvariance(page, 'video-editor-壳底--ve-bg自持', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).backgroundColor), 'rgb(20, 20, 20)');
     }
@@ -245,6 +268,7 @@ test.describe('A0 before-基线采集', () => {
    *  storageState 存 e2e/.auth/admin.json（.auth/ 整目录已 gitignore，勿覆写 USER 态） */
   test('admin 代表页（ADMIN 会话）', async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: VIEWPORT });
+    if (REAL_LIGHT) await seedRealLight(ctx);
     const page = await ctx.newPage();
     await page.goto('/login');
     await page.getByRole('button', { name: '邮箱登录' }).click();
@@ -274,13 +298,16 @@ test.describe('A0 before-基线采集', () => {
           commit: getCommit(),
           collectedAt: new Date().toISOString(),
           viewport: VIEWPORT,
-          invocation: `COLLECT_BASELINE=1${LIGHT ? ' LIGHT_BASELINE=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
+          invocation: `COLLECT_BASELINE=1${LIGHT ? ' LIGHT_BASELINE=1' : ''}${REAL_LIGHT ? ' REAL_LIGHT=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
           theme: LIGHT
             ? '浅色目标基线（C 段浅色对照目标）：html 注入 .light（B 期无主题切换 UI，测试侧注入即机制，快照/截图前）；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主（--fw-* 消费者≈0，C2 接线前 html.light 对其基本无效果=预期）'
-            : BASELINE_DIR === 'before-A0'
-              ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
-              : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
+            : REAL_LIGHT
+              ? '真实浅色路径（C7 真实 vs 注入对照）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；C2 后岛根 .dark/videos 页根 dark/AdminLayout 岛重新声明 --fw-*——与 light-B6（B6 时点注入态）的差异预期集中在 C2 岛接线与 C4 切换钮，非主题机制差异'
+              : BASELINE_DIR === 'before-A0'
+                ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
+                : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
           ...(LIGHT ? { lightInjection: { mechanism: 'collectPage 内 page.evaluate classList.add("light")（每页加载后、SETTLE/快照/截图前；goto 重建文档故逐页重注入）', islandInvarianceProbes: LIGHT_PROBES } } : {}),
+          ...(REAL_LIGHT ? { realLight: { mechanism: 'context/page addInitScript localStorage.setItem("theme","light")（先于一切页面脚本）→ C1 head 内联主题脚本解析显式浅色档挂 html.light', htmlClassPerPage: REAL_LIGHT_HTML, islandInvarianceProbes: LIGHT_PROBES } } : {}),
           stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],

@@ -1,9 +1,8 @@
-// C0 红用例（plan C0，spec §4.1/§8）：主题切换 C 段 TDD 红侧——实现前 1-4 组全红、组5 守卫（现状应绿）。
+// C0 主题套件（plan C0→C7，spec §4.1/§8）：主题切换 C 段常驻门禁——C 段 TDD 期间 C0_RED env 守卫
+// 分组红/绿，C7 撤守卫全量转常驻：默认 `npx playwright test` 含本文件 21 用例（门禁 20+21=41 passed
+// + 5 collector skip）。组内【红→Cx 绿】标注为 TDD 期历史实证，保留备考。
 //
-// 运行方式（默认 `npx playwright test` 不跑本文件——env 守卫跳过，默认门禁保持 20 passed + 5 skipped）：
-//   C0_RED=1 npx playwright test e2e/c0-theme.spec.ts
-//
-// 生命周期（C1/C2 分组渐进转绿，C7 撤守卫转常驻）：
+// 生命周期（终态）：
 //   组1 三态持久化映射【红→C1 绿】（localStorage theme ∈ {light,dark,system}，system 经 matchMedia 解析；
 //     无存储 → html.dark = D3 默认深色兜底，非"跟随系统"——OS light 下仍 dark 钉死该语义）；
 //   组2 首帧无闪白【红→C1 绿】（运行时：MutationObserver 首录 html 主题类先于首个渲染内容——#root 尚空；
@@ -13,7 +12,7 @@
 //   组4 岛三组对照 + 持续断言【红→C1/C2 绿】（login 岛=红因 html.dark 缺失→C1 绿；admin/video-editor 岛=
 //     红因岛根无 .dark 类→C2 绿；「html 恒有且仅有 .light/.dark 之一」持续断言仅放本 C 段文件——
 //     v1.3 标注：A/B 段 html 无类是合法历史状态，此断言在 A/B 必误红）；
-//   组5 岛子树无 dark: 前缀守卫【现状应绿】（措辞固化 spec §4.2：断 `dark:` 前缀，不断"dark 类名"——
+//   组5 岛子树无 dark: 前缀守卫【守卫，恒绿】（措辞固化 spec §4.2：断 `dark:` 前缀，不断"dark 类名"——
 //     react-flow wrapper 自带 light/dark 运行时类同名实证合法；全仓 dark: 使用实测 0）。
 //   组6 岛断言只落 Playwright【声明条目，无独立用例】：vitest 不落岛/颜色断言——test-setup 清空含 :has( 的
 //     antd 样式 + jsdom 不解析 CSS 变量，vitest 拿不到可判颜色（spec §8 D8）。
@@ -96,8 +95,6 @@ async function openVideos(page: Page) {
   await page.goto('/videos');
   await expect(page.getByText('A0-0 门禁样例视频').first()).toBeVisible({ timeout: 15_000 });
 }
-
-test.skip(!process.env.C0_RED, 'C0 红用例专用：C0_RED=1 npx playwright test e2e/c0-theme.spec.ts（C1/C2 分组转绿，C7 撤守卫转常驻）');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 组1【红→C1 绿】三态持久化映射（无 UI 依赖——只经 localStorage + 加载断 html 类）
