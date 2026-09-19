@@ -55,8 +55,11 @@ export function VideoPlayerModal() {
           body 故不需要），勿删：shellRef 未挂载首帧 getPopupContainer 回退 body 时，它是登录框可见性
           （100100 > 壳 100000）的唯一保障（删掉则 11100 < 100000 被壳盖住，jsdom 测不出、手工验收 #6 才暴露）。
           PlayView/ProcessView 的 useApp() toast 依赖内层 AntdApp（holder 渲染在壳 DOM 内） */}
-      <div ref={shellRef} data-vw-shell className="fixed inset-0 bg-black text-white [color-scheme:dark]">
-      {/* [color-scheme:dark]：原生控件/滚动条显式深色，防 html.light 下视频弹层内原生件闪浅（spec C2-7） */}
+      <div ref={shellRef} data-vw-shell className="dark fixed inset-0 bg-black text-white [color-scheme:dark]">
+      {/* dark（C5，O5 videos 域弹层恒深）：BaseFullscreenModal createPortal(document.body)——壳根 DOM 脱离路由
+          div.dark（React 树在、CSS 变量继承链断），html.light 下壳内 --fw-* 会继承浅值；壳根自带 dark 类重建岛
+          （同 C2 VideoEditorShell 先例）。现状壳内零 --fw-* 消费（videos 域字面值/--vw-* 自持）= 零视觉变更，
+          类为域语义钉扎 + 未来 token 消费者兜底。[color-scheme:dark]（C2-7）：原生控件/滚动条显式深色。 */}
       {/* 第六轮：fixed inset-0（VideoEditorShell.tsx:132 同款）——BaseFullscreenModal 的 dialog 包装 div 无尺寸类，
           relative h-full 的百分比在 auto 高度父级上解析为 auto → 壳内容塌成 0 高度（jsdom 无布局测不出，手工验收 #3 才暴露；
           壳内 PlayView/CarouselBar/关闭钮全是绝对定位不贡献静态高度，必须由视口尺寸的内含块撑起） */}

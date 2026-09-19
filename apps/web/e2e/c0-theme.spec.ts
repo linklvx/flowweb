@@ -19,6 +19,17 @@
 //     antd 样式 + jsdom 不解析 CSS 变量，vitest 拿不到可判颜色（spec §8 D8）。
 //   组7 切换 UI【红→C4 绿】TopActionBar 三态循环钮（plan §8 序：浅→深→跟随）+ LoginModal 恒浅活体断言
 //     【守卫，现状应绿】（C2 复核遗留项：rootClassName="light" 落 .ant-modal-root，宿主深下后代经继承取浅值）。
+//   组8 O5 portal 弹层 closest 矩阵【部分红→C5 绿 / 部分守卫】两通道穿透不对称的落地验收：
+//     antd token 经 React context 穿透 portal ✓；--fw-* 经 DOM 继承不穿透 ✗ → body 挂载弹层须自带岛类。
+//     ①WeChatFollowModal 恒深岛 × 宿主浅【红→C5 绿】（字面深底 #1e1e1e + B2 已迁 text-text——无岛时 html.light
+//       下浅值文字落深底=半半；O5 初判表曾归"营销恒浅"，实测宿主=Sidebar chrome 跟随域、设计=深色自绘 → 按实测订正恒深）；
+//     ②videos 壳 body portal 恒深 × 宿主浅【红→C5 绿】（BaseFullscreenModal createPortal(document.body)——壳根脱离
+//       路由 div.dark，须自带 dark 类，同 C2 VideoEditorShell 先例）；
+//     ③壳内 LoginModal 恒浅 × 双层相反【登录层半守卫绿 + 壳半红→C5 绿】（html.light × 壳深岛 × 登录层浅岛三重叠，
+//       LoginModal 岛断言 C2 已接应绿、同屏壳岛断言随②转绿）；
+//     ④admin Popconfirm body 弹层 × 宿主浅【守卫，现状裁定】（antd 通道恒深=Pro dark context 穿透；var 通道
+//       closest(.dark)=null 为登记缺口——admin 全域 0 个 --fw-* 工具类消费文件（grep 实证），弹层自绘不消费
+//       --fw-* → 无可见半半，岛类挂起至 admin token 化（c5-portal-census.json）。
 //
 // 加载稳定性纪律：目标元素出现 + 有界超时；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 // 上下文纪律：每用例独立新 context（storageState 不跨用例泄漏）；localStorage theme 经 addInitScript
@@ -469,6 +480,130 @@ test('G7 LoginModal 恒浅活体：宿主 html.dark（显式深）下经顶栏�
     expect(state.islandLight, '[G7] 弹层内容 closest(".light") 应命中岛根（.ant-modal-root.light）').toBe(true);
     expect(norm(state.fwBg), '[G7] 弹层内 --fw-bg 必须为浅值 #f7f8fa（岛作用域不随宿主深）').toBe('#f7f8fa');
     expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/宿主仍深]');
+  } finally {
+    await ctx.close();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 组8 O5 portal 弹层 closest 矩阵（plan C5；见文件头组8 注释——①②红→C5 绿、③④守卫）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 解析 computed color 首三个通道（rgba?(r, g, b, …)），非 rgb 族返回 null */
+function parseRgbChannels(color: string): [number, number, number] | null {
+  const m = color.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+/** 管理端 UI 登录（G4 admin 同款流程）并停在指定 admin 页 */
+async function loginAdminAndGoto(page: Page, adminPath: string, readyText: string) {
+  await page.goto('/login');
+  await page.getByRole('button', { name: '邮箱登录' }).click();
+  await page.getByPlaceholder('邮箱').fill(ADMIN_CREDENTIALS.email);
+  await page.getByPlaceholder('密码').fill(ADMIN_CREDENTIALS.password);
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(page.getByTestId('auth-modal-backdrop')).toBeHidden({ timeout: 15_000 });
+  await page.goto(adminPath);
+  await expect(page.getByText(readyText).first()).toBeVisible({ timeout: 15_000 });
+}
+
+test('G8 ①WeChatFollowModal 恒深岛：html.light 下 Sidebar 打开，closest(.dark) 命中 .ant-modal-root + --fw-text 深值 + antd 通道深（C5 前红：无岛类）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, 'light');
+  const page = await ctx.newPage();
+  try {
+    await openWorks(page);
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8①/宿主浅]');
+    await page.getByTestId('wechat-follow-entry').click();
+    const content = page.locator('.ant-modal-content').first();
+    await expect(content, '[G8①] WeChatFollowModal 内容应渲染').toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.ant-modal-root.dark').first(), '[G8①] rootClassName="dark" 应落 .ant-modal-root——C5 接线前必红').toBeAttached();
+    const state = await content.evaluate((el) => ({
+      islandDark: el.closest('.dark') !== null,
+      islandIsModalRoot: el.closest('.dark')?.classList.contains('ant-modal-root') ?? false,
+      fwText: getComputedStyle(el).getPropertyValue('--fw-text'),
+      // antd 通道探针=关闭钮 colorIcon（darkAlgorithm 浅色系 / defaultAlgorithm 深色系）；无关闭钮时退正文色
+      antdChannelColor: getComputedStyle(el.querySelector('.ant-modal-close') ?? el).color,
+    }));
+    expect(state.islandDark, '[G8①] 弹层内容 closest(".dark") 应命中岛根——C5 前必红（body 挂载无岛）').toBe(true);
+    expect(state.islandIsModalRoot, '[G8①] 岛根必须是弹层自身根（.ant-modal-root.dark），非 html 全局类').toBe(true);
+    expect(norm(state.fwText), '[G8①] 弹层内 --fw-text 必须为深值 #e2e8f0（字面深底 #1e1e1e 配浅字）——C5 前必红（继承 html.light 浅值 #1f2329 落深底=半半）').toBe('#e2e8f0');
+    const ch = parseRgbChannels(state.antdChannelColor);
+    expect(ch && ch[0] > 180, `[G8①] antd 通道恒深：关闭钮色应为浅色系（darkAlgorithm），实际="${state.antdChannelColor}"`).toBeTruthy();
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8①/宿主仍浅]');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('G8 ②videos 壳 body portal 恒深岛：html.light 下打开作品弹层，壳根自带 .dark + --fw-bg 深值（C5 前红：壳根无 dark 类）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, 'light');
+  const page = await ctx.newPage();
+  try {
+    await page.goto('/videos/gate-video-1');
+    await expect(page.getByTestId('video'), '[G8②] 播放壳应打开（公开详情）').toBeVisible({ timeout: 15_000 });
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8②/宿主浅]');
+    // BaseFullscreenModal createPortal(document.body)——壳根 DOM 脱离路由 div.dark（React 树在、DOM 继承链断）
+    const state = await page.locator('[data-vw-shell]').evaluate((el) => ({
+      islandDark: el.closest('.dark') !== null,
+      islandIsSelf: el.classList.contains('dark'),
+      fwBg: getComputedStyle(el).getPropertyValue('--fw-bg'),
+    }));
+    expect(state.islandDark, '[G8②] 壳根 closest(".dark") 应命中——C5 前必红（body portal 无岛，html.light 下继承浅值）').toBe(true);
+    expect(state.islandIsSelf, '[G8②] 岛根=壳根自身（videos 域弹层恒深，O5/同 C2 VideoEditorShell 先例）').toBe(true);
+    expect(norm(state.fwBg), '[G8②] 壳内 --fw-bg 必须钉深 #141414——C5 前必红（继承 html.light 浅值 #f7f8fa）').toBe('#141414');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('G8 ③双层相反守卫：html.light × videos 壳深岛 × 壳内 LoginModal 恒浅（登录层半=C2 方案 A 应绿；壳半随② C5 转绿）', async ({ browser }) => {
+  const ctx = await browser.newContext(); // 匿名——「喜欢」触发 onNeedLogin 弹壳内登录层（PlayView D18）
+  await ctx.addInitScript((t) => localStorage.setItem('theme', t), 'light');
+  const page = await ctx.newPage();
+  try {
+    await page.goto('/videos/gate-video-1');
+    await expect(page.getByTestId('video')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: '喜欢' }).click();
+    const content = page.locator('.ant-modal-content').first();
+    await expect(content, '[G8③] 壳内登录层应打开（未登录点喜欢）').toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.ant-modal-root.light').first(), '[G8③] LoginModal rootClassName="light" 应落 .ant-modal-root（C2 方案 A）').toBeAttached();
+    const state = await content.evaluate((el) => ({
+      islandLight: el.closest('.light') !== null,
+      fwBg: getComputedStyle(el).getPropertyValue('--fw-bg'),
+      shellBg: getComputedStyle(document.querySelector('[data-vw-shell]')!).getPropertyValue('--fw-bg'),
+    }));
+    expect(state.islandLight, '[G8③] 登录层内容 closest(".light") 应命中岛根').toBe(true);
+    expect(norm(state.fwBg), '[G8③] 登录层 --fw-bg 浅值 #f7f8fa（岛作用域不随双层宿主）').toBe('#f7f8fa');
+    expect(norm(state.shellBg), '[G8③] 同屏壳岛 --fw-bg 应仍为深值 #141414（双岛并存对照）').toBe('#141414');
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8③/全局仍浅]');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('G8 ④admin Popconfirm body 弹层裁定守卫：html.light 下渲染 + antd 通道深（Pro dark context 穿透）+ var 通道缺口现状登记（closest(.dark)=null，admin 0 --fw-* 弹层消费）', async ({ browser }) => {
+  const ctx = await browser.newContext(); // admin 走 UI 登录，不带 USER 态
+  await ctx.addInitScript((t) => localStorage.setItem('theme', t), 'light');
+  const page = await ctx.newPage();
+  try {
+    await loginAdminAndGoto(page, '/admin/homepage/announcement', '新用户注册即送100积分');
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8④/admin 宿主浅]');
+    await page.getByText('删除', { exact: true }).first().click(); // 种子公告行 Popconfirm（body 挂载 rc-trigger 弹层；ProTable 操作列 <a> 无 href → role=generic 非 link）
+    const popover = page.locator('.ant-popover').first();
+    await expect(popover, '[G8④] Popconfirm 弹层应渲染').toBeVisible({ timeout: 10_000 });
+    const state = await popover.evaluate((el) => {
+      const inner = el.querySelector('.ant-popover-inner') ?? el;
+      return {
+        islandDark: el.closest('.dark') !== null,
+        innerBg: getComputedStyle(inner).backgroundColor,
+      };
+    });
+    // 现状裁定（c5-portal-census.json）：岛类挂起至 admin token 化——本断言钉住"缺口现状"防静默漂移；
+    // admin 弹层自绘 0 --fw-* 消费（grep 实证 0 文件）→ var 通道缺口无可见半半，非 bug
+    expect(state.islandDark, '[G8④] 现状登记：body 挂载弹层 closest(".dark")=null（var 通道缺口，admin 未 token 化前接受；转为 true 须同步 census 与本断言）').toBe(false);
+    const ch = parseRgbChannels(state.innerBg);
+    expect(ch && Math.max(...ch) < 100, `[G8④] antd 通道恒深：弹层面板底应为深色系（Pro dark context 穿透 portal），实际="${state.innerBg}"`).toBeTruthy();
+    await page.keyboard.press('Escape'); // 收起确认层（不触删除）
   } finally {
     await ctx.close();
   }

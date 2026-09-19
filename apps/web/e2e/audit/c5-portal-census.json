@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "task": "C5 portal 弹层岛落地（plan §4-C5 / spec §7-O5）",
+    "date": "2026-09-18",
+    "commitBase": "b5f1843c（C4 后）",
+    "rootCause": "两通道穿透不对称：antd algorithm/token 经 React context 穿透 portal ✓；--fw-* 经 DOM 继承不穿透 ✗——body 挂载弹层须自带岛类（rootClassName/弹层根类）",
+    "guardTests": "e2e/c0-theme.spec.ts 组8（C0_RED=1）：①WeChatFollowModal 恒深岛 ②videos 壳 body portal 恒深岛 ③双层相反（html.light × 壳深岛 × LoginModal 浅岛）④admin Popconfirm 裁定守卫（现状 closest(.dark)=null + antd 通道深）",
+    "deviationNote": "O5 初判表两处按实测订正（plan §6「模型服从实测」）：WeChatFollowModal 恒浅→恒深（宿主=Sidebar chrome 跟随域、组件=深色自绘字面底，恒浅属视觉重做非接线）；WeChatQRModal 恒浅→无需岛（跟随域宿主双通道同随全局，恒浅反而是视觉变更）。"
+  },
+  "wired": [
+    {
+      "popup": "WeChatFollowModal（antd Modal，body 挂载）",
+      "host": "Sidebar（AppLayout chrome 跟随域）",
+      "verdict": "恒深岛【C5 订正：初判表曾归营销域恒浅】",
+      "mechanism": "组件内 ConfigProvider(darkAlgorithm)（antd 通道经 context 穿透）+ Modal rootClassName=\"dark\"（CSS 变量通道经 .ant-modal-root 后代继承）",
+      "file": "apps/web/src/components/layout/WeChatFollowModal.tsx",
+      "why": "字面深底 #1e1e1e + B2 已迁 text-text/text-text-dim-2——无岛时 html.light 下浅值文字 #1f2329 落深底=真实半半；恒深=html.dark 零视觉变更 + html.light 修复",
+      "test": "G8①"
+    },
+    {
+      "popup": "VideoPlayerModal 播放壳（BaseFullscreenModal createPortal(document.body)）",
+      "host": "/videos/:id? 路由 div.dark（C2）",
+      "verdict": "恒深岛（O5：videos 域弹层恒深）",
+      "mechanism": "壳根 div[data-vw-shell] 自带 dark 类（DOM 脱离路由岛、React 树仍在——岛类上移到弹层根自身；同 C2 VideoEditorShell 先例）",
+      "file": "apps/web/src/pages/videos/VideoPlayerModal.tsx",
+      "why": "body portal 无岛时 html.light 下壳内 --fw-* 继承浅值；现状壳内零 --fw-* 消费（grep 实证 videos 目录 0 命中，字面值/--vw-* 自持）= 零视觉变更，类为域语义钉扎 + 未来消费者兜底",
+      "test": "G8②（+G8③ 壳半）"
+    },
+    {
+      "popup": "LoginModal（antd Modal，body 挂载）",
+      "host": "TopActionBar chrome / VideoPlayerModal 恒深域（双宿主）",
+      "verdict": "恒浅岛（方案 A，C2 已落地）",
+      "mechanism": "组件内 ConfigProvider(defaultAlgorithm) + Modal rootClassName=\"light\"",
+      "file": "apps/web/src/components/auth/LoginModal.tsx",
+      "why": "C2 方案 A 定稿（零行为变更先例 video-works.md:27）；C5 复核免动",
+      "test": "G7 活体（宿主深）+ G8③（宿主浅 × 壳深 × 登录层浅三重叠）"
+    }
+  ],
+  "noAction": [
+    {
+      "popup": "WeChatQRModal（antd Modal，body 挂载；微信扫码支付）",
+      "host": "settings/MembershipPage、settings/CreditsPage、team/TeamBillingPage（均跟随域）",
+      "verdict": "无需岛【C5 订正：初判表曾归营销域恒浅】",
+      "why": "跟随域宿主两通道同随全局（antd channel=App algorithm 随 html 类；var channel=html 类继承）→ 双主题下各自自洽；内容全字面内联色（#666/#4ade80/#f59e0b）+ QRCodeSVG，零 --fw-*/antd 内容组件。挂恒浅岛=html.dark 宿主内白弹窗=视觉变更且无破损可修",
+      "test": "无（无接线即无断言对象；裁定入册）"
+    },
+    {
+      "popup": "AuthModal（邮箱登录，LoginModal 内 showEmailLogin 分支替换渲染）",
+      "host": "LoginModal（营销流）",
+      "verdict": "无需岛",
+      "why": "非 antd 组件（纯 div 自绘 fixed 层非 portal）、全字面色（#222222/#3a3a3a/#e2e8f0/#ccc/#666/#4ade80）零 --fw-* 消费零 antd token——主题无关恒定渲染，双通道皆不参与",
+      "file": "apps/web/src/components/AuthModal.tsx",
+      "test": "无"
+    },
+    {
+      "popup": "VideosPage Pagination 尺寸切换 Select 弹层（rc-trigger，body 挂载）",
+      "host": "/videos 路由 div.dark",
+      "verdict": "无需岛类（登记）",
+      "why": "total>50 才现尺寸切换器（antd 默认，pageSize=20 固定；门禁种子 1 条不可达）；antd 通道经路由 ConfigProvider(darkAlgorithm) context 穿透已恒深；弹层为 antd 内绘（token 驱动）零 --fw-* 消费。且 Pagination 无 popupClassName 透传钩子——未来需要时走 getPopupContainer 回退（O5 兜底序）",
+      "test": "无（不可达 + 零消费双豁免）"
+    },
+    {
+      "popup": "PlayView/ProcessView useApp() message toast",
+      "host": "VideoPlayerModal 壳内",
+      "verdict": "无需岛（机制澄清）",
+      "why": "antd App holder 渲染在 AntdApp React 树位置（antd/es/app/index.js:58——component={false} 仅去包裹元素不去 holder）→ DOM 落壳内（data-vw-shell 子树）；antd 通道=壳内 Provider context 恒深；toast 为 antd 内绘零 --fw-* 消费",
+      "test": "无"
+    },
+    {
+      "popup": "VipSubscribeModal（createPortal(document.body)）",
+      "host": "MembershipPage（跟随域）",
+      "verdict": "无需岛",
+      "why": "portal 到 body 但全 token 工具类自绘（bg-bg/text-text/bg-surface-dim）——跟随域宿主下双通道同随全局翻转，整体随主题自洽（html.light 全浅/html.dark 全深），无半半",
+      "file": "apps/web/src/components/VipSubscribeModal.tsx",
+      "test": "无"
+    },
+    {
+      "popup": "ImageFullscreenViewer/VideoFullscreenViewer full-bleed 层（createPortal(document.body)）+ video-editor 全屏弹层",
+      "host": "canvas 域",
+      "verdict": "不动（O5 初判表第 4 行复核）",
+      "why": "全字面深色（bg-black/text-white/60 系）两主题恒定一致；VideoEditorShell 壳根 C2 已挂 dark（G4 守卫在册）",
+      "test": "G4 video-editor（既有）"
+    }
+  ],
+  "deferred": [
+    {
+      "popup": "admin 岛全部 portal 弹层（Popconfirm/ProFormSelect 下拉/ProTable 工具栏/modal.confirm 等，body 挂载）",
+      "host": "AdminLayout（ProConfigProvider dark 岛）",
+      "verdict": "岛类挂起至 admin token 化（v1.2 规则推导落表的按实测收窄）",
+      "empiricalBasis": "grep apps/web/src/pages/admin 全目录：0 个文件消费 --fw-* 工具类（bg-surface|text-text|text-dim|bg-overlay|border-border 等全零命中）——admin 自绘 UI 为字面 hex（B2 未迁，admin 岛豁免），antd 内绘弹层为 token 驱动。两通道实测：antd=Pro dark context 穿透恒深 ✓（G8④ computed 弹层底深色断言）；var=body 挂载无岛 closest(.dark)=null 但零消费者=无可见半半",
+      "trigger": "admin UI token 化（未来项目）时逐弹层补岛类，届时 G8④ 的 closest(.dark)=null 断言转 true 须同步本册",
+      "test": "G8④（守卫钉住现状：渲染 + antd 通道深 + 缺口登记）"
+    },
+    {
+      "popup": "VideoPlayerModal getPopupContainer 首帧回退 body 分支（shellRef.current ?? document.body）",
+      "host": "VideoPlayerModal.tsx:63",
+      "verdict": "登记不修（C5 裁定）",
+      "why": "分支真实存在（壳未挂载首帧 rc-trigger 弹层落 body 丢岛）；但现状壳内零 rc-trigger 弹层（PlayView/ProcessView 仅 message、LoginModal 走 Modal getContainer 不经此通道）→ 不可达；且已有 zIndexPopupBase=100000 可见性兜底（注释 VideoPlayerModal.tsx:53-57 在册）。未来壳内加 Select/Dropdown 时首帧打开须复验",
+      "test": "无（不可达）"
+    },
+    {
+      "popup": "TextNodeToolbar portal 到 #node-toolbar-portal（自定义节点，非 body）",
+      "host": "canvas 画板域",
+      "verdict": "归画板域（D4）登记，不加岛类",
+      "why": "画板=无岛类的恒深值域（字面深色自绘：bg-[#222]/80 + text-white/90 + #3F3F46 边），两主题恒定；岛类反与 D4「画板禁止 --fw-*」冲突",
+      "file": "apps/web/src/pages/canvas/components/nodes/TextNodeToolbar.tsx:195",
+      "test": "无"
+    }
+  ]
+}
