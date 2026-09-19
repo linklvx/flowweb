@@ -1030,7 +1030,7 @@
    },
    {
     "family": "video-editor 岛 + MaterialLibrary 岛",
-    "reason": "D4 岛内恒深：自带暗色自持 UI（--ve-*/MaterialLibraryModal.css B2-b 另裁）",
+    "reason": "D4 岛内恒深：自带暗色自持 UI（--ve-* 保留）；MaterialLibraryModal.css 已于 B2-c 落裁定案=宿主跟随域（渲染宿主 canvas 页壳层+antd Modal 门户口挂 body，无自持域 token 族）→ token 化 47 + 操作三色族等刻意字面保留 32，判定与映射见 b2cChannels.channel2",
     "representatives": "ClipBlock 内联选区色、FilePreviewPopover bg-[#262626]、FolderTree/FolderContextMenu white/NN"
    },
    {

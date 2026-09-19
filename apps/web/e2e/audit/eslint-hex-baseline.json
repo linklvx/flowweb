@@ -4,7 +4,7 @@
     "capturedAt": "2026-09-18T23:47:18.720Z",
     "keyFormat": "{ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号，行移动不触发；同文件同文本多行塌缩为一键（O3 已接受）",
     "count": 261,
-    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建",
+    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建；行文本变更的机械清理（A4/B2 批次）允许伴随重键（计数不增前提），非 UPDATE_BASELINE 全量重采。",
     "rekeyNote": "B3 死类处置改写 2 行（下载按钮 className 行内 #646464/#757575 hex 不变、行文本变）——纯 re-key 2 键，总量 261 不变，非 UPDATE_BASELINE 重采"
   },
   "keys": [

@@ -123,7 +123,7 @@
 ## 8. 未采集属性（冻结属性集外，覆盖方式登记）
 
 - a 链接 text-decoration 移除（19 Link 站点）——冻结属性集未采集；§2.4 目检覆盖
-- 裸 button background-color buttonface→transparent——属性集仅含 color(表单)；A1_RED 组1 四项归零门禁覆盖
+- 裸 button background-color buttonface→transparent——属性集仅含 color(表单)；a1-preflight 常驻默认套件四项归零门禁覆盖（A1_RED 组1 红用例已于 A6 转绿收口）
 - ::placeholder gray-400 / textarea resize:vertical——伪元素/交互属性不入快照；§2.4 目检覆盖
 - disabled cursor not-allowed——交互态不入快照（informational）
 - divide 线涌现（TeamBillingPage:140，唯一站点）——团队账单页不在 8 门禁页；emergence-adjudication-A4.json 已登记

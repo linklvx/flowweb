@@ -4,7 +4,8 @@
  * type-aware + no-unused-vars argsIgnorePattern；该文件保留不动，deploy.sh 仍引用）。
  *
  * 门禁语义（O3，scripts/lint-gate.mjs 实现）：
- *   - 唯一卡门禁规则 = flowweb/no-color-hex（本地插件，颜色前缀任意值 hex 禁令）+ baseline 增量；
+ *   - 卡门禁新规则 = flowweb/no-color-hex（颜色前缀任意值 hex 禁令，baseline 增量）
+ *     + flowweb/no-theme-utility（B5 收口：目录白名单外 text-white/text-black 禁令，无 baseline 直判）；
  *   - 存量规则（eslint:recommended / @typescript-eslint/strict）保持默认 error 严重度
  *     （IDE 与直接 npx eslint 仍是标准行为），但 lint-gate 只按新规则算退出码——存量永不卡门禁。
  *     不选降级 warn 的原因：降级会让 --max-warnings 类用法与 IDE 展示失真，且门禁脚本过滤更可审计。
@@ -12,6 +13,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import { noColorHex } from './scripts/eslint-rules/no-color-hex.js';
+import { noThemeUtility } from './scripts/eslint-rules/no-theme-utility.js';
 
 const TS_FILES = ['src/**/*.ts', 'src/**/*.tsx'];
 
@@ -39,11 +41,12 @@ export default tseslint.config(
       },
     },
     plugins: {
-      flowweb: { rules: { 'no-color-hex': noColorHex } },
+      flowweb: { rules: { 'no-color-hex': noColorHex, 'no-theme-utility': noThemeUtility } },
     },
     rules: {
-      // 唯一新规则（B5 收口：全量启用后 baseline 归零）
+      // 新规则（B5 收口：hex 全量启用 baseline 增量；theme-utility 白名单外直判 0 违例）
       'flowweb/no-color-hex': 'error',
+      'flowweb/no-theme-utility': 'error',
       // 迁移自 .eslintrc.base.json 的既有覆写
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

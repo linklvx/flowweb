@@ -5,7 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
-import { NEW_RULE_ID, violationKey, diffNewViolations } from '../lint-gate.mjs';
+import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
+import { NEW_RULE_ID, THEME_RULE_ID, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
 const lintFixture = (code) =>
@@ -13,6 +14,16 @@ const lintFixture = (code) =>
     plugins: { flowweb: { rules: { 'no-color-hex': noColorHex } } },
     rules: { 'flowweb/no-color-hex': 'error' },
   });
+const lintThemeFixture = (code, filename) =>
+  linter.verify(
+    code,
+    {
+      files: ['**/*.ts', '**/*.tsx'], // flat Linter.verify 带 filename 时要求配置显式匹配文件
+      plugins: { flowweb: { rules: { 'no-theme-utility': noThemeUtility } } },
+      rules: { 'flowweb/no-theme-utility': 'error' },
+    },
+    { filename }, // 白名单按文件路径判定，fixture 以相对路径直供（规则内部按 APP_ROOT 相对解释，与 cwd 无关）
+  );
 
 describe('flowweb/no-color-hex 规则拦截（fixture）', () => {
   it('新增违例：颜色前缀任意值 hex 被拦截', () => {
@@ -47,6 +58,49 @@ describe('flowweb/no-color-hex 规则拦截（fixture）', () => {
     expect(lintFixture("const a = 'shadow-[0_0_10px_#fff]';")).toHaveLength(0);
     // O3 范围声明：不拦 style 对象字面量（归 B2-2 逐处判定通道）
     expect(lintFixture("const style = { color: '#fff' };")).toHaveLength(0);
+  });
+});
+
+describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
+  it('白名单域放行：videos 恒深域 text-white 不报', () => {
+    expect(
+      lintThemeFixture("const cls = 'text-white';", 'src/pages/videos/PlayView.tsx'),
+    ).toHaveLength(0);
+  });
+
+  it('跟随域 text-white 判违例', () => {
+    const messages = lintThemeFixture("const cls = 'text-white';", 'src/pages/settings/Profile.tsx');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].ruleId).toBe(THEME_RULE_ID);
+  });
+
+  it('跟随域 text-black 判违例；白名单域（board 节点）放行', () => {
+    expect(
+      lintThemeFixture("const cls = 'text-black';", 'src/pages/settings/Profile.tsx'),
+    ).toHaveLength(1);
+    expect(
+      lintThemeFixture("const cls = 'text-black';", 'src/pages/canvas/components/nodes/TextConfigPanel.tsx'),
+    ).toHaveLength(0);
+  });
+
+  it('变体前缀天然命中：hover:text-white 被拦（与 hover:bg-[#…] 同口径）', () => {
+    expect(
+      lintThemeFixture("const cls = 'hover:text-white';", 'src/pages/settings/Profile.tsx'),
+    ).toHaveLength(1);
+    expect(
+      lintThemeFixture('const cls = `md:hover:!text-black`;', 'src/pages/settings/Profile.tsx'),
+    ).toHaveLength(1);
+  });
+
+  it('斜杠透明度形命中：text-white/90（跟随域）', () => {
+    expect(
+      lintThemeFixture("const cls = 'text-white/90';", 'src/components/HistoryPage/HistorySidebar.tsx'),
+    ).toHaveLength(1);
+  });
+
+  it('不误报：bg-white（非 text 前缀）、text-whitesmoke（非完整 token）、text-[#fff]（hex 规则域）', () => {
+    const code = "const a = 'bg-white'; const b = 'text-whitesmoke'; const c = 'text-[#ffffff]';";
+    expect(lintThemeFixture(code, 'src/pages/settings/Profile.tsx')).toHaveLength(0);
   });
 });
 
