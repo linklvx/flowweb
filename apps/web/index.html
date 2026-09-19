@@ -3,6 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // C1 主题防闪白（spec §4.1）：先于一切模块脚本读 localStorage 三态并挂 html 类——
+      // 真源 = html 类，恒有且仅有 .light/.dark 之一；缺省/非法默认深（D3 兜底，非跟随系统）；
+      // system 经 matchMedia 解析显式挂对应类（不挂类即回落 :root 深色）。与 themeStore 同口径。
+      (function () {
+        var theme = 'dark';
+        try {
+          var stored = localStorage.getItem('theme');
+          if (stored === 'light' || stored === 'dark') theme = stored;
+          else if (stored === 'system')
+            theme = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        } catch (e) {}
+        var classList = document.documentElement.classList;
+        classList.remove('light', 'dark');
+        classList.add(theme);
+      })();
+    </script>
     <title>Flow123 - AI 多模态内容创作平台</title>
   </head>
   <body>

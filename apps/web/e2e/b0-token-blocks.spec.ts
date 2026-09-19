@@ -1,5 +1,6 @@
 // B0 语义 token 双套落地——三态回归守卫（常驻默认套件）：
-//   组1 html 无类（/works）：16 token 全部 = 深色值（:root 无 JS 回退 = 深色，D3）+ color-scheme:dark；
+//   组1 默认态（/works，无 theme 存储）：C1 起 html 恒挂 .dark → 16 token 全部 = 深色值（默认深兜底 D3；
+//     v1.6 前「无类」态自 C1 起运行时不可达，:root 无 JS 回退退化为机制兜底）+ color-scheme:dark；
 //   组2 html.dark：仅命中 `:root,.dark` 块 → 仍全深色值（.dark 与 :root 同块同值）；
 //   组3 html.light：html 同时命中 :root 与 .light（均 (0,1,0)）→ 源序在后者胜——全量 token = 浅色值
 //     （D8 源序机制的行为级预验证：.light 块必须写在 :root,.dark 之后）+ color-scheme:light；
@@ -97,17 +98,18 @@ async function openLogin(page: Page) {
   await expect(page.getByRole('button', { name: '邮箱登录' })).toBeVisible();
 }
 
-test.describe('B0-1 html 无类 = 深色值（:root 无 JS 回退，D3）', () => {
+test.describe('B0-1 默认态 = 深色值（C1 起 html 恒挂 .dark；:root,.dark 同块同值，D3）', () => {
   test('/works：16 token 全部深色值 + color-scheme dark', async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: USER_STATE });
     const page = await ctx.newPage();
     try {
       await openWorks(page);
-      // 前置：html 无主题类（防上游意外挂类污染三态判定）
-      expect(await page.evaluate(() => document.documentElement.className), '[G1] html 应无主题类').toBe('');
+      // 前置：C1 防闪白脚本契约——无 theme 存储时 html 恒有且仅 .dark（默认深兜底；v1.6 前的「无类」态
+      // 自 C1 起运行时不可达，:root 无 JS 回退退化为机制兜底，机制等价由本组 + B0-2 覆盖）
+      expect(await page.evaluate(() => document.documentElement.className), '[G1] html 应恰挂 dark（C1 默认深）').toBe('dark');
       const s = await readTokens(page, 'html');
-      expectAllTokens(s, DARK, 'G1-无类');
-      expect(s.__colorScheme, '[G1] html 无类 color-scheme 期望 dark（:root,.dark 块之 :root 臂）').toBe('dark');
+      expectAllTokens(s, DARK, 'G1-默认深');
+      expect(s.__colorScheme, '[G1] html.dark color-scheme 期望 dark（:root,.dark 同块同值）').toBe('dark');
     } finally {
       await ctx.close();
     }
