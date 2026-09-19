@@ -336,3 +336,15 @@ D0-0（仪器/before-D/探针钉深）→ D0（两态六件套+G 门禁改写，
 4. **selection 钉值直接定案**（§10.2"先临时撤钉对比"实验取消）：实测 @xyflow/react@12.10.2 dist/style.css:38-39 light 皮肤默认值与 index.css 钉值**逐字节相同**（rgba(0,89,220,0.08)/1px dotted rgba(0,89,220,0.8)）；dark 皮肤（:85-86）为另一组 rgba(200,200,220,*)。裁定=钉值浅档冗余（与皮肤默认重合）、**深档承重**（防 dark 皮肤改写回浅灰蓝）——保留不动+两档断言+注释订正，撤钉往返实验 unnecessary。
 5. **videos 路由根岛纳入 D3-videos 范围**（E 表补充）：router.tsx:51-59 的 route 级 `<ConfigProvider darkAlgorithm>` + `<div className="dark">` 整页钉深——不拆则 VideoCard 等 --fw-* 并域在浅档空转（祖先 .dark 把 token 解析回深值）、§3 c7 归因表 videos ×140 边框"方向反转"无从落地。随 D3-videos 域原子对拆除（注释订正同 commit，不留"只改注释不改代码"假档）。
 6. **渲染产物白名单路径订正**（§1 非目标）：engine 两文件在 `pages/canvas/engine/`（非 video-editor/engine/）、ThreePreview/Angle3DPreview 在 `pages/canvas/components/Lighting|Angle3D/` 子目录、导出 worker 在 `video-editor/export/worker.ts`（非 renderer/export-worker.ts）——registry 脚本按实测路径取齐。
+
+### v1.5.3（2026-09-20，计划第六轮审核实测订正）
+
+1. **§13.3-3 订正：D1a 浅侧 = 0 diff（非中间态）**。原句"D1a 之后～D3 之前，板内 3 个 --canvas-controls-* 消费点浅色档取浅值落黑板"与 wrapper 重声明机制矛盾：D1a 把域 token 放入 `:root,.dark` 后，画板 wrapper 的 `.dark` 类即命中该块 → 域 token 在 wrapper 上重声明深值，19 处消费点子树仍取深值（a0:221 探针同款机制）；--vw-card-*/--ve-* 同理在路由岛/壳岛内。D1a 验收 = **深浅双侧 0 diff**，浅侧非 0 即信号（岛漏拆/token 泄漏岛外）禁止预先豁免；"浅色画布不可用"的真中间态窗口 = D2（wrapper 翻 .light）之后～D3 板面批次完成前。
+2. **--canvas-controls-active 撤销死键删除、复活为激活态双值键**（§8.1 表行复活：深 `rgba(255,255,255,0.12)` / 浅 `rgba(0,0,0,0.08)`）。v1.5 的"0 消费死 token"判定只对了一半：CanvasToolbar 因内联 style 不消费 var() 而"死"，激活态语义没死——若与常态钮同键（surface-dim 系）改齐，常态/激活坍缩同色且被 pairs 吸收成"预期"（静默功能回归）。BTN_BG_ACTIVE → var(--canvas-controls-active)，配激活性可辨断言。
+3. **路由岛拆法细化（v1.5.2-5 补充）**：/videos 路由根拆除 = **保留 `<div>` 只删 `className="dark"`**（ConfigProvider 整删）。/videos 是采集页——删元素 = removed≠added + 全部后代 dom: 路径错位，配对闸硬失败（c7 §3 :43 先例"C2 videos 路由页根 div.dark 插层剥除先归一"同款）；保元素删类 = dom: 键不变 + 深档级联不变（html.dark 仍命中 :root,.dark）+ 浅侧大变入 pairs。
+4. **differExpectedPairs 增可选 `page` 字段**（两级匹配：`page|prop|before|after` 精确集优先、`prop|before|after` 全局集兜底）——浅侧 pairs 量大后（D2 板面/D3 各域翻转），全局配对跨位点误吸收面会扩大在最想守的方向；page 维度把该残余收窄到同页。
+5. **像素快照 snapshotPathTemplate 直落 e2e/audit/**（`test.use({ snapshotPathTemplate: '{testDir}/audit/d2-ref-{arg}{ext}' })`）——无 projects 的仓默认快照名实为 `-win32` 后缀（无 `-chromium` 段），文件名硬编码必踩空；直落后文件名确定、真身入 git、`sha256sum -c` 校验、被 `--update-snapshots` 覆盖即红即 `git checkout --` 恢复（替代 cp 副本+幂等恢复方案，"副本 vs 真身"缝隙结构上消失）。
+6. **手柄 hover-icon@白卡 specExpect 勘误 18.53 → 17.74**（v1.5.2-3 数值笔误：手算时 #111827 的 g 通道 0x18=24 误作 17；脚本同式复算 = 17.7399）。立规：**台账新加行的 specExpect 一律以脚本首跑输出回填，禁手算定稿**——本条即台账存在意义的实证。
+7. **手写 CSS 换引判据收紧为等值门**（v1.5.2-3 的 A3"能引即引"作废）：仅当字面深值与目标 token 深值 computed 等值才可换引（当前白名单=body 两行 + PromptInput.css:184）；`.tiptap-content`/`.editor-scroll` 深值（#bbb/#fff/#eee/#ddd/#ccc/#666/rgba 白系）与 --fw-* 深值无一等值，一律走深值保留 + .light 覆盖块并登记"无等值键"。
+8. **LIGHT_BASELINE 与 REAL_LIGHT 路径合一**（`REAL_LIGHT = env.REAL_LIGHT || env.LIGHT_BASELINE`，旧 classList.add('light') 注入废止——D0 起会与 themeStore 双类失真；light-B6 系旧机制产物，跨代不可复用已在册）。
+9. **行号微勘误**：xyflow style.css selection 默认值 light 段在 :39-40（v1.5.2-4 笔 :38-39，结论不变）；ProcessSnapshot 中性遮罩 bg-black/60 在 :34（非 :96，文件共 95 行）。

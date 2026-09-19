@@ -15,17 +15,17 @@
 ## 执行总纲（先读）
 
 0. **节奏停点**：Task 1-5（D0-0 全部仪器件）**一轮做完停一次**——拿 `e2e/audit/d0-probe-values.json`（探针钉值）+ 自比自跑噪声报告 + registry 产出回来复核，确认仪器可信后再进 D0 代码段（Task 6+）。
-   - **before-D 采集窗口在 Task 10（D0 收口后、D1a 前），不在 Task 5**（第五轮 P0-1 修订）：D0 的 CanvasTopBar 新钮/TopActionBar 换钮是有意 DOM 变更（新增 dom: 键 + 首位插入平移右侧兄弟 44px——配对闸与几何闸必红），"D0 零 diff"在数学上不成立。基线语义 = **f(前置 commit, 采集器版本)**（Task 4 自比自跑已证采集器确定性）——Task 10 收口后采 before-D（深档）+ before-D-light（浅档 REAL_LIGHT）一对，此后 D1a 起各段 diff 均以它为锚。**before-D/before-D-light 入档后（Task 10 Step 4）不要再动 a0 采集器的任何一行**（唯一时间窗，改动即不可复采；Task 3-5 期间采集器可改）。
+   - **before-D 采集窗口在 Task 10（D0 收口后、D1a 前），不在 Task 5**（第五轮 P0-1 修订）：D0 的 CanvasTopBar 新钮/TopActionBar 换钮是有意 DOM 变更（新增 dom: 键——配对闸必红；44px 平移半句第六轮删——几何层有 C:cascade 归因通道未必红，决定性论据只有配对闸），"D0 零 diff"在数学上不成立。基线语义 = **f(前置 commit, 采集器版本)**（Task 4 自比自跑已证采集器确定性）——Task 10 收口后采 before-D（深档）+ before-D-light（浅档 REAL_LIGHT）一对，此后 D1a 起各段 diff 均以它为锚。**入档后采集器冻结令=口径冻结（snapshotDom 函数体/页面清单/沉降/注入机制；指纹守卫 a0-collector-fingerprint.txt，Task 10 Step 4 详）——探针断言与注释不在冻结面**（第六轮语义化：Task 15/17/21/26 的探针反转改动合法）。
    - **light-B6 旧浅档基线不可复用**（属性集 A0 无 backgroundColor/color 全元素——Task 3 新加的同代校验会直接 exit 1 拦住，这是预期行为非误报）；浅档参照只有 before-D-light 一套。
    - **采集账号纪律**：采集用 USER 态 = seed 门禁账号，works 页元素集=f(seed)；D 段期间禁用该账号手工建画布/改数据（gate-seed 每次 e2e 运行幂等刷新，单仓 commit 已锚定 seed+API 源——无需额外机制，靠纪律）。
 1. **段顺序不可换（spec §15 三把锁）**：D1 必须先于 D2；D2 与 D3 板面批次连续收口（中间态浅色画布不可用，禁止在 D2–D3 空隙做浅色档验收）；"深色档零 diff"验收锚只适用 D0-0/D0/D1a，D1b 起深档 diff 由 §9.2 总清单配对吸收（未配对=失败），D3 各域由域原子对清单吸收。
-   - **配对闸已知残余**：differExpectedPairs 是全局 `prop|before|after`（无 page/key 维度），同色对不同位点会互相吸收——补偿 = 每条配对附 why + D3 三源核销（清单/浅探针/B6）。
+   - **配对闸已知残余（第六轮收窄）**：differExpectedPairs 支持**可选 page 字段**（Task 3 Step 2 ④ 两级匹配：page 限定优先、全局兜底）——跨位点误吸收面从"全仓"收窄到"同页"；浅侧 pairs 量大的段（D2 板面/D3 各域）登记时**优先带 page**，全局配对只留给确属跨页同值的色对。残余补偿不变：每条配对附 why + D3 三源核销（清单/浅探针/B6）。
 2. **原子对纪律**：每域/每岛拆除与断言反转同 commit；重构与有意视觉变更不得同 commit（differ 信号保全）。
 3. **基线纪律**：禁 `UPDATE_BASELINE=1` 重采；A5 旧基线对（before-A0 × after-A）保持冻结管 A/B 段；本期新增独立 D 段基线对**两条**（before-D 深 × working 侧；before-D-light 浅 × working 侧 REAL_LIGHT——浅档是 C8 的目标方向，机械守卫不能只守"深档不变"）。after-D 不是一次性产物——每次段验收按当前 checkout 重新采集 working 侧快照比对。**浅侧 diff 的有意变更同样入 differExpectedPairs**（D1a 起浅侧已知中间态/各段翻转值全部预先可知：D1a=域 token 浅值落点、D2=板面、D3=各域，值表即 Task 11 DOMAIN_LIGHT）。
 4. **常用命令**（全部在 `/d/flowweb/apps/web` 下执行；Bash CWD 会漂移，每条命令自带 `cd` 前缀；**命令均为 Git-Bash 形态**——`rm -rf`/`head` 等 PowerShell 下需换等价写法）：
    - 单测：`cd /d/flowweb/apps/web && npx vitest run <file>`
    - e2e 单文件：`cd /d/flowweb/apps/web && npx playwright test e2e/<file>`
-   - 全门禁：`cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs`（⚠ e2e 经 playwright webServer 跑 `pnpm build`，而 build = `tsc -b && vite build`——**任何 TS 类型不干净都以"preview 起不来/600s 超时"的形式在 e2e 层爆**，报错面不在类型层；e2e spec 文件若在 tsconfig 范围内其类型必须干净）
+   - 全门禁：`cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs && npx tsc --noEmit -p e2e/tsconfig.json`（⚠ e2e 经 playwright webServer 跑 `pnpm build`，而 build = `tsc -b && vite build`——**src 内任何 TS 类型不干净都以"preview 起不来/600s 超时"的形式在 e2e 层爆**，报错面不在类型层；e2e 自身的类型门禁=末尾 tsc 条（既有 e2e/tsconfig.json，Task 3 起逐段跑））
    - 基线采集（深）：`cd /d/flowweb/apps/web && COLLECT_BASELINE=1 BASELINE_DIR=<dir> npx playwright test e2e/a0-collect-baseline.spec.ts`
    - 基线采集（浅/REAL_LIGHT）：`cd /d/flowweb/apps/web && COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=<dir>-light npx playwright test e2e/a0-collect-baseline.spec.ts`
    - 基线 diff：`cd /d/flowweb/apps/web && node scripts/css-baseline-diff.mjs --before before-D --after <segcheck-dir>`（D 深 对；浅对 `--before before-D-light --after <segcheck-dir>-light`；默认无参仍是 A5 旧行为）
@@ -37,7 +37,7 @@
 |---|---|---|
 | 画板 wrapper 底 | `rgb(0, 0, 0)`（colorMode 钉深） | D2 → `rgb(245, 245, 245)` |
 | 画板网格点（读 `.react-flow__background` 的 `--xy-background-pattern-color-props` computed——自定义属性只向下继承，**不能从 wrapper 读**；Task 3 发现步同时读 `.react-flow__background circle` 的 computed `fill` 对照——若自定义属性返回未代换字面串（M5 假守卫风险）即改用 circle fill 断言，数据定形态） | `#555555` | D2 → `#c8c8c8` |
-| gate 节点卡底 | `rgb(34, 34, 34)`（VideoGenNode:718 `bg-[#222222]` 卡面——**选择器必须锚卡面 div 非 `.canvas-node` 根**：根 :607 无底色（rgba(0,0,0,0)），用 `.react-flow__node[data-id="gate-node-1"] .canvas-node > div.rounded-lg`；发现步照盘填） | D3-画板 → `rgb(255, 255, 255)`（**浅档白卡**——本探针恒 html.light 注入；深档变更 rgb(34,34,34)→rgb(30,30,30) 走 pairs） |
+| gate 节点卡底 | `rgb(34, 34, 34)`（VideoGenNode:718 `bg-[#222222]` 卡面——**选择器必须锚卡面 div 非 `.canvas-node` 根**：根 :607 无底色（rgba(0,0,0,0)），用 `.react-flow__node[data-id="gate-node-1"] .canvas-node div.rounded-lg`；发现步照盘填） | D3-画板 → `rgb(255, 255, 255)`（**浅档白卡**——本探针恒 html.light 注入；深档变更 rgb(34,34,34)→rgb(30,30,30) 走 pairs） |
 | CanvasTopBar 已连接前景 | `rgb(21, 128, 61)`（⚠ --fw-accent-text 是 B0 既有键，index.css:48 浅值 #15803d 早已生效——D0-0 即浅值，**无翻转点**，保留作浅档正向对照） | 不翻转 |
 | videos 封面占位底 | `rgb(38, 38, 38)` | 不翻转（P6 内容垫底恒深，D4 组3 断言） |
 | ve 壳底 | `rgb(20, 20, 20)` | D1b 仅键名并域（仍钉深：--fw-bg=#141414 + rgb(20,20,20) 不变）→ D3-ve → 双断言翻浅（--fw-bg `#f7f8fa` + 壳根 `rgb(247, 248, 250)`） |
@@ -68,7 +68,7 @@ Expected: `accepting connections` + `PONG`。失败则按 auto-memory `C:\Users\
 cd /d/flowweb/apps/web && npx playwright test
 ```
 
-Expected: 41 passed + 5 skipped（collector skip；**用例数以当次输出为准，只作环境可用性判据**——Task 3 加探针后即变）。机制订正（第五轮）：**global-setup 只跑 `gate-seed.ts`（幂等，gate-canvas-1/gate-node-1/样例视频每次刷新）；migrate deploy 在 webServer[0] 的 command 里、API 已在跑时随复用整条跳过**——C8 零后端改动无新迁移，无影响；若 API 未在跑，webServer[0] 会自行 migrate+seed+起 API（300s 超时）。preview 5173 由 webServer[1] 自建（`reuseExistingServer: false`）。**此步兼验 `pnpm build`（= `tsc -b && vite build`）通过**——tsc 范围只有 `src`（tsconfig include），任何 src 内 TS 不干净都会以"preview 起不来/600s 超时"的形式在此爆红，报错面在 e2e 层而非类型层；**e2e/scripts 目录不在 tsc 范围**（第五轮 M8 实证）——e2e 代码只有运行时门禁，D4 收口补 tsc --noEmit（Task 27 Step 4）。**此步失败则修复环境后再进入 Task 2——扩了采集器却跑不通门禁等于白做（Task 4/10 的采集与窗口全都踩在这个环境上）。**
+Expected: 41 passed + 5 skipped（collector skip；**用例数以当次输出为准，只作环境可用性判据**——Task 3 加探针后即变）。机制订正（第五轮）：**global-setup 只跑 `gate-seed.ts`（幂等，gate-canvas-1/gate-node-1/样例视频每次刷新）；migrate deploy 在 webServer[0] 的 command 里、API 已在跑时随复用整条跳过**——C8 零后端改动无新迁移，无影响；若 API 未在跑，webServer[0] 会自行 migrate+seed+起 API（300s 超时）。preview 5173 由 webServer[1] 自建（`reuseExistingServer: false`）。**此步兼验 `pnpm build`（= `tsc -b && vite build`）通过**——tsc 范围只有 `src`（tsconfig include），任何 src 内 TS 不干净都会以"preview 起不来/600s 超时"的形式在此爆红，报错面在 e2e 层而非类型层；**e2e/scripts 目录不在 tsc 范围**（第五轮 M8 实证）——e2e 类型门禁用**既有 `e2e/tsconfig.json`**（第六轮 B7：非新造配置——既有文件 extends base + noEmit + include e2e 全域，当前实跑 exit=0 干净），Task 3 起（首个新 spec 落地）纳入各段门禁命令，勿等 D4 收口堆类型债。**此步失败则修复环境后再进入 Task 2——扩了采集器却跑不通门禁等于白做（Task 4/10 的采集与窗口全都踩在这个环境上）。**
 
 - [ ] **Step 3: 确认 USER storageState 就位**
 
@@ -117,7 +117,7 @@ spec §6-③（:87 动作 3）：全文对比度数字以脚本出表为准；�
     { "id": "P6-手柄浅档-bg@板", "fg": "#6B7280", "bg": "#F5F5F5", "specExpect": 4.43, "spec": "§8.1" },
     { "id": "P6-手柄icon浅档@白卡", "fg": "#4B5563", "bg": "#FFFFFF", "specExpect": 7.56, "spec": "第五轮订正（v1.5.2 变更登记）：NodeHandle circle fill=transparent——icon 实落卡面非手柄底，spec §8.1 浅档 #FFFFFF 白字白卡 1.0:1 不可见 → #4B5563" },
     { "id": "P6-手柄icon深档@深卡", "fg": "#6B7280", "bg": "#1E1E1E", "specExpect": 3.45, "spec": "现状深档（icon 深值@bg-surface 深卡 ≥3 复核）" },
-    { "id": "P6-手柄hover-icon浅档@白卡", "fg": "#111827", "bg": "#FFFFFF", "specExpect": 18.53, "spec": "第五轮订正：hover 仍 transparent fill——hover-icon 浅档 #FFFFFF 同样不可见 → #111827（与 hover 环同色系）" },
+    { "id": "P6-手柄hover-icon浅档@白卡", "fg": "#111827", "bg": "#FFFFFF", "specExpect": 17.74, "spec": "第五轮订正：hover 仍 transparent fill——hover-icon 浅档 #FFFFFF 同样不可见 → #111827（与 hover 环同色系）。第六轮勘误：第五轮手算 18.53 系 g 通道误植（0x18=24 当了 17）——**新加行的 specExpect 一律以脚本首跑输出回填，禁手算定稿**（台账存在的意义即此）" },
     { "id": "面-面-卡面@板底(浅)", "fg": "#FFFFFF", "bg": "#F5F5F5", "spec": "分离度观测行（specExpect 空=无 drift 牙齿）：WCAG 1.4.11 UI 边界 3:1 适用性由 B6 目检裁定——浅档浮层/板分离度依赖边框+阴影承担" },
     { "id": "面-面-surface-dim@板底(浅)", "fg": "#F0F1F2", "bg": "#F5F5F5", "spec": "分离度观测行：--canvas-controls-bg 浅值 vs 板 ≈1.04——B6 必看（工具条/面板浮板感）" },
     { "id": "面-面-overlay2边@板底(浅)", "fg": "#F0F0F0", "bg": "#F5F5F5", "spec": "分离度观测行：rgba(0,0,0,0.06) 压白卡合成色 vs 板——B6 必看（卡边可辨性）" },
@@ -191,7 +191,7 @@ process.exit(fail ? 1 : 0);
 cd /d/flowweb/apps/web && node scripts/contrast-table.mjs; echo "exit=$?"
 ```
 
-Expected: `exit=0`，自检四行全 ✅（21.00 / 4.54 / **4.48** / 2.82），drift 列全空（drift>0 即 exit 1——在册值核对有牙齿）。**常数仲裁定案（写入 meta.gamma 防翻案）**：0.055 是 WCAG 2.x 正式式常数——#767676@white=4.54、#777777@white=4.48 两组公布名值只在 0.055 下成立，自检双锚即判别式；错植指纹两族勿混引（加数错植 (c+0.05)/1.055 族给 2.76/4.63/4.56；除数错植 (c+0.055)/1.05 族给 2.84/4.50/4.44——两族数字不可互串，任一族都过不了双锚）。**若你的实现跑出 2.76：channel 加数错植（0.055→0.05），查 selfCheck[1]/[2] 两锚**；实现确认无误而 drift 亮：按脚本值订正 spec 走变更登记——禁止改配对表迁就实现，也禁止改实现迁就 spec。
+Expected: `exit=0`，自检四行全 ✅（21.00 / 4.54 / **4.48** / 2.82），drift 列全空（drift>0 即 exit 1——在册值核对有牙齿；**第五轮新加行的 specExpect 若 drift 亮，先疑手算后疑实现**——#111827 手算 18.53 vs 脚本 17.74 即实例，新行期望值以脚本首跑输出回填后复跑转绿）。**常数仲裁定案（写入 meta.gamma 防翻案）**：0.055 是 WCAG 2.x 正式式常数——#767676@white=4.54、#777777@white=4.48 两组公布名值只在 0.055 下成立，自检双锚即判别式；错植指纹两族勿混引（加数错植 (c+0.05)/1.055 族给 2.76/4.63/4.56；除数错植 (c+0.055)/1.05 族给 2.84/4.50/4.44——两族数字不可互串，任一族都过不了双锚）。**若你的实现跑出 2.76：channel 加数错植（0.055→0.05），查 selfCheck[1]/[2] 两锚**；实现确认无误而 drift 亮：按脚本值订正 spec 走变更登记——禁止改配对表迁就实现，也禁止改实现迁就 spec。
 
 - [ ] **Step 4: Commit（含 spec v1.5.1 变更登记）**
 
@@ -237,7 +237,7 @@ spec §6 动作 1/2/3。采集器冻结集扩 `backgroundColor` + 全元素 `col
 
 同步删除 `const FORM_CONTROL = new Set([...])`（:105，已无消费）。**紧随 rec 之后的 `if (el.getAttribute('aria-disabled')) rec.ariaDisabled = …`（:134）保留勿误删**。`computedPropertySet` meta 字段（:314-317）追加 `'backgroundColor(全元素)', 'color(全元素,D1 起)'`，并新增 meta 顶层字段 `attrSetVersion: 'D1'`（afterAll 写入对象第一层）。注释 `// color 仅表单控件（继承色噪声大）` 更新为 `// D1 起全元素采集——D 段基线对比色；旧基线（无 attrSetVersion=A0）跨代比对走"属性缺失=不判"`。
 
-**同 commit 修复 :144 LIGHT 模式注入（第五轮 P0-5——修复窗口仅本任务，Task 10 后采集器冻结）**：`if (LIGHT) await page.evaluate(() => document.documentElement.classList.add('light'))` 是 D0 前的类注入——D0 起 themeStore 首渲染即挂 `dark`，add('light') 不移除 dark → html 双类（.light 源序胜但 React mode 仍 dark，D2 后 colorMode 钉暗）→ 浅色采集静默失真。改为与 REAL_LIGHT 同源的 storage 路径：**collectPage 的 marker() 之前无法注入（page 级 init script 须在首次 goto 前挂）——把 LIGHT 模式注入上移到三个用例的 ctx/page 创建处，与 seedRealLight 同款 `page.addInitScript(() => localStorage.setItem('theme', 'light'))`（LIGHT 与 REAL_LIGHT 机制合一，meta 描述同步改写）**。另：根 `.gitignore` 追加一行 `apps/web/e2e/test-results/`（该目录现存 c4/c5 png 未跟踪，Task 22/26 的 `git add apps/web/e2e/` 会吞——第五轮 P1-3 实证）。
+**同 commit 修复 :144 LIGHT 模式注入（第五轮 P0-5——修复窗口仅本任务，Task 10 后采集器冻结）**：`if (LIGHT) await page.evaluate(() => document.documentElement.classList.add('light'))` 是 D0 前的类注入——D0 起 themeStore 首渲染即挂 `dark`，add('light') 不移除 dark → html 双类（.light 源序胜但 React mode 仍 dark，D2 后 colorMode 钉暗）→ 浅色采集静默失真。**修法（第六轮简化：勿逐用例上移——seedRealLight 实有 5 处调用点 :175/:188/:211/:235/:271，逐点改必漏）**：LIGHT 与 REAL_LIGHT **路径合一**——`:33` 改 `const REAL_LIGHT = !!process.env.REAL_LIGHT || !!process.env.LIGHT_BASELINE;`，删 `:35 ANY_LIGHT` 与 `:144` 注入行及 afterAll 的 lightInjection 分支（`LIGHT_PROBES` 改由 REAL_LIGHT 分支落盘）；文件头注释注明"旧 classList 注入路径已废止（D0 后双类失真）；light-B6 基线系旧机制产物不可复用"。历史 `LIGHT_BASELINE=1` 调用形态因 env 兼容保留，语义=REAL_LIGHT。另：根 `.gitignore` 追加一行 `apps/web/e2e/test-results/`（该目录现存 c4/c5 png 未跟踪，Task 22/26 的 `git add apps/web/e2e/` 会吞——第五轮 P1-3 实证）。
 
 - [ ] **Step 2: 扩 differ（css-baseline-diff.mjs）**
 
@@ -254,26 +254,29 @@ if (before.attrSetVersion !== after.attrSetVersion) {
 }
 ```
 
-③ 新属性 diff（元素配对循环内，`b.color` 段之后追加；null 检查天然实现"属性缺失=不判"跨代分支）。**⚠ 现状 `b.color` 段（:214-225）只查 b2Pairs/A1_COLOR_PAIRS、从不查 `reg`（OVERRIDES）——其余属性块（fontSize :210/lineHeight :203）都查**（第五轮 M2 实证）：新块与 b.color 改造都必须带 `!reg`，否则 Task 4 Step 3 的"扩 OVERRIDES 处置噪声"路径对 color/backgroundColor 恰好失效：
+③ 新属性 diff（元素配对循环内，`b.color` 段之后追加；null 检查天然实现"属性缺失=不判"跨代分支）。**⚠ 现状 `b.color` 段（:214-225）只查 b2Pairs/A1_COLOR_PAIRS、从不查 `reg`（OVERRIDES）——其余属性块（属性层 fontSize :207-212 / lineHeight :196-205 都查 `!reg`）**（第五轮 M2 实证；几何层另有 :291/:306 的驱动检查行，勿混）。新块与 b.color 改造都必须带 `!reg`，否则 Task 4 Step 3 的"扩 OVERRIDES 处置噪声"路径对 color/backgroundColor 恰好失效。**⚠ 第六轮 B3：色对键命名必须避开外层元素循环的 `key` 变量（遮蔽后 propUnexpected.push 写进色对键而非元素稳定键，报告字段错位；且勿学 OVERRIDES[page|色对键] 查表——那是死代码，OVERRIDES 键=page|元素键，reg 已在循环头按元素键算出）**——照 b.color 段的 `b2Key` 命名形态：
 
 ```js
     if (b.backgroundColor != null && a.backgroundColor != null && b.backgroundColor !== a.backgroundColor) {
-      const key = `backgroundColor|${normColorVal(b.backgroundColor)}|${normColorVal(a.backgroundColor)}`;
-      if (dPairs.has(key)) bump(dAbsorbed, `backgroundColor ${b.backgroundColor}→${a.backgroundColor}`);
+      const bgKey = `backgroundColor|${normColorVal(b.backgroundColor)}|${normColorVal(a.backgroundColor)}`;
+      // 两级吸收（⑥见④注）：dPairsPage.has(`${page}|${bgKey}`) || dPairs.has(bgKey)
+      if (dPairs.has(bgKey)) bump(dAbsorbed, `backgroundColor ${b.backgroundColor}→${a.backgroundColor}`);
       else {
         bump(bucketCount, `backgroundColor.${b.backgroundColor}→${a.backgroundColor}`);
-        if (!OVERRIDES[`${page}|${key}`] && !reg) propUnexpected.push({ page, key, tag: a.tag, prop: 'backgroundColor', before: b.backgroundColor, after: a.backgroundColor });
+        if (!reg) propUnexpected.push({ page, key, tag: a.tag, prop: 'backgroundColor', before: b.backgroundColor, after: a.backgroundColor });
       }
     }
 ```
 
-（上方 `!OVERRIDES[...]` 按既有属性块的 OVERRIDES 实参形态对齐——实施时照 fontSize 块的 reg/OVERRIDES 调用形状抄，勿发明新形态。）`b.color` 段（:214-225）同步改：`b2Pairs` 判定外再判 `dPairs`（D 段注册配对同吸收）+ 补 `!reg`；A1_COLOR_PAIRS 豁免仅当 `after.attrSetVersion === 'A0'`（D1 全元素 color 下旧豁免不再盲目放行）。
+（push 里 `key` = 外层元素稳定键——与 fontSize/borderColor 块同形态。）`b.color` 段（:214-225）同步改：`b2Pairs` 判定外再判 `dPairs`（D 段注册配对同吸收）+ 补 `!reg`；A1_COLOR_PAIRS 豁免仅当 `after.attrSetVersion === 'A0'`（D1 全元素 color 下旧豁免不再盲目放行）。
 
 ④ D 段注册配对源 + 吸收表（B2_REGISTRY 加载处旁）。**D 对（attrSetVersion D1）时 registry 缺失 → exit 1 报指引**（"请在能产出 canvas-migration-registry.json 的 checkout 上跑"——比静默空表可读，第五轮采纳）；A5 旧对（A0×A0）完全不读 D_REGISTRY（无 EMPTY_PARTITIONS 崩溃面）：
 
 ```js
 /* C8 D 段注册配对（canvas-migration-registry.json differExpectedPairs——D1b/D3 有意变更逐条配对，未配对=失败）。
- * D 对（任一侧 attrSetVersion=D1）registry 缺失即 exit 1 报指引；A5 旧对（A0×A0）不读不判（无 partitions 崩溃面）。 */
+ * D 对（任一侧 attrSetVersion=D1）registry 缺失即 exit 1 报指引；A5 旧对（A0×A0）不读不判（无 partitions 崩溃面）。
+ * 第六轮：pair 增可选 page 字段，两级匹配——page 限定集（page|prop|before|after）优先、全局集（prop|before|after）兜底；
+ * 浅侧 pairs 量大（D2/D3 板面与各域翻转）后，全局配对跨位点误吸收面会扩大在最想守的方向——page 维度把该残余收窄。 */
 const D_REGISTRY_PATH = path.join(ROOT, 'e2e', 'audit', 'canvas-migration-registry.json');
 const D_PAIR = before.attrSetVersion === 'D1' || after.attrSetVersion === 'D1';
 let D_REGISTRY = null;
@@ -284,20 +287,23 @@ if (D_PAIR) {
   }
   D_REGISTRY = JSON.parse(fs.readFileSync(D_REGISTRY_PATH, 'utf8'));
 }
-const dPairs = new Set(((D_PAIR ? D_REGISTRY.differExpectedPairs?.pairs : undefined) ?? []).map((p) => `${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+const dPairsRaw = (D_PAIR ? D_REGISTRY.differExpectedPairs?.pairs : undefined) ?? [];
+const dPairsPage = new Set(dPairsRaw.filter((p) => p.page).map((p) => `${p.page}|${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+const dPairs = new Set(dPairsRaw.filter((p) => !p.page).map((p) => `${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+/* 吸收判定（backgroundColor/borderColor/color 三处同款）：has(`${page}|${bgKey…}`) → dAbsorbed 记 page 限定命中；否则 has(全局键) */
 const dAbsorbed = {};
-/* C8 D3 涌现站点级登记（第五轮 M3 采纳）：D 对的四采集页（canvas/material-modal/video-editor/videos）上
- * border-width 0→N 涌现站点必须命中 d3EmergentSites（page|key），否则 offender——文件级授权闸在 D 域
- * 全量文件授权后退化为恒真（原 PAGE_REGISTRY_FILES×authorizedFiles 判据对 D 对作废，A5 旧行为保留不动）。 */
+/* C8 D3 涌现站点级登记（第五轮 M3 采纳 + 第六轮页无关化）：D 对下任何采集页的 border-width 0→N 涌现站点
+ * 必须命中 d3EmergentSites（page|key），否则 offender。页无关的理由：文件级授权闸的恒真机制=页级 some() 判定
+ * + 每页至少一个授权文件（works=['TopActionBar','Sidebar'] :62 皆在册）——枚举页集必漏（WeChatFollowModal 在
+ * /works、弹层/浮层可能在任何页），页无关是唯一不漏形态。A5 旧对不走本分支。 */
 const d3Sites = new Set(((D_PAIR ? D_REGISTRY.d3EmergentSites : undefined) ?? []).map((s) => `${s.page}|${s.key}`));
-const D_PAGES = new Set(['canvas', 'material-modal', 'video-editor', 'videos']);
 ```
 
-⑤ **涌现闸 D 对改站点级判定**（`emergenceOffenders` 循环 :331-336 内追加分支，A5 旧路径零变化）：
+⑤ **涌现闸 D 对改站点级判定（页无关）**（`emergenceOffenders` 循环 :331-336 内追加分支，A5 旧路径零变化）：
 
 ```js
 for (const site of emergentSites) {
-  if (D_PAIR && D_PAGES.has(site.page)) {
+  if (D_PAIR) {
     if (!d3Sites.has(`${site.page}|${site.key}`)) {
       emergenceOffenders.push(`${site.page}|${site.key} <${site.tag}> ${site.side} ${site.after}（D 段涌现站点未登记 d3EmergentSites——先登记再变更）`);
     }
@@ -374,7 +380,7 @@ test.describe('D-1 画板域（D0-0 钉深；D2 翻转）', () => {
       // ⚠ gate 节点 type='videoGen'（gate-seed.ts:27）→ VideoGenNode：根 .canvas-node(:607) 无底色，
       // 卡面在 :718 bg-[#222222]——选择器必须锚卡面（.canvas-node 直接子 div 带 rounded-lg），
       // 照抄 locator('div').first() 会钉到根 div 的 rgba(0,0,0,0)=与主题无关的假守卫（第五轮 P0-1）
-      const card = page.locator('.react-flow__node[data-id="gate-node-1"] .canvas-node > div.rounded-lg');
+      const card = page.locator('.react-flow__node[data-id="gate-node-1"] .canvas-node div.rounded-lg');
       expect(await bgOf(card)).toBe('rgb(34, 34, 34)'); // ← Step 4 落盘发现值后照盘填（异值以发现为准）；D3-画板 → 'rgb(255, 255, 255)'（浅档白卡，本组恒 html.light 注入）
     } finally { await ctx.close(); }
   });
@@ -472,7 +478,7 @@ test('D-0 发现：探针钉值基线输出（落盘照盘填，防抄报错人�
   const page = await ctx.newPage();
   await openCanvas(page);
   const values = await page.evaluate(() => ({
-    gateCardBg: getComputedStyle(document.querySelector('.react-flow__node[data-id="gate-node-1"] .canvas-node > div.rounded-lg')!).backgroundColor,
+    gateCardBg: getComputedStyle(document.querySelector('.react-flow__node[data-id="gate-node-1"] .canvas-node div.rounded-lg')!).backgroundColor,
     boardDot: getComputedStyle(document.querySelector('.react-flow__background')!).getPropertyValue('--xy-background-pattern-color-props'),
     // M5 对照读数：若 boardDotCustom 返回未代换字面串（如 'var(--canvas-board-dot)'）而 circleFill 是
     // 真实 RGB → 网格点探针必须改用 circle fill 断言（自定义属性假守卫风险，数据定形态）
@@ -492,7 +498,7 @@ cd /d/flowweb/apps/web && npx playwright test e2e/d-segment-probes.spec.ts 2>&1 
 - [ ] **Step 5: 三件套同 commit**
 
 ```bash
-cd /d/flowweb/apps/web && npx playwright test e2e/d-segment-probes.spec.ts e2e/c0-theme.spec.ts && npx vitest run
+cd /d/flowweb/apps/web && npx playwright test e2e/d-segment-probes.spec.ts e2e/c0-theme.spec.ts && npx vitest run && npx tsc --noEmit -p e2e/tsconfig.json; echo "e2e-tsc=$?"
 cd /d/flowweb && git add apps/web/e2e/a0-collect-baseline.spec.ts apps/web/scripts/css-baseline-diff.mjs apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/audit/d0-probe-values.json .gitignore && git commit -m "feat(web): C8 D0-0 仪器扩展——a0 采集器 D1 属性集(backgroundColor+全元素 color+attrSetVersion+LIGHT 注入改 storage 路径防 D0 后双类失真)+differ 独立 D 段基线对(同代校验+D 注册配对闸 reg/OVERRIDES 接入+D3 涌现站点级闸+A5 归档写入段守卫)+d-segment-probes 探针族钉值(卡面选择器锚 .canvas-node>div.rounded-lg+circle fill 对照读数)+.gitignore 补 e2e/test-results/（三件同一 commit，spec §6 ⑵）"
 ```
 
@@ -503,6 +509,14 @@ cd /d/flowweb && git add apps/web/e2e/a0-collect-baseline.spec.ts apps/web/scrip
 spec §6：before-D 自比自跑一次定 0 噪声——全元素继承色噪声先测预算，非 0 则就地扩分类器白名单并登记，**勿带噪声进 D1a**。
 
 **Files:** 无产品改动（产出：`e2e/audit/d0-noise-report.md`；若出噪声：改 `css-baseline-diff.mjs` 分类器 + spec 变更登记）。
+
+- [ ] **Step 0: bootstrap 落最小 stub registry（第六轮 N1——不先落这步，Step 2 的 diff 会被 Task 3 的"D 对缺 registry 即 exit 1"守卫卡死；此时 registry 脚本尚未创建（Task 5 Step 1），故用 inline stub）**
+
+```bash
+cd /d/flowweb/apps/web && node -e "require('fs').writeFileSync('e2e/audit/canvas-migration-registry.json', JSON.stringify({meta:{task:'stub——自比自跑前置（Task 5 Step 2 以脚本产出覆盖）'},differExpectedPairs:{pairs:[]},d3EmergentSites:[],adjudications:[],whitelistKeeps:[]},null,1))"
+```
+
+说明：d-noise-a/b 两侧 attrSetVersion 均为 D1 → D_PAIR=true → differ 要求 canvas-migration-registry.json 存在。自比自跑预期 0 diff——不查吸收/涌现表，空 stub 即可；stub 同时顺带验证 differ 的 D 对加载路径。正式产出（分区填充/adjudications/入库）仍归 Task 5 Step 2（脚本覆盖 stub）。
 
 - [ ] **Step 1: 同 HEAD 采两次**
 
@@ -542,13 +556,12 @@ rm -rf e2e/baseline/d-noise-a e2e/baseline/d-noise-b e2e/audit/baseline-diff-dno
 
 ## Task 5（D0-0 ⑷）: registry 脚本产出迁移清单 + 涌现闸站点级接线（before-D 采集已移 Task 10）
 
-spec §5/§6.4：手写数字一律不作验收依据；迁移文件全集同时反向写入 PAGE_REGISTRY_FILES 与涌现授权集。
+spec §5/§6.4：手写数字一律不作验收依据（§6-④"两处同步"已按 v1.5.2 改站点级登记，见 Step 3）。
 
 **Files:**
 - Create: `apps/web/scripts/canvas-migration-registry.mjs`
-- Create（脚本产出）: `apps/web/e2e/audit/canvas-migration-registry.json`
-- Modify: `apps/web/scripts/css-baseline-diff.mjs`（PAGE_REGISTRY_FILES 三页数组 + 授权集并集）
-- Create（脚本产出）: `apps/web/e2e/baseline/before-D/*`（8 页 json+png+meta，入档 commit）
+- Create（脚本产出，覆盖 Task 4 Step 0 的 stub）: `apps/web/e2e/audit/canvas-migration-registry.json`
+- Modify: `apps/web/scripts/css-baseline-diff.mjs`（d3EmergentSites/pairs page 字段接线已在 Task 3 落地，本任务核对）
 
 - [ ] **Step 1: 写 registry 脚本**
 
@@ -600,11 +613,12 @@ const tests = [...walk(path.join(SRC, 'pages/canvas')), ...walk(path.join(SRC, '
 
 const withHits = (files) => files.filter((f) => COLOR_RE.test(fs.readFileSync(f, 'utf8')));
 
-/* 非 lint 可见盲区四分区（spec §11.1 + 审核补 <style> 块/rgba className 族/内容数据拆离）——
- * 两规则只拦 className 串 hex 与 white/black 类名；style 对象色值、SVG 呈现属性、JSX <style> 块、rgba( 任意值类
+/* 非 lint 可见盲区四分区（spec §11.1 + 审核补 <style> 块/rgba className 族/内容数据拆离；第六轮 P1-2 放宽）——
+ * 两规则只拦 className 串 hex 与 white/black 类名；style 对象色值（#hex 与 rgba()/hsla() 蒙层——CreditsDropdown
+ * :268 白辉光/:287-288 白系内阴影即活例，原 #hex-only 正则漏网）、SVG 呈现属性、JSX <style> 块、rgba( 任意值类
  * 全部漏网。styleObjects/svgAttrs/rgbaClasses 是核销清单；contentData（ve store 字幕默认 style:{color:'#FFFFFF'} 等
  * 内容语义色）显式排除——它们不是主题面，核销时勿混勾。 */
-const STYLE_OBJECT_RE = /(?:backgroundColor|color|borderColor|boxShadow|background|outline)\s*:[^,}]*#[0-9a-fA-F]{3,8}/;
+const STYLE_OBJECT_RE = /(?:backgroundColor|color|borderColor|boxShadow|background|outline)\s*:[^,}]*?(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/;
 const SVG_ATTR_RE = /(?:fill|stroke|stopColor)\s*=\s*['"`][^'"`]*#[0-9a-fA-F]{3,8}/;
 const STYLE_BLOCK_RE = /<style[^>]*>[\s\S]*?<\/style>/;
 const RGBA_CLASS_RE = /(?:bg|text|border|ring|divide)-(?:\[[^\]]*rgba?\([^\]]*\])/;
@@ -637,7 +651,7 @@ const registry = {
   },
   adjudications: [],
   differExpectedPairs: { pairs: [] },
-  /* D3 涌现站点级登记（第五轮 M3/P1-7 采纳）：{page, key, why}——D 对四采集页 border-width 0→N 站点必须命中，
+  /* D3 涌现站点级登记（第五轮 M3/P1-7 采纳+第六轮页无关化）：{page, key, why}——D 对任何采集页 border-width 0→N 站点必须命中，
    * differ 消费（Task 3 Step 2 ⑤）。替代旧"PAGE_REGISTRY_FILES 粘贴 + 授权集并集"双写（D 域全量授权后
    * 文件级闸恒真 + 粘贴视图与 registry 双真源漂移），A5 旧路径不动。 */
   d3EmergentSites: [],
@@ -654,15 +668,15 @@ console.log('[registry] 分区计数：', Object.fromEntries(Object.entries(regi
 cd /d/flowweb/apps/web && node scripts/canvas-migration-registry.mjs
 ```
 
-Expected: 打印各分区计数（ve 源文件带色字面应约 8 个；videos 7 个左右——**以脚本产出为准，勿以本行数字为验收**）。
+Expected: 打印各分区计数（ve 源文件带色字面应约 8 个；videos 7 个左右——**以脚本产出为准，勿以本行数字为验收**；本步产出覆盖 Task 4 Step 0 的 stub）。
 
 - [ ] **Step 3: 涌现闸接线核对（css-baseline-diff.mjs；D 对站点级闸已在 Task 3 Step 2 ⑤ 落地）**
 
-第五轮订正：**原"PAGE_REGISTRY_FILES 三页数组粘贴 + authorizedFiles 并集"双写机制废止**——D 域全量文件授权后文件级闸在 canvas/ve/videos 三页退化为恒真（"必须归因登记组件"被整批吸收），且粘贴视图与 registry 构成双真源漂移（Task 22 新建 timeline/block-colors.ts 即会让视图过期）。替代 = **`d3EmergentSites` 站点级登记**（registry 新键，Task 5 Step 1 已加空表起步；differ 对 D 对四采集页的 border-width 0→N 站点要求 `page|key` 命中清单，否则 offender）——D3 期间每处有意新增边框先跑 diff 拿 key 再登记，与 pairs 同工作流。A5 旧对完全不走新分支。spec 走 v1.5.2 变更登记（§6-④"两处同步"改写为站点级登记）。跑 `node scripts/css-baseline-diff.mjs --before before-A0 --after after-A` 确认 A5 旧行为零变化。
+第五轮订正：**原"PAGE_REGISTRY_FILES 三页数组粘贴 + authorizedFiles 并集"双写机制废止**——D 域全量文件授权后文件级闸在 canvas/ve/videos 三页退化为恒真（"必须归因登记组件"被整批吸收），且粘贴视图与 registry 构成双真源漂移（Task 22 新建 timeline/block-colors.ts 即会让视图过期）。替代 = **`d3EmergentSites` 站点级登记**（registry 新键，Task 5 Step 1 已加空表起步；differ 对 D 对**任何采集页**（页无关）的 border-width 0→N 站点要求 `page|key` 命中清单，否则 offender）——D3 期间每处有意新增边框先跑 diff 拿 key 再登记|key` 命中清单，否则 offender）——D3 期间每处有意新增边框先跑 diff 拿 key 再登记，与 pairs 同工作流。A5 旧对完全不走新分支。spec 走 v1.5.2 变更登记（§6-④"两处同步"改写为站点级登记）。跑 `node scripts/css-baseline-diff.mjs --before before-A0 --after after-A` 确认 A5 旧行为零变化。
 
 - [ ] **Step 4: before-D 采集已移除（第五轮 P0-1）——采集窗口在 Task 10 Step 4（D0 收口后、D1a 前）**
 
-理由：D0 的 CanvasTopBar 新钮是有意 DOM 新增（新增 dom: 键 + 首位插入平移右侧三兄弟 44px），若 before-D 采于 D0 之前，Task 10 的"D0 零 diff"在配对闸/几何闸上数学上必红。基线 = f(前置 commit, 采集器版本)，D0 收口后采集即得含两态 UI 的新基线，D1a 起各段 diff 语义不变。
+理由：D0 的 CanvasTopBar 新钮是有意 DOM 新增（新增 dom: 键——配对闸必红；位移走几何层 cascade 归因未必红，决定性论据是配对闸），若 before-D 采于 D0 之前，Task 10 的"D0 零 diff"数学上不成立。基线 = f(前置 commit, 采集器版本)，D0 收口后采集即得含两态 UI 的新基线，D1a 起各段 diff 语义不变。
 
 - [ ] **Step 5: D0-0 段验收 + commit**
 
@@ -1103,7 +1117,7 @@ Expected: PASS（若有历史用例断言 TopActionBar 三态钮/aria，同步�
 ## Task 9（D0）: c0 e2e 同步（G1/G2/G3/G7 两态改写）
 
 **Files:**
-- Modify: `apps/web/e2e/c0-theme.spec.ts`（G1 :102-122 / G2 静态 :168-191 / G3 :208-226 / G7 :383-457）
+- Modify: `apps/web/e2e/c0-theme.spec.ts`（G1 :102-122 / G2 静态 :168-191 / G3 :208-226 / G7 :379-483——第六轮 Files 头订正，与 Step 4 区间一致）
 
 - [ ] **Step 1: G1 删 2 条 system 例**
 
@@ -1227,7 +1241,7 @@ Expected: 全绿（G4/G5/G8 本段不动——岛断言仍按现状绿）。
 cd /d/flowweb/apps/web && npx playwright test e2e/d-segment-probes.spec.ts e2e/c0-theme.spec.ts
 ```
 
-Expected: 全绿。**"segcheck-D0 × before-D = 0 diff"已废止**：D0 含有意 DOM 变更（CanvasTopBar 首位插入切换钮 = 新增 dom: 键 + 右侧三兄弟左移 44px，配对闸与几何闸必红）——D0 的回归保障 = c0 两态断言（G1/G2/G3/G7 + 钮存在性三页）+ D 段探针 + Step 2 全门禁，"零 diff"锚从 D0 起让位给 before-D 采集（Step 4）。
+Expected: 全绿。**"segcheck-D0 × before-D = 0 diff"已废止**：D0 含有意 DOM 变更（CanvasTopBar 首位插入切换钮 = 新增 dom: 键，配对闸必红——位移有 cascade 归因，决定性论据是配对闸）——D0 的回归保障 = c0 两态断言（G1/G2/G3/G7 + 钮存在性三页）+ D 段探针 + Step 2 全门禁，"零 diff"锚从 D0 起让位给 before-D 采集（Step 4）。
 
 - [ ] **Step 2: 全门禁**
 
@@ -1249,10 +1263,17 @@ cd /d/flowweb && git add apps/web/src/stores/themeStore.ts apps/web/src/stores/t
 cd /d/flowweb/apps/web && COLLECT_BASELINE=1 BASELINE_DIR=before-D npx playwright test e2e/a0-collect-baseline.spec.ts && COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=before-D-light npx playwright test e2e/a0-collect-baseline.spec.ts && head -20 e2e/baseline/before-D/meta.json && head -20 e2e/baseline/before-D-light/meta.json
 ```
 
-Expected: 两侧各 8 页落盘 + meta 含 `attrSetVersion: 'D1'` + before-D-light 的 realLight.htmlClassPerPage 全 'light'。**此后禁改 a0 采集器任何一行**（时间窗关闭）。浅侧说明：D1a 起浅侧 diff 的有意变更（域 token 浅值落点/板面/各域翻转）值全部预知（=DOMAIN_LIGHT 表），逐段入 pairs；浅侧未配对=失败——这正是"目标方向有机械守卫"的落点（第五轮 P0-3：几百迁移位点不能只靠 ~12 条探针 + B6 目检守"必须变对的方向"）。
+Expected: 两侧各 8 页落盘 + meta 含 `attrSetVersion: 'D1'` + before-D-light 的 realLight.htmlClassPerPage 全 'light'。**采集自证判据（第六轮 P1-4）**：`before-D/canvas.json` 与 `before-D-light/canvas.json` 的 elementCount 同量级（±5）、两 meta.commit == 本 commit、各页 elementCount 与 Task 4 噪声运行同量级——防"采集于错误 HEAD/脏夹具"（gate-seed 是无条件重写式自愈非仅幂等，采集前勿手工改 gate 画布）。
+
+**采集器冻结令（第六轮语义化重写——原"任何一行"与 Task 15/17/21/26 的探针改动正面冲突）**：
+- **冻结面（改动即基线不可复采，停手）**：snapshotDom 函数体（属性集/元素集/排除规则/stableKey）、页面清单与页面流程、沉降参数、meta.attrSetVersion、浅色注入机制（REAL_LIGHT storage 路径）。
+- **允许面（不进快照/meta 键集）**：ANY_LIGHT 探针块（LIGHT_PROBES/FLIP_PROBES/probeInvariance/probeFlip 的 id 与期望值——按探针生命周期表随段反转，Task 15/17/21 的改动全在此面）与叙事注释。
+- **机械守卫（3 行成本，替代"靠纪律"）**：本 Step 落指纹 `e2e/audit/a0-collector-fingerprint.txt`（内容 = `git log -1 --format=%H -- e2e/a0-collect-baseline.spec.ts` + `sed -n '/async function snapshotDom/,/^}/p' e2e/a0-collect-baseline.spec.ts | sha256sum` 的输出）；**此后每次 segcheck 采集前重跑该 sed|sha256sum 与指纹比对，指纹变 = 冻结面被改 = 停手复核**（snapshotDom 函数体覆盖全部冻结面，探针在函数外天然不触发）。
+
+浅侧说明：D1a 起浅侧 diff 的有意变更（D2 板面/D3 各域翻转等）值全部预知（=DOMAIN_LIGHT 表等），逐段入 pairs（**优先带 page 字段**，见总纲 §1）；浅侧未配对=失败——这正是"目标方向有机械守卫"的落点（第五轮 P0-3：几百迁移位点不能只靠 ~12 条探针 + B6 目检守"必须变对的方向"）。
 
 ```bash
-cd /d/flowweb && git add apps/web/e2e/baseline/before-D apps/web/e2e/baseline/before-D-light && git commit -m "chore(e2e): C8 before-D/before-D-light 基线入档（D1 属性集 8 页×2，D0 收口后 D1a 前唯一窗口；浅侧=REAL_LIGHT 真实路径）——此后 D1a 起段验收深浅双跑，有意变更入 differExpectedPairs 未配对即失败"
+cd /d/flowweb && git add apps/web/e2e/baseline/before-D apps/web/e2e/baseline/before-D-light apps/web/e2e/audit/a0-collector-fingerprint.txt && git commit -m "chore(e2e): C8 before-D/before-D-light 基线入档（D1 属性集 8 页×2，D0 收口后 D1a 前唯一窗口；浅侧=REAL_LIGHT 真实路径）+采集器冻结面指纹（snapshotDom 函数体 sha256——此后 segcheck 前比对，冻结=口径/探针面允许随段反转，第六轮语义化）——此后 D1a 起段验收深浅双跑，有意变更入 differExpectedPairs（优先带 page 字段）未配对即失败"
 ```
 
 ---
@@ -1271,7 +1292,8 @@ cd /d/flowweb && git add apps/web/e2e/baseline/before-D apps/web/e2e/baseline/be
 /** C8 D1a 域 token 双值化（spec §8.1 表）——深值=现状冻结；浅值=D1b 并域目标键浅值 */
 const DOMAIN_TOKENS = [
   '--canvas-board-bg', '--canvas-board-dot', '--canvas-controls-bg', '--canvas-controls-border',
-  '--canvas-controls-text', '--canvas-controls-hover', '--canvas-handle-bg', '--canvas-handle-icon',
+  '--canvas-controls-text', '--canvas-controls-hover', '--canvas-controls-active',
+  '--canvas-handle-bg', '--canvas-handle-icon',
   '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
   '--ve-bg', '--ve-panel', '--ve-border', '--ve-text', '--ve-text-dim', '--ve-accent',
   '--vw-card-bg', '--vw-card-border', '--vw-card-border-hover',
@@ -1284,6 +1306,7 @@ const DOMAIN_DARK: Record<string, string> = {
   '--canvas-controls-border': 'rgb(54,54,54)',
   '--canvas-controls-text': 'rgb(247,247,247)',
   '--canvas-controls-hover': 'rgba(255,255,255,0.08)',
+  '--canvas-controls-active': 'rgba(255,255,255,0.12)',
   '--canvas-handle-bg': '#9ca3af',
   '--canvas-handle-icon': '#6b7280',
   '--canvas-handle-hover-bg': '#ffffff',
@@ -1308,6 +1331,7 @@ const DOMAIN_LIGHT: Record<string, string> = {
   '--canvas-controls-border': '#e5e7eb',
   '--canvas-controls-text': '#111827',
   '--canvas-controls-hover': 'rgba(0,0,0,0.06)',
+  '--canvas-controls-active': 'rgba(0,0,0,0.08)',
   '--canvas-handle-bg': '#6b7280',
   '--canvas-handle-icon': '#4b5563',
   '--canvas-handle-hover-bg': '#111827',
@@ -1339,7 +1363,8 @@ test.describe('B0-6 C8 域 token 双值化（D1a）', () => {
       for (const t of DOMAIN_TOKENS) {
         expect(s[t], `[B0-6] ${t} 深值期望 ${DOMAIN_DARK[t]}；实际=${JSON.stringify(s)}`).toBe(DOMAIN_DARK[t]);
       }
-      expect(s['--canvas-controls-active'], '死 token 必须删除（D1a）').toBe('');
+      // 第六轮：--canvas-controls-active 复活为激活态双值键（原"0 消费死键"判定撤销——它在 CanvasToolbar
+      // 因内联 style 不消费 var() 而"死"，激活态语义没死，Task 22 BTN_BG_ACTIVE 复用；见 P1-1 裁定）
       expect(s['--ve-text-control'], '死 token 必须删除（D1a）').toBe('');
     } finally { await ctx.close(); }
   });
@@ -1430,7 +1455,7 @@ Expected: 第一组 0 命中（TSX/TS 直连消费为零）；第二组命中即
 
 - [ ] **Step 2: index.css 重构（①-④ 同一次编辑原子完成——中间态会让 var 链断裂落 transparent）**
 
-**删除按点名清单而非行号区间**：裸 `:root` 块（:75-94/:97-106/:109-113）中被搬运的全部双值键 + **死键 `--canvas-controls-active`（:90）与 `--ve-text-control`（:103）显式点名删除** + 三条 var 链行（:99 `--ve-panel: var(--canvas-controls-bg)`、:100 `--ve-border: var(--canvas-controls-border)`、:103）——深块直写字面值后链不复存在。编辑完成后**全文不得再有任何裸 `:root` 双值域 token**（只剩 Step ④ 的单值恒值块；因双值键只存在于 `:root,.dark` 与 `.light` 一对块中，裸 :root 源序无关紧要，"只允许一对主题块"从纪律升级为结构不可能——b1-4 断言守卫）。
+**删除按点名清单而非行号区间**：裸 `:root` 块（:75-94/:97-106/:109-113）中被搬运的全部双值键 + **死键 `--ve-text-control`（:103）显式点名删除**（第六轮订正：`--canvas-controls-active`（:90）不再删——复活为激活态双值键，随 ②③ 块搬运）+ 三条 var 链行（:99 `--ve-panel: var(--canvas-controls-bg)`、:100 `--ve-border: var(--canvas-controls-border)`、:103）——深块直写字面值后链不复存在。编辑完成后**全文不得再有任何裸 `:root` 双值域 token**（只剩 Step ④ 的单值恒值块；因双值键只存在于 `:root,.dark` 与 `.light` 一对块中，裸 :root 源序无关紧要，"只允许一对主题块"从纪律升级为结构不可能——b1-4 断言守卫）。
 
 ① 删除现 `:root` 域 token 块（:74-94 的 handle/edge/controls/shadow/z-panel 与 :96-106 的 ve 块、:108-113 的 vw 卡块——保留 :118-121 几何 px 块）。② 在 `:root,.dark` 块（:15-34）尾部 `--fw-overlay-3` 之后追加：
 
@@ -1442,6 +1467,7 @@ Expected: 第一组 0 命中（TSX/TS 直连消费为零）；第二组命中即
   --canvas-controls-border: rgb(54, 54, 54);
   --canvas-controls-text: rgb(247, 247, 247);
   --canvas-controls-hover: rgba(255, 255, 255, 0.08);
+  --canvas-controls-active: rgba(255, 255, 255, 0.12);
   --canvas-handle-bg: #9CA3AF;
   --canvas-handle-icon: #6B7280;
   --canvas-handle-hover-bg: #FFFFFF;
@@ -1470,6 +1496,7 @@ Expected: 第一组 0 命中（TSX/TS 直连消费为零）；第二组命中即
   --canvas-controls-border: #e5e7eb;
   --canvas-controls-text: #111827;
   --canvas-controls-hover: rgba(0, 0, 0, 0.06);
+  --canvas-controls-active: rgba(0, 0, 0, 0.08);
   --canvas-handle-bg: #6B7280;
   --canvas-handle-icon: #4B5563;
   --canvas-handle-hover-bg: #111827;
@@ -1529,7 +1556,11 @@ body {
 }
 ```
 
-② `.tiptap-content` 族（:130-200）与 `.editor-scroll`（:218-235）、`PromptInput.css` 28 处、`NodeHandle.css` 1 处：**能引 `var(--fw-*)` 即直接换引（第五轮 A3 采纳——深档 computed 等值（differ 判 computed 非字节），单一真源，浅色侧自动跟随）**；**确无对应 --fw-\* 键值的声明**才走"深值规则原样保留 + 文件尾追加 `.light` 作用域覆盖块"（特异性 (0,1,1) > (0,1,0) 源序无关），且每条覆盖块在 adjudications 登记"为何不能 var 化"。index.css 尾部追加（仅示意无键可引的残余形态）：
+② `.tiptap-content` 族（:130-200）与 `.editor-scroll`（:218-235）、`PromptInput.css` 28 处、`NodeHandle.css` 1 处——**第六轮 N3 等值门重写（第五轮"能引即引"判据作废：按字面执行会把 #bbb 换成 var(--fw-text) 引入深档 #bbb→#e2e8f0 可见变更，违反 D1a 铁律）**：
+- **可换引白名单（判据=字面深值与目标 token 深值 computed 等值，当前仅三处）**：body 两条（`#141414`≡`--fw-bg` 深、`#e2e8f0`≡`--fw-text` 深）与 `PromptInput.css:184`（`#ef4444`≡`--fw-accent-danger` 深）。
+- **不可换引（实测无等值键，走覆盖块路径）**：`.tiptap-content` 族深值 `#bbb(:132)/#fff(:141)/#eee(:148)/#ddd(:155)/#ccc(:192)/#666(:195)/hr rgba(255,255,255,0.08)(:183)` 与 `.editor-scroll` 的 `rgba(255,255,255,0.12)(:221/:230)`——与 --fw-* 深值**无一等值**（--fw-text 深=#e2e8f0、text-strong=rgb(247,247,247)、dim-3=rgba(255,255,255,0.6)、dim-1=rgba(255,255,255,0.3)、border=#333、overlay-2/3=0.1/0.2）。**深值规则原样保留 + 文件尾追加 `.light` 作用域覆盖块**（特异性 (0,1,1) > (0,1,0) 源序无关），每条覆盖块在 adjudications 登记"无等值键（深值 X vs 最近键 Y）"。
+- `NodeHandle.css` 的 `--canvas-handle-*` 消费处直接用 Task 12 ② 的双值 token，无需覆盖。
+index.css 尾部追加（不可换引项的覆盖块形态）：
 
 ```css
 /* ===== C8 D1a 手写 CSS 浅色覆盖（深值字节不动；浅值取 --fw-* 浅值体系） ===== */
@@ -1545,7 +1576,7 @@ body {
 .light .editor-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }
 ```
 
-`PromptInput.css` / `NodeHandle.css` 同法（var 优先，覆盖块兜底）：逐条对照原深值声明——面色→`var(--fw-surface-dim)`、边→`var(--fw-border)`、文字→`var(--fw-text)`/dim 阶梯、hover 蒙层→`var(--fw-overlay-2)`（浅档 rgba(0,0,0,0.06)）；`--canvas-handle-*` 消费处直接用 Task 12 ② 的双值 token，无需覆盖。`PromptInput.css:184` `background: #ef4444`（危险色）→ `var(--fw-accent-danger)`（深档 #ef4444 字节等值、浅档自动 #dc2626——index.css:30/:50 既有双档键，非新增）。每条改动（var 换引与覆盖块 alike）在 `canvas-migration-registry.json` adjudications 登记一行（file:line、深值、浅值、裁定依据 P6/通道）。
+`PromptInput.css` 28 处逐条按等值门裁定（除 :184 外预期全数走覆盖块——面色/边/文字/hover 蒙层的深值与 --fw-* 深值不等值，覆盖值取浅档对应语义：面色 #f0f1f2 系、边 #e5e7eb 系、文字深灰阶梯、hover 蒙层 rgba(0,0,0,0.06)）；每条改动（等值换引与覆盖块 alike）在 `canvas-migration-registry.json` adjudications 登记一行（file:line、深值、浅值、裁定依据 P6/通道/无等值键）。
 
 - [ ] **Step 5: b2 registry 死键删除登记 + B0 json 三族重裁定标注**
 
@@ -1553,8 +1584,10 @@ body {
 
 ```json
  "c8DeadTokenRemovals": [
-  { "key": "--canvas-controls-active", "removedAt": "D1a", "why": "0 消费死 token（spec §8.1）" },
   { "key": "--ve-text-control", "removedAt": "D1a", "why": "0 消费死 token；index.css:103 var 间接链随 D1a 块删除同 commit 消失（与 Task 12 Step 2 口径一致，非 D1b）" }
+ ],
+ "c8TokenRevivals": [
+  { "key": "--canvas-controls-active", "revivedAt": "D1a", "why": "第六轮 P1-1：原'0 消费死键'判定撤销——CanvasToolbar 因内联 style 不消费 var() 而死，激活态语义没死；复活为双值键（深 rgba(255,255,255,0.12)/浅 rgba(0,0,0,0.08)），Task 22 BTN_BG_ACTIVE 消费——防'常态/激活同键同色不可辨'静默回归（pairs 会把 58→38 吸收成预期）" }
  ],
 ```
 
@@ -1578,13 +1611,13 @@ Expected: 全绿。d-segment-probes 各探针复核仍为 D0-0 钉值（含「Ca
 cd /d/flowweb/apps/web && COLLECT_BASELINE=1 BASELINE_DIR=segcheck-D1a npx playwright test e2e/a0-collect-baseline.spec.ts && node scripts/css-baseline-diff.mjs --before before-D --after segcheck-D1a --out e2e/audit/baseline-diff-segcheck-D1a; echo "deep=$?" && COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=segcheck-D1a-light npx playwright test e2e/a0-collect-baseline.spec.ts && node scripts/css-baseline-diff.mjs --before before-D-light --after segcheck-D1a-light --out e2e/audit/baseline-diff-segcheck-D1a-light; echo "light=$?"
 ```
 
-Expected: 深侧 `exit=0`、unexpectedTotal=0（D1a 深档 computed 零变更——body var 等值、tiptap var 换引等值、域 token 深值冻结、ve 4 处恒值等值）。**浅侧非零是预期（D1a 已知中间态，spec §13.3-3）**：画板子树 19 处 `--canvas-controls-*`/handle/edge 消费点在 html.light 下首次取浅值落黑板 + 手柄/vw 卡键浅值落点——**每条 diff 的 before/after 必须与 Task 11 DOMAIN_DARK→DOMAIN_LIGHT 值映射逐条核对命中**（值全部预知），核对后批量入 pairs（同值多位点互相吸收是特性）；映射对不上的浅侧 diff = 失败。清理 segcheck 产物（.json/.md 一起删，两侧共四件）。
+Expected: **深浅两侧均 `exit=0`、unexpectedTotal=0——D1a 白拿双零 diff 锚（第六轮 B2/N4 订正：浅侧也应是 0）**。深侧依据：body var 等值、tiptap 深规则未动/等值换引、域 token 深值冻结、ve 4 处恒值等值。**浅侧依据（岛机制推演，第五轮"非零是预期"判断作废）**：域 token 的浅值消费者此刻全部仍在 .dark 岛内——画板 wrapper colorMode="dark" 挂 .dark → `:root,.dark` 块的 `.dark` 选择器命中 wrapper → 域 token 在 wrapper 上重声明深值（a0:221 探针同款机制），19 处 `--canvas-controls-*` 消费者全在子树内 → 仍深值；`--vw-card-*` 在 /videos 路由 div.dark 岛内（Task 20 才拆）；`--ve-*` 在 ve 壳 .dark 岛内（Task 21 才拆）；Task 12 的 .light 覆盖块消费面（tiptap/prompt-input）在两个采集页不渲染（gate 画布只有 videoGen 节点）。**浅侧非 0 = 信号非中间态**：逐条归因——只有归因到"Task 12 明文列出的定义层变更且不在任何 .dark 岛内"才可入 pairs（理论上应为空集）；"路由岛/壳岛漏拆、域 token 泄漏到岛外"这类真实回归恰恰会以浅侧 diff 形式出现，**禁止预先豁免**（spec §13.3-3 的"3 个消费点取浅值落黑板"旧句与此机制矛盾，v1.5.3 订正）。清理 segcheck 产物（.json/.md 一起删，两侧共四件）。
 
 - [ ] **Step 2: 全门禁 + commit**
 
 ```bash
 cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs
-cd /d/flowweb && git add apps/web/src/index.css apps/web/src/pages/canvas/video-editor/components/AssetPanel.tsx apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.tsx apps/web/e2e/b0-token-blocks.spec.ts apps/web/e2e/b1-token-migration.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/audit/b2-migration-registry.json apps/web/e2e/audit/canvas-migration-registry.json && git commit -m "feat(web): C8 D1a 定义层双值化——域 token 入 :root,.dark/.light 唯一块对(board-bg/dot 新增+controls/handle/edge/shadow/ve/vw 双值+死键 controls-active/ve-text-control 删)+ve 媒体侧拆恒值键(thumb-base #363636/preview-base #141414 字节等值 4 处)+手写 CSS 块 .light 覆盖(tiptap/editor-scroll/PromptInput/NodeHandle/body var 等值)+b0 B0-6 域 token 值断言/b1 B1-4 块唯一性源序；深档 0 diff：segcheck-D1a×before-D 实证"
+cd /d/flowweb && git add apps/web/src/index.css apps/web/src/pages/canvas/video-editor/components/AssetPanel.tsx apps/web/src/pages/canvas/video-editor/components/PreviewPlayer.tsx apps/web/e2e/b0-token-blocks.spec.ts apps/web/e2e/b1-token-migration.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/audit/b2-migration-registry.json apps/web/e2e/audit/canvas-migration-registry.json && git commit -m "feat(web): C8 D1a 定义层双值化——域 token 入 :root,.dark/.light 唯一块对(board-bg/dot 新增+controls/handle/edge/shadow/ve/vw 双值+死键 ve-text-control 删+controls-active 复活为激活态双值键第六轮)+ve 媒体侧拆恒值键(thumb-base #363636/preview-base #141414 字节等值 4 处)+手写 CSS 块等值门换引(body/PromptInput:184)与 .light 覆盖(tiptap/editor-scroll/NodeHandle 无等值键项)+b0 B0-6 域 token 值断言/b1 B1-4 块唯一性源序；深浅双侧 0 diff：segcheck-D1a×before-D(±light) 实证——浅侧零 diff 由岛机制保证(域 token 浅值消费者全在 .dark 岛内,非 0 即信号)"
 ```
 
 ---
@@ -1680,7 +1713,7 @@ cd /d/flowweb/apps/web && grep -rn "var(--ve-panel)\|var(--ve-text)\|var(--ve-bg
 
 随后 index.css 两块删六行：`--ve-bg/--ve-panel/--ve-text/--vw-card-bg/--vw-card-border/--vw-card-border-hover`。**`--ve-text-dim` 与 `--ve-border` 保留勿删**：前者 19-22 处消费（浅值 D1a 已落 `#4b5563`，spec §9.1 裁定"独立键"——勿顺手并入 dim-3，其深值 rgba(226,232,240,.6) 与 dim-3 的 rgba(255,255,255,.6) computed 字面不同、并域即深档未登记 diff）；后者按 ② 仅收敛值（收敛后与 --fw-border 双档同值，是否归并删键留作实施裁定登记——本计划按 spec §9.2② 字面保留键）。b0 DOMAIN 三处同步删对应 6 行。
 
-**配套修订（实施裁定，登记 adjudications）**：`a0-collect-baseline.spec.ts:250` ve 壳探针改读 `--fw-bg`，**D1b 窗口内期望保持深值**（ve 壳根 .dark 岛到 Task 21 才拆——壳内 --fw-bg 仍 #141414、壳根底 rgb(20,20,20)；探针 id 同步去 "--ve-bg自持" 改 "--fw-bg@壳岛"），Task 21 岛拆除时才翻浅为双断言。
+**配套修订（实施裁定，登记 adjudications）**：`a0-collect-baseline.spec.ts:250` ve 壳探针改读 `--fw-bg`，**D1b 窗口内期望保持深值**（ve 壳根 .dark 岛到 Task 21 才拆——壳内 --fw-bg 仍 #141414、壳根底 rgb(20,20,20)；探针 id 同步去 "--ve-bg自持" 改 "--fw-bg@壳岛"），Task 21 岛拆除时才翻浅为双断言。（本改动属探针面，不触发采集器冻结令——冻结面只含 snapshotDom 口径，见 Task 10 Step 4。）
 
 - [ ] **Step 3: AssetPanel hover 改指（§9.2③）**
 
@@ -1811,10 +1844,16 @@ spec §10.1/10.3/10.4/10.5/10.6。**执行窗口纪律：本任务与 Task 18 �
 
 ```ts
 // C8 D2 画板像素对账（spec §10.2/§10 验收）：深色档以 D1b 后 checkout 为参照 0 diff（toHaveScreenshot
-// maxDiffPixels:0 + animations disabled）；浅色档断 xyflow 皮肤变量取值（翻转正确性，非 0 diff——D2 本身就是翻转）。
+// maxDiffPixels:0 + threshold:0 + animations disabled）；浅色档断 xyflow 皮肤变量取值（翻转正确性，非 0 diff——D2 本身就是翻转）。
 // 基线采集：D2 改码前 `npx playwright test e2e/d2-board-pixeldiff.spec.ts --update-snapshots` 落参照。
+// 第六轮 B4/P1-3：snapshotPathTemplate 定死直落 e2e/audit/——无 projects 的仓默认快照名实为
+// d2-board-dark-win32.png（无 -chromium 段），字面硬编码必踩"文件不存在"；模板直落 audit 后文件名确定、
+// 固化/校验/比对三处同一文件，"副本 vs 真身"缝隙从结构上消失（真身入 git，被 --update-snapshots 覆盖时
+// sha256sum -c 红、git checkout -- 恢复）。
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
+
+test.use({ snapshotPathTemplate: '{testDir}/audit/d2-ref-{arg}{ext}' });
 
 const HERE = import.meta.dirname!;
 const USER_STATE = path.join(HERE, '.auth', 'user.json');
@@ -1873,7 +1912,7 @@ D2 改码**前**（HEAD 停在 D1b 收口后）先落参照并**自比自证**�
 cd /d/flowweb/apps/web && npx playwright test e2e/d2-board-pixeldiff.spec.ts --update-snapshots && npx playwright test e2e/d2-board-pixeldiff.spec.ts -g "深档"
 ```
 
-Expected: 深档用例 PASS（同 HEAD 自比 = 0 diff，证快照确定性成立）；**浅档用例此刻红属预期**（wrapper 仍 colorMode 钉深）——参照快照随 D2 commit 提交，浅档用例随 Step 2 转绿。**工装加固三律（防参照被一次 `--update-snapshots` 静默抹掉）**：① **同 HEAD 连跑 3 次全 0 diff** 才算工装可信（一次通过可能是巧合）；② **参照固化与校验对象=快照目录真实文件**（第五轮 P0-4 订正：Playwright 实际比对/覆写的是 `e2e/d2-board-pixeldiff.spec.ts-snapshots/d2-board-dark-chromium-win32.png`——无 snapshotPathTemplate 配置时快照名带平台后缀，**校验 audit 副本会恰好放过真实快照被 update 覆盖这一唯一失效路径**）——固化：`cp e2e/d2-board-pixeldiff.spec.ts-snapshots/d2-board-dark-chromium-win32.png e2e/audit/d2-ref-board-dark.png` + 记 sha256 到 `e2e/audit/d2-ref-board-dark.sha256`；**对账前幂等恢复**：`cp e2e/audit/d2-ref-board-dark.png e2e/d2-board-pixeldiff.spec.ts-snapshots/d2-board-dark-chromium-win32.png`（被 update 覆盖的参照在此复原，随后 `sha256sum -c` 校验真实文件）；③ **生成参照只允许 `-g "深档"` 限定**（浅档用例 update 会把浅档像素写进参照名下）。**平台注记**：快照名含 `-win32` 后缀、本仓无 CI——该闸仅本机有效，换 OS/上 CI 时会"找不到快照"显式红（非静默），登记 adjudications 一句即可。若深档自比 3 次有任一非 0：**判定"像素工装不达标准"——写明噪声源，降级为附件证据（截图归档人工比对），不许调 maxDiffPixels/mask/threshold 凑绿**；深档回归改由 d2-xy-probes computed 值 + --xy-* 复测表承担，登记 adjudications。
+Expected: 深档用例 PASS（同 HEAD 自比 = 0 diff，证快照确定性成立）；**浅档用例此刻红属预期**（wrapper 仍 colorMode 钉深）——参照快照随 D2 commit 提交，浅档用例随 Step 2 转绿。**工装加固三律（第六轮 B4/P1-3 重写——快照经 test.use snapshotPathTemplate 直落 `e2e/audit/d2-ref-d2-board-dark.png`（单一真身，文件名确定无平台/项目段）**：① **同 HEAD 连跑 3 次全 0 diff** 才算工装可信（一次通过可能是巧合）；② **真身即固化**：快照文件随 Task 17 commit 入 git + 记 sha256 到 `e2e/audit/d2-ref-board-dark.sha256`（仅存哈希非副本）；**每次对账前 `sha256sum -c e2e/audit/d2-ref-board-dark.sha256`**——被 `--update-snapshots` 覆盖即哈希失配红，恢复 = `git checkout -- apps/web/e2e/audit/d2-ref-d2-board-dark.png`（结构上不存在"校验副本放过真身覆盖"的缝隙）；③ **生成参照只允许 `-g "深档"` 限定**（浅档用例 update 会把浅档像素写进参照名下）。**注**：`--update-snapshots` 落盘的文件名以实测为准（首跑后 `ls e2e/audit/d2-ref-*` 核对 {arg}{ext} 展开形态，与 sha256 记录路径一致即可）。若深档自比 3 次有任一非 0：**判定"像素工装不达标准"——写明噪声源，降级为附件证据（截图归档人工比对），不许调 maxDiffPixels/mask/threshold 凑绿**；深档回归改由 d2-xy-probes computed 值 + --xy-* 复测表承担，登记 adjudications。
 
 - [ ] **Step 2: CanvasView 翻转（实现）**
 
@@ -1883,7 +1922,7 @@ Expected: 深档用例 PASS（同 HEAD 自比 = 0 diff，证快照确定性成�
 - `:382` `<Background ... color="#555555" ...>` → `color="var(--canvas-board-dot)"`（xyflow 写内联 `--xy-background-pattern-color-props`，CSS var 代换——Step 4 像素实证）；`bgColor="transparent"` 保留不动。
 - `:384-394` MiniMap 本段不动（内联 JS 色 D3 清单双值化；nodeColor 函数 prop 的 var() 不保证生效——spec §10.5）。
 
-- [ ] **Step 3: 镜像断言 + a0 探针 + d-segment 探针翻转（同 commit）**
+- [ ] **Step 3: 镜像断言 + a0 探针 + d-segment 探针翻转（同 commit；a0 改动属探针面不触发冻结令——冻结面只含 snapshotDom 口径，见 Task 10 Step 4）**
 
 ① `CanvasView.test.tsx:90-100` 用例替换：
 
@@ -1935,7 +1974,7 @@ afterAll meta 对象 `...(ANY_LIGHT ? { islandInvarianceProbes: LIGHT_PROBES, fl
 
 - [ ] **Step 4: 像素对账 + 门禁**
 
-参照完整性校验（先于像素对账，第五轮 P0-4 顺序）：① 幂等恢复 `cp e2e/audit/d2-ref-board-dark.png e2e/d2-board-pixeldiff.spec.ts-snapshots/d2-board-dark-chromium-win32.png`；② 校验真实文件 `sha256sum -c e2e/audit/d2-ref-board-dark.sha256`（sha256 文件内记录的路径必须是**快照目录真实文件**而非 audit 副本——校验副本=放过唯一失效路径）。
+参照完整性校验（先于像素对账）：`sha256sum -c e2e/audit/d2-ref-board-dark.sha256`——真身即 audit 文件（第六轮直落方案，无副本缝隙）；失配=被 update 覆盖 → `git checkout -- apps/web/e2e/audit/d2-ref-d2-board-dark.png` 恢复后复校。
 
 ```bash
 cd /d/flowweb/apps/web && npx playwright test e2e/d2-board-pixeldiff.spec.ts && npx playwright test e2e/c0-theme.spec.ts e2e/d-segment-probes.spec.ts e2e/b0-token-blocks.spec.ts && npx vitest run
@@ -1946,7 +1985,7 @@ Expected: 深档像素 0 diff（参照=Step 1 落的 D1b 快照）；浅档 xy �
 - [ ] **Step 5: commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/e2e/a0-collect-baseline.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts-snapshots/ apps/web/e2e/audit/d2-ref-board-dark.png apps/web/e2e/audit/d2-ref-board-dark.sha256 && git commit -m "feat(web): C8 D2 colorMode 翻转——CanvasView colorMode={mode}(唯一 useTheme 例外)+板底 bg-[var(--canvas-board-bg)] 留 utility 层+网格点 var(--canvas-board-dot) 代换+镜像断言防常量化/防补岛+a0:221 探针改视觉真值 probeFlip+D 段探针翻浅；深档像素 0 diff 实证(d2-board-pixeldiff maxDiffPixels:0×D1b 参照)+浅档 --xy-* 复测登记"
+cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/e2e/a0-collect-baseline.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts apps/web/e2e/audit/d2-ref-d2-board-dark.png apps/web/e2e/audit/d2-ref-board-dark.sha256 && git commit -m "feat(web): C8 D2 colorMode 翻转——CanvasView colorMode={mode}(唯一 useTheme 例外)+板底 bg-[var(--canvas-board-bg)] 留 utility 层+网格点 var(--canvas-board-dot) 代换+镜像断言防常量化/防补岛+a0:221 探针改视觉真值 probeFlip+D 段探针翻浅；深档像素 0 diff 实证(d2-board-pixeldiff maxDiffPixels:0+threshold:0×D1b 参照；snapshotPathTemplate 直落 audit 单一真身+sha256 固化)+浅档 --xy-* 复测登记"
 ```
 
 ---
@@ -1961,7 +2000,7 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx app
 
 - [ ] **Step 1: selection 钉值裁定（第五轮 P0-6 直接定案——撤钉实验取消，xyflow 皮肤默认值已实测）**
 
-**实测证据（@xyflow/react@12.10.2 dist/style.css）**：light 皮肤 `--xy-selection-background-color-default: rgba(0, 89, 220, 0.08)` / `--xy-selection-border-default: 1px dotted rgba(0, 89, 220, 0.8)`（:38-39）——与 index.css:212-216 钉值**逐字节相同**；dark 皮肤（:85-86）是另一组 `rgba(200, 200, 220, 0.08/0.8)`。结论：**钉值在浅档冗余（与 light 皮肤默认重合）、在深档承重**（wrapper colorMode={mode} 后 dark 档若无钉值会被 dark 皮肤改写成浅灰蓝——A2 修复时冻结的正是这个）。裁定 = **保留钉值不动 + 注释补写"浅档=light 皮肤默认值、深档=防 dark 皮肤改写的承重钉值"（:210-211 注释订正）**，D2 后 selection 深浅两档同为蓝色系（与现状一致，非回归）。原"撤钉对照实验"取消——其结论已被上游默认值实证替代；规则级探针**改为断言形态**（不再是只 console.log 的永远绿假守卫）：
+**实测证据（@xyflow/react@12.10.2 dist/style.css）**：light 皮肤 `--xy-selection-background-color-default: rgba(0, 89, 220, 0.08)` / `--xy-selection-border-default: 1px dotted rgba(0, 89, 220, 0.8)`（:39-40，第六轮行号订正）——与 index.css:212-216 钉值**逐字节相同**；dark 皮肤（:85-86）是另一组 `rgba(200, 200, 220, 0.08/0.8)`。结论：**钉值在浅档冗余（与 light 皮肤默认重合）、在深档承重**（wrapper colorMode={mode} 后 dark 档若无钉值会被 dark 皮肤改写成浅灰蓝——A2 修复时冻结的正是这个）。裁定 = **保留钉值不动 + 注释补写"浅档=light 皮肤默认值、深档=防 dark 皮肤改写的承重钉值"（:210-211 注释订正）**，D2 后 selection 深浅两档同为蓝色系（与现状一致，非回归）。原"撤钉对照实验"取消——其结论已被上游默认值实证替代；规则级探针**改为断言形态**（不再是只 console.log 的永远绿假守卫）：
 
 ```ts
 test('D-7 selection 钉值两档断言（深浅均=蓝色系钉值；深档防 dark 皮肤改写承重）', async ({ browser }) => {
@@ -2032,7 +2071,7 @@ Expected: PASS。若红（节点增量>0）：CanvasView 消费 nodes 的选择�
 
 - [ ] **Step 3: ProcessSnapshot 内容域不变式登记（不动代码）**
 
-registry adjudications 追加：`ProcessSnapshot 整块=内容承载面恒深（spec §10-⑦）:205：:89 colorMode="dark" 保留、:91 网格点 #3a3a3a 保留（勿统一到 --canvas-board-dot——那会引入 #555555≠#3a3a3a 深档 diff）、:96 bg-black/60 中性遮罩留`。
+registry adjudications 追加：`ProcessSnapshot 整块=内容承载面恒深（spec §10-⑦）:205：:89 colorMode="dark" 保留、:91 网格点 #3a3a3a 保留（勿统一到 --canvas-board-dot——那会引入 #555555≠#3a3a3a 深档 diff）、:34 bg-black/60 中性遮罩留（第六轮行号订正：文件共 95 行无 :96）`。
 
 - [ ] **Step 4: D2 段验收**
 
@@ -2059,7 +2098,7 @@ cd /d/flowweb && git add apps/web/src/index.css apps/web/src/pages/canvas/compon
 
 - [ ] **Step 1: 产出 CreditsDropdown 浅色稿（ui-ux-pro-max，P5）**
 
-调用 ui-ux-pro-max skill，输入现状精确描述（spec P5）：基底=inline 深色渐变（CreditsDropdown.tsx:127 `linear-gradient(160deg, #111111, #171717, #101828)`）+ :271 `bg-zinc-900` 图标底；重做这两处浅色版；:267 邀请卡 `bg-white + hover:bg-zinc-100` 与 `bg-black/[.06]` 族**保留不 token 化**（通道 3）。深色档现状冻结（实现期 mode 分支）。产出写入 `2026-09-20-creditsdropdown-light-draft.md`（浅色稿值、层级、与 login 营销浅色设计语言的参照关系）并 commit。
+调用 ui-ux-pro-max skill，输入现状精确描述（spec P5；第六轮 P1-2 扩面——style 对象 rgba 蒙层是盲区四分区漏网面，浅色稿必须一并覆盖）：基底=inline 深色渐变（CreditsDropdown.tsx:127 `linear-gradient(160deg, #111111, #171717, #101828)`）+ :271 `bg-zinc-900` 图标底；**白系辉光/内阴影三处**：:268 充值钮 `boxShadow: '0 18px 44px -12px rgba(255,255,255,0.22)'`（白色辉光只在深底成立——浅档须出等效浅色阴影或删）、:287 邀请钮 `background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent)` + :288 `boxShadow: inset 0 1px 0 rgba(255,255,255,0.05)`；:270/:292 光斑属装饰（amber/rose）——逐处裁定保留或浅档等效；重做以上浅色版；:267 充值钮 `bg-white + hover:bg-zinc-100` 与 `bg-black/[.06]` 族**保留不 token 化**（通道 3）。深色档现状冻结（实现期 mode 分支）。产出写入 `2026-09-20-creditsdropdown-light-draft.md`（浅色稿值、层级、与 login 营销浅色设计语言的参照关系）并 commit。
 
 - [ ] **Step 2: 扩 no-theme-utility 九前缀族（spec §11.1）**
 
@@ -2168,12 +2207,18 @@ const familiesOf = (node) => {
     // ④ ⚠ 第五轮 P0-2 订正——scanner 契约"一个字符串含多个命中记 1 条"（string-class-scan.js:4/:17/:25-46
     //    Literal 单报 + TemplateLiteral 首 quasi 命中即 return）：'hover:!bg-white md:text-black' 恒 **1 报非 2 报**。
     //    写 2 报会诱导执行者改共享 scanner 为多次上报——那会同时改掉 no-color-hex 报告行为与 lint-gate.mjs:87-90
-    //    的 baseline 键口径（未登记行为变更）。变体/! 形态的识别验证改走两条：
+    //    的 baseline 键口径（未登记行为变更）。变体/! 形态的识别验证改走三条：
     // ④a filename 不在白名单，code='hover:!bg-white'（单 token）→ 1 报——守非全局式 THEME_UTILITY_RE 认得
     //    变体前缀+!（不认得则 0 报假绿）
-    // ④b filename='src/components/layout/TopActionBar.tsx'（allow:['bg']），code='hover:!bg-white md:text-black'
-    //    → 1 报——守 GLOBAL 式 familiesOf **同时提取出 ['bg','text'] 两家族**（若漏提取 hover:! 变体，
-    //    fams=['text']⊆allow → 0 报假绿；本用例红=变体提取失败被抓住）
+    // ⚠ 第六轮 P0-2 重设 ④b——第五轮用 TopActionBar 当 allow:['bg'] 例是自相矛盾（真实白名单该文件
+    //    allow:['bg','text']，正确实现会给 0 报，期望 1 报把"正确"判红、诱导改规则）。改用 allow 恰为
+    //    ['bg'] 的真实条目（CreditsDropdown/ConfirmModal 任一）：
+    // ④b′ filename='src/pages/canvas/components/CreditsDropdown.tsx'（真实 allow:['bg']），
+    //     code='hover:!bg-white' → **0 报**——GLOBAL 式 familiesOf 必须认得变体+!（fams=['bg']⊆allow 放行）；
+    //     漏认得则 fams=[] 落到 visit → 1 报，本用例红=变体提取失败
+    // ④b″ 同 filename，code='hover:!bg-white text-black' → **1 报**——fams=['bg','text'] 不全在 allow 内
+    //     才放行（守"全匹配判定"与变体提取的叠加路径）
+    // ④a（1 报）+ ④b′（0 报）+ ④b″（1 报）构成"两式同步"完整闭环
 ```
 
 断言 message.id 与命中数（Linter.verify 直出）。跑 `node scripts/lint-gate.mjs` 确认全仓无新红 + **`npx vitest run scripts/__tests__/lint-gate.fixture.test.mjs`**（第五轮 M9：lint-gate 只 `lintFiles(['src'])` 不执行 fixture——fixture 由 vitest 拾取（vitest.config include 默认含 scripts/**，仅排除 e2e/**），本步显式跑一次防新增用例未验证就入库）。
@@ -2221,7 +2266,7 @@ spec §11.2 P3 专项 + E 表（两个全屏查看器恒深废止/O6② 死类�
 
 - [ ] **Step 0b: /videos 路由根岛拆除（第五轮 P0-2——不拆则本域目标不可达）**
 
-`router.tsx:48-59`：删 route 级 `<ConfigProvider theme={{ algorithm: antdTheme.darkAlgorithm }}>` 与 `<div className="dark">`（保留 Suspense 边界与 lazy 注释——:45-47 直链白屏防线不动），`<VideosPage />` 直挂 AppLayout 跟随域；:48-50 注释同步改写（原"videos 域恒深双通道"叙事废止——Task 25 的 router 注释订正**移到本 commit**，不留"只改注释不改代码"的假档）。深档零 diff 实证依据：html.dark 下 App algorithm 已是 darkAlgorithm、div.dark 与 html.dark 同类同值——删除后级联结果不变（浅侧大变=路由岛拆除本身，浅侧 pairs 登记）。**c0 补一条跨路由浅档断言**（G8② 用例末尾追加）：`/videos` 列表页（非详情）html.light 下 `a[data-card]` 卡面 computed 底 `rgb(255, 255, 255)`（VideoCard 并域后浅值）——没有这条，"整页没翻"这类漏项（路由层）无测试可查。
+`router.tsx:48-59`（第六轮 P0-1 修订拆法——**保留 `<div>` 只删类名**）：删 route 级 `<ConfigProvider theme={{ algorithm: antdTheme.darkAlgorithm }}>`（React 组件不产 DOM，整块删）+ `<div className="dark">` → `<div>`（**元素必须保留**：/videos 是采集页，删元素 = removed≠added + 全部后代 dom: 路径错位 → 配对闸硬失败（附录 B 自己的铁律 + c7 §3 :43 先例"C2 videos 路由页根 div.dark 插层剥除先归一"）；同标签同位置同兄弟序号 → dom: 键逐字节不变）；Suspense 边界与 lazy 注释（:45-47 直链白屏防线）不动；:48-50 注释同步改写（原"videos 域恒深双通道"叙事废止——Task 25 的 router 注释订正**移到本 commit**，不留"只改注释不改代码"的假档）。深档零 diff 实证依据：html.dark 下 App algorithm 已是 darkAlgorithm；div.dark 删类后 html.dark 仍命中 `:root,.dark` → 深值级联结果不变（浅侧大变=岛拆除本身，浅侧 pairs 登记）。**c0 补一条跨路由浅档断言**（G8② 用例末尾追加）：`/videos` 列表页（非详情）html.light 下 `a[data-card]` 卡面 computed 底 `rgb(255, 255, 255)`（VideoCard 并域后浅值）——没有这条，"整页没翻"这类漏项（路由层）无测试可查。
 
 - [ ] **Step 1: DOM 拆分前置（P3）——画面垫底独立、壳根 chrome 化（三条承重约束）**
 
@@ -2287,7 +2332,7 @@ test('G8 ②videos 壳跟随域（C8 D3 反转）：html.light 下壳根无 dark
 
 - [ ] **Step 5: 白名单摘除（本域原子）+ 门禁 + commit**
 
-`no-theme-utility.js` 删 `'src/pages/videos/**'` 行（net -1 目录）——**同 commit** 生效 Task 19 预置的 `{glob:'src/pages/videos/ProcessSnapshot.tsx', allow:['bg','text','border']}` 并补 PlayView 压画面族/封面垫底族的 `{glob, allow}` 条目 + **videos `__tests__/` 3 文件单文件 string 条目**（第五轮：测试断言字符串的九族命中，非产品 UI）；registry whitelistKeeps 镜像；域纪律复核：`grep -rn "text-white\|bg-white" src/pages/videos/ | wc -l` 命中数=精确豁免登记数，其余 0。
+`no-theme-utility.js` 删 `'src/pages/videos/**'` 行（net -1 目录）——**同 commit** 生效 Task 19 预置的 `{glob:'src/pages/videos/ProcessSnapshot.tsx', allow:['bg','text','border']}` 并补 PlayView 压画面族/封面垫底族的 `{glob, allow}` 条目 + **videos `__tests__/` 3 文件单文件 string 条目**（第五轮：测试断言字符串的九族命中，非产品 UI）；registry whitelistKeeps 镜像；域纪律复核（第六轮口径统一）：`grep -rniE "(text|bg|border|ring|divide|fill|stroke|from|via|to)-(white|black)" src/pages/videos/ --include="*.tsx" | wc -l` 命中数=精确豁免登记条目数（九族 -i 口径与 no-theme-utility 规则一致，两词 grep 会漏算），其余 0。
 
 **域 segcheck（深浅双跑，第五轮补）**：
 
@@ -2320,7 +2365,7 @@ cd /d/flowweb && git add apps/web/src/pages/videos/ apps/web/src/router.tsx apps
 
 grep 逐条按四通道裁定（chrome→--fw-*；内容承载→恒值键/字面；品牌紫→--ve-accent(-text) 档位；hover 提亮 `hover:text-white`（PreviewPlayer:91-:99）→ `hover:text-text` 浅档语义等价）。代表例：`PreviewPlayer.tsx:91` `hover:text-white` → `hover:text-text`；`ExportModal.tsx:245` `text-white`（填充钮白字）→ `text-on-accent`（深 #141414=--fw-on-accent 深值字节等值，浅档同值——**先查 on-accent 两档同 #141414 ✓ 零 diff**）。**消费 registry 盲区四分区**：ve 域命中的 `styleObjects`/`rgbaClasses` 位点逐行核销（两 lint 规则都拦不到，清单是唯一核销依据）。逐条登记 adjudications。
 
-- [ ] **Step 3: 断言反转（同 commit）**
+- [ ] **Step 3: 断言反转（同 commit；a0:250 定稿属探针面不触发冻结令——见 Task 10 Step 4）**
 
 ① c0 G4 video-editor 用例（:278-315）改判据：
 
@@ -2356,7 +2401,7 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/video-editor/ apps/web/e2e/c0
 
 ## Task 22（D3-画板批量）: 节点卡/工具条/底部面板/长尾 + VideoEditNode 三重变更 + #3a3a3a 族 + 白名单摘除
 
-spec §11.2 VideoEditNode 专项 + §11.1 浅底重校清单 + P4/P10。**与 Task 18 之间禁止浅色档画布验收（§13.3 窗口在本任务收口）。**
+spec §11.2 VideoEditNode 专项 + §11.1 浅底重校清单 + P4/P10。**与 Task 18 之间禁止浅色档画布验收（§13.3 窗口在本任务收口）。拆分预案（第六轮）：若 Task 14 干跑校准量出的单轮 diff→登记→转绿耗时超标，本任务拆两次 commit——「节点卡 8 类（Step 1-2）」与「工具条/长尾/selectionTokens（Step 3）」——两半各自过门禁后连续提交（配对闸按段吸收，原子对纪律不破）。**
 
 **Files:**
 - Create: `apps/web/src/pages/canvas/video-editor/timeline/block-colors.ts`（P10 叶子共享常量）
@@ -2397,7 +2442,7 @@ export const TRACK_BAR_COLORS: Record<string, string> = {
       >
 ```
 
-- `:161` `border-[#F0F0F0]` → `border-overlay-1`（深档 rgba(255,255,255,0.05)≠#F0F0F0——有意变更登记）；
+- `:161` `border-[#F0F0F0]` → `border-overlay-1`（深档 rgba(255,255,255,0.05)≠#F0F0F0——有意变更登记）；`:170/:179` 的 `var(--ve-accent-text)` 是**画布域反向消费 ve 前缀键**——adjudications 显式登记此跨域消费（第六轮 P2-3：与 Task 15"ve 域禁 var(--canvas-"域纪律不对称；裁定=品牌紫全仓同源单键，不另造 --fw-brand-text 别名防双键同值漂移，重命名/拆包时此条是绊线清单）；
 - `:163` `text-[#1F2329]` → `text-text`；`:170/:179` `text-[#6C5CE7]`/`disabled:text-[#C9CDD4]` → `text-[var(--ve-accent-text)]`/`disabled:text-text-dim-2`；`:173/:215` `text-[#86909C]` → `text-text-dim-3`；
 - `:194` `bg-black`（mini canvas 垫底）**保留**（JS 通道 #000 经 :129 的 `new CanvasRenderer(ctx)` 复用 canvas-renderer——c3 census 已登记；第五轮注：:129 是 renderer 引用行、黑底 canvas 元素在 :194，引用时勿混）；
 - `:201` `bg-[#F2F3F5]` 轨道槽 → `bg-surface-dim`；`:214` `border-[#E5E7EB]` → `border-overlay-2`；
@@ -2412,12 +2457,12 @@ differExpectedPairs 登记（深档有意变更）：VideoEditNode 白卡对 `ba
 机械配方（每条登记 adjudications）：
 - **节点卡 chrome**（ImageGen/Video/MultiImage/TextInput/Text/Storyboard 8 类卡壳——**第五轮叙事订正：除 VideoEditNode 白卡外，其余类现状=深卡 bg-[#222222]+border #3F3F46**，"深档白→深"只适用 VideoEditNode）：深卡面/字/边 → `bg-surface`/`text-text`/`border-overlay-2`（深档微变 rgb(34,34,34)→rgb(30,30,30)+border 对，Step 2 已配对；浅档深卡→白卡巨变走浅侧 pairs+B6 逐类目检）；**TextInputNode 文本节点=内容容器整体跟随**（P6 判据"否"分支，浅色下变浅否则违背需求）；VideoEditNode `:170` 非 disabled 分支 `text-[#C9CDD4]` 与 `:179` `disabled:text-[#C9CDD4]` 分别落 `text-text-dim-2`/`disabled:text-text-dim-2`（禁用态色同键同改）；
 - **媒体容器 checklist**（机械检查项）：`grep -rn "<img\|<video" src/pages/canvas/components/nodes/` 祖先链逐个核——每个媒体容器自持深底（透明 PNG/未加载/poster 未到不露浅底）；
-- **悬浮工具条 6 个 + 底部面板 + CanvasToolbar**：只迁移**仍在用字面 `rgb(38,38,38)` 的位点**；**已 token 化的 19 处 --canvas-controls-* 消费（VideoHDPanel 8、VideoNodeToolbar 5+1、VideoTrimPanel 3、AssetPanel 3-hover）保持 token 消费不二次改写**（D1a 双值化即已翻转；D3 再改 bg-surface-dim 是第二次改写——深档字节等值但与"一处变更一条登记"撞车、registry 会出同位点两条裁定）。**CanvasToolbar.tsx 自身四处（第五轮行号订正：容器 backgroundColor 在 :51、border 在 :52）**：`:15 BTN_BG rgb(38,38,38)`→`var(--fw-surface-dim)`（**维持 surface-dim 不改 #ffffff/surface**：浅档面-面分离度由边框+浅档 shadow 承担——改 surface 会引入深档未登记 diff rgb(38,38,38)→rgb(30,30,30)，驳回第五轮"改 #fff"建议，观测行已入 contrast-pairs）、`:16 BTN_BG_ACTIVE rgb(58,58,58)`→**#3a3a3a 族 A 组第 6 处（与 CanvasToolbar.test.tsx :130/:138/:144 三条断言同键一次改齐，漏则断言指向未改源）**、`:52 容器 border rgb(54,54,54)`→`var(--canvas-controls-border)`、`:44 .tb-btn:hover rgb(78,78,78) !important`→**保留 !important 只换色值 `var(--fw-overlay-2)`**（优先级承重：BTN_BG/BTN_BG_ACTIVE 是 inline style，拆 !important 则 hover 被内联底色压过=悬停反馈整体消失；hover 态不进 differ 快照，有意变更登记 adjudications）；`:91 顶部"画板域恒深"注释同 commit 订正（**在 CanvasToolbar.test.tsx:91**，第五轮订正——同句原混两文件）。**CanvasToolbar.test 断言改法（第五轮 M12/P1-8 定案）**：jsdom 的 cssstyle 对 inline `var()` 读回不稳定（`style.backgroundColor` 可能返回 ''）——**禁断 style.backgroundColor；先跑一次微实测**（render 后 `btn.getAttribute('style')` 与 `btn.style.backgroundColor` 各读什么），断言改 **`getAttribute('style')` 含 `var(--fw-surface-dim)`/对应 token 名** 形态（7 条：`rgb(38,38,38)` 4 条 :92/:128/:136/:146 + `rgb(58,58,58)` 3 条 :130/:138/:144；"设计常量白名单（B 段登记）画板域恒深"旧注释同步改写）；**同类断言先实测读回再定形态**：VideoHDPanel.test:73、AudioConfigPanel.test:99（class*= 正则形态）、StoryboardGroupRenderer.test:92/:101；
+- **悬浮工具条 6 个 + 底部面板 + CanvasToolbar**：只迁移**仍在用字面 `rgb(38,38,38)` 的位点**；**已 token 化的 19 处 --canvas-controls-* 消费（VideoHDPanel 8、VideoNodeToolbar 5+1、VideoTrimPanel 3、AssetPanel 3-hover）保持 token 消费不二次改写**（D1a 双值化即已翻转；D3 再改 bg-surface-dim 是第二次改写——深档字节等值但与"一处变更一条登记"撞车、registry 会出同位点两条裁定）。**CanvasToolbar.tsx 自身四处（第五轮行号订正：容器 backgroundColor 在 :51、border 在 :52；第六轮 P1-1 目标值写死——"同键改齐到 surface-dim 系"旧措辞作废，那会让 BTN_BG_ACTIVE 与 BTN_BG 同色、激活态深浅两档皆不可辨且被 pairs 吸收成"预期"）**：`:15 BTN_BG rgb(38,38,38)`→**`var(--canvas-controls-bg)`**（深值字节等值 rgb(38,38,38)；比 --fw-surface-dim 更贴 §9.1 域纪律——画布工具条主键归 --canvas-controls-*，浅档分离度旋钮留在画布域 token 可单独调）、`:16 BTN_BG_ACTIVE rgb(58,58,58)`→**`var(--canvas-controls-active)`**（第六轮复活的激活态双值键——深 rgba(255,255,255,0.12)/浅 rgba(0,0,0,0.08)，蒙层式激活与常态恒可辨；与 CanvasToolbar.test.tsx :130/:138/:144 三条断言同 commit 改齐）、`:52 容器 border rgb(54,54,54)`→`var(--canvas-controls-border)`、`:44 .tb-btn:hover rgb(78,78,78) !important`→**保留 !important 只换色值 `var(--fw-overlay-2)`**（优先级承重：BTN_BG/BTN_BG_ACTIVE 是 inline style，拆 !important 则 hover 被内联底色压过=悬停反馈整体消失；hover 态不进 differ 快照，有意变更登记 adjudications）；`:91 顶部"画板域恒深"注释同 commit 订正（**在 CanvasToolbar.test.tsx:91**，第五轮订正——同句原混两文件）。**激活态可辨机械断言（第六轮 P1-1 补）**：CanvasToolbar.test 增一条——minimapOpen 翻转前后 `getAttribute('style')` 串不同且分别含 `var(--canvas-controls-bg)`/`var(--canvas-controls-active)`（常态/激活永不同 token）。**CanvasToolbar.test 断言改法（第五轮 M12/P1-8 定案）**：jsdom 的 cssstyle 对 inline `var()` 读回不稳定（`style.backgroundColor` 可能返回 ''）——**禁断 style.backgroundColor；先跑一次微实测**（render 后 `btn.getAttribute('style')` 与 `btn.style.backgroundColor` 各读什么），断言改 **`getAttribute('style')` 含 token 名** 形态（7 条：`rgb(38,38,38)` 4 条 :92/:128/:136/:146 + `rgb(58,58,58)` 3 条 :130/:138/:144；"设计常量白名单（B 段登记）画板域恒深"旧注释同步改写）；**同类断言先实测读回再定形态**：VideoHDPanel.test:73、AudioConfigPanel.test:99（class*= 正则形态）、StoryboardGroupRenderer.test:92/:101；
 - **白系 alpha className 族（M1）**：`hover:bg-[rgba(255,255,255,0.08)]` 等（AnnotationToolbar:135/:170、EraseBottomToolbar:123/:129、EditToolbar:131/:155/:370 + 常量 EditToolbar:95/:128、AnnotationToolbar:111、TransformToolbar:58/:59）→ `hover:bg-overlay-2` 族双值化——registry rgbaClasses 分区逐行核销 + 1-2 条 hover/active computed 探针（浅色档 hover 无反馈=功能性不可辨）；**JSX 内联 `<style>` 块 6 文件（M4）**：CanvasToolbar:24（含 `.tb-btn:hover rgb(78,78,78) !important` 会顶掉 token hover——先拆 !important）、EditToolbar:349、ImageNodeToolbar:430、TransformToolbar:139、ImageFullscreenViewer:130、VideoFullscreenViewer:90——registry styleBlocks 分区逐文件裁定（tooltip 底/hover/scrollbar-thumb）；
 - **svgAttrs 分区核销（盲区四分区之二，建而有消费者）**：nodes/edges/groups 域命中的 SVG 呈现属性位点（fill=/stroke= 字面）逐行裁定——字面恒定项（GridIcon #6C5CE7 双档达标等）登记 adjudications、双值项落 JS 分支取色（SVG 属性禁 var()，spec §11.1 通则）；
 - **accent/危险色字面前景核销（第四轮审核清单）**：`grep -rn "#4ade80\|#ef4444" src/pages/canvas/ src/components/MaterialLibrary/` 逐条裁定（实测在册：**CanvasView:456** `color: enabled ? '#4ade80' : '#fff'` 分组索引钮——**两分支都需主题化**（enabled→`var(--fw-accent-text)`、'#fff'→`var(--fw-text-dim-3)`），浅档白字白底=功能性不可见；**GridSizeDropdown:121** `background: executing ? '#333' : '#4ade80'` + `color:'#000'` 三元同类；**AudioConfigPanel:249/TextConfigPanel:249/VideoConfigPanel:415** listening 态 `bg-white/20 text-[#4ade80]`——bg-white/20 同时是九族命中位（nodes 白名单摘除后 lint 必红），迁 overlay/accent-text 或按宿主底裁定；**ConnectionLine:111** `hover:bg-[#ef4444]` → `hover:bg-[var(--fw-accent-danger)]`（index.css:30/:50 双档键既有，深档字节等值）；**ClipBlock（components/timeline/）:70 missing 边框 / :78 "素材已删除"角标文字，均大写 `#EF4444`**——**第四轮"零命中"结论撤销**（当时大小写敏感 grep + 错路径双误，第五轮 -i 复验命中）：`#EF4444` 恰为 --fw-accent-danger 深值，字节等值换 `var(--fw-accent-danger)`；missing 态 gate fixture 不渲染、无 diff，adjudications 登记；**ConfirmModal:33** danger 映射表（inline style）按对比度实测裁定 var(--fw-accent-danger) 或双档同值保留；MaterialLibraryModal.css:78 系注释非位点）；
 - **selectionTokens.ts 4 处 + StoryboardGroupRenderer #333 组边框/#fffff0 分镜格**：交互可视性双主题值 + 两态可见性实测断言（StoryboardGroupRenderer.test:92/101 改双主题可见性断言，防浅色下选中框消失）。**`--xy-selection-*` 全仓零消费——不列迁移项**（selection 钉值已由 Task 18 D-7 规则级探针+裁定覆盖，初稿两处指涉同一件事）；
-- **#3a3a3a 族**（spec §11.1 分组）：A 组 size-7 图标钮 ×5（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467）**+ CanvasToolbar.tsx:16 BTN_BG_ACTIVE（第 6 处）**同键一次改齐（按钮面 → surface-dim 系）；B 组 tooltip 底 ×2（GenerateCountSelector:30/VideoConfigPanel:432）同键一次改齐（**翻浅后其上 text-white 需同步改 text-text=P7 应用**）；C-F 四处按语义各自裁定勿塌键（C=MultiImageNode:292 徽章、D=TextNodeToolbar:228 文本节点默认底【内容容器】、E=TextNodeToolbar:239 划线色板、F=AudioWaveform:272 波形基线）；3 条测试断言同 commit（AudioConfigPanel.test:99 class*= 正则形态、VideoHDPanel.test:73）；**groups 域深面浮层点名**（浅色档防"深色小岛"）：GridSizeDropdown:24/:60、AspectRatioDropdown:43、SelectionBoxOverlay:93、StitchButton:161、NormalGroupRenderer:81（`#1a1a1a` 族菜单/条）——随本批 chrome 化；
+- **#3a3a3a 族**（spec §11.1 分组；第六轮 P1-1 目标值写死）：A 组 size-7 图标钮 ×5（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467）**同键一次改齐 → `var(--canvas-controls-bg)`**（深档 rgb(58,58,58)→rgb(38,38,38) 微变，pair 登记 `backgroundColor|rgb(58,58,58)|rgb(38,38,38)`；浅档 #f0f1f2）——**CanvasToolbar.tsx:16 BTN_BG_ACTIVE 不在 A 组**（激活态专用，→ var(--canvas-controls-active)，见上条；第五轮"第 6 处同键"措辞作废——同键会把激活/常态坍缩同色）；B 组 tooltip 底 ×2（GenerateCountSelector:30/VideoConfigPanel:432）同键一次改齐（**翻浅后其上 text-white 需同步改 text-text=P7 应用**）；C-F 四处按语义各自裁定勿塌键（C=MultiImageNode:292 徽章、D=TextNodeToolbar:228 文本节点默认底【内容容器】、E=TextNodeToolbar:239 划线色板、F=AudioWaveform:272 波形基线）；3 条测试断言同 commit（AudioConfigPanel.test:99 class*= 正则形态、VideoHDPanel.test:73）；**groups 域深面浮层点名**（浅色档防"深色小岛"）：GridSizeDropdown:24/:60、AspectRatioDropdown:43、SelectionBoxOverlay:93、StitchButton:161、NormalGroupRenderer:81（`#1a1a1a` 族菜单/条）——随本批 chrome 化；
 - **MiniMap 内联 JS 色双值化**（CanvasView.tsx:384-394）：`style.backgroundColor 'rgb(50,50,50)'/'rgb(70,70,70)'` 走 `var(--canvas-controls-bg)/var(--canvas-controls-border)`（style 属性 var() 安全）；**nodeColor 是函数 prop 落 SVG 属性——禁 var()，直接 JS 分支取色**（CanvasView 已有 mode）：`nodeColor={() => (mode === 'dark' ? 'rgb(160, 160, 160)' : 'rgb(107, 114, 128)')}`；`maskColor rgba(0,0,0,0.35)` 中性遮罩保留；
 - **动画类元素浅档可见性专项**：edge particles（opacity 动画）/播放头/吸附线——静态对比达标≠动画可见，逐个目检留档（evidence 附 test-results 截图）；
 - **EraseCanvas 涂抹蒙版恒深**（第四通道）+ **OutpaintSelectionOverlay `bg-white/30` 网格线保留字面**（落媒体上）+ 标注调色板 #FF0000/#FFD700/#0066FF/#000000 黑笔 + userColor() 恒定（P6 登记）。
@@ -2452,7 +2497,7 @@ CanvasTopBar 三处（:129/:143/:147）**+ ProjectTitle.tsx:64 第 4 枚**（逐
 
 - [ ] **Step 2: CreditsDropdown 浅色实现（mode 分支，深档现状冻结）**
 
-按 Task 19 浅色稿：组件内 `const { mode } = useTheme();`（CreditsDropdown 在 CanvasTopBar 域非 React Flow 节点，不受 §11.1 禁令），`:127` 渐变与 `:271` 图标底按 mode 分支——深档**字面原样保留**（字节等值守卫：differ 深档零 diff），浅档用稿值；`:267` 邀请卡族不动。有意变更（浅档）不产生深档 diff，浅色档经 B6 目检（Task 27）。登记 adjudications + differExpectedPairs（若浅档采集对照）。
+按 Task 19 浅色稿：组件内 `const { mode } = useTheme();`（CreditsDropdown 在 CanvasTopBar 域非 React Flow 节点，不受 §11.1 禁令），`:127` 渐变与 `:271` 图标底按 mode 分支——深档**字面原样保留**（字节等值守卫：differ 深档零 diff），浅档用稿值；`:267` 充值钮白系族不动（第六轮措辞对齐 Task 19 订正：非邀请卡）。有意变更（浅档）不产生深档 diff，浅色档经 B6 目检（Task 27）。登记 adjudications + differExpectedPairs（若浅档采集对照）。
 
 - [ ] **Step 3: AnnotationToolbar 五件套（P7 反例② 专项）**
 
@@ -2514,11 +2559,11 @@ NodePalette/ProjectTitle 字面迁移（两文件原在 A5 时代 PAGE_REGISTRY_
 
 - [ ] **Step 2: 涌现登记核验（第五轮改写：D 对走 d3EmergentSites 站点级闸）**
 
-D3 全程新增可见边框（border-width 0→N）位点：每处必须登记 `canvas-migration-registry.json` 的 **`d3EmergentSites`**（`{page, key, why}`——differ 对 D 对四采集页按 `page|key` 精确匹配，缺即 offender exit 1；工作流=先跑 diff 拿 key 再登记，与 pairs 同款）。**登记位置事实注记**：A5 旧机制的"授权集"是 differ :321-325 运行时现算（`adjudication.bareBorder.nonzeroCodeSites` ∪ colored-144 ∪ `EXTRA_AUTHORIZED_FILES`）——emergence-adjudication-A4.json **没有** authorizedFiles 键，A5 旧对的补登动作是追加到 bareBorder.nonzeroCodeSites 或 EXTRA_AUTHORIZED_FILES（D 对不适用）。跑深浅双侧 `css-baseline-diff.mjs --before before-D[-light] --after segcheck-D3-final[-light]` 验证（segcheck 重采 working 侧）。
+D3 全程新增可见边框（border-width 0→N）位点：每处必须登记 `canvas-migration-registry.json` 的 **`d3EmergentSites`**（`{page, key, why}`——differ 对 D 对四采集页按 `page|{page, key, why}——differ 对 D 对**任何采集页**（页无关，第六轮）按 `page|key` 精确匹配，缺即 offender exit 1；工作流=先跑 diff 拿 key 再登记，与 pairs 同款）。**登记位置事实注记**：A5 旧机制的"授权集"是 differ :321-325 运行时现算（`adjudication.bareBorder.nonzeroCodeSites` ∪ colored-144 ∪ `EXTRA_AUTHORIZED_FILES`）——emergence-adjudication-A4.json **没有** authorizedFiles 键，A5 旧对的补登动作是追加到 bareBorder.nonzeroCodeSites 或 EXTRA_AUTHORIZED_FILES（D 对不适用）。跑深浅双侧 `css-baseline-diff.mjs --before before-D[-light] --after segcheck-D3-final[-light]` 验证（segcheck 重采 working 侧）。
 
 - [ ] **Step 3: D3 完成判据三源核销（differ exit 0 ≠ 完成，spec §11.1）**
 
-① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据；**盲区四分区分级核销（第五轮）**：styleBlocks（6 文件）与 svgAttrs（量少）逐行勾；styleObjects/rgbaClasses 位点量大**不逐行勾**——按位点清单核销 + 把"浅色档会功能性不可见"的位点探针化（Task 22 accent 清单已含 CanvasView:456/GridSizeDropdown:121 等）+ 其余在 registry 明文标注"不逐行核销，靠 B6"——把诚实的边界写下来，比假装全覆盖好）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（重键口径 lint-gate.mjs:139）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。
+① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据；**盲区四分区分级核销（第五轮）**：styleBlocks（6 文件）与 svgAttrs（量少）逐行勾；styleObjects/rgbaClasses 位点量大**不逐行勾**——按位点清单核销 + 把"浅色档会功能性不可见"的位点探针化（Task 22 accent 清单已含 CanvasView:456/GridSizeDropdown:121 等）+ 其余在 registry 明文标注"不逐行核销，靠 B6"——把诚实的边界写下来，比假装全覆盖好）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（"重键计数不增"= meta.note 在册的人工纪律（:139 是说明字符串非检查逻辑）——lint-gate 本身无计数校验，靠核销清单自查）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。
 
 - [ ] **Step 4: commit**
 
@@ -2592,24 +2637,16 @@ cd /d/flowweb/apps/web && COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=d4-realli
 
 - [ ] **Step 4: D4 全门禁终验（含 e2e 类型门禁——第五轮 M8 补）+ spec §13 已知接受项终版 + 收尾 commit**
 
-**新建 `apps/web/tsconfig.e2e.json`**（e2e/scripts 全程不在 `tsc -b` 范围（tsconfig include 只有 src）——本期新增 ~500 行 e2e 代码此前仅运行时门禁，收口补类型检查）：
-
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["node"] },
-  "include": ["e2e/**/*.ts", "scripts/**/*.{ts,mjs}"]
-}
-```
+**e2e 类型门禁用既有 `e2e/tsconfig.json`**（第六轮 B7 订正：第五轮的 tsconfig.e2e.json 新造方案作废——既有配置已覆盖 e2e 全域 + playwright.config.ts 且当前实跑 exit=0；新造配置的 `scripts/**/*.{ts,mjs}` include 在 allowJs:false 下是 no-op、徒增漂移面。门禁自 Task 3 起逐段执行，本步为终验复跑）：
 
 ```bash
-cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs && node scripts/contrast-table.mjs && npx tsc --noEmit -p tsconfig.e2e.json; echo "e2e-tsc=$?"
+cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs && node scripts/contrast-table.mjs && npx tsc --noEmit -p e2e/tsconfig.json; echo "e2e-tsc=$?"
 ```
 
 spec §13 增补终版（按实际发生的接受项核对 1-7 条 + AuthModal 范围外待裁项登记：AuthModal.tsx 深色字面宿主恒浅岛、v1.9 §3.2 错误标签订正——独立条目留待后续 spec）。
 
 ```bash
-cd /d/flowweb && git add apps/web/src/ apps/web/tsconfig.e2e.json apps/web/e2e/audit/ docs/superpowers/specs/2026-09-20-canvas-domain-theme-design.md && git commit -m "test(e2e): C8 D4 收口——render 计数探针(节点组件 0 重渲实证)+大画布切换读数留档+B6 真实浅色对照全景目检(三重变更卡单独看+8 类节点卡逐类+浮层/板分离度)+全门禁终验(C0 新形态/vitest/lint 双规则/css-audit D 段 exit 0/contrast-table 自检/tsconfig.e2e 类型门禁补全)+spec §13 已知接受项终版(含 AuthModal 范围外待裁登记)"
+cd /d/flowweb && git add apps/web/src/ apps/web/e2e/audit/ docs/superpowers/specs/2026-09-20-canvas-domain-theme-design.md && git commit -m "test(e2e): C8 D4 收口——render 计数探针(节点组件 0 重渲实证)+大画布切换读数留档+B6 真实浅色对照全景目检(三重变更卡单独看+8 类节点卡逐类+浮层/板分离度)+全门禁终验(C0 新形态/vitest/lint 双规则/css-audit D 段 exit 0/contrast-table 自检/e2e tsconfig 既有配置类型门禁——Task 3 起逐段执行本步终验)+spec §13 已知接受项终版(含 AuthModal 范围外待裁登记)"
 ```
 
 ---
@@ -2620,9 +2657,9 @@ cd /d/flowweb && git add apps/web/src/ apps/web/tsconfig.e2e.json apps/web/e2e/a
 |---|---|---|
 | D0-0 | Task 1-5 | 零产品改动；探针钉值全绿（d0-probe-values.json 落盘）；自比自跑 0 噪声；A5 旧对 diff 不回归；**一轮做完停点复核再进 D0**（before-D 采集不在本段——第五轮移 Task 10） |
 | D0 | Task 6-10 | 两态 DOM 类断言；'system' 存储→dark；matchMedia 计数 0；**before-D/before-D-light 于 D0 收口后入档（Step 4 唯一时间窗；"D0 零 diff"锚废止——新钮=有意 DOM 变更）** |
-| D1a | Task 11-13 | 深档 0 diff（segcheck-D1a）；**浅侧 diff 与 DOMAIN_DARK→DOMAIN_LIGHT 值映射逐条核对后批量入 pairs**；浅档新值可读（contrast-table 在册）；死键删；块唯一+源序；全文无裸 :root 双值域 token |
+| D1a | Task 11-13 | **深浅双侧 0 diff**（第六轮订正：浅侧零 diff 由岛机制保证——域 token 浅值消费者全在 .dark 岛内，非 0 即信号逐条归因，禁止预先豁免）；浅档新值可读（contrast-table 在册）；死键 ve-text-control 删 + controls-active 复活双值键；块唯一+源序；全文无裸 :root 双值域 token |
 | D1b | Task 14-16 | 深浅双跑 diff 与 §9.2 总清单逐条配对（absorbed>0、unexpected=0）；`var(--canvas-` ve 域 0 命中；WeChat html.light 浅值；a0:250 探针仍钉深（岛未拆） |
-| D2 | Task 17-18 | 深档像素 0 diff（快照自比自证+校验对象=快照真实文件）；--xy-* 复测表（读 .react-flow__background + circle fill 对照）；镜像断言绿；selection 两档断言（直接定案不实验）；render 计数探针首跑；D2 后非验收浅色目检 checkpoint |
+| D2 | Task 17-18 | 深档像素 0 diff（快照自比自证 + snapshotPathTemplate 直落 audit 单一真身 sha256 固化）；--xy-* 复测表（读 .react-flow__background + circle fill 对照）；镜像断言绿；selection 两档断言（直接定案不实验）；render 计数探针首跑；D2 后非验收浅色目检 checkpoint |
 | D3 | Task 19-25 | registry 分区分级核销（styleBlocks/svgAttrs 逐行 + styleObjects/rgbaClasses 清单+功能性不可见探针化）+ 浅探针每面期望值 + B6 目检清单（8 类节点卡逐类）；hex 键数不增；**白名单可执行判据：每域目录摘除后该域 lint 命中数 = 精确豁免登记条数（净计数无手写锚——第五轮改写，"净增 K 文件"旧表废弃）**；路由岛/壳岛/白名单摘除域原子对；涌现站点 d3EmergentSites 登记闸 |
 | D4 | Task 26-27 | 断言矩阵三组 + §12.2 核销 + 全门禁（+tsconfig.e2e 类型门禁）+ B6 真实对照 + 性能双探针（①D2 落 D4 复验 ②大画布读数） |
 
@@ -2640,7 +2677,7 @@ cd /d/flowweb && git add apps/web/src/ apps/web/tsconfig.e2e.json apps/web/e2e/a
 - **禁在 8 采集页内做 DOM 层级增删**（stableKey 的 dom: 路径键漂移 = 配对闸必红——dom: 键不适用"同位同量"豁免）；域内结构改动须先确认目标不在采集集（先例：VideoPlayerModal 只在 /videos/:id 渲染、不在采集集，Task 20 注记不得援引为采集页内结构改动依据）。**唯一豁免先例：D0 切换钮（CanvasTopBar 首位插入）——发生于 before-D 采集之前，基线锚定后状态**（第五轮 P0-1：这就是 before-D 窗口在 Task 10 的原因）。
 - **机时预算（排期显式列入）**：每段验收 = pnpm build（tsc -b && vite build）+ 全量 e2e（workers:1 串行）+ vitest + 8 页采集 ×2（深浅）+ diff，粗估 10-15 分钟/段 × 12+ 段验收——纯门禁机时 3-6 小时；期间 PostgreSQL/Redis/API(含 collab 3001) 必须存活、seed 幂等。
 - differExpectedPairs 全局配对残余：同色对不同位点互相吸收——每条附 why + 三源核销补偿；**adjudications 只记理由不吸收 diff**（不可见位点以"不可见→无 diff"登记）。
-- 禁像素参照快照被 `--update-snapshots` 静默覆盖：生成参照只允许 `-g "深档"`、**固化/校验对象=快照目录真实文件（`…-snapshots/d2-board-dark-chromium-win32.png`，非 audit 副本）+ 对账前幂等 cp 恢复**、同 HEAD 3 次自比全 0 才可信；不达标准即降级附件证据，禁调 maxDiffPixels/threshold 凑绿。
+- 禁像素参照快照被 `--update-snapshots` 静默覆盖：生成参照只允许 `-g "深档"`、**snapshotPathTemplate 直落 e2e/audit/ 单一真身（入 git）+ `sha256sum -c` 校验 + 覆盖即红即 `git checkout --` 恢复**（无副本=无"校验副本放过真身覆盖"缝隙）、同 HEAD 3 次自比全 0 才可信；不达标准即降级附件证据，禁调 maxDiffPixels/threshold 凑绿。
 - 禁 `git add apps/web/e2e/` 一把抓（test-results 等未跟踪目录会被吞——已补 .gitignore 仍具名）；禁 `git add docs/superpowers/specs/` 一把抓（c7 等登记档在 apps/web/e2e/audit/）。
 - D1a 起段验收**深浅双跑**（before-D × working + before-D-light × working-light），两侧有意变更都入 differExpectedPairs、未配对=失败；浅侧 diff 与预知值表（DOMAIN_LIGHT 等）核对不上的=失败非中间态。
 - jsdom inline `var()` 读回不稳定：断 CanvasToolbar 等内联 token 消费用 `getAttribute('style')` 含 token 名形态，禁断 `style.backgroundColor`（M12）。
