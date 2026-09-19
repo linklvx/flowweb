@@ -2374,7 +2374,7 @@ CanvasTopBar 三处（:129/:143/:147）**+ ProjectTitle.tsx:64 第 4 枚**（逐
 - `:135/:170` 白系 hover → `var(--fw-overlay-2)`；
 - `COLOR_PRESETS` 含 `#000000` 黑笔**保留**（P6：用户在浅色主题下选黑笔=用户选择，显式登记）。
 
-全部 inline style（:111/:135/:161/:170/:187/:199/:211/:230/:305/:317/:332）——no-theme-utility/no-color-hex 双规则都拦不到 style 对象，**逐行登记 registry `inlineStylePartition` 显式清单**（C8 新分区，spec §11.1），核销靠清单+B6 目检。
+全部 inline style（:111/:135/:161/:170/:187/:199/:211/:230/:305/:317/:332）——no-theme-utility/no-color-hex 双规则都拦不到 style 对象，**逐行核销 registry `styleObjects` 分区显式清单**（Task 5 盲区四分区之一，spec §11.1），核销靠清单+B6 目检。
 
 - [ ] **Step 4: Lighting/Angle3D chrome 面板迁移（非目标收窄为渲染产物层，§11.2）**
 
