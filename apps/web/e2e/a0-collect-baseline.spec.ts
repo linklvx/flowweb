@@ -8,7 +8,9 @@
 // 输出目录可用 BASELINE_DIR 覆盖（相对 e2e/baseline/ 的目录名；默认 before-A0 不动）：
 //   A 段后复采（A5 diff 用）：COLLECT_BASELINE=1 BASELINE_DIR=after-A npx playwright test e2e/a0-collect-baseline.spec.ts
 //   B6 浅色目标基线（C 段浅色对照目标）：COLLECT_BASELINE=1 LIGHT_BASELINE=1 BASELINE_DIR=light-B6 npx playwright test e2e/a0-collect-baseline.spec.ts
-//     —— B 期无主题切换 UI，测试侧注入 html.light 即机制（页加载后、快照/截图前）。
+//     —— ⚠ 旧 classList 注入路径已废止（D0 后双类失真）：themeStore 首渲染即挂 html.dark，classList.add('light')
+//     不移除 dark → html 双类 → 浅色采集静默失真；LIGHT_BASELINE 现与 REAL_LIGHT 同义（storage 真实路径）。
+//     light-B6 基线系旧机制产物不可复用。
 //   C7 真实浅色对照采集（真实路径）：COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=<tmp 目录，勿覆写基线> …
 //     —— localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 内联
 //     主题脚本）→ 真实浅色档挂 html.light；采集时逐页断言 html 类恰为 "light"（结果落 meta.realLight）。
@@ -29,12 +31,18 @@ const BASELINE_DIR = process.env.BASELINE_DIR ?? 'before-A0';
 if (!/^[a-zA-Z0-9-]+$/.test(BASELINE_DIR)) throw new Error(`[baseline] BASELINE_DIR 非法目录名: ${BASELINE_DIR}`);
 const OUT_DIR = path.join(HERE, 'baseline', BASELINE_DIR);
 const VIEWPORT = { width: 1280, height: 800 };
+/* COLLECTOR-FROZEN-BEGIN —— 冻结契约①：沉降等待时长（改动=两侧基线须同时重采，否则快照时点不可比）。
+ * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
 const SETTLE_MS = 800; // 目标元素出现后的固定沉降（动画/字体收尾），不做 networkidle
-const LIGHT = !!process.env.LIGHT_BASELINE; // 浅色目标基线模式（B6）：html.light 注入后再快照
-const REAL_LIGHT = !!process.env.REAL_LIGHT; // 真实浅色路径模式（C7 对照）：localStorage theme=light → C1 内联脚本
-const ANY_LIGHT = LIGHT || REAL_LIGHT; // 浅色采集（两机制之一）——岛不变性探针共用
+/* COLLECTOR-FROZEN-END */
+/* COLLECTOR-FROZEN-BEGIN —— 冻结契约②：浅色注入模式开关（storage 真实路径）。旧 classList 注入已废止
+ * （D0 后 themeStore 首渲染挂 dark，add('light') 不移除 → html 双类 → 浅色采集静默失真）；
+ * LIGHT_BASELINE 历史调用形态 env 兼容保留，语义=REAL_LIGHT。
+ * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
+const REAL_LIGHT = !!process.env.REAL_LIGHT || !!process.env.LIGHT_BASELINE; // 真实浅色路径模式（C7 对照；D0 起 LIGHT_BASELINE 同义合一）：localStorage theme=light → C1 内联脚本
+/* COLLECTOR-FROZEN-END */
 
-/** 浅色采集岛不变性探针结果（LIGHT/REAL_LIGHT 模式共用；afterAll 落 meta） */
+/** 浅色采集岛不变性探针结果（REAL_LIGHT 模式共用；afterAll 落 meta） */
 const LIGHT_PROBES: Array<{ id: string; expected: string; actual: string; pass: boolean }> = [];
 
 /** 真实浅色路径逐页 html 类记录（REAL_LIGHT 专用；afterAll 落 meta.realLight） */
@@ -47,13 +55,20 @@ async function probeInvariance(page: Page, id: string, read: () => Promise<strin
   expect(actual, `[浅色采集/岛不变性/${id}] html.light 下恒深域值必须保持深色值`).toBe(expectedDark);
 }
 
+/* COLLECTOR-FROZEN-BEGIN —— 冻结契约②（续）：seedRealLight 注入本体（storage 真实路径——init script 先于
+ * 一切页面脚本，含 C1 内联主题脚本；禁改回 classList 注入，理由见契约②首标记）。
+ * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
 /** REAL_LIGHT：预置 theme=light（init script 先于一切页面脚本——C1 内联脚本读到显式浅色档） */
 function seedRealLight(target: BrowserContext | Page) {
   return target.addInitScript(() => localStorage.setItem('theme', 'light'));
 }
+/* COLLECTOR-FROZEN-END */
 
 test.skip(!process.env.COLLECT_BASELINE, 'A0 基线采集专用：COLLECT_BASELINE=1 npx playwright test e2e/a0-collect-baseline.spec.ts');
 
+/* COLLECTOR-FROZEN-BEGIN —— 冻结契约③：snapshotDom 采集函数本体（稳定键 stableKey/djb2 clsHash/排除规则
+ * excludedBy 与属性集实现均在此函数内——契约实现随函数显式冻结，勿依赖段位置隐含）。
+ * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
 /** 页内全量元素几何/计算样式快照（在浏览器上下文执行；排除规则见 excludedBy） */
 async function snapshotDom(page: Page) {
   return page.evaluate(() => {
@@ -102,7 +117,6 @@ async function snapshotDom(page: Page) {
       }
       return `dom:${parts.join('/')}`;
     };
-    const FORM_CONTROL = new Set(['input', 'textarea', 'select', 'button']);
     const out: unknown[] = [];
     const walk = document.body;
     const all = [walk, ...Array.from(walk.querySelectorAll('*'))];
@@ -123,25 +137,26 @@ async function snapshotDom(page: Page) {
         borderWidth: { t: cs.borderTopWidth, r: cs.borderRightWidth, b: cs.borderBottomWidth, l: cs.borderLeftWidth },
         fontSize: cs.fontSize,
         lineHeight: cs.lineHeight,
-        // 计算样式属性集（精确冻结）：box-sizing + 四边 border-style/color；color 仅表单控件（继承色噪声大）
+        // 计算样式属性集 D1（C8 D0-0 扩面）：新增全元素 backgroundColor + color（原 color 仅表单控件）
         boxSizing: cs.boxSizing,
         borderStyle: { t: cs.borderTopStyle, r: cs.borderRightStyle, b: cs.borderBottomStyle, l: cs.borderLeftStyle },
         borderColor: { t: cs.borderTopColor, r: cs.borderRightColor, b: cs.borderBottomColor, l: cs.borderLeftColor },
+        backgroundColor: cs.backgroundColor,
+        color: cs.color,
         clsHash: cls ? hashCls(cls) : null,
         clsLen: cls.length,
       };
-      if (FORM_CONTROL.has(tag)) rec.color = cs.color;
       if (el.getAttribute('aria-disabled')) rec.ariaDisabled = el.getAttribute('aria-disabled');
       out.push(rec);
     }
     return { url: location.href, title: document.title, elementCount: out.length, elements: out };
   });
 }
+/* COLLECTOR-FROZEN-END */
 
 /** 采集一页：等标记元素 → 沉降 → DOM 快照 JSON + 视口截图 */
 async function collectPage(page: Page, name: string, marker: () => Promise<void>) {
   await marker();
-  if (LIGHT) await page.evaluate(() => document.documentElement.classList.add('light'));
   if (REAL_LIGHT) {
     // 真实路径自证：C1 内联脚本应已挂 html.light 且恰一类（localStorage theme=light 显式档）
     const cls = await page.evaluate(() => document.documentElement.className);
@@ -195,7 +210,7 @@ test.describe('A0 before-基线采集', () => {
       await page.goto('/videos');
       await expect(page.getByText('A0-0 门禁样例视频').first()).toBeVisible({ timeout: 15_000 });
     });
-    if (ANY_LIGHT) {
+    if (REAL_LIGHT) {
       // videos 整域恒深（D4 保留）：封面底 #262626 字面值不随 html.light 翻转
       await probeInvariance(page, 'videos-封面底-#262626字面', () => page.evaluate(() => {
         const card = Array.from(document.querySelectorAll('a[data-card]'))
@@ -215,7 +230,7 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.locator('.react-flow')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 10_000 });
     });
-    if (ANY_LIGHT) {
+    if (REAL_LIGHT) {
       // D4 语义双证：html 根 --fw-bg 翻浅（浅色档生效正向对照）+ 画板 wrapper 经 .dark 块重新声明保持深色
       await probeInvariance(page, 'canvas-html根--fw-bg翻浅(注入生效)', () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
       await probeInvariance(page, 'canvas-画板wrapper--fw-bg钉深', () => page.evaluate(() => getComputedStyle(document.querySelector('.react-flow')!).getPropertyValue('--fw-bg').trim()), '#141414');
@@ -245,7 +260,7 @@ test.describe('A0 before-基线采集', () => {
       await page.getByRole('button', { name: '⤢ 全屏编辑' }).first().click();
       await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
     });
-    if (ANY_LIGHT) {
+    if (REAL_LIGHT) {
       // video-editor 岛自持 token：--ve-bg 定义在 :root（非主题块），html.light 不翻转
       await probeInvariance(page, 'video-editor-壳底--ve-bg自持', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).backgroundColor), 'rgb(20, 20, 20)');
     }
@@ -298,23 +313,29 @@ test.describe('A0 before-基线采集', () => {
           commit: getCommit(),
           collectedAt: new Date().toISOString(),
           viewport: VIEWPORT,
-          invocation: `COLLECT_BASELINE=1${LIGHT ? ' LIGHT_BASELINE=1' : ''}${REAL_LIGHT ? ' REAL_LIGHT=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
-          theme: LIGHT
-            ? '浅色目标基线（C 段浅色对照目标）：html 注入 .light（B 期无主题切换 UI，测试侧注入即机制，快照/截图前）；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主（--fw-* 消费者≈0，C2 接线前 html.light 对其基本无效果=预期）'
-            : REAL_LIGHT
-              ? '真实浅色路径（C7 真实 vs 注入对照）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；C2 后岛根 .dark/videos 页根 dark/AdminLayout 岛重新声明 --fw-*——与 light-B6（B6 时点注入态）的差异预期集中在 C2 岛接线与 C4 切换钮，非主题机制差异'
-              : BASELINE_DIR === 'before-A0'
-                ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
-                : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
-          ...(LIGHT ? { lightInjection: { mechanism: 'collectPage 内 page.evaluate classList.add("light")（每页加载后、SETTLE/快照/截图前；goto 重建文档故逐页重注入）', islandInvarianceProbes: LIGHT_PROBES } } : {}),
+          invocation: `COLLECT_BASELINE=1${process.env.LIGHT_BASELINE ? ' LIGHT_BASELINE=1' : ''}${process.env.REAL_LIGHT ? ' REAL_LIGHT=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
+          theme: REAL_LIGHT
+            ? '真实浅色路径（C7 对照；D0 起 LIGHT_BASELINE=1 同义合一——旧 classList 注入路径已废止（D0 后双类失真），light-B6 基线系旧机制产物不可复用）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主'
+            : BASELINE_DIR === 'before-A0'
+              ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
+              : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
           ...(REAL_LIGHT ? { realLight: { mechanism: 'context/page addInitScript localStorage.setItem("theme","light")（先于一切页面脚本）→ C1 head 内联主题脚本解析显式浅色档挂 html.light', htmlClassPerPage: REAL_LIGHT_HTML, islandInvarianceProbes: LIGHT_PROBES } } : {}),
           stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],
+          /* COLLECTOR-FROZEN-BEGIN —— 冻结契约④a：属性集版本号。differ 同代校验锚（before/after 不一致即 exit 1）；
+           * 升版=采集属性集变更，须对侧基线同版重采。边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、
+           * 页集增由 differ union 页循环守卫。 */
+          attrSetVersion: 'D1',
+          /* COLLECTOR-FROZEN-END */
+          // D1 起全元素采集——D 段基线对比色；旧基线（无 attrSetVersion=A0）跨代比对走"属性缺失=不判"
+          /* COLLECTOR-FROZEN-BEGIN —— 冻结契约④b：采集属性集清单（differ 属性 diff 的依据；扩面=D1 式升版登记）。
+           * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
           computedPropertySet: [
             'rect(x,y,w,h)', 'padding(四边)', 'borderWidth(四边)', 'fontSize', 'lineHeight',
-            'boxSizing', 'borderStyle(四边)', 'borderColor(四边)', 'color(仅 input/textarea/select/button)',
+            'boxSizing', 'borderStyle(四边)', 'borderColor(四边)', 'backgroundColor(全元素)', 'color(全元素,D1 起)',
           ],
+          /* COLLECTOR-FROZEN-END */
           pages: fs.readdirSync(OUT_DIR).filter((f) => f.endsWith('.json') && f !== 'meta.json').sort().map((f) => f.replace('.json', '')),
         },
         null,

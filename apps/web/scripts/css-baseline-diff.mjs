@@ -9,6 +9,8 @@
 //   line-height 二分：变/不变计数 + (before→after) 值对分布（对照 A0 冻结值）。
 // 采集/断言分离：本脚本只消费两份基线 JSON，不启动浏览器。
 // 用法：node scripts/css-baseline-diff.mjs [--before before-A0] [--after after-A] [--out <abs-prefix>]
+// D 段基线对（C8 D0-0）：任一侧基线 meta.attrSetVersion=D1 时进入 D 对——同代校验（跨代混比 exit 1）+
+//   canvas-migration-registry.json 注册配对闸（differExpectedPairs page 限定/全局两级吸收 + d3EmergentSites 涌现站点级闸）。
 // 三闸门禁（任一不过 exit 1）：
 //   1) 意外项闸：属性/几何层未登记意外必须为 0（OVERRIDES 已登记例外不计）。
 //   2) 涌现登记闸：涌现边框站点（border-width 0→N）按页归属核验——站点所在页必须在
@@ -85,10 +87,14 @@ function loadBaseline(dir) {
     const data = JSON.parse(fs.readFileSync(path.join(BASE, dir, f), 'utf8'));
     pages[data.page] = data;
   }
-  return { dir, meta, pages };
+  return { dir, meta, pages, attrSetVersion: meta.attrSetVersion ?? 'A0' };
 }
 const before = loadBaseline(BEFORE_DIR);
 const after = loadBaseline(AFTER_DIR);
+if (before.attrSetVersion !== after.attrSetVersion) {
+  console.error(`[gate] 属性集版本不一致：before=${before.attrSetVersion} after=${after.attrSetVersion}——同代基线对限制（D 对=D1×D1；A5 旧对保持 A0×A0），禁止跨代混比`);
+  process.exit(1);
+}
 
 /* B2 预期类别（b2-migration-registry.json 消费）：B2a 机械颜色迁移的值变化配对闸——
  * color（仅表单控件采集）/borderColor（全元素采集）的 (before,after) 命中注册表 → 吸收（预期）；
@@ -104,6 +110,38 @@ const A1_COLOR_PAIRS = new Set([
   'color|rgb(16,16,16)|rgba(255,255,255,0.35)', // UA buttontext → white/35（A 段表单重置族）
 ]);
 const b2Absorbed = {}; // `${prop} ${before}→${after}` → 计数
+
+/* C8 D 段注册配对（canvas-migration-registry.json differExpectedPairs——D1b/D3 有意变更逐条配对，未配对=失败）。
+ * D 对（任一侧 attrSetVersion=D1）registry 缺失即 exit 1 报指引；A5 旧对（A0×A0）不读不判（无 partitions 崩溃面）。
+ * 第六轮：pair 增可选 page 字段，两级匹配——page 限定集（page|prop|before|after）优先、全局集（prop|before|after）兜底；
+ * 浅侧 pairs 量大（D2/D3 板面与各域翻转）后，全局配对跨位点误吸收面会扩大在最想守的方向——page 维度把该残余收窄。 */
+const D_REGISTRY_PATH = path.join(ROOT, 'e2e', 'audit', 'canvas-migration-registry.json');
+const D_PAIR = before.attrSetVersion === 'D1' || after.attrSetVersion === 'D1';
+let D_REGISTRY = null;
+if (D_PAIR) {
+  if (!fs.existsSync(D_REGISTRY_PATH)) {
+    console.error('[gate] D 段基线对必须存在 canvas-migration-registry.json（node scripts/canvas-migration-registry.mjs 产出）——缺档拒绝静默空比');
+    process.exit(1);
+  }
+  D_REGISTRY = JSON.parse(fs.readFileSync(D_REGISTRY_PATH, 'utf8'));
+}
+const dPairsRaw = (D_PAIR ? D_REGISTRY.differExpectedPairs?.pairs : undefined) ?? [];
+const dPairsPage = new Set(dPairsRaw.filter((p) => p.page).map((p) => `${p.page}|${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+const dPairs = new Set(dPairsRaw.filter((p) => !p.page).map((p) => `${p.prop}|${normColorVal(p.before)}|${normColorVal(p.after)}`));
+/* 两级吸收 helper（第七轮 P1-1 接线——backgroundColor/borderColor/color 三处共用；返回 'page' | 'global' | null）：
+ * page 限定集优先、全局集兜底；dAbsorbed 记命中层级，冒烟验收据此确认 page 路径真被走过（Task 4 Step 2b）。 */
+function absorbedBy(page, prop, b, a) {
+  const bv = normColorVal(b), av = normColorVal(a);
+  if (dPairsPage.has(`${page}|${prop}|${bv}|${av}`)) return 'page';
+  if (dPairs.has(`${prop}|${bv}|${av}`)) return 'global';
+  return null;
+}
+const dAbsorbed = {}; // `${prop} ${before}→${after} [${page|global}]` → 计数
+/* C8 D3 涌现站点级登记（第五轮 M3 采纳 + 第六轮页无关化）：D 对下任何采集页的 border-width 0→N 涌现站点
+ * 必须命中 d3EmergentSites（page|key），否则 offender。页无关的理由：文件级授权闸的恒真机制=页级 some() 判定
+ * + 每页至少一个授权文件（works=['TopActionBar','Sidebar'] :62 皆在册）——枚举页集必漏（WeChatFollowModal 在
+ * /works、弹层/浮层可能在任何页），页无关是唯一不漏形态。A5 旧对不走本分支。 */
+const d3Sites = new Set(((D_PAIR ? D_REGISTRY.d3EmergentSites : undefined) ?? []).map((s) => `${s.page}|${s.key}`));
 
 const bucketCount = {}; // 属性层：桶名 → 计数（桶名 "family.pair"）
 const causeCount = {}; // 几何层：cause → 计数
@@ -122,10 +160,15 @@ const pairing = {};
 const ovKey = (page, key) => `${page}|${key}`;
 const bump = (m, k, n = 1) => { m[k] = (m[k] ?? 0) + n; };
 
-for (const page of Object.keys(before.pages).sort()) {
+/* 页循环用 union（C8 D0-0 第八轮 P1-2 双向守卫）：页集减（after 缺页）与页集增（before 无此页=新增采集页
+ * 未入锚/未声明）都显式报错——原只遍历 before.pages 时"加页"侧永不访问、全部属性 diff 静默跳过。
+ * A5 旧对两侧页集相同 → union 与原循环行为零变化。 */
+const pageNames = [...new Set([...Object.keys(before.pages), ...Object.keys(after.pages)])].sort();
+for (const page of pageNames) {
   const bPage = before.pages[page];
   const aPage = after.pages[page];
-  if (!aPage) { pairing[page] = { error: 'after 基线缺页' }; continue; }
+  if (!aPage) { pairing[page] = { error: 'after 基线缺页（页清单被改？）' }; continue; }
+  if (!bPage) { pairing[page] = { error: 'before 基线无此页（新增采集页未入锚？）' }; continue; }
   const bByKey = new Map(bPage.elements.map((e) => [e.key, e]));
   const aByKey = new Map(aPage.elements.map((e) => [e.key, e]));
   const removed = [...bByKey.keys()].filter((k) => !aByKey.has(k));
@@ -175,11 +218,16 @@ for (const page of Object.keys(before.pages).sort()) {
         if (b2Pairs.has(b2Key)) {
           bump(b2Absorbed, `borderColor ${bc}→${ac}`);
         } else {
-          bump(bucketCount, `borderColor.→${ac}`);
-          if (ac !== BRIDGE_DARK && ac !== BRIDGE_LIGHT) {
-            const item = { page, key, tag: a.tag, prop: `border-${s}-color`, before: bc, after: ac };
-            if (reg) propRegistered.push({ ...item, rationale: reg });
-            else propUnexpected.push(item);
+          const dHit = absorbedBy(page, 'borderColor', bc, ac); // D 段注册配对两级吸收（page 优先/global 兜底）
+          if (dHit) {
+            bump(dAbsorbed, `borderColor ${bc}→${ac} [${dHit}]`);
+          } else {
+            bump(bucketCount, `borderColor.→${ac}`);
+            if (ac !== BRIDGE_DARK && ac !== BRIDGE_LIGHT) {
+              const item = { page, key, tag: a.tag, prop: `border-${s}-color`, before: bc, after: ac };
+              if (reg) propRegistered.push({ ...item, rationale: reg });
+              else propUnexpected.push(item);
+            }
           }
         }
       }
@@ -212,15 +260,31 @@ for (const page of Object.keys(before.pages).sort()) {
       }
     }
     if (b.color != null && a.color != null && b.color !== a.color) {
-      // 仅表单控件有采集；三类：B2 注册配对（吸收）/ A 段表单重置-antd 既有配对（聚合不逐条）/ 其余=意外（B2 起闸）
+      // 三类：B2 注册配对（吸收）/ D 段注册配对（absorbedBy 两级吸收）/ A 段表单重置-antd 既有配对
+      //   （A1 旧豁免仅 A0 旧对放行——D1 全元素 color 后旧豁免不再盲目放行）/ 其余=意外（闸，OVERRIDES 登记可豁）。
       const b2Key = `color|${normColorVal(b.color)}|${normColorVal(a.color)}`;
       if (b2Pairs.has(b2Key)) {
         bump(b2Absorbed, `color ${b.color}→${a.color}`);
       } else {
-        bump(bucketCount, `color.${b.color}→${a.color}`);
-        if (!A1_COLOR_PAIRS.has(b2Key)) {
-          propUnexpected.push({ page, key, tag: a.tag, prop: 'color', before: b.color, after: a.color });
+        const dHit = absorbedBy(page, 'color', b.color, a.color); // D 段注册配对两级吸收（page 优先/global 兜底）
+        if (dHit) {
+          bump(dAbsorbed, `color ${b.color}→${a.color} [${dHit}]`);
+        } else {
+          bump(bucketCount, `color.${b.color}→${a.color}`);
+          if (!(after.attrSetVersion === 'A0' && A1_COLOR_PAIRS.has(b2Key)) && !reg) {
+            propUnexpected.push({ page, key, tag: a.tag, prop: 'color', before: b.color, after: a.color });
+          }
         }
+      }
+    }
+    // D1 新增属性（C8 D0-0 扩面）：全元素 backgroundColor diff——D 对下有意变更须命中 D 注册配对（两级吸收），未配对=意外；
+    // A5 旧对 before 基线无此属性（null）→ 条件天然不判（"属性缺失=不判"跨代分支，同代 D1×D1 才生效）。
+    if (b.backgroundColor != null && a.backgroundColor != null && b.backgroundColor !== a.backgroundColor) {
+      const dHit = absorbedBy(page, 'backgroundColor', b.backgroundColor, a.backgroundColor); // 两级吸收（helper 见④）
+      if (dHit) bump(dAbsorbed, `backgroundColor ${b.backgroundColor}→${a.backgroundColor} [${dHit}]`);
+      else {
+        bump(bucketCount, `backgroundColor.${b.backgroundColor}→${a.backgroundColor}`);
+        if (!reg) propUnexpected.push({ page, key, tag: a.tag, prop: 'backgroundColor', before: b.backgroundColor, after: a.backgroundColor });
       }
     }
 
@@ -329,6 +393,13 @@ for (const [page, files] of Object.entries(PAGE_REGISTRY_FILES)) {
 }
 const emergenceOffenders = [];
 for (const site of emergentSites) {
+  if (D_PAIR) {
+    // D 对改站点级判定（页无关）：任何采集页的涌现站点必须命中 d3EmergentSites（page|key），否则 offender
+    if (!d3Sites.has(`${site.page}|${site.key}`)) {
+      emergenceOffenders.push(`${site.page}|${site.key} <${site.tag}> ${site.side} ${site.after}（D 段涌现站点未登记 d3EmergentSites——先登记再变更）`);
+    }
+    continue;
+  }
   const files = PAGE_REGISTRY_FILES[site.page];
   if (!files?.length || !files.some((f) => authorizedFiles.has(f))) {
     emergenceOffenders.push(`${site.page}|${site.key} <${site.tag}> ${site.side} ${site.after}（页无登记组件可归属——先登记再入 PAGE_REGISTRY_FILES）`);
@@ -352,6 +423,7 @@ const report = {
     before: { dir: BEFORE_DIR, commit: before.meta.commit, collectedAt: before.meta.collectedAt },
     after: { dir: AFTER_DIR, commit: after.meta.commit, collectedAt: after.meta.collectedAt },
     generatedAt: new Date().toISOString(),
+    attrSetVersion: after.attrSetVersion, // 同代校验后 before/after 恒相等
     classifier: { cascadeMax: CASCADE_MAX, bridgeExpected: [BRIDGE_DARK, BRIDGE_LIGHT], overrides: Object.keys(OVERRIDES).length, b2Registry: 'e2e/audit/b2-migration-registry.json（differExpectedPairs 配对闸：color/borderColor 命中即吸收，未登记 color 配对即意外）' },
   },
   gate: {
@@ -370,6 +442,12 @@ const report = {
     pairsRegistered: b2Pairs.size,
     absorbedTotal: Object.values(b2Absorbed).reduce((x, y) => x + y, 0),
     absorbedByPair: Object.fromEntries(Object.entries(b2Absorbed).sort((a, b) => b[1] - a[1])),
+  },
+  dExpectedGate: {
+    registry: 'e2e/audit/canvas-migration-registry.json',
+    pairsRegistered: dPairsPage.size + dPairs.size,
+    absorbedTotal: Object.values(dAbsorbed).reduce((x, y) => x + y, 0),
+    absorbedByPair: Object.fromEntries(Object.entries(dAbsorbed).sort((a, b) => b[1] - a[1])),
   },
   pairing,
   propertyLayer: { buckets: Object.fromEntries(Object.entries(bucketCount).sort((a, b) => b[1] - a[1])), unexpected: propUnexpected, registered: propRegistered },
@@ -394,19 +472,24 @@ const report = {
 };
 
 fs.writeFileSync(`${OUT_PREFIX}.json`, JSON.stringify(report, null, 1));
-fs.writeFileSync(
-  path.join(ROOT, 'e2e', 'audit', 'audit-A5-borderwidth.json'),
-  JSON.stringify({
-    meta: {
-      task: 'A5 回补：A4 删除类 border-width 验证（plan A4-2——border-box 下加边框不改 rect，几何层必漏，属性层 width 才是判据）',
-      before: before.meta.commit, after: after.meta.commit, diffSource: 'e2e/audit/baseline-diff-A5.json',
-    },
-    ...report.borderWidthValidation,
-    conclusion: report.borderWidthValidation.other.length === 0
-      ? `A4 删除零副作用实证：style 翻转而宽度恒 0 共 ${bwVal.styleFlipWidthZero} 边（border-none/box-border 等补偿删除 no-op）；涌现宽度 0→N ${bwVal.emergentSides.length} 边/${emergentSites.length} 站点（涌现站点属 A4-c colored-144 批量保留族——同串显式作者色，非 33 bare 位点子集；门禁页渲染子集，登记闸按页核验）；表单 UA 边框抵消 N→0 ${bwVal.formVanished} 边（裸 button 归零族）；无非预期宽度变化`
-      : '存在非预期 border-width 变化——见 other 列表',
-  }, null, 2),
-);
+/* A5 归档写入段守卫（C8 D0-0 第五轮 M1）：本文件无条件覆写 audit-A5-borderwidth.json 且 --out 不影响它——
+ * 每次非 A5 对（如 D 段基线对）diff 都会把 A5 历史审计档写成异段数据、再被 `git add e2e/audit/` 吞提交。
+ * 守卫后仅 A5 旧对（before-A0 × after-A）写归档；其余对只写 --out 产物。 */
+if (BEFORE_DIR === 'before-A0' && AFTER_DIR === 'after-A') {
+  fs.writeFileSync(
+    path.join(ROOT, 'e2e', 'audit', 'audit-A5-borderwidth.json'),
+    JSON.stringify({
+      meta: {
+        task: 'A5 回补：A4 删除类 border-width 验证（plan A4-2——border-box 下加边框不改 rect，几何层必漏，属性层 width 才是判据）',
+        before: before.meta.commit, after: after.meta.commit, diffSource: 'e2e/audit/baseline-diff-A5.json',
+      },
+      ...report.borderWidthValidation,
+      conclusion: report.borderWidthValidation.other.length === 0
+        ? `A4 删除零副作用实证：style 翻转而宽度恒 0 共 ${bwVal.styleFlipWidthZero} 边（border-none/box-border 等补偿删除 no-op）；涌现宽度 0→N ${bwVal.emergentSides.length} 边/${emergentSites.length} 站点（涌现站点属 A4-c colored-144 批量保留族——同串显式作者色，非 33 bare 位点子集；门禁页渲染子集，登记闸按页核验）；表单 UA 边框抵消 N→0 ${bwVal.formVanished} 边（裸 button 归零族）；无非预期宽度变化`
+        : '存在非预期 border-width 变化——见 other 列表',
+    }, null, 2),
+  );
+}
 
 /* ---- MD ---- */
 const causeDesc = {
@@ -459,6 +542,13 @@ md.push('', '### 2b. B2 预期类别（注册配对吸收，b2-migration-registr
   md.push(`- 注册配对 ${b2Pairs.size} 组；本 diff 吸收 **${total}** 条（命中即预期；未登记 color 配对即意外——见 §6）`);
   for (const [p, n] of Object.entries(b2Absorbed).sort((a, b) => b[1] - a[1])) md.push(`  - \`${p}\` ×${n}`);
   if (!total) md.push('  - （无——B2a 等值换不产生 diff 条目，值变化配对在采集页无表单控件命中时为 0）');
+}
+md.push('', '### 2c. D 段预期类别（注册配对吸收，canvas-migration-registry.json——D 对 attrSetVersion=D1 时生效）', '');
+{
+  const dTotal = Object.values(dAbsorbed).reduce((x, y) => x + y, 0);
+  md.push(`- 注册配对 ${dPairsPage.size + dPairs.size} 组（page 限定 ${dPairsPage.size} + 全局 ${dPairs.size}）；本 diff 吸收 **${dTotal}** 条（命中层级记入条目：[page] 优先 / [global] 兜底）`);
+  for (const [p, n] of Object.entries(dAbsorbed).sort((a, b) => b[1] - a[1])) md.push(`  - \`${p}\` ×${n}`);
+  if (!dTotal) md.push('  - （无——A5 旧对不读 D 注册表；D 对下采集页未命中任何注册色对时为 0）');
 }
 md.push('', '## 3. 几何层归因汇总（w/h/x/y/padding/border-width/font-size 逐条）', '', '| 归因 | 条数 | 说明 |', '|---|---|---|');
 for (const [c, n] of Object.entries(causeCount).sort((a, b) => b[1] - a[1])) md.push(`| ${c} | ${n} | ${causeDesc[c] ?? ''} |`);

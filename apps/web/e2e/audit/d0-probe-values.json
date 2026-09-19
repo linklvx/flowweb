@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "task": "C8 D0-0 探针发现钉值——d-segment-probes.spec.ts D-0 发现用例实测落盘，断言照盘填（禁抄报错人因）",
+    "source": "e2e/d-segment-probes.spec.ts D-0（console.log [D-0-probe-values] + attach d0-probe-values；发现跑批 2026-09-20，门禁基线 2ab6c42d）"
+  },
+  "gateCardBg": "rgb(34, 34, 34)",
+  "boardDot": "#555555",
+  "boardDotCircleFill": "rgb(85, 85, 85)",
+  "notes": {
+    "gateCardBg": "与 plan 预写一致（VideoGenNode:718 bg-[#222222] 卡面；选择器 .canvas-node div.rounded-lg 文档序首个=卡面本体）",
+    "boardDot": "--xy-background-pattern-color-props computed 返回已代换 hex #555555（非未代换 var() 字面串）——M5 假守卫风险排除，网格点探针维持自定义属性断言形态（plan：数据定形态）",
+    "boardDotCircleFill": "对照读数 rgb(85,85,85)=#555555 与 boardDot 同值——circle fill 交叉印证自定义属性已真实代换",
+    "d6SvgInventory": "gate 画布 svg 仅有字面/xyflow 默认色（handle stroke rgb(156,163,175)、edge stroke rgb(136,136,136)/rgb(107,114,128)、播放图标 fill #999/#666、网格点 fill rgb(85,85,85) 已由 D-1 覆盖）——无主题 token 绑定目标可钉，维持发现步 attach 证据形态不加断言（宁缺勿假；--edge-flow-color 无门禁覆盖登记不变）"
+  }
+}

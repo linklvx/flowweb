@@ -18,4 +18,5 @@ flowweb.data/
 # Playwright e2e（A0-0）：会话 storageState 含 token 勿入库；产物目录
 apps/web/e2e/.auth/
 apps/web/test-results/
+apps/web/e2e/test-results/
 apps/web/playwright-report/
