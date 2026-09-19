@@ -318,3 +318,12 @@ D0-0（仪器/before-D/探针钉深）→ D0（两态六件套+G 门禁改写，
 1. **D1 必须先于 D2**：wrapper 的 .dark 类是 D1 期间画板子树的实际值域（先翻 colorMode 则画板在 D1 未完成时取浅值立刻坏）。
 2. **D2 与 D3 板面批次连续收口**（或把 colorMode 翻转并入 D3 板面批次首个 commit）：D2 之后～D3 板面完成前浅色档画布不可用（§13.3），这是唯一可能被验收流程误踩的窗口。
 3. **浅色档验收不得落在 D2–D3 空隙内**；**"深色档零 diff"验收锚适用范围=D0-0/D0/D1a 三段**（v1.4 收窄）——D1b 起深档 diff 由 §9.2 总清单配对吸收（未配对=失败），D3 各域由域原子对清单吸收；"全程零 diff"旧表述作废（过渡期深档口径=**无未登记 diff**，v1.5 措辞对齐 §13.3）。
+
+## 16. 变更登记（v1.5 冻结后实施期订正）
+
+### v1.5.1（2026-09-20，计划审核轮三份报告实测订正）
+
+1. **对比度数字勘误**：§8.1 `--canvas-board-dot` 行"≈1.55:1@板底"系笔误，正确值 **1.53**（与 §13.5 一致；contrast-table.mjs 台账 specExpect 以 1.53 入册）。历轮争议 #555555@#000000=2.82 经逐步验算成立（L=0.09079→2.8159；#767676@white=4.54 与 #6C5CE7@#262626=3.11 双锚交叉验证）；审核期一组 2.76/1.54/3.39 复算系实现自身常数偏差（其中 2.76 恰等于 channel 公式 `(v+0.055)` 误写 `(v+0.05)` 的输出 2.7606）——自检向量设计目标（抓实现错）就此获得一次真实实证。
+2. **E 表 O6② 订正**：v4/shadcn 死类（text-popover-foreground 10/text-muted-foreground 8/focus-visible:ring-ring **2 非 4**）已在 B3 轮按 b2-migration-registry.json `b3DeadClassDisposal`（:1131-1181）处置为 replaced-literal（text-neutral-200/400、ring-white/40），src 现状 0 处。O6②"死类删除"改判为 **B3 落值双主题化**（chrome 处 token/双值、压画面处恒深）+ **同 commit 撤销 b2:1136 domainRule**（"全屏查看器禁 --fw-*"条款随本期废止）；登记档以 b2-migration-registry.json 为准（b3-alldead-list.json 系过期快照）。
+3. **实施期事实注记**：--fw-accent-text 浅值 #15803d 系 B0 既有（index.css:48）——D 段探针"CanvasTopBar 已连接前景"D0-0 即取 rgb(21,128,61)、无翻转点，保留作浅档正向对照。--ve-text .tsx 消费实测 30 处（34 系含 index.css 定义口径）；ve 媒体侧拆分实测 4 处（AssetPanel:111/:144/:184 缩略占位框 + PreviewPlayer:64 预览垫底，拆 --ve-thumb-base #363636 / --ve-preview-base #141414 两恒值键）。
+4. **videos 播放壳浅色档已知接受**（P3② 自然推论登记）：画面容器恒黑 + PlayView UI 压画面恒深 → 浅色档可见变化≈0（仅壳外框/关闭钮/轮播卡跟随）；CarouselBar 与页面级 chrome 算跟随域。B6 目检勿判缺陷。
