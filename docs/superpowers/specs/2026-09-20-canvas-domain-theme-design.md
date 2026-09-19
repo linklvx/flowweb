@@ -199,7 +199,7 @@ B2 三通道扩展为四通道（第四条为通道语义，非迁移目标）�
 
 - **原子对**：每域/每岛拆除与断言反转同 commit；D4 只留岛消亡后的新回归 + 全门禁（段间独立验收，spec v1.9 :125 规矩）。
 - **baseline 重键不重采**：no-color-hex 键 = `ruleId|路径|sha256(TrimEnd(行文本))`，迁移换键后**同文件 hex 键计数不增**（lint-gate.mjs:139 口径"允许伴随重键"）；白名单文件键保留。**禁 UPDATE_BASELINE=1 重采**（B5 控制动静）。
-- **两条门禁机制分开写验收**：hex 门禁 = "键数不增（允许行文本重键）"；no-theme-utility 门禁 = "白名单净减 3 条目录 + 净增 K 条精确文件"（该规则零基线，任何命中即违例，重采不豁免——lint-gate.mjs:120）。
+- **两条门禁机制分开写验收**：hex 门禁 = "键数不增（允许行文本重键）"；no-theme-utility 门禁 = "白名单净减 4 条目录（§11.3）+ 净增 K 条精确文件"（该规则零基线，任何命中即违例，重采不豁免——lint-gate.mjs:120）。
 - **no-theme-utility 扩规则（D3 开工前置，门禁漏洞修补；v1.2 数字与机制修正）**：现状正则只拦 `text-(white|black)`——bg/border/ring/divide 等白系无覆盖（VideoEditNode.tsx:151 裸 bg-white 是 P4 主承重点，现有两条规则都看不见）。扩为 `(text|bg|border|ring|divide|fill|stroke|from|via|to)-(white|black)`。**真实分母以扩规则后脚本产出为准**（第四轮实测：目录白名单外新增红 ≈25 处=bg 18+text 7；border/ring/from 全在目录白名单内；divide/fill/stroke/to/via 当前全仓 0 处=纯未来守卫，注明防误判漏统计）；working list=脚本清单非手写数字。**白名单粒度升级为"文件+属性族"**（`{file, allow:['bg']}` 结构）——整文件放行会放走同文件未来 text-white 回归。**合法浅色面预登记豁免**：CreditsDropdown:267 邀请卡 bg-white/hover:bg-zinc-100（P5 明文保留）、ConfirmModal/SaveAsTemplateDialog 白卡 bg-white（通道 3）——这些**不是 working list**，误改=与通道 3 对撞返工。registry whitelistKeeps 镜像同步。
 - **节点组件禁 useTheme**：节点/卡/面板组件一律消费 CSS 变量（主题切换=零 React 工作；useTheme 会让全部画布节点重渲染，React Flow 下最贵）；唯一例外 CanvasView 的 colorMode={mode}。验收 grep：`pages/canvas/components/{nodes,groups}/**` 内 useTheme 命中 0；D4 性能实测双探针——**切换一次主题统计节点组件 render 次数（预期 0，只有 CanvasView 重渲染，直接验证禁令收益）** + 大画布（≥50 节点）切换耗时/掉帧读数（fps 噪声大难判因，render 计数为主据）。
 - **涌现登记两处同步**：D3 引入新可见边框（border-width 0→N）时，emergence-adjudication-A4.json 授权集（或 EXTRA_AUTHORIZED_FILES 附理由）+ PAGE_REGISTRY_FILES 对应页数组，缺一闸门 exit 1（§3 E 表）。
