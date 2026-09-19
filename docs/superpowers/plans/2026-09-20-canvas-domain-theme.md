@@ -39,7 +39,7 @@
 | ve 面板底（EditorTopBar） | `rgb(38, 38, 38)` | D3-ve（壳岛拆除后）→ `rgb(240, 241, 242)`（--fw-surface-dim 浅值；D1b 并域期壳 .dark 岛仍钉深） |
 | WeChatFollowModal 面前景 | `rgb(30, 30, 30)` / `rgb(226, 232, 240)` | D1b → `rgb(255, 255, 255)` / `rgb(31, 35, 41)` |
 | VideoCard 卡标题前景 | `rgb(255, 255, 255)`（text-white 字面） | D3-videos → `rgb(31, 35, 41)`（卡面并 --fw-surface 浅 #ffffff 后白字白卡=不可见，必须探针化） |
-| GridIcon rect stroke / 边线 stroke（图形档） | `rgb(108, 92, 231)` / `rgb(59, 130, 246)` | 不翻转（fill/stroke 对 differ 不可见——图形档唯一机械守卫即本组探针） |
+| 图形档（D-6 发现步实测选定） | gate 画布真实渲染的 svg fill/stroke（GridIcon/粒子边不在 gate 渲染路径——见 D-6 注） | 不翻转；`--edge-flow-color` 无门禁覆盖（需粒子边）→ 显式登记 B6 目检兜底 |
 
 ---
 
@@ -77,7 +77,7 @@ Expected: 文件存在（若缺失，跑一次 `npx playwright test e2e/a0-colle
 
 ## Task 2（D0-0 ⑵a）: contrast-table.mjs 对比度台账脚本（自检向量 TDD）
 
-spec §6.3：全文对比度数字以脚本出表为准；内建 3 组自检向量，不通过 `exit 1`。
+spec §6.3：全文对比度数字以脚本出表为准；内建自检向量不通过 `exit 1`（spec 在册 3 条 21.00/4.54/2.82 + 本计划补第 4 锚 #777777=4.48 组成双区分度）。
 
 **Files:**
 - Create: `apps/web/scripts/contrast-table.mjs`
@@ -91,7 +91,7 @@ spec §6.3：全文对比度数字以脚本出表为准；内建 3 组自检向�
 {
   "meta": {
     "formula": "WCAG 2.x relative luminance，(L1+.05)/(L2+.05)，全文同公式同口径",
-    "gamma": "线性化常数 0.055（((c+0.055)/1.055)^2.4，WCAG 2.x 正式式）。仲裁定案：#767676@white=4.54 与 #777777@white=4.48 两组 WCAG 公布名值只在 0.055 下成立（0.05 错植给 4.50/4.44）；0.05 实现产出约 −2% 偏差（#555555@black→2.76），历轮『spec 个别格多算 2%』论系 0.05 实现的指纹",
+    "gamma": "线性化常数 0.055（((c+0.055)/1.055)^2.4，WCAG 2.x 正式式）。仲裁定案：#767676@white=4.54 与 #777777@white=4.48 两组 WCAG 公布名值只在 0.055 下成立——自检双锚即判别式。错植指纹两族勿混引：加数错植 (c+0.05)/1.055 → #555555 2.76 / #767676 4.63 / #777777 4.56；除数错植 (c+0.055)/1.05 → 2.84 / 4.50 / 4.44——任一族都过不了 4.54/4.48 双锚",
     "tolerance": 0.01,
     "selfCheck": [
       { "fg": "#FFFFFF", "bg": "#000000", "expect": 21.00, "why": "极值锚" },
@@ -119,8 +119,8 @@ spec §6.3：全文对比度数字以脚本出表为准；内建 3 组自检向�
     { "id": "P9-文字档浅@f7f8fa", "fg": "#5F4FD1", "bg": "#F7F8FA", "specExpect": 5.61, "spec": "§2 P9" },
     { "id": "P4-GridIcon@白卡", "fg": "#6C5CE7", "bg": "#FFFFFF", "specExpect": 4.86, "spec": "§11.4" },
     { "id": "P4-GridIcon@深卡", "fg": "#6C5CE7", "bg": "#1E1E1E", "specExpect": 3.43, "spec": "§11.4" },
-    { "id": "P4-品牌浅底失格-5DDCFF", "fg": "#5DDCFF", "bg": "#FFFFFF", "specExpect": 1.60, "spec": "§4 通道2" },
-    { "id": "P4-品牌浅底失格-4ade80", "fg": "#4ADE80", "bg": "#FFFFFF", "specExpect": 1.74, "spec": "§4 通道2" }
+    { "id": "P4-品牌浅底反证-5DDCFF", "fg": "#5DDCFF", "bg": "#FFFFFF", "specExpect": 1.60, "spec": "§4 通道2 反证：深档品牌值直接落浅底不合格 → 双值变体 token 或迁恒深面，禁当『浅色档接受值』引用" },
+    { "id": "P4-品牌浅底反证-4ade80", "fg": "#4ADE80", "bg": "#FFFFFF", "specExpect": 1.74, "spec": "§4 通道2 反证：#4ade80(--fw-accent 深值)落白底 1.74 → 前景必须走 --fw-accent-text 双档（浅 #15803d@white≈5.02）" }
   ]
 }
 ```
@@ -132,7 +132,7 @@ spec §6.3：全文对比度数字以脚本出表为准；内建 3 组自检向�
 ```js
 #!/usr/bin/env node
 // C8 对比度台账（spec §6.3）：输入 e2e/audit/contrast-pairs.json 配对表 → 输出 markdown 表；
-// 内建 3 组自检向量（21.00 / 4.54 / 2.82），任一偏差 > tolerance 即 exit 1——历轮人工复算同格分歧以此终结。
+// 内建 4 条自检向量（21.00 / 4.54 / 4.48 / 2.82），任一偏差 > tolerance 即 exit 1——历轮人工复算同格分歧以此终结。
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -179,12 +179,12 @@ process.exit(fail ? 1 : 0);
 cd /d/flowweb/apps/web && node scripts/contrast-table.mjs; echo "exit=$?"
 ```
 
-Expected: `exit=0`，自检四行全 ✅（21.00 / 4.54 / **4.48** / 2.82），drift 列全空（drift>0 即 exit 1——在册值核对有牙齿）。**常数仲裁定案（两轮审核翻案的反驳，写入 meta.gamma 防第三轮）**：0.055 是 WCAG 2.x 正式式常数——#767676@white=4.54、#777777@white=4.48 两组公布名值只在 0.055 下成立（0.05 分别给 4.50/4.44）；主张"2.82 系 0.05 产物"的复算组（中间值 0.361453→0.087923）自身算术不自洽（0.361453^2.4≈0.0869 对不上 0.087923，后者恰为 0.05 族中间值 0.3633^2.4≈0.0880），且其"0.05→4.55"实为 4.50。**若你的实现跑出 2.76：channel 常数错植（0.055→0.05），查 selfCheck[1]/[2] 两锚**；实现确认无误而 drift 亮：按脚本值订正 spec 走变更登记——禁止改配对表迁就实现，也禁止改实现迁就 spec。
+Expected: `exit=0`，自检四行全 ✅（21.00 / 4.54 / **4.48** / 2.82），drift 列全空（drift>0 即 exit 1——在册值核对有牙齿）。**常数仲裁定案（写入 meta.gamma 防翻案）**：0.055 是 WCAG 2.x 正式式常数——#767676@white=4.54、#777777@white=4.48 两组公布名值只在 0.055 下成立，自检双锚即判别式；错植指纹两族勿混引（加数错植 (c+0.05)/1.055 族给 2.76/4.63/4.56；除数错植 (c+0.055)/1.05 族给 2.84/4.50/4.44——两族数字不可互串，任一族都过不了双锚）。**若你的实现跑出 2.76：channel 加数错植（0.055→0.05），查 selfCheck[1]/[2] 两锚**；实现确认无误而 drift 亮：按脚本值订正 spec 走变更登记——禁止改配对表迁就实现，也禁止改实现迁就 spec。
 
 - [ ] **Step 4: Commit（含 spec v1.5.1 变更登记）**
 
 ```bash
-cd /d/flowweb && git add apps/web/scripts/contrast-table.mjs apps/web/e2e/audit/contrast-pairs.json apps/web/e2e/audit/contrast-table.md docs/superpowers/specs/2026-09-20-canvas-domain-theme-design.md && git commit -m "feat(web): C8 D0-0 对比度台账脚本 contrast-table.mjs——WCAG 同口径出表 + 3 组自检向量（21.00/4.54/2.82 不过 exit 1，审核期 2.76 负例实证向量有效）+ specExpect/drift 列（在册值机器核对，drift 按脚本值订正走变更登记）；spec v1.5.1 登记：:120 1.55→1.53 订正（内部不一致笔误，§13.5 的 1.53 正确）"
+cd /d/flowweb && git add apps/web/scripts/contrast-table.mjs apps/web/e2e/audit/contrast-pairs.json apps/web/e2e/audit/contrast-table.md docs/superpowers/specs/2026-09-20-canvas-domain-theme-design.md && git commit -m "feat(web): C8 D0-0 对比度台账脚本 contrast-table.mjs——WCAG 同口径出表 + 4 条自检向量（21.00/4.54/4.48/2.82 不过 exit 1，审核期 2.76 负例实证向量有效）+ specExpect/drift 列（在册值机器核对，drift 按脚本值订正走变更登记）；spec v1.5.1 登记：:120 1.55→1.53 订正（内部不一致笔误，§13.5 的 1.53 正确）"
 ```
 
 ---
@@ -197,6 +197,7 @@ spec §6 动作 1/2/3。采集器冻结集扩 `backgroundColor` + 全元素 `col
 - Modify: `apps/web/e2e/a0-collect-baseline.spec.ts`
 - Modify: `apps/web/scripts/css-baseline-diff.mjs`
 - Create: `apps/web/e2e/d-segment-probes.spec.ts`
+- Create（Step 4 产出）: `apps/web/e2e/audit/d0-probe-values.json`
 
 - [ ] **Step 1: 扩采集器属性集（a0-collect-baseline.spec.ts）**
 
@@ -454,7 +455,7 @@ cd /d/flowweb && git add apps/web/e2e/a0-collect-baseline.spec.ts apps/web/scrip
 
 spec §6：before-D 自比自跑一次定 0 噪声——全元素继承色噪声先测预算，非 0 则就地扩分类器白名单并登记，**勿带噪声进 D1a**。
 
-**Files:** 无产品改动（若出噪声：改 `css-baseline-diff.mjs` 分类器 + spec 变更登记）。
+**Files:** 无产品改动（产出：`e2e/audit/d0-noise-report.md`；若出噪声：改 `css-baseline-diff.mjs` 分类器 + spec 变更登记）。
 
 - [ ] **Step 1: 同 HEAD 采两次**
 
@@ -556,7 +557,7 @@ const withHits = (files) => files.filter((f) => COLOR_RE.test(fs.readFileSync(f,
  * 两规则只拦 className 串 hex 与 white/black 类名；style 对象色值、SVG 呈现属性、JSX <style> 块、rgba( 任意值类
  * 全部漏网。styleObjects/svgAttrs/rgbaClasses 是核销清单；contentData（ve store 字幕默认 style:{color:'#FFFFFF'} 等
  * 内容语义色）显式排除——它们不是主题面，核销时勿混勾。 */
-const STYLE_OBJECT_RE = /(?:backgroundColor|color|borderColor|boxShadow|background|outline)\s*:\s*['"`][^'"`]*#[0-9a-fA-F]{3,8}/;
+const STYLE_OBJECT_RE = /(?:backgroundColor|color|borderColor|boxShadow|background|outline)\s*:[^,}]*#[0-9a-fA-F]{3,8}/;
 const SVG_ATTR_RE = /(?:fill|stroke|stopColor)\s*=\s*['"`][^'"`]*#[0-9a-fA-F]{3,8}/;
 const STYLE_BLOCK_RE = /<style[^>]*>[\s\S]*?<\/style>/;
 const RGBA_CLASS_RE = /(?:bg|text|border|ring|divide)-(?:\[[^\]]*rgba?\([^\]]*\])/;
@@ -571,14 +572,14 @@ const registry = {
     task: 'C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）',
     generatedAt: new Date().toISOString(),
     renderWhitelist: RENDER_WHITELIST,
-    notes: '逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是"两条 lint 规则都拦不到"位点的唯一清单产出，量级以脚本产出为准',
+    notes: '逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是"两条 lint 规则都拦不到"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）不匹配盲区正则——由 handwrittenCss 分区+域名清单覆盖',
   },
   partitions: {
     canvasDomain: { files: withHits(canvas).map(rel), totalFiles: canvas.length },
     veDomain: { files: withHits(ve).map(rel), totalFiles: ve.length },
     videosDomain: { files: withHits(videos).map(rel), totalFiles: videos.length },
     externalSingles: { files: extras },
-    componentDomains: { files: withHits(componentDirs.filter(fs.existsSync).flatMap((p) => (fs.statSync(p).isDirectory() ? walk(p) : [p]))).map(rel) },
+    componentDomains: { files: withHits(componentDirs.filter(fs.existsSync).flatMap((p) => (fs.statSync(p).isDirectory() ? stripTests(walk(p)) : [p]))).map(rel) },
     handwrittenCss: { files: cssBlocks },
     tests: { files: tests.map(rel) },
     styleObjects: { sites: partitionBy(blindScope, STYLE_OBJECT_RE) },
@@ -1500,7 +1501,7 @@ body {
 .light .editor-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }
 ```
 
-`PromptInput.css` / `NodeHandle.css` 同法：文件尾追加 `.light` 前缀覆盖组（逐条对照原深值声明：面色→`var(--fw-surface-dim)`/#f0f1f2、边→`var(--fw-border)`、文字→`var(--fw-text)`/dim 阶梯、hover 蒙层→`rgba(0,0,0,0.06)`；`--canvas-handle-*` 消费处直接用 Task 12 ② 的浅值 token，无需覆盖）。每条覆盖在 `canvas-migration-registry.json` adjudications 登记一行（file:line、深值、浅值、裁定依据 P6/通道）。
+`PromptInput.css` / `NodeHandle.css` 同法：文件尾追加 `.light` 前缀覆盖组（逐条对照原深值声明：面色→`var(--fw-surface-dim)`/#f0f1f2、边→`var(--fw-border)`、文字→`var(--fw-text)`/dim 阶梯、hover 蒙层→`rgba(0,0,0,0.06)`；`--canvas-handle-*` 消费处直接用 Task 12 ② 的浅值 token，无需覆盖）。`PromptInput.css:184` `background: #ef4444`（危险色）→ `var(--fw-accent-danger)`（深档 #ef4444 字节等值、浅档自动 #dc2626——index.css:30/:50 既有双档键，非新增）。每条覆盖在 `canvas-migration-registry.json` adjudications 登记一行（file:line、深值、浅值、裁定依据 P6/通道）。
 
 - [ ] **Step 5: b2 registry 死键删除登记 + B0 json 三族重裁定标注**
 
@@ -1627,7 +1628,7 @@ cd /d/flowweb/apps/web && grep -rn "var(--ve-panel)\|var(--ve-text)\|var(--ve-bg
 
 机械替换（深值全等，浅档首次一致）：
 - `var(--ve-panel)` → `var(--fw-surface-dim)`（14 处：AssetPanel:55、EditorTopBar:21、PropertiesPanel:74/:81/:138、PreviewPlayer:79、ClipBlock:88、TimelineRuler:47、TrackRow:33/:53、TimelinePanel:280/:285/:292/:307）
-- `var(--ve-text)` → `var(--fw-text)`（全部命中——**审核实测 .tsx 消费 30 处**，spec/初稿记 34 含 index.css 定义口径，以 grep 实测为准）
+- `var(--ve-text)` → `var(--fw-text)`（全部命中——**实测 .tsx 消费 34 处，与 spec §9.2⑤ 记数一致**：PropertiesPanel 16/PreviewPlayer 7/ExportModal 4/AssetPanel 3/EditorTopBar 3/TrackRow 1；index.css 只有定义无消费——勿再按 30 核销）
 - `var(--ve-bg)` → `var(--fw-bg)`（1 处：VideoEditorShell:134——**若 grep 得 2 处说明 D1a Step 3 漏执行（PreviewPlayer:64 应已换 --ve-preview-base），停手回查**；spec 记 2 处系 D1a 前口径，以实测为准）
 - `var(--vw-card-bg)` → `var(--fw-surface)`、`var(--vw-card-border)` → `var(--fw-overlay-2)`、`var(--vw-card-border-hover)` → `var(--fw-overlay-3)`（VideoCard.tsx 内，以 grep 实测为准）
 
@@ -1880,6 +1881,8 @@ afterAll meta 对象 `...(ANY_LIGHT ? { islandInvarianceProbes: LIGHT_PROBES, fl
 
 - [ ] **Step 4: 像素对账 + 门禁**
 
+参照完整性校验（先于像素对账）：`cd /d/flowweb/apps/web && sha256sum -c e2e/audit/d2-ref-board-dark.sha256`——被 `--update-snapshots` 覆盖会即时红（固化指纹的目的即在此）。
+
 ```bash
 cd /d/flowweb/apps/web && npx playwright test e2e/d2-board-pixeldiff.spec.ts && npx playwright test e2e/c0-theme.spec.ts e2e/d-segment-probes.spec.ts e2e/b0-token-blocks.spec.ts && npx vitest run
 ```
@@ -1889,7 +1892,7 @@ Expected: 深档像素 0 diff（参照=Step 1 落的 D1b 快照）；浅档 xy �
 - [ ] **Step 5: commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/e2e/a0-collect-baseline.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts-snapshots/ && git commit -m "feat(web): C8 D2 colorMode 翻转——CanvasView colorMode={mode}(唯一 useTheme 例外)+板底 bg-[var(--canvas-board-bg)] 留 utility 层+网格点 var(--canvas-board-dot) 代换+镜像断言防常量化/防补岛+a0:221 探针改视觉真值 probeFlip+D 段探针翻浅；深档像素 0 diff 实证(d2-board-pixeldiff maxDiffPixels:0×D1b 参照)+浅档 --xy-* 复测登记"
+cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/e2e/a0-collect-baseline.spec.ts apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts apps/web/e2e/d2-board-pixeldiff.spec.ts-snapshots/ apps/web/e2e/audit/d2-ref-board-dark.png apps/web/e2e/audit/d2-ref-board-dark.sha256 && git commit -m "feat(web): C8 D2 colorMode 翻转——CanvasView colorMode={mode}(唯一 useTheme 例外)+板底 bg-[var(--canvas-board-bg)] 留 utility 层+网格点 var(--canvas-board-dot) 代换+镜像断言防常量化/防补岛+a0:221 探针改视觉真值 probeFlip+D 段探针翻浅；深档像素 0 diff 实证(d2-board-pixeldiff maxDiffPixels:0×D1b 参照)+浅档 --xy-* 复测登记"
 ```
 
 ---
@@ -1985,7 +1988,7 @@ Expected: 全绿；diff=已登记配对吸收 + unexpected=0。清理 segcheck �
 - [ ] **Step 5: commit（与 Task 17 连续收口完成，板面批次即 D3-画板紧接开工）**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/index.css apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/audit/canvas-migration-registry.json && git commit -m "feat(web): C8 D2 收口——selection 钉值规则级裁定(同类元素探针两档基准→撤钉对照+:207-208 一并考察，结论+目检证据登记)+render 计数性能探针提前落 D2(mock 真实 TextNode+双向断言)+ProcessSnapshot 内容域不变式登记+D2 段验收 diff 全配对；D2↔D3 板面批次连续收口纪律生效"
+cd /d/flowweb && git add apps/web/src/index.css apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx apps/web/e2e/d-segment-probes.spec.ts apps/web/e2e/audit/canvas-migration-registry.json && git commit -m "feat(web): C8 D2 收口——selection 钉值规则级裁定(同类元素探针两档基准→撤钉对照+:207-208 一并考察，结论+目检证据登记)+render 计数性能探针提前落 D2(mock 真实 TextInputNode+双向断言)+ProcessSnapshot 内容域不变式登记+D2 段验收 diff 全配对；D2↔D3 板面批次连续收口纪律生效"
 ```
 
 ---
@@ -2012,7 +2015,7 @@ const THEME_UTILITY_RE =
   /(?:^|[\s"'`])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|border|ring|divide|fill|stroke|from|via|to)-(?:white|black)(?:\/\d{1,3})?(?=$|[\s"'`])/u;
 ```
 
-② 白名单升级为「目录条目（string=全属性族放行）+ 精确文件条目（{glob, allow:['bg',...]}）」双形态——**现状 18 条一条不丢**（14 目录 + 4 精确文件，其中 CreateCanvasCard/TeamDetail 两条必须补回为精确条目，否则升级即红）：
+② 白名单升级为「目录条目（string=全属性族放行）+ 精确文件条目（{glob, allow:['bg',...]}）」双形态——**现状 17 条一条不丢**（9 目录 + 8 单文件 string：岛 4 条 AuthModal/PhoneLoginForm/LoginModal/WeChatQRLogin 维持 string 全放行，跟随域 4 条 TopActionBar/CanvasTopBar/CreateCanvasCard/TeamDetail 升级为 {glob,allow} 对象形态——少一条即升级后全仓红）：
 
 ```js
 export const THEME_UTILITY_WHITELIST = [
@@ -2034,7 +2037,7 @@ export const THEME_UTILITY_WHITELIST = [
   // —— 精确文件+属性族（现状 4 条随升级改对象形态；allow 语义=该属性族放行、其余仍拦）——
   { glob: 'src/components/layout/TopActionBar.tsx', allow: ['bg', 'text'] },       // 登录钮 bg-white/text-black（#9 反白 CTA）
   { glob: 'src/pages/canvas/components/CanvasTopBar.tsx', allow: ['text'] },        // 档位徽章 text-black（#6 黑字随底）
-  { glob: 'src/pages/home/components/CreateCanvasCard.tsx', allow: ['text'] },      // 黑字随底（升级前整文件条目，勿丢）
+  { glob: 'src/pages/home/components/CreateCanvasCard.tsx', allow: ['bg', 'text'] }, // :30 bg-white 白盒 + :32 text-black 加号（#9 反白 CTA 族——allow 必须 grep 属性族定，禁按语义描述直写）
   { glob: 'src/pages/team/TeamDetail.tsx', allow: ['text'] },                      // 同上
   // —— C8 新增精确条目 ——
   { glob: 'src/pages/canvas/components/CreditsDropdown.tsx', allow: ['bg'] },       // :267 邀请卡 bg-white（P5 通道 3 明文保留）
@@ -2065,6 +2068,7 @@ function whitelistAllowFor(filePath) {
 
 ```js
 // 全局扫描形态：g 标志 + lookaround 边界（(?:^|[\s"']) 在 matchAll 下会吃掉一个字符致相邻 token 漏匹配）
+// ⚠ 与 THEME_UTILITY_RE 两式必须同步修改（家族集/边界/变体前缀任一差异 = familiesOf 与 scanner 判定分叉）；fixture ④ 变体形态用例守此
 const GLOBAL_THEME_UTILITY_RE = /(?<![\w-])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|border|ring|divide|fill|stroke|from|via|to)-(?:white|black)(?:\/\d{1,3})?(?![\w-])/gu;
 
 /** 收集节点串内全部匹配的属性族（Literal 单串；TemplateLiteral 逐 quasi cooked——String(node.value) 对其恒 ''） */
@@ -2104,6 +2108,8 @@ const familiesOf = (node) => {
     //    code 含 'bg-white hover:text-black'（两家族都在 allow → 0 报）与 'border-white'（超出 → 1 报）——
     //    守"首个匹配在 allow 不能放行同串真违例"（N1 回归钩）
     // ③ 模板串逐 quasi：同 filename，code=`className={\`bg-white ${x} border-white\`}` → 1 报（border 超出）
+    // ④ 变体/important 形态双式一致：filename 不在白名单，code='hover:!bg-white md:text-black' → 2 报
+    //    （非全局式须报出两个 token；GLOBAL 式 familiesOf 须提取出 ['bg','text']——任一式漏变体前缀/! 形态即报数不对）
 ```
 
 断言 message.id 与命中数（Linter.verify 直出）。跑 `node scripts/lint-gate.mjs` 确认全仓无新红。
@@ -2114,7 +2120,7 @@ const familiesOf = (node) => {
 cd /d/flowweb/apps/web && node scripts/lint-gate.mjs
 ```
 
-预期目录白名单外新增红 ≈25 处（bg 18+text 7；**以脚本产出为准**）。逐条裁定（每条登记 registry whitelistKeeps 或直接迁移）：
+预期目录白名单外新增红 ≈25 处（bg 18+text 7；**以脚本产出为准**）。**红的处置纪律**：每条红必须先 grep 该文件的九族属性（`bg-white|text-black` 等全族）再定 allow——语义描述与属性族不一一对应（CreateCanvasCard"黑字随底"却含 bg-white 即活例），禁按语义描述直写 allow。逐条裁定（每条登记 registry whitelistKeeps 或直接迁移）：
 - **token 化**：跟随域 chrome 上的 `text-white`→`text-text`/`text-on-accent`、`bg-white/NN`→`bg-overlay-N`（B2 同款五通道映射）；
 - **通道 3 合法面精确豁免**：中性 scrim（`bg-black/50` canvas/page.tsx:313、`bg-black/60` BaseFullscreenModal.tsx:70 等）与白卡面 → 加 `{glob, allow:['bg']}` 条目+理由；
 - **通道 4 内容面**：媒体垫底 `bg-black` → 保留字面+精确豁免（内容承载）。
@@ -2165,13 +2171,16 @@ spec §11.2 P3 专项 + E 表（两个全屏查看器恒深废止/O6② 死类�
 
 **承重约束（审核 D2 拍板 (a) 附加，违者布局碎）**：① 新媒体容器**不得加 absolute/relative/overflow-hidden**——PlayView 根是 `absolute inset-0`，包含块现为壳根 fixed，加定位会改几何与裁切；② `min-h-0` 必须保留（高度靠壳 flex 撑开）；③ **浅色档可见变化≈0 属预期**（画面容器恒黑、PlayView UI 压画面恒深，浅档仅外层框与轮播卡变化）——B6 目检防误判，登记 spec §13 已知接受（报告 D1 裁定 (a)+(c)：CarouselBar 与页面级 chrome 算跟随域，PlayView 压画面 UI 恒深）。`close-btn` :80 的 `bg-[rgba(50,50,50,0.45)]` 若压画面=第四通道保留，若在 chrome 区→token 化；以目检判定并登记。
 
+**同层兄弟垫底方案已裁定否决**（第四轮审核提议：壳根首子 `absolute inset-0 z-0 bg-black` 垫底、不新增祖先层）：全屏黑底会压住壳根 bg-bg 自身——浅色档 chrome 跟随失效（P3 ②"画面外 chrome 双值化"的前提是媒体深底**有界**，flex-1 嵌套容器才是视觉正确解；静态定位的 CarouselBar 还会绘于 z-0 垫底之下）。**采集键集零影响的真实依据**：VideoPlayerModal 经 VideosPage.tsx:70 在 /videos 列表页同样挂载，零 DOM 的唯一理由是 :49 `if (!id || !detail) return null` 早退（采集器遍历 body 全域、portal 弹层本在采集范围——"portal 不算"/"只在详情路由渲染"都不是理由）；该前提由 Step 4 新增的 count=0 断言机械守卫（有人给详情加载加骨架屏时红，提醒 D 段基线影响），采集 videos 页的 dom: 键集在 Task 22 segcheck 配对闸另有兜底。
+
 - [ ] **Step 2: 域内 chrome 迁移（四通道逐条）+ 状态分支字面清单（M2）**
 
 按 registry `videosDomain.files` 清单核销，机械配方：
 - chrome 面/字/边 → `bg-bg`/`bg-surface`/`text-text`/`border-overlay-2` 等 token 工具类；
 - **压画面浮层恒定**（第四通道）：PlayView:69/:83 `from-black` scrim、`text-white/90`、`bg-black/70` 时长条——保留字面；
 - `VideoCard` 封面占位底 `#262626`（:16）保留（P6 内容垫底；a0:200 探针持续 rgb(38,38,38)）；
-- `CarouselBar`/`ProcessView` chrome 部分迁移（ProcessSnapshot **整块不动**）。
+- `CarouselBar`/`ProcessView` chrome 部分迁移（ProcessSnapshot **整块不动**）；
+- **accent 字面前景点位（第四轮审核清单，本域实测两处）**：`ProcessView.tsx:62` `bg-[#4ade80] text-[#111]`「打开画布」钮（chrome）→ 品牌通道 token（底 `bg-[var(--fw-accent)]`/字 `text-[var(--fw-on-accent)]` 或既有工具类——--fw-accent 两档同值 #4ade80，深档字节等值零 diff）；`PlayView.tsx:104` 点赞钮（`bg-[#2f2f2f]` 深药丸压画面，liked `text-[#4ade80]`/常态 text-white）→ 按第四通道**保留恒深**（深药丸上绿/白两态两档均成立），登记 adjudications。
 - **状态分支字面清单（M2——gate fixture 恒有数据，空态/错误态/加载态不在门禁渲染路径上）**：`grep -n "bg-white\|text-white" src/pages/videos/VideosPage.tsx src/pages/videos/ProcessView.tsx` 逐条裁定（VideosPage:53 bg-white/5、:56/:58 text-white/40 空态；ProcessView:45/:67/:69/:71）——空态白系字面浅档=白字白底不可见，随本域迁移并列入 B6 必看项。
 
 每条登记 registry adjudications（file:line/通道/值）。
@@ -2203,6 +2212,8 @@ test('G8 ②videos 壳跟随域（C8 D3 反转）：html.light 下壳根无 dark
 });
 ```
 
+② 补充（同用例末尾追加，G8② 代码块 closing 前后均可）：`await page.goto('/videos'); await expect(page.locator('[data-vw-shell]')).toHaveCount(0);`——**采集键集零影响前提的机械守卫**（VideosPage:70 挂载但 :49 早退零 DOM；此断言红=有人改了早退逻辑（如加骨架屏），D 段基线影响须重评）。
+
 ③ G8③（:556-579）重写：壳岛废止后「html.light × 壳浅 × 壳内 LoginModal 浅」同色双层——保留 LoginModal 岛断言（islandLight 命中 + #f7f8fa），壳半断言改"壳根同为浅值"（双浅对照），删"双岛相反"叙事（G8③ 语义随 E 表消亡）。④ c0 文件头组2/组8 注释与 G7 videos 叙事（:379/:445 注释）同步改写。
 
 - [ ] **Step 5: 白名单摘除（本域原子）+ 门禁 + commit**
@@ -2211,7 +2222,7 @@ test('G8 ②videos 壳跟随域（C8 D3 反转）：html.light 下壳根无 dark
 
 ```bash
 cd /d/flowweb/apps/web && npx playwright test && npx vitest run && node scripts/lint-gate.mjs
-cd /d/flowweb && git add apps/web/src/pages/videos/ apps/web/src/components/BaseFullscreenModal.tsx apps/web/src/pages/canvas/components/nodes/ apps/web/e2e/c0-theme.spec.ts apps/web/scripts/eslint-rules/no-theme-utility.js apps/web/e2e/audit/ && git commit -m "feat(web): C8 D3-videos 播放壳域原子对——viewer 逐元素裁定表(M5 含 Image:145 #0A0A0A)+DOM 拆分(画面垫底独立+三条承重约束/壳根删 dark 类 chrome 化/浅档可见变化≈0 登记已知接受)+PlayView/ProcessView/CarouselBar/VideoCard 四通道迁移+空态白系清单(M2)+全屏查看器跟随+O6② b3DeadClassDisposal 落值双主题化(b2:1136 域规则撤销+档名/计数订正)+G8②③ 反转+videos 白名单摘除同 commit 补精确条目(net -1)；采集键集零影响实证：VideoPlayerModal 只在 /videos/:id 详情路由渲染、不在 8 采集页(采集 videos 页=/videos 列表)，DOM 拆分不触碰 stableKey——此注记不得援引为采集页内结构改动的先例(采集页内层级增删=dom: 键漂移=配对闸必红)"
+cd /d/flowweb && git add apps/web/src/pages/videos/ apps/web/src/components/BaseFullscreenModal.tsx apps/web/src/pages/canvas/components/nodes/ apps/web/e2e/c0-theme.spec.ts apps/web/scripts/eslint-rules/no-theme-utility.js apps/web/e2e/audit/ && git commit -m "feat(web): C8 D3-videos 播放壳域原子对——viewer 逐元素裁定表(M5 含 Image:145 #0A0A0A)+DOM 拆分(画面垫底独立+三条承重约束/壳根删 dark 类 chrome 化/浅档可见变化≈0 登记已知接受)+PlayView/ProcessView/CarouselBar/VideoCard 四通道迁移+空态白系清单(M2)+全屏查看器跟随+O6② b3DeadClassDisposal 落值双主题化(b2:1136 域规则撤销+档名/计数订正)+G8②③ 反转+videos 白名单摘除同 commit 补精确条目(net -1)；采集键集零影响依据=VideosPage:70 挂载但 :49 早退零 DOM(非"只在详情路由渲染"；采集器遍历 body 全域)，前提由 /videos 列表 count=0 断言机械守卫+Task 22 segcheck 配对闸兜底——此注记不得援引为采集页内结构改动的先例(采集页内层级增删=dom: 键漂移=配对闸必红)"
 ```
 
 ---
@@ -2231,7 +2242,7 @@ cd /d/flowweb && git add apps/web/src/pages/videos/ apps/web/src/components/Base
 
 - [ ] **Step 2: 域内字面核销（registry veDomain.files，8 源文件）**
 
-grep 逐条按四通道裁定（chrome→--fw-*；内容承载→恒值键/字面；品牌紫→--ve-accent(-text) 档位；hover 提亮 `hover:text-white`（PreviewPlayer:91-:99）→ `hover:text-text` 浅档语义等价）。代表例：`PreviewPlayer.tsx:91` `hover:text-white` → `hover:text-text`；`ExportModal.tsx:245` `text-white`（填充钮白字）→ `text-on-accent`（深 #141414=--fw-on-accent 深值字节等值，浅档同值——**先查 on-accent 两档同 #141414 ✓ 零 diff**）。**消费 registry 盲区三分区**：ve 域命中的 `inlineStyle`/`rgbaClasses` 位点逐行核销（两 lint 规则都拦不到，清单是唯一核销依据）。逐条登记 adjudications。
+grep 逐条按四通道裁定（chrome→--fw-*；内容承载→恒值键/字面；品牌紫→--ve-accent(-text) 档位；hover 提亮 `hover:text-white`（PreviewPlayer:91-:99）→ `hover:text-text` 浅档语义等价）。代表例：`PreviewPlayer.tsx:91` `hover:text-white` → `hover:text-text`；`ExportModal.tsx:245` `text-white`（填充钮白字）→ `text-on-accent`（深 #141414=--fw-on-accent 深值字节等值，浅档同值——**先查 on-accent 两档同 #141414 ✓ 零 diff**）。**消费 registry 盲区四分区**：ve 域命中的 `styleObjects`/`rgbaClasses` 位点逐行核销（两 lint 规则都拦不到，清单是唯一核销依据）。逐条登记 adjudications。
 
 - [ ] **Step 3: 断言反转（同 commit）**
 
@@ -2323,8 +2334,10 @@ differExpectedPairs 登记（深档有意变更）：`backgroundColor rgb(255,25
 机械配方（每条登记 adjudications）：
 - **节点卡 chrome**（ImageGen/Video/MultiImage/TextInput/Text/Storyboard 8 类卡壳）：白卡面/字/边 → `bg-surface`/`text-text`/`border-overlay-2`（深档白→深=P4 级有意变更，逐卡配对登记）；**TextInputNode 文本节点=内容容器整体跟随**（P6 判据"否"分支，浅色下变浅否则违背需求）；VideoEditNode `:170` 非 disabled 分支 `text-[#C9CDD4]` 与 `:179` `disabled:text-[#C9CDD4]` 分别落 `text-text-dim-2`/`disabled:text-text-dim-2`（禁用态色同键同改）；
 - **媒体容器 checklist**（机械检查项）：`grep -rn "<img\|<video" src/pages/canvas/components/nodes/` 祖先链逐个核——每个媒体容器自持深底（透明 PNG/未加载/poster 未到不露浅底）；
-- **悬浮工具条 6 个 + 底部面板 + CanvasToolbar**：只迁移**仍在用字面 `rgb(38,38,38)` 的位点**；**已 token 化的 19 处 --canvas-controls-* 消费（VideoHDPanel 8、VideoNodeToolbar 5+1、VideoTrimPanel 3、AssetPanel 3-hover）保持 token 消费不二次改写**（D1a 双值化即已翻转；D3 再改 bg-surface-dim 是第二次改写——深档字节等值但与"一处变更一条登记"撞车、registry 会出同位点两条裁定）。**CanvasToolbar.tsx 自身四处**：`:15 BTN_BG rgb(38,38,38)`→`var(--fw-surface-dim)`、`:16 BTN_BG_ACTIVE rgb(58,58,58)`→**#3a3a3a 族 A 组第 6 处（与 :130/:138/:144 三条测试断言同键一次改齐，漏则断言指向未改源）**、`:51 容器 border rgb(54,54,54)`→`var(--canvas-controls-border)`、`:44 .tb-btn:hover rgb(78,78,78) !important`→**先拆 !important 再落 `var(--fw-overlay-2)`**（合成值不等值=有意变更登记 pairs）；`:91 顶部"画板域恒深"注释同 commit 订正。CanvasToolbar.test 断言随改：**`rgb(38,38,38)` 4 条（:92/:128/:136/:146）+ `rgb(58,58,58)` 3 条（:130/:138/:144）**；
+- **悬浮工具条 6 个 + 底部面板 + CanvasToolbar**：只迁移**仍在用字面 `rgb(38,38,38)` 的位点**；**已 token 化的 19 处 --canvas-controls-* 消费（VideoHDPanel 8、VideoNodeToolbar 5+1、VideoTrimPanel 3、AssetPanel 3-hover）保持 token 消费不二次改写**（D1a 双值化即已翻转；D3 再改 bg-surface-dim 是第二次改写——深档字节等值但与"一处变更一条登记"撞车、registry 会出同位点两条裁定）。**CanvasToolbar.tsx 自身四处**：`:15 BTN_BG rgb(38,38,38)`→`var(--fw-surface-dim)`、`:16 BTN_BG_ACTIVE rgb(58,58,58)`→**#3a3a3a 族 A 组第 6 处（与 :130/:138/:144 三条测试断言同键一次改齐，漏则断言指向未改源）**、`:51 容器 border rgb(54,54,54)`→`var(--canvas-controls-border)`、`:44 .tb-btn:hover rgb(78,78,78) !important`→**保留 !important 只换色值 `var(--fw-overlay-2)`**（优先级承重：BTN_BG/BTN_BG_ACTIVE 是 inline style，拆 !important 则 hover 被内联底色压过=悬停反馈整体消失；hover 态不进 differ 快照，有意变更登记 adjudications）；`:91 顶部"画板域恒深"注释同 commit 订正。CanvasToolbar.test 断言随改：**`rgb(38,38,38)` 4 条（:92/:128/:136/:146）+ `rgb(58,58,58)` 3 条（:130/:138/:144）**；
 - **白系 alpha className 族（M1）**：`hover:bg-[rgba(255,255,255,0.08)]` 等（AnnotationToolbar:135/:170、EraseBottomToolbar:123/:129、EditToolbar:131/:155/:370 + 常量 EditToolbar:95/:128、AnnotationToolbar:111、TransformToolbar:58/:59）→ `hover:bg-overlay-2` 族双值化——registry rgbaClasses 分区逐行核销 + 1-2 条 hover/active computed 探针（浅色档 hover 无反馈=功能性不可辨）；**JSX 内联 `<style>` 块 6 文件（M4）**：CanvasToolbar:24（含 `.tb-btn:hover rgb(78,78,78) !important` 会顶掉 token hover——先拆 !important）、EditToolbar:349、ImageNodeToolbar:430、TransformToolbar:139、ImageFullscreenViewer:130、VideoFullscreenViewer:90——registry styleBlocks 分区逐文件裁定（tooltip 底/hover/scrollbar-thumb）；
+- **svgAttrs 分区核销（盲区四分区之二，建而有消费者）**：nodes/edges/groups 域命中的 SVG 呈现属性位点（fill=/stroke= 字面）逐行裁定——字面恒定项（GridIcon #6C5CE7 双档达标等）登记 adjudications、双值项落 JS 分支取色（SVG 属性禁 var()，spec §11.1 通则）；
+- **accent/危险色字面前景核销（第四轮审核清单）**：`grep -rn "#4ade80\|#ef4444" src/pages/canvas/ src/components/MaterialLibrary/` 逐条裁定（实测在册：**CanvasView:456** `color: enabled ? '#4ade80' : '#fff'` 分组索引钮——**两分支都需主题化**（enabled→`var(--fw-accent-text)`、'#fff'→`var(--fw-text-dim-3)`），浅档白字白底=功能性不可见；**GridSizeDropdown:121** `background: executing ? '#333' : '#4ade80'` + `color:'#000'` 三元同类；**AudioConfigPanel:249/TextConfigPanel:249/VideoConfigPanel:415** listening 态 `bg-white/20 text-[#4ade80]`——bg-white/20 同时是九族命中位（nodes 白名单摘除后 lint 必红），迁 overlay/accent-text 或按宿主底裁定；**ConnectionLine:111** `hover:bg-[#ef4444]` → `hover:bg-[var(--fw-accent-danger)]`（index.css:30/:50 双档键既有，深档字节等值）；**ConfirmModal:33** danger 映射表（inline style）按对比度实测裁定 var(--fw-accent-danger) 或双档同值保留；MaterialLibraryModal.css:78 系注释非位点。⚠ 审核报告所列 ClipBlock:70/:78 经 grep **零命中不存在**，勿按图索骥）；
 - **selectionTokens.ts 4 处 + StoryboardGroupRenderer #333 组边框/#fffff0 分镜格**：交互可视性双主题值 + 两态可见性实测断言（StoryboardGroupRenderer.test:92/101 改双主题可见性断言，防浅色下选中框消失）。**`--xy-selection-*` 全仓零消费——不列迁移项**（selection 钉值已由 Task 18 D-7 规则级探针+裁定覆盖，初稿两处指涉同一件事）；
 - **#3a3a3a 族**（spec §11.1 分组）：A 组 size-7 图标钮 ×5（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467）**+ CanvasToolbar.tsx:16 BTN_BG_ACTIVE（第 6 处）**同键一次改齐（按钮面 → surface-dim 系）；B 组 tooltip 底 ×2（GenerateCountSelector:30/VideoConfigPanel:432）同键一次改齐（**翻浅后其上 text-white 需同步改 text-text=P7 应用**）；C-F 四处按语义各自裁定勿塌键（C=MultiImageNode:292 徽章、D=TextNodeToolbar:228 文本节点默认底【内容容器】、E=TextNodeToolbar:239 划线色板、F=AudioWaveform:272 波形基线）；3 条测试断言同 commit（AudioConfigPanel.test:99 class*= 正则形态、VideoHDPanel.test:73）；**groups 域深面浮层点名**（浅色档防"深色小岛"）：GridSizeDropdown:24/:60、AspectRatioDropdown:43、SelectionBoxOverlay:93、StitchButton:161、NormalGroupRenderer:81（`#1a1a1a` 族菜单/条）——随本批 chrome 化；
 - **MiniMap 内联 JS 色双值化**（CanvasView.tsx:384-394）：`style.backgroundColor 'rgb(50,50,50)'/'rgb(70,70,70)'` 走 `var(--canvas-controls-bg)/var(--canvas-controls-border)`（style 属性 var() 安全）；**nodeColor 是函数 prop 落 SVG 属性——禁 var()，直接 JS 分支取色**（CanvasView 已有 mode）：`nodeColor={() => (mode === 'dark' ? 'rgb(160, 160, 160)' : 'rgb(107, 114, 128)')}`；`maskColor rgba(0,0,0,0.35)` 中性遮罩保留；
@@ -2373,6 +2386,8 @@ CanvasTopBar 三处（:129/:143/:147）**+ ProjectTitle.tsx:64 第 4 枚**（逐
 - `:230/:254` 白系选中环/分隔线 → `var(--fw-overlay-3)`/`var(--fw-border)`；
 - `:135/:170` 白系 hover → `var(--fw-overlay-2)`；
 - `COLOR_PRESETS` 含 `#000000` 黑笔**保留**（P6：用户在浅色主题下选黑笔=用户选择，显式登记）。
+
+accent 字面收尾（本域一处）：`CanvasTopBar.tsx:175` `hover:bg-[#4ade80]/10`——10% 绿晕深/浅底均成立，倾向**保留字面**（双主题中性 alpha，通道 3 同类）或迁 `hover:bg-accent/10`（须先证 bg-accent 工具类存在，禁造斜杠 var 形态）；前景 text-accent-text 已 token 化勿动；裁定登记 adjudications。
 
 全部 inline style（:111/:135/:161/:170/:187/:199/:211/:230/:305/:317/:332）——no-theme-utility/no-color-hex 双规则都拦不到 style 对象，**逐行核销 registry `styleObjects` 分区显式清单**（Task 5 盲区四分区之一，spec §11.1），核销靠清单+B6 目检。
 
@@ -2426,7 +2441,7 @@ D3 全程新增可见边框（border-width 0→N）位点：每处必须同时�
 
 - [ ] **Step 3: D3 完成判据三源核销（differ exit 0 ≠ 完成，spec §11.1）**
 
-① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据，**盲区三分区 inlineStyle/styleBlocks/rgbaClasses 逐行勾**）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（重键口径 lint-gate.mjs:139）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。
+① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据，**盲区四分区 styleObjects/svgAttrs/styleBlocks/rgbaClasses 逐行勾**）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（重键口径 lint-gate.mjs:139）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。
 
 - [ ] **Step 4: commit**
 
@@ -2478,7 +2493,7 @@ cd /d/flowweb && git add apps/web/e2e/ docs/superpowers/specs/ && git commit -m 
 
 - [ ] **Step 1: 性能实测①——render 计数复验（探针已落 D2，此处复跑取证）**
 
-`CanvasView.theme-perf.test.tsx` 已于 Task 18 建立（mock 真实 TextNode + 双向断言——**nodeTypes 是 CanvasView 内部常量无法注入 counting 类型，故走组件 mock 路线**）。D3 迁移完成后复跑一次确认仍绿（D3 曾大面积改节点组件，防性能回归）：
+`CanvasView.theme-perf.test.tsx` 已于 Task 18 建立（mock 真实 TextInputNode + 双向断言——**nodeTypes 是 CanvasView 内部常量无法注入 counting 类型，故走组件 mock 路线**）。D3 迁移完成后复跑一次确认仍绿（D3 曾大面积改节点组件，防性能回归）：
 
 ```bash
 cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.theme-perf.test.tsx
