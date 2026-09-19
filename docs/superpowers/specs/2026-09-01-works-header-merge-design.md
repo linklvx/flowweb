@@ -3,6 +3,8 @@
 日期：2026-09-01
 范围：`/works` 工作空间页头部布局与视觉换皮。**仅 UI 层，不改业务逻辑。**
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文 preflight:false 相关约束仅存历史档。
+
 ## 一、背景与目标
 
 现状 `/works` 页：`WorkspaceTabBar`（个人/团队项目 tabs）与 `WorkspaceToolbar`（搜索/筛选/视图切换/新建文件夹）是上下两行，且分属不同组件层级（TabBar 在 Page 层，Toolbar 在 Dimension 层）。

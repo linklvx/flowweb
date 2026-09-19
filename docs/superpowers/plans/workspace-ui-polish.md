@@ -1,5 +1,7 @@
 # Plan: 工作空间 UI 微调（第二轮视觉打磨）
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文相关表述仅存历史档。
+
 日期：2026-09-01
 Spec: [2026-09-01-workspace-ui-polish-design.md](../specs/2026-09-01-workspace-ui-polish-design.md)（已确认）
 约束：纯前端 UI；TDD 红-绿-重构；每任务独立 commit

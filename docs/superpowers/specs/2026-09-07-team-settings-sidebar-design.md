@@ -167,5 +167,6 @@ interface TeamState {
 ## 10. 实现注意事项
 
 - Tailwind preflight:false 三坑：卡片定宽+padding 显式 `box-border`；边框必须显式 border-style（index.css 无全局兜底；等价写法二选一：`border-solid` 类或 Sidebar.tsx:64 先例 `[border-right-style:solid]` 任意值类，全文件统一其一）；`<button>` 做卡片自带 `bg-transparent border-none text-left w-full cursor-pointer`（项目先例：AnnouncementBar/Sidebar 均手写此组重置）
+  > 【已废止 2026-09-19】"preflight:false 三坑"已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地，三坑由 base 层接管）；本条仅存历史档。
 - TeamDetail 内聚后，TeamPage.tsx 预计缩为布局壳 + createModal；新文件：`stores/teamStore.ts`、`pages/team/TeamSidebar.tsx`、`pages/team/TeamDetail.tsx`
 - 不做向后兼容防护（开发测试阶段无用户数据）

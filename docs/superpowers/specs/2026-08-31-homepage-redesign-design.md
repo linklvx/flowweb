@@ -89,6 +89,7 @@ export const router = createBrowserRouter([
 - 套布局的 7 个页面逐页删除自带外壳（`min-h-screen bg-[#0f0f0f]`、`max-w-[1640px] px-[120px]` 等），否则双层背景/错位；SettingsLayout 只删 Navbar，保留内部三级 nav
 - **index.css**：body 背景 `#0f0f0f` → `#141414`（边缘过滚露色），字体栈补 `'Helvetica Neue', Arial`（对齐 9.2）
 - **preflight 已关闭**（tailwind.config `corePlugins.preflight: false`）：浏览器原生 button 边框/背景、img inline 不会被重置——所有新 button 显式 `border-none cursor-pointer`，Logo/二维码 img 加 `block`
+  > 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
 
 ## 3. 前端组件设计
 

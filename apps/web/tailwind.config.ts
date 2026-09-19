@@ -8,6 +8,7 @@ import type { Config } from 'tailwindcss';
  * 会硬压岛内同属性工具类——误用可见；'selector' (:where(.dark,.dark *) (0,1,0)) 则让误用静默。仓库 dark: 变体 0 处；.light 类名源码无占用，
  * 但 @xyflow/react 的 ReactFlow wrapper 运行时默认挂 light 类（dist esm index.mjs:3598/3606）——CanvasView 已钉 colorMode="dark"
  * 消除撞名（实测视觉零差，见 A2 修复记录），ProcessSnapshot 本就 colorMode="dark"。
+ * 三条级联事实（工具类同特异性后序胜 base / .light 块源序决胜 / dark: 变体 :is(.dark*)=(0,2,0)）论证见 spec §0.3-5/6/7。
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],

@@ -6,6 +6,8 @@
 
 范围：`apps/web/src/pages/videos/` 全部 5 文件 + `apps/web/src/index.css`（CSS 变量 + R3 限定 reset）。
 
+> 【已废止 2026-09-19】下表"preflight:false 下 UA border/padding 失真几何"前提已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文相关表述仅存历史档。
+
 ## 根因总表（浏览器实测 + 源码核验）
 
 | # | 问题 | 根因 |

@@ -43,6 +43,8 @@
 | 文档中心 | text-[13px] | `text-sm` + h-9 对齐 |
 | hover/active 色 | `#1e1e1e` / `#262626` | **保留不动**（未被要求，精准修改） |
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；上表"preflight:false 无全局兜底"及 box-border 补偿裁定仅存历史档。
+
 ## 4. 状态与持久化
 
 - 状态内聚于 `Sidebar.tsx`：`useState` 惰性初始化读取 localStorage，切换时同步写入

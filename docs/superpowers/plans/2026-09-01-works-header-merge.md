@@ -19,6 +19,8 @@
 | Lint | `cd D:/flowweb/apps/web && pnpm lint` |
 | 类型检查 | `cd D:/flowweb/apps/web && pnpm exec tsc -b` |
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本节仅存历史档。
+
 **关键约束（preflight: false 专项）：**
 - 原生 `<button>` 必须带 `border-none bg-transparent`（或等价）压掉浏览器 UA 默认 `border: 2px outset` 与灰背景
 - 激活态 `border-b-2` 只设 width 不设 style，UA 默认 `border-style: outset` 下白色下边框与 solid 视觉差异极小——现状 TabBar 即此模式（既有行为，不在本次范围，仅标注）

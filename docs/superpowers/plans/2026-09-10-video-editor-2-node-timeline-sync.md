@@ -6,6 +6,8 @@
 
 **Architecture:** spec v3.6（docs/superpowers/specs/video-editor.md）附录 B 阶段 2+3+4。前端 monorepo apps/web（React18 + TS strict + zustand4 + antd5 + Tailwind preflight:false + @xyflow/react + Yjs/Hocuspocus 协作）。timeline 纯函数为 TDD 主战场（帧整数真相/浮点纪律/可测性红线——组件只绑 pointer 事件）；编辑器数据走 Prisma PATCH 通道不进画布 Yjs store；auto 边是唯一进 Yjs 的剪辑器痕迹，独立 origin（AutoEdge）隔离撤销栈。
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
+
 **Tech Stack:** 既有栈零新依赖（mediabunny 等已装，本 plan 不用）；Plan 1 后端 8 端点已就绪。
 
 > **R1 轮审核修订（2026-09-10）**：采纳 P0-3（吸附等距用例重写）/P0-4 部分（Task 6 mk() 类型修复 + Task 17 补 tsc -b——vitest esbuild 不查类型）/P1-1（canvasStore.test 补 vi.mock）/P1-2（isShadowOnlyEvents 测试改 hit 末值 + 事件形状固化用例，删"以测试为准"免责）/P1-3（跨轨拖动落地实现 + 键盘挂载点定死 TimelinePanel）/P2-2（团队素材占位 + drop handler 归属上提）/P2-3（deleteTransformNode 登记）。**驳回**：P0-1 修法（Δ=-100 时 duration=10-(-100)=110 随左拉增大，非审核算的 -90——负 duration 在 Δ>0 侧且 maxDelta 已防；审核 Math.max(sourceLimit, MIN_FRAME_SEC-duration) 会错误限制 sourceStart 富余片段的左拉）；P0-2 判定（实现与测试是同一浮点表达式位级相等，toBe 必过；仍改 toBeCloseTo 作防御）；P0-4 的 Task 3/5 两处（vc() 已显式标注返回类型；canPlaceAt 参数在签名上下文约束下自动收窄——均不报错）；P2-1（spec v3.6 附录 B 明文"不是扩展现有 union——新增类型自律"，union 不动是 spec 定案）。**审核引出的相邻真修复**：trimLeftGuard 补 `-start` 时间轴 0 点下界（start+Δ ≥ 0 原无约束，顺带封住无源片 sourceLimit=-Infinity 的无限左拉缺口）。

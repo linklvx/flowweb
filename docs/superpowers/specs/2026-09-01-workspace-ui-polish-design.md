@@ -66,6 +66,8 @@
 - 同时消除 ul 默认 40px 左缩进（与黑点同根同源，一起修才对称）
 - **不动** `tailwind.config.ts` 的 `preflight: false`——全局开启会影响全站样式，违反精准修改
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
+
 ### R6 团队 Tabs 颜色
 - **修改**：[WorkspacePage.tsx](../../../apps/web/src/pages/workspace/WorkspacePage.tsx) 团队 `<Tabs>` 外包一层 antd `ConfigProvider`，用 Tabs componentToken 定制（纯样式配置，不动逻辑）：
   - `itemColor: '#7a7a7a'`（非激活）
@@ -96,6 +98,8 @@
 
 - 不动任何逻辑代码（数据流、hooks、导航、事件处理）
 - 不动 `preflight: false` 全局配置
+
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
 - 不动工作空间以外的页面
 - 不动 list 视图新建按钮（其无黑点/高度问题）
 - 不登记技术债（开发测试阶段，无用户数据）

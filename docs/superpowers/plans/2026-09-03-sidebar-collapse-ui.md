@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 18 + react-router v7 + antd 5（`Tooltip`）+ `@ant-design/icons ^5.5.0`（`MenuFoldOutlined`/`MenuUnfoldOutlined`，零新依赖）+ Tailwind（**preflight:false**，无全局 box-sizing，故 aside 必须显式 `box-border`）+ vitest + @testing-library/react。
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
+
 **Spec:** `docs/superpowers/specs/2026-09-03-sidebar-collapse-ui-design.md`（含全部拍板：B1 方案 A、header 对齐切换、文字瞬切取舍、Tooltip 始终包裹空 title 不弹）
 
 **测试命令**（Bash CWD 会漂移，必须显式 cd）：

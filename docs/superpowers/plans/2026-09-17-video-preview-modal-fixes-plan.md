@@ -52,6 +52,7 @@ v1.1（2026-09-17）：吸收三份 plan 审查——R3 选择器去 `:not(.ant-
 
 - `:root`：`--vw-close-reserve: 108px; --vw-carousel-reserve: 125px;` 注释：**值必须显式带 px**（裸数字经 var() 是无效声明、jsdom 测不出）；--vw-carousel-reserve 待 M2 实测回填
 - R3（终版）：`:where([data-vw-shell]) button { border: 0; padding: 0; cursor: pointer; }`——**勿加 `:not(.ant-btn)`**：`:not()` 参数特异性 (0,1,0) 计入 → 整条 (0,1,1) 反压全部 Tailwind 工具类 (0,1,0)（px-5/px-3/py-1.5 全被清零，jsdom 类名断言测不出、仅 M3 目视可辨；构建产物无 @layer、工具类靠特异性取胜是唯一防线）。antd 按钮（.ant-btn / .ant-modal-close 均 (0,1,0) 类选择器）本来就赢 (0,0,1)，无需排除。`cursor: pointer`：preflight 关闭下 button UA cursor 为 default，与 T5 hover-only 配套的可点信号（computed 无单测抓手，M3 目视）
+> 【已废止 2026-09-19】preflight 关闭前提已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地，base 层已兜底 button cursor:pointer）；本条仅存历史档。
 - 无独立测试（后续组件类名断言覆盖）。
 
 ## 批次 3：PlayView（P1/P3/P4 核心，最大批次）

@@ -102,3 +102,5 @@ Spec：`docs/superpowers/specs/2026-09-02-workspace-list-view-redesign-design.md
 - WorkspaceDimension list 分支结构变化可能影响 `WorkspacePage.folder-create.test.tsx`（若其切过 list 视图——实现时跑该文件确认）
 - `getByText('名称', {exact:true})` 需确认页内无撞文本（工具栏/面包屑无此词，已核实）
 - preflight:false：新 ul 保持 `list-none pl-0`；外壳无高度链无需 box-border
+
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。

@@ -1,5 +1,7 @@
 # 团队设置页左侧团队列表（无刷新切换）实施计划
 
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文 preflight 目检等相关表述仅存历史档。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** /team 页左侧新增团队列表面板（个人置顶 + 创建组 + 加入组），点击卡片经 teamStore 无刷新切换；后端补 projectCount；TeamSwitcher/useTeams 收编到同一 store。

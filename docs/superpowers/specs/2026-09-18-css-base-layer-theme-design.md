@@ -1,6 +1,6 @@
 # CSS 基础层根因修复 + 浅色/深色主题切换 设计文档（spec）
 
-- 日期：2026-09-18　|　版本：v1.8（十轮外部审核 + 实测修订，修订记录见 §10）
+- 日期：2026-09-18　|　版本：v1.9（吸收实施期实证订正，修订记录见 §10）
 - 状态：待用户确认
 - 立项结构：一次立项，A→B→C 三段提交（+D 可选），段间独立验收、独立回滚
 - 关联红线：本 spec 推翻 `corePlugins.preflight: false` 红线（原登记于 video-editor.md:289、workspace-ui-polish-design.md 等，见 §6 修订清单）
@@ -239,6 +239,17 @@ antd cssVar 单项评估：6 处嵌套 ConfigProvider + ProConfigProvider 下 ke
 不升 Tailwind v4 / antd 6（D6）；不启用 antd cssVar（D5）；主题不落库（D7）；不做向后兼容/存量防护（D10）；register 浅色重做为并行独立任务不占段位；**不建 CI**（Playwright 为本地门禁）。
 
 ## 10. 修订记录
+
+### v1.9（2026-09-19，实施期实证订正——模型服从实测）
+
+1. **§0.3-4 订正（G4 方向）**：antd cssinjs 为 head **prepend** 注入（实测 head 序：antd STYLE×32 → 产品 link 后置）→ 同特异性平局**产品层后序胜**（非"antd 晚于产物恒胜"）；A1-5 规则级守卫断言实测方向。
+2. **A5 三处订正**：spec 预测的 26px（.new-folder-btn）/2px（.ant-modal-content）box-sizing 回归未复现（前者为 button UA border-box、后者 antd 已先行 border-box）；PropertiesPanel:138/156 括号补偿删除安全（preflight `*` 接管，含 input[type=color] 第三类宿主）；Tiptap 8 门禁页 0 渲染（成对回退修法保持备案）。
+3. **O5 两处订正（C5 实测）**：WeChatFollowModal 营销恒浅初判→**恒深**（宿主 Sidebar 跟随域+深色自绘，无岛时 html.light 真半半；恒深=零暗色回退+修复浅色）；WeChatQRModal 恒浅初判→**无需岛**（跟随域宿主+全字面色双主题自洽）。
+4. **O4 勘误（A0-0 实测）**："四进程"实为 2 长驻（hocuspocus 3001 经 collab.gateway onModuleInit 与 API 同进程）；webServer 两入口+migrate/seed 链入 API 命令。
+5. **§3.2 表订正（C3 清点）**：TimelineRuler 非 canvas 渲染器（div+Tailwind --ve-* 变量，JS 通道不存在）；WaveSurfer 经 @wavesurfer/react hook 唯一实例 AudioWaveform；JS 通道跟随域消费者空集。
+6. **O6 订正（B3 实测）**：allDeadSkipped 101 全为单 token 非类字面量假阳性（MIME/样式值/夹具）——route③ 已收紧 ≥2 token；死类家族实证 30（含新发现 z-5 ×3）。
+7. **D4 补充（A2 修复期实证）**：@xyflow wrapper 运行时默认挂 light 类与 .light 令牌岛撞名（AnnotationToolbar 实害）→ CanvasView 钉 colorMode="dark"+bgColor transparent+selection 钉值（C2-6 裁定提前至 A2 修复完成，两条非预判通道：background 底色/selection rect）；Board wrapper 的 dark 类在 B0 后天然构成画板值域岛（B6 岛不变性探针 4/4）。
+8. **B5 口径**：hex 基线保留（恒深域字面量豁免载体，终值 261）；no-theme-utility 目录白名单零容忍直行。
 
 ### v1.8（2026-09-18，第十轮审核：plan v1.2 复核三份 + 本仓编译/计数实证）
 

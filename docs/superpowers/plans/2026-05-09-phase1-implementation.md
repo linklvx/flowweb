@@ -1426,6 +1426,8 @@ const config: Config = {
 export default config;
 ```
 
+> 【已废止 2026-09-19】`preflight: false`（本配置即红线源头）已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
+
 - [ ] **Step 7: Write postcss.config.js**
 
 ```javascript

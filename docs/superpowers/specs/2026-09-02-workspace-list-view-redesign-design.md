@@ -68,6 +68,7 @@ grid-template-columns: 72px 1fr 70px 100px 145px 145px; gap-4 (1rem)
 ```
 
 注意：preflight:false → `ul` 必须 `list-none pl-0`；外壳无高度链，不需要 box-border。
+> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
 **硬性对齐**：表头 grid 与行 grid 的 `pl-4 pr-14`、`gap-6`、`grid-template-columns`、`items-center` 必须完全一致，否则首列错位 16px / 末列多伸 56px。
 
 ### 4.3 行结构（FolderCard / CanvasCard 的 list variant 重写）

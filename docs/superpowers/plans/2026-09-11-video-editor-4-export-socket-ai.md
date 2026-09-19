@@ -2658,6 +2658,8 @@ const onRetake = () => {
 
 （preflight:false 红线：border-l 配 borderLeftStyle solid 已写；button 字号写在自身 ✓。addTrack 返回值与 addSubtitleClip 的 trackId 参数语义以 editorStore 现码为准适配。生成音频恒 disabled——输入弹层与相关 state **不落地**（YAGNI），二期实化时再随 callAudioGen 一起恢复。新增 import（Modal/useNodeStore/useCanvasStore/regenerateNode/watchShadowJob）随改造一并加——**Tooltip 已在 PreviewPlayer.tsx:2 导入无需重复**（R4-8）。TimelinePanel.tsx:189-192 落轨 setMediaInfo 补一行 `mimeType: payload.mimeType`（R4-5②——payload.mimeType 就在手 :182-183 已消费，与 Task 1 的 setMediaInfo 保字段双保险）。）
 
+> 【已废止 2026-09-19】上段"preflight:false 红线"已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。
+
 AssetPanel.tsx 两处——① :18 全集资产 merge 补 `mimeType: i.mimeType`（R5-P2：AssetItem extends BatchMediaItem 含 mimeType，只传 name/duration/url 会让画布产物的 mimeType 永缺——落轨后 P0-7/R4-5 的保护链断在源头）；② "全集资产"分组之后加"生成结果"分组：
 
 ```tsx
