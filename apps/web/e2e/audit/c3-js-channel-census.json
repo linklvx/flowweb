@@ -1,0 +1,191 @@
+{
+  "meta": {
+    "task": "C3 JS 通道接线清点（plan C3 + spec §3.2 JS 通道表）",
+    "generatedAt": "2026-09-18",
+    "commit": "429736c65ef6274a4b2d105dfe91987a48d6b3b5",
+    "repo": "D:/flowweb",
+    "scope": "apps/web/src（排除 *.test.* 测试夹具）",
+    "grepCounts": {
+      "<ReactFlow|ReactFlow\\(": "53 行命中（其中真实 <ReactFlow 渲染实例 2 处；其余为 ReactFlowProvider 包裹/useReactFlow hook/测试文件）",
+      "WaveSurfer|createWaveSurfer": "79 行命中（实例化仅 @wavesurfer/react useWavesurfer hook 1 处；其余为 type 导入/store 持引用/测试 mock）",
+      "useCanvasRenderer|canvas-renderer": "17 行命中（非测试 9 行）",
+      "fillStyle|strokeStyle": "15 行命中（非测试 11 行，覆盖 5 个源文件）",
+      "LightingEngine|Angle3DPreview": "25 行命中（scene.background 写入 2 处引擎文件）",
+      "scene\\.background|TimelineRuler": "12 行命中（scene.background 非测试 2 处；TimelineRuler 无 JS 颜色写入）",
+      "color = '#|Color\\(": "13 行命中（非测试 7 行；测试 6 行豁免）",
+      "\\.style\\.color=|\\.style\\.background\\w*=|setAttribute fill/stroke": "16 行命中（3 个文件，全在 canvas 域）",
+      "theme-color": "apps/web 0 命中（index.html 无 <meta name=\"theme-color\">）"
+    }
+  },
+  "summary": {
+    "dispositionTallies": {
+      "pinned-dark": 2,
+      "no-wire-恒深": 7,
+      "wired": 0,
+      "exempt-media": 5,
+      "token-driven-no-js-color": 1,
+      "future-optional": 1
+    },
+    "conclusion": "零接线：全部 JS 颜色消费者要么钉死 dark（React Flow 两处，D4 恒深域）、要么宿主为画板/videos 恒深岛（不接线）、要么属媒体内容色（豁免）。无任何跟随域 JS 颜色消费者需要接 useTheme().resolved——spec §3.2 预期的『其他非恒深 React Flow 实例接 store』为空集，WaveSurfer/useCanvasRenderer/EraseCanvas 重绘任务按宿主域裁定为不接线。"
+  },
+  "instances": [
+    {
+      "id": "react-flow-canvasview",
+      "technology": "React Flow <ReactFlow> 渲染实例",
+      "file": "apps/web/src/pages/canvas/components/CanvasView.tsx",
+      "line": 342,
+      "evidence": "L379 colorMode=\"dark\" 常量钉死（A2-fix）；CanvasView.test.tsx:91 断言『wrapper 钉 colorMode=dark（不挂 light 运行时类）』；index.css:210 注释记录钉 dark 后 selection rect 随 dark 皮肤的补丁背景",
+      "hostDomain": "画板（canvas 画布域，D4 恒深）",
+      "disposition": "pinned-dark"
+    },
+    {
+      "id": "react-flow-processsnapshot",
+      "technology": "React Flow <ReactFlow> 渲染实例",
+      "file": "apps/web/src/pages/videos/ProcessSnapshot.tsx",
+      "line": 84,
+      "evidence": "L89 colorMode=\"dark\" 常量钉死；过程快照缩略渲染，宿主 videos 域",
+      "hostDomain": "videos（过程快照，D4 恒深媒体域）",
+      "disposition": "pinned-dark"
+    },
+    {
+      "id": "wavesurfer-audiowaveform",
+      "technology": "WaveSurfer（@wavesurfer/react useWavesurfer hook 实例化）",
+      "file": "apps/web/src/pages/canvas/components/nodes/AudioWaveform.tsx",
+      "line": 38,
+      "evidence": "L2 import { useWavesurfer } from '@wavesurfer/react'；L38 实例化。仓内唯一 WaveSurfer 实例化点（new WaveSurfer/WaveSurfer.create 0 命中）；useDragSeek.ts/useCanvasRenderer.ts/useWaveformPeaks.ts/audioStore.ts 仅 import type 持引用（seekTo/play/getDecodedData，无 UI 色值）；video-editor timeline/waveform.ts 注释明确『不为每片段 new wavesurfer 实例』（共享解码器产峰值）",
+      "hostDomain": "画板 audio 节点（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "spec §3.2『WaveSurfer setOptions/实例重建』任务按宿主域裁定不接线——恒深域无主题切换"
+    },
+    {
+      "id": "canvas2d-usecanvasrenderer",
+      "technology": "canvas 2D（fillStyle）",
+      "file": "apps/web/src/hooks/useCanvasRenderer.ts",
+      "line": 89,
+      "evidence": "fillStyle = '#38bdf8'（已播段）/ '#ffffff'（未播段）波形峰值；唯一消费组件 AudioWaveform.tsx:94；useCanvasRenderer.test.ts:9 夹具对应",
+      "hostDomain": "画板 audio 节点波形（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "spec §3.2『useCanvasRenderer 波形/裁切标尺接变量+重绘』按宿主域裁定不接线"
+    },
+    {
+      "id": "canvas2d-canvas-renderer",
+      "technology": "canvas 2D（fillStyle）",
+      "file": "apps/web/src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
+      "line": 27,
+      "evidence": "L27 fillStyle='#000'（成片黑底）、L37 fillStyle='#000'/'#FFF'（字幕描边/填充，o.color 用户字幕色）、L76 fillStyle=state.style.color（字幕样式色）；消费方 VideoEditNode.tsx:16/playback.ts:7/export/worker.ts:12（成片预览与导出）",
+      "hostDomain": "video-editor 成片渲染管线（媒体内容输出）",
+      "disposition": "exempt-media",
+      "note": "spec §3.2 豁免行『canvas ctx 渲染输出色——主题化会改坏成片』"
+    },
+    {
+      "id": "canvas2d-clipblock-waveform",
+      "technology": "canvas 2D（fillStyle）",
+      "file": "apps/web/src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx",
+      "line": 28,
+      "evidence": "fillStyle='rgba(255, 255, 255, 0.7)' 波形白——注释自述『色表深底（#8F5DBA 片段色）上可读』；片段色为用户内容配色",
+      "hostDomain": "video-editor 时间线（恒深岛）",
+      "disposition": "exempt-media",
+      "note": "spec §3.2『ClipBlock 波形色随片段色表（内容非 UI），不接线』"
+    },
+    {
+      "id": "canvas2d-annotationcanvas",
+      "technology": "canvas 2D（strokeStyle）",
+      "file": "apps/web/src/pages/canvas/components/nodes/AnnotationCanvas.tsx",
+      "line": 35,
+      "evidence": "strokeStyle=op.color——用户标注墨色（ImageGenNode.tsx:978 onColorChange → nodeStore.updateAnnotationColor 用户拾色）",
+      "hostDomain": "画板 image 节点标注层（内容墨色）",
+      "disposition": "exempt-media",
+      "note": "用户拾取的内容色，非主题 UI 色"
+    },
+    {
+      "id": "canvas2d-erasecanvas",
+      "technology": "canvas 2D（fillStyle/strokeStyle 遮罩）",
+      "file": "apps/web/src/pages/canvas/components/nodes/EraseCanvas.tsx",
+      "line": 27,
+      "evidence": "L27 '#ffffff'/L30 '#d0d0d0'（画布底/占位灰）、L65-66 棋盘格 pattern、L72-73 'rgba(0,0,0,1)'（擦除笔刷掩膜）；EraseCanvas.test.tsx:27,78 夹具对应",
+      "hostDomain": "画板 image 节点擦除遮罩（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "spec §3.2『EraseCanvas 遮罩接变量+重绘』按宿主域裁定不接线——遮罩为图像编辑媒体工作面"
+    },
+    {
+      "id": "timeline-ruler",
+      "technology": "DOM/Tailwind（无 canvas、无 JS 颜色写入）",
+      "file": "apps/web/src/pages/canvas/video-editor/components/timeline/TimelineRuler.tsx",
+      "line": 47,
+      "evidence": "全文件 0 fillStyle/strokeStyle/字面色写入；L47,55,56,60 全走 CSS 变量 token（var(--ve-border)/var(--ve-panel)/var(--ve-text-dim)/var(--ve-accent)）",
+      "hostDomain": "video-editor 时间线标尺（恒深岛）",
+      "disposition": "token-driven-no-js-color",
+      "note": "清点修正：spec §3.2 将『裁切标尺』归入 canvas 渲染接线任务，实测 TimelineRuler 为 div+token 实现，无 JS 通道存在"
+    },
+    {
+      "id": "three-lightingengine",
+      "technology": "Three.js scene.background + uniform",
+      "file": "apps/web/src/pages/canvas/engine/LightingEngine.ts",
+      "line": 105,
+      "evidence": "L105 scene.background = new THREE.Color('#0a0e1a')（3D 预览深空底）；L179 uColor uniform new THREE.Color(1,1,1)（光照预览材质）；宿主组件 Lighting/ThreePreview.tsx → LightingModal（打光功能弹层）",
+      "hostDomain": "画板打光 3D 预览（媒体内容视口）",
+      "disposition": "exempt-media",
+      "note": "spec §3.2 豁免行『Three scene.background——3D 预览=媒体内容，同画板』"
+    },
+    {
+      "id": "three-angle3dengine",
+      "technology": "Three.js scene.background",
+      "file": "apps/web/src/pages/canvas/engine/Angle3DEngine.ts",
+      "line": 66,
+      "evidence": "scene.background = new THREE.Color('#0a0e1a')；Angle3DEngine.test.ts:106-107 断言钉值；宿主组件 Angle3D/Angle3DPreview.tsx（经 Angle3DModal.tsx:162 挂载）",
+      "hostDomain": "画板视角 3D 预览（媒体内容视口）",
+      "disposition": "exempt-media",
+      "note": "同上豁免"
+    },
+    {
+      "id": "js-inline-addnodemenu",
+      "technology": "JS 内联 style 写入（style.backgroundColor）",
+      "file": "apps/web/src/pages/canvas/components/AddNodeMenu.tsx",
+      "line": 326,
+      "evidence": "L326-396 hover/leave 写 'var(--fw-overlay-1)'/'var(--fw-overlay-2)'/'transparent'——写入值为 CSS 变量引用，构造上天然随主题变量解析，无字面色",
+      "hostDomain": "画板加节点菜单（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "兜底 grep 追加发现；值即 var() 引用，即便域放开也无需重绘接线"
+    },
+    {
+      "id": "js-inline-confirmmodal",
+      "technology": "JS 内联 style 写入（primaryStyle 常量表 + style.backgroundColor）",
+      "file": "apps/web/src/pages/canvas/components/ConfirmModal.tsx",
+      "line": 30,
+      "evidence": "L30-36 primaryStyle 硬编码 hex（#fff/#e5e5e5/#1A1A1A/#ef4444/#dc2626/#333/#888）；L68-69 hover 写入",
+      "hostDomain": "画板确认弹层（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "兜底 grep 追加发现；若未来画板放开主题需迁 B 段通道，当前恒深不接线"
+    },
+    {
+      "id": "js-inline-nodepalette",
+      "technology": "JS 内联 style 写入（常量 + style.backgroundColor）",
+      "file": "apps/web/src/pages/canvas/components/NodePalette.tsx",
+      "line": 12,
+      "evidence": "L12-13 SIDEBAR_BTN_BG rgb(38,38,38) / SIDEBAR_BTN_HOVER_BG rgb(78,78,78)；L72-116 三组 hover/leave 写入",
+      "hostDomain": "画板节点面板侧栏（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "兜底 grep 追加发现；同恒深裁定"
+    },
+    {
+      "id": "js-collab-usercolor",
+      "technology": "JS 动态色函数（userColor 哈希）",
+      "file": "apps/web/src/collab/awareness.ts",
+      "line": 26,
+      "evidence": "userColor(userId) 按 id 哈希出固定身份色；消费方 CanvasTopBar.tsx:135（协作者头像）、RemoteCursors.tsx:30,34（协作光标 SVG fill+名牌底）",
+      "hostDomain": "画板协作层（canvas 恒深岛）",
+      "disposition": "no-wire-恒深",
+      "note": "身份语义色（多人区分），非主题 UI 色——任意主题下都应保持稳定区分度，不随主题接线的独立判据"
+    },
+    {
+      "id": "meta-theme-color",
+      "technology": "meta theme-color（浏览器地址栏/状态栏着色）",
+      "file": "apps/web/index.html",
+      "line": null,
+      "evidence": "index.html 全文件 0 命中 theme-color；C1 防闪白内联脚本只挂 html 类不写 meta",
+      "hostDomain": "全局 chrome",
+      "disposition": "future-optional",
+      "note": "登记为可选后续项：若添加需 C1 脚本同步按三态写 content 并监听 system 变化（themeStore 同口径），非本任务范围——按任务指示跳过实现"
+    }
+  ]
+}
