@@ -1862,7 +1862,7 @@
    "line": "深块 3 行",
    "deep": "--ve-border/--canvas-controls-border: rgb(54,54,54)→#333；--canvas-controls-hover: rgba(255,255,255,0.08)→rgba(255,255,255,0.1)；--vw-card-border-hover: rgba(255,255,255,0.25)→rgba(255,255,255,0.2)",
    "light": "四键浅值全部不动（#e5e7eb / #e5e7eb / rgba(0,0,0,0.06) / rgba(0,0,0,0.12)）",
-   "ruling": "§9.2② Δ3 级收敛 + hover 档对齐 + ⑤ 并域前置收敛：border 收敛后与 --fw-border 双档同值（diff 见 borderColor 全局 pair）；hover .08→.1 对齐 --fw-overlay-2 深值（hover 态不进快照零 diff，AssetPanel ③ 改指单次登记不重复）；vw-card-border-hover 0.25→0.2 收敛到 --fw-overlay-3 等值（hover 态零 diff），为同 commit 并域删除前置步"
+   "ruling": "§9.2② Δ3 级收敛 + hover 档对齐 + ⑤ 并域前置收敛：border 收敛后与 --fw-border 双档同值（diff 见 borderColor 全局 pair）；hover .08→.1 对齐 --fw-overlay-2 深值（hover 态不进快照零 diff，AssetPanel ③ 改指单次登记不重复）；vw-card-border-hover 0.25→0.2 收敛到 --fw-overlay-3 等值（hover 态零 diff），为同 commit 并域删除前置步。⚠ 审查补句：--canvas-controls-hover 有一处非 hover 消费 VideoNodeToolbar.tsx:179（hdPanelOpen 持久态背景）——该位点零 diff 的真实依据是'打开 HD 面板的状态不被任何采集页捕获'（门禁绿实证）而非 hover 排除；未来审计勿过度外推 hover 论据"
   },
   {
    "id": "D1b-equivalent-merge",

@@ -12,7 +12,7 @@ export function VideoCard({ work }: { work: VideoWorkListItem }) {
   const duration = fmtDuration(work.durationSec);
   return (
     <Link to={`/videos/${work.id}`} state={{ fromList: true }} data-card className="block rounded-lg overflow-hidden border border-solid border-[var(--fw-overlay-2)] hover:border-[var(--fw-overlay-3)] transition-colors bg-[var(--fw-surface)]">
-      {/* 第七轮：补 state:{fromList:true}（C2 M4——否则关闭算法死代码）+ 改用 Task 7.3 登记的 --vw-* token（原硬编码使 token 成死变量） */}
+      {/* 第七轮：补 state:{fromList:true}（C2 M4——否则关闭算法死代码）；色值沿革：硬编码 → C2 --vw-* token → C8 D1b 并域 --fw-surface/overlay-2/overlay-3（registry D1b-equivalent-merge） */}
       <div className="relative aspect-video bg-[#262626]">
         {work.coverUrl
           ? <img src={work.coverUrl} alt={work.title} className="w-full h-full object-cover" loading="lazy" />

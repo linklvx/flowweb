@@ -1772,7 +1772,7 @@ index.css 深块改值：`--ve-border` 与 `--canvas-controls-border` 的 `rgb(5
   { "prop": "borderColor", "before": "rgb(54, 54, 54)", "after": "rgb(51, 51, 51)", "why": "§9.2② Δ3 级收敛 #363636→#333（--ve-border/--canvas-controls-border 约 30 处）" }
 ```
 
-（hover .08→.10 只改静态值——differ 快照不含 hover 态、无采集 diff，登记进 adjudications 说明即可；**单次登记规则**：AssetPanel ③ 的改指不重复登记此 diff。② 收敛清单另含 Task 8 登记的 TopActionBar `BTN` `bg-[rgba(255,255,255,0.04)]`→`bg-overlay-1`（0.04→0.05，深档微变随本段配对吸收——同栏视觉一致补收；**第七轮 P1-2 补浅侧 pair**：TopActionBar 渲染在 /works（岛外），浅档 `rgba(255,255,255,0.04)`→`rgba(0,0,0,0.03)`（overlay-1 浅值）是可见变化——pair `{prop:'backgroundColor',before:'rgba(255, 255, 255, 0.04)',after:'rgba(0, 0, 0, 0.03)',why:'Task 15 TopActionBar BTN 0.04→bg-overlay-1 浅侧'}` 随本段登记，Task 16 段验收浅侧清单含它）与 **`--vw-card-border-hover` 0.25→0.20**（第五轮订正：与 --fw-overlay-3 深值**不等值**（0.25 vs 0.20），原"等值并域"归组错误——hover 态不进快照无 diff，并域改指随本段落、有意变更登记 adjudications）。）
+（hover .08→.10 只改静态值——differ 快照不含 hover 态、无采集 diff，登记进 adjudications 说明即可；**单次登记规则**：AssetPanel ③ 的改指不重复登记此 diff。② 收敛清单另含 Task 8 登记的 TopActionBar `BTN` `bg-[rgba(255,255,255,0.04)]`→`bg-overlay-1`（0.04→0.05，深档微变随本段配对吸收——同栏视觉一致补收；**第七轮 P1-2 补浅侧 pair（实施期订正：TopActionBar 经 AppLayout 公开组渲染在 works+videos 两页且均岛外——"渲染在 /works"系漏 videos 的过期表述；pair 深/浅两条均不带 page（跨两页无法收窄），why 写明跨页证据**）：浅档 `rgba(255,255,255,0.04)`→`rgba(0,0,0,0.03)`（overlay-1 浅值）是可见变化——pair 随本段登记，Task 16 段验收浅侧清单含它）与 **`--vw-card-border-hover` 0.25→0.20**（第五轮订正：与 --fw-overlay-3 深值**不等值**（0.25 vs 0.20），原"等值并域"归组错误——hover 态不进快照无 diff，并域改指随本段落、有意变更登记 adjudications）。）
 
 - [ ] **Step 2: 等值键并域（深档零 diff，无需配对）+ 六键删除**
 
@@ -2688,7 +2688,7 @@ D3 全程新增可见边框（border-width 0→N）位点：每处必须登记 `
 
 - [ ] **Step 3: D3 完成判据三源核销（differ exit 0 ≠ 完成，spec §11.1）**
 
-① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据；**盲区四分区分级核销（第五轮）**：styleBlocks（6 文件）与 svgAttrs（量少）逐行勾；styleObjects/rgbaClasses 位点量大**不逐行勾**——按位点清单核销 + 把"浅色档会功能性不可见"的位点探针化（Task 22 accent 清单已含 CanvasView:456/GridSizeDropdown:121 等）+ 其余在 registry 明文标注"不逐行核销，靠 B6"——把诚实的边界写下来，比假装全覆盖好）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（"重键计数不增"= meta.note 在册的人工纪律（:139 是说明字符串非检查逻辑）——lint-gate 本身无计数校验，靠核销清单自查）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。
+① registry 分区逐条 `核销` 标注（每文件 adjudications 有裁定或豁免依据；**盲区四分区分级核销（第五轮）**：styleBlocks（6 文件）与 svgAttrs（量少）逐行勾；styleObjects/rgbaClasses 位点量大**不逐行勾**——按位点清单核销 + 把"浅色档会功能性不可见"的位点探针化（Task 22 accent 清单已含 CanvasView:456/GridSizeDropdown:121 等）+ 其余在 registry 明文标注"不逐行核销，靠 B6"——把诚实的边界写下来，比假装全覆盖好）；② 浅色档探针（d-segment 全绿——每跟随面取期望浅值、内容面取深值）；③ B6 目检清单待 Task 27 执行（本任务先登记清单）。hex 键数不增核验：`node scripts/lint-gate.mjs`（"重键计数不增"= meta.note 在册的人工纪律（:139 是说明字符串非检查逻辑）——lint-gate 本身无计数校验，靠核销清单自查）。**hex baseline 陈旧键说明（登记 registry notes 一句）**：D3 删除大量 hex 字面后 `eslint-hex-baseline.json` 残留已删行的陈旧键——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清也更禁 UPDATE_BASELINE=1。**行文本变更处置惯例（Task 15 实施期立规）**：迁移改写含 hex 字面量的**存续行**（如 ClipBlock:88 键帧菱形 #6C5CE7 改指）会使既有键哈希失配被误报"新增"——处置=确认总计数不变 + diff 仅该键哈希置换后重采合法（baseline meta.note 自身在册的"机械清理允许伴随重键（计数不增前提）"；B5 禁令防的是吞真违例，非此形态）。
 
 - [ ] **Step 4: commit**
 
@@ -2758,7 +2758,7 @@ dev server 开 /canvas，铺 ≥50 节点画布（或复制 gate 画布加节点
 cd /d/flowweb/apps/web && COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=d4-reallight-tmp npx playwright test e2e/a0-collect-baseline.spec.ts
 ```
 
-逐页目检（复用 b6-acceptance 流程）：/canvas（**节点卡逐类列名核销 8 类**——gate 只有 videoGen 一类探针，其余 7 类卡壳浅档深卡→白卡巨变零探针覆盖，B6 是唯一守卫、逐类点名：ImageGen/Video/MultiImage/TextInput/Text/Storyboard/VideoEdit/工具条浅/板浅点可见/选中框可见/**浅色档浮层-板分离度**——工具条/面板/药丸 vs 板 #F5F5F5（contrast-pairs 观测行对应，糊板则升边框/阴影并登记）/**A 组 5 枚 size-7 图标钮与宿主面可辨性**（第七轮 P3——宿主同为 controls-bg 系时确认是否需局部升 bg-overlay-2 并改 pair）/**4 处节点浮标深浮标浅色档观感**（Task 22 登记：VideoGenNode:623/AudioGenNode:128/ImageNodeToolbar:402/MultiImageNode:207）/**CanvasToolbar 图标/hover 三态可辨**（常态 38<激活 64<hover 81 序实测））、video-editor（面板浅/clip 块深=§13.4 有意、**ExportModal 紫底白字钮**恒定确认）、videos（壳浅/画面 scrim 深）、WeChatFollowModal、CreditsDropdown 浅色稿（**命名色清单逐处回归**——Task 19 裁定表核对）、LoginModal/admin 岛不变。目检表落 `e2e/audit/c8-b6-light-eyeball.md`（VideoEditNode 三重变更卡单独看——P4+P10+#E5E7EB）。完成删除 tmp 目录。
+逐页目检（复用 b6-acceptance 流程）：/canvas（**节点卡逐类列名核销 8 类**——gate 只有 videoGen 一类探针，其余 7 类卡壳浅档深卡→白卡巨变零探针覆盖，B6 是唯一守卫、逐类点名：ImageGen/Video/MultiImage/TextInput/Text/Storyboard/VideoEdit/工具条浅/板浅点可见/选中框可见/**浅色档浮层-板分离度**——工具条/面板/药丸 vs 板 #F5F5F5（contrast-pairs 观测行对应，糊板则升边框/阴影并登记）/**A 组 5 枚 size-7 图标钮与宿主面可辨性**（第七轮 P3——宿主同为 controls-bg 系时确认是否需局部升 bg-overlay-2 并改 pair）/**4 处节点浮标深浮标浅色档观感**（Task 22 登记：VideoGenNode:623/AudioGenNode:128/ImageNodeToolbar:402/MultiImageNode:207）/**CanvasToolbar 图标/hover 三态可辨**（常态 38<激活 64<hover 81 序实测））、video-editor（面板浅/clip 块深=§13.4 有意、**ExportModal 紫底白字钮**恒定确认、**关键帧菱形标记浅色档观感**（Task 15 审查补——并域后 --fw-surface-dim 浅值 #f0f1f2 压 clip 面 #1f1f1f 上的反转对比，chrome-follows 架构正确但视觉突兀需目检））、videos（壳浅/画面 scrim 深）、WeChatFollowModal、CreditsDropdown 浅色稿（**命名色清单逐处回归**——Task 19 裁定表核对）、LoginModal/admin 岛不变。目检表落 `e2e/audit/c8-b6-light-eyeball.md`（VideoEditNode 三重变更卡单独看——P4+P10+#E5E7EB）。完成删除 tmp 目录。
 
 - [ ] **Step 4: D4 全门禁终验（含 e2e 类型门禁——第五轮 M8 补）+ spec §13 已知接受项终版 + 收尾 commit**
 

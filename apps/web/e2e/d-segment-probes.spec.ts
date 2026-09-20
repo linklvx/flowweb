@@ -148,7 +148,7 @@ test.describe('D-3 WeChatFollowModal（D0-0 钉深；D1b 拆岛翻浅）', () =>
 // 浅色注入走本文件 lightContext 的 addInitScript——禁抄采集器旧 classList 注入（D0 后双类失真）。
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('D-4 ve 域（D1b 仅键名并域仍钉深；D3-ve 翻双断言）', () => {
-  test('video-editor 壳底=rgb(20,20,20)（html.light 下 --ve-bg 自持 token 不翻转）', async ({ browser }) => {
+  test('video-editor 壳底=rgb(20,20,20)（html.light 下壳根 .dark 岛钉 --fw-bg 深值；D3-ve 岛拆除翻双断言）', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
