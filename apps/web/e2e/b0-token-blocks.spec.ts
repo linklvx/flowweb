@@ -68,7 +68,7 @@ const DOMAIN_TOKENS = [
   '--canvas-controls-text', '--canvas-controls-hover', '--canvas-controls-active', '--canvas-controls-icon',
   '--canvas-handle-bg', '--canvas-handle-icon',
   '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
-  '--ve-bg', '--ve-panel', '--ve-border', '--ve-text', '--ve-text-dim', '--ve-accent',
+  '--ve-bg', '--ve-panel', '--ve-border', '--ve-text', '--ve-text-dim', '--ve-accent', '--ve-accent-text',
   '--vw-card-bg', '--vw-card-border', '--vw-card-border-hover',
 ] as const;
 
@@ -93,6 +93,7 @@ const DOMAIN_DARK: Record<string, string> = {
   '--ve-text': '#e2e8f0',
   '--ve-text-dim': 'rgba(226,232,240,0.6)',
   '--ve-accent': '#6c5ce7',
+  '--ve-accent-text': '#9b8cf7',
   '--vw-card-bg': '#1e1e1e',
   '--vw-card-border': 'rgba(255,255,255,0.1)',
   '--vw-card-border-hover': 'rgba(255,255,255,0.25)',
@@ -119,6 +120,7 @@ const DOMAIN_LIGHT: Record<string, string> = {
   '--ve-text': '#1f2329',
   '--ve-text-dim': '#4b5563',
   '--ve-accent': '#6c5ce7',
+  '--ve-accent-text': '#5f4fd1',
   '--vw-card-bg': '#ffffff',
   '--vw-card-border': 'rgba(0,0,0,0.06)',
   '--vw-card-border-hover': 'rgba(0,0,0,0.12)',

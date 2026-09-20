@@ -233,7 +233,7 @@ export function ExportPopover() {
         ) : (
           <div className="flex flex-col gap-3 w-80" data-testid="export-progress">
             <div className="text-[13px]">{progress.phase === 'mix' ? '离线混音中…' : '逐帧编码中…'}</div>
-            <Progress percent={Math.round((progress.phase === 'mix' ? 0.2 : 0.2 + progress.ratio * 0.8) * 100)} status="active" strokeColor="#6C5CE7" />
+            <Progress percent={Math.round((progress.phase === 'mix' ? 0.2 : 0.2 + progress.ratio * 0.8) * 100)} status="active" strokeColor="var(--ve-accent)" />
             {etaSec != null && <div className="text-[12px] text-[var(--ve-text-dim)]">预计剩余 {etaSec > 60 ? `${Math.floor(etaSec / 60)}分${Math.round(etaSec % 60)}秒` : `${Math.round(etaSec)}秒`}</div>}
             <div className="flex justify-end"><Button danger onClick={() => job?.cancel()}>取消导出</Button></div>
           </div>

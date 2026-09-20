@@ -55,6 +55,7 @@
   --ve-text: #e2e8f0;
   --ve-text-dim: rgba(226, 232, 240, 0.6);
   --ve-accent: #6C5CE7;
+  --ve-accent-text: #9B8CF7;
   --vw-card-bg: #1e1e1e;
   --vw-card-border: rgba(255, 255, 255, 0.1);
   --vw-card-border-hover: rgba(255, 255, 255, 0.25);
@@ -102,6 +103,7 @@
   --ve-text: #1f2329;
   --ve-text-dim: #4b5563;
   --ve-accent: #6C5CE7;
+  --ve-accent-text: #5F4FD1;
   --vw-card-bg: #ffffff;
   --vw-card-border: rgba(0, 0, 0, 0.06);
   --vw-card-border-hover: rgba(0, 0, 0, 0.12);

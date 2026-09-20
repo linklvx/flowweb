@@ -23,7 +23,7 @@
       "no-wire-恒深": 7,
       "wired": 0,
       "exempt-media": 5,
-      "token-driven-no-js-color": 1,
+      "token-driven-no-js-color": 2,
       "future-optional": 1
     },
     "conclusion": "零接线：全部 JS 颜色消费者要么钉死 dark（React Flow 两处，D4 恒深域）、要么宿主为画板/videos 恒深岛（不接线）、要么属媒体内容色（豁免）。无任何跟随域 JS 颜色消费者需要接 useTheme().resolved——spec §3.2 预期的『其他非恒深 React Flow 实例接 store』为空集，WaveSurfer/useCanvasRenderer/EraseCanvas 重绘任务按宿主域裁定为不接线。"
@@ -186,6 +186,16 @@
       "hostDomain": "全局 chrome",
       "disposition": "future-optional",
       "note": "登记为可选后续项：若添加需 C1 脚本同步按三态写 content 并监听 system 变化（themeStore 同口径），非本任务范围——按任务指示跳过实现"
+    },
+    {
+      "id": "antd-progress-exportmodal",
+      "technology": "antd Progress strokeColor prop（组件 JS 通道——line 型 div 内联 style / circle 型 inline style stroke，非 SVG 呈现属性）",
+      "file": "apps/web/src/pages/canvas/video-editor/components/ExportModal.tsx",
+      "line": 236,
+      "evidence": "C8 Task 14 补登：原字面 #6C5CE7 → 实测改指 var(--ve-accent)（图形档双档同值，浅档 --ve-accent 亦 #6C5CE7）。实测裁定（2026-09-20，真实 antd 5.22.5/rc-progress 4.0.0 Progress + Chromium html.dark 域）：原 prop 无 type → line 型 .ant-progress-bg div 内联 style background 通道；strokeColor='var(--ve-accent)' computed backgroundColor=rgb(108, 92, 231)=代换成功；circle 型对照通道经 inline style stroke（stroke 属性 attr=null）同样代换成功——plan Task14 原文'SVG 呈现属性可能回退'假设在本版本栈不成立，不影响判据结论。",
+      "hostDomain": "video-editor（.dark 岛壳内，Task 21 拆岛前不进浅档）",
+      "disposition": "token-driven-no-js-color",
+      "note": "裁定依据 spec §11.4：computed=rgb(108, 92, 231) → var() 生效保留换引，无 JS 分支；深浅双档零 computed 变更，无 differ 配对需求。"
     }
   ]
 }

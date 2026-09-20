@@ -56,7 +56,7 @@ export function AssetPanel() {
       <div className="p-2 border-b border-[var(--ve-border)] flex items-center gap-2">
         <Input placeholder="搜索资产" value={keyword} onChange={e => setKeyword(e.target.value)} size="small" />
         <label data-testid="asset-upload-btn"
-          className={`text-[12px] text-[var(--ve-accent)] cursor-pointer shrink-0 select-none${uploading ? ' opacity-40 pointer-events-none' : ''}`}>
+          className={`text-[12px] text-[var(--ve-accent-text)] cursor-pointer shrink-0 select-none${uploading ? ' opacity-40 pointer-events-none' : ''}`}>
           + 新建
           <input type="file" className="hidden" accept="video/*,audio/*,image/*"
             onChange={async (e) => {
