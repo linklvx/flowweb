@@ -1968,5 +1968,34 @@
   ]
  },
  "d3EmergentSites": [],
- "whitelistKeeps": []
+ "whitelistKeeps": [
+  { "glob": "src/pages/videos/**", "allow": null, "why": "恒深域播放壳（C8 D3 逐域摘除→Task 20；摘除时同 commit 补域内精确条目+__tests__ 单文件条目）" },
+  { "glob": "src/pages/canvas/components/nodes/**", "allow": null, "why": "恒深域 React Flow 节点工具（→Task 22 摘除）" },
+  { "glob": "src/pages/canvas/components/edges/**", "allow": null, "why": "恒深域边（→Task 22 摘除）" },
+  { "glob": "src/pages/canvas/components/groups/**", "allow": null, "why": "恒深域分组（→Task 22 摘除）" },
+  { "glob": "src/pages/canvas/video-editor/**", "allow": null, "why": "恒深域 ve 壳（→Task 21 摘除）" },
+  { "glob": "src/pages/admin/**", "allow": null, "why": "岛：admin（C2 挂 dark）" },
+  { "glob": "src/pages/login/**", "allow": null, "why": "岛：营销·登录" },
+  { "glob": "src/pages/register/**", "allow": null, "why": "岛：营销·注册" },
+  { "glob": "src/components/MaterialLibrary/**", "allow": null, "why": "岛：素材库（Task 24 摘除并迁 TSX）" },
+  { "glob": "src/components/AuthModal.tsx", "allow": null, "why": "岛：登录弹窗（全属性族放行，B5 现状）" },
+  { "glob": "src/components/auth/PhoneLoginForm.tsx", "allow": null, "why": "岛：手机登录表单（同上）" },
+  { "glob": "src/components/auth/LoginModal.tsx", "allow": null, "why": "岛：登录弹窗（同上）" },
+  { "glob": "src/components/auth/WeChatQRLogin.tsx", "allow": null, "why": "岛：微信扫码登录（同上）" },
+  { "glob": "src/components/layout/TopActionBar.tsx", "allow": ["bg", "text"], "why": "B5 现状升级精确条目：登录钮 bg-white/text-black 反白 CTA（#9）——allow 按九族 grep 实定" },
+  { "glob": "src/pages/canvas/components/CanvasTopBar.tsx", "allow": ["text"], "why": "B5 现状升级：档位徽章 text-black 黑字随底（#6）" },
+  { "glob": "src/pages/home/components/CreateCanvasCard.tsx", "allow": ["bg", "text"], "why": "B5 现状升级：:30 bg-white 白盒 + :32 text-black 加号反白 CTA 族（#9）" },
+  { "glob": "src/pages/team/TeamDetail.tsx", "allow": ["text"], "why": "B5 现状升级：黑字随底族（#6）" },
+  { "glob": "src/pages/canvas/components/CreditsDropdown.tsx", "allow": ["bg"], "why": "C8 P5 通道 3：:267 充值钮 bg-white+hover:bg-zinc-100 白系字面冻结（浅色稿 2026-09-20-creditsdropdown-light-draft.md；此钮非邀请卡——邀请钮已 token 化）" },
+  { "glob": "src/pages/canvas/components/ConfirmModal.tsx", "allow": ["bg"], "why": "C8：白卡面（通道 3）" },
+  { "glob": "src/pages/canvas/components/SaveAsTemplateDialog.tsx", "allow": ["bg"], "why": "C8：白卡面（通道 3）" },
+  { "glob": "src/pages/videos/ProcessSnapshot.tsx", "allow": ["bg", "text", "border"], "why": "C8：内容承载恒深整块（spec §10-⑦）——videos 目录摘除时同 commit 生效" },
+  { "glob": "src/components/BaseFullscreenModal.tsx", "allow": ["bg"], "why": "Task 19 Step 3 working list（lint-gate 实测 12 处/7 文件全 bg 族，allow 均九族 grep -i 实定）：:70 bg-black/60 全屏模态遮罩中性 scrim" },
+  { "glob": "src/pages/canvas/page.tsx", "allow": ["bg"], "why": "working list：:313 bg-black/50 hydrate 加载遮罩中性 scrim" },
+  { "glob": "src/pages/home/components/BannerCarousel.tsx", "allow": ["bg"], "why": "working list：:80/:87 bg-black/40 轮播图上 hover 前后导航钮垫底（压媒体浮层）" },
+  { "glob": "src/pages/workspace/components/CanvasCard.tsx", "allow": ["bg"], "why": "working list：:87 bg-black/50 卡面 hover 浮出操作条垫底（压预览媒体）" },
+  { "glob": "src/pages/workspace/components/FolderCard.tsx", "allow": ["bg"], "why": "working list：:71 bg-black/50 同 CanvasCard" },
+  { "glob": "src/pages/canvas/components/Lighting/LightingModal.tsx", "allow": ["bg"], "why": "working list：:97 bg-black/60 scrim + :160/:189 bg-black/80 结果/错误遮罩（压暗垫底）" },
+  { "glob": "src/pages/canvas/components/Angle3D/Angle3DModal.tsx", "allow": ["bg"], "why": "working list：:129 bg-black/60 scrim + :183/:208 bg-black/80 结果/错误遮罩（同 LightingModal）" }
+ ]
 }

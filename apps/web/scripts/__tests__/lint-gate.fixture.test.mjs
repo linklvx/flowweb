@@ -98,9 +98,66 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
     ).toHaveLength(1);
   });
 
-  it('不误报：bg-white（非 text 前缀）、text-whitesmoke（非完整 token）、text-[#fff]（hex 规则域）', () => {
-    const code = "const a = 'bg-white'; const b = 'text-whitesmoke'; const c = 'text-[#ffffff]';";
+  it('text-whitesmoke（非完整 token）、text-[#fff]（hex 规则域）不误报；bg-white 随 C8 扩九前缀族改判命中', () => {
+    const code = "const b = 'text-whitesmoke'; const c = 'text-[#ffffff]';";
     expect(lintThemeFixture(code, 'src/pages/settings/Profile.tsx')).toHaveLength(0);
+    // C8 Task 19 扩九前缀族：bg-white 现为命中面（文件头注释同步改写，旧"非 text 前缀不命中"口径废止）
+    expect(lintThemeFixture("const a = 'bg-white';", 'src/pages/settings/Profile.tsx')).toHaveLength(1);
+  });
+
+  // —— C8 Task 19 Step 2b：扩规则自测（白名单双形态 + 串内全匹配 + 两式同步闭环）——
+
+  it('① 目录条目全放行：videos 恒深域（string 条目）九族不报（升级前基线，守旧语义）', () => {
+    expect(
+      lintThemeFixture("const a = 'bg-white text-black border-white/50';", 'src/pages/videos/VideoCard.tsx'),
+    ).toHaveLength(0);
+  });
+
+  it('② 精确条目全匹配判定：TopActionBar allow:[bg,text]——两家族都在 allow → 0 报；border 超出 → 1 报（首个匹配在 allow 不能放行同串真违例）', () => {
+    const ok = lintThemeFixture("const a = 'bg-white hover:text-black';", 'src/components/layout/TopActionBar.tsx');
+    expect(ok).toHaveLength(0);
+    const bad = lintThemeFixture("const a = 'bg-white border-white';", 'src/components/layout/TopActionBar.tsx');
+    expect(bad).toHaveLength(1);
+    expect(bad[0].messageId).toBe('themeUtilityForbidden');
+  });
+
+  it('③ 模板串逐 quasi：quasis 逐段收集——bg-white(allowed)+border-white(超出) → 1 报；纯 allow 族模板 → 0 报（quasi 收集路径守卫）', () => {
+    const bad = lintThemeFixture(
+      'const cls = `bg-white ${x} border-white`;',
+      'src/components/layout/TopActionBar.tsx',
+    );
+    expect(bad).toHaveLength(1);
+    expect(bad[0].messageId).toBe('themeUtilityForbidden');
+    expect(
+      lintThemeFixture('const cls = `bg-white ${x}`;', 'src/components/layout/TopActionBar.tsx'),
+    ).toHaveLength(0);
+  });
+
+  it('④a 非白名单 hover:!bg-white（变体+! 单 token）→ 1 报——守 THEME_UTILITY_RE 认得变体前缀+!（scanner 契约单串单报，恒 1 非 2）', () => {
+    const messages = lintThemeFixture("const cls = 'hover:!bg-white';", 'src/pages/settings/Profile.tsx');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].messageId).toBe('themeUtilityForbidden');
+  });
+
+  it("④b' 精确条目 allow:[bg]（CreditsDropdown 真实条目）hover:!bg-white → 0 报——GLOBAL 式 familiesOf 认得变体+!（漏认则 fams=[] 落 visit 假红）", () => {
+    expect(
+      lintThemeFixture("const cls = 'hover:!bg-white';", 'src/pages/canvas/components/CreditsDropdown.tsx'),
+    ).toHaveLength(0);
+  });
+
+  it('④b″ 同 filename allow:[bg]，hover:!bg-white text-black → 1 报——全匹配判定（text 超出 allow）+变体提取叠加路径', () => {
+    const messages = lintThemeFixture(
+      "const cls = 'hover:!bg-white text-black';",
+      'src/pages/canvas/components/CreditsDropdown.tsx',
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0].messageId).toBe('themeUtilityForbidden');
+  });
+
+  it('④c 非白名单 bg-white/[0.06]（方括号 alpha）→ 1 报——alpha 段方括号形态两式都认得（不认得则 0 报假绿）', () => {
+    const messages = lintThemeFixture("const cls = 'bg-white/[0.06]';", 'src/pages/settings/Profile.tsx');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].messageId).toBe('themeUtilityForbidden');
   });
 });
 
