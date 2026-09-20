@@ -1996,8 +1996,8 @@
    "id": "D3-ve-literal-migration",
    "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx + timeline/ClipBlock.tsx",
    "line": "PreviewPlayer :91/:93/:96/:99 + ClipBlock :88",
-   "deep": "九族摘除波迁移（当次 grep 实测 7 处/3 文件，迁 4 留 3）：4 处 hover:text-white→hover:text-text（hover 提亮通道——第八轮句：深档 #fff→#e2e8f0 是微变但 hover 态不进快照无 pair；浅档白字→深字是语义翻转后的正确取值，两档均由 token 承担）；ClipBlock :88 键帧菱形 border-[#6C5CE7]→border-[var(--ve-accent)]（品牌紫通道，--ve-accent 两档同值 #6C5CE7 字节等值零 diff）",
-   "light": "hover:text-text 浅值 #1f2329 于 #f0f1f2 控制条——浅档悬停由白提亮反转为深加深（语义等价：hover 恒比常态更强对比）；键帧菱形边两档同值",
+   "deep": "九族摘除波迁移（当次 grep 实测 7 处/3 文件，迁 4 留 3）：4 处 hover:text-white→hover:text-text-strong（**quality 审查订正：原 plan 映射 hover:text-text 是无效 no-op——基础样式已是 text-[var(--fw-text)] 同 token，两档 hover 反馈静默消失（深档原 #e2e8f0→#fff 提亮被消除）；text-strong 深档 rgb(247,247,247) 恢复提亮，hover 态不进快照无 pair**）；ClipBlock :88 键帧菱形 border-[#6C5CE7]→border-[var(--ve-accent)]（品牌紫通道，--ve-accent 两档同值 #6C5CE7 字节等值零 diff）",
+   "light": "hover:text-text-strong 浅值 #111827 于 #f0f1f2 控制条（比基础 #1f2329 更深=hover 增量非零）；键帧菱形：边两档同值，**菱形填充 bg-surface-dim 浅档翻 #f0f1f2 于恒深 clip 面 #1f1f1f 上（Task 21 审查补裁定：可见度反升、边对比 4.29:1 达标，无缺陷——gate fixture 无 keyframe 故浅侧未采集，B6 覆盖）**",
    "ruling": "运行时键盲区（§0 复核登记转录）：video-editor 采集页每轮 3 个 tid: 运行时键（节点根/video-edit-node-*/track-row-track-*）removed=added 命中既有白名单、结构性不参与属性比对——这些根元素自身迁移永无 differ 信号，核销靠 B6/探针，勿把 diff 没红读成改对（子元素走稳定 dom: 键不受影响）"
   },
   {
