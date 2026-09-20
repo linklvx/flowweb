@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ===== B0 语义 token 双套（spec 2026-09-18-css-base-layer-theme-design B 段）=====
- * 深色值 = 现状实测收编（body #141414 / --vw-card-bg #1e1e1e / --ve-text #e2e8f0 / 控件文本 rgb(247,247,247)）；
+ * 深色值 = 现状实测收编；C8：域 token 详见各块内注释与 canvas-migration-registry.json adjudications；
  * 浅色值 = B0 校准定稿（对比度记录见 B0 提交说明：accent-text #15803d 5.02:1@white·4.72:1@bg；
  * danger #dc2626 4.83:1@white；dim 阶梯 2.39/4.55/7.11 镜像深色阶梯 2.71/4.54/7.13）。
  * ⚠ 源序约束（D8，B1 有断言守卫）：.light 块必须写在 :root,.dark 之后——html.light 同时命中
@@ -16,11 +16,11 @@
 .dark {
   color-scheme: dark;
   --fw-bg: #141414;            /* 站点底 = body 现值 */
-  --fw-surface: #1e1e1e;       /* 卡面 = --vw-card-bg 现值 */
+  --fw-surface: #1e1e1e;       /* 卡面（C8：域 token 详见各块内注释与 canvas-migration-registry.json adjudications） */
   --fw-surface-dim: #262626;   /* 次级面（凹陷区/输入底） */
   --fw-border: #333;           /* preflight *{border-color} 桥（D2，项目习惯边色） */
-  --fw-text: #e2e8f0;          /* 正文 = body/--ve-text 现值 */
-  --fw-text-strong: rgb(247, 247, 247); /* 强文本 = --canvas-controls-text 现值 */
+  --fw-text: #e2e8f0;          /* 正文（C8：域 token 详见各块内注释与 canvas-migration-registry.json adjudications） */
+  --fw-text-strong: rgb(247, 247, 247); /* 强文本（C8：域 token 详见各块内注释与 canvas-migration-registry.json adjudications） */
   --fw-text-dim-1: rgba(255, 255, 255, 0.3);  /* 淡化阶梯（装饰/占位层级，刻意低于 AA） */
   --fw-text-dim-2: rgba(255, 255, 255, 0.45);
   --fw-text-dim-3: rgba(255, 255, 255, 0.6);
@@ -31,6 +31,33 @@
   --fw-overlay-1: rgba(255, 255, 255, 0.05);  /* 覆盖阶梯（hover/按下/禁用蒙层） */
   --fw-overlay-2: rgba(255, 255, 255, 0.1);
   --fw-overlay-3: rgba(255, 255, 255, 0.2);
+
+  /* ===== C8 画布域 token（D1a 双值化，spec 2026-09-20 §8.1；深值=现状冻结字节等值） ===== */
+  --canvas-board-bg: #000000;
+  --canvas-board-dot: #555555;
+  --canvas-controls-bg: rgb(38, 38, 38);
+  --canvas-controls-border: rgb(54, 54, 54);
+  --canvas-controls-text: rgb(247, 247, 247);
+  --canvas-controls-hover: rgba(255, 255, 255, 0.08);
+  --canvas-controls-active: rgba(255, 255, 255, 0.12);
+  --canvas-controls-icon: rgb(160, 160, 160);
+  --canvas-handle-bg: #9CA3AF;
+  --canvas-handle-icon: #6B7280;
+  --canvas-handle-hover-bg: #FFFFFF;
+  --canvas-handle-hover-icon: #FFFFFF;
+  --edge-flow-color: #3B82F6;
+  --edge-highlight-color: #999;
+  --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.15), 0px 2px 8px 0px rgba(0, 0, 0, 0.1);
+  --canvas-shadow-dropdown: 0px 4px 10px 0px rgba(0, 0, 0, 0.25), 0px 2px 4px 0px rgba(0, 0, 0, 0.3);
+  --ve-bg: #141414;
+  --ve-panel: rgb(38, 38, 38);
+  --ve-border: rgb(54, 54, 54);
+  --ve-text: #e2e8f0;
+  --ve-text-dim: rgba(226, 232, 240, 0.6);
+  --ve-accent: #6C5CE7;
+  --vw-card-bg: #1e1e1e;
+  --vw-card-border: rgba(255, 255, 255, 0.1);
+  --vw-card-border-hover: rgba(255, 255, 255, 0.25);
 }
 
 .light {
@@ -51,6 +78,33 @@
   --fw-overlay-1: rgba(0, 0, 0, 0.03);
   --fw-overlay-2: rgba(0, 0, 0, 0.06);
   --fw-overlay-3: rgba(0, 0, 0, 0.12);
+
+  /* ===== C8 画布域 token 浅值（与深块一对，禁另起块；手柄 icon 两行为第五轮订正值——icon 实落卡面非手柄底） ===== */
+  --canvas-board-bg: #F5F5F5;
+  --canvas-board-dot: #C8C8C8;
+  --canvas-controls-bg: #f0f1f2;
+  --canvas-controls-border: #e5e7eb;
+  --canvas-controls-text: #111827;
+  --canvas-controls-hover: rgba(0, 0, 0, 0.06);
+  --canvas-controls-active: rgba(0, 0, 0, 0.08);
+  --canvas-controls-icon: #6B7280;
+  --canvas-handle-bg: #6B7280;
+  --canvas-handle-icon: #4B5563;
+  --canvas-handle-hover-bg: #111827;
+  --canvas-handle-hover-icon: #111827;
+  --edge-flow-color: #3B82F6;
+  --edge-highlight-color: #6B7280;
+  --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.08), 0px 2px 8px 0px rgba(0, 0, 0, 0.06);
+  --canvas-shadow-dropdown: 0px 4px 10px 0px rgba(0, 0, 0, 0.12), 0px 2px 4px 0px rgba(0, 0, 0, 0.1);
+  --ve-bg: #f7f8fa;
+  --ve-panel: #f0f1f2;
+  --ve-border: #e5e7eb;
+  --ve-text: #1f2329;
+  --ve-text-dim: #4b5563;
+  --ve-accent: #6C5CE7;
+  --vw-card-bg: #ffffff;
+  --vw-card-border: rgba(0, 0, 0, 0.06);
+  --vw-card-border-hover: rgba(0, 0, 0, 0.12);
 }
 
 /* ::placeholder 语义化（B0）：选 dim-2——占位文本是唯一描述预期输入的功能文本，dim-1 过淡
@@ -71,59 +125,23 @@ button[aria-disabled='true'],
   cursor: not-allowed;
 }
 
-/* Canvas handle color tokens */
-:root {
-  --canvas-handle-bg: #9CA3AF;
-  --canvas-handle-icon: #6B7280;
-  --canvas-handle-hover-bg: #FFFFFF;
-  --canvas-handle-hover-icon: #FFFFFF;
-
-  /* Edge flow animation */
-  --edge-flow-color: #3B82F6;
-  --edge-highlight-color: #999;
-
-  /* Canvas controls menu tokens */
-  --canvas-controls-bg: rgb(38, 38, 38);
-  --canvas-controls-border: rgb(54, 54, 54);
-  --canvas-controls-text: rgb(247, 247, 247);
-  --canvas-controls-hover: rgba(255, 255, 255, 0.08);
-  --canvas-controls-active: rgba(255, 255, 255, 0.12);
-  --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.15), 0px 2px 8px 0px rgba(0, 0, 0, 0.1);
-  --canvas-shadow-dropdown: 0px 4px 10px 0px rgba(0, 0, 0, 0.25), 0px 2px 4px 0px rgba(0, 0, 0, 0.3);
-  --z-panel: 400;
-}
-
-/* ===== Video Editor dark tokens（spec 批2；复用 --canvas-controls-*，不造第二套） ===== */
-:root {
-  --ve-bg: #141414;                          /* 壳底 = 全局 body */
-  --ve-panel: var(--canvas-controls-bg);      /* rgb(38,38,38) 面板 */
-  --ve-border: var(--canvas-controls-border); /* rgb(54,54,54) */
-  --ve-text: #e2e8f0;                         /* 正文 = body 同值 */
-  --ve-text-dim: rgba(226, 232, 240, 0.6);    /* 淡化文本专用 token */
-  --ve-text-control: var(--canvas-controls-text); /* rgb(247,247,247) 控件 */
-  --ve-accent: #6C5CE7;
-  --ve-track-video: #1f1f1f;                  /* 批3 video 兜底底 */
-}
-
-/* ===== Video Works 作品列表 token（spec 2026-09-16 §6：显式定义并登记） ===== */
-:root {
-  --vw-card-bg: #1e1e1e;        /* 作品卡面 */
-  --vw-card-border: rgba(255,255,255,0.10);
-  --vw-card-border-hover: rgba(255,255,255,0.25);
-}
-
 /* ===== 视频预览弹层（spec 2026-09-17 v3.1）=====
  * 变量值必须显式带 px 单位：padding-right: var(--x) 传裸数字是无效声明、jsdom 测不出、浏览器静默失效。
  * --vw-carousel-reserve 与轮播条实际高度耦合（卡片 180×101.25 + py-3 24 + 滚动条隐藏后实测），M2 实测回填。 */
+/* 单值恒值键（C8）：几何 px / z-index / 内容承载面深值（P6）——不随主题 */
 :root {
+  --z-panel: 400;
   --vw-close-reserve: 108px;    /* 顶栏右侧为壳级关闭钮预留（关闭钮 ≈92px + 间隙） */
   --vw-carousel-reserve: 125px; /* ④ 按钮组底部为轮播条预留 */
+  --ve-track-video: #1f1f1f;    /* clip 块面=内容承载恒深（spec §8.2） */
+  --ve-thumb-base: #363636;     /* 缩略图占位框/图标底垫底=内容承载恒深（原 --ve-border 深值字节等值） */
+  --ve-preview-base: #141414;   /* 预览区媒体垫底=内容承载恒深（原 --ve-bg 深值字节等值） */
 }
 
 body {
   margin: 0;
-  background: #141414;
-  color: #e2e8f0;
+  background: var(--fw-bg);   /* C8 D1a：#141414 = --fw-bg 深值字节等值；浅侧由两族全局 pair 吸收（canvas-migration-registry.json differExpectedPairs） */
+  color: var(--fw-text);      /* #e2e8f0 同上 */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
@@ -254,3 +272,15 @@ body {
 
 /* 组块四角手柄：隐藏边把手（.line），仅保留四角——低特异性便于覆盖 */
 .react-flow__resize-control:where(.line) { display: none; }
+
+/* ===== C8 D1a 手写 CSS 浅色覆盖（深值字节不动；浅值取 --fw-* 浅值体系） ===== */
+.light .tiptap-content { color: var(--fw-text); }
+.light .tiptap-content h1 { color: var(--fw-text-strong); }
+.light .tiptap-content h2, .light .tiptap-content strong { color: var(--fw-text); }
+.light .tiptap-content h3, .light .tiptap-content em { color: var(--fw-text-dim-3); }
+.light .tiptap-content p, .light .tiptap-content ul, .light .tiptap-content ol { color: var(--fw-text); }
+.light .tiptap-content hr { border-top: 1px solid var(--fw-border); }
+.light .tiptap-content p.is-editor-empty:first-child::before { color: var(--fw-text-dim-1); }
+.light .editor-scroll { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }
+.light .editor-scroll::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); border-radius: 2px; }
+.light .editor-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }

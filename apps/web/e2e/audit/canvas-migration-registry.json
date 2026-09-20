@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-19T22:05:41.481Z",
+  "generatedAt": "2026-09-20T03:13:53.504Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -1060,11 +1060,6 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 184,
-     "text": "background: #ef4444;"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
      "line": 185,
      "text": "color: #fff;"
     },
@@ -1077,6 +1072,36 @@
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
      "line": 212,
      "text": "border-color: #52525B;"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 236,
+     "text": ".light .prompt-editor { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 237,
+     "text": ".light .prompt-editor::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 238,
+     "text": ".light .prompt-editor::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 239,
+     "text": ".light .scrollbar-dark { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 240,
+     "text": ".light .scrollbar-dark::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 241,
+     "text": ".light .scrollbar-dark::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.tsx",
@@ -1682,9 +1707,171 @@
    "why": "ve store/测试内字幕默认 style:{fontSize,color} 等内容语义色非主题面，显式排除不核销"
   }
  },
- "adjudications": [],
+ "adjudications": [
+  {
+   "id": "LINE-FRAME-NOTE",
+   "ruling": "index.css 条目行号=D1a 改动前 HEAD 坐标系（D1a 改动本身使行号漂移 +17~18）；定位按规则内容 grep 勿按行号直跳；PromptInput.css 条目=改动后坐标系（追加型文件）"
+  },
+  {
+   "id": "D1a-body-bg",
+   "file": "src/index.css",
+   "line": 125,
+   "deep": "#141414",
+   "light": "var(--fw-bg)=#f7f8fa",
+   "ruling": "等值门白名单：#141414 ≡ --fw-bg 深值字节等值换引，深档 computed 零变更；body 是岛外唯一消费者（AppLayout 仅 bg-bg 无颜色类）→ 浅侧 backgroundColor 必变，两族全局 pair 已预登记 differExpectedPairs"
+  },
+  {
+   "id": "D1a-body-text",
+   "file": "src/index.css",
+   "line": 126,
+   "deep": "#e2e8f0",
+   "light": "var(--fw-text)=#1f2329",
+   "ruling": "同上；color 继承族波及全页无显式 color 元素——全局继承族单键吸收（全局 pair 不带 page）"
+  },
+  {
+   "id": "D1a-tiptap-root",
+   "file": "src/index.css",
+   "line": 132,
+   "deep": "#bbb",
+   "light": ".light 覆盖 var(--fw-text)=#1f2329",
+   "ruling": "无等值键（深值 #bbb vs 最近键 dim-3=rgba(255,255,255,0.6)，换引即深档可见变更违 D1a 铁律）→ 深值规则原样保留 + 尾部 .light 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-h1",
+   "file": "src/index.css",
+   "line": 141,
+   "deep": "#fff",
+   "light": ".light 覆盖 var(--fw-text-strong)=#111827",
+   "ruling": "无等值键（#fff vs text-strong=rgb(247,247,247)）→ 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-h2-strong",
+   "file": "src/index.css",
+   "line": "148/187",
+   "deep": "#eee",
+   "light": ".light 覆盖 var(--fw-text)=#1f2329",
+   "ruling": "无等值键 → 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-h3-em",
+   "file": "src/index.css",
+   "line": "155/192",
+   "deep": "#ddd/#ccc",
+   "light": ".light 覆盖 var(--fw-text-dim-3)=#4b5563",
+   "ruling": "无等值键（#ccc vs dim-3=rgba(255,255,255,0.6)）→ 覆盖块；层级反转登记：深档 h3/em(#ddd/#ccc) 亮于 body #bbb、浅档 dim-3(#4b5563) 暗于 body #1f2329——两主题对比度均达标（6.7:1），相对层级方向反转在浅档语义上可辩解（em/h3 弱化强调），B6 目检复核"
+  },
+  {
+   "id": "D1a-tiptap-p-ul-ol",
+   "file": "src/index.css",
+   "line": "161/168",
+   "deep": "#bbb",
+   "light": ".light 覆盖 var(--fw-text)=#1f2329",
+   "ruling": "无等值键 → 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-hr",
+   "file": "src/index.css",
+   "line": 183,
+   "deep": "rgba(255,255,255,0.08)",
+   "light": ".light 覆盖 border-top 1px solid var(--fw-border)=#e5e7eb",
+   "ruling": "无等值键（0.08 vs overlay-1=0.05/overlay-2=0.1）→ 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-placeholder",
+   "file": "src/index.css",
+   "line": 195,
+   "deep": "#666",
+   "light": ".light 覆盖 var(--fw-text-dim-1)=#9ca3af",
+   "ruling": "无等值键（#666 vs dim-1=rgba(255,255,255,0.3)）→ 覆盖块"
+  },
+  {
+   "id": "D1a-tiptap-placeholder-tier-divergence",
+   "file": "src/index.css",
+   "line": "195/110-115",
+   "deep": "#666",
+   "light": "tiptap 覆盖块取 dim-1=#9ca3af（2.39:1 刻意低档）",
+   "ruling": "占位符同角色两档并存：tiptap 覆盖块浅值 dim-1（#9ca3af）；index.css :110-115 既有 input/textarea::placeholder 与 PromptInput .prompt-editor 占位（:74 #6b7280≡dim-2，4.55:1 档）存在同角色两档分歧——plan Task 12 Step 4 覆盖块原文即 dim-1，按 plan 冻结不改值；分歧留 D1b/B6 复核（若目检判读性差升 dim-2 走变更登记）"
+  },
+  {
+   "id": "D1a-editor-scroll",
+   "file": "src/index.css",
+   "line": "221/230/234",
+   "deep": "rgba(255,255,255,0.12)/hover 0.2",
+   "light": ".light 覆盖 rgba(0,0,0,0.25)/hover 0.4",
+   "ruling": "无等值键（0.12 vs overlay-2=0.1）→ 覆盖块"
+  },
+  {
+   "id": "D1a-promptinput-swap-danger",
+   "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+   "line": 184,
+   "deep": "#ef4444",
+   "light": "var(--fw-accent-danger)=#dc2626",
+   "ruling": "等值门白名单唯一换引：#ef4444 ≡ --fw-accent-danger 深值字节等值；浅值 #dc2626 与 #ef4444 不等=浅档是值变化（该键存在的意义）——实测采集页不渲染 PromptInput（VideoGenNode:792 需 selected，采集器不选中）→ 预期无 diff"
+  },
+  {
+   "id": "D1a-promptinput-overrides",
+   "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+   "line": "5/6/8/17/20/30/35/39/53/59/83/92/96/102/111/115/149/200/212",
+   "deep": "面 #1f2937、边 #374151/#2A2A34/#3F3F46/#52525B、文字 #9ca3af/#d1d5db/#fff/#e5e7eb、hover 蒙层 #374151、阴影 rgba(0,0,0,0.3)、滚动条 #3F3F46/#52525B",
+   "light": ".light 作用域覆盖块（文件尾部）：面色 var(--fw-surface-dim)=#f0f1f2 系、边 var(--fw-border)=#e5e7eb 系、文字深灰阶梯 var(--fw-text)/text-strong/text-dim-3、hover 蒙层 var(--fw-overlay-2)=rgba(0,0,0,0.06)、滚动条 rgba(0,0,0,0.25)/hover 0.4、弹出阴影 rgba(0,0,0,0.1)",
+   "ruling": "逐条无等值键（各深值与 --fw-* 深值无一相等，换引即深档可见变更）→ 深值规则原样保留 + 尾部 .light 覆盖块（特异性 (0,2,0)+ 压过基规则）；边框类只覆 border-color 保 width/style"
+  },
+  {
+   "id": "D1a-promptinput-keeps",
+   "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+   "line": "74/121/122/157/161/170/185/207",
+   "deep": "#6b7280×2/#2563eb/#fff×3/rgba(0,0,0,0.6)/rgba(239,68,68,0.3)",
+   "light": "不覆盖（保持字面）",
+   "ruling": "28 处裁定中的保持项：:74/:207 深值 #6b7280 ≡ 浅档 dim-2 同值（覆盖为同值无意义）；:121/:122 内容语义蓝徽章（同 B2-c 操作蓝族）；:157/:161 内容承载遮罩黑蒙层+白字（同 B2 bg-black 遮罩族白名单）；:170 危险语义红蒙层；:185 危险填充上白字配对单元（浅档 #dc2626 上白字 4.83:1）"
+  },
+  {
+   "id": "D1a-ve-thumb-base",
+   "file": "src/pages/canvas/video-editor/components/AssetPanel.tsx",
+   "line": "111/144/184",
+   "deep": "var(--ve-border)=rgb(54,54,54)",
+   "light": "var(--ve-thumb-base)=#363636（单值恒值，不随主题）",
+   "ruling": "P6 内容承载：缩略图占位框/图标底垫底改恒值 token——深值 #363636=原 --ve-border 深值字节等值，岛内（.dark 壳）浅档亦不翻转；chrome 侧 ve-border 消费点不动（D1b 处理）"
+  },
+  {
+   "id": "D1a-ve-preview-base",
+   "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx",
+   "line": 64,
+   "deep": "var(--ve-bg)=#141414",
+   "light": "var(--ve-preview-base)=#141414（单值恒值，不随主题）",
+   "ruling": "P6 内容承载：预览区媒体垫底改恒值 token——深值=原 --ve-bg 字节等值；chrome 侧 ve-bg 消费点不动（D1b 处理）"
+  },
+  {
+   "id": "D1a-dead-token-removal",
+   "file": "src/index.css",
+   "line": "原 :103",
+   "deep": "--ve-text-control: var(--canvas-controls-text)",
+   "light": "键删除",
+   "ruling": "0 消费死 token（TSX/TS/CSS 直连 0 命中，var 链随 D1a 块删除同 commit 消失）——B0-6 死键断言 getPropertyValue=''；登记见 b2-migration-registry.json c8DeadTokenRemovals"
+  },
+  {
+   "id": "D1a-token-revival",
+   "file": "src/index.css",
+   "line": "深块/浅块各 1 行",
+   "deep": "--canvas-controls-active: rgba(255,255,255,0.12)",
+   "light": "rgba(0,0,0,0.08)",
+   "ruling": "复活为激活态双值键（原'0 消费死键'判定撤销——CanvasToolbar 内联 style 不消费 var() 但激活态语义没死，Task 22 BTN_BG_ACTIVE 消费）；登记见 b2-migration-registry.json c8TokenRevivals"
+  }
+ ],
  "differExpectedPairs": {
-  "pairs": []
+  "pairs": [
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(20, 20, 20)",
+    "after": "rgb(247, 248, 250)",
+    "why": "D1a body background #141414 → var(--fw-bg) 浅值；body 不在任何 .dark 岛内 → 浅侧必变（8 页全有各 1 条；全局继承族永久全局配对——注：background-color 本身不继承，本条是 body 本体位点天然跨页，量级放大论证仅适用于 color 条）"
+   },
+   {
+    "prop": "color",
+    "before": "rgb(226, 232, 240)",
+    "after": "rgb(31, 35, 41)",
+    "why": "D1a body color #e2e8f0 → var(--fw-text) 浅值；继承色波及全页无显式 color 的元素（单键吸收全部，量级随继承链放大属合法）"
+   }
+  ]
  },
  "d3EmergentSites": [],
  "whitelistKeeps": []

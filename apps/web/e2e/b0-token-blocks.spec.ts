@@ -62,9 +62,71 @@ const LIGHT: Record<string, string> = {
   '--fw-overlay-3': 'rgba(0,0,0,0.12)',
 };
 
+/** C8 D1a 域 token 双值化（spec §8.1 表）——深值=现状冻结；浅值=D1b 并域目标键浅值 */
+const DOMAIN_TOKENS = [
+  '--canvas-board-bg', '--canvas-board-dot', '--canvas-controls-bg', '--canvas-controls-border',
+  '--canvas-controls-text', '--canvas-controls-hover', '--canvas-controls-active', '--canvas-controls-icon',
+  '--canvas-handle-bg', '--canvas-handle-icon',
+  '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
+  '--ve-bg', '--ve-panel', '--ve-border', '--ve-text', '--ve-text-dim', '--ve-accent',
+  '--vw-card-bg', '--vw-card-border', '--vw-card-border-hover',
+] as const;
+
+const DOMAIN_DARK: Record<string, string> = {
+  '--canvas-board-bg': '#000000',
+  '--canvas-board-dot': '#555555',
+  '--canvas-controls-bg': 'rgb(38,38,38)',
+  '--canvas-controls-border': 'rgb(54,54,54)',
+  '--canvas-controls-text': 'rgb(247,247,247)',
+  '--canvas-controls-hover': 'rgba(255,255,255,0.08)',
+  '--canvas-controls-active': 'rgba(255,255,255,0.12)',
+  '--canvas-controls-icon': 'rgb(160,160,160)',
+  '--canvas-handle-bg': '#9ca3af',
+  '--canvas-handle-icon': '#6b7280',
+  '--canvas-handle-hover-bg': '#ffffff',
+  '--canvas-handle-hover-icon': '#ffffff',
+  '--edge-flow-color': '#3b82f6',
+  '--edge-highlight-color': '#999',
+  '--ve-bg': '#141414',
+  '--ve-panel': 'rgb(38,38,38)',
+  '--ve-border': 'rgb(54,54,54)',
+  '--ve-text': '#e2e8f0',
+  '--ve-text-dim': 'rgba(226,232,240,0.6)',
+  '--ve-accent': '#6c5ce7',
+  '--vw-card-bg': '#1e1e1e',
+  '--vw-card-border': 'rgba(255,255,255,0.1)',
+  '--vw-card-border-hover': 'rgba(255,255,255,0.25)',
+};
+
+const DOMAIN_LIGHT: Record<string, string> = {
+  '--canvas-board-bg': '#f5f5f5',
+  '--canvas-board-dot': '#c8c8c8',
+  '--canvas-controls-bg': '#f0f1f2',
+  '--canvas-controls-border': '#e5e7eb',
+  '--canvas-controls-text': '#111827',
+  '--canvas-controls-hover': 'rgba(0,0,0,0.06)',
+  '--canvas-controls-active': 'rgba(0,0,0,0.08)',
+  '--canvas-controls-icon': '#6b7280',
+  '--canvas-handle-bg': '#6b7280',
+  '--canvas-handle-icon': '#4b5563',
+  '--canvas-handle-hover-bg': '#111827',
+  '--canvas-handle-hover-icon': '#111827',
+  '--edge-flow-color': '#3b82f6',
+  '--edge-highlight-color': '#6b7280',
+  '--ve-bg': '#f7f8fa',
+  '--ve-panel': '#f0f1f2',
+  '--ve-border': '#e5e7eb',
+  '--ve-text': '#1f2329',
+  '--ve-text-dim': '#4b5563',
+  '--ve-accent': '#6c5ce7',
+  '--vw-card-bg': '#ffffff',
+  '--vw-card-border': 'rgba(0,0,0,0.06)',
+  '--vw-card-border-hover': 'rgba(0,0,0,0.12)',
+};
+
 /** 归一化读作用域元素上全部 token 计算值 + color-scheme。
  * 归一 = 去空白 + 小写 + 小数补前导零（引擎序列化数字去前导零：0.3 → .3，两侧统一回 0.3）。 */
-function readTokens(page: Page, selector: string) {
+function readTokens(page: Page, selector: string, tokens: string[] = [...TOKENS]) {
   return page.evaluate(
     ({ sel, tokens }) => {
       const el = sel === 'html' ? document.documentElement : document.querySelector(sel);
@@ -75,7 +137,7 @@ function readTokens(page: Page, selector: string) {
       for (const t of tokens) out[t] = norm(cs.getPropertyValue(t));
       return out;
     },
-    { sel: selector, tokens: [...TOKENS] },
+    { sel: selector, tokens },
   );
 }
 
@@ -190,5 +252,38 @@ test.describe('B0-5 ::placeholder 语义化（dim-2，var 逐作用域解析）'
     const snap = JSON.stringify(s);
     expect(s.darkScope, `[G5] html 域 input::placeholder 期望 rgba(255, 255, 255, 0.45)（--fw-text-dim-2 深色值，取代 preflight #9ca3af）；实际=${snap}`).toBe('rgba(255, 255, 255, 0.45)');
     expect(s.lightScope, `[G5] 岛内 input::placeholder 期望 rgb(107, 114, 128)（--fw-text-dim-2 浅色值 #6b7280）；实际=${snap}`).toBe('rgb(107, 114, 128)');
+  });
+});
+
+test.describe('B0-6 C8 域 token 双值化（D1a）', () => {
+  test('默认深：域 token 全部深值 + 死键 --ve-text-control 已删（controls-active 复活为双值键在表内）', async ({ browser }) => {
+    const ctx = await browser.newContext({ storageState: USER_STATE });
+    const page = await ctx.newPage();
+    try {
+      await openWorks(page);
+      // ⚠ 实施期订正（Task 11 红相实证）：死键断言要求 '--ve-text-control' 在读取列表内——不在列表则 s 恒
+      // undefined≠''，Task 12 删键后仍红（结构性永红）。当前红=var 链值 rgb(247,247,247)≠''，删键后 getPropertyValue
+      // 返回 ''→绿。第七轮 P1-4 的"显式传第三参"原则不变，仅列表多一死键探测位。
+      const s = await readTokens(page, 'html', [...TOKENS, ...DOMAIN_TOKENS, '--ve-text-control']);
+      for (const t of DOMAIN_TOKENS) {
+        expect(s[t], `[B0-6] ${t} 深值期望 ${DOMAIN_DARK[t]}；实际=${JSON.stringify(s)}`).toBe(DOMAIN_DARK[t]);
+      }
+      // 第六轮：--canvas-controls-active 复活为激活态双值键（原"0 消费死键"判定撤销——它在 CanvasToolbar
+      // 因内联 style 不消费 var() 而"死"，激活态语义没死，Task 22 BTN_BG_ACTIVE 复用；见 P1-1 裁定）
+      expect(s['--ve-text-control'], '死 token 必须删除（D1a）').toBe('');
+    } finally { await ctx.close(); }
+  });
+
+  test('html.light：域 token 全部浅值（双块源序）', async ({ browser }) => {
+    const ctx = await browser.newContext({ storageState: USER_STATE });
+    const page = await ctx.newPage();
+    try {
+      await openWorks(page);
+      await page.evaluate(() => document.documentElement.classList.add('light'));
+      const s = await readTokens(page, 'html', [...TOKENS, ...DOMAIN_TOKENS]);
+      for (const t of DOMAIN_TOKENS) {
+        expect(s[t], `[B0-6] ${t} 浅值期望 ${DOMAIN_LIGHT[t]}；实际=${JSON.stringify(s)}`).toBe(DOMAIN_LIGHT[t]);
+      }
+    } finally { await ctx.close(); }
   });
 });

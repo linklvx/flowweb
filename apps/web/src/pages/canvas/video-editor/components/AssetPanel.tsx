@@ -108,7 +108,7 @@ export function AssetPanel() {
                 url: i.url, thumbnailUrl: i.thumbnailUrl ?? undefined, // 批3-4：与 onClick norm 同源——drop 路径 poster 回退取帧的取数来源
               }))}
               className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
-              <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                 {i.thumbnailUrl
                   ? <img src={i.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                   : <span className="text-[10px] text-[var(--ve-text-dim)]">{i.kind === 'audio' ? '音' : i.kind === 'video' ? '视' : '图'}</span>}
@@ -141,7 +141,7 @@ export function AssetPanel() {
                 url: it.url, thumbnailUrl: it.thumbnailUrl ?? undefined, // 批3-4：同全集资产——drop 路径 poster 回退取帧
               }))}
               className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
-              <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                 {it.thumbnailUrl
                   ? <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                   : <span className="text-[10px] text-[var(--ve-text-dim)]">{it.mimeType.startsWith('audio/') ? '音' : it.mimeType.startsWith('video/') ? '视' : '图'}</span>}
@@ -181,7 +181,7 @@ export function AssetPanel() {
                       url: info?.url, // 批3-4：生成结果无缩略图——video 产物靠 drop 侧 ensurePoster 回退取帧
                     }))}
                     className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
-                    <div className="w-10 h-10 rounded-md bg-[var(--ve-border)] shrink-0 overflow-hidden flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                       <span className="text-[10px] text-[var(--ve-text-dim)]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
                     </div>
                     <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>

@@ -294,3 +294,40 @@ test.describe('B1-3【绿·B2 后必须仍绿】暗色零回退元素级对照�
     }
   });
 });
+
+test.describe('B1-4【C8 D1a】域 token 块唯一性 + 源序（:root,.dark/.light 各恰一块且 .light 在后）', () => {
+  test('产品 sheet 内域 token（--canvas-/--ve-/--vw-，排除单值恒值键）恰一对主题块', async ({ page }) => {
+    await openLogin(page);
+    const snap = await page.evaluate(() => {
+      const isProduct = (i: number) => {
+        const n = document.styleSheets[i].ownerNode as HTMLLinkElement | null;
+        return !!n && n.tagName === 'LINK' && /\/assets\/[^/]+\.css$/.test(n.getAttribute('href') ?? '');
+      };
+      // 单值恒值键（几何/内容承载）不入双块纪律——白名单排除；--ve-accent-text 是双值键（D1b 落地）不入此表
+      const SINGLE = /--(?:z-panel|vw-close-reserve|vw-carousel-reserve|ve-track-video|ve-thumb-base|ve-preview-base)/;
+      const hits: Array<{ idx: number; selector: string; keys: string[] }> = [];
+      for (let i = 0; i < document.styleSheets.length; i++) {
+        if (!isProduct(i)) continue;
+        let rules: CSSRuleList;
+        try { rules = document.styleSheets[i].cssRules; } catch { continue; }
+        for (let j = 0; j < rules.length; j++) {
+          const r = rules[j];
+          if (!(r instanceof CSSStyleRule)) continue;
+          // ⚠ 实施期订正（Task 11 红相实证）：原键正则不区分声明与 var() 引用——NodeHandle.css hover 规则与
+          // 13 条 Tailwind 任意值工具类（消费方）都被计入 hits → darkBlocks=18≠1 永不绿。改声明位匹配（--x: 形态，
+          // matchAll 取捕获组），只数定义块；var() 消费规则天然不命中。
+          const keys = [...new Set([...r.style.cssText.matchAll(/(?:^|;)\s*(--(?:canvas-|ve-|vw-)[\w-]+)\s*:/g)].map((m) => m[1]!))].filter((k) => !SINGLE.test(k));
+          if (keys.length) hits.push({ idx: j, selector: r.selectorText, keys });
+        }
+      }
+      return hits;
+    });
+    const dump = JSON.stringify(snap);
+    const darkBlocks = snap.filter((h) => !h.selector.includes('.light'));
+    const lightBlocks = snap.filter((h) => h.selector.includes('.light'));
+    expect(darkBlocks.length, `[B1-4] 域 token 深值必须集中在唯一 :root,.dark 块（散落多块=浅色静默恒输风险）；实际=${dump}`).toBe(1);
+    expect(darkBlocks[0].selector, `[B1-4] 深块选择器须为 :root,.dark；实际=${dump}`).toBe(':root, .dark');
+    expect(lightBlocks.length, `[B1-4] 域 token 浅值必须集中在唯一 .light 块；实际=${dump}`).toBe(1);
+    expect(lightBlocks[0].idx, `[B1-4] .light 域块必须源序在深块之后；实际=${dump}`).toBeGreaterThan(darkBlocks[0].idx);
+  });
+});

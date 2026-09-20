@@ -23,6 +23,12 @@
   },
   "computedPairNormalization": "chromium 序列化口径直比（rgb(226, 232, 240) / rgba(255, 255, 255, 0.45)）；differ 侧统一去空格小写后比对"
  },
+ "c8DeadTokenRemovals": [
+  { "key": "--ve-text-control", "removedAt": "D1a", "why": "0 消费死 token；index.css:103 var 间接链随 D1a 块删除同 commit 消失（与 Task 12 Step 2 口径一致，非 D1b）" }
+ ],
+ "c8TokenRevivals": [
+  { "key": "--canvas-controls-active", "revivedAt": "D1a", "why": "第六轮 P1-1：原'0 消费死键'判定撤销——CanvasToolbar 因内联 style 不消费 var() 而死，激活态语义没死；复活为双值键（深 rgba(255,255,255,0.12)/浅 rgba(0,0,0,0.08)），Task 22 BTN_BG_ACTIVE 消费——防'常态/激活同键同色不可辨'静默回归（pairs 会把 58→38 吸收成预期）" }
+ ],
  "channel1": {
   "name": "hex 精确等值 → token 工具类（静态 className 子串，模板字面量静态段含内）",
   "computedInvariance": "全部精确等值：暗色档 token 值 = 原字面值，迁移前后 computed 不变（B1-3 零回退对照钉死）",

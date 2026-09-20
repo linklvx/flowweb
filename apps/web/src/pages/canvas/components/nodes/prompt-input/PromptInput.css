@@ -181,7 +181,7 @@
   right: 0;
   width: 18px;
   height: 18px;
-  background: #ef4444;
+  background: var(--fw-accent-danger); /* C8 D1a：#ef4444 = 深值字节等值；浅值 #dc2626 是该键存在的意义（采集页不渲染 PromptInput，预期无 diff） */
   color: #fff;
   border: none;
   border-radius: 50%;
@@ -211,3 +211,34 @@
 .thumbnail-add:hover {
   border-color: #52525B;
 }
+
+/* ===== C8 D1a 浅色覆盖（深值字节不动；.light 作用域特异性压过基规则；逐条裁定见 canvas-migration-registry.json adjudications） ===== */
+/* 不覆盖项（深值两主题皆成立/内容语义单元）：.prompt-editor 占位 #6b7280、.thumbnail-add #6b7280（≡浅档 dim-2）、
+ * .command-chip #2563eb/#fff（内容语义蓝徽章）、.thumbnail-progress 黑蒙层+#fff（内容承载遮罩）、
+ * .thumbnail-error 红蒙层（危险语义）、.thumbnail-delete #fff（危险填充上白字配对） */
+.light .command-popup {
+  background-color: var(--fw-surface-dim);
+  border-color: var(--fw-border);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+.light .command-category {
+  color: var(--fw-text-dim-3);
+  border-bottom-color: var(--fw-border);
+}
+.light .command-item { color: var(--fw-text); }
+.light .command-item:hover,
+.light .command-item.selected {
+  background-color: var(--fw-overlay-2);
+}
+.light .command-item.selected { color: var(--fw-text-strong); }
+.light .command-name { color: var(--fw-text); }
+.light .command-desc { color: var(--fw-text-dim-3); }
+.light .prompt-editor { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }
+.light .prompt-editor::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }
+.light .prompt-editor::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }
+.light .scrollbar-dark { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }
+.light .scrollbar-dark::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }
+.light .scrollbar-dark::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }
+.light .thumbnail-item { border-color: var(--fw-border); }
+.light .thumbnail-add { border-color: var(--fw-border); }
+.light .thumbnail-add:hover { border-color: var(--fw-text-dim-1); }
