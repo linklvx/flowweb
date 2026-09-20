@@ -103,7 +103,7 @@ export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, 
     <div
       ref={menuRef}
       role="menu"
-      className="fixed z-50 w-[180px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-overlay-2 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
+      className="fixed z-50 w-[180px] gap-1 rounded-2xl bg-surface p-2 px-1 border border-overlay-2 shadow-[0_1px_0_0_rgba(255,255,255,0.08)_inset,0_4px_16px_0_rgba(0,0,0,0.12)] backdrop-blur-[28px]"
       style={{ left: adjustedX, top: adjustedY }}
       tabIndex={-1}
     >
