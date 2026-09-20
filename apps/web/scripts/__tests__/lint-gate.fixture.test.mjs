@@ -107,9 +107,9 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
 
   // —— C8 Task 19 Step 2b：扩规则自测（白名单双形态 + 串内全匹配 + 两式同步闭环）——
 
-  it('① 目录条目全放行：videos 恒深域（string 条目）九族不报（升级前基线，守旧语义）', () => {
+  it('① 目录条目全放行：nodes 恒深域（string 条目）九族不报（升级前基线，守旧语义；Task 20 审查修——原锚 videos/VideoCard 已随目录摘除改精确条目，border-white/50 正确可报致基线红）', () => {
     expect(
-      lintThemeFixture("const a = 'bg-white text-black border-white/50';", 'src/pages/videos/VideoCard.tsx'),
+      lintThemeFixture("const a = 'bg-white text-black border-white/50';", 'src/pages/canvas/components/nodes/VideoGenNode.tsx'),
     ).toHaveLength(0);
   });
 

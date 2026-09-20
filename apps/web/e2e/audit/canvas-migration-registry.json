@@ -1982,7 +1982,7 @@
    "line": ":1142（b3DeadClassDisposal.domainRule）",
    "deep": "撤销标记：『D4 v1.7——全屏查看器（nodes/ 内）= 画板恒深域，禁 --fw-* 语义 token，一律字面值』追加 revoked-C8-D3（跟随域，逐元素裁定见 canvas-migration-registry.json D3-viewer-element-table）",
    "light": "不撤销则 D3 后有人按它把 viewer 钉回深色（E 表废止项的登记档残留）",
-   "ruling": "b3DeadClassDisposal 跨度实测订正 :1131-1181→:1131-1250（下一键 b4DesignConstantWhitelist @1251，第五轮订正落本 commit）；本步真实工作=B3 恒深落值改双主题真值（按钮 chrome 处 token/双值、恒深处保留字面），非删类名；ring-ring 计数 2 非 4（v1.5.1-2 已订正，本条为执行记录）"
+   "ruling": "b3DeadClassDisposal 跨度实测订正 :1131-1181→:1137-1256（下一键 b4DesignConstantWhitelist @1257——spec v1.5.4-2 数字为准，Task 20 审查同步本条）；本步真实工作=B3 恒深落值改双主题真值（按钮 chrome 处 token/双值、恒深处保留字面），非删类名；ring-ring 计数 2 非 4（v1.5.1-2 已订正，本条为执行记录）"
   }
  ],
  "differExpectedPairs": {
