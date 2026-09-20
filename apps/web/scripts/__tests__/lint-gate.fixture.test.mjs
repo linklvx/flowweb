@@ -159,6 +159,11 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].messageId).toBe('themeUtilityForbidden');
   });
+
+  it('④c′ allow 侧方括号 alpha 判别（quality 审查补）——CreditsDropdown(allow:[bg]) 上 bg-white/[0.06] 0 报（GLOBAL 式认得方括号形态方能过 every 门；漏认则 fams=[] 落 visit 假红）', () => {
+    const messages = lintThemeFixture("const cls = 'bg-white/[0.06]';", 'src/pages/canvas/components/CreditsDropdown.tsx');
+    expect(messages).toHaveLength(0);
+  });
 });
 
 describe('lint-gate 增量门禁（fixture）', () => {

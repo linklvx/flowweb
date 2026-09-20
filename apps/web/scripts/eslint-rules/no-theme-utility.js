@@ -57,7 +57,7 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/canvas/components/CreditsDropdown.tsx', allow: ['bg'] },       // :267 充值钮 bg-white+hover:bg-zinc-100（第五轮订正：此钮非"邀请卡"——邀请钮 :282-285 已 token 化；P5 通道 3 明文保留的即这族白系）
   { glob: 'src/pages/canvas/components/ConfirmModal.tsx', allow: ['bg'] },          // 白卡（通道 3）
   { glob: 'src/pages/canvas/components/SaveAsTemplateDialog.tsx', allow: ['bg'] },  // 白卡（通道 3）
-  { glob: 'src/pages/videos/ProcessSnapshot.tsx', allow: ['bg', 'text', 'border'] }, // 内容承载恒深整块（spec §10-⑦）——videos 目录摘除时同 commit 补入
+  { glob: 'src/pages/videos/ProcessSnapshot.tsx', allow: ['bg', 'text', 'border'] }, // 内容承载恒深整块（spec §10-⑦）——Task 19 已预置生效；videos 目录条目在前遮蔽期间全放行（与摘除前行为一致），Task 20 摘目录后本条自动激活
   // —— C8 Task 19 Step 3 working list 精确豁免（lint-gate 实测 12 处/7 文件全 bg 族；每文件先九族 grep -i 定 allow）——
   { glob: 'src/components/BaseFullscreenModal.tsx', allow: ['bg'] },                 // :70 bg-black/60 全屏模态遮罩中性 scrim（恒定黑罩两档成立）
   { glob: 'src/pages/canvas/page.tsx', allow: ['bg'] },                              // :313 bg-black/50 hydrate 加载遮罩中性 scrim
@@ -86,7 +86,7 @@ export function toAppRelPosix(filePath) {
 const normalizeEntry = (e) => (typeof e === 'string' ? { glob: e, allow: null } : e);
 const WHITELIST_ENTRIES = THEME_UTILITY_WHITELIST.map(normalizeEntry);
 
-const RE_CACHE = new Map(); // 第七轮 P3：旧实现是模块级预编译；新入口若每次访问现编译 17 条 glob 会拖慢全仓 lint——缓存补回
+const RE_CACHE = new Map(); // 第七轮 P3：旧实现是模块级预编译；新入口若每次访问现编译 28 条 glob 会拖慢全仓 lint——缓存补回
 function globToReCached(glob) {
   let re = RE_CACHE.get(glob);
   if (!re) { re = globToRe(glob); RE_CACHE.set(glob, re); }
@@ -96,6 +96,7 @@ function globToReCached(glob) {
 /** 匹配 + 属性族判定：返回 undefined=不在白名单；null=目录条目全放行；数组=精确条目放行集 */
 function whitelistAllowFor(filePath) {
   const rel = toAppRelPosix(filePath);
+  // 首匹配生效——目录条目须排在被其覆盖文件的精确条目之前（重叠对现状唯一：videos/** 遮蔽 ProcessSnapshot 精确条目，摘目录后自动激活；重排数组会静默改变遮蔽关系）
   for (const e of WHITELIST_ENTRIES) {
     if (globToReCached(e.glob).test(rel)) return e.allow; // null=目录条目全放行
   }
