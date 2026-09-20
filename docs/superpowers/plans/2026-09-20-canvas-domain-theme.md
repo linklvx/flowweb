@@ -1186,8 +1186,10 @@ Expected: PASS（若有历史用例断言 TopActionBar 三态钮/aria，同步�
 :183 命中条件 `/theme/.test(m[1]) && /localStorage/.test(m[1]) && /matchMedia/.test(m[1])` 改为：
 
 ```ts
-      if (/theme/.test(m[1]!) && /localStorage/.test(m[1]!) && !/matchMedia/.test(m[1]!)) { themeScriptIdx = m.index; break; }
+      if (/theme/.test(m[1]!) && /localStorage/.test(m[1]!) && !/matchMedia\(/.test(m[1]!)) { themeScriptIdx = m.index; break; }
 ```
+
+（⚠ 判别式用**调用形态** `matchMedia\(` 非裸词——Task 7 落的内联脚本注释含"不 matchMedia"字样（dist 产物保留注释），裸词负向匹配会把唯一候选脚本判飞 → themeScriptIdx=-1 必红；调用形态跳过注释、真 `matchMedia(` 调用仍红。实施期实证修订。）
 
 测试名与断言 message 同步：`head 内联主题脚本（含 theme/localStorage、不含 matchMedia、无 defer/async）先于 <script type="module">`——顺带成为"无 system 档"的机械断言。
 
@@ -1243,10 +1245,8 @@ test('G7 两态往返：默认深 → 浅（显式压 OS）→ 深；aria/图标
     expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/light] 存储应写 light').toBe('light');
     expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅]');
 
-    // 显式浅压 OS（live 变体：两态模型 OS 翻转零影响）
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.waitForTimeout(300);
-    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅压 OS 深]');
+    //（quality review 删"显式浅压 OS"块：初始 emulateMedia 已是 dark，再次 dark 是 no-op——
+    //  change 不触发、300ms 等不到事件、断言与 [G7/显式浅] 重复；真翻转覆盖由 G3 承担。）
 
     // 点击 2：light → dark（往返闭合）——click() 本身须 await（第五轮 P2：floating promise flaky 源）
     await (await expectThemeButton(page, 'light')).click();
