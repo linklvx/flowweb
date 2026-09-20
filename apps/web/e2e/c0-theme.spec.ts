@@ -1,14 +1,17 @@
 // C0 主题套件（plan C0→C7，spec §4.1/§8）：主题切换 C 段常驻门禁——C 段 TDD 期间 C0_RED env 守卫
-// 分组红/绿，C7 撤守卫全量转常驻：默认 `npx playwright test` 含本文件 21 用例（门禁 20+21=41 passed
-// + 5 collector skip）。组内【红→Cx 绿】标注为 TDD 期历史实证，保留备考。
+// 分组红/绿，C7 撤守卫全量转常驻：默认 `npx playwright test` 含本文件 19 用例（C8 D0 两态化后；
+// 全量门禁总数不在此写死，避免随删例失真漂移）。组内【红→Cx 绿】标注为 TDD 期历史实证，保留备考。
 //
 // 生命周期（终态）：
 //   组1 三态持久化映射【红→C1 绿】（localStorage theme ∈ {light,dark,system}，system 经 matchMedia 解析；
-//     无存储 → html.dark = D3 默认深色兜底，非"跟随系统"——OS light 下仍 dark 钉死该语义）；
+//     无存储 → html.dark = D3 默认深色兜底，非"跟随系统"——OS light 下仍 dark 钉死该语义）
+//     （C8 D0 两态化：system 例删——残留映射深由 themeStore 单测覆盖）；
 //   组2 首帧无闪白【红→C1 绿】（运行时：MutationObserver 首录 html 主题类先于首个渲染内容——#root 尚空；
-//     静态：head 内联主题脚本含 theme/localStorage/matchMedia、无 defer/async、先于 <script type="module">）；
-//   组3 持久化 + 显式/系统解析区分【红→C1 绿】（显式 light 压过 OS dark；system 档同页随 OS 实时翻转
-//     ——C1 matchMedia change 监听重解析重挂，spec §4.1 脚本契约）；
+//     静态：head 内联主题脚本含 theme/localStorage、不含 matchMedia（调用形态判别）、无 defer/async、
+//     先于 <script type="module">）；
+//   组3 持久化 + 显式/系统解析区分【红→C1 绿】（显式 light 压过 OS dark；两态模型 OS 零影响 +
+//     prefers-color-scheme matchMedia 调用计数 0 由 G3 断言）（C8 D0 两态化：system 例删——原「system 档
+//     同页随 OS 实时翻转 + C1 matchMedia change 监听重解析重挂，spec §4.1 脚本契约」随两态模型移除，备考）；
 //   组4 岛三组对照 + 持续断言【红→C1/C2 绿】（login 岛=红因 html.dark 缺失→C1 绿；admin/video-editor 岛=
 //     红因岛根无 .dark 类→C2 绿；「html 恒有且仅有 .light/.dark 之一」持续断言仅放本 C 段文件——
 //     v1.3 标注：A/B 段 html 无类是合法历史状态，此断言在 A/B 必误红）；
@@ -16,7 +19,8 @@
 //     react-flow wrapper 自带 light/dark 运行时类同名实证合法；全仓 dark: 使用实测 0）。
 //   组6 岛断言只落 Playwright【声明条目，无独立用例】：vitest 不落岛/颜色断言——test-setup 清空含 :has( 的
 //     antd 样式 + jsdom 不解析 CSS 变量，vitest 拿不到可判颜色（spec §8 D8）。
-//   组7 切换 UI【红→C4 绿】TopActionBar 三态循环钮（plan §8 序：浅→深→跟随）+ LoginModal 恒浅活体断言
+//   组7 切换 UI【红→C4 绿】TopActionBar 两态往返钮（默认深→浅→深，aria/图标随态；钮存在性三路由）
+//     + LoginModal 恒浅活体断言
 //     【守卫，现状应绿】（C2 复核遗留项：rootClassName="light" 落 .ant-modal-root，宿主深下后代经继承取浅值）。
 //   组8 O5 portal 弹层 closest 矩阵【部分红→C5 绿 / 部分守卫】两通道穿透不对称的落地验收：
 //     antd token 经 React context 穿透 portal ✓；--fw-* 经 DOM 继承不穿透 ✗ → body 挂载弹层须自带岛类。
@@ -45,7 +49,7 @@ const ADMIN_HOME = '/admin/models';
 const norm = (v: string) => v.replace(/\s+/g, '').toLowerCase();
 
 type ThemeClass = 'light' | 'dark';
-type StoredTheme = 'light' | 'dark' | 'system';
+type StoredTheme = 'light' | 'dark';
 
 interface HtmlThemeState {
   raw: string;
@@ -102,13 +106,11 @@ async function openVideos(page: Page) {
 const THREE_STATE_CASES: Array<{ id: string; stored: StoredTheme | null; scheme: 'light' | 'dark'; expected: ThemeClass; why: string }> = [
   { id: 'light', stored: 'light', scheme: 'light', expected: 'light', why: '显式 light → html.light' },
   { id: 'dark', stored: 'dark', scheme: 'dark', expected: 'dark', why: '显式 dark → html.dark' },
-  { id: 'system+OS浅', stored: 'system', scheme: 'light', expected: 'light', why: 'system 按 matchMedia 解析显式挂 .light（:root 兜底是深色，不挂类即错）' },
-  { id: 'system+OS深', stored: 'system', scheme: 'dark', expected: 'dark', why: 'system 解析挂 .dark' },
   { id: '无存储默认深', stored: null, scheme: 'light', expected: 'dark', why: 'D3 默认深色兜底——刻意配 OS light：钉死「默认=深」而非「默认=跟随系统」' },
 ];
 
 for (const c of THREE_STATE_CASES) {
-  test(`G1 三态持久化：${c.id} → html.${c.expected}（${c.why}）`, async ({ browser }) => {
+  test(`G1 两态持久化（light/dark/无存储默认深）：${c.id} → html.${c.expected}（${c.why}）`, async ({ browser }) => {
     const ctx = await newSeededContext(browser, c.stored);
     const page = await ctx.newPage();
     try {
@@ -165,7 +167,7 @@ test('G2 运行时：html 主题类先于首个渲染内容挂上（MutationObse
   }
 });
 
-test('G2 静态：head 内联主题脚本（含 theme/localStorage/matchMedia、无 defer/async）先于 <script type="module">', async ({ browser }) => {
+test('G2 静态：head 内联主题脚本（含 theme/localStorage、不含 matchMedia、无 defer/async）先于 <script type="module">', async ({ browser }) => {
   const ctx = await browser.newContext(); // 纯 HTML 静态检查，无需会话
   const page = await ctx.newPage();
   try {
@@ -175,14 +177,15 @@ test('G2 静态：head 内联主题脚本（含 theme/localStorage/matchMedia、
     const headEnd = html.indexOf('</head>');
     const moduleIdx = html.search(/<script[^>]*type="module"/);
     expect(moduleIdx, '[G2-静态] 产物 HTML 应含 <script type="module">（vite 注入 head）').toBeGreaterThan(0);
-    // 内联 = 无 src/type/defer/async 属性；主题脚本内容契约 = 读 localStorage theme + matchMedia 解析 system
+    // 内联 = 无 src/type/defer/async 属性；主题脚本内容契约 = 读 localStorage theme、不含 matchMedia 调用
+    //（C8 两态无 system 档；判别式取调用形态 matchMedia\( 而非裸词——index.html 注释「不 matchMedia」含裸词，裸词判别必误红）
     const inlineRe = /<script(?![^>]*\bsrc=)(?![^>]*\btype=)(?![^>]*\bdefer)(?![^>]*\basync)[^>]*>([\s\S]*?)<\/script>/g;
     let themeScriptIdx = -1;
     let m: RegExpExecArray | null;
     while ((m = inlineRe.exec(html)) !== null) {
-      if (/theme/.test(m[1]!) && /localStorage/.test(m[1]!) && /matchMedia/.test(m[1]!)) { themeScriptIdx = m.index; break; }
+      if (/theme/.test(m[1]!) && /localStorage/.test(m[1]!) && !/matchMedia\(/.test(m[1]!)) { themeScriptIdx = m.index; break; }
     }
-    expect(themeScriptIdx, '[G2-静态] 未找到 head 内联主题脚本（内容含 theme/localStorage/matchMedia、无 defer/async）——C1 落地前必红').toBeGreaterThanOrEqual(0);
+    expect(themeScriptIdx, '[G2-静态] 未找到 head 内联主题脚本（含 theme/localStorage、不含 matchMedia、无 defer/async）').toBeGreaterThanOrEqual(0);
     expect(themeScriptIdx, '[G2-静态] 内联主题脚本必须位于 <head> 内').toBeLessThan(headEnd);
     expect(themeScriptIdx, '[G2-静态] 内联主题脚本必须先于 module 脚本（防首帧闪白——module 加载执行前类已挂）').toBeLessThan(moduleIdx);
   } finally {
@@ -205,21 +208,26 @@ test('G3 显式 light 压过 OS dark（explicit wins over media）', async ({ br
   }
 });
 
-test('G3 system 档随 OS 同页实时翻转（matchMedia change 监听重解析重挂）', async ({ browser }) => {
-  const ctx = await newSeededContext(browser, 'system');
+test('G3 OS 偏好零影响 + prefers-color-scheme matchMedia 调用计数 0（C8 两态无 system 档）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, 'light');
   const page = await ctx.newPage();
   try {
+    // wrap matchMedia 计数（按 query 过滤——matchMedia 亦被 antd responsiveObserver 用于响应式，不过滤会误红）
+    await page.addInitScript(() => {
+      const calls: string[] = [];
+      (window as unknown as { __mqCalls: string[] }).__mqCalls = calls;
+      const orig = window.matchMedia.bind(window);
+      window.matchMedia = (q: string) => { calls.push(q); return orig(q); };
+    });
     await page.emulateMedia({ colorScheme: 'dark' });
     await openWorks(page);
-    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G3/system@OS深]');
-    // 同页 live 切 OS：C1 的 matchMedia change 监听须重解析重挂（红因=现状无任何监听，html 类恒不变）
-    await page.emulateMedia({ colorScheme: 'light' });
-    await expect
-      .poll(async () => (await readHtmlTheme(page)).themeClasses.join(','), {
-        message: '[G3/system live flip] OS dark→light 后 html 应翻 .light（matchMedia change 监听）',
-        timeout: 5_000,
-      })
-      .toBe('light');
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G3/显式浅@OS深]');
+    await page.emulateMedia({ colorScheme: 'light' }); // 同向翻转
+    await page.waitForTimeout(300);
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G3/OS 翻转零影响]');
+    const calls = await page.evaluate(() => (window as unknown as { __mqCalls: string[] }).__mqCalls);
+    const themeCalls = calls.filter((c) => c.includes('prefers-color-scheme'));
+    expect(themeCalls, `[G3] prefers-color-scheme 的 matchMedia 调用数必须为 0（无 system 档无订阅）；实际=${JSON.stringify(themeCalls)}`).toEqual([]);
   } finally {
     await ctx.close();
   }
@@ -379,15 +387,14 @@ function collectDarkPrefix(page: Page, rootSelector: string) {
 //   循环序 浅→深→跟随；/videos 恒深域内 chrome 切换钮可见 = D4 已知接受项，不做岛）
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 三态 → aria-label 态名 + antd 图标类（当前态驱动图标/aria/title，点击切下一档） */
-const THEME_UI: Record<'light' | 'dark' | 'system', { label: string; icon: string }> = {
+/** 两态 → aria-label 态名 + antd 图标类（当前态驱动图标/aria/title，点击切下一档） */
+const THEME_UI: Record<'light' | 'dark', { label: string; icon: string }> = {
   light: { label: '浅色', icon: 'anticon-sun' },
   dark: { label: '深色', icon: 'anticon-moon' },
-  system: { label: '跟随系统', icon: 'anticon-desktop' },
 };
 
 /** 断切换钮处于预期态：aria-label 锚定可见 + 图标随态（返回钮 locator 供点击） */
-async function expectThemeButton(page: Page, mode: 'light' | 'dark' | 'system') {
+async function expectThemeButton(page: Page, mode: 'light' | 'dark') {
   const { label, icon } = THEME_UI[mode]!;
   const btn = page.getByRole('button', { name: `切换主题，当前：${label}`, exact: true });
   await expect(btn, `[G7] 切换钮应存在且 aria-label 锚定为「切换主题，当前：${label}」`).toBeVisible();
@@ -395,7 +402,7 @@ async function expectThemeButton(page: Page, mode: 'light' | 'dark' | 'system') 
   return btn;
 }
 
-test('G7 三态循环：默认深 → 跟随系统（OS live 翻转不重载）→ 浅（显式压 OS）→ 深；aria/图标随态', async ({ browser }) => {
+test('G7 两态往返：默认深 → 浅（显式压 OS）→ 深；aria/图标随态', async ({ browser }) => {
   const ctx = await newSeededContext(browser, null); // 无存储默认深（D3）
   const page = await ctx.newPage();
   try {
@@ -403,37 +410,16 @@ test('G7 三态循环：默认深 → 跟随系统（OS live 翻转不重载）�
     await openWorks(page);
     expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/初始默认深]');
     const btn = await expectThemeButton(page, 'dark');
-    await expect(btn).toHaveAttribute('title', '主题：深色（点击切换为跟随系统）');
+    await expect(btn).toHaveAttribute('title', '主题：深色（点击切换为浅色）');
 
-    // 点击 1：dark → system（plan §8 序：深 → 跟随）——OS 深解析仍 html.dark，但存储已写 system
+    // 点击 1：dark → light
     await btn.click();
-    await expectThemeButton(page, 'system');
-    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/system] 存储应写 system').toBe('system');
-    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/system@OS深]');
-
-    // system 档 OS live 翻转（不重载）：matchMedia change 监听重解析 → html.light
-    await page.emulateMedia({ colorScheme: 'light' });
-    await expect
-      .poll(async () => (await readHtmlTheme(page)).themeClasses.join(','), {
-        message: '[G7/system live flip] OS dark→light 后 html 应翻 .light（不重载）',
-        timeout: 5_000,
-      })
-      .toBe('light');
-    expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/system live] 存储应保持 system').toBe('system');
-
-    // 点击 2：system → light（显式档）——html.light、存储 light
-    (await expectThemeButton(page, 'system')).click();
     await expectThemeButton(page, 'light');
     expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/light] 存储应写 light').toBe('light');
     expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅]');
 
-    // 显式浅压 OS（live 变体，spec §4.1：显式选择永不被 OS 覆盖）——OS 翻深 html 仍浅
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.waitForTimeout(300); // change 事件窗口（若误重解析此时早已翻转）
-    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G7/显式浅压 OS 深]');
-
-    // 点击 3：light → dark（循环闭合）
-    (await expectThemeButton(page, 'light')).click();
+    // 点击 2：light → dark（往返闭合）——click() 本身须 await（第五轮 P2：floating promise flaky 源）
+    await (await expectThemeButton(page, 'light')).click();
     await expectThemeButton(page, 'dark');
     expect(await page.evaluate(() => localStorage.getItem('theme')), '[G7/dark] 存储应写 dark').toBe('dark');
     expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/循环回深]');
@@ -442,15 +428,17 @@ test('G7 三态循环：默认深 → 跟随系统（OS live 翻转不重载）�
   }
 });
 
-test('G7 切换钮存在于 /works 与 /videos 顶栏（aria 锚定；videos 恒深域内可见=D4 已知接受项）', async ({ browser }) => {
-  const ctx = await newSeededContext(browser, null); // 默认深——两页 html.dark
+test('G7 切换钮存在于 /works、/videos、/canvas（aria 锚定；新钮落地验证）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, null); // 默认深
   const page = await ctx.newPage();
   try {
     await openWorks(page);
     await expectThemeButton(page, 'dark');
     await openVideos(page);
     await expectThemeButton(page, 'dark');
-    expectHtmlTheme(await readHtmlTheme(page), 'dark', '[G7/videos 宿主]');
+    await page.goto('/canvas?projectId=gate-canvas-1');
+    await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 20_000 });
+    await expectThemeButton(page, 'dark'); // CanvasTopBar 共享钮（C8 D0）
   } finally {
     await ctx.close();
   }

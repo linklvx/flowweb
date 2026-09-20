@@ -4,8 +4,9 @@ import { App } from './App';
 import { initThemeSync } from './stores/themeStore';
 import './index.css';
 
-// C1 主题运行时同步（spec §4.1）：激活 matchMedia change 监听（system 档随 OS 实时翻转重解析）。
-// 首帧防闪白由 index.html head 内联脚本先行挂类；本调用仅接线监听 + store 懒初始化，先于 React 挂载。
+// 初始化契约（C8 D0）：initThemeSync 先于 createRoot().render() 是显式契约声明——懒初始化 +
+// 内联脚本使首帧实际与调用顺序无关（useSyncExternalStore 首渲染 getSnapshot 即 ensureInit）；
+// 非"不加就闪"（防后人据错误因果去"修"不存在的问题，spec §10.6）。
 initThemeSync();
 
 // DEV 验收辅助：?sessionToken=<t>&redirect=<encoded> 设会话 cookie 后跳转

@@ -5,13 +5,12 @@ import { AuthProvider } from './components/AuthProvider';
 import { useTheme } from './stores/themeStore';
 
 export function App() {
-  // C2 接线（spec §4.2）：algorithm 由主题真源派生——全部 antd 组件（含 body 挂载弹层，
-  // context 穿透 portal）随 html.light/.dark；恒深/恒浅岛各自内嵌 Provider 覆盖（D4）
-  const { resolved } = useTheme();
+  // C8 D0 两态：algorithm 由 mode 派生——DOM 类 / antd algorithm / ReactFlow colorMode 三处同源由 mode 推导
+  const { mode } = useTheme();
   return (
     <ConfigProvider
       theme={{
-        algorithm: resolved === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+        algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
           zIndexPopupBase: 11000,
         },

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
+import { ThemeToggleButton } from '@/components/theme/ThemeToggleButton';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { userColor } from '@/collab/awareness';
 import type { AwarenessState } from '@/collab/awareness';
@@ -125,6 +126,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
   return (
     <>
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
+        <ThemeToggleButton />
         {onlineUsers.length > 0 && (
           <div className="flex items-center -space-x-1.5 bg-[#1A1A1A]/90 backdrop-blur px-2 py-1.5 rounded-full border shadow-lg" data-testid="online-users">
             {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (

@@ -4,16 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      // C1 主题防闪白（spec §4.1）：先于一切模块脚本读 localStorage 三态并挂 html 类——
-      // 真源 = html 类，恒有且仅有 .light/.dark 之一；缺省/非法默认深（D3 兜底，非跟随系统）；
-      // system 经 matchMedia 解析显式挂对应类（不挂类即回落 :root 深色）。与 themeStore 同口径。
+      // C1 主题防闪白（C8 D0 两态）：先于一切模块脚本读 localStorage 并挂 html 类——
+      // 真源 = html 类，恒有且仅有 .light/.dark 之一；light 显式浅、dark/缺省/非法/'system' 残留
+      // 一律默认深（P8 残留映射，不回写、不 matchMedia）。与 themeStore 同口径。
       (function () {
         var theme = 'dark';
         try {
-          var stored = localStorage.getItem('theme');
-          if (stored === 'light' || stored === 'dark') theme = stored;
-          else if (stored === 'system')
-            theme = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          if (localStorage.getItem('theme') === 'light') theme = 'light';
         } catch (e) {}
         var classList = document.documentElement.classList;
         classList.remove('light', 'dark');
