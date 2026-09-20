@@ -1419,7 +1419,10 @@ test.describe('B0-6 C8 域 token 双值化（D1a）', () => {
     const page = await ctx.newPage();
     try {
       await openWorks(page);
-      const s = await readTokens(page, 'html', [...TOKENS, ...DOMAIN_TOKENS]);
+      // ⚠ 实施期订正（Task 11 红相实证）：死键断言要求 '--ve-text-control' 在读取列表内——不在列表则 s 恒
+      // undefined≠''，Task 12 删键后仍红（结构性永红）。当前红=var 链值 rgb(247,247,247)≠''，删键后 getPropertyValue
+      // 返回 ''→绿。第七轮 P1-4 的"显式传第三参"原则不变，仅列表多一死键探测位。
+      const s = await readTokens(page, 'html', [...TOKENS, ...DOMAIN_TOKENS, '--ve-text-control']);
       for (const t of DOMAIN_TOKENS) {
         expect(s[t], `[B0-6] ${t} 深值期望 ${DOMAIN_DARK[t]}；实际=${JSON.stringify(s)}`).toBe(DOMAIN_DARK[t]);
       }
@@ -1467,7 +1470,10 @@ test.describe('B1-4【C8 D1a】域 token 块唯一性 + 源序（:root,.dark/.li
         for (let j = 0; j < rules.length; j++) {
           const r = rules[j];
           if (!(r instanceof CSSStyleRule)) continue;
-          const keys = [...new Set((r.style.cssText.match(/--(?:canvas-|ve-|vw-)[\w-]+/g) ?? []).filter((k) => !SINGLE.test(k)))];
+          // ⚠ 实施期订正（Task 11 红相实证）：原键正则不区分声明与 var() 引用——NodeHandle.css hover 规则与
+          // 13 条 Tailwind 任意值工具类（消费方）都被计入 hits → darkBlocks=18≠1 永不绿。改声明位匹配（--x: 形态，
+          // matchAll 取捕获组），只数定义块；var() 消费规则天然不命中。
+          const keys = [...new Set([...r.style.cssText.matchAll(/(?:^|;)\s*(--(?:canvas-|ve-|vw-)[\w-]+)\s*:/g)].map((m) => m[1]!))].filter((k) => !SINGLE.test(k));
           if (keys.length) hits.push({ idx: j, selector: r.selectorText, keys });
         }
       }
