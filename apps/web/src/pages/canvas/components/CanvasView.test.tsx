@@ -87,16 +87,18 @@ describe('CanvasView', () => {
     expect(container.querySelector('.react-flow')).toBeInTheDocument();
   });
 
-  // wrapper 运行时类不得为 light：与 .light 令牌岛（index.css --fw-border:#e5e7eb）撞名会使整个画板子树取浅色 token（A2 修复）
-  it('wrapper 钉 colorMode="dark"（不挂 light 运行时类）', () => {
+  // C8 D2 镜像断言（spec §10.3）：wrapper 主题类恰一个且等于 html 主题类——防常量化（不同类即红）与
+  // 防补岛（html.light 下补 .dark 得 ['light','dark'] 长度 2 即红）；与 c0 readHtmlTheme 同口径。
+  it('wrapper 主题类镜像 html（colorMode={mode}）', () => {
     const { container } = render(
       <ReactFlowProvider>
         <CanvasView projectId="p1" />
       </ReactFlowProvider>
     );
-    const wrapperClass = container.querySelector('.react-flow')!.className;
-    expect(wrapperClass).toContain('dark');
-    expect(wrapperClass).not.toContain('light');
+    const wrapper = container.querySelector('.react-flow')!;
+    const wrapperThemeClasses = Array.from(wrapper.classList).filter((c) => c === 'light' || c === 'dark');
+    const htmlThemeClasses = Array.from(document.documentElement.classList).filter((c) => c === 'light' || c === 'dark');
+    expect(wrapperThemeClasses, 'wrapper 主题类恰一个且等于 html 类').toEqual(htmlThemeClasses);
   });
 
   it('should render without errors', () => {

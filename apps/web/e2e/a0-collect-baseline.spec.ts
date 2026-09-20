@@ -55,6 +55,14 @@ async function probeInvariance(page: Page, id: string, read: () => Promise<strin
   expect(actual, `[浅色采集/岛不变性/${id}] html.light 下恒深域值必须保持深色值`).toBe(expectedDark);
 }
 
+/** 跟随面翻转探针（C8 D2 起）：html.light 下取浅值（与 probeInvariance 方向相反）；meta 键分流防误判 */
+const FLIP_PROBES: Array<{ id: string; expected: string; actual: string; pass: boolean }> = [];
+async function probeFlip(page: Page, id: string, read: () => Promise<string>, expectedLight: string) {
+  const actual = await read();
+  FLIP_PROBES.push({ id, expected: expectedLight, actual, pass: actual === expectedLight });
+  expect(actual, `[浅色采集/翻转探针/${id}] html.light 下跟随面必须取浅值`).toBe(expectedLight);
+}
+
 /* COLLECTOR-FROZEN-BEGIN —— 冻结契约②（续）：seedRealLight 注入本体（storage 真实路径——init script 先于
  * 一切页面脚本，含 C1 内联主题脚本；禁改回 classList 注入，理由见契约②首标记）。
  * 边界：页面清单/流程不进指纹——页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫。 */
@@ -231,9 +239,17 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 10_000 });
     });
     if (REAL_LIGHT) {
-      // D4 语义双证：html 根 --fw-bg 翻浅（浅色档生效正向对照）+ 画板 wrapper 经 .dark 块重新声明保持深色
-      await probeInvariance(page, 'canvas-html根--fw-bg翻浅(注入生效)', () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
-      await probeInvariance(page, 'canvas-画板wrapper--fw-bg钉深', () => page.evaluate(() => getComputedStyle(document.querySelector('.react-flow')!).getPropertyValue('--fw-bg').trim()), '#141414');
+      // 第七轮 P2：html 根 --fw-bg 浅值期望是"翻转"语义——改走 probeFlip（原 probeInvariance 桶名/失败文案
+      // 均为"恒深"，翻转断言落进去与桶名相反、误导后人读 meta）
+      await probeFlip(page, 'canvas-html根--fw-bg翻浅(注入生效)', () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
+      // C8 D2 改视觉真值 + 反补岛镜像守卫（spec §10.3/§12.2 v1.3 分级①）
+      await probeFlip(page, 'canvas-画板wrapper板底翻浅(视觉真值)', () => page.evaluate(() => getComputedStyle(document.querySelector('.react-flow')!).backgroundColor), 'rgb(245, 245, 245)');
+      const mirror = await page.evaluate(() => {
+        const wrapper = document.querySelector('.react-flow')!;
+        const f = (cl: DOMTokenList) => Array.from(cl).filter((c) => c === 'light' || c === 'dark');
+        return { wrapper: f(wrapper.classList), html: f(document.documentElement.classList) };
+      });
+      expect(mirror.wrapper, 'wrapper 主题类恰一个且等于 html 类（反补岛守卫）').toEqual(mirror.html);
     }
     await collectPage(page, 'material-modal', async () => {
       await page.getByRole('button', { name: '素材库' }).click();
@@ -319,7 +335,7 @@ test.describe('A0 before-基线采集', () => {
             : BASELINE_DIR === 'before-A0'
               ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
               : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,
-          ...(REAL_LIGHT ? { realLight: { mechanism: 'context/page addInitScript localStorage.setItem("theme","light")（先于一切页面脚本）→ C1 head 内联主题脚本解析显式浅色档挂 html.light', htmlClassPerPage: REAL_LIGHT_HTML, islandInvarianceProbes: LIGHT_PROBES } } : {}),
+          ...(REAL_LIGHT ? { realLight: { mechanism: 'context/page addInitScript localStorage.setItem("theme","light")（先于一切页面脚本）→ C1 head 内联主题脚本解析显式浅色档挂 html.light', htmlClassPerPage: REAL_LIGHT_HTML, islandInvarianceProbes: LIGHT_PROBES, flipProbes: FLIP_PROBES } } : {}),
           stableKeyFormat: 'data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)',
           classNameStorage: 'djb2 十六进制哈希 + 长度（不存原串）',
           excludedRegions: ['canvas/WebGL 元素', 'video 元素', '波形容器（data-testid/class 含 wave）', '纯时间文本（mm:ss|h:mm:ss）'],

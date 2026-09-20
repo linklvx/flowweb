@@ -64,20 +64,20 @@ test('D-0 发现：探针钉值基线输出（落盘照盘填，防抄报错人�
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// D-1 画板域（D0-0 钉深；D2 翻转）
+// D-1 画板域（D0-0 钉深；D2 已随 colorMode={mode} 翻转浅值）
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('D-1 画板域（D0-0 钉深；D2 翻转）', () => {
-  test('画板 wrapper 底=rgb(0,0,0)、网格点=#555555（html.light 下 colorMode 钉深）', async ({ browser }) => {
+test.describe('D-1 画板域（D0-0 钉深；D2 已翻浅）', () => {
+  test('画板 wrapper 底=rgb(245,245,245)、网格点=#c8c8c8（html.light 下 colorMode={mode} 翻浅）', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
       await openCanvas(page);
       const wrapper = page.locator('.react-flow');
-      expect(await bgOf(wrapper)).toBe('rgb(0, 0, 0)');
+      expect(await bgOf(wrapper)).toBe('rgb(245, 245, 245)');
       // 网格点读 .react-flow__background 自身（自定义属性只向下继承，从 wrapper 读=空）；
       // computed 已被 var() 代换 → 断 RGB 可同时抓"代换失败"（失败落字面/空）
       const dot = await wrapper.evaluate((el) => getComputedStyle(el.querySelector('.react-flow__background')!).getPropertyValue('--xy-background-pattern-color-props'));
-      expect(norm(dot)).toBe('#555555');
+      expect(norm(dot)).toBe('#c8c8c8');
     } finally { await ctx.close(); }
   });
 
@@ -251,16 +251,16 @@ test.describe('D-6 图形档（fill/stroke——differ 属性集不可见；目�
   // 真断言（D0-0 误判订正，照盘填 2026-09-20 [D-6-handle-stroke] 发现跑批——first/target/source 三锚
   // 读数一致）：NodeHandle circle/path stroke 系 var() 呈现属性、computed 已代换 → 断 RGB 可同时抓
   // "代换失败"（失败落字面/空，同 D-1 网格点口径）。gate-node-1 双手柄（target 左 + source 右）
-  // → .first() 取文档序首个。D2 翻浅：circle→'rgb(107, 114, 128)'（handle-bg 浅 #6B7280）、
-  // path→'rgb(75, 85, 99)'（icon 浅 #4B5563）。
-  test('D-6 手柄图形档：circle stroke=var(--canvas-handle-bg) 深值、path stroke=var(--canvas-handle-icon) 深值（D2 随浅档翻浅）', async ({ browser }) => {
+  // → .first() 取文档序首个。D2 已翻浅（ebfe1c85 预告）：circle→'rgb(107, 114, 128)'
+  // （handle-bg 浅 #6B7280）、path→'rgb(75, 85, 99)'（icon 浅 #4B5563）。
+  test('D-6 手柄图形档：circle stroke=var(--canvas-handle-bg) 浅值、path stroke=var(--canvas-handle-icon) 浅值（D2 已随画板翻浅）', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
       await openCanvas(page);
       const icon = page.locator('.react-flow__node[data-id="gate-node-1"] .handle-icon').first();
-      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('circle')!).stroke)).toBe('rgb(156, 163, 175)');
-      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('path')!).stroke)).toBe('rgb(107, 114, 128)');
+      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('circle')!).stroke)).toBe('rgb(107, 114, 128)');
+      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('path')!).stroke)).toBe('rgb(75, 85, 99)');
     } finally { await ctx.close(); }
   });
 });

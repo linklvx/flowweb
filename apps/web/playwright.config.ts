@@ -6,6 +6,9 @@ import { defineConfig } from '@playwright/test';
 //    代理配置在 vite.config.ts preview 段——vite preview 不读 server.proxy)。
 export default defineConfig({
   testDir: './e2e',
+  // C8 D2 像素对账快照（Task 17）：直落 e2e/audit/ 单一真身——{arg}{ext} 展开为 toHaveScreenshot('d2-board-dark.png')
+  // 的 basename+扩展名（arg 无测试名拼接），固化/校验/比对三处同一文件；test.use 不解析该键（第七轮 M2），必须 config 顶层
+  snapshotPathTemplate: '{testDir}/audit/d2-ref-{arg}{ext}',
   timeout: 60_000,
   // 门禁串行：单 worker 防多浏览器实例并发写同一画布 doc
   workers: 1,

@@ -9,6 +9,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Modal } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useTheme } from '@/stores/themeStore';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { RemoteCursors } from './RemoteCursors';
 import { useAuth } from '@/components/AuthProvider';
@@ -337,6 +338,9 @@ function CanvasViewComponent(_props: Props) {
     selectedGroup ? s.nodes.filter((n) => n.parentId === selectedGroup.id).some((n) => n.id in s.nodeProcessMap) : false
   );
 
+  // C8 D2：colorMode 跟随全局主题翻转（CanvasView 是 colorMode 源头、唯一 useTheme 例外——节点/面板组件禁 useTheme，spec §11.1）
+  const { mode } = useTheme();
+
   return (
     <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
       <ReactFlow
@@ -374,12 +378,12 @@ function CanvasViewComponent(_props: Props) {
         snapGrid={[20, 20]}
         noWheelClassName="nowheel"
         proOptions={{ hideAttribution: true }}
-        className="bg-[#000000]"
-        // 画板恒深（D4）+ wrapper 运行时类不得为 light（与 .light 令牌岛撞名，.light 会使子树取浅色 token 值）；对齐 ProcessSnapshot
-        colorMode="dark"
+        className="bg-[var(--canvas-board-bg)]"
+        // C8 D2：colorMode 跟随主题翻转（深浅档各挂 .dark/.light 运行时类驱动 xyflow 皮肤变量；与 .light 令牌岛撞名风险由镜像断言守卫——wrapper 主题类恰一个且等于 html 类）；对齐 ProcessSnapshot
+        colorMode={mode}
       >
         {/* bgColor="transparent"：钉死 .react-flow__background 底色（dark 皮肤默认会给 #141414 染灰整块板面，与修复前 transparent 不一致） */}
-        <Background variant={BackgroundVariant.Dots} color="#555555" gap={16} size={1} bgColor="transparent" />
+        <Background variant={BackgroundVariant.Dots} color="var(--canvas-board-dot)" gap={16} size={1} bgColor="transparent" />
         {minimapOpen && (
   <MiniMap
     style={{
