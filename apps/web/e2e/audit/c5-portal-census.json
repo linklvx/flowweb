@@ -10,6 +10,7 @@
   "wired": [
     {
       "popup": "WeChatFollowModal（antd Modal，body 挂载）",
+      "status": "exited-C8-D1b",
       "host": "Sidebar（AppLayout chrome 跟随域）",
       "verdict": "恒深岛【C5 订正：初判表曾归营销域恒浅】",
       "mechanism": "组件内 ConfigProvider(darkAlgorithm)（antd 通道经 context 穿透）+ Modal rootClassName=\"dark\"（CSS 变量通道经 .ant-modal-root 后代继承）",

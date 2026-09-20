@@ -124,10 +124,10 @@ test.describe('D-2 videos 域（封面=P6 内容垫底恒深，不翻转）', ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// D-3 WeChatFollowModal（D0-0 钉深；D1b 拆岛翻浅）
+// D-3 WeChatFollowModal（D1b 拆岛翻浅）
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('D-3 WeChatFollowModal（D0-0 钉深；D1b 拆岛翻浅）', () => {
-  test('面=rgb(30,30,30)、标题前景=rgb(226,232,240)', async ({ browser }) => {
+test.describe('D-3 WeChatFollowModal（D1b 拆岛翻浅）', () => {
+  test('面=rgb(255,255,255)、标题前景=rgb(31,35,41)', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
@@ -135,9 +135,9 @@ test.describe('D-3 WeChatFollowModal（D0-0 钉深；D1b 拆岛翻浅）', () =>
       await page.getByTestId('wechat-follow-entry').click();
       const content = page.locator('.ant-modal-content').first();
       await expect(content).toBeVisible({ timeout: 10_000 });
-      expect(await bgOf(content)).toBe('rgb(30, 30, 30)');
+      expect(await bgOf(content)).toBe('rgb(255, 255, 255)');
       // exact: true 锚标题 span——子串匹配会双命中（标题「关注公众号」+ 副标题「扫码关注公众号…」）
-      expect(await colorOf(content.getByText('关注公众号', { exact: true }))).toBe('rgb(226, 232, 240)');
+      expect(await colorOf(content.getByText('关注公众号', { exact: true }))).toBe('rgb(31, 35, 41)');
     } finally { await ctx.close(); }
   });
 });

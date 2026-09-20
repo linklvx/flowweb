@@ -492,7 +492,7 @@ async function loginAdminAndGoto(page: Page, adminPath: string, readyText: strin
   await expect(page.getByText(readyText).first()).toBeVisible({ timeout: 15_000 });
 }
 
-test('G8 ①WeChatFollowModal 恒深岛：html.light 下 Sidebar 打开，closest(.dark) 命中 .ant-modal-root + --fw-text 深值 + antd 通道深（C5 前红：无岛类）', async ({ browser }) => {
+test('G8 ①WeChatFollowModal 跟随域（C8 D1b 拆岛反转）：html.light 下无岛类 + 面底/--fw-text 浅值 + antd 通道浅（defaultAlgorithm）', async ({ browser }) => {
   const ctx = await newSeededContext(browser, 'light');
   const page = await ctx.newPage();
   try {
@@ -501,19 +501,17 @@ test('G8 ①WeChatFollowModal 恒深岛：html.light 下 Sidebar 打开，closes
     await page.getByTestId('wechat-follow-entry').click();
     const content = page.locator('.ant-modal-content').first();
     await expect(content, '[G8①] WeChatFollowModal 内容应渲染').toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.ant-modal-root.dark').first(), '[G8①] rootClassName="dark" 应落 .ant-modal-root——C5 接线前必红').toBeAttached();
+    await expect(page.locator('.ant-modal-root.dark'), '[G8①] 岛类 rootClassName="dark" 应已拆除（C8 D1b）').toHaveCount(0);
     const state = await content.evaluate((el) => ({
-      islandDark: el.closest('.dark') !== null,
-      islandIsModalRoot: el.closest('.dark')?.classList.contains('ant-modal-root') ?? false,
       fwText: getComputedStyle(el).getPropertyValue('--fw-text'),
-      // antd 通道探针=关闭钮 colorIcon（darkAlgorithm 浅色系 / defaultAlgorithm 深色系）；无关闭钮时退正文色
+      contentBg: getComputedStyle(el).backgroundColor,
       antdChannelColor: getComputedStyle(el.querySelector('.ant-modal-close') ?? el).color,
     }));
-    expect(state.islandDark, '[G8①] 弹层内容 closest(".dark") 应命中岛根——C5 前必红（body 挂载无岛）').toBe(true);
-    expect(state.islandIsModalRoot, '[G8①] 岛根必须是弹层自身根（.ant-modal-root.dark），非 html 全局类').toBe(true);
-    expect(norm(state.fwText), '[G8①] 弹层内 --fw-text 必须为深值 #e2e8f0（字面深底 #1e1e1e 配浅字）——C5 前必红（继承 html.light 浅值 #1f2329 落深底=半半）').toBe('#e2e8f0');
+    expect(norm(state.fwText), '[G8①] 跟随域 --fw-text 浅值 #1f2329（继承 html.light）').toBe('#1f2329');
+    // 第七轮 P1-3：contentBg 是 computed backgroundColor（rgb 形态），不是自定义属性——断 hex 必红且误导排查方向"岛没拆"
+    expect(norm(state.contentBg), '[G8①] 面底 var(--fw-surface) 浅值 rgb(255,255,255)').toBe('rgb(255,255,255)');
     const ch = parseRgbChannels(state.antdChannelColor);
-    expect(ch && ch[0] > 180, `[G8①] antd 通道恒深：关闭钮色应为浅色系（darkAlgorithm），实际="${state.antdChannelColor}"`).toBeTruthy();
+    expect(ch && ch[0] < 180, `[G8①] antd 通道跟随：关闭钮色应为深色系（defaultAlgorithm），实际="${state.antdChannelColor}"`).toBeTruthy();
     expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8①/宿主仍浅]');
   } finally {
     await ctx.close();
