@@ -1920,7 +1920,7 @@
    "id": "D3-creditsdropdown-light",
    "file": "src/pages/canvas/components/CreditsDropdown.tsx",
    "line": "容器/光斑/总额卡/数值渐变/充值钮/邀请钮+命名色 12 行（mode 分支，行号见当次文件）",
-   "deep": "深档字面冻结：全部 mode 三元的 false 分支=原字面（differ 深侧零 diff——字面未动字节等值）",
+   "deep": "深档字面冻结：全部 mode 三元的 false 分支=原字面（differ 深侧零 diff）。⚠ 审查勘误（quality 轮）：组合串 token 序漂移 3 处（:282 充值钮 bg-white/hover:zinc-100 位次后移、:286 图标 chip text-text/bg-zinc-900 互换、:293 chevron transition 前移）——computed 类集等值零渲染影响，字节等值主张按 computed 口径成立、非组合串口径；inline style 深臂逐字节等值",
    "light": "浅档按稿表（2026-09-20-creditsdropdown-light-draft.md §一/二/三）mode 分支：容器渐变/投影/边 rgba(0,0,0,0.08)、光斑 alpha 降+白高光 0.5、总额卡反转微暗渐变+inset 0.8、数值渐变 #1f2329→#b45309+辉光 0.10、命名色 12 行（violet-700/amber-700/amber-800/zinc-600/zinc-500/hover:zinc-800/amber-100/60/rose-100/40/充值钮反转 bg-zinc-950+hover:zinc-800+深辉光 0.18）",
    "ruling": "机制（第八轮 P2-6）：Popover 未展开→卡不在采集 DOM（CreditsDropdown trigger=[hover,focus]+destroyTooltipOnHide）→两侧 diff 皆无，故全部走 adjudications 不入 pairs。前提失效警示：若将来浮层在采集态可见（改 trigger/默认展开/加 hover 预览），本步浅侧变更须逐条入 pairs。稿表未列位点（双档冻结字面）：总额卡内嵌 radial 光斑 amber0.24/teal0.2、图标 inset 白 0.12、明细双卡族（violet-400/15 边+渐变+inset+text-violet-200/90+violet-100/80+渐变数字+amber-200/90+amber-100/80+amber-400/15）、error 重试钮 amber-200/80、:270/:292 装饰光斑 span 为空元素（稿表\"字色 amber-900/rose-700\"无目标元素）——B6（Task 27）逐处核对，明细卡白系渐变数字浅底可读性列入 B6 清单"
   },
