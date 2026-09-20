@@ -14,10 +14,10 @@
 //   C7 真实浅色对照采集（真实路径）：COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=<tmp 目录，勿覆写基线> …
 //     —— localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 内联
 //     主题脚本）→ 真实浅色档挂 html.light；采集时逐页断言 html 类恰为 "light"（结果落 meta.realLight）。
-//     D4 语义：岛/画板不受动——login 岛本征浅色；canvas 画板 wrapper colorMode=dark 钉深
-//     （:root,.dark 块在 wrapper 重新声明 --fw-*，覆盖 html.light 继承浅值）；videos/video-editor/
-//     admin 恒深域用字面值与自持 token（--vw-*/--ve-*，:root 定义非主题块），html.light 只翻转
-//     跟随域 --fw-* 消费者。采集时附岛不变性探针（结果落 meta，失败即红）。
+//     C8 终态语义（D4）：壳/画板跟随翻转——canvas 画板 wrapper colorMode={mode} 双向翻转（镜像断言
+//     守卫）；videos/video-editor 壳岛已拆除（D3），壳内 --fw-* 直承 html.light；恒深面只剩内容承载面
+//     （videos 封面垫底 #262626 字面、ProcessSnapshot 整块 colorMode="dark" 常量）与 admin 深岛（域外
+//     保留）。采集时探针分级：恒深面 probeInvariance / 跟随面 probeFlip（结果落 meta，失败即红）。
 //
 // 加载稳定性纪律：目标元素出现 + 固定沉降等待；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 import { execSync } from 'node:child_process';
@@ -219,7 +219,7 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.getByText('A0-0 门禁样例视频').first()).toBeVisible({ timeout: 15_000 });
     });
     if (REAL_LIGHT) {
-      // videos 整域恒深（D4 保留）：封面底 #262626 字面值不随 html.light 翻转
+      // 封面垫底恒深（P6 内容承载面，C8 D3 壳跟随后的残余恒深面）：封面底 #262626 字面值不随 html.light 翻转
       await probeInvariance(page, 'videos-封面底-#262626字面', () => page.evaluate(() => {
         const card = Array.from(document.querySelectorAll('a[data-card]'))
           .find((a) => a.textContent?.includes('A0-0 门禁样例视频'));
@@ -333,7 +333,7 @@ test.describe('A0 before-基线采集', () => {
           viewport: VIEWPORT,
           invocation: `COLLECT_BASELINE=1${process.env.LIGHT_BASELINE ? ' LIGHT_BASELINE=1' : ''}${process.env.REAL_LIGHT ? ' REAL_LIGHT=1' : ''}${BASELINE_DIR === 'before-A0' ? '' : ` BASELINE_DIR=${BASELINE_DIR}`} npx playwright test e2e/a0-collect-baseline.spec.ts`,
           theme: REAL_LIGHT
-            ? '真实浅色路径（C7 对照；D0 起 LIGHT_BASELINE=1 同义合一——旧 classList 注入路径已废止（D0 后双类失真），light-B6 基线系旧机制产物不可复用）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主'
+            ? '真实浅色路径（C7 对照；D0 起 LIGHT_BASELINE=1 同义合一——旧 classList 注入路径已废止（D0 后双类失真），light-B6 基线系旧机制产物不可复用）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；C8 终态（D4）：壳/画板跟随翻转——canvas 画板 wrapper colorMode={mode} 双向翻转、videos/video-editor 壳岛已拆（D3），恒深面仅内容承载面（videos 封面垫底字面、ProcessSnapshot 整块 colorMode="dark" 常量）与 admin 深岛（域外保留）'
             : BASELINE_DIR === 'before-A0'
               ? '现状/暗色基线（before 任何 CSS 改动；浅色主题目标基线延后至 B6）'
               : `A 段基线（${BASELINE_DIR}；键/属性集与 before-A0 同构，供 css-baseline-diff 配对）`,

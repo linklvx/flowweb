@@ -288,7 +288,7 @@ data 校验：class-validator 嵌套 DTO（ProjectData TS 类型放 `packages/sh
 
 视觉：亮色（背景 #F7F8FA、面板白）、紫 #6C5CE7 强调、字幕片段浅橙黄底、音频片段浅绿底+波形、圆角 8-16px、黑色胶囊主按钮。antd5 + Tailwind；**preflight:false 红线：box-border、list-none pl-0、border 配 [border-xxx-style:solid]、button 字号写在自身**。
 
-> 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。另：上文亮色视觉未落地，实现现状暗色已被该 spec 显式追认（D4 video-editor 恒深）。
+> 【废止注 2026-09-19；C8 2026-09-20 反转】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本条仅存历史档。亮色规格随 C8 复活，浅色档以 --fw-* 浅值体系为准。
 
 ### 右面板四态
 

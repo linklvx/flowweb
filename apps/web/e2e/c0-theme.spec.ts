@@ -1,20 +1,22 @@
 // C0 主题套件（plan C0→C7，spec §4.1/§8）：主题切换 C 段常驻门禁——C 段 TDD 期间 C0_RED env 守卫
-// 分组红/绿，C7 撤守卫全量转常驻：默认 `npx playwright test` 含本文件 19 用例（C8 D0 两态化后；
-// 全量门禁总数不在此写死，避免随删例失真漂移）。组内【红→Cx 绿】标注为 TDD 期历史实证，保留备考。
+// 分组红/绿，C7 撤守卫全量转常驻：默认 `npx playwright test` 含本文件 20 用例（C8 D0 两态化后 19
+// + C8 D4 断言矩阵组3 ProcessSnapshot 恒深 1；全量门禁总数不在此写死，避免随删例失真漂移）。
+// 组内【红→Cx 绿】标注为 TDD 期历史实证，保留备考。
 //
 // 生命周期（终态）：
-//   组1 三态持久化映射【红→C1 绿】（localStorage theme ∈ {light,dark,system}，system 经 matchMedia 解析；
-//     无存储 → html.dark = D3 默认深色兜底，非"跟随系统"——OS light 下仍 dark 钉死该语义）
-//     （C8 D0 两态化：system 例删——残留映射深由 themeStore 单测覆盖）；
+//   组1 两态持久化映射【红→C1 绿】（localStorage theme ∈ {light,dark}；无存储 → html.dark = D3 默认深色
+//     兜底，非"跟随系统"——OS light 下仍 dark 钉死该语义。C8 D0 两态化：system 档删，旧「三态经
+//     matchMedia 解析」叙事废止——残留映射深由 themeStore 单测覆盖，备考）；
 //   组2 首帧无闪白【红→C1 绿】（运行时：MutationObserver 首录 html 主题类先于首个渲染内容——#root 尚空；
 //     静态：head 内联主题脚本含 theme/localStorage、不含 matchMedia（调用形态判别）、无 defer/async、
 //     先于 <script type="module">）；
-//   组3 持久化 + 显式/系统解析区分【红→C1 绿】（显式 light 压过 OS dark；两态模型 OS 零影响 +
-//     prefers-color-scheme matchMedia 调用计数 0 由 G3 断言）（C8 D0 两态化：system 例删——原「system 档
-//     同页随 OS 实时翻转 + C1 matchMedia change 监听重解析重挂，spec §4.1 脚本契约」随两态模型移除，备考）；
-//   组4 岛三组对照 + 持续断言【红→C1/C2 绿】（login 岛=红因 html.dark 缺失→C1 绿；admin/video-editor 岛=
-//     红因岛根无 .dark 类→C2 绿；「html 恒有且仅有 .light/.dark 之一」持续断言仅放本 C 段文件——
-//     v1.3 标注：A/B 段 html 无类是合法历史状态，此断言在 A/B 必误红）；
+//   组3 持久化 + 显式档区分【红→C1 绿】（显式 light 压过 OS dark；两态模型 OS 零影响 +
+//     prefers-color-scheme matchMedia 调用计数 0 由 G3 断言——原「system 档同页随 OS 实时翻转 +
+//     C1 matchMedia change 监听重解析重挂，spec §4.1 脚本契约」随 C8 D0 两态模型移除，备考）；
+//   组4 岛对照 + 持续断言【红→C1/C2 绿】（login 浅岛=红因 html.dark 缺失→C1 绿；admin 深岛=红因岛根无
+//     .dark 类→C2 绿（C8 保留，admin 域外）；video-editor 壳岛 C8 D3 拆除——G4 ve 用例反转「无岛 +
+//     浅值」；「html 恒有且仅有 .light/.dark 之一」持续断言仅放本 C 段文件——v1.3 标注：A/B 段 html
+//     无类是合法历史状态，此断言在 A/B 必误红）；
 //   组5 岛子树无 dark: 前缀守卫【守卫，恒绿】（措辞固化 spec §4.2：断 `dark:` 前缀，不断"dark 类名"——
 //     react-flow wrapper 自带 light/dark 运行时类同名实证合法；全仓 dark: 使用实测 0）。
 //   组6 岛断言只落 Playwright【声明条目，无独立用例】：vitest 不落岛/颜色断言——test-setup 清空含 :has( 的
@@ -33,6 +35,16 @@
 //     ④admin Popconfirm body 弹层 × 宿主浅【守卫，现状裁定】（antd 通道恒深=Pro dark context 穿透；var 通道
 //       closest(.dark)=null 为登记缺口——admin 全域 0 个 --fw-* 工具类消费文件（grep 实证），弹层自绘不消费
 //       --fw-* → 无可见半半，岛类挂起至 admin token 化（c5-portal-census.json）。
+//   组9 C8 D4 断言矩阵组3——内容承载面恒深【守卫，现状应绿】（ProcessSnapshot 整块恒深；
+//     矩阵三组总注见下方「C8 D4 断言矩阵」块）。
+//
+// ── C8 D4 断言矩阵（spec §12.1）──
+// 1 跟随矩阵：html.light 下 ve 壳(G4 已反转)/videos 壳(G8② 已反转)/WeChatFollowModal(G8① 已反转)/
+//   画布全屏查看器/画板(G8 外新增)/节点卡 chrome 取浅值——d-segment-probes 全绿即本组；
+// 2 残余真岛对照：LoginModal 浅岛(G7 既有)+admin 深岛(G4 既有)——岛机制断言保留不退化；
+//   ProcessSnapshot 不列本组（内容承载面非主题岛，§12.1 v1.4 归类）；
+// 3 内容承载面恒深：媒体垫底/clip 面/预览垫底取深值——videos 封面探针+a0:200；
+//   ProcessSnapshot 在本组（整块恒深+全仓唯一保留 colorMode 常量，P7 原子性核验：子树 --fw-* 消费取深值与内容面一致）。
 //
 // 加载稳定性纪律：目标元素出现 + 有界超时；禁 networkidle（socket.io/ws 长连接 + antd 动画永不安定）。
 // 上下文纪律：每用例独立新 context（storageState 不跨用例泄漏）；localStorage theme 经 addInitScript
@@ -234,10 +246,10 @@ test('G3 OS 偏好零影响 + prefers-color-scheme matchMedia 调用计数 0（C
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 组4【红→C1/C2 绿】岛三组对照 + 持续断言
+// 组4【红→C1/C2 绿】岛对照 + 持续断言（C8 D3 后叙事：ve 壳岛拆除，反转断言随本组）
 //   宿主深×岛浅 /login【红因=html.dark 缺失→C1 绿，岛半现状已绿（b0-G4）】；
-//   宿主浅×岛深 /admin、video-editor【红因=岛根无 .dark→C2 绿；--fw-bg 半：现状 html 无类继承深=绿，
-//     C1 后 html.light 继承浅=红，C2 岛根 .dark 重新声明=绿——token 半按 C2 收口】；
+//   宿主浅×岛深 /admin【红因=岛根无 .dark→C2 绿；--fw-bg 钉深 #141414——C8 保留（admin 域外）】；
+//   宿主浅×ve 壳跟随【C8 D3 反转】：closest(".dark")=null + --fw-bg/壳根底浅值双断言（岛回退即红）；
 //   持续断言「html 恒有且仅有 .light/.dark 之一」三页【红因=零类→C1 绿；仅存本 C 段文件（v1.3 标注）】。
 // ─────────────────────────────────────────────────────────────────────────────
 test('G4 宿主深×岛浅：/login 岛根（div.light）token 浅、html.dark（theme=dark 强制宿主深）', async ({ browser }) => {
@@ -595,6 +607,60 @@ test('G8 ④admin Popconfirm body 弹层裁定守卫：html.light 下渲染 + an
     const ch = parseRgbChannels(state.innerBg);
     expect(ch && Math.max(...ch) < 100, `[G8④] antd 通道恒深：弹层面板底应为深色系（Pro dark context 穿透 portal），实际="${state.innerBg}"`).toBeTruthy();
     await page.keyboard.press('Escape'); // 收起确认层（不触删除）
+  } finally {
+    await ctx.close();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 组9【C8 D4】断言矩阵组3——内容承载面恒深（spec §12.1 组3；矩阵三组总注见文件头）
+//   ProcessSnapshot 整块恒深：colorMode="dark" 常量挂 .react-flow.dark（全仓唯一保留的 colorMode
+//   常量）→ xyflow style.css dark 块供底 #141414；网格点 :91 字面 #3a3a3a；节点卡 #1e1e1e +
+//   信息条 bg-black/60——全部不随 html.light 翻转（class 载体非 --fw-*，P7 原子性天然成立）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 快照 fixture（ProcessSnapshot.test.tsx snap 同构——单测锚 rf__node-n2 即此 n2）。gate fixture 的
+ *  videoWork 未设 allowViewProcess/canvasProjectId（gate-seed.ts）→ process API 真实 404、按钮不渲染；
+ *  按实际可达路径落用例：route mock process 端点 + detail 放行真实响应仅翻转 canViewProcess 露出
+ *  「查看制作过程」钮——详情→过程视图 UI 流保持真实 */
+const SNAPSHOT_FIXTURE = {
+  workId: 'gate-video-1', title: 'A0-0 门禁样例视频',
+  nodes: [
+    { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '一只猫在窗台上' } },
+    { id: 'n2', type: 'imageGen', position: { x: 300, y: 0 }, data: { prompt: 'cat', thumbnailUrl: '/flowai/th.webp' } },
+  ],
+  edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
+};
+
+test('G9 矩阵组3 内容承载面恒深：html.light 下 ProcessSnapshot 网格点 #3a3a3a + RF 底 #141414（colorMode="dark" 常量整块恒深）', async ({ browser }) => {
+  const ctx = await newSeededContext(browser, 'light');
+  const page = await ctx.newPage();
+  try {
+    await page.route('**/api/video-works/gate-video-1/process', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, data: SNAPSHOT_FIXTURE }) }));
+    await page.route('**/api/video-works/gate-video-1', async (route) => {
+      const res = await route.fetch(); // 真实 detail 放行（presign URL 等全真）——仅翻转 canViewProcess
+      const body = await res.json();
+      body.data.canViewProcess = true;
+      await route.fulfill({ status: res.status(), contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.goto('/videos/gate-video-1');
+    await expect(page.getByTestId('video'), '[G9] 播放壳应打开（公开详情）').toBeVisible({ timeout: 15_000 });
+    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G9/宿主浅]');
+    await page.getByRole('button', { name: '查看制作过程' }).click();
+    const snapshot = page.getByTestId('process-snapshot');
+    await expect(snapshot, '[G9] 过程视图应渲染').toBeVisible({ timeout: 10_000 });
+    await expect(snapshot.locator('.react-flow__node')).toHaveCount(2);
+    // colorMode="dark" 常量在 DOM：html.light 下 RF wrapper 仍挂 .dark 类（colorModeClassName）
+    expect(await snapshot.locator('.react-flow.dark').count(), '[G9] colorMode="dark" 常量应挂 wrapper .dark 类').toBe(1);
+    // 底深值：.react-flow.dark → --xy-background-color-default #141414（xyflow style.css dark 块，非 --fw-*）
+    const rfBg = await snapshot.locator('.react-flow').evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(rfBg, '[G9] RF wrapper 底必须恒深 rgb(20,20,20)（class 载体，html.light 不翻转）').toBe('rgb(20, 20, 20)');
+    // 网格点：ProcessSnapshot.tsx:91 Background color="#3a3a3a" 字面（D-1 同读法——自定义属性在 .react-flow__background 自身）
+    const dot = await snapshot.evaluate((el) => getComputedStyle(el.querySelector('.react-flow__background')!).getPropertyValue('--xy-background-pattern-color-props'));
+    expect(norm(dot), '[G9] 网格点必须钉深 #3a3a3a（:91 字面，html.light 不翻转）').toBe('#3a3a3a');
+    // 锚 ProcessSnapshot.test:96 同款结构：rf__node-n2 innerHTML 含 bg-black/60（底部信息条恒深半透明黑）
+    expect(await page.getByTestId('rf__node-n2').innerHTML(), '[G9] 信息条 bg-black/60 类必须在 DOM').toContain('bg-black/60');
   } finally {
     await ctx.close();
   }
