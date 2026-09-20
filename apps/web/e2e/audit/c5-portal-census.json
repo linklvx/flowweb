@@ -29,6 +29,16 @@
       "test": "G8②（+G8③ 壳半）"
     },
     {
+      "popup": "VideoEditorShell 多轨剪辑全屏壳（BaseFullscreenModal createPortal(document.body)，非 antd Modal）",
+      "status": "exited-C8-D3（壳根 dark 类+[color-scheme:dark] 删除改跟随 + ConfigProvider darkAlgorithm 删除改继承 App——getPopupContainer 壳内作用域保留；G4 断言反转同 commit）",
+      "host": "canvas 域（跟随域，html 类驱动双通道翻转）",
+      "verdict": "C2 恒深岛（已随 C8 D3-ve 拆除）",
+      "mechanism": "壳根 div[data-testid=video-editor-shell] 原自带 dark 类（DOM 脱离路由岛、React 树仍在——岛类上移到弹层根自身，VideoPlayerModal 同款先例的反向收口）；D3-ve 后壳底 var(--fw-bg) 与域内 --fw-*/--ve-* 消费经 html 类继承翻转（媒体区预览垫底 --ve-preview-base 恒深、域内无 <video controls> 原生控件，color-scheme 无局部钉扎对象）",
+      "file": "apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
+      "why": "域内组件 Task 15 起已全量 token 化，岛拆除后浅档首次真实跟随（Task 16 后向条款：D1b 背景形态 5 位点随 --ve-border 浅值翻读、accent-text 浅值落点等由浅侧 segcheck pairs 承接）",
+      "test": "G4 video-editor（反转）+ D-4 探针（壳底/EditorTopBar 双钉浅值）+ a0 双断言（语义层 --fw-bg + 视觉层壳根底）"
+    },
+    {
       "popup": "LoginModal（antd Modal，body 挂载）",
       "host": "TopActionBar chrome / VideoPlayerModal 壳内（双宿主；C8 D3 起壳跟随域，LoginModal 浅岛判据不变）",
       "verdict": "恒浅岛（方案 A，C2 已落地）",
@@ -80,8 +90,8 @@
       "popup": "ImageFullscreenViewer/VideoFullscreenViewer full-bleed 层（createPortal(document.body)）+ video-editor 全屏弹层",
       "host": "canvas 域",
       "verdict": "不动（O5 初判表第 4 行复核）",
-      "why": "全字面深色（bg-black/text-white/60 系）两主题恒定一致；VideoEditorShell 壳根 C2 已挂 dark（G4 守卫在册）",
-      "test": "G4 video-editor（既有）"
+      "why": "全字面深色（bg-black/text-white/60 系）两主题恒定一致；VideoEditorShell 壳根 C2 已挂 dark（G4 守卫在册）——C8 D3-ve 壳岛已拆（本册 wired 新增 exited-C8-D3 条目，G4/D-4/a0 断言反转同 commit）",
+      "test": "G4 video-editor（已反转）"
     }
   ],
   "deferred": [

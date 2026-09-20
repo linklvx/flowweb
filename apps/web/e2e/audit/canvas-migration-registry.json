@@ -1983,6 +1983,46 @@
    "deep": "撤销标记：『D4 v1.7——全屏查看器（nodes/ 内）= 画板恒深域，禁 --fw-* 语义 token，一律字面值』追加 revoked-C8-D3（跟随域，逐元素裁定见 canvas-migration-registry.json D3-viewer-element-table）",
    "light": "不撤销则 D3 后有人按它把 viewer 钉回深色（E 表废止项的登记档残留）",
    "ruling": "b3DeadClassDisposal 跨度实测订正 :1131-1181→:1137-1256（下一键 b4DesignConstantWhitelist @1257——spec v1.5.4-2 数字为准，Task 20 审查同步本条）；本步真实工作=B3 恒深落值改双主题真值（按钮 chrome 处 token/双值、恒深处保留字面），非删类名；ring-ring 计数 2 非 4（v1.5.1-2 已订正，本条为执行记录）"
+  },
+  {
+   "id": "D3-ve-shell-island-removal",
+   "file": "src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
+   "line": ":130-141",
+   "deep": "壳岛拆除（C8 D3-ve）：壳根 className 删 dark 前缀与 [color-scheme:dark]（壳底 bg-[var(--fw-bg)] 深 #141414 不变——Task 15 并域键深档字节等值）；ConfigProvider 删 theme={algorithm: darkAlgorithm}（antd 通道继承根 App，html.dark 下级联不变）——深档零视觉变更，html.dark 级联由 :root,.dark 块继续命中",
+   "light": "浅档壳根 --fw-bg 首次真实翻浅 #f7f8fa（岛拆前被壳根 .dark 重新声明钉深）+ antd 通道翻 default——壳 chrome/面板/三 PanelResizeHandle/TimelineRuler 刻度随 --ve-*/--fw-* 浅值翻转，浅侧 segcheck pairs 逐对承接（含 Task 16 后向条款：D1b 背景形态 5 位点随 --ve-border 浅值翻读）",
+   "ruling": "getPopupContainer（弹层壳内作用域，批 1 机制）保留不动；死 import antdTheme 同 commit 清理。媒体区实测无 <video controls> 原生控件（PreviewPlayer 预览为 <canvas> 自绘，grep 全域 0 命中）——color-scheme 局部钉扎无对象，通则留档不落码。c5-portal-census 新增 exited-C8-D3 条目 + G4/D-4/a0 三断言反转同 commit"
+  },
+  {
+   "id": "D3-ve-literal-migration",
+   "file": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx + timeline/ClipBlock.tsx",
+   "line": "PreviewPlayer :91/:93/:96/:99 + ClipBlock :88",
+   "deep": "九族摘除波迁移（当次 grep 实测 7 处/3 文件，迁 4 留 3）：4 处 hover:text-white→hover:text-text（hover 提亮通道——第八轮句：深档 #fff→#e2e8f0 是微变但 hover 态不进快照无 pair；浅档白字→深字是语义翻转后的正确取值，两档均由 token 承担）；ClipBlock :88 键帧菱形 border-[#6C5CE7]→border-[var(--ve-accent)]（品牌紫通道，--ve-accent 两档同值 #6C5CE7 字节等值零 diff）",
+   "light": "hover:text-text 浅值 #1f2329 于 #f0f1f2 控制条——浅档悬停由白提亮反转为深加深（语义等价：hover 恒比常态更强对比）；键帧菱形边两档同值",
+   "ruling": "运行时键盲区（§0 复核登记转录）：video-editor 采集页每轮 3 个 tid: 运行时键（节点根/video-edit-node-*/track-row-track-*）removed=added 命中既有白名单、结构性不参与属性比对——这些根元素自身迁移永无 differ 信号，核销靠 B6/探针，勿把 diff 没红读成改对（子元素走稳定 dom: 键不受影响）"
+  },
+  {
+   "id": "D3-ve-keeps-constant-faces",
+   "file": "ExportModal.tsx + PreviewPlayer.tsx + timeline/ClipBlock.tsx",
+   "line": "ExportModal :245 + PreviewPlayer :71 + ClipBlock :75",
+   "deep": "三处恒定面保留字面（摘 video-editor/** 目录白名单同 commit 补三精确条目）：① ExportModal :245 text-white——紫底填充钮白字=图形档恒定面（第七轮 M3 双错订正：换 on-accent #141414 会新增未登记深档 diff 且紫底白字 4.86→深字 3.79 系对比度回归；on-accent 语义绑 --fw-accent 绿底非紫底）；② PreviewPlayer :71 bg-black——媒体垫底恒深自持（<canvas> 垫黑）；③ ClipBlock :75 text-white/85——clip 色条前景=内容语义恒深（压 BLOCK_BG 恒深色表，浅档块面仍深故前景仍白）",
+   "light": "三处浅档不变：紫钮/媒体垫黑/clip 块面恒深——浅色档下这些面刻意保持深色（P6/图形档），无浅侧落点",
+   "ruling": "no-theme-utility 补 {glob,allow} 三条：ExportModal ['text']、PreviewPlayer ['bg']、ClipBlock ['text']；registry whitelistKeeps 镜像；产品码残余 3 处=精确条目 3 条对账闭合"
+  },
+  {
+   "id": "D3-ve-status-colors",
+   "file": "EditorTopBar.tsx + AssetPanel.tsx + ExportModal.tsx + TimelinePanel.tsx + TrackRow.tsx",
+   "line": "EditorTopBar :7/:9 + AssetPanel :118/:151 + ExportModal :211/:212/:214/:218 + TimelinePanel :281 + TrackRow :41/:43",
+   "deep": "状态语义色字面保留：成功绿 #00B42A（EditorTopBar 保存点 saved + AssetPanel 已添加角标 ×2）、危险红 #F53F3F（EditorTopBar error 点 + ExportModal 错误行 ×3 + TimelinePanel 加载失败 + TrackRow 静音/隐藏激活态 ×2）、警示橙 #FF7D00（ExportModal 预检警告行）——无字节等值 token（--fw-accent-danger 深 #ef4444≠#F53F3F，--fw-accent 绿 #4ade80≠#00B42A），迁移即深档改值需逐对登记且计划未列；两档同值于两档底色均可读（红/橙/绿状态色跨主题恒定识别，同 login/register 域先例）",
+   "light": "浅档同值落浅底：#F53F3F@#f0f1f2≈4.0:1、#00B42A 小元素为状态点缀非正文——B6 目检项；不改则 hex baseline 既有键原样有效（零新违例零陈旧键）",
+   "ruling": "四通道裁定=内容承载（状态语义恒定面）留字面；EditorTopBar :7/:9 系 styleObjects 盲区位点（lint 拦不到），本条即其核销记录；TrackRow :41/:43 与 TimelinePanel :281 等 className 形位点为 no-color-hex 既有 baselined 违例，行文本未动、基线键不失配"
+  },
+  {
+   "id": "D3-ve-content-data",
+   "file": "timeline/ClipBlock.tsx + store/editorStore.ts",
+   "line": "ClipBlock :9/:10/:28/:67/:70/:78 + editorStore :239",
+   "deep": "内容承载面/数据恒定值保留：ClipBlock :9 BLOCK_BG（--ve-track-video 恒值键 + #8F5DBA/#5DBAA0）与 :10 BLOCK_BAR（#6C5CE7/#5B7CFA/#8F5DBA/#5DBAA0）=clip 块面/色条色表（P6 内容承载恒深，浅档不翻）；:67 missing 底 #7f1d1d、:70 missing 边 #EF4444、:78 missing 角标字 #EF4444=缺失告警态落于恒深块面上（浅档块面仍深，迁主题 token 反使浅值落深底——保留字面）；:28 波形 fillStyle 白=色表深底上内容绘制（canvas 2D 通道）；editorStore :239 字幕默认样式 color #FFFFFF=用户内容数据默认值（入工程 JSON，非 UI chrome）",
+   "light": "浅档 clip 块面/波形/字幕内容全部不变——时间轴内容层恒深是 D3-ve 浅色档的既定设计（轨道槽/轨头/标尺等 chrome 已翻浅，内容块保持深色辨读）",
+   "ruling": "四通道裁定=内容承载留字面/恒值键；:67/:239 系 styleObjects 盲区位点核销记录；#EF4444 与 --fw-accent-danger 深值巧合同值但不迁——该 token 浅值 #dc2626 会在恒深块面上变色且 missing 告警语义独立于主题；WaveformCanvas fillStyle 属 canvas 2D 非样式对象，styleObjects 行文本收录属重叠收录（meta.notes 口径）"
   }
  ],
  "differExpectedPairs": {
@@ -2106,6 +2146,69 @@
     "before": "rgba(255, 255, 255, 0.3)",
     "after": "rgb(156, 163, 175)",
     "why": "VideoCard 暂无封面占位字 text-white/30→text-text-dim-1 浅值 #9ca3af（D3-videocard-migration :19，0.3 字节等值深档零 diff；before=0.3 字面）——3 卡位无封面 fixture"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "video-editor",
+    "before": "rgb(54, 54, 54)",
+    "after": "rgb(229, 231, 235)",
+    "why": "Task 21 拆岛浅侧（预告条款 a 兑现）：D1b-value-collapse 收敛的 --ve-border 背景形态 5 位点（VideoEditorShell PanelResizeHandle×3 + TimelineRuler 刻度线×2）岛拆后随 --ve-border 浅值 #e5e7eb 翻读——既有深侧对（rgb(54,54,54)→rgb(51,51,51)）⚠ 注释已预告本对，拆岛后深侧对仅承深侧、本对仅承浅侧"
+   },
+   {
+    "prop": "color",
+    "page": "video-editor",
+    "before": "rgb(108, 92, 231)",
+    "after": "rgb(95, 79, 209)",
+    "why": "Task 21 拆岛浅侧（预告条款 b 兑现）：--ve-accent-text 双值键浅值 #5F4FD1 首次生效（深档 #9B8CF7 对已在册）——实测 6 钮（asset-upload-btn/gen-audio-btn/预览控制条添加字幕+片段重拍/TimelinePanel +视频轨+音频轨）；源码 8 消费点差额 2 系 PropertiesPanel ⏱ active=false 落 --ve-text-dim 桶 + TrackRow ➕ 无轨数据不渲染（门禁 fixture），登记不扩对"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "video-editor",
+    "before": "rgb(38, 38, 38)",
+    "after": "rgb(240, 241, 242)",
+    "why": "Task 21 壳岛拆除浅侧：--fw-surface-dim 浅值 #f0f1f2 首次真实翻浅（岛拆前被壳根 .dark 钉深）——editor-top-bar/asset-panel/preview-control-bar/properties-panel/timeline-panel/timeline-ruler/Timeline 工具行/空轨槽/轨头 9 面板位点"
+   },
+   {
+    "prop": "color",
+    "page": "video-editor",
+    "before": "rgba(226, 232, 240, 0.6)",
+    "after": "rgb(75, 85, 99)",
+    "why": "Task 21 壳岛拆除浅侧：--ve-text-dim 浅值 #4b5563（D1b-equivalent-merge 裁定保留键）浅档生效——AssetPanel 分组标题/预览时间码与缩放标签/properties-empty/Timeline 轨头标签/标尺刻度字/静音·隐藏·⏱ 钮 13 位点"
+   },
+   {
+    "prop": "color",
+    "page": "video-editor",
+    "before": "rgba(255, 255, 255, 0.85)",
+    "after": "rgba(0, 0, 0, 0.88)",
+    "why": "Task 21 antd 通道翻转（colorText）：壳级 ConfigProvider darkAlgorithm 删除后 PreviewPlayer 双 Slider 内绘 div（rail/track/handle 继承）×10 + AssetPanel 搜索 Input ×1 取 defaultAlgorithm 浅值——与既有 page:videos 对同源（antd dark getAlphaColor(0.85)/浅=黑 0.88）；深档两算法同值零 diff 本对仅承浅侧；仅 video-editor 壳曾挂 darkAlgorithm 故 page 收窄"
+   },
+   {
+    "prop": "borderColor",
+    "page": "video-editor",
+    "before": "rgb(66, 66, 66)",
+    "after": "rgb(217, 217, 217)",
+    "why": "Task 21 antd 通道翻转（Input colorBorder）：AssetPanel 搜索 Input 边框取 defaultAlgorithm 浅值——differ 按四边分别采集同值 4 条（1 元素×4 侧），配对闸按 borderColor 形态吸收（同既有 page:videos colorText 边框形态对口径）；意外项清单逐条显示 border-t/r/b/l-color 但吸收查键恒为 borderColor"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "video-editor",
+    "before": "rgb(20, 20, 20)",
+    "after": "rgb(255, 255, 255)",
+    "why": "Task 21 antd 通道翻转（Input colorBgContainer）：AssetPanel 搜索 Input 底色深→白，壳岛拆除后 defaultAlgorithm 生效——1 位点"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "video-editor",
+    "before": "rgba(255, 255, 255, 0.08)",
+    "after": "rgba(0, 0, 0, 0.04)",
+    "why": "Task 21 antd 通道翻转（Slider rail）：PreviewPlayer volume/zoom 双 Slider 轨道底取 defaultAlgorithm 浅值——2 位点"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "video-editor",
+    "before": "rgb(21, 50, 91)",
+    "after": "rgb(145, 202, 255)",
+    "why": "Task 21 antd 通道翻转（Slider track 填充段）：PreviewPlayer volume/zoom 双 Slider 已填充段深蓝→浅蓝——2 位点，与 rail 对同源同 commit"
    }
   ]
  },
@@ -2123,7 +2226,9 @@
   { "glob": "src/pages/canvas/components/nodes/**", "allow": null, "why": "恒深域 React Flow 节点工具（→Task 22 摘除）" },
   { "glob": "src/pages/canvas/components/edges/**", "allow": null, "why": "恒深域边（→Task 22 摘除）" },
   { "glob": "src/pages/canvas/components/groups/**", "allow": null, "why": "恒深域分组（→Task 22 摘除）" },
-  { "glob": "src/pages/canvas/video-editor/**", "allow": null, "why": "恒深域 ve 壳（→Task 21 摘除）" },
+  { "glob": "src/pages/canvas/video-editor/components/ExportModal.tsx", "allow": ["text"], "why": "Task 21 摘 video-editor/** 目录（net -2 累计）同 commit 补：:245 紫底填充钮白字=图形档恒定面（第七轮 M3：on-accent 语义绑绿底非紫底，换深字系对比度回归 4.86→3.79；D3-ve-keeps-constant-faces）" },
+  { "glob": "src/pages/canvas/video-editor/components/PreviewPlayer.tsx", "allow": ["bg"], "why": "Task 21：:71 bg-black 媒体垫底恒深自持（<canvas> 垫黑；D3-ve-keeps-constant-faces）" },
+  { "glob": "src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx", "allow": ["text"], "why": "Task 21：:75 text-white/85 clip 色条前景=内容语义恒深（压 BLOCK_BG 恒深色表，第八轮裁定取精确条目而非迁近档；D3-ve-keeps-constant-faces）" },
   { "glob": "src/pages/admin/**", "allow": null, "why": "岛：admin（C2 挂 dark）" },
   { "glob": "src/pages/login/**", "allow": null, "why": "岛：营销·登录" },
   { "glob": "src/pages/register/**", "allow": null, "why": "岛：营销·注册" },

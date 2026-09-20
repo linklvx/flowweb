@@ -143,12 +143,12 @@ test.describe('D-3 WeChatFollowModal（D1b 拆岛翻浅）', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// D-4 ve 域（D1b 仅键名并域仍钉深；D3-ve 翻双断言）——复用采集器"添加节点→多轨道剪辑→全屏编辑"
+// D-4 ve 域（C8 D3-ve 已反转：壳底跟随翻浅 + ve 面板底钉浅值）——复用采集器"添加节点→多轨道剪辑→全屏编辑"
 // 操作序列（a0-collect-baseline video-editor 流程 + 清理段；c0-G4 同构）。
 // 浅色注入走本文件 lightContext 的 addInitScript——禁抄采集器旧 classList 注入（D0 后双类失真）。
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('D-4 ve 域（D1b 仅键名并域仍钉深；D3-ve 翻双断言）', () => {
-  test('video-editor 壳底=rgb(20,20,20)（html.light 下壳根 .dark 岛钉 --fw-bg 深值；D3-ve 岛拆除翻双断言）', async ({ browser }) => {
+test.describe('D-4 ve 域（C8 D3-ve 已反转：壳底跟随翻浅 + ve 面板底钉浅值）', () => {
+  test('video-editor 壳底=rgb(247,248,250)（壳岛拆除 --fw-bg 跟随翻浅）+ EditorTopBar 面板底=rgb(240,241,242)（--fw-surface-dim 浅值）', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
@@ -161,7 +161,8 @@ test.describe('D-4 ve 域（D1b 仅键名并域仍钉深；D3-ve 翻双断言）
         await page.getByRole('button', { name: '⤢ 全屏编辑' }).first().click();
         // 可见性锚 data-testid=video-editor-shell（dialog 外层包 fixed 子元素自身零尺寸）
         await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
-        expect(await bgOf(page.getByTestId('video-editor-shell'))).toBe('rgb(20, 20, 20)');
+        expect(await bgOf(page.getByTestId('video-editor-shell'))).toBe('rgb(247, 248, 250)');
+        expect(await bgOf(page.getByTestId('editor-top-bar'))).toBe('rgb(240, 241, 242)');
       } finally {
         // 清理（采集器/c0-G4 同款，红跑后仍复原 gate 画布）：Esc 关编辑器 → 删全部多轨道剪辑节点 → 复原双节点
         await page.keyboard.press('Escape');

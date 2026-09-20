@@ -283,7 +283,7 @@ test('G4 宿主浅×岛深：/admin 岛（C2 挂岛根 .dark）closest 命中 + 
   }
 });
 
-test('G4 宿主浅×岛深：video-editor 壳根（C2 挂 .dark）closest 命中 + 壳 --fw-bg 钉深 #141414（theme=light）', async ({ browser }) => {
+test('G4 宿主浅×ve 壳跟随（C8 D3 反转）：壳根无 dark 类 + --fw-bg 浅值 + 壳根 backgroundColor=该浅值', async ({ browser }) => {
   const ctx = await newSeededContext(browser, 'light');
   const page = await ctx.newPage();
   try {
@@ -301,9 +301,11 @@ test('G4 宿主浅×岛深：video-editor 壳根（C2 挂 .dark）closest 命中
       const shellState = await page.getByTestId('video-editor-shell').evaluate((el) => ({
         islandDark: el.closest('.dark') !== null,
         fwBg: getComputedStyle(el).getPropertyValue('--fw-bg'),
+        shellBg: getComputedStyle(el).backgroundColor,
       }));
-      expect(shellState.islandDark, '[G4/video-editor] 壳根 closest(".dark") 应命中——C2 给 VideoEditorShell 壳根挂 .dark 前必红').toBe(true);
-      expect(norm(shellState.fwBg), '[G4/video-editor] 壳根 --fw-bg 必须钉深 #141414（岛根 .dark 重新声明压过 html.light 继承）——C2 前必红').toBe('#141414');
+      expect(shellState.islandDark, '[G4/ve] 壳根 closest(".dark") 应为 null（岛拆除，C8 D3）').toBe(false);
+      expect(norm(shellState.fwBg), '[G4/ve] 语义层：--fw-bg 浅值 #f7f8fa').toBe('#f7f8fa');
+      expect(norm(shellState.shellBg), '[G4/ve] 视觉层：壳根底=该浅值 rgb(247,248,250)（第七轮 P1-3：computed 断 rgb 形态）').toBe('rgb(247,248,250)');
     } finally {
       // 清理（采集器同款，红跑后仍复原 gate 画布）：Esc 关编辑器 → 删全部多轨道剪辑节点 → 复原双节点
       await page.keyboard.press('Escape');

@@ -64,3 +64,17 @@
 - 预期落空归因（登记则成死配对/采集面外，不登记）: ①ProcessView 翻浅与 M2 空态迁移——ProcessView 仅详情路由渲染（采集面无 DOM）、M2 三态分支 gate fixture 恒有数据不渲染（D3-m2-empty-states M2 前提）；②PlayView/CarouselBar/媒体容器恒深字面零 diff（第四通道保留项）；③壳根 DOM 拆分新增媒体容器层——VideosPage:49 !id||!detail 早退零 DOM→零 dom: 键漂移（G8② count=0 断言机械守卫，registry D3-videos-shell-dom-split 三条承重约束在册）
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-videos / segcheck-D3-videos-light 采集目录）
+
+## D3-ve（Task 21）@ 本文件 D3-ve 小节追加 commit（= ve 壳岛拆除原子对提交，父 6b6482f2）
+
+- 采集器冻结面指纹复验: sed COLLECTOR-FROZEN 区间 sha256 = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与落档一致；Task 21 a0 探针面改动——REAL_LIGHT video-editor 恒深断言退役改 probeFlip 双断言（语义层 --fw-bg + 视觉层壳根底，D1b-a0-probe-revision 预告兑现）——位于冻结区间外，指纹不变）
+- 全门禁: playwright 55 passed / 5 skipped（D-4 探针同 commit 反转真值：壳底 rgb(247,248,250) + EditorTopBar 面板底 rgb(240,241,242)，全绿）；vitest 263 files / 2640 tests 全绿；lint-gate PASS（no-theme-utility 0 违例；no-color-hex 259 baselined, 0 new——ve 域字面核销致 9 基线键转陈旧剔除 260→259）
+- 域纪律 grep: grep -rn "var(--canvas-" src/pages/canvas/video-editor/ | wc -l = 0（§9.2③ 收口维持）；九族残余产品码 3 处/3 文件（ExportModal :245 text-white + PreviewPlayer :71 bg-black + ClipBlock :75 text-white/85）= 精确条目 3 条对账闭合（D3-ve-keeps-constant-faces），摘 video-editor/** 目录（net -2 累计）同 commit
+- 深侧 before-D × segcheck-D3-ve: exit=0, unexpectedTotal=0（属性 0 + 几何 0，三闸全过）, D 闸吸收 17——与 D1b/D2 完全同形（P9 ×6 + BTN 深侧 ×6 + ve-border 背景形态 ×5）**深档零新 diff**（壳岛拆除 html.dark 下级联不变：:root,.dark 块仍命中 + ConfigProvider 删除后继承根 AntdApp 本就 darkAlgorithm）；B2 闸吸收 57（borderColor 收敛族 ×48 + color #fff→#e2e8f0 ×5 + white/70→white/60 ×4——后两族=VideoCard 深侧微变既有配对，D3-videos 同形）；PreviewPlayer hover 提亮迁移 4 处（hover:text-white→hover:text-text）hover 态不进快照零 diff（第八轮裁定）
+- 浅侧 before-D-light × segcheck-D3-ve-light: 首跑 exit=1（意外 53 条/9 组，全部 page:'video-editor'）→ 补登记 9 组 page 限定 pair（borderColor 按形态合一）后复跑 exit=0, unexpected=0, D 闸吸收 217（**新增 9 对恰承 53 条** + 既有对承 164 条）, B2 闸 0（--ve-border 浅值族 #363636→#e5e7eb 落 A 段既有 R:registered →#e5e7eb 桶 ×1532，非 B2/D 通道）:
+  - 预告条款 a 兑现: backgroundColor rgb(54,54,54)→rgb(229,231,235) ×5——Task 16 后向条款（D1b-value-collapse 背景形态 5 位点 PanelResizeHandle×3 + TimelineRuler 刻度×2 拆岛后随 --ve-border 浅值翻读；D1b 新登记对的 ⚠ 预告句兑现，深侧对仅承深侧、本对仅承浅侧）
+  - 预告条款 b 兑现（量级订正 8→6）: color rgb(108,92,231)→rgb(95,79,209) ×6——accent-text 浅值 #5F4FD1 首次生效（D1b 预期落空归因条兑现）；源码 8 消费点差额 2 = PropertiesPanel ⏱ active=false 落 --ve-text-dim 桶 + TrackRow ➕ 无轨数据不渲染（门禁 fixture），registry why 已记不扩对
+  - 壳 chrome/面板（条款 c）: --fw-surface-dim rgb(38,38,38)→rgb(240,241,242) ×9（editor-top-bar/asset-panel/preview-control-bar/properties-panel/timeline-panel/timeline-ruler/工具行/空轨槽/轨头）+ --ve-text-dim rgba(226,232,240,0.6)→rgb(75,85,99) ×13（分组标题/时间码/properties-empty/轨头标签/刻度字/静音·隐藏·⏱ 钮）
+  - antd 通道 5 对（壳级 darkAlgorithm 删除→defaultAlgorithm；仅 ve 壳曾挂故 page 收窄）: color colorText rgba(255,255,255,0.85)→rgba(0,0,0,0.88) ×11（PreviewPlayer 双 Slider 内绘 div ×10 + AssetPanel 搜索 Input ×1）+ Input 边框 borderColor rgb(66,66,66)→rgb(217,217,217) ×4（四边同值按形态合一登记，意外项逐条显示 border-t/r/b/l-color 但吸收查键恒为 borderColor）+ Input 底 rgb(20,20,20)→rgb(255,255,255) ×1 + Slider rail rgba(255,255,255,0.08)→rgba(0,0,0,0.04) ×2 + Slider track 填充段 rgb(21,50,91)→rgb(145,202,255) ×2
+- 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条非结构变化，before/after 元素数 252/252）——**⚠ D3-ve-literal-migration 运行时键盲区裁定 transcription：节点根/video-edit-node-*/track-row-* 自身迁移永无 differ 信号，核销靠 B6/探针，勿把 diff 没红读成改对**；其余 7 页 100%
+- 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-ve / segcheck-D3-ve-light 采集目录）

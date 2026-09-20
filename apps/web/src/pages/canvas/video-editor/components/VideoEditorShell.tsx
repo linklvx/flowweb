@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
@@ -129,15 +129,17 @@ export function VideoEditorShell() {
           永远回退 body，弹层作用域修复静默失效） */}
       <div data-testid="video-editor-shell" tabIndex={-1}
         ref={(el) => { focusRef.current = el; shellRef.current = el; }}
-        // 岛双通道（algorithm + dark 类）——CSS 变量通道随岛（spec §3.1）：html.light 下壳子树仍取 .dark 的 --fw-* 深值；
-        // [color-scheme:dark]：原生控件/滚动条显式深色，防 html.light 下视频弹层内原生件闪浅（spec C2-7）
-        className="dark fixed inset-0 bg-[var(--fw-bg)] [color-scheme:dark] flex flex-col nokey">
+        // C8 D3-ve 岛拆除（Task 21）：壳跟随域——删 dark 类/[color-scheme:dark]，--fw-* 经 html 类继承翻转，
+        // 壳底 var(--fw-bg) 两档各自取值（深 #141414/浅 #f7f8fa）；媒体区预览垫底 --ve-preview-base 恒深为
+        // <canvas> 自绘（无 <video controls> 原生控件，color-scheme 局部钉扎无对象——adjudications 在册）
+        className="fixed inset-0 bg-[var(--fw-bg)] flex flex-col nokey">
         {/* 批 1：弹层作用域——antd 弹层挂进壳内而非 body 直挂（z-index 低于壳被盖）。
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null）。
+            C8 D3-ve：algorithm 通道删除——随根 AntdApp 继承（html 类驱动 default/dark 切换），
+            仅保留 getPopupContainer。
             <AntdApp> 必须 component={false}：默认渲染 div.ant-app（block、高度 auto）打断壳 flex flex-col 布局 */}
         <ConfigProvider
           getPopupContainer={() => shellRef.current ?? document.body}
-          theme={{ algorithm: antdTheme.darkAlgorithm }}
         >
           <AntdApp component={false}>
             <ShellToastBridge apiRef={toastApiRef} />

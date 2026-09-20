@@ -33,11 +33,10 @@ const GLOBAL_THEME_UTILITY_RE = /(?<![\w-])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|bord
  * `**` 跨段、`*` 单段。注释即归因：改动须同步 e2e/audit/canvas-migration-registry.json whitelistKeeps（C8 镜像）。
  */
 export const THEME_UTILITY_WHITELIST = [
-  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor→Task 21、nodes/edges/groups→Task 22）——
+  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor 已摘（Task 21，net -2）、nodes/edges/groups→Task 22）——
   'src/pages/canvas/components/nodes/**',
   'src/pages/canvas/components/edges/**',
   'src/pages/canvas/components/groups/**',
-  'src/pages/canvas/video-editor/**',
   // —— 岛（MaterialLibrary 随 Task 24 摘除并迁 TSX）——
   'src/pages/admin/**',
   'src/pages/login/**',
@@ -63,6 +62,10 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/videos/VideoCard.tsx', allow: ['bg', 'text'] },                 // :21 时长胶囊 bg-black/70+text-white 压封面（第四通道，registry D3-videocard-migration）
   { glob: 'src/pages/videos/ProcessView.tsx', allow: ['bg'] },                       // :53 复制项目 bg-white 反白 CTA（通道 3 明文禁 token 化，registry D3-processview-migration）
   { glob: 'src/pages/videos/VideoPlayerModal.tsx', allow: ['bg', 'text'] },          // :75 媒体容器 bg-black 恒深自持 + :86 close-btn text-white 压画面显式化（第四通道，registry D3-videos-shell-dom-split）
+  // —— C8 Task 21 D3-ve 摘目录同 commit 补精确条目（恒定面/恒深保留，禁 string 整文件放行）——
+  { glob: 'src/pages/canvas/video-editor/components/ExportModal.tsx', allow: ['text'] },        // :245 紫底填充钮白字=图形档恒定面（第七轮 M3：on-accent 语义绑绿底非紫底，registry D3-ve-keeps-constant-faces）
+  { glob: 'src/pages/canvas/video-editor/components/PreviewPlayer.tsx', allow: ['bg'] },        // :71 bg-black 媒体垫底恒深自持（registry D3-ve-keeps-constant-faces）
+  { glob: 'src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx', allow: ['text'] }, // :75 text-white/85 clip 色条前景=内容语义恒深压 BLOCK_BG 色表（registry D3-ve-keeps-constant-faces）
   // —— C8 Task 20 videos __tests__ 单文件 string 条目（测试断言串九族命中非产品 UI，整文件放行；第五轮写 3、第八轮 P3-1 实测 4——多出 CarouselBar.test:80 ring 家族）——
   'src/pages/videos/__tests__/CarouselBar.test.tsx',
   'src/pages/videos/__tests__/PlayView.test.tsx',

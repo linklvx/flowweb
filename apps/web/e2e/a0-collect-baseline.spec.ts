@@ -277,8 +277,10 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
     });
     if (REAL_LIGHT) {
-      // C8 D1b：--ve-bg 已并域删除，壳改消费 --fw-bg；壳根 .dark 岛到 Task 21 才拆——岛内 --fw-bg 仍深值 #141414
-      await probeInvariance(page, 'video-editor-壳底--fw-bg@壳岛', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).getPropertyValue('--fw-bg').trim()), '#141414');
+      // C8 D3-ve（Task 21）：壳岛拆除，探针双断言定稿——语义层 --fw-bg 浅值 + 视觉层壳根 backgroundColor=浅值
+      // （原 D1b 岛不变式探针随岛拆除退役；恒深方向不再保留任何断言。探针面改动，冻结面指纹不受影响）
+      await probeFlip(page, 'video-editor-壳根--fw-bg翻浅(语义层)', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).getPropertyValue('--fw-bg').trim()), '#f7f8fa');
+      await probeFlip(page, 'video-editor-壳根底翻浅(视觉真值)', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).backgroundColor), 'rgb(247, 248, 250)');
     }
 
     // 清理：Esc 关编辑器（flush 后 close）→ 逐个选中并删除全部 videoEdit 节点 → 断言画布复原为 gate 双节点
