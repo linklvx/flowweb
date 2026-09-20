@@ -75,6 +75,11 @@ describe('CanvasView 主题切换性能（render 计数）', () => {
     const before = renders.nodes;
     act(() => setMode('light'));
     expect(document.documentElement.classList.contains('light')).toBe(true);
+    // 测量有效前提（quality review 登记）：同步 uSES 冲刷 + before→断言间零宏任务（test-setup rAF polyfill=
+    // setTimeout(0) 不入窗）。若未来主题传播改异步（useDeferredValue/debounce），延迟渲染会落到同步窗外→
+    // 增量恒 0 假绿——届时须改 await act(async) + 二次冲刷再计增量
     expect(renders.nodes - before, '节点组件不得因主题切换重渲染').toBe(0);
+    // 防"节点消失/延迟后从未渲染"的假绿载体：切换后节点仍在 DOM（Suspense 永久 fallback 会让前置自证失锚）
+    expect(document.querySelectorAll('[data-testid="perf-node"]').length).toBe(2);
   });
 });
