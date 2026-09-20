@@ -98,6 +98,7 @@ describe('CanvasView', () => {
     const wrapper = container.querySelector('.react-flow')!;
     const wrapperThemeClasses = Array.from(wrapper.classList).filter((c) => c === 'light' || c === 'dark');
     const htmlThemeClasses = Array.from(document.documentElement.classList).filter((c) => c === 'light' || c === 'dark');
+    expect(wrapperThemeClasses.length, 'wrapper 主题类恰一个（双侧同时丢类的双空空洞由此外守）').toBe(1);
     expect(wrapperThemeClasses, 'wrapper 主题类恰一个且等于 html 类').toEqual(htmlThemeClasses);
   });
 

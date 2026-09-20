@@ -7,7 +7,8 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   // C8 D2 像素对账快照（Task 17）：直落 e2e/audit/ 单一真身——{arg}{ext} 展开为 toHaveScreenshot('d2-board-dark.png')
-  // 的 basename+扩展名（arg 无测试名拼接），固化/校验/比对三处同一文件；test.use 不解析该键（第七轮 M2），必须 config 顶层
+  // 的 basename+扩展名（arg 无测试名拼接），固化/校验/比对三处同一文件；test.use 不解析该键（第七轮 M2），必须 config 顶层。
+  // ⚠ 全仓生效：第二个截图工装出现时必须改走 expect.toHaveScreenshot.pathTemplate 作用域限定，勿复用 d2-ref- 前缀共模板
   snapshotPathTemplate: '{testDir}/audit/d2-ref-{arg}{ext}',
   timeout: 60_000,
   // 门禁串行：单 worker 防多浏览器实例并发写同一画布 doc

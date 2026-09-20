@@ -18,7 +18,7 @@ import { test, expect } from '@playwright/test';
 const HERE = import.meta.dirname!;
 const USER_STATE = path.join(HERE, '.auth', 'user.json');
 
-async function openCanvasDark(page: import('@playwright/test').Page) {
+async function openCanvasDark(page: import('@playwright/test').Page) { // 命名承 plan 原文——本 helper 只开画布沉降，不钉主题档（深/浅由调用侧 context 的 storage 决定）
   await page.goto('/canvas?projectId=gate-canvas-1');
   await expect(page.locator('.react-flow__node[data-id="gate-node-1"]')).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(800); // 沉降（动画/字体收尾，同采集器口径）
