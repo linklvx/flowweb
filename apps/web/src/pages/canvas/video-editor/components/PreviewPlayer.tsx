@@ -76,27 +76,27 @@ export function PreviewPlayer() {
       </div>
       {/* 控制条（spec 第四节：播放/时间码/撤销/重做/分割/删除 + 音量/全屏/缩放滑杆） */}
       <div data-testid="preview-control-bar"
-        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--ve-panel)] border-t border-[var(--ve-border)]">
+        className="h-11 shrink-0 flex items-center gap-2 px-3 bg-[var(--fw-surface-dim)] border-t border-[var(--ve-border)]">
         <button type="button" data-testid="preview-play-btn" disabled={preparing}
           onClick={() => { void togglePlayback(); }}
-          className="text-[16px] text-[var(--ve-text)] border-0 px-2 disabled:opacity-50">
+          className="text-[16px] text-[var(--fw-text)] border-0 px-2 disabled:opacity-50">
           {preparing ? '…' : playing ? '⏸' : '▶'}
         </button>
-        <span className="text-[12px] text-[var(--ve-text)] tabular-nums">
+        <span className="text-[12px] text-[var(--fw-text)] tabular-nums">
           {formatShortTime(playhead)}
           <span className="text-[var(--ve-text-dim)]"> / {formatShortTime(total)}</span>
         </span>
         <span className="text-[var(--ve-text-dim)] mx-1">|</span>
         <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" onClick={() => useEditorStore.getState().undo()}
-          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><UndoOutlined /></button>
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-white"><UndoOutlined /></button>
         <button type="button" aria-label="重做" title="重做 Ctrl+Shift+Z" onClick={() => useEditorStore.getState().redo()}
-          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><RedoOutlined /></button>
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-white"><RedoOutlined /></button>
         <button type="button" aria-label="分割" title="分割 S（在播放头处）"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead); }}
-          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><ScissorOutlined /></button>
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-white"><ScissorOutlined /></button>
         <button type="button" aria-label="删除" title="删除 Delete"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.removeClip(es.selectedClipId); }}
-          className="text-[15px] text-[var(--ve-text)] border-0 px-1.5 hover:text-white"><DeleteOutlined /></button>
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-white"><DeleteOutlined /></button>
         <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--ve-border)]">
           <button type="button" className="text-[12px] text-[var(--ve-accent-text)] border-0 px-0" onClick={onAddSubtitle}>添加字幕</button>
           {/* R4-8：Chromium 不对 disabled 表单控件派发 mouse 事件——Tooltip 直接包 disabled 按钮无 hover（antd FAQ 同款），
@@ -122,7 +122,7 @@ export function PreviewPlayer() {
           </Tooltip>
           <button type="button" title="全屏"
             onClick={() => { const el = containerRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }}
-            className="text-[14px] text-[var(--ve-text)] border-0 px-1.5">⛶</button>
+            className="text-[14px] text-[var(--fw-text)] border-0 px-1.5">⛶</button>
           <Tooltip title="时间轴缩放">
             <span data-testid="zoom-slider" className="inline-flex">
               <Slider className="w-24" min={10} max={500} value={pxPerSec}

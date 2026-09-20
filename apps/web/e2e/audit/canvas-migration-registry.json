@@ -1855,6 +1855,46 @@
    "deep": "--canvas-controls-active: rgba(255,255,255,0.12)",
    "light": "rgba(0,0,0,0.08)",
    "ruling": "复活为激活态双值键（原'0 消费死键'判定撤销——CanvasToolbar 内联 style 不消费 var() 但激活态语义没死，Task 22 BTN_BG_ACTIVE 消费）；登记见 b2-migration-registry.json c8TokenRevivals"
+  },
+  {
+   "id": "D1b-value-collapse",
+   "file": "src/index.css",
+   "line": "深块 3 行",
+   "deep": "--ve-border/--canvas-controls-border: rgb(54,54,54)→#333；--canvas-controls-hover: rgba(255,255,255,0.08)→rgba(255,255,255,0.1)；--vw-card-border-hover: rgba(255,255,255,0.25)→rgba(255,255,255,0.2)",
+   "light": "四键浅值全部不动（#e5e7eb / #e5e7eb / rgba(0,0,0,0.06) / rgba(0,0,0,0.12)）",
+   "ruling": "§9.2② Δ3 级收敛 + hover 档对齐 + ⑤ 并域前置收敛：border 收敛后与 --fw-border 双档同值（diff 见 borderColor 全局 pair）；hover .08→.1 对齐 --fw-overlay-2 深值（hover 态不进快照零 diff，AssetPanel ③ 改指单次登记不重复）；vw-card-border-hover 0.25→0.2 收敛到 --fw-overlay-3 等值（hover 态零 diff），为同 commit 并域删除前置步"
+  },
+  {
+   "id": "D1b-equivalent-merge",
+   "file": "src/index.css + video-editor components + VideoCard.tsx",
+   "line": "深浅两块各删 6 行；消费点 52 处改指",
+   "deep": "--ve-bg/--ve-panel/--ve-text/--vw-card-bg/--vw-card-border/--vw-card-border-hover 六键删除",
+   "light": "同删（六键浅值与目标键浅值本就等值，零 diff）",
+   "ruling": "§9.2⑤ 等值并域（深档零 diff 无需配对）：ve-panel→fw-surface-dim(14 处)/ve-text→fw-text(34 处)/ve-bg→fw-bg(1 处 VideoEditorShell)/vw-card-bg→fw-surface、vw-card-border→fw-overlay-2、vw-card-border-hover→fw-overlay-3(VideoCard 3 处)；逐键深浅双档等值核验后替换；--ve-text-dim（深 rgba(226,232,240,.6) 与 dim-3 的 rgba(255,255,255,.6) computed 字面不同，并域即未登记 diff）与 --ve-border（② 仅收敛值保留键）按 spec §9.1 裁定勿删"
+  },
+  {
+   "id": "D1b-a0-probe-revision",
+   "file": "e2e/a0-collect-baseline.spec.ts",
+   "line": "video-editor REAL_LIGHT 探针（原 :265）",
+   "deep": "id 'video-editor-壳底--ve-bg自持' → 'video-editor-壳底--fw-bg@壳岛'",
+   "light": "读数 backgroundColor rgb(20,20,20) → --fw-bg #141414（D1b 窗口内壳根 .dark 岛未拆，岛内 --fw-bg 仍深值；Task 21 拆岛时才翻浅为双断言）",
+   "ruling": "配套修订属探针面，不触发采集器冻结令（冻结面只含 snapshotDom 口径，Task 10 Step 4）——--ve-bg 删除后旧读数机制消失；COLLECTOR-FROZEN 区间指纹复验不变（45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3）"
+  },
+  {
+   "id": "D1b-assetpanel-hover",
+   "file": "src/pages/canvas/video-editor/components/AssetPanel.tsx",
+   "line": ":110/:143/:183",
+   "deep": "hover:bg-[var(--canvas-controls-hover)] → hover:bg-overlay-2（深档 rgba(255,255,255,0.1)→0.1 等值）",
+   "light": "hover 浅档 rgba(0,0,0,0.06)→rgba(0,0,0,0.06) 等值",
+   "ruling": "§9.2③ 域纪律收口：ve 域不再消费 --canvas-controls-*（grep 'var(--canvas-' src/pages/canvas/video-editor/ = 0 实证）；hover 态不进快照零 diff，hover 值收敛已由 D1b-value-collapse 单次登记、此处不重复"
+  },
+  {
+   "id": "D1b-topactionbar-btn",
+   "file": "src/components/layout/TopActionBar.tsx",
+   "line": ":15 BTN 常量",
+   "deep": "bg-[rgba(255,255,255,0.04)] → bg-overlay-1（0.04→0.05 可见微变，深侧 pair 已入 differExpectedPairs）",
+   "light": "0.04（字面不翻转）→ rgba(0,0,0,0.03)（改指后岛外跟随浅值），浅侧 pair 同入",
+   "ruling": "Task 8 预登记的收敛清单改指本段执行（§9.2②）；TopActionBar 经 AppLayout 渲染于 works+videos 两个采集页（公开组 AppLayout 包 /videos 且 BTN 在 div.dark 岛外），pair 若 page:'works' 收窄会漏 videos 位点——按 body 全局族先例两条均全局登记"
   }
  ],
  "differExpectedPairs": {
@@ -1877,6 +1917,24 @@
     "before": "rgb(108, 92, 231)",
     "after": "rgb(155, 140, 247)",
     "why": "P9 文字档 8 处深档提亮 #6C5CE7→#9B8CF7（@#262626 3.11→5.40），spec §9.2①；元素级配对按分类法带 page 收窄（8 处全在 video-editor 页渲染，防 VideoEditNode 等 canvas 页未来同值换指被全局静默吸收）"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(54, 54, 54)",
+    "after": "rgb(51, 51, 51)",
+    "why": "§9.2② Δ3 级收敛 #363636→#333（--ve-border/--canvas-controls-border 约 30 处）；消费面跨 canvas/video-editor 两页无法 page 收窄，全局配对"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgba(255, 255, 255, 0.04)",
+    "after": "rgba(255, 255, 255, 0.05)",
+    "why": "Task 15 TopActionBar BTN bg-[rgba(255,255,255,0.04)]→bg-overlay-1（Task 8 预登记收敛清单，本段执行）深侧微变 0.04→overlay-1 深值 0.05，可见微变必须配对；不 page 收窄——BTN 经 AppLayout 渲染在 works 与 videos 两个采集页（router.tsx 公开组 AppLayout 包 /videos、auth 组包 /works，TopActionBar 在 videos 的 div.dark 岛外），page 限定集只匹配单页会漏 videos 位点，按 body 全局族先例登记"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgba(255, 255, 255, 0.04)",
+    "after": "rgba(0, 0, 0, 0.03)",
+    "why": "Task 15 TopActionBar BTN 0.04→bg-overlay-1 浅侧：原字面值不随 html.light 翻转，改指后岛外跟随取 overlay-1 浅值 rgba(0,0,0,0.03)，works/videos 两页同变（跨页不收窄理由同深侧条）"
    }
   ]
  },

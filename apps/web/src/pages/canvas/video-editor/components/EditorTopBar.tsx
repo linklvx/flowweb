@@ -18,8 +18,8 @@ export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; 
   const dot = SAVE_DOT[saveState];
   return (
     <div data-testid="editor-top-bar"
-      className="h-12 flex items-center gap-4 px-4 bg-[var(--ve-panel)] border-b border-[var(--ve-border)]">
-      <span className="text-[15px] font-medium text-[var(--ve-text)]">多轨剪辑</span>
+      className="h-12 flex items-center gap-4 px-4 bg-[var(--fw-surface-dim)] border-b border-[var(--ve-border)]">
+      <span className="text-[15px] font-medium text-[var(--fw-text)]">多轨剪辑</span>
       <button type="button" title={dot.title} onClick={onManualRetry}
         className="w-2.5 h-2.5 rounded-full border-0"
         style={{ background: dot.color }} data-testid="save-state-dot" />
@@ -39,12 +39,12 @@ export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; 
           } }}
       >
         <button type="button" data-testid="aspect-ratio-button"
-          className="text-[12px] text-[var(--ve-text)] border border-[var(--ve-border)] rounded px-2 py-0.5">{label} ▾</button>
+          className="text-[12px] text-[var(--fw-text)] border border-[var(--ve-border)] rounded px-2 py-0.5">{label} ▾</button>
       </Dropdown>
       <div className="ml-auto flex items-center gap-3">
         <ExportPopover />
         <button type="button" onClick={onClose}
-          className="text-[14px] text-[var(--ve-text)] border-0 px-2 py-1">
+          className="text-[14px] text-[var(--fw-text)] border-0 px-2 py-1">
           收起
         </button>
       </div>

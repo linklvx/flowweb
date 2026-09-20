@@ -1,7 +1,7 @@
 {
   "meta": {
     "ruleId": "flowweb/no-color-hex",
-    "capturedAt": "2026-09-19T04:07:16.794Z",
+    "capturedAt": "2026-09-20T04:18:47.068Z",
     "keyFormat": "{ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号，行移动不触发；同文件同文本多行塌缩为一键（O3 已接受）",
     "count": 268,
     "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建。行文本变更的机械清理（A4/B2 批次）允许伴随重键（计数不增前提），非 UPDATE_BASELINE 全量重采。"
@@ -207,7 +207,7 @@
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/ExportModal.tsx|79275169befb6356fa273cbf5674644393e3d0785f6d650b6196aceb83c4be6a",
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/ExportModal.tsx|91d1026b8395e30b7cfd965f902b684438c241daefde29ce59fd923f934568aa",
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/ExportModal.tsx|a736358f22d898324a5482d9be77dea9a0221bdb46717df04ef8fbf167f1eb33",
-    "flowweb/no-color-hex|src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx|a4fd9bc14e89c13deecb17e7b4d7797b185b8e67a428860a5c410ce9718ed58e",
+    "flowweb/no-color-hex|src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx|4f247f3ac091444be56cd00ac9ac9bceb64c061cec682eee2a539410e5588651",
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx|aca305adbdd01509f509b8c5590b85ceb1dc72813575e924e99dabe765c955d7",
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/timeline/TimelinePanel.tsx|52cc22f8eb8fbb399ddf92b963945ade3d5bcf688d15745d54b8ba4695542043",
     "flowweb/no-color-hex|src/pages/canvas/video-editor/components/timeline/TrackRow.tsx|685ed730d63d5c040193e2797a74bc4204b4b23bba4a89c14471924b7e8504fe",

@@ -188,19 +188,19 @@ export function ExportPopover() {
         phase === 'config' ? (
           <div className="flex flex-col gap-3 w-80" data-testid="export-config">
             <div className="grid grid-cols-[5rem_1fr] items-center gap-3">
-              <span className="text-[13px] text-[var(--ve-text)]">文件名</span>
+              <span className="text-[13px] text-[var(--fw-text)]">文件名</span>
               <Input value={fileName} onChange={(e) => setFileName(e.target.value)} id="timeline-export-file-name" />
             </div>
             <div className="grid grid-cols-[5rem_1fr] items-center gap-3">
-              <span className="text-[13px] text-[var(--ve-text)]">导出位置</span>
+              <span className="text-[13px] text-[var(--fw-text)]">导出位置</span>
               <Select value={destination} onChange={setDestination} id="timeline-export-destination" options={[{ value: 'canvas', label: '导出到画布' }, { value: 'local', label: '下载到本地' }]} />
             </div>
             <div className="grid grid-cols-[5rem_1fr] items-center gap-3">
-              <span className="text-[13px] text-[var(--ve-text)]">分辨率</span>
+              <span className="text-[13px] text-[var(--fw-text)]">分辨率</span>
               <Select value={resolution} onChange={setResolution} options={[{ value: '480p', label: '480P' }, { value: '720p', label: '720P' }, { value: '1080p', label: '1080P' }]} /> {/* spec 6.3 大写文案 */}
             </div>
             <div className="grid grid-cols-[5rem_1fr] items-center gap-3">
-              <span className="text-[13px] text-[var(--ve-text)]">格式</span>
+              <span className="text-[13px] text-[var(--fw-text)]">格式</span>
               <Select value="mp4" disabled options={[{ value: 'mp4', label: 'MP4' }]} />
             </div>
             <div className="text-[12px] text-[var(--ve-text-dim)]">

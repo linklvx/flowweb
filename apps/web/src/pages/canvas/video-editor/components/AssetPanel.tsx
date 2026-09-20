@@ -52,7 +52,7 @@ export function AssetPanel() {
   }, [items]);
 
   return (
-    <div data-testid="asset-panel" className="h-full border-r border-[var(--ve-border)] bg-[var(--ve-panel)] flex flex-col min-h-0">
+    <div data-testid="asset-panel" className="h-full border-r border-[var(--ve-border)] bg-[var(--fw-surface-dim)] flex flex-col min-h-0">
       <div className="p-2 border-b border-[var(--ve-border)] flex items-center gap-2">
         <Input placeholder="搜索资产" value={keyword} onChange={e => setKeyword(e.target.value)} size="small" />
         <label data-testid="asset-upload-btn"
@@ -107,13 +107,13 @@ export function AssetPanel() {
                 durationSec: i.nodeDurationSec ?? (i.metadata as { durationSec?: number })?.durationSec, // 决策 6：节点配置时长优先，metadata 兜底
                 url: i.url, thumbnailUrl: i.thumbnailUrl ?? undefined, // 批3-4：与 onClick norm 同源——drop 路径 poster 回退取帧的取数来源
               }))}
-              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-overlay-2">
               <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                 {i.thumbnailUrl
                   ? <img src={i.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                   : <span className="text-[10px] text-[var(--ve-text-dim)]">{i.kind === 'audio' ? '音' : i.kind === 'video' ? '视' : '图'}</span>}
               </div>
-              <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{i.originalName}</span>
+              <span className="text-[12px] text-[var(--fw-text)] truncate" style={{ minWidth: 0 }}>{i.originalName}</span>
               {addedMediaIds.has(i.mediaId)
                 && <span className="ml-auto text-[10px] text-[#00B42A] shrink-0">已添加</span>}
             </li>
@@ -140,13 +140,13 @@ export function AssetPanel() {
                 durationSec: it.durationSec, // sourceNodeId 省略：素材库来源不建边（spec §二 规则 1，同生成结果分支）
                 url: it.url, thumbnailUrl: it.thumbnailUrl ?? undefined, // 批3-4：同全集资产——drop 路径 poster 回退取帧
               }))}
-              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+              className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-overlay-2">
               <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                 {it.thumbnailUrl
                   ? <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                   : <span className="text-[10px] text-[var(--ve-text-dim)]">{it.mimeType.startsWith('audio/') ? '音' : it.mimeType.startsWith('video/') ? '视' : '图'}</span>}
               </div>
-              <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{it.name}</span>
+              <span className="text-[12px] text-[var(--fw-text)] truncate" style={{ minWidth: 0 }}>{it.name}</span>
               {addedMediaIds.has(it.mediaId)
                 && <span className="ml-auto text-[10px] text-[#00B42A] shrink-0">已添加</span>}
             </li>
@@ -180,11 +180,11 @@ export function AssetPanel() {
                       durationSec: info?.durationSec,
                       url: info?.url, // 批3-4：生成结果无缩略图——video 产物靠 drop 侧 ensurePoster 回退取帧
                     }))}
-                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-[var(--canvas-controls-hover)]">
+                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-overlay-2">
                     <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
                       <span className="text-[10px] text-[var(--ve-text-dim)]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
                     </div>
-                    <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
+                    <span className="text-[12px] text-[var(--fw-text)] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
                   </li>
                 );
               })}

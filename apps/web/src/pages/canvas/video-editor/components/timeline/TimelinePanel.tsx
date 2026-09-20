@@ -277,19 +277,19 @@ export function TimelinePanel() {
   }, [pxPerSec]);
 
   if (status === 'error') {
-    return <div data-testid="timeline-error" className="h-full border-t border-[var(--ve-border)] bg-[var(--ve-panel)] flex flex-col items-center justify-center gap-2">
+    return <div data-testid="timeline-error" className="h-full border-t border-[var(--ve-border)] bg-[var(--fw-surface-dim)] flex flex-col items-center justify-center gap-2">
       <span className="text-[13px] text-[#F53F3F]">{loadError ?? '加载失败'}</span>
     </div>;
   }
   if (status === 'loading' || !data) {
-    return <div data-testid="timeline-loading" className="h-full border-t border-[var(--ve-border)] bg-[var(--ve-panel)] flex items-center justify-center">
+    return <div data-testid="timeline-loading" className="h-full border-t border-[var(--ve-border)] bg-[var(--fw-surface-dim)] flex items-center justify-center">
       <span className="text-[13px] text-[var(--ve-text-dim)]">工程加载中…（禁止编辑）</span>
     </div>;
   }
 
   return (
     <div data-testid="timeline-panel"
-      className="h-full border-t border-[var(--ve-border)] bg-[var(--ve-panel)] flex flex-col min-h-0">
+      className="h-full border-t border-[var(--ve-border)] bg-[var(--fw-surface-dim)] flex flex-col min-h-0">
       {/* 工具行（撤销/重做/分割/删除已迁预览控制条——Plan 3） */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ve-border)]">
         <div className="ml-auto flex items-center gap-1">
@@ -304,7 +304,7 @@ export function TimelinePanel() {
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-x-auto overflow-y-auto min-h-0">
         <div className="relative min-w-max">
           <div className="flex">
-            <div className="shrink-0 h-7 border-b border-[var(--ve-border)] bg-[var(--ve-panel)]" style={{ width: TRACK_HEADER_W }} />
+            <div className="shrink-0 h-7 border-b border-[var(--ve-border)] bg-[var(--fw-surface-dim)]" style={{ width: TRACK_HEADER_W }} />
             <TimelineRuler data={data} pxPerSec={pxPerSec} widthPx={viewportW - TRACK_HEADER_W} scrollLeft={scrollLeft} />
           </div>
           {data.tracks.map(t => (

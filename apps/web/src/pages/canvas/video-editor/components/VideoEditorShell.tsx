@@ -131,7 +131,7 @@ export function VideoEditorShell() {
         ref={(el) => { focusRef.current = el; shellRef.current = el; }}
         // 岛双通道（algorithm + dark 类）——CSS 变量通道随岛（spec §3.1）：html.light 下壳子树仍取 .dark 的 --fw-* 深值；
         // [color-scheme:dark]：原生控件/滚动条显式深色，防 html.light 下视频弹层内原生件闪浅（spec C2-7）
-        className="dark fixed inset-0 bg-[var(--ve-bg)] [color-scheme:dark] flex flex-col nokey">
+        className="dark fixed inset-0 bg-[var(--fw-bg)] [color-scheme:dark] flex flex-col nokey">
         {/* 批 1：弹层作用域——antd 弹层挂进壳内而非 body 直挂（z-index 低于壳被盖）。
             ref 未挂载首帧兜底 body（getPopupContainer 不得返回 null）。
             <AntdApp> 必须 component={false}：默认渲染 div.ant-app（block、高度 auto）打断壳 flex flex-col 布局 */}

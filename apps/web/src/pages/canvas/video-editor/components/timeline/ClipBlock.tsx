@@ -85,7 +85,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pxPerSec, selected, mis
         <div key={k.id} data-testid={`kf-${k.id}`}
           title={clip.type === 'audio' ? `音量 @ ${k.t.toFixed(2)}s` : `${k.property} @ ${k.t.toFixed(2)}s`}
           onPointerDown={(e) => onKeyframePointerDown?.(k.id, e)}
-          className="absolute w-2 h-2 bg-[var(--ve-panel)] border border-[#6C5CE7] rotate-45 cursor-pointer z-[1]"
+          className="absolute w-2 h-2 bg-[var(--fw-surface-dim)] border border-[#6C5CE7] rotate-45 cursor-pointer z-[1]"
           style={{ left: timeToPx(k.t, pxPerSec) - 4, top: '50%', marginTop: -4 }} />
       ))}
     </div>

@@ -30,8 +30,8 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
   return (
     <div data-testid={`track-row-${track.id}`} className="flex border-b border-[var(--ve-border)]">
       {/* 轨道头（width 用 TRACK_HEADER_W 常量——与 TimelinePanel 角位/标尺/播放头同一空间契约） */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] bg-[var(--ve-panel)]" style={{ width: TRACK_HEADER_W }}>
-        <span className="text-[12px] text-[var(--ve-text)] truncate" style={{ minWidth: 0 }}>{TRACK_ICON[track.type]} {track.name}</span>
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-r border-[var(--ve-border)] bg-[var(--fw-surface-dim)]" style={{ width: TRACK_HEADER_W }}>
+        <span className="text-[12px] text-[var(--fw-text)] truncate" style={{ minWidth: 0 }}>{TRACK_ICON[track.type]} {track.name}</span>
         <div className="ml-auto flex items-center gap-0.5">
           {track.type === 'subtitle' && (
             <button type="button" title="该轨内新增字幕" onClick={() => onSubtitleAdd?.(track.id)}
@@ -50,7 +50,7 @@ export const TrackRow = memo(function TrackRow({ track, data, onDropClip, onSubt
       </div>
       {/* 轨道体（minWidth 对齐标尺宽度——absolute 片段不撑容器，无 minWidth 时超宽片段被滚动区裁掉） */}
       <div
-        className="relative flex-1 h-[52px] bg-[var(--ve-panel)]"
+        className="relative flex-1 h-[52px] bg-[var(--fw-surface-dim)]"
         style={{ minWidth: Math.max(600, timeToPx(totalDuration(data), pxPerSec) + 60) }}
         data-track-id={track.id} data-track-type={track.type}
         onDragOver={e => { if (onDropClip) { e.preventDefault(); } }}

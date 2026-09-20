@@ -68,17 +68,16 @@ const DOMAIN_TOKENS = [
   '--canvas-controls-text', '--canvas-controls-hover', '--canvas-controls-active', '--canvas-controls-icon',
   '--canvas-handle-bg', '--canvas-handle-icon',
   '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
-  '--ve-bg', '--ve-panel', '--ve-border', '--ve-text', '--ve-text-dim', '--ve-accent', '--ve-accent-text',
-  '--vw-card-bg', '--vw-card-border', '--vw-card-border-hover',
+  '--ve-border', '--ve-text-dim', '--ve-accent', '--ve-accent-text',
 ] as const;
 
 const DOMAIN_DARK: Record<string, string> = {
   '--canvas-board-bg': '#000000',
   '--canvas-board-dot': '#555555',
   '--canvas-controls-bg': 'rgb(38,38,38)',
-  '--canvas-controls-border': 'rgb(54,54,54)',
+  '--canvas-controls-border': '#333',
   '--canvas-controls-text': 'rgb(247,247,247)',
-  '--canvas-controls-hover': 'rgba(255,255,255,0.08)',
+  '--canvas-controls-hover': 'rgba(255,255,255,0.1)',
   '--canvas-controls-active': 'rgba(255,255,255,0.12)',
   '--canvas-controls-icon': 'rgb(160,160,160)',
   '--canvas-handle-bg': '#9ca3af',
@@ -87,16 +86,10 @@ const DOMAIN_DARK: Record<string, string> = {
   '--canvas-handle-hover-icon': '#ffffff',
   '--edge-flow-color': '#3b82f6',
   '--edge-highlight-color': '#999',
-  '--ve-bg': '#141414',
-  '--ve-panel': 'rgb(38,38,38)',
-  '--ve-border': 'rgb(54,54,54)',
-  '--ve-text': '#e2e8f0',
+  '--ve-border': '#333',
   '--ve-text-dim': 'rgba(226,232,240,0.6)',
   '--ve-accent': '#6c5ce7',
   '--ve-accent-text': '#9b8cf7',
-  '--vw-card-bg': '#1e1e1e',
-  '--vw-card-border': 'rgba(255,255,255,0.1)',
-  '--vw-card-border-hover': 'rgba(255,255,255,0.25)',
 };
 
 const DOMAIN_LIGHT: Record<string, string> = {
@@ -114,16 +107,10 @@ const DOMAIN_LIGHT: Record<string, string> = {
   '--canvas-handle-hover-icon': '#111827',
   '--edge-flow-color': '#3b82f6',
   '--edge-highlight-color': '#6b7280',
-  '--ve-bg': '#f7f8fa',
-  '--ve-panel': '#f0f1f2',
   '--ve-border': '#e5e7eb',
-  '--ve-text': '#1f2329',
   '--ve-text-dim': '#4b5563',
   '--ve-accent': '#6c5ce7',
   '--ve-accent-text': '#5f4fd1',
-  '--vw-card-bg': '#ffffff',
-  '--vw-card-border': 'rgba(0,0,0,0.06)',
-  '--vw-card-border-hover': 'rgba(0,0,0,0.12)',
 };
 
 /** 归一化读作用域元素上全部 token 计算值 + color-scheme。

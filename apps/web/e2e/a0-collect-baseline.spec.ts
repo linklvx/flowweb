@@ -261,8 +261,8 @@ test.describe('A0 before-基线采集', () => {
       await expect(page.getByTestId('video-editor-shell')).toBeVisible({ timeout: 10_000 });
     });
     if (REAL_LIGHT) {
-      // video-editor 岛自持 token：--ve-bg 定义在 :root（非主题块），html.light 不翻转
-      await probeInvariance(page, 'video-editor-壳底--ve-bg自持', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).backgroundColor), 'rgb(20, 20, 20)');
+      // C8 D1b：--ve-bg 已并域删除，壳改消费 --fw-bg；壳根 .dark 岛到 Task 21 才拆——岛内 --fw-bg 仍深值 #141414
+      await probeInvariance(page, 'video-editor-壳底--fw-bg@壳岛', () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="video-editor-shell"]')!).getPropertyValue('--fw-bg').trim()), '#141414');
     }
 
     // 清理：Esc 关编辑器（flush 后 close）→ 逐个选中并删除全部 videoEdit 节点 → 断言画布复原为 gate 双节点
