@@ -2159,7 +2159,7 @@
     "page": "video-editor",
     "before": "rgb(108, 92, 231)",
     "after": "rgb(95, 79, 209)",
-    "why": "Task 21 拆岛浅侧（预告条款 b 兑现）：--ve-accent-text 双值键浅值 #5F4FD1 首次生效（深档 #9B8CF7 对已在册）——实测 6 钮（asset-upload-btn/gen-audio-btn/预览控制条添加字幕+片段重拍/TimelinePanel +视频轨+音频轨）；源码 8 消费点差额 2 系 PropertiesPanel ⏱ active=false 落 --ve-text-dim 桶 + TrackRow ➕ 无轨数据不渲染（门禁 fixture），登记不扩对"
+    "why": "Task 21 拆岛浅侧（预告条款 b 兑现）：--ve-accent-text 双值键浅值 #5F4FD1 首次生效（深档 #9B8CF7 对已在册）——实测 6 钮（asset-upload-btn/gen-audio-btn/预览控制条添加字幕+片段重拍/TimelinePanel +视频轨+音频轨）；源码 8 消费点差额 2（spec 审查订正归因）：PropertiesPanel ⏱ StopwatchButton 按剪辑渲染、空轨 fixture 下整体不渲染（非 text-dim 桶）+ TrackRow ➕ 仅字幕轨渲染而 fixture 单空视频轨——两处皆采集面缺位非换桶，登记不扩对"
    },
    {
     "prop": "backgroundColor",
