@@ -10,7 +10,7 @@
 - 配对率两侧同形：video-editor 253/256（3 个运行时生成 testid 键不稳定非结构变化，before/after 元素数 252/252 相同），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D1a / segcheck-D1a-light 采集目录）
 
-## D1b（Task 16）@ 本文件 D1b 小节追加 commit（= WeChatFollowModal 拆岛原子对 + D1b 段验收提交，父 810584fe）
+## D1b（Task 16）@ 本文件 D1b 小节追加 commit（= WeChatFollowModal 拆岛原子对 + D1b 段验收提交 b262de10，父 fab147f3）
 
 - 采集器冻结面指纹复验: sed COLLECTOR-FROZEN 区间 sha256 = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与 a0-collector-fingerprint.txt 落档一致，Task 15 探针面改动未触冻结面）
 - 全门禁: playwright 52 passed / 5 skipped（a0 采集 spec 常驻 skip 形态）；vitest 262 files / 2631 tests 全绿；lint-gate PASS（no-color-hex 268 baselined, 0 new）
