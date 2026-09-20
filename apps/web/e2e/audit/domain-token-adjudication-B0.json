@@ -43,6 +43,7 @@
   },
   "keepAsIs": {
     "rationale": "画板恒深域（board：React Flow viewport 内节点工具）与岛内恒深域（video-editor 自持暗色）——不随站点主题化，域 token 原样保留",
+    "reAdjudicatedC8D3MaterialLibrary": "原 family #3 恒深裁定废止（C8 Task 24，2026-09-20）：B2 时代 whitelistKeeps family #3『video-editor 岛 + MaterialLibrary 岛』（b2-migration-registry.json，D4 岛内恒深）中 MaterialLibrary 部分作废——MaterialLibraryModal.tsx:35-37 实测无 rootClassName/无岛类/无 ConfigProvider/无自持域 token 族，白名单纯 lint 豁免、从未有运行时岛（B2-c 已落裁定=宿主跟随域，canvas 页壳层渲染+antd Modal 门户口挂 body）；Task 24 摘除目录白名单+TSX 九族残余 14 处/4 文件全量迁 token（0 精确条目），MaterialLibrary 全域跟随。video-editor 部分已随 Task 21 岛拆除失效，本注记为该 family 全条目的最终废止登记",
     "boardHosts": [
       { "file": "src/pages/canvas/components/nodes/VideoHDPanel.tsx", "canvasControlsRefs": 8 },
       { "file": "src/pages/canvas/components/nodes/VideoNodeToolbar.tsx", "canvasControlsRefs": 5 },

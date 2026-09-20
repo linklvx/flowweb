@@ -4,7 +4,7 @@
     "capturedAt": "2026-09-20T10:27:16.344Z",
     "keyFormat": "{ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号，行移动不触发；同文件同文本多行塌缩为一键（O3 已接受）",
     "count": 245,
-    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建。行文本变更的机械清理（A4/B2 批次）允许伴随重键（计数不增前提），非 UPDATE_BASELINE 全量重采。；Task 22 D3-board 机械清理伴随重键（仅 touched 文件删失配旧键+加新键，per-file 计数不增，非全量重采）"
+    "note": "重采 baseline 是 B5 控制的动作（B5 口径 = 新规则 0 违例）；日常开发禁止重建。行文本变更的机械清理（A4/B2 批次）允许伴随重键（计数不增前提），非 UPDATE_BASELINE 全量重采。；Task 22 D3-board 机械清理伴随重键（仅 touched 文件删失配旧键+加新键，per-file 计数不增，非全量重采）；Task 24 D3-MaterialLibrary 同款 2 键（FilePreviewPopover:167+FolderContextMenu:106 行文本变更——各保 bg-[#hex] 保留字面行随九族迁移改写，per-file 计数不变，非全量重采）"
   },
   "keys": [
     "flowweb/no-color-hex|src/components/AuthModal.tsx|0e3819516da6900126f6039da6d08bb2498abdba6da5c06e02917735e24707c8",
@@ -21,8 +21,8 @@
     "flowweb/no-color-hex|src/components/MaterialLibrary/FileGrid/FileCard.tsx|b4eb551d5db28abd541b8848fc9b9023f43e0de42237af87303a2f69ab6555f7",
     "flowweb/no-color-hex|src/components/MaterialLibrary/FilePreviewPopover.tsx|21e3d15e317008cc0b3f0d154fcfec4a9ff77f5a7b4d935c59232c800db9c2d2",
     "flowweb/no-color-hex|src/components/MaterialLibrary/FilePreviewPopover.tsx|4973c6b16c65e733a679b40f3c85e120998feaec41287f16cb75c3180b935117",
-    "flowweb/no-color-hex|src/components/MaterialLibrary/FilePreviewPopover.tsx|6a4660721796ce98ef2bde3707628deb86e49c44ef08d4bab1eb518b0b95c5b0",
-    "flowweb/no-color-hex|src/components/MaterialLibrary/FolderTree/FolderContextMenu.tsx|13d44b5be9bd604f2eeb9af411d031d23a5608d9bc3fc70c453bf818f0fbf030",
+    "flowweb/no-color-hex|src/components/MaterialLibrary/FilePreviewPopover.tsx|159209f55fcc1e501f52734f1596c932b47868b83ee73be558f683a03474e241",
+    "flowweb/no-color-hex|src/components/MaterialLibrary/FolderTree/FolderContextMenu.tsx|e995ad3f83ec67bad46a3b21f8842aeef087a136455c1f04fd6b22df3b33bde3",
     "flowweb/no-color-hex|src/components/VipSubscribeModal.tsx|4d0705a415d54cde144b3543b6796fdc22c81c013ab88609abaf4a2f298f99c8",
     "flowweb/no-color-hex|src/components/VipSubscribeModal.tsx|6eadd3aac07b78487ef98bcbb8e4077eab88b23be7139b2c72af0499e4c06cf1",
     "flowweb/no-color-hex|src/components/auth/AgreementFooter.test.tsx|4536afa2299b01787bca314053216e5327ac2634f1866fad19514fd0c322b996",

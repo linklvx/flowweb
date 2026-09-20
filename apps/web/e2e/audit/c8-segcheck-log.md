@@ -87,3 +87,15 @@
 - 浅侧 before-D-light × segcheck-D3-board-light: 首跑 exit=1（意外 10 条/2 组）→ 补登记 2 对后复跑 exit=0, unexpected=0, D 闸吸收 424（新增对承 174：快捷键 svg 浅 0.88 黑→#6B7280 ×9 + 预览钮浅侧 #C9CDD4→text-dim-2 浅值 ×1 + 全局化 9 对承 164；既有对承 250——body text ×87 + Δ3 边框浅对 ×72 + icon 浅 ×48 等）, B2 闸 0（ve/videos 浅值族走 A 段既有 registered 桶）
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-board / segcheck-D3-board-light 采集目录）
+
+## D3-MaterialLibrary（Task 24）@ 本文件 D3-MaterialLibrary 小节追加 commit（= 白名单最后一目录摘除原子对提交，父 ad666573）
+
+- 采集器冻结面指纹复验: sed COLLECTOR-FROZEN 区间 sha256 = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与落档一致，本任务零探针面改动）
+- 全门禁: playwright 55 passed / 5 skipped；vitest 263 files / 2641 tests 全绿；lint-gate PASS（no-theme-utility 0 违例——MaterialLibrary/** 目录条目摘除后域内九族 0 命中=精确豁免条目 0，net -6 目录全摘完成；no-color-hex 220 baselined, 0 new——伴随重键 2 枚 FilePreviewPopover:167/FolderContextMenu:106 行文本变更保留字面 hex 行随迁移改写，per-file 计数不变，baseline meta.note 在册形态）
+- 摘除波基线（当次 grep）: plan 口径命令 `*.tsx` 非递归=6 行/2 文件（FilePreviewPopover 5+MaterialLibraryBrowser 1）；递归九族全量=14 处/4 文件（+FolderContextMenu 6+FolderTree 1 行 2 处），与第八轮基线一致；测试文件 0 命中
+- 深侧 before-D × segcheck-D3-material: **首跑 exit=0**, unexpectedTotal=0（属性 0 + 几何 0，三闸全过）, B2 闸吸收 81（borderColor 收敛族 ×72 + color #fff→#e2e8f0 ×5 + white/70→white/60 ×4——与 D3-board 段完全同形的既有配对，本段零新增）
+- 浅侧 before-D-light × segcheck-D3-material-light: **首跑 exit=0**, unexpected=0, B2 闸 0, D 闸 0——零 pairs 登记
+- 零 diff 判据（registry D3-material-literal-migration 在册）: 14 处迁移位点全部采集态不可见——FilePreviewPopover=hover 弹层（material-modal 采集流只点开 modal 不 hover 卡片）、FolderContextMenu=右键菜单、FolderTree :271=hover 变体（hover 态不进快照）、Browser :93 title span=MaterialLibraryModal 不传 title 条件 null；字节等值六处（overlay-2/surface-dim）双保险。前提失效警示：采集流若扩展（hover 卡片/右键/传 title）深浅两侧须逐条补 pairs
+- 操作蓝裁定（registry D3-material-keeps-blue-and-faces + plan Task 27 B6 清单 MaterialLibrary 条目同 commit）: Modal.css 操作蓝家族约 13 处刻意字面保留=通道 3 操作蓝内容语义调色板（与 Task 21 D3-ve-status-colors 同构），#60a5fa@15% 蓝蒙层合成底 ≈2.6:1 台账外表值（合成底非纯白，以 B6 实测为准）；text-dim-1 消费点（:42/:52）浅底 2.39:1 刻意低层级目检确认非缺陷；ZoomControl:16/:29+Browser:96 rgba 白系盲区位点（styleObjects 在册）浅档功能性不可见=现存混排缺陷非本期引入，B6 覆盖
+- 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
+- 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-material / segcheck-D3-material-light 采集目录）

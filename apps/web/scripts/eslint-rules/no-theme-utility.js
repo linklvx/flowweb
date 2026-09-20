@@ -33,7 +33,7 @@ const GLOBAL_THEME_UTILITY_RE = /(?<![\w-])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|bord
  * `**` 跨段、`*` 单段。注释即归因：改动须同步 e2e/audit/canvas-migration-registry.json whitelistKeeps（C8 镜像）。
  */
 export const THEME_UTILITY_WHITELIST = [
-  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor 已摘（Task 21，net -2）、nodes/edges/groups 已摘（Task 22，net -5 累计）——
+  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor 已摘（Task 21，net -2）、nodes/edges/groups 已摘（Task 22，net -5 累计）、MaterialLibrary 已摘（Task 24，net -6 目录全摘完成）——
   // 摘除后本域残余 = 下列精确条目（媒体压层浮层/恒深自持面，registry D3-board 逐条 adjudication 镜像）：
   { glob: 'src/pages/canvas/components/nodes/VideoGenNode.tsx', allow: ['bg', 'text', 'border'] },   // :623 选中浮标+:756 替换视频钮（压媒体浮层，registry D3-board-node-float-keeps）
   { glob: 'src/pages/canvas/components/nodes/ImageGenNode.tsx', allow: ['bg', 'text', 'border'] },   // :1227 替换图片钮（压媒体浮层）
@@ -56,11 +56,10 @@ export const THEME_UTILITY_WHITELIST = [
   // —— nodes 域测试文件单文件条目（断言串九族命中非产品 UI）——
   'src/pages/canvas/components/nodes/MultiImageNode.test.tsx',   // :351 断言 .border-white/[0.06] keep 面
   'src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx',  // :171/:180 断言深浮条 active bg-white/20
-  // —— 岛（MaterialLibrary 随 Task 24 摘除并迁 TSX）——
+  // —— 岛（MaterialLibrary 已随 Task 24 摘除——域内九族命中已全量迁 token，0 精确条目）——
   'src/pages/admin/**',
   'src/pages/login/**',
   'src/pages/register/**',
-  'src/components/MaterialLibrary/**',
   'src/components/AuthModal.tsx',
   'src/components/auth/PhoneLoginForm.tsx',
   'src/components/auth/LoginModal.tsx',

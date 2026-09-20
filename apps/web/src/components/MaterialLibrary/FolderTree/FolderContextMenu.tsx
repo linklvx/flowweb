@@ -16,7 +16,7 @@ interface Props {
 function PlusIcon() {
   return (
     <span className="flex size-5 shrink-0 items-center justify-center">
-      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/90">
+      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text">
         <path d="M12 5l0 14" /><path d="M5 12l14 0" />
       </svg>
     </span>
@@ -26,7 +26,7 @@ function PlusIcon() {
 function PencilIcon() {
   return (
     <span className="flex size-5 shrink-0 items-center justify-center">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/90">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text">
         <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" />
       </svg>
     </span>
@@ -36,7 +36,7 @@ function PencilIcon() {
 function ArrowUpIcon() {
   return (
     <span className="flex size-5 shrink-0 items-center justify-center">
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white/90">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-text">
         <g transform="translate(3.5, 2)">
           <path d="M11.8047 14.3749C12.1498 14.3749 12.4297 14.6548 12.4297 14.9999C12.4297 15.3451 12.1499 15.6249 11.8047 15.6249H0.625C0.279822 15.6249 0 15.3451 0 14.9999C3.33704e-05 14.6548 0.279843 14.3749 0.625 14.3749H11.8047ZM5.82031 0.139581C6.06579 -0.0604387 6.42848 -0.0452234 6.65723 0.183527L11.4482 4.97454C11.6922 5.2186 11.6922 5.61427 11.4482 5.85833C11.2042 6.10234 10.8085 6.10233 10.5645 5.85833L6.83984 2.13372V11.8056C6.83975 12.1506 6.5599 12.4305 6.21484 12.4306C5.8698 12.4305 5.58994 12.1506 5.58984 11.8056V2.13372L1.86523 5.85833C1.62118 6.10239 1.22553 6.10234 0.981445 5.85833C0.737475 5.61424 0.737403 5.21858 0.981445 4.97454L5.77344 0.183527L5.82031 0.139581Z" fill="currentColor" />
         </g>
@@ -58,7 +58,7 @@ function TrashIcon() {
 }
 
 const menuItemClass =
-  'hover:bg-white/10 relative flex cursor-pointer items-center rounded-sm px-2 select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-white/90';
+  'hover:bg-overlay-2 relative flex cursor-pointer items-center rounded-sm px-2 select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-text';
 
 const destructiveItemClass =
   'hover:bg-red-400/10 relative flex cursor-pointer items-center rounded-sm px-2 select-none gap-1.5 py-1.5 pl-2 pr-1 text-sm font-medium leading-5 text-red-400';
@@ -103,7 +103,7 @@ export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, 
     <div
       ref={menuRef}
       role="menu"
-      className="fixed z-50 w-[180px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-white/10 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
+      className="fixed z-50 w-[180px] gap-1 rounded-2xl bg-[#2F2F2F] p-2 px-1 border border-overlay-2 shadow-[0_0.5px_0_0_rgba(255,255,255,0.16)_inset,0_4px_16px_0_rgba(0,0,0,0.16)] backdrop-blur-[28px]"
       style={{ left: adjustedX, top: adjustedY }}
       tabIndex={-1}
     >
@@ -128,7 +128,7 @@ export default function FolderContextMenu({ x, y, folder, onClose, onCreateSub, 
       >
         <ArrowUpIcon />向上移动
       </div>
-      <div role="separator" className="bg-white/10 -mx-1 my-1 h-px" />
+      <div role="separator" className="bg-overlay-2 -mx-1 my-1 h-px" />
       <div
         role="menuitem"
         data-variant="destructive"

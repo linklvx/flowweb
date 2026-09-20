@@ -90,7 +90,7 @@ export function MaterialLibraryBrowser({ title, onApplyFile }: MaterialLibraryBr
         </div>
         <div className="material-library-main">
           <div className="main-header">
-            {title ? <span className="text-sm font-bold text-white mr-2">{title}</span> : null}
+            {title ? <span className="text-sm font-bold text-text mr-2">{title}</span> : null}
             {batchMode ? (
               <div className="flex items-center gap-3">
                 <span className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>

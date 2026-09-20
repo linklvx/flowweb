@@ -1947,6 +1947,22 @@
    "deep": "面板 bg-[#1C1C1C]/95→bg-surface（深侧 rgba(28,28,28,0.95)→rgb(30,30,30)）；bg-[#141820]→bg-surface-dim（深 #262626）；text-neutral-400/500/600→text-text-dim-3/dim-2/dim-1（深侧近似值：dim-3 合成 ≈#a0a0a0 vs #a3a3a3）",
    "light": "面板白/次级浅面 #f0f1f2；dim 阶浅值 #4b5563/#6b7280/#9ca3af",
    "ruling": "四通道迁移（registry canvasDomain 两目录 chrome 文件+plan Step 4 点名 ViewToggle/LightPresetButtons/AnglePresetButtons/PromptInput——后四者 registry 未列系生成判据只收 gated 字面，plan 文本显式枚举故并入）。浮层条件渲染不在采集态→不可见→无 diff 不入 pairs。保留字面：bg-black/60+bg-black/80 scrim（whitelistKeeps allow bg 在册勿重复动）、bg-blue-500 族+text-blue-400+accent-blue-500（操作蓝家族，MaterialLibrary 先例刻意字面，B6 浅底对比度复核）、text-red-400（危险前景语义，CanvasTopBar:121 先例）、Lighting/ControlPanel:85 色温渐变（光源语义图形档 styleObjects 在册）。渲染产物白名单文件勿动——Angle3DPreview neutral 残留属白名单内勿借目录逃逸"
+  },
+  {
+   "id": "D3-material-literal-migration",
+   "file": "FilePreviewPopover.tsx + FolderTree/FolderContextMenu.tsx + FolderTree/FolderTree.tsx + MaterialLibraryBrowser.tsx",
+   "line": "Popover :25/:30/:151/:167/:175/:180、ContextMenu :19/:29/:39/:61/:106/:131、FolderTree :271、Browser :93（改后行号=改前行号，单行改写无插入）",
+   "deep": "摘除波九族迁移（当次 grep：plan 口径命令 `*.tsx` 非递归=6 行/2 文件；递归九族全量=14 处/4 文件，与第八轮基线一致）——text-white/40×4→text-text-dim-2（B2a /40→dim-2 先例，深 0.40→0.45 近档非等值）；text-white/90×5→text-text（B2a /90→text 先例，深 rgba(255,255,255,0.9)→#e2e8f0 非等值）；border-white/10×2→border-overlay-2、bg-white/10 分隔线+hover:bg-white/10→bg-overlay-2/hover:bg-overlay-2（字节等值 0.1=0.1）；hover:text-white→hover:text-text-strong（Task 21 PreviewPlayer 先例——hover 增量非零：深 247>156 基提亮/浅 #111827 加深）；text-white→text-text（B2a 先例）；Popover :167 面板 bg-[#262626]→bg-surface-dim（深 #262626 字节等值）——同键 hex 行文本变更伴随重键 1 枚（per-file 计数 3 不增，baseline meta.note 在册形态）",
+   "light": "浅档翻浅：dim-2 #6b7280/text #1f2329/text-strong #111827/overlay-2 黑 0.06/surface-dim #f0f1f2——全部落点在采集态不可见（见 ruling）→浅侧零 diff 不入 pairs",
+   "ruling": "零 diff 判据=采集态不可见（不可见→无 diff 纪律，深浅两侧均无，不入 pairs）：FilePreviewPopover=hover 弹层（material-modal 采集流只点开 modal 不 hover 卡片）；FolderContextMenu=右键菜单（采集流不触发）；FolderTree :271 两处=hover 变体（hover 态不进快照）；Browser :93 title span=MaterialLibraryModal 渲染不传 title（条件 null 不出 DOM）。字节等值六处（overlay 族/surface-dim）本就零深档 diff 双保险。前提失效警示：若将来采集流扩展（hover 卡片/右键/传 title），深浅两侧须逐条补 pairs。摘除判据：域内 lint 命中 0=精确豁免条目 0（net -6 目录全摘完成）"
+  },
+  {
+   "id": "D3-material-keeps-blue-and-faces",
+   "file": "MaterialLibraryModal.css + FilePreviewPopover.tsx + FolderContextMenu.tsx + FileGridZoomControl.tsx + MaterialLibraryBrowser.tsx",
+   "line": "css :39/:40/:66/:69/:74/:75/:81-:90、Popover :168/:187、ContextMenu :51/:64/:106、ZoomControl :16/:29、Browser :96/:131",
+   "deep": "CSS 主题面 B2-c 已 token 化零改动（var(--fw-*) 34 处）；操作蓝家族约 13 处刻意字面保留——通道 3 操作蓝内容语义调色板浅档保留（与 Task 21 D3-ve-status-colors 同构：操作蓝系交互态语义非主题面）：:39/:81 #60a5fa 文字压 rgba(59,130,246,0.15) 底、:66/:69/:74/:75 #3b82f6 拖放指示条/滑杆 thumb 及 rgba(59,130,246,*) 底、:40/:82 hover 加深档、:83-:90 危险红/成功绿批量钮族。TSX 保留字面：Popover :168 bg-[#0F0F0F] 媒体垫底（压画面，第四通道）+:187 应用钮 #646464/#FAFAFA/hover #757575（图形档按钮面恒定）；ContextMenu :106 bg-[#2F2F2F] 菜单底+inset 白 0.16/黑 0.16 shadow（玻璃面）+:51 text-red-400/:64 text-red-400 危险前景语义（CanvasTopBar:121 先例）；FolderTree :269 text-gray-400（九族外，dim 语义）；Browser :131 text-blue-400 上传中态（操作蓝同族）；ZoomControl :16/:29 与 Browser :96 rgba(255,255,255,*) 白系=styleObjects 盲区位点（两条 lint 拦不到，本条即核销记录）",
+   "light": "操作蓝浅档落浅底：#60a5fa@rgba(59,130,246,0.15) 合成底 ≈2.6:1（台账外表值——底是 15% 蓝蒙层合成色非纯白，实测合成底上对比更高，以 B6 实测为准）+批量钮 #f87171/#fca5a5/#86efac 同类，入 Task 27 B6 清单；TSX 保留位点浅档不变（媒体垫底/图形档钮面/菜单恒深/白系盲区字面）——其中 ZoomControl 白字与 Browser :96 批量态白字浅档白底功能性不可见属现存混排缺陷非本期引入（spec v1.3 与药丸/CreditsDropdown 并列第三例），B6 覆盖；Modal.css :42 upload-hint/:52 file-grid-loading·empty text-dim-1 消费点浅底 #9ca3af 2.39:1 属刻意低层级（dim-1 阶定义如此）——目检确认非缺陷，upload-hint 在采集态可见但 B2-c 已 token 化本任务未触碰该行=零 diff",
+   "ruling": "保留字面核销=styleObjects/svgAttrs 盲区分区+本条记录（lint 拦不到的位点清单是唯一核销依据，Task 25 分区核销对账）；操作蓝裁定已入 plan Task 27 Step 3 B6 清单（MaterialLibrary 条目）；ZoomControl/Browser 白系盲区位点浅档功能性不可见同入 B6；CSS 零改动故 deep/light 两侧基线键集与值集均不变"
   }
  ],
  "differExpectedPairs": {
@@ -2441,11 +2457,6 @@
    "glob": "src/pages/register/**",
    "allow": null,
    "why": "岛：营销·注册"
-  },
-  {
-   "glob": "src/components/MaterialLibrary/**",
-   "allow": null,
-   "why": "岛：素材库（Task 24 摘除并迁 TSX）"
   },
   {
    "glob": "src/components/AuthModal.tsx",
