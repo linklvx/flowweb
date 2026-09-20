@@ -99,3 +99,14 @@
 - 操作蓝裁定（registry D3-material-keeps-blue-and-faces + plan Task 27 B6 清单 MaterialLibrary 条目同 commit）: Modal.css 操作蓝家族约 13 处刻意字面保留=通道 3 操作蓝内容语义调色板（与 Task 21 D3-ve-status-colors 同构），#60a5fa@15% 蓝蒙层合成底 ≈2.6:1 台账外表值（合成底非纯白，以 B6 实测为准）；text-dim-1 消费点（:42/:52）浅底 2.39:1 刻意低层级目检确认非缺陷；ZoomControl:16/:29+Browser:96 rgba 白系盲区位点（styleObjects 在册）浅档功能性不可见=现存混排缺陷非本期引入，B6 覆盖
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-material / segcheck-D3-material-light 采集目录）
+
+## D3-final（Task 25 收口）@ 本文件 D3-final 小节追加 commit（= D3 收口原子提交，父 c5253d91——Task 24 审查修复链末；本任务零渲染代码改动：NodePalette 三字面恒定面裁定保留（:42/#f7f7f7+#e0e0e0 既有 :62 条+Task 25 补勾 :57 #0f0f0f 恒定暗图标）、遮罩三件逐个裁定登记、registry 分区核销标注（脚本层 note 键+meta.notes 收口段——防重产丢失）、tailwind.config:8-10 注释订正（"CanvasView 已钉 colorMode=dark"恒深域旧叙事→D2 现实 colorMode={mode}+镜像断言守卫；注释零 CSS 产出））
+
+- 采集器冻结面指纹复验: sed -n '/COLLECTOR-FROZEN-BEGIN/,/COLLECTOR-FROZEN-END/p' | sha256sum = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与 a0-collector-fingerprint.txt 落档一致，本任务零采集器改动）
+- 深侧 before-D × segcheck-D3-final: **首跑 exit=0**, unexpectedTotal=0（属性 0 + 几何 0，三闸全过）, B2 闸吸收 81（borderColor 收敛族 ×72 + color #fff→#e2e8f0 ×5 + white/70→white/60 ×4——与 D3-board/D3-material 段完全同形的既有配对，本段零新增）; A4 验证：style翻转变宽 0、**涌现 0 边/0 站**、表单抵消 0、other=0
+- 浅侧 before-D-light × segcheck-D3-final-light: **首跑 exit=0**, unexpected=0, B2 闸 0, D 闸 0; A4 验证涌现 0 边/0 站
+- **涌现登记闸（d3EmergentSites 站点级）两侧 offender=0/漂移=0（authorized=60）——d3EmergentSites 保持空数组**：D3 全段（Task 20-25）迁移皆换色/换 token 非新增边框位点，各段 segcheck 无 offender、final 亦无（plan 预告兑现，无需补登记）
+- 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
+- D3 完成判据三源核销（differ exit 0 ≠ 完成）: ①registry 分区分级核销标注入册（meta.notes 收口段+各分区 note 键，写在 canvas-migration-registry.mjs 生成器内防重产丢失）：六内容分区+tests 逐文件核销（adjudications 72 条覆盖），盲区分级——styleBlocks 6 文件与 svgAttrs 38 位点逐行勾（Task 25 补录三条：D3-final-mask-rulings/D3-final-svgattrs-closeout/D3board-styleblock-hover-tokens），styleObjects 199/rgbaClasses 1 明文"不逐行核销，靠 B6"；②d-segment 探针 11 用例全绿（浅色档每跟随面期望浅值/内容面深值）；③B6 目检清单完整性已核对（plan Task 27 Step 3 各域条目齐全，执行留待 Task 27）
+- hex 键数不增核验: lint-gate PASS（no-color-hex 219 baselined, 0 new；D3 起点 260→219 净降 41 全为删除行陈旧键，"已消除 26 键"同口径；陈旧键默认不动、禁 UPDATE_BASELINE=1——registry meta.notes 在册）
+- 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-final / segcheck-D3-final-light 采集目录，六件全清）

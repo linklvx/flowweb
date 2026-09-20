@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-20T11:52:16.402Z",
+  "generatedAt": "2026-09-20T13:39:07.606Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -10,7 +10,7 @@
    "src/pages/canvas/components/Lighting/ThreePreview.tsx",
    "src/pages/canvas/components/Angle3D/Angle3DPreview.tsx"
   ],
-  "notes": "逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是\"两条 lint 规则都拦不到\"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原\"不匹配\"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底；svgAttrs 已扩 rgba/hsla（原 hex-only 系结构盲区，CropOverlay:168 实证）；运行时键盲区：ve 采集页 3 个 tid: 根元素不参与属性比对，迁移靠 B6/探针"
+  "notes": "逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是\"两条 lint 规则都拦不到\"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原\"不匹配\"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底；svgAttrs 已扩 rgba/hsla（原 hex-only 系结构盲区，CropOverlay:168 实证）；运行时键盲区：ve 采集页 3 个 tid: 根元素不参与属性比对，迁移靠 B6/探针；【D3 收口核销（Task 25）】分区分级核销完成：①逐文件核销——六内容分区+tests 每文件在 adjudications 有裁定或豁免依据，保留字面走 whitelistKeeps 精确条目（各分区 note 键注依据）；②盲区分级——styleBlocks 6 文件与 svgAttrs 38 位点逐行勾（既有条 26/36/40/41/44/46/47/48/52/53/56/57 + Task 25 补录 D3-final-svgattrs-closeout/D3-final-mask-rulings/D3board-styleblock-hover-tokens 三条），styleObjects 与 rgbaClasses **不逐行核销，靠 B6**（诚实边界明文）——浅色档功能性不可见位点已探针化（Task 22 accent 清单 CanvasView:456/GridSizeDropdown:121 等）；③B6 目检清单完整性已核对（plan Task 27 Step 3：节点卡 8 类/KeyboardShortcutsPanel 混合态/VideoHDPanel 标签/操作蓝/菱形/浮层-板分离度/A 组 5 钮/4 浮标等各域条目齐全）；④hex 基线陈旧键说明：D3 删除大量 hex 字面后 eslint-hex-baseline.json 残留已删行陈旧键属预期——默认不动 baseline（陈旧键不影响 no-new-violation 门禁语义），勿手动清、禁 UPDATE_BASELINE=1；D3 全程重键均伴随行文本变更且计数不增（lint-gate 实测 219 baselined/0 new/已消除 26 键）；⑤D3-final 涌现闸：深浅双侧 offender=0/漂移=0（d3EmergentSites 空——D3 迁移皆换色非加边框，final segcheck 实证）"
  },
  "partitions": {
   "canvasDomain": {
@@ -85,7 +85,8 @@
     "src/pages/canvas/components/SaveStatusIndicator.tsx",
     "src/pages/canvas/page.tsx"
    ],
-   "totalFiles": 93
+   "totalFiles": 93,
+   "note": "D3 核销（Task 22/23/24 三批迁移+Task 25 收口）：逐文件裁定在 adjudications（D3board-*/D3-* 条），保留字面在 whitelistKeeps 精确条目 {glob,allow}"
   },
   "veDomain": {
    "files": [
@@ -103,7 +104,8 @@
     "src/pages/canvas/video-editor/store/editorStore.ts",
     "src/pages/canvas/video-editor/timeline/block-colors.ts"
    ],
-   "totalFiles": 52
+   "totalFiles": 52,
+   "note": "D3 核销（Task 21 壳岛拆除+字面四通道，D3-ve-* 条）：运行时键盲区 tid: 根元素迁移无 differ 信号，靠 B6/探针"
   },
   "videosDomain": {
    "files": [
@@ -114,12 +116,14 @@
     "src/pages/videos/VideoCard.tsx",
     "src/pages/videos/VideoPlayerModal.tsx"
    ],
-   "totalFiles": 7
+   "totalFiles": 7,
+   "note": "D3 核销（Task 20 播放壳域原子对）：壳根 DOM 拆分+恒深第四通道保留（ProcessSnapshot 整块/媒体容器 bg-black 等 whitelistKeeps 在册）"
   },
   "externalSingles": {
    "files": [
     "src/components/layout/WeChatFollowModal.tsx"
-   ]
+   ],
+   "note": "核销（Task 16 WeChatFollowModal 岛拆除，G8① 反转原子对）"
   },
   "componentDomains": {
    "files": [
@@ -127,18 +131,19 @@
     "src/components/MaterialLibrary/FileGridZoomControl.tsx",
     "src/components/MaterialLibrary/FilePreviewPopover.tsx",
     "src/components/MaterialLibrary/FolderTree/FolderContextMenu.tsx",
-    "src/components/MaterialLibrary/FolderTree/FolderTree.tsx",
     "src/components/MaterialLibrary/MaterialLibraryBrowser.tsx",
     "src/components/MaterialLibrary/MaterialLibraryModal.css",
     "src/components/BaseFullscreenModal.tsx"
-   ]
+   ],
+   "note": "D3 核销（Task 24 MaterialLibrary 目录摘除净 -6+字面迁移，D3-material-* 两条）：BaseFullscreenModal scrim 白名单保留"
   },
   "handwrittenCss": {
    "files": [
     "src/index.css",
     "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
     "src/pages/canvas/components/nodes/NodeHandle.css"
-   ]
+   ],
+   "note": "核销：index.css（D1a/D1b 双值化+死键清理+等值并域）、PromptInput.css（D1a-promptinput-* 三条）、NodeHandle.css（Task 22 手柄 icon 浅值双值化）"
   },
   "tests": {
    "files": [
@@ -263,7 +268,8 @@
     "src/pages/videos/__tests__/route.integration.test.tsx",
     "src/pages/videos/__tests__/VideoPlayerModal.test.tsx",
     "src/pages/videos/__tests__/VideosPage.test.tsx"
-   ]
+   ],
+   "note": "核销：断言串随产品字面同 commit 同步（各段登记在案），string 放行仅限测试文件（whitelistKeeps 在册）"
   },
   "styleObjects": {
    "sites": [
@@ -1262,7 +1268,8 @@
      "line": 90,
      "text": ".batch-btn-move:disabled:hover { background: rgba(34,197,94,0.12); color: var(--fw-accent-text); border-color: rgba(34,1"
     }
-   ]
+   ],
+   "note": "分级核销：位点量大**不逐行核销，靠 B6**（明文边界）——保留字面裁定在册（D3board-node-floats/slider-white/fullscreen-keeps 等），浅色档功能性不可见位点已探针化（CanvasView:456/GridSizeDropdown:121 等 Task 22 accent 清单）；CSS 声明形与 handwrittenCss 重叠收录按各自口径核销勿互推"
   },
   "svgAttrs": {
    "sites": [
@@ -1456,7 +1463,8 @@
      "line": 30,
      "text": "<path d=\"M0 0 L14 7 L6 8 L4 18 Z\" fill={userColor(s.user.id)} stroke=\"#111\" strokeWidth=\"0.8\" />"
     }
-   ]
+   ],
+   "note": "逐行勾完成：位点全数在 adjudications 有裁定——KeyboardShortcutsPanel 25（47 条：#5DDCFF 20+#999 5 补录）、AudioWaveform 2（46）、VideoEditNode GridIcon 4+config-panel sparkle 4+MultiImageNode 占位 1+RemoteCursors 1（Task 25 D3-final-svgattrs-closeout 补录）、CropOverlay 1（D3-final-mask-rulings）"
   },
   "styleBlocks": {
    "sites": [
@@ -1466,7 +1474,8 @@
     "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
     "src/pages/canvas/components/nodes/TransformToolbar.tsx",
     "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx"
-   ]
+   ],
+   "note": "逐文件勾完成：6 文件全数有裁定——CanvasToolbar（41 hover !important 保序）、Image/VideoFullscreenViewer（26⑤ 恒深面板侧白 thumb）、EditToolbar/ImageNodeToolbar/TransformToolbar（Task 25 D3board-styleblock-hover-tokens：hover 常量已 token 化+tooltip 恒深）"
   },
   "rgbaClasses": {
    "sites": [
@@ -1475,7 +1484,8 @@
      "line": 86,
      "text": "<button data-testid=\"close-btn\" onClick={close} aria-label=\"关闭\" className=\"absolute top-3 right-3 z-10 rounded-lg bg-[rg"
     }
-   ]
+   ],
+   "note": "位点 1 处 VideoPlayerModal:86 close-btn：Task 20 壳根 DOM 拆分显式化核销（D3-videos-shell-dom-split+白名单 allow bg,text）"
   },
   "contentDataExcluded": {
    "why": "ve store/测试内字幕默认 style:{fontSize,color} 等内容语义色非主题面，显式排除不核销"
@@ -1839,7 +1849,7 @@
   {
    "id": "D3board-kbd-shortcuts-cyan",
    "file": "src/pages/canvas/components/KeyboardShortcutsPanel.tsx",
-   "ruling": "#5DDCFF ~20 处 stroke 保留：模态未开不渲染→采集不可见；stroke 不在 computedPropertySet 盲区，Task 27 B6 兜底"
+   "ruling": "#5DDCFF ~20 处 stroke 保留：模态未开不渲染→采集不可见；stroke 不在 computedPropertySet 盲区，Task 27 B6 兜底。Task 25 svgAttrs 逐行勾补录：同文件 :28/:42 fill=#999、:49/:91/:104 stroke=#999 共 5 处中性灰图标（缩放/触摸板/鼠标/删除键图形本体）保留——#999 中灰两档底皆可辨，模态不可见同上，B6 兜底"
   },
   {
    "id": "D3board-nodepalette-stroke",
@@ -1914,7 +1924,7 @@
   {
    "id": "D3board-nodepalette-addbtn",
    "file": "src/pages/canvas/components/NodePalette.tsx",
-   "ruling": ":42 加号钮 bg-[#f7f7f7]/hover:#e0e0e0 恒定亮钮保留：深浅同值零 diff（产品语义恒定亮面）"
+   "ruling": ":42 加号钮 bg-[#f7f7f7]/hover:#e0e0e0 恒定亮钮保留：深浅同值零 diff（产品语义恒定亮面）；Task 25 补勾同钮 :57 svg style color #0f0f0f——恒定亮钮上的恒定暗图标（反证 token 化：var(--fw-text) 深档翻浅字落亮钮上不可见，通道 3 恒定面 bg+fg 成对保留）"
   },
   {
    "id": "D3-creditsdropdown-light",
@@ -1963,6 +1973,24 @@
    "deep": "CSS 主题面 B2-c 已 token 化零改动（var(--fw-*) 34 处）；操作蓝家族约 13 处刻意字面保留——通道 3 操作蓝内容语义调色板浅档保留（与 Task 21 D3-ve-status-colors 同构：操作蓝系交互态语义非主题面）：:39/:81 #60a5fa 文字压 rgba(59,130,246,0.15) 底、:66/:69/:74/:75 #3b82f6 拖放指示条/滑杆 thumb 及 rgba(59,130,246,*) 底、:40/:82 hover 加深档、:83-:90 危险红/成功绿批量钮族。TSX 保留字面：Popover :168 bg-[#0F0F0F] 媒体垫底（压画面，第四通道）+:187 应用钮 #646464/#FAFAFA/hover #757575（图形档按钮面恒定）；ContextMenu :106 bg-[#2F2F2F] 菜单底+inset 白 0.16/黑 0.16 shadow（玻璃面）+:51 text-red-400/:64 text-red-400 危险前景语义（CanvasTopBar:121 先例）；FolderTree :269 text-gray-400（九族外，dim 语义）；Browser :131 text-blue-400 上传中态（操作蓝同族）；ZoomControl :16/:29 与 Browser :96 rgba(255,255,255,*) 白系=styleObjects 盲区位点（两条 lint 拦不到，本条即核销记录）",
    "light": "操作蓝浅档落浅底：#60a5fa@rgba(59,130,246,0.15) 合成底 ≈2.6:1（台账外表值——底是 15% 蓝蒙层合成色非纯白，实测合成底上对比更高，以 B6 实测为准）+批量钮 #f87171/#fca5a5/#86efac 同类，入 Task 27 B6 清单；TSX 保留位点浅档不变（媒体垫底/图形档钮面/菜单恒深/白系盲区字面）——其中 ZoomControl 白字与 Browser :96 批量态白字浅档白底功能性不可见属现存混排缺陷非本期引入（spec v1.3 与药丸/CreditsDropdown 并列第三例），B6 覆盖；Modal.css :42 upload-hint/:52 file-grid-loading·empty text-dim-1 消费点浅底 #9ca3af 2.39:1 属刻意低层级（dim-1 阶定义如此）——目检确认非缺陷，upload-hint 在采集态可见但 B2-c 已 token 化本任务未触碰该行=零 diff",
    "ruling": "保留字面核销=styleObjects/svgAttrs 盲区分区+本条记录（lint 拦不到的位点清单是唯一核销依据，Task 25 分区核销对账）；操作蓝裁定已入 plan Task 27 Step 3 B6 清单（MaterialLibrary 条目）；ZoomControl/Browser 白系盲区位点浅档功能性不可见同入 B6；CSS 零改动故 deep/light 两侧基线键集与值集均不变。⚠ quality 审查订正（Task 24 收口前修复）：ContextMenu :106 容器原裁定\"菜单恒深（玻璃面）\"与同 commit 内部 token 化自相矛盾（浅档 text-text 压 #2F2F2F≈1.18:1 菜单项不可见——极性反转的 KeyboardShortcutsPanel 同型病）——容器已改 bg-surface+inset 白 0.08/影 0.12（浅档白卡深字自洽；深档 #1e1e1e 与 #2F2F2F 近档微变、右键菜单采集态不可见零 diff；hex 基线键随之重键）+Popover :25/:30 错误占位 dim-2 落 :168 恒深垫底系归属混用但数值无回归（3.96 vs 3.81）+Browser :93 判据补注：/materials 页传 title 该 span 实际渲染，两档自洽（透明压 surface）无视觉后果"
+  },
+  {
+   "id": "D3-final-mask-rulings",
+   "file": "透明 PNG 透底（无专用实现）+ CropOverlay.tsx + EraseCanvas.tsx（已有 :57 条）",
+   "line": "CropOverlay :168",
+   "ruling": "Task 25 遮罩三件逐个裁定（贴媒体 or 贴卡壳）：①透明 PNG 棋盘格——grep 实测 src 零命中（棋盘/checkerboard/conic-gradient 均无）＝无棋盘格实现，透明区域直接透出节点卡底（bg-surface 已随 D3 主题跟随）＝天然贴卡壳，零代码零 diff；②裁剪遮罩 CropOverlay:168 rect fill=rgba(0,0,0,0.5)（SVG mask 挖出裁剪窗）＝压媒体的暗化蒙层贴媒体（第四通道）保留字面，且仅 crop 态渲染→采集不可见→无 diff；③涂抹蒙版 EraseCanvas ctx 画布通道已有 D3board-erase-canvas-js 条承保（JS 像素非 CSS 面）"
+  },
+  {
+   "id": "D3-final-svgattrs-closeout",
+   "file": "AudioConfigPanel/TextConfigPanel/VideoConfigPanel/ModelSelector（config-panel 族）+ MultiImageNode.tsx + VideoEditNode.tsx + RemoteCursors.tsx",
+   "line": "AudioConfigPanel:219/TextConfigPanel:219/VideoConfigPanel:279/ModelSelector:27、MultiImageNode:59-60、VideoEditNode:24-27、RemoteCursors:30（+styleObjects :35）",
+   "ruling": "Task 25 svgAttrs 分区逐行勾补录（38 位点中既有条未覆盖的残余）：① sparkle 图标 stroke=#A3A3A3 4 处（四文件同款模型选择钮内 AI 图形）——中灰两档可辨＋面板仅 selected 渲染→采集不可见（同 D3board-panel-shells-invisible 前提），保留字面；② MultiImageNode:59-60 错误/加载占位面 bg-[#1a1a2e]+图标 stroke=#555（ImageWithFallback:14 与 MultiImageConfigPanel:28/:60 同族）＝媒体槽位错误态恒定深占位面贴媒体保留，error 态采集不可见；③ VideoEditNode:24-27 GridIcon stroke=#6C5CE7 4 rect——品牌紫＝--ve-accent 两档同值，SVG 属性禁 var() 字面即唯一载体（ClipBlock:88 CSS 侧已迁 var(--ve-accent) 同源对照），深浅同值零 diff；④ RemoteCursors:30 stroke=#111＋:35 styleObjects color='#111'——协作光标描边/名牌字恒定深（压任意 userColor 恒定用户色上两档可读，userColor 恒定 P6 登记），采集 fixture 无远端用户→不可见"
+  },
+  {
+   "id": "D3board-styleblock-hover-tokens",
+   "file": "EditToolbar.tsx + ImageNodeToolbar.tsx + TransformToolbar.tsx",
+   "line": "EditToolbar:349、ImageNodeToolbar:430、TransformToolbar:139-140（+tooltip 块 :142-162）",
+   "ruling": "styleBlocks 分区 6 文件收尾勾（CanvasToolbar→41、Image/VideoFullscreenViewer→26⑤ 已承）：三工具条 <style> hover 块常量已 token 化（HOVER_BG=var(--fw-overlay-2) :95、BTN_BG_HOVER=var(--fw-overlay-3) :145、CONTROLS_HOVER/ACTIVE=var(--fw-overlay-2) :58/:59）——!important 保留只换值形态（CanvasToolbar:44 先例，Task 22 M4）；TransformToolbar tooltip ::after rgba(0,0,0,0.85)/#fff 恒深 tooltip 两档成立（tooltip 通用惯例）；hover/tooltip 态不进采集快照＋工具条仅变换态渲染→深浅均零 diff"
   }
  ],
  "differExpectedPairs": {

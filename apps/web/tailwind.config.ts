@@ -5,9 +5,10 @@ import type { Config } from 'tailwindcss';
  * preflight:false 曾致 border 工具类在非表单元素全站失效 + 裸 button 吃 UA 样式；旧「preflight:false 红线」已被该 spec 废止，勿再关闭。
  * borderColor.DEFAULT = --fw-border 桥（D2）：preflight 的 *{border-color} 发出该变量，指向项目习惯边色（暗色 #333，见 index.css）。
  * darkMode 用 'class' 而非 v3.4 推荐的 'selector'：'class' 把 dark: 变体编译为整条 .dark\:x:is(.dark *) = (0,2,0)（:is 取参数最高特异性），
- * 会硬压岛内同属性工具类——误用可见；'selector' (:where(.dark,.dark *) (0,1,0)) 则让误用静默。仓库 dark: 变体 0 处；.light 类名源码无占用，
- * 但 @xyflow/react 的 ReactFlow wrapper 运行时默认挂 light 类（dist esm index.mjs:3598/3606）——CanvasView 已钉 colorMode="dark"
- * 消除撞名（实测视觉零差，见 A2 修复记录），ProcessSnapshot 本就 colorMode="dark"。
+ * 会硬压岛内同属性工具类——误用可见；'selector' (:where(.dark,.dark *) (0,1,0)) 则让误用静默。仓库 dark: 变体 0 处；
+ * .light 类名现由 index.css 令牌块与 @xyflow/react wrapper 共用（D2 起 CanvasView colorMode={mode} 随主题挂 .dark/.light
+ * ——wrapper 皮肤类与 html 令牌类同名属有意设计，撞名由 CanvasView.test 镜像断言守卫：wrapper 主题类恰一个且等于 html 类），
+ * ProcessSnapshot 恒 colorMode="dark"（内容承载面不翻转，D2-processsnapshot-invariant）。
  * 三条级联事实（工具类同特异性后序胜 base / .light 块源序决胜 / dark: 变体 :is(.dark*)=(0,2,0)）论证见 spec §0.3-5/6/7。
  */
 const config: Config = {
