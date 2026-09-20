@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-20T09:51:28.286Z",
+  "generatedAt": "2026-09-20T11:19:59.475Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -102,9 +102,10 @@
     "src/pages/canvas/video-editor/components/timeline/TimelineRuler.tsx",
     "src/pages/canvas/video-editor/components/timeline/TrackRow.tsx",
     "src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
-    "src/pages/canvas/video-editor/store/editorStore.ts"
+    "src/pages/canvas/video-editor/store/editorStore.ts",
+    "src/pages/canvas/video-editor/timeline/block-colors.ts"
    ],
-   "totalFiles": 51
+   "totalFiles": 52
   },
   "videosDomain": {
    "files": [
@@ -270,87 +271,27 @@
    "sites": [
     {
      "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 15,
-     "text": "const BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 16,
-     "text": "const BTN_BG_ACTIVE: React.CSSProperties = { backgroundColor: 'rgb(58, 58, 58)' };"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 36,
+     "line": 38,
      "text": "background: rgba(0, 0, 0, 0.85);"
     },
     {
      "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 37,
+     "line": 39,
      "text": "color: rgb(220, 220, 220);"
     },
     {
      "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 44,
-     "text": "background-color: rgb(78, 78, 78) !important;"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 51,
-     "text": "backgroundColor: 'rgb(38, 38, 38)',"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 54,
+     "line": 56,
      "text": "boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 67,
-     "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" style={{ color: 'rgb(160, 160, 160)' "
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 85,
-     "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 22 22\" style={{ color: 'rgb(160, 160, 160)' "
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 101,
-     "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" style={{ color: 'rgb(160, 160, 160)' "
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 115,
-     "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\" viewBox=\"0 0 16 16\" style={{ color: 'rgb(160, 160, 160)' "
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 125,
-     "text": "style={{ ...BTN_BG, height: 28, color: 'rgb(180, 180, 180)' }}"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasToolbar.tsx",
-     "line": 138,
-     "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\" viewBox=\"0 0 17 17\" style={{ color: 'rgb(160, 160, 160)' "
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 392,
-     "text": "backgroundColor: 'rgb(50, 50, 50)',"
-    },
-    {
-     "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 458,
-     "text": "background: enabled ? 'rgba(74,222,128,0.15)' : 'none',"
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
      "line": 460,
-     "text": "color: enabled ? '#4ade80' : '#fff',"
+     "text": "background: enabled ? 'rgba(74,222,128,0.15)' : 'none',"
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 469,
+     "line": 471,
      "text": "background: 'none', border: 'none', color: disabled ? '#666' : '#fff',"
     },
     {
@@ -440,11 +381,6 @@
     },
     {
      "file": "src/pages/canvas/components/groups/AspectRatioDropdown.tsx",
-     "line": 43,
-     "text": "style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, minWidth: 100 }}>"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/AspectRatioDropdown.tsx",
      "line": 52,
      "text": "color: executing ? '#666' : '#fff',"
     },
@@ -456,12 +392,7 @@
     {
      "file": "src/pages/canvas/components/groups/GridSizeDropdown.tsx",
      "line": 24,
-     "text": "background: '#1a1a1a', color: '#fff', fontSize: 13, textAlign: 'center',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/GridSizeDropdown.tsx",
-     "line": 60,
-     "text": "style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, minWidth: 140, padding: '8px 0' }}>"
+     "text": "background: 'var(--canvas-controls-bg)', color: '#fff', fontSize: 13, textAlign: 'center',"
     },
     {
      "file": "src/pages/canvas/components/groups/GridSizeDropdown.tsx",
@@ -485,11 +416,6 @@
     },
     {
      "file": "src/pages/canvas/components/groups/GridSizeDropdown.tsx",
-     "line": 121,
-     "text": "background: executing ? '#333' : '#4ade80', color: '#000',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/GridSizeDropdown.tsx",
      "line": 133,
      "text": "background: 'none', color: executing ? '#666' : '#fff',"
     },
@@ -509,11 +435,6 @@
      "text": "boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',"
     },
     {
-     "file": "src/pages/canvas/components/groups/GroupContextMenu.tsx",
-     "line": 104,
-     "text": "<div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />"
-    },
-    {
      "file": "src/pages/canvas/components/groups/GroupToolbar.tsx",
      "line": 21,
      "text": "background: 'none', border: 'none', color: disabled ? '#666' : '#fff',"
@@ -529,11 +450,6 @@
      "text": "display: 'flex', alignItems: 'center', gap: 2, color: '#fff',"
     },
     {
-     "file": "src/pages/canvas/components/groups/GroupToolbar.tsx",
-     "line": 80,
-     "text": "const Sep = () => <span style={{ color: 'rgba(255,255,255,0.1)', padding: '0 4px' }}>│</span>;"
-    },
-    {
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
      "line": 46,
      "text": "background: 'rgba(26,26,26,0.9)',"
@@ -542,11 +458,6 @@
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
      "line": 48,
      "text": "color: '#cccccc', fontSize: 13,"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
-     "line": 81,
-     "text": "fontSize: 13, color: '#fff', background: '#1a1a1a',"
     },
     {
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
@@ -570,11 +481,6 @@
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 93,
-     "text": "<div className=\"absolute top-full mt-1 left-0\" style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
      "line": 96,
      "text": "background: 'none', border: 'none', color: hasGroup ? '#666' : '#fff', cursor: hasGroup ? 'not-allowed' : 'pointer' }}>"
     },
@@ -585,38 +491,23 @@
     },
     {
      "file": "src/pages/canvas/components/groups/selectionTokens.ts",
-     "line": 6,
-     "text": "borderColor: 'rgba(255,255,255,0.65)',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/selectionTokens.ts",
-     "line": 10,
+     "line": 11,
      "text": "background: 'rgba(0,0,0,0.35)',"
     },
     {
      "file": "src/pages/canvas/components/groups/selectionTokens.ts",
-     "line": 22,
-     "text": "background: 'rgba(26,26,26,0.6)',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/selectionTokens.ts",
-     "line": 27,
+     "line": 28,
      "text": "background: '#3f3f3f', color: '#fff', borderRadius: 999,"
     },
     {
      "file": "src/pages/canvas/components/groups/selectionTokens.ts",
-     "line": 33,
+     "line": 34,
      "text": "width: 8, height: 8, background: '#fff', border: '1px solid #666', borderRadius: 1,"
     },
     {
      "file": "src/pages/canvas/components/groups/StitchButton.tsx",
      "line": 22,
      "text": "color: disabled ? '#666' : '#fff',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/StitchButton.tsx",
-     "line": 161,
-     "text": "background: '#1a1a1a',"
     },
     {
      "file": "src/pages/canvas/components/groups/StitchButton.tsx",
@@ -631,17 +522,12 @@
     {
      "file": "src/pages/canvas/components/groups/StoryboardCell.tsx",
      "line": 37,
-     "text": "<div style={{ ...style, background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#88"
+     "text": "<div style={{ ...style, background: 'var(--canvas-controls-bg)', display: 'flex', alignItems: 'center', justifyContent: "
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardCell.tsx",
      "line": 47,
      "text": "<span style={{ position: 'absolute', left: 12, bottom: 10, color: '#fff',"
-    },
-    {
-     "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
-     "line": 40,
-     "text": "background: '#1a1a1a',"
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
@@ -660,16 +546,6 @@
     },
     {
      "file": "src/pages/canvas/components/NodePalette.tsx",
-     "line": 12,
-     "text": "const SIDEBAR_BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };"
-    },
-    {
-     "file": "src/pages/canvas/components/NodePalette.tsx",
-     "line": 32,
-     "text": "backgroundColor: 'rgb(38, 38, 38)',"
-    },
-    {
-     "file": "src/pages/canvas/components/NodePalette.tsx",
      "line": 35,
      "text": "boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',"
     },
@@ -677,16 +553,6 @@
      "file": "src/pages/canvas/components/NodePalette.tsx",
      "line": 57,
      "text": "style={{ color: '#0f0f0f', transform: isOpen ? 'rotate(45deg)' : 'none' }}"
-    },
-    {
-     "file": "src/pages/canvas/components/NodePalette.tsx",
-     "line": 81,
-     "text": "style={{ color: 'rgb(160, 160, 160)' }}"
-    },
-    {
-     "file": "src/pages/canvas/components/NodePalette.tsx",
-     "line": 102,
-     "text": "style={{ color: 'rgb(160, 160, 160)' }}"
     },
     {
      "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
@@ -840,26 +706,6 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 193,
-     "text": "backgroundColor: m.id === model ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 232,
-     "text": "backgroundColor: r.label === ratio ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 272,
-     "text": "backgroundColor: r === resolution ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 308,
-     "text": "backgroundColor: n === generateCount ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
      "line": 336,
      "text": "style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}"
     },
@@ -920,11 +766,6 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
-     "line": 516,
-     "text": "background: hoveredPreset === item.label ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
      "line": 530,
      "text": "<div className=\"mx-2 my-0.5 h-px\" style={{ background: '#363636' }} />"
     },
@@ -932,16 +773,6 @@
      "file": "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
      "line": 536,
      "text": "color: 'rgb(247,247,247)',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
-     "line": 537,
-     "text": "background: subMenuOpen ? 'rgba(255,255,255,0.08)' : 'transparent',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/MultiImageConfigPanel.tsx",
-     "line": 159,
-     "text": "backgroundColor: '#222222',"
     },
     {
      "file": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
@@ -1185,13 +1016,13 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 156,
-     "text": "...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}),"
+     "line": 155,
+     "text": "...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}), // selectionTokens 交互态双值另行处理"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 208,
-     "text": "style={{ left: c.start * ratio, width: Math.max(2, c.duration * ratio), background: TRACK_COLORS[c.type] ?? '#6C5CE7' }}"
+     "line": 207,
+     "text": "style={{ left: c.start * ratio, width: Math.max(2, c.duration * ratio), background: TRACK_BAR_COLORS[c.type] ?? '#6C5CE7"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx",
@@ -1365,7 +1196,7 @@
     },
     {
      "file": "src/pages/canvas/video-editor/components/timeline/ClipBlock.tsx",
-     "line": 67,
+     "line": 69,
      "text": "backgroundColor: missing ? '#7f1d1d' : BLOCK_BG[clip.type],"
     },
     {
@@ -1629,22 +1460,22 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 25,
+     "line": 24,
      "text": "<rect x=\"1\" y=\"1\" width=\"5\" height=\"5\" rx=\"1\" stroke=\"#6C5CE7\" strokeWidth=\"1.2\" />"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 26,
+     "line": 25,
      "text": "<rect x=\"8\" y=\"1\" width=\"5\" height=\"5\" rx=\"1\" stroke=\"#6C5CE7\" strokeWidth=\"1.2\" />"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 27,
+     "line": 26,
      "text": "<rect x=\"1\" y=\"8\" width=\"5\" height=\"5\" rx=\"1\" stroke=\"#6C5CE7\" strokeWidth=\"1.2\" />"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
-     "line": 28,
+     "line": 27,
      "text": "<rect x=\"8\" y=\"8\" width=\"5\" height=\"5\" rx=\"1\" stroke=\"#6C5CE7\" strokeWidth=\"1.2\" />"
     },
     {
@@ -1666,41 +1497,6 @@
   },
   "rgbaClasses": {
    "sites": [
-    {
-     "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
-     "line": 135,
-     "text": "'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rg"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
-     "line": 170,
-     "text": "className=\"inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EditToolbar.tsx",
-     "line": 131,
-     "text": "'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rg"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EditToolbar.tsx",
-     "line": 155,
-     "text": "className=\"inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EditToolbar.tsx",
-     "line": 370,
-     "text": "className=\"inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 123,
-     "text": "'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba("
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/EraseBottomToolbar.tsx",
-     "line": 129,
-     "text": "'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] hover:bg-[rgba(255,255,255,0.08)] whitespace-nowrap w-full borde"
-    },
     {
      "file": "src/pages/videos/VideoPlayerModal.tsx",
      "line": 86,
@@ -2080,7 +1876,7 @@
   {
    "id": "D3board-minimap-conditional",
    "file": "src/pages/canvas/components/CanvasView.tsx",
-   "ruling": "MiniMap 底/边双值化（controls-bg/border）+ nodeColor JS 分支：minimapOpen 默认 false→采集态不渲染→无 diff；深侧底/边/节点色全部字节等值，浅侧若未来开启采集其 backgroundColor/borderColor diff 与全局 controls 族浅对同值天然配对"
+   "ruling": "MiniMap 底/边双值化（controls-bg/border）+ nodeColor JS 分支：minimapOpen 默认 false→采集态不渲染→无 diff。⚠ 审查订正（原句\"深侧字节等值\"系事实错误）：这是**深档改值**——底 50→38（controls-bg 深）、边 70→51（controls-border 深 #333）可见变暗、nodeColor 深档 160 字面不变。若未来小地图进入采集渲染路径，需补深侧条件对 `backgroundColor|rgb(50,50,50)|rgb(38,38,38)` 与 `borderColor|rgb(70,70,70)|rgb(51,51,51)`（第八轮 P2-3 原文）；浅侧与全局 controls 族浅对同值天然配对"
   },
   {
    "id": "D3board-canvasview-group-btn",

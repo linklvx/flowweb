@@ -112,9 +112,9 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
 
   // —— C8 Task 19 Step 2b：扩规则自测（白名单双形态 + 串内全匹配 + 两式同步闭环）——
 
-  it('① 目录条目全放行：nodes 恒深域（string 条目）九族不报（升级前基线，守旧语义；Task 20 审查修——原锚 videos/VideoCard 已随目录摘除改精确条目，border-white/50 正确可报致基线红）', () => {
+  it('① string 条目全放行：测试文件 string 条目（Task 22 审查重锚——nodes/VideoGenNode 随目录摘除已改 {glob,allow} 精确条目，"目录条目"机制面仅剩测试 string 条目在册）九族不报', () => {
     expect(
-      lintThemeFixture("const a = 'bg-white text-black border-white/50';", 'src/pages/canvas/components/nodes/VideoGenNode.tsx'),
+      lintThemeFixture("const a = 'bg-white text-black border-white/50';", 'src/pages/videos/__tests__/CarouselBar.test.tsx'),
     ).toHaveLength(0);
   });
 
