@@ -27,7 +27,7 @@
 | 5 | 新构建 + 双斜杠门禁 | **PASS** | `pnpm build`（12.66s）→ slash-product-gate：15 var() 单值颜色键、src 斜杠形 0 → PASS exit 0；css-audit --slash-gate：var 键/斜杠违例 **0** PASS exit 0 |
 | 6 | `npx tsc -b` | **PASS** | 0 错误 |
 | 7 | 矩阵覆盖注记 | **covered** | 三态持久化（G1）/首帧无闪白（G2 运行时+静态）/岛三组对照+closest（G4）/closest 矩阵（G8①-④）/html 恒一类持续断言（G4 持续）/岛内无 dark: 前缀（G5）——全部含于第 1 项的 41 内，无独立电池条目 |
-| 8 | CanvasView 裁定档案核验 | **在档（历史档）；C8 D2 裁定已反转** | 原 C2-6 裁定（`colorMode="dark"` 钉死 + 两处非零差钉回 + 钉后像素 diff **0/1,024,000**）随 C8 E 表废止反转：`colorMode={mode}` 跟随翻转（CanvasView.tsx:383，深浅档各挂 .dark/.light 运行时类 + 镜像断言守卫）；`bgColor="transparent"` 钉值保留但理由改写（防 dark 皮肤默认 #141414 染灰板面，非恒深裁定残余）；selection rect 走 D-7 规则级两档断言（深浅均蓝色系钉值）。像素守卫改走 D2 快照对账（d2-ref 深档参照 sha256 固化 + `--xy-*` 复测表） | plan `2026-09-18-css-base-layer-theme-plan.md` §C2 第 6 条（历史档）；C8 spec E 表 + CanvasView.tsx:341/:382-386 + d-segment-probes D-7 + d2-board-pixeldiff.spec.ts |
+| 8 | CanvasView 裁定档案核验 | **在档（历史档）；C8 D2 裁定已反转** | 原 C2-6 裁定（`colorMode="dark"` 钉死 + 两处非零差钉回 + 钉后像素 diff **0/1,024,000**）随 C8 E 表废止反转：`colorMode={mode}` 跟随翻转（CanvasView.tsx:383，深浅档各挂 .dark/.light 运行时类 + 镜像断言守卫）；`bgColor="transparent"` 钉值保留但理由改写（防 dark 皮肤默认 #141414 染灰板面，非恒深裁定残余）；selection rect 走 D-7 规则级两档断言（深浅均蓝色系钉值）。像素守卫改走 D2 快照对账（d2-ref 深档参照 sha256 固化 + `--xy-*` 复测表）。出处：plan `2026-09-18-css-base-layer-theme-plan.md` §C2 第 6 条（历史档）；C8 spec E 表 + CanvasView.tsx:341/:382-386 + d-segment-probes D-7 + d2-board-pixeldiff.spec.ts |
 | 9 | 已知接受项终版 | **本档 §1** | 8 项全登记（上表） |
 
 ## 3. 真实浅色 × light-B6 对照（C7 独有检查）
