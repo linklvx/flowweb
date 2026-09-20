@@ -1939,8 +1939,8 @@
   {
    "id": "D3-playview-channel4",
    "file": "src/pages/videos/PlayView.tsx",
-   "line": "整文件（:55/:69/:70/:72/:74/:75/:83/:85/:93/:100/:104/:107）",
-   "deep": "压画面 UI 整块恒深保留字面（第四通道）：:69 from-black/60 顶栏 scrim、:74 text-white/90、:83 from-black/70 预览渐变（第五轮订正：文件无 bg-black/70 勿按图索骥）、:70/:72 bg-white/20、:93 bg-white 反白播放钮、:100/:104/:107 bg-[#2f2f2f] 深药丸、:104 liked text-[#4ade80]/常态 text-white、:85 text-white/75——两档成立（深 scrim+白字=YouTube/B 站浅色模式同构）",
+   "line": "整文件（:55/:71/:72/:74/:76/:85/:87/:95/:102/:106/:109——Task 20 审查后按最终文件态刷新，注释插入曾致 -2 漂移）",
+   "deep": "压画面 UI 整块恒深保留字面（第四通道）：:71 from-black/60 顶栏 scrim、:76 text-white/90、:85 from-black/70 预览渐变（第五轮订正：文件无 bg-black/70 勿按图索骥）、:72/:74 bg-white/20、:95 bg-white 反白播放钮、:102/:106/:109 bg-[#2f2f2f] 深药丸、:106 liked text-[#4ade80]/常态 text-white、:87 text-white/75——两档成立（深 scrim+白字=YouTube/B 站浅色模式同构）",
    "light": "不翻转（压在恒黑媒体容器上，浅档翻转即深字压画面不可读）；:55 根补 text-white 显式化（原继承壳根 text-white，壳根改 text-text 后防浅档继承深字）",
    "ruling": "归属判据：PlayView 全部=画面区留媒体容器内；白名单补 {glob, allow:['bg','text','from']}（压画面族精确豁免，禁 string 整文件放行——附录 B 硬禁令）；:104 点赞钮（深药丸上绿/白两态两档均成立）按第四通道保留，accent 不迁（与 ProcessView:62 迁移对照——彼在 chrome 工具条、此压画面）"
   },
@@ -1963,8 +1963,8 @@
   {
    "id": "D3-processview-migration",
    "file": "src/pages/videos/ProcessView.tsx",
-   "line": ":43/:44/:45/:50/:52/:62/:67/:69/:71",
-   "deep": "chrome 部分迁移：:43 根 bg-[#141414]→bg-bg（#141414 字节等值零 diff；浅档翻 #f7f8fa——P6「UI 面/文字底板」分支整体跟随）；:44 工具条 bg-[#1e1e1e]→bg-surface（字节等值）+ border-white/10→border-overlay-2（字节等值）；:45/:69 返回钮 bg-white/10→bg-overlay-2（字节等值）+ :45 hover:bg-white/20→hover:bg-overlay-3（字节等值）；:50 只读提示 text-white→text-text（#fff→#e2e8f0 非等值微变——详情路由非采集页零 differ 信号）；:62 打开画布 bg-[#4ade80] text-[#111]→bg-accent text-on-accent（--fw-accent 两档同值 #4ade80 深档字节等值零 diff；on-accent #141414 vs #111 微变同前零信号）；:67 错误态 text-white/60→text-text-dim-3（0.6 字节等值）；:71 加载态 text-white/40→text-text-dim-2（0.4→0.45 非等值，状态分支不在门禁渲染路径=M2 前提）",
+   "line": ":43/:44/:45/:50/:52/:63/:68/:70/:72——Task 20 审查后按最终文件态刷新（U7a 注释插入曾致 -1 漂移）",
+   "deep": "chrome 部分迁移：:43 根 bg-[#141414]→bg-bg（#141414 字节等值零 diff；浅档翻 #f7f8fa——P6「UI 面/文字底板」分支整体跟随）；:44 工具条 bg-[#1e1e1e]→bg-surface（字节等值）+ border-white/10→border-overlay-2（字节等值）；:45/:70 返回钮 bg-white/10→bg-overlay-2（字节等值）+ :45 hover:bg-white/20→hover:bg-overlay-3（字节等值）；:50 只读提示 text-white→text-text（#fff→#e2e8f0 非等值微变——详情路由非采集页零 differ 信号）；:63 打开画布 bg-[#4ade80] text-[#111]→bg-accent text-on-accent（--fw-accent 两档同值 #4ade80 深档字节等值零 diff；on-accent #141414 vs #111 微变同前零信号）；:68 错误态 text-white/60→text-text-dim-3（0.6 字节等值）；:72 加载态 text-white/40→text-text-dim-2（0.4→0.45 非等值，状态分支不在门禁渲染路径=M2 前提）。⚠ 未来警示（Task 20 审查补）：ProcessView 现居 [color-scheme:dark] 媒体容器内——将来若加原生控件（range/滚动区）会静默深色方案，加时需把该控件局部提色或外移",
    "light": "浅档整页浅面板（bg-bg #f7f8fa）+ 白工具条（bg-surface）+ 深字——空态白系字面若不迁移则白字白底不可见（M2 动机）；ProcessSnapshot 整块不动（D2-processsnapshot-invariant 不变式：浅档深快照画布于浅面板上=内容承载恒深）",
    "ruling": ":52 复制项目 bg-white text-[#111] 保留不迁（通道 3 反白 CTA——TopActionBar 登录钮/CreateCanvasCard 先例，明文禁 token 化；浅档白钮于白工具条靠字重/图标辨读，B6 必看项）；浅字白底不可见三处（:50/:67/:71 迁移后消除）。ProcessView.test:60 bg-white 断言随保留继续有效（测试文件 string 条目另登）"
   },
