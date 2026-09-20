@@ -4,10 +4,12 @@ import { formatTimecode } from '../../timeline/timecode';
 import { timeToPx } from '../../timeline/view-scale';
 import { useAudioPeaks } from '../../hooks/useAudioPeaks';
 import { useEditorStore } from '../../store/editorStore';
+import { TRACK_BAR_COLORS } from '../../timeline/block-colors';
 
 // opencut 轨道色表（批3-4）：video/image 兜底暗底走 --ve-track-video，音频紫、字幕青；BAR 同步暗化
+// C8 P10：BAR 色表统一到 block-colors.ts TRACK_BAR_COLORS（与 VideoEditNode 同源，禁双表漂移）
 const BLOCK_BG: Record<Clip['type'], string> = { video: 'var(--ve-track-video)', image: 'var(--ve-track-video)', audio: '#8F5DBA', subtitle: '#5DBAA0' };
-const BLOCK_BAR: Record<Clip['type'], string> = { video: '#6C5CE7', image: '#5B7CFA', audio: '#8F5DBA', subtitle: '#5DBAA0' };
+const BLOCK_BAR: Record<Clip['type'], string> = { video: TRACK_BAR_COLORS.video, image: TRACK_BAR_COLORS.image, audio: TRACK_BAR_COLORS.audio, subtitle: TRACK_BAR_COLORS.subtitle };
 
 export const CLIP_BLOCK_MIN_PX = 8;
 

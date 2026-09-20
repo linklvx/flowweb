@@ -53,7 +53,8 @@ const withHits = (files) => files.filter((f) => COLOR_RE.test(fs.readFileSync(f,
  * style 对象里逗号是常态、分号/换行才是语句边界。命名色工具类（zinc/amber/rose 族）仍不可见——
  * 第五盲区按"最小方案"专项覆盖（Task 19 Step 1 CreditsDropdown 逐类枚举），不建第五分区。 */
 const STYLE_OBJECT_RE = /(?:backgroundImage|background|backgroundColor|boxShadow|color|border\w*Color|outline|fill|stroke|filter)\s*:\s*[^;\n]*?(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/;
-const SVG_ATTR_RE = /(?:fill|stroke|stopColor)\s*=\s*['"`][^'"`]*#[0-9a-fA-F]{3,8}/;
+// Task 22 前置改进①：扩 rgba/hsla——原 hex-only 系结构盲区（CropOverlay:168 fill="rgba(0,0,0,0.5)" 实证）
+const SVG_ATTR_RE = /(?:fill|stroke|stopColor)\s*=\s*['"`][^'"`]*?(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/;
 const STYLE_BLOCK_RE = /<style[^>]*>[\s\S]*?<\/style>/;
 const RGBA_CLASS_RE = /(?:bg|text|border|ring|divide)-(?:\[[^\]]*rgba?\([^\]]*\])/;
 const partitionBy = (files, re) => files.flatMap((f) => {
@@ -67,7 +68,7 @@ const registry = {
     task: 'C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）',
     generatedAt: new Date().toISOString(),
     renderWhitelist: RENDER_WHITELIST,
-    notes: '逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是"两条 lint 规则都拦不到"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原"不匹配"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底',
+    notes: '逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是"两条 lint 规则都拦不到"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原"不匹配"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底；svgAttrs 已扩 rgba/hsla（原 hex-only 系结构盲区，CropOverlay:168 实证）；运行时键盲区：ve 采集页 3 个 tid: 根元素不参与属性比对，迁移靠 B6/探针',
   },
   partitions: {
     canvasDomain: { files: withHits(canvas).map(rel), totalFiles: canvas.length },
@@ -96,7 +97,14 @@ const registry = {
  * 脚本只刷新 partitions/meta.renderWhitelist/meta.generatedAt，四手工键读既有文件保留。 */
 const out = path.join(ROOT, 'e2e', 'audit', 'canvas-migration-registry.json');
 if (fs.existsSync(out)) {
-  const prev = JSON.parse(fs.readFileSync(out, 'utf8'));
+  // Task 22 前置改进③：解析失败即报错点名文件（防手工键静默丢失——坏 JSON 会让四手工键归零重产）
+  let prev;
+  try {
+    prev = JSON.parse(fs.readFileSync(out, 'utf8'));
+  } catch (e) {
+    console.error(`[registry] 既有 registry 解析失败（${path.relative(ROOT, out)}）：${e.message}——四手工键（adjudications/differExpectedPairs/d3EmergentSites/whitelistKeeps）将丢失，先修 JSON 再重跑`);
+    process.exit(1);
+  }
   registry.adjudications = prev.adjudications ?? [];
   registry.differExpectedPairs = prev.differExpectedPairs ?? { pairs: [] };
   registry.d3EmergentSites = prev.d3EmergentSites ?? [];
@@ -104,3 +112,8 @@ if (fs.existsSync(out)) {
 }
 fs.writeFileSync(out, JSON.stringify(registry, null, 1));
 console.log('[registry] 分区计数：', Object.fromEntries(Object.entries(registry.partitions).map(([k, v]) => [k, v.files ? v.files.length : (v.sites ?? []).length])));
+console.log('[registry] 手工键计数：adjudications=%d differExpectedPairs.pairs=%d d3EmergentSites=%d whitelistKeeps=%d',
+  registry.adjudications.length,
+  registry.differExpectedPairs.pairs.length,
+  registry.d3EmergentSites.length,
+  registry.whitelistKeeps.length);

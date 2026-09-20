@@ -15,9 +15,8 @@ import { clearImageBitmaps, getImageBitmap } from '@/pages/canvas/video-editor/r
 import { resolveMediaBlob } from '@/pages/canvas/video-editor/renderer/media-blob';
 import { CanvasRenderer } from '@/pages/canvas/video-editor/renderer/canvas-renderer';
 import { canvasSizeOf } from '@/pages/canvas/video-editor/timeline/canvas-size';
+import { TRACK_BAR_COLORS } from '@/pages/canvas/video-editor/timeline/block-colors';
 import { batchGetMedia } from '@/api/mediaApi';
-
-const TRACK_COLORS: Record<string, string> = { video: '#6C5CE7', image: '#6C5CE7', audio: '#95DE64', subtitle: '#FFD666' };
 
 function GridIcon() {
   return (
@@ -148,35 +147,35 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
   return (
     <div ref={rootRef} className="relative canvas-node" data-testid={`video-edit-node-${id}`}>
       <div
-        className="bg-white rounded-lg overflow-hidden"
+        className="bg-surface rounded-lg overflow-hidden"
         style={{
           width: 316,
-          border: '1px solid #E5E7EB',
+          border: '1px solid var(--fw-border)', // #E5E7EB 巧合等值：浅档等值/深档变更（双向预期标注，spec §11.2）
           margin: 2,
-          ...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}),
+          ...(selected ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' } : {}), // selectionTokens 交互态双值另行处理
         }}
       >
         <NodeHandle type="target" testId="video-edit-target" />
         {/* 标题栏 */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#F0F0F0]">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-overlay-1">
           <GridIcon />
-          <span className="text-[14px] font-medium text-[#1F2329]">多轨道剪辑</span>
+          <span className="text-[14px] font-medium text-text">多轨道剪辑</span>
         </div>
         {/* 工具栏：迷你播放 + 简略时间码 + 全屏编辑 */}
         <div className="flex items-center gap-2 px-3 py-1.5">
           <button type="button" data-testid="node-play-btn"
             disabled={!canPreview || !projectData}
             onClick={() => { if (miniPlaying) stopMini(); else void startMini(); }}
-            className={`text-[12px] bg-transparent border-0 px-1 ${canPreview && projectData ? 'text-[#6C5CE7]' : 'text-[#C9CDD4] cursor-not-allowed'}`}>
+            className={`text-[12px] bg-transparent border-0 px-1 ${canPreview && projectData ? 'text-[var(--ve-accent-text)]' : 'text-text-dim-2 cursor-not-allowed'}`}>
             {miniPlaying ? '⏸' : '▶'}
           </button>
-          <span className="text-[12px] text-[#86909C]">{formatShortTime(0)} / {formatShortTime(dur)}</span>
+          <span className="text-[12px] text-text-dim-3">{formatShortTime(0)} / {formatShortTime(dur)}</span>
           <Tooltip title={canPreview ? '' : '当前浏览器不支持 WebCodecs，请使用最新版 Chrome/Edge'}>
             {/* disabled 控件不派发鼠标事件（Chromium 行为）且 antd5 Trigger 无 disabled 兼容包裹——span 包裹使 hover 可达（review C1） */}
             <span className="ml-auto inline-flex">
               <button
                 type="button"
-                className="text-[12px] text-[#6C5CE7] border-0 px-1 py-0.5 disabled:text-[#C9CDD4] disabled:cursor-not-allowed"
+                className="text-[12px] text-[var(--ve-accent-text)] border-0 px-1 py-0.5 disabled:text-text-dim-2 disabled:cursor-not-allowed"
                 disabled={!canPreview}
                 onClick={() => openEditor(id)}
               >
@@ -198,21 +197,21 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
           <div className="px-3 pb-3 flex flex-col gap-1" data-testid="node-track-thumb">
             {projectData && projectData.tracks.length > 0 ? (
               projectData.tracks.map((t) => (
-                <div key={t.id} className="relative h-[6px] rounded-sm bg-[#F2F3F5] overflow-hidden" data-testid={`node-track-${t.id}`}>
+                <div key={t.id} className="relative h-[6px] rounded-sm bg-surface-dim overflow-hidden" data-testid={`node-track-${t.id}`}>
                   {t.clips.map((cid) => {
                     const c = projectData.clips[cid];
                     if (!c) return null;
                     return (
                       <div key={cid} data-testid={`node-clip-${cid}`}
                         className="absolute top-0 bottom-0 rounded-sm"
-                        style={{ left: c.start * ratio, width: Math.max(2, c.duration * ratio), background: TRACK_COLORS[c.type] ?? '#6C5CE7' }} />
+                        style={{ left: c.start * ratio, width: Math.max(2, c.duration * ratio), background: TRACK_BAR_COLORS[c.type] ?? '#6C5CE7' }} />
                     );
                   })}
                 </div>
               ))
             ) : (
-              <div className="h-[28px] rounded-md border border-dashed border-[#E5E7EB] flex items-center justify-center">
-                <span className="text-[12px] text-[#86909C]">+ 添加素材</span>
+              <div className="h-[28px] rounded-md border border-dashed border-overlay-2 flex items-center justify-center">
+                <span className="text-[12px] text-text-dim-3">+ 添加素材</span>
               </div>
             )}
           </div>
