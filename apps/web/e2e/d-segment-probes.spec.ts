@@ -89,10 +89,12 @@ test.describe('D-1 画板域（D0-0 钉深；D2 已翻浅）', () => {
       // ⚠ gate 节点 type='videoGen'（gate-seed.ts:27）→ VideoGenNode：根 .canvas-node(:607) 无底色，
       // 卡面在 :718 bg-[#222222]——选择器必须锚卡面 div 非 .canvas-node 根，
       // 照抄 locator('div').first() 会钉到根 div 的 rgba(0,0,0,0)=与主题无关的假守卫（第五轮 P0-1）。
-      // 后裔选择器实命中卡面(:718)与其内层内容盒(:730)两枚 div.rounded-lg——.first() 取文档序首个=卡面本体
-      // （与 D-0 发现步 querySelector 首个同元素）；缺 .first() 则 locator.evaluate 双命中 strict 报错
+      // 后裔选择器实命中卡面与其内层内容盒两枚 div.rounded-lg——.first() 取文档序首个=卡面本体
+      // （与 D-0 发现步 querySelector 首个同元素）；缺 .first() 则 locator.evaluate 双命中 strict 报错。
+      // C8 Task 22 D3-board：卡面 #222222→bg-surface——浅档白卡 rgb(255, 255, 255)（--fw-surface 浅值）；
+      // 行号注释随迁移漂移作废，定位按结构锚（.canvas-node 后裔 div.rounded-lg 文档序首个）
       const card = page.locator('.react-flow__node[data-id="gate-node-1"] .canvas-node div.rounded-lg').first();
-      expect(await bgOf(card)).toBe('rgb(34, 34, 34)'); // ← Step 4 落盘发现值后照盘填（异值以发现为准）；D3-画板 → 'rgb(255, 255, 255)'（浅档白卡，本组恒 html.light 注入）
+      expect(await bgOf(card)).toBe('rgb(255, 255, 255)'); // 浅档白卡（--fw-surface 浅值，本组恒 html.light 注入）
     } finally { await ctx.close(); }
   });
 

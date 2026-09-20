@@ -101,7 +101,7 @@ function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
       <button style={menuItem(!canPaste)} disabled={!canPaste} onClick={handlePaste}>
         粘贴
       </button>
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+      <div style={{ height: 1, background: 'var(--fw-overlay-2)', margin: '4px 0' }} />
       <button
         style={menuItem()}
         onClick={handleDelete}

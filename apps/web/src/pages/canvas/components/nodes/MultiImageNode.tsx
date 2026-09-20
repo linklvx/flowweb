@@ -275,7 +275,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
 
       {/* Card body — isolation creates stacking context for internal z-index layers */}
       <div
-        className="bg-[#222222] rounded-lg transition-colors"
+        className="bg-surface rounded-lg transition-colors"
         style={{
           isolation: 'isolate',
           width: containerWidth,
@@ -410,7 +410,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
           className="absolute inset-0 rounded-lg pointer-events-none"
           style={{
             zIndex: 20,
-            border: selected ? '3px solid #9CA3AF' : '1px solid #3F3F46',
+            border: selected ? '3px solid #9CA3AF' : '1px solid var(--fw-border)',
           }}
         />
       </div>

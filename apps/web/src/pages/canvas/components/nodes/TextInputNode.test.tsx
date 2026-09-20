@@ -203,7 +203,7 @@ describe('TextInputNode (Tiptap)', () => {
     const overlay = document.querySelector('[data-testid="border-overlay"]');
     expect(overlay).not.toBeNull();
     const styleAttr = (overlay as HTMLElement).getAttribute('style') || '';
-    expect(styleAttr).toContain('rgb(63, 63, 70)');
+    expect(styleAttr).toContain('var(--fw-border)');
     expect(styleAttr).toContain('1px');
   });
 
@@ -219,7 +219,7 @@ describe('TextInputNode (Tiptap)', () => {
 
   it('should apply bgColor to editor area wrapper (not just editor)', () => {
     const { container } = renderNode();
-    const cardBody = container.querySelector('[class*="bg-\\[\\#222222\\]"]');
+    const cardBody = container.querySelector('[class*="bg-surface"]');
     const p3Div = cardBody?.querySelector('[class*="py-3"][class*="pl-3"]') as HTMLElement;
     expect(p3Div).toBeTruthy();
   });
@@ -279,7 +279,7 @@ describe('TextInputNode (Tiptap)', () => {
 
   it('should use default dimensions 300x300 when node has no width/height', () => {
     const { container } = renderNode();
-    const card = container.querySelector('[class*="bg-\\[\\#222222\\]"]') as HTMLElement;
+    const card = container.querySelector('[class*="bg-surface"]') as HTMLElement;
     const style = card?.getAttribute('style') || '';
     expect(style).toContain('width: 300px');
     expect(style).toContain('height: 300px');

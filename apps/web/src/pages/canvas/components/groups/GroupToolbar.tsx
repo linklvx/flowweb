@@ -77,6 +77,6 @@ function ConvertButton({ p }: { p: Props }) {
   return <button style={btn(disabled)} disabled={disabled} onClick={() => !disabled && p.onConvert(p.groupId, 'storyboard')} title={p.convertible === false ? '仅包含图片节点的组可转为分镜组' : undefined}>▦ 转分镜组</button>;
 }
 
-const Sep = () => <span style={{ color: 'rgba(255,255,255,0.1)', padding: '0 4px' }}>│</span>;
+const Sep = () => <span style={{ color: 'var(--canvas-controls-icon)', padding: '0 4px' }}>│</span>;
 
 export const GroupToolbar = memo(GroupToolbarComponent);

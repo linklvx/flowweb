@@ -78,8 +78,8 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
           style={{
             position: 'absolute', top: 0, left: 0, transform: 'translateY(calc(-100% - 10px))',
             width: 140, zIndex: 2,
-            fontSize: 13, color: '#fff', background: '#1a1a1a',
-            border: '1px solid #555', borderRadius: 4, padding: '2px 6px', outline: 'none',
+            fontSize: 13, color: 'var(--canvas-controls-text)', background: 'var(--canvas-controls-bg)',
+            border: '1px solid var(--canvas-controls-border)', borderRadius: 4, padding: '2px 6px', outline: 'none',
           }}
         />
       ) : (

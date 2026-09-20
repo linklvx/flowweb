@@ -90,7 +90,7 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
             ⊞ 打组 ▾
           </button>
           {open && (
-            <div className="absolute top-full mt-1 left-0" style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, minWidth: 140 }}>
+            <div className="absolute top-full mt-1 left-0" style={{ background: 'var(--canvas-controls-bg)', border: '1px solid var(--canvas-controls-border)', borderRadius: 6, minWidth: 140 }}>
               <button disabled={hasGroup} onClick={handleGroup}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
                          background: 'none', border: 'none', color: hasGroup ? '#666' : '#fff', cursor: hasGroup ? 'not-allowed' : 'pointer' }}>

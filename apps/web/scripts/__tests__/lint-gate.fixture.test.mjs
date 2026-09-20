@@ -74,13 +74,18 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
     expect(messages[0].ruleId).toBe(THEME_RULE_ID);
   });
 
-  it('跟随域 text-black 判违例；白名单域（board 节点）放行', () => {
+  it('跟随域 text-black 判违例；白名单精确条目放行、已迁移画板文件仍拦（C8 Task 22 摘 nodes/edges/groups 目录条目后形态）', () => {
     expect(
       lintThemeFixture("const cls = 'text-black';", 'src/pages/settings/Profile.tsx'),
     ).toHaveLength(1);
+    // 精确条目 {glob,allow:['bg','text','border']} 含 text 族 → 放行
+    expect(
+      lintThemeFixture("const cls = 'text-black';", 'src/pages/canvas/components/nodes/VideoGenNode.tsx'),
+    ).toHaveLength(0);
+    // 已迁移的画板面板文件不在白名单：目录放行已成历史，text-black 判违例
     expect(
       lintThemeFixture("const cls = 'text-black';", 'src/pages/canvas/components/nodes/TextConfigPanel.tsx'),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
 
   it('变体前缀天然命中：hover:text-white 被拦（与 hover:bg-[#…] 同口径）', () => {

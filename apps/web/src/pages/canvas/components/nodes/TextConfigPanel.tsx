@@ -161,17 +161,17 @@ function TextConfigPanelComponent({ nodeId }: Props) {
 
   return (
     <div
-      className={`nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative ${maximized ? 'h-[350px]' : 'h-[140px]'}`}
+      className={`nodrag bg-[var(--canvas-controls-bg)] rounded-xl w-[650px] shadow-xl relative ${maximized ? 'h-[350px]' : 'h-[140px]'}`}
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
-        border: '1px solid #3F3F46',
+        border: '1px solid var(--canvas-controls-border)',
       }}
     >
       {/* Maximize / Restore button — top-right corner */}
       <button
         type="button"
-        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-white/60 shadow-none outline-none"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-text-dim-3 shadow-none outline-none"
         data-testid="canvas-node-text-config-panel-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}
@@ -213,7 +213,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
               type="button"
               data-testid="canvas-node-text-model-select"
               onClick={(e) => { e.stopPropagation(); setModelOpen((v) => !v); }}
-              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
+              className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-overlay-2 active:bg-overlay-2 px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0">
                 <path d="M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.21841 15.0029 8.76562C15.2029 8.8518 15.4064 8.9289 15.6113 9.00195C14.0914 9.54303 12.7055 10.4153 11.5576 11.5605L11.5566 11.5615C10.412 12.7102 9.5406 14.0963 8.99902 15.6162C8.45764 14.0958 7.58633 12.7095 6.44043 11.5615L6.43945 11.5605L6.17578 11.3066C5.08059 10.2858 3.78911 9.50275 2.38281 9.00195C3.90333 8.45997 5.29032 7.58857 6.43945 6.44336L6.44043 6.44238C7.58587 5.29322 8.45678 3.90579 8.99805 2.38477Z" stroke="#A3A3A3" strokeWidth="1.33" />
@@ -222,7 +222,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             </button>
             {modelOpen && (
               <div
-                className="absolute left-0 bottom-full mb-1 bg-[#2a2a2a] border border-white/[0.1] rounded-lg py-1 shadow-xl z-50 min-w-[160px]"
+                className="absolute left-0 bottom-full mb-1 bg-[#2a2a2a] border border-overlay-2 rounded-lg py-1 shadow-xl z-50 min-w-[160px]"
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {models.map((m) => (
@@ -230,8 +230,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
                     key={m.id}
                     type="button"
                     onClick={() => handleModelSelect(m.id)}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/10 bg-transparent text-[#ccc] ${
-                      m.id === model ? 'bg-white/10' : ''
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-overlay-2 bg-transparent text-[#ccc] ${
+                      m.id === model ? 'bg-overlay-2' : ''
                     }`}
                   >
                     {m.name}
@@ -245,8 +245,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             <button
               aria-label="语音输入"
               onClick={toggleVoice}
-              className={`size-7 shrink-0 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed ${
-                listening ? 'bg-white/20 text-[#4ade80]' : 'bg-transparent text-white/70'
+              className={`size-7 shrink-0 flex items-center justify-center rounded-lg transition-colors hover:bg-overlay-2 active:bg-overlay-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                listening ? 'bg-overlay-3 text-[var(--fw-accent-text)]' : 'bg-transparent text-text-dim-3'
               }`}
               title={listening ? '停止录音' : '语音输入'}
             >
@@ -255,7 +255,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
               </svg>
             </button>
             {/* Divider */}
-            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <span className="flex shrink-0 items-center gap-[2px] text-[#919191]">
               <svg width="10" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="pointer-events-none">
                 <g transform="translate(2.2857 0) scale(0.933347)">
@@ -267,7 +267,7 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             <button
               onClick={handleGenerate}
               disabled={executing}
-              className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[#3a3a3a] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--canvas-controls-bg)] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {executing ? '⏳' : (
                 <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-3 text-[#999]" width="12" height="12" viewBox="0 0 18 18">

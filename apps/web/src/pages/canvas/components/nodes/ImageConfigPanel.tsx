@@ -88,17 +88,17 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
 
   return (
     <div
-      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative"
+      className="nodrag bg-[var(--canvas-controls-bg)] rounded-xl w-[650px] shadow-xl relative"
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
-        border: '1px solid #3F3F46',
+        border: '1px solid var(--canvas-controls-border)',
       }}
     >
       {/* Maximize / Restore button — top-right corner */}
       <button
         type="button"
-        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-white/60 shadow-none outline-none"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-text-dim-3 shadow-none outline-none"
         data-testid="canvas-node-generation-input-bar-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}
@@ -134,7 +134,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
               selectedId={model}
               onSelect={(modelId) => updateConfig(nodeId, { model: modelId } as any)}
             />
-            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <RatioResolutionPopover
               ratioOptions={RATIO_OPTIONS}
               ratio={ratio}
@@ -149,7 +149,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
               onChange={setGenerateCount}
               disabled={status === 'loading'}
             />
-            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <CreditDisplay cost={creditCost} />
             <RunButton loading={executing} onClick={handleGenerate} disabled={status === 'loading'} />
           </div>

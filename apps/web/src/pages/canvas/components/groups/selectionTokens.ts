@@ -1,9 +1,10 @@
 // apps/web/src/pages/canvas/components/groups/selectionTokens.ts
 import type { CSSProperties } from 'react';
 
-/** 多选容器框（viewport 外 overlay，屏幕坐标）——mockup 亲选参数 */
+/** 多选容器框（viewport 外 overlay，屏幕坐标）——mockup 亲选参数
+ * C8 D3-board：选框描边改 --fw-text 双值（深 rgb(226,232,240)/浅 rgb(31,35,41)）——原 rgba(255,255,255,0.65) 浅档白底上不可见 */
 export const SELECTION_BOX = {
-  borderColor: 'rgba(255,255,255,0.65)',
+  borderColor: 'var(--fw-text)',
   borderStyle: 'dashed' as const,
   borderWidth: 2,
   borderRadius: 8,
@@ -13,13 +14,13 @@ export const SELECTION_BOX = {
   titleExtra: 26,
 };
 
-/** 组块容器（RF 节点内，流坐标）——单层虚线深色 */
+/** 组块容器（RF 节点内，流坐标）——双值虚线（浅档防选中框消失）；底随 chrome（#1a1a1a 族） */
 export const GROUP_BOX = {
-  border: 'rgba(255,255,255,0.45)',
-  selectedBorder: 'rgba(255,255,255,0.85)',
+  border: 'var(--fw-text-dim-3)',
+  selectedBorder: 'var(--fw-text)',
   borderWidth: 2,
   borderRadius: 10,
-  background: 'rgba(26,26,26,0.6)',
+  background: 'var(--canvas-controls-bg)',
 };
 
 /** 数量徽标（多选框左上角 / 组标题旁共用） */

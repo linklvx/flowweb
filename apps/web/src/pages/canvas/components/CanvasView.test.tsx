@@ -177,13 +177,13 @@ describe('CanvasView', () => {
     expect(document.querySelector('.react-flow__minimap')).toBeNull();
     // Click minimap toggle
     fireEvent.click(document.querySelector('[aria-label="切换小地图"]')!);
-    // MiniMap should be rendered with lighter background
+    // MiniMap should be rendered with themed background
     const minimap = document.querySelector('.react-flow__minimap')!;
     expect(minimap).toBeInTheDocument();
     const styleAttr = minimap.getAttribute('style') || '';
     expect(styleAttr).toContain('background');
-    // Background should be lighter than the old rgb(28,28,28) — use rgb(50,50,50)
-    expect(styleAttr).toContain('rgb(50, 50, 50)');
+    // C8 D3-board：底/边双值化——jsdom 读回 verbatim var() 串（深 rgb(38,38,38) 字节等值/浅 #f0f1f2）
+    expect(styleAttr).toContain('var(--canvas-controls-bg)');
   });
 
   it('should enable snap to grid when snap button toggled', () => {

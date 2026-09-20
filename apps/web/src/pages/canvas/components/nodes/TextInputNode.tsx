@@ -170,7 +170,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
       {/* Card body */}
       <div
-        className="relative z-0 bg-[#222222] rounded-lg transition-colors overflow-hidden"
+        className="relative z-0 bg-surface rounded-lg transition-colors overflow-hidden"
         style={{ width: nodeWidth, height: nodeHeight, isolation: 'isolate' }}
       >
         <div className="absolute inset-0 py-3 pl-3 pr-[3px] rounded-lg transition-colors flex flex-col overflow-hidden" style={{ backgroundColor: bgColor || undefined }}>
@@ -190,7 +190,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           className="absolute inset-0 rounded-lg pointer-events-none"
           style={{
             zIndex: 5,
-            border: selected ? '3px solid #9CA3AF' : '1px solid #3F3F46',
+            border: selected ? '3px solid #9CA3AF' : '1px solid var(--fw-border)',
           }}
         />
       </div>

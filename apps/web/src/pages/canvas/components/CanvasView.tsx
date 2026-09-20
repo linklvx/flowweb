@@ -389,11 +389,13 @@ function CanvasViewComponent(_props: Props) {
     style={{
       width: 160,
       height: 120,
-      backgroundColor: 'rgb(50, 50, 50)',
-      border: '0.5px solid rgb(70, 70, 70)',
+      // C8 D3-board：底/边双值化（深档 50→38/70→51 可见变暗——minimapOpen 默认 false 采集态不渲染，adjudications 登记）
+      backgroundColor: 'var(--canvas-controls-bg)',
+      border: '0.5px solid var(--canvas-controls-border)',
       borderRadius: '8px',
     }}
-    nodeColor={() => 'rgb(160, 160, 160)'}
+    // nodeColor 落 SVG 属性禁 var()——JS 分支取色（深 160 字面不变零 diff；浅 #6b7280 与 controls-icon 浅值同源）
+    nodeColor={() => (mode === 'dark' ? 'rgb(160, 160, 160)' : 'rgb(107, 114, 128)')}
     maskColor="rgba(0, 0, 0, 0.35)"
   />
 )}
@@ -457,7 +459,7 @@ function CanvasViewComponent(_props: Props) {
             const indexBtn = (enabled: boolean): React.CSSProperties => ({
               background: enabled ? 'rgba(74,222,128,0.15)' : 'none',
               border: 'none',
-              color: enabled ? '#4ade80' : '#fff',
+              color: enabled ? 'var(--fw-accent-text)' : 'var(--fw-text-dim-3)', // C8 D3-board：两分支主题化（浅档白字白底不可见；accent 深值字节等值）
               fontWeight: enabled ? 600 : 'normal',
               padding: '6px 10px',
               borderRadius: 6,

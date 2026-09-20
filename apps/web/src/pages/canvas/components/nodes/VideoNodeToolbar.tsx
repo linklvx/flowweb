@@ -216,7 +216,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-white/10"
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-overlay-2"
                     style={{
                       color: 'rgba(255,255,255,0.9)',
                       border: 'none',
@@ -238,7 +238,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-white/10"
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-overlay-2"
                     style={{
                       color: 'rgba(255,255,255,0.9)',
                       border: 'none',
@@ -291,7 +291,7 @@ function VideoNodeToolbarComponent({ show, onFullscreen, fullscreenTriggerRef, o
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-white/10"
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-[13px] leading-[20px] font-medium transition-colors hover:bg-overlay-2"
                     style={{
                       color: 'rgba(255,255,255,0.9)',
                       border: 'none',

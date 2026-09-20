@@ -88,8 +88,8 @@ describe('CanvasToolbar', () => {
       screen.getByLabelText('放大'),
     ];
     for (const btn of buttons) {
-      // 设计常量白名单（B 段登记）：画板工具栏 BTN_BG 内联常量（CanvasToolbar.tsx rgb(38,38,38)/rgb(58,58,58)，画板域恒深）
-      expect(btn.style.backgroundColor).toBe('rgb(38, 38, 38)');
+      // C8 D3-board：常态按钮底色统一 --canvas-controls-bg（jsdom getAttribute 返回 verbatim var() 串）
+      expect(btn.getAttribute('style')).toContain('var(--canvas-controls-bg)');
     }
   });
 
@@ -124,25 +124,33 @@ describe('CanvasToolbar', () => {
 
   it('should highlight minimap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
-    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
+    // 常态/激活永不同 token（BTN_BG vs BTN_BG_ACTIVE）
+    expect(screen.getByLabelText('切换小地图').getAttribute('style')).toContain('var(--canvas-controls-bg)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
+    expect(screen.getByLabelText('切换小地图').getAttribute('style')).toContain('var(--canvas-controls-active)');
   });
 
   it('should highlight snap button background when active', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} snapEnabled={false} />);
-    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
-    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(38, 38, 38)');
+    expect(screen.getByLabelText('网格吸附').getAttribute('style')).toContain('var(--canvas-controls-bg)');
     rerender(<CanvasToolbar {...defaultProps} snapEnabled={true} />);
-    expect(screen.getByLabelText('网格吸附').style.backgroundColor).toBe('rgb(58, 58, 58)');
+    expect(screen.getByLabelText('网格吸附').getAttribute('style')).toContain('var(--canvas-controls-active)');
   });
 
   it('should revert minimap button background when deactivated', () => {
     const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
-    // 设计常量白名单（B 段登记）：BTN_BG/BTN_BG_ACTIVE 按钮态底色
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(58, 58, 58)');
+    expect(screen.getByLabelText('切换小地图').getAttribute('style')).toContain('var(--canvas-controls-active)');
     rerender(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
-    expect(screen.getByLabelText('切换小地图').style.backgroundColor).toBe('rgb(38, 38, 38)');
+    expect(screen.getByLabelText('切换小地图').getAttribute('style')).toContain('var(--canvas-controls-bg)');
+  });
+
+  it('should use distinct tokens for normal vs active states (activability)', () => {
+    const { rerender } = render(<CanvasToolbar {...defaultProps} minimapOpen={false} />);
+    const normal = screen.getByLabelText('切换小地图').getAttribute('style');
+    rerender(<CanvasToolbar {...defaultProps} minimapOpen={true} />);
+    const active = screen.getByLabelText('切换小地图').getAttribute('style');
+    expect(normal).not.toBe(active);
+    expect(normal).toContain('var(--canvas-controls-bg)');
+    expect(active).toContain('var(--canvas-controls-active)');
   });
 });

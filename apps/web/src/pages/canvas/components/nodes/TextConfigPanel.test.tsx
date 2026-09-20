@@ -116,7 +116,7 @@ describe('TextConfigPanel', () => {
     render(<TextConfigPanel nodeId="n1" />);
     const btn = document.querySelector('[aria-label="语音输入"]')!;
     fireEvent.click(btn);
-    expect(btn.className).toContain('bg-white/20');
+    expect(btn.className).toContain('bg-overlay-3');
   });
 
   it('Task15：直接 enqueue（server doc 实时持久化，无 flush）', async () => {

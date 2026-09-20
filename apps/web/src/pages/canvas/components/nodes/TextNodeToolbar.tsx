@@ -157,7 +157,7 @@ function TextNodeToolbarComponent({ nodeId, editor, onBgColorChange, currentBgCo
 
   // Button base class + active state
   const btnClass = (active = false) =>
-    `flex items-center justify-center w-8 h-8 rounded-full hover:bg-white/10 transition-colors bg-transparent text-white/70 ${
+    `flex items-center justify-center w-8 h-8 rounded-full hover:bg-overlay-2 transition-colors bg-transparent text-white/70 ${
       active ? 'bg-white/20' : ''
     }`;
 

@@ -76,10 +76,10 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
   if (!open) return null;
 
   const btnBase =
-    'flex items-center justify-center focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed text-[#d4d4d4] hover:bg-white/10 rounded-md aspect-square h-7 w-7 p-0 transition-colors';
+    'flex items-center justify-center focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed text-[#d4d4d4] hover:bg-overlay-2 rounded-md aspect-square h-7 w-7 p-0 transition-colors';
 
   const btnActive = (active: boolean) =>
-    `${btnBase} ${active ? 'bg-white/20' : ''}`;
+    `${btnBase} ${active ? 'bg-overlay-3' : ''}`;
 
   return createPortal(
     <div
@@ -91,11 +91,11 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
       }}
     >
       <div
-        className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl h-[calc(100vh-100px)] flex flex-col gap-0 rounded-xl overflow-hidden border-2 border-[#3F3F46] bg-[#272729] shadow-2xl"
+        className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl h-[calc(100vh-100px)] flex flex-col gap-0 rounded-xl overflow-hidden border-2 border-[var(--fw-border)] bg-surface shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Top toolbar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-white/[0.08] shrink-0">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-overlay-2 shrink-0">
           {/* Left: Copy */}
           <button aria-label="复制" className={btnBase} onClick={handleCopy} title="复制">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -106,7 +106,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
 
           {/* Center: formatting */}
           <div className="flex-1 flex items-center justify-center gap-0.5">
-            <div className="flex items-center bg-white/5 rounded-md p-0.5 gap-0.5">
+            <div className="flex items-center bg-overlay-1 rounded-md p-0.5 gap-0.5">
               <button aria-label="标题 1" className={btnActive(isActive('heading', { level: 1 }))} onClick={handleH1} title="标题 1">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M19 18v-8l-2 2" /><path d="M4 6v12" /><path d="M12 6v12" /><path d="M11 18h2" /><path d="M3 18h2" /><path d="M4 12h8" /><path d="M3 6h2" /><path d="M11 6h2" />
@@ -129,7 +129,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
               </button>
             </div>
 
-            <div className="w-px h-5 bg-white/10 mx-1" />
+            <div className="w-px h-5 bg-overlay-2 mx-1" />
 
             <div className="flex items-center gap-0.5">
               <button aria-label="加粗" className={btnActive(isActive('bold'))} onClick={handleBold} title="加粗">
@@ -144,9 +144,9 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
               </button>
             </div>
 
-            <div className="w-px h-5 bg-white/10 mx-1" />
+            <div className="w-px h-5 bg-overlay-2 mx-1" />
 
-            <div className="flex items-center bg-white/5 rounded-md p-0.5 gap-0.5">
+            <div className="flex items-center bg-overlay-1 rounded-md p-0.5 gap-0.5">
               <button aria-label="无序列表" className={btnActive(isActive('bulletList'))} onClick={handleUl} title="无序列表">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 6l11 0" /><path d="M9 12l11 0" /><path d="M9 18l11 0" /><path d="M5 6l0 .01" /><path d="M5 12l0 .01" /><path d="M5 18l0 .01" />
@@ -159,7 +159,7 @@ function TextNodeFullscreenComponent({ editor, open, onClose }: Props) {
               </button>
             </div>
 
-            <div className="w-px h-5 bg-white/10 mx-1" />
+            <div className="w-px h-5 bg-overlay-2 mx-1" />
 
             <button aria-label="分割线" className={btnBase} onClick={handleHr} title="分割线">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

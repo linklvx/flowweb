@@ -85,20 +85,21 @@ describe('StoryboardGroupRenderer', () => {
     expect(root.style.gap).toBe('3px');
   });
 
-  it('组框边框恒定深色（选中态无高亮边框，选中反馈仅有上方悬浮工具条）', () => {
+  it('组框边框随主题双值（选中态无高亮边框，选中反馈仅有上方悬浮工具条）', () => {
     const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
     const root = container.firstElementChild as HTMLElement;
-    // 设计常量白名单（B 段登记）：分镜组框恒定深边 #333（board 画板域 D4 恒深字面值）
-    expect(root.style.borderColor).toBe('rgb(51, 51, 51)');
+    // C8 D3-board：组边框随 controls-border 双值（深 rgb(51,51,51)/浅 rgb(229,231,235)）——
+    // jsdom 对含 var() 的 shorthand 不展开 longhand（borderColor 读回空串），断言 verbatim shorthand 串
+    expect(root.style.border).toBe('1px solid var(--canvas-controls-border)');
   });
 
-  it('格子选中态边框为乳白色 1px', () => {
+  it('格子选中态边框随前景双值 1px（浅档防选中框消失）', () => {
     const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
     const cell = (container.firstElementChild as HTMLElement).children[0] as HTMLElement;
     fireEvent.click(cell);
-    expect(cell.style.borderWidth).toBe('1px');
-    // 设计常量白名单（B 段登记）：格子选中乳白边 rgb(255,255,240)（board 画板域 D4 恒深字面值）
-    expect(cell.style.borderColor).toBe('rgb(255, 255, 240)');
+    // C8 D3-board：选中格边随 --fw-text 双值（深 rgb(226,232,240)/浅 rgb(31,35,41)）——
+    // jsdom 对含 var() 的 shorthand 不展开 longhand（borderWidth/borderColor 读回空串），断言 verbatim shorthand 串
+    expect(cell.style.border).toBe('1px solid var(--fw-text)');
   });
 
   it('标题浮层在容器外右上角（translateY(-100%)，与普通组/节点标题一致）', () => {

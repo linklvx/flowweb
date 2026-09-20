@@ -36,8 +36,8 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes }: Props) {
       // absolute inset:0 覆盖整个节点盒——RF .react-flow__node-group 自带 padding:10px，
       // 静态 100% 尺寸会相对 padding 后的内容盒布局导致格子溢出节点边界
       position: 'absolute', inset: 0,
-      border: '1px solid #333333', borderRadius: 8,
-      background: '#1a1a1a',
+      border: '1px solid var(--canvas-controls-border)', borderRadius: 8,
+      background: 'var(--canvas-controls-bg)',
       display: 'grid',
       gridTemplateColumns: `repeat(${cfg.gridCols}, 1fr)`,
       gridTemplateRows: `repeat(${cfg.gridRows}, 1fr)`,

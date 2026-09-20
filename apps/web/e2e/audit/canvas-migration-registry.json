@@ -2036,6 +2036,116 @@
    "deep": "跨域前缀键消费登记（附录 B 绊线清单）：text-[var(--ve-accent-text)]/disabled:text-text-dim-2——画布域反向消费 ve 前缀键 --ve-accent-text。与 Task 15「ve 域 var(--canvas- 0 命中」域纪律读起来对称：前者=画布域可消费 ve 键的显式登记，后者=ve 域禁消费 canvas 键。裁定=品牌紫全仓同源单键，不另造 --fw-brand-text 别名防双键同值漂移；重命名/拆包时此条是绊线。深档 diff rgb(108,92,231)→rgb(155,140,247) 由既有 P9 page:video-editor 对吸收（同页同值对）；浅档 rgb(108,92,231)→rgb(95,79,209) 同由 Task 21 accent-text 浅侧对吸收",
    "light": "浅档消费 --ve-accent-text 浅值 #5F4FD1=品牌紫文字档在浅底的既定语义",
    "ruling": "四通道=品牌通道文字档；disabled 分支 text-text-dim-2 双值键（采集态若按钮 disabled 另出 rgb(201,205,212) 对——segcheck 实测定）"
+  },
+  {
+   "id": "D3board-toolbar-hover-active",
+   "file": "src/pages/canvas/components/CanvasToolbar.tsx",
+   "ruling": "hover/active 态 bg-white 系→--fw-overlay-2/3：hover 态不进采集快照（无指针事件）→深浅两档均零 diff；三态序（常态 controls-bg < hover overlay-2 < active overlay-3）由单测 activability 断言承保（同 NodePalette :46 裁定）"
+  },
+  {
+   "id": "D3board-node-floats",
+   "file": "src/pages/canvas/components/nodes/*.tsx",
+   "ruling": "VideoGenNode:623/:756、AudioGenNode:128、MultiImageNode:207、ImageNodeToolbar:402 白系浮标保留：isSingleSelected 单选才渲染→采集态不可见→无 diff；白名单 {glob,allow} 精确条目放行（registry 镜像同步）"
+  },
+  {
+   "id": "D3board-panel-buttons-invisible",
+   "file": "src/pages/canvas/components/nodes/*ConfigPanel.tsx",
+   "ruling": "六配置面板 A 组按钮（RunButton/GenerateCountSelector/ModelSelector/RatioResolutionPopover）alpha 收敛（bg-white/10→overlay-2 等）：面板仅 selected 渲染→采集态不可见→深浅均无 diff"
+  },
+  {
+   "id": "D3board-multi-badge-keep",
+   "file": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
+   "ruling": ":292/:322/:327/:329/:359/:394 琥珀徽章/黑罩/内沿边保留：压媒体与图形档语义面（白名单 allow bg,text,border）"
+  },
+  {
+   "id": "D3board-textnode-toolbar-swatch",
+   "file": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+   "ruling": "E 组 #3a3a3a 色板保留：色板字面=内容语义（用户可选颜色样例），非主题跟随面；#3a3a3a 族按 Task 22 计划归入保留"
+  },
+  {
+   "id": "D3board-audiowaveform-keep",
+   "file": "src/pages/canvas/components/nodes/AudioWaveform.tsx",
+   "ruling": "#38bdf8 波形色 :202/:211/:234/:238 + 播放钮 #3a3a3a 保留：波形=内容语义色；播放钮采集态不可达→无 diff"
+  },
+  {
+   "id": "D3board-kbd-shortcuts-cyan",
+   "file": "src/pages/canvas/components/KeyboardShortcutsPanel.tsx",
+   "ruling": "#5DDCFF ~20 处 stroke 保留：模态未开不渲染→采集不可见；stroke 不在 computedPropertySet 盲区，Task 27 B6 兜底"
+  },
+  {
+   "id": "D3board-nodepalette-stroke",
+   "file": "src/pages/canvas/components/NodePalette.tsx",
+   "ruling": "快捷键 svg stroke white→var(--canvas-controls-icon)：SVG 属性禁 var()，经 style color+currentColor 双值化；stroke 不在采集 computedPropertySet→深浅均无 diff（像素快照可见，像素参照再固化覆盖）"
+  },
+  {
+   "id": "D3board-minimap-conditional",
+   "file": "src/pages/canvas/components/CanvasView.tsx",
+   "ruling": "MiniMap 底/边双值化（controls-bg/border）+ nodeColor JS 分支：minimapOpen 默认 false→采集态不渲染→无 diff；深侧底/边/节点色全部字节等值，浅侧若未来开启采集其 backgroundColor/borderColor diff 与全局 controls 族浅对同值天然配对"
+  },
+  {
+   "id": "D3board-canvasview-group-btn",
+   "file": "src/pages/canvas/components/CanvasView.tsx",
+   "ruling": ":459-468 indexBtn 双分支（accent-text/text-dim-3）主题化：组工具条仅选中组渲染，gate 采集页无分组节点→不可见→无 diff"
+  },
+  {
+   "id": "D3board-replace-media-buttons",
+   "file": "src/pages/canvas/components/nodes/*.tsx",
+   "ruling": "ImageGenNode:1227 替换图片钮/AudioGenNode:242 替换音频钮（bg-white 反白钮）：完成态/单选才渲染→采集不可见→无 diff；压媒体浮层语义保留（白名单）"
+  },
+  {
+   "id": "D3board-dropdown-2a2a2a",
+   "file": "src/pages/canvas/components/nodes/config-panel/*",
+   "ruling": "面板内 #2a2a2a 下拉菜单层恒深自持未迁移：弹层采集态不可见；遗留登记 Task 27 B6 兜底"
+  },
+  {
+   "id": "D3board-panel-shells-invisible",
+   "file": "src/pages/canvas/components/nodes/*ConfigPanel.tsx",
+   "ruling": "六配置面板壳（nodrag bg-[var(--canvas-controls-bg)]+controls-border）：面板仅 selected 渲染→深浅均无 diff；浅侧 #f0f1f2 值域与全局 canvas controls-bg 浅对同值"
+  },
+  {
+   "id": "D3board-fullscreen-keeps",
+   "file": "src/pages/canvas/components/nodes/*Fullscreen*.tsx",
+   "ruling": "TextNodeFullscreen:88 scrim + Image/VideoFullscreenViewer bg/text/border 白系：全屏压媒体第四通道恒深自持（白名单精确条目）；模态采集态关闭不可见"
+  },
+  {
+   "id": "D3board-addnode-menu",
+   "file": "src/pages/canvas/components/AddNodeMenu.tsx",
+   "ruling": "#f7f7f7 恒定亮面保留：右键菜单采集态未触发→不可见；恒定亮面两档成立（深侧 #f7f7f7 在深板面上对比度足）"
+  },
+  {
+   "id": "D3board-outpaint-grid",
+   "file": "src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx",
+   "ruling": "bg-white/30 三分网格线保留（spec §11.1 点名）：overlay 仅 outpaint 变换时渲染→采集不可见"
+  },
+  {
+   "id": "D3board-erase-canvas-js",
+   "file": "src/pages/canvas/components/nodes/EraseCanvas.tsx",
+   "ruling": "ctx.fillStyle '#ffffff'/'#d0d0d0'/'rgba(0,0,0,1)'：JS 画布绘制通道（内容语义）非 CSS 面；computedPropertySet 比对不覆盖 canvas 像素→无 diff"
+  },
+  {
+   "id": "D3board-slider-white",
+   "file": "src/pages/canvas/components/nodes/EditToolbar.tsx",
+   "ruling": ":210/:477 + AnnotationToolbar:254/:276 白滑钮/border-white/20 保留：压恒深浮条图形面（白名单 allow bg/border）；工具条仅变换态渲染→采集不可见"
+  },
+  {
+   "id": "D3board-connection-badge",
+   "file": "src/pages/canvas/components/edges/ConnectionLine.tsx",
+   "ruling": "边删除徽章本体 #333/#ccc/#555 + hover:text-white 保留：恒深 badge 压画布；hover 不进快照；边在 gate 采集页无粒子边（videoGen 无边）→不可见"
+  },
+  {
+   "id": "D3board-groups-domain-invisible",
+   "file": "src/pages/canvas/components/groups/*",
+   "ruling": "groups 域全量迁移（GridSizeDropdown/AspectRatioDropdown/SelectionBoxOverlay/StitchButton/NormalGroupRenderer/StoryboardGroupRenderer/StoryboardCell/GroupContextMenu/GroupToolbar/selectionTokens）：gate 采集页无分组节点→整域不可见→无 diff；var() verbatim 串由单测承保（StoryboardGroupRenderer.test :88-102）"
+  },
+  {
+   "id": "D3board-selectionbox-pill",
+   "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx + selectionTokens.ts",
+   "ruling": "数量药丸 rgba(0,0,0,0.85) + BADGE #3f3f3f + HANDLE #fff/#666 保留：恒深自持徽标两档成立；多选态采集不可见；SELECTION_BOX/GROUP_BOX 边框已双值化（--fw-text/--fw-text-dim-3，浅档防选中框消失）"
+  },
+  {
+   "id": "D3board-nodepalette-addbtn",
+   "file": "src/pages/canvas/components/NodePalette.tsx",
+   "ruling": ":42 加号钮 bg-[#f7f7f7]/hover:#e0e0e0 恒定亮钮保留：深浅同值零 diff（产品语义恒定亮面）"
   }
  ],
  "differExpectedPairs": {
@@ -2320,6 +2430,92 @@
     "before": "rgb(229, 231, 235)",
     "after": "rgba(0, 0, 0, 0.06)",
     "why": "Task 22 VideoEditNode :214 border-overlay-2 浅档 0.06 黑蒙层"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(38, 38, 38)",
+    "after": "rgb(240, 241, 242)",
+    "why": "Task 22 画板 chrome 面 #262626→--canvas-controls-bg（CanvasToolbar :51/NodePalette 容器/六面板壳同值同源）：深值字节等值零 diff，浅侧 #f0f1f2 必变；video-editor 页同族已在 pair 20，本条 page 收窄防静默吸收"
+   },
+   {
+    "prop": "color",
+    "before": "rgb(160, 160, 160)",
+    "after": "rgb(107, 114, 128)",
+    "why": "Task 22 图标色 #a0a0a0→--canvas-controls-icon（CanvasToolbar 4 图标+NodePalette 4 图标 ×8 处）：深值字节等值，浅侧 #6B7280"
+   },
+   {
+    "prop": "color",
+    "before": "rgb(180, 180, 180)",
+    "after": "rgb(160, 160, 160)",
+    "why": "Task 22 CanvasToolbar 缩放百分比文字 #b4b4b4→--canvas-controls-icon 深侧收敛（Δ20 可见）"
+   },
+   {
+    "prop": "color",
+    "before": "rgb(180, 180, 180)",
+    "after": "rgb(107, 114, 128)",
+    "why": "Task 22 同位点浅侧：#b4b4b4→controls-icon 浅值 #6B7280（与深对同 before 异 after，按运行档各自匹配）"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(54, 54, 54)",
+    "after": "rgb(229, 231, 235)",
+    "why": "Task 22 CanvasToolbar :52+NodePalette 容器边 #363636→controls-border：深侧 Δ3 已被既有全局 borderColor 对吸收，浅侧 #e5e7eb 新登记（video-editor 同族已 pair 18）"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(34, 34, 34)",
+    "after": "rgb(30, 30, 30)",
+    "why": "Task 22 节点卡壳 #222222→bg-surface 深侧（VideoGenNode:718/:722、ImageGenNode:1134/:1142、MultiImageNode:278/:413、TextInputNode:173/:193、AudioGenNode:199/:202）"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(34, 34, 34)",
+    "after": "rgb(255, 255, 255)",
+    "why": "Task 22 同位点浅侧巨变：bg-surface 浅值 #ffffff"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(63, 63, 70)",
+    "after": "rgb(51, 51, 51)",
+    "why": "Task 22 节点卡边 #3F3F46→--fw-border 深侧（5 卡 ×2 位点）"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(63, 63, 70)",
+    "after": "rgb(229, 231, 235)",
+    "why": "Task 22 同位点浅侧：--fw-border 浅值 #e5e7eb"
+   },
+   {
+    "prop": "color",
+    "before": "rgba(255, 255, 255, 0.85)",
+    "after": "rgb(160, 160, 160)",
+    "why": "Task 22 NodePalette 快捷键 svg stroke=white→currentColor+style color=controls-icon：svg 原无显式 color（继承链 0.85 白），改后深侧 #a0a0a0 驱动 currentColor；同一 svg 随画板壳出现于 canvas/material-modal/video-editor 三页，全局配对"
+   },
+   {
+    "prop": "color",
+    "page": "video-editor",
+    "before": "rgb(201, 205, 212)",
+    "after": "rgba(255, 255, 255, 0.45)",
+    "why": "Commit 1(fe00ef5e) VideoEditNode P4 预览钮 text-[#C9CDD4]→text-text-dim-2（深 0.45 白）补登记——segcheck 深跑发现，page 收窄 video-editor（迷你播放器仅该页采集渲染）"
+   },
+   {
+    "prop": "color",
+    "before": "rgba(0, 0, 0, 0.88)",
+    "after": "rgb(107, 114, 128)",
+    "why": "Task 22 同一位点浅侧：快捷键 svg 浅档继承 0.88 黑→controls-icon 浅值 #6B7280（与深对同 svg 三页，全局配对）"
+   },
+   {
+    "prop": "color",
+    "page": "video-editor",
+    "before": "rgb(201, 205, 212)",
+    "after": "rgb(107, 114, 128)",
+    "why": "Commit 1 VideoEditNode P4 预览钮浅侧补登记：#C9CDD4→text-text-dim-2 浅值 #6b7280"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(58, 58, 58)",
+    "after": "rgb(38, 38, 38)",
+    "why": "Task 22 #3a3a3a A 组 5 钮（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467）→var(--canvas-controls-bg) 深档微变对（预登记——面板仅 selected 渲染，采集态不可见无 diff，对不触发属预期）"
    }
   ]
  },
@@ -2384,21 +2580,6 @@
    "glob": "src/pages/videos/__tests__/ProcessSnapshot.test.tsx",
    "allow": null,
    "why": "C8 Task 20：测试断言串 :96 bg-black/60 随恒深整块保留继续有效"
-  },
-  {
-   "glob": "src/pages/canvas/components/nodes/**",
-   "allow": null,
-   "why": "恒深域 React Flow 节点工具（→Task 22 摘除）"
-  },
-  {
-   "glob": "src/pages/canvas/components/edges/**",
-   "allow": null,
-   "why": "恒深域边（→Task 22 摘除）"
-  },
-  {
-   "glob": "src/pages/canvas/components/groups/**",
-   "allow": null,
-   "why": "恒深域分组（→Task 22 摘除）"
   },
   {
    "glob": "src/pages/canvas/video-editor/components/ExportModal.tsx",
@@ -2569,6 +2750,157 @@
     "bg"
    ],
    "why": "working list：:129 bg-black/60 scrim + :183/:208 bg-black/80 结果/错误遮罩（同 LightingModal）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/VideoGenNode.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：:623 选中浮标 + :756 替换视频钮（压媒体浮层，D3-board-node-floats；其余 text/bg/border 白系同浮标族）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/ImageGenNode.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：:1227 替换图片钮（压媒体浮层，D3-board-replace-media-buttons）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：:207 浮标 + :322/:329/:394 琥珀徽章 + :327 悬停黑罩 + :359 内沿边（压媒体/图形档，D3board-multi-badge-keep）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/AudioGenNode.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：:128 浮标 + :242 替换音频钮（压媒体浮层，D3-board-replace-media-buttons）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/VideoEditNode.tsx",
+   "allow": [
+    "bg"
+   ],
+   "why": "C8 Task 22：:193 bg-black 迷你画布垫底（JS 通道 #000 同源，D3-ve-content-data 跨域消费登记）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/ImageNodeToolbar.tsx",
+   "allow": [
+    "border"
+   ],
+   "why": "C8 Task 22：:402 选中浮标 border-white/10（压媒体浮层，D3-board-node-floats）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/EditToolbar.tsx",
+   "allow": [
+    "bg"
+   ],
+   "why": "C8 Task 22：:210 白滑钮 + :477 反白生成钮（压恒深浮条图形面，D3board-slider-white）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
+   "allow": [
+    "bg",
+    "border"
+   ],
+   "why": "C8 Task 22：:254 滑钮 border-white/20 + :276 白滑钮（压恒深浮条，D3board-slider-white）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx",
+   "allow": [
+    "bg"
+   ],
+   "why": "C8 Task 22：:232-235 bg-white/30 三分网格线（压媒体，spec §11.1 点名保留，D3board-outpaint-grid）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/TextNodeToolbar.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：:214 深玻璃浮条（压文本内容，浅档保深属功能性正确）+ E 组 #3a3a3a 色板内容语义（D3board-textnode-toolbar-swatch）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/TextNodeFullscreen.tsx",
+   "allow": [
+    "bg"
+   ],
+   "why": "C8 Task 22：:88 bg-black/60 全屏遮罩中性 scrim（BaseFullscreenModal 先例，D3board-fullscreen-keeps）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：压画面整块恒深（ProcessSnapshot 同款第四通道，D3board-fullscreen-keeps）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx",
+   "allow": [
+    "bg",
+    "text",
+    "border"
+   ],
+   "why": "C8 Task 22：同 ImageFullscreenViewer（D3board-fullscreen-keeps）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/prompt-input/CommandMentionList.tsx",
+   "allow": [
+    "text"
+   ],
+   "why": "C8 Task 22：恒深提及菜单（#1f2937 壳）内 text-white"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx",
+   "allow": [
+    "bg",
+    "text"
+   ],
+   "why": "C8 Task 22：压 prompt 条恒深面的加图钮"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx",
+   "allow": [
+    "bg",
+    "text"
+   ],
+   "why": "C8 Task 22：压缩略图黑罩/删除钮（压媒体）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/AiToolActionPopup.tsx",
+   "allow": [
+    "bg"
+   ],
+   "why": "C8 Task 22：oklab 恒深弹层内 bg-white/5 图标垫底/hover（压画布浮层）"
+  },
+  {
+   "glob": "src/pages/canvas/components/edges/ConnectionLine.tsx",
+   "allow": [
+    "text"
+   ],
+   "why": "C8 Task 22：:111 边删除徽章 hover:text-white（恒深 badge 压画布，D3board-connection-badge）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/MultiImageNode.test.tsx",
+   "why": "C8 Task 22：:351 断言 .border-white/[0.06] keep 面（断言串九族命中非产品 UI）"
+  },
+  {
+   "glob": "src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx",
+   "why": "C8 Task 22：:171/:180 断言深浮条 active bg-white/20（断言串九族命中非产品 UI）"
   }
  ]
 }

@@ -20,8 +20,8 @@ const btn = (disabled?: boolean): React.CSSProperties => ({
 });
 
 const inputStyle: React.CSSProperties = {
-  width: 60, padding: '4px 8px', borderRadius: 4, border: '1px solid #444',
-  background: '#1a1a1a', color: '#fff', fontSize: 13, textAlign: 'center',
+  width: 60, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--canvas-controls-border)',
+  background: 'var(--canvas-controls-bg)', color: '#fff', fontSize: 13, textAlign: 'center',
 };
 
 function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
@@ -57,7 +57,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
       </button>
       {open && (
         <div className="absolute top-full mt-1 left-0 z-30"
-          style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, minWidth: 140, padding: '8px 0' }}>
+          style={{ background: 'var(--canvas-controls-bg)', border: '1px solid var(--canvas-controls-border)', borderRadius: 6, minWidth: 140, padding: '8px 0' }}>
           {!showCustom ? (
             <>
               {PRESETS.map((preset) => (
@@ -118,7 +118,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                   onClick={handleCustomConfirm}
                   style={{
                     flex: 1, padding: '6px 12px', borderRadius: 4, border: 'none',
-                    background: executing ? '#333' : '#4ade80', color: '#000',
+                    background: executing ? 'var(--canvas-controls-bg)' : 'var(--fw-accent)', color: 'var(--fw-on-accent)',
                     cursor: executing ? 'not-allowed' : 'pointer',
                     fontSize: 13,
                   }}
@@ -129,7 +129,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                   disabled={executing}
                   onClick={handleToggleCustom}
                   style={{
-                    padding: '6px 12px', borderRadius: 4, border: '1px solid #444',
+                    padding: '6px 12px', borderRadius: 4, border: '1px solid var(--canvas-controls-border)',
                     background: 'none', color: executing ? '#666' : '#fff',
                     cursor: executing ? 'not-allowed' : 'pointer',
                     fontSize: 13,

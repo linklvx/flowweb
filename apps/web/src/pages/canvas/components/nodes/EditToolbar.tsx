@@ -89,10 +89,10 @@ const RedoIcon = () => (
 
 // ── Constants ─────────────────────────────────────────
 
-const BAR_BG = 'rgb(38, 38, 38)';
-const BAR_BORDER = 'rgb(54, 54, 54)';
-const TEXT_COLOR = 'rgb(247, 247, 247)';
-const HOVER_BG = 'rgba(255,255,255,0.08)';
+const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BORDER = 'var(--canvas-controls-border)';
+const TEXT_COLOR = 'var(--canvas-controls-text)';
+const HOVER_BG = 'var(--fw-overlay-2)';
 const TOOLBAR_HEIGHT = 56;
 const GAP = 16;
 
@@ -125,10 +125,10 @@ function PaintToolbar({
   eraseTool = 'brush',
   onEraseToolChange,
 }: PaintToolbarProps) {
-  const ACTIVE_BG = 'rgba(255,255,255,0.1)';
+  const ACTIVE_BG = 'var(--fw-overlay-2)';
 
   const toolBtnClass =
-    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0';
+    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-overlay-2 active:bg-overlay-2 border-0';
 
   // Slider track: 64px wide, thumb: 12px
   const trackW = 64;
@@ -152,7 +152,7 @@ function PaintToolbar({
       {/* Mode label / Exit */}
         <button
           type="button"
-          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
+          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-overlay-2 active:bg-overlay-2 border-0"
           style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
           onClick={onCancel}
           disabled={isSaving}
@@ -367,7 +367,7 @@ function EditToolbarComponent({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
+              className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-overlay-2 active:bg-overlay-2 border-0"
               style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
               onClick={onCancel}
               disabled={isSaving}
@@ -378,7 +378,7 @@ function EditToolbarComponent({
             <button
               type="button"
               aria-label="重置扩图"
-              className="size-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors border-0"
+              className="size-8 rounded-lg flex items-center justify-center hover:bg-overlay-2 transition-colors border-0"
               style={{ color: TEXT_COLOR }}
               onClick={() => {
                 if (onOutpaintRatioChange && imageW && imageH) {
@@ -420,7 +420,7 @@ function EditToolbarComponent({
               return (
                 <button
                   type="button"
-                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
+                  className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-overlay-2 text-[13px] leading-normal transition-colors border-0"
                   style={{ color: TEXT_COLOR }}
                   onClick={() => {
                     const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ratios.length : 1;
@@ -440,7 +440,7 @@ function EditToolbarComponent({
             })()}
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-overlay-2 text-[13px] leading-normal transition-colors border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">2K</span>
@@ -450,7 +450,7 @@ function EditToolbarComponent({
             </button>
             <button
               type="button"
-              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-white/10 text-[13px] leading-normal transition-colors border-0"
+              className="h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-overlay-2 text-[13px] leading-normal transition-colors border-0"
               style={{ color: TEXT_COLOR }}
             >
               <span className="whitespace-nowrap">1张</span>

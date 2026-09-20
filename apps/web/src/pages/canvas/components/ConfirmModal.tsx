@@ -30,7 +30,7 @@ function ConfirmModalComponent() {
   const primaryStyle = (() => {
     switch (primaryType) {
       case 'primary': return { bg: '#fff', hover: '#e5e5e5', text: '#1A1A1A', border: 'none' };
-      case 'danger': return { bg: '#ef4444', hover: '#dc2626', text: '#fff', border: 'none' };
+      case 'danger': return { bg: 'var(--fw-accent-danger)', hover: '#dc2626', text: '#fff', border: 'none' }; // C8：bg 双值化（深值字节等值；hover 深值恰为浅档值）
       default: return { bg: 'transparent', hover: '#333', text: '#888', border: '1px solid #333' };
     }
   })();

@@ -156,8 +156,8 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
-        backgroundColor: '#222222',
-        border: '1px solid #3F3F46',
+        backgroundColor: 'var(--canvas-controls-bg)',
+        border: '1px solid var(--canvas-controls-border)',
         minWidth: 240,
       }}
     >
@@ -175,7 +175,7 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
       />
 
       <button
-        className="flex items-center gap-1.5 text-[#ccc] text-xs hover:text-white transition-colors"
+        className="flex items-center gap-1.5 text-[#ccc] text-xs hover:text-text transition-colors"
         onClick={() => fileInputRef.current?.click()}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

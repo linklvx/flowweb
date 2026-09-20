@@ -715,11 +715,11 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
 
       {/* Node body */}
       <div
-        className="bg-[#222222] rounded-lg overflow-hidden"
+        className="bg-surface rounded-lg overflow-hidden"
         style={{
           width: nodeWidth,
           height: nodeHeight,
-          border: '1px solid #3F3F46',
+          border: '1px solid var(--fw-border)',
           margin: 2,
           ...(selected
             ? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }
@@ -753,7 +753,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
           {/* Replace button — only for user-uploaded videos (not AI-generated) */}
           {showReplaceButton && (
             <button
-              className="nodrag nopan absolute top-2 right-2 [z-index:5] flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-white/20 border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              className="nodrag nopan absolute top-2 right-2 [z-index:5] flex items-center gap-2 w-fit h-9 px-4 py-2 text-white text-sm font-medium rounded-[10px] bg-white/10 hover:bg-overlay-3 border border-white/10 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >

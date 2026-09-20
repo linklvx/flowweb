@@ -70,7 +70,7 @@ describe('VideoHDPanel', () => {
     render(<VideoHDPanel nodeId="n1" fileId="f1" />);
     const btn = screen.getByTestId('hd-submit-btn');
     expect(btn).toBeInTheDocument();
-    expect(btn.className).toContain('bg-[#3a3a3a]');
+    expect(btn.className).toContain('bg-[var(--canvas-controls-bg)]');
   });
 
   it('submit button calls stopPropagation on click', () => {

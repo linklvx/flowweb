@@ -9,8 +9,8 @@ interface NodePaletteProps {
 
 const SIDEBAR_BTN =
   'flex items-center justify-center rounded-lg transition-colors h-8 w-8 border-0';
-const SIDEBAR_BTN_BG: React.CSSProperties = { backgroundColor: 'rgb(38, 38, 38)' };
-const SIDEBAR_BTN_HOVER_BG = 'rgb(78, 78, 78)';
+const SIDEBAR_BTN_BG: React.CSSProperties = { backgroundColor: 'var(--canvas-controls-bg)' }; // C8 D3-board：深值字节等值；浅侧 #f0f1f2（pair 已登记）
+const SIDEBAR_BTN_HOVER_BG = 'var(--fw-overlay-3)'; // hover 0.2 白≈81 保三态序（同 CanvasToolbar :46 裁定，hover 不进快照）
 
 function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -29,8 +29,8 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
       <div
         className="absolute top-1/2 -translate-y-1/2 left-4 z-40 w-12 rounded-xl pt-3 pb-1.5 px-1.5 flex flex-col items-center gap-5"
         style={{
-          backgroundColor: 'rgb(38, 38, 38)',
-          border: '0.5px solid rgb(54, 54, 54)',
+          backgroundColor: 'var(--canvas-controls-bg)',
+          border: '0.5px solid var(--canvas-controls-border)',
           backdropFilter: 'blur(8px)',
           boxShadow: 'rgba(0, 0, 0, 0.15) 0px 2px 5px 0px',
         }}
@@ -78,7 +78,7 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
             width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round"
-            style={{ color: 'rgb(160, 160, 160)' }}
+            style={{ color: 'var(--canvas-controls-icon)' }}
           >
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
@@ -99,7 +99,7 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
             width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round"
-            style={{ color: 'rgb(160, 160, 160)' }}
+            style={{ color: 'var(--canvas-controls-icon)' }}
           >
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
@@ -119,8 +119,9 @@ function NodePaletteComponent({ onToggleShortcuts }: NodePaletteProps) {
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="white" strokeWidth="2"
+            fill="none" stroke="currentColor" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round"
+            style={{ color: 'var(--canvas-controls-icon)' }} // 原 stroke="white" 字面（SVG 属性禁 var()，经 style color 双值化）
           >
             <rect x="2" y="4" width="20" height="16" rx="2" />
             <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 10v6M6 16h12" />

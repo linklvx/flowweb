@@ -52,12 +52,12 @@ const MirrorVIcon = () => (
 
 // ── Constants ─────────────────────────────────────────
 
-const BAR_BG = 'rgb(38, 38, 38)';
-const BAR_BORDER = 'rgb(54, 54, 54)';
-const CONTROLS_TEXT = 'rgb(247, 247, 247)';
-const CONTROLS_HOVER = 'rgba(255,255,255,0.08)';
-const CONTROLS_ACTIVE = 'rgba(255,255,255,0.12)';
-const CONTROLS_BORDER = 'rgb(54, 54, 54)';
+const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BORDER = 'var(--canvas-controls-border)';
+const CONTROLS_TEXT = 'var(--canvas-controls-text)';
+const CONTROLS_HOVER = 'var(--fw-overlay-2)';
+const CONTROLS_ACTIVE = 'var(--fw-overlay-2)';
+const CONTROLS_BORDER = 'var(--canvas-controls-border)';
 const TOOLBAR_HEIGHT = 56;
 const GAP = 16;
 

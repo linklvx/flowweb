@@ -135,16 +135,16 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
 
   return (
     <div
-      className="nodrag bg-[#222222] rounded-xl w-[650px] shadow-xl relative"
+      className="nodrag bg-[var(--canvas-controls-bg)] rounded-xl w-[650px] shadow-xl relative"
       style={{
         transform: `scale(${1 / zoom})`,
         transformOrigin: 'top center',
-        border: '1px solid #3F3F46',
+        border: '1px solid var(--canvas-controls-border)',
       }}
     >
       <button
         type="button"
-        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-white/60 shadow-none outline-none"
+        className="absolute top-2 right-2 shrink-0 focus:outline-none p-1 text-text-dim-3 shadow-none outline-none"
         data-testid="canvas-node-generation-input-bar-maximize-button"
         data-state={maximized ? 'open' : 'closed'}
         onClick={() => setMaximized((v) => !v)}
@@ -179,7 +179,7 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
               selectedId={extConfig.model}
               onSelect={(modelId) => updateExtConfig({ model: modelId })}
             />
-            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <RatioResolutionPopover
               ratioOptions={RATIO_OPTIONS}
               ratio={extConfig.ratio || '16:9'}
@@ -196,7 +196,7 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
                   setAiToolOpen((v) => !v);
                 }}
                 disabled={status === 'loading'}
-                className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-white/10 active:bg-white/[0.1] px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
+                className="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none disabled:opacity-50 h-9 gap-1 hover:bg-overlay-2 active:bg-overlay-2 px-2 py-1 text-sm rounded-lg text-[#f5f5f5]"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
                   <path d="M8 1.5a.75.75 0 01.75.75v1.19l1.22-.7a.75.75 0 11.75 1.3L9.5 4.73v1.54l1.22.7a.75.75 0 11-.75 1.3L8.75 7.56v.69a.75.75 0 01-1.5 0v-.69l-1.22.7a.75.75 0 11-.75-1.3L6.5 6.27V4.73l-1.22-.7a.75.75 0 11.75-1.3l1.22.7V2.25A.75.75 0 018 1.5z" fill="currentColor"/>
@@ -249,11 +249,11 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
                                     }}
                                     className={`group flex h-[52px] w-full items-center gap-2 rounded-xl p-2 text-left transition-colors duration-200 bg-transparent ${
                                       aiTool === tool.id
-                                        ? 'bg-white/10 text-[#f5f5f5]'
-                                        : 'text-[#999] hover:bg-white/5'
+                                        ? 'bg-overlay-2 text-[#f5f5f5]'
+                                        : 'text-[#999] hover:bg-overlay-1'
                                     }`}
                                   >
-                                    <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-white/5">
+                                    <div className="relative flex size-[34px] flex-none items-center justify-center rounded-lg bg-overlay-1">
                                       {tool.icon}
                                       {tool.isNew && (
                                         <span className="pointer-events-none absolute right-[3px] top-[3px] size-1.5 rounded-full bg-[#5DDCFF] border border-[#1a1a1a]" />
@@ -282,7 +282,7 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
               onChange={(count) => updateExtConfig({ generateCount: count })}
               disabled={status === 'loading'}
             />
-            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <CreditDisplay cost={creditCost} />
             <RunButton loading={executing} onClick={handleGenerate} disabled={status === 'loading'} />
           </div>

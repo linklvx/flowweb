@@ -96,7 +96,7 @@ describe('AudioConfigPanel', () => {
 
   it('renders generate button', () => {
     const { container } = render(<AudioConfigPanel nodeId="a1" />);
-    expect(container.querySelector('button[class*="bg-\\[\\#3a3a3a\\]"]')).toBeTruthy();
+    expect(container.querySelector('button[class*="bg-[var(--canvas-controls-bg)]"]')).toBeTruthy();
   });
 
   // ─── Maximize behavior ───

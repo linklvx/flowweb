@@ -108,7 +108,7 @@ export function ConnectionLine({
         <EdgeLabelRenderer>
           <button
             onClick={onDeleteEdge}
-            className="absolute text-[10px] bg-[#333] text-[#ccc] rounded-full w-5 h-5 flex items-center justify-center border border-[#555] hover:bg-[#ef4444] hover:text-white hover:border-[#ef4444] transition-colors"
+            className="absolute text-[10px] bg-[#333] text-[#ccc] rounded-full w-5 h-5 flex items-center justify-center border border-[#555] hover:bg-[var(--fw-accent-danger)] hover:text-white hover:border-[var(--fw-accent-danger)] transition-colors"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               pointerEvents: 'all',

@@ -141,14 +141,14 @@ const TrashIcon = () => (
 
 // ── Sub-components ─────────────────────────────────────
 
-const BTN_BG = 'rgb(38, 38, 38)';
-const BTN_BG_HOVER = 'rgb(78, 78, 78)';
+const BTN_BG = 'var(--canvas-controls-bg)';
+const BTN_BG_HOVER = 'var(--fw-overlay-3)';
 const BTN_CLASS = 'img-toolbar-btn';
-const ICON_COLOR = 'rgb(160, 160, 160)';
-const TEXT_COLOR = 'rgb(180, 180, 180)';
-const BAR_BG = 'rgb(38, 38, 38)';
-const BAR_BORDER = 'rgb(54, 54, 54)';
-const DIVIDER_COLOR = 'rgb(54, 54, 54)';
+const ICON_COLOR = 'var(--canvas-controls-icon)';
+const TEXT_COLOR = 'var(--canvas-controls-icon)';
+const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BORDER = 'var(--canvas-controls-border)';
+const DIVIDER_COLOR = 'var(--canvas-controls-border)';
 
 interface IconButtonProps {
   icon: ReactNode;
@@ -513,7 +513,7 @@ function ImageNodeToolbarComponent({
                     className="flex w-full items-center rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
                     style={{
                       color: 'rgb(247,247,247)',
-                      background: hoveredPreset === item.label ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      background: hoveredPreset === item.label ? 'var(--fw-overlay-2)' : 'transparent',
                       border: 0,
                     }}
                     onMouseEnter={() => { setHoveredPreset(item.label); setSubMenuOpen(false); }}
@@ -534,7 +534,7 @@ function ImageNodeToolbarComponent({
                   className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left font-sans text-[14px] leading-snug transition-colors duration-200"
                   style={{
                     color: 'rgb(247,247,247)',
-                    background: subMenuOpen ? 'rgba(255,255,255,0.08)' : 'transparent',
+                    background: subMenuOpen ? 'var(--fw-overlay-2)' : 'transparent',
                     border: 0,
                   }}
                   onMouseEnter={() => {

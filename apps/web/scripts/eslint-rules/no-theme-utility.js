@@ -33,10 +33,29 @@ const GLOBAL_THEME_UTILITY_RE = /(?<![\w-])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|bord
  * `**` 跨段、`*` 单段。注释即归因：改动须同步 e2e/audit/canvas-migration-registry.json whitelistKeeps（C8 镜像）。
  */
 export const THEME_UTILITY_WHITELIST = [
-  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor 已摘（Task 21，net -2）、nodes/edges/groups→Task 22）——
-  'src/pages/canvas/components/nodes/**',
-  'src/pages/canvas/components/edges/**',
-  'src/pages/canvas/components/groups/**',
+  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor 已摘（Task 21，net -2）、nodes/edges/groups 已摘（Task 22，net -5 累计）——
+  // 摘除后本域残余 = 下列精确条目（媒体压层浮层/恒深自持面，registry D3-board 逐条 adjudication 镜像）：
+  { glob: 'src/pages/canvas/components/nodes/VideoGenNode.tsx', allow: ['bg', 'text', 'border'] },   // :623 选中浮标+:756 替换视频钮（压媒体浮层，registry D3-board-node-float-keeps）
+  { glob: 'src/pages/canvas/components/nodes/ImageGenNode.tsx', allow: ['bg', 'text', 'border'] },   // :1227 替换图片钮（压媒体浮层）
+  { glob: 'src/pages/canvas/components/nodes/MultiImageNode.tsx', allow: ['bg', 'text', 'border'] }, // :207 浮标+:322/329/394 琥珀徽章+:327 悬停黑罩+:359 内沿边（压媒体/图形档）
+  { glob: 'src/pages/canvas/components/nodes/AudioGenNode.tsx', allow: ['bg', 'text', 'border'] },   // :128 浮标+:242 替换音频钮（压媒体浮层）
+  { glob: 'src/pages/canvas/components/nodes/VideoEditNode.tsx', allow: ['bg'] },                    // :193 bg-black 迷你画布垫底（JS 通道 #000 同源，registry D3-ve-content-data）
+  { glob: 'src/pages/canvas/components/nodes/ImageNodeToolbar.tsx', allow: ['border'] },             // :402 选中浮标 border-white/10（压媒体浮层）
+  { glob: 'src/pages/canvas/components/nodes/EditToolbar.tsx', allow: ['bg'] },                      // :210 白滑钮+:477 反白生成钮（压恒深浮条图形面）
+  { glob: 'src/pages/canvas/components/nodes/AnnotationToolbar.tsx', allow: ['bg', 'border'] },      // :254 滑钮 border-white/20+:276 白滑钮（压恒深浮条）
+  { glob: 'src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx', allow: ['bg'] },         // :232-235 bg-white/30 三分网格线（压媒体，spec §11.1 点名保留）
+  { glob: 'src/pages/canvas/components/nodes/TextNodeToolbar.tsx', allow: ['bg', 'text', 'border'] },// :214 深玻璃浮条（压文本内容，浅档保深属功能性正确）
+  { glob: 'src/pages/canvas/components/nodes/TextNodeFullscreen.tsx', allow: ['bg'] },               // :88 bg-black/60 全屏遮罩中性 scrim（BaseFullscreenModal 先例）
+  { glob: 'src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx', allow: ['bg', 'text', 'border'] }, // 压画面整块恒深（ProcessSnapshot 同款第四通道）
+  { glob: 'src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx', allow: ['bg', 'text', 'border'] }, // 同上
+  { glob: 'src/pages/canvas/components/nodes/prompt-input/CommandMentionList.tsx', allow: ['text'] },        // 恒深提及菜单（#1f2937 壳）内 text-white
+  { glob: 'src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx', allow: ['bg', 'text'] },   // 压 prompt 条恒深面的加图钮
+  { glob: 'src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx', allow: ['bg', 'text'] },   // 压缩略图黑罩/删除钮（压媒体）
+  { glob: 'src/pages/canvas/components/nodes/AiToolActionPopup.tsx', allow: ['bg'] },                        // oklab 恒深弹层内 bg-white/5 图标垫底/hover（压画布浮层）
+  { glob: 'src/pages/canvas/components/edges/ConnectionLine.tsx', allow: ['text'] },                          // :111 边删除徽章 hover:text-white（恒深 badge 压画布）
+  // —— nodes 域测试文件单文件条目（断言串九族命中非产品 UI）——
+  'src/pages/canvas/components/nodes/MultiImageNode.test.tsx',   // :351 断言 .border-white/[0.06] keep 面
+  'src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx',  // :171/:180 断言深浮条 active bg-white/20
   // —— 岛（MaterialLibrary 随 Task 24 摘除并迁 TSX）——
   'src/pages/admin/**',
   'src/pages/login/**',

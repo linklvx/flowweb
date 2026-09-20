@@ -30,9 +30,9 @@ const RATIO_OPTIONS = [
 const RESOLUTION_OPTIONS = ['2K', '4K'];
 const COUNT_OPTIONS = [1, 2, 3, 4];
 
-const BAR_BG = 'rgb(38, 38, 38)';
-const BAR_BORDER = 'rgb(54, 54, 54)';
-const TEXT_COLOR = 'rgb(247, 247, 247)';
+const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BORDER = 'var(--canvas-controls-border)';
+const TEXT_COLOR = 'var(--canvas-controls-text)';
 const MUTED_COLOR = 'rgb(163, 163, 163)';
 
 function RatioIcon({ ratio }: { ratio: string }) {
@@ -120,13 +120,13 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
   const totalCredits = creditCost * generateCount;
 
   const btnClass =
-    'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] text-[13px] leading-normal transition-colors border-0';
+    'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-overlay-2 active:bg-overlay-2 text-[13px] leading-normal transition-colors border-0';
 
   // Dropdown opens upward (bottom-full mb-1)
   const dropdownPanel =
     'absolute bottom-full left-0 mb-1 rounded-lg p-1 border z-50 min-w-full';
   const dropdownItem =
-    'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] hover:bg-[rgba(255,255,255,0.08)] whitespace-nowrap w-full border-0';
+    'h-8 rounded-lg py-1 px-3 flex items-center text-[13px] hover:bg-overlay-2 whitespace-nowrap w-full border-0';
 
   const isRedraw = editMode === 'redraw';
 
@@ -190,7 +190,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
                     className={dropdownItem}
                     style={{
                       color: m.id === model ? TEXT_COLOR : MUTED_COLOR,
-                      backgroundColor: m.id === model ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      backgroundColor: m.id === model ? 'var(--fw-overlay-2)' : 'transparent',
                       border: 0,
                     }}
                     onClick={() => {
@@ -229,7 +229,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
                     className={dropdownItem}
                     style={{
                       color: r.label === ratio ? TEXT_COLOR : MUTED_COLOR,
-                      backgroundColor: r.label === ratio ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      backgroundColor: r.label === ratio ? 'var(--fw-overlay-2)' : 'transparent',
                       border: 0,
                     }}
                     onClick={() => {
@@ -269,7 +269,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
                     className={dropdownItem}
                     style={{
                       color: r === resolution ? TEXT_COLOR : MUTED_COLOR,
-                      backgroundColor: r === resolution ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      backgroundColor: r === resolution ? 'var(--fw-overlay-2)' : 'transparent',
                       border: 0,
                     }}
                     onClick={() => {
@@ -305,7 +305,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
                     className={dropdownItem}
                     style={{
                       color: n === generateCount ? TEXT_COLOR : MUTED_COLOR,
-                      backgroundColor: n === generateCount ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      backgroundColor: n === generateCount ? 'var(--fw-overlay-2)' : 'transparent',
                       border: 0,
                     }}
                     onClick={() => {

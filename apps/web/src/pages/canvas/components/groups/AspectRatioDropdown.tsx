@@ -40,7 +40,7 @@ function AspectRatioDropdownComponent({ value, onChange, executing }: Props) {
       </button>
       {open && (
         <div className="absolute top-full mt-1 left-0 z-30"
-          style={{ background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, minWidth: 100 }}>
+          style={{ background: 'var(--canvas-controls-bg)', border: '1px solid var(--canvas-controls-border)', borderRadius: 6, minWidth: 100 }}>
           {OPTIONS.map((opt) => (
             <button
               key={opt.value}

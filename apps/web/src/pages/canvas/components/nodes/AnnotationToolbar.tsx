@@ -51,9 +51,9 @@ const RedoIcon = () => (
 
 // ── Constants ─────────────────────────────────────────
 
-const BAR_BG = 'rgb(38, 38, 38)';
-const BAR_BORDER = 'rgb(54, 54, 54)';
-const TEXT_COLOR = 'rgb(247, 247, 247)';
+const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BORDER = 'var(--canvas-controls-border)';
+const TEXT_COLOR = 'var(--canvas-controls-text)';
 const TOOLBAR_HEIGHT = 48; // single row
 const GAP = 16;
 
@@ -108,7 +108,7 @@ function AnnotationToolbarComponent({
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const ACTIVE_BG = 'rgba(255,255,255,0.1)';
+  const ACTIVE_BG = 'var(--fw-overlay-2)';
 
   const position = useMemo(() => {
     if (!internalNode) return null;
@@ -132,7 +132,7 @@ function AnnotationToolbarComponent({
   if (!portalRoot) return null;
 
   const toolBtnClass =
-    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0';
+    'inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 w-7 min-w-7 gap-0 p-1 hover:bg-overlay-2 active:bg-overlay-2 border-0';
 
   const colorInputRef = useRef<HTMLInputElement>(null);
 
@@ -167,7 +167,7 @@ function AnnotationToolbarComponent({
         {/* Exit / Label */}
         <button
           type="button"
-          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.1)] border-0"
+          className="inline-flex select-none items-center justify-center rounded-lg transition-colors h-7 gap-1 px-3 py-1.5 hover:bg-overlay-2 active:bg-overlay-2 border-0"
           style={{ backgroundColor: 'transparent', color: TEXT_COLOR }}
           onClick={onCancel}
           disabled={isSaving}

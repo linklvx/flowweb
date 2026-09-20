@@ -124,7 +124,7 @@ export function ImageThumbnailBar({
         <>
           <button
             data-testid="upload-button"
-            className="size-[50px] flex items-center justify-center rounded-[10px] shrink-0 transition-all focus:outline-none bg-white/[0.08] hover:bg-white/[0.12] shadow-none outline-none"
+            className="size-[50px] flex items-center justify-center rounded-[10px] shrink-0 transition-all focus:outline-none bg-white/[0.08] hover:bg-overlay-3 shadow-none outline-none"
             onClick={handleUploadClick}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-6 text-white/50" aria-hidden="true">
