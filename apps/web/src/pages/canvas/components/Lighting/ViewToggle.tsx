@@ -15,7 +15,7 @@ export function ViewToggle({ value, onChange }: ViewToggleProps) {
         className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors border ${
           value === 'perspective'
             ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-            : 'bg-overlay-1 text-neutral-400 hover:bg-overlay-2 hover:text-neutral-200 border-transparent'
+            : 'bg-overlay-1 text-text-dim-3 hover:bg-overlay-2 hover:text-text border-transparent'
         }`}
         onClick={() => onChange('perspective')}
       >
@@ -28,7 +28,7 @@ export function ViewToggle({ value, onChange }: ViewToggleProps) {
         className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors border ${
           value === 'front'
             ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-            : 'bg-overlay-1 text-neutral-400 hover:bg-overlay-2 hover:text-neutral-200 border-transparent'
+            : 'bg-overlay-1 text-text-dim-3 hover:bg-overlay-2 hover:text-text border-transparent'
         }`}
         onClick={() => onChange('front')}
       >

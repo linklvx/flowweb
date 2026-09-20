@@ -37,16 +37,16 @@ export function ControlPanel({
   const isGenerating = taskStatus === TS.PROCESSING;
 
   return (
-    <div className="w-[320px] shrink-0 bg-[#141820] flex flex-col gap-5 p-5 overflow-y-auto">
+    <div className="w-[320px] shrink-0 bg-surface-dim flex flex-col gap-5 p-5 overflow-y-auto">
       {/* View toggle */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">视图</label>
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">视图</label>
         <ViewToggle value={viewMode} onChange={onViewModeChange} />
       </div>
 
       {/* Light presets */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">光源预设</label>
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">光源预设</label>
         <LightPresetButtons
           currentPosition={params.position}
           onSelect={onPresetSelect}
@@ -55,7 +55,7 @@ export function ControlPanel({
 
       {/* Brightness slider */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">
           ☀ 亮度 · {params.brightness}
         </label>
         <input
@@ -70,7 +70,7 @@ export function ControlPanel({
 
       {/* Color temperature slider */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">
           🔥 色温 · {params.colorTemperature}K
         </label>
         <input
@@ -90,8 +90,8 @@ export function ControlPanel({
       {/* Rim light toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-neutral-400">轮廓光</span>
-          <span className="text-neutral-600 cursor-help border-0 shadow-none" title="为图片边缘添加高亮描边">?</span>
+          <span className="text-xs font-medium text-text-dim-3">轮廓光</span>
+          <span className="text-text-dim-1 cursor-help border-0 shadow-none" title="为图片边缘添加高亮描边">?</span>
         </div>
         <button
           type="button"

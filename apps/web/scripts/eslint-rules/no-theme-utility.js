@@ -42,7 +42,7 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/canvas/components/nodes/VideoEditNode.tsx', allow: ['bg'] },                    // :193 bg-black 迷你画布垫底（JS 通道 #000 同源，registry D3-ve-content-data）
   { glob: 'src/pages/canvas/components/nodes/ImageNodeToolbar.tsx', allow: ['border'] },             // :402 选中浮标 border-white/10（压媒体浮层）
   { glob: 'src/pages/canvas/components/nodes/EditToolbar.tsx', allow: ['bg'] },                      // :210 白滑钮+:477 反白生成钮（压恒深浮条图形面）
-  { glob: 'src/pages/canvas/components/nodes/AnnotationToolbar.tsx', allow: ['bg', 'border'] },      // :254 滑钮 border-white/20+:276 白滑钮（压恒深浮条）
+  { glob: 'src/pages/canvas/components/nodes/AnnotationToolbar.tsx', allow: ['bg'] },                // :276/:292 白滑钮 bg-white（压恒深滑轨图形面）——:254 border-white/20 已随 Task 23 迁移（裸 border 走默认 fw-border）
   { glob: 'src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx', allow: ['bg'] },         // :232-235 bg-white/30 三分网格线（压媒体，spec §11.1 点名保留）
   { glob: 'src/pages/canvas/components/nodes/TextNodeToolbar.tsx', allow: ['bg', 'text', 'border'] },// :214 深玻璃浮条（压文本内容，浅档保深属功能性正确）
   { glob: 'src/pages/canvas/components/nodes/TextNodeFullscreen.tsx', allow: ['bg'] },               // :88 bg-black/60 全屏遮罩中性 scrim（BaseFullscreenModal 先例）

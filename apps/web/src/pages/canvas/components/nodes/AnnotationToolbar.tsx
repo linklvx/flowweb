@@ -51,7 +51,7 @@ const RedoIcon = () => (
 
 // ── Constants ─────────────────────────────────────────
 
-const BAR_BG = 'var(--canvas-controls-bg)';
+const BAR_BG = 'var(--fw-surface)';
 const BAR_BORDER = 'var(--canvas-controls-border)';
 const TEXT_COLOR = 'var(--canvas-controls-text)';
 const TOOLBAR_HEIGHT = 48; // single row
@@ -227,7 +227,7 @@ function AnnotationToolbarComponent({
               className="h-4 w-4 rounded-full border border-solid shrink-0"
               style={{
                 backgroundColor: preset,
-                borderColor: color === preset ? TEXT_COLOR : 'rgba(255,255,255,0.2)',
+                borderColor: color === preset ? TEXT_COLOR : 'var(--fw-overlay-3)',
                 outline: color === preset ? `1px solid ${TEXT_COLOR}` : 'none',
                 outlineOffset: 1,
               }}
@@ -251,7 +251,7 @@ function AnnotationToolbarComponent({
         />
         <button
           type="button"
-          className="h-4 w-4 rounded-full border border-solid border-white/20 shrink-0"
+          className="h-4 w-4 rounded-full border border-solid shrink-0"
           style={{ backgroundColor: color }}
           onClick={() => colorInputRef.current?.click()}
           disabled={isSaving}
@@ -329,7 +329,7 @@ function AnnotationToolbarComponent({
           type="button"
           aria-label="保存标注"
           className="h-7 rounded-lg px-4 text-[13px] font-medium transition-colors border-0 disabled:cursor-not-allowed disabled:opacity-70 whitespace-nowrap"
-          style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}
+          style={{ backgroundColor: 'var(--fw-accent)', color: 'var(--fw-on-accent)' }}
           disabled={isSaving}
           onClick={onSave}
         >

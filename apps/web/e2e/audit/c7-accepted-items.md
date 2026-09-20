@@ -13,7 +13,7 @@
 | 4 | admin 弹层 var 通道缺口挂起至 admin token 化 | admin 全域 0 文件消费 --fw-* 工具类（grep 实证），body 弹层 `closest(.dark)=null` 无可见半半；antd 通道 Pro dark context 穿透恒深。触发条件：admin UI token 化时逐弹层补岛类，届时 G8④ 断言转 true 须同步 census | c5-portal-census.json deferred（admin 条目含 trigger）；守卫 G8④ 钉住现状防静默漂移 |
 | 5 | Tabs 选中色 = antd 原生蓝（#1668dc=colorPrimary） | C2 移除 WorkspacePage Tabs 钉色后随 darkAlgorithm 原生供给；对比度 ≈3.55:1 为 antd 暗色主题全库缺省（非本仓回归），与 VideosPage Tabs 历史一致（迁移前即 #1677ff 蓝选中） | b2-migration-registry.json deferredToC2.c2Removal.evidence.tabsDarkAlgorithm；commit 429736c6（C2） |
 | 6 | 档位徽章 max/pro 对比度差半档（3.99/4.29 < 4.5:1） | 12px bold 装饰性状态芯片，浅色实测严格优于暗色现状基线（#e2e8f0 于同底仅 3.20/2.98）——抬标准需连暗色一起裁 | b6-acceptance.md §4（合成注入实测 ultra 9.78/max 3.99/pro 4.29/free 8.27） |
-| 7 | CanvasTopBar 玻璃药丸恒深 | `bg-[#1A1A1A]/90 backdrop-blur` 白名单斜杠族字面，叠于恒深画板——浅色下保持深色玻璃质感（D4 语义内）；裸 border 桥色翻浅 #e5e7eb 非破损 | b6-acceptance.md §4 附条 + commit b5f1843c「玻璃药丸恒深裁定入册」 |
+| 7 | CanvasTopBar 玻璃药丸恒深 | **【已结案——C8 Task 23 药丸 chrome 化】** `bg-[#1A1A1A]/90 backdrop-blur` 白名单斜杠族字面，叠于恒深画板——浅色下保持深色玻璃质感（D4 语义内）；裸 border 桥色翻浅 #e5e7eb 非破损。C8 D3 起本接受项失效：四枚药丸（CanvasTopBar 三处+ProjectTitle:64 同款同批）已改 `bg-surface border-overlay-2` 跟随域，四条 pairs 入册（canvas-migration-registry.json differExpectedPairs），恒深玻璃质感不再保留 | b6-acceptance.md §4 附条 + commit b5f1843c「玻璃药丸恒深裁定入册」；结案=C8 Task 23（ProjectTitle 该文件仅剩其余字面归 Task 25） |
 | 8 | register 卡片较 login 短 | 注册表单内容行数少（3 输入、无协议脚注——刻意不新增内容垫高），卡片自然短于 login；版式/色板/表宽已逐项对齐（720px 卡/w-[320px] 表列宽=login PhoneLoginForm） | commit a0e9b16f（register 浅色重做）；page.tsx:24 注释 |
 
 ## 2. C7 验收电池（D8 全套，2026-09-19 实测）

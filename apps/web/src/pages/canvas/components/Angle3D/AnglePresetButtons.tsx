@@ -32,7 +32,7 @@ export function AnglePresetButtons({ currentParams, disabled, onSelect }: AngleP
             className={`text-xs px-2 py-1.5 rounded-lg border transition-colors truncate ${
               isActive
                 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                : 'bg-overlay-1 text-neutral-400 border-transparent hover:bg-overlay-2 hover:text-neutral-200'
+                : 'bg-overlay-1 text-text-dim-3 border-transparent hover:bg-overlay-2 hover:text-text'
             }`}
             onClick={() => onSelect(preset.key)}
           >
@@ -42,7 +42,7 @@ export function AnglePresetButtons({ currentParams, disabled, onSelect }: AngleP
       })}
       <span
         className={`text-xs px-2 py-1.5 rounded-lg text-center truncate ${
-          matchedPreset ? 'text-neutral-600' : 'text-blue-400 bg-blue-500/10'
+          matchedPreset ? 'text-text-dim-1' : 'text-blue-400 bg-blue-500/10'
         }`}
       >
         自定义

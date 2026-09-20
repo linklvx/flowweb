@@ -128,7 +128,7 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         <ThemeToggleButton />
         {onlineUsers.length > 0 && (
-          <div className="flex items-center -space-x-1.5 bg-[#1A1A1A]/90 backdrop-blur px-2 py-1.5 rounded-full border shadow-lg" data-testid="online-users">
+          <div className="flex items-center -space-x-1.5 bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg" data-testid="online-users">
             {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (
               <span
                 key={i}
@@ -142,11 +142,11 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
           </div>
         )}
         {user && (
-          <div className="bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
+          <div className="bg-surface backdrop-blur px-3 py-1.5 rounded-full border border-overlay-2 shadow-lg">
             <SaveStatusIndicator />
           </div>
         )}
-        <div className="relative flex items-center gap-3 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
+        <div className="relative flex items-center gap-3 bg-surface backdrop-blur px-3 py-1.5 rounded-full border border-overlay-2 shadow-lg">
           {!store.loading && <CreditsDropdown />}
           {!store.loading && store.tier && (
             <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${

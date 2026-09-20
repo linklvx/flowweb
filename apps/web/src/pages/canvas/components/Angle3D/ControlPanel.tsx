@@ -24,10 +24,10 @@ export function ControlPanel({
   const isProcessing = taskStatus === 'processing' || taskStatus === 'pending';
 
   return (
-    <div className="w-[320px] shrink-0 bg-[#141820] flex flex-col gap-5 p-5 overflow-y-auto">
+    <div className="w-[320px] shrink-0 bg-surface-dim flex flex-col gap-5 p-5 overflow-y-auto">
       {/* Angle presets */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">多角度</label>
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">多角度</label>
         <AnglePresetButtons
           currentParams={params}
           disabled={disabled}
@@ -37,7 +37,7 @@ export function ControlPanel({
 
       {/* Horizontal angle slider */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">
           → 水平角度 · {params.horizontalAngle}°
         </label>
         <input
@@ -53,7 +53,7 @@ export function ControlPanel({
 
       {/* Vertical angle slider */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">
           ↨ 垂直角度 · {params.verticalAngle}°
         </label>
         <input
@@ -69,7 +69,7 @@ export function ControlPanel({
 
       {/* Zoom slider */}
       <div>
-        <label className="text-xs font-medium text-neutral-400 block mb-2">
+        <label className="text-xs font-medium text-text-dim-3 block mb-2">
           🔍 缩放 · {params.zoom}
         </label>
         <input

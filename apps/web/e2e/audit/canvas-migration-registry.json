@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-20T11:19:59.475Z",
+  "generatedAt": "2026-09-20T11:52:16.402Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -17,7 +17,6 @@
    "files": [
     "src/pages/canvas/components/AddNodeMenu.tsx",
     "src/pages/canvas/components/Angle3D/Angle3DModal.tsx",
-    "src/pages/canvas/components/Angle3D/ControlPanel.tsx",
     "src/pages/canvas/components/CanvasToolbar.tsx",
     "src/pages/canvas/components/CanvasTopBar.tsx",
     "src/pages/canvas/components/CanvasView.tsx",
@@ -81,7 +80,6 @@
     "src/pages/canvas/components/nodes/VideoNodeToolbar.tsx",
     "src/pages/canvas/components/nodes/VideoTrimPanel.tsx",
     "src/pages/canvas/components/nodes/VideoTrimTimeline.tsx",
-    "src/pages/canvas/components/ProjectTitle.tsx",
     "src/pages/canvas/components/RemoteCursors.tsx",
     "src/pages/canvas/components/SaveAsTemplateDialog.tsx",
     "src/pages/canvas/components/SaveStatusIndicator.tsx",
@@ -296,78 +294,63 @@
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 127,
-     "text": "backgroundImage: 'linear-gradient(160deg, #111111 0%, #171717 52%, #101828 100%)',"
+     "line": 135,
+     "text": "boxShadow: light ? '0 20px 60px rgba(15,23,42,0.10)' : '0 20px 60px rgba(15,23,42,0.16)',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 128,
-     "text": "boxShadow: '0 20px 60px rgba(15,23,42,0.16)',"
+     "line": 136,
+     "text": "...(light ? { borderColor: 'rgba(0,0,0,0.08)' } : {}),"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 144,
-     "text": "backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',"
+     "line": 156,
+     "text": "boxShadow: light ? 'inset 0 1px 0 rgba(255,255,255,0.8)' : 'inset 0 1px 0 rgba(255,255,255,0.06)',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 145,
-     "text": "boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',"
-    },
-    {
-     "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 157,
+     "line": 168,
      "text": "style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12)' }}>"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 169,
-     "text": "backgroundImage: 'linear-gradient(to bottom right, #fff, #fff, rgba(253,230,138,0.85))',"
-    },
-    {
-     "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 198,
+     "line": 211,
      "text": "backgroundImage: 'linear-gradient(180deg, rgba(139,92,246,0.18), rgba(139,92,246,0.10))',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 199,
+     "line": 212,
      "text": "boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 214,
+     "line": 227,
      "text": "backgroundImage: 'linear-gradient(to bottom right, #fff, rgba(237,233,254,0.85))',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 233,
+     "line": 246,
      "text": "backgroundImage: 'linear-gradient(180deg, rgba(245,158,11,0.16), rgba(245,158,11,0.10))',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 234,
+     "line": 247,
      "text": "boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 247,
+     "line": 260,
      "text": "backgroundImage: 'linear-gradient(to bottom right, #fff, rgba(253,230,138,0.85))',"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 268,
-     "text": "style={{ boxShadow: '0 18px 44px -12px rgba(255,255,255,0.22)' }}"
+     "line": 283,
+     "text": "style={{ boxShadow: light ? '0 18px 44px -12px rgba(15,23,42,0.18)' : '0 18px 44px -12px rgba(255,255,255,0.22)' }}"
     },
     {
      "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 287,
-     "text": "background: 'linear-gradient(180deg, rgba(255,255,255,0.04), transparent)',"
-    },
-    {
-     "file": "src/pages/canvas/components/CreditsDropdown.tsx",
-     "line": 288,
-     "text": "boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',"
+     "line": 305,
+     "text": "boxShadow: light ? 'inset 0 1px 0 rgba(255,255,255,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',"
     },
     {
      "file": "src/pages/canvas/components/edges/ConnectionLine.tsx",
@@ -561,11 +544,6 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
-     "line": 230,
-     "text": "borderColor: color === preset ? TEXT_COLOR : 'rgba(255,255,255,0.2)',"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
      "line": 263,
      "text": "<div className=\"inline-flex h-7 items-center justify-center rounded-lg border-0 bg-transparent gap-1 px-3 py-1.5\" style="
     },
@@ -578,11 +556,6 @@
      "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
      "line": 273,
      "text": "style={{ width: fillWidth, backgroundColor: 'rgb(96, 165, 250)' }}"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
-     "line": 332,
-     "text": "style={{ backgroundColor: 'white', color: 'rgb(23, 23, 23)' }}"
     },
     {
      "file": "src/pages/canvas/components/nodes/AudioGenNode.tsx",
@@ -1921,7 +1894,7 @@
   {
    "id": "D3board-slider-white",
    "file": "src/pages/canvas/components/nodes/EditToolbar.tsx",
-   "ruling": ":210/:477 + AnnotationToolbar:254/:276 白滑钮/border-white/20 保留：压恒深浮条图形面（白名单 allow bg/border）；工具条仅变换态渲染→采集不可见"
+   "ruling": ":210/:477 + AnnotationToolbar:276/:292 白滑钮 bg-white 保留：压恒深滑轨图形面（白名单 allow bg）；工具条仅变换态渲染→采集不可见。AnnotationToolbar:254 border-white/20 已随 Task 23 五件套迁移（裸 border 走默认 fw-border），本条不再覆盖该位点"
   },
   {
    "id": "D3board-connection-badge",
@@ -1942,6 +1915,38 @@
    "id": "D3board-nodepalette-addbtn",
    "file": "src/pages/canvas/components/NodePalette.tsx",
    "ruling": ":42 加号钮 bg-[#f7f7f7]/hover:#e0e0e0 恒定亮钮保留：深浅同值零 diff（产品语义恒定亮面）"
+  },
+  {
+   "id": "D3-creditsdropdown-light",
+   "file": "src/pages/canvas/components/CreditsDropdown.tsx",
+   "line": "容器/光斑/总额卡/数值渐变/充值钮/邀请钮+命名色 12 行（mode 分支，行号见当次文件）",
+   "deep": "深档字面冻结：全部 mode 三元的 false 分支=原字面（differ 深侧零 diff——字面未动字节等值）",
+   "light": "浅档按稿表（2026-09-20-creditsdropdown-light-draft.md §一/二/三）mode 分支：容器渐变/投影/边 rgba(0,0,0,0.08)、光斑 alpha 降+白高光 0.5、总额卡反转微暗渐变+inset 0.8、数值渐变 #1f2329→#b45309+辉光 0.10、命名色 12 行（violet-700/amber-700/amber-800/zinc-600/zinc-500/hover:zinc-800/amber-100/60/rose-100/40/充值钮反转 bg-zinc-950+hover:zinc-800+深辉光 0.18）",
+   "ruling": "机制（第八轮 P2-6）：Popover 未展开→卡不在采集 DOM（CreditsDropdown trigger=[hover,focus]+destroyTooltipOnHide）→两侧 diff 皆无，故全部走 adjudications 不入 pairs。前提失效警示：若将来浮层在采集态可见（改 trigger/默认展开/加 hover 预览），本步浅侧变更须逐条入 pairs。稿表未列位点（双档冻结字面）：总额卡内嵌 radial 光斑 amber0.24/teal0.2、图标 inset 白 0.12、明细双卡族（violet-400/15 边+渐变+inset+text-violet-200/90+violet-100/80+渐变数字+amber-200/90+amber-100/80+amber-400/15）、error 重试钮 amber-200/80、:270/:292 装饰光斑 span 为空元素（稿表\"字色 amber-900/rose-700\"无目标元素）——B6（Task 27）逐处核对，明细卡白系渐变数字浅底可读性列入 B6 清单"
+  },
+  {
+   "id": "D3-annotationtoolbar-five",
+   "file": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
+   "line": "BAR_BG 常量/:230/:254/:332（改后行号）",
+   "deep": "BAR_BG var(--canvas-controls-bg)→var(--fw-surface)：深侧 rgb(38,38,38)→rgb(30,30,30)；:230 白 0.2→var(--fw-overlay-3) 深侧字节等值；:254 border-white/20 移除→默认 var(--fw-border) 深侧 #333；:332 white/rgb(23,23,23)→var(--fw-accent)/var(--fw-on-accent) 恒白钮转 accent 绿",
+   "light": "BAR 浅侧 #ffffff；ring 浅 0.12 黑；边 #e5e7eb；保存钮 accent 绿+深字（两档同值）",
+   "ruling": "五件套原子翻（P7 反例②）：BAR_BG/:332/:230 选中环/:254/:135+:170（hover:bg-overlay-2 已 Task 22 迁移，本步无新改动）。N4 纪律：组件不在 8 采集页渲染路径（选中节点悬浮工具条）→深档变更不可见→无 diff，登记不入 pairs。COLOR_PRESETS #000000 黑笔保留（P6：浅色主题下选黑笔=用户选择）。:163 阴影 rgba(0,0,0,0.1)/滑轨 :270 rgb(82,82,82)/:273 蓝 fill/:263/:276 滑钮白族=滑轨图形面保留（D3board-slider-white 订正后范围）。浅色档若采集对照可见则逐条落 pairs"
+  },
+  {
+   "id": "D3-accent-login-pill",
+   "file": "src/pages/canvas/components/CanvasTopBar.tsx",
+   "line": ":175 hover:bg-[#4ade80]/10",
+   "deep": "保留字面（accent 绿 10% 晕）",
+   "light": "同值（双主题中性 alpha，通道 3 同类）",
+   "ruling": "accent 字面收尾（本域一处）：保留唯一路——第五轮 M10 删斜杠分支：tailwind.config 颜色键全是单值 var()、bg-accent/10 斜杠形态结构性无输出，css-audit --slash-gate 对斜杠任意值 exit 1；前景 text-accent-text 已 token 勿动"
+  },
+  {
+   "id": "D3-lighting-angle3d-chrome",
+   "file": "src/pages/canvas/components/Lighting/* + Angle3D/*（chrome 8 文件）",
+   "line": "LightingModal:103/:110/:115/:120、Angle3DModal:135/:142/:147/:152、两 ControlPanel bg-[#141820]+neutral 标签、LightPresetButtons/ViewToggle/AnglePresetButtons/PromptInput neutral 标签（行号见当次文件）",
+   "deep": "面板 bg-[#1C1C1C]/95→bg-surface（深侧 rgba(28,28,28,0.95)→rgb(30,30,30)）；bg-[#141820]→bg-surface-dim（深 #262626）；text-neutral-400/500/600→text-text-dim-3/dim-2/dim-1（深侧近似值：dim-3 合成 ≈#a0a0a0 vs #a3a3a3）",
+   "light": "面板白/次级浅面 #f0f1f2；dim 阶浅值 #4b5563/#6b7280/#9ca3af",
+   "ruling": "四通道迁移（registry canvasDomain 两目录 chrome 文件+plan Step 4 点名 ViewToggle/LightPresetButtons/AnglePresetButtons/PromptInput——后四者 registry 未列系生成判据只收 gated 字面，plan 文本显式枚举故并入）。浮层条件渲染不在采集态→不可见→无 diff 不入 pairs。保留字面：bg-black/60+bg-black/80 scrim（whitelistKeeps allow bg 在册勿重复动）、bg-blue-500 族+text-blue-400+accent-blue-500（操作蓝家族，MaterialLibrary 先例刻意字面，B6 浅底对比度复核）、text-red-400（危险前景语义，CanvasTopBar:121 先例）、Lighting/ControlPanel:85 色温渐变（光源语义图形档 styleObjects 在册）。渲染产物白名单文件勿动——Angle3DPreview neutral 残留属白名单内勿借目录逃逸"
   }
  ],
  "differExpectedPairs": {
@@ -2312,6 +2317,30 @@
     "before": "rgb(58, 58, 58)",
     "after": "rgb(38, 38, 38)",
     "why": "Task 22 #3a3a3a A 组 5 钮（RunButton:14/AudioConfigPanel:270/TextConfigPanel:270/VideoHDPanel:220/VideoConfigPanel:467）→var(--canvas-controls-bg) 深档微变对（预登记——面板仅 selected 渲染，采集态不可见无 diff，对不触发属预期）"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgba(26, 26, 26, 0.9)",
+    "after": "rgb(30, 30, 30)",
+    "why": "Task 23 药丸深侧底 bg-surface 化（P7 反例① 结案；CanvasTopBar 三处+ProjectTitle:64 同款同批）"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgba(26, 26, 26, 0.9)",
+    "after": "rgb(255, 255, 255)",
+    "why": "Task 23 药丸浅侧底（同上，浅侧 pair）"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(51, 51, 51)",
+    "after": "rgba(255, 255, 255, 0.1)",
+    "why": "Task 23 药丸深侧边 --fw-border→overlay-2（第七轮 P1-4：bridge 豁免不覆盖，必登记）"
+   },
+   {
+    "prop": "borderColor",
+    "before": "rgb(229, 231, 235)",
+    "after": "rgba(0, 0, 0, 0.06)",
+    "why": "Task 23 药丸浅侧边（同上，浅侧 pair）"
    }
   ]
  },
@@ -2607,10 +2636,9 @@
   {
    "glob": "src/pages/canvas/components/nodes/AnnotationToolbar.tsx",
    "allow": [
-    "bg",
-    "border"
+    "bg"
    ],
-   "why": "C8 Task 22：:254 滑钮 border-white/20 + :276 白滑钮（压恒深浮条，D3board-slider-white）"
+   "why": "C8 Task 23 订正：:276/:292 白滑钮 bg-white（压恒深滑轨图形面，D3board-slider-white）——:254 border-white/20 已随五件套迁移（裸 border 走默认 fw-border），border 族无残余命中"
   },
   {
    "glob": "src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx",

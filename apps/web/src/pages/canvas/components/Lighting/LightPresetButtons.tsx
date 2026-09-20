@@ -35,7 +35,7 @@ export function LightPresetButtons({ currentPosition, onSelect }: LightPresetBut
             className={`rounded-md px-2 py-2 text-xs font-medium transition-colors ${
               active
                 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                : 'bg-overlay-1 text-neutral-400 hover:bg-overlay-2 hover:text-neutral-200 border border-transparent'
+                : 'bg-overlay-1 text-text-dim-3 hover:bg-overlay-2 hover:text-text border border-transparent'
             }`}
             onClick={() => onSelect(preset.x, preset.y, preset.z)}
           >

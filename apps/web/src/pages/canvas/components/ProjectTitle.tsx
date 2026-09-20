@@ -61,7 +61,7 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
 
   return (
     <>
-    <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-[#1A1A1A]/90 backdrop-blur px-3 py-1.5 rounded-full border shadow-lg">
+    <div className="absolute top-3 left-4 z-50 flex items-center gap-2 bg-surface backdrop-blur px-3 py-1.5 rounded-full border border-overlay-2 shadow-lg">
       <Link
         to="/works"
         title="返回工作空间"

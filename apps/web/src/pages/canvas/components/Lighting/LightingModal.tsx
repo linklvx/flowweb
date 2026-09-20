@@ -100,24 +100,24 @@ export const LightingModal = memo(function LightingModal() {
       aria-modal
       aria-label="打光"
     >
-      <div className="w-full mx-5 max-w-[1400px] h-[calc(100vh-40px)] max-h-[876px] rounded-[16px] bg-[#1C1C1C]/95 border border-overlay-2 flex flex-col overflow-hidden">
+      <div className="w-full mx-5 max-w-[1400px] h-[calc(100vh-40px)] max-h-[876px] rounded-[16px] bg-surface border border-overlay-2 flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-overlay-1 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-base font-semibold text-text">☀ 打光</span>
             <a
               href="#"
-              className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+              className="text-xs text-text-dim-2 hover:text-text transition-colors"
               onClick={(e) => e.preventDefault()}
             >
               使用手册
             </a>
-            <span className="text-xs text-neutral-600">Esc 关闭</span>
+            <span className="text-xs text-text-dim-1">Esc 关闭</span>
           </div>
           <button
             ref={closeBtnRef}
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-overlay-2 text-neutral-400 hover:text-text transition-colors border-0 shadow-none outline-none"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-overlay-2 text-text-dim-3 hover:text-text transition-colors border-0 shadow-none outline-none"
             onClick={closeModal}
             aria-label="关闭打光"
           >

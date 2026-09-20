@@ -3,6 +3,7 @@ import { Popover, Skeleton, message } from 'antd';
 import { useNavigate } from 'react-router';
 import dayjs from 'dayjs';
 import { useCreditsStore } from '@/stores/creditsStore';
+import { useTheme } from '@/stores/themeStore';
 
 // ─── Inline SVG icons (matching reference design) ───
 
@@ -87,6 +88,10 @@ export function CreditsPanelContent({
   onRecharge,
   onInvite,
 }: CreditsPanelContentProps) {
+  // C8 Task 23：浅色稿分支（2026-09-20-creditsdropdown-light-draft.md）——深档字面冻结（字节等值），
+  // 浅档按稿表逐处取值。Popover 未展开时卡不在采集 DOM（trigger hover/focus + destroyTooltipOnHide）。
+  const { mode } = useTheme();
+  const light = mode === 'light';
   const total = useMemo(
     () => credits + (isActive ? subscriptionCredits : 0),
     [credits, subscriptionCredits, isActive],
@@ -124,16 +129,20 @@ export function CreditsPanelContent({
     <div
       className="w-96 flex flex-col overflow-hidden rounded-[1.75rem] border border-zinc-900/90 p-3 text-text"
       style={{
-        backgroundImage: 'linear-gradient(160deg, #111111 0%, #171717 52%, #101828 100%)',
-        boxShadow: '0 20px 60px rgba(15,23,42,0.16)',
+        backgroundImage: light
+          ? 'linear-gradient(160deg, #ffffff 0%, #fafbfc 52%, #f3f5f9 100%)'
+          : 'linear-gradient(160deg, #111111 0%, #171717 52%, #101828 100%)',
+        boxShadow: light ? '0 20px 60px rgba(15,23,42,0.10)' : '0 20px 60px rgba(15,23,42,0.16)',
+        ...(light ? { borderColor: 'rgba(0,0,0,0.08)' } : {}),
       }}
     >
       {/* background glow layer */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
-          backgroundImage:
-            'radial-gradient(circle at top right, rgba(251,191,36,0.20), transparent 24%), radial-gradient(circle at 20% 120%, rgba(45,212,191,0.16), transparent 30%), linear-gradient(180deg, rgba(255,255,255,0.04), transparent 38%)',
+          backgroundImage: light
+            ? 'radial-gradient(circle at top right, rgba(251,191,36,0.12), transparent 24%), radial-gradient(circle at 20% 120%, rgba(45,212,191,0.10), transparent 30%), linear-gradient(180deg, rgba(255,255,255,0.5), transparent 38%)'
+            : 'radial-gradient(circle at top right, rgba(251,191,36,0.20), transparent 24%), radial-gradient(circle at 20% 120%, rgba(45,212,191,0.16), transparent 30%), linear-gradient(180deg, rgba(255,255,255,0.04), transparent 38%)',
         }}
       />
 
@@ -141,8 +150,10 @@ export function CreditsPanelContent({
       <div
         className="relative overflow-hidden rounded-[1.375rem] border border-overlay-2 p-3.5"
         style={{
-          backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          backgroundImage: light
+            ? 'linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.01))'
+            : 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
+          boxShadow: light ? 'inset 0 1px 0 rgba(255,255,255,0.8)' : 'inset 0 1px 0 rgba(255,255,255,0.06)',
         }}
       >
         <div
@@ -166,22 +177,24 @@ export function CreditsPanelContent({
           <div
             className="text-4xl font-black tracking-[-0.06em]"
             style={{
-              backgroundImage: 'linear-gradient(to bottom right, #fff, #fff, rgba(253,230,138,0.85))',
+              backgroundImage: light
+                ? 'linear-gradient(to bottom right, #1f2329, #1f2329, #b45309)'
+                : 'linear-gradient(to bottom right, #fff, #fff, rgba(253,230,138,0.85))',
               backgroundClip: 'text',
               WebkitBackgroundClip: 'text',
               color: 'transparent',
-              textShadow: '0 2px 18px rgba(251,191,36,0.18)',
+              textShadow: light ? '0 2px 18px rgba(251,191,36,0.10)' : '0 2px 18px rgba(251,191,36,0.18)',
             }}
           >
             {formatNumber(total)}
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-1 text-xs text-text-dim-3">
-            <span className="font-semibold text-violet-200/80">
+            <span className={`font-semibold ${light ? 'text-violet-700/80' : 'text-violet-200/80'}`}>
               {formatNumber(subscriptionCredits)}
             </span>
             <span className="text-text-dim-2">订阅积分</span>
             <span className="px-0.5 text-text-dim-1">+</span>
-            <span className="font-semibold text-amber-200/85">
+            <span className={`font-semibold ${light ? 'text-amber-700/85' : 'text-amber-200/85'}`}>
               {formatNumber(credits)}
             </span>
             <span className="text-text-dim-2">通用积分</span>
@@ -252,7 +265,7 @@ export function CreditsPanelContent({
           >
             {formatNumber(credits)}
           </div>
-          <div className="mt-1 truncate text-[0.6875rem] font-medium text-amber-100/70">
+          <div className={`mt-1 truncate text-[0.6875rem] font-medium ${light ? 'text-amber-800/70' : 'text-amber-100/70'}`}>
             长期有效 · 订阅积分用尽后使用
           </div>
         </div>
@@ -264,18 +277,20 @@ export function CreditsPanelContent({
         <button
           type="button"
           onClick={onRecharge}
-          className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl bg-white px-4 py-3.5 text-left transition hover:bg-zinc-100"
-          style={{ boxShadow: '0 18px 44px -12px rgba(255,255,255,0.22)' }}
+          className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl px-4 py-3.5 text-left transition ${
+            light ? 'bg-zinc-950 hover:bg-zinc-800' : 'bg-white hover:bg-zinc-100'
+          }`}
+          style={{ boxShadow: light ? '0 18px 44px -12px rgba(15,23,42,0.18)' : '0 18px 44px -12px rgba(255,255,255,0.22)' }}
         >
-          <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-amber-200/40 blur-2xl" />
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-text">
+          <span className={`pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full ${light ? 'bg-amber-100/60' : 'bg-amber-200/40'} blur-2xl`} />
+          <span className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-text ${light ? 'bg-zinc-100' : 'bg-zinc-900'}`}>
             <WalletIcon className="h-5 w-5" />
           </span>
           <span className="relative min-w-0 flex-1">
-            <span className="block text-[0.9375rem] font-bold leading-tight text-zinc-950">充值</span>
-            <span className="mt-0.5 block text-[0.6875rem] font-medium text-zinc-500">订阅积分 + 通用积分</span>
+            <span className={`block text-[0.9375rem] font-bold leading-tight ${light ? 'text-zinc-50' : 'text-zinc-950'}`}>充值</span>
+            <span className={`mt-0.5 block text-[0.6875rem] font-medium ${light ? 'text-zinc-600' : 'text-zinc-500'}`}>订阅积分 + 通用积分</span>
           </span>
-          <ChevronRightIcon className="relative h-4 w-4 shrink-0 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" />
+          <ChevronRightIcon className={`relative h-4 w-4 shrink-0 transition group-hover:translate-x-0.5 ${light ? 'text-zinc-500 group-hover:text-zinc-800' : 'text-zinc-400 group-hover:text-zinc-700'}`} />
         </button>
 
         {/* Invite button */}
@@ -284,12 +299,14 @@ export function CreditsPanelContent({
           onClick={onInvite}
           className="group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-overlay-2 px-4 py-3.5 text-left transition hover:bg-overlay-2"
           style={{
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.04), transparent)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+            background: light
+              ? 'linear-gradient(180deg, rgba(0,0,0,0.02), transparent)'
+              : 'linear-gradient(180deg, rgba(255,255,255,0.04), transparent)',
+            boxShadow: light ? 'inset 0 1px 0 rgba(255,255,255,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
             backdropFilter: 'blur(12px)',
           }}
         >
-          <span className="pointer-events-none absolute -left-6 -bottom-6 h-20 w-20 rounded-full bg-rose-300/15 blur-2xl" />
+          <span className={`pointer-events-none absolute -left-6 -bottom-6 h-20 w-20 rounded-full ${light ? 'bg-rose-100/40' : 'bg-rose-300/15'} blur-2xl`} />
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-overlay-2 bg-overlay-2 text-text">
             <GiftIcon className="h-5 w-5" />
           </span>

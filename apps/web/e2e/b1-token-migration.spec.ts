@@ -99,10 +99,11 @@ const CANVAS_PROBES: TokenProbe[] = [
   {
     id: 'savestatus-胶囊-边',
     prop: 'borderTopColor',
-    computed: 'rgb(51, 51, 51)', // #333 = --fw-border 深色值（桥同值）
+    computed: 'rgba(255, 255, 255, 0.1)', // C8 Task 23：裸 border（--fw-border #333）→ border-overlay-2 深色值——药丸 chrome 化有意变更（differExpectedPairs 四条药丸 pairs 在册）
+    classNeed: 'border-overlay-2',
     classAbsent: 'border-[#333]',
     locate: (page) => page.getByText('已连接', { exact: true }).first().locator('xpath=..'),
-    why: 'border border-[#333] → B2 删字面类留裸 border（preflight *{border-color:var(--fw-border)} 桥，色不变）',
+    why: 'border border-[#333] → B2 删字面类留裸 border（桥）；C8 Task 23 再迁 border-overlay-2（P7 反例① 药丸 chrome 化）',
   },
 ];
 
