@@ -299,12 +299,15 @@ C0（改造后新形态全绿）、vitest 全绿、lint 双规则、css-audit �
 ## 13. 已知接受项与风险登记
 
 1. `'system'` 残留用户一次性回落深色（P8，开发期无用户数据影响为零）。
-2. antd cssinjs 晚一帧的切换瞬时不一致面积变大（ve/videos/canvas 三域同帧重渲染）——D4 实测留档（含大画布 ≥50 节点切换耗时/掉帧读数）。
+2. antd cssinjs 晚一帧的切换瞬时不一致面积变大（ve/videos/canvas 三域同帧重渲染）——D4 实测留档（含大画布 ≥50 节点切换耗时/掉帧读数）。**D4 结案（v1.5.5）：三域同帧无晚一帧**——MutationObserver 实测 cssinjs style 变更首条时间戳均在 setMode 同步段内（videos Tabs 88/60 条、ve 150/122、canvas Modal 开启态 62），先于首 rAF 采样；50 节点画布深⇄浅 syncMs 0.0-0.1ms、1s 窗 60 帧零掉帧，全表唯一长帧 = Modal 开启态 53.8ms。读数与 render 计数探针留档 `e2e/audit/c8-d4-performance.md`。
 3. **过渡中间态**（纪律登记；v1.3 补 D1b↔D2 锁成三把）：D2 之后～D3 板面批次完成前，浅色档画布不可用（板已浅、字面仍深的混排）；D1b 之后～D2 之前同样混排（var 间接链已删、消费点已并域）；D1a 之后～D3 之前，板内 3 个 `--canvas-controls-*` 消费点（VideoHDPanel:93/VideoNodeToolbar:99/VideoTrimPanel:126）浅色档取浅值落黑板——深色档**无未登记 diff**（v1.5 措辞对齐 §15.3），纪律要求 **D1b↔D2↔D3 板面批次连续收口**，禁止在中间态用浅色档验收画布。
 4. --ve-track-video：浅色编辑器中 clip 轨道块保持深色=有意设计（与浅面板形成媒体区对比；clip 块通常有缩略铺满，未就绪/纯音频轨露深底）——B6 目检勿判缺陷。
 5. 浅色档网格点对比度 1.53:1 天然低于深档 2.82:1（P2，目检认可）。
 6. VideoEditNode 深色档白→深、CreditsDropdown 浅色重做、--ve-accent-text 深档文字提亮 #6C5CE7→#9B8CF7（P9，8 处文字钮，修复现状 @#262626 3.11 欠账至 5.40）、**TRACK_COLORS 三行统一到 BLOCK_BAR（P10 用户裁定 A：image/audio/subtitle 深档变色）**、#363636→#333 等 Δ3 级收敛——全部登记 differExpectedPairs（D1b 清单 §9.2 / D3 域原子对清单），属有意变更非回归。
-7. **范围外待裁登记（v1.4，第六轮发现）**：AuthModal.tsx 深色字面（:85 bg-[#222222] border-[#3a3a3a]、text-[#ccc] 族）宿主是两个恒浅岛（pages/login/page.tsx:15、components/auth/LoginModal.tsx:24）——浅岛内嵌深色表单，且 spec v1.9 §3.2 将其错误登记为"营销页固有浅色豁免"。不在画布链路（CanvasTopBar"登录"是 Link 路由跳转非弹层），本期不动；C8 收口时登记待裁项（c7 增补或独立 spec）并订正 v1.9 §3.2 错误标签。
+7. **范围外待裁登记（v1.4，第六轮发现）**：AuthModal.tsx 深色字面（:85 bg-[#222222] border-[#3a3a3a]、text-[#ccc] 族）宿主是两个恒浅岛（pages/login/page.tsx:15、components/auth/LoginModal.tsx:24）——浅岛内嵌深色表单，且 spec v1.9 §3.2 将其错误登记为"营销页固有浅色豁免"。不在画布链路（CanvasTopBar"登录"是 Link 路由跳转非弹层），本期不动；C8 收口时登记待裁项（c7 增补或独立 spec）并订正 v1.9 §3.2 错误标签。**v1.5.5 终版核对：维持范围外待裁，独立条目留待后续 spec，本期不动。**
+8. **VideoHDPanel:108/:143/:175 标签浅档不可见（B6 终版登记；Task 22 审查补预登记疑点证实）**：面板容器 background=var(--canvas-controls-bg) 跟随翻浅 #f0f1f2、标题 var(--canvas-controls-text) 跟随翻深，唯三处标签 `color:'#e2e8f0'`（B2-b 遗留灰阶，未入 D1a 八键）恒深字面 → 浅档 ≈1.06:1（模型选择/分辨率/帧率）。该面板需 hasMedia 才挂载——不在 8 采集页 DOM、gate fixture 不可达，零采集/断言覆盖。已知接受收口；后续独立小任务迁 var(--canvas-controls-text)（深值 rgb(247,247,247) vs 字面 #e2e8f0 近似微变，零采集 diff；lint hex 基线减 3 键合法陈旧化）。
+9. **CreditsDropdown 稿表外 5 位点浅档 washed-out（B6 终版登记）**：Task 23（ad666573）"稿表外位点两路同值冻结"的既登记后果——左紫卡标签 text-violet-200/90 + 数字白渐变(#fff→rgba(237,233,254,.85)) + violet-100/70 到期行、右 amber 卡标签 text-amber-200/90 + 数字白渐变(#fff→rgba(253,230,138,.85))，卡片底紫/amber 0.10-0.18 渐变亦两路同值；浅档浅底上数字尚可辨、标签近不可见。Task 19 裁定表 12 行内位点全数浅分支落地无回归。已知接受；后续小任务补 5 处浅分支（标签→violet/amber-700 系、数字渐变→深色系、到期行→violet-800 系）。
+10. **B6 覆盖缺口登记（非缺陷）**：Storyboard group 浅档无实照（Ctrl+多选合成事件限制，groups 域有 Task 22 segcheck 深浅双跑+断言覆盖）、素材库 FolderContextMenu 右键未弹出（截图 locator 未命中触发面；位点 registry 在册）、关键帧菱形与 0s 播放头同位被遮挡（代码路径 --fw-surface-dim 底+--ve-accent 边浅档成立）、常规 clip 变体未呈现（注入假媒体仅触发 lost 红块变体，已覆盖 ClipBlock 深字面路径浅档实证）——四项裁定见 `e2e/audit/c8-b6-light-eyeball.md` §三。
 
 ## 14. 后端零改动声明
 
@@ -353,3 +356,10 @@ D0-0（仪器/before-D/探针钉深）→ D0（两态六件套+G 门禁改写，
 
 1. **E 表 O6②/b3 domainRule 撤销执行记录**：b2-migration-registry.json `b3DeadClassDisposal.domainRule`（恒深禁 token 条款）已追加 `revoked-C8-D3` 撤销标记（跟随域，逐元素裁定见 canvas-migration-registry.json `D3-viewer-element-table`）；登记档以 b2 为准（b3-alldead-list.json 系过期快照）。
 2. **b3DeadClassDisposal 跨度再订正**：第五轮口径":1131-1250（下一键 b4DesignConstantWhitelist @1251）"系 D1a 登记条目（c8DeadTokenRemovals/c8TokenRevivals）写入 b2 之前的坐标；本 commit 实测跨度 **:1137-1256（下一键 @1257）**——键序与相对位置不变，绝对行号随 b2 增条漂移，后续引用以键名定位勿按行号直跳（同 LINE-FRAME-NOTE 先例）。
+
+### v1.5.5（2026-09-20，Task 27 D4 收口终版）
+
+1. **§13.2 结案：antd cssinjs 无晚一帧**——三域实测（videos Tabs 88/60 条、ve 150/122、canvas Modal 开启态 62）style 变更首条时间戳均在 setMode 同步段内（先于首 rAF 采样）同帧翻色；50 节点画布深⇄浅 syncMs 0.0-0.1ms、1s 窗 rAF 60 帧零掉帧、唯一长帧 = Modal 开启态 53.8ms；render 计数探针复验节点组件增量 0。全档 `e2e/audit/c8-d4-performance.md`。
+2. **§13 增补 8-10 条（B6 真实浅色对照终版）**：VideoHDPanel 三标签 #e2e8f0 浅档不可见（预登记疑点证实，fixture 不可达零采集 diff）、CreditsDropdown 稿表外 5 位点 washed-out（Task 23 冻结既登记后果，表内 12 行全过）、B6 覆盖缺口四项。目检 ❌=0 无停止条款，全表 `e2e/audit/c8-b6-light-eyeball.md`。
+3. **§13.7 AuthModal 范围外待裁项维持**：终版核对后仍留独立条目待后续 spec（c7 增补或独立稿），本 spec 不动。
+4. **B6 采集口径终版自证**：REAL_LIGHT（storage 真实路径）8/8 页 html 类恰为 "light"；恒深探针 1/1（videos 封面垫底 #262626）、翻转探针 4/4（canvas --fw-bg #f7f8fa / 画板板底 rgb(245,245,245)、ve 壳根语义+视觉 rgb(247,248,250)）全过；d4-reallight-tmp 临时基线与一次性脚本（tmp-b6-eyeball/tmp-b6-ve/tmp-d4-perf）目检后删除，结论转记目检表与性能档。
