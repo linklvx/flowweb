@@ -193,9 +193,9 @@
       "file": "apps/web/src/pages/canvas/video-editor/components/ExportModal.tsx",
       "line": 236,
       "evidence": "C8 Task 14 补登：原字面 #6C5CE7 → 实测改指 var(--ve-accent)（图形档双档同值，浅档 --ve-accent 亦 #6C5CE7）。实测裁定（2026-09-20，真实 antd 5.22.5/rc-progress 4.0.0 Progress + Chromium html.dark 域）：原 prop 无 type → line 型 .ant-progress-bg div 内联 style background 通道；strokeColor='var(--ve-accent)' computed backgroundColor=rgb(108, 92, 231)=代换成功；circle 型对照通道经 inline style stroke（stroke 属性 attr=null）同样代换成功——plan Task14 原文'SVG 呈现属性可能回退'假设在本版本栈不成立，不影响判据结论。",
-      "hostDomain": "video-editor（.dark 岛壳内，Task 21 拆岛前不进浅档）",
+      "hostDomain": "video-editor 源域，渲染 portal 到 document.body（ExportPopover 的 antd Popover 无 getPopupContainer，Progress 内容 DOM 上在 .dark 岛壳之外）",
       "disposition": "token-driven-no-js-color",
-      "note": "裁定依据 spec §11.4：computed=rgb(108, 92, 231) → var() 生效保留换引，无 JS 分支；深浅双档零 computed 变更，无 differ 配对需求。"
+      "note": "裁定依据 spec §11.4：computed=rgb(108, 92, 231) → var() 生效保留换引，无 JS 分支；深浅双档零 computed 变更，无 differ 配对需求。归因订正（Task 14 审查）：双档零变更的真实依据是 --ve-accent 双档同值（#6C5CE7），浅档 portal 域代换出的仍是同值——并非岛钉深档；此区分保护未来改指裁定：若此处改指深浅异值的 text 级 token，portal 到 body 即解析出浅值、深档渲染将被破坏。"
     }
   ]
 }

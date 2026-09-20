@@ -1873,9 +1873,10 @@
    },
    {
     "prop": "color",
+    "page": "video-editor",
     "before": "rgb(108, 92, 231)",
     "after": "rgb(155, 140, 247)",
-    "why": "P9 文字档 8 处深档提亮 #6C5CE7→#9B8CF7（@#262626 3.11→5.40），spec §9.2①"
+    "why": "P9 文字档 8 处深档提亮 #6C5CE7→#9B8CF7（@#262626 3.11→5.40），spec §9.2①；元素级配对按分类法带 page 收窄（8 处全在 video-editor 页渲染，防 VideoEditNode 等 canvas 页未来同值换指被全局静默吸收）"
    }
   ]
  },
