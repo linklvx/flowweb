@@ -33,8 +33,7 @@ const GLOBAL_THEME_UTILITY_RE = /(?<![\w-])((?:[a-zA-Z][\w-]*:)*)!?(text|bg|bord
  * `**` 跨段、`*` 单段。注释即归因：改动须同步 e2e/audit/canvas-migration-registry.json whitelistKeeps（C8 镜像）。
  */
 export const THEME_UTILITY_WHITELIST = [
-  // —— 恒深域（C8 D3 逐域摘除：videos→Task 20、video-editor→Task 21、nodes/edges/groups→Task 22）——
-  'src/pages/videos/**',
+  // —— 恒深域（C8 D3 逐域摘除：videos 已摘（Task 20）、video-editor→Task 21、nodes/edges/groups→Task 22）——
   'src/pages/canvas/components/nodes/**',
   'src/pages/canvas/components/edges/**',
   'src/pages/canvas/components/groups/**',
@@ -57,7 +56,18 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/canvas/components/CreditsDropdown.tsx', allow: ['bg'] },       // :267 充值钮 bg-white+hover:bg-zinc-100（第五轮订正：此钮非"邀请卡"——邀请钮 :282-285 已 token 化；P5 通道 3 明文保留的即这族白系）
   { glob: 'src/pages/canvas/components/ConfirmModal.tsx', allow: ['bg'] },          // 白卡（通道 3）
   { glob: 'src/pages/canvas/components/SaveAsTemplateDialog.tsx', allow: ['bg'] },  // 白卡（通道 3）
-  { glob: 'src/pages/videos/ProcessSnapshot.tsx', allow: ['bg', 'text', 'border'] }, // 内容承载恒深整块（spec §10-⑦）——Task 19 已预置生效；videos 目录条目在前遮蔽期间全放行（与摘除前行为一致），Task 20 摘目录后本条自动激活
+  { glob: 'src/pages/videos/ProcessSnapshot.tsx', allow: ['bg', 'text', 'border'] }, // 内容承载恒深整块（spec §10-⑦）——Task 19 预置，Task 20 摘目录后本条已激活
+  // —— C8 Task 20 D3-videos 摘目录同 commit 补精确条目（媒体压层/恒深自持，禁 string 整文件放行）——
+  { glob: 'src/pages/videos/PlayView.tsx', allow: ['bg', 'text', 'from'] },          // 压画面 UI 整块恒深保留字面（第四通道，registry D3-playview-channel4：from-black scrim+白字/bg-white 形+深药丸 text-white）
+  { glob: 'src/pages/videos/CarouselBar.tsx', allow: ['bg', 'ring'] },               // :29 hover:ring-white/60 + :31 无封面占位 bg-white/10 压媒体（第四通道，registry D3-carouselbar-overmedia-keep）
+  { glob: 'src/pages/videos/VideoCard.tsx', allow: ['bg', 'text'] },                 // :21 时长胶囊 bg-black/70+text-white 压封面（第四通道，registry D3-videocard-migration）
+  { glob: 'src/pages/videos/ProcessView.tsx', allow: ['bg'] },                       // :53 复制项目 bg-white 反白 CTA（通道 3 明文禁 token 化，registry D3-processview-migration）
+  { glob: 'src/pages/videos/VideoPlayerModal.tsx', allow: ['bg', 'text'] },          // :75 媒体容器 bg-black 恒深自持 + :86 close-btn text-white 压画面显式化（第四通道，registry D3-videos-shell-dom-split）
+  // —— C8 Task 20 videos __tests__ 单文件 string 条目（测试断言串九族命中非产品 UI，整文件放行；第五轮写 3、第八轮 P3-1 实测 4——多出 CarouselBar.test:80 ring 家族）——
+  'src/pages/videos/__tests__/CarouselBar.test.tsx',
+  'src/pages/videos/__tests__/PlayView.test.tsx',
+  'src/pages/videos/__tests__/ProcessView.test.tsx',
+  'src/pages/videos/__tests__/ProcessSnapshot.test.tsx',
   // —— C8 Task 19 Step 3 working list 精确豁免（lint-gate 实测 12 处/7 文件全 bg 族；每文件先九族 grep -i 定 allow）——
   { glob: 'src/components/BaseFullscreenModal.tsx', allow: ['bg'] },                 // :70 bg-black/60 全屏模态遮罩中性 scrim（恒定黑罩两档成立）
   { glob: 'src/pages/canvas/page.tsx', allow: ['bg'] },                              // :313 bg-black/50 hydrate 加载遮罩中性 scrim

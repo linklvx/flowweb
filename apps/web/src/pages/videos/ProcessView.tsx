@@ -40,15 +40,16 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-[#141414]">
-      <div className="flex items-center gap-3 pl-4 pr-[var(--vw-close-reserve)] py-2 bg-[#1e1e1e] border-b border-white/10 shrink-0">
-        <button onClick={onBack} className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">‹ 返回</button>
+    <div className="absolute inset-0 flex flex-col bg-bg">
+      <div className="flex items-center gap-3 pl-4 pr-[var(--vw-close-reserve)] py-2 bg-surface border-b border-overlay-2 shrink-0">
+        <button onClick={onBack} className="rounded-lg bg-overlay-2 px-3 py-1.5 text-sm hover:bg-overlay-3">‹ 返回</button>
         <span className="flex-1 truncate text-sm">{title} · 创作过程</span>
         {canClone && !cloned && (
           <>
             {/* U7c：只读模式提示（复制项目按钮左侧白字） */}
-            <span className="text-white text-sm mr-1">只读模式，如需创建请点击</span>
-            {/* U7a：白底黑字 + 复制图标（SVG 参考用户提供的 libtv 图标；clip-path 为 16×16 全域 clip，剔除避免 id 冲突） */}
+            <span className="text-text text-sm mr-1">只读模式，如需创建请点击</span>
+            {/* U7a：白底黑字 + 复制图标（SVG 参考用户提供的 libtv 图标；clip-path 为 16×16 全域 clip，剔除避免 id 冲突）。
+                通道 3 反白 CTA 保留字面（TopActionBar 登录钮/CreateCanvasCard 先例，明文禁 token 化；ProcessView.test:60 断言随保留） */}
             <button onClick={onClone} disabled={cloning} className="rounded-lg bg-white text-[#111] px-3.5 py-1.5 text-sm font-semibold hover:opacity-90 inline-flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="mr-1 size-4" width="1em" height="1em" viewBox="0 0 16 16">
                 <path d="M9.33 4.73c1.07 0 1.94.87 1.94 1.94v6.66c0 1.07-.87 1.94-1.94 1.94H2.67a1.93 1.93 0 0 1-1.94-1.94V6.67c0-1.07.87-1.94 1.94-1.94zm-6.66 1.2c-.4 0-.74.33-.74.74v6.66c0 .4.33.74.74.74h6.66c.4 0 .74-.33.74-.74V6.67c0-.4-.33-.74-.74-.74zM6 7.4c.33 0 .6.27.6.6v1.4H8a.6.6 0 0 1 0 1.2H6.6V12a.6.6 0 0 1-1.2 0v-1.4H4a.6.6 0 0 1 0-1.2h1.4V8c0-.33.26-.6.6-.6M13.33.73c1.07 0 1.94.87 1.94 1.94v6.66c0 1.07-.87 1.94-1.94 1.94a.6.6 0 0 1 0-1.2c.4 0 .74-.34.74-.74V2.67c0-.4-.34-.74-.74-.74H6.67c-.4 0-.74.34-.74.74a.6.6 0 0 1-1.2 0C4.73 1.6 5.6.73 6.67.73z" fill="currentColor" />
@@ -59,16 +60,16 @@ export function ProcessView({ workId, title, canClone, onBack, onNeedLogin }: {
         )}
         {cloned && (
           <button onClick={() => navigate(`/canvas?projectId=${cloned.projectId}`)}
-            className="rounded-lg bg-[#4ade80] text-[#111] px-3.5 py-1.5 text-sm font-semibold">打开画布</button>
+            className="rounded-lg bg-accent text-on-accent px-3.5 py-1.5 text-sm font-semibold">打开画布</button>
         )}
       </div>
       <div className="flex-1 min-h-0">
         {error ? (
-          <div className="h-full flex flex-col items-center justify-center gap-3 text-white/60">
+          <div className="h-full flex flex-col items-center justify-center gap-3 text-text-dim-3">
             <span>暂时无法加载创作过程</span>
-            <button onClick={onBack} className="rounded-lg bg-white/10 px-4 py-1.5 text-sm">返回</button>
+            <button onClick={onBack} className="rounded-lg bg-overlay-2 px-4 py-1.5 text-sm">返回</button>
           </div>
-        ) : snap ? <ProcessSnapshot snapshot={snap} /> : <div className="h-full flex items-center justify-center text-white/40">加载中…</div>}
+        ) : snap ? <ProcessSnapshot snapshot={snap} /> : <div className="h-full flex items-center justify-center text-text-dim-2">加载中…</div>}
       </div>
     </div>
   );

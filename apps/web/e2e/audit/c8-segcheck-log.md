@@ -51,3 +51,16 @@
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 浅色目检 checkpoint（第五轮 A4，非验收只记录）: e2e/audit/c8-d2-light-checkpoint.png（gate 画布 lightContext 截图）——板已浅（#f5f5f5 浅点网格）、节点卡/左侧添加工具条/左下缩放工具条/顶栏药丸/credits 药丸仍深的混排期现状存照（registry meta.notes 同记，D3 画板批次开工前基线观察）
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D2 / segcheck-D2-light 采集目录 + checkpoint 临时 spec）
+
+## D3-videos（Task 20）@ 本文件 D3-videos 小节追加 commit（= 播放壳域原子对提交，父 5fabd0bf）
+
+- 全门禁: playwright 55 passed / 5 skipped（D-5 探针随域原子对同 commit 翻转真值 rgb(255,255,255)→rgb(31,35,41) 后全绿）；vitest 全绿（videos 域 60/60 含 VideoPlayerModal.test 壳根断言反转）；lint-gate PASS（no-theme-utility 0 违例；no-color-hex 260 baselined, 0 new）
+- 域纪律 grep（九族 -i 口径，当次实测）: 产品码 28 处/6 文件——PlayView 14（含 3 注释行）/ProcessSnapshot 7/VideoPlayerModal 3（含 1 注释行）/CarouselBar 2/ProcessView 1/VideoCard 1，全部落在 5 精确条目 {glob,allow} + ProcessSnapshot 预置条目（摘 videos/** 目录后激活）文件内；测试 6 处/4 文件全在 string 条目文件内；精确豁免外产品码残余 0（lint-gate 0 违例同证）
+- 深侧 before-D × segcheck-D3-videos: exit=0, unexpectedTotal=0（属性 0 + 几何 0，三闸全过）, B2 闸吸收 57（borderColor 收敛族 ×48 + color #fff→#e2e8f0 ×5 + color white/70→white/60 ×4——后两族=b2 registry 既有配对吸收，对应 D3-videocard-migration :27/:31 深侧微变）, D 段闸吸收 17（P9 ×6 + BTN 深侧 ×6 + ve-border 背景形态 ×5）；路由根岛删除在 html.dark 下级联不变（App ConfigProvider 本就 darkAlgorithm + :root,.dark 块仍命中）→ 深档零新 diff
+- 浅侧 before-D-light × segcheck-D3-videos-light: 首跑 exit=1（意外 59 条/10 组，全部 page:'videos'）→ 补登记 10 组 page 限定 pair 后复跑 exit=0, unexpected=0, D 段闸吸收 151（新增 10 对承 59 条 + 既有 8 对承 92 条）, B2 闸另吸收 48:
+  - antd 通道翻转 4 对（route 级 ConfigProvider darkAlgorithm 删除→defaultAlgorithm）: color colorText rgba(255,255,255,0.85)→rgba(0,0,0,0.88) ×8 + 同源 borderColor 形态 ×8（.ant-tabs-tab border:0→computed=currentColor 继承 colorText）+ color colorPrimary rgb(22,104,220)→rgb(22,119,255) ×1 + backgroundColor（ink-bar 形态）×1——Tabs 分类标签系；仅 /videos 曾挂 route 级 darkAlgorithm 故 page 收窄
+  - VideoCard 卡壳 2 对: backgroundColor rgb(30,30,30)→rgb(255,255,255) ×5（--fw-surface 浅值首次生效——岛拆前浅档被祖先 .dark 解析回 #1e1e1e）+ borderColor rgba(255,255,255,0.1)→rgba(0,0,0,0.06) ×20（border-overlay-2 浅值，5 卡×4 侧）
+  - VideoCard 文字/标签底 4 对: color rgb(255,255,255)→rgb(31,35,41) ×5（标题 text-white→text-text，before=迁移前字面）+ color rgba(255,255,255,0.7)→rgb(75,85,99) ×4（标签字→text-text-dim-3 浅值）+ color rgba(255,255,255,0.3)→rgb(156,163,175) ×3（无封面占位→text-text-dim-1 浅值）+ backgroundColor rgba(255,255,255,0.1)→rgba(0,0,0,0.06) ×4（标签底→bg-overlay-2 浅值）
+- 预期落空归因（登记则成死配对/采集面外，不登记）: ①ProcessView 翻浅与 M2 空态迁移——ProcessView 仅详情路由渲染（采集面无 DOM）、M2 三态分支 gate fixture 恒有数据不渲染（D3-m2-empty-states M2 前提）；②PlayView/CarouselBar/媒体容器恒深字面零 diff（第四通道保留项）；③壳根 DOM 拆分新增媒体容器层——VideosPage:49 !id||!detail 早退零 DOM→零 dom: 键漂移（G8② count=0 断言机械守卫，registry D3-videos-shell-dom-split 三条承重约束在册）
+- 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
+- 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-videos / segcheck-D3-videos-light 采集目录）

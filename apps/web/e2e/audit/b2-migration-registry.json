@@ -1139,7 +1139,7 @@
   "date": "2026-09-18",
   "baseState": "B2-c 完成后（6ac941f5）；audit-A0 冻结不动，本批快照 = e2e/audit/audit-B3.json（死类 0/全死跳过 0）",
   "motive": "B5 命名定稿前清场：死类家族若与未来 token 键撞名（如 muted）会以错误颜色复活",
-  "domainRule": "D4 v1.7——全屏查看器（nodes/ 内）= 画板恒深域，禁 --fw-* 语义 token，一律字面值；两查看器侧栏现有词汇表本身即 neutral 系（节标题 text-neutral-400）",
+  "domainRule": "D4 v1.7——全屏查看器（nodes/ 内）= 画板恒深域，禁 --fw-* 语义 token，一律字面值；两查看器侧栏现有词汇表本身即 neutral 系（节标题 text-neutral-400）【revoked-C8-D3（跟随域，逐元素裁定见 canvas-migration-registry.json D3-viewer-element-table）】",
   "families": [
    {
     "dead": "text-popover-foreground",

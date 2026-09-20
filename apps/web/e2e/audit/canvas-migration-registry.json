@@ -1911,6 +1911,78 @@
    "deep": "整块=内容承载面恒深（spec §10-⑦）：:89 colorMode=\"dark\" 保留、:91 网格点 color=\"#3a3a3a\" 保留",
    "light": "不翻转——快照是导出/预览的内容承载面，浅档维持深底（与 D-2 videos 封面恒深同构），本条不设浅侧 pair",
    "ruling": "勿统一到 --canvas-board-dot——那会引入 #555555≠#3a3a3a 深档 diff（board-dot 深值 #555555 与快照 #3a3a3a 非同值）；:34 bg-black/60 中性遮罩留（黑白两档皆可读）。本条为不变式登记（负豁免）：三处任一接入主题 token 即 D 段深侧 diff 意外项红"
+  },
+  {
+   "id": "D3-viewer-element-table",
+   "file": "src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx + VideoFullscreenViewer.tsx",
+   "line": "Image :17-22/:131/:137/:145/:147/:153/:184-211/:224/:239/:247；Video :20-25/:91/:97/:106/:108/:114/:146-173/:186",
+   "deep": "M5 逐元素裁定表（Task 20 Step 0，表成后才动 Step 1-3）：恒深/通道4 保留字面=① bg-black 全屏遮罩（Image :239 full-bleed）② 媒体区垫底 bg-[#0A0A0A]（Image :145/Video :106 两文件同款各一处）③ 浮面板 bg-[#1C1C1C]/80 + border-white/10（Image :131/Video :91）④ 面板内侧栏文字 text-neutral-200/400（b3 落值，落恒深面板上两档皆浅字=恒深保留，非九族无 lint 面）⑤ 侧栏滚动条 <style> 块 thumb rgba(255,255,255,0.15)/hover 0.25（registry styleBlocks 在册——归恒深面板侧，浅档面板仍深→白 thumb 仍正确，track transparent 中性）⑥ 关闭钮 bg-white/[0.06] 族与加载/错误态 text-white/40（恒深面板上中性）",
+   "light": "跟随（token/双值）=仅按钮 chrome：bg-[#646464]→bg-surface-dim、hover:bg-[#757575]→hover:bg-surface、border-white/10→border-overlay-2、text-white（b3 自 text-primary-foreground）→text-text、focus-visible:ring-white/40（b3 自 ring-ring）→focus-visible:ring-[var(--fw-text-dim-3)]（无 ring 语义键，取淡字阶 var 形——深白 0.6/浅 #4b5563 两档可见）",
+   "ruling": "两查看器恒深岛废止（E 表）≠整块翻浅：面板/媒体垫底是内容承载（P6）保持恒深字面，唯按钮 chrome 跟随（plan Step 0 表逐元素归通道）；宿主 nodes/** 目录白名单 Task 22 才摘，本域改动不新增 lint 面。全屏遮罩 bg-black=BaseFullscreenModal bg-black/60 同族中性 scrim；查看器不在 8 采集页渲染路径（gate 画布 videoGen 空 data 无全屏入口，b3 differPairs note 在册）→ 按钮深档色变（#646464→#262626 surface-dim）无 differ 信号，B6 目检项"
+  },
+  {
+   "id": "D3-videos-shell-dom-split",
+   "file": "src/pages/videos/VideoPlayerModal.tsx",
+   "line": ":58 壳根拆两层（P3 前置 DOM 拆分）",
+   "deep": "壳根删 dark 类与 [color-scheme:dark] 改 bg-bg text-text flex flex-col；新增媒体容器 flex-1 min-h-0 bg-black [color-scheme:dark] 承载 PlayView/ProcessView（原样移入）；close-btn/CarouselBar 留外层",
+   "light": "壳根随主题取浅值 #f7f8fa；媒体容器恒黑 [color-scheme:dark] 局部自持（<video controls> 原生控件压深媒体面，spec §11.2 局部保留通则）；浅档可见变化≈0 属预期（v1.5.1-4 已知接受）",
+   "ruling": "三条承重约束：①媒体容器禁 absolute/relative/overflow-hidden（PlayView 根 absolute inset-0 包含块=壳根 fixed，加定位改几何裁切）②min-h-0 必须保留（高度靠壳 flex 撑开）③浅档仅外层框变化。同层兄弟垫底方案已裁定否决（全屏黑底压壳根 bg-bg+静态 CarouselBar 绘于 z-0 之下）。close-btn :80 bg-[rgba(50,50,50,0.45)] 目检判定=压画面（top-3 right-3 落视频区上）→第四通道保留字面+补 text-white（原继承壳根 text-white，壳根改 text-text 后需显式化防浅档深字压画面）。播放态 video controls 原生控件归媒体容器 [color-scheme:dark]。DOM 新增媒体容器层=详情路由结构改动，VideoPlayerModal 非采集页元素（VideosPage:70 挂载但 :49 !id||!detail 早退零 DOM）→ 零 dom: 键漂移；前提由 G8② 末尾 /videos 列表 [data-vw-shell] count=0 断言机械守卫"
+  },
+  {
+   "id": "D3-router-island-removal",
+   "file": "src/router.tsx",
+   "line": ":48-59（v1.5.2-5/v1.5.3-3 E 表落点）",
+   "deep": "删 route 级 <ConfigProvider theme={{ algorithm: darkAlgorithm }}>（React 组件零 DOM）+ <div className=\"dark\"> → <div>（元素必须保留——/videos 是采集页，删元素=dom: 键漂移=配对闸硬红；同标签同位置同兄弟序号→键不变）。深档级联不变实证：html.dark 下 App ConfigProvider 本就 darkAlgorithm，div.dark 删类后 :root,.dark 块仍命中→token 解析深值不变",
+   "light": "整页翻浅（VideoCard --fw-surface 浅值 #ffffff 首次生效、antd defaultAlgorithm 下 Tabs/Pagination 翻浅）——浅侧大变逐对入 pairs（优先 page:'videos'）",
+   "ruling": "不拆则 Task 15 VideoCard 并域在浅档空转（祖先 .dark 把 var(--fw-surface) 解析回 #1e1e1e）；同 commit 清死 import（ConfigProvider/theme as antdTheme 删后改 import { Spin } from 'antd'）+ :48-50 恒深双通道注释废止改写（Task 25 router 注释订正移本 commit，不留假档）；Suspense 边界与 lazy 注释（:45-47 直链白屏防线）不动"
+  },
+  {
+   "id": "D3-playview-channel4",
+   "file": "src/pages/videos/PlayView.tsx",
+   "line": "整文件（:55/:69/:70/:72/:74/:75/:83/:85/:93/:100/:104/:107）",
+   "deep": "压画面 UI 整块恒深保留字面（第四通道）：:69 from-black/60 顶栏 scrim、:74 text-white/90、:83 from-black/70 预览渐变（第五轮订正：文件无 bg-black/70 勿按图索骥）、:70/:72 bg-white/20、:93 bg-white 反白播放钮、:100/:104/:107 bg-[#2f2f2f] 深药丸、:104 liked text-[#4ade80]/常态 text-white、:85 text-white/75——两档成立（深 scrim+白字=YouTube/B 站浅色模式同构）",
+   "light": "不翻转（压在恒黑媒体容器上，浅档翻转即深字压画面不可读）；:55 根补 text-white 显式化（原继承壳根 text-white，壳根改 text-text 后防浅档继承深字）",
+   "ruling": "归属判据：PlayView 全部=画面区留媒体容器内；白名单补 {glob, allow:['bg','text','from']}（压画面族精确豁免，禁 string 整文件放行——附录 B 硬禁令）；:104 点赞钮（深药丸上绿/白两态两档均成立）按第四通道保留，accent 不迁（与 ProcessView:62 迁移对照——彼在 chrome 工具条、此压画面）"
+  },
+  {
+   "id": "D3-carouselbar-overmedia-keep",
+   "file": "src/pages/videos/CarouselBar.tsx",
+   "line": ":29 hover:ring-white/60 + :31 bg-white/10",
+   "deep": "保留字面：轮播缩略图浮于视频底部黑媒体区上方（absolute bottom-0，浅档媒体容器仍黑）——hover 白环/无封面占位 bg-white/10 压媒体两档均成立（第四通道）",
+   "light": "不翻转——翻转反而产出「黑板浮层上黑环/黑占位」反效果（附录 B 恒深面精确条目判据句同源）",
+   "ruling": "DOM 归属=壳 chrome（Step 1 留外层）但视觉归属=压媒体，逐元素裁定按后者；「CarouselBar 算跟随域」（v1.5.1-4）指非岛成员资格，不豁免逐元素归道。白名单补 {glob, allow:['bg','ring']}；CarouselBar.test:80 hover:ring-white/60 断言随字面保留继续有效（测试文件 string 条目另登）"
+  },
+  {
+   "id": "D3-videocard-migration",
+   "file": "src/pages/videos/VideoCard.tsx",
+   "line": ":19/:21/:27/:31",
+   "deep": "跟随迁移（卡壳 Task 15 已 --fw-surface/overlay-2/overlay-3 并域，本步补齐剩余字面）：:27 标题 text-white→text-text（深档 #fff→#e2e8f0 非字节等值=可见微变，深侧 pair 登记）；:31 标签 text-white/70→text-text-dim-3（0.7→0.6 非等值，深侧 pair 登记）+ bg-white/10→bg-overlay-2（0.1 字节等值零 diff）；:19 暂无封面 text-white/30→text-text-dim-1（0.3 字节等值零 diff）",
+   "light": "标题 #1f2329、标签 #4b5563、标签底 rgba(0,0,0,0.06) 于 #ffffff 卡面——路由岛拆除后浅值首次生效（不拆则 --fw-surface 浅档空转）",
+   "ruling": ":16 封面占位底 #262626 保留（P6 内容垫底，a0:200 探针 invariance rgb(38,38,38) 守卫）；:21 时长胶囊 bg-black/70 text-white 保留（压封面媒体=第四通道，P7 机械判据显式豁免结构）。VideoCard {glob, allow:['bg','text']} 精确条目承 :21 胶囊双族"
+  },
+  {
+   "id": "D3-processview-migration",
+   "file": "src/pages/videos/ProcessView.tsx",
+   "line": ":43/:44/:45/:50/:52/:62/:67/:69/:71",
+   "deep": "chrome 部分迁移：:43 根 bg-[#141414]→bg-bg（#141414 字节等值零 diff；浅档翻 #f7f8fa——P6「UI 面/文字底板」分支整体跟随）；:44 工具条 bg-[#1e1e1e]→bg-surface（字节等值）+ border-white/10→border-overlay-2（字节等值）；:45/:69 返回钮 bg-white/10→bg-overlay-2（字节等值）+ :45 hover:bg-white/20→hover:bg-overlay-3（字节等值）；:50 只读提示 text-white→text-text（#fff→#e2e8f0 非等值微变——详情路由非采集页零 differ 信号）；:62 打开画布 bg-[#4ade80] text-[#111]→bg-accent text-on-accent（--fw-accent 两档同值 #4ade80 深档字节等值零 diff；on-accent #141414 vs #111 微变同前零信号）；:67 错误态 text-white/60→text-text-dim-3（0.6 字节等值）；:71 加载态 text-white/40→text-text-dim-2（0.4→0.45 非等值，状态分支不在门禁渲染路径=M2 前提）",
+   "light": "浅档整页浅面板（bg-bg #f7f8fa）+ 白工具条（bg-surface）+ 深字——空态白系字面若不迁移则白字白底不可见（M2 动机）；ProcessSnapshot 整块不动（D2-processsnapshot-invariant 不变式：浅档深快照画布于浅面板上=内容承载恒深）",
+   "ruling": ":52 复制项目 bg-white text-[#111] 保留不迁（通道 3 反白 CTA——TopActionBar 登录钮/CreateCanvasCard 先例，明文禁 token 化；浅档白钮于白工具条靠字重/图标辨读，B6 必看项）；浅字白底不可见三处（:50/:67/:71 迁移后消除）。ProcessView.test:60 bg-white 断言随保留继续有效（测试文件 string 条目另登）"
+  },
+  {
+   "id": "D3-m2-empty-states",
+   "file": "src/pages/videos/VideosPage.tsx",
+   "line": ":53/:56/:58",
+   "deep": "M2 状态分支字面迁移：:53 加载骨架 bg-white/5→bg-overlay-1（0.05 字节等值零 diff）；:56/:58 空/错态 text-white/40→text-text-dim-2（0.4→0.45 非等值——gate fixture 恒有数据，空/错/载态不在门禁渲染路径，深侧无 diff 信号）",
+   "light": "骨架 rgba(0,0,0,0.03)/空错态 #6b7280 于 #f7f8fa 页面——白系字面浅档白字白底不可见问题随迁移消除，列 B6 必看项",
+   "ruling": "gate fixture 恒有数据是 M2 迁移免 pair 的前提；若未来详情/列表加载路径进采集须重评"
+  },
+  {
+   "id": "D3-b3-domainrule-revoked",
+   "file": "e2e/audit/b2-migration-registry.json",
+   "line": ":1142（b3DeadClassDisposal.domainRule）",
+   "deep": "撤销标记：『D4 v1.7——全屏查看器（nodes/ 内）= 画板恒深域，禁 --fw-* 语义 token，一律字面值』追加 revoked-C8-D3（跟随域，逐元素裁定见 canvas-migration-registry.json D3-viewer-element-table）",
+   "light": "不撤销则 D3 后有人按它把 viewer 钉回深色（E 表废止项的登记档残留）",
+   "ruling": "b3DeadClassDisposal 跨度实测订正 :1131-1181→:1131-1250（下一键 b4DesignConstantWhitelist @1251，第五轮订正落本 commit）；本步真实工作=B3 恒深落值改双主题真值（按钮 chrome 处 token/双值、恒深处保留字面），非删类名；ring-ring 计数 2 非 4（v1.5.1-2 已订正，本条为执行记录）"
   }
  ],
  "differExpectedPairs": {
@@ -1964,12 +2036,90 @@
     "before": "rgb(0, 0, 0)",
     "after": "rgb(245, 245, 245)",
     "why": "D2 板面翻转（Task 17 落点，segcheck-D2-light 首跑意外项抓出补登记）：.react-flow wrapper 旧钉黑底（B0 恒深板）改 bg-[var(--canvas-board-bg)] 后浅档取浅值 #f5f5f5；wrapper 站点实跨 canvas/material-modal/video-editor 三个采集页（各自内嵌 ReactFlow，segcheck 实测 3 条同值同位），page 收窄会漏页——按 TopActionBar/body 全局族先例全局登记"
+   },
+   {
+    "prop": "color",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.85)",
+    "after": "rgba(0, 0, 0, 0.88)",
+    "why": "Task 20 D3-videos 浅侧（segcheck-D3-videos-light 首跑 59 意外项抓出登记，共 10 对全 page:'videos'）：antd colorText 通道翻转——D3-router-island-removal 删 route 级 ConfigProvider darkAlgorithm 后 Tabs 分类标签取 defaultAlgorithm 浅值（dark colorText=white@0.85、light=black@0.88，antd theme dark colors.js getAlphaColor(0.85) 实测）；深档两算法同值零 diff 本对仅承浅侧；仅 /videos 曾挂 route 级 darkAlgorithm（works/login 无）故 page 收窄"
+   },
+   {
+    "prop": "borderColor",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.85)",
+    "after": "rgba(0, 0, 0, 0.88)",
+    "why": "同 colorText 对的边框形态：.ant-tabs-tab border:0（tabs/style :484）→ borderColor computed=currentColor 继承 colorText，differ 四侧采集同值 8 条（2 元素×4 侧）；非真实边框绘制（width 0），配对闸按 borderColor 形态吸收"
+   },
+   {
+    "prop": "color",
+    "page": "videos",
+    "before": "rgb(22, 104, 220)",
+    "after": "rgb(22, 119, 255)",
+    "why": "antd colorPrimary 通道翻转：darkAlgorithm #1668dc → defaultAlgorithm #1677ff（Tabs 激活标签文字）；同前仅承浅侧、page 收窄 videos"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "videos",
+    "before": "rgb(22, 104, 220)",
+    "after": "rgb(22, 119, 255)",
+    "why": "antd colorPrimary 背景形态（Tabs ink-bar 激活下划线）——同 colorPrimary 对"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "videos",
+    "before": "rgb(30, 30, 30)",
+    "after": "rgb(255, 255, 255)",
+    "why": "VideoCard 卡壳 --fw-surface 浅值 #ffffff 首次生效（Task 15 并域 --vw-card-bg→fw-surface；D3-router-island-removal 拆岛前浅档被祖先 .dark 解析回 #1e1e1e=rgb(30,30,30)，拆岛后翻白）——5 卡位同值（segcheck 实测 5 条），VideoCard 仅 VideosPage 渲染故 page 收窄"
+   },
+   {
+    "prop": "borderColor",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.1)",
+    "after": "rgba(0, 0, 0, 0.06)",
+    "why": "VideoCard 卡壳 border-overlay-2 浅值（Task 15 并域 --vw-card-border→fw-overlay-2；深浅双值键，岛拆后浅档 0.1→0.06）——5 卡×4 侧=20 条"
+   },
+   {
+    "prop": "backgroundColor",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.1)",
+    "after": "rgba(0, 0, 0, 0.06)",
+    "why": "VideoCard 标签底 bg-white/10→bg-overlay-2 浅值（D3-videocard-migration :31，0.1 字节等值深档零 diff；浅档 overlay-2 浅值 0.06）——4 卡位（第 5 卡无标签？segcheck 实测 4 条）"
+   },
+   {
+    "prop": "color",
+    "page": "videos",
+    "before": "rgb(255, 255, 255)",
+    "after": "rgb(31, 35, 41)",
+    "why": "VideoCard 标题 text-white→text-text 浅值 #1f2329（D3-videocard-migration :27；before=迁移前字面 #fff——浅侧 before-D-light 采集时岛未拆仍读白字面）——5 卡位；深侧对应 diff rgb(255,255,255)→rgb(226,232,240) 由 b2 registry 既有配对吸收，两侧不互串"
+   },
+   {
+    "prop": "color",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.7)",
+    "after": "rgb(75, 85, 99)",
+    "why": "VideoCard 标签字 text-white/70→text-text-dim-3 浅值 #4b5563（D3-videocard-migration :31；before=0.7 字面）——4 卡位"
+   },
+   {
+    "prop": "color",
+    "page": "videos",
+    "before": "rgba(255, 255, 255, 0.3)",
+    "after": "rgb(156, 163, 175)",
+    "why": "VideoCard 暂无封面占位字 text-white/30→text-text-dim-1 浅值 #9ca3af（D3-videocard-migration :19，0.3 字节等值深档零 diff；before=0.3 字面）——3 卡位无封面 fixture"
    }
   ]
  },
  "d3EmergentSites": [],
  "whitelistKeeps": [
-  { "glob": "src/pages/videos/**", "allow": null, "why": "恒深域播放壳（C8 D3 逐域摘除→Task 20；摘除时同 commit 补域内精确条目+__tests__ 单文件条目）" },
+  { "glob": "src/pages/videos/PlayView.tsx", "allow": ["bg", "text", "from"], "why": "C8 Task 20：压画面 UI 整块恒深保留字面（第四通道，D3-playview-channel4：from-black scrim+白字/bg-white 形+深药丸 text-white）——videos 目录条目摘除同 commit 生效" },
+  { "glob": "src/pages/videos/CarouselBar.tsx", "allow": ["bg", "ring"], "why": "C8 Task 20：:29 hover:ring-white/60 + :31 无封面占位 bg-white/10 压媒体（第四通道，D3-carouselbar-overmedia-keep）" },
+  { "glob": "src/pages/videos/VideoCard.tsx", "allow": ["bg", "text"], "why": "C8 Task 20：:21 时长胶囊 bg-black/70+text-white 压封面（第四通道，D3-videocard-migration）" },
+  { "glob": "src/pages/videos/ProcessView.tsx", "allow": ["bg"], "why": "C8 Task 20：:53 复制项目 bg-white 反白 CTA（通道 3，D3-processview-migration）" },
+  { "glob": "src/pages/videos/VideoPlayerModal.tsx", "allow": ["bg", "text"], "why": "C8 Task 20：:75 媒体容器 bg-black 恒深自持 + :86 close-btn text-white 压画面显式化（第四通道，D3-videos-shell-dom-split）" },
+  { "glob": "src/pages/videos/__tests__/CarouselBar.test.tsx", "allow": null, "why": "C8 Task 20：测试断言串 :80 hover:ring-white/60（ring 家族）非产品 UI 整文件放行（第八轮 P3-1 实测第 4 文件）" },
+  { "glob": "src/pages/videos/__tests__/PlayView.test.tsx", "allow": null, "why": "C8 Task 20：测试断言串 :193/:199/:215 随字面保留继续有效" },
+  { "glob": "src/pages/videos/__tests__/ProcessView.test.tsx", "allow": null, "why": "C8 Task 20：测试断言串 :60 bg-white 随反白 CTA 保留继续有效" },
+  { "glob": "src/pages/videos/__tests__/ProcessSnapshot.test.tsx", "allow": null, "why": "C8 Task 20：测试断言串 :96 bg-black/60 随恒深整块保留继续有效" },
   { "glob": "src/pages/canvas/components/nodes/**", "allow": null, "why": "恒深域 React Flow 节点工具（→Task 22 摘除）" },
   { "glob": "src/pages/canvas/components/edges/**", "allow": null, "why": "恒深域边（→Task 22 摘除）" },
   { "glob": "src/pages/canvas/components/groups/**", "allow": null, "why": "恒深域分组（→Task 22 摘除）" },
@@ -1989,7 +2139,7 @@
   { "glob": "src/pages/canvas/components/CreditsDropdown.tsx", "allow": ["bg"], "why": "C8 P5 通道 3：:267 充值钮 bg-white+hover:bg-zinc-100 白系字面冻结（浅色稿 2026-09-20-creditsdropdown-light-draft.md；此钮非邀请卡——邀请钮已 token 化）" },
   { "glob": "src/pages/canvas/components/ConfirmModal.tsx", "allow": ["bg"], "why": "C8：白卡面（通道 3）" },
   { "glob": "src/pages/canvas/components/SaveAsTemplateDialog.tsx", "allow": ["bg"], "why": "C8：白卡面（通道 3）" },
-  { "glob": "src/pages/videos/ProcessSnapshot.tsx", "allow": ["bg", "text", "border"], "why": "C8：内容承载恒深整块（spec §10-⑦）——videos 目录摘除时同 commit 生效" },
+  { "glob": "src/pages/videos/ProcessSnapshot.tsx", "allow": ["bg", "text", "border"], "why": "C8：内容承载恒深整块（spec §10-⑦）——Task 19 预置，Task 20 摘目录后已激活生效" },
   { "glob": "src/components/BaseFullscreenModal.tsx", "allow": ["bg"], "why": "Task 19 Step 3 working list（lint-gate 实测 12 处/7 文件全 bg 族，allow 均九族 grep -i 实定）：:70 bg-black/60 全屏模态遮罩中性 scrim" },
   { "glob": "src/pages/canvas/page.tsx", "allow": ["bg"], "why": "working list：:313 bg-black/50 hydrate 加载遮罩中性 scrim" },
   { "glob": "src/pages/home/components/BannerCarousel.tsx", "allow": ["bg"], "why": "working list：:80/:87 bg-black/40 轮播图上 hover 前后导航钮垫底（压媒体浮层）" },

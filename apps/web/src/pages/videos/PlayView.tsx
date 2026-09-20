@@ -52,7 +52,9 @@ export function PlayView({ detail, playing, onPlayingChange, onViewProcess, onNe
   }, []);
 
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0 text-white">
+      {/* 压画面 UI 整块恒深保留字面（第四通道，registry D3-playview-channel4）；text-white 显式化——原继承壳根
+          text-white，壳根 C8 D3 改 text-text 后防浅档继承深字压画面 */}
       {/* 单 <video> 约束（F4/B1）：恒渲染、src 恒定、属性集随 playing 切换——禁条件分支/换 key，续播不重挂载 */}
       <video data-testid="video" ref={videoRef} src={detail.videoUrl}
         poster={detail.coverUrl ?? undefined}

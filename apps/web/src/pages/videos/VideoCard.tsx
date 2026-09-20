@@ -16,7 +16,7 @@ export function VideoCard({ work }: { work: VideoWorkListItem }) {
       <div className="relative aspect-video bg-[#262626]">
         {work.coverUrl
           ? <img src={work.coverUrl} alt={work.title} className="w-full h-full object-cover" loading="lazy" />
-          : <div className="w-full h-full flex items-center justify-center text-white/30 text-sm">暂无封面</div>}
+          : <div className="w-full h-full flex items-center justify-center text-text-dim-1 text-sm">暂无封面</div>}
         {duration && (
           <span className="absolute right-1.5 bottom-1.5 bg-black/70 text-white text-[11px] rounded px-1 py-px" data-testid="duration">
             {duration}
@@ -24,11 +24,11 @@ export function VideoCard({ work }: { work: VideoWorkListItem }) {
         )}
       </div>
       <div className="p-2.5">
-        <div className="text-[13px] font-medium text-white truncate">{work.title}</div>
+        <div className="text-[13px] font-medium text-text truncate">{work.title}</div>
         {work.tags.length > 0 && (
           <div className="mt-1.5 flex gap-1.5 flex-wrap">
             {work.tags.map(t => (
-              <span key={t} className="text-[11px] px-1.5 py-px rounded bg-white/10 text-white/70">{t}</span>
+              <span key={t} className="text-[11px] px-1.5 py-px rounded bg-overlay-2 text-text-dim-3">{t}</span>
             ))}
           </div>
         )}

@@ -183,10 +183,10 @@ function VideoFullscreenViewerComponent({
               disabled={downloadDisabled}
               title={!videoUrl ? '视频加载失败，无法下载' : undefined}
               onClick={handleDownload}
-              className={`gap-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 flex h-8 py-2 px-0 justify-center items-center self-stretch rounded-[8px] border-[1.33px] border-white/10 bg-[#646464] backdrop-blur-[50px] text-white text-xs font-semibold leading-none w-full select-none ${
+              className={`gap-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--fw-text-dim-3)] flex h-8 py-2 px-0 justify-center items-center self-stretch rounded-[8px] border-[1.33px] border-overlay-2 bg-surface-dim backdrop-blur-[50px] text-text text-xs font-semibold leading-none w-full select-none ${
                 downloadDisabled
                   ? 'cursor-not-allowed opacity-50'
-                  : 'shadow hover:bg-[#757575]'
+                  : 'shadow hover:bg-surface'
               }`}
             >
               {downloadText}

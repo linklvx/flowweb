@@ -55,11 +55,11 @@ export function VideoPlayerModal() {
           body 故不需要），勿删：shellRef 未挂载首帧 getPopupContainer 回退 body 时，它是登录框可见性
           （100100 > 壳 100000）的唯一保障（删掉则 11100 < 100000 被壳盖住，jsdom 测不出、手工验收 #6 才暴露）。
           PlayView/ProcessView 的 useApp() toast 依赖内层 AntdApp（holder 渲染在壳 DOM 内） */}
-      <div ref={shellRef} data-vw-shell className="dark fixed inset-0 bg-black text-white [color-scheme:dark]">
-      {/* dark（C5，O5 videos 域弹层恒深）：BaseFullscreenModal createPortal(document.body)——壳根 DOM 脱离路由
-          div.dark（React 树在、CSS 变量继承链断），html.light 下壳内 --fw-* 会继承浅值；壳根自带 dark 类重建岛
-          （同 C2 VideoEditorShell 先例）。现状壳内零 --fw-* 消费（videos 域字面值/--vw-* 自持）= 零视觉变更，
-          类为域语义钉扎 + 未来 token 消费者兜底。[color-scheme:dark]（C2-7）：原生控件/滚动条显式深色。 */}
+      <div ref={shellRef} data-vw-shell className="fixed inset-0 bg-bg text-text flex flex-col">
+      {/* C8 D3 壳根拆两层（P3/P6 前置 DOM 拆分，registry D3-videos-shell-dom-split）：壳根 bg-bg/text-text 跟随主题；
+          媒体容器独立自持恒黑 + 局部 [color-scheme:dark]（<video controls> 原生控件压深媒体面，spec §11.2 局部保留
+          通则）。原 dark 岛（C5/O5）撤销：壳根 DOM 本就脱路由 div.dark（createPortal(document.body) 继承链断），
+          拆分后壳内 chrome 侧消费 --fw-* 直承 html 类。浅档可见变化≈0 属预期（压画面 UI 恒深+媒体容器恒黑，B6 勿判缺陷） */}
       {/* 第六轮：fixed inset-0（VideoEditorShell.tsx:132 同款）——BaseFullscreenModal 的 dialog 包装 div 无尺寸类，
           relative h-full 的百分比在 auto 高度父级上解析为 auto → 壳内容塌成 0 高度（jsdom 无布局测不出，手工验收 #3 才暴露；
           壳内 PlayView/CarouselBar/关闭钮全是绝对定位不贡献静态高度，必须由视口尺寸的内含块撑起） */}
@@ -69,15 +69,21 @@ export function VideoPlayerModal() {
                 VIDEO_MODAL_Z_BASE 即红；"Provider 包裹存在"jsdom 不可测——context 组件无 DOM，层叠正确性走手工验收 #6）；
                 display:contents 使锚点 div 不产生布局盒（壳内绝对定位元素的参照物仍是壳根 fixed）。 */}
             <div data-zprovider={String(VIDEO_MODAL_Z_BASE)} style={{ display: 'contents' }}>
-              {view === 'play'
-                ? <PlayView detail={detail} playing={playing} onPlayingChange={setPlaying} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail).catch(() => {})} />
-                : <ProcessView workId={detail.id} title={detail.title} canClone={detail.canClone} onBack={() => setView('play')} onNeedLogin={() => setShowLogin(true)} />}
+              {/* 媒体容器三条承重约束（P3 前置 DOM 拆分）：① 禁 absolute/relative/overflow-hidden——PlayView/ProcessView
+                  根 absolute inset-0 的包含块必须仍是壳根 fixed（加定位改几何裁切）；② min-h-0 承重（高度靠壳 flex 撑开）；
+                  ③ close-btn/CarouselBar 留本容器外（壳 chrome 层，非媒体容器盒内） */}
+              <div className="flex-1 min-h-0 bg-black [color-scheme:dark]">
+                {view === 'play'
+                  ? <PlayView detail={detail} playing={playing} onPlayingChange={setPlaying} onViewProcess={() => setView('process')} onNeedLogin={() => setShowLogin(true)} onDetailRefresh={() => fetchVideoWorkDetail(detail.id).then(setDetail).catch(() => {})} />
+                  : <ProcessView workId={detail.id} title={detail.title} canClone={detail.canClone} onBack={() => setView('play')} onNeedLogin={() => setShowLogin(true)} />}
+              </div>
               {view === 'play' && !playing && (  // P5b/裁定 A：process 与播放态均不渲染（播放态隐藏使 controls 落可点区，P0-1 第二根因）
                 <CarouselBar currentId={detail.id} categoryId={detail.categoryId} onSwitch={(wid) =>
                   navigate(`/videos/${wid}`, { replace: true, state: location.state })} />  /* 继承 state 原值透传（§5.1） */
               )}
               {showLogin && <LoginModal onClose={() => setShowLogin(false)} />} {/* 读最近 Provider token → z=100100；D18 */}
-              <button data-testid="close-btn" onClick={close} aria-label="关闭" className="absolute top-3 right-3 z-10 rounded-lg bg-[rgba(50,50,50,0.45)] px-3 py-1.5 text-sm backdrop-blur-[6px]">✕</button>
+              {/* 压画面（top-3 right-3 落视频区上）→ 第四通道保留字面 + text-white 显式化（原继承壳根 text-white，壳根改 text-text 后防浅档深字压画面） */}
+              <button data-testid="close-btn" onClick={close} aria-label="关闭" className="absolute top-3 right-3 z-10 rounded-lg bg-[rgba(50,50,50,0.45)] px-3 py-1.5 text-sm text-white backdrop-blur-[6px]">✕</button>
             </div>
           </AntdApp>
         </ConfigProvider>

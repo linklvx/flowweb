@@ -183,14 +183,14 @@ test.describe('D-4 ve 域（D1b 仅键名并域仍钉深；D3-ve 翻双断言）
 // D-5 videos 卡面前景（D3-videos 翻转——白字白卡不可见防线；卡片白前景对 differ 不可见，
 // 探针是唯一机械守卫）
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('D-5 videos 卡面前景（D3-videos 翻转——白字白卡不可见防线）', () => {
-  test('VideoCard 卡标题前景=rgb(255,255,255)（text-white 字面现状）', async ({ browser }) => {
+test.describe('D-5 videos 卡面前景（D3-videos 已翻转——白字白卡不可见防线兑现）', () => {
+  test('VideoCard 卡标题前景=rgb(31,35,41)（C8 Task 20 D3-videos 反转：text-white→text-text，html.light 取 --fw-text 浅值）', async ({ browser }) => {
     const ctx = await lightContext(browser);
     const page = await ctx.newPage();
     try {
       await openVideos(page);
       const title = page.locator('a[data-card]', { hasText: 'A0-0 门禁样例视频' }).first().getByText('A0-0 门禁样例视频');
-      expect(await colorOf(title)).toBe('rgb(255, 255, 255)'); // D3-videos → rgb(31, 35, 41)
+      expect(await colorOf(title)).toBe('rgb(31, 35, 41)'); // 迁移前钉 rgb(255,255,255)（text-white 字面现状），Task 20 域原子对同 commit 改真值
     } finally { await ctx.close(); }
   });
 });

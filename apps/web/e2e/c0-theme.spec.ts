@@ -26,10 +26,10 @@
 //     antd token 经 React context 穿透 portal ✓；--fw-* 经 DOM 继承不穿透 ✗ → body 挂载弹层须自带岛类。
 //     ①WeChatFollowModal 恒深岛 × 宿主浅【红→C5 绿】（字面深底 #1e1e1e + B2 已迁 text-text——无岛时 html.light
 //       下浅值文字落深底=半半；O5 初判表曾归"营销恒浅"，实测宿主=Sidebar chrome 跟随域、设计=深色自绘 → 按实测订正恒深）；
-//     ②videos 壳 body portal 恒深 × 宿主浅【红→C5 绿】（BaseFullscreenModal createPortal(document.body)——壳根脱离
-//       路由 div.dark，须自带 dark 类，同 C2 VideoEditorShell 先例）；
-//     ③壳内 LoginModal 恒浅 × 双层相反【登录层半守卫绿 + 壳半红→C5 绿】（html.light × 壳深岛 × 登录层浅岛三重叠，
-//       LoginModal 岛断言 C2 已接应绿、同屏壳岛断言随②转绿）；
+//     ②videos 壳跟随域【红→C5 绿→C8 D3 反转】（壳根 dark 类删除改跟随 + 壳底 bg-bg；媒体容器自持 bg-black
+//       [color-scheme:dark] 压画面恒深——P3 拆两层；列表页 [data-vw-shell] count=0 + 卡面浅值断言随本组）；
+//     ③壳内 LoginModal 恒浅 × 双浅对照【守卫绿】（html.light × 壳跟随浅 × 登录层浅岛——原"双层相反"叙事随
+//       C8 D3 壳岛消亡，LoginModal 岛断言保持）；
 //     ④admin Popconfirm body 弹层 × 宿主浅【守卫，现状裁定】（antd 通道恒深=Pro dark context 穿透；var 通道
 //       closest(.dark)=null 为登记缺口——admin 全域 0 个 --fw-* 工具类消费文件（grep 实证），弹层自绘不消费
 //       --fw-* → 无可见半半，岛类挂起至 admin token 化（c5-portal-census.json）。
@@ -383,8 +383,8 @@ function collectDarkPrefix(page: Page, rootSelector: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 组7【红→C4 绿】切换 UI（TopActionBar 三态循环钮，plan C4 + §8 裁定：入口=TopActionBar、
-//   循环序 浅→深→跟随；/videos 恒深域内 chrome 切换钮可见 = D4 已知接受项，不做岛）
+// 组7【红→C4 绿】切换 UI（TopActionBar 两态往返钮，plan C4 + §8 裁定：入口=TopActionBar、
+//   两态往返；/videos 跟随域（C8 D3 拆路由岛）内切换钮可见同 /works，无岛语义）
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** 两态 → aria-label 态名 + antd 图标类（当前态驱动图标/aria/title，点击切下一档） */
@@ -518,28 +518,34 @@ test('G8 ①WeChatFollowModal 跟随域（C8 D1b 拆岛反转）：html.light �
   }
 });
 
-test('G8 ②videos 壳 body portal 恒深岛：html.light 下打开作品弹层，壳根自带 .dark + --fw-bg 深值（C5 前红：壳根无 dark 类）', async ({ browser }) => {
+test('G8 ②videos 壳跟随域（C8 D3 反转）：html.light 下壳根无 dark 类 + --fw-bg 浅值 + 壳底 bg-bg；列表页无壳 + 卡面浅值', async ({ browser }) => {
   const ctx = await newSeededContext(browser, 'light');
   const page = await ctx.newPage();
   try {
     await page.goto('/videos/gate-video-1');
     await expect(page.getByTestId('video'), '[G8②] 播放壳应打开（公开详情）').toBeVisible({ timeout: 15_000 });
-    expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8②/宿主浅]');
-    // BaseFullscreenModal createPortal(document.body)——壳根 DOM 脱离路由 div.dark（React 树在、DOM 继承链断）
+    // C8 D3 拆岛：壳根 dark 类删除（补岛回退即红）+ 壳内 --fw-* 直承 html.light 浅值；媒体容器自持 bg-black
+    // [color-scheme:dark]（压画面恒深，P3 拆两层——registry D3-videos-shell-dom-split）
     const state = await page.locator('[data-vw-shell]').evaluate((el) => ({
-      islandDark: el.closest('.dark') !== null,
-      islandIsSelf: el.classList.contains('dark'),
+      islandSelfDark: el.classList.contains('dark'),
       fwBg: getComputedStyle(el).getPropertyValue('--fw-bg'),
+      shellBg: getComputedStyle(el).backgroundColor,
     }));
-    expect(state.islandDark, '[G8②] 壳根 closest(".dark") 应命中——C5 前必红（body portal 无岛，html.light 下继承浅值）').toBe(true);
-    expect(state.islandIsSelf, '[G8②] 岛根=壳根自身（videos 域弹层恒深，O5/同 C2 VideoEditorShell 先例）').toBe(true);
-    expect(norm(state.fwBg), '[G8②] 壳内 --fw-bg 必须钉深 #141414——C5 前必红（继承 html.light 浅值 #f7f8fa）').toBe('#141414');
+    expect(state.islandSelfDark, '[G8②] 壳根应不再自带 dark 类（C8 D3 改跟随）').toBe(false);
+    expect(norm(state.fwBg), '[G8②] 壳内 --fw-bg 浅值 #f7f8fa（继承 html.light）').toBe('#f7f8fa');
+    expect(norm(state.shellBg), '[G8②] 壳根底=bg-bg 浅值 rgb(247,248,250)（第七轮 P1-3：computed 断 rgb 形态）').toBe('rgb(247,248,250)');
+    // G8② 末尾 /videos 列表：弹层壳零 DOM（VideosPage !id||!detail 早退——D3-videos-shell-dom-split 前提机械守卫）
+    await page.goto('/videos');
+    await expect(page.locator('[data-vw-shell]')).toHaveCount(0);
+    // 卡面 --fw-surface 浅值首次生效（Task 15 并域 + C8 D3 路由岛拆除）：封面垫底容器（.aspect-video）父级=卡壳
+    const card = page.locator('a[data-card]', { hasText: 'A0-0 门禁样例视频' }).first();
+    expect(await card.locator('.aspect-video').evaluate((el) => getComputedStyle(el.parentElement!).backgroundColor)).toBe('rgb(255, 255, 255)');
   } finally {
     await ctx.close();
   }
 });
 
-test('G8 ③双层相反守卫：html.light × videos 壳深岛 × 壳内 LoginModal 恒浅（登录层半=C2 方案 A 应绿；壳半随② C5 转绿）', async ({ browser }) => {
+test('G8 ③双层同浅对照守卫：html.light × videos 壳跟随浅 × 壳内 LoginModal 恒浅（登录层岛断言 C2 方案 A 保持；双岛相反叙事随 C8 D3 壳岛消亡）', async ({ browser }) => {
   const ctx = await browser.newContext(); // 匿名——「喜欢」触发 onNeedLogin 弹壳内登录层（PlayView D18）
   await ctx.addInitScript((t) => localStorage.setItem('theme', t), 'light');
   const page = await ctx.newPage();
@@ -556,8 +562,8 @@ test('G8 ③双层相反守卫：html.light × videos 壳深岛 × 壳内 LoginM
       shellBg: getComputedStyle(document.querySelector('[data-vw-shell]')!).getPropertyValue('--fw-bg'),
     }));
     expect(state.islandLight, '[G8③] 登录层内容 closest(".light") 应命中岛根').toBe(true);
-    expect(norm(state.fwBg), '[G8③] 登录层 --fw-bg 浅值 #f7f8fa（岛作用域不随双层宿主）').toBe('#f7f8fa');
-    expect(norm(state.shellBg), '[G8③] 同屏壳岛 --fw-bg 应仍为深值 #141414（双岛并存对照）').toBe('#141414');
+    expect(norm(state.fwBg), '[G8③] 登录层 --fw-bg 浅值 #f7f8fa（岛作用域）').toBe('#f7f8fa');
+    expect(norm(state.shellBg), '[G8③] 壳跟随 --fw-bg 同浅 #f7f8fa（双浅对照——原「双岛并存」叙事随 C8 D3 壳岛消亡）').toBe('#f7f8fa');
     expectHtmlTheme(await readHtmlTheme(page), 'light', '[G8③/全局仍浅]');
   } finally {
     await ctx.close();

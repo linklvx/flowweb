@@ -165,12 +165,14 @@ describe('P5b 轮播条件渲染（view === \'play\' && !playing）', () => {
     await waitFor(() => expect(screen.getByTestId('carousel-item-w1p')).toBeInTheDocument()); // w2p 页轮播显示 w1p 卡 → playing 已复位
   });
 
-  it('壳根 data-vw-shell（壳作用域锚点，R3 reset 已被 preflight 取代退役）+ [color-scheme:dark]（原生 controls 深色，B1）', async () => {
+  it('壳根 data-vw-shell（壳作用域锚点，R3 reset 已被 preflight 取代退役）+ bg-bg 跟随（C8 D3 反转：壳根无 dark 类，[color-scheme:dark] 随拆分下沉媒体容器）', async () => {
     renderAt('/videos/w1p');
     await screen.findByTestId('modal');
     const shell = screen.getByTestId('modal').firstElementChild; // BaseFullscreenModal mock 直通 children → 首子即壳根 div
     expect(shell?.hasAttribute('data-vw-shell')).toBe(true);
-    expect(shell?.className).toContain('[color-scheme:dark]');
+    expect(shell?.className).not.toContain('dark'); // 跟随域：壳根不再自带岛类（补岛即红）
+    expect(shell?.className).toContain('bg-bg');
+    expect(shell?.className).not.toContain('[color-scheme:dark]'); // 局部 color-scheme 下沉媒体容器（原生 controls 专用）
   });
 
   it('关闭钮只显示 ✕（U7b：去「关闭」文字，data-testid 定位不变）', async () => {

@@ -50,12 +50,12 @@ export function VideosPage() {
       />
       {loading ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-          {Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-video rounded-lg bg-white/5 animate-pulse" />)}
+          {Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-video rounded-lg bg-overlay-1 animate-pulse" />)}
         </div>
       ) : failed ? (
-        <div className="py-24 text-center text-white/40 text-sm">加载失败，请稍后重试</div>
+        <div className="py-24 text-center text-text-dim-2 text-sm">加载失败，请稍后重试</div>
       ) : items.length === 0 ? (
-        <div className="py-24 text-center text-white/40 text-sm">暂无作品</div>
+        <div className="py-24 text-center text-text-dim-2 text-sm">暂无作品</div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
           {items.map(w => <VideoCard key={w.id} work={w} />)}

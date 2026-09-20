@@ -348,3 +348,8 @@ D0-0（仪器/before-D/探针钉深）→ D0（两态六件套+G 门禁改写，
 7. **手写 CSS 换引判据收紧为等值门**（v1.5.2-3 的 A3"能引即引"作废）：仅当字面深值与目标 token 深值 computed 等值才可换引（当前白名单=body 两行 + PromptInput.css:184）；`.tiptap-content`/`.editor-scroll` 深值（#bbb/#fff/#eee/#ddd/#ccc/#666/rgba 白系）与 --fw-* 深值无一等值，一律走深值保留 + .light 覆盖块并登记"无等值键"。
 8. **LIGHT_BASELINE 与 REAL_LIGHT 路径合一**（`REAL_LIGHT = env.REAL_LIGHT || env.LIGHT_BASELINE`，旧 classList.add('light') 注入废止——D0 起会与 themeStore 双类失真；light-B6 系旧机制产物，跨代不可复用已在册）。
 9. **行号微勘误**：xyflow style.css selection 默认值 light 段在 :39-40（v1.5.2-4 笔 :38-39，结论不变）；ProcessSnapshot 中性遮罩 bg-black/60 在 :34（非 :96，文件共 95 行）。
+
+### v1.5.4（2026-09-20，Task 20 D3-videos 实施订正）
+
+1. **E 表 O6②/b3 domainRule 撤销执行记录**：b2-migration-registry.json `b3DeadClassDisposal.domainRule`（恒深禁 token 条款）已追加 `revoked-C8-D3` 撤销标记（跟随域，逐元素裁定见 canvas-migration-registry.json `D3-viewer-element-table`）；登记档以 b2 为准（b3-alldead-list.json 系过期快照）。
+2. **b3DeadClassDisposal 跨度再订正**：第五轮口径":1131-1250（下一键 b4DesignConstantWhitelist @1251）"系 D1a 登记条目（c8DeadTokenRemovals/c8TokenRevivals）写入 b2 之前的坐标；本 commit 实测跨度 **:1137-1256（下一键 @1257）**——键序与相对位置不变，绝对行号随 b2 增条漂移，后续引用以键名定位勿按行号直跳（同 LINE-FRAME-NOTE 先例）。

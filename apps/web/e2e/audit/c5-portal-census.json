@@ -20,6 +20,7 @@
     },
     {
       "popup": "VideoPlayerModal 播放壳（BaseFullscreenModal createPortal(document.body)）",
+      "status": "exited-C8-D3（壳根 dark 类删除改跟随——P3 壳根拆两层，媒体容器自持 bg-black [color-scheme:dark]；G8② 断言反转同 commit）",
       "host": "/videos/:id? 路由 div.dark（C2）",
       "verdict": "恒深岛（O5：videos 域弹层恒深）",
       "mechanism": "壳根 div[data-vw-shell] 自带 dark 类（DOM 脱离路由岛、React 树仍在——岛类上移到弹层根自身；同 C2 VideoEditorShell 先例）",
@@ -29,7 +30,7 @@
     },
     {
       "popup": "LoginModal（antd Modal，body 挂载）",
-      "host": "TopActionBar chrome / VideoPlayerModal 恒深域（双宿主）",
+      "host": "TopActionBar chrome / VideoPlayerModal 壳内（双宿主；C8 D3 起壳跟随域，LoginModal 浅岛判据不变）",
       "verdict": "恒浅岛（方案 A，C2 已落地）",
       "mechanism": "组件内 ConfigProvider(defaultAlgorithm) + Modal rootClassName=\"light\"",
       "file": "apps/web/src/components/auth/LoginModal.tsx",
