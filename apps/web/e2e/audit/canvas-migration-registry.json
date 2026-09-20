@@ -1841,7 +1841,7 @@
   {
    "id": "D3board-node-floats",
    "file": "src/pages/canvas/components/nodes/*.tsx",
-   "ruling": "VideoGenNode:623/:756、AudioGenNode:128、MultiImageNode:207、ImageNodeToolbar:402 白系浮标保留：isSingleSelected 单选才渲染→采集态不可见→无 diff；白名单 {glob,allow} 精确条目放行（registry 镜像同步）"
+   "ruling": "VideoGenNode:623、AudioGenNode:128、MultiImageNode:207、ImageNodeToolbar:402 白系浮标保留：isSingleSelected 单选才渲染→采集态不可见→无 diff；白名单 {glob,allow} 精确条目放行（registry 镜像同步）。审查订正+原则立规：VideoGenNode:756 替换钮 hover 曾误迁 hover:bg-overlay-3（浅档变暗=压媒体浮层交互反转）已改回 hover:bg-white/20 字面（深档与 overlay-3 深值字节等值）；**通道 4 hover 原则（附录 B 同源）：压媒体浮层的 hover 一律字面白系（浅档恒亮），token 化只属跟随面 chrome——与 D3-carouselbar-overmedia-keep 的视觉所有权判据对齐**"
   },
   {
    "id": "D3board-panel-buttons-invisible",
