@@ -201,7 +201,10 @@ test.describe('D-5 videos 卡面前景（D3-videos 翻转——白字白卡不�
 // EdgeFlowParticles 粒子边）——"edge 线 stroke"读 .react-flow__edge path 是 xyflow 默认边
 // （--xy-edge-stroke），与 --edge-flow-color 无关。--edge-flow-color 唯一消费者 = EdgeFlowParticles
 // circle 的 fill（edges/EdgeFlowParticles.tsx:24），gate 画布不渲染 → 显式登记
-// "图形档：--edge-flow-color 无门禁覆盖（需粒子边），B6 目检兜底"，勿留探针（宁缺勿假）。
+// "图形档：--edge-flow-color 无门禁覆盖（需粒子边），B6 目检兜底"。
+// D0-0 误判订正：NodeHandle（nodes/NodeHandle.tsx:22/28）circle/path stroke 系 var() 呈现属性，
+// computed 已代换=真实 token 绑定目标（--canvas-handle-bg/icon）——gate 画布唯一真 token 绑定
+// SVG 面、Task 2 对比度台账改浅值的对象，已钉真断言（此前零机械覆盖）。
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('D-6 图形档（fill/stroke——differ 属性集不可见；目标由发现步实测选定）', () => {
   // 一次性发现步：钉值落定后本用例仅保留 attach 证据、不新增断言，D4 收口时可撤（防沉淀为第二个无断言假守卫）
@@ -219,6 +222,45 @@ test.describe('D-6 图形档（fill/stroke——differ 属性集不可见；目�
       );
       console.log('[D-6-svg-inventory] ' + JSON.stringify(svg));
       test.info().attach('d6-svg-inventory', { body: JSON.stringify(svg, null, 1), contentType: 'application/json' });
+      // NodeHandle 手柄专项读数（D0-0 误判订正：circle/path stroke 系 var(--canvas-handle-bg/icon)
+      // 呈现属性，computed 已代换=token 绑定目标）——gate-node-1 双手柄（target 左 + source 右），
+      // 同读 3 锚交叉印证 document 序首个（querySelector/.first() 落点）与专类锚一致
+      const handles = await page.evaluate(() => {
+        const read = (sel: string) => {
+          const s = document.querySelector(sel);
+          if (!s) return null;
+          const circle = s.querySelector('circle');
+          const p = s.querySelector('path');
+          return {
+            circleStroke: circle ? getComputedStyle(circle).stroke : '(无 circle)',
+            pathStroke: p ? getComputedStyle(p).stroke : '(无 path)',
+          };
+        };
+        return {
+          first: read('.react-flow__node[data-id="gate-node-1"] .handle-icon'),
+          target: read('.react-flow__node[data-id="gate-node-1"] .handle-icon-target'),
+          source: read('.react-flow__node[data-id="gate-node-1"] .handle-icon-source'),
+          handleIconCount: document.querySelectorAll('.react-flow__node[data-id="gate-node-1"] .handle-icon').length,
+        };
+      });
+      console.log('[D-6-handle-stroke] ' + JSON.stringify(handles));
+      test.info().attach('d6-handle-stroke', { body: JSON.stringify(handles, null, 2), contentType: 'application/json' });
+    } finally { await ctx.close(); }
+  });
+
+  // 真断言（D0-0 误判订正，照盘填 2026-09-20 [D-6-handle-stroke] 发现跑批——first/target/source 三锚
+  // 读数一致）：NodeHandle circle/path stroke 系 var() 呈现属性、computed 已代换 → 断 RGB 可同时抓
+  // "代换失败"（失败落字面/空，同 D-1 网格点口径）。gate-node-1 双手柄（target 左 + source 右）
+  // → .first() 取文档序首个。D2 翻浅：circle→'rgb(107, 114, 128)'（handle-bg 浅 #6B7280）、
+  // path→'rgb(75, 85, 99)'（icon 浅 #4B5563）。
+  test('D-6 手柄图形档：circle stroke=var(--canvas-handle-bg) 深值、path stroke=var(--canvas-handle-icon) 深值（D2 随浅档翻浅）', async ({ browser }) => {
+    const ctx = await lightContext(browser);
+    const page = await ctx.newPage();
+    try {
+      await openCanvas(page);
+      const icon = page.locator('.react-flow__node[data-id="gate-node-1"] .handle-icon').first();
+      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('circle')!).stroke)).toBe('rgb(156, 163, 175)');
+      expect(await icon.evaluate((el) => getComputedStyle(el.querySelector('path')!).stroke)).toBe('rgb(107, 114, 128)');
     } finally { await ctx.close(); }
   });
 });

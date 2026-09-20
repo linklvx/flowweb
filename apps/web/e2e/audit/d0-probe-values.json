@@ -6,10 +6,14 @@
   "gateCardBg": "rgb(34, 34, 34)",
   "boardDot": "#555555",
   "boardDotCircleFill": "rgb(85, 85, 85)",
+  "handleCircleStroke": "rgb(156, 163, 175)",
+  "handlePathStroke": "rgb(107, 114, 128)",
   "notes": {
     "gateCardBg": "与 plan 预写一致（VideoGenNode:718 bg-[#222222] 卡面；选择器 .canvas-node div.rounded-lg 文档序首个=卡面本体）",
     "boardDot": "--xy-background-pattern-color-props computed 返回已代换 hex #555555（非未代换 var() 字面串）——M5 假守卫风险排除，网格点探针维持自定义属性断言形态（plan：数据定形态）",
     "boardDotCircleFill": "对照读数 rgb(85,85,85)=#555555 与 boardDot 同值——circle fill 交叉印证自定义属性已真实代换",
-    "d6SvgInventory": "gate 画布 svg 仅有字面/xyflow 默认色（handle stroke rgb(156,163,175)、edge stroke rgb(136,136,136)/rgb(107,114,128)、播放图标 fill #999/#666、网格点 fill rgb(85,85,85) 已由 D-1 覆盖）——无主题 token 绑定目标可钉，维持发现步 attach 证据形态不加断言（宁缺勿假；--edge-flow-color 无门禁覆盖登记不变）"
+    "handleCircleStroke": "NodeHandle.tsx:22 stroke=var(--canvas-handle-bg) 呈现属性 computed 已代换，深值 #9CA3AF；[D-6-handle-stroke] first/target/source 三锚读数一致（gate-node-1 双手柄 .first() 取文档序首个）；D2 翻浅 → rgb(107, 114, 128)（#6B7280）",
+    "handlePathStroke": "NodeHandle.tsx:28 stroke=var(--canvas-handle-icon) 呈现属性 computed 已代换，深值 #6B7280；同三锚一致；D2 翻浅 → rgb(75, 85, 99)（#4B5563）",
+    "d6SvgInventory": "handle 两处为 token 绑定（var() 呈现属性 computed 已代换）已钉探针；--edge-flow-color 仍无门禁覆盖（需粒子边）、B6 目检兜底"
   }
 }
