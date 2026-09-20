@@ -1,0 +1,10 @@
+# a0 采集器冻结面指纹（C8 Task 10 Step 4 落档；此后每次 segcheck 采集前重跑①命令与②比对，指纹变=冻结面被改=停手复核）
+# 冻结面范围（第六轮语义化）：sed 区间多对同名标记全取，只圈契约字段——SETTLE_MS（契约①）/浅色注入机制本体 REAL_LIGHT+seedRealLight（契约②）/snapshotDom 函数体（契约③）/afterAll 内 attrSetVersion 行+computedPropertySet 数组两小段（契约④a/④b）。
+# afterAll 其余成员（invocation/theme 叙事串、islandInvarianceProbes/flipProbes spread）与 ANY_LIGHT 探针块、叙事注释在标记外=允许面，改动不触发指纹变（Task 15/17/21/26 合法改动不红）。
+# 页清单/流程不进指纹：页集减由 differ 缺页比对守卫、页集增由 differ union 页循环守卫，双向闭合。
+# 比对口径：以下②记录的是本机（Windows Git-Bash）实际输出原文（sha256sum 二进制模式带 *-）；比对时以 64 位十六进制哈希字段为准（Linux 纯 stdin 输出无 *- 前缀属正常）。
+# ① 命令（在 /d/flowweb/apps/web 下执行）:
+sed -n '/COLLECTOR-FROZEN-BEGIN/,/COLLECTOR-FROZEN-END/p' e2e/a0-collect-baseline.spec.ts | sha256sum
+# ② 输出（落档时实测，同命令连跑两次哈希一致=确定性已验证）:
+45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3 *-
+# 落档 commit: 3ddf016fd7997d4ff2bafd0a2e4ddf5fa7ccb04d

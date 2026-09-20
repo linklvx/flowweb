@@ -1,0 +1,112 @@
+{
+  "commit": "3ddf016fd7997d4ff2bafd0a2e4ddf5fa7ccb04d",
+  "collectedAt": "2026-09-20T01:51:58.443Z",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "invocation": "COLLECT_BASELINE=1 REAL_LIGHT=1 BASELINE_DIR=before-D-light npx playwright test e2e/a0-collect-baseline.spec.ts",
+  "theme": "真实浅色路径（C7 对照；D0 起 LIGHT_BASELINE=1 同义合一——旧 classList 注入路径已废止（D0 后双类失真），light-B6 基线系旧机制产物不可复用）：localStorage theme=light 经 context/page addInitScript 预置（先于一切页面脚本，含 C1 head 内联主题脚本）→ 真实浅色档挂 html.light；岛/画板不受动——login 岛本征浅、canvas 画板 wrapper colorMode=dark 钉深、videos/video-editor 字面值与自持 token（--vw-*/--ve-*）恒深、admin 自绘 UI 字面值为主",
+  "realLight": {
+    "mechanism": "context/page addInitScript localStorage.setItem(\"theme\",\"light\")（先于一切页面脚本）→ C1 head 内联主题脚本解析显式浅色档挂 html.light",
+    "htmlClassPerPage": [
+      {
+        "page": "login",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "register",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "works",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "videos",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "canvas",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "material-modal",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "video-editor",
+        "htmlClass": "light",
+        "ok": true
+      },
+      {
+        "page": "admin-models",
+        "htmlClass": "light",
+        "ok": true
+      }
+    ],
+    "islandInvarianceProbes": [
+      {
+        "id": "videos-封面底-#262626字面",
+        "expected": "rgb(38, 38, 38)",
+        "actual": "rgb(38, 38, 38)",
+        "pass": true
+      },
+      {
+        "id": "canvas-html根--fw-bg翻浅(注入生效)",
+        "expected": "#f7f8fa",
+        "actual": "#f7f8fa",
+        "pass": true
+      },
+      {
+        "id": "canvas-画板wrapper--fw-bg钉深",
+        "expected": "#141414",
+        "actual": "#141414",
+        "pass": true
+      },
+      {
+        "id": "video-editor-壳底--ve-bg自持",
+        "expected": "rgb(20, 20, 20)",
+        "actual": "rgb(20, 20, 20)",
+        "pass": true
+      }
+    ]
+  },
+  "stableKeyFormat": "data-testid 优先（tid:<id>@<n>，n=同 testid 的 0 基 DOM 序，唯一时 @0），否则 DOM 路径(标签[同标签序号]/…)",
+  "classNameStorage": "djb2 十六进制哈希 + 长度（不存原串）",
+  "excludedRegions": [
+    "canvas/WebGL 元素",
+    "video 元素",
+    "波形容器（data-testid/class 含 wave）",
+    "纯时间文本（mm:ss|h:mm:ss）"
+  ],
+  "attrSetVersion": "D1",
+  "computedPropertySet": [
+    "rect(x,y,w,h)",
+    "padding(四边)",
+    "borderWidth(四边)",
+    "fontSize",
+    "lineHeight",
+    "boxSizing",
+    "borderStyle(四边)",
+    "borderColor(四边)",
+    "backgroundColor(全元素)",
+    "color(全元素,D1 起)"
+  ],
+  "pages": [
+    "admin-models",
+    "canvas",
+    "login",
+    "material-modal",
+    "register",
+    "video-editor",
+    "videos",
+    "works"
+  ]
+}
