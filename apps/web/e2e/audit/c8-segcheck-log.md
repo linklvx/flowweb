@@ -88,7 +88,7 @@
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D3-board / segcheck-D3-board-light 采集目录）
 
-## D3-MaterialLibrary（Task 24）@ 本文件 D3-MaterialLibrary 小节追加 commit（= 白名单最后一目录摘除原子对提交，父 ad666573）
+## D3-MaterialLibrary（Task 24）@ 本文件 D3-MaterialLibrary 小节追加 commit（= 白名单最后一目录摘除原子对提交 24960a77，父 a50f901e——Task 23 审查勘误 commit，零渲染影响）
 
 - 采集器冻结面指纹复验: sed COLLECTOR-FROZEN 区间 sha256 = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与落档一致，本任务零探针面改动）
 - 全门禁: playwright 55 passed / 5 skipped；vitest 263 files / 2641 tests 全绿；lint-gate PASS（no-theme-utility 0 违例——MaterialLibrary/** 目录条目摘除后域内九族 0 命中=精确豁免条目 0，net -6 目录全摘完成；no-color-hex 220 baselined, 0 new——伴随重键 2 枚 FilePreviewPopover:167/FolderContextMenu:106 行文本变更保留字面 hex 行随迁移改写，per-file 计数不变，baseline meta.note 在册形态）
