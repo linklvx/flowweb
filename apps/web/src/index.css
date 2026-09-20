@@ -215,8 +215,9 @@ body {
 /* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层 */
 .react-flow__nodesselection-rect { fill: transparent; stroke: transparent; }
 
-/* wrapper 钉 colorMode="dark"（.light 运行时类撞名修复，CanvasView）后，内置 selection rect 会随 dark 皮肤
- * 变浅灰蓝——此处钉回修复前（light 皮肤默认）蓝色值，保持视觉零差（A2 修复 Step2 实测冻结）。 */
+/* selection 钉值两档裁定（D2 定案——撤钉实验取消，xyflow 12.10.2 dist/style.css :39-40/:85-86 实测）：
+ * 浅档=light 皮肤默认值（rgba(0,89,220,0.08/0.8) 与钉值逐字节重合，浅档冗余）；wrapper colorMode={mode}
+ * 后深档承重——dark 皮肤默认是另一组 rgba(200,200,220,0.08/0.8) 浅灰蓝，无此钉值即被改写（A2 修复 Step2 实测冻结）。 */
 .react-flow__nodesselection-rect,
 .react-flow__selection {
   background: rgba(0, 89, 220, 0.08);

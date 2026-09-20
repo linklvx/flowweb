@@ -33,3 +33,21 @@
   - 并域键浅值一致化（ve-panel→fw-surface-dim 等六键）: 浅档等值 → 零 diff，符合预期
 - 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
 - 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D1b / segcheck-D1b-light 采集目录）
+
+## D2（Task 18）@ 本文件 D2 小节追加 commit（= selection 钉值定案 + render 计数探针 + ProcessSnapshot 不变式 + D2 段验收提交，父 9a221fff）
+
+- 采集器冻结面指纹复验: sed COLLECTOR-FROZEN 区间 sha256 = 45eede4fe5e33f3258b81874b7ccf30db879e5175da527f18546abe0c917e7a3（与 a0-collector-fingerprint.txt 落档一致，D2 未触冻结面）
+- 全门禁: playwright 55 passed / 5 skipped（a0 采集 spec 常驻 skip 形态；新增 D-7 selection 钉值两档断言通过）；vitest 263 files / 2632 tests 全绿（新增 CanvasView.theme-perf render 计数：首渲 2、setMode 一次后节点增量 0）；lint-gate PASS（no-color-hex 267 baselined, 0 new）
+- 深侧 before-D × segcheck-D2: exit=0, unexpectedTotal=0（属性 0 + 几何 0，三闸全过）, dExpectedGate pairsRegistered=7 absorbed=17——与 D1b 完全同形（P9 深档提亮 ×6 + TopActionBar BTN 深侧微变 ×6 + ve-border 背景形态 ×5），**D2 深档零新 diff**（与 Task 17 像素对账 maxDiffPixels:0 同口径互证：板面深档字节等值）；B2 闸另吸收 borderColor 收敛族 ×48
+- 浅侧 before-D-light × segcheck-D2-light: 首跑 exit=1（意外 3 条）→ 补登记 1 组全局 pair 后复跑 exit=0, unexpected=0, absorbed=92:
+  color rgb(226, 232, 240)→rgb(31, 35, 41) [global] ×64（D1a body 前景族继续吸收）
+  backgroundColor rgb(20, 20, 20)→rgb(247, 248, 250) [global] ×8（body 底）
+  color rgb(108, 92, 231)→rgb(155, 140, 247) [page video-editor] ×6（P9 对，岛内读深值域）
+  backgroundColor rgba(255, 255, 255, 0.04)→rgba(0, 0, 0, 0.03) [global] ×6（Task 15 BTN 浅侧）
+  backgroundColor rgb(54, 54, 54)→rgb(51, 51, 51) [page video-editor] ×5（D1b 背景形态对）
+  backgroundColor rgb(0, 0, 0)→rgb(245, 245, 245) [global] ×3（**本段新登记 pair**——见下）
+- **本段新增 pair（1 条，仅浅侧）**: backgroundColor rgb(0,0,0)→rgb(245,245,245) [global]——D2 板面翻转落点（Task 17：.react-flow wrapper 旧钉黑底改 bg-[var(--canvas-board-bg)]，浅档取 #f5f5f5）；wrapper 站点实跨 canvas/material-modal/video-editor 三个采集页（各自内嵌 ReactFlow，segcheck 实测 3 条同值同位），page 收窄会漏页——按 TopActionBar/body 全局族先例全局登记
+- **预期落空归因（实测零 diff，不登记）**: 网格点 #555555→#c8c8c8 与手柄 SVG stroke 两值 rgb(156,163,175)→rgb(107,114,128)/rgb(107,114,128)→rgb(75,85,99) 翻转——SVG circle/pattern 呈现属性对采集器不可见（differ 冻结属性集只含 HTML 元素 CSS 属性），机械面零 diff 属采集口径预期非"无变化"；守卫由 D-1 网格点探针 + D-6 手柄双断言承担
+- 配对率两侧同形: video-editor 253/256（运行时 testid 键不稳定 3 条，非结构变化），其余 7 页 100%
+- 浅色目检 checkpoint（第五轮 A4，非验收只记录）: e2e/audit/c8-d2-light-checkpoint.png（gate 画布 lightContext 截图）——板已浅（#f5f5f5 浅点网格）、节点卡/左侧添加工具条/左下缩放工具条/顶栏药丸/credits 药丸仍深的混排期现状存照（registry meta.notes 同记，D3 画板批次开工前基线观察）
+- 采集中间物: 已清理（.json/.md 两侧四件 + segcheck-D2 / segcheck-D2-light 采集目录 + checkpoint 临时 spec）

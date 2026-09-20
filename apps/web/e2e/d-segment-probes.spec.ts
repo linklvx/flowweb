@@ -264,3 +264,34 @@ test.describe('D-6 图形档（fill/stroke——differ 属性集不可见；目�
     } finally { await ctx.close(); }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-7 selection 钉值规则级（D2 定案，断言形态——撤钉实验取消：xyflow 12.10.2 dist/style.css :39-40/:85-86
+// 实测 light 皮肤默认 rgba(0,89,220,0.08/0.8) 与 index.css 钉值逐字节重合（浅档冗余）、dark 皮肤另一组
+// rgba(200,200,220,*)——wrapper colorMode={mode} 后深档钉值承重（无钉值即被 dark 皮肤改写浅灰蓝）。
+// 临时探针 div 注入 .react-flow 读 computed，两档同断蓝色钉值；dark 皮肤值出现=钉值失效红。
+// ─────────────────────────────────────────────────────────────────────────────
+test('D-7 selection 钉值两档断言（深浅均=蓝色系钉值；深档防 dark 皮肤改写承重）', async ({ browser }) => {
+  for (const theme of ['dark', 'light'] as const) {
+    const ctx = await browser.newContext({ storageState: USER_STATE });
+    await ctx.addInitScript((t) => localStorage.setItem('theme', t), theme);
+    const page = await ctx.newPage();
+    try {
+      await openCanvas(page);
+      const style = await page.evaluate(() => {
+        const probe = document.createElement('div');
+        probe.className = 'react-flow__nodesselection-rect';
+        document.querySelector('.react-flow')!.appendChild(probe);
+        const cs = getComputedStyle(probe);
+        const out = { background: cs.backgroundColor, borderTopColor: cs.borderTopColor, borderTopStyle: cs.borderTopStyle };
+        probe.remove();
+        return out;
+      });
+      // 两档同断蓝色钉值（浅=皮肤默认重合、深=钉值承重——dark 皮肤 rgba(200,200,220,*) 出现即钉值失效红）
+      expect(style.background).toBe('rgba(0, 89, 220, 0.08)');
+      expect(style.borderTopColor).toBe('rgba(0, 89, 220, 0.8)');
+      expect(style.borderTopStyle).toBe('dotted');
+      test.info().attach(`d7-selection-${theme}`, { body: JSON.stringify(style), contentType: 'application/json' });
+    } finally { await ctx.close(); }
+  }
+});

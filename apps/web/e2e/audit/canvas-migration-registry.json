@@ -10,7 +10,7 @@
    "src/pages/canvas/components/Lighting/ThreePreview.tsx",
    "src/pages/canvas/components/Angle3D/Angle3DPreview.tsx"
   ],
-  "notes": "逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是\"两条 lint 规则都拦不到\"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原\"不匹配\"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底"
+  "notes": "逐键裁定列随 D1a/D1b/D3 各段填充；differExpectedPairs 为 D 段配对闸唯一来源（未配对=失败，adjudications 只记理由不吸收 diff）；盲区分区（styleObjects/svgAttrs/styleBlocks/rgbaClasses）是\"两条 lint 规则都拦不到\"位点的唯一清单产出，量级以脚本产出为准；CSS 声明形（如 background: #1a1a1a）实测会命中 styleObjects 正则——handwrittenCss（按文件）与 styleObjects（按位点）重叠收录属预期，核销按分区各自口径勾销勿互相推诿（第七轮 P1-2 订正，原\"不匹配\"表述作废）；配对残余分两类：全局继承族（body 底/前景→继承链，page 字段无效，永久全局配对——D1a body 两对即首例）与元素级（page 已收窄到同页），三源核销按类别核；命名色工具类（zinc/amber/rose 族）不属四分区可见面，唯一已知重灾区 CreditsDropdown 走 Task 19 专项枚举+B6；style 对象**跨行值**（属性名与值分行，如 CreditsDropdown:135-136 backgroundImage）逐行正则两行都不命中、不在 styleObjects 可见面——已知实例 CreditsDropdown:132-138 光斑层，逐行正则的结构限制，靠 Task 19 专项枚举兜底；D2 收口浅色目检 checkpoint（第五轮 A4，非验收只记录：e2e/audit/c8-d2-light-checkpoint.png @gate 画布 lightContext 截图）——板面已浅（#f5f5f5 浅点网格）、节点卡仍深（#222 卡面+深视频缩略图）、左侧添加节点工具条/左下缩放工具条/顶栏项目药丸与 credits 药丸/「已连接」药丸均仍深——混排期现状存照，D3 画板批次开工前基线观察，不构成任何断言或验收判据"
  },
  "partitions": {
   "canvasDomain": {
@@ -1895,6 +1895,22 @@
    "deep": "bg-[rgba(255,255,255,0.04)] → bg-overlay-1（0.04→0.05 可见微变，深侧 pair 已入 differExpectedPairs）",
    "light": "0.04（字面不翻转）→ rgba(0,0,0,0.03)（改指后岛外跟随浅值），浅侧 pair 同入",
    "ruling": "Task 8 预登记的收敛清单改指本段执行（§9.2②）；TopActionBar 经 AppLayout 渲染于 works+videos 两个采集页（公开组 AppLayout 包 /videos 且 BTN 在 div.dark 岛外），pair 若 page:'works' 收窄会漏 videos 位点——按 body 全局族先例两条均全局登记"
+  },
+  {
+   "id": "D2-selection-pin-ruling",
+   "file": "src/index.css",
+   "line": ":218-224 钉值（fill:transparent 多选裁定 :216）",
+   "deep": "钉值 background rgba(0,89,220,0.08) + border 1px dotted rgba(0,89,220,0.8) 保留不动",
+   "light": "同值——light 皮肤默认 rgba(0,89,220,0.08/0.8) 与钉值逐字节重合（浅档钉值冗余）",
+   "ruling": "D2 定案：撤钉实验取消——xyflow 12.10.2 dist/style.css :39-40/:85-86 实测，light 皮肤默认与钉值逐字节重合、dark 皮肤是另一组 rgba(200,200,220,0.08/0.8)；wrapper colorMode={mode} 后深档钉值承重（无钉值即被 dark 皮肤改写浅灰蓝）。两档拖框/选中节点截图目检=交互态像素工装覆盖不了，机械承重改由 D-7 规则级两档断言（临时探针 computed background/borderTopColor/borderTopStyle=dotted，dark 皮肤值出现即红）+attach 证据。:216-217 `fill: transparent; stroke: transparent`（注意是 fill: transparent 非 fill:none）多选视觉交由 SelectionBoxOverlay 既有裁定维持不动"
+  },
+  {
+   "id": "D2-processsnapshot-invariant",
+   "file": "src/pages/videos/ProcessSnapshot.tsx",
+   "line": ":89/:91/:34（实读核验与 plan 引用一致；文件共 95 行无 :96）",
+   "deep": "整块=内容承载面恒深（spec §10-⑦）：:89 colorMode=\"dark\" 保留、:91 网格点 color=\"#3a3a3a\" 保留",
+   "light": "不翻转——快照是导出/预览的内容承载面，浅档维持深底（与 D-2 videos 封面恒深同构），本条不设浅侧 pair",
+   "ruling": "勿统一到 --canvas-board-dot——那会引入 #555555≠#3a3a3a 深档 diff（board-dot 深值 #555555 与快照 #3a3a3a 非同值）；:34 bg-black/60 中性遮罩留（黑白两档皆可读）。本条为不变式登记（负豁免）：三处任一接入主题 token 即 D 段深侧 diff 意外项红"
   }
  ],
  "differExpectedPairs": {
@@ -1942,6 +1958,12 @@
     "before": "rgb(54, 54, 54)",
     "after": "rgb(51, 51, 51)",
     "why": "Task 15 D1b-value-collapse --ve-border rgb(54,54,54)→#333 收敛的背景形态落点（D1b 段验收 segcheck-D1b 深侧抓出补登记）：VideoEditorShell PanelResizeHandle×3（w-1 分隔条）+ TimelineRuler 刻度线（w-px h-2）把这枚边框 token 当背景色消费——borderColor 形态全局 pair 已登记，背景形态 5 条（浅侧采集同 5 条：壳根 .dark 岛未拆，浅档岛内读深值域，与深侧同源同条吸收）按本对 video-editor 收窄登记。⚠ Task 21 后向条款：拆岛后此 5 位点随 --ve-border 浅值翻读 #e5e7eb——届时浅侧需新对 rgb(54,54,54)→rgb(229,231,235)，本对拆岛后仅承深侧"
+   },
+   {
+    "prop": "backgroundColor",
+    "before": "rgb(0, 0, 0)",
+    "after": "rgb(245, 245, 245)",
+    "why": "D2 板面翻转（Task 17 落点，segcheck-D2-light 首跑意外项抓出补登记）：.react-flow wrapper 旧钉黑底（B0 恒深板）改 bg-[var(--canvas-board-bg)] 后浅档取浅值 #f5f5f5；wrapper 站点实跨 canvas/material-modal/video-editor 三个采集页（各自内嵌 ReactFlow，segcheck 实测 3 条同值同位），page 收窄会漏页——按 TopActionBar/body 全局族先例全局登记"
    }
   ]
  },
