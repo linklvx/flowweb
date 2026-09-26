@@ -115,6 +115,8 @@ export interface ImageNodeData {
 
   // —— imageGen 根级专属生成配置 ——
   style?: string;
+  styleId?: string | null;   // 风格库选中（null=已取消，D16 契约：键存在值 null）
+  styleName?: string | null;
   model?: string;
   quality?: string;
   ratio?: string;
@@ -135,6 +137,8 @@ export interface VideoNodeData {
   referenceVideo?: string;
   ratio?: string;
   prompt?: PromptValue;
+  styleId?: string | null;   // 风格库选中（null=已取消，D16 契约：键存在值 null）
+  styleName?: string | null;
   allImages?: ImageItem[];
   trimStart?: number;
   trimEnd?: number;
@@ -295,6 +299,11 @@ interface NodeState {
   nodes: Record<string, AppNode>;
   activeTransformNodeId: string | null;
 
+  referenceSelect: { sourceNodeId: string; notice: string | null } | null;
+  startReferenceSelect: (nodeId: string) => void;
+  exitReferenceSelect: () => void;
+  flashReferenceNotice: (text: string) => void;
+
   addNode: (node: AppNode) => void;
   updateNodeData: <T>(nodeId: string, data: Partial<T>) => void;
   deleteNode: (nodeId: string) => Promise<void>;
@@ -346,9 +355,12 @@ interface NodeState {
 
 let _editOverlayDragging = false;
 
+let _referenceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
   activeTransformNodeId: null,
+  referenceSelect: null,
   cancelRequestedAt: 0,
   saveHandlers: {},
   activeEditNodeId: null,
@@ -359,6 +371,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   setActiveTransformNodeId: (id) => {
     if (id !== null && get().activeEditNodeId !== null) return;
+    if (id !== null && get().referenceSelect) set({ referenceSelect: null }); // 编辑/变换模式进入即退出参考选择（spec §3.1）
     set({ activeTransformNodeId: id });
   },
   triggerCancelTransform: () => {
@@ -368,7 +381,17 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   setActiveEditNodeId: (id) => {
     if (id !== null && get().activeTransformNodeId !== null) return;
+    if (id !== null && get().referenceSelect) set({ referenceSelect: null }); // 编辑/变换模式进入即退出参考选择（spec §3.1）
     set({ activeEditNodeId: id });
+  },
+  startReferenceSelect: (nodeId) => set({ referenceSelect: { sourceNodeId: nodeId, notice: null } }),
+  exitReferenceSelect: () => set({ referenceSelect: null }),
+  flashReferenceNotice: (text) => {
+    set((s) => (s.referenceSelect ? { referenceSelect: { ...s.referenceSelect, notice: text } } : s));
+    if (_referenceNoticeTimer) clearTimeout(_referenceNoticeTimer);
+    _referenceNoticeTimer = setTimeout(() => {
+      set((s) => (s.referenceSelect ? { referenceSelect: { ...s.referenceSelect, notice: null } } : s));
+    }, 2200);
   },
   triggerCancelEdit: () => {
     if (_editOverlayDragging) return;

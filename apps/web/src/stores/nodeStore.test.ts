@@ -1387,3 +1387,44 @@ describe('updateConfig 幽灵守卫（I-3）', () => {
     }
   });
 });
+
+describe('referenceSelect（画布参考选择模式，spec §3.1）', () => {
+  beforeEach(() => {
+    useNodeStore.setState({ referenceSelect: null, activeEditNodeId: null, activeTransformNodeId: null });
+  });
+
+  it('startReferenceSelect 置状态；exitReferenceSelect 清空', () => {
+    useNodeStore.getState().startReferenceSelect('img1');
+    expect(useNodeStore.getState().referenceSelect).toEqual({ sourceNodeId: 'img1', notice: null });
+    useNodeStore.getState().exitReferenceSelect();
+    expect(useNodeStore.getState().referenceSelect).toBeNull();
+  });
+
+  it('setActiveEditNodeId(非null) 自动退出选择模式（编辑模式互斥）', () => {
+    useNodeStore.getState().startReferenceSelect('img1');
+    useNodeStore.getState().setActiveEditNodeId('img1');
+    expect(useNodeStore.getState().referenceSelect).toBeNull();
+  });
+
+  it('setActiveTransformNodeId(非null) 同样退出', () => {
+    useNodeStore.getState().startReferenceSelect('img1');
+    useNodeStore.getState().setActiveTransformNodeId('img1');
+    expect(useNodeStore.getState().referenceSelect).toBeNull();
+  });
+
+  it('setActiveEditNodeId(null) 不触发退出（仅进入时互斥）', () => {
+    useNodeStore.getState().startReferenceSelect('img1');
+    useNodeStore.getState().setActiveEditNodeId(null);
+    expect(useNodeStore.getState().referenceSelect).not.toBeNull();
+  });
+
+  it('flashReferenceNotice 设 notice 并 2.2s 后自动清（vi.useFakeTimers）', () => {
+    vi.useFakeTimers();
+    useNodeStore.getState().startReferenceSelect('img1');
+    useNodeStore.getState().flashReferenceNotice('最多 9 张参考图');
+    expect(useNodeStore.getState().referenceSelect?.notice).toBe('最多 9 张参考图');
+    vi.advanceTimersByTime(2300);
+    expect(useNodeStore.getState().referenceSelect?.notice).toBeNull();
+    vi.useRealTimers();
+  });
+});
