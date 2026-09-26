@@ -39,6 +39,8 @@ model User {
   decidedTeamJoinRequests TeamJoinRequest[] @relation("TeamJoinRequestDecidedBy")
   projectMembers ProjectMember[]
   videoProjects VideoProject[]
+  styleFavorites        StyleFavorite[]
+  styleRecentUsages     StyleRecentUsage[]
 }
 
 model Account {
@@ -925,4 +927,56 @@ model VideoWorkSetting {
   carouselEnabled Boolean  @default(true)
   carouselScope   String   @default("all")
   updatedAt       DateTime @updatedAt
+}
+
+model StyleCategory {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  sortOrder Int           @default(0)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  styles    Style[]
+  @@index([active, sortOrder])
+}
+
+model Style {
+  id           String             @id @default(cuid())
+  name         String
+  category     StyleCategory      @relation(fields: [categoryId], references: [id])
+  categoryId   String
+  coverKey     String
+  authorName   String?
+  isCommercial Boolean            @default(false)
+  promptText   String
+  sortOrder    Int                @default(0)
+  active       Boolean            @default(true)
+  usageCount   Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  favorites    StyleFavorite[]
+  recents      StyleRecentUsage[]
+  @@index([active, sortOrder, usageCount(sort: Desc), id])
+  @@index([categoryId, active])
+}
+
+model StyleFavorite {
+  id        String   @id @default(cuid())
+  userId    String
+  styleId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  style     Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
+  @@unique([userId, styleId])
+  @@index([userId, createdAt])
+}
+
+model StyleRecentUsage {
+  id         String   @id @default(cuid())
+  userId     String
+  styleId    String
+  lastUsedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  style      Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
+  @@unique([userId, styleId])
+  @@index([userId, lastUsedAt])
 }

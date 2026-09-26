@@ -268,6 +268,22 @@ async function main() {
     create: { id: 'platform-subscription', teamId: 'platform-team', planId: 'platform-storage', status: 'active', paidAmount: 0, currentPeriodStart: new Date(), currentPeriodEnd: new Date('2099-01-01') },
   });
 
+  // ====== 风格库初始分类（spec §5，固定 id 幂等 upsert） ======
+  const STYLE_CATEGORIES: Array<{ id: string; name: string; sortOrder: number }> = [
+    { id: 'seed-style-cat-1', name: '摄影写真', sortOrder: 1 },
+    { id: 'seed-style-cat-2', name: '电商营销', sortOrder: 2 },
+    { id: 'seed-style-cat-3', name: '动漫游戏', sortOrder: 3 },
+    { id: 'seed-style-cat-4', name: '风格插画', sortOrder: 4 },
+    { id: 'seed-style-cat-5', name: '平面设计', sortOrder: 5 },
+    { id: 'seed-style-cat-6', name: '建筑及室内设计', sortOrder: 6 },
+    { id: 'seed-style-cat-7', name: '创意玩法', sortOrder: 7 },
+    { id: 'seed-style-cat-8', name: '文创周边', sortOrder: 8 },
+    { id: 'seed-style-cat-9', name: '小说推文', sortOrder: 9 },
+  ];
+  for (const c of STYLE_CATEGORIES) {
+    await prisma.styleCategory.upsert({ where: { id: c.id }, update: {}, create: c });
+  }
+
   console.log('Seed complete: Phase 3 models + Phase 4 user balance + Phase 5 video models');
 }
 
