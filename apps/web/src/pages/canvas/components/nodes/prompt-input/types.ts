@@ -26,3 +26,6 @@ export const CATEGORY_DEFAULTS: Record<CommandItem['category'], string> = {
   ratio: '1:1',
   quality: 'standard',
 };
+
+// 参考图上限唯一真源（spec §3.1：ImageThumbnailBar 默认 maxCount 与上传校验共用）
+export const MAX_REFERENCE_IMAGES = 9;

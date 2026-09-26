@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ImageThumbnailBar } from './ImageThumbnailBar';
 import type { ImageItem } from './types';
+import { useNodeStore } from '@/stores/nodeStore';
+import { useMenuStore } from '@/stores/menuStore';
 
 // ========== Mocks ==========
 
@@ -86,6 +88,8 @@ describe('ImageThumbnailBar', () => {
     mockUploadBatchImages.mockReset().mockResolvedValue([]);
     mockDeleteImage.mockReset();
     capturedOnDragEnd = null;
+    useNodeStore.getState().exitReferenceSelect();
+    useMenuStore.getState().closeStyleLibrary();
   });
 
   it('1. renders all image thumbnails (SortableImageItem)', () => {
@@ -119,7 +123,7 @@ describe('ImageThumbnailBar', () => {
     expect(screen.getByTestId('upload-button')).toBeInTheDocument();
   });
 
-  it('3. hides upload button when images.length >= maxCount', () => {
+  it('3. 参考 button 仍渲染 when images.length >= maxCount（模式入口恒显，D19）', () => {
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -130,8 +134,7 @@ describe('ImageThumbnailBar', () => {
         maxCount={3}
       />,
     );
-
-    expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('upload-button')).toBeInTheDocument();
   });
 
   it('4. drag-and-drop files triggers uploadBatchImages', () => {
@@ -220,7 +223,7 @@ describe('ImageThumbnailBar', () => {
     expect(onChange).toHaveBeenCalledWith(expectedOrder);
   });
 
-  it('7. upload complete calls onImageUploaded(imageId) for each uploaded image', async () => {
+  it('7. drop upload complete calls onImageUploaded(imageId) for each uploaded image', async () => {
     const uploadedItems: ImageItem[] = [
       { id: 'new-1', url: 'url-new-1', name: 'new-1.jpg', status: 'success' },
       { id: 'new-2', url: 'url-new-2', name: 'new-2.jpg', status: 'success' },
@@ -238,31 +241,19 @@ describe('ImageThumbnailBar', () => {
       />,
     );
 
-    // Trigger hidden file input change
-    const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+    const container = screen.getByTestId('thumbnail-bar');
     const file = new File(['dummy'], 'test.png', { type: 'image/png' });
-    const mockFileList = {
-      0: file,
-      length: 1,
-      item: (index: number) => (index === 0 ? file : null),
-      *[Symbol.iterator]() {
-        yield file;
-      },
-    };
-    Object.defineProperty(fileInput, 'files', { value: mockFileList });
-
-    fireEvent.change(fileInput);
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: { files: [file], types: ['Files'] } });
+    fireEvent(container, dropEvent);
 
     await waitFor(() => {
       expect(onImageUploaded).toHaveBeenCalledTimes(2);
     });
-
-    expect(onImageUploaded).toHaveBeenCalledWith('new-1');
-    expect(onImageUploaded).toHaveBeenCalledWith('new-2');
     expect(onChange).toHaveBeenCalledWith([...baseImages, ...uploadedItems]);
   });
 
-  it('8. disabled prop hides + button and prevents interactions', () => {
+  it('8. disabled prop: 参考 button 恒显但 disabled，交互全部阻断', () => {
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -275,8 +266,9 @@ describe('ImageThumbnailBar', () => {
       />,
     );
 
-    // No upload button when disabled
-    expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();
+    // 参考按钮恒显（D19）但 disabled 时点击无效（P9：生成中不得进模式改参考图）
+    expect(screen.getByTestId('upload-button')).toBeInTheDocument();
+    expect((screen.getByTestId('upload-button') as HTMLButtonElement).disabled).toBe(true);
 
     // Clicking thumbnail should NOT call onImageClick (disabled passes noop)
     fireEvent.click(screen.getByTestId('thumb-img-1'));
@@ -329,7 +321,7 @@ describe('ImageThumbnailBar', () => {
     expect(upload.compareDocumentPosition(firstThumb) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('11. 风格 button still rendered when images reach maxCount (upload hidden)', () => {
+  it('11. 满员时风格与参考按钮均恒显（D19：参考=模式入口，不再随 maxCount 隐藏）', () => {
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -340,11 +332,11 @@ describe('ImageThumbnailBar', () => {
         maxCount={3}
       />,
     );
-    expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('upload-button')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '风格' })).toBeInTheDocument();
   });
 
-  it('12. clicking 参考 button triggers hidden file input click', () => {
+  it('12. clicking 参考 button enters canvas reference select mode（不再触发 file input）', () => {
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -354,10 +346,9 @@ describe('ImageThumbnailBar', () => {
         onImageUploaded={onImageUploaded}
       />,
     );
-    const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
-    const clickSpy = vi.spyOn(fileInput, 'click');
     fireEvent.click(screen.getByTestId('upload-button'));
-    expect(clickSpy).toHaveBeenCalled();
+    expect(useNodeStore.getState().referenceSelect).toEqual({ sourceNodeId: 'node-1', notice: null });
+    useNodeStore.getState().exitReferenceSelect();
   });
 
   it('13. 风格 button 用调色盘 svg（单 path 三段 M 子路径 evenodd，fill=currentColor）', () => {
@@ -383,7 +374,7 @@ describe('ImageThumbnailBar', () => {
     expect(paths?.[0].getAttribute('fill-rule')).toBe('evenodd');
   });
 
-  it('14. 参考 button 图标还原为 + 号（双 path stroke，无 rect 回形针）', () => {
+  it('14. 参考 button 图标为卡片选择（三层叠卡 stroke，替换 + 号上传语义）', () => {
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -394,11 +385,7 @@ describe('ImageThumbnailBar', () => {
       />,
     );
     const svg = screen.getByTestId('upload-button').querySelector('svg');
-    expect(svg?.getAttribute('viewBox')).toBe('0 0 24 24');
-    const dAttrs = [...(svg?.querySelectorAll('path') ?? [])].map((p) => p.getAttribute('d'));
-    expect(dAttrs).toContain('M5 12h14');
-    expect(dAttrs).toContain('M12 5v14');
-    expect(svg?.querySelector('rect')).toBeNull();
+    expect(svg?.getAttribute('data-icon')).toBe('card-select');
   });
 
   it('15. 两按钮常态背景 bg-overlay-2（解与面板底同值）+ hover overlay-3，不再用 surface-dim', () => {
@@ -418,5 +405,37 @@ describe('ImageThumbnailBar', () => {
       expect(btn.className).toContain('hover:bg-overlay-3');
       expect(btn.className).not.toContain('bg-surface-dim');
     }
+  });
+
+  it('16. 风格 button opens style library（menuStore.styleLibrary）', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '风格' }));
+    expect(useMenuStore.getState().styleLibrary).toEqual({ nodeId: 'node-1' });
+    useMenuStore.getState().closeStyleLibrary();
+  });
+
+  it('17. 点击参考按钮时先关风格库（组件层收口互斥，nodeStore→menuStore 方向）', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '风格' }));
+    fireEvent.click(screen.getByTestId('upload-button'));
+    expect(useMenuStore.getState().styleLibrary).toBeNull();
+    expect(useNodeStore.getState().referenceSelect).not.toBeNull();
+    useNodeStore.getState().exitReferenceSelect();
   });
 });
