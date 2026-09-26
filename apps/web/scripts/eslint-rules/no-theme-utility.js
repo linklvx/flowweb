@@ -49,7 +49,6 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx', allow: ['bg', 'text', 'border'] }, // 压画面整块恒深（ProcessSnapshot 同款第四通道）
   { glob: 'src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx', allow: ['bg', 'text', 'border'] }, // 同上
   { glob: 'src/pages/canvas/components/nodes/prompt-input/CommandMentionList.tsx', allow: ['text'] },        // 恒深提及菜单（#1f2937 壳）内 text-white
-  { glob: 'src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx', allow: ['bg', 'text'] },   // 压 prompt 条恒深面的加图钮
   { glob: 'src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx', allow: ['bg', 'text'] },   // 压缩略图黑罩/删除钮（压媒体）
   { glob: 'src/pages/canvas/components/nodes/AiToolActionPopup.tsx', allow: ['bg'] },                        // oklab 恒深弹层内 bg-white/5 图标垫底/hover（压画布浮层）
   { glob: 'src/pages/canvas/components/edges/ConnectionLine.tsx', allow: ['text'] },                          // :111 边删除徽章 hover:text-white（恒深 badge 压画布）

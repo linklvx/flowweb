@@ -103,6 +103,47 @@ export function ImageThumbnailBar({
       onDragOver={disabled ? undefined : handleDragOver}
       onDrop={disabled ? undefined : handleDrop}
     >
+      {/* 风格按钮 — 仅外观无功能（spec 需求4 拍板；点击无反应是预期，登记 §7-4） */}
+      <button
+        type="button"
+        aria-label="风格"
+        className="flex h-[56px] w-[56px] shrink-0 cursor-pointer flex-col items-center justify-center gap-[2px] rounded-[8px] bg-surface-dim transition-colors hover:bg-overlay-2"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M10 3.5a6.5 6.5 0 0 1 6.5 6.5H3.5A6.5 6.5 0 0 1 10 3.5Z" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M10 7a3 3 0 0 1 3 3H7a3 3 0 0 1 3-3Z" stroke="currentColor" strokeWidth="1.6" />
+          <circle cx="10" cy="9" r="1.2" fill="currentColor" />
+        </svg>
+        <span className="text-[12px] font-[400] leading-[120%] text-text-dim-2">风格</span>
+      </button>
+
+      {showUploadButton && (
+        <>
+          {/* 参考按钮 = 原 +号上传按钮改版（spec 需求5/6：上传行为/data-testid 保留，缩略图移到其右侧） */}
+          <button
+            data-testid="upload-button"
+            aria-label="参考"
+            onClick={handleUploadClick}
+            className="flex h-[56px] w-[56px] shrink-0 cursor-pointer flex-col items-center justify-center gap-[2px] rounded-[8px] bg-surface-dim transition-colors hover:bg-overlay-2 focus:outline-none shadow-none outline-none"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M13.5 6V4.5A2.5 2.5 0 0 0 11 2H4.5A2.5 2.5 0 0 0 2 4.5V11a2.5 2.5 0 0 0 2.5 2.5H6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <span className="text-[12px] font-[400] leading-[120%] text-text-dim-2">参考</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            data-testid="file-input"
+            type="file"
+            multiple
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        </>
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -119,30 +160,6 @@ export function ImageThumbnailBar({
           ))}
         </SortableContext>
       </DndContext>
-
-      {showUploadButton && (
-        <>
-          <button
-            data-testid="upload-button"
-            className="size-[50px] flex items-center justify-center rounded-[10px] shrink-0 transition-all focus:outline-none bg-white/[0.08] hover:bg-overlay-3 shadow-none outline-none"
-            onClick={handleUploadClick}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-6 text-white/50" aria-hidden="true">
-              <path d="M5 12h14" />
-              <path d="M12 5v14" />
-            </svg>
-          </button>
-          <input
-            ref={fileInputRef}
-            data-testid="file-input"
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-        </>
-      )}
     </div>
   );
 }

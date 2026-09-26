@@ -293,4 +293,70 @@ describe('ImageThumbnailBar', () => {
     fireEvent(container, dropEvent);
     expect(mockUploadBatchImages).not.toHaveBeenCalled();
   });
+
+  it('9. renders 风格 button (aria-label) before 参考 upload button', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const style = screen.getByRole('button', { name: '风格' });
+    const upload = screen.getByTestId('upload-button');
+    expect(style).toBeInTheDocument();
+    expect(upload.textContent).toContain('参考');
+    // 风格在参考左侧
+    expect(style.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('10. upload-button (参考) renders before first thumbnail', () => {
+    // 顺序断言语义说明：thumb-img-1 来自本文件顶部 SortableImageItem mock——被测对象是
+    // ImageThumbnailBar 自身的 JSX 排列顺序（按钮在缩略图渲染位之前），与 mock/真实组件内部无关
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const upload = screen.getByTestId('upload-button');
+    const firstThumb = screen.getByTestId('thumb-img-1');
+    expect(upload.compareDocumentPosition(firstThumb) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('11. 风格 button still rendered when images reach maxCount (upload hidden)', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+        maxCount={3}
+      />,
+    );
+    expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '风格' })).toBeInTheDocument();
+  });
+
+  it('12. clicking 参考 button triggers hidden file input click', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+    const clickSpy = vi.spyOn(fileInput, 'click');
+    fireEvent.click(screen.getByTestId('upload-button'));
+    expect(clickSpy).toHaveBeenCalled();
+  });
 });

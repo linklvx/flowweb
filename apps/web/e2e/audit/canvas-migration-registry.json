@@ -2728,14 +2728,6 @@
    "why": "C8 Task 22：恒深提及菜单（#1f2937 壳）内 text-white"
   },
   {
-   "glob": "src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx",
-   "allow": [
-    "bg",
-    "text"
-   ],
-   "why": "C8 Task 22：压 prompt 条恒深面的加图钮"
-  },
-  {
    "glob": "src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx",
    "allow": [
     "bg",
