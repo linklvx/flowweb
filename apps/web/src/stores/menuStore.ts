@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useNodeStore } from './nodeStore';
 
 export interface HandleMenuState {
   x: number;
@@ -15,6 +16,7 @@ interface MenuState {
   triggerEl: HTMLButtonElement | null;
   lastMousePos: { x: number; y: number };
   handleMenu?: HandleMenuState;
+  styleLibrary: { nodeId: string } | null;
   setTriggerEl: (el: HTMLButtonElement | null) => void;
   updateMousePos: (pos: { x: number; y: number }) => void;
   open: (pos?: { x: number; y: number }) => void;
@@ -22,21 +24,33 @@ interface MenuState {
   toggle: () => void;
   openHandleMenu: (m: HandleMenuState) => void;
   closeHandleMenu: () => void;
+  openStyleLibrary: (nodeId: string) => void;
+  closeStyleLibrary: () => void;
 }
 
-export const useMenuStore = create<MenuState>((set) => ({
-  isOpen: false,
-  position: undefined,
-  triggerEl: null,
-  lastMousePos: { x: 0, y: 0 },
-  handleMenu: undefined,
-  setTriggerEl: (el) => set({ triggerEl: el }),
-  updateMousePos: (pos) => set({ lastMousePos: pos }),
-  // 双向互斥（spec §3.3）：右键菜单开时清 handle 菜单
-  open: (pos) => set({ isOpen: true, position: pos, handleMenu: undefined }),
-  close: () => set({ isOpen: false, position: undefined }),
-  toggle: () => set((s) => ({ isOpen: !s.isOpen })),
-  // 双向互斥另一侧：handle 菜单开时关右键菜单
-  openHandleMenu: (m) => set({ handleMenu: m, isOpen: false, position: undefined }),
-  closeHandleMenu: () => set({ handleMenu: undefined }),
-}));
+export const useMenuStore = create<MenuState>((set, get) => {
+  // 三个 open 统一收口：清其余两切片 + 退出画布参考选择模式（spec §4.1；
+  // 单向依赖 nodeStore——反向由组件层 onClick 收口防 ESM 循环）
+  const exitRefSelect = () => { useNodeStore.getState().exitReferenceSelect(); };
+  return {
+    isOpen: false,
+    position: undefined,
+    triggerEl: null,
+    lastMousePos: { x: 0, y: 0 },
+    handleMenu: undefined,
+    styleLibrary: null,
+    setTriggerEl: (el) => set({ triggerEl: el }),
+    updateMousePos: (pos) => set({ lastMousePos: pos }),
+    open: (pos) => { exitRefSelect(); set({ isOpen: true, position: pos, handleMenu: undefined, styleLibrary: null }); },
+    close: () => set({ isOpen: false, position: undefined }),
+    toggle: () => {
+      if (get().isOpen) { set({ isOpen: false, position: undefined }); return; }
+      exitRefSelect();
+      set({ isOpen: true, handleMenu: undefined, styleLibrary: null });
+    },
+    openHandleMenu: (m) => { exitRefSelect(); set({ handleMenu: m, isOpen: false, position: undefined, styleLibrary: null }); },
+    closeHandleMenu: () => set({ handleMenu: undefined }),
+    openStyleLibrary: (nodeId) => { exitRefSelect(); set({ styleLibrary: { nodeId }, isOpen: false, position: undefined, handleMenu: undefined }); },
+    closeStyleLibrary: () => set({ styleLibrary: null }),
+  };
+});

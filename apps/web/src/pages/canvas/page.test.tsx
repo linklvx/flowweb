@@ -88,6 +88,8 @@ vi.mock('@/stores/nodeStore', () => ({
         nodes: {},
         activeTransformNodeId: null,
         activeEditNodeId: null,
+        referenceSelect: null,
+        exitReferenceSelect: vi.fn(),
         setActiveTransformNodeId: vi.fn(),
         setActiveEditNodeId: vi.fn(),
       })),

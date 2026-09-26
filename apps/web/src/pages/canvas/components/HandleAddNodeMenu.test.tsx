@@ -77,11 +77,17 @@ describe('HandleAddNodeMenu', () => {
     expect(useMenuStore.getState().handleMenu).toBeUndefined();
   });
 
-  it('menuStore 双向互斥：openHandleMenu 关闭 AddNodeMenu 态，open 清 handleMenu', () => {
+  it('menuStore 三向互斥：openHandleMenu 关闭 AddNodeMenu 态，open 清 handleMenu，openStyleLibrary 清 isOpen/handleMenu', () => {
     useMenuStore.getState().open({ x: 1, y: 1 });
     openMenu('source');
     expect(useMenuStore.getState().isOpen).toBe(false);
     useMenuStore.getState().open({ x: 2, y: 2 });
     expect(useMenuStore.getState().handleMenu).toBeUndefined();
+    // 三切片（spec §4.1）：openStyleLibrary 清 isOpen/handleMenu，open/openHandleMenu 清 styleLibrary
+    useMenuStore.getState().openStyleLibrary('img9');
+    expect(useMenuStore.getState().isOpen).toBe(false);
+    expect(useMenuStore.getState().handleMenu).toBeUndefined();
+    useMenuStore.getState().open({ x: 3, y: 3 });
+    expect(useMenuStore.getState().styleLibrary).toBeNull();
   });
 });
