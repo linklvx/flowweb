@@ -93,6 +93,8 @@ Expected: 用例 1 FAIL（第二次序列后菜单仍在——bug 复现）；�
 
 L272-279 tooltip 用例（「生成数量」）不动。
 
+**查询口径说明**：`within(menu)` 收窄只用于新组件测试（GenerateCountSelector.test.tsx，防御 EraseBottomToolbar「1张」重名）；本文件（ImageConfigPanel.test.tsx）的渲染树不含 EraseBottomToolbar，沿用 `screen.getByText` 即可（L285 的 `getAllByText ≥2` 语义=触发器+菜单项，保留）。
+
 - [ ] **Step 1.4: 实现**
 
 `GenerateCountSelector.tsx` 全量替换为：
@@ -194,21 +196,13 @@ git commit -m "fix(web): 数量选择器修\"再次点击关不上\"（触发器
 ```tsx
   // ---- 默认 placeholder 文案（需求 3）----
   it('N1. 默认 placeholder 为新文案（不传 placeholder prop）', () => {
-    const { unmount } = render(
-      React.createElement(PromptInput as any, {
-        nodeId: 'node-1',
-        value: defaultValue,
-        onChange: defaultOnChange,
-        onCommandSelect: defaultOnCommandSelect,
-        onGenerate: defaultOnChange,
-        ref: React.createRef(),
-      }),
-    );
-    const placeholderExt = capturedEditorConfig.current!.extensions.find(
-      (e: any) => e.name === 'placeholder',
-    );
-    expect(placeholderExt?.options?.placeholder).toBe('描述你想要生成的画面内容，@引用素材');
-    unmount();
+    // renderPromptInput 显式传 placeholder 后 ...props 展开——传 undefined 覆盖之，
+    // 组件解构默认值对 undefined 生效 → 命中默认文案路径
+    renderPromptInput({ placeholder: undefined });
+    // capturedEditorConfig 是 vi.hoisted holder：.current 即 useEditor config（一层 current，勿多包）
+    const exts = capturedEditorConfig.current!.extensions as any[];
+    const ph = exts.find((e: any) => e?.name === 'placeholder');
+    expect(ph?.options?.placeholder).toBe('描述你想要生成的画面内容，@引用素材');
   });
 ```
 
@@ -218,6 +212,8 @@ git commit -m "fix(web): 数量选择器修\"再次点击关不上\"（触发器
   // ---- 输入区 cursor（需求 1）----
   it('N2. PromptInput.css：.prompt-editor 有 cursor:text 且 .command-chip 有 cursor:default', () => {
     const css = readFileSync(path.resolve(__dirname, 'PromptInput.css'), 'utf-8');
+    // 全文兜底 + 锚定切片双保险（.prompt-editor 在文件中出现 3 次，切片锚第一块 L64）
+    expect(css).toContain('cursor: text');
     const editorBlock = css.slice(css.indexOf('.prompt-editor {'), css.indexOf('.prompt-editor p'));
     expect(editorBlock).toContain('cursor: text');
     const chipBlock = css.slice(css.indexOf('.command-chip'), css.indexOf('/* ImageThumbnailBar'));
@@ -495,10 +491,14 @@ describe('RunButton', () => {
     expect(btn.querySelector('svg')?.className).toContain('text-[var(--canvas-run-btn-icon)]');
   });
 
-  it('index.css 深/浅块均定义新 token 对', () => {
+  it('index.css 深/浅块均定义新 token 对（正则锚定块头——顶部注释亦含 .light/:root, 字样，indexOf 切片会得到空串假红）', () => {
     const css = readFileSync(path.resolve(__dirname, '../../../../index.css'), 'utf-8');
-    const darkBlock = css.slice(css.indexOf(':root,'), css.indexOf('.light'));
-    const lightBlock = css.slice(css.indexOf('.light'));
+    const darkStart = css.search(/:root,\s*\.dark\s*\{/);
+    const lightStart = css.search(/\.light\s*\{/);
+    expect(darkStart).toBeGreaterThan(-1);
+    expect(lightStart).toBeGreaterThan(darkStart); // 源序约束（D8）
+    const darkBlock = css.slice(darkStart, lightStart);
+    const lightBlock = css.slice(lightStart, css.indexOf('}', lightStart + 5000));
     expect(darkBlock).toContain('--canvas-run-btn-bg: rgb(145, 145, 145)');
     expect(darkBlock).toContain('--canvas-run-btn-icon: #141414');
     expect(lightBlock).toContain('--canvas-run-btn-bg: rgb(135, 135, 135)');
@@ -555,32 +555,35 @@ export const RunButton = memo(RunButtonComponent);
 3. 同文件唯一 `.light` 块内（`--canvas-handle-hover-icon: #111827;` 之后）追加（**禁止另起 .light 块**，b1-token-migration.spec L331 守卫）：
 
 ```css
-  --canvas-run-btn-bg: rgb(135, 135, 135);  /* 浅档加深（参考值 2.78:1→≈3.15:1@#f0f1f2，拍板 ≥3:1） */
+  --canvas-run-btn-bg: rgb(135, 135, 135);  /* 浅档加深（参考值 2.78:1→≈3.18:1@#f0f1f2；拍板对象=按钮底 vs 面板底（WCAG 1.4.11 非文本控件 ≥3:1），箭头@钮底 ≈5.1:1 轻松达标；终值以 contrast-table 首跑为准，<3.0 则加深 rgb(125, 125, 125)） */
   --canvas-run-btn-icon: #141414;
 ```
 
-4. `e2e/b0-token-blocks.spec.ts`：`DOMAIN_TOKENS` 数组（L66-71）追加两键 `,'--canvas-run-btn-bg', '--canvas-run-btn-icon'`；`DOMAIN_DARK`（L73-92）追加：
+4. `e2e/b0-token-blocks.spec.ts`：`DOMAIN_TOKENS` 数组（L66-72）追加两键 `,'--canvas-run-btn-bg', '--canvas-run-btn-icon'`；`DOMAIN_DARK`（L74-93）追加——**值必须无空格**（b0 机制：actual 经 `v.replace(/\s+/g,'')` 归一化，expected 表值**原样**精确比对，参照既有 `'--canvas-controls-bg': 'rgb(38,38,38)'`）：
 
 ```ts
-  '--canvas-run-btn-bg': 'rgb(145, 145, 145)',
+  '--canvas-run-btn-bg': 'rgb(145,145,145)',
   '--canvas-run-btn-icon': '#141414',
 ```
 
-`DOMAIN_LIGHT`（L94 起）追加：
+`DOMAIN_LIGHT`（L95-114）追加：
 
 ```ts
-  '--canvas-run-btn-bg': 'rgb(135, 135, 135)',
+  '--canvas-run-btn-bg': 'rgb(135,135,135)',
   '--canvas-run-btn-icon': '#141414',
 ```
 
-5. `e2e/audit/contrast-pairs.json`：`pairs` 数组内仿照既有条目结构追加 2 条（fg=图标色 @ bg=按钮底；expect 以 `node scripts/contrast-table.mjs` 实际输出回填，手算参考 ≈6.00 与 ≈5.13）：
+（CSS 源文件写带空格 `rgb(145, 145, 145)` 与深块 L38 惯例一致；b0 表写无空格——两处口径勿混。）
+
+5. `e2e/audit/contrast-pairs.json`：`pairs` 数组尾部追加 **3 条**。注意工具契约（contrast-table.mjs 已核）：条目 schema 为 `{id, fg, bg, specExpect?, spec}`；`luminance()` **只解析 hex**（rgb() 串会 NaN 静默）；`specExpect != null` 才有 drift 牙齿。**specExpect 一律先置 null、跑 `node scripts/contrast-table.mjs` 取实测输出回填（仓内规矩：首跑回填、禁手算定稿），回填后复跑须全绿**。配对对象=拍板真正保护的两层（按钮底@面板底 ×2 深浅 + 箭头@浅钮底）：
 
 ```json
-    { "fg": "#141414", "bg": "rgb(145, 145, 145)", "expect": 6.0, "why": "需求8 运行钮箭头@深档底" },
-    { "fg": "#141414", "bg": "rgb(135, 135, 135)", "expect": 5.13, "why": "需求8 运行钮箭头@浅档底（浅档加深 ≥3:1 拍板）" }
+    { "id": "P8-运行钮底@深面板底", "fg": "#919191", "bg": "#262626", "specExpect": null, "spec": "§4 需求8 深档保参考值 rgb(145,145,145)≡#919191（手算参考 ≈4.81，以首跑为准）" },
+    { "id": "P8-运行钮底@浅面板底", "fg": "#878787", "bg": "#F0F1F2", "specExpect": null, "spec": "§4 需求8 浅档加深 ≥3:1 拍板（WCAG 1.4.11；rgb(135,135,135)≡#878787，手算参考 ≈3.18，以首跑为准；首跑 <3.0 则改 rgb(125,125,125) 并同步 index.css/.light 块与 b0 表后重跑）" },
+    { "id": "P8-运行钮箭头@浅钮底", "fg": "#141414", "bg": "#878787", "specExpect": null, "spec": "§4 需求8 箭头@浅档钮底（手算参考 ≈5.1，以首跑为准）" }
 ```
 
-（若既有条目键名不同，以文件内实际键名为准照抄结构。）
+**baseline 说明**：RunButton 原 `text-[#999]` 行被本任务删除，其 hex-baseline 陈旧键**留存不重建**（baseline 冻结、门禁只拦新增键；删除既有行是安全的）。
 
 6. `e2e/audit/canvas-migration-registry.json`：adjudications 数组尾部追加（推翻 Task 22 对 RunButton:14 的预登记裁定，spec §4 管道合规）：
 
@@ -832,11 +835,13 @@ git commit -m "feat(web): 图片节点标题双击编辑+mediaName 唯一真源�
 
 ---
 
-### Task 7: handleMenu.ts 纯函数——shouldOpenHandleMenu/isPointOnAnyNode/handleEdgeId/clientPoint（P2b-1，需求 10 守卫）
+### Task 7: handleMenu.ts 纯函数——守卫/绝对矩形/决策/边 id/clientPoint（P2b-1，需求 10 守卫）
 
 **Files:**
 - Create: `src/pages/canvas/components/handleMenu.ts`
 - Create: `src/pages/canvas/components/handleMenu.test.ts`
+
+要点：canvasStore 子节点（如分镜组 cell）的 position 是**组内相对坐标**——节点体命中判定必须先沿 parentId 累加祖先 position 解析绝对矩形（`absoluteRectsOf`），否则组内 imageGen 判定全错（最需要"落在节点体不弹"的场景恰好失效）；**group 类型节点过滤**（组是容器非实体节点，往组内空白松手仍应弹菜单——行为裁定随 Task 10 收尾登记 spec）；`decideHandleMenu` 把"决策+载荷组装"一并纳入纯函数（Task 9 接线因此可测）。
 
 - [ ] **Step 7.1: 写失败测试**
 
@@ -844,7 +849,12 @@ git commit -m "feat(web): 图片节点标题双击编辑+mediaName 唯一真源�
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { shouldOpenHandleMenu, isPointOnAnyNode, handleEdgeId, clientPoint } from './handleMenu';
+import {
+  shouldOpenHandleMenu, decideHandleMenu, absoluteRectsOf,
+  isPointOnAnyNode, handleEdgeId, clientPoint,
+} from './handleMenu';
+
+const rects = [{ x: 0, y: 0, w: 200, h: 150 }];
 
 const baseArgs = {
   reconnecting: false,
@@ -855,9 +865,7 @@ const baseArgs = {
   isLocked: false,
   dragDistancePx: 30,
   flowPoint: { x: 1000, y: 1000 },
-  nodes: [
-    { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, measured: { width: 200, height: 150 } },
-  ] as any[],
+  rects,
 };
 
 describe('shouldOpenHandleMenu', () => {
@@ -881,7 +889,7 @@ describe('shouldOpenHandleMenu', () => {
     expect(shouldOpenHandleMenu({ ...baseArgs, toNode: { id: 'n1' } as any })).toBe(false);
   });
 
-  it('③′ flowPoint 落入节点 bbox → false（节点体命中，guard2 承保）', () => {
+  it('③′ flowPoint 落入节点矩形 → false（节点体命中，guard2 承保）', () => {
     expect(shouldOpenHandleMenu({ ...baseArgs, flowPoint: { x: 100, y: 100 } })).toBe(false);
   });
 
@@ -903,14 +911,45 @@ describe('shouldOpenHandleMenu', () => {
   });
 });
 
+describe('absoluteRectsOf', () => {
+  it('顶层节点直接取 position；无尺寸节点跳过', () => {
+    const nodes = [
+      { id: 'n1', type: 'imageGen', position: { x: 10, y: 20 }, measured: { width: 200, height: 150 } },
+      { id: 'n2', type: 'textInput', position: { x: 0, y: 0 } },
+    ] as any[];
+    expect(absoluteRectsOf(nodes)).toEqual([{ x: 10, y: 20, w: 200, h: 150 }]);
+  });
+
+  it('组内子节点沿 parentId 累加祖先 position（分镜组 cell 场景）', () => {
+    const nodes = [
+      { id: 'g1', type: 'group', position: { x: 500, y: 400 }, width: 600, height: 400 },
+      { id: 'cell1', type: 'imageGen', parentId: 'g1', position: { x: 100, y: 50 }, measured: { width: 200, height: 150 } },
+    ] as any[];
+    // group 被过滤；cell 绝对矩形 = (500+100, 400+50)
+    expect(absoluteRectsOf(nodes)).toEqual([{ x: 600, y: 450, w: 200, h: 150 }]);
+  });
+});
+
 describe('isPointOnAnyNode', () => {
-  const nodes = [
-    { id: 'n1', position: { x: 0, y: 0 }, measured: { width: 200, height: 150 } },
-  ] as any[];
-  it('点在 bbox 内 → true；外 → false；无尺寸节点不参与判定', () => {
-    expect(isPointOnAnyNode({ x: 199, y: 149 }, nodes)).toBe(true);
-    expect(isPointOnAnyNode({ x: 201, y: 100 }, nodes)).toBe(false);
-    expect(isPointOnAnyNode({ x: 0, y: 0 }, [{ id: 'n2', position: { x: 0, y: 0 } }] as any[])).toBe(false);
+  it('点在矩形内 → true；外 → false；空矩形表 → false', () => {
+    expect(isPointOnAnyNode({ x: 199, y: 149 }, rects)).toBe(true);
+    expect(isPointOnAnyNode({ x: 201, y: 100 }, rects)).toBe(false);
+    expect(isPointOnAnyNode({ x: 0, y: 0 }, [])).toBe(false);
+  });
+});
+
+describe('decideHandleMenu', () => {
+  it('守卫通过 → open + 完整 payload（含 flowPoint 直通）', () => {
+    const d = decideHandleMenu({ ...baseArgs, nodeId: 'img1', side: 'source', clientX: 300, clientY: 200 });
+    expect(d).toEqual({
+      kind: 'open',
+      payload: { x: 300, y: 200, nodeId: 'img1', side: 'source', flowPoint: { x: 1000, y: 1000 } },
+    });
+  });
+
+  it('isValid=true → ignore（正常连线不弹）', () => {
+    expect(decideHandleMenu({ ...baseArgs, nodeId: 'img1', side: 'source', clientX: 0, clientY: 0, isValid: true }))
+      .toEqual({ kind: 'ignore' });
   });
 });
 
@@ -935,9 +974,9 @@ Expected: FAIL（模块不存在）。
 创建 `src/pages/canvas/components/handleMenu.ts`：
 
 ```ts
-/** handle 拖拽弹菜单——守卫纯函数与工具（spec 2026-09-26-image-node-panel-redesign §3.3）
+/** handle 拖拽弹菜单——守卫/决策纯函数与工具（spec 2026-09-26-image-node-panel-redesign §3.3）
  * 守卫顺序承重：reconnecting 必须最先（复位语义）；toNode 由 toHandle 派生、仅覆盖 handle 命中，
- * 节点体命中由 isPointOnAnyNode 单独承保。 */
+ * 节点体命中由 isPointOnAnyNode(绝对矩形) 单独承保。 */
 
 const HANDLE_MENU_NODE_TYPES = new Set(['imageGen', 'imageExtGen']);
 const DRAG_THRESHOLD_PX = 5;
@@ -945,25 +984,59 @@ const DRAG_THRESHOLD_PX = 5;
 export interface HandleMenuNodeLike {
   id: string;
   type?: string;
+  parentId?: string;
   position: { x: number; y: number };
   measured?: { width?: number; height?: number };
   width?: number;
   height?: number;
 }
 
-export function isPointOnAnyNode(
-  flowPoint: { x: number; y: number },
-  nodes: HandleMenuNodeLike[],
-): boolean {
-  return nodes.some((n) => {
+export interface NodeRect { x: number; y: number; w: number; h: number }
+
+/** 解析节点的画布绝对矩形：子节点 position 是组内相对坐标（canvasStore 惯例），
+ * 沿 parentId 累加祖先 position；group 是容器非实体节点，过滤之
+ * （行为裁定：往组内空白处松手仍弹菜单——Task 10 收尾登记 spec §7）。 */
+export function absoluteRectsOf(nodes: HandleMenuNodeLike[]): NodeRect[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const absPos = (n: HandleMenuNodeLike, seen = new Set<string>()): { x: number; y: number } => {
+    let x = n.position.x;
+    let y = n.position.y;
+    let cur = n;
+    while (cur.parentId && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      const parent = byId.get(cur.parentId);
+      if (!parent) break;
+      x += parent.position.x;
+      y += parent.position.y;
+      cur = parent;
+    }
+    return { x, y };
+  };
+  const rects: NodeRect[] = [];
+  for (const n of nodes) {
+    if (n.type === 'group') continue;
     const w = n.measured?.width ?? n.width;
     const h = n.measured?.height ?? n.height;
-    if (!w || !h) return false;
-    return (
-      flowPoint.x >= n.position.x && flowPoint.x <= n.position.x + w &&
-      flowPoint.y >= n.position.y && flowPoint.y <= n.position.y + h
-    );
-  });
+    if (!w || !h) continue;
+    const { x, y } = absPos(n);
+    rects.push({ x, y, w, h });
+  }
+  return rects;
+}
+
+export function isPointOnAnyNode(flowPoint: { x: number; y: number }, rects: NodeRect[]): boolean {
+  return rects.some((r) =>
+    flowPoint.x >= r.x && flowPoint.x <= r.x + r.w &&
+    flowPoint.y >= r.y && flowPoint.y <= r.y + r.h,
+  );
+}
+
+export interface HandleMenuPayload {
+  x: number;
+  y: number;
+  nodeId: string;
+  side: 'source' | 'target';
+  flowPoint: { x: number; y: number };
 }
 
 export interface HandleMenuGuardArgs {
@@ -975,7 +1048,7 @@ export interface HandleMenuGuardArgs {
   isLocked: boolean;
   dragDistancePx: number;
   flowPoint: { x: number; y: number };
-  nodes: HandleMenuNodeLike[];
+  rects: NodeRect[];
 }
 
 export function shouldOpenHandleMenu(args: HandleMenuGuardArgs): boolean {
@@ -986,8 +1059,29 @@ export function shouldOpenHandleMenu(args: HandleMenuGuardArgs): boolean {
   if (!HANDLE_MENU_NODE_TYPES.has(args.nodeType ?? '')) return false;
   if (args.isLocked) return false;
   if (args.dragDistancePx < DRAG_THRESHOLD_PX) return false;
-  if (isPointOnAnyNode(args.flowPoint, args.nodes)) return false;
+  if (isPointOnAnyNode(args.flowPoint, args.rects)) return false;
   return true;
+}
+
+export type HandleMenuDecision =
+  | { kind: 'ignore' }
+  | { kind: 'open'; payload: HandleMenuPayload };
+
+/** 决策+载荷组装一并纯函数化：Task 9 的 onConnectEnd 退化为"取 event/state → 调本函数 → open"。 */
+export function decideHandleMenu(
+  args: HandleMenuGuardArgs & { nodeId: string; side: 'source' | 'target'; clientX: number; clientY: number },
+): HandleMenuDecision {
+  if (!shouldOpenHandleMenu(args)) return { kind: 'ignore' };
+  return {
+    kind: 'open',
+    payload: {
+      x: args.clientX,
+      y: args.clientY,
+      nodeId: args.nodeId,
+      side: args.side,
+      flowPoint: args.flowPoint,
+    },
+  };
 }
 
 /** handle 拖拽建边的确定性 id——前缀刻意避开 auto:/auto-out:（那是协作/撤销的通道路由，spec §2.1）；
@@ -1003,6 +1097,8 @@ export function clientPoint(e: MouseEvent | TouchEvent): { x: number; y: number 
 }
 ```
 
+（menuStore 的 `HandleMenuState`（Task 8）与本模块 `HandleMenuPayload` 结构一致——保持字段同名同型。）
+
 - [ ] **Step 7.4: 跑绿**
 
 Run: `pnpm vitest run src/pages/canvas/components/handleMenu.test.ts`
@@ -1012,7 +1108,7 @@ Expected: 全 PASS。
 
 ```bash
 git add src/pages/canvas/components/handleMenu.ts src/pages/canvas/components/handleMenu.test.ts
-git commit -m "feat(web): handle 拖拽菜单守卫纯函数（reconnecting/isValid/toHandle+节点体点矩形/类型集合/锁定/位移阈值）+handle: 确定性边 id+clientPoint 触摸兼容"
+git commit -m "feat(web): handle 拖拽菜单守卫纯函数（reconnecting/isValid/toHandle+绝对矩形节点体判定含组内坐标解析与 group 过滤/类型集合/锁定/位移阈值）+decideHandleMenu 决策载荷+handle: 确定性边 id+clientPoint 触摸兼容"
 ```
 
 ---
@@ -1083,7 +1179,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { HandleAddNodeMenu } from './HandleAddNodeMenu';
 import { useMenuStore } from '@/stores/menuStore';
 
-const mockAddNode = vi.fn(() => 'new-1');
+const mockAddNode = vi.fn(() => 'new-1'); // 构造时实现：clearAllMocks 只清调用记录、保留 implementation（mockReset 才清），此写法在 beforeEach clearAllMocks 下安全
 const mockAddEdge = vi.fn();
 
 vi.mock('@/stores/canvasStore', () => ({
@@ -1148,8 +1244,8 @@ describe('HandleAddNodeMenu', () => {
 
   it('点击背板关闭；Escape 关闭', () => {
     openMenu('source');
-    const { container } = render(<HandleAddNodeMenu />);
-    fireEvent.click(container.querySelector('.fixed.inset-0')!);
+    render(<HandleAddNodeMenu />);
+    fireEvent.click(screen.getByTestId('handle-add-node-menu-backdrop'));
     expect(useMenuStore.getState().handleMenu).toBeUndefined();
     openMenu('source');
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -1274,6 +1370,7 @@ export function HandleAddNodeMenu() {
 
   return (
     <div
+      data-testid="handle-add-node-menu-backdrop"
       className="fixed inset-0 z-[calc(var(--z-panel)-1)]"
       onClick={closeHandleMenu}
       onContextMenu={(e) => { e.preventDefault(); closeHandleMenu(); }}
@@ -1343,7 +1440,7 @@ git commit -m "feat(web): HandleAddNodeMenu 精简添加节点菜单（右4项/�
 - Modify: `src/pages/canvas/components/CanvasView.tsx`（import + 4 个回调 + ReactFlow 4 个 prop）
 - Modify: `src/pages/canvas/components/CanvasView.test.tsx`（mock state 补 `addEdge` 键）
 
-说明：本任务是纯接线——可测逻辑已在 Task 7（守卫纯函数）与 Task 8（菜单组件+store 断言）覆盖；ReactFlow 真渲染下 onConnectEnd 无法在 jsdom 合成拖拽手势触发，接线正确性由 tsc + 全量回归 + Task 10 人工验收承保（spec §5 P2b）。
+说明：本任务是薄接线——决策+载荷已纯函数化（Task 7 `decideHandleMenu`，含 2 条断言），建节点/建边在 Task 8 组件测试以 store mock 断言；ReactFlow 真渲染下 onConnectEnd 无法在 jsdom 合成拖拽手势触发，剩余接线正确性由 tsc + 全量回归 + Task 10 人工验收承保（spec §5 P2b）。
 
 - [ ] **Step 9.1: CanvasView.test mock 补 addEdge 键**
 
@@ -1359,6 +1456,16 @@ git commit -m "feat(web): HandleAddNodeMenu 精简添加节点菜单（右4项/�
 const mockAddEdge = vi.hoisted(() => vi.fn());
 ```
 
+同文件 mock 的 `getState()`（L59-62 现仅 `{ pendingMediaFile, requestAddMediaNode }`）补 `nodes` 键（新守卫经 `useCanvasStore.getState().nodes` 取节点表，缺键则一旦触发即 undefined 崩溃）：
+
+```ts
+      getState: () => ({
+        pendingMediaFile: mockPendingMediaFile,
+        requestAddMediaNode: vi.fn(),
+        nodes: mockNodes,
+      }),
+```
+
 跑既有测试确认不回归：`pnpm vitest run src/pages/canvas/components/CanvasView.test.tsx` → 全 PASS。
 
 - [ ] **Step 9.2: 实现 CanvasView 接线**
@@ -1366,7 +1473,7 @@ const mockAddEdge = vi.hoisted(() => vi.fn());
 1. 文件顶部 import 区（既有 `@/stores/...` import 旁）追加：
 
 ```tsx
-import { clientPoint, shouldOpenHandleMenu } from './handleMenu';
+import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
 import { useMenuStore } from '@/stores/menuStore';
 ```
 
@@ -1402,9 +1509,10 @@ import { useMenuStore } from '@/stores/menuStore';
     const flowPoint = screenToFlowPosition(p);
     const nodes = useCanvasStore.getState().nodes;
     const node = nodes.find((n) => n.id === dragStart.nodeId);
+    // isLocked 来源=useNodeStore.activeEditNodeId（CanvasView L102-103 既有订阅同一 store，实证勿改读 canvasStore）
     const isLockedNow = useNodeStore.getState().activeEditNodeId !== null;
 
-    if (!shouldOpenHandleMenu({
+    const decision = decideHandleMenu({
       reconnecting: wasReconnecting,
       isValid: state?.isValid ?? null,
       toHandle: state?.toHandle ?? null,
@@ -1413,16 +1521,15 @@ import { useMenuStore } from '@/stores/menuStore';
       isLocked: isLockedNow,
       dragDistancePx: Math.hypot(p.x - dragStart.x, p.y - dragStart.y),
       flowPoint,
-      nodes,
-    })) return;
-
-    useMenuStore.getState().openHandleMenu({
-      x: p.x,
-      y: p.y,
+      rects: absoluteRectsOf(nodes),
       nodeId: dragStart.nodeId,
       side: dragStart.handleType === 'target' ? 'target' : 'source',
-      flowPoint,
+      clientX: p.x,
+      clientY: p.y,
     });
+    if (decision.kind === 'open') {
+      useMenuStore.getState().openHandleMenu(decision.payload);
+    }
   }, [screenToFlowPosition]);
 
   const onReconnectStart = useCallback(() => { reconnectingRef.current = true; }, []);
@@ -1485,8 +1592,15 @@ Expected: 全部通过（Task 4 回填的 expect 值与工具计算一致；若 
 
 - [ ] **Step 10.5: token 守卫（b0/b1）**
 
+**前置**：Playwright e2e 需 webServer（build+preview）与登录态 storageState——先试跑 `npx playwright test e2e/b0-token-blocks.spec.ts`；**若环境不可用，静态回退**（等价校验，并在提交说明登记"b0/b1 Playwright 未跑、以静态校验回退"）：
+
+```bash
+grep -c "canvas-run-btn-bg" src/index.css   # 期望 2（深块+浅块各一）
+grep -n "light {" src/index.css | wc -l     # 期望 1（唯一 .light 块，源序在 :root,.dark 后——Task 4 内联测试已断言）
+```
+
 Run: `npx playwright test e2e/b0-token-blocks.spec.ts e2e/b1-token-migration.spec.ts`
-Expected: 全绿（新 token 双值已在 b0 DOMAIN 表；浅值写入唯一 .light 块未另起块）。
+Expected: 全绿（新 token 双值已在 b0 DOMAIN 表且无空格；浅值写入唯一 .light 块未另起块）。
 
 - [ ] **Step 10.6: 浏览器人工验收（启动 dev server 后逐项过 spec §8）**
 
@@ -1494,12 +1608,16 @@ Expected: 全绿（新 token 双值已在 b0 DOMAIN 表；浅值写入唯一 .li
 1. 输入区空态悬停 I 光标；chip/命令徽章不是 I 型
 2. 数量按钮再点关闭（真实鼠标）
 3. 风格/参考按钮 56×56 视觉、与 50px 缩略图同排高差可接受性
-4. 运行按钮浅/深主题下灰底黑箭头观感
-5. 标题：双击进入（input 宽=节点宽−占位）、Enter/失焦保存、Esc 还原、改名后刷新仍保留、Ctrl+Z 与后续操作同栈回滚
-6. 拖拽：右 handle 拖到空白弹 4 项/左 2 项；落在另一节点体上不弹；拖边端点重连不弹；Esc 取消重连后再拖仍能弹；点 handle 不拖不弹；锁定态（进入编辑模式）不弹；建节点中心对齐松手点且自动连线、Ctrl+Z 节点+边一起撤销
+4. 运行按钮浅/深主题下灰底黑箭头观感（浅档底 vs 面板底 ≥3:1 以 contrast-table 首跑值为准）
+5. 标题：**单击不进入编辑（预期行为变更，非缺陷）**；双击进入（input 右边缘与尺寸文本左缘对齐=节点宽−占位的实宽核验）、Enter/失焦保存、Esc 还原、改名后刷新仍保留、Ctrl+Z 与后续操作同栈回滚
+6. 拖拽：右 handle 拖到空白弹 4 项/左 2 项；落在另一节点体上不弹；**落在组内空白处弹菜单（group 过滤裁定）**、组内图片节点体上不弹（绝对坐标解析）；拖边端点重连不弹；Esc 取消重连后再拖仍能弹；点 handle 不拖不弹；锁定态（进入节点编辑模式）不弹；建节点中心对齐松手点且自动连线、Ctrl+Z 节点+边一起撤销
 7. 视频节点面板同步出现新工具行（共享组件统一生效）
 
-- [ ] **Step 10.7: 验收问题修复后终跑 + 最终 Commit（如有修复）**
+- [ ] **Step 10.7: spec §7 登记核对（文档侧收尾，不写代码）**
+
+核对 spec `2026-09-26-image-node-panel-redesign.md` §7 与最终实现一致，需要补充/订正的：group 过滤行为裁定（组内空白松手弹菜单——Task 7 裁定补登 §3.3/§7）；浅档终值（若首跑后改 rgb(125) 则订正 §4 表）；VideoConfigPanel:430 英文 aria-label 与本次中文化的不一致已在 §7-7 登记无需动。
+
+- [ ] **Step 10.8: 验收问题修复后终跑 + 最终 Commit（如有修复）**
 
 ```bash
 pnpm vitest run && pnpm lint && node scripts/css-audit.mjs
