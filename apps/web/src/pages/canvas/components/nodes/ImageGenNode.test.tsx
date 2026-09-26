@@ -59,6 +59,7 @@ const {
   mockGetNodes,
   mockSetNodes,
   mockSetCenter,
+  mockCreateDerivedExtNode,
   mockUseNodeStoreFn,
   mockUseCanvasStoreFn,
 } = vi.hoisted(() => {
@@ -77,6 +78,8 @@ const {
   const getNodes = vi.fn(() => [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
   const setNodes = vi.fn();
   const setCenter = vi.fn();
+  // 返回 null：handleAiToolAction 的 if (newNodeId) 分支不进 setTimeout，测试无残留定时器
+  const createDerivedExtNode = vi.fn(() => null);
 
   const nodeStoreFn = vi.fn((_selector?: any) => {
     // Get fresh state at call time
@@ -113,6 +116,7 @@ const {
       deleteTransformNode,
       setNodeDraggable: vi.fn(),
       splitImageNode: vi.fn(),
+      createDerivedExtNode,
       nodeProcessMap: {},
     };
     if (typeof _selector === 'function') return _selector(state);
@@ -136,6 +140,7 @@ const {
     mockGetNodes: getNodes,
     mockSetNodes: setNodes,
     mockSetCenter: setCenter,
+    mockCreateDerivedExtNode: createDerivedExtNode,
     mockUseNodeStoreFn: nodeStoreFn,
     mockUseCanvasStoreFn: canvasStoreFn,
   };
@@ -158,6 +163,10 @@ vi.mock('@/stores/canvasStore', () => ({
 vi.mock('@/api/storageApi', () => ({
   presignUpload: vi.fn(),
   confirmUpload: vi.fn(),
+}));
+
+vi.mock('@/api/mediaApi', () => ({
+  getMediaUrl: vi.fn(() => Promise.resolve({ url: 'http://media/cat-file-id' })),
 }));
 
 vi.mock('@/utils/imageCrop', () => ({
@@ -259,6 +268,15 @@ describe('ImageGenNode', () => {
     expect(screen.getByText('Image')).toBeInTheDocument();
   });
 
+  it('blur 时值与当前 mediaName 相同不写 store（trimmed === mediaName 守卫）', () => {
+    renderNode();
+    fireEvent.doubleClick(screen.getByText('Image'));
+    const input = screen.getByLabelText('节点标题');
+    fireEvent.change(input, { target: { value: 'Image' } });
+    fireEvent.blur(input);
+    expect(mockUpdateConfig).not.toHaveBeenCalled();
+  });
+
   it('Escape exits edit mode without writing store', () => {
     renderNode();
     fireEvent.doubleClick(screen.getByText('Image'));
@@ -279,11 +297,34 @@ describe('ImageGenNode', () => {
     expect(icon?.getAttribute('width')).toBe('13');
   });
 
+  it('title span and edit input carry nopan（d3 dblclick.zoom 原生 filter 只认 noPanClassName，防双击改名触发画布放大/编辑拖选平移；jsdom 无 d3 只能类断言）', () => {
+    renderNode();
+    const span = screen.getByText('Image');
+    expect(span.className).toContain('nopan');
+    fireEvent.doubleClick(span);
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    expect(input.className).toContain('nopan');
+  });
+
   it('empty-string mediaName falls back to Image（|| 而非 ??，空串可双击改名）', () => {
     mockNodeData.mediaName = '';
     renderNode();
     expect(screen.getByText('Image')).toBeInTheDocument();
     mockNodeData.mediaName = undefined;
+  });
+
+  it('mediaName 联动 @引用素材 chip 名（spec §3.2：AI 工具参考图 name 取 mediaName，改名连带改 chip 名）', async () => {
+    // chip 本体渲染在派生 ext 节点的 PromptInput 中（image-chip label 硬编码）；本节点内的
+    // 联动落点是 ImageGenNode.tsx L179 构建的 allImages[0].name——承保该数据源头即承保联动
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', mediaName: '外部标题' };
+    renderNode(true);
+    fireEvent.click(screen.getByLabelText('AI工具扩展'));
+    fireEvent.click(screen.getByText('多机位九宫格'));
+    await waitFor(() => {
+      expect(mockCreateDerivedExtNode).toHaveBeenCalledWith(expect.objectContaining({
+        allImages: [expect.objectContaining({ name: '外部标题' })],
+      }));
+    });
   });
 
   it('should render camera SVG placeholder when no result image', () => {
