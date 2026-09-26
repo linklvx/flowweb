@@ -28,6 +28,7 @@ import { AiDownloadModule } from './modules/ai-download/ai-download.module';
 import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
+import { StylesModule } from './modules/styles/styles.module';
 import { FolderModule } from './modules/folder/folder.module';
 import { CanvasModule } from './modules/canvas/canvas.module';
 import { RechargeModule } from './modules/recharge/recharge.module';
@@ -56,6 +57,7 @@ const env = validateEnv();
     HealthModule,
     ContentModule,
     HomeBannerModule,
+    StylesModule,
     ProjectModule,
     TeamModule,
     CollabModule,
