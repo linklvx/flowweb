@@ -45,6 +45,8 @@
   --canvas-handle-icon: #6B7280;
   --canvas-handle-hover-bg: #FFFFFF;
   --canvas-handle-hover-icon: #FFFFFF;
+  --canvas-run-btn-bg: rgb(145, 145, 145);  /* 图片节点面板运行钮底（2026-09-26 需求8；深档保参考值 ≈4.81:1@面板底） */
+  --canvas-run-btn-icon: #141414;           /* 运行钮箭头（灰底上 ≈6:1）。⚠ 双块同值键（非 b1-SINGLE 单值恒值键）：深/浅两块都必须保留声明，改动须同步两侧，单侧删除会炸 b0/b1 块数守卫 */
   --edge-flow-color: #3B82F6;
   --edge-highlight-color: #999;
   --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.15), 0px 2px 8px 0px rgba(0, 0, 0, 0.1);
@@ -87,6 +89,8 @@
   --canvas-handle-icon: #4B5563;
   --canvas-handle-hover-bg: #111827;
   --canvas-handle-hover-icon: #111827;
+  --canvas-run-btn-bg: rgb(135, 135, 135);  /* 浅档加深（参考值 2.78:1→≈3.18:1@#f0f1f2；拍板对象=按钮底 vs 面板底（WCAG 1.4.11 非文本控件 ≥3:1），箭头@钮底 ≈5.1:1 轻松达标；终值以 contrast-table 首跑为准，<3.0 则加深 rgb(125, 125, 125)） */
+  --canvas-run-btn-icon: #141414;
   --edge-flow-color: #3B82F6;
   --edge-highlight-color: #6B7280;
   --canvas-shadow-menu: 0px 8px 32px 0px rgba(0, 0, 0, 0.08), 0px 2px 8px 0px rgba(0, 0, 0, 0.06);

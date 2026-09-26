@@ -69,6 +69,7 @@ const DOMAIN_TOKENS = [
   '--canvas-handle-bg', '--canvas-handle-icon',
   '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
   '--ve-border', '--ve-text-dim', '--ve-accent', '--ve-accent-text',
+  '--canvas-run-btn-bg', '--canvas-run-btn-icon',
 ] as const;
 
 const DOMAIN_DARK: Record<string, string> = {
@@ -90,6 +91,8 @@ const DOMAIN_DARK: Record<string, string> = {
   '--ve-text-dim': 'rgba(226,232,240,0.6)',
   '--ve-accent': '#6c5ce7',
   '--ve-accent-text': '#9b8cf7',
+  '--canvas-run-btn-bg': 'rgb(145,145,145)',
+  '--canvas-run-btn-icon': '#141414',
 };
 
 const DOMAIN_LIGHT: Record<string, string> = {
@@ -111,6 +114,8 @@ const DOMAIN_LIGHT: Record<string, string> = {
   '--ve-text-dim': '#4b5563',
   '--ve-accent': '#6c5ce7',
   '--ve-accent-text': '#5f4fd1',
+  '--canvas-run-btn-bg': 'rgb(135,135,135)',
+  '--canvas-run-btn-icon': '#141414',
 };
 
 /** 归一化读作用域元素上全部 token 计算值 + color-scheme。

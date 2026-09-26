@@ -37,6 +37,9 @@
     { "id": "P4-GridIcon@白卡", "fg": "#6C5CE7", "bg": "#FFFFFF", "specExpect": 4.86, "spec": "§11.4" },
     { "id": "P4-GridIcon@深卡", "fg": "#6C5CE7", "bg": "#1E1E1E", "specExpect": 3.43, "spec": "§11.4" },
     { "id": "P4-品牌浅底反证-5DDCFF", "fg": "#5DDCFF", "bg": "#FFFFFF", "specExpect": 1.60, "spec": "§4 通道2 反证：深档品牌值直接落浅底不合格 → 双值变体 token 或迁恒深面，禁当『浅色档接受值』引用" },
-    { "id": "P4-品牌浅底反证-4ade80", "fg": "#4ADE80", "bg": "#FFFFFF", "specExpect": 1.74, "spec": "§4 通道2 反证：#4ade80(--fw-accent 深值)落白底 1.74 → 前景必须走 --fw-accent-text 双档（浅 #15803d@white≈5.02）" }
+    { "id": "P4-品牌浅底反证-4ade80", "fg": "#4ADE80", "bg": "#FFFFFF", "specExpect": 1.74, "spec": "§4 通道2 反证：#4ade80(--fw-accent 深值)落白底 1.74 → 前景必须走 --fw-accent-text 双档（浅 #15803d@white≈5.02）" },
+    { "id": "P8-运行钮底@深面板底", "fg": "#919191", "bg": "#262626", "specExpect": 4.80, "spec": "§4 需求8 深档保参考值 rgb(145,145,145)≡#919191（手算参考 ≈4.81，以首跑为准）" },
+    { "id": "P8-运行钮底@浅面板底", "fg": "#878787", "bg": "#F0F1F2", "specExpect": 3.18, "spec": "§4 需求8 浅档加深 ≥3:1 拍板（WCAG 1.4.11；rgb(135,135,135)≡#878787，手算参考 ≈3.18，以首跑为准；首跑 <3.0 则改 rgb(125,125,125) 并同步 index.css/.light 块与 b0 表后重跑）" },
+    { "id": "P8-运行钮箭头@浅钮底", "fg": "#141414", "bg": "#878787", "specExpect": 5.13, "spec": "§4 需求8 箭头@浅档钮底（手算参考 ≈5.1，以首跑为准）" }
   ]
 }
