@@ -248,6 +248,19 @@ describe('ImageGenNode', () => {
     expect(screen.getByDisplayValue('Image')).toBeInTheDocument();
   });
 
+  it('should render title at 14px with enlarged 14×14 leading icon', () => {
+    const { container } = renderNode();
+    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
+    expect(input.style.fontSize).toBe('14px');
+    expect(input.style.lineHeight).toBe('21px');
+    const ghost = input.parentElement?.querySelector('span[aria-hidden="true"]') as HTMLSpanElement;
+    expect(ghost.style.fontSize).toBe('14px');
+    expect(ghost.style.lineHeight).toBe('21px');
+    const icon = container.querySelector('svg[viewBox="0 0 48 48"]');
+    expect(icon?.getAttribute('width')).toBe('14');
+    expect(icon?.getAttribute('height')).toBe('14');
+  });
+
   it('should grow ghost sizer span as user types longer title', () => {
     const { container } = renderNode();
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
