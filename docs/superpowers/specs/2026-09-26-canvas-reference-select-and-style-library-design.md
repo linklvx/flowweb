@@ -1,7 +1,7 @@
 # Canvas 参考选择模式与风格库 — 设计 Spec
 
 日期：2026-09-26
-状态：v2（第二轮审核修订——三份外部审核意见逐条核实后改写；事实断言均标「已核实」+行号）
+状态：v3（第三轮审核修订——Esc 属主/裁切第二层/索引方向/D14 机制等收口；驳回 1 条错误勘误；事实断言均标「已核实」+行号）
 关联：`2026-09-26-image-node-panel-redesign.md`（工具行 风格/参考 按钮为本次落地的入口；其 §7-4「风格按钮仅外观」与 §8 验收 5/6「参考按钮=上传」自本文起**失效**）
 
 ---
@@ -39,11 +39,21 @@
 | D12 | 面板 prompt 存量断链 | **顺手接通**。已核实：execution.service.ts:75 `prompt = upstream.textContents.join(' ') || data?.content || ''`，全模块 grep 不到 `data.prompt.text`——独立图片/视频节点面板输入的 prompt 从不进生成。修法见 §7.2 |
 | D13 | 卡片点击语义 | **维持点卡=使用+关窗**（liblib 同行为）；三个 hover 按钮 stopPropagation；测试承保「点收藏/详情不触发使用」 |
 | D14 | usageCount 口径 | 仅当 StyleRecentUsage upsert **新建**记录（该用户首次使用）时 `increment: 1`——计数=使用人数，免疫重复点击与取消使用导致的计数/排序自我污染 |
-| D15 | 弹窗外壳与滚动 | 外壳复用 **BaseFullscreenModal**（已核实 BaseFullscreenModal.tsx:28-64：body portal、z-[100000]、bg-black/60 背板、背板点击关闭、滚动锁、焦点恢复、Esc 全齐，4 个既有消费方）；滚动加载用**「加载更多」按钮**（IntersectionObserver 全仓零先例且 test-setup.ts:3 未 mock，jsdom 直接崩——已核实仓内加载更多先例为按钮式） |
+| D15 | 弹窗外壳与滚动 | 外壳复用 **BaseFullscreenModal**（已核实 BaseFullscreenModal.tsx:25-80：body portal、z-[100000]、bg-black/60 背板、背板点击关闭、滚动锁、焦点恢复、Esc 全齐，4 个既有消费方）；滚动加载用**「加载更多」按钮**——与仓内分页先例一致（WorkspaceDimension.tsx:181,251 按钮式）+ 简洁优先（IntersectionObserver 全仓零先例且 test-setup.ts:3 未 shim，属次要附加因素非决定性理由） |
 | D16 | 取消使用的写值 | 写 **`null`**（`styleId?: string \| null`），弃 undefined（mergeNodeData 无删键语义，nodeStore.ts:269-271 已核实仅 `merged[key]=value`；null 可过 JSON 往返，undefined 会丢键） |
 | D17 | 封面存储 | `coverKey`（MinIO key）+ 读时 presign（已核实：admin-home-banner.controller.ts:65 返回 `{imageKey}`、home-banner.service.ts:35 `generatePresignedGetUrl(key, 3600)`，桶非公开读，存直链 1h 全裂）；上传先例=**admin-video-work.controller.ts:30-42 uploadCover**（banner 方法名是 upload） |
 | D18 | 命名对齐仓内 | `enabled`→**`active`**（VideoCategory schema.prisma:903 先例）+ `@@index([active, sortOrder])`（:908 先例）；join 表补 `id @id @default(cuid())` + `@@unique` 并存（TeamMember :709/:717 先例，全仓 42/42 模型有 @id）；种子进 **seed.ts upsert**（17 个 migration 零 INSERT，已核实）而非 migration SQL |
 | D19 | 模式期交互 | 参考选择期新开独立标志**只喂 `nodesDraggable={false}`**（不复用 isLocked——CanvasView.tsx:431-436 已核实它同时关 pan/zoom/focusable，参考选择时必须能平移缩放）；点击/拖拽区分靠 React Flow 默认 `nodeClickDistance=0`（拖动即吞 click，CanvasView 从未设置该值，已核实），**不写自造位移阈值**；满 9 张时参考按钮**恒显**（脱离 showUploadButton 门控，语义已从上传变为模式入口） |
+
+### 第三轮（审核裁定，2026-09-26）
+
+| # | 分叉 | 拍板 |
+|---|---|---|
+| D20 | 嵌套浮层 Esc 属主 | **状态驱动 onClose**：详情浮层不做独立 Esc 监听、不挂 body portal（渲染在风格库内部、库内 absolute 居中层 z 更高），关闭统一走风格库 `onClose = detail ? setDetail(null) : closeStyleLibrary()`——第一次 Esc/背板点击关详情、第二次关库。依据已核实：BaseFullscreenModal.tsx:51-64 Esc 为 document 冒泡监听 + `stopImmediatePropagation()`（:57），先注册者（库）先吃事件，详情若独立监听则永不触发；共享组件零改动（4 个既有消费方无嵌套模态先例），顺带避免双层 bg-black/60 背板叠加变暗 |
+| D21 | 弹窗卡片显式宽度 | `w-[min(1600px,calc(100vw-64px))]` 显式宽度。依据已核实：BaseFullscreenModal 的 dialog 包装 div（:75）**无任何尺寸类**，父级 flex 居中，auto 宽 flex item 内 5 列 1fr 网格会循环依赖塌宽（VideoPlayerModal.tsx:63 注释先例：消费方子层自带 fixed/显式尺寸） |
+| D22 | 有上游文本时面板 prompt 被忽略 | `||` 回退链语义=**上游优先、面板弃用**（现状），有意保持，本轮不做合并（B21）——经典「文本节点→图片节点」流程中用户手输的面板 prompt 不进生成 |
+| D23 | promptText 随列表返回 | 保留（详情浮层与卡片同源免二次请求）；**视为公开素材**——风格 prompt 本就是面向用户的生成素材，对齐 liblib 详情公开口径 |
+| D24 | usageCount 展示文案 | 「N 人使用」——D14 口径=使用人数，「用 100 次只涨 1」按人数语义自洽，防误报 bug |
 
 ## 2. 架构总览
 
@@ -54,7 +64,7 @@
 │   └ 风格按钮 → menuStore.styleLibrary（风格库，三切片互斥） │
 │ CanvasReferenceSelectBanner（新，CanvasView 内横幅）        │
 │ StyleLibraryModal（新，BaseFullscreenModal 外壳+居中卡片） │
-│ StyleDetailPreview（新，详情浮层 z-[100001]）              │
+│ StyleDetailPreview（新，库内详情层——D20 状态驱动关闭）    │
 │ SortableImageItem（序号/X 角标两态，prompt-input/ 那份）    │
 │ stylesApi.ts（新，用户侧接口封装+信封拆包）                │
 ├─ api 后端 ────────────────────────────────────────────────┤
@@ -84,7 +94,7 @@
   - 参考按钮 `onClick` → `startReferenceSelect(nodeId)`；**删除**隐藏 file input 与 `handleUploadClick`；参考按钮脱离 `showUploadButton` 门控**恒显**（D19，与风格按钮对齐；满 9 张仍可进入模式，点目标节点走 §3.2 提示）；按钮图标由 + 号换成与横幅同款「卡片选择」图标（语义已变，+号误导）；
   - 拖拽（handleDrop）与粘贴上传路径保留不动（已核实存在）。
 - 模式退出挂点（store 层，已核实归属）：`nodeStore.setActiveEditNodeId / setActiveTransformNodeId`（:360-372 互相 guard-return）开头调用 `exitReferenceSelect()`——进入节点编辑/变换模式自动退出选择模式；不用组件 effect 轮询。
-- 快捷键 gate（已核实现状）：`referenceSelect` 非空时并入 `useGroupKeyboard.ts:5-22 isGroupEditContext` 早退条件；`CanvasView deleteKeyCode`（:425 `editorOpen ? [] : ['Backspace','Delete']`）在参考模式下同样置 `[]`——模式期间 Delete/Backspace/Ctrl+Z 等画布快捷键不生效。
+- 快捷键 gate（已核实现状）：`referenceSelect` 非空时并入 `useGroupKeyboard.ts:5-22 isGroupEditContext` 早退条件；`CanvasView deleteKeyCode`（:425 `editorOpen ? [] : ['Backspace','Delete']`）在参考模式下同样置 `[]`——模式期间 Delete/Backspace/Ctrl+Z 等画布快捷键不生效。**边界（已核实，接受）**：Ctrl+0 / Alt+Shift+F（fitView，page.tsx:348-357，CanvasKeyboardHandler 自带早退不含 isGroupEditContext）不受此 gate 约束——纯视口操作无 doc 变更，接受其生效。
 
 ### 3.2 顶部横幅（CanvasReferenceSelectBanner，新组件）
 
@@ -111,7 +121,11 @@
 ### 3.4 序号/X 角标（SortableImageItem 改造——指名 `prompt-input/SortableImageItem.tsx`；MultiImageConfigPanel.tsx:44 有同名局部组件**不动**，已核实）
 
 - 组件新增 `index?: number` prop（序号由 ImageThumbnailBar 按 allImages 顺序传入，拖拽排序后自动跟随；组件自身无位置信息，已核实 props 仅 image/onDelete/onClick）。
-- 角标：圆形小徽章，定位在缩略图容器右上角、一半悬外（`absolute` 角点 + 横向 50% 外移）。**防裁切**（已核实容器 w-[50px] h-[50px] overflow-hidden + 工具行 overflow-x-auto 双重裁切）：把 `overflow-hidden` 从角标所在的外层容器**下移到内层图片裁切容器**（保留圆角裁切），角标挂在外层 relative 容器上；不破坏 9999 层预览 portal（已核实走 createPortal 不受影响）。
+- 角标：圆形小徽章，定位在缩略图容器右上角、一半悬外（`absolute` 角点 + 横向 50% 外移）。**防裁切需两层**（第三轮审核裁决，已核实 CSS 规范：`overflow-x:auto` 与 `overflow-y:visible` 并存时 overflow-y 计算值变为 auto——外层工具行 ImageThumbnailBar.tsx:101 必然两轴裁切）：
+  1. 内层：把 `overflow-hidden` 从角标所在外层容器**下移到内层图片裁切容器**（保留圆角裁切），角标挂外层 relative 容器（dnd-kit ref 留外层，transform 语义不变）；
+  2. 外层：工具行加**顶部内边距 `pt-2.5~pt-3`**（10px 级，容纳 ~9px 悬出），条高 +10px 影响 Image/ImageExt/Video 三面板布局——列为 **plan 首个 spike**；`overflow-x-auto` 横向滚动能力保留不动（9 张×50px≈700px 依赖它）。
+- 角标若带边框走 token（如 `border-overlay-3`）——white/black 边框命中九族且该文件白名单 allow 只有 `['bg','text']`（已核实 no-theme-utility.js:52）。
+- hover 预览 portal（z-[9999]，:144-168）与角标同处右上——验收确认二者不视觉打架（§11-3）。
 - 两态：常态显示序号；hover 显示 X。**hover 状态源复用组件既有本地 `hovered`**（:67/:88-103 原生 mouseover/out——刻意绕过 dnd-kit 事件干扰，已核实），不用 group-hover 新开一套。
 - uploading/error 态（进度/错误蒙层 absolute inset-0，:26-40）时角标**仍显示**，z 序高于蒙层（B18）。
 - 点击 X = 现有删除逻辑（handleDeleteImage → deleteImage 仅删引用不删服务端，useImageUpload.ts:174-179 已核实）。
@@ -121,8 +135,8 @@
 
 ### 4.1 打开/关闭与互斥
 
-- `menuStore` 新增第三切片 `styleLibrary: { nodeId: string } | null` + `openStyleLibrary(nodeId)` / `closeStyleLibrary()`；**三切片互斥**：`open` / `openHandleMenu` / `openStyleLibrary` 各自打开时清其余两个；顺手修既有缺陷 `toggle()`（:38，现不清 handleMenu——已核实）。
-- **不需要** AddNodeMenu 状态提升（已核实并反驳审核断言：page.tsx:218 AddNodeMenu 的 `isOpen` 本就来自 `useMenuStore(s => s.isOpen)`，右键菜单与它共享该切片）；groupContextMenu（CanvasView 本地态）不纳入本轮——风格库背板天然阻断，互斥范围= menuStore 三切片 + referenceSelect（nodeStore，进入任一清对方）。
+- `menuStore` 新增第三切片 `styleLibrary: { nodeId: string } | null` + `openStyleLibrary(nodeId)` / `closeStyleLibrary()`；**三切片互斥**：`open` / `openHandleMenu` / `openStyleLibrary` 各自打开时清其余两个；顺手修既有缺陷 `toggle()`（:38，现不清 handleMenu——已核实）：修法与 `open` 对齐（清 handleMenu **和 styleLibrary**）。
+- **不需要** AddNodeMenu 状态提升（已核实并反驳审核断言：page.tsx:218 AddNodeMenu 的 `isOpen` 本就来自 `useMenuStore(s => s.isOpen)`，右键菜单/+按钮菜单与它共享该切片——NodePalette.tsx:17 的 + 按钮也消费同一 isOpen，已核实）；groupContextMenu（CanvasView 本地态）不纳入本轮——风格库背板天然阻断，互斥范围= menuStore 三切片 + referenceSelect（nodeStore，进入任一清对方）。已排除：CanvasView:186-193 的 isOpen 关闭订阅属 useMaterialLibraryStore，清 menuStore.isOpen 无副作用（已核实）。
 - 风格按钮（Image/ImageExt/Video 三面板共享）onClick → `openStyleLibrary(nodeId)`。
 - 关闭：背板点击 / 右上关闭按钮 / Esc（Esc 由 BaseFullscreenModal 内建）。
 - 挂载点：page.tsx:308-309 AddNodeMenu/HandleAddNodeMenu 旁并列挂 `<StyleLibraryModal />`。
@@ -130,13 +144,14 @@
 ### 4.2 布局
 
 ```
-BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc/滚动锁/焦点恢复全内建）
-└─ 居中卡片：max-w-[1600px]，高 min(calc(100vh−160px), 1200px)，圆角 12px，
+BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc/滚动锁/焦点恢复全内建，:68-80）
+└─ 居中卡片（显式宽度，D21）：w-[min(1600px,calc(100vw-64px))]，高 min(calc(100vh−160px), 1200px)，圆角 12px，
    bg var(--canvas-controls-bg) + 0.5px border var(--canvas-controls-border) + var(--canvas-shadow-dropdown)
    ├─ 行1（h-10）：[全部|我的收藏|最近使用]（分段控件） [搜索框 336px] …… [关闭×]
    ├─ 分隔线（var(--canvas-controls-border)）
    ├─ 行2：分类 chips 横向滚动 + 右缘渐隐（不做下拉箭头，简洁优先） … [仅看可商用]
-   └─ 主体：5 列网格（column-gap 12px，纵向滚动，左右 padding 16px）+ 底部「加载更多」按钮（20 条/页）
+   ├─ 主体：5 列网格（column-gap 12px，纵向滚动，左右 padding 16px）+ 底部「加载更多」按钮（20 条/页）
+   └─ StyleDetailPreview：库内部 absolute 居中层（z 高于库内容；非 body portal、无独立 Esc/背板——D20）
 ```
 
 - tab：选中 `bg-overlay-2` + `text-text`；未选 `text-text-dim-2` + hover `bg-overlay-2`。
@@ -156,29 +171,29 @@ BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc
 - 点击当前使用卡片主体 = 无操作（取消只走 hover「取消使用」按钮）。
 - 信息区（封面下方）：
   - 行1：标题（truncate，14px medium）+「商用」徽章（isCommercial 时）；
-  - 行2：作者（占位圆点头像+作者名）+ 使用量（dim 色）。
+  - 行2：作者（占位圆点头像+作者名）+「N 人使用」（dim 色，D24）。
 
 ### 4.4 交互语义
 
 - **使用**：`POST /api/styles/:id/use` 成功后 `updateConfig(nodeId, { styleId, styleName })` → **关闭弹窗**；**失败弹窗不关**，列表顶部内联错误文案（不引入 toast 通道）。
 - **取消使用**：`updateConfig(nodeId, { styleId: null, styleName: null })`——**写 null 不写 undefined**（D16：mergeNodeData 无删键语义已核实 nodeStore.ts:269-271，null 可过 JSON/Yjs 往返且真值判断消费方全部兼容；契约=「键存在、值 null」，测试钉死）；弹窗不关。
 - **收藏 toggle**：请求体显式 `{ favorited: boolean }`（客户端已知当前态，幂等，免疫连点 P2002）。
-- **usageCount 口径**：仅 StyleRecentUsage upsert 新建时 `increment: 1`（D14，=使用人数）。
-- **详情预览**（StyleDetailPreview，新组件）：挂 body `z-[100001]` 居中小浮层（同 token 自绘）：大封面（3:4）+ 名称 + 作者 + 可商用徽章 + promptText 全文（可滚）+「使用」按钮；背板点击/Esc 关闭回到风格库（风格库不关）。
+- **usageCount 口径与机制**（D14/D24）：仅该用户**首次使用**时 `increment: 1`（=使用人数）。实现机制（Prisma upsert 不返回 create/update 区分，已核实语义）：事务内 `findUnique({userId_styleId})` → 无则 `create`（**捕获 P2002 转 update**，防并发首用撞唯一索引 500）+ `style.update({usageCount:{increment:1}})`；有则仅 `update lastUsedAt`。
+- **详情预览**（StyleDetailPreview，新组件）：**库内部 absolute 居中层**（z 高于库内容；非 body portal、无独立 Esc/背板/Modal role——D20）：大封面（3:4）+ 名称 + 作者 + 可商用徽章 + promptText 全文（可滚）+「使用」按钮；Esc/背板点击走风格库 onClose 状态驱动（第一次关详情、第二次关库）。a11y 登记：详情出现时库容器加 `aria-hidden`（避免嵌套 aria-modal，B23）。
 - **空态**：收藏空「暂无收藏的风格」/ 最近空「暂无使用记录」/ 搜索或筛选无结果「未找到匹配风格」。
 - 已收藏但被 admin 停用的风格：收藏/最近 tab 查询过滤 active，不显示。
 
 ### 4.5 工具行风格按钮选中态
 
 - 节点 data 有 `styleId` 时：按钮上部显示风格封面小圆图、下部显示 `styleName`（truncate）。
-- 刷新后圆图来源：`GET /api/styles/:id` 惰性拉取（组件内按 styleId 请求一次并缓存于组件态；404/停用则回退默认「风格」样式）。
+- 刷新后圆图来源：`GET /api/styles/:id` + **模块级 `Map<styleId, Style>` 去重缓存**（工具行随面板挂载/卸载频繁重建，组件态缓存会逐节点逐挂载重拉；presign URL 不缓存进节点 data——1h 过期）。**404 语义钉死**：停用/不存在一律 404，stylesApi 把 404 映射为「无风格」回退默认按钮态（非错误提示）。
 - 点击行为不变（打开风格库）。
 
 ### 4.6 token 与门禁（定稿）
 
 - **不新增任何 token、不走 b0/contrast/registry 变更登记管道**——所依赖 token 全部现成（已核实 index.css 深浅双档齐备）：`--canvas-controls-bg`（:38/:82）、`--canvas-controls-border`（:39/:83）、`--canvas-shadow-dropdown`（:53/:97）、`--fw-overlay-2/3`（:32-33/:76-77）、text 族 `text-text/text-text-dim-1/2/3`（**无裸 `text-text-dim`**，tailwind.config.ts:35-39 已核实，写错=静默零输出）。
 - 参考代码硬编码色换算：`#F7F7F7→text-text`、`#919191/#A8A8A8→text-text-dim-2/dim-1`、`bg-canvas-controls-hover→bg-overlay-2`、`hover:bg-btn-ghost-hover→hover:bg-overlay-3`。
-- **白名单登记（仅 1 条新条目）**：风格库新组件的封面遮罩/渐变/「当前使用」徽章（bg-black/50、bg-white、text-black、border-white、from-black/to-black）命中 no-theme-utility（无 baseline、命中即违例，已核实）；按 **VideoCard 压媒体先例**（registry whitelistKeeps 已有 `allow:['bg','text']`、归因「时长胶囊压封面」）登记同款 `{glob, allow:[...]}`（allow 按 grep 出的实际属性族定）并**镜像进 canvas-migration-registry.json whitelistKeeps**。BaseFullscreenModal 的 bg-black/60 已在白名单（:92，已核实）。序号角标零成本（§3.4）。
+- **白名单登记（2 条新条目——glob 按文件匹配，StyleLibraryModal 与 StyleDetailPreview 是两个文件，已核实）**：风格库两新组件的封面遮罩/渐变/「当前使用」白底黑字徽章（bg-black/50、bg-white、text-black、border-white、from-black/to-black）命中 no-theme-utility（无 baseline、命中即违例，已核实）；归因族=**反白 CTA/恒定面**（先例 :67 TopActionBar 登录钮 bg-white/text-black、:68 CanvasTopBar 黑字随底、:74 SaveAsTemplateDialog 白卡——已核实；非 VideoCard 压媒体族），按同款 `{glob, allow:[...]}` 登记（allow 按 grep 出的实际属性族定）并**镜像进 canvas-migration-registry.json whitelistKeeps**（注释即归因）。BaseFullscreenModal 的 bg-black/60 已在白名单（:92，已核实）。序号角标零成本（§3.4）。
 - **硬约束（plan 标红）**：斜杠透明度对 var() 色 token **零输出**（tailwind.config.ts:29-31 斜杠键全关 + `scripts/__tests__/tailwind-colors.test.ts:26-34` 配置侧 + `css-audit.mjs --slash-gate` 使用侧双钉死，已核实）——禁止写 `bg-overlay-2/50` 之类；半透明遮罩只能走 bg-black/N（黑不在 var 族）。
 - 新增 overlay 不引入新 hex（no-color-hex 增量门禁，lint-gate.mjs）。
 
@@ -211,7 +226,9 @@ model Style {
   updatedAt    DateTime @updatedAt
   favorites    StyleFavorite[]
   recents      StyleRecentUsage[]
-  @@index([active, sortOrder, usageCount, id])   // 广场排序键（含 id tiebreaker）
+  // 索引方向必须与 ORDER BY 逐列一致（sortOrder asc, usageCount desc, id asc），否则规划器显式 Sort；
+  // categoryId 进前缀覆盖分类筛选（Prisma 不为 FK 自动建索引）。先例：schema.prisma:896 publishedAt(sort: Desc)/:897 [categoryId, status]
+  @@index([categoryId, active, sortOrder, usageCount(sort: Desc), id])
 }
 
 model StyleFavorite {
@@ -250,10 +267,10 @@ model StyleRecentUsage {
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/styles/categories` | active 分类，sortOrder asc |
-| GET | `/api/styles?tab=all\|favorites\|recent&categoryId=&search=&commercialOnly=&page=1&pageSize=20` | all：active+筛选，`sortOrder asc, usageCount desc, id asc`；favorites：join 收藏、active 过滤，createdAt 倒序；recent：join 最近使用、active 过滤，lastUsedAt 倒序；search 匹配 name/authorName（contains, insensitive）。items 含 id/name/coverUrl(presign)/authorName/isCommercial/usageCount/favorited/promptText（详情与卡片同源，免二次请求） |
-| GET | `/api/styles/:id` | 单个（含 promptText+presign coverUrl）；工具行圆图刷新后来源；404/停用返回 null data |
+| GET | `/api/styles?tab=all\|favorites\|recent&categoryId=&search=&commercialOnly=&page=1&pageSize=20` | all：active+筛选，`sortOrder asc, usageCount desc, id asc`（索引方向见 §5）；favorites：join 收藏、active 过滤，createdAt 倒序；recent：join 最近使用、active 过滤，lastUsedAt 倒序；search 匹配 name/authorName（contains, insensitive）。items 含 id/name/coverUrl(presign)/authorName/isCommercial/usageCount/favorited/promptText（**promptText 视为公开素材**，D23——详情与卡片同源免二次请求） |
+| GET | `/api/styles/:id` | 单个（含 promptText+presign coverUrl）；工具行圆图来源；**停用/不存在一律 404**（stylesApi 映射为「无风格」而非错误，§4.5） |
 | POST | `/api/styles/:id/favorite` | body `{ favorited: boolean }` 显式目标态（幂等，免疫连点撞唯一索引）→ `{ favorited }` |
-| POST | `/api/styles/:id/use` | 事务内：upsert StyleRecentUsage，**仅新建时** `usageCount: { increment: 1 }`（D14）→ `{ style }`；仅 active 风格可用 |
+| POST | `/api/styles/:id/use` | 事务内：`findUnique` StyleRecentUsage → 无则 `create`（**捕获 P2002 转 update**，D14 机制见 §4.4）+ `usageCount: {increment: 1}`，有则仅 `update lastUsedAt` → `{ style }`；仅 active 风格可用 |
 
 - favorited 批量：列表查询后按当页 styleIds 一次 `findMany({ where: { styleId: { in: ids }, userId } })`，**禁止逐条 N+1**。
 
@@ -262,7 +279,7 @@ model StyleRecentUsage {
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET/POST | `/api/admin/style-categories` | 列表（含 inactive）/ 新建（name 唯一校验） |
-| PUT/DELETE | `/api/admin/style-categories/:id` | 编辑；**删除时下有风格（含 inactive）→ 400 阻止**（裸 BadRequestException+中文 message，folder.service.ts:93-94 先例；同类 video-work deleteCategory 走 SetNull 不拦属刻意偏离——本表有 promptText 业务载荷，孤儿风格不可接受） |
+| PUT/DELETE | `/api/admin/style-categories/:id` | 编辑；**删除时下有风格（含 inactive）→ 400 阻止**（裸 BadRequestException+中文 message，先例 folder.service.ts:93-94「文件夹或其子文件夹中存在文件，请先清空后再删除」——已实读核实为删除保护真先例；同类 video-work deleteCategory 走 SetNull 不拦属刻意偏离——本表有 promptText 业务载荷，孤儿风格不可接受）。前端 Popconfirm 需展示后端 400 中文文案（错误信封 `{code:-1,data:null,message}`，http-exception.filter.ts:12-16） |
 | GET | `/api/admin/styles?categoryId=&search=&page=` | 分页列表（全字段） |
 | POST | `/api/admin/styles` | 新建；coverKey 由 `POST /api/admin/styles/upload-cover` 先传后提交（**admin-video-work.controller.ts:30-42 uploadCover 先例**：multer `@UploadedFile`→storage→返回 key，magic-number 校验在 service） |
 | PUT/DELETE | `/api/admin/styles/:id` | 编辑 / 删除（Cascade 清收藏/最近，见 §5） |
@@ -281,6 +298,9 @@ const finalPrompt = [prompt, styleText].filter(Boolean).join(', ');   // 分隔�
 ```
 
 - `finalPrompt` 分别替换两处的 prompt 入参；查不到/inactive → 忽略不阻塞（B1）。
+- **批量查法直接采纳**（B19 升级）：收集本批节点 data.styleId → 一次 `findMany({ where: { id: { in: ids } } })` → Map 查表（validation.service.ts:29 同款先例），成本与逐节点 findUnique 相同量级。
+- **视频分支顺手修**（触及即修）：`callVideoGen({ prompt: prompt || vData?.prompt || '' })` 的 `vData?.prompt` 是 PromptValue 对象——面板 prompt 被清空后（data.prompt 仍为 `{text:'',html:''}` 对象）`'' || vData.prompt` 会把嵌套对象塞进请求体（api-caller :296,305 已核实直接 JSON.stringify）。与本 spec 同一行同表达式，改 `vData?.prompt?.text`（1 处），原 B13 登记**删除**。
+- **类型清单**：`ImageNodeData` **与** `VideoNodeData` 都加 `styleId?: string | null; styleName?: string`——updateConfig 的 config 是联合类型 Partial，只加一侧则视频节点的 `{styleId}` 调用过不了 strict。
 - api-caller 不改；其既有 `style` 入参为**死参数**（callImageGen :237-286 从不读，已核实），保持原样并声明废弃（B10）。
 
 ### 7.2 面板 prompt 断链顺手接通（D12）
@@ -291,8 +311,8 @@ const finalPrompt = [prompt, styleText].filter(Boolean).join(', ');   // 分隔�
 const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || '';
 ```
 
-- 已核实全模块无 `data.prompt.text` 读取；ImageNodeData 无 content 字段、VideoNodeData.prompt 是 PromptValue 对象——此修只影响「无上游文本」的图片/视频节点（正是断链对象），textInput（prompt 为 string，`.text` 取值为 undefined）与 audioGen 不受影响。
-- 视频 `callVideoGen({ prompt: finalPrompt || vData?.prompt ... })` 的对象回退存量隐患（`[object Object]`）登记 B13 不另修（接通后该 fallback 实际不再触发）。
+- 已核实全模块无 `data.prompt.text` 读取；ImageNodeData 无 content 字段、VideoNodeData.prompt 是 PromptValue 对象——此修只影响「无上游文本」的图片/视频节点（正是断链对象），textInput（prompt 为 string，`.text` 取值为 undefined）与 audioGen 不受影响。imageExt 的 prompt 也在根级（ImageExtConfigPanel.tsx:47/:168 经 updateConfig 写根级，已核实），三类节点全覆盖。
+- **语义边界（D22/B21）**：`||` 回退链=上游文本优先——「有上游文本节点 + 面板也填了 prompt」时面板文本仍被忽略，**有意保持**，本轮不做合并（登记 B21，防后续误报 bug）。
 
 ### 7.3 快照/克隆白名单（snapshot-filter.util.ts:33-42，已核实会剥掉 styleId/styleName）
 
@@ -307,7 +327,7 @@ const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.co
 
 ### 8.2 前端
 
-- AdminLayout 菜单新增「风格库」组：**风格分类**、**风格内容**两项（AdminLayout.test.tsx:12 断言一级菜单组数 4→5，列入 §9 既有测试改造）；router.tsx admin 段注册 `/admin/styles/categories`、`/admin/styles`。
+- AdminLayout 菜单新增「风格库」组：**风格分类**、**风格内容**两项（AdminLayout.test.tsx:19-20 为存在性循环、无组数断言——在循环数组补「风格库」即新增断言，见 §9.2）；router.tsx admin 段注册 `/admin/styles/categories`、`/admin/styles`（router.admin.test.tsx 白名单同步，见 §9.2）。
 - 风格分类页（ProTable + ModalForm，ModelsPage 模式）：列 名称/排序/启用/创建时间/操作（编辑、删除-Popconfirm）；表单 名称（必填唯一）、排序 InputNumber、启用 Switch。
 - 风格内容页：列 封面缩略（presign）/名称/分类/作者/可商用/promptText 摘要（truncate+tooltip）/使用量/排序/启用/操作；表单 名称（必填）、分类 Select（必填）、**封面上传（必填）——admin 前端无通用上传组件，为页内 inline input（HomeBannersPage/VideoWorksPage 模式，已核实），先传 `/api/admin/styles/upload-cover` 拿 coverKey 再提交**、作者名（可选）、可商用 Switch、promptText TextArea（必填）、排序 InputNumber、启用 Switch。使用量只读。
 - 分类筛选下拉 + 名称搜索（ProTable 标准能力）。
@@ -319,7 +339,7 @@ const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.co
 - 全量单测：`pnpm test`（turbo→web vitest run + api tsc+vitest）
 - lint：`pnpm lint`（→web lint-gate.mjs：no-color-hex 增量 + **no-theme-utility（无 baseline 命中即违例，本次唯一会拦风格库卡片的规则）**）
 - 斜杠门禁：`node scripts/css-audit.mjs --slash-gate`（cwd=apps/web）
-- 类型/构建：`pnpm --filter web build`（含 tsc -b）；api 侧 `pnpm --filter api build`
+- 类型/构建：`pnpm --filter @flowweb/web build`（含 tsc -b）；api 侧 `pnpm --filter @flowweb/api build`（包名为 @flowweb/* 全称，已核实 apps/*/package.json:2）
 - 不涉及新增 token → 不跑 b0/contrast-table
 
 ### 9.2 既有测试改造清单（先红对象）
@@ -328,8 +348,12 @@ const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.co
 |---|---|
 | ImageThumbnailBar.test.tsx | #2/#3 满 9 张隐藏语义（参考按钮恒显后改断言）；#7 file-input 存在性（删除）；#8/#10 顺序；#12 点击参考触发 startReferenceSelect（原：触发 input click）；#14 + 号 SVG 断言（换卡片选择图标） |
 | SortableImageItem.test.tsx | `getByText('×')`（:65/:117）改角标两态断言（常态序号/hover 变 X） |
-| AdminLayout.test.tsx:12 | 一级菜单组数 4→5 |
-| execution.service.spec.ts | 手写 prisma mock（:27-30 仅 canvasProject/pricingRule，已核实）补 `style: { findUnique: vi.fn() }`，否则新查询直接抛 |
+| AdminLayout.test.tsx | :19-20 是对四组文案的**存在性循环**（已核实，无组数断言——加组不会红）→ 在循环数组中补「风格库」新增断言 |
+| router.admin.test.tsx | :27-29 叶子路径按前缀白名单过滤（已核实）→ 过滤条件补 `startsWith('styles')` 且期望集合补 styles/styles/categories 两叶子——否则新子树静默失覆盖 |
+| execution.service.spec.ts | 手写 prisma mock（:27-30 仅 canvasProject/pricingRule，已核实）补 `style: { findMany: vi.fn() }`（批量查法，B19）——**为新用例铺路**（现有 fixture 无 styleId 短路不发查询、不会因缺键而红，因果已核实） |
+| execution.service.nodeIds.spec.ts | :26-27 同款手写 mock（已核实），新用例落入这份 spec 时同补 style 键 |
+| HandleAddNodeMenu.test.tsx | :80「menuStore 双向互斥」既有用例（已核实）随三切片扩展同步（openStyleLibrary 清两切片的断言） |
+| menuStore.test.ts | :5-7 beforeEach setState 重置（已核实）补 `styleLibrary: null` 初值 |
 | 旧 spec image-node-panel-redesign | §8 验收 5/6（参考=上传）声明失效（头部已注明） |
 
 ### 9.3 新增测试
@@ -340,10 +364,10 @@ const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.co
   - CanvasView 接线：referenceSelect 时 nodesDraggable=false、onNodeClick 分支不调 selectNode、deleteKeyCode 置空（mock 层断言 props）；
   - SortableImageItem：index prop 序号、hovered 两态、X 点击删除回调、uploading 态角标可见；
   - StyleLibraryModal：tab 切换、分类/商用/搜索（防抖+竞态守卫）、卡片渲染（收藏态/当前使用态/商用徽章/使用量）、点卡=使用（updateConfig 调用+关窗）、**点收藏/详情不触发使用（stopPropagation）**、取消使用写 null、use 失败不关窗、加载更多、空态；
-  - StyleDetailPreview：内容渲染 + 使用按钮 + Esc/背板关闭；
+  - StyleDetailPreview：内容渲染 + 使用按钮 + 关闭走风格库 onClose 状态驱动（Esc/背板第一次关详情、第二次关库，D20）；
   - ImageThumbnailBar：风格按钮开弹窗、选中态按钮（封面+风格名，mock GET :id）；
   - stylesApi：信封拆包/参数/响应映射。
-- **后端 vitest**：styles service（all/favorites/recent 查询口径与排序+id tiebreaker/favorited 批量/favorite 显式目标态幂等/use 事务+仅新建计数/inactive 过滤/404）；admin CRUD（分类删除阻止/名称唯一/upload-cover key 返回）；execution 风格拼接（有/无 styleId/inactive/空 prompt+风格文本）；execution prompt 断链接通（独立节点 data.prompt.text 进 prompt）；snapshot-filter 三行白名单 + field 级全覆盖断言。
+- **后端 vitest**：styles service（all/favorites/recent 查询口径与排序+id tiebreaker/favorited 批量/favorite 显式目标态幂等/use 事务+findUnique→create(P2002 转 update) 仅新建计数/inactive 过滤/404）；admin CRUD（分类删除阻止/名称唯一/upload-cover key 返回）；execution 风格拼接（有/无 styleId/inactive/空 prompt+风格文本/**批量 findMany 查表**）；execution prompt 断链接通（独立节点 data.prompt.text 进 prompt；**视频面板清空后 `vData?.prompt?.text` 不再传对象**——§7.1 顺手修用例）；snapshot-filter 三行白名单 + field 级全覆盖断言。
 
 ## 10. 边界与裁定登记
 
@@ -354,44 +378,54 @@ const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.co
 | B3 | 协作/撤销 | allImages 走 updatePromptImages、styleId/styleName 走 updateConfig——均经 syncStoreToDoc(LocalUser)（canvasCollabRuntime.ts:220-223）+ UndoManager trackedOrigins=local-user（canvasUndo.ts:15-18），已核实；UI 状态（referenceSelect/styleLibrary）为本地态不协作（storeProjection 只映射结构字段） |
 | B4 | 点击 vs 拖拽 | React Flow `nodeClickDistance` 默认 0（拖动即吞 click，已核实 CanvasView 未设置该值）+ 模式期 nodesDraggable=false——不写自造阈值 |
 | B5 | 上传可发现性下降 | D2 拍板接受：拖拽/粘贴保留；后续如需恢复入口另起需求 |
-| B6 | white/black 工具类 | 角标零成本（同文件已白名单）；风格库按 VideoCard 压媒体先例登记 1 条 + registry whitelistKeeps 镜像；不新增 token 不走 b0（§4.6 定稿） |
+| B6 | white/black 工具类 | 角标零成本（同文件已白名单）；风格库两新组件按**反白 CTA/恒定面族**先例登记 2 条（§4.6 定稿，glob 按文件匹配）+ registry whitelistKeeps 镜像；不新增 token 不走 b0 |
 | B7 | 浮层互斥范围 | menuStore 三切片（open/openHandleMenu/openStyleLibrary 各清其余）+ toggle() 顺手修；AddNodeMenu 无需提升（page.tsx:218 已消费 menuStore.isOpen——**已核实并反驳审核"需状态提升"断言**）；groupContextMenu 本地态不纳入 |
 | B8 | 视频节点风格 | promptText 拼入视频生成 prompt（D6/D3） |
 | B9 | 快照/克隆白名单 | imageGen/imageExtGen/videoGen 三行补 styleId/styleName + field 级全覆盖断言（§7.3）；allImages 存量被剥，登记不修 |
 | B10 | `data.style` 死字段三概念并存 | 已核实：nodeStore.ts:259 默认注入 '写实'、execution:170 透传、api-caller 从不读（死参）、快照白名单却收录。**声明废弃**：永不参与生成，读取方一律只看 styleId；UI 不读它；不做迁移 |
 | B11 | updateConfig 无删键语义 | 契约=「键存在、值 null」（D16）；补断言钉死 `data.styleId === null` 且执行侧/UI 真值判断兼容；mergeNodeData 删键语义不做（精准修改） |
 | B12 | 并发写 allImages 丢更新 | updatePromptImages 整体替换数组，两人同加参考图后写覆盖前写——上传路径存量问题，选择模式放大；登记已知限制，本轮不修 |
-| B13 | 视频 prompt 对象回退 | execution:113 `vData?.prompt` 为 PromptValue 对象（`[object Object]` 隐患），存量；D12 接通后实际不再触发，登记不另修 |
 | B14 | 画布选图不插 prompt chip | 与上传路径（onImageUploaded→insertImage）有意差异：chip=引用素材进 prompt 语义；登记 |
 | B15 | 参考图对生成零影响 | 存量断链（D11）：allImages 全仓无读取 + HY-Image 无参考图入口；接通（含选型支持参考图的模型通道）留独立 spec |
-| B16 | 无主图节点无工具行 | 面板门槛 `!fileId && !referenceImage`（ImageGenNode.tsx:1242/VideoGenNode.tsx:791，已核实）——已出图节点先「替换/重新生成」清空主图才能见工具行；验收前置步骤 |
-| B17 | execution prisma 手写 mock | 补 style.findUnique 键（§9.2） |
-| B18 | uploading/error 态角标 | 序号角标仍显示，z 高于进度/错误蒙层 |
-| B19 | 批量执行的 style 查询 | 逐节点 findUnique（N 节点 N 查）；validation.service.ts:29 有批量 `findMany({id:{in}})` 先例，plan 可选优化，不强制 |
+| B16 | 无主图节点无工具行 | 面板门槛含**选中态+无主图**：ImageGenNode.tsx:1242 `isSingleSelected && … && !fileId && !referenceImage`；VideoGenNode.tsx:792 `!trimMode && selected && !fileId && !referenceVideo && !hdPanelOpen`（已核实勘误：视频用 referenceVideo）——验收前置=该节点**单选、配置面板可见、无主图**（已出图节点先「替换/重新生成」清空） |
+| B17 | execution prisma 手写 mock | execution.service.spec.ts 与 execution.service.nodeIds.spec.ts 两份同款 mock 补 style 键（§9.2） |
+| B18 | uploading/error 态角标 | 序号角标仍显示，z 高于进度/错误蒙层；与 hover 预览 portal（z-[9999]）同处右上，验收确认不打架 |
+| B19 | 批量执行的 style 查询 | **已采纳批量查法**（§7.1）：收集 styleIds → findMany in → Map 查表（validation.service.ts:29 先例） |
 | B20 | doc 写入先于执行 | 节点 data 新字段逐键镜像进 Yjs doc（canvasCollabRuntime.ts:111-120，已核实）；「用风格后立刻生成」依赖 doc 写入先于 sv 计算——同步事务，plan 确认一句即可 |
+| B21 | 有上游文本时面板 prompt 被忽略 | `\|\|` 回退链=上游优先、面板弃用（D22）——有意保持，本轮不做合并；防后续误报 bug |
+| B22 | 工具行顶部内边距布局影响 | 角标防裁切第二层=工具行 `pt-2.5~pt-3`（+10px 条高），影响 Image/ImageExt/Video 三面板布局——plan 首个 spike（§3.4） |
+| B23 | 嵌套浮层 a11y | 详情浮层不用 Modal role（D20 库内层）；详情出现时库容器加 `aria-hidden` 防嵌套 aria-modal；BaseFullscreenModal 只有初始聚焦+归还无焦点陷阱（与仓内其他模态一致，接受，勿读成 trap） |
 
 ## 11. 浏览器人工验收清单
 
-前置：图片节点需无主图（B16）；风格数据由 admin 预先录入（§8）。
+前置：图片节点**单选、配置面板可见、无主图**（B16）；风格数据由 admin 预先录入（§8）。
 
-1. 参考按钮（恒显，含满 9 张）→ 横幅出现（顶部居中、controls-bg/shadow、无 backdrop-filter）；点击其他图片节点 → 参考图追加+序号角标一半悬外；连续多选；仅上传过参考图的源节点（无 fileId）也可选中；
-2. 模式期节点不可拖动、画布可平移缩放、Delete/Backspace/Ctrl+Z 不生效；点发起节点自身/无图节点/视频节点无效；重复选同图去重；满 9 张横幅提示；空白点击不退出；
-3. hover 参考图角标变 X → 点击删除；拖拽排序后序号跟随；uploading 态角标仍可见；
+1. 参考按钮（恒显，含满 9 张）→ 横幅出现（顶部居中、controls-bg/shadow、无 backdrop-filter）；点击其他图片节点 → 参考图追加+序号角标一半悬外（**不被工具行/缩略图容器裁切——pt 前提，B22 spike 通过**）；连续多选；仅上传过参考图的源节点（无 fileId）也可选中；
+2. 模式期节点不可拖动、画布可平移缩放、Delete/Backspace/Ctrl+Z 不生效（Ctrl+0/Alt+Shift+F fitView 仍生效=已接受边界）；点发起节点自身/无图节点/视频节点无效；重复选同图去重；满 9 张横幅提示；空白点击不退出；
+3. hover 参考图角标变 X → 点击删除；拖拽排序后序号跟随；uploading 态角标仍可见且与 hover 大图预览 portal 不视觉打架（B18）；
 4. 「返回节点」滚动并选中发起节点、面板与序号可见（甲方案）；「退出」/Esc 纯退出；进入节点编辑/变换模式自动退出；
 5. 拖拽/粘贴图片到工具行仍可上传（D2 保留路径）；
-6. 风格按钮 → 风格库弹出（BaseFullscreenModal 背板/Esc/滚动锁/焦点恢复）；全部/收藏/最近 三 tab、分类 chips、搜索（防抖、切条件结果即换无串台）、仅看可商用、「加载更多」翻页；卡片 hover 三按钮且点收藏/详情不触发使用；当前使用卡片白边+遮罩+徽章；
-7. 使用风格 → 弹窗关闭、工具行按钮显示封面+风格名（刷新后仍在，GET :id 惰性拉取）；换风格覆盖；取消使用还原默认态；use 接口失败弹窗不关+错误文案；
-8. **生成验证（D12 接通后）**：独立图片节点（无上游文本）只填面板 prompt → 生成日志/产物含面板文本；选风格后 → prompt 含「面板文本+风格 promptText」；视频节点同验；无风格时 prompt 不多拼；
+6. 风格按钮 → 风格库弹出（BaseFullscreenModal 背板/Esc/滚动锁/焦点恢复；**卡片宽度显式 w-[min(1600px,calc(100vw-64px))] 不塌宽**，D21）；全部/收藏/最近 三 tab、分类 chips、搜索（防抖、切条件结果即换无串台）、仅看可商用、「加载更多」翻页；卡片 hover 三按钮且点收藏/详情不触发使用；当前使用卡片白边+遮罩+徽章；
+7. 使用风格 → 弹窗关闭、工具行按钮显示封面+风格名（刷新后仍在，GET :id+模块级缓存）；换风格覆盖；取消使用还原默认态；use 接口失败弹窗不关+错误文案；
+8. **生成验证（D12 接通后）**：独立图片节点（无上游文本）只填面板 prompt → 生成日志/产物含面板文本；选风格后 → prompt 含「面板文本+风格 promptText」；视频节点同验（含面板清空场景不传对象）；无风格时 prompt 不多拼；**有上游文本节点时面板文本不参与（B21 有意）**；
 9. 收藏 toggle 星标与「我的收藏」tab 同步；「最近使用」出现刚用风格（倒序）；admin 停用某风格后从各 tab 消失且使用报错；
-10. 详情浮层展示大图+promptText，使用按钮可用，关闭回风格库（风格库未关）；
-11. admin：分类增删改（删除保护）、风格内容增删改（封面上传/必填校验）、删除有收藏的风格成功（Cascade）、前台即时可见；
-12. 互斥矩阵：右键菜单/handle 菜单/风格库/参考选择两两互开互斥；Esc 优先级=详情浮层>风格库>handle 菜单>右键菜单>参考横幅；协作另一端能看到参考图/风格名变更。
+10. 详情浮层展示大图+promptText，使用按钮可用；**Esc/背板第一次关详情、第二次关库（D20 状态驱动）**；无双层背板叠加变暗；
+11. admin：分类增删改（删除保护 Popconfirm 展示 400 中文文案）、风格内容增删改（封面上传/必填校验）、删除有收藏的风格成功（Cascade）、前台即时可见；
+12. 互斥矩阵：右键菜单/handle 菜单/风格库/参考选择两两互开互斥；Esc 优先级=详情>风格库>handle 菜单>右键菜单>参考横幅；协作另一端能看到参考图/风格名变更。
 
-## 12. 第二轮审核裁定记录（摘要）
+## 12. 审核裁定记录（摘要）
+
+### 第二轮
 
 - **采纳**：三份审核的全部事实性断言中，经逐条核实为真的均并入正文（Prisma 双向关系/@id/active/Cascade、coverKey+presign、prompt 组装点与断链、快照白名单、墓碑改 null、no-theme-utility 白名单定稿、斜杠硬约束、加载更多按钮、BaseFullscreenModal、usageCount 口径、竞态/失败分支、门禁命令勘误、既有测试清单、z-index/a11y 定值等）。
 - **反驳**（1 条）：「AddNodeMenu 不在 menuStore、需状态提升」——page.tsx:218 其 isOpen 即 menuStore.isOpen，互斥只需三切片扩展。
 - **修正细节**：onNodeClick 内为 activeEditNodeId 分支（非 isLocked 字面量，语义同源）；MultiImageConfigPanel 同名组件与 PromptEditor 路径归属勘误。
 - **拍板**（D11-D19）：见 §1 第二轮表。
+
+### 第三轮
+
+- **采纳**（13 条批量断言核实 12 真 1 部分真）：Esc 状态驱动 onClose（D20）、卡片显式宽度（D21）、索引方向+categoryId 前缀（§5）、D14 机制（findUnique→create/P2002 转 update）+「N 人使用」文案（D24）、D15 理由改写（先例+简洁优先，非测试环境绑架）、视频 `vData?.prompt?.text` 同表达式顺手修（原 B13 删除）、工具行裁切第二层 pt+spike（B22）、§9.2 五项勘误/扩充（AdminLayout 存在性循环非组数、router.admin.test 白名单补 styles*、nodeIds.spec 同补 mock、补 mock 因果改正、HandleAddNodeMenu/menuStore.test 同步）、B19 升级为直接采纳、404 语义钉死、模块级 Map 缓存、类型清单双接口、白名单 2 条+反白 CTA 族归因（:67/:68/:74 先例）、角标边框走 token、--filter @flowweb/* 全称、fitView 快捷键接受边界、B16 勘误（:792/referenceVideo/选中态）、promptText 公开素材（D23）、B21/D22 上游优先登记、B23 嵌套 a11y。
+- **驳回 1 条错误勘误**：第三份审核称「folder.service.ts:93-94 是重名去重循环、删除保护先例不存在、本 spec 属开先例」——**实读反驳**：:86-94 的 `remove()` 中 :93-94 恰为 `hasFiles → BadRequestException('文件夹或其子文件夹中存在文件，请先清空后再删除')`，即"删除前有子项 400 阻止"的真先例，v2 引用无误（重命名去重循环在 :98 之后，审核看串行）；"仓内无此先例"断言随之不成立。其附带建议（Popconfirm 展示 400 中文文案）仍采纳。
+- **矛盾裁决 1 条**：工具行外层裁切——第一份审核判"防裁切方案可行"，第二份以 CSS 规范论证 `overflow-x:auto` 使 `overflow-y:visible` 计算值变 auto、外层工具行必然两轴裁切。**采第二份**（第一份只核了 dnd-kit ref 语义，不完整）：补工具行顶部内边距 + plan 首个 spike（B22）。
 
 
