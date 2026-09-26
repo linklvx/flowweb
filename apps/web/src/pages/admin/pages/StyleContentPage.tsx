@@ -119,11 +119,14 @@ function StyleFormModal({ categories, record, onDone, trigger }: {
         } catch (e) { message.error((e as Error).message); return false; }
       }}
     >
-      <div className="mb-1 text-sm">封面（3:4 建议，≤5MB，jpg/png/webp）</div>
-      <Button onClick={() => fileRef.current?.click()} loading={uploading}>选择文件</Button>
-      <span className="text-text-dim-2 ml-2 text-xs">{coverKey ? '已上传' : '未上传'}</span>
-      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+      {/* inline style 隐藏原生控件（antd :where() 特异性压 Tailwind .hidden——HomeBannersPage:96-97 注释先例） */}
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ''; }} />
+      <div className="mb-4">
+        <div className="mb-1 text-sm">封面（3:4 建议，≤5MB，jpg/png/webp）</div>
+        <Button onClick={() => fileRef.current?.click()} loading={uploading}>选择文件</Button>
+        <span className="text-text-dim-2 ml-2 text-xs">{coverKey ? '已上传' : '未上传'}</span>
+      </div>
       <ProFormText name="name" label="名称" rules={[{ required: true }, { max: 60 }]} />
       <ProFormSelect name="categoryId" label="分类" rules={[{ required: true }]}
         options={categories.filter((c) => c.active).map((c) => ({ label: c.name, value: c.id }))} />
