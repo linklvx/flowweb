@@ -282,6 +282,7 @@ git commit -m "feat(web): nodeStore referenceSelect 模式状态——start/exit
 - Modify: `apps/web/src/stores/menuStore.ts`（全量替换，42 行小文件）
 - Modify: `apps/web/src/stores/menuStore.test.ts`（beforeEach 补初值 + 追加用例）
 - Modify: `apps/web/src/pages/canvas/components/HandleAddNodeMenu.test.tsx`（:80 用例补断言）
+- Modify: `apps/web/src/pages/canvas/page.test.tsx`（nodeStore mock getState 补两键——Step 3.5，第八轮 A2）
 
 依赖方向（防 ESM 循环 import）：menuStore → nodeStore 单向（menuStore 内 `useNodeStore.getState().exitReferenceSelect()`）；nodeStore **不** import menuStore——「进入参考选择时关风格库」由 Task 5 的组件层 onClick 收口（风格库开着时背板挡住按钮，该方向实际不可达，组件层一行是保险）。
 
@@ -435,14 +436,35 @@ Expected: 全 PASS。
 Run: `npx vitest run src/pages/canvas/components/HandleAddNodeMenu.test.tsx`
 Expected: 全 PASS。
 
-- [ ] **Step 3.5: 全量回归 + Commit**
+- [ ] **Step 3.5: page.test.tsx nodeStore mock 补键（第八轮 A2——Tab 用例走真 menuStore.open）**
+
+`apps/web/src/pages/canvas/page.test.tsx` 的 nodeStore mock（:87-93）getState 返回对象补两键：
+
+```tsx
+      getState: vi.fn(() => ({
+        nodes: {},
+        activeTransformNodeId: null,
+        activeEditNodeId: null,
+        referenceSelect: null,
+        exitReferenceSelect: vi.fn(),
+        setActiveTransformNodeId: vi.fn(),
+        setActiveEditNodeId: vi.fn(),
+      })),
+```
+
+（menuStore 在 page.test 为**真模块**（未 mock）；Tab 用例（:554-559「isHydrating=false 时 Tab 正常开菜单」）经 `useMenuStore.getState().open(pos)` 触发 T3 新增的跨 store 调用 `useNodeStore.getState().exitReferenceSelect()`——mock getState 缺该方法 → TypeError、`isOpen` 永不置 true、该用例必红。`referenceSelect: null` 同时保住 T7 Tab gate 的 falsy 路径。）
+
+Run: `npx vitest run src/pages/canvas/page.test.tsx`
+Expected: 全 PASS。
+
+- [ ] **Step 3.6: 全量回归 + Commit**
 
 Run: `npx vitest run`（cwd=apps/web）
-Expected: 全绿（AddNodeMenu/page 等消费 menuStore 的既有测试若因新字段失败，按其 mock 模式补 `styleLibrary: null` 初值）。
+Expected: 全绿（page.test 已在 Step 3.5 修复；其余消费 menuStore 的既有测试若因新字段失败，按其 mock 模式补 `styleLibrary: null` 初值）。
 
 ```bash
-git add src/stores/menuStore.ts src/stores/menuStore.test.ts src/pages/canvas/components/HandleAddNodeMenu.test.tsx
-git commit -m "feat(web): menuStore styleLibrary 第三切片——三向互斥（open/openHandleMenu/openStyleLibrary 各清其余+跨 store 退出参考选择）+toggle 由关变开清其余（修既有缺陷）"
+git add src/stores/menuStore.ts src/stores/menuStore.test.ts src/pages/canvas/components/HandleAddNodeMenu.test.tsx src/pages/canvas/page.test.tsx
+git commit -m "feat(web): menuStore styleLibrary 第三切片——三向互斥（open/openHandleMenu/openStyleLibrary 各清其余+跨 store 退出参考选择）+toggle 由关变开清其余（修既有缺陷）+page.test mock 补跨 store 方法键"
 ```
 
 ---
@@ -453,7 +475,7 @@ git commit -m "feat(web): menuStore styleLibrary 第三切片——三向互斥�
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx`
 
-要点（spec §3.4/D8/B18）：`index?: number` prop；角标挂新包裹层（一半悬外），原容器 div 的 className 行（:127 含 `border-[#2A2A34]`）**内容逐字保留**——no-color-hex baseline key = `sha256(TrimEnd(行文本))`（lint-gate.mjs:36-40），TrimEnd 只去尾部空白、**前导缩进参与哈希**：该行被包裹层加深 2 空格缩进后键必变，产生**恰好 1 条**新增违例，按 Step 4.4 的单键重键通道收口（UPDATE_BASELINE=1，lint-gate.mjs:139 合法）；两态复用既有本地 `hovered`（原生 mouseover/out）；uploading/error 态角标仍显示（z-10）；X 从 StatusOverlay 的 success 分支移除由角标接管，**同时删 StatusOverlay 孤立的 `isDragging` 与 `onDelete` 两个 prop**（二者唯一消费点均在被删的 success 分支——:42-52，调用点传参一并删）。同文件已在 no-theme-utility 白名单（allow:['bg','text']），角标沿用 bg-black/text-white 零登记成本。**本 Task 同 commit 让 ImageThumbnailBar 传 index**（否则 T4→T5 中间态缩略图无法删除）。
+要点（spec §3.4/D8/B18）：`index?: number` prop；角标挂新包裹层（一半悬外），原容器 div 的 className 行（:127 含 `border-[#2A2A34]`）**内容逐字保留**——no-color-hex baseline key = `sha256(TrimEnd(行文本))`（lint-gate.mjs:36-40），TrimEnd 只去尾部空白、**行首内容（前导缩进/元素前缀）参与哈希**：包裹后该 hex 行行首多出 `<div ` 前缀（正常排版下缩进亦随嵌套加深）→ 行文本变 → 键变，产生 **0 或 1 条**新增违例（正常为 1，见 Step 4.4 判定式流程）——按 **手工伴随重键**收口（lint-gate.mjs:139 note：机械清理允许伴随重键（计数不增），**UPDATE_BASELINE 全量重采是 B5 控制动作、日常禁用**）；两态复用既有本地 `hovered`（原生 mouseover/out）；uploading/error 态角标仍显示（z-10）；X 从 StatusOverlay 的 success 分支移除由角标接管，**同时删 StatusOverlay 孤立的 `isDragging` 与 `onDelete` 两个 prop**（二者唯一消费点均在被删的 success 分支——:42-52，调用点传参一并删）。同文件已在 no-theme-utility 白名单（allow:['bg','text']），角标沿用 bg-black/text-white 零登记成本。**本 Task 同 commit 让 ImageThumbnailBar 传 index**（否则 T4→T5 中间态缩略图无法删除）。
 
 - [ ] **Step 4.1: 写失败测试**
 
@@ -533,7 +555,7 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
         className="relative flex-shrink-0"
       >
         {/* 原 :127 className 串逐字保留（含 border-[#2A2A34]）——行文本因缩进+2 变更产生 1 条 hex 新键，
-            Step 4.4 按 UPDATE_BASELINE 单键重键收口（勿改类字符串内容） */}
+            Step 4.4 按手工伴随重键收口（勿改类字符串内容） */}
         <div className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group">
           <img
             src={url}
@@ -580,20 +602,31 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
 
 （预览 portal 段原样保留。StatusOverlay 定义同步删 isDragging/onDelete 参数与类型——组件只剩 uploading 进度与 error 两分支。）
 
-- [ ] **Step 4.4: 跑绿 + lint 单键重键（baseline 键含前导缩进——P1-1 第七轮）**
+- [ ] **Step 4.4: 跑绿 + lint 手工伴随重键（判定式流程——第八轮 A1/B1/P2-1）**
 
 Run: `npx vitest run src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx`
 Expected: 全 PASS（含既有 1/2/4/5/6/8）。
 
-Run: `pnpm lint`
-Expected: **恰好 1 条新增违例**——SortableImageItem.tsx 含 `border-[#2A2A34]` 的行（缩进 6→8 空格 → sha256 变）。多于 1 条=实现偏离（类字符串被改字），回查勿继续。
+Run: `pnpm lint`（cwd=apps/web）
 
-确认只有这 1 条后单键重键（lint-gate.mjs:139 合法通道；⚠ 必须先确认仅 1 条，否则全量重采会洗白别的新 hex）：
+**判定（不预设条数）**：SortableImageItem.tsx 含 `border-[#2A2A34]` 的行是全文件**唯一** hex 命中（baseline 亦仅 1 键——eslint-hex-baseline.json:181）。包裹层使该行行首多出 `<div ` 前缀/缩进随嵌套加深 → 通常报 **1 条**新增违例；若排版恰好使行文本逐字未变则为 **0 条**——两者都合法。**≥2 条=实现偏离（类字符串被改字或引入新 hex），回查勿继续。**
+
+- **0 条** → 无需任何 baseline 操作，直接进 Step 4.5。
+- **1 条** → 手工伴随重键（lint-gate.mjs:139 通道：只换这一把键，不动其余键与 meta）。先按文件实际行算新键（与 lint-gate.mjs:36-40 同算法）：
 
 ```bash
-UPDATE_BASELINE=1 node scripts/lint-gate.mjs
-git diff e2e/audit/eslint-hex-baseline.json   # 必须只显示该文件 1 个键被替换、meta.count 不变
+# cwd=apps/web（脚本 APP_ROOT 自解析，node -e 的相对路径按 cwd）
+node -e "const{createHash}=require('crypto');const fs=require('fs');const line=fs.readFileSync('src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx','utf8').split(/\r?\n/).find(l=>l.includes('#2A2A34'));console.log('flowweb/no-color-hex|src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx|'+createHash('sha256').update(line.replace(/\s+$/u,''),'utf8').digest('hex'))"
 ```
+
+用 Edit 把 `e2e/audit/eslint-hex-baseline.json` 中旧键整行（前缀 `flowweb/no-color-hex|src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx|` 开头那行，:181，含前导缩进与尾逗号）替换为上面输出的新键。复验：
+
+```bash
+pnpm lint   # → 门禁绿
+git diff e2e/audit/eslint-hex-baseline.json   # 必须只显示 1 行键被替换；meta.count/capturedAt 与其余键零变化
+```
+
+（**禁用** `UPDATE_BASELINE=1` / `--update-baseline`：全量重采是 B5 控制的动作（lint-gate.mjs:139 note 明文排除日常使用），且会连带改写 `meta.capturedAt`——diff 复核标准随之失真。）
 
 - [ ] **Step 4.5: ImageThumbnailBar 同 commit 传 index（防中间态不可删图）**
 
@@ -628,8 +661,9 @@ git commit -m "feat(web): 参考图序号/X 角标两态——index prop+新包�
 **Files:**
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx`
+- Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/types.ts`（新增 MAX_REFERENCE_IMAGES 常量——C3 第八轮）
 
-要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）但**接 `disabled`**（生成中 status==='loading' 时渲染但点击无效——与原上传按钮的 !disabled 门控语义一致，P9 收紧：生成中不得改参考图/风格）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。
+要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）但**接 `disabled`**（生成中 status==='loading' 时渲染但点击无效——与原上传按钮的 !disabled 门控语义一致，P9 收紧：生成中不得改参考图/风格）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。**满员上限抽常量（C3）**：`types.ts` 加 `export const MAX_REFERENCE_IMAGES = 9;`，组件默认参数改 `maxCount = MAX_REFERENCE_IMAGES`（import 自 `'./types'`）——横幅文案/拾取守卫/工具行默认三处共用同一真源，防将来改上限后提示失真（两处面板均未传 maxCount、依赖默认值，已核实）。
 
 - [ ] **Step 5.1: spike——pt-3 三面板布局影响（B22，浏览器 5 分钟）**
 
@@ -842,7 +876,7 @@ Expected: 全绿。
 - [ ] **Step 5.6: Commit**
 
 ```bash
-git add src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx
+git add src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx src/pages/canvas/components/nodes/prompt-input/types.ts
 git commit -m "feat(web): 参考按钮=画布选择模式入口——恒显脱离 maxCount 门控+卡片选择图标+删 file input（拖拽/粘贴保留）+pt-3 防裁切+风格按钮开风格库（组件层互斥收口）（spec §3.1/D19/D2）"
 ```
 
@@ -1041,12 +1075,13 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
 - Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx`
 - Modify: `apps/web/src/pages/canvas/page.tsx`
 - Modify: `apps/web/src/hooks/useGroupKeyboard.ts`（Step 7.3——勿漏 git add，否则改动游离工作区）
+- Modify: `apps/web/src/hooks/useGroupKeyboard.test.ts`（Step 7.3 可变 mock + 新用例）
 
 薄接线任务（决策已纯函数化 Task 1、状态已 store 化 Task 2/6）：ReactFlow 真实手势下 onNodeClick 与拖拽抑制由 tsc + 全量回归 + Task 18 人工验收承保（先例：image-node-panel-redesign Task 9 同款定位）。
 
 - [ ] **Step 7.1: CanvasView 接线**
 
-1. import 区补：`import { decideReferencePick } from './referenceSelect';`、`import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';`、`import { getMediaUrl } from '@/api/mediaApi';`（`useNodeStore` 已有）。
+1. import 区补：`import { decideReferencePick } from './referenceSelect';`、`import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';`、`import { getMediaUrl } from '@/api/mediaApi';`、`import { MAX_REFERENCE_IMAGES } from './nodes/prompt-input/types';`（C3 常量，T5 已建；`useNodeStore` 已有）。
 2. 组件体（:105 `isLocked` 之后）加：
 
 ```tsx
@@ -1071,10 +1106,10 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
     const store = useNodeStore.getState();
     const source = store.nodes[sourceNodeId];
     const currentImages = source?.data?.allImages ?? [];
-    const decision = decideReferencePick(sourceNodeId, targetNode, currentImages.map((i: { id: string }) => i.id), 9);
+    const decision = decideReferencePick(sourceNodeId, targetNode, currentImages.map((i: { id: string }) => i.id), MAX_REFERENCE_IMAGES);
     if (decision.kind === 'ignore') return;
     if (decision.kind === 'full') {
-      store.flashReferenceNotice('最多 9 张参考图');
+      store.flashReferenceNotice(`最多 ${MAX_REFERENCE_IMAGES} 张参考图`);
       return;
     }
     try {
@@ -1114,9 +1149,9 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
       if (useNodeStore.getState().referenceSelect) return; // 参考选择模式禁画布快捷键（含 Tab→AddNodeMenu，spec §3.1）
 ```
 
-（`useNodeStore` 已在 page.tsx import；若无需补 import。**回归面**：page.test.tsx:549/:558 已测 Tab——测试环境 nodeStore.getState().referenceSelect 为 undefined/null（falsy）不触发早退，天然不回归；若 page.test 的 nodeStore mock 缺 getState 键导致报错，按其既有 mock 模式补 `referenceSelect: null`。）
+（`useNodeStore` 已在 page.tsx import；若无需补 import。**回归面**：page.test.tsx:549/:558 已测 Tab——nodeStore mock 的 getState() 已在 T3 Step 3.5 补 `referenceSelect: null`（falsy 不触发早退）与 `exitReferenceSelect` 方法（缺方法会被 menuStore.open 的跨 store 调用打成 TypeError，第八轮 A2 已修），本步无额外测试改造。）
 
-- [ ] **Step 7.3: useGroupKeyboard 早退（P10——spec §3.1 的 Ctrl+Z/G/Y gate，v1 计划遗漏）**
+- [ ] **Step 7.3: useGroupKeyboard 早退 + 用例（P10 + 第八轮 C1）**
 
 `src/hooks/useGroupKeyboard.ts` 的 `isGroupEditContext`（:9-26，纯布尔函数、return true=调用方跳过快捷键，已核实）首个条件之前插：
 
@@ -1126,16 +1161,45 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
 
 （`useNodeStore` 若未 import 则补；该 hook 为纯 getState 判定无副作用，插首条安全。）
 
+既有 `useGroupKeyboard.test.ts:5-12` 的静态 getState mock（只回 activeEdit/activeTransform 两键）**覆盖不到新分支**——先改可变旗标再补用例（C1：这是本功能防「撤销掉刚加入的参考图」的唯一闸门，不能零覆盖）。mock 区（:5-12）替换为：
+
+```ts
+// vi.hoisted：mock 工厂提升到 import 前，普通 const 会 TDZ——可变旗标供用例拨动 referenceSelect
+const nodeState = vi.hoisted(() => ({
+  activeEditNodeId: null as string | null,
+  activeTransformNodeId: null as string | null,
+  referenceSelect: null as unknown,
+}));
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: { getState: () => nodeState },
+}));
+```
+
+用例（追加进 `describe('isGroupEditContext（编辑态判定 spec 6.3）')`，:33-40）：
+
+```ts
+  it('参考选择模式 → true（模式期 Ctrl+Z/G/Y 被禁，spec §3.1——防撤销刚加入的参考图）', () => {
+    nodeState.referenceSelect = { sourceNodeId: 'img1' };
+    expect(isGroupEditContext(document.createElement('div'))).toBe(true);
+    nodeState.referenceSelect = null; // 还原，防污染既有用例
+  });
+```
+
+（默认值与原静态 mock 逐键相同，既有用例行为不变。）
+
+Run: `npx vitest run src/hooks/useGroupKeyboard.test.ts`
+Expected: 全 PASS（含新用例）。
+
 - [ ] **Step 7.4: 验证**
 
-Run: `npx vitest run src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/page.test.tsx && npx tsc -b --pretty false`
+Run: `npx vitest run src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/page.test.tsx src/hooks/useGroupKeyboard.test.ts && npx tsc -b --pretty false`
 Expected: 既有测试全 PASS；tsc 无新增报错（CanvasView.test 的 nodeStore mock 若缺 referenceSelect 键，按其既有 mock 模式补 `referenceSelect: null`）。
 
 - [ ] **Step 7.5: Commit**
 
 ```bash
-git add src/pages/canvas/components/CanvasView.tsx src/pages/canvas/page.tsx src/hooks/useGroupKeyboard.ts
-git commit -m "feat(web): 参考选择模式接线——nodesDraggable+elementsSelectable 双 prop（D25）/onNodeClick 拾取分支（presign 异步+读最新写回）/deleteKeyCode 置空/Tab 键 gate/useGroupKeyboard 早退（Ctrl+Z/G/Y）/挂横幅（spec §3.1/§3.3）"
+git add src/pages/canvas/components/CanvasView.tsx src/pages/canvas/page.tsx src/hooks/useGroupKeyboard.ts src/hooks/useGroupKeyboard.test.ts
+git commit -m "feat(web): 参考选择模式接线——nodesDraggable+elementsSelectable 双 prop（D25）/onNodeClick 拾取分支（presign 异步+读最新写回）/deleteKeyCode 置空/Tab 键 gate/useGroupKeyboard 早退（Ctrl+Z/G/Y，含可变 mock 用例）/挂横幅（spec §3.1/§3.3）"
 ```
 
 ---
@@ -1382,7 +1446,7 @@ describe('StylesService', () => {
       expect(out.items[0].favorited).toBe(false); // 钉死：recent 不硬编码 true
     });
 
-    it('搜索在收藏/最近 tab 同样生效（styleFilter 折入 relation filter，P1-6）', async () => {
+    it('搜索在收藏 tab 同样生效（styleFilter 折入 relation filter，P1-6；recent 走同一 styleFilter 构造）', async () => {
       prisma.styleFavorite.findMany.mockResolvedValue([]);
       prisma.styleFavorite.count.mockResolvedValue(0);
       await service.list('u1', { tab: 'favorites', search: '胶片', commercialOnly: true, page: 1, pageSize: 20 });
@@ -1533,8 +1597,8 @@ export class StylesService {
       return { items, total, page, pageSize };
     }
 
-    const where: any = styleFilter;
-    if (q.categoryId) where.categoryId = q.categoryId;
+    // spread 而非就地改写（第八轮 B2：styleFilter 为共享对象，就地赋值在将来插入分支时会串味）
+    const where: any = q.categoryId ? { ...styleFilter, categoryId: q.categoryId } : styleFilter;
 
     // 排序含 id tiebreaker（spec §4.2——偏移分页需稳定序）
     const orderBy = [{ sortOrder: 'asc' as const }, { usageCount: 'desc' as const }, { id: 'asc' as const }];
@@ -1876,7 +1940,7 @@ export class AdminStyleService {
     try {
       return await this.prisma.styleCategory.create({ data: { name: dto.name, sortOrder: dto.sortOrder ?? 0, active: dto.active ?? true } });
     } catch (e) {
-      if ((e as { code?: string }).code === 'P2002') throw new BadRequestException('分类已存在'); // 并发改名撞唯一索引（P16）
+      if ((e as { code?: string }).code === 'P2002') throw new BadRequestException('分类已存在'); // 并发创建撞唯一名（P16）
       throw e;
     }
   }
@@ -2476,7 +2540,7 @@ describe('useStyleLibrary', () => {
     const onUsed = vi.fn();
     (api.fetchStyles as any).mockResolvedValue({ items: [baseItem('s1')], total: 1, page: 1, pageSize: 20 });
     (api.useStyle as any).mockResolvedValue(baseItem('s1'));
-    const { result } = renderHook(() => useStyleLibrary('img1', { onUsed }));
+    const { result } = renderHook(() => useStyleLibrary('img1', onUsed));
     await waitFor(() => expect(result.current.items).toHaveLength(1));
     await act(async () => { await result.current.applyStyle('s1'); });
     expect(useNodeStore.getState().nodes['img1'].data.styleId).toBe('s1');
@@ -2524,7 +2588,8 @@ import { useNodeStore } from '@/stores/nodeStore';
 
 export type StyleTab = 'all' | 'favorites' | 'recent';
 
-export function useStyleLibrary(nodeId: string, opts?: { onUsed?: () => void }) {
+// onUsed 直传回调（非 opts 对象——第八轮 A2：对象字面量每渲染新建会使 applyStyle deps 失稳 → memo(StyleCard) 恒失效）
+export function useStyleLibrary(nodeId: string, onUsed?: () => void) {
   const [tab, setTabState] = useState<StyleTab>('all');
   const [categoryId, setCategoryId] = useState<string | undefined>();
   const [searchInput, setSearchInput] = useState('');
@@ -2589,11 +2654,11 @@ export function useStyleLibrary(nodeId: string, opts?: { onUsed?: () => void }) 
     try {
       const style = await useStyle(id);
       useNodeStore.getState().updateConfig(nodeId, { styleId: style.id, styleName: style.name });
-      opts?.onUsed?.();
+      onUsed?.();
     } catch {
       setUseError('风格使用失败，请重试'); // 失败不关窗（spec §4.4）
     }
-  }, [nodeId, opts]);
+  }, [nodeId, onUsed]);
 
   const clearStyle = useCallback(() => {
     useNodeStore.getState().updateConfig(nodeId, { styleId: null, styleName: null }); // D16：写 null（类型已在 T2 就位，无需强转）
@@ -2792,7 +2857,7 @@ export const StyleCard = memo(function StyleCard({ item, isCurrent, onUse, onCan
               type="button"
               aria-label="使用"
               onClick={(e) => { e.stopPropagation(); onUse(item.id); }}
-              className="flex h-6 items-center overflow-hidden rounded-lg bg-black/65 text-white transition-[max-width] duration-150"
+              className="flex h-6 items-center overflow-hidden rounded-lg bg-black/65 text-white"
             >
               <span className="flex size-6 shrink-0 items-center justify-center">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8l4 4L14 4" /></svg>
@@ -2926,12 +2991,13 @@ function StyleLibraryModalInner({ nodeId }: { nodeId: string }) {
   const closeStyleLibrary = useMenuStore((s) => s.closeStyleLibrary);
   const [detail, setDetail] = useState<StyleSummary | null>(null);
 
-  // useCallback：防内联对象使 hook 内 applyStyle 每渲染新建 → memo(StyleCard) 恒失效（P3-6）
+  // handleUsed useCallback + hook 直传回调（第八轮 A2 收口 P3-6）：对象字面量 { onUsed } 每渲染新建
+  // 会使 applyStyle deps [nodeId, onUsed] 失稳 → memo(StyleCard) 恒失效；直传后 handleUsed 稳定 → applyStyle 稳定
   const handleUsed = useCallback(() => {
     setDetail(null); // 先清 detail——防下次开库旧详情浮层复现（P2-1）
     useMenuStore.getState().closeStyleLibrary();
   }, []);
-  const lib = useStyleLibrary(nodeId, { onUsed: handleUsed });
+  const lib = useStyleLibrary(nodeId, handleUsed);
 
   return (
     <BaseFullscreenModal
@@ -3021,7 +3087,9 @@ function StyleLibraryModalInner({ nodeId }: { nodeId: string }) {
           {lib.error && <div className="text-text-dim-2 py-16 text-center text-[14px]">{lib.error}</div>}
           {!lib.error && lib.items.length === 0 && !lib.loading && (
             <div className="text-text-dim-2 py-16 text-center text-[14px]">
-              {lib.tab === 'favorites' ? '暂无收藏的风格' : lib.tab === 'recent' ? '暂无使用记录' : '未找到匹配风格'}
+              {lib.searchInput.trim()
+                ? '未找到匹配风格'
+                : lib.tab === 'favorites' ? '暂无收藏的风格' : lib.tab === 'recent' ? '暂无使用记录' : '未找到匹配风格'}
             </div>
           )}
           <div className="grid grid-cols-5 gap-x-3 gap-y-2">
@@ -3558,7 +3626,9 @@ function StyleFormModal({ categories, record, onDone, trigger }: {
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
 import { App as AntdApp } from 'antd';
 import StyleCategoriesPage from './StyleCategoriesPage';
 import * as adminApi from '@/api/adminApi';
@@ -3573,7 +3643,8 @@ vi.mock('@/api/adminApi', () => ({
 }));
 
 // 页面用 AntdApp.useApp() 取 message——裸渲染时 antd context 默认值 {message:{}} → message.error 抛
-// is not a function（P2-2）——必须包 <AntdApp>（HomeBannersPage.test.tsx:3 先例）
+// is not a function（P2-2）——必须包 <AntdApp>（HomeBannersPage.test.tsx:3 先例）；外层 <MemoryRouter>
+// 对齐 9/9 既有 admin 页测试双层包裹（AnnouncementPage.test.tsx:23 等先例——PageContainer/ProTable 依赖 router context）
 
 describe('StyleCategoriesPage', () => {
   beforeEach(() => {
@@ -3584,16 +3655,20 @@ describe('StyleCategoriesPage', () => {
   });
 
   it('渲染分类列表行', async () => {
-    render(<AntdApp><StyleCategoriesPage /></AntdApp>);
+    render(<MemoryRouter><AntdApp><StyleCategoriesPage /></AntdApp></MemoryRouter>);
     expect(await screen.findByText('摄影写真')).toBeInTheDocument();
   });
 
   it('删除被 400 阻止时中文文案直达（spec §6.2 删除保护）', async () => {
     (adminApi.adminStylesApi.deleteCategory as any).mockRejectedValue(new Error('该分类下存在风格，请先清空后再删除'));
-    render(<AntdApp><StyleCategoriesPage /></AntdApp>);
+    const user = userEvent.setup();
+    render(<MemoryRouter><AntdApp><StyleCategoriesPage /></AntdApp></MemoryRouter>);
     await screen.findByText('摄影写真');
-    fireEvent.click(screen.getByText('删除'));
-    fireEvent.click(screen.getByText('确定', { selector: 'button' })); // Popconfirm 确认（antd5 两字按钮点击按既有 quirks 处理）
+    await user.click(screen.getByText('删除'));
+    // 测试环境无 zhCN locale（antd 默认 en_US → Popconfirm 确认钮文案='OK'，getByText('确定') 必落空）——
+    // 统一用类名选择器（AnnouncementPage.test.tsx:49 逐字先例，:61 有坑位注释）
+    await waitFor(() => expect(document.querySelector('.ant-popover .ant-btn-primary')).toBeTruthy());
+    await user.click(document.querySelector('.ant-popover .ant-btn-primary') as HTMLElement);
     await waitFor(() => {
       expect(screen.getByText('该分类下存在风格，请先清空后再删除')).toBeInTheDocument();
     });
@@ -3601,7 +3676,7 @@ describe('StyleCategoriesPage', () => {
 });
 ```
 
-（antd App message 渲染与 Popconfirm 确认按钮定位若与既有 admin 页测试模式不同，抄 ModelsPage/HomeBannersPage 同目录既有测试的写法对齐——它们已解决同类问题。）
+（若 message 渲染仍有异常，抄同目录既有 admin 页测试写法对齐——它们已解决同类问题。）
 
 - [ ] **Step 17.7: 跑绿 + 回归**
 
@@ -3674,5 +3749,6 @@ pnpm test && pnpm lint
 3. **类型一致性**：`referenceSelect: { sourceNodeId; notice }`（T2 定义，T5/T6/T7 消费一致）；`styleLibrary: { nodeId }`（T3 定义，T5/T15 一致）；`styleId?: string | null` 类型 T2 前移（T14 无强转、T16 直接消费）；`StyleSummary/StyleListResult/StyleCategoryItem`（T13 定义，T14/T15/T16 一致）；后端 `StyleListItem` 与前端 `StyleSummary` 同名同型，use 三方（测试/实现/前端）统一扁平口径；`getStyleThumb/styleThumbCacheMap`（T16 测试与实现一致）。
 4. **执行顺序**：T1→T2→T3（A 组 store 链）→T4（含 ImageThumbnailBar 传 index）→T5→T6→T7；B 组 T8→T9→T10→T11/T12→T13→T14→T15→T16→T17→T18。A/B 交叉仅 T15 依赖 T3。
 5. **第六轮审核落实清单**：B1→T16 TTL 方案；B2→T9 mock 补键；B3→T9 join 表分页（含断言）；B4→T3 断言 4 次；B5→T11 签名+基线 beforeEach；B6→T15 白名单挂 StyleCard/DetailPreview；H1→T15 内外层拆分；H3→use 扁平口径（spec 同步）；H4→T13 断言按实现顺序；H5→checkbox accentColor currentColor；M1→T8 user 侧 Cascade（依据修正：全部 User 关系 13 条中 11 条 Cascade，例外仅 Team.owner Restrict 与 TeamJoinRequest.decidedByUser SetNull 且语义正当——join 表无例外，我们的纯属主行加 Cascade 与先例一致）；M2→T17 分类页测试；M3/P9→T5 按钮 disabled；M4→T7 deps/分支位置；M5→T12 位置注明；M6→T4 transform toContain；M7→T4 同 commit 传 index；P4→T4 包裹层保 baseline；P6→bg-gradient-to；P7→chip「全部分类」；P10→Step 7.3 useGroupKeyboard；P11→T6 getNode；P12→T6 selectNode 注释；P16→T10 P2002/P2003 catch；P17→favorite typeof 校验+删 FavoriteDto；P2-1→onUsed 清 detail；P2-2→StatusOverlay 删孤立 prop；P2-6→筛选跳首次；P2-4→text-accent-danger/dim-2；P20/P21→命令统一去 head、css-audit 同 cwd；P22→使用钮 hover 展开。
-6. **第七轮审核落实清单**：P1-1→T4 baseline 认清缩进参与哈希，改「恰好 1 条新增 + UPDATE_BASELINE 单键重键」流程（删"键不变"错误注释与"尺寸上移"矛盾文字）；P1-2→T5 补改用例 #11（+ #8 标题）；P1-3→T15 白名单 StyleCard 加 ring（10 族非 9 族，整串⊆allow 才放行）+registry 镜像；P1-4→T16 负缓存 has() 优先（404 墓碑）；P1-5→T9 recent 按真实收藏集算 favorited（+mock 补值+断言钉死）；P1-6→T9 styleFilter 折入 relation filter（搜索/商用三 tab 生效）+T14 setTab 清 commercialOnly；P2-1→updateCategory P2002 catch；P2-2→T17 测试包 AntdApp；P3-1→T1 复用 isImageNode（nodeStore:201-205，删重复 Set）；P3-2→spike 补横向裁切确认；P3-4→deleteStyle minio.delete 加 catch；P3-5→creditCost 基线对齐 5；P3-6→onUsed useCallback；P3-8→T15 删 max-w-6/max-w-35 死类（v3 无数字档）；T4 onDelete 一并删孤立；T7 Files/git add 补 useGroupKeyboard.ts。M1 数字修正为 13/11。
+6. **第七轮审核落实清单**：P1-1→T4 baseline 认清缩进参与哈希（「恰好 1 条 + UPDATE_BASELINE」表述在第八轮 A1/B1 再修正为判定式 + 手工伴随重键，见第八轮清单——UPDATE_BASELINE 引 lint-gate.mjs:139 属反向引用）；P1-2→T5 补改用例 #11（+ #8 标题）；P1-3→T15 白名单 StyleCard 加 ring（10 族非 9 族，整串⊆allow 才放行）+registry 镜像；P1-4→T16 负缓存 has() 优先（404 墓碑）；P1-5→T9 recent 按真实收藏集算 favorited（+mock 补值+断言钉死）；P1-6→T9 styleFilter 折入 relation filter（搜索/商用三 tab 生效）+T14 setTab 清 commercialOnly；P2-1→updateCategory P2002 catch；P2-2→T17 测试包 AntdApp；P3-1→T1 复用 isImageNode（nodeStore:201-205，删重复 Set）；P3-2→spike 补横向裁切确认；P3-4→deleteStyle minio.delete 加 catch；P3-5→creditCost 基线对齐 5；P3-6→onUsed useCallback（第八轮 A2 升级为直传回调签名，见第八轮清单）；P3-8→T15 删 max-w-6/max-w-35（第八轮 A3 更正理由：Tailwind 3.4 maxWidth 已含 spacing 档——config.full.js:653 `...theme('spacing')`，max-w-6 能生成；按钮宽度由内容决定、展开走内层 span，上限类冗余；max-w-35 默认刻度无 35 档零输出）；T4 onDelete 一并删孤立；T7 Files/git add 补 useGroupKeyboard.ts。M1 数字修正为 13/11。
+7. **第八轮审核落实清单**（3 份合并，逐条核实后采纳）：A1/B1/P2-1→T4 Step 4.4 改**判定式流程 + 手工伴随重键**（lint-gate.mjs:139 note 只允许机械清理伴随重键、明文排除 UPDATE_BASELINE 全量重采——v3 把它说成「合法通道」引用反了；pwsh 语法问题随弃用该通道一并消失；「缩进 6→8」诊断更正为「行首多 `<div ` 前缀、正常排版缩进随之加深」，0/1 条均合法、≥2 条才回查）；A2/A3(pass1)/P3-1(pass2)/A3(pass3)→useStyleLibrary 签名收成 `onUsed?: () => void` 直传（deps `[nodeId, onUsed]`）——对象字面量每渲染新建会使 memo(StyleCard) 恒失效，原 P3-6 修复未达目标；A1/A1b(pass3)/A5(pass1)/P2-2(pass2)→T17.6 测试包 `<MemoryRouter><AntdApp>` 双层（9/9 既有 admin 页先例）+ Popconfirm 确认钮用类名选择器 `.ant-popover .ant-btn-primary`（无 zhCN locale，okText='OK'，AnnouncementPage.test.tsx:49/:61 先例）；A2(pass3)→T3 新增 Step 3.5：page.test nodeStore mock getState 补 `referenceSelect: null + exitReferenceSelect: vi.fn()`（Tab 用例走真 menuStore.open 的跨 store 调用，缺方法必 TypeError——v3「天然不回归」结论写反，T7 回归面同步改口）；B2→T9 `where` 改 spread（styleFilter 共享对象禁就地改写）；C1→T7 Step 7.3 useGroupKeyboard.test 改 vi.hoisted 可变 mock + referenceSelect 用例（防误撤销闸门零覆盖）；C2→spec §3.1 登记视频发起节点在范围（D6）；C3→`MAX_REFERENCE_IMAGES = 9` 常量进 types.ts 三处共用（工具行默认/拾取守卫/横幅文案）；E1→使用钮删死过渡 `transition-[max-width]`（max-width 变化在内层 span，其自带 transition）；E2→T10 注释「并发改名」更正「并发创建」；E3→T9 用例名更正（只跑 favorites）；P3-2(pass2)→空态文案 searchInput 非空时统一「未找到匹配风格」（收藏/最近 tab 搜索无结果不再误显「暂无收藏」）；D25 兜底→spec §3.3 备注（onNodeClick 若实测不派发，拾取后补 selectNode，不放弃甲方案）。
 
