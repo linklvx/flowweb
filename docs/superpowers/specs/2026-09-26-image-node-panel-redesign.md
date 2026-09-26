@@ -162,6 +162,16 @@ P0（数量选择器，独立零依赖）→ P1 纯展示批（a 输入区 → b
 8. **组内空白松手弹菜单（group 过滤裁定）**：absoluteRectsOf 将 group 类型节点排除在节点体命中判定外——组是容器非实体节点，往组内空白处松手仍弹添加节点菜单（与顶层空白一致）；组内实体节点体上松手不弹（绝对坐标解析承保）。
 9. **需求 7（标题双击编辑）已还原（2026-09-26 用户验收不符合预期）**：Task 6 实现（双击进编辑+mediaName 唯一真源+13px+幽灵测量删除）经用户浏览器验收后拍板还原——revert 068f59b2+07eccd46 回到既有形态（常驻 input+幽灵宽度测量+12px+本地 label 双数据源）。§1 需求 7 /§3.2/§8-7 的设计与验收描述随之失效，仅存档。**重新设计时须带走本次教训**：① 双击改名必须补 `nopan`（d3 双击放大监听在 React 合成事件外，stopPropagation 防不住——NormalGroupRenderer 组名双击存同型既有问题）；② mediaName 唯一真源方向正确（本地 label 与 store 分叉在撤销/协作/再生成三类场景真实存在），重做时应保留该数据口径。
 
+## 9. 增补变更（2026-09-26 工具行三项微调，用户验收后拍板）
+
+| # | 变更 | 拍板 |
+|---|------|------|
+| S1 | 风格按钮图标换用户提供的三圆调色盘 SVG（20×20 evenodd） | `fill="#9C9C9C"`→`currentColor` 随按钮文字色（硬编码 hex 被 lint-gate 拦截；dim-2 在深档按钮上渲染色 ≈#8a8a8a，与 #9C9C9C 视觉几乎等价） |
+| S2 | 参考按钮图标还原为原 + 号（viewBox 0 0 24 24 双 path stroke currentColor strokeWidth 2 round） | 显示尺寸 20×20 与风格按钮对称；`text-white/50` 不恢复（刚清掉白名单死条目的 white 工具类），图标色走 currentColor |
+| S3 | 风格/参考按钮加默认背景 | 根因：`bg-surface-dim`（深 #262626/浅 #f0f1f2）与面板底 `--canvas-controls-bg`（深 rgb(38,38,38)≡#262626/浅 #f0f1f2）**两档完全同值**——Task 3 选 token 时未对照 controls-bg 撞值。拍板：`bg-overlay-2` 常态（深 rgba(255,255,255,.10)/浅 rgba(0,0,0,.06)，与原 + 号按钮 bg-white/[0.08] 视觉重量一致）+ hover 升 `overlay-3`（保三态序 常态<hover）；备选 bg-surface 实底方案被否 |
+
+范围：仅 ImageThumbnailBar.tsx + 其测试；满 9 张隐藏/风格恒显等行为不变。
+
 ## 8. 验收清单（对应 10 项需求）
 
 1. 悬停输入区（含空态）鼠标为 I 型；image-chip/command-chip 保持 default（命令项保持 pointer）✓自动+人工
