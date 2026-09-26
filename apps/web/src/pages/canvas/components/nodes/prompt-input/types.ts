@@ -27,5 +27,5 @@ export const CATEGORY_DEFAULTS: Record<CommandItem['category'], string> = {
   quality: 'standard',
 };
 
-// 参考图上限唯一真源（spec §3.1：ImageThumbnailBar 默认 maxCount 与上传校验共用）
+/** 参考图上限（spec §3.1/C3：本功能三处共用——工具行默认参数/拾取守卫/横幅文案；PromptEditor 粘贴路径既有硬编码 9 未收口，登记不一致） */
 export const MAX_REFERENCE_IMAGES = 9;
