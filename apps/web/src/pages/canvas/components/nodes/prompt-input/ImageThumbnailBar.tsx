@@ -148,9 +148,10 @@ export function ImageThumbnailBar({
         onDragEnd={disabled ? undefined : handleDragEnd}
       >
         <SortableContext items={images.map((img) => img.id)}>
-          {images.map((image) => (
+          {images.map((image, idx) => (
             <SortableImageItem
               key={image.id}
+              index={idx}
               image={image}
               onDelete={disabled ? () => {} : handleDeleteImage}
               onClick={disabled ? () => {} : onImageClick}

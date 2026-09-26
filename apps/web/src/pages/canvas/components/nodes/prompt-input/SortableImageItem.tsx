@@ -6,6 +6,7 @@ import type { ImageItem } from './types';
 
 interface SortableImageItemProps {
   image: ImageItem;
+  index?: number;
   onDelete: (id: string) => void;
   onClick: (id: string) => void;
 }
@@ -13,13 +14,9 @@ interface SortableImageItemProps {
 function StatusOverlay({
   status,
   progress,
-  isDragging,
-  onDelete,
 }: {
   status: ImageItem['status'];
   progress?: number;
-  isDragging: boolean;
-  onDelete: (e: React.MouseEvent) => void;
 }) {
   if (status === 'uploading') {
     return (
@@ -39,22 +36,10 @@ function StatusOverlay({
     );
   }
 
-  if (status === 'success' && !isDragging) {
-    return (
-      <button
-        onClick={onDelete}
-        className="absolute top-0 right-0 w-[18px] h-[18px] bg-black text-white rounded-full flex items-center justify-center text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"
-        aria-label="删除图片"
-      >
-        ×
-      </button>
-    );
-  }
-
   return null;
 }
 
-export function SortableImageItem({ image, onDelete, onClick }: SortableImageItemProps) {
+export function SortableImageItem({ image, index, onDelete, onClick }: SortableImageItemProps) {
   const {
     attributes,
     listeners,
@@ -124,21 +109,46 @@ export function SortableImageItem({ image, onDelete, onClick }: SortableImageIte
         style={style}
         {...attributes}
         {...listeners}
-        className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group"
+        className="relative flex-shrink-0"
       >
-        <img
-          src={url}
-          alt={name}
-          className="w-full h-full object-cover"
-          onClick={handleClick}
-        />
+        {/* 原 :127 className 串逐字保留（含 border-[#2A2A34]）——行首多 <div 前缀（缩进不变）→ 行文本变 → 0/1 条 hex 新键，
+            Step 4.4 按手工伴随重键收口（勿改类字符串内容） */}
+        <div className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group">
+          <img
+            src={url}
+            alt={name}
+            className="w-full h-full object-cover"
+            onClick={handleClick}
+          />
+          {(status === 'uploading' || status === 'error') && (
+            <StatusOverlay status={status} progress={progress} />
+          )}
+        </div>
 
-        <StatusOverlay
-          status={status}
-          progress={progress}
-          isDragging={isDragging}
-          onDelete={handleDelete}
-        />
+        {typeof index === 'number' && (
+          <div
+            className="absolute top-0 right-0 z-10"
+            style={{ transform: 'translate(50%, -50%)' }}
+          >
+            {hovered && status === 'success' && !isDragging ? (
+              <button
+                data-testid="ref-badge-x"
+                onClick={handleDelete}
+                aria-label="删除图片"
+                className="w-[18px] h-[18px] bg-black text-white rounded-full flex items-center justify-center text-[11px]"
+              >
+                ×
+              </button>
+            ) : (
+              <span
+                data-testid="ref-badge-index"
+                className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-black/70 px-1 text-[10px] font-medium text-white"
+              >
+                {index + 1}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Preview popup — portal to document.body, avoids all clipping/event issues */}

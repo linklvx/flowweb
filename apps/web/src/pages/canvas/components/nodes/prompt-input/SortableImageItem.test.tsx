@@ -57,13 +57,10 @@ describe('SortableImageItem', () => {
     expect(screen.getByText('67%')).toBeInTheDocument();
   });
 
-  it('3. success state shows delete button (×)', () => {
-    render(
-      <SortableImageItem image={baseImage} onDelete={onDelete} onClick={onClick} />,
-    );
-
-    const deleteBtn = screen.getByText('×');
-    expect(deleteBtn).toBeInTheDocument();
+  it('3. success state shows delete button (×)（hover 后角标变 X）', () => {
+    const { container } = render(<SortableImageItem image={baseImage} index={0} onDelete={onDelete} onClick={onClick} />);
+    fireEvent.mouseOver(container.querySelector('.group') as Element, { relatedTarget: document.body });
+    expect(screen.getByTestId('ref-badge-x')).toBeInTheDocument();
   });
 
   it('4. error state shows red overlay with retry indicator', () => {
@@ -110,12 +107,9 @@ describe('SortableImageItem', () => {
   });
 
   it('7. clicking delete button calls onDelete(image.id)', () => {
-    render(
-      <SortableImageItem image={baseImage} onDelete={onDelete} onClick={onClick} />,
-    );
-
-    const deleteBtn = screen.getByText('×');
-    fireEvent.click(deleteBtn);
+    const { container } = render(<SortableImageItem image={baseImage} index={0} onDelete={onDelete} onClick={onClick} />);
+    fireEvent.mouseOver(container.querySelector('.group') as Element, { relatedTarget: document.body });
+    fireEvent.click(screen.getByTestId('ref-badge-x'));
     expect(onDelete).toHaveBeenCalledWith(baseImage.id);
   });
 
@@ -153,5 +147,34 @@ describe('SortableImageItem', () => {
     );
 
     expect(container.querySelector('img')).toBeInTheDocument();
+  });
+
+  // ---- 序号/X 角标两态（spec §3.4，D8）----
+  it('9. 传 index 时常态渲染序号角标（index+1），一半悬外（transform 含 translate）', () => {
+    render(<SortableImageItem image={baseImage} index={2} onDelete={onDelete} onClick={onClick} />);
+    const badge = screen.getByTestId('ref-badge-index');
+    expect(badge.textContent).toBe('3');
+    expect(badge.parentElement?.style.transform).toContain('translate'); // 不锚字面量（jsdom 归一化差异防脆）
+  });
+
+  it('10. hover 后角标变 X，点击调 onDelete；移出还原序号', () => {
+    const { container } = render(<SortableImageItem image={baseImage} index={0} onDelete={onDelete} onClick={onClick} />);
+    const item = container.querySelector('.group') as Element;
+    fireEvent.mouseOver(item, { relatedTarget: document.body });
+    fireEvent.click(screen.getByTestId('ref-badge-x'));
+    expect(onDelete).toHaveBeenCalledWith(baseImage.id);
+    fireEvent.mouseOut(item, { relatedTarget: document.body });
+    expect(screen.getByTestId('ref-badge-index')).toBeInTheDocument();
+  });
+
+  it('11. uploading 态序号角标仍显示（z 高于进度蒙层，B18）', () => {
+    render(<SortableImageItem image={{ ...baseImage, status: 'uploading', progress: 42 }} index={0} onDelete={onDelete} onClick={onClick} />);
+    expect(screen.getByTestId('ref-badge-index').textContent).toBe('1');
+    expect(screen.getByText('42%')).toBeInTheDocument();
+  });
+
+  it('12. 不传 index 时不渲染角标（MultiImageConfigPanel 同名组件不受影响的语义护栏）', () => {
+    render(<SortableImageItem image={baseImage} onDelete={onDelete} onClick={onClick} />);
+    expect(screen.queryByTestId('ref-badge-index')).not.toBeInTheDocument();
   });
 });
