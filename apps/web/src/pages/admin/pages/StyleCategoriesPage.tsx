@@ -13,6 +13,7 @@ export default function StyleCategoriesPage() {
     { title: '名称', dataIndex: 'name' },
     { title: '排序', dataIndex: 'sortOrder', width: 80 },
     { title: '状态', dataIndex: 'active', render: (_, r) => (r.active ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
+    { title: '创建时间', dataIndex: 'createdAt', width: 110, render: (_, r) => r.createdAt?.slice(0, 10) ?? '-' },
     {
       title: '操作', valueType: 'option',
       render: (_, record) => [

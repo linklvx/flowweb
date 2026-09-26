@@ -16,7 +16,10 @@ export default function StyleContentPage() {
   const firstRender = useRef(true);
   useEffect(() => { void adminStylesApi.listCategories().then(setCategories).catch(() => {}); }, []);
   useEffect(() => {
-    const t = setTimeout(() => setCommitted({ categoryId, search: searchText.trim() }), 300); // 防抖
+    const t = setTimeout(() => {
+      setCommitted((prev) =>
+        prev.categoryId === categoryId && prev.search === searchText.trim() ? prev : { categoryId, search: searchText.trim() });
+    }, 300); // 防抖；值未变返回 prev 使 React bail-out——否则 mount 时无条件 re-commit 触发一次冗余 reload（firstRender 守卫防不住对象身份变化）
     return () => clearTimeout(t);
   }, [categoryId, searchText]);
   useEffect(() => {
