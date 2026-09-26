@@ -160,6 +160,7 @@ P0（数量选择器，独立零依赖）→ P1 纯展示批（a 输入区 → b
 6. **拖拽菜单其余节点类型**：本次范围 imageGen+imageExtGen；文本/视频/音频节点接入=shouldOpenHandleMenu 类型集合放宽一行。
 7. **杂项**：存量 extConfig.generateCount=8 显示「8张」而菜单无 8 项（不迁移数据，A2）；VideoConfigPanel.tsx:430 与 GenerateCountSelector 同名英文 aria-label（`Generate N variations`）改中文后两处文案不一致，VideoConfigPanel 不在本次范围、留待其面板政版时对齐；缩略图实际 50×50 与 56 按钮同排高差 6px（人工验收确认视觉可接受）；PromptInput.css .thumbnail-item 64px 为死代码（不引用不删，仅指出）；mediaName 改名连带 @引用素材 chip 名（ImageGenNode.tsx:179，语义合理、加断言承保）；参考代码 aria-describedby="«r8b»" 为运行时 artifact 不照抄；**screenToFlowPosition 双重相减 2 处存量**（onDrop L258-263 / handlePresencePointerMove——函数内部已减容器 rect，现仅因画布容器 rect 原点恰为 (0,0) 而无害，改动画布布局前必须一并修，本次不动）。
 8. **组内空白松手弹菜单（group 过滤裁定）**：absoluteRectsOf 将 group 类型节点排除在节点体命中判定外——组是容器非实体节点，往组内空白处松手仍弹添加节点菜单（与顶层空白一致）；组内实体节点体上松手不弹（绝对坐标解析承保）。
+9. **需求 7（标题双击编辑）已还原（2026-09-26 用户验收不符合预期）**：Task 6 实现（双击进编辑+mediaName 唯一真源+13px+幽灵测量删除）经用户浏览器验收后拍板还原——revert 068f59b2+07eccd46 回到既有形态（常驻 input+幽灵宽度测量+12px+本地 label 双数据源）。§1 需求 7 /§3.2/§8-7 的设计与验收描述随之失效，仅存档。**重新设计时须带走本次教训**：① 双击改名必须补 `nopan`（d3 双击放大监听在 React 合成事件外，stopPropagation 防不住——NormalGroupRenderer 组名双击存同型既有问题）；② mediaName 唯一真源方向正确（本地 label 与 store 分叉在撤销/协作/再生成三类场景真实存在），重做时应保留该数据口径。
 
 ## 8. 验收清单（对应 10 项需求）
 
