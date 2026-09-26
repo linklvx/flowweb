@@ -28,7 +28,8 @@ export interface FilteredEdge { id: string; source: string; target: string }
 
 /** data 白名单表（C2 Task 5.1 第五轮定稿——按 nodeStore.ts:101-127 注释分组的字段实际分布）：
  *  aspectRatio 根级通用（两类都有）；aiTool 仅 imageExtGen 根级；style/model/quality/ratio/resolution/prompt
- *  仅 imageGen 根级（ext 节点的这些值在 extConfig 内、随整体剥离）。缺失字段由 applyWhitelist 的
+ *  仅 imageGen 根级（ext 节点的这些值在 extConfig 内、随整体剥离）；styleId/styleName 三类 gen 根级
+ *  （风格库选中，spec §7.3）。缺失字段由 applyWhitelist 的
  *  `field in node.data` 检查 no-op——与 spec §4.6 合并行语义等价。 */
 export const WHITELIST: Record<string, string[]> = {
   textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt=string
