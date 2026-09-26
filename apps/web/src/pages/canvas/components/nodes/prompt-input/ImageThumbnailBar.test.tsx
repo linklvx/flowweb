@@ -359,4 +359,64 @@ describe('ImageThumbnailBar', () => {
     fireEvent.click(screen.getByTestId('upload-button'));
     expect(clickSpy).toHaveBeenCalled();
   });
+
+  it('13. 风格 button 用调色盘 svg（单 path 三段 M 子路径 evenodd，fill=currentColor）', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const svg = screen.getByRole('button', { name: '风格' }).querySelector('svg');
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 20 20');
+    const paths = svg?.querySelectorAll('path');
+    expect(paths?.length).toBe(1);
+    const d = paths?.[0].getAttribute('d') ?? '';
+    // 用户 SVG 为单 path 内三段子路径（M9.99984 主环 + M5.37012/M14.6287 两叶）
+    expect(d.startsWith('M9.99984 1.6665')).toBe(true);
+    expect(d).toContain('M5.37012 9.39355');
+    expect(d).toContain('M14.6287 9.39355');
+    expect(paths?.[0].getAttribute('fill')).toBe('currentColor');
+    expect(paths?.[0].getAttribute('fill-rule')).toBe('evenodd');
+  });
+
+  it('14. 参考 button 图标还原为 + 号（双 path stroke，无 rect 回形针）', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const svg = screen.getByTestId('upload-button').querySelector('svg');
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 24 24');
+    const dAttrs = [...(svg?.querySelectorAll('path') ?? [])].map((p) => p.getAttribute('d'));
+    expect(dAttrs).toContain('M5 12h14');
+    expect(dAttrs).toContain('M12 5v14');
+    expect(svg?.querySelector('rect')).toBeNull();
+  });
+
+  it('15. 两按钮常态背景 bg-overlay-2（解与面板底同值）+ hover overlay-3，不再用 surface-dim', () => {
+    render(
+      <ImageThumbnailBar
+        nodeId="node-1"
+        images={baseImages}
+        onChange={onChange}
+        onImageClick={onImageClick}
+        onImageUploaded={onImageUploaded}
+      />,
+    );
+    const style = screen.getByRole('button', { name: '风格' });
+    const upload = screen.getByTestId('upload-button');
+    for (const btn of [style, upload]) {
+      expect(btn.className).toContain('bg-overlay-2');
+      expect(btn.className).toContain('hover:bg-overlay-3');
+      expect(btn.className).not.toContain('bg-surface-dim');
+    }
+  });
 });
