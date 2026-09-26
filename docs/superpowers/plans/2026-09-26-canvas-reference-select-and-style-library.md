@@ -554,7 +554,7 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
         {...listeners}
         className="relative flex-shrink-0"
       >
-        {/* 原 :127 className 串逐字保留（含 border-[#2A2A34]）——行文本因缩进+2 变更产生 1 条 hex 新键，
+        {/* 原 :127 className 串逐字保留（含 border-[#2A2A34]）——行首多 <div 前缀（缩进不变）→ 行文本变 → 0/1 条 hex 新键，
             Step 4.4 按手工伴随重键收口（勿改类字符串内容） */}
         <div className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group">
           <img
@@ -651,7 +651,7 @@ Expected: 全 PASS。
 
 ```bash
 git add src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx e2e/audit/eslint-hex-baseline.json
-git commit -m "feat(web): 参考图序号/X 角标两态——index prop+新包裹层一半悬外角标（:127 hex 行缩进+2 → baseline 单键重键、计数不变）+hover 复用原生 hovered 变 X 删除+StatusOverlay 删孤立 isDragging/onDelete+ImageThumbnailBar 同 commit 传 index（spec §3.4/D8/B18）"
+git commit -m "feat(web): 参考图序号/X 角标两态——index prop+新包裹层一半悬外角标（:127 hex 行行首多 <div 前缀 → baseline 单键重键、计数不变）+hover 复用原生 hovered 变 X 删除+StatusOverlay 删孤立 isDragging/onDelete+ImageThumbnailBar 同 commit 传 index（spec §3.4/D8/B18）"
 ```
 
 ---
@@ -663,7 +663,7 @@ git commit -m "feat(web): 参考图序号/X 角标两态——index prop+新包�
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/types.ts`（新增 MAX_REFERENCE_IMAGES 常量——C3 第八轮）
 
-要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）但**接 `disabled`**（生成中 status==='loading' 时渲染但点击无效——与原上传按钮的 !disabled 门控语义一致，P9 收紧：生成中不得改参考图/风格）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。**满员上限抽常量（C3）**：`types.ts` 加 `export const MAX_REFERENCE_IMAGES = 9;`，组件默认参数改 `maxCount = MAX_REFERENCE_IMAGES`（import 自 `'./types'`）——横幅文案/拾取守卫/工具行默认三处共用同一真源，防将来改上限后提示失真（两处面板均未传 maxCount、依赖默认值，已核实）。
+要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）但**接 `disabled`**（生成中 status==='loading' 时渲染但点击无效——与原上传按钮的 !disabled 门控语义一致，P9 收紧：生成中不得改参考图/风格）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。**满员上限抽常量（C3）**：`types.ts` 加 `export const MAX_REFERENCE_IMAGES = 9;`，组件默认参数改 `maxCount = MAX_REFERENCE_IMAGES`——**本功能新增三处共用同一常量**（工具行默认参数/拾取守卫/横幅文案；两处面板均未传 maxCount、依赖默认值，已核实）。既有硬编码 9 按精准修改**不动**并登记已知不一致：仅 PromptEditor.tsx:24 粘贴路径一处（useImageUpload 为参数化无硬编码、PromptInput 无上限判断，均已核实）。
 
 - [ ] **Step 5.1: spike——pt-3 三面板布局影响（B22，浏览器 5 分钟）**
 
@@ -836,7 +836,7 @@ Expected: #3/#7/#12/#14/#16/#17 FAIL（现状 #3 旧断言先被新代码打死�
 
 - [ ] **Step 5.4: 实现 ImageThumbnailBar.tsx**
 
-1. import 区：删 `useRef`（若仅 fileInputRef 使用）、加 `import { useNodeStore } from '@/stores/nodeStore';`、`import { useMenuStore } from '@/stores/menuStore';`；
+1. import 区：删 `useRef`（若仅 fileInputRef 使用）、加 `import { useNodeStore } from '@/stores/nodeStore';`、`import { useMenuStore } from '@/stores/menuStore';`、值导入 `import { MAX_REFERENCE_IMAGES } from './types';`（**另起一行**——现有 :18 是 `import type { ImageItem } from './types';`，值塞进 type-only import 行编译错）；同时函数签名默认参数 `maxCount = 9` → `maxCount = MAX_REFERENCE_IMAGES`；
 2. 删除 `fileInputRef`、`handleUploadClick`、`handleFileChange`（:42、:92-94、:82-85）与 JSX 中的 `<input ... data-testid="file-input">`（:133-141）；
 3. `showUploadButton` 变量删除；参考按钮 JSX（:118-143 的 `{showUploadButton && (...)}` 包裹解除，按钮本身移出条件），按钮改为（**接 disabled**）：
 
@@ -3722,7 +3722,7 @@ Expected: 均成功（含 tsc）。
 1. 角标一半悬外不被工具行/缩略图裁切（B22 spike 结论复核）；hover 大图预览与角标不打架；
 2. 模式期点击目标节点后发起节点面板与序号仍可见（D25——「点一下就消失」=失败）；Tab 不弹 AddNodeMenu；
 3. 「返回节点」滚动+选中；拖动节点不触发加入；拖拽/粘贴上传仍可用；
-4. 风格库卡片宽度不塌宽（D21）、Esc 两段式（先详情后库，D20）、点收藏/详情不误触使用；
+4. 风格库卡片宽度不塌宽（D21）、Esc 两段式（先详情后库，D20）、点收藏/详情不误触使用、hover 使用钮「使用」文字展开可见（第九轮 P3-2：删 max-w-6 是功能性修复——容器曾卡 24px+overflow-hidden 裁掉 hover 文字，spec §4.3 该项此前实际不可见）；
 5. 使用风格后工具行圆图+风格名（刷新后仍在）；生成日志验证 prompt 含面板文本+风格文本（D12 接通）与视频不传对象（D28）；**负路径**：满 9 张时点击目标节点仅横幅提示、allImages 不写入；presign 失败（可断网模拟）该次点击静默忽略、不写入半成品条目；
 6. admin 录入→前台即时可见；删除有收藏的风格成功（Cascade）；分类删除保护文案。
 
@@ -3749,6 +3749,7 @@ pnpm test && pnpm lint
 3. **类型一致性**：`referenceSelect: { sourceNodeId; notice }`（T2 定义，T5/T6/T7 消费一致）；`styleLibrary: { nodeId }`（T3 定义，T5/T15 一致）；`styleId?: string | null` 类型 T2 前移（T14 无强转、T16 直接消费）；`StyleSummary/StyleListResult/StyleCategoryItem`（T13 定义，T14/T15/T16 一致）；后端 `StyleListItem` 与前端 `StyleSummary` 同名同型，use 三方（测试/实现/前端）统一扁平口径；`getStyleThumb/styleThumbCacheMap`（T16 测试与实现一致）。
 4. **执行顺序**：T1→T2→T3（A 组 store 链）→T4（含 ImageThumbnailBar 传 index）→T5→T6→T7；B 组 T8→T9→T10→T11/T12→T13→T14→T15→T16→T17→T18。A/B 交叉仅 T15 依赖 T3。
 5. **第六轮审核落实清单**：B1→T16 TTL 方案；B2→T9 mock 补键；B3→T9 join 表分页（含断言）；B4→T3 断言 4 次；B5→T11 签名+基线 beforeEach；B6→T15 白名单挂 StyleCard/DetailPreview；H1→T15 内外层拆分；H3→use 扁平口径（spec 同步）；H4→T13 断言按实现顺序；H5→checkbox accentColor currentColor；M1→T8 user 侧 Cascade（依据修正：全部 User 关系 13 条中 11 条 Cascade，例外仅 Team.owner Restrict 与 TeamJoinRequest.decidedByUser SetNull 且语义正当——join 表无例外，我们的纯属主行加 Cascade 与先例一致）；M2→T17 分类页测试；M3/P9→T5 按钮 disabled；M4→T7 deps/分支位置；M5→T12 位置注明；M6→T4 transform toContain；M7→T4 同 commit 传 index；P4→T4 包裹层保 baseline；P6→bg-gradient-to；P7→chip「全部分类」；P10→Step 7.3 useGroupKeyboard；P11→T6 getNode；P12→T6 selectNode 注释；P16→T10 P2002/P2003 catch；P17→favorite typeof 校验+删 FavoriteDto；P2-1→onUsed 清 detail；P2-2→StatusOverlay 删孤立 prop；P2-6→筛选跳首次；P2-4→text-accent-danger/dim-2；P20/P21→命令统一去 head、css-audit 同 cwd；P22→使用钮 hover 展开。
-6. **第七轮审核落实清单**：P1-1→T4 baseline 认清缩进参与哈希（「恰好 1 条 + UPDATE_BASELINE」表述在第八轮 A1/B1 再修正为判定式 + 手工伴随重键，见第八轮清单——UPDATE_BASELINE 引 lint-gate.mjs:139 属反向引用）；P1-2→T5 补改用例 #11（+ #8 标题）；P1-3→T15 白名单 StyleCard 加 ring（10 族非 9 族，整串⊆allow 才放行）+registry 镜像；P1-4→T16 负缓存 has() 优先（404 墓碑）；P1-5→T9 recent 按真实收藏集算 favorited（+mock 补值+断言钉死）；P1-6→T9 styleFilter 折入 relation filter（搜索/商用三 tab 生效）+T14 setTab 清 commercialOnly；P2-1→updateCategory P2002 catch；P2-2→T17 测试包 AntdApp；P3-1→T1 复用 isImageNode（nodeStore:201-205，删重复 Set）；P3-2→spike 补横向裁切确认；P3-4→deleteStyle minio.delete 加 catch；P3-5→creditCost 基线对齐 5；P3-6→onUsed useCallback（第八轮 A2 升级为直传回调签名，见第八轮清单）；P3-8→T15 删 max-w-6/max-w-35（第八轮 A3 更正理由：Tailwind 3.4 maxWidth 已含 spacing 档——config.full.js:653 `...theme('spacing')`，max-w-6 能生成；按钮宽度由内容决定、展开走内层 span，上限类冗余；max-w-35 默认刻度无 35 档零输出）；T4 onDelete 一并删孤立；T7 Files/git add 补 useGroupKeyboard.ts。M1 数字修正为 13/11。
+6. **第七轮审核落实清单**：P1-1→T4 baseline 认清缩进参与哈希（「恰好 1 条 + UPDATE_BASELINE」表述在第八轮 A1/B1 再修正为判定式 + 手工伴随重键，见第八轮清单——UPDATE_BASELINE 引 lint-gate.mjs:139 属反向引用）；P1-2→T5 补改用例 #11（+ #8 标题）；P1-3→T15 白名单 StyleCard 加 ring（10 族非 9 族，整串⊆allow 才放行）+registry 镜像；P1-4→T16 负缓存 has() 优先（404 墓碑）；P1-5→T9 recent 按真实收藏集算 favorited（+mock 补值+断言钉死）；P1-6→T9 styleFilter 折入 relation filter（搜索/商用三 tab 生效）+T14 setTab 清 commercialOnly；P2-1→updateCategory P2002 catch；P2-2→T17 测试包 AntdApp；P3-1→T1 复用 isImageNode（nodeStore:201-205，删重复 Set）；P3-2→spike 补横向裁切确认；P3-4→deleteStyle minio.delete 加 catch；P3-5→creditCost 基线对齐 5；P3-6→onUsed useCallback（第八轮 A2 升级为直传回调签名，见第八轮清单）；P3-8→T15 删 max-w-6/max-w-35（第八轮 A3 更正理由：Tailwind 3.4 maxWidth 已含 spacing 档——config.full.js:653 `...theme('spacing')`，max-w-6 能生成；max-w-35 默认刻度无 35 档零输出；**第九轮 P3-2 再升级定性：max-w-6=24px 容器上限+overflow-hidden 曾实际裁掉 hover 展开文字——删除是视觉 bug 修复非冗余清理，验收 T18.5-4 已补**）；T4 onDelete 一并删孤立；T7 Files/git add 补 useGroupKeyboard.ts。M1 数字修正为 13/11。
 7. **第八轮审核落实清单**（3 份合并，逐条核实后采纳）：A1/B1/P2-1→T4 Step 4.4 改**判定式流程 + 手工伴随重键**（lint-gate.mjs:139 note 只允许机械清理伴随重键、明文排除 UPDATE_BASELINE 全量重采——v3 把它说成「合法通道」引用反了；pwsh 语法问题随弃用该通道一并消失；「缩进 6→8」诊断更正为「行首多 `<div ` 前缀、正常排版缩进随之加深」，0/1 条均合法、≥2 条才回查）；A2/A3(pass1)/P3-1(pass2)/A3(pass3)→useStyleLibrary 签名收成 `onUsed?: () => void` 直传（deps `[nodeId, onUsed]`）——对象字面量每渲染新建会使 memo(StyleCard) 恒失效，原 P3-6 修复未达目标；A1/A1b(pass3)/A5(pass1)/P2-2(pass2)→T17.6 测试包 `<MemoryRouter><AntdApp>` 双层（9/9 既有 admin 页先例）+ Popconfirm 确认钮用类名选择器 `.ant-popover .ant-btn-primary`（无 zhCN locale，okText='OK'，AnnouncementPage.test.tsx:49/:61 先例）；A2(pass3)→T3 新增 Step 3.5：page.test nodeStore mock getState 补 `referenceSelect: null + exitReferenceSelect: vi.fn()`（Tab 用例走真 menuStore.open 的跨 store 调用，缺方法必 TypeError——v3「天然不回归」结论写反，T7 回归面同步改口）；B2→T9 `where` 改 spread（styleFilter 共享对象禁就地改写）；C1→T7 Step 7.3 useGroupKeyboard.test 改 vi.hoisted 可变 mock + referenceSelect 用例（防误撤销闸门零覆盖）；C2→spec §3.1 登记视频发起节点在范围（D6）；C3→`MAX_REFERENCE_IMAGES = 9` 常量进 types.ts 三处共用（工具行默认/拾取守卫/横幅文案）；E1→使用钮删死过渡 `transition-[max-width]`（max-width 变化在内层 span，其自带 transition）；E2→T10 注释「并发改名」更正「并发创建」；E3→T9 用例名更正（只跑 favorites）；P3-2(pass2)→空态文案 searchInput 非空时统一「未找到匹配风格」（收藏/最近 tab 搜索无结果不再误显「暂无收藏」）；D25 兜底→spec §3.3 备注（onNodeClick 若实测不派发，拾取后补 selectNode，不放弃甲方案）。
+8. **第九轮审核落实清单**（3 份合并；无 P1/P2，文字订正 + 定性升级）：① Step 4.3 注释与 Step 4.6 commit 标题残留「缩进+2」旧诊断→统一改「行首多 `<div ` 前缀（缩进不变）」；② Step 5.4 补第 1 条编辑项：`import { MAX_REFERENCE_IMAGES } from './types';` 值导入**另起一行**（:18 现为 `import type`，混入值导入编译错）+默认参数改常量；③ C3「单一真源」口径收窄→「本功能新增三处共用常量」；既有硬编码 9 仅 PromptEditor.tsx:24 一处（审核称两处有误：useImageUpload 为参数化、PromptInput 无上限判断，实读核实），登记已知不一致不动；④ spec §3.2「2s 还原」→「约 2s（实现 2200ms）」；⑤ P3-2 定性升级：删 max-w-6 是**视觉 bug 修复**（24px 容器上限+overflow-hidden 曾裁掉 hover 展开文字，spec §4.3「使用钮 hover 展开文字」此前实际不可见）——T18.5-4 补验收「hover 使用钮文字展开可见」；⑥ D25 兜底降级为纯记录：第九轮实读 @xyflow/react dist（handleNodeClick 用户回调分支在 isSelectable 判块之外 :2156-2169、pointer-events 由 onNodeClick 存在性保住 :2140/:2282）——onNodeClick **不受 elementsSelectable 门控**，甲方案源码级成立（spec §3.3 备注已补证据）；⑦ 审核方自纠两条更正（max-w-6 可生成/缩进未变）与本计划 v4 口径一致，无需动作。
 

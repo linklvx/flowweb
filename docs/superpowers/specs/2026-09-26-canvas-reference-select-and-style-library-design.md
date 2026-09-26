@@ -1,7 +1,7 @@
 # Canvas 参考选择模式与风格库 — 设计 Spec
 
 日期：2026-09-26
-状态：v4（第四轮审核修订——甲方案补 elementsSelectable/Tab 键 gate/D14 非事务三步/索引拆两条/admin 路由与筛选修正；事实断言均标「已核实」+行号；2026-09-27 plan 第八轮审核补登 §3.1 发起范围/常量单源（C2/C3）与 §3.3 D25 兜底）
+状态：v4（第四轮审核修订——甲方案补 elementsSelectable/Tab 键 gate/D14 非事务三步/索引拆两条/admin 路由与筛选修正；事实断言均标「已核实」+行号；2026-09-27 plan 第八/九轮审核补登 §3.1 发起范围/常量口径（C2/C3）、§3.2 提示时长对齐 2200ms、§3.3 D25 兜底降级为纯记录——RF 源码已证 onNodeClick 不受 elementsSelectable 门控）
 关联：`2026-09-26-image-node-panel-redesign.md`（工具行 风格/参考 按钮为本次落地的入口；其 §7-4「风格按钮仅外观」与 §8 验收 5/6「参考按钮=上传」自本文起**失效**）
 
 ---
@@ -102,7 +102,7 @@
 - `ImageThumbnailBar`：
   - 参考按钮 `onClick` → `startReferenceSelect(nodeId)`；**删除**隐藏 file input 与 `handleUploadClick`；参考按钮脱离 `showUploadButton` 门控**恒显**（D19，与风格按钮对齐；满 9 张仍可进入模式，点目标节点走 §3.2 提示）；按钮图标由 + 号换成与横幅同款「卡片选择」图标（语义已变，+号误导）；
   - 拖拽（handleDrop）与粘贴上传路径保留不动（已核实存在）。
-- **发起节点范围（第八轮登记，C2）**：ImageThumbnailBar 三面板共享（Image/ImageExt/Video）——视频节点作为**发起**节点同样在范围（D6 全生效；已核实 VideoNodeData.allImages 存在 nodeStore.ts:138、updatePromptImages 对 video 非 noop）；点击**目标**仍限图片两类节点（§3.3）。满员上限经 `MAX_REFERENCE_IMAGES = 9` 常量单源（prompt-input/types.ts——工具行默认参数/拾取守卫/横幅文案三处共用，防将来改上限后提示失真，C3）。
+- **发起节点范围（第八轮登记，C2）**：ImageThumbnailBar 三面板共享（Image/ImageExt/Video）——视频节点作为**发起**节点同样在范围（D6 全生效；已核实 VideoNodeData.allImages 存在 nodeStore.ts:138、updatePromptImages 对 video 非 noop）；点击**目标**仍限图片两类节点（§3.3）。满员上限经 `MAX_REFERENCE_IMAGES = 9` 常量（prompt-input/types.ts——**本功能新增三处共用**：工具行默认参数/拾取守卫/横幅文案；既有 PromptEditor.tsx:24 粘贴路径硬编码 9 按精准修改不动，登记已知不一致，C3）。
 - 模式退出挂点（store 层，已核实归属）：`nodeStore.setActiveEditNodeId / setActiveTransformNodeId`（:360-372 互相 guard-return）开头调用 `exitReferenceSelect()`——进入节点编辑/变换模式自动退出选择模式；不用组件 effect 轮询。
 - 快捷键 gate（已核实现状，**两处挂点**）：
   1. `useGroupKeyboard.ts:5-22 isGroupEditContext` 早退补 `referenceSelect` 非空（覆盖 Ctrl+G/Z/Y 与 RF Delete）；`CanvasView deleteKeyCode`（:425）参考模式下置 `[]`；
@@ -115,7 +115,7 @@
 - 渲染于 CanvasView 内、ReactFlow 直接子级（CanvasToolbar 模式：absolute 顶部居中、z-10~50 档、不随 viewport 变换——已核实 CanvasToolbar.tsx:51 同款）。
 - 结构对标参考 DOM：`[图标盒(卡片选择自绘 SVG)] [文案] [返回节点] [退出]`；**`role="status"` 放在文案 span 上**（满员提示需播报；整条含按钮的容器不做 live region）。
 - 样式：`--canvas-controls-bg` 底 + `--canvas-controls-border` 边 + `--canvas-shadow-dropdown`（已核实 index.css 仅 menu/dropdown 两个 shadow token，L52-53/L96-97 深浅双档）；不写 `backdrop-filter`（controls-bg 为不透明单值，blur 无视觉效果——ProjectTitle.tsx:64 同款接受）；两个按钮 ghost 文本按钮（hover `bg-overlay-2`）。
-- 满员提示：达 9 张后再点节点，文案 span 短暂显示「最多 9 张参考图」（2s 还原）。
+- 满员提示：达 9 张后再点节点，文案 span 短暂显示「最多 9 张参考图」（约 2s 还原——实现 2200ms）。
 
 ### 3.3 选择行为与约束
 
@@ -131,7 +131,7 @@
 - 横幅常驻可连续多选；画布空白点击（onPaneClick）**不退出**模式（防误触）；「返回节点」= `exitReferenceSelect()` + 视口滚动到发起节点并置选中（setCenter 先例 ImageGenNode.tsx:194）；「退出」/Esc = 纯退出。
 - **画布选图不插入 Tiptap prompt chip**（与上传路径 onImageUploaded→insertImage 的行为差异是有意的：chip=引用素材进 prompt 语义，画布选择只进参考图条；登记 B14）。
 - 参考图对生成零影响（存量断链，登记 B15，D11 拍板本轮不接）。
-- **执行期兜底（第八轮登记）**：若浏览器实测 `elementsSelectable={false}` 下 `onNodeClick` 不派发（D25 四点验证之一失守），退路=拾取成功回写后补 `selectNode(sourceNodeId)`（CanvasView 既有通道）——修「面板与序号实时可见」的伴生症状，不放弃甲方案双 prop。
+- **执行期兜底（第八轮登记，第九轮降级为纯记录）**：若浏览器实测 `elementsSelectable={false}` 下 `onNodeClick` 不派发（D25 四点验证之一失守），退路=拾取成功回写后补 `selectNode(sourceNodeId)`（CanvasView 既有通道）——修「面板与序号实时可见」的伴生症状，不放弃甲方案双 prop。**第九轮已实读 @xyflow/react dist 源码定论**：`handleNodeClick` 的用户回调分支在 `isSelectable` 判块之外（index.mjs:2156-2169）、节点 pointer-events 由 onNodeClick 存在性保住（:2140/:2282）——回调**不受 elementsSelectable 门控**，甲方案源码级成立，兜底仅为记录。
 
 ### 3.4 序号/X 角标（SortableImageItem 改造——指名 `prompt-input/SortableImageItem.tsx`；MultiImageConfigPanel.tsx:44 有同名局部组件**不动**，已核实）
 
