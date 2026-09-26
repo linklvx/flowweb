@@ -159,6 +159,7 @@ P0（数量选择器，独立零依赖）→ P1 纯展示批（a 输入区 → b
 5. **其余分辨率/数量入口不动（已知不一致，不统一）**：EraseBottomToolbar（同一图片节点编辑态，与配置面板互斥渲染）——其 RESOLUTION_OPTIONS ['2K','4K'] 无 1K、其 COUNT_OPTIONS [1,2,3,4] 含 3，与配置态 [1,2,4] 无 3 构成**已知两处档位不一致**，验收时属预期；另 VideoHDPanel、prompt-input / 命令 quality 项、VideoConfigPanel 自带数量下拉（:61-62 纯 UI）均不动。
 6. **拖拽菜单其余节点类型**：本次范围 imageGen+imageExtGen；文本/视频/音频节点接入=shouldOpenHandleMenu 类型集合放宽一行。
 7. **杂项**：存量 extConfig.generateCount=8 显示「8张」而菜单无 8 项（不迁移数据，A2）；VideoConfigPanel.tsx:430 与 GenerateCountSelector 同名英文 aria-label（`Generate N variations`）改中文后两处文案不一致，VideoConfigPanel 不在本次范围、留待其面板政版时对齐；缩略图实际 50×50 与 56 按钮同排高差 6px（人工验收确认视觉可接受）；PromptInput.css .thumbnail-item 64px 为死代码（不引用不删，仅指出）；mediaName 改名连带 @引用素材 chip 名（ImageGenNode.tsx:179，语义合理、加断言承保）；参考代码 aria-describedby="«r8b»" 为运行时 artifact 不照抄；**screenToFlowPosition 双重相减 2 处存量**（onDrop L258-263 / handlePresencePointerMove——函数内部已减容器 rect，现仅因画布容器 rect 原点恰为 (0,0) 而无害，改动画布布局前必须一并修，本次不动）。
+8. **组内空白松手弹菜单（group 过滤裁定）**：absoluteRectsOf 将 group 类型节点排除在节点体命中判定外——组是容器非实体节点，往组内空白处松手仍弹添加节点菜单（与顶层空白一致）；组内实体节点体上松手不弹（绝对坐标解析承保）。
 
 ## 8. 验收清单（对应 10 项需求）
 
@@ -171,7 +172,7 @@ P0（数量选择器，独立零依赖）→ P1 纯展示批（a 输入区 → b
 7. 标题/图标 13px；双击进编辑、框宽=节点宽−图标/尺寸占位；Enter/失焦保存、Esc 还原；改名后撤销（与建操作同栈回滚）/协作对端改名本地同步/刷新后保留（mediaName 唯一真源）✓逻辑自动+视效人工
 8. 运行按钮 20px 新箭头、灰底黑箭头（浅档加深 ≥3:1）、title=生成 ✓
 9. 分辨率弹层 1K/2K/4K 三选项（Image 与 ImageExt 两面板）✓
-10. 右 handle 拖到**画布空白处**松开弹 4 项菜单/左 2 项（imageGen 与 imageExtGen 两类节点）；落在 handle/节点体上不弹（guard 2 点-矩形判定承保）；拖边端点重连不弹；Esc 取消重连后下一次真实拖拽仍能弹（双复位）；建节点中心对齐松手点并自动连线（Ctrl+Z 节点+边同栈撤销）；点 handle 不拖不弹；锁定态不弹 ✓jsdom 逻辑+人工手势（拖拽手势自动化不可行，浏览器验收）
+10. 右 handle 拖到**画布空白处**松开弹 4 项菜单/左 2 项（imageGen 与 imageExtGen 两类节点）；落在 handle/节点体上不弹（组内空白弹/组内节点体不弹——group 过滤裁定）（guard 2 点-矩形判定承保）；拖边端点重连不弹；Esc 取消重连后下一次真实拖拽仍能弹（双复位）；建节点中心对齐松手点并自动连线（Ctrl+Z 节点+边同栈撤销）；点 handle 不拖不弹；锁定态不弹 ✓jsdom 逻辑+人工手势（拖拽手势自动化不可行，浏览器验收）
 
 ## 附录 A：数量按钮图标（用户提供，fill 改 currentColor）
 
