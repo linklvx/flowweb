@@ -10,7 +10,7 @@
 
 **工作目录：** web 侧命令在 `D:\flowweb\apps\web`，api 侧在 `D:\flowweb\apps\api`。测试命令：web `npx vitest run <file>`；api `npx vitest run <file>`（apps/api test script = tsc+vitest，单文件跑用 npx vitest run）。
 
-**已知门禁（收尾 Task 18 全跑）：** `pnpm test`（turbo 全量）；`pnpm lint`（web lint-gate：no-color-hex 增量 + no-theme-utility 无 baseline）；`node scripts/css-audit.mjs --slash-gate`（cwd=apps/web）；`pnpm --filter @flowweb/web build`。**硬约束**：斜杠透明度对 var() token 零输出（禁 `bg-overlay-2/50` 类写法）；white/black 工具类仅白名单文件可用；无裸 `text-text-dim`（只有 dim-1/2/3）。
+**已知门禁（收尾 Task 18 全跑）：** `pnpm test`（turbo 全量）；`pnpm lint`（web lint-gate：no-color-hex 增量 + no-theme-utility 无 baseline）；`node scripts/css-audit.mjs --slash-gate`（**一律 cwd=apps/web**）；`pnpm --filter @flowweb/web build`。**硬约束**：斜杠透明度对 var() token 零输出（禁 `bg-overlay-2/50` 类写法）；white/black 工具类仅白名单文件可用；无裸 `text-text-dim`（只有 dim-1/2/3）；渐变用 `bg-gradient-to-*`（Tailwind 3.4.19，`bg-linear-to-*` 是 v4 命名零输出）；no-color-hex baseline key 含**行文本 hash**（lint-gate.mjs:8）——既有含 hex 的行必须逐字保留（本计划 T4 涉及 SortableImageItem.tsx:127 的 `border-[#2A2A34]` 行）。
 
 **spec 拍板索引：** D8 角标全部图/D13 点卡=使用/D14+D26 计数=人数+非事务三步/D16 写 null/D19+D25 双 prop 恒显按钮/D20 状态驱动 onClose/D21 显式宽度/D28 删视频回退。B 项登记见 spec §10。
 
@@ -163,10 +163,10 @@ git commit -m "feat(web): 参考选择可选判定纯函数——类型守卫/fi
 
 ---
 
-### Task 2: nodeStore——referenceSelect 状态 + 编辑/变换模式联动退出 + 满员提示
+### Task 2: nodeStore——referenceSelect 状态 + 编辑/变换模式联动退出 + 满员提示 + styleId/styleName 类型
 
 **Files:**
-- Modify: `apps/web/src/stores/nodeStore.ts`（NodeState 接口 :294 起加 3 声明；store 实现加字段与 4 个 action；:360-372 两个 setActive* 各加一行联动）
+- Modify: `apps/web/src/stores/nodeStore.ts`（NodeState 接口 :294 起加 3 声明；store 实现加字段与 4 个 action；:360-372 两个 setActive* 各加一行联动；`ImageNodeData` :117 与 `VideoNodeData` :137 后各加 2 类型字段）
 - Modify: `apps/web/src/stores/nodeStore.test.ts`（文件尾追加 describe）
 
 - [ ] **Step 2.1: 写失败测试**
@@ -258,6 +258,13 @@ Expected: 新 describe FAIL（referenceSelect undefined / action 不存在）。
 let _referenceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 ```
 
+5. 类型（从原 T16 前移至此——使 T14 的 updateConfig 无需 `as never`；读取侧 VideoConfigPanel 渲染选中态需要字段在 VideoNodeData 上，spec §7.1）：`ImageNodeData` 的 `style?: string;`（:117）之后与 `VideoNodeData` 的 `prompt?: PromptValue;`（:137）之后各加：
+
+```ts
+  styleId?: string | null;   // 风格库选中（null=已取消，D16 契约：键存在值 null）
+  styleName?: string | null;
+```
+
 - [ ] **Step 2.4: 跑绿**
 
 Run: `npx vitest run src/stores/nodeStore.test.ts`
@@ -330,13 +337,15 @@ git commit -m "feat(web): nodeStore referenceSelect 模式状态——start/exit
       expect(useMenuStore.getState().styleLibrary).toBeNull();
     });
 
-    it('三个 open 均跨 store 调 exitReferenceSelect（menuStore→nodeStore 单向）', () => {
+    it('三个 open 与 toggle 开分支均跨 store 调 exitReferenceSelect（menuStore→nodeStore 单向；关分支不触发）', () => {
       const exitSpy = vi.spyOn(useNodeStore.getState(), 'exitReferenceSelect');
-      useMenuStore.getState().open();
-      useMenuStore.getState().openHandleMenu({ x: 0, y: 0, nodeId: 'n', side: 'source', flowPoint: { x: 0, y: 0 } });
-      useMenuStore.getState().openStyleLibrary('img1');
-      useMenuStore.getState().toggle(); // 由开变关，不触发
-      expect(exitSpy).toHaveBeenCalledTimes(3);
+      useMenuStore.getState().open();             // 1
+      useMenuStore.getState().openHandleMenu({ x: 0, y: 0, nodeId: 'n', side: 'source', flowPoint: { x: 0, y: 0 } }); // 2
+      useMenuStore.getState().openStyleLibrary('img1'); // 3
+      useMenuStore.getState().toggle();           // 此刻 isOpen=false → 开分支 → 4
+      expect(exitSpy).toHaveBeenCalledTimes(4);
+      useMenuStore.getState().toggle();           // 由开变关 → 不触发
+      expect(exitSpy).toHaveBeenCalledTimes(4);
       exitSpy.mockRestore();
     });
   });
@@ -447,7 +456,7 @@ git commit -m "feat(web): menuStore styleLibrary 第三切片——三向互斥�
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx`
 
-要点（spec §3.4/D8/B18）：`index?: number` prop；角标挂外层 relative 容器（一半悬外），内层新容器承接 `overflow-hidden` 圆角裁切；两态复用既有本地 `hovered`（原生 mouseover/out）；uploading/error 态角标仍显示（z-10）；X 按钮从 StatusOverlay 的 success 分支移除，由角标接管删除。同文件已在 no-theme-utility 白名单（allow:['bg','text']），角标沿用 bg-black/text-white 零登记成本。
+要点（spec §3.4/D8/B18）：`index?: number` prop；角标挂新包裹层（一半悬外），**原容器 div 的 className 行（:127 含 `border-[#2A2A34]`）逐字保留**——no-color-hex baseline key 含行文本 hash（lint-gate.mjs:8、e2e/audit/eslint-hex-baseline.json:181），改该行文本=新违例；两态复用既有本地 `hovered`（原生 mouseover/out）；uploading/error 态角标仍显示（z-10）；X 从 StatusOverlay 的 success 分支移除由角标接管，**同时删 StatusOverlay 孤立的 `isDragging` prop**（其唯一消费在 success 分支）。同文件已在 no-theme-utility 白名单（allow:['bg','text']），角标沿用 bg-black/text-white 零登记成本。**本 Task 同 commit 让 ImageThumbnailBar 传 index**（否则 T4→T5 中间态缩略图无法删除）。
 
 - [ ] **Step 4.1: 写失败测试**
 
@@ -455,11 +464,11 @@ git commit -m "feat(web): menuStore styleLibrary 第三切片——三向互斥�
 
 ```tsx
   // ---- 序号/X 角标两态（spec §3.4，D8）----
-  it('9. 传 index 时常态渲染序号角标（index+1），一半悬外（translate 50%,-50%）', () => {
+  it('9. 传 index 时常态渲染序号角标（index+1），一半悬外（transform 含 translate）', () => {
     render(<SortableImageItem image={baseImage} index={2} onDelete={onDelete} onClick={onClick} />);
     const badge = screen.getByTestId('ref-badge-index');
     expect(badge.textContent).toBe('3');
-    expect(badge.parentElement?.style.transform).toBe('translate(50%, -50%)');
+    expect(badge.parentElement?.style.transform).toContain('translate'); // 不锚字面量（jsdom 归一化差异防脆）
   });
 
   it('10. hover 后角标变 X，点击调 onDelete；移出还原序号', () => {
@@ -510,11 +519,11 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
 
 - [ ] **Step 4.3: 实现**
 
-`SortableImageItem.tsx` 三处改动：
+`SortableImageItem.tsx` 四处改动：
 
 1. props 加 `index?: number;`（:7-11 接口）并解构；
-2. `StatusOverlay` 的 `if (status === 'success' && !isDragging)` 分支（:42-52）**整段删除**（X 由角标接管；uploading/error 蒙层保留）；
-3. JSX（:120-142）替换为：
+2. `StatusOverlay` 的 `if (status === 'success' && !isDragging)` 分支（:42-52）**整段删除**（X 由角标接管），并**从其 props 接口/调用删去 `isDragging`**（孤立 prop，唯一消费在被删分支）；
+3. JSX（:120-142）改为**新包裹层结构**——原容器 div 的 className 行（:127）**逐字保留**（baseline 保护：`"w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group"` 一字不改），ref/attributes/listeners/尺寸上移到新包裹层：
 
 ```tsx
   return (
@@ -524,25 +533,23 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
         style={style}
         {...attributes}
         {...listeners}
-        className="w-[50px] h-[50px] flex-shrink-0 cursor-pointer relative group"
+        className="relative flex-shrink-0"
       >
-        {/* 内层承接圆角裁切——角标挂外层一半悬外不被裁（spec §3.4 防裁切第 1 层；第 2 层=工具行 pt-3 在 Task 5） */}
-        <div className="w-full h-full rounded-md overflow-hidden border border-[#2A2A34]">
+        {/* 原 className 行逐字保留（:127 含 border-[#2A2A34]——no-color-hex baseline 按行文本 hash，改字=新违例） */}
+        <div className="w-[50px] h-[50px] rounded-md overflow-hidden flex-shrink-0 border border-[#2A2A34] cursor-pointer relative group">
           <img
             src={url}
             alt={name}
             className="w-full h-full object-cover"
             onClick={handleClick}
           />
+          {(status === 'uploading' || status === 'error') && (
+            <StatusOverlay status={status} progress={progress} onDelete={handleDelete} />
+          )}
         </div>
-
-        {(status === 'uploading' || status === 'error') && (
-          <StatusOverlay status={status} progress={progress} isDragging={isDragging} onDelete={handleDelete} />
-        )}
 
         {typeof index === 'number' && (
           <div
-            data-testid={hovered && status === 'success' && !isDragging ? 'ref-badge-x-wrap' : 'ref-badge-index-wrap'}
             className="absolute top-0 right-0 z-10"
             style={{ transform: 'translate(50%, -50%)' }}
           >
@@ -573,18 +580,37 @@ Expected: 新用例 9-12 FAIL；改造后的 #3/#7 FAIL（无角标 testid）。
   );
 ```
 
-（预览 portal 段原样保留；StatusOverlay 组件签名不变，仅剩 uploading/error 两个分支生效。）
+（预览 portal 段原样保留。StatusOverlay 定义同步删 isDragging 参数与类型。）
 
-- [ ] **Step 4.4: 跑绿**
+- [ ] **Step 4.4: 跑绿 + lint（baseline 保护验证）**
 
-Run: `npx vitest run src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx`
-Expected: 全 PASS（含既有 1/2/4/5/6/8）。
+Run: `npx vitest run src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx && pnpm lint`
+Expected: 测试全 PASS（含既有 1/2/4/5/6/8）；lint 0 new（:127 原行未改字 → baseline 键不变）。
 
-- [ ] **Step 4.5: Commit**
+- [ ] **Step 4.5: ImageThumbnailBar 同 commit 传 index（防中间态不可删图）**
+
+`ImageThumbnailBar.tsx` 的 SortableImageItem 渲染处（:150-159）改为带下标传入：
+
+```tsx
+          {images.map((image, idx) => (
+            <SortableImageItem
+              key={image.id}
+              index={idx}
+              image={image}
+              onDelete={disabled ? () => {} : handleDeleteImage}
+              onClick={disabled ? () => {} : onImageClick}
+            />
+          ))}
+```
+
+Run: `npx vitest run src/pages/canvas/components/nodes/prompt-input/`
+Expected: 全 PASS。
+
+- [ ] **Step 4.6: Commit**
 
 ```bash
-git add src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx
-git commit -m "feat(web): 参考图序号/X 角标两态——index prop+一半悬外角标（hover 复用原生 hovered 态变 X 删除）+overflow 下移内层防裁切+uploading 态角标仍显示（spec §3.4/D8/B18）"
+git add src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx
+git commit -m "feat(web): 参考图序号/X 角标两态——index prop+新包裹层一半悬外角标（原 :127 hex 行逐字保留护 baseline）+hover 复用原生 hovered 变 X 删除+StatusOverlay 删孤立 isDragging+ImageThumbnailBar 同 commit 传 index（spec §3.4/D8/B18）"
 ```
 
 ---
@@ -595,7 +621,7 @@ git commit -m "feat(web): 参考图序号/X 角标两态——index prop+一半�
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx`
 
-要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。
+要点（spec §3.1/D19）：参考按钮脱离 `showUploadButton` 门控**恒显**（语义=模式入口）但**接 `disabled`**（生成中 status==='loading' 时渲染但点击无效——与原上传按钮的 !disabled 门控语义一致，P9 收紧：生成中不得改参考图/风格）；删除隐藏 file input/`handleUploadClick`/`handleFileChange`（拖拽 handleDrop/processUpload 保留）；图标换「卡片选择」（与横幅同款）；`pt-3` 防外层裁切（**spike 步骤先跑**）；风格按钮 onClick → `openStyleLibrary(nodeId)`（menuStore Task 3 已就绪；进入参考选择时关风格库的组件层收口也在此）。
 
 - [ ] **Step 5.1: spike——pt-3 三面板布局影响（B22，浏览器 5 分钟）**
 
@@ -657,7 +683,15 @@ git commit -m "feat(web): 参考图序号/X 角标两态——index prop+一半�
   });
 ```
 
-3. **#8**（:265-295）disabled 断言改为「disabled 时参考/风格按钮仍渲染（恒显）」：把 `expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();` 删除，改为 `expect(screen.getByTestId('upload-button')).toBeInTheDocument();`（drop 不触发上传的断言保留）。
+3. **#8**（:265-295）disabled 断言改为「disabled 时参考/风格按钮仍渲染（恒显）但点击无效」：把 `expect(screen.queryByTestId('upload-button')).not.toBeInTheDocument();` 改为：
+
+```tsx
+    // 参考按钮恒显（D19）但 disabled 时点击无效（P9：生成中不得进模式改参考图）
+    expect(screen.getByTestId('upload-button')).toBeInTheDocument();
+    expect((screen.getByTestId('upload-button') as HTMLButtonElement).disabled).toBe(true);
+```
+
+（drop 不触发上传的断言保留；`fireEvent.click` 对 disabled button 不触发 onClick，无需额外断言。）
 
 4. **#12**（:347-361）改为模式入口：
 
@@ -743,18 +777,19 @@ Expected: #3/#7/#12/#14/#16/#17 FAIL（现状 #3 旧断言先被新代码打死�
 
 1. import 区：删 `useRef`（若仅 fileInputRef 使用）、加 `import { useNodeStore } from '@/stores/nodeStore';`、`import { useMenuStore } from '@/stores/menuStore';`；
 2. 删除 `fileInputRef`、`handleUploadClick`、`handleFileChange`（:42、:92-94、:82-85）与 JSX 中的 `<input ... data-testid="file-input">`（:133-141）；
-3. `showUploadButton` 变量删除；参考按钮 JSX（:118-143 的 `{showUploadButton && (...)}` 包裹解除，按钮本身移出条件），按钮改为：
+3. `showUploadButton` 变量删除；参考按钮 JSX（:118-143 的 `{showUploadButton && (...)}` 包裹解除，按钮本身移出条件），按钮改为（**接 disabled**）：
 
 ```tsx
-      {/* 参考按钮 = 画布选择模式入口（spec §3.1/D19：恒显、图标=卡片选择；进入时组件层关闭风格库——nodeStore→menuStore 方向收口防 ESM 循环） */}
+      {/* 参考按钮 = 画布选择模式入口（spec §3.1/D19：恒显、图标=卡片选择、disabled=生成中点击无效 P9；进入时组件层关闭风格库——nodeStore→menuStore 方向收口防 ESM 循环） */}
       <button
         data-testid="upload-button"
         aria-label="参考"
+        disabled={disabled}
         onClick={() => {
           useMenuStore.getState().closeStyleLibrary();
           useNodeStore.getState().startReferenceSelect(nodeId);
         }}
-        className="flex h-[56px] w-[56px] shrink-0 cursor-pointer flex-col items-center justify-center gap-[2px] rounded-[8px] bg-overlay-2 transition-colors hover:bg-overlay-3 focus:outline-none shadow-none outline-none"
+        className="flex h-[56px] w-[56px] shrink-0 cursor-pointer flex-col items-center justify-center gap-[2px] rounded-[8px] bg-overlay-2 transition-colors hover:bg-overlay-3 focus:outline-none shadow-none outline-none disabled:cursor-not-allowed disabled:opacity-50"
       >
         <svg data-icon="card-select" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" />
@@ -765,9 +800,9 @@ Expected: #3/#7/#12/#14/#16/#17 FAIL（现状 #3 旧断言先被新代码打死�
       </button>
 ```
 
-4. 风格按钮（:106-116）加 onClick：`onClick={() => useMenuStore.getState().openStyleLibrary(nodeId)}`（aria-label/样式不动）；
+4. 风格按钮（:106-116）加 `disabled={disabled}` 与 onClick：`onClick={() => useMenuStore.getState().openStyleLibrary(nodeId)}`（aria-label/样式不动，className 补 `disabled:cursor-not-allowed disabled:opacity-50`）；
 5. 容器 div（:99-105）className 首项 `flex items-center gap-2 overflow-x-auto pb-1` → `flex items-center gap-2 overflow-x-auto pt-3 pb-1`（防裁切第 2 层，spec §3.4）；
-6. `SortableImageItem` 渲染处（:151-158）传 `index={images.findIndex((img) => img.id === image.id)}`——直接 map 下标更简：`{images.map((image, idx) => (<SortableImageItem key={image.id} index={idx} ... />))}`。
+6. `SortableImageItem` 渲染已在 Task 4 Step 4.5 传 index（本 Task 不再改）。
 
 - [ ] **Step 5.5: 跑绿 + 全量回归**
 
@@ -792,7 +827,7 @@ git commit -m "feat(web): 参考按钮=画布选择模式入口——恒显脱�
 - Create: `apps/web/src/pages/canvas/components/CanvasReferenceSelectBanner.tsx`
 - Create: `apps/web/src/pages/canvas/components/CanvasReferenceSelectBanner.test.tsx`
 
-要点（spec §3.2）：absolute 顶部居中（ReactFlow 子级、不随 viewport 变换）；`role="status"` 在文案 span；Esc=纯退出；「返回节点」=退出+滚动+选中（`setCenter` 用 RF `internals.positionAbsolute ?? position`）；notice 由 store flash 驱动。
+要点（spec §3.2）：absolute 顶部居中（ReactFlow 子级、不随 viewport 变换——先例 CanvasToolbar.tsx:51 为 bottom-left，"顶部居中"是本功能新形态）；`role="status"` 在文案 span；Esc=纯退出；「返回节点」=退出+滚动+选中——**几何取 `useReactFlow().getNode(id)`**（P11：nodeStore 节点无 measured/internals，RF 内部节点才有 positionAbsolute+measured）；notice 由 store flash 驱动。
 
 - [ ] **Step 6.1: 写失败测试**
 
@@ -803,17 +838,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useCanvasStore } from '@/stores/canvasStore';
 
+// 固定 spy（vi.hoisted）——getState 每次返回同一对象，否则断言拿到全新 vi.fn() 恒 0 调用
+const { selectNodeSpy } = vi.hoisted(() => ({ selectNodeSpy: vi.fn() }));
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: Object.assign(vi.fn(), {
-    getState: () => ({ selectNode: vi.fn() }),
-  }),
+  useCanvasStore: { getState: () => ({ selectNode: selectNodeSpy }) },
 }));
 
 const setCenter = vi.fn();
+const getNode = vi.fn();
 vi.mock('@xyflow/react', () => ({
-  useReactFlow: () => ({ setCenter }),
+  useReactFlow: () => ({ setCenter, getNode }),
 }));
 
 describe('CanvasReferenceSelectBanner', () => {
@@ -855,17 +890,20 @@ describe('CanvasReferenceSelectBanner', () => {
     expect(useNodeStore.getState().referenceSelect).toBeNull();
   });
 
-  it('返回节点 → 退出+setCenter 到节点中心+selectNode', () => {
+  it('返回节点 → 退出+setCenter 到节点中心（几何取 useReactFlow().getNode，P11）+selectNode', () => {
     useNodeStore.getState().startReferenceSelect('img1');
-    // 节点宽高走 measured 兜底 0——setCenter 断言用 (100, 200)
-    useNodeStore.setState({
-      nodes: { img1: { id: 'img1', type: 'imageGen', position: { x: 100, y: 200 }, data: {}, measured: { width: 200, height: 150 } } } as any,
+    // 几何从 RF 内部节点取（P11：nodeStore 节点无 measured/internals）
+    getNode.mockReturnValue({
+      id: 'img1',
+      position: { x: 100, y: 200 },
+      measured: { width: 200, height: 150 },
+      internals: { positionAbsolute: { x: 100, y: 200 } },
     });
     render(<CanvasReferenceSelectBanner />);
     fireEvent.click(screen.getByRole('button', { name: '返回节点' }));
     expect(useNodeStore.getState().referenceSelect).toBeNull();
     expect(setCenter).toHaveBeenCalledWith(200, 275, expect.anything());
-    expect(useCanvasStore.getState().selectNode).toHaveBeenCalledWith('img1');
+    expect(selectNodeSpy).toHaveBeenCalledWith('img1');
   });
 });
 ```
@@ -888,7 +926,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 /** 画布参考选择模式横幅（spec §3.2）——挂 ReactFlow 子级（absolute 顶部居中，不随 viewport 变换）。 */
 export function CanvasReferenceSelectBanner() {
   const referenceSelect = useNodeStore((s) => s.referenceSelect);
-  const { setCenter } = useReactFlow();
+  const { setCenter, getNode } = useReactFlow();
 
   useEffect(() => {
     if (!referenceSelect) return;
@@ -903,13 +941,16 @@ export function CanvasReferenceSelectBanner() {
 
   const handleReturn = () => {
     const { sourceNodeId } = referenceSelect;
-    const node = useNodeStore.getState().nodes[sourceNodeId] as any;
     useNodeStore.getState().exitReferenceSelect();
+    // P11：几何取 RF 内部节点（nodeStore 节点无 measured/internals）
+    const node = getNode(sourceNodeId) as any;
     if (node) {
       const abs = node.internals?.positionAbsolute ?? node.position ?? { x: 0, y: 0 };
       const w = node.measured?.width ?? node.width ?? 0;
       const h = node.measured?.height ?? node.height ?? 0;
       setCenter(abs.x + w / 2, abs.y + h / 2, { duration: 300 });
+      // 注：selectNode 只写 canvasStore.selectedId（P12）——面板可见由 elementsSelectable=false（D25）保证，
+      // 此调用仅服务 selectedId 的其他消费方（如批量工具条），非面板保活手段
       useCanvasStore.getState().selectNode?.(sourceNodeId);
     }
   };
@@ -985,7 +1026,7 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
   const inRefSelect = referenceSelect !== null;
 ```
 
-3. `onNodeClick`（:200-209）在函数体最前面插分支：
+3. `onNodeClick`（:200-209）在 `const ns = useNodeStore.getState();` **之后**插分支，且 useCallback deps 补 `handleReferencePick`（仓内启用 react-hooks/exhaustive-deps，漏 deps 会 lint 红）——改后结尾为 `}, [selectNode, handleReferencePick]);`：
 
 ```tsx
     // 画布参考选择模式（spec §3.3/D25）：elementsSelectable=false 已保发起节点选中，此处只做拾取
@@ -1045,14 +1086,24 @@ git commit -m "feat(web): 画布参考选择顶部横幅——图标/文案(stat
       if (useNodeStore.getState().referenceSelect) return; // 参考选择模式禁画布快捷键（含 Tab→AddNodeMenu，spec §3.1）
 ```
 
-（`useNodeStore` 已在 page.tsx import；若无需补 import。）
+（`useNodeStore` 已在 page.tsx import；若无需补 import。**回归面**：page.test.tsx:549/:558 已测 Tab——测试环境 nodeStore.getState().referenceSelect 为 undefined/null（falsy）不触发早退，天然不回归；若 page.test 的 nodeStore mock 缺 getState 键导致报错，按其既有 mock 模式补 `referenceSelect: null`。）
 
-- [ ] **Step 7.3: 验证**
+- [ ] **Step 7.3: useGroupKeyboard 早退（P10——spec §3.1 的 Ctrl+Z/G/Y gate，v1 计划遗漏）**
 
-Run: `npx vitest run src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/page.test.tsx && npx tsc -b --pretty false | head -20`
+`src/hooks/useGroupKeyboard.ts` 的 `isGroupEditContext`（:9-26，纯布尔函数、return true=调用方跳过快捷键，已核实）首个条件之前插：
+
+```ts
+  if (useNodeStore.getState().referenceSelect) return true; // 画布参考选择模式禁分组/撤销快捷键（spec §3.1：模式期 Ctrl+Z 等不生效——防撤销刚加入的参考图）
+```
+
+（`useNodeStore` 若未 import 则补；该 hook 为纯 getState 判定无副作用，插首条安全。）
+
+- [ ] **Step 7.4: 验证**
+
+Run: `npx vitest run src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/page.test.tsx && npx tsc -b --pretty false`
 Expected: 既有测试全 PASS；tsc 无新增报错（CanvasView.test 的 nodeStore mock 若缺 referenceSelect 键，按其既有 mock 模式补 `referenceSelect: null`）。
 
-- [ ] **Step 7.4: Commit**
+- [ ] **Step 7.5: Commit**
 
 ```bash
 git add src/pages/canvas/components/CanvasView.tsx src/pages/canvas/page.tsx
@@ -1114,7 +1165,7 @@ model StyleFavorite {
   userId    String
   styleId   String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style     Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
   @@unique([userId, styleId])
   @@index([userId, createdAt])
@@ -1125,7 +1176,7 @@ model StyleRecentUsage {
   userId     String
   styleId    String
   lastUsedAt DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id])
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style      Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
   @@unique([userId, styleId])
   @@index([userId, lastUsedAt])
@@ -1209,14 +1260,19 @@ const mkPrisma = () => ({
     findMany: vi.fn(),
     findFirst: vi.fn(),
     findUnique: vi.fn(),
+    count: vi.fn().mockResolvedValue(0),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   },
   styleFavorite: {
     findMany: vi.fn(),
+    findUnique: vi.fn().mockResolvedValue(null),
+    count: vi.fn().mockResolvedValue(0),
     createMany: vi.fn(),
     deleteMany: vi.fn(),
   },
   styleRecentUsage: {
+    findMany: vi.fn(),
+    count: vi.fn().mockResolvedValue(0),
     create: vi.fn(),
     update: vi.fn(),
   },
@@ -1269,12 +1325,28 @@ describe('StylesService', () => {
       expect(prisma.styleFavorite.findMany).toHaveBeenCalledWith({ where: { userId: 'u1', styleId: { in: ['s1'] } }, select: { styleId: true } });
     });
 
-    it('tab=favorites：join 收藏+active 过滤+createdAt desc,id asc', async () => {
-      prisma.style.findMany.mockResolvedValue([]);
-      await service.list('u1', { tab: 'favorites', page: 1, pageSize: 20 });
-      expect(prisma.style.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ active: true, favorites: { some: { userId: 'u1' } } }),
-        orderBy: [{ favorites: { _count: 'desc' } }, { id: 'asc' }],
+    it('tab=favorites：分页 join 行（styleFavorite.createdAt desc, id desc）——我的收藏时间倒序非全局收藏数', async () => {
+      prisma.styleFavorite.findMany.mockResolvedValue([
+        { id: 'f2', styleId: 's2', createdAt: new Date(), style: { id: 's2', name: 'B', coverKey: 'k2', authorName: null, isCommercial: false, usageCount: 0, promptText: 'p', active: true } },
+      ]);
+      prisma.styleFavorite.count.mockResolvedValue(1);
+      const out = await service.list('u1', { tab: 'favorites', page: 1, pageSize: 20 });
+      expect(prisma.styleFavorite.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { userId: 'u1', style: { active: true } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: 0, take: 20,
+      }));
+      expect(out.items[0]).toMatchObject({ id: 's2' });
+      expect(prisma.style.findMany).not.toHaveBeenCalled(); // 不走 style 主表分页
+    });
+
+    it('tab=recent：同构换 styleRecentUsage.lastUsedAt desc', async () => {
+      prisma.styleRecentUsage.findMany.mockResolvedValue([]);
+      prisma.styleRecentUsage.count.mockResolvedValue(0);
+      await service.list('u1', { tab: 'recent', page: 1, pageSize: 20 });
+      expect(prisma.styleRecentUsage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { userId: 'u1', style: { active: true } },
+        orderBy: [{ lastUsedAt: 'desc' }, { id: 'desc' }],
       }));
     });
   });
@@ -1312,7 +1384,7 @@ describe('StylesService', () => {
       expect(prisma.style.updateMany).toHaveBeenCalledWith({
         where: { id: 's1', active: true }, data: { usageCount: { increment: 1 } },
       });
-      expect(out.style.id).toBe('s1');
+      expect(out.id).toBe('s1'); // 返回扁平 StyleListItem（H3 口径统一：测试/实现/前端三方一致）
     });
 
     it('重复使用：create 撞 P2002 → 退化 update lastUsedAt，不计数', async () => {
@@ -1371,9 +1443,34 @@ export class StylesService {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(PAGE_SIZE_MAX, Math.max(1, Number(q.pageSize) || 20));
 
+    // favorites/recent：分页 join 行驱动（该用户收藏/使用时间倒序——非全局收藏数；
+    // join 行 id 作 tiebreaker，spec §4.2 稳定序）。all：style 主表分页。
+    if (q.tab === 'favorites' || q.tab === 'recent') {
+      const isFav = q.tab === 'favorites';
+      const model = isFav ? this.prisma.styleFavorite : this.prisma.styleRecentUsage;
+      const timeField = isFav ? 'createdAt' : 'lastUsedAt';
+      const [joinRows, total] = await Promise.all([
+        (model.findMany as any)({
+          where: { userId, style: { active: true } },
+          orderBy: [{ [timeField]: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          select: { styleId: true, style: true },
+        }),
+        (model.count as any)({ where: { userId, style: { active: true } } }),
+      ]);
+      const items = await Promise.all(
+        (joinRows as Array<{ style: any }>).map(async ({ style: r }) => ({
+          id: r.id, name: r.name, authorName: r.authorName, isCommercial: r.isCommercial,
+          usageCount: r.usageCount, promptText: r.promptText,
+          coverUrl: await this.minio.generatePresignedGetUrl(r.coverKey, 3600),
+          favorited: true, // join 行本身即「我收藏/我用过」
+        })),
+      );
+      return { items, total, page, pageSize };
+    }
+
     const where: any = { active: true };
-    if (q.tab === 'favorites') where.favorites = { some: { userId } };
-    if (q.tab === 'recent') where.recents = { some: { userId } };
     if (q.categoryId) where.categoryId = q.categoryId;
     if (q.commercialOnly) where.isCommercial = true;
     if (q.search) {
@@ -1384,12 +1481,7 @@ export class StylesService {
     }
 
     // 排序含 id tiebreaker（spec §4.2——偏移分页需稳定序）
-    const orderBy =
-      q.tab === 'favorites'
-        ? [{ favorites: { _count: 'desc' as const } }, { id: 'asc' as const }]
-        : q.tab === 'recent'
-          ? [{ recents: { _count: 'desc' as const } }, { id: 'asc' as const }]
-          : [{ sortOrder: 'asc' as const }, { usageCount: 'desc' as const }, { id: 'asc' as const }];
+    const orderBy = [{ sortOrder: 'asc' as const }, { usageCount: 'desc' as const }, { id: 'asc' as const }];
 
     const [rows, total] = await Promise.all([
       this.prisma.style.findMany({ where, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
@@ -1430,8 +1522,10 @@ export class StylesService {
     };
   }
 
-  /** 幂等 toggle：createMany skipDuplicates / deleteMany 双向不抛（spec D26）。 */
+  /** 幂等 toggle：createMany skipDuplicates / deleteMany 双向不抛（spec D26）。
+   *  typeof 校验：controller 无 ValidationPipe，非布尔值不得静默按 false 取消收藏（P17）。 */
   async favorite(userId: string, styleId: string, favorited: boolean): Promise<{ favorited: boolean }> {
+    if (typeof favorited !== 'boolean') throw new BadRequestException('favorited 必须为布尔值');
     if (favorited) {
       await this.prisma.styleFavorite.createMany({ data: [{ userId, styleId }], skipDuplicates: true });
     } else {
@@ -1462,12 +1556,12 @@ export class StylesService {
         data: { usageCount: { increment: 1 } },
       });
     }
-    return this.getById(userId, styleId);
+    return this.getById(userId, styleId); // 扁平 StyleListItem（use 返回形状口径：扁平，非 { style } 包装——H3）
   }
 }
 ```
 
-（注：favorites/recent 的排序若用 `_count` 不符合"收藏时间/lastUsedAt 倒序"，执行时以实际可编译语义为准改为 `orderBy: [{ favorites: { _count: 'desc' } }]` 或在 include 后数组排序——**执行者裁定**：目标是稳定倒序 + id tiebreaker，测试断言随之同步。）
+（use 的返回为扁平 StyleListItem；spec §6.1 表中「→ `{ style }`」按此口径更正为「→ StyleListItem 扁平」。favorite 需在文件头部 import 补 `BadRequestException`。）
 
 - [ ] **Step 9.4: 实现 styles.controller.ts**
 
@@ -1695,11 +1789,9 @@ export class UpdateStyleDto {
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
-
-export class FavoriteDto {
-  @Type(() => Boolean) favorited!: boolean;
-}
 ```
+
+（无 FavoriteDto——favorite 的参数校验在 styles.service 内 `typeof favorited !== 'boolean'` 判定（P17：@Type(()=>Boolean) 会把 "false" 字符串转 true，语义陷阱）；dto 文件头部的 `Type` import 若因此未被使用则删。）
 
 - [ ] **Step 10.4: 实现 admin-style.service.ts**
 
@@ -1725,7 +1817,12 @@ export class AdminStyleService {
   async createCategory(dto: CreateStyleCategoryDto) {
     const dup = await this.prisma.styleCategory.findUnique({ where: { name: dto.name } });
     if (dup) throw new BadRequestException('分类已存在');
-    return this.prisma.styleCategory.create({ data: { name: dto.name, sortOrder: dto.sortOrder ?? 0, active: dto.active ?? true } });
+    try {
+      return await this.prisma.styleCategory.create({ data: { name: dto.name, sortOrder: dto.sortOrder ?? 0, active: dto.active ?? true } });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') throw new BadRequestException('分类已存在'); // 并发改名撞唯一索引（P16）
+      throw e;
+    }
   }
 
   async updateCategory(id: string, dto: UpdateStyleCategoryDto) {
@@ -1765,13 +1862,18 @@ export class AdminStyleService {
   }
 
   async createStyle(dto: CreateStyleDto) {
-    return this.prisma.style.create({
-      data: {
-        name: dto.name, categoryId: dto.categoryId, coverKey: dto.coverKey,
-        authorName: dto.authorName ?? null, isCommercial: dto.isCommercial ?? false,
-        promptText: dto.promptText, sortOrder: dto.sortOrder ?? 0, active: dto.active ?? true,
-      },
-    });
+    try {
+      return await this.prisma.style.create({
+        data: {
+          name: dto.name, categoryId: dto.categoryId, coverKey: dto.coverKey,
+          authorName: dto.authorName ?? null, isCommercial: dto.isCommercial ?? false,
+          promptText: dto.promptText, sortOrder: dto.sortOrder ?? 0, active: dto.active ?? true,
+        },
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2003') throw new BadRequestException('分类不存在'); // 非法 categoryId FK（P16）
+      throw e;
+    }
   }
 
   async updateStyle(id: string, dto: UpdateStyleDto) {
@@ -1783,7 +1885,10 @@ export class AdminStyleService {
     }
     const coverChanged = dto.coverKey !== undefined && dto.coverKey !== existing.coverKey;
     if (coverChanged) data.coverKey = dto.coverKey;
-    const updated = await this.prisma.style.update({ where: { id }, data });
+    const updated = await this.prisma.style.update({ where: { id }, data }).catch((e) => {
+      if ((e as { code?: string }).code === 'P2003') throw new BadRequestException('分类不存在');
+      throw e;
+    });
     if (coverChanged) await this.minio.delete(existing.coverKey).catch(() => {}); // 换图清旧对象，失败不阻断（banner 先例）
     return updated;
   }
@@ -1918,16 +2023,22 @@ git commit -m "feat(api): styles admin——分类 CRUD(重名 400+删除保护 
 
 - [ ] **Step 11.2: 写失败测试**
 
-`execution.service.spec.ts` 末尾追加（在顶层 describe 内）：
+`execution.service.spec.ts` 末尾追加（在顶层 describe 内）。**签名与 mock 基线（B5）**：真实签名为 `execute(projectId, nodeId, userId, nodeIds?, sv?)`（:35），且 `:40 if (!project) return`——新 describe 必须补 `canvasProject.findUnique`/`pricingRule.findFirst` 基线（既有用例逐个自补，:83 实证），否则四条用例全在「项目不存在」早退处红且与被测行为无关：
 
 ```ts
   describe('风格拼接与面板 prompt 断链（spec §7.1/§7.2，D12/D28）', () => {
+    beforeEach(() => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' }); // :40 早退基线（B5）
+      prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 0 });
+      prisma.style.findMany.mockResolvedValue([]);
+    });
+
     it('D12：独立图片节点（无上游文本）data.prompt.text 进 prompt', async () => {
       topology.sort.mockReturnValue([
         { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
-      await service.execute({} as any, 'p1', 'u1');
+      await service.execute('p1', 'n2', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板词' }));
     });
 
@@ -1938,7 +2049,7 @@ git commit -m "feat(api): styles admin——分类 CRUD(重名 400+删除保护 
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
-      await service.execute({} as any, 'p1', 'u1');
+      await service.execute('p1', 'n2', 'u1');
       expect(prisma.style.findMany).toHaveBeenCalledWith({ where: { id: { in: ['st1'] } } });
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词, 风格词' }));
     });
@@ -1949,7 +2060,7 @@ git commit -m "feat(api): styles admin——分类 CRUD(重名 400+删除保护 
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
-      await service.execute({} as any, 'p1', 'u1');
+      await service.execute('p1', 'n2', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词' }));
     });
 
@@ -1959,15 +2070,13 @@ git commit -m "feat(api): styles admin——分类 CRUD(重名 400+删除保护 
         { id: 'n3', type: 'videoGen', data: { model: 'vm', styleId: 'st1', prompt: { text: '', html: '' } } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
-      await service.execute({} as any, 'p1', 'u1');
+      await service.execute('p1', 'n3', 'u1');
       const arg = apiCaller.callVideoGen.mock.calls[0][0] as { prompt: unknown };
       expect(arg.prompt).toBe('风格词V');           // 纯风格文本（面板为空）
       expect(typeof arg.prompt).toBe('string');      // 不再序列化 PromptValue 对象
     });
   });
 ```
-
-（`execute` 的实际签名按既有用例调用方式对齐——执行时抄本文件第一个用例的调用形态。）
 
 - [ ] **Step 11.3: 跑红**
 
@@ -2056,7 +2165,7 @@ git commit -m "feat(api): execution 风格集成——:75 fallback 补 data.prom
   });
 ```
 
-（`rawNode`/`base` 为本文件既有 helper/fixture，直接复用；执行时若命名不同按文件实际改。）
+（**位置**：追加在 `base` fixture 所在的**顶层 describe 作用域内**（:13 起），勿落到 describe 外——M5；`rawNode` 为本文件既有 helper，`out.nodes[0].data` 在 strict 下如报隐式 any 则 `(out.nodes[0] as any).data`。）
 
 - [ ] **Step 12.2: 跑红**
 
@@ -2078,7 +2187,7 @@ Expected: 新用例 FAIL（白名单无该字段，data 被剥）。
 - [ ] **Step 12.4: 跑绿 + video-work 回归**
 
 Run: `npx vitest run src/modules/video-work/`
-Expected: 全 PASS（clone/作品 spec 若有白名单形状断言随之同步）。
+Expected: 全 PASS（既有 `toEqual(['aiTool','aspectRatio'])` 类断言按 `field in src` 判定、fixture 无 styleId——新增白名单字段不影响既有断言，已核实 :59；clone spec 的 data 形状断言若有 exact toEqual 需同步）。
 
 - [ ] **Step 12.5: Commit**
 
@@ -2115,7 +2224,8 @@ describe('stylesApi', () => {
     const f = vi.fn().mockResolvedValue(ok({ items: [], total: 0, page: 1, pageSize: 20 }));
     vi.stubGlobal('fetch', f);
     const out = await fetchStyles({ tab: 'favorites', search: 'x', commercialOnly: true, page: 2 });
-    expect(f).toHaveBeenCalledWith('/api/styles?tab=favorites&search=x&commercialOnly=true&page=2&pageSize=20');
+    // 断言按实现的真实插入顺序（URLSearchParams 保序：构造器三键先、set 两键后——H4）
+    expect(f).toHaveBeenCalledWith('/api/styles?tab=favorites&page=2&pageSize=20&search=x&commercialOnly=true');
     expect(out).toEqual({ items: [], total: 0, page: 1, pageSize: 20 });
   });
 
@@ -2156,7 +2266,6 @@ Expected: FAIL（模块不存在）。
 
 ```ts
 /** 风格库用户侧接口（spec §6.1）。信封 {code,data,message} 拆包——imageNodeApi 裸 fetch 先例。 */
-import type { ImageItem } from '@/stores/nodeStore';
 
 export interface StyleCategoryItem { id: string; name: string; sortOrder: number }
 
@@ -2221,12 +2330,7 @@ export async function useStyle(id: string): Promise<StyleSummary> {
   const res = await fetch(`/api/styles/${id}/use`, { method: 'POST' });
   return unwrap<StyleSummary>(res);
 }
-
-// ImageItem 仅类型引用占位防 tree-shake 误删（无运行时依赖）——如 lint 报未使用则删除本行与 import。
-export type { ImageItem };
 ```
-
-（末行 `export type { ImageItem }` 与 import 若 lint 判冗余直接删 import 与该行——stylesApi 本体不消费 ImageItem。）
 
 - [ ] **Step 13.4: 跑绿**
 
@@ -2420,7 +2524,7 @@ export function useStyleLibrary(nodeId: string, opts?: { onUsed?: () => void }) 
     setUseError(null);
     try {
       const style = await useStyle(id);
-      useNodeStore.getState().updateConfig(nodeId, { styleId: style.id, styleName: style.name } as never);
+      useNodeStore.getState().updateConfig(nodeId, { styleId: style.id, styleName: style.name });
       opts?.onUsed?.();
     } catch {
       setUseError('风格使用失败，请重试'); // 失败不关窗（spec §4.4）
@@ -2428,7 +2532,7 @@ export function useStyleLibrary(nodeId: string, opts?: { onUsed?: () => void }) 
   }, [nodeId, opts]);
 
   const clearStyle = useCallback(() => {
-    useNodeStore.getState().updateConfig(nodeId, { styleId: null, styleName: null } as never); // D16：写 null
+    useNodeStore.getState().updateConfig(nodeId, { styleId: null, styleName: null }); // D16：写 null（类型已在 T2 就位，无需强转）
   }, [nodeId]);
 
   const currentStyleId = useNodeStore((s) => (s.nodes[nodeId]?.data as { styleId?: string | null } | undefined)?.styleId ?? null);
@@ -2445,7 +2549,7 @@ export function useStyleLibrary(nodeId: string, opts?: { onUsed?: () => void }) 
 - [ ] **Step 14.4: 跑绿**
 
 Run: `npx vitest run src/pages/canvas/components/style-library/useStyleLibrary.test.ts`
-Expected: 全 PASS（`updateConfig` 对 mock nodes 的写入经 mergeNodeData 保留 null 键——若断言失败先确认 mergeNodeData 对 null 值的处理是 `merged[key] = null` 保留）。
+Expected: 全 PASS（类型已在 T2 前移，无需 `as never`；mergeNodeData 对 null 值是 `merged[key] = null` 保留——nodeStore.ts:269-271 已核实）。
 
 - [ ] **Step 14.5: Commit**
 
@@ -2500,9 +2604,11 @@ describe('StyleLibraryModal', () => {
     useNodeStore.setState({ nodes: { img1: { id: 'img1', type: 'imageGen', data: {} } } as any });
   });
 
-  it('未打开不渲染', () => {
+  it('未打开不渲染且不发请求（H1——hook 只在内层挂载）', () => {
     const { container } = render(<StyleLibraryModal />);
     expect(container.innerHTML).toBe('');
+    expect(api.fetchStyles).not.toHaveBeenCalled();
+    expect(api.fetchStyleCategories).not.toHaveBeenCalled();
   });
 
   it('打开渲染三 tab/分类 chips/仅看可商用/卡片信息（名称+商用徽章+作者+N 人使用）', async () => {
@@ -2606,7 +2712,7 @@ export const StyleCard = memo(function StyleCard({ item, isCurrent, onUse, onCan
         <img src={item.coverUrl} alt={item.name} loading="lazy" decoding="async"
           className="absolute inset-0 size-full object-cover" />
         {isCurrent && <div className="absolute inset-0 bg-black/50" aria-hidden="true" />}
-        <div aria-hidden="true" className="from-black/20 pointer-events-none absolute inset-x-0 top-0 h-12 bg-linear-to-b to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+        <div aria-hidden="true" className="from-black/20 pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
         <div className="relative flex w-full items-center justify-between p-2">
           {isCurrent ? (
             <button
@@ -2622,9 +2728,12 @@ export const StyleCard = memo(function StyleCard({ item, isCurrent, onUse, onCan
               type="button"
               aria-label="使用"
               onClick={(e) => { e.stopPropagation(); onUse(item.id); }}
-              className="flex size-6 items-center justify-center rounded-lg bg-black/65 text-white transition-colors group-hover:bg-black/65"
+              className="flex h-6 max-w-6 items-center overflow-hidden rounded-lg bg-black/65 text-white transition-[max-width] duration-150 group-hover:max-w-35"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8l4 4L14 4" /></svg>
+              <span className="flex size-6 shrink-0 items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8l4 4L14 4" /></svg>
+              </span>
+              <span className="max-w-0 truncate whitespace-nowrap pr-0 text-[12px] leading-none opacity-0 transition-[max-width,opacity,padding] duration-150 group-hover:max-w-[3rem] group-hover:pr-2 group-hover:opacity-100">使用</span>
             </button>
           )}
           <button
@@ -2636,7 +2745,7 @@ export const StyleCard = memo(function StyleCard({ item, isCurrent, onUse, onCan
             <svg width="13" height="13" viewBox="0 0 22 21" fill={item.favorited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5"><path d="M11 1.5l2.8 5.7 6.3.9-4.5 4.4 1 6.2-5.6-3-5.6 3 1-6.2L2.9 8.1l6.3-.9z" /></svg>
           </button>
         </div>
-        <div aria-hidden="true" className="from-black/70 pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+        <div aria-hidden="true" className="from-black/70 pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
         <div className="relative flex w-full items-end justify-between p-2">
           {isCurrent && (
             <span className="flex h-6 items-center gap-1 rounded-lg bg-white px-2 py-1 text-[12px] leading-none text-black ring-1 ring-white">
@@ -2741,18 +2850,21 @@ const TABS: Array<{ key: StyleTab; label: string }> = [
   { key: 'recent', label: '最近使用' },
 ];
 
-/** 风格库弹窗（spec §4）——BaseFullscreenModal 外壳 + 显式宽卡片（D21）；onClose 状态驱动（D20）。 */
+/** 风格库弹窗（spec §4）——外层早退防未开弹窗也拉数据（H1：useStyleLibrary 的挂载 effect
+ *  会无条件发请求，组件常驻 page.tsx——早退必须在使用 hook 之前，故拆内外两层）。 */
 export function StyleLibraryModal() {
   const styleLibrary = useMenuStore((s) => s.styleLibrary);
+  if (!styleLibrary) return null;
+  return <StyleLibraryModalInner nodeId={styleLibrary.nodeId} />;
+}
+
+function StyleLibraryModalInner({ nodeId }: { nodeId: string }) {
   const closeStyleLibrary = useMenuStore((s) => s.closeStyleLibrary);
   const [detail, setDetail] = useState<StyleSummary | null>(null);
 
-  const lib = useStyleLibrary(styleLibrary?.nodeId ?? '', {
-    onUsed: () => useMenuStore.getState().closeStyleLibrary(),
+  const lib = useStyleLibrary(nodeId, {
+    onUsed: () => { setDetail(null); useMenuStore.getState().closeStyleLibrary(); }, // 先清 detail——防下次开库旧详情浮层复现（P2-1）
   });
-
-  if (!styleLibrary) return null;
-  const nodeId = styleLibrary.nodeId;
 
   return (
     <BaseFullscreenModal
@@ -2815,7 +2927,7 @@ export function StyleLibraryModal() {
                   !lib.categoryId ? 'bg-overlay-3 text-text' : 'text-text-dim-2 hover:bg-overlay-2 hover:text-text'
                 }`}
               >
-                全部
+                全部分类
               </button>
               {lib.categories.map((c) => (
                 <button
@@ -2831,7 +2943,7 @@ export function StyleLibraryModal() {
               ))}
             </div>
             <label className="text-text-dim-2 flex shrink-0 cursor-pointer items-center gap-1.5 text-[12px]">
-              <input type="checkbox" checked={lib.commercialOnly} onChange={(e) => lib.setCommercialOnly(e.target.checked)} className="accent-white" />
+              <input type="checkbox" checked={lib.commercialOnly} onChange={(e) => lib.setCommercialOnly(e.target.checked)} style={{ accentColor: 'currentColor' }} />
               仅看可商用
             </label>
           </div>
@@ -2889,33 +3001,29 @@ Expected: 全 PASS（page.test 若因新组件报错，按其既有 mock 模式�
 
 - [ ] **Step 15.8: 白名单 2 条 + registry 镜像（spec §4.6 定稿）**
 
-1. `no-theme-utility.js` 白名单（VideoCard 条目 :79 附近之后）加：
+1. `no-theme-utility.js` 白名单（VideoCard 条目 :79 附近之后）加——**white/black 命中全部在 StyleCard.tsx 与 StyleDetailPreview.tsx 两个文件（B6/P5：glob 按文件匹配；StyleLibraryModal.tsx 本体全程 token 零命中，不登记）**：
 
 ```js
-  { glob: 'src/pages/canvas/components/style-library/StyleLibraryModal.tsx', allow: ['bg', 'text', 'border', 'from'] },   // 反白 CTA/恒定面族（#9/#6 先例 TopActionBar/CanvasTopBar）：当前使用白边框+bg-black/50 遮罩+白底黑字徽章/封面渐变
-  { glob: 'src/pages/canvas/components/style-library/StyleDetailPreview.tsx', allow: ['bg'] },                            // scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族）
+  { glob: 'src/pages/canvas/components/style-library/StyleCard.tsx', allow: ['bg', 'text', 'border', 'from'] },       // 反白 CTA/恒定面族（#9/#6 先例 TopActionBar/CanvasTopBar）：当前使用 border-white+bg-white/text-black 徽章+bg-black/50 遮罩+hover 按钮 bg-black/65+封面渐变 from-black
+  { glob: 'src/pages/canvas/components/style-library/StyleDetailPreview.tsx', allow: ['bg', 'text'] },                // scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族）+使用钮 bg-white text-black
 ```
 
-（`allow` 族以实现 grep 为准增删——StyleCard.tsx 若也有命中（bg-black/65 按钮底/渐变）则同样登记：`{ glob: '.../StyleCard.tsx', allow: ['bg', 'from'] }`。）
-
-2. `canvas-migration-registry.json` whitelistKeeps 数组尾镜像对应条目（结构 `{glob, allow[], why}`，参照 :2416 VideoCard 条目）：
+2. `canvas-migration-registry.json` whitelistKeeps 数组尾镜像（结构 `{glob, allow[], why}`，参照 :2416 VideoCard 条目）：
 
 ```json
   {
-   "glob": "src/pages/canvas/components/style-library/StyleLibraryModal.tsx",
+   "glob": "src/pages/canvas/components/style-library/StyleCard.tsx",
    "allow": ["bg", "text", "border", "from"],
-   "why": "2026-09-26 风格库：反白 CTA/恒定面族（当前使用白边框+白底黑字徽章+bg-black/50 压封面遮罩+封面渐变）——先例 TopActionBar 反白 CTA"
+   "why": "2026-09-26 风格库卡片：反白 CTA/恒定面族（当前使用 border-white+白底黑字徽章+bg-black/50 压封面遮罩+hover 按钮 bg-black/65+封面渐变 from-black）——先例 TopActionBar 反白 CTA"
   },
   {
    "glob": "src/pages/canvas/components/style-library/StyleDetailPreview.tsx",
-   "allow": ["bg"],
-   "why": "2026-09-26 风格库详情 scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族恒定黑罩）"
+   "allow": ["bg", "text"],
+   "why": "2026-09-26 风格库详情：scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族）+使用钮 bg-white/text-black 反白 CTA"
   }
 ```
 
-（StyleCard 如登记则镜像第三条。）
-
-3. 验证：`pnpm lint`（cwd=apps/web）PASS——新文件 white/black 族命中全在 allow 列表。
+3. 验证：`pnpm lint`（cwd=apps/web）PASS——两个新文件 white/black 族命中全在 allow 列表（StyleLibraryModal.tsx 不应产生任何命中，若 grep 出命中说明实现偏离 token 化，回改实现而非扩白名单）。
 
 - [ ] **Step 15.9: Commit**
 
@@ -2926,12 +3034,13 @@ git commit -m "feat(web): 风格库弹窗——BaseFullscreenModal 外壳+显式
 
 ---
 
-### Task 16: 工具行风格按钮选中态——类型双接口 + 封面圆图模块级缓存
+### Task 16: 工具行风格按钮选中态——封面圆图 TTL 缓存
 
 **Files:**
-- Modify: `apps/web/src/stores/nodeStore.ts`（`ImageNodeData` :101-127 与 `VideoNodeData` :129-143 各加 2 字段）
 - Create: `apps/web/src/pages/canvas/components/style-library/styleThumbCache.ts`
 - Modify: `apps/web/src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx`（风格按钮选中态渲染）
+
+（类型 `styleId/styleName` 已在 Task 2 前移。B1 修正：**直接缓存 getById 返回的 presign coverUrl + 55min TTL**（< presign 3600s），不用 getMediaUrl(coverKey)——那是按 Media 行 id 取 URL 的接口，喂 MinIO key 会 404 且测试 mock 掉后静默。）
 
 - [ ] **Step 16.1: 写失败测试**
 
@@ -2939,90 +3048,82 @@ git commit -m "feat(web): 风格库弹窗——BaseFullscreenModal 外壳+显式
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getStyleThumb } from './styleThumbCache';
+import { getStyleThumb, styleThumbCacheMap } from './styleThumbCache';
 import * as api from '@/api/stylesApi';
-import * as mediaApi from '@/api/mediaApi';
 
 vi.mock('@/api/stylesApi', () => ({ fetchStyleById: vi.fn() }));
-vi.mock('@/api/mediaApi', () => ({ getMediaUrl: vi.fn() }));
 
-describe('styleThumbCache（模块级缓存 {styleName,coverKey}，不缓存 presign URL——spec §4.5）', () => {
+describe('styleThumbCache（TTL 缓存 {styleName, coverUrl, fetchedAt}——B1 方案）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getStyleThumb.cache.clear();
+    styleThumbCacheMap.clear();
   });
 
-  it('404/不存在 → null；结果缓存（第二次不发请求）', async () => {
+  it('404/不存在 → null；结果缓存（第二次不发请求，防反复打 404）', async () => {
     (api.fetchStyleById as any).mockResolvedValue(null);
     expect(await getStyleThumb('gone')).toBeNull();
     await getStyleThumb('gone');
     expect(api.fetchStyleById).toHaveBeenCalledTimes(1);
   });
 
-  it('命中 → presign coverKey 为 URL；同 id 复用（getMediaUrl 每次按需调用）', async () => {
-    (api.fetchStyleById as any).mockResolvedValue({ id: 's1', name: '胶片', coverKey: 'k1', coverUrl: '/expired.png' } as any);
-    (mediaApi.getMediaUrl as any).mockResolvedValue({ url: '/fresh.png' });
+  it('命中 → {styleName, url}；TTL 内同 id 复用不发请求', async () => {
+    (api.fetchStyleById as any).mockResolvedValue({ id: 's1', name: '胶片', coverUrl: '/presigned.png' });
     const a = await getStyleThumb('s1');
     const b = await getStyleThumb('s1');
-    expect(a).toEqual({ styleName: '胶片', url: '/fresh.png' });
+    expect(a).toEqual({ styleName: '胶片', url: '/presigned.png' });
     expect(b).toEqual(a);
     expect(api.fetchStyleById).toHaveBeenCalledTimes(1);
-    expect(mediaApi.getMediaUrl).toHaveBeenCalledTimes(2); // presign 不缓存
+  });
+
+  it('TTL 过期（>55min）→ 重新请求刷新', async () => {
+    vi.useFakeTimers();
+    (api.fetchStyleById as any).mockResolvedValue({ id: 's1', name: '胶片', coverUrl: '/p1.png' });
+    await getStyleThumb('s1');
+    vi.setSystemTime(Date.now() + 56 * 60 * 1000);
+    (api.fetchStyleById as any).mockResolvedValue({ id: 's1', name: '胶片新名', coverUrl: '/p2.png' });
+    const c = await getStyleThumb('s1');
+    expect(c).toEqual({ styleName: '胶片新名', url: '/p2.png' });
+    expect(api.fetchStyleById).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });
 ```
-
-（`getStyleThumb.cache` 为模块导出的 Map 供测试重置——实现里 `export const _cache` 或挂函数属性，执行时按 lint 调整命名。）
 
 - [ ] **Step 16.2: 跑红**
 
 Run: `npx vitest run src/pages/canvas/components/style-library/styleThumbCache.test.ts`
 Expected: FAIL（模块不存在）。
 
-- [ ] **Step 16.3: 实现**
-
-1. `nodeStore.ts` 类型（spec §7.1——读取侧需要，双接口都加）：
-
-`ImageNodeData` 的 `style?: string;`（:117）之后加：
-
-```ts
-  styleId?: string | null;   // 风格库选中（null=已取消，D16 契约：键存在值 null）
-  styleName?: string | null;
-```
-
-`VideoNodeData` 的 `prompt?: PromptValue;`（:137）之后加同样两行。
-
-2. `styleThumbCache.ts`：
+- [ ] **Step 16.3: 实现 styleThumbCache.ts**
 
 ```ts
 import { fetchStyleById } from '@/api/stylesApi';
-import { getMediaUrl } from '@/api/mediaApi';
 
-interface ThumbEntry { styleName: string; coverKey: string }
+interface ThumbEntry { styleName: string; coverUrl: string; fetchedAt: number }
 
-/** 模块级去重缓存——只存 {styleName, coverKey}，presign URL 按需现取（3600s TTL 不缓存，spec §4.5）。 */
-const cache = new Map<string, ThumbEntry | null>();
+const TTL_MS = 55 * 60 * 1000; // < presign 3600s，过期重取（B1：不缓存 MinIO key 再换 URL——直接用接口已 presign 的 coverUrl）
+
+/** 模块级去重缓存（导出 Map 供测试重置，勿挂函数属性——需额外类型声明）。 */
+export const styleThumbCacheMap = new Map<string, ThumbEntry | null>();
 
 export async function getStyleThumb(styleId: string): Promise<{ styleName: string; url: string } | null> {
-  if (!cache.has(styleId)) {
-    const style = await fetchStyleById(styleId); // 404 → null（缓存 null 防反复打 404）
-    cache.set(styleId, style ? { styleName: style.name, coverKey: (style as { coverKey?: string }).coverKey ?? '' } : null);
+  const cached = styleThumbCacheMap.get(styleId);
+  if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
+    return { styleName: cached.styleName, url: cached.coverUrl };
   }
-  const entry = cache.get(styleId) ?? null;
-  if (!entry || !entry.coverKey) return entry ? { styleName: entry.styleName, url: '' } : null;
-  const { url } = await getMediaUrl(entry.coverKey);
-  return { styleName: entry.styleName, url };
+  const style = await fetchStyleById(styleId); // 404 → null（缓存 null 防反复打 404）
+  if (!style) {
+    styleThumbCacheMap.set(styleId, null);
+    return null;
+  }
+  styleThumbCacheMap.set(styleId, { styleName: style.name, coverUrl: style.coverUrl, fetchedAt: Date.now() });
+  return { styleName: style.name, url: style.coverUrl };
 }
-
-// 测试重置口（命名带下划线避免与业务混淆；vitest 直接访问）
-getStyleThumb.cache = cache;
-
-declare module './styleThumbCache' {}
 ```
 
-（`declare module` 行如无必要删除；`getStyleThumb.cache = cache` 需要函数属性类型声明 `getStyleThumb.cache = cache as never` 或接口扩展——执行时按 tsc 提示调整。）
+- [ ] **Step 16.4: ImageThumbnailBar 风格按钮选中态**
 
-3. `ImageThumbnailBar.tsx` 风格按钮选中态（组件体加订阅与加载）：
+组件体加订阅与加载：
 
 ```tsx
 import { useEffect, useState } from 'react';
@@ -3040,16 +3141,16 @@ import { getStyleThumb } from '../../style-library/styleThumbCache';
 
 按钮 JSX（Task 5 后的形态）改为条件渲染：`thumb` 存在时上部为 `<img src={thumb.url} className="size-5 rounded-full object-cover" alt="" />`、下部 `<span className="... max-w-full truncate">{thumb.styleName}</span>`；否则维持调色盘图标+「风格」。按钮尺寸类不变（h-[56px] w-[56px]），名称 truncate 单行省略。
 
-- [ ] **Step 16.4: 跑绿 + 回归**
+- [ ] **Step 16.5: 跑绿 + 回归**
 
 Run: `npx vitest run src/pages/canvas/components/style-library/styleThumbCache.test.ts src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx`
 Expected: 全 PASS（ImageThumbnailBar 既有用例 #9/#11/#13/#15/#16 断言「风格」按钮——默认无 styleId 路径不变）。
 
-- [ ] **Step 16.5: Commit**
+- [ ] **Step 16.6: Commit**
 
 ```bash
-git add src/stores/nodeStore.ts src/pages/canvas/components/style-library/styleThumbCache.ts src/pages/canvas/components/style-library/styleThumbCache.test.ts src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx
-git commit -m "feat(web): 工具行风格按钮选中态——styleId/styleName 类型进 Image+Video 双接口（读取侧需要）+模块级 {styleName,coverKey} 缓存 presign 按需现取+选中显示封面圆图与风格名（spec §4.5/§7.1）"
+git add src/pages/canvas/components/style-library/styleThumbCache.ts src/pages/canvas/components/style-library/styleThumbCache.test.ts src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx
+git commit -m "feat(web): 工具行风格按钮选中态——封面圆图 TTL 缓存（55min<presign 3600s，直接用接口 presign coverUrl——B1：勿按 MinIO key 喂 getMediaUrl）+选中显示风格名（spec §4.5）"
 ```
 
 ---
@@ -3187,7 +3288,7 @@ export default function StyleCategoriesPage() {
           try { await adminStylesApi.deleteCategory(record.id); message.success('已删除'); actionRef.current?.reload(); }
           catch (e) { message.error((e as Error).message); } // 删除保护 400 中文文案直达（spec §6.2）
         }}>
-          <a style={{ color: '#ff7875' }}>删除</a>
+          <a className="text-accent-danger">删除</a>
         </Popconfirm>,
       ],
     },
@@ -3255,12 +3356,16 @@ export default function StyleContentPage() {
   const [searchText, setSearchText] = useState('');
   const [committed, setCommitted] = useState({ categoryId: undefined as string | undefined, search: '' });
 
+  const firstRender = useRef(true);
   useEffect(() => { void adminStylesApi.listCategories().then(setCategories).catch(() => {}); }, []);
   useEffect(() => {
     const t = setTimeout(() => setCommitted({ categoryId, search: searchText.trim() }), 300); // 防抖
     return () => clearTimeout(t);
   }, [categoryId, searchText]);
-  useEffect(() => { actionRef.current?.reload(); }, [committed]);
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; } // 跳过 mount 首次——ProTable 自带首次 request，叠加会双请求（P2-6）
+    actionRef.current?.reload();
+  }, [committed]);
 
   const columns: ProColumns<AdminStyle>[] = [
     { title: '封面', width: 80, render: (_, r) => <img src={r.coverUrl} alt={r.name} className="h-12 w-9 rounded object-cover" /> },
@@ -3280,7 +3385,7 @@ export default function StyleContentPage() {
           try { await adminStylesApi.deleteStyle(record.id); message.success('已删除'); actionRef.current?.reload(); }
           catch (e) { message.error((e as Error).message); }
         }}>
-          <a style={{ color: '#ff7875' }}>删除</a>
+          <a className="text-accent-danger">删除</a>
         </Popconfirm>,
       ],
     },
@@ -3363,7 +3468,7 @@ function StyleFormModal({ categories, record, onDone, trigger }: {
       <div className="mb-4">
         <div className="mb-1 text-sm">封面（3:4 建议，≤5MB，jpg/png/webp）</div>
         <Button onClick={() => fileRef.current?.click()} loading={uploading}>选择文件</Button>
-        <span className="ml-2 text-xs text-gray-400">{coverKey ? '已上传' : '未上传'}</span>
+        <span className="text-text-dim-2 ml-2 text-xs">{coverKey ? '已上传' : '未上传'}</span>
       </div>
       <ProFormText name="name" label="名称" rules={[{ required: true }, { max: 60 }]} />
       <ProFormSelect name="categoryId" label="分类" rules={[{ required: true }]}
@@ -3378,16 +3483,65 @@ function StyleFormModal({ categories, record, onDone, trigger }: {
 }
 ```
 
-- [ ] **Step 17.6: 跑绿 + 回归**
+- [ ] **Step 17.6: StyleCategoriesPage 最小测试（M2——仓内 8/9 admin 页有 colocated 测试；覆盖 spec §6.2 核心行为）**
 
-Run: `npx vitest run src/router.admin.test.tsx src/pages/admin/AdminLayout.test.tsx && npx tsc -b --pretty false | head -20`
-Expected: 两份测试全 PASS；tsc 无新增报错。
+创建 `apps/web/src/pages/admin/pages/StyleCategoriesPage.test.tsx`：
 
-- [ ] **Step 17.7: Commit**
+```tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import StyleCategoriesPage from './StyleCategoriesPage';
+import * as adminApi from '@/api/adminApi';
+
+vi.mock('@/api/adminApi', () => ({
+  adminStylesApi: {
+    listCategories: vi.fn(),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    deleteCategory: vi.fn(),
+  },
+}));
+
+// antd cssinjs jsdom 崩溃 workaround 按 AdminLayout.test/既有 admin 页测试的既有模式抄（antd5_testing_quirks 记忆）
+
+describe('StyleCategoriesPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (adminApi.adminStylesApi.listCategories as any).mockResolvedValue([
+      { id: 'c1', name: '摄影写真', sortOrder: 1, active: true, createdAt: '2026-01-01' },
+    ]);
+  });
+
+  it('渲染分类列表行', async () => {
+    render(<StyleCategoriesPage />);
+    expect(await screen.findByText('摄影写真')).toBeInTheDocument();
+  });
+
+  it('删除被 400 阻止时中文文案直达（spec §6.2 删除保护）', async () => {
+    (adminApi.adminStylesApi.deleteCategory as any).mockRejectedValue(new Error('该分类下存在风格，请先清空后再删除'));
+    render(<StyleCategoriesPage />);
+    await screen.findByText('摄影写真');
+    fireEvent.click(screen.getByText('删除'));
+    fireEvent.click(screen.getByText('确定', { selector: 'button' })); // Popconfirm 确认（antd5 两字按钮点击按既有 quirks 处理）
+    await waitFor(() => {
+      expect(screen.getByText('该分类下存在风格，请先清空后再删除')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+（antd App message 渲染与 Popconfirm 确认按钮定位若与既有 admin 页测试模式不同，抄 ModelsPage/HomeBannersPage 同目录既有测试的写法对齐——它们已解决同类问题。）
+
+- [ ] **Step 17.7: 跑绿 + 回归**
+
+Run: `npx vitest run src/router.admin.test.tsx src/pages/admin/AdminLayout.test.tsx src/pages/admin/pages/StyleCategoriesPage.test.tsx && npx tsc -b --pretty false`
+Expected: 三份测试全 PASS；tsc 无新增报错。
+
+- [ ] **Step 17.8: Commit**
 
 ```bash
-git add src/api/adminApi.ts src/pages/admin/AdminLayout.tsx src/router.tsx src/pages/admin/pages/StyleCategoriesPage.tsx src/pages/admin/pages/StyleContentPage.tsx src/router.admin.test.tsx src/pages/admin/AdminLayout.test.tsx
-git commit -m "feat(web): admin 风格库——菜单组(styles 组 path≠子页)/相对路由 categories+content(D27)/分类页(删除保护 400 文案直达)/内容页(封面上传 inline input+页顶自定义筛选 D27+promptText 必填)/adminStylesApi+uploadStyleCover；router.admin 白名单+集合+2 mock+标题同步（spec §8）"
+git add src/api/adminApi.ts src/pages/admin/AdminLayout.tsx src/router.tsx src/pages/admin/pages/StyleCategoriesPage.tsx src/pages/admin/pages/StyleContentPage.tsx src/pages/admin/pages/StyleCategoriesPage.test.tsx src/router.admin.test.tsx src/pages/admin/AdminLayout.test.tsx
+git commit -m "feat(web): admin 风格库——菜单组(styles 组 path≠子页)/相对路由 categories+content(D27)/分类页(删除保护 400 文案直达+最小测试)/内容页(封面上传 inline input+页顶自定义筛选跳首双请求+promptText 必填)/adminStylesApi+uploadStyleCover；text-accent-danger/dim-2 token 化；router.admin 白名单+集合+2 mock+标题同步（spec §8）"
 ```
 
 ---
@@ -3429,21 +3583,24 @@ Expected: 均成功（含 tsc）。
 - [ ] **Step 18.6: 验收问题修复后终跑 + 最终 Commit（如有修复）**
 
 ```bash
-pnpm test && pnpm lint && node apps/web/scripts/css-audit.mjs --slash-gate
+pnpm test && pnpm lint
 ```
+
+（cwd=apps/web）`node scripts/css-audit.mjs --slash-gate`——与 Step 18.3 同 cwd 同写法，勿混用仓根相对路径。
 
 ---
 
-## 执行中停机回报条件（遇此三类情况停下报告用户，勿自行改设计）
+## 执行中停机回报条件（遇此情况停下报告用户，勿自行改设计）
 
 1. `prisma migrate dev` 因权限/基线报错（migrate 基线已重置过——按 flowweb_db_migration_env 记忆处理，勿 db push）；
-2. favorites/recent 排序的 Prisma 语法（`_count` / 关联字段排序）与 Task 9 断言在真实 Prisma 类型下不可编译——按 Step 9.3 注裁定调整为语义等价实现并同步测试，改动超出「稳定倒序+id tiebreaker」语义时停机；
-3. styleThumbCache 的函数属性（`getStyleThumb.cache`）在 strict 下需结构调整——允许改为模块导出 `export const styleThumbCacheMap` 同步测试，语义不变。
+2. Prisma join 表分页（Task 9 favorites/recent）在真实类型下需要偏离已定稿语义（createdAt/lastUsedAt desc + join 行 id desc）时停机——语法级适配（如 select 换 include）可自行调整并同步测试；
+3. no-theme-utility 实际 grep 出的白名单命中族与 Step 15.8 声明的 allow 列表不一致——按实测族增删 allow 并镜像 registry（语义不变），但若 StyleLibraryModal.tsx 本体出现命中（应为零）则停机（实现偏离 token 化）。
 
-## 自审记录（writing-plans Self-Review）
+## 自审记录（writing-plans Self-Review，v2 审核修订后）
 
-1. **Spec 覆盖**：§3.1→T2/T5/T7；§3.2→T6；§3.3→T1/T7；§3.4→T4/T5；§4.1→T3/T5/T15；§4.2→T14/T15；§4.3→T15(StyleCard)；§4.4→T14/T15；§4.5→T16；§4.6→T15(白名单+镜像)；§5→T8；§6.1→T9/T13；§6.2→T10/T17；§7.1/§7.2→T11；§7.3→T12；§8→T17；§9.1 命令→T18；§9.2 既有改造→T3/T4/T5/T11/T17 分任务内联；§9.3 新增→各任务；§11→T18。无遗漏。
-2. **占位符**：全部步骤含完整代码或精确既有代码保留指示（「原样保留」段为既有代码非新代码占位）；Step 9.3 的排序裁定注给出了确定的可执行替代语义（稳定倒序+id tiebreaker），非 TBD。
-3. **类型一致性**：`referenceSelect: { sourceNodeId; notice }`（T2 定义，T5/T6/T7 消费一致）；`styleLibrary: { nodeId }`（T3 定义，T5/T15 一致）；`StyleSummary/StyleListResult/StyleCategoryItem`（T13 定义，T14/T15/T16 一致）；`decideReferencePick` 三分支（T1 定义，T7 消费一致）；后端 `StyleListItem`（T9）与前端 `StyleSummary` 字段同名同型（coverUrl/authorName/isCommercial/usageCount/promptText/favorited）；`getStyleThumb`（T16 测试与实现签名一致）。
-4. **执行顺序**：T1→T2→T3（A 组 store 链）→T4→T5（组件，依赖 T3 menuStore）→T6→T7（接线，依赖全部）；B 组 T8→T9→T10（后端链）→T11/T12（独立）→T13→T14→T15（依赖 T3/T13/T14）→T16（依赖 T13/T15）→T17（依赖 T10）→T18 收尾。A/B 两组间仅 T15 依赖 T3（menuStore），无其他交叉。
+1. **Spec 覆盖**：§3.1→T2/T5/T7（含 useGroupKeyboard gate Step 7.3）；§3.2→T6；§3.3→T1/T7；§3.4→T4/T5；§4.1→T3/T5/T15；§4.2→T14/T15；§4.3→T15(StyleCard，含使用钮 hover 展开文字)；§4.4→T14/T15；§4.5→T16（TTL 缓存——spec §4.5 同步更正）；§4.6→T15(白名单 2 条挂 StyleCard/StyleDetailPreview+镜像)；§5→T8（user 侧 Cascade 补）；§6.1→T9/T13（use 返回扁平——spec §6.1 同步更正）；§6.2→T10/T17；§7.1/§7.2→T11；§7.3→T12；§8→T17（含分类页测试）；§9.1 命令→T18；§9.2 既有改造→T3/T4/T5/T11/T17 分任务内联；§9.3 新增→各任务；§11→T18。无遗漏。
+2. **占位符**：全部步骤含完整代码或精确既有代码保留指示；v1 的 6 处「执行时按实际改」已回填确定答案（T9 join 表排序/T11 execute 签名与基线/T12 用例位置/T13 query 顺序/T16 缓存方案/T15 白名单文件），仅保留 2 处语法级适配注（join 分页 select/include 形态、antd 测试模式抄既有）。
+3. **类型一致性**：`referenceSelect: { sourceNodeId; notice }`（T2 定义，T5/T6/T7 消费一致）；`styleLibrary: { nodeId }`（T3 定义，T5/T15 一致）；`styleId?: string | null` 类型 T2 前移（T14 无强转、T16 直接消费）；`StyleSummary/StyleListResult/StyleCategoryItem`（T13 定义，T14/T15/T16 一致）；后端 `StyleListItem` 与前端 `StyleSummary` 同名同型，use 三方（测试/实现/前端）统一扁平口径；`getStyleThumb/styleThumbCacheMap`（T16 测试与实现一致）。
+4. **执行顺序**：T1→T2→T3（A 组 store 链）→T4（含 ImageThumbnailBar 传 index）→T5→T6→T7；B 组 T8→T9→T10→T11/T12→T13→T14→T15→T16→T17→T18。A/B 交叉仅 T15 依赖 T3。
+5. **第六轮审核落实清单**：B1→T16 TTL 方案；B2→T9 mock 补键；B3→T9 join 表分页（含断言）；B4→T3 断言 4 次；B5→T11 签名+基线 beforeEach；B6→T15 白名单挂 StyleCard/DetailPreview；H1→T15 内外层拆分；H3→use 扁平口径（spec 同步）；H4→T13 断言按实现顺序；H5→checkbox accentColor currentColor；M1→T8 user 侧 Cascade（依据修正为 join 表先例 TeamMember:713/ProjectMember:844——审核"100% Cascade"说法不实，12 条中 10 条）；M2→T17 分类页测试；M3/P9→T5 按钮 disabled；M4→T7 deps/分支位置；M5→T12 位置注明；M6→T4 transform toContain；M7→T4 同 commit 传 index；P4→T4 包裹层保 baseline（:127 行逐字保留）；P6→bg-gradient-to；P7→chip「全部分类」；P10→Step 7.3 useGroupKeyboard；P11→T6 getNode；P12→T6 selectNode 注释；P16→T10 P2002/P2003 catch；P17→favorite typeof 校验+删 FavoriteDto；P2-1→onUsed 清 detail；P2-2→StatusOverlay 删孤立 prop；P2-6→筛选跳首次；P2-4→text-accent-danger/dim-2；P20/P21→命令统一去 head、css-audit 同 cwd；P22→使用钮 hover 展开。
 

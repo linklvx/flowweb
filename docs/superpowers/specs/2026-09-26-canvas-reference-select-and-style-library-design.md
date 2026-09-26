@@ -199,7 +199,7 @@ BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc
 ### 4.5 工具行风格按钮选中态
 
 - 节点 data 有 `styleId` 时：按钮上部显示风格封面小圆图、下部显示 `styleName`（truncate）。
-- 刷新后圆图来源：`GET /api/styles/:id` + **模块级 `Map<styleId, { styleName, coverKey }>` 去重缓存**（工具行随面板挂载/卸载频繁重建，组件态缓存会逐节点逐挂载重拉；**不缓存 presign URL**——3600s 过期，会话超 1h 圆图会裂，渲染时按需 `getMediaUrl(coverKey)`，onError 回退默认按钮态）。**404 语义钉死**：停用/不存在一律 404，stylesApi 把 404 映射为「无风格」回退默认按钮态（非错误提示）。
+- 刷新后圆图来源：`GET /api/styles/:id` + **模块级 `Map<styleId, { styleName, coverUrl, fetchedAt }>` 去重缓存，55min TTL**（< presign 3600s，过期重取——plan 第六轮审核 B1 修正：直接用接口已 presign 的 coverUrl；勿按 MinIO coverKey 喂 `getMediaUrl`——该接口按 Media 行 id 取 URL，喂 key 会 404）。404 缓存 null 防反复打；onError 回退默认按钮态。**404 语义钉死**：停用/不存在一律 404，stylesApi 把 404 映射为「无风格」回退默认按钮态（非错误提示）。
 - 点击行为不变（打开风格库）。
 
 ### 4.6 token 与门禁（定稿）
@@ -284,7 +284,7 @@ model StyleRecentUsage {
 | GET | `/api/styles?tab=all\|favorites\|recent&categoryId=&search=&commercialOnly=&page=1&pageSize=20` | all：active+筛选，`sortOrder asc, usageCount desc, id asc`（索引方向见 §5）；favorites：join 收藏、active 过滤，`createdAt desc, id asc`；recent：join 最近使用、active 过滤，`lastUsedAt desc, id asc`；search 匹配 name/authorName（contains, insensitive）。items 含 id/name/coverUrl(presign)/authorName/isCommercial/usageCount/favorited/promptText（**promptText 视为公开素材**，D23——详情与卡片同源免二次请求） |
 | GET | `/api/styles/:id` | 单个（含 promptText+coverKey/coverUrl）；工具行圆图来源；**停用/不存在一律 404**（stylesApi 映射为「无风格」而非错误，§4.5） |
 | POST | `/api/styles/:id/favorite` | body `{ favorited: boolean }` 显式目标态；`createMany skipDuplicates` / `deleteMany` 双幂等（D26）→ `{ favorited }` |
-| POST | `/api/styles/:id/use` | **非事务三步**（D26 机制见 §4.4）：① findUnique 校验 active（否则 404）② create StyleRecentUsage（P2002→退化 update lastUsedAt）判 isFirstUse ③ 仅首次 `updateMany({ where: { id, active: true }, usageCount increment })` → `{ style }` |
+| POST | `/api/styles/:id/use` | **非事务三步**（D26 机制见 §4.4）：① findUnique 校验 active（否则 404）② create StyleRecentUsage（P2002→退化 update lastUsedAt）判 isFirstUse ③ 仅首次 `updateMany({ where: { id, active: true }, usageCount increment })` → **扁平 StyleListItem**（plan 审核口径统一：测试/实现/前端三方一致，非 `{ style }` 包装） |
 
 - favorited 批量：列表查询后按当页 styleIds 一次 `findMany({ where: { styleId: { in: ids }, userId } })`，**禁止逐条 N+1**。
 
