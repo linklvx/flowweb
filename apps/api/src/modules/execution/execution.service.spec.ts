@@ -188,6 +188,7 @@ describe('ExecutionService', () => {
       topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
       await service.execute('p1', 'n2', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板词' }));
+      expect(prisma.style.findMany).not.toHaveBeenCalled(); // 无 styleId 批次零查询（B19）
     });
 
     it('风格拼接：styleId → 批量 findMany 取 active promptText，join(", ") 到 prompt', async () => {
@@ -222,6 +223,17 @@ describe('ExecutionService', () => {
       const arg = apiCaller.callVideoGen.mock.calls[0][0] as { prompt: unknown };
       expect(arg.prompt).toBe('风格词V');           // 纯风格文本（面板为空）
       expect(typeof arg.prompt).toBe('string');      // 不再序列化 PromptValue 对象
+    });
+
+    it('B21：有上游文本时面板 prompt 被忽略（|| 链上游优先——有意语义，防误改合并）', async () => {
+      topology.sort.mockReturnValue([
+        { id: 'n1', type: 'textInput', data: { content: '上游词' } },
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
+      ]);
+      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      await service.execute('p1', 'n2', 'u1');
+      const arg = apiCaller.callImageGen.mock.calls[0][0] as { prompt: string };
+      expect(arg.prompt).toBe('上游词'); // 不含 '面板词'
     });
   });
 });
