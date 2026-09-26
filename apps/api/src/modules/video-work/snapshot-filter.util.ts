@@ -32,9 +32,9 @@ export interface FilteredEdge { id: string; source: string; target: string }
  *  `field in node.data` 检查 no-op——与 spec §4.6 合并行语义等价。 */
 export const WHITELIST: Record<string, string[]> = {
   textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt=string
-  imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution', 'aspectRatio'],
-  imageExtGen: ['prompt', 'aspectRatio', 'aiTool'],                  // prompt 通常在 extConfig 内随整体剥离——保留为 no-op 兜底
-  videoGen: ['model', 'ratio', 'prompt', 'trimStart', 'trimEnd', 'label'],
+  imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution', 'aspectRatio', 'styleId', 'styleName'],
+  imageExtGen: ['prompt', 'aspectRatio', 'aiTool', 'styleId', 'styleName'],                  // prompt 通常在 extConfig 内随整体剥离——保留为 no-op 兜底
+  videoGen: ['model', 'ratio', 'prompt', 'trimStart', 'trimEnd', 'label', 'styleId', 'styleName'],
   audioGen: ['model', 'content'],
   multiImageGen: ['prompt', 'label'],
   videoEdit: [],   // 仅结构字段

@@ -212,4 +212,19 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     const out = stripHtmlToText('<p>a</p>&lt;img src=x&gt;');
     expect(out).toBe('a<img src=x>'); // 钉实际行为：剥标签（&lt;/&gt; 不匹配标签正则）→ 实体解码在后，单次解码即得标签形字符串
   });
+
+  it('styleId/styleName 进入 imageGen/imageExtGen/videoGen 白名单且快照保留（field 级，spec §7.3——现有断言只做 type 级，漏字段全绿）', () => {
+    for (const t of ['imageGen', 'imageExtGen', 'videoGen'] as const) {
+      expect(WHITELIST[t]).toContain('styleId');
+      expect(WHITELIST[t]).toContain('styleName');
+    }
+    for (const t of ['imageGen', 'imageExtGen', 'videoGen'] as const) {
+      const out = buildFilteredSnapshot(
+        { nodes: [rawNode('n1', t, { styleId: 'st1', styleName: '胶片' })], edges: [] },
+        base,
+      );
+      expect(out.nodes[0].data.styleId).toBe('st1');
+      expect(out.nodes[0].data.styleName).toBe('胶片');
+    }
+  });
 });
