@@ -6,7 +6,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 /** 画布参考选择模式横幅（spec §3.2）——挂 ReactFlow 子级（absolute 顶部居中，不随 viewport 变换）。 */
 export function CanvasReferenceSelectBanner() {
   const referenceSelect = useNodeStore((s) => s.referenceSelect);
-  const { setCenter, getNode } = useReactFlow();
+  const { setCenter, getNode, getViewport } = useReactFlow();
 
   // mount 时注册一次（handler 经 getState 检查激活态）——依赖 [referenceSelect] 会在测试同步时序下
   // 因 passive effect 未重跑而丢失监听器；语义等价：未激活时 Esc 无操作
@@ -31,7 +31,7 @@ export function CanvasReferenceSelectBanner() {
       const abs = node.internals?.positionAbsolute ?? node.position ?? { x: 0, y: 0 };
       const w = node.measured?.width ?? node.width ?? 0;
       const h = node.measured?.height ?? node.height ?? 0;
-      setCenter(abs.x + w / 2, abs.y + h / 2, { duration: 300 });
+      setCenter(abs.x + w / 2, abs.y + h / 2, { zoom: getViewport().zoom, duration: 300 });
       // 注：selectNode 只写 canvasStore.selectedId（P12）——面板可见由 elementsSelectable=false（D25）保证，
       // 此调用仅服务 selectedId 的其他消费方（如批量工具条），非面板保活手段
       useCanvasStore.getState().selectNode?.(sourceNodeId);

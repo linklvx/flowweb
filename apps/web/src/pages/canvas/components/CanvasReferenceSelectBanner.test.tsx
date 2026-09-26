@@ -11,8 +11,9 @@ vi.mock('@/stores/canvasStore', () => ({
 
 const setCenter = vi.fn();
 const getNode = vi.fn();
+const getViewport = vi.fn(() => ({ zoom: 1 }));
 vi.mock('@xyflow/react', () => ({
-  useReactFlow: () => ({ setCenter, getNode }),
+  useReactFlow: () => ({ setCenter, getNode, getViewport }),
 }));
 
 describe('CanvasReferenceSelectBanner', () => {
@@ -52,6 +53,7 @@ describe('CanvasReferenceSelectBanner', () => {
     useNodeStore.getState().startReferenceSelect('img1');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(useNodeStore.getState().referenceSelect).toBeNull();
+    expect(selectNodeSpy).not.toHaveBeenCalled();
   });
 
   it('返回节点 → 退出+setCenter 到节点中心（几何取 useReactFlow().getNode，P11）+selectNode', () => {
@@ -66,7 +68,7 @@ describe('CanvasReferenceSelectBanner', () => {
     render(<CanvasReferenceSelectBanner />);
     fireEvent.click(screen.getByRole('button', { name: '返回节点' }));
     expect(useNodeStore.getState().referenceSelect).toBeNull();
-    expect(setCenter).toHaveBeenCalledWith(200, 275, expect.anything());
+    expect(setCenter).toHaveBeenCalledWith(200, 275, { zoom: 1, duration: 300 });
     expect(selectNodeSpy).toHaveBeenCalledWith('img1');
   });
 });
