@@ -261,6 +261,14 @@ describe('ImageConfigPanel', () => {
     expect(screen.queryByText('分辨率')).not.toBeInTheDocument();
   });
 
+  it('should render 1K/2K/4K resolution options (需求9)', () => {
+    render(<ImageConfigPanel nodeId="img1" />);
+    fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
+    expect(screen.getByText('1K')).toBeTruthy();
+    expect(screen.getByText('2K')).toBeTruthy();
+    expect(screen.getByText('4K')).toBeTruthy();
+  });
+
   // ─── Generate count button ───
   it('should render generate count button showing default 1张', () => {
     render(<ImageConfigPanel nodeId="img1" />);

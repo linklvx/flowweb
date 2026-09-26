@@ -60,7 +60,7 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>分辨率</span></div>
             <div className="flex gap-2">
-              {['2K', '4K'].map((res) => (
+              {['1K', '2K', '4K'].map((res) => (
                 <button
                   key={res}
                   type="button"
