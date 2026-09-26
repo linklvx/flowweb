@@ -6,6 +6,7 @@ import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { AddNodeMenu } from './components/AddNodeMenu';
 import { HandleAddNodeMenu } from './components/HandleAddNodeMenu';
+import { StyleLibraryModal } from './components/style-library/StyleLibraryModal';
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
@@ -307,6 +308,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <VideoEditorShell />
         <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
         <HandleAddNodeMenu />
+        <StyleLibraryModal />
         {isHydrating && (
           <div
             data-testid="hydrate-overlay"

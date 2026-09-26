@@ -2762,6 +2762,16 @@
   {
    "glob": "src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx",
    "why": "C8 Task 22：:171/:180 断言深浮条 active bg-white/20（断言串九族命中非产品 UI）"
+  },
+  {
+   "glob": "src/pages/canvas/components/style-library/StyleCard.tsx",
+   "allow": ["bg", "text", "border", "from", "ring"],
+   "why": "2026-09-26 风格库卡片：反白 CTA/恒定面族（当前使用 border-white+ring-white+白底黑字徽章+bg-black/50 压封面遮罩+hover 按钮 bg-black/65+封面渐变 from-black）——先例 TopActionBar 反白 CTA"
+  },
+  {
+   "glob": "src/pages/canvas/components/style-library/StyleDetailPreview.tsx",
+   "allow": ["bg", "text"],
+   "why": "2026-09-26 风格库详情：scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族）+使用钮 bg-white/text-black 反白 CTA"
   }
  ]
 }

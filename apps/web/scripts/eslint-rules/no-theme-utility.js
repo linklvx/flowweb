@@ -79,6 +79,8 @@ export const THEME_UTILITY_WHITELIST = [
   { glob: 'src/pages/videos/VideoCard.tsx', allow: ['bg', 'text'] },                 // :21 时长胶囊 bg-black/70+text-white 压封面（第四通道，registry D3-videocard-migration）
   { glob: 'src/pages/videos/ProcessView.tsx', allow: ['bg'] },                       // :53 复制项目 bg-white 反白 CTA（通道 3 明文禁 token 化，registry D3-processview-migration）
   { glob: 'src/pages/videos/VideoPlayerModal.tsx', allow: ['bg', 'text'] },          // :75 媒体容器 bg-black 恒深自持 + :86 close-btn text-white 压画面显式化（第四通道，registry D3-videos-shell-dom-split）
+  { glob: 'src/pages/canvas/components/style-library/StyleCard.tsx', allow: ['bg', 'text', 'border', 'from', 'ring'] },  // 反白 CTA/恒定面族：当前使用 border-white+ring-1 ring-white+bg-white/text-black 徽章+bg-black/50 遮罩+hover 按钮 bg-black/65+封面渐变 from-black——放行条件是整串全部族 ⊆ allow，漏 ring 则整串违例（规则共 10 族非 9 族）
+  { glob: 'src/pages/canvas/components/style-library/StyleDetailPreview.tsx', allow: ['bg', 'text'] },                // scrim bg-black/60 中性遮罩+使用钮 bg-white text-black
   // —— C8 Task 21 D3-ve 摘目录同 commit 补精确条目（恒定面/恒深保留，禁 string 整文件放行）——
   { glob: 'src/pages/canvas/video-editor/components/ExportModal.tsx', allow: ['text'] },        // :245 紫底填充钮白字=图形档恒定面（第七轮 M3：on-accent 语义绑绿底非紫底，registry D3-ve-keeps-constant-faces）
   { glob: 'src/pages/canvas/video-editor/components/PreviewPlayer.tsx', allow: ['bg'] },        // :71 bg-black 媒体垫底恒深自持（registry D3-ve-keeps-constant-faces）
