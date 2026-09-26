@@ -25,6 +25,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
       pricingRule: { findFirst: vi.fn().mockResolvedValue(null) },
+      style: { findMany: vi.fn().mockResolvedValue([]) },
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),

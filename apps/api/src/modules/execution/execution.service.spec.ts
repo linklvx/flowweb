@@ -27,6 +27,7 @@ describe('ExecutionService', () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
       pricingRule: { findFirst: vi.fn() },
+      style: { findMany: vi.fn().mockResolvedValue([]) },
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
@@ -171,5 +172,56 @@ describe('ExecutionService', () => {
     const payload = gateway.emitNodeStatus.mock.calls.find((c: any[]) => c[1]?.status === 'done')?.[1];
     expect(payload.credits).toEqual({ credits: 60, subscriptionCredits: 40, total: 100 });
     expect(payload.credits.total).toBe(payload.credits.credits + payload.credits.subscriptionCredits);
+  });
+
+  describe('风格拼接与面板 prompt 断链（spec §7.1/§7.2，D12/D28）', () => {
+    beforeEach(() => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' }); // :40 早退基线（B5）
+      prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 }); // 对齐既有 12 处基线取值——0 会走 if(vCost>0) 另一分支（P3-5）
+      prisma.style.findMany.mockResolvedValue([]);
+    });
+
+    it('D12：独立图片节点（无上游文本）data.prompt.text 进 prompt', async () => {
+      topology.sort.mockReturnValue([
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
+      ]);
+      topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
+      await service.execute('p1', 'n2', 'u1');
+      expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板词' }));
+    });
+
+    it('风格拼接：styleId → 批量 findMany 取 active promptText，join(", ") 到 prompt', async () => {
+      prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: true, promptText: '风格词' }]);
+      topology.sort.mockReturnValue([
+        { id: 'n1', type: 'textInput', data: { content: '上游词' } },
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
+      ]);
+      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      await service.execute('p1', 'n2', 'u1');
+      expect(prisma.style.findMany).toHaveBeenCalledWith({ where: { id: { in: ['st1'] } } });
+      expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词, 风格词' }));
+    });
+
+    it('inactive/不存在风格 → 忽略不阻塞（B1）', async () => {
+      prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: false, promptText: '风格词' }]);
+      topology.sort.mockReturnValue([
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
+      ]);
+      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      await service.execute('p1', 'n2', 'u1');
+      expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词' }));
+    });
+
+    it('视频分支：finalPrompt 拼风格 + 面板清空 prompt 不传对象（D28 删回退）', async () => {
+      prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: true, promptText: '风格词V' }]);
+      topology.sort.mockReturnValue([
+        { id: 'n3', type: 'videoGen', data: { model: 'vm', styleId: 'st1', prompt: { text: '', html: '' } } },
+      ]);
+      topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
+      await service.execute('p1', 'n3', 'u1');
+      const arg = apiCaller.callVideoGen.mock.calls[0][0] as { prompt: unknown };
+      expect(arg.prompt).toBe('风格词V');           // 纯风格文本（面板为空）
+      expect(typeof arg.prompt).toBe('string');      // 不再序列化 PromptValue 对象
+    });
   });
 });

@@ -63,6 +63,16 @@ export class ExecutionService {
     // 5. Execute sequentially
     let totalDeducted = 0;
     const results: any[] = [];
+    // 风格批量预取（spec §7.1/B19——validation.service.ts:29 同款 in 查询先例）
+    const styleIds = [...new Set(orderedNodes.map((n) => (n.data as any)?.styleId).filter(Boolean))];
+    const styleRows = styleIds.length
+      ? await this.prisma.style.findMany({ where: { id: { in: styleIds as string[] } } })
+      : [];
+    const styleMap = new Map(styleRows.map((s) => [s.id, s]));
+    const styleTextOf = (data: any): string => {
+      const s = data?.styleId ? styleMap.get(data.styleId) : undefined;
+      return s?.active ? s.promptText : '';
+    };
     for (const node of orderedNodes) {
       if (!isExecutableNode(node) && !(nodeId === node.id && String(node.id).startsWith('shadow-'))) continue; // 防剪辑/产物节点闪 loading 与误执行；__ephemeral 影子全局排除出白名单，但单 nodeId 直调（regenerate 唯一合法入口，影子 id 以 shadow- 开头）放行——nodeIds 批量模式 nodeId 为 undefined 不会误放行
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
@@ -72,7 +82,7 @@ export class ExecutionService {
         const upstreamSource = nodeIds ? allNodes : scopeNodes;
         const upstream = this.topology.collectUpstreamData(node.id, upstreamSource, allEdges);
         const data = node.data as any;
-        const prompt = upstream.textContents.join(' ') || data?.content || '';
+        const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || '';
 
         // Text nodes: call real text API (Kimi)
         if (node.type === 'textInput') {
@@ -109,8 +119,10 @@ export class ExecutionService {
         // Video nodes
         if (node.type === 'videoGen') {
           const vData = data as any;
+          const vStyleText = styleTextOf(vData);
+          const vFinalPrompt = [prompt, vStyleText].filter(Boolean).join(', ');
           const result = await this.apiCaller.callVideoGen({
-            prompt: prompt || vData?.prompt || '',
+            prompt: vFinalPrompt,
             model: vData?.model,
             mode: vData?.mode || 'text-to-video',
             imageUrl: upstream.imageUrl || vData?.startImageUrl,
@@ -164,8 +176,10 @@ export class ExecutionService {
         const imageUrl = upstream.imageUrl;
 
         // Call Image API
+        const iStyleText = styleTextOf(data);
+        const iFinalPrompt = [prompt, iStyleText].filter(Boolean).join(', '); // 分隔符对齐 combinePrompt（api-caller.service.ts:86）
         const result = await this.apiCaller.callImageGen({
-          prompt,
+          prompt: iFinalPrompt,
           extraPrompt: data?.extraPrompt,
           style: data?.style,
           model: data?.model,
