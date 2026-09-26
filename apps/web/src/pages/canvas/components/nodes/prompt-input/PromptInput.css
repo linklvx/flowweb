@@ -63,6 +63,7 @@
 /* Tiptap editor */
 .prompt-editor {
   word-break: break-word;
+  cursor: text; /* 需求1：空编辑区（仅 placeholder）下浏览器默认箭头，显式 I 型；chip 的 cursor 靠内联/自有规则不受影响 */
 }
 
 .prompt-editor p {
@@ -124,6 +125,7 @@
   border-radius: 4px;
   font-size: 13px;
   margin: 0 2px;
+  cursor: default; /* 需求1 配套：徽章非可编辑文本，不随 .prompt-editor 变 I 型 */
 }
 
 /* ImageThumbnailBar — horizontal scrolling with hidden scrollbar */

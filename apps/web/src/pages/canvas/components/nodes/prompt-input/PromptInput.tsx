@@ -227,7 +227,7 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       onGenerate,
       allImages = [],
       onPasteImage,
-      placeholder = '描述你想要的画面，输入 / 添加设置...',
+      placeholder = '描述你想要生成的画面内容，@引用素材',
       disabled = false,
       maxHeight = 120,
       debounceMs = 300,

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import React from 'react';
@@ -273,5 +275,27 @@ describe('PromptInput', () => {
     expect(mockEditor.destroy).toHaveBeenCalled();
 
     vi.useRealTimers();
+  });
+
+  // ---- 默认 placeholder 文案（需求 3）----
+  it('N1. 默认 placeholder 为新文案（不传 placeholder prop）', () => {
+    // renderPromptInput 显式传 placeholder 后 ...props 展开——传 undefined 覆盖之，
+    // 组件解构默认值对 undefined 生效 → 命中默认文案路径
+    renderPromptInput({ placeholder: undefined });
+    // capturedEditorConfig 是 vi.hoisted holder：.current 即 useEditor config（一层 current，勿多包）
+    const exts = capturedEditorConfig.current!.extensions as any[];
+    const ph = exts.find((e: any) => e?.name === 'placeholder');
+    expect(ph?.options?.placeholder).toBe('描述你想要生成的画面内容，@引用素材');
+  });
+
+  // ---- 输入区 cursor（需求 1）----
+  it('N2. PromptInput.css：.prompt-editor 有 cursor:text 且 .command-chip 有 cursor:default', () => {
+    const css = readFileSync(path.resolve(__dirname, 'PromptInput.css'), 'utf-8');
+    // 全文兜底 + 锚定切片双保险（.prompt-editor 在文件中出现 3 次，切片锚第一块 L64）
+    expect(css).toContain('cursor: text');
+    const editorBlock = css.slice(css.indexOf('.prompt-editor {'), css.indexOf('.prompt-editor p'));
+    expect(editorBlock).toContain('cursor: text');
+    const chipBlock = css.slice(css.indexOf('.command-chip'), css.indexOf('/* ImageThumbnailBar'));
+    expect(chipBlock).toContain('cursor: default');
   });
 });
