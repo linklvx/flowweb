@@ -106,7 +106,7 @@
 - 模式退出挂点（store 层，已核实归属）：`nodeStore.setActiveEditNodeId / setActiveTransformNodeId`（:360-372 互相 guard-return）开头调用 `exitReferenceSelect()`——进入节点编辑/变换模式自动退出选择模式；不用组件 effect 轮询。
 - 快捷键 gate（已核实现状，**两处挂点**）：
   1. `useGroupKeyboard.ts:5-22 isGroupEditContext` 早退补 `referenceSelect` 非空（覆盖 Ctrl+G/Z/Y 与 RF Delete）；`CanvasView deleteKeyCode`（:425）参考模式下置 `[]`；
-  2. **page.tsx:336-339 CanvasKeyboardHandler 早退同样补 referenceSelect**（已核实 :341-346 Tab → `menuStore.open(lastMousePos)` 直接弹 AddNodeMenu，正撞互斥矩阵；:337 已有「视频编辑器打开期间快捷键全禁」同型先例）。
+  2. **page.tsx CanvasKeyboardHandler 的 Tab 分支内补 referenceSelect gate**（已核实 :341-346 Tab → `menuStore.open(lastMousePos)` 直接弹 AddNodeMenu，正撞互斥矩阵；:337 已有「视频编辑器打开期间快捷键全禁」同型先例。实现收窄为 **Tab 专属 gate**——Ctrl+0/Alt+Shift+F fitView 为下述接受边界、保持生效，勿做成顶部全量早退）。
   **边界（已核实，接受）**：Ctrl+0 / Alt+Shift+F（fitView，:348-357）纯视口操作无 doc 变更，接受其生效。
 - **反向互斥落点（已核实 v3 缺失）**：menuStore 三个 open（`open`/`openHandleMenu`/`openStyleLibrary`）内跨 store 直调 `useNodeStore.getState().exitReferenceSelect()`（zustand 跨 store 直调先例）——否则 menuStore 触及不到 nodeStore.referenceSelect，「两两互斥」一半无承保。
 
