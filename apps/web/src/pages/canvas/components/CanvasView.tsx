@@ -4,6 +4,7 @@ import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow,
   type Connection,
+  type FinalConnectionState,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -21,6 +22,7 @@ import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
+import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { ImageExtNode } from './nodes/ImageExtNode';
@@ -231,6 +233,60 @@ function CanvasViewComponent(_props: Props) {
     }
   }, [selectNode, closeGroupContextMenu]);
 
+  // ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──
+  // 起点经 ref 写入：onConnectEnd 同 tick 读取，避免闭包旧值
+  const handleDragStartRef = useRef<{ x: number; y: number; nodeId: string; handleType: string } | null>(null);
+  const reconnectingRef = useRef(false);
+
+  const onConnectStart = useCallback((event: MouseEvent | TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
+    const p = clientPoint(event);
+    handleDragStartRef.current = {
+      x: p.x,
+      y: p.y,
+      nodeId: params.nodeId ?? '',
+      handleType: params.handleType ?? '',
+    };
+  }, []);
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    // 重连标志必须在 onConnectEnd 开头复位（spec §3.3 守卫 0：事件序 onReconnectStart→onConnectStart→…→此处）
+    const wasReconnecting = reconnectingRef.current;
+    reconnectingRef.current = false;
+    const dragStart = handleDragStartRef.current;
+    handleDragStartRef.current = null;
+    if (wasReconnecting || !dragStart) return;
+
+    const p = clientPoint(event);
+    const flowPoint = screenToFlowPosition(p);
+    const nodes = useCanvasStore.getState().nodes;
+    const node = nodes.find((n) => n.id === dragStart.nodeId);
+    // isLocked 来源=useNodeStore.activeEditNodeId（CanvasView L102-103 既有订阅同一 store，实证勿改读 canvasStore）
+    const isLockedNow = useNodeStore.getState().activeEditNodeId !== null;
+
+    const decision = decideHandleMenu({
+      reconnecting: wasReconnecting,
+      isValid: state?.isValid ?? null,
+      toHandle: state?.toHandle ?? null,
+      toNode: state?.toNode ?? null,
+      nodeType: node?.type,
+      isLocked: isLockedNow,
+      dragDistancePx: Math.hypot(p.x - dragStart.x, p.y - dragStart.y),
+      flowPoint,
+      rects: absoluteRectsOf(nodes),
+      nodeId: dragStart.nodeId,
+      side: dragStart.handleType === 'target' ? 'target' : 'source',
+      clientX: p.x,
+      clientY: p.y,
+    });
+    if (decision.kind === 'open') {
+      useMenuStore.getState().openHandleMenu(decision.payload);
+    }
+  }, [screenToFlowPosition]);
+
+  const onReconnectStart = useCallback(() => { reconnectingRef.current = true; }, []);
+  // 双保险复位：Esc 取消重连走 cancelConnection、不触发 onConnectEnd（spec §3.3）；正常结束时紧随其后的重复复位无副作用
+  const onReconnectEnd = useCallback(() => { reconnectingRef.current = false; }, []);
+
   const onPaneContextMenu = useCallback(
     (event: MouseEvent | React.MouseEvent) => {
       event.preventDefault();
@@ -349,6 +405,10 @@ function CanvasViewComponent(_props: Props) {
         onNodesChange={onNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}
         onConnect={onConnect as any}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        onReconnectStart={onReconnectStart}
+        onReconnectEnd={onReconnectEnd}
         isValidConnection={isValidConnection as any}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

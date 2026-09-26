@@ -7,6 +7,7 @@ const mockZoomIn = vi.hoisted(() => vi.fn());
 const mockZoomOut = vi.hoisted(() => vi.fn());
 const mockFitView = vi.hoisted(() => vi.fn());
 const mockAddNode = vi.hoisted(() => vi.fn());
+const mockAddEdge = vi.hoisted(() => vi.fn());
 const mockSetState = vi.hoisted(() => vi.fn());
 
 let mockPendingMediaFile: any = null;
@@ -49,6 +50,7 @@ vi.mock('@/stores/canvasStore', () => ({
         onConnect: vi.fn(),
         updateViewport: vi.fn(),
         addNode: mockAddNode,
+        addEdge: mockAddEdge,
         selectNode: vi.fn(),
         requestAddMediaNode: vi.fn(),
       };
@@ -59,6 +61,7 @@ vi.mock('@/stores/canvasStore', () => ({
       getState: () => ({
         pendingMediaFile: mockPendingMediaFile,
         requestAddMediaNode: vi.fn(),
+        nodes: mockNodes,
       }),
       setState: mockSetState,
       subscribe: vi.fn((listener: any) => {
