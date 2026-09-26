@@ -91,6 +91,16 @@ describe('absoluteRectsOf', () => {
       { x: 5, y: 6, w: 50, h: 50 },       // 父缺失 → 相对当绝对
     ]);
   });
+
+  it('循环父链（A→B→A）终止不死循环，seen 防环承保', () => {
+    const nodes = [
+      { id: 'a', type: 'imageGen', parentId: 'b', position: { x: 1, y: 2 }, measured: { width: 50, height: 50 } },
+      { id: 'b', type: 'group', parentId: 'a', position: { x: 10, y: 20 }, width: 100, height: 100 },
+    ] as any[];
+    // 不断链即通过；期望值不构成语义承诺（环属腐坏数据），只锚"终止且产出矩形"
+    const out = absoluteRectsOf(nodes);
+    expect(out).toHaveLength(1);
+  });
 });
 
 describe('isPointOnAnyNode', () => {
