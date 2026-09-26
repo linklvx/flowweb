@@ -7,6 +7,7 @@ import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 
 export function isGroupEditContext(target: HTMLElement | null): boolean {
+  if (useNodeStore.getState().referenceSelect) return true; // 画布参考选择模式禁分组/撤销快捷键（spec §3.1：模式期 Ctrl+Z 等不生效——防撤销刚加入的参考图）
   // 视频编辑器打开期间画布快捷键禁用（spec 第五节；document keydown 是冒泡阶段，捕获层 stopPropagation 挡不住，此处为现成早退点）
   if (useVideoEditorStore.getState().open) return true;
   const ns = useNodeStore.getState();

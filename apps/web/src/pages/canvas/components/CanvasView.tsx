@@ -14,15 +14,17 @@ import { useTheme } from '@/stores/themeStore';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { RemoteCursors } from './RemoteCursors';
 import { useAuth } from '@/components/AuthProvider';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, type ImageItem } from '@/stores/nodeStore';
 import { useMenuStore } from '@/stores/menuStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
+import { getMediaUrl } from '@/api/mediaApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
+import { decideReferencePick } from './referenceSelect';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';
 import { ImageExtNode } from './nodes/ImageExtNode';
@@ -30,9 +32,11 @@ import { VideoGenNode } from './nodes/VideoGenNode';
 import { AudioGenNode } from './nodes/AudioGenNode';
 import { MultiImageNode } from './nodes/MultiImageNode';
 import { VideoEditNode } from './nodes/VideoEditNode';
+import { MAX_REFERENCE_IMAGES } from './nodes/prompt-input/types';
 import { GroupNode } from './groups/GroupNode';
 import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
+import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';
 import { SelectionBoxOverlay } from './groups/SelectionBoxOverlay';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { GroupContextMenu } from './groups/GroupContextMenu';
@@ -103,6 +107,8 @@ function CanvasViewComponent(_props: Props) {
   const projectId = useCanvasStore((s) => s.projectId);
   const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
   const isLocked = activeEditNodeId !== null;
+  const referenceSelect = useNodeStore((s) => s.referenceSelect);
+  const inRefSelect = referenceSelect !== null;
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
   const onEdgesChange = useCanvasStore((s) => s.onEdgesChange);
   const onConnect = useCanvasStore((s) => s.onConnect);
@@ -197,8 +203,37 @@ function CanvasViewComponent(_props: Props) {
     };
   }, []);
 
+  const handleReferencePick = useCallback(async (sourceNodeId: string, targetNode: any) => {
+    const store = useNodeStore.getState();
+    const source = store.nodes[sourceNodeId];
+    // AppNode.data 是严格联合（TextNodeData 无 allImages）——断言到拾取所需形状（仓内 CanvasView 既有 data 断言先例）
+    const currentImages = (source?.data as { allImages?: ImageItem[] } | undefined)?.allImages ?? [];
+    const decision = decideReferencePick(sourceNodeId, targetNode, currentImages.map((i: { id: string }) => i.id), MAX_REFERENCE_IMAGES);
+    if (decision.kind === 'ignore') return;
+    if (decision.kind === 'full') {
+      store.flashReferenceNotice(`最多 ${MAX_REFERENCE_IMAGES} 张参考图`);
+      return;
+    }
+    try {
+      const { url } = await getMediaUrl(decision.fileId); // presign（spec §3.3；ImageItem.url 本就是 presign 结果）
+      const name = (targetNode?.data?.mediaName as string) || '参考图';
+      const latest = (useNodeStore.getState().nodes[sourceNodeId]?.data as { allImages?: ImageItem[] } | undefined)?.allImages ?? [];
+      useNodeStore.getState().updatePromptImages(sourceNodeId, [
+        ...latest,
+        { id: decision.fileId, url, name, status: 'success' as const },
+      ]);
+    } catch {
+      // presign 失败该次忽略（spec §3.3）
+    }
+  }, []);
+
   const onNodeClick = useCallback((_event: any, node: any) => {
     const ns = useNodeStore.getState();
+    // 画布参考选择模式（spec §3.3/D25）：elementsSelectable=false 已保发起节点选中，此处只做拾取
+    if (ns.referenceSelect) {
+      void handleReferencePick(ns.referenceSelect.sourceNodeId, node);
+      return;
+    }
     if (ns.activeEditNodeId && ns.activeEditNodeId !== node.id) {
       ns.triggerCancelEdit();
     } else if (ns.activeTransformNodeId && ns.activeTransformNodeId !== node.id) {
@@ -206,7 +241,7 @@ function CanvasViewComponent(_props: Props) {
     } else if (!ns.activeEditNodeId && !ns.activeTransformNodeId) {
       selectNode(node.id);
     }
-  }, [selectNode]);
+  }, [selectNode, handleReferencePick]);
 
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
     if (node.type === 'group') {
@@ -422,7 +457,7 @@ function CanvasViewComponent(_props: Props) {
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
         onNodeDragStop={handleNodeDragStop}
-        deleteKeyCode={editorOpen ? [] : ['Backspace', 'Delete']}
+        deleteKeyCode={editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
         maxZoom={3}
@@ -431,9 +466,9 @@ function CanvasViewComponent(_props: Props) {
         panOnScroll={!isLocked}
         panOnDrag={!isLocked}
         zoomOnDoubleClick={!isLocked}
-        nodesDraggable={!isLocked}
+        nodesDraggable={inRefSelect ? false : !isLocked}
         nodesFocusable={!isLocked}
-        elementsSelectable={!isLocked}
+        elementsSelectable={inRefSelect ? false : !isLocked}
         snapToGrid={snapEnabled}
         snapGrid={[20, 20]}
         noWheelClassName="nowheel"
@@ -480,6 +515,7 @@ function CanvasViewComponent(_props: Props) {
           snapEnabled={snapEnabled}
           onToggleSnap={() => setSnapEnabled((v) => !v)}
         />
+        <CanvasReferenceSelectBanner />
         <SelectionBoxOverlay />
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;

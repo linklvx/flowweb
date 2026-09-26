@@ -1,14 +1,14 @@
 // useGroupKeyboard.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock stores BEFORE importing the module under test
+// vi.hoisted：mock 工厂提升到 import 前，普通 const 会 TDZ——可变旗标供用例拨动 referenceSelect
+const nodeState = vi.hoisted(() => ({
+  activeEditNodeId: null as string | null,
+  activeTransformNodeId: null as string | null,
+  referenceSelect: null as unknown,
+}));
 vi.mock('@/stores/nodeStore', () => ({
-  useNodeStore: {
-    getState: () => ({
-      activeEditNodeId: null,
-      activeTransformNodeId: null,
-    }),
-  },
+  useNodeStore: { getState: () => nodeState },
 }));
 
 // Mock other stores
@@ -36,6 +36,11 @@ describe('isGroupEditContext（编辑态判定 spec 6.3）', () => {
   });
   it('普通 div → false', () => {
     expect(isGroupEditContext(document.createElement('div'))).toBe(false);
+  });
+  it('参考选择模式 → true（模式期 Ctrl+Z/G/Y 被禁，spec §3.1——防撤销刚加入的参考图）', () => {
+    nodeState.referenceSelect = { sourceNodeId: 'img1' };
+    expect(isGroupEditContext(document.createElement('div'))).toBe(true);
+    nodeState.referenceSelect = null; // 还原，防污染既有用例
   });
 });
 
