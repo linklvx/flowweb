@@ -172,7 +172,7 @@ BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc
 - tab：选中 `bg-overlay-2` + `text-text`；未选 `text-text-dim-2` + hover `bg-overlay-2`。
 - 搜索框：`bg-overlay-2` 底，focus 边框品牌色 token；防抖 300ms，匹配名称+作者名。
 - 「仅看可商用」默认不勾选；收藏/最近 tab 下分类行与商用筛选隐藏（切 tab 时清商用勾选防残留静默过滤）；**搜索框三 tab 均生效**（后端 relation filter 折入，plan 第七轮 P1-6——搜索框头部恒显，不留假交互）。
-- 「全部」chips = 默认视图：全部 active 风格，`sortOrder asc, usageCount desc, id asc`；收藏/最近 tab 同样补 id tiebreaker（createdAt desc/lastUsedAt desc + id asc——批量插入或同毫秒场景偏移分页同样漂移，与 D10 同理由）。
+- 「全部」chips = 默认视图：全部 active 风格，`sortOrder asc, usageCount desc, id asc`；收藏/最近 tab 同样补 id tiebreaker（createdAt desc/lastUsedAt desc + id desc——与 join 行时间倒序同向、批量插入或同毫秒场景偏移分页同样漂移，与 D10 同理由）。
 - 竞态防护（D3-审核）：切 tab/切分类/搜索时重置 page=1，请求带序号守卫，过期响应丢弃。
 
 ### 4.3 卡片
@@ -283,7 +283,7 @@ model StyleRecentUsage {
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/styles/categories` | active 分类，sortOrder asc |
-| GET | `/api/styles?tab=all\|favorites\|recent&categoryId=&search=&commercialOnly=&page=1&pageSize=20` | all：active+筛选，`sortOrder asc, usageCount desc, id asc`（索引方向见 §5）；favorites：join 收藏、active 过滤，`createdAt desc, id asc`；recent：join 最近使用、active 过滤，`lastUsedAt desc, id asc`；search 匹配 name/authorName（contains, insensitive）。items 含 id/name/coverUrl(presign)/authorName/isCommercial/usageCount/favorited/promptText（**promptText 视为公开素材**，D23——详情与卡片同源免二次请求） |
+| GET | `/api/styles?tab=all\|favorites\|recent&categoryId=&search=&commercialOnly=&page=1&pageSize=20` | all：active+筛选，`sortOrder asc, usageCount desc, id asc`（索引方向见 §5）；favorites：join 收藏、active 过滤，`createdAt desc, id desc`；recent：join 最近使用、active 过滤，`lastUsedAt desc, id desc`；search 匹配 name/authorName（contains, insensitive）。items 含 id/name/coverUrl(presign)/authorName/isCommercial/usageCount/favorited/promptText（**promptText 视为公开素材**，D23——详情与卡片同源免二次请求） |
 | GET | `/api/styles/:id` | 单个（含 promptText+coverKey/coverUrl）；工具行圆图来源；**停用/不存在一律 404**（stylesApi 映射为「无风格」而非错误，§4.5） |
 | POST | `/api/styles/:id/favorite` | body `{ favorited: boolean }` 显式目标态；`createMany skipDuplicates` / `deleteMany` 双幂等（D26）→ `{ favorited }` |
 | POST | `/api/styles/:id/use` | **非事务三步**（D26 机制见 §4.4）：① findUnique 校验 active（否则 404）② create StyleRecentUsage（P2002→退化 update lastUsedAt）判 isFirstUse ③ 仅首次 `updateMany({ where: { id, active: true }, usageCount increment })` → **扁平 StyleListItem**（plan 审核口径统一：测试/实现/前端三方一致，非 `{ style }` 包装） |
