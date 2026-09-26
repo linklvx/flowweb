@@ -5,6 +5,7 @@ import { message, Spin } from 'antd';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { NodePalette } from './components/NodePalette';
 import { AddNodeMenu } from './components/AddNodeMenu';
+import { HandleAddNodeMenu } from './components/HandleAddNodeMenu';
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
@@ -305,6 +306,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <Angle3DModal />
         <VideoEditorShell />
         <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
+        <HandleAddNodeMenu />
         {isHydrating && (
           <div
             data-testid="hydrate-overlay"
