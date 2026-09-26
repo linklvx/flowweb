@@ -307,6 +307,8 @@ git commit -m "feat(web): 图片节点输入区 I 光标（.prompt-editor cursor
   });
 
   it('10. upload-button (参考) renders before first thumbnail', () => {
+    // 顺序断言语义说明：thumb-img-1 来自本文件顶部 SortableImageItem mock——被测对象是
+    // ImageThumbnailBar 自身的 JSX 排列顺序（按钮在缩略图渲染位之前），与 mock/真实组件内部无关
     render(
       <ImageThumbnailBar
         nodeId="node-1"
@@ -439,16 +441,25 @@ Expected: 用例 9/10/11 FAIL（无风格按钮、顺序相反、参考无文字
 Run: `pnpm vitest run src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx`
 Expected: 全部 PASS（含既有 1-8）。
 
-- [ ] **Step 3.5: 全量回归**
+- [ ] **Step 3.5: 清理 no-theme-utility 白名单死条目（同 commit，规则头部明文要求同步）**
+
+按钮改版删除 `bg-white/[0.08]` 与 `text-white/50` 后，该文件不再有 white/black 主题工具类，白名单条目成死条目（留着会让该文件日后写入 bg-white 静默放行）：
+
+1. `scripts/eslint-rules/no-theme-utility.js` L52 删除整行：
+   `{ glob: 'src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx', allow: ['bg', 'text'] },   // 压 prompt 条恒深面的加图钮`
+2. `e2e/audit/canvas-migration-registry.json` whitelistKeeps 中对应镜像条目（约 L2730-2737，glob 同名、why="C8 Task 22：压 prompt 条恒深面的加图钮"）一并删除。
+3. 验证：`pnpm lint` PASS（该文件新代码全用语义类 bg-surface-dim/text-text-dim-2，无 white/black 族命中）。
+
+- [ ] **Step 3.6: 全量回归**
 
 Run: `pnpm vitest run`
 Expected: 全绿（VideoConfigPanel.test 若有对 upload-button 的断言需同步检查——其为共享组件，只断言存在性则天然通过）。
 
-- [ ] **Step 3.6: Commit**
+- [ ] **Step 3.7: Commit**
 
 ```bash
-git add src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx
-git commit -m "feat(web): 工具行政版——[风格(仅外观)][参考(原+号 56×56 竖排)] [缩略图] 顺序对调，颜色走 surface-dim/dim-2 语义 token"
+git add src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.test.tsx scripts/eslint-rules/no-theme-utility.js e2e/audit/canvas-migration-registry.json
+git commit -m "feat(web): 工具行政版——[风格(仅外观)][参考(原+号 56×56 竖排)] [缩略图] 顺序对调，颜色走 surface-dim/dim-2 语义 token；同步摘除 no-theme-utility 白名单死条目及 registry 镜像"
 ```
 
 ---
@@ -498,7 +509,8 @@ describe('RunButton', () => {
     expect(darkStart).toBeGreaterThan(-1);
     expect(lightStart).toBeGreaterThan(darkStart); // 源序约束（D8）
     const darkBlock = css.slice(darkStart, lightStart);
-    const lightBlock = css.slice(lightStart, css.indexOf('}', lightStart + 5000));
+    // 上界锚下一个块头（L122 几何 :root {）——勿用 indexOf('}', lightStart+5000)：+5000 偏移处找 } 会命中更靠后的 } → start>end → 空串假红
+    const lightBlock = css.slice(lightStart, css.indexOf(':root {', lightStart));
     expect(darkBlock).toContain('--canvas-run-btn-bg: rgb(145, 145, 145)');
     expect(darkBlock).toContain('--canvas-run-btn-icon: #141414');
     expect(lightBlock).toContain('--canvas-run-btn-bg: rgb(135, 135, 135)');
@@ -549,7 +561,7 @@ export const RunButton = memo(RunButtonComponent);
 
 ```css
   --canvas-run-btn-bg: rgb(145, 145, 145);  /* 图片节点面板运行钮底（2026-09-26 需求8；深档保参考值 ≈4.81:1@面板底） */
-  --canvas-run-btn-icon: #141414;           /* 运行钮箭头（灰底上 ≈6:1） */
+  --canvas-run-btn-icon: #141414;           /* 运行钮箭头（灰底上 ≈6:1）。⚠ 双块同值键（非 b1-SINGLE 单值恒值键）：深/浅两块都必须保留声明，改动须同步两侧，单侧删除会炸 b0/b1 块数守卫 */
 ```
 
 3. 同文件唯一 `.light` 块内（`--canvas-handle-hover-icon: #111827;` 之后）追加（**禁止另起 .light 块**，b1-token-migration.spec L331 守卫）：
@@ -584,6 +596,8 @@ export const RunButton = memo(RunButtonComponent);
 ```
 
 **baseline 说明**：RunButton 原 `text-[#999]` 行被本任务删除，其 hex-baseline 陈旧键**留存不重建**（baseline 冻结、门禁只拦新增键；删除既有行是安全的）。
+
+**浅档回退分支的同步范围（若首跑 <3.0 触发加深 rgb(125,125,125)=#7D7D7D）**：需同步四处——① 本步 CSS 的 .light 块值；② Step 4.1 测试断言 `rgb(135, 135, 135)`；③ b0 DOMAIN_LIGHT 表值；④ contrast-pairs 两条含 `#878787` 的 fg/bg。独立复算 ≈3.18:1 达标，此分支大概率不触发。
 
 6. `e2e/audit/canvas-migration-registry.json`：adjudications 数组尾部追加（推翻 Task 22 对 RunButton:14 的预登记裁定，spec §4 管道合规）：
 
@@ -719,8 +733,16 @@ git commit -m "feat(web): 比例/分辨率弹层增加 1K 档（1K/2K/4K）—�
     renderNode();
     const span = screen.getByText('Image');
     expect(span.style.fontSize).toBe('13px');
-    const icon = span.closest('div')?.querySelector('svg');
+    // 图标经独立 testid 取（span.closest('div') 是内层 flex-1 包装、不含 svg，层级断言会 null）
+    const icon = screen.getByTestId('node-title-icon').querySelector('svg');
     expect(icon?.getAttribute('width')).toBe('13');
+  });
+
+  it('empty-string mediaName falls back to Image（|| 而非 ??，空串可双击改名）', () => {
+    mockNodeData.mediaName = '';
+    renderNode();
+    expect(screen.getByText('Image')).toBeInTheDocument();
+    mockNodeData.mediaName = undefined;
   });
 ```
 
@@ -739,7 +761,7 @@ Expected: 新用例 FAIL（现状常驻 input、focus 模式、12px）。
   const [draft, setDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef('');
-  const mediaName = nodeData?.mediaName ?? 'Image';
+  const mediaName = nodeData?.mediaName || 'Image'; // || 而非 ??：空串媒体名也回退默认（否则渲染空 span 无法双击改名）
 
   const startEdit = useCallback(() => {
     setDraft(mediaName);
@@ -765,7 +787,7 @@ Expected: 新用例 FAIL（现状常驻 input、focus 模式、12px）。
         className="absolute z-[1] pointer-events-auto -translate-y-full left-1 -top-0 pb-2 overflow-hidden whitespace-nowrap flex items-center gap-1 text-[#999]"
         style={{ width: nodeWidth, lineHeight: '20px' }}
       >
-        <span className="shrink-0 flex items-center" style={{ width: 13, height: 13 }}>
+        <span data-testid="node-title-icon" className="shrink-0 flex items-center" style={{ width: 13, height: 13 }}>
           <svg width="13" height="13" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
             {/* 原 L1074 的 path 原样保留，勿动 */}
             ...原 path...
@@ -823,7 +845,7 @@ Expected: 全 PASS（含非标题既有用例——mockNodeData 默认无 mediaN
 
 - [ ] **Step 6.6: 全量回归 + tsc**
 
-Run: `pnpm vitest run && npx tsc -b --noEmit 2>&1 | head -20`
+Run: `pnpm vitest run && npx tsc -b`
 Expected: vitest 全绿；tsc 无新增报错。
 
 - [ ] **Step 6.7: Commit**
@@ -927,6 +949,19 @@ describe('absoluteRectsOf', () => {
     ] as any[];
     // group 被过滤；cell 绝对矩形 = (500+100, 400+50)
     expect(absoluteRectsOf(nodes)).toEqual([{ x: 600, y: 450, w: 200, h: 150 }]);
+  });
+
+  it('两级嵌套（祖组→子组→cell）逐级累加；parentId 指向缺失节点时停在该级', () => {
+    const nodes = [
+      { id: 'g0', type: 'group', position: { x: 10, y: 10 }, width: 800, height: 600 },
+      { id: 'g1', type: 'group', parentId: 'g0', position: { x: 500, y: 400 }, width: 600, height: 400 },
+      { id: 'cell1', type: 'imageGen', parentId: 'g1', position: { x: 100, y: 50 }, measured: { width: 200, height: 150 } },
+      { id: 'orphan', type: 'imageGen', parentId: 'gone', position: { x: 5, y: 6 }, measured: { width: 50, height: 50 } },
+    ] as any[];
+    expect(absoluteRectsOf(nodes)).toEqual([
+      { x: 610, y: 460, w: 200, h: 150 }, // 10+500+100, 10+400+50
+      { x: 5, y: 6, w: 50, h: 50 },       // 父缺失 → 相对当绝对
+    ]);
   });
 });
 
@@ -1537,7 +1572,7 @@ import { useMenuStore } from '@/stores/menuStore';
   const onReconnectEnd = useCallback(() => { reconnectingRef.current = false; }, []);
 ```
 
-3. 顶部类型 import 补 `FinalConnectionState`（从 `@xyflow/react`；若该泛型类型不直接导出，改从 `@xyflow/system` 导入——两者等价）。`useRef` 未 import 则补。
+3. 顶部类型 import 补 `import type { FinalConnectionState } from '@xyflow/react';`（已实证其 index.d.ts:37 从 @xyflow/system 再导出，直接可用）。`useRef` 未 import 则补。
 
 4. `<ReactFlow>` props（L351 `onConnect={onConnect as any}` 之后）追加：
 
@@ -1554,14 +1589,14 @@ import { useMenuStore } from '@/stores/menuStore';
 
 - [ ] **Step 9.3: 类型与回归验证**
 
-Run: `pnpm vitest run src/pages/canvas/components/CanvasView.test.tsx && npx tsc -b --noEmit 2>&1 | head -20`
-Expected: 测试全 PASS；tsc 无新增报错。
+Run: `pnpm vitest run src/pages/canvas/components/CanvasView.test.tsx && npx tsc -b`
+Expected: 测试全 PASS；tsc 无新增报错（与仓内 build 脚本同款命令——`-b` 不支持与 `--noEmit` 组合）。
 
 - [ ] **Step 9.4: Commit**
 
 ```bash
 git add src/pages/canvas/components/CanvasView.tsx src/pages/canvas/components/CanvasView.test.tsx
-git commit -m "feat(web): CanvasView 接线 handle 拖拽弹菜单——onConnectStart/End+重连双复位标志位，守卫走 shouldOpenHandleMenu 纯函数，flowPoint 换算一次复用建节点"
+git commit -m "feat(web): CanvasView 接线 handle 拖拽弹菜单——onConnectStart/End+重连双复位标志位，决策走 decideHandleMenu 纯函数（含绝对矩形解析），flowPoint 换算一次复用建节点"
 ```
 
 ---
@@ -1592,12 +1627,7 @@ Expected: 全部通过（Task 4 回填的 expect 值与工具计算一致；若 
 
 - [ ] **Step 10.5: token 守卫（b0/b1）**
 
-**前置**：Playwright e2e 需 webServer（build+preview）与登录态 storageState——先试跑 `npx playwright test e2e/b0-token-blocks.spec.ts`；**若环境不可用，静态回退**（等价校验，并在提交说明登记"b0/b1 Playwright 未跑、以静态校验回退"）：
-
-```bash
-grep -c "canvas-run-btn-bg" src/index.css   # 期望 2（深块+浅块各一）
-grep -n "light {" src/index.css | wc -l     # 期望 1（唯一 .light 块，源序在 :root,.dark 后——Task 4 内联测试已断言）
-```
+**前置**：Playwright e2e 需 webServer（build+preview）与登录态 storageState——先试跑 `npx playwright test e2e/b0-token-blocks.spec.ts`；**若环境不可用，静态回退 = 跑 Task 4 的 `pnpm vitest run src/pages/canvas/components/nodes/config-panel/RunButton.test.tsx`**（其内联 CSS 断言已覆盖"双块各定义 token + 唯一 .light 块 + 源序"三项语义），并在提交说明登记"b0/b1 Playwright 未跑、以 RunButton.test 静态断言回退"。
 
 Run: `npx playwright test e2e/b0-token-blocks.spec.ts e2e/b1-token-migration.spec.ts`
 Expected: 全绿（新 token 双值已在 b0 DOMAIN 表且无空格；浅值写入唯一 .light 块未另起块）。
@@ -1610,7 +1640,7 @@ Expected: 全绿（新 token 双值已在 b0 DOMAIN 表且无空格；浅值写�
 3. 风格/参考按钮 56×56 视觉、与 50px 缩略图同排高差可接受性
 4. 运行按钮浅/深主题下灰底黑箭头观感（浅档底 vs 面板底 ≥3:1 以 contrast-table 首跑值为准）
 5. 标题：**单击不进入编辑（预期行为变更，非缺陷）**；双击进入（input 右边缘与尺寸文本左缘对齐=节点宽−占位的实宽核验）、Enter/失焦保存、Esc 还原、改名后刷新仍保留、Ctrl+Z 与后续操作同栈回滚
-6. 拖拽：右 handle 拖到空白弹 4 项/左 2 项；落在另一节点体上不弹；**落在组内空白处弹菜单（group 过滤裁定）**、组内图片节点体上不弹（绝对坐标解析）；拖边端点重连不弹；Esc 取消重连后再拖仍能弹；点 handle 不拖不弹；锁定态（进入节点编辑模式）不弹；建节点中心对齐松手点且自动连线、Ctrl+Z 节点+边一起撤销
+6. 拖拽：右 handle 拖到空白弹 4 项/左 2 项；落在另一节点体上不弹；**落在组内空白处弹菜单（group 过滤裁定）**、组内图片节点体上不弹（绝对坐标解析——与节点 toolbar 显示位置交叉核对一致性）；拖边端点重连不弹；Esc 取消重连后再拖仍能弹；点 handle 不拖不弹；锁定态（进入节点编辑模式）不弹；建节点中心对齐松手点且自动连线、Ctrl+Z 节点+边一起撤销
 7. 视频节点面板同步出现新工具行（共享组件统一生效）
 
 - [ ] **Step 10.7: spec §7 登记核对（文档侧收尾，不写代码）**
@@ -1624,6 +1654,12 @@ pnpm vitest run && pnpm lint && node scripts/css-audit.mjs
 ```
 
 ---
+
+## 执行中停机回报条件（遇此三类情况停下报告用户，勿自行改设计）
+
+1. b0 的 DOMAIN_DARK 比对出现空格/大小写不匹配（说明 readTokens 归一化假设有误）；
+2. absoluteRectsOf 在真实画布上把普通拖拽误判为"落在节点体"导致菜单不弹（说明组内坐标语义与推断不符）；
+3. contrast-table 首跑浅档 < 3.0 需触发加深回退（须同步 index.css + Step 4.1 断言 + b0 表 + contrast-pairs 四处）。
 
 ## 自审记录（writing-plans Self-Review）
 
