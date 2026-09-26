@@ -169,7 +169,7 @@ BaseFullscreenModal 外壳（body portal、z-[100000]、bg-black/60 背板、Esc
 
 - tab：选中 `bg-overlay-2` + `text-text`；未选 `text-text-dim-2` + hover `bg-overlay-2`。
 - 搜索框：`bg-overlay-2` 底，focus 边框品牌色 token；防抖 300ms，匹配名称+作者名。
-- 「仅看可商用」默认不勾选；收藏/最近 tab 下分类行与商用筛选隐藏（无意义维度）。
+- 「仅看可商用」默认不勾选；收藏/最近 tab 下分类行与商用筛选隐藏（切 tab 时清商用勾选防残留静默过滤）；**搜索框三 tab 均生效**（后端 relation filter 折入，plan 第七轮 P1-6——搜索框头部恒显，不留假交互）。
 - 「全部」chips = 默认视图：全部 active 风格，`sortOrder asc, usageCount desc, id asc`；收藏/最近 tab 同样补 id tiebreaker（createdAt desc/lastUsedAt desc + id asc——批量插入或同毫秒场景偏移分页同样漂移，与 D10 同理由）。
 - 竞态防护（D3-审核）：切 tab/切分类/搜索时重置 page=1，请求带序号守卫，过期响应丢弃。
 
