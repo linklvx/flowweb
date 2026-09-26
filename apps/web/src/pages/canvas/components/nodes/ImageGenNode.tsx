@@ -1091,14 +1091,14 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               placeholder="请输入标题"
               autoFocus
               onFocus={(e) => e.currentTarget.select()}
-              className="nodrag nopan absolute inset-0 w-full h-auto bg-transparent outline-none"
+              className="nodrag absolute inset-0 w-full h-auto bg-transparent outline-none"
               style={{ fontSize: 13, lineHeight: '20px', minWidth: 0 }}
               aria-label="节点标题"
               maxLength={20}
             />
           ) : (
             <span
-              className="nodrag nopan select-none cursor-default truncate"
+              className="nodrag select-none cursor-default truncate"
               style={{ fontSize: 13, lineHeight: '20px' }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
