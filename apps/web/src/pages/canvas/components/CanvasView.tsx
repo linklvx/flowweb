@@ -218,6 +218,7 @@ function CanvasViewComponent(_props: Props) {
       const { url } = await getMediaUrl(decision.fileId); // presign（spec §3.3；ImageItem.url 本就是 presign 结果）
       const name = (targetNode?.data?.mediaName as string) || '参考图';
       const latest = (useNodeStore.getState().nodes[sourceNodeId]?.data as { allImages?: ImageItem[] } | undefined)?.allImages ?? [];
+      if (latest.some((i) => i.id === decision.fileId)) return; // 双击/连点同图：presign 窗口内第二次点击在此复检去重（写回同步，关闭同用户竞态）
       useNodeStore.getState().updatePromptImages(sourceNodeId, [
         ...latest,
         { id: decision.fileId, url, name, status: 'success' as const },

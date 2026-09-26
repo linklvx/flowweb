@@ -5,6 +5,7 @@ import React from 'react';
 import { message } from 'antd';
 import { CanvasPage } from './page';
 import { useMenuStore } from '@/stores/menuStore';
+import { useNodeStore } from '@/stores/nodeStore';
 
 vi.mock('@/components/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'u1', name: 'Test', email: 'test@test.com' }, loading: false, logout: vi.fn(), refresh: vi.fn() }),
@@ -560,6 +561,26 @@ describe('TD-4 hydrate 键盘守卫', () => {
     fireEvent.keyDown(document, { key: 'Tab' });
     expect(useMenuStore.getState().isOpen).toBe(true);
     useMenuStore.setState({ isOpen: false });
+  });
+
+  it('参考选择模式期 Tab 不弹 AddNodeMenu（spec §3.1 gate）', async () => {
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    // 一次 Tab 有两次 getState 消费：useGroupKeyboard.isGroupEditContext 先注册先触发吃一次，page Tab gate 吃一次——链两个 once
+    const refState = {
+      nodes: {},
+      activeTransformNodeId: null,
+      activeEditNodeId: null,
+      referenceSelect: { sourceNodeId: 'img1', notice: null },
+      exitReferenceSelect: vi.fn(),
+      setActiveTransformNodeId: vi.fn(),
+      setActiveEditNodeId: vi.fn(),
+    } as any;
+    vi.mocked(useNodeStore.getState).mockReturnValueOnce(refState).mockReturnValueOnce(refState);
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(useMenuStore.getState().isOpen).toBe(false);
   });
 
   describe('folderPath 面包屑', () => {

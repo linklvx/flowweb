@@ -335,11 +335,11 @@ function CanvasKeyboardHandler() {
       // TD-4：hydrate 窗口内忽略快捷键（遮罩封指针路径，这里封键盘路径）
       if (useCanvasStore.getState().isHydrating) return;
       if (useVideoEditorStore.getState().open) return; // 视频编辑器打开期间画布快捷键全禁（spec 验收 27——Tab/Ctrl+0/Alt+Shift+F 不再开幽灵菜单/改视口）
-      if (useNodeStore.getState().referenceSelect) return; // 参考选择模式禁画布快捷键（含 Tab→AddNodeMenu，spec §3.1）
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
       if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (useNodeStore.getState().referenceSelect) return; // 参考选择模式 Tab 不弹 AddNodeMenu（spec §3.1；Ctrl+0/Alt+Shift+F fitView 为接受边界仍生效）
         e.preventDefault();
         const pos = useMenuStore.getState().lastMousePos;
         useMenuStore.getState().open(pos);
