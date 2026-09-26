@@ -223,38 +223,67 @@ describe('ImageGenNode', () => {
     );
   };
 
-  it('should render editable node title with default value', () => {
+  it('renders static title span from mediaName; no input before double click', () => {
     renderNode();
-    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
-    expect(input).toBeInTheDocument();
-    expect(input.value).toBe('Image');
+    expect(screen.queryByLabelText('节点标题')).not.toBeInTheDocument();
+    expect(screen.getByText('Image')).toBeInTheDocument();
   });
 
-  it('should save title on blur', () => {
+  it('displays mediaName from store (唯一真源——外部来源改名直接生效)', () => {
+    mockNodeData.mediaName = '外部标题';
     renderNode();
+    expect(screen.getByText('外部标题')).toBeInTheDocument();
+    mockNodeData.mediaName = undefined;
+  });
+
+  it('double click enters edit mode; blur writes mediaName via updateConfig', () => {
+    renderNode();
+    fireEvent.doubleClick(screen.getByText('Image'));
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
-    fireEvent.focus(input);
+    expect(input.value).toBe('Image');
+    // 编辑态容器 flex-1（宽度=节点宽−图标/尺寸占位；jsdom 量不到布局，类断言+人工验收，spec §5 P2a）
+    expect(input.parentElement?.className).toContain('flex-1');
     fireEvent.change(input, { target: { value: '我的图片' } });
     fireEvent.blur(input);
-    expect(screen.getByDisplayValue('我的图片')).toBeInTheDocument();
+    expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { mediaName: '我的图片' });
   });
 
-  it('should cancel edit on Escape', () => {
+  it('empty blur does not write store and exits edit mode', () => {
     renderNode();
-    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
-    fireEvent.focus(input);
+    fireEvent.doubleClick(screen.getByText('Image'));
+    const input = screen.getByLabelText('节点标题');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(mockUpdateConfig).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('节点标题')).not.toBeInTheDocument();
+    expect(screen.getByText('Image')).toBeInTheDocument();
+  });
+
+  it('Escape exits edit mode without writing store', () => {
+    renderNode();
+    fireEvent.doubleClick(screen.getByText('Image'));
+    const input = screen.getByLabelText('节点标题');
     fireEvent.change(input, { target: { value: '取消' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.getByDisplayValue('Image')).toBeInTheDocument();
+    expect(mockUpdateConfig).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('节点标题')).not.toBeInTheDocument();
+    expect(screen.getByText('Image')).toBeInTheDocument();
   });
 
-  it('should grow ghost sizer span as user types longer title', () => {
-    const { container } = renderNode();
-    const input = screen.getByLabelText('节点标题') as HTMLInputElement;
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: 'A very long title for testing' } });
-    const ghost = container.querySelector('[aria-hidden="true"]') as HTMLSpanElement;
-    expect(ghost.textContent).toBe('A very long title for testing ');
+  it('title uses 13px font and 13px icon', () => {
+    renderNode();
+    const span = screen.getByText('Image');
+    expect(span.style.fontSize).toBe('13px');
+    // 图标经独立 testid 取（span.closest('div') 是内层 flex-1 包装、不含 svg，层级断言会 null）
+    const icon = screen.getByTestId('node-title-icon').querySelector('svg');
+    expect(icon?.getAttribute('width')).toBe('13');
+  });
+
+  it('empty-string mediaName falls back to Image（|| 而非 ??，空串可双击改名）', () => {
+    mockNodeData.mediaName = '';
+    renderNode();
+    expect(screen.getByText('Image')).toBeInTheDocument();
+    mockNodeData.mediaName = undefined;
   });
 
   it('should render camera SVG placeholder when no result image', () => {
