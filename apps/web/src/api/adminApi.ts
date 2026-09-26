@@ -224,3 +224,46 @@ export const adminVideoWorkApi = {
   getSettings: () => apiFetch('/admin/video-works/settings'),
   updateSettings: (d: unknown) => apiFetch('/admin/video-works/settings', { method: 'PUT', body: JSON.stringify(d) }),
 };
+
+// ========== 风格库管理（spec §6.2/D27；admin 路径不带 /api 先例 :194） ==========
+
+export interface AdminStyleCategory { id: string; name: string; sortOrder: number; active: boolean; createdAt: string }
+export interface AdminStyle {
+  id: string; name: string; categoryId: string; coverKey: string; coverUrl?: string;
+  authorName: string | null; isCommercial: boolean; promptText: string;
+  sortOrder: number; active: boolean; usageCount: number;
+  category?: { name: string };
+}
+
+export const adminStylesApi = {
+  listCategories: (): Promise<AdminStyleCategory[]> => apiFetch('/admin/style-categories'),
+  createCategory: (data: { name: string; sortOrder?: number; active?: boolean }) =>
+    apiFetch('/admin/style-categories', { method: 'POST', body: JSON.stringify(data) }),
+  updateCategory: (id: string, data: Partial<{ name: string; sortOrder: number; active: boolean }>) =>
+    apiFetch(`/admin/style-categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCategory: (id: string) => apiFetch(`/admin/style-categories/${id}`, { method: 'DELETE' }),
+  listStyles: (q: { categoryId?: string; search?: string; page?: number; pageSize?: number }): Promise<{ items: AdminStyle[]; total: number }> => {
+    const p = new URLSearchParams({ page: String(q.page ?? 1), pageSize: String(q.pageSize ?? 20) });
+    if (q.categoryId) p.set('categoryId', q.categoryId);
+    if (q.search) p.set('search', q.search);
+    return apiFetch(`/admin/styles?${p.toString()}`);
+  },
+  createStyle: (data: Record<string, unknown>) =>
+    apiFetch('/admin/styles', { method: 'POST', body: JSON.stringify(data) }),
+  updateStyle: (id: string, data: Record<string, unknown>) =>
+    apiFetch(`/admin/styles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStyle: (id: string) => apiFetch(`/admin/styles/${id}`, { method: 'DELETE' }),
+};
+
+/** multipart 直传（apiFetch JSON Content-Type 冲掉 boundary——:134 先例） */
+export async function uploadStyleCover(file: File): Promise<{ key: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/admin/styles/upload-cover', { method: 'POST', body: formData, credentials: 'include' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message || '上传失败');
+  }
+  const body = await res.json();
+  return body.data ?? body;
+}

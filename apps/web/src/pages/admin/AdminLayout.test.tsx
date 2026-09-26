@@ -9,14 +9,14 @@ vi.mock('@/components/AuthProvider', () => ({ useAuth: () => authState }));
 import AdminLayout from './AdminLayout';
 
 describe('AdminLayout', () => {
-  it('渲染 4 组一级菜单文案（二级菜单 jsdom 布局测量脆弱，用容错断言）', async () => {
+  it('渲染 5 组一级菜单文案（二级菜单 jsdom 布局测量脆弱，用容错断言）', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/models']}>
         <AdminLayout />
       </MemoryRouter>,
     );
     // 一级菜单精确断言（ProLayout 菜单异步挂载，需 findBy 等待；二级默认收起，展开依赖测量）
-    for (const label of ['模型管理', '会员订阅', '首页配置', '参数配置']) {
+    for (const label of ['模型管理', '会员订阅', '首页配置', '风格库', '参数配置']) {
       expect(await screen.findByText(label)).toBeTruthy();
     }
     // 二级菜单容错：存在即可，不存在不视为失败（浏览器验收覆盖）
