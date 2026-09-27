@@ -21,6 +21,9 @@
 - TransformToolbar（消费点 7）**豁免不加标志**——transform 期 isLocked=true（根因修）→ 无框选可达；枚举注释须写豁免理由。
 - VideoEditNode.tsx:89 副作用（框选经过停迷你播放）**接受不修**（§5-1 消费点 8，既有选中语义）。
 - `lastPointerShiftKey` 与 `marqueeSelecting` 并存非替代：前者覆盖 Shift+点击，后者覆盖框选进行态。
+- **锁定态三个库级旁路（六修核实）**：①system:2824 的 node/edge 中键特例先于一切判定 → wrapper capture 闸门封死（Task 4 3f）；②删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）→ deleteKeyCode 并入 isLocked（Task 4 3e 首行）；③Ctrl+滚轮缩放旁路（zoomActivationKeyPressed 覆盖 zoomOnScroll=false）→ 登记不修（Task 7 注释明示"与今天行为一致"，防验收误报缺陷）。
+- **消费点 8 同格登记（接受不修）**：VideoGenNode.tsx:105-109 的 HD 面板副作用（`!selected || !isSingleSelected || dragging → setHdPanelOpen(false)`）——框选扫过开着的 HD 面板会将其收起（状态复位非闪现，松手不自动恢复）；属选中态驱动既有语义、低频，与 VideoEditNode 停迷你播放同族。ConnectionLine 的 isActive 高亮/粒子（any-selection 视觉）按不变式不抑制——框选扫过密集连线区的视觉 churn 属预期，§9-25 验收确认无 jank 异常。
+- **订阅税决策**：marqueeSelecting 留 canvasStore（与 lastPointerShiftKey 同处置，spec 已选）；代价补偿=两处裸订阅加输入引用早退（Task 3 Step 8-9）——框选的两次真实翻转不再白排 500ms 全量快照写与 O(n) collab diff。
 
 ---
 
@@ -29,7 +32,7 @@
 **Files:**
 - Modify: `apps/web/src/stores/canvasStore.ts:98`（interface）、`:173`（初始值）
 - Test: `apps/web/src/stores/canvasStore.marqueeSelecting.test.ts`（新建）
-- Test: `apps/web/src/stores/canvasHistory.test.ts`（追加负向断言）
+- Test: `apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts`（快照 JSON 键集合断言，spec §8 负向护栏第二条）
 
 - [ ] **Step 1: 写失败测试（新建 canvasStore.marqueeSelecting.test.ts）**
 
@@ -64,15 +67,14 @@ describe('canvasStore.marqueeSelecting', () => {
 });
 ```
 
-- [ ] **Step 2: canvasHistory.test.ts 追加纯函数级键集合断言（先例 :11-14）**
+- [ ] **Step 2: useCanvasPersistence.test.ts 追加快照 JSON 键集合固定断言（spec §8 负向护栏第二条）**
 
-在 `describe('pickStructNodes / pickStructEdges', ...)` 内追加：
+（原设计在此步给 canvasHistory.test.ts 加 `Object.keys` 断言——与既有 `:11-14` 的 `toEqual` 全字段断言纯重复（toEqual 已逐字钉死键集合含 undefined 键），删去不落；真正的风险面是 localStorage 快照写出，落在既有先例 :75-78 处。）
+
+在该文件「带组 store 保存」用例的 `const snap = JSON.parse(raw!);`（:77）之后追加一行（同用例内，复用既有 fake timers/renderHook 骨架）：
 
 ```ts
-  it('键集合固定（负向护栏：抑制类字段永不入投影）', () => {
-    const picked = pickStructNodes([n({ id: 'a', selected: true })]);
-    expect(Object.keys(picked[0])).toEqual(['id', 'type', 'position', 'parentId', 'width', 'height']);
-  });
+    expect(Object.keys(snap)).toEqual(['version', 'nodes', 'edges', 'viewport', 'parentMap']);
 ```
 
 - [ ] **Step 3: 运行确认失败**
@@ -94,15 +96,15 @@ Expected: FAIL —— `useCanvasStore.getState().marqueeSelecting` 为 `undefine
   marqueeSelecting: false,
 ```
 
-- [ ] **Step 5: 运行确认通过（含 canvasHistory.test 全绿）**
+- [ ] **Step 5: 运行确认通过（含 useCanvasPersistence.test 全绿）**
 
-Run: `cd /d/flowweb/apps/web && npx vitest run src/stores/canvasStore.marqueeSelecting.test.ts src/stores/canvasHistory.test.ts`
-Expected: PASS 全部。
+Run: `cd /d/flowweb/apps/web && npx vitest run src/stores/canvasStore.marqueeSelecting.test.ts src/pages/canvas/hooks/useCanvasPersistence.test.ts`
+Expected: PASS 全部（快照键断言在字段落地前即应绿——它守的是快照构造白名单，与本任务新增字段正交，属钉死现状的护栏）。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/stores/canvasStore.ts apps/web/src/stores/canvasStore.marqueeSelecting.test.ts apps/web/src/stores/canvasHistory.test.ts && git commit -m "feat(web): canvasStore 新增 marqueeSelecting 标志+白名单负向护栏断言（spec §5-1.4——抑制态不入结构投影/undo 栈）"
+cd /d/flowweb && git add apps/web/src/stores/canvasStore.ts apps/web/src/stores/canvasStore.marqueeSelecting.test.ts apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts && git commit -m "feat(web): canvasStore 新增 marqueeSelecting 标志+白名单负向护栏断言（结构投影/快照 JSON 键集合，spec §5-1.4——抑制态不入 undo 栈/持久化）"
 ```
 
 ---
@@ -222,16 +224,21 @@ cd /d/flowweb && git add apps/web/src/hooks/useIsSingleSelected.ts apps/web/src/
 **Files:**
 - Create: `apps/web/src/hooks/useMarqueeSelectionGuard.ts`
 - Test: `apps/web/src/hooks/useMarqueeSelectionGuard.test.tsx`（新建，真 canvasStore）
-- Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx`（挂 handlers + hook）
-- Test: `apps/web/src/pages/canvas/components/CanvasView.test.tsx`（mock 加可变变量 + 接线断言）
+- Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx`（挂 handlers + hook + 中键闸门〔Task 4〕）
+- Test: `apps/web/src/pages/canvas/components/CanvasView.test.tsx`（mock 加可变变量）
 - Test: `apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx:41`（stable 补静态字段）
+- Modify: `apps/web/src/pages/canvas/hooks/useCanvasPersistence.ts:116-118`（订阅输入引用早退）
+- Modify: `apps/web/src/stores/canvasCollabRuntime.ts:210-214`（同型早退）
+- Test: `apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts`（快照税用例）
 
 - [ ] **Step 1: 写失败测试（useMarqueeSelectionGuard.test.tsx）**
+
+**写法硬约束（jsdom/RTL 实装核实）**：①`fireEvent.window` 不是 RTL API（fireEvent 只为 eventMap 键挂方法）——window 原生事件一律 `window.dispatchEvent(new Event(...))`；②jsdom 25 无 `PointerEvent`——`pointermove` 必须用 `new MouseEvent('pointermove', { buttons: 0 })`（MouseEventInit 含 buttons）；**禁用 `fireEvent.pointerMove` 兜底**（createEvent 对缺失构造器回退 `window.Event`，`{buttons:0}` 被静默丢弃 → `e.buttons === undefined` → 用例假红且红因与守卫实现无关）。
 
 ```tsx
 // apps/web/src/hooks/useMarqueeSelectionGuard.test.tsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, act, fireEvent } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import { useMarqueeSelectionGuard } from './useMarqueeSelectionGuard';
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -243,7 +250,7 @@ function GuardProbe() {
 const setTrue = () =>
   useCanvasStore.setState((s) => (s.marqueeSelecting ? s : { marqueeSelecting: true }));
 
-describe('useMarqueeSelectionGuard（spec §5-1 兜底复位，标志作用域五通道）', () => {
+describe('useMarqueeSelectionGuard（spec §5-1 兜底复位——onSelectionEnd 主通道之外的 4 个 window 通道，标志作用域挂载）', () => {
   beforeEach(() => {
     useCanvasStore.setState({ marqueeSelecting: false });
   });
@@ -255,63 +262,64 @@ describe('useMarqueeSelectionGuard（spec §5-1 兜底复位，标志作用域�
     render(<GuardProbe />);
     act(() => setTrue());
     expect(useCanvasStore.getState().marqueeSelecting).toBe(true);
-    act(() => { fireEvent.window.dispatchEvent(new Event('pointerup')); });
+    act(() => { window.dispatchEvent(new Event('pointerup')); });
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
   });
 
   it('主通道 pointercancel 复位', () => {
     render(<GuardProbe />);
     act(() => setTrue());
-    act(() => { fireEvent.window.dispatchEvent(new Event('pointercancel')); });
+    act(() => { window.dispatchEvent(new Event('pointercancel')); });
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
   });
 
   it('补充通道 pointermove buttons===0 复位（窗口外释放）', () => {
     render(<GuardProbe />);
     act(() => setTrue());
-    act(() => {
-      fireEvent.window.dispatchEvent(new PointerEvent('pointermove', { buttons: 0 }));
-    });
+    act(() => { window.dispatchEvent(new MouseEvent('pointermove', { buttons: 0 })); });
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
   });
 
   it('次级通道 blur 复位', () => {
     render(<GuardProbe />);
     act(() => setTrue());
-    act(() => { fireEvent.window.dispatchEvent(new Event('blur')); });
+    act(() => { window.dispatchEvent(new Event('blur')); });
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
   });
 
-  it('标志 false 时零常驻监听：pointerup 不通知订阅者（函数式同引用守卫，spec §5-1.3）', () => {
-    const listener = vi.fn();
-    const unsub = useCanvasStore.subscribe(listener);
-    render(<GuardProbe />);
-    act(() => { fireEvent.window.dispatchEvent(new Event('pointerup')); });
+  it('卸载兜底：标志 true 时 unmount → 复位 false（拖拽中切路由/错误边界/HMR 不卡死）', () => {
+    const { unmount } = render(<GuardProbe />);
+    act(() => setTrue());
+    unmount();
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
-    // 普通对象字面量 setState 实现下此断言必红（zustand 对 partial 与整 state 做 Object.is，
-    // 字面量必不等于整 state → 必通知）；函数式无变化返回原引用 → 不通知。
-    expect(listener).not.toHaveBeenCalled();
-    unsub();
   });
 
-  it('标志复位即卸载监听：复位后再派发 pointerup 不触发 setState', () => {
+  it('标志复位即卸载监听：复位后再派发 pointerup 不触发 setState（标志作用域验证）', () => {
     const spy = vi.spyOn(useCanvasStore, 'setState');
     render(<GuardProbe />);
     act(() => setTrue());
-    act(() => { fireEvent.window.dispatchEvent(new Event('pointerup')); });
+    act(() => { window.dispatchEvent(new Event('pointerup')); });
     spy.mockClear();
-    act(() => { fireEvent.window.dispatchEvent(new Event('pointerup')); });
+    act(() => { window.dispatchEvent(new Event('pointerup')); });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });
+
+describe('§5-1.3 复位写法依据（zustand vanilla 语义钉死——guard 与 onSelectionEnd 共用的写法前提）', () => {
+  it('函数式同引用不通知、partial 字面量必通知', () => {
+    const listener = vi.fn();
+    const unsub = useCanvasStore.subscribe(listener);
+    useCanvasStore.setState((s) => s);
+    expect(listener).not.toHaveBeenCalled();
+    useCanvasStore.setState({ marqueeSelecting: false });
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsub();
+  });
+});
 ```
 
-注：`PointerEvent` 在 jsdom（vitest 环境 @rahamann/quilt 或 tsconfig lib）不可用时，用 `new MouseEvent('pointermove', { buttons: 0 } as any)` 构造后手动指派 type——实现时若 `new PointerEvent` 报 undefined，改为：
-
-```ts
-const ev = new MouseEvent('pointermove', { buttons: 0 }) as any;
-```
+（注：原设计第 5 条「标志 false 时派发 pointerup 断言不通知」是空转断言——标志作用域下 false 时根本没挂监听，字面量实现同样绿，不能钉住函数式写法；真正的判别场景是**幂等复位**（标志已 false 时再复位零通知），该断言在 Task 4 的 interaction-props 测试里由 `onSelectionEnd` 二次驱动覆盖——本文件用上面的 store 级语义断言钉写法依据。）
 
 - [ ] **Step 2: 运行确认失败**
 
@@ -327,12 +335,15 @@ import { useCanvasStore } from '@/stores/canvasStore';
 
 /**
  * marqueeSelecting 兜底复位（spec 2026-09-28 §5-1.2）。
- * 标志为 true 期间全部操作浮层被抑制且无自愈——兜底是本设计唯一单点故障面，必须五通道：
- * 主通道 pointerup/pointercancel（触发即拖拽必已终止）；补充 pointermove(buttons===0)
- * （窗口外释放时浏览器对 pointerup 派发行为不一）；次级 blur（接受拖拽中 alt-tab 的极小残留窗口）。
+ * 复位通道全景（5 个）：onSelectionEnd（CanvasView 主通道，正常路径）+ 本 hook 的 4 个 window
+ * 通道——pointerup/pointercancel（触发即拖拽必已终止）、pointermove(buttons===0)（窗口外释放时
+ * 浏览器对 pointerup 派发行为不一）、blur（次级，接受拖拽中 alt-tab 的极小残留窗口）。
+ * 标志为 true 期间全部操作浮层被抑制且无自愈——兜底是本设计唯一单点故障面。
  * 标志作用域挂载：非框选期全 app 零常驻开销，卡死时监听恰处激活态。
  * 复位必须函数式返回同引用：对象字面量 partial 永不 Object.is 等于整 state → 必通知全部
  * 裸订阅者（500ms 快照写 / collab O(n) diff 等，每次点击白跑）。
+ * cleanup 复位：拖拽中组件卸载（切路由/错误边界/HMR）时标志不得卡 true（幂等——已是 false
+ * 时同引用 no-op，早退于真实复位之后执行零副作用）。
  */
 export function useMarqueeSelectionGuard() {
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
@@ -341,18 +352,19 @@ export function useMarqueeSelectionGuard() {
     const reset = () => {
       useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
     };
+    const onMove = (e: MouseEvent) => {
+      if (e.buttons === 0) reset();
+    };
     window.addEventListener('pointerup', reset);
     window.addEventListener('pointercancel', reset);
     window.addEventListener('blur', reset);
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons === 0) reset();
-    };
     window.addEventListener('pointermove', onMove);
     return () => {
       window.removeEventListener('pointerup', reset);
       window.removeEventListener('pointercancel', reset);
       window.removeEventListener('blur', reset);
       window.removeEventListener('pointermove', onMove);
+      reset();
     };
   }, [marqueeSelecting]);
 }
@@ -361,9 +373,9 @@ export function useMarqueeSelectionGuard() {
 - [ ] **Step 4: 运行确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/hooks/useMarqueeSelectionGuard.test.tsx`
-Expected: PASS 全部 6 条。特别确认「不通知订阅者」用例绿（若红，说明复位实现写成了对象字面量）。
+Expected: PASS——guard 6 条（含卸载兜底）+ 语义钉死 1 条。若「卸载兜底」红：cleanup 漏了 `reset()`；若语义钉死红：zustand 行为与预期不符（先停下核查，勿放宽断言）。
 
-- [ ] **Step 5: CanvasView.test.tsx 写接线失败断言（mock 先加可变变量）**
+- [ ] **Step 5: CanvasView.test.tsx mock 加可变变量（供 Task 5 selectedGroup 用例消费）**
 
 mock 区顶部变量（`let mockLastPointerShiftKey = false;` :15）后加：
 
@@ -379,19 +391,7 @@ mock state（`lastPointerShiftKey: mockLastPointerShiftKey,` :41）后加：
 
 `beforeEach`（:76-82）加 `mockMarqueeSelecting = false;`。
 
-`describe` 末尾追加接线用例（该文件 mock 的 ReactFlow 是 `vi.importActual` 真渲染，无法直接拿 props 驱动 onSelectionStart——jsdom 不能合成 d3 手势，spec §8 边界已登记；此处验证订阅接线与 guard 在 mock store 下可挂载，**行为**验证由 Step 1-4 真 store 测试 + 浏览器验收 §9-3 承担）：
-
-```tsx
-  it('marqueeSelecting 订阅接线：mock 标志 true 渲染不崩溃（guard/消费点在 mock store 下可挂载）', () => {
-    mockMarqueeSelecting = true;
-    const { container } = render(
-      <ReactFlowProvider>
-        <CanvasView projectId="p1" />
-      </ReactFlowProvider>
-    );
-    expect(container.querySelector('.react-flow')).toBeInTheDocument();
-  });
-```
+（本步骤**不加用例**：此文件的 canvasStore mock 非响应式，任何"置 true 后断言渲染"都构成空转断言；`onSelectionStart/End` 的接线与幂等断言落在 Task 4 的 interaction-props 测试——那里是真 store 且 props 可直接驱动。）
 
 - [ ] **Step 6: CanvasView.tsx 接线（handlers + hook）**
 
@@ -439,15 +439,65 @@ JSX props 加：
 
 （该文件无抑制用例，静态字段仅保证 mock 与真 store 形状一致。）
 
-- [ ] **Step 8: 运行 CanvasView 全部测试确认通过**
+- [ ] **Step 8: 订阅税消除——useCanvasPersistence 先写失败测试**
 
-Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
+函数式复位只挡住了 no-op 那一半：每次框选标志两次**真实翻转**（true/false）仍通知全部裸订阅者——`useCanvasPersistence.ts:116-118` 裸订阅不过滤字段 → 500ms 去抖后全量 `JSON.stringify(nodeStore.nodes)` + `localStorage.setItem` 各两次（内容逐字节相同）；`canvasCollabRuntime.ts:210-214` 同理每次跑 `pickStructNodes` O(n) 投影 + isEqual 深比较 ×2（结果必为 unchanged）。给两处订阅加**输入引用早退**（快照/diff 的输入只有 nodes/edges/viewport，引用未变则输出必然不变）。
+
+`useCanvasPersistence.test.ts` 追加（既有 fake timers + renderHook 先例 :51-77）：
+
+```ts
+  it('marqueeSelecting 翻转不触发快照写（订阅输入引用早退，spec §5-1 配套）', () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    renderHook(() => useCanvasPersistence('p1'));
+    setItemSpy.mockClear();
+    act(() => {
+      useCanvasStore.setState({ marqueeSelecting: true });
+      useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
+    });
+    vi.advanceTimersByTime(600);
+    expect(setItemSpy).not.toHaveBeenCalled();
+    setItemSpy.mockRestore();
+  });
+```
+
+（`act` 若该文件未 import 则补；`Storage.prototype` spy 覆盖 localStorage 实例。）
+
+- [ ] **Step 9: 实现两处订阅早退**
+
+`useCanvasPersistence.ts` 的 `useCanvasStore.subscribe` 回调（:116-118）改为：
+
+```ts
+    const unsub1 = useCanvasStore.subscribe((state, prevState) => {
+      // 快照输入只有 nodes/edges/viewport（parentMap 由 nodes 派生）——引用未变则内容必然
+      // 不变，早退防 UI 态（marqueeSelecting 等）翻转白排 500ms 全量快照写
+      if (state.nodes === prevState.nodes && state.edges === prevState.edges
+        && state.viewport === prevState.viewport) return;
+      scheduleWrite(state.isHydrating, prevState.isHydrating);
+    });
+```
+
+`canvasCollabRuntime.ts` 的 `bindBridge` 内 `unsubCs` 回调（:210-214）在 isHydrating/projectId 守卫后加：
+
+```ts
+    const unsubCs = useCanvasStore.subscribe((state, prev) => {
+      if (state.isHydrating || prev.isHydrating) return;
+      if (state.projectId !== prev.projectId) return;
+      // diff 输入只有 nodes/edges——引用未变早退，防 UI 态翻转白跑 O(n) 投影+深比较
+      if (state.nodes === prev.nodes && state.edges === prev.edges) return;
+      const changed = ...（原逻辑不变）
+```
+
+（collab 侧不新增测试——运行时需 doc/hocuspocus 环境成本不匹配；早退是纯引用守卫，正确性由「diff 输入集合不变 ⇒ 输出不变」保证，且 storeProjection 白名单负向护栏已由 Task 1 覆盖输入端。）
+
+- [ ] **Step 10: 运行确认通过**
+
+Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/hooks/useCanvasPersistence.test.ts src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
 Expected: PASS 全部（theme-perf 的 render 计数断言不受影响——新订阅返回布尔原语，Object.is 稳定）。
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/hooks/useMarqueeSelectionGuard.ts apps/web/src/hooks/useMarqueeSelectionGuard.test.tsx apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx && git commit -m "feat(web): marqueeSelecting 驱动源——onSelectionStart/End 接线+useMarqueeSelectionGuard 五通道兜底（标志作用域监听/函数式同引用复位，spec §5-1）"
+cd /d/flowweb && git add apps/web/src/hooks/useMarqueeSelectionGuard.ts apps/web/src/hooks/useMarqueeSelectionGuard.test.tsx apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx apps/web/src/pages/canvas/hooks/useCanvasPersistence.ts apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts apps/web/src/stores/canvasCollabRuntime.ts && git commit -m "feat(web): marqueeSelecting 驱动源——onSelectionStart/End 接线+useMarqueeSelectionGuard 兜底（4 window 通道/卸载复位/函数式同引用）+持久化与 collab 订阅输入引用早退（框选不交快照/diff 税，spec §5-1）"
 ```
 
 ---
@@ -455,20 +505,21 @@ cd /d/flowweb && git add apps/web/src/hooks/useMarqueeSelectionGuard.ts apps/web
 ### Task 4: isLocked 双定义修正 + CanvasView 核心交互 props（主改动）
 
 **Files:**
-- Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx:2`（import）、`:49-62`（模块常量区）、`:108-109`（订阅式 isLocked）、`:299-300`（命令式 isLockedNow）、`:466-474`（ReactFlow props）
-- Test: `apps/web/src/pages/canvas/components/CanvasView.interaction-props.test.tsx`（新建，props 契约断言主防线）
-- Test: `apps/web/src/pages/canvas/components/CanvasView.test.tsx`（派生 class 断言 + transform 锁定用例 + afterEach 复位）
+- Modify: `apps/web/src/pages/canvas/components/CanvasView.tsx:2`（import）、`:49-62`（模块常量区）、`:108-109`（订阅式 isLocked）、`:299-300`（命令式 isLockedNow）、`:437`（wrapper 中键闸门）、`:461`（deleteKeyCode）、`:466-474`（ReactFlow props 逐行改）
+- Test: `apps/web/src/pages/canvas/components/CanvasView.interaction-props.test.tsx`（新建，props 契约断言主防线 + 接线幂等 + 引用稳定）
+- Test: `apps/web/src/pages/canvas/components/CanvasView.test.tsx`（派生 class 断言 + transform 锁定 + 中键闸门用例 + afterEach 复位）
 
 - [ ] **Step 1: 新建 CanvasView.interaction-props.test.tsx（写失败断言）**
 
 ```tsx
 // apps/web/src/pages/canvas/components/CanvasView.interaction-props.test.tsx
 // spec §8.1 props 契约断言（主防线）：mock 记录型 ReactFlow 捕获 props，精确值断言覆盖一切误改
-// （含 [1,2]——其 class 表现与 [1] 相同，仅 props 断言能兜住）。
+// （含 [1,2]——其 class 表现与 [1] 相同，仅 props 断言能兜住）。canvasStore/nodeStore 均为真 store。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
-import { SelectionMode } from '@xyflow/react';
+import { render, act } from '@testing-library/react';
+import { ReactFlowProvider, SelectionMode } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 const captured = vi.hoisted(() => ({ props: null as any }));
 
@@ -495,8 +546,15 @@ vi.mock('./handleMenu', () => ({
 
 import { CanvasView } from './CanvasView';
 
+// ReactFlowProvider 防御：mock ReactFlow 不渲染 children，但若将来 mock 策略变化导致 children
+// 执行（SelectionBoxOverlay 等 xyflow store 消费者），无 Provider 会抛 zustandErrorMessage——
+// 包裹成本为零（CanvasView.test.tsx 同写法）。
 function renderCapture() {
-  render(<CanvasView projectId="p1" />);
+  render(
+    <ReactFlowProvider>
+      <CanvasView projectId="p1" />
+    </ReactFlowProvider>
+  );
   expect(captured.props).toBeTruthy();
   return captured.props;
 }
@@ -507,8 +565,9 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     handleMenuSpy.seen = null;
   });
   afterEach(() => {
-    // 真 nodeStore 防跨用例污染（spec §8.6）
+    // 真 store 防跨用例污染（spec §8.6）
     useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null, referenceSelect: null });
+    useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
   });
 
   it('非锁定：panOnDrag=[1]/selectionOnDrag/zoomOnScroll/Partial/无 panOnScroll/Space', () => {
@@ -517,18 +576,24 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     expect(p.selectionOnDrag).toBe(true);
     expect(p.zoomOnScroll).toBe(true);
     expect(p.selectionMode).toBe(SelectionMode.Partial);
-    expect('panOnScroll' in p).toBe(false); // 钉死删行而非显式 false
+    // 代码形态断言（非行为守卫——panOnScroll={false} 行为等价）：钉死"删行"这一 spec §3 可达性
+    // 推导的前提，防后人"顺手补全显式 false"
+    expect('panOnScroll' in p).toBe(false);
     expect(p.panActivationKeyCode).toBe('Space');
     expect(p.zoomOnDoubleClick).toBe(true);
+    expect(p.deleteKeyCode).toEqual(['Backspace', 'Delete']);
   });
 
-  it('锁定（activeEditNodeId）：四 prop 反转 + panActivationKeyCode=null', () => {
+  it('锁定（activeEditNodeId）：四 prop 反转 + panActivationKeyCode=null + deleteKeyCode=[]', () => {
     useNodeStore.setState({ activeEditNodeId: 'node-1' });
     const p = renderCapture();
     expect(p.panOnDrag).toBe(false);
     expect(p.selectionOnDrag).toBe(false);
     expect(p.zoomOnScroll).toBe(false);
     expect(p.panActivationKeyCode).toBe(null);
+    // 六修：删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）——
+    // 不并 isLocked 则编辑/transform 中按 Backspace 删掉正在操作的节点（数据丢失路径）
+    expect(p.deleteKeyCode).toEqual([]);
   });
 
   it('锁定（activeTransformNodeId）：transform 调整中同锁定口径（§3 根因修）', () => {
@@ -538,12 +603,40 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     expect(p.selectionOnDrag).toBe(false);
     expect(p.zoomOnScroll).toBe(false);
     expect(p.panActivationKeyCode).toBe(null);
+    expect(p.deleteKeyCode).toEqual([]);
   });
 
   it('参考选择期：panOnDrag=true（D19 保左键平移）', () => {
     useNodeStore.setState({ referenceSelect: { sourceNodeId: 'src-1' } as any });
     const p = renderCapture();
     expect(p.panOnDrag).toBe(true);
+  });
+
+  it('onSelectionStart/End 接线与幂等：翻转标志 + 已 false 时复位零通知（spec §8.3/§5-1.3）', () => {
+    const p = renderCapture();
+    const listener = vi.fn();
+    const unsub = useCanvasStore.subscribe(listener);
+    act(() => p.onSelectionStart());
+    expect(useCanvasStore.getState().marqueeSelecting).toBe(true);
+    act(() => p.onSelectionEnd());
+    expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
+    listener.mockClear();
+    act(() => p.onSelectionEnd()); // 已 false → 函数式同引用必须 no-op
+    expect(listener).not.toHaveBeenCalled(); // 对象字面量实现下必红（partial 必通知全部裸订阅者）
+    unsub();
+  });
+
+  it('常量引用稳定：rerender 后 panOnDrag/snapGrid 同引用（hoist 收益的直达断言——toBe 非 toEqual）', () => {
+    const p1 = renderCapture();
+    // projectId 变化强制穿透 CanvasView 的 memo bail-out（先例 CanvasView.test.tsx:415-419）
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p2" />
+      </ReactFlowProvider>
+    );
+    const p2 = captured.props;
+    expect(p2.panOnDrag).toBe(p1.panOnDrag); // 内联 [1] 回归时 toEqual 抓不住、toBe 必红
+    expect(p2.snapGrid).toBe(p1.snapGrid);   // ZoomPane update effect / StoreUpdater 不重跑的前提
   });
 
   it('transform 期 handle 拖拽 isLocked 双定义同口径（onConnectEnd → decideHandleMenu）', () => {
@@ -563,7 +656,7 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
 - [ ] **Step 2: 运行确认失败**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.interaction-props.test.tsx`
-Expected: FAIL —— 非锁定用例：`p.panOnDrag` 实际 `true`（现配置 `panOnDrag={!isLocked}`）≠ `[1]`；`'panOnScroll' in p` 实际 `true`。
+Expected: FAIL —— 非锁定用例：`p.panOnDrag` 实际 `true`（现配置 `panOnDrag={!isLocked}`）≠ `[1]`；`'panOnScroll' in p` 实际 `true`；接线用例：`p.onSelectionStart` 为 `undefined` → `act(() => p.onSelectionStart())` TypeError；锁定用例：`p.deleteKeyCode` 实际 `['Backspace','Delete']` ≠ `[]`。
 
 - [ ] **Step 3: 实现 CanvasView.tsx 核心改动**
 
@@ -613,30 +706,45 @@ const SNAP_GRID: SnapGrid = [20, 20];
       || useNodeStore.getState().activeTransformNodeId !== null;
 ```
 
-**3e. ReactFlow props（`:466-474`）**：
+**3e. ReactFlow props 逐行就地改（`:460-474` 区域）——禁止整块替换、禁止重排**：
+
+| 行 | 改前 | 改后 |
+|---|---|---|
+| :461 | `deleteKeyCode={editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}` | `deleteKeyCode={isLocked || editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}`（六修：删除路径无 lock 闸门，react:1225-1236） |
+| :466 | `zoomOnScroll={false}` | `zoomOnScroll={!isLocked}` |
+| :467 | `panOnScroll={!isLocked}` | **整行删除**（false 即默认值，spec §3） |
+| :468 | `panOnDrag={!isLocked}` | `panOnDrag={isLocked ? false : inRefSelect ? true : PAN_ON_DRAG_MIDDLE}` |
+| — | （无） | 新增一行：`selectionOnDrag={!isLocked}` |
+| — | （无） | 新增一行：`selectionMode={SelectionMode.Partial}` |
+| — | （无） | 新增一行：`panActivationKeyCode={isLocked ? null : 'Space'}` |
+| :474 | `snapGrid={[20, 20]}` | `snapGrid={SNAP_GRID}` |
+
+**保留不动**（整块替换会静默删掉它们——deleteKeyCode 保护/min/max 缩放限幅等）：`:451 defaultViewport`、`:462 multiSelectionKeyCode="Shift"`、`:463-464 minZoom/maxZoom`、`:465 fitView={false}`、`:469 zoomOnDoubleClick`（值本就不变）、`:470-472 nodesDraggable/nodesFocusable/elementsSelectable`、`:473 snapToGrid`、`:475 noWheelClassName`、`:476-479 proOptions/className/colorMode`。
+
+**3f. 锁定态中键特例闸门（spec §3 六修）**——wrapper div（`:437`）加 capture 守卫：
 
 ```tsx
-        zoomOnScroll={!isLocked}
-        panOnDrag={isLocked ? false : inRefSelect ? true : PAN_ON_DRAG_MIDDLE}
-        zoomOnDoubleClick={!isLocked}
-        nodesDraggable={inRefSelect ? false : !isLocked}
-        nodesFocusable={!isLocked}
-        elementsSelectable={inRefSelect ? false : !isLocked}
-        snapToGrid={snapEnabled}
-        snapGrid={SNAP_GRID}
-        selectionOnDrag={!isLocked}
-        selectionMode={SelectionMode.Partial}
-        panActivationKeyCode={isLocked ? null : 'Space'}
+    <div
+      ref={reactFlowWrapper}
+      className="w-full h-full overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseDownCapture={(e) => {
+        // 锁定态中键特例闸门（system:2824 的 node/edge 中键放行先于 !panOnDrag/nopan 一切判定）：
+        // capture 先于 renderer 的 d3 冒泡 listener，stopPropagation 使锁定态中键手势无法启动；
+        // 非锁定中键平移（合法路径）不受影响
+        if (isLocked && e.button === 1) e.stopPropagation();
+      }}
+    >
 ```
 
-（即：删 `panOnScroll={!isLocked}` 整行；`zoomOnScroll={false}` → `{!isLocked}`；`panOnDrag={!isLocked}` → 三态；`snapGrid={[20, 20]}` → `{SNAP_GRID}`；新增 `selectionOnDrag`/`selectionMode`/`panActivationKeyCode` 三行。）
+（SyntheticEvent.stopPropagation 会调用原生 stopPropagation——原生事件在 React root 的 capture 阶段被止，不再下潜到 renderer，d3 冒泡 listener 收不到。）
 
 - [ ] **Step 4: 运行 interaction-props 确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.interaction-props.test.tsx`
-Expected: PASS 全部 5 条。
+Expected: PASS 全部 7 条（含接线幂等与引用稳定——后者若红说明常量未真正 hoist 或被内联回归）。
 
-- [ ] **Step 5: CanvasView.test.tsx 加派生 class 断言（辅防线，真实渲染）**
+- [ ] **Step 5: CanvasView.test.tsx 加派生 class 断言 + 中键闸门断言（回归护栏性质——非红先行；spec §8.2 定性 class 断言为辅防线，class 由库从 props 派生，主防线已在 Step 1）**
 
 `describe` 末尾追加（该文件 ReactFlow 是 `vi.importActual` 真渲染，pane 类由库计算）：
 
@@ -697,6 +805,23 @@ Expected: PASS 全部 5 条。
     expect(pane().className).not.toContain('draggable');
     expect(pane().className).toContain('selection');
   });
+
+  it('中键闸门：锁定态 wrapper 内 button===1 mousedown 不冒泡到 document（spec §3 六修）', () => {
+    useNodeStore.setState({ activeEditNodeId: 'node-1' });
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane')!;
+    const spy = vi.fn();
+    document.addEventListener('mousedown', spy); // 冒泡终点——闸门生效则收不到
+    fireEvent.mouseDown(pane, { button: 1 });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.mouseDown(pane, { button: 0 }); // 左键不受闸门影响（对照）
+    expect(spy).toHaveBeenCalledTimes(1);
+    document.removeEventListener('mousedown', spy);
+  });
 ```
 
 import 区补 `useNodeStore`：
@@ -710,17 +835,17 @@ import { useNodeStore } from '@/stores/nodeStore';
 - [ ] **Step 6: 运行 CanvasView.test 全量确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.test.tsx`
-Expected: FAIL 可能出现在既有 4 条 wheel 用例（`should zoom in on Ctrl+wheel...` 等 L117-160）——它们断言 `mockZoomIn/mockZoomOut` 被调用，本任务尚未动 wheel effect（Task 7 才改），**应仍通过**；若因 props 变化意外红，检查是否误删 zoomOnDoubleClick 等。新增 4 条 class 用例 PASS。
+Expected: PASS 全部。既有 4 条 wheel 用例（L117-160）断言的是 app 层 `mockZoomIn/mockZoomOut`（本任务不动 wheel effect，Task 7 才改）——**若它们转红即视为误改**，排查点：是否误删/误改 `zoomOnDoubleClick`、`defaultViewport`、`deleteKeyCode`（对照 3e 的"保留不动"清单）。新增 5 条（4 class + 1 中键闸门）PASS。
 
-- [ ] **Step 7: 运行 theme-perf 确认仍绿（SNAP_GRID hoist 的动机断言）**
+- [ ] **Step 7: 运行 theme-perf 确认仍绿（回归护栏——hoist 收益的直达断言已在 Step 1 引用稳定用例，此文件 mock 的 setState 是 vi.fn、写库不可观测，挂不住动机断言）**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
-Expected: PASS（viewport 变更不触发 store 写——snapGrid 引用稳定后 fieldsToTrack 浅比较不再每帧写库）。
+Expected: PASS（render 计数断言不受影响）。
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.interaction-props.test.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx && git commit -m "feat(web): 画布交互核心重配——panOnDrag=[1] 中键/空格平移+selectionOnDrag 左键框选 Partial+滚轮缩放+删 panOnScroll；isLocked 双定义并入 activeTransformNodeId（spec §3 根因修）；SNAP_GRID/PAN_ON_DRAG_MIDDLE 模块常量 hoist"
+cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx apps/web/src/pages/canvas/components/CanvasView.interaction-props.test.tsx apps/web/src/pages/canvas/components/CanvasView.test.tsx && git commit -m "feat(web): 画布交互核心重配——panOnDrag=[1] 中键/空格平移+selectionOnDrag 左键框选 Partial+滚轮缩放+删 panOnScroll；isLocked 双定义并入 activeTransformNodeId+deleteKeyCode 同批（删除路径无 lock 闸门，spec §3 根因修+六修）；锁定态中键特例 wrapper 闸门（system:2824 先于一切判定）；SNAP_GRID/PAN_ON_DRAG_MIDDLE 常量 hoist+引用稳定断言"
 ```
 
 ---
@@ -945,7 +1070,7 @@ mock 工厂外（:84 前）加 `let mockMarqueeSelecting = false;`；canvasStore
       const state = { projectId: mockCanvasProjectId(), marqueeSelecting: mockMarqueeSelecting };
 ```
 
-该文件既有 `renderNode(selected)` 辅助（:147-148，`baseNodeProps` 默认 fileId=undefined/trimMode=false——:243-245「should show config panel when selected」即对照先例）与 VideoConfigPanel mock 输出文本 `config panel`（:119-121）。`describe` 末尾追加：
+该文件既有 `renderNode(selected)` 辅助（:147-148，`baseNodeProps` 默认 fileId=undefined/trimMode=false——:243-245「should show config panel when selected」即对照先例）、VideoConfigPanel mock 输出文本 `config panel`（:119-121）、afterEach 复位区（:128-131——已有复位其它 mock 变量的习惯）。`afterEach` 加 `mockMarqueeSelecting = false;`，`describe` 末尾追加：
 
 ```ts
   it('框选拖拽中 selected → 底部 VideoConfigPanel 不闪出（消费点 5）；结束恢复', () => {
@@ -1017,9 +1142,10 @@ vi.mock('@xyflow/react', async () => {
       </ReactFlowProvider>,
     );
     expect(screen.getByText('×')).toBeInTheDocument();
-    mockMarqueeSelecting = false;
   });
 ```
+
+（`mockMarqueeSelecting = false;` 复位一行放该文件既有 `beforeEach`（:61 区，改为无条件 `mockMarqueeSelecting = false;`）——用例体末尾复位在断言失败时会污染后续用例；两处用例内的中间复位〔true→false 切换验证〕保留。）
 
 - [ ] **Step 4: 实现 ConnectionLine.tsx:107**
 
@@ -1111,6 +1237,9 @@ Expected: FAIL —— 第一条：`defaultPrevented` 为 false 时 `mockZoomIn` 
   // 双倍缩放从根消除）。守卫真实价值=①覆盖 #node-toolbar-portal（.react-flow 兄弟节点，d3 wheel
   // 挂 renderer 上不可见）②防御性兜底；范围收窄到画布内（wrapper 外恢复浏览器整页缩放）。
   // preventDefault 不阻断 d3（d3 不查 defaultPrevented），守卫不损伤库内缩放。
+  // 锁定态口径：删除原 if (isLocked) return 后，锁定态 Ctrl+滚轮=仅 d3 旁路一次缩放
+  // （zoomScroll = zoomActivationKeyPressed || zoomOnScroll 覆盖 false，§7 登记旁路）——
+  // 与今天锁定态行为一致（今天 d3 一次 + JS 步进被 isLocked 挡 = 一次），非缺陷、无回归。
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -1143,11 +1272,17 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx app
 
 - [ ] **Step 1: index.css 改两处**
 
-`:225-229` 组合选择器拆开（`.react-flow__nodesselection-rect` 从组合中移除、显式透明；`.react-flow__selection` 保留——框选拖拽中的虚线反馈）：
+`:225-229` 组合选择器拆开（`.react-flow__nodesselection-rect` 从组合中移除、**并入 :220 既有同选择器规则一并写显式透明**——同一元素不留两条规则；`.react-flow__selection` 保留——框选拖拽中的虚线反馈）：
 
 ```css
-/* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层 */
-.react-flow__nodesselection-rect { fill: transparent; stroke: transparent; }
+/* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层。
+ * 库框视觉移除（spec §6）：rect 是 div 渲染、fill/stroke 是 no-op、background/border 才真可见
+ * （原组合钉值使库框与 app 框形成错位双虚线框，且框选恰 1 节点时只留库框并持续到下次点击）；
+ * 拖拽交互层是 div 本身（position:absolute/pointer-events:all 挂其上），透明不影响从已选区拖动选中集 */
+.react-flow__nodesselection-rect {
+  fill: transparent; stroke: transparent;
+  background: transparent; border: none;
+}
 
 /* selection 钉值两档裁定（D2 定案——撤钉实验取消，xyflow 12.10.2 dist/style.css :39-40/:85-86 实测）：
  * 浅档=light 皮肤默认值（rgba(0,89,220,0.08/0.8) 与钉值逐字节重合，浅档冗余）；wrapper colorMode={mode}
@@ -1155,13 +1290,6 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/CanvasView.tsx app
 .react-flow__selection {
   background: rgba(0, 89, 220, 0.08);
   border: 1px dotted rgba(0, 89, 220, 0.8);
-}
-
-/* 库框视觉移除（spec §6：拆自上组钉值——div 渲染下 fill/stroke 是 no-op、background+border 才真可见，
- * 与 app 框形成错位双虚线框且框选恰 1 节点时残留；拖拽交互层是 div 本身，透明不影响从已选区拖动选中集） */
-.react-flow__nodesselection-rect {
-  background: transparent;
-  border: none;
 }
 
 /* 中键拖平移中光标 grabbing（spec §3：.dragging 与 .selection 同特异性 0,2,0 源序后者恒胜——
@@ -1253,14 +1381,21 @@ Expected: FAIL —— `getAllByText('触控板')` 得 2 ≠ 1；`getByText('滚�
       { label: '加选', keys: ['Shift', '点击'] },
 ```
 
-**icon 目视义务**：触控板行 icon 引用改为 `touchpadPan`、鼠标行改为 `mousePan`（原 :143-144 交叉错位）——现有 icon 组件命名与视觉语义存在矛盾（spec §5-2 不断言对调），实施后浏览器目视确认；不符则仅调 iconMap 引用不动 label。
+**label 精确串**：缩放栏新 label 就取 `'滚动'` 两个字——spec §5-2 写的"滚动（滚轮·双指）"是注解不入 label；测试 `getByText('滚动')` 默认精确匹配，label 写全括号必红。
+
+**icon 引用**：触控板行改 `touchpadPan`、鼠标行改 `mousePan`（原 :143-144 交叉错位）。iconMap 处加一行注释记录实情（非"回退方案"——对调方向经图标实装核定为唯一正确解：`MousePanIcon`（:89-99）画的是**手形**+四向箭头=中键拖动语义，`TouchpadPanIcon`（:68-87）画触控板+双指+四向箭头）：
+
+```ts
+  touchpadPan: <TouchpadPanIcon />,
+  mousePan: <MousePanIcon />, // MousePanIcon 实际画手形拖动（非鼠标图形）——命名遗留，勿据名回改
+```
 
 - [ ] **Step 4: 运行确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx`
 Expected: PASS 全部。
 
-- [ ] **Step 5: 同步 2026-05-28 spec 数字与表格**
+- [ ] **Step 5: 同步 2026-05-28 spec 与 plan 双文档**
 
 `2026-05-28-canvas-keyboard-shortcuts-panel-design.md` :57-59 表改：
 
@@ -1270,12 +1405,16 @@ Expected: PASS 全部。
 | 鼠标平移 | 中键拖动 |
 ```
 
-:109 `6. 面板包含所有 22 个快捷键条目` → `6. 面板包含所有 23 个快捷键条目（2026-09-28 增框选/加选两条）`。
+:109 `6. 面板包含所有 22 个快捷键条目` → `6. 面板包含所有 23 个快捷键条目（2026-09-28 交互重构：框选/加选入面板；旧文 22 与实装本不符，按实装核对 21+2=23）`。
+
+**同源 plan 文件一并同步**（同表逐字重复，不同步则结构性残留）：`docs/superpowers/plans/2026-05-28-canvas-keyboard-shortcuts-panel.md`——:238 `触控板 ['双指捏合']` → `滚动 ['滚轮·双指']`、:246 `触控板 ['双指拖动']` → `触控板 ['空格', '双指拖动']`、:247 不变、:136 测试名 `should render all 22 shortcut entries` → `23`。
+
+**spec §5-2 栏位回填**：本 plan 定框选/加选两条放"创作"栏末尾（画布操作族；spec §5-2 未指定栏位，此处回填决定）——在 spec §5-2"新增'框选/多选'条目"句后补 `（放"创作"栏末尾，2026-09-28 plan 落位）`。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.tsx apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx docs/superpowers/specs/2026-05-28-canvas-keyboard-shortcuts-panel-design.md && git commit -m "feat(web): 快捷键面板同步——滚动=缩放/空格+双指=平移/中键拖/新增框选加选条目（触控板 1 鼠标 2 计数自洽，spec §5-2）+2026-05-28 spec 数字更新"
+cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.tsx apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx docs/superpowers/specs/2026-05-28-canvas-keyboard-shortcuts-panel-design.md docs/superpowers/plans/2026-05-28-canvas-keyboard-shortcuts-panel.md && git commit -m "feat(web): 快捷键面板同步——滚动=缩放/空格+双指=平移/中键拖/新增框选加选条目（触控板 1 鼠标 2 计数自洽，spec §5-2）+2026-05-28 spec/plan 双文档数字与表格更新"
 ```
 
 ---
@@ -1284,7 +1423,9 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsP
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-24-shift-multiselect-toolbar-suppress.md:51` 后
-- Modify: `docs/superpowers/specs/annotation-feature.md:86`
+- Modify: `docs/superpowers/specs/annotation-feature.md:86`、`:127`
+- Modify: `docs/superpowers/specs/2026-09-26-image-node-panel-redesign.md:103`
+- Modify: `apps/web/src/collab/awareness.ts:43`（死代码禁令注释，一行）
 
 - [ ] **Step 1: 2026-08-24 spec :51 段后追加同步说明**
 
@@ -1299,26 +1440,46 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsP
 `:86` `- 画布锁定不可平移/缩放（同擦除模式）` 改为：
 
 ```markdown
-- 画布锁定不可平移/缩放（同擦除模式；锁定口径=节点编辑中**或 transform 旋转/镜像调整中**——2026-09-28 交互重构 spec §3 根因修，与 useGroupKeyboard「模式中」对齐；空格平移旁路已收窄 panActivationKeyCode=null，Ctrl+滚轮缩放旁路登记存在）
+- 画布锁定不可平移/缩放（同擦除模式；锁定口径=节点编辑中**或 transform 旋转/镜像调整中**——2026-09-28 交互重构 spec §3 根因修，与 useGroupKeyboard「模式中」对齐；空格平移旁路已收窄 panActivationKeyCode=null，节点/边内部中键拖由 wrapper 闸门封死〔六修〕，Ctrl+滚轮缩放旁路登记存在）
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: annotation-feature.md:127 触控阻断句更新**
+
+`:127` `- **触控事件阻断：** 标注 Canvas 阻止 touchstart/touchmove 事件冒泡，避免触发画布原生平移/缩放手势` 句尾改为 `……避免触发画布原生平移/缩放/框选手势（2026-09-28 交互重构后空白拖=框选）`。
+
+- [ ] **Step 4: 2026-09-26-image-node-panel-redesign.md:103 isLocked 口径同步**
+
+`:103` `4. \`isLocked\` → 返回（不绕过锁定语义）；` 行后括注补 `（2026-09-28 起锁定口径扩为"编辑中或 transform 调整中"）`。
+
+- [ ] **Step 5: awareness.ts setSelection 死代码加禁令注释（防未来坑）**
+
+`apps/web/src/collab/awareness.ts:43` 的 `setSelection(nodeIds: string[]): void {` 上加一行注释：
+
+```ts
+  // ⚠️ 当前无生产调用方（仅测试）。勿接到画布选中态——框选逐帧改 selected 会使每次相交变化
+  // 变成 WS awareness 写（2026-09-28 交互重构 spec 登记）。
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
-cd /d/flowweb && git add docs/superpowers/specs/2026-08-24-shift-multiselect-toolbar-suppress.md docs/superpowers/specs/annotation-feature.md && git commit -m "docs(web): 同步义务——2026-08-24 抑制源扩展说明+annotation-feature 锁定口径扩 transform（spec §10）"
+cd /d/flowweb && git add docs/superpowers/specs/2026-08-24-shift-multiselect-toolbar-suppress.md docs/superpowers/specs/annotation-feature.md docs/superpowers/specs/2026-09-26-image-node-panel-redesign.md apps/web/src/collab/awareness.ts && git commit -m "docs(web): 同步义务——2026-08-24 抑制源扩展说明+annotation-feature 锁定口径扩 transform/触控阻断句+2026-09-26 isLocked 口径括注+awareness setSelection 死代码禁令注释（spec §10）"
 ```
 
 ---
 
 ## 完成后收尾
 
-1. **全量回归**：`cd /d/flowweb/apps/web && npx vitest run`（全绿）+ `npx tsc --noEmit`（strict 通过——SNAP_GRID tuple 标注的验证点）。
+1. **全量回归**：`cd /d/flowweb/apps/web && npx vitest run`（全绿）+ `npx tsc --noEmit`（strict 通过——SNAP_GRID tuple 标注与 fireEvent/window 派发的验证点）。
 2. **TypeScript 检查**：确认无 TS2322（snapGrid）；`SelectionMode`/`SnapGrid` 自 `@xyflow/react` 导入（spec §3 已核实 react index.d.ts:37 有导出）。
-3. **浏览器人工验收**：按 spec §9 全部 27 条逐项执行（重点：§9-3 框选抑制、§9-6 中键罗盘、§9-8 无双倍缩放、§9-12 锁定全关、§9-21 单一框、§9-23 残留窗口口径、§9-27 transform 期四不动）。
+3. **浏览器人工验收**：按 spec §9 全部 27 条逐项执行（重点：§9-3 框选抑制、§9-6 中键罗盘、§9-8 无双倍缩放、§9-12 锁定全关〔含节点上中键拖不平移——六修闸门、Ctrl+滚轮旁路为登记非缺陷〕、§9-21 单一框、§9-23 残留窗口口径、§9-27 transform 期四不动）。
 4. **验收发现问题的处置**：CSS/手感类直接修；行为与 spec 冲突的回到 spec 层登记（§7 精准修改原则——登记不修清单勿顺手扩）。
+5. **目标→手测项对照（自动化锚点之外的必测项，防"真没测"被误当"漏测"）**：jsdom 不能合成 d3 手势，以下只活在线下验收——中键真平移（§9-6）/空格+左键真平移（§9-7）/滚轮真缩放与手感（§9-8、§9-15——**macOS 口径：xyflow 对 `event.ctrlKey && isMacOs()` 的 wheel delta ×10〔system:2685-2688〕，删自定义步进后 Mac 上 Ctrl+滚轮/捏合是 10× 步进、Win/Linux 与裸滚轮同阶，Mac 手感需单独过）/框选相交即选真节点（§9-1）/框选松手从已选区拖动选中集（§9-19）。
 
-## Self-Review 记录（plan 已自审）
+## Self-Review 记录（plan 已自审 + 第六轮三份外审 20 项修订）
 
-- **Spec 覆盖**：§3 核心改动→Task 4；§3 CSS→Task 8；§3 isLocked 双定义→Task 4（3c/3d）；§5-1 全消费点（1→Task 2、2/3/4→Task 5、5/6→Task 6、7 豁免/8 接受不修→无需任务，登记在关键事实）；§5-1 兜底→Task 3；§5-2→Task 9；§5-3→Task 7；§6 库框视觉→Task 8；§8 测试策略→各任务 Step 分布（props 契约 Task 4 / class 断言 Task 4 / guard 用例 Task 3 / 负向护栏 Task 1 / theme-perf Task 4 Step 7 / 面板计数 Task 9 / 守卫用例 Task 7 / afterEach 复位 Task 4）；§9→收尾 3；§10→Task 9 Step 5 + Task 10。
-- **占位符**：无 TBD/TODO；两处「按该文件既有方式渲染」的说明（VideoGenNode/ConnectionLine 用例）已给出断言目标与条件矩阵，实施者可从同文件既有用例复制渲染参数。
+- **Spec 覆盖**：§3 核心改动→Task 4（3a-3f，含六修中键闸门）；§3 CSS→Task 8；§3 isLocked 双定义→Task 4（3c/3d）；§5-1 全消费点（1→Task 2、2/3/4→Task 5、5/6→Task 6、7 豁免/8 同格登记〔含 HD 面板效应〕→关键事实区）；§5-1 兜底→Task 3（4 window 通道+卸载复位）；§5-1.3 订阅税→Task 3 Step 8-9；§5-2→Task 9；§5-3→Task 7；§6 库框视觉→Task 8；§8 测试策略→props 契约+接线幂等+引用稳定 Task 4 / class+中键闸门 Task 4 Step 5 / guard 用例 Task 3 / 负向护栏（投影键集合 Task 1 + 快照键集合 Task 1 Step 2）/ 面板计数 Task 9 / 守卫用例 Task 7 / afterEach 复位 Task 4；§9→收尾 3；§10→Task 9 Step 5 + Task 10。
+- **第六轮修订摘要**（全部经实装核实后采纳）：fireEvent.window→window.dispatchEvent（RTL 无 window 键）；PointerEvent→MouseEvent 主写法+禁 fireEvent.pointerMove（构造器回退丢 buttons 的静默陷阱）；删两条空转断言（guard #5 换 store 级语义钉死、CanvasView 接线空用例删）→接线+幂等断言上移 interaction-props（act 驱动捕获 props）；3e 改逐行 diff 表+保留不动清单（防整块替换静默删 prop）；deleteKeyCode 并入 isLocked（react:1225-1236 删除路径无 lock 闸门，实锤数据丢失路径）；中键特例 wrapper 闸门（system:2824 先于一切判定，spec 六修同步）；guard cleanup 加 reset()（卸载不卡 true）；SNAP_GRID hoist 验证从 theme-perf（mock setState 不可观测）改引用稳定 toBe 断言；订阅输入引用早退×2（快照/diff 税）；负向断言去重（canvasHistory.test 重复项删，快照键断言落 useCanvasPersistence.test 先例处）；CSS 同选择器合一；面板 label 精确串/icon 注释/双文档同步/23 措辞；2026-05-28 plan 文件入 stage；annotation:127+2026-09-26:103+awareness 死代码禁令补入 Task 10；复位移 beforeEach/afterEach；Task 7 锁定态 Ctrl+滚轮口径注释；收尾加目标→手测项清单与 macOS ×10 口径。
+- **驳回的审核建议**（理由存档）：bash 命令保持 `/d/flowweb` 形态——本环境 shell 是 git-bash（非 PowerShell），现形式可直接执行；Playwright 手势 spec 维持 spec §7 否决（门禁 build+preview 成本判断仍成立，27 条人工验收已覆盖）；marqueeSelecting 拆独立 UI store 维持 spec 已选（与 lastPointerShiftKey 同处置，税已由早退消除）；面板"总数===23"断言不加（SECTIONS 非导出、无可靠 DOM 锚点，脆断言不值）；「interaction-props 渲染即抛 zustandErrorMessage」的定性不成立（SelectionBoxOverlay 是 ReactFlow children 而非兄弟，mock ReactFlow 不渲染 children 则不执行——但 Provider 已防御性加入）。
+- **占位符**：无 TBD/TODO。
 - **类型一致**：`marqueeSelecting` 布尔字段名全 plan 一致；`PAN_ON_DRAG_MIDDLE`/`SNAP_GRID` 命名与 spec §3 一致；`useMarqueeSelectionGuard` 单一定义。

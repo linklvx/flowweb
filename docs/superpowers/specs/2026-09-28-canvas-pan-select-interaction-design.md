@@ -1,6 +1,6 @@
 # 画布平移/框选交互重构（spec）
 
-- 日期：2026-09-28（同日五修：二至五修逐轮吸收共 12 份外部审核报告全部核实成立项）
+- 日期：2026-09-28（同日五修：二至五修逐轮吸收共 12 份外部审核报告全部核实成立项；六修：plan 三轮外审实锤锁定态中键特例击穿，补 wrapper 闸门）
 - 状态：已确认（设计经五轮外部审核、逐条对照实装源码核实修订）
 - 范围：`apps/web/src/pages/canvas/components/CanvasView.tsx` 及其配套（抑制信号、isLocked 双定义、快捷键面板、index.css、测试）
 - 库版本依据：@xyflow/react@12.10.2 / @xyflow/system@0.0.76 / d3-zoom@3.0.0（实装源码逐行核实）
@@ -76,6 +76,14 @@ const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
 
 可选优化（登记不做）：`defaultViewport` memo 化可掐断整条每帧重渲染链（ZoomPane 挂载 effect 只读一次，react:1301-1336），非 update() deps，与本常量互不替代。
 
+锁定态中键特例闸门（六修补，wrapper div CanvasView.tsx:437）——system:2824-2828 的 `event.button === 1 && mousedown && (closest(node) || closest(edge))` 无条件 `return true` **先于一切判定**（含 :2830 全禁分支、:2846 nopan——五修误把 nopan 当中键拦截线，对节点/边内部路径不可达）：锁定态（panOnDrag=false）从节点/边/其内 overlay 上中键拖，d3 平移仍会激活，击穿"锁定不可平移"口径。修法：capture 阶段 stopPropagation（wrapper 是 renderer 祖先，React 合成 capture 先于 renderer 的 d3 冒泡 listener；SyntheticEvent.stopPropagation 调原生 stopPropagation，原生事件在 root capture 内被止 → 不再下潜）：
+
+```tsx
+onMouseDownCapture={(e) => { if (isLocked && e.button === 1) e.stopPropagation(); }}
+```
+
+非锁定中键（合法平移路径）不受影响（isLocked=false 不命中）。EraseCanvas/AnnotationCanvas 等 overlay 靠自身 pointerdown preventDefault 抑制的是浏览器默认行为，与本闸门正交。
+
 全局 CSS 一行（修正本次引入的光标退化，见 §3.2 末条）：
 
 ```css
@@ -88,7 +96,7 @@ const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
 |---|---|---|
 | `[1]`（常量） | 仅中键拖平移；空格按住时库内升级为左键可平移（react:1993）；中键在节点/边上也能起手平移（system:2824-2828 特例） | **库硬约束：禁用 `[1,2]`**——数组含 2 时右键成为平移按钮（system:2866/:2870），且 `onContextMenu` 直接 `preventDefault()+return`（react:1433-1439），右键单击的菜单路径彻底失效 |
 | `true`（参考选择期） | 左键拖平移，保留今天手感 | **项目口味**：D19 验收"参考选择时必须能平移缩放"（2026-09-26 spec:46）保左键手感；`panOnDrag===true` 令 `_selectionOnDrag` 自动失效（:1995）与 `elementsSelectable={false}` 双保险防误框选。（第三份二审建议统一 `[1]`——已考虑：D19 未要求左键，但保留例外仅影响低频模式，维持原拍板） |
-| `false`（锁定） | 无拖拽平移；叠加 `panActivationKeyCode=null` 后空格旁路一并关闭（残留窗口 §7） | 锁定 = 编辑中 **或 transform 调整中**（§3 isLocked 根因修），语义对齐 annotation-feature.md:86"锁定不可平移/缩放"口径（Ctrl+滚轮缩放旁路仍存，见 §7） |
+| `false`（锁定） | 无拖拽平移；叠加 `panActivationKeyCode=null` 后空格旁路一并关闭（残留窗口 §7）。**例外已堵**：节点/边内部中键拖会命中 system:2824 特例（先于 !panOnDrag 判定）——由 §3 wrapper 闸门 stopPropagation 封死（六修） | 锁定 = 编辑中 **或 transform 调整中**（§3 isLocked 根因修），语义对齐 annotation-feature.md:86"锁定不可平移/缩放"口径（Ctrl+滚轮缩放旁路仍存，见 §7） |
 
 ### 3.2 库内联动（已逐行核实）
 
@@ -120,7 +128,7 @@ const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
 | 视频裁剪面板/全屏编辑器打开 + Space | 视频播放/暂停**且**画布进平移态（VideoTrimPanel.tsx:87-92 / useEditorKeyboard.ts:27 的 window keydown `preventDefault` 不阻止 xyflow `useKeyPress`；面板/编辑器不设 activeEditNodeId → isLocked=false；登记可接受） |
 | 框选松手后 | `nodesSelectionActive` → 库 NodesSelection 覆盖框渲染（带 nopan，react:1554+:1998）→ 从已选区域内起手拖=拖动选中集而非起新框/平移（官方行为，验收确认） |
 | 参考选择期 | 左键拖=平移（`panOnDrag=true`）、节点不可拖/不可选照旧、可缩放 |
-| 锁定（节点编辑中 **或 transform 旋转/镜像调整中**） | 上表全关（四 prop 反转：`zoomOnScroll`/`panOnDrag`/`selectionOnDrag`/`panActivationKeyCode=null`，空格旁路**收窄**——"按住空格瞬间锁定翻转"的残留窗口见 §7）；连带：`deleteKeyCode=[]`（Backspace 不删，显式接受）、`nodesFocusable=false`（键盘可达性收窄，登记）、节点失 selectable 指针光标（锁定态预期）；**Ctrl+滚轮缩放仍生效**（库旁路，根治牵 pinch 语义，登记不修）；触控板裸双指无响应、Ctrl+双指可缩放（分裂行为，登记） |
+| 锁定（节点编辑中 **或 transform 旋转/镜像调整中**） | 上表全关（四 prop 反转：`zoomOnScroll`/`panOnDrag`/`selectionOnDrag`/`panActivationKeyCode=null`，空格旁路**收窄**——"按住空格瞬间锁定翻转"的残留窗口见 §7；**节点/边内部中键拖亦不平移**——§3 六修 wrapper 闸门封 system:2824 特例）；连带：`deleteKeyCode=[]`（并入 isLocked——六修落地：删除路径 deleteElements 无任何 lock 闸门，react:1225-1236 直取 selected，不并则调整中按键删掉调整节点）；`nodesFocusable=false`（键盘可达性收窄，登记）、节点失 selectable 指针光标（锁定态预期）；**Ctrl+滚轮缩放仍生效**（库旁路，根治牵 pinch 语义，登记不修；删除 app 步进后锁定态 Ctrl+滚轮=d3 单 writer 一次缩放，与今天行为一致）；触控板裸双指无响应、Ctrl+双指可缩放（分裂行为，登记） |
 
 ## 5. 配套必修
 
@@ -185,7 +193,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 ## 6. 不变项（已核实）
 
 - 节点拖拽/连线/handle 拖拽弹菜单（spec 2026-09-26 §3.3）
-- 裁剪/扩图/擦除/标注 overlay：均在节点内 + 带 `nopan`，中键拖其上不平移（system:2846）、不触发框选
+- 裁剪/扩图/擦除/标注 overlay：均在节点内 + 带 `nopan`，不触发框选；**中键拖其上不平移的真正保证是 §3 wrapper 闸门**（六修纠正：system:2824 的 node/edge 中键特例先于 :2846 的 nopan 判定，nopan 对该路径不可达；非锁定态中键在节点/overlay 上起手平移是 §4 期望行为，闸门只在锁定态生效）
 - SelectionBoxOverlay portal（#node-toolbar-portal，不在 pane 树内，pointer-events-none 容器）
 - @ 提及下拉（CommandMentionList / ImageMentionList）：经 body portal 渲染（PromptInput.tsx:65-66 与 :119-129 两处 `document.createElement + body.appendChild`）——既不在 .react-flow 内（滚轮原生滚动列表，无需 nowheel），也不在 reactFlowWrapper 内（Ctrl+滚轮其上走浏览器整页缩放，守卫收窄后果，§9-16 一并验收）
 - MiniMap / CanvasToolbar（合并两条证据链，同一结论）：①二者渲染在 .react-flow 下、与 GraphView（其根即 renderer）同级（react bundle 结构 `…GraphView, SelectionListener, children…`）→ `.react-flow__pane.selection .react-flow__panel`（style.css:287）选择器匹配不到；②d3 wheel 挂在 `.react-flow__renderer`（react:1304 domNode + :1378），wheel 冒泡不经 renderer → d3 收不到 → 其上滚轮/双指=**无反应**（panOnScroll 时代同样无反应，沿革两端皆然）；Ctrl+滚轮仍被 wrapper 级守卫 preventDefault、页面不缩放（二者在 wrapper 内）
@@ -216,7 +224,9 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 
 1. **props 契约断言**（新建 CanvasView.interaction-props.test.tsx，mock 记录型 ReactFlow 捕获 props——全仓现无任何 panOnDrag/selectionOnDrag 断言，此为净新增防线）：
    - 非锁定：`panOnDrag` 引用===模块常量（值 [1]）、`selectionOnDrag=true`、`zoomOnScroll=true`、`selectionMode=SelectionMode.Partial`、`'panOnScroll' in props === false`（钉死删行而非显式 false）、`panActivationKeyCode='Space'`
-   - 锁定（真 useNodeStore.setState）：`panOnDrag=false`、`selectionOnDrag=false`、`zoomOnScroll=false`、`panActivationKeyCode=null`
+   - 锁定（真 useNodeStore.setState）：`panOnDrag=false`、`selectionOnDrag=false`、`zoomOnScroll=false`、`panActivationKeyCode=null`、`deleteKeyCode=[]`（六修：并入 isLocked）、常量引用稳定（rerender 后 `panOnDrag`/`snapGrid` `toBe` 同引用——`toEqual` 抓不住内联回归，hoist 收益的直达断言；theme-perf 的 mock setState 是 vi.fn，写库不可观测，挂不住本项）
+   - 接线与幂等（props 捕获直接驱动）：`onSelectionStart()` → 标志 true；`onSelectionEnd()` → false；**再次 `onSelectionEnd()` 零通知**（函数式同引用守卫——对象字面量实现下必红；真 store 订阅者计数断言）
+   - 中键闸门（六修，真渲染文件）：锁定态 wrapper 内任意元素 `mousedown(button:1)` 不冒泡到 document（capture stopPropagation 生效）；非锁定态可达
    - 参考选择期：`panOnDrag===true`
 2. **派生 class 断言**（CanvasView.test.tsx，真实渲染）：非锁定 `.react-flow__pane` 有 `selection` 无 `draggable`；锁定两者皆无；`keyDown(window,{key:' ',code:'Space'})` 后 `draggable` 上 `selection` 下（一条断言证"空格平移在+框选让位"，**之后必须 keyUp 复位**防污染）
 3. **marqueeSelecting 抑制用例**：
@@ -256,7 +266,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 9. 双击空白仍缩放；**框选松手后 300ms 内同点再点一次 → 确认不触发意外缩放**（clickDistance 不设防，风险验证）
 10. 右键空白出上下文菜单（AddNodeMenu）
 11. 参考选择模式：左键拖=平移、不框选；中键/空格可平移；滚轮可缩放；点节点能拾取（D19 口径）
-12. 锁定态（节点编辑中 / transform 旋转镜像调整中，§3 根因修后同口径）：左键不平移不框选、滚轮不缩放、空格不平移（正常路径已收窄；"按住空格进锁定"的残留窗口按第 23 条单独验）；Ctrl+滚轮仍可缩放（登记旁路，非缺陷）
+12. 锁定态（节点编辑中 / transform 旋转镜像调整中，§3 根因修后同口径）：左键不平移不框选、滚轮不缩放、空格不平移（正常路径已收窄；"按住空格进锁定"的残留窗口按第 23 条单独验）；**在节点/连线/编辑 overlay 上中键拖不平移（§3 六修闸门，重点验——无闸门则此处必平移）**；Backspace/Delete 不删节点（deleteKeyCode 并入 isLocked）；Ctrl+滚轮仍可缩放（登记旁路，非缺陷）
 13. MiniMap 拖动/点击、CanvasToolbar 按钮、overlay（裁剪/扩图/擦除）拖动、节点内文本框滚动、antd 下拉点空白关闭、点空白输入框失焦——确认照旧（框选结束派发的 click 对 outside-click 的影响属本条验证目标）
 14. Space 多义键三连测：a) 键盘焦点在节点按 Space → 选中切换+光标 grab 同时发生（登记项）；b) 视频裁剪面板打开按 Space → 播放/暂停+光标变 grab（登记项）；c) 全屏视频编辑器同 b
 15. 触控板专项：双指滚动=缩放、捏合=缩放、空格+双指=平移；确认手感（本次唯一高频手势退化项：平移从双指变为需按空格，产品已拍板接受）
@@ -271,7 +281,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 24. MiniMap / CanvasToolbar 上滚轮/双指 → **无反应**（事件不经 .react-flow__renderer，§6；沿革两端皆无反应）；其上 Ctrl+滚轮被守卫 preventDefault、页面不缩放，一并确认
 25. 框选拖拽经过有连通边的节点 → 边上 × 删除按钮不闪出（§5-1 消费点 6）；松手后选中含边时按钮正常出现
 26. 迷你播放中的 VideoEditNode 被框选经过又离开 → 播放停止属既有选中语义（§5-1 消费点 8，接受不修），确认无其他异常
-27. transform（旋转/镜像）调整中（方案 A 口径，与编辑模式同族）：**画布不可平移/不可缩放/不可框选/空格无效**（期望如此，非缺陷）；TransformToolbar 旋转/镜像按钮与保存/取消正常可用（按钮驱动，不受 nodesDraggable=false 影响）、TransformToolbar 不因画布操作消失（§3 根因修）；handle 拖拽不弹菜单（双定义同口径）；节点失去 selectable 指针光标属锁定态预期；transform 期 Backspace 不删节点（显式接受的行为变化）；退出 transform 后画布交互恢复
+27. transform（旋转/镜像）调整中（方案 A 口径，与编辑模式同族）：**画布不可平移/不可缩放/不可框选/空格无效**（期望如此，非缺陷；含在节点/连线上中键拖——§3 六修闸门）；TransformToolbar 旋转/镜像按钮与保存/取消正常可用（按钮驱动，不受 nodesDraggable=false 影响）、TransformToolbar 不因画布操作消失（§3 根因修）；handle 拖拽不弹菜单（双定义同口径）；节点失去 selectable 指针光标属锁定态预期；transform 期 Backspace 不删节点（deleteKeyCode 并入 isLocked，消除"调整中按键删掉调整节点"的数据丢失路径）；退出 transform 后画布交互恢复
 
 ## 10. 同步义务
 
