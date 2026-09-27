@@ -177,7 +177,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 
 - 缩放栏：放大 Ctrl+ / 缩小 Ctrl+ / 适应画布 Ctrl+0 / **滚动**（label 精确串就取"滚动"两字——"滚轮·双指"是注解不入 label，测试 getByText 默认精确匹配〔plan Task 9 Step 3 定稿〕；替换原"触控板"行，原双指捏合与新滚轮缩放合并）/ 鼠标（Ctrl+滚轮）
 - 移动画布栏：键盘（Space+拖）/ 触控板（空格+双指）/ 鼠标（中键拖）/ 整理画布 Alt+Shift+F
-- **新增"框选/多选"条目**：左键拖空白、Shift+点击加选（框选从冷门路径升主路径，面板需闭环）
+- **新增"框选/多选"条目**：左键拖空白、Shift+点击加选（框选从冷门路径升主路径，面板需闭环）（放"创作"栏末尾，2026-09-28 plan 落位）
 - icon 对调方向经组件实装核定为唯一正确解（TouchpadPanIcon=触控板+双指+箭头、MousePanIcon=手形+四向箭头——命名遗留），iconMap 处加"勿据名回改"注释（plan Task 9 Step 3 定稿）；§9 验收目视确认最终效果
 
 ### 5-3 Ctrl+滚轮双 writer 从根消除（CanvasView.tsx:360-374）
