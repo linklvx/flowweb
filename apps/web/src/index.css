@@ -216,17 +216,26 @@ body {
   box-shadow: none !important;
 }
 
-/* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层 */
-.react-flow__nodesselection-rect { fill: transparent; stroke: transparent; }
+/* 多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层。
+ * 库框视觉移除（spec §6）：rect 是 div 渲染、fill/stroke 是 no-op、background/border 才真可见
+ * （原组合钉值使库框与 app 框形成错位双虚线框，且框选恰 1 节点时只留库框并持续到下次点击）；
+ * 拖拽交互层是 div 本身（position:absolute/pointer-events:all 挂其上），透明不影响从已选区拖动选中集 */
+.react-flow__nodesselection-rect {
+  fill: transparent; stroke: transparent;
+  background: transparent; border: none;
+}
 
 /* selection 钉值两档裁定（D2 定案——撤钉实验取消，xyflow 12.10.2 dist/style.css :39-40/:85-86 实测）：
  * 浅档=light 皮肤默认值（rgba(0,89,220,0.08/0.8) 与钉值逐字节重合，浅档冗余）；wrapper colorMode={mode}
  * 后深档承重——dark 皮肤默认是另一组 rgba(200,200,220,0.08/0.8) 浅灰蓝，无此钉值即被改写（A2 修复 Step2 实测冻结）。 */
-.react-flow__nodesselection-rect,
 .react-flow__selection {
   background: rgba(0, 89, 220, 0.08);
   border: 1px dotted rgba(0, 89, 220, 0.8);
 }
+
+/* 中键拖平移中光标 grabbing（spec §3：.dragging 与 .selection 同特异性 0,2,0 源序后者恒胜——
+ * 官方 panOnDrag=true 时两类不同挂、从未暴露此组合，本次 [1] 配置引入的副作用修正） */
+.react-flow__pane.selection.dragging { cursor: grabbing; }
 
 /* Thin transparent scrollbar for editor */
 .editor-scroll {
