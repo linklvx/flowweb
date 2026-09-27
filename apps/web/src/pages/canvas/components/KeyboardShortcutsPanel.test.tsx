@@ -38,12 +38,16 @@ describe('KeyboardShortcutsPanel', () => {
     expect(screen.getByText('删除')).toBeInTheDocument();
     // Labels that appear in multiple sections
     const trackpadItems = screen.getAllByText('触控板');
-    expect(trackpadItems.length).toBe(2); // 缩放 + 移动画布
+    expect(trackpadItems.length).toBe(1); // 仅移动画布（缩放栏"触控板"→"滚动"，spec §5-2）
     const mouseItems = screen.getAllByText('鼠标');
     expect(mouseItems.length).toBe(2); // 缩放 + 移动画布
     // Labels that appear once
     expect(screen.getByText('键盘')).toBeInTheDocument();
     expect(screen.getByText('整理画布')).toBeInTheDocument();
+    // 新增（spec §5-2：框选升主路径，面板闭环）
+    expect(screen.getByText('滚动')).toBeInTheDocument();
+    expect(screen.getByText('框选')).toBeInTheDocument();
+    expect(screen.getByText('加选')).toBeInTheDocument();
   });
 
   it('should call onClose when close button is clicked', () => {

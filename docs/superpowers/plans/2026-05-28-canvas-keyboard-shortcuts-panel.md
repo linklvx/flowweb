@@ -133,7 +133,7 @@ describe('KeyboardShortcutsPanel', () => {
     expect(screen.getByText('其他')).toBeInTheDocument();
   });
 
-  it('should render all 22 shortcut entries', () => {
+  it('should render all 23 shortcut entries', () => {
     renderPanel(true);
     expect(screen.getByText('成组')).toBeInTheDocument();
     expect(screen.getByText('合并分镜组')).toBeInTheDocument();
@@ -235,7 +235,7 @@ const SECTIONS: ShortcutSection[] = [
       { label: '放大', keys: ['Ctrl', '+'] },
       { label: '缩小', keys: ['Ctrl', '-'] },
       { label: '适应画布', keys: ['Ctrl', '0'] },
-      { label: '触控板', keys: ['双指捏合'] },
+      { label: '滚动', keys: ['滚轮·双指'] },
       { label: '鼠标', keys: ['Ctrl', '滚轮'] },
     ],
   },
@@ -243,7 +243,7 @@ const SECTIONS: ShortcutSection[] = [
     title: '移动画布',
     items: [
       { label: '键盘', keys: ['Space', '拖动'] },
-      { label: '触控板', keys: ['双指拖动'] },
+      { label: '触控板', keys: ['空格', '双指拖动'] },
       { label: '鼠标', keys: ['中键拖动'] },
       { label: '整理画布', keys: ['Alt', 'Shift', 'F'] },
     ],

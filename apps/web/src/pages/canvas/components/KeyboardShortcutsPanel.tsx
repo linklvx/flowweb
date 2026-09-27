@@ -122,6 +122,8 @@ const SECTIONS: ShortcutSection[] = [
       { label: '新建节点', keys: ['Tab'] },
       { label: '节点复制', keys: ['Alt', '拖动节点'] },
       { label: '创建副本', keys: ['Ctrl', 'Alt', '拖动'] },
+      { label: '框选', keys: ['左键', '拖动空白'] },
+      { label: '加选', keys: ['Shift', '点击'] },
     ],
   },
   {
@@ -131,7 +133,7 @@ const SECTIONS: ShortcutSection[] = [
       { label: '放大', keys: ['Ctrl', { icon: 'zoomIn' }] },
       { label: '缩小', keys: ['Ctrl', { icon: 'zoomOut' }] },
       { label: '适应画布', keys: ['Ctrl', '0'] },
-      { label: '触控板', keys: [{ icon: 'touchpadZoom' }] },
+      { label: '滚动', keys: [{ icon: 'touchpadZoom' }] },
       { label: '鼠标', keys: ['Ctrl', { icon: 'mouseZoom' }] },
     ],
   },
@@ -140,8 +142,8 @@ const SECTIONS: ShortcutSection[] = [
     width: 'md:w-48 lg:w-[220px]',
     items: [
       { label: '键盘', keys: ['Space', { icon: 'keyboardPan' }] },
-      { label: '触控板', keys: [{ icon: 'mousePan' }] },
-      { label: '鼠标', keys: [{ icon: 'touchpadPan' }] },
+      { label: '触控板', keys: ['Space', { icon: 'touchpadPan' }] },
+      { label: '鼠标', keys: [{ icon: 'mousePan' }] },
       { label: '整理画布', keys: ['Alt', 'Shift', 'F'] },
     ],
   },
@@ -165,7 +167,7 @@ const iconMap: Record<string, React.ReactNode> = {
   mouseZoom: <MouseZoomIcon />,
   keyboardPan: <KeyboardPanIcon />,
   touchpadPan: <TouchpadPanIcon />,
-  mousePan: <MousePanIcon />,
+  mousePan: <MousePanIcon />, // MousePanIcon 实际画手形拖动（非鼠标图形）——命名遗留，勿据名回改
   delete: <DeleteKeyIcon />,
 };
 
