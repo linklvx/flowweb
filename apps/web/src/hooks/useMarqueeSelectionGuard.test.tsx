@@ -16,7 +16,9 @@ describe('useMarqueeSelectionGuard（spec §5-1 兜底复位——onSelectionEnd
     useCanvasStore.setState({ marqueeSelecting: false });
   });
   afterEach(() => {
-    useCanvasStore.setState({ marqueeSelecting: false });
+    act(() => {
+      useCanvasStore.setState({ marqueeSelecting: false });
+    });
   });
 
   it('标志 true 时挂载监听；window pointerup 复位 false', () => {
@@ -39,6 +41,13 @@ describe('useMarqueeSelectionGuard（spec §5-1 兜底复位——onSelectionEnd
     act(() => setTrue());
     act(() => { window.dispatchEvent(new MouseEvent('pointermove', { buttons: 0 })); });
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
+  });
+
+  it('pointermove buttons!==0 不复位（按住拖动中不误触发）', () => {
+    render(<GuardProbe />);
+    act(() => setTrue());
+    act(() => { window.dispatchEvent(new MouseEvent('pointermove', { buttons: 1 })); });
+    expect(useCanvasStore.getState().marqueeSelecting).toBe(true);
   });
 
   it('非左键 pointerup 不复位（框选拖拽中误触右键松开不提前解除抑制）', () => {

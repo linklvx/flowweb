@@ -118,6 +118,7 @@ export function useCanvasPersistence(projectId: string) {
       // 调度协议（S1：hydrate 窗口内清挂起定时器 + wasHydrating 过渡不调度）。wasHydrating 过渡分支
       // 的唯可达路径=纯 isHydrating 翻转（unsub2 的 (h,h) 同值组合不产生它；hydrate 前后 setHydrating
       // 不动 nodes/edges/viewport）——早退不比对 isHydrating 则该分支变死代码、S1 失去纯翻转入口。
+      // （此子句无测试判别力——镜像套件的清定时器场景经 unsub2 (true,true) 路径兜住、缺失时不红，靠本注释守。）
       // 引用未变则内容必然不变，早退防 UI 态（marqueeSelecting 等）翻转白排 500ms 全量快照写——顺带
       // 消除 nodeProcessMap/selectedId/pendingMediaFile 抖动的同税。快照的 nodes 内容来自 nodeStore
       // （定时器内现读 :105），由下方 unsub2 独立触发——勿删 unsub2，否则 nodeStore 变更永久不落盘。
