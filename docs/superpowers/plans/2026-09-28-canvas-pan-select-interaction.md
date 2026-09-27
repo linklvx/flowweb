@@ -1435,12 +1435,7 @@ Expected: FAIL —— `getAllByText('触控板')` 得 2 ≠ 1；`getByText('滚�
 
 **label 精确串**：缩放栏新 label 就取 `'滚动'` 两个字——spec §5-2 写的"滚动（滚轮·双指）"是注解不入 label；测试 `getByText('滚动')` 默认精确匹配，label 写全括号必红。
 
-**icon 引用**：触控板行改 `touchpadPan`、鼠标行改 `mousePan`（原 :143-144 交叉错位）。iconMap 处加一行注释记录实情（非"回退方案"——对调方向经图标实装核定为唯一正确解：`MousePanIcon`（:89-99）画的是**手形**+四向箭头=中键拖动语义，`TouchpadPanIcon`（:68-87）画触控板+双指+四向箭头）：
-
-```ts
-  touchpadPan: <TouchpadPanIcon />,
-  mousePan: <MousePanIcon />, // MousePanIcon 实际画手形拖动（非鼠标图形）——命名遗留，勿据名回改
-```
+**icon 引用**：触控板行 `mousePan`、鼠标行 `touchpadPan`（配对以图形为准——实现期质量审查以路径级证据纠正了本 plan 撰写期的据名核定：TouchpadPanIcon 机身与 MouseZoomIcon 逐坐标全等仅平移、带中键高亮=鼠标中键拖动图；MousePanIcon 双指手=触控板双指图；两组件名与图形相反系命名遗留）。iconMap 两条注释钉死图形实况与"勿据名对调"。
 
 - [ ] **Step 4: 运行确认通过**
 

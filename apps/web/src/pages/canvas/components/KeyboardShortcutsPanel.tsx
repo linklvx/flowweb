@@ -142,8 +142,8 @@ const SECTIONS: ShortcutSection[] = [
     width: 'md:w-48 lg:w-[220px]',
     items: [
       { label: '键盘', keys: ['Space', { icon: 'keyboardPan' }] },
-      { label: '触控板', keys: ['Space', { icon: 'touchpadPan' }] },
-      { label: '鼠标', keys: [{ icon: 'mousePan' }] },
+      { label: '触控板', keys: ['Space', { icon: 'mousePan' }] },
+      { label: '鼠标', keys: [{ icon: 'touchpadPan' }] },
       { label: '整理画布', keys: ['Alt', 'Shift', 'F'] },
     ],
   },
@@ -166,8 +166,8 @@ const iconMap: Record<string, React.ReactNode> = {
   touchpadZoom: <TouchpadZoomIcon />,
   mouseZoom: <MouseZoomIcon />,
   keyboardPan: <KeyboardPanIcon />,
-  touchpadPan: <TouchpadPanIcon />,
-  mousePan: <MousePanIcon />, // MousePanIcon 实际画手形拖动（非鼠标图形）——命名遗留，勿据名回改
+  touchpadPan: <TouchpadPanIcon />, // 图形=鼠标机身+中键高亮拖动——配移动画布「鼠标」行（中键拖）；组件名与图形相反（命名遗留），勿据名对调
+  mousePan: <MousePanIcon />, // 图形=双指手拖动——配移动画布「触控板」行（空格+双指）；组件名与图形相反（命名遗留），勿据名对调
   delete: <DeleteKeyIcon />,
 };
 
