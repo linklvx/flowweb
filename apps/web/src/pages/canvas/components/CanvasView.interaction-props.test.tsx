@@ -51,8 +51,10 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
   });
   afterEach(() => {
     // 真 store 防跨用例污染（spec §8.6）
-    useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null, referenceSelect: null });
-    useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
+    act(() => {
+      useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null, referenceSelect: null });
+      useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
+    });
   });
 
   it('非锁定：panOnDrag=[1]/selectionOnDrag/zoomOnScroll/Partial/无 panOnScroll/Space', () => {

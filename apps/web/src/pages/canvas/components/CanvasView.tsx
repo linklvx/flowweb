@@ -64,7 +64,7 @@ const edgeTypes: any = {
 // panOnDrag 不在 StoreUpdater fieldsToTrack（react:186-248，不写库）；真实代价在 ZoomPane 的
 // update effect（react:1337-1377，deps 含 panOnDrag）——每帧重渲染链（defaultViewport 每帧新对象
 // → GraphView memo 失效 → FlowRenderer 重建 children → effect 重跑 → update() 重建 wheel/start
-// 处理器）。常量使引用稳定 → effect 不重跑。禁 [1,2]：数组含 2 时右键成为平移按钮且
+// 处理器）。常量使引用稳定 → effect 不再每帧重跑。禁 [1,2]：数组含 2 时右键成为平移按钮且
 // onContextMenu 直接 preventDefault+return，右键菜单路径彻底失效（spec §3.1）。
 const PAN_ON_DRAG_MIDDLE = [1];
 // snapGrid 在 fieldsToTrack 且原为内联——本文件真正每帧写 store 的是它，一并 hoist。

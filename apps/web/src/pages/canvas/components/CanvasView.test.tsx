@@ -443,7 +443,9 @@ describe('CanvasView', () => {
   // ── 派生 class 断言（spec §8.2）：能抓含 0 的误改（[0,1]/true → draggable 挂）──
   // 真 nodeStore 驱动锁定；afterEach 复位防污染
   afterEach(() => {
-    useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null });
+    act(() => {
+      useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null });
+    });
   });
 
   it('非锁定：pane 有 selection 无 draggable（左键框选主路径）', () => {
