@@ -21,8 +21,8 @@
 - TransformToolbar（消费点 7）**豁免不加标志**——transform 期 isLocked=true（根因修）→ 无框选可达；枚举注释须写豁免理由。
 - VideoEditNode.tsx:89 副作用（框选经过停迷你播放）**接受不修**（§5-1 消费点 8，既有选中语义）。
 - `lastPointerShiftKey` 与 `marqueeSelecting` 并存非替代：前者覆盖 Shift+点击，后者覆盖框选进行态。
-- **锁定态三个库级旁路（六修核实）**：①system:2824 的 node/edge 中键特例先于一切判定 → wrapper capture 闸门封死（Task 4 3f）；②删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）→ deleteKeyCode 并入 isLocked（Task 4 3e 首行）；③Ctrl+滚轮缩放旁路（zoomActivationKeyPressed 覆盖 zoomOnScroll=false）→ 登记不修（Task 7 注释明示"与今天行为一致"，防验收误报缺陷）。
-- **消费点 8 同格登记（接受不修）**：VideoGenNode.tsx:105-109 的 HD 面板副作用（`!selected || !isSingleSelected || dragging → setHdPanelOpen(false)`）——框选扫过开着的 HD 面板会将其收起（状态复位非闪现，松手不自动恢复）；属选中态驱动既有语义、低频，与 VideoEditNode 停迷你播放同族。ConnectionLine 的 isActive 高亮/粒子（any-selection 视觉）按不变式不抑制——框选扫过密集连线区的视觉 churn 属预期，§9-25 验收确认无 jank 异常。
+- **锁定态三个库级旁路（六修核实）**：①system:2824 的 node/edge 中键特例先于一切判定 → wrapper capture 闸门封死（Task 4 3f）；②删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）→ deleteKeyCode 并入 isLocked（Task 4 3e 首行）——app 层另有 StoryboardGroupRenderer.tsx:17-32 的格子级 Backspace 路径（window capture keydown、无 lock 守卫、删格子内容非节点、焦点在输入框时有 :20 守卫），与节点删除正交，登记不扩 scope（spec §7 同步登记行）；③Ctrl+滚轮缩放旁路（zoomActivationKeyPressed 覆盖 zoomOnScroll=false）→ 登记不修（Task 7 注释明示"与今天行为一致"，防验收误报缺陷）。
+- **消费点 8 同格登记（接受不修）**：VideoGenNode.tsx:105-109 的 HD 面板副作用（`!selected || !isSingleSelected || dragging → setHdPanelOpen(false)`）——框选扫过开着的 HD 面板会将其收起（状态复位非闪现，松手不自动恢复）；属选中态驱动既有语义、低频，与 VideoEditNode 停迷你播放同族。ConnectionLine 的选中态视觉三件（边变色加粗 stroke #f59e0b/strokeWidth 3〔:89-90，框选扫过最显眼的 churn〕/isActive 高亮/粒子）按不变式不抑制——框选扫过密集连线区的视觉 churn 属预期，§9-25 验收确认无 jank 异常。
 - **订阅税决策**：marqueeSelecting 留 canvasStore（与 lastPointerShiftKey 同处置，spec 已选）；代价补偿=两处裸订阅加输入引用早退（Task 3 Step 8-9）——框选的两次真实翻转不再白排 500ms 全量快照写与 O(n) collab diff。
 
 ---
@@ -69,7 +69,7 @@ describe('canvasStore.marqueeSelecting', () => {
 
 - [ ] **Step 2: useCanvasPersistence.test.ts 追加快照 JSON 键集合固定断言（spec §8 负向护栏第二条）**
 
-（原设计在此步给 canvasHistory.test.ts 加 `Object.keys` 断言——与既有 `:11-14` 的 `toEqual` 全字段断言纯重复（toEqual 已逐字钉死键集合含 undefined 键），删去不落；真正的风险面是 localStorage 快照写出，落在既有先例 :75-78 处。）
+（原设计在此步给 canvasHistory.test.ts 加 `Object.keys` 断言——与既有 `:11-14` 的 `toEqual` 全字段断言重复，删去不落：toEqual 挡得住新增有值字段（现实回归形态），但忽略 undefined 值键（Vitest 递归相等语义），`Object.keys` 两者都挡——这正是把负向护栏落在快照 JSON 键集合的理由；真正的风险面是 localStorage 快照写出，落在既有先例 :75-78 处。）
 
 在该文件「带组 store 保存」用例的 `const snap = JSON.parse(raw!);`（:77）之后追加一行（同用例内，复用既有 fake timers/renderHook 骨架）：
 
@@ -280,6 +280,13 @@ describe('useMarqueeSelectionGuard（spec §5-1 兜底复位——onSelectionEnd
     expect(useCanvasStore.getState().marqueeSelecting).toBe(false);
   });
 
+  it('非左键 pointerup 不复位（框选拖拽中误触右键松开不提前解除抑制）', () => {
+    render(<GuardProbe />);
+    act(() => setTrue());
+    act(() => { window.dispatchEvent(new MouseEvent('pointerup', { button: 2 })); });
+    expect(useCanvasStore.getState().marqueeSelecting).toBe(true);
+  });
+
   it('次级通道 blur 复位', () => {
     render(<GuardProbe />);
     act(() => setTrue());
@@ -336,7 +343,8 @@ import { useCanvasStore } from '@/stores/canvasStore';
 /**
  * marqueeSelecting 兜底复位（spec 2026-09-28 §5-1.2）。
  * 复位通道全景（5 个）：onSelectionEnd（CanvasView 主通道，正常路径）+ 本 hook 的 4 个 window
- * 通道——pointerup/pointercancel（触发即拖拽必已终止）、pointermove(buttons===0)（窗口外释放时
+ * 通道——pointerup（左键，button 过滤——非左键时拖拽未必终止）/pointercancel（触发即拖拽必已
+ * 终止）、pointermove(buttons===0)（窗口外释放时
  * 浏览器对 pointerup 派发行为不一）、blur（次级，接受拖拽中 alt-tab 的极小残留窗口）。
  * 标志为 true 期间全部操作浮层被抑制且无自愈——兜底是本设计唯一单点故障面。
  * 标志作用域挂载：非框选期全 app 零常驻开销，卡死时监听恰处激活态。
@@ -355,12 +363,19 @@ export function useMarqueeSelectionGuard() {
     const onMove = (e: MouseEvent) => {
       if (e.buttons === 0) reset();
     };
-    window.addEventListener('pointerup', reset);
+    // pointerup 只认左键（button 0；Event 无 button 字段时放行——jsdom 测试形态）：框选手势是
+    // 左键，非左键 pointerup 时拖拽未必终止，提前复位会使剩余拖拽段浮层复现
+    const onPointerUp = (e: Event) => {
+      const button = (e as PointerEvent).button;
+      if (button !== undefined && button !== 0) return;
+      reset();
+    };
+    window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', reset);
     window.addEventListener('blur', reset);
     window.addEventListener('pointermove', onMove);
     return () => {
-      window.removeEventListener('pointerup', reset);
+      window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', reset);
       window.removeEventListener('blur', reset);
       window.removeEventListener('pointermove', onMove);
@@ -373,7 +388,7 @@ export function useMarqueeSelectionGuard() {
 - [ ] **Step 4: 运行确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/hooks/useMarqueeSelectionGuard.test.tsx`
-Expected: PASS——guard 6 条（含卸载兜底）+ 语义钉死 1 条。若「卸载兜底」红：cleanup 漏了 `reset()`；若语义钉死红：zustand 行为与预期不符（先停下核查，勿放宽断言）。
+Expected: PASS——guard 7 条（含卸载兜底与非左键 pointerup 过滤）+ 语义钉死 1 条。若「卸载兜底」红：cleanup 漏了 `reset()`；若语义钉死红：zustand 行为与预期不符（先停下核查，勿放宽断言）。
 
 - [ ] **Step 5: CanvasView.test.tsx mock 加可变变量（供 Task 5 selectedGroup 用例消费）**
 
@@ -391,7 +406,7 @@ mock state（`lastPointerShiftKey: mockLastPointerShiftKey,` :41）后加：
 
 `beforeEach`（:76-82）加 `mockMarqueeSelecting = false;`。
 
-（本步骤**不加用例**：此文件的 canvasStore mock 非响应式，任何"置 true 后断言渲染"都构成空转断言；`onSelectionStart/End` 的接线与幂等断言落在 Task 4 的 interaction-props 测试——那里是真 store 且 props 可直接驱动。）
+（本步骤**不加用例**：此文件的 canvasStore mock 非响应式，任何"置 true 后断言渲染"都构成空转断言；`onSelectionStart/End` 的接线与幂等断言落在 Task 4 的 interaction-props 测试——那里是真 store 且 props 可直接驱动。本步的 mock 字段非纯装饰——Task 5 Step 1 的 selectedGroup 用例经 `mockMarqueeSelecting` 初始读取 + rerender 消费此字段，勿当冗余删。）
 
 - [ ] **Step 6: CanvasView.tsx 接线（handlers + hook）**
 
@@ -439,16 +454,25 @@ JSX props 加：
 
 （该文件无抑制用例，静态字段仅保证 mock 与真 store 形状一致。）
 
-- [ ] **Step 8: 订阅税消除——useCanvasPersistence 先写失败测试**
+- [ ] **Step 8: 订阅税消除——useCanvasPersistence 先写失败测试 + 既有 4 条用例触发契约迁移**
 
 函数式复位只挡住了 no-op 那一半：每次框选标志两次**真实翻转**（true/false）仍通知全部裸订阅者——`useCanvasPersistence.ts:116-118` 裸订阅不过滤字段 → 500ms 去抖后全量 `JSON.stringify(nodeStore.nodes)` + `localStorage.setItem` 各两次（内容逐字节相同）；`canvasCollabRuntime.ts:210-214` 同理每次跑 `pickStructNodes` O(n) 投影 + isEqual 深比较 ×2（结果必为 unchanged）。给两处订阅加**输入引用早退**（快照/diff 的输入只有 nodes/edges/viewport，引用未变则输出必然不变）。
 
-`useCanvasPersistence.test.ts` 追加（既有 fake timers + renderHook 先例 :51-77）：
+**契约变更登记（本步显式承担）**：早退把写入触发契约从「任意 canvasStore 变更」收窄为「结构变更（nodes/edges/viewport 引用）或 nodeStore 变更」。既有 4 条用例（:52/:72/:113/:142）全用 `setState({ selectedId: 'trigger…' })` 非结构字段当触发器——早退落地后它们必红（快照未写 → 恢复用例 `find(...)!` TypeError / `expect(raw).not.toBeNull()` 红）。本步同批迁移为 viewport 触发（三输入之一、4 条用例均不断言 viewport 内容、触发语义不变）——4 处触发行统一改为：
+
+```ts
+    useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
+```
+
+（收益顺带登记，防后人当"为框选特调"而回退：早退同时消灭 nodeProcessMap 生成进度每 tick 抖动、selectedId/pendingMediaFile 抖动触发的全量快照写——比框选本身更大的收益面，且全仓除上述 4 条测试外无「任意变更即写」依赖。）
+
+`useCanvasPersistence.test.ts` 追加用例（既有 fake timers + renderHook 先例 :51-77；`act` 若未 import 则补）：
 
 ```ts
   it('marqueeSelecting 翻转不触发快照写（订阅输入引用早退，spec §5-1 配套）', () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
     renderHook(() => useCanvasPersistence('p1'));
+    vi.advanceTimersByTime(600); // 排空 mount 期可能挂起的写（防御——当前 beforeEach 播种 nodes 使 hydrate :35 早退、本无挂起；不依赖该前提）
     setItemSpy.mockClear();
     act(() => {
       useCanvasStore.setState({ marqueeSelecting: true });
@@ -460,7 +484,7 @@ JSX props 加：
   });
 ```
 
-（`act` 若该文件未 import 则补；`Storage.prototype` spy 覆盖 localStorage 实例。）
+（`Storage.prototype` spy 覆盖 localStorage 实例。本步收尾跑一次该文件：新用例红（早退未实现，翻转通知 → 定时器 → setItem）、被迁移触发行的 4 条既有用例仍绿——早退未实现时 viewport 触发照常调度写。）
 
 - [ ] **Step 9: 实现两处订阅早退**
 
@@ -468,9 +492,15 @@ JSX props 加：
 
 ```ts
     const unsub1 = useCanvasStore.subscribe((state, prevState) => {
-      // 快照输入只有 nodes/edges/viewport（parentMap 由 nodes 派生）——引用未变则内容必然
-      // 不变，早退防 UI 态（marqueeSelecting 等）翻转白排 500ms 全量快照写
-      if (state.nodes === prevState.nodes && state.edges === prevState.edges
+      // 快照输入只有 nodes/edges/viewport（parentMap 由 canvasStore.nodes 派生）+ isHydrating 参与
+      // 调度协议（S1：hydrate 窗口内清挂起定时器 + wasHydrating 过渡不调度——这两个分支的唯可达
+      // 路径=纯 isHydrating 翻转〔hydrate 前后 setHydrating 不动 nodes/edges/viewport〕，早退不比对
+      // isHydrating 则它们变死代码）。引用未变则内容必然不变，早退防 UI 态（marqueeSelecting 等）
+      // 翻转白排 500ms 全量快照写——顺带消除 nodeProcessMap/selectedId/pendingMediaFile 抖动的同税。
+      // 快照的 nodes 内容来自 nodeStore（定时器内现读 :105），由下方 unsub2 独立触发——勿删 unsub2，
+      // 否则 nodeStore 变更将永久不落盘。
+      if (state.isHydrating === prevState.isHydrating
+        && state.nodes === prevState.nodes && state.edges === prevState.edges
         && state.viewport === prevState.viewport) return;
       scheduleWrite(state.isHydrating, prevState.isHydrating);
     });
@@ -482,7 +512,8 @@ JSX props 加：
     const unsubCs = useCanvasStore.subscribe((state, prev) => {
       if (state.isHydrating || prev.isHydrating) return;
       if (state.projectId !== prev.projectId) return;
-      // diff 输入只有 nodes/edges——引用未变早退，防 UI 态翻转白跑 O(n) 投影+深比较
+      // diff 输入只有 nodes/edges——引用未变早退（严格等价：同引用 ⇒ pickStruct 投影输出相同
+      // ⇒ isEqual 恒真 ⇒ 原逻辑本就 no-op），防 UI 态翻转白跑 O(n) 投影+深比较
       if (state.nodes === prev.nodes && state.edges === prev.edges) return;
       const changed = ...（原逻辑不变）
 ```
@@ -492,7 +523,7 @@ JSX props 加：
 - [ ] **Step 10: 运行确认通过**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/hooks/useCanvasPersistence.test.ts src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
-Expected: PASS 全部（theme-perf 的 render 计数断言不受影响——新订阅返回布尔原语，Object.is 稳定）。
+Expected: PASS 全部——useCanvasPersistence.test 含 4 条被迁移触发行的既有用例（viewport 触发，语义不变）+ 新增快照税用例；theme-perf 的 render 计数断言不受影响（新订阅返回布尔原语，Object.is 稳定）。
 
 - [ ] **Step 11: Commit**
 
@@ -627,14 +658,21 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
   });
 
   it('常量引用稳定：rerender 后 panOnDrag/snapGrid 同引用（hoist 收益的直达断言——toBe 非 toEqual）', () => {
-    const p1 = renderCapture();
-    // projectId 变化强制穿透 CanvasView 的 memo bail-out（先例 CanvasView.test.tsx:415-419）
-    render(
+    const { rerender } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const p1 = captured.props;
+    // projectId 变化强制穿透 CanvasView 的 memo bail-out（先例 CanvasView.test.tsx:415-419；
+    // 同实例 rerender——双 render 双挂载时 captured.props 归属取决于最后重渲染实例，有假绿风险）
+    rerender(
       <ReactFlowProvider>
         <CanvasView projectId="p2" />
       </ReactFlowProvider>
     );
     const p2 = captured.props;
+    expect(p2).not.toBe(p1);                  // 新鲜度：rerender 未真正重渲染（捕获未换新）时此处红，防假绿
     expect(p2.panOnDrag).toBe(p1.panOnDrag); // 内联 [1] 回归时 toEqual 抓不住、toBe 必红
     expect(p2.snapGrid).toBe(p1.snapGrid);   // ZoomPane update effect / StoreUpdater 不重跑的前提
   });
@@ -721,23 +759,31 @@ const SNAP_GRID: SnapGrid = [20, 20];
 
 **保留不动**（整块替换会静默删掉它们——deleteKeyCode 保护/min/max 缩放限幅等）：`:451 defaultViewport`、`:462 multiSelectionKeyCode="Shift"`、`:463-464 minZoom/maxZoom`、`:465 fitView={false}`、`:469 zoomOnDoubleClick`（值本就不变）、`:470-472 nodesDraggable/nodesFocusable/elementsSelectable`、`:473 snapToGrid`、`:475 noWheelClassName`、`:476-479 proOptions/className/colorMode`。
 
-**3f. 锁定态中键特例闸门（spec §3 六修）**——wrapper div（`:437`）加 capture 守卫：
+**3f. 锁定态中键特例闸门（spec §3 六修）**——组件体 handler 区（`onPaneContextMenu` 定义后）加：
+
+```ts
+  // 锁定态中键特例闸门（spec §3 六修）：system:2824 的 node/edge 中键放行先于 !panOnDrag/nopan
+  // 一切判定（含 :2846 nopan——nopan 对该路径不可达，非可替代修法）；capture 先于 renderer 的
+  // d3 冒泡 listener，stopPropagation 使锁定态中键手势无法启动。副作用：事件在 React root capture
+  // 内被止后不再到达 root 下任何合成处理器（含 MiniMap/portal 内中键 mousedown）——锁定态中键
+  // 本无合法语义，无害。非锁定中键平移（合法路径）不受影响。
+  const handleWrapperMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (isLocked && e.button === 1) e.stopPropagation();
+  }, [isLocked]);
+```
+
+wrapper div（`:437`）挂：
 
 ```tsx
     <div
       ref={reactFlowWrapper}
       className="w-full h-full overflow-hidden"
       onMouseMove={handleMouseMove}
-      onMouseDownCapture={(e) => {
-        // 锁定态中键特例闸门（system:2824 的 node/edge 中键放行先于 !panOnDrag/nopan 一切判定）：
-        // capture 先于 renderer 的 d3 冒泡 listener，stopPropagation 使锁定态中键手势无法启动；
-        // 非锁定中键平移（合法路径）不受影响
-        if (isLocked && e.button === 1) e.stopPropagation();
-      }}
+      onMouseDownCapture={handleWrapperMouseDownCapture}
     >
 ```
 
-（SyntheticEvent.stopPropagation 会调用原生 stopPropagation——原生事件在 React root 的 capture 阶段被止，不再下潜到 renderer，d3 冒泡 listener 收不到。）
+（useCallback 对齐文件内 handler 风格〔onMouseMove 先例〕；SyntheticEvent.stopPropagation 会调用原生 stopPropagation——原生事件在 React root 的 capture 阶段被止，不再下潜到 renderer，d3 冒泡 listener 收不到。）
 
 - [ ] **Step 4: 运行 interaction-props 确认通过**
 
@@ -806,6 +852,10 @@ Expected: PASS 全部 7 条（含接线幂等与引用稳定——后者若红�
     expect(pane().className).toContain('selection');
   });
 
+  // 靶子用 pane 是有判别力的形态：锁定态 pane 中键走 filter-false 路径（:2862 拒 → d3 不调
+  // nopropagation → 无闸门时事件冒泡可达 document → spy 被调 → 红）。节点/边靶子在无闸门时命中
+  // :2824 特例 → d3 mousedowned 调 nopropagation（stopImmediatePropagation 含止冒泡）→ document
+  // 同样收不到 → spy 断言形态下恒绿（假绿）——勿"加强"成节点靶子（jsdom 无 d3 手势可观测）。
   it('中键闸门：锁定态 wrapper 内 button===1 mousedown 不冒泡到 document（spec §3 六修）', () => {
     useNodeStore.setState({ activeEditNodeId: 'node-1' });
     const { container } = render(
@@ -1228,7 +1278,7 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/nodes/VideoGenNode
 - [ ] **Step 2: 运行确认失败**
 
 Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/components/CanvasView.test.tsx -t '滚轮'`
-Expected: FAIL —— 第一条：`defaultPrevented` 为 false 时 `mockZoomIn` 已被调（现状双 writer）；或 `expect(e.defaultPrevented).toBe(true)` 红（守卫挂 document 且现状调 zoomIn）。以 `defaultPrevented`/`not.toHaveBeenCalled` 红为准。
+Expected: FAIL —— 第一条：`expect(mockZoomOut).not.toHaveBeenCalled()` 红（`new WheelEvent` 的 deltaY 默认 0 → 现状 effect `e.deltaY < 0` 为假走 else 分支调 `zoomOut({duration:100})`；`defaultPrevented` 断言本就绿——现状 document 级守卫已无条件 preventDefault）；第三条：`expect(e.defaultPrevented).toBe(false)` 红（现状守卫挂 document，画布外也 preventDefault）。
 
 - [ ] **Step 3: 实现 effect 改写（CanvasView.tsx :360-374 整段替换）**
 
@@ -1414,7 +1464,7 @@ Expected: PASS 全部。
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.tsx apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx docs/superpowers/specs/2026-05-28-canvas-keyboard-shortcuts-panel-design.md docs/superpowers/plans/2026-05-28-canvas-keyboard-shortcuts-panel.md && git commit -m "feat(web): 快捷键面板同步——滚动=缩放/空格+双指=平移/中键拖/新增框选加选条目（触控板 1 鼠标 2 计数自洽，spec §5-2）+2026-05-28 spec/plan 双文档数字与表格更新"
+cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.tsx apps/web/src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx docs/superpowers/specs/2026-09-28-canvas-pan-select-interaction-design.md docs/superpowers/specs/2026-05-28-canvas-keyboard-shortcuts-panel-design.md docs/superpowers/plans/2026-05-28-canvas-keyboard-shortcuts-panel.md && git commit -m "feat(web): 快捷键面板同步——滚动=缩放/空格+双指=平移/中键拖/新增框选加选条目（触控板 1 鼠标 2 计数自洽，spec §5-2）+spec §5-2 栏位回填（框选/加选落创作栏，2026-09-28 spec 同 commit）+2026-05-28 spec/plan 双文档数字与表格更新"
 ```
 
 ---
@@ -1447,9 +1497,11 @@ cd /d/flowweb && git add apps/web/src/pages/canvas/components/KeyboardShortcutsP
 
 `:127` `- **触控事件阻断：** 标注 Canvas 阻止 touchstart/touchmove 事件冒泡，避免触发画布原生平移/缩放手势` 句尾改为 `……避免触发画布原生平移/缩放/框选手势（2026-09-28 交互重构后空白拖=框选）`。
 
-- [ ] **Step 4: 2026-09-26-image-node-panel-redesign.md:103 isLocked 口径同步**
+- [ ] **Step 4: 2026-09-26-image-node-panel-redesign.md :35 与 :103 两处 isLocked 口径同步**
 
 `:103` `4. \`isLocked\` → 返回（不绕过锁定语义）；` 行后括注补 `（2026-09-28 起锁定口径扩为"编辑中或 transform 调整中"）`。
+
+`:35` 同文件 §2 现状清单里的 `isLocked = activeEditNodeId !== null（L103）` 同批括注 `（2026-09-28 起口径扩为"编辑中或 transform 调整中"，实现现 L109）`——同文件两处旧口径一次清零，防半新半旧。
 
 - [ ] **Step 5: awareness.ts setSelection 死代码加禁令注释（防未来坑）**
 
@@ -1480,6 +1532,7 @@ cd /d/flowweb && git add docs/superpowers/specs/2026-08-24-shift-multiselect-too
 
 - **Spec 覆盖**：§3 核心改动→Task 4（3a-3f，含六修中键闸门）；§3 CSS→Task 8；§3 isLocked 双定义→Task 4（3c/3d）；§5-1 全消费点（1→Task 2、2/3/4→Task 5、5/6→Task 6、7 豁免/8 同格登记〔含 HD 面板效应〕→关键事实区）；§5-1 兜底→Task 3（4 window 通道+卸载复位）；§5-1.3 订阅税→Task 3 Step 8-9；§5-2→Task 9；§5-3→Task 7；§6 库框视觉→Task 8；§8 测试策略→props 契约+接线幂等+引用稳定 Task 4 / class+中键闸门 Task 4 Step 5 / guard 用例 Task 3 / 负向护栏（投影键集合 Task 1 + 快照键集合 Task 1 Step 2）/ 面板计数 Task 9 / 守卫用例 Task 7 / afterEach 复位 Task 4；§9→收尾 3；§10→Task 9 Step 5 + Task 10。
 - **第六轮修订摘要**（全部经实装核实后采纳）：fireEvent.window→window.dispatchEvent（RTL 无 window 键）；PointerEvent→MouseEvent 主写法+禁 fireEvent.pointerMove（构造器回退丢 buttons 的静默陷阱）；删两条空转断言（guard #5 换 store 级语义钉死、CanvasView 接线空用例删）→接线+幂等断言上移 interaction-props（act 驱动捕获 props）；3e 改逐行 diff 表+保留不动清单（防整块替换静默删 prop）；deleteKeyCode 并入 isLocked（react:1225-1236 删除路径无 lock 闸门，实锤数据丢失路径）；中键特例 wrapper 闸门（system:2824 先于一切判定，spec 六修同步）；guard cleanup 加 reset()（卸载不卡 true）；SNAP_GRID hoist 验证从 theme-perf（mock setState 不可观测）改引用稳定 toBe 断言；订阅输入引用早退×2（快照/diff 税）；负向断言去重（canvasHistory.test 重复项删，快照键断言落 useCanvasPersistence.test 先例处）；CSS 同选择器合一；面板 label 精确串/icon 注释/双文档同步/23 措辞；2026-05-28 plan 文件入 stage；annotation:127+2026-09-26:103+awareness 死代码禁令补入 Task 10；复位移 beforeEach/afterEach；Task 7 锁定态 Ctrl+滚轮口径注释；收尾加目标→手测项清单与 macOS ×10 口径。
-- **驳回的审核建议**（理由存档）：bash 命令保持 `/d/flowweb` 形态——本环境 shell 是 git-bash（非 PowerShell），现形式可直接执行；Playwright 手势 spec 维持 spec §7 否决（门禁 build+preview 成本判断仍成立，27 条人工验收已覆盖）；marqueeSelecting 拆独立 UI store 维持 spec 已选（与 lastPointerShiftKey 同处置，税已由早退消除）；面板"总数===23"断言不加（SECTIONS 非导出、无可靠 DOM 锚点，脆断言不值）；「interaction-props 渲染即抛 zustandErrorMessage」的定性不成立（SelectionBoxOverlay 是 ReactFlow children 而非兄弟，mock ReactFlow 不渲染 children 则不执行——但 Provider 已防御性加入）。
+- **第七轮修订摘要**（三份报告，实装核实后采纳 14 项）：订阅早退 P0——useCanvasPersistence 既有 4 用例触发行（:52/:72/:113/:142 selectedId poke）同批迁移 viewport 触发+契约变更登记（早退否则必红：恢复用例 TypeError/`not.toBeNull()` 红，Step 8 收尾跑一次钉"新红旧绿"、Step 10 预期同步改）；unsub1 守卫补 isHydrating 子句（S1 清定时器与 wasHydrating 分支的唯可达路径=纯 isHydrating 翻转，不补则死代码）+注释升级（快照 nodes 实来自 nodeStore 的 unsub2 勿删/收益点名 nodeProcessMap·selectedId·pendingMediaFile 抖动/collab 侧严格等价）；快照税用例加 mount 后排空行（防御性——当前 beforeEach 播种 nodes 使 hydrate :35 早退本无挂起，不依赖该前提）；引用稳定用例改同实例 rerender+`not.toBe(p1)` 新鲜度断言（照 CanvasView.test.tsx:415-419 先例，消双挂载归属歧义）；闸门 useCallback 化+注释补副作用（root capture 内止住波及 MiniMap/portal 合成处理器，无害）与 nopan 不可替代论证（顺带修 plan 内 tsx 注释行 `\` 笔误）；中键闸门用例加靶子判别力注释（pane=filter-false 路径有判别力；节点靶子无闸门时 d3 nopropagation 止冒泡→spy 形态假绿，勿加强）；guard pointerup 补非左键过滤（框选手势是左键，非左键 pointerup 拖拽未必终止；`button !== undefined && !== 0` 拦截、Event 无 button 放行兼容 jsdom）+新用例（Step 4 预期 6→7 条）；Task 7 Step 2 红因修正（WheelEvent deltaY 默认 0→现状走 zoomOut 分支，先红的是 mockZoomOut 非 mockZoomIn；第三条画布外 defaultPrevented 同红）；Task 9 git add 补 2026-09-28 spec（§5-2 栏位回填不入工作区）；2026-09-26 spec :35 半新半旧口径同批括注；ConnectionLine 边变色加粗（:89-90）补 any-selection 视觉登记；StoryboardGroupRenderer.tsx:17-32 格子级 Backspace 正交登记（spec §7 加行）；Task 1 Step 2 toEqual 论证修正（忽略 undefined 键）。
+- **驳回的审核建议**（理由存档）：bash 命令保持 `/d/flowweb` 形态——本环境 shell 是 git-bash（非 PowerShell），现形式可直接执行；Playwright 手势 spec 维持 spec §7 否决（门禁 build+preview 成本判断仍成立，27 条人工验收已覆盖）；marqueeSelecting 拆独立 UI store 维持 spec 已选（与 lastPointerShiftKey 同处置，税已由早退消除）；面板"总数===23"断言不加（SECTIONS 非导出、无可靠 DOM 锚点，脆断言不值）；「interaction-props 渲染即抛 zustandErrorMessage」的定性不成立（SelectionBoxOverlay 是 ReactFlow children 而非兄弟，mock ReactFlow 不渲染 children 则不执行——但 Provider 已防御性加入）。第七轮追加驳回：①报告二 S3「spec 三处口径未同步」不成立——六修已同步 §3/§3.1/§4/§6/§9-12/§9-27（该报告引用的原文与行号 :188 均为五修版，现 :196 已是闸门因果），仅采其残留风险节的 §9-12 锁定态罗盘目视句；②报告三「中键闸门用例加强为节点靶子」会引入假绿——无闸门时锁定态节点中键命中 system:2824 特例→d3 mousedowned 调 nopropagation（stopImmediatePropagation 含止冒泡）→document spy 同样收不到→用例恒绿；pane 靶子（:2862 filter-false→d3 不止冒泡→无闸门时 spy 被调→红）才有判别力，已加注释防后人误加强；③「nodeStore 原地改写理论收窄写入 spec §7」不加——canvasStore 无原地突变已核实、nodeStore 原地改不 setState 本身是 zustand 反模式，不为反模式理论场景加登记（简洁优先）；④报告三所引对照文件 `hooks/__tests__/useCanvasPersistence.test.ts` 不存在（Glob 核实无匹配），不影响 4 用例必红主论点。
 - **占位符**：无 TBD/TODO。
 - **类型一致**：`marqueeSelecting` 布尔字段名全 plan 一致；`PAN_ON_DRAG_MIDDLE`/`SNAP_GRID` 命名与 spec §3 一致；`useMarqueeSelectionGuard` 单一定义。

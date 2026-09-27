@@ -136,7 +136,7 @@ onMouseDownCapture={(e) => { if (isLocked && e.button === 1) e.stopPropagation()
 
 框选实时改选中态（react:1521-1533 节点/:1525-1527 边），拖拽中 UI 会闪弹——"恰好框住 1 个节点"瞬间工具条/手柄/配置面板闪现、"框住第 2 个"瞬间 N 项框+打组工具条挂载、框到连通节点时边上 × 删除按钮挂载、2↔1 阈值附近来回闪。库内 `NodesSelection` 的既定模式是 `!userSelectionActive` 才渲染（react:1954）——拖拽期间不渲染、松手才出现，app 侧照此统一。
 
-**不变式（实现与验收以此为准）**：框选拖拽期间不挂载任何以 `selected` 为条件的**操作浮层**（工具条/缩放手柄/配置面板/删除按钮）；选中态**视觉**（节点高亮、组边框 dashed、库 selection rect）不在抑制范围、仍实时更新。
+**不变式（实现与验收以此为准）**：框选拖拽期间不挂载任何以 `selected` 为条件的**操作浮层**（工具条/缩放手柄/配置面板/删除按钮）；选中态**视觉**（节点高亮、组边框 dashed、库 selection rect、边变色加粗 stroke #f59e0b/strokeWidth 3〔ConnectionLine.tsx:89-90，框选扫过最显眼的 churn〕）不在抑制范围、仍实时更新。
 
 **抑制信号（架构决策）**：`<ReactFlow onSelectionStart onSelectionEnd>`（公开 props；`onSelectionStart` 触发点 react:1493 在 `resetSelectedElements`（:1492）与第一次 `triggerNodeChanges`（:1523）之前同一同步体——标志必然先于选中态变化落入同一 React 批次，任何中间帧都是"已抑制"）+ canvasStore 新增 `marqueeSelecting: boolean`。**不用**库私有字段 `useStore((s)=>s.userSelectionActive)`——公开 props 不依赖库内部 store 形状（私有 API 升级可改名），且 app 自有标志可自行兜底（见下）。注意：`onSelectionEnd` 的复位点与私有字段相同（都在 Pane `onPointerUp`，仅 `isSelectionEnabled` 时挂载，react:1551-1556/:1559）——若 `elementsSelectable` 在拖拽中翻转（进入编辑/参考选择），两者同样失效，**兜底复位因此是必做项而非可选项**。
 
@@ -193,7 +193,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 ## 6. 不变项（已核实）
 
 - 节点拖拽/连线/handle 拖拽弹菜单（spec 2026-09-26 §3.3）
-- 裁剪/扩图/擦除/标注 overlay：均在节点内 + 带 `nopan`，不触发框选；**中键拖其上不平移的真正保证是 §3 wrapper 闸门**（六修纠正：system:2824 的 node/edge 中键特例先于 :2846 的 nopan 判定，nopan 对该路径不可达；非锁定态中键在节点/overlay 上起手平移是 §4 期望行为，闸门只在锁定态生效）
+- 裁剪/扩图/擦除/标注 overlay：均在节点内 + 带 `nopan`，不触发框选；**锁定态中键拖其上不平移的真正保证是 §3 wrapper 闸门**（六修纠正：system:2824 的 node/edge 中键特例先于 :2846 的 nopan 判定，nopan 对该路径不可达；非锁定态中键在节点/overlay 上起手平移是 §4 期望行为，闸门只在锁定态生效）
 - SelectionBoxOverlay portal（#node-toolbar-portal，不在 pane 树内，pointer-events-none 容器）
 - @ 提及下拉（CommandMentionList / ImageMentionList）：经 body portal 渲染（PromptInput.tsx:65-66 与 :119-129 两处 `document.createElement + body.appendChild`）——既不在 .react-flow 内（滚轮原生滚动列表，无需 nowheel），也不在 reactFlowWrapper 内（Ctrl+滚轮其上走浏览器整页缩放，守卫收窄后果，§9-16 一并验收）
 - MiniMap / CanvasToolbar（合并两条证据链，同一结论）：①二者渲染在 .react-flow 下、与 GraphView（其根即 renderer）同级（react bundle 结构 `…GraphView, SelectionListener, children…`）→ `.react-flow__pane.selection .react-flow__panel`（style.css:287）选择器匹配不到；②d3 wheel 挂在 `.react-flow__renderer`（react:1304 domNode + :1378），wheel 冒泡不经 renderer → d3 收不到 → 其上滚轮/双指=**无反应**（panOnScroll 时代同样无反应，沿革两端皆然）；Ctrl+滚轮仍被 wrapper 级守卫 preventDefault、页面不缩放（二者在 wrapper 内）
@@ -217,6 +217,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 | 触屏/平板 | selectionOnDrag 对 touch 生效且与 d3 touch 平移两路径打架（单指拖同时平移+框选）；仓库无触屏目标（仅 FileGrid 用 pointer:coarse），登记非目标，不加硬闸 |
 | Shift 框选阈值 0 vs 主路径 1px | 既有不一致（:1487），非本次引入 |
 | e2e 手势 spec | 仓内 Playwright 门禁（build+preview+API+单 worker）成本不匹配；手势全走 §9 人工验收 |
+| StoryboardGroupRenderer.tsx:17-32 格子级 Backspace | app 层独立删除路径（window capture keydown、无 lock 守卫），删的是格子内容非正在编辑的节点——与 deleteKeyCode 锁定语义正交；焦点在输入框时有 :20 编辑态守卫、删除走 store 可撤销，可达性低；如需一并锁另开条目，不在本次半径 |
 
 ## 8. 测试策略（TDD）
 
@@ -266,7 +267,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 9. 双击空白仍缩放；**框选松手后 300ms 内同点再点一次 → 确认不触发意外缩放**（clickDistance 不设防，风险验证）
 10. 右键空白出上下文菜单（AddNodeMenu）
 11. 参考选择模式：左键拖=平移、不框选；中键/空格可平移；滚轮可缩放；点节点能拾取（D19 口径）
-12. 锁定态（节点编辑中 / transform 旋转镜像调整中，§3 根因修后同口径）：左键不平移不框选、滚轮不缩放、空格不平移（正常路径已收窄；"按住空格进锁定"的残留窗口按第 23 条单独验）；**在节点/连线/编辑 overlay 上中键拖不平移（§3 六修闸门，重点验——无闸门则此处必平移）**；Backspace/Delete 不删节点（deleteKeyCode 并入 isLocked）；Ctrl+滚轮仍可缩放（登记旁路，非缺陷）
+12. 锁定态（节点编辑中 / transform 旋转镜像调整中，§3 根因修后同口径）：左键不平移不框选、滚轮不缩放、空格不平移（正常路径已收窄；"按住空格进锁定"的残留窗口按第 23 条单独验）；**在节点/连线/编辑 overlay 上中键拖不平移（§3 六修闸门，重点验——无闸门则此处必平移）**；Backspace/Delete 不删节点（deleteKeyCode 并入 isLocked）；Ctrl+滚轮仍可缩放（登记旁路，非缺陷）；锁定态中键罗盘目视确认（§3 闸门只 stopPropagation 不 preventDefault——同 §7 罗盘登记口径）
 13. MiniMap 拖动/点击、CanvasToolbar 按钮、overlay（裁剪/扩图/擦除）拖动、节点内文本框滚动、antd 下拉点空白关闭、点空白输入框失焦——确认照旧（框选结束派发的 click 对 outside-click 的影响属本条验证目标）
 14. Space 多义键三连测：a) 键盘焦点在节点按 Space → 选中切换+光标 grab 同时发生（登记项）；b) 视频裁剪面板打开按 Space → 播放/暂停+光标变 grab（登记项）；c) 全屏视频编辑器同 b
 15. 触控板专项：双指滚动=缩放、捏合=缩放、空格+双指=平移；确认手感（本次唯一高频手势退化项：平移从双指变为需按空格，产品已拍板接受）
