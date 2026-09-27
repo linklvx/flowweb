@@ -147,7 +147,7 @@ onMouseDownCapture={(e) => { if (isLocked && e.button === 1) e.stopPropagation()
    - **主通道**（触发即拖拽必已终止，由定义保证）：`onSelectionEnd` / window `pointerup` / window `pointercancel`（规范语义即"手势被取消"）
    - **补充通道**：window `pointermove` 时 `e.buttons === 0` 即复位——窗口外释放鼠标时各浏览器对 pointerup 的派发行为不一（即便有 pointer capture），`buttons===0` 是"按键已不在按下"的标准判定
    - **次级通道**：window `blur`——**接受极小残留窗口**：拖拽中 alt-tab 失焦（标志被清）→ 回窗口继续同一拖拽，`onSelectionStart` 不会重触发（react:1486 `selectionInProgress` 已 true）→ 抑制解除至松手。性质与 Esc 同类但概率远低（Esc 单键即发、alt-tab 需拖拽中切窗）；不用 Esc（拖拽中单键可发 + 本仓已有 3 个语义：节点键盘取消选中 system:27/快捷键面板关闭/裁剪面板取消）
-3. **复位写法（函数式返回同引用，必须）**：`useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s))`——zustand 的 `Object.is(nextState, state)` 比较的是 **partial（或函数返回）与整个 state**（vanilla.mjs:4-10 逐字核实：对象字面量部分更新必不等于整库 state → 必通知全部订阅者，**不存在"同值 setState 不通知"**）。函数式无变化时返回原 state 引用 → Object.is 命中 → 不进通知分支，且原子、无 getState→setState 间 TOCTOU。守卫的真实作用是**根本不让 zustand 通知**——裸订阅共 4 处（useCanvasPersistence:116 的 500ms 全量快照写 / canvasCollabRuntime:210 的 O(n) diff / CanvasView:127 / VideoEditorShell:104），每次全 app 点击/切窗都白跑一遍的代价在此
+3. **复位写法（函数式返回同引用，必须）**：`useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s))`——zustand 的 `Object.is(nextState, state)` 比较的是 **partial（或函数返回）与整个 state**（vanilla.mjs:4-10 逐字核实：对象字面量部分更新必不等于整库 state → 必通知全部订阅者，**不存在"同值 setState 不通知"**）。函数式无变化时返回原 state 引用 → Object.is 命中 → 不进通知分支，且原子、无 getState→setState 间 TOCTOU。守卫的真实作用是**根本不让 zustand 通知**——裸订阅共 4 处（useCanvasPersistence:116 的 500ms 全量快照写 / canvasCollabRuntime:210 的 O(n) diff / CanvasView:127 / VideoEditorShell:104），每次全 app 点击/切窗都白跑一遍的代价在此（第七修配套：两处重度裸订阅已加输入引用早退——写入触发契约由「任意 canvasStore 变更」收窄为「结构变更（nodes/edges/viewport 引用）或 nodeStore 变更」，纯 isHydrating 翻转仍放行以保 S1 调度协议）
 4. **白名单护栏（负向断言，随测试落地）**：`marqueeSelecting` 不得加入 `pickStructNodes` / `storeProjection` / `canvasSnapshot` 任一白名单——除注释禁令外，§8 落负向断言（先例 canvasHistory.test.ts:12）：`pickStructNodes` 结果不含该字段、快照 JSON 键集合固定
 5. 实现建议：消费侧合并为单次订阅 `useCanvasStore((s) => s.lastPointerShiftKey || s.marqueeSelecting)`（返回布尔原语，zustand Object.is 相等比较稳定，语义恰为"抑制中"）。**lastPointerShiftKey 不可被 xyflow 原生 `multiSelectionActive` 替代**（已考虑否决）：后者是 Shift 键按下态（react:1238，松开即 false），前者是 pointer 级采样——"先按 Shift 再点节点"与"先点节点再按 Shift"二者表现不同，且 Shift+点击后松键的过渡期抑制只有前者覆盖
 
@@ -175,10 +175,10 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 
 最终结构（计数断言自洽：`触控板` 全面板 1 次、`鼠标` 2 次，现有测试 getAllByText 计数需同步）：
 
-- 缩放栏：放大 Ctrl+ / 缩小 Ctrl+ / 适应画布 Ctrl+0 / **滚动（滚轮·双指）**（替换原"触控板"行——原双指捏合与新滚轮缩放合并）/ 鼠标（Ctrl+滚轮）
+- 缩放栏：放大 Ctrl+ / 缩小 Ctrl+ / 适应画布 Ctrl+0 / **滚动**（label 精确串就取"滚动"两字——"滚轮·双指"是注解不入 label，测试 getByText 默认精确匹配〔plan Task 9 Step 3 定稿〕；替换原"触控板"行，原双指捏合与新滚轮缩放合并）/ 鼠标（Ctrl+滚轮）
 - 移动画布栏：键盘（Space+拖）/ 触控板（空格+双指）/ 鼠标（中键拖）/ 整理画布 Alt+Shift+F
 - **新增"框选/多选"条目**：左键拖空白、Shift+点击加选（框选从冷门路径升主路径，面板需闭环）
-- icon 映射随文案重排，**人工目视确认**（现有 icon 组件命名与视觉语义存在矛盾，不断言"对调"）
+- icon 对调方向经组件实装核定为唯一正确解（TouchpadPanIcon=触控板+双指+箭头、MousePanIcon=手形+四向箭头——命名遗留），iconMap 处加"勿据名回改"注释（plan Task 9 Step 3 定稿）；§9 验收目视确认最终效果
 
 ### 5-3 Ctrl+滚轮双 writer 从根消除（CanvasView.tsx:360-374）
 
@@ -217,7 +217,8 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 | 触屏/平板 | selectionOnDrag 对 touch 生效且与 d3 touch 平移两路径打架（单指拖同时平移+框选）；仓库无触屏目标（仅 FileGrid 用 pointer:coarse），登记非目标，不加硬闸 |
 | Shift 框选阈值 0 vs 主路径 1px | 既有不一致（:1487），非本次引入 |
 | e2e 手势 spec | 仓内 Playwright 门禁（build+preview+API+单 worker）成本不匹配；手势全走 §9 人工验收 |
-| StoryboardGroupRenderer.tsx:17-32 格子级 Backspace | app 层独立删除路径（window capture keydown、无 lock 守卫），删的是格子内容非正在编辑的节点——与 deleteKeyCode 锁定语义正交；焦点在输入框时有 :20 编辑态守卫、删除走 store 可撤销，可达性低；如需一并锁另开条目，不在本次半径 |
+| StoryboardGroupRenderer.tsx:17-32 格子级 Backspace | app 层独立删除路径（window capture keydown、无 lock 守卫），删格子对应子节点（canvasStore.ts:1396-1405 nodes.filter+edges 过滤+nodeStore.deleteNode）+连带边；其 capture stopPropagation 先于 xyflow 的 document 监听→与 deleteKeyCode 路径互斥、锁定语义正交；焦点在输入框时有 :20 编辑态守卫、删除走 store 可撤销，可达性低；如需一并锁另开条目，不在本次半径 |
+| awareness.ts:43 setSelection 死代码 | 现无生产调用方（仅测试）；勿接到画布选中态——框选逐帧改 selected 会使每次相交变化变成 WS awareness 写（Task 10 落禁令注释） |
 
 ## 8. 测试策略（TDD）
 
@@ -245,9 +246,9 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
      TextInputNode.test.tsx 同为真 store，不在清单
    - CanvasView：`onSelectionStart`/`onSelectionEnd` 接线（触发 store 标志翻转）
    - SelectionBoxOverlay.test：标志 true 时 ≥2 选中不渲染几何体
-   - **兜底复位用例（必须）**：`onSelectionStart` 后不发 `onSelectionEnd`、仅派发 window `pointerup`/`pointercancel`/`pointermove(buttons===0)` → `marqueeSelecting` 复位 false——守卫 §5-1 单点故障面；并断言标志已 false 时再派发 window pointerup **不通知** canvasStore 订阅者（函数式同引用守卫——该断言在"普通 setState 实现"下必红，恰好钉死 §5-1.3 写法）
+   - **兜底复位用例（必须）**：`onSelectionStart` 后不发 `onSelectionEnd`、仅派发 window `pointerup`/`pointercancel`/`pointermove(buttons===0)` → `marqueeSelecting` 复位 false——守卫 §5-1 单点故障面。幂等零通知断言（标志已 false 时复位零通知、对象字面量实现下必红）由 interaction-props 的 props 捕获 `onSelectionEnd()` 二次驱动承担 + guard 测试文件内 store 级语义钉死（标志作用域下标志 false 时根本无监听，"window pointerup 不通知"形态不可达、写出来必假绿——七修修正）
    - **负向护栏断言（§5-1.4）**：`pickStructNodes` 结果不含 `marqueeSelecting`；`useCanvasPersistence` 快照 JSON 键集合固定（先例 canvasHistory.test.ts:12）
-   - **theme-perf 断言**：viewport 变更不触发 store 写（本次 hoist SNAP_GRID 正为它）仍成立
+   - **hoist 收益的直达断言**：rerender 后 panOnDrag/snapGrid `toBe` 同引用（interaction-props）；theme-perf 的 mock setState 是 vi.fn、写库不可观测，挂不住动机断言——其 render 计数断言不受影响即回归护栏（六修修正）
    - **isLocked transform 用例**：`activeTransformNodeId` 置位 → props 与派生 class 均呈锁定态（与 activeEditNodeId 同口径，§3 根因修的回归防线）；`decideHandleMenu` 收到的 `isLocked` 在 transform 期同样为 true（双定义同口径的回归防线）
 4. **面板用例**：§5-2 计数（触控板 1/鼠标 2）+ 新增框选条目断言 + 2026-05-28 spec"22 条目"数字同步
 5. **守卫用例**：守卫断言目标=**portal 区域**（#node-toolbar-portal 内 Ctrl+滚轮 `defaultPrevented===true`——这是守卫真实价值所在，nowheel 区已由库自防）；画布外（wrapper 外）Ctrl+滚轮不 preventDefault；既有 3 条 Ctrl/Cmd+滚轮 zoomIn/zoomOut 断言删除、"should NOT zoom on regular wheel" 删除（语义已反）

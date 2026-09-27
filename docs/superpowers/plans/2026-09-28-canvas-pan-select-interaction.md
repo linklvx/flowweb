@@ -21,7 +21,7 @@
 - TransformToolbar（消费点 7）**豁免不加标志**——transform 期 isLocked=true（根因修）→ 无框选可达；枚举注释须写豁免理由。
 - VideoEditNode.tsx:89 副作用（框选经过停迷你播放）**接受不修**（§5-1 消费点 8，既有选中语义）。
 - `lastPointerShiftKey` 与 `marqueeSelecting` 并存非替代：前者覆盖 Shift+点击，后者覆盖框选进行态。
-- **锁定态三个库级旁路（六修核实）**：①system:2824 的 node/edge 中键特例先于一切判定 → wrapper capture 闸门封死（Task 4 3f）；②删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）→ deleteKeyCode 并入 isLocked（Task 4 3e 首行）——app 层另有 StoryboardGroupRenderer.tsx:17-32 的格子级 Backspace 路径（window capture keydown、无 lock 守卫、删格子内容非节点、焦点在输入框时有 :20 守卫），与节点删除正交，登记不扩 scope（spec §7 同步登记行）；③Ctrl+滚轮缩放旁路（zoomActivationKeyPressed 覆盖 zoomOnScroll=false）→ 登记不修（Task 7 注释明示"与今天行为一致"，防验收误报缺陷）。
+- **锁定态三个库级旁路（六修核实）**：①system:2824 的 node/edge 中键特例先于一切判定 → wrapper capture 闸门封死（Task 4 3f）；②删除路径 deleteElements 无任何 lock 闸门（react:1225-1236 直取 selected）→ deleteKeyCode 并入 isLocked（Task 4 3e 首行）——app 层另有 StoryboardGroupRenderer.tsx:17-32 的格子级 Backspace 路径（window capture keydown、无 lock 守卫、删格子对应子节点〔canvasStore.ts:1396-1405 nodes.filter+edges 过滤+nodeStore.deleteNode〕、焦点在输入框时有 :20 守卫；其 window capture stopPropagation 先于 xyflow 的 document 监听→两条 Backspace 路径互斥），与 deleteKeyCode 锁定语义正交，登记不扩 scope（spec §7 同步登记行）；③Ctrl+滚轮缩放旁路（zoomActivationKeyPressed 覆盖 zoomOnScroll=false）→ 登记不修（Task 7 注释明示"与今天行为一致"，防验收误报缺陷）。
 - **消费点 8 同格登记（接受不修）**：VideoGenNode.tsx:105-109 的 HD 面板副作用（`!selected || !isSingleSelected || dragging → setHdPanelOpen(false)`）——框选扫过开着的 HD 面板会将其收起（状态复位非闪现，松手不自动恢复）；属选中态驱动既有语义、低频，与 VideoEditNode 停迷你播放同族。ConnectionLine 的选中态视觉三件（边变色加粗 stroke #f59e0b/strokeWidth 3〔:89-90，框选扫过最显眼的 churn〕/isActive 高亮/粒子）按不变式不抑制——框选扫过密集连线区的视觉 churn 属预期，§9-25 验收确认无 jank 异常。
 - **订阅税决策**：marqueeSelecting 留 canvasStore（与 lastPointerShiftKey 同处置，spec 已选）；代价补偿=两处裸订阅加输入引用早退（Task 3 Step 8-9）——框选的两次真实翻转不再白排 500ms 全量快照写与 O(n) collab diff。
 
@@ -229,6 +229,7 @@ cd /d/flowweb && git add apps/web/src/hooks/useIsSingleSelected.ts apps/web/src/
 - Test: `apps/web/src/pages/canvas/components/CanvasView.theme-perf.test.tsx:41`（stable 补静态字段）
 - Modify: `apps/web/src/pages/canvas/hooks/useCanvasPersistence.ts:116-118`（订阅输入引用早退）
 - Modify: `apps/web/src/stores/canvasCollabRuntime.ts:210-214`（同型早退）
+- Test（仅回归纳入，不改内容）: `apps/web/src/pages/canvas/hooks/__tests__/useCanvasPersistence.test.ts`（镜像副本——该 hook 的主行为套件：单写者防抖/S1 抑制/恢复派生；其触发全为结构（:105-108）或 nodeStore 路径，早退前后均绿，但订阅契约变更必须回归它）
 - Test: `apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts`（快照税用例）
 
 - [ ] **Step 1: 写失败测试（useMarqueeSelectionGuard.test.tsx）**
@@ -464,7 +465,7 @@ JSX props 加：
     useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
 ```
 
-（收益顺带登记，防后人当"为框选特调"而回退：早退同时消灭 nodeProcessMap 生成进度每 tick 抖动、selectedId/pendingMediaFile 抖动触发的全量快照写——比框选本身更大的收益面，且全仓除上述 4 条测试外无「任意变更即写」依赖。）
+（收益顺带登记，防后人当"为框选特调"而回退：早退同时消灭 nodeProcessMap 生成进度每 tick 抖动〔实锤：updateNodeProcessProgress canvasStore.ts:764-770 只写 nodeProcessMap 不动 nodes/edges/viewport——旧代码下每次进度 tick 都排一次 500ms 全量快照写〕、selectedId/pendingMediaFile 抖动触发的快照写——比框选本身更大的收益面，且全仓除上述 4 条测试外无「任意变更即写」依赖〔__tests__ 镜像副本经逐条核对亦全为结构/nodeStore 触发〕。）
 
 `useCanvasPersistence.test.ts` 追加用例（既有 fake timers + renderHook 先例 :51-77；`act` 若未 import 则补）：
 
@@ -493,9 +494,10 @@ JSX props 加：
 ```ts
     const unsub1 = useCanvasStore.subscribe((state, prevState) => {
       // 快照输入只有 nodes/edges/viewport（parentMap 由 canvasStore.nodes 派生）+ isHydrating 参与
-      // 调度协议（S1：hydrate 窗口内清挂起定时器 + wasHydrating 过渡不调度——这两个分支的唯可达
-      // 路径=纯 isHydrating 翻转〔hydrate 前后 setHydrating 不动 nodes/edges/viewport〕，早退不比对
-      // isHydrating 则它们变死代码）。引用未变则内容必然不变，早退防 UI 态（marqueeSelecting 等）
+      // 调度协议（S1：hydrate 窗口内清挂起定时器 + wasHydrating 过渡不调度）。wasHydrating 过渡分支
+      // 的唯可达路径=纯 isHydrating 翻转（unsub2 的 (h,h) 同值组合不产生它；hydrate 前后 setHydrating
+      // 不动 nodes/edges/viewport）——早退不比对 isHydrating 则该分支变死代码、S1 失去纯翻转入口。
+      // 引用未变则内容必然不变，早退防 UI 态（marqueeSelecting 等）
       // 翻转白排 500ms 全量快照写——顺带消除 nodeProcessMap/selectedId/pendingMediaFile 抖动的同税。
       // 快照的 nodes 内容来自 nodeStore（定时器内现读 :105），由下方 unsub2 独立触发——勿删 unsub2，
       // 否则 nodeStore 变更将永久不落盘。
@@ -522,8 +524,8 @@ JSX props 加：
 
 - [ ] **Step 10: 运行确认通过**
 
-Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/hooks/useCanvasPersistence.test.ts src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
-Expected: PASS 全部——useCanvasPersistence.test 含 4 条被迁移触发行的既有用例（viewport 触发，语义不变）+ 新增快照税用例；theme-perf 的 render 计数断言不受影响（新订阅返回布尔原语，Object.is 稳定）。
+Run: `cd /d/flowweb/apps/web && npx vitest run src/pages/canvas/hooks/ src/pages/canvas/components/CanvasView.test.tsx src/pages/canvas/components/CanvasView.theme-perf.test.tsx`
+Expected: PASS 全部——目录级运行同时覆盖外层 useCanvasPersistence.test（4 条被迁移触发行的既有用例〔viewport 触发，语义不变〕+ 新增快照税用例）与 __tests__ 镜像副本（主行为套件，早退前后均绿）；theme-perf 的 render 计数断言不受影响（新订阅返回布尔原语，Object.is 稳定）。
 
 - [ ] **Step 11: Commit**
 
@@ -1449,6 +1451,8 @@ Expected: PASS 全部。
 
 `2026-05-28-canvas-keyboard-shortcuts-panel-design.md` :57-59 表改：
 
+同文件缩放表 :51 `| 触控板缩放 | 双指捏合 |` 改 `| 触控板缩放 | 双指滚动/捏合 |`（滚轮语义变化后双指滚动也=缩放，与 :57-59 同批清零）。
+
 ```markdown
 | 键盘平移 | Space + 拖动 |
 | 触控板平移 | 空格 + 双指拖动（2026-09-28 交互重构：滚轮/双指=缩放） |
@@ -1533,6 +1537,7 @@ cd /d/flowweb && git add docs/superpowers/specs/2026-08-24-shift-multiselect-too
 - **Spec 覆盖**：§3 核心改动→Task 4（3a-3f，含六修中键闸门）；§3 CSS→Task 8；§3 isLocked 双定义→Task 4（3c/3d）；§5-1 全消费点（1→Task 2、2/3/4→Task 5、5/6→Task 6、7 豁免/8 同格登记〔含 HD 面板效应〕→关键事实区）；§5-1 兜底→Task 3（4 window 通道+卸载复位）；§5-1.3 订阅税→Task 3 Step 8-9；§5-2→Task 9；§5-3→Task 7；§6 库框视觉→Task 8；§8 测试策略→props 契约+接线幂等+引用稳定 Task 4 / class+中键闸门 Task 4 Step 5 / guard 用例 Task 3 / 负向护栏（投影键集合 Task 1 + 快照键集合 Task 1 Step 2）/ 面板计数 Task 9 / 守卫用例 Task 7 / afterEach 复位 Task 4；§9→收尾 3；§10→Task 9 Step 5 + Task 10。
 - **第六轮修订摘要**（全部经实装核实后采纳）：fireEvent.window→window.dispatchEvent（RTL 无 window 键）；PointerEvent→MouseEvent 主写法+禁 fireEvent.pointerMove（构造器回退丢 buttons 的静默陷阱）；删两条空转断言（guard #5 换 store 级语义钉死、CanvasView 接线空用例删）→接线+幂等断言上移 interaction-props（act 驱动捕获 props）；3e 改逐行 diff 表+保留不动清单（防整块替换静默删 prop）；deleteKeyCode 并入 isLocked（react:1225-1236 删除路径无 lock 闸门，实锤数据丢失路径）；中键特例 wrapper 闸门（system:2824 先于一切判定，spec 六修同步）；guard cleanup 加 reset()（卸载不卡 true）；SNAP_GRID hoist 验证从 theme-perf（mock setState 不可观测）改引用稳定 toBe 断言；订阅输入引用早退×2（快照/diff 税）；负向断言去重（canvasHistory.test 重复项删，快照键断言落 useCanvasPersistence.test 先例处）；CSS 同选择器合一；面板 label 精确串/icon 注释/双文档同步/23 措辞；2026-05-28 plan 文件入 stage；annotation:127+2026-09-26:103+awareness 死代码禁令补入 Task 10；复位移 beforeEach/afterEach；Task 7 锁定态 Ctrl+滚轮口径注释；收尾加目标→手测项清单与 macOS ×10 口径。
 - **第七轮修订摘要**（三份报告，实装核实后采纳 14 项）：订阅早退 P0——useCanvasPersistence 既有 4 用例触发行（:52/:72/:113/:142 selectedId poke）同批迁移 viewport 触发+契约变更登记（早退否则必红：恢复用例 TypeError/`not.toBeNull()` 红，Step 8 收尾跑一次钉"新红旧绿"、Step 10 预期同步改）；unsub1 守卫补 isHydrating 子句（S1 清定时器与 wasHydrating 分支的唯可达路径=纯 isHydrating 翻转，不补则死代码）+注释升级（快照 nodes 实来自 nodeStore 的 unsub2 勿删/收益点名 nodeProcessMap·selectedId·pendingMediaFile 抖动/collab 侧严格等价）；快照税用例加 mount 后排空行（防御性——当前 beforeEach 播种 nodes 使 hydrate :35 早退本无挂起，不依赖该前提）；引用稳定用例改同实例 rerender+`not.toBe(p1)` 新鲜度断言（照 CanvasView.test.tsx:415-419 先例，消双挂载归属歧义）；闸门 useCallback 化+注释补副作用（root capture 内止住波及 MiniMap/portal 合成处理器，无害）与 nopan 不可替代论证（顺带修 plan 内 tsx 注释行 `\` 笔误）；中键闸门用例加靶子判别力注释（pane=filter-false 路径有判别力；节点靶子无闸门时 d3 nopropagation 止冒泡→spy 形态假绿，勿加强）；guard pointerup 补非左键过滤（框选手势是左键，非左键 pointerup 拖拽未必终止；`button !== undefined && !== 0` 拦截、Event 无 button 放行兼容 jsdom）+新用例（Step 4 预期 6→7 条）；Task 7 Step 2 红因修正（WheelEvent deltaY 默认 0→现状走 zoomOut 分支，先红的是 mockZoomOut 非 mockZoomIn；第三条画布外 defaultPrevented 同红）；Task 9 git add 补 2026-09-28 spec（§5-2 栏位回填不入工作区）；2026-09-26 spec :35 半新半旧口径同批括注；ConnectionLine 边变色加粗（:89-90）补 any-selection 视觉登记；StoryboardGroupRenderer.tsx:17-32 格子级 Backspace 正交登记（spec §7 加行）；Task 1 Step 2 toEqual 论证修正（忽略 undefined 键）。
-- **驳回的审核建议**（理由存档）：bash 命令保持 `/d/flowweb` 形态——本环境 shell 是 git-bash（非 PowerShell），现形式可直接执行；Playwright 手势 spec 维持 spec §7 否决（门禁 build+preview 成本判断仍成立，27 条人工验收已覆盖）；marqueeSelecting 拆独立 UI store 维持 spec 已选（与 lastPointerShiftKey 同处置，税已由早退消除）；面板"总数===23"断言不加（SECTIONS 非导出、无可靠 DOM 锚点，脆断言不值）；「interaction-props 渲染即抛 zustandErrorMessage」的定性不成立（SelectionBoxOverlay 是 ReactFlow children 而非兄弟，mock ReactFlow 不渲染 children 则不执行——但 Provider 已防御性加入）。第七轮追加驳回：①报告二 S3「spec 三处口径未同步」不成立——六修已同步 §3/§3.1/§4/§6/§9-12/§9-27（该报告引用的原文与行号 :188 均为五修版，现 :196 已是闸门因果），仅采其残留风险节的 §9-12 锁定态罗盘目视句；②报告三「中键闸门用例加强为节点靶子」会引入假绿——无闸门时锁定态节点中键命中 system:2824 特例→d3 mousedowned 调 nopropagation（stopImmediatePropagation 含止冒泡）→document spy 同样收不到→用例恒绿；pane 靶子（:2862 filter-false→d3 不止冒泡→无闸门时 spy 被调→红）才有判别力，已加注释防后人误加强；③「nodeStore 原地改写理论收窄写入 spec §7」不加——canvasStore 无原地突变已核实、nodeStore 原地改不 setState 本身是 zustand 反模式，不为反模式理论场景加登记（简洁优先）；④报告三所引对照文件 `hooks/__tests__/useCanvasPersistence.test.ts` 不存在（Glob 核实无匹配），不影响 4 用例必红主论点。
+- **第八轮修订摘要**（三份报告，采纳 10 项）：**驳回④事实修正（认领）**——`hooks/__tests__/useCanvasPersistence.test.ts` 实为 `apps/web/src/pages/canvas/hooks/__tests__/useCanvasPersistence.test.ts`，七修 Glob 误用报告原文的相对路径（漏 pages/canvas 段）致判"不存在"；该镜像副本是该 hook 主行为套件（单写者防抖/S1 抑制/恢复派生），逐条核对其触发全为结构（:105-108）或 nodeStore 路径（:128/:135/:143/:145）→ 早退+isHydrating 子句前后均绿，仅需纳入回归：Task 3 Files 补条目 + Step 10 命令扩目录级 `src/pages/canvas/hooks/`；spec 四处 plan↔spec 冲突直接清零（开工前 spec 自洽，不走 Task 9 Step 5 回填——:178 label 精确串 '滚动' 注解不入 label、:181 icon 对调方向实装核定唯一正确+iconMap 勿据名回改、:248 幂等零通知断言改由 interaction-props onSelectionEnd 二次驱动+store 级语义钉死承担〔原"window pointerup 不通知"形态标志作用域下不可达必假绿〕、:250 hoist 直达断言=rerender toBe 同引用〔theme-perf mock setState 不可观测〕）；spec §5-1.3 补契约收窄句（任意变更→结构变更或 nodeStore 变更，纯 isHydrating 放行保 S1）；spec §7 补 awareness setSelection 死代码登记行（Task 10 Step 5 禁令注释的出处，闭环"登记有出处"）；StoryboardGroupRenderer 措辞修正——删的是格子对应子节点（canvasStore.ts:1396-1405 nodes.filter+edges 过滤+nodeStore.deleteNode）非"格子内容"，补互斥论证（window capture stopPropagation 先于 xyflow document 监听→两条 Backspace 路径互斥）；Step 9 注释 F2 收窄（wasHydrating 过渡分支才是唯纯翻转可达——S1 分支另有 unsub2 (true,true) 入口，"两分支死代码"过严）；Step 8 收益升格实锤+行号（updateNodeProcessProgress canvasStore.ts:764-770 只写 nodeProcessMap）；Task 9 Step 5 补 2026-05-28 :51（触控板缩放行"双指滚动/捏合"，与 :57-59 同批）。
+- **驳回的审核建议**（理由存档）：bash 命令保持 `/d/flowweb` 形态——本环境 shell 是 git-bash（非 PowerShell），现形式可直接执行；Playwright 手势 spec 维持 spec §7 否决（门禁 build+preview 成本判断仍成立，27 条人工验收已覆盖）；marqueeSelecting 拆独立 UI store 维持 spec 已选（与 lastPointerShiftKey 同处置，税已由早退消除）；面板"总数===23"断言不加（SECTIONS 非导出、无可靠 DOM 锚点，脆断言不值）；「interaction-props 渲染即抛 zustandErrorMessage」的定性不成立（SelectionBoxOverlay 是 ReactFlow children 而非兄弟，mock ReactFlow 不渲染 children 则不执行——但 Provider 已防御性加入）。第七轮追加驳回：①报告二 S3「spec 三处口径未同步」不成立——六修已同步 §3/§3.1/§4/§6/§9-12/§9-27（该报告引用的原文与行号 :188 均为五修版，现 :196 已是闸门因果），仅采其残留风险节的 §9-12 锁定态罗盘目视句；②报告三「中键闸门用例加强为节点靶子」会引入假绿——无闸门时锁定态节点中键命中 system:2824 特例→d3 mousedowned 调 nopropagation（stopImmediatePropagation 含止冒泡）→document spy 同样收不到→用例恒绿；pane 靶子（:2862 filter-false→d3 不止冒泡→无闸门时 spy 被调→红）才有判别力，已加注释防后人误加强；③「nodeStore 原地改写理论收窄写入 spec §7」不加——canvasStore 无原地突变已核实、nodeStore 原地改不 setState 本身是 zustand 反模式，不为反模式理论场景加登记（简洁优先）；④报告三所引对照文件 `hooks/__tests__/useCanvasPersistence.test.ts` **——第八轮修正：该判断有误**。七修核实时误用报告原文相对路径（漏 `pages/canvas` 段）致 Glob 无匹配；实际文件为 `apps/web/src/pages/canvas/hooks/__tests__/useCanvasPersistence.test.ts`（150 行，存在）。结论侥幸不受影响：逐条核对该副本写入触发全为结构（:105-108 `setState({edges, viewport})`）或 nodeStore 路径（:128/:135/:143/:145 经 unsub2），早退+isHydrating 子句前后均绿；已纳入 Task 3 Files 与 Step 10 目录级回归（教训存档：全仓存在 __tests__ 镜像目录，Glob 判"文件不存在"前必须用完整路径模式复核）。第八轮追加驳回：⑤「快照税用例迁 __tests__ 副本（v2Writes helper 更严+免排空）」——"更严"不成立且方向相反：外层 `vi.spyOn(Storage.prototype, 'setItem')` + `not.toHaveBeenCalled()` 断言**任何** setItem 都违规，v2Writes 只统计目标 key 的写（其它 key 的写不算）；外层又与 Task 1 Step 2 快照键断言同文件聚集（持久化负向护栏集中一处）、排空行成本已付——维持外层落点，__tests__ 副本仅纳入回归；⑥「Task 1 Step 5 运行清单也带 __tests__ 副本（锁现状）」——Task 1 与该文件无涉（键断言落外层先例处），契约变更点在 Task 3、回归已由 Step 10 目录级覆盖，不扩（精准修改）。
 - **占位符**：无 TBD/TODO。
 - **类型一致**：`marqueeSelecting` 布尔字段名全 plan 一致；`PAN_ON_DRAG_MIDDLE`/`SNAP_GRID` 命名与 spec §3 一致；`useMarqueeSelectionGuard` 单一定义。
