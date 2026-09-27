@@ -89,6 +89,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   // 快路径生效过）——迁移时传 null 会退化为 3s 纯轮询，此处接单例恢复原语义（socket 推送 + 10s 轮询兜底）。
   // ensure 幂等（page.tsx 已建连，此处仅取引用）；projectId 缺失时 null 走纯轮询兜底。
   const projectId = useCanvasStore((s) => s.projectId);
+  const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
   const taskSocket = projectId ? ensureExecutionSocket(projectId) : null;
   const separateStatus = useVideoSeparateTask(separateTaskId, taskSocket, id);
 
@@ -789,7 +790,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       )}
 
       {/* Bottom config panel */}
-      {!trimMode && selected && !fileId && !referenceVideo && !hdPanelOpen && (
+      {!trimMode && selected && !fileId && !referenceVideo && !hdPanelOpen && !marqueeSelecting && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">
           <VideoConfigPanel nodeId={id} />
         </div>

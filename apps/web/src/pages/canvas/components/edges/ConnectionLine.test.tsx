@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ConnectionLine } from './ConnectionLine';
 import { ReactFlowProvider } from '@xyflow/react';
 
+let mockMarqueeSelecting = false;
+
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: {
-    getState: () => ({
-      onEdgesChange: vi.fn(),
-    }),
-  },
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => selector({ onEdgesChange: vi.fn(), marqueeSelecting: mockMarqueeSelecting })),
+    { getState: () => ({ onEdgesChange: vi.fn() }) },
+  ),
 }));
 
 // mock useStore from @xyflow/react
@@ -18,6 +19,8 @@ vi.mock('@xyflow/react', async () => {
   return {
     ...actual,
     useStore: vi.fn(),
+    // jsdom 无 .react-flow__edgelabel-renderer DOM，真实 EdgeLabelRenderer portal 到 null 会吞掉 × 按钮——mock 为透传使断言可达
+    EdgeLabelRenderer: ({ children }: any) => <>{children}</>,
   };
 });
 
@@ -60,6 +63,7 @@ const renderWithProviders = (props = {}) =>
 describe('ConnectionLine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMarqueeSelecting = false;
   });
 
   it('should render edge path', () => {
@@ -136,5 +140,21 @@ describe('ConnectionLine', () => {
     const { container } = renderWithProviders();
     // still 3 particles (not doubled)
     expect(container.querySelectorAll('circle')).toHaveLength(3);
+  });
+
+  it('框选拖拽中 selected 边 × 删除按钮不渲染（消费点 6）；结束恢复', () => {
+    mockMarqueeSelecting = true;
+    setupMockUseStore(false, false);
+    const { rerender } = renderWithProviders({ selected: true });
+    expect(screen.queryByText('×')).not.toBeInTheDocument();
+    mockMarqueeSelecting = false;
+    rerender(
+      <ReactFlowProvider>
+        <svg>
+          <ConnectionLine {...defaultProps} selected={true} />
+        </svg>
+      </ReactFlowProvider>,
+    );
+    expect(screen.getByText('×')).toBeInTheDocument();
   });
 });

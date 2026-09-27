@@ -39,6 +39,8 @@ export function ConnectionLine({
     return sourceSelected || targetSelected;
   });
 
+  const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
+
   const [visible, setVisible] = useState(false);
   const [isFadeIn, setIsFadeIn] = useState(false);
   const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,7 +106,7 @@ export function ConnectionLine({
           <EdgeFlowParticles pathD={edgePath} direction="outward" />
         </g>
       )}
-      {selected && (
+      {selected && !marqueeSelecting && (
         <EdgeLabelRenderer>
           <button
             onClick={onDeleteEdge}

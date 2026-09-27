@@ -82,10 +82,12 @@ const { mockCanvasProjectId } = vi.hoisted(() => {
   };
 });
 
+let mockMarqueeSelecting = false;
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
-      const state = { projectId: mockCanvasProjectId() };
+      const state = { projectId: mockCanvasProjectId(), marqueeSelecting: mockMarqueeSelecting };
       if (typeof selector === 'function') return selector(state);
       return state;
     }),
@@ -127,6 +129,7 @@ vi.mock('./VideoHDPanel', () => ({
 describe('VideoGenNode', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockMarqueeSelecting = false;
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
   });
 
@@ -469,5 +472,16 @@ describe('VideoGenNode', () => {
     (titleInput as HTMLInputElement).focus();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByText('hd panel')).toBeInTheDocument();
+  });
+
+  // ─── 框选拖拽期浮层抑制（spec §5-1 消费点 5）───
+
+  it('框选拖拽中 selected → 底部 VideoConfigPanel 不闪出（消费点 5）；结束恢复', () => {
+    mockMarqueeSelecting = true;
+    renderNode(true);
+    expect(screen.queryByText('config panel')).not.toBeInTheDocument();
+    mockMarqueeSelecting = false;
+    renderNode(true);
+    expect(screen.getByText('config panel')).toBeInTheDocument();
   });
 });
