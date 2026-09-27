@@ -1,8 +1,8 @@
 # 画布平移/框选交互重构（spec）
 
-- 日期：2026-09-28（同日四修：二修吸收首轮三份审核、三修吸收二审三份、四修吸收三审三份全部核实成立项）
-- 状态：已确认（设计经四轮外部审核、逐条对照实装源码核实修订）
-- 范围：`apps/web/src/pages/canvas/components/CanvasView.tsx` 及其配套（抑制信号、isLocked 定义、快捷键面板、index.css、测试）
+- 日期：2026-09-28（同日五修：二至五修逐轮吸收共 12 份外部审核报告全部核实成立项）
+- 状态：已确认（设计经五轮外部审核、逐条对照实装源码核实修订）
+- 范围：`apps/web/src/pages/canvas/components/CanvasView.tsx` 及其配套（抑制信号、isLocked 双定义、快捷键面板、index.css、测试）
 - 库版本依据：@xyflow/react@12.10.2 / @xyflow/system@0.0.76 / d3-zoom@3.0.0（实装源码逐行核实）
 - 前提声明：无用户数据、无兼容负担，不做 feature flag 与兼容层
 
@@ -43,8 +43,13 @@ zoomOnDoubleClick={!isLocked}
 // 处理器与 filter（system:2909-2986；原生 mousedown.zoom 只在创建时挂一次，非手势正确性问题）。
 // 常量使引用稳定 → effect 不重跑（其余 deps 已核实稳定：onPaneContextMenu useCallback([])、
 // onTransformChange 库内 useCallback）。
-const PAN_ON_DRAG_MIDDLE = [1];
-const SNAP_GRID = [20, 20];  // snapGrid 在 fieldsToTrack（react:212）且原为内联（L474）→ 本文件真正每帧写 store 的是它，同构修法一并 hoist
+const PAN_ON_DRAG_MIDDLE = [1];  // panOnDrag?: boolean | number[]——number[] 即可，无需标注
+// snapGrid 在 fieldsToTrack（react:212）且原为内联（L474）→ 本文件真正每帧写 store 的是它，一并 hoist。
+// 必须显式标注 tuple 类型：snapGrid?: SnapGrid = [number, number]（system general.d.ts:163，react index.d.ts:37 有导出），
+// hoist 丢失上下文类型后 [20,20] 退化为 number[] → strict 下 TS2322（原内联字面量享上下文类型故通过）。
+// as const 不可用（readonly tuple 不可赋可变 tuple）；Object.freeze 同理不可用——防共享引用污染靠注释：
+// snapGrid 会 store.setState 进库（与模块常量同一数组），勿原地改写 store.snapGrid。
+const SNAP_GRID: SnapGrid = [20, 20];
 
 zoomOnScroll={!isLocked}                                       // 滚轮=缩放（原 false）
 // panOnScroll 整行删除（false 即默认值）
@@ -55,14 +60,19 @@ panActivationKeyCode={isLocked ? null : 'Space'}               // 锁定态空�
 // 既有两行 snapToGrid={snapEnabled} / snapGrid={[20,20]}（L473-474）中的内联数组改为 snapGrid={SNAP_GRID}
 ```
 
-**isLocked 定义修正（transform 根因修，用户拍板）**：
+**isLocked 定义修正（transform 根因修，用户拍板；双定义同批改）**：
 
 ```ts
-// 原：const isLocked = activeEditNodeId !== null;
+// L109（订阅式）——原：const isLocked = activeEditNodeId !== null;
 const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
+// L299-300（命令式，onConnectEnd 内，喂 decideHandleMenu）——同批改同一口径，并刷新其过期注释（L102-103 → L108-109）：
+const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
+  || useNodeStore.getState().activeTransformNodeId !== null;
 ```
 
-与 useGroupKeyboard.ts:14 既有"模式中"定义对齐（编辑与 transform 互斥，nodeStore.ts:383）。不修则 transform（旋转/镜像）调整中 `isLocked=false` → 左键拖=框选 → 框选第一帧 `resetSelectedElements()`（react:1492）反选调整中节点 → TransformToolbar（`if (!selected) return null`）中途消失。根因修同时使 TransformToolbar 不再处于框选可达面（锁定禁框选），消费点清单见 §5-1。
+与 useGroupKeyboard.ts:14 既有"模式中"定义对齐（编辑与 transform 互斥，nodeStore.ts:383）。不修则 transform（旋转/镜像）调整中 `isLocked=false` → 左键拖=框选 → 框选第一帧 `resetSelectedElements()`（react:1492）反选调整中节点 → TransformToolbar（`if (!selected) return null`）中途消失。**只改 L109 漏 L300 会"画布锁了 handle 菜单没锁"**（transform 期 handle 拖拽仍弹菜单）——一处概念两处定义，同批改防口径分裂。handleMenu.ts 是纯函数（isLocked 入参），单测不受影响。
+
+连带效果（方案 A 已拍板，transform 期画布全锁与编辑模式同族）：transform 调整中平移/缩放/框选/空格全关——调整期视线就在节点上、口径统一优先；方案 B（仅 `selectionOnDrag={!isLocked && !inTransform}` 收窄、保留平移缩放）**已考虑否决**：与 useGroupKeyboard"模式中"口径分裂、isLocked 不再等于"模式中"需注释维护。副产物登记：transform 期 `deleteKeyCode=[]`（Backspace 不删节点，行为变化显式接受）、`nodesFocusable=false`（键盘可达性收窄，登记）；旋转/镜像为按钮驱动（TransformToolbar rotation 0|90|180|270 + mirror，ImageGenNode.tsx:1011-1042，无拖拽式旋转控件），不受 `nodesDraggable=false` 影响。
 
 可选优化（登记不做）：`defaultViewport` memo 化可掐断整条每帧重渲染链（ZoomPane 挂载 effect 只读一次，react:1301-1336），非 update() deps，与本常量互不替代。
 
@@ -110,7 +120,7 @@ const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
 | 视频裁剪面板/全屏编辑器打开 + Space | 视频播放/暂停**且**画布进平移态（VideoTrimPanel.tsx:87-92 / useEditorKeyboard.ts:27 的 window keydown `preventDefault` 不阻止 xyflow `useKeyPress`；面板/编辑器不设 activeEditNodeId → isLocked=false；登记可接受） |
 | 框选松手后 | `nodesSelectionActive` → 库 NodesSelection 覆盖框渲染（带 nopan，react:1554+:1998）→ 从已选区域内起手拖=拖动选中集而非起新框/平移（官方行为，验收确认） |
 | 参考选择期 | 左键拖=平移（`panOnDrag=true`）、节点不可拖/不可选照旧、可缩放 |
-| 锁定（节点编辑中 **或 transform 旋转/镜像调整中**） | 上表全关（四 prop 反转：`zoomOnScroll`/`panOnDrag`/`selectionOnDrag`/`panActivationKeyCode=null`，空格旁路**收窄**——"按住空格瞬间锁定翻转"的残留窗口见 §7）；**Ctrl+滚轮缩放仍生效**（库旁路，根治牵 pinch 语义，登记不修）；触控板裸双指无响应、Ctrl+双指可缩放（分裂行为，登记） |
+| 锁定（节点编辑中 **或 transform 旋转/镜像调整中**） | 上表全关（四 prop 反转：`zoomOnScroll`/`panOnDrag`/`selectionOnDrag`/`panActivationKeyCode=null`，空格旁路**收窄**——"按住空格瞬间锁定翻转"的残留窗口见 §7）；连带：`deleteKeyCode=[]`（Backspace 不删，显式接受）、`nodesFocusable=false`（键盘可达性收窄，登记）、节点失 selectable 指针光标（锁定态预期）；**Ctrl+滚轮缩放仍生效**（库旁路，根治牵 pinch 语义，登记不修）；触控板裸双指无响应、Ctrl+双指可缩放（分裂行为，登记） |
 
 ## 5. 配套必修
 
@@ -125,10 +135,13 @@ const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
 **必做的稳定性与兜底**：
 
 1. `onSelectionStart`/`onSelectionEnd` 用 `useCallback` 稳定——与文件内既有 handler 风格一致；且一旦将来进入 effect deps 可防放大为每帧 update()
-2. **兜底复位（必须）**：marqueeSelecting 为 true 期间全部操作浮层消失且静默无自愈，故复位须四通道幂等并行：`onSelectionEnd` + window `pointerup` + window `pointercancel` + window `blur`。**不用 Escape**——Esc 可能在拖拽进行中按下（xyflow 无取消框选能力，onSelectionEnd 要等 pointerup），一旦拖拽中清标志，`onSelectionStart` 不会重触发（react:1486 `selectionInProgress` 已 true）→ 抑制解除至松手 = 重引入本节要防的 bug；且 Escape 在本仓已有 3 个语义（节点键盘取消选中 system:27/快捷键面板关闭/裁剪面板取消）。前四通道均满足"触发即拖拽必已终止"
-3. **先读后写（必须）**：window 级兜底是全 app 范围监听（侧栏/弹窗每次点击、每次 alt-tab 都命中），而 useCanvasPersistence.ts:116-118 裸订阅 canvasStore 全量变更 → 500ms 去抖全量快照写——无条件 `setState({marqueeSelecting:false})` 会给全 app 点击新增快照写触发源。兜底必须 `if (useCanvasStore.getState().marqueeSelecting) setState(...)`（zustand 同值 setState 不通知订阅者）
-4. **白名单护栏**：`marqueeSelecting` 不得加入 `pickStructNodes` / `storeProjection` / `canvasSnapshot` 任一白名单（快照字段已是显式白名单、协作投影不含新字段——保持如此，勿"顺手"补进去）
-5. 实现建议：消费侧合并为单次订阅 `useCanvasStore((s) => s.lastPointerShiftKey || s.marqueeSelecting)`（返回布尔原语，zustand Object.is 相等比较稳定，语义恰为"抑制中"）
+2. **兜底复位（必须，标志作用域 + 五通道幂等）**：marqueeSelecting 为 true 期间全部操作浮层消失且静默无自愈，兜底是本设计唯一单点故障面。监听做成**标志作用域**（`useEffect` 依赖 marqueeSelecting，为 true 才挂、复位即卸）——非框选期全 app 点击零常驻开销，卡死时监听恰好处于激活态。通道与性质分级：
+   - **主通道**（触发即拖拽必已终止，由定义保证）：`onSelectionEnd` / window `pointerup` / window `pointercancel`（规范语义即"手势被取消"）
+   - **补充通道**：window `pointermove` 时 `e.buttons === 0` 即复位——窗口外释放鼠标时各浏览器对 pointerup 的派发行为不一（即便有 pointer capture），`buttons===0` 是"按键已不在按下"的标准判定
+   - **次级通道**：window `blur`——**接受极小残留窗口**：拖拽中 alt-tab 失焦（标志被清）→ 回窗口继续同一拖拽，`onSelectionStart` 不会重触发（react:1486 `selectionInProgress` 已 true）→ 抑制解除至松手。性质与 Esc 同类但概率远低（Esc 单键即发、alt-tab 需拖拽中切窗）；不用 Esc（拖拽中单键可发 + 本仓已有 3 个语义：节点键盘取消选中 system:27/快捷键面板关闭/裁剪面板取消）
+3. **复位写法（函数式返回同引用，必须）**：`useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s))`——zustand 的 `Object.is(nextState, state)` 比较的是 **partial（或函数返回）与整个 state**（vanilla.mjs:4-10 逐字核实：对象字面量部分更新必不等于整库 state → 必通知全部订阅者，**不存在"同值 setState 不通知"**）。函数式无变化时返回原 state 引用 → Object.is 命中 → 不进通知分支，且原子、无 getState→setState 间 TOCTOU。守卫的真实作用是**根本不让 zustand 通知**——裸订阅共 4 处（useCanvasPersistence:116 的 500ms 全量快照写 / canvasCollabRuntime:210 的 O(n) diff / CanvasView:127 / VideoEditorShell:104），每次全 app 点击/切窗都白跑一遍的代价在此
+4. **白名单护栏（负向断言，随测试落地）**：`marqueeSelecting` 不得加入 `pickStructNodes` / `storeProjection` / `canvasSnapshot` 任一白名单——除注释禁令外，§8 落负向断言（先例 canvasHistory.test.ts:12）：`pickStructNodes` 结果不含该字段、快照 JSON 键集合固定
+5. 实现建议：消费侧合并为单次订阅 `useCanvasStore((s) => s.lastPointerShiftKey || s.marqueeSelecting)`（返回布尔原语，zustand Object.is 相等比较稳定，语义恰为"抑制中"）。**lastPointerShiftKey 不可被 xyflow 原生 `multiSelectionActive` 替代**（已考虑否决）：后者是 Shift 键按下态（react:1238，松开即 false），前者是 pointer 级采样——"先按 Shift 再点节点"与"先点节点再按 Shift"二者表现不同，且 Shift+点击后松键的过渡期抑制只有前者覆盖
 
 **消费点枚举（实现完成的勾选证据）**——枚举命令：
 
@@ -136,7 +149,7 @@ const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
 rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/components --glob '!*.test.tsx'
 ```
 
-净产物须逐条处置：
+净产物须逐条处置。**判定判据（枚举产物机械处置的依据）**：浮层的 `selected` 入参来自 `useIsSingleSelected` → 已被消费点 1 覆盖（如 ImageNodeToolbar.tsx:390 的 `if (!selected) return null`，喂值 ImageGenNode.tsx:1040 是 `isSingleSelected`）；来自**裸 selected**（props 直传 / useStore / nodeLookup）→ 必须单独加标志或论证不可达（如 TransformToolbar 靠根因修豁免）——形式相同的两处（ImageNodeToolbar vs TransformToolbar，都是 `if (!selected) return null`）处置相反，凭判据而非凭形式。
 
 1. `useIsSingleSelected.ts`：`&& !marqueeSelecting`（经 useCanvasStore 订阅）——覆盖所有喂 `isSingleSelected` 的工具条（含 ImageNodeToolbar，其内部 `if (!selected) return null` 被喂值已覆盖）
 2. `CanvasView.tsx` `selectedGroup`（L405-416）：同源追加
@@ -175,11 +188,10 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 - 裁剪/扩图/擦除/标注 overlay：均在节点内 + 带 `nopan`，中键拖其上不平移（system:2846）、不触发框选
 - SelectionBoxOverlay portal（#node-toolbar-portal，不在 pane 树内，pointer-events-none 容器）
 - @ 提及下拉（CommandMentionList / ImageMentionList）：经 body portal 渲染（PromptInput.tsx:65-66 与 :119-129 两处 `document.createElement + body.appendChild`）——既不在 .react-flow 内（滚轮原生滚动列表，无需 nowheel），也不在 reactFlowWrapper 内（Ctrl+滚轮其上走浏览器整页缩放，守卫收窄后果，§9-16 一并验收）
-- MiniMap / CanvasToolbar 上的滚轮=**无反应**（沿革两端皆然）：d3 wheel 挂在 `.react-flow__renderer`（react:1304 domNode + :1378 挂载点），二者是 .react-flow 下与 GraphView 同级的兄弟节点，wheel 冒泡不经 renderer → d3 收不到（panOnScroll 时代同样无反应，"从平移变缩放"两端都不成立）；Ctrl+滚轮仍被 wrapper 级守卫 preventDefault
+- MiniMap / CanvasToolbar（合并两条证据链，同一结论）：①二者渲染在 .react-flow 下、与 GraphView（其根即 renderer）同级（react bundle 结构 `…GraphView, SelectionListener, children…`）→ `.react-flow__pane.selection .react-flow__panel`（style.css:287）选择器匹配不到；②d3 wheel 挂在 `.react-flow__renderer`（react:1304 domNode + :1378），wheel 冒泡不经 renderer → d3 收不到 → 其上滚轮/双指=**无反应**（panOnScroll 时代同样无反应，沿革两端皆然）；Ctrl+滚轮仍被 wrapper 级守卫 preventDefault、页面不缩放（二者在 wrapper 内）
 - 库 NodesSelection 框视觉**本次修掉**（既有缺陷被主路径升格放大暴露）：index.css:219 注释意图白纸黑字"多选视觉由自定义 SelectionBoxOverlay 渲染；内置 selection rect 仅保留拖拽交互层"，但 :219 的 fill/stroke:transparent 对 div 渲染（react:1979）是 no-op，:225-229 的 D2 钉值（background+1px dotted）使库框实际可见 → 与 app 框（带 SELECTION_BOX.padding/titleExtra 外扩，SelectionBoxOverlay.tsx:30-33）形成**错位双虚线框**；且框选恰好 1 个节点时只留库框（app 框要求 ≥2）并持续到下次点击（nodesSelectionActive 维持）。修法：`.react-flow__nodesselection-rect` 从 :225 组合选择器拆出、显式 `background: transparent; border: none;`——拖拽交互层是 div 本身（onContextMenu/onKeyDown/useDrag 挂其上），视觉透明不影响"从已选区域拖动选中集"；**保留 `.react-flow__selection`**（框选拖拽中的虚线反馈）
 - `ProcessSnapshot.tsx`（只读快照页，独立配置，不动）
 - **框选不进 undo 栈——真因是结构投影白名单**：`pickStructNodes`（canvasHistory.ts:9-18）与 `storeProjection`（canvasCollabRuntime.ts:59-74）均不含 `selected` → 选中态变化不触发 store→doc 同步、不写 Y.Doc → 不入 Y.UndoManager。**canvasStore.onNodesChange:520 的 `applyNodeChanges` 处理全部变更类型含 select（框选实时改选中态正依赖它）——勿据"防 undo 污染"删改此行**
-- MiniMap / CanvasToolbar：ReactFlow 的 children 渲染在 .react-flow 下、与 GraphView（含 pane）同级（react bundle 结构 `…SelectionListener, children, Attribution…`）→ `.react-flow__pane.selection .react-flow__panel`（style.css:287）选择器匹配不到，不受影响
 - 双击空白缩放（§3.2 证据链）
 - Shift+点击节点加选、2026-08-24 的 Shift+点击抑制（lastPointerShiftKey，§5-1）
 - antd 下拉点空白关闭、输入框点空白失焦：pointerup 路径不变；但框选结束会真实派发一次 click（`clickDistance(Infinity)` 不抑制、d3 手势未启动故无抑制器），对 document 级 outside-click 监听的影响**移入验收确认**（§9-17），不预设"照旧"结论
@@ -209,11 +221,23 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 2. **派生 class 断言**（CanvasView.test.tsx，真实渲染）：非锁定 `.react-flow__pane` 有 `selection` 无 `draggable`；锁定两者皆无；`keyDown(window,{key:' ',code:'Space'})` 后 `draggable` 上 `selection` 下（一条断言证"空格平移在+框选让位"，**之后必须 keyUp 复位**防污染）
 3. **marqueeSelecting 抑制用例**：
    - useIsSingleSelected.test.tsx：该文件用**真 canvasStore**（仅 mock @xyflow/react），**无需改 mock**——直接 `useCanvasStore.setState({ marqueeSelecting: true })`。用例：标志 true 时单选返回 false、true→false 恢复
-   - **必改 mock 清单**（这些文件把 canvasStore mock 成固定对象，补**静态** `marqueeSelecting:false` 与不补运行行为相同——必须照 `mockLastPointerShiftKey` 既有模式加**可变变量 + 字段接线**（CanvasView.test.tsx:15/:41 先例）才谈得上覆盖）：CanvasView.test.tsx（:39-57）、CanvasView.theme-perf.test.tsx（:41）、GroupNode.test.tsx（:16）、SelectionBoxOverlay.test.tsx（:24）、ImageGenNode.test.tsx（:109）、AudioGenNode.test.tsx（:65，state 仅 projectId）、MultiImageNode.test.tsx（:60，state 仅 selectedId/selectNode）。TextInputNode.test.tsx 未 mock canvasStore（真 store）**不在清单**
+   - **消费点 → 覆盖文件对照表**（mock 需照 `mockLastPointerShiftKey` 既有模式加**可变变量 + 字段接线**（CanvasView.test.tsx:15/:41 先例）——补静态 `marqueeSelecting:false` 与不补运行行为相同，零覆盖）：
+     | 消费点 | 覆盖文件 | mock 处置 |
+     |---|---|---|
+     | 1（useIsSingleSelected，含 ImageNodeToolbar） | ImageGenNode.test.tsx:109、AudioGenNode.test.tsx:65、MultiImageNode.test.tsx:60 | 加可变变量 |
+     | 2（selectedGroup） | CanvasView.test.tsx:39-57、CanvasView.theme-perf.test.tsx:41 | 加可变变量 |
+     | 3（SelectionBoxOverlay） | SelectionBoxOverlay.test.tsx:24 | 加可变变量 |
+     | 4（GroupNodeResizer） | GroupNode.test.tsx:16 | 加可变变量 |
+     | 5（VideoConfigPanel） | **VideoGenNode.test.tsx:85-96**（state 仅 projectId，清单曾漏） | 加可变变量 |
+     | 6（边 × 按钮） | **ConnectionLine.test.tsx:6-12**——mock 是**普通对象形态**（`{ getState }` 非函数），加 `useCanvasStore((s)=>…)` 订阅立刻 TypeError：须先升级为 `Object.assign(vi.fn(selector=>selector(state)), { getState })` 可调用形态（照 CanvasView.test.tsx:36-73 范式）再接可变变量 |
+     | 8（VideoEditNode 副作用，接受不修） | VideoEditNode.test.tsx 未 mock canvasStore（真 store） | 无需改 |
+     TextInputNode.test.tsx 同为真 store，不在清单
    - CanvasView：`onSelectionStart`/`onSelectionEnd` 接线（触发 store 标志翻转）
    - SelectionBoxOverlay.test：标志 true 时 ≥2 选中不渲染几何体
-   - **兜底复位用例（必须）**：`onSelectionStart` 后不发 `onSelectionEnd`、仅派发 window `pointerup`/`pointercancel`/`blur` → `marqueeSelecting` 复位 false——此用例守卫 §5-1 的单点故障面（标志卡 true = 全部工具条/手柄/覆盖层永久消失且无自愈）；并断言标志已 false 时再派发 window pointerup **不触发** canvasStore 通知（先读后写守卫，E2）
-   - **isLocked transform 用例**：`activeTransformNodeId` 置位 → props 与派生 class 均呈锁定态（与 activeEditNodeId 同口径，§3 根因修的回归防线）
+   - **兜底复位用例（必须）**：`onSelectionStart` 后不发 `onSelectionEnd`、仅派发 window `pointerup`/`pointercancel`/`pointermove(buttons===0)` → `marqueeSelecting` 复位 false——守卫 §5-1 单点故障面；并断言标志已 false 时再派发 window pointerup **不通知** canvasStore 订阅者（函数式同引用守卫——该断言在"普通 setState 实现"下必红，恰好钉死 §5-1.3 写法）
+   - **负向护栏断言（§5-1.4）**：`pickStructNodes` 结果不含 `marqueeSelecting`；`useCanvasPersistence` 快照 JSON 键集合固定（先例 canvasHistory.test.ts:12）
+   - **theme-perf 断言**：viewport 变更不触发 store 写（本次 hoist SNAP_GRID 正为它）仍成立
+   - **isLocked transform 用例**：`activeTransformNodeId` 置位 → props 与派生 class 均呈锁定态（与 activeEditNodeId 同口径，§3 根因修的回归防线）；`decideHandleMenu` 收到的 `isLocked` 在 transform 期同样为 true（双定义同口径的回归防线）
 4. **面板用例**：§5-2 计数（触控板 1/鼠标 2）+ 新增框选条目断言 + 2026-05-28 spec"22 条目"数字同步
 5. **守卫用例**：守卫断言目标=**portal 区域**（#node-toolbar-portal 内 Ctrl+滚轮 `defaultPrevented===true`——这是守卫真实价值所在，nowheel 区已由库自防）；画布外（wrapper 外）Ctrl+滚轮不 preventDefault；既有 3 条 Ctrl/Cmd+滚轮 zoomIn/zoomOut 断言删除、"should NOT zoom on regular wheel" 删除（语义已反）
 6. **锁定态用例 afterEach 复位 `activeEditNodeId`**（真 store，防跨用例污染）
@@ -247,7 +271,7 @@ rg -n "selected &&|if \(!selected\)|selected \?\s" apps/web/src/pages/canvas/com
 24. MiniMap / CanvasToolbar 上滚轮/双指 → **无反应**（事件不经 .react-flow__renderer，§6；沿革两端皆无反应）；其上 Ctrl+滚轮被守卫 preventDefault、页面不缩放，一并确认
 25. 框选拖拽经过有连通边的节点 → 边上 × 删除按钮不闪出（§5-1 消费点 6）；松手后选中含边时按钮正常出现
 26. 迷你播放中的 VideoEditNode 被框选经过又离开 → 播放停止属既有选中语义（§5-1 消费点 8，接受不修），确认无其他异常
-27. transform（旋转/镜像）调整中：左键拖不平移不框选、TransformToolbar 不因画布操作消失（§3 根因修）；退出 transform 后画布交互恢复
+27. transform（旋转/镜像）调整中（方案 A 口径，与编辑模式同族）：**画布不可平移/不可缩放/不可框选/空格无效**（期望如此，非缺陷）；TransformToolbar 旋转/镜像按钮与保存/取消正常可用（按钮驱动，不受 nodesDraggable=false 影响）、TransformToolbar 不因画布操作消失（§3 根因修）；handle 拖拽不弹菜单（双定义同口径）；节点失去 selectable 指针光标属锁定态预期；transform 期 Backspace 不删节点（显式接受的行为变化）；退出 transform 后画布交互恢复
 
 ## 10. 同步义务
 
