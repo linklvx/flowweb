@@ -394,21 +394,21 @@ function CanvasViewComponent(_props: Props) {
     [addNode, screenToFlowPosition]
   );
 
-  // Ctrl/Cmd + wheel → canvas zoom; block browser Ctrl+scroll zoom
-  // 使用 document 级别捕获阶段，确保拦截所有 Ctrl+滚轮事件，
-  // 防止浏览器原生的页面缩放快捷键与画布缩放冲突
+  // Ctrl/Cmd+wheel 守卫（spec §5-3）：缩放步进已删——xyflow 内建 Ctrl 缩放是唯一 writer（双 writer
+  // 双倍缩放从根消除）。守卫真实价值=①覆盖 #node-toolbar-portal（.react-flow 兄弟节点，d3 wheel
+  // 挂 renderer 上不可见）②防御性兜底；范围收窄到画布内（wrapper 外恢复浏览器整页缩放）。
+  // preventDefault 不阻断 d3（d3 不查 defaultPrevented），守卫不损伤库内缩放。
+  // 锁定态口径：删除原 if (isLocked) return 后，锁定态 Ctrl+滚轮=仅 d3 旁路一次缩放
+  // （zoomScroll = zoomActivationKeyPressed || zoomOnScroll 覆盖 false，§7 登记旁路）——
+  // 与今天锁定态行为一致（今天 d3 一次 + JS 步进被 isLocked 挡 = 一次），非缺陷、无回归。
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        if (isLocked) return;
-        if (e.deltaY < 0) zoomIn({ duration: 100 });
-        else zoomOut({ duration: 100 });
-      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (reactFlowWrapper.current?.contains(e.target as Node)) e.preventDefault();
     };
     document.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => document.removeEventListener('wheel', onWheel, { capture: true });
-  }, [zoomIn, zoomOut, isLocked]);
+  }, []);
 
   const handleFitView = useCallback(() => {
     fitView({ duration: 300, padding: 0.2 });

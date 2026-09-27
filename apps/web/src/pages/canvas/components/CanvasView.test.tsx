@@ -118,49 +118,43 @@ describe('CanvasView', () => {
     expect(container).toBeTruthy();
   });
 
-  it('should zoom in on Ctrl+wheel up (deltaY < 0)', () => {
+  // ── Ctrl+滚轮守卫（spec §5-3：双 writer 步进已删，守卫保留）──
+  it('画布内 Ctrl+滚轮：preventDefault 且不调 zoomIn（步进已删，xyflow 内建缩放唯一 writer）', () => {
     const { container } = render(
       <ReactFlowProvider>
         <CanvasView projectId="p1" />
       </ReactFlowProvider>
     );
     const wrapper = container.firstElementChild!;
-    fireEvent.wheel(wrapper, { deltaY: -100, ctrlKey: true });
-    expect(mockZoomIn).toHaveBeenCalled();
-  });
-
-  it('should zoom out on Ctrl+wheel down (deltaY > 0)', () => {
-    const { container } = render(
-      <ReactFlowProvider>
-        <CanvasView projectId="p1" />
-      </ReactFlowProvider>
-    );
-    const wrapper = container.firstElementChild!;
-    fireEvent.wheel(wrapper, { deltaY: 100, ctrlKey: true });
-    expect(mockZoomOut).toHaveBeenCalled();
-  });
-
-  it('should zoom on Cmd+wheel (Mac compatibility)', () => {
-    const { container } = render(
-      <ReactFlowProvider>
-        <CanvasView projectId="p1" />
-      </ReactFlowProvider>
-    );
-    const wrapper = container.firstElementChild!;
-    fireEvent.wheel(wrapper, { deltaY: -100, metaKey: true });
-    expect(mockZoomIn).toHaveBeenCalled();
-  });
-
-  it('should NOT zoom on regular wheel without modifier', () => {
-    const { container } = render(
-      <ReactFlowProvider>
-        <CanvasView projectId="p1" />
-      </ReactFlowProvider>
-    );
-    const wrapper = container.firstElementChild!;
-    fireEvent.wheel(wrapper, { deltaY: -100 });
+    const e = new WheelEvent('wheel', { ctrlKey: true, cancelable: true, bubbles: true });
+    wrapper.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
     expect(mockZoomIn).not.toHaveBeenCalled();
     expect(mockZoomOut).not.toHaveBeenCalled();
+  });
+
+  it('portal 区域（#node-toolbar-portal）Ctrl+滚轮 preventDefault（守卫真实价值：d3 wheel 挂 renderer 不可见）', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const portal = container.querySelector('#node-toolbar-portal')!;
+    expect(portal).toBeInTheDocument();
+    const e = new WheelEvent('wheel', { ctrlKey: true, cancelable: true, bubbles: true });
+    portal.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('画布外 Ctrl+滚轮不 preventDefault（恢复浏览器页面缩放，行为变化 spec §5-3）', () => {
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const e = new WheelEvent('wheel', { ctrlKey: true, cancelable: true });
+    document.body.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
   });
 
   it('should use fitView from React Flow on fit view click', () => {
