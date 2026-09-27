@@ -50,6 +50,8 @@ AudioGenNode.tsx:20 / VideoGenNode.tsx:62
 
 用户确认的交互语义：只要最近一次选中操作由 Shift 参与，即使松开 Shift 后画布只剩 1 个选中节点，工具条也不弹出；直到普通（无 Shift）单击重新选中才恢复弹出。
 
+> **2026-09-28 同步**（canvas-pan-select-interaction spec §10）：抑制源从 1 个（lastPointerShiftKey）扩为 2 个并存（+`marqueeSelecting`=框选拖拽进行态），抑制面扩至边 × 删除按钮、组缩放手柄、SelectionBoxOverlay、VideoConfigPanel。两者并存非替代：前者覆盖 Shift+点击加选（pointerdown 级采样），后者覆盖左键框选拖拽；删除任一必回归对应分支的中间态误弹。
+
 ### 1. canvasStore 新增状态
 
 ```ts

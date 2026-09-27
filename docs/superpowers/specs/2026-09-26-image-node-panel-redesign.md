@@ -32,7 +32,7 @@
 - 输入：`prompt-input/PromptInput.tsx`（Tiptap，直接 return `<EditorContent/>` 无包装层；默认 placeholder L230「描述你想要的画面，输入 / 添加设置...」；渲染于 `PromptInput.css` L72-78）；`PromptInput.css` 的 cursor 声明仅 chip/命令项 pointer（L28），`.prompt-editor` 根无 cursor → 空编辑区鼠标为箭头。
 - 缩略图行：`prompt-input/ImageThumbnailBar.tsx`——现状顺序 [缩略图(SortableContext L111-121)][+号(L123-134)]；`showUploadButton = !disabled && images.length < maxCount(9)` L96；dnd-kit 仅包缩略图。`config-panel/PromptEditor.tsx` L30-47 渲染顺序：ImageThumbnailBar 在 PromptInput 之上。
 - handle：`nodes/NodeHandle.tsx`（target=左/source=右，圆+加号 SVG）；命中区 80×80 `cursor:crosshair`（NodeHandle.css L52-60）。
-- 连线：`components/CanvasView.tsx`——onConnect L351（canvasStore.onConnect 建边、同源判重）；isValidConnection 仅禁自连 L242-246；**无 onConnectStart/onConnectEnd**；isLocked = activeEditNodeId !== null（L103）；screenToFlowPosition 项目惯例带容器 rect 偏移（onDrop L258-263、handlePresencePointerMove）。
+- 连线：`components/CanvasView.tsx`——onConnect L351（canvasStore.onConnect 建边、同源判重）；isValidConnection 仅禁自连 L242-246；**无 onConnectStart/onConnectEnd**；isLocked = activeEditNodeId !== null（L103）（2026-09-28 起口径扩为"编辑中或 transform 调整中"，实现现 L109）；screenToFlowPosition 项目惯例带容器 rect 偏移（onDrop L258-263、handlePresencePointerMove）。
 - 类型（@xyflow/system 0.0.76 实证）：`OnConnectEnd = (event, connectionState: FinalConnectionState)`；FinalConnectionState 含 fromNode/fromHandle/toNode/toHandle/pointer/isValid；`OnConnectStart` 参数含 { nodeId, handleId, handleType }；click-to-connect 走独立 onClickConnectStart/End 事件对；connectOnClick 默认 true（不关闭）。
 - store：`stores/canvasStore.ts`——addNode(type, position)（L182-217，**默认选中**）、addEdge(source,target,...,deterministicId)（L469-476，同 id 幂等 no-op）；`stores/autoEdgeIds.ts`——`autoEdgeId(editNodeId, sourceNodeId)`=`auto:${edit}:${src}`、`autoOutEdgeId(editNodeId, productNodeId)`=`auto-out:${edit}:${prod}`；**两类自动边均不入撤销栈**（canvasUndo.ts 刻意排除，外部审核"一入一不入"说法不成立）。【§2.1 补正：auto 前缀实为协作/撤销的通道路由，需求 10 不沿用、改用 handle: 前缀，见 §3.3】
 - 菜单：`components/AddNodeMenu.tsx` 双模式（menuStore position=右键坐标+8px / triggerEl=贴按钮），边界钳制 L167-178；handleItemClick L195-197 建节点**一律落视口中心**（无 anchor 语义，外部审核该说法不成立——需求 10 不能复用其落点）；挂载于 `page.tsx:307`。menuStore（stores/menuStore.ts:3-25）现有 isOpen/position/triggerEl/lastMousePos。
@@ -100,7 +100,7 @@
 1. `state.isValid === true` → 返回（正常连线已由 onConnect 建边）；
 2. `state.toHandle !== null || state.toNode !== null` → 返回（松手落在 handle 上，含"类型不合法 handle"组合——isValid=false 但 toHandle!=null 不算空白松手。**toNode 由 toHandle 派生、仅覆盖 handle 命中，节点体松手时两者皆 null**）；**节点体命中单独判定**：松手画布坐标经 screenToFlowPosition 换算后做点-矩形包含（对全部节点 positionAbsolute+measured bbox，纯函数接收 nodes+flowPoint，与守卫同模块单测）→ 命中任一节点即返回——"落在节点体上不弹"（§8-10）由该判定承保，只判 toNode 是空头承诺；
 3. 起点节点 type ∉ {imageGen, imageExtGen} → 返回（两类图片节点，用户拍板）；
-4. `isLocked` → 返回（不绕过锁定语义）；
+4. `isLocked` → 返回（不绕过锁定语义）（2026-09-28 起锁定口径扩为"编辑中或 transform 调整中"）；
 5. 位移 < 5px → 返回（原地松开的假拖拽；纯点击下 onConnectStart/End 本就不触发，此为第二道防线）；
 6. 通过 → `menuStore.openHandleMenu({ x, y, nodeId, side })`。
 

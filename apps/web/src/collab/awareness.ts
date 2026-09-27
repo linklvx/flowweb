@@ -40,6 +40,8 @@ export class AwarenessBridge {
     this.provider.setAwarenessField('cursor', cursor);
   }
 
+  // ⚠️ 当前无生产调用方（仅测试）。勿接到画布选中态——框选逐帧改 selected 会使每次相交变化
+  // 变成 WS awareness 写（2026-09-28 交互重构 spec §7 登记行）。
   setSelection(nodeIds: string[]): void {
     this.provider.setAwarenessField('selection', { nodeIds });
   }
