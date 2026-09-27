@@ -57,9 +57,11 @@ vi.mock('@/stores/nodeStore', () => ({
   isMultiImageNode: () => true,
 }));
 
+let mockMarqueeSelecting = false;
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: vi.fn((selector?: any) => {
-    const state = { selectedId: null, selectNode: vi.fn() };
+    const state = { selectedId: null, selectNode: vi.fn(), marqueeSelecting: mockMarqueeSelecting };
     if (typeof selector === 'function') return selector(state);
     return state;
   }),

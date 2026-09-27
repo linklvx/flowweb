@@ -62,10 +62,12 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
+let mockMarqueeSelecting = false;
+
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
-      const state = { projectId: 'test-project' };
+      const state = { projectId: 'test-project', marqueeSelecting: mockMarqueeSelecting };
       if (typeof selector === 'function') return selector(state);
       return state;
     }),

@@ -32,7 +32,7 @@ function Probe({ selected }: { selected: boolean }) {
 
 describe('useIsSingleSelected', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ lastPointerShiftKey: false });
+    useCanvasStore.setState({ lastPointerShiftKey: false, marqueeSelecting: false });
   });
 
   it('单选时为 true', () => {
@@ -82,6 +82,22 @@ describe('useIsSingleSelected', () => {
     render(<Probe selected />);
     expect(screen.getByTestId('probe').textContent).toBe('multi');
     act(() => { useCanvasStore.setState({ lastPointerShiftKey: false }); });
+    expect(screen.getByTestId('probe').textContent).toBe('single');
+  });
+
+  it('框选进行中抑制：marqueeSelecting=true 时单选返回 false', () => {
+    useCanvasStore.setState({ marqueeSelecting: true });
+    rf.setNodes([{ id: 'a', selected: true }]);
+    render(<Probe selected />);
+    expect(screen.getByTestId('probe').textContent).toBe('multi');
+  });
+
+  it('框选结束恢复：marqueeSelecting true→false 且选中数不变时恢复 single（依赖标志订阅触发重渲染）', () => {
+    useCanvasStore.setState({ marqueeSelecting: true });
+    rf.setNodes([{ id: 'a', selected: true }]);
+    render(<Probe selected />);
+    expect(screen.getByTestId('probe').textContent).toBe('multi');
+    act(() => { useCanvasStore.setState({ marqueeSelecting: false }); });
     expect(screen.getByTestId('probe').textContent).toBe('single');
   });
 });

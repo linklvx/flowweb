@@ -35,6 +35,7 @@ let mockNodeData: any = {
   status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] }
 };
 let mockLastPointerShiftKey = false;
+let mockMarqueeSelecting = false;
 
 vi.mock('@/hooks/useMediaUrl', () => ({
   useMediaUrl: (fileId: string | null | undefined) => {
@@ -107,6 +108,7 @@ const {
     const state = {
       selectedId: null,
       lastPointerShiftKey: mockLastPointerShiftKey,
+      marqueeSelecting: mockMarqueeSelecting,
       selectNode,
       addChildNode,
       addNodeWithEdge,
