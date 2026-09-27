@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const rf = vi.hoisted(() => {
-  const state = { nodes: [] as any[], vp: { x: 0, y: 0, zoom: 1 } };
+  const state = { nodes: [] as any[], vp: { x: 0, y: 0, zoom: 1 }, marqueeSelecting: false };
   return { state };
 });
 
@@ -21,7 +21,7 @@ vi.mock('@xyflow/react', () => ({
 
 const storeApi: any = {};
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes.filter((n) => n.selected), groupNodes: storeApi.groupNodes }),
+  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes.filter((n) => n.selected), groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting }),
 }));
 
 import { SelectionBoxOverlay } from './SelectionBoxOverlay';
@@ -84,5 +84,15 @@ describe('SelectionBoxOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: /打组/ }));
     fireEvent.click(screen.getByText('打组（Ctrl+G）'));
     expect(spy).toHaveBeenCalledWith(['n1', 'n2']);
+  });
+
+  it('框选拖拽中 ≥2 选中不渲染几何体（消费点 3，spec §5-1 不变式）', () => {
+    rf.state.marqueeSelecting = true;
+    rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 100, y: 200 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 110, y: 210 } })];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    const { container } = render(<SelectionBoxOverlay />);
+    expect(container).toBeEmptyDOMElement();
+    expect(portal.children.length).toBe(0);
+    rf.state.marqueeSelecting = false; // 复位防污染
   });
 });

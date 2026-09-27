@@ -3,17 +3,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { GroupNode } from './GroupNode';
 
-const { getMockNodes, setMockNodes } = vi.hoisted(() => {
+const { getMockNodes, setMockNodes, getMockMarqueeSelecting, setMockMarqueeSelecting } = vi.hoisted(() => {
   let mockNodes: any[] = [];
+  let mockMarqueeSelecting = false;
   return {
     getMockNodes: () => mockNodes,
     setMockNodes: (n: any[]) => { mockNodes = n; },
+    getMockMarqueeSelecting: () => mockMarqueeSelecting,
+    setMockMarqueeSelecting: (v: boolean) => { mockMarqueeSelecting = v; },
   };
 });
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
-    vi.fn((selector?: any) => selector({ nodes: getMockNodes() })),
+    vi.fn((selector?: any) => selector({ nodes: getMockNodes(), marqueeSelecting: getMockMarqueeSelecting() })),
     { getState: () => ({ nodes: getMockNodes(), markManuallyResized: vi.fn() }) },
   ),
 }));
@@ -107,5 +110,19 @@ describe('GroupNode（组缩放最小尺寸 R5）', () => {
     const resizer = screen.getByTestId('node-resizer');
     expect(resizer.getAttribute('data-minw')).toBe('200');
     expect(resizer.getAttribute('data-minh')).toBe('120');
+  });
+});
+
+describe('GroupNodeResizer 框选抑制（消费点 4）', () => {
+  it('selected 且未折叠 + marqueeSelecting=true → Resizer 不渲染；false 恢复', () => {
+    setMockNodes([]);
+    setMockMarqueeSelecting(true);
+    const { rerender } = render(
+      <GroupNode id="g1" data={{ groupType: 'normal' }} selected {...{} as any} />
+    );
+    expect(screen.queryByTestId('node-resizer')).not.toBeInTheDocument();
+    setMockMarqueeSelecting(false);
+    rerender(<GroupNode id="g1" data={{ groupType: 'normal' }} selected {...{} as any} />);
+    expect(screen.getByTestId('node-resizer')).toBeInTheDocument();
   });
 });

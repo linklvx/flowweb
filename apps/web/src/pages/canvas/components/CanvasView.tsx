@@ -131,6 +131,7 @@ function CanvasViewComponent(_props: Props) {
   const addNode = useCanvasStore((s) => s.addNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
   const lastPointerShiftKey = useCanvasStore((s) => s.lastPointerShiftKey);
+  const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
   useTrackCanvasPointerShift(reactFlowWrapper);
   useMarqueeSelectionGuard();
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
@@ -438,7 +439,7 @@ function CanvasViewComponent(_props: Props) {
     onNodeDragStopIntoGroup(e, node);   // 既有拖入组逻辑保持
   }, [onNodeDragStopIntoGroup]);
 
-  // 选中组节点时显示 GroupToolbar；多选（≥2）或 Shift 多选意图时不显示，仅普通单独选中时显示
+  // 选中组节点时显示 GroupToolbar；多选（≥2）、Shift 加选意图或框选拖拽中不显示（spec §5-1 消费点 2）
   const selectedGroup = useMemo(() => {
     let count = 0;
     for (const n of nodes) {
@@ -446,10 +447,10 @@ function CanvasViewComponent(_props: Props) {
       count++;
       if (count > 1) return undefined;
     }
-    return count === 1 && !lastPointerShiftKey
+    return count === 1 && !lastPointerShiftKey && !marqueeSelecting
       ? nodes.find((n) => n.type === 'group' && n.selected)
       : undefined;
-  }, [nodes, lastPointerShiftKey]);
+  }, [nodes, lastPointerShiftKey, marqueeSelecting]);
 
   // 计算组是否可转为分镜组：仅当普通组且子节点全部是完成图片节点时
   const isConvertible = useMemo(() => {

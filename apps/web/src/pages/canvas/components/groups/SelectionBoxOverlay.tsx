@@ -20,10 +20,11 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const groupNodesAction = useCanvasStore((s) => s.groupNodes);
   const mergeStoryboard = useCanvasStore((s) => (s as any).mergeStoryboard);
+  const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
   const [open, setOpen] = useState(false);
 
   const geo = useMemo(() => {
-    if (selectedInternal.length < 2) return null;
+    if (selectedInternal.length < 2 || marqueeSelecting) return null;
     const b = getNodesBounds(selectedInternal);
     // padding/offset 为屏幕像素常量：流→屏幕变换后外加，不乘 zoom；
     // titleExtra 为流坐标量（节点标题浮层溢出节点盒上方），随 zoom 缩放
@@ -38,7 +39,7 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
       toolbarTop: isAbove ? top - TOOLBAR.offset : top + height + TOOLBAR.offset,
       toolbarTransform: isAbove ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
     };
-  }, [selectedInternal, vpX, vpY, zoom]);
+  }, [selectedInternal, vpX, vpY, zoom, marqueeSelecting]);
 
   const handleGroup = useCallback(() => {
     const ids = selectedInternal.map((n) => n.id);

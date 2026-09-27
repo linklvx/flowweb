@@ -33,12 +33,13 @@ function GroupNodeResizer({ id }: { id: string }) {
 }
 
 function GroupNodeComponent({ id, data, selected }: NodeProps) {
+  const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
   if ((data as any).groupType === 'storyboard') {
     return <StoryboardGroupRendererCellNodes id={id} data={data as any} />;
   }
   return (
     <>
-      {selected && !(data as any).collapsed && <GroupNodeResizer id={id} />}
+      {selected && !(data as any).collapsed && !marqueeSelecting && <GroupNodeResizer id={id} />}
       <NormalGroupRenderer groupId={id} data={data as any} selected={!!selected} />
     </>
   );

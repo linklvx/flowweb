@@ -519,4 +519,33 @@ describe('CanvasView', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     document.removeEventListener('mousedown', spy);
   });
+
+  it('组单选 + marqueeSelecting=true → GroupToolbar 抑制（消费点 2）', () => {
+    mockNodes = [groupNode];
+    mockMarqueeSelecting = true;
+    render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    expect(screen.queryByTestId('group-toolbar')).not.toBeInTheDocument();
+  });
+
+  it('组单选 marqueeSelecting true→false 且 nodes 不变 → GroupToolbar 恢复', () => {
+    mockNodes = [groupNode];
+    mockMarqueeSelecting = true;
+    const { rerender } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    expect(screen.queryByTestId('group-toolbar')).not.toBeInTheDocument();
+    mockMarqueeSelecting = false;
+    rerender(
+      <ReactFlowProvider>
+        <CanvasView projectId="p2" />
+      </ReactFlowProvider>
+    );
+    expect(screen.getByTestId('group-toolbar')).toBeInTheDocument();
+  });
 });
