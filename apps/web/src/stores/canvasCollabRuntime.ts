@@ -210,6 +210,9 @@ function bindBridge(): () => void {
   const unsubCs = useCanvasStore.subscribe((state, prev) => {
     if (state.isHydrating || prev.isHydrating) return;
     if (state.projectId !== prev.projectId) return;
+    // diff 输入只有 nodes/edges——引用未变早退（严格等价：同引用 ⇒ pickStruct 投影输出相同
+    // ⇒ isEqual 恒真 ⇒ 原逻辑本就 no-op），防 UI 态翻转白跑 O(n) 投影+深比较
+    if (state.nodes === prev.nodes && state.edges === prev.edges) return;
     const changed = !isEqual(pickStructNodes(state.nodes), pickStructNodes(prev.nodes))
       || !isEqual(pickStructEdges(state.edges), pickStructEdges(prev.edges));
     if (changed) {

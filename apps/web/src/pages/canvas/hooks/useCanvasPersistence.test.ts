@@ -1,6 +1,6 @@
 // apps/web/src/pages/canvas/hooks/useCanvasPersistence.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { useCanvasPersistence } from './useCanvasPersistence';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -49,7 +49,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     });
 
     const { unmount } = renderHook(() => useCanvasPersistence('p1'));
-    useCanvasStore.setState({ selectedId: 'trigger' });
+    useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
     vi.advanceTimersByTime(600);
 
     // 清空后恢复
@@ -69,7 +69,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
 
     // 2. mount hook + 触发变更 → 500ms debounce 后写入快照
     const { unmount } = renderHook(() => useCanvasPersistence('p1'));
-    useCanvasStore.setState({ selectedId: 'trigger-save' });
+    useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
     vi.advanceTimersByTime(600);
 
     const raw = localStorage.getItem(snapshotKey('p1'));
@@ -111,7 +111,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     });
 
     const { unmount } = renderHook(() => useCanvasPersistence('p1'));
-    useCanvasStore.setState({ selectedId: 'trigger-save' });
+    useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
     vi.advanceTimersByTime(600);
     unmount();
 
@@ -140,7 +140,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     });
 
     const { unmount } = renderHook(() => useCanvasPersistence('p1'));
-    useCanvasStore.setState({ selectedId: 'trigger-save' });
+    useCanvasStore.setState({ viewport: { x: 1, y: 1, zoom: 1 } });
     vi.advanceTimersByTime(600);
     unmount();
 
@@ -151,5 +151,19 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
     expect(g.width).toBe(777);
     expect(g.height).toBe(555);
+  });
+
+  it('marqueeSelecting 翻转不触发快照写（订阅输入引用早退，spec §5-1 配套）', () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    renderHook(() => useCanvasPersistence('p1'));
+    vi.advanceTimersByTime(600); // 排空 mount 期可能挂起的写（防御）
+    setItemSpy.mockClear();
+    act(() => {
+      useCanvasStore.setState({ marqueeSelecting: true });
+      useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
+    });
+    vi.advanceTimersByTime(600);
+    expect(setItemSpy).not.toHaveBeenCalled();
+    setItemSpy.mockRestore();
   });
 });

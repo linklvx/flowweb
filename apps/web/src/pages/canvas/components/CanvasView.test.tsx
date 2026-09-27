@@ -13,6 +13,7 @@ const mockSetState = vi.hoisted(() => vi.fn());
 let mockPendingMediaFile: any = null;
 let mockNodes: any[] = [];
 let mockLastPointerShiftKey = false;
+let mockMarqueeSelecting = false;
 let subscribeListener: ((state: any, prevState: any) => void) | null = null;
 
 vi.mock('./groups/GroupToolbar', () => ({
@@ -39,6 +40,7 @@ vi.mock('@/stores/canvasStore', () => ({
       const state = {
         nodes: mockNodes,
         lastPointerShiftKey: mockLastPointerShiftKey,
+        marqueeSelecting: mockMarqueeSelecting,
         toggleCollapse: vi.fn(),
         ungroup: vi.fn(),
         convertGroup: vi.fn(),
@@ -78,6 +80,7 @@ describe('CanvasView', () => {
     mockZoomOut.mockClear();
     mockNodes = [];
     mockLastPointerShiftKey = false;
+    mockMarqueeSelecting = false;
     mockSetState.mockClear();
   });
 

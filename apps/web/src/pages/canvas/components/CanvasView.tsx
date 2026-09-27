@@ -19,6 +19,7 @@ import { useMenuStore } from '@/stores/menuStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
+import { useMarqueeSelectionGuard } from '@/hooks/useMarqueeSelectionGuard';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { getMediaUrl } from '@/api/mediaApi';
@@ -117,6 +118,7 @@ function CanvasViewComponent(_props: Props) {
   const selectNode = useCanvasStore((s) => s.selectNode);
   const lastPointerShiftKey = useCanvasStore((s) => s.lastPointerShiftKey);
   useTrackCanvasPointerShift(reactFlowWrapper);
+  useMarqueeSelectionGuard();
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
@@ -331,6 +333,15 @@ function CanvasViewComponent(_props: Props) {
     [],
   );
 
+  // 框选拖拽期 UI 抑制信号（spec §5-1）：onSelectionStart 触发点在 resetSelectedElements 与首次
+  // triggerNodeChanges 之前的同一同步体——标志必然先于选中态变化落入同一 React 批次。
+  const onSelectionStart = useCallback(() => {
+    useCanvasStore.setState({ marqueeSelecting: true });
+  }, []);
+  const onSelectionEnd = useCallback(() => {
+    useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
+  }, []);
+
   const isValidConnection = useCallback((connection: Connection) => {
     // No self-connections
     if (connection.source === connection.target) return false;
@@ -457,6 +468,8 @@ function CanvasViewComponent(_props: Props) {
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
+        onSelectionStart={onSelectionStart}
+        onSelectionEnd={onSelectionEnd}
         onNodeDragStop={handleNodeDragStop}
         deleteKeyCode={editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"

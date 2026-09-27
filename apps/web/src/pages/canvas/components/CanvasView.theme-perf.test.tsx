@@ -39,6 +39,7 @@ vi.mock('@/stores/canvasStore', () => {
     viewport: { x: 0, y: 0, zoom: 1 },
     pendingMediaFile: null,
     lastPointerShiftKey: false,
+    marqueeSelecting: false,
   };
   const state = { nodes: mockNodes, ...stable, ...actions };
   const useCanvasStore: any = vi.fn((selector?: any) =>
