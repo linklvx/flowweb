@@ -2,9 +2,8 @@ import { memo, useCallback, useMemo, useRef, useState, useEffect, type DragEvent
 import { stopCapturing } from '@/stores/canvasUndo';
 import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
-  useReactFlow,
-  type Connection,
-  type FinalConnectionState,
+  useReactFlow, SelectionMode,
+  type Connection, type FinalConnectionState, type SnapGrid,
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -62,6 +61,17 @@ const edgeTypes: any = {
   default: ConnectionLine,
 };
 
+// panOnDrag 不在 StoreUpdater fieldsToTrack（react:186-248，不写库）；真实代价在 ZoomPane 的
+// update effect（react:1337-1377，deps 含 panOnDrag）——每帧重渲染链（defaultViewport 每帧新对象
+// → GraphView memo 失效 → FlowRenderer 重建 children → effect 重跑 → update() 重建 wheel/start
+// 处理器）。常量使引用稳定 → effect 不重跑。禁 [1,2]：数组含 2 时右键成为平移按钮且
+// onContextMenu 直接 preventDefault+return，右键菜单路径彻底失效（spec §3.1）。
+const PAN_ON_DRAG_MIDDLE = [1];
+// snapGrid 在 fieldsToTrack 且原为内联——本文件真正每帧写 store 的是它，一并 hoist。
+// 必须显式 tuple 标注：hoist 丢上下文类型后 [20,20] 退化为 number[] → strict TS2322；
+// as const/Object.freeze 与可变 tuple 不兼容，禁用。勿原地改写（会 store.setState 进库共享引用）。
+const SNAP_GRID: SnapGrid = [20, 20];
+
 interface Props {
   projectId: string;
 }
@@ -107,7 +117,11 @@ function CanvasViewComponent(_props: Props) {
   }, [screenToFlowPosition]);
   const projectId = useCanvasStore((s) => s.projectId);
   const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
-  const isLocked = activeEditNodeId !== null;
+  const activeTransformNodeId = useNodeStore((s) => s.activeTransformNodeId);
+  // 锁定=编辑中或 transform 调整中（spec §3 根因修）——与 useGroupKeyboard「模式中」口径对齐
+  // （编辑与 transform 互斥，nodeStore.ts:383）。不修则 transform 期框选第一帧 resetSelectedElements
+  // 反选调整中节点 → TransformToolbar 中途消失。
+  const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
   const referenceSelect = useNodeStore((s) => s.referenceSelect);
   const inRefSelect = referenceSelect !== null;
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
@@ -298,8 +312,10 @@ function CanvasViewComponent(_props: Props) {
     const flowPoint = screenToFlowPosition(p);
     const nodes = useCanvasStore.getState().nodes;
     const node = nodes.find((n) => n.id === dragStart.nodeId);
-    // isLocked 来源=useNodeStore.activeEditNodeId（CanvasView L102-103 既有订阅同一 store，实证勿改读 canvasStore）
-    const isLockedNow = useNodeStore.getState().activeEditNodeId !== null;
+    // isLocked 双定义第二处（spec §3）：与订阅式同口径（编辑中或 transform 调整中），
+    // 喂 decideHandleMenu——只改订阅式漏此处会「画布锁了 handle 菜单没锁」。
+    const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
+      || useNodeStore.getState().activeTransformNodeId !== null;
 
     const decision = decideHandleMenu({
       reconnecting: wasReconnecting,
@@ -341,6 +357,15 @@ function CanvasViewComponent(_props: Props) {
   const onSelectionEnd = useCallback(() => {
     useCanvasStore.setState((s) => (s.marqueeSelecting ? { marqueeSelecting: false } : s));
   }, []);
+
+  // 锁定态中键特例闸门（spec §3 六修）：system:2824 的 node/edge 中键放行先于 !panOnDrag/nopan
+  // 一切判定（含 :2846 nopan——nopan 对该路径不可达，非可替代修法）；capture 先于 renderer 的
+  // d3 冒泡 listener，stopPropagation 使锁定态中键手势无法启动。副作用：事件在 React root capture
+  // 内被止后不再到达 root 下任何合成处理器（含 MiniMap/portal 内中键 mousedown）——锁定态中键
+  // 本无合法语义，无害。非锁定中键平移（合法路径）不受影响。
+  const handleWrapperMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (isLocked && e.button === 1) e.stopPropagation();
+  }, [isLocked]);
 
   const isValidConnection = useCallback((connection: Connection) => {
     // No self-connections
@@ -445,7 +470,12 @@ function CanvasViewComponent(_props: Props) {
   const { mode } = useTheme();
 
   return (
-    <div ref={reactFlowWrapper} className="w-full h-full overflow-hidden" onMouseMove={handleMouseMove}>
+    <div
+      ref={reactFlowWrapper}
+      className="w-full h-full overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseDownCapture={handleWrapperMouseDownCapture}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -471,20 +501,22 @@ function CanvasViewComponent(_props: Props) {
         onSelectionStart={onSelectionStart}
         onSelectionEnd={onSelectionEnd}
         onNodeDragStop={handleNodeDragStop}
-        deleteKeyCode={editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
+        deleteKeyCode={isLocked || editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
         maxZoom={3}
         fitView={false}
-        zoomOnScroll={false}
-        panOnScroll={!isLocked}
-        panOnDrag={!isLocked}
+        zoomOnScroll={!isLocked}
+        panOnDrag={isLocked ? false : inRefSelect ? true : PAN_ON_DRAG_MIDDLE}
+        selectionOnDrag={!isLocked}
+        selectionMode={SelectionMode.Partial}
+        panActivationKeyCode={isLocked ? null : 'Space'}
         zoomOnDoubleClick={!isLocked}
         nodesDraggable={inRefSelect ? false : !isLocked}
         nodesFocusable={!isLocked}
         elementsSelectable={inRefSelect ? false : !isLocked}
         snapToGrid={snapEnabled}
-        snapGrid={[20, 20]}
+        snapGrid={SNAP_GRID}
         noWheelClassName="nowheel"
         proOptions={{ hideAttribution: true }}
         className="bg-[var(--canvas-board-bg)]"

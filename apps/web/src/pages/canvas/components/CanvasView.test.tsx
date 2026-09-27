@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { CanvasView } from './CanvasView';
 import { ReactFlowProvider } from '@xyflow/react';
+import { useNodeStore } from '@/stores/nodeStore';
 
 const mockZoomIn = vi.hoisted(() => vi.fn());
 const mockZoomOut = vi.hoisted(() => vi.fn());
@@ -437,5 +438,83 @@ describe('CanvasView', () => {
     // 万一为 null，降级 querySelector('.react-flow') 亦可（事件经 capture 到达 wrapper 监听）
     pane!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, shiftKey: true }));
     expect(mockSetState).toHaveBeenCalledWith({ lastPointerShiftKey: true });
+  });
+
+  // ── 派生 class 断言（spec §8.2）：能抓含 0 的误改（[0,1]/true → draggable 挂）──
+  // 真 nodeStore 驱动锁定；afterEach 复位防污染
+  afterEach(() => {
+    useNodeStore.setState({ activeEditNodeId: null, activeTransformNodeId: null });
+  });
+
+  it('非锁定：pane 有 selection 无 draggable（左键框选主路径）', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane')!;
+    expect(pane).toBeInTheDocument();
+    expect(pane.className).toContain('selection');
+    expect(pane.className).not.toContain('draggable');
+  });
+
+  it('锁定：pane 两者皆无', () => {
+    useNodeStore.setState({ activeEditNodeId: 'node-1' });
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane')!;
+    expect(pane.className).not.toContain('selection');
+    expect(pane.className).not.toContain('draggable');
+  });
+
+  it('transform 调整中：同锁定（根因修回归防线）', () => {
+    useNodeStore.setState({ activeTransformNodeId: 'node-1' });
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane')!;
+    expect(pane.className).not.toContain('selection');
+    expect(pane.className).not.toContain('draggable');
+  });
+
+  it('空格按下 draggable 上、松开复位（空格平移在+框选让位；keyUp 必须复位防污染）', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = () => container.querySelector('.react-flow__pane')!;
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(pane().className).toContain('draggable');
+    expect(pane().className).not.toContain('selection');
+    fireEvent.keyUp(window, { key: ' ', code: 'Space' });
+    expect(pane().className).not.toContain('draggable');
+    expect(pane().className).toContain('selection');
+  });
+
+  // 靶子用 pane 是有判别力的形态：锁定态 pane 中键走 filter-false 路径（:2862 拒 → d3 不调
+  // nopropagation → 无闸门时事件冒泡可达 document → spy 被调 → 红）。节点/边靶子在无闸门时命中
+  // :2824 特例 → d3 mousedowned 调 nopropagation（stopImmediatePropagation 含止冒泡）→ document
+  // 同样收不到 → spy 断言形态下恒绿（假绿）——勿"加强"成节点靶子（jsdom 无 d3 手势可观测）。
+  it('中键闸门：锁定态 wrapper 内 button===1 mousedown 不冒泡到 document（spec §3 六修）', () => {
+    useNodeStore.setState({ activeEditNodeId: 'node-1' });
+    const { container } = render(
+      <ReactFlowProvider>
+        <CanvasView projectId="p1" />
+      </ReactFlowProvider>
+    );
+    const pane = container.querySelector('.react-flow__pane')!;
+    const spy = vi.fn();
+    document.addEventListener('mousedown', spy); // 冒泡终点——闸门生效则收不到
+    fireEvent.mouseDown(pane, { button: 1 });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.mouseDown(pane, { button: 0 }); // 左键不受闸门影响（对照）
+    expect(spy).toHaveBeenCalledTimes(1);
+    document.removeEventListener('mousedown', spy);
   });
 });
