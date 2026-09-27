@@ -75,6 +75,7 @@ describe('useCanvasPersistence 组关系往返（Bug F）', () => {
     const raw = localStorage.getItem(snapshotKey('p1'));
     expect(raw).not.toBeNull();
     const snap = JSON.parse(raw!);
+    expect(Object.keys(snap)).toEqual(['version', 'nodes', 'edges', 'viewport', 'parentMap']);
     expect(snap.parentMap).toEqual({ n1: gid, n2: gid });
 
     // 3. 清空 store（模拟刷新后初始状态）

@@ -96,6 +96,7 @@ interface CanvasState {
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
   lastPointerShiftKey: boolean;
+  marqueeSelecting: boolean;
   pendingMediaFile: MaterialFile | null;
   pendingFillCell: { groupId: string; cellIndex: number } | null;
   nodeProcessMap: Record<string, NodeProcessState>;
@@ -171,6 +172,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
   lastPointerShiftKey: false,
+  marqueeSelecting: false,
   pendingMediaFile: null,
   pendingFillCell: null,
   nodeProcessMap: {},
