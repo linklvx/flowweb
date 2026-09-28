@@ -55,7 +55,9 @@ export const CLONE_WHITELIST: Record<string, string[]> = {
 
 /** 信封边界归一单入口（R0b 模板导出/applyWhitelist 尾部共用，R1a 收编 shared nodeEnvelope）：
  *  parentId/width/height null→undefined（JSON.stringify 键消失）；position/data undefined→兜底。
- *  注意 cells 的 null 是"空宫格占位"必须保留——本函数只碰信封键，不碰 data 内部。 */
+ *  注意 cells 的 null 是"空宫格占位"必须保留——本函数只碰信封键，不碰 data 内部。
+ *  R1a 分家登记：shared normalizeCanvasRecord 是写侧真删键语义（Object.keys 形态不同）——
+ *  本函数保留 API JSON 序列化边界（??undefined 在 stringify 后键消失，与真删键等价）。 */
 export function normalizeNodeRecord(n: RawNode): RawNode {
   return {
     ...n,

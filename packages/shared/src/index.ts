@@ -12,3 +12,4 @@ export * from './types/video-project';
 export * from './types/video-work';
 export * from './types/group';
 export * from './types/stitch';
+export * from './canvas/nodeEnvelope';
