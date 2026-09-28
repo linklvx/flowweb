@@ -43,6 +43,10 @@ describe('stitch pipe 配置（R0d①——走私 400 可观测）', () => {
     }
     // v5：数组元素类型维度（@IsString({each:true}) 的射程）
     await expect(pipe.transform({ ...validBody, fileIds: ['ok', 123] }, meta)).rejects.toThrow(BadRequestException);
+    // v5.1 补强（review 探针发现）：@IsInt 的真实判别点是 float——'x' 会被 @Min 的 typeof 守卫兜住，
+    // 漏 @IsInt 时 2.5 漏网（gridRows/gridCols 各一条锁死整数语义）
+    await expect(pipe.transform({ ...validBody, gridRows: 2.5 }, meta)).rejects.toThrow(BadRequestException);
+    await expect(pipe.transform({ ...validBody, gridCols: 2.5 }, meta)).rejects.toThrow(BadRequestException);
   });
 
   it('任意第 7 键被拒（键集契约的行为面——防 STITCH_JOB_KEYS 与 DTO 漂移）', async () => {
