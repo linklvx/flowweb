@@ -210,7 +210,7 @@ metadata JSON 无索引 → JSON 条件不走索引，但 where 基础列（type
 {
   workId, title,
   nodes: Array<{ id, type, position:{x,y}, width?, height?, parentId?, data: WhitelistedData }>,  // 必须父先子后（见下）
-  edges: Array<{ id, source, target }>  // readCanvas 返回 {id, sourceId, targetId}，服务端显式映射
+  edges: Array<{ id, source, target }>  // readCanvas 返回 {id, source, target}（R1a Task 7 已收敛单形状——旧注记"返回 {id, sourceId, targetId}"作废）
 }
 ```
 
@@ -242,7 +242,7 @@ metadata JSON 无索引 → JSON 条件不走索引，但 where 基础列（type
 **安全验收用例（必须，键级+正向配对）**：
 - **键级断言**：递归收集响应对象全部 key，断言不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName`（键级而非子串——子串断言会被用户内容污染：content 里写个 "url" 就假红）。
 - **正向断言（防 key 写错时全绿）**：fixture 放 `type:'textInput'`、`data.content:'<p>一只猫在窗台上</p>'` → 断言响应含纯文本"一只猫在窗台上"；imageGen 断言 prompt.text 保留；multiImageGen 断言 prompt 保留。
-- **edges 断言**：`edges[0]` 有 `source/target` 且无 `sourceId` 键。
+- **edges 断言**：`edges[0]` 有 `source/target` 键（readCanvas 返回形状已收敛为 `{id, source, target}`——R1a Task 7 单形状收敛后不再有 sourceId 键可言）。
 - **nodeTypes 全覆盖**：注册表每个 type key 在白名单表有条目，否则测试红。
 - 危险夹具：content 嵌 `<img src=x onerror=alert(1)>` → 断言响应文本中无 `<` 标签残留。
 
@@ -381,7 +381,7 @@ Mockup 参考：`.superpowers/brainstorm/601-1789488912/content/videos-ui-v2.htm
 3. 路由声明序：categories/tags/settings/candidates 静态段在 :id 之前（getOwnPropertyNames 断言）。
 4. view 去重：同 IP 1h 内重复请求只 +1；**StrictMode 双发（两次连续请求）计数仍为 1**。
 5. like：匿名 401；登录 toggle +1/-1（SET NX 原子）且响应 `{liked,likeCount}` 正确（跨请求一致）；GREATEST 下界（刷到 0 不为负）；限流 429。
-6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**videoEdit 节点保留且 data 为空对象（仅结构字段——快照不剥 videoEdit，剥除是克隆差异 D9）**、**group 的 groupType/cells 在——cells 断言写"原样返回"逐项比对（含悬空 id/null），勿写"全项可在 nodes 中找到"**（悬空 id 是已接受行为，会红在已知项上））；**nodes 父先子后（fixture 造子先父后的 readCanvas 返回 → 断言 index(parent) < index(child)）**；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target 无 sourceId；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
+6. **快照安全验收（键级+正向配对）**：递归收集响应 key 不含 `html/fileId/mediaUrl/referencedImageIds/allImages/referenceImage/referenceVideo/referenceAudio/trimmedFileId/generationBatchId/mediaName/videoProjectId/origin`；正向断言（textInput 的 content 纯文本在、imageGen prompt.text 在、multiImageGen prompt 在、**videoGen 的 label 在**、**videoEdit 节点保留且 data 为空对象（仅结构字段——快照不剥 videoEdit，剥除是克隆差异 D9）**、**group 的 groupType/cells 在——cells 断言写"原样返回"逐项比对（含悬空 id/null），勿写"全项可在 nodes 中找到"**（悬空 id 是已接受行为，会红在已知项上））；**nodes 父先子后（fixture 造子先父后的 readCanvas 返回 → 断言 index(parent) < index(child)）**；危险夹具（嵌 `<img onerror>` 的 content 转纯文本无标签残留）；edges 有 source/target（单形状 `{id, source, target}`——R1a Task 7 收敛后无 sourceId）；DRAFT 或 allowViewProcess=false 或画布不存在 → 404；readCanvas 挂起 → 有界超时 503；缓存命中（第二次请求不触 readCanvas）；**详情端点 spy 断言 CollabDocumentService.readCanvas 调用 0 次**；nodeTypes 注册表全覆盖白名单表。
 7. 克隆：新项目含 nodes/edges（含 parentId/width/height）；节点 id 已重发；克隆体 data key 不含剥离集字段（含 **thumbnailUrl**）且 **status 重置 idle**、无 `__fromMulti/__ephemeral`；无 videoEdit/shadow- 节点及相连边；**四元重映射（fixture：分镜组 group(groupType:'storyboard', cells:[子id, null, 悬空id]) + parentId 指向组的子节点 → 断言：存活子节点新 id 均出现在新 cells 中（测试不变量）；悬空/被剥槽位 → null；数组长度不变；无旧 id 残留）**；Template 行数与 importCount 不变；未登录 401；canvasProjectId 空/不存在 → 404；**create 阶段挂起 → 整体有界超时 503**；保存校验（(allowViewProcess||allowClone)=true 且无 canvasProjectId → 400）。
 8. 发布自动设 publishedAt；请求体带 publishedAt 被忽略；详情返回 liked 初始态（已赞用户 true / 匿名 false 且匿名路径零 Redis 调用）；**列表 orderBy 含 id tiebreaker（并列翻页无重复/遗漏）**。
 9. candidates 分页；pageSize=9999 clamp 50；settings 无行返回默认值。
