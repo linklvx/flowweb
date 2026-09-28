@@ -10,9 +10,10 @@ import { pickStructNodes, pickStructEdges } from './canvasHistory';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
+import type { CanvasNodeRecord } from '@flowweb/shared';
 import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
 import { isAutoEdgeId } from './autoEdgeIds';
-import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
+import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
 
@@ -55,7 +56,9 @@ export function readNodeFileIdFromDoc(nodeId: string): string | null {
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let currentPid: string | null = null;
 
-/** store 结构投影（canvasStore 为基准 + nodeStore data，与旧 buildSyncPayload 同形） */
+/** store 结构投影（canvasStore 为基准 + nodeStore data，与旧 buildSyncPayload 同形）。
+ *  断言说明：NodeData interface 无隐式索引签名，不结构兼容 Record<string, unknown>——
+ *  运行时 data 就是普通对象，消费侧（fillDoc/applyRecordToYMap 只做 Object.entries）安全 */
 function storeProjection() {
   const cs = useCanvasStore.getState();
   const ns = useNodeStore.getState();
@@ -67,7 +70,7 @@ function storeProjection() {
       position: nd.position,
       width: nd.width ?? null,
       height: nd.height ?? null,
-      data: ns.nodes[nd.id]?.data ?? nd.data,
+      data: (ns.nodes[nd.id]?.data ?? nd.data) as unknown as Record<string, unknown>,
     })),
     edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   };
@@ -93,21 +96,9 @@ function syncStoreToDoc(origin: string) {
         fillDoc(d, [n], []);
         continue;
       }
-      if (existing.get('type') !== n.type) existing.set('type', n.type);
-      if ((existing.get('parentId') ?? null) !== (n.parentId ?? null)) {
-        if (n.parentId == null) existing.delete('parentId'); else existing.set('parentId', n.parentId);
-      }
-      if ((existing.get('width') ?? null) !== (n.width ?? null)) {
-        if (n.width == null) existing.delete('width'); else existing.set('width', n.width);
-      }
-      if ((existing.get('height') ?? null) !== (n.height ?? null)) {
-        if (n.height == null) existing.delete('height'); else existing.set('height', n.height);
-      }
-      const pos = existing.get('position');
-      if (pos instanceof Y.Map) {
-        if (pos.get('x') !== n.position?.x) pos.set('x', n.position?.x ?? 0);
-        if (pos.get('y') !== n.position?.y) pos.set('y', n.position?.y ?? 0);
-      }
+      // 信封键（type/parentId/width/height/position）增量收敛到 applyRecordToYMap（全键 diff 守卫——
+      // 同值 no-op 防 doc 膨胀）；data 逐键 diff 是业务域，留本函数原有逻辑
+      applyRecordToYMap(existing, n);
       const data = existing.get('data');
       if (data instanceof Y.Map) {
         const incoming = n.data ?? {};
@@ -240,7 +231,8 @@ export async function initCollab(projectId: string): Promise<void> {
   const snap = loadSnapshot(projectId);
   if (snap && !isEmptySnapshot(snap)) {
     // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5
-    fillDoc(doc, Object.values(snap.nodes), snap.edges ?? []);
+    // 断言说明：AppNode.data（NodeData interface）无隐式索引签名，不结构兼容 CanvasNodeRecord.data——快照经 isValidPayload 校验，运行时安全
+    fillDoc(doc, Object.values(snap.nodes) as unknown as CanvasNodeRecord[], snap.edges ?? []);
   }
 
   provider = new HocuspocusProvider({

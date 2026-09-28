@@ -13,7 +13,13 @@ describe('normalizeCanvasRecord（写侧真删键——Object.entries 型写入�
     const out = normalizeCanvasRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null } as any);
     expect(Object.keys(out).includes('parentId')).toBe(false);
     expect(Object.keys(out).includes('width')).toBe(false);
+    expect(Object.keys(out).includes('height')).toBe(false);
     expect(JSON.parse(JSON.stringify(out)).parentId).toBeUndefined();
+  });
+
+  it('position: null（非 undefined）也兜底 {x:0,y:0}（?? 双吃 null）', () => {
+    const out = normalizeCanvasRecord({ id: 'n1', type: 'textInput', position: null, data: {} } as any);
+    expect(out.position).toEqual({ x: 0, y: 0 });
   });
 
   it('有值全保留；position undefined → {x:0,y:0}；data undefined → {}', () => {

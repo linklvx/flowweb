@@ -1,7 +1,7 @@
 // apps/api/src/modules/collab/node-doc.util.spec.ts
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { buildShadowNodeYMap } from './node-doc.util';
+import { buildShadowNodeYMap, writeNodeToYMap } from './node-doc.util';
 
 describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => {
   it('type/position(Y.Map 必写)/data(Y.Map) 结构同构，影子 data 带 __ephemeral', () => {
@@ -22,6 +22,17 @@ describe('buildShadowNodeYMap（与 ydocBuilder.fillDoc 逐键同构）', () => 
     const m = buildShadowNodeYMap({ id: 'shadow-x', type: 'videoGen', position: { x: 0, y: 0 }, data: {} });
     doc.getMap('nodes').set('shadow-x', m);
     expect(m.get('parentId')).toBeUndefined();
+  });
+});
+
+describe('writeNodeToYMap（整信封写入共享入口——R1a）', () => {
+  it('writeNodeToYMap data 全量写入（空 data Map 会使模板导入丢全部节点数据）', () => {
+    const nodesMap = new Y.Doc().getMap('nodes');
+    const m = writeNodeToYMap(nodesMap, { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { prompt: 'x' } } as any);
+    expect((m.get('data') as Y.Map<any>).get('prompt')).toBe('x');
+    // shadow 场景：buildShadowNodeYMap 改调后 __ephemeral 写在 data 内
+    const sm = writeNodeToYMap(nodesMap, { id: 'shadow-n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'f1', __ephemeral: true } } as any);
+    expect((sm.get('data') as Y.Map<any>).get('__ephemeral')).toBe(true);
   });
 });
 

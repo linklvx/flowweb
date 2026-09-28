@@ -3,7 +3,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { svSatisfied } from './sv.util';
 import { svWaitTimeoutTotal } from './sv-wait.metrics';
-import { buildShadowNodeYMap } from './node-doc.util';
+import { writeNodeToYMap, type ShadowNodeInput } from './node-doc.util';
 
 @Injectable()
 export class CollabDocumentService {
@@ -57,7 +57,10 @@ export class CollabDocumentService {
     });
   }
 
-  /** 原 readCanvas 内的读取逻辑抽为纯函数（供复用） */
+  /** 原 readCanvas 内的读取逻辑抽为纯函数（供复用）。
+   *  读侧契约（R1a null 语义分家）：parentId/width/height 恒 `?? null`；position/data 兜底
+   *  `?.toJSON()` 可 undefined——坏 doc 直读 c.position.x 会 TypeError，读侧兜底两端同形。
+   *  edges 单形状出 source/target（R1a 收敛——无存量数据一次收成，删 sourceId/targetId 双键名）。 */
   private readDocCanvas(doc: Y.Doc): { nodes: any[]; edges: any[] } {
     const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
       const m = v as Y.Map<any>;
@@ -67,13 +70,13 @@ export class CollabDocumentService {
         parentId: m.get('parentId') ?? null,
         width: m.get('width') ?? null,
         height: m.get('height') ?? null,
-        position: m.get('position')?.toJSON(),
-        data: m.get('data')?.toJSON(),
+        position: m.get('position')?.toJSON() ?? { x: 0, y: 0 },
+        data: m.get('data')?.toJSON() ?? {},
       };
     });
     const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
       const m = v as Y.Map<any>;
-      return { id, sourceId: m.get('source'), targetId: m.get('target') };
+      return { id, source: m.get('source'), target: m.get('target') };
     });
     return { nodes, edges };
   }
@@ -92,10 +95,10 @@ export class CollabDocumentService {
     });
   }
 
-  /** A1 影子节点：整节点写入。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
-  async insertNode(projectId: string, node: Parameters<typeof buildShadowNodeYMap>[0]) {
+  /** A1 影子节点：整节点写入（writeNodeToYMap 共享入口——R1a 收敛）。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
+  async insertNode(projectId: string, node: ShadowNodeInput) {
     await this.withDoc(projectId, (doc) => {
-      doc.getMap('nodes').set(node.id, buildShadowNodeYMap(node));
+      writeNodeToYMap(doc.getMap('nodes'), node);
     });
   }
 

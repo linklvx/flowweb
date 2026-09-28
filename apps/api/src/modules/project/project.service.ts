@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import * as Y from 'yjs';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { writeNodeToYMap } from '../collab/node-doc.util';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -17,8 +18,6 @@ interface NodeInput {
 
 interface EdgeInput {
   id: string;
-  sourceId?: string;
-  targetId?: string;
   source?: string;
   target?: string;
 }
@@ -56,29 +55,18 @@ export class ProjectService {
     });
 
     if (nodes && nodes.length > 0) {
-      // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）
+      // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）；
+      // 节点经 writeNodeToYMap 共享入口（R1a 收敛——手抄本键集漂移是 F29 根因）
       await this.collabDoc.withDoc(project.id, (doc) => {
         const nodesMap = doc.getMap('nodes');
         for (const n of nodes) {
-          const m = new Y.Map();
-          m.set('type', n.type);
-          if (n.parentId != null) m.set('parentId', n.parentId);
-          if (n.width != null) m.set('width', n.width);
-          if (n.height != null) m.set('height', n.height);
-          const position = new Y.Map();
-          position.set('x', n.position?.x ?? 0);
-          position.set('y', n.position?.y ?? 0);
-          m.set('position', position);
-          const data = new Y.Map();
-          for (const [k, v] of Object.entries(n.data ?? {})) data.set(k, v);
-          m.set('data', data);
-          nodesMap.set(n.id, m);
+          writeNodeToYMap(nodesMap, n);
         }
         const edgesMap = doc.getMap('edges');
         for (const e of edges ?? []) {
           const m = new Y.Map();
-          m.set('source', e.source ?? e.sourceId ?? '');
-          m.set('target', e.target ?? e.targetId ?? '');
+          m.set('source', e.source); // edges 单形状（R1a 收敛——上游 template/clone 传 source/target）
+          m.set('target', e.target);
           edgesMap.set(e.id, m);
         }
       });

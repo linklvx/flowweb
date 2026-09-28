@@ -20,7 +20,7 @@ type _MissingFromKeys = Exclude<keyof CanvasNodeRecord, (typeof NODE_ENVELOPE_KE
 type _AssertNoMissing<T extends never> = T;
 type _Anchor = _AssertNoMissing<_MissingFromKeys>;  // 勿删——删即静默失去缺键防护
 
-/** 写侧归一单入口：可选键 null→真删键（显式构造，键不进对象）；position/data undefined→兜底。
+/** 写侧归一单入口：可选键 null→真删键（显式构造，键不进对象）；position/data undefined/null→兜底（?? 双吃）。
  *  将来加第四个可选字段必须进本函数。只碰信封键，不碰 data 内部。 */
 export function normalizeCanvasRecord(n: CanvasNodeRecord): CanvasNodeRecord {
   const out: CanvasNodeRecord = {

@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import * as Y from 'yjs'
+import { writeNodeToYMap } from '../src/modules/collab/node-doc.util'
+import type { CanvasNodeRecord } from '@flowweb/shared'
 
 const prisma = new PrismaClient()
 
@@ -10,26 +12,13 @@ function buildDocState(
   const doc = new Y.Doc()
   const nodesMap = doc.getMap('nodes')
   for (const n of nodes) {
-    const nodeMap = new Y.Map()
-    nodeMap.set('type', n.type)
-    if (n.parentId != null) nodeMap.set('parentId', n.parentId)
-    if (n.width != null) nodeMap.set('width', n.width)
-    if (n.height != null) nodeMap.set('height', n.height)
-    const position = new Y.Map()
-    position.set('x', (n.position as { x: number }).x)
-    position.set('y', (n.position as { y: number }).y)
-    nodeMap.set('position', position)
-    const data = new Y.Map()
-    for (const [k, v] of Object.entries((n.data as Record<string, unknown>) ?? {})) {
-      data.set(k, v)
-    }
-    nodeMap.set('data', data)
-    nodesMap.set(n.id, nodeMap)
+    // Prisma 行 position/data 是 JsonValue（可 null）——writeNodeToYMap 内 normalizeCanvasRecord 兜底
+    writeNodeToYMap(nodesMap, n as unknown as CanvasNodeRecord)
   }
   const edgesMap = doc.getMap('edges')
   for (const e of edges) {
     const edgeMap = new Y.Map()
-    edgeMap.set('source', e.sourceId)
+    edgeMap.set('source', e.sourceId) // Prisma CanvasEdge 列名→doc 形状的正确映射，保留
     edgeMap.set('target', e.targetId)
     edgesMap.set(e.id, edgeMap)
   }
