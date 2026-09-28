@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
-import { buildFilteredSnapshot, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
+import { buildFilteredSnapshot, CLONE_WHITELIST, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
 
 const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create 内部 withDoc 同样会挂起）
 
@@ -30,11 +30,13 @@ export class VideoWorkCloneService {
 
     const run = async () => {
       const raw = await this.collabDoc.readCanvas(w.canvasProjectId!) as RawCanvasData;
-      // 与快照共用白名单（D9）：克隆分支 resetStatusIdle + 不注入缩略图 + 剥 videoEdit/shadow-
+      // 克隆走 CLONE_WHITELIST 分表（R0a）：group 9 键（storyboard/collapsed/savedSize 等——F2 根因半边+G1 手动尺寸保持）；
+      // 其余同快照（D9）：resetStatusIdle + 不注入缩略图 + 剥 videoEdit/shadow-
       // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一）
       const filtered = buildFilteredSnapshot(raw, {
         dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'],
         resetStatusIdle: true, injectThumbnails: false,
+        whitelist: CLONE_WHITELIST,
       });
       const { nodes, edges } = this.remapIds(filtered.nodes, filtered.edges, raw.nodes);
       const project = await this.projectService.create(`${w.title} (副本)`, userId, nodes, edges);
