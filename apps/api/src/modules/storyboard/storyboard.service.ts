@@ -3,11 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { VALID_ASPECT_RATIOS, VALID_RESOLUTIONS, STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
-
-export interface StitchTaskDto {
-  fileIds: string[]; gridRows: number; gridCols: number;
-  aspectRatio: string; showIndex: boolean; resolution: string;
-}
+import { CreateStitchTaskDto } from './storyboard.dto';
 
 @Injectable()
 export class StoryboardService {
@@ -16,7 +12,7 @@ export class StoryboardService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async createStitchTask(projectId: string, dto: StitchTaskDto, userId: string) {
+  async createStitchTask(projectId: string, dto: CreateStitchTaskDto, userId: string) {
     const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('项目不存在');
 
