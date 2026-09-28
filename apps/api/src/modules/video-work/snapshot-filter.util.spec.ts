@@ -271,7 +271,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
   });
 
   it('normalizeNodeRecord：parentId/width/height null → undefined（JSON.stringify 键消失）', () => {
-    const out = normalizeNodeRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null });
+    const out = normalizeNodeRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null } as any);
     expect(JSON.parse(JSON.stringify(out)).parentId).toBeUndefined();
     expect(JSON.parse(JSON.stringify(out)).width).toBeUndefined();
   });
