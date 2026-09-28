@@ -60,7 +60,7 @@ export class CollabDocumentService {
   /** 原 readCanvas 内的读取逻辑抽为纯函数（供复用）。
    *  读侧契约（R1a null 语义分家）：parentId/width/height 恒 `?? null`；position/data 兜底
    *  `?.toJSON()` 可 undefined——坏 doc 直读 c.position.x 会 TypeError，读侧兜底两端同形。
-   *  edges 单形状出 source/target（R1a 收敛——无存量数据一次收成，删 sourceId/targetId 双键名）。 */
+   *  edges 单形状（R1a Task 7 收敛为 source/target——删双键名别名；无存量数据一次收成）。 */
   private readDocCanvas(doc: Y.Doc): { nodes: any[]; edges: any[] } {
     const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
       const m = v as Y.Map<any>;
