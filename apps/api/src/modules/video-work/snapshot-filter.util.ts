@@ -21,6 +21,7 @@ export interface FilterOptions {
   dropIdPrefixes: string[];
   resetStatusIdle: boolean;   // 克隆 true（防"已完成却无产物"）
   injectThumbnails: boolean;  // 快照 true（由调用方在过滤前注入 data.thumbnailUrl，见 Task 5.2）
+  whitelist?: Record<string, string[]>;  // 不传=WHITELIST（快照端）；clone 端传 CLONE_WHITELIST（R0a 分表）
 }
 
 export interface FilteredNode extends RawNode {}
@@ -41,6 +42,28 @@ export const WHITELIST: Record<string, string[]> = {
   videoEdit: [],   // 仅结构字段
   group: ['groupType', 'cells', 'name'],
 };
+
+/** clone 端白名单（spec F21/R0a）：与 snapshot 表唯一差异是 group 9 键。
+ *  R0b 公开模板过滤复用本表（媒体引用剥离政策：克隆与公开模板同款——spec v10 裁决 2）；
+ *  R1a 构建落地后切值导入并删字面量。浅拷贝共享其余数组——只读，勿原地改。 */
+export const CLONE_WHITELIST: Record<string, string[]> = {
+  ...WHITELIST,
+  group: ['groupType', 'cells', 'name', 'storyboard', 'collapsed', 'savedSize', 'nameCustom', 'color', 'manuallyResized'],
+};
+
+/** 信封边界归一单入口（R0b 模板导出/applyWhitelist 尾部共用，R1a 收编 shared nodeEnvelope）：
+ *  parentId/width/height null→undefined（JSON.stringify 键消失）；position/data undefined→兜底。
+ *  注意 cells 的 null 是"空宫格占位"必须保留——本函数只碰信封键，不碰 data 内部。 */
+export function normalizeNodeRecord(n: RawNode): RawNode {
+  return {
+    ...n,
+    parentId: n.parentId ?? undefined,
+    width: n.width ?? undefined,
+    height: n.height ?? undefined,
+    position: n.position ?? { x: 0, y: 0 },
+    data: n.data ?? {},
+  };
+}
 
 /** HTML → 纯文本（红线 2 的服务端半边）：剥全部标签，解码基础实体。
  *  已知边界（第十三轮登记，勿修）：顺序替换存在二次解码——源码字面 `&amp;lt;`（用户想显示 "&lt;"）
@@ -74,7 +97,8 @@ export function ensureParentFirst(nodes: RawNode[]): RawNode[] {
 }
 
 function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
-  const allowed = WHITELIST[node.type] ?? []; // 未知类型默认全剥
+  const table = opts.whitelist ?? WHITELIST; // R0a 分表：不传=快照表，clone 端传 CLONE_WHITELIST
+  const allowed = table[node.type] ?? []; // 未知类型默认全剥
   // 第十一轮：readCanvas 的 data 可为 undefined（collab-document.service.ts:71 ?.toJSON()，节点无 data map 时），
   // `field in undefined` 是 TypeError → /process 500——与 position 兜底（下行）同款归一
   const src: Record<string, unknown> = node.data ?? {};
@@ -104,7 +128,7 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
   // position 兜底：readCanvas 的 position 可 undefined（collab-document.service.ts:70 ?.toJSON()），shared SnapshotNode.position 必填；
   // width/height 归一：readCanvas 是 m.get('width') ?? null（:68-69）→ 实际 number|null，而 RawNode/shared 声明 number|undefined——
   // 在边界把 null 折成 undefined（第十二轮：类型不撒谎，下游 RF 拿到一致的 undefined=未测量）
-  return { ...node, width: node.width ?? undefined, height: node.height ?? undefined, position: node.position ?? { x: 0, y: 0 }, data };
+  return normalizeNodeRecord({ ...node, data });
 }
 
 export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {

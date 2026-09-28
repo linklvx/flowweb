@@ -1,5 +1,5 @@
 import {
-  buildFilteredSnapshot, WHITELIST, stripHtmlToText, ensureParentFirst,
+  buildFilteredSnapshot, WHITELIST, stripHtmlToText, ensureParentFirst, CLONE_WHITELIST, normalizeNodeRecord,
   type RawCanvasData, type FilterOptions,
 } from './snapshot-filter.util';
 import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // api 侧首个值导入（既有 4 处 shared 导入均为 import type 且全在 src 源码——spec 值导入是首例）——仅测试文件、由 vitest/Vite 转译不走 Node 运行时（admin.guard.ts:3-5 注释同款判断；tsconfig exclude **/*.spec.ts，永不进 dist），不违反 C2 Task 7.1 的"API 源码禁值导入"；勿当违规删掉（删了就退回自指清单）。第十一轮留意：属仓内首例，Step 4 跑绿若见 ERR_UNKNOWN_FILE_EXTENSION / Unexpected token 'export'（vite-node 未 inline TS 入口），把清单改为本文件本地常量数组即可（零逻辑改动）
@@ -226,5 +226,62 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       expect(out.nodes[0].data.styleId).toBe('st1');
       expect(out.nodes[0].data.styleName).toBe('胶片');
     }
+  });
+
+  // ↓↓↓ 以下追加进既有外层 describe 内部 ↓↓↓
+
+  it('clone 表 group 保留全部 9 键（R0a）', () => {
+    const input: RawCanvasData = {
+      nodes: [rawNode('g1', 'group', {
+        groupType: 'storyboard', cells: ['n1', null], name: '分镜',
+        storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
+        collapsed: false, savedSize: { width: 100, height: 60 },
+        nameCustom: true, color: 'red', manuallyResized: true,
+      })],
+      edges: [],
+    };
+    const out = buildFilteredSnapshot(input, {
+      dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: true, injectThumbnails: false,
+      whitelist: CLONE_WHITELIST,
+    });
+    expect(Object.keys(out.nodes[0].data).sort()).toEqual(
+      ['cells', 'collapsed', 'color', 'groupType', 'manuallyResized', 'name', 'nameCustom', 'savedSize', 'storyboard'].sort(),
+    );
+  });
+
+  it('不传 whitelist 维持 snapshot 表（group 3 键——F21 载荷收敛不推翻）', () => {
+    const input: RawCanvasData = {
+      nodes: [rawNode('g1', 'group', {
+        groupType: 'storyboard', cells: ['n1'], name: '分镜',
+        storyboard: { aspectRatio: '16:9' }, collapsed: true, savedSize: { width: 1, height: 1 },
+      })],
+      edges: [],
+    };
+    const out = buildFilteredSnapshot(input, base);
+    expect(Object.keys(out.nodes[0].data).sort()).toEqual(['cells', 'groupType', 'name']);
+  });
+
+  it('CLONE_WHITELIST.group 与 shared GROUP_NODE_DATA_KEYS parity（防 R1a 切值导入漏项）', async () => {
+    const { GROUP_NODE_DATA_KEYS } = await import('@flowweb/shared');
+    expect([...CLONE_WHITELIST.group].sort()).toEqual([...GROUP_NODE_DATA_KEYS].sort());
+  });
+
+  it('CLONE_WHITELIST 覆盖全部节点类型（WHITELIST 侧既有 :154-156 已锚定——本条只补 clone 侧对称半边）', () => {
+    for (const t of VIDEO_WORK_NODE_TYPES) expect(Object.keys(CLONE_WHITELIST)).toContain(t);
+  });
+
+  it('normalizeNodeRecord：parentId/width/height null → undefined（JSON.stringify 键消失）', () => {
+    const out = normalizeNodeRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null });
+    expect(JSON.parse(JSON.stringify(out)).parentId).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(out)).width).toBeUndefined();
+  });
+
+  it('normalizeNodeRecord：有值全保留；position undefined → {x:0,y:0}；data undefined → {}', () => {
+    const out = normalizeNodeRecord({ id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' }, width: 320, height: 180 });
+    expect(out.width).toBe(320);
+    expect(out.parentId).toBeUndefined();
+    const out2 = normalizeNodeRecord({ id: 'n1', type: 'textInput', data: undefined, position: undefined } as any);
+    expect(out2.position).toEqual({ x: 0, y: 0 });
+    expect(out2.data).toEqual({});
   });
 });
