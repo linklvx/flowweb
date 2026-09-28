@@ -18,8 +18,8 @@ interface NodeInput {
 
 interface EdgeInput {
   id: string;
-  source?: string;
-  target?: string;
+  source: string;
+  target: string;
 }
 
 @Injectable()
