@@ -10,6 +10,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // F36：main 指 dist 后 dev/vitest/build 会切到 dist（过期=静默注入旧代码）——显式钉 src
+      '@flowweb/shared': path.resolve(__dirname, '../../packages/shared/src'),
     },
   },
   server: {
