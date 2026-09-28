@@ -1,7 +1,8 @@
 import { apiFetch } from './client';
 
-export async function getMediaUrl(fileId: string): Promise<{ url: string }> {
-  const res = await apiFetch<{ url: string }>(`/media/${fileId}/url`);
+export interface MediaUrlResult { url: string; ttlSec: number }
+export async function getMediaUrl(fileId: string): Promise<MediaUrlResult> {
+  const res = await apiFetch<MediaUrlResult>(`/media/${fileId}/url`);
   // Rewrite presigned MinIO URL through same-path proxy to avoid CORS/signature issues
   res.url = (res.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
   return res;

@@ -126,6 +126,8 @@ describe('MediaService', () => {
     await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
     redis.get.mockResolvedValueOnce(JSON.stringify({ url: 'http://x', expiresAt: 'abc' }));
     await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
+    redis.get.mockResolvedValueOnce(JSON.stringify({ expiresAt: Date.now() + 60_000 }));  // 缺 url
+    await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
   });
 
   it('缓存键版本化 v2', async () => {

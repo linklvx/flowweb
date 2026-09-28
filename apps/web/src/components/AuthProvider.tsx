@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { Role } from '@flowweb/shared';
+import { setMediaCacheUserId, clearMediaUrlCache } from '@/utils/mediaUrlCache';  // v4：分层——认证组件不 import 媒体 hook
 
 interface User {
   id: string;
@@ -39,9 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { refresh(); }, []);
 
+  setMediaCacheUserId(user?.id ?? null);   // 渲染期镜像写入（幂等，不触发 React 更新——父 render 先于子树 render/effect）
+
   const logout = async () => {
     await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
     setUser(null);
+    clearMediaUrlCache();                  // 登出显式清空（spec：清空双挂点之一；R2b 补 page.tsx 项目切换分支）
   };
 
   const updateUser = (user: User) => setUser(user);

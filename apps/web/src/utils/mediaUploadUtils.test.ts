@@ -33,7 +33,7 @@ function setupMocks() {
     fields: { Policy: '...', Signature: '...', 'x-amz-credential': '...' },
   });
   mocks.confirmUpload.mockResolvedValue({ fileId: 'file-123' });
-  mocks.getMediaUrl.mockResolvedValue({ url: 'https://cdn.example.com/frames/file-123.jpg' });
+  mocks.getMediaUrl.mockResolvedValue({ url: 'https://cdn.example.com/frames/file-123.jpg', ttlSec: 900 });
   mocks.axiosPost.mockResolvedValue({ status: 200 });
 }
 

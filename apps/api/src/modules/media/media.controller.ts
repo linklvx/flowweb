@@ -13,9 +13,8 @@ export class MediaController {
   ) {}
 
   @Get(':fileId/url')
-  async getUrl(@Req() req: any, @Param('fileId') fileId: string) {
-    const url = await this.mediaService.getMediaUrl(fileId, req.user.id);
-    return { url };
+  async getUrl(@Req() req: any, @Param('fileId') fileId: string): Promise<{ url: string; ttlSec: number }> {
+    return this.mediaService.getMediaUrl(fileId, req.user.id); // 透传（旧 { url } 包装删除）
   }
 
   @Get('by-key')
