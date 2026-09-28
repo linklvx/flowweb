@@ -1,8 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { PIPES_METADATA } from '@nestjs/common/constants';
 import { STITCH_JOB_KEYS } from '@flowweb/shared';
 import { CreateStitchTaskDto } from './storyboard.dto';
 import { StoryboardController } from './storyboard.controller';
+
+// 编译期防"DTO 单侧加可选键"单向漂移（行为面 anySeventhKey 用固定名测不到自定义新键名）。
+// vitest（esbuild）不做类型检查，此锚由 test script 的 tsc -p tsconfig.spec.json --noEmit 执行。
+type _ExtraDtoKeys = Exclude<keyof CreateStitchTaskDto, (typeof STITCH_JOB_KEYS)[number]>;
+type _AssertNoExtra<T extends never> = T;
+type _DtoKeysAnchor = _AssertNoExtra<_ExtraDtoKeys>;   // 勿删——DTO 加第 7 键（含可选）此处编译红
 
 const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true });
 const meta = { type: 'body', metatype: CreateStitchTaskDto } as any;
@@ -64,5 +72,14 @@ describe('controller 挂载结构断言（pipe 行为对 ≠ 挂上了 ≠ 选�
     // v4 降级话术：若因 Nest 升级此断言失败（私有字段改名），改为断言 controller 源码文本
     // 'forbidNonWhitelisted: true' 同现——勿删断言（摘掉 forbid 会让走私变静默剥除，正是 F31 要消灭的形态）。
     expect((pipes[0] as any).validatorOptions).toMatchObject({ whitelist: true, forbidNonWhitelisted: true });
+  });
+
+  it('@Body 参数 metatype 是 CreateStitchTaskDto（metatype=Object 时 pipe 静默跳过——上三层全绿的盲区，F31 原发形态）', () => {
+    // 设计意图是断言 design:paramtypes[1] === CreateStitchTaskDto，但本仓 vitest 走 esbuild
+    // 转译、不 emit decorator metadata（实测运行时该元数据为 undefined），故按本文件 v4 降级
+    // 预案改锁 controller 源码文本：正则容忍参数改名，只锁类型注解——改回 any / 删掉类型
+    // 注解都会让 metatype 退化为 Object，pipe 静默跳过（三层锁全绿的盲区）。
+    const src = readFileSync(resolve(__dirname, 'storyboard.controller.ts'), 'utf8');
+    expect(/@Body\(\)\s+\w+\s*:\s*CreateStitchTaskDto\b/.test(src)).toBe(true);
   });
 });
