@@ -239,6 +239,7 @@ export async function initCollab(projectId: string): Promise<void> {
 
   const snap = loadSnapshot(projectId);
   if (snap && !isEmptySnapshot(snap)) {
+    // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5
     fillDoc(doc, Object.values(snap.nodes), snap.edges ?? []);
   }
 

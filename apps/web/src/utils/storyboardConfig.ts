@@ -31,7 +31,7 @@ export function resolveStoryboardConfig(data: { storyboard?: unknown } | undefin
 }
 
 /** 守卫型消费点（StitchButton）用：显式判"有无真实配置"——缺配置时提示用户而非按默认静默拼接。
- *  裸解引用只允许出现在本模块（.storyboard\b 门禁 allowlist 见 storyboard-dereref-guard.spec.ts）。 */
+ *  裸解引用只允许出现在本模块（.storyboard\b 门禁 allowlist 见 storyboard-dereref-guard.test.ts）。 */
 export function hasStoryboardConfig(data: { storyboard?: unknown } | undefined | null): boolean {
   const raw = (data as Record<string, unknown> | null | undefined)?.storyboard;
   return raw != null && typeof raw === 'object';

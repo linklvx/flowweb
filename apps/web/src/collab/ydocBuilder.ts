@@ -30,6 +30,7 @@ export function fillDoc(doc: Y.Doc, nodes: PlainNode[], edges: PlainEdge[]): voi
   for (const n of nodes) {
     const m = new Y.Map();
     m.set('type', n.type);
+    // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5
     if (n.parentId != null) m.set('parentId', n.parentId);
     if (n.width != null) m.set('width', n.width);
     if (n.height != null) m.set('height', n.height);
