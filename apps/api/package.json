@@ -3,9 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "nest start --watch",
-    "build": "nest build",
-    "test": "tsc -p tsconfig.spec.json --noEmit && vitest run",
+    "dev": "node ../../scripts/check-shared-dist.mjs && nest start --watch",
+    "build": "node ../../scripts/check-shared-dist.mjs && nest build",
+    "test": "node ../../scripts/check-shared-dist.mjs && tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "backfill:team": "tsx scripts/backfill-team.ts"
