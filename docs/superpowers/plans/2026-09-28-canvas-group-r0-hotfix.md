@@ -282,7 +282,9 @@ it('CLONE_WHITELIST 覆盖全部节点类型（WHITELIST 侧既有 :154-156 已�
 });
 
 it('normalizeNodeRecord：parentId/width/height null → undefined（JSON.stringify 键消失）', () => {
-  const out = normalizeNodeRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null });
+  // v5.1 errata（执行期发现）：RawNode 的 width/height 是 ??: number 不含 null——裸 null 字面量 TS2322
+  // 挂包级 test 脚本 tsc 先行门（同文件 :178 as any 先例）；parentId 是 string | null 无需 cast
+  const out = normalizeNodeRecord({ id: 'n1', type: 'group', position: { x: 1, y: 2 }, data: {}, parentId: null, width: null, height: null } as any);
   expect(JSON.parse(JSON.stringify(out)).parentId).toBeUndefined();
   expect(JSON.parse(JSON.stringify(out)).width).toBeUndefined();
 });
@@ -336,7 +338,7 @@ export function normalizeNodeRecord(n: RawNode): RawNode {
 
 3c. `applyWhitelist` 内取表处改 `const table = opts.whitelist ?? WHITELIST;`（原 `WHITELIST[node.type]` 引用全部改 `table[node.type]`）。
 
-3d. `applyWhitelist` 尾部 return（:107 现状 `{ ...node, width: node.width ?? undefined, ... }`）改为 `return normalizeNodeRecord({ ...node, data });`——**消灭双归一化器**（一处改两处漏的坑）。
+3d. `applyWhitelist` 尾部 return（:107 现状 `{ ...node, width: node.width ?? undefined, ... }`）改为 `return normalizeNodeRecord({ ...node, data });`——**消灭双归一化器**（一处改两处漏的坑）。**行为差异登记（v5.1）：** 旧 return 不碰 parentId——readCanvas 对无父节点返回 `parentId: null`（collab-document.service.ts:67），旧快照/克隆输出带 `"parentId": null`，新输出该键消失；消费面已核安全（克隆链 project.service.ts:65 与 web ydocBuilder.ts:33 均是 `!= null` 守卫，null/undefined 同 treatment）——属"消双归一化器"的直接后果与 width/height 同款的有益对齐，非事故。
 
 - [ ] **Step 4: 跑测试确认通过（含既有快照/克隆口径用例零回归）**
 
