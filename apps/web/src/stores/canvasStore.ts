@@ -17,6 +17,7 @@ import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
+import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
 /** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore） */
 function syncGroupDataToNodeStore(groupId: string) {
@@ -852,7 +853,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const gp = group.position;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
     if (gd.groupType === 'storyboard') {
-      const cfg = gd.storyboard;
+      const cfg = resolveStoryboardConfig(gd);
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
       set((st) => ({
@@ -970,7 +971,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const gd = group.data as any;
     if (gd.groupType !== 'storyboard') return;
 
-    const cfg = gd.storyboard as StoryboardConfig;
+    const cfg = resolveStoryboardConfig(gd);
     const capacity = cfg.gridRows * cfg.gridCols;
     const cells = [...(gd.cells ?? [])];
     const gp = group.position;
@@ -1209,14 +1210,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }));
     } else {
       // 分镜组 → 普通组：cells 顺序网格重排
-      const cfg = gd.storyboard;
+      const cfg = resolveStoryboardConfig(gd);
       const cellW = CELL_WIDTH;
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
-          const idx = gd.cells.indexOf(n.id);
+          const idx = (gd.cells ?? []).indexOf(n.id);
           if (idx === -1 || n.parentId !== groupId) return n;
           const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
           return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
@@ -1304,7 +1305,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     set((st) => ({
       nodes: st.nodes.map((n) => {
         if (n.id !== groupId) return n;
-        const cfg = { ...(n.data as any).storyboard, ...patch };
+        const cfg = resolveStoryboardConfig({ storyboard: { ...resolveStoryboardConfig(n.data), ...patch } });
         const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
         return { ...n, width: size.width, height: size.height, data: { ...n.data, storyboard: cfg } };
       }),
@@ -1329,7 +1330,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       nodes: st.nodes.map((n) => {
         // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
         if (n.id === groupId) {
-          const cfg = { ...gd.storyboard, gridRows: rows, gridCols: cols };
+          const cfg = { ...resolveStoryboardConfig(gd), gridRows: rows, gridCols: cols };
           const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
           return { ...n, width: size.width, height: size.height, data: { ...gd, cells: keep, storyboard: cfg } };
         }
