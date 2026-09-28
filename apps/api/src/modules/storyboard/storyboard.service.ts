@@ -40,7 +40,16 @@ export class StoryboardService {
     if (dto.fileIds.some((f) => !found.has(f))) {
       throw new BadRequestException('存在无效或不属于该项目的图片');
     }
-    const job = await this.stitchQueue.add('stitch', { projectId, userId, ...dto });
+    const job = await this.stitchQueue.add('stitch', {
+      projectId,
+      userId,
+      fileIds: dto.fileIds,
+      gridRows: dto.gridRows,
+      gridCols: dto.gridCols,
+      aspectRatio: dto.aspectRatio,
+      showIndex: dto.showIndex,
+      resolution: dto.resolution,
+    });
     return { taskId: job.id!, status: 'PENDING' };
   }
 

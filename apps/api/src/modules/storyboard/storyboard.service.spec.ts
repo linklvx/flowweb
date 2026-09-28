@@ -55,6 +55,20 @@ describe('StoryboardService.createStitchTask', () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
     await expect(service.createStitchTask('nope', validBody, 'u1')).rejects.toThrow(/不存在/);
   });
+
+  it('job payload 恰含 8 键且全部来自白名单字段——显式 pick（R0d③，免疫未来 DTO 加敏感字段）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.media.findMany.mockResolvedValue([{ id: 'f1' }]);
+    await service.createStitchTask('p1', {
+      fileIds: ['f1'], gridRows: 1, gridCols: 1, aspectRatio: '16:9', showIndex: false, resolution: '2K',
+      ...( { secretField: 'leak' } as any),
+    }, 'u1');
+    expect(stitchQueue.add).toHaveBeenCalled(); // 模块级 const stitchQueue（本文件 :4）
+    const payload = stitchQueue.add.mock.calls[0][1];
+    expect(Object.keys(payload).sort()).toEqual(
+      ['aspectRatio', 'fileIds', 'gridCols', 'gridRows', 'projectId', 'resolution', 'showIndex', 'userId'].sort(),
+    );
+  });
 });
 
 describe('StoryboardService.getTaskStatus', () => {
