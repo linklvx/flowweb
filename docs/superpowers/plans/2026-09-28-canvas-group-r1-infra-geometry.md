@@ -1011,10 +1011,10 @@ describe('projectCanvasNodes（几何取 cs、data 按所有权分型）', () =>
     expect(out2[0].data).toEqual({ content: 'x' });
   });
 
-  it('几何：width ?? measured.width；输出经 normalizeCanvasRecord（写侧真删键——无 null 键）', () => {
+  it('几何：width ?? null（不含 measured——v6 纪律三：渲染期量→doc 漂移源）；输出经 normalizeCanvasRecord（写侧真删键——无 null 键）', () => {
     const cs = [{ id: 'a', type: 'group', position: { x: 10, y: 20 }, parentId: null, width: undefined, height: 100, measured: { width: 280, height: 120 }, data: {} }];
     const out = projectCanvasNodes(cs as any, {} as any);
-    expect(out[0].width).toBe(280);
+    expect(out[0].width).toBeUndefined();   // width 缺→真删键→undefined 而非 null/measured
     expect(Object.keys(out[0]).includes('parentId')).toBe(false);
   });
 });

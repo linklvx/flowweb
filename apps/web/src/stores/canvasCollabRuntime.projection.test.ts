@@ -16,7 +16,9 @@ describe('G3 读 doc 断言（F42 投影分型）', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
     ] as any, edges: [] });
-    // ns：陈旧组 data（groupNodes/mergeStoryboard 的 ns.addNode 写入的旧形态——aspectRatio 16:9）
+    // ns：陈旧组 data（groupNodes/mergeStoryboard 的 ns.addNode 写入的旧形态——aspectRatio 16:9）。
+    // 夹具必须摆"陈旧 ns"而非缺席：旧投影 ns 缺席时 `?? nd.data` 回落 cs 新值 → 现状也绿，红相论证倒塌。
+    // （Task 11 删镜像后 ns 无组 data——本夹具是历史污染机制的实证装置，勿以"冗余"删）
     useNodeStore.setState({ nodes: {
       g1: { id: 'g1', type: 'group', data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
     } as any });
