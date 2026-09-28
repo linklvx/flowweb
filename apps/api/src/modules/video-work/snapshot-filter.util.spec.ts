@@ -2,7 +2,7 @@ import {
   buildFilteredSnapshot, WHITELIST, stripHtmlToText, ensureParentFirst, CLONE_WHITELIST, normalizeNodeRecord,
   type RawCanvasData, type FilterOptions,
 } from './snapshot-filter.util';
-import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // api 侧首个值导入（既有 4 处 shared 导入均为 import type 且全在 src 源码——spec 值导入是首例）——仅测试文件、由 vitest/Vite 转译不走 Node 运行时（admin.guard.ts:3-5 注释同款判断；tsconfig exclude **/*.spec.ts，永不进 dist），不违反 C2 Task 7.1 的"API 源码禁值导入"；勿当违规删掉（删了就退回自指清单）。第十一轮留意：属仓内首例，Step 4 跑绿若见 ERR_UNKNOWN_FILE_EXTENSION / Unexpected token 'export'（vite-node 未 inline TS 入口），把清单改为本文件本地常量数组即可（零逻辑改动）
+import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // 测试文件值导入（vitest 转译；tsconfig exclude **/*.spec.ts，永不进 dist）。生产源码值导入自 R1a 起合法（shared main→dist CJS 真构建+内联 check-shared-dist 门禁，见 admin.guard.ts:3-4 注释）——勿删本导入（:154-156/:269-271 键集锚定依赖，删了退回自指清单）
 
 const rawNode = (id: string, type: string, data: Record<string, unknown>, extra: any = {}) =>
   ({ id, type, position: { x: 0, y: 0 }, data, ...extra });

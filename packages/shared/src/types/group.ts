@@ -21,7 +21,7 @@ export interface GroupNodeDataShape {
 
 /** 组节点 data 克隆/公开过滤白名单单源（注意：是"过滤契约键"，非组 data 全集——
  *  store 实际还写 aspectRatio/customSize 等运行键，不在此表、克隆会剥，属预期）。
- *  API 生产源码暂用字面量（F36），R1a 构建后切值导入。 */
+ *  API 生产源码已切值导入（snapshot-filter.util.ts 的 CLONE_WHITELIST.group 用 [...GROUP_NODE_DATA_KEYS]）。 */
 export const GROUP_NODE_DATA_KEYS = [
   'groupType', 'cells', 'name', 'storyboard', 'collapsed',
   'savedSize', 'nameCustom', 'color', 'manuallyResized',
