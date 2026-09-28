@@ -3,7 +3,7 @@
 - 日期：2026-09-28（评审修订版，替代同日初版下半部分）
 - 状态：待用户审阅
 - 范围：需求 5（组内节点拖出 + 组框动态跟随）/ 6（+号输出按钮）/ 7（拖拽批量连线 + 点击建点）
-- 前置：Spec A（`2026-09-28-canvas-group-ui-upgrade-design.md`）——其**纯函数层与本篇无相互依赖可并行**；本篇交互层依赖 A 落地的 `normalizeSelection`（三桶）、`refitGroupGeometry`（守恒 primitive，A 因 arrangeGroupChildren 先行实现）、`writePositions`（nodeStore 镜像 helper）
+- 前置：Spec A（`2026-09-28-canvas-group-ui-upgrade-design.md`）——其**纯函数层与本篇无相互依赖可并行**；本篇交互层依赖 A 前置单元落地的 `normalizeSelection`+`participation` 策略表（三桶）、`refitGroupGeometry/applyGroupFrame`（守恒 primitive+唯一几何写者）、几何镜像结构性订阅（canvasStore→nodeStore，替代手动镜像）
 - 本篇为**组几何所有权语义变更**：组 position/width/height 从"作者态"变为"由子节点派生态"，须与 manuallyResized / collapsed / savedSize / refitExpandedGroups / 快照恢复五个既有机制重新对表（初版 spec 的 §4.3 经三份外部评审 + 代码实证判定为算法性错误，本篇为其重写）
 
 ## 1. 已证实的机制约束（本篇的地基事实）
@@ -20,7 +20,7 @@
 | F8 | `findDropGroup` 对 parentId 非空直接 return null（跨组移动现不可能）；`addEdge` 只按 id 幂等、同源判重在 `onConnect`；`removeNodeFromGroup(groupId,nodeId)` 已存在（无 refit）；`deleteNode` 删空组走 `ungroup`（实证无递归） | groupDrop.ts:5、canvasStore.ts:471-478/:598-604/:909-925/:246-250 |
 | F9 | 折叠组/分镜组子节点恒 hidden（deriveHidden）；边随端点 hidden；`ImageGenNode` source handle 条件渲染（!editMode） | groupDerive.ts、ImageGenNode.tsx:1140+ |
 | F10 | `absoluteRectsOf` 已做绝对坐标累加 + 过滤组节点（不过滤 hidden）；`DRAG_THRESHOLD_PX=5` 已存在；isLocked 画布锁定门禁已有 | handleMenu.ts:23-49/:6、CanvasView.tsx |
-| F11 | TD-Pos：position→nodeStore 镜像只在 onNodesChange；快照存 nodeStore 且 initCollab 先 fillDoc 进 ydoc——**本篇逐帧 refit 写组 position 同样必须镜像**（经 Spec A 的 writePositions helper），否则拖动后的组几何在刷新/CRDT 合并后回退 | canvasStore.ts:561-578、useCanvasPersistence.ts:105、canvasCollabRuntime.ts:240-243 |
+| F11 | TD-Pos：position→nodeStore 镜像只在 onNodesChange；快照存 nodeStore 且 initCollab 先 fillDoc 进 ydoc——**本篇逐帧 refit 写组 position 同样必须镜像**（经 Spec A 前置单元的几何镜像结构性订阅自动覆盖），否则拖动后的组几何在刷新/CRDT 合并后回退 | canvasStore.ts:561-578、useCanvasPersistence.ts:105、canvasCollabRuntime.ts:240-243 |
 
 ## 2. 已拍板口径（用户确认）
 
@@ -75,7 +75,7 @@ shouldAutoRefit(group) ⇔ groupType==='normal' && !collapsed   // manuallyResiz
    - outside → 成员 = S，`refitGroupGeometry` 对 S（组框不再框住 C，用户看见"可以脱出"）；S 为空 → 组框不动
 4. dimensions 变更同样触发（子节点加载元数据变大也框住，评审实证遗漏项）
 5. 分镜组子节点跳过
-6. 每帧 set 经 `writePositions`（Spec A helper）镜像 nodeStore position（F11——组几何与子 rel 均在镜像面内）
+6. 每帧 set 的组几何与子 rel 经几何镜像结构性订阅（Spec A 前置单元）自动同步 nodeStore（F11）
 
 **松手（onNodeDragStop）时序（顺序写死，防 findDropGroup 吃掉拖出/跨组语义）**：
 1. 对被拖普通组子节点：`decideGroupMembership`（vs siblings）为 outside → **先脱离**：扩展 `removeNodeFromGroup`（补：脱离后组对剩余成员 refit 守恒 + `syncGroupDataToNodeStore`）
