@@ -101,6 +101,16 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     expect(() => useCanvasStore.getState().convertGroup('g1', 'normal')).not.toThrow();
   });
 
+  it('convertGroup：cells 缺失但有子节点——:1220 守卫半边可连性（旧代码 gd.cells.indexOf 此处 TypeError）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, parentId: undefined, data: { groupType: 'storyboard' } }, // 无 storyboard 且无 cells
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any, edges: [] });
+    expect(() => useCanvasStore.getState().convertGroup('g1', 'normal')).not.toThrow();
+    const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
+    expect(img).toBeDefined();   // 子节点未被删除（守卫跳过网格重排，节点保持）
+  });
+
   it('convertGroup(g1, normal)：有 cells 时子节点按 resolver 提供的网格重排（守 resolver 输出口径，v5 判别力修正）', () => {
     // v5：img1 放第二槽——idx=0 时 col 恒 0、x 恒 0，原 isFinite(x) 断言恒真零判别力；
     // idx=1 + resolver 默认 gridCols=1 → row=1 → y = 1*(Math.round(320/(16/9)) + CONVERT_GAP) = 1*(180+40) = 220。
@@ -119,6 +129,13 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     expect(Number.isFinite(g.height)).toBe(true);
     expect((ASPECT_RATIOS as readonly string[])).toContain((g.data as any).storyboard.aspectRatio);
     expect(Number.isInteger((g.data as any).storyboard.gridRows)).toBe(true);
+  });
+
+  it('updateStoryboardConfig：patch 带 NaN 被外层归一钳制（双层设计的直接断言——简化回单层必红）', () => {
+    useCanvasStore.getState().updateStoryboardConfig('g1', { gridRows: Number.NaN } as any);
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
+    expect(Number.isFinite((g.data as any).storyboard.gridRows)).toBe(true);
+    expect((g.data as any).storyboard.gridRows).toBe(1);   // NaN → clampInt 回退 DEFAULT.gridRows=1
   });
 
   it('resizeStoryboardGrid：同上全维（NaN 面⑦；v3 简化——rows/cols 为受控数值，单层归一即可）', () => {
