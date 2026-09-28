@@ -11,6 +11,7 @@ import { pickStructNodes, pickStructEdges } from './canvasHistory';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import type { CanvasNodeRecord } from '@flowweb/shared';
+import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
 import { isAutoEdgeId } from './autoEdgeIds';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
@@ -35,6 +36,11 @@ let provider: HocuspocusProvider | null = null;
 let awarenessBridge: AwarenessBridge | null = null;
 let unbindStores: (() => void) | null = null;
 
+/** 测试缝（只读）：读 doc 断言用。勿用于业务逻辑——业务走订阅。 */
+export function getDoc(): Y.Doc | null {
+  return doc;
+}
+
 /** 当前协作会话的 awareness 桥（无连接时 null，视图层按需判空） */
 export function getAwareness(): AwarenessBridge | null {
   return awarenessBridge;
@@ -57,29 +63,22 @@ let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let currentPid: string | null = null;
 
 /** store 结构投影（canvasStore 为基准 + nodeStore data，与旧 buildSyncPayload 同形）。
+ *  data 按所有权分型（F42）委托 projectCanvasNodes 单源——组取 cs/普通节点取 ns+回落。
  *  断言说明：NodeData interface 无隐式索引签名，不结构兼容 Record<string, unknown>——
  *  运行时 data 就是普通对象，消费侧（fillDoc/applyRecordToYMap 只做 Object.entries）安全 */
 function storeProjection() {
   const cs = useCanvasStore.getState();
   const ns = useNodeStore.getState();
   return {
-    nodes: cs.nodes.map((nd: any) => ({
-      id: nd.id,
-      type: nd.type || 'videoGen',
-      parentId: nd.parentId ?? null,
-      position: nd.position,
-      width: nd.width ?? null,
-      height: nd.height ?? null,
-      data: (ns.nodes[nd.id]?.data ?? nd.data) as unknown as Record<string, unknown>,
-    })),
+    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any),
     edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   };
 }
 
-/** 差异转 ydoc 事务（细粒度：新增/删除按 id，更新逐键；position 独立子 Map；data 逐键） */
-function syncStoreToDoc(origin: string) {
-  const d = doc;
-  if (!d) return;
+/** 差异转 ydoc 事务（细粒度：新增/删除按 id，更新逐键；position 独立子 Map；data 逐键）。
+ *  差异转 ydoc 事务——doc 显式形参化（syncAutoEdgesToDoc 同款先例）：bindBridge 内传模块 doc，
+ *  测试直接 new Y.Doc() 驱动（G3/W7 红转绿门槛的装置基础）。 */
+export function syncStoreToDoc(d: Y.Doc, origin: string) {
   const { nodes, edges } = storeProjection();
   const nodesMap = d.getMap('nodes');
   const edgesMap = d.getMap('edges');
@@ -173,10 +172,8 @@ export function isShadowOnlyEvents(events: Y.YEvent<any>[], nodesMap: Y.Map<any>
   return true;
 }
 
-/** server doc → store（hydrate 模式，远端变更不入 undo 栈） */
-function applyDocToStore() {
-  const d = doc;
-  if (!d) return;
+/** server doc → store——同款形参化（undo/乒乓断言的读回驱动） */
+export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   useCanvasStore.setState({
     nodes: hydrateNodes(nodes.map((n: any) => ({
@@ -208,12 +205,12 @@ function bindBridge(): () => void {
       || !isEqual(pickStructEdges(state.edges), pickStructEdges(prev.edges));
     if (changed) {
       syncAutoEdgesToDoc(doc!); // 先 auto 边对账（覆盖删节点级联留孤儿场景），再常规同步（其内部已跳过 auto 前缀）
-      syncStoreToDoc(Origin.LocalUser);
+      syncStoreToDoc(doc!, Origin.LocalUser);
     }
   });
   const unsubNs = useNodeStore.subscribe((state, prev) => {
     if (useCanvasStore.getState().isHydrating) return;
-    if (state.nodes !== prev.nodes) syncStoreToDoc(Origin.LocalUser);
+    if (state.nodes !== prev.nodes) syncStoreToDoc(doc!, Origin.LocalUser);
   });
   return () => { unsubCs(); unsubNs(); };
 }
@@ -257,7 +254,7 @@ export async function initCollab(projectId: string): Promise<void> {
 
   useCanvasStore.setState({ connStatus: 'connected' });
   useCanvasStore.getState().setHydrating(true);
-  applyDocToStore();
+  applyDocToStore(doc!);
   useCanvasStore.getState().setHydrating(false);
 
   const onRemote = (events: any[]) => {
@@ -269,7 +266,7 @@ export async function initCollab(projectId: string): Promise<void> {
     remoteApplyTimer = setTimeout(() => {
       if (currentPid !== projectId) return;
       useCanvasStore.getState().setHydrating(true);
-      applyDocToStore();
+      applyDocToStore(doc!);
       useCanvasStore.getState().setHydrating(false);
     }, 50);
   };
