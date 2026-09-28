@@ -7,6 +7,24 @@ import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import type { Template } from '@prisma/client';
+
+// v5 字段口径：teamId/projectId/folderId 显式 null——falsy 使 getTemplate/update 的 OR 鉴权链行为
+// 与现状 spread 完全一致（勿填 'team1' 等真值，会改变既有 Forbidden 用例的 mock 调用链）；
+// templateData 补 version:1（骨架用例照抄既有模式时不再踩 Zod 红相归因）。
+const templateFixture = {
+  id: 't1', name: 'Test Template', isPublic: true, userId: 'creator',
+  teamId: null, projectId: null, folderId: null,
+  description: null, coverUrl: null, dataUrl: null,
+  status: 'SAVED', category: null, importCount: 0,
+  createdAt: new Date(), updatedAt: new Date(),
+  templateData: {
+    version: 1,
+    nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { text: 'hi' } }],
+    edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  },
+};
 
 describe('TemplateService', () => {
   let service: TemplateService;
@@ -302,14 +320,7 @@ describe('TemplateService', () => {
   });
 
   describe('import', () => {
-    const validTemplate = {
-      id: 't1', name: 'Test Template', isPublic: true, userId: 'creator',
-      templateData: {
-        nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { text: 'hi' } }],
-        edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
-        viewport: { x: 0, y: 0, zoom: 1 },
-      },
-    };
+    const validTemplate = templateFixture;
 
     it('should import public template and create project', async () => {
       prisma.template.findUnique.mockResolvedValue(validTemplate);
@@ -412,6 +423,117 @@ describe('TemplateService', () => {
       (folderService.touch as any).mockClear();
       await service.update('t1', { isPublic: true } as any, 'u1');
       expect(folderService.touch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('读侧收敛（v10 裁决 2 第 ⑤ 点——公开行 templateData 等同公开载荷）', () => {
+    it('findMany（community）响应剥 templateData 且其余模型字段全在（Prisma 类型夹具——编译期强制零手抄）', async () => {
+      // v4：const fullRow: Template 类型标注——漏字段/多字段 tsc 红（Prisma 生成类型精确非 Partial）
+      const fullRow: Template = { id: 't1', name: 'T', description: null, coverUrl: null, dataUrl: null, templateData: { version: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }, folderId: null, projectId: null, status: 'SAVED', userId: 'other', teamId: null, isPublic: true, importCount: 0, category: 'COMMUNITY', createdAt: new Date(), updatedAt: new Date() };
+      // v5：status 必须 'SAVED'（枚举仅 DRAFT/SAVED——'PUBLISHED' 会 TS2322 挂 tsc）
+      prisma.template.findMany.mockResolvedValue([fullRow]);
+      const out = await service.findMany({ type: 'community', page: 1, limit: 10 } as any, 'other-user');
+      expect('templateData' in out.templates[0]).toBe(false);
+      for (const k of Object.keys(fullRow).filter((x) => x !== 'templateData')) {
+        expect(k in out.templates[0]).toBe(true);
+      }
+      // v4：防将来改回 select 漏字段（select 是上轮真实事故形态；mock 无视 select 实参，需显式锁）
+      expect(prisma.template.findMany).toHaveBeenCalledWith(
+        expect.not.objectContaining({ select: expect.anything() }),
+      );
+    });
+
+    it('getTemplate 非 owner 剥 templateData；owner 仍含', async () => {
+      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'owner-1', templateData: { version: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } });
+      const other = await service.getTemplate('t1', 'other-user');
+      expect('templateData' in other).toBe(false);
+      const owner = await service.getTemplate('t1', 'owner-1');
+      expect(owner.templateData).toBeDefined();
+    });
+  });
+
+  describe('导入侧展开式+cells 两遍重映射+跨用户过滤（R0b）', () => {
+    it('三键存续且 parentId/cells 重映射到新 id（第三站点 F29）', async () => {
+      prisma.template.findUnique.mockResolvedValue({
+        ...templateFixture, isPublic: true, userId: 'other',
+        templateData: {
+          version: 1,
+          nodes: [
+            { id: 'g1', type: 'group', position: { x: 10, y: 10 }, width: 300, height: 200, data: { groupType: 'normal', cells: ['c1'] } },
+            { id: 'c1', type: 'imageGen', position: { x: 20, y: 20 }, parentId: 'g1', width: 100, height: 60, data: { prompt: 'x' } },
+          ],
+          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      const group = nodes.find((n: any) => n.type === 'group');
+      const child = nodes.find((n: any) => n.type === 'imageGen');
+      expect(group.width).toBe(300);                      // 现状 undefined——必红
+      expect(child.parentId).toBe(group.id);              // 重映射到新组 id——现状丢 parentId 必红
+      expect(group.data.cells[0]).toBe(child.id);         // cells 两遍重映射——现状悬空旧 id 必红
+    });
+
+    it('残缺模板行（缺 nodes/edges）导入 → 400 业务文案而非 TypeError 冒泡', async () => {
+      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'other', templateData: { version: 1 } });
+      await expect(service.import('t1', 'user-2')).rejects.toThrow('模板数据为空');
+    });
+
+    it('cells 引用靠后节点不被误判悬空（两遍——边建边用会 null）', async () => {
+      prisma.template.findUnique.mockResolvedValue({
+        ...templateFixture, isPublic: true, userId: 'other',
+        templateData: {
+          version: 1,
+          nodes: [
+            { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: ['c1', 'c2'] } },
+            { id: 'c1', type: 'imageGen', position: { x: 5, y: 5 }, parentId: 'g1', data: { prompt: 'a' } },
+            { id: 'c2', type: 'imageGen', position: { x: 50, y: 50 }, parentId: 'g1', data: { prompt: 'b' } },
+          ],
+          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      const group = nodes.find((n: any) => n.type === 'group');
+      const c1 = nodes.find((n: any) => n.data.prompt === 'a');
+      const c2 = nodes.find((n: any) => n.data.prompt === 'b');
+      expect(group.data.cells[0]).toBe(c1.id);            // 现状悬空旧 id 'c1'——必红
+      expect(group.data.cells[1]).toBe(c2.id);            // 现状悬空旧 id 'c2'——必红
+    });
+
+    it('跨用户导入公开模板：媒体引用剥+status 归一 idle+结构保留（v9 裁决③）', async () => {
+      prisma.template.findUnique.mockResolvedValue({
+        ...templateFixture, isPublic: true, userId: 'other',
+        templateData: {
+          version: 1,
+          nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x', fileId: 'f1', status: 'done' } }],
+          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      const img = nodes.find((n: any) => n.type === 'imageGen').data;
+      expect(img.fileId).toBeUndefined();                 // 现状 'f1' 原样透传——必红
+      expect(img.status).toBe('idle');                    // 现状 'done'——必红
+      expect(img.prompt).toBe('x');
+    });
+
+    it('作者导入自己的公开模板：全量不过滤（isPublic && userId!==owner 才滤）', async () => {
+      prisma.template.findUnique.mockResolvedValue({
+        ...templateFixture, isPublic: true, userId: 'user-2',
+        templateData: {
+          version: 1,
+          nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x', fileId: 'f1', status: 'done' } }],
+          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      expect(nodes[0].data.fileId).toBe('f1');            // 作者路径全量保留（现状亦绿——防 Task 12 过滤波及作者）
     });
   });
 });

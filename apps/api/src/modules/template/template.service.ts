@@ -6,8 +6,9 @@ import { validateTemplateData } from './template.validation';
 import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { assertTeamMember } from '../team/team.util';
+import { buildFilteredSnapshot, CLONE_WHITELIST, ensureParentFirst } from '../video-work/snapshot-filter.util';
 import { OFFICIAL_USER_ID, TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
-import type { TemplateCategory } from '@prisma/client';
+import type { TemplateCategory, Template } from '@prisma/client';
 
 interface TemplateListQuery {
   type?: 'official' | 'my' | 'community';
@@ -95,8 +96,10 @@ export class TemplateService {
       this.prisma.template.count({ where }),
     ]);
 
+    // 读侧收敛（v10 裁决 2 第 ⑤ 点）：剥 templateData 单键、其余模型字段全量下发（解构剥键——
+    // 模型将来加字段自动跟随，杜绝 select 反推漏字段类回归）；公开行的 templateData 等同公开载荷
     const result = {
-      templates: templates.map((t) => ({ ...t, isOwner: t.userId === userId })),
+      templates: templates.map(({ templateData, ...t }) => ({ ...t, isOwner: t.userId === userId })),
       total,
       page,
       limit,
@@ -113,7 +116,11 @@ export class TemplateService {
     return template;
   }
 
-  async getTemplate(id: string, userId: string) {
+  /** 读侧收敛后返回形：owner=全字段；非 owner 剥 templateData（键不存在——故类型上可选，运行时缺键） */
+  async getTemplate(
+    id: string,
+    userId: string,
+  ): Promise<Omit<Template, 'templateData'> & { templateData?: Template['templateData']; isOwner: boolean }> {
     const template = await this.findById(id);
     if (!template.isPublic && template.userId !== userId) {
       // 鉴权为 OR 关系：团队成员 OR 项目显式协作者任一通过即放行。
@@ -133,7 +140,10 @@ export class TemplateService {
       }
       if (!allowed) throw new ForbiddenException('无权访问此模板');
     }
-    return { ...template, isOwner: template.userId === userId };
+    const { templateData, ...rest } = template;
+    return template.userId === userId
+      ? { ...template, isOwner: true }
+      : { ...rest, isOwner: false };
   }
 
   async update(id: string, input: UpdateTemplateInput, userId: string) {
@@ -221,7 +231,22 @@ export class TemplateService {
         throw new BadRequestException('模板数据为空，无法导入');
       }
 
-      const projectData = JSON.parse(JSON.stringify(template.templateData));
+      let projectData = JSON.parse(JSON.stringify(template.templateData));
+      // v3：守卫前置——残缺行（缺 nodes/edges）在过滤前 fail-closed 成 400 业务文案
+      if (!Array.isArray(projectData?.nodes) || !Array.isArray(projectData?.edges)) {
+        throw new BadRequestException('模板数据为空，无法导入');
+      }
+      // 跨用户导入过滤（v9 裁决③：覆盖"私有→后公开"旧行）
+      if (template.isPublic && template.userId !== userId) {
+        const filtered = buildFilteredSnapshot(
+          {
+            nodes: projectData.nodes,
+            edges: projectData.edges.map((e: any) => ({ id: e.id, sourceId: e.source, targetId: e.target })),
+          },
+          { dropTypes: [], dropIdPrefixes: [], resetStatusIdle: true, injectThumbnails: false, whitelist: CLONE_WHITELIST },
+        );
+        projectData = { ...projectData, nodes: filtered.nodes, edges: filtered.edges };
+      }
       validateTemplateData(projectData);
 
       let projectName = `${template.name} (副本)`;
@@ -239,20 +264,34 @@ export class TemplateService {
       // Generate fresh IDs to avoid unique constraint conflicts on import
       const ts = Date.now().toString(36);
       const idMap = new Map<string, string>();
-      const cleanNodes = (projectData.nodes || []).map((n: any, i: number) => {
-        const newId = `n${ts}_${i}`;
-        idMap.set(n.id, newId);
-        return { id: newId, type: n.type, position: n.position, data: n.data };
-      });
-      const cleanEdges = (projectData.edges || []).map((e: any, i: number) => {
-        const oldSource = e.source || e.sourceId || '';
-        const oldTarget = e.target || e.targetId || '';
-        return {
-          id: `e${ts}_${i}`,
-          source: idMap.get(oldSource) || oldSource,
-          target: idMap.get(oldTarget) || oldTarget,
-        };
-      });
+      const rawNodes = ensureParentFirst(projectData.nodes || []);
+      for (const n of rawNodes) idMap.set(n.id, `n${ts}_${idMap.size}`);
+      // 第一遍建全 idMap（边建边用会误判靠后节点为悬空）
+      const cleanNodes = rawNodes.map((n: any) => ({
+        id: idMap.get(n.id)!,
+        type: n.type,
+        parentId: n.parentId ? (idMap.get(n.parentId) ?? undefined) : undefined,  // 悬空→undefined（非 null——NodeSchema optional）
+        width: n.width ?? undefined,
+        height: n.height ?? undefined,
+        position: n.position ?? { x: 0, y: 0 },
+        data: n.data ?? {},
+      }));
+      // 第二遍组 cells 单独重映射（悬空→null 长度不变；null=空宫格占位保留）
+      for (const n of cleanNodes) {
+        if (n.type !== 'group') continue;
+        if (n.data.cells == null) continue;                       // 缺失=合法（无宫格配置的组）
+        if (!Array.isArray(n.data.cells)) {                       // v3：非数组的"宫格结构损坏"fail-closed
+          throw new BadRequestException('分镜组宫格结构损坏（cells 非数组），无法导入');
+        }
+        n.data.cells = (n.data.cells as (string | null)[]).map(c =>
+          c === null || c === undefined ? null : (idMap.get(c) ?? null),
+        );
+      }
+      const cleanEdges = (projectData.edges || []).map((e: any, i: number) => ({
+        id: `e${ts}_${i}`,
+        source: idMap.get(e.source || e.sourceId || '') || (e.source || e.sourceId || ''),
+        target: idMap.get(e.target || e.targetId || '') || (e.target || e.targetId || ''),
+      }));
 
       const project = await this.projectService.create(
         projectName,
@@ -296,6 +335,7 @@ export class TemplateService {
         category: 'OFFICIAL' as TemplateCategory,
         userId: OFFICIAL_USER_ID,
         templateData: {
+          version: 1,
           nodes: [
             { id: 'text-1', type: 'textInput', position: { x: 100, y: 100 }, data: { text: '' } },
             { id: 'image-1', type: 'imageGen', position: { x: 400, y: 100 }, data: { model: 'default' } },
@@ -310,7 +350,12 @@ export class TemplateService {
       const existing = await this.prisma.template.findFirst({
         where: { name: tpl.name, userId: OFFICIAL_USER_ID },
       });
-      if (!existing) {
+      if (existing) {
+        await this.prisma.template.update({
+          where: { id: existing.id },
+          data: { templateData: tpl.templateData, description: tpl.description }, // 幂等覆盖：dev 旧行自愈补 version
+        });
+      } else {
         await this.prisma.template.create({ data: tpl });
       }
     }

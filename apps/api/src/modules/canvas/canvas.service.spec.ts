@@ -189,6 +189,7 @@ describe('CanvasService', () => {
           name: '名', description: 'd', isPublic: false, status: 'SAVED',
           projectId: 'p1', userId: 'u1', teamId: 'team1',
           templateData: {
+            version: 1,
             nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
             edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
             viewport: { x: 0, y: 0, zoom: 1 },
@@ -233,6 +234,85 @@ describe('CanvasService', () => {
       const result = await service.save('p1', { name: '名' }, 'u1');
       expect(prisma.template.update).toHaveBeenCalled();
       expect(result.id).toBe('t2');
+    });
+
+    describe('save 导出展开式+归一+公开过滤（R0b/F29/F32，实现前必红）', () => {
+      // v5 收口双助手：readCanvas 取既有接线 mock；savedTemplateData 兼容 create/update 两分支（calls 按序拼接）
+      const readCanvas = () => (service as any).collabDoc.readCanvas;
+      const savedTemplateData = (callIdx = 0) => {
+        const calls = [...prisma.template.create.mock.calls, ...prisma.template.update.mock.calls];
+        expect(calls.length).toBeGreaterThan(callIdx);   // 防悬空假绿（save 未触达写库时此断言先红）
+        // plan 原文漏了参数数组一层取值（calls[callIdx] 是 args 数组），照抄会 TypeError 而非红在断言
+        return (calls[callIdx] as any)[0].data.templateData;
+      };
+      beforeEach(() => vi.clearAllMocks());   // 清调用记录防跨用例 calls 污染（mockClear 语义不动外层已设实现）
+
+      it('有值三键存续：含 parentId/width/height 的节点 save 后落库保留（现状剥键——必红主用例）', async () => {
+        readCanvas().mockResolvedValue({
+          nodes: [
+            { id: 'g1', type: 'group', position: { x: 10, y: 10 }, data: { groupType: 'normal' }, parentId: null, width: 300, height: 200 },
+            { id: 'c1', type: 'imageGen', position: { x: 15, y: 15 }, data: { prompt: 'cat' }, parentId: 'g1', width: 140, height: 90 },
+          ],
+          edges: [],
+        });
+        await service.save('p1', { name: 'T' }, 'u1');
+        const saved = savedTemplateData();   // beforeEach 恒 findUnique→null → 走 create 分支（v5：原断言盯 update 必红在取参）
+        const c1 = saved.nodes.find((n: any) => n.id === 'c1');
+        expect(c1.parentId).toBe('g1');       // 现状 undefined——必红
+        expect(c1.width).toBe(140);           // 现状 undefined——必红
+        const g1 = saved.nodes.find((n: any) => n.id === 'g1');
+        expect(saved.nodes.indexOf(g1)).toBeLessThan(saved.nodes.indexOf(c1)); // 父先子后（ensureParentFirst）
+      });
+
+      it('null/undefined 边界节点不抛错：width/height=null 键消失、data=undefined 落 {}（各一条）', async () => {
+        readCanvas().mockResolvedValue({
+          nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'a' }, parentId: null, width: null, height: null }],
+          edges: [],
+        });
+        await expect(service.save('p1', { name: 'T' }, 'u1')).resolves.toBeDefined();
+        readCanvas().mockResolvedValue({
+          nodes: [{ id: 'n2', type: 'textInput', position: { x: 0, y: 0 }, data: undefined }],
+          edges: [],
+        });
+        await expect(service.save('p1', { name: 'T' }, 'u1')).resolves.toBeDefined();
+      });
+
+      it('isPublic=true 保存=媒体内容变换（产品语义，非纯 id 剔除）：fileId 剥、status 归一 idle、组 9 键保留；缺省/私有全量', async () => {
+        readCanvas().mockResolvedValue({
+          nodes: [
+            { id: 'g1', type: 'group', position: { x: 0, y: 0 }, parentId: null, width: null, height: null,
+              data: { groupType: 'storyboard', cells: ['n1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' }, nameCustom: true } },
+            { id: 'n1', type: 'imageGen', position: { x: 5, y: 5 }, parentId: null, width: null, height: null,
+              data: { prompt: 'a cat', fileId: 'f1', status: 'done' } },
+          ],
+          edges: [],
+        });
+        await service.save('p1', { name: 'T', isPublic: true }, 'u1');
+        const saved = savedTemplateData();
+        expect(saved.nodes.find((n: any) => n.id === 'g1').data.storyboard).toBeDefined();
+        const img = saved.nodes.find((n: any) => n.id === 'n1').data;
+        expect(img.fileId).toBeUndefined();
+        expect(img.status).toBe('idle'); // resetStatusIdle 写入语义（v2 修正）
+        // 私有对照：fileId 保留（本用例内第二次 save——savedTemplateData(1) 取 calls[1]）
+        await service.save('p1', { name: 'T' }, 'u1');
+        const savedPrivate = savedTemplateData(1);
+        expect(savedPrivate.nodes.find((n: any) => n.id === 'n1').data.fileId).toBe('f1');
+      });
+
+      it('isPublic 粘性（产品语义登记）：existing.isPublic=true 时后续无 isPublic 入参的 save 仍走投影', async () => {
+        // v3 夹具要求：existing.templateData 必须带 version:1（否则 validate 先 400，红相归因会被误导）
+        prisma.template.findUnique.mockResolvedValue({
+          id: 'tpl1', projectId: 'p1', isPublic: true, userId: 'u1',
+          templateData: { version: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } },
+        });
+        readCanvas().mockResolvedValue({
+          nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: null, width: null, height: null, data: { prompt: 'x', fileId: 'f1' } }],
+          edges: [],
+        });
+        await service.save('p1', { name: 'T2' }, 'u1');   // 无 isPublic 入参
+        const saved = savedTemplateData();                // findUnique 已 mock 既有行 → update 分支（助手兼容）
+        expect(saved.nodes[0].data.fileId).toBeUndefined(); // 仍走投影（willBePublic 粘性——Task 12 Step 1 实现）
+      });
     });
   });
 

@@ -8,6 +8,7 @@ import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertTeamMember } from '../team/team.util';
+import { normalizeNodeRecord, buildFilteredSnapshot, CLONE_WHITELIST, ensureParentFirst } from '../video-work/snapshot-filter.util';
 
 @Injectable()
 export class CanvasService {
@@ -73,16 +74,26 @@ export class CanvasService {
     const project = await this.projectService.findById(projectId);
     await this.perm.assertEditor(projectId, userId);
 
+    // v3：existing 查询前移到 readCanvas 之前（粘性语义需要——现状在 templateData 定稿之后，够不着过滤分支）
+    const existing = await this.prisma.template.findUnique({ where: { projectId } });
+    const willBePublic = input.isPublic ?? existing?.isPublic ?? false;   // 单一裁决变量：入参 > 既有行 > false
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
-    const nodes = canvas.nodes.map((n: any) => ({
-      id: n.id, type: n.type, position: n.position, data: n.data,
-    }));
-    const edges = canvas.edges.map((e: any) => ({
+    // isPublic 保存=媒体内容变换（产品语义：fileId 剥/status 归一 idle/HTML→纯文本——有损且公开后不可逆，v10 裁决 2）
+    const filtered = willBePublic
+      ? buildFilteredSnapshot(canvas, {
+          dropTypes: [], dropIdPrefixes: [], resetStatusIdle: true, injectThumbnails: false,
+          whitelist: CLONE_WHITELIST,
+        })
+      : null;
+    const nodes: any[] = ensureParentFirst(
+      (filtered ? filtered.nodes : (canvas.nodes as any[])).map((n: any) => normalizeNodeRecord(n)),
+    );
+    const edges = (filtered ? filtered.edges : canvas.edges).map((e: any) => ({
       id: e.id,
       source: e.sourceId || e.source || '',
       target: e.targetId || e.target || '',
     }));
-    const templateData = { nodes, edges, viewport: input.viewport || { x: 0, y: 0, zoom: 1 } };
+    const templateData = { version: 1, nodes, edges, viewport: input.viewport || { x: 0, y: 0, zoom: 1 } };
 
     try {
       validateTemplateData(templateData);
@@ -91,7 +102,6 @@ export class CanvasService {
       throw new BadRequestException(message);
     }
 
-    const existing = await this.prisma.template.findUnique({ where: { projectId } });
     this.templateService.clearCache();
 
     if (existing) {
@@ -100,7 +110,7 @@ export class CanvasService {
         data: {
           name: input.name,
           description: input.description,
-          isPublic: input.isPublic ?? existing.isPublic,
+          isPublic: willBePublic,
           templateData,
           status: 'SAVED',
           category: input.isPublic ? 'COMMUNITY' : undefined,
@@ -113,7 +123,7 @@ export class CanvasService {
         data: {
           name: input.name,
           description: input.description,
-          isPublic: input.isPublic ?? false,
+          isPublic: willBePublic,
           projectId,
           userId,
           teamId: project.teamId,
@@ -123,7 +133,7 @@ export class CanvasService {
         },
       });
     } catch (e: any) {
-      // 并发首存：另一请求已创建，回退为更新
+      // 并发首存：另一请求已创建，回退为更新（isPublic 口径维持入参优先——登记已知例外，不修）
       if (e?.code === 'P2002') {
         const raced = await this.prisma.template.findUnique({ where: { projectId } });
         if (raced) {
