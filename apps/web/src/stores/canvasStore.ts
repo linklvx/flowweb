@@ -238,12 +238,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
     if (parent && parent.type === 'group') {
       if ((parent.data as any)?.cells) {
-        // 分镜组：cells 移除该 id（宫格不收缩）
-        set((s) => ({
-          nodes: s.nodes.map((n) => n.id === parent.id
-            ? { ...n, data: { ...n.data, cells: (n.data as any).cells.filter((c: string) => c !== id) } }
-            : n),
-        }));
+        // 分镜组：cells 移除该 id（宫格不收缩）——patchGroupData 唯一通道（对齐 onNodesChange removes 段同款清理）
+        get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== id) });
       } else if ((parent.data as any).groupType === 'normal'
         && !after.nodes.some((c) => c.parentId === parent.id)) {
         // 普通组：删空自动解组
@@ -1238,7 +1234,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' },
         nameCustom: false,
         name: (gd.name && gd.name.trim()) || `分镜组 ${sorted.length} 个节点`,
-        savedSize: undefined, manuallyResized: undefined,
+        savedSize: undefined, manuallyResized: undefined, collapsed: undefined,
       });
     } else {
       // 分镜组 → 普通组：cells 顺序网格重排
@@ -1260,7 +1256,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         groupType: 'normal',
         name: (gd.name && gd.name.trim()) || '分组',
         nameCustom: undefined, storyboard: undefined, cells: undefined,
-        savedSize: undefined, manuallyResized: undefined,
+        savedSize: undefined, manuallyResized: undefined, collapsed: undefined,
       });
       // 组框重算
       get().refitGroupBounds(groupId);

@@ -354,6 +354,20 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect('storyboard' in d).toBe(true);
   });
 
+  it('F18 补——折叠组（collapsed:true）转换后 collapsed 键删除（in 断言——残留会令 groupDerive 判 hidden，子节点静默隐藏）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
+        data: { groupType: 'normal', collapsed: true } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { status: 'done', fileId: 'f1' } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    let d = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
+    expect('collapsed' in d).toBe(false);
+    useCanvasStore.getState().convertGroup('g1', 'normal');
+    d = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
+    expect('collapsed' in d).toBe(false);
+  });
+
   it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS（合并不发明新键——9 键白名单门禁）', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 },
@@ -383,7 +397,7 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
         data: { groupType: 'normal', ...data },
       });
       useCanvasStore.setState({ nodes: [groupFixture('g1', { name: 'A' })] as any, edges: [] });
-      syncStoreToDoc(d, Origin.Server);             // 初态入 doc（真实链路 server 填充——非 tracked origin 不入 undo 栈）
+      syncStoreToDoc(d, Origin.Server);             // 初态入 doc。plan 原文 LocalUser 会使初态事务入 undo 栈（undoStack=2+undo 恢复到空 doc）——两条断言双红，故初态用 Server（真实链路初态由 server 填充不入栈）
       useCanvasStore.getState().patchGroupData('g1', { name: 'B' });
       useCanvasStore.getState().patchGroupData('g1', { name: 'C' });
       syncStoreToDoc(d, Origin.LocalUser);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项

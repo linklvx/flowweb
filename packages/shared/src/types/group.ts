@@ -1,6 +1,7 @@
 /** 组节点 data 形状（spec §4.6/F30）。R0a 仅作 GROUP_NODE_DATA_KEYS 的锚定面；
  *  web 侧 types/group.ts 的 GroupNodeData 重构切换属 R1（F30），本分片不动它。
- *  注意 color/nameCustom 是 R2c 前向键——现状 store 不产出，为克隆/公开过滤契约预置。 */
+ *  注意 color 是 R2c 前向键——现状 store 不产出，为克隆/公开过滤契约预置；nameCustom 已由
+ *  canvasStore convertGroup 产出（→storyboard 设 false，→normal 删键）。 */
 export interface GroupNodeDataShape {
   groupType: 'normal' | 'storyboard';
   name?: string;
