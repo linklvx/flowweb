@@ -10,7 +10,7 @@ describe('StitchConsumer', () => {
   let consumer: StitchConsumer;
   let prisma: any;
 
-  const makeJob = () =>
+  const makeJob = (over: Record<string, unknown> = {}) =>
     ({
       id: 'job-1',
       data: {
@@ -22,6 +22,7 @@ describe('StitchConsumer', () => {
         aspectRatio: '16:9',
         showIndex: false,
         resolution: '2K',
+        ...over,
       },
     }) as any as Job;
 
@@ -43,11 +44,10 @@ describe('StitchConsumer', () => {
       upload: vi.fn().mockResolvedValue(undefined),
     };
     const gateway = { emitStitchStatus: vi.fn() };
-    const collabDoc = { writeNodeData: vi.fn() };
 
     // StitchConsumer 构造函数无 @Inject 显式 token，vitest（esbuild）不生成
     // design:paramtypes 元数据，Nest DI 解析不到 → 直接实例化注入 mock
-    consumer = new StitchConsumer(prisma as any, minio as any, gateway as any, collabDoc as any);
+    consumer = new StitchConsumer(prisma as any, minio as any, gateway as any);
   });
 
   it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
@@ -67,5 +67,9 @@ describe('StitchConsumer', () => {
     await expect(consumer.process(makeJob())).rejects.toThrow('PROJECT_TEAM_MISSING');
     expect(prisma.media.create).not.toHaveBeenCalled();
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('ctor 形参数=3（v5 arity 锚：现状 4 必红，实现后 3 长效——加参即红，可进 CI 的结构断言）', () => {
+    expect(StitchConsumer.length).toBe(3);
   });
 });

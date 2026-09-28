@@ -5,12 +5,10 @@ import { StoryboardService } from './storyboard.service';
 import { StitchConsumer } from './stitch.consumer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
 import { ExecutionModule } from '../execution/execution.module';
-import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
 
 @Module({
   imports: [
-    CollabModule,
     TeamModule,
     ExecutionModule,
     BullModule.registerQueue({

@@ -2,7 +2,6 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
 import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { composeStoryboard } from './stitch.composer';
@@ -12,7 +11,6 @@ import { STITCH_WIDTH_MAP, RATIO_MAP } from './stitch.size';
 interface StitchJobData {
   projectId: string;
   userId: string;
-  nodeId?: string;
   fileIds: string[];
   gridRows: number;
   gridCols: number;
@@ -30,7 +28,6 @@ export class StitchConsumer extends WorkerHost {
     private prisma: PrismaService,
     private minioService: MinioService,
     private gateway: ExecutionGateway,
-    private collabDoc: CollabDocumentService,
   ) {
     super();
   }
@@ -109,16 +106,6 @@ export class StitchConsumer extends WorkerHost {
         },
       });
 
-      // 组节点 data 逐键写入 server doc（fileIds 数组/cellCount/failedCount/尺寸）
-      if (d.nodeId) {
-        await this.collabDoc.writeNodeData(d.projectId, d.nodeId, {
-          fileIds: [media.id],
-          width,
-          height,
-          cellCount: d.fileIds.length,
-          failedCount,
-        });
-      }
       const result = {
         taskId: job.id!,
         fileId: media.id,
