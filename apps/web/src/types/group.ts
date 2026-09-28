@@ -1,6 +1,7 @@
 // apps/web/src/types/group.ts
 export type GroupType = 'normal' | 'storyboard';
-export type AspectRatio = '21:9' | '16:9' | '9:16' | '3:4' | '4:3' | '1:1';
+export const ASPECT_RATIOS = ['21:9', '16:9', '9:16', '3:4', '4:3', '1:1'] as const;
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 export type StitchResolution = '2K' | '4K';
 
 export interface StoryboardConfig {
