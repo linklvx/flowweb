@@ -12,7 +12,7 @@ export class MediaService {
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
   ) {}
 
-  async getMediaUrl(fileId: string, userId: string): Promise<string> {
+  async getMediaUrl(fileId: string, userId: string): Promise<{ url: string; ttlSec: number }> {
     // 1. 先鉴权：查 media + 团队成员校验（缓存命中不得跳过，防缓存越权）
     const media = await this.prisma.media.findUnique({ where: { id: fileId } });
     if (!media) throw new NotFoundException('媒体资源不存在');
@@ -20,15 +20,26 @@ export class MediaService {
       await assertTeamMember(this.prisma, media.teamId, userId); // 非 creator 走团队校验，不通过即 403
     }
 
-    // 2. 鉴权通过后再读缓存（key 团队维度：同团队共享预热）
-    const cacheKey = `media:url:${media.teamId}:${fileId}`;
-    const cachedUrl = await this.redis.get(cacheKey);
-    if (cachedUrl) return cachedUrl;
+    // 2. 键 v2 = 值形状 JSON {url, expiresAt} 的版本化（防新旧 pod 混布读裸 string）；
+    //    expiresAt 绝对时刻——命中由服务端算剩余，客户端时钟偏移不影响正确性（F7 根修）
+    const cacheKey = `media:url:v2:${media.teamId}:${fileId}`;
+    const raw = await this.redis.get(cacheKey);
+    if (raw) {
+      try {
+        const cached = JSON.parse(raw) as { url?: unknown; expiresAt?: unknown };
+        const remaining = Math.ceil(((cached.expiresAt as number) - Date.now()) / 1000);
+        if (typeof cached.url === 'string' && Number.isFinite(cached.expiresAt as number) && remaining > 0) {
+          return { url: cached.url, ttlSec: remaining };
+        }
+      } catch {
+        // 坏值 fallthrough：重签覆写自愈
+      }
+    }
 
-    // 3. 生成预签名 URL（15 min valid）并写缓存（14 min TTL，比 URL 短 1 min）
+    // 3. （重新）presign（15 min）+ 写缓存（14 min TTL）
     const url = await this.minio.generatePresignedGetUrl(media.key, 900);
-    await this.redis.set(cacheKey, url, 'EX', 840);
-    return url;
+    await this.redis.set(cacheKey, JSON.stringify({ url, expiresAt: Date.now() + 900_000 }), 'EX', 840);
+    return { url, ttlSec: 900 };
   }
 
   /** 公开 by-key 兑换（唯一合法域：运营公开素材 uploads/system/）。
