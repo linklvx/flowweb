@@ -3,13 +3,14 @@ import { memo, useState, useEffect } from 'react';
 import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
 interface Props { id: string; data: GroupNodeData; cellNodes: CellNodeInfo[] }
 
 function StoryboardGroupRendererComponent({ id, data, cellNodes }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
-  const cfg = data.storyboard!;
+  const cfg = resolveStoryboardConfig(data);
   const total = cfg.gridRows * cfg.gridCols;
   const byId = new Map(cellNodes.map((c) => [c.id, c]));
 

@@ -23,6 +23,7 @@ import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { getMediaUrl } from '@/api/mediaApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
+import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
 import { decideReferencePick } from './referenceSelect';
 import { TextInputNode } from './nodes/TextInputNode';
@@ -567,7 +568,7 @@ function CanvasViewComponent(_props: Props) {
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;
           const groupType = gd.groupType ?? 'normal';
-          const cfg = gd.storyboard;
+          const cfg = resolveStoryboardConfig(gd);
 
           const noOp = () => {};
 

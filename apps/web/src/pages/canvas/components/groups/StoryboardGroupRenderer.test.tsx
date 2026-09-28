@@ -109,4 +109,9 @@ describe('StoryboardGroupRenderer', () => {
     expect(title.style.top).toBe('0px');
     expect(title.style.right).toBe('0px');
   });
+
+  it('无 storyboard 的克隆体渲染不崩且按 1×1 默认网格（F2 消费点①）', () => {
+    const noStoryboardData = { groupType: 'storyboard', cells: [null] } as any;
+    expect(() => render(<StoryboardGroupRenderer id="g1" data={noStoryboardData} cellNodes={[]} />)).not.toThrow();
+  });
 });
