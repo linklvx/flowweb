@@ -4,6 +4,8 @@
  *  全覆盖测试是唯一防线——新增节点类型时必须同步本表）。
  *  isTextNode 用 'text' 判断是既有不一致，勿参照。 */
 
+import { GROUP_NODE_DATA_KEYS } from '@flowweb/shared';
+
 export interface RawNode {
   id: string;
   type: string;
@@ -43,12 +45,12 @@ export const WHITELIST: Record<string, string[]> = {
   group: ['groupType', 'cells', 'name'],
 };
 
-/** clone 端白名单（spec F21/R0a）：与 snapshot 表唯一差异是 group 9 键。
- *  R0b 公开模板过滤复用本表（媒体引用剥离政策：克隆与公开模板同款——spec v10 裁决 2）；
- *  R1a 构建落地后切值导入并删字面量。浅拷贝共享其余数组——只读，勿原地改。 */
+/** clone 端白名单（spec F21/R0a）：与 snapshot 表唯一差异是 group 9 键（真源=@flowweb/shared GROUP_NODE_DATA_KEYS 值导入，R1a 起合法）。
+ *  R0b 公开模板过滤复用本表（媒体引用剥离政策：克隆与公开模板同款——spec v10 裁决 2）。
+ *  group 展开拷贝防共享数组被原地 mutate；浅拷贝共享其余数组——只读，勿原地改。 */
 export const CLONE_WHITELIST: Record<string, string[]> = {
   ...WHITELIST,
-  group: ['groupType', 'cells', 'name', 'storyboard', 'collapsed', 'savedSize', 'nameCustom', 'color', 'manuallyResized'],
+  group: [...GROUP_NODE_DATA_KEYS],
 };
 
 /** 信封边界归一单入口（R0b 模板导出/applyWhitelist 尾部共用，R1a 收编 shared nodeEnvelope）：

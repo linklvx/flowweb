@@ -17,7 +17,7 @@ export class VideoProjectService {
   ) {}
 
   /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：单条空视频轨，其余轨道随素材动态创建——spec 勘误③）。
-   *  不能值 import @flowweb/shared——纯 TS 源码包 barrel 无扩展名相对导入，Node ESM 运行时解析失败（见 admin.guard.ts 注释）；
+   *  @flowweb/shared 已真构建（R1a：main→dist CJS）——生产源码值导入自 R1a 起合法，dist 陈旧时 dev/build/test 首段内联的 check-shared-dist 会拦（勿删内联段；见 admin.guard.ts 注释）；
    *  前端 upsert 会显式传 data，此处仅为 API 直调方的防御缺省（Plan 2 浏览器验收发现原字面量 tracks:[] 与 spec 默认轨脱节） */
   private static defaultProjectData(): object {
     return {
