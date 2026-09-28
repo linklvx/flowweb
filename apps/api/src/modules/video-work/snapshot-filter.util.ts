@@ -15,7 +15,7 @@ export interface RawNode {
   parentId?: string | null;
   data: Record<string, unknown>;
 }
-export interface RawEdge { id: string; sourceId: string; targetId: string }
+export interface RawEdge { id: string; source: string; target: string }
 export interface RawCanvasData { nodes: RawNode[]; edges: RawEdge[] }
 
 export interface FilterOptions {
@@ -54,7 +54,7 @@ export const CLONE_WHITELIST: Record<string, string[]> = {
 };
 
 /** 信封边界归一单入口（R0b 模板导出/applyWhitelist 尾部共用，R1a 收编 shared nodeEnvelope）：
- *  parentId/width/height null→undefined（JSON.stringify 键消失）；position/data undefined→兜底。
+ *  parentId/width/height null→undefined（JSON.stringify 键消失）；position/data undefined/null→兜底（?? 双吃）。
  *  注意 cells 的 null 是"空宫格占位"必须保留——本函数只碰信封键，不碰 data 内部。
  *  R1a 分家登记：shared normalizeCanvasRecord 是写侧真删键语义（Object.keys 形态不同）——
  *  本函数保留 API JSON 序列化边界（??undefined 在 stringify 后键消失，与真删键等价）。 */
@@ -144,8 +144,8 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
     return true;
   });
   const edges = raw.edges
-    .filter(e => !dropped.has(e.sourceId) && !dropped.has(e.targetId))
-    .map(e => ({ id: e.id, source: e.sourceId, target: e.targetId })); // readCanvas sourceId/targetId → source/target 显式映射
+    .filter(e => !dropped.has(e.source) && !dropped.has(e.target))
+    .map(e => ({ id: e.id, source: e.source, target: e.target })); // edges 单形状 source/target（R1a 收敛）
   const nodes = ensureParentFirst(kept).map(n => applyWhitelist(n, opts));
   return { nodes, edges };
 }

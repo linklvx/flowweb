@@ -26,9 +26,9 @@ describe('VideoWorkCloneService.clone', () => {
       { id: 'multi1', type: 'multiImageGen', position: { x: 6, y: 6 }, data: { prompt: 'mp', label: 'ML', images: [{ url: 'mu' }] } }, // 组外 multiImageGen——images 媒体引用克隆必剥（F20 政策断言取参，Task 3 补）
     ],
     edges: [
-      { id: 'e1', sourceId: 'child1', targetId: 'child2' },
-      { id: 'e2', sourceId: 'child1', targetId: 'edit1' },   // 连向被剥节点 → 边剥除
-      { id: 'e3', sourceId: 'shadow-x', targetId: 'child2' }, // 同上
+      { id: 'e1', source: 'child1', target: 'child2' },
+      { id: 'e2', source: 'child1', target: 'edit1' },   // 连向被剥节点 → 边剥除
+      { id: 'e3', source: 'shadow-x', target: 'child2' }, // 同上
     ],
   });
 

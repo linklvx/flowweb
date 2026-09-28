@@ -236,12 +236,13 @@ export class TemplateService {
       if (!Array.isArray(projectData?.nodes) || !Array.isArray(projectData?.edges)) {
         throw new BadRequestException('模板数据为空，无法导入');
       }
-      // 跨用户导入过滤（v9 裁决③：覆盖"私有→后公开"旧行）
+      // 跨用户导入过滤（v9 裁决③：覆盖"私有→后公开"旧行）；
+      // 模板 JSON edges 本就是 source/target 单形状（EdgeSchema）——直传，无键名转换（R1a 收敛）
       if (template.isPublic && template.userId !== userId) {
         const filtered = buildFilteredSnapshot(
           {
             nodes: projectData.nodes,
-            edges: projectData.edges.map((e: any) => ({ id: e.id, sourceId: e.source, targetId: e.target })),
+            edges: projectData.edges,
           },
           { dropTypes: [], dropIdPrefixes: [], resetStatusIdle: true, injectThumbnails: false, whitelist: CLONE_WHITELIST },
         );
@@ -287,11 +288,13 @@ export class TemplateService {
           c === null || c === undefined ? null : (idMap.get(c) ?? null),
         );
       }
-      const cleanEdges = (projectData.edges || []).map((e: any, i: number) => ({
-        id: `e${ts}_${i}`,
-        source: idMap.get(e.source || e.sourceId || '') || (e.source || e.sourceId || ''),
-        target: idMap.get(e.target || e.targetId || '') || (e.target || e.targetId || ''),
-      }));
+      // 悬空边丢弃（source/target 任一未命中 idMap 即 continue——"|| e.source 保留原 id"的反模式同源清除，R1a 收敛）
+      const cleanEdges = (projectData.edges || []).flatMap((e: any, i: number) => {
+        const source = idMap.get(e.source);
+        const target = idMap.get(e.target);
+        if (source == null || target == null) return [];
+        return [{ id: `e${ts}_${i}`, source, target }];
+      });
 
       const project = await this.projectService.create(
         projectName,

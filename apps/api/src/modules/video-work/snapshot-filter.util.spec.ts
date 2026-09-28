@@ -103,9 +103,9 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
         rawNode('n3', 'videoGen', { model: 'm', __ephemeral: true }), // 无 shadow- 前缀、带标记
       ],
       edges: [
-        { id: 'e1', sourceId: 'n1', targetId: 'n2' },
-        { id: 'e2', sourceId: 'n1', targetId: 'shadow-tmp' },
-        { id: 'e3', sourceId: 'n1', targetId: 'n3' },
+        { id: 'e1', source: 'n1', target: 'n2' },
+        { id: 'e2', source: 'n1', target: 'shadow-tmp' },
+        { id: 'e3', source: 'n1', target: 'n3' },
       ],
     };
     const out = buildFilteredSnapshot(input, cloneOpts);
@@ -116,7 +116,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
   it('快照口径：videoEdit 节点保留、data 全剥为 {}、连线保留（spec:228"仅结构字段→全部 data"——剥除仅是克隆差异 D9，第八轮裁定）', () => {
     const input: RawCanvasData = {
       nodes: [rawNode('n1', 'videoGen', { model: 'm' }), rawNode('n2', 'videoEdit', { timeline: [1], draft: '内部时间轴' })],
-      edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }],
+      edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
     };
     const out = buildFilteredSnapshot(input, base);
     const edit = out.nodes.find(n => n.id === 'n2')!;

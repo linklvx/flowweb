@@ -87,7 +87,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       { id: 'in1', type: 'textInput', data: { model: 'seed-model-kimi' } },
     ];
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    collabDoc.readCanvas.mockResolvedValue({ nodes, edges: [{ id: 'e1', sourceId: 'outside', targetId: 'in1' }] });
+    collabDoc.readCanvas.mockResolvedValue({ nodes, edges: [{ id: 'e1', source: 'outside', target: 'in1' }] });
     await service.execute('p1', undefined, 'u1', ['in1']);
 
     const nodesPassed = topology.collectUpstreamData.mock.calls[0][1] as any[];

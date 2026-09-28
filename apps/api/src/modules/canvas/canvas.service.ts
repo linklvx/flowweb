@@ -88,10 +88,11 @@ export class CanvasService {
     const nodes: any[] = ensureParentFirst(
       (filtered ? filtered.nodes : (canvas.nodes as any[])).map((n: any) => normalizeNodeRecord(n)),
     );
+    // edges 单形状直读（R1a 收敛——readDocCanvas/buildFilteredSnapshot 均出 source/target，双兼容补丁删）
     const edges = (filtered ? filtered.edges : canvas.edges).map((e: any) => ({
       id: e.id,
-      source: e.sourceId || e.source || '',
-      target: e.targetId || e.target || '',
+      source: e.source,
+      target: e.target,
     }));
     const templateData = { version: 1, nodes, edges, viewport: input.viewport || { x: 0, y: 0, zoom: 1 } };
 

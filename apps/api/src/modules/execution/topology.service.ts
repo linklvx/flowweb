@@ -7,10 +7,6 @@ export interface UpstreamData {
 
 @Injectable()
 export class TopologyService {
-  // Normalize edge field names: support both source/target (xyflow) and sourceId/targetId (Prisma)
-  private src(e: any): string { return e.sourceId || e.source; }
-  private tgt(e: any): string { return e.targetId || e.target; }
-
   /** Kahn's algorithm for topological sort */
   sort(nodes: any[], edges: any[]): any[] {
     const nodeIds = new Set(nodes.map(n => n.id));
@@ -19,7 +15,7 @@ export class TopologyService {
 
     for (const id of nodeIds) { inDegree[id] = 0; adjacency[id] = []; }
     for (const e of edges) {
-      const s = this.src(e), t = this.tgt(e);
+      const s = e.source, t = e.target; // edges 单形状 source/target（R1a 收敛——双兼容读删）
       if (nodeIds.has(s) && nodeIds.has(t)) {
         adjacency[s] = adjacency[s] || [];
         adjacency[s].push(t);
@@ -49,7 +45,7 @@ export class TopologyService {
   }
 
   private getUpstreamIds(nodeId: string, edges: any[], visited = new Set<string>()): Set<string> {
-    const parents = edges.filter(e => this.tgt(e) === nodeId).map(e => this.src(e));
+    const parents = edges.filter(e => e.target === nodeId).map(e => e.source);
     for (const p of parents) {
       if (!visited.has(p)) {
         visited.add(p);
@@ -61,12 +57,12 @@ export class TopologyService {
 
   /** Collect output data from all upstream nodes for injection into target node */
   collectUpstreamData(nodeId: string, nodes: any[], edges: any[]): UpstreamData {
-    const upstreamEdges = edges.filter(e => this.tgt(e) === nodeId);
+    const upstreamEdges = edges.filter(e => e.target === nodeId);
     const textContents: string[] = [];
     let imageUrl: string | undefined;
 
     for (const e of upstreamEdges) {
-      const upstream = nodes.find(n => n.id === this.src(e));
+      const upstream = nodes.find(n => n.id === e.source);
       if (!upstream) continue;
       const data = upstream.data as any;
 

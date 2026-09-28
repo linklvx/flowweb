@@ -419,7 +419,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', collapsed: false } },
     ],
-    edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n2' }],
+    edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
   };
 
   function setup(over: any = {}) {

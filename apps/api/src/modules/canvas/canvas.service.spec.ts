@@ -169,7 +169,7 @@ describe('CanvasService', () => {
     const project = {
       id: 'p1', userId: 'u1',
       nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-      edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+      edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
       viewport: { x: 0, y: 0, zoom: 1 },
     };
 
@@ -182,7 +182,7 @@ describe('CanvasService', () => {
       prisma.template.findUnique.mockResolvedValue(null);
     });
 
-    it('无关联 Template 时创建，status=SAVED，规范化 edges 的 sourceId/targetId', async () => {
+    it('无关联 Template 时创建，status=SAVED，edges 直读 source/target 单形状', async () => {
       const result = await service.save('p1', { name: '名', description: 'd', isPublic: false }, 'u1');
       expect(prisma.template.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -362,7 +362,7 @@ describe('CanvasService', () => {
       projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'other-user', teamId: 't-team' });
       (service as any).collabDoc.readCanvas.mockResolvedValue({
         nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-        edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+        edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
       });
       prisma.template.findUnique.mockResolvedValue(null);
       await expect(service.save('p1', { name: 'x' }, 'u2')).resolves.toBeDefined();
@@ -372,7 +372,7 @@ describe('CanvasService', () => {
       projectService.findById = vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1', teamId: 't-team' });
       (service as any).collabDoc.readCanvas.mockResolvedValue({
         nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-        edges: [{ id: 'e1', sourceId: 'n1', targetId: 'n1' }],
+        edges: [{ id: 'e1', source: 'n1', target: 'n1' }],
       });
       prisma.template.findUnique.mockResolvedValue(null);
       await service.save('p1', { name: 'x' }, 'u1');
