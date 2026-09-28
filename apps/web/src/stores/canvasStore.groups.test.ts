@@ -1,7 +1,11 @@
 // apps/web/src/stores/canvasStore.groups.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { GROUP_NODE_DATA_KEYS } from '@flowweb/shared';
+import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
+import { syncStoreToDoc, applyDocToStore } from './canvasCollabRuntime';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -156,18 +160,17 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
   });
 });
 
-describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => {
+describe('renameGroup / markManuallyResized（F42 镜像退役——组 data 所有权单一归 cs）', () => {
   it('groupNodes 创建不设初始 name（默认名由渲染层兜底「分组」，数量由徽标动态显示）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
     expect((g!.data as any).name).toBeUndefined();
   });
 
-  it('renameGroup 双写 nodeStore（退役后语义，S-4）', () => {
+  it('renameGroup 写 cs（F42 镜像退役——ns 不再双写）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     useCanvasStore.getState().renameGroup(gId, '我的分组');
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('我的分组');
-    expect((useNodeStore.getState().nodes[gId].data as any).name).toBe('我的分组');   // nodeStore 双写保持
   });
 
   it('renameGroup 空串/同名 no-op', () => {
@@ -179,12 +182,10 @@ describe('renameGroup / markManuallyResized / 组 data 双写 nodeStore', () => 
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
   });
 
-  it('markManuallyResized 设标记并双写 nodeStore', () => {
+  it('markManuallyResized 设标记（F42 镜像退役——只写 cs）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     useCanvasStore.getState().markManuallyResized(gId);
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).manuallyResized).toBe(true);
-    const ns = useNodeStore.getState();
-    expect((ns.nodes[gId].data as any).manuallyResized).toBe(true);
   });
 });
 
@@ -218,7 +219,7 @@ describe('组尺寸持久化行为', () => {
     expect(g.height).toBe(555);
   });
 
-  it('convertGroup 清除 manuallyResized/savedSize，默认名「分组」', () => {
+  it('convertGroup 增量 patch 清除 manuallyResized/savedSize，非空 name 跨转换保留（F18）', () => {
     // convertGroup normal→storyboard 需要图片节点，这里手工播种图片节点组
     useCanvasStore.setState({
       nodes: [
@@ -228,23 +229,18 @@ describe('组尺寸持久化行为', () => {
       ] as any,
       edges: [], selectedId: null,
     });
-    // 真实链路中 groupNodes 创建时会写 nodeStore——同步播种带旧标记的版本
-    useNodeStore.setState({
-      nodes: {
-        g1: { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal', manuallyResized: true, name: '旧名' } } as any,
-      },
-    });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    let d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any);
+    expect('manuallyResized' in d).toBe(false);
+    expect('savedSize' in d).toBe(false);
+    expect(d.name).toBe('旧名');   // F18：非空 name 保留（现状整块替换丢名——红）
     useCanvasStore.getState().convertGroup('g1', 'normal');
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
-    expect((g.data as any).manuallyResized).toBeUndefined();
-    expect((g.data as any).savedSize).toBeUndefined();
-    expect((g.data as any).name).toBe('分组');
-    // nodeStore 同步清标记（终审发现：localStorage 快照数据源，残留会让恢复误跳过 refit）
-    const nsG = useNodeStore.getState().nodes['g1'];
-    expect((nsG?.data as any).manuallyResized).toBeUndefined();
-    expect((nsG?.data as any).name).toBe('分组');
-    expect((nsG?.data as any).groupType).toBe('normal');
+    d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any);
+    expect('manuallyResized' in d).toBe(false);
+    expect('savedSize' in d).toBe(false);
+    expect('storyboard' in d).toBe(false);
+    expect('cells' in d).toBe(false);
+    expect(d.name).toBe('旧名');
   });
 });
 
@@ -329,5 +325,111 @@ describe('组内边距保留区夹取（onNodesChange）', () => {
     ]);
     expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position)
       .toEqual({ x: 20, y: 100 });
+  });
+});
+
+describe('patchGroupData（undefined=delete，只写 cs——所有权单一）', () => {
+  it('undefined 值删除键（in 断言——spread+undefined 不删键是 P0-2 同源坑）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', name: 'A', color: 'red' } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().patchGroupData('g1', { color: undefined });
+    const g = (useCanvasStore.getState().nodes[0] as any).data;
+    expect('color' in g).toBe(false);
+    expect(g.name).toBe('A');
+  });
+
+  it('F18——convertGroup 增量 patch：normal→storyboard 保 name/color + savedSize/manuallyResized 删除（in 断言）+ storyboard 注入', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
+        data: { groupType: 'normal', name: '我的组', color: 'red', manuallyResized: true, savedSize: { width: 300, height: 250 } } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { status: 'done', fileId: 'f1' } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    const d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any).data;
+    expect(d.name).toBe('我的组');
+    expect(d.color).toBe('red');
+    expect('savedSize' in d).toBe(false);
+    expect('manuallyResized' in d).toBe(false);
+    expect('storyboard' in d).toBe(true);
+  });
+
+  it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS（合并不发明新键——9 键白名单门禁）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 },
+        data: { groupType: 'normal', name: 'A', color: 'red', nameCustom: true, manuallyResized: true, savedSize: { width: 1, height: 1 } } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().patchGroupData('g1', { collapsed: false, cells: [] });
+    const d = (useCanvasStore.getState().nodes[0] as any).data;
+    expect(Object.keys(d).every((k) => (GROUP_NODE_DATA_KEYS as readonly string[]).includes(k))).toBe(true);
+  });
+
+  it('patch collapsed:true → applyGroupDerivations → 子节点 hidden===true（derivations 配对契约——patch 不内嵌派生，调用方负责）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 10, y: 10 }, data: {} },
+    ] as any, edges: [] });
+    useCanvasStore.getState().patchGroupData('g1', { collapsed: true });
+    useCanvasStore.getState().applyGroupDerivations();
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).hidden).toBe(true);
+  });
+
+  it('undo 语义：patchGroupData 入栈+500ms 合并+undo 恢复旧 data', async () => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    try {
+      const groupFixture = (id: string, data: Record<string, unknown>) => ({
+        id, type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200,
+        data: { groupType: 'normal', ...data },
+      });
+      useCanvasStore.setState({ nodes: [groupFixture('g1', { name: 'A' })] as any, edges: [] });
+      syncStoreToDoc(d, Origin.Server);             // 初态入 doc（真实链路 server 填充——非 tracked origin 不入 undo 栈）
+      useCanvasStore.getState().patchGroupData('g1', { name: 'B' });
+      useCanvasStore.getState().patchGroupData('g1', { name: 'C' });
+      syncStoreToDoc(d, Origin.LocalUser);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项
+      expect(um.undoStack.length).toBe(1);
+      um.undo();
+      applyDocToStore(d);                           // 显式读回（替代跑不动的 onRemote——Task 10 形参化测试缝）
+      const g = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
+      expect(g.name).toBe('A');                     // undo 恢复旧值
+    } finally {
+      detachUndoManager();
+    }
+  });
+});
+
+describe('cells 修复（第 7 写者——键盘 Delete 路径）', () => {
+  it('onNodesChange remove 分镜组子节点 → cells 同步清死 id（现状红：removes 段无组清理）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1', 'c2'] } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
+    ] as any, edges: [] });
+    useCanvasStore.getState().onNodesChange([{ id: 'c1', type: 'remove' } as any]);
+    const cells = ((useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any).data).cells;
+    expect(cells.includes('c1')).toBe(false);   // 现状：cells 仍含 'c1'——必红
+  });
+
+  it('删组=级联删子（v6 改裁决——现状红：deleteNode 只处理被删节点的父组，被删节点是组 → 子节点 parentId 悬空。修=级联，对齐菜单 GroupContextMenu 先删子再删组的既有语义）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: {} },
+      { id: 'top', type: 'imageGen', position: { x: 500, y: 500 }, data: {} },
+    ] as any, edges: [] });
+    useCanvasStore.getState().deleteNode('g1');
+    const st = useCanvasStore.getState().nodes;
+    expect(st.some((n: any) => n.id === 'g1')).toBe(false);   // 组删
+    expect(st.some((n: any) => n.id === 'c1')).toBe(false);   // 子级联删（无悬空）
+    expect(st.some((n: any) => n.id === 'top')).toBe(true);   // 无关节点不动
+  });
+
+  it('removeNodeFromGroup 移出最后子 → normal 空组解组（v5 C2——现状红：留空框；v6 组原点非零 (100,100)——原点为 0 时 rel==abs 无判别力）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: {} },
+    ] as any, edges: [] });
+    useCanvasStore.getState().removeNodeFromGroup('g1', 'c1');
+    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).position).toEqual({ x: 120, y: 150 });   // 绝对还原（rel+组原点）
   });
 });

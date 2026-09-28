@@ -16,13 +16,13 @@ describe('canvasStore.marqueeSelecting', () => {
     expect(useCanvasStore.getState().marqueeSelecting).toBe(true);
   });
 
-  it('不入结构投影：标志为 true 时 pickStructNodes 键集合固定', () => {
+  it('不入结构投影：标志为 true 时 pickStructNodes 键集合固定（data 键常驻——普通节点 undefined，组节点组 data，F42）', () => {
     useCanvasStore.setState({
       nodes: [{ id: 'a', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any],
       marqueeSelecting: true,
     });
     const picked = pickStructNodes(useCanvasStore.getState().nodes);
-    expect(Object.keys(picked[0])).toEqual(['id', 'type', 'position', 'parentId', 'width', 'height']);
+    expect(Object.keys(picked[0])).toEqual(['id', 'type', 'position', 'parentId', 'width', 'height', 'data']);
     expect(JSON.stringify(picked)).not.toContain('marqueeSelecting');
   });
 });

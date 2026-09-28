@@ -19,15 +19,6 @@ import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesBy
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
-/** 组 data 变更双写 nodeStore（localStorage 快照数据源是 nodeStore） */
-function syncGroupDataToNodeStore(groupId: string) {
-  const ns = useNodeStore.getState();
-  const appNode = ns.nodes[groupId];
-  const group = useCanvasStore.getState().nodes.find((n) => n.id === groupId);
-  if (!appNode || !group) return;
-  useNodeStore.setState({ nodes: { ...ns.nodes, [groupId]: { ...appNode, data: group.data as any } } });
-}
-
 let counter = 0;
 function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${++counter}`;
@@ -142,6 +133,7 @@ interface CanvasState {
   renameGroup: (groupId: string, name: string) => void;
   markManuallyResized: (groupId: string) => void;
   toggleCollapse: (groupId: string) => void;
+  patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
   refitGroupBounds: (groupId: string) => void;
   dropIntoGroup: (nodeId: string, groupId: string) => void;
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
@@ -220,6 +212,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   deleteNode: (id) => {
+    // v6：被删节点是组 → 级联删子（对齐菜单 GroupContextMenu 先删子再删组的既有语义——
+    // 否则子节点 parentId 悬空、rel 被当绝对渲染飞原点；子也可能是组，递归天然覆盖）
+    const self = get().nodes.find((n) => n.id === id);
+    if (self?.type === 'group') {
+      for (const c of get().nodes.filter((n) => n.parentId === id)) {
+        get().deleteNode(c.id);
+      }
+    }
     // 组清理需在删除前捕获父子关系（filter 后会丢失）
     const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
     // Cancel any in-progress process for this node
@@ -519,6 +519,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // C1：键盘 Delete 手势路径——videoEdit 节点 remove 需在 applyNodeChanges 移除节点前用变更前 state 判型级联删工程
     const removedIds = changes.filter((c) => c.type === 'remove').map((c) => (c as any).id);
     if (removedIds.length > 0) cascadeDeleteVideoProject(get().nodes, removedIds);
+    // v6：被删节点是组 → 级联（先于 applyNodeChanges 捕获，filter 后丢父子）；对齐 deleteNode/菜单语义
+    const removedGroupsChildren = removedIds.flatMap((gid) => {
+      const n = get().nodes.find((x) => x.id === gid);
+      return n?.type === 'group' ? get().nodes.filter((c) => c.parentId === gid).map((c) => c.id) : [];
+    });
+    const parentOfRemoved = new Map(   // set 之前捕获——filter 后丢失父子关系（deleteNode 同款）
+      removedIds.map((id) => [id, get().nodes.find((n) => n.id === id)?.parentId]),
+    );
     set((s) => {
       const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
       // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点
@@ -589,6 +597,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const ns = useNodeStore.getState();
       ns.deleteNode(change.id);
       ns.unregisterSaveHandler(change.id);
+      // v6 组清理（cells 第 7 写者——对齐 deleteNode 的父组清理）：分镜组 cells 过滤死 id；普通组删空自动解组
+      const prevParentId = parentOfRemoved.get(change.id);
+      const parent = prevParentId ? get().nodes.find((n) => n.id === prevParentId) : undefined;
+      if (parent?.type === 'group') {
+        if ((parent.data as any)?.cells) {
+          get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== change.id) });
+        } else if ((parent.data as any).groupType === 'normal' && !get().nodes.some((c) => c.parentId === parent.id)) {
+          get().ungroup(parent.id);
+        }
+      }
+    }
+    // v6：级联子清理（组被删时其子走 deleteNode 三件套——cancelNodeProcess/ns.deleteNode/unregisterSaveHandler）
+    for (const cid of removedGroupsChildren) {
+      if (get().nodes.some((n) => n.id === cid)) get().deleteNode(cid);
     }
   },
 
@@ -922,6 +944,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
             position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
         : n),
     }));
+    // v5 C2：移出最后子 → normal 空组解组（对齐删空自动解组语义；storyboard 组不受此规则）
+    const after = get();
+    const g = after.nodes.find((n) => n.id === groupId);
+    if (g?.type === 'group' && (g.data as any)?.groupType === 'normal'
+      && !after.nodes.some((n) => n.parentId === groupId)) {
+      get().ungroup(groupId);
+      return; // ungroup 内已调 applyGroupDerivations
+    }
     get().applyGroupDerivations();
   },
 
@@ -1034,10 +1064,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           ...st.nodes.filter((n) => n.id !== nodeId && n.id !== groupId),
           ...expandedNodes,
           ...overflowNodes,
-          { ...group, data: { ...gd, cells } },
+          group,
         ],
         edges: st.edges,
       }));
+      get().patchGroupData(groupId, { cells });
 
       // 双写 nodeStore
       for (const e of expandedNodes) {
@@ -1063,21 +1094,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
 
       if (emptyIdx >= 0 && emptyIdx < capacity) {
-        // 入组（五审 L-4：addToGroup 本身是单 set 操作，但 cells set 是独立 set，需包事务）
+        // 入组（五审 L-4：addToGroup 单 set + cells 经 patchGroupData 单 set——两段与原结构一致）
         get().addToGroup(groupId, nodeId);
         // 补 null 到空位索引
-        set((st) => {
-          const g = st.nodes.find((n) => n.id === groupId);
-          if (!g) return st;
+        const g = get().nodes.find((n) => n.id === groupId);
+        if (g) {
           const updatedCells = [...(g.data as any).cells ?? []];
           while (updatedCells.length < emptyIdx) updatedCells.push(null);
           updatedCells[emptyIdx] = nodeId;
-          return {
-            nodes: st.nodes.map((n) =>
-              n.id === groupId ? { ...n, data: { ...n.data, cells: updatedCells } } : n
-            ),
-          };
-        });
+          get().patchGroupData(groupId, { cells: updatedCells });
+        }
       } else {
         // 溢出：移到组右侧（单 set，无需事务）
         set((st) => ({
@@ -1201,13 +1227,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
-            width: size.width, height: size.height,
-            data: { groupType: 'storyboard', name: `分镜组 ${sorted.length} 个节点`, cells: sorted,
-                    storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' } } };
+            width: size.width, height: size.height };
           if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
           return n;
         }),
       }));
+      // F18：增量 patch（name 非空保留；savedSize/manuallyResized undefined=删除键）
+      get().patchGroupData(groupId, {
+        groupType: 'storyboard', cells: sorted,
+        storyboard: { aspectRatio: '16:9', gridRows: rows, gridCols: cols, showIndex: false, stitchResolution: '2K' },
+        nameCustom: false,
+        name: (gd.name && gd.name.trim()) || `分镜组 ${sorted.length} 个节点`,
+        savedSize: undefined, manuallyResized: undefined,
+      });
     } else {
       // 分镜组 → 普通组：cells 顺序网格重排
       const cfg = resolveStoryboardConfig(gd);
@@ -1216,7 +1248,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
-          if (n.id === groupId) return { ...n, data: { groupType: 'normal', name: '分组' } };
           const idx = (gd.cells ?? []).indexOf(n.id);
           if (idx === -1 || n.parentId !== groupId) return n;
           const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
@@ -1224,12 +1255,33 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
                    width: cellW, height: Math.round(cellH) };
         }),
       }));
+      // F18：增量 patch（name 非空保留；storyboard/cells/nameCustom 等删除键）
+      get().patchGroupData(groupId, {
+        groupType: 'normal',
+        name: (gd.name && gd.name.trim()) || '分组',
+        nameCustom: undefined, storyboard: undefined, cells: undefined,
+        savedSize: undefined, manuallyResized: undefined,
+      });
       // 组框重算
       get().refitGroupBounds(groupId);
     }
-    // data 整体重建清掉了 manuallyResized/savedSize——双写 nodeStore 防旧标记经快照复活
-    syncGroupDataToNodeStore(groupId);
     get().applyGroupDerivations();
+  },
+
+  /** 组 data 唯一通道（§4.7）：增量合并；undefined=delete。只写 cs——所有权单一
+   *  （F42：镜像 syncGroupDataToNodeStore 已删，ns 无组 data，投影组取 cs）。
+   *  ⚠️ derivations 配对：改 collapsed/cells 的调用方必须随后调 applyGroupDerivations
+   *  （deriveHidden/repairStoryboardCells 派生）——本函数不内嵌调用（repairStoryboardCells
+   *  会在中间态把子节点移出组）。 */
+  patchGroupData: (groupId, patch) => {
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        const merged = { ...n.data, ...patch };
+        for (const k of Object.keys(patch)) if ((patch as any)[k] === undefined) delete (merged as any)[k];
+        return { ...n, data: merged };
+      }),
+    }));
   },
 
   renameGroup: (groupId, name) => {
@@ -1237,34 +1289,24 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group || (group.data as any).name === final) return;
-    set((st) => ({
-      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, data: { ...n.data, name: final } } : n)),
-    }));
-    syncGroupDataToNodeStore(groupId);
+    get().patchGroupData(groupId, { name: final });
   },
 
   markManuallyResized: (groupId) => {
-    set((st) => ({
-      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, data: { ...n.data, manuallyResized: true } } : n)),
-    }));
-    syncGroupDataToNodeStore(groupId);
+    get().patchGroupData(groupId, { manuallyResized: true });
   },
 
   toggleCollapse: (groupId) => {
-    set((st) => ({
-      nodes: st.nodes.map((n) => {
-        if (n.id !== groupId) return n;
-        const collapsing = !(n.data as any).collapsed;
-        if (collapsing) {
-          return {
-            ...n,
-            data: { ...n.data, collapsed: true, savedSize: { width: n.width ?? 0, height: n.height ?? 0 } },
-            width: 200, height: 64,
-          };
-        }
-        return { ...n, data: { ...n.data, collapsed: false } };
-      }),
-    }));
+    const g0 = get().nodes.find((n) => n.id === groupId);
+    const collapsing = g0 ? !(g0.data as any).collapsed : false;
+    if (collapsing && g0) {
+      get().patchGroupData(groupId, { collapsed: true, savedSize: { width: g0.width ?? 0, height: g0.height ?? 0 } });
+      set((st) => ({
+        nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: 200, height: 64 } : n)),
+      }));
+    } else {
+      get().patchGroupData(groupId, { collapsed: false });
+    }
     const g = get().nodes.find((n) => n.id === groupId);
     if (g && !(g.data as any).collapsed) {
       const d = g.data as any;
@@ -1279,7 +1321,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         get().refitGroupBounds(groupId);
       }
     }
-    syncGroupDataToNodeStore(groupId);
     get().applyGroupDerivations();
   },
 
@@ -1302,14 +1343,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   updateStoryboardConfig: (groupId, patch) => {
+    const g = get().nodes.find((n) => n.id === groupId);
+    if (!g) return;
+    const cfg = resolveStoryboardConfig({ storyboard: { ...resolveStoryboardConfig(g.data), ...patch } });
+    const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
     set((st) => ({
-      nodes: st.nodes.map((n) => {
-        if (n.id !== groupId) return n;
-        const cfg = resolveStoryboardConfig({ storyboard: { ...resolveStoryboardConfig(n.data), ...patch } });
-        const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
-        return { ...n, width: size.width, height: size.height, data: { ...n.data, storyboard: cfg } };
-      }),
+      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: size.width, height: size.height } : n)),
     }));
+    get().patchGroupData(groupId, { storyboard: cfg });
   },
 
   resizeStoryboardGrid: (groupId, rows, cols) => {
@@ -1326,13 +1367,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const overflowIds = (gd.cells ?? []).slice(capacity);
     const gp = group.position;
     const gw = group.width ?? 0;
+    const cfg = { ...resolveStoryboardConfig(gd), gridRows: rows, gridCols: cols };
+    const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
     set((st) => ({
       nodes: st.nodes.map((n) => {
         // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
         if (n.id === groupId) {
-          const cfg = { ...resolveStoryboardConfig(gd), gridRows: rows, gridCols: cols };
-          const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
-          return { ...n, width: size.width, height: size.height, data: { ...gd, cells: keep, storyboard: cfg } };
+          return { ...n, width: size.width, height: size.height };
         }
         if (overflowIds.includes(n.id) && n.parentId === groupId) {
           const idx = overflowIds.indexOf(n.id);
@@ -1343,6 +1384,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }),
       edges: st.edges, // 溢出节点若有连线已在组内隐藏；解出后 hidden 推导恢复显示
     }));
+    get().patchGroupData(groupId, { cells: keep, storyboard: cfg });
     get().applyGroupDerivations();
     if (overflowIds.length > 0) {
       message.info(`${overflowIds.length} 张图片已移出分镜组`);
@@ -1357,30 +1399,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const s = get();
     const cellIds = (s.nodes.find((n) => n.id === groupId)?.data as any)?.cells ?? [];
     set((st) => ({
-      nodes: st.nodes
-        .filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId))
-        .map((n) => n.id === groupId ? { ...n, data: { ...n.data, cells: [] } } : n),
+      nodes: st.nodes.filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId)),
       edges: st.edges.filter((e) => !cellIds.includes(e.source) && !cellIds.includes(e.target)),
     }));
+    get().patchGroupData(groupId, { cells: [] });
     cellIds.forEach((id: string) => useNodeStore.getState().deleteNode(id));
   },
 
   addImageToStoryboardCell: (groupId, cellIndex, fileId, url) => {
     const id = getId('node');
+    // 空位用 null 占位（cells: (string | null)[]），语义明确且 filter(Boolean) 安全
+    const cells: (string | null)[] = [...(((get().nodes.find((n) => n.id === groupId)?.data as any)?.cells) ?? [])];
+    while (cells.length < cellIndex) cells.push(null);
+    cells[cellIndex] = id;
     set((st) => ({
-      nodes: st.nodes.map((n) => {
-        if (n.id !== groupId) return n;
-        // 空位用 null 占位（cells: (string | null)[]），语义明确且 filter(Boolean) 安全
-        const cells: (string | null)[] = [...((n.data as any).cells ?? [])];
-        while (cells.length < cellIndex) cells.push(null);
-        cells[cellIndex] = id;
-        return { ...n, data: { ...n.data, cells } };
-      }).concat([{
+      nodes: st.nodes.concat([{
         id, type: 'imageGen', parentId: groupId, extent: 'parent',
         position: { x: 0, y: 0 }, width: 320, height: 180,
         data: { status: 'done', fileId, mediaUrl: url } as any, selected: false,
       } as Node]),
     }));
+    get().patchGroupData(groupId, { cells });
     useNodeStore.getState().addNode({ id, type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId, mediaUrl: url } as any });
     get().applyGroupDerivations();
   },
@@ -1400,11 +1439,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 紧凑前移：splice 移除该位，后续自动前移
     cells.splice(cellIndex, 1);
     set((st) => ({
-      nodes: st.nodes
-        .filter((n) => n.id !== removedId)
-        .map((n) => n.id === groupId ? { ...n, data: { ...n.data, cells } } : n),
+      nodes: st.nodes.filter((n) => n.id !== removedId),
       edges: st.edges.filter((e) => e.source !== removedId && e.target !== removedId),
     }));
+    get().patchGroupData(groupId, { cells });
     if (removedId) useNodeStore.getState().deleteNode(removedId);
     get().applyGroupDerivations();
   },
