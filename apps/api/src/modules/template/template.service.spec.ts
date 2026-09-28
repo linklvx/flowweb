@@ -535,5 +535,41 @@ describe('TemplateService', () => {
       const nodes = projectService.create.mock.calls[0][2] as any[];
       expect(nodes[0].data.fileId).toBe('f1');            // 作者路径全量保留（现状亦绿——防 Task 12 过滤波及作者）
     });
+
+    it('往返等价（全量基准，两段拼接的 import 段）：save 输出形状（Task 11 已在 canvas.service.spec 锁定）→ 导入逐字段归一等值', async () => {
+      // 输入=save 的落库形状（version:1 + 归一化信封——由 Task 11 的 save 断言保证，此处硬编码同构夹具）
+      const savedShape = {
+        version: 1,
+        nodes: [
+          { id: 'g1', type: 'group', position: { x: 10, y: 10 }, width: 300, height: 200,
+            data: { groupType: 'storyboard', cells: ['c1', null], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+          { id: 'c1', type: 'imageGen', position: { x: 15, y: 15 }, parentId: 'g1', width: 140, height: 90, data: { prompt: 'cat', fileId: 'f1' } },
+        ],
+        edges: [{ id: 'e1', source: 'c1', target: 'c1' }],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      };
+      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: false, userId: 'u1', templateData: savedShape });
+      await service.import('t1', 'u1');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      const g = nodes.find((n: any) => n.type === 'group');
+      const c = nodes.find((n: any) => n.type === 'imageGen');
+      // 信封逐字段：type/position 深等、三键等值、parentId 经映射后指向新组
+      expect(g.type).toBe('group'); expect(g.position).toEqual({ x: 10, y: 10 });
+      expect(g.width).toBe(300); expect(g.height).toBe(200); expect(g.parentId).toBeUndefined();
+      expect(c.position).toEqual({ x: 15, y: 15 }); expect(c.width).toBe(140); expect(c.height).toBe(90);
+      expect(c.parentId).toBe(g.id);
+      // data：除 cells 外深等（私有全量——fileId 保留）；cells 槽位映射后可解析
+      expect(c.data).toEqual(savedShape.nodes[1].data);
+      const { cells, ...gDataRest } = g.data; const { cells: _oc, ...origGDataRest } = savedShape.nodes[0].data;
+      expect(gDataRest).toEqual(origGDataRest);
+      expect(cells).toHaveLength(2);
+      expect(cells[0]).toBe(c.id);          // 可解析
+      expect(cells[1]).toBeNull();          // 空宫格占位保留
+      // edges 端点经映射后等值
+      const edges = projectService.create.mock.calls[0][3] as any[];
+      expect(edges).toHaveLength(1);
+      expect(edges[0].source).toBe(c.id); expect(edges[0].target).toBe(c.id);
+    });
   });
 });
