@@ -113,7 +113,7 @@ describe('@Body() 棘轮门禁（R0d②，v3 三修）', () => {
         "@Controller('x')",
         '@Post("a") @UsePipes(new ValidationPipe({ whitelist: true })) m1(@Body() d: ADto) {}',
         '@Post("b") m2(@Body() d: ADto) {}',
-      ].join(String.fromCharCode(10)),   // v5：'\n' 字面量经传输层会被折叠成真换行（parse 错）——fromCodePoint 抗折叠
+      ].join(String.fromCharCode(10)),   // v5：'\n' 字面量经传输层会被折叠成真换行（parse 错）——fromCharCode 抗折叠
     };
     const out = scanBodyParams(fake);
     expect(out.dtoNoPipe).toEqual(['fake.controller.ts|d: ADto']);
