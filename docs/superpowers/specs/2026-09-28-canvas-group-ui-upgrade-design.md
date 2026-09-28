@@ -1,12 +1,13 @@
 # Canvas 组与分镜组 UI 升级（Spec A）— 设计 spec
 
-- 日期：2026-09-28（第四轮评审修订版 v4）
+- 日期：2026-09-28（第五轮评审修订版 v5）
 - 状态：待用户审阅
 - 范围：需求 1/2/3/4/8 + 组颜色 + 副本/下载/组色持久化链路根修 + 克隆崩溃/模板往返组结构剥离修复
 - 姊妹篇：`2026-09-28-group-geometry-batch-connect-design.md`（Spec B 挂起，待本篇走完三阶段）
-- **交付结构**（plan 层执行）：
-  - **前置单元 PR①（无用户可见视觉变化，可独立验收回滚）**：`refitGroupGeometry` 纯函数+写入 action、几何镜像结构性订阅（含删两处旧镜像）、`GROUP_NODE_DATA_KEYS` 下沉 shared + **GroupNodeData 类型补全 9 键**、克隆白名单分表（group 9 键，修 F2 崩溃）+ 政策断言、**模板往返组结构修复（F29）**、`normalizeSelection/participation/arrangeRects/shouldAutoRefit/COLLAPSED_SIZE/GROUP_PALETTE` 等全部纯函数与常量
-  - **功能单元 PR②**：本篇全部 UI/交互与消费
+- **交付结构**（plan 层执行，三个可独立验收回滚的单元）：
+  - **PR①-defect（最先，已上线缺陷修复）**：克隆白名单分表（group 9 键修 F2 崩溃）+ 政策断言 + **模板往返组结构修复（F29）** + 消费层双防线
+  - **PR①-foundation（地基）**：`refitGroupGeometry` 纯函数+写入 action、几何镜像结构性订阅（含删两处旧镜像——**分两步 commit，前置"手动 resize→刷新保持"回归**）、`GROUP_NODE_DATA_KEYS` 下沉 shared + 类型补全、`normalizeSelection/participation/arrangeRects/shouldAutoRefit/COLLAPSED_SIZE/GROUP_PALETTE` 等全部纯函数与常量
+  - **PR②（UI）**：本篇全部 UI/交互与消费
 - 参考代码出处：用户需求原文提供的目标产品（Pippit）DOM 片段，视觉参数已提取进本 spec 各表
 
 ## 1. 已证实的库内事实约束（三轮评审实证）
@@ -23,7 +24,7 @@
 | F8 | fullscreen viewer 直用内存 displayUrl（长开页面可能已过期），带本地 downloading 守卫 | ImageFullscreenViewer.tsx:62-82 |
 | F9 | getMediaUrl 返回**相对路径** /flowai/...（同源代理无 CORS、content-type 可读——扩展名映射成立的原因，也是 expiresAt 必须服务端给的原因）；batchGetMedia 无重写（当前不可用） | mediaApi.ts:6/:21-24 |
 | F10 | repairStoryboardCells 把不在 cells 的 storyboard 子节点 stray 停放组下方——副本必须重映射 cells（buildGroupCopy :1468 先例） | groupDerive.ts:26-41 |
-| F11 | TD-Pos：position→nodeStore 镜像只在 onNodesChange（:546-560 dimensions/setAttributes + :561-578 TD-Pos 两处旧镜像）；**全部既有程序化几何写入点均绕过镜像**（groupNodes/ungroup/addToGroup/dropIntoGroup/removeNodeFromGroup/mergeStoryboard/convertGroup×2/resizeStoryboardGrid/clearStoryboard/addImageToStoryboardCell/removeStoryboardCell/repairStoryboardCells/refitGroupBounds/toggleCollapse/buildGroupCopy/rebuildFromClipboard——不计数，以 grep 为准）——快照存 nodeStore 且 initCollab 先 fillDoc 进 ydoc | canvasStore.ts:546-578、useCanvasPersistence.ts:105、canvasCollabRuntime.ts:240-243 |
+| F11 | TD-Pos：position→nodeStore 镜像只在 onNodesChange（:546-560 dimensions/setAttributes + :561-578 TD-Pos 两处旧镜像；**前者是手动 resize 写 nodeStore 的唯一通路——删除前必须验证手动 resize→刷新保持**）；**全部既有程序化几何写入点均绕过镜像**（groupNodes/ungroup/addToGroup/dropIntoGroup/removeNodeFromGroup/mergeStoryboard/convertGroup×2/resizeStoryboardGrid/clearStoryboard/addImageToStoryboardCell/removeStoryboardCell/refitGroupBounds/toggleCollapse/buildGroupCopy/rebuildFromClipboard——不计数以 grep 为准；repairStoryboardCells 是纯函数经 applyGroupDerivations 生效、无独立写入，不列）——快照存 nodeStore 且 initCollab 先 fillDoc 进 ydoc | canvasStore.ts:546-578、useCanvasPersistence.ts:105、canvasCollabRuntime.ts:240-243 |
 | F12 | copyNode 死代码（接口声明 :111 + 实现 :277 + 4 处测试，零生产调用；删除时两处一起删） | grep 证实 |
 | F13 | duplicateGroup 无 stopCapturing——"单 undo 步"现状靠 captureTimeout=500 巧合 | canvasUndo.ts:13-27 |
 | F14 | B-2 顺序纪律：canvasStore 结构 set 先于 nodeStore 写入 | canvasStore.ts:229 注释、buildGroupCopy :1495-1522 先例 |
@@ -41,8 +42,8 @@
 | F26 | **registry 是生成产物**（canvas-migration-registry.mjs 按 COLOR_RE 扫描产出 partitions，四手工键保留）——正确动作是重跑生成器+裁定新 site 增量，非手编 :434/:459 | apps/web/scripts/canvas-migration-registry.mjs |
 | F27 | clone 的 remapIds 只重映射 group.cells（悬空→null），不碰 images——images 进白名单后其 mediaId 不受影响 ✓；video-work-clone.service.spec.ts:21 组夹具无 storyboard（修白名单后需补，否则崩溃面无覆盖） | video-work-clone.service.ts:52-78 |
 | F28 | 分镜组三个子组件硬编码 #fff/#666/#aaa（style 对象豁免 lint 但嵌新容器会"新瓶旧字"） | AspectRatioDropdown/GridSizeDropdown/StitchButton |
-| F29 | **模板往返剥离组结构（比 F2 更严重的既有缺陷）**：导出侧 canvas.service.ts:77-79 显式四键重建（parentId/width/height 丢失）；导入侧 template.service.ts:242-246 同款且 **cells 无重映射**（idMap 只管 id/edges）；NodeSchema 未声明三字段且 zod 默认 strip + 两处 validateTemplateData 返回值被丢弃（:88/:225）——**仅补导出字段而不改 schema+用返回值，导入时仍被剥**。接收端 project.service 支持 parentId/width/height。后果：模板导入后组散架+组框 0×0+cells 悬空（repairStoryboardCells 被动停放兜底） | 同左 |
-| F30 | **GroupNodeData 类型仅 5 键**（groupType/name/collapsed/cells/storyboard）——manuallyResized/savedSize 是 de-facto 契约（toggleCollapse:1260/markManuallyResized:1247 写入、恢复路径消费）却未进类型；v4 再增 color/nameCustom——**类型不补全到 9 键，parity 锚定是假的**（类型说得少断言就查得少） | types/group.ts、canvasStore.ts:1247/:1260 |
+| F29 | **模板往返剥离组结构（比 F2 更严重的既有缺陷）**：真因是导出侧 canvas.service.ts:77-79 与导入侧 template.service.ts:242-246 **两处显式四键列举式重建**（parentId/width/height 丢失；readCanvas 输出恰为 7 键=端到端契约，两侧手写 4 键子集与契约漂移）；导入侧 idMap 只喂 edges **cells 无重映射**；NodeSchema 未声明三字段且 zod 默认 strip——**当前未生效**（两处 validateTemplateData 返回值被丢弃 :88/:225），是潜在陷阱非现成因。后果：分镜子节点 rel 恒 {0,0} → 导入后**叠成一摞**（非散落）；普通组子节点变顶层相对坐标挤原点；组框 0×0；cells 悬空（repairStoryboardCells 救不了——parentId 已丢） | 同左 |
+| F30 | **GroupNodeData 类型仅 5 键且 extends Record<string,unknown>**——manuallyResized/savedSize 是 de-facto 契约（toggleCollapse:1260/markManuallyResized:1247 写入、恢复路径消费）未进类型；**索引签名使 keyof = string\|number，任何 satisfies/Exclude 锚定恒真（假绿）**——v4 的锚定 idiom 在该 interface 上是空操作。使用点仅 2 处 Props 注解（NormalGroupRenderer/StoryboardGroupRenderer） | types/group.ts:14 |
 
 ## 2. 需求清单（本篇）
 
@@ -60,14 +61,15 @@
 2. **组框不变式（scope 限定）**：`组框 ≡ bbox(成员)+四向 padding` 仅适用于 `normal && !collapsed && !manuallyResized`；**折叠态几何恒为 COLLAPSED_SIZE、手动组保留用户尺寸——两者是显式例外**。门禁抽纯函数 `shouldAutoRefit(group)` 三处同源消费：refitGroupGeometry 内置、refitExpandedGroups（现有）、useCanvasPersistence 恢复循环（现有）。
 3. **原子块定义**：组在排列/副本中 = stored rect（折叠=COLLAPSED_SIZE、分镜=calcStoryboardSize）；**detachedChildren 排列时排除不动 + toast 提示**（拍板：排列是几何命令不拥有改变成员关系的能力；脱离只发生在 removeNodeFromGroup/ungroup/dropIntoGroup 三个带守卫入口）；**副本中 detached 一律顶层化**（parentId=undefined+绝对坐标+offset）。
 4. **手动尺寸策略**：A 的排列子节点=显式几何命令，清 `manuallyResized`（同时 `syncGroupDataToNodeStore`——data 变更非几何镜像面）；B 的拖动口径在 B 审核时定（倾向收紧为"越出当前框才清"）。
-5. **几何唯一写者 + 结构性镜像（边界钉死）**：`refitGroupGeometry`（纯函数）+ `applyGroupFrame`（写入 action）是组几何唯一出口。**几何镜像结构性订阅**替代 per-action 手动镜像（writePositions 废弃），四条字面约束：
-   - **挂载点**：独立 `useGeometryMirror(projectId)` hook 或挂 useCanvasPersistence（**不得挂 bindBridge**——它只在 initCollab 调用，未连协作/单测环境镜像不生效）；断言"离线时程序化几何同样镜像"
-   - **字段语义**：**仅镜像显式 width/height**（undefined=未测量约定，不折算 measured——否则所有节点恢复后带显式尺寸，行为面无声扩大）
-   - **update-only**：绝不 create、绝不写 data（防新节点 ns.addNode 前被订阅用 canvasStore 陈旧 data 覆写——与 F14/B-2 顺序正面对撞）
-   - **删除两处旧镜像**：onNodesChange :546-560（dimensions/setAttributes）与 :561-578（TD-Pos）——否则同字段三写者并存且旧块写 clamp 中间值
-   - 机制防护：镜像写 nodeStore 前置模块 flag 使 unsubNs 早退（防双倍同步开销——doc 几何已由 canvasStore 订阅写入）；断言"远端 apply 后 undoStack 长度不变"（防回声进本地撤销栈）；**"几何三字段不在 CANVAS_BRIDGE_KEYS"写成测试**（防未来加键死循环——nodeStore→canvasStore 反向桥已存在）；断言"选中态翻转不产生 nodeStore 写入"（性能护栏）
-   - **B 交界节流口径（现在定死）**：订阅内仅对 `!dragging` 的节点镜像——Spec B 拖动中逐帧 refit 不进 nodeStore/CRDT/快照，拖动结束（dragging=false）一次镜像
-   - 收口验收线：程序化几何写入后 canvasStore 与 nodeStore 的 position/width/height 逐节点相等；refit 连续两次几何不变（幂等）
+5. **几何唯一写者 + 结构性镜像（边界钉死，v5 修订节流口径）**：`refitGroupGeometry`（纯函数）+ `applyGroupFrame`（写入 action）是组几何唯一出口。**几何镜像结构性订阅**替代 per-action 手动镜像（writePositions 废弃），字面约束：
+   - **挂载点**：独立 `useGeometryMirror(projectId)` hook 或挂 useCanvasPersistence（**不得挂 bindBridge**——只在 initCollab 调用，离线/单测不生效）；断言"离线时程序化几何同样镜像"
+   - **字段语义**：**仅镜像显式 width/height**（undefined=未测量约定，不折算 measured）
+   - **update-only**：绝不 create、绝不写 data（防与 F14/B-2 顺序对撞）
+   - **isHydrating 跳过**（v5 补回）：远端 apply/hydrate 期间零写入（对齐 S1 纪律，防白跑 O(n) 并写旧引用）
+   - **删除两处旧镜像**（:546-560 dimensions/setAttributes + :561-578 TD-Pos）——**分两步 commit：先加新订阅→跑"手动 resize→刷新保持"回归→绿了再删旧块**（:546-560 是手动 resize 写 nodeStore 的唯一通路，不可直接删）
+   - 机制防护：镜像前置模块 flag 使 unsubNs 早退（防双倍同步）；"远端 apply 后 undoStack 不变"断言；"几何三字段不在 CANVAS_BRIDGE_KEYS"测试（防死循环）；"选中态翻转零 nodeStore 写入"断言
+   - **B 交界节流（v5 改整轮判定）**：逐节点 `!dragging` 门**拦不住目标对象**（dragging 在被拖子节点上，refit 改的是组节点 dragging=false）。改为：**存在任一 dragging 节点 → 本轮镜像整轮跳过；onNodeDragStop 内显式 flush 一次全量镜像**（不依赖 RF 补发 dragging:false——本轮实证未确认该行为，显式提交点与契约 4"显式几何命令"口径一致）；跳过期间后的首次 pass 全量补镜像（兜底非拖动源变更）；补"拖动手势结束 dragging 归 false"库假设测试（防 RF 升级破坏）。resizing 只在 change 上不在 node 上——无法同样判定，登记为可选优化（旧 dimensions 镜像本就逐帧写，属既有税非本次回归）
+   - 收口验收线：程序化几何写入后双 store position/width/height 逐节点相等；**拖拽结束后**双 store 几何逐节点相等；refit 幂等
 
 ## 4. 详细设计
 
@@ -78,7 +80,7 @@
 ### 4.2 Token 与门禁（前置）
 
 - `TOOLBAR` 拆 `SELECTION_TOOLBAR={40,14}` / `GROUP_TOOLBAR={44,32}`（28 相切取 32 留余量）。
-- index.css **在既有唯一双块内**追加（不得另起块，b1-4 硬红）：`--canvas-storyboard-shell-bg`（#212121/#f7f8f8）、`--canvas-group-border`（#3a3a3a/**浅档加深至 ~3:1 档**——#e5e7eb vs 板面 #F5F5F5 仅 1.12:1 不可见，取 #c7ccd3 系并进对比度表）、组色板 7 支 `--canvas-group-color-{red,orange,yellow,green,cyan,blue,purple}`（浅档深色变体保 ≥3:1 vs 亮档 #F5F5F5，黄→#a16207 系）。
+- index.css **在既有唯一双块内**追加（不得另起块，b1-4 硬红；**落点具名：深块尾 index.css :58 前、浅块尾 :102 前**——不得落入 :126 的几何常量块）：`--canvas-storyboard-shell-bg`（#212121/#f7f8f8）、`--canvas-group-border`（**深 #3a3a3a / 浅 #9ca3af，拍板定稿**——浅档 2.33:1 vs 板面/2.22:1 vs 组内底，系统既有档位（--fw-text-dim-1 同值+P6-手柄 2.54 先例）零新增色；与 --fw-border/--canvas-controls-border 的 #e5e7eb **刻意不同色**（组框无阴影单载波，统一回去=静默回到 1.12:1 不可见——注释写死）；**台账如实登记 2.33/2.22 为分离度观测行**（specExpect 留空+注明"无阴影单载波未达 3:1，B6 目检裁定"，ID 前缀 面-面-组框边@板底(浅) 同 :26-28 族——不写"≈3:1 档"虚报）；**回退指令预登记**：目检不可辨→浅 #8e9298（3.00）+深同步提 ≈#595959 保持两档等重，同步双块+b0 表+pair 重跑）、组色板 7 支 `--canvas-group-color-{red,orange,yellow,green,cyan,blue,purple}`（浅档深色变体保 ≥3:1 vs 亮档 #F5F5F5，黄→#a16207 系）。**可见性冗余通道**：组名浮层恒显示（已有）+ 组节点可访问名（aria-label）补齐——分组信息由 边框+名字+选中手柄+组色 四通道承载，边框非唯一线索。观察登记：浅档组内底 #f0f1f2 vs 板面 1.05:1 未传达分组，"组内底与板面拉开一档"为可选优化（本次不做）。
 - **文字不使用组色**；组色载体 = 组框边框 + 色点 + 徽标**描边**（BADGE 现为 #3f3f3f 底白字——组色上描边不上底色，防黄/青底白字不可读）。
 - 门禁：b0 `DOMAIN_TOKENS` 数组加 9 键+DARK/LIGHT 值（漏加=假绿，补"新键在迭代列表内"断言）；**深浅域键集相等断言落 vitest**（b1-4 只在 Playwright 批次）；registry（F26）：`node scripts/canvas-migration-registry.mjs` 重跑刷新 + 新 site（token 消费/折叠卡 hex/工具条 rgba→var 改写，预估 20-40 条）在 differExpectedPairs/adjudications **逐条裁定**——这是门禁主要成本；`css-baseline-diff` 的 D 段配对是闸门真源（未配对=失败）。
 
@@ -94,7 +96,7 @@
 - **反向断言：排列前后全体节点 parentId 分布逐节点相等**（防脱离语义回潮）；**极端混选留白属预期**（验收样例：组 642×362 + 节点 300×300 同排）
 
 **duplicateSelection() → duplicateNodes(ids, offset)**：
-- 闭包 = 三桶全展开（detached **副本一律顶层化**：parentId=undefined+绝对坐标+offset——原节点留组内）；data 一律取 nodeStore 全量；**storyboard 组 cells 重映射**（新 cells=cells.map(id=>idMap.get(id)??null)，stray 语义与 clone remapIds 对齐）；折叠组副本继承 collapsed/savedSize
+- 闭包 = 三桶全展开，**participation('duplicate') 排除 hidden 节点**（折叠组子节点 selected 可为 true 但不可见——副本不该凭空产生看不见的节点）；detached **副本一律顶层化**（parentId=undefined+绝对坐标+offset——原节点留组内）；data 一律取 nodeStore 全量；**storyboard 组 cells 重映射**（新 cells=cells.map(id=>idMap.get(id)??null)，stray 语义与 clone remapIds 对齐）；折叠组副本继承 collapsed/savedSize
 - 选区闭包互连边重映射；组 selected=true 子 false；偏移 `DUPLICATE_OFFSET={40,0}`；**顺序（F14）**：canvasStore set 先于 ns.addNode
 - **undo（F13）**：入口 stopCapturing()；断言 500ms 内连点两次=2 undo 项
 - **副本体系统一**：copyNode 删除（:111+:277+4 测试）；duplicateGroup=duplicateNodes([id],DUPLICATE_OFFSET) 特例；copyGroupToClipboard/paste 链路复制时从 nodeStore 取全量 data
@@ -125,7 +127,7 @@
 
 - `COLLAPSED_SIZE={220,160}` 单源（toggleCollapse+渲染层+canvasStore.groups.test.ts:200 断言 200→220）
 - 结构：预览宫格（padding 6/gap 4/圆角 6）+ summaryRow" N 个节点"；列数 1-2→按数量/3-4→2 列/5+→3 列；≤6 tile；tile 独立组件 useMediaUrl(fileId)；其它类型图标占位
-- **useMediaUrl 缓存根修（F7 正解，v4 加固）**：服务端 Redis 缓存值改 JSON `{url, ttlSec}`（**缓存键硬要求版本化 `media:url:v2:${teamId}:${fileId}`**——防新旧 pod 混布窗口旧代码把 JSON 串当 URL 返回全站裂图；旧缓存 840s 自然过期；**assertTeamMember 先于缓存读的顺序不动**）；未命中 ttlSec=900；响应返回**相对秒数 ttlSec 而非绝对 expiresAt**（规避客户端时钟偏移误判临期，客户端 now+ttl*1000）；客户端模块级缓存 `fileId→{url,expiresAt}`（**键=fileId 跨项目安全：值为相对路径与项目无关**），临期 <60s 重取、onError 失效重取一次、LRU 上限 64、**清空触发点：page.tsx 项目切换分支调用 `clearMediaUrlCache()`（指名挂点，防"写了注释没人调"）+ 切项目后同 fileId 重取测试**；getPresignedUrlByKey 不在范围（banner 专用）
+- **useMediaUrl 缓存根修（F7 正解，v5 补三细节）**：服务端 Redis 缓存值改 JSON `{url, ttlSec}`（**缓存键硬要求版本化 `media:url:v2:${teamId}:${fileId}`**——防新旧 pod 混布窗口旧代码把 JSON 串当 URL 返回全站裂图；旧缓存 840s 自然过期；**assertTeamMember 先于缓存读的顺序不动**；**命中路径 GET+TTL 用 pipeline/multi 合并**；**JSON.parse 失败 fallback 重新 presign 不 500**——Redis 值非可信输入）；未命中 ttlSec=900；响应返回**相对秒数 ttlSec**（规避时钟偏移，客户端 now+ttl*1000；**ttl≤0 立即重取**）；客户端模块级缓存 `fileId→{url,expiresAt}`（键=fileId 跨项目安全：值为相对路径），临期 <60s 重取、onError 失效重取一次、LRU 上限 64、**清空双挂点：page.tsx 项目切换分支（同一项目刷新走模块重建自然为空无漏洞）+ AuthProvider 登出回调（登出不经 page.tsx，防注释化）**；getPresignedUrlByKey 不在范围（banner 专用）
 - 组色着色折叠卡边框（双兜底）；**选中态优先级：选中高亮 > 组色**（折叠卡与展开态组框同规则）；根元素 `title={组名}` + `aria-label="{组名}，N 个节点"`（原生 title 主题不可控，已知接受项）；重命名入口 = **右键菜单新增"重命名"项**（修 F24，与 nameCustom 配套，CanvasView 门不分普通/分镜一次覆盖）+ 展开态双击
 
 ### 4.6 分镜组改版（需求 8）
@@ -143,10 +145,21 @@
   - **clone 端新表 = snapshot 表 + `group: [...GROUP_NODE_DATA_KEYS]`（9 键）**——multiImageGen **维持 ['prompt','label']**（F20 改判：媒体引用一律剥离，骨架语义）；白名单处注释写死政策："媒体引用一律剥离（fileId/mediaUrl/referenceImage/images 内 id）——克隆跨用户，getMediaUrl 对异团队 403（media.service.ts:19-21 + schema teamId 非空）。剥离是安全结果非字段遗漏；克隆=工作流骨架，产物需重新生成。若将来要连产物复制，必须先做服务端媒体转存/重新归属（含配额），不是白名单改动"
   - **政策断言（防再误读）**：clone spec 锁 `multiImageGen.data.images === undefined`、`imageGen.data.fileId === undefined`；`isImageCompletedNode(克隆体) === false`（不能转分镜组/批量下载）为**预期行为断言**
   - video-work-clone.service.ts:35 传 clone 表
-- **GROUP_NODE_DATA_KEYS 下沉 packages/shared + 类型补全（F25/F30）**：**先把 types/group.ts 的 GroupNodeData 从 5 键补到 9 键**（manuallyResized/savedSize 是 de-facto 契约必须显式化，+color/nameCustom）——类型不补全 parity 是假的；`packages/shared/src/types/group.ts` 导出 `GROUP_NODE_DATA_KEYS` 运行时 const 数组，**双向锚定 idiom**（单向 satisfies 只保证 ⊆，漏字段不报错）：`as const satisfies readonly (keyof GroupNodeData)[]` + `Exclude<keyof GroupNodeData, typeof KEYS[number]> extends never` 编译期检查；API spec 值导入断言 `clone 表 group ⊇ GROUP_NODE_DATA_KEYS`
+- **GROUP_NODE_DATA_KEYS 下沉 + 类型重构（F25/F30，v5 修锚定方案）**：v4 的 satisfies/Exclude idiom 在 `extends Record<string,unknown>` 上**恒真（假绿）**——索引签名把 keyof 吞成 string|number。修法：
+  - types/group.ts 重构：`GroupNodeDataShape`（**无索引签名的显式 interface，9 键**，savedSize 显式 `{width:number;height:number}`）+ `export type GroupNodeData = GroupNodeDataShape & Record<string, unknown>`（满足 RF Node 约束）；2 处 Props 调用点加本地 cast（`data as unknown as GroupNodeData`，node.data 无类型流）——**不清既有 as any（精准修改）**
+  - `packages/shared/src/types/group.ts`：导出 `GROUP_NODE_DATA_KEYS` 运行时 const 数组（唯一运行时真值源）
+  - **双向编译锚定（对 Shape 有效——无索引签名 keyof 是字面量联合）**：`KEYS as const satisfies readonly (keyof GroupNodeDataShape)[]`（KEYS 加错键红）+ `Exclude<keyof GroupNodeDataShape, typeof KEYS[number]> extends never`（Shape 加键忘更新 KEYS 红）
+  - **运行时兜底**：写入路径断言 `Object.keys(node.data) ⊆ GROUP_NODE_DATA_KEYS`（TS interface 运行时不存在，这是唯一能真正枚举处）
+  - API spec 值导入断言 `clone 表 group ⊇ GROUP_NODE_DATA_KEYS`
 - clone spec 夹具补 storyboard（F27）；跨包断言**拆两条可实现**：① API spec 断言 clone 输出含 data.storyboard（形状）；② web 组件测试断言"有/无 storyboard 两分支都不崩"——**不写跨包 e2e**
-- **模板往返修复（F29，并入 PR① 与克隆修复同批）**：① 导出侧 canvas.service.ts:77-79 补 parentId/width/height；② 导入侧 template.service.ts:242-246 补同三字段；③ **NodeSchema 声明三字段 + 两处改用 validateTemplateData 返回值**（zod 默认 strip，只补导出不动 schema 导入仍被剥）；④ 导入侧 idMap 循环补 cells 重映射（语义照 clone remapIds：悬空→null 长度不变）；⑤ 验收：带组画布→存为模板→新项目导入→断言 parentId/组框尺寸/cells 三者保留（此测试修复前必红）
-- **克隆+模板缺陷修复作为独立 commit 先行落地**（已上线路径用户可见缺陷，可独立验收回滚）
+- **模板往返修复（F29，v5 拍板定稿：A 门禁 + void 封死 + 展开式重建，并入 PR①-defect）**：
+  - **导出侧** canvas.service.ts:77-79：改**展开式** `{ ...n }`（readCanvas 输出恰为 7 键=端到端契约，不逐键列举）+ `ensureParentFirst`（父先子后，web 侧 hydrateNodes 会自愈但这是组结构往返变形最后一个口子）
+  - **导入侧** template.service.ts:242-246：展开式 `{ ...n, id: newId, parentId: n.parentId ? (idMap.get(n.parentId) ?? null) : undefined }`；**cells 两遍重映射**（先建全 idMap 再单独 for 循环 remap——边建边用会误判靠后节点为悬空；悬空→null 长度不变，语义照 clone remapIds）
+  - **门禁封死**：`validateTemplateData` 返回类型改 **void**（strip 陷阱在类型层不可达——"想拿返回值当数据用"编译不过；6 个 .toThrow 测试无感）；NodeSchema 顺手声明 parentId/width/height 三字段（纯文档性 3 行，双保险）
+  - **注释封坑**：边界处写死"一律展开式重建，禁止改回逐个列举字段——列举式是 F29 成因"
+  - **消费层几何兜底**（与 storyboard 双防线同精神）：组缺 width/height → 派生（normal→refit、storyboard→calcStoryboardSize(config)）——未来任何丢几何路径不再表现为"组凭空消失"
+  - **验收（修复前必红）**：带组画布→存为模板→新项目导入→**往返等价断言**（除 id 映射外全部顶层键深等 + cells 全部可解析）+ **applyGroupDerivations() 导入后不改变任何节点**（无 stray 停放、组框不变——比"三字段保留"更直接证明没散架）；普通组+分镜组各一条（分镜组才暴露 rel {0,0} 叠加）
+- **克隆+模板缺陷修复 = PR①-defect 独立 commit 先行**（已上线事故，可独立验收回滚）
 
 ## 5. 测试策略（TDD）
 
@@ -156,10 +169,10 @@
 | store | arrangeSelection（**parentId 逐节点不变反向断言**/排除项零位移含中心/参与<2 提示/保持选区/单 set）；duplicateNodes（nodeStore data 全等/cells 重映射/detached 副本顶层化/B-2 顺序/连点=2 undo）；duplicateGroup 复用路径；setGroupColor（双写/未知 key 拒写）；convertGroup 两方向 {name,nameCustom,color}；arrangeGroupChildren（守恒/**折叠 no-op**/清标记+data 双写）；折叠 220；**几何镜像订阅**（程序化写 position/width/height 后 nodeStore 同步/循环防护） |
 | util | mediaDownload（双入口/**url 失效 fileId 重取**/revoke 延迟/失败 message）；useMediaUrl（同 fileId 二次挂载 0 请求/**ttlSec 临期重取**/onError 自愈/**切项目 clearMediaUrlCache 后重取**）；**下载收集主图非 success 用例**（主图 error→首个 success；-1/越界→跳过——显式测试非注释） |
 | 组件 | SelectionBoxOverlay（按钮序/排列菜单/下载守卫）；GroupToolbar（新按钮序/色板浮层/storyboard 补两按钮/portal 位置断言更新）；**NormalGroupRenderer（展开态 1px 边框断言替换 ''/折叠态 name+badge→"N 个节点"/220×160）**；CollapsedPreviewCard（列数/tile/title+aria）；StoryboardGroupRenderer（shell/智能标题两分支/**缺 storyboard 容错**/右上标签删除） |
-| API | 分表后：snapshot 表维持（:87 不变）；clone 表 group ⊇ GROUP_NODE_DATA_KEYS（spec 值导入）；**政策断言：clone 输出 multiImageGen.images===undefined、imageGen.fileId===undefined**；clone 夹具补 storyboard → 输出含 data.storyboard（形状）；**模板往返**：导出/导入/schema/返回值/cells 五点各有断言（F29 ⑤ 端到端红→绿） |
-| shared | GROUP_NODE_DATA_KEYS 双向锚定（Exclude idiom）；**GroupNodeData 9 键类型补全后 keyof 一致** |
+| API | 分表后：snapshot 表维持（:87 不变）；clone 表 group ⊇ GROUP_NODE_DATA_KEYS（spec 值导入）；**政策断言：clone 输出 multiImageGen.images===undefined、imageGen.fileId===undefined**；clone 夹具补 storyboard → 输出含 data.storyboard（形状）；**模板往返（F29 v5）**：往返等价断言（顶层键深等+cells 可解析）+ applyGroupDerivations 导入后零变更 + 普通/分镜各一条 + validateTemplateData 返回 void 后 6 个 .toThrow 用例无感核对 |
+| shared | GROUP_NODE_DATA_KEYS 双向锚定（**对无索引签名的 Shape** satisfies+Exclude）；GroupNodeDataShape 9 键（savedSize 显式类型）；运行时 Object.keys(data) ⊆ KEYS 写入断言 |
 | vitest 门禁 | 深浅域键集相等；**TS GROUP_PALETTE 键集 ↔ CSS --canvas-group-color-* 变量集——用 readFileSync(index.css)+正则实现（RunButton.test.tsx:26 先例；jsdom computed 不解析外部 CSS 变量名，写成 computed 断言永远空串）** |
-| 镜像订阅 | 程序化几何写入后双 store 逐节点相等（收口验收线）；远端 apply 后 undoStack 不变；选中态翻转零 nodeStore 写入；几何字段不在 CANVAS_BRIDGE_KEYS；离线镜像生效；**!dragging 节流**（dragging 中零 nodeStore 写入） |
+| 镜像订阅 | 程序化几何写入后双 store 逐节点相等（收口验收线）；**拖拽中整轮跳过（存在任一 dragging→零 nodeStore 写入）；onNodeDragStop flush 后双 store 相等；"拖动手势结束 dragging 归 false"库假设**；远端 apply 后 undoStack 不变；选中态翻转零写入；几何字段不在 CANVAS_BRIDGE_KEYS；**isHydrating 期零写入**；离线镜像生效；**删旧镜像前置回归：手动 resize→刷新尺寸保持** |
 | Playwright | b0 新键；b1-4 双块；registry 重跑+新 site 裁定后 css-baseline-diff 绿 |
 
 既有测试迁移：§4.1 五值；NormalGroupRenderer.test.tsx 三处（border/折叠/尺寸）；canvasStore.groups.test.ts:200；StoryboardGroupRenderer.test.tsx:66（标题浮层插格子后）/:93（边框 verbatim）/:105-110（右上→左上智能标题）；GroupToolbar.test.tsx:58/:67（offset 重算）；StitchButton.test.tsx:44（2K 不变无需改）；**copyNode 4 用例改写为 duplicateNodes 断言**（保真回归覆盖不丢——imageExtGen 类型保留/宽高传递/extConfig 完整三点本质是复制保真，非死代码）。
