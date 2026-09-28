@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { message } from 'antd';
 import { StitchButton } from './StitchButton';
 
 const { getMockNodes, setMockNodes, getMockStart } = vi.hoisted(() => {
@@ -26,6 +27,9 @@ vi.mock('@/stores/canvasStore', () => ({
     { getState: () => ({ projectId: 'p1', nodes: getMockNodes() }) },
   ),
 }));
+
+// v5：断言 message.error 前置——mock antd（既有用例只断言 localStorage/getMockStart，不受影响）
+vi.mock('antd', () => ({ message: { error: vi.fn(), info: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
 
 describe('StitchButton', () => {
   beforeEach(() => {
@@ -81,5 +85,19 @@ describe('StitchButton', () => {
     const params = getMockStart().mock.calls[0][0];
     expect(params.fileIds).toEqual(['gen-1', 'ref-2']);
     expect(params.fileIds.every((f: unknown) => f != null)).toBe(true);
+  });
+
+  it('无 storyboard 的组：点击拼接提示"分镜配置缺失"不发请求（F2 消费点⑧；v5 夹具对齐守卫顺序）', async () => {
+    setMockNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 },
+        data: { groupType: 'storyboard', cells: ['c1'] } },              // 无 storyboard
+      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'f1' } },  // 过 :81-84 fileIds 空守卫
+    ]);
+    render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
+    await vi.waitFor(() => {
+      expect(message.error).toHaveBeenCalledWith('分镜配置缺失');
+    });
+    expect(getMockStart()).not.toHaveBeenCalled();
   });
 });

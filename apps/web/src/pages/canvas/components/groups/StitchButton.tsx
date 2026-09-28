@@ -3,6 +3,7 @@ import { message } from 'antd';
 import type { StitchResolution } from '@/types/group';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useStitchTask } from '@/hooks/useStitchTask';
+import { hasStoryboardConfig, resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
 interface Props {
   groupId: string;
@@ -83,20 +84,18 @@ function StitchButtonComponent({
       return;
     }
 
-    const storyboard = groupNode.data.storyboard as
-      | { gridRows: number; gridCols: number; aspectRatio: string; showIndex: boolean }
-      | undefined;
-    if (!storyboard) {
+    if (!hasStoryboardConfig(groupNode.data)) {
       message.error('分镜配置缺失');
       return;
     }
 
+    const cfg = resolveStoryboardConfig(groupNode.data);
     const params = {
       fileIds,
-      gridRows: storyboard.gridRows,
-      gridCols: storyboard.gridCols,
-      aspectRatio: storyboard.aspectRatio as any,
-      showIndex: storyboard.showIndex,
+      gridRows: cfg.gridRows,
+      gridCols: cfg.gridCols,
+      aspectRatio: cfg.aspectRatio,
+      showIndex: cfg.showIndex,
       resolution,
       sourceGroupId: groupId,
     };
