@@ -944,7 +944,7 @@ describe('save 导出展开式+归一+公开过滤（R0b/F29/F32，实现前必�
   const savedTemplateData = (callIdx = 0) => {
     const calls = [...prisma.template.create.mock.calls, ...prisma.template.update.mock.calls];
     expect(calls.length).toBeGreaterThan(callIdx);   // 防悬空假绿（save 未触达写库时此断言先红）
-    return (calls[callIdx] as any).data.templateData;
+    return (calls[callIdx] as any)[0].data.templateData;   // v5.1 errata：mock.calls 元素是参数数组，须 [0] 再取 .data（照抄原文会红在助手 TypeError）
   };
   beforeEach(() => vi.clearAllMocks());   // 清调用记录防跨用例 calls 污染（mockClear 语义不动外层已设实现）
 
@@ -1559,7 +1559,8 @@ git commit -m "fix(api): getMediaUrl 形状根修——JSON 绝对时刻+服务�
 **v3 关键一：既有顶层 `beforeEach`（:13-15）补 cache 重置**——模块级 cache/pending 跨用例存活，不重置会让既有"file-2 reject"用例（若同 fileId 已被前序用例缓存）走缓存分支永不发请求、`mockRejectedValueOnce` 永不触发：
 
 ```ts
-// 既有顶层 beforeEach（:13-15）改为：
+// 既有顶层 beforeEach（:13-15）改为（v5.1 errata：必须落在文件顶层——新增 describe 是兄弟作用域，
+// describe 内的 beforeEach 继承不到，首跑会 6 用例红在跨用例计数/缓存残留）：
 beforeEach(() => {
   vi.clearAllMocks();
   __resetMediaCacheForTests();        // v3：模块级缓存跨用例残留是既有 4 条用例的隐形破坏者
@@ -1671,8 +1672,8 @@ describe('useMediaUrl 完整缓存（R0c v2——用户拍板提前）', () => {
     a.unmount();                                   // cancelled 只挡 hook setState，不挡缓存层写回
     resolveA({ url: '/flowai/a-only', ttlSec: 900 });   // A 的在飞响应晚到：闭包捕获 key='user-a:f7'
     await new Promise((r) => setTimeout(r, 10));
+    (apiFetch as any).mockResolvedValue({ url: '/flowai/b-only', ttlSec: 900 });   // v5.1 errata：mock 必须先于 renderHook(b)——act 内 effect 同步发起 fetch，晚设的 mock 救不了在飞 promise
     const b = renderHook(() => useMediaUrl('f7')); // B 取自己的
-    (apiFetch as any).mockResolvedValue({ url: '/flowai/b-only', ttlSec: 900 });
     await waitFor(() => expect(b.result.current.url).toBe('/flowai/b-only'));
     expect(apiFetch).toHaveBeenCalledTimes(2);
     __setUserIdForTests('user-a');
