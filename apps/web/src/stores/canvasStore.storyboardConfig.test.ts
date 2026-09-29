@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { CONVERT_GAP } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { ASPECT_RATIOS } from '@/types/group';
 
@@ -165,23 +166,30 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     expect(img2.parentId).toBeUndefined();    // 被移出组（顶层化）
   });
 
-  it('【F38 基线·修复属 R2a】ungroup 覆盖子节点尺寸为 CELL_WIDTH（现状缺陷面钉死——R0 改此分支但勿顺手修，R2a 修复后本断言翻转为保留值）', () => {
-    // 夹具：img1 带 width: 500, height: 400（用户手动尺寸）；v5：img1 放第二槽（idx=1 进覆盖分支同款，顺带钉行列计算）
-    useCanvasStore.setState({ nodes: [cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 400, data: {} }] as any, edges: [] });
+  it('【F38 已修】ungroup 保留子节点自身尺寸（原 500×400 不被覆盖 320）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: [null, 'img1'] } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 400, data: {} },
+    ] as any, edges: [] });
     useCanvasStore.getState().ungroup('g1');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
-    expect(img.width).toBe(320); // = CELL_WIDTH：登记现状覆盖行为
-    expect(img.position.y).toBe(220); // v5：idx=1 → row=1（gridCols=1）→ 180+40；ungroup 第二段加 gp={0,0} 不影响
+    expect(img.width).toBe(500);
+    expect(img.height).toBe(400);
+    expect(img.parentId).toBeUndefined();
   });
 
-  it('【F38 基线·修复属 R2a】convertGroup→normal 同款覆盖子节点尺寸（spec F38 整类第二处）', () => {
-    useCanvasStore.setState({ nodes: [cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 400, data: {} }] as any, edges: [] });
+  it('【F38 已修】convertGroup→normal 保留子尺寸+异构不重叠（pitch=max(自身,基准)）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 800, height: 600, data: { groupType: 'storyboard', cells: ['wide', 'img2'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'wide', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 300, data: {} },
+      { id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 320, height: 180, data: {} },
+    ] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'normal');
-    const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
-    expect(img.width).toBe(320);
-    // Task 18 守恒 refit 后 rel 归位 padding——第二槽行列计算改钉绝对坐标（rel+组原点）
-    const g1 = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
-    expect(img.position.y + g1.position.y).toBe(220);
+    const st = useCanvasStore.getState().nodes as any[];
+    const wide = st.find((n) => n.id === 'wide');
+    const img2 = st.find((n) => n.id === 'img2');
+    expect(wide.width).toBe(500);
+    expect(img2.position.y).toBeGreaterThanOrEqual(wide.position.y + wide.height + CONVERT_GAP - 1);
   });
 
   it('dropImageIntoStoryboard：无 storyboard 不抛（消费点④）', () => {

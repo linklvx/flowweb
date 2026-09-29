@@ -15,9 +15,10 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
+import { placeGrid } from '@/utils/groupGeometry';
 
 let counter = 0;
 function getId(prefix: string) {
@@ -847,13 +848,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const cfg = resolveStoryboardConfig(gd);
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+      // F38 sizeOf 契约：槽位语义下 placeGrid 必然对无节点 id（悬空 cells 项）调 sizeOf——回落基准防 TypeError
+      const byId = new Map(s.nodes.map((n) => [n.id, n]));
+      const sizeOf = (id: string): { width: number; height: number } => {
+        const n = byId.get(id) as any;
+        return n ? { width: n.width ?? CELL_WIDTH, height: n.height ?? cellH } : { width: CELL_WIDTH, height: cellH };
+      };
+      // F38：解散保留子自身尺寸——只重排 position（placeGrid v5 槽位语义：null/悬空按基准占格不塌陷）
+      const pos = placeGrid(gd.cells ?? [], cfg.gridCols, CELL_WIDTH, cellH, sizeOf);
       set((st) => ({
         nodes: st.nodes.map((n) => {
-          const idx = (gd.cells ?? []).indexOf(n.id);
-          if (idx === -1 || n.parentId !== groupId) return n;
-          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-          return { ...n, width: CELL_WIDTH, height: Math.round(cellH),
-            position: { x: col * (CELL_WIDTH + CONVERT_GAP), y: row * (Math.round(cellH) + CONVERT_GAP) } };
+          const p = pos.get(n.id);
+          if (!p || n.parentId !== groupId) return n;
+          return { ...n, position: p };
         }),
       }));
     }
@@ -1272,13 +1279,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const cellW = CELL_WIDTH;
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
       const cellH = CELL_WIDTH / ASPECT_RATIO_MAP[ratioKey];
+      // F38 sizeOf 契约：同 ungroup——悬空 cells 项回落基准防 TypeError
+      const byId = new Map(s.nodes.map((n) => [n.id, n]));
+      const sizeOf = (id: string): { width: number; height: number } => {
+        const n = byId.get(id) as any;
+        return n ? { width: n.width ?? cellW, height: n.height ?? cellH } : { width: cellW, height: cellH };
+      };
+      // F38：转换保留子自身尺寸——只重排 position（placeGrid v5 槽位语义：null/悬空按基准占格不塌陷）
+      const pos = placeGrid(gd.cells ?? [], cfg.gridCols, cellW, cellH, sizeOf);
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
-          const idx = (gd.cells ?? []).indexOf(n.id);
-          if (idx === -1 || n.parentId !== groupId) return n;
-          const row = Math.floor(idx / cfg.gridCols), col = idx % cfg.gridCols;
-          return { ...n, position: { x: col * (cellW + CONVERT_GAP), y: row * (cellH + CONVERT_GAP) },
-                   width: cellW, height: Math.round(cellH) };
+          const p = pos.get(n.id);
+          if (!p || n.parentId !== groupId) return n;
+          return { ...n, position: p };
         }),
       }));
       // F18：增量 patch（name 非空保留；storyboard/cells/nameCustom 等删除键）
