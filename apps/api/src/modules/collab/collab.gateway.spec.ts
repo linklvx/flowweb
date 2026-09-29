@@ -274,15 +274,14 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   }, 8000);
 
   describe('增量持久化（spec 2.2/2.3）', () => {
-    it('onStoreDocument：diff append + lastPersistedSV 前进', async () => {
+    it('onStoreDocument：写入 append + 无变化不 append', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
-      // 先 load 初始化 persistedSVs（快照 null + 无增量）
-      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
       const doc = new Y.Doc();
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('n1', 'a');
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
-      // 再触发一次无变化：不 append
+      // 再触发一次无变化：不 append（契约：readCanvas 无条件触发零写放大）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
     });
@@ -301,24 +300,21 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('onDisconnect：最后连接断开触发 flush-then-compact', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
-      // 真实契约：onDisconnect payload 的 document 自带按文档计数
       const doc: any = new Y.Doc();
       doc.getConnectionsCount = () => 0;
-      // 先 load 初始化 lastPersistedSV（快照 null + 无增量）
-      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例建立队列
       doc.getMap('nodes').set('x', 1);
       await onDisconnect({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
       expect(repo.compact).toHaveBeenCalledTimes(1);
-      // flush（append）必须先于 compact
-      expect(repo.append.mock.invocationCallOrder[0]).toBeLessThan(repo.compact.mock.invocationCallOrder[0]);
+      expect((repo.append as any).mock.invocationCallOrder[0]).toBeLessThan((repo.compact as any).mock.invocationCallOrder[0]);
     });
 
     it('onDisconnect：非最后连接早退——不 flush 不 compact', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
       const doc: any = new Y.Doc();
       doc.getConnectionsCount = () => 1;
-      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' });
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例：queue 有内容，若早退守卫被删则 append 会被调 → 红
       doc.getMap('nodes').set('x', 1);
       await onDisconnect({ document: doc, documentName: 'project:p1' });
       expect(repo.append).not.toHaveBeenCalled();

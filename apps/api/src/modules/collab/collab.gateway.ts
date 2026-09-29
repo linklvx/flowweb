@@ -9,9 +9,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { svSatisfied } from './sv.util';
+import { yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
 
 export const COMPACT_THRESHOLD = 32;
+
+/** pending 队列计数封顶：折叠后恰剩 1 条、需再积 64 条才复发（字节阈值会"折完仍超限→每条 update
+ *  全量重编码"——实测 3000 条积压 4.8s vs 计数 103ms 同步阻塞 WS 消息路径）。模块级 const，无测试缝、
+ *  无外部消费者（绿9/9b 靠推 70 条触发，不引用常量）——不 export。 */
+const PENDING_MAX_ENTRIES = 64;
 
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
@@ -21,12 +26,20 @@ export function parseProjectId(documentName: string): string {
 export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(CollabGateway.name);
   readonly server: Server;
-  /** 每文档"已持久化状态"（spec 2.2 lastPersistedSV，= Postgres maxSeq 时刻状态） */
-  private readonly persistedSVs = new Map<string, Uint8Array>();
+  /** 每文档待落库增量队列。键为 doc 实例（生产中同文档名同实例）；数组身份在 doc 生命周期内恒定——
+   *  一切变更只允许原地 push/splice/unshift，禁止任何 set 替换/重绑定（不变量 6：断引用 = 失败回灌写孤儿数组） */
+  private readonly pendingUpdates = new WeakMap<Y.Doc, Uint8Array[]>();
+  /** 重放抑制：只包裹每个 applyReplayed 的同步段（yjs update 事件在事务清理期同步发放——实测重放行与
+   *  pendingDs 延迟整合均在 apply 同步栈内发放、被精确抑制；await 窗口内写入不被抑制、进 pending） */
+  private readonly replaying = new WeakSet<Y.Doc>();
+  /** flush 失败兜底：projectId → 未落库合并行（跨 doc 卸载存活；进程重启丢失=既有接受项）。
+   *  单行存续，追加即 mergeUpdates 收敛（有界）。禁止 drop：Yjs 缺失 struct 会悬挂 pendingStructs。
+   *  变更只经 takeStash/putStash（内部维护 gauge） */
+  private readonly unflushed = new Map<string, Uint8Array>();
   readonly hooks: {
     onAuthenticate: (p: onAuthenticatePayload) => Promise<any>;
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
-    onStoreDocument: (p: onStoreDocumentPayload) => Promise<void>;
+    onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
   };
 
@@ -94,49 +107,125 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return { user: { id: session.user.id, name: session.user.name, role: member.role }, readOnly };
   }
 
-  /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放 */
+  /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放。
+   *  承重细节（spec v4 不变量 5/6，勿"简化"）：
+   *  - 监听注册必须在第一个 await 之前——否则 DB 往返窗口内的写入静默漏收；
+   *  - 禁止改用框架 onChange：document.onUpdate 在本 hook 返回后才注册，syncFromPeers 的更新永不触发 onChange；
+   *  - replaying 抑制只包裹每个 applyUpdate 的同步段（yjs update 事件在事务清理期同步发放，不漏不误放），不跨 await；
+   *  - stash 回灌必须在抑制窗口外：stash 是未落库变更，apply → update 事件 → pending → 下次 store 落库，
+   *    禁止只 apply 不入队（等于二次蒸发）；
+   *  - 不 return document：Hocuspocus 对 undefined no-op（doc 已就地填充）。 */
   private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     const projectId = parseProjectId(documentName);
+    if (!this.pendingUpdates.has(document)) {   // 防重复注册（行数翻倍）；has ⟺ 已注册（单状态源）
+      this.pendingUpdates.set(document, []);    // eager 建条目：条目缺失 ⟺ 监听未注册（storeDocument/监听器双向 tripwire）
+      document.on('update', (u: Uint8Array) => {
+        if (this.replaying.has(document)) return;
+        const q = this.pendingUpdates.get(document);
+        if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
+        q.push(u);
+        // 原地封顶（禁 set 新数组——数组身份恒定）。计数阈值：折叠后恰剩 1 条需再积 64 条才复发；
+        // 字节阈值会"折完仍超限→每条 update 全量重编码"（3000 条积压实测 4.8s vs 103ms 同步阻塞）
+        if (q.length > PENDING_MAX_ENTRIES) q.splice(0, q.length, Y.mergeUpdates(q));
+      });
+    }
+    const applyReplayed = (u: Uint8Array) => {
+      this.replaying.add(document);
+      try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
+    };
     const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
-    if (docRow) Y.applyUpdate(document, new Uint8Array(docRow.state));
-    for (const u of await this.repo.loadUpdates(projectId)) {
-      Y.applyUpdate(document, new Uint8Array(u));
-    }
-    // 先固定"已持久化状态"（快照+增量重放后的 SV）——sync 从对等实例拉来的未持久化更新
-    // （对等 5s debounce 窗口内）落在 lastPersistedSV 之外，本实例 onStoreDocument 的 diff 会
-    // 冗余 append 它们（spec 2.2 冗余策略）：对等实例崩溃也不丢
-    this.persistedSVs.set(projectId, Y.encodeStateVector(document));
-    await this.redisSync.syncFromPeers(documentName, document, 1000);
-    return document;
+    if (docRow) applyReplayed(new Uint8Array(docRow.state));
+    for (const u of await this.repo.loadUpdates(projectId)) applyReplayed(new Uint8Array(u));
+    const stash = this.takeStash(projectId);
+    if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
+    await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
   }
 
-  /** spec 2.2：diff append（含 flush 语义）+ 阈值触发 compaction */
-  private async storeDocument({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>) {
+  /** unflushed 唯一出入口（内部维护 gauge，防指标与 Map 漂移） */
+  private takeStash(projectId: string): Uint8Array | undefined {
+    const s = this.unflushed.get(projectId);
+    if (s !== undefined) this.unflushed.delete(projectId);
+    yjsUnflushedProjects.set(this.unflushed.size);
+    return s;
+  }
+
+  private putStash(projectId: string, payload: Uint8Array): void {
+    const prev = this.unflushed.get(projectId);
+    this.unflushed.set(projectId, prev ? Y.mergeUpdates([prev, payload]) : payload);   // 单行存续，追加即合并收敛（有界）
+    yjsUnflushedProjects.set(this.unflushed.size);
+  }
+
+  /** 变更驱动落库（spec v4）：从 pending 队列取批 mergeUpdates 单行 append。
+   *  硬规矩：本方法内不允许存在无日志、无指标、无抛错的提前 return（本次事故的系统性教训）。
+   *  禁止任何"SV 相等 / diff 为空 ⇒ 无变化 ⇒ 跳过 append"判等——删除不产生新 struct、SV 零变化、
+   *  语义相同 doc 双向 diff 恒非空（本次事故根因，实测钉死）。 */
+  private async storeDocument({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
     const projectId = parseProjectId(documentName);
-    const lastSV = this.persistedSVs.get(projectId);
-    if (!lastSV) return;
-    const currentSV = Y.encodeStateVector(document);
-    if (svSatisfied(currentSV, lastSV) && svSatisfied(lastSV, currentSV)) return; // 无变化
-    await this.repo.append(projectId, Y.encodeStateAsUpdate(document, lastSV));
-    this.persistedSVs.set(projectId, currentSV);
-    if (await this.repo.count(projectId) >= COMPACT_THRESHOLD) {
-      const snapshotSV = await this.repo.compact(projectId);
-      if (snapshotSV) this.persistedSVs.set(projectId, snapshotSV);
+    const queue = this.pendingUpdates.get(document);
+    if (!queue) {
+      this.logger.error(`store for unobserved doc ${documentName}: listener never registered`);  // tripwire：!lastSV 同构物不得静默
+      return false;
     }
+    const stash = this.takeStash(projectId);
+    if (stash) queue.unshift(stash);  // 提前 drain：WS 断连后 doc 驻留缓存不重载时的唯一出口；与 load 路径不双投（takeStash 已 delete）
+    if (queue.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }  // 真·无变化不落行（readCanvas/断连的无条件触发零写放大）
+    const batch = queue.splice(0);   // 同步原子取走（splice 先于任何 await——Skip 路径下 destroy 与 flush 并发，flush 不得依赖 doc 存活）
+    const payload = batch.length === 1 ? batch[0] : Y.mergeUpdates(batch);
+    try {
+      await this.repo.append(projectId, payload);   // 单行原子：全有或全无
+    } catch (err) {
+      const live = this.pendingUpdates.get(document);   // 跨 await 后重新 get（防御：原地封顶下 live===queue，不等=有人违反不变量 6）
+      if (live !== queue) this.logger.error(`pending queue identity changed for ${documentName}`);
+      (live ?? queue).unshift(payload);                 // 回灌合并行（单项）；队列保留 → 下次 store 重试
+      this.logger.error(`store append failed for ${projectId}, ${batch.length} updates retained: ${(err as Error).message}`);
+      yjsStoreAppendFailureTotal.inc();
+      throw err;   // hook 链由 Hocuspocus catch（"Document stays in memory"），doc 留内存重试
+    }
+    yjsStoreDrainTotal.inc({ result: 'appended' });
+    try {
+      if (await this.repo.count(projectId) >= COMPACT_THRESHOLD) await this.repo.compact(projectId);
+    } catch (err) {
+      // compact 是优化不是不变量载体：行已落库，失败只 WARN 绝不抛——否则被 Hocuspocus 当 store 失败 → doc 永不卸载 → destroy 挂死
+      yjsStoreCompactFailureTotal.inc();
+      this.logger.warn(`compact failed for ${projectId} (rows already durable): ${(err as Error).message}`);
+    }
+    return true;
   }
 
-  /** spec 2.2：最后连接断开（含直连）强制 flush-then-compact */
+  /** 最后连接断开：flush →（写了才）compact。
+   *  绝不抛出（覆盖含 redlock Skip 在内的全部路径，spec v4）：onDisconnect 是 onClose 的 async 回调、
+   *  注册方 forEach 不 await——抛错 = unhandled rejection = 进程退出；DirectConnection 路径是 await 的，
+   *  抛错冒泡出 withDoc finally → API 500 → 前端重试 → 重复插入。Skip 路径下 saveMutex 在回调抛错时
+   *  先释放 → onDisconnect 一定被调用 → 本契约面更宽。 */
   private async disconnect({ document, documentName }: onDisconnectPayload) {
     if (document.getConnectionsCount() > 0) return;
     const projectId = parseProjectId(documentName);
     try {
-      await this.storeDocument({ document, documentName });
-      await this.repo.compact(projectId);
+      const wrote = await this.storeDocument({ document, documentName });
+      if (wrote) {
+        try {
+          await this.repo.compact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
+        } catch (err) {
+          yjsStoreCompactFailureTotal.inc();
+          this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);   // 行已落库，非 flush 失败
+        }
+      }
     } catch (err) {
-      this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);
-    } finally {
-      this.persistedSVs.delete(projectId);
+      this.stashPending(document, projectId, err as Error);   // 只兜 flush（append）失败
     }
+  }
+
+  /** flush 失败兜底：pending 转移到 projectId 键控 Map（跨 doc 卸载存活）——doc 卸载不再等于数据蒸发 */
+  private stashPending(document: Y.Doc, projectId: string, error: Error) {
+    const q = this.pendingUpdates.get(document);
+    let retained = 0;
+    if (q?.length) {
+      const batch = q.splice(0);
+      retained = batch.length;
+      const payload = batch.length === 1 ? batch[0] : Y.mergeUpdates(batch);
+      this.putStash(projectId, payload);
+    }
+    this.logger.error(`collab flush failed for ${projectId}, ${retained} updates stashed for next load: ${error.message}`);
   }
 
   onModuleInit() {
