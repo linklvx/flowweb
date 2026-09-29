@@ -3,8 +3,9 @@
 import * as Y from 'yjs';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
-// Server 为后端 withDoc transact 预留常量；AutoEdge 为自动边专用 origin——刻意不加入 trackedOrigins（画布撤销栈不收自动边，spec 验收 20/26）
-export const Origin = { LocalUser: 'local-user', Server: 'server', AutoEdge: 'auto-edge' } as const;
+// Server 为后端 withDoc transact 预留常量；AutoEdge 为自动边专用 origin——刻意不加入 trackedOrigins（画布撤销栈不收自动边，spec 验收 20/26）；
+// Geometry 为几何修复回写专用 origin（S1：applyDocToStore 收尾 refit 差异回写）——同款刻意不入 trackedOrigins（撤销的是修复不是用户编辑，防啃 STACK_LIMIT）
+export const Origin = { LocalUser: 'local-user', Server: 'server', AutoEdge: 'auto-edge', Geometry: 'geometry-repair' } as const;
 
 const STACK_LIMIT = 100;
 

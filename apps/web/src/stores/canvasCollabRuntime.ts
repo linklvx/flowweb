@@ -12,6 +12,7 @@ import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import { isAutoEdgeId } from './autoEdgeIds';
+import { normalizeLoadedCanvas } from '@flowweb/shared';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
@@ -177,15 +178,24 @@ export function isShadowOnlyEvents(events: Y.YEvent<any>[], nodesMap: Y.Map<any>
 /** server doc → store——同款形参化（undo/乒乓断言的读回驱动） */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
+  // R1b Task 17：加载几何兜底（守恒归位，幂等早退）——hydrate 与 content 构造都吃 seeded
+  const seeded = normalizeLoadedCanvas(nodes);
   useCanvasStore.setState({
-    nodes: hydrateNodes(nodes.map((n: any) => ({
+    nodes: hydrateNodes(seeded.map((n: any) => ({
       ...n, width: n.width ?? undefined, height: n.height ?? undefined,
     }))) as any,
     edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   });
+  // S1（v5）：hydrate 后（derivations+refit 前）捕获结构投影——几何维护者 refitExpandedGroups 改了
+  // 组框才有 diff 才回写 doc（Origin.Geometry 不入撤销栈；normalizeLoadedCanvas 的缺几何补缺是
+  // 确定性纯函数、每轮内存重建一致，无需写 doc）。节点比较即可：edges 在本管线只加非结构 hidden 键
+  const before = pickStructNodes(useCanvasStore.getState().nodes);
   useCanvasStore.getState().applyGroupDerivations();
   refitExpandedGroups();
-  useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });
+  if (!isEqual(before, pickStructNodes(useCanvasStore.getState().nodes))) {
+    syncStoreToDoc(d, Origin.Geometry);
+  }
+  useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
 }
 
 /** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */
@@ -269,8 +279,8 @@ export async function initCollab(projectId: string): Promise<void> {
   useCanvasStore.getState().setHydrating(false);
 
   const onRemote = (events: any[]) => {
-    const fromLocal = events.some((e) => e.transaction.origin === Origin.LocalUser);
-    if (fromLocal) return;
+    // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
+    if (events.some((e) => [Origin.LocalUser, Origin.Geometry].includes(e.transaction.origin))) return;
     if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边对账事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
     if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);

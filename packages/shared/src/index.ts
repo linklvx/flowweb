@@ -15,3 +15,4 @@ export * from './types/stitch';
 export * from './canvas/nodeEnvelope';
 export * from './canvas/geometry';
 export * from './canvas/storyboardConfig';
+export * from './canvas/normalizeLoadedCanvas';
