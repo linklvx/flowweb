@@ -1199,6 +1199,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const cx = images.reduce((sum, n) => sum + n.position.x + (n.width ?? 320) / 2, 0) / images.length;
     const cy = images.reduce((sum, n) => sum + n.position.y + (n.height ?? 180) / 2, 0) / images.length;
     const size = calcStoryboardSize(rows, cols, '16:9');
+    // 配置型组框直写（§4.8 v11 S2 裁决）：frame=calcStoryboardSize 单源；与子 rel 归零同
+    // setWithParentOrder 事务（拆 applyGroupFrameRect 需两次 setState 分写闪烁）——保持原事务结构
     const groupNode: Node = {
       id: gid, type: 'group',
       position: { x: cx - size.width / 2, y: cy - size.height / 2 },
@@ -1257,6 +1259,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const size = calcStoryboardSize(rows, cols, '16:9');
       const cx = group.position.x + (group.width ?? 0) / 2;
       const cy = group.position.y + (group.height ?? 0) / 2;
+      // 配置型组框直写（§4.8 v11 S2 裁决）：frame=calcStoryboardSize 单源；与子 rel 归零同
+      // setWithParentOrder 事务（拆 applyGroupFrameRect 需两次 setState 分写闪烁）——保持原事务结构
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
@@ -1401,7 +1405,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。
-   *  提前落（Task 18 2c toggleCollapse 三分派首消费者）；Task 20 配置型四处收口将复用同款。 */
+   *  消费者定案（Task 20）：toggleCollapse 展开分支（三分派）+ updateStoryboardConfig（可干净拆出档）；
+   *  mergeStoryboard / convertGroup→storyboard / resizeStoryboardGrid 与子写同事务（S2 裁决保持原结构）。 */
   applyGroupFrameRect: (groupId, frame) => {
     set((st) => ({
       nodes: st.nodes.map((n) =>
@@ -1414,9 +1419,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (!g) return;
     const cfg = resolveStoryboardConfig({ storyboard: { ...resolveStoryboardConfig(g.data), ...patch } });
     const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
-    set((st) => ({
-      nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: size.width, height: size.height } : n)),
-    }));
+    // 配置型收口（§4.8 v11）：本处 set 仅触组节点（无子写）——可干净拆出，组框写走 applyGroupFrameRect
+    get().applyGroupFrameRect(groupId, { x: g.position.x, y: g.position.y, width: size.width, height: size.height });
     get().patchGroupData(groupId, { storyboard: cfg });
   },
 
@@ -1433,9 +1437,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const keep = (gd.cells ?? []).slice(0, capacity);
     const overflowIds = (gd.cells ?? []).slice(capacity);
     const gp = group.position;
-    const gw = group.width ?? 0;
     const cfg = { ...resolveStoryboardConfig(gd), gridRows: rows, gridCols: cols };
     const size = calcStoryboardSize(rows, cols, cfg.aspectRatio);
+    // 配置型组框直写（§4.8 v11 S2 裁决）：frame=calcStoryboardSize 单源；与溢出移出同事务
+    //（拆 applyGroupFrameRect 需两次 setState，中间态溢出节点仍属组）——保持原事务结构。
+    // 溢出 x 用新宽 size.width（旧 gw：cols 增且总容量减时溢出节点落进已加宽的新组框内）
     set((st) => ({
       nodes: st.nodes.map((n) => {
         // P0-新1：绝不能 filter 掉溢出节点——那是删除数据；只做 map 改写（移出组排右侧）
@@ -1445,7 +1451,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         if (overflowIds.includes(n.id) && n.parentId === groupId) {
           const idx = overflowIds.indexOf(n.id);
           return { ...n, parentId: undefined, extent: undefined, hidden: false,
-            position: { x: gp.x + gw + 20, y: gp.y + idx * 200 } };
+            position: { x: gp.x + size.width + 20, y: gp.y + idx * 200 } };
         }
         return n;
       }),
@@ -1570,9 +1576,9 @@ function buildGroupCopy(
     position: { x: group.position.x + offset.x, y: group.position.y + offset.y },
     selected: true,
   };
-  // Map cells if storyboard
+  // Map cells if storyboard（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
   if (isStoryboard && newGroup.data.cells) {
-    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) || id);
+    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) ?? null);
   }
 
   // Build new child nodes
@@ -1651,9 +1657,9 @@ function rebuildFromClipboard(
     position: { x: position.x, y: position.y },
     selected: true,
   };
-  // Map cells if storyboard
+  // Map cells if storyboard（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
   if (isStoryboard && newGroup.data.cells) {
-    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) || id);
+    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) ?? null);
   }
 
   // Build new child nodes

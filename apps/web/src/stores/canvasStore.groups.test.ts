@@ -656,3 +656,25 @@ describe('collapse→expand 往返（三分派——Task 18 2c）', () => {
     expect(g.position).toEqual({ x: 500, y: 500 });   // 位置不动（三分派只写尺寸）
   });
 });
+
+describe('复制型几何例外（§4.8 登记——frame 继承源组±offset，不走重算）', () => {
+  it('duplicateGroup 副本 frame=源 frame+offset；cells 重映射后无悬空旧 id（|| id 兜底改 ?? null）', () => {
+    // v6 夹具修正：groupType 必须是 'storyboard'——buildGroupCopy 的 cells 重映射只在
+    // isStoryboard 分支（normal 组 structuredClone 原样带过 cells → 断言必红且现状也红=判别力零；
+    // 且 normal 组带 cells 本身是语义非法输入）
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250,
+        data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
+                storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1' } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().duplicateGroup('g1');
+    const st = useCanvasStore.getState().nodes;
+    const copy = st.find((n: any) => n.id !== 'g1' && n.type === 'group') as any;
+    expect(copy.position).toEqual({ x: 140, y: 100 });
+    expect(copy.width).toBe(300);
+    expect(copy.data.cells.some((c: string | null) => c === 'c1')).toBe(false);
+    expect(copy.data.cells.some((c: string | null) => c === 'ghost')).toBe(false);
+    expect((copy.data.cells as (string | null)[]).filter((c) => c == null).length).toBeGreaterThan(0);
+  });
+});

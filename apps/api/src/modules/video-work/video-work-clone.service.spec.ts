@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
+import { normalizeLoadedCanvas } from '@flowweb/shared';
 
 describe('VideoWorkCloneService.clone', () => {
   let svc: VideoWorkCloneService;
@@ -186,5 +187,17 @@ describe('VideoWorkCloneService.clone', () => {
     const imageGen = createdNodes.find((n: any) => n.type === 'imageGen');
     expect(imageGen.data.fileId).toBeUndefined();
     expect(imageGen.data.status).toBe('idle'); // v2 修正：resetStatusIdle 写 'idle' 非剥除
+  });
+
+  it('normalizeLoadedCanvas 幂等保险（Task 20）：组带几何时 remap 后过挂载点零补缺——create 收到的 nodes 再过同一函数输出深等', async () => {
+    setup();
+    const raw = rawCanvas();
+    const grp = raw.nodes.find((n: any) => n.id === 'grp') as any;
+    grp.width = 642;   // 源组带几何 → normalizeLoadedCanvas 早退（幂等保险非补齐依赖：几何齐全时不改写）
+    grp.height = 362;
+    collabDoc.readCanvas.mockResolvedValue(raw);
+    await svc.clone('w1', 'u1');
+    const passedNodes = projectService.create.mock.calls[0][2] as any[];
+    expect(normalizeLoadedCanvas(structuredClone(passedNodes))).toEqual(passedNodes);
   });
 });

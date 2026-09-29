@@ -4,6 +4,7 @@ import { TeamService } from '../team/team.service';
 import * as Y from 'yjs';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { writeNodeToYMap } from '../collab/node-doc.util';
+import { normalizeLoadedCanvas } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -59,7 +60,9 @@ export class ProjectService {
       // 节点经 writeNodeToYMap 共享入口（R1a 收敛——手抄本键集漂移是 F29 根因）
       await this.collabDoc.withDoc(project.id, (doc) => {
         const nodesMap = doc.getMap('nodes');
-        for (const n of nodes) {
+        // R1b Task 20：写 doc 前过 normalizeLoadedCanvas（幂等保险——与浏览器 applyDocToStore 同一函数，非补齐依赖）
+        const seeded = normalizeLoadedCanvas(nodes as any);
+        for (const n of seeded) {
           writeNodeToYMap(nodesMap, n);
         }
         const edgesMap = doc.getMap('edges');
