@@ -12,7 +12,7 @@
 
 **Architecture:** 两分片串行。R1a 基建先行，**alias 钉 src 先于 main 切 dist**（消除 node_modules symlink 切 dist 的断裂窗口——v3 顺序反转）；构建产物可被 API commonjs require，信封键表/归一化收敛 shared 纯数据模块。R1b 以 **doc 为唯一持久化路径**——服务端已有完整 doc 持久化（collab.gateway.ts:98-140：Postgres 快照+增量重放+32 条 compaction+断连强制 flush+Redis 对等同步，debounce 5s/10s），**F35 的根因是 fillDoc seed（clientID 决胜），删 seed 即结构性消失，不需要客户端 IDB**；正常刷新零丢失（onDisconnect flush 兜底），5s debounce 窗口内崩溃丢最近编辑（多数协作工具同款行为，接受并登记）；F42 根修按"触发面唯一（桥判脏含组 data）+ 所有权单一（组 data 只写 cs、镜像删除）+ 通道唯一（patchGroupData）"推进，几何收口按"投影先行→读者迁移→删镜像→删字段→唯一写者（守恒+epsilon）"推进；normalizeLoadedCanvas 与 refitGroupGeometry **同一部法律**（守恒式、原点归位——组框是派生量，不存在"服务端越权"）。
 
-> **2026-09-29 证伪与修复**：上表"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
+> **2026-09-29 证伪与修复**：上文"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
 > SV 判等挡住（删除不推进 clock），断连后 `!lastSV` 静默跳过是刷新复活的必现路径。判据 2 判 FAIL，
 > 已按 `docs/superpowers/specs/collab-delete-persist-fix.md`（变更驱动落库）修复。兜底成立的前提是
 > "每次语义变更都进 pending 队列 + 断连 flush 无条件执行且吞错有 unflushed 兜底"。
@@ -910,7 +910,7 @@ git commit -m "test(web): 信封序列化门禁 v3——扫描面全仓（含 ap
 
 **核心改道（方案 C 拍板，v3）：** localStorage 投影快照层**整体删除**——兜底职责归**服务端 doc 持久化**（已存在：Postgres 快照+增量重放+compaction+断连 flush+Redis 对等，collab.gateway.ts:98-140）。理由：F35 根因是 fillDoc seed（clientID 决胜、与新旧无关），**删 seed 即结构性消失，与客户端持久化无关**；服务端 onDisconnect 强制 flush 使正常刷新零丢失；5s debounce 窗口内崩溃丢最近编辑（多数协作工具同款行为，接受并登记）。**客户端 IDB（离线编辑/崩溃窗口兜底）立项独立分片 R1c**——立项要件登记进 spec v11：键加 userId 维度、Y.encodeStateAsUpdate 覆盖写（非读-合并-写）、destroy 前 flush+pagehide、多标签页协调（navigator.locks 或登记限制）、配额/清理、restoreInto 后立即 applyDocToStore、"恢复内容必然回传服务端"的产品政策（Yjs 语义下本地副本要么权威要么不持久化——"纯缓存"不成立）。
 
-> **2026-09-29 证伪与修复**：上表"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
+> **2026-09-29 证伪与修复**：上文"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
 > SV 判等挡住（删除不推进 clock），断连后 `!lastSV` 静默跳过是刷新复活的必现路径。判据 2 判 FAIL，
 > 已按 `docs/superpowers/specs/collab-delete-persist-fix.md`（变更驱动落库）修复。兜底成立的前提是
 > "每次语义变更都进 pending 队列 + 断连 flush 无条件执行且吞错有 unflushed 兜底"。
@@ -929,7 +929,7 @@ git commit -m "test(web): 信封序列化门禁 v3——扫描面全仓（含 ap
 契约 5 及 §5 测试策略中所有"快照投影（数组形状）/SNAPSHOT_VERSION 2→3/snapshotKey 版本派生/isEmptySnapshot/四处一致性/旧 key 清扫/W7 红转绿门槛（resize→写快照→重建）"表述替换为：
 
 > **崩溃兜底 = 服务端 doc 持久化（R1b 方案 C 拍板改道）**：服务端已有完整 doc 持久化（CanvasDoc 快照+CanvasDocUpdate 增量重放+32 条 compaction+断连强制 flush+Redis 对等同步，debounce 5s/10s）。F35 根因是 initCollab 的 fillDoc seed（clientID 决胜）——**删 seed 即结构性消失**。正常刷新零丢失（onDisconnect flush）；5s 窗口内崩溃丢最近编辑（接受并登记）。**客户端 IDB 立项 R1c 独立分片**（含六项硬化要件：userId 维度/覆盖写/destroy flush/多标签协调/配额清理/回传政策）。**验收反向判据：远端已删除的节点刷新后不得复活（无本地 seed——服务端 tombstone 权威）。** viewport 是本地偏好非协作数据——单独 localStorage key（`flowweb_vp_` 前缀）。几何进 doc 的链路 = storeProjection（cs.width ?? measured.width）→ bindBridge → doc——W7/W8（nodeStore 镜像）无消费者，删除；红转绿门槛改"resize → 读 doc 断言 width（getDoc 缝）"。
-> **2026-09-29 证伪与修复**：上表"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
+> **2026-09-29 证伪与修复**：上文"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
 > SV 判等挡住（删除不推进 clock），断连后 `!lastSV` 静默跳过是刷新复活的必现路径。判据 2 判 FAIL，
 > 已按 `docs/superpowers/specs/collab-delete-persist-fix.md`（变更驱动落库）修复。兜底成立的前提是
 > "每次语义变更都进 pending 队列 + 断连 flush 无条件执行且吞错有 unflushed 兜底"。
@@ -2663,7 +2663,7 @@ timeout 20 node -e "require('./apps/api/dist/app.module.js'); console.log('modul
 1. **刷新恢复（F35 行为面）**：画布建组+子节点 → 正常刷新 → 组结构与尺寸在（服务端 sync 路径；`getDoc()` 读 parentId 分布与 cs 一致——结构性断言非"看起来有组"）
 2. **远端删除不复活**（反向判据）：双标签 A/B——B 删除节点 → A 刷新（或等 remote apply）→ 节点不复活（服务端 tombstone 权威，无本地 seed）
 
-> **2026-09-29 证伪与修复**：上表"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
+> **2026-09-29 证伪与修复**：上文"onDisconnect flush 兜底"在删除场景失效——flush 汇入的 storeDocument 被
 > SV 判等挡住（删除不推进 clock），断连后 `!lastSV` 静默跳过是刷新复活的必现路径。判据 2 判 FAIL，
 > 已按 `docs/superpowers/specs/collab-delete-persist-fix.md`（变更驱动落库）修复。兜底成立的前提是
 > "每次语义变更都进 pending 队列 + 断连 flush 无条件执行且吞错有 unflushed 兜底"。

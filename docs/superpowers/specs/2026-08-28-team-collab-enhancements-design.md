@@ -139,7 +139,7 @@ CanvasDocUpdate   id, projectId(→CanvasProject, onDelete: Cascade), seq BigInt
 - `onStoreDocument`（debounce 5s/10s 保留）：从 pending 队列取批 mergeUpdates 单行 append（seq=nextval）；队列空 = 真·无变化不落行
 - 水位不变量：只滞后、不越过；失败不推进（队列原样保留 + 抛错）、doc 存活期内可重试（at-least-once）；滞后上界 connection/local origin ≤ maxDebounce 10s，redis-origin 落库时点 = 下次 store 触发（仅 SIGKILL 落空，非待修缺陷）；队列数组身份在 doc 生命周期内恒定（原地 push/splice/unshift，禁止 set 替换）
 - **Compaction（flush-then-compact，快照从 Postgres 权威构建，不信任任何实例内存——Redis 广播延迟与 compaction 解耦）**：该项目累计 update 行数 ≥ 32 时触发：
-  1. **前置 flush**：先 flush 本实例 pending 批（变更驱动）——保证本实例内存状态全部落库，否则后续 SV 重置会使未持久化更新永不 append
+  1. **前置 flush**：先 flush 本实例 pending 批（变更驱动）——保证本实例内存状态全部落库，否则本批更新不在快照构建的 maxSeq 覆盖范围内、只能等下次加载时按增量行重放
   2. 事务内（`pg_advisory_xact_lock(hashtext(projectId)::bigint)` 防多实例并发 compaction）：
      - `maxSeq = SELECT max(seq) WHERE projectId`
      - 临时 `new Y.Doc()`：apply `CanvasDoc.state` + 按 seq ASC 重放 `seq <= maxSeq` 全部增量行（临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律）
