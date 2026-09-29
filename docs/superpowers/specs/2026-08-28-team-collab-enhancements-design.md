@@ -135,21 +135,18 @@ CanvasDocUpdate   id, projectId(→CanvasProject, onDelete: Cascade), seq BigInt
 
 ### 2.2 写入与 compaction（onStoreDocument 改造）
 
-- 每个文档实例内存维护 `lastPersistedSV: Uint8Array`（初始 = onLoadDocument 完成时的 `Y.encodeStateVector(doc)`）
-- `onStoreDocument`（debounce 5s/10s 保留）：
-  1. `diff = Y.encodeStateAsUpdate(doc, lastPersistedSV)`；**空 diff 跳过**（无变更不落行）
-  2. append CanvasDocUpdate（seq=nextval）
-  3. 成功后 `lastPersistedSV = Y.encodeStateVector(doc)`
+- **（2026-09-29 修订：变更驱动落库）** 变更检测基于**观测**（Yjs `doc.on('update')` 事件收集 pending 队列），禁止任何"SV 相等 / diff 为空 ⇒ 无变化 ⇒ 跳过 append"判等——删除不产生新 struct、SV 零变化、语义相同 doc 双向 diff 恒非空（R1 判据 2 事故根因，实测钉死；修复设计见 `docs/superpowers/specs/collab-delete-persist-fix.md`）
+- `onStoreDocument`（debounce 5s/10s 保留）：从 pending 队列取批 mergeUpdates 单行 append（seq=nextval）；队列空 = 真·无变化不落行
+- 水位不变量：只滞后、不越过；失败不推进（队列原样保留 + 抛错）、doc 存活期内可重试（at-least-once）；滞后上界 connection/local origin ≤ maxDebounce 10s，redis-origin 落库时点 = 下次 store 触发（仅 SIGKILL 落空，非待修缺陷）；队列数组身份在 doc 生命周期内恒定（原地 push/splice/unshift，禁止 set 替换）
 - **Compaction（flush-then-compact，快照从 Postgres 权威构建，不信任任何实例内存——Redis 广播延迟与 compaction 解耦）**：该项目累计 update 行数 ≥ 32 时触发：
-  1. **前置 flush**：先按上文流程 append 本实例 diff——保证本实例内存状态全部落库，否则后续 SV 重置会使未持久化更新永不 append
+  1. **前置 flush**：先 flush 本实例 pending 批（变更驱动）——保证本实例内存状态全部落库，否则后续 SV 重置会使未持久化更新永不 append
   2. 事务内（`pg_advisory_xact_lock(hashtext(projectId)::bigint)` 防多实例并发 compaction）：
      - `maxSeq = SELECT max(seq) WHERE projectId`
      - 临时 `new Y.Doc()`：apply `CanvasDoc.state` + 按 seq ASC 重放 `seq <= maxSeq` 全部增量行（临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律）
      - `newSnapshot = Y.encodeStateAsUpdate(tempDoc)`；`snapshotSV = Y.encodeStateVector(tempDoc)`（与快照同源）
      - UPSERT `CanvasDoc.state = newSnapshot`
      - `DELETE WHERE projectId AND seq <= maxSeq`——步骤 a 之后其他实例新 append 的行（seq > maxSeq）不受影响，下次加载快照 + 这些行重放仍正确
-  3. 内存 `lastPersistedSV = snapshotSV`（**非当前内存 doc 的 SV**：事务窗口内到达的其他实例广播不在 snapshotSV 覆盖范围，下次 onStoreDocument 会将其作为 diff append——获得冗余持久化，产生方崩溃也不丢；语义为"已持久化状态 = Postgres maxSeq 时刻状态"；由此产生的重复 append 为冗余行，幂等无害）
-- **最后连接断开强制 compaction**：`onDisconnect` 时判断 `instance.getConnectionsCount(documentName) === 0`（含直连）→ 主动执行同一 flush-then-compact 序列（await 完成）——Hocuspocus 无独立 unload 钩子（一期 S7 裁定），框架随后自动触发的 onStoreDocument flush 因 diff 为空而跳过；不留增量尾巴，下次加载只读快照
+- **最后连接断开强制 compaction**：`onDisconnect` 时判断 `instance.getConnectionsCount(documentName) === 0`（含直连）→ 主动执行同一 flush-then-compact 序列（await 完成）——Hocuspocus 无独立 unload 钩子（一期 S7 裁定），框架随后自动触发的 onStoreDocument 对空队列 noop 不落行；不留增量尾巴，下次加载只读快照
 - **多实例冗余 append 接受**：同一文档两实例都 debounce 触发时可能 append 冗余行——CRDT 幂等保证重放正确，compaction 统一回收，不做内容去重
 
 ### 2.3 加载（onLoadDocument 改造）
