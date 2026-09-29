@@ -31,3 +31,15 @@ describe('G3 读 doc 断言（F42 投影分型）', () => {
     // 现状红相：投影 data 取 ns 陈旧 16:9 → doc 里 aspectRatio 仍 16:9
   });
 });
+
+describe('W7 红转绿门槛（几何进 doc 靠投影——删 W7 不丢链路的锚）', () => {
+  it('W7 红转绿门槛：resize 后几何经投影进 doc——读 doc 断言 width（v5 装置：形参化直驱）', () => {
+    const d = new Y.Doc();
+    fillDoc(d, [], []);
+    // cs 侧节点带 width 500/height 400（模拟 RF NodeResizer setAttributes→applyNodeChanges 写 cs.width——
+    // canvasStore.groups.test.ts:319 既有绿用例已证 applyNodeChanges 写 width/height）
+    useCanvasStore.setState({ nodes: [{ id: 't1', type: 'textInput', position: { x: 0, y: 0 }, width: 500, height: 400, data: {} } as any], edges: [] });
+    syncStoreToDoc(d, Origin.LocalUser);
+    expect((d.getMap('nodes').get('t1') as any).get('width')).toBe(500);
+  });
+});

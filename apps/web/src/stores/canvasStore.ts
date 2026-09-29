@@ -15,7 +15,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding, GROUP_PADDING, GROUP_PADDING_TOP } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
@@ -542,48 +542,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           if (!changedIds.has(n.id) || !n.parentId) return n;
           const parent = byId.get(n.parentId);
           if (!parent || parent.type !== 'group' || (parent.data as any)?.groupType === 'storyboard') return n;
-          const clamped = clampPositionToPadding(
-            n.position,
-            { width: n.width ?? n.measured?.width ?? 280, height: n.height ?? n.measured?.height ?? 120 },
-            { width: parent.width ?? parent.measured?.width ?? 0, height: parent.height ?? parent.measured?.height ?? 0 },
-          );
+          const pw = parent.width ?? parent.measured?.width;
+          const ph = parent.height ?? parent.measured?.height;
+          const cw = n.width ?? n.measured?.width ?? 280;
+          const ch = n.height ?? n.measured?.height ?? 120;
+          // 组宽未知（未渲染/恢复窗口）或组比 padding+子尺寸还小（xMax<padding 退化）——跳过夹取防负坐标钉死
+          if (pw == null || ph == null || pw - GROUP_PADDING - cw < GROUP_PADDING || ph - GROUP_PADDING - ch < GROUP_PADDING_TOP) return n;
+          const clamped = clampPositionToPadding(n.position, { width: cw, height: ch }, { width: pw, height: ph });
           if (clamped.x === n.position.x && clamped.y === n.position.y) return n;
           return { ...n, position: clamped };
         });
-      }
-      // Sync dimension changes to nodeStore so components read updated width/height
-      for (const change of changes) {
-        if (change.type === 'dimensions' && 'dimensions' in change && (change as any).setAttributes) {
-          const nodeStore = useNodeStore.getState();
-          const existing = nodeStore.nodes[change.id];
-          if (existing) {
-            const dc = change as any;
-            useNodeStore.setState({
-              nodes: {
-                ...nodeStore.nodes,
-                [change.id]: { ...existing, width: dc.dimensions.width, height: dc.dimensions.height },
-              },
-            });
-          }
-        }
-      }
-      // TD-Pos: position 变更同步 nodeStore（localStorage 快照兜底恢复的 position 来源），取 clamp 后的最终值
-      const posChangedIds = new Set(
-        changes.filter((c) => c.type === 'position' && c.position != null).map((c) => (c as any).id),
-      );
-      if (posChangedIds.size > 0) {
-        const nodeStore = useNodeStore.getState();
-        let nsNodes = nodeStore.nodes;
-        let dirty = false;
-        for (const n of nodes) {
-          if (!posChangedIds.has(n.id)) continue;
-          const existing = nsNodes[n.id];
-          if (existing && (existing.position.x !== n.position.x || existing.position.y !== n.position.y)) {
-            nsNodes = { ...nsNodes, [n.id]: { ...existing, position: n.position } };
-            dirty = true;
-          }
-        }
-        if (dirty) useNodeStore.setState({ nodes: nsNodes });
       }
       return { nodes };
     });

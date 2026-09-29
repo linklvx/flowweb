@@ -393,7 +393,7 @@ describe('canvasStore', () => {
 
   });
 
-// ─── TD-Pos: 拖动位置持久化（经订阅判脏走自动保存，修复刷新后位置回退初始位置）───
+// ─── position 变更：拖拽结束更新 cs 位置（持久化经订阅判脏走自动保存；W8 的 nodeStore 镜像已删）───
 
   it('onNodesChange position 结束（dragging:false）更新节点位置', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
@@ -415,14 +415,13 @@ describe('canvasStore', () => {
     // 散点立即 PUT 已移除：任何路径都不再当场发请求
   });
 
-  it('onNodesChange position 变更应同步 nodeStore position（快照兜底恢复正确）', () => {
+  it('onNodesChange position 不再写 nodeStore（W8 已删——几何进 doc 靠投影）', () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
-
+    useNodeStore.getState().addNode({ id, type: 'video', data: {} as any, position: { x: 10, y: 20 } } as any);
     useCanvasStore.getState().onNodesChange([
       { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
     ]);
-
-    expect(useNodeStore.getState().nodes[id].position).toEqual({ x: 300, y: 400 });
+    expect(useNodeStore.getState().nodes[id].position).toEqual({ x: 10, y: 20 });  // Task 15 删字段后本行改 expect(!('position' in ...))
   });
 
   it('onNodesChange position 结束且 projectId 为 null 时不报错', async () => {
