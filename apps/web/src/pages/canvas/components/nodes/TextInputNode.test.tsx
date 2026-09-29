@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 
+// R1b: useInternalNode 改 vi.hoisted+vi.fn——null 分支注入需可变引用（先例 ImageNodeToolbar.test.tsx）
+const mocks = vi.hoisted(() => ({ useInternalNode: vi.fn() }));
+
 // Mock Tiptap
 const mockChainRun = vi.fn();
 const mockEditorIsActive = vi.fn().mockReturnValue(false);
@@ -42,10 +45,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     }),
     // Mock useViewport and useInternalNode for child toolbar Portal rendering
     useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-    useInternalNode: (_id: string) => ({
-      position: { x: 100, y: 200 },
-      measured: { width: 400, height: 350 },
-    }),
+    useInternalNode: mocks.useInternalNode, // 仅此行替换（R1b——其余 override 保持既有实现）
     // Mock NodeResizeControl as a transparent wrapper that renders children
     NodeResizeControl: ({ children, position, onResizeStart, onResizeEnd, style }: any) => {
       // Capture callbacks for test verification
@@ -59,6 +59,12 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     },
   };
 });
+
+// 默认：保留既有形状（position + measured 400×350）——position 是工具条定位相关，丢了会打挂同文件其它用例
+mocks.useInternalNode.mockImplementation(() => ({
+  position: { x: 100, y: 200 },
+  measured: { width: 400, height: 350 },
+}));
 
 vi.mock('@tiptap/react', () => ({
   useEditor: () => buildChain(),
@@ -277,12 +283,20 @@ describe('TextInputNode (Tiptap)', () => {
 
   // === Preserved existing tests (adapted) ===
 
-  it('should use default dimensions 300x300 when node has no width/height', () => {
+  // === 几何读侧（R1b：nodeStore 几何 → RF internalNode measured）===
+
+  it('节点尺寸来自 RF internal node（measured）——nodeStore 几何不再是来源', () => {
     const { container } = renderNode();
-    const card = container.querySelector('[class*="bg-surface"]') as HTMLElement;
-    const style = card?.getAttribute('style') || '';
+    const style = (container.querySelector('[class*="bg-surface"]') as HTMLElement)?.getAttribute('style') || '';
+    expect(style).toContain('width: 400px');
+    expect(style).toContain('height: 350px');
+  });
+
+  it('useInternalNode 返回 null 时兜底 300×300（v3 改写原 :280-286——迁移后 mock 恒给 measured，旧"默认 300"断言必红，翻转为本分支）', () => {
+    mocks.useInternalNode.mockImplementationOnce(() => null);
+    const { container } = renderNode();
+    const style = (container.querySelector('[class*="bg-surface"]') as HTMLElement)?.getAttribute('style') || '';
     expect(style).toContain('width: 300px');
-    expect(style).toContain('height: 300px');
   });
 
   it('should show border overlay with data-testid when selected', () => {

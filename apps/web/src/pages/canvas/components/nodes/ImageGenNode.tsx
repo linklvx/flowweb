@@ -69,7 +69,6 @@ function ratioDimensions(ratio: string) {
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
-  const node = useNodeStore((s) => s.nodes[id]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
   const splitImageNode = useCanvasStore((s) => s.splitImageNode);
@@ -1005,8 +1004,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
           onOutpaintRatioChange={editMode === 'outpaint' ? setOutpaintRect : undefined}
           imageW={editMode === 'outpaint' ? baseWidth : undefined}
           imageH={editMode === 'outpaint' ? baseHeight : undefined}
-          frameVpBottom={editMode === 'outpaint' && outpaintRect.width > 0 ? (internalNode?.internals?.positionAbsolute?.y ?? node.position.y) * zoom + vpY + (outpaintRect.y + outpaintRect.height) * zoom : undefined}
-          frameVpCenterX={editMode === 'outpaint' && outpaintRect.width > 0 ? (internalNode?.internals?.positionAbsolute?.x ?? node.position.x) * zoom + vpX + (outpaintRect.x + outpaintRect.width / 2) * zoom : undefined}
+          frameVpBottom={editMode === 'outpaint' && outpaintRect.width > 0 ? (internalNode?.internals?.positionAbsolute?.y ?? 0) * zoom + vpY + (outpaintRect.y + outpaintRect.height) * zoom : undefined}
+          frameVpCenterX={editMode === 'outpaint' && outpaintRect.width > 0 ? (internalNode?.internals?.positionAbsolute?.x ?? 0) * zoom + vpX + (outpaintRect.x + outpaintRect.width / 2) * zoom : undefined}
         />
       ) : transformMode ? (
         <TransformToolbar
@@ -1183,8 +1182,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               )}
               {editMode === 'outpaint' && displayUrl && baseWidth > 0 && createPortal(
                 <OutpaintSelectionOverlay
-                  imageVpX={(internalNode?.internals?.positionAbsolute?.x ?? node.position.x) * zoom + vpX}
-                  imageVpY={(internalNode?.internals?.positionAbsolute?.y ?? node.position.y) * zoom + vpY}
+                  imageVpX={(internalNode?.internals?.positionAbsolute?.x ?? 0) * zoom + vpX}
+                  imageVpY={(internalNode?.internals?.positionAbsolute?.y ?? 0) * zoom + vpY}
                   imageVpW={baseWidth * zoom}
                   imageVpH={baseHeight * zoom}
                   value={outpaintRect.width > 0 ? outpaintRect : { x: -(baseWidth * 0.1), y: -(baseHeight * 0.1), width: baseWidth * 1.2, height: baseHeight * 1.2 }}
