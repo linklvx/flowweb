@@ -23,7 +23,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't1',
       type: 'text',
-      position: { x: 100, y: 200 },
       data: { content: 'hello world' } as TextNodeData,
     };
 
@@ -33,7 +32,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(stored).toBeDefined();
     expect(stored.id).toBe('t1');
     expect(stored.type).toBe('text');
-    expect(stored.position).toEqual({ x: 100, y: 200 });
     const textData = stored.data as TextNodeData;
     expect(textData.content).toBe('hello world');
   });
@@ -43,7 +41,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img1',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'sdxl',
@@ -68,12 +65,11 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.prompt).toEqual({ text: '', html: '', referencedImageIds: [] });
   });
 
-  // 4. addNode should store id/type/position metadata at node level
-  it('should store id/type/position metadata at node level, not inside data', () => {
+  // 4. addNode should store id/type metadata at node level
+  it('should store id/type metadata at node level, not inside data', () => {
     const node: AppNode = {
       id: 'meta',
       type: 'video',
-      position: { x: 300, y: 400 },
       selected: true,
       dragging: false,
       data: { model: 'svd', status: 'idle' } as VideoNodeData,
@@ -85,7 +81,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     // Metadata at node level
     expect(stored.id).toBe('meta');
     expect(stored.type).toBe('video');
-    expect(stored.position).toEqual({ x: 300, y: 400 });
     expect(stored.selected).toBe(true);
     expect(stored.dragging).toBe(false);
 
@@ -101,7 +96,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const node: AppNode = {
       id: 'img1',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'sdxl',
@@ -130,7 +124,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const node: AppNode = {
       id: 'img2',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '动漫',
         model: 'sdxl',
@@ -158,7 +151,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't1',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'original' } as TextNodeData,
     };
 
@@ -175,7 +167,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't2',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'hello' } as TextNodeData,
     };
 
@@ -245,7 +236,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const node: AppNode = {
       id: 'to-delete',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'delete me' } as TextNodeData,
     };
 
@@ -261,7 +251,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't-data',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'test data' } as TextNodeData,
     };
 
@@ -294,7 +283,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-cleanup',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'sdxl',
@@ -338,7 +326,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-root-refs',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'done',
         allImages: [{ id: 'f1', url: '/f1.png', name: 'f1.png', status: 'success' }],
@@ -364,7 +351,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-nested-refs',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'done',
         prompt: {
@@ -395,7 +381,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-dup-refs',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'done',
         allImages: [shared],
@@ -421,7 +406,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const videoNode: AppNode = {
       id: 'vid-refs',
       type: 'videoGen',
-      position: { x: 0, y: 0 },
       data: {
         model: 'video-model-1',
         status: 'done',
@@ -459,7 +443,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const audioNode: AppNode = {
       id: 'aud-refs',
       type: 'audioGen',
-      position: { x: 0, y: 0 },
       data: {
         model: 'tts-1',
         content: 'hello',
@@ -487,7 +470,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-guard',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'flux',
@@ -501,7 +483,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 'txt-guard',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'hello' } as TextNodeData,
     };
 
@@ -528,7 +509,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const extNode: AppNode = {
       id: 'img-ext-guard',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'flux',
@@ -554,7 +534,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 'txt-guard-2',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'hello world' } as TextNodeData,
     };
 
@@ -571,7 +550,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const imageNode: AppNode = {
       id: 'img-guard-2',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'sdxl',
@@ -592,7 +570,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const node: AppNode = {
       id: 'img-prompt',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         style: '写实',
         model: 'sdxl',
@@ -624,7 +601,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 'txt-prompt',
       type: 'text',
-      position: { x: 0, y: 0 },
       data: { content: 'hello' } as TextNodeData,
     };
 
@@ -643,7 +619,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const videoNode: AppNode = {
       id: 'vid-prompt',
       type: 'videoGen',
-      position: { x: 100, y: 100 },
       data: { model: '', status: 'idle' as const },
     };
     useNodeStore.getState().addNode(videoNode);
@@ -699,7 +674,6 @@ describe('nodeStore (AppNode nested structure)', () => {
     const videoNode: AppNode = {
       id: 'vid-config',
       type: 'videoGen',
-      position: { x: 100, y: 100 },
       data: { model: '', status: 'idle' as const },
     };
     useNodeStore.getState().addNode(videoNode);
@@ -1108,7 +1082,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'ext-valid',
         type: 'imageExtGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
@@ -1125,7 +1098,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'ext-no-config',
         type: 'imageExtGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
@@ -1141,7 +1113,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'img-regular',
         type: 'imageGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           model: 'sdxl',
@@ -1160,7 +1131,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'img-gen',
         type: 'imageGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           model: 'sdxl',
@@ -1177,7 +1147,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'ext-not-gen',
         type: 'imageExtGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
@@ -1194,7 +1163,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'txt',
         type: 'text',
-        position: { x: 0, y: 0 },
         data: { content: 'hello' } as TextNodeData,
       };
       useNodeStore.getState().addNode(node);
@@ -1212,7 +1180,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'ext-update',
         type: 'imageExtGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
@@ -1244,7 +1211,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'img-noop',
         type: 'imageGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           model: 'sdxl',
@@ -1273,7 +1239,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'ext-count',
         type: 'imageExtGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
@@ -1295,7 +1260,6 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'img-filter',
         type: 'imageGen',
-        position: { x: 0, y: 0 },
         data: {
           status: 'idle',
           model: 'sdxl',
@@ -1324,7 +1288,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应式）', () => {
   beforeEach(() => {
     useNodeStore.setState({ nodes: {}, activeTransformNodeId: null, activeEditNodeId: null, cancelRequestedAt: 0, saveHandlers: {} });
-    useNodeStore.getState().addNode({ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} as any });
+    useNodeStore.getState().addNode({ id: 'b1', type: 'imageGen', data: {} as any });
     useCanvasStore.setState({ nodes: [{ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], edges: [] });
   });
 
@@ -1363,7 +1327,7 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
   });
 
   it('canvasStore 中不存在的节点 id 桥接不报错（guard）', () => {
-    useNodeStore.getState().addNode({ id: 'ghost', type: 'imageGen', position: { x: 0, y: 0 }, data: {} as any });
+    useNodeStore.getState().addNode({ id: 'ghost', type: 'imageGen', data: {} as any });
     expect(() => useNodeStore.getState().setFileResult('ghost', 'f')).not.toThrow();
     expect(() => useNodeStore.getState().updateConfig('ghost', { referenceImage: 'f' } as any)).not.toThrow();
   });

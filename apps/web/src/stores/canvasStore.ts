@@ -207,10 +207,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     useNodeStore.getState().addNode({
       id,
       type: resolvedType,
-      position,
       data: nodeData as any,
-      width: node.width,
-      height: node.height,
     });
     return id;
   },
@@ -294,10 +291,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     useNodeStore.getState().addNode({
       id,
       type: node.type!,
-      position: newNode.position,
       data: node.data as any,
-      width: node.width,
-      height: node.height,
     });
     return id;
   },
@@ -346,7 +340,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     useNodeStore.getState().addNode({
       id,
       type: sourceNode.type!,
-      position: newNode.position,
       data: data as any,
     });
 
@@ -403,7 +396,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       ns.addNode({
         id: node.id,
         type: node.type!,
-        position: node.position,
         data: node.data as any,
       });
     }
@@ -460,10 +452,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     useNodeStore.getState().addNode({
       id,
       type: sourceNode.type!,
-      position: newNode.position,
       data: nsData as any,
-      width: sourceNode.width,
-      height: sourceNode.height,
     });
 
     return id;
@@ -826,7 +815,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       ],
       selectedId: id,
     }));
-    useNodeStore.getState().addNode({ id, type: 'group', position: groupNode.position, data: groupNode.data as any });
+    useNodeStore.getState().addNode({ id, type: 'group', data: groupNode.data as any });
     get().applyGroupDerivations();
     return id;
   },
@@ -1040,10 +1029,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
       // 双写 nodeStore
       for (const e of expandedNodes) {
-        ns.addNode({ id: e.id, type: 'imageGen', position: e.position, data: e.data as any });
+        ns.addNode({ id: e.id, type: 'imageGen', data: e.data as any });
       }
       for (const o of overflowNodes) {
-        ns.addNode({ id: o.id, type: 'imageGen', position: o.position, data: o.data as any });
+        ns.addNode({ id: o.id, type: 'imageGen', data: o.data as any });
       }
       ns.deleteNode(nodeId);
 
@@ -1156,11 +1145,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       ],
       selectedId: gid,
     }));
-    useNodeStore.getState().addNode({ id: gid, type: 'group', position: groupNode.position, data: groupNode.data as any });
+    useNodeStore.getState().addNode({ id: gid, type: 'group', data: groupNode.data as any });
     // 双写补全：展开的新节点写入 nodeStore；被移除的 multiImageGen 原节点同步删除（双 store 一致）
     const ns = useNodeStore.getState();
     for (const e of expanded) {
-      ns.addNode({ id: e.id, type: 'imageGen', position: e.position, data: e.data as any });
+      ns.addNode({ id: e.id, type: 'imageGen', data: e.data as any });
     }
     for (const n of picked) {
       if (n.type === 'multiImageGen') ns.deleteNode(n.id);
@@ -1388,7 +1377,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       } as Node]),
     }));
     get().patchGroupData(groupId, { cells });
-    useNodeStore.getState().addNode({ id, type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId, mediaUrl: url } as any });
+    useNodeStore.getState().addNode({ id, type: 'imageGen', data: { status: 'done', fileId, mediaUrl: url } as any });
     get().applyGroupDerivations();
   },
 
@@ -1514,17 +1503,13 @@ function buildGroupCopy(
   ns.addNode({
     id: newGid,
     type: 'group',
-    position: newGroup.position,
     data: newGroup.data as any,
   });
   for (const child of newChildren) {
     ns.addNode({
       id: child.id,
       type: child.type!,
-      position: child.position,
       data: child.data as any,
-      width: child.width,
-      height: child.height,
     });
   }
 
@@ -1599,17 +1584,13 @@ function rebuildFromClipboard(
   ns.addNode({
     id: newGid,
     type: 'group',
-    position: newGroup.position,
     data: newGroup.data as any,
   });
   for (const child of newChildren) {
     ns.addNode({
       id: child.id,
       type: child.type!,
-      position: child.position,
       data: child.data as any,
-      width: child.width,
-      height: child.height,
     });
   }
 

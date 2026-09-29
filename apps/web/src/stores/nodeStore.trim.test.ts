@@ -5,9 +5,6 @@ function createVideoNode(overrides?: Partial<VideoNodeData>): AppNode {
   return {
     id: 'test-video-node-1',
     type: NODE_TYPES.VIDEO_GEN,
-    position: { x: 100, y: 200 },
-    width: 640,
-    height: 360,
     data: {
       model: 'hyvideo-v1.5',
       status: 'done',

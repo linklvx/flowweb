@@ -181,7 +181,8 @@ describe('canvasStore', () => {
     const node = useNodeStore.getState().nodes[nodeId];
     expect(node).toBeDefined();
     expect(node.type).toBe('imageGen');
-    expect(node.position).toEqual({ x: 50, y: 60 });
+    // AppNode 退役几何载体——位置读者已迁 cs/RF（Task 13 链路），几何断言指向 cs 侧 Node
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!.position).toEqual({ x: 50, y: 60 });
   });
 
   // Task 3: Resize — text node default dimensions
@@ -198,11 +199,12 @@ describe('canvasStore', () => {
     expect(node.width).toBe(320);
   });
 
-  it('addNode text should also populate nodeStore with width/height', () => {
+  it('addNode text 不再向 nodeStore 写 width/height（W7 锚——AppNode 退役几何载体）', () => {
     const nodeId = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
-    const nsNode = useNodeStore.getState().nodes[nodeId];
-    expect(nsNode.width).toBe(300);
-    expect(nsNode.height).toBe(300);
+    const nsNode = (useNodeStore.getState().nodes as any)[nodeId];
+    expect(nsNode).toBeDefined();
+    expect(!('width' in nsNode)).toBe(true);
+    expect(!('height' in nsNode)).toBe(true);
   });
 
   it('copyNode should copy width and height from original node', () => {
@@ -220,16 +222,17 @@ describe('canvasStore', () => {
     expect(copied.height).toBe(300);
   });
 
-  it('copyNode should pass width/height to nodeStore', () => {
+  it('copyNode 不再向 nodeStore 镜像 width/height（W7 锚）', () => {
     const id1 = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     useCanvasStore.setState(s => ({
       nodes: s.nodes.map(n => n.id === id1 ? { ...n, width: 600, height: 400 } : n),
     }));
     const { copyNode } = useCanvasStore.getState() as any;
     const id2 = copyNode(id1);
-    const nsNode = useNodeStore.getState().nodes[id2];
-    expect(nsNode.width).toBe(600);
-    expect(nsNode.height).toBe(400);
+    const nsNode = (useNodeStore.getState().nodes as any)[id2];
+    expect(nsNode).toBeDefined();
+    expect(!('width' in nsNode)).toBe(true);
+    expect(!('height' in nsNode)).toBe(true);
   });
 
   it('onNodesChange should apply dimensions changes with setAttributes', () => {
@@ -415,13 +418,13 @@ describe('canvasStore', () => {
     // 散点立即 PUT 已移除：任何路径都不再当场发请求
   });
 
-  it('onNodesChange position 不再写 nodeStore（W8 已删——几何进 doc 靠投影）', () => {
+  it('onNodesChange position 不回写 nodeStore（W8 锚——AppNode 无 position 键，几何进 doc 靠投影）', () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
-    useNodeStore.getState().addNode({ id, type: 'video', data: {} as any, position: { x: 10, y: 20 } } as any);
+    useNodeStore.getState().addNode({ id, type: 'video', data: {} as any });
     useCanvasStore.getState().onNodesChange([
       { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
     ]);
-    expect(useNodeStore.getState().nodes[id].position).toEqual({ x: 10, y: 20 });  // Task 15 删字段后本行改 expect(!('position' in ...))
+    expect(!('position' in (useNodeStore.getState().nodes as any)[id])).toBe(true);
   });
 
   it('onNodesChange position 结束且 projectId 为 null 时不报错', async () => {

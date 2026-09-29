@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
-import { useNodeStore } from './nodeStore';
+import { useNodeStore, toAppNode } from './nodeStore';
 import { pickStructNodes, pickStructEdges } from './canvasHistory';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
@@ -185,14 +185,7 @@ export function applyDocToStore(d: Y.Doc) {
   });
   useCanvasStore.getState().applyGroupDerivations();
   refitExpandedGroups();
-  const content: Record<string, any> = {};
-  for (const n of nodes) {
-    content[n.id] = {
-      id: n.id, type: n.type, position: n.position || { x: 0, y: 0 },
-      data: n.data || {}, width: n.width ?? undefined, height: n.height ?? undefined,
-    };
-  }
-  useNodeStore.setState({ nodes: content });
+  useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });
 }
 
 /** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */

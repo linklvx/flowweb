@@ -27,7 +27,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img1',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         model: 'sdxl',
@@ -48,7 +47,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img2',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         model: 'flux',
@@ -70,7 +68,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img3',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         model: 'flux-pro',
@@ -94,7 +91,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img4',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         model: 'sdxl',
@@ -111,7 +107,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img-p1',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: { status: 'idle', allImages: [] } as ImageNodeData,
     };
     useNodeStore.getState().addNode(node);
@@ -124,7 +119,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img-p2',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: { status: 'idle', allImages: [] } as ImageNodeData,
     };
     useNodeStore.getState().addNode(node);
@@ -138,7 +132,6 @@ describe('imageNodeApi — buildImageGenParams', () => {
     const node: AppNode = {
       id: 'img-p3',
       type: 'imageGen',
-      position: { x: 0, y: 0 },
       data: { status: 'idle', allImages: [] } as ImageNodeData,
     };
     useNodeStore.getState().addNode(node);

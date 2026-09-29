@@ -179,12 +179,14 @@ export type NodeData = TextNodeData | ImageNodeData | VideoNodeData | AudioNodeD
 export interface AppNode {
   id: string;
   type: string;
-  position: { x: number; y: number };
   selected?: boolean;
   dragging?: boolean;
-  width?: number;
-  height?: number;
   data: NodeData;
+}
+
+/** 投影记录 → AppNode 显式构造（类型删字段≠运行时 strip——直喂会带 measured/selected 等杂键，必须白名单构造）。 */
+export function toAppNode(r: { id: string; type: string; data: Record<string, unknown> }): AppNode {
+  return { id: r.id, type: r.type, data: r.data as unknown as NodeData };
 }
 
 // ========== Type guards ==========
@@ -471,10 +473,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     set((s) => ({
       nodes: {
         ...s.nodes,
-        [node.id]: {
-          ...node,
-          position: node.position ?? { x: 0, y: 0 },
-        },
+        [node.id]: { ...node },
       },
     }));
   },
@@ -524,7 +523,6 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           [id]: {
             id,
             type: 'text',
-            position: { x: 0, y: 0 },
             data: { content },
           },
         },
@@ -554,7 +552,6 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           id,
           // Preserve node type — never overwrite (image/video/text each own their type)
           type: nodeType ?? 'imageGen',
-          position: existing?.position ?? { x: 0, y: 0 },
           selected: existing?.selected,
           dragging: existing?.dragging,
           data: mergeNodeData(existing?.data, config, nodeType) as NodeData,

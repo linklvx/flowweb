@@ -26,7 +26,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext1',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -44,7 +43,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext2',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [
@@ -64,7 +62,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext3',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -82,7 +79,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext4',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -109,7 +105,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext5',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -130,7 +125,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext6',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -147,7 +141,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext7',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
@@ -165,7 +158,6 @@ describe('imageExtNodeApi — buildImageExtGenParams', () => {
     const node: AppNode = {
       id: 'ext8',
       type: 'imageExtGen',
-      position: { x: 0, y: 0 },
       data: {
         status: 'idle',
         allImages: [],
