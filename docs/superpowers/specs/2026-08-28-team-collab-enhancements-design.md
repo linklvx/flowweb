@@ -143,7 +143,7 @@ CanvasDocUpdate   id, projectId(→CanvasProject, onDelete: Cascade), seq BigInt
   2. 事务内（`pg_advisory_xact_lock(hashtext(projectId)::bigint)` 防多实例并发 compaction）：
      - `maxSeq = SELECT max(seq) WHERE projectId`
      - 临时 `new Y.Doc()`：apply `CanvasDoc.state` + 按 seq ASC 重放 `seq <= maxSeq` 全部增量行（临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律）
-     - `newSnapshot = Y.encodeStateAsUpdate(tempDoc)`；`snapshotSV = Y.encodeStateVector(tempDoc)`（与快照同源）
+     - `newSnapshot = Y.encodeStateAsUpdate(tempDoc)`
      - UPSERT `CanvasDoc.state = newSnapshot`
      - `DELETE WHERE projectId AND seq <= maxSeq`——步骤 a 之后其他实例新 append 的行（seq > maxSeq）不受影响，下次加载快照 + 这些行重放仍正确
 - **最后连接断开强制 compaction**：`onDisconnect` 时判断 `instance.getConnectionsCount(documentName) === 0`（含直连）→ 主动执行同一 flush-then-compact 序列（await 完成）——Hocuspocus 无独立 unload 钩子（一期 S7 裁定），框架随后自动触发的 onStoreDocument 对空队列 noop 不落行；不留增量尾巴，下次加载只读快照
