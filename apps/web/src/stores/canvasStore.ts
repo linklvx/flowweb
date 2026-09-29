@@ -15,7 +15,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding, GROUP_PADDING, GROUP_PADDING_TOP } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding, GROUP_PADDING, GROUP_PADDING_TOP, COLLAPSED_SIZE } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
@@ -1259,7 +1259,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (collapsing && g0) {
       get().patchGroupData(groupId, { collapsed: true, savedSize: { width: g0.width ?? 0, height: g0.height ?? 0 } });
       set((st) => ({
-        nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: 200, height: 64 } : n)),
+        nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height } : n)),
       }));
     } else {
       get().patchGroupData(groupId, { collapsed: false });

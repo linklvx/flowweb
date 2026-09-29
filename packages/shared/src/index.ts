@@ -13,3 +13,5 @@ export * from './types/video-work';
 export * from './types/group';
 export * from './types/stitch';
 export * from './canvas/nodeEnvelope';
+export * from './canvas/geometry';
+export * from './canvas/storyboardConfig';

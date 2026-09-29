@@ -2,6 +2,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import type { GroupNodeData } from '@/types/group';
+import { COLLAPSED_SIZE } from '@/utils/groupLayout';
 import { GROUP_BOX, BADGE } from './selectionTokens';
 
 interface Props { groupId: string; data: GroupNodeData; selected: boolean }
@@ -41,7 +42,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     return (
       <div
         style={{
-          width: 200, height: 64, borderRadius: GROUP_BOX.borderRadius,
+          width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height, borderRadius: GROUP_BOX.borderRadius,
           border: `${GROUP_BOX.borderWidth}px dashed ${selected ? GROUP_BOX.selectedBorder : GROUP_BOX.border}`,
           background: 'rgba(26,26,26,0.9)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

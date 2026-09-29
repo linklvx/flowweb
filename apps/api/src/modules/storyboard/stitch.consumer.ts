@@ -6,7 +6,9 @@ import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { composeStoryboard } from './stitch.composer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
-import { STITCH_WIDTH_MAP, RATIO_MAP } from './stitch.size';
+// R1b Task 16：stitch.size.ts 双份清单收口——STITCH_WIDTH_MAP/RATIO_MAP 单源自 @flowweb/shared
+//（RATIO_MAP 是 Record<string,number> 索引兼容面：d.aspectRatio: string 直索 ASPECT_RATIO_MAP 会 TS7053）。
+import { STITCH_WIDTH_MAP, RATIO_MAP } from '@flowweb/shared';
 
 interface StitchJobData {
   projectId: string;

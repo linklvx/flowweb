@@ -34,3 +34,22 @@ type _MissingFromKeys = Exclude<keyof GroupNodeDataShape, (typeof GROUP_NODE_DAT
 type _AssertNoMissing<T extends never> = T;
 // v5：编译器断言锚——勿删/勿被"清理死代码"误清（无任何引用是刻意的：删除即静默失去缺键防护，没有任何测试会红）
 type _Anchor = _AssertNoMissing<_MissingFromKeys>;
+
+// ---- 组类型面五符号（R1b Task 16 自 apps/web/src/types/group.ts:2-13 整体迁入——web 侧改 re-export，消费点零改动）----
+
+export type GroupType = 'normal' | 'storyboard';
+
+export const ASPECT_RATIOS = ['21:9', '16:9', '9:16', '3:4', '4:3', '1:1'] as const;
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+
+export type StitchResolution = '2K' | '4K';
+
+/** 解析后的分镜配置（运行时/配置面）。GroupNodeDataShape.storyboard 的 aspectRatio: string 是
+ *  刻意宽松（模板/克隆边界的原始数据）——两种类型勿"统一"，边界语义依赖宽松面。 */
+export interface StoryboardConfig {
+  aspectRatio: AspectRatio;
+  gridRows: number;
+  gridCols: number;
+  showIndex: boolean;
+  stitchResolution: StitchResolution;
+}
