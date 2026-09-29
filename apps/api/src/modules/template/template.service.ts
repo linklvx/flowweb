@@ -1,4 +1,5 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { validateParentGraph } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
@@ -236,6 +237,14 @@ export class TemplateService {
       if (!Array.isArray(projectData?.nodes) || !Array.isArray(projectData?.edges)) {
         throw new BadRequestException('模板数据为空，无法导入');
       }
+      // Task 21（F39 v6 判据）：导入档校验钉在跨用户过滤/remap 之前——remap 把悬空折 undefined（挂后 dangling 恒 0 假绿）；
+      // 过滤剥 __ephemeral 节点后 cells 变悬空（挂后合法公开模板假拒）。fatal=producer 侧不可能合法产出的结构（400 三种）；
+      // 三类悬空=修不拒（producer 侧可达：删组窗口/过滤剥节点——下方 remap 循环内折 undefined/null/丢边）
+      const { violations } = validateParentGraph(projectData.nodes, 'import', projectData.edges);
+      const fatal = violations.filter((v) => ['cycle', 'nested-group', 'non-group-parent'].includes(v.kind));
+      if (fatal.length > 0) throw new BadRequestException(`模板组结构非法（${fatal[0].kind}: ${fatal[0].id}），无法导入`);
+      const nonFatal = violations.length - fatal.length;
+      if (nonFatal > 0) console.warn(`[template.import] 悬空结构 ${nonFatal} 处已修复放行（parentId→undefined/cells→null/悬空边丢弃）`);
       // 跨用户导入过滤（v9 裁决③：覆盖"私有→后公开"旧行）；
       // 模板 JSON edges 本就是 source/target 单形状（EdgeSchema）——直传，无键名转换（R1a 收敛）
       if (template.isPublic && template.userId !== userId) {

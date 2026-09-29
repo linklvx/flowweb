@@ -147,5 +147,11 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
     .filter(e => !dropped.has(e.source) && !dropped.has(e.target))
     .map(e => ({ id: e.id, source: e.source, target: e.target })); // edges 单形状 source/target（R1a 收敛）
   const nodes = ensureParentFirst(kept).map(n => applyWhitelist(n, opts));
+  // Task 21 v4 剪枝同批修：过滤剥除节点的 cells 槽位同步清 null（对齐 clone remapIds 先例——
+  // 导入入口守住的不变量不在下一行被过滤破坏）；map 产新数组，不原地改共享引用
+  for (const n of nodes) {
+    if (n.type !== 'group' || !Array.isArray(n.data.cells)) continue;
+    n.data.cells = (n.data.cells as (string | null)[]).map(c => (dropped.has(c as string) ? null : c));
+  }
   return { nodes, edges };
 }

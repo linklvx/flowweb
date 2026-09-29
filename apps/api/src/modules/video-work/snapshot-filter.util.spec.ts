@@ -84,14 +84,30 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[0].data.images).toBeUndefined();
   });
 
-  it('group：groupType/cells/name 保留；collapsed/storyboard 剥离；cells 悬空 id 原样返回', () => {
+  it('group：groupType/cells/name 保留；collapsed/storyboard 剥离；真悬空 id（非 dropped）本层原样返回', () => {
     const input: RawCanvasData = { nodes: [rawNode('n1', 'group', { groupType: 'storyboard', cells: ['ghost-id', null], name: '分镜1', collapsed: false, storyboard: { x: 1 } })], edges: [] };
     const out = buildFilteredSnapshot(input, base);
     const d = out.nodes[0].data;
     expect(d.groupType).toBe('storyboard');
-    expect(d.cells).toEqual(['ghost-id', null]); // 原样返回（§7.6 断言口径）
+    expect(d.cells).toEqual(['ghost-id', null]); // 原样返回（§7.6 断言口径）；Task 21 v4 分层注：本层只清"过滤剥除节点"的槽位（见下方剪枝用例），真悬空 id 由导入档 validateParentGraph 报 violation + remap 折 null
     expect(d.name).toBe('分镜1');
     expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
+  });
+
+  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/shadow-/__ephemeral）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）', () => {
+    const input: RawCanvasData = {
+      nodes: [
+        rawNode('g1', 'group', { groupType: 'storyboard', cells: ['c1', 'edit1', 'shadow-x', 'eph', 'ghost', null], name: '分镜' }),
+        rawNode('c1', 'videoGen', { model: 'm' }),
+        rawNode('edit1', 'videoEdit', { timeline: [] }),
+        rawNode('shadow-x', 'imageGen', {}),
+        rawNode('eph', 'videoGen', { model: 'm', __ephemeral: true }),
+      ],
+      edges: [],
+    };
+    const out = buildFilteredSnapshot(input, cloneOpts);
+    const g = out.nodes.find(n => n.id === 'g1')!;
+    expect(g.data.cells).toEqual(['c1', null, null, null, 'ghost', null]); // 剥除槽位 null；ghost 非 dropped 本层不动
   });
 
   it('克隆口径：videoEdit 与 shadow- 前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（spec §4.6 字面）', () => {

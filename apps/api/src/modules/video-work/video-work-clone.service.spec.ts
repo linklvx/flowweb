@@ -208,4 +208,22 @@ describe('VideoWorkCloneService.clone', () => {
     const grp = passedNodes.find((n: any) => n.type === 'group');
     expect(grp.width).toBe(calcStoryboardSize(2, 2, '16:9').width); // 补齐走 storyboard cfg 公式（16:9 2×2）
   });
+
+  it('组引用环（Task 21 clone 档）：remap 后仍存环 → 400 拒绝克隆（环挂死 RF 无降级）', async () => {
+    setup();
+    collabDoc.readCanvas.mockResolvedValue({
+      nodes: [
+        { id: 'a', type: 'group', position: { x: 0, y: 0 }, parentId: 'b', data: { groupType: 'normal' } },
+        { id: 'b', type: 'group', position: { x: 1, y: 1 }, parentId: 'a', data: { groupType: 'normal' } },
+      ],
+      edges: [],
+    });
+    await expect(svc.clone('w1', 'u1')).rejects.toThrow('画布存在组引用环，无法克隆');
+  });
+
+  it('悬空不报（红线行为锁）：clone 档只检环——parentId 指向被剥节点的画布正常完成克隆', async () => {
+    setup(); // rawCanvas 的 child3 parentId 指向被剥 shadow-x——remap 折 null 后 clone 档零 violation
+    const result = await svc.clone('w1', 'u1');
+    expect(result.projectId).toBe('new-p');
+  });
 });

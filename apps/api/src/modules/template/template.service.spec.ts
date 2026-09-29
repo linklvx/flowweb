@@ -7,6 +7,7 @@ import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { validateParentGraph } from '@flowweb/shared';
 import type { Template } from '@prisma/client';
 
 // v5 字段口径：teamId/projectId/folderId 显式 null——falsy 使 getTemplate/update 的 OR 鉴权链行为
@@ -570,6 +571,73 @@ describe('TemplateService', () => {
       const edges = projectService.create.mock.calls[0][3] as any[];
       expect(edges).toHaveLength(1);
       expect(edges[0].source).toBe(c.id); expect(edges[0].target).toBe(c.id);
+    });
+  });
+
+  describe('组结构门禁（Task 21 validateParentGraph 导入档——校验钉在跨用户过滤/remap 前）', () => {
+    const importRow = (templateData: unknown) =>
+      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'other', templateData });
+
+    it('fatal 三种：cycle/nested-group/non-group-parent → 400 拒绝（producer 侧不可能合法产出）', async () => {
+      const base = { version: 1, edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
+      importRow({ ...base, nodes: [
+        { id: 'a', type: 'group', position: { x: 0, y: 0 }, parentId: 'b', data: {} },
+        { id: 'b', type: 'group', position: { x: 1, y: 1 }, parentId: 'a', data: {} },
+      ] });
+      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
+      importRow({ ...base, nodes: [
+        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
+        { id: 'g2', type: 'group', position: { x: 1, y: 1 }, parentId: 'g1', data: {} },
+      ] });
+      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
+      importRow({ ...base, nodes: [
+        { id: 'n0', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
+        { id: 'c1', type: 'imageGen', position: { x: 1, y: 1 }, parentId: 'n0', data: {} },
+      ] });
+      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
+      expect(projectService.create).not.toHaveBeenCalled();
+    });
+
+    it('cells 悬空 id：修不拒——正常导入且输出 cells 该位 null（remap 折 null 现状语义）', async () => {
+      importRow({
+        version: 1,
+        nodes: [
+          { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: ['c1', 'ghost'] } },
+          { id: 'c1', type: 'imageGen', position: { x: 5, y: 5 }, parentId: 'g1', data: { prompt: 'a' } },
+        ],
+        edges: [], viewport: { x: 0, y: 0, zoom: 1 },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      const nodes = projectService.create.mock.calls[0][2] as any[];
+      const group = nodes.find((n: any) => n.type === 'group');
+      const c1 = nodes.find((n: any) => n.data.prompt === 'a');
+      expect(group.data.cells).toEqual([c1.id, null]);
+    });
+
+    it('边端点悬空：修不拒——导入成功且该边被丢弃（重映射循环内 continue 现状语义）', async () => {
+      importRow({
+        version: 1,
+        nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x' } }],
+        edges: [{ id: 'e1', source: 'n1', target: 'ghost' }],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      });
+      await service.import('t1', 'user-2');
+      expect(projectService.create).toHaveBeenCalled();
+      expect(projectService.create.mock.calls[0][3]).toEqual([]);
+    });
+
+    it('官方 seed 回归锚：initOfficialTemplates 全部 templateData 过 import 档零 violation（seed 加组时防静默 400）', async () => {
+      await service.initOfficialTemplates();
+      const rows = [
+        ...prisma.template.create.mock.calls.map((c: any[]) => c[0].data),
+        ...prisma.template.update.mock.calls.map((c: any[]) => c[1]),
+      ];
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        const td = row.templateData as { nodes: any[]; edges: any[] };
+        expect(validateParentGraph(td.nodes, 'import', td.edges).violations).toEqual([]);
+      }
     });
   });
 });
