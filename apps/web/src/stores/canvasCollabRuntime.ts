@@ -12,7 +12,7 @@ import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import { isAutoEdgeId } from './autoEdgeIds';
-import { normalizeLoadedCanvas } from '@flowweb/shared';
+import { normalizeLoadedCanvas, shouldAutoRefit } from '@flowweb/shared';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
@@ -322,10 +322,7 @@ export async function destroyCollab(): Promise<void> {
 
 /** P0-4：展开态普通组按子节点包围盒重算（加载回放共用） */
 export function refitExpandedGroups() {
-  for (const g of useCanvasStore.getState().nodes.filter(
-    (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
-      && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
-  )) {
+  for (const g of useCanvasStore.getState().nodes.filter((n) => shouldAutoRefit(n))) {
     useCanvasStore.getState().applyGroupFrame(g.id);   // 守卫内建——分镜/折叠/手动 no-op；epsilon 防桥乒乓
   }
 }
