@@ -37,7 +37,7 @@ describe('CanvasDocUpdateRepository', () => {
     });
   });
 
-  it('compact：advisory lock + 重放构建快照 + 条件删除 + 返回 snapshotSV', async () => {
+  it('compact：advisory lock + 重放构建快照 + 条件删除', async () => {
     // mock $transaction 直接执行回调（tx 即 prisma 自身）
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
     prisma.$queryRaw.mockResolvedValue([{ max: 5n }]);
@@ -47,8 +47,7 @@ describe('CanvasDocUpdateRepository', () => {
     prisma.canvasDocUpdate.findMany.mockResolvedValue([
       { seq: 1n, update: Buffer.from(Y.encodeStateAsUpdate(doc)) },
     ]);
-    const sv = await repo.compact('p1');
-    expect(sv).toBeInstanceOf(Uint8Array);
+    await repo.compact('p1');
     expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(prisma.canvasDoc.upsert).toHaveBeenCalled();
     expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenCalledWith({
@@ -83,9 +82,62 @@ describe('CanvasDocUpdateRepository', () => {
     expect(freshUpdate.getMap('nodes').get('new')).toBe(2);
   });
 
-  it('compact：无增量行返回 null（空文档不产生快照写）', async () => {
+  it('compact：无增量行不产生快照写', async () => {
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
     prisma.$queryRaw.mockResolvedValue([{ max: null }]);
-    await expect(repo.compact('p1')).resolves.toBeNull();
+    await repo.compact('p1');
+    expect(prisma.canvasDoc.upsert).not.toHaveBeenCalled();
+    expect(prisma.canvasDocUpdate.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('compact：插入行 + 删除行 → 快照重放不含被删节点（恢复路径取证）', async () => {
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+    prisma.$queryRaw.mockResolvedValue([{ max: 2n }]);
+    prisma.canvasDoc.findUnique.mockResolvedValue(null);
+    const src = new Y.Doc();
+    const ups: Buffer[] = [];
+    src.on('update', (u) => ups.push(Buffer.from(u)));
+    src.getMap('nodes').set('n1', new Y.Map());   // 插入行
+    src.getMap('nodes').delete('n1');             // 删除行
+    prisma.canvasDocUpdate.findMany.mockResolvedValue([
+      { seq: 1n, update: ups[0] },
+      { seq: 2n, update: ups[1] },
+    ]);
+    await repo.compact('p1');
+    const { create } = prisma.canvasDoc.upsert.mock.calls[0][0];
+    const fresh = new Y.Doc();
+    Y.applyUpdate(fresh, new Uint8Array(create.state));
+    expect(fresh.getMap('nodes').has('n1')).toBe(false);   // tombstone 进快照，重建不复活
+  });
+
+  it('compact：跨两轮幂等——第一轮快照作第二轮 docRow 重放再 compact，状态等价 + maxSeq 边界', async () => {
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+    // 两次 mockResolvedValueOnce 对应两轮的 max 查询（mockResolvedValue 每次返回同一数组、两轮 maxSeq 会同值）
+    prisma.$queryRaw.mockResolvedValueOnce([{ max: 2n }]).mockResolvedValueOnce([{ max: 3n }]);
+    const src = new Y.Doc();
+    src.getMap('nodes').set('a', 1);
+    src.getMap('nodes').set('b', 2);
+    const inc = Buffer.from(Y.encodeStateAsUpdate(src));
+    prisma.canvasDoc.findUnique.mockResolvedValueOnce(null);
+    prisma.canvasDocUpdate.findMany.mockResolvedValueOnce([{ seq: 1n, update: inc }]);
+    await repo.compact('p1');
+    const firstState = prisma.canvasDoc.upsert.mock.calls[0][0].update.state;
+    // 第二轮：旧快照 + 一条新删除增量
+    const del = new Y.Doc();
+    Y.applyUpdate(del, new Uint8Array(firstState));
+    const ups: Buffer[] = [];
+    del.on('update', (u) => ups.push(Buffer.from(u)));
+    del.getMap('nodes').delete('b');
+    prisma.canvasDoc.findUnique.mockResolvedValueOnce({ state: firstState });
+    prisma.canvasDocUpdate.findMany.mockResolvedValueOnce([{ seq: 2n, update: ups[0] }]);
+    await repo.compact('p1');
+    const secondState = prisma.canvasDoc.upsert.mock.calls[1][0].update.state;
+    const fresh = new Y.Doc();
+    Y.applyUpdate(fresh, new Uint8Array(secondState));
+    expect(fresh.getMap('nodes').has('a')).toBe(true);
+    expect(fresh.getMap('nodes').has('b')).toBe(false);   // 跨轮快照/增量边界不丢删除
+    // maxSeq 边界守卫（本方法唯一的"危险正确性点"：DELETE seq<=maxSeq 防误删并发实例新 append 的行）
+    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(1, { where: { projectId: 'p1', seq: { lte: 2n } } });
+    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(2, { where: { projectId: 'p1', seq: { lte: 3n } } });
   });
 });

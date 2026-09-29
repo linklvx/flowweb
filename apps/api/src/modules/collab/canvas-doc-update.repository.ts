@@ -36,17 +36,18 @@ export class CanvasDocUpdateRepository {
   /**
    * flush-then-compact 的 compaction 事务（spec 2.2）：
    * 快照从 Postgres 权威数据重放构建（不信任内存）；DELETE 带 seq <= maxSeq
-   * 防误删事务期间其他实例新 append 的行；返回 snapshotSV 供调用方重置 lastPersistedSV。
+   * 防误删事务期间其他实例新 append 的行。
+   * 调用方（gateway）不消费返回值——水位由 pending 队列自身表达。
    * 临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律。
    */
-  async compact(projectId: string): Promise<Uint8Array | null> {
-    return this.prisma.$transaction(
+  async compact(projectId: string): Promise<void> {
+    await this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
         const maxRows = await tx.$queryRaw<{ max: bigint | null }[]>`
           SELECT max(seq) AS max FROM "CanvasDocUpdate" WHERE "projectId" = ${projectId}`;
         const maxSeq = maxRows[0]?.max;
-        if (maxSeq == null) return null;
+        if (maxSeq == null) return;
         const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
         const updates = await tx.canvasDocUpdate.findMany({
           where: { projectId, seq: { lte: maxSeq } },
@@ -57,7 +58,6 @@ export class CanvasDocUpdateRepository {
         if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
         for (const u of updates) Y.applyUpdate(temp, new Uint8Array(u.update));
         const newSnapshot = Y.encodeStateAsUpdate(temp);
-        const snapshotSV = Y.encodeStateVector(temp);
         temp.destroy();
         await tx.canvasDoc.upsert({
           where: { projectId },
@@ -65,7 +65,6 @@ export class CanvasDocUpdateRepository {
           create: { projectId, state: Buffer.from(newSnapshot) },
         });
         await tx.canvasDocUpdate.deleteMany({ where: { projectId, seq: { lte: maxSeq } } });
-        return snapshotSV;
       },
       { isolationLevel: 'RepeatableRead' },
     );
