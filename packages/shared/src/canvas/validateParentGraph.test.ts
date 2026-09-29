@@ -35,5 +35,7 @@ describe('validateParentGraph（F39 两档）', () => {
   it('clone 档：只报 cycle——悬空/嵌套不报（红线行为锁）；合法图零 violations', () => {
     expect(validateParentGraph([n('a', 'ghost')], 'clone').violations).toEqual([]);
     expect(validateParentGraph([n('g1', undefined, 'group'), n('c1', 'g1')], 'import').violations).toEqual([]);
+    // 边检查被 mode 门禁：clone 档即使传悬空边也不报（防边循环被移出门禁的回潮锁）
+    expect(validateParentGraph([n('a')], 'clone', [{ id: 'e1', source: 'a', target: 'ghost' } as any]).violations).toEqual([]);
   });
 });

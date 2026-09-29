@@ -3,7 +3,8 @@ export interface ParentGraphViolation { kind: 'dangling' | 'cycle' | 'nested-gro
 /** parentId/edges/cells 结构校验（F39 v8 收窄 + v11 时机前移）。
  *  导入档校验时机 = 跨用户过滤之前、remap 之前（remap 把悬空折 undefined——挂后 dangling 恒 0 假绿；
  *  过滤剪边不碰 cells——挂后合法模板 cells 变悬空假拒）。
- *  clone 档 = remap 之后，只检环（环挂死 RF；悬空是服务端剥除的可达真实状态——降级红线）。 */
+ *  clone 档 = remap 之后，只检环（环挂死 RF；悬空是服务端剥除的可达真实状态——降级红线）。
+ *  edges 仅 import 档消费——import 档调用方漏传第三参会静默跳过 dangling-edge 检查。 */
 export function validateParentGraph(
   nodes: { id: string; type: string; parentId?: string | null; data?: Record<string, unknown> }[],
   mode: 'import' | 'clone',
