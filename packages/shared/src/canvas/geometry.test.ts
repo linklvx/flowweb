@@ -28,7 +28,7 @@ describe('refitGroupGeometry（契约 2 v11 绝对 rect——守恒，无 clamp�
     });
   });
 
-  it('幂等 + N5 构造保证：rel.y ≥ GROUP_PADDING_TOP、rel.x ≥ GROUP_PADDING 恒成立（clamp 推翻后的行为锚）', () => {
+  it('幂等 + N5 构造保证：rel.y ≥ GROUP_PADDING_TOP、rel.x ≥ GROUP_PADDING 恒成立（clamp 推翻后的行为锚。注：同输入两次调用是确定性断言——真复合幂等 f(f(x))=f(x) 的证明在 Task 18 applyGroupFrame 二次 no-op 用例（store 层），此处是回归锚）', () => {
     const children = [rect(50, 80), rect(260, 190, 120, 70)];
     const once = refitGroupGeometry(children);
     const twice = refitGroupGeometry(children);
