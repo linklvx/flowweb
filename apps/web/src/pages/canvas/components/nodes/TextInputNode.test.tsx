@@ -297,6 +297,7 @@ describe('TextInputNode (Tiptap)', () => {
     const { container } = renderNode();
     const style = (container.querySelector('[class*="bg-surface"]') as HTMLElement)?.getAttribute('style') || '';
     expect(style).toContain('width: 300px');
+    expect(style).toContain('height: 300px');
   });
 
   it('should show border overlay with data-testid when selected', () => {
