@@ -64,6 +64,11 @@ describe('readViewport（恢复解析）', () => {
     expect(readViewport(PID)).toBeNull();
   });
 
+  it('含多余键的合法 JSON → 只回三键（pick，多余键不入 store）', () => {
+    localStorage.setItem(viewportKey(PID), JSON.stringify({ x: 1, y: 2, zoom: 3, extra: 'injected' }));
+    expect(readViewport(PID)).toEqual({ x: 1, y: 2, zoom: 3 });
+  });
+
   it('无存量 key → null', () => {
     expect(readViewport(PID)).toBeNull();
   });

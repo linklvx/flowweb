@@ -97,6 +97,9 @@ interface CanvasState {
   isHydrating: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
+  /** 协作初始化超时标记（Task 12 I-2 蒙层独占条件）：仅 initCollab 超时置 true；
+   *  会话中途断连不置（自动重连无损合并，SaveStatusIndicator 承担非阻断告知）——防 reload 蒙层丢 messageQueue 编辑 */
+  syncFailed: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
@@ -173,6 +176,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   teamId: null,
   isHydrating: false,
   connStatus: 'connecting',
+  syncFailed: false,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');

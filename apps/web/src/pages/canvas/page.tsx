@@ -204,7 +204,9 @@ export function CanvasPage() {
 
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
-  const connStatus = useCanvasStore((s) => s.connStatus);
+  // 蒙层独占条件（I-2）：仅 initCollab 超时（syncFailed）弹全屏重试；会话中途断连不阻断
+  // （connStatus offline 由 SaveStatusIndicator 非阻断告知——reload 蒙层会丢 messageQueue 未落库编辑）
+  const syncFailed = useCanvasStore((s) => s.syncFailed);
 
   // viewport 本地偏好持久化（projectId null 守卫防写错 key，返回 unbind 即 cleanup）
   useEffect(() => {
@@ -325,7 +327,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
             </div>
           </div>
         )}
-        {connStatus === 'offline' && (
+        {syncFailed && (
           <div
             data-testid="offline-overlay"
             role="alert"

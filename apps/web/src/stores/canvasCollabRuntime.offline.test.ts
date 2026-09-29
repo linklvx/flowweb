@@ -49,7 +49,7 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
   beforeEach(() => {
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [] });
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [] });
   });
   afterEach(async () => {
     vi.useRealTimers();
@@ -62,6 +62,7 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
 
     const cs = useCanvasStore.getState();
     expect(cs.connStatus).toBe('offline');
+    expect(cs.syncFailed).toBe(true); // 蒙层条件（I-2：超时独占）
     expect(cs.nodes).toEqual([]); // 未 applyDocToStore（不抬 hydrate 门、空 doc 不入 store）
     expect(getDoc()).toBeNull(); // doc 已随 destroyCollab 销毁置 null
     // 现状红相：此断言 0 ≠ 1——provider 存活 → 晚重连可能 → 蒙层消失但 store 未水合
@@ -75,6 +76,7 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
     await p;
     const inst = lastInstance();
     expect(inst.destroyCalls).toBe(1);
+    expect(useCanvasStore.getState().syncFailed).toBe(true); // 超时置蒙层条件
 
     // 等价断言形态（如实报告）：真实 provider.destroy 后不再有任何事件出站；
     // mock 以"destroy 清空监听表 + emit 走监听表投递"模拟同一边界。断言两层：
@@ -86,5 +88,39 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
     inst.emit('synced', {});
     expect(getDoc()).toBeNull();
     expect(useCanvasStore.getState().nodes).toEqual([]);
+  });
+
+  it('会话中途断连（I-2）：connStatus offline 但 syncFailed 保持 false——蒙层不弹、指示器承担告知', async () => {
+    const p = initCollab('p1');
+    await vi.advanceTimersByTimeAsync(0); // flush destroyCollab 微任务 → provider 构造完成
+    lastInstance().emit('synced', {}); // 成功路径：synced → 会话健康
+    await p;
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+    expect(useCanvasStore.getState().syncFailed).toBe(false);
+
+    // 会话中途断连（pm2 重启/网络抖动）：status handler 置 offline，但不得误置 syncFailed
+    lastInstance().emit('status', { status: 'disconnected' });
+    expect(useCanvasStore.getState().connStatus).toBe('offline'); // SaveStatusIndicator 非阻断告知保留
+    expect(useCanvasStore.getState().syncFailed).toBe(false);     // 全屏蒙层条件不触发
+  });
+
+  it('陈旧 initCollab 超时 timer 不销毁后续同 pid 健康会话（I-1 initSeq 判活回归锁）', async () => {
+    const p1 = initCollab('p1');
+    await vi.advanceTimersByTimeAsync(5_000); // 第一次超时中（timer 未触发、未 emit synced）
+    const p2 = initCollab('p1'); // 退出重进/StrictMode 双挂载：入口 destroyCollab 销毁实例 1，新建实例 2
+    await vi.advanceTimersByTimeAsync(0); // flush → 实例 2 构造完成
+    expect((HocuspocusProvider as any).instances.length).toBe(2);
+    lastInstance().emit('synced', {}); // 第二次健康完成
+    await p2;
+    expect(getDoc()).not.toBeNull();
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+
+    await vi.advanceTimersByTimeAsync(10_000); // 越过第一次的 10s 陈旧 timer
+    await p1;
+    // 旧代码红相：currentPid 同 pid 守卫放行 → !synced → destroyCollab() 销毁健康会话
+    expect(((HocuspocusProvider as any).instances[1] as MockInst).destroyCalls).toBe(0); // 新会话未被销毁
+    expect(getDoc()).not.toBeNull();
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+    expect(useCanvasStore.getState().syncFailed).toBe(false);
   });
 });

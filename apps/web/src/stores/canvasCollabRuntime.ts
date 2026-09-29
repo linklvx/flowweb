@@ -60,6 +60,9 @@ export function readNodeFileIdFromDoc(nodeId: string): string | null {
 }
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let currentPid: string | null = null;
+/** initCollab 调用代际（I-1 判活）：currentPid 同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid），
+ *  单调 seq——超时 timer 恢复时 seq !== initSeq 即陈旧调用，不得走超时兜底销毁新会话 */
+let initSeq = 0;
 
 /** store 结构投影（canvasStore 为基准 + nodeStore data，与旧 buildSyncPayload 同形）。
  *  data 按所有权分型（F42）委托 projectCanvasNodes 单源——组取 cs/普通节点取 ns+回落。
@@ -221,6 +224,7 @@ function bindBridge(): () => void {
  */
 export async function initCollab(projectId: string): Promise<void> {
   await destroyCollab();
+  const seq = ++initSeq;
   currentPid = projectId;
   doc = new Y.Doc();
   attachUndoManager(doc);
@@ -239,28 +243,34 @@ export async function initCollab(projectId: string): Promise<void> {
     });
   });
 
-  // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络
+  // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；
+  // timer 存变量——成功路径 clearTimeout 收窄陈旧 resolve 窗口到零
   let synced = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   await new Promise<void>((resolve) => {
     provider!.on('synced', () => { synced = true; resolve(); });
-    setTimeout(resolve, 10000);
+    timer = setTimeout(resolve, 10000);
   });
-  if (currentPid !== projectId) return;
+  // 判活（I-1）：seq 替代 currentPid——同 pid 退出重进时 currentPid 判据放行陈旧调用，
+  // 其超时分支会销毁第二次 initCollab 的健康会话
+  if (seq !== initSeq) return;
 
   // 离线廉价兜底：超时未 synced——不置 connected、不 apply 空 doc、不抬 hydrate 门（保持不可编辑），UI 层提示重试
   if (!synced) {
     // 廉价兜底（用户拍板）：超时=服务端不可用——销毁连接防"晚重连蒙层消失但 store 未水合"
-    // 的脏编辑窗口（编辑仅存 store 刷新即丢）；蒙层引导刷新重走 initCollab
+    // 的脏编辑窗口（编辑仅存 store 刷新即丢）；蒙层引导刷新重走 initCollab。
+    // syncFailed 蒙层独占条件（I-2）：仅超时置位，断连不置（断连走自动重连，指示器非阻断告知）
     await destroyCollab();
-    useCanvasStore.setState({ connStatus: 'offline' });
+    useCanvasStore.setState({ connStatus: 'offline', syncFailed: true });
     return;
   }
+  clearTimeout(timer);
 
   // viewport 恢复（本地偏好非协作数据——契约 5）：放 hydrate 门之前，恢复不算编辑
   const vp = readViewport(projectId);
   if (vp) useCanvasStore.setState({ viewport: vp });
 
-  useCanvasStore.setState({ connStatus: 'connected' });
+  useCanvasStore.setState({ connStatus: 'connected', syncFailed: false });
   useCanvasStore.getState().setHydrating(true);
   applyDocToStore(doc!);
   useCanvasStore.getState().setHydrating(false);

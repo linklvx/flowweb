@@ -25,6 +25,9 @@ export function readViewport(projectId: string): { x: number; y: number; zoom: n
   try {
     const raw = localStorage.getItem(viewportKey(projectId));
     const v = raw ? JSON.parse(raw) : null;
-    return v && typeof v.x === 'number' && typeof v.y === 'number' && typeof v.zoom === 'number' ? v : null;
+    // pick 三键：校验只保证 x/y/zoom 合法，原样返回会把解析对象的其余键带入 store
+    return v && typeof v.x === 'number' && typeof v.y === 'number' && typeof v.zoom === 'number'
+      ? { x: v.x, y: v.y, zoom: v.zoom }
+      : null;
   } catch { return null; }
 }
