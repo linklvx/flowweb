@@ -258,6 +258,34 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     await expect(service.readCanvas('p1')).resolves.toBeTruthy();
   });
 
+  it('⑦ e2e：远端删除 → destroy 断连 flush → 真实卸载后重连从持久层重放不复活', async () => {
+    const errSpy = vi.spyOn((gateway as any).logger, 'error').mockImplementation(() => {});
+    try {
+      const a = connect('project:pe1');
+      await a.synced;
+      const n = new Y.Map();
+      n.set('type', 'textInput');
+      a.ydoc.getMap('nodes').set('n1', n);
+      await vi.waitFor(() => expect(repo.append).toHaveBeenCalledTimes(1), { timeout: 4000 });   // debounce 落库（短 debounce 配置）
+      a.ydoc.getMap('nodes').delete('n1');
+      await a.provider.destroy();   // 真实断连 → onClose → onDisconnect flush
+      providers.splice(providers.indexOf(a.provider), 1);   // 用例内已销毁——从 afterEach 清理数组移除，防双 destroy（collab.gateway flaky 面收敛）
+      await vi.waitFor(() => expect(repo.append).toHaveBeenCalledTimes(2), { timeout: 4000 });
+      // 关键：等 doc 真正卸载（disconnectDelay + unload 守卫）——否则重连命中内存缓存、测不到持久层
+      await vi.waitFor(() => expect(gateway.server.hocuspocus.documents.has('project:pe1')).toBe(false), { timeout: 4000 });
+      const loadCallsBefore = (repo.loadUpdates as any).mock.calls.length;
+      repo.loadUpdates.mockResolvedValue(appendedRows());   // 持久层 = 已落库行（插入行 + 删除行）
+      const b = connect('project:pe1');
+      await b.synced;
+      expect((repo.loadUpdates as any).mock.calls.length).toBeGreaterThan(loadCallsBefore);   // 确实走了持久层重放（非缓存命中）
+      expect(replayOf([appendedRows()[0]]).getMap('nodes').has('n1')).toBe(true);   // 判别力锚：插入行真实含 n1（防"空 doc 恒绿"）
+      expect(b.ydoc.getMap('nodes').has('n1')).toBe(false);   // 不复活
+      expect(errSpy).not.toHaveBeenCalled();   // happy path：tripwire/stash 一次不命中（自动化日志契约，与验收判据同源）
+    } finally {
+      errSpy.mockRestore();
+    }
+  }, 15000);
+
   it('⑥ closeTeamDocuments：disband 事件按 payload.projectIds 关连接', async () => {
     const { provider, synced } = connect('project:p9');
     await synced;
