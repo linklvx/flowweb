@@ -1970,6 +1970,8 @@ git commit -m "feat(shared): normalizeLoadedCanvas 守恒归位——与 refitGr
 
 ## Task 18: applyGroupFrame 唯一写者 + F33 根修（跨组守卫+epsilon+小数乒乓+placement clamp）
 
+**DEFAULT_CHILD_SIZE sweep 补登记（Task 16 审查 I-1）：** 全仓 `?? 280/?? 120` 残留共 9 处——canvasStore 五处（:536-537 clamp 守卫 cw/ch、:799/:876/:936/:1293）由本 task 重算路径覆盖收口；**groupDrop.ts:6 是纯派生族（无 measured）——本 task 顺手改 `?? DEFAULT_CHILD_SIZE.width/height`**；GroupNode.tsx:19-20 是 `?? measured ?? 280` clamp 族（measured 夹层=纪律三例外域，与 Task 14 clamp 守卫同类）——**显式接受不收**（与 onNodesChange cw/ch 同批在 Task 18 接 clampChildIntoGroup 时统一裁决）。
+
 **Files:**
 - Modify: `apps/web/src/stores/canvasStore.ts`（applyGroupFrame + addToGroup/dropIntoGroup 迁移 + 跨组守卫）
 - Modify: `apps/web/src/pages/canvas/page.test.tsx`（refitGroupBounds stub :72 删 + refitExpandedGroups mock :18 处置）

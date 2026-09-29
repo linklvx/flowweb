@@ -91,7 +91,7 @@ export function clampPositionToPadding(
  *  否则 clampPositionToPadding。Task 14 拖拽期与 Task 18 placement 期同源。 */
 export function clampChildIntoGroup(
   rel: { x: number; y: number }, childSize: { width: number; height: number },
-  groupSize: { width: number | null; height: number | null },
+  groupSize: { width: number | null | undefined; height: number | null | undefined },
 ): { x: number; y: number } {
   if (groupSize.width == null || groupSize.height == null) return rel;
   const xMax = groupSize.width - GROUP_PADDING - childSize.width;
@@ -115,6 +115,8 @@ export function calcGroupMinSize(
 }
 
 /** 组几何唯一重算纯函数（契约 2/§4.8 v11）：输入子节点绝对 rect，输出 frame + 每子 rel（= abs − frame.origin）。
+ *  rels[i] 与入参 children[i] 按索引一一对应——消费方（applyGroupFrame/normalizeLoadedCanvas）依赖此序写回，
+ *  喂入前重排即静默错位。
  *  守恒：重算型调用下子绝对坐标不变（rel 随 frame 补偿）——F33 整类根修。
  *  无 clamp（v11 推翻）：frame = bbox+padding 使 rel ∈ [padding, frame−padding−size] 恒成立（数学构造保证）；
  *  拖拽期真 clamp 在 onNodesChange（帧固定时）；placement 对不 refit 组的 clamp 见 addToGroup（Task 18）。 */
