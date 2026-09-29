@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
-import { normalizeLoadedCanvas } from '@flowweb/shared';
+import { normalizeLoadedCanvas, calcStoryboardSize } from '@flowweb/shared';
 
 describe('VideoWorkCloneService.clone', () => {
   let svc: VideoWorkCloneService;
@@ -199,5 +199,13 @@ describe('VideoWorkCloneService.clone', () => {
     await svc.clone('w1', 'u1');
     const passedNodes = projectService.create.mock.calls[0][2] as any[];
     expect(normalizeLoadedCanvas(structuredClone(passedNodes))).toEqual(passedNodes);
+  });
+
+  it('缺几何组克隆 → normalizeLoadedCanvas 补齐 width/height（挂载存在性钉子：删 service 内该调用即红）', async () => {
+    setup(); // rawCanvas 的 grp 本就不带 width/height
+    await svc.clone('w1', 'u1');
+    const passedNodes = projectService.create.mock.calls[0][2] as any[];
+    const grp = passedNodes.find((n: any) => n.type === 'group');
+    expect(grp.width).toBe(calcStoryboardSize(2, 2, '16:9').width); // 补齐走 storyboard cfg 公式（16:9 2×2）
   });
 });

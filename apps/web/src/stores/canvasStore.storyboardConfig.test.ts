@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { CONVERT_GAP } from '@flowweb/shared';
+import { CONVERT_GAP, calcStoryboardSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { ASPECT_RATIOS } from '@/types/group';
 
@@ -55,6 +55,15 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     // P0-新1 回归：溢出节点必须存活（而非被删除），nodeStore 双写一致
     expect(s.nodes.find((n) => n.id === 'd')).toBeTruthy();
     expect(useNodeStore.getState().nodes['b']).toBeTruthy();
+  });
+
+  it('2x2→1x3：cols 增且容量 4→3 减（唯一判别分支）——溢出 x 钉新宽（旧 gw=642 免疫面外：642+20 会让 d 落进 964 宽的新组框内即红）', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
+    const before = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
+    useCanvasStore.getState().resizeStoryboardGrid(gid, 1, 3);
+    const d = useCanvasStore.getState().nodes.find((n) => n.id === 'd')!;
+    expect(d.parentId).toBeUndefined();
+    expect(d.position.x).toBe(before.position.x + calcStoryboardSize(1, 3, '16:9').width + 20);
   });
 
   it('增格 → cells 不变（空位由渲染器显示）', () => {

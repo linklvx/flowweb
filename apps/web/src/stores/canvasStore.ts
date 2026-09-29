@@ -1406,7 +1406,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。
    *  消费者定案（Task 20）：toggleCollapse 展开分支（三分派）+ updateStoryboardConfig（可干净拆出档）；
-   *  mergeStoryboard / convertGroup→storyboard / resizeStoryboardGrid 与子写同事务（S2 裁决保持原结构）。 */
+   *  mergeStoryboard / convertGroup→storyboard / resizeStoryboardGrid 与子写同事务（S2 裁决保持原结构）。
+   *  尺寸档调用方必须回显当前 position（传 {x:0,y:0} 会瞬移组框）——updateStoryboardConfig/toggleCollapse savedSize 分支均回显 g.position。 */
   applyGroupFrameRect: (groupId, frame) => {
     set((st) => ({
       nodes: st.nodes.map((n) =>
