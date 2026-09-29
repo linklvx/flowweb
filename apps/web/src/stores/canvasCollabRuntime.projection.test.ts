@@ -41,5 +41,6 @@ describe('W7 红转绿门槛（几何进 doc 靠投影——删 W7 不丢链路�
     useCanvasStore.setState({ nodes: [{ id: 't1', type: 'textInput', position: { x: 0, y: 0 }, width: 500, height: 400, data: {} } as any], edges: [] });
     syncStoreToDoc(d, Origin.LocalUser);
     expect((d.getMap('nodes').get('t1') as any).get('width')).toBe(500);
+    expect((d.getMap('nodes').get('t1') as any).get('height')).toBe(400);
   });
 });

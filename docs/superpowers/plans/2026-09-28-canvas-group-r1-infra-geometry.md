@@ -1661,7 +1661,9 @@ Run: `pnpm --filter @flowweb/shared test -- --run src/canvas/geometry.test.ts` �
 2a. geometry.ts = groupLayout.ts 全文迁入（ASPECT_RATIO_MAP/calcStoryboardSize/calcDefaultGrid/sortNodesByPosition/calcStitchSize/clampPositionToPadding/calcGroupMinSize/calcGroupBounds/全部常量；`import type { AspectRatio } from '../types/group'`）+ 新增：
 
 ```ts
-/** 子节点缺测量时的 rect 基准（四处 `?? 280 / ?? 120` 内联单源化） */
+/** 子节点缺测量时的 rect 基准（`?? 280 / ?? 120` 内联单源化——sweep 必含 Task 14 clamp 守卫
+ *  的 canvasStore.ts onNodesChange 内 cw/ch 两行（唯一 measured 夹在 ?? 与字面量之间的位置——漏扫留最隐蔽不同源），
+ *  另含 normalizeLoadedCanvas/applyGroupFrame/addToGroup 分支 A/assertInvariant 四处派生公式点） */
 export const DEFAULT_CHILD_SIZE = { width: 280, height: 120 } as const;
 
 /** 折叠组尺寸（现状 canvasStore.ts:1262 与 NormalGroupRenderer.tsx:44 两处内联 200×64——R1b 单源化） */
