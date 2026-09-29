@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, calcGroupBounds, calcStoryboardSize, shouldAutoRefit } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 import { syncStoreToDoc, applyDocToStore } from './canvasCollabRuntime';
 
@@ -445,5 +445,214 @@ describe('cells 修复（第 7 写者——键盘 Delete 路径）', () => {
     useCanvasStore.getState().removeNodeFromGroup('g1', 'c1');
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
     expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).position).toEqual({ x: 120, y: 150 });   // 绝对还原（rel+组原点）
+  });
+});
+
+describe('F33——重算型守恒（左上落点才拉动 frame——右下恒绿是 v1 盲区）', () => {
+  const seed = () => useCanvasStore.setState({
+    nodes: [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    ] as any, edges: [],
+  });
+  const absOf = (id: string) => {
+    const n = useCanvasStore.getState().nodes.find((x) => x.id === id) as any;
+    const p = n.parentId ? (useCanvasStore.getState().nodes.find((x) => x.id === n.parentId) as any).position : { x: 0, y: 0 };
+    return { x: n.position.x + p.x, y: n.position.y + p.y };
+  };
+
+  it('addToGroup（新成员落左上 {10,10}）：既有成员绝对坐标不变 + 新成员落点=放置点', () => {
+    seed();
+    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
+      { id: 'c2', type: 'imageGen', position: { x: 10, y: 10 }, width: 100, height: 60, data: {} }] as any });
+    const before = absOf('c1');
+    useCanvasStore.getState().addToGroup('g1', 'c2');
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+    expect(g.position).toEqual({ x: 10 - GROUP_PADDING, y: 10 - GROUP_PADDING_TOP });
+    expect(absOf('c1')).toEqual(before);
+    expect(absOf('c2')).toEqual({ x: 10, y: 10 });
+  });
+
+  it('dropIntoGroup 同款（c3 落左上 {5,15}）', () => {
+    seed();
+    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
+      { id: 'c3', type: 'imageGen', position: { x: 5, y: 15 }, width: 100, height: 60, data: {} }] as any });
+    const before = absOf('c1');
+    useCanvasStore.getState().dropIntoGroup('c3', 'g1');
+    expect(absOf('c1')).toEqual(before);
+    expect(absOf('c3')).toEqual({ x: 5, y: 15 });
+  });
+
+  it('守卫：已在组 no-op；跨组移动先摘除（旧组 refit）再入新组（现状红：rel 被当绝对坐标双重偏移）', () => {
+    seed();
+    const before = JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]));
+    useCanvasStore.getState().addToGroup('g1', 'c1');   // 已在 g1
+    expect(JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]))).toBe(before);
+
+    // 跨组：c1 从 g1 移到 gA
+    useCanvasStore.setState({ nodes: [
+      ...(useCanvasStore.getState().nodes as any[]),
+      { id: 'gA', type: 'group', position: { x: 500, y: 500 }, width: 300, height: 250, data: { groupType: 'normal' } },
+    ] as any });
+    const absBefore = absOf('c1');
+    useCanvasStore.getState().addToGroup('gA', 'c1');
+    expect(absOf('c1')).toEqual(absBefore);   // 绝对坐标不变（现状：rel 当绝对用——必红）
+    // 源组 g1 失去唯一子 → 空组解组（对齐删除路径语义——v4）
+    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
+  });
+
+  it('不 refit 组的反向断言（v5 夹具修正——v4 落点 (210,210) 的 rel=(10,10) 在 clamp 下界 (20,50) 内被夹、与"落点=放置点"断言互斥必红。按纪律二拆两条：本条只声明"框不变"，落点选框内 padding 区外使 clamp 不触发）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal', manuallyResized: true } },
+      { id: 'k1', type: 'imageGen', position: { x: 250, y: 300 }, width: 100, height: 60, data: {} },   // rel=(50,100)——界外不触发 clamp
+    ] as any, edges: [] });
+    const frameBefore = JSON.stringify(['gm', useCanvasStore.getState().nodes.find((n) => n.id === 'gm')?.position, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).width, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).height]);
+    useCanvasStore.getState().addToGroup('gm', 'k1');
+    const gm = useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any;
+    expect(JSON.stringify(['gm', gm.position, gm.width, gm.height])).toBe(frameBefore);   // 框一字不改
+    const k1 = useCanvasStore.getState().nodes.find((n) => n.id === 'k1') as any;
+    expect(k1.parentId).toBe('gm');
+    expect(k1.position).toEqual({ x: 50, y: 100 });   // 落点=放置点（rel=abs−组原点）
+  });
+
+  it('clamp 生效分支（v5 独立用例——只声明"被修正"：落点 rel 在 padding 界内 → 拉回 (GROUP_PADDING, GROUP_PADDING_TOP)，用户可见行为变更已登记 spec）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal', manuallyResized: true } },
+      { id: 'k2', type: 'imageGen', position: { x: 205, y: 205 }, width: 100, height: 60, data: {} },   // rel=(5,5)——界内
+    ] as any, edges: [] });
+    useCanvasStore.getState().addToGroup('gm', 'k2');
+    const k2 = useCanvasStore.getState().nodes.find((n) => n.id === 'k2') as any;
+    expect(k2.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });   // 夹回界
+  });
+});
+
+describe('epsilon 守卫——浮点乒乓', () => {
+  it('applyGroupFrame 对 1ULP 级差异 no-op（桥 isEqual 深比较不产生新 diff）', () => {
+    // 夹具（v5 补全+修正）：组 g1(0,0) normal；子 c1 rel(100.3,200.7) 100×60（小数——整数恒绿是盲区）
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 100.3, y: 200.7 }, width: 100, height: 60, data: {} },
+    ] as any, edges: [] });
+    const pick = () => JSON.stringify(useCanvasStore.getState().nodes
+      .filter((n: any) => ['g1', 'c1'].includes(n.id))
+      .map((n: any) => [n.id, n.position, n.width, n.height]));
+    useCanvasStore.getState().applyGroupFrame('g1');   // 第一次：归位到不变量态（守恒——c1 绝对坐标不变）
+    const afterFirst = pick();
+    const st1 = useCanvasStore.getState().nodes;
+    const c1AbsAfterFirst = { x: (st1.find((n: any) => n.id === 'c1') as any).position.x + (st1.find((n: any) => n.id === 'g1') as any).position.x,
+                              y: (st1.find((n: any) => n.id === 'c1') as any).position.y + (st1.find((n: any) => n.id === 'g1') as any).position.y };
+    useCanvasStore.getState().applyGroupFrame('g1');   // 第二次：几何已满足不变量 → epsilon 内 no-op
+    expect(pick()).toBe(afterFirst);   // 位位同（1ULP 抖动不产生新写——桥 isEqual 不见 diff，乒乓消失）
+    const st2 = useCanvasStore.getState().nodes;
+    expect({ x: (st2.find((n: any) => n.id === 'c1') as any).position.x + (st2.find((n: any) => n.id === 'g1') as any).position.x,
+             y: (st2.find((n: any) => n.id === 'c1') as any).position.y + (st2.find((n: any) => n.id === 'g1') as any).position.y })
+      .toEqual(c1AbsAfterFirst);   // 守恒锚（v6 补断言——首次 refit 前后子绝对坐标也应相等：100.3/200.7）
+  });
+});
+
+describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGroupBounds(childrenAbs) ∧ rel ≥ padding）', () => {
+  const assertInvariant = () => {
+    const nodes = useCanvasStore.getState().nodes as any[];
+    for (const g of nodes.filter((n) => n.type === 'group' && shouldAutoRefit(n))) {
+      const children = nodes.filter((n) => n.parentId === g.id);
+      const abs = children.map((c) => ({ x: c.position.x + g.position.x, y: c.position.y + g.position.y,
+        width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height }));
+      expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height })
+        .toEqual(calcGroupBounds(abs));   // 期望来自纯函数
+      children.forEach((c) => {
+        expect(c.position.x).toBeGreaterThanOrEqual(GROUP_PADDING);
+        expect(c.position.y).toBeGreaterThanOrEqual(GROUP_PADDING_TOP);
+      });
+    }
+  };
+  const seedTwoNodes = () => useCanvasStore.setState({ nodes: [
+    { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 80, height: 90, data: {} },
+  ] as any, edges: [] });
+
+  it('groupNodes 后不变量成立', () => {
+    seedTwoNodes();
+    useCanvasStore.getState().groupNodes(['a', 'b']);
+    assertInvariant();
+  });
+  it('addToGroup 后不变量成立', () => {
+    seedTwoNodes();
+    useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
+      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }] as any });
+    useCanvasStore.getState().addToGroup(useCanvasStore.getState().nodes.find((n: any) => n.type === 'group')!.id, 'c');
+    assertInvariant();
+  });
+  it('dropIntoGroup 后不变量成立', () => {
+    seedTwoNodes();
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
+      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }] as any });
+    useCanvasStore.getState().dropIntoGroup('c', gid);
+    assertInvariant();
+  });
+  it('removeNodeFromGroup 后不变量成立', () => {
+    seedTwoNodes();
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.getState().removeNodeFromGroup(gid, 'a');
+    assertInvariant();
+  });
+  it('ungroup(normal) 后子绝对坐标还原（无组——不变量空集）', () => {
+    seedTwoNodes();
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    const absBefore = { a: { x: 100, y: 150 }, b: { x: 300, y: 260 } };
+    useCanvasStore.getState().ungroup(gid);
+    const st = useCanvasStore.getState().nodes as any[];
+    expect({ x: st.find((n) => n.id === 'a')!.position.x, y: st.find((n) => n.id === 'a')!.position.y }).toEqual(absBefore.a);
+    expect({ x: st.find((n) => n.id === 'b')!.position.x, y: st.find((n) => n.id === 'b')!.position.y }).toEqual(absBefore.b);
+  });
+  it('convertGroup 两方向后不变量成立', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+    ] as any, edges: [] });
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    const sg = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
+    expect(shouldAutoRefit(sg)).toBe(false);   // storyboard 不在重算域——下方 assertInvariant 断言空集的前提自证
+    assertInvariant();
+    useCanvasStore.getState().convertGroup(gid, 'normal');
+    assertInvariant();
+  });
+});
+
+describe('collapse→expand 往返（三分派——Task 18 2c）', () => {
+  it('normal 组展开后 frame 恢复（纯函数期望——calcGroupBounds(子绝对)）', () => {
+    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    const st0 = useCanvasStore.getState();
+    const g0 = st0.nodes.find((n) => n.id === gId)!;
+    const abs = st0.nodes.filter((n) => n.parentId === gId).map((c) => ({
+      x: c.position.x + g0.position.x, y: c.position.y + g0.position.y,
+      width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height,
+    }));
+    const expectFrame = calcGroupBounds(abs);
+    useCanvasStore.getState().toggleCollapse(gId);   // 折叠
+    useCanvasStore.getState().toggleCollapse(gId);   // 展开
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
+    expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(expectFrame);
+  });
+
+  it('storyboard 组展开 frame=配置尺寸（v6：配置是分镜框真理，不用 savedSize——现状红：旧重算按子 (0,0) 归位缩成 360×250）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 300, height: 250, data: {
+        groupType: 'storyboard', cells: ['c1', 'c2'],
+        storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
+      } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+    ] as any, edges: [] });
+    const expectSize = calcStoryboardSize(1, 2, '16:9');
+    useCanvasStore.getState().toggleCollapse('sg');   // 折叠
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'sg') as any).width).toBe(200);
+    useCanvasStore.getState().toggleCollapse('sg');   // 展开
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'sg')!;
+    expect(g.width).toBe(expectSize.width);
+    expect(g.height).toBe(expectSize.height);
+    expect(g.position).toEqual({ x: 500, y: 500 });   // 位置不动（三分派只写尺寸）
   });
 });

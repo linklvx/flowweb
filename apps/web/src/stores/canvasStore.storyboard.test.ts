@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { GROUP_PADDING, GROUP_PADDING_TOP } from '@flowweb/shared';
 
 const doneImage = (id: string, x: number, y: number) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180,
@@ -67,10 +68,11 @@ describe('convertGroup', () => {
     expect(g.data.cells).toBeUndefined();
     const a = s.nodes.find((n) => n.id === 'a')!;
     expect(a.hidden).toBe(false);
-    // cells 顺序 [a,c,b,d]，cols=2：a=(0,0) c=第二列(360,0) b=第二行(0,220) d=(360,220)（相对组）
+    // cells 顺序 [a,c,b,d]，cols=2：网格间距 40px、单格 320。守恒 refit（applyGroupFrame）后
+    // 首槽 rel 归位 padding 下界 (20,50)，40px 间距判据（相对差）不受影响
     const c = s.nodes.find((n) => n.id === 'c')!;
     const b = s.nodes.find((n) => n.id === 'b')!;
-    expect(a.position).toEqual({ x: 0, y: 0 });
+    expect(a.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });
     expect(c.position.x - a.position.x).toBeCloseTo(320 + 40); // c 在第二列
     expect(b.position.y - a.position.y).toBeCloseTo(180 + 40); // b 在第二行
     expect(a.width).toBe(320);

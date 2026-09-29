@@ -92,3 +92,38 @@ describe('S1 hydrate 收尾回写（Task 17 审查——applyDocToStore 直驱�
     expect(m.get('height')).toBe(expectFrame.height);
   });
 });
+
+// 乒乓夹具（Task 18 Step 3）：doc 的组 frame 满足不变量至 1ULP 浮点噪声（整数恒绿是盲区）——
+// g1(0.1,0.1) 140×130；c1 rel(20,50) 100×60 → abs(20.1,50.1)。重算 frame.x = 20.1-20
+// = 0.10000000000000142（node 实证必然漂移 ≈1.4e-15）：旧重算路径（无 epsilon）必写漂移值
+// → store ≠ doc 原文 → S1 回写 → 对端再 apply → 再漂 → 乒乓；epsilon 守卫（EPS=1e-6）使 refit
+// no-op → diff 零 → 无回写。
+describe('协作乒乓（Task 18——守恒+epsilon 使 refit 不产生新 diff）', () => {
+  it('远程 apply → refitExpandedGroups → store 与 doc 原文逐节点深等 + doc 无回写（小数坐标）', () => {
+    useCanvasStore.setState({ nodes: [], edges: [] });
+    useNodeStore.setState({ nodes: {} as any });
+    const d = new Y.Doc();
+    fillDoc(d, [
+      { id: 'g1', type: 'group', position: { x: 0.1, y: 0.1 }, width: 140, height: 130, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    ] as any, []);
+    applyDocToStore(d);
+    // 期望 = doc 原文（纯数据夹具——frame 满足不变量至 1ULP 噪声，epsilon 域内 refit 必 no-op）
+    const st = useCanvasStore.getState().nodes as any[];
+    const g1 = st.find((n) => n.id === 'g1')!;
+    const c1 = st.find((n) => n.id === 'c1')!;
+    expect({ id: g1.id, position: g1.position, width: g1.width, height: g1.height })
+      .toEqual({ id: 'g1', position: { x: 0.1, y: 0.1 }, width: 140, height: 130 });
+    expect({ id: c1.id, parentId: c1.parentId, position: c1.position, width: c1.width, height: c1.height })
+      .toEqual({ id: 'c1', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60 });
+    // 守恒锚：子绝对坐标 = doc 语义位置（20.1, 50.1）——refit 不搬子
+    expect(c1.position.x + g1.position.x).toBeCloseTo(20.1, 12);
+    expect(c1.position.y + g1.position.y).toBeCloseTo(50.1, 12);
+    // doc 无回写（S1 diff 零——现状路径写漂移 position 必产生回写=乒乓；漂移量 1.4e-15 非 toBeCloseTo 可吞）
+    const m = d.getMap('nodes').get('g1') as any;
+    expect(m.get('position').get('x')).toBe(0.1);
+    expect(m.get('position').get('y')).toBe(0.1);
+    expect(m.get('width')).toBe(140);
+    expect(m.get('height')).toBe(130);
+  });
+});

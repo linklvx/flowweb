@@ -15,7 +15,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, clampPositionToPadding, GROUP_PADDING, GROUP_PADDING_TOP, COLLAPSED_SIZE } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, CONVERT_GAP, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
@@ -137,7 +137,10 @@ interface CanvasState {
   markManuallyResized: (groupId: string) => void;
   toggleCollapse: (groupId: string) => void;
   patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
-  refitGroupBounds: (groupId: string) => void;
+  /** 组几何唯一写者——重算型入口（§4.8 v11）：守卫+epsilon，见实现。 */
+  applyGroupFrame: (groupId: string) => void;
+  /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。 */
+  applyGroupFrameRect: (groupId: string, frame: { x: number; y: number; width: number; height: number }) => void;
   dropIntoGroup: (nodeId: string, groupId: string) => void;
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
   mergeStoryboard: (nodeIds: string[]) => string;
@@ -241,10 +244,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if ((parent.data as any)?.cells) {
         // 分镜组：cells 移除该 id（宫格不收缩）——patchGroupData 唯一通道（对齐 onNodesChange removes 段同款清理）
         get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== id) });
-      } else if ((parent.data as any).groupType === 'normal'
-        && !after.nodes.some((c) => c.parentId === parent.id)) {
-        // 普通组：删空自动解组
-        get().ungroup(parent.id);
+      } else if ((parent.data as any).groupType === 'normal') {
+        // 普通组：删空自动解组；仍有子 → 组框收缩（G1——applyGroupFrame 守卫内建）
+        if (!after.nodes.some((c) => c.parentId === parent.id)) {
+          get().ungroup(parent.id);
+        } else {
+          get().applyGroupFrame(parent.id);
+        }
       }
     }
     const ns = useNodeStore.getState();
@@ -531,13 +537,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           if (!changedIds.has(n.id) || !n.parentId) return n;
           const parent = byId.get(n.parentId);
           if (!parent || parent.type !== 'group' || (parent.data as any)?.groupType === 'storyboard') return n;
-          const pw = parent.width ?? parent.measured?.width;
-          const ph = parent.height ?? parent.measured?.height;
-          const cw = n.width ?? n.measured?.width ?? 280;
-          const ch = n.height ?? n.measured?.height ?? 120;
-          // 组宽未知（未渲染/恢复窗口）或组比 padding+子尺寸还小（xMax<padding 退化）——跳过夹取防负坐标钉死
-          if (pw == null || ph == null || pw - GROUP_PADDING - cw < GROUP_PADDING || ph - GROUP_PADDING - ch < GROUP_PADDING_TOP) return n;
-          const clamped = clampPositionToPadding(n.position, { width: cw, height: ch }, { width: pw, height: ph });
+          // 共享守卫 clampChildIntoGroup（Task 18——与 placement 分支 B 同源）：组宽高不可用/退化跳过夹取。
+          // 子尺寸 measured 夹层保留（纪律三例外域——measured 唯一保留域=拖拽期 clamp）
+          const clamped = clampChildIntoGroup(
+            n.position,
+            { width: n.width ?? n.measured?.width ?? DEFAULT_CHILD_SIZE.width,
+              height: n.height ?? n.measured?.height ?? DEFAULT_CHILD_SIZE.height },
+            { width: parent.width ?? parent.measured?.width, height: parent.height ?? parent.measured?.height },
+          );
           if (clamped.x === n.position.x && clamped.y === n.position.y) return n;
           return { ...n, position: clamped };
         });
@@ -560,8 +567,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if (parent?.type === 'group') {
         if ((parent.data as any)?.cells) {
           get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== change.id) });
-        } else if ((parent.data as any).groupType === 'normal' && !get().nodes.some((c) => c.parentId === parent.id)) {
-          get().ungroup(parent.id);
+        } else if ((parent.data as any).groupType === 'normal') {
+          // 普通组：删空自动解组；仍有子 → 组框收缩（G1——对齐 deleteNode 同款）
+          if (!get().nodes.some((c) => c.parentId === parent.id)) {
+            get().ungroup(parent.id);
+          } else {
+            get().applyGroupFrame(parent.id);
+          }
         }
       }
     }
@@ -796,7 +808,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const allNodeIds = [...nodeIds, id];
     const bounds = calcGroupBounds(picked.map((n) => ({
       x: n.position.x, y: n.position.y,
-      width: n.width ?? 280, height: n.height ?? 120,
+      width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
     })));
     const groupNode: Node = {
       id, type: 'group',
@@ -862,27 +874,55 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     const node = s.nodes.find((n) => n.id === nodeId);
-    if (!group || !node || node.type === 'group') return;
+    if (!group || !node || node.type === 'group' || node.parentId === groupId) return;  // 已在组 no-op
     const gp = group.position;
+    // 跨组：node.position 是相对旧父的 rel——先还原绝对坐标（现状当绝对用是双重偏移根源）
+    let absX = node.position.x, absY = node.position.y;
+    const oldParent = node.parentId ? s.nodes.find((n) => n.id === node.parentId) : undefined;
+    if (oldParent && node.parentId !== groupId) {
+      absX += oldParent.position.x; absY += oldParent.position.y;
+    }
+    const childSize = { width: node.width ?? DEFAULT_CHILD_SIZE.width,      // v6 纪律三：无 measured
+                        height: node.height ?? DEFAULT_CHILD_SIZE.height };
+    const auto = shouldAutoRefit(group);
     setWithParentOrder((st) => {
-      const child = {
-        ...node, parentId: groupId, extent: 'parent' as const,
-        position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
-      };
+      if (!auto) {
+        // 分支 B（v5）：不 refit 组——组框一字不改；新子 rel=abs−组原点，过 clampChildIntoGroup
+        //（共享守卫：组宽高不可用/退化时跳过夹取——与 Task 14 拖拽路径的守卫同源）
+        const clamped = clampChildIntoGroup(
+          { x: absX - gp.x, y: absY - gp.y }, childSize,
+          { width: group.width, height: group.height },
+        );
+        return {
+          nodes: st.nodes.map((n) =>
+            n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: clamped } : n),
+        };
+      }
+      // 分支 A：守恒 refit（既有成员绝对不变——F33 根修）
       const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-      const bounds = calcGroupBounds(siblings.map((n) => ({
-        x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
-        y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
-        width: n.width ?? 280, height: n.height ?? 120,
-      })));
+      const { frame, rels } = refitGroupGeometry(
+        siblings.map((n) => ({
+          x: n.id === nodeId ? absX : n.position.x + gp.x,
+          y: n.id === nodeId ? absY : n.position.y + gp.y,
+          width: n.width ?? DEFAULT_CHILD_SIZE.width,       // v6 纪律三：无 measured
+          height: n.height ?? DEFAULT_CHILD_SIZE.height,
+        })),
+      );
       return {
         nodes: st.nodes.map((n) => {
-          if (n.id === nodeId) return child;
-          if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
-          return n;
+          if (n.id === nodeId) return { ...n, parentId: groupId, extent: 'parent' as const, position: rels[siblings.findIndex((sm) => sm.id === nodeId)] };
+          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
+          const i = siblings.findIndex((sm) => sm.id === n.id);
+          return i === -1 ? n : { ...n, position: rels[i] };   // 既有成员 rel 补偿——绝对坐标不变（F33）
         }),
       };
     });
+    if (oldParent && node.parentId !== groupId && oldParent.type === 'group') {
+      // 源组善后（v5）：失去最后子 → 解组（对齐删除路径语义；plan 原文 ungroupForce 已随 Task 11
+      //  v6 级联裁决撤销——现场改调 ungroup，已验证其空组路径无子排序依赖不会炸）；仍有子 → 收缩
+      if (!get().nodes.some((c) => c.parentId === oldParent.id)) get().ungroup(oldParent.id);
+      else get().applyGroupFrame(oldParent.id);
+    }
     get().applyGroupDerivations();
   },
 
@@ -901,6 +941,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
             position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
         : n),
     }));
+    get().applyGroupFrame(groupId);   // G1：移出后组框收缩（守卫内建——分镜/折叠/手动 no-op）
     // v5 C2：移出最后子 → normal 空组解组（对齐删空自动解组语义；storyboard 组不受此规则）
     const after = get();
     const g = after.nodes.find((n) => n.id === groupId);
@@ -918,31 +959,59 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       return;
     }
     const s = get();
-    const group = s.nodes.find((n) => n.id === groupId);
+    let group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const node = s.nodes.find((n) => n.id === nodeId);
+    if (!node || node.type === 'group' || node.parentId === groupId) return;  // 守卫同 addToGroup（已在组 no-op）
+    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
+    group = get().nodes.find((n) => n.id === groupId);   // 展开三分派可能重算组框——重读防 gp 陈旧
     if (!group) return;
     const gp = group.position;
-    const node = s.nodes.find((n) => n.id === nodeId);
-    if (!node || node.type === 'group') return;
-    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
+    // 跨组：node.position 是相对旧父的 rel——先还原绝对坐标（守卫同 addToGroup）
+    let absX = node.position.x, absY = node.position.y;
+    const oldParent = node.parentId ? s.nodes.find((n) => n.id === node.parentId) : undefined;
+    if (oldParent && node.parentId !== groupId) {
+      absX += oldParent.position.x; absY += oldParent.position.y;
+    }
+    const childSize = { width: node.width ?? DEFAULT_CHILD_SIZE.width,      // v6 纪律三：无 measured
+                        height: node.height ?? DEFAULT_CHILD_SIZE.height };
+    const auto = shouldAutoRefit(group);
     setWithParentOrder((st) => {
-      const child = {
-        ...node, parentId: groupId, extent: 'parent' as const,
-        position: { x: node.position.x - gp.x, y: node.position.y - gp.y },
-      };
+      if (!auto) {
+        // 分支 B（v5）：不 refit 组——组框一字不改；新子 rel=abs−组原点，过 clampChildIntoGroup
+        const clamped = clampChildIntoGroup(
+          { x: absX - gp.x, y: absY - gp.y }, childSize,
+          { width: group.width, height: group.height },
+        );
+        return {
+          nodes: st.nodes.map((n) =>
+            n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: clamped } : n),
+        };
+      }
+      // 分支 A：守恒 refit（既有成员绝对不变——F33 根修；与 addToGroup 同款）
       const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-      const bounds = calcGroupBounds(siblings.map((n) => ({
-        x: (n.id === nodeId ? child.position.x : n.position.x) + gp.x,
-        y: (n.id === nodeId ? child.position.y : n.position.y) + gp.y,
-        width: n.width ?? 280, height: n.height ?? 120,
-      })));
+      const { frame, rels } = refitGroupGeometry(
+        siblings.map((n) => ({
+          x: n.id === nodeId ? absX : n.position.x + gp.x,
+          y: n.id === nodeId ? absY : n.position.y + gp.y,
+          width: n.width ?? DEFAULT_CHILD_SIZE.width,       // v6 纪律三：无 measured
+          height: n.height ?? DEFAULT_CHILD_SIZE.height,
+        })),
+      );
       return {
         nodes: st.nodes.map((n) => {
-          if (n.id === nodeId) return child;
-          if (n.id === groupId) return { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height };
-          return n;
+          if (n.id === nodeId) return { ...n, parentId: groupId, extent: 'parent' as const, position: rels[siblings.findIndex((sm) => sm.id === nodeId)] };
+          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
+          const i = siblings.findIndex((sm) => sm.id === n.id);
+          return i === -1 ? n : { ...n, position: rels[i] };   // 既有成员 rel 补偿——绝对坐标不变（F33）
         }),
       };
     });
+    if (oldParent && node.parentId !== groupId && oldParent.type === 'group') {
+      // 源组善后（同 addToGroup——ungroup 对空组安全；仍有子 → 收缩）
+      if (!get().nodes.some((c) => c.parentId === oldParent.id)) get().ungroup(oldParent.id);
+      else get().applyGroupFrame(oldParent.id);
+    }
     get().applyGroupDerivations();
   },
 
@@ -1219,8 +1288,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         nameCustom: undefined, storyboard: undefined, cells: undefined,
         savedSize: undefined, manuallyResized: undefined, collapsed: undefined,
       });
-      // 组框重算
-      get().refitGroupBounds(groupId);
+      // 组框重算（守恒——rel 随 frame 补偿，子绝对不变）
+      get().applyGroupFrame(groupId);
     }
     get().applyGroupDerivations();
   },
@@ -1268,34 +1337,62 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (g && !(g.data as any).collapsed) {
       const d = g.data as any;
       if (d.manuallyResized && d.savedSize) {
-        // 手动 resize 过的组：展开恢复用户尺寸，不按子节点重算
-        set((st) => ({
-          nodes: st.nodes.map((n) => (n.id === groupId
-            ? { ...n, width: d.savedSize.width, height: d.savedSize.height }
-            : n)),
-        }));
+        // ① 手动 resize 过的 normal 组：展开恢复用户尺寸（savedSize 仅服务此档），不按子节点重算
+        get().applyGroupFrameRect(groupId, { x: g.position.x, y: g.position.y, width: d.savedSize.width, height: d.savedSize.height });
+      } else if (d.groupType === 'storyboard') {
+        // ② 分镜组：配置是分镜框真理（v6 裁决——不用 savedSize：折叠期间配置被远端改动时按配置展开）
+        const cfg = resolveStoryboardConfig(d);
+        const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+        get().applyGroupFrameRect(groupId, { x: g.position.x, y: g.position.y, width: size.width, height: size.height });
       } else {
-        get().refitGroupBounds(groupId);
+        // ③ 其余（含 manuallyResized 无 savedSize 堵洞档）：守恒展开——展开前子 rel 未动，
+        //    calcGroupBounds(childrenAbs) 即恢复 frame（彻底不依赖 shouldAutoRefit 时点）
+        const children = get().nodes.filter((n) => n.parentId === groupId);
+        if (children.length > 0) {   // 空组不重算（对齐旧重算入口现状早退——calcGroupBounds 空集=Infinity）
+          get().applyGroupFrameRect(groupId, calcGroupBounds(children.map((n) => ({
+            x: n.position.x + g.position.x, y: n.position.y + g.position.y,
+            width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
+          }))));
+        }
       }
     }
     get().applyGroupDerivations();
   },
 
-  refitGroupBounds: (groupId) => {
+  /** 组几何唯一写者（§4.8 v11）——重算型入口。守卫：分镜组走配置型出口；shouldAutoRefit=false
+   *  （折叠/手动）no-op。epsilon：|Δ|<1e-6 不写（RF 小数坐标 1ULP 抖动防桥乒乓）。 */
+  applyGroupFrame: (groupId) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
-    if (!group) return;
-    const gp = group.position;
+    if (!group || !shouldAutoRefit(group)) return;
     const children = s.nodes.filter((n) => n.parentId === groupId);
     if (children.length === 0) return;
-    const bounds = calcGroupBounds(children.map((n) => ({
-      x: n.position.x + gp.x, y: n.position.y + gp.y,
-      width: n.width ?? 280, height: n.height ?? 120,
-    })));
+    const { frame, rels } = refitGroupGeometry(
+      children.map((n) => ({
+        x: n.position.x + group.position.x, y: n.position.y + group.position.y,
+        width: n.width ?? DEFAULT_CHILD_SIZE.width,      // v6 纪律三：无 measured——与 normalizeLoadedCanvas/assertInvariant 一字不差同源
+        height: n.height ?? DEFAULT_CHILD_SIZE.height,
+      })),
+    );
+    const EPS = 1e-6;
+    const moved = Math.abs(group.position.x - frame.x) > EPS || Math.abs(group.position.y - frame.y) > EPS
+      || Math.abs((group.width ?? 0) - frame.width) > EPS || Math.abs((group.height ?? 0) - frame.height) > EPS;
+    if (!moved && children.every((c, i) => Math.abs(c.position.x - rels[i].x) <= EPS && Math.abs(c.position.y - rels[i].y) <= EPS)) return;
     set((st) => ({
-      nodes: st.nodes.map((n) => n.id === groupId
-        ? { ...n, position: { x: bounds.x, y: bounds.y }, width: bounds.width, height: bounds.height }
-        : n),
+      nodes: st.nodes.map((n) => {
+        if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
+        const i = children.findIndex((c) => c.id === n.id);
+        return i === -1 ? n : { ...n, position: rels[i] };
+      }),
+    }));
+  },
+
+  /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。
+   *  提前落（Task 18 2c toggleCollapse 三分派首消费者）；Task 20 配置型四处收口将复用同款。 */
+  applyGroupFrameRect: (groupId, frame) => {
+    set((st) => ({
+      nodes: st.nodes.map((n) =>
+        n.id === groupId ? { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height } : n),
     }));
   },
 

@@ -111,15 +111,18 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     expect(img).toBeDefined();   // 子节点未被删除（守卫跳过网格重排，节点保持）
   });
 
-  it('convertGroup(g1, normal)：有 cells 时子节点按 resolver 提供的网格重排（守 resolver 输出口径，v5 判别力修正）', () => {
+  it('convertGroup(g1, normal)：有 cells 时子节点按 resolver 提供的网格重排（守 resolver 输出口径，v5 判别力修正；Task 18 守恒 refit——行列计算钉在绝对坐标）', () => {
     // v5：img1 放第二槽——idx=0 时 col 恒 0、x 恒 0，原 isFinite(x) 断言恒真零判别力；
     // idx=1 + resolver 默认 gridCols=1 → row=1 → y = 1*(Math.round(320/(16/9)) + CONVERT_GAP) = 1*(180+40) = 220。
     // 两向判别力：gridCols 误算为 2 → row=0 → y=0 红；cfg 未接 resolver（undefined）→ TypeError 红。
+    // Task 18：convertGroup 后守恒 refit，rel 归位 padding——网格行计算改钉绝对坐标（rel+组原点，守恒不变）。
     useCanvasStore.setState({ nodes: [cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} }] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img).toBeDefined();
-    expect(img.position.y).toBe(220);   // 钉住 gridCols/行列计算参与（v5——原 isFinite(x) 恒真）
+    const g1 = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+    expect(img.position.y + g1.position.y).toBe(220);   // 钉住 gridCols/行列计算参与（绝对坐标口径）
+    expect(img.position.y).toBeGreaterThanOrEqual(50);  // rel ≥ padding（不变量）
   });
 
   it('updateStoryboardConfig：组宽高有限 + 写进 doc 的 aspectRatio ∈ 枚举 + gridRows 整数（NaN 面⑥全维）', () => {
@@ -176,7 +179,9 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img.width).toBe(320);
-    expect(img.position.y).toBe(220); // v5：第二槽行列计算同款（组内相对坐标——convertGroup 后组仍在不加 gp）
+    // Task 18 守恒 refit 后 rel 归位 padding——第二槽行列计算改钉绝对坐标（rel+组原点）
+    const g1 = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+    expect(img.position.y + g1.position.y).toBe(220);
   });
 
   it('dropImageIntoStoryboard：无 storyboard 不抛（消费点④）', () => {

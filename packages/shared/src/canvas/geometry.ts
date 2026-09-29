@@ -128,8 +128,9 @@ export function refitGroupGeometry(
   return { frame, rels };
 }
 
-/** 契约 2 scope 门禁：组框 ≡ bbox+padding 仅适用于 normal && !collapsed && !manuallyResized */
-export function shouldAutoRefit(group: { type: string; data?: Record<string, unknown> }): boolean {
+/** 契约 2 scope 门禁：组框 ≡ bbox+padding 仅适用于 normal && !collapsed && !manuallyResized。
+ *  type 可选（RF Node.type?: string）——谓词内部判 type，非 group 节点恒 false。 */
+export function shouldAutoRefit(group: { type?: string; data?: Record<string, unknown> }): boolean {
   const d = (group.data ?? {}) as Record<string, unknown>;
   return group.type === 'group' && d.groupType !== 'storyboard' && !d.collapsed && !d.manuallyResized;
 }

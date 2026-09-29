@@ -326,7 +326,7 @@ export function refitExpandedGroups() {
     (n) => n.type === 'group' && (n.data as any).groupType === 'normal'
       && !(n.data as any).collapsed && !(n.data as any).manuallyResized,
   )) {
-    useCanvasStore.getState().refitGroupBounds(g.id);
+    useCanvasStore.getState().applyGroupFrame(g.id);   // 守卫内建——分镜/折叠/手动 no-op；epsilon 防桥乒乓
   }
 }
 
