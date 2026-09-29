@@ -537,6 +537,17 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       expect(repo.append).toHaveBeenCalledTimes(1);   // 行已落库
     });
 
+    it('绿6b：flush 失败吞错契约——append reject 时 onDisconnect 仍 resolve（stash 兜底不抛）', async () => {
+      const { onLoadDocument, onDisconnect } = extractHooks();
+      const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      doc.getMap('nodes').set('x', 1);
+      repo.append.mockRejectedValueOnce(new Error('db down'));
+      // 吞错契约显式断言（进程守门）：onDisconnect 是 onClose 的不-await 回调，抛错 = unhandled rejection = 进程退出
+      await expect(onDisconnect({ document: doc, documentName: 'project:p1' })).resolves.toBeUndefined();
+      expect((gateway as any).unflushed.get('p1')).toBeTruthy();   // 兜底生效：pending 已转移 stash
+    });
+
     it('绿7：tripwire 双向——未注册 doc 的 store / update 事件都 ERROR 且不静默', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const errSpy = vi.spyOn((gateway as any).logger, 'error').mockImplementation(() => {});
@@ -623,7 +634,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);   // 折叠 + drain 合并 = 单行
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).toHaveBeenCalledTimes(1);   // 无积压重复（断引用形态 = 每次 store 重复 append）
+      expect(repo.append).toHaveBeenCalledTimes(1);   // 无积压重复（drain 后队列净空；身份违例形态由上方 toBe 钉死——突变实证：set 替换下本断言仍绿，勿靠它守身份）
       expectDurableEquivalent(doc);
     });
 
