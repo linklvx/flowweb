@@ -30,6 +30,7 @@ function buildDocState(): Buffer {
 describe('CollabGateway + CollabDocumentService（integration）', () => {
   let prisma: any;
   let repo: any;
+  let durableRows: Uint8Array[] = [];   // 持久化台账：只记真正 resolve 落库的 append 行（beforeEach 重置）
   let permSvc: { resolve: ReturnType<typeof vi.fn> };
   let gateway: CollabGateway;
   let service: CollabDocumentService;
@@ -54,8 +55,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         upsert: vi.fn(),
       },
     };
+    durableRows = [];
     repo = {
-      append: vi.fn().mockResolvedValue(undefined),
+      append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); }),   // 台账：once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
       loadUpdates: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
       compact: vi.fn().mockResolvedValue(null),
@@ -82,6 +84,39 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     const synced = new Promise<void>((resolve) => provider.on('synced', () => resolve()));
     return { ydoc, provider, synced };
   }
+
+    function extractHooks() {
+      return (gateway as any).hooks as {
+        onLoadDocument: (p: any) => Promise<any>;
+        onStoreDocument: (p: any) => Promise<boolean>;   // 类型与实现一致（绿8b 消费 boolean 返回值）
+        onDisconnect: (p: any) => Promise<void>;
+      };
+    }
+
+    /** canonical 规范化：经新 doc 再编码，消除 GC 历史差异（不变量 1 主判据；raw 字节等价仅辅助锚——
+     *  GC 历史差异可致伪红，比例随操作分布浮动，勿当定理；fuzz 实验记录见 spec 绿11：60 次试验 10 次伪红、canonical 0 次） */
+    const canonical = (d: Y.Doc) => {
+      const t = new Y.Doc();
+      Y.applyUpdate(t, Y.encodeStateAsUpdate(d));
+      return Buffer.from(Y.encodeStateAsUpdate(t));
+    };
+    const bufEq = (a: Uint8Array | Buffer, b: Uint8Array | Buffer) => Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0;
+    const replayOf = (rows: Uint8Array[]) => {
+      const d = new Y.Doc();
+      for (const u of rows) Y.applyUpdate(d, u);
+      return d;
+    };
+    /** 已落库的 append 行（台账快照）——失败注入用例里被 reject 的批不得算作持久化状态（Step 1a 台账保证） */
+    const appendedRows = (): Uint8Array[] => durableRows.slice();
+    /** 持久化等价断言（唯一入口）：前置——pending 必须已 drain（否则"等价"无意义）；重放成功行 ≡ 内存 doc（canonical + 语义双判据） */
+    const expectDurableEquivalent = (doc: Y.Doc) => {
+      expect((gateway as any).pendingUpdates.get(doc) ?? []).toHaveLength(0);
+      const d = new Y.Doc();
+      for (const u of appendedRows()) Y.applyUpdate(d, u);
+      expect(bufEq(canonical(d), canonical(doc))).toBe(true);
+      expect(d.getMap('nodes').toJSON()).toEqual(doc.getMap('nodes').toJSON());
+      return d;
+    };
 
   it('① onAuthenticate：成员连接成功', async () => {
     const { synced } = connect('project:p1');
@@ -239,14 +274,6 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   }, 8000);
 
   describe('增量持久化（spec 2.2/2.3）', () => {
-    function extractHooks() {
-      return (gateway as any).hooks as {
-        onLoadDocument: (p: any) => Promise<any>;
-        onStoreDocument: (p: any) => Promise<void>;
-        onDisconnect: (p: any) => Promise<void>;
-      };
-    }
-
     it('onStoreDocument：diff append + lastPersistedSV 前进', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       // 先 load 初始化 persistedSVs（快照 null + 无增量）
@@ -296,6 +323,89 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       await onDisconnect({ document: doc, documentName: 'project:p1' });
       expect(repo.append).not.toHaveBeenCalled();
       expect(repo.compact).not.toHaveBeenCalled();
+    });
+
+    it('红1：纯删除 diff append——SV 不变不得当"无变化"跳过', async () => {
+      const { onLoadDocument, onStoreDocument } = extractHooks();
+      const doc = new Y.Doc();
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      doc.getMap('nodes').set('n1', new Y.Map());
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);   // 插入 append#1（新旧实现都成立）
+      const svBefore = Y.encodeStateVector(doc);
+      doc.getMap('nodes').delete('n1');
+      // 不变量 4：删除不产生新 struct、SV 字节不变（本次事故根因的反直觉事实）
+      expect(Buffer.from(Y.encodeStateVector(doc))).toEqual(Buffer.from(svBefore));
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(2);   // 红：现状 SV 判等挡住，恒 1
+      // 判别力锚两段：插入行真实被捕 + 删除真实生效（防"重放空 doc"恒真）
+      const rows = appendedRows();
+      expect(replayOf([rows[0]]).getMap('nodes').has('n1')).toBe(true);
+      expectDurableEquivalent(doc);
+      expect(replayOf(rows).getMap('nodes').has('n1')).toBe(false);
+    });
+
+    it('红2a：判据2 精复现——纯删除后无编辑，断连 flush 落库', async () => {
+      const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
+      const doc: any = new Y.Doc();
+      doc.getConnectionsCount = () => 0;
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      doc.getMap('nodes').set('n1', new Y.Map());
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });   // append#1 插入
+      doc.getMap('nodes').delete('n1');
+      await onDisconnect({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(2);   // 红：现状 flush 被 SV 判等挡住
+      expect((repo.append as any).mock.invocationCallOrder[0]).toBeLessThan((repo.compact as any).mock.invocationCallOrder[0]);  // flush 先于 compact
+      const rows = appendedRows();
+      expect(replayOf([rows[0]]).getMap('nodes').has('n1')).toBe(true);
+      expect(replayOf(rows).getMap('nodes').has('n1')).toBe(false);
+    });
+
+    it('红2b：删完断连后同 doc 再变更——重放等价（次数从序列推导，旧实现=1、新实现=3）', async () => {
+      const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
+      const doc: any = new Y.Doc();
+      doc.getConnectionsCount = () => 0;
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      doc.getMap('nodes').set('n1', new Y.Map());
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });   // #1 插入
+      doc.getMap('nodes').delete('n1');
+      await onDisconnect({ document: doc, documentName: 'project:p1' });       // #2 flush 删除（现状被挡）
+      doc.getMap('nodes').set('n2', new Y.Map());                              // 缓存复用后再写入
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });   // #3（现状 !lastSV 静默）
+      expectDurableEquivalent(doc);                    // 主判据
+      expect(repo.append).toHaveBeenCalledTimes(3);     // 辅助断言：新实现序列 =3
+      expect(replayOf(appendedRows()).getMap('nodes').has('n1')).toBe(false);
+      expect(replayOf(appendedRows()).getMap('nodes').has('n2')).toBe(true);
+    });
+
+    it('红3：117 直测——flush 删 SV 后同 doc 写入不得静默丢', async () => {
+      const { onLoadDocument, onDisconnect, onStoreDocument } = extractHooks();
+      const doc: any = new Y.Doc();
+      doc.getConnectionsCount = () => 0;
+      await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      doc.getMap('nodes').set('u1', new Y.Map());
+      await onDisconnect({ document: doc, documentName: 'project:p1' });   // #1 flush（现状 append 成功 + finally 删 SV）
+      doc.getMap('nodes').set('u2', new Y.Map());
+      await onStoreDocument({ document: doc, documentName: 'project:p1' }); // 红：现状 !lastSV 静默 return，恒 1
+      expect(repo.append).toHaveBeenCalledTimes(2);
+      expectDurableEquivalent(doc);
+    });
+
+    it('红4：加载窗口（loadUpdates await 挂起期）的真实写入必须进 pending 并落库【白盒防御性构造——生产不可达（loadingDocuments 门控 + redis 在 afterLoadDocument 才订阅），价值是防未来重构退化，勿去浏览器复现】', async () => {
+      const { onLoadDocument, onStoreDocument } = extractHooks();
+      let release!: () => void;
+      repo.loadUpdates.mockImplementationOnce(() => new Promise<Buffer[]>((resolve) => { release = () => resolve([]); }));
+      const doc = new Y.Doc();
+      const loading = onLoadDocument({ document: doc, documentName: 'project:p1' });
+      await new Promise((r) => setImmediate(r));          // 让 loadDocument 跑到 await loadUpdates
+      doc.getMap('nodes').set('win1', new Y.Map());       // 加载窗口内写入（模板导入/AI 影子节点场景）
+      release();
+      await loading;
+      const pending = (gateway as any).pendingUpdates.get(doc) as Uint8Array[];
+      expect(pending).toHaveLength(1);                    // 红：现状无监听器概念，pending undefined
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);
+      expect(replayOf(appendedRows()).getMap('nodes').has('win1')).toBe(true);
     });
   });
 });
