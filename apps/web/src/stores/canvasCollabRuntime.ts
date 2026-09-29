@@ -249,6 +249,9 @@ export async function initCollab(projectId: string): Promise<void> {
 
   // 离线廉价兜底：超时未 synced——不置 connected、不 apply 空 doc、不抬 hydrate 门（保持不可编辑），UI 层提示重试
   if (!synced) {
+    // 廉价兜底（用户拍板）：超时=服务端不可用——销毁连接防"晚重连蒙层消失但 store 未水合"
+    // 的脏编辑窗口（编辑仅存 store 刷新即丢）；蒙层引导刷新重走 initCollab
+    await destroyCollab();
     useCanvasStore.setState({ connStatus: 'offline' });
     return;
   }
