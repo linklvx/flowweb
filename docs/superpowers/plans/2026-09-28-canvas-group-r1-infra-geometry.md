@@ -1948,7 +1948,7 @@ canvasCollabRuntime.ts applyDocToStore 的 readCanvasFromDoc 之后：
 （hydrateNodes 与 content 构造改吃 seeded。**S1（v5 修正两处）——hydrate 收尾显式回写一次**：
 ① **origin 必须是新 Origin.Geometry（`'geometry-repair'`）而非 LocalUser**——canvasUndo.ts:16 trackedOrigins=Set([LocalUser])，用 LocalUser 会把几何归位写进撤销栈（Ctrl+Z 撤销的是修复不是用户编辑、captureTimeout 500 还会与相邻编辑合并、啃 STACK_LIMIT=100）。canvasUndo.ts 补 `Origin.Geometry = 'geometry-repair'`（不入 trackedOrigins——与 Origin.AutoEdge 同款模式）；onRemote 的 fromLocal 判定扩为 `[Origin.LocalUser, Origin.Geometry].includes(origin)`（Geometry 事务不触发全量重建的短路，与 AutoEdge 同位）。
 ② **收益论证挂对对象**：normalizeLoadedCanvas 有"缺几何才动"早退（每次 apply 只补一次）；加载期真正每轮都跑的几何维护者是 refitExpandedGroups()（canvasCollabRuntime :197 无条件重算全部 normal 展开组）——"doc 里长期躺违反不变量的 frame"靠 refit+S1 回写修复，不是 normalizeLoadedCanvas。
-判据：initCollab/onRemote 的 applyDocToStore 调用后比较 pickStruct 投影前后——**引用同一性**（refit 无变化时 store 返回同引用/投影深等）即跳过；有 diff 则 `syncStoreToDoc(doc, Origin.Geometry)`。）
+判据：initCollab/onRemote 的 applyDocToStore 调用后比较 pickStruct 投影前后——**引用同一性**（refit 无变化时 store 返回同引用/投影深等）即跳过；有 diff 则 `syncStoreToDoc(doc, Origin.Geometry)`。**回写须在 `useNodeStore.setState`（ns 刷新）之后**——投影对普通节点 data 是 ns 优先，先回写会把陈旧 ns data 盖回 doc（C1 数据丢失向量；Task 17 审查修复）。（测试要求：C1 回归/Geometry 不入撤销栈/S1 回写可见三用例））
 
 web types/group.ts F30：已随 Task 16 2c 落地（GroupNodeData 交叉定义在那边）——本 task 零改动，登记引用。
 
@@ -1959,7 +1959,7 @@ storyboard-dereref-guard.test.ts：根表达式从 `path.resolve(process.cwd(), 
 - [ ] **Step 5: 跑测试 + 重建 dist + commit**
 
 ```bash
-pnpm --filter @flowweb/shared test -- --run && pnpm --filter @flowweb/shared build \
+pnpm --filter @flowweb/shared test -- --run && pnpm --filter @flowweb/shared run typecheck && pnpm --filter @flowweb/shared build \
   && pnpm --filter @flowweb/web test -- --run src/utils/ src/stores/ && pnpm --filter @flowweb/web exec tsc --noEmit
 ```
 

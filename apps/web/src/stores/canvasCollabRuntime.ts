@@ -192,10 +192,13 @@ export function applyDocToStore(d: Y.Doc) {
   const before = pickStructNodes(useCanvasStore.getState().nodes);
   useCanvasStore.getState().applyGroupDerivations();
   refitExpandedGroups();
+  // C1（Task 17 审查）：ns 刷新必须在 S1 回写之前——storeProjection→projectCanvasNodes 对普通节点
+  // data 是 ns 优先，回写时 ns 还是旧值会把协作者刚提交的编辑从 doc 回退（doc=旧/本端=新的分裂脑）。
+  // pickStructNodes 只读 cs.nodes，重排对 diff 语义零影响。
+  useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
   if (!isEqual(before, pickStructNodes(useCanvasStore.getState().nodes))) {
     syncStoreToDoc(d, Origin.Geometry);
   }
-  useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
 }
 
 /** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */
@@ -219,6 +222,9 @@ function bindBridge(): () => void {
   });
   return () => { unsubCs(); unsubNs(); };
 }
+
+/** onRemote fromLocal 判定用（M4：每事件字面量数组分配的模块级提升） */
+const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
 /**
  * 初始化协作连接（v11 方案 C：无本地 seed 无 reconcile——崩溃兜底=服务端 doc 持久化（onDisconnect flush））。
@@ -280,7 +286,7 @@ export async function initCollab(projectId: string): Promise<void> {
 
   const onRemote = (events: any[]) => {
     // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
-    if (events.some((e) => [Origin.LocalUser, Origin.Geometry].includes(e.transaction.origin))) return;
+    if (events.some((e) => LOCAL_ORIGINS.includes(e.transaction.origin))) return;
     if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边对账事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
     if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);

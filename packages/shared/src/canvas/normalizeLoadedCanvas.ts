@@ -15,6 +15,8 @@ export function normalizeLoadedCanvas(records: CanvasNodeRecord[]): CanvasNodeRe
   for (const n of records) {
     if (n.type !== 'group' || (n.width != null && n.height != null)) continue;
     const d = n.data as Record<string, unknown>;
+    // 守卫顺序 WHY（M2）：storyboard 先于 collapsed——storyboard 组无折叠态（deriveHidden 恒隐藏+toolbar
+    // 无折叠入口），collapsed 落在 storyboard data 上是不可达脏数据，恢复配置全尺寸优先
     if (d.groupType === 'storyboard') {
       // v5：缺 storyboard 键按 calcDefaultGrid(cells.length) 派生 grid——与建组方同语义（1×1 回落会给同一数据两种尺寸）。
       // 注：calcDefaultGrid 返回 {rows, cols}，须显式映射到 cfg 的 gridRows/gridCols（直展开不覆盖，恒 1×1）
@@ -26,8 +28,11 @@ export function normalizeLoadedCanvas(records: CanvasNodeRecord[]): CanvasNodeRe
       patch.set(n.id, { width: size.width, height: size.height });
       continue;
     }
-    // v5 C3：manuallyResized 需同时有 savedSize 才用用户尺寸——无 savedSize 的标志（不可达但堵洞）落到下方派生
-    if (d.manuallyResized && d.savedSize && typeof d.savedSize === 'object') {
+    // v5 C3：manuallyResized 需同时有 savedSize 才用用户尺寸——无 savedSize 的标志（不可达但堵洞）落到下方派生。
+    // M1 补全半防：数组与 {width:undefined} 形态不放行（数组 typeof 也是 'object'）
+    if (d.manuallyResized && d.savedSize && typeof d.savedSize === 'object'
+      && !Array.isArray(d.savedSize)
+      && typeof (d.savedSize as any).width === 'number' && typeof (d.savedSize as any).height === 'number') {
       const s = d.savedSize as { width: number; height: number };
       patch.set(n.id, { width: s.width, height: s.height });
       continue;

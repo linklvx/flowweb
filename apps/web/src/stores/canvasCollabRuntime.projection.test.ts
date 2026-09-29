@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { syncStoreToDoc } from './canvasCollabRuntime';
-import { Origin } from './canvasUndo';
+import { syncStoreToDoc, applyDocToStore } from './canvasCollabRuntime';
+import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 import { fillDoc } from '@/collab/ydocBuilder';
+import { calcGroupBounds } from '@flowweb/shared';
 
 // storyboardGroupFixture：按 cs 的 Node 形状构造 storyboard 组节点（data 含 groupType/storyboard 配置）
 
@@ -42,5 +43,52 @@ describe('W7 红转绿门槛（几何进 doc 靠投影——删 W7 不丢链路�
     syncStoreToDoc(d, Origin.LocalUser);
     expect((d.getMap('nodes').get('t1') as any).get('width')).toBe(500);
     expect((d.getMap('nodes').get('t1') as any).get('height')).toBe(400);
+  });
+});
+
+// S1 装置：doc 里 g1 存量几何违反不变量（10×10 框 100×60 子）——normalizeLoadedCanvas 有几何早退，
+// refitExpandedGroups 重算 frame → S1 diff 非空（回写触发器）。
+// 注：夹具刻意不用"缺几何组"——守恒归位后 refit 与 normalizeLoadedCanvas 同一部法律，幂等同值 →
+// diff 恒空、S1 永不触发；可触发的 repair 向量正是"违反不变量的存量 frame"（plan Task 17 Step 3 ②）。
+const S1_DOC = () => {
+  useCanvasStore.setState({ nodes: [], edges: [] });
+  useNodeStore.setState({ nodes: {} as any });
+  const d = new Y.Doc();
+  fillDoc(d, [
+    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 10, height: 10, data: { groupType: 'normal' } },
+    { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
+    { id: 'n1', type: 'textInput', position: { x: 50, y: 50 }, width: 100, height: 40, data: { fileId: 'new' } },
+  ] as any, []);
+  return d;
+};
+
+describe('S1 hydrate 收尾回写（Task 17 审查——applyDocToStore 直驱）', () => {
+  afterEach(() => detachUndoManager());
+
+  it('C1 回归：S1 回写须发生在 ns 刷新之后——陈旧 ns data 不得经投影回写覆盖协作者已提交的编辑', () => {
+    const d = S1_DOC();
+    // ns 预置陈旧 data：doc 里 fileId 已是协作者刚提交的 'new'，本端 ns 镜像还停在 'old'
+    useNodeStore.setState({ nodes: { n1: { id: 'n1', type: 'textInput', data: { fileId: 'old' } } } as any });
+    applyDocToStore(d);
+    const m = d.getMap('nodes').get('n1') as any;
+    expect(m.get('data').get('fileId')).toBe('new');
+    // 修复前红相：S1 在 ns 刷新前回写，projectCanvasNodes 普通节点 ns 优先 → doc fileId 被 'old' 覆盖（分裂脑）
+  });
+
+  it('Geometry 事务不入撤销栈（S1 回写 origin 不在 trackedOrigins——撤销的是修复不是用户编辑）', () => {
+    const d = S1_DOC();
+    const um = attachUndoManager(d);
+    applyDocToStore(d);   // 带 S1 diff（g1 refit 改框）→ syncStoreToDoc(d, Origin.Geometry)
+    expect(um.undoStack.length).toBe(0);
+  });
+
+  it('S1 有 diff 时回写发生：doc 违反不变量的组框经 refit 修复写回（回写可见）', () => {
+    const d = S1_DOC();
+    // 期望 = calcGroupBounds(子绝对 rect)——纯函数期望，非手算（Task 17 四法律同款）
+    const expectFrame = calcGroupBounds([{ x: 0, y: 0, width: 100, height: 60 }]);
+    applyDocToStore(d);
+    const m = d.getMap('nodes').get('g1') as any;
+    expect(m.get('width')).toBe(expectFrame.width);    // 非 10、非 undefined
+    expect(m.get('height')).toBe(expectFrame.height);
   });
 });
