@@ -10,13 +10,12 @@ import { pickStructNodes, pickStructEdges } from './canvasHistory';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
-import type { CanvasNodeRecord } from '@flowweb/shared';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
-import { loadSnapshot, isEmptySnapshot } from '@/pages/canvas/hooks/canvasSnapshot';
 import { isAutoEdgeId } from './autoEdgeIds';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
+import { readViewport } from '@/utils/viewportPersistence';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -216,21 +215,15 @@ function bindBridge(): () => void {
 }
 
 /**
- * 初始化协作连接（D2：localStorage 崩溃快照先 apply 到本地 doc，再连 Hocuspocus 走标准 sync 合并）。
+ * 初始化协作连接（v11 方案 C：无本地 seed 无 reconcile——崩溃兜底=服务端 doc 持久化（onDisconnect flush））。
  * synced 后 server doc 应用到 store（初始加载路径，替代 GET /projects/:id 的 nodes/edges）。
+ * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
 export async function initCollab(projectId: string): Promise<void> {
   await destroyCollab();
   currentPid = projectId;
   doc = new Y.Doc();
   attachUndoManager(doc);
-
-  const snap = loadSnapshot(projectId);
-  if (snap && !isEmptySnapshot(snap)) {
-    // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5
-    // 断言说明：AppNode.data（NodeData interface）无隐式索引签名，不结构兼容 CanvasNodeRecord.data——快照经 isValidPayload 校验，运行时安全
-    fillDoc(doc, Object.values(snap.nodes) as unknown as CanvasNodeRecord[], snap.edges ?? []);
-  }
 
   provider = new HocuspocusProvider({
     url: collabUrl(),
@@ -246,11 +239,23 @@ export async function initCollab(projectId: string): Promise<void> {
     });
   });
 
+  // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络
+  let synced = false;
   await new Promise<void>((resolve) => {
-    provider!.on('synced', () => resolve());
+    provider!.on('synced', () => { synced = true; resolve(); });
     setTimeout(resolve, 10000);
   });
   if (currentPid !== projectId) return;
+
+  // 离线廉价兜底：超时未 synced——不置 connected、不 apply 空 doc、不抬 hydrate 门（保持不可编辑），UI 层提示重试
+  if (!synced) {
+    useCanvasStore.setState({ connStatus: 'offline' });
+    return;
+  }
+
+  // viewport 恢复（本地偏好非协作数据——契约 5）：放 hydrate 门之前，恢复不算编辑
+  const vp = readViewport(projectId);
+  if (vp) useCanvasStore.setState({ viewport: vp });
 
   useCanvasStore.setState({ connStatus: 'connected' });
   useCanvasStore.getState().setHydrating(true);

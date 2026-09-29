@@ -76,6 +76,10 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // R1b 方案 C 承重墙：pm2 restart 的 SIGINT 触发 collab.gateway onApplicationShutdown → server.destroy()
+  // flush 内存 doc（服务端是唯一持久化层）——不开此行生命周期钩子不执行，重启即丢未落库 doc
+  app.enableShutdownHooks();
+
   // nestIntegration() in Sentry.init() handles exception capture automatically
   // No separate SentryGlobalFilter required in @sentry/nestjs v10.x
 

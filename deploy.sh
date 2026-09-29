@@ -40,7 +40,8 @@ deploy_full() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/web && npx vite build"
 
   echo "=== 重启后端 ==="
-  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api"
+  # kill_timeout 10000——enableShutdownHooks 后 server.destroy() 逐 doc flush 多次 DB 往返，超 pm2 默认 1600ms 即 SIGKILL 拆承重墙
+  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 10000"
 }
 
 deploy_web() {
@@ -72,7 +73,8 @@ deploy_api() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && rm -rf dist && npx nest build"
 
   echo "=== 重启后端 ==="
-  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api"
+  # kill_timeout 10000——enableShutdownHooks 后 server.destroy() 逐 doc flush 多次 DB 往返，超 pm2 默认 1600ms 即 SIGKILL 拆承重墙
+  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 10000"
 }
 
 case "$MODE" in

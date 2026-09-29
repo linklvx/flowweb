@@ -17,9 +17,7 @@ import { VideoEditorShell } from './video-editor/components/VideoEditorShell';
 import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
-import { useCanvasPersistence } from './hooks/useCanvasPersistence';
-import { loadSnapshot, isEmptySnapshot } from './hooks/canvasSnapshot';
-import { hydrateNodes } from '@/utils/nodeOrder';
+import { bindViewportPersistence } from '@/utils/viewportPersistence';
 import { ensureExecutionSocket, teardownExecutionSocket } from '@/services/executionSocket';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -27,7 +25,6 @@ import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
-import { refitExpandedGroups } from '@/stores/canvasCollabRuntime';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -59,8 +56,8 @@ async function loadProjectIntoStore(
   // 画布团队上下文（顶栏积分/上传/素材库消费）
   useCanvasStore.getState().setTeamId(project.teamId ?? null);
 
-  // Task14：画布内容改经 server doc 加载（synced 后 applyDocToStore；
-  // 本地崩溃快照在连接前 apply 到本地 doc，标准 sync 自动合并——D2）
+  // Task14→v11 方案 C：画布内容唯一来源=server doc（synced 后 applyDocToStore）；
+  // 崩溃兜底=服务端持久化（onDisconnect flush），本地无快照无 seed
   await initCollab(projectId);
   if (isCancelled?.()) return project.name || '未命名项目';
   return project.name || '未命名项目';
@@ -207,7 +204,13 @@ export function CanvasPage() {
 
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
-  useCanvasPersistence(projectId);
+  const connStatus = useCanvasStore((s) => s.connStatus);
+
+  // viewport 本地偏好持久化（projectId null 守卫防写错 key，返回 unbind 即 cleanup）
+  useEffect(() => {
+    if (!projectId) return;
+    return bindViewportPersistence(projectId);
+  }, [projectId]);
 
   // /execution socket 单例生命周期挂画布 page（mount ensure / unmount teardown；节点组件只 subscribe 不建连）
   useEffect(() => {
@@ -319,6 +322,24 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
             <div className="flex flex-col items-center gap-2 text-text">
               <Spin />
               <span>画布加载中</span>
+            </div>
+          </div>
+        )}
+        {connStatus === 'offline' && (
+          <div
+            data-testid="offline-overlay"
+            role="alert"
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/50"
+          >
+            <div className="flex flex-col items-center gap-3 text-text">
+              <span>未同步，点击重试</span>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
+              >
+                重试
+              </button>
             </div>
           </div>
         )}

@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-20T13:39:07.606Z",
+  "generatedAt": "2026-09-29T00:33:07.626Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -17,6 +17,7 @@
    "files": [
     "src/pages/canvas/components/AddNodeMenu.tsx",
     "src/pages/canvas/components/Angle3D/Angle3DModal.tsx",
+    "src/pages/canvas/components/CanvasReferenceSelectBanner.tsx",
     "src/pages/canvas/components/CanvasToolbar.tsx",
     "src/pages/canvas/components/CanvasTopBar.tsx",
     "src/pages/canvas/components/CanvasView.tsx",
@@ -33,6 +34,7 @@
     "src/pages/canvas/components/groups/StitchButton.tsx",
     "src/pages/canvas/components/groups/StoryboardCell.tsx",
     "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
+    "src/pages/canvas/components/HandleAddNodeMenu.tsx",
     "src/pages/canvas/components/KeyboardShortcutsPanel.tsx",
     "src/pages/canvas/components/Lighting/ControlPanel.tsx",
     "src/pages/canvas/components/Lighting/LightingModal.tsx",
@@ -63,7 +65,6 @@
     "src/pages/canvas/components/nodes/OutpaintSelectionOverlay.tsx",
     "src/pages/canvas/components/nodes/prompt-input/CommandMentionList.tsx",
     "src/pages/canvas/components/nodes/prompt-input/ImageMentionList.tsx",
-    "src/pages/canvas/components/nodes/prompt-input/ImageThumbnailBar.tsx",
     "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
     "src/pages/canvas/components/nodes/prompt-input/PromptInput.tsx",
     "src/pages/canvas/components/nodes/prompt-input/SortableImageItem.tsx",
@@ -83,9 +84,12 @@
     "src/pages/canvas/components/RemoteCursors.tsx",
     "src/pages/canvas/components/SaveAsTemplateDialog.tsx",
     "src/pages/canvas/components/SaveStatusIndicator.tsx",
+    "src/pages/canvas/components/style-library/StyleCard.tsx",
+    "src/pages/canvas/components/style-library/StyleDetailPreview.tsx",
+    "src/pages/canvas/components/style-library/StyleLibraryModal.tsx",
     "src/pages/canvas/page.tsx"
    ],
-   "totalFiles": 93,
+   "totalFiles": 100,
    "note": "D3 核销（Task 22/23/24 三批迁移+Task 25 收口）：逐文件裁定在 adjudications（D3board-*/D3-* 条），保留字面在 whitelistKeeps 精确条目 {glob,allow}"
   },
   "veDomain": {
@@ -149,8 +153,10 @@
    "files": [
     "src/pages/canvas/components/AddNodeMenu.test.tsx",
     "src/pages/canvas/components/Angle3D/AnglePresetButtons.test.tsx",
+    "src/pages/canvas/components/CanvasReferenceSelectBanner.test.tsx",
     "src/pages/canvas/components/CanvasToolbar.test.tsx",
     "src/pages/canvas/components/CanvasTopBar.test.tsx",
+    "src/pages/canvas/components/CanvasView.interaction-props.test.tsx",
     "src/pages/canvas/components/CanvasView.test.tsx",
     "src/pages/canvas/components/CanvasView.theme-perf.test.tsx",
     "src/pages/canvas/components/ConfirmModal.test.tsx",
@@ -163,6 +169,8 @@
     "src/pages/canvas/components/groups/SelectionBoxOverlay.test.tsx",
     "src/pages/canvas/components/groups/StitchButton.test.tsx",
     "src/pages/canvas/components/groups/StoryboardGroupRenderer.test.tsx",
+    "src/pages/canvas/components/HandleAddNodeMenu.test.tsx",
+    "src/pages/canvas/components/handleMenu.test.ts",
     "src/pages/canvas/components/KeyboardShortcutsPanel.test.tsx",
     "src/pages/canvas/components/Lighting/LightPresetButtons.test.tsx",
     "src/pages/canvas/components/Lighting/PromptInput.test.tsx",
@@ -173,6 +181,8 @@
     "src/pages/canvas/components/nodes/AudioConfigPanel.test.tsx",
     "src/pages/canvas/components/nodes/AudioGenNode.test.tsx",
     "src/pages/canvas/components/nodes/AudioWaveform.test.tsx",
+    "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.test.tsx",
+    "src/pages/canvas/components/nodes/config-panel/RunButton.test.tsx",
     "src/pages/canvas/components/nodes/CropOverlay.test.tsx",
     "src/pages/canvas/components/nodes/EditToolbar.test.tsx",
     "src/pages/canvas/components/nodes/EraseBottomToolbar.test.tsx",
@@ -208,13 +218,13 @@
     "src/pages/canvas/components/nodes/VideoTrimTimeline.test.tsx",
     "src/pages/canvas/components/nodeTypes.coverage.test.tsx",
     "src/pages/canvas/components/ProjectTitle.test.tsx",
+    "src/pages/canvas/components/referenceSelect.test.ts",
+    "src/pages/canvas/components/style-library/StyleLibraryModal.test.tsx",
+    "src/pages/canvas/components/style-library/styleThumbCache.test.ts",
+    "src/pages/canvas/components/style-library/useStyleLibrary.test.ts",
     "src/pages/canvas/components/__tests__/SaveAsTemplateDialog.test.tsx",
     "src/pages/canvas/engine/Angle3DEngine.test.ts",
     "src/pages/canvas/engine/LightingEngine.test.ts",
-    "src/pages/canvas/hooks/canvasSnapshot.test.ts",
-    "src/pages/canvas/hooks/useCanvasPersistence.test.ts",
-    "src/pages/canvas/hooks/__tests__/canvasSnapshot.test.ts",
-    "src/pages/canvas/hooks/__tests__/useCanvasPersistence.test.ts",
     "src/pages/canvas/page.test.tsx",
     "src/pages/canvas/video-editor/audio-engine/engine.test.ts",
     "src/pages/canvas/video-editor/audio-engine/gain.test.ts",
@@ -290,12 +300,12 @@
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 460,
+     "line": 604,
      "text": "background: enabled ? 'rgba(74,222,128,0.15)' : 'none',"
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 471,
+     "line": 615,
      "text": "background: 'none', border: 'none', color: disabled ? '#666' : '#fff',"
     },
     {
@@ -360,7 +370,7 @@
     },
     {
      "file": "src/pages/canvas/components/edges/ConnectionLine.tsx",
-     "line": 89,
+     "line": 91,
      "text": "stroke: selected ? '#f59e0b' : '#888',"
     },
     {
@@ -455,27 +465,27 @@
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 81,
+     "line": 82,
      "text": "background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: TOOLBAR.height,"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 82,
+     "line": 83,
      "text": "display: 'flex', alignItems: 'center', gap: 12, color: '#fff', fontSize: 13,"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 88,
+     "line": 89,
      "text": "style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: hasGroup ? '#666' : '#fff',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 96,
+     "line": 97,
      "text": "background: 'none', border: 'none', color: hasGroup ? '#666' : '#fff', cursor: hasGroup ? 'not-allowed' : 'pointer' }}>"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 102,
+     "line": 103,
      "text": "background: 'none', border: 'none', color: allImage ? '#fff' : '#666', cursor: allImage ? 'pointer' : 'not-allowed' }}>"
     },
     {
@@ -495,12 +505,12 @@
     },
     {
      "file": "src/pages/canvas/components/groups/StitchButton.tsx",
-     "line": 22,
+     "line": 23,
      "text": "color: disabled ? '#666' : '#fff',"
     },
     {
      "file": "src/pages/canvas/components/groups/StitchButton.tsx",
-     "line": 179,
+     "line": 178,
      "text": "color: running ? '#666' : '#fff',"
     },
     {
@@ -520,12 +530,12 @@
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx",
-     "line": 57,
+     "line": 58,
      "text": "<div style={{ position: 'absolute', top: 0, right: 0, transform: 'translateY(-100%)', color: '#999', fontSize: 12, paddi"
     },
     {
      "file": "src/pages/canvas/components/KeyboardShortcutsPanel.tsx",
-     "line": 259,
+     "line": 261,
      "text": "boxShadow: 'rgba(0, 0, 0, 0.25) 0px 4px 10px 0px, rgba(0, 0, 0, 0.3) 0px 2px 4px 0px',"
     },
     {
@@ -810,107 +820,107 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 74,
+     "line": 75,
      "text": "color: #6b7280;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 83,
+     "line": 84,
      "text": "scrollbar-color: #3F3F46 transparent;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 92,
+     "line": 93,
      "text": "background: #3F3F46;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 96,
+     "line": 97,
      "text": "background: #52525B;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 102,
+     "line": 103,
      "text": "scrollbar-color: #3F3F46 transparent;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 111,
+     "line": 112,
      "text": "background: #3F3F46;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 115,
+     "line": 116,
      "text": "background: #52525B;"
-    },
-    {
-     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 121,
-     "text": "background-color: #2563eb;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
      "line": 122,
+     "text": "background-color: #2563eb;"
+    },
+    {
+     "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
+     "line": 123,
      "text": "color: #fff;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 157,
+     "line": 159,
      "text": "background: rgba(0, 0, 0, 0.6);"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 161,
+     "line": 163,
      "text": "color: #fff;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 170,
+     "line": 172,
      "text": "background: rgba(239, 68, 68, 0.3);"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 185,
+     "line": 187,
      "text": "color: #fff;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 207,
+     "line": 209,
      "text": "color: #6b7280;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 212,
+     "line": 214,
      "text": "border-color: #52525B;"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 236,
+     "line": 238,
      "text": ".light .prompt-editor { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 237,
+     "line": 239,
      "text": ".light .prompt-editor::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 238,
+     "line": 240,
      "text": ".light .prompt-editor::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 239,
+     "line": 241,
      "text": ".light .scrollbar-dark { scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 240,
+     "line": 242,
      "text": ".light .scrollbar-dark::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/prompt-input/PromptInput.css",
-     "line": 241,
+     "line": 243,
      "text": ".light .scrollbar-dark::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.4); }"
     },
     {
@@ -1015,12 +1025,12 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoGenNode.tsx",
-     "line": 692,
+     "line": 693,
      "text": "<span className=\"shrink-0 ml-auto\" style={{ fontSize: 10, color: '#777' }}>"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoGenNode.tsx",
-     "line": 725,
+     "line": 726,
      "text": "? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }"
     },
     {
@@ -2765,12 +2775,21 @@
   },
   {
    "glob": "src/pages/canvas/components/style-library/StyleCard.tsx",
-   "allow": ["bg", "text", "border", "from", "ring"],
+   "allow": [
+    "bg",
+    "text",
+    "border",
+    "from",
+    "ring"
+   ],
    "why": "2026-09-26 风格库卡片：反白 CTA/恒定面族（当前使用 border-white+ring-white+白底黑字徽章+bg-black/50 压封面遮罩+hover 按钮 bg-black/65+封面渐变 from-black）——先例 TopActionBar 反白 CTA"
   },
   {
    "glob": "src/pages/canvas/components/style-library/StyleDetailPreview.tsx",
-   "allow": ["bg", "text"],
+   "allow": [
+    "bg",
+    "text"
+   ],
    "why": "2026-09-26 风格库详情：scrim bg-black/60 中性遮罩（BaseFullscreenModal:92 同族）+使用钮 bg-white/text-black 反白 CTA"
   }
  ]
