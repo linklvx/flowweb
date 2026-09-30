@@ -8,6 +8,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -32,6 +33,7 @@ describe('ExecutionService', () => {
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
       writeNodeData: vi.fn(),
+      writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
     topology = {
       getScope: vi.fn().mockReturnValue([
@@ -63,6 +65,13 @@ describe('ExecutionService', () => {
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
 
+    // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）——本文件只测产物序/余额口径
+    const intentSvc = {
+      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
+      complete: vi.fn().mockResolvedValue(1),
+      fail: vi.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExecutionService,
@@ -75,6 +84,7 @@ describe('ExecutionService', () => {
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
+        { provide: GenerationIntentService, useValue: intentSvc },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);
@@ -87,7 +97,7 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
-    expect(teamCredit.consume).toHaveBeenCalledWith('t1', 'default-user', 5, 'node:n2');
+    expect(teamCredit.consume).toHaveBeenCalledWith('t1', 'default-user', 5, 'node:n2', { intentRowId: 'intent-1', intentId: 'i-1' });
     // 预校验传项目所属团队 id（账本换源 TeamBalance）
     expect(validation.validateAll).toHaveBeenCalledWith(expect.any(Array), 't1', 'default-user');
   });

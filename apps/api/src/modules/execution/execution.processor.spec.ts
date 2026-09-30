@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionProcessor } from './execution.processor';
 import { ExecutionService } from './execution.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
+import { GenerationIntentService } from './generation-intent.service';
 import { Job } from 'bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -17,6 +19,9 @@ describe('ExecutionProcessor', () => {
       providers: [
         ExecutionProcessor,
         { provide: ExecutionService, useValue: execService },
+        // 批0.5-6 最小装置：failed 钩子依赖（writeExecStatus/fail）
+        { provide: CollabDocumentService, useValue: { writeExecStatus: vi.fn().mockResolvedValue(undefined) } },
+        { provide: GenerationIntentService, useValue: { claim: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -32,9 +37,11 @@ describe('ExecutionProcessor', () => {
 
     const result = await processor.process(job);
 
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined);
+    // 第6/7参：intentId（无则 undefined）+ jobId（批0.5-6——claim 同 job 可重入）
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, undefined, 'job-1');
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
+    expect(result).toEqual({ success: true, errors: [] });
   });
 
   it('should handle job without nodeId', async () => {
@@ -45,7 +52,7 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined);
+    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, undefined, 'job-2');
   });
 
   it('should decode job.data.sv base64 and pass to execute', async () => {

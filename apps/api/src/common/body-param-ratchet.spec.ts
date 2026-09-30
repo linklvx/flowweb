@@ -74,7 +74,7 @@ const INLINE_BASELINE = new Set<string>([
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string }',
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[] }',
-  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string }',
+  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; intentId?: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',
   'modules/execution/video-trim.controller.ts|body: { fileId: string; startTime: number; endTime: number; nodeId: string }',
   'modules/project/project.controller.ts|body: { name?: string; teamId?: string }',

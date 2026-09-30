@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import Redis from 'ioredis';
 import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
+import { GenerationIntentService } from './generation-intent.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
@@ -57,6 +58,7 @@ const env = validateEnv();
   controllers: [ExecutionController, VideoTrimController, VideoSeparateController],
   providers: [
     ExecutionService,
+    GenerationIntentService,
     TopologyService,
     ValidationService,
     ApiCallerService,

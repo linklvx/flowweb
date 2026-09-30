@@ -8,6 +8,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { GenerationIntentService } from './generation-intent.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ExecutionService with nodeIds（整组执行）', () => {
@@ -30,6 +31,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
       writeNodeData: vi.fn(),
+      writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
     topology = {
       getScope: vi.fn(),
@@ -59,6 +61,8 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
+        // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
+        { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);

@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
@@ -10,6 +11,9 @@ import { isExecutableNode } from './is-executable-node';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { GenerationIntentService } from './generation-intent.service';
+import { normalizeIntentParams } from './normalize-intent-params';
+import { BusinessException } from '../../common/exceptions/business.exception';
 
 @Injectable()
 export class ExecutionService {
@@ -25,6 +29,7 @@ export class ExecutionService {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
+    @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -32,7 +37,29 @@ export class ExecutionService {
     return bal ? { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits, total: bal.total } : undefined;
   }
 
-  async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array) {
+  /** 批0.5-6：意图 claim 前置（外呼之前）。kind/params = 各分支实读外呼参数——
+   *  normalizeIntentParams 白名单拾取（0.5-2），sv/nonce 不进哈希。
+   *  组执行 intentId 派生（裁定）：每节点独立 UUID——意图生命周期（attempts/reconcile/退款）按节点独立，
+   *  不做 ${intentId}:${nodeId} 派生；入参 intentId 仅落首个执行节点（单节点执行即目标节点），其余派新 UUID。 */
+  private claimForNode(
+    projectId: string, node: any, userId: string, intentId: string | undefined,
+    kind: string, params: Record<string, unknown>, jobId?: string,
+  ) {
+    return this.intentService.claim({
+      projectId, nodeId: node.id, userId, intentId: intentId ?? randomUUID(), kind,
+      paramsHash: normalizeIntentParams(kind, params), jobId,
+    });
+  }
+
+  /** 批0.5-6 扣费失败三连：意图置 FAILED（同 intentId 重试走 rearm 免费续跑——不 fail 则 RUNNING 行
+   *  让重试 NodeBusy 到 reconcile 回收，重试链路死坏）+ WS error + exec map error（best-effort）。 */
+  private async onCreditFail(projectId: string, node: any, intent: any, msg: string) {
+    await this.intentService.fail(intent.id, msg);
+    this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+    await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'error', error: msg }).catch(() => {});
+  }
+
+  async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array, intentId?: string, jobId?: string) {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
 
@@ -75,9 +102,13 @@ export class ExecutionService {
       const s = data?.styleId ? styleMap.get(data.styleId) : undefined;
       return s?.active ? s.promptText : '';
     };
+    let execIdx = 0; // 组执行 intentId 派生用：入参 intentId 仅落首个执行节点（claimForNode 注释裁定）
     for (const node of orderedNodes) {
       if (!isExecutableNode(node) && !(nodeId === node.id && String(node.id).startsWith('shadow-'))) continue; // 防剪辑/产物节点闪 loading 与误执行；__ephemeral 影子全局排除出白名单，但单 nodeId 直调（regenerate 唯一合法入口，影子 id 以 shadow- 开头）放行——nodeIds 批量模式 nodeId 为 undefined 不会误放行
+      const isFirstExec = execIdx === 0;
+      execIdx++;
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
+      let claimed: any = null; // 本节点已获执行权的意图行（catch 路径 fail 用——claim 未成功则不碰他人在飞行）
 
       try {
         // Collect upstream data (use full node list when nodeIds mode to allow reading from outside group)
@@ -88,11 +119,20 @@ export class ExecutionService {
 
         // Text nodes: call real text API (Kimi)
         if (node.type === 'textInput') {
-          const textResult = await this.apiCaller.callTextGen({
+          const textArgs = {
             prompt: prompt || 'Hello',
             model: data?.model || 'seed-model-kimi',
             apiUrl: '',
-          });
+          };
+          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'text', textArgs, jobId);
+          if (!created) {
+            // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
+            this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
+            continue;
+          }
+          claimed = intent;
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
+          const textResult = await this.apiCaller.callTextGen(textArgs);
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
           const rule = await this.prisma.pricingRule.findFirst({
@@ -100,12 +140,20 @@ export class ExecutionService {
           });
           const cost = rule?.creditCost ?? 0;
           if (cost > 0) {
-            const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`);
+            const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
             if (!deductResult.success) {
-              this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败' });
+              await this.onCreditFail(projectId, node, intent, '扣费失败');
               return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
             }
             totalDeducted += cost;
+          }
+
+          // F13 产物门序：complete count===1（意图仍有效）才写 doc。text 无 Media/URL 锚点——
+          // resultRef = 'text:'+产物摘要（观测用占位；产物完整性由 writeNodeData 落地本身保证）
+          const gated = await this.intentService.complete(intent.id, `text:${String(textResult.content).slice(0, 100)}`);
+          if (gated !== 1) {
+            this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+            continue;
           }
 
           // 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）
@@ -113,6 +161,7 @@ export class ExecutionService {
             content: data.content || prompt,
             result: textResult.content,
           });
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'done', jobId: jobId ?? null, intentId: intent.intentId });
 
           const bal = await this.teamCredit.getBalanceView(project.teamId, userId);
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: this.balancePayload(bal) });
@@ -124,7 +173,7 @@ export class ExecutionService {
           const vData = data as any;
           const vStyleText = styleTextOf(vData);
           const vFinalPrompt = [prompt, vStyleText].filter(Boolean).join(', ');
-          const result = await this.apiCaller.callVideoGen({
+          const videoArgs = {
             prompt: vFinalPrompt,
             model: vData?.model,
             mode: vData?.mode || 'text-to-video',
@@ -136,7 +185,15 @@ export class ExecutionService {
             quality: vData?.quality,
             duration: vData?.duration,
             audio: vData?.audio,
-          });
+          };
+          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'video', videoArgs, jobId);
+          if (!created) {
+            this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
+            continue;
+          }
+          claimed = intent;
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
+          const result = await this.apiCaller.callVideoGen(videoArgs);
 
           // 视频成功后补扣（Task11：对齐惯例）
           const vRule = await this.prisma.pricingRule.findFirst({
@@ -144,16 +201,24 @@ export class ExecutionService {
           });
           const vCost = vRule?.creditCost ?? 0;
           if (vCost > 0) {
-            const vDeduct = await this.teamCredit.consume(project.teamId, userId, vCost, `node:${node.id}`);
+            const vDeduct = await this.teamCredit.consume(project.teamId, userId, vCost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
             if (!vDeduct.success) {
-              this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败' });
+              await this.onCreditFail(projectId, node, intent, '扣费失败');
               return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
             }
             totalDeducted += vCost;
           }
 
+          // F13 产物门序——video 产物锚点 = videoUrl（writeNodeData 所写产物字段值）
+          const gated = await this.intentService.complete(intent.id, result.url);
+          if (gated !== 1) {
+            this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+            continue;
+          }
+
           // 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）
           await this.collabDoc.writeNodeData(projectId, node.id, { videoUrl: result.url });
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'done', jobId: jobId ?? null, intentId: intent.intentId, fileId: result.url });
 
           const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 
@@ -182,14 +247,22 @@ export class ExecutionService {
         // Call Image API
         const iStyleText = styleTextOf(data);
         const iFinalPrompt = [prompt, iStyleText].filter(Boolean).join(', '); // 分隔符对齐 combinePrompt（api-caller.service.ts:86）
-        const result = await this.apiCaller.callImageGen({
+        const imageArgs = {
           prompt: iFinalPrompt,
           extraPrompt: data?.extraPrompt,
           style: data?.style,
           model: data?.model,
           resolution: data?.resolution,
           imageUrl,
-        });
+        };
+        const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'image', imageArgs, jobId);
+        if (!created) {
+          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
+          continue;
+        }
+        claimed = intent;
+        await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
+        const result = await this.apiCaller.callImageGen(imageArgs);
 
         results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
 
@@ -205,15 +278,24 @@ export class ExecutionService {
 
         // Deduct credits (team pool)
         if (cost > 0) {
-          const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`);
+          const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
           if (!deductResult.success) {
-            this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '扣费失败，请重试' });
+            await this.onCreditFail(projectId, node, intent, '扣费失败，请重试');
             return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
           }
           totalDeducted += cost;
         }
 
+        // F13 产物门序——image 产物锚点 = resultUrl（media.create 在 ai-result-download 侧异步落地，
+        // 本服务以 writeNodeData 所写 URL 为锚；Media 行落地后由下载侧补强）
+        const gated = await this.intentService.complete(intent.id, result.url);
+        if (gated !== 1) {
+          this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+          continue;
+        }
+
         await this.collabDoc.writeNodeData(projectId, node.id, { resultUrl: result.url });
+        await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'done', jobId: jobId ?? null, intentId: intent.intentId, fileId: result.url });
 
         const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 
@@ -235,7 +317,16 @@ export class ExecutionService {
         });
 
       } catch (err: any) {
+        // 409 族（NODE_BUSY/INTENT_*）冒泡透出（errorCode 经 BusinessException getResponse）——
+        // claim 未获执行权：不 fail 他人在飞行、不写 exec map（防覆盖在飞执行的 loading）
+        if (err instanceof BusinessException) throw err;
+        // F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景 process catch 不执行，由 processor failed 钩子兜底）
+        if (claimed) await this.intentService.fail(claimed.id, String(err));
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err.message });
+        await this.collabDoc.writeExecStatus(projectId, node.id, {
+          status: 'error', error: String(err?.message ?? err).slice(0, 200),
+          ...(claimed ? { intentId: claimed.intentId } : {}),
+        }).catch(() => {}); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
         return { success: false, errors: [`节点 ${node.id}: ${err.message}`] };
       }
     }

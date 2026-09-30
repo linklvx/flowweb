@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -38,6 +39,8 @@ describe('ExecutionController', () => {
         { provide: ExecutionService, useValue: service },
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: getQueueToken('execution'), useValue: queue },
+        // 批0.5-6 最小装置：GET intents 依赖
+        { provide: GenerationIntentService, useValue: { listByNode: vi.fn().mockResolvedValue([]) } },
       ],
     }).compile();
 
@@ -49,7 +52,7 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'u-auth' } } as any;
       const body = { projectId: 'p1', nodeId: 'n1' };
       const result = await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined); // 第6参 intentId（批0.5-6，无头为 undefined）
       expect(result).toEqual({ success: true, errors: [] });
     });
 
@@ -57,7 +60,7 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'u-auth' } } as any;
       const body = { projectId: 'p1', userId: 'forged' };
       await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined, undefined);
     });
 
     it('should decode x-yjs-sv header to Uint8Array', async () => {
@@ -81,6 +84,7 @@ describe('ExecutionController', () => {
         nodeId: 'n2',
         userId: 'user-1',
         sv: null,
+        intentId: null, // 批0.5-6：缺省 null
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
     });
@@ -101,6 +105,7 @@ describe('ExecutionController', () => {
         nodeId: undefined,
         userId: undefined,
         sv: null,
+        intentId: null,
       });
       expect(result.status).toBe('queued');
     });
@@ -114,6 +119,7 @@ describe('ExecutionController', () => {
         nodeId: undefined,
         userId: 'user-1',
         sv: 'abc==',
+        intentId: null,
       });
     });
   });
