@@ -103,6 +103,76 @@ describe('红1：connStatus 派生（真实事件序）', () => {
   });
 });
 
+describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+  });
+  afterEach(async () => {
+    // fake timers 仍激活时先销毁——clearInterval 才能命中 fake interval（useRealTimers 后清不掉）
+    await runtime.destroyCollab();
+    vi.useRealTimers();
+  });
+
+  /** fake timers 版装置：tick() 的 setTimeout(0) 在 fake 时钟下不跑——advanceTimersByTimeAsync(0) 等价 flush */
+  async function beginCollabFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0); // flush 入口 destroyCollab 微任务链 → provider 构造完成
+    return { done, p: lastInstance() };
+  }
+
+  /** 健康会话（批0a 健康序 + message 代际确认 + watchdog 入站新鲜度） */
+  async function driveToHealthy(pid = 'p1') {
+    const { done, p } = await beginCollabFake(pid);
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+    p.emit('message', {});
+    return p;
+  }
+
+  it('健康会话：心跳多 tick 零恢复、UI 保持 ok', async () => {
+    const p = await driveToHealthy();
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+    const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
+    await vi.advanceTimersByTimeAsync(10_000); // 3 个心跳 tick，入站新鲜度 10s < 45s
+    expect(spy).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().connUi).toBe('ok');
+  });
+
+  it('断连后健康电平断裂超门（60s jitter 上界外）⇒ recoverConnection 被调 + ui 离开 ok', async () => {
+    const p = await driveToHealthy();
+    p.emit('status', { status: 'disconnected' });
+    const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
+    await vi.advanceTimersByTimeAsync(75_000); // 首tick置 unhealthySince 后 elapsed≈72s > 60s（gate 上界）
+    expect(spy).toHaveBeenCalled();
+    expect(useCanvasStore.getState().connUi).not.toBe('ok');
+  });
+
+  it('hydration 进行中（首同步窗口）⇒ 门开也不恢复', async () => {
+    const p = await driveToHealthy();
+    p.emit('status', { status: 'disconnected' });
+    useCanvasStore.setState({ isHydrating: true });
+    const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('页面隐藏 ⇒ 零自动恢复', async () => {
+    const p = await driveToHealthy();
+    p.emit('status', { status: 'disconnected' });
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;

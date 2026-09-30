@@ -98,6 +98,9 @@ interface CanvasState {
   isHydrating: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
+  /** 批1 恢复 UI 分级（批1-1 watchdog 写入）：hint 非阻断、banner 批1-5 SyncBanner 消费——
+   *  与 connStatus 正交（指示器 vs 恢复横幅）。不进 history/localStorage 快照 */
+  connUi: 'ok' | 'hint' | 'banner';
   /** B4 单向 latch（批0d）：编辑器有未落库修改——由 autosave onDirtyChange 维护（notifyChange 置位、
    *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
   editorDirty: boolean;
@@ -183,6 +186,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   teamId: null,
   isHydrating: false,
   connStatus: 'connecting',
+  connUi: 'ok',
   editorDirty: false,
   syncFailed: false,
 

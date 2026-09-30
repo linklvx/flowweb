@@ -17,6 +17,8 @@ import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuil
 import { AwarenessBridge } from '@/collab/awareness';
 import { hydrateNodes } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
+// 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
+import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -79,6 +81,24 @@ let initSeq = 0;
 let lastWsStatus: 'connecting' | 'connected' | 'disconnected' = 'connecting';
 let attemptId = 0;
 let inboundAttemptId = -1;
+
+// 批1-1：watchdog 心跳 timer（会话清理链——destroyCollab 统一 clearInterval；浏览器无 unref）
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 批1-3 落两级恢复原语（软重连+硬重建）——本组占位。
+ *  对象命名空间=watchdog 间接调用层：vi.spyOn(recovery, 'recoverConnection') 对模块内
+ *  直连函数调用不可达（ESM 本地绑定），命名空间属性查找使测试缝可达（装置可达性裁定）。 */
+export const recovery = {
+  async recoverConnection(): Promise<void> {
+    /* TODO 批1-3：两级恢复原语本体 */
+  },
+};
+
+/** 批1-1：恢复 UI 分级落位（canvasStore.connUi；hint 非阻断、banner 批1-5 SyncBanner 消费） */
+function updateConnectionUi(ui: MachineOutput['ui']) {
+  const s = useCanvasStore.getState();
+  if (ui !== s.connUi) useCanvasStore.setState({ connUi: ui });
+}
 
 /** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
  *  它就是 delta 写的删除半边（批4b 同规则）；initCollab 每会话重置 null（首同步 doc 为源不删）。 */
@@ -298,19 +318,64 @@ export async function initCollab(projectId: string): Promise<void> {
     token: 'cookie-auth',
   });
 
+  // 批1-1：watchdog 会话变量（initCollab 局部——每会话自然复位，旧会话计时/退避不携带）
+  let lastConnectedAt = 0;             // connected 到达边沿（快线计时起点）
+  let lastInboundAt = Date.now();      // 入站新鲜度（'message' 驱动刷新）
+  let unhealthySince: number | null = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
+  let recoveryAttempts = 0;
+  let lastRecoveryAt = 0;
+
   // 事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
   // （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
   // 'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。
   provider.on('status', ({ status }: any) => {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
+    if (status === 'connected' && lastWsStatus !== 'connected') lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
     if (status === 'connecting') inboundAttemptId = -1;
     lastWsStatus = status;
     recomputeConnStatus();
   });
   provider.on('authenticated', () => recomputeConnStatus());
   provider.on('synced', () => recomputeConnStatus());
-  provider.on('message', () => { inboundAttemptId = attemptId; recomputeConnStatus(); });
+  provider.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
   provider.on('close', () => recomputeConnStatus());
+
+  // 批1-1 watchdog 心跳（3s）：恢复门三门电平析取（快线/unhealthy 门/级别选择——spec 红2 恢复组）。
+  // 电平输入禁读派生 connStatus（黑洞下恒 connecting）；jitter 阈值（gateMs/cooldownMs）在此
+  // 生成后入参传入——connectionMachine 零 Math.random；tick-gap 天然 clamp：hidden 期间 timers
+  // 冻结，恢复后首 tick 的 now-unhealthySince 直接判。恢复单飞去重归批1-3 recovering 标志（本组门只管判）。
+  heartbeatTimer = setInterval(() => {
+    const now = Date.now();
+    const healthyNow = !!provider
+      && lastWsStatus === 'connected'
+      && provider.isAuthenticated === true
+      && provider.isSynced === true
+      && inboundAttemptId === attemptId
+      && now - lastInboundAt <= STALE_INBOUND_MS; // 入站新鲜度（'message' 驱动）
+    const inputs: MachineInputs = {
+      now,
+      healthy: healthyNow,
+      fastLaneEligible: lastWsStatus === 'connected' && provider !== null && !provider.isAuthenticated && now - lastConnectedAt > FAST_LANE_MS,
+      gateMs: STALE_INBOUND_MS + Math.random() * 15_000, // 45~60s jitter（惊群防护）
+      cooldownMs: RECOVER_BACKOFF_MS[Math.min(recoveryAttempts, RECOVER_BACKOFF_MS.length - 1)] + Math.random() * 5_000,
+      hydrationPending: !!useCanvasStore.getState().isHydrating,
+      unhealthySince,
+      recoveryAttempts,
+      lastRecoveryAt,
+      terminal: false, // TODO 批2：wsAuthNotice 终态接入（canvasStore 现无此字段）
+      hidden: document.hidden,
+      offline: typeof navigator !== 'undefined' && !navigator.onLine,
+    };
+    const out = reduce(inputs);
+    if (healthyNow) { unhealthySince = null; recoveryAttempts = 0; }
+    else if (out.unhealthySince != null) unhealthySince = out.unhealthySince;
+    if (out.action === 'recover') {
+      recoveryAttempts++;
+      lastRecoveryAt = Date.now();
+      void recovery.recoverConnection(); // 批1-3 本体——本组占位
+    }
+    updateConnectionUi(out.ui);
+  }, TICK_MS);
 
   // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；
   // timer 存变量——成功路径 clearTimeout 收窄陈旧 resolve 窗口到零
@@ -375,6 +440,7 @@ export async function initCollab(projectId: string): Promise<void> {
 }
 
 export async function destroyCollab(): Promise<void> {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   unbindStores?.();
   unbindStores = null;
