@@ -449,6 +449,65 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('新建画布组（批0a）', () => {
+    const createOkResponse = {
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名画布', teamId: 't-create' } }),
+    };
+
+    it('404 回退路径：initCollab 以新 id 被调用（R5 复发锚——今天早退不建会话）', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockImplementation((url: any, init?: any) => {
+        if (init?.method === 'POST') return Promise.resolve(createOkResponse);
+        return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ code: -1 }) });
+      });
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const { initCollab } = await import('@/stores/canvasCollabRuntime');
+      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('new-pid');
+    });
+
+    it('F14：5xx → unavailable 错误态 + 重试行动，initCollab 零调用、storedId 指针不变（不散射新画布）', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({ code: -1 }) });
+      // 文件级共享 mock——清上一用例（404 回退）的调用记录，保"零调用"断言语义纯净
+      const { initCollab } = await import('@/stores/canvasCollabRuntime');
+      vi.mocked(initCollab).mockClear();
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('画布加载失败，请检查网络后重试')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('重试')).toBeInTheDocument();
+      // 不散射：unavailable 错误态不提供"新建画布"入口（防覆写真实画布指针的数据入口事故）
+      expect(screen.queryByText('新建画布')).not.toBeInTheDocument();
+      expect(localStorage.getItem('flowweb_projectId')).toBe('p1');
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(0);
+      expect(vi.mocked(initCollab)).not.toHaveBeenCalled();
+    });
+
+    it('403：不清 localStorage、不自动新建、loadError=inaccessible（与 404/5xx 三义分家锚）', async () => {
+      localStorage.setItem('flowweb_projectId', 'p1');
+      mockFetch.mockResolvedValue({ ok: false, status: 403, json: () => Promise.resolve({ code: -1 }) });
+
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByText('画布不存在或无权访问')).toBeInTheDocument();
+      });
+
+      expect(localStorage.getItem('flowweb_projectId')).toBe('p1');
+      const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
+      expect(posts.length).toBe(0);
+    });
+  });
+
   it('should show add node menu when + button is clicked', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {

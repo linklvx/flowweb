@@ -36,18 +36,23 @@ async function createUntitledProject(): Promise<{ id: string; name: string }> {
   return { id: projectId, name };
 }
 
+// F14 三义分家：404（确定性不存在）/ 403（无权访问）/ 5xx·网络·json 异常（暂不可用，可重试）
+class ProjectNotFoundError extends Error {}
 class ProjectInaccessibleError extends Error {}
 class ProjectLoadError extends Error {}
 
-async function loadProjectIntoStore(
+/** 仅取项目元数据（名称/团队上下文）；doc 会话统一由 openSession 建立（R5 单一漏斗） */
+async function fetchProjectMeta(
   projectId: string,
   isCancelled?: () => boolean,
 ): Promise<string> {
   const res = await fetch(`/api/projects/${projectId}`);
-  if (res.status === 404 || res.status === 403) throw new ProjectInaccessibleError();
+  if (res.status === 404) throw new ProjectNotFoundError();
+  if (res.status === 403) throw new ProjectInaccessibleError();
   if (!res.ok) throw new ProjectLoadError();
   const json = await res.json();
-  if (json.code !== 0 || !json.data) return '未命名项目';
+  // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
+  if (json.code !== 0 || !json.data) throw new ProjectLoadError();
   const project = json.data;
 
   // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
@@ -55,11 +60,6 @@ async function loadProjectIntoStore(
 
   // 画布团队上下文（顶栏积分/上传/素材库消费）
   useCanvasStore.getState().setTeamId(project.teamId ?? null);
-
-  // Task14→v11 方案 C：画布内容唯一来源=server doc（synced 后 applyDocToStore）；
-  // 崩溃兜底=服务端持久化（onDisconnect flush），本地无快照无 seed
-  await initCollab(projectId);
-  if (isCancelled?.()) return project.name || '未命名项目';
   return project.name || '未命名项目';
 }
 
@@ -68,13 +68,23 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('未命名项目');
-  const [loadError, setLoadError] = useState<'inaccessible' | 'network' | null>(null);
+  const [loadError, setLoadError] = useState<'inaccessible' | 'unavailable' | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
   const queryProjectId = searchParams.get('projectId');
   const lastPidRef = useRef<string | null>(null);
   // StrictMode 双执行共享同一次创建请求，避免重复建画布；失败后清空以允许重试
   const createPromiseRef = useRef<Promise<{ id: string; name: string }> | null>(null);
+  const sessionEpochRef = useRef(0);
+
+  /** R17 硬契约前置（批0a 版）：先推 epoch/抬 hydrate 门，再清 store——清空不被桥翻译成删除。
+   *  过渡注记：setHydrating 是现状字段，批 2-1 整体替换为 hydration 四态后此处随改 */
+  function resetSession() {
+    sessionEpochRef.current++;
+    useCanvasStore.getState().setHydrating(true);
+    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, teamId: null });
+    useNodeStore.setState({ nodes: {} });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -86,55 +96,64 @@ export function CanvasPage() {
     const storedId = queryProjectId || localStorage.getItem(PROJECT_ID_KEY);
     const target = storedId ?? null;
     if (target === null || target !== lastPidRef.current) {
-      // hydrate 窗口开启：清 store 至 DB 加载/兜底恢复完成期间，抑制本地快照空写
-      useCanvasStore.getState().setHydrating(true);
-      useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, teamId: null });
-      useNodeStore.setState({ nodes: {} });
+      resetSession();
     }
     lastPidRef.current = target;
 
-    const finish = (id: string, name: string) => {
+    /** R5 结构性根修：四条项目就绪路径唯一入口（原 finish 私有化收编）——
+     *  新建/404 回退不再"只 finish 不建 doc 会话"（可编辑但刷新蒸发的活 bug）。
+     *  过渡注记：setHydrating 是现状字段，批 2-1 整体替换为 hydration 四态后此处随改 */
+    async function openSession(id: string, name: string) {
       if (cancelled) return;
+      sessionEpochRef.current++;
+      const epoch = sessionEpochRef.current;
+      useCanvasStore.getState().setHydrating(true);
+      await initCollab(id);
+      if (cancelled || epoch !== sessionEpochRef.current) return; // 期间用户切项目——丢弃陈旧结果
+      useCanvasStore.setState({ projectId: id, syncFailed: false });
       useCanvasStore.getState().setHydrating(false);
       setProjectId(id);
       setProjectName(name);
-    };
+    }
 
     // 优先 query 参数（工作空间/模板导入），否则恢复最近项目
     if (storedId) {
       if (queryProjectId) localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
-      loadProjectIntoStore(storedId, () => cancelled)
-        .then((name) => finish(storedId, name))
+      fetchProjectMeta(storedId, () => cancelled)
+        .then((name) => openSession(storedId, name))
         .catch((e: unknown) => {
           if (cancelled) return;
-          if (e instanceof ProjectInaccessibleError && !queryProjectId) {
-            // 无参路径：项目已删除/无权 → 清 key → fallback 新建（loading 不中断，避免闪烁）
+          if (e instanceof ProjectNotFoundError && !queryProjectId) {
+            // 无参路径 404（确定性不存在）：清 key → fallback 新建（loading 不中断，避免闪烁）
             localStorage.removeItem(PROJECT_ID_KEY);
             message.warning('上次的画布已不存在，已为你新建');
             createPromiseRef.current ??= createUntitledProject();
             createPromiseRef.current
-              .then(({ id, name }) => finish(id, name))
+              .then(({ id, name }) => openSession(id, name))
               .catch(() => {
                 createPromiseRef.current = null;
                 if (cancelled) return;
                 useCanvasStore.getState().setHydrating(false);
-                setLoadError('network');
+                setLoadError('unavailable');
               });
             return;
           }
+          // F14 三义分家：403/有参 404=inaccessible（不清 key 不自动新建）；5xx/网络/json 异常=unavailable
           useCanvasStore.getState().setHydrating(false);
-          setLoadError(e instanceof ProjectInaccessibleError ? 'inaccessible' : 'network');
+          const isInaccessible =
+            e instanceof ProjectNotFoundError || e instanceof ProjectInaccessibleError;
+          setLoadError(isInaccessible ? 'inaccessible' : 'unavailable');
         });
     } else {
       // Normal flow — create new project
       createPromiseRef.current ??= createUntitledProject();
       createPromiseRef.current
-        .then(({ id, name }) => finish(id, name))
+        .then(({ id, name }) => openSession(id, name))
         .catch(() => {
           createPromiseRef.current = null;
           if (!cancelled) {
             useCanvasStore.getState().setHydrating(false);
-            setLoadError('network');
+            setLoadError('unavailable');
           }
         });
     }
@@ -145,11 +164,6 @@ export function CanvasPage() {
   }, [queryProjectId, retryKey]);
 
   const handleRetry = () => setRetryKey((k) => k + 1);
-  const handleCreateNew = () => {
-    localStorage.removeItem(PROJECT_ID_KEY);
-    setLoadError(null);
-    setRetryKey((k) => k + 1);
-  };
 
   if (loadError) {
     const isInaccessible = loadError === 'inaccessible';
@@ -174,15 +188,7 @@ export function CanvasPage() {
             >
               返回工作空间
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleCreateNew}
-              className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
-            >
-              新建画布
-            </button>
-          )}
+          ) : null}
         </div>
       </div>
     );
