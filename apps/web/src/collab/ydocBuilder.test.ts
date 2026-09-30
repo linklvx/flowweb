@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { buildDocFromSnapshot, readCanvasFromDoc, fillDoc, applyRecordToYMap } from './ydocBuilder';
+import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 
 describe('ydocBuilder', () => {
   const nodes = [
@@ -12,7 +13,7 @@ describe('ydocBuilder', () => {
   ];
   const edges = [{ id: 'e1', source: 'n1', target: 'g1' }];
 
-  it('build → read 往返一致（含 null 兜底字段）', () => {
+  it('build → read 往返一致（缺键形态——批4a 读归一）', () => {
     const doc = buildDocFromSnapshot(nodes, edges);
     const result = readCanvasFromDoc(doc);
     const n1 = result.nodes.find((n) => n.id === 'n1')!;
@@ -20,8 +21,8 @@ describe('ydocBuilder', () => {
     expect(n1.position).toEqual({ x: 10, y: 20 });
     expect(n1.data).toEqual({ text: 'a', status: 'done' });
     const g1 = result.nodes.find((n) => n.id === 'g1')!;
-    expect(g1.parentId).toBeNull();
-    expect(g1.width).toBeNull();
+    expect(g1.parentId).toBeUndefined(); // 批4a：null 键消除（出口过 normalizeCanvasRecord）
+    expect(g1.width).toBeUndefined();
     expect(result.edges).toEqual([{ id: 'e1', source: 'n1', target: 'g1' }]);
   });
 
@@ -48,7 +49,7 @@ describe('videoEdit 新类型往返（刷新还原保障）', () => {
     const n = r.nodes.find((x: any) => x.id === 'n1') as any;
     expect(n.type).toBe('videoEdit');
     expect(n.width).toBe(320);
-    expect(n.parentId).toBeNull();
+    expect(n.parentId).toBeUndefined(); // 批4a：读归一后 null 键消除（height 为 null 同被删——键集锁定见批4a describe）
     expect(n.position).toEqual({ x: 100, y: 200 });
     expect(n.data).toEqual({ title: '工程' });
   });
@@ -66,15 +67,15 @@ describe('videoEdit 新类型往返（刷新还原保障）', () => {
 });
 
 describe('ydocBuilder 信封收敛（R1a）', () => {
-  it('fillDoc→readCanvasFromDoc：读侧出口保持 ?? null 形状（F32/R0b 契约）、缺 position/data 兜底不炸', () => {
+  it('fillDoc→readCanvasFromDoc：读侧出口缺键形态（批4a 读归一修订 R1a ??null 契约）、缺 position/data 兜底不炸', () => {
     const doc = new Y.Doc();
     fillDoc(doc, [
       { id: 'n1', type: 'textInput', parentId: null, width: null, height: null, position: { x: 1, y: 2 }, data: { content: 'a' } },
       { id: 'n2', type: 'group', position: undefined as any, data: undefined as any },
     ] as any, []);
     const { nodes } = readCanvasFromDoc(doc);
-    expect(nodes.find((n) => n.id === 'n1')?.parentId).toBeNull();      // null 不是 undefined——读侧契约
-    expect(nodes.find((n) => n.id === 'n1')?.width).toBeNull();
+    expect(nodes.find((n) => n.id === 'n1')?.parentId).toBeUndefined(); // 批4a：null/undefined 键统一消除
+    expect(nodes.find((n) => n.id === 'n1')?.width).toBeUndefined();
     expect(nodes.find((n) => n.id === 'n2')?.position).toEqual({ x: 0, y: 0 });
     expect(nodes.find((n) => n.id === 'n2')?.data).toEqual({});
   });
@@ -127,5 +128,49 @@ describe('批2-3：doc meta schemaVersion（R1c 前置物）', () => {
     const sv = Y.encodeStateVector(doc);
     fillDoc(doc, [], []);
     expect(Y.encodeStateVector(doc)).toEqual(sv);
+  });
+});
+
+describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasRecord）', () => {
+  it('doc 含 null 值键 / 缺键 / 影子键 → 出口 null 键消除（缺键形态，键集锁定）、影子过滤', () => {
+    const doc = new Y.Doc();
+    const nodesMap = doc.getMap('nodes');
+    // 形态1：显式 null 值键（旧后端 writeNodeData 形态——doc Y.Map 里真存 null）
+    const m1 = new Y.Map();
+    m1.set('type', 'textInput'); m1.set('parentId', null); m1.set('width', null); m1.set('height', null);
+    const pos1 = new Y.Map(); pos1.set('x', 1); pos1.set('y', 2); m1.set('position', pos1);
+    const data1 = new Y.Map(); data1.set('k', 'v'); m1.set('data', data1);
+    nodesMap.set('n1', m1);
+    // 形态2：缺键（fillDoc 真删键形态——写侧 normalize 的产物）
+    const m2 = new Y.Map(); m2.set('type', 'group');
+    const pos2 = new Y.Map(); pos2.set('x', 0); pos2.set('y', 0); m2.set('position', pos2);
+    m2.set('data', new Y.Map());
+    nodesMap.set('n2', m2);
+    // 形态3：影子键（不进出口——spec 双重过滤投影侧半边）
+    nodesMap.set('shadow-x', new Y.Map());
+
+    const r = readCanvasFromDoc(doc);
+    const n1 = r.nodes.find((n) => n.id === 'n1')!;
+    // toEqual 对 undefined 键宽容——键集断言是形状锁（null/缺键两形态出口同一形状）
+    expect(Object.keys(n1).sort()).toEqual(['data', 'id', 'position', 'type']);
+    expect(n1.position).toEqual({ x: 1, y: 2 });
+    expect(n1.data).toEqual({ k: 'v' });
+    expect(Object.keys(r.nodes.find((n) => n.id === 'n2')!).sort()).toEqual(['data', 'id', 'position', 'type']);
+    expect(r.nodes.find((n: any) => n.id === 'shadow-x')).toBeUndefined();
+  });
+
+  it('与 store 投影同形：readCanvasFromDoc 出口 ≡ projectCanvasNodes 出口（normalize 同源，批4a 红1 前置）', () => {
+    const doc = buildDocFromSnapshot(
+      [{ id: 'n1', type: 'textInput', parentId: null, width: 320, height: null, position: { x: 5, y: 6 }, data: { a: 1 } }],
+      [],
+    );
+    const fromDoc = readCanvasFromDoc(doc).nodes;
+    // store 投影同输入（含 null 形态输入——两路径吃不同形态、出同一形状）
+    const fromStore = projectCanvasNodes(
+      [{ id: 'n1', type: 'textInput', parentId: null, width: 320, height: null, position: { x: 5, y: 6 }, data: {} }],
+      { n1: { data: { a: 1 } } },
+    );
+    expect(fromDoc).toEqual(fromStore);
+    expect(Object.keys(fromDoc[0]).sort()).toEqual(Object.keys(fromStore[0]).sort());
   });
 });

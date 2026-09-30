@@ -1,14 +1,15 @@
 // apps/web/src/utils/collabDiagnostics.ts
 // 批1-5 collab 诊断（spec：环形缓冲最近 500 条 + prod 常开计数 + kill switch）——零依赖纯模块。
 // 事件类型：ws_status 迁移 / recover_triggered（恢复各级）/ watchdog_fire / hydration_fail /
-// auth_reject / write_reject（后两者批 2/批 4 接入——类型先行固化）。
+// auth_reject / write_reject / invariant_violation（批4a doc⇄store 投影不变量——dev/prod 均计数）。
 export type CollabDiagEventType =
   | 'ws_status'
   | 'recover_triggered'
   | 'watchdog_fire'
   | 'hydration_fail'
   | 'auth_reject'
-  | 'write_reject';
+  | 'write_reject'
+  | 'invariant_violation';
 
 export interface CollabDiagEvent {
   type: CollabDiagEventType;

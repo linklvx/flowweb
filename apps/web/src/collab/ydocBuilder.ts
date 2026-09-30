@@ -56,15 +56,18 @@ export function readCanvasFromDoc(doc: Y.Doc): { nodes: CanvasNodeRecord[]; edge
     .filter(([nodeId]) => !nodeId.startsWith('shadow-')) // 影子节点不进 store（spec 双重过滤——投影层；后端 __ephemeral 为另一半）
     .map(([id, v]) => {
     const m = v as Y.Map<any>;
-    return {
+    // 批4a 读归一：出口过 normalizeCanvasRecord——与写侧 projectCanvasNodes→normalize 同形
+    //（消除"doc null 值键/缺键 → ?? null 出口"与写侧缺键形态的形状差；position/data 兜底
+    //  收敛至 normalize 单源 {x:0,y:0}/{}）
+    return normalizeCanvasRecord({
       id,
       type: m.get('type'),
       parentId: m.get('parentId') ?? null,
       width: m.get('width') ?? null,
       height: m.get('height') ?? null,
-      position: m.get('position')?.toJSON() ?? { x: 0, y: 0 },
-      data: m.get('data')?.toJSON() ?? {},
-    };
+      position: m.get('position')?.toJSON(),
+      data: m.get('data')?.toJSON(),
+    });
   });
   const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
     const m = v as Y.Map<any>;

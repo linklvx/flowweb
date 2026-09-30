@@ -260,6 +260,28 @@ function storeProjection() {
   };
 }
 
+/** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
+ *  两侧同过双重归一：normalizeCanvasRecord（读侧 readCanvasFromDoc 归一 / 写侧 projectCanvasNodes）
+ *  + normalizeLoadedCanvas（加载几何归一——两个设计内分叉源必须双侧同变换后才可断言，否则恒假）：
+ *  ① shadow- 节点（批5 删信箱前 doc 仍含影子而 store 投影天然无）——两侧显式过滤 /^shadow-/；
+ *  ② 组几何补缺（S1 契约：normalizeLoadedCanvas 补缺是每轮内存重建的确定性纯函数、不写 doc——
+ *    doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
+ *    后同形（对有几何侧幂等 no-op）。
+ *  只读不写——测试缝直驱做非恒真式变异实验。readOnly 会话不测量（S1 几何止步 store 层是
+ *  设计内分叉——调用方负责门）。 */
+export function checkProjectionInvariant(d: Y.Doc): boolean {
+  const { nodes, edges } = readCanvasFromDoc(d);
+  const fromDoc = {
+    nodes: normalizeLoadedCanvas(nodes.filter((n) => !n.id.startsWith('shadow-'))),
+    edges,
+  };
+  const sp = storeProjection();
+  return isEqual(fromDoc, {
+    nodes: normalizeLoadedCanvas(sp.nodes.filter((n) => !n.id.startsWith('shadow-'))),
+    edges: sp.edges,
+  });
+}
+
 /** 差异转 ydoc 事务（细粒度：新增/删除按 id，更新逐键；position 独立子 Map；data 逐键）。
  *  差异转 ydoc 事务——doc 显式形参化（syncAutoEdgesToDoc 同款先例）：bindBridge 内传模块 doc，
  *  测试直接 new Y.Doc() 驱动（G3/W7 红转绿门槛的装置基础）。 */
@@ -654,6 +676,16 @@ export async function initCollab(projectId: string): Promise<void> {
       applyingRemote = true;
       try {
         applyDocToStore(doc!);
+        // 批4a：applyRemote 周期末尾不变量（含 S1 补跑——applyDocToStore 内收尾）。readOnly 会话
+        // 不测（S1 几何止步 store 层是设计内分叉）；不等→计数+DEV console.error，不抛（安全网非熔断）
+        if (!useCanvasStore.getState().collabReadOnly && !checkProjectionInvariant(doc!)) {
+          recordCollabDiag('invariant_violation', { where: 'applyRemote' });
+          if (import.meta.env.DEV) {
+            console.error('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
+          } else {
+            console.log('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
+          }
+        }
       } finally {
         applyingRemote = false;
       }

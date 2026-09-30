@@ -1,6 +1,7 @@
 /** 节点信封唯一类型（spec §4.7 纯数据方案，不含 yjs——防跨实例 instanceof 静默失败）。
- *  null 语义分家（v3）：写侧（本函数）真删键；读侧出口（readCanvasFromDoc/readDocCanvas）
- *  保持 ?? null 形状——两契约勿混。API normalizeNodeRecord 是 JSON 序列化边界语义，不收敛。 */
+ *  null 语义（批4a 读归一修订 v3 分家契约）：本函数真删键；读侧出口 readCanvasFromDoc
+ *  同过本函数（null 值键/缺键统一消除——读写两侧单一形状）。API normalizeNodeRecord 是
+ *  JSON 序列化边界语义，不收敛；后端 readDocCanvas 仍保持 ?? null 出口（服务端消费域，未归一）。 */
 export interface CanvasNodeRecord {
   id: string;
   type: string;
