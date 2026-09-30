@@ -1,0 +1,42 @@
+{
+  "_comment": "批1-7（G24）库行为锚 fixture——真协议观测转录（2026-09-30，@hocuspocus/server+provider 4.6.0、y-protocols 1.0.7）。clientID 已归一为 <client>。由 collab.behavior-anchors.gate.spec.ts 逐锚 toEqual 双向锁：行为漂移（库升级/环境变化）即红。各键语义：anchor1=4408 强关入口事件集（不发 close+布尔陈旧）；anchor1b=服务端关停事件集（发 close 不发 disconnect）；anchor2=destroy 双推 clock（本地 N+1 已发布/N+2 未发布；服务端 scratch 重编码丢纯删除帧——meta 停 M，终态为关停自有清理不 bump clock）；anchor3=send() !isAttached 静默 return（handler 照跑零 Update 帧；detach 唯一出站=ws 层 farewell CLOSE）；anchor4=SS1 应答帧序（先 SS1 后 SS2 两帧+客户端回 SS2+SyncStatus ack）；anchor5=首个 synced 计数恒 1+decrement 归零（SyncStatus 驱动）。",
+  "anchor1": [
+    "events=[\"status:disconnected\",\"disconnect\"]",
+    "isSynced-stale=true"
+  ],
+  "anchor1b": [
+    "events=[\"close(1000)\"]",
+    "isSynced=false"
+  ],
+  "anchor2": [
+    "preDestroyLocalClock=1",
+    "update origin=provider destroy a/u/r=0/0/1 clock=2",
+    "update origin=local a/u/r=0/0/1 clock=3",
+    "outgoingAwarenessFramesDuringDestroy=1",
+    "postDestroyLocalClock=3",
+    "serverCleanup=server added=[] updated=[] removed=[<client>] meta={<client>@1} states=0",
+    "serverSawRemovalFrameClockN1=false"
+  ],
+  "anchor3": [
+    "edit1 isAttached=true outgoing=[Authentication,First sync step,Awareness states update,raw,A document update] serverChanges=1 unsynced=[1,0,1,0]",
+    "detach isAttached=false",
+    "edit2 outgoingDelta=1 outgoingAfter=[Ask the server to close the connection] serverChanges=1 unsynced=[1,0,1,0,1]"
+  ],
+  "anchor4": [
+    "-> Auth(Token)",
+    "-> Sync/SS1",
+    "-> Awareness[<client>@0:state]",
+    "<- Auth(Authenticated)",
+    "<- Sync/SS1",
+    "-> Sync/SS2",
+    "<- Sync/SS2",
+    "<- SyncStatus(applied=1)"
+  ],
+  "anchor5": [
+    "unsyncedChanges=1 isSynced=false",
+    "synced#1 counterAtSynced=1",
+    "unsyncedChanges=0 isSynced=true",
+    "unsyncedChanges=1 isSynced=true",
+    "unsyncedChanges=0 isSynced=true"
+  ]
+}
