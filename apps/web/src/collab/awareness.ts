@@ -32,12 +32,23 @@ export function userColor(userId: string | undefined = ''): string {
 export class AwarenessBridge {
   /** 批1-3：终态重建重放缓存——setLocalUser 时快照（重放完整态，禁 {}——R24） */
   private lastLocalUser: CollabUser | null = null;
+  /** 批1-5：稳定对象——订阅自持（Set<cb>），attach 迁移时重挂单内部 handler（消费方订阅跨实例存活） */
+  private readonly listeners = new Set<() => void>();
+  private detachProviderListener: (() => void) | null = null;
+  private provider!: HocuspocusProvider; // 构造经 attach 赋值（definite assignment）
 
-  constructor(private provider: HocuspocusProvider) {}
+  constructor(provider: HocuspocusProvider) {
+    this.attach(provider);
+  }
 
-  /** 批1-3：终态重建迁移——bridge 稳定对象，provider 引用重指向（消费方/监听零改动） */
+  /** 批1-3：终态重建迁移——bridge 稳定对象，provider 引用重指向；
+   *  批1-5：内部 handler 随迁重挂（旧订阅不孤儿——awarenessUpdate 持续可达） */
   attach(provider: HocuspocusProvider): void {
+    this.detachProviderListener?.();
     this.provider = provider;
+    const handler = () => { for (const cb of this.listeners) cb(); };
+    provider.on('awarenessUpdate', handler);
+    this.detachProviderListener = () => provider.off('awarenessUpdate', handler);
   }
 
   setLocalUser(user: CollabUser): void {
@@ -75,9 +86,9 @@ export class AwarenessBridge {
     return out;
   }
 
+  /** 批1-5：订阅自持（Set<cb>）——退订/通知不再穿透 provider 实例（attach 迁移零影响） */
   onStateChange(cb: () => void): () => void {
-    const handler = () => cb();
-    this.provider.on('awarenessUpdate', handler);
-    return () => this.provider.off('awarenessUpdate', handler);
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
   }
 }

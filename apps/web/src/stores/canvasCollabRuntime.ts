@@ -21,6 +21,8 @@ import { hydrateNodes } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
 // 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
 import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
+// 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
+import { recordCollabDiag, isAutoRecoverDisabled } from '@/utils/collabDiagnostics';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -70,10 +72,13 @@ export function readNodeFileIdFromDoc(nodeId: string): string | null {
   return typeof fid === 'string' ? fid : null;
 }
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
-let currentPid: string | null = null;
-/** initCollab 调用代际（I-1 判活）：currentPid 同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid），
- *  单调 seq——超时 timer 恢复时 seq !== initSeq 即陈旧调用，不得走超时兜底销毁新会话 */
-let initSeq = 0;
+/** 批1-5 会话对象（currentPid/initSeq 归并）：pid=当前项目、startedAt=会话起点、epoch=单调会话代数。
+ *  epoch 判活（I-1）：同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid）——
+ *  超时 timer 恢复时 epoch 不匹配即陈旧调用，不得走超时兜底销毁新会话。
+ *  sessionEpoch 独立于 session 生命周期（session 置空后仍递增——防同代数复用） */
+interface CollabSession { pid: string; startedAt: number; epoch: number }
+let session: CollabSession | null = null;
+let sessionEpoch = 0;
 
 // 批0a：connStatus 派生（缺陷 A 根修）——唯一写点 recomputeConnStatus + 代际制。
 // 载体按决策门 A 裁决=候选 1（inboundAttemptId===attemptId，'message' 驱动）——
@@ -122,6 +127,7 @@ export const recovery = {
     const terminal = !p.isAttached || !ws?.shouldConnect; // 级别按结构状态选（G1）
     try {
       recovering = true;
+      recordCollabDiag('recover_triggered', { level: terminal ? 'terminal' : 'transient' }); // 批1-5
       if (terminal) {
         // —— 终态：会话级重建 ——
         const d = doc!;
@@ -359,6 +365,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
     if (status === 'connected' && lastWsStatus !== 'connected') lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
     if (status === 'connecting') inboundAttemptId = -1;
+    if (status !== lastWsStatus) recordCollabDiag('ws_status', { from: lastWsStatus, to: status }); // 批1-5：迁移记录（双发 connected 不重复）
     lastWsStatus = status;
     recomputeConnStatus();
   });
@@ -391,13 +398,17 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
   transportHandle = handle;
   provider = new HocuspocusProvider({
     url: collabUrl(),
-    name: `project:${currentPid}`,
+    name: `project:${session?.pid}`,
     document: d,
     // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
     token: 'cookie-auth',
     WebSocketPolyfill: WebSocketClass,
   } as any);
   bindProviderListeners(provider);
+  // 批1-5 awareness 即刻播种：构造即 setLocalState({})（占位——续期照跑，远端 30s 不超时下线；
+  // authUser 完整态由 CanvasView setLocalUser 覆盖，终态重建后 replayLocalUser 重放）。runtime 不持有
+  // auth 依赖，完整态播种归消费侧（spec：有 authUser 时完整态）。
+  provider.awareness?.setLocalState({});
   return provider;
 }
 
@@ -418,8 +429,9 @@ function bindReevaluateOnce(): void {
  */
 export async function initCollab(projectId: string): Promise<void> {
   await destroyCollab();
-  const seq = ++initSeq;
-  currentPid = projectId;
+  // 批1-5 会话对象（epoch 判活——I-1）：sessionEpoch 单调递增不随 session 置空回卷
+  const epoch = ++sessionEpoch;
+  session = { pid: projectId, startedAt: Date.now(), epoch };
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
   attemptId = 0;
@@ -471,11 +483,22 @@ export async function initCollab(projectId: string): Promise<void> {
     if (healthyNow) { unhealthySince = null; recoveryAttempts = 0; }
     else if (out.unhealthySince != null) unhealthySince = out.unhealthySince;
     if (out.action === 'recover') {
-      recoveryAttempts++;
-      lastRecoveryAt = Date.now();
-      void recovery.recoverConnection(); // 批1-3 两级原语（级别选择+单飞在彼处）
+      // 批1-5 kill switch：VITE_COLLAB_AUTO_RECOVER=off ⇒ 只记录不 recover（恢复门退化为纯观测）
+      const disabled = isAutoRecoverDisabled();
+      recordCollabDiag('watchdog_fire', { executed: !disabled });
+      if (!disabled) {
+        recoveryAttempts++;
+        lastRecoveryAt = Date.now();
+        void recovery.recoverConnection(); // 批1-3 两级原语（级别选择+单飞在彼处）
+      }
     }
     updateConnectionUi(out.ui);
+    // 批1-5 awareness tick 自愈：pagehide 置 null 形态 + 连接健康 ⇒ 重放 lastLocalUser 完整态
+    // （禁 {}——R24；lastLocalUser 未设时 replay no-op 不打 clock）
+    if (healthyNow) {
+      const aw = provider?.awareness;
+      if (aw && aw.getLocalState() == null) awarenessBridge?.replayLocalUser();
+    }
     // 批1-4：3s tick 兜底——ack 事件丢失形态（电平可读：isSynced && !hasUnsyncedChanges ⇒ 清）
     if (rebuildPending && provider?.isSynced === true && provider.hasUnsyncedChanges === false) {
       rebuildPending = false;
@@ -490,12 +513,13 @@ export async function initCollab(projectId: string): Promise<void> {
     provider!.on('synced', () => { synced = true; resolve(); });
     timer = setTimeout(resolve, 10000);
   });
-  // 判活（I-1）：seq 替代 currentPid——同 pid 退出重进时 currentPid 判据放行陈旧调用，
-  // 其超时分支会销毁第二次 initCollab 的健康会话
-  if (seq !== initSeq) return;
+  // 判活（I-1）：epoch 替代 pid——同 pid 退出重进时 pid 判据放行陈旧调用，
+  // 其超时分支会销毁第二次 initCollab 的健康会话（session 置空后 epoch 不匹配亦拦）
+  if (session?.epoch !== epoch) return;
 
   // 离线廉价兜底：超时未 synced——不置 connected、不 apply 空 doc、不抬 hydrate 门（保持不可编辑），UI 层提示重试
   if (!synced) {
+    recordCollabDiag('hydration_fail'); // 批1-5：首同步超时记录
     // 廉价兜底（用户拍板）：超时=服务端不可用——销毁连接防"晚重连蒙层消失但 store 未水合"
     // 的脏编辑窗口（编辑仅存 store 刷新即丢）；蒙层引导刷新重走 initCollab。
     // syncFailed 蒙层独占条件（I-2）：仅超时置位，断连不置（断连走自动重连，指示器非阻断告知）
@@ -530,7 +554,7 @@ export async function initCollab(projectId: string): Promise<void> {
     if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
-      if (currentPid !== projectId) return;
+      if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）
       useCanvasStore.getState().setHydrating(true);
       applyDocToStore(doc!);
       useCanvasStore.getState().setHydrating(false);
@@ -562,7 +586,7 @@ export async function destroyCollab(): Promise<void> {
   if (doc === d) {
     detachUndoManager();
     doc = null;
-    currentPid = null;
+    session = null; // 批1-5 会话对象随 doc 实例守卫置空（sessionEpoch 不回卷）
   }
 }
 

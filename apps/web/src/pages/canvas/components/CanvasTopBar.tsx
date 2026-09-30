@@ -26,7 +26,8 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
   useEffect(() => {
     const bridge = getAwareness();
     if (!bridge) return;
-    const update = () => setOnlineUsers([...bridge.getStates().values() as any]);
+    // R33：在线成员排除本机（getRemoteStates——clientID 过滤；本机已在右侧头像区呈现，自计入会双算）
+    const update = () => setOnlineUsers(bridge.getRemoteStates());
     update();
     return bridge.onStateChange(update);
   }, []);

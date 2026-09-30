@@ -17,6 +17,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
+import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
 vi.mock('@hocuspocus/provider', () => {
   class MockProvider {
@@ -46,6 +47,12 @@ vi.mock('@hocuspocus/provider', () => {
     }
     get hasUnsyncedChanges() { return this.unsyncedChanges > 0; }
     on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
+    off(event: string, cb: (payload: any) => void) {
+      const arr = this.handlers[event];
+      if (!arr) return;
+      const i = arr.indexOf(cb);
+      if (i >= 0) arr.splice(i, 1);
+    }
     emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
     setAwarenessField(field: string, value: unknown) {
       const cur = this.awareness.getLocalState() ?? {};
@@ -473,6 +480,76 @@ describe('批1-4：rebuildPending 实例绑定标记制（unsyncedChanges number
     np.unsyncedChanges = 0;                    // 事件丢失——仅电平可读
     await vi.advanceTimersByTimeAsync(3_000);
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+  });
+});
+
+describe('批1-5：awareness 播种/tick 自愈/kill switch（fake timers）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (HocuspocusProvider as any).instances.length = 0;
+    _resetCollabDiagForTest();
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs(); // kill switch stubEnv 不跨用例泄漏
+    _resetCollabDiagForTest();
+  });
+
+  async function beginCollabFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0);
+    return { done, p: lastInstance() };
+  }
+  async function driveToHealthy(pid = 'p1') {
+    const { done, p } = await beginCollabFake(pid);
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+    p.emit('message', {});
+    return p;
+  }
+
+  it('awareness 即刻播种：provider 构造即 setLocalState({})（占位——续期照跑；未走完 synced 前已非空）', async () => {
+    const { done, p } = await beginCollabFake('p1');
+    expect(p.awareness.getLocalState()).toEqual({}); // 构造后立即可读（非 null——播种缺失必红）
+    // 收尾走完健康序（防悬挂 initCollab 的 10s 超时分支污染 store）
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+  });
+
+  it('tick 自愈：pagehide 置 null + 连接健康 ⇒ 下个 tick 重放 lastLocalUser 完整态（禁 {}）；200s 无重连循环', async () => {
+    const p = await driveToHealthy();
+    runtime.getAwareness()!.setLocalUser({ id: 'u1', name: '协作用户' }); // bridge 缓存完整态
+    p.awareness.setLocalState(null);          // pagehide 形态（y-protocols pagehide 置 null 广播下线）
+    await vi.advanceTimersByTimeAsync(3_000); // 下个 watchdog tick
+    const healed = p.awareness.getLocalState() as any;
+    expect(healed?.user).toEqual({ id: 'u1', name: '协作用户' }); // 完整态（禁 {}——断言含 user 键）
+    const n = (HocuspocusProvider as any).instances.length;
+    await vi.advanceTimersByTimeAsync(200_000); // 无入站 ⇒ 不健康 ⇒ 瞬态 recover（不重建实例）；mock 不产生重连事件
+    expect((HocuspocusProvider as any).instances.length).toBe(n); // 无重连循环（终态重建才算新实例）
+  });
+
+  it('kill switch：VITE_COLLAB_AUTO_RECOVER=off ⇒ watchdog 只记录不 recover', async () => {
+    vi.stubEnv('VITE_COLLAB_AUTO_RECOVER', 'off');
+    const p = await driveToHealthy();
+    p.emit('status', { status: 'disconnected' });
+    const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(spy).not.toHaveBeenCalled(); // action 不执行
+    const fires = getRecentCollabDiag().filter((e) => e.type === 'watchdog_fire');
+    expect(fires.length).toBeGreaterThan(0);                              // 但触发已记录
+    expect(fires.every((e) => e.detail?.executed === false)).toBe(true); // 且标记为未执行
   });
 });
 
