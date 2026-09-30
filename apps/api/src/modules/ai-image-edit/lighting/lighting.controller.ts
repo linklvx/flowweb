@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Inject, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe } from '@nestjs/common';
 import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
@@ -11,9 +11,10 @@ export class LightingController {
   ) {}
 
   @Post('tasks')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   async createTask(@Body() body: CreateLightingTaskDto, @Req() req: any) {
     const userId = (req as any).user?.id;
-    if (body.projectId) await this.perm.assertEditor(body.projectId, userId);
+    await this.perm.assertEditor(body.projectId, userId); // 无条件（批0c：省略 projectId 即旁路）
     const result = await this.service.createTask(body, userId);
     return { code: 0, data: result };
   }

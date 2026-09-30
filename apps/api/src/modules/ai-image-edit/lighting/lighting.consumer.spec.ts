@@ -22,12 +22,16 @@ describe('LightingConsumer', () => {
   let prisma: any;
   let teamCredit: any;
   let apiCaller: any;
+  let collabDoc: any;
 
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't-team' }) },
       lightingTask: { update: vi.fn().mockResolvedValue({}) },
-      media: { create: vi.fn().mockResolvedValue({ id: 'media-1' }) },
+      media: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'media-src', key: 'media/source-key', userId: 'u1', projectId: 'proj-1' }),
+        create: vi.fn().mockResolvedValue({ id: 'media-1' }),
+      },
       team: { findFirst: vi.fn() },
     };
     const minio = {
@@ -37,8 +41,8 @@ describe('LightingConsumer', () => {
     };
     const gateway = { emitNodeStatus: vi.fn() };
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
-    teamCredit = { consume: vi.fn().mockResolvedValue(undefined) };
-    const collabDoc = { writeNodeData: vi.fn() };
+    teamCredit = { consume: vi.fn().mockResolvedValue({ success: true }) };
+    collabDoc = { writeNodeData: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,7 +66,7 @@ describe('LightingConsumer', () => {
         nodeId: 'n1',
         projectId,
         taskId: 'task-1',
-        originalImageUrl: 'https://minio.local/media/src.jpg',
+        originalImageId: 'media-src',
         params: {
           position: { x: 0, y: 0, z: 6 },
           brightness: 50,
@@ -125,5 +129,36 @@ describe('LightingConsumer', () => {
       }),
     );
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
+  });
+
+  describe('安全止血（spec 批0c-3：扣费守卫 + B1 越权读根修）', () => {
+    it('consume 失败（余额不足）→ task failed + writeNodeData 零调用 + 返回 failed', async () => {
+      teamCredit.consume.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
+      mockAxiosResult();
+
+      const result = await consumer.handleLightingJob(makeJob('proj-1'));
+
+      expect(result.status).toBe('failed');
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
+      expect(prisma.lightingTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'failed' }),
+        }),
+      );
+    });
+
+    it('originalImageId 归属：属他人且非本项目 → 拒绝（不泄露存在性）', async () => {
+      prisma.media.findUnique.mockResolvedValue({
+        id: 'media-src',
+        key: 'media/source-key',
+        userId: 'someone-else',
+        projectId: 'other-proj',
+      });
+      mockAxiosResult();
+
+      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('Media not found: media-src');
+      // 归属校验先于付费 AI 调用：越权读不应触发 relighting
+      expect(apiCaller.callRelighting).not.toHaveBeenCalled();
+    });
   });
 });

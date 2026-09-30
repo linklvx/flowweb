@@ -22,7 +22,7 @@ describe('LightingService', () => {
   const validDto = {
     nodeId: 'node-1',
     projectId: 'proj-1',
-    originalImageUrl: 'https://minio.example.com/buckets/media/bucket/key.jpg',
+    originalImageId: 'media-src',
     params: {
       position: { x: 0, y: 0, z: 6 },
       brightness: 50,
@@ -80,6 +80,8 @@ describe('LightingService', () => {
           projectId: 'proj-1',
           status: 'pending',
           params: validDto.params,
+          originalImageUrl: 'media-src',
+          costCredits: 1, // 预检口径与实扣同源 CREDIT_COST_PER_EDIT（批0c）
         }),
       });
       expect(queue.add).toHaveBeenCalledWith('lighting', expect.objectContaining({
@@ -102,16 +104,6 @@ describe('LightingService', () => {
 
     it('should reject invalid position z (must be >= 2)', async () => {
       const dto = { ...validDto, params: { ...validDto.params, position: { x: 0, y: 0, z: 0 } } };
-      await expect(service.createTask(dto, 'user-1')).rejects.toThrow();
-    });
-
-    it('should reject internal URLs (SSRF protection)', async () => {
-      const dto = { ...validDto, originalImageUrl: 'http://127.0.0.1/admin' };
-      await expect(service.createTask(dto, 'user-1')).rejects.toThrow();
-    });
-
-    it('should reject localhost URLs (SSRF protection)', async () => {
-      const dto = { ...validDto, originalImageUrl: 'https://localhost:3000/file.jpg' };
       await expect(service.createTask(dto, 'user-1')).rejects.toThrow();
     });
 
@@ -158,7 +150,8 @@ describe('LightingService', () => {
     });
 
     it('无 projectId（个人任务）→ 回落个人团队（getOwnerTeamId）', async () => {
-      const dto = { ...validDto, projectId: undefined };
+      // DTO projectId 已必填（批0c），此处 as any 模拟直调 service 的非法输入（防御分支仍在）
+      const dto = { ...validDto, projectId: undefined } as any;
 
       await service.createTask(dto, 'user-1');
 

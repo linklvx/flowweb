@@ -39,12 +39,11 @@ export class CreateLightingTaskDto {
   @IsString()
   nodeId!: string;
 
-  @IsOptional()
   @IsString()
-  projectId?: string;
+  projectId!: string;
 
   @IsString()
-  originalImageUrl!: string;
+  originalImageId!: string;
 
   @ValidateNested()
   @Type(() => LightingParamsDto)

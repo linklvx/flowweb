@@ -35,7 +35,7 @@ describe('LightingController', () => {
     const body = {
       nodeId: 'node-1',
       projectId: 'proj-1',
-      originalImageUrl: 'https://example.com/img.jpg',
+      originalImageId: 'media-src',
       params: {
         position: { x: 0, y: 0, z: 6 },
         brightness: 50,
@@ -63,11 +63,19 @@ describe('LightingController', () => {
       expect(service.createTask).not.toHaveBeenCalled();
     });
 
-    it('body 无 projectId 时跳过 assertEditor（个人任务）', async () => {
+    it('body 无 projectId 时也走 assertEditor（无条件，批0c：省略 projectId 即旁路已堵）', async () => {
       const { projectId: _ignored, ...noProject } = body;
-      await controller.createTask(noProject, mockReq());
-      expect(permSvc.assertEditor).not.toHaveBeenCalled();
+      await controller.createTask(noProject as any, mockReq());
+      expect(permSvc.assertEditor).toHaveBeenCalledWith(undefined, 'user-1');
       expect(service.createTask).toHaveBeenCalled();
+    });
+
+    it('省略 projectId 且守卫拒绝 → service 零调用（条件旁路根堵，批0c-3）', async () => {
+      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      const { projectId: _ignored2, ...noProject } = body;
+      await expect(controller.createTask(noProject as any, mockReq())).rejects.toThrow('无项目编辑权限');
+      expect(permSvc.assertEditor).toHaveBeenCalledWith(undefined, 'user-1');
+      expect(service.createTask).not.toHaveBeenCalled();
     });
   });
 

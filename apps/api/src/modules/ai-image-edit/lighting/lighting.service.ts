@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
-import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
+import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 
 const LightingTaskStatus = {
@@ -13,19 +13,6 @@ const LightingTaskStatus = {
   SUCCESS: 'success',
   FAILED: 'failed',
 } as const;
-
-const PRIVATE_IP_PATTERNS = [
-  /^https?:\/\/127\./,
-  /^https?:\/\/localhost/,
-  /^https?:\/\/10\./,
-  /^https?:\/\/172\.(1[6-9]|2\d|3[01])\./,
-  /^https?:\/\/192\.168\./,
-  /^https?:\/\/0\.0\.0\.0/,
-];
-
-function isPrivateUrl(url: string): boolean {
-  return PRIVATE_IP_PATTERNS.some((p) => p.test(url));
-}
 
 // 递归排序对象键后序列化（嵌套对象键序不同不击穿幂等比较）
 function stableStringify(value: unknown): string {
@@ -51,7 +38,7 @@ export class LightingService {
     userId: string,
   ): Promise<{ taskId: string; status: string }> {
     // Validate params
-    const { params, originalImageUrl } = dto;
+    const { params, originalImageId } = dto;
     if (params.brightness < 0 || params.brightness > 100) {
       throw new BadRequestException('亮度值必须在 0-100 之间');
     }
@@ -60,11 +47,6 @@ export class LightingService {
     }
     if (params.position.z < 2 || params.position.z > 10) {
       throw new BadRequestException('光源 Z 轴位置必须在 2-10 之间');
-    }
-
-    // SSRF protection
-    if (isPrivateUrl(originalImageUrl)) {
-      throw new BadRequestException('不支持内网图片地址');
     }
 
     // 团队解析：project 上下文 → project.teamId（缺失即拒绝，不回落）；无 projectId 的个人任务回落个人团队
@@ -97,7 +79,7 @@ export class LightingService {
     }
 
     // Check credits (team pool pre-check)
-    const estimatedCost = 15; // TODO: fetch from pricing config
+    const estimatedCost = CREDIT_COST_PER_EDIT; // 与实扣同源（批0c：消预检/实扣口径分叉）
     if (project) {
       const balance = await this.teamCredit.getBalanceView(teamId, userId);
       if (balance.total < estimatedCost) {
@@ -105,14 +87,14 @@ export class LightingService {
       }
     }
 
-    // Create task in DB（归属 = project.teamId / 个人团队）
+    // Create task in DB（归属 = project.teamId / 个人团队；列名沿用 originalImageUrl，值 = mediaId 引用——批0c B1）
     const task = await this.prisma.lightingTask.create({
       data: {
         userId,
         teamId,
         nodeId: dto.nodeId,
         projectId: dto.projectId,
-        originalImageUrl,
+        originalImageUrl: originalImageId,
         params: params as any,
         status: LightingTaskStatus.PENDING,
         costCredits: estimatedCost,
@@ -126,7 +108,7 @@ export class LightingService {
       nodeId: dto.nodeId,
       projectId: dto.projectId,
       taskId: task.id,
-      originalImageUrl,
+      originalImageId,
       params,
       taskDbId: task.id,
     });

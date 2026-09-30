@@ -32,7 +32,7 @@ export interface LightingJobData {
   nodeId: string;
   projectId?: string;
   taskId: string;
-  originalImageUrl: string;
+  originalImageId: string;
   params: LightingParams;
 }
 
@@ -77,8 +77,8 @@ export class LightingConsumer {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
-  async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string }> {
-    const { userId, nodeId, projectId, taskId, originalImageUrl, params } = job.data;
+  async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
+    const { userId, nodeId, projectId, taskId, originalImageId, params } = job.data;
 
     this.logger.log(`Processing lighting for task ${taskId}, node ${nodeId}`);
 
@@ -107,21 +107,19 @@ export class LightingConsumer {
         teamId = await getOwnerTeamId(this.prisma, userId);
       }
 
-      // 2. Get original image presigned URL
-      const presignedUrl = await this.minio.generatePresignedGetUrl(
-        originalImageUrl.replace(/.*\/media\//, '').split('?')[0] || originalImageUrl,
-        3600,
-      );
+      // 2. 归属校验 + 自签 presigned（批0c B1 根修：mediaId 引用替代 URL 直传，堵任意 media 越权读）
+      const sourceMedia = await this.prisma.media.findUnique({ where: { id: originalImageId } });
+      if (!sourceMedia || (sourceMedia.userId !== userId && sourceMedia.projectId !== projectId)) {
+        throw new Error(`Media not found: ${originalImageId}`); // 404 语义——不泄露存在性
+      }
+      const presignedUrl = await this.minio.generatePresignedGetUrl(sourceMedia.key, 3600);
 
       // 3. Build prompt from params
       const promptText = paramsToPrompt(params, params.customPrompt);
       this.logger.log(`Lighting prompt: ${promptText}`);
 
       // 4. Call AI gateway for relighting
-      const result = await this.apiCaller.callRelighting?.(
-        typeof presignedUrl === 'string' ? presignedUrl : originalImageUrl,
-        promptText,
-      );
+      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText);
 
       if (!result?.url) {
         throw new Error('AI relighting returned no result URL');
@@ -170,9 +168,27 @@ export class LightingConsumer {
         },
       });
 
-      // 9. Deduct credit (team pool)
+      // 9. Deduct credit (team pool)——返回值必须检查（批0c：免费算力止血）
       if (projectTeamId) {
-        await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
+        const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
+        if (!consumeResult.success) {
+          const reason = consumeResult.reason ?? 'CREDIT_CONSUME_FAILED';
+          this.logger.warn(`Lighting credit-consume failed for task ${taskId}: ${reason}`);
+          await this.prisma.lightingTask.update({
+            where: { id: taskId },
+            data: {
+              status: LightingTaskStatus.FAILED,
+              errorMessage: `扣费失败：${reason}`,
+              completedAt: new Date(),
+            },
+          });
+          this.gateway.emitNodeStatus(projectId || '', {
+            nodeId,
+            status: 'lighting-failed',
+            error: `扣费失败：${reason}`,
+          } as any);
+          return { status: 'failed', reason };
+        }
       }
 
       // 10. Write fileId to server doc；socket 仅进度通知
