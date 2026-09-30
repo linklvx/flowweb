@@ -102,3 +102,39 @@ describe('红1：connStatus 派生（真实事件序）', () => {
     expect(useCanvasStore.getState().connStatus).toBe('connected');
   });
 });
+
+describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
+  beforeEach(() => {
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [] });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab();
+  });
+
+  it('旧 destroy 的 await 恢复后不得置空新会话', async () => {
+    const p1 = await driveToSynced('p1');
+    // R23 交错装置：p1 首次 destroy 挂在 gate 上——构造"旧 destroy 的 await 恢复
+    // 晚于新 provider 创建"的竞态窗口（gate 手动释放）
+    let release!: () => void;
+    p1.destroyGate = new Promise<void>((r) => { release = r; });
+    const destroying = runtime.destroyCollab();   // #1：快照后挂在 gate
+    const second = runtime.initCollab('p2');      // 入口 destroy（p1 第2次调用即过）→ 新 provider 创建
+    await tick();
+    const p2 = lastInstance();
+    expect(p2).not.toBe(p1);                       // 新会话已建立在旧 destroy 的 await 期间
+    p2.emit('status', { status: 'connected' });
+    p2.isAuthenticated = true;
+    p2.isSynced = true;
+    p2.emit('authenticated', {});
+    p2.emit('synced', {});
+    p2.emit('message', {});
+    await second;
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+
+    release();                                     // 旧 destroy 恢复——竞态窗口打开
+    await destroying;
+    expect(runtime.getDoc()).not.toBeNull();      // 旧 destroy 恢复不得 null 掉新 doc（今天必红）
+    expect(useCanvasStore.getState().connStatus).toBe('connected'); // 新会话状态不被打穿
+  });
+});

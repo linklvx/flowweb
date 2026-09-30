@@ -348,15 +348,21 @@ export async function destroyCollab(): Promise<void> {
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   unbindStores?.();
   unbindStores = null;
-  if (provider) {
-    try { await provider.destroy(); } catch { /* 已销毁 */ }
-    provider = null;
+  // R23 实例守卫：await 恢复后仅当模块引用仍是"当时那个实例"才置空——
+  // 旧 destroy 的 await 间隙并发 initCollab 建立的新会话不被波及（交错置空）
+  const p = provider;
+  const d = doc;
+  if (p) {
+    try { await p.destroy(); } catch { /* 已销毁 */ }
+    if (provider === p) provider = null;
   }
-  awarenessBridge = null;
-  detachUndoManager();
-  doc?.destroy();
-  doc = null;
-  currentPid = null;
+  if (awarenessBridge && provider === null) awarenessBridge = null;
+  if (d) d.destroy();
+  if (doc === d) {
+    detachUndoManager();
+    doc = null;
+    currentPid = null;
+  }
 }
 
 /** P0-4：展开态普通组按子节点包围盒重算（加载回放共用） */
