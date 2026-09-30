@@ -1,9 +1,13 @@
 import { Controller, Post, Body, Inject, Req } from '@nestjs/common';
 import { AiImageEditService } from './ai-image-edit.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 
 @Controller('api/image-edit')
 export class AiImageEditController {
-  constructor(@Inject(AiImageEditService) private readonly service: AiImageEditService) {}
+  constructor(
+    @Inject(AiImageEditService) private readonly service: AiImageEditService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
+  ) {}
 
   @Post('outpaint')
   async outpaint(@Body() body: {
@@ -14,6 +18,7 @@ export class AiImageEditController {
     imageWidth: number;
     imageHeight: number;
   }, @Req() req: any) {
+    await this.perm.assertEditor(body.projectId, req.user.id);
     return this.service.enqueueOutpaint(
       req.user.id,
       body.projectId,
@@ -27,6 +32,7 @@ export class AiImageEditController {
 
   @Post('erase')
   async erase(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string }, @Req() req: any) {
+    await this.perm.assertEditor(body.projectId, req.user.id);
     return this.service.enqueueErase(
       req.user.id,
       body.projectId,
@@ -38,6 +44,7 @@ export class AiImageEditController {
 
   @Post('redraw')
   async redraw(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number }, @Req() req: any) {
+    await this.perm.assertEditor(body.projectId, req.user.id);
     return this.service.enqueueRedraw(
       req.user.id,
       body.projectId,
