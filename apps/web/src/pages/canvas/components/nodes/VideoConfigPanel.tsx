@@ -190,9 +190,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       const nodeState = useNodeStore.getState();
       const existing = nodeState.nodes[nodeId] as any;
       const currentPrompt = existing?.data?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
-      useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: { ...currentPrompt, text: latestText } } } },
-      });
+      // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: { ...currentPrompt, text: latestText } });
       if (!projectId) return;
       // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
       intentId = lastSubmitRef.current?.failed

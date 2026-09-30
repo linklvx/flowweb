@@ -27,6 +27,8 @@ import { readViewport } from '@/utils/viewportPersistence';
 import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
 import { recordCollabDiag, isAutoRecoverDisabled } from '@/utils/collabDiagnostics';
+// 批2-2 VIEWER 第一层（doc 硬门）：canEdit 假（readOnly/terminal/非 ready）⇒ doc 零写
+import { canEdit } from './syncStatus';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -379,7 +381,12 @@ export function applyDocToStore(d: Y.Doc) {
   // data 是 ns 优先，回写时 ns 还是旧值会把协作者刚提交的编辑从 doc 回退（doc=旧/本端=新的分裂脑）。
   // pickStructNodes 只读 cs.nodes，重排对 diff 语义零影响。
   useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
-  if (!isEqual(before, pickStructNodes(useCanvasStore.getState().nodes))) {
+  // 批2-2 第一层（doc 硬门）：readOnly 会话 doc 零写含 system intent——几何修正止步 store 层
+  // （refit 照跑，doc 保持服务端原值；readOnly Update 服务端一律 NACK，写必分叉）。
+  // 判据用 collabReadOnly 而非 canEdit：S1 在水合窗口内执行（setHydration('ready') 在本函数
+  // 返回后才写），canEdit 的 ready 分量在此结构性为假——用它会把 rw 会话的既有几何回写一并杀掉
+  // （rw 回归锚：S1 照常落 doc）
+  if (!isEqual(before, pickStructNodes(useCanvasStore.getState().nodes)) && !useCanvasStore.getState().collabReadOnly) {
     syncStoreToDoc(d, Origin.Geometry);
   }
 }
@@ -390,6 +397,10 @@ function bindBridge(): () => void {
     // 批2-1 双门：hydration 非 ready（会话建立/水合窗口——R17 切项目清空不得翻译成删除）
     // + applyingRemote（远端应用窗口——原 isHydrating latch 职责迁入）
     if (state.hydration !== 'ready' || applyingRemote) return;
+    // 批2-2 第一层（doc 硬门）：readOnly 会话 doc 零写——含 syncAutoEdgesToDoc（唯一调用点在本
+    // 回调内，此处短路即同步覆盖）。覆盖一切现在与未来的 setState 旁路（R29），拖拽回弹由
+    // React Flow 受控 + 下一远端帧覆盖自愈（doc 是真相）
+    if (!canEdit(state)) return;
     if (state.projectId !== prev.projectId) return;
     // diff 输入只有 nodes/edges——引用未变早退（严格等价：同引用 ⇒ pickStruct 投影输出相同
     // ⇒ isEqual 恒真 ⇒ 原逻辑本就 no-op），防 UI 态翻转白跑 O(n) 投影+深比较
@@ -402,7 +413,8 @@ function bindBridge(): () => void {
     }
   });
   const unsubNs = useNodeStore.subscribe((state, prev) => {
-    if (applyingRemote || useCanvasStore.getState().hydration !== 'ready') return;
+    // 批2-2 第一层（doc 硬门）：canEdit 已含 hydration==='ready'——readOnly 会话 ns 写同样零落 doc
+    if (applyingRemote || !canEdit(useCanvasStore.getState())) return;
     if (state.nodes !== prev.nodes) syncStoreToDoc(doc!, Origin.LocalUser);
   });
   return () => { unsubCs(); unsubNs(); };

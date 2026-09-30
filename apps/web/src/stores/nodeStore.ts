@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
+import { canEdit } from './syncStatus';
 import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
 
 export type { ExecStatusEntry, NodeExecStatus } from './execStatusView';
@@ -248,6 +250,16 @@ function bridgeToCanvasStore(nodeId: string, patch: Record<string, unknown>) {
   });
 }
 
+// 批2-2 VIEWER 第二层（UX 预检）：ns 内容写收口 wrapper 的 toast 节流窗——
+// 同一节点 2s 内不重复弹（拖拽/连续键入不风暴），异节点各自计时
+const VIEWER_TOAST_THROTTLE_MS = 2_000;
+const viewerToastAt = new Map<string, number>();
+
+/** 测试缝（只读复位）：节流窗跨用例复位——_resetBaselineForTest 同先例 */
+export function _resetViewerToastForTest() {
+  viewerToastAt.clear();
+}
+
 /** Merge root-level allImages + legacy nested prompt.allImages, dedupe by id (missed cleanup is irreversible; duplicate DELETE is harmless) */
 /**
  * Merge node config — type-agnostic, works for image/video/text nodes.
@@ -316,6 +328,10 @@ interface NodeState {
   addNode: (node: AppNode) => void;
   updateNodeData: <T>(nodeId: string, data: Partial<T>) => void;
   deleteNode: (nodeId: string) => Promise<void>;
+
+  // 批2-2 VIEWER 第二层：ns 内容写收口 wrapper（canEdit 假时早退+toast 节流；
+  // 真时等价原 ConfigPanel setState 直写行为 + 白名单键桥接 cs）
+  applyNodeDataPatch: (nodeId: string, patch: Record<string, unknown>) => void;
 
   updateText: (id: string, content: string) => void;
   updateConfig: (id: string, config: Partial<NodeData>) => void;
@@ -513,6 +529,35 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     set({ nodes: newNodes });
   },
 
+  applyNodeDataPatch: (nodeId, patch) => {
+    // 批2-2 VIEWER 第二层：canEdit 假（readOnly/terminal/非 ready）时早退——被拒时 store 从未
+    // 变更（无"先改后回弹"、无 reconcile）；doc 零写由第一层硬门兜底（本层是 UX 面）
+    if (!canEdit(useCanvasStore.getState())) {
+      const now = Date.now();
+      if (now - (viewerToastAt.get(nodeId) ?? 0) >= VIEWER_TOAST_THROTTLE_MS) {
+        viewerToastAt.set(nodeId, now);
+        message.warning('当前为只读会话，编辑未生效');
+      }
+      return;
+    }
+    const existing = getNode(get().nodes, nodeId);
+    if (!existing) return;
+    set((s) => ({
+      nodes: {
+        ...s.nodes,
+        [nodeId]: {
+          ...existing,
+          data: { ...existing.data, ...patch } as NodeData,
+        },
+      },
+    }));
+    // 桥白名单键到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应——桥语义不变）
+    const bridged = Object.entries(patch).filter(([k]) => CANVAS_BRIDGE_KEYS.has(k));
+    if (bridged.length > 0) {
+      bridgeToCanvasStore(nodeId, Object.fromEntries(bridged));
+    }
+  },
+
   updateText: (id, content) => {
     const existing = getNode(get().nodes, id);
     if (existing) {
@@ -607,18 +652,9 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   setFileResult: (id, fileId) => {
-    const existing = getNode(get().nodes, id);
-    if (!existing) return;
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [id]: {
-          ...existing,
-          data: { ...existing.data, fileId, status: 'done' as const },
-        },
-      },
-    }));
-    bridgeToCanvasStore(id, { fileId, status: 'done' });
+    // 批2-2：AI 落地改走收口 wrapper（原 :243 桥直灌路径）——readOnly 时 fileId/status 不写入
+    // store。拒本地写非丢数据：服务端产物经 doc exec map 投影照旧可见（批1-6 双源）
+    get().applyNodeDataPatch(id, { fileId, status: 'done' });
   },
 
   updatePromptImages: (nodeId, allImages) => {

@@ -80,6 +80,7 @@ vi.mock('@/stores/nodeStore', () => {
     updatePromptImages: mockUpdatePromptImages,
     setStatus: vi.fn(),
     getNodeData: () => mockNodeData,
+    applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
   });
   return {
     useNodeStore: Object.assign(

@@ -44,6 +44,8 @@ const GETMAP_FILES = [
 
 // C. setState 直调白名单：协作数据写入路径四文件（canvasHistory 为 0.5 接线前瞻项，现状无命中）
 // + 现状豁免（见各条注释——均非 collab 恢复路径的既有 UI 写点，锁现状防新增，收口另行推进）。
+// 批2-2：四 ConfigPanel 10 处 setState 已收口至 nodeStore.applyNodeDataPatch——豁免条目删除
+// （白名单外零命中；回退/新增旁路当场红）。
 const STORE_SETSTATE_FILES = [
   'src/stores/canvasStore.ts',           // store 自身
   'src/stores/nodeStore.ts',             // store 自身
@@ -54,11 +56,6 @@ const STORE_SETSTATE_FILES = [
   'src/hooks/useMarqueeSelectionGuard.ts',      // UI 交互态（框选 guard），非协作数据
   'src/pages/canvas/components/CanvasView.tsx', // UI 交互态（pendingFillCell/pendingMediaFile/marqueeSelecting）
   'src/pages/canvas/video-editor/components/VideoEditorShell.tsx', // editorDirty B4 镜像（批0d-2，beforeunload 消费）
-  // 批 2 VIEWER store wrapper 收口四 ConfigPanel 10 处后，本豁免清单须同步删对应条目（spec 批 2 行）
-  'src/pages/canvas/components/nodes/AudioConfigPanel.tsx', // 表单编辑写点（useNodeStore），非协作数据
-  'src/pages/canvas/components/nodes/ImageConfigPanel.tsx', // 同上
-  'src/pages/canvas/components/nodes/TextConfigPanel.tsx',  // 同上
-  'src/pages/canvas/components/nodes/VideoConfigPanel.tsx', // 同上
 ];
 
 const MSG = {

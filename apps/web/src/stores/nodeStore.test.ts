@@ -223,6 +223,8 @@ describe('nodeStore (AppNode nested structure)', () => {
   it('should set fileId and mark status=done via setFileResult', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img5', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img5', { style: '写实' });
+    // 批2-2：AI 落地走 canEdit 门——rw 会话电平（默认 idle/readonly 会被 wrapper 早退）
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     useNodeStore.getState().setFileResult('img5', 'file-abc-123');
 
     const stored = useNodeStore.getState().nodes['img5'];
@@ -1290,6 +1292,8 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     useNodeStore.setState({ nodes: {}, activeTransformNodeId: null, activeEditNodeId: null, cancelRequestedAt: 0, saveHandlers: {} });
     useNodeStore.getState().addNode({ id: 'b1', type: 'imageGen', data: {} as any });
     useCanvasStore.setState({ nodes: [{ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], edges: [] });
+    // 批2-2：setFileResult 走 canEdit 门——rw 会话电平（默认 idle/readonly 会被 wrapper 早退）
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
   });
 
   it('updateConfig 白名单字段（referenceImage）桥接到 canvasStore', () => {

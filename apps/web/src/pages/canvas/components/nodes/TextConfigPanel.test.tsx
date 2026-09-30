@@ -32,6 +32,7 @@ const { mockNodeStoreState } = vi.hoisted(() => {
   const state: any = {
     nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', prompt: '', model: 'm1' } } },
     setStatus: vi.fn(),
+    applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
   };
   return { mockNodeStoreState: state };
 });

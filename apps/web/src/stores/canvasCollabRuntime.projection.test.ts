@@ -84,6 +84,8 @@ describe('S1 hydrate 收尾回写（Task 17 审查——applyDocToStore 直驱�
 
   it('S1 有 diff 时回写发生：doc 违反不变量的组框经 refit 修复写回（回写可见）', () => {
     const d = S1_DOC();
+    // 批2-2：S1 回写是 rw 会话行为——直驱装置显式置非只读（默认 collabReadOnly=true 会被硬门拦）
+    useCanvasStore.setState({ collabReadOnly: false });
     // 期望 = calcGroupBounds(子绝对 rect)——纯函数期望，非手算（Task 17 四法律同款）
     const expectFrame = calcGroupBounds([{ x: 0, y: 0, width: 100, height: 60 }]);
     applyDocToStore(d);

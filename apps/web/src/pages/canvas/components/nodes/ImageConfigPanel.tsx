@@ -59,11 +59,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     imageNodeApi.fetchModels().then((list) => {
       setModels(list);
       if (!nodeData?.model && list.length > 0) {
-        const store = useNodeStore.getState();
-        const existing = store.nodes[nodeId] as any;
-        useNodeStore.setState({
-          nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
-        });
+        // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+        useNodeStore.getState().applyNodeDataPatch(nodeId, { model: list[0].id });
       }
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

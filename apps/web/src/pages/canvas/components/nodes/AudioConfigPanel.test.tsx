@@ -25,6 +25,7 @@ vi.mock('@/stores/nodeStore', () => {
     },
     updateConfig: mockUpdateConfig,
     setStatus: vi.fn(),
+    applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
   });
   return {
     useNodeStore: Object.assign(

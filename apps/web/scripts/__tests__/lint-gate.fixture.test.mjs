@@ -255,6 +255,20 @@ describe('flowweb/no-store-setstate 静态断言（fixture，批0e-4 C）', () =
     expect(messages).toHaveLength(2);
     expect(messages.every((m) => m.ruleId === 'flowweb/no-store-setstate')).toBe(true);
   });
+
+  // 批2-2 收窄：四 ConfigPanel 10 处 setState 收口至 applyNodeDataPatch 后，豁免条目删除——
+  // 直调 setState 判违例（收口回退/新增旁路当场红）
+  it('批2-2 收窄：四 ConfigPanel 移出白名单——直调 useNodeStore.setState 各判违例', () => {
+    for (const f of ['AudioConfigPanel', 'ImageConfigPanel', 'TextConfigPanel', 'VideoConfigPanel']) {
+      const messages = lintCollabFixture(
+        'no-store-setstate',
+        'useNodeStore.setState({ nodes });',
+        `src/pages/canvas/components/nodes/${f}.tsx`,
+      );
+      expect(messages, f).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('flowweb/no-store-setstate');
+    }
+  });
 });
 
 describe('lint-gate 增量门禁（fixture）', () => {

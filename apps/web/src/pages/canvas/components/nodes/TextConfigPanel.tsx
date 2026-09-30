@@ -61,11 +61,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
           const list: ModelInfo[] = json.data;
           setModels(list);
           if (!nodeData?.model && list.length > 0) {
-            const store = useNodeStore.getState();
-            const existing = store.nodes[nodeId] as any;
-            useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
-            });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { model: list[0].id });
           }
         }
       })
@@ -87,11 +84,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
 
   const handleModelSelect = useCallback(
     (modelId: string) => {
-      const store = useNodeStore.getState();
-      const existing = store.nodes[nodeId] as any;
-      useNodeStore.setState({
-        nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: modelId } } },
-      });
+      // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { model: modelId });
       updatePrice(modelId);
       setModelOpen(false);
     },
@@ -147,12 +141,9 @@ function TextConfigPanelComponent({ nodeId }: Props) {
     const projectId = useCanvasStore.getState().projectId;
     let intentId = '';
     try {
-      const nodeState = useNodeStore.getState();
       // Inject prompt as content for execution
-      const existing = nodeState.nodes[nodeId] as any;
-      useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: prompt } } },
-      });
+      // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
       if (!projectId) return;
       // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
       intentId = lastSubmitRef.current?.failed
@@ -215,11 +206,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
           onChange={(e) => {
             setPrompt(e.target.value);
             // Persist to nodeStore immediately so text survives panel hide/show
-            const store = useNodeStore.getState();
-            const existing = store.nodes[nodeId] as any;
-            useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: e.target.value } } },
-            });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: e.target.value });
           }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
           className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"

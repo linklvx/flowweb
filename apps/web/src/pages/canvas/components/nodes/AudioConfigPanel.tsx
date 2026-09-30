@@ -64,11 +64,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
           const list: ModelInfo[] = json.data;
           setModels(list);
           if (!nodeData?.model && list.length > 0) {
-            const store = useNodeStore.getState();
-            const existing = store.nodes[nodeId] as any;
-            useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: list[0].id } } },
-            });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { model: list[0].id });
           }
         }
       })
@@ -90,11 +87,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
 
   const handleModelSelect = useCallback(
     (modelId: string) => {
-      const store = useNodeStore.getState();
-      const existing = store.nodes[nodeId] as any;
-      useNodeStore.setState({
-        nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, model: modelId } } },
-      });
+      // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { model: modelId });
       updatePrice(modelId);
       setModelOpen(false);
     },
@@ -143,11 +137,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     try {
-      const nodeState = useNodeStore.getState();
-      const existing = nodeState.nodes[nodeId] as any;
-      useNodeStore.setState({
-        nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: prompt } } },
-      });
+      // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
       const { jobId } = await enqueueWorkflow({ projectId, nodeId });
@@ -197,11 +188,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
           value={prompt}
           onChange={(e) => {
             setPrompt(e.target.value);
-            const store = useNodeStore.getState();
-            const existing = store.nodes[nodeId] as any;
-            useNodeStore.setState({
-              nodes: { ...store.nodes, [nodeId]: { ...existing, data: { ...existing?.data, content: e.target.value } } },
-            });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { content: e.target.value });
           }}
           placeholder="描述你要生成的音频内容。例如：一段轻快的钢琴曲，带有雨声背景。"
           className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"
