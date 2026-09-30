@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { PhoneLoginForm } from '@/components/auth/PhoneLoginForm';
 import { WeChatQRLogin } from '@/components/auth/WeChatQRLogin';
 import { AgreementFooter } from '@/components/auth/AgreementFooter';
+import { resolvePostLoginTarget } from '@/utils/loginRedirect';
 /** @deprecated 旧邮箱登录，后续替换 */
 import { AuthModal } from '@/components/AuthModal';
 
@@ -37,7 +38,8 @@ export function LoginPage() {
           )}
 
           <div className="flex gap-0 pl-10 h-[550px] rounded-t-[12px]">
-            <PhoneLoginForm onLoginSuccess={() => { window.location.href = '/canvas'; }} />
+            {/* 批2-3 收口：登录后目标 = ?next 白名单透传（非白名单/外链回落 /works）；整页导航归 beforeunload 域，语义照旧只是目标收口 */}
+          <PhoneLoginForm onLoginSuccess={() => { window.location.href = resolvePostLoginTarget(new URLSearchParams(window.location.search).get('next')); }} />
 
             {/* Divider */}
             <div

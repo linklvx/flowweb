@@ -2,6 +2,9 @@
 import * as Y from 'yjs';
 import { normalizeCanvasRecord, type CanvasNodeRecord } from '@flowweb/shared';
 
+/** 批2-3（R1c 前置物）：doc meta schema 版本——结构迁移判据的持久锚点（随 update 传播/服务端持久） */
+export const CANVAS_DOC_SCHEMA_VERSION = 1;
+
 export interface PlainEdge {
   id: string;
   source?: string;
@@ -15,6 +18,11 @@ export function buildDocFromSnapshot(nodes: CanvasNodeRecord[], edges: PlainEdge
 }
 
 export function fillDoc(doc: Y.Doc, nodes: CanvasNodeRecord[], edges: PlainEdge[]): void {
+  // meta schemaVersion（批2-3）：同值 no-op 守卫——syncStoreToDoc 逐新节点也走 fillDoc，防 doc 膨胀
+  const meta = doc.getMap('meta');
+  if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
+    meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
+  }
   const nodesMap = doc.getMap('nodes');
   for (const n of nodes) {
     // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5

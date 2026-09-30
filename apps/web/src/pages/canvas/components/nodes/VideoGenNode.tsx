@@ -223,6 +223,9 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
         },
       ], { skipEdges: true });
 
+      // 批2-3 R20：canEdit 假时 addChildNodes 静默返回 []——无新节点可连边，防 addEdge(id, undefined) 脏边
+      if (newNodeIds.length === 0) return;
+
       const store = useCanvasStore.getState();
       store.addEdge(id, newNodeIds[0]);
       store.addEdge(id, newNodeIds[1]);

@@ -15,6 +15,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
+import { canEdit } from './syncStatus';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
@@ -327,6 +328,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   addChildNode: (sourceId, data) => {
     const sourceNode = get().nodes.find((n) => n.id === sourceId);
     if (!sourceNode) return null;
+    // 批2-3 R20 异步落地：canEdit 假（断连/只读/未水合）时生成回调静默丢弃（不回弹不抛错）。
+    // 产物已落素材库（presign/confirm 先于回调）——仅丢"插入画布"这步，toast 指引手动补
+    if (!canEdit(get())) {
+      message.warning('生成完成，但画布会话不可用，未插入画布——可从素材库手动插入');
+      return null;
+    }
     const id = getId('node');
     const edgeId = getId('edge');
     const GAP = 40;
@@ -377,6 +384,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   addChildNodes: (sourceId, nodeDataList, options) => {
     const sourceNode = get().nodes.find((n) => n.id === sourceId);
     if (!sourceNode || nodeDataList.length === 0) return [];
+    // 批2-3 R20 异步落地：同 addChildNode 门——整批静默丢弃 + toast 一次
+    if (!canEdit(get())) {
+      message.warning('生成完成，但画布会话不可用，未插入画布——可从素材库手动插入');
+      return [];
+    }
 
     const skipEdges = options?.skipEdges ?? false;
 

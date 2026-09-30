@@ -8,7 +8,7 @@ vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResol
 
 describe('canvasStore', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null });
+    useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null, hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
     useNodeStore.setState({ nodes: {} });
   });
 
@@ -58,6 +58,8 @@ describe('canvasStore', () => {
 
   it('addChildNodes should inherit imageExtGen type from parent', () => {
     const parentId = useCanvasStore.getState().addNode('imageExt', { x: 100, y: 100 });
+    // 批2-3：addChildNodes 走 canEdit 门——rw 会话电平（默认 idle/readonly 会被静默拒，见 async-landing.spec）
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     const { addChildNodes } = useCanvasStore.getState() as any;
     const childIds = addChildNodes(parentId, [{ data: { fileId: 'test' }, gridRow: 0, gridCol: 0 }]);
     const child = useCanvasStore.getState().nodes.find((n: any) => n.id === childIds[0])!;

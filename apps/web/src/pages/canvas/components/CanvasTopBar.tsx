@@ -14,6 +14,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { getDefaultTeam } from '@/api/teamApi';
 import CreditsDropdown from './CreditsDropdown';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
+import { loginUrl } from '@/utils/loginRedirect';
 
 interface Props {
   projectId: string;
@@ -173,8 +174,9 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
               </span>
             </Dropdown>
           ) : (
+            // 批2-3 收口：登录入口带 next=当前画布地址（loginUrl 唯一真相源——登录后回跳本画布）
             <Link
-              to="/login"
+              to={loginUrl()}
               className="px-2 py-0.5 rounded-full text-xs border border-accent text-accent-text no-underline hover:bg-[#4ade80]/10 transition-colors"
             >
               登录

@@ -100,3 +100,32 @@ describe('ydocBuilder 信封收敛（R1a）', () => {
     expect(Y.encodeStateVector(doc)).toEqual(sv);   // 状态向量不变=no-op 未产生新 item
   });
 });
+
+describe('批2-3：doc meta schemaVersion（R1c 前置物）', () => {
+  it('fillDoc 写 meta.schemaVersion=1', () => {
+    const doc = new Y.Doc();
+    fillDoc(doc, [], []);
+    expect(doc.getMap('meta').get('schemaVersion')).toBe(1);
+  });
+
+  it('buildDocFromSnapshot 构造入口同携带', () => {
+    const doc = buildDocFromSnapshot([], []);
+    expect(doc.getMap('meta').get('schemaVersion')).toBe(1);
+  });
+
+  it('真 Y.Doc 经 fillDoc → encodeStateAsUpdate → 新 doc 读回仍为 1（服务端持久判据：随 update 传播）', () => {
+    const a = new Y.Doc();
+    fillDoc(a, [], []);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    expect(b.getMap('meta').get('schemaVersion')).toBe(1);
+  });
+
+  it('fillDoc 同值重写 no-op（syncStoreToDoc 逐新节点调 fillDoc——防 doc 膨胀）', () => {
+    const doc = new Y.Doc();
+    fillDoc(doc, [], []);
+    const sv = Y.encodeStateVector(doc);
+    fillDoc(doc, [], []);
+    expect(Y.encodeStateVector(doc)).toEqual(sv);
+  });
+});

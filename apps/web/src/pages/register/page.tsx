@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { resolvePostLoginTarget } from '@/utils/loginRedirect';
 
 export function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -17,7 +18,7 @@ export function RegisterPage() {
         credentials: 'include',
       });
       if (!res.ok) { setError('注册失败，邮箱可能已存在'); return; }
-      window.location.href = '/canvas';
+      window.location.href = resolvePostLoginTarget(new URLSearchParams(window.location.search).get('next'));
     } catch { setError('网络错误，请重试'); }
   };
 
