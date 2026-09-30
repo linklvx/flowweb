@@ -75,6 +75,11 @@ let lastWsStatus: 'connecting' | 'connected' | 'disconnected' = 'connecting';
 let attemptId = 0;
 let inboundAttemptId = -1;
 
+/** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
+ *  它就是 delta 写的删除半边（批4b 同规则）；initCollab 每会话重置 null（首同步 doc 为源不删）。 */
+let prevNodeIds: Set<string> | null = null;
+let prevEdgeIds: Set<string> | null = null;
+
 /** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
  *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣）。
  *  唯一豁免：initCollab 超时分支直写 'offline'——destroyCollab 已断事件通道且 provider=null，
@@ -116,7 +121,8 @@ export function syncStoreToDoc(d: Y.Doc, origin: string) {
 
   d.transact(() => {
     for (const id of [...nodesMap.keys()]) {
-      if (!nodeIds.has(id)) nodesMap.delete(id);
+      if (nodeIds.has(id)) continue;
+      if (prevNodeIds !== null && prevNodeIds.has(id)) nodesMap.delete(id);
     }
     for (const n of nodes) {
       const existing = nodesMap.get(n.id);
@@ -140,7 +146,7 @@ export function syncStoreToDoc(d: Y.Doc, origin: string) {
     }
     for (const id of [...edgesMap.keys()]) {
       if (isAutoEdgeId(id)) continue; // auto 边删除只归 syncAutoEdgesToDoc（防订阅误删）
-      if (!edgeIds.has(id)) edgesMap.delete(id);
+      if (!edgeIds.has(id) && prevEdgeIds !== null && prevEdgeIds.has(id)) edgesMap.delete(id);
     }
     for (const e of edges) {
       if (isAutoEdgeId(e.id)) continue; // auto 边新增/更新只归 syncAutoEdgesToDoc
@@ -153,6 +159,8 @@ export function syncStoreToDoc(d: Y.Doc, origin: string) {
       if (existing.get('target') !== e.target) existing.set('target', e.target ?? '');
     }
   }, origin);
+  prevNodeIds = new Set(nodeIds);
+  prevEdgeIds = new Set(edgeIds);
 }
 
 /** 自动边全量对账（无业务参数——id 自编码 editNodeId）：store 侧 auto 边为期望态，doc 补齐增删。
@@ -265,6 +273,9 @@ export async function initCollab(projectId: string): Promise<void> {
   lastWsStatus = 'connecting';
   attemptId = 0;
   inboundAttemptId = -1;
+  // 批0b deletion baseline 会话起点复位：null=首同步 doc 为源不删（旧会话基线携带过来会误删新会话 doc 独有 key）
+  prevNodeIds = null;
+  prevEdgeIds = null;
   doc = new Y.Doc();
   attachUndoManager(doc);
 
@@ -324,6 +335,12 @@ export async function initCollab(projectId: string): Promise<void> {
   useCanvasStore.getState().setHydrating(true);
   applyDocToStore(doc!);
   useCanvasStore.getState().setHydrating(false);
+  // 批0b：hydration 即 committed 基线（spec"committed 雏形/prev 投影"）——首次本地同步的删除判据
+  // 有源（首编辑=删除场景不丢删除）；影子经 readCanvasFromDoc 过滤于投影外 → 永不进基线
+  // （影子生命周期归服务端批0b-2，本地删除扫描永不触及）
+  const seeded = storeProjection();
+  prevNodeIds = new Set(seeded.nodes.map((n) => n.id));
+  prevEdgeIds = new Set(seeded.edges.map((e) => e.id));
 
   const onRemote = (events: any[]) => {
     // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
