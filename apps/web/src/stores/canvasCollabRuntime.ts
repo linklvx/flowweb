@@ -404,8 +404,8 @@ function bindBridge(): () => void {
 /** onRemote fromLocal 判定用（M4：每事件字面量数组分配的模块级提升） */
 const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
-/** 批1-3：七监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
- *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。七事件：status/authenticated/
+/** 批1-3：六监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
+ *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。六事件：status/authenticated/
  *  synced/message/close/unsyncedChanges（1-4：number===0 清 rebuildPending）。
  *  事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
  *  （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
@@ -445,7 +445,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
 }
 
 /** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
- *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 七监听挂载。 */
+ *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。 */
 function createProvider(d: Y.Doc): HocuspocusProvider {
   const { WebSocketClass, handle } = createReconnectingWebSocket(collabUrl());
   transportHandle = handle;
