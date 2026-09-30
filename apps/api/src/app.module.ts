@@ -3,7 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import Redis from 'ioredis';
+import { REDIS_CLIENT, createManagedRedis } from './common/redis/managed-redis';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContentModule } from './modules/content/content.module';
@@ -96,8 +96,8 @@ const env = validateEnv();
     // AdminGuard 必须注册在 AuthGuard 之后（Nest APP_GUARD 按注册顺序执行，否则 req.user 尚未挂载）
     { provide: APP_GUARD, useClass: AdminGuard },
     {
-      provide: 'REDIS_CLIENT',
-      useFactory: () => new Redis(env.REDIS_URL),
+      provide: REDIS_CLIENT,   // 批3-2 B6：受管工厂（onApplicationShutdown duck-typing disconnect）
+      useFactory: () => createManagedRedis(),
     },
   ],
 })

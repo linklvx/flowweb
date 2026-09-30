@@ -1,18 +1,15 @@
 import { Module } from '@nestjs/common';
-import Redis from 'ioredis';
 import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
 import { MediaBatchService } from './media-batch.service';
-import { validateEnv } from '../../config/env';
-
-const env = validateEnv();
+import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 @Module({
   controllers: [MediaController],
   providers: [
     MediaService,
     MediaBatchService,
-    { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },
+    { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
   exports: [MediaService],
 })

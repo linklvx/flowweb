@@ -1,6 +1,5 @@
 import { Module, OnApplicationBootstrap, forwardRef } from '@nestjs/common';
 import * as crypto from 'crypto';
-import Redis from 'ioredis';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { SubscriptionOrderService } from '../subscription/subscription-order.service';
 import { TeamModule } from '../team/team.module';
@@ -9,6 +8,7 @@ import { RechargeController } from './recharge.controller';
 import { RechargeService } from './recharge.service';
 import { WechatPaymentProvider } from './providers/wechat-payment.provider';
 import { PaymentGateway } from './payment.gateway';
+import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 @Module({
   imports: [forwardRef(() => SubscriptionModule), forwardRef(() => TeamModule)],
@@ -16,10 +16,7 @@ import { PaymentGateway } from './payment.gateway';
   providers: [
     RechargeService,
     PaymentGateway,
-    {
-      provide: 'REDIS_CLIENT',
-      useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'),
-    },
+    { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
     {
       provide: 'PAYMENT_PROVIDER',
       useFactory: () => {

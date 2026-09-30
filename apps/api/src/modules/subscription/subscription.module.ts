@@ -11,10 +11,7 @@ import { OrderModule } from '../order/order.module';
 import { RechargeModule } from '../recharge/recharge.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { QUEUE_NAMES } from '../../config/queue.constants';
-import Redis from 'ioredis';
-import { validateEnv } from '../../config/env';
-
-const env = validateEnv();
+import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 @Module({
   imports: [
@@ -31,7 +28,7 @@ const env = validateEnv();
     PricingService,
     SubscriptionBannerService,
     AuditService,
-    { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },
+    { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
   exports: [SubscriptionService, SubscriptionOrderService, PricingService, SubscriptionBannerService],
 })

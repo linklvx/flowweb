@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
-import Redis from 'ioredis';
+import { Injectable, Inject } from '@nestjs/common';
+import type Redis from 'ioredis';
 import { auth } from './auth';
 import { parseSessionToken } from '../common/utils/parse-session-token';
-
-const redis = new Redis({ host: 'localhost', port: 6379 });
+import { REDIS_CLIENT } from '../common/redis/managed-redis';
 
 @Injectable()
 export class AuthService {
+  /** 批3-2 B6：拔除硬编码 localhost 直连 Redis——注入本模块受管 REDIS_CLIENT
+   *  （env.REDIS_URL + onApplicationShutdown 收口，本机无 Redis 的环境不再隐性连 localhost） */
+  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+
   async signIn(email: string, password: string) {
     return auth.api.signInEmail({ body: { email, password } });
   }
@@ -29,7 +32,7 @@ export class AuthService {
       const ttl = Math.max(1, Math.floor(
         (new Date(session.session.expiresAt).getTime() - Date.now()) / 1000
       ));
-      await redis.set(`blacklist:rt:${sessionToken}`, '1', 'EX', ttl);
+      await this.redis.set(`blacklist:rt:${sessionToken}`, '1', 'EX', ttl);
     }
     return auth.api.signOut({
       headers: new Headers({ cookie: `flowweb.session_token=${sessionToken}` }),
@@ -37,7 +40,7 @@ export class AuthService {
   }
 
   async isBlacklisted(token: string): Promise<boolean> {
-    const exists = await redis.exists(`blacklist:rt:${token}`);
+    const exists = await this.redis.exists(`blacklist:rt:${token}`);
     return exists === 1;
   }
 

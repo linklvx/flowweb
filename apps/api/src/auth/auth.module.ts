@@ -1,11 +1,12 @@
-import { Module } from '@nestjs/common';
-import Redis from 'ioredis';
+import { Module, OnApplicationShutdown } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { WechatController } from './wechat/wechat.controller';
 import { WechatService } from './wechat/wechat.service';
 import { SmsModule } from '../modules/sms/sms.module';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
+import { REDIS_CLIENT, createManagedRedis } from '../common/redis/managed-redis';
+import { authRedis } from './auth';
 
 @Module({
   imports: [SmsModule],
@@ -15,10 +16,16 @@ import { RateLimiterService } from '../common/services/rate-limiter.service';
     WechatService,
     RateLimiterService,
     {
-      provide: 'REDIS_CLIENT',
-      useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'),
+      provide: REDIS_CLIENT,   // 批3-2 B6：受管工厂（onApplicationShutdown duck-typing disconnect）
+      useFactory: () => createManagedRedis(),
     },
   ],
   exports: [AuthService],
 })
-export class AuthModule {}
+/** 批3-2 B6：auth.ts 顶层单例（betterAuth OTP Lua 用，DI 容器外）由 module 钩子收口——
+ *  不关则 ioredis 保活 event loop，进程退不出 */
+export class AuthModule implements OnApplicationShutdown {
+  onApplicationShutdown() {
+    authRedis.disconnect();
+  }
+}

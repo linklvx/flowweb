@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import Redis from 'ioredis';
 import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
@@ -24,9 +23,7 @@ import { VideoSeparateProcessor } from './video-separate.processor';
 import { MediaProcessModule } from '../media-process/media-process.module';
 import { IntentReconcileService } from './intent-reconcile.service';
 import { VIDEO_SEPARATE_QUEUE } from './video-separate.constants';
-import { validateEnv } from '../../config/env';
-
-const env = validateEnv();
+import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 @Module({
   imports: [
@@ -75,7 +72,7 @@ const env = validateEnv();
     VideoSeparateService,
     VideoSeparateProcessor,
     IntentReconcileService,
-    { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },
+    { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
   exports: [ExecutionService, ExecutionGateway, ApiCallerService],
 })

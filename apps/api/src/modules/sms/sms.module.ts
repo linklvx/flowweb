@@ -1,14 +1,11 @@
 import { Module } from '@nestjs/common';
-import Redis from 'ioredis';
 import { SmsService } from './sms.service';
+import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 @Module({
   providers: [
     SmsService,
-    {
-      provide: 'REDIS_CLIENT',
-      useFactory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379/0'),
-    },
+    { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
   exports: [SmsService],
 })

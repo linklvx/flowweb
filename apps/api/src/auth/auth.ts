@@ -2,10 +2,10 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { PrismaClient } from '@prisma/client';
 import { phoneNumber } from 'better-auth/plugins';
-import Redis from 'ioredis';
 import * as Sentry from '@sentry/nestjs';
 import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
 import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
+import { createManagedRedis } from '../common/redis/managed-redis';
 
 const prisma = new PrismaClient();
 
@@ -14,7 +14,10 @@ const trustedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .map((s) => s.trim());
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redis = new Redis(redisUrl); // 顶层单例，不复用项目 REDIS_CLIENT（auth.ts 在 DI 容器外）
+/** 批3-2 B6：顶层单例仍不复用 DI REDIS_CLIENT（auth.ts 在 DI 容器外），但统一受管工厂，
+ *  由 AuthModule.onApplicationShutdown 关闭（export 供 module 钩子） */
+export const authRedis = createManagedRedis(redisUrl);
+const redis = authRedis;
 
 /** 纯函数：Lua 原子校验 OTP（复用顶层 Redis 单例） */
 async function luaVerifyOtp(phoneNumber: string, code: string): Promise<boolean> {

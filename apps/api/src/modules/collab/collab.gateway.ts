@@ -69,6 +69,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
       debounce: debounce ?? 5000,
       maxDebounce: 10000,
+      // 批3-2：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
+      // 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）——信号统一交 app.enableShutdownHooks()
+      stopOnSignals: false,
       onAuthenticate: this.hooks.onAuthenticate,
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
@@ -286,9 +289,31 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  /** 批3-2：关停前对存活连接 close(1012, "service restart")——客户端据 code 按瞬态服务重启
+   *  立即重连，不等 1006 盲区。先复制后关（[...map] 快照）：close 回调可能反噬集合
+   *  （连接自清/异常路径），活迭代下漏关未访问项。单个失败各自吞（F11）不阻断其余。 */
+  private closeAllConnections1012() {
+    for (const document of [...this.server.hocuspocus.documents.values()]) {
+      for (const connection of [...document.connections.keys()]) {
+        try { connection.webSocket.close(1012, 'service restart'); }
+        catch (err) { this.logger.warn(`close(1012) failed for ${document.name}: ${(err as Error).message}`); }
+      }
+    }
+  }
+
+  /** 批3-2：shutdown 有界化——destroy 与 8s 超时 race。无界形态下 ioredis 等保活句柄使
+   *  destroy 永挂 → 进程退不出 → pm2 SIGKILL → stash 丢；超时分支点名内存 doc 数供对账。 */
   async onApplicationShutdown() {
     if (this.shadowSweepTimer) { clearInterval(this.shadowSweepTimer); this.shadowSweepTimer = null; }
-    await this.server.destroy();
+    this.closeAllConnections1012();
+    let destroyed = false;
+    const destroying = this.server.destroy()
+      .then(() => { destroyed = true; })
+      .catch((err) => { this.logger.warn(`collab server destroy failed: ${(err as Error).message}`); });   // 关停窗口禁 unhandled rejection
+    await Promise.race([destroying, new Promise<void>((resolve) => { setTimeout(resolve, 8000).unref?.(); })]);
+    if (!destroyed) {
+      this.logger.warn(`collab server destroy timeout after 8s, ${this.server.hocuspocus.documents.size} docs still in memory (flush at risk)`);
+    }
   }
 
   closeTeamDocuments(projectIds: string[]) {
