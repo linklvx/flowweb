@@ -2,67 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { attachUndoManager, detachUndoManager, Origin } from './canvasUndo';
-import { syncAutoEdgesToDoc, isShadowOnlyEvents } from './canvasCollabRuntime';
-import { autoEdgeId } from './autoEdgeIds';
+import { isShadowOnlyEvents } from './canvasCollabRuntime';
 import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
 
-describe('syncAutoEdgesToDoc（无业务参数幂等全量对账）', () => {
-  let doc: Y.Doc; let um: Y.UndoManager;
-  beforeEach(() => {
-    doc = new Y.Doc();
-    um = attachUndoManager(doc);
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
-  });
-  afterEach(() => detachUndoManager());
-
-  it('store 新增 auto 边 → doc 建边且 origin=AutoEdge', () => {
-    const cs = useCanvasStore.getState();
-    cs.addEdge('s1', 'edit1', undefined, undefined, autoEdgeId('edit1', 's1'));
-    let seenOrigin: unknown = null;
-    doc.on('afterTransaction', (tr) => { seenOrigin = tr.origin; });
-    syncAutoEdgesToDoc(doc);
-    const e = doc.getMap('edges').get(autoEdgeId('edit1', 's1')) as Y.Map<any>;
-    expect(e).toBeInstanceOf(Y.Map);
-    expect(e.get('source')).toBe('s1');
-    expect(e.get('target')).toBe('edit1');
-    expect(um.undoStack.length).toBe(0); // AutoEdge 不入栈
-    expect(seenOrigin).toBe(Origin.AutoEdge); // 钉死常量本身（undoStack 0 在缺省 origin 时同样过——M3 加硬）
-  });
-
-  it('store 删除（删节点级联）→ doc 边消失（孤儿 auto 边封堵，spec 验收 29）', () => {
-    const cs = useCanvasStore.getState();
-    cs.addEdge('s1', 'edit1', undefined, undefined, autoEdgeId('edit1', 's1'));
-    syncAutoEdgesToDoc(doc);
-    useCanvasStore.setState({ edges: [] }); // deleteNode 级联等价
-    syncAutoEdgesToDoc(doc);
-    expect(doc.getMap('edges').get(autoEdgeId('edit1', 's1'))).toBeUndefined();
-  });
-
-  it('幂等：连续两次对账 undoStack 不增长（spec 验收 26）', () => {
-    const cs = useCanvasStore.getState();
-    cs.addEdge('s1', 'edit1', undefined, undefined, autoEdgeId('edit1', 's1'));
-    syncAutoEdgesToDoc(doc);
-    const n = um.undoStack.length;
-    syncAutoEdgesToDoc(doc);
-    syncAutoEdgesToDoc(doc);
-    expect(um.undoStack.length).toBe(n);
-  });
-
-  it('手动边（无前缀）不被对账触碰', () => {
-    doc.getMap('edges').set('edge_1', (() => { const m = new Y.Map(); m.set('source', 'a'); m.set('target', 'b'); return m; })());
-    syncAutoEdgesToDoc(doc);
-    expect(doc.getMap('edges').get('edge_1')).toBeDefined(); // 未被删
-  });
-
-  it('doc 侧多余的 auto 边（远端残留）被清', () => {
-    doc.transact(() => {
-      const m = new Y.Map(); m.set('source', 'old'); m.set('target', 'x');
-      doc.getMap('edges').set('auto:x:old', m);
-    }, Origin.LocalUser);
-    syncAutoEdgesToDoc(doc);
-    expect(doc.getMap('edges').get('auto:x:old')).toBeUndefined();
-  });
-});
+// 批4b-2：syncAutoEdgesToDoc（全量对账器）随 bindBridge 退役——auto 边增删已由 addEdge/removeEdge
+// 的 AutoEdge origin intent 承接（canvasIntents.spec 批4b-2 auto 边锚：doc 建边+origin+不入撤销栈）。
+// 本文件保留 isShadowOnlyEvents/onRemote 跳过/投影层影子过滤三组装置锚。
 
 describe('isShadowOnlyEvents（A1 影子事务短路判定——id 前缀，origin 不过网）', () => {
   it('事件形状固化：nodes map 顶层 set 产生 path=[] 且 target=nodesMap 的事件（实现判定的基础事实，防 yjs 行为漂移）', () => {
@@ -144,11 +89,11 @@ describe('isShadowOnlyEvents（A1 影子事务短路判定——id 前缀，orig
   });
 });
 
-describe('onRemote AutoEdge 事务跳过（M1——本地自动边对账不触发全量重建）', () => {
+describe('onRemote AutoEdge 事务跳过（M1——本地自动边 intent 不触发全量重建）', () => {
   it('本地 AutoEdge 事务被 onRemote 跳过（M1——不触发全量重建）', () => {
     const client = new Y.Doc();
     let rebuilt = true; // 初值取反侧——observeDeep 若未触发则失败，保证锁力
-    // syncAutoEdgesToDoc 只动 edges map，onRemote 对 edges map 也挂同一 handler——observe edges 复刻真实判定链
+    // auto 边 intent 只动 edges map，onRemote 对 edges map 也挂同一 handler——observe edges 复刻真实判定链
     client.getMap('edges').observeDeep((es) => {
       const isAutoEdge = es.some((e) => e.transaction.origin === Origin.AutoEdge);
       rebuilt = !isAutoEdge; // AutoEdge 则跳过（onRemote 的 LocalUser 之后、影子短路之前）

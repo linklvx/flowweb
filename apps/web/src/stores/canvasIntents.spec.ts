@@ -15,6 +15,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
 import { dispatchCanvasIntent, _setIntentDocForTest } from './canvasIntents';
+import { fillDoc } from '@/collab/ydocBuilder';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 
@@ -340,6 +341,286 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     useNodeStore.getState().applyNodeDataPatch(id, { content: 'changed' });
     const data = (doc.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>;
     expect(data.get('content')).toBe('changed');
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+});
+
+// ════════ 批4b-2（组 2 收口）：剩余写点全量换芯锚 ════════
+// 双路径并存退役——bindBridge 删除后这些 action 的 doc 联动只剩 dispatch 一条路。
+// 复合信封写点断言"action → doc（结构+几何）+ 批4a 不变量"；数据写点断言"action → doc data"。
+describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变量）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('groupNodes：组+入组信封+rel 坐标落 doc（addNode+envelope+moveNode 序列）', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
+    expect(g).toBeTruthy();
+    expect(g.get('type')).toBe('group');
+    expect((g.get('data') as Y.Map<any>).get('groupType')).toBe('normal');
+    for (const cid of [n1, n2]) {
+      expect((doc.getMap('nodes').get(cid) as Y.Map<any>).get('parentId')).toBe(gid);
+    }
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('ungroup：组删 + 出组信封删键 + abs 坐标还原落 doc', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    expect(doc.getMap('nodes').get(gid)).toBeTruthy(); // 前置：组已落 doc（groupNodes 换芯）——否则删除面无载体
+    useCanvasStore.getState().ungroup(gid);
+    expect(doc.getMap('nodes').get(gid)).toBeUndefined();
+    for (const cid of [n1, n2]) {
+      const m = doc.getMap('nodes').get(cid) as Y.Map<any>;
+      expect(m.get('parentId')).toBeUndefined(); // 出组=信封键删
+    }
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('addToGroup：入组信封+组框+既有成员 rel 补偿落 doc', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n1b = useCanvasStore.getState().addNode('text', { x: 100, y: 100 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n1b]);
+    const n2 = useCanvasStore.getState().addNode('text', { x: 300, y: 300 });
+    useCanvasStore.getState().addToGroup(gid, n2);
+    expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('parentId')).toBe(gid);
+    expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('extent')).toBeUndefined(); // extent 不入投影——doc 无此键
+    const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
+    expect(g.get('width')).toBeGreaterThan(0); // 组框随新成员扩
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('removeNodeFromGroup：出组 + abs 还原 + 组框收缩落 doc（留子 → 组存活）', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    expect(doc.getMap('nodes').get(gid)).toBeTruthy(); // 前置同 ungroup 锚
+    useCanvasStore.getState().removeNodeFromGroup(gid, n1);
+    const m = doc.getMap('nodes').get(n1) as Y.Map<any>;
+    expect(m.get('parentId')).toBeUndefined();
+    expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 10, y: 10 }); // abs 还原
+    expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('parentId')).toBe(gid); // 留子仍在组
+    expect(doc.getMap('nodes').get(gid)).toBeTruthy(); // 仍有子 → 组不解
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('convertGroup→storyboard：组框配置化 + 子归零 + cells/storyboard data 落 doc', () => {
+    // isImageCompletedNode 要求：imageGen + status done + fileId
+    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { status: 'done', fileId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { status: 'done', fileId: 'f2' });
+    const gid = useCanvasStore.getState().groupNodes([id1, id2]);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
+    const data = g.get('data') as Y.Map<any>;
+    expect(data.get('groupType')).toBe('storyboard');
+    expect((data.get('cells') as any[]).length).toBe(2);
+    expect((data.get('storyboard') as any).gridCols).toBeGreaterThan(0);
+    for (const cid of [id1, id2]) {
+      expect(((doc.getMap('nodes').get(cid) as Y.Map<any>).get('position') as Y.Map<any>).toJSON())
+        .toEqual({ x: 0, y: 0 }); // 分镜子坐标归零
+    }
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('patchGroupData：组 data 增量 patch 落 doc（唯一通道——renameGroup/cells 族共用）', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    useCanvasStore.getState().renameGroup(gid, '我的组');
+    const data = (doc.getMap('nodes').get(gid) as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('name')).toBe('我的组');
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('toggleCollapse：折叠组框 COLLAPSED_SIZE + collapsed/savedSize data 落 doc', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    useCanvasStore.getState().toggleCollapse(gid);
+    const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
+    expect(g.get('width')).toBe(200); // COLLAPSED_SIZE 200×64（组框写点=折叠分支直写——非 applyGroupFrameRect）
+    expect(g.get('height')).toBe(64);
+    expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
+    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeTruthy();
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('duplicateGroup：组+子+组内边全量复制落 doc（addNode×N+upsertEdge×M）', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 300, y: 300 });
+    useCanvasStore.getState().onConnect({ source: n1, target: n2 } as any);
+    const gid = useCanvasStore.getState().groupNodes([n1, n2]);
+    const beforeNodes = doc.getMap('nodes').size;
+    const beforeEdges = doc.getMap('edges').size;
+    const newGid = useCanvasStore.getState().duplicateGroup(gid);
+    expect(newGid).not.toBeNull();
+    expect(doc.getMap('nodes').size).toBe(beforeNodes + 3); // 组+双子
+    expect(doc.getMap('edges').size).toBe(beforeEdges + 1); // 组内边
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('clearStoryboard：cells 成员删（级联边删）+ cells 清空落 doc', () => {
+    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { status: 'done', fileId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { status: 'done', fileId: 'f2' });
+    const gid = useCanvasStore.getState().groupNodes([id1, id2]);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    useCanvasStore.getState().clearStoryboard(gid);
+    expect(doc.getMap('nodes').get(id1)).toBeUndefined();
+    expect(doc.getMap('nodes').get(id2)).toBeUndefined();
+    const data = (doc.getMap('nodes').get(gid) as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('cells')).toEqual([]);
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('removeStoryboardCell：槽成员删 + cells 紧凑前移落 doc', () => {
+    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { status: 'done', fileId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { status: 'done', fileId: 'f2' });
+    const gid = useCanvasStore.getState().groupNodes([id1, id2]);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    useCanvasStore.getState().removeStoryboardCell(gid, 0);
+    const data = (doc.getMap('nodes').get(gid) as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(doc.getMap('nodes').get(id1)).toBeUndefined();
+    expect(data.get('cells')).toEqual([id2]); // 紧凑前移
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('deleteTransformNode：删 + 级联引用边落 doc', () => {
+    const n1 = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+    const n2 = useCanvasStore.getState().addNode('text', { x: 100, y: 0 });
+    useCanvasStore.getState().onConnect({ source: n1, target: n2 } as any);
+    useCanvasStore.getState().deleteTransformNode(n1);
+    expect(doc.getMap('nodes').get(n1)).toBeUndefined();
+    expect(doc.getMap('edges').size).toBe(0);
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('auto 边：ensureAutoEdges 路径（addEdge 确定性 id）→ doc 建边 + origin=AutoEdge（不入撤销栈契约）', async () => {
+    const s1 = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+    const edit1 = useCanvasStore.getState().addNode('text', { x: 100, y: 0 });
+    const { attachUndoManager } = await import('./canvasUndo');
+    const um = attachUndoManager(doc);   // 建节点（LocalUser）之后挂——栈上只应有后续 auto 边（零项）
+    const seenOrigins: unknown[] = [];
+    doc.on('afterTransaction', (tr) => { if (tr.origin === 'auto-edge') seenOrigins.push(tr.origin); });
+    const { ensureAutoEdges } = await import('@/pages/canvas/video-editor/timeline/auto-edges');
+    ensureAutoEdges(edit1, { clips: { c1: { type: 'video', sourceNodeId: s1 } } } as any);
+    const e = doc.getMap('edges').get(`auto:${edit1}:${s1}`) as Y.Map<any>;
+    expect(e).toBeTruthy();
+    expect(e.get('source')).toBe(s1);
+    expect(seenOrigins).toContain('auto-edge'); // AutoEdge origin 契约（撤销栈不收自动边）
+    expect(um.undoStack.length).toBe(0);       // auto 边建边不入栈
+  });
+});
+
+describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc data）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  const dataOf = (id: string) => (doc.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>;
+
+  it('updateText：content 落 doc data', () => {
+    const id = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+    useNodeStore.getState().updateText(id, '新内容');
+    expect(dataOf(id).get('content')).toBe('新内容');
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('updateConfig：mergeNodeData 终态全量落 doc data（含 defaults）', () => {
+    // doc+cs 种子（ns 缺席——updateConfig 幽灵守卫过 cs 面；投影 data ns 缺席回落 cs）
+    fillDoc(doc, [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
+    });
+    useNodeStore.setState({ nodes: {} });
+    useNodeStore.getState().updateConfig('img1', { style: '动漫' });
+    const d = dataOf('img1');
+    expect(d.get('style')).toBe('动漫');
+    expect(d.get('model')).toBe('sdxl'); // mergeNodeData defaults 同步落 doc（旧全量同步同语义）
+    expect(d.get('imageRotation')).toBe(0); // 通用 defaults 同
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('updateExtConfig：extConfig 合并终态落 doc data', () => {
+    fillDoc(doc, [{ id: 'ext1', type: 'imageExtGen', position: { x: 0, y: 0 },
+      data: { extConfig: { ratio: '16:9' } } } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'ext1', type: 'imageExtGen', position: { x: 0, y: 0 },
+        data: { extConfig: { ratio: '16:9' } } } as any],
+    });
+    useNodeStore.setState({
+      nodes: { ext1: { id: 'ext1', type: 'imageExtGen', data: { extConfig: { ratio: '16:9' } } as any } },
+    });
+    useNodeStore.getState().updateExtConfig('ext1', { model: 'new-model' });
+    expect((dataOf('ext1').get('extConfig') as any).model).toBe('new-model');
+    expect((dataOf('ext1').get('extConfig') as any).ratio).toBe('16:9'); // 既有键保留
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('trim 三写点：updateVideoTrim/setTrimTaskStatus/setTrimmedResult 落 doc data', () => {
+    fillDoc(doc, [{ id: 'vid1', type: 'videoGen', position: { x: 0, y: 0 }, data: { model: 'm' } } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'vid1', type: 'videoGen', position: { x: 0, y: 0 }, data: { model: 'm' } } as any],
+    });
+    useNodeStore.setState({
+      nodes: { vid1: { id: 'vid1', type: 'videoGen', data: { model: 'm' } as any } },
+    });
+    useNodeStore.getState().updateVideoTrim('vid1', 5.2, 18.7);
+    useNodeStore.getState().setTrimTaskStatus('vid1', 'processing');
+    useNodeStore.getState().setTrimmedResult('vid1', 'file-x');
+    const d = dataOf('vid1');
+    expect(d.get('trimStart')).toBe(5.2);
+    expect(d.get('trimEnd')).toBe(18.7);
+    expect(d.get('trimTaskStatus')).toBe('done');
+    expect(d.get('trimmedFileId')).toBe('file-x');
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('multiImage 三写点：images/mainImageIndex/nodeStatus 落 doc data', () => {
+    fillDoc(doc, [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
+      data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
+        data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } as any }],
+    });
+    useNodeStore.setState({
+      nodes: { m1: { id: 'm1', type: 'multiImageGen', data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } as any } },
+    });
+    const imgs = [{ id: 'i1', url: 'u', name: 'n', status: 'success' }];
+    useNodeStore.getState().updateMultiImageImages('m1', imgs as any);
+    useNodeStore.getState().setMainImageIndex('m1', 3);
+    useNodeStore.getState().updateMultiImageNodeStatus('m1', 'done');
+    useNodeStore.getState().toggleExpanded('m1');
+    const d = dataOf('m1');
+    expect(d.get('images')).toEqual(imgs);
+    expect(d.get('mainImageIndex')).toBe(3);
+    expect(d.get('nodeStatus')).toBe('done');
+    expect(d.get('expanded')).toBe(true);
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('updatePromptImages：allImages 落 doc data', () => {
+    fillDoc(doc, [{ id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, data: { allImages: [] } } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, data: { allImages: [] } as any }],
+    });
+    useNodeStore.setState({
+      nodes: { img2: { id: 'img2', type: 'imageGen', data: { allImages: [] } as any } },
+    });
+    const imgs = [{ id: 'r1', url: 'u', name: 'n', status: 'success' }];
+    useNodeStore.getState().updatePromptImages('img2', imgs as any);
+    expect(dataOf('img2').get('allImages')).toEqual(imgs);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });

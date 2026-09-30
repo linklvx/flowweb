@@ -8,7 +8,7 @@ export function autoOutEdgeId(editNodeId: string, productNodeId: string): string
   return `auto-out:${editNodeId}:${productNodeId}`;
 }
 
-/** 订阅路径与 syncAutoEdgesToDoc 的分流判据 */
+/** auto 边身份判定——addEdge/removeEdge 的 origin 分流判据（批4b-2：AutoEdge origin intent） */
 export function isAutoEdgeId(id: string): boolean {
   return id.startsWith('auto:') || id.startsWith('auto-out:');
 }

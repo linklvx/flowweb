@@ -284,7 +284,7 @@ export function applyDataPatchToStores(nodeId: string, patch: Record<string, unk
 const VIEWER_TOAST_THROTTLE_MS = 2_000;
 const viewerToastAt = new Map<string, number>();
 
-/** 测试缝（只读复位）：节流窗跨用例复位——_resetBaselineForTest 同先例 */
+/** 测试缝（只读复位）：节流窗跨用例复位——防用例顺序依赖（runtime getDoc 同先例） */
 export function _resetViewerToastForTest() {
   viewerToastAt.clear();
 }
@@ -536,6 +536,9 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
 
+    // 批4b-2 换芯：doc data 直写经意图漏斗（浅合并 patch——与下方 set 同值；doc 无此节点时
+    // applyIntentToDoc no-op，同旧订阅路径"投影不含"语义）
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: data as Record<string, unknown> }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -576,6 +579,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   updateText: (id, content) => {
+    // 批4b-2 换芯：content 键 doc 直写（node 不在 doc 时 no-op——同旧订阅路径投影不含语义）
+    dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { content } }, Origin.LocalUser);
     const existing = getNode(get().nodes, id);
     if (existing) {
       set((s) => ({
@@ -616,6 +621,13 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       delete (config as any).extConfig;
     }
 
+    const merged = mergeNodeData(existing?.data, config, nodeType) as NodeData;
+    // 批4b-2 换芯：doc data 直写=mergeNodeData 终态全量（旧订阅路径同步的就是该 ns 终态——
+    // defaults 填充随写直达 doc，缺省键漂移由投影不变量兜住）
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id, patch: merged as unknown as Record<string, unknown> },
+      Origin.LocalUser,
+    );
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -625,7 +637,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           type: nodeType ?? 'imageGen',
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: mergeNodeData(existing?.data, config, nodeType) as NodeData,
+          data: merged,
         },
       },
     }));
@@ -640,6 +652,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   updateExtConfig: (nodeId, partial) => {
     const node = getNode(get().nodes, nodeId);
     if (!node || !isImageExtNode(node)) return;
+    // 批4b-2 换芯：extConfig 合并终态落 doc（整键对象值——isEqual 守卫防膨胀）
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id: nodeId, patch: { extConfig: { ...node.data.extConfig, ...partial } } },
+      Origin.LocalUser,
+    );
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -677,17 +694,22 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   updatePromptImages: (nodeId, allImages) => {
+    // 批4b-2 换芯：allImages 键 doc 直写（text 节点 no-op 同旧——ns 面与 doc 面同判）
+    const node = get().nodes[nodeId];
+    if (node && node.type !== 'text') {
+      dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { allImages } }, Origin.LocalUser);
+    }
     set((state) => {
-      const node = state.nodes[nodeId];
+      const n = state.nodes[nodeId];
       // text nodes have no prompt — noop. image/video nodes share prompt shape.
-      if (!node || node.type === 'text') return state;
+      if (!n || n.type === 'text') return state;
       return {
         nodes: {
           ...state.nodes,
           [nodeId]: {
-            ...node,
+            ...n,
             data: {
-              ...node.data,
+              ...n.data,
               allImages,  // ★ root-level shared field, no longer nested in prompt
             },
           },
@@ -699,6 +721,13 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   updateMultiImageImages: (nodeId, images) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    // 批4b-2 换芯：增量 patch 与下方 set 同值（含清空/越界回正条件键）
+    const patch: Record<string, unknown> = { images };
+    if (images.length === 0) { patch.mainImageIndex = -1; patch.nodeStatus = 'idle'; }
+    else if ('mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length) {
+      patch.mainImageIndex = 0;
+    }
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -719,6 +748,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   setMainImageIndex: (nodeId, index) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing || !isMultiImageNode(existing)) return;
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { mainImageIndex: index } }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -733,6 +763,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   toggleExpanded: (nodeId) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id: nodeId, patch: { expanded: !(existing.data as any).expanded } },
+      Origin.LocalUser,
+    );
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -747,6 +781,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   updateMultiImageNodeStatus: (nodeId, status) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { nodeStatus: status } }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -763,10 +798,12 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   // ── Video trim actions ──
+  // 批4b-2 换芯：trim 三写点 doc 直写经意图漏斗（dispatch 前置——与下方 set 同值幂等）
 
   updateVideoTrim: (nodeId, trimStart, trimEnd) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { trimStart, trimEnd } }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -781,6 +818,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   setTrimTaskStatus: (nodeId, status) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { trimTaskStatus: status } }, Origin.LocalUser);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -795,6 +833,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   setTrimmedResult: (nodeId, fileId) => {
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id: nodeId, patch: { trimmedFileId: fileId, trimTaskStatus: 'done' } },
+      Origin.LocalUser,
+    );
     set((s) => ({
       nodes: {
         ...s.nodes,

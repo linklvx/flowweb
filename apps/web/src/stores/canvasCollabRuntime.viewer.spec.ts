@@ -1,13 +1,13 @@
 // apps/web/src/stores/canvasCollabRuntime.viewer.spec.ts
 // 批2-2 VIEWER 第一层（doc 硬门）——spec VIEWER 组/canEdit 门组三类入口之 cs 拖拽 + S1 system intent 面：
 // 判据：readOnly 会话（authenticated scope='readonly' → collabReadOnly 粘滞 true）⇒ doc 零写
-//   ①cs 拖拽形态（store setState nodes 位置变化）→ bindBridge cs 回调短路，doc 位置不变
-//   ②ns 数据变更形态 → bindBridge ns 回调短路
+//   ①cs 拖拽形态（store 直写 nodes——批4b-2 后无翻译层恒零写；真拖拽路径在 ⑤）
+//   ②ns 数据变更形态 → doc 零写（ns 写点已全量换芯 intent，dispatch 门拦截）
 //   ③S1 几何回写（system intent——Origin.Geometry）同守卫：几何修正在 store 层完成（store g1 框已
 //     被 refit 修正），doc g1 框保持服务端原值（readOnly Update 服务端一律 NACK——写必分叉）
 //   ④断连窗口仍只读（粘滞锚——onClose 不清 collabReadOnly）
-//   ⑤read-write 回归锚：拖拽照常同步 doc + S1 照常回写（门不过度拦截）
-//   ⑥applyingRemote latch 不回归（既有抑制窗口语义——远端应用期本地回调零 doc 写）
+//   ⑤read-write 回归锚：拖拽（onNodesChange 真路径）照常同步 doc + S1 照常回写（门不过度拦截）
+//   ⑥单路径结构锚：远端应用窗口零本地 doc 写（bindBridge/applyingRemote 随批4b-2 退役）
 // 装置照 conn.spec：mock provider 手写 handlers 表（真 Y.Doc 经 runtime.getDoc() 直驱）；
 // doc 写零判据 = update 事件计数（origin 为字符串的事务 = 本地代码发起的写；fixture 种子写 origin=null 不计）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -198,7 +198,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(writes()).toBe(0);
   });
 
-  it('⑤rw 回归锚：read-write 拖拽照常同步 doc（门不过度拦截）', async () => {
+  it('⑤rw 回归锚：read-write 拖拽照常同步 doc（门不过度拦截——批4b-2 真拖拽路径=onNodesChange→intent）', async () => {
     const done0 = runtime.initCollab('p1');
     await tick();
     const p = lastInstance();
@@ -212,7 +212,9 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await done0;
     expect(useCanvasStore.getState().collabReadOnly).toBe(false);
 
-    useCanvasStore.setState({ nodes: [{ id: 'n1', type: 'textInput', position: { x: 100, y: 0 }, data: {} } as any] });
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 'n1', position: { x: 100, y: 0 }, dragging: true },
+    ]);
     expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 100, y: 0 }); // 编辑会话照常同步
   });
 
@@ -239,7 +241,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(origins).toContain('geometry-repair');
   });
 
-  it('⑥latch 不回归：rw 远端应用窗口（applyingRemote）内桥回调零 doc 写', async () => {
+  it('⑥单路径结构锚：rw 远端应用窗口内零本地 doc 写（批4b-2——store 重建无翻译层，回声路径不存在）', async () => {
     const done0 = runtime.initCollab('p1');
     await tick();
     const p = lastInstance();
@@ -254,12 +256,12 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
 
     const writes = countLocalDocWrites(runtime.getDoc()!);
     // 远端帧（origin=null——不属 LOCAL_ORIGINS）→ onRemote 50ms 重建窗口内 applyDocToStore 的
-    // 双 store 写必须被 latch 短路（无 local-user 回声）
+    // 双 store 写无翻译层可回 doc（bindBridge/applyingRemote 随批4b-2 退役——回声结构性不存在）
     const dataMap = (runtime.getDoc()!.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
     dataMap.set('content', 'remote-v2');
     await new Promise<void>((r) => setTimeout(r, 100)); // 推进过 50ms 重建 timer
     expect((useNodeStore.getState().nodes.n1.data as any).content).toBe('remote-v2'); // 远端应用照旧
     expect(nodeData(runtime.getDoc()!, 'n1').content).toBe('remote-v2'); // doc 仍持远端值
-    expect(writes()).toBe(0); // 窗口内零本地 doc 写（latch 语义不回归）
+    expect(writes()).toBe(0); // 窗口内零本地 doc 写
   });
 });

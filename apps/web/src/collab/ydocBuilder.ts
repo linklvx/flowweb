@@ -18,7 +18,7 @@ export function buildDocFromSnapshot(nodes: CanvasNodeRecord[], edges: PlainEdge
 }
 
 export function fillDoc(doc: Y.Doc, nodes: CanvasNodeRecord[], edges: PlainEdge[]): void {
-  // meta schemaVersion（批2-3）：同值 no-op 守卫——syncStoreToDoc 逐新节点也走 fillDoc，防 doc 膨胀
+  // meta schemaVersion（批2-3）：同值 no-op 守卫——addNode intent 每新建节点也走 fillDoc，防 doc 膨胀
   const meta = doc.getMap('meta');
   if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
     meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
@@ -76,8 +76,8 @@ export function readCanvasFromDoc(doc: Y.Doc): { nodes: CanvasNodeRecord[]; edge
   return { nodes, edges };
 }
 
-/** 增量写（syncStoreToDoc 逐键 diff 收敛）：record 缺键 → Y.Map delete；值变才 set（同值 no-op——
- *  本函数在 ns 每次变更都跑，无守卫=doc 膨胀）。data 逐键 diff 留 syncStoreToDoc 原有逻辑——业务域不属信封。 */
+/** 增量写（意图漏斗 updateNodeData 族逐键 diff 收敛）：record 缺键 → Y.Map delete；值变才 set
+ * （同值 no-op——高频路径无守卫=doc 膨胀）。data 逐键 diff 留 canvasIntents——业务域不属信封。 */
 export function applyRecordToYMap(m: Y.Map<any>, r: CanvasNodeRecord): void {
   const n = normalizeCanvasRecord(r);
   for (const key of ['parentId', 'width', 'height'] as const) {

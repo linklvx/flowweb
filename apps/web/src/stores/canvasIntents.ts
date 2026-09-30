@@ -4,14 +4,17 @@
 // 形态（spike __spike_canvasIntents.ts 正式化）：dispatchCanvasIntent = canEdit 前置门
 // （VIEWER 硬门——拦截点从 bindBridge 订阅层前移到 dispatch 入口，判据②：doc+store 双零写）
 // + applyIntentToDoc（doc 首写，单 transact 包序列）+ projectIntentToStore（store 投影回填）。
-// 组 1（本批）：基建+首批高频写点换芯（store action 内 setState→dispatch）；未换 action 仍走
-// bindBridge 旧路径兜底——双路径并存是组 1 合法形态，组 2 全量换芯+删旧路径。
+// 批4b-2（组 2 收口）：全量换芯完成——bindBridge/syncStoreToDoc 旧路径已删，dispatch 是
+// store→doc 用户写唯一入口；复合信封写点经 captureStoreProjection/dispatchProjectionDiff
+// （before/after 差分翻译，删除半边=显式成员差而非 doc 扫描）；S1 系统几何修复走
+// dispatchSystemIntents（doc-only，门=collabReadOnly）。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：与 canvasStore/nodeStore/canvasCollabRuntime 互为顶层
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
+import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
 import { canEdit } from './syncStatus';
@@ -46,7 +49,7 @@ function resolveDoc(): Y.Doc | null {
   return testDoc ?? getDoc();
 }
 
-/** doc 直写（fillDoc 复用新建路径；update/move 沿 syncStoreToDoc 的逐键 diff 守卫——同值 no-op
+/** doc 直写（fillDoc 复用新建路径；update/move 沿 ydocBuilder 的逐键 diff 守卫——同值 no-op
  *  防 doc 膨胀）。origin 由 dispatch 外层单 transact 统一（复合序列原子；本函数不开事务）。
  *  updateNodeData 的删键语义约定：patch 值 === undefined ⇒ delete 键（全量对账的"缺键删除"
  *  在意图形态的对应物）。 */
@@ -206,4 +209,90 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
     for (const i of seq) applyIntentToDoc(d, i);
   }, origin);
   for (const i of seq) projectIntentToStore(i);
+}
+
+// ════════ 批4b-2（组 2 收口）：复合写点差分翻译 + S1 系统写入口 ════════
+
+/** 投影快照（storeProjection 同形——写侧单源 projectCanvasNodes，data 分型 F42） */
+export interface StoreProjectionSnapshot {
+  nodes: CanvasNodeRecord[];
+  edges: PlainEdge[];
+}
+
+/** 复合 action 起点捕获投影快照（dispatchProjectionDiff 的 before 侧）。 */
+export function captureStoreProjection(): StoreProjectionSnapshot {
+  const cs = useCanvasStore.getState();
+  const ns = useNodeStore.getState();
+  return {
+    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any),
+    edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
+  };
+}
+
+/** before/after 差分 → intent 序列。删除半边=before 有 after 无的显式成员差
+ *  （deleteNode/deleteEdge intent——非 doc 扫描；0b deletion baseline 的意图形态对应物）。 */
+function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StoreProjectionSnapshot): CanvasIntent[] {
+  const intents: CanvasIntent[] = [];
+  const beforeNodes = new Map(before.nodes.map((n) => [n.id, n]));
+  const afterNodes = new Map(after.nodes.map((n) => [n.id, n]));
+  for (const id of beforeNodes.keys()) {
+    if (!afterNodes.has(id)) intents.push({ type: 'deleteNode', id });
+  }
+  for (const a of after.nodes) {
+    const b = beforeNodes.get(a.id);
+    if (!b) { intents.push({ type: 'addNode', node: a }); continue; }
+    const patch: NodeEnvelopePatch = {};
+    if (b.type !== a.type) patch.type = a.type;
+    if (b.parentId !== a.parentId) patch.parentId = a.parentId ?? undefined;
+    if (b.width !== a.width) patch.width = a.width ?? undefined;
+    if (b.height !== a.height) patch.height = a.height ?? undefined;
+    if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
+    if (b.position.x !== a.position.x || b.position.y !== a.position.y) {
+      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+    }
+    const dataPatch: Record<string, unknown> = {};
+    const keys = new Set([...Object.keys(b.data ?? {}), ...Object.keys(a.data ?? {})]);
+    let dataChanged = false;
+    for (const k of keys) {
+      const bv = (b.data ?? {})[k];
+      const av = (a.data ?? {})[k];
+      if (!isEqual(bv, av)) { dataPatch[k] = k in (a.data ?? {}) ? av : undefined; dataChanged = true; }
+    }
+    if (dataChanged) intents.push({ type: 'updateNodeData', id: a.id, patch: dataPatch });
+  }
+  const beforeEdges = new Map(before.edges.map((e) => [e.id, e]));
+  const afterEdges = new Map(after.edges.map((e) => [e.id, e]));
+  for (const id of beforeEdges.keys()) {
+    if (!afterEdges.has(id)) intents.push({ type: 'deleteEdge', id });
+  }
+  for (const e of after.edges) {
+    const b = beforeEdges.get(e.id);
+    if (!b || b.source !== e.source || b.target !== e.target) {
+      intents.push({ type: 'upsertEdge', edge: { id: e.id, source: e.source, target: e.target } });
+    }
+  }
+  return intents;
+}
+
+/** 复合写点换芯（批4b-2）：action 起点捕获快照 → set 序列（含 ns 双写）完成后调本函数——
+ *  before/after 差分翻译为 intent 序列经 dispatch 单 transact 落 doc（旧 bindBridge 全量同步
+ *  的增量翻译形态）。canEdit 假（readOnly/回弹窗口）时 dispatch 门拦截=doc 零写（语义同旧）；
+ *  嵌套 action 各自 dispatch 幂等（applyIntentToDoc 逐键同值 no-op）。 */
+export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: string): void {
+  const intents = diffProjectionToIntents(before, captureStoreProjection());
+  if (intents.length === 0) return;
+  dispatchCanvasIntent(intents, origin);
+}
+
+/** 批4b-2：doc-only 意图写（S1 系统几何修复回写专用入口）——无 store 投影（store 已持值，
+ *  投影会与 applyDocToStore 的重建窗口互踩）；门=collabReadOnly（S1 在水合窗口内执行，canEdit
+ *  的 ready 分量结构性为假——批2-2 判据沿袭，用 canEdit 会误杀 rw 会话既有回写）。
+ *  用户写路径唯一入口仍是 dispatchCanvasIntent；本入口是系统维护写（origin=Geometry，
+ *  不入撤销栈、onRemote LOCAL_ORIGINS 跳过）。 */
+export function dispatchSystemIntents(d: Y.Doc, intents: CanvasIntent[], origin: string): void {
+  if (useCanvasStore.getState().collabReadOnly) return;
+  if (intents.length === 0) return;
+  d.transact(() => {
+    for (const i of intents) applyIntentToDoc(d, i);
+  }, origin);
 }

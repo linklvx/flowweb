@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate } from '../eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan } from '../eslint-rules/collab-static-asserts.js';
 import { NEW_RULE_ID, THEME_RULE_ID, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
@@ -178,6 +178,7 @@ const COLLAB_RULES = {
   'no-conn-status-write': noConnStatusWrite,
   'no-ydoc-getmap': noYdocGetmap,
   'no-store-setstate': noStoreSetstate,
+  'no-delete-scan': noDeleteScan,
 };
 const lintCollabFixture = (ruleName, code, filename) =>
   linter.verify(
@@ -282,6 +283,68 @@ describe('flowweb/no-store-setstate 静态断言（fixture，批0e-4 C）', () =
       expect(messages, f).toHaveLength(1);
       expect(messages[0].ruleId).toBe('flowweb/no-store-setstate');
     }
+  });
+});
+
+describe('flowweb/no-delete-scan 静态断言（fixture，批4b-2 D——零删除扫描）', () => {
+  // syncStoreToDoc 原文形态（现状生产代码——规则上线即红，删除后转绿）
+  const SCAN_FORM = [
+    'for (const id of [...nodesMap.keys()]) {',
+    '  if (nodeIds.has(id)) continue;',
+    '  if (prev.has(id)) nodesMap.delete(id);',
+    '}',
+  ].join('\n');
+  const DIRECT_KEYS_FORM = [
+    'for (const id of edgesMap.keys()) {',
+    '  if (!expected.has(id)) edgesMap.delete(id);',
+    '}',
+  ].join('\n');
+
+  it('豁免文件放行：canvasIntents 的显式 delete intent（deleteNode 级联引用边）不报', () => {
+    expect(
+      lintCollabFixture(
+        'no-delete-scan',
+        ['for (const id of [...edges.keys()]) {', '  edges.delete(id);', '}'].join('\n'),
+        'src/stores/canvasIntents.ts',
+      ),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture('no-delete-scan', SCAN_FORM, 'src/stores/canvasIntents.ts'),
+    ).toHaveLength(0);
+  });
+
+  it('门内文件拦截：spread keys() 扫描删除形态 1 报（syncStoreToDoc 原文形态）', () => {
+    const messages = lintCollabFixture('no-delete-scan', SCAN_FORM, 'src/stores/canvasCollabRuntime.ts');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].ruleId).toBe('flowweb/no-delete-scan');
+  });
+
+  it('门内文件拦截：直接 .keys() 迭代形态同拦（非 spread 包装不可绕过）', () => {
+    const messages = lintCollabFixture('no-delete-scan', DIRECT_KEYS_FORM, 'src/stores/canvasCollabRuntime.ts');
+    expect(messages).toHaveLength(1);
+  });
+
+  it('非删除形态不误报：遍历 keys() 只读 / 删除不在迭代变量基座上', () => {
+    expect(
+      lintCollabFixture(
+        'no-delete-scan',
+        'for (const id of [...nodesMap.keys()]) { total += 1; }',
+        'src/stores/canvasCollabRuntime.ts',
+      ),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture(
+        'no-delete-scan',
+        'for (const id of [...a.keys()]) { b.delete(id); }',
+        'src/stores/canvasCollabRuntime.ts',
+      ),
+    ).toHaveLength(0); // 基座不同（a.keys 迭代、b.delete）——非"扫谁删谁"形态
+  });
+
+  it('测试文件豁免（isTestFile——装置断言不受限）', () => {
+    expect(
+      lintCollabFixture('no-delete-scan', SCAN_FORM, 'src/stores/canvasStore.groups.test.ts'),
+    ).toHaveLength(0);
   });
 });
 

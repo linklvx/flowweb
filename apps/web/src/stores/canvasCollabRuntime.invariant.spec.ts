@@ -9,10 +9,11 @@
 //     store 有，属设计内分叉——组场景 quiescence 用例实证过：before==after ⇒ S1 零回写）。
 // 非恒真式 = 变异实验：doc 摆 store 没有的非影子节点（不走 apply 周期——走了会被 store 吸收恢复等价）
 //   → checkProjectionInvariant 必 false，证明断言不是恒真式（安全网有效性）。
-// quiescence = 双端（本端=真 runtime 链：bindBridge+onRemote 去抖+S1；对端=裸 doc 直写）burst 后
+// quiescence = 双端（本端=真 runtime 链：intent 漏斗+onRemote 去抖+S1；对端=裸 doc 直写）burst 后
 //   静止窗口零新写（无乒乓）+ 两 doc 收敛 + store/doc 相等。
-// 装置：mock provider（conn.spec 同款契约锁）驱动真 initCollab——onRemote/桥/S1 全链真实接线，
+// 装置：mock provider（conn.spec 同款契约锁）驱动真 initCollab——onRemote/S1 全链真实接线，
 //   仅网络层以 Y.applyUpdate 双向转发模拟（对端 B 的写经 network origin 入 A——触发真实去抖链）。
+//   批4b-2：本地写驱动改 action（addNode/onNodesChange——bindBridge 退役后唯一写路径=dispatch）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
@@ -106,20 +107,18 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     await driveToSyncedRw('p1');
     expect(useCanvasStore.getState().hydration).toBe('ready');
     expect(useCanvasStore.getState().collabReadOnly).toBe(false);
-    // 本地写（真 bindBridge → syncStoreToDoc）
-    useCanvasStore.setState({
-      nodes: [{ id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-      edges: [],
-    });
+    // 本地写（真意图漏斗：action→dispatch doc 直写+投影回填）
+    useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+    const a1 = useCanvasStore.getState().nodes[0].id;
     const doc = runtime.getDoc()!;
-    expect(doc.getMap('nodes').get('a1')).toBeTruthy();
+    expect(doc.getMap('nodes').get(a1)).toBeTruthy();
     // 远端帧：对端写普通节点（network origin 触发真实 onRemote 去抖链）
     const B = new Y.Doc();
     bWriteNode(B, 'b1', 9);
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(B), 'network');
     await vi.advanceTimersByTimeAsync(60); // 50ms 去抖 → apply 周期（applyDocToStore+S1+周期末尾断言）
     expect(doc.getMap('nodes').get('b1')).toBeTruthy();
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id).sort()).toEqual(['a1', 'b1']);
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id).sort()).toEqual([a1, 'b1'].sort());
     expect(runtime.checkProjectionInvariant(doc)).toBe(true);
     expect(getCollabDiagCounters().get('invariant_violation')).toBeUndefined(); // 零误报
   });
@@ -162,19 +161,16 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     expect(m![0].indexOf('applyDocToStore(doc!)')).toBeLessThan(m![0].indexOf('checkProjectionInvariant'));
   });
 
-  it('applyRemote 期间桥回调零 doc 写（latch 锚——applyingRemote 短路既有机制）', async () => {
+  it('applyRemote 期间零本地 doc 写（单路径结构锚——store 重建无订阅翻译层，回声路径不存在）', async () => {
     await driveToSyncedRw('p1');
     const doc = runtime.getDoc()!;
-    useCanvasStore.setState({
-      nodes: [{ id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-      edges: [],
-    });
+    useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
     const B = new Y.Doc();
     bWriteNode(B, 'b1', 9);
     const localWrites: unknown[] = [];
     doc.on('afterTransaction', (tr) => { if (tr.origin === Origin.LocalUser) localWrites.push(tr); });
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(B), 'network');
-    await vi.advanceTimersByTimeAsync(60); // apply 周期：applyDocToStore 全量重建 store——若 latch 失效桥会回写 doc
+    await vi.advanceTimersByTimeAsync(60); // apply 周期：applyDocToStore 全量重建 store——批4b-2 起 store 写无翻译层（bindBridge 退役）
     expect(localWrites).toHaveLength(0);
   });
 });
@@ -199,24 +195,19 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
     A.on('update', (u) => Y.applyUpdate(B, u, 'network'));
     B.on('update', (u) => Y.applyUpdate(A, u, 'network'));
 
-    // 双端各先落一个节点（A 经真桥 store→doc；B 直写 doc）+ 首轮 apply 收敛
-    useCanvasStore.setState({
-      nodes: [{ id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }],
-      edges: [],
-    });
+    // 双端各先落一个节点（A 经意图漏斗 action→dispatch；B 直写 doc）+ 首轮 apply 收敛
+    useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
+    const a1 = useCanvasStore.getState().nodes[0].id;
     bWriteNode(B, 'b1', 100);
-    await vi.advanceTimersByTimeAsync(60); // 首轮 apply（b1 进 A store，基线立起）
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id).sort()).toEqual(['a1', 'b1']);
+    await vi.advanceTimersByTimeAsync(60); // 首轮 apply（b1 进 A store）
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id).sort()).toEqual([a1, 'b1'].sort());
 
-    // burst：A 端 5 次本地编辑（真桥）+ B 端 5 次编辑（doc 直写）——两端并发互 apply
+    // burst：A 端 5 次本地编辑（真拖拽路径 onNodesChange position→moveNode intent）+ B 端 5 次编辑
+    //（doc 直写）——两端并发互 apply。批4b-2：意图只触碰目标成员——A 端无需"保住 b1"（无删除扫描）
     for (let i = 1; i <= 5; i++) {
-      useCanvasStore.setState({
-        nodes: [
-          { id: 'a1', type: 'textInput', position: { x: i, y: 0 }, data: {} },
-          { id: 'b1', type: 'textInput', position: { x: 100, y: 0 }, data: {} }, // 保住已吸收的 b1（在删除基线内）
-        ],
-        edges: [],
-      });
+      useCanvasStore.getState().onNodesChange([
+        { type: 'position', id: a1, position: { x: i, y: 0 }, dragging: true },
+      ]);
     }
     for (let i = 1; i <= 5; i++) bWriteNode(B, 'b1', 100 + i);
     await vi.advanceTimersByTimeAsync(60); // burst 后 apply 周期（applyDocToStore+S1+周期末尾断言）

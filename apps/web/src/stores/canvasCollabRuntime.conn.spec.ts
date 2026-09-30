@@ -101,7 +101,7 @@ describe('红1：connStatus 派生（真实事件序）', () => {
     useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], hydration: 'idle' });
   });
   afterEach(async () => {
-    await runtime.destroyCollab(); // 摘 bindBridge 订阅/undo manager，防跨用例泄漏
+    await runtime.destroyCollab(); // 摘 runtime 会话（undo manager/doc/监听），防跨用例泄漏
   });
 
   it('双发 connected 但未 authenticated → 保持 connecting', async () => {

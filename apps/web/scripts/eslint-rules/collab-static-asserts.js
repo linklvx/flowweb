@@ -1,8 +1,10 @@
 /**
- * collab 恢复静态断言三条（批0e-4，spec 2026-09-29-collab-conn-status-recovery 四条静态断言之三）：
+ * collab 恢复静态断言（批0e-4 三条 + 批4b-2 第四条）：
  *   A. flowweb/no-conn-status-write —— connStatus 单写点；
  *   B. flowweb/no-ydoc-getmap —— ydoc getMap 读取三文件门；
- *   C. flowweb/no-store-setstate —— useCanvasStore/useNodeStore 直调 setState 白名单。
+ *   C. flowweb/no-store-setstate —— useCanvasStore/useNodeStore 直调 setState 白名单；
+ *   D. flowweb/no-delete-scan —— 零删除扫描（批4b-2）：生产代码禁"遍历 Y.Map keys + 条件 delete"
+ *      的全量对账删除形态（0b deletion baseline 反模式——删除意图必须显式化 intent）。
  *
  * 共同形态（仿 no-theme-utility）：文件白名单外直判 exit 1（无 baseline，lint-gate.mjs 不建 baseline）；
  * 测试文件豁免（*.test.* / *.spec.*）——单写点/门是对生产代码的结构约束，测试的 mock 与断言不受限。
@@ -130,6 +132,50 @@ export const noStoreSetstate = {
         ) {
           context.report({ node, messageId: 'forbidden' });
         }
+      },
+    };
+  },
+};
+
+// D. 批4b-2 零删除扫描：生产代码禁"遍历 Y.Map keys + 条件 delete 同基座"的全量对账删除形态
+// （syncStoreToDoc/0b deletion baseline 的结构性反模式——靠"上次投影"猜测删除意图）。删除意图
+// 必须显式化 intent（deleteNode/deleteEdge）。豁免 canvasIntents：applyIntentToDoc 的 deleteNode
+// 级联引用边清理是显式 intent 的执行体（删除目标=引用边判定，非 baseline 成员扫描）。
+const DELETE_SCAN_EXEMPT_FILES = ['src/stores/canvasIntents.ts'];
+
+const MSG_DELETE_SCAN =
+  '零删除扫描断言（批4b-2）：生产代码禁"遍历 Y.Map keys + 条件 delete"的全量对账删除形态——' +
+  '删除意图必须显式化 intent（canvasIntents deleteNode/deleteEdge；豁免仅 canvasIntents）。' +
+  '新删除路径落地先改 spec 再动码（spec 2026-09-29-collab-conn-status-recovery 批4b）。';
+
+/** 迭代表达式 → 被迭代集合的基座文本（X.keys() 或 [ ...X.keys() ] 的 X）；非 keys() 形态返回 null */
+function keysBaseText(node, sourceCode) {
+  const call =
+    node.type === 'CallExpression' ? node
+    : node.type === 'ArrayExpression' && node.elements.length === 1 && node.elements[0].type === 'SpreadElement'
+      ? node.elements[0].argument
+      : null;
+  if (!call || call.type !== 'CallExpression') return null;
+  const callee = call.callee;
+  if (callee.type !== 'MemberExpression' || callee.computed ||
+    callee.property.type !== 'Identifier' || callee.property.name !== 'keys') return null;
+  return sourceCode.getText(callee.object);
+}
+
+/** D. delete-scan 门：for..of 迭代某集合 keys() 且循环体内对同基座 delete —— 扫描删除形态 */
+export const noDeleteScan = {
+  meta: { type: 'problem', docs: { description: '零删除扫描（批4b-2 静态断言 D）' }, schema: [], messages: { forbidden: MSG_DELETE_SCAN } },
+  create(context) {
+    const active = gateActive(context, DELETE_SCAN_EXEMPT_FILES);
+    if (!active) return {};
+    return {
+      ForOfStatement(node) {
+        const base = keysBaseText(node.right, context.sourceCode ?? context.getSourceCode());
+        if (base == null) return;
+        const bodyText = (context.sourceCode ?? context.getSourceCode()).getText(node.body);
+        // 同基座 delete（文本判据：基座精确匹配 + .delete( ——避免成员链/别名的宽松误报）
+        const re = new RegExp(`(^|[^\\w$.])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.delete\\s*\\(`);
+        if (re.test(bodyText)) context.report({ node, messageId: 'forbidden' });
       },
     };
   },

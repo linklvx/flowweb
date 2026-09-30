@@ -5,7 +5,9 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, calcGroupBounds, calcStoryboardSize, shouldAutoRefit } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
-import { syncStoreToDoc, applyDocToStore } from './canvasCollabRuntime';
+import { applyDocToStore } from './canvasCollabRuntime';
+import { _setIntentDocForTest } from './canvasIntents';
+import { fillDoc } from '@/collab/ydocBuilder';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -391,22 +393,26 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
   it('undo 语义：patchGroupData 入栈+500ms 合并+undo 恢复旧 data', async () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
+    // 批4b-2：syncStoreToDoc 退役——patchGroupData 自 dispatch updateNodeData intent（初态 fillDoc
+    // 直驱 origin=null 不入 undo 栈，等价旧 Origin.Server 初态不入栈的装置语义）
+    _setIntentDocForTest(d);
     try {
       const groupFixture = (id: string, data: Record<string, unknown>) => ({
         id, type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200,
         data: { groupType: 'normal', ...data },
       });
+      fillDoc(d, [groupFixture('g1', { name: 'A' })] as any, []);   // 初态入 doc（server 填充形态——origin=null 不入栈）
       useCanvasStore.setState({ nodes: [groupFixture('g1', { name: 'A' })] as any, edges: [] });
-      syncStoreToDoc(d, Origin.Server);             // 初态入 doc。plan 原文 LocalUser 会使初态事务入 undo 栈（undoStack=2+undo 恢复到空 doc）——两条断言双红，故初态用 Server（真实链路初态由 server 填充不入栈）
+      useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
       useCanvasStore.getState().patchGroupData('g1', { name: 'B' });
       useCanvasStore.getState().patchGroupData('g1', { name: 'C' });
-      syncStoreToDoc(d, Origin.LocalUser);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项
-      expect(um.undoStack.length).toBe(1);
+      expect(um.undoStack.length).toBe(1);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项
       um.undo();
       applyDocToStore(d);                           // 显式读回（替代跑不动的 onRemote——Task 10 形参化测试缝）
       const g = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
       expect(g.name).toBe('A');                     // undo 恢复旧值
     } finally {
+      _setIntentDocForTest(null);
       detachUndoManager();
     }
   });

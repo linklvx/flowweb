@@ -1,20 +1,26 @@
 // apps/web/src/stores/canvasCollabRuntime.ts
-// 画布 Yjs 实时协作桥（spec T6：store ↔ server doc 双向同步 + origin 防回环）。
+// 画布 Yjs 实时协作桥（spec T6 + 批4b-2 写路径收口）：
+//   读方向 doc→store = applyDocToStore（onRemote 50ms 去抖 + 水合窗口）；
+//   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口）+ dispatchSystemIntents
+//   （S1 几何修复，origin=Geometry）——旧"订阅翻译→全量同步+删除扫描"写路径已随批4b-2 整体退役。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
-import { pickStructNodes, pickStructEdges } from './canvasHistory';
+import { pickStructNodes } from './canvasHistory';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
-import { isAutoEdgeId } from './autoEdgeIds';
 import { normalizeLoadedCanvas, shouldAutoRefit } from '@flowweb/shared';
-import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
+import { readCanvasFromDoc } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
+// 批4b-2（组 2 收口）：S1 系统几何修复改 intent 直写（dispatchSystemIntents——doc-only，门=
+// collabReadOnly）。循环依赖同裁定：canvasIntents 与本模块互为顶层 import 声明（getDoc 反向），
+// 双方均为函数声明导出——ESM 本地绑定延迟求值安全
+import { dispatchSystemIntents, type CanvasIntent, type NodeEnvelopePatch } from './canvasIntents';
 // 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
 // import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
 import { fetchNodeIntents } from '@/api/executionApi';
@@ -27,8 +33,6 @@ import { readViewport } from '@/utils/viewportPersistence';
 import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
 import { recordCollabDiag, isAutoRecoverDisabled } from '@/utils/collabDiagnostics';
-// 批2-2 VIEWER 第一层（doc 硬门）：canEdit 假（readOnly/terminal/非 ready）⇒ doc 零写
-import { canEdit } from './syncStatus';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -46,7 +50,6 @@ function collabUrl(): string {
 let doc: Y.Doc | null = null;
 let provider: HocuspocusProvider | null = null;
 let awarenessBridge: AwarenessBridge | null = null;
-let unbindStores: (() => void) | null = null;
 
 /** 测试缝（只读）：读 doc 断言用。勿用于业务逻辑——业务走订阅。 */
 export function getDoc(): Y.Doc | null {
@@ -109,11 +112,6 @@ let lastRecoveryAt = 0;
 
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
-
-// 批2-1：远端应用窗口 latch（原 isHydrating 的"抑制窗口"职责随字段删除迁至此——spec：
-// latch 职责不得消失，它是防"切项目=删光 doc"的机制之一）。applyDocToStore 前后置位/清除，
-// 桥双订阅读它短路——模块级绝不进 store（避免额外渲染）
-let applyingRemote = false;
 
 // 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
 let transportHandle: ReconnectHandle | null = null;
@@ -220,17 +218,6 @@ async function alignExecFromIntents(): Promise<void> {
   }
 }
 
-/** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
- *  它就是 delta 写的删除半边（批4b 同规则）；initCollab 每会话重置 null（首同步 doc 为源不删）。 */
-let prevNodeIds: Set<string> | null = null;
-let prevEdgeIds: Set<string> | null = null;
-
-/** 测试缝（只读复位）：baseline.spec 防用例顺序依赖——getDoc 先例 */
-export function _resetBaselineForTest() {
-  prevNodeIds = null;
-  prevEdgeIds = null;
-}
-
 /** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
  *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣）。
  *  批2-1 修D：超时分支不再 destroyCollab/直写 'offline'——provider 存活，事件通道未断，
@@ -268,96 +255,28 @@ function storeProjection() {
  *    doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
  *    后同形（对有几何侧幂等 no-op）。
  *  只读不写——测试缝直驱做非恒真式变异实验。readOnly 会话不测量（S1 几何止步 store 层是
- *  设计内分叉——调用方负责门）。 */
+ *  设计内分叉——调用方负责门）。
+ *  批4b-2：比较按 id 排序——doc 侧是 Y.Map 插入序、store 侧是 ensureParentOrder 父前子后渲染序，
+ *  两域顺序契约不同（消费侧 hydrate/ensureParentOrder 各自归一），序敏感比较会把"子先建组后建"
+ *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。 */
 export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
+  const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const fromDoc = {
-    nodes: normalizeLoadedCanvas(nodes.filter((n) => !n.id.startsWith('shadow-'))),
+    nodes: byId(normalizeLoadedCanvas(nodes.filter((n) => !n.id.startsWith('shadow-')))),
     edges,
   };
   const sp = storeProjection();
   return isEqual(fromDoc, {
-    nodes: normalizeLoadedCanvas(sp.nodes.filter((n) => !n.id.startsWith('shadow-'))),
+    nodes: byId(normalizeLoadedCanvas(sp.nodes.filter((n) => !n.id.startsWith('shadow-')))),
     edges: sp.edges,
   });
 }
 
-/** 差异转 ydoc 事务（细粒度：新增/删除按 id，更新逐键；position 独立子 Map；data 逐键）。
- *  差异转 ydoc 事务——doc 显式形参化（syncAutoEdgesToDoc 同款先例）：bindBridge 内传模块 doc，
- *  测试直接 new Y.Doc() 驱动（G3/W7 红转绿门槛的装置基础）。 */
-export function syncStoreToDoc(d: Y.Doc, origin: string) {
-  const { nodes, edges } = storeProjection();
-  const nodesMap = d.getMap('nodes');
-  const edgesMap = d.getMap('edges');
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const edgeIds = new Set(edges.map((e) => e.id));
-
-  d.transact(() => {
-    for (const id of [...nodesMap.keys()]) {
-      if (nodeIds.has(id)) continue;
-      if (prevNodeIds !== null && prevNodeIds.has(id)) nodesMap.delete(id);
-    }
-    for (const n of nodes) {
-      const existing = nodesMap.get(n.id);
-      if (!(existing instanceof Y.Map)) {
-        fillDoc(d, [n], []);
-        continue;
-      }
-      // 信封键（type/parentId/width/height/position）增量收敛到 applyRecordToYMap（全键 diff 守卫——
-      // 同值 no-op 防 doc 膨胀）；data 逐键 diff 是业务域，留本函数原有逻辑
-      applyRecordToYMap(existing, n);
-      const data = existing.get('data');
-      if (data instanceof Y.Map) {
-        const incoming = n.data ?? {};
-        for (const k of [...data.keys()]) {
-          if (!(k in incoming)) data.delete(k);
-        }
-        for (const [k, v] of Object.entries(incoming)) {
-          if (!isEqual(data.get(k), v)) data.set(k, v);
-        }
-      }
-    }
-    for (const id of [...edgesMap.keys()]) {
-      if (isAutoEdgeId(id)) continue; // auto 边删除只归 syncAutoEdgesToDoc（防订阅误删）
-      if (!edgeIds.has(id) && prevEdgeIds !== null && prevEdgeIds.has(id)) edgesMap.delete(id);
-    }
-    for (const e of edges) {
-      if (isAutoEdgeId(e.id)) continue; // auto 边新增/更新只归 syncAutoEdgesToDoc
-      const existing = edgesMap.get(e.id);
-      if (!(existing instanceof Y.Map)) {
-        fillDoc(d, [], [e]);
-        continue;
-      }
-      if (existing.get('source') !== e.source) existing.set('source', e.source ?? '');
-      if (existing.get('target') !== e.target) existing.set('target', e.target ?? '');
-    }
-  }, origin);
-  prevNodeIds = new Set(nodeIds);
-  prevEdgeIds = new Set(edgeIds);
-}
-
-/** 自动边全量对账（无业务参数——id 自编码 editNodeId）：store 侧 auto 边为期望态，doc 补齐增删。
- *  独立 transact origin=AutoEdge（不入画布撤销栈）。幂等——覆盖删节点级联/手删 auto 边/编辑器 reconcile 全场景。 */
-export function syncAutoEdgesToDoc(d: Y.Doc) {
-  const expected = useCanvasStore.getState().edges
-    .filter((e) => isAutoEdgeId(e.id))
-    .map((e) => ({ id: e.id, source: e.source, target: e.target }));
-  const edgesMap = d.getMap('edges');
-  const expectedIds = new Set(expected.map((e) => e.id));
-  const docAutoIds = [...edgesMap.keys()].filter(isAutoEdgeId);
-  const toAdd = expected.filter((e) => !edgesMap.get(e.id));
-  const toRemove = docAutoIds.filter((id) => !expectedIds.has(id));
-  if (toAdd.length === 0 && toRemove.length === 0) return;
-  d.transact(() => {
-    for (const e of toAdd) {
-      const m = new Y.Map();
-      m.set('source', e.source);
-      m.set('target', e.target);
-      edgesMap.set(e.id, m);
-    }
-    for (const id of toRemove) edgesMap.delete(id);
-  }, Origin.AutoEdge);
-}
+// 批4b-2（组 2 收口）退役：全量同步函数（store 投影 diff+doc 扫描删除——结构性反模式，写路径
+// 已收口 dispatchCanvasIntent）与 auto 边全量对账器（auto 边增删已由 addEdge/removeEdge 的
+// AutoEdge origin intent 承接，删节点级联由 deleteNode intent 内建）。零删除扫描静态断言
+// （flowweb/no-delete-scan）防回归。
 
 /** A1 影子事务短路判定（Plan 1 Task 9 固化：origin 不过网，跨网判据必须用 id 前缀）：
  *  本次 events 全部仅涉及 nodes map 上 shadow- 前缀节点（含深层 data 写回）→ 跳过 applyDocToStore 全量重建（防闪烁，spec 验收 22） */
@@ -382,6 +301,39 @@ export function isShadowOnlyEvents(events: Y.YEvent<any>[], nodesMap: Y.Map<any>
   return true;
 }
 
+/** S1 差分 → intent 序列（pickStructNodes 形状——几何+组 data；普通节点 data 不在 struct 面内，
+ *  ns 刷新不入 diff=C1 陈旧 data 不回写的结构性保证）。S1 窗口无新增/删除（refit/derivations
+ *  只改既有成员）——before 有 after 无的成员差在此不存在（防御性跳过）。 */
+function structDiffToIntents(
+  before: ReturnType<typeof pickStructNodes>,
+  after: ReturnType<typeof pickStructNodes>,
+): CanvasIntent[] {
+  const intents: CanvasIntent[] = [];
+  for (const b of before) {
+    const a = after.find((n) => n.id === b.id);
+    if (!a) continue;
+    const patch: NodeEnvelopePatch = {};
+    if (b.type !== a.type) patch.type = a.type;
+    if ((b.parentId ?? undefined) !== (a.parentId ?? undefined)) patch.parentId = a.parentId;
+    if (b.width !== a.width) patch.width = a.width;
+    if (b.height !== a.height) patch.height = a.height;
+    if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
+    if (b.position?.x !== a.position?.x || b.position?.y !== a.position?.y) {
+      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+    }
+    if (a.type === 'group' && !isEqual(b.data, a.data)) {
+      const dp: Record<string, unknown> = {};
+      const bd = (b.data ?? {}) as Record<string, unknown>;
+      const ad = (a.data ?? {}) as Record<string, unknown>;
+      for (const k of new Set([...Object.keys(bd), ...Object.keys(ad)])) {
+        if (!isEqual(bd[k], ad[k])) dp[k] = k in ad ? ad[k] : undefined;
+      }
+      intents.push({ type: 'updateNodeData', id: a.id, patch: dp });
+    }
+  }
+  return intents;
+}
+
 /** server doc → store——同款形参化（undo/乒乓断言的读回驱动） */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
@@ -403,44 +355,19 @@ export function applyDocToStore(d: Y.Doc) {
   // data 是 ns 优先，回写时 ns 还是旧值会把协作者刚提交的编辑从 doc 回退（doc=旧/本端=新的分裂脑）。
   // pickStructNodes 只读 cs.nodes，重排对 diff 语义零影响。
   useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
-  // 批2-2 第一层（doc 硬门）：readOnly 会话 doc 零写含 system intent——几何修正止步 store 层
-  // （refit 照跑，doc 保持服务端原值；readOnly Update 服务端一律 NACK，写必分叉）。
-  // 判据用 collabReadOnly 而非 canEdit：S1 在水合窗口内执行（setHydration('ready') 在本函数
-  // 返回后才写），canEdit 的 ready 分量在此结构性为假——用它会把 rw 会话的既有几何回写一并杀掉
-  // （rw 回归锚：S1 照常落 doc）
-  if (!isEqual(before, pickStructNodes(useCanvasStore.getState().nodes)) && !useCanvasStore.getState().collabReadOnly) {
-    syncStoreToDoc(d, Origin.Geometry);
+  // 批4b-2：S1 回写改 intent（envelope/moveNode/组 data 序列单 transact，origin=Geometry——
+  // 不入撤销栈、onRemote LOCAL_ORIGINS 跳过）。readOnly 门在 dispatchSystemIntents 内
+  // （批2-2 判据沿袭：S1 在水合窗口内执行，canEdit 的 ready 分量结构性为假——用它会把 rw
+  // 会话的既有几何回写一并杀掉；rw 回归锚：S1 照常落 doc）
+  const afterStruct = pickStructNodes(useCanvasStore.getState().nodes);
+  if (!isEqual(before, afterStruct)) {
+    dispatchSystemIntents(d, structDiffToIntents(before, afterStruct), Origin.Geometry);
   }
 }
 
-/** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */
-function bindBridge(): () => void {
-  const unsubCs = useCanvasStore.subscribe((state, prev) => {
-    // 批2-1 双门：hydration 非 ready（会话建立/水合窗口——R17 切项目清空不得翻译成删除）
-    // + applyingRemote（远端应用窗口——原 isHydrating latch 职责迁入）
-    if (state.hydration !== 'ready' || applyingRemote) return;
-    // 批2-2 第一层（doc 硬门）：readOnly 会话 doc 零写——含 syncAutoEdgesToDoc（唯一调用点在本
-    // 回调内，此处短路即同步覆盖）。覆盖一切现在与未来的 setState 旁路（R29），拖拽回弹由
-    // React Flow 受控 + 下一远端帧覆盖自愈（doc 是真相）
-    if (!canEdit(state)) return;
-    if (state.projectId !== prev.projectId) return;
-    // diff 输入只有 nodes/edges——引用未变早退（严格等价：同引用 ⇒ pickStruct 投影输出相同
-    // ⇒ isEqual 恒真 ⇒ 原逻辑本就 no-op），防 UI 态翻转白跑 O(n) 投影+深比较
-    if (state.nodes === prev.nodes && state.edges === prev.edges) return;
-    const changed = !isEqual(pickStructNodes(state.nodes), pickStructNodes(prev.nodes))
-      || !isEqual(pickStructEdges(state.edges), pickStructEdges(prev.edges));
-    if (changed) {
-      syncAutoEdgesToDoc(doc!); // 先 auto 边对账（覆盖删节点级联留孤儿场景），再常规同步（其内部已跳过 auto 前缀）
-      syncStoreToDoc(doc!, Origin.LocalUser);
-    }
-  });
-  const unsubNs = useNodeStore.subscribe((state, prev) => {
-    // 批2-2 第一层（doc 硬门）：canEdit 已含 hydration==='ready'——readOnly 会话 ns 写同样零落 doc
-    if (applyingRemote || !canEdit(useCanvasStore.getState())) return;
-    if (state.nodes !== prev.nodes) syncStoreToDoc(doc!, Origin.LocalUser);
-  });
-  return () => { unsubCs(); unsubNs(); };
-}
+// 批4b-2（组 2 收口）退役：store→doc 订阅翻译桥（写路径唯一入口已收口
+// dispatchCanvasIntent，"store 变更→doc"翻译层整体消失；R17 切项目防线由"store 直写不再有
+// doc 翻译路径"+会话 teardown 的 doc 销毁结构性承接，远端应用窗口 latch 职责对象随之消失）。
 
 /** onRemote fromLocal 判定用（M4：每事件字面量数组分配的模块级提升） */
 const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
@@ -547,9 +474,6 @@ export async function initCollab(projectId: string): Promise<void> {
   attemptId = 0;
   inboundAttemptId = -1;
   plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
-  // 批0b deletion baseline 会话起点复位：null=首同步 doc 为源不删（旧会话基线携带过来会误删新会话 doc 独有 key）
-  prevNodeIds = null;
-  prevEdgeIds = null;
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
@@ -649,45 +573,29 @@ export async function initCollab(projectId: string): Promise<void> {
   // 批0a：connStatus 'connected' 直写已删——synced 完成只是候选条件之一，
   // 真入站（message 代际确认）到位前保持 connecting（recomputeConnStatus 唯一写点）
   recomputeConnStatus();
-  // 批2-1：水合窗口改 applyingRemote latch（模块级，不进 store）——ready 于水合完成后单写
-  applyingRemote = true;
-  try {
-    applyDocToStore(doc!);
-  } finally {
-    applyingRemote = false;
-  }
+  // 批4b-2：水合窗口远端应用 latch 已退役——store 重建无订阅翻译层（批4b-2 删桥），
+  // 重建写不再有回译路径；ready 于水合完成后单写（批2-1 语义不变）
+  applyDocToStore(doc!);
   useCanvasStore.getState().setHydration('ready');
-  // 批0b：hydration 即 committed 基线（spec"committed 雏形/prev 投影"）——首次本地同步的删除判据
-  // 有源（首编辑=删除场景不丢删除）；影子经 readCanvasFromDoc 过滤于投影外 → 永不进基线
-  // （影子生命周期归服务端批0b-2，本地删除扫描永不触及）
-  const seeded = storeProjection();
-  prevNodeIds = new Set(seeded.nodes.map((n) => n.id));
-  prevEdgeIds = new Set(seeded.edges.map((e) => e.id));
 
   const onRemote = (events: any[]) => {
     // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
     if (events.some((e) => LOCAL_ORIGINS.includes(e.transaction.origin))) return;
-    if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边对账事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
+    if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边 intent 事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
     if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
       if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）
-      // 批2-1：远端应用窗口 latch（原 setHydrating(true/false) 包裹——桥双订阅短路防回声）
-      applyingRemote = true;
-      try {
-        applyDocToStore(doc!);
-        // 批4a：applyRemote 周期末尾不变量（含 S1 补跑——applyDocToStore 内收尾）。readOnly 会话
-        // 不测（S1 几何止步 store 层是设计内分叉）；不等→计数+DEV console.error，不抛（安全网非熔断）
-        if (!useCanvasStore.getState().collabReadOnly && !checkProjectionInvariant(doc!)) {
-          recordCollabDiag('invariant_violation', { where: 'applyRemote' });
-          if (import.meta.env.DEV) {
-            console.error('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
-          } else {
-            console.log('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
-          }
+      applyDocToStore(doc!);
+      // 批4a：applyRemote 周期末尾不变量（含 S1 补跑——applyDocToStore 内收尾）。readOnly 会话
+      // 不测（S1 几何止步 store 层是设计内分叉）；不等→计数+DEV console.error，不抛（安全网非熔断）
+      if (!useCanvasStore.getState().collabReadOnly && !checkProjectionInvariant(doc!)) {
+        recordCollabDiag('invariant_violation', { where: 'applyRemote' });
+        if (import.meta.env.DEV) {
+          console.error('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
+        } else {
+          console.log('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
         }
-      } finally {
-        applyingRemote = false;
       }
     }, 50);
   };
@@ -699,8 +607,6 @@ export async function initCollab(projectId: string): Promise<void> {
   doc.getMap('exec').observeDeep(() => projectExecToStore(doc!));
 
   awarenessBridge = new AwarenessBridge(provider!); // 非空：本函数流内 createProvider 刚赋值（seq 守卫已过）
-
-  unbindStores = bindBridge();
 }
 
 /** 批2-1 会话清理体：destroyCollab（真卸载）与 initCollab 入口（旧会话摘除）共用。
@@ -709,8 +615,6 @@ export async function initCollab(projectId: string): Promise<void> {
 async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
-  unbindStores?.();
-  unbindStores = null;
   // R23 实例守卫：await 恢复后仅当模块引用仍是"当时那个实例"才置空——
   // 旧 destroy 的 await 间隙并发 initCollab 建立的新会话不被波及（交错置空）
   const p = provider;
