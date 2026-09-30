@@ -4,9 +4,9 @@ import * as Y from 'yjs';
 import { writeNodeToYMap } from './node-doc.util';
 
 describe('writeNodeToYMap（整信封写入共享入口——R1a；与 ydocBuilder.fillDoc 逐键同构）', () => {
-  it('type/position(Y.Map 必写)/data(Y.Map) 结构同构，影子 data 带 __ephemeral', () => {
+  it('type/position(Y.Map 必写)/data(Y.Map) 结构同构，data 嵌套键全量透传（fixture 沿用 __ephemeral 任意键）', () => {
     // yjs 13.6.32 prelim 机制：孤儿 Y.Map 的 set 写 _prelimContent，get 读 _map——内容仅在集成进 doc 后可读（YMap.js:94 注释原文）。
-    // 集成由 writeNodeToYMap 内部 nodesMap.set 完成（与服务端 insertNode 用法一致）；以下断言逐字保留 plan 原文。
+    // 集成由 writeNodeToYMap 内部 nodesMap.set 完成（批5-1 删信箱后生产消费方=project.service fillDoc/backfill-team）；以下断言逐字保留 plan 原文。
     const doc = new Y.Doc();
     const m = writeNodeToYMap(doc.getMap('nodes'), { id: 'shadow-video-x', type: 'videoGen', position: { x: -99999, y: -99999 }, data: { model: 'm', __ephemeral: true } } as any);
     expect(m.get('type')).toBe('videoGen');
@@ -25,7 +25,7 @@ describe('writeNodeToYMap（整信封写入共享入口——R1a；与 ydocBuild
     const nodesMap = new Y.Doc().getMap('nodes');
     const m = writeNodeToYMap(nodesMap, { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { prompt: 'x' } } as any);
     expect((m.get('data') as Y.Map<any>).get('prompt')).toBe('x');
-    // shadow 场景：__ephemeral 写在 data 内
+    // 嵌套 data 键逐键写入（fixture 沿用历史 __ephemeral 键——任意键同构）
     const sm = writeNodeToYMap(nodesMap, { id: 'shadow-n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'f1', __ephemeral: true } } as any);
     expect((sm.get('data') as Y.Map<any>).get('__ephemeral')).toBe(true);
   });

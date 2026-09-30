@@ -15,21 +15,21 @@ describe('VideoWorkCloneService.clone', () => {
 
   const work = { id: 'w1', title: '春天的背面', canvasProjectId: 'p1', allowClone: true, status: 'PUBLISHED' };
 
-  /** fixture：分镜组（cells 含 存活子/被剥槽位/null/悬空 id）+ 组外节点 + videoEdit + shadow- + parentId 指向被剥 shadow- 的存活节点 */
+  /** fixture：分镜组（cells 含 存活子/被剥槽位/null/悬空 id）+ 组外节点 + videoEdit + shadow- id 普通节点（批5-1 删信箱后克隆对 shadow- id 零特殊处理——保留 fixture 验证不误剥）+ parentId 指向被剥 videoEdit 的存活节点 */
   const rawCanvas = () => ({
     nodes: [
       { id: 'child1', type: 'videoGen', parentId: 'grp', position: { x: 1, y: 1 }, width: 320, height: 240, data: { model: 'm', fileId: 'f1', status: 'done', label: 'L' } }, // width/height——spec §7 后端7 透传断言（第十一轮补）
       { id: 'grp', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['child1', 'edit1', null, 'ghost'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false, savedSize: { width: 100, height: 60 }, manuallyResized: true } }, // 后四键——克隆走 CLONE_WHITELIST 保留断言（F2 根因半边+G1；F27 storyboard）
       { id: 'child2', type: 'imageGen', position: { x: 2, y: 2 }, data: { prompt: { text: 'p', html: 'h' }, fileId: 'f-img', allImages: [{ url: 'u' }], __fromMulti: 'x' } }, // 组外节点；__fromMulti 清单外字段，克隆不得带走（spec:385）；fileId——F20 政策断言源值（Task 3：无源值则 toBeUndefined 真空绿）。第十一轮删 parentId:'grp'——原值与 cells 不含 child2 自相矛盾，测试不变量会把 child2 计入 aliveChildren 而"不在 cells"假红
       { id: 'edit1', type: 'videoEdit', parentId: 'grp', position: { x: 3, y: 3 }, data: { timeline: [] } },
-      { id: 'child3', type: 'imageGen', parentId: 'shadow-x', position: { x: 5, y: 5 }, data: { prompt: { text: 'orphan-p', html: 'x' } } }, // 存活但 parentId 指向被剥 shadow 节点——克隆体降级 null（批次6 Minor）；标记用 prompt 因 imageGen 白名单无 label
-      { id: 'shadow-x', type: 'imageGen', position: { x: 4, y: 4 }, data: {} },
+      { id: 'child3', type: 'imageGen', parentId: 'edit1', position: { x: 5, y: 5 }, data: { prompt: { text: 'orphan-p', html: 'x' } } }, // 存活但 parentId 指向被剥 videoEdit 节点——克隆体降级 null（批次6 Minor；批5-1 前挂 shadow-，删信箱后降级语义由 videoEdit 承载）；标记用 prompt 因 imageGen 白名单无 label
+      { id: 'shadow-x', type: 'imageGen', position: { x: 4, y: 4 }, data: { prompt: { text: 'shadow-p', html: 'x' } } }, // shadow- id 普通节点——批5-1 后无剥除（data.prompt 定位克隆体）
       { id: 'multi1', type: 'multiImageGen', position: { x: 6, y: 6 }, data: { prompt: 'mp', label: 'ML', images: [{ url: 'mu' }] } }, // 组外 multiImageGen——images 媒体引用克隆必剥（F20 政策断言取参，Task 3 补）
     ],
     edges: [
       { id: 'e1', source: 'child1', target: 'child2' },
       { id: 'e2', source: 'child1', target: 'edit1' },   // 连向被剥节点 → 边剥除
-      { id: 'e3', source: 'shadow-x', target: 'child2' }, // 同上
+      { id: 'e3', source: 'shadow-x', target: 'child2' }, // 两端存活（批5-1 后 shadow- id 不剥）→ 边保留
     ],
   });
 
@@ -77,14 +77,14 @@ describe('VideoWorkCloneService.clone', () => {
     expect(rateLimiter.checkUserRateLimit).toHaveBeenCalledWith('u1', 'video-work:clone', 3600, 10);
   });
 
-  it('四元重映射：videoEdit/shadow- 剥除；parentId/cells 换新 id；悬空与被剥槽位 → null 且长度不变', async () => {
+  it('四元重映射：videoEdit 剥除（批5-1 后 shadow- id 不剥——普通节点照常 remap）；parentId/cells 换新 id；悬空与被剥槽位 → null 且长度不变', async () => {
     setup();
     await svc.clone('w1', 'u1');                                  // 返回 { projectId }——断言走 create 收参（第六轮：clone 不返回 nodes，旧解构是 TS2339 + undefined.find）
     const passedNodes = projectService.create.mock.calls[0][2];   // create(title, userId, nodes, edges) 的第 3 参
     const grp = passedNodes.find((n: any) => n.type === 'group');
     const child1 = passedNodes.find((n: any) => n.data?.label === 'L');
     expect(passedNodes.map((n: any) => n.type)).not.toContain('videoEdit');
-    expect(passedNodes.map((n: any) => n.id)).not.toContain('shadow-x');
+    expect(passedNodes.find((n: any) => n.data?.prompt === 'shadow-p')).toBeTruthy(); // shadow- id 节点存活并 remap（id 前缀零特殊处理）
     expect(grp.data.cells).toHaveLength(4);                       // 长度不变
     expect(grp.data.cells[0]).toBe(child1.id);                    // 存活子 → 新 id
     expect(grp.data.cells[1]).toBeNull();                          // edit1 被剥 → null
@@ -98,7 +98,7 @@ describe('VideoWorkCloneService.clone', () => {
     for (const c of aliveChildren) expect(grp.data.cells).toContain(c.id);
   });
 
-  it('parentId 降级：存活节点 parentId 指向被剥 shadow- 节点 → 克隆体 null（与 cells 同语义）', async () => {
+  it('parentId 降级：存活节点 parentId 指向被剥 videoEdit 节点 → 克隆体 null（与 cells 同语义）', async () => {
     setup();
     await svc.clone('w1', 'u1');
     const passedNodes = projectService.create.mock.calls[0][2];
@@ -122,15 +122,17 @@ describe('VideoWorkCloneService.clone', () => {
     expect(prisma.template.count).not.toHaveBeenCalled();              // spec §7.7：Template 行数/importCount 不变——clone 不触 template
   });
 
-  it('边：相连被剥节点的边一并剥除；存活边 source/target 已重映射', async () => {
+  it('边：相连被剥节点的边一并剥除；存活边（含 shadow- id 端点）source/target 已重映射', async () => {
     setup();
     await svc.clone('w1', 'u1');
     const passedNodes = projectService.create.mock.calls[0][2];
     const passedEdges = projectService.create.mock.calls[0][3];   // 第 4 参
-    expect(passedEdges).toHaveLength(1);
+    expect(passedEdges).toHaveLength(2); // e1 + e3（e3 shadow-x 端点批5-1 后存活）——e2 连被剥 edit1 剥除
     const ids = new Set((passedNodes as any[]).map((n: any) => n.id));
-    expect(ids.has(passedEdges[0].source)).toBe(true);
-    expect(ids.has(passedEdges[0].target)).toBe(true);
+    for (const e of passedEdges) {
+      expect(ids.has(e.source)).toBe(true);
+      expect(ids.has(e.target)).toBe(true);
+    }
   });
 
   it('无旧 id 残留：新 nodes/edges 不含任何源 id', async () => {
@@ -222,7 +224,7 @@ describe('VideoWorkCloneService.clone', () => {
   });
 
   it('悬空不报（红线行为锁）：clone 档只检环——parentId 指向被剥节点的画布正常完成克隆', async () => {
-    setup(); // rawCanvas 的 child3 parentId 指向被剥 shadow-x——remap 折 null 后 clone 档零 violation
+    setup(); // rawCanvas 的 child3 parentId 指向被剥 edit1——remap 折 null 后 clone 档零 violation
     const result = await svc.clone('w1', 'u1');
     expect(result.projectId).toBe('new-p');
   });

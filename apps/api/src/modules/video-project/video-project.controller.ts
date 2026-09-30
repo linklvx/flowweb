@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Patch, Delete, Body, Param, Req, UsePipes, ValidationPipe, Inject } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 import { GeneratedMediaService } from './generated-media.service';
-import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGeneratedDto, ConfirmGeneratedDto, RemoveShadowDto, ExportPrecheckDto } from './video-project.dto';
+import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGeneratedDto, ConfirmGeneratedDto, ExportPrecheckDto } from './video-project.dto';
 
 @Controller('api/video-projects')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true })) // ValidationPipe 非全局，必须自挂
@@ -44,10 +44,6 @@ export class VideoProjectController {
   @Post('regenerate')
   regenerate(@Body() dto: RegenerateDto, @Req() req: any) {
     return this.svc.regenerate(req.user?.id, dto);
-  }
-  @Post('remove-shadow')
-  removeShadow(@Body() dto: RemoveShadowDto, @Req() req: any) {
-    return this.svc.removeShadow(req.user?.id, dto);
   }
 
   @Post('export-precheck')

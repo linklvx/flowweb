@@ -10,8 +10,8 @@ const rawNode = (id: string, type: string, data: Record<string, unknown>, extra:
 describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTypes 8 键为真值、shared VIDEO_WORK_NODE_TYPES 锚定——第八轮更正）', () => {
   // 两个口径（第八轮裁定，spec:228/D9）：快照【不】剥 videoEdit——保留节点、data 全剥（WHITELIST['videoEdit']=[]）；
   // 剥除是克隆独有差异。下方白名单用例走快照口径 base；剥除行为用例走克隆口径 cloneOpts。
-  const base: FilterOptions = { dropTypes: [], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false };       // 快照口径（getProcessSnapshot 实参）
-  const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: false, injectThumbnails: false }; // 剥除口径——仅 dropXxx 维度与 clone 一致（clone 真实实参另传 resetStatusIdle:true；本组用例只测剥除行为，第十轮注）
+  const base: FilterOptions = { dropTypes: [], dropIdPrefixes: [], resetStatusIdle: false, injectThumbnails: false };       // 快照口径（getProcessSnapshot 实参——批5-1 删信箱后不再剥 shadow-）
+  const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: [], resetStatusIdle: false, injectThumbnails: false }; // 剥除口径——仅 dropTypes 维度与 clone 一致（clone 真实实参另传 resetStatusIdle:true；本组用例只测剥除行为，第十轮注）
 
   it('textInput：content HTML→纯文本、prompt（string）直保留', () => {
     const input: RawCanvasData = {
@@ -94,7 +94,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
   });
 
-  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/shadow-/__ephemeral）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）', () => {
+  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/dropIdPrefixes/__ephemeral——util 机制单测，批5-1 后生产不传前缀）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('g1', 'group', { groupType: 'storyboard', cells: ['c1', 'edit1', 'shadow-x', 'eph', 'ghost', null], name: '分镜' }),
@@ -105,12 +105,12 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       ],
       edges: [],
     };
-    const out = buildFilteredSnapshot(input, cloneOpts);
+    const out = buildFilteredSnapshot(input, { ...cloneOpts, dropIdPrefixes: ['shadow-'] });
     const g = out.nodes.find(n => n.id === 'g1')!;
     expect(g.data.cells).toEqual(['c1', null, null, null, 'ghost', null]); // 剥除槽位 null；ghost 非 dropped 本层不动
   });
 
-  it('克隆口径：videoEdit 与 shadow- 前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（spec §4.6 字面）', () => {
+  it('dropIdPrefixes 机制：前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（spec §4.6 字面）——util 能力单测（批5-1 删信箱后生产口径不传前缀）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('n1', 'videoGen', { model: 'm' }),
@@ -124,7 +124,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
         { id: 'e3', source: 'n1', target: 'n3' },
       ],
     };
-    const out = buildFilteredSnapshot(input, cloneOpts);
+    const out = buildFilteredSnapshot(input, { ...cloneOpts, dropIdPrefixes: ['shadow-'] });
     expect(out.nodes.map(n => n.id)).toEqual(['n1']);
     expect(out.edges).toEqual([]);
   });
@@ -257,7 +257,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       edges: [],
     };
     const out = buildFilteredSnapshot(input, {
-      dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'], resetStatusIdle: true, injectThumbnails: false,
+      dropTypes: ['videoEdit'], dropIdPrefixes: [], resetStatusIdle: true, injectThumbnails: false, // clone 真实实参（批5-1 后不传前缀）
       whitelist: CLONE_WHITELIST,
     });
     expect(Object.keys(out.nodes[0].data).sort()).toEqual(

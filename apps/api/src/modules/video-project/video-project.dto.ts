@@ -15,6 +15,7 @@ export class RegenerateDto {
   @IsString() sourceNodeId!: string; // 素材源节点（非剪辑节点）
   @IsString() workflowId!: string;   // 漏了它 whitelist 会剥离 → svc.assertEditor(undefined) 真机挂（服务层测试直传对象测不到）
   @IsIn(['video', 'audio']) kind!: 'video' | 'audio'; // @IsString 只验"是字符串"不验枚举——必须 @IsIn
+  @IsString() retakeId!: string; // 批5-1 客户端生成幂等键（E0）——必填：服务端兜底=每次新 id=重放无幂等；透传 execute 作 intentId
 }
 
 export class RegisterGeneratedDto {
@@ -28,7 +29,6 @@ export class RegisterGeneratedDto {
   @IsOptional() @IsString() clientRequestId?: string; // 幂等键（同 id 重入返回同 Media——不显式声明会被 whitelist 静默剥离）
 }
 export class ConfirmGeneratedDto { @IsString() mediaId!: string; }
-export class RemoveShadowDto { @IsString() workflowId!: string; @IsString() shadowNodeId!: string; }
 export class ExportPrecheckDto {
   @IsString() workflowId!: string;
   @IsNumber() @Min(0) estimatedSize!: number; // 前端估算字节（预检用——register 时才以真实大小终判）；负值无意义拒收

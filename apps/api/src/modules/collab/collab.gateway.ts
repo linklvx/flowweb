@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { Document, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import type { onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
 import Redis from 'ioredis';
 import * as Y from 'yjs';
@@ -34,11 +34,6 @@ const PERSIST_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 15_000, 30_000];
 /** 批3-4 sweep 轮询与 grace 窗 */
 const SESSION_SWEEP_INTERVAL_MS = 60_000;
 const SESSION_SWEEP_GRACE_MS = 5_000;
-
-/** 批0b：孤儿影子 GC 年龄阈值（服务端所有权，R32）——shadow id 内嵌时间戳
- *  （video-project.service.ts:93），删除失败/响应丢失从未进投影的影子按 7 天清出。
- *  批 5 删信箱后本机制随行消失。 */
-const SHADOW_TTL_MS = 7 * 24 * 3600 * 1000;
 
 /** pending 队列计数封顶：折叠后恰剩 1 条、需再积 64 条才复发（字节阈值会"折完仍超限→每条 update
  *  全量重编码"——实测 3000 条积压 4.8s vs 计数 103ms 同步阻塞 WS 消息路径）。模块级 const，无测试缝、
@@ -224,34 +219,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const stash = this.takeStash(projectId);
       if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
       await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
-      this.sweepDocument(document);   // 批0b：短会话的有效触发点——钩子尾对当前 doc 顺手扫一次（与定时器共用同一段检查）
     } catch (err) {
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
       throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
     }
-  }
-
-  /** 批0b 定时兜底：1h interval——短会话撞定时器概率≈0（24h×短会话），加载时点单查才是有效触发 */
-  private shadowSweepTimer: ReturnType<typeof setInterval> | null = null;
-  private startShadowSweep() {
-    this.shadowSweepTimer = setInterval(() => void this.sweepAgedShadows().catch((e) => this.logger.warn(`shadow sweep: ${e}`)), 60 * 60 * 1000);
-    this.shadowSweepTimer.unref?.();
-  }
-
-  /** 与定时器共用同一段检查：只删 id 时间戳超龄的影子（regex 不匹配的旧形状保守不动），
-   *  transact 使删除产生 delete set（经 update 监听进 pending → 持久化/广播） */
-  private sweepDocument(document: Document) {
-    const nodesMap = document.getMap('nodes');
-    const stale = [...nodesMap.keys()].filter((id) => {
-      if (!id.startsWith('shadow-')) return false;
-      const m = /^shadow-[a-z]+-(\d+)-/.exec(id);
-      return !!m && Date.now() - Number(m[1]) > SHADOW_TTL_MS;
-    });
-    if (stale.length) document.transact(() => { for (const id of stale) nodesMap.delete(id); });
-  }
-
-  private async sweepAgedShadows() {
-    for (const [, document] of this.server.hocuspocus.documents) this.sweepDocument(document);
   }
 
   /** unflushed 唯一出入口（内部维护 gauge，防指标与 Map 漂移） */
@@ -444,7 +415,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 跨实例同步：仅回复本实例已打开的文档（Document extends Y.Doc，内存态最新）
     this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
     this.server.listen();
-    this.startShadowSweep();   // 批0b：孤儿影子定时兜底（有效触发点是 onLoadDocument 尾顺手扫）
     this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
@@ -541,7 +511,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 批3-2：shutdown 有界化——destroy 与 8s 超时 race。无界形态下 ioredis 等保活句柄使
    *  destroy 永挂 → 进程退不出 → pm2 SIGKILL → stash 丢；超时分支点名内存 doc 数供对账。 */
   async onApplicationShutdown() {
-    if (this.shadowSweepTimer) { clearInterval(this.shadowSweepTimer); this.shadowSweepTimer = null; }
     if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // 批3-4：sweep 定时器随停
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);   // 批3-4：退避定时器随停（stash 留待下次 load）
     this.closeAllConnections1012();

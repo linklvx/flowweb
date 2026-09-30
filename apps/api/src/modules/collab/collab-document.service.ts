@@ -3,7 +3,6 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { svSatisfied } from './sv.util';
 import { svWaitTimeoutTotal } from './sv-wait.metrics';
-import { writeNodeToYMap, type ShadowNodeInput } from './node-doc.util';
 
 @Injectable()
 export class CollabDocumentService {
@@ -111,19 +110,6 @@ export class CollabDocumentService {
         exec.set(nodeId, m);
       }
       for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
-    });
-  }
-
-  /** A1 影子节点：整节点写入（writeNodeToYMap 共享入口——R1a 收敛）。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
-  async insertNode(projectId: string, node: ShadowNodeInput) {
-    await this.withDoc(projectId, (doc) => {
-      writeNodeToYMap(doc.getMap('nodes'), node);
-    });
-  }
-
-  async removeNode(projectId: string, nodeId: string) {
-    await this.withDoc(projectId, (doc) => {
-      doc.getMap('nodes').delete(nodeId);
     });
   }
 }

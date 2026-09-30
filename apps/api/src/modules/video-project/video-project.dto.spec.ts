@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { CreateVideoProjectDto, PatchVideoProjectDto, RegisterGeneratedDto } from './video-project.dto';
+import { CreateVideoProjectDto, PatchVideoProjectDto, RegisterGeneratedDto, RegenerateDto } from './video-project.dto';
 
 describe('video-project DTO', () => {
   it('合法 create 通过', async () => {
@@ -29,6 +29,22 @@ describe('video-project DTO', () => {
     const dto = plainToInstance(PatchVideoProjectDto, { data: 'not-object', baseUpdatedAt: '2026-09-10T00:00:00Z' });
     const errs = await validate(dto);
     expect(errs.some(e => e.property === 'data')).toBe(true);
+  });
+});
+
+describe('RegenerateDto（批5-1 retakeId 客户端生成透传）', () => {
+  const ok = { workflowId: 'w1', sourceNodeId: 'src1', kind: 'video' as const };
+  it('齐全通过（retakeId 必填）', async () => {
+    const dto = plainToInstance(RegenerateDto, { ...ok, retakeId: 'rtk-1' });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+  it('缺 retakeId 拒绝——幂等键必须客户端生成（服务端兜底=每次新 id=重放无幂等，E0 病因复发）', async () => {
+    const errs = await validate(plainToInstance(RegenerateDto, ok));
+    expect(errs.some(e => e.property === 'retakeId')).toBe(true);
+  });
+  it('kind 非 video/audio 拒绝（@IsIn）', async () => {
+    const errs = await validate(plainToInstance(RegenerateDto, { ...ok, kind: 'image', retakeId: 'r' }));
+    expect(errs.some(e => e.property === 'kind')).toBe(true);
   });
 });
 

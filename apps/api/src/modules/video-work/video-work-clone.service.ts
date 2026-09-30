@@ -32,10 +32,11 @@ export class VideoWorkCloneService {
     const run = async () => {
       const raw = await this.collabDoc.readCanvas(w.canvasProjectId!) as RawCanvasData;
       // 克隆走 CLONE_WHITELIST 分表（R0a）：group 9 键（storyboard/collapsed/savedSize 等——F2 根因半边+G1 手动尺寸保持）；
-      // 其余同快照（D9）：resetStatusIdle + 不注入缩略图 + 剥 videoEdit/shadow-
-      // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一）
+      // 其余同快照（D9）：resetStatusIdle + 不注入缩略图 + 剥 videoEdit
+      // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一；
+      //  批5-1 删信箱后 shadow- 前缀剥除随行消失——id 前缀零特殊处理）
       const filtered = buildFilteredSnapshot(raw, {
-        dropTypes: ['videoEdit'], dropIdPrefixes: ['shadow-'],
+        dropTypes: ['videoEdit'], dropIdPrefixes: [],
         resetStatusIdle: true, injectThumbnails: false,
         whitelist: CLONE_WHITELIST,
       });
@@ -62,7 +63,7 @@ export class VideoWorkCloneService {
   private remapIds(nodes: FilteredNode[], edges: FilteredEdge[], rawNodes: RawNode[]): { nodes: any[]; edges: FilteredEdge[] } {
     const droppedIds = new Set(
       rawNodes
-        .filter(n => n.type === 'videoEdit' || n.id.startsWith('shadow-'))
+        .filter(n => n.type === 'videoEdit')
         .map(n => n.id),
     );
     const idMap = new Map<string, string>();

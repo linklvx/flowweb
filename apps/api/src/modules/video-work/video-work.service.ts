@@ -325,7 +325,7 @@ export class VideoWorkService {
     const raw = await this.withTimeout(this.collabDoc.readCanvas(w.canvasProjectId), 5000) as RawCanvasData;
     const withThumbs = await this.injectThumbnails(raw);
     const filtered = buildFilteredSnapshot(withThumbs, {
-      dropTypes: [], dropIdPrefixes: ['shadow-'],   // 快照不剥 videoEdit（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定
+      dropTypes: [], dropIdPrefixes: [],   // 快照不剥任何节点（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定；批5-1 删信箱后 shadow- 前缀剥除随行消失
       resetStatusIdle: false, injectThumbnails: true,
     });
     const result = { workId: id, title: w.title, ...filtered };

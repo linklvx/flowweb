@@ -77,37 +77,22 @@ export class VideoProjectService {
   }
 
   /**
-   * A1 影子节点克隆生成：
-   * 1. readCanvas 找 sourceNode → JSON 整份深拷 data（禁止字段挑拣——取词链 content 优先/prompt 嵌套）
-   * 2. insertNode 影子（shadow- 前缀 + __ephemeral 判据——前端 onRemote 以此短路防 applyDocToStore
-   *    全量重建闪烁；origin 不过网已实测，见 Task 9 跨端用例）
-   * 3. 服务端直调 execute（不走 HTTP、不带 x-yjs-sv——sv 裁剪会让影子不可见）
-   * 4. 不在此删影子：done 事件经 socket 回流后由前端读 data 取 fileId 再调 removeNodeByShadow
+   * 批5-1 retake 直连真实节点（落点 B——影子信箱删除）：
+   * 1. readCanvas 校验 sourceNode 类型（video→videoGen / audio→audioGen）
+   * 2. 直调 execute（真实节点；不走 HTTP、不带 sv——sv 位恒 undefined，E2 的"sv 裁剪致影子不可见"根因随信箱消失）
+   * 3. retakeId 客户端生成（E0）透传 execute 作 intentId——同 retakeId 重放由 claim 层幂等
+   *    （SUCCEEDED → created:false 零外呼零扣费回放产物）
+   * 4. 产物落地不在本方法：Media.create/writeNodeData(fileId)/emitNodeStatus 由 execute→ai-download
+   *    既有链在真实节点上完成（服务层重复落地=双 Media 行）
    */
-  async regenerate(userId: string, dto: { sourceNodeId: string; workflowId: string; kind: 'video' | 'audio' }) {
+  async regenerate(userId: string, dto: { sourceNodeId: string; workflowId: string; kind: 'video' | 'audio'; retakeId: string }) {
     await this.perm.assertEditor(dto.workflowId, userId);
     const canvas = await this.collab.readCanvas(dto.workflowId);
     const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
     const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';
     if (!src || src.type !== wantType) throw new BadRequestException('source node not found or kind mismatch');
-    const shadowId = `shadow-${dto.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const clonedData = JSON.parse(JSON.stringify(src.data ?? {})); // 整份深拷（Yjs toJSON 即 JSON 语义）
-    clonedData.__ephemeral = true;
-    await this.collab.insertNode(dto.workflowId, {
-      id: shadowId, type: wantType,
-      position: { x: -99999, y: -99999 }, // 次保险：主判据是 shadow- 前缀+__ephemeral（store 投影与渲染层双重过滤），position 仅让万一漏过滤的渲染远离视口
-      data: clonedData,
-    });
-    const result = await this.execution.execute(dto.workflowId, shadowId, userId); // 直调，无 sv
-    return { shadowNodeId: shadowId, result };
-  }
-
-  /** 前端 done 回流后调用：删影子节点（重复删 no-op 安全） */
-  async removeShadow(userId: string, dto: { workflowId: string; shadowNodeId: string }) {
-    await this.perm.assertEditor(dto.workflowId, userId);
-    if (!dto.shadowNodeId.startsWith('shadow-')) throw new BadRequestException('shadowNodeId 必须以 shadow- 前缀命名'); // 防借道：底层 removeNode 是任意节点原语，端点语义仅限影子
-    await this.collab.removeNode(dto.workflowId, dto.shadowNodeId);
-    return { ok: true };
+    const result = await this.execution.execute(dto.workflowId, dto.sourceNodeId, userId, undefined, undefined, dto.retakeId);
+    return { retakeId: dto.retakeId, result };
   }
 
   /** 导出前置配额预检——编码数分钟前拦截，避免上传时 4xx；只读不建 Media（落库留给 generated-media.register） */
