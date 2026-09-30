@@ -24,3 +24,19 @@ export const yjsUnflushedProjects = new Gauge({
   help: 'unflushed 兜底 Map 当前条目数',
   registers: [register],
 });
+
+/** 批3-4：canvas_doc 持久化字节量观测——load 播种快照字节（set）+ append 增量累加（inc）的近似累计 */
+export const yjsCanvasDocBytes = new Gauge({
+  name: 'yjs_canvas_doc_bytes',
+  help: 'canvas_doc 持久化字节量（快照 set + 增量 inc 近似；compact 归并后为近似值）',
+  labelNames: ['projectId'],
+  registers: [register],
+});
+
+/** 批3-4：session sweep 关闭计数（cause=revoked 复验确认 / db-fail 连续复验异常兜底关） */
+export const collabSweepCloseTotal = new Counter({
+  name: 'collab_sweep_close_total',
+  help: 'session sweep close(4401) 次数（灰度 COLLAB_SWEEP_ENABLED 开启后有效）',
+  labelNames: ['cause'],
+  registers: [register],
+});

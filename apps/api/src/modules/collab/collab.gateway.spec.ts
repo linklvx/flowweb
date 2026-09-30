@@ -1,7 +1,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
-import { COMPACT_THRESHOLD, CollabGateway } from './collab.gateway';
+import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
@@ -333,6 +333,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const doc: any = new Y.Doc();
       doc.getConnectionsCount = () => 0;
       await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例建立队列
+      (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4 时间门限：窗口达标才 compact（本例焦点是 flush-then-compact 耦合）
       doc.getMap('nodes').set('x', 1);
       await onDisconnect({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
@@ -376,6 +377,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const doc: any = new Y.Doc();
       doc.getConnectionsCount = () => 0;
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4：compact 时间窗达标（焦点在 flush 不在门限）
       doc.getMap('nodes').set('n1', new Y.Map());
       await onStoreDocument({ document: doc, documentName: 'project:p1' });   // append#1 插入
       doc.getMap('nodes').delete('n1');
@@ -526,30 +528,40 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const nodes = doc.getMap('nodes');
       for (let i = 0; i < 300; i++) doc.transact(() => { nodes.set(`d${i}`, i); });
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).toHaveBeenCalledTimes(1);   // mergeUpdates 单行（否决逐行：302 行会击穿 COMPACT_THRESHOLD）
+      expect(repo.append).toHaveBeenCalledTimes(1);   // mergeUpdates 单行（否决逐行：302 行会击穿 compact 门限）
       expect(appendedRows()[0].length).toBeLessThan(20000);   // 合并后远小于逐行总和（~6KB 量级）
-      expect(repo.compact).not.toHaveBeenCalled();   // count(0) < 32
+      expect(repo.compact).not.toHaveBeenCalled();   // 批3-4 时间门限：load 播种基线，60s 内不 compact
     });
 
-    it('绿5：COMPACT_THRESHOLD 分支——count 达阈值时 compact 在 append 后被调', async () => {
+    it('绿5：compact 时间门限（批3-4，代行数门限 COMPACT_THRESHOLD=32）——基线 60s 内不 compact，超窗 compact 在 append 后被调', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('n1', 1);
-      repo.count.mockResolvedValue(COMPACT_THRESHOLD);
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.compact).not.toHaveBeenCalled();   // load 刚播种基线：未满 60s 窗口
+
+      (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 回拨基线模拟窗口已过
+      doc.getMap('nodes').set('n2', 2);
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.compact).toHaveBeenCalledTimes(1);
       expect((repo.append as any).mock.invocationCallOrder[0]).toBeLessThan((repo.compact as any).mock.invocationCallOrder[0]);
+      // compact 后基线重置：紧接的再 store 不复发
+      doc.getMap('nodes').set('n3', 3);
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.compact).toHaveBeenCalledTimes(1);
     });
 
-    it('绿5b：disconnect 的 wrote 契约——没写就不 compact，写了才 compact', async () => {
+    it('绿5b：disconnect 的 wrote 契约——没写就不 compact，写了才 compact（时间窗达标前提）', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
       const docA: any = new Y.Doc(); docA.getConnectionsCount = () => 0;
       await onLoadDocument({ document: docA, documentName: 'project:p1' });
+      (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 窗口达标：排除时间门限干扰，只测 wrote 耦合
       await onDisconnect({ document: docA, documentName: 'project:p1' });   // 队列空 → wrote=false
       expect(repo.compact).not.toHaveBeenCalled();
       const docB: any = new Y.Doc(); docB.getConnectionsCount = () => 0;
       await onLoadDocument({ document: docB, documentName: 'project:p2' });
+      (gateway as any).lastCompactAt.set('p2', Date.now() - 61_000);
       docB.getMap('nodes').set('x', 1);
       await onDisconnect({ document: docB, documentName: 'project:p2' });
       expect(repo.compact).toHaveBeenCalledTimes(1);   // wrote=true → compact
@@ -559,6 +571,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
       const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4 时间门限：窗口达标才会碰 compact
       doc.getMap('nodes').set('x', 1);
       repo.compact.mockRejectedValueOnce(new Error('lock timeout'));
       await expect(onDisconnect({ document: doc, documentName: 'project:p1' })).resolves.toBeUndefined();
@@ -692,8 +705,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       try {
         const doc = new Y.Doc();
         await onLoadDocument({ document: doc, documentName: 'project:p1' });
+        (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4 时间门限：窗口达标才会碰 compact
         doc.getMap('nodes').set('n1', 1);
-        repo.count.mockResolvedValue(32);
         repo.compact.mockRejectedValueOnce(new Error('lock timeout'));
         const wrote = await onStoreDocument({ document: doc, documentName: 'project:p1' });
         expect(wrote).toBe(true);

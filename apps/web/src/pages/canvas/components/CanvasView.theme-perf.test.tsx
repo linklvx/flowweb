@@ -65,9 +65,9 @@ describe('CanvasView 主题切换性能（render 计数）', () => {
     ];
   });
 
-  // 15s 超时：jsdom 全量挂载 ReactFlow 重（单跑 ~3.6s，全仓并发下 5s 默认值实测超时——放宽的是
-  // 时钟预算不是断言口径）
-  it('setMode 切换一次：节点确已渲染（前置自证）且节点 render 增量 = 0', { timeout: 15_000 }, async () => {
+  // 30s 超时：jsdom 全量挂载 ReactFlow 重（单跑 ~3.6-6s；全仓并发下 5s→15s 两轮放宽仍不够——
+  // 批3 取证：干净树全仓并发实测 14.3s/15s 贴线，机器负载下必越界。放宽的是时钟预算不是断言口径）
+  it('setMode 切换一次：节点确已渲染（前置自证）且节点 render 增量 = 0', { timeout: 30_000 }, async () => {
     const { setMode } = await import('@/stores/themeStore');
     const { ReactFlowProvider } = await import('@xyflow/react');
     const { CanvasView } = await import('./CanvasView');

@@ -11,10 +11,29 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
+import { collabSweepCloseTotal, yjsCanvasDocBytes, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
 import { CollabAuthReason, type CollabAuthReasonCode } from '@flowweb/shared';
 
-export const COMPACT_THRESHOLD = 32;
+/** 批3-4：compact 门限由行数（原 COMPACT_THRESHOLD=32）改时间门限——debounce 收紧（5s→1/2s）会让
+ *  行数门限的 compact 频率同步放大（advisory lock+重放+deleteMany 成本不低）。loadDocument 播种
+ *  基线，距上次 compact ≥60s 才再 compact（env COMPACT_INTERVAL_MS 可调）。 */
+export const COMPACT_INTERVAL_MS = Number(process.env.COMPACT_INTERVAL_MS) || 60_000;
+
+/** 批3-4：COLLAB_DEBOUNCE 接线——显式注入（测试缝）> env > dev 1000 / prod 2000（原硬编码 5000
+ *  收紧——连续编辑丢失窗口 prod ≤3s 闭环）；maxDebounce 写死 ≤ debounce×1.5（独立配置则窗口仍为旧值）。 */
+export function resolveCollabDebounce(explicit?: number): number {
+  if (explicit && explicit > 0) return explicit;
+  const fromEnv = Number(process.env.COLLAB_DEBOUNCE);
+  if (fromEnv > 0) return fromEnv;
+  return process.env.NODE_ENV === 'development' ? 1000 : 2000;
+}
+
+/** 批3-4 persist-status 退避梯：doc 级（活 doc 队列再 flush）+ stash 级（projectId 直写）两阶段，
+ *  5 次 ≈53s 耗尽后数据留队/stash——下次 load 回灌兜底（既有契约）仍在。 */
+const PERSIST_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 15_000, 30_000];
+/** 批3-4 sweep 轮询与 grace 窗 */
+const SESSION_SWEEP_INTERVAL_MS = 60_000;
+const SESSION_SWEEP_GRACE_MS = 5_000;
 
 /** 批0b：孤儿影子 GC 年龄阈值（服务端所有权，R32）——shadow id 内嵌时间戳
  *  （video-project.service.ts:93），删除失败/响应丢失从未进投影的影子按 7 天清出。
@@ -39,6 +58,22 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly pendingUpdates = new WeakMap<Y.Doc, Uint8Array[]>();
   /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
   private readonly sessionSvc: SessionService;
+  /** 批3-4：compact 时间门限基线（projectId → 上次 compact 时点；loadDocument 播种） */
+  private readonly lastCompactAt = new Map<string, number>();
+  /** 批3-4 doc epoch（R1c 前置物）：doc 实例代际——服务端 WeakMap 而非写 ydoc meta（meta 内容
+   *  会随 doc 状态进 canonical 重放等价判据〔不变量 1〕，不持久化的 meta 字段会伪红全组契约；
+   *  且持久化形态下重启换代会让每次 load 平添一行增量——破零写放大契约） */
+  private readonly docEpoch = new WeakMap<Y.Doc, number>();
+  /** 批3-4 persist-status：unhealthy 电平（documentName 键）+ 有界退避台账 + 已补推连接去重 */
+  private readonly persistUnhealthy = new Set<string>();
+  private readonly persistRetry = new Map<string, { rung: number; timer: ReturnType<typeof setTimeout> | null }>();
+  private readonly persistStatusPushed = new WeakSet<object>();
+  /** retryPersist 内层 storeDocument 不再自排定时器（梯子推进只归 retryPersist——否则档位取值错档） */
+  private retryingPersist = false;
+  /** 批3-4 sweep：grace 在途去重 + 连续复验失败计数（WeakMap/WeakSet——连接回收即散） */
+  private readonly sweepGrace = new WeakSet<object>();
+  private readonly sweepRecheckFails = new WeakMap<object, number>();
+  private sessionSweepTimer: ReturnType<typeof setInterval> | null = null;
   /** 重放抑制：只包裹每个 applyReplayed 的同步段（yjs update 事件在事务清理期同步发放——实测重放行与
    *  pendingDs 延迟整合均在 apply 同步栈内发放、被精确抑制；await 窗口内写入不被抑制、进 pending） */
   private readonly replaying = new WeakSet<Y.Doc>();
@@ -61,6 +96,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly perm: ProjectPermissionService,
     @Optional() @Inject('COLLAB_PORT') port?: number,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
+    @Optional() @Inject('COLLAB_TIMEOUT') timeout?: number,
     @Optional() @Inject(SessionService) sessions?: SessionService,
   ) {
     this.sessionSvc = sessions ?? new SessionService(prisma);
@@ -70,10 +106,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onStoreDocument: (p) => this.storeDocument(p),
       onDisconnect: (p) => this.disconnect(p),
     };
+    const debounceMs = resolveCollabDebounce(debounce);
     this.server = new Server({
       port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
-      debounce: debounce ?? 5000,
-      maxDebounce: 10000,
+      debounce: debounceMs,
+      maxDebounce: Math.ceil(debounceMs * 1.5),
+      // 批3-4 COLLAB_TIMEOUT：双语义——同一值既驱动握手/空闲超时，也驱动 ClientConnection 的
+      // 检查周期（库构造 setInterval(check, timeout)）——注入小值测 60s 死线时两者一起变小
+      timeout: timeout ?? (Number(process.env.COLLAB_TIMEOUT) || 30_000),
       // 批3-2：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
       // 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）——信号统一交 app.enableShutdownHooks()
       stopOnSignals: false,
@@ -124,6 +164,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
       // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
       if (readOnly) connectionConfig.readOnly = true;
+      // 批3-4：unhealthy 电平期的新连接补推 persist-status（onAuthenticate payload 无 connection——
+      // v4 形状，延迟到本 tick 后连接已注册进 document.connections）
+      if (this.persistUnhealthy.has(documentName)) {
+        const t = setTimeout(() => this.pushPersistStatus(documentName), 500);
+        t.unref?.();
+      }
       return {
         user: { id: session.user.id, name: session.user.name, role: member.role },
         readOnly,
@@ -165,8 +211,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.replaying.add(document);
         try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
       };
+      // 批3-4 doc epoch（R1c 前置物）：本 doc 实例代际播种（WeakMap——见字段注记）
+      if (!this.docEpoch.has(document)) this.docEpoch.set(document, Date.now());
+      // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗）
+      if (!this.lastCompactAt.has(projectId)) this.lastCompactAt.set(projectId, Date.now());
       const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
-      if (docRow) applyReplayed(new Uint8Array(docRow.state));
+      if (docRow) {
+        yjsCanvasDocBytes.set({ projectId }, docRow.state.length);   // 批3-4：快照字节播种
+        applyReplayed(new Uint8Array(docRow.state));
+      }
       for (const u of await this.repo.loadUpdates(projectId)) applyReplayed(new Uint8Array(u));
       const stash = this.takeStash(projectId);
       if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
@@ -239,17 +292,116 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       (live ?? queue).unshift(payload);                 // 回灌合并行（单项）；队列保留 → 下次 store 重试
       this.logger.error(`store append failed for ${projectId}, ${batch.length} updates retained: ${(err as Error).message}`);
       yjsStoreAppendFailureTotal.inc();
+      // 批3-4：unhealthy 转折广播 + 有界退避重试（retryPersist 内层调用不排梯——档位推进归 retryPersist）
+      this.setPersistStatus(documentName, false);
+      if (!this.retryingPersist) this.schedulePersistRetry(documentName);
       throw err;   // hook 链由 Hocuspocus catch（"Document stays in memory"），doc 留内存重试
     }
     yjsStoreDrainTotal.inc({ result: 'appended' });
+    yjsCanvasDocBytes.inc({ projectId }, payload.byteLength);   // 批3-4：增量字节累加
+    this.cancelPersistRetry(documentName);   // 批3-4：成功即撤销退避定时器（有机 store 关闭重试）
+    this.setPersistStatus(documentName, true);
     try {
-      if (await this.repo.count(projectId) >= COMPACT_THRESHOLD) await this.repo.compact(projectId);
+      await this.maybeCompact(projectId);
     } catch (err) {
       // compact 是优化不是不变量载体：行已落库，失败只 WARN 绝不抛——否则被 Hocuspocus 当 store 失败 → doc 永不卸载 → destroy 挂死
       yjsStoreCompactFailureTotal.inc();
       this.logger.warn(`compact failed for ${projectId} (rows already durable): ${(err as Error).message}`);
     }
     return true;
+  }
+
+  /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置） */
+  private async maybeCompact(projectId: string): Promise<void> {
+    const last = this.lastCompactAt.get(projectId);
+    if (last !== undefined && Date.now() - last < COMPACT_INTERVAL_MS) return;
+    await this.repo.compact(projectId);
+    this.lastCompactAt.set(projectId, Date.now());
+  }
+
+  /** 批3-4 persist-status：成功/失败转折点广播（只在电平翻转时发——重试期重复失败不刷屏；
+   *  客户端只驱动横幅/诊断，不进 hasUnsavedWork——拦截⇒不断开⇒废掉断开 flush 兜底）。 */
+  private setPersistStatus(documentName: string, healthy: boolean) {
+    if (healthy) {
+      if (!this.persistUnhealthy.delete(documentName)) return;   // 无转折不广播
+    } else {
+      if (this.persistUnhealthy.has(documentName)) return;   // 已 unhealthy：重复失败非转折
+      this.persistUnhealthy.add(documentName);
+    }
+    const document = this.server.hocuspocus.documents.get(documentName);
+    if (!document) return;   // doc 已卸载：无观察者，只维护电平（重连后补推/下次转折覆盖）
+    try {
+      document.broadcastStateless(JSON.stringify({ type: 'persist-status', healthy }));
+      for (const connection of document.connections.keys()) this.persistStatusPushed.add(connection);
+    } catch (err) {
+      this.logger.warn(`persist-status broadcast failed for ${documentName}: ${(err as Error).message}`);
+    }
+  }
+
+  /** 批3-4：unhealthy 电平期新连接补推（authenticate 后延迟半秒——连接注册完成的保守窗口） */
+  private pushPersistStatus(documentName: string) {
+    if (!this.persistUnhealthy.has(documentName)) return;
+    const document = this.server.hocuspocus.documents.get(documentName);
+    if (!document) return;
+    const payload = JSON.stringify({ type: 'persist-status', healthy: false });
+    for (const connection of [...document.connections.keys()]) {
+      if (this.persistStatusPushed.has(connection)) continue;
+      try { connection.sendStateless(payload); this.persistStatusPushed.add(connection); }
+      catch (err) { this.logger.warn(`persist-status push failed for ${documentName}: ${(err as Error).message}`); }
+    }
+  }
+
+  private schedulePersistRetry(documentName: string) {
+    const entry = this.persistRetry.get(documentName) ?? { rung: 0, timer: null };
+    if (entry.timer) return;   // 已排程（失败叠加不提前触发）
+    if (entry.rung >= PERSIST_RETRY_DELAYS_MS.length) return;   // 梯子耗尽：等有机 store / 下次 load 回灌
+    entry.timer = setTimeout(() => {
+      entry.timer = null;
+      void this.retryPersist(documentName);
+    }, PERSIST_RETRY_DELAYS_MS[entry.rung]);
+    entry.timer.unref?.();
+    this.persistRetry.set(documentName, entry);
+  }
+
+  private cancelPersistRetry(documentName: string) {
+    const entry = this.persistRetry.get(documentName);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    this.persistRetry.delete(documentName);
+  }
+
+  /** 批3-4 有界退避重试（F2 接入点）：doc 级（活 doc 队列再 flush）→ stash 级（doc 已卸载，
+   *  projectId 直写 unflushed 台账）两阶段；成功广播 healthy、耗尽留队（下次 load 回灌兜底仍在）。 */
+  private async retryPersist(documentName: string) {
+    const entry = this.persistRetry.get(documentName);
+    if (!entry) return;
+    const projectId = parseProjectId(documentName);
+    const document = this.server.hocuspocus.documents.get(documentName);
+    try {
+      if (document && (this.pendingUpdates.get(document)?.length ?? 0) > 0) {
+        this.retryingPersist = true;
+        try {
+          await this.storeDocument({ document, documentName });   // doc 级：doc 仍被观察且队列非空
+        } finally {
+          this.retryingPersist = false;
+        }
+      } else {
+        const stash = this.takeStash(projectId);   // stash 级：doc 不活/队列空（tripwire 同源判定）
+        if (!stash) { this.cancelPersistRetry(documentName); return; }   // 无可重试（已被 drain）
+        await this.repo.append(projectId, stash);
+      }
+      this.cancelPersistRetry(documentName);
+      this.setPersistStatus(documentName, true);
+    } catch (err) {
+      entry.rung += 1;
+      this.logger.error(`persist retry ${entry.rung}/${PERSIST_RETRY_DELAYS_MS.length} failed for ${projectId}: ${(err as Error).message}`);
+      if (entry.rung >= PERSIST_RETRY_DELAYS_MS.length) {
+        this.cancelPersistRetry(documentName);
+        this.logger.error(`persist retry exhausted for ${projectId}; updates retained (recovered on next load)`);
+        return;
+      }
+      this.schedulePersistRetry(documentName);
+    }
   }
 
   /** 最后连接断开：flush →（写了才）compact。
@@ -264,14 +416,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const wrote = await this.storeDocument({ document, documentName });
       if (wrote) {
         try {
-          await this.repo.compact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
+          await this.maybeCompact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
         } catch (err) {
           yjsStoreCompactFailureTotal.inc();
           this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);   // 行已落库，非 flush 失败
         }
       }
     } catch (err) {
-      this.stashPending(document, projectId, err as Error);   // 只兜 flush（append）失败
+      this.stashPending(document, projectId, err as Error);   // 只兜 flush（append）失败（storeDocument 已排退避）
     }
   }
 
@@ -293,10 +445,85 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
     this.server.listen();
     this.startShadowSweep();   // 批0b：孤儿影子定时兜底（有效触发点是 onLoadDocument 尾顺手扫）
+    this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
       this.closeTeamDocuments(payload.projectIds);
     });
+  }
+
+  /** 批3-4：60s 一轮原生 interval（unref——进程退出不被阻）。灰度锚：COLLAB_SWEEP_ENABLED !== 'true'
+   *  时 tick 首行即返（零行为差异：不查库不通知不关连接——旧客户端批 2 上线前不开，防 reason 盲区卡 connecting）。
+   *  快照死线（context.sessionExpiresAt——authenticate 播种，必过期下界）命中后先 DB 复验
+   *  （session+teamMember，移除成员也踢）；复验翻案（me 探活已续期）则刷新快照；确认 revoked →
+   *  stateless 预通知 {type:'session-expiring'}（客户端 flushPendingUpdates）→ 5s grace →
+   *  webSocket.close(4401)。禁 Connection.close——文档级 CLOSE 制造 L6 僵尸；close 调用处自行 catch。
+   *  复验异常 fail-open，但连续 5 次（≈5min）仍关（无界 fail-open=安全债没真修）+ metric。 */
+  private startSessionSweep() {
+    this.sessionSweepTimer = setInterval(() => void this.sweepSessions().catch((e) => this.logger.warn(`session sweep: ${e}`)), SESSION_SWEEP_INTERVAL_MS);
+    this.sessionSweepTimer.unref?.();
+  }
+
+  private async sweepSessions() {
+    if (process.env.COLLAB_SWEEP_ENABLED !== 'true') return;   // 灰度锚：关=零行为差异
+    for (const document of [...this.server.hocuspocus.documents.values()]) {
+      for (const connection of [...document.connections.keys()]) {
+        const ctx = (connection.context ?? {}) as { token?: string; sessionExpiresAt?: Date };
+        const deadline = ctx.sessionExpiresAt;
+        if (!(deadline instanceof Date) || deadline.getTime() > Date.now()) continue;   // 快照未过期：第一道闸
+        if (this.sweepGrace.has(connection)) continue;   // 通知/grace 在途：去重
+        try {
+          const re = await this.recheckConnection(connection, document.name);
+          this.sweepRecheckFails.delete(connection);   // 复验完成（无论结论）——连续失败计数复位
+          if (!re.revoked) {
+            if (re.expiresAt) ctx.sessionExpiresAt = re.expiresAt;   // 翻案：刷新死线快照（下轮按新死线）
+            continue;
+          }
+          this.scheduleSweepClose(connection, 'revoked');
+        } catch (err) {
+          this.logger.warn(`sweep recheck failed for ${document.name}: ${(err as Error).message}`);
+          const fails = (this.sweepRecheckFails.get(connection) ?? 0) + 1;
+          this.sweepRecheckFails.set(connection, fails);
+          if (fails >= 5) this.scheduleSweepClose(connection, 'db-fail');   // 5 连败仍关（≈5min 上限）
+        }
+      }
+    }
+  }
+
+  /** 复验：复用 authenticate 同款查询（session → canvasProject → teamMember）。
+   *  纯读（resolve 不续期——清扫面不得反向保活 session）。 */
+  private async recheckConnection(connection: { context?: { token?: string } }, documentName: string): Promise<{ revoked: boolean; expiresAt: Date | null }> {
+    const token = connection.context?.token;
+    if (!token) return { revoked: false, expiresAt: null };
+    const { session } = await this.sessionSvc.resolve(token);
+    if (!session) return { revoked: true, expiresAt: null };   // 过期/登出（resolve 折叠两态）
+    const projectId = parseProjectId(documentName);
+    const project = await this.prisma.canvasProject.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) return { revoked: true, expiresAt: null };
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId: session.userId } },
+    });
+    return { revoked: !member, expiresAt: session.expiresAt };
+  }
+
+  private scheduleSweepClose(connection: object & { sendStateless?: (p: string) => void; webSocket: { close: (code?: number, reason?: string) => void } }, cause: 'revoked' | 'db-fail') {
+    if (this.sweepGrace.has(connection)) return;
+    this.sweepGrace.add(connection);
+    try { connection.sendStateless?.(JSON.stringify({ type: 'session-expiring' })); }
+    catch (err) { this.logger.warn(`sweep pre-notice failed: ${(err as Error).message}`); }
+    const grace = setTimeout(() => {
+      this.sweepGrace.delete(connection);
+      try {
+        connection.webSocket.close(4401, 'session-expired');
+        collabSweepCloseTotal.inc({ cause });
+      } catch (err) {
+        this.logger.warn(`sweep close failed: ${(err as Error).message}`);   // F11：webSocket.close 调用处自 catch
+      }
+    }, SESSION_SWEEP_GRACE_MS);
+    grace.unref?.();
   }
 
   /** 批3-2：关停前对存活连接 close(1012, "service restart")——客户端据 code 按瞬态服务重启
@@ -315,6 +542,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  destroy 永挂 → 进程退不出 → pm2 SIGKILL → stash 丢；超时分支点名内存 doc 数供对账。 */
   async onApplicationShutdown() {
     if (this.shadowSweepTimer) { clearInterval(this.shadowSweepTimer); this.shadowSweepTimer = null; }
+    if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // 批3-4：sweep 定时器随停
+    for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);   // 批3-4：退避定时器随停（stash 留待下次 load）
     this.closeAllConnections1012();
     let destroyed = false;
     const destroying = this.server.destroy()
@@ -328,10 +557,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   closeTeamDocuments(projectIds: string[]) {
     for (const projectId of projectIds) {
+      const name = `project:${projectId}`;
+      // 批3-4：先复制后关——库 closeConnections 走 Connection.close→removeConnection（活 Map 删键，
+      // 不先复制则后续遍历漏连接）；且协议级 CLOSE 依赖客户端配合断开（不配合=connected 僵尸），
+      // 逐连接补 webSocket.close 硬关兜底（单个失败各自吞——F11）
+      const document = this.server.hocuspocus.documents.get(name);
+      const connections = document ? [...document.connections.keys()] : [];
       try {
-        this.server.hocuspocus.closeConnections(`project:${projectId}`);
+        this.server.hocuspocus.closeConnections(name);
       } catch (err) {
         this.logger.warn(`closeConnections failed for ${projectId}: ${(err as Error).message}`);
+      }
+      for (const connection of connections) {
+        try { connection.webSocket.close(1000, 'team disbanded'); }
+        catch (err) { this.logger.warn(`close webSocket failed for ${projectId}: ${(err as Error).message}`); }
       }
     }
   }
