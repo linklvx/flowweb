@@ -212,4 +212,62 @@ describe('TextConfigPanel', () => {
     expect(panel.className).toContain('h-[140px]');
     expect(panel.className).not.toContain('h-[350px]');
   });
+
+  // ── 批0.5-8b 意图 id 上送（幂等键——失败重试复用、新点击 rotate、额度尽 rotate） ──
+
+  const generate = async (container: HTMLElement) => {
+    const textarea = container.querySelector('textarea')!;
+    fireEvent.change(textarea, { target: { value: 'hello text' } });
+    const buttons = container.querySelectorAll('button');
+    fireEvent.click(buttons[buttons.length - 1]);
+  };
+  const lastIntentId = (): string | undefined => mockEnqueueWorkflow.mock.calls.at(-1)?.[0]?.intentId;
+
+  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intentId = lastIntentId();
+    expect(intentId).toBeTruthy();
+    expect(sessionStorage.getItem('flowweb:intent:real-pid:n1')).toBe(intentId);
+  });
+
+  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
+    mockEnqueueWorkflow.mockRejectedValueOnce(new Error('network down'));
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intent1 = lastIntentId();
+
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
+    expect(lastIntentId()).toBe(intent1);
+  });
+
+  it('成功后新点击 rotate 不同 intentId（新点击=新扣费意图）', async () => {
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intent1 = lastIntentId();
+
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
+    expect(lastIntentId()).toBeTruthy();
+    expect(lastIntentId()).not.toBe(intent1);
+  });
+
+  it('INTENT_EXHAUSTED → rotate 新 intentId（下次提交照常扣费）', async () => {
+    mockEnqueueWorkflow.mockRejectedValueOnce(
+      Object.assign(new Error('重试次数已用尽'), { errorCode: 'INTENT_EXHAUSTED' })
+    );
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const sentIntentId = lastIntentId();
+    expect(sentIntentId).toBeTruthy();
+    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:intent:real-pid:n1')).not.toBe(sentIntentId);
+    });
+  });
 });

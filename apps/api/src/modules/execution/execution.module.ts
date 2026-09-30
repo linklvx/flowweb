@@ -12,6 +12,7 @@ import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.constants';
+import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { EXECUTION_JOB_OPTIONS } from './execution.queue-options';
 import { VideoTrimController } from './video-trim.controller';
 import { VideoTrimService } from './video-trim.service';
@@ -36,6 +37,11 @@ const env = validateEnv();
       name: EXECUTION_QUEUE_NAME,
       configKey: EXECUTION_CONNECTION_NAME,
       defaultJobOptions: { ...EXECUTION_JOB_OPTIONS },
+    }),
+    // 批0.5-8b：IntentReconcileService A 路径按 kind 路由查 ai-image-edit 队列（outpaint/erase/redraw/lighting
+    // 的 jobId 在该队列）——队列注册非全局，本模块须注册方可注入；default 连接与 AiImageEditModule 同队列同名无冲突
+    BullModule.registerQueue({
+      name: AI_IMAGE_EDIT_QUEUE_NAME,
     }),
     BullModule.registerQueue({
       name: 'ai-result-download',

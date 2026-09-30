@@ -1,7 +1,9 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
+import { message } from 'antd';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { newIntentId, currentIntentId } from '@/utils/intentRecord';
 import { ModelSelector } from './config-panel/ModelSelector';
 import type { ModelInfo } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
@@ -47,6 +49,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [executing, setExecuting] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [generateCount, setGenerateCount] = useState(1);
+  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
+  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
 
   // Load image models
   useEffect(() => {
@@ -73,11 +77,26 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     if (!nodeData?.prompt?.text?.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');
+    const projectId = useCanvasStore.getState().projectId;
+    let intentId = '';
     try {
-      const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      await imageNodeApi.submitGeneration(nodeId, { projectId });
-    } catch {
+      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
+      intentId = lastSubmitRef.current?.failed
+        ? currentIntentId(projectId, nodeId)
+        : newIntentId(projectId, nodeId);
+      await imageNodeApi.submitGeneration(nodeId, { projectId, intentId });
+      lastSubmitRef.current = { intentId, failed: false };
+    } catch (err: any) {
+      // 批0.5-8b：免费重试额度已尽——rotate 新意图（复用旧 id 只会再 409）
+      if (err?.errorCode === 'INTENT_EXHAUSTED' && projectId) {
+        newIntentId(projectId, nodeId);
+        lastSubmitRef.current = null;
+        message.warning('重试次数已用尽，请重新发起生成');
+      } else if (intentId) {
+        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
+        lastSubmitRef.current = { intentId, failed: true };
+      }
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);

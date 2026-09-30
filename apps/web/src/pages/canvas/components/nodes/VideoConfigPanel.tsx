@@ -1,11 +1,13 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
+import { message } from 'antd';
 import { useNodeStore, type VideoNodeData } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
 import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
+import { newIntentId, currentIntentId } from '@/utils/intentRecord';
 import type { CommandItem } from './prompt-input/types';
 
 interface ModelInfo {
@@ -62,6 +64,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const [generateCount, setGenerateCount] = useState(1);
   const recognitionRef = useRef<any>(null);
   const voiceBaseRef = useRef('');
+  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
+  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
   const selectedModel = models.find((m) => m.id === model);
 
   useEffect(() => {
@@ -178,6 +182,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     if (!latestText.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');
+    const projectId = useCanvasStore.getState().projectId;
+    let intentId = '';
     try {
       const nodeState = useNodeStore.getState();
       const existing = nodeState.nodes[nodeId] as any;
@@ -185,11 +191,24 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       useNodeStore.setState({
         nodes: { ...nodeState.nodes, [nodeId]: { ...existing, data: { ...existing?.data, prompt: { ...currentPrompt, text: latestText } } } },
       });
-      const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      const { jobId } = await enqueueWorkflow({ projectId, nodeId });
+      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
+      intentId = lastSubmitRef.current?.failed
+        ? currentIntentId(projectId, nodeId)
+        : newIntentId(projectId, nodeId);
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId, intentId });
       console.log('[VideoPanel] enqueued job:', jobId);
-    } catch {
+      lastSubmitRef.current = { intentId, failed: false };
+    } catch (err: any) {
+      // 批0.5-8b：免费重试额度已尽——rotate 新意图（复用旧 id 只会再 409）
+      if (err?.errorCode === 'INTENT_EXHAUSTED' && projectId) {
+        newIntentId(projectId, nodeId);
+        lastSubmitRef.current = null;
+        message.warning('重试次数已用尽，请重新发起生成');
+      } else if (intentId) {
+        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
+        lastSubmitRef.current = { intentId, failed: true };
+      }
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);

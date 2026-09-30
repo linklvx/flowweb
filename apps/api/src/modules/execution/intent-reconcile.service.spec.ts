@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
+import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { currentPeriod } from '../team/team-credit.service';
 import { IntentReconcileService } from './intent-reconcile.service';
 
@@ -46,6 +47,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
   let service: IntentReconcileService;
   let prisma: any;
   let queue: any;
+  let imageEditQueue: any;
   let collabDoc: any;
   let redis: any;
 
@@ -61,6 +63,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       $transaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma)),
     };
     queue = { getJob: vi.fn().mockResolvedValue(null) };
+    imageEditQueue = { getJob: vi.fn().mockResolvedValue(null) };
     collabDoc = { withDoc: vi.fn() };
     redis = { exists: vi.fn().mockResolvedValue(0), decr: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') };
 
@@ -70,6 +73,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: getQueueToken(EXECUTION_QUEUE_NAME), useValue: queue },
+        { provide: getQueueToken(AI_IMAGE_EDIT_QUEUE_NAME), useValue: imageEditQueue },
         { provide: 'REDIS_CLIENT', useValue: redis },
       ],
     }).compile();
@@ -272,6 +276,52 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
       expect(prisma.teamCreditTransaction.findMany).not.toHaveBeenCalled(); // 三查未进入
+    });
+  });
+
+  describe('A 路径 kind 路由（attachJob 盲区另一半——他队列 job 在 execution 队列查得 null，禁误落三查误杀长任务）', () => {
+    it("kind='lighting' 有 jobId → 路由 ai-image-edit 队列（lighting 与 outpaint/erase/redraw 同队列）且 active → 零动作（20min 打光任务第 15min 防误杀锚）", async () => {
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ kind: 'lighting', jobId: 'job-l' })]);
+      imageEditQueue.getJob.mockResolvedValue({ getState: vi.fn().mockResolvedValue('active'), returnvalue: null });
+
+      await service.verifyActive();
+
+      expect(imageEditQueue.getJob).toHaveBeenCalledWith('job-l');
+      expect(queue.getJob).not.toHaveBeenCalled(); // execution 队列不被查——kind 已路由
+      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
+      expect(prisma.teamCreditTransaction.findMany).not.toHaveBeenCalled(); // 三查未进入
+    });
+
+    it("kind='outpaint' → ai-image-edit 队列 completed → SUCCEEDED 回填（resultRef 取 returnvalue.fileId——ai-image-edit 产物形状）", async () => {
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ kind: 'outpaint', jobId: 'job-o' })]);
+      imageEditQueue.getJob.mockResolvedValue({
+        getState: vi.fn().mockResolvedValue('completed'),
+        returnvalue: { status: 'completed', fileId: 'm-9' },
+      });
+
+      await service.verifyActive();
+
+      expect(imageEditQueue.getJob).toHaveBeenCalledWith('job-o');
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: 'gi-1', status: 'RUNNING' },
+        data: { status: 'SUCCEEDED', resultRef: 'm-9', completedAt: expect.any(Date) },
+      });
+    });
+
+    it('kind 不在路由表（防御）→ 不猜队列，告警+落三查（未扣 → VOIDED 免费放行）', async () => {
+      const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ kind: 'weird', jobId: 'job-x', creditsConsumed: 0 })]);
+      prisma.teamCreditTransaction.findMany.mockResolvedValue([]);
+
+      await service.verifyActive();
+
+      expect(queue.getJob).not.toHaveBeenCalled();
+      expect(imageEditQueue.getJob).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('weird'));
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
+      }));
+      warnSpy.mockRestore();
     });
   });
 

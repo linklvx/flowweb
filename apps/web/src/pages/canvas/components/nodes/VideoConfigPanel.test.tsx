@@ -391,4 +391,61 @@ describe('VideoConfigPanel', () => {
     expect(screen.queryByText('2×')).not.toBeInTheDocument();
     expect(screen.getByText('1×')).toBeTruthy();
   });
+
+  // ── 批0.5-8b 意图 id 上送（幂等键——失败重试复用、新点击 rotate、额度尽 rotate） ──
+
+  const lastIntentId = (): string | undefined => mockEnqueueWorkflow.mock.calls.at(-1)?.[0]?.intentId;
+  const generate = async () => {
+    mockNodeData.prompt.text = 'hello video';
+    await act(async () => {
+      await capturedOnGenerate?.();
+    });
+  };
+
+  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intentId = lastIntentId();
+    expect(intentId).toBeTruthy();
+    expect(sessionStorage.getItem('flowweb:intent:real-pid:v1')).toBe(intentId);
+  });
+
+  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
+    mockEnqueueWorkflow.mockRejectedValueOnce(new Error('network down'));
+    render(<VideoConfigPanel nodeId="v1" />);
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intent1 = lastIntentId();
+
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
+    expect(lastIntentId()).toBe(intent1);
+  });
+
+  it('成功后新点击 rotate 不同 intentId（新点击=新扣费意图）', async () => {
+    render(<VideoConfigPanel nodeId="v1" />);
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intent1 = lastIntentId();
+
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
+    expect(lastIntentId()).toBeTruthy();
+    expect(lastIntentId()).not.toBe(intent1);
+  });
+
+  it('INTENT_EXHAUSTED → rotate 新 intentId（下次提交照常扣费）', async () => {
+    mockEnqueueWorkflow.mockRejectedValueOnce(
+      Object.assign(new Error('重试次数已用尽'), { errorCode: 'INTENT_EXHAUSTED' })
+    );
+    render(<VideoConfigPanel nodeId="v1" />);
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const sentIntentId = lastIntentId();
+    expect(sentIntentId).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:intent:real-pid:v1')).not.toBe(sentIntentId);
+    });
+  });
 });

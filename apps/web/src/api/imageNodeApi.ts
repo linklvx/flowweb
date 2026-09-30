@@ -48,7 +48,7 @@ export async function getCreditCost(modelId: string): Promise<number> {
   }
 }
 
-export async function submitGeneration(nodeId: string, opts?: { projectId?: string }): Promise<{ jobId: string }> {
+export async function submitGeneration(nodeId: string, opts?: { projectId?: string; intentId?: string }): Promise<{ jobId: string }> {
   const params = buildImageGenParams(nodeId, opts);
-  return enqueueWorkflow(params);
+  return enqueueWorkflow({ ...params, intentId: opts?.intentId }); // 批0.5-8b：意图 id（幂等键）随 body 上送
 }

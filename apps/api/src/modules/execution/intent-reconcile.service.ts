@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { currentPeriod } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
+import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { reconcileMismatchTotal } from './intent-reconcile.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/CAS 扣费都刷新 updatedAt，超龄即同步路径内联崩溃嫌疑 */
@@ -19,7 +20,7 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *
  *  档一【活跃核验，每 5min】（partial unique 使同节点新意图被 RUNNING 孤儿 409 锁死——
  *        本档把锁死窗口从 24h 压到 ≤15min；@@index([status, updatedAt]) 让扫描近乎免费）：
- *    A. 有 jobId → 查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
+ *    A. 有 jobId → 按 kind 路由到所属队列查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
  *       completed → 按产物回填 SUCCEEDED；failed/不存在 → 走 B 三查；
  *       active/waiting/delayed → 长任务合法在飞（意图行 updatedAt 不随外呼刷新），零动作
  *    B. 三查（age 一律取 updatedAt；isCharged=流水按 referenceId `intent:${intentId}` 精确查）：
@@ -43,6 +44,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
+    @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
     @Inject('REDIS_CLIENT') private readonly redis: any,
   ) {}
 
@@ -74,26 +76,47 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
   }
 
+  /** A 路径 kind→队列路由（attachJob 盲区另一半）——jobId 属于哪个队列由 claim 发起链决定：
+   *  text/video/image 走 execution 队列；outpaint/erase/redraw/lighting 走 ai-image-edit 队列
+   *  （lighting 与三编辑同队列共 consumer——lighting.service.ts 同款注入）。查错队列 getJob 得
+   *  null → 误落三查 → 20min lighting 长任务第 15min 被 VOIDED+退款（F13 要防的资损形态）。
+   *  未知 kind 不猜队列：告警+直接落三查（三查退款有 CAS 判龄守卫、金额 correctness 优先；
+   *  新 kind 接入意图表时须同步登记本路由表）。 */
+  private queueForKind(kind: string): Queue | null {
+    if (kind === 'text' || kind === 'video' || kind === 'image') return this.executionQueue;
+    if (kind === 'outpaint' || kind === 'erase' || kind === 'redraw' || kind === 'lighting') return this.imageEditQueue;
+    return null;
+  }
+
   private async reconcileIntent(row: GenerationIntent, cutoff: Date): Promise<void> {
     if (row.jobId) {
-      const job = await this.executionQueue.getJob(row.jobId);
-      if (job) {
-        const state = await job.getState();
-        if (state === 'completed') return this.backfillSucceeded(row, job);
-        if (state !== 'failed') return; // active/waiting/delayed——长任务合法在飞，零动作
+      const queue = this.queueForKind(row.kind);
+      if (!queue) {
+        this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落三查裁决`);
+      } else {
+        const job = await queue.getJob(row.jobId);
+        if (job) {
+          const state = await job.getState();
+          if (state === 'completed') return this.backfillSucceeded(row, job);
+          if (state !== 'failed') return; // active/waiting/delayed——长任务合法在飞，零动作
+        }
+        // failed 或 job 不存在（removeOnComplete 清理歧义）→ 三查裁决
       }
-      // failed 或 job 不存在（removeOnComplete 清理歧义）→ 三查裁决
     }
     return this.threeCheck(row, cutoff);
   }
 
   /** A 路径 completed 回填：resultRef 从 returnvalue.results 取本节点条目（text 无 URL 锚点按
-   *  complete() 同款 'text:' 前缀摘要占位）；无锚点留 null+告警（产物完整性由调用方落地保证）。 */
+   *  complete() 同款 'text:' 前缀摘要占位）；ai-image-edit/lighting 产物形状 { status, fileId }
+   *  无 results 数组——取 fileId；无锚点留 null+告警（产物完整性由调用方落地保证）。 */
   private async backfillSucceeded(row: GenerationIntent, job: Job<any, any>): Promise<void> {
-    const entry = ((job.returnvalue as any)?.results ?? []).find((r: any) => r?.nodeId === row.nodeId);
+    const rv = job.returnvalue as any;
+    const entry = (rv?.results ?? []).find((r: any) => r?.nodeId === row.nodeId);
     const resultRef = entry
       ? String(entry.resultUrl ?? (entry.content != null ? `text:${String(entry.content).slice(0, 100)}` : '')) || null
-      : null;
+      : typeof rv?.fileId === 'string'
+        ? rv.fileId
+        : null;
     if (!resultRef) this.logger.warn(`意图 ${row.intentId} job completed 但无产物锚点——resultRef 留空`);
     await this.prisma.generationIntent.updateMany({
       where: { id: row.id, status: 'RUNNING' },
