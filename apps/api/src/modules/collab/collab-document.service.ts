@@ -95,6 +95,25 @@ export class CollabDocumentService {
     });
   }
 
+  /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
+   *  写前幂等读：同 nodeId 已终态（done/error）→ 跳过（迟到 loading 不倒退终态）。
+   *  patch 语义：逐键补写不整块替换，v undefined 跳过。
+   *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
+  async writeExecStatus(projectId: string, nodeId: string, patch: Record<string, unknown>) {
+    await this.withDoc(projectId, (doc) => {
+      const exec = doc.getMap('exec');
+      let m = exec.get(nodeId) as Y.Map<any> | undefined;
+      if (m instanceof Y.Map) {
+        const s = m.get('status');
+        if (s === 'done' || s === 'error') return; // 终态不倒退
+      } else {
+        m = new Y.Map();
+        exec.set(nodeId, m);
+      }
+      for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
+    });
+  }
+
   /** A1 影子节点：整节点写入（writeNodeToYMap 共享入口——R1a 收敛）。事务 origin 无意义（不过网）——前端 onRemote 以 id 前缀 shadow- 短路 */
   async insertNode(projectId: string, node: ShadowNodeInput) {
     await this.withDoc(projectId, (doc) => {
