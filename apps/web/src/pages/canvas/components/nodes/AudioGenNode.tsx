@@ -4,6 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import { AudioConfigPanel } from './AudioConfigPanel';
 import { AudioWaveform } from './AudioWaveform';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
@@ -18,7 +19,8 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const isSingleSelected = useIsSingleSelected(selected);
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
+  const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceAudio = nodeData?.referenceAudio;
   const { url: resultUrl } = useMediaUrl(fileId);

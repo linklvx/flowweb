@@ -35,6 +35,9 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 let mockNodeData: any = {
   status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] }
 };
+// 批1-6：mock nodeStore state 的 exec 合并视图两源（selectExecStatus 读——默认空 Map 走 data.status 回落）
+let mockExecStatus: Map<string, any> = new Map();
+let mockExecAligned: Map<string, any> = new Map();
 let mockLastPointerShiftKey = false;
 let mockMarqueeSelecting = false;
 
@@ -84,6 +87,8 @@ const {
     // Get fresh state at call time
     const state = {
       nodes: { 'img1': { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: mockNodeData } },
+      execStatus: mockExecStatus,
+      execAligned: mockExecAligned,
       updateConfig,
       activeTransformNodeId: mockActiveNodeId,
       cancelRequestedAt: mockCancelRequestedAt,
@@ -204,6 +209,8 @@ describe('ImageGenNode', () => {
     sessionStorage.clear();
     vi.clearAllMocks();
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+    mockExecStatus = new Map();
+    mockExecAligned = new Map();
     mockActiveNodeId = null;
     mockCancelRequestedAt = 0;
     // mockReturnValue 不被 clearAllMocks 清除 → 显式恢复单选默认
@@ -295,6 +302,13 @@ describe('ImageGenNode', () => {
     mockNodeData = { ...mockNodeData, status: 'loading' };
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
+  });
+
+  it('批1-6 合并视图：data.status=loading 但 exec 投影 done → 非"生成中"（读点换源）', () => {
+    mockNodeData = { ...mockNodeData, status: 'loading', fileId: undefined };
+    mockExecStatus = new Map([['img1', { status: 'done' }]]);
+    renderNode();
+    expect(screen.queryByText(/生成中/i)).not.toBeInTheDocument();
   });
 
   it('should render result image when available', () => {

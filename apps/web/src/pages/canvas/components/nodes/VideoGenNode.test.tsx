@@ -4,12 +4,15 @@ import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
 // All shared state must be hoisted for vi.mock factories
-const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult } = vi.hoisted(() => {
+const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus, getMockExecAligned, setMockExecAligned } = vi.hoisted(() => {
   // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
   const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
   let storeSetStatus = vi.fn();
   let storeSetFileResult = vi.fn();
+  // 批1-6：mock nodeStore state 的 exec 合并视图两源（selectExecStatus 读——默认空 Map 走 data.status 回落）
+  let mockExecStatus: Map<string, any> = new Map();
+  let mockExecAligned: Map<string, any> = new Map();
 
   return {
     subscribeNodeStatusMock,
@@ -17,6 +20,10 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
     setMockNodeData: (d: any) => { mockNodeData = d; },
     getStoreSetStatus: () => storeSetStatus,
     getStoreSetFileResult: () => storeSetFileResult,
+    getMockExecStatus: () => mockExecStatus,
+    setMockExecStatus: (m: Map<string, any>) => { mockExecStatus = m; },
+    getMockExecAligned: () => mockExecAligned,
+    setMockExecAligned: (m: Map<string, any>) => { mockExecAligned = m; },
   };
 });
 
@@ -58,6 +65,8 @@ vi.mock('@/stores/nodeStore', () => ({
     vi.fn((selector?: any) => {
       const state = {
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
+        execStatus: getMockExecStatus(),
+        execAligned: getMockExecAligned(),
         updateConfig: mockUpdateConfig,
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
@@ -68,6 +77,8 @@ vi.mock('@/stores/nodeStore', () => ({
     {
       getState: () => ({
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
+        execStatus: getMockExecStatus(),
+        execAligned: getMockExecAligned(),
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
       }),
@@ -131,6 +142,8 @@ describe('VideoGenNode', () => {
     vi.clearAllMocks();
     mockMarqueeSelecting = false;
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
+    setMockExecStatus(new Map());
+    setMockExecAligned(new Map());
   });
 
   const baseNodeProps = {
@@ -233,6 +246,13 @@ describe('VideoGenNode', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
+  });
+
+  it('批1-6 合并视图：data.status=loading 但 exec 投影 done → 非"生成中"（读点换源）', () => {
+    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
+    setMockExecStatus(new Map([['v1', { status: 'done' }]]));
+    renderNode();
+    expect(screen.queryByText(/生成中/i)).not.toBeInTheDocument();
   });
 
   // ---- Handles ----

@@ -5,6 +5,7 @@ import { NodeHandle } from './NodeHandle';
 import { subscribeNodeStatus, ensureExecutionSocket } from '@/services/executionSocket';
 import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { stopCapturing } from '@/stores/canvasUndo';
 import { VideoConfigPanel } from './VideoConfigPanel';
@@ -62,7 +63,8 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const { getNodes, setNodes } = useReactFlow();
   const isSingleSelected = useIsSingleSelected(selected);
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
+  const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
   const { url: resultUrl } = useMediaUrl(fileId);

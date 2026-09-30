@@ -1,7 +1,8 @@
 // apps/web/src/pages/canvas/components/groups/GroupNode.test.tsx
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { GroupNode } from './GroupNode';
+import { useNodeStore } from '@/stores/nodeStore';
 
 const { getMockNodes, setMockNodes, getMockMarqueeSelecting, setMockMarqueeSelecting } = vi.hoisted(() => {
   let mockNodes: any[] = [];
@@ -59,6 +60,18 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
       { id: 'c1', fileId: 'ref-1', status: 'idle' }, // url: undefined 序列化丢失
       { id: 'c2', fileId: 'gen-2', status: 'done', url: 'http://m/gen-2' },
     ]);
+  });
+
+  it('批1-6 合并视图：data.status=loading 但 exec 投影 done → cellNodes status=done（读点换源）', () => {
+    setMockNodes([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
+      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'loading' } },
+    ]);
+    useNodeStore.setState({ execStatus: new Map([['c1', { status: 'done' }]]), execAligned: new Map() });
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);
+    const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
+    expect(cellNodes).toEqual([{ id: 'c1', status: 'done' }]); // fileId: undefined 序列化丢失
+    useNodeStore.setState({ execStatus: new Map(), execAligned: new Map() });
   });
 });
 

@@ -2,6 +2,7 @@ import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
 import { message } from 'antd';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { ModelSelector } from './config-panel/ModelSelector';
@@ -40,7 +41,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const ratio = nodeData?.ratio ?? '16:9';
   const resolution = nodeData?.resolution ?? '2K';
   const quality = nodeData?.quality ?? 'standard';
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
+  const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '' };
   const allImages = nodeData?.allImages ?? [];
 

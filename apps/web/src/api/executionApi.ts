@@ -40,3 +40,17 @@ export async function enqueueWorkflow(params: {
 export async function fetchBalance(): Promise<{ credits: number }> {
   return apiFetch('/credits/balance');
 }
+
+/** 批0.5-6 GET intents 意图行（批1-6 断连恢复消费）——GenerationIntent select 子集（createdAt desc，take 20） */
+export interface GenerationIntentRow {
+  intentId: string;
+  kind: string;
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'VOIDED';
+  resultRef: string | null;
+  error: string | null;
+}
+
+/** 节点意图列表（断连恢复读面，成员级——VIEWER 可见；与 jobs/:id 同口径） */
+export async function fetchNodeIntents(projectId: string, nodeId: string): Promise<GenerationIntentRow[]> {
+  return apiFetch(`/execution/intents?projectId=${encodeURIComponent(projectId)}&nodeId=${encodeURIComponent(nodeId)}`);
+}

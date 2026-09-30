@@ -4,6 +4,7 @@ import { NodeResizer, type NodeProps } from '@xyflow/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { execOverrideOf } from '@/stores/nodeStore';
 import { stopCapturing } from '@/stores/canvasUndo';
 import { calcGroupMinSize } from '@/utils/groupLayout';
 import type { CellNodeInfo } from './StoryboardCell';
@@ -49,7 +50,9 @@ function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any 
   const cellNodes = useCanvasStore((s) =>
     s.nodes
       .filter((n) => (data.cells ?? []).includes(n.id))
-      .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: (n.data as any).status, url: (n.data as any).mediaUrl })));
+      // 批1-6（B2）：status 读点换源——exec 覆盖值优先，回落本组件数据源（canvasStore 节点）的 data.status。
+      // canvasStore 选择器内快照读（exec 投影落地伴随 doc nodes 变更 → applyDocToStore 重渲本组件）
+      .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: execOverrideOf(n.id) ?? (n.data as any).status, url: (n.data as any).mediaUrl })));
   return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} />;
 }
 

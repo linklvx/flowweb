@@ -2,6 +2,7 @@ import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
 import { message } from 'antd';
 import { useNodeStore, type VideoNodeData } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
@@ -48,7 +49,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const resolution = nodeData?.resolution ?? '1080p';
   const duration = nodeData?.duration ?? 5;
   const audio = nodeData?.audio ?? true;
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
+  const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
   const allImages = nodeData?.allImages ?? [];
 

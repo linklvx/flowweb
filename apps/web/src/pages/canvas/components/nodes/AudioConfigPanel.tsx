@@ -1,6 +1,7 @@
 import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from '@/api/executionApi';
 
@@ -20,7 +21,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
 
   const nodeData = node?.data as any;
   const model = nodeData?.model ?? '';
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
+  const status = useNodeStore((s) => selectExecStatus(s, nodeId));
 
   // ── State ──
   const [models, setModels] = useState<ModelInfo[]>([]);

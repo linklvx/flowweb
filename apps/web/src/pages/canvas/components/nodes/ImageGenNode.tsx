@@ -4,6 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore } from '@/stores/nodeStore';
+import { selectExecStatus } from '@/stores/execStatusView';
 import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { canvasProjectId } from '@/utils/uploadContext';
@@ -78,7 +79,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const { fitView, getNodes, setNodes, setCenter } = useReactFlow();
   const isSingleSelected = useIsSingleSelected(selected);
   const internalNode = useInternalNode(id);
-  const status = nodeData?.status ?? 'idle';
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
+  const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
   const { url: resultUrl } = useMediaUrl(fileId);

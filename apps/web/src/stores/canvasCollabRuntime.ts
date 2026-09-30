@@ -15,6 +15,10 @@ import { isAutoEdgeId } from './autoEdgeIds';
 import { normalizeLoadedCanvas, shouldAutoRefit } from '@flowweb/shared';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
+// 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
+// import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
+import { fetchNodeIntents } from '@/api/executionApi';
+import type { ExecStatusEntry } from './execStatusView';
 // 批1-0 transport 薄层（门 B 裁决）：自持传输——瞬态恢复=reconnect()，kick 方案 ㉕/㉝ 约束已删
 import { createReconnectingWebSocket, type ReconnectHandle } from '@/collab/reconnectTransport';
 import { hydrateNodes } from '@/utils/nodeOrder';
@@ -161,6 +165,52 @@ function updateConnectionUi(ui: MachineOutput['ui']) {
   const clamped = ui === 'banner' && Date.now() < plannedRestartUntil ? 'hint' : ui;
   const s = useCanvasStore.getState();
   if (clamped !== s.connUi) useCanvasStore.setState({ connUi: clamped });
+}
+
+/** 批1-6（B2/F2）：doc exec map → nodeStore.execStatus 展示投影（exec map 服务端唯一写者——本端零写）。
+ *  浅 Map 重建（节点量级 ~百，简单够用）：条目删除（GC）随重建自然回落 data.status；
+ *  observeDeep 覆盖条目内层键变更；会话清理无需 unobserve——doc.destroy 连带。 */
+function projectExecToStore(d: Y.Doc): void {
+  const m = new Map<string, ExecStatusEntry>();
+  for (const [id, v] of d.getMap('exec').entries()) {
+    if (!(v instanceof Y.Map)) continue;
+    const status = v.get('status');
+    if (status !== 'loading' && status !== 'done' && status !== 'error') continue;
+    const str = (k: string) => (typeof v.get(k) === 'string' ? (v.get(k) as string) : undefined);
+    m.set(id, { status, jobId: str('jobId'), intentId: str('intentId'), error: str('error'), fileId: str('fileId') });
+  }
+  useNodeStore.setState({ execStatus: m });
+}
+
+/** 批1-6（B2 ③）：断连/刷新后执行态恢复对齐——只读对齐（不写回 doc exec map，F2 客户端零 exec 写）。
+ *  候选= data.status==='loading' 且 exec 投影无条目（服务端已写 exec=已接管该节点状态，不重复对齐；
+ *  投影仅收录合法 status 值——非法值条目不在 Map，归入"无条目"）。
+ *  查表语义=最新意图行定夺（createdAt desc 首行）：SUCCEEDED→done / FAILED→error / RUNNING/VOIDED→不写
+ *  （不回退不误置，保持 loading）。触发点= status connected 边沿 + visibilitychange 回前台。
+ *  去抖语义=单飞（in-flight 互斥）：并发触发只跑一轮；完成后再次触发重跑（幂等——同一终态重复写收敛）。 */
+let alignInFlight = false;
+async function alignExecFromIntents(): Promise<void> {
+  if (alignInFlight || !session) return;
+  const pid = session.pid;
+  const ns = useNodeStore.getState();
+  const candidates = Object.values(ns.nodes).filter(
+    (n) => (n.data as { status?: string } | undefined)?.status === 'loading' && !ns.execStatus.has(n.id),
+  );
+  if (candidates.length === 0) return;
+  alignInFlight = true;
+  try {
+    for (const node of candidates) {
+      const rows = await fetchNodeIntents(pid, node.id).catch(() => null); // 单节点失败不阻断其余
+      const latest = rows?.[0];
+      if (latest?.status !== 'SUCCEEDED' && latest?.status !== 'FAILED') continue;
+      const entry: ExecStatusEntry = latest.status === 'SUCCEEDED'
+        ? { status: 'done', intentId: latest.intentId, fileId: latest.resultRef ?? undefined }
+        : { status: 'error', intentId: latest.intentId, error: latest.error ?? undefined };
+      useNodeStore.setState((s) => ({ execAligned: new Map(s.execAligned).set(node.id, entry) }));
+    }
+  } finally {
+    alignInFlight = false;
+  }
 }
 
 /** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
@@ -363,7 +413,10 @@ const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 function bindProviderListeners(p: HocuspocusProvider): void {
   p.on('status', ({ status }: any) => {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
-    if (status === 'connected' && lastWsStatus !== 'connected') lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
+    if (status === 'connected' && lastWsStatus !== 'connected') {
+      lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
+      void alignExecFromIntents(); // 批1-6（B2 ③）：connect 边沿恢复对齐（connected 双发仅第一发是边沿）
+    }
     if (status === 'connecting') inboundAttemptId = -1;
     if (status !== lastWsStatus) recordCollabDiag('ws_status', { from: lastWsStatus, to: status }); // 批1-5：迁移记录（双发 connected 不重复）
     lastWsStatus = status;
@@ -418,7 +471,11 @@ let reevaluateBound = false;
 function bindReevaluateOnce(): void {
   if (reevaluateBound) return;
   reevaluateBound = true;
-  document.addEventListener('visibilitychange', () => recomputeConnStatus());
+  document.addEventListener('visibilitychange', () => {
+    recomputeConnStatus();
+    // 批1-6（B2 ③）：回前台恢复对齐（隐藏态不查——查询无意义）；去抖=单飞（alignExecFromIntents）
+    if (!document.hidden) void alignExecFromIntents();
+  });
   window.addEventListener('online', () => recomputeConnStatus());
 }
 
@@ -440,6 +497,9 @@ export async function initCollab(projectId: string): Promise<void> {
   // 批0b deletion baseline 会话起点复位：null=首同步 doc 为源不删（旧会话基线携带过来会误删新会话 doc 独有 key）
   prevNodeIds = null;
   prevEdgeIds = null;
+  // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
+  // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
+  useNodeStore.setState({ execAligned: new Map() });
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
   lastConnectedAt = 0;
   lastInboundAt = Date.now();
@@ -562,6 +622,10 @@ export async function initCollab(projectId: string): Promise<void> {
   };
   doc.getMap('nodes').observeDeep(onRemote as any);
   doc.getMap('edges').observeDeep(onRemote as any);
+  // 批1-6（B2）：exec map 展示投影——初始一次（覆盖 synced 前已抵达的条目）+ observeDeep 监听。
+  // getMap 门（批0e-4）runtime 在白名单；本端对 exec map 只读（写侧零命中=静态锚，execView.spec）
+  projectExecToStore(doc!);
+  doc.getMap('exec').observeDeep(() => projectExecToStore(doc!));
 
   awarenessBridge = new AwarenessBridge(provider!); // 非空：本函数流内 createProvider 刚赋值（seq 守卫已过）
 

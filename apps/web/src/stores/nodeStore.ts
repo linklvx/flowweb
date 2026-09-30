@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { useCanvasStore } from './canvasStore';
+import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
+
+export type { ExecStatusEntry, NodeExecStatus } from './execStatusView';
 
 // ========== Node type constants ==========
 
@@ -301,6 +304,10 @@ interface NodeState {
   nodes: Record<string, AppNode>;
   activeTransformNodeId: string | null;
 
+  // 批1-6（B2）：执行状态合并视图两源（均 canvasCollabRuntime 唯一写者，UI 经 selectExecStatus 读）
+  execStatus: Map<string, ExecStatusEntry>;  // doc exec map 投影（服务端唯一写者）
+  execAligned: Map<string, ExecStatusEntry>; // 断连恢复 intents 查表终态（只读对齐——零 doc 写）
+
   referenceSelect: { sourceNodeId: string; notice: string | null } | null;
   startReferenceSelect: (nodeId: string) => void;
   exitReferenceSelect: () => void;
@@ -361,6 +368,8 @@ let _referenceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
+  execStatus: new Map(),
+  execAligned: new Map(),
   activeTransformNodeId: null,
   referenceSelect: null,
   cancelRequestedAt: 0,
@@ -742,3 +751,15 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     }));
   },
 }));
+
+/** 批1-6（B2）：合并视图读点辅助（非 React 消费方——canvasStore 动作/guards 等）。
+ *  组件渲染读用 useNodeStore((s) => selectExecStatus(s, id)) 订阅触发重渲；本函数读当前快照。 */
+export function execStatusOf(nodeId: string): NodeExecStatus {
+  return selectExecStatus(useNodeStore.getState(), nodeId);
+}
+
+/** 批1-6（B2）：exec 覆盖值（无条目=undefined）——data 回落交调用方自己的 data 源
+ *  （canvasStore 节点为数据源的读点专用，如 GroupNode cellNodes）。 */
+export function execOverrideOf(nodeId: string): NodeExecStatus | undefined {
+  return execOverrideStatus(useNodeStore.getState(), nodeId);
+}
