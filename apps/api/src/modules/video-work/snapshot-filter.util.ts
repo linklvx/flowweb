@@ -26,7 +26,7 @@ export interface FilterOptions {
   whitelist?: Record<string, string[]>;  // 不传=WHITELIST（快照端）；clone 端传 CLONE_WHITELIST（R0a 分表）
 }
 
-export interface FilteredNode extends RawNode {}
+export type FilteredNode = RawNode;
 export interface FilteredEdge { id: string; source: string; target: string }
 
 /** data 白名单表（C2 Task 5.1 第五轮定稿——按 nodeStore.ts:101-127 注释分组的字段实际分布）：

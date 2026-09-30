@@ -191,20 +191,21 @@ export class VideoSeparateProcessor extends WorkerHost {
 
       // PROJECT_TEAM_MISSING 属永久性错误（project 缺失/已删，重试不会好转）：
       // 包装为不可重试，避免 BullMQ 指数退避放大为 3× 下载/ffmpeg/上传 + 孤儿对象
-      if ((error as Error).message === 'PROJECT_TEAM_MISSING') {
-        error = new NonRetryableError('PROJECT_TEAM_MISSING', (error as Error).message);
-      }
+      const failure =
+        (error as Error).message === 'PROJECT_TEAM_MISSING'
+          ? new NonRetryableError('PROJECT_TEAM_MISSING', (error as Error).message)
+          : error;
 
-      if (error instanceof NonRetryableError) {
+      if (failure instanceof NonRetryableError) {
         // 业务错误：更新 DB → throw → retryStrategy 返回 -1 → BullMQ 直接标记 failed
-        await this.separateService.handleTaskFailed(taskId, error.message, error.errorType);
-        throw error;
+        await this.separateService.handleTaskFailed(taskId, failure.message, failure.errorType);
+        throw failure;
       }
 
       // 基础设施错误：更新 DB → throw → retryStrategy 指数退避 → BullMQ 自动重试
-      const errorType = this.classifyError(error as Error);
-      await this.separateService.handleTaskFailed(taskId, (error as Error).message, errorType);
-      throw error;
+      const errorType = this.classifyError(failure as Error);
+      await this.separateService.handleTaskFailed(taskId, (failure as Error).message, errorType);
+      throw failure;
     } finally {
       await this.mediaProcess.cleanupTempDir(taskId, TEMP_SEPARATE_DIR);
     }

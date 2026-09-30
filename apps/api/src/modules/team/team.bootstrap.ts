@@ -1,8 +1,9 @@
+import type { Team } from '@prisma/client';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 
 type Db = {
-  team: { findFirst: Function };
-  $transaction: Function;
+  team: { findFirst: (args: { where: { ownerId: string; isDefault: boolean } }) => Promise<Team | null> };
+  $transaction: (fn: (tx: any) => Promise<Team>) => Promise<Team>;
 };
 
 /**

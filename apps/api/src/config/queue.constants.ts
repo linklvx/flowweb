@@ -1,4 +1,6 @@
-const CPU_CORES = require('os').cpus().length;
+import { cpus } from 'node:os';
+
+const CPU_CORES = cpus().length;
 
 export const QUEUE_NAMES = {
   EXECUTION: 'execution',

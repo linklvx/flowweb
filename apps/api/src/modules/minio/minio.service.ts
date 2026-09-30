@@ -159,7 +159,7 @@ export class MinioService {
         await this.ensureBucket(retries - 1, delay);
       } else {
         this.logger.error(`MinIO init failed: ${err.message}`);
-        throw new Error(`MinIO initialization failed: ${err.message}`);
+        throw new Error(`MinIO initialization failed: ${err.message}`, { cause: err });
       }
     }
   }

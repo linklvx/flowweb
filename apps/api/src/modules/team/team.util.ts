@@ -1,10 +1,14 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import type { TeamStatus } from '@prisma/client'
 
 // 只读解析个人团队 id（判据 ownerId+isDefault，与成员身份无关）；
 // 补建路径走 ensureDefaultTeam/bootstrapPersonalTeam，本函数不建任何行。
 
 export async function getOwnerTeamId(
-  db: { team: { findFirst: Function } },
+  db: { team: { findFirst: (args: {
+    where: { ownerId: string; isDefault: boolean };
+    select: { id: true };
+  }) => Promise<{ id: string } | null> } },
   userId?: string | null,
 ): Promise<string> {
   if (!userId) throw new BadRequestException('用户未登录')
@@ -20,7 +24,10 @@ export async function getOwnerTeamId(
 // 嵌套 team.status='ACTIVE' 过滤：TeamGuard 只拦 URL-:id 路由，body/query teamId 路径
 // 经此函数自证成员资格，解散团队（DISBANDED）不得再收新资源。
 export async function assertTeamMember(
-  db: { teamMember: { findFirst: Function } },
+  db: { teamMember: { findFirst: (args: {
+    where: { teamId: string; userId: string; team: { status: TeamStatus } };
+    select: { role: true };
+  }) => Promise<{ role: string } | null> } },
   teamId: string,
   userId: string,
 ): Promise<void> {

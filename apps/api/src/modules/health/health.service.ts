@@ -12,7 +12,7 @@ export class HealthService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async check(): Promise<HealthResult> {
-    let db = false;
+    let db: boolean;
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       db = true;

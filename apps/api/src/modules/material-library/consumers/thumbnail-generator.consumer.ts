@@ -5,6 +5,7 @@ import { MinioService } from '../../minio/minio.service';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
 import sharp from 'sharp';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as tmp from 'tmp';
 
 // Auto-cleanup temp files on process exit (cross-platform safe)
@@ -76,8 +77,8 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
       ffmpeg.default(tempPath)
         .screenshots({
           timestamps: [seekSec ?? 1],
-          filename: require('path').basename(thumbnailPath),
-          folder: require('path').dirname(thumbnailPath),
+          filename: path.basename(thumbnailPath),
+          folder: path.dirname(thumbnailPath),
           size: '300x225',
         })
         .on('end', () => resolve())

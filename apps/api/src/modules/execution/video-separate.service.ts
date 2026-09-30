@@ -107,8 +107,6 @@ export class VideoSeparateService {
 
       this.logger.log(`Separate task ${task.id} enqueued for node ${nodeId}`);
       return { taskId: task.id };
-    } catch (error) {
-      throw error;
     } finally {
       // 主动释放幂等锁，缩短锁持有时间（入队成功或校验失败后立即释放）
       await this.redis.del(lockKey).catch(() => {});

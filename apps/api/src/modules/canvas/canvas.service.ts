@@ -60,7 +60,10 @@ export class CanvasService {
     return CanvasService.nextUntitledName(this.prisma, resolved);
   }
 
-  private static async nextUntitledName(db: { template: { findMany: Function } }, teamId: string): Promise<string> {
+  private static async nextUntitledName(db: { template: { findMany: (args: {
+    where: { teamId: string };
+    select: { name: true };
+  }) => Promise<{ name: string }[]> } }, teamId: string): Promise<string> {
     const templates = await db.template.findMany({ where: { teamId }, select: { name: true } });
     let max = 0;
     for (const t of templates) {

@@ -4,7 +4,7 @@ import type Redis from 'ioredis';
 
 vi.mock('@sentry/nestjs', () => ({
   captureException: vi.fn(),
-  withScope: vi.fn((fn: Function) => fn({ setTag: vi.fn(), setLevel: vi.fn() })),
+  withScope: vi.fn((fn: (scope: { setTag: () => void; setLevel: () => void }) => unknown) => fn({ setTag: vi.fn(), setLevel: vi.fn() })),
 }));
 
 function mockMetrics() {

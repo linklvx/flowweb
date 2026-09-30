@@ -121,7 +121,7 @@ describe('MediaProcessService', () => {
     it('should resolve on exit code 0', async () => {
       const mockProc = {
         stderr: { on: vi.fn() },
-        on: vi.fn((event: string, cb: Function) => {
+        on: vi.fn((event: string, cb: (code: number) => void) => {
           if (event === 'close') cb(0);
         }),
       };
@@ -134,7 +134,7 @@ describe('MediaProcessService', () => {
     it('should reject on non-zero exit code', async () => {
       const mockProc = {
         stderr: { on: vi.fn() },
-        on: vi.fn((event: string, cb: Function) => {
+        on: vi.fn((event: string, cb: (code: number) => void) => {
           if (event === 'close') cb(1);
         }),
       };

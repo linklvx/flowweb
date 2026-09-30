@@ -75,18 +75,18 @@ function validateWeChatPayConfig() {
   try {
     crypto.createPrivateKey(WechatPaymentProvider.normalizePem(process.env.WECHAT_PAY_PRIVATE_KEY!));
   } catch (e) {
-    throw new Error(`[WeChat Pay] WECHAT_PAY_PRIVATE_KEY 密钥格式无效: ${(e as Error).message}`);
+    throw new Error(`[WeChat Pay] WECHAT_PAY_PRIVATE_KEY 密钥格式无效: ${(e as Error).message}`, { cause: e });
   }
 
   try {
     crypto.createPublicKey(WechatPaymentProvider.normalizePem(process.env.WECHAT_PAY_PUBLIC_KEY!));
   } catch (e) {
-    throw new Error(`[WeChat Pay] WECHAT_PAY_PUBLIC_KEY 密钥格式无效: ${(e as Error).message}`);
+    throw new Error(`[WeChat Pay] WECHAT_PAY_PUBLIC_KEY 密钥格式无效: ${(e as Error).message}`, { cause: e });
   }
 
   try {
     new crypto.X509Certificate(WechatPaymentProvider.normalizePem(process.env.WECHAT_PAY_MERCHANT_CERT!));
   } catch (e) {
-    throw new Error(`[WeChat Pay] WECHAT_PAY_MERCHANT_CERT 证书格式无效: ${(e as Error).message}`);
+    throw new Error(`[WeChat Pay] WECHAT_PAY_MERCHANT_CERT 证书格式无效: ${(e as Error).message}`, { cause: e });
   }
 }
