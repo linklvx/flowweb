@@ -79,9 +79,11 @@ export class VideoProjectService {
   /**
    * 批5-1 retake 直连真实节点（落点 B——影子信箱删除）：
    * 1. readCanvas 校验 sourceNode 类型（video→videoGen / audio→audioGen）
-   * 2. 直调 execute（真实节点；不走 HTTP、不带 sv——sv 位恒 undefined，E2 的"sv 裁剪致影子不可见"根因随信箱消失）
-   * 3. retakeId 客户端生成（E0）透传 execute 作 intentId——同 retakeId 重放由 claim 层幂等
-   *    （SUCCEEDED → created:false 零外呼零扣费回放产物）
+   * 2. 直调 execute 的 nodeIds 模式（scope 恰为目标自身——nodeId 模式 getScope 是"上游闭包+自身"，
+   *    会连带重执行上游=重复扣费，且 retakeId 落首个 exec 节点（最上游）而非目标——批5 评审 H1 根堵；
+   *    上游产物仍可读：nodeIds 模式 collectUpstreamData 用全量节点注入 prompt）
+   * 3. retakeId 客户端生成（E0）透传 execute 作 intentId（目标节点是唯一 exec 节点=intentId 归属处）——
+   *    同 retakeId 重放由 claim 层幂等（SUCCEEDED → created:false 零外呼零扣费回放产物）
    * 4. 产物落地不在本方法：Media.create/writeNodeData(fileId)/emitNodeStatus 由 execute→ai-download
    *    既有链在真实节点上完成（服务层重复落地=双 Media 行）
    */
@@ -91,7 +93,7 @@ export class VideoProjectService {
     const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
     const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';
     if (!src || src.type !== wantType) throw new BadRequestException('source node not found or kind mismatch');
-    const result = await this.execution.execute(dto.workflowId, dto.sourceNodeId, userId, undefined, undefined, dto.retakeId);
+    const result = await this.execution.execute(dto.workflowId, undefined, userId, [dto.sourceNodeId], undefined, dto.retakeId);
     return { retakeId: dto.retakeId, result };
   }
 

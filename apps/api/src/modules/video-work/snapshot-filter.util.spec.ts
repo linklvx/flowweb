@@ -94,7 +94,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
   });
 
-  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/dropIdPrefixes/__ephemeral——util 机制单测，批5-1 后生产不传前缀）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）', () => {
+  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/dropIdPrefixes——util 机制单测，批5-1 后生产不传前缀）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）；__ephemeral 标记节点存活（批5 评审 L1：写入方已删，标记不再是过滤判据）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('g1', 'group', { groupType: 'storyboard', cells: ['c1', 'edit1', 'shadow-x', 'eph', 'ghost', null], name: '分镜' }),
@@ -107,16 +107,16 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     };
     const out = buildFilteredSnapshot(input, { ...cloneOpts, dropIdPrefixes: ['shadow-'] });
     const g = out.nodes.find(n => n.id === 'g1')!;
-    expect(g.data.cells).toEqual(['c1', null, null, null, 'ghost', null]); // 剥除槽位 null；ghost 非 dropped 本层不动
+    expect(g.data.cells).toEqual(['c1', null, null, 'eph', 'ghost', null]); // 剥除槽位 null（eph 非 dropped 存活原 id）；ghost 非 dropped 本层不动
   });
 
-  it('dropIdPrefixes 机制：前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）同样剥除（spec §4.6 字面）——util 能力单测（批5-1 删信箱后生产口径不传前缀）', () => {
+  it('dropIdPrefixes 机制：前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）不再剥除（批5 评审 L1：死判据清除——写入方批5 已删）——util 能力单测（批5-1 删信箱后生产口径不传前缀）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('n1', 'videoGen', { model: 'm' }),
         rawNode('n2', 'videoEdit', { timeline: [1] }),
         rawNode('shadow-tmp', 'imageGen', { prompt: { text: 'x', html: 'y' } }),
-        rawNode('n3', 'videoGen', { model: 'm', __ephemeral: true }), // 无 shadow- 前缀、带标记
+        rawNode('n3', 'videoGen', { model: 'm', __ephemeral: true }), // 无 shadow- 前缀、带标记——L1 后不剥（data.__ephemeral 仍被白名单剥）
       ],
       edges: [
         { id: 'e1', source: 'n1', target: 'n2' },
@@ -125,8 +125,8 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       ],
     };
     const out = buildFilteredSnapshot(input, { ...cloneOpts, dropIdPrefixes: ['shadow-'] });
-    expect(out.nodes.map(n => n.id)).toEqual(['n1']);
-    expect(out.edges).toEqual([]);
+    expect(out.nodes.map(n => n.id)).toEqual(['n1', 'n3']);
+    expect(out.edges).toEqual([{ id: 'e3', source: 'n1', target: 'n3' }]);
   });
 
   it('快照口径：videoEdit 节点保留、data 全剥为 {}、连线保留（spec:228"仅结构字段→全部 data"——剥除仅是克隆差异 D9，第八轮裁定）', () => {

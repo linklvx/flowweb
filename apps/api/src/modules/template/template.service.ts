@@ -238,7 +238,7 @@ export class TemplateService {
         throw new BadRequestException('模板数据为空，无法导入');
       }
       // Task 21（F39 v6 判据）：导入档校验钉在跨用户过滤/remap 之前——remap 把悬空折 undefined（挂后 dangling 恒 0 假绿）；
-      // 过滤剥 __ephemeral 节点后 cells 变悬空（挂后合法公开模板假拒）。fatal=producer 侧不可能合法产出的结构（400 三种）；
+      // 过滤剥节点（dropTypes/dropIdPrefixes）后 cells 变悬空（挂后合法公开模板假拒）。fatal=producer 侧不可能合法产出的结构（400 三种）；
       // 三类悬空=修不拒（producer 侧可达：删组窗口/过滤剥节点——下方 remap 循环内折 undefined/null/丢边）
       const { violations } = validateParentGraph(projectData.nodes, 'import', projectData.edges);
       const fatal = violations.filter((v) => ['cycle', 'nested-group', 'non-group-parent'].includes(v.kind));

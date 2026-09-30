@@ -140,7 +140,6 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
   const kept = raw.nodes.filter(n => {
     if (opts.dropTypes.includes(n.type)) { dropped.add(n.id); return false; }
     if (opts.dropIdPrefixes.some(p => n.id.startsWith(p))) { dropped.add(n.id); return false; }
-    if ((n.data as { __ephemeral?: unknown })?.__ephemeral === true) { dropped.add(n.id); return false; } // 第七轮：spec §4.6 字面要求的 __ephemeral 标记过滤——当前仓库该标记与 shadow- 前缀共生（node-doc.util.ts 不变量），但白名单不依赖命名约定
     return true;
   });
   const edges = raw.edges

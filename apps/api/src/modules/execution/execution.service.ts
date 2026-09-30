@@ -40,7 +40,9 @@ export class ExecutionService {
   /** 批0.5-6：意图 claim 前置（外呼之前）。kind/params = 各分支实读外呼参数——
    *  normalizeIntentParams 白名单拾取（0.5-2），sv/nonce 不进哈希。
    *  组执行 intentId 派生（裁定）：每节点独立 UUID——意图生命周期（attempts/reconcile/退款）按节点独立，
-   *  不做 ${intentId}:${nodeId} 派生；入参 intentId 仅落首个执行节点（单节点执行即目标节点），其余派新 UUID。 */
+   *  不做 ${intentId}:${nodeId} 派生；入参 intentId 落 scope 内首个 exec 节点（批5 H1 更正：nodeId 模式
+   *  scope=上游闭包+自身，首个 exec 是最上游而非目标——intentId 需落特定目标时调用方必须传 nodeIds=[目标]，
+   *  使目标成为唯一 exec 节点，如 video-project regenerate），其余派新 UUID。 */
   private claimForNode(
     projectId: string, node: any, userId: string, intentId: string | undefined,
     kind: string, params: Record<string, unknown>, jobId?: string,
@@ -102,7 +104,7 @@ export class ExecutionService {
       const s = data?.styleId ? styleMap.get(data.styleId) : undefined;
       return s?.active ? s.promptText : '';
     };
-    let execIdx = 0; // 组执行 intentId 派生用：入参 intentId 仅落首个执行节点（claimForNode 注释裁定）
+    let execIdx = 0; // 组执行 intentId 派生用：入参 intentId 落 scope 内首个 exec 节点（真实归属规则见 claimForNode 注释——批5 H1 更正）
     for (const node of orderedNodes) {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
       const isFirstExec = execIdx === 0;
