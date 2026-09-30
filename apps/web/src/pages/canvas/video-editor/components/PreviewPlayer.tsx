@@ -6,10 +6,11 @@ import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
 import { togglePlayback, seekPlayback } from '../hooks/playback'; // R3 五-5：stopPlayback 未使用（停止走 togglePlayback 的 playing 分支），删导入
 import { audioEngine } from '../audio-engine/engine';
 import { formatShortTime, totalDuration } from '../timeline/timecode';
-import { watchShadowJob } from '../hooks/shadowJob';
 import { regenerateNode } from '@/api/videoProjectApi';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { selectExecStatus } from '@/stores/execStatusView';
+import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 
 export function PreviewPlayer() {
   const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -23,7 +24,6 @@ export function PreviewPlayer() {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const setPxPerSec = useEditorStore(s => s.setPxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
-  const shadowBusy = useEditorStore(s => Object.keys(s.shadowJobs).length > 0);
   const nodes = useNodeStore(s => s.nodes); // 左面板可读整个 nodeStore（编辑器挂画布根层——spec §二 挂载结构）
   const total = data ? totalDuration(data) : 0;
 
@@ -36,25 +36,47 @@ export function PreviewPlayer() {
   };
   // 片段重拍（生成音频恒置灰见 JSX——决策 3 登记偏离：后端无 callAudioGen 执行分支）
   const selectedClip = selectedClipId ? data?.clips[selectedClipId] : undefined;
-  const retakeSource = selectedClip && 'sourceNodeId' in selectedClip
-    ? nodes[selectedClip.sourceNodeId as string] : undefined;
+  const sourceNodeId = selectedClip && 'sourceNodeId' in selectedClip
+    ? selectedClip.sourceNodeId as string | undefined : undefined;
+  const retakeSource = sourceNodeId ? nodes[sourceNodeId] : undefined;
+  // 批5 删信箱：重拍在途判据改 exec 合并视图（真实节点 loading——execute 写 exec map → 投影/对齐，影子 shadowJobs 随信箱删除）
+  const retakeBusy = useNodeStore(s => sourceNodeId != null && selectExecStatus(s, sourceNodeId) === 'loading');
   // R4-7：排除产物节点（type 同为 videoGen，但 origin='video-edit' 无 prompt/model）——后端 regenerate 只校验类型
-  // （video-project.service.ts:87-88），放行会空 prompt 触发一次真实生成/莫名失败；产物节点是终点不参与重拍（验收 13 口径）
+  // （video-project.service.ts），放行会空 prompt 触发一次真实生成/莫名失败；产物节点是终点不参与重拍（验收 13 口径）
   const canRetake = retakeSource?.type === 'videoGen'
     && (retakeSource.data as { origin?: string } | undefined)?.origin !== 'video-edit'; // 仅真实视频分支（spec §4）——imageGen 源/产物节点置灰
+  // 批5 E0（intentRecord 范式）：retakeId 客户端生成上送——失败重试复用同 id（服务端 claim 表命中不双扣），成功后下一轮 rotate
+  const lastRetakeRef = useRef<{ retakeId: string; failed: boolean } | null>(null);
   const onRetake = () => {
     if (!retakeSource) return;
     modal.confirm({
       title: '片段重拍', content: '将消耗团队积分，确认重新生成该片段的视频？',
       onOk: async () => {
+        const workflowId = useCanvasStore.getState().projectId;
+        if (!workflowId) return;
+        const retakeId = lastRetakeRef.current?.failed
+          ? currentIntentId(workflowId, retakeSource.id)
+          : newIntentId(workflowId, retakeSource.id);
         try {
-          const workflowId = useCanvasStore.getState().projectId;
-          if (!workflowId) return;
-          const { shadowNodeId, result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video' });
-          // R6-P2-1：result 透传——早失败（扣费失败/参数错）在 HTTP 往返内已 emit error（订阅错过），靠 initial 立即反馈
-          void watchShadowJob(shadowNodeId, 'video', { name: `${(retakeSource.data as { label?: string })?.label ?? '重拍'}` }, result, { success: message.success, error: message.error }); // notify：生成完成/失败 toast 落壳内
+          const { result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video', retakeId });
+          // 批5-1：返回体含 execute 结果——早失败（校验/扣费）在 HTTP 往返内已 emit+写 exec map（订阅必错过），直读 result 反馈
+          if (result && result.success === false) {
+            lastRetakeRef.current = { retakeId, failed: true };
+            void message.error(`重拍失败：${result.errors?.[0] ?? '未知错误'}`);
+          } else {
+            lastRetakeRef.current = { retakeId, failed: false }; // 完成/失败态由真实节点 exec 投影对齐（busy 解除）
+          }
         } catch (err) {
-          void message.error(`重拍请求失败：${(err as Error).message}`); // R7-P3：HTTP 4xx/网络错——antd confirm onOk reject 只停 loading 无任何提示
+          // 批0.5-8c 同范式：rotate 值得错误码（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示
+          const rotateMsg = intentRotateMessage((err as { errorCode?: string }).errorCode);
+          if (rotateMsg) {
+            newIntentId(workflowId, retakeSource.id);
+            lastRetakeRef.current = null;
+            void message.warning(rotateMsg);
+          } else {
+            lastRetakeRef.current = { retakeId, failed: true }; // 复用同 id 重试（表命中不双扣）
+            void message.error(`重拍请求失败：${(err as Error).message}`); // R7-P3：HTTP 4xx/网络错——antd confirm onOk reject 只停 loading 无任何提示
+          }
         }
       },
     });
@@ -108,7 +130,7 @@ export function PreviewPlayer() {
           </Tooltip>
           <Tooltip title={canRetake ? '将消耗团队积分' : '选中带源视频片段后可重拍'}>
             <span className="inline-block">
-              <button type="button" disabled={!canRetake || shadowBusy} className="text-[12px] text-[var(--ve-accent-text)] border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
+              <button type="button" disabled={!canRetake || retakeBusy} className="text-[12px] text-[var(--ve-accent-text)] border-0 px-0 disabled:opacity-40" onClick={onRetake}>片段重拍</button>
             </span>
           </Tooltip>
         </div>

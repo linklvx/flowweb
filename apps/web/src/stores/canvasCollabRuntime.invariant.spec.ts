@@ -2,12 +2,13 @@
 // 批4a 安全网组（红1-不变量 + quiescence 判据）：
 // 不变量 = applyRemote 周期末尾（含 S1 补跑）projectionFromDoc(doc) ≡ storeProjection()——
 //   两侧同过双重归一：normalizeCanvasRecord（读侧 readCanvasFromDoc 归一/写侧 projectCanvasNodes）
-//   + normalizeLoadedCanvas（加载几何归一）+ 两侧显式过滤 /^shadow-/。两个设计内分叉源必须双侧
-//   同变换后才可断言（单侧/缺层则恒假、安全网失效）：
-//   ① shadow- 影子（批5 删信箱前 doc 仍含影子而 store 投影天然无）；
+//   + normalizeLoadedCanvas（加载几何归一）。两个设计内分叉源必须双侧同变换后才可断言
+//   （单侧/缺层则恒假、安全网失效）：
+//   ① shadow- 过滤条款已随批5 删信箱移除——doc 出现 /^shadow-/ 改由 DEV 巡检抛出（判据⑥），
+//     不变量对 doc/store 分叉如实报告；
 //   ② 组几何补缺（S1 契约：normalizeLoadedCanvas 补缺每轮内存重建、不写 doc——doc 无几何而
 //     store 有，属设计内分叉——组场景 quiescence 用例实证过：before==after ⇒ S1 零回写）。
-// 非恒真式 = 变异实验：doc 摆 store 没有的非影子节点（不走 apply 周期——走了会被 store 吸收恢复等价）
+// 非恒真式 = 变异实验：doc 摆 store 没有的节点（不走 apply 周期——走了会被 store 吸收恢复等价）
 //   → checkProjectionInvariant 必 false，证明断言不是恒真式（安全网有效性）。
 // quiescence = 双端（本端=真 runtime 链：intent 漏斗+onRemote 去抖+S1；对端=裸 doc 直写）burst 后
 //   静止窗口零新写（无乒乓）+ 两 doc 收敛 + store/doc 相等。
@@ -123,11 +124,11 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     expect(getCollabDiagCounters().get('invariant_violation')).toBeUndefined(); // 零误报
   });
 
-  it('非恒真式验证（变异实验）：doc 摆 store 没有的非影子节点 → 断言红', async () => {
+  it('非恒真式验证（变异实验）：doc 摆 store 没有的节点 → 断言红', async () => {
     await driveToSyncedRw('p1');
     const doc = runtime.getDoc()!;
     expect(runtime.checkProjectionInvariant(doc)).toBe(true); // 基线绿（空画布两侧相等）
-    // 变异：doc 独有非影子节点。origin=network 只为触发形状真实；不推进去抖 timer——
+    // 变异：doc 独有节点。origin=network 只为触发形状真实；不推进去抖 timer——
     // 一旦走 apply 周期 store 会吸收该节点恢复等价（applyDocToStore 全量重建是吸收器，
     // 变异必须在周期外直测断言函数本身）
     doc.transact(() => {
@@ -139,13 +140,16 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     expect(runtime.checkProjectionInvariant(doc)).toBe(false); // 断言非恒真——变异必被抓
   });
 
-  it('影子排除条款：doc 含 shadow- 节点 → 不变量不误报（双侧显式过滤）', async () => {
+  it('批5 判据⑥ dev 巡检：doc 含 shadow- 节点 → applyDocToStore DEV 抛 + 不变量不再双侧过滤（违例如实报告）', async () => {
     await driveToSyncedRw('p1');
     const doc = runtime.getDoc()!;
     doc.transact(() => {
       doc.getMap('nodes').set('shadow-video-1', new Y.Map());
     }, 'network');
-    expect(runtime.checkProjectionInvariant(doc)).toBe(true); // 影子被两侧过滤——安全网不因批5 前的影子恒假
+    // 巡检（DEV 断言）：影子信箱已删——doc 出现 /^shadow-/ 即结构性违例，抛出而非静默吸收
+    expect(() => runtime.applyDocToStore(doc)).toThrowError(/shadow-/);
+    // 过滤条款随信箱删除：shadow 节点进 doc 侧投影而 store 无 → 不变量如实报 false
+    expect(runtime.checkProjectionInvariant(doc)).toBe(false);
   });
 
   it('接线锚：onRemote 去抖周期内 applyDocToStore 之后真调用检查（源码文本——防"函数在、接线无"假绿）', async () => {

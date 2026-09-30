@@ -38,8 +38,6 @@ export function AssetPanel() {
   const [uploading, setUploading] = useState(false);
   const team = useTeamAssets(teamKey);
   const data = useEditorStore(s => s.data);
-  const generatedMediaIds = useEditorStore(s => s.generatedMediaIds);
-  const mediaInfo = useEditorStore(s => s.mediaInfo);
 
   const addedMediaIds = new Set(
     data ? Object.values(data.clips).map(c => (c as any).mediaId).filter(Boolean) : [],
@@ -153,44 +151,8 @@ export function AssetPanel() {
           ))}
         </ul>
         {team.items.length === 0 && !team.loading && <div className="px-2 py-3 text-[12px] text-[var(--ve-text-dim)]">暂无团队素材</div>}
-        {/* 生成结果（A1 影子产物——watchShadowJob 回填 mediaInfo；sourceNodeId 省略：素材库来源不建边 spec §二 规则 1） */}
-        {generatedMediaIds.length > 0 && (
-          <>
-            <div className="px-2 py-1 mt-2 text-[12px] text-[var(--ve-text-dim)]">生成结果</div>
-            <ul>
-              {generatedMediaIds.map((mediaId) => {
-                const info = mediaInfo[mediaId];
-                return (
-                  // R1（P1-7）+R2-N10+R3-5：mimeType 必有才可拖（draggable 随其有无）——拒绝来源不明资产，而非错型入库；
-                  // 空串/缺失判 image 落视频轨会建空白图片片，'video/mp4' 兜底会把音频产物建成 video 片黑屏
-                  <li key={mediaId}
-                    data-testid={`generated-item-${mediaId}`}
-                    draggable={Boolean(info?.mimeType)}
-                    onClick={() => {
-                      if (!info?.mimeType) return; // 同 draggable 守卫——mimeType 就绪才可入轨（拒绝来源不明资产）
-                      addAssetToTimeline({
-                        mediaId, mimeType: info.mimeType, name: info.name ?? mediaId,
-                        durationSec: info.durationSec ?? 5, url: info.url,
-                      });
-                    }}
-                    onDragStart={e => e.dataTransfer.setData('application/x-clip', JSON.stringify({
-                      mediaId,
-                      mimeType: info?.mimeType ?? '',
-                      originalName: info?.name ?? mediaId,
-                      durationSec: info?.durationSec,
-                      url: info?.url, // 批3-4：生成结果无缩略图——video 产物靠 drop 侧 ensurePoster 回退取帧
-                    }))}
-                    className="flex items-center gap-2 px-2 py-1.5 cursor-grab hover:bg-overlay-2">
-                    <div className="w-10 h-10 rounded-md bg-[var(--ve-thumb-base)] shrink-0 overflow-hidden flex items-center justify-center">
-                      <span className="text-[10px] text-[var(--ve-text-dim)]">{info?.mimeType?.startsWith('audio/') ? '音' : info?.mimeType?.startsWith('video/') ? '视' : '图'}</span>
-                    </div>
-                    <span className="text-[12px] text-[var(--fw-text)] truncate" style={{ minWidth: 0 }}>{info?.name ?? mediaId}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
+        {/* 批5 删信箱："生成结果"区（影子产物——watchShadowJob 回填）随信箱消失——retake 产物落真实节点
+            的 Media 行（projectId/nodeId 关联），经"全集资产"呈现（刷新后 useWorkflowAssets 加载） */}
       </div>
     </div>
   );

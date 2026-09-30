@@ -156,8 +156,8 @@ describe('AssetPanel', () => {
     expect(useCanvasStore.getState().edges.some(e => e.id === 'auto:edit1:v1')).toBe(true); // 连线闭环
   });
 
-  it('点击团队素材/生成结果卡片同法入轨（三种卡片形状归一化）', async () => {
-    (batchGetMedia as any).mockResolvedValue([]); // 本用例聚焦团队素材 + 生成结果
+  it('点击团队素材卡片同法入轨（卡片形状归一化；"生成结果"区已随批5 删信箱消失）', async () => {
+    (batchGetMedia as any).mockResolvedValue([]); // 本用例聚焦团队素材
     axiosGet.mockResolvedValueOnce({ data: { code: 0, message: 'ok', data: { success: true, data: [
       { id: 't1', originalName: '团队音频.mp3', mimeType: 'audio/mpeg', url: 'https://minio/flowai/t1', thumbnailUrl: null, metadata: { durationSec: 4 } },
     ] } } }); // Once：一次性消费后回落 hoisted 默认空列表——不跨用例污染上传用例
@@ -165,7 +165,7 @@ describe('AssetPanel', () => {
     await waitFor(() => expect(screen.getByText('团队音频.mp3')).toBeInTheDocument());
     // 默认单视频轨、无音频轨 → 点击自动建音频轨入轨
     fireEvent.click(screen.getByTestId('team-asset-item-t1'));
-    let d = useEditorStore.getState().data!;
+    const d = useEditorStore.getState().data!;
     const aTrack = d.tracks.find(t => t.type === 'audio');
     expect(aTrack).toBeTruthy();
     expect(aTrack!.clips).toHaveLength(1);
@@ -174,19 +174,7 @@ describe('AssetPanel', () => {
     expect((aClip as any).mediaId).toBe('t1');
     expect(aClip.duration).toBe(4); // metadata.durationSec
     expect((aClip as any).sourceNodeId).toBeUndefined(); // 素材库来源不建边
-    // 生成结果：mimeType 缺失点击不入轨（同 draggable 守卫口径——拒绝来源不明资产）
-    act(() => { useEditorStore.getState().addGeneratedMedia('g0', { name: '未知产物', durationSec: undefined, mimeType: '' }); });
-    fireEvent.click(screen.getByTestId('generated-item-g0'));
-    expect(d.tracks.find(t => t.type === 'video')!.clips).toHaveLength(0); // 无 mimeType 点击无副作用
-    // mimeType 就绪后点击 → 图片归视频轨
-    act(() => { useEditorStore.getState().addGeneratedMedia('g1', { name: '生成图.png', durationSec: undefined, url: 'http://g1', mimeType: 'image/png' }); });
-    fireEvent.click(screen.getByTestId('generated-item-g1'));
-    d = useEditorStore.getState().data!;
-    const gClip = Object.values(d.clips).find(c => (c as any).mediaId === 'g1');
-    expect(gClip).toBeTruthy();
-    expect(gClip!.type).toBe('image');
-    expect(gClip!.trackId).toBe(d.tracks[0].id); // 视频轨
-    expect(gClip!.start).toBe(0); // 空视频轨轨尾
+    expect(screen.queryByText('生成结果')).toBeNull(); // 影子产物区随信箱消失
   });
 
   it('"+新建"上传：presignUpload → FormData POST → confirmUpload → 刷新团队素材 + mergeMediaInfo（遗留①：上传产物入面板）', async () => {

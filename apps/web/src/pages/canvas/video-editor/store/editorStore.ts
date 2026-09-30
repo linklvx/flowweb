@@ -44,8 +44,6 @@ interface EditorState {
   mediaInfo: Record<string, MediaInfo>;
   history: History<ProjectData>;
   pendingSnapshot: ProjectData | null;
-  shadowJobs: Record<string, { kind: 'video' | 'audio'; status: 'running' | 'downloading' | 'error'; error?: string }>;
-  generatedMediaIds: string[];
   pendingProduct: { mediaId: string; title: string } | null; // 导出产物节点补建登记（R7 小项④）——上传成功建节点失败时留存，重试仅补建不重复上传
 
   loadProject(p: { id: string; sourceNodeId: string; updatedAt: string; data: ProjectData; title?: string; teamId?: string }): void;
@@ -62,10 +60,6 @@ interface EditorState {
   selectKeyframe(kfId: string | null, clipId?: string): void;
   setMediaInfo(mediaId: string, info: MediaInfo): void;
   mergeMediaInfo(entries: Record<string, MediaInfo>): void; // AssetPanel items → url/名称回填（仅填缺失键，不覆盖已有）
-  startShadowJob(shadowNodeId: string, kind: 'video' | 'audio'): void;
-  updateShadowJob(shadowNodeId: string, patch: Partial<{ status: 'running' | 'downloading' | 'error'; error: string }>): void;
-  removeShadowJob(shadowNodeId: string): void;
-  addGeneratedMedia(mediaId: string, info: MediaInfo): void;
   setPendingProduct(p: { mediaId: string; title: string }): void;
   clearPendingProduct(): void;
 
@@ -143,8 +137,6 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     mediaInfo: {},
     history: createHistory<ProjectData>(),
     pendingSnapshot: null,
-    shadowJobs: {} as Record<string, { kind: 'video' | 'audio'; status: 'running' | 'downloading' | 'error'; error?: string }>,
-    generatedMediaIds: [] as string[],
     pendingProduct: null,
 
     loadProject: (p) => set({
@@ -161,7 +153,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null, selectedKeyframeId: null,
       playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
       history: createHistory<ProjectData>(), pendingSnapshot: null,
-      shadowJobs: {}, generatedMediaIds: [], pendingProduct: null, // R1（P0-6）：reset 是编辑器重开清理点——漏加会跨工程残留
+      pendingProduct: null, // R1（P0-6）：reset 是编辑器重开清理点——漏加会跨工程残留
     }),
     setSaveState: (v) => set({ saveState: v }),
     setBaseUpdatedAt: (t) => set({ baseUpdatedAt: t }),
@@ -195,11 +187,8 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       return { mediaInfo: next };
     }),
 
-    startShadowJob: (shadowNodeId, kind) => set((s) => ({ shadowJobs: { ...s.shadowJobs, [shadowNodeId]: { kind, status: 'running' } } })),
-    updateShadowJob: (shadowNodeId, patch) => set((s) => ({ shadowJobs: { ...s.shadowJobs, [shadowNodeId]: { ...s.shadowJobs[shadowNodeId], ...patch } } })),
-    removeShadowJob: (shadowNodeId) => set((s) => { const next = { ...s.shadowJobs }; delete next[shadowNodeId]; return { shadowJobs: next }; }),
-    // R1（P0-6）：mergeMediaInfo 形参是 Record<string, MediaInfo>（Object.entries 消费）——非 entries 数组
-    addGeneratedMedia: (mediaId, info) => { get().mergeMediaInfo({ [mediaId]: info }); set((s) => ({ generatedMediaIds: [...s.generatedMediaIds, mediaId] })); },
+    // 批5 删信箱：shadowJobs 状态机（start/update/removeShadowJob）与 addGeneratedMedia/generatedMediaIds
+    // 随 watchShadowJob 整删——retake 产物改落真实节点（Media 行进全集资产），编辑器资产面板"生成结果"区随行消失
 
     setPendingProduct: (p) => set({ pendingProduct: p }),
     clearPendingProduct: () => set({ pendingProduct: null }),

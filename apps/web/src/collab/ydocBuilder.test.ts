@@ -132,7 +132,7 @@ describe('批2-3：doc meta schemaVersion（R1c 前置物）', () => {
 });
 
 describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasRecord）', () => {
-  it('doc 含 null 值键 / 缺键 / 影子键 → 出口 null 键消除（缺键形态，键集锁定）、影子过滤', () => {
+  it('doc 含 null 值键 / 缺键 / shadow- 前缀键 → 出口 null 键消除（缺键形态，键集锁定）、shadow- 不再特判（批5 删信箱）', () => {
     const doc = new Y.Doc();
     const nodesMap = doc.getMap('nodes');
     // 形态1：显式 null 值键（旧后端 writeNodeData 形态——doc Y.Map 里真存 null）
@@ -146,7 +146,7 @@ describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasR
     const pos2 = new Y.Map(); pos2.set('x', 0); pos2.set('y', 0); m2.set('position', pos2);
     m2.set('data', new Y.Map());
     nodesMap.set('n2', m2);
-    // 形态3：影子键（不进出口——spec 双重过滤投影侧半边）
+    // 形态3：shadow- 前缀键（批5 删信箱——投影侧过滤随行消失，同形状普通节点直读）
     nodesMap.set('shadow-x', new Y.Map());
 
     const r = readCanvasFromDoc(doc);
@@ -156,7 +156,7 @@ describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasR
     expect(n1.position).toEqual({ x: 1, y: 2 });
     expect(n1.data).toEqual({ k: 'v' });
     expect(Object.keys(r.nodes.find((n) => n.id === 'n2')!).sort()).toEqual(['data', 'id', 'position', 'type']);
-    expect(r.nodes.find((n: any) => n.id === 'shadow-x')).toBeUndefined();
+    expect(r.nodes.find((n: any) => n.id === 'shadow-x')).toBeDefined(); // 不再过滤（dev 巡检锚见 runtime invariant.spec 判据⑥）
   });
 
   it('与 store 投影同形：readCanvasFromDoc 出口 ≡ projectCanvasNodes 出口（normalize 同源，批4a 红1 前置）', () => {

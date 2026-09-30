@@ -6,8 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan } from '../eslint-rules/collab-static-asserts.js';
-import { NEW_RULE_ID, THEME_RULE_ID, violationKey, diffNewViolations } from '../lint-gate.mjs';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral } from '../eslint-rules/collab-static-asserts.js';
+import { NEW_RULE_ID, THEME_RULE_ID, STATIC_ASSERT_RULE_IDS, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
 const lintFixture = (code) =>
@@ -179,6 +179,7 @@ const COLLAB_RULES = {
   'no-ydoc-getmap': noYdocGetmap,
   'no-store-setstate': noStoreSetstate,
   'no-delete-scan': noDeleteScan,
+  'no-shadow-literal': noShadowLiteral,
 };
 const lintCollabFixture = (ruleName, code, filename) =>
   linter.verify(
@@ -345,6 +346,44 @@ describe('flowweb/no-delete-scan 静态断言（fixture，批4b-2 D——零删�
     expect(
       lintCollabFixture('no-delete-scan', SCAN_FORM, 'src/stores/canvasStore.groups.test.ts'),
     ).toHaveLength(0);
+  });
+});
+
+describe('flowweb/no-shadow-literal 静态断言（fixture，批5 E——删信箱）', () => {
+  it('拦截双形态：startsWith 过滤形态 / 模板串生成形态各 1 报（isShadowOnlyEvents/ydocBuilder 过滤原形态）', () => {
+    const messages = lintCollabFixture(
+      'no-shadow-literal',
+      'const a = n.id.startsWith(\'shadow-\'); const b = `shadow-${id}`;',
+      'src/stores/canvasCollabRuntime.ts',
+    );
+    expect(messages).toHaveLength(2);
+    expect(messages.every((m) => m.ruleId === 'flowweb/no-shadow-literal')).toBe(true);
+  });
+
+  it('dev 巡检正则形态放行（批5 判据⑥法定载体——regex literal 不在拦截面，只拦 string/template）', () => {
+    expect(
+      lintCollabFixture('no-shadow-literal', 'const hit = /^shadow-/.test(n.id);', 'src/stores/canvasCollabRuntime.ts'),
+    ).toHaveLength(0);
+  });
+
+  it('非前缀不误报：含 shadow- 子串的 URL/消息串（remove-shadow 端点、巡检错误消息）', () => {
+    expect(
+      lintCollabFixture(
+        'no-shadow-literal',
+        'const u = \'/video-projects/remove-shadow\'; const m = \'[collab批5] doc 出现 /^shadow-/ 前缀节点\';',
+        'src/api/videoProjectApi.ts',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('测试文件豁免（isTestFile——装置/断言串不受限）', () => {
+    expect(
+      lintCollabFixture('no-shadow-literal', 'const id = \'shadow-x\';', 'src/stores/canvasStore.test.ts'),
+    ).toHaveLength(0);
+  });
+
+  it('lint-gate 接线锚：no-shadow-literal 在 STATIC_ASSERT_RULE_IDS（防"规则在、门禁不数它"假绿）', () => {
+    expect(STATIC_ASSERT_RULE_IDS.has('flowweb/no-shadow-literal')).toBe(true);
   });
 });
 

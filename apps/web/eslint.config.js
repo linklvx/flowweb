@@ -14,7 +14,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import { noColorHex } from './scripts/eslint-rules/no-color-hex.js';
 import { noThemeUtility } from './scripts/eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan } from './scripts/eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral } from './scripts/eslint-rules/collab-static-asserts.js';
 
 const TS_FILES = ['src/**/*.ts', 'src/**/*.tsx'];
 
@@ -50,6 +50,7 @@ export default tseslint.config(
           'no-ydoc-getmap': noYdocGetmap,
           'no-store-setstate': noStoreSetstate,
           'no-delete-scan': noDeleteScan,
+          'no-shadow-literal': noShadowLiteral,
         },
       },
     },
@@ -57,11 +58,12 @@ export default tseslint.config(
       // 新规则（B5 收口：hex 全量启用 baseline 增量；theme-utility 白名单外直判 0 违例）
       'flowweb/no-color-hex': 'error',
       'flowweb/no-theme-utility': 'error',
-      // collab 静态断言（批0e-4 三条 + 批4b-2 零删除扫描第四条）——白名单外直判（lint-gate 分流）
+      // collab 静态断言（批0e-4 三条 + 批4b-2 零删除扫描第四条 + 批5 shadow- 字面量第五条）——白名单外直判（lint-gate 分流）
       'flowweb/no-conn-status-write': 'error',
       'flowweb/no-ydoc-getmap': 'error',
       'flowweb/no-store-setstate': 'error',
       'flowweb/no-delete-scan': 'error',
+      'flowweb/no-shadow-literal': 'error',
       // 迁移自 .eslintrc.base.json 的既有覆写
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

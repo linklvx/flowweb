@@ -52,8 +52,8 @@ export function fillDoc(doc: Y.Doc, nodes: CanvasNodeRecord[], edges: PlainEdge[
 }
 
 export function readCanvasFromDoc(doc: Y.Doc): { nodes: CanvasNodeRecord[]; edges: PlainEdge[] } {
+  // 批5 删信箱：原 shadow- 前缀过滤随信箱消失——id 前缀零特判（doc 出现影子由 applyDocToStore DEV 巡检抛出）
   const nodes = [...doc.getMap('nodes').entries()]
-    .filter(([nodeId]) => !nodeId.startsWith('shadow-')) // 影子节点不进 store（spec 双重过滤——投影层；后端 __ephemeral 为另一半）
     .map(([id, v]) => {
     const m = v as Y.Map<any>;
     // 批4a 读归一：出口过 normalizeCanvasRecord——与写侧 projectCanvasNodes→normalize 同形

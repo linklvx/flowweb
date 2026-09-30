@@ -25,12 +25,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const NEW_RULE_ID = 'flowweb/no-color-hex';
 export const THEME_RULE_ID = 'flowweb/no-theme-utility';
-/** collab 静态断言（批0e-4 三条 + 批4b-2 第四条）：白名单外直判，无 baseline */
+/** collab 静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条）：白名单外直判，无 baseline */
 export const STATIC_ASSERT_RULE_IDS = new Set([
   'flowweb/no-conn-status-write', // A. connStatus 单写点（唯一写点 recomputeConnStatus 批0a）
   'flowweb/no-ydoc-getmap',       // B. getMap 门（runtime/builder/undo/canvasIntents 批4b-1；新 doc 点落地时增补）
   'flowweb/no-store-setstate',    // C. useCanvasStore/useNodeStore.setState 白名单（协作写入路径+生命周期/UI 豁免点）
   'flowweb/no-delete-scan',       // D. 零删除扫描（批4b-2）：生产代码禁 Y.Map keys 迭代+同基座 delete 的全量对账删除形态
+  'flowweb/no-shadow-literal',    // E. shadow- 前缀字面量零命中（批5 删信箱）：生成/过滤/短路判定三形态零回流
 ]);
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE_PATH = path.join(APP_ROOT, 'e2e', 'audit', 'eslint-hex-baseline.json');
@@ -136,7 +137,7 @@ async function main() {
       const rel = toRelPosix(v.filePath);
       console.error(`静态断言违例 ${rel}:${v.line}  [${v.ruleId}]  ${v.lineText.trim()}`);
     }
-    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
+    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
     process.exitCode = 1;
     return;
   }
@@ -192,7 +193,7 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log(`${THEME_RULE_ID}: 0 违例（白名单外直判）→ PASS`);
-    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描）: 0 违例（白名单外直判）→ PASS`);
+    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量）: 0 违例（白名单外直判）→ PASS`);
     console.log(`flowweb/no-color-hex: ${matched} baselined, 0 new → PASS`);
     if (removed > 0) {
       console.log(`（迁移进度：baseline 已消除 ${removed} 键）`);

@@ -52,7 +52,7 @@ export function teardownExecutionSocket(): void {
   joinedProjectId = null;
 }
 
-/** 统一监听 node:status（调用方按 payload.nodeId 自行过滤——编辑器据此按 shadowNodeId 分发） */
+/** 统一监听 node:status（调用方按 payload.nodeId 自行过滤——批5 删信箱后编辑器侧无订阅者，画布节点组件消费） */
 export function subscribeNodeStatus(handler: (p: NodeStatusPayload) => void): () => void {
   statusHandlers.add(handler);
   return () => { statusHandlers.delete(handler); };

@@ -36,17 +36,14 @@ export async function getProjectByNode(sourceNodeId: string): Promise<VideoProje
   }
 }
 
-export interface RegenerateInput { workflowId: string; sourceNodeId: string; kind: 'video' | 'audio'; }
-export interface RegenerateResult { shadowNodeId: string; result?: { success: boolean; errors?: string[] } }
+export interface RegenerateInput { workflowId: string; sourceNodeId: string; kind: 'video' | 'audio'; retakeId: string; }
+export interface RegenerateResult { retakeId: string; result?: { success: boolean; errors?: string[] } }
 
-/** regenerate 后端返回 { shadowNodeId, result }——result 含 success/errors。execute 的 error 事件在第一轮
- *  HTTP 往返内就可能已 emit（订阅必错过）——带出 result 供早失败立即反馈 */
+/** 批5-1 retake 直连真实节点：retakeId 客户端生成（E0 幂等键——intentRecord 范式）上送，
+ *  返回 { retakeId, result }——result 含 execute 的 success/errors（早失败在 HTTP 往返内已 emit+写
+ *  exec map，订阅必错过——直读 result 反馈；完成态由真实节点 exec 投影对齐） */
 export function regenerateNode(input: RegenerateInput): Promise<RegenerateResult> {
   return apiFetch<RegenerateResult>('/video-projects/regenerate', { method: 'POST', body: JSON.stringify(input) });
-}
-
-export function removeShadowNode(workflowId: string, shadowNodeId: string): Promise<void> {
-  return apiFetch<void>('/video-projects/remove-shadow', { method: 'POST', body: JSON.stringify({ workflowId, shadowNodeId }) });
 }
 
 export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width?: number; height?: number; actualSize: number; clientRequestId: string; } // width/height 尺寸存档（后端 RegisterGeneratedDto 批5-4 可选字段；Task 19 起前端必传——resolution 无法表达 9:16 的 1080×1920）；clientRequestId 幂等键必填（后端 whitelist 静默剥离未声明字段——漏传则重试无幂等保护）

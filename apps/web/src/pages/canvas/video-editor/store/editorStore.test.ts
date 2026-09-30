@@ -261,16 +261,13 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(kept.durationSec).toBe(3); // 修复前 undefined → addClip 兜 5s
   });
 
-  it('shadowJobs 状态机字段：startShadowJob/updateShadowJob/removeShadowJob + generatedMediaIds', () => {
-    const s = useEditorStore.getState();
-    s.startShadowJob('shadow-video-1', 'video');
-    expect(useEditorStore.getState().shadowJobs['shadow-video-1']).toEqual({ kind: 'video', status: 'running' });
-    s.updateShadowJob('shadow-video-1', { status: 'downloading' });
-    expect(useEditorStore.getState().shadowJobs['shadow-video-1'].status).toBe('downloading');
-    s.addGeneratedMedia('media-9', { name: '生成音频', durationSec: 10 });
-    expect(useEditorStore.getState().generatedMediaIds).toEqual(['media-9']);
-    expect(useEditorStore.getState().mediaInfo['media-9']).toMatchObject({ name: '生成音频', durationSec: 10 });
-    s.removeShadowJob('shadow-video-1');
-    expect(useEditorStore.getState().shadowJobs['shadow-video-1']).toBeUndefined();
+  it('批5 删信箱锚：shadowJobs/generatedMediaIds 及其 action 不再存在（接触面零回流）', () => {
+    const s = useEditorStore.getState() as unknown as Record<string, unknown>;
+    expect(s.shadowJobs).toBeUndefined();
+    expect(s.generatedMediaIds).toBeUndefined();
+    expect(s.startShadowJob).toBeUndefined();
+    expect(s.updateShadowJob).toBeUndefined();
+    expect(s.removeShadowJob).toBeUndefined();
+    expect(s.addGeneratedMedia).toBeUndefined();
   });
 });

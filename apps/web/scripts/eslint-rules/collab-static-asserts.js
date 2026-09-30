@@ -1,10 +1,14 @@
 /**
- * collab 恢复静态断言（批0e-4 三条 + 批4b-2 第四条）：
+ * collab 恢复静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条）：
  *   A. flowweb/no-conn-status-write —— connStatus 单写点；
  *   B. flowweb/no-ydoc-getmap —— ydoc getMap 读取三文件门；
  *   C. flowweb/no-store-setstate —— useCanvasStore/useNodeStore 直调 setState 白名单；
  *   D. flowweb/no-delete-scan —— 零删除扫描（批4b-2）：生产代码禁"遍历 Y.Map keys + 条件 delete"
  *      的全量对账删除形态（0b deletion baseline 反模式——删除意图必须显式化 intent）。
+ *   E. flowweb/no-shadow-literal —— shadow- 前缀字面量零命中（批5 删信箱）：生产代码禁以
+ *      'shadow-' 开头的 string/template 字面量（isShadowOnlyEvents 短路/影子 id 生成/投影过滤
+ *      三形态零回流）。豁免：说明性注释（AST 只查代码——注释不是节点）；dev 巡检正则 /^shadow-/
+ *      是批5 判据⑥的法定载体（regex literal 不在拦截面）。
  *
  * 共同形态（仿 no-theme-utility）：文件白名单外直判 exit 1（无 baseline，lint-gate.mjs 不建 baseline）；
  * 测试文件豁免（*.test.* / *.spec.*）——单写点/门是对生产代码的结构约束，测试的 mock 与断言不受限。
@@ -176,6 +180,35 @@ export const noDeleteScan = {
         // 同基座 delete（文本判据：基座精确匹配 + .delete( ——避免成员链/别名的宽松误报）
         const re = new RegExp(`(^|[^\\w$.])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.delete\\s*\\(`);
         if (re.test(bodyText)) context.report({ node, messageId: 'forbidden' });
+      },
+    };
+  },
+};
+
+// E. 批5 删信箱：生产代码禁以 'shadow-' 开头的字面量（生成/过滤/短路判定三形态零回流）。
+// 无白名单（目标恒零）；测试文件豁免同各条。只拦 string 与 template 两种字面量——regex literal
+// /^shadow-/ 是 dev 巡检（批5 判据⑥，canvasCollabRuntime.applyDocToStore）的法定载体不在拦截面。
+const MSG_SHADOW_LITERAL =
+  'shadow- 字面量断言（批5 删信箱）：生产代码禁以 shadow- 开头的 string/template 字面量——' +
+  '影子机器（生成/过滤/短路判定）已随信箱整体删除，回流须先改 spec 再动码' +
+  '（spec 2026-09-30-collab-recovery-master-plan 批5）。';
+
+export const noShadowLiteral = {
+  meta: { type: 'problem', docs: { description: 'shadow- 字面量零命中（批5 删信箱静态断言 E）' }, schema: [], messages: { forbidden: MSG_SHADOW_LITERAL } },
+  create(context) {
+    const active = gateActive(context, []); // 无白名单——全生产文件直判
+    if (!active) return {};
+    return {
+      Literal(node) {
+        if (typeof node.value === 'string' && node.value.startsWith('shadow-')) {
+          context.report({ node, messageId: 'forbidden' });
+        }
+      },
+      TemplateLiteral(node) {
+        const head = node.quasis[0]?.value?.cooked; // 生成形态 `shadow-${id}`——首 quasi 定前缀
+        if (typeof head === 'string' && head.startsWith('shadow-')) {
+          context.report({ node, messageId: 'forbidden' });
+        }
       },
     };
   },

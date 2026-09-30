@@ -67,19 +67,6 @@ export function hasUnsyncedCanvasChanges(): boolean {
   return rebuildPending || (provider?.hasUnsyncedChanges ?? false);
 }
 
-/** A1 影子产物读取（决策 2：spec"必须读 doc"——前端内存 ydoc 直读，零网络）。
- *  返回 null = doc 无该节点或尚无 fileId（ai-download 异步回写未完成）。
- *  R4-10：doc 形状已实证——fillDoc（ydocBuilder.ts）/后端 writeNodeData（collab-document.service.ts）
- *  均为 nodes→Y.Map、data→Y.Map、键名 fileId；instanceof 守卫替代 as 强转（结构异常返回 null 不抛）。 */
-export function readNodeFileIdFromDoc(nodeId: string): string | null {
-  if (!doc) return null;
-  const node = doc.getMap('nodes').get(nodeId);
-  if (!(node instanceof Y.Map)) return null;
-  const data = node.get('data');
-  if (!(data instanceof Y.Map)) return null;
-  const fid = data.get('fileId');
-  return typeof fid === 'string' ? fid : null;
-}
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 /** 批1-5 会话对象（currentPid/initSeq 归并）：pid=当前项目、startedAt=会话起点、epoch=单调会话代数。
  *  epoch 判活（I-1）：同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid）——
@@ -249,11 +236,12 @@ function storeProjection() {
 
 /** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
  *  两侧同过双重归一：normalizeCanvasRecord（读侧 readCanvasFromDoc 归一 / 写侧 projectCanvasNodes）
- *  + normalizeLoadedCanvas（加载几何归一——两个设计内分叉源必须双侧同变换后才可断言，否则恒假）：
- *  ① shadow- 节点（批5 删信箱前 doc 仍含影子而 store 投影天然无）——两侧显式过滤 /^shadow-/；
- *  ② 组几何补缺（S1 契约：normalizeLoadedCanvas 补缺是每轮内存重建的确定性纯函数、不写 doc——
- *    doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
- *    后同形（对有几何侧幂等 no-op）。
+ *  + normalizeLoadedCanvas（加载几何归一——设计内分叉源必须双侧同变换后才可断言，否则恒假）：
+ *  组几何补缺（S1 契约：normalizeLoadedCanvas 补缺是每轮内存重建的确定性纯函数、不写 doc——
+ *  doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
+ *  后同形（对有几何侧幂等 no-op）。
+ *  批5 删信箱：原 ① shadow- 双侧过滤条款随信箱移除——doc 出现 /^shadow-/ 改由 applyDocToStore 的
+ *  DEV 巡检抛出（判据⑥），不变量对 doc/store 分叉如实报告。
  *  只读不写——测试缝直驱做非恒真式变异实验。readOnly 会话不测量（S1 几何止步 store 层是
  *  设计内分叉——调用方负责门）。
  *  批4b-2：比较按 id 排序——doc 侧是 Y.Map 插入序、store 侧是 ensureParentOrder 父前子后渲染序，
@@ -263,12 +251,12 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
   const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const fromDoc = {
-    nodes: byId(normalizeLoadedCanvas(nodes.filter((n) => !n.id.startsWith('shadow-')))),
+    nodes: byId(normalizeLoadedCanvas(nodes)),
     edges,
   };
   const sp = storeProjection();
   return isEqual(fromDoc, {
-    nodes: byId(normalizeLoadedCanvas(sp.nodes.filter((n) => !n.id.startsWith('shadow-')))),
+    nodes: byId(normalizeLoadedCanvas(sp.nodes)),
     edges: sp.edges,
   });
 }
@@ -277,29 +265,8 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
 // 已收口 dispatchCanvasIntent）与 auto 边全量对账器（auto 边增删已由 addEdge/removeEdge 的
 // AutoEdge origin intent 承接，删节点级联由 deleteNode intent 内建）。零删除扫描静态断言
 // （flowweb/no-delete-scan）防回归。
-
-/** A1 影子事务短路判定（Plan 1 Task 9 固化：origin 不过网，跨网判据必须用 id 前缀）：
- *  本次 events 全部仅涉及 nodes map 上 shadow- 前缀节点（含深层 data 写回）→ 跳过 applyDocToStore 全量重建（防闪烁，spec 验收 22） */
-export function isShadowOnlyEvents(events: Y.YEvent<any>[], nodesMap: Y.Map<any>): boolean {
-  for (const ev of events) {
-    let root: any = ev.target;
-    while (root?.parent != null) root = root.parent;
-    if (root !== nodesMap) return false; // edges/其他结构事件不短路
-    if (ev.path.length > 0) {
-      const nodeKey = ev.path[0];
-      if (typeof nodeKey !== 'string' || !nodeKey.startsWith('shadow-')) return false;
-    } else {
-      // nodes map 顶层 set/delete：所有变更 key 须为 shadow- 前缀
-      let hasKey = false;
-      for (const k of ev.keys.keys()) {
-        hasKey = true;
-        if (!k.startsWith('shadow-')) return false;
-      }
-      if (!hasKey) return false;
-    }
-  }
-  return true;
-}
+// 批5 删信箱退役：isShadowOnlyEvents（影子事务短路判定）与 readNodeFileIdFromDoc（影子产物轮询）
+// 随信箱整体消失——shadow- 字面量零回流由 lint-gate flowweb/no-shadow-literal 兜。
 
 /** S1 差分 → intent 序列（pickStructNodes 形状——几何+组 data；普通节点 data 不在 struct 面内，
  *  ns 刷新不入 diff=C1 陈旧 data 不回写的结构性保证）。S1 窗口无新增/删除（refit/derivations
@@ -337,6 +304,12 @@ function structDiffToIntents(
 /** server doc → store——同款形参化（undo/乒乓断言的读回驱动） */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
+  // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate
+  // CanvasDoc/CanvasDocUpdate），DEV 抛出而非静默吸收（prod 只禁生成——lint-gate no-shadow-literal）。
+  // 正则形态是该断言的法定载体（string 字面量形态被静态断言拦截）。
+  if (import.meta.env.DEV && nodes.some((n: any) => /^shadow-/.test(n.id))) {
+    throw new Error('[collab批5] doc nodes 出现 /^shadow-/ 前缀节点——影子信箱已删（判据⑥），存量 doc 须 truncate');
+  }
   // R1b Task 17：加载几何兜底（守恒归位，幂等早退）——hydrate 与 content 构造都吃 seeded
   const seeded = normalizeLoadedCanvas(nodes);
   useCanvasStore.setState({
@@ -582,7 +555,6 @@ export async function initCollab(projectId: string): Promise<void> {
     // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
     if (events.some((e) => LOCAL_ORIGINS.includes(e.transaction.origin))) return;
     if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边 intent 事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
-    if (isShadowOnlyEvents(events, doc!.getMap('nodes'))) return; // 影子 insert/remove/data 写回不触发全量重建（initCollab 内 doc 必非空）
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
       if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）

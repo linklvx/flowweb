@@ -1,8 +1,8 @@
 // apps/web/src/stores/canvasCollabRuntime.baseline.spec.ts
 // 批4b-2（组 2 收口）：0b deletion baseline 守卫随 syncStoreToDoc 四件套退役——删除语义显式化
 // （deleteNode/deleteEdge intent），本 spec 双面重写：
-//   A. 行为锚（intent 语义）：①影子存活——doc 摆 shadow-x + dispatch addNode → 影子仍在
-//      （addNode intent 只写自己的 key，结构性不扫 doc——0b 红1b② 的意图形态证明）；
+//   A. 行为锚（intent 语义）：①doc 既有成员存活——doc 摆 other-1 + dispatch addNode → other-1 仍在
+//      （addNode intent 只写自己的 key，结构性不扫 doc——0b 红1b② 的意图形态证明；批5 改写自影子存活锚）；
 //      ②对端新增不删——对端 doc 直写 n2 + 本地 moveNode → n2 仍在（0b 50ms 窗口误删的意图形态证明：
 //      意图只触碰目标成员，"上次投影"基线机制已不存在）；
 //      ③本地删除生效——dispatch deleteNode → 删 + 级联引用边（删除语义不回退，由显式 intent 承载）。
@@ -38,14 +38,13 @@ describe('批4b-2 A：删除语义显式化三锚（intent 形态）', () => {
   });
   afterEach(() => _setIntentDocForTest(null));
 
-  it('①影子存活：doc 摆 shadow-x + dispatch addNode → 影子仍在（结构性证明——intent 不扫 doc）', () => {
-    // 直接在 doc 摆影子（服务端 insertNode 形状）
-    const m = new Y.Map(); m.set('type', 'imageGen'); doc.getMap('nodes').set('shadow-img-1-abc', m);
+  it('①doc 既有成员存活：doc 摆 other-1 + dispatch addNode → other-1 仍在（结构性证明——intent 不扫 doc）', () => {
+    // 批5 改写：原"影子存活"锚——影子机器删除后改普通 id（锚的意图=intent 无删除扫描，与 id 前缀无关）；
+    // 不变量断言随之移除（doc-only 节点在新语义下如实报 false——见 invariant.spec 变异实验）
+    const m = new Y.Map(); m.set('type', 'imageGen'); doc.getMap('nodes').set('other-1', m);
     dispatchCanvasIntent({ type: 'addNode', node: node('n1', 10) }, Origin.LocalUser);
     expect(doc.getMap('nodes').get('n1')).toBeTruthy();
-    expect(doc.getMap('nodes').get('shadow-img-1-abc')).toBeTruthy(); // 不被误删——无删除扫描
-    // 影子在投影不变量双侧过滤外——不变量对非影子成员仍成立
-    expect(checkProjectionInvariant(doc)).toBe(true);
+    expect(doc.getMap('nodes').get('other-1')).toBeTruthy(); // 不被误删——无删除扫描
   });
 
   it('②对端新增不删：对端 doc 直写 n2 + 本地 moveNode → n2 仍在（基线机制已不存在）', () => {

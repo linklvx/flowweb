@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { confirmMock, watchMock, regenMock, messageSuccess, messageError, messageWarning, messageInfo } = vi.hoisted(() => ({
+const { confirmMock, regenMock, messageSuccess, messageError, messageWarning, messageInfo } = vi.hoisted(() => ({
   confirmMock: vi.fn((opts: { onOk?: () => unknown; content?: string }) => { opts.onOk?.(); }),
-  watchMock: vi.fn(async (..._a: unknown[]) => { }),
   regenMock: vi.fn(),
   messageSuccess: vi.fn(), messageError: vi.fn(), messageWarning: vi.fn(), messageInfo: vi.fn(),
 }));
@@ -15,7 +14,6 @@ vi.mock('antd', async (importOriginal) => {
     App: { ...orig.App, useApp: () => ({ message: { success: messageSuccess, error: messageError, warning: messageWarning, info: messageInfo }, modal: { confirm: confirmMock } }) },
   };
 });
-vi.mock('../hooks/shadowJob', () => ({ watchShadowJob: watchMock }));
 vi.mock('@/api/videoProjectApi', () => ({ regenerateNode: regenMock }));
 
 import { PreviewPlayer } from './PreviewPlayer';
@@ -23,6 +21,7 @@ import { useEditorStore } from '../store/editorStore';
 import { createDefaultProjectData, type ProjectData, type VideoClip } from '../types';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import type { ExecStatusEntry } from '@/stores/execStatusView';
 
 vi.mock('../audio-engine/engine', () => ({
   audioEngine: {
@@ -67,7 +66,7 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     useEditorStore.getState().reset();
     useNodeStore.setState({ nodes: {} });
     useCanvasStore.setState({ projectId: null } as never);
-    regenMock.mockResolvedValue({ shadowNodeId: 's1' });
+    regenMock.mockResolvedValue({ retakeId: 'r1', result: { success: true, errors: [] } });
   });
 
   it('添加字幕：播放头处建 3s 字幕片段（无字幕轨时先建轨）', () => {
@@ -92,19 +91,51 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     expect((screen.getByTestId('gen-audio-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('片段重拍全流程：选中带 sourceNodeId 的视频片段 → 积分确认 Modal → regenerateNode(kind:video) → watchShadowJob 驱动', async () => {
+  it('片段重拍直连真实节点（批5 删信箱）：积分确认 → regenerateNode 上送 retakeId（intentRecord 范式）——无影子链路', async () => {
     ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
     render(<PreviewPlayer />);
     expect((retakeBtn() as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByText('片段重拍'));
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1)); // 积分明示确认
     expect(confirmMock.mock.calls[0][0].content).toContain('积分');
-    await waitFor(() => expect(regenMock).toHaveBeenCalledWith({ workflowId: 'wf1', sourceNodeId: 'vg1', kind: 'video' }));
-    await waitFor(() => expect(watchMock).toHaveBeenCalled());
-    const [shadowNodeId, kind, hint] = watchMock.mock.calls[0] as [string, string, { name?: string }];
-    expect(shadowNodeId).toBe('s1');
-    expect(kind).toBe('video');
-    expect(hint.name).toBe('源视频'); // 源节点 label 透传
+    await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(1));
+    const arg = regenMock.mock.calls[0][0];
+    expect(arg).toMatchObject({ workflowId: 'wf1', sourceNodeId: 'vg1', kind: 'video' });
+    expect(typeof arg.retakeId).toBe('string');
+    expect(arg.retakeId.length).toBeGreaterThanOrEqual(8); // newIntentId（crypto.randomUUID）客户端生成——服务端幂等键
+    expect(messageError).not.toHaveBeenCalled(); // result.success=true 无早失败
+  });
+
+  it('失败重试复用同 retakeId，成功后下一轮 rotate 新 id（批5 E0 幂等键范式——claim 表命中不双扣）', async () => {
+    ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
+    render(<PreviewPlayer />);
+    // 首轮早失败（execute 结果 success=false——扣费/校验失败在 HTTP 往返内已 emit，直读 result 反馈）
+    regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: false, errors: ['扣费失败'] } });
+    fireEvent.click(screen.getByText('片段重拍'));
+    await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(messageError).toHaveBeenCalledWith(expect.stringContaining('扣费失败')));
+    const id1 = regenMock.mock.calls[0][0].retakeId;
+    // 重试：复用同 id（服务端 claim 表命中——不双扣）
+    regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: true, errors: [] } });
+    fireEvent.click(screen.getByText('片段重拍'));
+    await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(2));
+    expect(regenMock.mock.calls[1][0].retakeId).toBe(id1);
+    // 成功后下一轮 rotate 新 id（新意图照常扣费）
+    fireEvent.click(screen.getByText('片段重拍'));
+    await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(3));
+    expect(regenMock.mock.calls[2][0].retakeId).not.toBe(id1);
+  });
+
+  it('重拍在途 busy 判据走 exec 合并视图（真实节点 loading 置灰——shadowJobs 随信箱删除）', async () => {
+    ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
+    render(<PreviewPlayer />);
+    expect((retakeBtn() as HTMLButtonElement).disabled).toBe(false);
+    // 服务端 exec map 投影 loading（retake 直连真实节点——execute 写 exec map → projectExecToStore）
+    useNodeStore.setState({ execStatus: new Map<string, ExecStatusEntry>([['vg1', { status: 'loading' }]]) });
+    await waitFor(() => expect((retakeBtn() as HTMLButtonElement).disabled).toBe(true));
+    // exec 条目 GC → 回落 data.status='done'（execStatusView 合并视图语义）
+    useNodeStore.setState({ execStatus: new Map() });
+    await waitFor(() => expect((retakeBtn() as HTMLButtonElement).disabled).toBe(false));
   });
 
   it('选中图片片段（imageGen 源）→ 片段重拍置灰', () => {
