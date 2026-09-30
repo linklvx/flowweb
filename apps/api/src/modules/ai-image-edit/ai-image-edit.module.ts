@@ -10,6 +10,7 @@ import { ExecutionModule } from '../execution/execution.module';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { AI_IMAGE_EDIT_QUEUE_NAME, AI_IMAGE_EDIT_CONNECTION_NAME } from './ai-image-edit.constants';
+import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AI_IMAGE_EDIT_QUEUE_NAME, AI_IMAGE_EDIT_CONNECTION_NAME } from './ai-im
     BullModule.registerQueue({
       name: AI_IMAGE_EDIT_QUEUE_NAME,
       configKey: AI_IMAGE_EDIT_CONNECTION_NAME,
+      defaultJobOptions: { ...AI_IMAGE_EDIT_JOB_OPTIONS },
     }),
   ],
   controllers: [AiImageEditController, LightingController],

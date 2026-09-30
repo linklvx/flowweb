@@ -44,7 +44,7 @@ const env = validateEnv();
   imports: [
     EventEmitterModule.forRoot(),
     BullModule.forRoot('default', {
-      connection: { url: env.REDIS_URL },
+      connection: { url: env.REDIS_URL, maxRetriesPerRequest: null },
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 2000 },

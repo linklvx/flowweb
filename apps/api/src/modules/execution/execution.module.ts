@@ -11,6 +11,7 @@ import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.constants';
+import { EXECUTION_JOB_OPTIONS } from './execution.queue-options';
 import { VideoTrimController } from './video-trim.controller';
 import { VideoTrimService } from './video-trim.service';
 import { VideoTrimProcessor } from './video-trim.processor';
@@ -33,6 +34,7 @@ const env = validateEnv();
     BullModule.registerQueue({
       name: EXECUTION_QUEUE_NAME,
       configKey: EXECUTION_CONNECTION_NAME,
+      defaultJobOptions: { ...EXECUTION_JOB_OPTIONS },
     }),
     BullModule.registerQueue({
       name: 'ai-result-download',
