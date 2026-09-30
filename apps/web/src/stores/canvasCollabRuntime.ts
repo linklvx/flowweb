@@ -102,7 +102,7 @@ let plannedRestartUntil = 0;
 // 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
 let transportHandle: ReconnectHandle | null = null;
 // 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
-// 清除归 1-4：unsyncedChanges number===0 + 3s tick 兜底）
+// 清除=unsyncedChanges number===0（实例绑定）+ 3s tick 兜底——批1-4）
 let rebuildPending = false;
 
 /** 批1-3 两级恢复原语（瞬态传输级 / 终态会话级重建）。
@@ -348,9 +348,9 @@ function bindBridge(): () => void {
 /** onRemote fromLocal 判定用（M4：每事件字面量数组分配的模块级提升） */
 const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
-/** 批1-3：六监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
- *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。六事件：status/authenticated/
- *  synced/message/close + unsyncedChanges〔挂点——1-4 落 number===0 清 rebuildPending〕。
+/** 批1-3：七监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
+ *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。七事件：status/authenticated/
+ *  synced/message/close/unsyncedChanges（1-4：number===0 清 rebuildPending）。
  *  事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
  *  （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
  *  'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。 */
@@ -377,10 +377,15 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         1000 + Math.random() * 2000);
     }
   });
+  // 批1-4：rebuildPending 清除主判据——unsyncedChanges number===0（decrement 归零无条件 emit，
+  // HP:333-335）。实例绑定（p === provider）：终态重建竞态窗口内旧实例迟到事件不得清新实例标记。
+  p.on('unsyncedChanges', ({ number }: any) => {
+    if (number === 0 && p === provider) rebuildPending = false;
+  });
 }
 
 /** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
- *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。 */
+ *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 七监听挂载。 */
 function createProvider(d: Y.Doc): HocuspocusProvider {
   const { WebSocketClass, handle } = createReconnectingWebSocket(collabUrl());
   transportHandle = handle;
@@ -471,6 +476,10 @@ export async function initCollab(projectId: string): Promise<void> {
       void recovery.recoverConnection(); // 批1-3 两级原语（级别选择+单飞在彼处）
     }
     updateConnectionUi(out.ui);
+    // 批1-4：3s tick 兜底——ack 事件丢失形态（电平可读：isSynced && !hasUnsyncedChanges ⇒ 清）
+    if (rebuildPending && provider?.isSynced === true && provider.hasUnsyncedChanges === false) {
+      rebuildPending = false;
+    }
   }, TICK_MS);
 
   // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；

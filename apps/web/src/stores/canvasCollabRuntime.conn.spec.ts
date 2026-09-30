@@ -393,6 +393,89 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
   });
 });
 
+describe('批1-4：rebuildPending 实例绑定标记制（unsyncedChanges number===0 + 3s tick 兜底）', () => {
+  // 真库事件序建模（spec 判据前置约定 / HP:333-335）：
+  // - startSync 每次成功 open 调 resetUnsyncedChanges()=置 1 并 emit；
+  // - 服务端对 SS1 不回 SyncStatus ⇒ 首个 'synced' 事件时计数恒 1（synced 早于 ack 一个 RTT）；
+  // - decrement 无条件 emit（含归零 number===0）；decrement 归零同时置 synced=true（ack 是 synced 第二生产者）；
+  // - 推论：重连后恒有一个 RTT 的 hasUnsyncedChanges 恒真窗口——解除判据必须推进过 ack。
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function beginCollabFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0);
+    return { done, p: lastInstance() };
+  }
+  async function driveToHealthy(pid = 'p1') {
+    const { done, p } = await beginCollabFake(pid);
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+    p.emit('message', {});
+    return p;
+  }
+  /** 终态重建（disconnect 结构死形态）——返回新实例 */
+  async function rebuildTerminal(p: any) {
+    p.configuration.websocketProvider.shouldConnect = false;
+    await runtime.recovery.recoverConnection();
+    return lastInstance();
+  }
+
+  it('首个 synced 不解除护栏（真库序：synced 时计数恒 1——ack 一个 RTT 后才归零）', async () => {
+    const p = await driveToHealthy();
+    const np = await rebuildTerminal(p);
+    np.unsyncedChanges = 1;                    // startSync 置 1——synced 事件时计数恒 1
+    np.isSynced = true;
+    np.emit('synced', {});
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true); // RTT 窗口内恒真
+    np.unsyncedChanges = 0;                    // 隔离 rebuildPending 半边：ack 已落地（字段 0）但事件未发
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true); // synced 解除式实现在此必红（假绿锚）
+  });
+
+  it('unsyncedChanges {number:0}（ack 归零 emit）⇒ 解除', async () => {
+    const p = await driveToHealthy();
+    const np = await rebuildTerminal(p);
+    np.unsyncedChanges = 1;
+    np.isSynced = true;
+    np.emit('synced', {});
+    np.unsyncedChanges = 0;                    // decrement 归零（HP:333-335：同置 synced=true）
+    np.emit('unsyncedChanges', { number: 0 }); // decrement 无条件 emit（含归零）
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+  });
+
+  it('实例绑定：旧实例的 unsyncedChanges{number:0} 不清新实例标记', async () => {
+    const p = await driveToHealthy();
+    expect((p.handlers['unsyncedChanges'] ?? []).length).toBeGreaterThan(0); // 监听已挂（无实现必红）
+    const staleCbs = [...(p.handlers['unsyncedChanges'] ?? [])] as Array<(payload: any) => void>;
+    const np = await rebuildTerminal(p);
+    np.unsyncedChanges = 0;
+    for (const cb of staleCbs) cb({ number: 0 }); // 旧实例迟到 ack——destroy 后无投递通道，直接调用建模竞态窗口
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);
+  });
+
+  it('3s tick 兜底：isSynced && !hasUnsyncedChanges ⇒ 清（ack 事件丢失形态）', async () => {
+    const p = await driveToHealthy();
+    const np = await rebuildTerminal(p);
+    np.isSynced = true;
+    np.unsyncedChanges = 0;                    // 事件丢失——仅电平可读
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+  });
+});
+
 describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
