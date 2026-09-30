@@ -3,12 +3,17 @@ import type Redis from 'ioredis';
 import { auth } from './auth';
 import { parseSessionToken } from '../common/utils/parse-session-token';
 import { REDIS_CLIENT } from '../common/redis/managed-redis';
+import { SessionService } from './session.service';
 
 @Injectable()
 export class AuthService {
   /** 批3-2 B6：拔除硬编码 localhost 直连 Redis——注入本模块受管 REDIS_CLIENT
-   *  （env.REDIS_URL + onApplicationShutdown 收口，本机无 Redis 的环境不再隐性连 localhost） */
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+   *  （env.REDIS_URL + onApplicationShutdown 收口，本机无 Redis 的环境不再隐性连 localhost）。
+   *  批3-3：getSession 的手写 prisma.session.findUnique（每调用临时建 PrismaClient）统一走 SessionService.touch。 */
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(SessionService) private readonly sessions: SessionService,
+  ) {}
 
   async signIn(email: string, password: string) {
     return auth.api.signInEmail({ body: { email, password } });
@@ -65,18 +70,7 @@ export class AuthService {
     // Direct DB lookup — bypasses Better Auth's getSession which fails in NestJS context
     const token = parseSessionToken(headers.cookie);
     if (!token) return null;
-    try {
-      const { PrismaClient } = await import('@prisma/client');
-      const p = new PrismaClient();
-      const session = await p.session.findUnique({
-        where: { token },
-        include: { user: true },
-      });
-      await p.$disconnect();
-      if (!session || session.expiresAt < new Date()) return null;
-      return { user: session.user };
-    } finally {
-      // ensure disconnect
-    }
+    const session = await this.sessions.touch(token);   // 批3-3：touch（无效/过期→null，age>1d 顺带续期）
+    return session ? { user: session.user } : null;
   }
 }

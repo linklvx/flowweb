@@ -12,7 +12,10 @@ import { describe, it, expect, vi } from 'vitest';
 
 function buildGateway() {
   const prisma = {
-    session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }) },
+    session: {
+      findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
+      update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),
+    },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
     canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -83,6 +86,37 @@ describe('批3-1 鉴权拒绝 reason 分型（直构）', () => {
     const { gateway } = buildGateway();
     const ctx = await gateway.hooks.onAuthenticate(authPayload() as any);
     expect(ctx).toMatchObject({ user: { id: 'u1' }, readOnly: false });
+  });
+
+  it('批3-3：鉴权走 SessionService.touch——age>updateAge(1d) 的活跃连接被续期 7d（update 被调）', async () => {
+    const { gateway, prisma } = buildGateway();
+    const DAY = 24 * 3600 * 1000;
+    prisma.session.findUnique.mockResolvedValue({
+      user: { id: 'u1', name: '张三' },
+      userId: 'u1',
+      createdAt: new Date(Date.now() - 2 * DAY),   // age=2d > updateAge=1d
+      expiresAt: new Date(Date.now() + 5 * DAY),
+    });
+    const ctx = await gateway.hooks.onAuthenticate(authPayload() as any);
+    expect(ctx).toMatchObject({ user: { id: 'u1' } });
+    expect(prisma.session.update).toHaveBeenCalledTimes(1);
+    const arg = prisma.session.update.mock.calls[0][0];
+    expect(arg.where).toEqual({ token: 'tok' });
+    expect((arg.data.expiresAt as Date).getTime()).toBeGreaterThan(Date.now() + 7 * DAY - 5_000);   // ≈ now+7d
+    // sweep 快照死线（批3-4）：context 携带续期后的 sessionExpiresAt
+    expect((ctx as any).sessionExpiresAt).toEqual(arg.data.expiresAt);
+  });
+
+  it('批3-3：age<updateAge 的连接零写（update 不被调）——不是每次握手都写库', async () => {
+    const { gateway, prisma } = buildGateway();
+    prisma.session.findUnique.mockResolvedValue({
+      user: { id: 'u1', name: '张三' },
+      userId: 'u1',
+      createdAt: new Date(Date.now() - 3_600_000),   // age=1h
+      expiresAt: new Date(Date.now() + 6 * 24 * 3600 * 1000),
+    });
+    await gateway.hooks.onAuthenticate(authPayload() as any);
+    expect(prisma.session.update).not.toHaveBeenCalled();
   });
 });
 

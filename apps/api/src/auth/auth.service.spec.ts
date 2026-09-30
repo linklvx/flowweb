@@ -25,18 +25,22 @@ vi.mock('./auth', () => ({
 }));
 
 import { AuthService } from './auth.service';
+import { SessionService } from './session.service';
 import { auth } from './auth';
 import { REDIS_CLIENT } from '../common/redis/managed-redis';
 
 describe('AuthService', () => {
   let service: AuthService;
   const mockRedis = { exists: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') };
+  const mockTouch = vi.fn();
 
   beforeEach(async () => {
+    mockTouch.mockReset();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: REDIS_CLIENT, useValue: mockRedis },   // 批3-2 B6：硬编码 localhost Redis 拔除，注入收口实例
+        { provide: SessionService, useValue: { touch: mockTouch } },   // 批3-3：getSession 统一走 touch
       ],
     }).compile();
     service = module.get<AuthService>(AuthService);
@@ -67,10 +71,25 @@ describe('AuthService', () => {
   it('should return null when no cookie header provided', async () => {
     const result = await service.getSession({});
     expect(result).toBeNull();
+    expect(mockTouch).not.toHaveBeenCalled();
   });
 
   it('should return null when cookie has no valid session token', async () => {
     const result = await service.getSession({ cookie: 'other=value' });
+    expect(result).toBeNull();
+    expect(mockTouch).not.toHaveBeenCalled();
+  });
+
+  it('批3-3：getSession 走注入 SessionService.touch（有效 session → { user }；顺手滑动续期）', async () => {
+    mockTouch.mockResolvedValue({ user: { id: 'u1' }, expiresAt: new Date() });
+    const result = await service.getSession({ cookie: 'flowweb.session_token=tok' });
+    expect(mockTouch).toHaveBeenCalledWith('tok');
+    expect(result).toEqual({ user: { id: 'u1' } });
+  });
+
+  it('批3-3：touch → null（无效/过期）→ getSession 返回 null（不再自带 findUnique）', async () => {
+    mockTouch.mockResolvedValue(null);
+    const result = await service.getSession({ cookie: 'flowweb.session_token=stale' });
     expect(result).toBeNull();
   });
 

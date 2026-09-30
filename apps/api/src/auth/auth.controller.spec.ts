@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AuthController } from './auth.controller';
+import { SESSION_COOKIE_OPTIONS } from './auth';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -72,6 +73,8 @@ describe('AuthController', () => {
         token,
         expect.objectContaining({ httpOnly: true, path: '/', sameSite: 'lax' }),
       );
+      // 批3-3：COOKIE_OPTIONS 与 SESSION_COOKIE_OPTIONS 统一（本地常量缺 secure——生产 cookie 无 Secure 标志）
+      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', token, SESSION_COOKIE_OPTIONS);
       expect(mockRes.json).toHaveBeenCalledWith({
         user: { id: 'u1', email: 'u1@test.com' },
       });
@@ -144,7 +147,7 @@ describe('AuthController', () => {
   describe('getMe', () => {
     it('should return user from session', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
-      const mockRes = { json: vi.fn() };
+      const mockRes = { cookie: vi.fn(), json: vi.fn() };   // 批3-3：/me 有效 session 重发 cookie
       mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', email: 'u1@test.com' } });
 
       await controller.getMe(req as any, mockRes as any);
@@ -154,7 +157,7 @@ describe('AuthController', () => {
 
     it('should return null when no session', async () => {
       const req = { headers: {} };
-      const mockRes = { json: vi.fn() };
+      const mockRes = { cookie: vi.fn(), json: vi.fn() };
       mockSvc.getSession.mockResolvedValue(null);
 
       await controller.getMe(req as any, mockRes as any);
@@ -162,9 +165,29 @@ describe('AuthController', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ user: null });
     });
 
+    it('批3-3：session 有效 → 重发 cookie（SESSION_COOKIE_OPTIONS）——15min me 探活的滑动续期半边（F8）', async () => {
+      const req = { headers: { cookie: 'flowweb.session_token=valid' } };
+      const mockRes = { cookie: vi.fn(), json: vi.fn() };
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1' } });
+
+      await controller.getMe(req as any, mockRes as any);
+
+      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', 'valid', SESSION_COOKIE_OPTIONS);
+    });
+
+    it('批3-3：无 session → 不重发 cookie', async () => {
+      const req = { headers: { cookie: 'flowweb.session_token=stale' } };
+      const mockRes = { cookie: vi.fn(), json: vi.fn() };
+      mockSvc.getSession.mockResolvedValue(null);
+
+      await controller.getMe(req as any, mockRes as any);
+
+      expect(mockRes.cookie).not.toHaveBeenCalled();
+    });
+
     it('should bootstrap personal team when user has none (幂等补偿，含文件夹)', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
-      const mockRes = { json: vi.fn() };
+      const mockRes = { cookie: vi.fn(), json: vi.fn() };
       mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', name: '张三', email: 'u1@test.com' } });
 
       const mockPrismaForBootstrap = {

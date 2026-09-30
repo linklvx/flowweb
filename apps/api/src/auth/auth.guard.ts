@@ -1,5 +1,6 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ServiceUnavailableException, Inject } from '@nestjs/common';
 import { parseSessionToken } from '../common/utils/parse-session-token';
+import { SessionService } from './session.service';
 
 const PUBLIC_PREFIXES = [
   '/api/health',
@@ -16,8 +17,13 @@ const PUBLIC_PREFIXES = [
   '/metrics',
 ];
 
+/** 批3-3：session 查询统一走 SessionService.touch（单例 PrismaService——原实现每请求临时建
+ *  PrismaClient 再断开的连接风暴收口）；DB 异常不再吞成 401（protected 路径 503——DB 抖动不是
+ *  "请登录"），public 路径维持静默放行（公共面可用性不受 DB 抖动影响）。 */
 @Injectable()
 export class AuthGuard implements CanActivate {
+  constructor(@Inject(SessionService) private readonly sessions: SessionService) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const path = request.path;
@@ -27,20 +33,12 @@ export class AuthGuard implements CanActivate {
     const token = parseSessionToken(request.headers.cookie);
     if (token) {
       try {
-        const { PrismaClient } = await import('@prisma/client');
-        const p = new PrismaClient();
-        try {
-          const session = await p.session.findUnique({
-            where: { token },
-            include: { user: true },
-          });
-          if (session && session.expiresAt >= new Date()) {
-            request.user = session.user;
-          }
-        } finally {
-          await p.$disconnect();
+        const session = await this.sessions.touch(token);
+        if (session) {
+          request.user = session.user;
         }
       } catch {
+        if (!isPublic) throw new ServiceUnavailableException('数据库暂不可用，请稍后重试');
         // Silently fail for public routes
       }
     }

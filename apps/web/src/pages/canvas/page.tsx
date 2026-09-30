@@ -19,6 +19,7 @@ import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { bindViewportPersistence } from '@/utils/viewportPersistence';
 import { ensureExecutionSocket, teardownExecutionSocket } from '@/services/executionSocket';
+import { useSessionKeepalive } from '@/hooks/useSessionKeepalive';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
@@ -41,26 +42,27 @@ class ProjectNotFoundError extends Error {}
 class ProjectInaccessibleError extends Error {}
 class ProjectLoadError extends Error {}
 
-/** 仅取项目元数据（名称/团队上下文）；doc 会话统一由 openSession 建立（R5 单一漏斗） */
+/** 仅取项目元数据（名称/团队上下文）；doc 会话统一由 openSession 建立（R5 单一漏斗）。
+ *  批3-3：裸 fetch 收编 apiFetch（401 电平/契约统一）；F14 三义分家由抛错的 status 承载。 */
 async function fetchProjectMeta(
   projectId: string,
   isCancelled?: () => boolean,
 ): Promise<string> {
-  const res = await fetch(`/api/projects/${projectId}`);
-  if (res.status === 404) throw new ProjectNotFoundError();
-  if (res.status === 403) throw new ProjectInaccessibleError();
-  if (!res.ok) throw new ProjectLoadError();
-  const json = await res.json();
-  // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
-  if (json.code !== 0 || !json.data) throw new ProjectLoadError();
-  const project = json.data;
+  try {
+    const project = await apiFetch<{ name: string; teamId: string | null }>(`/projects/${projectId}`);
+    // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
+    if (isCancelled?.()) return project.name || '未命名项目';
 
-  // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
-  if (isCancelled?.()) return project.name || '未命名项目';
-
-  // 画布团队上下文（顶栏积分/上传/素材库消费）
-  useCanvasStore.getState().setTeamId(project.teamId ?? null);
-  return project.name || '未命名项目';
+    // 画布团队上下文（顶栏积分/上传/素材库消费）
+    useCanvasStore.getState().setTeamId(project.teamId ?? null);
+    return project.name || '未命名项目';
+  } catch (e) {
+    // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
+    const status = (e as { status?: number }).status;
+    if (status === 404) throw new ProjectNotFoundError();
+    if (status === 403) throw new ProjectInaccessibleError();
+    throw new ProjectLoadError();   // 5xx/网络/json 异常（apiFetch 结构化错误均无 status）
+  }
 }
 
 export function CanvasPage() {
@@ -253,6 +255,9 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
     ensureExecutionSocket(projectId);
     return () => teardownExecutionSocket();
   }, [projectId]);
+
+  // 批3-3 F8：15min 静默 me 探活——session 滑动续期（DB touch + cookie 重发）的唯一 HTTP 载体
+  useSessionKeepalive();
 
   // AddNodeMenu state — shared by + button and right-click triggers
   const menuIsOpen = useMenuStore((s) => s.isOpen);

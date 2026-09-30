@@ -13,13 +13,6 @@ import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 import type { Response } from 'express';
 import Redis from 'ioredis';
 
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  path: '/',
-  sameSite: 'lax' as const,
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-};
-
 @Controller('api/auth')
 export class AuthController {
   constructor(
@@ -38,7 +31,7 @@ export class AuthController {
   ) {
     try {
       const result = await this.authService.signIn(body.email, body.password);
-      res.cookie('flowweb.session_token', result.token, COOKIE_OPTIONS);
+      res.cookie('flowweb.session_token', result.token, SESSION_COOKIE_OPTIONS);
       return res.json({ user: result.user });
     } catch {
       return res.status(401).json({ error: '邮箱或密码错误' });
@@ -53,7 +46,7 @@ export class AuthController {
     try {
       const result = await this.authService.signUp(body.email, body.password, body.name);
 
-      res.cookie('flowweb.session_token', result.token, COOKIE_OPTIONS);
+      res.cookie('flowweb.session_token', result.token, SESSION_COOKIE_OPTIONS);
       return res.json({ user: result.user });
     } catch {
       return res.status(400).json({ error: '注册失败' });
@@ -75,6 +68,11 @@ export class AuthController {
     const cookieStr: string = req.headers.cookie || '';
     const session = await this.authService.getSession({ cookie: cookieStr });
     if (!session) return res.json({ user: null });
+
+    // 批3-3 F8：session 有效即重发 cookie（SESSION_COOKIE_OPTIONS）——画布页 15min me 探活的
+    // 滑动续期半边（DB 侧续期在 SessionService.touch；不重发则 cookie 7d 硬死、session 白续）
+    const token = parseSessionToken(cookieStr);
+    if (token) res.cookie('flowweb.session_token', token, SESSION_COOKIE_OPTIONS);
 
     // 补偿个人团队（幂等，含素材文件夹）
     try {

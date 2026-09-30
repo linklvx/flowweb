@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router';
 import { Button, Modal } from 'antd';
+import { apiFetch } from '@/api/client';
 import { ProjectMembersPanel } from './ProjectMembersPanel';
 
 export const ROOT_FOLDER_NAME = '主目录';
@@ -37,9 +38,9 @@ export function ProjectTitle({ projectId, projectName: initialName, folderPath =
     if (trimmed && trimmed !== name) {
       setName(trimmed);
       onNameChange?.(trimmed);
-      fetch(`/api/projects/${projectId}`, {
+      // 批3-3：裸 fetch 收编 apiFetch（401 电平/错误契约统一）；失败回退原名
+      apiFetch(`/projects/${projectId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       }).catch(() => {
         // Revert on failure

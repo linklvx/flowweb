@@ -7,6 +7,7 @@ import Redis from 'ioredis';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseSessionToken } from '../../common/utils/parse-session-token';
+import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
@@ -36,6 +37,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 每文档待落库增量队列。键为 doc 实例（生产中同文档名同实例）；数组身份在 doc 生命周期内恒定——
    *  一切变更只允许原地 push/splice/unshift，禁止任何 set 替换/重绑定（不变量 6：断引用 = 失败回灌写孤儿数组） */
   private readonly pendingUpdates = new WeakMap<Y.Doc, Uint8Array[]>();
+  /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
+  private readonly sessionSvc: SessionService;
   /** 重放抑制：只包裹每个 applyReplayed 的同步段（yjs update 事件在事务清理期同步发放——实测重放行与
    *  pendingDs 延迟整合均在 apply 同步栈内发放、被精确抑制；await 窗口内写入不被抑制、进 pending） */
   private readonly replaying = new WeakSet<Y.Doc>();
@@ -58,7 +61,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly perm: ProjectPermissionService,
     @Optional() @Inject('COLLAB_PORT') port?: number,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
+    @Optional() @Inject(SessionService) sessions?: SessionService,
   ) {
+    this.sessionSvc = sessions ?? new SessionService(prisma);
     this.hooks = {
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
@@ -93,17 +98,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新。
    *  批3-1：拒绝一律带 reason（Object.assign 附着——Hocuspocus catch 直读 error.reason 写入
    *  permission-denied 消息，客户端 authenticationFailed 原样收到）；已分型异常原样 rethrow，
-   *  其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙） */
+   *  其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
+   *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 的活跃连接
+   *  顺带续期 7d（WS 路径只能 touch DB）；context 携带 token/sessionExpiresAt 供批3-4 sweep 复验。 */
   private async authenticate({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => Object.assign(new Error(message), { reason });
     try {
       const token = requestParameters?.get('token')
         ?? parseSessionToken(requestHeaders?.get('cookie'));
-      const session = token
-        ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
-        : null;
-      if (!session) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
-      if (session.expiresAt < new Date()) throw deny(CollabAuthReason.SESSION_EXPIRED, '会话过期');
+      if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
+      const { session, expired } = await this.sessionSvc.touchWithReason(token);
+      if (!session) throw deny(expired ? CollabAuthReason.SESSION_EXPIRED : CollabAuthReason.UNAUTHENTICATED, expired ? '会话过期' : '未登录');
       const projectId = parseProjectId(documentName);
       const project = await this.prisma.canvasProject.findUnique({
         where: { id: projectId },
@@ -119,7 +124,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
       // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
       if (readOnly) connectionConfig.readOnly = true;
-      return { user: { id: session.user.id, name: session.user.name, role: member.role }, readOnly };
+      return {
+        user: { id: session.user.id, name: session.user.name, role: member.role },
+        readOnly,
+        token,   // 批3-4 sweep 复验凭据（context 只在服务端内存，不外发）
+        sessionExpiresAt: session.expiresAt,   // 批3-4 sweep 死线快照（必过期下界）
+      };
     } catch (err) {
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;   // 已分型原样透传
       throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });

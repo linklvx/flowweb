@@ -4,9 +4,10 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SkipThrottle } from '@nestjs/throttler';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseSessionToken } from '../../common/utils/parse-session-token';
+import { SessionService } from '../../auth/session.service';
 
 /** 批0c-8 豁免全局 ThrottlerGuard，两个部署前提：
  *  ① APP_GUARD 会触达 socket.io WS context——throttler 在 WS 上的 IP 解析行为未验证，先豁免；
@@ -20,7 +21,16 @@ export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnec
   @WebSocketServer()
   server!: Server;
 
-  constructor(private readonly prisma: PrismaService) {}
+  /** 批3-3：session 查询统一走 SessionService.touch（鉴权读面——touch 对近过期连接顺带续期，语义一致）；
+   *  直构测试不传时以注入的 prisma 兜底自建 */
+  private readonly sessions: SessionService;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(SessionService) sessions?: SessionService,
+  ) {
+    this.sessions = sessions ?? new SessionService(prisma);
+  }
 
   handleConnection(_client: Socket) {}
 
@@ -32,8 +42,8 @@ export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnec
     const token = parseSessionToken(client.handshake.headers?.cookie);
     if (!token) return false;
     try {
-      const session = await this.prisma.session.findUnique({ where: { token }, include: { user: true } });
-      if (!session || session.expiresAt < new Date()) return false;
+      const session = await this.sessions.touch(token);   // 无效/过期→null（终态禁复活）
+      if (!session) return false;
       const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
       if (!project) return false;
       const member = await this.prisma.teamMember.findUnique({

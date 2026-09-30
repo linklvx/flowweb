@@ -10,6 +10,7 @@ import { ExecutionProcessor } from './execution.processor';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { SessionService } from '../../auth/session.service';
 import { EXECUTION_QUEUE_NAME, EXECUTION_CONNECTION_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { EXECUTION_JOB_OPTIONS } from './execution.queue-options';
@@ -65,6 +66,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     TopologyService,
     ValidationService,
     ApiCallerService,
+    SessionService,   // 批3-3：ExecutionGateway authorize 走 touch（鉴权读面顺带续期）
     ExecutionGateway,
     ExecutionProcessor,
     VideoTrimService,

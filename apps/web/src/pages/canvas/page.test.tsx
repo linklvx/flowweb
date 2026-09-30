@@ -233,7 +233,8 @@ describe('CanvasPage', () => {
 
       const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
       expect(posts.length).toBe(0);
-      const gets = mockFetch.mock.calls.filter((c: any[]) => !c[1]);
+      // 批3-3：fetchProjectMeta 收编 apiFetch——GET 也带显式 init（method:'GET'）
+      const gets = mockFetch.mock.calls.filter((c: any[]) => !c[1] || c[1]?.method === 'GET');
       expect(gets.some((c: any[]) => String(c[0]).includes('/api/projects/p1'))).toBe(true);
       // 加载路径写入画布团队上下文
       expect(setTeamIdMock).toHaveBeenCalledWith('t-1');
