@@ -80,7 +80,7 @@ export function VideoEditorShell() {
     return () => { cancelled = true; };
   }, [open, sourceNodeId]);
 
-  // autosave 生命周期：open 时创建 + data 订阅 + connStatus 恢复补发；关闭时 dispose（flush 在 handleClose）
+  // autosave 生命周期：open 时创建 + data 订阅；关闭时 dispose（flush 在 handleClose）
   useEffect(() => {
     if (!open || !sourceNodeId) return;
     const ctrl = createAutosaveController({
@@ -93,20 +93,13 @@ export function VideoEditorShell() {
       onSaved: (t) => useEditorStore.getState().setBaseUpdatedAt(t),
       onStateChange: (s) => useEditorStore.getState().setSaveState(s),
       onConflict: () => toastApiRef.current?.warning('工程已在其他窗口修改，自动保存已暂停'),
-      isConnected: () => useCanvasStore.getState().connStatus === 'connected',
     });
     autosaveRef.current = ctrl;
     // prev.status==='ready'：loadProject 是唯一进入 ready 的写入点——过滤加载迁移的幻影 PATCH（I2）
     const unsubData = useEditorStore.subscribe((s, prev) => {
       if (s.data !== prev.data && s.status === 'ready' && prev.status === 'ready') ctrl.notifyChange();
     });
-    let wasConnected = useCanvasStore.getState().connStatus === 'connected';
-    const unsubConn = useCanvasStore.subscribe((s, prev) => {
-      const nowConn = s.connStatus === 'connected';
-      if (nowConn && !wasConnected) ctrl.notifyConnected();
-      wasConnected = nowConn;
-    });
-    return () => { unsubData(); unsubConn(); ctrl.dispose(); autosaveRef.current = null; };
+    return () => { unsubData(); ctrl.dispose(); autosaveRef.current = null; };
   }, [open, sourceNodeId]);
 
   // 关闭 = flush 排空后 close；排空失败（离线/最终保存失败）警告并阻止关闭——数据仍留在 editorStore

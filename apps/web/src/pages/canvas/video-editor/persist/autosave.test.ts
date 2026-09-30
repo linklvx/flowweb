@@ -10,13 +10,12 @@ const mkDeps = (over: Partial<AutosaveDeps> = {}): AutosaveDeps => {
     onSaved: vi.fn((t: string) => { state.baseUpdatedAt = t; }),
     onStateChange: vi.fn(),
     onConflict: vi.fn(),
-    isConnected: () => true,
     ...over,
   };
   return deps;
 };
 
-describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 重试 + 离线 + flush）', () => {
+describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 重试 + flush）', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
@@ -91,19 +90,6 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
     c.dispose();
   });
 
-  it('离线暂停：connected 前不发；notifyConnected 立即 flush', async () => {
-    const deps = mkDeps({ isConnected: () => false });
-    const c = createAutosaveController(deps);
-    c.notifyChange();
-    await vi.advanceTimersByTimeAsync(10000);
-    expect(deps.patch).not.toHaveBeenCalled();
-    deps.isConnected = () => true;
-    c.notifyConnected();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(deps.patch).toHaveBeenCalledTimes(1);
-    c.dispose();
-  });
-
   it('flush：立即发 + await 排空（收起时序）', async () => {
     const deps = mkDeps();
     const c = createAutosaveController(deps);
@@ -144,15 +130,6 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
     c.dispose();
   });
 
-  it('flush 返回 false：离线且有脏数据（I3——阻止关闭语义）', async () => {
-    const deps = mkDeps({ isConnected: () => false });
-    const c = createAutosaveController(deps);
-    c.notifyChange();
-    const drained = await c.flush();
-    expect(drained).toBe(false);
-    c.dispose();
-  });
-
   it('flush 持续失败（connected）不绕退避——烧完额度返回 false 阻止关闭（review 残留）', async () => {
     const deps = mkDeps({ patch: vi.fn().mockRejectedValue(new Error('500')) });
     const c = createAutosaveController(deps);
@@ -182,5 +159,50 @@ describe('autosave（1.5s 防抖 + PATCH 单飞 latest-wins + 乐观锁回填 + 
     expect(drained).toBe(true);
     expect(deps.patch).toHaveBeenCalledTimes(2); // 新编辑也被排空
     c.dispose();
+  });
+});
+
+describe('批0d：F3 删 isConnected 门 + B4 editorDirty 单向 latch', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('F3：connStatus 非 connected 时 PATCH 照发（缺陷A 编辑器丢失链拆除锚）', async () => {
+    // 批0d 后 autosave 不读连接态（REST PATCH 独立于 WS）——connStatus 卡 connecting 时照常持久化。
+    // 此处无任何连接态注入即为回归锚：若门复活（读 connStatus/isConnected 早退），本用例在
+    // connStatus 非 connected 的默认环境下必红
+    const patch = vi.fn().mockResolvedValue({ updatedAt: 't1' });
+    const deps = mkDeps({ patch });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('B4/409：409 后 flush() 返回 false（latch 不清——拦截关闭；旧 retryCount===0 判据会放行）', async () => {
+    const err = Object.assign(new Error('conflict'), { status: 409 });
+    const patch = vi.fn().mockRejectedValue(err);
+    const deps = mkDeps({ patch });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    const ok = await c.flush();
+    expect(ok).toBe(false);
+  });
+
+  it('B4/耗尽：3 次退避耗尽后 onDirtyChange 仍 true——耗尽不清 latch（beforeunload 可拦）', async () => {
+    const deps = mkDeps({ patch: vi.fn().mockRejectedValue(new Error('network')), onDirtyChange: vi.fn() });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    expect(deps.onDirtyChange).toHaveBeenCalledWith(true);
+    await vi.advanceTimersByTimeAsync(1500 + 1000 + 4000 + 16000 + 100); // 首发+3 退避全烧完
+    expect(deps.onDirtyChange).not.toHaveBeenCalledWith(false); // 耗尽不清 latch
+  });
+
+  it('保存成功清 latch：onDirtyChange(false) 恰在成功路径', async () => {
+    const deps = mkDeps({ onDirtyChange: vi.fn() });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(deps.onDirtyChange).toHaveBeenCalledWith(false);
   });
 });

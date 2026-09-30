@@ -8,14 +8,15 @@ export interface AutosaveDeps {
   onSaved: (updatedAt: string) => void;
   onStateChange: (s: 'saving' | 'saved' | 'error') => void;
   onConflict: () => void;
-  isConnected: () => boolean;
+  /** B4 单向 latch 镜像（批0d）：true=有未落库编辑（notifyChange 置位）；仅保存成功清 false
+   *  （请求中/409/退避耗尽三窗口保持 true——beforeunload 据此拦截关标签）。F3：PATCH 走 REST
+   *  独立于 WS 连接态，无 isConnected 门——connStatus 卡 connecting 不再停摆编辑器持久化 */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export interface AutosaveController {
   notifyChange(): void;
-  /** 协作连接恢复 connected 时调用：有待存数据立即补发 */
-  notifyConnected(): void;
-  /** 收起/ESC 用：立即执行排队保存并 await 排空；false=有数据未能排空（离线或最终失败） */
+  /** 收起/ESC 用：立即执行排队保存并 await 排空；false=有数据未能排空（最终失败/409 未恢复） */
   flush(): Promise<boolean>;
   /** SAVE_DOT error 手动重试：无条件补发当前 data（dirty 与否都发），退避额度重置 */
   retry(): void;
@@ -29,6 +30,10 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
   let retryCount = 0;
   let disposed = false;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // B4 单向 latch：内部 dirty 是排队补发判据（发请求前即清），latch 才是"有未落库编辑"镜像——
+  // 仅成功路径清零，请求中/409/退避耗尽三窗口全保持 true（flush/beforeunload 拦截判据）
+  let dirtyLatch = false;
+  const onDirtyChanged = (v: boolean) => { dirtyLatch = v; deps.onDirtyChange?.(v); };
 
   const clearDebounce = () => {
     if (debounceTimer != null) { clearTimeout(debounceTimer); debounceTimer = null; }
@@ -36,14 +41,14 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
 
   const doSave = async (): Promise<void> => {
     if (inFlight || disposed) { queued = true; return; }
-    if (!deps.isConnected()) return; // 离线暂停——notifyConnected 恢复
     inFlight = true;
     dirty = false;
     deps.onStateChange('saving');
-    const body = deps.getData();
     try {
+      const body = deps.getData(); // 批0d：入 try——getData 抛错时 finally 仍执行（inFlight 复位），防 flush 每 10ms 自旋假死
       const r = await deps.patch(deps.getProjectId(), body);
       deps.onSaved(r.updatedAt); // 回填 baseUpdatedAt
+      onDirtyChanged(false); // latch 唯一清零点：恰在成功路径
       deps.onStateChange('saved');
       retryCount = 0;
     } catch (e) {
@@ -70,13 +75,10 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
   return {
     notifyChange: () => {
       if (disposed) return;
+      onDirtyChanged(true); // latch 置位——编辑发生即"未落库"（含防抖/在途窗口）
       dirty = true;
       clearDebounce();
       debounceTimer = setTimeout(() => { debounceTimer = null; void doSave(); }, AUTOSAVE_DEBOUNCE_MS);
-    },
-    notifyConnected: () => {
-      if (disposed) return;
-      if (dirty || queued) { clearDebounce(); void doSave(); }
     },
     retry: () => {
       if (disposed || inFlight) return;
@@ -89,15 +91,12 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
       clearDebounce();
       while (dirty || queued || inFlight || debounceTimer != null) {
         if (!inFlight && debounceTimer == null) {
-          if (!deps.isConnected()) return false; // 离线且有未保存数据——排空失败
           await doSave(); // 无退避在途才主动发（不绕退避——review 残留）
         } else {
           await new Promise(r => setTimeout(r, 10)); // 在途/退避 timer 走着——等它自然执行
         }
       }
-      // retryCount===0：全部排空成功（成功路径清 0）；耗尽=最终失败——false 阻止关闭（数据留 editorStore）
-      // 409 冲突放行（retryCount 不增，用户已收 toast——半自动恢复语义）
-      return retryCount === 0;
+      return !dirtyLatch; // B4：latch 判据（409/耗尽不清⇒拦截；成功清⇒放行）
     },
     dispose: () => {
       disposed = true;
