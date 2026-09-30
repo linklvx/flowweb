@@ -98,6 +98,9 @@ interface CanvasState {
   isHydrating: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
+  /** B4 单向 latch（批0d）：编辑器有未落库修改——由 autosave onDirtyChange 维护（notifyChange 置位、
+   *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
+  editorDirty: boolean;
   /** 协作初始化超时标记（Task 12 I-2 蒙层独占条件）：仅 initCollab 超时置 true；
    *  会话中途断连不置（自动重连无损合并，SaveStatusIndicator 承担非阻断告知）——防 reload 蒙层丢 messageQueue 编辑 */
   syncFailed: boolean;
@@ -180,6 +183,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   teamId: null,
   isHydrating: false,
   connStatus: 'connecting',
+  editorDirty: false,
   syncFailed: false,
 
   addNode: (type, position, dataOverride) => {

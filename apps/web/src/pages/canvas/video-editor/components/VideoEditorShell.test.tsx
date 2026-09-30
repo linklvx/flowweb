@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { VideoEditorShell } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
 import { createDefaultProjectData } from '../types';
@@ -123,5 +124,43 @@ describe('VideoEditorShell', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('批0d：Shell 数据止血接线（catch 不放行 + beforeunload + editorDirty）', () => {
+  beforeEach(() => {
+    useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
+    useEditorStore.getState().reset();
+    useCanvasStore.setState({ editorDirty: false });
+    vi.mocked(upsertProject).mockResolvedValue({
+      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
+      data: createDefaultProjectData(), updatedAt: 't0',
+    });
+  });
+
+  it('flush 异常路径不放行：保存链路异常时 handleClose 不 close（close=丢出口，数据留编辑器重试）', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // ready
+    // 构造 flush reject：setSaveState 抛错 → doSave 在 onStateChange('saving')（try 外）reject → flush reject
+    const spy = vi.spyOn(useEditorStore.getState(), 'setSaveState').mockImplementation(() => { throw new Error('boom'); });
+    try {
+      act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑 → notifyChange（dirty 排队）
+      fireEvent.click(screen.getByText('收起')); // handleClose → flush → reject → .catch
+      await act(async () => {}); // flush microtask 排空
+      expect(useVideoEditorStore.getState().open).toBe(true); // 不 close——数据留在编辑器给用户重试
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('editorDirty true 时 beforeunload preventDefault（B4——关标签无提示丢拦截）', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // ready
+    act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑 → notifyChange → latch 置位
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
   });
 });

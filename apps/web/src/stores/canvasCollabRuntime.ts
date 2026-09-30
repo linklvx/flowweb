@@ -46,6 +46,11 @@ export function getAwareness(): AwarenessBridge | null {
   return awarenessBridge;
 }
 
+/** 批0d beforeunload 谓词半边（provider 公开 API）；rebuildPending 项批 1 接入（届时并入） */
+export function hasUnsyncedCanvasChanges(): boolean {
+  return provider?.hasUnsyncedChanges ?? false;
+}
+
 /** A1 影子产物读取（决策 2：spec"必须读 doc"——前端内存 ydoc 直读，零网络）。
  *  返回 null = doc 无该节点或尚无 fileId（ai-download 异步回写未完成）。
  *  R4-10：doc 形状已实证——fillDoc（ydocBuilder.ts）/后端 writeNodeData（collab-document.service.ts）

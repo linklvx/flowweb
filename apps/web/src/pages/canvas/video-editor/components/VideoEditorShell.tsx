@@ -4,6 +4,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { hasUnsyncedCanvasChanges } from '@/stores/canvasCollabRuntime';
 import { useEditorStore } from '../store/editorStore';
 import { createAutosaveController, type AutosaveController } from '../persist/autosave';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
@@ -18,7 +19,7 @@ import { releaseEditorRuntime } from '../hooks/playback';
 
 // bridge：挂在内层 <AntdApp> 之下才能取到壳作用域 message 实例（返回 null 零 DOM）——Shell 函数体顶层
 // 不能 useApp()（React context 按组件树祖先解析，读到的是根 App 的 AntdApp：holder 挂 body、仍被壳盖）
-function ShellToastBridge({ apiRef }: { apiRef: MutableRefObject<{ warning: (m: string) => void } | null> }) {
+function ShellToastBridge({ apiRef }: { apiRef: MutableRefObject<{ warning: (m: string) => void; error: (m: string) => void } | null> }) {
   apiRef.current = AntdApp.useApp().message;
   return null;
 }
@@ -48,7 +49,7 @@ export function VideoEditorShell() {
   // Shell 内 2 处静态 message.warning 改经壳内上下文实例（bridge 存 ref）——静态 message 只读自身
   // getContainer 不继承调用方容器，会挂到 body 被壳盖。onConflict/handleClose 只在 open=true 可达，
   // 此时 bridge 必挂载，无 null 窗口
-  const toastApiRef = useRef<{ warning: (m: string) => void } | null>(null);
+  const toastApiRef = useRef<{ warning: (m: string) => void; error: (m: string) => void } | null>(null);
 
   // saved 惰性初始化一次——裸调 loadPanelSizes() 每次重渲重读 localStorage，若库在 prop 变化时
   // 重应用 defaultSize 会导致拖动回弹
@@ -93,14 +94,30 @@ export function VideoEditorShell() {
       onSaved: (t) => useEditorStore.getState().setBaseUpdatedAt(t),
       onStateChange: (s) => useEditorStore.getState().setSaveState(s),
       onConflict: () => toastApiRef.current?.warning('工程已在其他窗口修改，自动保存已暂停'),
+      onDirtyChange: (d) => useCanvasStore.setState({ editorDirty: d }), // B4 镜像入 store（beforeunload 消费）
     });
     autosaveRef.current = ctrl;
     // prev.status==='ready'：loadProject 是唯一进入 ready 的写入点——过滤加载迁移的幻影 PATCH（I2）
     const unsubData = useEditorStore.subscribe((s, prev) => {
       if (s.data !== prev.data && s.status === 'ready' && prev.status === 'ready') ctrl.notifyChange();
     });
-    return () => { unsubData(); ctrl.dispose(); autosaveRef.current = null; };
+    // 收起清零：编辑器关闭（dispose）即无"未落库编辑"可言——防 stale true 锁死全局 beforeunload
+    return () => { unsubData(); ctrl.dispose(); autosaveRef.current = null; useCanvasStore.setState({ editorDirty: false }); };
   }, [open, sourceNodeId]);
+
+  // 批0d B4：editorDirty（REST 侧 latch）+ hasUnsyncedCanvasChanges（WS 侧 provider 公开 API）
+  // 任一为真即拦关标签——jsdom 断言 defaultPrevented；rebuildPending 半边批 1 并入
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => {
+      const st = useCanvasStore.getState();
+      if (st.editorDirty || hasUnsyncedCanvasChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, []);
 
   // 关闭 = flush 排空后 close；排空失败（离线/最终保存失败）警告并阻止关闭——数据仍留在 editorStore
   // 不变式：所有关闭路径必须经此函数（flush 排空先于 dispose，dispose 不取消在途 PATCH——review M2）
@@ -111,7 +128,10 @@ export function VideoEditorShell() {
         if (!drained) { toastApiRef.current?.warning('当前离线或保存失败，存在未保存的修改——连接恢复后重试或手动重试后再收起'); return; }
         releaseEditorRuntime(); // 收起释放运行时（spec 边界护栏）——flush 成功、close() 之前
         close();
-      }).catch(() => { releaseEditorRuntime(); close(); }); // flush reject（异常路径）同样释放——各释放操作幂等
+      }).catch(() => {
+        // 批0d：异常不直接放行——数据在 editorStore，留在编辑器给用户重试（close=丢出口）
+        toastApiRef.current?.error('保存失败，请重试或放弃修改');
+      });
     } else close();
   };
 
