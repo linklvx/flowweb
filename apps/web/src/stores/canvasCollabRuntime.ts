@@ -65,6 +65,30 @@ let currentPid: string | null = null;
  *  单调 seq——超时 timer 恢复时 seq !== initSeq 即陈旧调用，不得走超时兜底销毁新会话 */
 let initSeq = 0;
 
+// 批0a：connStatus 派生（缺陷 A 根修）——唯一写点 recomputeConnStatus + 代际制。
+// 载体按决策门 A 裁决=候选 1（inboundAttemptId===attemptId，'message' 驱动）——
+// 真协议实测 resolve 与 message 同帧同栈，两候选行为等价；候选 1 仅依赖公开事件。
+// lastWsStatus 用事件缓存值（provider 无 status 字段——库契约，判据不得读 ws.connectionAttempt）。
+// 纯派生纪律：代际跃迁（attemptId++/入站重置）是事件处理器的事——
+// recomputeConnStatus 只读不写模块状态，"唯一写点=connStatus" 的声明才成立。
+let lastWsStatus: 'connecting' | 'connected' | 'disconnected' = 'connecting';
+let attemptId = 0;
+let inboundAttemptId = -1;
+
+/** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
+ *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣） */
+export function recomputeConnStatus() {
+  const p = provider;
+  const healthy = !!p
+    && lastWsStatus === 'connected'
+    && p.isAuthenticated === true
+    && p.isSynced === true
+    && inboundAttemptId === attemptId;
+  const s = useCanvasStore.getState();
+  const next = healthy ? 'connected' : (lastWsStatus === 'disconnected' ? 'offline' : 'connecting');
+  if (next !== s.connStatus) useCanvasStore.setState({ connStatus: next });
+}
+
 /** store 结构投影（canvasStore 为基准 + nodeStore data，与旧 buildSyncPayload 同形）。
  *  data 按所有权分型（F42）委托 projectCanvasNodes 单源——组取 cs/普通节点取 ns+回落。
  *  断言说明：NodeData interface 无隐式索引签名，不结构兼容 Record<string, unknown>——
@@ -235,6 +259,10 @@ export async function initCollab(projectId: string): Promise<void> {
   await destroyCollab();
   const seq = ++initSeq;
   currentPid = projectId;
+  // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
+  lastWsStatus = 'connecting';
+  attemptId = 0;
+  inboundAttemptId = -1;
   doc = new Y.Doc();
   attachUndoManager(doc);
 
@@ -246,11 +274,19 @@ export async function initCollab(projectId: string): Promise<void> {
     token: 'cookie-auth',
   });
 
+  // 事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
+  // （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
+  // 'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。
   provider.on('status', ({ status }: any) => {
-    useCanvasStore.setState({
-      connStatus: status === 'connected' ? 'connecting' : 'offline',
-    });
+    if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
+    if (status === 'connecting') inboundAttemptId = -1;
+    lastWsStatus = status;
+    recomputeConnStatus();
   });
+  provider.on('authenticated', () => recomputeConnStatus());
+  provider.on('synced', () => recomputeConnStatus());
+  provider.on('message', () => { inboundAttemptId = attemptId; recomputeConnStatus(); });
+  provider.on('close', () => recomputeConnStatus());
 
   // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；
   // timer 存变量——成功路径 clearTimeout 收窄陈旧 resolve 窗口到零
@@ -279,7 +315,10 @@ export async function initCollab(projectId: string): Promise<void> {
   const vp = readViewport(projectId);
   if (vp) useCanvasStore.setState({ viewport: vp });
 
-  useCanvasStore.setState({ connStatus: 'connected', syncFailed: false });
+  // 批0a：connStatus 'connected' 直写已删——synced 完成只是候选条件之一，
+  // 真入站（message 代际确认）到位前保持 connecting（recomputeConnStatus 唯一写点）
+  useCanvasStore.setState({ syncFailed: false });
+  recomputeConnStatus();
   useCanvasStore.getState().setHydrating(true);
   applyDocToStore(doc!);
   useCanvasStore.getState().setHydrating(false);

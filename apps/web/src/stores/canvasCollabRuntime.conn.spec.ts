@@ -1,0 +1,104 @@
+// apps/web/src/stores/canvasCollabRuntime.conn.spec.ts
+// 批0a connStatus 派生 + destroyCollab 实例守卫（缺陷 A 根修 / R23）：
+// 红1=现状 connStatus 由 status 事件直写且 'connected' 被映射成 'connecting'（状态机断链），
+//     全仓唯一 'connected' 写点在 initCollab 完成时直写（依赖水合路径）；
+// 绿1=recomputeConnStatus 唯一写点：lastWsStatus 事件缓存值 + isAuthenticated/isSynced
+//     公开布尔 + 代际制（inboundAttemptId===attemptId，'message' 驱动——决策门 A 候选 1）。
+// 红1-并发=现状 destroyCollab 的置空无条件——旧 destroy 的 await 恢复会把并发新会话的
+//     provider/doc/awarenessBridge 打穿（R23 交错置空）；
+// 绿1-并发=实例守卫：快照局部引用 → await → 仅当模块引用未变才置空。
+// mock 按库契约（spec v5.8 ⑨）：provider 无 status 字段（只有事件）；
+//     isAuthenticated/isSynced 公开布尔；status:'connected' 每连接双发
+//     （onOpen + resolveConnectionAttempt）；'message' 只对路由到本 provider 的帧 emit。
+//     destroyGate=测试注入的首次 destroy 挂起 promise（R23 交错装置——复现旧 destroy 的
+//     await 恢复晚于新 provider 创建的竞态窗口）。
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HocuspocusProvider } from '@hocuspocus/provider';
+import { useCanvasStore } from './canvasStore';
+import * as runtime from './canvasCollabRuntime';
+
+vi.mock('@hocuspocus/provider', () => {
+  class MockProvider {
+    static instances: MockProvider[] = [];
+    isAuthenticated = false;
+    isSynced = false;
+    destroyCalls = 0;
+    destroyGate: Promise<void> | null = null;
+    handlers: Record<string, Array<(payload: any) => void>> = {};
+    constructor() { MockProvider.instances.push(this); }
+    on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
+    emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
+    async destroy() {
+      this.destroyCalls++;
+      if (this.destroyCalls === 1 && this.destroyGate) await this.destroyGate;
+    }
+  }
+  return { HocuspocusProvider: MockProvider };
+});
+
+const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
+/** 一个 macrotask——flush initCollab 入口 destroyCollab 的微任务链（provider 构造完成） */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/** 启动会话并取到已构造的 provider 实例（装置适配：mock provider 在 initCollab 的
+ *  入口 await destroyCollab 之后才创建——先 flush 再取实例，怎么稳怎么来） */
+async function beginCollab(pid: string): Promise<{ done: Promise<void>; p: any }> {
+  const done = runtime.initCollab(pid);
+  await tick();
+  return { done, p: lastInstance() };
+}
+
+/** 完整健康序（spec 红1 事件序）：connected 双发 → authenticated → synced */
+async function driveToSynced(pid = 'p1') {
+  const { done, p } = await beginCollab(pid);
+  p.emit('status', { status: 'connected' });   // 双发第一发（onOpen）
+  p.emit('status', { status: 'connected' });   // 双发第二发（resolveConnectionAttempt）
+  p.isAuthenticated = true;
+  p.emit('authenticated', { scope: 'read-write' });
+  p.isSynced = true;
+  p.emit('synced', {});
+  await done;
+  return p;
+}
+
+describe('红1：connStatus 派生（真实事件序）', () => {
+  beforeEach(() => {
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [] });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab(); // 摘 bindBridge 订阅/undo manager，防跨用例泄漏
+  });
+
+  it('双发 connected 但未 authenticated → 保持 connecting', async () => {
+    const { done, p } = await beginCollab('p1');
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    expect(useCanvasStore.getState().connStatus).toBe('connecting');
+    p.emit('synced', {});
+    await done;
+  });
+
+  it('完整序（双发+authenticated+synced+message）→ connected', async () => {
+    const p = await driveToSynced('p1');
+    p.emit('message', {});   // 本 attempt 首个入站——代际确认
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+  });
+
+  it('代际防早宣：离开 connected 后新 attempt 首帧前不得早宣 connected', async () => {
+    const p = await driveToSynced('p1');
+    p.emit('message', {});
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+    // 断连（离开 connected → attemptId++）
+    p.emit('status', { status: 'disconnected' });
+    expect(['offline', 'connecting']).toContain(useCanvasStore.getState().connStatus);
+    // 新 attempt：status 双发 + 布尔陈旧 true（4408 形态——库自发强关不发 close，布尔不复位）
+    // 但本 attempt 尚无 message——不得早宣
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.emit('authenticated', { scope: 'read-write' });
+    expect(useCanvasStore.getState().connStatus).not.toBe('connected'); // 防早宣锚
+    p.emit('message', {});
+    expect(useCanvasStore.getState().connStatus).toBe('connected');
+  });
+});

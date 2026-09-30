@@ -15,6 +15,9 @@ vi.mock('@hocuspocus/provider', () => {
   class MockProvider {
     static instances: MockProvider[] = [];
     config: unknown;
+    // 批0a 库契约：isAuthenticated/isSynced 公开布尔（provider 无 status 字段——只有事件）
+    isAuthenticated = false;
+    isSynced = false;
     handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
     destroyCalls = 0;
     constructor(config: unknown) {
@@ -39,6 +42,8 @@ vi.mock('@hocuspocus/provider', () => {
 
 type MockInst = {
   config: { name: string };
+  isAuthenticated: boolean;
+  isSynced: boolean;
   handlers: Record<string, Array<(...args: unknown[]) => void>>;
   destroyCalls: number;
   emit(event: string, payload: unknown): void;
@@ -93,8 +98,14 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
   it('会话中途断连（I-2）：connStatus offline 但 syncFailed 保持 false——蒙层不弹、指示器承担告知', async () => {
     const p = initCollab('p1');
     await vi.advanceTimersByTimeAsync(0); // flush destroyCollab 微任务 → provider 构造完成
-    lastInstance().emit('synced', {}); // 成功路径：synced → 会话健康
+    // 批0a 健康序（派生判据）：connected 事件 + 公开布尔 + synced + message 代际确认
+    const inst = lastInstance();
+    inst.emit('status', { status: 'connected' });
+    inst.isAuthenticated = true;
+    inst.isSynced = true;
+    inst.emit('synced', {});
     await p;
+    inst.emit('message', {});
     expect(useCanvasStore.getState().connStatus).toBe('connected');
     expect(useCanvasStore.getState().syncFailed).toBe(false);
 
@@ -110,8 +121,14 @@ describe('initCollab 离线兜底：10s 超时分支（Task 12 审查 A/B）', (
     const p2 = initCollab('p1'); // 退出重进/StrictMode 双挂载：入口 destroyCollab 销毁实例 1，新建实例 2
     await vi.advanceTimersByTimeAsync(0); // flush → 实例 2 构造完成
     expect((HocuspocusProvider as any).instances.length).toBe(2);
-    lastInstance().emit('synced', {}); // 第二次健康完成
+    // 批0a 健康序（派生判据）：connected 事件 + 公开布尔 + synced + message 代际确认
+    const inst2 = lastInstance();
+    inst2.emit('status', { status: 'connected' });
+    inst2.isAuthenticated = true;
+    inst2.isSynced = true;
+    inst2.emit('synced', {}); // 第二次健康完成
     await p2;
+    inst2.emit('message', {});
     expect(getDoc()).not.toBeNull();
     expect(useCanvasStore.getState().connStatus).toBe('connected');
 
