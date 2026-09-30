@@ -15,6 +15,8 @@ import { isAutoEdgeId } from './autoEdgeIds';
 import { normalizeLoadedCanvas, shouldAutoRefit } from '@flowweb/shared';
 import { fillDoc, readCanvasFromDoc, applyRecordToYMap } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
+// 批1-0 transport 薄层（门 B 裁决）：自持传输——瞬态恢复=reconnect()，kick 方案 ㉕/㉝ 约束已删
+import { createReconnectingWebSocket, type ReconnectHandle } from '@/collab/reconnectTransport';
 import { hydrateNodes } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
 // 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
@@ -48,9 +50,10 @@ export function getAwareness(): AwarenessBridge | null {
   return awarenessBridge;
 }
 
-/** 批0d beforeunload 谓词半边（provider 公开 API）；rebuildPending 项批 1 接入（届时并入） */
+/** 批0d beforeunload 谓词半边（provider 公开 API）；批1-3 并入 rebuildPending
+ *  （终态重建窗口旧实例 hasUnsyncedChanges 不可读——标记武装兜住 beforeunload） */
 export function hasUnsyncedCanvasChanges(): boolean {
-  return provider?.hasUnsyncedChanges ?? false;
+  return rebuildPending || (provider?.hasUnsyncedChanges ?? false);
 }
 
 /** A1 影子产物读取（决策 2：spec"必须读 doc"——前端内存 ydoc 直读，零网络）。
@@ -85,15 +88,64 @@ let inboundAttemptId = -1;
 // 批1-1：watchdog 心跳 timer（会话清理链——destroyCollab 统一 clearInterval；浏览器无 unref）
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+// 批1-1 watchdog 会话变量（批1-3 上移模块级：bindProviderListeners 与心跳共享——
+// 终态重建后新监听闭包写同一份活状态；initCollab 会话起点复位，旧会话计时/退避不携带）
+let lastConnectedAt = 0;             // connected 到达边沿（快线计时起点）
+let lastInboundAt = 0;               // 入站新鲜度（'message' 驱动刷新）
+let unhealthySince: number | null = null; // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
+let recoveryAttempts = 0;
+let lastRecoveryAt = 0;
+
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
 
-/** 批1-3 落两级恢复原语（软重连+硬重建）——本组占位。
+// 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
+let transportHandle: ReconnectHandle | null = null;
+// 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
+// 清除归 1-4：unsyncedChanges number===0 + 3s tick 兜底）
+let rebuildPending = false;
+
+/** 批1-3 两级恢复原语（瞬态传输级 / 终态会话级重建）。
+ *  级别按结构状态选（G1）：!isAttached || !ws.shouldConnect ⇒ 终态——瞬态 reconnect 在此是空操作；
  *  对象命名空间=watchdog 间接调用层：vi.spyOn(recovery, 'recoverConnection') 对模块内
  *  直连函数调用不可达（ESM 本地绑定），命名空间属性查找使测试缝可达（装置可达性裁定）。 */
+let recovering = false; // 单飞：并发两调只执行一次（terminal 路径 await destroy 打开真实互斥窗口）
 export const recovery = {
   async recoverConnection(): Promise<void> {
-    /* TODO 批1-3：两级恢复原语本体 */
+    if (recovering) return;                     // 单飞
+    const p = provider; if (!p) return;
+    // 守卫：hidden/offline 不下手——回前台/上线由 visibilitychange/online 复评（模块级一次挂）
+    // +watchdog 下轮自然复评；terminal（wsAuthNotice 批2 接入）
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    const ws: any = (p as any).configuration?.websocketProvider;
+    const terminal = !p.isAttached || !ws?.shouldConnect; // 级别按结构状态选（G1）
+    try {
+      recovering = true;
+      if (terminal) {
+        // —— 终态：会话级重建 ——
+        const d = doc!;
+        const clientId = p.awareness?.clientID ?? 0;
+        // destroy 与 destroyCollab 同款防御式 await——同步函数（契约锁㉔）但 await 打开
+        // 单飞互斥窗口；destroy 序列推 clock 至 N+2（㉖）
+        try { await p.destroy(); } catch { /* 已销毁 */ }
+        // clock 播种读值时点=destroy 之后（契约锁㉖——N+2 恒安全：>服务端/对端门槛上界）
+        const clockSeed = p.awareness?.meta?.get(clientId)?.clock ?? 0;
+        createProvider(d);                        // 工厂：新 provider 同 doc+监听重挂+transport 注入
+        const np = provider!;
+        np.awareness?.meta.set(np.awareness.clientID, { clock: clockSeed, lastUpdated: Date.now() });
+        awarenessBridge?.attach(np);              // bridge 稳定对象迁移（消费方零改动）
+        awarenessBridge?.replayLocalUser();       // 重放完整态（禁 {}——R24；null 则 no-op）
+        rebuildPending = true;                    // 旧实例 hasUnsyncedChanges 不可读——标记武装（1-4 清除）
+      } else {
+        // —— 瞬态：传输级 reconnect（门 B 裁决——kick 方案/㉕㉝ 约束已删）——
+        // needKick=false（OPEN socket）：close(1000) 即触发库 onClose 分支自持重连
+        // （真协议实测 ws-polyfill.gate：created+1+重新 synced，调用方零库句柄操作）；
+        // needKick=true（无实例/CONNECTING/CLOSED）：ws.connect() 确定性取消在飞 attempt 重建
+        const needKick = transportHandle?.reconnect() ?? true;
+        if (needKick) void ws?.connect?.();
+      }
+    } finally { recovering = false; }
   },
 };
 
@@ -296,6 +348,64 @@ function bindBridge(): () => void {
 /** onRemote fromLocal 判定用（M4：每事件字面量数组分配的模块级提升） */
 const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
+/** 批1-3：六监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
+ *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。六事件：status/authenticated/
+ *  synced/message/close + unsyncedChanges〔挂点——1-4 落 number===0 清 rebuildPending〕。
+ *  事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
+ *  （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
+ *  'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。 */
+function bindProviderListeners(p: HocuspocusProvider): void {
+  p.on('status', ({ status }: any) => {
+    if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
+    if (status === 'connected' && lastWsStatus !== 'connected') lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
+    if (status === 'connecting') inboundAttemptId = -1;
+    lastWsStatus = status;
+    recomputeConnStatus();
+  });
+  p.on('authenticated', () => recomputeConnStatus());
+  p.on('synced', () => recomputeConnStatus());
+  p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
+  p.on('close', ({ event }: any) => {
+    recomputeConnStatus();
+    // 批1-2：1012=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
+    // 判定走 close 事件 event.code（status 事件无 code；4408 强关不 emit close——不混用）。
+    if (event?.code === 1012) {
+      plannedRestartUntil = Date.now() + 30_000;
+      // 1~3s 短退避首连。1012 时 socket 已 CLOSED——transport.reconnect() 只会返回 needKick=true
+      // 再回到 ws.connect()（批1-0 落地时裁定：此处直连库句柄等价且更短）
+      setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
+        1000 + Math.random() * 2000);
+    }
+  });
+}
+
+/** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
+ *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。 */
+function createProvider(d: Y.Doc): HocuspocusProvider {
+  const { WebSocketClass, handle } = createReconnectingWebSocket(collabUrl());
+  transportHandle = handle;
+  provider = new HocuspocusProvider({
+    url: collabUrl(),
+    name: `project:${currentPid}`,
+    document: d,
+    // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
+    token: 'cookie-auth',
+    WebSocketPolyfill: WebSocketClass,
+  } as any);
+  bindProviderListeners(provider);
+  return provider;
+}
+
+/** 批1-3：hidden/offline 守卫的复评钩子——回前台/上线即重算 connStatus（恢复门由 watchdog
+ *  下轮心跳自然复评）。模块级一次挂（initCollab 首次挂+复用）。 */
+let reevaluateBound = false;
+function bindReevaluateOnce(): void {
+  if (reevaluateBound) return;
+  reevaluateBound = true;
+  document.addEventListener('visibilitychange', () => recomputeConnStatus());
+  window.addEventListener('online', () => recomputeConnStatus());
+}
+
 /**
  * 初始化协作连接（v11 方案 C：无本地 seed 无 reconcile——崩溃兜底=服务端 doc 持久化（onDisconnect flush））。
  * synced 后 server doc 应用到 store（初始加载路径，替代 GET /projects/:id 的 nodes/edges）。
@@ -313,47 +423,18 @@ export async function initCollab(projectId: string): Promise<void> {
   // 批0b deletion baseline 会话起点复位：null=首同步 doc 为源不删（旧会话基线携带过来会误删新会话 doc 独有 key）
   prevNodeIds = null;
   prevEdgeIds = null;
+  // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
+  lastConnectedAt = 0;
+  lastInboundAt = Date.now();
+  unhealthySince = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
+  recoveryAttempts = 0;
+  lastRecoveryAt = 0;
+  rebuildPending = false; // 批1-3：重建窗口标记会话起点复位
   doc = new Y.Doc();
   attachUndoManager(doc);
 
-  provider = new HocuspocusProvider({
-    url: collabUrl(),
-    name: `project:${projectId}`,
-    document: doc,
-    // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
-    token: 'cookie-auth',
-  });
-
-  // 批1-1：watchdog 会话变量（initCollab 局部——每会话自然复位，旧会话计时/退避不携带）
-  let lastConnectedAt = 0;             // connected 到达边沿（快线计时起点）
-  let lastInboundAt = Date.now();      // 入站新鲜度（'message' 驱动刷新）
-  let unhealthySince: number | null = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
-  let recoveryAttempts = 0;
-  let lastRecoveryAt = 0;
-
-  // 事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
-  // （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
-  // 'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。
-  provider.on('status', ({ status }: any) => {
-    if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
-    if (status === 'connected' && lastWsStatus !== 'connected') lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
-    if (status === 'connecting') inboundAttemptId = -1;
-    lastWsStatus = status;
-    recomputeConnStatus();
-  });
-  provider.on('authenticated', () => recomputeConnStatus());
-  provider.on('synced', () => recomputeConnStatus());
-  provider.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
-  provider.on('close', ({ event }: any) => {
-    recomputeConnStatus();
-    // 批1-2：1012=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
-    // 判定走 close 事件 event.code（status 事件无 code；4408 强关不 emit close——不混用）。
-    if (event?.code === 1012) {
-      plannedRestartUntil = Date.now() + 30_000;
-      setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
-        1000 + Math.random() * 2000); // 1~3s 短退避首连（批1-0 transport 落地后换等价层）
-    }
-  });
+  createProvider(doc);
+  bindReevaluateOnce();
 
   // 批1-1 watchdog 心跳（3s）：恢复门三门电平析取（快线/unhealthy 门/级别选择——spec 红2 恢复组）。
   // 电平输入禁读派生 connStatus（黑洞下恒 connecting）；jitter 阈值（gateMs/cooldownMs）在此
@@ -387,7 +468,7 @@ export async function initCollab(projectId: string): Promise<void> {
     if (out.action === 'recover') {
       recoveryAttempts++;
       lastRecoveryAt = Date.now();
-      void recovery.recoverConnection(); // 批1-3 本体——本组占位
+      void recovery.recoverConnection(); // 批1-3 两级原语（级别选择+单飞在彼处）
     }
     updateConnectionUi(out.ui);
   }, TICK_MS);
@@ -449,7 +530,7 @@ export async function initCollab(projectId: string): Promise<void> {
   doc.getMap('nodes').observeDeep(onRemote as any);
   doc.getMap('edges').observeDeep(onRemote as any);
 
-  awarenessBridge = new AwarenessBridge(provider);
+  awarenessBridge = new AwarenessBridge(provider!); // 非空：本函数流内 createProvider 刚赋值（seq 守卫已过）
 
   unbindStores = bindBridge();
 }

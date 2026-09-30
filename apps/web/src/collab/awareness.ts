@@ -30,10 +30,24 @@ export function userColor(userId: string | undefined = ''): string {
 }
 
 export class AwarenessBridge {
-  constructor(private readonly provider: HocuspocusProvider) {}
+  /** 批1-3：终态重建重放缓存——setLocalUser 时快照（重放完整态，禁 {}——R24） */
+  private lastLocalUser: CollabUser | null = null;
+
+  constructor(private provider: HocuspocusProvider) {}
+
+  /** 批1-3：终态重建迁移——bridge 稳定对象，provider 引用重指向（消费方/监听零改动） */
+  attach(provider: HocuspocusProvider): void {
+    this.provider = provider;
+  }
 
   setLocalUser(user: CollabUser): void {
+    this.lastLocalUser = user;
     this.provider.setAwarenessField('user', user);
+  }
+
+  /** 批1-3：终态重建后的本地态重放（null=从未设置，no-op——不打 Awareness clock） */
+  replayLocalUser(): void {
+    if (this.lastLocalUser) this.provider.setAwarenessField('user', this.lastLocalUser);
   }
 
   setCursor(cursor: CursorState | null): void {
