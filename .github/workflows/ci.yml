@@ -36,11 +36,15 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      # prisma generate：pnpm 默认不执行依赖包 build/postinstall 脚本（@prisma/client 的
+      # postinstall=generate）——CI 首跑实证：无此步则 .prisma/client 为 stub，api tsc 全线
+      # "no exported member 'Session'..." 炸（本地绿是因本地 client 早已生成）。两 job 均需。
+      - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: node scripts/check-hocuspocus-pin.mjs
-      # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在）：
-      # 0.5 落地时启用下面这行且必须上移到 verify 之前：
-      # - run: pnpm --filter @flowweb/api exec prisma migrate deploy
+      # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在——
+      # 0.5 已落地，按预留注记启用）。migrate deploy=幂等（已应用跳过）。
+      - run: pnpm --filter @flowweb/api exec prisma migrate deploy
       # 单一真相源：CI 直接跑 verify（shared typecheck/test + web/api tsc + 全测 + web lint）
       - run: pnpm verify
       # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
@@ -79,4 +83,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      # 同 test job：pnpm 不跑依赖 postinstall，gate 的 api build（tsc）需要 prisma client
+      # （migrate deploy+seed 由 gate 脚本自带 :166-167）
+      - run: pnpm --filter @flowweb/api exec prisma generate
       - run: node scripts/gate-collab.mjs
