@@ -12,7 +12,6 @@ import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
 import { TeamActiveQueryProcessor } from './task/team-recharge-active-query.processor';
-import { TeamSubscriptionExpireProcessor } from './task/team-subscription-expire.processor';
 import { TeamMediaCleanupProcessor } from './task/team-media-cleanup.processor';
 import { AdminTeamPlanController } from './admin-team-plan.controller';
 import { RechargeModule } from '../recharge/recharge.module';
@@ -31,7 +30,7 @@ import { AuditService } from '../../common/audit/audit.service';
   providers: [
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
     ProjectPermissionService, ProjectMemberService, AuditService,
-    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamSubscriptionExpireProcessor, TeamMediaCleanupProcessor,
+    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamMediaCleanupProcessor,
   ],
   exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],
 })

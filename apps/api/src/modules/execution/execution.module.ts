@@ -20,8 +20,8 @@ import { VIDEO_TRIM_QUEUE, VIDEO_TRIM_CONNECTION } from './video-trim.constants'
 import { VideoSeparateController } from './video-separate.controller';
 import { VideoSeparateService } from './video-separate.service';
 import { VideoSeparateProcessor } from './video-separate.processor';
-import { VideoSeparateCronService } from './video-separate.cron';
 import { MediaProcessModule } from '../media-process/media-process.module';
+import { IntentReconcileService } from './intent-reconcile.service';
 import { VIDEO_SEPARATE_QUEUE } from './video-separate.constants';
 import { validateEnv } from '../../config/env';
 
@@ -68,7 +68,7 @@ const env = validateEnv();
     VideoTrimProcessor,
     VideoSeparateService,
     VideoSeparateProcessor,
-    VideoSeparateCronService,
+    IntentReconcileService,
     { provide: 'REDIS_CLIENT', useFactory: () => new Redis(env.REDIS_URL) },
   ],
   exports: [ExecutionService, ExecutionGateway, ApiCallerService],
