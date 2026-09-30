@@ -11,7 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
  *  ② 反代（nginx）后 req.ip 全是代理 IP——300/min 会变全站共享单桶，生产部署前需 trust proxy
  *    或自定义 tracker（已登记 tech-debt）。 */
 @SkipThrottle()
-@WebSocketGateway({ namespace: '/execution', cors: { origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173'] } })
+@WebSocketGateway({ namespace: '/execution', cors: { origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()) } })
 export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
