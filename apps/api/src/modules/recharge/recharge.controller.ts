@@ -1,10 +1,10 @@
-import { Controller, Post, Req, Inject, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../../auth/auth.guard';
+import { Controller, Post, Req, Inject } from '@nestjs/common';
 import { RechargeService } from './recharge.service';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 
+// 批7 gate 真启动取证：同 media.controller——类级 AuthGuard 注册随批3-3 SessionService 依赖炸启动，
+// 全局 APP_GUARD 已覆盖（notify 回调在 PUBLIC_PREFIXES 由 guard 自身放行）
 @Controller('api/recharge')
-@UseGuards(AuthGuard)
 export class RechargeController {
   constructor(@Inject(RechargeService) private readonly service: RechargeService) {}
 

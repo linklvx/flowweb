@@ -1,11 +1,12 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards, UsePipes, Req, Inject, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, UsePipes, Req, Inject, ValidationPipe } from '@nestjs/common';
 import { MediaService } from './media.service';
 import { MediaBatchService } from './media-batch.service';
 import { BatchGetMediaDto } from './media.dto';
-import { AuthGuard } from '../../auth/auth.guard';
 
+// 批7 gate 真启动取证：类级 @UseGuards(AuthGuard) 在宿主模块上下文实例化——批3-3 给 AuthGuard 加
+// SessionService 依赖后 MediaModule 解析不到（AuthModule 未导入）启动即炸；且全局 APP_GUARD
+// （app.module.ts:95）本就覆盖全部路由，类级注册是双重执行（每请求两次 session touch）。删除。
 @Controller('api/media')
-@UseGuards(AuthGuard)
 export class MediaController {
   constructor(
     @Inject(MediaService) private readonly mediaService: MediaService,

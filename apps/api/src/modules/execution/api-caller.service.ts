@@ -75,9 +75,30 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
 export class ApiCallerService {
   private readonly dashscopeApiKey: string;
   private readonly dashscopeBaseUrl = 'https://dashscope.aliyuncs.com';
+  /** 批7 E2E fake provider（COLLAB_FAKE_AI=1）：各外呼固定结果零真实调用——生产 env 拒绝 */
+  private readonly fakeAi: boolean;
 
   constructor() {
     this.dashscopeApiKey = process.env.DASHSCOPE_API_KEY || '';
+    if (process.env.COLLAB_FAKE_AI === '1') {
+      // 防生产误配：fake 会让付费链路"假成功"（固定产物+照常扣费语义）——启动即炸
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('COLLAB_FAKE_AI=1 不允许用于生产环境（E2E 外呼 stub 会产生假成功产物）');
+      }
+      this.fakeAi = true;
+    } else {
+      this.fakeAi = false;
+    }
+  }
+
+  /** fake 延迟 1.5~2s——模拟真实外呼节奏（E2E 断连窗口/AI 执行态对齐需要可观测的 loading 期） */
+  private fakeDelay(): Promise<void> {
+    return new Promise((r) => setTimeout(r, 1500 + Math.random() * 500));
+  }
+
+  private fakeImageUrl(params: ImageGenParams): { url: string; width: number; height: number } {
+    const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
+    return { url: `/mock/collab-fake-ai-image_${w || 1024}x${h || 1024}.jpg`, width: w || 1024, height: h || 1024 };
   }
 
   /** Combine main prompt and extra prompt, ensuring at least one is present */
@@ -112,6 +133,7 @@ export class ApiCallerService {
     imageHeight: number,
     onProgress?: (progress: number) => void,
   ): Promise<{ url: string }> {
+    if (this.fakeAi) { await this.fakeDelay(); return { url: '/mock/collab-fake-ai-image.jpg' }; }
     const top = Math.max(0, -rect.y);
     const bottom = Math.max(0, rect.y + rect.height - imageHeight);
     const left = Math.max(0, -rect.x);
@@ -148,6 +170,7 @@ export class ApiCallerService {
   }
 
   async callErase(imageUrl: string, maskUrl: string): Promise<{ url: string }> {
+    if (this.fakeAi) { await this.fakeDelay(); return { url: '/mock/collab-fake-ai-image.jpg' }; }
     const body = {
       model: 'wanx-inpainting-v1',
       input: { image_url: imageUrl, mask_url: maskUrl },
@@ -178,6 +201,7 @@ export class ApiCallerService {
     prompt: string,
     strength: number,
   ): Promise<{ url: string }> {
+    if (this.fakeAi) { await this.fakeDelay(); return { url: '/mock/collab-fake-ai-image.jpg' }; }
     const body = {
       model: 'wanx-repainting-v1',
       input: {
@@ -208,6 +232,10 @@ export class ApiCallerService {
   }
 
   async callTextGen(params: TextGenParams): Promise<TextGenResult> {
+    if (this.fakeAi) {
+      await this.fakeDelay();
+      return { content: `[COLLAB_FAKE_AI] ${params.prompt.slice(0, 200)}` };
+    }
     const config = MODEL_CONFIG[params.model];
     if (!config) {
       return { content: `[Mock response for: ${params.prompt.slice(0, 50)}...]` };
@@ -235,6 +263,7 @@ export class ApiCallerService {
   }
 
   async callImageGen(params: ImageGenParams): Promise<ImageGenResult> {
+    if (this.fakeAi) { await this.fakeDelay(); return this.fakeImageUrl(params); }
     const config = MODEL_CONFIG[params.model];
 
     // Real API: HY-Image async submit + poll
@@ -286,6 +315,7 @@ export class ApiCallerService {
   }
 
   async callVideoGen(params: VideoGenParams): Promise<VideoGenResult> {
+    if (this.fakeAi) { await this.fakeDelay(); return { url: '/mock/collab-fake-ai-video.mp4' }; }
     const config = MODEL_CONFIG[params.model];
     if (!config || config.type !== 'video') {
       await new Promise(r => setTimeout(r, 1000));
@@ -331,6 +361,7 @@ export class ApiCallerService {
   }
 
   async callRelighting(imageUrl: string, prompt: string): Promise<{ url: string }> {
+    if (this.fakeAi) { await this.fakeDelay(); return { url: '/mock/collab-fake-ai-image.jpg' }; }
     const body = {
       model: 'wanx-image-relighting-v1',
       input: {

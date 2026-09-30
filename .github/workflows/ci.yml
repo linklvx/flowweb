@@ -2,8 +2,14 @@ name: ci
 on:
   push: { branches: [master] }
   pull_request:
+  schedule:
+    # 批7 e2e-collab（nightly 03:17 UTC——避开整点突刺；PR 不跑：双客户端 E2E+起停 API 时长不适合逐 PR，
+    # 发布门禁语义=发布前必绿：本地 gate 清单 + nightly CI 双保险〔第十轮裁决〕）
+    - cron: '17 19 * * *' # UTC 19:17 = 北京 03:17
+  workflow_dispatch:
 jobs:
   test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request' # nightly 只跑 e2e-collab
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -39,4 +45,38 @@ jobs:
       - run: pnpm verify
       # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
       - run: pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
-      # e2e-collab job 预留（批 7 启用，独立 job：nightly+workflow_dispatch，PR 不跑）
+
+  # 批7 双客户端 E2E 发布门禁（spec v5.10 目标 8 链路）：nightly schedule + workflow_dispatch，
+  # PR 不跑；步骤=gate 脚本单一真相源（预检→自拉 API(COLLAB_FAKE_AI=1)→playwright collab-recovery→清理）。
+  # 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md
+  e2e-collab:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: flowweb, POSTGRES_PASSWORD: '123456', POSTGRES_DB: flowweb }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
+      REDIS_URL: redis://localhost:6379/0
+      # validateEnv 必填键（app.module 链路真启动）——collab 门禁场景不触 MinIO（无上传/下载产物消费），
+      # 假值仅过校验；与 test job "不设 MINIO_* 防误导" 注记的区别：本 job 起真进程，缺了启动即炸。
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: ci-fake
+      MINIO_SECRET_KEY: ci-fake-secret
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/gate-collab.mjs

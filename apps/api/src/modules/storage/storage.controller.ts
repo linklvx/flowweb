@@ -1,11 +1,11 @@
-import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, Req } from '@nestjs/common';
 import { StorageService } from './storage.service';
-import { AuthGuard } from '../../auth/auth.guard';
 import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
 
+// 批7 gate 真启动取证：同 media.controller——类级 AuthGuard 注册随批3-3 SessionService 依赖炸启动，
+// 全局 APP_GUARD 已覆盖
 @Controller('api/storage')
-@UseGuards(AuthGuard)
 export class StorageController {
   constructor(private readonly storageService: StorageService) {}
 
