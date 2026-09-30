@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ExecutionService } from './execution.service';
+import { ExecutionController } from './execution.controller';
 
 /** F4 必红：consume 失败后 doc 不得含本次新产物（text/video 今天违反——先写产物后扣费）。
  *  装置只驱动 execute 的 text/video 两分支；依赖全 mock。
@@ -63,5 +64,44 @@ describe('0c-6 存在性 oracle 重排（assertEditor 先于 findUnique）', () 
     perm.assertEditor.mockRejectedValueOnce(new Error('无项目编辑权限'));
     await expect(svc.execute('p1', 'n1', 'u1')).rejects.toThrow('无项目编辑权限');
     expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+/** 批0c-5 必红：GET jobs/:id 今天无归属校验（任何登录用户可查任意 job 的 state/progress）。
+ *  装置：controller 直构（构造器序对齐 execution.controller.ts：(service, perm, executionQueue)）。 */
+function makeController(job: any, role: string | null) {
+  const queue = { getJob: vi.fn().mockResolvedValue(job) };
+  const perm = { resolve: vi.fn().mockResolvedValue(role), assertEditor: vi.fn() };
+  const ctrl: any = new (ExecutionController as any)({}, perm, queue);
+  return { ctrl, queue, perm };
+}
+
+describe('批0c-5 jobs/:id 归属（default-deny + 成员级）', () => {
+  it('job.data.projectId 非本人项目（resolve null）→ {error:"Job not found"}，不泄露 state/progress', async () => {
+    const job = { id: 'j1', data: { projectId: 'p-other' }, getState: vi.fn().mockResolvedValue('completed'), progress: 100 };
+    const { ctrl } = makeController(job, null);
+    const r = await ctrl.getJob('j1', { user: { id: 'u1' } } as any);
+    expect(r).toEqual({ error: 'Job not found' });
+  });
+
+  it('job 无 projectId → 同样 404 语义（default-deny，fail-closed）', async () => {
+    const job = { id: 'j1', data: {}, getState: vi.fn().mockResolvedValue('completed'), progress: 100 };
+    const { ctrl } = makeController(job, 'PROJECT_EDITOR');
+    const r = await ctrl.getJob('j1', { user: { id: 'u1' } } as any);
+    expect(r).toEqual({ error: 'Job not found' });
+  });
+
+  it('job 不存在 → 404 语义', async () => {
+    const { ctrl } = makeController(null, 'PROJECT_EDITOR');
+    const r = await ctrl.getJob('nope', { user: { id: 'u1' } } as any);
+    expect(r).toEqual({ error: 'Job not found' });
+  });
+
+  it('成员（resolve 有角色）→ 返回 state/progress（回归锚）', async () => {
+    const job = { id: 'j1', data: { projectId: 'p1' }, getState: vi.fn().mockResolvedValue('completed'), progress: 100 };
+    const { ctrl, perm } = makeController(job, 'PROJECT_VIEWER');
+    const r = await ctrl.getJob('j1', { user: { id: 'u1' } } as any);
+    expect(perm.resolve).toHaveBeenCalledWith('p1', 'u1');
+    expect(r).toEqual({ id: 'j1', state: 'completed', progress: 100 });
   });
 });

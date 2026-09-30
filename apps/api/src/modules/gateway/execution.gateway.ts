@@ -3,18 +3,40 @@ import {
   OnGatewayConnection, OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { PrismaService } from '../../prisma/prisma.service';
 
-@WebSocketGateway({ namespace: '/execution', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/execution', cors: { origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173'] } })
 export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
+
+  constructor(private readonly prisma: PrismaService) {}
 
   handleConnection(_client: Socket) {}
 
   handleDisconnect(_client: Socket) {}
 
+  /** 鉴权：镜像 collab.gateway.authenticate 的 session 直查（cookie 名 flowweb.session_token）。
+   *  只校验团队成员身份（读面——VIEWER 也应可见状态）；批5 socket.io 退役评估后本通道可能整体消失。 */
+  private async authorize(client: Socket, projectId: string): Promise<boolean> {
+    const token = (client.handshake.headers?.cookie || '').match(/flowweb\.session_token=([^;]+)/)?.[1];
+    if (!token) return false;
+    const session = await this.prisma.session.findUnique({ where: { token }, include: { user: true } });
+    if (!session || session.expiresAt < new Date()) return false;
+    const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
+    if (!project) return false;
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
+    });
+    return !!member;
+  }
+
   @SubscribeMessage('join')
-  handleJoin(client: Socket, projectId: string) {
+  async handleJoin(client: Socket, projectId: string) {
+    if (!(await this.authorize(client, projectId))) {
+      client.emit('join:error', 'unauthorized');
+      return;
+    }
     client.join(`project:${projectId}`);
   }
 

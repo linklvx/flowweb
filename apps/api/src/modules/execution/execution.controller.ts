@@ -45,9 +45,12 @@ export class ExecutionController {
   }
 
   @Get('jobs/:id')
-  async getJob(@Param('id') id: string) {
+  async getJob(@Param('id') id: string, @Req() req: Request) {
     const job = await this.executionQueue.getJob(id);
-    if (!job) return { error: 'Job not found' };
+    const jobProjectId = (job?.data as any)?.projectId as string | undefined;
+    if (!job || !jobProjectId) return { error: 'Job not found' }; // default-deny——无归属信息即 404（fail-closed，不枚举 state/progress）
+    const role = await this.perm.resolve(jobProjectId, (req as any).user?.id);
+    if (!role) return { error: 'Job not found' };                  // 非成员 404（不泄露存在性）
     const state = await job.getState();
     return { id: job.id, state, progress: job.progress };
   }

@@ -120,14 +120,31 @@ describe('ExecutionController', () => {
 
   describe('getJob', () => {
     it('should return job state and progress', async () => {
-      const result = await controller.getJob('job-123');
+      queue.getJob.mockResolvedValue({
+        id: 'job-123',
+        data: { projectId: 'p1' },
+        getState: vi.fn().mockResolvedValue('completed'),
+        progress: 100,
+      });
+      const result = await controller.getJob('job-123', { user: { id: 'user-1' } } as any);
       expect(queue.getJob).toHaveBeenCalledWith('job-123');
       expect(result).toEqual({ id: 'job-123', state: 'completed', progress: 100 });
     });
 
     it('should return error when job not found', async () => {
       queue.getJob.mockResolvedValue(null);
-      const result = await controller.getJob('nonexistent');
+      const result = await controller.getJob('nonexistent', { user: { id: 'user-1' } } as any);
+      expect(result).toEqual({ error: 'Job not found' });
+    });
+
+    it('job 无 projectId → default-deny 404（fail-closed）', async () => {
+      queue.getJob.mockResolvedValue({
+        id: 'job-x',
+        data: {},
+        getState: vi.fn().mockResolvedValue('completed'),
+        progress: 100,
+      });
+      const result = await controller.getJob('job-x', { user: { id: 'user-1' } } as any);
       expect(result).toEqual({ error: 'Job not found' });
     });
   });
