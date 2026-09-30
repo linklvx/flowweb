@@ -58,6 +58,15 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
+  it('①addNode 幂等：同 node 重复 dispatch → doc 无膨胀（同值 no-op 守卫——对齐其他 action）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
+    const sv = Y.encodeStateVector(doc);
+    const keysBefore = [...doc.getMap('nodes').keys()];
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
+    expect(Y.encodeStateVector(doc)).toEqual(sv);                // SV 不变=no-op 未产生新 Y item
+    expect([...doc.getMap('nodes').keys()]).toEqual(keysBefore); // 键不变（无重复膨胀）
+  });
+
   it('①addNode 组子形态（parentId/width/height）：信封完整落 doc 与 cs', () => {
     dispatchCanvasIntent({ type: 'addNode', node: {
       id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' },

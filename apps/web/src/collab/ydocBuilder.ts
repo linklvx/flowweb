@@ -76,8 +76,8 @@ export function readCanvasFromDoc(doc: Y.Doc): { nodes: CanvasNodeRecord[]; edge
   return { nodes, edges };
 }
 
-/** 增量写（意图漏斗 updateNodeData 族逐键 diff 收敛）：record 缺键 → Y.Map delete；值变才 set
- * （同值 no-op——高频路径无守卫=doc 膨胀）。data 逐键 diff 留 canvasIntents——业务域不属信封。 */
+/** 增量写：record 缺键 → Y.Map delete；值变才 set（同值 no-op——无守卫=doc 膨胀）。
+ *  仅测试消费（生产写路径已收口 canvasIntents——批 4b：updateNodeEnvelope 内联逐键 diff）。 */
 export function applyRecordToYMap(m: Y.Map<any>, r: CanvasNodeRecord): void {
   const n = normalizeCanvasRecord(r);
   for (const key of ['parentId', 'width', 'height'] as const) {

@@ -56,6 +56,9 @@ function resolveDoc(): Y.Doc | null {
 export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
   switch (intent.type) {
     case 'addNode':
+      // 幂等守卫（批4b 评审 Minor）：doc 已有同 id 节点跳过重写——fillDoc 无条件 set 新
+      // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
+      if (d.getMap('nodes').has(intent.node.id)) break;
       fillDoc(d, [intent.node], []);
       break;
     case 'updateNodeData': {
