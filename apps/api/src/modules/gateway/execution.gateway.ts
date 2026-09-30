@@ -3,8 +3,14 @@ import {
   OnGatewayConnection, OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** 批0c-8 豁免全局 ThrottlerGuard，两个部署前提：
+ *  ① APP_GUARD 会触达 socket.io WS context——throttler 在 WS 上的 IP 解析行为未验证，先豁免；
+ *  ② 反代（nginx）后 req.ip 全是代理 IP——300/min 会变全站共享单桶，生产部署前需 trust proxy
+ *    或自定义 tracker（已登记 tech-debt）。 */
+@SkipThrottle()
 @WebSocketGateway({ namespace: '/execution', cors: { origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173'] } })
 export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

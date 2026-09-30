@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
@@ -11,6 +12,7 @@ export class LightingController {
   ) {}
 
   @Post('tasks')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async createTask(@Body() body: CreateLightingTaskDto, @Req() req: any) {
     const userId = (req as any).user?.id;

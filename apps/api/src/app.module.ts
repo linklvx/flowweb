@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import Redis from 'ioredis';
@@ -52,7 +52,9 @@ const env = validateEnv();
         removeOnFail: { age: 86400 * 7 },
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
+    // 批0c-8（B3 约束：首屏零 429）：全局抬至 300/min 安全带宽——原 10/min 会打死画布首屏
+    // （一次画布打开即触发数十请求）。敏感端点（登录/付费任务）显式 @Throttle 收紧至 20/min。
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     PrismaModule,
     HealthModule,
     ContentModule,
@@ -85,6 +87,11 @@ const env = validateEnv();
     VideoWorkModule,
   ],
   providers: [
+    // 批0c-8：ThrottlerGuard 挂 APP_GUARD（此前 ThrottlerModule 注册但守卫从未生效）。
+    // 注册在 AuthGuard 之前（边缘限流不依赖 req.user，未认证流量同样计数）。
+    // 部署前提（tech-debt）：反代（nginx）后 req.ip 全是代理 IP——300/min 变全站共享单桶，
+    // 生产部署前需 trust proxy 或自定义 tracker。
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     // AdminGuard 必须注册在 AuthGuard 之后（Nest APP_GUARD 按注册顺序执行，否则 req.user 尚未挂载）
     { provide: APP_GUARD, useClass: AdminGuard },

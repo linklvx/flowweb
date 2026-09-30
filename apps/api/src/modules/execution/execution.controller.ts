@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Param, Inject, Req, Headers } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
@@ -15,6 +16,7 @@ export class ExecutionController {
   ) {}
 
   @Post('execute')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
   execute(
     @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[] },
     @Req() req: Request,
@@ -25,6 +27,7 @@ export class ExecutionController {
   }
 
   @Post('enqueue')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
   async enqueue(
     @Body() body: { projectId: string; nodeId?: string },
     @Req() req: Request,

@@ -1,7 +1,10 @@
 import { Controller, Post, Body, Inject, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 
+// 批0c-8：付费任务端点收紧至 20/min（全局 300/min 见 app.module）
+@Throttle({ default: { limit: 20, ttl: 60000 } })
 @Controller('api/image-edit')
 export class AiImageEditController {
   constructor(

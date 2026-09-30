@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Patch, Req, Body, Res, UsePipes, ValidationPipe, Inject } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +30,7 @@ export class AuthController {
   ) {}
 
   @Post('sign-in')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：登录端点收紧（防爆破；全局 300/min 见 app.module）
   async signIn(
     @Body() body: { email: string; password: string },
     @Res() res: Response,
@@ -117,6 +119,7 @@ export class AuthController {
   }
 
   @Post('phone-login')
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：登录端点收紧（防爆破；全局 300/min 见 app.module）
   async phoneLogin(
     @Body() dto: PhoneLoginDto,
     @Req() req: any,
