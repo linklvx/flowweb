@@ -4,6 +4,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
+import { parseSessionToken } from '../common/utils/parse-session-token';
 import { SmsService } from '../modules/sms/sms.service';
 import { SendSmsCodeDto } from './dto/send-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
@@ -61,10 +62,9 @@ export class AuthController {
 
   @Post('sign-out')
   async signOut(@Req() req: any, @Res() res: Response) {
-    const cookieStr: string = req.headers.cookie || '';
-    const match = cookieStr.match(/flowweb\.session_token=([^;]+)/);
-    if (match) {
-      await this.authService.signOut(match[1]);
+    const token = parseSessionToken(req.headers.cookie);
+    if (token) {
+      await this.authService.signOut(token);
     }
     res.clearCookie('flowweb.session_token', { path: '/' });
     return res.json({ success: true });

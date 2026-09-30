@@ -3,10 +3,15 @@ import {
   OnGatewayInit, WsException,
 } from '@nestjs/websockets';
 import { Inject } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Server, Socket } from 'socket.io';
 import { auth } from '../../auth/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** 批0c 质量修复2：豁免全局 ThrottlerGuard——WS context 下 throttler handleRequest 对
+ *  消息 payload 无条件 res.header(...) 抛 TypeError（@nestjs/throttler 6.5.0，同 execution.gateway），
+ *  否则 join:order 每次调用即抛、支付状态推送断链。 */
+@SkipThrottle()
 @WebSocketGateway({ namespace: '/payment', cors: { origin: '*' } })
 export class PaymentGateway implements OnGatewayInit {
   @WebSocketServer() server!: Server;

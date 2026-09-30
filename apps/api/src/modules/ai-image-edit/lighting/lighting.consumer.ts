@@ -207,13 +207,16 @@ export class LightingConsumer {
     } catch (error: any) {
       this.logger.error(`Lighting failed: ${error.message}`, error.stack);
 
-      // Update task to failed
+      // Update task to failed——清产物字段：step9 可能已写 SUCCESS+产物 URL，FAILED 覆写须同笔清空，
+      // 否则 FAILED 行残留 resultImageUrl/resultMediaId（getTask 可取），状态与产物矛盾
       await this.prisma.lightingTask.update({
         where: { id: taskId },
         data: {
           status: LightingTaskStatus.FAILED,
           errorMessage: error.message,
           completedAt: new Date(),
+          resultImageUrl: null,
+          resultMediaId: null,
         },
       });
 

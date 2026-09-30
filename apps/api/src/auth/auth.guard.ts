@@ -1,4 +1,5 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { parseSessionToken } from '../common/utils/parse-session-token';
 
 const PUBLIC_PREFIXES = [
   '/api/health',
@@ -23,15 +24,14 @@ export class AuthGuard implements CanActivate {
     const isPublic = PUBLIC_PREFIXES.some(p => path.startsWith(p));
 
     // Try to authenticate from session cookie (optional for public routes)
-    const cookieStr: string = request.headers.cookie || '';
-    const match = cookieStr.match(/flowweb\.session_token=([^;]+)/);
-    if (match) {
+    const token = parseSessionToken(request.headers.cookie);
+    if (token) {
       try {
         const { PrismaClient } = await import('@prisma/client');
         const p = new PrismaClient();
         try {
           const session = await p.session.findUnique({
-            where: { token: match[1] },
+            where: { token },
             include: { user: true },
           });
           if (session && session.expiresAt >= new Date()) {

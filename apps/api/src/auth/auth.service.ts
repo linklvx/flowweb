@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
 import { auth } from './auth';
+import { parseSessionToken } from '../common/utils/parse-session-token';
 
 const redis = new Redis({ host: 'localhost', port: 6379 });
 
@@ -59,10 +60,8 @@ export class AuthService {
 
   async getSession(headers: Record<string, string>) {
     // Direct DB lookup — bypasses Better Auth's getSession which fails in NestJS context
-    const cookieStr = headers.cookie || '';
-    const match = cookieStr.match(/flowweb\.session_token=([^;]+)/);
-    if (!match) return null;
-    const token = match[1];
+    const token = parseSessionToken(headers.cookie);
+    if (!token) return null;
     try {
       const { PrismaClient } = await import('@prisma/client');
       const p = new PrismaClient();

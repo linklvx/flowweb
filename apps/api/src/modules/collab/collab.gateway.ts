@@ -6,6 +6,7 @@ import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
 import Redis from 'ioredis';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseSessionToken } from '../../common/utils/parse-session-token';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
@@ -83,8 +84,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新 */
   private async authenticate({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
     const token = requestParameters?.get('token')
-      ?? (requestHeaders?.get('cookie') || '').match(/flowweb\.session_token=([^;]+)/)?.[1]
-      ?? null;
+      ?? parseSessionToken(requestHeaders?.get('cookie'));
     const session = token
       ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
       : null;

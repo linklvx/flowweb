@@ -164,5 +164,24 @@ describe('LightingConsumer', () => {
       // 归属校验先于付费 AI 调用：越权读不应触发 relighting
       expect(apiCaller.callRelighting).not.toHaveBeenCalled();
     });
+
+    it('step9 已置 SUCCESS 后 step10 writeNodeData 抛错 → FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
+      collabDoc.writeNodeData.mockRejectedValue(new Error('doc write boom'));
+      mockAxiosResult();
+
+      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('doc write boom');
+
+      // SUCCESS 已落库（resultImageUrl/resultMediaId 已写）→ catch 覆写 FAILED 时必须同笔清空，
+      // 否则 FAILED 行残留产物 URL（getTask 可取）——状态与产物矛盾
+      expect(prisma.lightingTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'failed',
+            resultImageUrl: null,
+            resultMediaId: null,
+          }),
+        }),
+      );
+    });
   });
 });

@@ -4,7 +4,9 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SkipThrottle } from '@nestjs/throttler';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseSessionToken } from '../../common/utils/parse-session-token';
 
 /** 批0c-8 豁免全局 ThrottlerGuard，两个部署前提：
  *  ① APP_GUARD 会触达 socket.io WS context——throttler 在 WS 上的 IP 解析行为未验证，先豁免；
@@ -13,6 +15,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 @SkipThrottle()
 @WebSocketGateway({ namespace: '/execution', cors: { origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()) } })
 export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ExecutionGateway.name);
+
   @WebSocketServer()
   server!: Server;
 
@@ -25,16 +29,23 @@ export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnec
   /** 鉴权：镜像 collab.gateway.authenticate 的 session 直查（cookie 名 flowweb.session_token）。
    *  只校验团队成员身份（读面——VIEWER 也应可见状态）；批5 socket.io 退役评估后本通道可能整体消失。 */
   private async authorize(client: Socket, projectId: string): Promise<boolean> {
-    const token = (client.handshake.headers?.cookie || '').match(/flowweb\.session_token=([^;]+)/)?.[1];
+    const token = parseSessionToken(client.handshake.headers?.cookie);
     if (!token) return false;
-    const session = await this.prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.expiresAt < new Date()) return false;
-    const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
-    if (!project) return false;
-    const member = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
-    });
-    return !!member;
+    try {
+      const session = await this.prisma.session.findUnique({ where: { token }, include: { user: true } });
+      if (!session || session.expiresAt < new Date()) return false;
+      const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
+      if (!project) return false;
+      const member = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
+      });
+      return !!member;
+    } catch (err: any) {
+      // prisma 异常默认会被 Nest WS 层吞掉（reject → 无日志的静默拒绝），留 warn 便于排障；
+      // fail-closed 语义不变：任何异常一律拒绝
+      this.logger.warn(`join authorize db error: ${err?.message ?? err}`);
+      return false;
+    }
   }
 
   @SubscribeMessage('join')
