@@ -61,7 +61,7 @@ async function fetchProjectMeta(
     const status = (e as { status?: number }).status;
     if (status === 404) throw new ProjectNotFoundError();
     if (status === 403) throw new ProjectInaccessibleError();
-    throw new ProjectLoadError();   // 5xx/网络/json 异常（apiFetch 结构化错误均无 status）
+    throw new ProjectLoadError();   // 5xx/网络/json 异常兜底（apiFetch 401/5xx 经批3-3 透传 status——上方 404/403 分型依赖它）
   }
 }
 

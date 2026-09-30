@@ -81,6 +81,24 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     expect((gateway as any).pendingUpdates.get(doc as any)).toHaveLength(1);   // 数据仍留活队列
   });
 
+  it('持续失败不刷屏：退避梯多级推进（1+5 次失败）→ unhealthy 广播恰 1 次（电平翻转才广播）', async () => {
+    const { gateway, repo } = buildGateway();
+    const doc = registerDoc(gateway, 'project:p1');
+    const bcSpy = vi.spyOn(doc, 'broadcastStateless').mockImplementation(() => {});
+    await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
+    doc.getMap('nodes').set('n1', 1);
+    repo.append.mockRejectedValue(new Error('db down'));
+
+    await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any).catch(() => {});
+    for (const delay of [1_000, 2_000, 5_000, 15_000, 30_000]) {
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+    const unhealthy = JSON.stringify({ type: 'persist-status', healthy: false });
+    const unhealthyCalls = bcSpy.mock.calls.filter(([payload]) => payload === unhealthy);
+    expect(unhealthyCalls).toHaveLength(1);   // 首次失败翻转电平广播 1 次；5 档重试全失败不再广播
+    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平保持 unhealthy
+  });
+
   it('两阶段·stash 级：doc 已不在内存（卸载）→ 重试直写 repo.append(stash)，unflushed 清空', async () => {
     const { gateway, repo } = buildGateway();
     // 不 registerDoc——doc 不在 server.documents（卸载形态）
