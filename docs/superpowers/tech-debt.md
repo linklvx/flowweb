@@ -4,7 +4,7 @@
 > 约定：每项含【来源】【现状核查日期】【修复方向】；完成一项移入文末「已清账」并注明 commit。
 > 新债发现时随手追加，修复前先核查现状（文件/行为可能已变化）。
 
-最近核查：2026-08-21
+最近核查：2026-10-01
 
 ## 前端（apps/web）
 
@@ -23,6 +23,51 @@
 ## 后端（apps/api）
 
 ## 数据 / 部署
+
+## R1c 立项要件（2026-09-30 collab 恢复工程登记——master plan 裁决本轮不实施）
+
+> 来源：`docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md`「R1c 登记」节（全工程闭环时留档，登记日=现状核查日）。R1c 立项时整块取用；动手前逐项重核现状（文件/行为可能已变化）。
+
+### TD-17 编辑器数据双轨 ADR（F10）
+
+- **来源**：collab spec v5.10 F10——视频编辑器数据在 editorStore（本地 autosave）而画布走 doc 协作，双轨并存
+- **修复方向**：R1c 立项时裁决「入 doc vs 本地持久化」；入 doc 前置 = canvas_doc payload 体积量化
+- **弃用触发条件（第九轮评估）**：R1c 立项被否决时，批 0d 五件套（autosave 单向 latch/beforeunload/handleClose 三选等）升级为长期件并重新设计——防「过渡」变「永久」
+
+### TD-18 同步执行统一入队（execute 内联 → 全走队列，F13）
+
+- **来源**：collab master plan 批 0.5 F13 登记；第十轮评估提级
+- **定性**：同步路径恢复语义残缺的**根因**——队列路径有 stalled 可重入 claim 恢复、同步路径永远只能等 15min 三查判死；两套恢复语义长期并存的根源在此，非单纯一致性美化
+- **修复方向**：execute 内联改全走队列；含前端 await 契约变更（超出批 0.5 范围故未做）。现状无资损（三查判死已闭环恢复语义）
+
+### TD-19 y-indexeddb 立项要件 +2
+
+- **来源**：collab master plan R1c 登记
+- **要件**：在既有要件之上追加 tombstone 清理 / 多标签协调两项
+
+### TD-20 意图表+客户端意图记录 = R1c 一半地基（B8）
+
+- **性质**：非债务——批 0.5 已落地（GenerationIntent 表 + `apps/web/src/utils/intentRecord.ts`）；登记目的是 **R1c 立项时防重做**
+
+### TD-21 socket.io 分两步退役
+
+- **来源**：批 1 末评估（前移）+ 批 5 冻结确认；结论文档 `docs/superpowers/plans/socketio-retirement-assessment.md`
+- **结论**：已死 1（execution:complete 零消费）+ 活 23（node:status 17 主路径 dual-write 已落；trim/separate/stitch 6 唯一通道、web 轮询兜底在）。保留 + 冻结分两步退役：trim/separate/stitch 补 6 个 writeExecStatus 写点后切 doc；包级移除被 /payment gateway 阻塞（另立评估）
+
+### TD-22 多实例退避协调（F12）
+
+- **来源**：collab spec F12；批 7 已落恢复风暴观测（10+ 并发重连 + collabDiagnostics 突刺计数）——先观测后谈 shed
+- **修复方向**：多实例部署时客户端恢复退避的跨实例协调
+
+### TD-23 配对式看门狗 R3
+
+- **来源**：collab spec R3 登记
+- **修复方向**：批 1 已落单实例 watchdog（connectionMachine 3s tick + 恢复门）；配对式（进程对互监）属 R3 域
+
+### TD-24 Throttler trust proxy / tracker
+
+- **来源**：批 0c-8 注记（app.module.ts 代码注释同步登记）
+- **修复方向**：生产部署前 `app.set('trust proxy', 1)` 或 throttler 自定义 tracker——反代后 `req.ip` 全是代理 IP，300/min 会退化成全站共享单桶
 
 ## 集中修复建议批次
 
