@@ -17,7 +17,9 @@ describe('TeamCreditService', () => {
     prisma = {
       teamBalance: { findUnique: vi.fn(), updateMany: vi.fn() },
       teamMember: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
+      teamCreditTransaction: { create: vi.fn(), createMany: vi.fn() },
+      // 批0.5-4：consume 整体进 $transaction——mock 透传 tx=prisma 直执回调
+      $transaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma)),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -122,18 +124,19 @@ describe('TeamCreditService', () => {
         where: { id: 'm1', monthlyPeriod: period(), monthlyUsed: { lte: 200 - 50 } },
         data: { monthlyUsed: { increment: 50 }, monthlyPeriod: period() },
       });
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(2);
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: {
-          teamId: 't1', operatorUserId: 'u1', amount: -30, type: 'consumption',
-          creditType: 'subscription', referenceId: 'ref-1', balanceAfter: 10,
-        },
-      });
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: {
-          teamId: 't1', operatorUserId: 'u1', amount: -20, type: 'consumption',
-          creditType: 'regular', referenceId: 'ref-1', balanceAfter: 70,
-        },
+      // 批0.5-4 语义更新：两次 create 改一次 createMany 两行（记账与扣减同一事务）
+      expect(prisma.teamCreditTransaction.createMany).toHaveBeenCalledTimes(1);
+      expect(prisma.teamCreditTransaction.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            teamId: 't1', operatorUserId: 'u1', amount: -30, type: 'consumption',
+            creditType: 'subscription', referenceId: 'ref-1', balanceAfter: 10,
+          },
+          {
+            teamId: 't1', operatorUserId: 'u1', amount: -20, type: 'consumption',
+            creditType: 'regular', referenceId: 'ref-1', balanceAfter: 70,
+          },
+        ],
       });
     });
 
