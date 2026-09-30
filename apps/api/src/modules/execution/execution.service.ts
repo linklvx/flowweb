@@ -33,12 +33,14 @@ export class ExecutionService {
   }
 
   async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array) {
+    // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
+    await this.perm.assertEditor(projectId, userId);
+
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
       where: { id: projectId },
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
-    await this.perm.assertEditor(projectId, userId);
 
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const allNodes = canvas.nodes as any[];

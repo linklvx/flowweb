@@ -56,3 +56,12 @@ describe('F4 产物序（spec v5.10：看到产物 ⇒ 已扣费）', () => {
     expect(collabDoc.writeNodeData).toHaveBeenCalled();
   });
 });
+
+describe('0c-6 存在性 oracle 重排（assertEditor 先于 findUnique）', () => {
+  it('assertEditor 抛错时 canvasProject.findUnique 零调用（非成员不可区分不存在 vs 无权）', async () => {
+    const { svc, prisma, perm } = makeService(true, []);
+    perm.assertEditor.mockRejectedValueOnce(new Error('无项目编辑权限'));
+    await expect(svc.execute('p1', 'n1', 'u1')).rejects.toThrow('无项目编辑权限');
+    expect(prisma.canvasProject.findUnique).not.toHaveBeenCalled();
+  });
+});
