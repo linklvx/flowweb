@@ -657,6 +657,7 @@ enum TeamCreditTransactionType {
   upgrade_clear
   admin_grant
   admin_clear
+  refund // F13 退款逆向记账——reconcile 三查② VOIDED 事务专用
 }
 
 enum TeamSubscriptionStatus {
@@ -979,4 +980,37 @@ model StyleRecentUsage {
   style      Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
   @@unique([userId, styleId])
   @@index([userId, lastUsedAt])
+}
+
+/// 会话恢复 spec v5.10 B1/F1/F13——幂等与在飞互斥载体（净删 SETNX/dedup/五段键/失败重放计数）
+model GenerationIntent {
+  id              String       @id @default(cuid())
+  projectId       String
+  nodeId          String
+  userId          String // F13：退款回滚 monthlyUsed 需归因到人；对账三面 join 键
+  intentId        String // 客户端 runId——与 projectId 复合唯一（F1：跨项目撞键=两行独立不误伤）
+  kind            String // text|video|image|outpaint|erase|redraw|lighting
+  paramsHash      String // 服务端规范化哈希——命中比对谓词（防客户端改参复用 intentId）
+  status          IntentStatus @default(RUNNING)
+  jobId           String? // 同步路径为空——reconcile 三查特判（F13）
+  creditsConsumed Int          @default(0) // F13：扣费时即写（consume 事务内 CAS）——崩溃窗口对账可判；退款事务归零
+  attempts        Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
+  resultRef       String? // Media id / 产物 URL
+  error           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  completedAt     DateTime?
+
+  @@unique([projectId, intentId])
+  @@index([projectId, nodeId, status])
+  @@index([jobId]) // F13：reconcile 活跃核验按 jobId 查 BullMQ 状态
+  @@index([status, updatedAt]) // F13：活跃核验扫描（partial index 不进 Prisma 声明——migration SQL 唯一真相）
+  @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）
+}
+
+enum IntentStatus {
+  RUNNING // claim 直建 RUNNING——PENDING 删除（F13 补强：无写者的死枚举值）
+  SUCCEEDED
+  FAILED
+  VOIDED
 }
