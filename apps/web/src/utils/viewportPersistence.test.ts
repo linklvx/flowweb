@@ -7,7 +7,7 @@ const PID = 'p1';
 
 beforeEach(() => {
   localStorage.clear();
-  useCanvasStore.setState({ viewport: { x: 0, y: 0, zoom: 1 }, isHydrating: false });
+  useCanvasStore.setState({ viewport: { x: 0, y: 0, zoom: 1 }, hydration: 'ready' });
 });
 
 afterEach(() => {
@@ -27,10 +27,10 @@ describe('bindViewportPersistence（viewport 本地偏好 debounce 写）', () =
     unbind();
   });
 
-  it('isHydrating 期间的 viewport 变化不调度写（恢复不算编辑）', () => {
+  it('hydration 非 ready 期间（会话建立/水合窗口）viewport 变化不调度写（恢复不算编辑）', () => {
     vi.useFakeTimers();
     const unbind = bindViewportPersistence(PID);
-    useCanvasStore.setState({ isHydrating: true });
+    useCanvasStore.setState({ hydration: 'pending' });
     useCanvasStore.setState({ viewport: { x: 1, y: 2, zoom: 1 } });
     vi.advanceTimersByTime(1000);
     expect(localStorage.getItem(viewportKey(PID))).toBeNull();

@@ -108,6 +108,11 @@ let lastRecoveryAt = 0;
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
 
+// 批2-1：远端应用窗口 latch（原 isHydrating 的"抑制窗口"职责随字段删除迁至此——spec：
+// latch 职责不得消失，它是防"切项目=删光 doc"的机制之一）。applyDocToStore 前后置位/清除，
+// 桥双订阅读它短路——模块级绝不进 store（避免额外渲染）
+let applyingRemote = false;
+
 // 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
 let transportHandle: ReconnectHandle | null = null;
 // 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
@@ -226,8 +231,8 @@ export function _resetBaselineForTest() {
 
 /** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
  *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣）。
- *  唯一豁免：initCollab 超时分支直写 'offline'——destroyCollab 已断事件通道且 provider=null，
- *  recompute 无法表达该终态（批 0e lint-gate 白名单已含此例外）。 */
+ *  批2-1 修D：超时分支不再 destroyCollab/直写 'offline'——provider 存活，事件通道未断，
+ *  本函数可表达全部状态（原"超时直写豁免"随之废除）。 */
 export function recomputeConnStatus() {
   const p = provider;
   const healthy = !!p
@@ -382,7 +387,9 @@ export function applyDocToStore(d: Y.Doc) {
 /** 订阅双 store → ydoc（origin 标记 local-user：Y.UndoManager trackedOrigins 唯一入栈者） */
 function bindBridge(): () => void {
   const unsubCs = useCanvasStore.subscribe((state, prev) => {
-    if (state.isHydrating || prev.isHydrating) return;
+    // 批2-1 双门：hydration 非 ready（会话建立/水合窗口——R17 切项目清空不得翻译成删除）
+    // + applyingRemote（远端应用窗口——原 isHydrating latch 职责迁入）
+    if (state.hydration !== 'ready' || applyingRemote) return;
     if (state.projectId !== prev.projectId) return;
     // diff 输入只有 nodes/edges——引用未变早退（严格等价：同引用 ⇒ pickStruct 投影输出相同
     // ⇒ isEqual 恒真 ⇒ 原逻辑本就 no-op），防 UI 态翻转白跑 O(n) 投影+深比较
@@ -395,7 +402,7 @@ function bindBridge(): () => void {
     }
   });
   const unsubNs = useNodeStore.subscribe((state, prev) => {
-    if (useCanvasStore.getState().isHydrating) return;
+    if (applyingRemote || useCanvasStore.getState().hydration !== 'ready') return;
     if (state.nodes !== prev.nodes) syncStoreToDoc(doc!, Origin.LocalUser);
   });
   return () => { unsubCs(); unsubNs(); };
@@ -422,7 +429,13 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     lastWsStatus = status;
     recomputeConnStatus();
   });
-  p.on('authenticated', () => recomputeConnStatus());
+  p.on('authenticated', ({ scope }: any) => {
+    // 批2-1 粘滞权威覆盖（v5.4）：authenticated 是 collabReadOnly 唯一授权写点——
+    // read-write 解除只读；readonly/未知 scope 置回（fail-closed）。onClose 不清（断连窗口
+    // 编辑经 messageQueue 合并——回收会造成重连后 NACK 静默回退）
+    useCanvasStore.setState({ collabReadOnly: scope !== 'read-write' });
+    recomputeConnStatus();
+  });
   p.on('synced', () => recomputeConnStatus());
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
   p.on('close', ({ event }: any) => {
@@ -485,10 +498,16 @@ function bindReevaluateOnce(): void {
  * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
 export async function initCollab(projectId: string): Promise<void> {
-  await destroyCollab();
+  // 批2-1：入口走清理体（teardownSession）而非 destroyCollab——后者复位 hydration='idle'，
+  // 会把 openSession 刚置的 pending 打成 idle 闪烁；清理体不做状态复位
+  await teardownSession();
   // 批1-5 会话对象（epoch 判活——I-1）：sessionEpoch 单调递增不随 session 置空回卷
   const epoch = ++sessionEpoch;
   session = { pid: projectId, startedAt: Date.now(), epoch };
+  // 批2-1 会话起点：hydration=pending（openSession 已先置——此处覆盖入口清理期）+
+  // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）
+  useCanvasStore.getState().setHydration('pending');
+  useCanvasStore.setState({ collabReadOnly: true });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
   attemptId = 0;
@@ -531,11 +550,11 @@ export async function initCollab(projectId: string): Promise<void> {
       fastLaneEligible: lastWsStatus === 'connected' && provider !== null && !provider.isAuthenticated && now - lastConnectedAt > FAST_LANE_MS,
       gateMs: STALE_INBOUND_MS + Math.random() * 15_000, // 45~60s jitter（惊群防护）
       cooldownMs: RECOVER_BACKOFF_MS[Math.min(recoveryAttempts, RECOVER_BACKOFF_MS.length - 1)] + Math.random() * 5_000,
-      hydrationPending: !!useCanvasStore.getState().isHydrating,
+      hydrationPending: useCanvasStore.getState().hydration === 'pending',
       unhealthySince,
       recoveryAttempts,
       lastRecoveryAt,
-      terminal: false, // TODO 批2：wsAuthNotice 终态接入（canvasStore 现无此字段）
+      terminal: useCanvasStore.getState().wsAuthNotice?.terminal === true, // 批2-1 接入（原 TODO 批2）
       hidden: document.hidden,
       offline: typeof navigator !== 'undefined' && !navigator.onLine,
     };
@@ -580,11 +599,11 @@ export async function initCollab(projectId: string): Promise<void> {
   // 离线廉价兜底：超时未 synced——不置 connected、不 apply 空 doc、不抬 hydrate 门（保持不可编辑），UI 层提示重试
   if (!synced) {
     recordCollabDiag('hydration_fail'); // 批1-5：首同步超时记录
-    // 廉价兜底（用户拍板）：超时=服务端不可用——销毁连接防"晚重连蒙层消失但 store 未水合"
-    // 的脏编辑窗口（编辑仅存 store 刷新即丢）；蒙层引导刷新重走 initCollab。
-    // syncFailed 蒙层独占条件（I-2）：仅超时置位，断连不置（断连走自动重连，指示器非阻断告知）
-    await destroyCollab();
-    useCanvasStore.setState({ connStatus: 'offline', syncFailed: true });
+    // 修D（v5.3，批2-1）：超时不再 destroyCollab——保留 provider/doc（恢复门对象仍在、
+    // "断连期编辑仍在 doc"在 failed 态成立，且销毁会与恢复门互踩出"10s 超时↔15s 快线"重建循环）。
+    // hydration='failed' 驱动蒙层分型（重试连接/刷新行动）；迟到 synced 的水合自愈
+    // （completeHydration 单驱动）不属本批——蒙层钉死引导用户重试
+    useCanvasStore.getState().setHydration('failed');
     return;
   }
   clearTimeout(timer);
@@ -595,11 +614,15 @@ export async function initCollab(projectId: string): Promise<void> {
 
   // 批0a：connStatus 'connected' 直写已删——synced 完成只是候选条件之一，
   // 真入站（message 代际确认）到位前保持 connecting（recomputeConnStatus 唯一写点）
-  useCanvasStore.setState({ syncFailed: false });
   recomputeConnStatus();
-  useCanvasStore.getState().setHydrating(true);
-  applyDocToStore(doc!);
-  useCanvasStore.getState().setHydrating(false);
+  // 批2-1：水合窗口改 applyingRemote latch（模块级，不进 store）——ready 于水合完成后单写
+  applyingRemote = true;
+  try {
+    applyDocToStore(doc!);
+  } finally {
+    applyingRemote = false;
+  }
+  useCanvasStore.getState().setHydration('ready');
   // 批0b：hydration 即 committed 基线（spec"committed 雏形/prev 投影"）——首次本地同步的删除判据
   // 有源（首编辑=删除场景不丢删除）；影子经 readCanvasFromDoc 过滤于投影外 → 永不进基线
   // （影子生命周期归服务端批0b-2，本地删除扫描永不触及）
@@ -615,9 +638,13 @@ export async function initCollab(projectId: string): Promise<void> {
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
       if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）
-      useCanvasStore.getState().setHydrating(true);
-      applyDocToStore(doc!);
-      useCanvasStore.getState().setHydrating(false);
+      // 批2-1：远端应用窗口 latch（原 setHydrating(true/false) 包裹——桥双订阅短路防回声）
+      applyingRemote = true;
+      try {
+        applyDocToStore(doc!);
+      } finally {
+        applyingRemote = false;
+      }
     }, 50);
   };
   doc.getMap('nodes').observeDeep(onRemote as any);
@@ -632,7 +659,10 @@ export async function initCollab(projectId: string): Promise<void> {
   unbindStores = bindBridge();
 }
 
-export async function destroyCollab(): Promise<void> {
+/** 批2-1 会话清理体：destroyCollab（真卸载）与 initCollab 入口（旧会话摘除）共用。
+ *  不做 hydration/collabReadOnly 复位——那是 destroyCollab 的职责（idle 单写点），
+ *  入口若经 destroyCollab 会把 openSession 刚置的 pending 打成 idle 闪烁。 */
+async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   unbindStores?.();
@@ -652,6 +682,15 @@ export async function destroyCollab(): Promise<void> {
     doc = null;
     session = null; // 批1-5 会话对象随 doc 实例守卫置空（sessionEpoch 不回卷）
   }
+}
+
+export async function destroyCollab(): Promise<void> {
+  await teardownSession();
+  // R23 同款守卫：await 间隙并发 initCollab 已立新会话（session 非空）时，
+  // 陈旧 destroy 不得复位新会话的 hydration/collabReadOnly（交错写防线）
+  if (session !== null) return;
+  useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
+  useCanvasStore.setState({ collabReadOnly: true }); // G27：登出/切用户经页面卸载路径显式复位
 }
 
 /** P0-4：展开态普通组按子节点包围盒重算（加载回放共用） */

@@ -91,7 +91,7 @@ const loadingNode = (id: string, type = 'imageGen') => ({
 });
 
 const resetStores = () => {
-  useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+  useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle' });
   useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
 };
 

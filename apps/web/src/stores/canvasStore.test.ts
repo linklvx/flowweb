@@ -674,16 +674,18 @@ describe('canvasStore', () => {
     });
   });
 
-  describe('isHydrating', () => {
-    it('should initialize as false', () => {
-      expect(useCanvasStore.getState().isHydrating).toBe(false);
+  describe('hydration 四态（批2-1）', () => {
+    it('should initialize as idle', () => {
+      expect(useCanvasStore.getState().hydration).toBe('idle');
     });
 
-    it('should toggle via setHydrating', () => {
-      useCanvasStore.getState().setHydrating(true);
-      expect(useCanvasStore.getState().isHydrating).toBe(true);
-      useCanvasStore.getState().setHydrating(false);
-      expect(useCanvasStore.getState().isHydrating).toBe(false);
+    it('setHydration 定向转移（单写者 action）', () => {
+      useCanvasStore.getState().setHydration('pending');
+      expect(useCanvasStore.getState().hydration).toBe('pending');
+      useCanvasStore.getState().setHydration('ready');
+      expect(useCanvasStore.getState().hydration).toBe('ready');
+      useCanvasStore.getState().setHydration('idle');
+      expect(useCanvasStore.getState().hydration).toBe('idle');
     });
   });
 });

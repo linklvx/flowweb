@@ -77,11 +77,11 @@ export function CanvasPage() {
   const createPromiseRef = useRef<Promise<{ id: string; name: string }> | null>(null);
   const sessionEpochRef = useRef(0);
 
-  /** R17 硬契约前置（批0a 版）：先推 epoch/抬 hydrate 门，再清 store——清空不被桥翻译成删除。
-   *  过渡注记：setHydrating 是现状字段，批 2-1 整体替换为 hydration 四态后此处随改 */
+  /** R17 硬契约前置（批0a 版 / 批2-1 四态化）：先推 epoch/置 pending（桥禁写门），再清 store——
+   *  清空不被旧会话订阅翻译成删除 */
   function resetSession() {
     sessionEpochRef.current++;
-    useCanvasStore.getState().setHydrating(true);
+    useCanvasStore.getState().setHydration('pending');
     useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, teamId: null });
     useNodeStore.setState({ nodes: {} });
   }
@@ -89,8 +89,8 @@ export function CanvasPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
-    // 每轮开局归零：清上一轮 cancelled 遗留的悬停 hydrating（三保险之一）
-    useCanvasStore.getState().setHydrating(false);
+    // 每轮开局归零：清上一轮 cancelled 遗留的悬停态（三保险之一——批2-1 四态：idle=无会话）
+    useCanvasStore.getState().setHydration('idle');
 
     // 项目切换/新建前同步清空模块级 store 残留，否则残留会骗过下方 DB 空守卫（Bug 3）
     const storedId = queryProjectId || localStorage.getItem(PROJECT_ID_KEY);
@@ -102,16 +102,16 @@ export function CanvasPage() {
 
     /** R5 结构性根修：四条项目就绪路径唯一入口（原 finish 私有化收编）——
      *  新建/404 回退不再"只 finish 不建 doc 会话"（可编辑但刷新蒸发的活 bug）。
-     *  过渡注记：setHydrating 是现状字段，批 2-1 整体替换为 hydration 四态后此处随改 */
+     *  批2-1：首行置 pending（先于任何渲染就绪）；ready/failed 归 runtime 单写——
+     *  initCollab 超时（failed）不被此处的完成动作遮蔽（旧代码 setHydrating(false) 吞超时蒙层） */
     async function openSession(id: string, name: string) {
       if (cancelled) return;
       sessionEpochRef.current++;
       const epoch = sessionEpochRef.current;
-      useCanvasStore.getState().setHydrating(true);
+      useCanvasStore.getState().setHydration('pending');
       await initCollab(id);
       if (cancelled || epoch !== sessionEpochRef.current) return; // 期间用户切项目——丢弃陈旧结果
-      useCanvasStore.setState({ projectId: id, syncFailed: false });
-      useCanvasStore.getState().setHydrating(false);
+      useCanvasStore.setState({ projectId: id });
       setProjectId(id);
       setProjectName(name);
     }
@@ -133,13 +133,13 @@ export function CanvasPage() {
               .catch(() => {
                 createPromiseRef.current = null;
                 if (cancelled) return;
-                useCanvasStore.getState().setHydrating(false);
+                useCanvasStore.getState().setHydration('idle');
                 setLoadError('unavailable');
               });
             return;
           }
           // F14 三义分家：403/有参 404=inaccessible（不清 key 不自动新建）；5xx/网络/json 异常=unavailable
-          useCanvasStore.getState().setHydrating(false);
+          useCanvasStore.getState().setHydration('idle');
           const isInaccessible =
             e instanceof ProjectNotFoundError || e instanceof ProjectInaccessibleError;
           setLoadError(isInaccessible ? 'inaccessible' : 'unavailable');
@@ -152,7 +152,7 @@ export function CanvasPage() {
         .catch(() => {
           createPromiseRef.current = null;
           if (!cancelled) {
-            useCanvasStore.getState().setHydrating(false);
+            useCanvasStore.getState().setHydration('idle');
             setLoadError('unavailable');
           }
         });
@@ -164,6 +164,9 @@ export function CanvasPage() {
   }, [queryProjectId, retryKey]);
 
   const handleRetry = () => setRetryKey((k) => k + 1);
+
+  // 批2-1 R27 首屏可达性：!projectId 分支按 hydration 分档（failed 给行动，其余加载中）
+  const hydration = useCanvasStore((s) => s.hydration);
 
   if (loadError) {
     const isInaccessible = loadError === 'inaccessible';
@@ -196,6 +199,21 @@ export function CanvasPage() {
 
   // 等待项目就绪后才渲染
   if (!projectId) {
+    // 批2-1 R27：failed（超时/陈旧轮残留）给重试行动——首屏不挂死在"加载画布..."
+    if (hydration === 'failed') {
+      return (
+        <div className="flex h-screen bg-bg flex-col items-center justify-center gap-5">
+          <span className="text-text-dim-3 text-sm">画布同步失败，请检查网络后重试</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
+          >
+            重试连接
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="flex h-screen bg-bg items-center justify-center">
         <span className="text-text-dim-1">加载画布...</span>
@@ -210,9 +228,19 @@ export function CanvasPage() {
 
 // 内层组件仅在 projectId 就绪后挂载
 function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: string; projectName: string; onNameChange: (name: string) => void }) {
-  // 蒙层独占条件（I-2）：仅 initCollab 超时（syncFailed）弹全屏重试；会话中途断连不阻断
-  // （connStatus offline 由 SaveStatusIndicator 非阻断告知——reload 蒙层会丢 messageQueue 未落库编辑）
-  const syncFailed = useCanvasStore((s) => s.syncFailed);
+  // 批2-1 蒙层分型（替代 isHydrating/syncFailed 双布尔）：
+  //  idle=会话未建立（切项目窗口正常瞬态/漏斗新入口自报）；pending=非阻断同步骨架；
+  //  failed=10s 超时（修D——provider 保留，重试行动）；ready=无蒙层。
+  //  会话中途断连不弹蒙层（hydration 保持 ready——connStatus/connUi 由指示器与 SyncBanner 非阻断告知）
+  const hydration = useCanvasStore((s) => s.hydration);
+
+  // idle 的 dev 留痕（非抛错——切项目窗口 'idle' 是正常态，抛错必炸）：漏 openSession 漏斗的
+  // 新入口当场自报姓名，比 toast 早且准
+  useEffect(() => {
+    if (hydration === 'idle' && import.meta.env.DEV) {
+      console.error('[collab] hydration=idle：画布会话未建立（切项目窗口为正常瞬态；持续出现=漏 openSession 漏斗的新入口）');
+    }
+  }, [hydration]);
 
   // viewport 本地偏好持久化（projectId null 守卫防写错 key，返回 unbind 即 cleanup）
   useEffect(() => {
@@ -231,7 +259,6 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   const menuPosition = useMenuStore((s) => s.position);
   const menuClose = useMenuStore((s) => s.close);
   const triggerEl = useMenuStore((s) => s.triggerEl);
-  const isHydrating = useCanvasStore((s) => s.isHydrating);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { triggerRef.current = triggerEl; }, [triggerEl]);
 
@@ -320,33 +347,43 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <AddNodeMenu isOpen={menuIsOpen} onClose={menuClose} triggerRef={triggerRef} position={menuPosition} />
         <HandleAddNodeMenu />
         <StyleLibraryModal />
-        {isHydrating && (
+        {hydration === 'idle' && (
+          <div
+            data-testid="hydrate-overlay"
+            role="alert"
+            className="absolute inset-0 z-40 flex items-center justify-center bg-black/50"
+          >
+            <span className="text-text">画布会话未建立</span>
+          </div>
+        )}
+        {hydration === 'pending' && (
+          // 非阻断骨架：pointer-events-none 不锁交互（批2-1 蒙层分型——旧阻断遮罩退役）
           <div
             data-testid="hydrate-overlay"
             role="status"
             aria-live="polite"
-            className="absolute inset-0 z-40 flex items-center justify-center bg-black/50"
+            className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none"
           >
             <div className="flex flex-col items-center gap-2 text-text">
               <Spin />
-              <span>画布加载中</span>
+              <span>正在同步</span>
             </div>
           </div>
         )}
-        {syncFailed && (
+        {hydration === 'failed' && (
           <div
             data-testid="offline-overlay"
             role="alert"
             className="absolute inset-0 z-50 flex items-center justify-center bg-black/50"
           >
             <div className="flex flex-col items-center gap-3 text-text">
-              <span>未同步，点击重试</span>
+              <span>画布同步失败</span>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
                 className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
               >
-                重试
+                重试连接
               </button>
             </div>
           </div>
@@ -363,8 +400,8 @@ function CanvasKeyboardHandler() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // TD-4：hydrate 窗口内忽略快捷键（遮罩封指针路径，这里封键盘路径）
-      if (useCanvasStore.getState().isHydrating) return;
+      // TD-4（批2-1 四态化）：会话未就绪（idle/pending/failed）忽略快捷键（蒙层封指针路径，这里封键盘路径）
+      if (useCanvasStore.getState().hydration !== 'ready') return;
       if (useVideoEditorStore.getState().open) return; // 视频编辑器打开期间画布快捷键全禁（spec 验收 27——Tab/Ctrl+0/Alt+Shift+F 不再开幽灵菜单/改视口）
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;

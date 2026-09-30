@@ -11,7 +11,8 @@ export function bindViewportPersistence(projectId: string): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const unsub = useCanvasStore.subscribe((state, prev) => {
     if (state.viewport === prev.viewport) return;
-    if (state.isHydrating) return;
+    // 批2-1：会话建立/水合窗口（hydration 非 ready）禁调度写——恢复不算编辑
+    if (state.hydration !== 'ready') return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;

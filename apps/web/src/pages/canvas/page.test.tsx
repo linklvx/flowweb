@@ -24,13 +24,14 @@ globalThis.fetch = mockFetch;
 
 // 按用例注入 canvasStore 节点（模拟"canvasStore 有节点但 nodeStore 无对应数据"的刷新竞态）
 let mockCanvasNodes: any[] = [];
-// 按用例注入 hydrate 窗口状态（TD-4 遮罩/键盘守卫）
-let mockIsHydrating = false;
+// 按用例注入 hydration 四态（批2-1 蒙层分型/键盘守卫）
+let mockHydration: 'idle' | 'pending' | 'ready' | 'failed' = 'ready';
 
-const { useCanvasStoreSetState, useNodeStoreSetState, setTeamIdMock } = vi.hoisted(() => ({
+const { useCanvasStoreSetState, useNodeStoreSetState, setTeamIdMock, setHydrationMock } = vi.hoisted(() => ({
   useCanvasStoreSetState: vi.fn(),
   useNodeStoreSetState: vi.fn(),
   setTeamIdMock: vi.fn(),
+  setHydrationMock: vi.fn(),
 }));
 
 vi.mock('@/stores/canvasStore', () => ({
@@ -41,7 +42,7 @@ vi.mock('@/stores/canvasStore', () => ({
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
-        isHydrating: mockIsHydrating,
+        hydration: mockHydration,
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         onConnect: vi.fn(),
@@ -59,8 +60,8 @@ vi.mock('@/stores/canvasStore', () => ({
         nodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
-        isHydrating: mockIsHydrating,
-        setHydrating: vi.fn(),
+        hydration: mockHydration,
+        setHydration: setHydrationMock,
         updateViewport: vi.fn(),
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
@@ -168,7 +169,8 @@ describe('CanvasPage', () => {
     localStorage.clear();
     useMenuStore.setState({ isOpen: false });
     mockCanvasNodes = [];
-    mockIsHydrating = false;
+    mockHydration = 'ready';
+    setHydrationMock.mockClear();
     setTeamIdMock.mockClear();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
@@ -508,6 +510,38 @@ describe('CanvasPage', () => {
     });
   });
 
+  describe('批2-1：openSession 首行置 pending（顺序锚——setHydration 先于 initCollab）', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      useMenuStore.setState({ isOpen: false });
+      mockCanvasNodes = [];
+      mockHydration = 'ready';
+      setHydrationMock.mockClear();
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', projectId: 'test-pid-123', templateId: 't-1', name: '我的画布' } }),
+      });
+    });
+
+    it('setHydration("pending") 的首次调用先于 initCollab 首调（先于任何渲染就绪）', async () => {
+      const { initCollab } = await import('@/stores/canvasCollabRuntime');
+      vi.mocked(initCollab).mockClear();
+      render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+      await waitFor(() => {
+        expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+      });
+
+      const initOrder = vi.mocked(initCollab).mock.invocationCallOrder[0];
+      expect(initOrder).toBeGreaterThan(0);
+      const pendingOrders = setHydrationMock.mock.invocationCallOrder.filter(
+        (_: number, i: number) => setHydrationMock.mock.calls[i][0] === 'pending',
+      );
+      expect(pendingOrders.length).toBeGreaterThan(0);
+      expect(Math.min(...pendingOrders)).toBeLessThan(initOrder); // openSession 首行 pending 先于 initCollab
+    });
+  });
+
   it('should show add node menu when + button is clicked', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
@@ -553,12 +587,12 @@ describe('CanvasPage', () => {
   });
 });
 
-describe('TD-4 hydrate 遮罩', () => {
+describe('批2-1 蒙层分型（hydration 三态渲染）', () => {
   beforeEach(() => {
     localStorage.clear();
     useMenuStore.setState({ isOpen: false });
     mockCanvasNodes = [];
-    mockIsHydrating = false;
+    mockHydration = 'ready';
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -566,34 +600,54 @@ describe('TD-4 hydrate 遮罩', () => {
     });
   });
 
-  it('isHydrating=true 时渲染遮罩：覆盖全屏（inset-0/z-40）、不穿透指针、带 a11y 属性', async () => {
-    mockIsHydrating = true;
+  it('pending → 非阻断骨架：pointer-events-none（不锁交互）+「正在同步」+ a11y', async () => {
+    mockHydration = 'pending';
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     const overlay = await screen.findByTestId('hydrate-overlay');
     expect(overlay).toHaveAttribute('role', 'status');
     expect(overlay.className).toContain('inset-0');
     expect(overlay.className).toContain('z-40');
-    // C2：类名断言（jsdom computed style 不完整）——默认 pointer-events auto 即阻断
-    expect(overlay).not.toHaveClass('pointer-events-none');
+    // 非阻断锚（类名断言——jsdom computed style 不完整）：pending 骨架不锁交互
+    expect(overlay).toHaveClass('pointer-events-none');
     expect(overlay).toHaveAttribute('aria-live', 'polite');
-    expect(screen.getByText('画布加载中')).toBeInTheDocument();
+    expect(screen.getByText('正在同步')).toBeInTheDocument();
   });
 
-  it('isHydrating=false 时无遮罩', async () => {
+  it('idle → 蒙层「画布会话未建立」+ dev console.error（非抛错——切项目窗口为正常瞬态）', async () => {
+    mockHydration = 'idle';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    expect(await screen.findByText('画布会话未建立')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('hydration=idle'));
+    });
+    errSpy.mockRestore();
+  });
+
+  it('failed → 全屏重试行动：「重试连接」+ role=alert（10s 超时——修D 蒙层）', async () => {
+    mockHydration = 'failed';
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    const overlay = await screen.findByTestId('offline-overlay');
+    expect(overlay).toHaveAttribute('role', 'alert');
+    expect(screen.getByText('重试连接')).toBeInTheDocument();
+  });
+
+  it('ready → 无蒙层', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('hydrate-overlay')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
   });
 });
 
-describe('TD-4 hydrate 键盘守卫', () => {
+describe('TD-4 hydrate 键盘守卫（批2-1：hydration 非 ready 禁快捷键）', () => {
   beforeEach(() => {
     localStorage.clear();
     useMenuStore.setState({ isOpen: false });
     mockCanvasNodes = [];
-    mockIsHydrating = false;
+    mockHydration = 'ready';
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
@@ -601,8 +655,8 @@ describe('TD-4 hydrate 键盘守卫', () => {
     });
   });
 
-  it('isHydrating=true 时 Tab 不开 AddNodeMenu', async () => {
-    mockIsHydrating = true;
+  it('hydration=pending 时 Tab 不开 AddNodeMenu（会话建立/水合窗口封键盘路径）', async () => {
+    mockHydration = 'pending';
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
@@ -611,7 +665,7 @@ describe('TD-4 hydrate 键盘守卫', () => {
     expect(useMenuStore.getState().isOpen).toBe(false);
   });
 
-  it('isHydrating=false 时 Tab 正常开菜单', async () => {
+  it('hydration=ready 时 Tab 正常开菜单', async () => {
     render(<MemoryRouter><CanvasPage /></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getByLabelText('添加节点')).toBeInTheDocument();

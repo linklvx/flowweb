@@ -28,9 +28,10 @@ const gateActive = (context, allowedFiles) => {
 };
 
 // A. connStatus 单写点：唯一写点 recomputeConnStatus（批0a，canvasCollabRuntime）。
-// 豁免：runtime 超时分支直写（offline 终态，事件通道已断，recompute 不再可达）+ canvasStore 初始值 'connecting'。
+// 批2-1 修D：超时分支直写 'offline' 已废（超时不再 destroyCollab——provider 存活，recompute 可达全状态）。
+// 豁免：canvasStore 初始值 'connecting'。
 const CONN_STATUS_WRITE_FILES = [
-  'src/stores/canvasCollabRuntime.ts', // recomputeConnStatus 唯一写点 + 超时分支直写豁免（见上）
+  'src/stores/canvasCollabRuntime.ts', // recomputeConnStatus 唯一写点
   'src/stores/canvasStore.ts',         // state 初始值 connStatus: 'connecting'
 ];
 

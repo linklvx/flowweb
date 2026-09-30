@@ -15,7 +15,7 @@ vi.mock('@/stores/nodeStore', () => ({
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: {
     getState: () => ({
-      isHydrating: false,
+      hydration: 'ready' as const,
       nodes: [],
     }),
   },

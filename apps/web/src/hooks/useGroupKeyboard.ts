@@ -48,7 +48,8 @@ export function useGroupKeyboard() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const s = useCanvasStore.getState();
-      if (s.isHydrating) return;
+      // 批2-1 四态化：会话未就绪（idle/pending/failed）禁分组/撤销快捷键
+      if (s.hydration !== 'ready') return;
       if (isGroupEditContext(e.target as HTMLElement)) return;
 
       const action = resolveGroupShortcut(e);

@@ -98,7 +98,7 @@ async function driveToSynced(pid = 'p1') {
 describe('红1：connStatus 派生（真实事件序）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [] });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], hydration: 'idle' });
   });
   afterEach(async () => {
     await runtime.destroyCollab(); // 摘 bindBridge 订阅/undo manager，防跨用例泄漏
@@ -141,7 +141,7 @@ describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     // fake timers 仍激活时先销毁——clearInterval 才能命中 fake interval（useRealTimers 后清不掉）
@@ -194,7 +194,7 @@ describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
   it('hydration 进行中（首同步窗口）⇒ 门开也不恢复', async () => {
     const p = await driveToHealthy();
     p.emit('status', { status: 'disconnected' });
-    useCanvasStore.setState({ isHydrating: true });
+    useCanvasStore.setState({ hydration: 'pending' });
     const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
     await vi.advanceTimersByTimeAsync(75_000);
     expect(spy).not.toHaveBeenCalled();
@@ -214,7 +214,7 @@ describe('批1-2：1012 计划内重启短退避（fake timers）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     await runtime.destroyCollab(); // fake interval 清理须在 useRealTimers 前
@@ -272,7 +272,7 @@ describe('批1-2：1012 计划内重启短退避（fake timers）', () => {
 describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/clock 播种/单飞/守卫）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     await runtime.destroyCollab();
@@ -409,7 +409,7 @@ describe('批1-4：rebuildPending 实例绑定标记制（unsyncedChanges number
   beforeEach(() => {
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     await runtime.destroyCollab();
@@ -488,7 +488,7 @@ describe('批1-5：awareness 播种/tick 自愈/kill switch（fake timers）', (
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
     _resetCollabDiagForTest();
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     await runtime.destroyCollab();
@@ -556,7 +556,7 @@ describe('批1-5：awareness 播种/tick 自愈/kill switch（fake timers）', (
 describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [] });
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], hydration: 'idle' });
   });
   afterEach(async () => {
     await runtime.destroyCollab();
@@ -586,5 +586,94 @@ describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
     await destroying;
     expect(runtime.getDoc()).not.toBeNull();      // 旧 destroy 恢复不得 null 掉新 doc（今天必红）
     expect(useCanvasStore.getState().connStatus).toBe('connected'); // 新会话状态不被打穿
+  });
+});
+
+describe('批2-1：hydration 四态 + collabReadOnly 粘滞（修D 超时不销毁）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function beginFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0); // flush 入口 teardown 微任务链 → provider 构造完成
+    return { done, p: lastInstance() };
+  }
+  /** 健康序走完（hydration ready 达成后收尾） */
+  async function finishHealthy(p: any, done: Promise<void>) {
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+  }
+
+  it('四态定向：initCollab 会话建立 → pending；健康序完成 → ready', async () => {
+    const { done, p } = await beginFake('p1');
+    expect(useCanvasStore.getState().hydration).toBe('pending'); // openSession/initCollab 会话建立即 pending
+    await finishHealthy(p, done);
+    expect(useCanvasStore.getState().hydration).toBe('ready');   // 首同步完成（批0a synced 处理段）
+  });
+
+  it('四态定向：10s 超时 → failed 且 provider/doc 仍存活（修D——超时不 destroyCollab）', async () => {
+    const { done } = await beginFake('p1');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await done;
+    expect(useCanvasStore.getState().hydration).toBe('failed');
+    expect(runtime.getDoc()).not.toBeNull();       // doc 保留——恢复门对象仍在（修D）
+    expect(lastInstance().destroyCalls).toBe(0);   // provider 未销毁（修D——现状必红：超时分支 destroyCollab）
+  });
+
+  it('四态定向：destroyCollab → idle', async () => {
+    const { done, p } = await beginFake('p1');
+    await finishHealthy(p, done);
+    await runtime.destroyCollab();
+    expect(useCanvasStore.getState().hydration).toBe('idle');
+  });
+
+  it('粘滞：会话重开复位 true（openSession 后仍 true——上一会话授权不跨会话）', async () => {
+    const { done, p } = await beginFake('p1');
+    await finishHealthy(p, done);
+    expect(useCanvasStore.getState().collabReadOnly).toBe(false);  // read-write 已覆盖
+    const second = await beginFake('p2');                          // 新会话：入口复位
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 新会话保守初值（权威覆盖未到前只读）
+    await finishHealthy(second.p, second.done);                    // 收尾防超时分支污染
+  });
+
+  it('粘滞：authenticated(read-write) 权威覆盖 false / readonly 置回 true', async () => {
+    const { done, p } = await beginFake('p1');
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 初值（只读保守）
+    p.emit('authenticated', { scope: 'read-write' });
+    expect(useCanvasStore.getState().collabReadOnly).toBe(false);  // 权威覆盖（解只读）
+    p.emit('authenticated', { scope: 'readonly' });
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 覆盖双向（VIEWER 置回）
+    await finishHealthy(p, done);
+  });
+
+  it('粘滞：onClose 不清（fail-closed——不授予也不回收）', async () => {
+    const { done, p } = await beginFake('p1');
+    p.emit('close', { event: { code: 1006 } });
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 未授权态：close 不授予写权
+    p.emit('authenticated', { scope: 'read-write' });
+    p.emit('close', { event: { code: 1006 } });
+    expect(useCanvasStore.getState().collabReadOnly).toBe(false);  // 已授权态：断连不回收（断连窗口可编辑=设计）
+    await finishHealthy(p, done);
+  });
+
+  it('粘滞：destroyCollab 复位 true（G27 登出/切用户——页面卸载走本路径）', async () => {
+    const { done, p } = await beginFake('p1');
+    await finishHealthy(p, done);
+    expect(useCanvasStore.getState().collabReadOnly).toBe(false);
+    await runtime.destroyCollab();
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);
   });
 });

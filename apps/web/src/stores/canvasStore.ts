@@ -83,7 +83,7 @@ interface CreateDerivedExtNodeParams {
   aiTool: AiToolId;
 }
 
-interface CanvasState {
+export interface CanvasState {
   nodes: Node[];
   edges: Edge[];
   viewport: { x: number; y: number; zoom: number };
@@ -95,7 +95,22 @@ interface CanvasState {
   nodeProcessMap: Record<string, NodeProcessState>;
   projectId: string | null;
   teamId: string | null;
-  isHydrating: boolean;
+  /** 批2-1 hydration 四态（替代 isHydrating 布尔——R25 不留镜像第二真相源）：
+   *  idle=无会话（默认/destroyCollab 复位）；pending=openSession/resetSession/initCollab 会话建立；
+   *  ready=首同步完成（runtime synced 处理段唯一写点）；failed=10s 超时（修D——provider/doc 保留）。
+   *  不进 history/localStorage 快照 */
+  hydration: 'idle' | 'pending' | 'ready' | 'failed';
+  /** hydration 单写者 action（静态断言：生产源 setState 直写 hydration 零命中） */
+  setHydration: (s: CanvasState['hydration']) => void;
+  /** 会话级粘滞只读初值 true（v5.4）：HTTP project 响应无 role 字段（R30）——只读保守；
+   *  authenticated 事件 scope 权威覆盖（runtime 唯一授权写点，read-write 解除/readonly 置回）；
+   *  onClose 不清（fail-closed）；initCollab/destroyCollab 复位 true（G27：粘滞态不跨会话/跨用户）。
+   *  零 UX 代价：canEdit 还需 hydration==='ready'，届时 scope 必已到达。不进快照 */
+  collabReadOnly: boolean;
+  /** WS 侧唯一鉴权载体（批2-1 立字段；reason 五档 CollabAuthReason 落 shared 后收紧类型——批3 接入） */
+  wsAuthNotice: { reason: string; terminal: boolean } | null;
+  /** sessionExpiry 401 面电平（批3 接线；canEdit 不读——反向断言锚）。不进快照 */
+  httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
   /** 批1 恢复 UI 分级（批1-1 watchdog 写入）：hint 非阻断、banner 批1-5 SyncBanner 消费——
@@ -104,9 +119,6 @@ interface CanvasState {
   /** B4 单向 latch（批0d）：编辑器有未落库修改——由 autosave onDirtyChange 维护（notifyChange 置位、
    *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
   editorDirty: boolean;
-  /** 协作初始化超时标记（Task 12 I-2 蒙层独占条件）：仅 initCollab 超时置 true；
-   *  会话中途断连不置（自动重连无损合并，SaveStatusIndicator 承担非阻断告知）——防 reload 蒙层丢 messageQueue 编辑 */
-  syncFailed: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
@@ -130,7 +142,6 @@ interface CanvasState {
   createDerivedExtNode: (params: CreateDerivedExtNodeParams) => string | null;
   setProjectId: (projectId: string) => void;
   setTeamId: (teamId: string | null) => void;
-  setHydrating: (v: boolean) => void;
   applyGroupDerivations: () => void;
   startNodeProcess: (nodeId: string, processType: ProcessType, abortController?: AbortController) => void;
   updateNodeProcessProgress: (nodeId: string, progress: number) => void;
@@ -184,11 +195,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   nodeProcessMap: {},
   projectId: null,
   teamId: null,
-  isHydrating: false,
+  hydration: 'idle',
+  collabReadOnly: true,
+  wsAuthNotice: null,
+  httpExpired: false,
   connStatus: 'connecting',
   connUi: 'ok',
   editorDirty: false,
-  syncFailed: false,
 
   addNode: (type, position, dataOverride) => {
     const id = getId('node');
@@ -799,7 +812,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   setProjectId: (projectId) => set({ projectId }),
   setTeamId: (teamId) => set({ teamId }),
-  setHydrating: (v) => set({ isHydrating: v }),
+  setHydration: (s) => set({ hydration: s }),
 
   applyGroupDerivations: () => {
     set((s) => {
