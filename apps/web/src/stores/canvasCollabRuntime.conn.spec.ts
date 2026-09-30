@@ -345,6 +345,16 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);  // rebuildPending 置位（新实例计数 0 仍拦——重建窗口护栏）
   });
 
+  it('批6：终态重建不清 editorDirty（恢复≠保存成功——重建窗口护栏不解除）', async () => {
+    const p = await driveToSyncedR();
+    useCanvasStore.setState({ editorDirty: true });   // 编辑器 latch 置位形态（autosave B4 镜像）
+    p.configuration.websocketProvider.shouldConnect = false;
+    await runtime.recovery.recoverConnection();
+    expect(lastInstance()).not.toBe(p);               // 终态重建确已发生
+    expect(useCanvasStore.getState().editorDirty).toBe(true); // 恢复路径不清——beforeunload 双半边全拦
+    useCanvasStore.setState({ editorDirty: false });  // 收尾复位（zustand 单例不跨用例泄漏）
+  });
+
   it('clock 播种（契约锁㉖）：读值时点=destroy 之后——种子=旧实例 meta 终值（N+2），非读前值', async () => {
     const p = await driveToSyncedR();
     p.awareness.meta.set(p.awareness.clientID, { clock: 5, lastUpdated: 0 }); // 模拟历史 activity（N=5）

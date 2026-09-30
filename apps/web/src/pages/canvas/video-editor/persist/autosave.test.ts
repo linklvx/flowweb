@@ -206,3 +206,46 @@ describe('批0d：F3 删 isConnected 门 + B4 editorDirty 单向 latch', () => {
     expect(deps.onDirtyChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe('批6：hasPendingWork——外部查询有无未保存工作（dirty/inFlight/latch 任一即真）', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('干净 false；notifyChange 后（防抖窗口）true', () => {
+    const c = createAutosaveController(mkDeps());
+    expect(c.hasPendingWork()).toBe(false); // 干净编辑器
+    c.notifyChange();
+    expect(c.hasPendingWork()).toBe(true);  // 防抖窗口 dirty
+  });
+
+  it('保存成功后 false', async () => {
+    const c = createAutosaveController(mkDeps());
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(c.hasPendingWork()).toBe(false);
+  });
+
+  it('PATCH 在途 true（retry 补发形态隔离 inFlight 半边——仅看 latch 必红）', async () => {
+    let resolveSecond: (v: any) => void = () => {};
+    const deps = mkDeps({ patch: vi.fn()
+      .mockImplementationOnce(() => Promise.resolve({ updatedAt: 't1' }))
+      .mockImplementationOnce(() => new Promise(r => { resolveSecond = r; })) });
+    const c = createAutosaveController(deps);
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500); // 首发成功——latch=false、全空闲
+    expect(c.hasPendingWork()).toBe(false);
+    c.retry();                               // 手动补发（无条件）→ inFlight=true 且 latch 仍 false
+    expect(c.hasPendingWork()).toBe(true);   // inFlight 半边独立起效
+    resolveSecond({ updatedAt: 't2' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(c.hasPendingWork()).toBe(false);
+  });
+
+  it('409 后 true（latch 未清——未落库编辑仍在）', async () => {
+    const err = Object.assign(new Error('conflict'), { status: 409 });
+    const c = createAutosaveController(mkDeps({ patch: vi.fn().mockRejectedValue(err) }));
+    c.notifyChange();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(c.hasPendingWork()).toBe(true);
+  });
+});

@@ -20,6 +20,8 @@ export interface AutosaveController {
   flush(): Promise<boolean>;
   /** SAVE_DOT error 手动重试：无条件补发当前 data（dirty 与否都发），退避额度重置 */
   retry(): void;
+  /** 批6：外部查询有无未保存工作——dirty/inFlight/queued/防抖 timer/latch 任一即真 */
+  hasPendingWork(): boolean;
   dispose(): void;
 }
 
@@ -102,5 +104,6 @@ export function createAutosaveController(deps: AutosaveDeps): AutosaveController
       disposed = true;
       clearDebounce();
     },
+    hasPendingWork: () => dirty || inFlight || queued || debounceTimer != null || dirtyLatch,
   };
 }
