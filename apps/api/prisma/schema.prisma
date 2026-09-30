@@ -658,6 +658,8 @@ enum TeamCreditTransactionType {
   admin_grant
   admin_clear
   refund // F13 退款逆向记账——reconcile 三查② VOIDED 事务专用
+  reserve // 批0.5-9 两阶段扣费——外呼前冻结（amount 负=冻结/正=void 解冻反向）
+  settle // 批0.5-9 冻结转实扣正账（外呼成功后补记，终态消费语义）
 }
 
 enum TeamSubscriptionStatus {
@@ -994,6 +996,7 @@ model GenerationIntent {
   status          IntentStatus @default(RUNNING)
   jobId           String? // 同步路径为空——reconcile 三查特判（F13）
   creditsConsumed Int          @default(0) // F13：扣费时即写（consume 事务内 CAS）——崩溃窗口对账可判；退款事务归零
+  reservedCredits Int          @default(0) // 批0.5-9 reserve 冻结载体列（约束①：不用 PENDING 状态）——reserve 事务内置位/settle 清零/void 清零，CAS 锚防 stalled 重入双冻结
   attempts        Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
   resultRef       String? // Media id / 产物 URL
   error           String?

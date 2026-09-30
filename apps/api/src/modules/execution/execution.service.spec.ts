@@ -53,7 +53,9 @@ describe('ExecutionService', () => {
       callVideoGen: vi.fn().mockResolvedValue({ url: '/mock/video.mp4' }),
     };
     teamCredit = {
-      consume: vi.fn().mockResolvedValue({ success: true }),
+      reserve: vi.fn().mockResolvedValue({ success: true }),
+      settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
+      void_: vi.fn().mockResolvedValue(undefined),
       getBalanceView: vi.fn().mockResolvedValue({ credits: 95, subscriptionCredits: 0, total: 95, quota: 0, used: 0 }),
     };
     gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
@@ -70,6 +72,7 @@ describe('ExecutionService', () => {
       claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
+      void_: vi.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,7 +100,7 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
-    expect(teamCredit.consume).toHaveBeenCalledWith('t1', 'default-user', 5, 'node:n2', { intentRowId: 'intent-1', intentId: 'i-1' });
+    expect(teamCredit.reserve).toHaveBeenCalledWith('t1', 'default-user', 5, { intentRowId: 'intent-1', intentId: 'i-1' });
     // 预校验传项目所属团队 id（账本换源 TeamBalance）
     expect(validation.validateAll).toHaveBeenCalledWith(expect.any(Array), 't1', 'default-user');
   });
@@ -110,7 +113,7 @@ describe('ExecutionService', () => {
     expect(result.success).toBe(false);
     expect(result.errors).toContain('余额不足');
     expect(apiCaller.callImageGen).not.toHaveBeenCalled();
-    expect(teamCredit.consume).not.toHaveBeenCalled();
+    expect(teamCredit.reserve).not.toHaveBeenCalled();
   });
 
   it('should return error when project not found', async () => {
@@ -130,7 +133,7 @@ describe('ExecutionService', () => {
   it('should handle credit deduction failure during execution', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
-    teamCredit.consume.mockResolvedValue({ success: false });
+    teamCredit.reserve.mockResolvedValue({ success: false });
 
     const result = await service.execute('p1', 'n2', 'u1');
     expect(result.success).toBe(false);

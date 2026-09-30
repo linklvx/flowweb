@@ -3,12 +3,13 @@ import { NotFoundException } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
 import { ExecutionController } from './execution.controller';
 
-/** F4 必红：consume 失败后 doc 不得含本次新产物（text/video 今天违反——先写产物后扣费）。
+/** F4 必红：扣费失败后 doc 不得含本次新产物（text/video 曾违反——先写产物后扣费）。
+ *  批0.5-9 起扣费=reserve（外呼前）；失败语义同构：writeNodeData 零调用。
  *  装置只驱动 execute 的 text/video 两分支；依赖全 mock。
  *  构造器参数序对齐 execution.service.ts：
  *  (prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService)。
  *  intentService 默认放行 {created:true, intent:{id,intentId}}——批0.5-6 claim 接线的最小装置（F4 用例只关心产物序）。 */
-function makeService(consumeOk: boolean, nodes: any[]) {
+function makeService(reserveOk: boolean, nodes: any[]) {
   const prisma = {
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }) },
     pricingRule: { findFirst: vi.fn().mockResolvedValue({ creditCost: 1 }) },
@@ -26,7 +27,9 @@ function makeService(consumeOk: boolean, nodes: any[]) {
     callImageGen: vi.fn(),
   };
   const teamCredit = {
-    consume: vi.fn().mockResolvedValue(consumeOk ? { success: true } : { success: false, reason: 'INSUFFICIENT_CREDITS' }),
+    reserve: vi.fn().mockResolvedValue(reserveOk ? { success: true } : { success: false, reason: 'INSUFFICIENT_CREDITS' }),
+    settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
+    void_: vi.fn().mockResolvedValue(undefined),
     getBalanceView: vi.fn().mockResolvedValue({ credits: 1, subscriptionCredits: 0, total: 1 }),
   };
   const perm = { resolve: vi.fn(), assertEditor: vi.fn().mockResolvedValue(undefined) };
@@ -41,6 +44,7 @@ function makeService(consumeOk: boolean, nodes: any[]) {
     claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
     complete: vi.fn().mockResolvedValue(1),
     fail: vi.fn().mockResolvedValue(undefined),
+    void_: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
     prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService,
@@ -49,21 +53,21 @@ function makeService(consumeOk: boolean, nodes: any[]) {
 }
 
 describe('F4 产物序（spec v5.10：看到产物 ⇒ 已扣费）', () => {
-  it('text：consume 失败 → writeNodeData 零调用（今天先写——必红）', async () => {
+  it('text：reserve 失败 → writeNodeData 零调用（扣费前置外呼——零外呼零产物）', async () => {
     const { svc, collabDoc } = makeService(false, [{ id: 'n1', type: 'textInput', data: { model: 'seed-model-kimi' } }]);
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
   });
 
-  it('video：consume 失败 → writeNodeData 零调用（今天先写——必红）', async () => {
+  it('video：reserve 失败 → writeNodeData 零调用', async () => {
     const { svc, collabDoc } = makeService(false, [{ id: 'n1', type: 'videoGen', data: { model: 'v1' } }]);
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
   });
 
-  it('text：consume 成功 → writeNodeData 正常写（回归锚）', async () => {
+  it('text：reserve 成功 → writeNodeData 正常写（回归锚）', async () => {
     const { svc, collabDoc } = makeService(true, [{ id: 'n1', type: 'textInput', data: { model: 'seed-model-kimi' } }]);
     await svc.execute('p1', 'n1', 'u1');
     expect(collabDoc.writeNodeData).toHaveBeenCalled();

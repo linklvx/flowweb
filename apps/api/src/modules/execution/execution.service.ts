@@ -51,10 +51,10 @@ export class ExecutionService {
     });
   }
 
-  /** 批0.5-6 扣费失败三连：意图置 FAILED（同 intentId 重试走 rearm 免费续跑——不 fail 则 RUNNING 行
-   *  让重试 NodeBusy 到 reconcile 回收，重试链路死坏）+ WS error + exec map error（best-effort）。 */
-  private async onCreditFail(projectId: string, node: any, intent: any, msg: string) {
-    await this.intentService.fail(intent.id, msg);
+  /** 批0.5-9 reserve 失败三连：意图置 VOIDED（零扣费终态——重试照常扣费，与 FAILED 分义不混：
+   *  FAILED=外呼失败且冻结已退；VOIDED=从未扣费）+ WS error + exec map error（best-effort）。 */
+  private async onReserveFail(projectId: string, node: any, intent: any, msg: string) {
+    await this.intentService.void_(intent.id, msg);
     this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
     await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'error', error: msg }).catch(() => {});
   }
@@ -132,19 +132,26 @@ export class ExecutionService {
           }
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
-          const textResult = await this.apiCaller.callTextGen(textArgs);
-          results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
+          // 批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）→ 外呼 → settle 核销
           const rule = await this.prisma.pricingRule.findFirst({
             where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
           });
           const cost = rule?.creditCost ?? 0;
           if (cost > 0) {
-            const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
-            if (!deductResult.success) {
-              await this.onCreditFail(projectId, node, intent, '扣费失败');
-              return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
+            const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
+            if (!reserveResult.success) {
+              await this.onReserveFail(projectId, node, intent, `扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`);
+              return { success: false, errors: [`节点 ${node.id}: 扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`] };
             }
+          }
+
+          const textResult = await this.apiCaller.callTextGen(textArgs);
+          results.push({ nodeId: node.id, type: 'text', content: textResult.content });
+
+          if (cost > 0) {
+            const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+            if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
             totalDeducted += cost;
           }
 
@@ -193,19 +200,25 @@ export class ExecutionService {
           }
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
-          const result = await this.apiCaller.callVideoGen(videoArgs);
 
-          // 视频成功后补扣（Task11：对齐惯例）
+          // 批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）
           const vRule = await this.prisma.pricingRule.findFirst({
             where: { modelId: vData?.model, resolutionId: null, durationId: null, active: true },
           });
           const vCost = vRule?.creditCost ?? 0;
           if (vCost > 0) {
-            const vDeduct = await this.teamCredit.consume(project.teamId, userId, vCost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
-            if (!vDeduct.success) {
-              await this.onCreditFail(projectId, node, intent, '扣费失败');
-              return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
+            const vReserve = await this.teamCredit.reserve(project.teamId, userId, vCost, { intentRowId: intent.id, intentId: intent.intentId });
+            if (!vReserve.success) {
+              await this.onReserveFail(projectId, node, intent, `扣费失败：${vReserve.reason ?? 'RESERVE_FAILED'}`);
+              return { success: false, errors: [`节点 ${node.id}: 扣费失败：${vReserve.reason ?? 'RESERVE_FAILED'}`] };
             }
+          }
+
+          const result = await this.apiCaller.callVideoGen(videoArgs);
+
+          if (vCost > 0) {
+            const vSettled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+            if (!vSettled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
             totalDeducted += vCost;
           }
 
@@ -262,11 +275,8 @@ export class ExecutionService {
         }
         claimed = intent;
         await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
-        const result = await this.apiCaller.callImageGen(imageArgs);
 
-        results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
-
-        // Get cost from pricing rule
+        // Get cost from pricing rule——批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）
         const rule = await this.prisma.pricingRule.findFirst({
           where: {
             modelId: data?.model,
@@ -276,13 +286,21 @@ export class ExecutionService {
         });
         const cost = rule?.creditCost ?? 0;
 
-        // Deduct credits (team pool)
         if (cost > 0) {
-          const deductResult = await this.teamCredit.consume(project.teamId, userId, cost, `node:${node.id}`, { intentRowId: intent.id, intentId: intent.intentId });
-          if (!deductResult.success) {
-            await this.onCreditFail(projectId, node, intent, '扣费失败，请重试');
-            return { success: false, errors: [`节点 ${node.id}: 扣费失败`] };
+          const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
+          if (!reserveResult.success) {
+            await this.onReserveFail(projectId, node, intent, `扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`);
+            return { success: false, errors: [`节点 ${node.id}: 扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`] };
           }
+        }
+
+        const result = await this.apiCaller.callImageGen(imageArgs);
+
+        results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
+
+        if (cost > 0) {
+          const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+          if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
           totalDeducted += cost;
         }
 
@@ -321,7 +339,12 @@ export class ExecutionService {
         // claim 未获执行权：不 fail 他人在飞行、不写 exec map（防覆盖在飞执行的 loading）
         if (err instanceof BusinessException) throw err;
         // F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景 process catch 不执行，由 processor failed 钩子兜底）
-        if (claimed) await this.intentService.fail(claimed.id, String(err));
+        // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），再置 FAILED（重试 rearm 后照常重新 reserve）
+        if (claimed) {
+          await this.teamCredit.void_({ intentRowId: claimed.id, intentId: claimed.intentId })
+            .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
+          await this.intentService.fail(claimed.id, String(err));
+        }
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err.message });
         await this.collabDoc.writeExecStatus(projectId, node.id, {
           status: 'error', error: String(err?.message ?? err).slice(0, 200),

@@ -92,7 +92,39 @@ export class AiImageEditProcessor extends WorkerHost {
         maskUrl = await this.minio.generatePresignedGetUrl(maskKey, 3600);
       }
 
-      // 2. Call the appropriate API method
+      // 2. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
+      //    批0.5-9 前移至 reserve/外呼之前（reserve 需归属团队；缺失零外呼零孤儿 MinIO 对象）
+      const projectTeamId = (await this.prisma.canvasProject.findUnique({
+        where: { id: projectId },
+        select: { teamId: true },
+      }))?.teamId;
+      if (!projectTeamId) {
+        Sentry.captureException(new Error(`ai-image-edit: project team missing for node ${nodeId}`));
+        return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
+      }
+
+      // 3. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——
+      //    拒绝付费外呼（无幂等锚的扣费=重试双扣/白嫖二义）
+      if (!intentRowId || !intentId) {
+        this.logger.warn(`Edit intent guard missing for node ${nodeId}——拒绝付费外呼（0.5-8 起 enqueue 恒带意图锚）`);
+        return { status: 'failed', reason: 'INTENT_GUARD_MISSING' };
+      }
+      const reserveResult = await this.teamCredit.reserve(
+        projectTeamId, userId, CREDIT_COST_PER_EDIT, { intentRowId, intentId },
+      );
+      if (!reserveResult.success) {
+        const reason = reserveResult.reason ?? 'RESERVE_FAILED';
+        this.logger.warn(`Edit credit-reserve failed for node ${nodeId}: ${reason}`);
+        await this.intentService.void_(intentRowId, `扣费失败：${reason}`); // 零扣费终态——重试照常扣费
+        this.gateway.emitNodeStatus(projectId, {
+          nodeId,
+          status: 'edit-failed',
+          error: `扣费失败：${reason}`,
+        });
+        return { status: 'failed', reason };
+      }
+
+      // 4. Call the appropriate API method
       let result: { url: string };
       switch (taskType) {
         case 'outpaint':
@@ -115,7 +147,7 @@ export class AiImageEditProcessor extends WorkerHost {
           throw new Error(`Unknown taskType: ${taskType}`);
       }
 
-      // 3. Download the result image
+      // 5. Download the result image
       const response = await axios.get(result.url, {
         responseType: 'arraybuffer',
         timeout: 120000,
@@ -124,32 +156,6 @@ export class AiImageEditProcessor extends WorkerHost {
       const buffer = Buffer.from(response.data);
       const contentType: string = String(response.headers['content-type'] || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
-
-      // 4. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队（前移至产物落库前——不产孤儿 MinIO 对象）
-      const projectTeamId = (await this.prisma.canvasProject.findUnique({
-        where: { id: projectId },
-        select: { teamId: true },
-      }))?.teamId;
-      if (!projectTeamId) {
-        Sentry.captureException(new Error(`ai-image-edit: project team missing for node ${nodeId}`));
-        return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
-      }
-
-      // 5. Deduct credit (team pool)——前移至产物落库前（F4 不变量：看到产物 ⇒ 已扣费）；返回值必须检查（批0c：免费算力止血）
-      //    批0.5-8：intentGuard CAS 门（creditsConsumed:0）——stalled 重排双跑只扣一次
-      const consumeResult = await this.teamCredit.consume(
-        projectTeamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`,
-        ...(intentRowId && intentId ? [{ intentRowId, intentId }] : []),
-      );
-      if (!consumeResult.success) {
-        this.logger.warn(`Edit credit-consume failed for node ${nodeId}: ${consumeResult.reason ?? 'unknown'}`);
-        this.gateway.emitNodeStatus(projectId, {
-          nodeId,
-          status: 'edit-failed',
-          error: `扣费失败：${consumeResult.reason ?? 'CREDIT_CONSUME_FAILED'}`,
-        });
-        return { status: 'failed', reason: consumeResult.reason ?? 'CREDIT_CONSUME_FAILED' };
-      }
 
       // 6. Upload to MinIO
       const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
@@ -170,6 +176,10 @@ export class AiImageEditProcessor extends WorkerHost {
           status: 'completed',
         },
       });
+
+      // 7.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
+      const settled = await this.teamCredit.settle({ intentRowId, intentId });
+      if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
 
       // 7.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
       //     count===0 = 行已被 reconcile VOIDED+退款，writeNodeData/emit 零调用（外呼产物留作物证）
@@ -197,8 +207,13 @@ export class AiImageEditProcessor extends WorkerHost {
     } catch (error: any) {
       this.logger.error(`Edit failed: ${error.message}`, error.stack);
 
-      // 批0.5-8：意图终态必达——外呼/扣费抛错置 FAILED（同 intentId 重试走 rearm 免费续跑）
-      if (intentRowId) await this.intentService.fail(intentRowId, String(error?.message ?? error));
+      // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），批0.5-8 终态必达——外呼抛错置 FAILED
+      // （SIGKILL 场景本 catch 不执行，由 failed 钩子兜底；冻结滞留由 reconcile 超龄三查②解冻）
+      if (intentRowId) {
+        await this.teamCredit.void_({ intentRowId, intentId: intentId! })
+          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
+        await this.intentService.fail(intentRowId, String(error?.message ?? error));
+      }
       if (projectId) {
         await this.collabDoc.writeExecStatus(projectId, nodeId, {
           status: 'error', error: String(error?.message ?? error).slice(0, 200), intentId: intentId ?? undefined,

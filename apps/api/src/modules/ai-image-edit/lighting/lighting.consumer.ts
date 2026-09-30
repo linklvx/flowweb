@@ -121,37 +121,19 @@ export class LightingConsumer {
       }
       const presignedUrl = await this.minio.generatePresignedGetUrl(sourceMedia.key, 3600);
 
-      // 3. Build prompt from params
-      const promptText = paramsToPrompt(params, params.customPrompt);
-      this.logger.log(`Lighting prompt: ${promptText}`);
-
-      // 4. Call AI gateway for relighting
-      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText);
-
-      if (!result?.url) {
-        throw new Error('AI relighting returned no result URL');
-      }
-
-      // 5. Download result image
-      const response = await axios.get(result.url, {
-        responseType: 'arraybuffer',
-        timeout: 120000,
-      });
-
-      const buffer = Buffer.from(response.data);
-      const contentType: string = String(response.headers['content-type'] || 'image/png');
-      const ext = contentType.split('/')[1] || 'png';
-
-      // 6. Deduct credit (team pool)——前移至产物落库前（F4 不变量：看到产物 ⇒ 已扣费）；返回值必须检查（批0c：免费算力止血）
-      //    批0.5-8：intentGuard CAS 门（creditsConsumed:0）——stalled 重排双跑只扣一次
+      // 3. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——拒绝付费外呼
+      //    （个人任务无 projectTeamId 不扣费——现状维持）
       if (projectTeamId) {
-        const consumeResult = await this.teamCredit.consume(
-          projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`,
-          ...(intentRowId && intentId ? [{ intentRowId, intentId }] : []),
+        if (!intentRowId || !intentId) {
+          throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
+        }
+        const reserveResult = await this.teamCredit.reserve(
+          projectTeamId, userId, CREDIT_COST_PER_EDIT, { intentRowId, intentId },
         );
-        if (!consumeResult.success) {
-          const reason = consumeResult.reason ?? 'CREDIT_CONSUME_FAILED';
-          this.logger.warn(`Lighting credit-consume failed for task ${taskId}: ${reason}`);
+        if (!reserveResult.success) {
+          const reason = reserveResult.reason ?? 'RESERVE_FAILED';
+          this.logger.warn(`Lighting credit-reserve failed for task ${taskId}: ${reason}`);
+          await this.intentService.void_(intentRowId, `扣费失败：${reason}`); // 零扣费终态——重试照常扣费
           await this.prisma.lightingTask.update({
             where: { id: taskId },
             data: {
@@ -168,6 +150,27 @@ export class LightingConsumer {
           return { status: 'failed', reason };
         }
       }
+
+      // 4. Build prompt from params
+      const promptText = paramsToPrompt(params, params.customPrompt);
+      this.logger.log(`Lighting prompt: ${promptText}`);
+
+      // 5. Call AI gateway for relighting
+      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText);
+
+      if (!result?.url) {
+        throw new Error('AI relighting returned no result URL');
+      }
+
+      // 6. Download result image
+      const response = await axios.get(result.url, {
+        responseType: 'arraybuffer',
+        timeout: 120000,
+      });
+
+      const buffer = Buffer.from(response.data);
+      const contentType: string = String(response.headers['content-type'] || 'image/png');
+      const ext = contentType.split('/')[1] || 'png';
 
       // 7. Upload to MinIO
       const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
@@ -189,6 +192,12 @@ export class LightingConsumer {
           status: 'completed',
         },
       });
+
+      // 8.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
+      if (projectTeamId && intentRowId && intentId) {
+        const settled = await this.teamCredit.settle({ intentRowId, intentId });
+        if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
+      }
 
       // 8.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
       //     count===0 = 行已被 reconcile VOIDED+退款，SUCCESS 回填/writeNodeData/emit 零调用（外呼产物留作物证）
@@ -227,6 +236,13 @@ export class LightingConsumer {
       return { status: 'completed', fileId: media.id };
     } catch (error: any) {
       this.logger.error(`Lighting failed: ${error.message}`, error.stack);
+
+      // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还；无冻结/已结算幂等零动作）。
+      // SIGKILL 场景本 catch 不执行——冻结滞留由 reconcile 超龄三查②解冻兜底。
+      if (intentRowId && intentId) {
+        await this.teamCredit.void_({ intentRowId, intentId })
+          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
+      }
 
       // Update task to failed——清产物字段：step9 可能已写 SUCCESS+产物 URL，FAILED 覆写须同笔清空，
       // 否则 FAILED 行残留 resultImageUrl/resultMediaId（getTask 可取），状态与产物矛盾

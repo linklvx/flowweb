@@ -311,6 +311,27 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
         data: expect.objectContaining({ status: 'FAILED' }),
       });
     });
+
+    it('批0.5-9 void_：RUNNING 行 → VOIDED 且 error 截断 500（reserve 失败——零扣费终态，重试照常扣费）', async () => {
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+      const longError = 'x'.repeat(600);
+
+      await service.void_('gi-1', longError);
+
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: 'gi-1', status: { in: ['RUNNING'] } },
+        data: { status: 'VOIDED', error: 'x'.repeat(500), completedAt: expect.any(Date) },
+      });
+    });
+
+    it('批0.5-9 void_ 幂等：终态行再 void → where ACTIVE 零匹配', async () => {
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 0 });
+      await service.void_('gi-1', 'boom');
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: 'gi-1', status: { in: ['RUNNING'] } },
+        data: expect.objectContaining({ status: 'VOIDED' }),
+      });
+    });
   });
 
   describe('attachJob/listByNode 冒烟', () => {

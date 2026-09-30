@@ -128,6 +128,15 @@ export class GenerationIntentService {
     });
   }
 
+  /** 批0.5-9 void：reserve 失败（零扣费）终态——与 FAILED 分义不混：FAILED=冻结已退（void_ 解冻后）
+   *  外呼失败的终态；VOIDED=从未扣费，rearm 重试照常 reserve。where ACTIVE 守卫同款幂等。 */
+  async void_(id: string, error: string): Promise<void> {
+    await this.prisma.generationIntent.updateMany({
+      where: { id, status: { in: [...ACTIVE] } },
+      data: { status: 'VOIDED', error: error.slice(0, 500), completedAt: new Date() },
+    });
+  }
+
   /** 扩面模块 controller claim→queue.add 后回写 jobId（F13 补强）：不回写则 reconcile A 路径
    *  （查 BullMQ 真实状态）对 ai-image-edit/lighting 永久失效，且与同步路径（合法无 jobId）
    *  不可区分——长任务会被三查②按"同步路径崩溃"误判 VOIDED。 */

@@ -44,11 +44,16 @@ describe('LightingConsumer', () => {
     };
     const gateway = { emitNodeStatus: vi.fn() };
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
-    teamCredit = { consume: vi.fn().mockResolvedValue({ success: true }) };
+    teamCredit = {
+      reserve: vi.fn().mockResolvedValue({ success: true }),
+      settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
+      void_: vi.fn().mockResolvedValue(undefined),
+    };
     collabDoc = { writeNodeData: vi.fn() };
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
+      void_: vi.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -94,7 +99,7 @@ describe('LightingConsumer', () => {
 
   it('有 project 上下文：Media 归属 = project.teamId，不反推', async () => {
     mockAxiosResult();
-    await consumer.handleLightingJob(makeJob('proj-1'));
+    await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
 
     expect(prisma.media.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -102,7 +107,8 @@ describe('LightingConsumer', () => {
       }),
     );
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
-    expect(teamCredit.consume).toHaveBeenCalledWith('t-team', 'u1', 1, 'lighting:task-1');
+    expect(teamCredit.reserve).toHaveBeenCalledWith('t-team', 'u1', 1, { intentRowId: 'row-9', intentId: 'i-9' });
+    expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
   });
 
   it('无 projectId（个人任务）→ Media 回落个人团队，不扣团队积分', async () => {
@@ -120,7 +126,8 @@ describe('LightingConsumer', () => {
         data: expect.objectContaining({ teamId: 't-personal' }),
       }),
     );
-    expect(teamCredit.consume).not.toHaveBeenCalled();
+    expect(teamCredit.reserve).not.toHaveBeenCalled();
+    expect(teamCredit.settle).not.toHaveBeenCalled();
   });
 
   it('project.teamId 缺失 → task failed 且不建 Media（不回落个人团队）', async () => {
@@ -140,14 +147,17 @@ describe('LightingConsumer', () => {
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
   });
 
-  describe('安全止血（spec 批0c-3：扣费守卫 + B1 越权读根修）', () => {
-    it('consume 失败（余额不足）→ task failed + 产物零落库（media.create/minio.upload 零调用）+ 返回 failed', async () => {
-      teamCredit.consume.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
+  describe('安全止血（spec 批0c-3 + 批0.5-9 两阶段：扣费守卫 + B1 越权读根修）', () => {
+    it('reserve 失败（余额不足）→ 外呼零调用 + task failed + 产物零落库 + 返回 failed', async () => {
+      teamCredit.reserve.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
       mockAxiosResult();
 
-      const result = await consumer.handleLightingJob(makeJob('proj-1'));
+      const result = await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
 
       expect(result.status).toBe('failed');
+      // 批0.5-9：reserve 前置外呼——余额不足零外呼（不再白付 relighting）
+      expect(apiCaller.callRelighting).not.toHaveBeenCalled();
+      expect(intentService.void_).toHaveBeenCalledWith('row-9', expect.stringContaining('CREDIT_INSUFFICIENT'));
       // F4 不变量：看到产物 ⇒ 已扣费——扣费失败则任何产物（Media 行/MinIO 对象）不得落库
       expect(prisma.media.create).not.toHaveBeenCalled();
       expect(minio.upload).not.toHaveBeenCalled();
@@ -157,6 +167,16 @@ describe('LightingConsumer', () => {
           data: expect.objectContaining({ status: 'failed' }),
         }),
       );
+    });
+
+    it('外呼抛错（已冻结）→ catch 路径 void_ 解冻（约束②）', async () => {
+      apiCaller.callRelighting.mockRejectedValue(new Error('relight boom'));
+      mockAxiosResult();
+
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
+        .rejects.toThrow('relight boom');
+
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
     });
 
     it('originalImageId 归属：属他人且非本项目 → 拒绝（不泄露存在性）', async () => {
@@ -177,7 +197,7 @@ describe('LightingConsumer', () => {
       collabDoc.writeNodeData.mockRejectedValue(new Error('doc write boom'));
       mockAxiosResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('doc write boom');
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }))).rejects.toThrow('doc write boom');
 
       // SUCCESS 已落库（resultImageUrl/resultMediaId 已写）→ catch 覆写 FAILED 时必须同笔清空，
       // 否则 FAILED 行残留产物 URL（getTask 可取）——状态与产物矛盾
@@ -193,15 +213,16 @@ describe('LightingConsumer', () => {
     });
   });
 
-  describe('批0.5-8 意图表扩面（consume guard + complete 门序）', () => {
+  describe('批0.5-8/0.5-9 意图表扩面（reserve guard + settle 核销 + complete 门序）', () => {
     const intent = { intentRowId: 'row-9', intentId: 'i-9' };
 
-    it('consume 带 intentGuard {intentRowId, intentId}（CAS 门防双扣）', async () => {
+    it('reserve 外呼之前带 intentGuard {intentRowId, intentId}（约束① CAS 锚防双冻结）', async () => {
       mockAxiosResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent));
-      expect(teamCredit.consume).toHaveBeenCalledWith(
-        't-team', 'u1', 1, 'lighting:task-1', { intentRowId: 'row-9', intentId: 'i-9' },
+      expect(teamCredit.reserve).toHaveBeenCalledWith(
+        't-team', 'u1', 1, { intentRowId: 'row-9', intentId: 'i-9' },
       );
+      expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callRelighting.mock.invocationCallOrder[0]);
     });
 
     it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
