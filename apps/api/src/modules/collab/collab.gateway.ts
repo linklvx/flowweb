@@ -11,6 +11,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
 import { yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
+import { CollabAuthReason, type CollabAuthReasonCode } from '@flowweb/shared';
 
 export const COMPACT_THRESHOLD = 32;
 
@@ -86,30 +87,40 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
    *  token 来自 WS 握手 query（测试/工具）或 httpOnly cookie（浏览器自动携带）；
-   *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新 */
+   *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新。
+   *  批3-1：拒绝一律带 reason（Object.assign 附着——Hocuspocus catch 直读 error.reason 写入
+   *  permission-denied 消息，客户端 authenticationFailed 原样收到）；已分型异常原样 rethrow，
+   *  其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙） */
   private async authenticate({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
-    const token = requestParameters?.get('token')
-      ?? parseSessionToken(requestHeaders?.get('cookie'));
-    const session = token
-      ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
-      : null;
-    if (!session || session.expiresAt < new Date()) throw new Error('未登录');
-    const projectId = parseProjectId(documentName);
-    const project = await this.prisma.canvasProject.findUnique({
-      where: { id: projectId },
-      select: { teamId: true },
-    });
-    if (!project) throw new Error('项目不存在');
-    const member = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
-    });
-    if (!member) throw new Error('非团队成员');
-    const projectRole = await this.perm.resolve(projectId, session.user.id);
-    const readOnly = projectRole === 'PROJECT_VIEWER';
-    // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
-    // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
-    if (readOnly) connectionConfig.readOnly = true;
-    return { user: { id: session.user.id, name: session.user.name, role: member.role }, readOnly };
+    const deny = (reason: CollabAuthReasonCode, message: string) => Object.assign(new Error(message), { reason });
+    try {
+      const token = requestParameters?.get('token')
+        ?? parseSessionToken(requestHeaders?.get('cookie'));
+      const session = token
+        ? await this.prisma.session.findUnique({ where: { token }, include: { user: true } })
+        : null;
+      if (!session) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
+      if (session.expiresAt < new Date()) throw deny(CollabAuthReason.SESSION_EXPIRED, '会话过期');
+      const projectId = parseProjectId(documentName);
+      const project = await this.prisma.canvasProject.findUnique({
+        where: { id: projectId },
+        select: { teamId: true },
+      });
+      if (!project) throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');
+      const member = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
+      });
+      if (!member) throw deny(CollabAuthReason.FORBIDDEN, '非团队成员');
+      const projectRole = await this.perm.resolve(projectId, session.user.id);
+      const readOnly = projectRole === 'PROJECT_VIEWER';
+      // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
+      // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
+      if (readOnly) connectionConfig.readOnly = true;
+      return { user: { id: session.user.id, name: session.user.name, role: member.role }, readOnly };
+    } catch (err) {
+      if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;   // 已分型原样透传
+      throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
+    }
   }
 
   /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放。
@@ -119,32 +130,39 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  - replaying 抑制只包裹每个 applyUpdate 的同步段（yjs update 事件在事务清理期同步发放，不漏不误放），不跨 await；
    *  - stash 回灌必须在抑制窗口外：stash 是未落库变更，apply → update 事件 → pending → 下次 store 落库，
    *    禁止只 apply 不入队（等于二次蒸发）；
-   *  - 不 return document：Hocuspocus 对 undefined no-op（doc 已就地填充）。 */
+   *  - 不 return document：Hocuspocus 对 undefined no-op（doc 已就地填充）。
+   *  批3-1：主体整体 try/catch——DB 异常统一折成 db-unavailable（带 reason 抛出），否则被库
+   *  折成裸 permission-denied（F6：客户端无从分型瞬态/终态）。 */
   private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     const projectId = parseProjectId(documentName);
-    if (!this.pendingUpdates.has(document)) {   // 防重复注册（行数翻倍）；has ⟺ 已注册（单状态源）
-      this.pendingUpdates.set(document, []);    // eager 建条目：条目缺失 ⟺ 监听未注册（storeDocument/监听器双向 tripwire）
-      document.on('update', (u: Uint8Array) => {
-        if (this.replaying.has(document)) return;
-        const q = this.pendingUpdates.get(document);
-        if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
-        q.push(u);
-        // 原地封顶（禁 set 新数组——数组身份恒定）。计数阈值：折叠后恰剩 1 条需再积 64 条才复发；
-        // 字节阈值会"折完仍超限→每条 update 全量重编码"（3000 条积压实测 4.8s vs 103ms 同步阻塞）
-        if (q.length > PENDING_MAX_ENTRIES) q.splice(0, q.length, Y.mergeUpdates(q));
-      });
+    try {
+      if (!this.pendingUpdates.has(document)) {   // 防重复注册（行数翻倍）；has ⟺ 已注册（单状态源）
+        this.pendingUpdates.set(document, []);    // eager 建条目：条目缺失 ⟺ 监听未注册（storeDocument/监听器双向 tripwire）
+        document.on('update', (u: Uint8Array) => {
+          if (this.replaying.has(document)) return;
+          const q = this.pendingUpdates.get(document);
+          if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
+          q.push(u);
+          // 原地封顶（禁 set 新数组——数组身份恒定）。计数阈值：折叠后恰剩 1 条需再积 64 条才复发；
+          // 字节阈值会"折完仍超限→每条 update 全量重编码"（3000 条积压实测 4.8s vs 103ms 同步阻塞）
+          if (q.length > PENDING_MAX_ENTRIES) q.splice(0, q.length, Y.mergeUpdates(q));
+        });
+      }
+      const applyReplayed = (u: Uint8Array) => {
+        this.replaying.add(document);
+        try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
+      };
+      const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
+      if (docRow) applyReplayed(new Uint8Array(docRow.state));
+      for (const u of await this.repo.loadUpdates(projectId)) applyReplayed(new Uint8Array(u));
+      const stash = this.takeStash(projectId);
+      if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
+      await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
+      this.sweepDocument(document);   // 批0b：短会话的有效触发点——钩子尾对当前 doc 顺手扫一次（与定时器共用同一段检查）
+    } catch (err) {
+      if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
+      throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
     }
-    const applyReplayed = (u: Uint8Array) => {
-      this.replaying.add(document);
-      try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
-    };
-    const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
-    if (docRow) applyReplayed(new Uint8Array(docRow.state));
-    for (const u of await this.repo.loadUpdates(projectId)) applyReplayed(new Uint8Array(u));
-    const stash = this.takeStash(projectId);
-    if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
-    await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
-    this.sweepDocument(document);   // 批0b：短会话的有效触发点——钩子尾对当前 doc 顺手扫一次（与定时器共用同一段检查）
   }
 
   /** 批0b 定时兜底：1h interval——短会话撞定时器概率≈0（24h×短会话），加载时点单查才是有效触发 */

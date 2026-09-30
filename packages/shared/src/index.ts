@@ -6,6 +6,8 @@ export * from './types/angle3d.types';
 export * from './types/subscription.types';
 export { SubscriptionError } from './constants/subscription-error';
 export type { SubscriptionErrorCode } from './constants/subscription-error';
+export { CollabAuthReason, isTerminalReason } from './constants/collab-auth-reason';
+export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 export * from './types/home.types';
 export * from './types/role.types';
 export * from './types/video-project';
