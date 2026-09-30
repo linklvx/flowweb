@@ -118,11 +118,7 @@ export class AiImageEditProcessor extends WorkerHost {
       const contentType: string = String(response.headers['content-type'] || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
 
-      // 4. Upload to MinIO
-      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
-      await this.minio.upload(key, buffer, contentType);
-
-      // 5. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
+      // 4. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队（前移至产物落库前——不产孤儿 MinIO 对象）
       const projectTeamId = (await this.prisma.canvasProject.findUnique({
         where: { id: projectId },
         select: { teamId: true },
@@ -132,7 +128,23 @@ export class AiImageEditProcessor extends WorkerHost {
         return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
       }
 
-      // 6. Create Media record
+      // 5. Deduct credit (team pool)——前移至产物落库前（F4 不变量：看到产物 ⇒ 已扣费）；返回值必须检查（批0c：免费算力止血）
+      const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
+      if (!consumeResult.success) {
+        this.logger.warn(`Edit credit-consume failed for node ${nodeId}: ${consumeResult.reason ?? 'unknown'}`);
+        this.gateway.emitNodeStatus(projectId, {
+          nodeId,
+          status: 'edit-failed',
+          error: `扣费失败：${consumeResult.reason ?? 'CREDIT_CONSUME_FAILED'}`,
+        });
+        return { status: 'failed', reason: consumeResult.reason ?? 'CREDIT_CONSUME_FAILED' };
+      }
+
+      // 6. Upload to MinIO
+      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
+      await this.minio.upload(key, buffer, contentType);
+
+      // 7. Create Media record
       const media = await this.prisma.media.create({
         data: {
           userId,
@@ -147,18 +159,6 @@ export class AiImageEditProcessor extends WorkerHost {
           status: 'completed',
         },
       });
-
-      // 7. Deduct credit (team pool)——返回值必须检查（批0c：免费算力止血）
-      const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
-      if (!consumeResult.success) {
-        this.logger.warn(`Edit credit-consume failed for node ${nodeId}: ${consumeResult.reason ?? 'unknown'}`);
-        this.gateway.emitNodeStatus(projectId, {
-          nodeId,
-          status: 'edit-failed',
-          error: `扣费失败：${consumeResult.reason ?? ''}`,
-        });
-        return { status: 'failed', reason: consumeResult.reason ?? 'CREDIT_CONSUME_FAILED' };
-      }
 
       // 8. Write fileId/尺寸 to server doc；socket 仅进度通知
       await this.collabDoc.writeNodeData(projectId, nodeId, {

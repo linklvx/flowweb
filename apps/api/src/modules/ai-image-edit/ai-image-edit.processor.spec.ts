@@ -256,7 +256,7 @@ describe('AiImageEditProcessor', () => {
         },
       }) as any as Job;
 
-    it('consume 失败（余额不足）→ writeNodeData 零调用 + 返回 failed', async () => {
+    it('consume 失败（余额不足）→ 产物零落库（media.create/minio.upload 零调用）+ writeNodeData 零调用 + 返回 failed', async () => {
       teamCredit.consume.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
       (axios.get as any).mockResolvedValue({
         data: Buffer.from('fake-image-data'),
@@ -265,6 +265,9 @@ describe('AiImageEditProcessor', () => {
 
       const result = await processor.process(makeJob());
       expect(result.status).toBe('failed');
+      // F4 不变量：看到产物 ⇒ 已扣费——扣费失败则任何产物（Media 行/MinIO 对象）不得落库
+      expect(prisma.media.create).not.toHaveBeenCalled();
+      expect(minio.upload).not.toHaveBeenCalled();
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
     });
 

@@ -20,6 +20,7 @@ import axios from 'axios';
 describe('LightingConsumer', () => {
   let consumer: LightingConsumer;
   let prisma: any;
+  let minio: any;
   let teamCredit: any;
   let apiCaller: any;
   let collabDoc: any;
@@ -34,7 +35,7 @@ describe('LightingConsumer', () => {
       },
       team: { findFirst: vi.fn() },
     };
-    const minio = {
+    minio = {
       generatePresignedGetUrl: vi.fn().mockResolvedValue('https://minio.local/signed'),
       buildKey: vi.fn().mockReturnValue('generated/key'),
       upload: vi.fn().mockResolvedValue(undefined),
@@ -132,13 +133,16 @@ describe('LightingConsumer', () => {
   });
 
   describe('安全止血（spec 批0c-3：扣费守卫 + B1 越权读根修）', () => {
-    it('consume 失败（余额不足）→ task failed + writeNodeData 零调用 + 返回 failed', async () => {
+    it('consume 失败（余额不足）→ task failed + 产物零落库（media.create/minio.upload 零调用）+ 返回 failed', async () => {
       teamCredit.consume.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
       mockAxiosResult();
 
       const result = await consumer.handleLightingJob(makeJob('proj-1'));
 
       expect(result.status).toBe('failed');
+      // F4 不变量：看到产物 ⇒ 已扣费——扣费失败则任何产物（Media 行/MinIO 对象）不得落库
+      expect(prisma.media.create).not.toHaveBeenCalled();
+      expect(minio.upload).not.toHaveBeenCalled();
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(prisma.lightingTask.update).toHaveBeenCalledWith(
         expect.objectContaining({

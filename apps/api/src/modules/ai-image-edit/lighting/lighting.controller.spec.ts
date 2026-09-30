@@ -63,7 +63,7 @@ describe('LightingController', () => {
       expect(service.createTask).not.toHaveBeenCalled();
     });
 
-    it('body 无 projectId 时也走 assertEditor（无条件，批0c：省略 projectId 即旁路已堵）', async () => {
+    it('body 无 projectId 时也走 assertEditor（无条件守卫；入参防线是 DTO projectId 必填，省略即 422 拒绝）', async () => {
       const { projectId: _ignored, ...noProject } = body;
       await controller.createTask(noProject as any, mockReq());
       expect(permSvc.assertEditor).toHaveBeenCalledWith(undefined, 'user-1');

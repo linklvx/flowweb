@@ -135,40 +135,7 @@ export class LightingConsumer {
       const contentType: string = String(response.headers['content-type'] || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
 
-      // 6. Upload to MinIO
-      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
-      await this.minio.upload(key, buffer, contentType);
-
-      // 7. Create Media record
-      const media = await this.prisma.media.create({
-        data: {
-          userId,
-          teamId,
-          key,
-          originalName: `lighting-${nodeId}.${ext}`,
-          mimeType: contentType,
-          size: buffer.length,
-          projectId,
-          nodeId,
-          taskId,
-          type: 'generated',
-          status: 'completed',
-        },
-      });
-
-      // 8. Update LightingTask
-      const presignedResultUrl = await this.minio.generatePresignedGetUrl(key, 3600);
-      await this.prisma.lightingTask.update({
-        where: { id: taskId },
-        data: {
-          status: LightingTaskStatus.SUCCESS,
-          resultImageUrl: presignedResultUrl,
-          resultMediaId: media.id,
-          completedAt: new Date(),
-        },
-      });
-
-      // 9. Deduct credit (team pool)——返回值必须检查（批0c：免费算力止血）
+      // 6. Deduct credit (team pool)——前移至产物落库前（F4 不变量：看到产物 ⇒ 已扣费）；返回值必须检查（批0c：免费算力止血）
       if (projectTeamId) {
         const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
         if (!consumeResult.success) {
@@ -190,6 +157,39 @@ export class LightingConsumer {
           return { status: 'failed', reason };
         }
       }
+
+      // 7. Upload to MinIO
+      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
+      await this.minio.upload(key, buffer, contentType);
+
+      // 8. Create Media record
+      const media = await this.prisma.media.create({
+        data: {
+          userId,
+          teamId,
+          key,
+          originalName: `lighting-${nodeId}.${ext}`,
+          mimeType: contentType,
+          size: buffer.length,
+          projectId,
+          nodeId,
+          taskId,
+          type: 'generated',
+          status: 'completed',
+        },
+      });
+
+      // 9. Update LightingTask
+      const presignedResultUrl = await this.minio.generatePresignedGetUrl(key, 3600);
+      await this.prisma.lightingTask.update({
+        where: { id: taskId },
+        data: {
+          status: LightingTaskStatus.SUCCESS,
+          resultImageUrl: presignedResultUrl,
+          resultMediaId: media.id,
+          completedAt: new Date(),
+        },
+      });
 
       // 10. Write fileId to server doc；socket 仅进度通知
       if (projectId) {
