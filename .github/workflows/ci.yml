@@ -1,0 +1,42 @@
+name: ci
+on:
+  push: { branches: [master] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: flowweb, POSTGRES_PASSWORD: '123456', POSTGRES_DB: flowweb }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      # 必填键对照 apps/api/src/config/env.ts：无默认必填 = DATABASE_URL/MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY。
+      # MINIO_* 不设：api 单测全 mock，validateEnv() 仅 main.ts/app.module.ts 链路触发（spec 不 import AppModule），
+      # 设假值反而误导"CI 起了 MinIO"。JWT_SECRET 全仓无引用（env.ts 无此键），不设。
+      # REDIS_URL 虽有默认值，显式指到 service 端口以免默认值与 service 映射漂移。
+      DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @flowweb/shared build
+      - run: node scripts/check-hocuspocus-pin.mjs
+      # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在）：
+      # 0.5 落地时启用下面这行且必须上移到 verify 之前：
+      # - run: pnpm --filter @flowweb/api exec prisma migrate deploy
+      # 单一真相源：CI 直接跑 verify（shared typecheck/test + web/api tsc + 全测 + web lint）
+      - run: pnpm verify
+      # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
+      - run: pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
+      # e2e-collab job 预留（批 7 启用，独立 job：nightly+workflow_dispatch，PR 不跑）
