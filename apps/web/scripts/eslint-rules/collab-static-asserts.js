@@ -53,6 +53,7 @@ const STORE_SETSTATE_FILES = [
   'src/hooks/useMarqueeSelectionGuard.ts',      // UI 交互态（框选 guard），非协作数据
   'src/pages/canvas/components/CanvasView.tsx', // UI 交互态（pendingFillCell/pendingMediaFile/marqueeSelecting）
   'src/pages/canvas/video-editor/components/VideoEditorShell.tsx', // editorDirty B4 镜像（批0d-2，beforeunload 消费）
+  // 批 2 VIEWER store wrapper 收口四 ConfigPanel 10 处后，本豁免清单须同步删对应条目（spec 批 2 行）
   'src/pages/canvas/components/nodes/AudioConfigPanel.tsx', // 表单编辑写点（useNodeStore），非协作数据
   'src/pages/canvas/components/nodes/ImageConfigPanel.tsx', // 同上
   'src/pages/canvas/components/nodes/TextConfigPanel.tsx',  // 同上

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate } from '../eslint-rules/collab-static-asserts.js';
 import { NEW_RULE_ID, THEME_RULE_ID, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
@@ -168,6 +169,91 @@ describe('flowweb/no-theme-utility 规则拦截（fixture，B5）', () => {
   it('④c′ allow 侧方括号 alpha 判别（quality 审查补）——CreditsDropdown(allow:[bg]) 上 bg-white/[0.06] 0 报（GLOBAL 式认得方括号形态方能过 every 门；漏认则 fams=[] 落 visit 假红）', () => {
     const messages = lintThemeFixture("const cls = 'bg-white/[0.06]';", 'src/pages/canvas/components/CreditsDropdown.tsx');
     expect(messages).toHaveLength(0);
+  });
+});
+
+// —— 批0e 评审 #1：collab 静态断言三条常驻 fixture——门禁自身防假绿（gateActive/路径解析回归致规则全放行时，"0 违例 PASS"由此处负例证伪）——
+// 与 lintThemeFixture 同口径：filename 直供相对路径（规则内按 APP_ROOT 相对解释，与 cwd 无关）。
+const COLLAB_RULES = {
+  'no-conn-status-write': noConnStatusWrite,
+  'no-ydoc-getmap': noYdocGetmap,
+  'no-store-setstate': noStoreSetstate,
+};
+const lintCollabFixture = (ruleName, code, filename) =>
+  linter.verify(
+    code,
+    {
+      files: ['**/*.ts', '**/*.tsx'],
+      plugins: { flowweb: { rules: { [ruleName]: COLLAB_RULES[ruleName] } } },
+      rules: { [`flowweb/${ruleName}`]: 'error' },
+    },
+    { filename },
+  );
+
+describe('flowweb/no-conn-status-write 静态断言（fixture，批0e-4 A）', () => {
+  it('白名单内放行：canvasStore 初始值 / canvasCollabRuntime 唯一写点文件不报；测试文件豁免同放行', () => {
+    expect(
+      lintCollabFixture('no-conn-status-write', "const s = { connStatus: 'connecting' };", 'src/stores/canvasStore.ts'),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture('no-conn-status-write', 'set({ connStatus: recomputeConnStatus() });', 'src/stores/canvasCollabRuntime.ts'),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture('no-conn-status-write', "a.connStatus = 'x';", 'src/stores/canvasCollabRuntime.test.ts'),
+    ).toHaveLength(0); // 测试文件豁免（isTestFile）——mock/断言不受限
+  });
+
+  it('白名单外拦截三形态：简写属性 / 对象属性 / 成员赋值各 1 报', () => {
+    const messages = lintCollabFixture(
+      'no-conn-status-write',
+      ['const a = { connStatus };', 'set({ connStatus: x });', 'store.connStatus = y;'].join('\n'),
+      'src/pages/canvas/components/ConnBadge.tsx',
+    );
+    expect(messages).toHaveLength(3);
+    expect(messages.every((m) => m.ruleId === 'flowweb/no-conn-status-write')).toBe(true);
+  });
+});
+
+describe('flowweb/no-ydoc-getmap 静态断言（fixture，批0e-4 B）', () => {
+  it('三文件门内放行：ydocBuilder 读点不报；测试文件豁免同放行', () => {
+    expect(
+      lintCollabFixture('no-ydoc-getmap', "const m = ydoc.getMap('nodes');", 'src/collab/ydocBuilder.ts'),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture('no-ydoc-getmap', "const m = getMap('nodes');", 'src/collab/ydocBuilder.test.ts'),
+    ).toHaveLength(0);
+  });
+
+  it('门外拦截双形态：member call（ydoc.getMap）/ identifier call（getMap）各 1 报', () => {
+    // page.tsx 在 C 白名单但不在 B 门内——白名单按规则各自判定（防跨规则串门误判）
+    const messages = lintCollabFixture(
+      'no-ydoc-getmap',
+      "const a = ydoc.getMap('x'); const b = getMap('y');",
+      'src/pages/canvas/page.tsx',
+    );
+    expect(messages).toHaveLength(2);
+    expect(messages.every((m) => m.ruleId === 'flowweb/no-ydoc-getmap')).toBe(true);
+  });
+});
+
+describe('flowweb/no-store-setstate 静态断言（fixture，批0e-4 C）', () => {
+  it('白名单内放行：page.tsx 生命周期豁免点不报；测试文件豁免同放行', () => {
+    expect(
+      lintCollabFixture('no-store-setstate', 'useCanvasStore.setState({ projectId });', 'src/pages/canvas/page.tsx'),
+    ).toHaveLength(0);
+    expect(
+      lintCollabFixture('no-store-setstate', 'useNodeStore.setState({});', 'src/stores/nodeStore.test.ts'),
+    ).toHaveLength(0);
+  });
+
+  it('白名单外拦截双 store 直调：useCanvasStore.setState / useNodeStore.setState 各 1 报', () => {
+    const messages = lintCollabFixture(
+      'no-store-setstate',
+      'useCanvasStore.setState({ a: 1 }); useNodeStore.setState({ b: 2 });',
+      'src/pages/canvas/components/Toolbar.tsx',
+    );
+    expect(messages).toHaveLength(2);
+    expect(messages.every((m) => m.ruleId === 'flowweb/no-store-setstate')).toBe(true);
   });
 });
 
