@@ -93,11 +93,6 @@ export class ExecutionService {
           });
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
-          await this.collabDoc.writeNodeData(projectId, node.id, {
-            content: data.content || prompt,
-            result: textResult.content,
-          });
-
           const rule = await this.prisma.pricingRule.findFirst({
             where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
           });
@@ -110,6 +105,12 @@ export class ExecutionService {
             }
             totalDeducted += cost;
           }
+
+          // 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）
+          await this.collabDoc.writeNodeData(projectId, node.id, {
+            content: data.content || prompt,
+            result: textResult.content,
+          });
 
           const bal = await this.teamCredit.getBalanceView(project.teamId, userId);
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', credits: this.balancePayload(bal) });
@@ -135,8 +136,6 @@ export class ExecutionService {
             audio: vData?.audio,
           });
 
-          await this.collabDoc.writeNodeData(projectId, node.id, { videoUrl: result.url });
-
           // 视频成功后补扣（Task11：对齐惯例）
           const vRule = await this.prisma.pricingRule.findFirst({
             where: { modelId: vData?.model, resolutionId: null, durationId: null, active: true },
@@ -150,6 +149,9 @@ export class ExecutionService {
             }
             totalDeducted += vCost;
           }
+
+          // 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）
+          await this.collabDoc.writeNodeData(projectId, node.id, { videoUrl: result.url });
 
           const newBalance = await this.teamCredit.getBalanceView(project.teamId, userId);
 
