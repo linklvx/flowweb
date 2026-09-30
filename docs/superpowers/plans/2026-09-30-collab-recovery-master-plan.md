@@ -51,7 +51,7 @@ git add <本批文件> && git commit -m "feat(collab): 批 X …"
 
 | 批 | 状态 | commit | 决策门结论/批尾备注 |
 |---|---|---|---|
-| 门 A（F11） | 待执行 | — | 载体结论：____ |
+| 门 A（F11） | 完成 | 见夹具 commit | 载体结论：**候选 1（inboundAttemptId===attemptId）**。实测（health-carrier.gate.spec.ts）：双发第一发（onOpen）connAttempt 非 null、第二发（resolveConnectionAttempt，首帧触发）已 null；resolve 与 message 同一入站帧同同步栈 ⇒ 两候选防护范围行为等价；候选 1 仅依赖公开事件（mock 零内部状态伪造）胜出——候选 2 需 mock 建模 connectionAttempt 生命周期与双发耦合，正是 F11 立门所防"mock 继承错误信念"。伴生锚固化：provider.onClose() 复位布尔（kick 处方半边）、kick 后恰 1 socket（㉝ 同栈锚）、双发事件序 [非null,null]×2——夹具常驻 CI。批 0a-1 按默认版（候选 1）实现。 |
 | 0c | 待执行 | — | — |
 | 0a | 待执行 | — | — |
 | 0b | 待执行 | — | 孤儿生命周期决策：____ |
