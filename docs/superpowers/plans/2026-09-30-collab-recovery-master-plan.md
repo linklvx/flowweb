@@ -52,8 +52,8 @@ git add <本批文件> && git commit -m "feat(collab): 批 X …"
 | 批 | 状态 | commit | 决策门结论/批尾备注 |
 |---|---|---|---|
 | 门 A（F11） | 完成 | 见夹具 commit | 载体结论：**候选 1（inboundAttemptId===attemptId）**。实测（health-carrier.gate.spec.ts）：双发第一发（onOpen）connAttempt 非 null、第二发（resolveConnectionAttempt，首帧触发）已 null；resolve 与 message 同一入站帧同同步栈 ⇒ 两候选防护范围行为等价；候选 1 仅依赖公开事件（mock 零内部状态伪造）胜出——候选 2 需 mock 建模 connectionAttempt 生命周期与双发耦合，正是 F11 立门所防"mock 继承错误信念"。伴生锚固化：provider.onClose() 复位布尔（kick 处方半边）、kick 后恰 1 socket（㉝ 同栈锚）、双发事件序 [非null,null]×2——夹具常驻 CI。批 0a-1 按默认版（候选 1）实现。 |
-| 0c | 待执行 | — | — |
-| 0a | 待执行 | — | — |
+| 0c | **完成** | 74956249/9d31ae5c/166200c4/cf8b41ae/641f9c3f/e29698fd+82e2e184/24f2682f/e140086f + 质量修复 bebd6ef0/ef658df7 | **批尾备注（2026-09-30）**：8 任务全 TDD 落地，两阶段评审（spec×3 全 PASS+质量×2 修复闭环），api 全量 1249 测试绿+pnpm verify 绿。质量修复1=consume 前移至产物落库前（F4 不变量补全：lighting getTask 免费产物泄露根堵）；修复2=payment.gateway 补 @SkipThrottle()（throttler 6.5.0 WS context res.header 抛 TypeError——0c-8 引入的真回归，已 grep 确认全仓仅 2 个 WS gateway 均豁免）+lighting FAILED 覆写清产物字段+parseSessionToken 5 处收口。**已知残留登记**：①ProjectPermissionService.resolve 对不存在项目抛 404、存在无权 403——非成员枚举仍可区分"不存在 vs 无权"（0c-6 只关 execute 自身 oracle；改 resolve 全局影响，登记上线前必修项）②扣费成功后产物链路异常无补偿对账——批 0.5 F13 根修（CAS 扣费门+complete 门序+对账 job），不在本批扩面③payment.gateway cors:'*' 仍在（范围外——批 5 socket.io 退役评估连带）④PROJECT_TEAM_MISSING 分支无 emitNodeStatus（既有行为）⑤Throttle trust proxy/tracker（代码注释已登记）⑥双客户端冒烟按计划挂批 0a-4。 |
+| 0a | 进行中 | — | **开工裁决摘要**：判据源=spec 红1/红1-并发/新建画布组（F14 三义分家）+决策门 A 裁决。①0a-1 recomputeConnStatus 唯一写点+代际制——**载体按门 A 结论=候选 1（inboundAttemptId===attemptId）**，事件处理器管代际跃迁、纯派生函数只读不写；4408 形态防早宣锚必红；②0a-2 destroyCollab 实例守卫（R23——await 恢复后仅当模块引用仍是当时实例才置空）；③0a-3 openSession 单一漏斗（四路径收口+finish 私有化+resetSession 原子〔epoch 先行〕）+F14 三义分家（404→新建；403→inaccessible 不清 key 不新建；5xx/网络错→unavailable+重试、storedId 指针不变不散射）；④0a-4 双客户端冒烟（含批 0c 首屏零 429 验证前移至此）+smoke 文档文件化。web 侧行号以现场 grep 为准。 |
 | 0b | 待执行 | — | 孤儿生命周期决策：____ |
 | 0d | 待执行 | — | 同类门控扫描结果：____ |
 | 0e | 待执行 | — | CI 首绿 commit：____ |
