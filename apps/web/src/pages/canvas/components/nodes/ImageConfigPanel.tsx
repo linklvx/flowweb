@@ -3,7 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { message } from 'antd';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { newIntentId, currentIntentId } from '@/utils/intentRecord';
+import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { ModelSelector } from './config-panel/ModelSelector';
 import type { ModelInfo } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
@@ -88,11 +88,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       await imageNodeApi.submitGeneration(nodeId, { projectId, intentId });
       lastSubmitRef.current = { intentId, failed: false };
     } catch (err: any) {
-      // 批0.5-8b：免费重试额度已尽——rotate 新意图（复用旧 id 只会再 409）
-      if (err?.errorCode === 'INTENT_EXHAUSTED' && projectId) {
+      // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示（复用旧 id 只会再 409）
+      const rotateMsg = intentRotateMessage(err?.errorCode);
+      if (rotateMsg && projectId) {
         newIntentId(projectId, nodeId);
         lastSubmitRef.current = null;
-        message.warning('重试次数已用尽，请重新发起生成');
+        message.warning(rotateMsg);
       } else if (intentId) {
         // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
         lastSubmitRef.current = { intentId, failed: true };

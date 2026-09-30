@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
+import { message } from 'antd';
 import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -633,6 +634,35 @@ describe('ImageGenNode', () => {
     await waitFor(() => {
       expect(sessionStorage.getItem('flowweb:intent:undefined:img1')).not.toBe(sentIntentId);
     });
+    fetchSpy.mockRestore();
+  });
+
+  it('INTENT_CONTEXT_MISMATCH 409 → rotate + 改参提示 + 下次提交用新 id（改参重试死循环根堵）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const warnSpy = vi.spyOn(message, 'warning');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ statusCode: 409, message: '意图上下文不匹配', errorCode: 'INTENT_CONTEXT_MISMATCH' }), { status: 409 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-2' }), { status: 200 }));
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const intent1 = lastBodyIntentId(fetchSpy);
+    expect(intent1).toBeTruthy();
+    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    await waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:intent:undefined:img1')).not.toBe(intent1);
+    });
+    // 提示出现：明确告知参数变更已重置（不被通用"提交失败"文案吞掉）
+    expect(warnSpy).toHaveBeenCalledWith('参数已变更，已重置生成会话，请重新发起');
+    // 死循环根堵：下次提交用新 id（不再撞 mismatch）
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    const intent2 = lastBodyIntentId(fetchSpy);
+    expect(intent2).toBeTruthy();
+    expect(intent2).not.toBe(intent1);
+    warnSpy.mockRestore();
     fetchSpy.mockRestore();
   });
 

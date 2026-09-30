@@ -27,7 +27,7 @@ import { Modal, message, Spin } from 'antd';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { newIntentId, currentIntentId } from '@/utils/intentRecord';
+import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -698,12 +698,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
       });
       if (!res.ok) {
         const errBody: any = await res.clone().json().catch(() => null);
-        // 批0.5-8：免费重试额度已尽——rotate 新意图（下次提交照常扣费）；复用旧 id 只会再 409
-        if (errBody?.errorCode === 'INTENT_EXHAUSTED') {
+        // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图（下次提交照常扣费）+ 明确提示；复用旧 id 只会再 409
+        const rotateMsg = intentRotateMessage(errBody?.errorCode);
+        if (rotateMsg) {
           newIntentId(body.projectId, id);
           lastSubmitRef.current = null;
           setProcessing(false);
-          message.warning('重试次数已用尽，请重新发起生成');
+          message.warning(rotateMsg);
           return;
         }
         throw new Error(errBody?.message || `提交失败（HTTP ${res.status}）`);

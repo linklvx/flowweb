@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { message } from 'antd';
 
 // Mock Web Speech API
 const mockListeners: Record<string, Function> = {};
@@ -269,5 +270,29 @@ describe('TextConfigPanel', () => {
     await vi.waitFor(() => {
       expect(sessionStorage.getItem('flowweb:intent:real-pid:n1')).not.toBe(sentIntentId);
     });
+  });
+
+  it('INTENT_CONTEXT_MISMATCH → rotate + 改参提示 + 下次提交用新 id（改参重试死循环根堵）', async () => {
+    const warnSpy = vi.spyOn(message, 'warning');
+    mockEnqueueWorkflow
+      .mockRejectedValueOnce(Object.assign(new Error('意图上下文不匹配'), { errorCode: 'INTENT_CONTEXT_MISMATCH' }))
+      .mockResolvedValueOnce({ jobId: 'job-2' });
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const intent1 = lastIntentId();
+    expect(intent1).toBeTruthy();
+    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:intent:real-pid:n1')).not.toBe(intent1);
+    });
+    // 提示出现：明确告知参数变更已重置（不被通用"提交失败"文案吞掉）
+    expect(warnSpy).toHaveBeenCalledWith('参数已变更，已重置生成会话，请重新发起');
+    // 死循环根堵：下次提交用新 id（不再撞 mismatch）
+    await generate(container);
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
+    expect(lastIntentId()).toBeTruthy();
+    expect(lastIntentId()).not.toBe(intent1);
+    warnSpy.mockRestore();
   });
 });
