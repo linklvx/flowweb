@@ -24,6 +24,8 @@ describe('resolvePostLoginTarget 17 条矩阵', () => {
     ['/templates', '/templates'],
     ['/settings/profile', '/settings/profile'],
     ['/join?code=x', '/join?code=x'],
+    ['/videos', '/videos'],
+    ['/videos/v1?tab=2', '/videos/v1?tab=2'],
     // 外链/协议相对/非白名单（/admin 非 admin 视角）/异常协议 → /works
     ['https://evil.com', '/works'],
     ['//evil.com', '/works'],
@@ -36,8 +38,8 @@ describe('resolvePostLoginTarget 17 条矩阵', () => {
     expect(resolvePostLoginTarget(input)).toBe(expected);
   });
 
-  it('矩阵计数钉 17（防静默删行）', () => {
-    expect(cases).toHaveLength(17);
+  it('矩阵计数钉 19（防静默删行；批2 评审补 /videos）', () => {
+    expect(cases).toHaveLength(19);
   });
 });
 
