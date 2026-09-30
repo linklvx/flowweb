@@ -85,6 +85,9 @@ let inboundAttemptId = -1;
 // 批1-1：watchdog 心跳 timer（会话清理链——destroyCollab 统一 clearInterval；浏览器无 unref）
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+// 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
+let plannedRestartUntil = 0;
+
 /** 批1-3 落两级恢复原语（软重连+硬重建）——本组占位。
  *  对象命名空间=watchdog 间接调用层：vi.spyOn(recovery, 'recoverConnection') 对模块内
  *  直连函数调用不可达（ESM 本地绑定），命名空间属性查找使测试缝可达（装置可达性裁定）。 */
@@ -94,10 +97,12 @@ export const recovery = {
   },
 };
 
-/** 批1-1：恢复 UI 分级落位（canvasStore.connUi；hint 非阻断、banner 批1-5 SyncBanner 消费） */
+/** 批1-1：恢复 UI 分级落位（canvasStore.connUi；hint 非阻断、banner 批1-5 SyncBanner 消费）。
+ *  批1-2 钳制：计划内重启窗口（plannedRestartUntil）内 banner 降 hint——服务端已知重启不吓用户 */
 function updateConnectionUi(ui: MachineOutput['ui']) {
+  const clamped = ui === 'banner' && Date.now() < plannedRestartUntil ? 'hint' : ui;
   const s = useCanvasStore.getState();
-  if (ui !== s.connUi) useCanvasStore.setState({ connUi: ui });
+  if (clamped !== s.connUi) useCanvasStore.setState({ connUi: clamped });
 }
 
 /** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
@@ -304,6 +309,7 @@ export async function initCollab(projectId: string): Promise<void> {
   lastWsStatus = 'connecting';
   attemptId = 0;
   inboundAttemptId = -1;
+  plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
   // 批0b deletion baseline 会话起点复位：null=首同步 doc 为源不删（旧会话基线携带过来会误删新会话 doc 独有 key）
   prevNodeIds = null;
   prevEdgeIds = null;
@@ -338,7 +344,16 @@ export async function initCollab(projectId: string): Promise<void> {
   provider.on('authenticated', () => recomputeConnStatus());
   provider.on('synced', () => recomputeConnStatus());
   provider.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
-  provider.on('close', () => recomputeConnStatus());
+  provider.on('close', ({ event }: any) => {
+    recomputeConnStatus();
+    // 批1-2：1012=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
+    // 判定走 close 事件 event.code（status 事件无 code；4408 强关不 emit close——不混用）。
+    if (event?.code === 1012) {
+      plannedRestartUntil = Date.now() + 30_000;
+      setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
+        1000 + Math.random() * 2000); // 1~3s 短退避首连（批1-0 transport 落地后换等价层）
+    }
+  });
 
   // 批1-1 watchdog 心跳（3s）：恢复门三门电平析取（快线/unhealthy 门/级别选择——spec 红2 恢复组）。
   // 电平输入禁读派生 connStatus（黑洞下恒 connecting）；jitter 阈值（gateMs/cooldownMs）在此

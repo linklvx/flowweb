@@ -173,6 +173,65 @@ describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
   });
 });
 
+describe('批1-2：1012 计划内重启短退避（fake timers）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (HocuspocusProvider as any).instances.length = 0;
+    useCanvasStore.setState({ connStatus: 'connecting', syncFailed: false, nodes: [], edges: [], connUi: 'ok', isHydrating: false });
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab(); // fake interval 清理须在 useRealTimers 前
+    vi.useRealTimers();
+  });
+
+  async function beginCollabFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0);
+    return { done, p: lastInstance() };
+  }
+  async function driveToHealthy(pid = 'p1') {
+    const { done, p } = await beginCollabFake(pid);
+    p.emit('status', { status: 'connected' });
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+    p.emit('message', {});
+    return p;
+  }
+
+  it('close 1012 → 1~3s 内 ws.connect 重连（短退避首连）', async () => {
+    const p = await driveToHealthy();
+    const connect = vi.fn();
+    (p as any).configuration = { websocketProvider: { connect } }; // 真实 provider 库契约：configuration.websocketProvider
+    p.emit('close', { event: { code: 1012 } });
+    await vi.advanceTimersByTimeAsync(3_000); // jitter delay∈[1000,3000)——3s 推进全覆盖
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('非 1012 close 不触发短退避', async () => {
+    const p = await driveToHealthy();
+    const connect = vi.fn();
+    (p as any).configuration = { websocketProvider: { connect } };
+    p.emit('close', { event: { code: 1006 } }); // 异常断连走库自发重连——不抢跑
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('计划内重启窗口（30s）内 banner 钳制 hint；窗口过期恢复 banner', async () => {
+    const p = await driveToHealthy();
+    p.emit('status', { status: 'disconnected' });
+    await vi.advanceTimersByTimeAsync(68_000); // elapsed≈65s——首次 recover 已过（gate 45~60s）
+    p.emit('close', { event: { code: 1012 } }); // plannedRestartUntil = now+30s
+    await vi.advanceTimersByTimeAsync(27_000);  // elapsed≈92s ≥90s（banner 档）但 now 仍在窗口内（27<30）
+    expect(useCanvasStore.getState().connUi).toBe('hint'); // 钳制：计划内重启不吓用户
+    await vi.advanceTimersByTimeAsync(6_000);   // 窗口过期（33>30）
+    expect(useCanvasStore.getState().connUi).toBe('banner');
+  });
+});
+
 describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
