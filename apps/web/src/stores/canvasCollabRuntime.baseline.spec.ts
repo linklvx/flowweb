@@ -4,11 +4,11 @@
 //         确定性删除（任何本地编辑触发一次 syncStoreToDoc 即命中）；
 // 50ms   = 对端刚新增节点不在本端投影，撞上本端同步被误删（onRemote 50ms 重建窗口）；
 // 反面锚 = 基线内、本次消失的 key 仍要删（本地删除语义不回退）。
-// 装置：直驱 syncStoreToDoc（projection.test 同款）；注意用例顺序——红1b②依赖文件内
-// 首次调用时模块基线为 null（首同步 doc 为源不删），勿在其前增补同步调用。
+// 装置：直驱 syncStoreToDoc（projection.test 同款）；beforeEach 经 _resetBaselineForTest 复位模块基线
+// （红1b② 依赖基线 null=首同步 doc 为源不删——测试缝消除用例顺序依赖）。
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as Y from 'yjs';
-import { syncStoreToDoc } from './canvasCollabRuntime';
+import { syncStoreToDoc, _resetBaselineForTest } from './canvasCollabRuntime';
 import { useCanvasStore } from './canvasStore';
 
 function setStoreNodes(nodes: any[]) {
@@ -16,7 +16,7 @@ function setStoreNodes(nodes: any[]) {
 }
 
 describe('批0b：deletion baseline 守卫', () => {
-  beforeEach(() => { useCanvasStore.setState({ nodes: [], edges: [] }); });
+  beforeEach(() => { useCanvasStore.setState({ nodes: [], edges: [] }); _resetBaselineForTest(); });
 
   it('红1b②：doc 放 shadow-x + 本地任意编辑 → doc 仍含 shadow-x（今天确定性删除——必红）', () => {
     const d = new Y.Doc();

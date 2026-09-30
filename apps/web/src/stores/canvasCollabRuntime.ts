@@ -85,6 +85,12 @@ let inboundAttemptId = -1;
 let prevNodeIds: Set<string> | null = null;
 let prevEdgeIds: Set<string> | null = null;
 
+/** 测试缝（只读复位）：baseline.spec 防用例顺序依赖——getDoc 先例 */
+export function _resetBaselineForTest() {
+  prevNodeIds = null;
+  prevEdgeIds = null;
+}
+
 /** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
  *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣）。
  *  唯一豁免：initCollab 超时分支直写 'offline'——destroyCollab 已断事件通道且 provider=null，

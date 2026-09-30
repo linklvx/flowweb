@@ -148,9 +148,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** 批0b 定时兜底：1h interval——短会话撞定时器概率≈0（24h×短会话），加载时点单查才是有效触发 */
+  private shadowSweepTimer: ReturnType<typeof setInterval> | null = null;
   private startShadowSweep() {
-    const t = setInterval(() => void this.sweepAgedShadows().catch((e) => this.logger.warn(`shadow sweep: ${e}`)), 60 * 60 * 1000);
-    t.unref?.();
+    this.shadowSweepTimer = setInterval(() => void this.sweepAgedShadows().catch((e) => this.logger.warn(`shadow sweep: ${e}`)), 60 * 60 * 1000);
+    this.shadowSweepTimer.unref?.();
   }
 
   /** 与定时器共用同一段检查：只删 id 时间戳超龄的影子（regex 不匹配的旧形状保守不动），
@@ -268,6 +269,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown() {
+    if (this.shadowSweepTimer) { clearInterval(this.shadowSweepTimer); this.shadowSweepTimer = null; }
     await this.server.destroy();
   }
 
