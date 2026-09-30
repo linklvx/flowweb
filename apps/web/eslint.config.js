@@ -14,6 +14,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import { noColorHex } from './scripts/eslint-rules/no-color-hex.js';
 import { noThemeUtility } from './scripts/eslint-rules/no-theme-utility.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate } from './scripts/eslint-rules/collab-static-asserts.js';
 
 const TS_FILES = ['src/**/*.ts', 'src/**/*.tsx'];
 
@@ -41,12 +42,24 @@ export default tseslint.config(
       },
     },
     plugins: {
-      flowweb: { rules: { 'no-color-hex': noColorHex, 'no-theme-utility': noThemeUtility } },
+      flowweb: {
+        rules: {
+          'no-color-hex': noColorHex,
+          'no-theme-utility': noThemeUtility,
+          'no-conn-status-write': noConnStatusWrite,
+          'no-ydoc-getmap': noYdocGetmap,
+          'no-store-setstate': noStoreSetstate,
+        },
+      },
     },
     rules: {
       // 新规则（B5 收口：hex 全量启用 baseline 增量；theme-utility 白名单外直判 0 违例）
       'flowweb/no-color-hex': 'error',
       'flowweb/no-theme-utility': 'error',
+      // collab 静态断言三条（批0e-4）：connStatus 单写点 / getMap 门 / setState 白名单——白名单外直判（lint-gate 分流）
+      'flowweb/no-conn-status-write': 'error',
+      'flowweb/no-ydoc-getmap': 'error',
+      'flowweb/no-store-setstate': 'error',
       // 迁移自 .eslintrc.base.json 的既有覆写
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

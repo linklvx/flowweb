@@ -3,6 +3,8 @@
  *   - flowweb/no-color-hex：baseline 增量——存量键放行、新违例退出码 1；
  *   - flowweb/no-theme-utility（B5 收口第二条）：目录白名单外 text-white/text-black 直判——
  *     无 baseline（跟随域已迁 0），任何命中即退出码 1（重采 baseline 也不豁免）；
+ *   - collab 静态断言三条（批0e-4）：connStatus 单写点 / getMap 三文件门 / setState 白名单——
+ *     文件白名单外直判（测试文件豁免在规则内），任何命中即退出码 1（spec 2026-09-29-collab-conn-status-recovery）；
  *   - 存量规则（.eslintrc.base.json 迁移的 eslint:recommended + @typescript-eslint/strict type-aware）
  *     仅信息性汇总，永不影响退出码（spec D9/O3：存量规则永不卡门禁）；
  *   - baseline 键 = {ruleId}|{文件相对路径}|sha256(TrimEnd(行文本))——无行号（行移动不触发）；
@@ -23,6 +25,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const NEW_RULE_ID = 'flowweb/no-color-hex';
 export const THEME_RULE_ID = 'flowweb/no-theme-utility';
+/** collab 静态断言三条（批0e-4，spec 2026-09-29-collab-conn-status-recovery）：白名单外直判，无 baseline */
+export const STATIC_ASSERT_RULE_IDS = new Set([
+  'flowweb/no-conn-status-write', // A. connStatus 单写点（唯一写点 recomputeConnStatus 批0a）
+  'flowweb/no-ydoc-getmap',       // B. getMap 三文件门（runtime/builder/undo；0.5 exec 读点落地时增补）
+  'flowweb/no-store-setstate',    // C. useCanvasStore/useNodeStore.setState 白名单（协作写入路径+生命周期/UI 豁免点）
+]);
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE_PATH = path.join(APP_ROOT, 'e2e', 'audit', 'eslint-hex-baseline.json');
 const LINT_TARGETS = ['src'];
@@ -78,6 +86,7 @@ async function runLint() {
   const getLines = readLinesCache();
   const newRuleViolations = [];
   const themeViolations = [];
+  const staticAssertViolations = [];
   const legacyCounts = new Map();
   for (const result of await eslint.lintFiles(LINT_TARGETS)) {
     for (const message of result.messages) {
@@ -88,12 +97,15 @@ async function runLint() {
       } else if (ruleId === THEME_RULE_ID) {
         const lineText = getLines(result.filePath)[message.line - 1] ?? '';
         themeViolations.push({ ruleId, filePath: result.filePath, line: message.line, lineText });
+      } else if (STATIC_ASSERT_RULE_IDS.has(ruleId)) {
+        const lineText = getLines(result.filePath)[message.line - 1] ?? '';
+        staticAssertViolations.push({ ruleId, filePath: result.filePath, line: message.line, lineText });
       } else {
         legacyCounts.set(ruleId, (legacyCounts.get(ruleId) ?? 0) + 1);
       }
     }
   }
-  return { newRuleViolations, themeViolations, legacyCounts };
+  return { newRuleViolations, themeViolations, staticAssertViolations, legacyCounts };
 }
 
 function printLegacySummary(legacyCounts, totalNew) {
@@ -115,7 +127,18 @@ async function main() {
   const updateBaseline =
     process.argv.includes('--update-baseline') || process.env.UPDATE_BASELINE === '1';
 
-  const { newRuleViolations, themeViolations, legacyCounts } = await runLint();
+  const { newRuleViolations, themeViolations, staticAssertViolations, legacyCounts } = await runLint();
+
+  // collab 静态断言（批0e-4）无 baseline：白名单外任何命中即违例（测试文件已在规则内豁免）
+  if (staticAssertViolations.length > 0) {
+    for (const v of staticAssertViolations) {
+      const rel = toRelPosix(v.filePath);
+      console.error(`静态断言违例 ${rel}:${v.line}  [${v.ruleId}]  ${v.lineText.trim()}`);
+    }
+    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
+    process.exitCode = 1;
+    return;
+  }
 
   // no-theme-utility 无 baseline：任何命中即违例（重采 hex baseline 的动作也不豁免）
   if (themeViolations.length > 0) {
@@ -168,6 +191,7 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log(`${THEME_RULE_ID}: 0 违例（白名单外直判）→ PASS`);
+    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单）: 0 违例（白名单外直判）→ PASS`);
     console.log(`flowweb/no-color-hex: ${matched} baselined, 0 new → PASS`);
     if (removed > 0) {
       console.log(`（迁移进度：baseline 已消除 ${removed} 键）`);
