@@ -32,7 +32,7 @@ describe('AiImageEditProcessor', () => {
     prisma = {
       canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 'team1' }) },
       media: {
-        findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'results/u/p/n/date/uuid.png' }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'file-1', key: 'results/u/p/n/date/uuid.png', userId: 'user1', projectId: 'proj1' }),
         create: vi.fn().mockResolvedValue({ id: 'media-new' }),
       },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
@@ -238,6 +238,49 @@ describe('AiImageEditProcessor', () => {
           error: 'API timeout',
         }),
       );
+    });
+  });
+
+  describe('安全止血（spec 批0c-2：免费算力/越权产物）', () => {
+    const makeJob = () =>
+      ({
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+        },
+      }) as any as Job;
+
+    it('consume 失败（余额不足）→ writeNodeData 零调用 + 返回 failed', async () => {
+      teamCredit.consume.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
+      (axios.get as any).mockResolvedValue({
+        data: Buffer.from('fake-image-data'),
+        headers: { 'content-type': 'image/png' },
+      });
+
+      const result = await processor.process(makeJob());
+      expect(result.status).toBe('failed');
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
+    });
+
+    it('getMediaKey 归属：fileId 属他人且非本项目 → 404 语义拒绝（不泄露存在性）', async () => {
+      prisma.media.findUnique.mockResolvedValue({
+        id: 'file-1',
+        key: 'results/u/p/n/date/uuid.png',
+        userId: 'someone-else',
+        projectId: 'other-proj',
+      });
+      (axios.get as any).mockResolvedValue({
+        data: Buffer.from('fake-image-data'),
+        headers: { 'content-type': 'image/png' },
+      });
+
+      await expect(processor.process(makeJob())).rejects.toThrow('Media not found: file-1');
     });
   });
 });

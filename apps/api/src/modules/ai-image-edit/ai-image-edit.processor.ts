@@ -60,10 +60,10 @@ export class AiImageEditProcessor extends WorkerHost {
     this.retryConfigured = true;
   }
 
-  private async getMediaKey(fileId: string): Promise<string> {
+  private async getMediaKey(fileId: string, userId: string, projectId: string): Promise<string> {
     const media = await this.prisma.media.findUnique({ where: { id: fileId } });
-    if (!media) {
-      throw new Error(`Media not found: ${fileId}`);
+    if (!media || (media.userId !== userId && media.projectId !== projectId)) {
+      throw new Error(`Media not found: ${fileId}`); // 404 语义——不泄露存在性
     }
     return media.key;
   }
@@ -76,12 +76,12 @@ export class AiImageEditProcessor extends WorkerHost {
 
     try {
       // 1. Get presigned URLs for source image and optional mask
-      const sourceKey = await this.getMediaKey(fileId);
+      const sourceKey = await this.getMediaKey(fileId, userId, projectId);
       const imageUrl = await this.minio.generatePresignedGetUrl(sourceKey, 3600);
 
       let maskUrl: string | undefined;
       if (maskFileId) {
-        const maskKey = await this.getMediaKey(maskFileId);
+        const maskKey = await this.getMediaKey(maskFileId, userId, projectId);
         maskUrl = await this.minio.generatePresignedGetUrl(maskKey, 3600);
       }
 
@@ -148,8 +148,17 @@ export class AiImageEditProcessor extends WorkerHost {
         },
       });
 
-      // 7. Deduct credit (team pool)
-      await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
+      // 7. Deduct credit (team pool)——返回值必须检查（批0c：免费算力止血）
+      const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `edit:${nodeId}`);
+      if (!consumeResult.success) {
+        this.logger.warn(`Edit credit-consume failed for node ${nodeId}: ${consumeResult.reason ?? 'unknown'}`);
+        this.gateway.emitNodeStatus(projectId, {
+          nodeId,
+          status: 'edit-failed',
+          error: `扣费失败：${consumeResult.reason ?? ''}`,
+        });
+        return { status: 'failed', reason: consumeResult.reason ?? 'CREDIT_CONSUME_FAILED' };
+      }
 
       // 8. Write fileId/尺寸 to server doc；socket 仅进度通知
       await this.collabDoc.writeNodeData(projectId, nodeId, {
