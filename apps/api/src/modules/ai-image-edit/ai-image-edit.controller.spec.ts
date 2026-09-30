@@ -4,11 +4,14 @@ import { ForbiddenException } from '@nestjs/common';
 import { AiImageEditController } from './ai-image-edit.controller';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { GenerationIntentService, NodeBusyError } from '../execution/generation-intent.service';
+import { normalizeIntentParams } from '../execution/normalize-intent-params';
 
 describe('AiImageEditController', () => {
   let controller: AiImageEditController;
   let service: { enqueueOutpaint: ReturnType<typeof vi.fn>; enqueueErase: ReturnType<typeof vi.fn>; enqueueRedraw: ReturnType<typeof vi.fn> };
   let permSvc: { assertEditor: ReturnType<typeof vi.fn> };
+  let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -19,12 +22,18 @@ describe('AiImageEditController', () => {
     permSvc = {
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
+    intentSvc = {
+      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
+      attachJob: vi.fn(),
+      fail: vi.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AiImageEditController],
       providers: [
         { provide: AiImageEditService, useValue: service },
         { provide: ProjectPermissionService, useValue: permSvc },
+        { provide: GenerationIntentService, useValue: intentSvc },
       ],
     }).compile();
     controller = module.get<AiImageEditController>(AiImageEditController);
@@ -43,7 +52,7 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.outpaint(body, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
+        'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512, 'row-1', 'i-1',
       );
       expect(result).toEqual({ jobId: 'job-outpaint-1' });
     });
@@ -60,7 +69,7 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.erase(body, req);
       expect(service.enqueueErase).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', 'mask-1',
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'row-1', 'i-1',
       );
       expect(result).toEqual({ jobId: 'job-erase-1' });
     });
@@ -79,9 +88,91 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.redraw(body, req);
       expect(service.enqueueRedraw).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70, 'row-1', 'i-1',
       );
       expect(result).toEqual({ jobId: 'job-redraw-1' });
+    });
+  });
+
+  describe('批0.5-8 意图表扩面（F13：claim→enqueue→attachJob）', () => {
+    const outpaintBody = {
+      projectId: 'proj1',
+      nodeId: 'node1',
+      fileId: 'file-1',
+      rect: { x: -16, y: 0, width: 528, height: 512 },
+      imageWidth: 512,
+      imageHeight: 512,
+    };
+
+    it('claim 参数：kind=端点任务类型 + paramsHash=白名单规范化 + body.intentId 透传', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      await controller.outpaint({ ...outpaintBody, intentId: 'client-int-1' }, req);
+      expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'proj1', nodeId: 'node1', userId: 'u1',
+        intentId: 'client-int-1', kind: 'outpaint',
+        paramsHash: normalizeIntentParams('outpaint', {
+          rect: outpaintBody.rect, imageWidth: 512, imageHeight: 512,
+        }),
+      }));
+    });
+
+    it('body 无 intentId → claim 内部生成 UUID（幂等键随机派生）', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      await controller.outpaint(outpaintBody, req);
+      const arg = intentSvc.claim.mock.calls[0][0];
+      expect(arg.intentId).toMatch(/^[0-9a-f-]{36}$/i);
+    });
+
+    it('erase/redraw 同构：kind 与白名单参数集各按端点提取', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', intentId: 'e-1' }, req);
+      expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'erase', paramsHash: normalizeIntentParams('erase', {}),
+      }));
+      await controller.redraw({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70, intentId: 'r-1' }, req);
+      expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'redraw',
+        paramsHash: normalizeIntentParams('redraw', { prompt: 'a sunset', strength: 70 }),
+      }));
+    });
+
+    it('claim 成功 → enqueue 携 intentRowId/intentId + attachJob(intent.id, job.id) 回写（F13 资损盲区）', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      await controller.outpaint(outpaintBody, req);
+      expect(service.enqueueOutpaint).toHaveBeenCalledWith(
+        'u1', 'proj1', 'node1', 'file-1', outpaintBody.rect, 512, 512, 'row-1', 'i-1',
+      );
+      expect(intentSvc.attachJob).toHaveBeenCalledTimes(1);
+      expect(intentSvc.attachJob).toHaveBeenCalledWith('row-1', 'job-outpaint-1');
+    });
+
+    it('双击互斥（同节点异 intentId 第二击）：claim 抛 NodeBusyError → 409 冒泡 + 零 enqueue 零 attachJob', async () => {
+      intentSvc.claim.mockRejectedValue(new NodeBusyError());
+      const req = { user: { id: 'u1' } } as any;
+      await expect(controller.outpaint(outpaintBody, req)).rejects.toBeInstanceOf(NodeBusyError);
+      expect(service.enqueueOutpaint).not.toHaveBeenCalled();
+      expect(intentSvc.attachJob).not.toHaveBeenCalled();
+      expect(intentSvc.fail).not.toHaveBeenCalled(); // 未获执行权——不碰行
+    });
+
+    it('同 intentId 重放（claim created:false SUCCEEDED）→ 零 enqueue 零扣费路径 + 返回既有结果', async () => {
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+      const req = { user: { id: 'u1' } } as any;
+      const result = await controller.outpaint({ ...outpaintBody, intentId: 'i-1' }, req);
+      expect(service.enqueueOutpaint).not.toHaveBeenCalled();
+      expect(intentSvc.attachJob).not.toHaveBeenCalled();
+      expect(result).toEqual({ code: 0, data: { replayed: true, resultRef: 'media-old' } });
+    });
+
+    it('enqueue 失败（队列宕）→ fail 置 FAILED（防 RUNNING 孤儿锁节点 15min）+ 异常透传', async () => {
+      service.enqueueOutpaint.mockRejectedValue(new Error('redis down'));
+      const req = { user: { id: 'u1' } } as any;
+      await expect(controller.outpaint(outpaintBody, req)).rejects.toThrow('redis down');
+      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('redis down'));
+      expect(intentSvc.attachJob).not.toHaveBeenCalled();
     });
   });
 

@@ -27,6 +27,7 @@ import { Modal, message, Spin } from 'antd';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { newIntentId, currentIntentId } from '@/utils/intentRecord';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -242,6 +243,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const [outpaintRect, setOutpaintRect] = useState<OutpaintRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [redrawPrompt, setRedrawPrompt] = useState('');
   const [strength, setStrength] = useState(50);
+  // 批0.5-8：上次 AI 编辑提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
+  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -649,9 +652,15 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const handleGenerate = useCallback(async () => {
     setProcessing(true);
     setEditError(null);
+    let intentId = '';
     try {
       let endpoint = '';
-      const body: any = { fileId, nodeId: id };
+      const body: any = { fileId, nodeId: id, projectId: canvasProjectId() };
+      // 批0.5-8：意图 id 上送（幂等键）——上次失败则复用（服务端 rearm 免费续跑），否则 rotate 新 id
+      intentId = lastSubmitRef.current?.failed
+        ? currentIntentId(body.projectId, id)
+        : newIntentId(body.projectId, id);
+      body.intentId = intentId;
 
       if (editMode === 'outpaint') {
         endpoint = '/api/image-edit/outpaint';
@@ -682,13 +691,28 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
         }
       }
 
-      await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) {
+        const errBody: any = await res.clone().json().catch(() => null);
+        // 批0.5-8：免费重试额度已尽——rotate 新意图（下次提交照常扣费）；复用旧 id 只会再 409
+        if (errBody?.errorCode === 'INTENT_EXHAUSTED') {
+          newIntentId(body.projectId, id);
+          lastSubmitRef.current = null;
+          setProcessing(false);
+          message.warning('重试次数已用尽，请重新发起生成');
+          return;
+        }
+        throw new Error(errBody?.message || `提交失败（HTTP ${res.status}）`);
+      }
+      lastSubmitRef.current = { intentId, failed: false };
     } catch (err) {
       console.error('AI 编辑失败:', err);
+      // 标记失败态——下次点击复用同 intentId 重试（服务端 rearm 免费续跑，不双扣）
+      if (intentId) lastSubmitRef.current = { intentId, failed: true };
       setEditError('提交失败，请重试');
       setProcessing(false);
     }

@@ -10,6 +10,7 @@ export class AiImageEditService {
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly queue: Queue<AiImageEditJobData>,
   ) {}
 
+  /** 批0.5-8：intentRowId/intentId 随 job.data 下传 processor（consume guard/complete 门序/failed 钩子用） */
   async enqueueOutpaint(
     userId: string,
     projectId: string,
@@ -18,6 +19,8 @@ export class AiImageEditService {
     rect: { x: number; y: number; width: number; height: number },
     imageWidth: number,
     imageHeight: number,
+    intentRowId?: string,
+    intentId?: string,
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('outpaint', {
       taskType: 'outpaint',
@@ -28,6 +31,7 @@ export class AiImageEditService {
       rect,
       imageWidth,
       imageHeight,
+      ...(intentRowId ? { intentRowId, intentId } : {}),
     });
     return { jobId: job.id! };
   }
@@ -38,6 +42,8 @@ export class AiImageEditService {
     nodeId: string,
     fileId: string,
     maskFileId: string,
+    intentRowId?: string,
+    intentId?: string,
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('erase', {
       taskType: 'erase',
@@ -46,6 +52,7 @@ export class AiImageEditService {
       nodeId,
       fileId,
       maskFileId,
+      ...(intentRowId ? { intentRowId, intentId } : {}),
     });
     return { jobId: job.id! };
   }
@@ -58,6 +65,8 @@ export class AiImageEditService {
     maskFileId: string,
     prompt: string,
     strength: number,
+    intentRowId?: string,
+    intentId?: string,
   ): Promise<{ jobId: string }> {
     const job = await this.queue.add('redraw', {
       taskType: 'redraw',
@@ -68,6 +77,7 @@ export class AiImageEditService {
       maskFileId,
       prompt,
       strength,
+      ...(intentRowId ? { intentRowId, intentId } : {}),
     });
     return { jobId: job.id! };
   }

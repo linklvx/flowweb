@@ -71,8 +71,9 @@ const INLINE_BASELINE = new Set<string>([
   'modules/admin/pricing/pricing.controller.ts|body: { rules: any[] }',
   'modules/admin/settings/settings.controller.ts|entries: SettingEntry[]',
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: {',
-  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string }',
-  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number }',
+  /* 批0.5-8：erase/redraw 增 intentId?: string（幂等键透传）——内容标识更新，条数不增（棘轮"搬运=重审"语义） */
+  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; intentId?: string }',
+  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; intentId?: string }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[] }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; intentId?: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',

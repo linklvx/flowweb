@@ -48,4 +48,8 @@ export class CreateLightingTaskDto {
   @ValidateNested()
   @Type(() => LightingParamsDto)
   params!: LightingParamsDto;
+
+  @IsOptional()
+  @IsString()
+  intentId?: string; // 批0.5-8：客户端意图 id（幂等键）——whitelist 管道须登记否则被剥
 }

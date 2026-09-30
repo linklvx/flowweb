@@ -8,6 +8,7 @@ import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
+import { GenerationIntentService } from '../execution/generation-intent.service';
 import { Job } from 'bullmq';
 
 // Mock axios
@@ -27,6 +28,7 @@ describe('AiImageEditProcessor', () => {
   let apiCaller: any;
   let teamCredit: any;
   let collabDoc: any;
+  let intentService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -53,7 +55,11 @@ describe('AiImageEditProcessor', () => {
     teamCredit = {
       consume: vi.fn().mockResolvedValue({ success: true }),
     };
-    collabDoc = { writeNodeData: vi.fn() };
+    collabDoc = { writeNodeData: vi.fn(), writeExecStatus: vi.fn().mockResolvedValue(undefined) };
+    intentService = {
+      complete: vi.fn().mockResolvedValue(1),
+      fail: vi.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -65,6 +71,7 @@ describe('AiImageEditProcessor', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
+        { provide: GenerationIntentService, useValue: intentService },
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);
@@ -284,6 +291,82 @@ describe('AiImageEditProcessor', () => {
       });
 
       await expect(processor.process(makeJob())).rejects.toThrow('Media not found: file-1');
+    });
+  });
+
+  describe('批0.5-8 意图表扩面（consume guard + complete 门序 + 终态兜底）', () => {
+    const makeIntentJob = () =>
+      ({
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+          intentRowId: 'row-9',
+          intentId: 'i-9',
+        },
+      }) as any as Job;
+
+    const mockResult = () => {
+      (axios.get as any).mockResolvedValue({
+        data: Buffer.from('fake-image-data'),
+        headers: { 'content-type': 'image/png' },
+      });
+    };
+
+    it('consume 带 intentGuard {intentRowId, intentId}（CAS 门防 stalled 重排双扣）', async () => {
+      mockResult();
+      await processor.process(makeIntentJob());
+      expect(teamCredit.consume).toHaveBeenCalledWith(
+        'team1', 'user1', 1, 'edit:node1', { intentRowId: 'row-9', intentId: 'i-9' },
+      );
+    });
+
+    it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
+      mockResult();
+      await processor.process(makeIntentJob());
+      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-new');
+      expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
+        'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
+      );
+    });
+
+    it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
+      intentService.complete.mockResolvedValue(0);
+      mockResult();
+      const result = await processor.process(makeIntentJob());
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
+      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith(
+        'proj1', expect.objectContaining({ status: 'edit-result' }),
+      );
+      expect(result.status).toBe('completed'); // job 本身成功——产物留作证，仅不投递
+    });
+
+    it('catch 路径：fail 置 FAILED + writeExecStatus error（意图终态必达）', async () => {
+      apiCaller.callOutpainting.mockRejectedValue(new Error('AI timeout'));
+      await expect(processor.process(makeIntentJob())).rejects.toThrow('AI timeout');
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('AI timeout'));
+      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
+        'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),
+      );
+    });
+
+    it('failed 钩子（SIGKILL 兜底）：job.data 带 intentRowId → writeExecStatus + fail 双写', async () => {
+      await processor.onFailed(makeIntentJob(), new Error('worker killed'));
+      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
+        'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),
+      );
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed');
+    });
+
+    it('failed 钩子：job 为 undefined（移除中）→ 零写零抛', async () => {
+      await processor.onFailed(undefined as any, new Error('x'));
+      expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();
+      expect(intentService.fail).not.toHaveBeenCalled();
     });
   });
 });

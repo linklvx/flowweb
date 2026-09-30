@@ -9,6 +9,7 @@ import { LightingConsumer } from './lighting/lighting.consumer';
 import { ExecutionModule } from '../execution/execution.module';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
+import { GenerationIntentService } from '../execution/generation-intent.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME, AI_IMAGE_EDIT_CONNECTION_NAME } from './ai-image-edit.constants';
 import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
 
@@ -24,7 +25,8 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
     }),
   ],
   controllers: [AiImageEditController, LightingController],
-  providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer],
+  // GenerationIntentService：本模块自注册（ExecutionModule 未导出它；PrismaModule @Global——execution.module 同款引法）
+  providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer, GenerationIntentService],
   exports: [AiImageEditService],
 })
 export class AiImageEditModule {}

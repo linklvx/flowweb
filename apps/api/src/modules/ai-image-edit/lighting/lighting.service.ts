@@ -33,10 +33,14 @@ export class LightingService {
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly queue: Queue,
   ) {}
 
+  /** 批0.5-8：intentRowId/intentId 随 job.data 下传 consumer；新入队返回 jobId 供 controller attachJob
+   *  回写（60s 去重分支无新 job → jobId undefined，controller 侧按重放处理）。 */
   async createTask(
     dto: CreateLightingTaskDto,
     userId: string,
-  ): Promise<{ taskId: string; status: string }> {
+    intentRowId?: string,
+    intentId?: string,
+  ): Promise<{ taskId: string; status: string; jobId?: string }> {
     // Validate params
     const { params, originalImageId } = dto;
     if (params.brightness < 0 || params.brightness > 100) {
@@ -102,7 +106,7 @@ export class LightingService {
     });
 
     // Enqueue job
-    await this.queue.add('lighting', {
+    const job = await this.queue.add('lighting', {
       taskType: 'lighting',
       userId,
       nodeId: dto.nodeId,
@@ -111,9 +115,10 @@ export class LightingService {
       originalImageId,
       params,
       taskDbId: task.id,
+      ...(intentRowId ? { intentRowId, intentId } : {}),
     });
 
-    return { taskId: task.id, status: 'pending' };
+    return { taskId: task.id, status: 'pending', jobId: job.id! };
   }
 
   async getTask(taskId: string, userId: string) {

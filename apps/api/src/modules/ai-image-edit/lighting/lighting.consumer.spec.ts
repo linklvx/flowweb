@@ -7,6 +7,7 @@ import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
+import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { Job } from 'bullmq';
 
 vi.mock('axios', () => ({
@@ -24,6 +25,7 @@ describe('LightingConsumer', () => {
   let teamCredit: any;
   let apiCaller: any;
   let collabDoc: any;
+  let intentService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -44,6 +46,10 @@ describe('LightingConsumer', () => {
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
     teamCredit = { consume: vi.fn().mockResolvedValue({ success: true }) };
     collabDoc = { writeNodeData: vi.fn() };
+    intentService = {
+      complete: vi.fn().mockResolvedValue(1),
+      fail: vi.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -54,12 +60,13 @@ describe('LightingConsumer', () => {
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: GenerationIntentService, useValue: intentService },
       ],
     }).compile();
     consumer = module.get<LightingConsumer>(LightingConsumer);
   });
 
-  const makeJob = (projectId?: string) =>
+  const makeJob = (projectId?: string, intent?: { intentRowId: string; intentId: string }) =>
     ({
       data: {
         taskType: 'lighting',
@@ -74,6 +81,7 @@ describe('LightingConsumer', () => {
           colorTemperature: 5600,
           rimLight: false,
         },
+        ...(intent ?? {}),
       },
     }) as any as Job;
 
@@ -182,6 +190,36 @@ describe('LightingConsumer', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('批0.5-8 意图表扩面（consume guard + complete 门序）', () => {
+    const intent = { intentRowId: 'row-9', intentId: 'i-9' };
+
+    it('consume 带 intentGuard {intentRowId, intentId}（CAS 门防双扣）', async () => {
+      mockAxiosResult();
+      await consumer.handleLightingJob(makeJob('proj-1', intent));
+      expect(teamCredit.consume).toHaveBeenCalledWith(
+        't-team', 'u1', 1, 'lighting:task-1', { intentRowId: 'row-9', intentId: 'i-9' },
+      );
+    });
+
+    it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
+      mockAxiosResult();
+      await consumer.handleLightingJob(makeJob('proj-1', intent));
+      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-1');
+      expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' });
+    });
+
+    it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/SUCCESS 回填/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
+      intentService.complete.mockResolvedValue(0);
+      mockAxiosResult();
+      const result = await consumer.handleLightingJob(makeJob('proj-1', intent));
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
+      expect(prisma.lightingTask.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'success' }) }),
+      );
+      expect(result.status).toBe('completed'); // job 本身成功——产物留作证，仅不投递
     });
   });
 });

@@ -8,6 +8,7 @@ import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
+import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
 import axios from 'axios';
 
@@ -34,9 +35,14 @@ export interface LightingJobData {
   taskId: string;
   originalImageId: string;
   params: LightingParams;
+  /** 批0.5-8：意图行 id / 客户端幂等键——controller claim 后随 job.data 下传（consume guard/complete 门序） */
+  intentRowId?: string;
+  intentId?: string;
 }
 
-function paramsToPrompt(params: LightingParams, customPrompt?: string): string {
+/** 纯派生稳定串（controller 侧 paramsHash 与 consumer 侧外呼 prompt 共用同一函数——
+ *  两处各自实现会产生两键=双扣，spec 幂等组⑬）。批0.5-8 起 export 供 controller 提 hash 输入。 */
+export function paramsToPrompt(params: LightingParams, customPrompt?: string): string {
   const directionMap: Record<string, string> = {
     '-1,0': '左侧',
     '0,1': '上方',
@@ -75,10 +81,11 @@ export class LightingConsumer {
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
-    const { userId, nodeId, projectId, taskId, originalImageId, params } = job.data;
+    const { userId, nodeId, projectId, taskId, originalImageId, params, intentRowId, intentId } = job.data;
 
     this.logger.log(`Processing lighting for task ${taskId}, node ${nodeId}`);
 
@@ -136,8 +143,12 @@ export class LightingConsumer {
       const ext = contentType.split('/')[1] || 'png';
 
       // 6. Deduct credit (team pool)——前移至产物落库前（F4 不变量：看到产物 ⇒ 已扣费）；返回值必须检查（批0c：免费算力止血）
+      //    批0.5-8：intentGuard CAS 门（creditsConsumed:0）——stalled 重排双跑只扣一次
       if (projectTeamId) {
-        const consumeResult = await this.teamCredit.consume(projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`);
+        const consumeResult = await this.teamCredit.consume(
+          projectTeamId, userId, CREDIT_COST_PER_EDIT, `lighting:${taskId}`,
+          ...(intentRowId && intentId ? [{ intentRowId, intentId }] : []),
+        );
         if (!consumeResult.success) {
           const reason = consumeResult.reason ?? 'CREDIT_CONSUME_FAILED';
           this.logger.warn(`Lighting credit-consume failed for task ${taskId}: ${reason}`);
@@ -178,6 +189,16 @@ export class LightingConsumer {
           status: 'completed',
         },
       });
+
+      // 8.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
+      //     count===0 = 行已被 reconcile VOIDED+退款，SUCCESS 回填/writeNodeData/emit 零调用（外呼产物留作物证）
+      if (intentRowId) {
+        const gated = await this.intentService.complete(intentRowId, media.id);
+        if (gated !== 1) {
+          this.logger.warn(`[intent-reconcile] 意图 ${intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+          return { status: 'completed', fileId: media.id };
+        }
+      }
 
       // 9. Update LightingTask
       const presignedResultUrl = await this.minio.generatePresignedGetUrl(key, 3600);

@@ -200,6 +200,7 @@ describe('ImageGenNode', () => {
   });
   afterEach(() => {
     document.querySelectorAll('#node-toolbar-portal').forEach((el) => el.remove());
+    sessionStorage.clear();
     vi.clearAllMocks();
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockActiveNodeId = null;
@@ -550,6 +551,88 @@ describe('ImageGenNode', () => {
       method: 'POST',
       body: expect.stringContaining('"rect"'),
     }));
+    fetchSpy.mockRestore();
+  });
+
+  // ── 批0.5-8 意图 id 上送（幂等键——失败重试复用、新点击 rotate、额度尽 rotate） ──
+
+  const clickOutpaintGenerate = () => {
+    const portalRoot = document.getElementById('node-toolbar-portal')!;
+    const genBtn = portalRoot.querySelector('[data-testid="outpaint-generate"]')!;
+    expect(genBtn).toBeTruthy();
+    fireEvent.click(genBtn as HTMLElement);
+  };
+
+  const lastBodyIntentId = (fetchSpy: any): string | undefined => {
+    const call = fetchSpy.mock.calls.at(-1);
+    return JSON.parse(call[1].body).intentId;
+  };
+
+  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ jobId: 'job-1' }), { status: 200 })
+    );
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const intentId = lastBodyIntentId(fetchSpy);
+    expect(intentId).toBeTruthy();
+    expect(sessionStorage.getItem(`flowweb:intent:undefined:img1`)).toBe(intentId);
+    fetchSpy.mockRestore();
+  });
+
+  it('两次新提交 rotate 不同 intentId（新点击=新扣费意图）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ jobId: 'job-1' }), { status: 200 })
+    );
+    const first = renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const intent1 = lastBodyIntentId(fetchSpy);
+    first.unmount();
+
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    const intent2 = lastBodyIntentId(fetchSpy);
+    expect(intent1).toBeTruthy();
+    expect(intent2).toBeTruthy();
+    expect(intent2).not.toBe(intent1);
+    fetchSpy.mockRestore();
+  });
+
+  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('boom', { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-2' }), { status: 200 }));
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const intent1 = lastBodyIntentId(fetchSpy);
+
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(lastBodyIntentId(fetchSpy)).toBe(intent1);
+    fetchSpy.mockRestore();
+  });
+
+  it('INTENT_EXHAUSTED 409 → rotate 新 intentId（下次提交照常扣费）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ statusCode: 409, message: '重试次数已用尽', errorCode: 'INTENT_EXHAUSTED' }), { status: 409 })
+    );
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const sentIntentId = lastBodyIntentId(fetchSpy);
+    expect(sentIntentId).toBeTruthy();
+    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    await waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:intent:undefined:img1')).not.toBe(sentIntentId);
+    });
     fetchSpy.mockRestore();
   });
 
