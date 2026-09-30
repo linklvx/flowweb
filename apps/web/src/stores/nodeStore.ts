@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
+// 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
+import { dispatchCanvasIntent } from './canvasIntents';
+import { Origin } from './canvasUndo';
 import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
 
 export type { ExecStatusEntry, NodeExecStatus } from './execStatusView';
@@ -248,6 +251,32 @@ function bridgeToCanvasStore(nodeId: string, patch: Record<string, unknown>) {
   useCanvasStore.setState({
     nodes: cs.nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)),
   });
+}
+
+/** 批4b-1：ns 数据 patch 写入体（set ns + 白名单键桥 cs）——applyNodeDataPatch action 与
+ *  canvasIntents 投影回填共用写形状。投影不得反调换芯 action（dispatch→action→dispatch
+ *  递归在此断链），故抽导出共享。删键约定（intent 契约）：patch 值 undefined ⇒ 物理删键
+ *  ——对现有调用方（不传 undefined）与原 spread 形状输出零差异（canvasStore.patchGroupData 同款手法）。 */
+export function applyDataPatchToStores(nodeId: string, patch: Record<string, unknown>) {
+  const existing = useNodeStore.getState().nodes[nodeId];
+  if (!existing) return;
+  const nextData = { ...existing.data, ...patch };
+  for (const k of Object.keys(patch)) if (patch[k] === undefined) delete (nextData as any)[k];
+  useNodeStore.setState((s) => ({
+    nodes: {
+      ...s.nodes,
+      [nodeId]: {
+        ...existing,
+        data: nextData as unknown as NodeData,
+      },
+    },
+  }));
+  // 桥白名单键到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应——桥语义不变；
+  // undefined 值键已物理删——不桥"删键"（cs 镜像桥只覆盖值写，删键场景现状无调用方））
+  const bridged = Object.entries(patch).filter(([k, v]) => CANVAS_BRIDGE_KEYS.has(k) && v !== undefined);
+  if (bridged.length > 0) {
+    bridgeToCanvasStore(nodeId, Object.fromEntries(bridged));
+  }
 }
 
 // 批2-2 VIEWER 第二层（UX 预检）：ns 内容写收口 wrapper 的 toast 节流窗——
@@ -540,22 +569,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       }
       return;
     }
-    const existing = getNode(get().nodes, nodeId);
-    if (!existing) return;
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [nodeId]: {
-          ...existing,
-          data: { ...existing.data, ...patch } as NodeData,
-        },
-      },
-    }));
-    // 桥白名单键到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应——桥语义不变）
-    const bridged = Object.entries(patch).filter(([k]) => CANVAS_BRIDGE_KEYS.has(k));
-    if (bridged.length > 0) {
-      bridgeToCanvasStore(nodeId, Object.fromEntries(bridged));
-    }
+    // 批4b-1 换芯：协作语义走意图漏斗（doc 首写+投影回填；dispatch 前置门重复拦截无害）；
+    // 下方写入体保留——与投影双写同值幂等（组 2 删旧路径后投影是唯一 store 写者）
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
+    applyDataPatchToStores(nodeId, patch);
   },
 
   updateText: (id, content) => {
@@ -638,6 +655,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   setStatus: (id, status) => {
+    // 批4b-1 换芯：doc 直写经意图漏斗（canEdit 假时 dispatch 拦 doc——下方 set 照写=既有回弹语义）
+    dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { status } }, Origin.LocalUser);
     const existing = getNode(get().nodes, id);
     if (!existing) return;
     set((s) => ({

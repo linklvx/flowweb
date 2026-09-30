@@ -16,6 +16,10 @@ import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { deriveHidden, repairStoryboardCells } from '@/utils/groupDerive';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { canEdit } from './syncStatus';
+// 批4b-1 换芯（门 C 裁决·意图漏斗）：协作语义写点经 dispatchCanvasIntent doc 直写+投影回填。
+// 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
+import { dispatchCanvasIntent, type CanvasIntent } from './canvasIntents';
+import { Origin } from './canvasUndo';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
@@ -225,10 +229,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (resolvedType === 'videoEdit') {
       node.width = 320; // spec：产物位置 fallback 链（measured→width→300）会落到 300 导致首渲染偏移
     }
-    set((s) => ({
-      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), node],
-      selectedId: id,
-    }));
+    // 批4b-1 换芯：协作语义（doc 首写+投影回填）走意图漏斗——canEdit 假时 dispatch doc+store
+    // 双零写，下方 set 走 append 分支 = 既有"readOnly 可加节点后回弹"语义保留同型
+    dispatchCanvasIntent({
+      type: 'addNode',
+      node: {
+        id, type: resolvedType, position,
+        ...(node.width != null ? { width: node.width } : {}),
+        ...(node.height != null ? { height: node.height } : {}),
+        data: nodeData,
+      },
+    }, Origin.LocalUser);
+    set((s) => {
+      // 投影已 append（canEdit 真窗口）→ 本 set 只补 UI 选择态；dispatch 被拦 → 原 append
+      const projected = s.nodes.some((n) => n.id === id);
+      return {
+        nodes: projected
+          ? s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false }))
+          : [...s.nodes.map((n) => ({ ...n, selected: false })), node],
+        selectedId: id,
+      };
+    });
     // Also populate nodeStore so ImageGenNode/ImageConfigPanel can read node data
     useNodeStore.getState().addNode({
       id,
@@ -254,6 +275,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     state.cancelNodeProcess(id);
     // videoEdit 节点：级联删除 VideoProject（fire-and-forget——失败上报不阻塞画布删除；边由下方 edges.filter 级联清除）
     cascadeDeleteVideoProject(state.nodes, [id]);
+    // 批4b-1 换芯：doc 删（含级联边删）走意图漏斗——置于 cascade/捕获段之后（上方判型读变更前
+    // state）、结构 set 之前（doc 首写）；下方 filter 型 set 与投影幂等，canEdit 假时 dispatch
+    // 拦 doc=既有 bindBridge 硬门行为，store 侧回弹语义不变
+    dispatchCanvasIntent({ type: 'deleteNode', id }, Origin.LocalUser);
     // B-2：结构 set 必须先于 nodeStore 清理——先清会触发 nodeStore 订阅提前 sync，被删节点走 nd.data 陈旧 fallback 瞬态覆写 doc data；结构 set 先行使其直接从投影消失
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
@@ -366,11 +391,23 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     };
     const edge: Edge = { id: edgeId, source: sourceId, target: id };
 
-    set((s) => ({
-      nodes: [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
-      edges: [...s.edges, edge],
-      selectedId: id,
-    }));
+    // 批4b-1 换芯：node+edge 双 intent 单 transact（canEdit 假已被 action 门拦——dispatch 前置门
+    // 重复拦截无害）；下方 set exists 自适应防投影 append 叠重复
+    dispatchCanvasIntent([
+      { type: 'addNode', node: { id, type: sourceNode.type!, position: { ...bestPos }, data } },
+      { type: 'upsertEdge', edge: { id: edgeId, source: sourceId, target: id } },
+    ], Origin.LocalUser);
+    set((s) => {
+      const nodeProjected = s.nodes.some((n) => n.id === id);
+      const edgeProjected = s.edges.some((e) => e.id === edgeId);
+      return {
+        nodes: nodeProjected
+          ? s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false }))
+          : [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
+        edges: edgeProjected ? s.edges : [...s.edges, edge],
+        selectedId: id,
+      };
+    });
 
     useNodeStore.getState().addNode({
       id,
@@ -426,9 +463,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       newIds.push(nodeId);
     }
 
+    // 批4b-1 换芯：N node+M edge 单 transact（整批原子——对端一帧收齐）
+    dispatchCanvasIntent([
+      ...newNodes.map((n) => ({ type: 'addNode' as const, node: { id: n.id, type: n.type!, position: { ...n.position }, data: n.data as Record<string, unknown> } })),
+      ...newEdges.map((e) => ({ type: 'upsertEdge' as const, edge: { id: e.id, source: e.source, target: e.target } })),
+    ], Origin.LocalUser);
+    // exists 自适应：投影已 append 基础形状 → 滤除后 append 完整对象（防叠重复）；canEdit 假
+    // 已被 action 门拦（上方 return []），此处防御分支同型
+    const newNodeIds = new Set(newNodes.map((n) => n.id));
+    const newEdgeIds = new Set(newEdges.map((e) => e.id));
     set((s) => ({
-      nodes: [...s.nodes, ...newNodes],
-      edges: [...s.edges, ...newEdges],
+      nodes: [...s.nodes.filter((n) => !newNodeIds.has(n.id)), ...newNodes],
+      edges: [...s.edges.filter((e) => !newEdgeIds.has(e.id)), ...newEdges],
     }));
 
     const ns = useNodeStore.getState();
@@ -503,11 +549,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 确定性建边幂等：同 id 已存在 no-op（防 React Flow 双 key）
     if (get().edges.some(e => e.id === id)) return id;
     const edge: Edge = { id, source, target, type: 'default', sourceHandle, targetHandle };
-    set((s) => ({ edges: [...s.edges, edge] }));
+    // 批4b-1 换芯：doc 建边走意图漏斗；set exists 自适应（投影已 append 基础形状→补完整对象）
+    dispatchCanvasIntent({ type: 'upsertEdge', edge: { id, source, target } }, Origin.LocalUser);
+    set((s) => ({
+      edges: s.edges.some((e) => e.id === id)
+        ? s.edges.map((e) => (e.id === id ? edge : e))
+        : [...s.edges, edge],
+    }));
     return id;
   },
 
   removeEdge: (id) => {
+    // 批4b-1 换芯：doc 删边走意图漏斗；filter 型 set 幂等
+    dispatchCanvasIntent({ type: 'deleteEdge', id }, Origin.LocalUser);
     set((s) => ({ edges: s.edges.filter(e => e.id !== id) }));
   },
 
@@ -556,6 +610,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const parentOfRemoved = new Map(   // set 之前捕获——filter 后丢失父子关系（deleteNode 同款）
       removedIds.map((id) => [id, get().nodes.find((n) => n.id === id)?.parentId]),
     );
+    // 批4b-1 换芯：协作语义变更走意图漏斗（doc 首写；投影回填与下方 set 同值幂等收敛）——
+    // 置于捕获段之后（上方 cascade/父子捕获须读变更前 state——投影已 filter 会致判型失效）、
+    // 结构 set 之前。拖拽 position 批 origin=Geometry（高频路径不入撤销栈——canvasUndo
+    // trackedOrigins 契约）；NodeResizer resize（setAttributes dimensions 写 width/height）与
+    // remove 走 LocalUser（撤销语义保持）。select 等纯 UI 变更不经漏斗（投影不含 selected/dragging/measured）。
+    const dragIntents: CanvasIntent[] = [];
+    const structIntents: CanvasIntent[] = [];
+    for (const c of changes) {
+      if (c.type === 'position' && c.position != null) {
+        dragIntents.push({ type: 'moveNode', id: c.id, position: { ...c.position } });
+      } else if (c.type === 'dimensions' && (c as any).setAttributes && (c as any).dimensions != null) {
+        structIntents.push({
+          type: 'updateNodeEnvelope', id: c.id,
+          patch: { width: (c as any).dimensions.width, height: (c as any).dimensions.height },
+        });
+      } else if (c.type === 'remove') {
+        structIntents.push({ type: 'deleteNode', id: c.id });
+      }
+    }
+    if (dragIntents.length > 0) dispatchCanvasIntent(dragIntents, Origin.Geometry);
+    if (structIntents.length > 0) dispatchCanvasIntent(structIntents, Origin.LocalUser);
     set((s) => {
       const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
       // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点
@@ -618,6 +693,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   onEdgesChange: (changes) => {
+    // 批4b-1 换芯：remove 变更（键盘 Delete/程序化删边）doc 删走意图漏斗；filter 幂等
+    const removeIntents = changes
+      .filter((c) => c.type === 'remove')
+      .map((c) => ({ type: 'deleteEdge' as const, id: c.id }));
+    if (removeIntents.length > 0) dispatchCanvasIntent(removeIntents, Origin.LocalUser);
     set((s) => ({ edges: applyEdgeChanges(changes, s.edges) as Edge[] }));
   },
 
@@ -626,7 +706,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (get().edges.some(e => e.source === connection.source && e.target === connection.target)) return;
     const id = getId('edge');
     const edge: Edge = { id, ...connection };
-    set((s) => ({ edges: [...s.edges, edge] }));
+    // 批4b-1 换芯（connectLine 连线手势）：doc 建边走意图漏斗；set exists 自适应防投影叠重复
+    dispatchCanvasIntent(
+      { type: 'upsertEdge', edge: { id, source: connection.source, target: connection.target } },
+      Origin.LocalUser,
+    );
+    set((s) => ({
+      edges: s.edges.some((e) => e.id === id)
+        ? s.edges.map((e) => (e.id === id ? edge : e))
+        : [...s.edges, edge],
+    }));
   },
 
   splitImageNode: async (nodeId, rows, cols) => {
@@ -1442,6 +1531,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  mergeStoryboard / convertGroup→storyboard / resizeStoryboardGrid 与子写同事务（S2 裁决保持原结构）。
    *  尺寸档调用方必须回显当前 position（传 {x:0,y:0} 会瞬移组框）——updateStoryboardConfig/toggleCollapse savedSize 分支均回显 g.position。 */
   applyGroupFrameRect: (groupId, frame) => {
+    // 批4b-1 换芯：resize/入组/convertGroup 族信封写点（本 action=配置型唯一出口——
+    // toggleCollapse/updateStoryboardConfig 消费）走意图漏斗：width/height=envelope intent、
+    // position=moveNode intent，序列单 transact（origin=LocalUser 保持撤销语义）；
+    // 下方 map 型 set 与投影同值幂等
+    dispatchCanvasIntent([
+      { type: 'updateNodeEnvelope', id: groupId, patch: { width: frame.width, height: frame.height } },
+      { type: 'moveNode', id: groupId, position: { x: frame.x, y: frame.y } },
+    ], Origin.LocalUser);
     set((st) => ({
       nodes: st.nodes.map((n) =>
         n.id === groupId ? { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height } : n),

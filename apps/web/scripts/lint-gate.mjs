@@ -28,7 +28,7 @@ export const THEME_RULE_ID = 'flowweb/no-theme-utility';
 /** collab 静态断言三条（批0e-4，spec 2026-09-29-collab-conn-status-recovery）：白名单外直判，无 baseline */
 export const STATIC_ASSERT_RULE_IDS = new Set([
   'flowweb/no-conn-status-write', // A. connStatus 单写点（唯一写点 recomputeConnStatus 批0a）
-  'flowweb/no-ydoc-getmap',       // B. getMap 三文件门（runtime/builder/undo；0.5 exec 读点落地时增补）
+  'flowweb/no-ydoc-getmap',       // B. getMap 门（runtime/builder/undo/canvasIntents 批4b-1；新 doc 点落地时增补）
   'flowweb/no-store-setstate',    // C. useCanvasStore/useNodeStore.setState 白名单（协作写入路径+生命周期/UI 豁免点）
 ]);
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

@@ -36,20 +36,25 @@ const CONN_STATUS_WRITE_FILES = [
 ];
 
 // B. getMap 三文件门：ydoc Map 读取收口；0.5 exec 读点落地时增补对应文件。
+// 批4b-1：canvasIntents（意图漏斗 applyIntentToDoc doc 直写）入白名单——门 C 裁决的合法 doc 写者。
 const GETMAP_FILES = [
   'src/stores/canvasCollabRuntime.ts',
   'src/collab/ydocBuilder.ts',
   'src/stores/canvasUndo.ts',
+  'src/stores/canvasIntents.ts',
 ];
 
-// C. setState 直调白名单：协作数据写入路径四文件（canvasHistory 为 0.5 接线前瞻项，现状无命中）
+// C. setState 直调白名单：协作数据写入路径（canvasHistory 为 0.5 接线前瞻项，现状无命中）
 // + 现状豁免（见各条注释——均非 collab 恢复路径的既有 UI 写点，锁现状防新增，收口另行推进）。
 // 批2-2：四 ConfigPanel 10 处 setState 已收口至 nodeStore.applyNodeDataPatch——豁免条目删除
 // （白名单外零命中；回退/新增旁路当场红）。
+// 批4b-1：canvasIntents 入白名单——projectIntentToStore 是意图漏斗的合法 store 投影写者
+// （doc 为真相、store 为投影；组 2 删 bindBridge 后为唯一 store 写者）。
 const STORE_SETSTATE_FILES = [
   'src/stores/canvasStore.ts',           // store 自身
   'src/stores/nodeStore.ts',             // store 自身
   'src/stores/canvasCollabRuntime.ts',   // 协作数据写入（含 connStatus 写点）
+  'src/stores/canvasIntents.ts',         // 批4b-1 意图漏斗 store 投影回填（projectIntentToStore）
   'src/stores/canvasHistory.ts',         // 0.5 接线前瞻项（现状无直调）
   'src/pages/canvas/page.tsx',           // 生命周期豁免：resetSession（:85-86 清 store）/openSession（:113 装载 projectId）
   'src/hooks/useTrackCanvasPointerShift.ts',    // UI 交互态（shift 键跟踪），非协作数据
@@ -63,10 +68,10 @@ const MSG = {
     'connStatus 单写点断言：唯一写点 recomputeConnStatus（批0a，canvasCollabRuntime）；' +
     '豁免仅 runtime 超时分支直写（终态，事件通道已断）+ canvasStore 初始值。新写点须先改 spec 再动码（spec 2026-09-29-collab-conn-status-recovery）。',
   getmap:
-    'getMap 三文件门：ydoc Map 读取仅限 canvasCollabRuntime/ydocBuilder/canvasUndo；' +
-    '0.5 exec 读点落地时增补白名单（spec 2026-09-29-collab-conn-status-recovery）。',
+    'getMap 门：ydoc Map 读取仅限 canvasCollabRuntime/ydocBuilder/canvasUndo/canvasIntents（批4b-1 意图漏斗）；' +
+    '新 doc 写/读点落地时增补白名单（spec 2026-09-29-collab-conn-status-recovery）。',
   setstate:
-    'setState 白名单断言：useCanvasStore/useNodeStore 直调 setState 仅限协作写入路径四文件+生命周期/UI 豁免点（见规则白名单注释）；' +
+    'setState 白名单断言：useCanvasStore/useNodeStore 直调 setState 仅限协作写入路径（store 本体+runtime+canvasIntents 投影）+生命周期/UI 豁免点（见规则白名单注释）；' +
     '新增写点先判定归属协作数据 or UI 交互态，再入白名单（spec 2026-09-29-collab-conn-status-recovery）。',
 };
 

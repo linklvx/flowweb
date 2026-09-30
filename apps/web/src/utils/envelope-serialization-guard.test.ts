@@ -40,6 +40,9 @@ const ALLOW_FILES = new Set([
   'apps/web/src/collab/ydocBuilder.ts',
   'apps/api/src/modules/collab/node-doc.util.ts',
   'apps/api/prisma/gate-seed.ts',
+  // 批4b-1（门 C 裁决·意图漏斗）：canvasIntents applyIntentToDoc 是新合法 doc 写者——
+  // moveNode intent 的 position 子 Map 构造（与 ydocBuilder 同级的 Y.Map 适配器）
+  'apps/web/src/stores/canvasIntents.ts',
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {

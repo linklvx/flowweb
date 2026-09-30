@@ -215,12 +215,19 @@ describe('flowweb/no-conn-status-write 静态断言（fixture，批0e-4 A）', (
 });
 
 describe('flowweb/no-ydoc-getmap 静态断言（fixture，批0e-4 B）', () => {
-  it('三文件门内放行：ydocBuilder 读点不报；测试文件豁免同放行', () => {
+  it('门内放行：ydocBuilder 读点不报；测试文件豁免同放行', () => {
     expect(
       lintCollabFixture('no-ydoc-getmap', "const m = ydoc.getMap('nodes');", 'src/collab/ydocBuilder.ts'),
     ).toHaveLength(0);
     expect(
       lintCollabFixture('no-ydoc-getmap', "const m = getMap('nodes');", 'src/collab/ydocBuilder.test.ts'),
+    ).toHaveLength(0);
+  });
+
+  // 批4b-1：canvasIntents（意图漏斗 applyIntentToDoc doc 直写）入 B 门白名单——正例锚防回退
+  it('批4b-1 白名单增补：canvasIntents.ts doc 直写读点放行', () => {
+    expect(
+      lintCollabFixture('no-ydoc-getmap', "const m = d.getMap('nodes');", 'src/stores/canvasIntents.ts'),
     ).toHaveLength(0);
   });
 
@@ -243,6 +250,13 @@ describe('flowweb/no-store-setstate 静态断言（fixture，批0e-4 C）', () =
     ).toHaveLength(0);
     expect(
       lintCollabFixture('no-store-setstate', 'useNodeStore.setState({});', 'src/stores/nodeStore.test.ts'),
+    ).toHaveLength(0);
+  });
+
+  // 批4b-1：canvasIntents（意图漏斗 projectIntentToStore store 投影回填）入 C 白名单——正例锚防回退
+  it('批4b-1 白名单增补：canvasIntents.ts 投影回填写点放行', () => {
+    expect(
+      lintCollabFixture('no-store-setstate', 'useCanvasStore.setState((s) => ({ nodes: s.nodes }));', 'src/stores/canvasIntents.ts'),
     ).toHaveLength(0);
   });
 
