@@ -1,5 +1,5 @@
 /**
- * collab 恢复静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条）：
+ * collab 恢复静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条 + R2b-8 第六条）：
  *   A. flowweb/no-conn-status-write —— connStatus 单写点；
  *   B. flowweb/no-ydoc-getmap —— ydoc getMap 读取三文件门；
  *   C. flowweb/no-store-setstate —— useCanvasStore/useNodeStore 直调 setState 白名单；
@@ -9,6 +9,10 @@
  *      'shadow-' 开头的 string/template 字面量（isShadowOnlyEvents 短路/影子 id 生成/投影过滤
  *      三形态零回流）。豁免：说明性注释（AST 只查代码——注释不是节点）；dev 巡检正则 /^shadow-/
  *      是批5 判据⑥的法定载体（regex literal 不在拦截面）。
+ *   F. flowweb/no-mediaurl-write —— mediaUrl 写入门（R2b-8）：生产代码禁 node data.mediaUrl
+ *      的对象属性键/成员表达式双 AST 形态（F37：presigned URL 不持久化——写入面随 R2b-6、
+ *      读路径随 R2b-7 收敛为零，读写皆拦，命中即回潮）。键名精确匹配——mediaUrlCache/getMediaUrl/
+ *      invalidateMediaUrl 等 url 家族标识符不在拦截面；说明性注释不进 AST。
  *
  * 共同形态（仿 no-theme-utility）：文件白名单外直判 exit 1（无 baseline，lint-gate.mjs 不建 baseline）；
  * 测试文件豁免（*.test.* / *.spec.*）——单写点/门是对生产代码的结构约束，测试的 mock 与断言不受限。
@@ -207,6 +211,36 @@ export const noShadowLiteral = {
       TemplateLiteral(node) {
         const head = node.quasis[0]?.value?.cooked; // 生成形态 `shadow-${id}`——首 quasi 定前缀
         if (typeof head === 'string' && head.startsWith('shadow-')) {
+          context.report({ node, messageId: 'forbidden' });
+        }
+      },
+    };
+  },
+};
+
+// F. R2b-8 第六条：mediaUrl 写入门（F37：presigned URL 不持久化——临时 URL 一律经
+// mediaUrlCache/useMediaUrl 解析）。无白名单（目标恒零）；测试文件豁免同各条。AST 双形态
+// 读写皆拦：①对象属性键 'mediaUrl'（含简写）——覆盖 { mediaUrl: x } / { mediaUrl }；
+// ②成员表达式属性 'mediaUrl'——覆盖 n.data.mediaUrl 读/写。刻意不做调用上下文限定
+// （addNode/updateConfig/setState 场景化白名单会漏 CanvasView 类局部变量命名的写点=假绿）；
+// 键名精确匹配，mediaUrlCache/getMediaUrl/invalidateMediaUrl 家族不误伤。
+const MSG_MEDIAURL_WRITE =
+  '禁止写入 node data.mediaUrl（F37：presigned URL 不持久化——写入面已收敛，新代码不得回潮）。' +
+  '临时 URL 一律经 mediaUrlCache/useMediaUrl 解析（spec R2 批 2b）。';
+
+export const noMediaUrlWrite = {
+  meta: { type: 'problem', docs: { description: 'mediaUrl 写入门（R2b-8 静态断言 F）' }, schema: [], messages: { forbidden: MSG_MEDIAURL_WRITE } },
+  create(context) {
+    const active = gateActive(context, []); // 无白名单——全生产文件直判
+    if (!active) return {};
+    return {
+      Property(node) {
+        if (!node.computed && node.key.type === 'Identifier' && node.key.name === 'mediaUrl') {
+          context.report({ node, messageId: 'forbidden' });
+        }
+      },
+      MemberExpression(node) {
+        if (!node.computed && node.property.type === 'Identifier' && node.property.name === 'mediaUrl') {
           context.report({ node, messageId: 'forbidden' });
         }
       },

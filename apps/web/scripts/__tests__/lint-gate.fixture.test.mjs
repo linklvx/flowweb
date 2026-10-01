@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral } from '../eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite } from '../eslint-rules/collab-static-asserts.js';
 import { NEW_RULE_ID, THEME_RULE_ID, STATIC_ASSERT_RULE_IDS, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
@@ -180,6 +180,7 @@ const COLLAB_RULES = {
   'no-store-setstate': noStoreSetstate,
   'no-delete-scan': noDeleteScan,
   'no-shadow-literal': noShadowLiteral,
+  'no-mediaurl-write': noMediaUrlWrite,
 };
 const lintCollabFixture = (ruleName, code, filename) =>
   linter.verify(
@@ -384,6 +385,52 @@ describe('flowweb/no-shadow-literal 静态断言（fixture，批5 E——删信�
 
   it('lint-gate 接线锚：no-shadow-literal 在 STATIC_ASSERT_RULE_IDS（防"规则在、门禁不数它"假绿）', () => {
     expect(STATIC_ASSERT_RULE_IDS.has('flowweb/no-shadow-literal')).toBe(true);
+  });
+});
+
+describe('flowweb/no-mediaurl-write 静态断言（fixture，R2b-8 F——mediaUrl 写入门）', () => {
+  it('拦截双形态四路：对象属性键 / 简写属性 / 成员读 / 成员写各 1 报（读写皆拦——2b-7 后读路径亦零，命中即回潮）', () => {
+    const messages = lintCollabFixture(
+      'no-mediaurl-write',
+      ['const a = { mediaUrl: \'x\' };', 'const b = { mediaUrl };', 'const u = n.data.mediaUrl;', "n.data.mediaUrl = 'y';"].join('\n'),
+      'src/pages/canvas/components/CanvasView.tsx',
+    );
+    expect(messages).toHaveLength(4);
+    expect(messages.every((m) => m.ruleId === 'flowweb/no-mediaurl-write')).toBe(true);
+  });
+
+  it('url 家族标识符不误报：mediaUrls 复数 / getMediaUrl 属性键与调用 / mediaUrlCache 模块访问（键名精确匹配非子串）', () => {
+    expect(
+      lintCollabFixture(
+        'no-mediaurl-write',
+        'const p = { mediaUrls: {} }; const k = { getMediaUrl: fn }; const u = getMediaUrl(id); const c = mediaUrlCache.get(id);',
+        'src/utils/mediaUrlCache.ts',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('注释不进 AST：说明性提及 mediaUrl 不报', () => {
+    expect(
+      lintCollabFixture(
+        'no-mediaurl-write',
+        '// 不写 mediaUrl：后端无直链端点，按 fileId 自行解析\nconst x = 1;',
+        'src/hooks/useStitchTask.ts',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('测试文件豁免（isTestFile——装置/断言串不受限）', () => {
+    expect(
+      lintCollabFixture(
+        'no-mediaurl-write',
+        "applyNodeDataPatch('n1', { mediaUrl: 'http://stale/presigned' });",
+        'src/stores/nodeStore.viewer.spec.ts',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('lint-gate 接线锚：no-mediaurl-write 在 STATIC_ASSERT_RULE_IDS（防"规则在、门禁不数它"假绿）', () => {
+    expect(STATIC_ASSERT_RULE_IDS.has('flowweb/no-mediaurl-write')).toBe(true);
   });
 });
 
