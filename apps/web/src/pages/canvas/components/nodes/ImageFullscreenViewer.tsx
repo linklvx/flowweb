@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
+import { downloadMediaFile } from '@/utils/mediaDownload';
 import type { ImageNodeData } from '@/stores/nodeStore';
 
 interface ImageFullscreenViewerProps {
@@ -62,20 +63,14 @@ function ImageFullscreenViewerComponent({
   const handleDownload = async () => {
     if (!displayUrl || downloading) return;
 
+    // R2b-2：下载统一走 downloadMediaFile（fileId+url 双保险/60s 延迟 revoke；失败 message.error——window.open 兜底移除）
     setDownloading(true);
     try {
-      const response = await fetch(displayUrl);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = '';
-      a.click();
-
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      window.open(displayUrl, '_blank');
+      await downloadMediaFile({
+        fileId: nodeData?.fileId,
+        url: displayUrl,
+        filename: nodeData?.mediaName ?? `图片-${(nodeData?.fileId ?? '').slice(-6)}`,
+      });
     } finally {
       setDownloading(false);
     }

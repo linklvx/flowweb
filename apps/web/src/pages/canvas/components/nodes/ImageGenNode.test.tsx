@@ -197,6 +197,9 @@ vi.mock('./prompt-input/ImageThumbnailBar', () => ({
   ImageThumbnailBar: () => null,
 }));
 
+const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
+vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
+
 describe('ImageGenNode', () => {
   beforeEach(() => {
     const el = document.createElement('div');
@@ -920,6 +923,22 @@ describe('ImageGenNode', () => {
       fireEditResult({ nodeId: 'other', failed: false, fileId: 'f9' });
       expect(mockUpdateConfig).not.toHaveBeenCalled();
       expect(mockSetActiveEditNodeId).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('下载（R2b-2 切 downloadMediaFile）', () => {
+    it('点击下载 → downloadMediaFile 携 fileId+url+mediaName 文件名（delta①）', async () => {
+      mockNodeData = { status: 'done', fileId: 'f-img-000123', mediaName: '日落图', style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+      mockDownloadMediaFile.mockResolvedValue({ ok: true });
+      renderNode(true);
+      fireEvent.click(screen.getByLabelText('下载'));
+      await vi.waitFor(() => {
+        expect(mockDownloadMediaFile).toHaveBeenCalledWith({
+          fileId: 'f-img-000123',
+          url: 'http://media/f-img-000123',
+          filename: '日落图',
+        });
+      });
     });
   });
 });

@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
+import { downloadMediaFile } from '@/utils/mediaDownload';
 
 interface VideoFullscreenViewerProps {
   open: boolean;
@@ -12,6 +13,9 @@ interface VideoFullscreenViewerProps {
     duration?: number;
     resolution?: string;
     prompt?: { text?: string };
+    // R2b-2：下载需要 fileId 自愈与文件名（父 VideoGenNode 的 nodeData 运行时已含，仅补类型声明）
+    fileId?: string;
+    mediaName?: string;
   };
 }
 
@@ -51,20 +55,14 @@ function VideoFullscreenViewerComponent({
   const handleDownload = async () => {
     if (!videoUrl || downloading) return;
 
+    // R2b-2：下载统一走 downloadMediaFile（fileId+url 双保险/60s 延迟 revoke；失败 message.error——window.open 兜底移除）
     setDownloading(true);
     try {
-      const response = await fetch(videoUrl);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = '';
-      a.click();
-
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      window.open(videoUrl, '_blank');
+      await downloadMediaFile({
+        fileId: nodeData?.fileId,
+        url: videoUrl,
+        filename: nodeData?.mediaName ?? `视频-${(nodeData?.fileId ?? '').slice(-6)}`,
+      });
     } finally {
       setDownloading(false);
     }

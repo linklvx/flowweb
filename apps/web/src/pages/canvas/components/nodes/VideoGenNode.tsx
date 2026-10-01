@@ -19,10 +19,10 @@ import { useVideoSeparateTask } from '@/hooks/useVideoSeparateTask';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { useVideoFrameCapture } from '@/hooks/useVideoFrameCapture';
 import { videoSeparateApi } from '@/services/video-separate.api';
-import { getMediaUrl } from '@/api/mediaApi';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import { uploadImageBlob } from '@/utils/mediaUploadUtils';
+import { downloadMediaFile } from '@/utils/mediaDownload';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
 import axios from 'axios';
 
@@ -258,27 +258,13 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const handleDownload = useCallback(async () => {
     const targetFileId = fileId || referenceVideo;
     if (!targetFileId) return;
-
-    try {
-      const { url } = await getMediaUrl(targetFileId);
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = '';
-      a.click();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      if (displayUrl) {
-        try {
-          window.open(displayUrl, '_blank');
-        } catch {
-          // silently fail
-        }
-      }
-    }
-  }, [fileId, referenceVideo, displayUrl]);
+    // R2b-2：下载统一走 downloadMediaFile（url 优先/fileId 自愈/60s 延迟 revoke/失败 message.error——window.open 兜底移除）
+    await downloadMediaFile({
+      fileId: targetFileId,
+      url: displayUrl ?? undefined,
+      filename: nodeData?.mediaName ?? `视频-${id.slice(-6)}`,
+    });
+  }, [fileId, referenceVideo, displayUrl, nodeData?.mediaName, id]);
 
   // Dynamic sizing based on video aspect ratio (same as image node)
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);

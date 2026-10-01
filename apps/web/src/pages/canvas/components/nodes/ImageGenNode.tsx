@@ -27,6 +27,7 @@ import { AnnotationToolbar } from './AnnotationToolbar';
 import { Modal, message, Spin } from 'antd';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
+import { downloadMediaFile } from '@/utils/mediaDownload';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { transformImage } from '@/utils/imageTransform';
@@ -131,28 +132,13 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const handleDownload = useCallback(async () => {
     const targetFileId = fileId || referenceImage;
     if (!targetFileId) return;
-
-    try {
-      const { url } = await getMediaUrl(targetFileId);
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = '';
-      a.click();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      // fallback: try cached displayUrl, then open in new tab
-      if (displayUrl) {
-        try {
-          window.open(displayUrl, '_blank');
-        } catch {
-          // silently fail
-        }
-      }
-    }
-  }, [fileId, referenceImage, displayUrl]);
+    // R2b-2：下载统一走 downloadMediaFile（url 优先/fileId 自愈/60s 延迟 revoke/失败 message.error——window.open 兜底移除）
+    await downloadMediaFile({
+      fileId: targetFileId,
+      url: displayUrl ?? undefined,
+      filename: nodeData?.mediaName ?? `图片-${id.slice(-6)}`,
+    });
+  }, [fileId, referenceImage, displayUrl, nodeData?.mediaName, id]);
 
   const handleGridSplit = useCallback(async (rows: number, cols: number) => {
     const result = await splitImageNode(id, rows, cols);

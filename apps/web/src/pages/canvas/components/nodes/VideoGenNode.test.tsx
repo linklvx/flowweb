@@ -3,6 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoGenNode } from './VideoGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
+const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
+vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
+
 // All shared state must be hoisted for vi.mock factories
 const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus, getMockExecAligned, setMockExecAligned } = vi.hoisted(() => {
   // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
@@ -503,5 +506,21 @@ describe('VideoGenNode', () => {
     mockMarqueeSelecting = false;
     renderNode(true);
     expect(screen.getByText('config panel')).toBeInTheDocument();
+  });
+
+  // ─── 下载（R2b-2 切 downloadMediaFile）───
+
+  it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名（mediaName 缺省 delta①）', async () => {
+    setMockNodeData({ fileId: 'v-fid-000123', status: 'done', model: '', referenceVideo: undefined });
+    mockDownloadMediaFile.mockResolvedValue({ ok: true });
+    renderNode(true);
+    fireEvent.click(screen.getByLabelText('下载'));
+    await vi.waitFor(() => {
+      expect(mockDownloadMediaFile).toHaveBeenCalledWith({
+        fileId: 'v-fid-000123',
+        url: 'http://media/v-fid-000123',
+        filename: '视频-v1',
+      });
+    });
   });
 });

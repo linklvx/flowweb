@@ -2,6 +2,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VideoFullscreenViewer } from './VideoFullscreenViewer';
 
+const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
+vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
+
 describe('VideoFullscreenViewer', () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -76,6 +79,26 @@ describe('VideoFullscreenViewer', () => {
   it('renders download button in sidebar', () => {
     render(<VideoFullscreenViewer {...defaultProps} />);
     expect(screen.getByText('下载视频')).toBeInTheDocument();
+  });
+
+  it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名（R2b-2；fileId 经 nodeData 流入）', async () => {
+    mockDownloadMediaFile.mockResolvedValue({ ok: true });
+    render(
+      <VideoFullscreenViewer
+        {...defaultProps}
+        nodeData={{ ...defaultProps.nodeData, fileId: 'vfile-123456' }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '下载视频' }));
+
+    await vi.waitFor(() => {
+      expect(mockDownloadMediaFile).toHaveBeenCalledWith({
+        fileId: 'vfile-123456',
+        url: 'http://media/video.mp4',
+        filename: '视频-123456',
+      });
+    });
   });
 
   it('renders error state when videoUrl is undefined', () => {

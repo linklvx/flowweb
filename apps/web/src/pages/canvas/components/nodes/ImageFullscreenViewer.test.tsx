@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
 import type { ImageNodeData } from '@/stores/nodeStore';
+
+const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
+vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
 
 const mockNodeData: ImageNodeData = {
   style: 'style-1',
@@ -355,45 +358,13 @@ describe('ImageFullscreenViewer', () => {
     expect(screen.getByText('图片加载失败')).toBeInTheDocument();
   });
 
-  describe('download button — fetch + blob', () => {
-    beforeAll(() => {
-      if (!URL.createObjectURL) {
-        Object.defineProperty(URL, 'createObjectURL', {
-          value: vi.fn(),
-          writable: true,
-          configurable: true,
-        });
-      }
-      if (!URL.revokeObjectURL) {
-        Object.defineProperty(URL, 'revokeObjectURL', {
-          value: vi.fn(),
-          writable: true,
-          configurable: true,
-        });
-      }
+  describe('download button — downloadMediaFile（R2b-2 切换）', () => {
+    beforeEach(() => {
+      mockDownloadMediaFile.mockReset();
+      mockDownloadMediaFile.mockResolvedValue({ ok: true });
     });
 
-    it('fetches image as blob and triggers download on click', async () => {
-      const blob = new Blob(['fake-img'], { type: 'image/png' });
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(blob, { status: 200 }),
-      );
-      const createObjectURLSpy = vi
-        .spyOn(URL, 'createObjectURL')
-        .mockReturnValue('blob:fake-url');
-      const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL');
-
-      // 模拟临时 <a> 的 click
-      const clickSpy = vi.fn();
-      const origCreateElement = document.createElement.bind(document);
-      vi.spyOn(document, 'createElement').mockImplementation((tag, options) => {
-        const el = origCreateElement(tag, options);
-        if (tag === 'a') {
-          vi.spyOn(el, 'click').mockImplementation(clickSpy);
-        }
-        return el;
-      });
-
+    it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名；downloading 守卫保持', async () => {
       render(
         <ImageFullscreenViewer
           open={true}
@@ -407,28 +378,42 @@ describe('ImageFullscreenViewer', () => {
       const btn = screen.getByRole('button', { name: '下载图片' });
       fireEvent.click(btn);
 
-      expect(fetchSpy).toHaveBeenCalledWith('https://example.com/img.jpg');
       expect(btn).toHaveTextContent('下载中...');
       expect(btn).toBeDisabled();
 
-      // 等待 fetch 完成
       await vi.waitFor(() => {
-        expect(createObjectURLSpy).toHaveBeenCalledWith(blob);
-        expect(clickSpy).toHaveBeenCalled();
-        expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:fake-url');
+        expect(mockDownloadMediaFile).toHaveBeenCalledWith({
+          fileId: 'img-001',
+          url: 'https://example.com/img.jpg',
+          filename: '图片-mg-001',
+        });
         expect(btn).toHaveTextContent('下载图片');
         expect(btn).not.toBeDisabled();
       });
-
-      fetchSpy.mockRestore();
-      createObjectURLSpy.mockRestore();
-      revokeObjectURLSpy.mockRestore();
     });
 
-    it('falls back to window.open when fetch fails', async () => {
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockRejectedValue(new Error('Network error'));
+    it('mediaName 优先于类型前缀文件名（delta①）', async () => {
+      render(
+        <ImageFullscreenViewer
+          open={true}
+          onClose={vi.fn()}
+          displayUrl="https://example.com/img.jpg"
+          nodeData={{ ...mockNodeData, mediaName: '我的图' }}
+          triggerRef={{ current: null }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '下载图片' }));
+
+      await vi.waitFor(() => {
+        expect(mockDownloadMediaFile).toHaveBeenCalledWith(
+          expect.objectContaining({ filename: '我的图' }),
+        );
+      });
+    });
+
+    it('下载失败（{ok:false}）→ 不再 window.open 兜底（delta②，message.error 归 downloadMediaFile），守卫复位', async () => {
+      mockDownloadMediaFile.mockResolvedValueOnce({ ok: false, reason: 'fetch-failed' });
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
       render(
@@ -445,18 +430,15 @@ describe('ImageFullscreenViewer', () => {
       fireEvent.click(btn);
 
       await vi.waitFor(() => {
-        expect(openSpy).toHaveBeenCalledWith('https://example.com/img.jpg', '_blank');
         expect(btn).toHaveTextContent('下载图片');
         expect(btn).not.toBeDisabled();
       });
+      expect(openSpy).not.toHaveBeenCalled();
 
-      fetchSpy.mockRestore();
       openSpy.mockRestore();
     });
 
-    it('does nothing when displayUrl is empty', () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch');
-
+    it('displayUrl 为空点击不触发下载', () => {
       render(
         <ImageFullscreenViewer
           open={true}
@@ -467,11 +449,9 @@ describe('ImageFullscreenViewer', () => {
         />,
       );
 
-      const btn = screen.getByRole('button', { name: '下载图片' });
-      fireEvent.click(btn);
+      fireEvent.click(screen.getByRole('button', { name: '下载图片' }));
 
-      expect(fetchSpy).not.toHaveBeenCalled();
-      fetchSpy.mockRestore();
+      expect(mockDownloadMediaFile).not.toHaveBeenCalled();
     });
   });
 
