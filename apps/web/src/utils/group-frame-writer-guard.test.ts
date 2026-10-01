@@ -66,9 +66,9 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
     expect(block.some((l) => l.includes('position:'))).toBe(true);  // 块内直写 position（子 rel+组框写回语义）
   });
 
-  it('折叠尺寸直写仅 COLLAPSED_SIZE 一处（200×64 字面量零命中——两处内联已单源化）', () => {
+  it('折叠尺寸直写仅 COLLAPSED_SIZE 一处（220×160 字面量零命中——R2d-2 起禁当前值内联，防回退硬编码）', () => {
     const src = readFileSync(FILE, 'utf8');
-    expect(src).not.toMatch(/width:\s*200,\s*height:\s*64/);
+    expect(src).not.toMatch(/width:\s*220,\s*height:\s*160/);
     expect(src.includes('COLLAPSED_SIZE')).toBe(true);
   });
 });

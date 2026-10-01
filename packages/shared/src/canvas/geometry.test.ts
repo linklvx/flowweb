@@ -100,7 +100,7 @@ describe('单源常量锚（新建——现状散布内联的契约面）', () =
   it('DEFAULT_CHILD_SIZE = 280×120（六处内联 ?? 280/?? 120 的单源）', () => {
     expect(DEFAULT_CHILD_SIZE).toEqual({ width: 280, height: 120 });
   });
-  it('COLLAPSED_SIZE = 200×64（canvasStore:1264 与 NormalGroupRenderer:44 两处内联的单源）', () => {
-    expect(COLLAPSED_SIZE).toEqual({ width: 200, height: 64 });
+  it('COLLAPSED_SIZE = 220×160（R2d-2 改值；原 canvasStore:1264 与 NormalGroupRenderer:44 两处内联 200×64 的单源）', () => {
+    expect(COLLAPSED_SIZE).toEqual({ width: 220, height: 160 });
   });
 });

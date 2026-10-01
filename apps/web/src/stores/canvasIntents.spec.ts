@@ -455,8 +455,8 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     const gid = useCanvasStore.getState().groupNodes([n1, n2]);
     useCanvasStore.getState().toggleCollapse(gid);
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
-    expect(g.get('width')).toBe(200); // COLLAPSED_SIZE 200×64（组框写点=折叠分支直写——非 applyGroupFrameRect）
-    expect(g.get('height')).toBe(64);
+    expect(g.get('width')).toBe(220); // COLLAPSED_SIZE 220×160（组框写点=折叠分支直写——非 applyGroupFrameRect）
+    expect(g.get('height')).toBe(160);
     expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
     expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeTruthy();
     expect(checkProjectionInvariant(doc)).toBe(true);

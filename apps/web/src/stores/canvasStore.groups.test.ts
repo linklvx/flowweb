@@ -204,12 +204,12 @@ describe('组尺寸持久化行为', () => {
     useCanvasStore.getState().toggleCollapse(gId); // 折叠
     const collapsed = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
     expect((collapsed.data as any).collapsed).toBe(true);
-    expect(collapsed.width).toBe(200);
+    expect(collapsed.width).toBe(COLLAPSED_SIZE.width);
     expect((collapsed.data as any).savedSize).toEqual({ width: beforeWidth, height: beforeHeight });
     useCanvasStore.getState().toggleCollapse(gId); // 展开 → refit
     const expanded = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
     expect((expanded.data as any).collapsed).toBe(false);
-    expect(expanded.width).toBeGreaterThan(200);
+    expect(expanded.width).toBeGreaterThan(COLLAPSED_SIZE.width);
   });
 
   it('manuallyResized 组展开恢复 savedSize（不 refit）', () => {

@@ -26,8 +26,8 @@ export const STITCH_WIDTH_MAP = { '2K': 2048, '4K': 3840 } as const;
  *  另含 normalizeLoadedCanvas/applyGroupFrame/addToGroup 分支 A/assertInvariant 四处派生公式点） */
 export const DEFAULT_CHILD_SIZE = { width: 280, height: 120 } as const;
 
-/** 折叠组尺寸（现状 canvasStore.ts:1262 与 NormalGroupRenderer.tsx:44 两处内联 200×64——R1b 单源化） */
-export const COLLAPSED_SIZE = { width: 200, height: 64 } as const;
+/** 折叠组尺寸（R2d-2 改值 220×160；原 canvasStore.ts/NormalGroupRenderer.tsx 两处内联 200×64——R1b 单源化） */
+export const COLLAPSED_SIZE = { width: 220, height: 160 } as const;
 
 export function calcDefaultGrid(count: number): { rows: number; cols: number } {
   if (count <= 1) return { rows: 1, cols: 1 };
