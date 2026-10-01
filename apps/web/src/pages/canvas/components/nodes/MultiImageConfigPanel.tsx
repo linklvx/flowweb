@@ -21,7 +21,7 @@ interface Props {
 }
 
 function ThumbImage({ fileId }: { fileId: string }) {
-  const { url, loading } = useMediaUrl(fileId);
+  const { url, loading, onError } = useMediaUrl(fileId);
 
   if (loading) {
     return (
@@ -31,12 +31,25 @@ function ThumbImage({ fileId }: { fileId: string }) {
     );
   }
 
+  // R2b-5：url=null（重取中/重试耗尽）走占位——禁空串 src（会触发无意义加载错误）；元素 onError 换缓存自愈
+  if (!url) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-[#1a1a2e]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      </div>
+    );
+  }
+
   return (
     <img
-      src={url || ''}
+      src={url}
       alt=""
       className="w-full h-full object-cover"
-      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+      onError={onError}
     />
   );
 }

@@ -23,8 +23,9 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceAudio = nodeData?.referenceAudio;
-  const { url: resultUrl } = useMediaUrl(fileId);
-  const { url: refAudioUrl } = useMediaUrl(referenceAudio);
+  // R2b-5：onError 自愈直通 <audio> 兜底元素（AudioWaveform 失败先走 useFallback，兜底 <audio> 再失败=URL 死亡）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  const { url: refAudioUrl, onError: onRefAudioError } = useMediaUrl(referenceAudio);
 
   const displayUrl = resultUrl || refAudioUrl;
 
@@ -225,6 +226,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
               src={displayUrl}
               controls
               className="max-w-[90%]"
+              onError={resultUrl ? onResultError : onRefAudioError}
             />
           ) : status === 'loading' ? (
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>

@@ -84,8 +84,9 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
-  const { url: resultUrl } = useMediaUrl(fileId);
-  const { url: refPreviewUrl } = useMediaUrl(referenceImage);
+  // R2b-5：onError 自愈直通 <img>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  const { url: refPreviewUrl, onError: onRefPreviewError } = useMediaUrl(referenceImage);
 
   const displayUrl = resultUrl || refPreviewUrl;
 
@@ -1179,6 +1180,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
                   ...(previewTransform ? { transform: previewTransform } : {}),
                 }}
                 onLoad={handleImageLoad}
+                onError={resultUrl ? onResultError : onRefPreviewError}
               />
               {/* Edit mode overlays */}
               {editMode === 'crop' && (

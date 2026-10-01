@@ -44,7 +44,7 @@ interface MediaImageProps {
 }
 
 function MediaImage({ fileId, alt, className, onImageLoad }: MediaImageProps) {
-  const { url, loading, error } = useMediaUrl(fileId);
+  const { url, loading, error, onError } = useMediaUrl(fileId);
 
   if (loading) {
     return (
@@ -66,7 +66,7 @@ function MediaImage({ fileId, alt, className, onImageLoad }: MediaImageProps) {
     );
   }
 
-  return <img src={url} alt={alt} className={className} loading="lazy" onLoad={onImageLoad} />;
+  return <img src={url} alt={alt} className={className} loading="lazy" onLoad={onImageLoad} onError={onError} />;
 }
 
 function MultiImageNodeComponent({ id, selected }: NodeProps) {

@@ -7,6 +7,9 @@ let currentUserId: string | null = null;
 const CACHE_LIMIT = 64;
 const cache = new Map<string, { url: string; expiresAt: number }>();  // Map 迭代序=插入序，首键即最旧 → LRU
 const pending = new Map<string, Promise<string>>();
+// R2b-5：临期窗口——剩余寿命 <= 60s 视为 stale（命中即回旧 url + 后台预刷新）。
+// 与 onError 失效重取构成自愈双入口分工：临期管挂载时余寿不足，onError 管驻留节点 URL 事后死亡（plan 注记 8）。
+export const NEAR_EXPIRY_MS = 60_000;
 
 export function setMediaCacheUserId(userId: string | null) { currentUserId = userId; }
 export function clearMediaUrlCache() {
@@ -28,22 +31,37 @@ const cacheKey = (fileId: string) => `${currentUserId ?? ''}:${fileId}`;
 
 export function currentMediaUserId() { return currentUserId; }  // v4：hook deps 身份跟随用
 
-function cacheGet(key: string): { url: string } | null {
+function cacheGet(key: string): { url: string; stale: boolean } | null {
   const hit = cache.get(key);
   if (!hit) return null;
-  if (hit.expiresAt <= Date.now()) { cache.delete(key); return null; }
+  // isFinite 防御：非法 expiresAt 视同过期（NaN 与任何比较恒 false → 会永久误判 fresh，永不重取的最阴险失败）
+  if (!Number.isFinite(hit.expiresAt) || hit.expiresAt <= Date.now()) {
+    cache.delete(key); return null;   // 已过期（<=now）：未命中 + 删条目（现状语义维持）
+  }
+  // 此分支必有 expiresAt > now：now < expiresAt <= now+NEAR_EXPIRY_MS 即临期档
+  const stale = hit.expiresAt <= Date.now() + NEAR_EXPIRY_MS;
   // LRU touch：删后重插，把该条挪到"最新"端
   cache.delete(key); cache.set(key, hit);
-  return hit;
+  return { url: hit.url, stale };
 }
 
 /** hook 渲染层命中查询（v5：cacheKey/cacheGet 保持私有——收进缓存层封装，hook 不碰缓存内部结构） */
-export function getCachedUrl(fileId: string): { url: string } | null {
+export function getCachedUrl(fileId: string): { url: string; stale: boolean } | null {
   return cacheGet(cacheKey(fileId));
 }
 
+// R2b-5：onError 失效自愈入口——cache+pending 必须同清：只清 cache 会被 in-flight 去重
+// 短路拿回同一条坏 URL（plan MUST-RED 注记）
+export function invalidateMediaUrl(fileId: string) {
+  const key = cacheKey(fileId);
+  cache.delete(key);
+  pending.delete(key);
+}
+
 function cacheSet(key: string, url: string, ttlSec: number) {
-  cache.set(key, { url, expiresAt: Date.now() + ttlSec * 1000 });
+  // isFinite 兜底（R2b-5 收敛到唯一写点）：缺失/NaN 按 0=立即过期（NaN 与任何比较恒假 → 永不重取）
+  const ttl = Number.isFinite(ttlSec) ? ttlSec : 0;
+  cache.set(key, { url, expiresAt: Date.now() + ttl * 1000 });
   while (cache.size > CACHE_LIMIT) {
     const oldest = cache.keys().next().value as string;
     cache.delete(oldest);
@@ -60,13 +78,18 @@ export function fetchMediaUrl(fileId: string): Promise<string> {
                                    // 若改成"调用时刻重算"，A 的响应会写进 B 的键（useMediaUrl.test 跨换号用例锁死）
   const existing = pending.get(key);              // in-flight 去重：并发挂载共享单请求
   if (existing) return existing;
-  const p = getMediaUrl(fileId)
+  const p: Promise<string> = getMediaUrl(fileId)
     .then((res) => {
-      const ttl = Number.isFinite(res.ttlSec) ? res.ttlSec : 0;  // isFinite 兜底：缺失按 0=立即过期（防 NaN 恒假永不重取）
-      cacheSet(key, res.url, ttl);
+      // R2b-5 身份校验：在飞期间被 invalidateMediaUrl → 结果作废不写缓存——
+      // 否则坏 URL 带旧 expiresAt 复活，onError 重取必然再失败
+      if (pending.get(key) !== p) return res.url;
+      cacheSet(key, res.url, res.ttlSec);
       return res.url;
     })
-    .finally(() => { pending.delete(key); });
+    .finally(() => {
+      // 同理只删自己的去重位：不得误删 invalidate 后新发起请求的继任条目
+      if (pending.get(key) === p) pending.delete(key);
+    });
   pending.set(key, p);
   return p;
 }

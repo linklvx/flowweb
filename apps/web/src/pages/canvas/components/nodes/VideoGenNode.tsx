@@ -67,8 +67,9 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
-  const { url: resultUrl } = useMediaUrl(fileId);
-  const { url: refVideoUrl } = useMediaUrl(referenceVideo);
+  // R2b-5：onError 自愈直通 <video>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  const { url: refVideoUrl, onError: onRefVideoError } = useMediaUrl(referenceVideo);
 
   const displayUrl = resultUrl || refVideoUrl;
 
@@ -731,6 +732,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
               controls
               style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
               onLoadedMetadata={handleVideoLoad}
+              onError={resultUrl ? onResultError : onRefVideoError}
             />
           ) : status === 'loading' ? (
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>
