@@ -3,8 +3,11 @@ import { memo, useMemo, useState, useCallback, useRef, useEffect, useLayoutEffec
 import { createPortal } from 'react-dom';
 import { useStore, useViewport, getNodesBounds, type InternalNode } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { clampToolbarX } from '@flowweb/shared';
+import { useNodeStore } from '@/stores/nodeStore';
+import { clampToolbarX, type CanvasNodeRecord } from '@flowweb/shared';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
+import { collectDownloadables } from '@/utils/collectDownloadables';
+import { runBatchDownload } from '@/utils/batchDownload';
 import { SELECTION_BOX, BADGE, SELECTION_TOOLBAR } from './selectionTokens';
 
 interface Props { onGroup?: (ids: string[]) => void; onMergeStoryboard?: (ids: string[]) => void }
@@ -24,6 +27,13 @@ const menuItem = (disabled?: boolean): React.CSSProperties => ({
   display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px',
   background: 'none', border: 'none', borderRadius: 8, fontSize: 13,
   color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+});
+// §4.3 图标按钮：32×32 icon-only（同 VideoNodeToolbar ICON_ONLY_BTN_SHAPE 先例——不置 disabled 属性，保焦点可达）
+const iconBtn = (disabled?: boolean): React.CSSProperties => ({
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 32, height: 32, flexShrink: 0, padding: 0,
+  background: 'transparent', border: 'none', borderRadius: 8,
+  color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer',
 });
 // §4.3 菜单浮层：同容器视觉（圆角 12 / 0.5px 边框 / 阴影 / blur）min-width 120
 const POPUP: React.CSSProperties = {
@@ -45,6 +55,8 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   const duplicateNodesAction = useCanvasStore((s) => s.duplicateNodes);
   const mergeStoryboard = useCanvasStore((s) => (s as any).mergeStoryboard);
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
+  const csNodes = useCanvasStore((s) => s.nodes);
+  const nsNodes = useNodeStore((s) => s.nodes);
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   // clampToolbarX 测量源：工具条 offsetWidth（内容宽）+ portal 容器 clientWidth（视口宽）——jsdom 恒 0，由测试 stub
@@ -94,6 +106,26 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   }, [openMenu]);
 
   const selectedIds = useMemo(() => selectedInternal.map((n) => n.id), [selectedInternal]);
+
+  // 批量下载集（contract 1 download）：aria-disabled 与点击收集同源，ns 注入读点（M8 探针）。
+  // 双侧最小视图桥（同 collectDownloadables 内部 guardNode 桥先例）：cs 侧 selection 归一仅读 id/type/parentId；
+  // ns AppNode 无 position（store 形状即如此），其读路径仅消费 {id,type,data}——position 桩位补形不进消费面
+  const downloadables = useMemo(() => {
+    const nsRecords: Record<string, CanvasNodeRecord> = {};
+    for (const [id, n] of Object.entries(nsNodes)) {
+      nsRecords[id] = { id: n.id, type: n.type, position: { x: 0, y: 0 }, data: n.data as unknown as Record<string, unknown> };
+    }
+    return collectDownloadables(
+      csNodes.map((n) => ({ id: n.id, type: n.type!, parentId: n.parentId, position: n.position, data: n.data })),
+      selectedIds,
+      () => nsRecords,
+    );
+  }, [csNodes, nsNodes, selectedIds]);
+
+  const handleBatchDownload = useCallback(() => {
+    if (downloadables.length === 0) return;
+    void runBatchDownload(downloadables);
+  }, [downloadables]);
 
   const toggleMenu = useCallback((m: Exclude<OpenMenu, null>) => {
     setOpenMenu((cur) => (cur === m ? null : m));
@@ -183,6 +215,17 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
           )}
         </div>
         <button style={triggerBtn()} onClick={handleDuplicate}>创建副本</button>
+        <button
+          type="button"
+          aria-label="批量下载"
+          aria-disabled={downloadables.length === 0}
+          style={iconBtn(downloadables.length === 0)}
+          onClick={handleBatchDownload}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" />
+          </svg>
+        </button>
       </div>
     </>,
     portalRoot,

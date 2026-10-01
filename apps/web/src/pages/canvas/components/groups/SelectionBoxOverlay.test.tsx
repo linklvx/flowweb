@@ -7,6 +7,9 @@ const rf = vi.hoisted(() => {
   return { state };
 });
 
+const batchDl = vi.hoisted(() => ({ runBatchDownload: vi.fn() }));
+const ns = vi.hoisted(() => ({ state: {} as Record<string, any> }));
+
 // getNodesBounds mock：node.positionAbsolute 存在时取 min/max，否则固定 bounds
 vi.mock('@xyflow/react', () => ({
   useStore: (sel: any) => sel({ nodeLookup: new Map(rf.state.nodes.map((n) => [n.id, n])) }),
@@ -21,7 +24,12 @@ vi.mock('@xyflow/react', () => ({
 
 const storeApi: any = {};
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes.filter((n) => n.selected), groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting, arrangeSelection: storeApi.arrangeSelection, duplicateNodes: storeApi.duplicateNodes }),
+  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes, groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting, arrangeSelection: storeApi.arrangeSelection, duplicateNodes: storeApi.duplicateNodes }),
+}));
+vi.mock('@/utils/batchDownload', () => ({ runBatchDownload: batchDl.runBatchDownload }));
+vi.mock('@/stores/nodeStore', () => ({
+  useNodeStore: (sel: any) => sel({ nodes: ns.state }),
+  execStatusOf: () => undefined,
 }));
 
 import { SelectionBoxOverlay } from './SelectionBoxOverlay';
@@ -35,6 +43,8 @@ describe('SelectionBoxOverlay', () => {
     storeApi.groupNodes = vi.fn();
     storeApi.arrangeSelection = vi.fn();
     storeApi.duplicateNodes = vi.fn();
+    batchDl.runBatchDownload.mockClear();
+    ns.state = {};
   });
   afterEach(() => portal.remove());
 
@@ -165,5 +175,38 @@ describe('SelectionBoxOverlay', () => {
       else delete proto.offsetWidth;
       delete (portalEl as any).clientWidth;
     }
+  });
+
+  it('批量下载按钮：无可下载选中（2×textInput）→ aria-disabled=true，点击不触发 runBatchDownload', () => {
+    rf.state.nodes = [
+      mk('t1', 'textInput', {}, { positionAbsolute: { x: 0, y: 300 } }),
+      mk('t2', 'textInput', {}, { positionAbsolute: { x: 10, y: 310 } }),
+    ];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    render(<SelectionBoxOverlay />);
+    const btn = screen.getByRole('button', { name: '批量下载' });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(btn);
+    expect(batchDl.runBatchDownload).not.toHaveBeenCalled();
+  });
+
+  it('批量下载按钮：含完成图片选中 → aria-disabled=false，点击以 collectDownloadables 结果调用 runBatchDownload', () => {
+    ns.state = {
+      i1: { id: 'i1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1', mediaName: '封面.png' } },
+      t2: { id: 't2', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
+    };
+    rf.state.nodes = [
+      mk('i1', 'imageGen', { status: 'done', fileId: 'f1', mediaName: '封面.png' }, { positionAbsolute: { x: 0, y: 300 } }),
+      mk('t2', 'textInput', {}, { positionAbsolute: { x: 10, y: 310 } }),
+    ];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    render(<SelectionBoxOverlay />);
+    const btn = screen.getByRole('button', { name: '批量下载' });
+    expect(btn).toHaveAttribute('aria-disabled', 'false');
+    fireEvent.click(btn);
+    expect(batchDl.runBatchDownload).toHaveBeenCalledTimes(1);
+    expect(batchDl.runBatchDownload).toHaveBeenCalledWith([
+      { fileId: 'f1', filename: '封面.png', type: 'imageGen' },
+    ]);
   });
 });
