@@ -47,6 +47,8 @@ describe('mergeStoryboard', () => {
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
     expect(expanded.every((n) => n.type === 'imageGen' && (n.data as any).status === 'done')).toBe(true);
+    // R2b-6 写入面清零（F37）：展开节点 data 不得持久化 presigned URL（mediaUrl 键删除）
+    expect(expanded.every((n) => !JSON.stringify(n.data).includes('mediaUrl'))).toBe(true);
     expect(s.nodes.find((n) => n.id === 'multi')).toBeUndefined(); // 原节点移除
     expect(s.nodes.length).toBe(before + 2 - 1 + 1); // +2 展开 -1 原节点 +1 组
     // 展开节点必须挂组（parentId + hidden），否则游离在画布上不隐藏也不入格

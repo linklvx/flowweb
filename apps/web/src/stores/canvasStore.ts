@@ -211,7 +211,7 @@ export interface CanvasState {
   updateStoryboardConfig: (groupId: string, patch: Partial<StoryboardConfig>) => void;
   resizeStoryboardGrid: (groupId: string, rows: number, cols: number) => void;
   clearStoryboard: (groupId: string) => void;
-  addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string, url?: string) => void;
+  addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string) => void;
   removeStoryboardCell: (groupId: string, cellIndex: number) => void;
   /** R2a-6 副本薄壳①（选区复制）：ids=原始选集（禁止直通 buildCopyPlan）——入口
    *  participation('duplicate') 裁决 → records 装配（ns 全量）→ buildCopyPlan 纯映射（offset 模式）
@@ -1392,7 +1392,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         const newNode: Node = {
           id, type: 'imageGen', parentId: groupId, extent: 'parent' as const,
           position: { x: 0, y: 0 }, width: 320, height: 180,
-          data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: nodeId },
+          data: { status: 'done', fileId: img.id, __fromMulti: nodeId },
           selected: false,
         } as Node;
 
@@ -1511,7 +1511,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
             // 暂留原 multi 位置：字典序排序依据（P1-新1——若归零则展开图永远插队排最前）；
             // 追加进 nodes 时统一归零（分镜组子节点坐标无意义）
             position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
-            data: { status: 'done', fileId: img.id, mediaUrl: img.url, __fromMulti: n.id },
+            data: { status: 'done', fileId: img.id, __fromMulti: n.id },
             selected: false,
           } as Node);
         }
@@ -1857,7 +1857,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
-  addImageToStoryboardCell: (groupId, cellIndex, fileId, url) => {
+  addImageToStoryboardCell: (groupId, cellIndex, fileId) => {
     const id = getId('node');
     // 空位用 null 占位（cells: (string | null)[]），语义明确且 filter(Boolean) 安全
     const cells: (string | null)[] = [...(((get().nodes.find((n) => n.id === groupId)?.data as any)?.cells) ?? [])];
@@ -1869,11 +1869,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       nodes: st.nodes.concat([{
         id, type: 'imageGen', parentId: groupId, extent: 'parent',
         position: { x: 0, y: 0 }, width: 320, height: 180,
-        data: { status: 'done', fileId, mediaUrl: url } as any, selected: false,
+        data: { status: 'done', fileId }, selected: false,
       } as Node]),
     }));
     get().patchGroupData(groupId, { cells });
-    useNodeStore.getState().addNode({ id, type: 'imageGen', data: { status: 'done', fileId, mediaUrl: url } as any });
+    useNodeStore.getState().addNode({ id, type: 'imageGen', data: { status: 'done', fileId } });
     get().applyGroupDerivations();
     dispatchProjectionDiff(before, Origin.LocalUser);
   },

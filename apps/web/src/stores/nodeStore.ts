@@ -242,7 +242,7 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
 
 // 桥接白名单：仅低频图片身份字段同步 canvasStore（订阅 canvasStore 的组件实时响应），
 // 防高频 updateConfig 路径（未知字段）引发全画布重渲染。
-const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'mediaUrl', 'images']);
+const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
 
 function bridgeToCanvasStore(nodeId: string, patch: Record<string, unknown>) {
   const cs = useCanvasStore.getState();

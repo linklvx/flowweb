@@ -1,6 +1,7 @@
 // canvasStore.cellOps.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
 import type { Node } from '@xyflow/react';
 
 const doneImage = (id: string, x = 100, y = 100): Node =>
@@ -17,7 +18,7 @@ describe('addImageToStoryboardCell', () => {
   it('填充空格：cells 补位 + 新隐藏子节点', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b']); // 1x2 → [a,b]
     useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2); // 扩为 2x2，两个空位
-    useCanvasStore.getState().addImageToStoryboardCell(gid, 3, 'f-new', 'http://x');
+    useCanvasStore.getState().addImageToStoryboardCell(gid, 3, 'f-new');
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
     const cells = g.data.cells as (string | null)[];
@@ -25,6 +26,18 @@ describe('addImageToStoryboardCell', () => {
     const cell3 = s.nodes.find((n) => n.id === cells![3])!;
     expect(cell3.parentId).toBe(gid);
     expect((cell3.data as any).fileId).toBe('f-new');
+  });
+
+  it('槽位建图节点 data 不含 mediaUrl 键（R2b-6 写入面清零——F37 presigned URL 不得持久化）', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b']);
+    useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2);
+    useCanvasStore.getState().addImageToStoryboardCell(gid, 3, 'f-new');
+    const s = useCanvasStore.getState();
+    const cells = (s.nodes.find((n) => n.id === gid)!.data as any).cells as (string | null)[];
+    const csNode = s.nodes.find((n) => n.id === cells![3])!;
+    expect(JSON.stringify(csNode.data)).not.toContain('mediaUrl'); // cs 镜像不写
+    const nsNode = useNodeStore.getState().nodes[cells![3]!];
+    expect(JSON.stringify(nsNode.data)).not.toContain('mediaUrl'); // ns 节点不写（双写第二笔）
   });
 });
 
@@ -65,5 +78,23 @@ describe('dropImageIntoStoryboard（multiImageGen 展开拖入）', () => {
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
     expect(expanded.every((n) => n.parentId === gid)).toBe(true);
+  });
+
+  it('展开节点 data 不含 mediaUrl 键（R2b-6 写入面清零——F37）', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b']);
+    useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2);
+    useCanvasStore.setState({
+      nodes: [...useCanvasStore.getState().nodes, {
+        id: 'multi', type: 'multiImageGen', position: { x: 1000, y: 100 }, width: 320, height: 200,
+        data: { images: [
+          { id: 'm1', url: 'u1', name: 'n', status: 'success' },
+          { id: 'm2', url: 'u2', name: 'n', status: 'success' },
+        ], nodeStatus: 'done' },
+      } as Node],
+    });
+    useCanvasStore.getState().dropImageIntoStoryboard(gid, 'multi');
+    const expanded = useCanvasStore.getState().nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
+    expect(expanded.length).toBeGreaterThan(0);
+    expect(expanded.every((n) => !JSON.stringify(n.data).includes('mediaUrl'))).toBe(true);
   });
 });

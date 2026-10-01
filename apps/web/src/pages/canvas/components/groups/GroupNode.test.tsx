@@ -52,13 +52,13 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
         data: { groupType: 'storyboard', cells: ['c1', 'c2'] },
       },
       { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-1' } },
-      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2', mediaUrl: 'http://m/gen-2' } },
+      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1', 'c2'] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
     expect(cellNodes).toEqual([
       { id: 'c1', fileId: 'ref-1', status: 'idle' }, // url: undefined 序列化丢失
-      { id: 'c2', fileId: 'gen-2', status: 'done', url: 'http://m/gen-2' },
+      { id: 'c2', fileId: 'gen-2', status: 'done' }, // url: undefined 序列化丢失（R2b-6 后 mediaUrl 不再写入）
     ]);
   });
 

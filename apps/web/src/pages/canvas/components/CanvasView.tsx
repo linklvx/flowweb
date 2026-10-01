@@ -151,7 +151,7 @@ function CanvasViewComponent(_props: Props) {
       try {
         // 如果有 pending fill cell，填充分镜格
         if (fillCell) {
-          addImageToStoryboardCell(fillCell.groupId, fillCell.cellIndex, file.id, file.url);
+          addImageToStoryboardCell(fillCell.groupId, fillCell.cellIndex, file.id);
           useCanvasStore.setState({ pendingFillCell: null });
           return;
         }
@@ -179,7 +179,6 @@ function CanvasViewComponent(_props: Props) {
           fileId: file.id,
           status: 'done',
           mediaName: file.originalName,
-          mediaUrl: file.url,
           thumbnailUrl: file.thumbnailUrl,
         };
 

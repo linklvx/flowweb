@@ -94,6 +94,12 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
     expect((csNode().data as any).model).toBeUndefined();   // model 不在 CANVAS_BRIDGE_KEYS
   });
 
+  it('③rw mediaUrl 不桥接 cs（R2b-6 写入面清零——F37：presigned URL 不得经桥镜像持久化）', () => {
+    readWriteSession();
+    useNodeStore.getState().applyNodeDataPatch('n1', { mediaUrl: 'http://stale/presigned' });
+    expect((csNode().data as any).mediaUrl).toBeUndefined(); // 已从 CANVAS_BRIDGE_KEYS 移除
+  });
+
   it('④setFileResult（AI 落地）readOnly：fileId/status 不写入 ns 也不桥接 cs（拒本地写非丢数据）', () => {
     const nsBefore = useNodeStore.getState().nodes;
     useNodeStore.getState().setFileResult('n1', 'file-9');

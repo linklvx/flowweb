@@ -244,7 +244,7 @@ describe('CanvasView', () => {
       expect(callArgs[2].fileId).toBe('img-1');
       expect(callArgs[2].status).toBe('done');
       expect(callArgs[2].mediaName).toBe('photo.jpg');
-      expect(callArgs[2].mediaUrl).toBe('https://example.com/photo.jpg');
+      expect(callArgs[2].mediaUrl).toBeUndefined(); // R2b-6 写入面清零（F37）：mediaUrl 不落 nodeData
       expect(callArgs[2].thumbnailUrl).toBe('https://example.com/thumb.jpg');
     });
 
