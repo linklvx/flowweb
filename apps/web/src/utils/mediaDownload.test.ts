@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { downloadMediaFile } from './mediaDownload';
 
 // jsdom 未实现 URL.createObjectURL/revokeObjectURL——补最小桩使下方 spyOn 有宿主方法（环境 shim，同 test-setup 先例）
@@ -17,6 +17,8 @@ function stubAnchor() {
 
 describe('downloadMediaFile（§4.3：url 优先、缺则 fileId 现取、失败重取一次、60s revoke、结果对象）', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
+  // 幂等兜底：未用假定时器的用例调用 useRealTimers 无副作用；防个别用例早退泄漏假定时器
+  afterEach(() => { vi.useRealTimers(); });
 
   it('url 直用不查 fileId；a.download=filename；60s 后 revoke（非同步）', async () => {
     const { a, click } = stubAnchor();
@@ -32,7 +34,6 @@ describe('downloadMediaFile（§4.3：url 优先、缺则 fileId 现取、失败
     expect(revoke).not.toHaveBeenCalled();
     vi.advanceTimersByTime(60_000);
     expect(revoke).toHaveBeenCalledWith('blob:x');
-    vi.useRealTimers();
   });
 
   it('fetch 失败且有 fileId → 重取一次 URL 再试（两段显式：取 url → fetch 失败 → 重取 url → 再 fetch）', async () => {
@@ -45,6 +46,8 @@ describe('downloadMediaFile（§4.3：url 优先、缺则 fileId 现取、失败
     await downloadMediaFile({ fileId: 'f1', url: 'http://stale', filename: 'x.png', getMediaUrl });
     expect(getMediaUrl).toHaveBeenCalledWith('f1');
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(1, 'http://stale', expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(2, 'http://fresh', expect.anything());
   });
 
   it('fetch 网络异常（throw）且有 fileId → 同样重取一次', async () => {
@@ -74,7 +77,8 @@ describe('downloadMediaFile（§4.3：url 优先、缺则 fileId 现取、失败
     const r = await p;
     expect(r.ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+    // timer 泄漏防护：两次 attempt 的 30s abort timer 均已 clear（失败 catch/成功路径），仅剩 60s revoke
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it('最终失败返回 {ok:false, reason}；silent=true 不弹单文件 toast（批路径只聚合）', async () => {
