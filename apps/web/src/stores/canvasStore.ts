@@ -6,7 +6,8 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
-import type { MaterialFile } from '@flowweb/shared';
+import type { MaterialFile, ArrangeMode } from '@flowweb/shared';
+import { normalizeSelection, participation, sortForArrange, arrangeRects } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -192,6 +193,9 @@ export interface CanvasState {
   patchGroupDataInner: (groupId: string, patch: Record<string, unknown>) => void;
   /** R2 新命令唯一入口（canEdit 门 + 单 undo 步 + 差分换芯编排）——见实现 JSDoc */
   runCommand: (fn: () => void) => void;
+  /** §4.3 整理选区（R2a-5）：组=原子块+散根真重排（participation('arrange') 裁决——detached 排除并计数提示）；
+   *  写回经 runCommand（canEdit 门+单 undo 步+差分收尾）；不 refit 组框（refit 属 2c-4 显式几何命令语义） */
+  arrangeSelection: (ids: string[], mode: ArrangeMode) => void;
   /** 组几何唯一写者——重算型入口（§4.8 v11）：守卫+epsilon，见实现。 */
   applyGroupFrame: (groupId: string) => void;
   /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。 */
@@ -1042,6 +1046,40 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       get().applyGroupDerivations();
       dispatchProjectionDiff(before, Origin.LocalUser);
     }
+  },
+
+  /** §4.3 整理选区（R2a-5 写回）：参与裁决 normalizeSelection+participation('arrange')——组=原子块、
+   *  散根真重排、组内 detached 排除（excludedCount 计数提示）。写回经 runCommand；排列后不 refit 组框
+   *  （applyGroupDerivations 仅派生 hidden——显式几何 refit 属 2c-4 口径，两 task 口径不同非矛盾）。 */
+  arrangeSelection: (ids, mode) => {
+    const s = get();
+    const buckets = normalizeSelection(s.nodes as any, ids);
+    const p = participation(buckets, 'arrange', s.nodes as any);
+    if (p.ids.length < 2) {
+      message.warning(p.excludedCount > 0 ? '没有可排列的节点：所选节点均在未选中的组内' : '没有可排列的节点');
+      return;
+    }
+    get().runCommand(() => {
+      // storedRectOf（v2.1 简化）：信封恒等可见盒现状成立（折叠组信封=COLLAPSED_SIZE、分镜组信封=配置尺寸）——
+      // 直接读 n.width/height + DEFAULT_CHILD_SIZE 兜底，不重算分镜配置尺寸（防第二真相与信封竞争）
+      const storedRectOf = (n: Node): { width: number; height: number } => ({
+        width: n.width ?? DEFAULT_CHILD_SIZE.width,
+        height: n.height ?? DEFAULT_CHILD_SIZE.height,
+      });
+      const items = sortForArrange(p.ids.map((id) => {
+        const n = s.nodes.find((x) => x.id === id)!;
+        const wh = storedRectOf(n);
+        return { id, x: n.position.x, y: n.position.y, ...wh };
+      }));
+      const laid = arrangeRects(items.map(({ id, ...r }) => r), mode);
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          const i = items.findIndex((it) => it.id === n.id);
+          return i === -1 ? n : { ...n, position: { x: laid[i].x, y: laid[i].y } };
+        }),
+      }));
+      if (p.excludedCount > 0) message.warning(`${p.excludedCount} 个组内节点未参与排列（需调整请先选中其所在组）`);
+    });
   },
 
   groupNodes: (nodeIds) => {

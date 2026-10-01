@@ -5,7 +5,7 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, calcGroupBounds, calcStoryboardSize, shouldAutoRefit } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, calcGroupBounds, calcStoryboardSize, shouldAutoRefit, sortForArrange, arrangeRects } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
@@ -784,6 +784,137 @@ describe('runCommand 公共件（2a-0）', () => {
 
   it('getId 跨端防碰撞（v2.1）：掺会话级随机成分后同毫秒两客户端 id 不等（createSessionSeed 纯缝=每客户端模块初始化恰调一次，两次调用=两个客户端）', () => {
     expect(canvasStoreMod.createSessionSeed()).not.toBe(canvasStoreMod.createSessionSeed());
+  });
+});
+
+// ════════ R2a-5：arrangeSelection 写回（§4.3——runCommand+组原子块+detached 排除） ════════
+
+describe('arrangeSelection（§4.3）', () => {
+  // 真装置（照 runCommand 公共件 2a-0 骨架）：真 Y.Doc + fillDoc + _setIntentDocForTest + attachUndoManager。
+  // 禁止 vi.mock canvasIntents/antd——toast 断言走仓内惯例 vi.spyOn(message, 'warning')（先例 :716）。
+  const seed = (nodes: unknown[]) => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    fillDoc(d, nodes as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return { d, um };
+  };
+  const teardown = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+  const posOf = (id: string) => useCanvasStore.getState().nodes.find((n) => n.id === id)!.position;
+
+  it('参与项 <2 → no-op（组内单节点 detached 不动）+ 参与项 0/1 分别提示', () => {
+    seed([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal' } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'r1', type: 'imageGen', position: { x: 500, y: 500 }, width: 100, height: 60, data: {} },
+    ]);
+    const warnSpy = vi.spyOn(message, 'warning');
+    try {
+      useCanvasStore.getState().arrangeSelection(['a'], 'grid');   // 唯一选中是组内节点 → detached 排除 → 0 参与项
+      expect(warnSpy).toHaveBeenCalledWith('没有可排列的节点：所选节点均在未选中的组内');
+      expect(posOf('a')).toEqual({ x: 20, y: 50 });                // detached 不动
+      useCanvasStore.getState().arrangeSelection(['r1'], 'grid');  // 单散根 → 1 参与项
+      expect(warnSpy).toHaveBeenCalledWith('没有可排列的节点');
+      expect(posOf('r1')).toEqual({ x: 500, y: 500 });
+      useCanvasStore.getState().arrangeSelection([], 'grid');      // 空选 → 0 参与项
+      expect(warnSpy).toHaveBeenCalledWith('没有可排列的节点');
+    } finally {
+      warnSpy.mockRestore();
+      teardown();
+    }
+  });
+
+  it('detached 排除零位移 + excludedCount 计数提示（N 个组内节点未参与排列）', () => {
+    seed([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 600, height: 400, data: { groupType: 'normal' } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 200, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'r1', type: 'imageGen', position: { x: 1000, y: 0 }, width: 100, height: 60, data: {} },
+      { id: 'r2', type: 'imageGen', position: { x: 1300, y: 300 }, width: 100, height: 60, data: {} },
+    ]);
+    const warnSpy = vi.spyOn(message, 'warning');
+    try {
+      useCanvasStore.getState().arrangeSelection(['r1', 'r2', 'a', 'b'], 'grid');
+      expect(warnSpy).toHaveBeenCalledWith('2 个组内节点未参与排列（需调整请先选中其所在组）');
+      expect(posOf('a')).toEqual({ x: 20, y: 50 });   // detached 零位移
+      expect(posOf('b')).toEqual({ x: 200, y: 50 });
+      // r1/r2 真重排（期望来自纯函数——与「几何不变量」describe 的 calcGroupBounds 惯例同源）
+      const items = sortForArrange([
+        { id: 'r1', x: 1000, y: 0, width: 100, height: 60 },
+        { id: 'r2', x: 1300, y: 300, width: 100, height: 60 },
+      ]);
+      const laid = arrangeRects(items.map(({ id, ...r }) => r), 'grid');
+      items.forEach((it, i) => expect(posOf(it.id)).toEqual({ x: laid[i].x, y: laid[i].y }));
+    } finally {
+      warnSpy.mockRestore();
+      teardown();
+    }
+  });
+
+  it('两个散根 grid：真重排 + parentId 逐节点不变（反向断言）+ 保持原选区 + checkProjectionInvariant', () => {
+    const { d } = seed([
+      { id: 'r1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {}, selected: true },
+      { id: 'r2', type: 'imageGen', position: { x: 500, y: 50 }, width: 300, height: 300, data: {}, selected: true },
+    ]);
+    useCanvasStore.setState({ selectedId: 'r1' });
+    const idsParentSelectedBefore = JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.parentId, n.selected]));
+    const positionsBefore = JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position]));
+    useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'grid');
+    expect(JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position]))).not.toBe(positionsBefore);   // 真重排（防恒绿）
+    const items = sortForArrange([
+      { id: 'r1', x: 100, y: 100, width: 300, height: 200 },
+      { id: 'r2', x: 500, y: 50, width: 300, height: 300 },
+    ]);
+    const laid = arrangeRects(items.map(({ id, ...r }) => r), 'grid');
+    items.forEach((it, i) => expect(posOf(it.id)).toEqual({ x: laid[i].x, y: laid[i].y }));
+    expect(JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.parentId, n.selected]))).toBe(idsParentSelectedBefore);   // parentId 逐节点不变+保持原选区
+    expect(useCanvasStore.getState().selectedId).toBe('r1');
+    expect(checkProjectionInvariant(d)).toBe(true);
+    teardown();
+  });
+
+  it('组=原子块 stored rect：组 position 重排、组内子节点 rel 不变；排列后不 refit 组框（applyGroupDerivations 仅派生 hidden——refit 属 2c-4 显式几何命令语义，两 task 口径不同非矛盾）', () => {
+    // 两框故意大于各自子 bbox（不满足 §4.8 不变量）——排列后仍一字不改=证明未 refit
+    const { d } = seed([
+      { id: 'gA', type: 'group', position: { x: 0, y: 0 }, width: 800, height: 600, data: { groupType: 'normal' } },
+      { id: 'a1', type: 'imageGen', parentId: 'gA', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'gB', type: 'group', position: { x: 1200, y: 900 }, width: 400, height: 300, data: { groupType: 'normal' } },
+      { id: 'b1', type: 'imageGen', parentId: 'gB', extent: 'parent', position: { x: 30, y: 60 }, width: 100, height: 60, data: {} },
+    ]);
+    const childrenBefore = JSON.stringify(useCanvasStore.getState().nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId, n.position]));
+    useCanvasStore.getState().arrangeSelection(['gA', 'gB'], 'grid');
+    const items = sortForArrange([
+      { id: 'gA', x: 0, y: 0, width: 800, height: 600 },
+      { id: 'gB', x: 1200, y: 900, width: 400, height: 300 },
+    ]);
+    const laid = arrangeRects(items.map(({ id, ...r }) => r), 'grid');
+    items.forEach((it, i) => expect(posOf(it.id)).toEqual({ x: laid[i].x, y: laid[i].y }));   // 组 position 真重排（envelope 即 stored rect）
+    const gA = useCanvasStore.getState().nodes.find((n) => n.id === 'gA')!;
+    expect(gA.width).toBe(800);                                    // 不 refit：框一字不改
+    expect(gA.height).toBe(600);
+    expect(JSON.stringify(useCanvasStore.getState().nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId, n.position]))).toBe(childrenBefore);   // 子 rel 不变
+    expect(checkProjectionInvariant(d)).toBe(true);
+    teardown();
+  });
+
+  it('500ms 内连点两次 = 2 undo 项（真 UndoManager）+ 入口 stopCapturing（F13）', () => {
+    const { d, um } = seed([
+      { id: 'r1', type: 'imageGen', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
+      { id: 'r2', type: 'imageGen', position: { x: 500, y: 100 }, width: 100, height: 60, data: {} },
+    ]);
+    useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'grid');
+    const afterFirst = { r1: { ...posOf('r1') }, r2: { ...posOf('r2') } };
+    useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
+    expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+    um.undo();
+    applyDocToStore(d);                    // 显式读回（替代跑不动的 onRemote——照 :413 测试缝）
+    expect(posOf('r1')).toEqual(afterFirst.r1);
+    expect(posOf('r2')).toEqual(afterFirst.r2);
+    teardown();
   });
 });
 
