@@ -55,11 +55,12 @@ export function participation(buckets: SelectionBuckets, action: ParticipationAc
     push(g.id);
     if (action === 'arrange') continue;                       // 组=原子块
     for (const child of childrenOf.get(g.id) ?? []) {        // 闭包全量保真（duplicate/download 均含 hidden 成员）
-      if (child.type !== 'group') push(child.id);
+      if (child.type !== 'group') push(child.id);            // 嵌套组被 producer 侧禁止；不递归展开
     }
   }
   for (const n of buckets.looseRoots) push(n.id);
   for (const n of buckets.detachedChildren) {
+    if (outSet.has(n.id)) continue;                          // 组闭包已纳员：不再裁决/计数（防双计）
     if (action === 'arrange') { detached++; continue; }
     const parent = n.parentId ? byId.get(n.parentId) : undefined;
     const isHidden = !!parent && groupHidesChildren(parent.data as Record<string, unknown>);

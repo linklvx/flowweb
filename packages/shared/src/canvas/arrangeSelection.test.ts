@@ -46,6 +46,22 @@ describe('participation 闭包策略表（v2.1：组→成员闭包展开+hidden
     expect(p.ids).toEqual([]);
     expect(p.excluded.hidden).toBe(1);
   });
+  it('duplicate：折叠组与其隐藏子同选——组闭包已纳员不得再计 excluded（双计数修正）', () => {
+    const all: any[] = [...nodes, ...collapsed()];
+    // selection [g2, x]：x 经组闭包随 g2 纳入，detached 循环再遇 x 时不得重复计 hidden
+    const p = participation(normalizeSelection(all, ['g2', 'x']), 'duplicate', all);
+    expect(p.ids.sort()).toEqual(['g2', 'x', 'y']);
+    expect(p.excluded.hidden).toBe(0);
+    expect(p.excludedCount).toBe(0);
+  });
+  it('duplicate：excludedCount 聚合——hidden 排除与 detached 纳入并存时计数正确', () => {
+    const all: any[] = [...nodes, ...collapsed()];
+    // x=折叠 g2 的子（g2 未选→hidden 排除计数）；a=展开组 g1 的子（detached 顶层化纳入）
+    const p = participation(normalizeSelection(all, ['x', 'a']), 'duplicate', all);
+    expect(p.ids).toEqual(['a']);
+    expect(p.excluded.hidden).toBe(1);
+    expect(p.excludedCount).toBe(1);
+  });
   it('download：三桶全展开且含 hidden 成员（整组下载语义——spec 契约 1 显式）', () => {
     const all: any[] = [...nodes, ...collapsed()];
     const p = participation(normalizeSelection(all, ['g2']), 'download', all);
