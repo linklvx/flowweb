@@ -1938,13 +1938,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const buckets = normalizeSelection(s.nodes as any, [groupId]);
     const p = participation(buckets, 'duplicate', s.nodes as any);
     const idSet = new Set(p.ids);
-    groupClipboard = {
+    // 剪贴板存冻结快照（防活对象别名随源变更污染粘贴）
+    groupClipboard = structuredClone({
       records: assembleRecords(p.ids, s.nodes),
       ids: [...p.ids],
       edges: s.edges
         .filter((e) => idSet.has(e.source) && idSet.has(e.target))
         .map((e) => ({ id: e.id, source: e.source, target: e.target })),
-    };
+    });
   },
 
   /** R2a-6 副本薄壳④（粘贴）：不重裁决（clipboard 冻结成员/hidden 态——重裁决会在粘贴点再次

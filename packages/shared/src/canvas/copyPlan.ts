@@ -82,6 +82,7 @@ export function buildCopyPlan(
       });
     } else {
       // detached/顶层：顶层化（F41）——parentId 删、绝对位（父位+rel）+平移、extent 无键
+      // 父环为 producer 侧禁产结构——脏入脏出（ensureParentOrder 兜底排序不崩溃）
       const absX = (parent ? parent.position.x : 0) + rec.position.x;
       const absY = (parent ? parent.position.y : 0) + rec.position.y;
       copies.push({

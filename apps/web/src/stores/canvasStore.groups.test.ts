@@ -1134,6 +1134,6 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
 
   it('copyNode/buildGroupCopy/rebuildFromClipboard 已删——接口与实现零残留', () => {
     expect((useCanvasStore.getState() as any).copyNode).toBeUndefined();
-    // buildGroupCopy/rebuildFromClipboard 为模块级函数——零残留由 grep 门禁兜底（三符号 grep 零命中）
+    // buildGroupCopy/rebuildFromClipboard 为模块级函数——人工 grep 复核（无自动化门禁——断言仅 copyNode 一处）
   });
 });
