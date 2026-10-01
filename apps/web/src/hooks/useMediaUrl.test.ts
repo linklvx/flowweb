@@ -248,6 +248,25 @@ describe('onError 失效自愈（useMediaUrl 暴露 onError 给 <img>/<video>/<a
     expect(h.result.current.error).toBeNull();            // 重取成功 error 保持空
   });
 
+  it('onError 重试在飞时切换 fileId：旧文件 url 不落入新文件状态（cancelled 守卫）', async () => {
+    __cachePutForTests('f-A', '/flowai/a-dead', 900);
+    let resolveRetry!: (v: any) => void;
+    (apiFetch as any).mockImplementationOnce(() => new Promise((r) => { resolveRetry = r; }));  // fileA onError 重取（受控）
+    (apiFetch as any).mockResolvedValueOnce({ url: '/flowai/b-url', ttlSec: 900 });             // fileB 挂载取
+    const { result, rerender } = renderHook(({ id }) => useMediaUrl(id), { initialProps: { id: 'f-A' } });
+    expect(result.current.url).toBe('/flowai/a-dead');    // fileA 缓存命中直出
+    act(() => { result.current.onError(); });             // fileA onError → 重取在飞
+    expect(result.current.url).toBeNull();
+    expect(result.current.loading).toBe(true);
+    rerender({ id: 'f-B' });                              // 重取在飞窗口切 fileId → effect 取 fileB
+    await waitFor(() => expect(result.current.url).toBe('/flowai/b-url'));
+    expect(result.current.loading).toBe(false);
+    resolveRetry({ url: '/flowai/a-stale', ttlSec: 900 });  // fileA 重取晚到
+    await new Promise((r) => setTimeout(r, 10));
+    expect(result.current.url).toBe('/flowai/b-url');     // 旧文件 url 不得落入新文件状态
+    expect(result.current.error).toBeNull();
+  });
+
   it('重取期间 url=null 走占位（禁空串 src）', async () => {
     __cachePutForTests('f-err3', '/flowai/dead3', 900);
     let resolveRetry!: (v: any) => void;

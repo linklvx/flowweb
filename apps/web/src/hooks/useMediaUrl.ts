@@ -14,6 +14,8 @@ export function useMediaUrl(fileId: string | null | undefined): {
                                     //（现状 RequireAuth 登出即卸载子树，此 dep 是防未来 context 直连场景的契约钉）
   // R2b-5：per-fileId 一次性重试门（≠ PlayView 元素级 retriedRef——那个不清缓存，重取拿回同一条坏 URL）
   const retriedRef = useRef<Set<string>>(new Set());
+  const fileIdRef = useRef(fileId);
+  fileIdRef.current = fileId;           // onError 重取在飞时切 fileId 的竞态守卫基准（同 effect 的 cancelled 语义）
 
   useEffect(() => {
     if (!fileId) {
@@ -52,14 +54,15 @@ export function useMediaUrl(fileId: string | null | undefined): {
   // R2b-5 onError 失效自愈（第二入口，驻留节点 URL 事后死亡）：<img>/<video>/<audio> onError 直通
   const onError = useCallback((_event?: unknown) => {
     if (!fileId) return;
+    const myFileId = fileId;                        // 竞态保护：重取在飞时 fileId 已切 → 晚到响应丢弃，不落新状态
     invalidateMediaUrl(fileId);                     // cache+pending 同清（只清 cache 会被去重短路拿回坏 URL）
     if (retriedRef.current.has(fileId)) return;     // 一次性重试门：第二次 onError 不再重试
     retriedRef.current.add(fileId);
     setUrl(null); setError(null); setLoading(true); // url=null 走占位（禁空串 src）；error 仅表"取 URL 失败"，自愈启动即清
     fetchMediaUrl(fileId)
-      .then((u) => { setUrl(u); setError(null); })  // 重取成功：error 保持空
-      .catch((err) => { setError(err instanceof Error ? err : new Error(String(err))); })  // 重取失败走 error 路径，不再重试
-      .finally(() => setLoading(false));
+      .then((u) => { if (fileIdRef.current === myFileId) { setUrl(u); setError(null); } })  // 重取成功：error 保持空
+      .catch((err) => { if (fileIdRef.current === myFileId) setError(err instanceof Error ? err : new Error(String(err))); })  // 重取失败走 error 路径，不再重试
+      .finally(() => { if (fileIdRef.current === myFileId) setLoading(false); });
   }, [fileId]);
 
   return { url, loading, error, onError };
