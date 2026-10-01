@@ -1187,7 +1187,7 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
 |---|---|---|---|
 | 2a（含 2a-0 公共件） | 完成（2026-10-02） | 523c30cb/97e2d171/a1f7247f+f6949c3f/dac03222+645e128f/a9ef30f7/668ef04d/33dd0091+d5f150e6/1ef918fb | 各 task TDD 红相见 commit 正文（每 task 先红后绿）；批尾 `pnpm verify` exit 0（shared 56+web 3158 全绿+tsc+lint）；浏览器冒烟（collab-gate-canvas 真会话）：水平排列 y 对齐/x 拉开、detached toast 计数 1、创建副本 6→8 偏移+40 新副本 selected、undo 逐步回滚（排列/副本/建组×2）终态回 seed 形态；双标签页协作冒烟裁量延至 2d-8 collab-r2-commands 脚本化回归（单 transact 断言已单测覆盖） |
 | 2b（含 2b-5 F7 自愈） | 完成（2026-10-02） | 6a6c531d+923530b0/378ba28e/fbeb9aef/6bf9787d/a9826e99+92ee934b/4511c8b2/f9fb27e6/665fa2a9 | 各 task TDD 红相见 commit 正文；`pnpm verify` exit 0（2b-8 时点，web 3202 全绿）；浏览器冒烟（真会话）：批量下载全链路（aria-disabled 判据/首次许可 Modal+key 落地/真实 API 404×2=失败重取自愈精确发生/聚合 message.error console 实证）；长会话 16min 浏览器级验证裁量跳过（2b-5 的 900s 假定时器单测覆盖两入口）；双标签页裁量同 2a |
-| 2c | 待执行 | — | — |
+| 2c | 完成（2026-10-02） | 0ece5742/d46085d0/f322850b/c22357d6/34297b9d/c1d8b9f5 | contrast 台账 14 值实测全 ≥3:1 零调档（绿浅 3.02 最紧，specExpect 实测锁定）；keyset 断言红相（reviewer 独立 checkout 复现 2 failed）；b0 8 passed（B0-7 假绿封死）；b1-4 5 passed（本地）；`pnpm verify` exit 0；浏览器验收（真会话）：组工具条按钮序逐项/色板 listbox 8 options+aria-selected/设色组框 border=var(--canvas-group-color-red)/组名入框 top:0「分组 2 项」/刷新色仍在（doc 持久化）/折叠态排列子节点 disabled（UI 层）/图片组转分镜→转回色存续（F18 浏览器级）；contrast 台账终值见 contrast-pairs.json |
 | 2d（含收口 v2） | 待执行 | — | — |
 
 ---
