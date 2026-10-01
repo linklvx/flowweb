@@ -78,11 +78,11 @@ describe('normalizeLoadedCanvas（加载几何兜底——守恒归位，与 ref
     expect(byId(out, 'gEmpty').position).toEqual({ x: 50, y: 50 });  // 无 origin——位置不动
   });
 
-  it('R2d-1 collapsed 判定优先：折叠 normal 组带脏 savedSize → 信封恒 COLLAPSED_SIZE（旧序手动分支会把脏 savedSize 反写进折叠组信封——洞）', () => {
+  it('R2d-1 collapsed 判定优先：折叠 normal 组带陈旧大信封（480×320 折叠前残留）+脏 savedSize → 信封恒 COLLAPSED_SIZE（旧序手动分支会把脏 savedSize 反写进折叠组信封——洞；陈旧信封入夹具使无条件覆写有判别力）', () => {
     const out = normalizeLoadedCanvas([
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', collapsed: true, manuallyResized: true, savedSize: { width: 480, height: 320 } } },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 480, height: 320, data: { groupType: 'normal', collapsed: true, manuallyResized: true, savedSize: { width: 480, height: 320 } } },
     ] as any);
-    expect(byId(out, 'g1').width).toBe(COLLAPSED_SIZE.width);
+    expect(byId(out, 'g1').width).toBe(COLLAPSED_SIZE.width);     // 480 陈旧信封被强制覆写
     expect(byId(out, 'g1').height).toBe(COLLAPSED_SIZE.height);
   });
 
