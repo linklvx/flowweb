@@ -1,6 +1,6 @@
 // apps/web/src/pages/canvas/components/groups/SelectionBoxOverlay.test.tsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
 const rf = vi.hoisted(() => {
   const state = { nodes: [] as any[], vp: { x: 0, y: 0, zoom: 1 }, marqueeSelecting: false };
@@ -21,7 +21,7 @@ vi.mock('@xyflow/react', () => ({
 
 const storeApi: any = {};
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes.filter((n) => n.selected), groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting }),
+  useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes.filter((n) => n.selected), groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting, arrangeSelection: storeApi.arrangeSelection, duplicateNodes: storeApi.duplicateNodes }),
 }));
 
 import { SelectionBoxOverlay } from './SelectionBoxOverlay';
@@ -32,6 +32,9 @@ describe('SelectionBoxOverlay', () => {
     portal = document.createElement('div');
     portal.id = 'node-toolbar-portal';
     document.body.appendChild(portal);
+    storeApi.groupNodes = vi.fn();
+    storeApi.arrangeSelection = vi.fn();
+    storeApi.duplicateNodes = vi.fn();
   });
   afterEach(() => portal.remove());
 
@@ -105,5 +108,62 @@ describe('SelectionBoxOverlay', () => {
     const { container } = render(<SelectionBoxOverlay />);
     expect(container).toBeEmptyDOMElement();   // 可见选中仅 1 个（hidden 被读点过滤）< 2——不渲染
     expect(portal.children.length).toBe(0);
+  });
+
+  it('工具条含排列菜单（网格/水平/垂直）+创建副本按钮；点外/Esc 关闭；aria 齐全（§4.3 浮层规格）', () => {
+    rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 0, y: 300 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 10, y: 310 } })];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    render(<SelectionBoxOverlay />);
+    const arrangeBtn = screen.getByRole('button', { name: /排列/ });
+    expect(arrangeBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(arrangeBtn).toHaveAttribute('aria-haspopup', 'menu');
+    fireEvent.click(arrangeBtn);
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getAllByRole('menuitem').map((el) => el.textContent)).toEqual(['网格', '水平', '垂直']);
+    fireEvent.click(within(menu).getByText('水平'));
+    expect(storeApi.arrangeSelection).toHaveBeenCalledWith(['n1', 'n2'], 'horizontal');
+    expect(screen.queryByRole('menu')).toBeNull();      // 选中即收起
+    fireEvent.click(arrangeBtn);                        // 再开 → Esc 关
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(arrangeBtn);                        // 再开 → 点外（mousedown outside）关
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: /创建副本/ })).toBeTruthy();
+  });
+
+  it('创建副本按钮调 duplicateNodes(选中 ids 全量)', () => {
+    rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 0, y: 300 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 10, y: 310 } })];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    render(<SelectionBoxOverlay />);
+    fireEvent.click(screen.getByRole('button', { name: /创建副本/ }));
+    expect(storeApi.duplicateNodes).toHaveBeenCalledWith(['n1', 'n2']);
+  });
+
+  it('水平夹取：选框近左缘时工具条 left ≥ 8（clampToolbarX 接线——测量源=portal clientWidth + 工具条 offsetWidth，jsdom stub）', () => {
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    const portalEl = document.getElementById('node-toolbar-portal')!;
+    Object.defineProperty(portalEl, 'clientWidth', { configurable: true, value: 1000 });
+    const proto = HTMLElement.prototype as any;
+    const orig = Object.getOwnPropertyDescriptor(proto, 'offsetWidth');
+    Object.defineProperty(proto, 'offsetWidth', { configurable: true, value: 200 });
+    try {
+      // 近左缘：box left=-30 width=110 → centerX=25 → raw left=25-100=-75 → clamp 至 8
+      rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 0, y: 300 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 10, y: 310 } })];
+      const { unmount } = render(<SelectionBoxOverlay />);
+      const toolbar = portal.children[1] as HTMLElement;
+      expect(toolbar.style.left).toBe('8px');
+      unmount();
+      // 界内：box left=370 width=110 → centerX=425 → raw=325 在 [8, 792] 内取原值（translate(-50%) 已移除——left 即最终左缘）
+      rf.state.nodes = [mk('n1', 'imageGen', {}, { positionAbsolute: { x: 400, y: 300 } }), mk('n2', 'imageGen', {}, { positionAbsolute: { x: 410, y: 310 } })];
+      render(<SelectionBoxOverlay />);
+      const toolbar2 = portal.children[1] as HTMLElement;
+      expect(toolbar2.style.left).toBe('325px');
+      expect(toolbar2.style.transform).toBe('translateY(-100%)');   // 翻转公式不变，仅 x 分量移除
+    } finally {
+      if (orig) Object.defineProperty(proto, 'offsetWidth', orig);
+      else delete proto.offsetWidth;
+      delete (portalEl as any).clientWidth;
+    }
   });
 });

@@ -1,15 +1,36 @@
 // apps/web/src/pages/canvas/components/groups/SelectionBoxOverlay.tsx
-import { memo, useMemo, useState, useCallback } from 'react';
+import { memo, useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, useViewport, getNodesBounds, type InternalNode } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { clampToolbarX } from '@flowweb/shared';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { SELECTION_BOX, BADGE, SELECTION_TOOLBAR } from './selectionTokens';
 
 interface Props { onGroup?: (ids: string[]) => void; onMergeStoryboard?: (ids: string[]) => void }
 
+type OpenMenu = 'group' | 'arrange' | null;
+
 const shallowArrEq = (a: readonly unknown[], b: readonly unknown[]) =>
   a.length === b.length && a.every((v, i) => v === b[i]);
+
+// §4.3 按钮：h-8 / px-2 / 圆角 8 / 13px / controls-text（继承容器）
+const triggerBtn = (disabled?: boolean): React.CSSProperties => ({
+  display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 8px',
+  background: 'transparent', border: 'none', borderRadius: 8, fontSize: 13,
+  color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+});
+const menuItem = (disabled?: boolean): React.CSSProperties => ({
+  display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px',
+  background: 'none', border: 'none', borderRadius: 8, fontSize: 13,
+  color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+});
+// §4.3 菜单浮层：同容器视觉（圆角 12 / 0.5px 边框 / 阴影 / blur）min-width 120
+const POPUP: React.CSSProperties = {
+  position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: 120, padding: 4, zIndex: 1,
+  background: 'var(--canvas-controls-bg)', border: '0.5px solid var(--canvas-controls-border)', borderRadius: 12,
+  boxShadow: '0 4px 10px rgba(0,0,0,0.08)', backdropFilter: 'blur(16px)',
+};
 
 function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   const selectedInternal = useStore((s) => {
@@ -20,9 +41,14 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   }, shallowArrEq);
   const { x: vpX, y: vpY, zoom } = useViewport();
   const groupNodesAction = useCanvasStore((s) => s.groupNodes);
+  const arrangeSelectionAction = useCanvasStore((s) => s.arrangeSelection);
+  const duplicateNodesAction = useCanvasStore((s) => s.duplicateNodes);
   const mergeStoryboard = useCanvasStore((s) => (s as any).mergeStoryboard);
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
-  const [open, setOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // clampToolbarX 测量源：工具条 offsetWidth（内容宽）+ portal 容器 clientWidth（视口宽）——jsdom 恒 0，由测试 stub
+  const [metrics, setMetrics] = useState({ toolbarW: 0, viewportW: 0 });
 
   const geo = useMemo(() => {
     if (selectedInternal.length < 2 || marqueeSelecting) return null;
@@ -38,21 +64,59 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
     return {
       left, top, width, height, centerX,
       toolbarTop: isAbove ? top - SELECTION_TOOLBAR.offset : top + height + SELECTION_TOOLBAR.offset,
-      toolbarTransform: isAbove ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+      toolbarTransform: isAbove ? 'translateY(-100%)' : 'translateY(0)',
     };
   }, [selectedInternal, vpX, vpY, zoom, marqueeSelecting]);
 
+  // 水平夹取（§4.3）：x 为不含 translate 的原始左缘——centerX - toolbarW/2 直接夹取，transform 仅保留纵向翻转
+  const toolbarLeft = geo ? clampToolbarX(geo.centerX - metrics.toolbarW / 2, metrics.toolbarW, metrics.viewportW) : 0;
+
+  useLayoutEffect(() => {
+    if (!geo) return;
+    const w = toolbarRef.current?.offsetWidth ?? 0;
+    const vw = document.getElementById('node-toolbar-portal')?.clientWidth ?? 0;
+    setMetrics((m) => (m.toolbarW === w && m.viewportW === vw ? m : { toolbarW: w, viewportW: vw }));
+  }, [geo]);
+
+  // 浮层交互统一规格（§4.3）：Esc 关 + mousedown outside 关（排列菜单/打组下拉共用）
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenMenu(null); };
+    const onMouseDown = (e: MouseEvent) => {
+      if (toolbarRef.current && e.target instanceof Element && !toolbarRef.current.contains(e.target)) setOpenMenu(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onMouseDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [openMenu]);
+
+  const selectedIds = useMemo(() => selectedInternal.map((n) => n.id), [selectedInternal]);
+
+  const toggleMenu = useCallback((m: Exclude<OpenMenu, null>) => {
+    setOpenMenu((cur) => (cur === m ? null : m));
+  }, []);
+
   const handleGroup = useCallback(() => {
-    const ids = selectedInternal.map((n) => n.id);
-    (onGroup ?? groupNodesAction)(ids);
-    setOpen(false);
-  }, [selectedInternal, onGroup, groupNodesAction]);
+    (onGroup ?? groupNodesAction)(selectedIds);
+    setOpenMenu(null);
+  }, [selectedIds, onGroup, groupNodesAction]);
 
   const handleMerge = useCallback(() => {
-    const ids = selectedInternal.map((n) => n.id);
-    (onMergeStoryboard ?? mergeStoryboard)(ids);
-    setOpen(false);
-  }, [selectedInternal, onMergeStoryboard, mergeStoryboard]);
+    (onMergeStoryboard ?? mergeStoryboard)(selectedIds);
+    setOpenMenu(null);
+  }, [selectedIds, onMergeStoryboard, mergeStoryboard]);
+
+  const handleArrange = useCallback((mode: 'grid' | 'horizontal' | 'vertical') => {
+    arrangeSelectionAction(selectedIds, mode);
+    setOpenMenu(null);
+  }, [selectedIds, arrangeSelectionAction]);
+
+  const handleDuplicate = useCallback(() => {
+    duplicateNodesAction(selectedIds);
+  }, [selectedIds, duplicateNodesAction]);
 
   if (!geo) return null;
   const portalRoot = document.getElementById('node-toolbar-portal');
@@ -76,37 +140,49 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
         <span style={{ ...BADGE, position: 'absolute', top: -11, left: -1 }}>{selectedInternal.length} 项</span>
       </div>
       <div
+        ref={toolbarRef}
         role="toolbar"
+        className="nodrag nopan"
         style={{
-          position: 'absolute', left: geo.centerX, top: geo.toolbarTop, transform: geo.toolbarTransform,
+          position: 'absolute', left: toolbarLeft, top: geo.toolbarTop, transform: geo.toolbarTransform,
           pointerEvents: 'auto', zIndex: 31,
-          background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: SELECTION_TOOLBAR.height,
-          display: 'flex', alignItems: 'center', gap: 12, color: '#fff', fontSize: 13,
+          background: 'var(--canvas-controls-bg)', border: '0.5px solid var(--canvas-controls-border)',
+          borderRadius: 12, padding: 8, height: SELECTION_TOOLBAR.height, boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', gap: 8,
+          color: 'var(--canvas-controls-text)', fontSize: 13,
+          boxShadow: '0 4px 10px rgba(0,0,0,0.08)', backdropFilter: 'blur(16px)',
         }}
       >
         <span>已选 {selectedInternal.length} 个节点</span>
         <div className="relative">
-          <button disabled={hasGroup} onClick={() => setOpen((v) => !v)}
-            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: hasGroup ? '#666' : '#fff',
-                     padding: '6px 12px', borderRadius: 6, cursor: hasGroup ? 'not-allowed' : 'pointer' }}>
+          <button aria-haspopup="menu" aria-expanded={openMenu === 'arrange'} onClick={() => toggleMenu('arrange')} style={triggerBtn()}>
+            排列 ▾
+          </button>
+          {openMenu === 'arrange' && (
+            <div role="menu" className="nodrag nopan absolute top-full left-0" style={POPUP}>
+              <button role="menuitem" style={menuItem()} onClick={() => handleArrange('grid')}>网格</button>
+              <button role="menuitem" style={menuItem()} onClick={() => handleArrange('horizontal')}>水平</button>
+              <button role="menuitem" style={menuItem()} onClick={() => handleArrange('vertical')}>垂直</button>
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button disabled={hasGroup} aria-haspopup="menu" aria-expanded={openMenu === 'group'} onClick={() => toggleMenu('group')} style={triggerBtn(hasGroup)}>
             ⊞ 打组 ▾
           </button>
-          {open && (
-            <div className="absolute top-full mt-1 left-0" style={{ background: 'var(--canvas-controls-bg)', border: '1px solid var(--canvas-controls-border)', borderRadius: 6, minWidth: 140 }}>
-              <button disabled={hasGroup} onClick={handleGroup}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
-                         background: 'none', border: 'none', color: hasGroup ? '#666' : '#fff', cursor: hasGroup ? 'not-allowed' : 'pointer' }}>
+          {openMenu === 'group' && (
+            <div role="menu" className="nodrag nopan absolute top-full left-0" style={POPUP}>
+              <button role="menuitem" disabled={hasGroup} style={menuItem(hasGroup)} onClick={handleGroup}>
                 打组（Ctrl+G）
               </button>
-              <button disabled={!allImage} onClick={handleMerge}
-                title={!allImage ? '分镜组仅支持含完成图片的节点' : undefined}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
-                         background: 'none', border: 'none', color: allImage ? '#fff' : '#666', cursor: allImage ? 'pointer' : 'not-allowed' }}>
+              <button role="menuitem" disabled={!allImage} onClick={handleMerge}
+                title={!allImage ? '分镜组仅支持含完成图片的节点' : undefined} style={menuItem(!allImage)}>
                 合并分镜组（Ctrl+Alt+G）
               </button>
             </div>
           )}
         </div>
+        <button style={triggerBtn()} onClick={handleDuplicate}>创建副本</button>
       </div>
     </>,
     portalRoot,
