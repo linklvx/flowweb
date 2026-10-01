@@ -619,9 +619,7 @@ function CanvasViewComponent(_props: Props) {
               <GroupToolbar
                 groupId={selectedGroup.id}
                 groupType="storyboard"
-                collapsed={false}
                 executing={groupExecuting}
-                onCollapse={noOp}
                 onExecute={noOp}
                 onUngroup={handleUngroup}
                 onConvert={(id, target) => convertGroup(id, target)}

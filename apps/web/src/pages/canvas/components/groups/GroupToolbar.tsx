@@ -15,9 +15,9 @@ import { GROUP_TOOLBAR } from './selectionTokens';
 interface Props {
   groupId: string;
   groupType: 'normal' | 'storyboard';
-  collapsed: boolean;
+  collapsed?: boolean;          // R2d-1：仅 normal 分支消费（分镜组不可折叠——storyboard 调用点不再传死值）
   executing: boolean;
-  onCollapse: (id: string) => void;
+  onCollapse?: (id: string) => void;   // 同上——折叠按钮在 normal 条件块内
   onExecute: (id: string) => void;
   onUngroup: (id: string) => void;
   onConvert: (id: string, target: 'normal' | 'storyboard') => void;
@@ -211,7 +211,7 @@ function GroupToolbarComponent(p: Props) {
             )}
           </div>
           <Sep />
-          <button style={btn()} onClick={() => p.onCollapse(p.groupId)}>{p.collapsed ? '展开' : '折叠'}</button>
+          <button style={btn()} onClick={() => p.onCollapse?.(p.groupId)}>{p.collapsed ? '展开' : '折叠'}</button>
           <Sep />
           <button style={btn(p.executing)} disabled={p.executing} onClick={() => !p.executing && p.onExecute(p.groupId)}>▶ 整组执行</button>
           <Sep />
