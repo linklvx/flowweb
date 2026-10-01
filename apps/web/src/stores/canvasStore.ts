@@ -203,6 +203,10 @@ export interface CanvasState {
   /** §4.3 整理选区（R2a-5）：组=原子块+散根真重排（participation('arrange') 裁决——detached 排除并计数提示）；
    *  写回经 runCommand（canEdit 门+单 undo 步+差分收尾）；不 refit 组框（refit 属 2c-4 显式几何命令语义） */
   arrangeSelection: (ids: string[], mode: ArrangeMode) => void;
+  /** §4.4 排列子节点（R2c-4 显式几何命令）：与 2a-5 口径不同——彼排组间（组=原子块不 refit），
+   *  此排组内（先清 manuallyResized——data 变更非几何面——再故意 refit，手动组排列生效）。
+   *  守卫先于 runCommand（零 transact）：缺失/折叠/分镜/<2 子 → 提示早退。见实现 JSDoc。 */
+  arrangeGroupChildren: (groupId: string, mode: ArrangeMode) => void;
   /** 组几何唯一写者——重算型入口（§4.8 v11）：守卫+epsilon，见实现。 */
   applyGroupFrame: (groupId: string) => void;
   /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。 */
@@ -1112,6 +1116,42 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         }),
       }));
       if (p.excludedCount > 0) message.warning(`${p.excludedCount} 个组内节点未参与排列（需调整请先选中其所在组）`);
+    });
+  },
+
+  /** §4.4 排列子节点（R2c-4 显式几何命令）：守卫先于 runCommand（零 transact）——缺失/折叠/分镜/
+   *  <2 子 → 提示早退。写回经 runCommand（canEdit 门+单 undo 步+差分收尾）。核心序（spec:208）：
+   *  ① patchGroupDataInner 清 manuallyResized（data 键删除——runCommand.fn 契约：fn 内一律纯写层）；
+   *  ② 子绝对 rect（rel+组原点，尺寸 DEFAULT_CHILD_SIZE 兜底）→ sortForArrange 行优先 → arrangeRects
+   *  （laid=绝对坐标——bbox 中心不变、平移不变）；③ refitGroupGeometry 守恒写回（契约 2 唯一重算
+   *  纯函数）：frame=bbox(laid)+padding、rel=abs−新 frame 原点 → 子新绝对位置恒=laid；
+   *  单次 setWithParentOrder（组框+子 rel 同事务——拆两次 setState 分写闪烁）。
+   *  几何写点门禁：本函数已登记 group-frame-writer-guard ALLOW_FN（子 rel 直写=合法几何写）。 */
+  arrangeGroupChildren: (groupId, mode) => {
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group || group.type !== 'group') return;
+    const gd = group.data as Record<string, unknown>;
+    if (gd.collapsed) { message.warning('折叠组不支持排列子节点，请先展开'); return; }
+    if (gd.groupType === 'storyboard') { message.warning('分镜组不支持排列子节点'); return; }
+    const children = s.nodes.filter((n) => n.parentId === groupId);
+    if (children.length < 2) { message.warning('组内节点不足 2 个，无需排列'); return; }
+    get().runCommand(() => {
+      get().patchGroupDataInner(groupId, { manuallyResized: undefined });
+      const items = sortForArrange(children.map((n) => ({
+        id: n.id,
+        x: n.position.x + group.position.x, y: n.position.y + group.position.y,
+        width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
+      })));
+      const laid = arrangeRects(items.map(({ id, ...r }) => r), mode);
+      const { frame, rels } = refitGroupGeometry(laid);
+      setWithParentOrder((st) => ({
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
+          const i = items.findIndex((it) => it.id === n.id);
+          return i === -1 ? n : { ...n, position: rels[i] };
+        }),
+      }));
     });
   },
 

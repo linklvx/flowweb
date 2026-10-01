@@ -1229,3 +1229,160 @@ describe('setGroupColor（2c-3）', () => {
     }
   });
 });
+
+// ════════ R2c-4：arrangeGroupChildren——显式几何命令（清手动标记+守恒写回） ════════
+
+describe('arrangeGroupChildren（2c-4）', () => {
+  // 真装置（照 setGroupColor 2c-3 / arrangeSelection 2a-5 骨架）：真 Y.Doc + fillDoc +
+  // _setIntentDocForTest + attachUndoManager。禁止 vi.mock canvasIntents——mock 空投影会让
+  // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
+  // 夹具要点：g1 带 manuallyResized+savedSize（显式命令清标记是本 task 语义核心）；
+  // 子 a/b 绝对 rect 分行错列（(120,150) / (600,400)——horizontal 排列必有位移，防 diff=0 假绿）。
+  const rigNodes = () => [
+    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 800, height: 600,
+      data: { groupType: 'normal', name: 'A', manuallyResized: true, savedSize: { width: 800, height: 600 } } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
+  ];
+  const setupRig = (nodes: unknown[] = rigNodes()) => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    fillDoc(d, nodes as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return { d, um };
+  };
+  const teardownRig = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+  const nodeOf = (id: string) => useCanvasStore.getState().nodes.find((n) => n.id === id)!;
+  const absOf = (id: string) => {
+    const n = nodeOf(id) as any;
+    const p = n.parentId ? (nodeOf(n.parentId) as any).position : { x: 0, y: 0 };
+    return { x: n.position.x + p.x, y: n.position.y + p.y };
+  };
+  const snapshot = () => JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position, n.width, n.height, n.data]));
+
+  it('显式几何命令：先清 manuallyResized（data 键删除）再走 applyGroupFrame——手动组排列生效', () => {
+    const { d } = setupRig();
+    try {
+      useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
+      const gd = nodeOf('g1').data as any;
+      expect('manuallyResized' in gd).toBe(false);   // in 断言——patchGroupDataInner delete 语义（P0-2 同源坑）
+      // 排列生效：组框 refit 到 bbox(children laid)+padding（期望来自纯函数——手动标记不阻断 refit）
+      const items = sortForArrange([
+        { id: 'a', x: 120, y: 150, width: 100, height: 60 },
+        { id: 'b', x: 600, y: 400, width: 300, height: 200 },
+      ]);
+      const laid = arrangeRects(items.map(({ id, ...r }) => r), 'horizontal');
+      const g = nodeOf('g1') as any;
+      expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(calcGroupBounds(laid));
+      expect(checkProjectionInvariant(d)).toBe(true);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('子节点绝对 rect → sortForArrange → arrangeRects → 守恒写回：子新绝对位置−新组原点=rel 写回+组框=bbox(children)+padding', () => {
+    const { d } = setupRig();
+    try {
+      const before = snapshot();
+      useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
+      expect(snapshot()).not.toBe(before);   // 真重排（防恒绿）
+      // 期望来自纯函数（与 2a-5 同源惯例）：子绝对 rect（rel+组原点）→排序→排列
+      const items = sortForArrange([
+        { id: 'a', x: 120, y: 150, width: 100, height: 60 },
+        { id: 'b', x: 600, y: 400, width: 300, height: 200 },
+      ]);
+      const laid = arrangeRects(items.map(({ id, ...r }) => r), 'horizontal');
+      items.forEach((it, i) => expect(absOf(it.id)).toEqual({ x: laid[i].x, y: laid[i].y }));   // 子绝对=排列结果（守恒锚）
+      const g = nodeOf('g1') as any;
+      expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(calcGroupBounds(laid));   // 组框=bbox+padding
+      laid.forEach((r, i) => {
+        const n = nodeOf(items[i].id) as any;
+        expect(n.position).toEqual({ x: r.x - g.position.x, y: r.y - g.position.y });   // 子新绝对−新组原点=rel
+      });
+      expect(checkProjectionInvariant(d)).toBe(true);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('折叠组禁用：collapsed 组 → no-op（函数首行守卫，零 transact）', () => {
+    const { d } = setupRig([
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 800, height: 600,
+        data: { groupType: 'normal', collapsed: true, savedSize: { width: 800, height: 600 } } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
+    ]);
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });
+      const before = snapshot();
+      useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
+      expect(snapshot()).toBe(before);   // 位位同（几何+data 一字不改——含 manuallyResized 不被误清路径）
+      expect(transacts).toBe(0);         // 守卫先于 runCommand——零 transact（照 setGroupColor 未知 key 先例 :1201）
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('分镜组禁用：storyboard → no-op', () => {
+    const { d } = setupRig([
+      { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182,
+        data: { groupType: 'storyboard', cells: ['c1', 'c2'],
+                storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+    ]);
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });
+      const before = snapshot();
+      useCanvasStore.getState().arrangeGroupChildren('sg', 'horizontal');
+      expect(snapshot()).toBe(before);   // 分镜子 (0,0) 纯 DOM 宫格——排列会毁布局，必须位位同
+      expect(transacts).toBe(0);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('仅普通组：<2 子节点 no-op+提示', () => {
+    const { d } = setupRig([
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    ]);
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });
+      const warnSpy = vi.spyOn(message, 'warning');
+      const before = snapshot();
+      try {
+        useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(snapshot()).toBe(before);
+        expect(transacts).toBe(0);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('500ms 连点两次 = 2 undo 项', () => {
+    const { d, um } = setupRig();
+    try {
+      useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
+      const afterFirst = snapshot();
+      useCanvasStore.getState().arrangeGroupChildren('g1', 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
+      expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+      um.undo();
+      applyDocToStore(d);                    // 显式读回（照 :413/:917 测试缝）
+      expect(snapshot()).toBe(afterFirst);   // undo 回到第一次排列后状态
+    } finally {
+      teardownRig();
+    }
+  });
+});
