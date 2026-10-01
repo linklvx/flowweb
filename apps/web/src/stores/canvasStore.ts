@@ -6,8 +6,8 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
-import type { MaterialFile, ArrangeMode } from '@flowweb/shared';
-import { normalizeSelection, participation, sortForArrange, arrangeRects } from '@flowweb/shared';
+import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan } from '@flowweb/shared';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -70,8 +70,13 @@ const cascadeDeleteVideoProject = (nodes: { id: string; type?: string }[], remov
   }
 };
 
-// Module-level clipboard for group copy/paste
-let groupClipboard: { group: Node; children: Node[]; innerEdges: Edge[] } | null = null;
+// Module-level clipboard for group copy/paste（2a-6 schema）：records=ns 全量冻结快照 +
+// ids=拷贝时已裁决闭包 + edges=闭包内互连边。粘贴不重裁决——成员/hidden 态在复制与粘贴之间
+// 可能已变，冻结裁决结果是保真选择（重裁决会在粘贴点再次排除 hidden，丢成员）。
+let groupClipboard: { records: CanvasNodeRecord[]; ids: string[]; edges: { id: string; source: string; target: string }[] } | null = null;
+
+/** 复制偏移常量（duplicate 模式平移量单源——薄壳与测试共用） */
+export const DUPLICATE_OFFSET = { x: 40, y: 0 } as const;
 
 type ProcessType = 'generating' | 'trimming' | 'separating' | 'splitting' | 'uploading';
 
@@ -156,7 +161,6 @@ export interface CanvasState {
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
-  copyNode: (id: string) => string | null;
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
@@ -209,8 +213,15 @@ export interface CanvasState {
   clearStoryboard: (groupId: string) => void;
   addImageToStoryboardCell: (groupId: string, cellIndex: number, fileId: string, url?: string) => void;
   removeStoryboardCell: (groupId: string, cellIndex: number) => void;
+  /** R2a-6 副本薄壳①（选区复制）：ids=原始选集（禁止直通 buildCopyPlan）——入口
+   *  participation('duplicate') 裁决 → records 装配（ns 全量）→ buildCopyPlan 纯映射（offset 模式）
+   *  → 落位（cs 结构 set 先于 ns.addNode）。写回经 runCommand（canEdit 门+单 undo 步+差分收尾） */
+  duplicateNodes: (ids: string[]) => string | null;
+  /** R2a-6 副本薄壳②：单组复制=薄委托 duplicateNodes([groupId])（两路径产物逐键等价） */
   duplicateGroup: (groupId: string) => string | null;
+  /** R2a-6 副本薄壳③（复制入剪贴板）：冻结 { records(ns 全量), ids(已裁决闭包), edges } 快照 */
   copyGroupToClipboard: (groupId: string) => void;
+  /** R2a-6 副本薄壳④（粘贴）：不重裁决；position=flow 坐标（screenToFlowPosition 换算在调用点） */
   pasteGroupClipboard: (position: { x: number; y: number }) => string | null;
   hasGroupClipboard: () => boolean;
 }
@@ -223,6 +234,66 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const next = updater(s);
       return { ...next, nodes: ensureParentOrder(next.nodes ?? s.nodes) };
     });
+
+  // R2a-6 副本落位公共段（duplicateNodes/pasteGroupClipboard 两薄壳共用）：cs 结构 set（副本信封
+  // +选择态+新边，父前子后）先于 ns.addNode（B-2 纪律）；返回首个顶层副本 id（=组复制的新组 id）
+  const appendCopyPlan = (plan: CopyPlan): string | null => {
+    const copyEnvelopes = plan.copies.map((c) => ({
+      id: c.id,
+      type: c.type,
+      ...(c.parentId != null ? { parentId: c.parentId, extent: 'parent' as const } : {}),
+      ...(c.width != null ? { width: c.width } : {}),
+      ...(c.height != null ? { height: c.height } : {}),
+      position: c.position,
+      data: c.data,
+      selected: c.selected === true,
+    }) as Node);
+    // 边 id 保持 edge_ 前缀约定（buildCopyPlan 单 newId 缝与节点共用计数——id 在此重生成）
+    const newEdges: Edge[] = plan.newEdges.map((e) => ({ id: getId('edge'), source: e.source, target: e.target }));
+    const firstTopId = plan.copies.find((c) => c.parentId == null)?.id ?? null;
+    setWithParentOrder((st) => ({
+      nodes: [...st.nodes.map((n) => ({ ...n, selected: false })), ...copyEnvelopes],
+      edges: [...st.edges, ...newEdges],
+      ...(firstTopId ? { selectedId: firstTopId } : {}),
+    }));
+    // B-2：cs set 已先行——普通节点副本双写 ns 全量（组 data 所有权归 cs/F42——ns 不写组）
+    const ns = useNodeStore.getState();
+    for (const c of plan.copies) {
+      if (c.type === 'group') continue;
+      ns.addNode({ id: c.id, type: c.type, data: c.data as any });
+    }
+    return firstTopId;
+  };
+
+  // R2a-6 records 装配（薄壳取数单点）：ids 全员经 resolveNodeData（组=cs data、普通=ns 全量，
+  // 取不到即红）+ 父记录超集（detached 绝对位换算需父 position——父仅作坐标参照，不进复制集）
+  const assembleRecords = (ids: string[], nodes: Node[]): CanvasNodeRecord[] => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const nsNodes = useNodeStore.getState().nodes;
+    const records = new Map<string, CanvasNodeRecord>();
+    const push = (n: Node) => {
+      if (records.has(n.id)) return;
+      records.set(n.id, {
+        id: n.id,
+        type: n.type!,
+        ...(n.parentId != null ? { parentId: n.parentId } : {}),
+        ...(n.width != null ? { width: n.width } : {}),
+        ...(n.height != null ? { height: n.height } : {}),
+        position: n.position,
+        data: resolveNodeData(n, nsNodes) as Record<string, unknown>,
+      });
+    };
+    for (const id of ids) {
+      const n = byId.get(id);
+      if (!n) continue;   // 裁决 ids 与 nodes 同源——防御性跳过（fail-fast 在 buildCopyPlan 兜底）
+      push(n);
+      if (n.parentId) {
+        const parent = byId.get(n.parentId);
+        if (parent) push(parent);
+      }
+    }
+    return [...records.values()];
+  };
 
   return {
   nodes: [],
@@ -369,47 +440,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, draggable } : n)),
     })),
-
-  copyNode: (nodeId) => {
-    const node = get().nodes.find((n) => n.id === nodeId);
-    if (!node) return null;
-    const id = getId('node');
-    const newNode: Node = {
-      ...node,
-      id,
-      position: { x: node.position.x + 50, y: node.position.y + 50 },
-      width: node.width,
-      height: node.height,
-      selected: true,
-    };
-    // 批4b-2 换芯：doc 建节点走意图漏斗（data 取 cs 现值——copy 语义即复制当前 data）；
-    // 下方 set exists 自适应（投影已 append 基础形状 → 只补选择态；canEdit 假 → 原 append 回弹）
-    dispatchCanvasIntent({
-      type: 'addNode',
-      node: {
-        id, type: node.type!, position: { x: node.position.x + 50, y: node.position.y + 50 },
-        ...(node.parentId != null ? { parentId: node.parentId } : {}),
-        ...(node.width != null ? { width: node.width } : {}),
-        ...(node.height != null ? { height: node.height } : {}),
-        data: (node.data ?? {}) as Record<string, unknown>,
-      },
-    }, Origin.LocalUser);
-    set((s) => {
-      const projected = s.nodes.some((n) => n.id === id);
-      return {
-        nodes: projected
-          ? s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false }))
-          : [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
-        selectedId: id,
-      };
-    });
-    useNodeStore.getState().addNode({
-      id,
-      type: node.type!,
-      data: node.data as any,
-    });
-    return id;
-  },
 
   addChildNode: (sourceId, data) => {
     const sourceNode = get().nodes.find((n) => n.id === sourceId);
@@ -1874,205 +1904,69 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
-  duplicateGroup: (groupId) => {
-    return buildGroupCopy(get, set, groupId, { x: 40, y: 0 }, '创建组副本');
+  /** R2a-6 副本薄壳①（选区复制）：ids=原始选集（禁止直通 buildCopyPlan）——入口
+   *  participation('duplicate') 裁决（组闭包全量保真+陈旧 hidden 直选排除）→ records 装配
+   *  （ns 全量）→ buildCopyPlan 纯映射（offset 模式）→ appendCopyPlan 落位。 */
+  duplicateNodes: (ids) => {
+    let firstTopId: string | null = null;
+    get().runCommand(() => {
+      const s = get();
+      const buckets = normalizeSelection(s.nodes as any, ids);
+      const p = participation(buckets, 'duplicate', s.nodes as any);
+      if (p.ids.length === 0) return;
+      const plan = buildCopyPlan(
+        assembleRecords(p.ids, s.nodes),
+        p.ids,
+        { offset: DUPLICATE_OFFSET },
+        () => getId('node'),
+        s.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      );
+      firstTopId = appendCopyPlan(plan);
+    });
+    return firstTopId;
   },
 
+  /** R2a-6 副本薄壳②：单组复制=薄委托（等价断言钉死——两条路径产物逐键深等除 id） */
+  duplicateGroup: (groupId) => get().duplicateNodes([groupId]),
+
+  /** R2a-6 副本薄壳③（复制入剪贴板）：participation('duplicate') 裁决前置，冻结
+   *  { records: ns 全量快照, ids: 已裁决闭包, edges: 闭包内互连边 }——粘贴不重取数/重裁决 */
   copyGroupToClipboard: (groupId) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
-    const children = s.nodes.filter((n) => n.parentId === groupId);
-    const childIds = new Set(children.map((n) => n.id));
+    const buckets = normalizeSelection(s.nodes as any, [groupId]);
+    const p = participation(buckets, 'duplicate', s.nodes as any);
+    const idSet = new Set(p.ids);
     groupClipboard = {
-      group: structuredClone(group),
-      children: structuredClone(children),
-      innerEdges: structuredClone(s.edges.filter((e) => childIds.has(e.source) && childIds.has(e.target))),
+      records: assembleRecords(p.ids, s.nodes),
+      ids: [...p.ids],
+      edges: s.edges
+        .filter((e) => idSet.has(e.source) && idSet.has(e.target))
+        .map((e) => ({ id: e.id, source: e.source, target: e.target })),
     };
   },
 
+  /** R2a-6 副本薄壳④（粘贴）：不重裁决（clipboard 冻结成员/hidden 态——重裁决会在粘贴点再次
+   *  排除已变 hidden 态丢成员）；position=flow 坐标（screenToFlowPosition 换算在调用点），经
+   *  buildCopyPlan position 模式锚定首个顶层副本整选平移。 */
   pasteGroupClipboard: (position) => {
     if (!groupClipboard) return null;
-    return rebuildFromClipboard(get, set, position, '粘贴组');
+    let firstTopId: string | null = null;
+    get().runCommand(() => {
+      if (!groupClipboard) return;
+      const plan = buildCopyPlan(
+        groupClipboard.records,
+        groupClipboard.ids,
+        { position },
+        () => getId('node'),
+        groupClipboard.edges,
+      );
+      firstTopId = appendCopyPlan(plan);
+    });
+    return firstTopId;
   },
 
   hasGroupClipboard: () => groupClipboard !== null,
   };
 });
-
-// Shared helper function to build a group copy
-function buildGroupCopy(
-  get: () => CanvasState,
-  set: (partial: Partial<CanvasState>) => void,
-  groupId: string,
-  offset: { x: number; y: number },
-  label: string // '创建组副本' | '粘贴组'
-): string | null {
-  const s = get();
-  const group = s.nodes.find((n) => n.id === groupId);
-  if (!group) return null;
-
-  const children = s.nodes.filter((n) => n.parentId === groupId);
-  const childIds = new Set(children.map((n) => n.id));
-  const innerEdges = s.edges.filter((e) => childIds.has(e.source) && childIds.has(e.target));
-
-  // Generate new IDs upfront (P1-新5 convention)
-  const newGid = getId('node');
-  const idMap = new Map(children.map((c) => [c.id, getId('node')]));
-  const newEdgeIds = innerEdges.map(() => getId('edge'));
-
-  const isStoryboard = (group.data as any).groupType === 'storyboard';
-
-  // Build new group node
-  const newGroup: Node = {
-    ...structuredClone(group),
-    id: newGid,
-    position: { x: group.position.x + offset.x, y: group.position.y + offset.y },
-    selected: true,
-  };
-  // Map cells if storyboard（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
-  if (isStoryboard && newGroup.data.cells) {
-    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) ?? null);
-  }
-
-  // Build new child nodes
-  const newChildren: Node[] = children.map((child) => {
-    const newId = idMap.get(child.id)!;
-    const newChild: Node = {
-      ...structuredClone(child),
-      id: newId,
-      parentId: newGid,
-      selected: false,
-      // Storyboard children: position zeroed; normal group: preserve relative position
-      position: isStoryboard ? { x: 0, y: 0 } : child.position,
-    };
-    return newChild;
-  });
-
-  // Build new edges
-  const newEdges: Edge[] = innerEdges.map((edge, idx) => ({
-    ...structuredClone(edge),
-    id: newEdgeIds[idx],
-    source: idMap.get(edge.source)!,
-    target: idMap.get(edge.target)!,
-  }));
-
-  // 批4b-2 换芯：差分快照→组+子+组内边复制经 dispatchProjectionDiff 单 transact 落 doc
-  const before = captureStoreProjection();
-
-  // Update store
-  set({
-    nodes: [
-      ...s.nodes.map((n) => ({ ...n, selected: false })),
-      newGroup,
-      ...newChildren,
-    ],
-    edges: [...s.edges, ...newEdges],
-    selectedId: newGid,
-  });
-
-  // Double-write to nodeStore
-  const ns = useNodeStore.getState();
-  ns.addNode({
-    id: newGid,
-    type: 'group',
-    data: newGroup.data as any,
-  });
-  for (const child of newChildren) {
-    ns.addNode({
-      id: child.id,
-      type: child.type!,
-      data: child.data as any,
-    });
-  }
-
-  get().applyGroupDerivations();
-  dispatchProjectionDiff(before, Origin.LocalUser);
-
-  return newGid;
-}
-
-// Shared helper function to rebuild from clipboard
-function rebuildFromClipboard(
-  get: () => CanvasState,
-  set: (partial: Partial<CanvasState>) => void,
-  position: { x: number; y: number },
-  label: string // '粘贴组'
-): string | null {
-  if (!groupClipboard) return null;
-
-  // Generate new IDs upfront
-  const newGid = getId('node');
-  const idMap = new Map(groupClipboard.children.map((c) => [c.id, getId('node')]));
-  const newEdgeIds = groupClipboard.innerEdges.map(() => getId('edge'));
-
-  const isStoryboard = (groupClipboard.group.data as any).groupType === 'storyboard';
-
-  // Build new group node
-  const newGroup: Node = {
-    ...structuredClone(groupClipboard.group),
-    id: newGid,
-    position: { x: position.x, y: position.y },
-    selected: true,
-  };
-  // Map cells if storyboard（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
-  if (isStoryboard && newGroup.data.cells) {
-    (newGroup.data as any).cells = (newGroup.data.cells as string[]).map((id) => idMap.get(id) ?? null);
-  }
-
-  // Build new child nodes
-  const newChildren: Node[] = groupClipboard.children.map((child) => {
-    const newId = idMap.get(child.id)!;
-    const newChild: Node = {
-      ...structuredClone(child),
-      id: newId,
-      parentId: newGid,
-      selected: false,
-      // Storyboard children: position zeroed; normal group: preserve relative position
-      position: isStoryboard ? { x: 0, y: 0 } : child.position,
-    };
-    return newChild;
-  });
-
-  // Build new edges
-  const newEdges: Edge[] = groupClipboard.innerEdges.map((edge, idx) => ({
-    ...structuredClone(edge),
-    id: newEdgeIds[idx],
-    source: idMap.get(edge.source)!,
-    target: idMap.get(edge.target)!,
-  }));
-
-  // 批4b-2 换芯：差分快照→组+子+组内边重建经 dispatchProjectionDiff 单 transact 落 doc
-  const before = captureStoreProjection();
-
-  // Update store
-  set({
-    nodes: [
-      ...get().nodes.map((n) => ({ ...n, selected: false })),
-      newGroup,
-      ...newChildren,
-    ],
-    edges: [...get().edges, ...newEdges],
-    selectedId: newGid,
-  });
-
-  // Double-write to nodeStore
-  const ns = useNodeStore.getState();
-  ns.addNode({
-    id: newGid,
-    type: 'group',
-    data: newGroup.data as any,
-  });
-  for (const child of newChildren) {
-    ns.addNode({
-      id: child.id,
-      type: child.type!,
-      data: child.data as any,
-    });
-  }
-
-  get().applyGroupDerivations();
-  dispatchProjectionDiff(before, Origin.LocalUser);
-
-  return newGid;
-}

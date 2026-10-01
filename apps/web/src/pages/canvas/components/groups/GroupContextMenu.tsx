@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Modal } from 'antd';
+import { useReactFlow } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 
@@ -22,6 +23,7 @@ const menuItem = (disabled?: boolean): React.CSSProperties => ({
 });
 
 function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
+  const { screenToFlowPosition } = useReactFlow();
   const canPaste = useCanvasStore.getState().hasGroupClipboard();
   const duplicateGroup = useCanvasStore((s) => s.duplicateGroup);
   const copyGroupToClipboard = useCanvasStore((s) => s.copyGroupToClipboard);
@@ -39,8 +41,8 @@ function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
   };
 
   const handlePaste = () => {
-    // Paste at menu position
-    pasteGroupClipboard({ x, y });
+    // 粘贴落点换算缝（2a-6）：菜单坐标（clientX/Y）→ flow 坐标在调用点完成——store 薄壳只收 flow 位置
+    pasteGroupClipboard(screenToFlowPosition({ x, y }));
     onClose();
   };
 

@@ -46,10 +46,11 @@ describe('canvasStore', () => {
     expect((nsNode.data as ImageNodeData).mediaName).toBe('扩展图片');
   });
 
-  it('copyNode should preserve imageExtGen type', () => {
+  it('duplicateNodes should preserve imageExtGen type（旧单点复制接口退役改写——2a-6）', () => {
     const id1 = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 });
-    const { copyNode } = useCanvasStore.getState() as any;
-    const id2 = copyNode(id1);
+    // duplicateNodes 走 runCommand canEdit 门——rw 会话电平（同 addChildNodes 先例 :62）
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    const id2 = useCanvasStore.getState().duplicateNodes([id1])!;
     const copied = useCanvasStore.getState().nodes.find((n: any) => n.id === id2)!;
     expect(copied.type).toBe('imageExtGen');
     const nsCopied = useNodeStore.getState().nodes[id2];
@@ -209,28 +210,26 @@ describe('canvasStore', () => {
     expect(!('height' in nsNode)).toBe(true);
   });
 
-  it('copyNode should copy width and height from original node', () => {
+  it('duplicateNodes should copy width and height from original node（旧单点复制接口退役改写——2a-6）', () => {
     const id1 = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     // Manually set custom dimensions to simulate a resized node
     useCanvasStore.setState(s => ({
       nodes: s.nodes.map(n => n.id === id1 ? { ...n, width: 500, height: 300 } : n),
     }));
-    // copyNode must exist on the store
-    const { copyNode } = useCanvasStore.getState() as any;
-    expect(typeof copyNode).toBe('function');
-    const id2 = copyNode(id1);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    const id2 = useCanvasStore.getState().duplicateNodes([id1])!;
     const copied = useCanvasStore.getState().nodes.find((n: any) => n.id === id2)!;
     expect(copied.width).toBe(500);
     expect(copied.height).toBe(300);
   });
 
-  it('copyNode 不再向 nodeStore 镜像 width/height（W7 锚）', () => {
+  it('duplicateNodes 不再向 nodeStore 镜像 width/height（W7 锚——旧单点复制接口退役改写）', () => {
     const id1 = useCanvasStore.getState().addNode('text', { x: 100, y: 200 });
     useCanvasStore.setState(s => ({
       nodes: s.nodes.map(n => n.id === id1 ? { ...n, width: 600, height: 400 } : n),
     }));
-    const { copyNode } = useCanvasStore.getState() as any;
-    const id2 = copyNode(id1);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    const id2 = useCanvasStore.getState().duplicateNodes([id1])!;
     const nsNode = (useNodeStore.getState().nodes as any)[id2];
     expect(nsNode).toBeDefined();
     expect(!('width' in nsNode)).toBe(true);
@@ -539,13 +538,12 @@ describe('canvasStore', () => {
       expect((nsNode.data as ImageNodeData).extConfig).toBeUndefined();
     });
 
-    it('copyNode should preserve extConfig completely for imageExt node', () => {
+    it('duplicateNodes should preserve extConfig completely for imageExt node（旧单点复制接口退役改写——2a-6）', () => {
       const id1 = useCanvasStore.getState().addNode('imageExt', { x: 50, y: 60 }, {
         extConfig: { model: 'custom-ext-model', ratio: '9:16', resolution: '4K', quality: 'high', generateCount: 4 },
       });
-
-      const { copyNode } = useCanvasStore.getState() as any;
-      const id2 = copyNode(id1);
+      useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+      const id2 = useCanvasStore.getState().duplicateNodes([id1])!;
       const nsCopied = useNodeStore.getState().nodes[id2];
       expect(nsCopied.type).toBe('imageExtGen');
       expect((nsCopied.data as ImageNodeData).extConfig).toBeDefined();

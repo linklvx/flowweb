@@ -670,12 +670,15 @@ describe('复制型几何例外（§4.8 登记——frame 继承源组±offset�
     // v6 夹具修正：groupType 必须是 'storyboard'——buildGroupCopy 的 cells 重映射只在
     // isStoryboard 分支（normal 组 structuredClone 原样带过 cells → 断言必红且现状也红=判别力零；
     // 且 normal 组带 cells 本身是语义非法输入）
+    // 2a-6 夹具修正：duplicateGroup=薄委托 duplicateNodes（runCommand canEdit 门 + resolveNodeData
+    // ns 全量取数）——需 rw 会话电平 + ns c1 条目
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250,
         data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1' } },
-    ] as any, edges: [] });
+    ] as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done', fileId: 'f1' } } } as any });
     useCanvasStore.getState().duplicateGroup('g1');
     const st = useCanvasStore.getState().nodes;
     const copy = st.find((n: any) => n.id !== 'g1' && n.type === 'group') as any;
@@ -968,5 +971,169 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
       _setIntentDocForTest(null);
       detachUndoManager();
     }
+  });
+});
+
+// ════════ R2a-6：副本体系统一 buildCopyPlan——duplicateNodes/duplicateGroup/paste 三薄壳 ════════
+
+describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
+  // 真装置（照 runCommand 公共件 2a-0 / arrangeSelection 2a-5 骨架）：真 Y.Doc + fillDoc +
+  // _setIntentDocForTest + attachUndoManager。禁止 vi.mock canvasIntents——mock 空投影会让
+  // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
+  const rigNodes = () => [
+    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A', color: 'red' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
+    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
+  ];
+  const seed = (nodes: unknown[], edges: unknown[] = []) => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    // cs 普通节点 data 刻意留陈旧值（保真②断言面：薄壳取数必须走 ns 全量而非 cs 镜像）
+    const csStale = (nodes as any[]).map((n) => (n.id === 'a' ? { ...n, data: { ...n.data, prompt: 'cs-stale' } } : n));
+    fillDoc(d, csStale as any, edges as any);
+    useCanvasStore.setState({ nodes: csStale as any, edges: edges as any, selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    const nsNodes: Record<string, any> = {};
+    for (const n of nodes as any[]) {
+      if (n.type !== 'group') nsNodes[n.id] = { id: n.id, type: n.type, data: n.data };
+    }
+    useNodeStore.setState({ nodes: nsNodes });
+    return { d, um };
+  };
+  const teardown = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+
+  it('保真①：子节点数相等（选组复制不产空壳）', () => {
+    seed(rigNodes());
+    try {
+      const newGid = useCanvasStore.getState().duplicateNodes(['g1']);
+      const st = useCanvasStore.getState();
+      expect(st.nodes.find((n) => n.id === newGid)!.type).toBe('group');
+      expect(st.nodes.filter((n) => n.parentId === newGid)).toHaveLength(2);   // == 源子节点数
+    } finally { teardown(); }
+  });
+
+  it('保真②：非桥接键 prompt 取 ns 全量（ns 改后复制得新值；buildGroupCopy 旧路径得 cs 陈旧值——先红）', () => {
+    seed(rigNodes());
+    try {
+      const newGid = useCanvasStore.getState().duplicateNodes(['g1']);
+      const child = useCanvasStore.getState().nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
+      expect((child.data as any).prompt).toBe('ns-fresh');   // 旧路径 structuredClone(cs data) → 'cs-stale'
+    } finally { teardown(); }
+  });
+
+  it('保真③：cells 无旧 id；组 data（color/name）保真；折叠组副本继承 collapsed', () => {
+    seed([
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240,
+        data: { groupType: 'normal', name: 'A', color: 'red', collapsed: true, savedSize: { width: 340, height: 240 } } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: { fileId: 'f1' } },
+    ]);
+    try {
+      useCanvasStore.getState().duplicateNodes(['g1']);
+      const copy = useCanvasStore.getState().nodes.find((n) => n.type === 'group' && n.id !== 'g1') as any;
+      expect(copy.data.name).toBe('A');
+      expect(copy.data.color).toBe('red');
+      expect(copy.data.collapsed).toBe(true);
+    } finally { teardown(); }
+    seed([
+      { id: 'sg', type: 'group', position: { x: 0, y: 0 }, width: 642, height: 182,
+        data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
+                storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+    ]);
+    try {
+      useCanvasStore.getState().duplicateNodes(['sg']);
+      const copySg = useCanvasStore.getState().nodes.find((n) => n.type === 'group' && n.id !== 'sg') as any;
+      expect(copySg.data.cells.every((c: any) => c === null || !['c1', 'ghost'].includes(c))).toBe(true);
+    } finally { teardown(); }
+  });
+
+  it('duplicateGroup ≡ duplicateNodes([id])（等价断言——两条路径产物逐键深等（除 id））', () => {
+    const snapshotOf = (run: () => unknown) => {
+      seed(rigNodes(), [{ id: 'e-in', source: 'a', target: 'b' }]);
+      try {
+        run();
+        const st = useCanvasStore.getState();
+        const origIds = new Set(['g1', 'a', 'b']);
+        const copies = st.nodes.filter((n) => !origIds.has(n.id));
+        const slot = new Map(copies.map((c, i) => [c.id, `#${i}`]));   // id 槽位归一——两路径 id 序列独立
+        return JSON.stringify({
+          copies: copies.map((c) => ({
+            type: c.type,
+            parent: c.parentId ? slot.get(c.parentId) : null,
+            position: c.position,
+            width: c.width,
+            height: c.height,
+            data: c.data,
+            selected: c.selected ?? false,
+          })),
+          newEdges: st.edges.filter((e) => e.id !== 'e-in')
+            .map((e) => `${slot.get(e.source)}->${slot.get(e.target)}`).sort(),
+        });
+      } finally { teardown(); }
+    };
+    const viaNodes = snapshotOf(() => useCanvasStore.getState().duplicateNodes(['g1']));
+    const viaGroup = snapshotOf(() => useCanvasStore.getState().duplicateGroup('g1'));
+    expect(viaGroup).toBe(viaNodes);
+  });
+
+  it('粘贴坐标（shell 直用 flow 位置——screenToFlowPosition 换算缝在调用点）+ clipboard 存 ns 全量快照（schema 含 edges）', () => {
+    seed(rigNodes(), [{ id: 'e-in', source: 'a', target: 'b' }]);
+    try {
+      useCanvasStore.getState().copyGroupToClipboard('g1');
+      expect(useCanvasStore.getState().hasGroupClipboard()).toBe(true);
+      // 复制后改 ns——粘贴必须得复制时点快照（clipboard.records=ns 全量冻结，粘贴不重取数）
+      useNodeStore.setState((s) => ({
+        nodes: { ...s.nodes, a: { ...s.nodes.a, data: { ...(s.nodes.a as any).data, prompt: 'changed-after-copy' } } },
+      }));
+      const newGid = useCanvasStore.getState().pasteGroupClipboard({ x: 500, y: 300 });
+      const st = useCanvasStore.getState();
+      expect(st.nodes.find((n) => n.id === newGid)!.position).toEqual({ x: 500, y: 300 });   // position 直落
+      const child = st.nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
+      expect((child.data as any).prompt).toBe('ns-fresh');   // 复制时点快照，非 changed-after-copy
+      // schema 含 edges：删原内部边后再次粘贴——副本内部边仍由 clipboard.edges 承载恢复
+      useCanvasStore.getState().removeEdge('e-in');
+      const newGid2 = useCanvasStore.getState().pasteGroupClipboard({ x: 900, y: 300 });
+      const copyIds2 = useCanvasStore.getState().nodes.filter((n) => n.parentId === newGid2).map((n) => n.id);
+      expect(useCanvasStore.getState().edges.filter((e) => copyIds2.includes(e.source) && copyIds2.includes(e.target))).toHaveLength(1);
+    } finally { teardown(); }
+  });
+
+  it('paste 补 undo 断言：500ms 内连点两次粘贴 = 2 undo 项', () => {
+    const { um } = seed(rigNodes());
+    try {
+      useCanvasStore.getState().copyGroupToClipboard('g1');
+      useCanvasStore.getState().pasteGroupClipboard({ x: 500, y: 300 });
+      useCanvasStore.getState().pasteGroupClipboard({ x: 900, y: 300 });
+      expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+    } finally { teardown(); }
+  });
+
+  it('B-2 顺序（cs set 先于 ns.addNode）+ 500ms 连点=2 undo', () => {
+    const { um } = seed(rigNodes());
+    try {
+      let csHadCopyAtFirstNsWrite: boolean | null = null;
+      let nsFired = 0;
+      const unsub = useNodeStore.subscribe(() => {
+        nsFired++;
+        if (csHadCopyAtFirstNsWrite === null) {
+          // 首个 ns 写点观察：cs 必已含组副本——结构 set 先于 ns.addNode（B-2 纪律）
+          csHadCopyAtFirstNsWrite = useCanvasStore.getState().nodes.some((n) => n.type === 'group' && n.id !== 'g1');
+        }
+      });
+      useCanvasStore.getState().duplicateNodes(['g1']);
+      unsub();
+      expect(nsFired).toBeGreaterThan(0);
+      expect(csHadCopyAtFirstNsWrite).toBe(true);
+      useCanvasStore.getState().duplicateNodes(['g1']);
+      expect(um.undoStack.length).toBe(2);
+    } finally { teardown(); }
+  });
+
+  it('copyNode/buildGroupCopy/rebuildFromClipboard 已删——接口与实现零残留', () => {
+    expect((useCanvasStore.getState() as any).copyNode).toBeUndefined();
+    // buildGroupCopy/rebuildFromClipboard 为模块级函数——零残留由 grep 门禁兜底（三符号 grep 零命中）
   });
 });
