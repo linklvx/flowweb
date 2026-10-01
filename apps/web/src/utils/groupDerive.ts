@@ -1,13 +1,13 @@
 // apps/web/src/utils/groupDerive.ts
+import { groupHidesChildren } from '@flowweb/shared';
 import type { Node, Edge } from '@xyflow/react';
 
-/** hidden 推导规则单一来源（spec 3.3）：不持久化，每次全量推导 */
+/** hidden 推导规则单一来源（spec 3.3）：不持久化，每次全量推导；hidden 判定同引 shared groupHidesChildren（19(i) 防漂移） */
 export function deriveHidden(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
   const groupHidden = new Map<string, boolean>();
   for (const n of nodes) {
     if (n.type === 'group') {
-      const d = n.data as { groupType?: string; collapsed?: boolean };
-      groupHidden.set(n.id, d?.groupType === 'storyboard' || d?.collapsed === true);
+      groupHidden.set(n.id, groupHidesChildren((n.data ?? {}) as Record<string, unknown>));
     }
   }
   const nextNodes = nodes.map((n) => ({

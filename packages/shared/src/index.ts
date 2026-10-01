@@ -19,3 +19,4 @@ export * from './canvas/geometry';
 export * from './canvas/storyboardConfig';
 export * from './canvas/normalizeLoadedCanvas';
 export * from './canvas/validateParentGraph';
+export * from './canvas/arrangeSelection';
