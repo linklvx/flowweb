@@ -1,7 +1,7 @@
 {
  "meta": {
   "task": "C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）",
-  "generatedAt": "2026-09-29T00:33:07.626Z",
+  "generatedAt": "2026-10-01T21:38:15.519Z",
   "renderWhitelist": [
    "src/pages/canvas/video-editor/renderer/canvas-renderer.ts",
    "src/pages/canvas/video-editor/export/worker.ts",
@@ -108,7 +108,7 @@
     "src/pages/canvas/video-editor/store/editorStore.ts",
     "src/pages/canvas/video-editor/timeline/block-colors.ts"
    ],
-   "totalFiles": 52,
+   "totalFiles": 51,
    "note": "D3 核销（Task 21 壳岛拆除+字面四通道，D3-ve-* 条）：运行时键盲区 tid: 根元素迁移无 differ 信号，靠 B6/探针"
   },
   "videosDomain": {
@@ -168,6 +168,7 @@
     "src/pages/canvas/components/groups/NormalGroupRenderer.test.tsx",
     "src/pages/canvas/components/groups/SelectionBoxOverlay.test.tsx",
     "src/pages/canvas/components/groups/StitchButton.test.tsx",
+    "src/pages/canvas/components/groups/StoryboardCell.test.tsx",
     "src/pages/canvas/components/groups/StoryboardGroupRenderer.test.tsx",
     "src/pages/canvas/components/HandleAddNodeMenu.test.tsx",
     "src/pages/canvas/components/handleMenu.test.ts",
@@ -179,6 +180,7 @@
     "src/pages/canvas/components/nodes/AiToolActionPopup.test.tsx",
     "src/pages/canvas/components/nodes/AnnotationToolbar.test.tsx",
     "src/pages/canvas/components/nodes/AudioConfigPanel.test.tsx",
+    "src/pages/canvas/components/nodes/AudioConfigPanel.viewer.test.tsx",
     "src/pages/canvas/components/nodes/AudioGenNode.test.tsx",
     "src/pages/canvas/components/nodes/AudioWaveform.test.tsx",
     "src/pages/canvas/components/nodes/config-panel/GenerateCountSelector.test.tsx",
@@ -188,6 +190,7 @@
     "src/pages/canvas/components/nodes/EraseBottomToolbar.test.tsx",
     "src/pages/canvas/components/nodes/EraseCanvas.test.tsx",
     "src/pages/canvas/components/nodes/ImageConfigPanel.test.tsx",
+    "src/pages/canvas/components/nodes/ImageConfigPanel.viewer.test.tsx",
     "src/pages/canvas/components/nodes/ImageExtConfigPanel.test.tsx",
     "src/pages/canvas/components/nodes/ImageFullscreenViewer.test.tsx",
     "src/pages/canvas/components/nodes/ImageGenNode.test.tsx",
@@ -203,11 +206,13 @@
     "src/pages/canvas/components/nodes/prompt-input/SortableImageItem.test.tsx",
     "src/pages/canvas/components/nodes/prompt-input/useImageUpload.test.ts",
     "src/pages/canvas/components/nodes/TextConfigPanel.test.tsx",
+    "src/pages/canvas/components/nodes/TextConfigPanel.viewer.test.tsx",
     "src/pages/canvas/components/nodes/TextInputNode.test.tsx",
     "src/pages/canvas/components/nodes/TextNodeFullscreen.test.tsx",
     "src/pages/canvas/components/nodes/TextNodeToolbar.test.tsx",
     "src/pages/canvas/components/nodes/TransformToolbar.test.tsx",
     "src/pages/canvas/components/nodes/VideoConfigPanel.test.tsx",
+    "src/pages/canvas/components/nodes/VideoConfigPanel.viewer.test.tsx",
     "src/pages/canvas/components/nodes/VideoEditNode.miniplay.test.tsx",
     "src/pages/canvas/components/nodes/VideoEditNode.test.tsx",
     "src/pages/canvas/components/nodes/VideoFullscreenViewer.test.tsx",
@@ -246,7 +251,6 @@
     "src/pages/canvas/video-editor/export/precheck.test.ts",
     "src/pages/canvas/video-editor/export/product-node.test.ts",
     "src/pages/canvas/video-editor/export/upload.test.ts",
-    "src/pages/canvas/video-editor/hooks/shadowJob.test.ts",
     "src/pages/canvas/video-editor/hooks/useAudioPeaks.test.ts",
     "src/pages/canvas/video-editor/hooks/usePreviewPlayback.test.ts",
     "src/pages/canvas/video-editor/hooks/useTeamAssets.test.ts",
@@ -300,12 +304,12 @@
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 604,
+     "line": 603,
      "text": "background: enabled ? 'rgba(74,222,128,0.15)' : 'none',"
     },
     {
      "file": "src/pages/canvas/components/CanvasView.tsx",
-     "line": 615,
+     "line": 614,
      "text": "background: 'none', border: 'none', color: disabled ? '#666' : '#fff',"
     },
     {
@@ -420,17 +424,17 @@
     },
     {
      "file": "src/pages/canvas/components/groups/GroupContextMenu.tsx",
-     "line": 16,
+     "line": 17,
      "text": "color: disabled ? '#666' : '#fff',"
     },
     {
      "file": "src/pages/canvas/components/groups/GroupContextMenu.tsx",
-     "line": 87,
+     "line": 89,
      "text": "background: 'rgba(0, 0, 0, 0.85)',"
     },
     {
      "file": "src/pages/canvas/components/groups/GroupContextMenu.tsx",
-     "line": 91,
+     "line": 93,
      "text": "boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',"
     },
     {
@@ -450,43 +454,43 @@
     },
     {
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
-     "line": 46,
+     "line": 47,
      "text": "background: 'rgba(26,26,26,0.9)',"
     },
     {
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
-     "line": 48,
+     "line": 49,
      "text": "color: '#cccccc', fontSize: 13,"
     },
     {
      "file": "src/pages/canvas/components/groups/NormalGroupRenderer.tsx",
-     "line": 91,
+     "line": 92,
      "text": "fontSize: 13, color: '#999', whiteSpace: 'nowrap',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 82,
-     "text": "background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: TOOLBAR.height,"
+     "line": 24,
+     "text": "color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 83,
-     "text": "display: 'flex', alignItems: 'center', gap: 12, color: '#fff', fontSize: 13,"
+     "line": 29,
+     "text": "color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 89,
-     "text": "style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: hasGroup ? '#666' : '#fff',"
+     "line": 36,
+     "text": "color: disabled ? '#666' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 97,
-     "text": "background: 'none', border: 'none', color: hasGroup ? '#666' : '#fff', cursor: hasGroup ? 'not-allowed' : 'pointer' }}>"
+     "line": 42,
+     "text": "boxShadow: '0 4px 10px rgba(0,0,0,0.08)', backdropFilter: 'blur(16px)',"
     },
     {
      "file": "src/pages/canvas/components/groups/SelectionBoxOverlay.tsx",
-     "line": 103,
-     "text": "background: 'none', border: 'none', color: allImage ? '#fff' : '#666', cursor: allImage ? 'pointer' : 'not-allowed' }}>"
+     "line": 185,
+     "text": "boxShadow: '0 4px 10px rgba(0,0,0,0.08)', backdropFilter: 'blur(16px)',"
     },
     {
      "file": "src/pages/canvas/components/groups/selectionTokens.ts",
@@ -515,17 +519,17 @@
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardCell.tsx",
-     "line": 31,
+     "line": 32,
      "text": "style={{ background: 'none', border: 'none', color: '#666', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>+</button>"
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardCell.tsx",
-     "line": 37,
+     "line": 38,
      "text": "<div style={{ ...style, background: 'var(--canvas-controls-bg)', display: 'flex', alignItems: 'center', justifyContent: "
     },
     {
      "file": "src/pages/canvas/components/groups/StoryboardCell.tsx",
-     "line": 47,
+     "line": 49,
      "text": "<span style={{ position: 'absolute', left: 12, bottom: 10, color: '#fff',"
     },
     {
@@ -575,7 +579,7 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/AudioGenNode.tsx",
-     "line": 205,
+     "line": 208,
      "text": "? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }"
     },
     {
@@ -700,22 +704,22 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx",
-     "line": 20,
+     "line": 21,
      "text": ".image-fv-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }"
     },
     {
      "file": "src/pages/canvas/components/nodes/ImageFullscreenViewer.tsx",
-     "line": 21,
+     "line": 22,
      "text": ".image-fv-sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/ImageGenNode.tsx",
-     "line": 1111,
+     "line": 1124,
      "text": "<span className=\"shrink-0 ml-auto\" style={{ fontSize: 10, color: '#777' }}>"
     },
     {
      "file": "src/pages/canvas/components/nodes/ImageGenNode.tsx",
-     "line": 1141,
+     "line": 1154,
      "text": "? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }"
     },
     {
@@ -1015,22 +1019,22 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx",
-     "line": 23,
+     "line": 27,
      "text": ".video-fv-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoFullscreenViewer.tsx",
-     "line": 24,
+     "line": 28,
      "text": ".video-fv-sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoGenNode.tsx",
-     "line": 693,
+     "line": 685,
      "text": "<span className=\"shrink-0 ml-auto\" style={{ fontSize: 10, color: '#777' }}>"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoGenNode.tsx",
-     "line": 726,
+     "line": 718,
      "text": "? { border: '1px solid transparent', boxShadow: '0 0 0 3px #9CA3AF' }"
     },
     {
@@ -1190,7 +1194,7 @@
     },
     {
      "file": "src/pages/canvas/video-editor/store/editorStore.ts",
-     "line": 239,
+     "line": 228,
      "text": "text, visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 },"
     },
     {
@@ -1410,7 +1414,7 @@
     },
     {
      "file": "src/pages/canvas/components/nodes/AudioConfigPanel.tsx",
-     "line": 219,
+     "line": 209,
      "text": "<path d=\"M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.2184"
     },
     {
@@ -1434,18 +1438,23 @@
      "text": "<rect width=\"100%\" height=\"100%\" fill=\"rgba(0,0,0,0.5)\" mask={`url(#${maskId})`} />"
     },
     {
+     "file": "src/pages/canvas/components/nodes/MultiImageConfigPanel.tsx",
+     "line": 38,
+     "text": "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#555\" strokeWidth=\"2\">"
+    },
+    {
      "file": "src/pages/canvas/components/nodes/MultiImageNode.tsx",
      "line": 60,
      "text": "<svg width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#555\" strokeWidth=\"2\">"
     },
     {
      "file": "src/pages/canvas/components/nodes/TextConfigPanel.tsx",
-     "line": 219,
+     "line": 227,
      "text": "<path d=\"M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.2184"
     },
     {
      "file": "src/pages/canvas/components/nodes/VideoConfigPanel.tsx",
-     "line": 279,
+     "line": 300,
      "text": "<path d=\"M8.99805 2.38477C9.53893 3.90621 10.4105 5.29349 11.5566 6.44238L11.5586 6.44336C12.5481 7.43013 13.7171 8.2184"
     },
     {
@@ -2007,6 +2016,12 @@
    "file": "src/pages/canvas/components/nodes/config-panel/RunButton.tsx",
    "line": 14,
    "ruling": "2026-09-26 image-node-panel-redesign 需求8 运行按钮政版：推翻 Task 22 对 RunButton:14 的预登记裁定（differExpectedPairs A 组 5 钮条其余 4 钮不受影响），backgroundColor var(--canvas-controls-bg)→var(--canvas-run-btn-bg) 新 token 对（深 rgb(145,145,145) 保参考值/浅 rgb(135,135,135) 加深 ≥3:1 拍板，icon #141414 双块同值），同步 20px 新箭头 SVG+title=生成"
+  },
+  {
+   "id": "R2c-group-tokens",
+   "file": "src/index.css",
+   "line": "深块 :59-68、浅块 :114-123（R2c-1 追加段）",
+   "ruling": "R2c-1 组域 token 9 键落地（spec 2026-09-28-canvas-group-ui-upgrade §4.2 前置补课，R1 未随 R1 落地的欠账）：--canvas-storyboard-shell-bg/--canvas-group-border/--canvas-group-color-{red,orange,yellow,green,cyan,blue,purple} 深 9 声明位点入既有唯一双块（禁另起块=b1-4 只扫 --(?:canvas-|ve-|vw-) 声明位，第三 :root 几何常量块禁入）；组色 14 值 ≥3:1 以 contrast-table 首跑实测回填（深档 400 系亮变体@深板 #000：7.59-13.71；浅档 600 系@亮板 #F5F5F5：3.02-4.94，最紧绿浅 3.02），border 两档=分离度观测行 B6 目检裁定拍板维持（深 1.85/浅 2.33，回退预登记 #595959/#8e9298）；当前纯定义层零消费者（2c-2~2c-6 组件换指），不产生 computed diff 新位点故 differExpectedPairs 无增量；重跑伴生漂移=2026-09-29 后 R2 既有产物（tests 分区 +5 viewer 测试 -shadowJob/veDomain -1、styleObjects 行号漂移），非本位点"
   }
  ],
  "differExpectedPairs": {

@@ -62,7 +62,7 @@ const LIGHT: Record<string, string> = {
   '--fw-overlay-3': 'rgba(0,0,0,0.12)',
 };
 
-/** C8 D1a 域 token 双值化（spec §8.1 表）——深值=现状冻结；浅值=D1b 并域目标键浅值 */
+/** C8 D1a 域 token 双值化（spec §8.1 表）——深值=现状冻结；浅值=D1b 并域目标键浅值；R2c-1 补组域 9 键（spec 2026-09-28-canvas-group-ui-upgrade §4.2） */
 const DOMAIN_TOKENS = [
   '--canvas-board-bg', '--canvas-board-dot', '--canvas-controls-bg', '--canvas-controls-border',
   '--canvas-controls-text', '--canvas-controls-hover', '--canvas-controls-active', '--canvas-controls-icon',
@@ -70,6 +70,10 @@ const DOMAIN_TOKENS = [
   '--canvas-handle-hover-bg', '--canvas-handle-hover-icon', '--edge-flow-color', '--edge-highlight-color',
   '--ve-border', '--ve-text-dim', '--ve-accent', '--ve-accent-text',
   '--canvas-run-btn-bg', '--canvas-run-btn-icon',
+  '--canvas-storyboard-shell-bg', '--canvas-group-border',
+  '--canvas-group-color-red', '--canvas-group-color-orange', '--canvas-group-color-yellow',
+  '--canvas-group-color-green', '--canvas-group-color-cyan', '--canvas-group-color-blue',
+  '--canvas-group-color-purple',
 ] as const;
 
 const DOMAIN_DARK: Record<string, string> = {
@@ -93,6 +97,15 @@ const DOMAIN_DARK: Record<string, string> = {
   '--ve-accent-text': '#9b8cf7',
   '--canvas-run-btn-bg': 'rgb(145,145,145)',
   '--canvas-run-btn-icon': '#141414',
+  '--canvas-storyboard-shell-bg': '#212121',
+  '--canvas-group-border': '#3a3a3a',
+  '--canvas-group-color-red': '#f87171',
+  '--canvas-group-color-orange': '#fb923c',
+  '--canvas-group-color-yellow': '#facc15',
+  '--canvas-group-color-green': '#4ade80',
+  '--canvas-group-color-cyan': '#22d3ee',
+  '--canvas-group-color-blue': '#60a5fa',
+  '--canvas-group-color-purple': '#c084fc',
 };
 
 const DOMAIN_LIGHT: Record<string, string> = {
@@ -116,6 +129,15 @@ const DOMAIN_LIGHT: Record<string, string> = {
   '--ve-accent-text': '#5f4fd1',
   '--canvas-run-btn-bg': 'rgb(135,135,135)',
   '--canvas-run-btn-icon': '#141414',
+  '--canvas-storyboard-shell-bg': '#f7f8f8',
+  '--canvas-group-border': '#9ca3af',
+  '--canvas-group-color-red': '#dc2626',
+  '--canvas-group-color-orange': '#ea580c',
+  '--canvas-group-color-yellow': '#a16207',
+  '--canvas-group-color-green': '#16a34a',
+  '--canvas-group-color-cyan': '#0e7490',
+  '--canvas-group-color-blue': '#2563eb',
+  '--canvas-group-color-purple': '#9333ea',
 };
 
 /** 归一化读作用域元素上全部 token 计算值 + color-scheme。
@@ -279,5 +301,14 @@ test.describe('B0-6 C8 域 token 双值化（D1a）', () => {
         expect(s[t], `[B0-6] ${t} 浅值期望 ${DOMAIN_LIGHT[t]}；实际=${JSON.stringify(s)}`).toBe(DOMAIN_LIGHT[t]);
       }
     } finally { await ctx.close(); }
+  });
+});
+
+test.describe('B0-7 表完整性守卫：值表键 ⊆ 迭代清单（R2c-1 补——b0 只读 DOMAIN_TOKENS 内的键，值表多写不读=假绿面）', () => {
+  // 纯数据断言不挂 fixtures：不起浏览器（CI 不跑 b0，键集对账由 src/utils/canvas-domain-token-keyset.test.ts 在 vitest 侧常态化自证）
+  test('DOMAIN_DARK/DOMAIN_LIGHT 每一个键都在 DOMAIN_TOKENS 迭代列表内', () => {
+    const iterated = new Set<string>([...DOMAIN_TOKENS]);
+    const missing = [...new Set([...Object.keys(DOMAIN_DARK), ...Object.keys(DOMAIN_LIGHT)])].filter((k) => !iterated.has(k));
+    expect(missing, `值表有而迭代清单无的键（永不被读取=假绿）：${missing.join(', ')}`).toEqual([]);
   });
 });

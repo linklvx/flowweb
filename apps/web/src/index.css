@@ -55,6 +55,17 @@
   --ve-text-dim: rgba(226, 232, 240, 0.6);
   --ve-accent: #6C5CE7;
   --ve-accent-text: #9B8CF7;
+
+  /* ===== R2c 组域 token（spec 2026-09-28-canvas-group-ui-upgrade §4.2；组色 14 值 ≥3:1 以 contrast-table 首跑实测回填禁手填；border 两档=分离度观测行） ===== */
+  --canvas-storyboard-shell-bg: #212121;
+  --canvas-group-border: #3a3a3a;   /* 拍板维持（spec §4.2）：深 1.85:1 vs #000——分离度观测行，非 ≥3:1 达标项；回退预登记 #595959（3.00:1） */
+  --canvas-group-color-red: #f87171;    /* 400 系亮变体——深板 #000 上 ≥3:1，contrast-table 实测登记 */
+  --canvas-group-color-orange: #fb923c;
+  --canvas-group-color-yellow: #facc15;
+  --canvas-group-color-green: #4ade80;
+  --canvas-group-color-cyan: #22d3ee;
+  --canvas-group-color-blue: #60a5fa;
+  --canvas-group-color-purple: #c084fc;
 }
 
 .light {
@@ -99,6 +110,17 @@
   --ve-text-dim: #4b5563;
   --ve-accent: #6C5CE7;
   --ve-accent-text: #5F4FD1;
+
+  /* ===== R2c 组域 token 浅值（与深块一对，禁另起块；spec §4.2 同款） ===== */
+  --canvas-storyboard-shell-bg: #f7f8f8;
+  --canvas-group-border: #9ca3af;    /* 浅 2.33:1 vs 板面 / 2.25:1 vs 组内底——观测行（B6 目检裁定）；回退预登记 #8e9298（2.87:1） */
+  --canvas-group-color-red: #dc2626;     /* 600 系——亮板 #F5F5F5 上 ≥3:1 */
+  --canvas-group-color-orange: #ea580c;
+  --canvas-group-color-yellow: #a16207;
+  --canvas-group-color-green: #16a34a;
+  --canvas-group-color-cyan: #0e7490;
+  --canvas-group-color-blue: #2563eb;
+  --canvas-group-color-purple: #9333ea;
 }
 
 /* ::placeholder 语义化（B0）：选 dim-2——占位文本是唯一描述预期输入的功能文本，dim-1 过淡
