@@ -34,8 +34,8 @@
    - **结论**：v1 候选 1（真值恒在+渲染层小盒）必产生"信封 600×400 / 渲染小盒 220×160"两真相并存——选中框/拖拽热区/连线锚点/getNodesBounds/extent:'parent' 全按大盒；候选 2（width/height 置 undefined + data.expandedSize）= savedSize 改名垫片，且 undefined 会反转 normalizeLoadedCanvas"缺几何才补"契约（:16 早退失效）、`nodeHasDimensions` 为假 → visibility:hidden 量到尺寸前不可见、砸掉读信封真值的几何消费者（groupDrop/canvasStore :1250/:1479/:1627/getNodesBounds——以 grep 为准）、给 doc 唯一几何字段加"undefined=折叠"第二语义。
    - **改道定义（用户 2026-10-01 拍板）**：(a) 不变量——envelope.width/height ≡ 节点当前可见矩形，折叠态恒=COLLAPSED_SIZE（唯一写点 toggleCollapse 的 envelope intent+渲染层根 div 显式尺寸，两者都引 COLLAPSED_SIZE 常量）；(b) savedSize 语义升格为密封快照——只在"展开→折叠"转移边写入（=折叠前信封）、只在展开读、**展开即删键（展开后 `'savedSize' in data === false`）**、折叠期间不可改写（v2.2 收窄：此约束限手动/守恒域——markManuallyResized 折叠态拒写、NodeResizer 折叠分支不渲染；**分镜组不可折叠〔toggleCollapse 双向 no-op 守卫——v2.2 推翻 v2.1 让位设计：守卫挡写入后让位会把脏 collapsed 组永久卡在 220×160 挤压渲染且展开无门（死局），改"坏值尽快自愈"——normalizeLoadedCanvas 加载边界剥 collapsed/savedSize+envelope=calcStoryboardSize；CanvasView:623 恒 false 即契约正确；updateStoryboardConfig/resizeStoryboardGrid 维持现状直写不动**）、彻底取消与 manuallyResized 的耦合（manuallyResized 仅作 shouldAutoRefit 门禁）；(c) 单源裁决——shared 纯函数 `resolveExpandedFrame({data, childrenAbs, config})`，**有效 savedSize 优先（v2.2 收窄：等价性论证仅涉 normal 组**——分镜组不可折叠后"手动 resize 过的分镜组折叠往返"场景不可达，spec:288"用户手动 resize 优先于配置尺寸"拍板语义保留在 normal 组展开域；storyboard 堵洞档仅服务脏数据兜底），无效 savedSize 堵洞序=storyboard→calcStoryboardSize→守恒重算→空组 COLLAPSED_SIZE（不造 0×0）；(d) 冻结口径——无迁移/兼容/版本标记（无存量数据）；(e) 不变量测试见 2d-1；(f) savedSize 保留在 GROUP_NODE_DATA_KEYS（**9 键不变——API/clone/锚定测试零连锁**）；COLLAPSED_SIZE 改值 220×160 留 2d-2 单独 commit；(g) spec §4.9 R2d 登记行/:18/:288 随本 plan 同批回写（v12 裁决块）。
 8. **【v2 纠错】F7 客户端自愈两条零命中（v1 注记误判"已落地"）**：现场实证 mediaUrlCache.ts:34 只判 `expiresAt <= now`（**无临期<60s 续取**）、useMediaUrl.ts:29 catch 只 setError（**无 onError 失效重取**）——spec:214 三件套仅"ttl≤0 重取"在。R0c 落的是形状四条（expiresAt 绝对时刻/服务端算剩余/userId 维度/in-flight 去重），临期+onError 两条属 **2b**（spec:18"与缓存/in-flight 同批"），v1 覆盖表宣告 F7 闭环是错误的——v2 已改（见 2b-5 与 Self-Review）。
-9. **副本体系统一 = buildCopyPlan 纯函数三薄壳（用户 2026-10-01 拍板）**：抽 `buildCopyPlan(records, ids, {offset|position})` 纯函数为唯一副本体（选区闭包展开/isStoryboard 子 position 归零/extent 清理/cells 重映射一次算清）；duplicateGroup、duplicateNodes、粘贴三入口退化为薄壳；**data 取数单一：组取 cs（同 projectCanvasNodes 分型）、普通节点只取 ns 全量、删掉 `?? n.data` 回落（取不到即红）**；clipboard 存 ns 全量快照复用同一纯体（不再 structuredClone 旧路径）；粘贴坐标补 `screenToFlowPosition`（现 GroupContextMenu 直传 clientX/clientY——以现场为准）；先落三条保真断言再删旧函数（buildGroupCopy:1802-1891 / rebuildFromClipboard:1894-1976 / copyNode:341-380）。
-10. **参与集闭包语义（v1 结构缺陷修正）**：v1 的 normalizeSelection 把"父组已选中的子"丢弃后 participation 只拼三桶——`duplicateNodes(['g1'])` 会产出 cells 全 null 的空壳组、`collectDownloadables(['g1'])` 返回空（实现与 v1 自带测试互相证伪）。v2：participation 内做**组→成员闭包展开**（duplicate=可见子〔排除 hidden：storyboard/collapsed 子〕；download=全部成员含 hidden——spec 契约 1"三桶全展开"正解）。
+9. **副本体系统一 = buildCopyPlan 纯函数三薄壳（用户 2026-10-01 拍板）**：抽 `buildCopyPlan(records, ids, {offset|position})` 纯函数为唯一副本体（~~选区闭包展开~~/isStoryboard 子 position 归零/extent 清理/cells 重映射一次算清——**闭包展开后移至 participation 前置裁决（19a/19i 分工单点：buildCopyPlan 只接收已裁决 ids 做纯映射构造）**）；duplicateGroup、duplicateNodes、粘贴三入口退化为薄壳；**data 取数单一：组取 cs（同 projectCanvasNodes 分型）、普通节点只取 ns 全量、删掉 `?? n.data` 回落（取不到即红）**；clipboard 存 ns 全量快照复用同一纯体（不再 structuredClone 旧路径）；粘贴坐标补 `screenToFlowPosition`（现 GroupContextMenu 直传 clientX/clientY——以现场为准）；先落三条保真断言再删旧函数（buildGroupCopy:1802-1891 / rebuildFromClipboard:1894-1976 / copyNode:341-380）。
+10. **参与集闭包语义（v1 结构缺陷修正）**：v1 的 normalizeSelection 把"父组已选中的子"丢弃后 participation 只拼三桶——`duplicateNodes(['g1'])` 会产出 cells 全 null 的空壳组、`collectDownloadables(['g1'])` 返回空（实现与 v1 自带测试互相证伪）。v2：participation 内做**组→成员闭包展开**（~~duplicate=可见子〔排除 hidden：storyboard/collapsed 子〕~~**——v2.1 推翻：duplicate 闭包全量保真，hidden 排除仅 detached 桶，见注记 18a/19a**；download=全部成员含 hidden——spec 契约 1"三桶全展开"正解）。
 11. **hidden 语义落到写入侧不变量（用户认可方向）**：`hidden ⇒ selected 必须为 false`——toggleCollapse 折叠分支与 convertGroup 转分镜时清子节点 selected（一处清、三桶归一自然成立）；SelectionBoxOverlay:15-19 的 nodeLookup.forEach 加 `!n.hidden` 过滤兜底（防其他 hidden 源）。deriveHidden（groupDerive.ts:13-16）只写 hidden 从不清 selected——该事实即本注记依据。
 12. **nameCustom/renameGroup/右键重命名（F24）归 2d**；renameGroup 现状 `name.trim() || '分组'` 硬兜底（canvasStore.ts:1554）**维持不改语义**，2d-6 只补 nameCustom:true。
 13. **分镜 shell 呈现组色（v10 裁决 4）归 2d**。
@@ -62,6 +62,11 @@
     (f) 折叠期配置覆写手动尺寸争议随 (e) 不可达消失——spec:288 手动优先保留在 normal 组展开域；resolveExpandedFrame 等价性论证收窄（注记 7(c)）；
     (g) P2 系列：展开 intent 数组补 moveNode（applyGroupFrameRect :1647-1650 即 envelope+moveNode 双意图——resolveExpandedFrame 返回绝对 frame，守恒档原点可变）；2d-4 Files 补 media-batch.service.spec.ts；两段渲染 effect 幂等守卫（先查 cache/pending——StrictMode 双跑/共享 fileId）；nightly 追加 b0/b1-4 前确认 web 前置（gate-collab.mjs 只自拉 API，b0 走默认 config 需 webServer）；EXT_BY_MIME/FETCH_TIMEOUT_MS 落点（util 内常量）；resolveNodeData 与 projectCanvasNodes.ts:18 `?? nd.data ?? {}` 回落刻意不对称（fail-fast vs 恢复窗口）注释互注；B 端 stale selected 键盘动作面（Delete/Ctrl+G 对 hidden 生效）登记 R3；
     (h) **驳回**：报告称"projectCanvasNodes 是函数非文件（定义于 ydocBuilder.ts）"——错误：`apps/web/src/utils/projectCanvasNodes.ts` 独立文件存在（ydocBuilder.test.ts:4 `import { projectCanvasNodes } from '@/utils/projectCanvasNodes'` 为证），plan 路径引用不改。
+19b. **【第四轮复审补丁（2026-10-02，三份评审收敛后文本级修订——不升版评审轮】**：
+    (i) **"分工单点"传播缺口（同型失误第四次的封堵）**：19(a) 立的"participation 裁决/buildCopyPlan 构造"分工没有贯穿到调用面——copyPlan 测试三用例仍传裸组 id（`['g2']` 不含 `'x'` 则按契约不该有 x 的副本，"成员纳入"断言必然落空）、duplicateNodes/paste 薄壳 `ids` 直通。修订：测试统一经 `dupIds(records, ids)`（participation 组合取输入——兼作分工契约的组合测试）；薄壳显式"participation 裁决→records 组装（闭包∪选集）→buildCopyPlan(p.ids)"；clipboard schema=`{ records, ids: 拷贝时已裁决的闭包 ids, edges }`（粘贴不重推导——拷贝到粘贴之间成员/隐藏态可能变化，存裁决结果是保真选择）。**流程规则升格：每立一个新裁决，先枚举其全部复述点（测试输入+三薄壳+clipboard schema）再动笔，而非事后 grep 碰运气。**
+    (j) **两处旧复述清剿漏网**：2d-8 验收第 2 条"分镜组折叠往返"（不可达，改"不可折叠验证"）；注记 10"duplicate=可见子〔排除 hidden〕"v2 旧裁决未加推翻指针（hidden 面清剿漏网——让位/棘轮均已清，已补）。
+    (k) **P2 采纳**：groupHidesChildren 同引落 2a-2 Files+实现（groupDerive.ts:10 现有独立一份规则）；2b-1 补 headers 超时测试（AbortController 新机制零覆盖）；自愈分支走 resolveExpandedFrame 单源（不直算第二份 calcStoryboardSize）；:1178"折叠态先展开"对脏组失效+运行中会话脏 intent 不经加载边界——两处残留登记（2d-1，无需代码）；2d-1 补四段小步执行建议。
+    (l) **驳回**：报告称"GroupToolbar:60 无条件渲染折叠钮（storyboard 传 noOp 即死按钮）"——不成立：折叠钮在 `p.groupType==='normal'` 条件块内（:58-60），storyboard 分支（:69）只渲染注入 children，**无死按钮**；CanvasView:623/:625 的 `collapsed={false}+onCollapse={noOp}` 是死 props（传入但无渲染消费）——2d-1 改为核验结论+死 props 随手删。
 
 **单测运行命令**：
 - web：`pnpm --filter @flowweb/web test -- --run <路径片段>`
@@ -82,6 +87,7 @@
 - Create: `packages/shared/src/canvas/arrangeSelection.ts`（sortForArrange/arrangeRects/normalizeSelection/participation/clampToolbarX）
 - Create: `packages/shared/src/canvas/copyPlan.ts`（buildCopyPlan）
 - Modify: `packages/shared/src/index.ts`（星导出）
+- Modify: `apps/web/src/utils/groupDerive.ts`（deriveHidden 改引 shared `groupHidesChildren`——hidden 规则单源，19(i)：否则 2a-2 的"同引"只是注释愿望，groupDerive.ts:10 现有独立一份规则照旧并存）
 - Modify: `apps/web/src/pages/canvas/components/groups/SelectionBoxOverlay.tsx`（工具条扩展+hidden 过滤+SELECTION_TOOLBAR）
 - Test: `packages/shared/src/canvas/arrangeSelection.spec.ts`（新）、`packages/shared/src/canvas/copyPlan.spec.ts`（新）、`apps/web/src/stores/canvasStore.groups.test.ts`（增补——真装置）、`apps/web/src/pages/canvas/components/groups/SelectionBoxOverlay.test.tsx`（改）
 
@@ -324,7 +330,7 @@ export function participation(buckets: SelectionBuckets, action: ParticipationAc
 }
 ```
 
-**hidden 语义裁定（v2.1，推翻 v2 的"闭包排除 hidden"）**：三份复审一致指出 v2 版与 2a-6 夹具互相证伪（v2 排除 → `duplicateNodes(['s1'])` 产 cells 全 null 空壳，而 2a-6 断言分镜子纳入副本且 rel 归零）且对现状是行为回归——buildGroupCopy（:1813 `filter(n => n.parentId === groupId)` 无 hidden 过滤）复制全部成员。spec 契约 1"副本排除 hidden"的理由链已被本计划 2a-0 瓦解（hidden⇒selected=false 落地后 hidden 子不在 selected 集，"防陈旧选中"仅剩 detached 桶防御性兜底场景；"分镜子叠一摞"只属 detached 顶层化路径，组闭包内子随组走保留 rel 无叠摞）。**终态：闭包全量保真+detached 桶排除**，spec 契约 1 随回写（v12 裁决 4）。`packages/shared/src/index.ts` 补星导出。
+**hidden 语义裁定（v2.1，推翻 v2 的"闭包排除 hidden"）**：三份复审一致指出 v2 版与 2a-6 夹具互相证伪（v2 排除 → `duplicateNodes(['s1'])` 产 cells 全 null 空壳，而 2a-6 断言分镜子纳入副本且 rel 归零）且对现状是行为回归——buildGroupCopy（:1813 `filter(n => n.parentId === groupId)` 无 hidden 过滤）复制全部成员。spec 契约 1"副本排除 hidden"的理由链已被本计划 2a-0 瓦解（hidden⇒selected=false 落地后 hidden 子不在 selected 集，"防陈旧选中"仅剩 detached 桶防御性兜底场景；"分镜子叠一摞"只属 detached 顶层化路径，组闭包内子随组走保留 rel 无叠摞）。**终态：闭包全量保真+detached 桶排除**，spec 契约 1 随回写（v12 裁决 4）。`packages/shared/src/index.ts` 补星导出。**groupHidesChildren 同引落地（19(i)）**：本 task 同 commit 改 `groupDerive.ts` deriveHidden（:10 现有 `storyboard||collapsed` 独立一份）改引 shared 谓词——"单源"必须落到文件，不能只落在注释。
 
 - [ ] **Step 4: 跑绿** + **Step 5: Commit** `feat(shared): R2a-2 选区归一三桶+参与闭包策略表（纯函数）`
 
@@ -537,23 +543,29 @@ arrangeSelection: (ids, mode) => {
 // packages/shared/src/canvas/copyPlan.spec.ts（新）
 import { describe, it, expect } from 'vitest';
 import { buildCopyPlan } from './copyPlan';
+import { normalizeSelection, participation } from './arrangeSelection';
 
 const G = (id: string, cells: string[], extra: any = {}) =>
   ({ id, type: 'group', parentId: undefined, position: { x: 0, y: 0 }, width: 400, height: 300, data: { groupType: 'normal', cells, ...extra } });
 const N = (id: string, parentId?: string, extra: any = {}) =>
   ({ id, type: 'imageGen', parentId, position: parentId ? { x: 20, y: 50 } : { x: 100, y: 100 }, data: { fileId: 'f1', prompt: 'p-ns', ...extra } });
 
-describe('buildCopyPlan（唯一副本体）', () => {
+// 19(i) 分工契约组合测试缝：buildCopyPlan 只接收已裁决 ids——测试输入统一经 participation 组合取得
+// （传裸组 id 违反契约：['g2'] 不含 'x' 则不该有 x 的副本，"折叠组成员纳入"断言必然落空）
+const dupIds = (records: any[], ids: string[]) =>
+  participation(normalizeSelection(records, ids), 'duplicate', records).ids;
+
+describe('buildCopyPlan（副本构造体——分工单点：participation 裁决前置）', () => {
   it('组闭包：选中组→成员全纳入，cells 重映射（无旧 id 残留），子副本数==源子节点数', () => {
     const records: any[] = [G('g1', ['a', 'b']), N('a', 'g1'), N('b', 'g1')];
-    const plan = buildCopyPlan(records, ['g1'], { offset: { x: 40, y: 0 } }, () => 'new-id');
+    const plan = buildCopyPlan(records, dupIds(records, ['g1']), { offset: { x: 40, y: 0 } }, () => 'new-id');
     const newG = plan.copies.find((c) => c.type === 'group')!;
     expect(plan.copies.filter((c) => c.parentId === newG.id).length).toBe(2);
     expect(newG.data.cells.every((c: string) => plan.idMap.has?.(c) || c === null || !records.some((r) => r.id === c))).toBe(true); // cells 无旧 id
   });
   it('data 保真：普通节点副本 data=records 输入（调用方已按 resolveNodeData 组装 ns 全量）——prompt 等非桥接键逐字保真', () => {
     const records: any[] = [N('n1', undefined, { prompt: '用户改过的长提示词' })];
-    const plan = buildCopyPlan(records, ['n1'], { offset: { x: 40, y: 0 } }, () => 'c1');
+    const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
     expect((plan.copies[0].data as any).prompt).toBe('用户改过的长提示词');
   });
   it('hidden 保真（v2.2 翻转——与 2a-2 闭包全量保真对齐）：折叠组成员随组入副本集（parentId=组副本 id、rel 保留）+ 副本组继承 collapsed/savedSize；分镜子副本 position 归零 {0,0}', () => {
@@ -561,17 +573,17 @@ describe('buildCopyPlan（唯一副本体）', () => {
       G('g2', ['x'], { collapsed: true, savedSize: { width: 600, height: 400 } }), N('x', 'g2'),
       G('s1', ['p'], { groupType: 'storyboard' }), N('p', 's1'),
     ];
-    const dup = buildCopyPlan(records, ['g2'], { offset: { x: 40, y: 0 } }, () => 'd');
+    const dup = buildCopyPlan(records, dupIds(records, ['g2']), { offset: { x: 40, y: 0 } }, () => 'd');
     const newG = dup.copies.find((c) => c.type === 'group')!;
     expect(dup.copies.filter((c) => c.parentId === newG.id).length).toBe(1);   // 折叠组成员纳入（非空壳）
     expect((newG.data as any).collapsed).toBe(true);                            // 副本继承 collapsed
-    const st = buildCopyPlan(records, ['s1'], { offset: { x: 40, y: 0 } }, () => 's');
+    const st = buildCopyPlan(records, dupIds(records, ['s1']), { offset: { x: 40, y: 0 } }, () => 's');
     const child = st.copies.find((c) => c.parentId !== undefined)!;
     expect(child.position).toEqual({ x: 0, y: 0 });                              // 分镜子 rel 恒 0
   });
   it('detached 副本顶层化：parentId=undefined + 绝对坐标（父位置+rel）+offset + extent=undefined（F41）', () => {
     const records: any[] = [G('g1', ['a'], { position: { x: 100, y: 100 } }), N('a', 'g1')];
-    const plan = buildCopyPlan(records, ['a'], { offset: { x: 40, y: 0 } }, () => 'c');
+    const plan = buildCopyPlan(records, dupIds(records, ['a']), { offset: { x: 40, y: 0 } }, () => 'c');
     expect(plan.copies[0].parentId).toBeUndefined();
     expect(plan.copies[0].position).toEqual({ x: 160, y: 150 });
   });
@@ -621,10 +633,10 @@ export function buildCopyPlan(
 ): CopyPlan { /* idMap 两遍→副本构造（组 selected 继承+子 false、detached 顶层化+extent 标记、分镜子 {0,0}、折叠子保留原 rel）→互连边重映射 */ }
 ```
 
-  - canvasStore.ts 三薄壳：
-    - `duplicateNodes(ids)`：`runCommand` 内 `resolveNodeData` 组装 records → `buildCopyPlan(records, ids, { offset: DUPLICATE_OFFSET }, () => getId('node'), s.edges)` → `setWithParentOrder` 追加（**父子结构写一律走 setWithParentOrder**——RF v12 要求父先于子，:187-193）→ 原选中置 false → 普通副本 `ns.addNode({ id, type, data } as AppNode)`（**单参**）→ derive 由 runCommand 收尾；
+  - canvasStore.ts 三薄壳（19(i)：裁决环节显式——`ids` 形参是原始选集，**禁止直通** buildCopyPlan）：
+    - `duplicateNodes(ids)`：`runCommand` 内 **participation 裁决**（`normalizeSelection(s.nodes, ids)` + `participation(…, 'duplicate', s.nodes)` → 闭包 ids+excluded 计数）→ `resolveNodeData` 组装 records（范围=闭包∪选集）→ `buildCopyPlan(records, p.ids, { offset: DUPLICATE_OFFSET }, () => getId('node'), s.edges)` → `setWithParentOrder` 追加（**父子结构写一律走 setWithParentOrder**——RF v12 要求父先于子，:187-193）→ 原选中置 false → 普通副本 `ns.addNode({ id, type, data } as AppNode)`（**单参**）→ derive 由 runCommand 收尾；
     - `duplicateGroup(groupId)` = `duplicateNodes([groupId])` 薄壳（返回值语义维持 string | null 或随统一改 void——以接口现状最小改动为准）；
-    - `copyGroupToClipboard/pasteGroupClipboard`：clipboard 改存 records 快照（ns 全量）；粘贴 `buildCopyPlan(records, ids, { position: screenToFlowPosition(clientX, clientY) })`；
+    - `copyGroupToClipboard/pasteGroupClipboard`：clipboard schema=**`{ records, ids: 拷贝时已裁决的闭包 ids, edges }`**（粘贴时不重推导——拷贝到粘贴之间成员/隐藏态可能变化，存裁决结果是保真选择；records 为 ns 全量快照）；粘贴 `buildCopyPlan(records, clipboard.ids, { position: screenToFlowPosition(clientX, clientY) })`；
   - **删除**：copyNode（接口 :134+实现 :341-380）、buildGroupCopy（:1802-1891）、rebuildFromClipboard（:1894-1976）+ 各自测试改写为 buildCopyPlan/三薄壳断言（grep `copyNode|buildGroupCopy|rebuildFromClipboard` 全仓逐处处理）；
   - DUPLICATE_OFFSET 常量单源（canvasStore 顶部或 selectionTokens）。
 - [ ] **Step 4: 跑绿**（含三符号 grep 零残留 + api 侧无涉）+ **Step 5: Commit** `feat(canvas): R2a-6 副本体系统一 buildCopyPlan（三薄壳+三旧函数退役——F12/F41/注记9）`
@@ -734,6 +746,21 @@ describe('downloadMediaFile（§4.3：url 优先、缺则 fileId 现取、失败
       .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(new Blob()) });
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:n');
     const r = await downloadMediaFile({ fileId: 'f1', url: 'http://stale', filename: 'x.png', getMediaUrl });
+    expect(r.ok).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('headers 超时（19(i) 补——AbortController 是 v2.2 新机制零覆盖）：挂起 fetch（返回不 resolve 的 promise）+ 假定时器 advanceTimersByTime(30_000) → ctrl.abort() 触发 → 有 fileId 时走重取路径二次尝试成功；timer 双路清理（成功/失败都不泄漏）', async () => {
+    stubAnchor();
+    const getMediaUrl = vi.fn().mockResolvedValue({ url: 'http://fresh', ttlSec: 900 });
+    global.fetch = vi.fn()
+      .mockImplementationOnce(() => new Promise(() => {}))          // 挂死——永不 resolve
+      .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(new Blob()) });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:t');
+    vi.useFakeTimers();
+    const p = downloadMediaFile({ fileId: 'f1', url: 'http://stale', filename: 'x.png', getMediaUrl });
+    await vi.advanceTimersByTimeAsync(30_000);                      // 触发 abort → 首次 attempt 返回 null → 重取
+    const r = await p;
     expect(r.ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -1046,7 +1073,7 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
   it('折叠往返双夹具（v2.2）：手动组 500×350 往返不变（savedSize 恢复）；守恒组子 rel 恒定——分镜组夹具删除（不可折叠，见守卫用例）', () => {});
   it('分镜组折叠守卫（v2.2）：toggleCollapse(s1) 双向 no-op——折叠/展开两方向 envelope/data 均不变（store 半开闭环；现状四处证据：CanvasView:623/:625、StoryboardGroupRenderer 无折叠分支、normalizeLoadedCanvas:18-19 定性、convertGroup :1497/:1525 清 collapsed）', () => {});
   it('密封性：折叠期间 markManuallyResized 拒写（守卫 no-op）', () => {});
-  it('脏数据加载自愈（v2.2 替代让位）：storyboard 组带杂散 collapsed/savedSize（脏）→ normalizeLoadedCanvas 剥 collapsed/savedSize 键 + envelope=calcStoryboardSize(cfg)——修复分支必须置于几何早退（:16 width/height 齐全即 continue）之前，否则有几何的脏组（信封已被折成 220×160）永不修复；storyboard 判定恒优先于 collapsed（现状 :18-19 注释语义保持）', () => {});
+  it('脏数据加载自愈（v2.2 替代让位）：storyboard 组带杂散 collapsed/savedSize（脏）→ normalizeLoadedCanvas 剥 collapsed/savedSize 键 + envelope 经 resolveExpandedFrame(剥键后 data) 取（**storyboard 堵洞档单源——复用缺 grid 键 calcDefaultGrid 派生，不直算第二份 calcStoryboardSize**）——修复分支必须置于几何早退（:16 width/height 齐全即 continue）之前，否则有几何的脏组（信封已被折成 220×160）永不修复；storyboard 判定恒优先于 collapsed（现状 :18-19 注释语义保持）', () => {});
   it('展开走 resolveExpandedFrame 单源（store 内三分派代码删除——源码扫描断言）', () => {});
   it('normalizeLoadedCanvas 守卫收敛：加载折叠 normal 组 envelope=COLLAPSED_SIZE（collapsed 判定优先——现序 :33 手动+savedSize 分支在 :40 折叠分支之前，会把脏 savedSize 反写进折叠组信封；**storyboard 档恒最优先**——含脏 collapsed 剥键修复，见上条）；加载展开组缺几何经 resolveExpandedFrame 补齐；**展开组带杂散 savedSize（异常路径）→ 加载边界删键（savedSize⟺collapsed 在加载态收敛——v2.1）**', () => {});
   it('checkProjectionInvariant：折叠/展开后 doc≡store', () => {});
@@ -1060,15 +1087,16 @@ describe('resolveExpandedFrame（展开帧单源——签名统一 {data, childr
 });
 ```
 
-- [ ] **Step 2: 跑红** → **Step 3: 实现**：
+- [ ] **Step 2: 跑红** → **Step 3: 实现**（**执行建议：本 task 是全 plan 改动面最大的单点——按"守卫→单 transact→三分派删除→normalize 收敛"四段小步验证/commit，红绿粒度越细越易定位**）：
   - 新建 `packages/shared/src/canvas/expandedFrame.ts`：`resolveExpandedFrame({data, childrenAbs, config})`——有效 savedSize（有限/正）→savedSize；无效→storyboard→calcStoryboardSize(resolved)/否则守恒 bbox+padding/空组→COLLAPSED_SIZE（**优先序说明（v2.2 收窄）："有效 savedSize 优先"的等价性论证仅涉 normal 组**——分镜组不可折叠后"手动 resize 过的分镜组折叠往返"场景不可达，spec:288 手动优先语义保留在 normal 组展开域；storyboard 堵洞档仅服务脏数据兜底，注释写死）；
   - `toggleCollapse`（canvasStore.ts:1565-1605）：
     - **单 transact（v2.1）**：折叠=`dispatchCanvasIntent([{type:'updateNodeData',…collapsed:true+savedSize}, {type:'updateNodeEnvelope',…COLLAPSED_SIZE}], Origin.LocalUser)` **一次调用**（v2 维持 patchGroupData+envelope intent 两次 dispatch 的形态作废——canvasIntents.ts:204 注释"复合=序列单 transact（对端一帧收齐+撤销栈单捕获窗）"是设计意图）+ store 侧同步 set + 子节点 selected 清 false（2a-0 不变量）；展开同理单次 intent 数组（updateNodeData 删 savedSize/置 collapsed:false + updateNodeEnvelope(width/height) + **moveNode(position)**——resolveExpandedFrame 返回绝对 frame，守恒档原点可与组当前原点不同；applyGroupFrameRect :1647-1650 即 envelope+moveNode 双意图先例，此处三意图一次数组）；
     - **store 内三分派（:1584-1601）整体删除**；
-  - **分镜组不可折叠契约落地（v2.2——让位设计废弃，死局论证见注记 19(e)）**：`toggleCollapse`（:1565）首行 storyboard 守卫（g.data.groupType==='storyboard' 直接 return——**双向 no-op**，折叠/展开均拒，store 半开闭环）；`updateStoryboardConfig`/`resizeStoryboardGrid` **维持现状直写 envelope 不动**（分镜组无折叠态，配置写者永不遇折叠组；脏 collapsed 组遇配置命令=直写顺带把信封拉回配置尺寸，无害且与加载边界自愈收敛同向）；**CanvasView:623 恒 false 即契约正确（撤销 v2.1"改真实值"）**；GroupToolbar storyboard 分支若渲染了 inert 折叠钮（collapsed={false}+onCollapse={noOp} 传入——grep 现状）则移除死按钮；
-  - `normalizeLoadedCanvas.ts` 守卫矩阵收敛：**storyboard 档恒最优先并扩展为脏键修复**——storyboard 组带 collapsed（脏）→ 剥 collapsed/savedSize + envelope=calcStoryboardSize(cfg)（修复置于 :16 几何早退**之前**——有几何的脏组同样修复；"坏值尽快自愈不留灰档"，spec §4.5 media 坏值同款哲学）；非 storyboard 组内 :33-38（manuallyResized&&savedSize）与 :40-43（collapsed 覆写）合并为同调 expandedFrame 族——collapsed 判定优先；展开组缺几何→resolveExpandedFrame 补齐；**展开组带杂散 savedSize→删键**；savedSize 访问的 as any 随类型收窄清理；
+  - **分镜组不可折叠契约落地（v2.2——让位设计废弃，死局论证见注记 19(e)）**：`toggleCollapse`（:1565）首行 storyboard 守卫（g.data.groupType==='storyboard' 直接 return——**双向 no-op**，折叠/展开均拒，store 半开闭环）；`updateStoryboardConfig`/`resizeStoryboardGrid` **维持现状直写 envelope 不动**（分镜组无折叠态，配置写者永不遇折叠组；脏 collapsed 组遇配置命令=直写顺带把信封拉回配置尺寸，无害且与加载边界自愈收敛同向）；**CanvasView:623 恒 false 即契约正确（撤销 v2.1"改真实值"）**——**死按钮核验结论（19(i)）：无死按钮可移**（折叠钮在 GroupToolbar `p.groupType==='normal'` 条件块内 :58-60，storyboard 分支 :69 只渲染注入 children）；CanvasView:623/:625 的 `collapsed={false}+onCollapse={noOp}` 是死 props（传入但无渲染消费）——随手删（改动面内）；
+  - `normalizeLoadedCanvas.ts` 守卫矩阵收敛：**storyboard 档恒最优先并扩展为脏键修复**——storyboard 组带 collapsed（脏）→ 剥 collapsed/savedSize + envelope 经 resolveExpandedFrame(剥键后 data) 取（storyboard 堵洞档单源——复用缺 grid 键 calcDefaultGrid 派生；修复置于 :16 几何早退**之前**——有几何的脏组同样修复；"坏值尽快自愈不留灰档"，spec §4.5 media 坏值同款哲学）；非 storyboard 组内 :33-38（manuallyResized&&savedSize）与 :40-43（collapsed 覆写）合并为同调 expandedFrame 族——collapsed 判定优先；展开组缺几何→resolveExpandedFrame 补齐；**展开组带杂散 savedSize→删键**；savedSize 访问的 as any 随类型收窄清理；
+  - **残留登记（19(i)，无需代码）**：① addToGroup/dropIntoGroup :1178"折叠态先展开"前置对脏 storyboard 组失效（守卫 no-op → 组保持脏折叠继续加成员）——不可达脏数据残留场景，与配置写者同向收敛（下次加载自愈）；② 剥键自愈在**加载边界**生效——运行中会话收到远端脏折叠 intent（新旧版本混跑窗口）不经加载边界，脏组以 shell 挤压形态存活到刷新（开发期单人+部署窗口极短，接受；配置命令直写是第二收敛路径，不加投影层防御）；
   - `markManuallyResized` 折叠态守卫拒写；渲染层核对折叠分支不渲染 NodeResizer（grep 现状，缺则补）；
-  - NormalGroupRenderer/StoryboardGroupRenderer 折叠分支根 div 显式尺寸引 COLLAPSED_SIZE 常量（现状核对维持——两处与 toggleCollapse envelope intent 同引常量，单源门禁：group-frame-writer-guard :39 已有"折叠尺寸直写含 COLLAPSED_SIZE"断言维持）；
+  - NormalGroupRenderer 折叠分支根 div 显式尺寸引 COLLAPSED_SIZE 常量（现状核对维持——与 toggleCollapse envelope intent 同引常量，单源门禁：group-frame-writer-guard :39 已有"折叠尺寸直写含 COLLAPSED_SIZE"断言维持；**StoryboardGroupRenderer 不引**——无折叠分支正是不可折叠契约的证据之一，19(i)）；
   - **savedSize 保留 GROUP_NODE_DATA_KEYS 9 键——group.ts/snapshot-filter/clone 表零改动**（红面：groups.test.ts savedSize 断言集（:195-:646，语义更新非删除）+normalizeLoadedCanvas.test.ts（:52-:79 守卫迁移）+ canvasIntents.spec.ts:458-461（随 2d-2 值迁移））；
   - spec §4.9/:18/:288 回写（v12 裁决块——见本 plan 注记 7 文本，**含 v12 裁决 1 修订（分镜组不可折叠+脏修复自愈——v2.2 推翻让位子句）与裁决 4（hidden 收窄）**）。
 - [ ] **Step 4: 跑绿** + **Step 5: Commit** `feat(canvas): R2d-1 折叠几何收口 v2.2（信封恒等可见盒+单transact+分镜不可折叠守卫+展开帧单源——§4.9 改道）`（spec 回写同 commit 或相邻 `docs(spec)` commit）
@@ -1131,7 +1159,7 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
 - [ ] **Step 1**: web 全量 + `pnpm verify` + api 全量（`pnpm --filter @flowweb/api test -- --run`——GROUP_NODE_DATA_KEYS 9 键未动，clone spec 应零红；若红即 2d-1 越界，回查）。
 - [ ] **Step 2**: **浏览器验收清单**（spec §5 逐条）：
   1. 折叠卡 6 图宫格+深浅 7 色 computed 读数；网络面板 ≤1 次 batch 请求且带 teamId；
-  2. 折叠/展开往返：手动组/分镜组/守恒组尺寸稳定（无闪变）；**折叠组 DOM 盒==220×160（getBoundingClientRect 实测——原门 E 浏览器级验证落此；选中框/拖拽热区与小盒一致）**；
+  2. 折叠/展开往返：手动组/守恒组尺寸稳定（无闪变）+ **分镜组不可折叠验证（无折叠钮、toggleCollapse 双向 no-op）**；**折叠组 DOM 盒==220×160（getBoundingClientRect 实测——原门 E 浏览器级验证落此；选中框/拖拽热区与小盒一致）**；
   3. 组名入框 vs 工具条 12px 余量（zoom 0.5/1/2）；分镜标题与工具条分带不撞（含 1×1 窄组实测——Playwright 或浏览器手测，两 portal rect 不相交）；屏幕层标题恒 13px；
   4. 拖节点进组顶部不与框内组名重叠（clamp 回归确认）；
   5. 设色→转分镜→组色可见→转回→仍在；克隆后组色仍在；
