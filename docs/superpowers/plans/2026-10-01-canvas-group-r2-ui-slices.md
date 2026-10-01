@@ -68,6 +68,13 @@
     (k) **P2 采纳**：groupHidesChildren 同引落 2a-2 Files+实现（groupDerive.ts:10 现有独立一份规则）；2b-1 补 headers 超时测试（AbortController 新机制零覆盖）；自愈分支走 resolveExpandedFrame 单源（不直算第二份 calcStoryboardSize）；:1178"折叠态先展开"对脏组失效+运行中会话脏 intent 不经加载边界——两处残留登记（2d-1，无需代码）；2d-1 补四段小步执行建议。
     (l) **驳回**：报告称"GroupToolbar:60 无条件渲染折叠钮（storyboard 传 noOp 即死按钮）"——不成立：折叠钮在 `p.groupType==='normal'` 条件块内（:58-60），storyboard 分支（:69）只渲染注入 children，**无死按钮**；CanvasView:623/:625 的 `collapsed={false}+onCollapse={noOp}` 是死 props（传入但无渲染消费）——2d-1 改为核验结论+死 props 随手删。
 
+20. **【执行期勘误（2026-10-02，2a 分片落地现场复证——按头部"行号引用规则"登记）】**：
+    (a) **2a-2 plan 实现代码与 plan 自带测试矛盾**：`if (n.parentId && idSet.has(n.parentId)) continue;` 会使父组已选中的子不落任何桶 → 测试 1（detachedChildren=[a,b]）与 arrange 用例（excluded.detached===2）必红——测试为权威（契约 1 两段式=结构分桶+策略表裁决），实现删该行（a1f7247f）；participation 另补 detached 循环 `outSet.has(n.id)` 守卫（闭包已纳员不得重复计 excluded——质量审发现的 plan 外缺陷，f6949c3f）。
+    (b) **shared 测试文件名 .spec.ts→.test.ts**：tsconfig.build 只 exclude `*.test.ts`，.spec 会泄入 dist；仓内 4 个既有同包文件全 .test——2b/2d 的 shared 新 spec 同步用 .test.ts。
+    (c) **calcDefaultGrid 返回 {rows,cols} 对象**非数字（geometry.ts:32）——arrangeRects 取 `.cols`（dac03222）。
+    (d) **类型/记录形态适配**：plan 的 `CanvasNode` 类型不存在（用 @xyflow/react `Node`）；`CanvasNodeRecord` 无 extent 键——copyPlan detached 顶层化的 `extent=undefined` 语义以"副本记录不写 extent 键"表达（键缺省≡undefined，33dd0091）。
+    (e) 2a-6 实仓函数名与 plan 近似名有差（clipboard 对真实名适配）；粘贴缝=GroupContextMenu 内 `screenToFlowPosition`；position 模式锚=首个顶层原件平移整选；边 id store 层 `getId('edge')` 重生成（保 F4 幂等语义）——均已注释落契约。
+
 **单测运行命令**：
 - web：`pnpm --filter @flowweb/web test -- --run <路径片段>`
 - shared：`pnpm --filter @flowweb/shared test -- --run`
@@ -1178,7 +1185,7 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
 
 | 分片 | 状态 | commit | 红相证据 |
 |---|---|---|---|
-| 2a（含 2a-0 公共件） | 待执行 | — | — |
+| 2a（含 2a-0 公共件） | 完成（2026-10-02） | 523c30cb/97e2d171/a1f7247f+f6949c3f/dac03222+645e128f/a9ef30f7/668ef04d/33dd0091+d5f150e6/1ef918fb | 各 task TDD 红相见 commit 正文（每 task 先红后绿）；批尾 `pnpm verify` exit 0（shared 56+web 3158 全绿+tsc+lint）；浏览器冒烟（collab-gate-canvas 真会话）：水平排列 y 对齐/x 拉开、detached toast 计数 1、创建副本 6→8 偏移+40 新副本 selected、undo 逐步回滚（排列/副本/建组×2）终态回 seed 形态；双标签页协作冒烟裁量延至 2d-8 collab-r2-commands 脚本化回归（单 transact 断言已单测覆盖） |
 | 2b（含 2b-5 F7 自愈） | 待执行 | — | — |
 | 2c | 待执行 | — | — |
 | 2d（含收口 v2） | 待执行 | — | — |
