@@ -3,6 +3,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import type { GroupNodeData } from '@/types/group';
 import { COLLAPSED_SIZE } from '@/utils/groupLayout';
+import { resolveGroupColor } from '@/utils/groupColor';
 import { GROUP_BOX, BADGE } from './selectionTokens';
 
 interface Props { groupId: string; data: GroupNodeData; selected: boolean }
@@ -55,12 +56,17 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     );
   }
 
+  // F17/F22：展开态 1px 实线框 + 组色描边（未设色回退 --canvas-group-border——唯一回退点）；
+  // 选中反馈由四角手柄承担，边框不随 selected 变化。组名入框：标题/编辑行驻框内顶部预留带（GROUP_PADDING_TOP）。
+  const borderColor = resolveGroupColor(data.color) ?? 'var(--canvas-group-border)';
+
   return (
     <>
       <div
         data-testid="group-box"
         style={{
           position: 'absolute', inset: 0, borderRadius: GROUP_BOX.borderRadius,
+          border: `1px solid ${borderColor}`,
           background: GROUP_BOX.background, pointerEvents: 'none',
         }}
       />
@@ -77,7 +83,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
             else if (e.key === 'Escape') cancel();
           }}
           style={{
-            position: 'absolute', top: 0, left: 0, transform: 'translateY(calc(-100% - 10px))',
+            position: 'absolute', top: 0, left: 0,
             width: 140, zIndex: 2,
             fontSize: 13, color: 'var(--canvas-controls-text)', background: 'var(--canvas-controls-bg)',
             border: '1px solid var(--canvas-controls-border)', borderRadius: 4, padding: '2px 6px', outline: 'none',
@@ -87,7 +93,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
         <div
           onDoubleClick={() => { setDraft(name); setEditing(true); }}
           style={{
-            position: 'absolute', top: 0, left: 0, transform: 'translateY(calc(-100% - 10px))', zIndex: 2,
+            position: 'absolute', top: 0, left: 0, zIndex: 2,
             display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px',
             fontSize: 13, color: '#999', whiteSpace: 'nowrap',
           }}

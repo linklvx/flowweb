@@ -26,23 +26,38 @@ describe('NormalGroupRenderer 展开态', () => {
     expect(screen.getByText('我的分组')).toBeTruthy();
   });
 
-  it('展开态无边框（去虚线，保留深色底；选中反馈由四角手柄承担）', () => {
+  it('展开态边框 1px solid var(--canvas-group-border)（F17/F22；不随 selected 变化——选中反馈由四角手柄承担）', () => {
     const { rerender } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
     const box = screen.getByTestId('group-box');
-    expect(box.style.border).toBe('');
+    expect(box.style.border).toBe('1px solid var(--canvas-group-border)');
     // C8 D3-board：分组底随 controls-bg 双值（深 rgb(38,38,38)/浅 #f0f1f2）——原 rgba(26,26,26,0.6) 恒深字面摘除
     expect(box.style.background).toContain('var(--canvas-controls-bg)');
     rerender(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={true} />);
-    expect(screen.getByTestId('group-box').style.border).toBe('');
+    expect(screen.getByTestId('group-box').style.border).toBe('1px solid var(--canvas-group-border)');
   });
 
-  it('标题浮层在容器外左上角，上移 10px，字号 13（节点标题同款外浮）', () => {
+  it('组色描边：data.color=red → 1px solid var(--canvas-group-color-red)；未设色 → 回退 var(--canvas-group-border)（组件内唯一回退点）', () => {
+    const { rerender } = render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', color: 'red' } as any} selected={false} />);
+    expect(screen.getByTestId('group-box').style.border).toBe('1px solid var(--canvas-group-color-red)');
+    rerender(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
+    expect(screen.getByTestId('group-box').style.border).toBe('1px solid var(--canvas-group-border)');
+  });
+
+  it('组名入框（F17）：标题行在框内顶部预留带（top:0 无负位移），字号 13', () => {
     render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal' } as any} selected={false} />);
     const title = screen.getByText('分组').parentElement as HTMLElement;
-    expect(title.style.transform).toBe('translateY(calc(-100% - 10px))');
+    expect(title.style.transform).toBe('');
     expect(title.style.top).toBe('0px');
     expect(title.style.left).toBe('0px');
     expect(title.style.fontSize).toBe('13px');
+  });
+
+  it('编辑态输入框与组名同位（框内顶部 top:0 无负位移——双击改名不跳出框）', () => {
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    fireEvent.doubleClick(screen.getByText('旧名'));
+    const input = screen.getByRole('textbox') as HTMLElement;
+    expect(input.style.transform).toBe('');
+    expect(input.style.top).toBe('0px');
   });
 
   it('无 relative 包裹 div——absolute 子元素直接挂载（inset:0 相对整个节点盒，不受 RF 默认 padding 内缩）', () => {
