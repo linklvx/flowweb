@@ -2,7 +2,7 @@
 import { memo } from 'react';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 
-export interface CellNodeInfo { id: string; fileId?: string; status?: string; url?: string }
+export interface CellNodeInfo { id: string; fileId?: string; status?: string }
 
 interface Props {
   index: number;
@@ -15,9 +15,10 @@ interface Props {
 
 function StoryboardCellComponent(p: Props) {
   // 取图走项目现有 useMediaUrl 模式（P0-2）：GET /media/:fileId/url 返回 JSON { url }（预签名地址经
-  // /flowai 代理改写），不是图片流，不能直接作 img src；data.mediaUrl（展开/填充时已写入）优先短路请求
+  // /flowai 代理改写），不是图片流，不能直接作 img src；data.mediaUrl 不再写入/读取（R2b-6 写入面清零、
+  // R2b-7 读点清零——遗留持久化 URL 一律无视），URL 一律经 useMediaUrl(fileId) 现取+缓存自愈
   const { url: resolvedUrl, onError: onResolvedError } = useMediaUrl(p.info?.fileId ?? null);
-  const imgSrc = p.info?.url ?? resolvedUrl ?? undefined;
+  const imgSrc = resolvedUrl ?? undefined;
   // 100% 填充 1fr 轨道：固定像素会被轨道 auto-min 下限撑破容器（grid 溢出组边框）
   const style: React.CSSProperties = {
     width: '100%', height: '100%', position: 'relative',
@@ -42,7 +43,7 @@ function StoryboardCellComponent(p: Props) {
   return (
     <div style={style} onClick={(e) => { e.stopPropagation(); p.onSelectCell(p.index); }}>
       <img src={imgSrc} alt="" loading="lazy" decoding="async"
-        onError={p.info?.url ? undefined : onResolvedError}
+        onError={onResolvedError}
         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       {p.showIndex && (
         <span style={{ position: 'absolute', left: 12, bottom: 10, color: '#fff',
