@@ -89,7 +89,8 @@ export function sortForArrange<T extends { x: number; y: number }>(items: T[]): 
 
 export interface ArrangeRect { x: number; y: number; width: number; height: number; }
 
-/** §4.3：cell=行 max 高×列 max 宽、节点按 cell 左上角落位（自身尺寸不变）、n≤1 no-op、包围盒中心不变。 */
+/** §4.3：cell=行 max 高×列 max 宽、节点按 cell 左上角落位（自身尺寸不变）、n≤1 no-op、包围盒中心不变。
+ *  入参顺序即落格顺序——调用方须先 sortForArrange 排序（2a-5）。 */
 export function arrangeRects(rects: ArrangeRect[], mode: ArrangeMode): ArrangeRect[] {
   const n = rects.length;
   if (n <= 1) return rects;

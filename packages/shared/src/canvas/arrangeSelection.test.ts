@@ -78,6 +78,14 @@ describe('sortForArrange 行优先（F40：y 容差 8px 分行、行内 x 升序
     // 第一行 {a(0,100), b(200,100), d(0,105)}（d 与行首差 5<8），行内 x 升序 → [a,d,b]；第二行 [c]
     expect(sortForArrange(items).map((i) => i.id)).toEqual(['a', 'd', 'b', 'c']);
   });
+  it('容差链对行首而非前项：c 与行首 a 差 12≥8 分新行（即便与前项 b 仅差 6<8）', () => {
+    const items = [
+      { id: 'a', x: 0, y: 100 }, { id: 'b', x: 10, y: 106 }, { id: 'c', x: 5, y: 112 },
+    ];
+    // 行首语义：行={a,b},{c} → 行内 x 升序 → [a,b,c]。
+    // 若误为"对前项"语义：c(6<8)并入首行 → 行内 x 升序 → [a,c,b]——本断言据此判别。
+    expect(sortForArrange(items).map((i) => i.id)).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('arrangeRects 三模式（§4.3）', () => {
@@ -108,9 +116,10 @@ describe('arrangeRects 三模式（§4.3）', () => {
     expect(out[1].x - out[0].x).toBe(100 + ARRANGE_GAP);
     expect(out[2].x - out[1].x).toBe(60 + ARRANGE_GAP);
   });
-  it('vertical：单列', () => {
+  it('vertical：单列；相邻行距=行0 max 高+GAP（相对断言）', () => {
     const out = arrangeRects(rects, 'vertical');
     expect(new Set(out.map((r) => r.x)).size).toBe(1);
+    expect(out[1].y - out[0].y).toBe(50 + ARRANGE_GAP);       // 行0 max 高=50（rects[0]）
   });
   it('混排顶对齐：行高=max', () => {
     const mixed = [{ x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 200 }];
