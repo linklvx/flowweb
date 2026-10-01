@@ -5,7 +5,7 @@ import {
   type NodeChange, type EdgeChange, type Connection,
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
-import type { ImageItem, AiToolId } from './nodeStore';
+import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
@@ -23,15 +23,39 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
 import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, type CanvasIntent } from './canvasIntents';
-import { Origin } from './canvasUndo';
+import { Origin, stopCapturing } from './canvasUndo';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { placeGrid } from '@/utils/groupGeometry';
 
 let counter = 0;
+/** 会话级随机种子（v2.1 getId 跨端防碰撞）：模块初始化生成一次——prefix+Date.now()+counter 跨客户端
+ *  同毫秒同计数可撞（Y.Map 键冲突），掺种子后不同客户端 id 域不相交。crypto.randomUUID 有
+ *  secure context 限制故用 getRandomValues；无 crypto 环境回落 Math.random。
+ *  导出纯缝供测试断言"两次生成（=两客户端）不等"——勿用于业务。 */
+export function createSessionSeed(): string {
+  const buf = new Uint32Array(1);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(buf);
+  } else {
+    buf[0] = Math.floor(Math.random() * 0xffffffff);
+  }
+  return buf[0].toString(36);
+}
+const sessionSeed = createSessionSeed();
 function getId(prefix: string) {
-  return `${prefix}_${Date.now()}_${++counter}`;
+  return `${prefix}_${Date.now()}_${sessionSeed}_${++counter}`;
+}
+
+/** 节点配置取数单源（同 projectCanvasNodes 分型）：组=cs data；普通节点=ns 全量，取不到即红（无回落）。
+ *  与 projectCanvasNodes.ts:18 的 `?? nd.data ?? {}` 回落刻意不对称（注释互注防"一致性重构"）：
+ *  投影回落服务恢复窗口（ns 暂缺不丢投影），副本取数 fail-fast（复制陈旧 cs 值=保真缺陷，宁可红）。 */
+export function resolveNodeData(node: Node, nsNodes: Record<string, AppNode>): Record<string, unknown> {
+  if (node.type === 'group') return (node.data ?? {}) as Record<string, unknown>;
+  const ns = nsNodes[node.id];
+  if (!ns) throw new Error(`resolveNodeData: nodeStore 缺节点 ${node.id}`);
+  return ns.data as unknown as Record<string, unknown>;
 }
 
 /** videoEdit 节点删除时级联删 VideoProject（fire-and-forget；失败 console.error 留痕——deleteNode 与 onNodesChange removes 两条路径共用） */
@@ -164,6 +188,10 @@ export interface CanvasState {
   markManuallyResized: (groupId: string) => void;
   toggleCollapse: (groupId: string) => void;
   patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
+  /** 组 data 纯写层（v2.1 拆层）：patchGroupData 去 dispatch 的零 dispatch 版——runCommand.fn 内专用 */
+  patchGroupDataInner: (groupId: string, patch: Record<string, unknown>) => void;
+  /** R2 新命令唯一入口（canEdit 门 + 单 undo 步 + 差分换芯编排）——见实现 JSDoc */
+  runCommand: (fn: () => void) => void;
   /** 组几何唯一写者——重算型入口（§4.8 v11）：守卫+epsilon，见实现。 */
   applyGroupFrame: (groupId: string) => void;
   /** 配置型唯一出口（§4.8 v11）：frame 由 calcStoryboardSize 等配置公式算得，直写组框（无守恒语义）。 */
@@ -993,6 +1021,29 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     });
   },
 
+  /** R2 新命令唯一入口（v2 裁定+v2.1 异常/单 transact 契约）：canEdit 门 + 单 undo 步 + 差分换芯编排。
+   *  仅新命令使用；既有 16 处 capture/diff 点不迁移（spec:169 既有命令不动）。
+   *  fn 契约（钉死）：① 只准 plain set（含删键）——组 data 写用 patchGroupDataInner（纯写层），
+   *  禁用 patchGroupData（其自带正向 dispatch，叠外层差分=同值写两遍两 transact）；
+   *  ② 先取数校验（resolveNodeData 取不到即红）后结构写——抛错须发生在任何写之前；
+   *  ③ finally 恒收尾 diff：fn 抛错时 catch 提示不 rethrow，diff 出已写部分——doc≡store 不变量恒成立。 */
+  runCommand: (fn) => {
+    if (!canEdit(get())) {
+      message.warning('当前为只读会话，操作已忽略');
+      return;
+    }
+    stopCapturing();
+    const before = captureStoreProjection();
+    try {
+      fn();
+    } catch (err) {
+      message.error(`操作失败：${(err as Error).message}`);
+    } finally {
+      get().applyGroupDerivations();
+      dispatchProjectionDiff(before, Origin.LocalUser);
+    }
+  },
+
   groupNodes: (nodeIds) => {
     const s = get();
     const picked = s.nodes.filter((n) => nodeIds.includes(n.id));
@@ -1484,7 +1535,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         nodes: st.nodes.map((n) => {
           if (n.id === groupId) return { ...n, type: 'group', position: { x: cx - size.width / 2, y: cy - size.height / 2 },
             width: size.width, height: size.height };
-          if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 } };
+          // hidden 写入侧不变量（v2.1）：转分镜⇒子节点 selected 清 false（同 toggleCollapse 折叠分支）
+          if (n.parentId === groupId) return { ...n, position: { x: 0, y: 0 }, selected: false };
           return n;
         }),
       }));
@@ -1540,6 +1592,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  会在中间态把子节点移出组）。 */
   patchGroupData: (groupId, patch) => {
     dispatchCanvasIntent({ type: 'updateNodeData', id: groupId, patch }, Origin.LocalUser);
+    get().patchGroupDataInner(groupId, patch);
+  },
+
+  /** 组 data 纯写层（v2.1 拆层）：合并+物理删键，零 dispatch——runCommand.fn 内专用
+   *  （外层 patchGroupData=首行正向 intent dispatch + 本层；既有调用点零改动）。 */
+  patchGroupDataInner: (groupId, patch) => {
     set((st) => ({
       nodes: st.nodes.map((n) => {
         if (n.id !== groupId) return n;
@@ -1572,8 +1630,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         [{ type: 'updateNodeEnvelope', id: groupId, patch: { width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height } }],
         Origin.LocalUser,
       );
+      // hidden 写入侧不变量（v2.1）：折叠⇒子节点 selected 清 false（selected 不进投影——
+      // B 端 stale selected+hidden 形态由显示侧读点过滤兜，SelectionBoxOverlay）
       set((st) => ({
-        nodes: st.nodes.map((n) => (n.id === groupId ? { ...n, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height } : n)),
+        nodes: st.nodes.map((n) => {
+          if (n.id === groupId) return { ...n, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height };
+          if (n.parentId === groupId) return { ...n, selected: false };
+          return n;
+        }),
       }));
     } else {
       get().patchGroupData(groupId, { collapsed: false });

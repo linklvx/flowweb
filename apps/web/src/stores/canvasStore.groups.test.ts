@@ -1,11 +1,13 @@
 // apps/web/src/stores/canvasStore.groups.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as Y from 'yjs';
+import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
+import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, calcGroupBounds, calcStoryboardSize, shouldAutoRefit } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
-import { applyDocToStore } from './canvasCollabRuntime';
+import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc } from '@/collab/ydocBuilder';
 
@@ -682,5 +684,158 @@ describe('复制型几何例外（§4.8 登记——frame 继承源组±offset�
     expect(copy.data.cells.some((c: string | null) => c === 'c1')).toBe(false);
     expect(copy.data.cells.some((c: string | null) => c === 'ghost')).toBe(false);
     expect((copy.data.cells as (string | null)[]).filter((c) => c == null).length).toBeGreaterThan(0);
+  });
+});
+
+// ════════ R2a-0：命令公共件 runCommand/resolveNodeData + hidden 写入侧不变量 ════════
+
+describe('runCommand 公共件（2a-0）', () => {
+  // 真装置（照 :393-418 既有先例）：真 Y.Doc + fillDoc + _setIntentDocForTest + attachUndoManager。
+  // 禁止 vi.mock canvasIntents——mock 空投影会让 dispatchProjectionDiff 算 0 intents 后直接 return，
+  // doc 写路径零验证、断言恒绿。
+  const rigNodes = () => [
+    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+  ];
+  const setupRig = () => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return { d, um };
+  };
+  const teardownRig = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+
+  it('只读会话早退：canEdit=false 时 fn 不执行 + message.warning（先例 :387-390）', () => {
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: true, wsAuthNotice: null });   // 只读态注入
+    const warnSpy = vi.spyOn(message, 'warning');
+    const fn = vi.fn();
+    try {
+      useCanvasStore.getState().runCommand(fn);
+      expect(fn).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith('当前为只读会话，操作已忽略');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('入口 stopCapturing + 单差分收尾：命令后 doc 与 store 投影等价（checkProjectionInvariant——canvasCollabRuntime.ts:250 既有安全网，每命令一条）', () => {
+    const { d } = setupRig();
+    try {
+      useCanvasStore.getState().runCommand(() => {
+        useCanvasStore.getState().patchGroupDataInner('g1', { name: 'B' });
+      });
+      expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).name).toBe('B');   // 命令真写了（防 catch 吞错假绿）
+      expect(checkProjectionInvariant(d)).toBe(true);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('单命令单 transact（v2.1）：fn 执行期间 doc 恰发生 1 次 transact（Y.Doc observer 计数——fn 内用 patchGroupDataInner 纯写，防"patchGroupData 自带 dispatch + 外层差分"双 transact 回潮）', () => {
+    const { d } = setupRig();
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });
+      useCanvasStore.getState().runCommand(() => {
+        useCanvasStore.getState().patchGroupDataInner('g1', { name: 'B' });
+      });
+      expect(transacts).toBe(1);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('异常边界（v2.1）：fn 中途抛错（resolveNodeData 缺节点）→ catch 提示 + finally 仍收尾 diff → checkProjectionInvariant 仍成立（store/doc 不分裂）', () => {
+    const { d } = setupRig();
+    const errSpy = vi.spyOn(message, 'error');
+    try {
+      expect(() => useCanvasStore.getState().runCommand(() => {
+        useCanvasStore.getState().patchGroupDataInner('g1', { name: 'B' });   // 已写部分
+        canvasStoreMod.resolveNodeData({ id: 'ghost', type: 'imageGen' } as any, useNodeStore.getState().nodes);   // 取不到即红
+      })).not.toThrow();
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).name).toBe('B');   // 已写部分保留
+      expect(checkProjectionInvariant(d)).toBe(true);   // finally 恒收尾 diff——doc≡store 不分裂
+    } finally {
+      errSpy.mockRestore();
+      teardownRig();
+    }
+  });
+
+  it('500ms 内连点两次 = 2 undo 项（真 attachUndoManager + um.undo()——照 :393-418 既有装置）', () => {
+    const { d, um } = setupRig();
+    try {
+      useCanvasStore.getState().runCommand(() => { useCanvasStore.getState().patchGroupDataInner('g1', { name: 'B' }); });
+      useCanvasStore.getState().runCommand(() => { useCanvasStore.getState().patchGroupDataInner('g1', { name: 'C' }); });
+      expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+      um.undo();
+      const g1m = d.getMap('nodes').get('g1') as Y.Map<any>;
+      expect((g1m.get('data') as Y.Map<any>).get('name')).toBe('B');   // 第二命令独立成步——undo 回到中间态
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('getId 跨端防碰撞（v2.1）：掺会话级随机成分后同毫秒两客户端 id 不等（createSessionSeed 纯缝=每客户端模块初始化恰调一次，两次调用=两个客户端）', () => {
+    expect(canvasStoreMod.createSessionSeed()).not.toBe(canvasStoreMod.createSessionSeed());
+  });
+});
+
+describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
+  it('折叠组：子节点 selected 全部清 false（toggleCollapse 折叠分支）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal' } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true },
+      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+    ] as any, edges: [], hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
+    useCanvasStore.getState().toggleCollapse('g1');
+    const a = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
+    const b = useCanvasStore.getState().nodes.find((n) => n.id === 'b') as any;
+    expect(a.selected).toBe(false);
+    expect(a.hidden).toBe(true);   // deriveHidden 折叠推导到位
+    expect(b.selected).toBe(false);
+  });
+
+  it('转分镜组：子节点 selected 清 false（convertGroup→storyboard）', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal' } },
+      { id: 'img1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' }, selected: true },
+      { id: 'img2', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+    ] as any, edges: [], hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
+    useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    const img1 = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
+    expect(img1.selected).toBe(false);
+    expect(img1.hidden).toBe(true);   // storyboard 组 hidden 推导
+  });
+
+  it('B 端兜底（v2.1）：selected 不进投影键集（projectCanvasNodes.ts:11-19 无 selected、diffProjectionToIntents 只 diff envelope/position/data）→ A 端折叠清 selected 不同步 B 端；B 端 stale selected+hidden 由显示侧读点过滤兜住（组件级钉死 SelectionBoxOverlay.test.tsx；动作消费者面登记 R3：显示侧过滤兜不住键盘命令——B 端 stale selected hidden 子按 Delete/Ctrl+G 仍作用于不可见节点）', () => {
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    const group = { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } };
+    const a = { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true };
+    const b = { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} };
+    try {
+      fillDoc(d, [group, a, b] as any, []);
+      useCanvasStore.setState({ nodes: [group, a, b] as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+      useCanvasStore.getState().toggleCollapse('g1');
+      // 实证：A 端 selected:false 是纯 store 写——doc 面零 selected 键，B 端收不到清除
+      const docA = d.getMap('nodes').get('a') as Y.Map<unknown>;
+      expect(docA.has('selected')).toBe(false);
+      // 模拟远端 applyDocToStore：hidden 推导到位（B 端投影侧真相）
+      applyDocToStore(d);
+      const aB = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
+      expect(aB.hidden).toBe(true);
+      // B 端 stale 形态（selected=true+hidden=true——RF 本端选择态与 doc 重建的时序差）由
+      // SelectionBoxOverlay 读点过滤（!n.hidden）兜住——谓词钉死在组件测试（读点所在文件）
+    } finally {
+      _setIntentDocForTest(null);
+      detachUndoManager();
+    }
   });
 });

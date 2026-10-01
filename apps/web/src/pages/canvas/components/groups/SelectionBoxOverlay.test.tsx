@@ -95,4 +95,15 @@ describe('SelectionBoxOverlay', () => {
     expect(portal.children.length).toBe(0);
     rf.state.marqueeSelecting = false; // 复位防污染
   });
+
+  it('hidden 选中节点不入选框集合（R2a-0 B 端兜底——A 端折叠清 selected 不进投影，B 端 stale selected+hidden 由读点过滤 !n.hidden 兜住；R3 登记：键盘命令面另立任务）', () => {
+    rf.state.nodes = [
+      { id: 'h1', type: 'imageGen', data: {}, selected: true, hidden: true, positionAbsolute: { x: 0, y: 0 } },
+      mk('n2', 'imageGen', {}, { positionAbsolute: { x: 10, y: 310 } }),
+    ];
+    rf.state.vp = { x: 0, y: 0, zoom: 1 };
+    const { container } = render(<SelectionBoxOverlay />);
+    expect(container).toBeEmptyDOMElement();   // 可见选中仅 1 个（hidden 被读点过滤）< 2——不渲染
+    expect(portal.children.length).toBe(0);
+  });
 });

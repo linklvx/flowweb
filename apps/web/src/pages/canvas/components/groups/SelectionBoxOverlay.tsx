@@ -14,7 +14,8 @@ const shallowArrEq = (a: readonly unknown[], b: readonly unknown[]) =>
 function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   const selectedInternal = useStore((s) => {
     const arr: InternalNode[] = [];
-    s.nodeLookup.forEach((n) => { if (n.selected) arr.push(n); });
+    // B 端兜底（R2a-0）：hidden 子节点（stale selected——selected 不进协作投影）不入选框集合
+    s.nodeLookup.forEach((n) => { if (n.hidden) return; if (n.selected) arr.push(n); });
     return arr;
   }, shallowArrEq);
   const { x: vpX, y: vpY, zoom } = useViewport();
