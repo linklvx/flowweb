@@ -116,3 +116,8 @@ function bboxCenter(rects: ArrangeRect[], axis: 'x' | 'y'): number {
   const hi = Math.max(...rects.map((r) => (axis === 'x' ? r.x + r.width : r.y + r.height)));
   return (lo + hi) / 2;
 }
+
+/** §4.3：工具条定位水平 clamp——x 为 translate(-50%) 前的原始 left。窄视口双边兜底（Math.max 外包）。 */
+export function clampToolbarX(x: number, toolbarW: number, viewportW: number, margin = 8): number {
+  return Math.max(margin, Math.min(x, viewportW - margin - toolbarW));
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, ARRANGE_GAP } from './arrangeSelection';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, ARRANGE_GAP, clampToolbarX } from './arrangeSelection';
 
 const G = (id: string, children: string[], extra: Record<string, unknown> = {}) =>
   ({ id, type: 'group', parentId: undefined, position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: children, ...extra } });
@@ -126,5 +126,16 @@ describe('arrangeRects 三模式（§4.3）', () => {
     const out = arrangeRects(mixed, 'horizontal');
     expect(out[1].y).toBe(out[0].y);
     expect(out[1].x - out[0].x).toBe(100 + ARRANGE_GAP);
+  });
+});
+
+describe('clampToolbarX 水平夹取（§4.3）', () => {
+  it('超左缘右移至 margin；恰右界与超右缘左移至 vw-margin-w', () => {
+    expect(clampToolbarX(-50, 200, 1000, 8)).toBe(8);
+    expect(clampToolbarX(980, 200, 1000, 8)).toBe(792);
+    expect(clampToolbarX(808, 200, 1000, 8)).toBe(792);
+  });
+  it('窄视口（vw-margin-w < margin）双边兜底不小于 margin', () => {
+    expect(clampToolbarX(50, 200, 100, 8)).toBe(8);
   });
 });
