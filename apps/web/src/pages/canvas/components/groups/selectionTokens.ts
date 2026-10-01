@@ -34,9 +34,7 @@ export const HANDLE: CSSProperties = {
   width: 8, height: 8, background: '#fff', border: '1px solid #666', borderRadius: 1,
 };
 
-/** 工具条几何常量（高固定单行，不 ref 测量） */
-export const TOOLBAR = { height: 40, offset: 12 };
-
-// §4.2 拆分：多选 48/14、组 52/12（容器 padding 8×2 + 按钮 h-8(32)=48 / h-9(36)=52）
+// §4.2 拆分：多选 48/14、组 52/12（容器 padding 8×2 + 按钮 h-8(32)=48 / h-9(36)=52）；
+// 旧 40/12 常量已随 R2c-6 GroupToolbar 迁移退役
 export const SELECTION_TOOLBAR = { height: 48, offset: 14 } as const;
 export const GROUP_TOOLBAR = { height: 52, offset: 12 } as const;
