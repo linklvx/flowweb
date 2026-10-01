@@ -1186,7 +1186,7 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
 | 分片 | 状态 | commit | 红相证据 |
 |---|---|---|---|
 | 2a（含 2a-0 公共件） | 完成（2026-10-02） | 523c30cb/97e2d171/a1f7247f+f6949c3f/dac03222+645e128f/a9ef30f7/668ef04d/33dd0091+d5f150e6/1ef918fb | 各 task TDD 红相见 commit 正文（每 task 先红后绿）；批尾 `pnpm verify` exit 0（shared 56+web 3158 全绿+tsc+lint）；浏览器冒烟（collab-gate-canvas 真会话）：水平排列 y 对齐/x 拉开、detached toast 计数 1、创建副本 6→8 偏移+40 新副本 selected、undo 逐步回滚（排列/副本/建组×2）终态回 seed 形态；双标签页协作冒烟裁量延至 2d-8 collab-r2-commands 脚本化回归（单 transact 断言已单测覆盖） |
-| 2b（含 2b-5 F7 自愈） | 待执行 | — | — |
+| 2b（含 2b-5 F7 自愈） | 完成（2026-10-02） | 6a6c531d+923530b0/378ba28e/fbeb9aef/6bf9787d/a9826e99+92ee934b/4511c8b2/f9fb27e6/665fa2a9 | 各 task TDD 红相见 commit 正文；`pnpm verify` exit 0（2b-8 时点，web 3202 全绿）；浏览器冒烟（真会话）：批量下载全链路（aria-disabled 判据/首次许可 Modal+key 落地/真实 API 404×2=失败重取自愈精确发生/聚合 message.error console 实证）；长会话 16min 浏览器级验证裁量跳过（2b-5 的 900s 假定时器单测覆盖两入口）；双标签页裁量同 2a |
 | 2c | 待执行 | — | — |
 | 2d（含收口 v2） | 待执行 | — | — |
 
