@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeSelection, participation } from './arrangeSelection';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, ARRANGE_GAP } from './arrangeSelection';
 
 const G = (id: string, children: string[], extra: Record<string, unknown> = {}) =>
   ({ id, type: 'group', parentId: undefined, position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: children, ...extra } });
@@ -66,5 +66,56 @@ describe('participation 闭包策略表（v2.1：组→成员闭包展开+hidden
     const all: any[] = [...nodes, ...collapsed()];
     const p = participation(normalizeSelection(all, ['g2']), 'download', all);
     expect(p.ids.sort()).toEqual(['g2', 'x', 'y']);
+  });
+});
+
+describe('sortForArrange 行优先（F40：y 容差 8px 分行、行内 x 升序——先分行再行内排序）', () => {
+  it('同行（|Δy|<8 对行首）按 x 升序；跨行按 y 升序', () => {
+    const items = [
+      { id: 'b', x: 200, y: 100 }, { id: 'a', x: 0, y: 100 },
+      { id: 'd', x: 0, y: 105 }, { id: 'c', x: 0, y: 130 },
+    ];
+    // 第一行 {a(0,100), b(200,100), d(0,105)}（d 与行首差 5<8），行内 x 升序 → [a,d,b]；第二行 [c]
+    expect(sortForArrange(items).map((i) => i.id)).toEqual(['a', 'd', 'b', 'c']);
+  });
+});
+
+describe('arrangeRects 三模式（§4.3）', () => {
+  const rects = [
+    { x: 0, y: 0, width: 100, height: 50 },
+    { x: 500, y: 500, width: 60, height: 80 },
+    { x: 200, y: 40, width: 40, height: 40 },
+  ];
+  it('grid：列数 calcDefaultGrid(3)=2；相邻列间距=列宽+GAP；尺寸不变；n≤1 no-op', () => {
+    const out = arrangeRects(rects, 'grid');
+    expect(out[1].x - out[0].x).toBe(100 + ARRANGE_GAP);      // 相对断言（平移不变）
+    out.forEach((r, i) => { expect(r.width).toBe(rects[i].width); expect(r.height).toBe(rects[i].height); });
+    expect(arrangeRects([rects[0]], 'grid')).toEqual([rects[0]]);
+  });
+  it('grid 中心回归锚：输出包围盒中心==输入包围盒中心（实现按此不变量平移——回归锚，非独立判别）', () => {
+    const c = (rs: typeof rects, axis: 'x' | 'y') => {
+      const lo = Math.min(...rs.map((r) => r[axis]));
+      const hi = Math.max(...rs.map((r) => axis === 'x' ? r.x + r.width : r.y + r.height));
+      return (lo + hi) / 2;
+    };
+    const out = arrangeRects(rects, 'grid');
+    expect(c(out, 'x')).toBeCloseTo(c(rects, 'x'), 6);
+    expect(c(out, 'y')).toBeCloseTo(c(rects, 'y'), 6);
+  });
+  it('horizontal：单行；相邻间距=前行宽+GAP（相对断言）', () => {
+    const out = arrangeRects(rects, 'horizontal');
+    expect(new Set(out.map((r) => r.y)).size).toBe(1);
+    expect(out[1].x - out[0].x).toBe(100 + ARRANGE_GAP);
+    expect(out[2].x - out[1].x).toBe(60 + ARRANGE_GAP);
+  });
+  it('vertical：单列', () => {
+    const out = arrangeRects(rects, 'vertical');
+    expect(new Set(out.map((r) => r.x)).size).toBe(1);
+  });
+  it('混排顶对齐：行高=max', () => {
+    const mixed = [{ x: 0, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 200 }];
+    const out = arrangeRects(mixed, 'horizontal');
+    expect(out[1].y).toBe(out[0].y);
+    expect(out[1].x - out[0].x).toBe(100 + ARRANGE_GAP);
   });
 });
