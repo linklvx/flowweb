@@ -29,6 +29,7 @@ import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, cal
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { placeGrid } from '@/utils/groupGeometry';
+import { GROUP_COLOR_MAP, type GroupColorKey } from '@/utils/groupColor';
 
 let counter = 0;
 /** 会话级随机种子（v2.1 getId 跨端防碰撞）：模块初始化生成一次——prefix+Date.now()+counter 跨客户端
@@ -191,6 +192,8 @@ export interface CanvasState {
   removeNodeFromGroup: (groupId: string, nodeId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   markManuallyResized: (groupId: string) => void;
+  /** R2c-3 组色写点：合法 palette key 落 data.color，undefined=清色；未知 key 拒写（守卫先于 runCommand——零 transact） */
+  setGroupColor: (groupId: string, key?: GroupColorKey) => void;
   toggleCollapse: (groupId: string) => void;
   patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
   /** 组 data 纯写层（v2.1 拆层）：patchGroupData 去 dispatch 的零 dispatch 版——runCommand.fn 内专用 */
@@ -1686,6 +1689,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   markManuallyResized: (groupId) => {
     get().patchGroupData(groupId, { manuallyResized: true });
+  },
+
+  /** R2c-3 组色写点（R2 新命令唯一入口 runCommand 包装）：fn 内走纯写层 patchGroupDataInner——
+   *  禁 patchGroupData（其正向 dispatch + 外层差分=同值双 transact）；undefined=清色
+   *  （patchGroupDataInner undefined=delete-key 语义）。 */
+  setGroupColor: (groupId, key) => {
+    if (key !== undefined && !(key in GROUP_COLOR_MAP)) return;
+    get().runCommand(() => { get().patchGroupDataInner(groupId, { color: key }); });
   },
 
   toggleCollapse: (groupId) => {

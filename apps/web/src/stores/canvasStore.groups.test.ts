@@ -1137,3 +1137,95 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     // buildGroupCopy/rebuildFromClipboard 为模块级函数——人工 grep 复核（无自动化门禁——断言仅 copyNode 一处）
   });
 });
+
+// ════════ R2c-3：setGroupColor——runCommand 包装 + 未知 key 拒写 + 连点 undo ════════
+
+describe('setGroupColor（2c-3）', () => {
+  // 真装置（照 runCommand 公共件 2a-0 骨架）：真 Y.Doc + fillDoc + _setIntentDocForTest + attachUndoManager。
+  // 禁止 vi.mock canvasIntents——mock 空投影会让 dispatchProjectionDiff 算 0 intents 后直接 return，
+  // doc 写路径零验证、断言恒绿。
+  const rigNodes = () => [
+    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+  ];
+  const setupRig = () => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return { d, um };
+  };
+  const teardownRig = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+  const docDataOf = (d: Y.Doc, id: string) => ((d.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>);
+
+  it('合法 key：color 落 cs data + doc（runCommand 单 transact——patchGroupDataInner 纯写+外层差分）', () => {
+    const { d } = setupRig();
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });   // 先例 :743——观察器在 fillDoc 后挂，初态不计
+      useCanvasStore.getState().setGroupColor('g1', 'red');
+      expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).color).toBe('red');   // cs 落 key（非 CSS 值）
+      expect(docDataOf(d, 'g1').get('color')).toBe('red');   // doc 同步（外层差分 dispatch）
+      expect(transacts).toBe(1);   // 单 transact——patchGroupDataInner 纯写，防 patchGroupData 正向 dispatch 双写回潮
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('默认清除：key=undefined → color 键删除（data 无 color 键——patchGroupDataInner delete 语义）', () => {
+    const { d } = setupRig();
+    try {
+      useCanvasStore.getState().setGroupColor('g1', 'red');
+      useCanvasStore.getState().setGroupColor('g1', undefined);
+      const gd = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any;
+      expect('color' in gd).toBe(false);   // in 断言——spread+undefined 不删键是 P0-2 同源坑
+      expect(docDataOf(d, 'g1').has('color')).toBe(false);   // doc 面同构删键
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('未知 key 拒写：bogus → no-op（data 不变+无 doc transact）', () => {
+    const { d } = setupRig();
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });
+      const before = JSON.stringify(useCanvasStore.getState().nodes.find((n) => n.id === 'g1'));
+      useCanvasStore.getState().setGroupColor('g1', 'bogus' as any);
+      expect(JSON.stringify(useCanvasStore.getState().nodes.find((n) => n.id === 'g1'))).toBe(before);   // data 一字不改
+      expect(transacts).toBe(0);   // 守卫先于 runCommand——零 transact
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('convertGroup 两方向保 color（F18 回归锚）：normal→storyboard→normal 后 color 仍在', () => {
+    useCanvasStore.setState({ nodes: [
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
+        data: { groupType: 'normal', name: '我的组', color: 'red' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
+    ] as any, edges: [] });
+    useCanvasStore.getState().convertGroup('g1', 'storyboard');
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).color).toBe('red');
+    useCanvasStore.getState().convertGroup('g1', 'normal');
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).color).toBe('red');
+  });
+
+  it('500ms 内连点两次 = 2 undo 项（真 UndoManager）', () => {
+    const { d, um } = setupRig();
+    try {
+      useCanvasStore.getState().setGroupColor('g1', 'red');
+      useCanvasStore.getState().setGroupColor('g1', 'blue');
+      expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+      um.undo();
+      expect(docDataOf(d, 'g1').get('color')).toBe('red');   // 第二命令独立成步——undo 回到中间态
+    } finally {
+      teardownRig();
+    }
+  });
+});
