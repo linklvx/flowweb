@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useStore, useViewport, getNodesBounds, type InternalNode } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
-import { SELECTION_BOX, BADGE, TOOLBAR } from './selectionTokens';
+import { SELECTION_BOX, BADGE, SELECTION_TOOLBAR } from './selectionTokens';
 
 interface Props { onGroup?: (ids: string[]) => void; onMergeStoryboard?: (ids: string[]) => void }
 
@@ -34,10 +34,10 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
     const width = b.width * zoom + SELECTION_BOX.padding * 2;
     const height = b.height * zoom + SELECTION_BOX.padding * 2 + SELECTION_BOX.titleExtra * zoom;
     const centerX = left + width / 2;
-    const isAbove = top - TOOLBAR.offset - TOOLBAR.height > 0;
+    const isAbove = top - SELECTION_TOOLBAR.offset - SELECTION_TOOLBAR.height > 0;
     return {
       left, top, width, height, centerX,
-      toolbarTop: isAbove ? top - TOOLBAR.offset : top + height + TOOLBAR.offset,
+      toolbarTop: isAbove ? top - SELECTION_TOOLBAR.offset : top + height + SELECTION_TOOLBAR.offset,
       toolbarTransform: isAbove ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
     };
   }, [selectedInternal, vpX, vpY, zoom, marqueeSelecting]);
@@ -80,7 +80,7 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
         style={{
           position: 'absolute', left: geo.centerX, top: geo.toolbarTop, transform: geo.toolbarTransform,
           pointerEvents: 'auto', zIndex: 31,
-          background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: TOOLBAR.height,
+          background: 'rgba(0,0,0,0.85)', borderRadius: 20, padding: '8px 16px', height: SELECTION_TOOLBAR.height,
           display: 'flex', alignItems: 'center', gap: 12, color: '#fff', fontSize: 13,
         }}
       >

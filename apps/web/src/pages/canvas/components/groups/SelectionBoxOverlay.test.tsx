@@ -50,10 +50,10 @@ describe('SelectionBoxOverlay', () => {
     rf.state.vp = { x: 10, y: 20, zoom: 2 };
     render(<SelectionBoxOverlay />);
     const box = portal.firstElementChild as HTMLElement;
-    expect(box.style.left).toBe('194px');  // 100*2+10-16
-    expect(box.style.top).toBe('352px');   // 200*2+20-16-26*2（标题浮层随流坐标缩放）
-    expect(box.style.width).toBe('132px'); // 50*2+32
-    expect(box.style.height).toBe('164px');// 40*2+32+26*2
+    expect(box.style.left).toBe('180px');  // 100*2+10-30
+    expect(box.style.top).toBe('338px');   // 200*2+20-30-26*2（标题浮层随流坐标缩放）
+    expect(box.style.width).toBe('160px'); // 50*2+60
+    expect(box.style.height).toBe('192px');// 40*2+60+26*2
   });
 
   it('框本体 pointerEvents none；徽标显示「N 项」', () => {
@@ -70,7 +70,7 @@ describe('SelectionBoxOverlay', () => {
     rf.state.vp = { x: 0, y: 0, zoom: 1 };
     render(<SelectionBoxOverlay />);
     const toolbar = portal.children[1] as HTMLElement;
-    expect(toolbar.style.top).toBe('68px'); // -16 + 72 + 12（height = 40×1 + 32 = 72）
+    expect(toolbar.style.top).toBe('84px'); // -30 - 26 + (40×1 + 60 + 26) + 14（height = 126）
   });
 
   it('原 MultiSelectToolbar 用例迁移：点击打组调用回调（onGroup）', () => {
