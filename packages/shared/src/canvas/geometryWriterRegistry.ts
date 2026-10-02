@@ -8,8 +8,9 @@
 //   - B7-1 census（本文件=归类引用源，届时按此逐点复核）
 //
 // 计数口径备注（不写死单一数字）：canvasStore.ts 内部 set( 的处数随扫描正则口径浮动——
-// 词边界 /\bset\(/ = 44 处（2026-10-02 实测），裸 /set\(/ 会把 records.set 等 Map.set 误计入
-// （45 处）。本账本按"文件+函数"列出、不落处数——行号漂移与正则口径差异都不构成账本失真；
+// 词边界 /\bset\(/ 连 records.set 等 Map.set 方法调用一并命中（set 前的 `.` 非词字符，
+// 词边界照样成立）= 45 处（2026-10-02 实测）；排除方法调用的口径（如 /[^A-Za-z_.]set\(/）
+// 才是 44 处。本账本按"文件+函数"列出、不落处数——行号漂移与正则口径差异都不构成账本失真；
 // 同函数多处 set( 在 note 标注。
 
 /** 几何写者类别（陷阱放行面=本枚举；O0b 接线按类挂写者上下文）。
@@ -57,7 +58,7 @@ export interface GeometryWriterSite {
 /**
  * 全量归类账本（2026-10-02 逐文件读码归类）：外部 useCanvasStore.setState 27 处
  * （canvasIntents 6/canvasCollabRuntime 7/CanvasView 6/VideoEditorShell 3/page 2/nodeStore 1/
- * guard 1/pointerShift 1）+ canvasStore.ts 内部 set( 44 处（词边界口径）按函数归并。
+ * guard 1/pointerShift 1）+ canvasStore.ts 内部 set( 44 处（排除方法调用口径，见文件头口径备注）按函数归并。
  * 几何写点（position/width/height 落节点信封）标写者类别；其余逐处确认非几何字段并注写明。
  */
 export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly GeometryWriterSite[]>> = {

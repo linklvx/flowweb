@@ -16,7 +16,8 @@ import { COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, calcGroupBounds } from './geometry'
 const EPS = 1e-6;
 
 /** cs-only 派生字段块名单（禁入 doc data——⑤）。hidden=deriveHidden 派生；selected/dragging=
- *  RF UI 态（投影不含——canvasIntents 注释同口径）。域随模型扩在此加键。 */
+ *  RF UI 态（投影不含——canvasStore.ts onNodesChange 段注释同口径："投影不含
+ *  selected/dragging/measured"）。域随模型扩在此加键。 */
 export const CS_ONLY_DERIVED_DATA_KEYS = ['hidden', 'selected', 'dragging'] as const;
 
 /** 几何字段三键（一写者框架的辖域——data.{width,height} 豁免已废止，字段级全覆盖）。 */
@@ -113,7 +114,6 @@ export function assertExpandedAutoFrameEqualsBounds(records: readonly DocNodeRec
   const membersOf = (gid: string) => records.filter((r) => r.parentId === gid);
   for (const g of records) {
     if (!isGroupRec(g) || isStoryboardRec(g) || isCollapsedRec(g) || isManualDomain(g)) continue;
-    if (g.position == null || g.width == null || g.height == null) continue; // 无帧键=①辖区
     if (g.position == null || g.width == null || g.height == null) continue; // 无帧键=①辖区
     const members = membersOf(g.id);
     if (members.length === 0) continue; // 空组归 COLLAPSED_SIZE 条
