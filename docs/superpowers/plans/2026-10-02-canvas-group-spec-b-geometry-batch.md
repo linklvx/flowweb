@@ -1,0 +1,456 @@
+# Canvas 组升级 Spec B — 组几何所有权 + 批量连线 实施计划（**v3.6-FROZEN** 终裁版）
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 落地 Spec B **v3.20（已冻结**，docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md）——O0 组几何读侧派生重构（doc=作者态 abs / cs=reconcile 单写者）+ M0 模板市场删除（前置切片——**v3.19 终裁 80：import 改 doc 直读+templateData drop 前移 M0-1 同批**；/works/:id 载体存留随终裁 81/90 拍板落地）+ 需求 5（组内拖出+组框判定）/ 需求 6（+号输出按钮，撞车②=B 案）/ 需求 7（拖拽批量连线+点击建点）。
+
+**用户已拍板：** ① M0 范围=删“公开/浏览/导入+templateData 镜像”，**Template 行=画布行保留**（isPublic 三处同批删——保留鉴权读；后随 (a1) 升格=getTemplate/import 两端点整删）；② 撞车②=**B 案**（12px 屏幕像素常量+选中/悬停渲染+!canEdit+反缩放层）；③ 拍板②已确认（2026-10-02）：B6-3 **+号拖线落空=建点+连线**（三评审两轮维持推荐——HandleAddNodeMenu:82-92 同手势先例+需求 7“点击建点”=退化情形）。
+
+【已归档·仅溯源——冲突处以 v3.20 终裁段/冻结表/分片正文/附录为准】
+
+**v3.15 修正（第十九轮三份 plan 审核终裁，spec 终裁 42-48）：** 尺寸真源公理+首测固化（O0b-2）；拖出闸门拆除=extent 10 写点+拖拽 clamp 块（Inner 化批）；帧键 oracle=doc 侧键+dirty-manual 档；resize 门按目标分型（叶=现状/组=会话）；版本门挂 CollabGateway.loadDocument（fillDoc stamp 删+bump 2+清库+gate-seed=O0b-0 原子批）；api 读写收编+DocNodeRecord 类型分裂；watchdog 分场景写实（begin 兜恢复）；onNodeDragStart 集合=**第三参**；拖动入栈 origin=LocalUser。
+
+【已归档·仅溯源——冲突处以 v3.20 终裁段/冻结表/分片正文/附录为准】
+
+**v3.16 修正（第二十轮三份 plan v3.1 审核终裁，spec 终裁 49-58）：** ①尺寸真源完整链（O0b-2 扩容：命令体显式值[copyPlan 必带/fillDoc :34-35 已支持落键]+固化首写者胜永不覆盖+同 tick 批量单 transact+Math.ceil 整数化+折叠组展开后首帧固化+**customSize 并入 envelope**[ImageGenNode 两处 setNodes 直写删]+addChildNode(s) exists 替换收口+AI data.wh 键删）；②**manuallyResized 整链删除**（帧键=唯一 oracle；dirty-manual 档删；resize 提交=单 envelope{三键}；白名单/克隆断言改写）；③版本门 v2.1（**常量上移 shared**+ensureSchemaVersion 三入口[+REST 读第五行]+幂等契约锚[meta.size===1∧二载零 update]+persist-status 改名+ydocBuilder.test 四用例+**O0b-0 扩容**[Redis 键提前+内存 Y.Doc 失效+gate-seed 经 docShape 一次到位]+回滚须重跑清库）；④transact 尾 normalize pass（分镜子先子入父判不出——stripDerivedKeys）；⑤editMode ephemeral 键集=**仅 {editMode,transformMode}**（expanded 是 doc 态）；⑥量化=**所有进 doc 的 abs**（删 0.05px 容差行）+census 计数形态补非定义行+reconcile census 改**四元组名单**[+endGesture 单收尾]+refit 族含 refitExpandedGroups 函数本体删+四兜底列全+**applyGroupDerivations 整删**[deriveHidden 并入 reconcile]+测试改写清单落表 26-30 条+夹具 extent 清理；⑦M0 全收口（**saveCanvas 整链删**+isPublic 全删+列 drop 扩容）；⑧手势期帧写者归属（所有权表手势例外行+resize 提交值=末帧三键+baseline=被拖集合域）；⑨B6 修正（rect 读 cs 解除 O0c 依赖+handleMenu 13 符号+clientPoint 多指修+DRAG_THRESHOLD_PX 唯一阈值+折叠组空白弹菜单拍板+分镜组 resizer 现状锚）；⑩门禁工程化（dev 写陷阱+性能数字[reconcile≤5ms/帧 p95≤16ms/零差异订阅=0]+it.todo 归零+prod 不抛载体+redo/崩溃/三端/公开页锚+viewer 本地视图折叠+O0a 空间不可知出口锚）。
+
+【已归档·仅溯源——冲突处以 v3.20 终裁段/冻结表/分片正文/附录为准】
+
+**v3.17 修正（第二十一轮三份 plan v3.2 审核终裁，spec 终裁 59-68）：** ①**尺寸写者四类定稿——内容事件升格**（[ii]图片 load/换图比例/拼接完成/视频元数据经 envelope Origin.Geometry **允许覆盖**；首测固化降兜底档仅 doc 无 wh[首写者胜仅本类]；resize 后仍可 contain-fit 重算——"不得覆盖"案证伪；**normalizeSize=Math.ceil 单源**[adaptCustomSize/calcConstrainedSize round 同批改]；AI data.wh **整删非改 envelope**[保信封写者=3]；**固化不与 LocalUser 同 transact 合批**；customSize 连带面补 resizeUtils.test 四用例+nodeStore:120/:143 类型）；②**M0 删除面定稿**（status 列 drop 五处同步[canvas.service:48/gate-seed:73/official 种子/两 spec 夹具]+红测试措辞改"仍可被 /works 列表与文件夹缩略图读到"；save 链点名 **CanvasSaveController 整类+save-canvas.dto.ts 整文件**+x-yjs-sv+sv 参数失消费者登记；测试面 **"1 删 4 改"**[4 文件仅摘 saveCanvas mock 键保留用例]+canvas.service.spec save 套件 :185-316 整块；**getTemplate 整删**[生产调用方随 M0 消失——"保留+对齐判据"案不采纳]）；③applyGroupDerivations **14 点逐点表**+测试补 3 处（groups.test:459-465/:938/page.test:72）+折叠两锚（collapsed⇒无 resizer[GroupNode:43 不许丢]+提交剥键第二道安全网）；④**写陷阱夹具入口**（test/fixtures/canvas.ts seedCanvas+允许集合五行+**只对 position/width/height 抛**[selected/dragging/dimensions 放行]+分片迁移存量冻结不新增——228 处/46 文件实证）；⑤**附录 v3.16 化六行+文档仲裁序+否决清单扫描**（dirty-manual/deriveHidden 独立步骤/AI 豁免/resize data 标记×2/标题版本；C0 删 manuallyResized 旧否决条）；⑥**O0a 口径拆分+stripDerivedKeys 降级只读校验**（空间语义不变+键集剥键生效+出口锚"除分镜子 position/组帧键剥离外逐位相等"；上游构造纪律=唯一剥键写者——normalize pass 写动作废止转校验，锚"人为构造序⇒DEV 报错非静默修好"）；⑦挂点分期 **3+1**（O0b 期三元组、endGesture 随 B4'-1 落第 4 成员、四元组 census 留 B7-1）+**B6-3 用 addChildNode 等价路径**（执行序在 Inner 化前——Inner 化批随迁改名）；⑧**moveNode 载荷 abs 写死卡二**+**量化单侧**（本地入口一次；applyIntentToDoc 只 DEV 校验不重写）+**让位硬规则**（非空时禁直拷）+**endGesture 语义澄清**（P0-10"吞拖动"证伪——中止回滚=设计意图/提交不经 endGesture/收尾链序维持；采纳 cs 侧提交锚+收尾幂等锚两条）；⑨**measured 读者白名单表**（4 处——doc wh 第一档/measured 第二档/常量最后档）+分镜子 wh=doc 有值（永不固化）+dropImageIntoStoryboard exists 锚+**零交叠三元组**（+号↔本组框/同屏+号间/↔其它节点允许靠 z-index）+拖叶/拖组锚前置分档；⑩**工程化收尾**（分片尾三命令 tsc --noEmit+test+lint-gate；**apps/api/tsconfig.scripts.json 进 verify**；门禁分层[DEV 抛=vitest/值=e2e/计数=prod]；性能补"首开固化单批 N=500 预算"；B7-2 补**§5 风险台账+需求 5/6/7 用户验收清单**；updateNodeData 载荷两层口径+cs 尺寸行空间"—"+hidden 全量锚）。
+
+**仲裁规则：spec 正文与终裁块冲突时，以 spec 最新终裁为准（v3.20）。本 plan 内：数字冻结表＞分片正文＞附录＞**头部历史修正块（v3.15→v3.19 各段——已归档仅溯源：其内与 v3.20 终裁段/冻结表/分片正文冲突处一律以后者为准，不再逐句改写历史文本）**；附录与冻结表必须同版本号（B7-1 版本一致性 census），改冻结值必须同批改附录。**
+
+**🔒 冻结协议（第二十四轮三方一致采纳，v3.6 起生效）：本 plan 自 v3.6-FROZEN 起停止版本迭代**——①**变更传播矩阵**：任何语义/数字改动提交时必须同批刷新命中镜像（头部修正段/冻结表/量化表/执行总览/分片 Step/卡一/卡二/所有权表/跃迁表/手势表/Self-Review 十镜像），commit message 贴矩阵勾选——把"审核发现 stale"变成"提交时不可能 stale"；②**评审产出白名单**：此后只允许三类产出——删一句矛盾文本/统一一处口径数字/记"§5 台账：实现后才能判定"；**禁止再新增终裁编号**；③**数字脚本化**：计数类（measured/setState/调用点）由 census 测试输出为准、plan 表引用（改值必须同批改测试——既有纪律维持）；④**可执行未知项交给门禁不交给评审**（RF 首测时序/多指 capture/低 zoom 交叠/500 节点性能——锚已在位，运行期报警）；⑤实现期偏差只在代码+TDD 修，spec 仅"实现口径与设计不符"时随批回写一段（R2 惯例）。**v3.20 终裁（第二十四轮三份终审，89-92）**：**89 折叠简写作用域定稿**（61③ 与 82 实为互补非矛盾——61③=auto 组空操作/82=manual 组密封源；根修一句"**auto 组永无帧键（折叠态同）；manual 组折叠态不动帧三键（展开恢复唯一密封源）**"替换两处简写+4 处 stale 同批改齐[O0b-5 安全网②/附录三 resize 行/附录二两行]+census"collapsed⇒0 键|提交剥键 全文零命中"+auto/manual 折叠双档单测；折叠唯一边界守卫=①无 resizer 渲染条件[61③②撤销——它本身就是错的]+折叠/展开不写 doc 帧键一句）｜**90 M0 前向引用禁令**（M0-1 读链不得引用 stripAuthorState[O0a 产物——按字面编译不过]：改用当日可得最小读口 readCanvas→ensureParentFirst→normalizeNodeRecord 零新符号[doc→doc 照抄即合规]；stripAuthorState 收编=O0a-2 动作+import e2e 复跑锚；**通则：任何分片不得前向引用晚于自身分片的新符号，Step 1 加前向引用检查一行**；M0-2 列 drop 补三索引[@@isPublic/:162@@category/:163@@importCount/:164]+两枚举[TemplateStatus/TemplateCategory DROP TYPE]+**coverUrl 零写者死列同批 drop**[全仓零写者实测，读者恒走 getCanvasGradient 兜底——连带 folder select/预览页 img/CanvasCard/useWorkspaceData；通则"删除面按写者清点列非按列名"]；副本能力已拍板 (a1)（2026-10-02）：import 端点+getTemplate 整删——M0 纯删除化（免读链改造/免鉴权对齐/免 importCount-category 死读清理）；"复制画布"=打开源画布+画布内复制粘贴（画布无全选快捷键=已接受取舍，spec §5 登记））｜**91 尺寸模型补全**（deriveGroupFrame 缺键档写全三档 **doc wh→cs.wh(measured)→DEFAULT**[首帧 doc∧cs 双无 wh 时 DEFAULT 是唯一解——"禁 DEFAULT"过绝；首帧瞬态 §5 登记]+内容型补 onError/无内容事件[broken fileId]让 wh 必然落定；multiImage 上报**四类触发点写死：挂载首帧∪toggleExpanded∪增删图∪非展开态主图 load**[漏任一⇒doc wh 陈旧比现状更糟——双端一致地错]+收敛锚"上报后一致⇒不再上报，收敛步数=1 无 live-lock"+公式单源[expandedW/H 与组件共用同一纯函数]；三处"固化"表述按类型限定[textInput 类=首测固化/内容型=load 内容事件——O0b-2 折叠展开锚/所有权表(iii)/B7-1]；**节点类型×wh 权威表进 C0-3 附录**[census/实现判据非测试串内注记]；**A 类 18 行逐行列出义务**[C0-3 交付=文件:行+一行理由；已知 7 站点+GroupNode/handleMenu/product-node——18−(13+2+2+1) 不缺行、canvasStore 13 行=7 站点区间行；缺具名则集合相等断言第一天红]+product-node:13 宿主认领=O0b-2；**calcDefaultGrid 本体保留**[88① 修正——终裁文字"随模块族死"仅指 normalizeLoadedCanvas:33-39 调用面；本体活消费=arrangeSelection:97+canvasStore:1578/:1645[建组/转换写 config]——照字面删=tsc 红；"缺 config=DEV 抛"限 reconcile/deriveGroupFrame 侧；gate-seed 分镜组带完整 storyboard config]；**量化落点 census 修正**[与"信封写者=3"冲突——改"doc position 写入咽喉=docShape 家族三入口同源禁第四处；量化点=1 normalizeIntentPayload"]；census 一律按行计数、处/行并存显式标注；measured **A 类定档=保留三档链**[n.width ?? m?.width ?? 常量——固化窗口期行为正确+基线 40 不失真+单相 census；O0b-2"改 n.width ?? 常量"作废]+B7-1 升级**形态断言**[每 A 类行必含 width ?? 前缀；.measured 命中必须在 ?? 链中——抓"分类 A 却 measured 优先"]）｜**92 清库 FK 面全覆盖+版本门统一+杂项**（清库脚本改 **DELETE FROM 子表先行顺序**[TRUNCATE 父表在 FK 引用时直接报错]：ProjectMember/VideoProject/Template/CanvasDoc/CanvasDocUpdate→CanvasProject；**补漏 ProjectMember/VideoProject 两 Cascade 子表**；无 FK 关联表删行非清列（Media/GenerationIntent 按 projectId、VideoWork 按 canvasProjectId——清列留幽灵行+唯一键失效，第二十五轮修正）；锚"重置后 /works /videos /materials credits 对账无幽灵行"+gate-collab 先断言 api 健康再跑[防内存 doc 残留偶发红]；**版本门两侧统一 fail-closed**[86① 张力消除：无戳∧有节点⇒REST 与 WS loadDocument 双拒（DEV 抛/prod 拒+日志）；**零节点∧无戳⇒stamp 唯一自愈点**[新建空画布]]；"无戳"档锚构造=裸 doc+writeNodeToYMap 不经 fillDoc[fillDoc 每写都盖 meta 戳⇒测试加过节点戳就在——防假绿]；网格校验分型[applyIntentToDoc 网格校验仅 Origin.LocalUser 指针派生入口；投影差分 Origin.Geometry 只校验有限性——非整数夹具否则必红；与终裁 78⑦ 合并一行]；_padding>0 档夹具=非整数坐标+非对称 padding 具名常量断言（padding=geometry 常量非 config 键——第二十五轮 A2 修正）；A/B 类表头判据句[A=值参与投影布局/B=值只影响屏幕像素]；写者名单落盘 geometryWriterRegistry 文件[dimensions setAttributes=true 独立写者类别+B7-1 census 引用源]；PR 门点名 ci.yml verify 面已含 vitest int spec[无需改 workflow]；allow-list 38 文件清单落点=lint-gate 常量文件；符号删除 census 模板**扩展到改名/迁移任务**[改名同样让守卫/allow/门禁清单红]）。
+
+【已归档·仅溯源——冲突处以 v3.20 终裁段/冻结表/分片正文/附录为准】
+
+**v3.19 修正（第二十三轮三份 plan v3.4 审核终裁，spec 终裁 79-88）：** ①**符号删除 census 模板+O0b-0 扩八件套（终裁 79）**：normalizeLoadedCanvas 调用面实测=生产 3 处[canvasCollabRuntime:314+**checkProjectionInvariant :254/:259 生产导出**+api project.service:7/:64+video-work-clone.service:9/:50]+守卫自证[storyboard-dereref-guard.test:43/:51]+spec 钉子[video-work-clone.service.spec:10/:195/:207"删 service 内该调用即红"]+re-export[index.ts:20]——五件套按字面落地=web/api tsc+test 三线红；扩**八件套**：+⑥checkProjectionInvariant 同批改写[原 O0b-4 项前移]⑦api 两处调用同批删⑧守卫自证行+spec 钉子两用例改写+index.ts re-export 同批；②读侧挂点写死=applyDocToStore 尾。**通则：任何整删/退役任务 Step 1 必产出符号删除 census 表**（五列：生产调用点/测试夹具引用/扫描型门禁命中[仓内 9 个：storyboard-dereref-guard/envelope-serialization-guard/canvas-domain-token-keyset/group-frame-writer-guard/canvas-dispatch-ratchet/syncStatus.spec/canvasCollabRuntime.execView.spec/api body-param-ratchet/api shadow-literal.scan]/allow 列表自证/re-export）逐行改·删·放行同 commit——删除类任务红相来自 test/守卫/allow 列表，不得套用"排除 test/spec"计数纪律。②**M0 import 直读+templateData 同批 drop 前移（终裁 80——v3.18 终裁 73③ 证伪）**：save 删后读者留[gate-seed:73/新建行均无 templateData⇒M0 当天副本必 400]+rel 空间镜像跨翻转折位——**前移 M0-1 同批单一 commit**（readCanvas→stripAuthorState→建 project；idMap remap 删[doc→doc 源 id 复用]+validateTemplateData/跨用户过滤/importCount 死；重名查重留）+清库 DELETE Template WHERE projectId IS NULL[官方行 :342-358 无 projectId]+锚两条；③**折叠帧语义定稿（终裁 82——卡二"auto/collapsed=0 键"字面=手动尺寸不可逆丢失）**：组 width/height ⟺ manual only 且 **collapsed 不剥键（doc 三键=展开态密封源）**；cs 折叠档=COLLAPSED_SIZE 派生（reconcile 写域① 内覆写优先级最高）；toggleCollapse 折叠分支 envelope 写删；锚两条+savedSize 测试改写面扩容[groups.test 46 行 grep 实测：五条密封往返不变量 :1483/:1488/:1501/:1519/:1591 重设计+markManuallyResized describe :169/:194/:196+convertGroup/arrange 清键 :300/:318/:420/:430/:452/:1294/:1298/:1322/:1328/:1371+canvasIntents.spec:452-461+GroupNode.test:21]；④**尺寸写者模型修订（终裁 83）**：内容型节点[imageGen/videoGen/multiImage]退出首测固化（固化仅限 textInput 等无其他写者类型）+deriveGroupFrame 缺键档取 cs 现值禁 DEFAULT_CHILD_SIZE+首帧锚改"固化/内容事件完成后≡bbox+padding∧收敛步数=1"（首帧 DEFAULT 瞬态 §5 登记）+**multiImage=组件显式尺寸上报**[toggleExpanded/换主图命令体提交 envelope{wh}]+**节点类型×wh 权威表**+calcConstrainedSize 收编**三份点名补 MultiImageNode:23/:114**+等价守卫三条[沿用档"以当前 wh 为准"/setImgSize/setVidSize 局部态保留/aspectRatio 键保留]+内容事件同值去重锚；⑤**measured 冻结值 40 行/14 文件+A/B 语义重切（终裁 84——v3.18"42/16"实测误）**：A=派生/布局/复制（doc wh 权威）18 行/B=屏幕空间 UI+RF internals（measured 权威禁进投影）19 行[六 Toolbar 12+ImageGen:180-181 setCenter+Banner:32-33 setCenter+VideoGen:417 落位+TextInput:30-31 盒镜像——四处实测视口/屏幕用途]/C=已删 3 行；总数由表推导禁独立写死；⑥**写陷阱三模式+文件级 allow-list（终裁 85）**：prod=启用但降级计数+采样永不 throw（解与终裁 58④ 字面矛盾）+按节点身份 diff 禁全表深比；dimensions 按写者上下文放行（setAttributes=true 写 wh）；归类口径="生产几何写点"[外部 setState 27+store 内 set( 50 处中几何写者实测归类]；静态棘轮升**文件级 allow-list**（38 文件清单入库、新文件违规即红）；⑦**版本门 fail-closed+值断言 PR 门（终裁 86）**：REST 读"无戳∧有节点⇒拒"（WS loadDocument 保留 prod stamp 自愈）+读路径复用 readCanvas census；round-trip 逐位+版本门四档=vitest/int spec **PR 门必跑**+B7-2 新增 e2e 文件名与 testMatch 正则同批改+锚"命中数=N"；量化落点 census[position 写 doc=1 处+量化点=1 处]；⑧**清库全量重置+夹具档位（终裁 87）**：truncate 五表[CanvasDoc/CanvasDocUpdate/CanvasProject/Template/VideoWork]+Redis SCAN `videoWork:process:*`+重启+/works //videos 可见状态冒烟锚；几何锚至少一档 _padding>0 且坐标非整数必跑；⑨**语义接管逐条+杂项 11 条（终裁 88）**：calcDefaultGrid 派生档随模块删[缺 config=DEV 抛]/O0c-3 重复句删+expandedFrame 整删时点=O0c-3[O0b-5 后]/枚举索引连带 DROP TYPE/dragProtectedIds 补 C0-1/clientPoint 拆单独行/附录三精确 14 行/"落表"措辞改/sv 拆两句[带 sv 唯 execution:74]/hidden 派生每调用必跑+折叠组新增成员锚/it.todo"先建后清"[现状 0]/新符号标注"新建"[stripDerivedKeys/stripAuthorState/toDocRecords/enableGeometryTrap/seedCanvas 今日全仓 0 命中]。**/works/:id 入口拍板（终裁 81——待用户）**：WorkspaceDimension:93-94[projectId 有值进编辑器 else 才 /works/:id]+create:48 恒带 projectId+官方行 M0 删⇒**生产 UI 入口归零**（仅手输 URL）——两案：**(a) 整删**[页面+/works/:id 路由+getTemplate/import 链+副本转卡片菜单直调或移除——推荐] / **(b) 保留+补入口**[CanvasCard 菜单"预览"]；锚防假绿=e2e 从 UI 进入禁 page.goto；(b) 案连带 TemplatePreviewPage:62/:63 importCount/category 死读删展示+isWorks 收窄单模式+非 owner import 鉴权对齐 getTemplate OR。
+
+**Architecture:** 组帧=子节点读侧派生物（`deriveGroupFrame{data,childrenAbs,storedFrame}`——**childrenAbs 尺寸=固化后 doc 尺寸**；frameMode({data,storedFrame}) 三值+isCollapsed 正交——**oracle=doc 侧键**）；**cs 几何唯一写者=`reconcileGroupGeometry({source:'cs'|'doc'})`**（写域四类+一写者通则+单遍单 origin+零差异短路）；五层空间表三个唯一翻转实现（toDocRecords 唯一 rel→abs+**内剥键** / reconcile 唯一 abs→rel / deriveRenderCanvas 唯一 records→RenderNode）；applyDocToStore 保护序 v2（setState 前捕获活值+冻结帧——三层一函数）；指针=键控集合 `Set<pointerId>`+pointerdown 缓存 id；版本门=三入口 fail-closed（loadDocument 盖章+api 种子入口[project.service.create withDoc]+REST 读——无戳∧有节点两侧拒，终裁 92）；投影层几何键全删。
+
+**Tech Stack:** @xyflow/react 12.10.2 + @xyflow/system 0.0.76、zustand、Yjs 意图漏斗（canvasIntents）、pnpm workspace（@flowweb/shared）、Vitest、Playwright（双端 e2e）。
+
+**上游 spec:** v3.20（九十二终裁——v3.16 十终裁 49-58+v3.17 十终裁 59-68+v3.18 十终裁 69-78+v3.19 十终裁 79-88+**v3.20 终裁 89-92**）；行号以 spec F1-F25 实证表为准，冲突时现场 grep 再动。
+
+【已归档·仅溯源——冲突处以 v3.20 终裁段/冻结表/分片正文/附录为准】
+
+**v3.18 修正（第二十二轮三份 plan v3.3 审核终裁，spec 终裁 69-78）：** ①**格式批边界定稿**（O0b-0 扩五件套：toDocRecords 切翻转[O0a-3 落 identity 档]+reconcile 最小实现+**normalizeLoadedCanvas 整删同批**[rel 假设双偏移链实证——:58-73 缺几何分支把 abs 当 rel 加组原点，O0 后 auto 组恒命中]+**S1 停写同批**[:335-338 调用点删，模块清理留 O0b-4]+版本门/清库/gate-seed；冻结表新增"格式翻转支点"行=单一 commit；不加 space 参数——原子批内直接改函数体；O0b-0 补几何锚"auto 组+分镜组夹具：cs.rel≡doc.abs−origin∧doc 无 auto 帧键∧二次打开逐位不变"）；②**写陷阱作用域拆分**（F24②"228 处"全仓口径作废——实测=生产 27 处+test/spec **201 处/38 文件**；运行时陷阱=生产源码[apps/web/src 排除 test/spec——vitest 默认禁用+守卫测试 enableGeometryTrap() 造案，生产构建启用]；测试面=静态棘轮 census 起点 201/38 单调下降；**生产 27 处=C0-2 一次性归类义务**）；③**保护回写字段级分型**（drag⇒{position}/resize⇒{position,width,height}/freeze⇒三字段+硬规则**"让位只保护几何，不保护数据"**——data/type/parentId/hidden 一律取 doc 最新值；锚三条含 B7-2 补"拖动中远端改本节点 data"）；④**measured 白名单全量化**（"4 处"作废——实测 **42 行/16 文件三列分类表**：A 类 cs 兜底链[canvasStore 复制 7 处+GroupNode+handleMenu+ImageGen:180-181+VideoGen:417+TextInput:30-31+Banner:32-33+product-node:13]/B 类 RF internals 六 Toolbar[允许保留禁进投影]/C 类已删；**canvasStore 复制 7 处迁 doc 源**——measured 经 copyPlan 进 doc=第 5 写者路径，锚"副本 doc wh≡源 doc wh；源无 wh⇒副本无 wh 键"；calcGroupMinSize 迁 doc wh 优先；B7-1 census 改集合相等断言）；⑤**M0 删除面再定稿**（**v3.17 终裁 60④ getTemplate 整删前提证伪**——TemplatePreviewPage:9 isWorks 双模式挂 /works/:id[router:102 保留面]+创建副本走 importTemplate+templateData=副本数据源：**（(a1) 拍板 2026-10-02 后本段保留面表述全部作废——getTemplate/import 两端点整删）getTemplate 保留收窄**[:126 isPublic 项删+OR 鉴权留]/**import 保留收窄**[删跨用户过滤 :250-259+校验门+importCount——副本核心留]/**templateData 列 drop 挪 O0c-1**[import 改 doc 直读后]/TemplateMarketPage+TemplateCard+两 test 删[PreviewPage 保留]/templateApi 符号拆[UpdateTemplateDto.isPublic 删]/controller 两路由+spec 用例保留[isPublic 断言改写]/验收锚改"/works/:id 三操作 e2e 绿+MarketPage|Card|validation|saveCanvas 符号不存在"）；⑥**sv 消费者修正**（v3.17 终裁 60② 证伪——execution.service:74 带 sv 存活；**sv 4 个存活调用点本批不动**；版本门 gate 落 readCanvas 内**从全量 doc 读 meta**不依赖 sv 差量+锚两条[sv v1 拒/sv v2 增量不退化]）；⑦**尺寸约束框单真相**（customSize 实证=**滚动更新**[:279 updateConfig({customSize:adapted})]非恒定框——**wh=滚动约束框**规则写死[resize 提交写/内容事件覆盖写两写者都更新它；换图=以当前 wh 为约束 contain-fit——行为等价现状]+contain-fit 独立纯函数落 shared[新名 adaptToFit]+**calcConstrainedSize/ratioDimensions 三份逐字重复收编 shared 单源**[census 定义点=1]+锚两条[resize→换图 cf 落 doc 双端一致/重载同一操作逐位同]+:731-747 handle 中途消失路径改挂 resize 提交）；⑧**内容事件触发禁令**（**仅 DOM/回调事件触发**[img.onload/loadedmetadata/拼接回调/显式换图]；禁 cs.wh 变更/data 变更/任何状态变更触发——防 reconcile 直拷回路 live-lock；锚"远端改 wh⇒本地零内容事件 dispatch∧doc 零写入"）；⑨**reconcile doc 读取路径 census**（=readRecordsFromMaps[docShape 单源]；禁 nsNodes/csNodes 反推+禁写原语）；⑩**工程化杂项**（**tsconfig.scripts.json=M0-2 批内创建**[非既有物]+接 root package.json verify[api tsc 后追加 tsc -p tsconfig.scripts.json --noEmit]+首跑清零；B7 verify 链三件写死；**M0 列 drop 回滚需反向 migration**；分镜子 wh 陈旧=**移出时按当前格尺寸命令体提交**；分镜落子/生成结果入组 wh=**命令体显式值**[载荷尺寸——hidden 无 load 事件]；冻结表标题升版+版本一致性 census 载体=标题版本串比对；源矩阵锚"（网格内）"限定删；it.todo 递减改 plan 表记录；stripDerivedKeys 三点精化[保留谓词/双证锚/B7-1 不列符号清单+卡二"toDocRecords 内剥键=唯一实际剥键点"]；B5'-1 补"commitIntents 调用图不含 endGesture"断言；B6-2/3 标题改齐；Self-Review"5 mock 文件"补注记；localCollapsed 两锚[展开恢复≡派生帧+唯一 override 点 census]；§5 登记ceil 留白）。
+
+---
+
+## 数字冻结表（census 断言唯一引用源——v3.20 定稿）
+
+| 项 | 冻结值 |
+|---|---|
+| **格式翻转支点** | **单一 commit（O0b-0 格式批八件套，终裁 69+79）**：写侧 toDocRecords 切 rel→abs[O0a-3=identity 档]+读侧 reconcile 最小实现+normalizeLoadedCanvas 整删+S1 停写[:335-338 调用点]+版本门/清库/gate-seed；**翻转开关无第二处**（不加 space 参数——原子批内直接改函数体） |
+| ~~写陷阱作用域~~ | **已并入"写陷阱三模式"行（v3.20 终裁 92——两行并存废止，冻结表单源）** |
+| doc 信封/结构写者 | **3**：web fillDoc（addNode 投影）/ api writeNodeToYMap（收编后走 docShape）/ gate-seed（**重生成后经 docShape——禁自建 Y.Map**，终裁 51④）；**v3.20 终裁 91 量化落点口径：doc position 写入咽喉=docShape 家族三入口同源（禁第四处）——与"量化点=1[normalizeIntentPayload]"分立两句** |
+| doc data 子域写者 | **2**：web updateNodeData 投影 / api writeNodeData（**AI data.{width,height} 键整删——非改写 envelope[保信封写者=3]，尺寸由 web 内容事件路径决定，终裁 59⑤；豁免标注废止**） |
+| 戳源 | **单 stamp 原语/写入点=3 处调用 2 类语义（第二十六轮 P0-20+P1-1 修正——原"戳源=1"与 create stamp 并存自相矛盾）**：**出生戳**=create 的 withDoc 回调内 stampDocSchema（**无条件——去 `nodes.length>0` 闸门[project.service:58：闸门内=REST 建项目[controller:17 传 undefined]/clone 空数组链永不落 doc 不盖章]；副作用=空画布也稳定产生 CanvasDoc 行[幂等锚 meta.size===1 空画布可测]**）+gate-seed 经 docShape；**补戳**=CollabGateway.loadDocument 幂等（已戳=current ⇒ no-op）；census"stamp 调用点恰 3 处∧全经 docShape.stampDocSchema 禁裸 meta.set"；canvas.service.create（canvas.controller:11 链）只落 DB 不碰 doc——其戳由 WS loadDocument 零节点自愈（自愈点唯一非第二戳源）+**REST 读入口（readCanvas/getProcessSnapshot——第五行拒旧档，终裁 51②）** |
+| applyGroupDerivations | **符号级不存在**（v3.16 终裁 54④——deriveHidden 并入 reconcile 单内核；原"调用点=14"废止） |
+| 记录契约函数 | **2**：toDocRecords+stripAuthorState（completeRecords 不写） |
+| reconcileGroupGeometry census | **四元组名单断言**（终裁 54②；**分期——终裁 65①**）：漏斗尾 / dispatchProjectionDiff 首行 / applyDocToStore 尾 / **endGesture**（三分支共用单收尾函数，其内唯一 1 处）∧ source:'cs'=1；**O0b 期三元组过渡断言（漏斗尾/diff 首行/applyDocToStore 尾——endGesture 随 B4'-1 落地补第 4 成员）；四元组断言留 B7-1**；**计数形态**=行含 `reconcileGroupGeometry(` 且非注释/import/re-export/类型声明/test/spec/**非函数/常量定义行**（终裁 54②）；**扫描域=apps/*/src+packages/*/src**（排除 dist/docs/vendor/backups） |
+| refit 族 | refitGroupGeometry/shouldAutoRefit/refitExpandedGroups/applyGroupFrame **生产 0 命中且函数本体+shared 导出删**（计数形态同上含非定义行豁免——终裁 54②） |
+| dispatch ratchet | **BASELINE=14**（R2d-8 冻结；O0 各分片删除项落地后同批重算并注明理由） |
+| CANVAS_DOC_SCHEMA_VERSION | **2**（**常量定义上移 packages/shared/canvas/docShape.ts——ydocBuilder 改 import**，终裁 51①；与 M0 模板常量无关；**不做 v1→v2 迁移**——开发期无用户数据） |
+| STALE_MS | **5s**（watchdog——秒级定值） |
+| it.todo 计数 | **先建后清**（全仓现状 0 处——C0-2 建/分片 unskip/B7-1 归零；"随分片单调递减"在起点 0 下不成立——终裁 88⑩）；分片尾计数**记入本 plan 各分片表**（机械可验证——终裁 78⑧） |
+| 附录版本一致性 | 附录四页卡与数字冻结表**同版本号=v3.20**（终裁 63②+78⑥+第二十五轮——B7-1 版本一致性 census：**正则抓 `v3\.\d+` 三处互比[冻结表标题/附录一标题/spec 文件标题]∧三处相等，禁硬编码版本值**[写死必再 stale]；改冻结值必须同批改附录） |
+| measured 生产读者 | **三列分类表 40 行/14 文件**（终裁 84——**v3.18"42/16"实测误修正**；口径=apps/web/src 排除 \*.test.\*/\*.spec.\*/test/ 的 .measured 命中行数；**总数由逐行分类表推导、禁独立写死**；A=派生/布局/复制[doc wh 权威]18 行[canvasStore 复制 13+GroupNode 2+handleMenu 2+product-node 1]/B=**屏幕空间 UI**+RF internals[measured 权威禁进投影]19 行[六 Toolbar 12+ImageGen:180-181 setCenter+Banner:32-33 setCenter+VideoGen:417 落位+TextInput:30-31 盒镜像——四处实测视口/屏幕用途]/C=已删 3 行；B7-1 **集合相等断言+形态断言**（形态=每 A 类行含 `??` 链且链首非 `.measured`/B 类 internalNode.measured 直读豁免——B7-1 正文，第二十六轮 A3 补）：命中逐行≡分类表，新增即红；锚"固化窗口期屏幕空间读者直读 measured 无常量跳变"） |
+| 手写几何 setState 存量 | **test/spec 面 201 处/38 文件=文件级 allow-list 棘轮**（终裁 70+85④——38 文件清单入库：分片迁移一个摘一个、**非 allow-list 新文件出现 useCanvasStore.setState 几何键即红**；行数报数保留单调下降[起点 201/38]；v3.17"228 处/46 文件"=全仓口径作废；分片迁移只迁被改动文件；B7-1 census 报数） |
+| 符号删除 census 模板 | **任何"整删/退役"任务 Step 1 必产出五列表**（终裁 79：生产调用点/测试夹具引用/扫描型门禁命中[仓内 9 个逐个]/allow 列表与自证断言/re-export）逐行标注改·删·放行并同 commit——删除类红相来自 test/守卫/allow 列表，**不得套用"排除 test/spec"计数纪律**；**扩展到改名/迁移任务（改名同样让守卫/allow/门禁清单红——终裁 92）** |
+| 写陷阱三模式 | DEV=抛 / vitest=默认禁+enableGeometryTrap() 守卫造案 / **prod=启用但降级计数+采样日志、永不 throw**（终裁 85①——解与终裁 58④ 字面矛盾；按节点对象身份 diff 禁全表深比，性能并入 500 节点预算）；dimensions 按写者上下文放行；归类口径=**生产几何写点**（外部 setState 27 处+store 内 set( **全量当日 grep 归类（处数口径依赖扫描正则禁写死单一数字：`[^A-Za-z_.]set(`=44 行/PowerShell `(?<![A-Za-z.])set\(`=50[含行首与 _ 前缀形态]——第二十六轮 A4：两值皆随正则而定非谁不准）**——C0-2 落白名单常量） |
+
+## 量化契约表（四值语义自洽——防实现者误读）
+
+| 项 | 值 | 作用域 |
+|---|---|---|
+| 入口量化 | 2⁻³=0.125，**所有进 doc 的 abs position（顶层与子一视同仁——v3.16 终裁 54①）** | normalizeIntentPayload（O0 新增实现——现状全仓零量化为事实非矛盾；锚：zoom=1.1 拖子⇒doc.abs 落 1/8 格∧重载逐位不变） |
+| 子 rel | 不量化 | 派生差值（canonical 是 abs） |
+| 尺寸固化值 | Math.ceil 整数化（measured 分数→整数——终裁 49①b） | 首写者胜保证单一值 |
+| 尺寸取整单源 | **normalizeSize=Math.ceil 落 docShape**（终裁 59③）——固化/内容事件共用；adaptCustomSize/calcConstrainedSize 的 Math.round 同批改 ceil（差 ≤1px） | 防同一节点两来源差 1px |
+| 量化单侧 | **量化只在本地产生 abs 的入口做一次**（normalizeIntentPayload——命令体/commitIntents 构造侧）；applyIntentToDoc 对入参只做网格校验（DEV 抛）不重写（终裁 66②） | 防跨端二次量化+网格常量版本漂移；锚：远端非网格值 abs=1.03⇒本地 cs≡doc∧DEV 抛一次 |
+| moveNode 载荷 | **position 载荷=abs**（终裁 66①）——差分 after 数组来自 toDocRecords[输出 abs]/命令体先算 abs/commitIntents 构造；投影层永不消费（终裁 13 维持） | census"moveNode 构造点=提交/差分域，投影域 0"；防按旧语义传 rel（症状=跨端整组位移一个组原点且锚全绿） |
+| 零差异短路 EPS | 1e-6 | reconcile 写前比较（量化后值应严格相等——EPS 只防浮点噪声） |
+| "逐位" | `===`（isFinite 挡 NaN） | 断言（**0.05px/1/16px 容差行废止——量化后应严格相等，独立容差会放过真差异，终裁 54①**） |
+
+---
+
+## 执行总览
+
+**分片顺序：C0 第 0 契约片 → M0 模板删除（**含 import 改 doc 直读+templateData 同批 drop——终裁 80 前移**） → editMode 小分片（提前——doc 契约冻结前改 data 键集）→ O0a docShape 纯函数+api 收编 → O0b-0 格式批（**八件套原子批，终裁 69+79**：写侧翻转+读侧最小 reconcile[挂 applyDocToStore 尾]+normalizeLoadedCanvas 整删[调用面闭包：checkProjectionInvariant 改写+api 两处+守卫自证/spec 钉子/re-export]+S1 停写+版本门 v2.1[REST fail-closed]+清库五表[+Redis SCAN+内存失效]+gate-seed 经 docShape 一次到位）→ O0b reconcile 内核完整化 → O0c 记录契约/渲染面 → O0d ∥ B6-1 → B6-2/B6-3（O0c 后——排序=锚稳定选择非硬依赖[rect 读 cs 终裁 57②]）→ Inner 化（+extent/clamp 去闸门）→ B4' 拖动 → B5' 松手 → B7 收口。**
+
+每分片独立 commit 序列、可独立回滚；**每分片 Step 1 首行=前向引用检查（终裁 90 通则+第二十六轮措辞修正：引用符号来源=当日既有∨本片内新建，禁引用晚于本片才出现的符号——三列：①新引用符号在产∨本片新建 ②被删分支独占导入同批摘 ③保留分支符号仍在用）**；**O0b-0 为格式批跨包原子批（doc rel→abs 格式变更——写侧 toDocRecords 翻转/读侧 reconcile 最小实现/normalizeLoadedCanvas 删/S1 停写/版本门/清库/gate-seed 同批，整批回滚；含清库+gate-seed 重生成=不可逆操作——回滚该批必须重跑清库脚本，终裁 51⑤+69）**；**M0 列 drop（status/category/importCount/dataUrl/isPublic）=不可逆迁移——回滚 M0 需追加反向 migration（终裁 78③）**。分片尾固定三命令（**终裁 68①**——类型面最重改造，编译错误不得攒到 B7）：`tsc --noEmit`（对应包）+ `pnpm --filter @flowweb/web test -- --run` + `pnpm --filter @flowweb/shared test -- --run`（涉 api 时 `pnpm --filter @flowweb/api test -- --run`；涉 web 时 `node apps/web/scripts/lint-gate.mjs`）；B4' 起批尾双标签页手测；B7 收口 `pnpm verify`（**含 apps/api/tsconfig.scripts.json[include src+prisma+scripts——gate-seed 类型义务，终裁 68②]**）+lint-gate+gate-collab 全绿。**禁止垫片/兼容层**（开发期无用户数据）。**现状测试改写按分片内联完成（26-30 条——清单落表见各分片，分片尾回写勾选状态），不留 B7 集中处理。spec 与 plan 同批 commit（v3.16 纪律，终裁 58⑧）。**
+
+---
+
+## C0 第 0 契约片（编码前先行——类型+断言骨架+契约卡附录）
+
+### Task C0-1：shared 类型与签名定稿（编译门）
+
+- [ ] **Step 1: 红测试**（packages/shared/src/canvas/docShape.test.ts 新建）
+  - 类型编译锚：`DocLike = { getMap(name): DocMapLike }`；RenderNode 含 `hidden?: boolean`；dragSession 形状 `{baseline, groupBaseline, delta, draggingIds, **dragProtectedIds**, draggedGroupIds, frozenFrames, gestureKind:'drag'|'resize', resizePending, lastActivityAt, activePointers:Set<pointerId>, gestureAbandoned, resizeTargetId}`（**dragProtectedIds 补入——终裁 88④：O0b-3 引用"C0-1 类型已有"落空；draggingIds=被拖集合/dragProtectedIds=保护集合[含 resize 扩展]，两者并存）
+  - 品牌类型：**字段级品牌为主**（`position: AbsPos` / `RelPos`——number 品牌）+数组品牌 `RelRecords/AbsRecords`（copyPlan 族/投影族签名）
+  - **frameMode({data, storedFrame}): 'auto'|'manual'|'storyboard' 三值 + `isCollapsed(data): boolean` 正交**（v3.15 评审三 P0-2——四值枚举装不下 collapsed∧manual/auto 交叉）；**oracle=doc 侧键**（终裁 44——禁 cs 派生帧当 storedFrame）；isValidStoredFrame 三态（缺键/非有限/≤0 ⇒ false）；**dirty-manual 档删除（v3.16 终裁 50——manuallyResized 整链删；"三键齐"异常态检测由断言①[auto 组 doc 无帧键]承担）**
+  - **DocNodeRecord 类型分裂**（终裁 46——修订 33⑤）：DocNodeRecord（作者态：position?/width?/height?——按键集表）用于 docShape 家族出口；**CanvasNodeRecord 维持必填**（cs/渲染/copyPlan 面）
+- [ ] **Step 2: 绿实现**：packages/shared/src/canvas/docShape.ts 新建（类型+stub 函数签名——body 用 throw new Error('C0 stub') 占位，后续分片填）；品牌类型落 brands.ts
+- [ ] **Step 3: census**："stub 零生产调用点"（C0 期间生产代码不 import stub）
+- [ ] **Step 4: commit** `feat(shared): C0 契约片——docShape 类型骨架+frameMode 三值+DocNodeRecord 分裂+字段级品牌（Spec B C0-1）`
+
+### Task C0-2：运行时断言骨架（六条+membership+一写者——真实实现+todo 挂点）
+
+- [ ] **Step 1: 断言族落盘**（packages/shared/src/canvas/assertions.ts + web 侧挂点）
+  - 六条：①auto 组 doc 无帧键 ②doc.abs≡cs.rel+组帧原点（分镜子豁免）③展开态 auto 组 frame≡bbox+padding（成员≥1）④分镜子 doc 无 position ⑤cs-only 派生字段落顶层禁入 data ⑥`__` 前缀键不进组 data；+空 auto 组→COLLAPSED_SIZE
+  - membership 写侧断言：storyboard 组 `children(parentId=G)⊆cells(G)`（DEV 抛/prod 变更 id 去重 log）
+  - 字段级一写者断言框架（任一节点任一几何字段恰好一个写者——reconcile 内建计数；**data.{width,height} 豁免废止——AI writeNodeData 该键随终裁 49④ 删除**）
+  - 全节点锚 `Number.isFinite(node.position?.x/y)`
+  - **dev-only cs 几何写陷阱骨架（终裁 58①+62+v3.18 终裁 70 作用域拆分）：模块级写者上下文 currentGeometryWriter[reconcile/手势内核/投影结构默认/配置型命令体前写/**夹具入口**各自 set]+订阅 diff position/width/height——非允许写者变更即抛"首个越权写者"；**只对 position/width/height 字段抛（selected/dragging 标记变更放行；**dimensions 按写者上下文放行非按字段放行——终裁 85②：RF dimensions change 在 setAttributes=true 时写 node.width/height，"按字段豁免"不成立，首测固化路径标写者上下文**）；**三模式表（终裁 85①——C0-2 头部收拢，解"生产构建默认启用"与终裁 58④"prod 不抛"字面矛盾）：DEV=抛 / vitest=默认禁+enableGeometryTrap() 守卫造案 / prod=启用但降级计数+采样日志、永不 throw（按字面实现会白屏）；陷阱按节点对象身份 diff 禁每次全表深比（性能并入 500 节点预算）**；作用域=生产源码（apps/web/src 排除 \*.test.\*/\*.spec.\*/test/）——vitest 环境默认禁用+守卫测试显式 enableGeometryTrap() 造案、生产构建默认启用（防 201 处/38 文件存量测试全红——"存量冻结"是静态棘轮概念、运行时陷阱无此语义，两者不得同锚）；单一夹具入口 apps/web/src/test/fixtures/canvas.ts（seedCanvas/makeGroup/makeChild——内部标记 writer context）；**生产侧 27 处 setState（canvasIntents 6/canvasCollabRuntime 7/CanvasView 6/VideoEditorShell 3/page 2/nodeStore 1/guard 1/pointerShift 1）=本任务一次性归类义务**（写者上下文标注或确认非几何字段——真工作量）；**归类口径=“生产几何写点”（终裁 85③）：外部 setState 27 处+store 内 set( 中的几何写者（store 内 set( 全量当日 grep 归类[处数随正则口径 44/50 并存禁写死——第二十六轮]——applyGroupFrame/applyGroupFrameRect/toggleCollapse 镜像/onNodesChange 拖批/clamp/groupNodes/addChildNodes 后置/配置型前写 4 处/arrange 恰都在 store 内；实施法=陷阱开启后跑全量守门用例+一次手测，每个 trip 点归类固化白名单常量——比猜数可靠）；测试面=**文件级 allow-list 静态棘轮**（test/spec useCanvasStore.setState( 起点 **201 处/38 文件**、**38 文件清单入库（终裁 85④）——清单落点=apps/web/scripts/lint-gate 常量文件（终裁 92，第二十五轮落位）；分片迁移一个摘一个、非 allow-list 新文件出现几何 setState 即红**（比行数棘轮有牙齿：”冻结不新增”从口号变机制）；分片迁移只迁被改动文件、行数报数保留单调下降、B7-1 census 报数）；**写者名单落盘 packages/shared/src/canvas/geometryWriterRegistry.ts（新建符号——纯常量+类型零依赖；dimensions setAttributes=true 独立写者类别；C0-2 产出+B7-1 census 引用源，终裁 92）**；锚三条：enableGeometryTrap() 下生产侧手写几何 setState⇒DEV 抛（造案）/夹具入口注入⇒不抛/静态棘轮 N≤201 单调下降（B7-1 核对）**
+  - **断言函数=真实实现（纯谓词今天可写）；挂点测试用 it.todo 标分片归属（O0b unskip——"长期红"与分片尾全绿门冲突的解法）；it.todo 计数锚=**先建后清**（全仓现状 0 处——C0-2 建/分片 unskip/B7-1 归零；终裁 58③+88⑩“随分片单调递减”在起点 0 下不成立）**
+- [ ] **Step 2: commit** `test(shared): C0 断言族真实实现+挂点 it.todo 分片归属（Spec B C0-2）`
+
+### Task C0-3：契约卡+附录表入库（本 plan 附录——施工期唯一权威速查）
+
+- [ ] **Step 1:** 五页契约卡（见附录——卡五=节点类型×wh 权威表——**v3.16 终裁版口径：六处 v3.15 残留同批改齐[卡一 dirty-manual 档删（终裁 50）/卡四 deriveHidden 独立步骤删（终裁 54④ 并入 reconcile）/所有权表 AI data.wh 豁免废止彻底化（终裁 49④+59⑤ AI 键整删）/跃迁表+手势三行表 resize 组行 data{manuallyResized} 删（终裁 50）/全部附录标题版本号=与冻结表一致，终裁 63①②]**）+**所有权表 11 行（含手势期例外行——终裁 56）**+**命令跃迁表（14 行精确——含 arrangeSelection/deleteNode 级联两行，终裁 58 小项+88⑥）**+**手势三行表**+**四兜底表（终裁 54③：normalizeCanvasRecord[nodeEnvelope:30]/snapshot-filter.util:67/readDocCanvas:72[collab-document.service]/template.service:286[随 M0 删]——B7-1 符号级不存在清单）**+**节点类型×wh 权威表（终裁 83④/91——imageGen/videoGen=内容事件+resize/multiImage=组件上报+resize/textInput=首测固化/group=派生/分镜子=命令体显式值；census/实现判据载体非测试串注记，随本附录入库）**+**A/B 表头判据句与计数注（终裁 92+第二十五轮）：A=值参与投影布局/B=值只影响屏幕像素；本表按行计数、区间数≠行数——A 类 canvasStore=13 行/7 区间；C 类 canvasStore :792-794 属 Inner 化批删除不在迁移面**+**measured 读者三列分类表（终裁 84 修正——实测 **40 行/14 文件**[v3.18"42/16"实测误；总数由表推导禁独立写死]；**A/B 按语义重切**）：**A 类·派生/布局/复制（doc wh 权威）=18 行**[定档=doc wh 第一/measured 第二/常量最后；**canvasStore 复制/duplicate/落位族 7 处[:467-468/:474-475/:534-535/:601-602/:608-609/:704/:885-886]迁 doc 源[measured 经 copyPlan 进 doc=第 5 写者路径——O0b-2 批改三档链 `n.width ?? m?.width ?? 常量`，doc 无 wh⇒副本不带 wh 键]+GroupNode:20-21 calcGroupMinSize 迁 doc wh 优先[与派生帧同源]+handleMenu:42-43[B6-1 已定 width 优先]+product-node:13[视频导出尺寸=作者态]]/**B 类·屏幕空间 UI+RF internals（measured 权威、允许保留禁进投影）=19 行**[六 Toolbar：GroupToolbar:81-82+AnnotationToolbar:117-118+EditToolbar:301-302+ImageNodeToolbar:363-364+TextNodeToolbar:166/:171+TransformToolbar:94-95——internalNode.measured=RF 公开 API；**+四处屏幕空间读者（终裁 84 从 A 类移入——实测均视口/屏幕用途，"doc wh 第一档"反致固化窗口期落 300/400 常量跳变）：ImageGenNode:180-181 setCenter 视口居中+CanvasReferenceSelectBanner:32-33 setCenter+VideoGenNode:417 新节点落位偏移[x+vw+40]+TextInputNode:30-31 编辑器盒镜像**；锚"固化窗口期（doc 无 wh）屏幕空间读者直读 measured 无常量跳变"]/**C 类·已删=3 行**[canvasStore:792-794 拖拽 clamp——Inner 化批]**随本 commit 入库；B7-1 census=**集合相等断言**（apps/web/src 排除 test 的 .measured 命中逐行≡分类表，新增即红）（实现者按卡施工、违卡即 bug）
+- [ ] **Step 1b: 否决清单扫描（终裁 63③）**：spec 否决项清单与终裁 49-58（+59-68）冲突条目同批清理——**删"manuallyResized 整链删除（41① 维持——终裁 44）"旧条**（终裁 50 已采纳删除）+全表扫一遍；否决清单是执行者直接照做的负向清单，物理一致非语义兜底
+- [ ] **Step 2: commit** `docs(canvas): C0 契约卡+所有权/跃迁/三行表+数字冻结表入库（Spec B C0-3）`
+
+---
+
+## M0 模板市场删除（前置独立批——先删再冻结 O0 契约）
+
+### Task M0-1：api 侧删除
+
+- [ ] **Step 1: 红测试**（先钉保留面）：clone 建画布→打开→渲染≡源画布几何逐位（既有 e2e 改造）；Template 行仍可被 /works 列表与文件夹缩略图读到（**v3.17 终裁 60① 措辞——"建行 DRAFT 语义不变"废止：status 列本批 drop，红测试不得钉 status 值**）；**getTemplates type=my 列表+重命名+移动+删除 e2e 绿（列表唯一源保留）**；**sv 增量读 e2e 维持绿（execution 链——本批不动 sv，终裁 74）**；**删除锚（拍板 (a1) 已落地 2026-10-02）：TemplatePreviewPage/getTemplate/import/importTemplate 符号级不存在（grep 0 命中，四面=schema 列/TS 类型/组件/夹具）+/works/:id 路由 404**；**死导入三符号（template.service:10 buildFilteredSnapshot/CLONE_WHITELIST/ensureParentFirst——import 方法整删后全成死导入同批摘；(a1) 下 M0 无新读链，前向引用三列检查只剩死导入摘除一列）**
+- [ ] **Step 2: 删除**（**v3.16 终裁 55 扩容——saveCanvas 整链删+isPublic 全删；v3.17 终裁 60 删除面定稿**）：template.validation.ts **整文件**；**canvas.service.save 整方法删（:76-158——saveCanvas 整链：SaveAsTemplateDialog+CanvasTopBar 入口+canvasApi.saveCanvas+路由+P2002 并发回退分支；"save 的非模板部分保留"条款废止——保下来的是无消费方端点**[findMany :58-88 不含 status，SAVED/DRAFT 无列表消费方]**）**；template.service 的 community/browse 半模块（:96/:115/:316/:349 读者面）+**import 方法整删（拍板 (a1) 2026-10-02——:220-327 整方法净删：原"保留收窄+改 doc 直读"方案随端点消解[终裁 80 的 templateData 断链与 rel 镜像问题随唯一读者消亡；评审二 P0-2 鉴权越权洞（:224 assertTeamMember vs :227 owner 判定的取舍歧义）不再可达]+**死导入三符号同批摘（template.service:10 buildFilteredSnapshot/CLONE_WHITELIST/ensureParentFirst——import 整删后全死）**+**templateData 列 drop 同批**[写者已随 save 删+唯一读者 import 随 (a1) 删——列两面同批死；drop 后 O0b-0 回滚仅剩清库脚本一条路（新行自 M0 起恒空——反向 migration 只能恢复空列，第二十五轮登记）]+**清库脚本同批 DELETE FROM Template WHERE projectId IS NULL**[initOfficialTemplates:342-358 官方行实测无 projectId——boot 调用已删不重生；开发期无用户数据不做空间迁移]**）**；**版本常量两处整删**（template.validation:16 z.literal(1)+canvas.service:100 version:1——非"改成 2"；**与 CANVAS_DOC_SCHEMA_VERSION 无关**）；**initOfficialTemplates boot 调用删（main.ts:90——否则 boot 重建市场行；"删 gate-seed 模板行"指此市场行——gate-seed.ts:69-74 Template 行=/works 列表行保留，终裁 51⑥）**；**isPublic 全删=编译器枚举法（第二十六轮三句合一：getTemplate/import 方法随 (a1) 整删后其内判定[原 :126/:227/:250-259]一并消亡不再单列；存活面=getTemplates switch[where.isPublic :63[official]/:78[community-default] 两分支随市场面删+orderBy importCount :91-93+templateData 解构 :103+sort 类型 :17+update :173-175 分支+OFFICIAL_USER_ID+web UpdateTemplateDto.isPublic 键+type=official/community 分支]；**操作纪律：列 drop 后跑 `pnpm --filter @flowweb/api exec tsc --noEmit`——编译器报错清单即完整站点清单（where/orderBy/解构/参数类型一网打尽）禁手写枚举[人工 grep 已证实漏此四处]；符号删除同理=先删符号再 tsc**；getTemplates[my] 的 team/project OR[:72] 保留**）；**v3.17 终裁 60 扩容**：**save 链入口点名删=CanvasSaveController 整类（canvas.controller.ts:28-45——@Post('api/projects/:id/save')+x-yjs-sv 头 Base64 解码）+save-canvas.dto.ts 整文件**（非泛称"路由"）；**readCanvas(projectId,sv?) 的 sv 参数存活、本批不动（v3.18 终裁 74 修正 v3.17 终裁 60②"失去消费者"误判；**v3.19 终裁 88⑧ 拆两句：readCanvas 4 个存活调用点[getProcessSnapshot:325+clone:33+video-project:92+execution:74——前三者均不带 sv 全量读]；带 sv 参数者唯 execution.service:74[AI 执行增量读]**；save:83 随删除；readCanvas 本体保留为 REST 读入口[终裁 51②]）；**status 列 drop**（无读方实证：findMany where 不含 status+folder.service 只 select{id,coverUrl}——**5 处同步点**：canvas.service:48 create data 去 status/isPublic+gate-seed:73+template.service official 种子带+canvas.service.spec:70/:81/:114 夹具改写+template.service.spec:19-20/:433-435[TS2322 注释自证——夹具随列删改写]）；**getTemplate 整删（拍板 (a1)——:121-148 整方法+controller @Get(':id') :19-24+@Post(':id/import') :43-49 两路由删；spec getTemplate 用例 :196-230/:449 整删非改写；findById :114 保留[update/delete 鉴权内部消费]；template.controller.spec.ts:41 对应用例随路由删**
+- [ ] **Step 3: commit** `refactor(api): M0 模板市场删除——公开/浏览半模块+校验门+版本常量+boot seed+import/getTemplate 整删（拍板 a1）+templateData 同批 drop+isPublic 编译器枚举清面（Template 行=画布行保留；sv 不动——带 sv 者唯 execution:74）`
+
+### Task M0-2：web 链+夹具+死码
+
+- [ ] **Step 1: web 拆分支**：/works **拆分支非删链**（保留 /works/:id 打开/副本/删除+getTemplates type=my；摘 official/community 分支+**/templates 路由[router.tsx:45/:46——:102 /works/:id 保留，TemplatePreviewPage 同组件复用]**+Sidebar 项[Sidebar.test:27 同批]+loginRedirect 白名单行）；**模板市场 web 页整删（v3.18 终裁 73④）**：TemplateMarketPage.tsx+TemplateCard.tsx+TemplateMarketPage.test.tsx 整删（/templates 路由摘后死码——Card 仅 MarketPage:2/:80 消费）；**TemplatePreviewPage.tsx+其 test 整删（拍板 (a1) 2026-10-02——页面+test+/works/:id 路由[router.tsx:102]+loginRedirect 白名单行同批删；:62/:63 importCount/category 死读随页面消亡；"复制画布"=打开源画布+画布内复制粘贴承接[评审三取证：画布无全选快捷键，多节点画布复制成本上升=已接受产品取舍，spec §5 登记]）；**templateApi.ts 按符号拆**：**getTemplate/importTemplate 删（拍板 (a1)——消费页面整删后零 UI 消费者）**；deleteTemplate/getTemplates[摘 type=official/community 分支+sort=importCount]/updateTemplate 保留，**UpdateTemplateDto.isPublic 键删**；**isPublic UI 三处删**（SaveAsTemplateDialog:13-42 checkbox+CanvasCard:27/:78/:118 菜单徽标+useWorkspaceData toggle）——"设为公开"变空开关即删；**SaveAsTemplateDialog 组件整删+CanvasTopBar 保存为模板入口删+canvasApi.saveCanvas 删（终裁 55①——api save 方法删除的 web 连带）**；**测试面"1 删 4 改"（v3.17 终裁 60③——"5 个 mock 文件整删"废止）**：删 SaveAsTemplateDialog.test.tsx（测的就是被删组件）；**4 文件只摘 mock 键保留全部用例**（WorkspacePage.test/WorkspacePage.folder-create.test/CreateCanvasModal.prefill*.test×2——vi.mock 工厂摘 saveCanvas: vi.fn() 一行，**整删会丢工作区列表/文件夹创建/prefill 三块覆盖**——F24⑨ 实证四文件与被删功能无关）
+- [ ] **Step 2: 死码+scripts 类型面**：backfill-team.ts 删（引用已删 Prisma 模型+scripts 不在 tsc 面——今天即编译不过）+apps/api/package.json 脚本行+**envelope-serialization-guard.test:54/:68 扫描面注记同批修**；**列 drop 扩容迁移（终裁 55②+v3.18 修订+终裁 90 补全）**：status/category/importCount/dataUrl/isPublic/**coverUrl（全仓零写者死列——读者 folder.service:30/:43 select/预览页 img/CanvasCard/useWorkspaceData 同批改走 getCanvasGradient 兜底或删展示）**+**description（第二十六轮 B1——(a1) 下死列实锤：写者仅 update:172 而 web 三调用[useWorkspaceData:110 folderId/:121 name/:134 isPublic]无一传它+原写者 saveCanvas 随 M0 删；读者=预览页:60+官方种子:345/:368 全随 (a1)/市场面灭——update 分支+dto:26+种子+夹具同批清）**+**三索引[@@isPublic/:162+@@category/:163+@@importCount/:164]两枚举[TemplateStatus/TemplateCategory DROP TYPE]**（status 读者核实=findMany 不读+save 写者已删——drop 前跑全仓 grep status 双向确认；**templateData 已随 M0-1 同批 drop（终裁 80 前移——v3.18 终裁 73③"挪 O0c-1"证伪：save 删后 gate-seed:73/新建行均无 templateData⇒副本必 400+rel 镜像跨翻转折位；drop 不可逆，**回滚 M0 需追加反向 migration**，终裁 78③]）；**apps/api/tsconfig.scripts.json 创建+verify 接线（v3.18 终裁 78①——实测仅 tsconfig.json[src]/tsconfig.spec.json，非既有物）**：include src+prisma+scripts（排除 dist）+首跑存量类型错误清零+root package.json verify 在 `api exec tsc --noEmit` 后追加 `pnpm --filter @flowweb/api exec tsc -p tsconfig.scripts.json --noEmit`（gate-seed 成 docShape 消费者后的类型义务——时机=M0-2[backfill-team 删除后 scripts 面才可绿]）；**CanvasNode/CanvasEdge"死表迁移"任务作废**（已于 20260827223714_team_contract_drop_node_tables DROP——F22⑫）
+- [ ] **Step 3:** spec 夹具**整批删**（template.service.spec/template.validation.spec/canvas.service.spec 的 version 夹具；**v3.17 终裁 60③ 扩容：canvas.service.spec 的 save 套件 :185-316 约 130 行整块删**[无关联 Template 创建 status=SAVED/update 保留 isPublic/P2002 并发回退/isPublic 内容变换/isPublic 粘性——非"版本夹具"，随 save 整链消亡]；template.service.spec:196-230/:449 getTemplate 用例**随 (a1) 整删**[原"isPublic 断言改写非整删"方案随 getTemplate 整删废止]）
+- [ ] **Step 4: 验收锚**：validateTemplateData/**isPublic 全仓**（写面+读面+鉴权判定项）/initOfficialTemplates/**saveCanvas**/**TemplateMarketPage/TemplateCard/templateData** 符号级不存在（grep 0 命中，扫描域=apps/*/src+packages/*/src——**templateData 含 schema 列+TS 类型+组件文案+test 夹具四面清算**，终裁 81①）∧ **TemplatePreviewPage/getTemplate/importTemplate 符号级不存在（四面清算）+/works/:id 路由 404（拍板 (a1)）** ∧ clone 全链绿 ∧ 工作区列表 e2e 绿 ∧ boot 后无市场行
+- [ ] **Step 5: commit** `refactor(api,web): M0 web 链拆分支+市场页整删+templateApi 符号拆+backfill-team+夹具整批删+tsconfig.scripts 接 verify（死表任务作废——已 DROP）`
+
+---
+
+## editMode 小分片（M0 后、O0a 前——doc 契约冻结前改 data 键集）
+
+- [ ] editMode=本地瞬态+ephemeral（**键集仅 editMode/transformMode——v3.16 终裁 53：expanded 是 doc 态[nodeStore:763-779 落 doc+决定渲染尺寸]禁入；"尺寸相关 data 键禁 ephemeral 禁双存"**）；两侧禁整表替换+白名单 {selected,dragging}；断言"ephemeral 禁入 doc/cs 持久面"+"远端 apply 后 expanded 保持源值∧渲染尺寸≡doc 尺寸"；isLocked 双定义合并单源（:129 订阅式+:327-328 isLockedNow）；编辑锁五模式锚**限定本地**；**getAvailableHandles 谓词覆盖 transformMode（isEditMode=!!editMode||!!transformMode）+videoGen 双 handle 无门=现状保留（行为变更登记）**；MultiImageNode expanded 用例进改写清单
+- [ ] commit `refactor(canvas): editMode 本地瞬态小分片——isLocked 单源+ephemeral 键集（Spec B editMode）`
+
+---
+
+## O0a docShape 单源+api 收编（shared 纯函数——零接线）
+
+**行为等价不变量（v3.16 终裁 58⑦+v3.17 终裁 64① 拆分两句+v3.18 终裁 69 翻转支点定标——"剥键未生效"原措辞与 O0a-1/O0a-3 自相矛盾）：①空间语义不变：位置原样拷贝、不解释 abs、不做 rel→abs 翻转（**toDocRecords 本分片=identity 档——rel→abs 翻转支点=O0b-0 格式批单一 commit，冻结表行写死，翻转开关无第二处**）；②键集剥键在 O0a 生效（上游构造纪律=唯一剥键写者）。出口锚限定："O0a 尾：**除分镜子 position/组帧键的剥离外**，现状夹具全绿+api 双端读逐位相等"+预期形状变更清单（分镜子夹具 position 键消失——哪个夹具会变、为什么）；O0a-2 收编与 O0b-0 翻转之间，api 不得把 rel 文档当 abs 读——否则静默几何错位。**
+
+### Task O0a-1：docShape 单源收编+position 单键+类型分裂
+
+- [ ] **Step 1: 红测试**：docShape round-trip 双端比（fillDoc→readRecords 恒等——**分镜子两侧无键恒等**[三层表：doc 无键⇄records 同形无键⇄cs {0,0} 构造默认——v3.15 定稿]）；position 单键原子化+envelope{position}=Y.Map 嵌套子 Map；**类型分裂**：DocNodeRecord 出口（fillDoc/readRecordsFromMaps/stripAuthorState/toDocRecords）可选键——**CanvasNodeRecord 维持必填**（编译器门更利）
+- [ ] **Step 2: 绿实现**：ydocBuilder 的 fillDoc/readCanvasFromDoc/applyRecordToYMap 收编 shared/canvas/docShape.ts（DocLike{getMap}——零 yjs import 的结构性类型）；fillDoc/applyRecordToYMap **按键集表跳过无键节点——键集判定需父 groupType 而 applyIntentToDoc addNode 逐 intent 单节点无父上下文（groupNodes 子先父后）⇒ 三层防线（v3.16 终裁 52+**v3.17 终裁 64② 修订——消同一规则双写者**）：①**上游构造纪律=唯一剥键写者**[分镜落子/粘贴分镜子副本 intent.node 不带 position——copyPlan 分镜子 rel 归零既有先例同源]②**stripDerivedKeys 降级 DEV/prod 只读校验**[读最终 doc 断言键集**不写**——原"transact 尾 normalize pass 统一剥键"写动作废止转校验谓词；锚改"分镜子 child 先于父组入 doc（人为构造序）⇒**DEV 断言报错而非被静默修好**"——bug 当场暴露]③DEV 断言父先子后漏斗不变量**；normalizeCanvasRecord position 兜底删除（**四兜底表见 C0-3——终裁 54③**）
+- [ ] **Step 3: commit** `feat(shared): O0a docShape 单源——position 单键+DocNodeRecord 类型分裂+键集表跳过（Spec B O0a-1）`
+
+### Task O0a-2：api 读写收编+组深≤1 校验
+
+- [ ] **Step 1: 红测试**：api 读≡web 读（readDocCanvas 收编 readRecordsFromMaps——同一 doc 双端比）；writeNodeToYMap 收编 applyRecordToYMap（stripAuthorState 输出唯一入参）；**组深≤1 校验（第二十六轮 C2 措辞修正）：import 档=既有覆盖[fatal 含 nested-group——(a1) 下随端点消解]；**clone 档升格 nested-group 为 fatal=行为变更**（现状 clone 档只检 cycle[video-work-clone:46-47 实证]——新增 clone 档 nested-group 用例；现有测试只覆盖 dangling 容忍）；禁写第二份深度校验**；符号级断言"api 无第二 doc 节点读写实现"（readDocCanvas/writeNodeToYMap 符号不存在）
+- [ ] **Step 2: 绿实现**：collab-document.service readDocCanvas→docShape readRecordsFromMaps；node-doc.util writeNodeToYMap→docShape applyRecordToYMap；project.service/video-work-clone 种子路径走 stripAuthorState+组深校验
+- [ ] **Step 3: commit** `feat(api): O0a 读写收编 docShape 单源+组深≤1 入口校验（Spec B O0a-2）`
+
+### Task O0a-3：toDocRecords 换芯+内剥键
+
+- [ ] **Step 1: 红测试**：auto 组只改 data ⇒ diff **恰 1 个 updateNodeData intent ∧ 零 envelope/moveNode**（差分 intent 不带几何）；round-trip：toDocRecords 输出满足键集表逐格（auto 组无三键/storyboard 无 wh/分镜子无 position）+**identity 档断言"输出 position≡输入 position 逐位[除剥键]——翻转不在此分片"（终裁 69）**；**连续两次 reconcile(cs) 幂等（第二次零 setState）**
+- [ ] **Step 2: 绿实现**：projectCanvasNodes 双源换芯 toDocRecords（csNodes+nsNodes 结构性最小类型入参→DocNodeRecord[]）；**剥键在 toDocRecords 内**；setDocPosition 唯一写原语（Y.Map 嵌套）
+- [ ] **Step 3: commit** `feat(shared): O0a toDocRecords 换芯——唯一 rel→abs+内剥键+差分零几何意图（Spec B O0a-3）`
+
+---
+
+## O0b-0 格式批（**八件套原子批**，终裁 69+79——跨包整批回滚）
+
+### Task O0b-0：doc 格式翻转+版本门 v2.1+清库+gate-seed（v3.16 终裁 51+v3.18 终裁 69 扩容——**翻转支点单一 commit，冻结表行**）
+
+- [ ] **Step 1: 红测试**：**空白项目经浏览器 WS 打开后 DB 直查 meta.schemaVersion===2**（有鉴别力锚——旧"重开 assertDocSchema 绿"在盖章规则下恒绿[假绿]）；新建空白项目→打开→加节点→关闭→重开绿；**v1 档（人为写 1）双端拒绝+UX 明确提示（非白屏）+禁写**；**REST 读档第五行（终裁 51②+v3.18 终裁 74）：v1 档经 readCanvas/getProcessSnapshot[匿名公开页]读取⇒拒+明确 UX（非按 abs 解释 rel 静默错位）；gate 落 collab-document.service.readCanvas 内+从全量 doc 读 meta（不依赖 sv 差量）；sv 路径两锚——sv 下 v1 档同样拒/sv 下 v2 档正常返回增量（不因 gate 退化成全量读）**；四档处置+第五行（戳=2 放行/戳=1 拒/**无戳∧零节点⇒stamp 唯一自愈点**/**无戳∧有节点⇒两侧拒[DEV 抛/prod 拒+日志——终裁 92，WS 与 REST 同条件]**/REST 读旧档拒）；**api 种子正负锚（第二十五轮 A1+第二十六轮 P0-20 拆两档）：正锚①=REST 建带初始节点项目⇒未开 WS 直接 readCanvas⇒meta.schemaVersion===2∧无抛∧随后 WS 可正常打开；正锚②=REST 建空项目[controller:17 传 undefined]⇒readCanvas 不抛（零节点合法——**闸门未去则此锚红=判别锚**）；负锚=注释 create 内 stamp⇒带节点档两侧双拒（空档本应放行）**；**幂等契约锚（终裁 51③——替代批3-4"零写放大"）**：首次 loadDocument 后 meta.size===1 ∧ 第二实例 load 同 doc 新增 update=0（戳=确定值幂等写、每 doc 至多一次）；**几何锚（终裁 69——现有锚全是版本锚抓不到几何错位）：含 auto 组+分镜组+嵌套子节点夹具：打开⇒cs 子 rel 逐位≡doc.abs−帧 origin ∧ doc 无 auto 组帧键 ∧ 二次打开逐位不变（无 S1 回写）**
+- [ ] **Step 2: 绿实现（格式批**八件套**，终裁 69+**79 闭包扩容**）**：**①写侧翻转**：toDocRecords 切 rel→abs（O0a-3 identity 档同批切换——不加 space 参数，直接改函数体；翻转开关无第二处）；**②读侧 reconcile 最小实现**：写域②abs→rel 直拷+组帧 origin 同 tick（够翻转读侧——O0b-1 再完整化源矩阵/写域四类/零差异短路；doc 读取=readRecordsFromMaps[docShape 单源，终裁 77]；**挂点写死=applyDocToStore 尾——漏斗尾/diff 首行随 O0b-1 补，否则翻转批窗口 hydrate 把 abs 当 rel 直拷**，终裁 79）；**③normalizeLoadedCanvas 整删+调用面闭包（终裁 79——五件套按字面落地=web/api tsc+test 三线红，实测调用面）**：模块+其测试 10 处——原 O0c-3 项前移[O0c-3 留符号断言]；实证 :58-73 缺几何分支把 abs 当 rel 双偏移——O0 后 auto 组恒命中；applyDocToStore :314 调用点直接吃作者态记录；**+⑥checkProjectionInvariant 同批改写（canvasCollabRuntime:250-262 生产导出——:254/:259 双侧 normalize 调用改直接深等[两侧同空间 abs]，原 O0b-4 项前移）+⑦api 两处调用点同批删（project.service:7/:64+video-work-clone.service:9/:50——翻转后 doc=完整作者态，补几何语义整族死；F25① 漏列后四处）+⑧守卫自证行[storyboard-dereref-guard.test:43 ALLOW_FILES 行+:51"文件存在"自证断言]+spec 钉子[video-work-clone.service.spec:10/:195/:207——:207 用例名自证"删 service 内该调用即红"，两用例随语义死改写]+index.ts:20 re-export 同批删**——**本步先产出符号删除 census 五列表**（生产调用点/测试夹具引用/扫描型门禁命中[仓内 9 个逐个]/allow 自证/re-export——终裁 79 通则，后续所有整删任务沿用此模板）；**④S1 停写**：canvasCollabRuntime :324/:335-338 调用点删（pickStructNodes 捕获+structDiffToIntents/dispatchSystemIntents 回写——canvasHistory.ts 整模块与 dispatchSystemIntents 定义删除留 O0b-4[停写=调用点删，模块清理=O0b-4]；refitExpandedGroups :326 调用随之摘）；**⑤版本门 v2.1+清库+gate-seed**（下列原有内容）：**唯一戳源=CollabGateway.loadDocument（replay 完成后同步 stamp——update 进 pending 落库；已戳=current ⇒ no-op）**+api 种子入口（**=project.service.create 的 collabDoc.withDoc 回调内 stampDocSchema(doc)——非 prisma $transaction[:42-56 内无 doc]；**无条件执行=去 `nodes.length>0` 闸门[:58]**（闸门内=REST 建项目[:17 传 undefined]永不落 doc 不盖章——P0-20；节点写入留在闸门内）；带节点链[clone :51；import 随 (a1) 删]经同一回调**，第二十五轮 A1+第二十六轮 P0-20；O0c-1 clone 行改验收断言**）+**REST 读入口（readCanvas+getProcessSnapshot——ensureSchemaVersion 三入口）**；**REST 读路径"无戳∧有节点⇒拒"（终裁 86①+**92 两侧统一**：**WS loadDocument 同条件同拒**（DEV 抛/prod 拒+日志——86① 张力消除：防鬼影不分路径；**零节点∧无戳⇒stamp 唯一自愈点**[新建空画布合法场景]）；门判据以 doc meta 为唯一事实+census"新增读路径必须复用 readCanvas[getMap('nodes') 直读点=docShape 单源禁第二处]"；**"无戳∧有节点"档锚构造=裸 doc+writeNodeToYMap 不经 fillDoc**（fillDoc 每写都盖 meta 戳⇒测试里加过节点戳就在——防假绿，终裁 92）**；**fillDoc 的 schemaVersion stamp 删除**（ydocBuilder:22-25——戳源唯一化）；**CANVAS_DOC_SCHEMA_VERSION=2 常量定义上移 packages/shared/canvas/docShape.ts（ydocBuilder 改 import——api 无法 import apps/web，防复制常量第二真源，终裁 51①）**；**stampDocSchema/assertDocSchema/ensureSchemaVersion 落 docShape**（web 读侧 entry=applyDocToStore 读侧断言"收到的版本==current"）；**清库脚本（可重复执行+顺序点名，终裁 51④+87+**92 FK 面全覆盖**）**：**DELETE FROM 分组顺序（第二十六轮标注：FK 子表先行→父表→无 FK 关联表——TRUNCATE 父表在 FK 引用时直接报错）**：FK 子表[ProjectMember→VideoProject→Template→CanvasDoc→CanvasDocUpdate]→父表[CanvasProject]→无 FK 关联表删行[VideoWork——canvasProjectId 普通列]（**CanvasProject 的 FK 子表实测 5 条：Template[SetNull]+CanvasDoc/ProjectMember/CanvasDocUpdate/VideoProject[Cascade]——87 版漏后两表**）；**无 FK 关联表删行非清列（第二十五轮修正——清列留幽灵行：/videos 列表可见而 process 404；GenerationIntent @@unique([projectId,intentId]) 遇 NULL 失去去重约束[PG NULL 互不相等]）：Media/GenerationIntent 按 projectId 删行、VideoWork 按 canvasProjectId 删行**；+**清 Redis 键=SCAN `videoWork:process:*` 删**[video-work.service:31 键模式实证]+**重启 api/web（内存 Y.Doc 失效）+gate-collab 先断言 api 健康再跑**（防清库后内存 doc 残留的偶发红）——开发期无用户数据不做 v1→v2 迁移；+锚"重置后 /works /videos /materials credits 对账无幽灵行"（87 版 /works //videos 扩容）；**Redis 快照缓存键拼 schema 常量（自 O0c-1 提前——翻转批后 300s 窗口 /process 命中 v1 旧空间载荷=公开页鬼影）**；**gate-seed 重生成经 shared docShape（applyRecordToYMap/stampDocSchema——禁自建 Y.Map 绕咽喉+翻转批写旧键集）+一次到位（meta 戳+auto 组+分镜组各 1——追加 id 不动 gate-node-1/2[a0-0-env.spec:27-28 兼容]；O0c-3 只留断言）**+e2e 夹具重生成；**回滚纪律：回滚本批必须重跑清库脚本（旧 gate-seed 无 meta 戳）**
+- [ ] **Step 3: 同批测试改写**：collab.gateway.persist-status.spec.ts:177-188 **改名+理由重写**（原"不污染 doc 状态/零写放大"契约由"至多一次幂等戳"接替——非改数字是改契约）+**幂等锚两条**；ydocBuilder.test.ts:105-133 批2-3 四用例改写（"fillDoc 写 meta=1"→"fillDoc 不写 meta"）；**normalizeLoadedCanvas.test 10 处+invariant.spec normalize 引用随模块整删同批**（终裁 69③——原 O0c-3 项前移）；**+终裁 79 闭包三处：video-work-clone.service.spec:10/:195-207 两用例[幂等保险/缺几何补齐——语义死同批改写]+storyboard-dereref-guard.test:43/:51 守卫自证[ALLOW_FILES 行删+存在性自证断言改写]+checkProjectionInvariant 用例随⑥改写**；canvasCollabRuntime.projection.test:101/marqueeSelecting.test:19-24 S1 断言随停写改写（模块清理留 O0b-4）
+- [ ] **Step 4: commit** `feat(api,web,shared): O0b-0 格式批八件套——doc rel→abs 翻转+reconcile 最小实现[挂 applyDocToStore 尾]+normalizeLoadedCanvas 整删[调用面闭包：checkProjectionInvariant 改写+api 两处+守卫自证/spec 钉子/re-export]+S1 停写+版本门 v2.1[REST fail-closed]+清库五表+gate-seed 经 docShape 一次到位（Spec B O0b-0·格式批·翻转支点单一 commit）`
+
+---
+
+## O0b reconcile 单内核+尺寸固化+投影几何键全删+S1 整删（web 核心）
+
+### Task O0b-1：reconcile 单内核
+
+- [ ] **Step 1: 红测试**（对 C0-2 断言骨架转绿+新锚）
+  - 写域四类逐条：组帧三字段≡deriveGroupFrame 输出（**帧模式 oracle=doc 侧键——cs 派生帧不参与 frameMode 判定**[终裁 44——auto 组防 manual 死锁]）；新顶层节点（粘贴/复制/建点/建组/差分新增）同 tick cs.position≡doc.abs 逐位∧渲染位≠{0,0}（**前提=applyIntentToDoc addNode 经 fillDoc 落 position——显式锚**）；非组 wh 直拷；分镜子 {0,0} 停住
+  - 一写者通则：auto 组 doc 无帧键⇒②③跳过；缺键分支保留 cs 现值禁 undefined；全节点 Number.isFinite
+  - 单遍单 origin：auto 组因成员移动整体位移⇒子 abs 逐位不变∧cs.rel 与新 origin 同 tick 自洽
+  - 零差异短路：renameGroup⇒reconcile 零 setState（订阅计数=0）∧几何变更恰一次
+  - 源矩阵：diff 首行 cs 源下 addToGroup/arrange 命令几何不丢；source:'cs' 全仓恰 1 处；**远端改任意无关节点⇒本地其它节点 cs 几何零变化**（防直拷回灌——v3.15 评审二锚）；**投影派发前非让位节点 doc.abs==cs.rel+origin 逐位成立（"网格内"限定删——终裁 78⑦：量化单侧后远端非网格值等式成立但网格性不成立，防锚误红；网格性只对本地量化产出断言）**
+- [ ] **Step 2: 绿实现**：reconcileGroupGeometry 落 canvasStore（**挂点 3+1（v3.17 终裁 65①——O0b 期三元组**：3=漏斗尾[投影循环后，两早退不挂，禁 finally]+dispatchProjectionDiff 首行+applyDocToStore 尾；第 4 处"中止/零提交收尾"宿主随 B4'-1 endGesture 落地补第 4 成员——**O0b 期按三元组写过渡断言，四元组 census 断言留 B7-1**，否则 O0b 出现无法构造的红测试）；**doc 读取路径=readRecordsFromMaps[docShape 单源，终裁 77——禁从 nsNodes/csNodes 反推=直拷回灌；census"reconcile 内不得出现 applyIntentToDoc/setDocPosition 写原语"]**；deriveGroupFrame 四模式（storyboard=calcStoryboardSize[resolveStoryboardConfig 单源，无 padding]；**normal 档=calcGroupBounds(childrenAbs) 单源[geometry.ts:68-74 非对称 padding GROUP_PADDING=20/GROUP_PADDING_TOP=50——禁 deriveGroupFrame 自写 padding 公式成第二实现；census"**帧装配算术实现点=1（calcGroupBounds）**"[第二十五轮 A3+第二十六轮限定：calcGroupMinSize[最小尺寸约束]/clampPositionToPadding/clampChildIntoGroup[子位夹取]的 padding=**被约束量非帧装配不在计数域**——照合并=改语义；refitGroupGeometry[:126 委托 calcGroupBounds]随 refit 族退役]**；空 auto 组→COLLAPSED_SIZE；**childrenAbs 尺寸=固化后 doc 尺寸——O0b-2 同批**）
+- [ ] **Step 3: commit** `feat(canvas): O0b reconcile 单内核——doc 侧 oracle+写域四类+单遍单 origin+零差异短路（Spec B O0b-1）`
+
+### Task O0b-2：尺寸真源完整链（v3.16 终裁 49）+投影层几何键全删
+
+- [ ] **Step 1: 红测试——尺寸真源四写者（v3.16 终裁 49+v3.17 终裁 59——[ii] 内容事件升格为第四类：三写者+"首写者胜永不覆盖"会把图片加载/换图自适应锁死在首测兜底值，比现状更糟）**
+  - **命令体显式值**：粘贴/复制节点（copyPlan 已有 wh）⇒intent.node 带值⇒fillDoc 落 doc（:34-35 已支持）⇒**副本 cs.wh=原件逐位+同 tick**（reconcile 写域③）；建组⇒组行带 deriveGroupFrame 输出；锚：新建节点（建点/粘贴/建组/差分新增）首帧 cs.position≠{0,0}∧doc 落 position
+  - **首测固化兜底（降为兜底档——v3.17 终裁 59①[iii]+v3.19 终裁 83① 收窄：仅 doc 无 wh 时写+**内容型节点退出**——首测固化仅适用"无其他写者类型"[textInput 等静态节点]；imageGen/videoGen/multiImage 等有 load 事件类不参与[否则固化值→内容事件注定覆盖=每节点至少两次 doc wh 写入且 B 端可见中间值跳变]；doc 缺 wh 期间 cs.wh 走 measured 兜底[B 类白名单允许]；**deriveGroupFrame 缺键档三档链（终裁 91——第二十五轮落位）：doc wh→cs.wh(measured)→DEFAULT_CHILD_SIZE[首帧 doc∧cs 双无 wh 时 DEFAULT 是唯一解——"禁 DEFAULT"过绝；首帧瞬态 §5 登记]**：**含 ≥1 从未 resize 图片节点的 auto 组**——**锚改写（终裁 83②——"冷启动首帧帧≡内容 bbox+padding（非 DEFAULT_CHILD_SIZE 兜底）"机制不可达：首帧渲染先于 RF 测量、doc 无 wh 无尺寸来源）："固化/内容事件完成后帧≡内容 bbox+padding∧收敛步数=1（无抖动无循环）∧重载逐位不变∧A/B 两端逐位一致"——首帧 DEFAULT 瞬态进 §5 登记**；dimensions 批（无 setAttributes∧非手势期[session∨resizePending 不固化]）∧doc 无 width/height ⇒ **同 tick 批量合并单 transact** 恰一次 updateNodeEnvelope{width,height}（**Origin.Geometry——不入撤销栈**；**值 normalizeSize=Math.ceil 单源——终裁 59③，adaptCustomSize/calcConstrainedSize 的 round 同批改**）；**首写者胜（仅本类）**（doc 有 wh 后零固化 intent；后续测量≠doc ⇒ 不写+reportShapeViolation 采样；锚：双端首开同一画布⇒doc 尺寸单一值∧无第二次写入）；**折叠组内永不渲染节点=展开后首帧落定（类型限定——终裁 91：textInput 类=首测固化/内容型=load 内容事件）**（锚：折叠期 doc 无 wh∧展开后首帧落定∧帧≡bbox+padding）；**固化 intent 不与 LocalUser 提交同 transact 合批（终裁 59⑥——否则首次 Ctrl+Z 把固化吃进撤销项，与 B5'-1"拖完 Ctrl+Z 只回退拖动"锚冲突）**
+  - **内容事件写者（新增第 [ii] 类——终裁 59①+v3.18 终裁 76 触发禁令：图片 load/换图比例变化/替换图片/拼接完成/视频元数据就绪，经 updateNodeEnvelope{width,height} Origin.Geometry 提交，允许覆盖；**仅 DOM/回调事件触发[img.onload/loadedmetadata/拼接回调/显式换图命令]——禁测量触发∧禁 cs.wh 变更触发∧禁 data 变更触发∧禁任何状态变更触发[防内容事件↔reconcile 直拷回路 live-lock：事件 dispatch→doc→reconcile 写 cs→组件订阅 prop 变化→再 dispatch 互覆盖]；锚"远端改 wh⇒本地零内容事件 dispatch∧doc 零写入"**）：锚五条——①图片节点冷启动首帧 doc.wh≡calcConstrainedSize 结果（**非 ratioDimensions 兜底**——时序链：挂载→首测兜底→固化→图片加载→内容事件覆盖）∧组帧≡bbox+padding；②换图（比例变化）⇒wh 跟随（**contain-fit 语义——wh=滚动约束框，终裁 75：以当前 wh 为约束 adaptToFit(wh,newRatio)≡旧 adaptCustomSize(customSize,newRatio)[实证 :279 updateConfig({customSize:adapted})=滚动更新非恒定框，行为等价现状]**）∧双端一致∧重载不回跳；③拼接完成⇒wh=拼接尺寸；④用户 resize 后换图⇒按新比例 contain-fit 重算（**尊重用户约束框的重算非无端覆盖——"resize 后不得覆盖"案证伪，行为等价现状**；锚补"resize 到 W×H→换图⇒wh=contain-fit(W×H,R') 落 doc 双端一致∧重载后同一操作逐位相同[防约束框只在内存]"）；⑤reportShapeViolation 只对"非四类写入"采样（内容事件不刷违规计数）；**⑥onError/无内容事件兜底（终裁 91 落位——broken fileId/加载失败让 wh 必然落定：错误路径也提交 envelope{wh=兜底值}，否则该节点永久无 wh 与"收敛步数=1/帧≡bbox+padding"锚直接冲突；锚"broken fileId 节点⇒doc wh 仍落定∧帧≡bbox+padding"）**；**分镜落子/生成结果直接入组 wh=命令体显式值（终裁 78⑤——载荷尺寸经 addChildNode intent.node.wh；分镜子 hidden 无 load 事件⇒永不内容事件永不固化；锚"生成结果直接入分镜格⇒doc wh 来源=命令体非渲染测量"+"hidden 节点无 load 事件仍能拿到 wh"）**；**multiImage 类=组件显式尺寸上报（终裁 83③——四写者第 [i] 类子类：MultiImageNode 实测 expanded[nodeData:82]+imgSize[useState:106]+expandedW/stackedW 计算尺寸[:122-128]+全文无 setNodes/无 .measured——展开/收起/换主图尺寸变化在四写者模型中无写者⇒RF 盒/选择框/组帧 bbox/快照全部与视觉错位[双端一致地错]；修法：toggleExpanded/换主图经命令体/组件回调提交 envelope{wh}[expandedW/H 或 stackedW/H]——**v3.20 终裁 91 四类触发点写死：挂载首帧∪toggleExpanded∪增删图[imageCount 变⇒gridCols/Rows⇒expandedW/H 变]∪非展开态主图 load（漏任一⇒doc wh 陈旧比现状更糟——双端一致地错且现有锚抓不到）+收敛锚"上报后一致⇒不再上报，收敛步数=1 无 live-lock"+公式单源[expandedW/H 与组件共用同一纯函数——创建时不得两处各算]**——与 editMode 分片"expanded 是 doc 态决定渲染尺寸"自洽[expanded 进 data+wh 进 envelope 同批]；**节点类型×wh 权威表入库**：imageGen/videoGen=内容事件+resize/multiImage=组件上报+resize/textInput=首测固化/group=派生/分镜子=命令体显式值——每类各一条锚）**；**内容事件同值去重（终裁 83⑥——Y.Map.set 不做值比较：loadedmetadata 重发/组件重挂会重复写 doc）：写前比对现值相同⇒零 intent；锚"同值重复触发⇒doc 零 update"（防写放大与远端重算）**
+  - **customSize 并入 envelope**：imageGen 节点 customSize 存在（夹具）⇒帧≡视觉 bbox 逐位（含挂载恢复路径）；census"除 RF 自身无组件直写 RF node.width/height"（ImageGenNode :292-297/:714-729 两处 setNodes 为唯一现存违例——本步删）
+  - addChildNode(s) exists 自适应替换（:502-508 append 分支+:577-580 滤除重 append）⇒收口为 selected 合并（census"dispatch 后无 cs 几何直写"兼容）；AI writeNodeData data.{width,height} 键**整删**（ai-image-edit.processor:195-198——**AI 只写 fileId，非改写 envelope：改 envelope 会让 api 成信封第 4 写者撞冻结表"信封写者=3"，web 侧零消费者实证；尺寸由 web 内容事件路径决定——终裁 59⑤；"消费者同批改"句删（无对象）**）
+- [ ] **Step 2: 绿实现**：onNodesChange :762 dimensions 分支扩固化路径（批量合并+首写者胜+normalizeSize ceil 单源——落 docShape 供固化/内容事件共用）；ImageGenNode **:292-297 setNodes→内容事件 envelope intent（handleImageLoad 三分支——F24①）+ :714-729 挂载恢复=读 cs.wh**+customSize 键删+**:731-747 handle 中途消失持久化路径改挂 resize 提交[envelope intent——与终裁 59④ 同族，终裁 75⑤]**；VideoGenNode（:281-290/:519/:563-588 三处同构——内容事件）+useStitchTask:28（拼接完成=内容事件）+resizeUtils adaptCustomSize/calcConstrainedSize round 改 ceil 写点改 envelope intent；**contain-fit 单源（终裁 75）：adaptToFit 独立纯函数落 shared[新名——不复用 adaptCustomSize 名]+calcConstrainedSize/ratioDimensions 三份逐字重复收编 shared 单源[ImageGenNode:43/:63+VideoGenNode:34/:52+MultiImageNode:23——census"calcConstrainedSize 定义点=1"；**三份消费点同批迁移逐文件点名（终裁 83④——含 MultiImageNode:23 定义/:114 handleMainImageLoad 消费，漏任一文件则 census 不成立）**]；**等价性守卫三条（终裁 83⑤）**：①existingCustomSize&&!ratioChanged 沿用档[ImageGen:281-283/VideoGen:292-293]=新模型显式"以当前 wh 为准"——重载/同比例换图不退 calcConstrainedSize 默认（尺寸跳变双端不一致）；②局部尺寸态 setImgSize/setVidSize **保留**（edit overlay 必需——:953 注释自证，**不在删除表**；"局部态与 cs.wh 短暂不等=允许窗口"写实）；③aspectRatio 键**保留**（ratioChanged 判定依赖 :270-274——customSize 连带面防连带删错）；规则写死"图像类 wh=滚动约束框[resize 提交写/内容事件覆盖写两写者都更新它——换图=以当前 wh 为约束 contain-fit]"**；**customSize 连带面全清（v3.17 终裁 59⑦）：resizeUtils.test:46-56 四用例改写[contain-fit 语义维持+ceil]+nodeStore:120/:143 类型声明删+ImageGenNode 6 处+VideoGenNode 6 处+useStitchTask 1 处**；**canvasStore 复制/duplicate/落位族 measured 迁 doc 源（7 处=7 区间 13 行——终裁 72②；:467-468/:474-475/:534-535/:601-602/:608-609/:704/:885-886 改 **三档链 `n.width ?? m?.width ?? 常量`**[v3.20 终裁 91——**"改 n.width ?? 常量"作废**：保留 measured 第二档=固化窗口期行为正确+基线 40 不失真+单相 census；O0 后 doc wh 第一档命中=行为同 doc 直拷]+**A 类定档=doc wh 第一/measured 第二/常量最后（B7-1 形态断言：每 A 类行必含 width ?? 前缀、.measured 命中必须在 ?? 链中）**；doc 无 wh⇒副本 intent.node 不带 wh 键——防 measured 经 copyPlan 进 doc=第 5 写者；锚"复制从未 resize 图片节点⇒副本 doc wh≡源 doc wh；源无 wh⇒副本无 wh 键"）+GroupNode:20-21 calcGroupMinSize 迁 doc wh 优先[与派生帧同源——防 NodeResizer 最小尺寸与派生帧打架]+**product-node:13 视频导出尺寸迁三档链（终裁 91 宿主认领——A 类唯一此前无宿主行[现链首=.measured，迁移后自然满足形态断言]，漏迁则集合相等断言首日红）****；**addChildNode(s) intent.node 扩 wh 键=命令体显式值通道（终裁 59①[i]——删 customSize 后初始尺寸的显式形参）**；粘贴/建组命令体补显式 wh；**removeNodeFromGroup 分镜分支 placementBesideGroup 同批 envelope{wh=当前格尺寸[calcStoryboardSize/config 推算]——分镜子 wh 陈旧收口，终裁 78④；锚"resizeStoryboardGrid 后移出格子⇒尺寸=当前格尺寸非入格旧值∧落点=帧右上外 20px"**；/process 快照帧≡主画布帧（O0c-2 验收复用）
+- [ ] **Step 3: 红测试——投影删**：envelope{position,width,height} intent⇒投影后 cs 帧键零变化（reconcile 同 tick 补齐）；moveNode case 整删；census"dispatch 后无 cs 几何直写"（矩阵豁免行+结构默认行标注）
+- [ ] **Step 4: 绿实现**：canvasIntents projectIntentToStore 三处几何直写删（moveNode :165-169/addNode position :139/envelope 几何键 :170-182）；分镜子节点构造恒带 position:{x:0,y:0} 结构默认
+- [ ] **Step 5: commit** `feat(canvas): O0b 尺寸真源完整链（四写者+内容事件禁令+wh=滚动约束框+contain-fit/calcConstrainedSize 单源+复制路径迁 doc 源+customSize 并入+固化首写者胜）+投影层几何键全删（Spec B O0b-2）`
+
+### Task O0b-3：applyDocToStore 保护序 v2+draggingIds 第三参
+
+- [ ] **Step 1: 红测试**（**行为锚分两档——v3.15 降级**）
+  - 结构锚（本分片）：三层一函数（保护捕获[setState 前 live 活值 rel+freeze 冻结帧三字段]→hydrate setState[abs 过渡态]→保护回写）导出+单测（**对 store 手动注入 session 状态骨架**[frozenFrames/dragProtectedIds/resizeTargetId——C0-1 类型已有，B4' 才开始写]：注入后远端 apply ⇒ 冻结帧与保护节点逐位不变）；同步块：全程无 await/渲染分隔；**捕获/回写字段集按手势分型写死（v3.18 终裁 71）：drag⇒{position}；resize⇒{position,width,height}[帧三字段]；freeze 层⇒{position,width,height}；硬规则"让位只保护几何，不保护数据"——回写仅覆盖上述几何字段，data/type/parentId/hidden/selected 一律取 doc 最新值[=v3.9 终裁 7 字段域的 O0b-3 实现落位——防整节点对象回写吃掉远端 data 并发写]**；单测两锚（B4'-1 行为锚前置）：注入 session+远端 apply 改被拖节点 data.status⇒data.status===远端值∧cs.position===末帧；resize 会话骨架+远端写同节点⇒cs.width/height≡保护值不被 doc 旧值覆盖
+  - 行为锚（随 B4'-1 补）：拖子中远端改无关节点⇒冻结组帧与全部子 rel 逐帧不变；拖动中远端写⇒松手后 doc.abs≡末帧 cs.abs；resize 扩子代锚；**拖动中远端改本节点 data⇒data 保留远端值（B7-2 e2e 补——现有清单只有改 parentId，终裁 71③）**
+  - **draggingIds=onNodeDragStart 第三参 nodes 的 id 集**（OnNodeDrag=(event,node,nodes)——types/nodes.d.ts:36；v3.15 勘误"第二参"——照字面写第二参会退化单节点）：三选一拖三节点⇒doc 落 3 组 abs 键∧保护集合含 3 个 id
+- [ ] **Step 2: 绿实现**：canvasCollabRuntime applyDocToStore 重构为保护序 v2（read→assert→保护捕获→hydrate→保护回写→reconcile(doc)→deriveHidden→ns→invariant）
+- [ ] **Step 3: commit** `feat(canvas): O0b 保护序 v2——三层一函数+同步块+draggingIds 第三参（Spec B O0b-3）`
+
+### Task O0b-4：S1 整删+repairStoryboardCells 同批删
+
+- [ ] **Step 1: 红测试**：恢复链零回写（远端 apply 后 doc 写入计数=0——结构性事实）；repairStoryboardCells 符号级不存在；**applyGroupDerivations 符号级不存在（v3.16 终裁 54④——deriveHidden 并入 reconcile 单内核：hidden=数据域派生非几何保护域，reconcile 内全量跑不受让位影响；13+1 调用点全删+canvasStore:1707"derivations 配对"警告注释删）**；**逐点表按实测 13 处调用点逐行列出（第二十五轮 grep 实测：:1087/:1195/:1243/:1302/:1333/:1398/:1537/:1618/:1699/:1816/:1916/:1958/:1984——原"14 点"与实测不符；**+:1331 ungroup 早退分支（"显式不调用"=最危险一行——移出最后子触发 ungroup 后子变顶层 hidden 必须清；单列一行：理由=hidden 清理由 ungroup 自身+漏斗尾 reconcile 全域覆盖；断言"折叠组被 ungroup⇒全子代 hidden===false（同命令内）"——第二十六轮 B2）**；删除型重构防静默丢 hidden 同步：每行给理由["命令体+dispatchProjectionDiff⇒diff 首行 reconcile 覆盖"/"命令体经 runCommand⇒漏斗尾覆盖"]或补一条 hidden 断言；重点核对 patchGroupDataInner 调用方与 viewer 本地路径[viewer 折叠走 localCollapsed override——终裁 58⑥，核对确认不经 derivations]；hidden 全量锚：拖动中远端改组 collapsed⇒hidden 即时更新[不在让位域——终裁 68⑥]）**；membership 写侧断言（children⊆cells DEV 抛）；checkProjectionInvariant 改写后 40+ 点全绿（readCanvasFromDoc vs storeProjection 直接深等——两侧同空间 abs）；**拖动期 invariant 豁免=让位集合同一函数（否则每帧 DEV 假报）**
+- [ ] **Step 2: 删除**：structDiffToIntents+canvasCollabRuntime :324/:335-338（**调用点已随 O0b-0 格式批停写——本批=模块清理**，终裁 69④）；**canvasHistory.ts 整模块**（pickStructNodes/pickStructEdges）+dispatchSystemIntents（定义 canvasIntents:295；生产调用 canvasCollabRuntime:337——O0b-0 已摘）；**refitExpandedGroups 点名删（canvasCollabRuntime:326 唯一生产调用+:617 定义[内部调 applyGroupFrame+shouldAutoRefit]——v3.1 漏列，终裁 54②）**；测试锚改写 7 处（canvasHistory.test:11-31/canvasCollabRuntime.projection.test:101/VideoEditorShell.test:234[断言行]/marqueeSelecting.test:19-24/**viewer.spec:167/projection.test:70/:124/page.test:18[refitExpandedGroups 引用]**）；**v3.17 终裁 61② 追加 3 处：groups.test:459-465["patch collapsed→applyGroupDerivations→hidden===true[derivations 配对契约]"——随整删改写为 reconcile 断言]/groups.test:938[组原子块]/page.test.tsx:72[mock 该函数]**；repairStoryboardCells+groupDerive 帧面+**groupDerive.test:45-66 两条（v3.1 漏回——v3.14 小项曾列）**；checkProjectionInvariant 双侧 normalizeLoadedCanvas 调用改直接深等
+- [ ] **Step 3: commit** `refactor(canvas): O0b S1 整删+applyGroupDerivations 整删（deriveHidden 并入 reconcile）+refitExpandedGroups 删+invariant 豁免同函数（Spec B O0b-4）`
+
+### Task O0b-5：refit 族退役+帧写者收口
+
+- [ ] **Step 1: 红测试**
+  - census：`refitGroupGeometry(`/`shouldAutoRefit`/`applyGroupFrame`/`refitExpandedGroups` 生产调用全仓 0 命中**且函数本体+shared 导出删**（refit 4 处：arrange:1153/addToGroup:1279/dropIntoGroup:1376/applyGroupFrame:1830；applyGroupFrame 6 处：:422/:826/:1300/:1323/:1396/:1697；定义 shared geometry.ts:123/:133——**计数形态含非定义行豁免，终裁 54②**；测试用例随迁 shared/geometry.test 删）
+  - isContentDerivedFrame({data,storedFrame})=auto∧!collapsed：折叠 auto 组入组 abs 落点逐位
+  - updateStoryboardConfig 改配置⇒cs 帧≡calcStoryboardSize∧doc 单 transact∧零 moveNode 意图；resizeStoryboardGrid 溢出落位用本命令 calcStoryboardSize 返回值（非回读 cs）
+  - 配置型命令体前写四处（mergeStoryboard:1585-1593/convertGroup:1651-1659/:1682-1688/resizeStoryboardGrid:1900-1914）保留+两断言（写入值≡派生值逐位+doc 零帧意图）
+  - manual 组折叠→展开 doc 帧三键逐位不变（今天红）∧每步 transact=1；**折叠帧语义定稿（终裁 82——卡二"auto/collapsed=0 键"字面=手动尺寸不可逆丢失）**：**collapsed 不剥键——doc 三键=展开态值=密封源**（savedSize 删除后唯一恢复源）；**折叠分支 envelope 写删（canvasStore:1776 COLLAPSED_SIZE 不写 doc——toggleCollapse 仅 updateNodeData{collapsed}）**；**cs 折叠渲染档=COLLAPSED_SIZE 派生（reconcile 写域① 内 collapsed⇒覆写、优先级最高——normalizeLoadedCanvas:45-50 语义迁移）**；storyboard 不可折叠[canvasStore:1766-1768 现状锚]；展开恢复=manual 读 doc 三键/auto 重派生 bbox；锚两条：单元"collapsed manual 组 toDocRecords 输出仍含帧三键（键集表逐格）"+行为"折叠 manual 组⇒cs 帧≡COLLAPSED_SIZE∧doc 三键逐位不变⇒展开逐位还原"；组 resize 松手 afterTransaction=1∧cs.width 逐帧单调不回落；**resize 提交=单 updateNodeEnvelope{三键}（v3.16 终裁 50——不带 data 标记）**
+  - **manuallyResized 整链删除（v3.16 终裁 50）**：markManuallyResized 符号级不存在（canvasStore:1746-1752+GroupNode:31 onResizeEnd 改纯 stopCapturing）；GROUP_NODE_DATA_KEYS 减键；快照白名单剥离+克隆断言改写（snapshot-filter.util.spec:255-264/video-work-clone.service.spec:22/:179——savedSize 键同批）；**折叠安全网（v3.17 终裁 61③+v3.20 终裁 89 改写——原"双安全网②提交剥键"随终裁 82 撤销[它本身就是错的——折叠 manual 组剥键=不可逆丢手动尺寸]）：唯一边界守卫=①collapsed⇒无 resizer（GroupNode:43 selected∧!collapsed∧!marqueeSelecting 渲染条件不许在 O0 改造中丢）；**键集表不因 collapsed 改变**（auto 组恒 0 键[折叠态同——本就无键可剥]；manual 组折叠态不动帧三键=展开恢复唯一密封源——终裁 82）；折叠/展开不写 doc 帧键；auto/manual 折叠双档单测钉 toDocRecords 输出键集逐格（**文本 census 删——第二十五轮：中文语义串在代码扫描域恒零命中无鉴别力，双档单测+键集表逐格行为锚即守卫）**
+- [ ] **Step 2: 删除/实现**：applyGroupFrameRect 删；updateStoryboardConfig 改单次 patchGroupDataInner({storyboard})；toggleCollapse 单意图化（只留 [updateNodeData{collapsed}]；**viewer 折叠=本地视图折叠（终裁 58⑥——localCollapsed 渲染层 override，功能保留非禁用）**）；markManuallyResized 删
+- [ ] **Step 3: commit** `refactor(canvas): O0b refit 族退役+manuallyResized 整链删+toggleCollapse 单意图（Spec B O0b-5）`
+
+---
+
+## O0c 记录契约（收缩版）+第 4 渲染面+分镜修法
+
+### Task O0c-1：入口 clone 种子+出口快照白名单
+
+- [ ] **Step 1: 红测试**：clone 种子后 doc 形状断言全绿（auto 组零帧键∧分镜子无 position——stripAuthorState 幂等+键集表逐格）；快照 payload"派生输入完备"断言（storyboard/collapsed 保留——否则派生退化 auto）∧**公开 payload 泄漏测试**（JSON 无 fileId/storageKey/userId/email——cellNodes 载荷 [{id,thumbnailUrl}]）；~~Redis 快照缓存键拼 schema 常量~~（**挪 O0b-0 原子批——v3.16 终裁 51④**）
+- [ ] **Step 2: 绿实现**：project.service 种子路径走 stripAuthorState（writeNodeToYMap 只接受其输出——O0a-2 已收编）；snapshot-filter WHITELIST 重算（group 补 storyboard/collapsed；**CellNodeInfo 双通道**：主画布 fileId/公开页 thumbnailUrl——组件入参同形）；video-work-clone 种子 stamp=已由 create withDoc 统一覆盖（第二十五轮 A1——本步仅验收断言 clone 产物 doc 含戳）；**template.service import 改 doc 直读+templateData 列 drop=已随 M0-1 同批落地（v3.19 终裁 80 前移——本步仅验收断言：templateData 符号四面零残留[schema 列/TS 类型/组件文案/夹具]+**import 直读锚两条已随 (a1) 消解不复跑**）**
+- [ ] **Step 3: commit** `feat(api): O0c 记录契约收缩版——stripAuthorState 种子+白名单派生输入完备+泄漏测试（Spec B O0c-1）`
+
+### Task O0c-2：ProcessSnapshot deriveRenderCanvas 换芯+组件抽取
+
+- [ ] **Step 1: 红测试**
+  - /process 快照≡主画布（几何逐位+可见节点集合一致——用例含 manual/collapsed/storyboard 三形态+分镜组≥1 子+**≥1 从未 resize 图片节点**[尺寸固化验证面]）
+  - RF 数组剔除 hidden∧分镜子独立节点（payload 保留 data）∧collapsed 子代剔除∧边集无悬空∧输出父先子后+环守卫
+  - 快照组帧≡deriveGroupFrame 四模式逐位；初始 bounds 不含 (0,0) 邻域；分镜组 4 格⇒MiniMap 不出现 4 个叠原点
+  - import 图断言："ProcessSnapshot 传递依赖不含 useCanvasStore"
+- [ ] **Step 2: 绿实现**：deriveRenderCanvas（records→RenderNode[rel+hidden+派生帧+cellNodes 双通道映射+边集过滤]）；StoryboardGroupRenderer 抽零 store 纯组件落 **apps/web/src/components/storyboard/**（CellNodeInfo 随迁[双通道]+removeStoryboardCell 回调与 window Delete 键 effect 参数化/剥离；resolveStoryboardConfig 改 import shared 直连）；ProcessSnapshot :62-80 自建映射删改 deriveRenderCanvas；FALLBACK.group+FALLBACK_DEFAULT 组路径双删（符号级断言"FALLBACK 不含 group 键"）
+- [ ] **Step 3: 现状测试改写**：ProcessSnapshot.test:99-104 translate(1020)→按 RenderNode rel 语义改写；:70-80→"节点数=可见节点数"
+- [ ] **Step 4: commit** `feat(canvas): O0c 第 4 渲染面——deriveRenderCanvas 换芯+组件抽取+FALLBACK 双删（Spec B O0c-2）`
+
+### Task O0c-3：attachMember 分层+分镜移出三坏+整模块三删
+
+- [ ] **Step 1: 红测试**
+  - 分镜落子仍绿（dropImageIntoStoryboard 改调 attachMember）；addToGroup/dropIntoGroup(分镜组)⇒拒绝零写；直调 attachMember 到分镜组走正常入格
+  - 分镜移出：cellNodes 过滤加 n.parentId===id；removeNodeFromGroup 分镜分支清槽+placementBesideGroup（基准=cs 派生帧；锚：移出后 abs=帧右上角外 20px∧cells 槽===null∧cellNodes 消失）
+  - normalizeLoadedCanvas 符号级不存在（**已随 O0b-0 格式批整删——本步验收断言**，终裁 69③）；resolveExpandedFrame 符号级不存在
+  - gate-seed 断言（**O0b-0 已一次到位[meta 戳+auto 组+分镜组]——本步只验收**：fixture 含 auto 组形状[零帧键]∧分镜组形状[分镜子无 position]∧gate-node-1/2 仍在[a0-0-env.spec:27-28]）
+- [ ] **Step 2: 绿实现/删除**：attachMember 纯成员原语；addToGroup/dropIntoGroup 公开面挂 groupType 守卫；分镜移出修法（GroupNode cellNodes+removeNodeFromGroup 分支+placementBesideGroup 抽共享）；**expandedFrame 整模块删（终裁 88②——normalizeLoadedCanvas 已随 O0b-0 删[本步仅验收断言]；expandedFrame 整删时点=本批：toggleCollapse:1799 消费已随 O0b-5 单意图化消失，O0b-0→O0c-3 死模块窗口写实放行[无读者依赖]；**calcDefaultGrid 调用面随 normalizeLoadedCanvas 死、本体保留（v3.20 终裁 91 修正 88①——本体活消费=arrangeSelection:97+canvasStore:1578/:1645[建组/转换写 config]——照字面删本体=tsc 红；"缺 config=DEV 抛"限 reconcile/deriveGroupFrame 侧[建组/转换命令体必写完整 config+gate-seed 分镜组带完整 storyboard config——O0b-0 要求]**）**；savedSize 全链清理（接口+GROUP_NODE_DATA_KEYS+toggleCollapse+convertGroup 两处代码[:1666/:1694]+arrange 清键[:1146]——**'savedSize' in 断言改写为帧键三键存在性四格矩阵+savedSize 测试改写面扩容（终裁 82：groups.test 实测 46 行 grep——五条密封往返不变量[:1483/:1488/:1501/:1519/:1591]重新设计为"doc 三键=密封源"语义+markManuallyResized describe[:169/:194/:196]随 O0b-5 删+convertGroup/arrange 清键[:300/:318/:420/:430/:452/:1294/:1298/:1322/:1328/:1371]改帧键语义+canvasIntents.spec:452-461+GroupNode.test:21 mock）**）
+  - **现状测试同批改写**：normalizeLoadedCanvas.test 10 处（随模块删）+invariant.spec:5/9/239/246/257+projection.test:69-71+viewer.spec:152+video-work-clone.spec:204/207
+- [ ] **Step 3: commit** `refactor(canvas): O0c attachMember+分镜移出修法+normalizeLoadedCanvas/expandedFrame/savedSize 全链删（Spec B O0c-3）`
+
+---
+
+## O0d 两咽喉+形状断言（收口门禁）
+
+- [ ] **Step 1:** doc 读写两咽喉（docShape 单源）+形状断言 DEV 全表抛/prod 变更 id 去重 log（**reportShapeViolation 落点：计数+采样日志，断言路径禁 console 直喷**）；hydrateNodes extent 补全删（nodeOrder:33-38+用例 :55-70）；旧档拒读 e2e（四档处置表验收）
+- [ ] **Step 2: commit** `feat(canvas): O0d 两咽喉+形状断言 DEV/prod 分野（Spec B O0d）`
+
+---
+
+## B6-1 谓词单源+分层迁移（与 O0 并行——文件不相交）
+
+- [ ] getAvailableHandles（shared/canvas/handles.ts）——imageGen+editMode⇒双侧无（**谓词覆盖 transformMode**[isEditMode=!!editMode||!!transformMode]+videoGen 现状保留）；ImageGenNode :1158/:1254 改消费（删 !editMode 直判防双轨）
+- [ ] **handleMenu 13 符号迁移（v3.16 终裁 57①——两文件合并清点）**：handleMenu.ts 全部导出（HANDLE_MENU_NODE_TYPES/DRAG_THRESHOLD_PX[**值 5 未导出——补 export 且=B6-3 点击/连线唯一阈值**]/HandleMenuNodeLike[+hidden]/NodeRect/absoluteRectsOf[加 !n.hidden+尺寸 width 优先；**拍板终裁 57③：组 continue 维持⇒折叠组区域=空白⇒弹菜单（渲染面≡命中面）；"折叠组命中区=折叠帧"表述废止**]/isPointOnAnyNode/HandleMenuPayload/GuardArgs/shouldOpenHandleMenu[撞车① ignore 行]/Decision/decideHandleMenu/handleEdgeId/**clientPoint**）+**SOURCE_ITEMS/TARGET_ITEMS 在 HandleAddNodeMenu.tsx:41-50（组件文件——一并迁）**；**clientPoint 多指落点修（:117-121 changedTouches[0]——终裁 37⑤ 承接：双指期间松第二指以第二指坐标弹菜单，本批修）**→ apps/web/src/utils/
+- [ ] commit `feat(canvas): B6-1 谓词单源+handleMenu 六符号迁移（Spec B B6-1）`
+
+## B6-2/B6-3：+号输出按钮+批量连线（**O0c 后——排序=锚稳定选择非硬依赖[rect 读 cs，终裁 57②]**）
+
+### Task B6-2：AddOutputHandle+BatchConnectLines（B 案）
+
+- [ ] **红测试**：多选框 ≥2 显示/marquee 进行中隐藏/普通组未折叠显示/折叠组+分镜组不渲染/**!canEdit 不渲染**（useCanvasStore(s=>canEdit(s)) 订阅）/isLocked 不响应/Esc 取消；**+号圆心外移框外 12px 屏幕像素常量+反缩放层（transform:scale(1/zoom)）——尺寸与偏移均屏幕 px（组恒顶层[组深≤1]⇒rel≡abs——**rect 读 cs（v3.16 终裁 57②：useCanvasStore 订阅组帧三字段+useViewport；编辑器渲染面=cs，deriveRenderCanvas=第 4 面专用防层倒置；对 O0c 排序依赖解除——排序维持=锚稳定选择）**）**；**elementFromPoint 零交叠三元组断言 zoom∈{0.5,1,2} 三档各跑（v3.17 终裁 67④——三元组写死：+号↔本组框零交叠/同屏+号之间零交叠/+号↔其它节点框允许交叠[靠 z-index 保证可点]；"0.5 必过档"=最严格档语义[zoom=0.5 节点屏幕尺寸减半而+号恒 12 屏幕 px——交叠概率最高档]；若"同屏+号间"0.5 档不成立⇒降级"视觉偏移随 zoom 收缩[max(1/zoom,1) 与 RF 角柄同规则]"进 §5 台账届时再裁）+直径/偏移三档屏幕值相等——挪 B7 Playwright 执行（jsdom 无布局）**；撞车①三条（handle 兄弟 portal/nodrag nopan+stopPropagation/shouldOpenHandleMenu ignore）
+- [ ] **绿实现**：pages/canvas/components/ 新组件（portal #node-toolbar-portal；useViewport+internals.positionAbsolute）
+- [ ] commit `feat(canvas): B6-2 +号输出按钮（B 案——屏幕恒定+反缩放层）+批量连线拖线层（Spec B B6-2）`
+
+### Task B6-3：batchConnect+点击建点
+
+- [ ] **participation 不进 arrangeSelection**（:57 组闭包陷阱——**action 白名单：仅 action==='arrange' 组原子块；'connect' 不进[参与集原样多选]——UI 层参与集原样**）；canConnect 禁自环+双侧对称；**幂等收敛=handleEdgeId 单源**（addEdge deterministicId no-op 守卫既有——三机制一源）；单 transact；点击建点（**用当时等价路径 addChildNode 命令体——v3.17 终裁 65③：执行序 B6-3 在 Inner 化批前，addNodeInner 尚未抽取[按字面引用编译不过]；Inner 化批随迁改名 addNodeInner**+batchConnect 同 runCommand 单 undo）；指针状态机（<阈值=点击/≥=连线；落空不弹菜单不建点[handle 拖线侧]；**+号拖线落空=建点+连线（v3.18 拍板项②——HandleAddNodeMenu:82-92 addNode+addEdge 同手势先例+需求 7“点击建点”=退化情形；**已确认 2026-10-02 用户拍板②=建点+连线**，终裁 78 小项）**）；**需求 7 规则锚**：多源→单目标=N 条边/落 hidden 不响应/auto-edge origin 路由不受影响（HandleAddNodeMenu:82-92 同手势先例）
+- [ ] commit `feat(canvas): B6-3 批量连线+点击建点——handleEdgeId 单源+单 transact（Spec B B6-3）`
+
+---
+
+## Inner 化+去闸门（B4'/B5' 前置）
+
+- [ ] 六 action Inner 抽取（removeNodeFromGroup/dropIntoGroup/ungroup/addNode[attachMember 已在 O0c]/dropImageIntoStoryboard/toggleCollapse）；薄壳=分镜域守卫+capture+Inner+dispatchProjectionDiff；守卫收窄 R4（removeNodeFromGroup:1307/ungroup:1201/dropIntoGroup:1337 薄壳移除 hasActiveProcessInGroup）；ALLOW_FN 条目随迁改名
+- [ ] **去闸门（终裁 43——需求 5 物理前提）**：**extent:'parent' 10 生产写点全链清零**（canvasStore:255/1187/1274/1289/1371/1386/1442/1559/1601/1951）+nodeOrder:37 恢复期补全删（断言"cs 节点不存在 extent 键"）；**拖拽期 clamp 块 canvasStore:782-799 整删**（placement 分支 B 两处 :1268/:1365 保留——F4 维持）；**groups.test:328-396 夹取用例三条改写为"不夹取"断言+夹具 extent:'parent' ~35 行同批清理（终裁 54⑤——断言改而夹具仍构造被禁键=垫片式夹具；加"夹具不得含 extent"守卫）**；锚：子节点拖出组帧外松手⇒脱离∧拖回位置逐位保留
+- [ ] **两个旧基线同批重算**：group-frame-writer-guard ALLOW_FN（终态={reconcileGroupGeometry}——arrangeSelection 等既有合法项随 refit 退役移除）+canvas-dispatch-ratchet BASELINE（O0b 删项后重算——commit message 注明理由）
+- [ ] commit `refactor(canvas): Inner 化六 action+extent/clamp 去闸门+两基线重算（Spec B Inner+终裁43）`
+
+---
+
+## B4' 拖动路径（dragSession+冻结框+懒激活+自愈两道）
+
+### Task B4'-1：dragSession+指针基建
+
+- [ ] **红测试**：按住不动 60s→继续拖 delta 正确不丢不告警；双指→抬第二指→首指停 5s→继续拖不丢（touchend+pointerup 同帧双上报⇒集合仍含首指 id）；指针抬起后静默秒级⇒丢弃+回滚+静止恢复；**watchdog 分场景两锚（终裁 47——可达可测）**：①"正常 pointerup 后人为残留 session（abort 形态）⇒watchdog 秒级丢弃+cs 回滚 baseline"②"吞 pointerup⇒begin 丢弃"；35s 慢拖不丢；pointerdown 缓存 id：连续两次拖动第二次缓存覆盖第一次；beginResize 首行 discard；frozenFrames 与 session 同步块清空（含 watchdog clearTimeout——清理字段表：frozenFrames/activePointers/gestureAbandoned/resizePending/resizeTargetId/timer）；**endGesture 语义澄清两锚（v3.17 终裁 66④——P0-10"source:'doc' 吞拖动"证伪的锚面补强：中止回滚=设计意图[终裁 47"watchdog 丢弃+cs 回滚 baseline"]、提交不经 endGesture[三分支=中止/自愈/remove 谓词]、收尾链序"清 session→reconcile→invariant"维持——reconcile 提前则让位残留致被拖节点 cs 停旧值）：①拖动提交后同 tick cs.position≡末帧拖动位置（逐位——**cs 侧显式**，原锚只锚 doc 侧"松手后 doc.abs≡末帧 cs.abs"，cs 侧被收尾抹掉的情况无锚可抓）②松手后人为再触发一次 endGesture⇒cs 不回跳（收尾幂等锚）；中止回滚锚补强：拖动中止回滚后被拖节点 cs.position≡baseline∧doc 零几何写入∧拖动中被远端写的被拖节点 cs≡doc 远端值（清 session 后 reconcile 直拷 doc=终态正确——非 baseline）**；**O0b-3 行为锚补齐**（拖子中远端改无关节点⇒冻结组帧与全部子 rel 逐帧不变；拖动中远端写⇒松手后 doc.abs≡末帧 cs.abs；resize 扩子代）
+- [ ] **绿实现**：dragSession 落 store；**常驻监听**（[] 依赖挂载一次+session 引用守卫——window pointerup[按 pointerId 移除，不继承 button===0]/pointercancel/blur/pointermove[buttons===0]；监听清单模板=useMarqueeSelectionGuard——先例只借清单、终形常驻[v3.13 终裁 37①]）；**pointerdown 缓存 id（canvas wrapper capture；仅 session 未活跃时更新缓存——终裁 58 小项：session 内第二指 down 不覆盖）**；**endGesture 单收尾函数（终裁 54②——中止/自愈/remove 谓词三分支共用，其内唯一 1 处 reconcile[收尾链：回滚→清 session→reconcile→invariant]——reconcile census 四元组成员）**；**baseline=被拖集合几何快照（终裁 56——draggingIds+draggedGroupIds 相关，非整表；锚：拖动中止回滚后无关节点保留远端值）**；capture 抑制（session∧drag∧touches>1，{capture,passive:false}，不含 touchcancel）；remove 谓词；冻结框（让位即冻结）；nodesDraggable 加 canEdit（**行为变更**：inRefSelect?false:(!isLocked&&canEdit)）；**CanvasView 接线 onNodeDragStart={begin}（现状未接线——新增 prop）**
+- [ ] commit `feat(canvas): B4'-1 dragSession+键控集合+常驻监听+watchdog 分场景锚（Spec B B4'-1）`
+
+### Task B4'-2：onNodesChange 编排+门判据分型
+
+- [ ] **红测试**：拖动单帧 doc 写入=0；**帧原点逐帧恒等（拖叶档——父组帧冻结）**；**拖组渲染帧 origin≡cs[G].position（拖组档——origin 活/width/height≡freeze——两锚不同手势档并列不互斥，v3.17 终裁 67⑤ 分档标注）**；多选跨组统一 abs 式；三行表刷新逐位不变；拖 auto-collapsed 零帧键；**门判据②分型（终裁 44③）**：position 批∧无 session∧无 resize 批⇒零 intent+DEV 告警；**有 resize 批⇒目标为叶子⇒照常派发（现状：setAttributes 三态+position 逐帧落 doc 零告警+松手重载不回跳）；目标为组⇒进 resize 会话零 intent+松手单提交（提交值=会话最后一帧 cs 帧三键——终裁 56；子 rel 不随提交重算，RF 反向补偿值即终值；锚：resize 组逐帧帧三键=指针推算∧子 abs 逐位不变）**（GroupNode resizer 纳入 resizePending——组手势期 doc 零帧键[auto 组不中途变 manual]；**分镜组 resizer 现状锚：GroupNode:38-39 storyboard 分支早退已不渲染——断言"分镜组不出现 resizer"防 O0 改造丢结构，终裁 57④**）；**拖组逐帧锚（终裁 56）：cs[G].position 跟随指针∧width/height≡freeze∧子 rel 逐帧不变**；分镜子 position 批按条目丢弃（识别按父组 groupType）；end 重放批落 session 内零告警；阈值内微动零 session；baseline 时点=onNodeDragStart 时刻 cs 值；viewer 回滚；hidden 双向锚；cs 无 draggable/extent 键；**拖动中远端改被拖节点 parentId（对端 undo 删组）⇒放弃该节点保护按 doc 基准重算**（防 rel 被当 abs 跳组原点）
+- [ ] **绿实现**：onNodesChange 首行两件事+手势期零 intent+门判据分型；三处叶子 resizer（ImageGen:1130-1145/VideoGen:693-703/TextInput:149-170）+GroupNode resizer 接 resizePending；resize 会话（懒激活+resizeTargetId 入让位与 merge 保护+第二参值单次提交零子代）
+- [ ] commit `feat(canvas): B4'-2 拖动编排+门判据叶/组分型+resize 会话（Spec B B4'-2）`
+- [ ] **双标签页手测**（A 拖→B 收敛无抖动→A undo→B 一致）
+
+---
+
+## B5' 松手路径（commitIntents 三段式+旧路由删除）
+
+### Task B5'-1：commitIntents 三段式
+
+- [ ] **红测试**：空操作手势⇒归属与帧零变更（doc 零键零栈项）；零净变更=零事务；清 session（无条件先于判空+与 frozenFrames 同步块）→reconcile→invariant 收尾链不可交换；中止/自愈/remove 谓词三分支同构收尾（**=endGesture 单函数——B4'-1 落，reconcile census 四元组第四成员，终裁 54②**）；慢拖/resize 停顿单栈项；**提交 origin=LocalUser（终裁 48——拖动一步 undo）**；**结构性断言"commitIntents 调用图不含 endGesture"（v3.18 终裁 78⑩——提交收尾=漏斗尾 reconcile[transact 先于收尾]，endGesture 三分支=中止/自愈/remove 谓词；防未来复用重演 P0-10）**；终末对齐=reconcile 全域（集合废止——唯一豁免=让位集合）
+- [ ] **绿实现**：commitIntents 终裁序落地；**旧锚反转**：projection.test:98-105（"拖动不入栈"→入栈）+viewer.spec:148/221 同批改写
+- [ ] commit `feat(canvas): B5'-1 commitIntents 三段式+origin=LocalUser 拖动入栈（Spec B B5'-1）`
+
+### Task B5'-2：单一路由 handleDragRelease+旧路由整链删除
+
+- [ ] **红测试**：**onNodeDragStop={handleDragRelease}**（CanvasView:513；**旧路由一条链整体删除**：handleNodeDragStop :446-449+onNodeDragStopIntoGroup :430-444+findDropGroup——现状实证一条链非"双路由"）；stopCapturing 随迁终裁序第 2 行；锚"拖完立即 Ctrl+Z⇒只回退拖动不回退前一条命令"；跨组 A→B 可达（候选=全部组含当前组，排除 draggedGroupIds∪{dragged.id}）；拖组松手全体 parentId 逐位不变；多选"组+异组叶子"落被拖组⇒叶子顶层化；被拖组不是合法落点；守卫仍生效（落分镜组⇒入格/落折叠组⇒函数体先展开/组内执行中⇒拒绝零写）；松手精度（整数夹具误差 0）；undo 一步全恢复+frame≡bbox；exactly-once；tie-break（overlapArea>0 面积最大胜/max===0⇒顶层化/并列 id 最小——**新路由规则非迁移**）；**拖出最后成员松手⇒组帧=COLLAPSED_SIZE（空组档——同命令内无中间尺寸）**
+- [ ] **绿实现**：handleDragRelease（canvasStore action——冻结帧+交叠判定；分派 storyboard⇒dropImageIntoStoryboard/normal⇒dropIntoGroup；预检/折叠展开留在原函数体内单层）；groupDrop.ts 整模块删
+- [ ] commit `feat(canvas): B5'-2 单一路由+旧路由整链删+stopCapturing 随迁（Spec B B5'-2）`
+- [ ] **双标签页手测**（A 拖出/跨组/落折叠/落分镜→B 一致→A undo→B 一致）
+
+---
+
+## B7 门禁收口+e2e
+
+### Task B7-1：census 守卫硬化+现状测试核对
+
+- [ ] census（**扫描域=apps/*/src+packages/*/src+计数形态[非注释/import/re-export/类型声明/test/spec/非函数与常量定义行]+扫描面非空自证——v3.16 终裁 54②**）：**reconcileGroupGeometry 四元组名单断言**（漏斗尾/dispatchProjectionDiff 首行/applyDocToStore 尾/endGesture——各恰 1 处）∧source:'cs'=1（仅 diff 首行）；`refitGroupGeometry(`/`shouldAutoRefit`/`applyGroupFrame`/`refitExpandedGroups` 生产 0 命中**且函数本体+shared 导出不存在**；repairStoryboardCells/normalizeLoadedCanvas/expandedFrame/applyGroupFrameRect/canvasHistory/structDiffToIntents/**applyGroupDerivations/markManuallyResized/customSize/TemplateMarketPage/TemplateCard** 符号级不存在（**stripDerivedKeys 不列此清单——保留为 DEV 只读校验谓词，终裁 78⑨**）；FALLBACK 无 group 键；**字段级一写者断言（data.wh 豁免废止——AI 键已删，终裁 49④）**；"dispatch 后无 cs 几何直写"；**cs 无 extent/draggable 键**；**dev 写陷阱核对（终裁 58①+v3.18 终裁 70——作用域=生产源码[apps/web/src 排除 test/spec]；enableGeometryTrap 守卫用例全绿；生产 27 处 setState 归类完成）**；**it.todo 计数=0（终裁 58③——分片 unskip 全部转实；分片尾计数已逐分片记入 plan 表）**；**附录版本一致性（v3.17 终裁 63②+v3.18 终裁 78⑥——附录四页卡标题版本串≡数字冻结表标题版本串≡spec 文件标题版本串（正则抓 `v3\.\d+` 三处互比∧相等——禁硬编码版本值，第二十五轮））**；**measured 读者集合相等断言（终裁 84——C0-3 三列分类表[**40 行/14 文件**]为引用源：apps/web/src 排除 test 的 .measured 命中逐行≡分类表，新增即红；**A 类=派生/布局/复制[doc wh 权威]18 行定档 doc wh 第一**+**形态断言（终裁 91+第二十六轮拆域：断言域=A 类行——每行必含 `??` 链且链首必须是普通字段[width/n.width]非 `.measured`[抓"分类 A 却 measured 优先"；product-node:13 现链首=.measured，O0b-2 迁三档链后自然合规]；B 类直读 internalNode.measured[RF 公开 API]**不受链形约束**——TextNodeToolbar:171/ImageNodeToolbar:363 为豁免样板，防实现者"补链"）**；B 类=屏幕空间 UI+RF internals 19 行 measured 权威禁进投影[含 ImageGen:180-181/Banner:32-33/VideoGen:417/TextInput:30-31 四处视口/屏幕用途]；锚"固化窗口期屏幕空间读者直读 measured 无常量跳变"**；canvasStore 复制 13 行已迁 doc 源）**；**手写 setState 文件级 allow-list 棘轮 census（终裁 70+85④——test/spec 面 38 文件 allow-list：迁移一个摘一个、非 allow-list 新文件几何 setState 即红；行数 ≤201/38 单调下降报数）**；**四兜底符号级不存在（C0-3 表：normalizeCanvasRecord 兜底/snapshot-filter:67/readDocCanvas:72/template.service:286）**；**census"除 RF 自身无组件直写 RF node.width/height"（终裁 49②）**
+- [ ] **现状测试改写分片内核对**（**26-30 条**已随 O0c-3/Inner 化/O0b-4/O0b-5/B5'/M0/O0b-0/editMode 内联——本步核对零残留+**清单表回写勾选**[v3.16 纪律]；含 v3.16 新增：groupDerive.test:45-66/ydocBuilder.test 四用例/snapshot-filter:255-264/video-clone:22/:179/refitExpandedGroups 3 处/persist-status:177-188 改名/ImageGenNode 尺寸用例/MultiImageNode expanded 用例/夹具 extent 守卫）
+- [ ] commit `test(canvas): B7-1 census 硬化——扫描域/计数形态/字段级一写者（Spec B B7-1）`
+
+### Task B7-2：双端 e2e+性能冒烟+批尾
+
+- [ ] Playwright（collab-r2-commands 双端模式）：帧原点逐帧恒等/松手同 tick 三锚/零提交分支收缩/拖动中远端写入让位锚（含改同组兄弟/增减成员/冻结组帧/**改被拖节点 parentId**/**改本节点 data[status/fileId——"让位只保护几何"，终裁 71③]**）/resize 远端锚（含子 rel）/undo 合成（**含 A 拖组→B 改子→A undo 部分回退=单人接受登记**）/刷新一致/并发登记；**elementFromPoint 零交叠 zoom 三档（B6-2 挪入）**；**v3.16 终裁 58⑤ 扩容——redo 三锚（拖 A→拖 B→undo→redo 帧逐位/固化后 undo 尺寸不回退[Origin.Geometry 不入栈]/redo 组帧≡bbox）；拖动中强刷⇒无孤儿 intent∧doc 无半提交；断线 30s 续拖+重连收敛；三端（A 拖/B 改子/C 只读⇒三方几何一致）；公开页 e2e（匿名 /videos/:id/process 宫格有图+无 fileId+无+号+无 Delete）**；nightly 挂载（R2d-8 模式）
+- [ ] **夹具档位（终裁 87②+第二十五轮 A2 修正——B7-2 全部几何锚适用）**：**坐标非整数（1/8 格值——整数坐标使量化/取整不可见）必跑+帧断言用具名常量表达非对称差（padding 非 config 键，是 geometry.ts 常量：x===minX−GROUP_PADDING∧y===minY−GROUP_PADDING_TOP∧width===bboxW+2*GROUP_PADDING∧height===bboxH+GROUP_PADDING_TOP+GROUP_PADDING；"帧≡bbox+padding"仅 normal∧!collapsed∧成员≥1 档——storyboard 档帧≡calcStoryboardSize 逐位[无 padding]）**；
+- [ ] **性能冒烟（500 节点/20 组 nightly——v3.16 终裁 58②+v3.17 终裁 68④ 数字冻结）**：**reconcile 单次≤5ms/拖拽帧 p95≤16ms/零差异⇒订阅回调=0/首开固化单批（N=500 首次测量→固化 transact）耗时预算**（超标处置：先证伪零差异短路、再谈脏域——脏域优化不做；**拖动单帧订阅回调≤常数锚不采纳[YAGNI——全表替换=RF 受控模式现状，§5 登记"超标先查全表替换成本再谈局部更新"]**）
+- [ ] **门禁分层（v3.17 终裁 68③+**v3.19 终裁 86② PR 门补强**——写明防"以为 nightly 在守 DEV 抛门"）**：DEV 抛=vitest（**e2e 跑 vite preview=prod 构建不触发 DEV 抛**——playwright.collab.config 实证）；**doc↔records↔cs round-trip 逐位+版本门四档+几何锚=vitest/int spec（真 Y.Doc 无需 DOM——PR 门必跑；PR job 带 postgres+redis service）**；值断言（帧三键逐位/doc.abs 逐位/零交叠三元组三档）=e2e/nightly；**新增 e2e 文件名+playwright.collab.config testMatch 正则同批改+锚"命中新增文件数=N"（gate-collab 仅可选 --grep——否则新 spec 静默不跑）+500 节点性能冒烟单列 spec 纳入 testMatch**；计数=prod 载体（reportShapeViolation 计数器+采样日志）
+- [ ] **交付物补两项（v3.17 终裁 68⑤）**：**§5 风险台账一页**（触发条件/影响面/是否阻断发布——从 spec §5 已接受项生成速查表）；**需求 5/6/7 用户可见验收清单**（"打开画布→拖出→看到什么"半小时人工判定表——非实现者可判"这版能不能交"）
+- [ ] **prod 断言载体（终裁 58④）**：import.meta.env.PROD 下手动注入脏 doc⇒不抛+reportShapeViolation 计数+1（prod 不阻断+计数器+采样日志）
+- [ ] **viewer 折叠=本地视图折叠落地（终裁 58⑥+v3.18 终裁 78⑬）**：zustand 非持久 localCollapsed override（渲染层 hidden+显示帧覆盖、不写 doc/cs 几何）+锚"viewer 折叠可用∧doc 零写∧cs 几何零变化"+**"展开恢复后帧逐位≡派生帧（无残留）"锚+"唯一 override 点"census（渲染层帧 override 单点——终裁 78⑬）**
+- [ ] **多指/capture 抑制/watchdog 吞事件=真机协议（非 CI——Playwright 无多指 API；jsdom 会话级模拟维持）——书面协议清单交付**
+- [ ] verify 链全绿（**三件写死，终裁 78②：`pnpm verify`[含 apps/api tsconfig.scripts.json typecheck——M0-2 已接线 root package.json]+`node apps/web/scripts/lint-gate.mjs`+`node scripts/gate-collab.mjs`**）；双标签页全场景走查；**收尾 lint**：grep `savedSize|expandedFrame|normalizeLoadedCanvas|applyGroupFrameRect|FALLBACK.group|extent:\s*'parent'|toRecords|structDiffToIntents|pickStructNodes|dispatchSystemIntents|applyGroupFrame\b|manuallyResized|customSize|saveCanvas|isPublic|applyGroupDerivations|refitExpandedGroups|shouldAutoRefit|refitGroupGeometry|clientPoint` 在源码零残留（终裁 58⑧ 扩容符号；**clientPoint 不在此 grep 串内——单独一行（终裁 88⑤）："handleMenu 旧路径 clientPoint 符号不存在；apps/web/src/utils/clientPoint 存在且被消费"——迁移保留对象与删除对象不得同串两套期望**）
+- [ ] spec 回写（实现期口径偏差随批回写——R2 惯例）；commit `test(collab): Spec B 双端 e2e+性能冒烟+批尾收口（Spec B B7-2）`
+
+---
+
+## 附录一：五页契约卡（v3.16+v3.17+v3.18+v3.19+v3.20 终裁版——与数字冻结表同版本号[=v3.20]，B7-1 一致性 census；卡五=节点类型×wh 权威表，第二十六轮开位）
+
+**卡一 reconcile 源矩阵+写域四类**
+- `reconcileGroupGeometry({source:'cs'|'doc'})`：diff 首行='cs'（cs 活值反推 abs——doc 未更新，doc 源会吞命令写）；漏斗尾/applyDocToStore 尾/中止零提交收尾='doc'；不变量 source='cs' 只允许 diff 首行
+- 写域四类：①组帧三字段（deriveGroupFrame 派生——组 position 唯一写者；**collapsed（非 storyboard）⇒cs 帧≡COLLAPSED_SIZE 派生档、优先级最高——doc 三键保持展开态值不动[终裁 82]**）②全部**非组非分镜子**节点 position（顶层=doc.abs 直拷/子=doc.abs−frameOrigin；rel 不量化）③**非组节点** width/height（doc→cs 直拷——**尺寸输入=固化后 doc 值**）④分镜子 position=构造默认 {0,0}
+- 一写者通则：doc 无该键⇒唯一写者=派生①，直拷②③跳过；缺键分支=保留 cs 现值+DEV 禁写 undefined；写前 Number.isFinite 守卫
+- **帧模式 oracle=doc 侧记录键（终裁 44）——禁 cs 派生帧当 storedFrame**（auto 组防 manual 死锁）；cs 源仅 manual/storyboard 组用 cs 活值帧（命令中间态）；~~dirty-manual 档~~ **已删（终裁 50——manuallyResized 整链删除；"三键齐"异常态检测由断言①[auto 组 doc 无帧键]承担）**
+- 单遍单 origin 快照：帧集合=freeze 层原样∪其余组派生——同一步产出，之后才写子 rel（本 tick 新 origin）
+- 让位两层：freeze=frozenFrames.keys()（让位即冻结）；live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)；**让位硬规则（v3.17 终裁 66③）：让位集合非空时 reconcile 不得对该集合执行直拷（让位=跳过派生与直拷——升格硬规则防散落描述被漏读）；锚：session 活跃期任意命令尾 reconcile⇒让位集合节点 cs 几何零变化（含 doc 有键）**；**保护回写字段级分型（v3.18 终裁 71——applyDocToStore 保护序 v2 的捕获/回写）：drag⇒{position}/resize⇒{position,width,height}[帧三字段]/freeze⇒三字段；"让位只保护几何，不保护数据"——data/type/parentId/hidden/selected 一律取 doc 最新值（防整节点对象回写吃掉远端 data 并发写）**
+- **手势期帧写者标注（v3.16 终裁 56）**：让位集合内字段的手势期写者=**手势内核**（拖动 position 批[门判据①零 intent 照常落 cs——拖组"origin 活"的唯一第二写者]/resize 预览帧三键+子 rel 反向补偿[XYResizer]）；非手势期唯一写者=reconcile；resize 提交值=会话最后一帧 cs 帧三键（子 rel 不随提交重算）
+- 零差异不写短路（EPS=1e-6；锚 renameGroup⇒零 setState；**短路仅涵盖写域①-④几何——hidden 派生每调用必跑（终裁 88⑨，防实现者把 hidden 也短路）；锚"折叠组内新增成员（不展开）⇒hidden 即时更新"**）
+
+**卡二 投影字段矩阵+toDocRecords 内剥键**
+- projectIntentToStore：addNode 只写 id/type/parentId/data（position/width/height 删——**doc 侧仍写**[applyIntentToDoc addNode 经 fillDoc 落 position⇒写域②直拷链通]）；moveNode 整 case 删；updateNodeEnvelope 只写 type/parentId；**moveNode 载荷空间=abs（v3.17 终裁 66①——差分 after 数组来自 toDocRecords[输出 abs]/命令体先算 abs/commitIntents 构造；投影层永不消费 moveNode；census"moveNode 构造点=提交/差分域，投影域 0"）；量化单侧（终裁 66②——量化只在本地产生 abs 的入口[normalizeIntentPayload]做一次；applyIntentToDoc 只 DEV 校验不重写）**
+- toDocRecords（唯一 rel→abs+双源合并+剥键）输出必须已满足字段×模式键集表：**auto 组（含折叠态）无帧三键、manual 组折叠仍保留三键（终裁 82）**、storyboard 组无 width/height、分镜子无 position——**剥键发生在 toDocRecords 内=唯一实际剥键点（上游构造纪律=构造侧义务、stripDerivedKeys=DEV 只读校验谓词[返回真即抛]——终裁 78⑨）**
+- 字段×模式键集表（**终裁 82 折叠行修正**）：组 position ⟺ manual∨storyboard（折叠不影响）；组 width/height ⟺ manual only——**collapsed 不剥键（doc 三键=展开态值=密封源，savedSize 删除后唯一恢复源）**；auto 组（**含折叠态**）=0 键；storyboard 不可折叠[canvasStore:1766-1768 现状锚]；分镜子 position=无键
+- census：dispatch 后无 cs 几何直写（矩阵豁免行+"结构默认"行）
+
+**卡三 两个布局层+api 出入口契约（M0 收缩版）**
+- 渲染层=CSS grid（StoryboardGroupRenderer）⇄解散层=placeGrid（仅 ungroup/convert 消费；留 web）
+- cs 死字段：分镜子三层=doc 无键/records 同形无键/cs 构造默认 {0,0}（禁 materialize）；批按条目丢弃；识别按父组 groupType==='storyboard'
+- 入口=clone 种子（stripAuthorState+stamp）；出口=快照白名单覆盖（保留派生输入键断言；**不补 fileId**——cellNodes 载荷 [{id,thumbnailUrl}]；**completeRecords 不写**——渲染必需值由 web deriveRenderCanvas 单点补齐）；**api 读写收编 docShape 单源**；**CellNodeInfo 双通道**
+- membership=内容真源、cells=槽序
+
+**卡四 五层空间边界表+复制链脚注**
+| 层 | 子 position | 谁写 | 谁读 |
+|---|---|---|---|
+| doc | abs | toDocRecords（唯一 rel→abs） | applyDocToStore/出口 |
+| records | abs（与 doc 同空间） | toDocRecords | 差分/invariant |
+| RenderNode | rel+hidden+派生帧 | deriveRenderCanvas（唯一 records→RenderNode） | ProcessSnapshot RF/分享 |
+| cs | rel | reconcile（唯一 abs→rel） | 渲染+toDocRecords 输入+**复制链** |
+| RF internals | RF 合成 | RF | 浮层定位 |
+
+- **复制/粘贴链脚注**：assembleRecords→buildCopyPlan→appendCopyPlan→剪贴板=cs rel 空间合法面（RelRecords/RelPos 品牌——不经 toDocRecords）；品牌打字段级为主
+- hydrate 过渡态例外窗口：寿命=同一同步块；applyDocToStore 保护序 v2（read→assert→保护捕获[setState 前]→hydrate→保护回写→reconcile(doc)→**ns→invariant[deriveHidden 已并入 reconcile——终裁 54④，无独立步骤]**）
+- 两通则：一字段一写者+一空间一实现；hidden 传播深度=1
+
+**卡五 节点类型×wh 权威表（终裁 83④/91——C0-3 落盘载体）**：imageGen/videoGen=内容事件[load/换图比例/拼接完成/视频元数据/**onError 兜底**]+resize 提交；multiImage=组件显式上报[四类触发：挂载首帧∪toggleExpanded∪增删图∪非展开态主图 load]+resize；textInput=**首测固化（仅此类型）**+resize；group=派生[deriveGroupFrame——帧装配单源 calcGroupBounds]；分镜子=命令体显式值[永不渲染测量]
+
+## 附录二：所有权表（11 行——census 白名单按此表达）
+
+| 层 | 字段 | 空间 | 唯一写者 | 豁免/断言 |
+|---|---|---|---|---|
+| doc | 节点 position | abs | commitIntents 单 transact+尺寸/几何 intent | 手势期零写；按键集表剥键（auto 恒 0 键/manual 折叠不剥）|
+| doc | 组 position | abs | manual/storyboard 分支提交（**折叠/展开不写 doc 帧键——cs 折叠档由 reconcile 派生，终裁 82+89**） | auto 组（含折叠态）⇒无键 |
+| doc | 组 width/height | abs | 仅 manual（**collapsed 不剥键——doc 三键=展开态值=密封源，终裁 82**） | storyboard/auto 组（含折叠态）⇒无键 |
+| doc | 非组 width/height | abs | **四写者（v3.17 终裁 59）：(i)命令体显式值[copyPlan 必带/建组/可确定比例——addChildNode(s) intent.node 扩 wh 键]+(ii)内容事件[图片 load/换图比例/拼接/视频元数据——允许覆盖，仅显式事件触发禁测量触发]+(iii)首测固化[降兜底档：仅 doc 无 wh 且**仅 textInput 等无其他写者类型**（内容型退出——终裁 83①/91），首写者胜仅本类]+(iv)resize 提交；经 updateNodeEnvelope 单意图族；customSize 并入** | 分镜子无键（按父 groupType）——**分镜子 wh=doc 有值（入格前已固化/命令体——不渲染不测量永不固化，终裁 67②）**；取整单源 normalizeSize=Math.ceil；固化不与 LocalUser 同 transact 合批 |
+| doc | 节点 data | — | updateNodeData 意图（web）+writeNodeData（api·AI 域） | data 域恒全键（**两层口径——终裁 68⑥：updateNodeData intent 载荷=变更键∧doc data=作者态全键[投影并集]，两层不矛盾**）；**AI data.{width,height} 键整删（终裁 59⑤）——AI 只写 fileId** |
+| cs | 节点 position | rel | reconcile 写域② | 缺键保留现值禁 undefined；手势期让位 |
+| cs | 组 position/width/height | rel | reconcile 写域①（deriveGroupFrame） | 零差异短路 EPS=1e-6；写前 isFinite |
+| cs | 非组 width/height | —（**尺寸无空间概念——终裁 68⑥**） | reconcile 写域③（doc 直拷） | resize 手势期让位；**measured 兜底降第二档（doc wh 第一档/常量最后档——固化窗口期合法，白名单见 C0-3）** |
+| cs | 分镜子 position | rel | 写域④（构造默认 {0,0}） | 禁 materialize；RF 不读（CSS grid） |
+| RenderNode | rel+hidden+派生帧 | rel | deriveRenderCanvas | hidden 深度=1 断言 |
+| RF internals | measured/positionAbsolute | 屏幕 | RF | 禁入 doc/cs 投影；**组件直写 RF width/height[ImageGenNode 两处]=唯一豁免点待删（终裁 49②）——O0b-2 后豁免清零+census** |
+
+表头脚注：命令体先算 abs；写 cs 时经 relOf(abs, frameOrigin)——cs.position 永远是 rel；分镜子 cs.position={0,0} 是占位常量非 rel 非派生无写者；storyboard 档尺寸唯一源=calcStoryboardSize（config 权威）；**手势期例外（v3.16 终裁 56）：让位集合内字段的手势期写者=手势内核（拖动 position 批/resize 预览帧+子 rel 补偿）——上表"唯一写者"为非手势期口径，与手势三行表（附录四）并读**。
+
+## 附录三：命令跃迁表（**14 行**精确计数——doc 键×帧×子 速查；终裁 88⑥"约 12 行/约 14 行"三处不一致同批改齐）
+
+| 命令/手势 | cs 组帧 | cs 子 | doc 键（意图） | 关键断言 |
+|---|---|---|---|---|
+| groupNodes | reconcile 派生 | rel 重基 | addNode(组)+envelope{parentId}+子 abs | 组零帧键 |
+| addToGroup/dropIntoGroup | 派生 | 新子 clamp rel（placement 域） | envelope{parentId}+子 abs | 组零帧键；守卫留函数体 |
+| removeNodeFromGroup | 派生 | parentId 清+abs 还原 | envelope{parentId:undefined}+子 abs | 分镜清槽置 null |
+| ungroup/convertGroup→normal | 派生/删组 | abs 还原（分镜走 placeGrid） | deleteNode(组)+子 abs | cells 槽序保真 |
+| convertGroup→storyboard/mergeStoryboard | calcStoryboardSize | {0,0} | data{groupType,cells,storyboard}+envelope{position} | 组无 wh |
+| resizeStoryboardGrid/updateStoryboardConfig | calcStoryboardSize | 溢出子=组右上外 20px | data{storyboard,cells}+溢出子 abs | 用本命令返回值；doc 零帧意图 |
+| toggleCollapse | collapsed 档派生[≡COLLAPSED_SIZE 覆写——终裁 82] | — | 单 updateNodeData{collapsed}（**折叠分支 envelope 写删——doc 三键=展开态密封源**） | manual 组折叠 doc 帧三键逐位不变∧transact=1∧展开逐位还原 |
+| 拖叶子（手势/提交） | 冻结 | 手势期 rel 直写 | 提交：子 abs（LocalUser） | 手势期 doc 写=0 |
+| 拖组（手势/提交） | 冻结 | 冻结 rel | 提交：N 子 abs（manual 组+帧三键） | 三行表 |
+| resize 组（手势/提交） | 手势期本地预览 | 不变 | 提交：**单 updateNodeEnvelope{三键}**（~~data{manuallyResized}~~ **已删——终裁 50**）单 transact | 手势期零 doc 帧意图；**collapsed⇒无 resizer 唯一边界守卫；键集表不因 collapsed 改变（终裁 61③ 改写+82/89——"提交剥键"撤销）** |
+| resize 叶子（手势/提交） | — | position 批照常 | envelope{wh} 逐帧（现状） | 松手重载不回跳 |
+| duplicate/paste/建点/分镜落子 | 派生/appendCopyPlan | 副本 rel 归零（分镜） | addNode+envelope{parentId}+子 abs | 新顶层节点同 tick≡doc.abs；**副本 wh=原件逐位（copyPlan 必带——终裁 49）** |
+| arrangeSelection/arrangeGroupChildren | reconcile 派生（refit 退役后） | rel 重基 | 子 abs（几何意图） | 帧≡bbox+padding（v3.16 补行——refit 退役后帧改派生） |
+| deleteNode（组删除级联） | reconcile 派生（剩余组）/删组 | — | deleteNode(组+级联子) | 组帧随成员消失；cascadeDeleteVideoProject 同族（v3.16 补行） |
+
+## 附录四：手势三行表（让位/冻结/提交）
+
+| 手势 | freeze 层（不重算） | live 层（回写活值） | 提交 |
+|---|---|---|---|
+| 拖叶子 | 父组帧 | {被拖节点} | 子 abs 单 transact（LocalUser） |
+| 拖组 | 被拖组帧（origin 活/尺寸冻结） | draggedGroupIds∪组内子代 | N 子 abs（manual 组+帧三键） |
+| resize 组 | {resizeTargetId} 帧 | {resizeTargetId}∪children(resizeTargetId) | **帧三键（单 envelope——manuallyResized 已删，终裁 50）** |
+
+补：拖动中远端改被拖节点 parentId ⇒ 放弃该节点保护按 doc 基准重算。
+
+---
+
+## Self-Review 检查单（v3.6-FROZEN 生效前收口版——第二十五轮清扫后重建）
+
+- [x] **v3.20 终裁 89-92 全落位**（折叠简写作用域/前向引用禁令+coverUrl/尺寸模型补全/清库 FK+版本门统一——全文=头部 v3.20 终裁段，spec 不再扩块）
+- [x] **第二十五轮清扫全落位（全部白名单三类：删矛盾/统一数字/记台账）**：A1 create withDoc stamp（冻结表戳源行+O0b-0 正负锚+O0c-1 改验收断言）；A2 padding=非对称具名常量断言（92 块+B7-2）；A3 normal 档=calcGroupBounds 单源+census"padding 算术实现点=1"（O0b-1）；A4 geometryWriterRegistry 宿主=packages/shared/src/canvas/（C0-2）；B1 Goal 行 M0 前移口径；B2/S6-S11 版本串统一 v3.20+Architecture 三入口+O0b-0 Step 1 四档行两侧拒+版本一致性 census 改三处互比禁硬编码；B3/B5/B6 七落点（C0-3 节点类型×wh 权威表+A/B 判据句+按行计数注[canvasStore A 类=13 行/7 区间；C 类 :792-794 不在迁移面]、O0b-2 补 product-node:13+折叠锚类型限定、附录二 (iii) textInput 限定、allow-list 清单落点=lint-gate 常量文件、符号删除 census 模板扩改名/迁移）；C1 O0b-5 文本 census 删（代码扫描域中文串恒零命中无鉴别力——行为锚即守卫）；C2 (a1) 理由句改"删页面后零 UI 消费者"；D1 清库无 FK 表删行非清列（GenerationIntent 唯一键 NULL 失效）；P0-17 store 内 set( 处数禁写死（C0-2+冻结表）；P0-19 applyGroupDerivations 逐点表按实测 13 处调用点逐行列出（:1087→:1984）；P1-R M0-1 前向引用检查扩三列+死导入点名（buildFilteredSnapshot/CLONE_WHITELIST）+O0a-2 组深校验改既有覆盖确认（'import' 档 nested-group 已 fatal）；P1-S templateData drop 回滚锚一行；L6 前向引用检查行入执行总览
+- [x] **历史修正块（v3.15→v3.19 五段）已归档仅溯源**——仲裁规则载明：其内与 v3.20 终裁段/冻结表/分片正文冲突处一律以后者为准，不再逐句改写历史文本（其内"42 行"/"228 处"/"五件套"/"随删"/"提交剥键第二道安全网"等 stale 字样按此规则失效）
+- [x] 依赖序：C0→M0→editMode→O0a→O0b-0（**八件套原子批**）→O0b（reconcile→尺寸真源→保护序→S1 整删→refit 族退役）→O0c（import 直读已随 M0-1 落地——只剩验收断言）→O0d∥B6-1→B6-2/3→Inner 化（去闸门+两基线重算+夹具 extent 清理）→B4'（endGesture）→B5'→B7
+- [x] TDD 全程红-绿-重构；无垫片/无向后兼容；census 计数形态+扫描域写实；数字单源=测试代码、plan 表引用（改值必须同批改测试）；spec 与 plan 同批 commit；分片尾三命令（tsc --noEmit+test+lint-gate）
+- [x] **拍板进展（2026-10-02）**：① /works/:id 入口已拍板 **(a1) 净删**并同批落地 plan 文本（M0-1/M0-2 七处+90 块——import/getTemplate/页面整删+死导入三符号+isPublic 编译器枚举法+description 死列；"复制画布"=画布内复制粘贴承接[无全选快捷键=已接受取舍 spec §5 登记]；评审二 P0-2 鉴权洞随端点消解）；② B6-3 +号拖线落空=建点+连线[三评审维持推荐——HandleAddNodeMenu:82-92 同手势先例]**——已确认（2026-10-02 用户拍板；B6-3 行同批落盘）
+- [x] **第二十六轮清扫全落位**：(a1) 七处+P0-20 create.withDoc **去 nodes.length 闸门**无条件 stamp（冻结表戳源行改"3 处调用 2 类语义"+正锚拆两档[空项目不抛=闸门判别锚]+canvas.service.create 链限定句+withDoc≠prisma 事务措辞）；P0-21 census 改"**帧装配算术实现点=1**"[calcGroupMinSize/clamp 族=被约束量排除]+B7-1 形态断言拆域[A 类链首非 .measured/B 类 internalNode.measured 直读豁免样板]；A3 冻结表补形态断言；A4 set( 口径说明[44/50 随正则非谁不准]；B1 description 死列 drop；B2 逐点表补 :1331 早退分支+断言；C1 spec 状态行；C2 clone 档升格 fatal=行为变更措辞；P1-3 onError 落位锚⑥+卡五权威表开位；P1-5/6 C0-2 数字句+C0-3 三档链；P2 六小项（前向引用措辞"既有∨本片新建"/卡五/编号句/附录二剥键收敛/清库分组/历史块墓碑×5）；评审一 A1 isPublic 三句合一+编译器枚举法[先删列再 tsc——禁手写清单]
