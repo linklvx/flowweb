@@ -9,7 +9,9 @@
  *   - C0-2 本片新增 geometryTrap.test.ts（陷阱守卫造案夹具——sanctioned 例外，allow-list 第 39 条）：
  *     该文件手写 setState 是陷阱测试的存在目的（造案），+9 处；
  *   - O0a-1（Spec B）canvasIntents.spec 剥键锚用例 +2 处（diff 剥键锚需 cs 直写构造 before/after 差——
- *     同 sanctioned 例外）→ 有效基线 212 处 / 39 文件。
+ *     同 sanctioned 例外）；
+ *   - O0a-1 评审收口集成造案 +2 处（批尾 DEV throw 挂点守卫——镜像 store 构造 before/after 差，
+ *     同 sanctioned 例外）→ 有效基线 214 处 / 39 文件。
  *     棘轮语义不变：自今日起单调下降、只降不升；新 test/spec 文件几何 setState 走规则 G 直拦。
  */
 export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
@@ -62,6 +64,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   /** 存量起点（当日 grep——38 文件面）。 */
   stock: { count: 201, files: 38 },
   /** 有效基线（含 C0-2 造案夹具 +11 处/1 文件 + O0a-1 剥键用例造案 +2 处/canvasIntents.spec——
-   *  diff 剥键锚需 cs 直写构造 before/after 差，setState 是用例的存在目的——同 sanctioned 例外）。 */
-  effective: { count: 212, files: 39 },
+   *  diff 剥键锚需 cs 直写构造 before/after 差，setState 是用例的存在目的——同 sanctioned 例外；
+   *  O0a-1 评审收口集成造案再 +2 处——批尾 DEV throw 挂点守卫，镜像 store 构造 before/after）。 */
+  effective: { count: 214, files: 39 },
 };

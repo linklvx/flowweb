@@ -772,4 +772,32 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1')!.position).toEqual({ x: 0, y: 0 });
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
+
+  it('集成造案：doc 预埋分镜子带 position 违例 → dispatchProjectionDiff 批尾 DEV 断言真抛（删挂载即红——防线假绿防护）', () => {
+    // 生产不可能形态（diff 剥键=唯一合法写者）经 fillDoc 直埋 doc——fillDoc 只认记录键不做键集
+    // 校验，违例 doc 恰是三层防线②（批尾 DEV throw）要当场暴露而非被静默修好的场景
+    fillDoc(doc, [
+      { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
+        data: { groupType: 'storyboard', cells: ['c1'] } },
+      { id: 'c1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180,
+        position: { x: 5, y: 5 }, data: { status: 'done' } },
+    ] as any, []);
+    // store 镜像 doc（sb1/c1 before==after——diff 只产无关新节点 intent，不触碰违例节点）
+    useCanvasStore.setState({ nodes: [
+      { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
+        data: { groupType: 'storyboard', cells: ['c1'] } },
+      { id: 'c1', type: 'imageGen', parentId: 'sb1', position: { x: 5, y: 5 }, width: 320, height: 180,
+        data: { status: 'done' } },
+    ] as any });
+    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done' } } } as any });
+    const before = captureStoreProjection();
+    // 无关变更：新节点 n9 入 store → diff=[addNode n9] 非空——才走得到批尾 DEV 断言（空 diff 提前 return）
+    useCanvasStore.setState({ nodes: [
+      ...useCanvasStore.getState().nodes,
+      { id: 'n9', type: 'textInput', position: { x: 999, y: 0 }, data: {} } as any,
+    ] });
+    expect(() => dispatchProjectionDiff(before, Origin.LocalUser)).toThrow(/键集校验/);
+    // 防线只读不修：抛点在 dispatch 之后，违例 position 键仍在 doc（非 normalize pass）
+    expect((doc.getMap('nodes').get('c1') as Y.Map<any>).has('position')).toBe(true);
+  });
 });

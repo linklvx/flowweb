@@ -135,7 +135,7 @@ describe('批2-3：doc meta schemaVersion（R1c 前置物）', () => {
   });
 });
 
-describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasRecord）', () => {
+describe('批4a：读路径归一（O0a-1 起 readCanvasFromDoc=readRecordsFromMaps 直出——null 消除读侧自做）', () => {
   it('doc 含 null 值键 / 缺键 / shadow- 前缀键 → 出口 null 键消除（缺键形态，键集锁定）、shadow- 不再特判（批5 删信箱）', () => {
     const doc = new Y.Doc();
     const nodesMap = doc.getMap('nodes');
@@ -163,7 +163,7 @@ describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasR
     expect(r.nodes.find((n: any) => n.id === 'shadow-x')).toBeDefined(); // 不再过滤（dev 巡检锚见 runtime invariant.spec 判据⑥）
   });
 
-  it('与 store 投影同形：readCanvasFromDoc 出口 ≡ projectCanvasNodes 出口（normalize 同源，批4a 红1 前置）', () => {
+  it('与 store 投影同形：readCanvasFromDoc 直出 ≡ projectCanvasNodes 出口（O0a-1 起同形不同 normalize 源——读直出/写过 normalizeCanvasRecord，批4a 红1 前置）', () => {
     const doc = buildDocFromSnapshot(
       [{ id: 'n1', type: 'textInput', parentId: null, width: 320, height: null, position: { x: 5, y: 6 }, data: { a: 1 } }],
       [],

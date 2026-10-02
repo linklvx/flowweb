@@ -235,7 +235,8 @@ function storeProjection() {
 }
 
 /** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
- *  两侧同过双重归一：normalizeCanvasRecord（读侧 readCanvasFromDoc 归一 / 写侧 projectCanvasNodes）
+ *  两侧断言前同过归一：读侧 readCanvasFromDoc 直出（O0a-1：docShape readRecordsFromMaps 直出
+ *  作者态 DocNodeRecord，null 消除读侧自做——normalizeCanvasRecord 仅存写侧 projectCanvasNodes）
  *  + normalizeLoadedCanvas（加载几何归一——设计内分叉源必须双侧同变换后才可断言，否则恒假）：
  *  组几何补缺（S1 契约：normalizeLoadedCanvas 补缺是每轮内存重建的确定性纯函数、不写 doc——
  *  doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
