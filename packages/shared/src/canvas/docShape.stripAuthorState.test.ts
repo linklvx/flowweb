@@ -55,6 +55,15 @@ describe('stripAuthorState（键集表④——纯剥不补：输入无键⇄输
     expect(collapsed.height).toBeUndefined();
   });
 
+  it('manual 组+collapsed=true：帧三键保留（doc 三键=展开态密封源——终裁 82/89）；对照档=上方 g2 auto+collapsed⇒0 帧键', () => {
+    const out = stripAuthorState([
+      rec({ id: 'g3', type: 'group', position: { x: 5, y: 6 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true } }),
+    ]);
+    expect(out[0].position).toEqual({ x: 5, y: 6 });
+    expect(out[0].width).toBe(300);
+    expect(out[0].height).toBe(200);
+  });
+
   it('分镜子（parentId 指向 storyboard 组）：剥 position、留 width/height（全量预扫不依赖遍历序）', () => {
     const out = stripAuthorState([
       rec({ id: 'c1', type: 'imageGen', parentId: 'sb1', position: { x: 1, y: 1 }, width: 320, height: 180, data: {} }), // 子在前

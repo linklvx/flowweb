@@ -114,7 +114,8 @@ export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edg
 /** 增量写：record 缺键 → Y.Map delete；值变才 set（同值 no-op——无守卫=doc 膨胀）。
  *  键集表跳过（O0a-1）：记录无 position → 不写不删（分镜子剥键写者在上游——既有键不覆写）；
  *  position 子 Map 缺失（人为构造）→ 经 createMap 工厂创建。仅测试消费（生产写路径已收口
- *  canvasIntents——批 4b：updateNodeEnvelope 内联逐键 diff）；O0a-2 起 api writeNodeToYMap 收编。 */
+ *  canvasIntents——批 4b：updateNodeEnvelope 内联逐键 diff）；O0a-2 起 api 种子写走 fillDoc
+ *  （writeNodeToYMap 符号整删——4aaf2fd9，读写同收编 shared docShape 单源）。 */
 export function applyRecordToYMap(
   m: DocMapLike,
   r: DocNodeRecord,

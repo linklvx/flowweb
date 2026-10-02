@@ -4,7 +4,8 @@ import type { DocNodeRecord } from './docShape';
 /** 节点信封唯一类型（spec §4.7 纯数据方案，不含 yjs——防跨实例 instanceof 静默失败）。
  *  null 语义（批4a 读归一修订 v3 分家契约）：本函数真删键；doc 读侧出口（O0a-1 起 readRecordsFromMaps
  *  直出 DocNodeRecord——null 值键消除在读侧自做）。API normalizeNodeRecord 是 JSON 序列化边界语义，
- *  不收敛；后端 readDocCanvas 仍保持 ?? null 出口（服务端消费域，未归一）。 */
+ *  不收敛；读侧出口=docShape readRecordsFromMaps 双端同形（O0a-2 起 api 读收编——readDocCanvas
+ *  符号已删，null 值键消除两侧同形，?? null 出口不复存在）。 */
 export interface CanvasNodeRecord {
   id: string;
   type: string;
