@@ -83,7 +83,7 @@ function CollapsedPreviewCardComponent({ name, color, selected = false, cells }:
         data-testid="collapsed-preview-grid"
         style={{
           flex: 1, minHeight: 0,
-          display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: 'minmax(0, 1fr)',
           gap: 4, padding: 6, borderRadius: 6,
         }}
       >

@@ -20,6 +20,7 @@ describe('CollapsedPreviewCard 结构（§4.5）', () => {
   it('宫格 padding 6/gap 4/圆角 6 + summaryRow「3 个节点」（N=cells 总数非显示数）+ 根 div 显式尺寸=COLLAPSED_SIZE 220×160（2d-1 不变量载体）', () => {
     render(<CollapsedPreviewCard name="组" cells={[cell('a', 'f1'), cell('b', 'f2'), cell('c')]} />);
     const grid = screen.getByTestId('collapsed-preview-grid');
+    expect(grid.style.gridAutoRows).toBe('minmax(0, 1fr)');
     expect(grid.style.padding).toBe('6px');
     expect(grid.style.gap).toBe('4px');
     expect(grid.style.borderRadius).toBe('6px');
