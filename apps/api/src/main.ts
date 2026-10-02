@@ -9,7 +9,6 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { validateEnv } from './config/env';
-import { TemplateService } from './modules/template/template.service';
 
 /**
  * 白名单：允许 DB SystemSetting 覆盖 process.env 的 key。
@@ -84,11 +83,6 @@ async function bootstrap() {
   // No separate SentryGlobalFilter required in @sentry/nestjs v10.x
 
   app.set('trust proxy', true);
-
-  // 初始化官方模板
-  const templateService = app.get(TemplateService);
-  await templateService.initOfficialTemplates();
-  console.log('[Seed] Official templates initialized');
 
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));

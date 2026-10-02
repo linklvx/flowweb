@@ -70,7 +70,7 @@ async function main() {
   await prisma.template.upsert({
     where: { id: GATE.templateId },
     update: {},
-    create: { id: GATE.templateId, name: 'A0-0 门禁画布', userId: user.id, teamId: team.id, projectId: GATE.projectId, status: 'SAVED' },
+    create: { id: GATE.templateId, name: 'A0-0 门禁画布', userId: user.id, teamId: team.id, projectId: GATE.projectId },
   });
 
   // /videos 公开列表最小行（VideoWork 无归属字段——平台公开作品）

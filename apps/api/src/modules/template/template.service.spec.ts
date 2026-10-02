@@ -1,31 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TemplateService } from './template.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ProjectService } from '../project/project.service';
 import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { validateParentGraph } from '@flowweb/shared';
-import type { Template } from '@prisma/client';
-
-// v5 字段口径：teamId/projectId/folderId 显式 null——falsy 使 getTemplate/update 的 OR 鉴权链行为
-// 与现状 spread 完全一致（勿填 'team1' 等真值，会改变既有 Forbidden 用例的 mock 调用链）；
-// templateData 补 version:1（骨架用例照抄既有模式时不再踩 Zod 红相归因）。
-const templateFixture = {
-  id: 't1', name: 'Test Template', isPublic: true, userId: 'creator',
-  teamId: null, projectId: null, folderId: null,
-  description: null, coverUrl: null, dataUrl: null,
-  status: 'SAVED', category: null, importCount: 0,
-  createdAt: new Date(), updatedAt: new Date(),
-  templateData: {
-    version: 1,
-    nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { text: 'hi' } }],
-    edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
-    viewport: { x: 0, y: 0, zoom: 1 },
-  },
-};
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('TemplateService', () => {
   let service: TemplateService;
@@ -35,7 +15,6 @@ describe('TemplateService', () => {
       create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
@@ -45,20 +24,12 @@ describe('TemplateService', () => {
       updateMany: ReturnType<typeof vi.fn>;
     };
     canvasProject: {
-      findFirst: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
     };
     teamMember: {
       findFirst: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
     };
-    user: {
-      upsert: ReturnType<typeof vi.fn>;
-    };
-  };
-  let projectService: {
-    findById: ReturnType<typeof vi.fn>;
-    create: ReturnType<typeof vi.fn>;
   };
   let folderService: {
     touch: ReturnType<typeof vi.fn>;
@@ -72,10 +43,9 @@ describe('TemplateService', () => {
     prisma = {
       $transaction: vi.fn((ops: any[]) => Promise.resolve(ops.map(() => ({})))),
       template: {
-        create: vi.fn().mockResolvedValue({ id: 't1', name: 'Test', userId: 'u1', isPublic: false }),
+        create: vi.fn().mockResolvedValue({ id: 't1', name: 'Test', userId: 'u1' }),
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn().mockResolvedValue(null),
-        findFirst: vi.fn().mockResolvedValue(null),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue({}),
         count: vi.fn().mockResolvedValue(0),
@@ -85,23 +55,13 @@ describe('TemplateService', () => {
         updateMany: vi.fn(),
       },
       canvasProject: {
-        findFirst: vi.fn().mockResolvedValue(null),
         delete: vi.fn().mockResolvedValue({}),
       },
-      // findFirst：assertTeamMember 用（默认成员放行）；findUnique：getTemplate/update 的 OR 成员直查（默认非成员）
+      // findFirst：assertTeamMember 用（默认成员放行）；findUnique：update/delete 的 OR 成员直查（默认非成员）
       teamMember: {
         findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }),
         findUnique: vi.fn().mockResolvedValue(null),
       },
-      user: {
-        upsert: vi.fn().mockResolvedValue({}),
-      },
-    };
-    projectService = {
-      findById: vi.fn().mockResolvedValue({
-        id: 'p1', userId: 'u1', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-      }),
-      create: vi.fn().mockImplementation((name: string) => Promise.resolve({ id: 'p2', name })),
     };
     folderService = {
       touch: vi.fn(),
@@ -115,7 +75,6 @@ describe('TemplateService', () => {
       providers: [
         TemplateService,
         { provide: PrismaService, useValue: prisma },
-        { provide: ProjectService, useValue: projectService },
         { provide: FolderService, useValue: folderService },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
         { provide: ProjectPermissionService, useValue: perm },
@@ -126,14 +85,13 @@ describe('TemplateService', () => {
   });
 
   describe('findMany', () => {
-    it('should return paginated results with isOwner flag', async () => {
+    it('should return paginated results with isOwner flag（M0 后唯一源 type=my）', async () => {
       prisma.template.findMany.mockResolvedValue([
-        { id: 't1', name: 'T1', userId: 'u1', isPublic: true, importCount: 5,
-          category: 'OFFICIAL', description: '', coverUrl: '',
+        { id: 't1', name: 'T1', userId: 'u1', importCount: 5,
           createdAt: new Date(), updatedAt: new Date() },
       ]);
       prisma.template.count.mockResolvedValue(1);
-      const result = await service.findMany({ type: 'official', page: 1, limit: 20 }, 'u1');
+      const result = await service.findMany({ type: 'my', page: 1, limit: 20 }, 'u1');
       expect(result.templates[0].isOwner).toBe(true);
       expect(result.total).toBe(1);
     });
@@ -187,47 +145,6 @@ describe('TemplateService', () => {
         await expect(service.findMany({ type: 'my', teamId: 't-foreign' }, 'u1')).rejects.toThrow('非团队成员');
         expect(prisma.template.findMany).not.toHaveBeenCalled();
       });
-    });
-  });
-
-  describe('getTemplate', () => {
-    it('should return template if public', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 't1', isPublic: true, userId: 'creator' });
-      const result = await service.getTemplate('t1', 'other-user');
-      expect(result.id).toBe('t1');
-    });
-
-    it('should throw ForbiddenException if private and not creator', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 't1', isPublic: false, userId: 'creator' });
-      await expect(service.getTemplate('t1', 'other-user')).rejects.toThrow(ForbiddenException);
-    });
-
-    it('should throw NotFoundException if template does not exist', async () => {
-      prisma.template.findUnique.mockResolvedValue(null);
-      await expect(service.getTemplate('nonexistent', 'u1')).rejects.toThrow(NotFoundException);
-    });
-
-    it('getTemplate 团队模板对团队成员放行（teamMember 直查）', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 'tp1', userId: 'creator', isPublic: false, teamId: 't-team', projectId: 'p1' });
-      prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
-      const result = await service.getTemplate('tp1', 'teammate');
-      expect(result.isOwner).toBe(false);
-      expect(perm.resolve).not.toHaveBeenCalled(); // 成员已放行，无需再走项目权限链
-    });
-
-    it('getTemplate 非团队成员但项目协作者可打开（OR 关系）', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 'tp1', userId: 'creator', isPublic: false, teamId: 't-team', projectId: 'p1' });
-      prisma.teamMember.findUnique.mockResolvedValue(null);
-      perm.resolve.mockResolvedValue('PROJECT_EDITOR');
-      const result = await service.getTemplate('tp1', 'outside-collaborator');
-      expect(result.isOwner).toBe(false);
-    });
-
-    it('getTemplate 既非团队成员又非项目协作者 → 403', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 'tp1', userId: 'creator', isPublic: false, teamId: 't-team', projectId: 'p1' });
-      prisma.teamMember.findUnique.mockResolvedValue(null);
-      perm.resolve.mockResolvedValue(null);
-      await expect(service.getTemplate('tp1', 'stranger')).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -320,74 +237,6 @@ describe('TemplateService', () => {
     });
   });
 
-  describe('import', () => {
-    const validTemplate = templateFixture;
-
-    it('should import public template and create project', async () => {
-      prisma.template.findUnique.mockResolvedValue(validTemplate);
-      const result = await service.import('t1', 'other-user');
-      expect(projectService.create).toHaveBeenCalled();
-      expect(prisma.template.update).toHaveBeenCalledWith({
-        where: { id: 't1' },
-        data: { importCount: { increment: 1 } },
-      });
-      expect(result.name).toBe('Test Template (副本)');
-    });
-
-    it('should throw ForbiddenException if private and not creator', async () => {
-      prisma.template.findUnique.mockResolvedValue({ ...validTemplate, isPublic: false });
-      await expect(service.import('t1', 'other-user')).rejects.toThrow(ForbiddenException);
-    });
-
-    it('透传解析后的 teamId 至 projectService.create（第 5 参，外部传参优先）', async () => {
-      prisma.template.findUnique.mockResolvedValue(validTemplate);
-      await service.import('t1', 'u1', 't-team');
-      const args = projectService.create.mock.calls[0];
-      expect(args[0]).toBe('Test Template (副本)');
-      expect(args[1]).toBe('u1');
-      expect(args[4]).toBe('t-team');
-    });
-
-    it('不传 teamId 时解析默认团队并透传', async () => {
-      prisma.template.findUnique.mockResolvedValue(validTemplate);
-      await service.import('t1', 'u1');
-      const args = projectService.create.mock.calls[0];
-      expect(args[4]).toBe('team1');
-    });
-
-    it('重名循环切 teamId 维度（队友导入同模板不产生错乱编号）', async () => {
-      prisma.template.findUnique.mockResolvedValue(validTemplate);
-      prisma.canvasProject.findFirst
-        .mockResolvedValueOnce({ id: 'p0' })
-        .mockResolvedValueOnce(null);
-      const result = await service.import('t1', 'u1');
-      expect(prisma.canvasProject.findFirst).toHaveBeenCalledWith({
-        where: { name: 'Test Template (副本)', teamId: 'team1' },
-      });
-      expect(prisma.canvasProject.findFirst).toHaveBeenLastCalledWith({
-        where: { name: 'Test Template (副本 2)', teamId: 'team1' },
-      });
-      expect(result.name).toBe('Test Template (副本 2)');
-    });
-
-    it('他团队成员猜 teamId 调 import → 403', async () => {
-      prisma.teamMember.findFirst.mockResolvedValue(null);
-      await expect(service.import('t1', 'u1', 't-foreign')).rejects.toThrow(ForbiddenException);
-      expect(projectService.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('initOfficialTemplates', () => {
-    it('不存在时创建官方模板，已存在时跳过', async () => {
-      await service.initOfficialTemplates();
-      expect(prisma.template.create).toHaveBeenCalled();
-      prisma.template.create.mockClear();
-      prisma.template.findFirst.mockResolvedValue({ id: 'existing' } as never);
-      await service.initOfficialTemplates();
-      expect(prisma.template.create).not.toHaveBeenCalled();
-    });
-  });
-
   describe('update folderId 移动', () => {
     it('folderId 变化时校验目标文件夹归属（teamId 维度）并 touch 源与目标', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', teamId: 't1', folderId: 'f1' });
@@ -416,228 +265,11 @@ describe('TemplateService', () => {
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
 
-    it('改名时 touch 所在文件夹；isPublic 切换不 touch', async () => {
+    it('改名时 touch 所在文件夹', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1' });
       prisma.template.update.mockResolvedValue({ id: 't1' });
       await service.update('t1', { name: '新名' } as any, 'u1');
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
-      (folderService.touch as any).mockClear();
-      await service.update('t1', { isPublic: true } as any, 'u1');
-      expect(folderService.touch).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('读侧收敛（v10 裁决 2 第 ⑤ 点——公开行 templateData 等同公开载荷）', () => {
-    it('findMany（community）响应剥 templateData 且其余模型字段全在（Prisma 类型夹具——编译期强制零手抄）', async () => {
-      // v4：const fullRow: Template 类型标注——漏字段/多字段 tsc 红（Prisma 生成类型精确非 Partial）
-      const fullRow: Template = { id: 't1', name: 'T', description: null, coverUrl: null, dataUrl: null, templateData: { version: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }, folderId: null, projectId: null, status: 'SAVED', userId: 'other', teamId: null, isPublic: true, importCount: 0, category: 'COMMUNITY', createdAt: new Date(), updatedAt: new Date() };
-      // v5：status 必须 'SAVED'（枚举仅 DRAFT/SAVED——'PUBLISHED' 会 TS2322 挂 tsc）
-      prisma.template.findMany.mockResolvedValue([fullRow]);
-      const out = await service.findMany({ type: 'community', page: 1, limit: 10 } as any, 'other-user');
-      expect('templateData' in out.templates[0]).toBe(false);
-      for (const k of Object.keys(fullRow).filter((x) => x !== 'templateData')) {
-        expect(k in out.templates[0]).toBe(true);
-      }
-      // v4：防将来改回 select 漏字段（select 是上轮真实事故形态；mock 无视 select 实参，需显式锁）
-      expect(prisma.template.findMany).toHaveBeenCalledWith(
-        expect.not.objectContaining({ select: expect.anything() }),
-      );
-    });
-
-    it('getTemplate 非 owner 剥 templateData；owner 仍含', async () => {
-      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'owner-1', templateData: { version: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } });
-      const other = await service.getTemplate('t1', 'other-user');
-      expect('templateData' in other).toBe(false);
-      const owner = await service.getTemplate('t1', 'owner-1');
-      expect(owner.templateData).toBeDefined();
-    });
-  });
-
-  describe('导入侧展开式+cells 两遍重映射+跨用户过滤（R0b）', () => {
-    it('三键存续且 parentId/cells 重映射到新 id（第三站点 F29）', async () => {
-      prisma.template.findUnique.mockResolvedValue({
-        ...templateFixture, isPublic: true, userId: 'other',
-        templateData: {
-          version: 1,
-          nodes: [
-            { id: 'g1', type: 'group', position: { x: 10, y: 10 }, width: 300, height: 200, data: { groupType: 'normal', cells: ['c1'] } },
-            { id: 'c1', type: 'imageGen', position: { x: 20, y: 20 }, parentId: 'g1', width: 100, height: 60, data: { prompt: 'x' } },
-          ],
-          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-        },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      const group = nodes.find((n: any) => n.type === 'group');
-      const child = nodes.find((n: any) => n.type === 'imageGen');
-      expect(group.width).toBe(300);                      // 现状 undefined——必红
-      expect(child.parentId).toBe(group.id);              // 重映射到新组 id——现状丢 parentId 必红
-      expect(group.data.cells[0]).toBe(child.id);         // cells 两遍重映射——现状悬空旧 id 必红
-    });
-
-    it('残缺模板行（缺 nodes/edges）导入 → 400 业务文案而非 TypeError 冒泡', async () => {
-      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'other', templateData: { version: 1 } });
-      await expect(service.import('t1', 'user-2')).rejects.toThrow('模板数据为空');
-    });
-
-    it('cells 引用靠后节点不被误判悬空（两遍——边建边用会 null）', async () => {
-      prisma.template.findUnique.mockResolvedValue({
-        ...templateFixture, isPublic: true, userId: 'other',
-        templateData: {
-          version: 1,
-          nodes: [
-            { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: ['c1', 'c2'] } },
-            { id: 'c1', type: 'imageGen', position: { x: 5, y: 5 }, parentId: 'g1', data: { prompt: 'a' } },
-            { id: 'c2', type: 'imageGen', position: { x: 50, y: 50 }, parentId: 'g1', data: { prompt: 'b' } },
-          ],
-          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-        },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      const group = nodes.find((n: any) => n.type === 'group');
-      const c1 = nodes.find((n: any) => n.data.prompt === 'a');
-      const c2 = nodes.find((n: any) => n.data.prompt === 'b');
-      expect(group.data.cells[0]).toBe(c1.id);            // 现状悬空旧 id 'c1'——必红
-      expect(group.data.cells[1]).toBe(c2.id);            // 现状悬空旧 id 'c2'——必红
-    });
-
-    it('跨用户导入公开模板：媒体引用剥+status 归一 idle+结构保留（v9 裁决③）', async () => {
-      prisma.template.findUnique.mockResolvedValue({
-        ...templateFixture, isPublic: true, userId: 'other',
-        templateData: {
-          version: 1,
-          nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x', fileId: 'f1', status: 'done' } }],
-          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-        },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      const img = nodes.find((n: any) => n.type === 'imageGen').data;
-      expect(img.fileId).toBeUndefined();                 // 现状 'f1' 原样透传——必红
-      expect(img.status).toBe('idle');                    // 现状 'done'——必红
-      expect(img.prompt).toBe('x');
-    });
-
-    it('作者导入自己的公开模板：全量不过滤（isPublic && userId!==owner 才滤）', async () => {
-      prisma.template.findUnique.mockResolvedValue({
-        ...templateFixture, isPublic: true, userId: 'user-2',
-        templateData: {
-          version: 1,
-          nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x', fileId: 'f1', status: 'done' } }],
-          edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-        },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      expect(nodes[0].data.fileId).toBe('f1');            // 作者路径全量保留（现状亦绿——防 Task 12 过滤波及作者）
-    });
-
-    it('往返等价（全量基准，两段拼接的 import 段）：save 输出形状（Task 11 已在 canvas.service.spec 锁定）→ 导入逐字段归一等值', async () => {
-      // 输入=save 的落库形状（version:1 + 归一化信封——由 Task 11 的 save 断言保证，此处硬编码同构夹具）
-      const savedShape = {
-        version: 1,
-        nodes: [
-          { id: 'g1', type: 'group', position: { x: 10, y: 10 }, width: 300, height: 200,
-            data: { groupType: 'storyboard', cells: ['c1', null], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
-          { id: 'c1', type: 'imageGen', position: { x: 15, y: 15 }, parentId: 'g1', width: 140, height: 90, data: { prompt: 'cat', fileId: 'f1' } },
-        ],
-        edges: [{ id: 'e1', source: 'c1', target: 'c1' }],
-        viewport: { x: 0, y: 0, zoom: 1 },
-      };
-      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: false, userId: 'u1', templateData: savedShape });
-      await service.import('t1', 'u1');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      const g = nodes.find((n: any) => n.type === 'group');
-      const c = nodes.find((n: any) => n.type === 'imageGen');
-      // 信封逐字段：type/position 深等、三键等值、parentId 经映射后指向新组
-      expect(g.type).toBe('group'); expect(g.position).toEqual({ x: 10, y: 10 });
-      expect(g.width).toBe(300); expect(g.height).toBe(200); expect(g.parentId).toBeUndefined();
-      expect(c.position).toEqual({ x: 15, y: 15 }); expect(c.width).toBe(140); expect(c.height).toBe(90);
-      expect(c.parentId).toBe(g.id);
-      // data：除 cells 外深等（私有全量——fileId 保留）；cells 槽位映射后可解析
-      expect(c.data).toEqual(savedShape.nodes[1].data);
-      const { cells, ...gDataRest } = g.data; const { cells: _oc, ...origGDataRest } = savedShape.nodes[0].data;
-      expect(gDataRest).toEqual(origGDataRest);
-      expect(cells).toHaveLength(2);
-      expect(cells[0]).toBe(c.id);          // 可解析
-      expect(cells[1]).toBeNull();          // 空宫格占位保留
-      // edges 端点经映射后等值
-      const edges = projectService.create.mock.calls[0][3] as any[];
-      expect(edges).toHaveLength(1);
-      expect(edges[0].source).toBe(c.id); expect(edges[0].target).toBe(c.id);
-    });
-  });
-
-  describe('组结构门禁（Task 21 validateParentGraph 导入档——校验钉在跨用户过滤/remap 前）', () => {
-    const importRow = (templateData: unknown) =>
-      prisma.template.findUnique.mockResolvedValue({ ...templateFixture, isPublic: true, userId: 'other', templateData });
-
-    it('fatal 三种：cycle/nested-group/non-group-parent → 400 拒绝（producer 侧不可能合法产出）', async () => {
-      const base = { version: 1, edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-      importRow({ ...base, nodes: [
-        { id: 'a', type: 'group', position: { x: 0, y: 0 }, parentId: 'b', data: {} },
-        { id: 'b', type: 'group', position: { x: 1, y: 1 }, parentId: 'a', data: {} },
-      ] });
-      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
-      importRow({ ...base, nodes: [
-        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
-        { id: 'g2', type: 'group', position: { x: 1, y: 1 }, parentId: 'g1', data: {} },
-      ] });
-      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
-      importRow({ ...base, nodes: [
-        { id: 'n0', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
-        { id: 'c1', type: 'imageGen', position: { x: 1, y: 1 }, parentId: 'n0', data: {} },
-      ] });
-      await expect(service.import('t1', 'user-2')).rejects.toThrow('组结构非法');
-      expect(projectService.create).not.toHaveBeenCalled();
-    });
-
-    it('cells 悬空 id：修不拒——正常导入且输出 cells 该位 null（remap 折 null 现状语义）', async () => {
-      importRow({
-        version: 1,
-        nodes: [
-          { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: ['c1', 'ghost'] } },
-          { id: 'c1', type: 'imageGen', position: { x: 5, y: 5 }, parentId: 'g1', data: { prompt: 'a' } },
-        ],
-        edges: [], viewport: { x: 0, y: 0, zoom: 1 },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      const nodes = projectService.create.mock.calls[0][2] as any[];
-      const group = nodes.find((n: any) => n.type === 'group');
-      const c1 = nodes.find((n: any) => n.data.prompt === 'a');
-      expect(group.data.cells).toEqual([c1.id, null]);
-    });
-
-    it('边端点悬空：修不拒——导入成功且该边被丢弃（重映射循环内 continue 现状语义）', async () => {
-      importRow({
-        version: 1,
-        nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: 'x' } }],
-        edges: [{ id: 'e1', source: 'n1', target: 'ghost' }],
-        viewport: { x: 0, y: 0, zoom: 1 },
-      });
-      await service.import('t1', 'user-2');
-      expect(projectService.create).toHaveBeenCalled();
-      expect(projectService.create.mock.calls[0][3]).toEqual([]);
-    });
-
-    it('官方 seed 回归锚：initOfficialTemplates 全部 templateData 过 import 档零 violation（seed 加组时防静默 400）', async () => {
-      await service.initOfficialTemplates();
-      const rows = [
-        ...prisma.template.create.mock.calls.map((c: any[]) => c[0].data),
-        ...prisma.template.update.mock.calls.map((c: any[]) => c[1]),
-      ];
-      expect(rows.length).toBeGreaterThan(0);
-      for (const row of rows) {
-        const td = row.templateData as { nodes: any[]; edges: any[] };
-        expect(validateParentGraph(td.nodes, 'import', td.edges).violations).toEqual([]);
-      }
     });
   });
 });

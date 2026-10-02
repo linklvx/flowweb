@@ -136,18 +136,14 @@ enum TemplateCategory {
 model Template {
   id           String             @id @default(cuid())
   name         String
-  description  String?
   coverUrl     String?
   dataUrl      String?
-  templateData Json?
   folderId     String?
   folder       Folder?            @relation(fields: [folderId], references: [id], onDelete: SetNull)
   projectId    String?            @unique
   project      CanvasProject?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  status       TemplateStatus     @default(DRAFT)
   userId       String
   teamId       String?
-  isPublic     Boolean            @default(false)
   importCount  Int                @default(0)
   category     TemplateCategory?
   createdAt    DateTime           @default(now())
@@ -159,7 +155,6 @@ model Template {
   @@index([folderId])
   @@index([userId])
   @@index([teamId])
-  @@index([isPublic])
   @@index([category])
   @@index([importCount])
 }
