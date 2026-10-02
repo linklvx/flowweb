@@ -148,21 +148,21 @@
 
 ### Task O0a-1：docShape 单源收编+position 单键+类型分裂
 
-- [ ] **Step 1: 红测试**：docShape round-trip 双端比（fillDoc→readRecords 恒等——**分镜子两侧无键恒等**[三层表：doc 无键⇄records 同形无键⇄cs {0,0} 构造默认——v3.15 定稿]）；position 单键原子化+envelope{position}=Y.Map 嵌套子 Map；**类型分裂**：DocNodeRecord 出口（fillDoc/readRecordsFromMaps/stripAuthorState/toDocRecords）可选键——**CanvasNodeRecord 维持必填**（编译器门更利）
-- [ ] **Step 2: 绿实现**：ydocBuilder 的 fillDoc/readCanvasFromDoc/applyRecordToYMap 收编 shared/canvas/docShape.ts（DocLike{getMap}——零 yjs import 的结构性类型）；fillDoc/applyRecordToYMap **按键集表跳过无键节点——键集判定需父 groupType 而 applyIntentToDoc addNode 逐 intent 单节点无父上下文（groupNodes 子先父后）⇒ 三层防线（v3.16 终裁 52+**v3.17 终裁 64② 修订——消同一规则双写者**）：①**上游构造纪律=唯一剥键写者**[分镜落子/粘贴分镜子副本 intent.node 不带 position——copyPlan 分镜子 rel 归零既有先例同源]②**stripDerivedKeys 降级 DEV/prod 只读校验**[读最终 doc 断言键集**不写**——原"transact 尾 normalize pass 统一剥键"写动作废止转校验谓词；锚改"分镜子 child 先于父组入 doc（人为构造序）⇒**DEV 断言报错而非被静默修好**"——bug 当场暴露]③DEV 断言父先子后漏斗不变量**；normalizeCanvasRecord position 兜底删除（**四兜底表见 C0-3——终裁 54③**）
-- [ ] **Step 3: commit** `feat(shared): O0a docShape 单源——position 单键+DocNodeRecord 类型分裂+键集表跳过（Spec B O0a-1）`
+- [x] **Step 1: 红测试**：docShape round-trip 双端比（fillDoc→readRecords 恒等——**分镜子两侧无键恒等**[三层表：doc 无键⇄records 同形无键⇄cs {0,0} 构造默认——v3.15 定稿]）；position 单键原子化+envelope{position}=Y.Map 嵌套子 Map；**类型分裂**：DocNodeRecord 出口（fillDoc/readRecordsFromMaps/stripAuthorState/toDocRecords）可选键——**CanvasNodeRecord 维持必填**（编译器门更利）
+- [x] **Step 2: 绿实现**：ydocBuilder 的 fillDoc/readCanvasFromDoc/applyRecordToYMap 收编 shared/canvas/docShape.ts（DocLike{getMap}——零 yjs import 的结构性类型）；fillDoc/applyRecordToYMap **按键集表跳过无键节点——键集判定需父 groupType 而 applyIntentToDoc addNode 逐 intent 单节点无父上下文（groupNodes 子先父后）⇒ 三层防线（v3.16 终裁 52+**v3.17 终裁 64② 修订——消同一规则双写者**）：①**上游构造纪律=唯一剥键写者**[分镜落子/粘贴分镜子副本 intent.node 不带 position——copyPlan 分镜子 rel 归零既有先例同源]②**stripDerivedKeys 降级 DEV/prod 只读校验**[读最终 doc 断言键集**不写**——原"transact 尾 normalize pass 统一剥键"写动作废止转校验谓词；锚改"分镜子 child 先于父组入 doc（人为构造序）⇒**DEV 断言报错而非被静默修好**"——bug 当场暴露]③DEV 断言父先子后漏斗不变量**；normalizeCanvasRecord position 兜底删除（**四兜底表见 C0-3——终裁 54③**）
+- [x] **Step 3: commit** `feat(shared): O0a docShape 单源——position 单键+DocNodeRecord 类型分裂+键集表跳过（Spec B O0a-1）`
 
 ### Task O0a-2：api 读写收编+组深≤1 校验
 
-- [ ] **Step 1: 红测试**：api 读≡web 读（readDocCanvas 收编 readRecordsFromMaps——同一 doc 双端比）；writeNodeToYMap 收编 applyRecordToYMap（stripAuthorState 输出唯一入参）；**组深≤1 校验（第二十六轮 C2 措辞修正）：import 档=既有覆盖[fatal 含 nested-group——(a1) 下随端点消解]；**clone 档升格 nested-group 为 fatal=行为变更**（现状 clone 档只检 cycle[video-work-clone:46-47 实证]——新增 clone 档 nested-group 用例；现有测试只覆盖 dangling 容忍）；禁写第二份深度校验**；符号级断言"api 无第二 doc 节点读写实现"（readDocCanvas/writeNodeToYMap 符号不存在）
-- [ ] **Step 2: 绿实现**：collab-document.service readDocCanvas→docShape readRecordsFromMaps；node-doc.util writeNodeToYMap→docShape applyRecordToYMap；project.service/video-work-clone 种子路径走 stripAuthorState+组深校验
-- [ ] **Step 3: commit** `feat(api): O0a 读写收编 docShape 单源+组深≤1 入口校验（Spec B O0a-2）`
+- [x] **Step 1: 红测试**：api 读≡web 读（readDocCanvas 收编 readRecordsFromMaps——同一 doc 双端比）；writeNodeToYMap 收编 applyRecordToYMap（stripAuthorState 输出唯一入参）；**组深≤1 校验（第二十六轮 C2 措辞修正）：import 档=既有覆盖[fatal 含 nested-group——(a1) 下随端点消解]；**clone 档升格 nested-group 为 fatal=行为变更**（现状 clone 档只检 cycle[video-work-clone:46-47 实证]——新增 clone 档 nested-group 用例；现有测试只覆盖 dangling 容忍）；禁写第二份深度校验**；符号级断言"api 无第二 doc 节点读写实现"（readDocCanvas/writeNodeToYMap 符号不存在）
+- [x] **Step 2: 绿实现**：collab-document.service readDocCanvas→docShape readRecordsFromMaps；node-doc.util writeNodeToYMap→docShape applyRecordToYMap；project.service/video-work-clone 种子路径走 stripAuthorState+组深校验
+- [x] **Step 3: commit** `feat(api): O0a 读写收编 docShape 单源+组深≤1 入口校验（Spec B O0a-2）`
 
 ### Task O0a-3：toDocRecords 换芯+内剥键
 
-- [ ] **Step 1: 红测试**：auto 组只改 data ⇒ diff **恰 1 个 updateNodeData intent ∧ 零 envelope/moveNode**（差分 intent 不带几何）；round-trip：toDocRecords 输出满足键集表逐格（auto 组无三键/storyboard 无 wh/分镜子无 position）+**identity 档断言"输出 position≡输入 position 逐位[除剥键]——翻转不在此分片"（终裁 69）**；**连续两次 reconcile(cs) 幂等（第二次零 setState）**
-- [ ] **Step 2: 绿实现**：projectCanvasNodes 双源换芯 toDocRecords（csNodes+nsNodes 结构性最小类型入参→DocNodeRecord[]）；**剥键在 toDocRecords 内**；setDocPosition 唯一写原语（Y.Map 嵌套）
-- [ ] **Step 3: commit** `feat(shared): O0a toDocRecords 换芯——唯一 rel→abs+内剥键+差分零几何意图（Spec B O0a-3）`
+- [x] **Step 1: 红测试**：auto 组只改 data ⇒ diff **恰 1 个 updateNodeData intent ∧ 零 envelope/moveNode**（差分 intent 不带几何）；round-trip：toDocRecords 输出满足键集表逐格（auto 组无三键/storyboard 无 wh/分镜子无 position）+**identity 档断言"输出 position≡输入 position 逐位[除剥键]——翻转不在此分片"（终裁 69）**；**连续两次 reconcile(cs) 幂等（第二次零 setState）**
+- [x] **Step 2: 绿实现**：projectCanvasNodes 双源换芯 toDocRecords（csNodes+nsNodes 结构性最小类型入参→DocNodeRecord[]）；**剥键在 toDocRecords 内**；setDocPosition 唯一写原语（Y.Map 嵌套）
+- [x] **Step 3: commit** `feat(shared): O0a toDocRecords 换芯——唯一 rel→abs+内剥键+差分零几何意图（Spec B O0a-3）`
 
 ---
 
