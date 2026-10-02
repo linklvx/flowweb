@@ -87,3 +87,12 @@ jobs:
       # （migrate deploy+seed 由 gate 脚本自带 :166-167）
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: node scripts/gate-collab.mjs
+      # R2d-8 追加三 step（token 门禁进 CI——本地先绿再挂）。web 前置确认：gate 只自拉 API
+      # （dist/main.js 子进程，finally 恒收）；web 5173 归 collab 配置 webServer（vite preview），
+      # 随 playwright 退出自动拆除——gate 步结束后 3000/3001/5173 全空闲。下列步骤走默认
+      # playwright.config.ts 自管双 webServer（API=migrate deploy+seed+nest start /
+      # web=build+preview，均 reuse=false/true 语义内建），自包含无需额外前置；
+      # css-baseline-diff 纯静态基线比对（不启动浏览器/服务）。
+      - run: pnpm --filter @flowweb/web exec playwright test e2e/b0-token-blocks.spec.ts
+      - run: pnpm --filter @flowweb/web exec playwright test e2e/b1-token-migration.spec.ts --grep "B1-4"
+      - run: node apps/web/scripts/css-baseline-diff.mjs
