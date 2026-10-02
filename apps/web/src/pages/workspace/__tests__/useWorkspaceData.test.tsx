@@ -22,13 +22,13 @@ import { createCanvas as apiCreateCanvas } from '@/api/canvasApi';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
 
 const tpl = (id: string, name: string, updatedAt: string, folderId: string | null = null) => ({
-  id, name, description: '', coverUrl: null, isPublic: false, folderId,
-  status: 'SAVED', createdAt: updatedAt, updatedAt, importCount: 0,
+  id, name, description: '', folderId,
+  createdAt: updatedAt, updatedAt,
 });
 const folderDto = (id: string, name: string, count = 0) => ({
   id, name, parentId: null,
   createdAt: '2026-08-17T10:00:00', updatedAt: '2026-08-18T10:00:00',
-  canvasCount: count, thumbnails: [{ id: 't1', coverUrl: null }],
+  canvasCount: count, thumbnails: [{ id: 't1' }],
 });
 
 beforeEach(() => {

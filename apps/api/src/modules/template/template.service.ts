@@ -7,9 +7,9 @@ import { assertTeamMember } from '../team/team.util';
 import { TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 
 interface TemplateListQuery {
-  type?: 'official' | 'my' | 'community';
+  type?: 'my';
   search?: string;
-  sort?: 'importCount' | 'newest';
+  sort?: 'newest';
   page?: number;
   limit?: number;
   folderId?: string;
@@ -59,7 +59,8 @@ export class TemplateService {
       where.OR = [{ userId }, { project: { teamId: team.id } }];
     }
 
-    if (query.type === 'my' && query.folderId) {
+    // M0 后 type 唯一取值 my（DTO 收窄）——判式塌缩为 folderId 单条件
+    if (query.folderId) {
       where.folderId = query.folderId === 'root' ? null : query.folderId;
     }
 
@@ -67,9 +68,8 @@ export class TemplateService {
       where.name = { contains: query.search, mode: 'insensitive' };
     }
 
-    const orderBy: any = query.sort === 'newest'
-      ? { createdAt: 'desc' }
-      : { importCount: 'desc' };
+    // importCount 列已 drop（M0）——排序塌缩为 createdAt 单源
+    const orderBy: any = { createdAt: 'desc' };
 
     const [templates, total] = await Promise.all([
       this.prisma.template.findMany({ where, orderBy, skip, take: limit }),

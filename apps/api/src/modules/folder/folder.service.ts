@@ -27,7 +27,7 @@ export class FolderService {
     const folders = await this.prisma.folder.findMany({
       where: { teamId: teamIdResolved },
       include: {
-        templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true, coverUrl: true } },
+        templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true } }, // coverUrl 列已 drop（M0）——缩略图由前端渐变兜底
         _count: { select: { templates: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -40,7 +40,7 @@ export class FolderService {
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
         canvasCount: f._count.templates,
-        thumbnails: f.templates.map((t) => ({ id: t.id, coverUrl: t.coverUrl })),
+        thumbnails: f.templates.map((t) => ({ id: t.id })),
       })),
     };
   }

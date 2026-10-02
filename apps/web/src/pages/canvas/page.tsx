@@ -342,7 +342,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <ProjectTitle projectId={projectId} projectName={projectName} folderPath={folderPath} onNameChange={onNameChange} />
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />
-        <CanvasTopBar projectId={projectId} projectName={projectName} />
+        <CanvasTopBar projectId={projectId} />
         <KeyboardShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <MaterialLibraryModal />
         <HistoryModal />

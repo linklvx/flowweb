@@ -19,12 +19,12 @@ describe('Sidebar', () => {
       </MemoryRouter>
     );
 
-  it('渲染 Logo 与四项菜单', () => {
+  it('渲染 Logo 与四项菜单（M0 模板广场项已随市场下线移除）', () => {
     renderSidebar();
     expect(screen.getByText('Flow123')).toBeInTheDocument();
     expect(screen.getByText('Flow123').closest('a')).toHaveAttribute('href', '/');
     expect(screen.getByText('首页').closest('a')).toHaveAttribute('href', '/');
-    expect(screen.getByText('模板广场').closest('a')).toHaveAttribute('href', '/templates');
+    expect(screen.queryByText('模板广场')).not.toBeInTheDocument();
     expect(screen.getByText('素材库').closest('a')).toHaveAttribute('href', '/materials');
     expect(screen.getByText('工作空间').closest('a')).toHaveAttribute('href', '/works');
   });

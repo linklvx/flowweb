@@ -14,15 +14,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export interface UpdateTemplateDto {
   name?: string;
-  description?: string;
-  isPublic?: boolean;
   folderId?: string | null;
 }
 
 export interface TemplateListQuery {
-  type?: 'official' | 'my' | 'community';
+  type?: 'my';
   search?: string;
-  sort?: 'importCount' | 'newest';
+  sort?: 'newest';
   page?: number;
   limit?: number;
   folderId?: string;
@@ -42,18 +40,10 @@ export function getTemplates(query: TemplateListQuery) {
   return request<any>(`?${qs}`);
 }
 
-export function getTemplate(id: string) {
-  return request<any>(`/${id}`);
-}
-
 export function updateTemplate(id: string, dto: UpdateTemplateDto) {
   return request(`/${id}`, { method: 'PATCH', body: JSON.stringify(dto) });
 }
 
 export function deleteTemplate(id: string) {
   return request(`/${id}`, { method: 'DELETE' });
-}
-
-export function importTemplate(id: string) {
-  return request<{ id: string }>(`/${id}/import`, { method: 'POST' });
 }

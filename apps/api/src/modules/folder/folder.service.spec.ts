@@ -42,8 +42,8 @@ describe('FolderService', () => {
           id: 'f1', name: '工作', parentId: null,
           createdAt: new Date('2026-08-01'), updatedAt: new Date('2026-08-18'),
           templates: [
-            { id: 't1', coverUrl: 'http://a.png' },
-            { id: 't2', coverUrl: null },
+            { id: 't1' },
+            { id: 't2' },
           ],
           _count: { templates: 5 },
         },
@@ -53,14 +53,14 @@ describe('FolderService', () => {
       expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: { teamId: 't1' },
         include: {
-          templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true, coverUrl: true } },
+          templates: { take: 3, orderBy: { updatedAt: 'desc' }, select: { id: true } },
           _count: { select: { templates: true } },
         },
       }));
       expect(result.folders[0].canvasCount).toBe(5);
       expect(result.folders[0].thumbnails).toEqual([
-        { id: 't1', coverUrl: 'http://a.png' },
-        { id: 't2', coverUrl: null },
+        { id: 't1' },
+        { id: 't2' },
       ]);
     });
 

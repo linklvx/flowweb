@@ -8,7 +8,7 @@ vi.mock('@/api/folderApi', () => ({
   renameFolder: vi.fn(),
   deleteFolder: vi.fn(),
 }));
-vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
+vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
 // WorkspacePage 无条件挂 useTeams：给 getMyTeams 默认成功值，避免团队请求走真实网络
 const { getMyTeams: mockGetMyTeams } = vi.hoisted(() => ({ getMyTeams: vi.fn() }));
 vi.mock('@/api/teamApi', () => ({

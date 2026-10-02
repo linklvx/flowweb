@@ -7,8 +7,7 @@
     "build": "node ../../scripts/check-shared-dist.mjs && nest build",
     "test": "node ../../scripts/check-shared-dist.mjs && tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",
-    "lint": "eslint \"{src,test}/**/*.ts\"",
-    "backfill:team": "tsx scripts/backfill-team.ts"
+    "lint": "eslint \"{src,test}/**/*.ts\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",

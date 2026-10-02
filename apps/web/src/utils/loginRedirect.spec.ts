@@ -21,7 +21,6 @@ describe('resolvePostLoginTarget 17 条矩阵', () => {
     ['/team', '/team'],
     ['/team/billing', '/team/billing'],
     ['/materials', '/materials'],
-    ['/templates', '/templates'],
     ['/settings/profile', '/settings/profile'],
     ['/join?code=x', '/join?code=x'],
     ['/videos', '/videos'],
@@ -38,8 +37,8 @@ describe('resolvePostLoginTarget 17 条矩阵', () => {
     expect(resolvePostLoginTarget(input)).toBe(expected);
   });
 
-  it('矩阵计数钉 19（防静默删行；批2 评审补 /videos）', () => {
-    expect(cases).toHaveLength(19);
+  it('矩阵计数钉 18（防静默删行；批2 评审补 /videos；M0 摘 /templates 行）', () => {
+    expect(cases).toHaveLength(18);
   });
 });
 

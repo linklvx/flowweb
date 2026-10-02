@@ -10,7 +10,7 @@ const PAGE_SIZE = 20;
 
 function toCanvas(t: any): Canvas {
   return {
-    id: t.id, projectId: t.projectId ?? null, name: t.name, coverUrl: t.coverUrl ?? null, isPublic: !!t.isPublic,
+    id: t.id, projectId: t.projectId ?? null, name: t.name,
     createdAt: t.createdAt, updatedAt: t.updatedAt, folderId: t.folderId ?? null,
   };
 }
@@ -31,7 +31,8 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
       id: f.id, name: f.name, parentId: f.parentId,
       createdAt: f.createdAt, updatedAt: f.updatedAt,
       canvasCount: f.canvasCount,
-      thumbnails: f.thumbnails.map((t) => (t.coverUrl ? `url("${t.coverUrl}")` : getCanvasGradient(t.id))),
+      // coverUrl 列已 drop（M0）——缩略图恒走渐变兜底
+      thumbnails: f.thumbnails.map((t) => getCanvasGradient(t.id)),
     })));
   }, [teamId]);
 
@@ -125,19 +126,6 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
     }
   }, [canvases]);
 
-  const togglePublic = useCallback(async (id: string) => {
-    const target = canvases.find((c) => c.id === id);
-    if (!target) return;
-    const prev = canvases;
-    setCanvases((cs) => cs.map((c) => (c.id === id ? { ...c, isPublic: !c.isPublic } : c)));
-    try {
-      await updateTemplate(id, { isPublic: !target.isPublic });
-    } catch {
-      setCanvases(prev);
-      message.error('操作失败，请重试');
-    }
-  }, [canvases]);
-
   const deleteCanvas = useCallback(async (id: string) => {
     const prev = canvases;
     setCanvases((cs) => cs.filter((c) => c.id !== id));
@@ -153,7 +141,7 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
     const { templateId, projectId } = await apiCreateCanvas(name, folderId, teamId);
     const now = new Date().toISOString();
     setCanvases((prev) => [
-      { id: templateId, projectId, name, coverUrl: null, isPublic: false, createdAt: now, updatedAt: now, folderId },
+      { id: templateId, projectId, name, createdAt: now, updatedAt: now, folderId },
       ...prev,
     ]);
     await refreshFolders();
@@ -164,6 +152,6 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
     status, reload, folders, canvases, hasMore, page,
     loadFolder, loadMore,
     createFolder, renameFolder, deleteFolder,
-    moveCanvas, renameCanvas, togglePublic, deleteCanvas, createCanvas,
+    moveCanvas, renameCanvas, deleteCanvas, createCanvas,
   };
 }

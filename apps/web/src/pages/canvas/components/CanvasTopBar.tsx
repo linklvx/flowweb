@@ -5,10 +5,9 @@ import { ThemeToggleButton } from '@/components/theme/ThemeToggleButton';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { userColor } from '@/collab/awareness';
 import type { AwarenessState } from '@/collab/awareness';
-import { SaveAsTemplateDialog } from './SaveAsTemplateDialog';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
-import { UserOutlined, SettingOutlined, LogoutOutlined, SaveOutlined } from '@ant-design/icons';
+import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { getDefaultTeam } from '@/api/teamApi';
@@ -18,10 +17,9 @@ import { loginUrl } from '@/utils/loginRedirect';
 
 interface Props {
   projectId: string;
-  projectName: string;
 }
 
-export function CanvasTopBar({ projectId, projectName }: Props) {
+export function CanvasTopBar({ projectId }: Props) {
   const { user, logout } = useAuth();
   const [onlineUsers, setOnlineUsers] = useState<AwarenessState[]>([]);
   useEffect(() => {
@@ -32,7 +30,6 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
     update();
     return bridge.onStateChange(update);
   }, []);
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
   const navigate = useNavigate();
   const store = useCreditsStore();
 
@@ -110,12 +107,6 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
       icon: <SettingOutlined />,
       label: <Link to="/settings/profile" className="no-underline text-inherit">个人设置</Link>,
     },
-    {
-      key: 'save-template',
-      icon: <SaveOutlined />,
-      label: '保存为模板',
-      onClick: () => setShowSaveDialog(true),
-    },
     { type: 'divider' as const },
     {
       key: 'logout',
@@ -188,15 +179,6 @@ export function CanvasTopBar({ projectId, projectName }: Props) {
           </span>
         </div>
       </div>
-
-      {showSaveDialog && (
-        <SaveAsTemplateDialog
-          projectId={projectId}
-          projectName={projectName}
-          onClose={() => setShowSaveDialog(false)}
-          onSaved={() => { setShowSaveDialog(false); }}
-        />
-      )}
     </>
   );
 }

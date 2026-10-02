@@ -17,7 +17,7 @@ const SCAN_DIRS = [
   path.join(ROOT, 'apps/web/src'),
   path.join(ROOT, 'apps/api/src'),
   path.join(ROOT, 'apps/api/prisma'),
-  path.join(ROOT, 'apps/api/scripts'),
+  // M0-2：apps/api/scripts 随 backfill-team.ts 死码整删退出扫描面（目录不复存在）
   path.join(ROOT, 'packages/shared/src'),
 ];
 
@@ -46,12 +46,12 @@ const ALLOW_FILES = new Set([
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {
-  it('扫描面非空自证（五目录都有文件；关键模块在位）', () => {
+  it('扫描面非空自证（四目录都有文件；关键模块在位）', () => {
     const files = SCAN_DIRS.flatMap(listTsFiles);
     expect(files.length).toBeGreaterThan(200);
     expect(files.some((f) => f.includes('ydocBuilder'))).toBe(true);
     expect(files.some((f) => f.includes('node-doc.util'))).toBe(true);
-    expect(files.some((f) => f.includes('backfill-team'))).toBe(true);   // 扫描面覆盖脚本的自证
+    expect(files.some((f) => f.includes('gate-seed'))).toBe(true);   // prisma 脚本面自证（M0-2 起 scripts 目录已删）
     expect(files.some((f) => f.includes('canvasStore'))).toBe(true);
   });
 
@@ -65,7 +65,7 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('edges 单形状 tripwire（扫描面六模块目录——apps/api/scripts 不在面内（backfill-team 的 Prisma CanvasEdge 列名是 DB legacy 桥接的合法映射）；判据"任一出现即违规"（v6：同行共现抓不到分两行的类型声明；注释提及也算——文本门禁有意保守，注释写 sourceId 即违规）', () => {
+  it('edges 单形状 tripwire（扫描面六模块目录；判据"任一出现即违规"（v6：同行共现抓不到分两行的类型声明；注释提及也算——文本门禁有意保守，注释写 sourceId 即违规）', () => {
     const EDGE_DIRS = [
       path.join(ROOT, 'apps/api/src/modules/collab'),
       path.join(ROOT, 'apps/api/src/modules/canvas'),

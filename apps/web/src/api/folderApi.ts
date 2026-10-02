@@ -7,7 +7,7 @@ export interface FolderDto {
   createdAt: string;
   updatedAt: string;
   canvasCount: number;
-  thumbnails: Array<{ id: string; coverUrl: string | null }>;
+  thumbnails: Array<{ id: string }>;
 }
 
 export function getFolders(teamId?: string) {

@@ -7,7 +7,6 @@ import type { Folder } from '../types';
 const { mockGetNextUntitledName } = vi.hoisted(() => ({ mockGetNextUntitledName: vi.fn() }));
 vi.mock('@/api/canvasApi', () => ({
   createCanvas: vi.fn(),
-  saveCanvas: vi.fn(),
   getNextUntitledName: mockGetNextUntitledName,
 }));
 

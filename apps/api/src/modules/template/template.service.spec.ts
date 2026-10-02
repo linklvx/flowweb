@@ -87,7 +87,7 @@ describe('TemplateService', () => {
   describe('findMany', () => {
     it('should return paginated results with isOwner flag（M0 后唯一源 type=my）', async () => {
       prisma.template.findMany.mockResolvedValue([
-        { id: 't1', name: 'T1', userId: 'u1', importCount: 5,
+        { id: 't1', name: 'T1', userId: 'u1',
           createdAt: new Date(), updatedAt: new Date() },
       ]);
       prisma.template.count.mockResolvedValue(1);
@@ -123,11 +123,11 @@ describe('TemplateService', () => {
         }));
       });
 
-      it('非 type=my 时 folderId 被忽略', async () => {
+      it('folderId 判式塌缩：type 唯一取值 my（DTO 收窄）后 folderId 无条件生效', async () => {
         prisma.template.findMany.mockResolvedValue([]);
-        await service.findMany({ type: 'community', folderId: 'f1' } as any, 'u1');
+        await service.findMany({ folderId: 'f1' } as any, 'u1');
         const where = prisma.template.findMany.mock.calls[0][0].where;
-        expect(where.folderId).toBeUndefined();
+        expect(where.folderId).toBe('f1');
       });
     });
 

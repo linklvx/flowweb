@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
-  AppstoreOutlined, FolderOutlined, HomeOutlined, MenuFoldOutlined,
+  FolderOutlined, HomeOutlined, MenuFoldOutlined,
   MenuUnfoldOutlined, PictureOutlined, PlusOutlined, QuestionCircleOutlined,
   VideoCameraOutlined, WechatOutlined,
 } from '@ant-design/icons';
@@ -11,8 +11,7 @@ import { WeChatFollowModal } from './WeChatFollowModal';
 
 const NAV_ITEMS = [
   { label: '首页', href: '/', icon: <HomeOutlined /> },
-  { label: '模板广场', href: '/templates', icon: <AppstoreOutlined /> },
-  { label: '视频作品', href: '/videos', icon: <VideoCameraOutlined /> }, // D14：模板广场后插入
+  { label: '视频作品', href: '/videos', icon: <VideoCameraOutlined /> }, // D14：原模板广场位（M0 市场下线后顺位补齐）
   { label: '素材库', href: '/materials', icon: <PictureOutlined /> },
   { label: '工作空间', href: '/works', icon: <FolderOutlined /> },
 ];

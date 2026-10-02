@@ -61,7 +61,7 @@ describe('CanvasTopBar', () => {
     mockCanvasState.teamId = teamId;
     return render(
       <MemoryRouter>
-        <CanvasTopBar projectId="test-pid" projectName="未命名项目" />
+        <CanvasTopBar projectId="test-pid" />
       </MemoryRouter>,
     );
   }

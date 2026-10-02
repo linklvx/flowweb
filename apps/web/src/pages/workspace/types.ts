@@ -15,8 +15,6 @@ export interface Canvas {
   id: string;
   projectId: string | null;
   name: string;
-  coverUrl: string | null;
-  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
   folderId: string | null;

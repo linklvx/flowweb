@@ -165,7 +165,6 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                       onClick={() => onItemClick(item)}
                       onRename={data.renameCanvas}
                       onMove={setMoveTarget}
-                      onTogglePublic={data.togglePublic}
                       onDelete={(c) => { void data.deleteCanvas(c.id); }}
                     />
                   )}
@@ -233,7 +232,6 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
                         onClick={() => onItemClick(item)}
                         onRename={data.renameCanvas}
                         onMove={setMoveTarget}
-                        onTogglePublic={data.togglePublic}
                         onDelete={(c) => { void data.deleteCanvas(c.id); }}
                       />
                     )}

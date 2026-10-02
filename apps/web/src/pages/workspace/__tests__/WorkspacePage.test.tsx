@@ -8,7 +8,7 @@ vi.mock('@/api/folderApi', () => ({
   renameFolder: vi.fn(),
   deleteFolder: vi.fn(),
 }));
-vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), saveCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
+vi.mock('@/api/canvasApi', () => ({ createCanvas: vi.fn(), getNextUntitledName: vi.fn().mockResolvedValue({ name: '画布1' }) }));
 const { getMyTeams: mockGetMyTeams } = vi.hoisted(() => ({ getMyTeams: vi.fn() }));
 vi.mock('@/api/teamApi', () => ({
   getMyTeams: mockGetMyTeams,
@@ -39,8 +39,8 @@ import { WorkspacePage } from '../WorkspacePage';
 
 const navigate = vi.fn();
 const tpl = (id: string, name: string, folderId: string | null = null) => ({
-  id, name, description: '', coverUrl: null, isPublic: false, folderId,
-  status: 'SAVED', createdAt: '2026-08-18T10:00:00', updatedAt: '2026-08-18T10:00:00', importCount: 0,
+  id, name, description: '', folderId,
+  createdAt: '2026-08-18T10:00:00', updatedAt: '2026-08-18T10:00:00',
 });
 const folderDto = (id: string, name: string, canvasCount = 0) => ({
   id, name, parentId: null, createdAt: '2026-08-17T10:00:00', updatedAt: '2026-08-18T10:00:00',

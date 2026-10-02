@@ -4,7 +4,7 @@ import { CanvasCard } from '../components/CanvasCard';
 import type { Canvas } from '../types';
 
 const base: Canvas = {
-  id: 'c1', projectId: 'p1', name: '画布 1', coverUrl: null, isPublic: false,
+  id: 'c1', projectId: 'p1', name: '画布 1',
   createdAt: '2026-08-18T09:00:00', updatedAt: '2026-08-18T09:00:00', folderId: null,
 };
 
@@ -14,7 +14,6 @@ function renderCard(canvas: Canvas, overrides?: Partial<Parameters<typeof Canvas
     onClick: vi.fn(),
     onRename: vi.fn(),
     onMove: vi.fn(),
-    onTogglePublic: vi.fn(),
     onDelete: vi.fn(),
     ...overrides,
   };
@@ -36,18 +35,13 @@ describe('CanvasCard', () => {
     expect(props.onClick).toHaveBeenCalledWith(base);
   });
 
-  it('画布菜单含 4 项（重命名、移动、公开/私有、删除）', () => {
+  it('画布菜单含 3 项（重命名、移动、删除——M0 公开/私有开关随市场下线移除）', () => {
     renderCard(base);
     fireEvent.click(screen.getByLabelText('更多操作'));
     expect(screen.getByText('重命名')).toBeInTheDocument();
     expect(screen.getByText('移动到文件夹')).toBeInTheDocument();
-    expect(screen.getByText('设为公开')).toBeInTheDocument();
+    expect(screen.queryByText('设为公开')).not.toBeInTheDocument();
     expect(screen.getByText('删除')).toBeInTheDocument();
-  });
-
-  it('isPublic 时显示「公开」标签', () => {
-    renderCard({ ...base, isPublic: true });
-    expect(screen.getByText('公开')).toBeInTheDocument();
   });
 
   it('hover 铅笔进入编辑，回车确认调用 onRename', () => {
@@ -95,11 +89,6 @@ describe('CanvasCard', () => {
     const row = screen.getByTestId('canvas-card-c1');
     // 行分隔线按结构锚定（.border-b）而非色 token 类——分隔线存在性是本用例契约，颜色随主题走
     expect(row.querySelector('.border-b')).toBeInTheDocument();
-  });
-
-  it('variant="list" isPublic 标签跟随名称渲染', () => {
-    renderCard({ ...base, isPublic: true }, { variant: 'list' });
-    expect(screen.getByText('公开')).toBeInTheDocument();
   });
 
   it('variant="list" 菜单删除仍触发 onDelete', () => {

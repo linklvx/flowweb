@@ -28,8 +28,6 @@ const AdminLazy = ({ children }: { children: ReactNode }) => (
 );
 import { SettingsLayout, ProfilePage, CreditsPage } from '@/pages/settings';
 import { MembershipPage } from '@/pages/settings/MembershipPage';
-import { TemplateMarketPage } from '@/pages/templates/TemplateMarketPage';
-import { TemplatePreviewPage } from '@/pages/templates/TemplatePreviewPage';
 import { WorkspacePage } from '@/pages/workspace/WorkspacePage';
 import TeamPage from '@/pages/team/TeamPage';
 import TeamBillingPage from '@/pages/team/TeamBillingPage';
@@ -42,8 +40,6 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { path: '/', element: <HomePage /> },
-      { path: '/templates', element: <TemplateMarketPage /> },
-      { path: '/templates/:id', element: <TemplatePreviewPage /> },
       // 可选参数单路由（防两条平级路由整页重挂）；lazy 元素必须自带 Suspense 边界——AppLayout 无 Suspense、
       // 公开组现有路由全是静态 import、react-router 7 SPA 不提供隐式边界 → 不包则 /videos 直链首屏
       // chunk 加载期间整个 root 无 fallback 白屏（照抄 AdminLazy 同款）
@@ -99,7 +95,6 @@ export const router = createBrowserRouter([
           { path: '/team/:id/billing', element: <TeamBillingPage /> },
           { path: '/materials', element: <MaterialsPage /> },
           { path: '/works', element: <WorkspacePage /> },
-          { path: '/works/:id', element: <TemplatePreviewPage /> },
           {
             path: '/settings',
             element: <SettingsLayout />,
