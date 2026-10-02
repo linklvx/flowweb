@@ -255,3 +255,30 @@ describe('GroupToolbar 定位（GROUP_TOOLBAR 52/12）', () => {
     }
   });
 });
+
+describe('GroupToolbar storyboard 分带（R2d-5 offset 12→32 = 标题带 gap 12 + titleRowH 20）', () => {
+  beforeEach(() => {
+    rf.vp = { x: 0, y: 0, zoom: 1 };
+    rf.node = mkRfNode(100, 200);
+  });
+
+  it('storyboard 组工具条带锚 = frame.top − 32（上方让出标题带；normal 分支维持 188px 不受影响）', () => {
+    // 双 render 共用同一 portal 容器——先卸载再挂 normal，避免 firstElementChild 取到上一实例
+    const { unmount } = render(<GroupToolbar {...baseProps} groupType="storyboard" />);
+    const toolbar = document.getElementById('node-toolbar-portal')!.firstElementChild as HTMLElement;
+    expect(toolbar.style.top).toBe('168px'); // 200 − 12 − 20
+    expect(toolbar.style.transform).toBe('translateY(-100%)');
+    unmount();
+    render(<GroupToolbar {...baseProps} groupType="normal" />);
+    const normalToolbar = document.getElementById('node-toolbar-portal')!.firstElementChild as HTMLElement;
+    expect(normalToolbar.style.top).toBe('188px'); // 200 − 12（分带只动 storyboard 分支）
+  });
+
+  it('storyboard 贴顶翻转到下方：下方分支同用 offset 32（isAbove = 0 − 32 − 52 < 0）', () => {
+    rf.node = mkRfNode(100, 0);
+    render(<GroupToolbar {...baseProps} groupType="storyboard" />);
+    const toolbar = document.getElementById('node-toolbar-portal')!.firstElementChild as HTMLElement;
+    expect(toolbar.style.top).toBe('332px'); // 0 + 300 + 32，translateY(0)
+    expect(toolbar.style.transform).toBe('translateY(0)');
+  });
+});

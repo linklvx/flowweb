@@ -102,14 +102,6 @@ describe('StoryboardGroupRenderer', () => {
     expect(cell.style.border).toBe('1px solid var(--fw-text)');
   });
 
-  it('标题浮层在容器外右上角（translateY(-100%)，与普通组/节点标题一致）', () => {
-    render(<StoryboardGroupRenderer {...(props() as any)} />);
-    const title = screen.getByText('分镜组') as HTMLElement;
-    expect(title.style.transform).toBe('translateY(-100%)');
-    expect(title.style.top).toBe('0px');
-    expect(title.style.right).toBe('0px');
-  });
-
   it('无 storyboard 的克隆体渲染不崩且按 1×1 默认网格（F2 消费点①）', () => {
     const noStoryboardData = { groupType: 'storyboard', cells: [null] } as any;
     expect(() => render(<StoryboardGroupRenderer id="g1" data={noStoryboardData} cellNodes={[]} />)).not.toThrow();

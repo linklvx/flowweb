@@ -39,6 +39,7 @@ import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';
 import { SelectionBoxOverlay } from './groups/SelectionBoxOverlay';
+import { StoryboardTitlesLayer } from './groups/StoryboardTitlesLayer';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { GroupContextMenu } from './groups/GroupContextMenu';
 import { ConfirmModal } from './ConfirmModal';
@@ -564,6 +565,7 @@ function CanvasViewComponent(_props: Props) {
         />
         <CanvasReferenceSelectBanner />
         <SelectionBoxOverlay />
+        <StoryboardTitlesLayer />
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;
           const groupType = gd.groupType ?? 'normal';

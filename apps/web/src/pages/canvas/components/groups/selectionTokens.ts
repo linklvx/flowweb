@@ -38,3 +38,10 @@ export const HANDLE: CSSProperties = {
 // 旧 40/12 常量已随 R2c-6 GroupToolbar 迁移退役
 export const SELECTION_TOOLBAR = { height: 48, offset: 14 } as const;
 export const GROUP_TOOLBAR = { height: 52, offset: 12 } as const;
+
+/** R2d-5 分镜智能标题双带（屏幕像素常量）：标题带锚 = frame.top−gap（行高 rowH，
+ * translateY(-100%) 后占 [锚−rowH, 锚]）；工具条带锚 = 标题带顶 = frame.top−gap−rowH。
+ * 消费面：StoryboardTitlesLayer（标题带）/ GroupToolbar storyboard 分支（STORYBOARD_TOOLBAR_OFFSET=32，
+ * normal 分支维持 GROUP_TOOLBAR.offset=12）。两 rect 不相交的浏览器级实测落 2d-8。 */
+export const STORYBOARD_TITLE = { gap: 12, rowH: 20, maxWidth: 240 } as const;
+export const STORYBOARD_TOOLBAR_OFFSET = STORYBOARD_TITLE.gap + STORYBOARD_TITLE.rowH; // 32

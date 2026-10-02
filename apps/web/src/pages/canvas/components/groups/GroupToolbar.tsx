@@ -10,7 +10,7 @@ import { clampToolbarX, type CanvasNodeRecord } from '@flowweb/shared';
 import { collectDownloadables } from '@/utils/collectDownloadables';
 import { runBatchDownload } from '@/utils/batchDownload';
 import { resolveGroupColor, GROUP_PALETTE } from '@/utils/groupColor';
-import { GROUP_TOOLBAR } from './selectionTokens';
+import { GROUP_TOOLBAR, STORYBOARD_TOOLBAR_OFFSET } from './selectionTokens';
 
 interface Props {
   groupId: string;
@@ -82,17 +82,19 @@ function GroupToolbarComponent(p: Props) {
     const h = (internalNode?.measured?.height ?? internalNode?.height ?? 0) * zoom;
     if (!internalNode || w === 0) return null;
     const abs = internalNode.internals.positionAbsolute;
+    // R2d-5 分带：storyboard 工具条带上移（offset 32 = 标题带 gap 12 + titleRowH 20，给屏幕层标题让位）；
+    // normal 分支维持 GROUP_TOOLBAR.offset 12。偏移/高度为屏幕常量，变换后外加不乘 zoom
+    const offset = p.groupType === 'storyboard' ? STORYBOARD_TOOLBAR_OFFSET : GROUP_TOOLBAR.offset;
     const centerX = (abs.x + w / 2) * zoom + vpX;
     const topAbs = abs.y * zoom + vpY;
-    // 偏移/高度为屏幕常量，变换后外加不乘 zoom
-    const isAbove = topAbs - GROUP_TOOLBAR.offset - GROUP_TOOLBAR.height > 0;
+    const isAbove = topAbs - offset - GROUP_TOOLBAR.height > 0;
     return {
       centerX,
-      top: isAbove ? topAbs - GROUP_TOOLBAR.offset : topAbs + h + GROUP_TOOLBAR.offset,
+      top: isAbove ? topAbs - offset : topAbs + h + offset,
       // x 分量移除（left 即最终左缘，clamp 直接夹取）——transform 仅保留纵向翻转
       transform: isAbove ? 'translateY(-100%)' : 'translateY(0)',
     };
-  }, [internalNode, vpX, vpY, zoom]);
+  }, [internalNode, vpX, vpY, zoom, p.groupType]);
 
   // 水平夹取（§4.3）：x 为不含 translate 的原始左缘——centerX - toolbarW/2 直接夹取
   const toolbarLeft = geo ? clampToolbarX(geo.centerX - metrics.toolbarW / 2, metrics.toolbarW, metrics.viewportW) : 0;
