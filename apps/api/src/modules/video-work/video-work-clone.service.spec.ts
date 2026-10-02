@@ -166,15 +166,16 @@ describe('VideoWorkCloneService.clone', () => {
     expect(projectService.create.mock.calls[0][1]).toBe('u1');
   });
 
-  it('克隆保留组 storyboard/collapsed/savedSize + 用户手动尺寸不重排（G1 行为断言）', async () => {
+  it('克隆保留组 storyboard + 用户手动尺寸；collapsed/savedSize 剥除（G1 行为断言，v2.2 语义——fixture 脏输入原样保留正证明剥除生效）', async () => {
     setup();
     await svc.clone('w1', 'u1');
     expect(projectService.create).toHaveBeenCalled(); // 防悬空取参
     const createdNodes = projectService.create.mock.calls[0][2] as any[];
     const group = createdNodes.find((n: any) => n.type === 'group');
     expect(group.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
-    expect(group.data.collapsed).toBe(false);
-    expect(group.data.savedSize).toEqual({ width: 100, height: 60 });
+    // v2.2 分镜组不可折叠——collapsed/savedSize 属脏键，clone 经 normalizeLoadedCanvas 剥除（R2d-1）
+    expect('collapsed' in group.data).toBe(false);
+    expect('savedSize' in group.data).toBe(false);
     expect(group.data.manuallyResized).toBe(true);
     expect(group.data.cells).toBeDefined();
   });
