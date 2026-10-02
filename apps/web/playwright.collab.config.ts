@@ -8,7 +8,8 @@ import { defineConfig } from '@playwright/test';
 // ③ 串行：单 worker 防多浏览器实例并发写同一画布 doc。
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'collab-recovery.e2e.spec.ts',
+  // R2 批尾（2d-8 Step 4b）新增 collab-r2-commands 同设施双端回归——testMatch 从单文件字面量扩为正则
+  testMatch: /collab-(recovery|r2-commands)\.e2e\.spec\.ts/,
   timeout: 240_000,
   workers: 1,
   fullyParallel: false,
