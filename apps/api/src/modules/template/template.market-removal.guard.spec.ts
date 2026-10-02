@@ -104,7 +104,7 @@ describe('M0-2 web 链删除锚（a1 净删——web 面+夹具+死码）', () =
     const files = [
       ...listWebTs(webSrcRoot),
       ...listWebTs(join(sharedPkgsRoot, 'shared/src')),
-    ].filter((f) => !f.endsWith('template.market-removal.guard.spec.ts'));
+    ];
     expect(files.length).toBeGreaterThan(200); // 扫描面非空自证
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
@@ -118,6 +118,16 @@ describe('M0-2 web 链删除锚（a1 净删——web 面+夹具+死码）', () =
     const src = readFileSync(join(webSrcRoot, 'router.tsx'), 'utf8');
     expect(src, 'router 含 /templates 市场路由').not.toMatch(/['"]\/templates(?:\/:id)?['"]/);
     expect(src, 'router 含 /works/:id 预览路由').not.toMatch(/['"]\/works\/:id['"]/);
+  });
+
+  it('web 全树无 /works/${} 模板串跳转（/works/:id 死跳转形态——WorkspaceDimension else 分支同批收口后盲区补钉）', () => {
+    // 扫描域=apps/web/src 全树（守卫在 api，无需自排除/无需 *.test.* 排除——与上一条 web 扫描同款手法）
+    const files = listWebTs(webSrcRoot);
+    expect(files.length).toBeGreaterThan(100); // 扫描面非空自证
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, `${f} 含 /works/\${} 模板串死跳转`).not.toContain('/works/${');
+    }
   });
 
   it('loginRedirect 白名单无 /templates 行（市场跳转收口）', () => {

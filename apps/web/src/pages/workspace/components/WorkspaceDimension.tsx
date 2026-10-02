@@ -91,7 +91,6 @@ export function WorkspaceDimension({ teamId, dimensionLabel = '个人项目', ac
     if (item.type === 'folder') enterFolder(item.data.id);
     // 画布卡片 id 是 template id，进编辑器需用其关联的 projectId
     else if (item.data.projectId) navigate(`/canvas?projectId=${item.data.projectId}`);
-    else navigate(`/works/${item.data.id}`);
   };
 
   const handleDeleteFolder = async (folder: FolderViewModel) => {

@@ -1,6 +1,6 @@
 // apps/web/src/utils/loginRedirect.spec.ts
 // 批2-3（v5.10 前移自批 6）：登录跳转收口——loginUrl / resolvePostLoginTarget 单一真相源。
-// 判据：①resolvePostLoginTarget 17 条矩阵（白名单前缀透传；外链/协议相对/非白名单/异常回落 /works——防 open redirect）
+// 判据：①resolvePostLoginTarget 18 条矩阵（白名单前缀透传；外链/协议相对/非白名单/异常回落 /works——防 open redirect）
 //       ②loginUrl 无参默认回跳当前地址、带参对应编码
 //       ③静态断言：五处裸跳转文件零硬编码 '/login'/'/canvas' 字面量跳转（消费统一走本模块）
 import { describe, it, expect } from 'vitest';
@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loginUrl, resolvePostLoginTarget } from './loginRedirect';
 
-describe('resolvePostLoginTarget 17 条矩阵', () => {
+describe('resolvePostLoginTarget 18 条矩阵', () => {
   const cases: Array<[string | null, string]> = [
     // 空/缺参 → 兜底
     [null, '/works'],
