@@ -136,8 +136,9 @@
 
 ## editMode 小分片（M0 后、O0a 前——doc 契约冻结前改 data 键集）
 
-- [ ] editMode=本地瞬态+ephemeral（**键集仅 editMode/transformMode——v3.16 终裁 53：expanded 是 doc 态[nodeStore:763-779 落 doc+决定渲染尺寸]禁入；"尺寸相关 data 键禁 ephemeral 禁双存"**）；两侧禁整表替换+白名单 {selected,dragging}；断言"ephemeral 禁入 doc/cs 持久面"+"远端 apply 后 expanded 保持源值∧渲染尺寸≡doc 尺寸"；isLocked 双定义合并单源（:129 订阅式+:327-328 isLockedNow）；编辑锁五模式锚**限定本地**；**getAvailableHandles 谓词覆盖 transformMode（isEditMode=!!editMode||!!transformMode）+videoGen 双 handle 无门=现状保留（行为变更登记）**；MultiImageNode expanded 用例进改写清单
-- [ ] commit `refactor(canvas): editMode 本地瞬态小分片——isLocked 单源+ephemeral 键集（Spec B editMode）`
+- [x] editMode=本地瞬态+ephemeral（**键集仅 editMode/transformMode——v3.16 终裁 53：expanded 是 doc 态[nodeStore:763-779 落 doc+决定渲染尺寸]禁入；"尺寸相关 data 键禁 ephemeral 禁双存"**）；两侧禁整表替换+白名单 {selected,dragging}；断言"ephemeral 禁入 doc/cs 持久面"+"远端 apply 后 expanded 保持源值∧渲染尺寸≡doc 尺寸"；isLocked 双定义合并单源（:129 订阅式+:327-328 isLockedNow）；编辑锁五模式锚**限定本地**；**getAvailableHandles 谓词覆盖 transformMode（isEditMode=!!editMode||!!transformMode）+videoGen 双 handle 无门=现状保留（行为变更登记）**；MultiImageNode expanded 用例进改写清单
+- [x] commit `refactor(canvas): editMode 本地瞬态小分片——isLocked 单源+ephemeral 键集（Spec B editMode）`
+- **行为边界登记（质评 I-1）：远端 apply 全量重建 ns 清编辑中 data.editMode 而 activeEditNodeId 存活——半状态[锁在+UI 卸载]；恢复=pane 点击 cancel/双击重进；修复归属 B6-1（消费侧门控改 activeEditNodeId）**
 
 ---
 

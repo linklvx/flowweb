@@ -710,4 +710,22 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
       useCanvasStore.getState().nodes.find((n: any) => n.id === 'm1')!.data.expanded,
     ).toBe(true);
   });
+
+  it('③ 全瞬态单键 patch：{editMode} 无他键 dispatch 后 doc data 与写前逐键相等（全瞬态=零 doc 变更=零撤销栈污染性质锚）', () => {
+    dispatchCanvasIntent(
+      { type: 'addNode', node: rec('n1', 10, { content: 'hi', style: '写实' }) },
+      Origin.LocalUser,
+    );
+    const docData = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    const snapshot = () => Object.fromEntries([...docData.keys()].map((k) => [k, docData.get(k)]));
+    const before = snapshot();
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id: 'n1', patch: { editMode: 'crop' } },
+      Origin.LocalUser,
+    );
+    expect(snapshot()).toEqual(before);                    // 全瞬态 patch：doc 零变更（逐键相等）
+    // dispatch 实走漏斗（ns 瞬态面生效——防恒真）
+    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop' });
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
 });
