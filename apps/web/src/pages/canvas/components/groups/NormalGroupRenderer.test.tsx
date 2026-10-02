@@ -16,6 +16,11 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   }),
 }));
 
+// 2d-4：折叠卡批量预取 effect 发起 batch——mock apiFetch 使其 hermetic（空行集即可 settle → phase2）
+vi.mock('@/api/client', () => ({
+  apiFetch: vi.fn().mockResolvedValue([]),
+}));
+
 describe('NormalGroupRenderer 展开态', () => {
   beforeEach(() => {
     mockStore.nodes = [{ id: 'c1', parentId: 'g1' }, { id: 'c2', parentId: 'g1' }, { id: 'x', parentId: null }];
@@ -119,7 +124,7 @@ describe('NormalGroupRenderer 展开态', () => {
 });
 
 describe('NormalGroupRenderer 折叠态', () => {
-  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 fileId 映射（data.fileId||referenceImage——GroupNode.tsx:55 先例）', () => {
+  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 fileId 映射（data.fileId||referenceImage——GroupNode.tsx:55 先例）', async () => {
     mockStore.nodes = [
       { id: 'c1', parentId: 'g1', data: { fileId: 'f1' } },
       { id: 'c2', parentId: 'g1', data: { referenceImage: 'ref2' } },
@@ -131,7 +136,8 @@ describe('NormalGroupRenderer 折叠态', () => {
     expect(card.getAttribute('title')).toBe('我的分组');
     expect(card.getAttribute('aria-label')).toBe('我的分组，3 个节点');
     expect(screen.getByText('3 个节点')).toBeTruthy();
-    const imgs = screen.getAllByTestId('collapsed-tile-img') as HTMLImageElement[];
+    // 2d-4 两段渲染：img 在批量预取 settle → phase2 挂 tile 后出现
+    const imgs = await screen.findAllByTestId('collapsed-tile-img') as HTMLImageElement[];
     expect(imgs).toHaveLength(2);
     expect(imgs[0].src).toContain('/flowai/f1');
     expect(imgs[1].src).toContain('/flowai/ref2');

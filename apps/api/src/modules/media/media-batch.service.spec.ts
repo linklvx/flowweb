@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
-import { MediaBatchService } from './media-batch.service';
+import { MediaBatchService, MEDIA_URL_TTL_SEC } from './media-batch.service';
 
 describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 type 硬编码过滤）', () => {
   let svc: MediaBatchService; let prisma: any; let minio: any;
@@ -30,5 +30,12 @@ describe('MediaBatchService（左面板聚合：按 mediaId 集合查，绕开 t
     prisma.teamMember.findFirst.mockResolvedValueOnce(null);
     await expect(svc.batchGet('u1', 't-other', ['m1'])).rejects.toThrow(ForbiddenException);
     expect(prisma.media.findMany).not.toHaveBeenCalled();
+  });
+
+  it('契约（spec §4.5）：响应条目带 ttlSec === MEDIA_URL_TTL_SEC（常量单源吸收原 :24-25 双字面量——签名 TTL 与缓存 EX 同源断言）', async () => {
+    const r = await svc.batchGet('u1', 't1', ['m1']);
+    expect(r[0].ttlSec).toBe(MEDIA_URL_TTL_SEC);
+    expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith('k1.mp4', MEDIA_URL_TTL_SEC);
+    expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith('t1.jpg', MEDIA_URL_TTL_SEC);
   });
 });

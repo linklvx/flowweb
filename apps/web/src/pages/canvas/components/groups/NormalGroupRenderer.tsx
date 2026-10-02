@@ -17,6 +17,8 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const committedRef = useRef(false);
   const renameGroup = useCanvasStore((s) => s.renameGroup);
+  // 2d-4：画布团队 id（project 加载链写入）——折叠卡批量预取 batch 必显式携带（越权面同款门在服务端）
+  const teamId = useCanvasStore((s) => s.teamId);
   const childCount = useCanvasStore((s) => {
     let count = 0;
     for (let i = 0; i < s.nodes.length; i++) if (s.nodes[i].parentId === groupId) count++;
@@ -64,6 +66,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
         color={data.color}
         selected={selected}
         cells={cells}
+        teamId={teamId}
       />
     );
   }

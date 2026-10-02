@@ -3,6 +3,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 
+/** 签名 TTL 与缓存 EX 常量单源（2d-4）：吸收原 batchGet 内两处字面量 3600；
+ *  并随 batch 响应条目 ttlSec 下行（spec §4.5 契约——web 侧 prefetch 写缓存取同值，双端各自锁） */
+export const MEDIA_URL_TTL_SEC = 3600;
+
 @Injectable()
 export class MediaBatchService {
   constructor(
@@ -21,8 +25,9 @@ export class MediaBatchService {
     });
     return Promise.all(rows.map(async (r) => ({
       ...r,
-      url: await this.minio.generatePresignedGetUrl(r.key, 3600),
-      thumbnailUrl: r.thumbnailKey ? await this.minio.generatePresignedGetUrl(r.thumbnailKey, 3600) : null,
+      url: await this.minio.generatePresignedGetUrl(r.key, MEDIA_URL_TTL_SEC),
+      thumbnailUrl: r.thumbnailKey ? await this.minio.generatePresignedGetUrl(r.thumbnailKey, MEDIA_URL_TTL_SEC) : null,
+      ttlSec: MEDIA_URL_TTL_SEC,
     })));
   }
 }

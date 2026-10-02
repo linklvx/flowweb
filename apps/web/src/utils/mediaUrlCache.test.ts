@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchMediaUrl, getCachedUrl, invalidateMediaUrl, NEAR_EXPIRY_MS,
+  prefetchMediaUrls, registerInFlight, hasPendingMediaUrl,
   __setUserIdForTests, __resetMediaCacheForTests, __getCacheSizeForTests, __cachePutForTests,
 } from './mediaUrlCache';
 
@@ -81,5 +82,60 @@ describe('invalidateMediaUrl（R2b-5 onError 自愈缓存入口）', () => {
     resolveB({ url: '/flowai/new', ttlSec: 900 });
     await expect(p2).resolves.toBe('/flowai/new');
     expect(getCachedUrl('f-id')?.url).toBe('/flowai/new');
+  });
+});
+
+describe('折叠卡批量预取（2d-4：prefetchMediaUrls + registerInFlight）', () => {
+  it('prefetchMediaUrls：批量写缓存（显式 userId 键——发起时身份捕获 v5 契约）+ ttlSec NaN isFinite 兜底（0=立即过期）', () => {
+    prefetchMediaUrls([
+      { fileId: 'f-p1', url: '/flowai/p1', ttlSec: 120 },
+      { fileId: 'f-p2', url: '/flowai/p2', ttlSec: Number.NaN },
+    ], 'user-batch');
+    __setUserIdForTests('user-batch');               // 读侧换到写入身份：证明写进了显式传入的 userId 键
+    expect(getCachedUrl('f-p1')).toEqual({ url: '/flowai/p1', stale: false });
+    expect(getCachedUrl('f-p2')).toBeNull();         // NaN → 0 → 立即过期（isFinite 防御）
+  });
+
+  it('registerInFlight：resolve 回填缓存（绝对时间形）+ pending 位清除；hasPendingMediaUrl 在飞可探测', async () => {
+    let resolveP!: (v: { url: string; ttlSec: number }) => void;
+    registerInFlight('f-reg', new Promise((r) => { resolveP = r; }));
+    expect(hasPendingMediaUrl('f-reg')).toBe(true);  // 开位：并发 tile 挂载去重共享
+    expect(getCachedUrl('f-reg')).toBeNull();
+    resolveP({ url: '/flowai/reg', ttlSec: 120 });
+    await new Promise((r) => setTimeout(r, 0));      // 微任务冲刷：写回+finally 落地
+    expect(getCachedUrl('f-reg')).toEqual({ url: '/flowai/reg', stale: false });
+    expect(hasPendingMediaUrl('f-reg')).toBe(false);
+  });
+
+  it('registerInFlight 回填身份校验（同 2b-5 invalidate 竞态）：在飞被 invalidate 后批量晚到 → 校验 pending 身份不等则丢弃不写回', async () => {
+    let resolveBatch!: (v: { url: string; ttlSec: number }) => void;
+    registerInFlight('f-race', new Promise((r) => { resolveBatch = r; }));
+    invalidateMediaUrl('f-race');                    // onError 自愈：cache+pending 同清
+    (apiFetch as any).mockResolvedValueOnce({ url: '/flowai/fresh', ttlSec: 900 });
+    const p2 = fetchMediaUrl('f-race');              // 继任单取占住 pending 位
+    resolveBatch({ url: '/flowai/stale', ttlSec: 120 });  // 批量晚到
+    await p2;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getCachedUrl('f-race')?.url).toBe('/flowai/fresh');  // 批量旧结果被身份校验丢弃
+    expect(hasPendingMediaUrl('f-race')).toBe(false);           // 继任条目未被误删（p2 自清）
+  });
+
+  it('registerInFlight reject：仅清 pending 位不写缓存（非阻塞——tile 回落单取）+ 拒绝静默无 unhandled', async () => {
+    let rejectP!: (e: Error) => void;
+    registerInFlight('f-err', new Promise((_, rej) => { rejectP = rej; }));
+    rejectP(new Error('batch fail'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(hasPendingMediaUrl('f-err')).toBe(false);
+    expect(__getCacheSizeForTests()).toBe(0);
+  });
+
+  it('registerInFlight 幂等：cache/pending 已覆盖 → 不重复开位（StrictMode 双跑/shared fileId 也 ≤1 batch）', async () => {
+    __cachePutForTests('f-cov', '/flowai/cached', 120);
+    registerInFlight('f-cov', Promise.resolve({ url: '/flowai/newer', ttlSec: 120 }));   // cache 已覆盖 → 拦截
+    registerInFlight('f-dup', Promise.resolve({ url: '/flowai/a', ttlSec: 120 }));
+    registerInFlight('f-dup', Promise.resolve({ url: '/flowai/b', ttlSec: 120 }));       // pending 已覆盖 → 拦截
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getCachedUrl('f-cov')?.url).toBe('/flowai/cached');  // 未被覆盖写回
+    expect(getCachedUrl('f-dup')?.url).toBe('/flowai/a');       // 首注册者持有写回权
   });
 });

@@ -28,6 +28,8 @@ export const __cachePutForTests = (fileId: string, url: string, ttlSec: number) 
   cacheSet(cacheKey(fileId), url, ttlSec);  // v4：LRU 淘汰纯函数测点——65 次 renderHook 降为 0（快且不脆）
 
 const cacheKey = (fileId: string) => `${currentUserId ?? ''}:${fileId}`;
+// 2d-4：显式 userId 键构造（批量预取写回用——发起时身份捕获，与 cacheKey 的"调用时刻"口径分离）
+const keyFor = (userId: string | null, fileId: string) => `${userId ?? ''}:${fileId}`;
 
 export function currentMediaUserId() { return currentUserId; }  // v4：hook deps 身份跟随用
 
@@ -92,4 +94,41 @@ export function fetchMediaUrl(fileId: string): Promise<string> {
     });
   pending.set(key, p);
   return p;
+}
+
+// ── 2d-4 折叠卡批量预取单飞（spec §4.5/§5）：卡级 effect 一次 batch，tile 挂载共享同一 promise ──
+
+/** 2d-4 批量预取缓存写入口：绝对时间 expiresAt（与 cacheSet 同形——临期读侧自动生效，isFinite 兜底同源）；
+ *  显式 userId=写回目标身份（键不随写回时刻的 currentUserId 漂移——v5「只写回自己发起时的键」契约） */
+export function prefetchMediaUrls(items: { fileId: string; url: string; ttlSec: number }[], userId: string) {
+  for (const it of items) cacheSet(keyFor(userId, it.fileId), it.url, it.ttlSec);
+}
+
+/** 2d-4 在飞覆盖探测（卡幂等门）：pending 已开位的 fileId 跳过注册 → StrictMode 双跑/并发卡也 ≤1 batch */
+export function hasPendingMediaUrl(fileId: string): boolean {
+  return currentUserId !== null && pending.has(cacheKey(fileId));
+}
+
+/** 2d-4 批量单飞注册：开 pending 位让并发挂载的 useMediaUrl 去重共享同一批 promise（tile 侧零改动）；
+ *  resolve → 2b-5 同款身份校验回填（在飞被 invalidate → 结果作废不写缓存，走 prefetchMediaUrls 单点写入）；
+ *  reject → 仅清位不写缓存（非阻塞——batch 失败 tile 回落单取）；拒绝静默防 unhandled */
+export function registerInFlight(fileId: string, promise: Promise<{ url: string; ttlSec: number }>): void {
+  // 入参拒绝一律静默消费（含幂等拦截/身份未就绪的早退路径）：batch 缺行/失败=设计内回落信号，非异常
+  promise.catch(() => {});
+  const userId = currentUserId;                     // 发起时捕获身份：写回只进自己发起时的键（v5 契约）
+  if (userId === null) return;                      // 身份未就绪不注册（同 fetchMediaUrl 直取窗口语义）
+  const key = keyFor(userId, fileId);
+  if (cache.has(key) || pending.has(key)) return;   // 幂等：cache/pending 已覆盖不重复注册
+  const p: Promise<string> = promise
+    .then((r) => {
+      // 身份校验：pending 位易主（invalidate 后继任单取）→ 晚到批量结果丢弃，不误删继任条目
+      if (pending.get(key) !== p) return r.url;
+      prefetchMediaUrls([{ fileId, url: r.url, ttlSec: r.ttlSec }], userId);
+      return r.url;
+    })
+    .finally(() => {
+      if (pending.get(key) === p) pending.delete(key);
+    });
+  p.catch(() => {});
+  pending.set(key, p);
 }

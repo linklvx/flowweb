@@ -16,12 +16,24 @@ export interface BatchMediaItem {
   url: string;
   thumbnailUrl: string | null;
   metadata: Record<string, unknown>;
+  /** 2d-4 契约（spec §4.5）：服务端 MEDIA_URL_TTL_SEC 常量单源随响应下行，双端各自锁 */
+  ttlSec: number;
 }
 
 /** 左面板聚合：按 mediaId 集合批查 + presigned URL（POST /api/media/batch，Plan 1 Task 12 已就绪） */
 export function batchGetMedia(ids: string[], teamId?: string): Promise<BatchMediaItem[]> {
   const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
   return apiFetch<BatchMediaItem[]>(`/media/batch${qs}`, { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+/** 2d-4 折叠卡批量预取专用：batchGetMedia 原样（既有 2 消费方 useWorkflowAssets/VideoEditNode 行为不变）
+ *  + /flowai 同源改写（getMediaUrl 同款——presigned URL 绕 Vite 代理防 CORS/签名问题） */
+export async function batchGetMediaRewritten(ids: string[], teamId?: string): Promise<BatchMediaItem[]> {
+  const rows = await batchGetMedia(ids, teamId);
+  for (const r of rows) {
+    r.url = r.url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+  }
+  return rows;
 }
 
 /**

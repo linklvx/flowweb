@@ -1,8 +1,12 @@
-// CollapsedPreviewCard.tsx（§4.5 折叠宫格预览卡——2d-3）
+// CollapsedPreviewCard.tsx（§4.5 折叠宫格预览卡——2d-3；2d-4 批量预取单飞接线）
 // 结构：预览宫格（padding 6/gap 4/圆角 6）+ summaryRow「N 个节点」；≤6 tile；组色双兜底边框、选中高亮优先。
-// tile 的批量预取单飞在 2d-4 接线（本组件 tiles 现走 useMediaUrl 常规渲染，fileIds≤6 由 cells 汇总即得）。
-import { memo } from 'react';
+// 两段渲染（2d-4）：phase1 图标占位（不挂 useMediaUrl tile——React 子 effect 先于父，单段会让 6 tile 各自发请求）；
+// 卡片 effect 一次 batchGetMediaRewritten 单飞注册（registerInFlight 去重位），settle 后 phase2 挂 tile：
+// 成功 → tile 命中回填缓存 0 请求；失败 → pending 已清，tile 回落单取（batch 失败不阻塞）。
+import { memo, useEffect, useState } from 'react';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { batchGetMediaRewritten } from '@/api/mediaApi';
+import { getCachedUrl, hasPendingMediaUrl, registerInFlight } from '@/utils/mediaUrlCache';
 import { COLLAPSED_SIZE } from '@/utils/groupLayout';
 import { resolveGroupColor } from '@/utils/groupColor';
 import { GROUP_BOX } from './selectionTokens';
@@ -14,6 +18,8 @@ interface Props {
   color?: string;
   selected?: boolean;
   cells: CollapsedPreviewCell[];
+  /** 画布团队（canvasStore teamId——NormalGroupRenderer 读 store 显式下行）；缺省走服务端本人默认团队回落 */
+  teamId?: string | null;
 }
 
 const TILE_MAX = 6;
@@ -56,10 +62,31 @@ function CollapsedTile({ fileId }: { fileId?: string }) {
   );
 }
 
-function CollapsedPreviewCardComponent({ name, color, selected = false, cells }: Props) {
+function CollapsedPreviewCardComponent({ name, color, selected = false, cells, teamId }: Props) {
   // ≤6 tile（spec：超 6 取前 6）；列数按 cells 总数（与显示数无关——纯函数单源）
   const shown = cells.slice(0, TILE_MAX);
   const cols = calcCollapsedGrid(cells.length);
+  // 2d-4 两段渲染相位：false=phase1 占位；batch settle（或无可预取 fileId）后 true → phase2 挂 tile
+  const [tilesReady, setTilesReady] = useState(false);
+
+  // 批量预取单飞：未覆盖（cache/pending 双查）的 fileId 集一次 batch；registerInFlight 每格开位共享同一 promise；
+  // settle 后统一 ready——成功路径 tile 读命中缓存（总请求仍 1 次），失败路径 pending 已清逐格单取。
+  useEffect(() => {
+    const targets = shown.filter((c): c is CollapsedPreviewCell & { fileId: string } =>
+      !!c.fileId && !getCachedUrl(c.fileId) && !hasPendingMediaUrl(c.fileId));
+    if (targets.length === 0) { setTilesReady(true); return; }
+    const ids = targets.map((c) => c.fileId);
+    const batchPromise = batchGetMediaRewritten(ids, teamId ?? undefined);
+    for (const id of ids) {
+      registerInFlight(id, batchPromise.then((rows) => {
+        const hit = rows.find((r) => r.id === id);
+        if (!hit) throw new Error(`media batch missing ${id}`);
+        return { url: hit.url, ttlSec: hit.ttlSec };
+      }));
+    }
+    batchPromise.catch(() => {}).finally(() => setTilesReady(true));
+  }, [shown, teamId]);
+
   // 组色双兜底；选中高亮 > 组色（GROUP_BOX.selectedBorder——折叠卡选中样式现状族）
   const borderColor = selected
     ? GROUP_BOX.selectedBorder
@@ -93,7 +120,7 @@ function CollapsedPreviewCardComponent({ name, color, selected = false, cells }:
             data-testid="collapsed-tile"
             style={{ overflow: 'hidden', background: 'var(--canvas-controls-bg)' }}
           >
-            <CollapsedTile fileId={c.fileId} />
+            {tilesReady ? <CollapsedTile fileId={c.fileId} /> : <TileIconPlaceholder />}
           </div>
         ))}
       </div>

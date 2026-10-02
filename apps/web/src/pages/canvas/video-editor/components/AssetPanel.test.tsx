@@ -31,7 +31,7 @@ vi.mock('antd', async (importOriginal) => {
 });
 
 const mkItem = (id: string, name: string, mime: string, metadata: Record<string, unknown> = {}): BatchMediaItem =>
-  ({ id, originalName: name, mimeType: mime, url: `http://${id}`, thumbnailUrl: null, size: 1, metadata });
+  ({ id, originalName: name, mimeType: mime, url: `http://${id}`, thumbnailUrl: null, size: 1, metadata, ttlSec: 3600 });
 
 describe('AssetPanel', () => {
   beforeEach(() => {

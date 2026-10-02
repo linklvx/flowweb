@@ -1,6 +1,6 @@
-// CollapsedPreviewCard.test.tsx（§4.5 折叠宫格预览卡——2d-3）
+// CollapsedPreviewCard.test.tsx（§4.5 折叠宫格预览卡——2d-3；2d-4 两段渲染后 img 断言待 phase2）
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { CollapsedPreviewCard, calcCollapsedGrid } from './CollapsedPreviewCard';
 
 // P0-2 同款（StoryboardGroupRenderer.test.tsx:7 先例）：mock useMediaUrl——fileId → 预签名 URL 解析；
@@ -12,6 +12,11 @@ vi.mock('@/hooks/useMediaUrl', () => ({
     error: null,
     onError: () => {},
   }),
+}));
+
+// 2d-4：卡片 effect 会发起批量预取——mock apiFetch 使其 hermetic（空行集即可：settle → phase2 挂 tile）
+vi.mock('@/api/client', () => ({
+  apiFetch: vi.fn().mockResolvedValue([]),
 }));
 
 const cell = (id: string, fileId?: string) => ({ nodeId: id, fileId });
@@ -56,14 +61,16 @@ describe('calcCollapsedGrid（列数纯函数——1-2 按数量/3-4→2 列/5+�
 });
 
 describe('CollapsedPreviewCard tile 取图', () => {
-  it('fileId → useMediaUrl 解析 url 挂 img src；无 fileId → 图标占位（其它节点类型同款占位）', () => {
+  it('fileId → useMediaUrl 解析 url 挂 img src；无 fileId → 图标占位（其它节点类型同款占位）', async () => {
     render(<CollapsedPreviewCard name="组" cells={[cell('a', 'f1'), cell('b')]} />);
-    const img = screen.getByTestId('collapsed-tile-img') as HTMLImageElement;
+    // 2d-4 两段渲染：img 在 batch settle → phase2 挂 tile 后出现
+    const img = await screen.findByTestId('collapsed-tile-img') as HTMLImageElement;
     expect(img.src).toContain('/flowai/f1');
     expect(screen.getAllByTestId('collapsed-tile-placeholder')).toHaveLength(1);
   });
-  it('url 未解析（loading/error/pending）→ 图标占位不挂 img', () => {
+  it('url 未解析（loading/error/pending）→ 图标占位不挂 img', async () => {
     render(<CollapsedPreviewCard name="组" cells={[cell('a', 'pending-f1')]} />);
+    await act(async () => {});                       // 冲刷批量 settle → phase2 已挂 tile（url 仍未解析）
     expect(screen.queryByTestId('collapsed-tile-img')).toBeNull();
     expect(screen.getAllByTestId('collapsed-tile-placeholder')).toHaveLength(1);
   });
