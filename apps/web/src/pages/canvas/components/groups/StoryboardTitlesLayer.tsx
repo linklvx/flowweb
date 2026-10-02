@@ -8,11 +8,15 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import type { GroupNodeData } from '@/types/group';
 import { STORYBOARD_TITLE } from './selectionTokens';
 
+// 数组选择器浅相等（同 SelectionBoxOverlay shallowArrEq 先例）——filter 每次返回新数组，无此则任意 store 更新都触发重渲
+const shallowArrEq = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
 function StoryboardTitlesLayerComponent() {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const groups = useCanvasStore((s) => s.nodes.filter(
     (n) => n.type === 'group' && (n.data as GroupNodeData).groupType === 'storyboard',
-  ));
+  ), shallowArrEq);
 
   return (
     <div
