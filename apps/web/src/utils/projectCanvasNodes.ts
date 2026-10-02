@@ -30,7 +30,7 @@ export function projectCanvasNodes(
     id: r.id,
     type: r.type,
     parentId: r.parentId ?? null,
-    position: r.position ?? csById.get(r.id)!.position, // cs 投影面回填（剥键逆映射——identity 逐位）
+    position: r.position ?? csById.get(r.id)!.position, // cs 投影面回填（剥键逆映射——identity 逐位；O0b-2 投影层几何键全删时本回填整删——投影面不再持有几何，勿在此续修）
     width: r.width ?? csById.get(r.id)!.width ?? null,
     height: r.height ?? csById.get(r.id)!.height ?? null,
     data: stripEphemeralDataKeys(r.data),

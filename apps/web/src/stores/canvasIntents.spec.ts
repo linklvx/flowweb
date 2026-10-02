@@ -741,6 +741,8 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
 // （两者的 store 投影会重建 cs 节点对象——同值也重建；updateNodeData 走 ns 面、'name' 非桥键
 // CANVAS_BRIDGE_KEYS 不触 cs）。identity 档下投影几何=换芯前逐位（toDocRecords 剥键在 cs 投影面
 // 经构造回填——剥键可见面=DocNodeRecord 出口非本漏斗），故本锚是跨换芯的行为等价守卫。
+// O0b 挂点：夹具经 fillDoc 给 auto 组落 doc position=现态生产一致（差分 addNode 现状确实写）；
+// O0b 几何锚"打开⇒doc 无 auto 组帧键"落地时本锚夹具需同批重建。
 describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
   let doc: Y.Doc;
   beforeEach(() => {

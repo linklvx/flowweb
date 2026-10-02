@@ -45,6 +45,8 @@ const ALLOW_FILES = new Set([
   'apps/api/prisma/gate-seed.ts',
   // O0a-3（Spec B）：canvasIntents moveNode 的 position 子 Map 构造收编 docShape setDocPosition
   // （写原语唯一单源）——allow 行同批撤（若复活本门禁即红）
+  // TODO(O0b 批尾)：nodeEnvelope.ts/ydocBuilder.ts 两行自 O0a-1 起已零命中（`.set('position'` 随函数
+  // 迁入 docShape）=死条目——按"allow 行同批撤"census 纪律应清扫，留 O0b 批尾统一处理。
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {
