@@ -2,11 +2,14 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import type { GroupNodeData } from '@/types/group';
-import { COLLAPSED_SIZE } from '@/utils/groupLayout';
 import { resolveGroupColor } from '@/utils/groupColor';
 import { GROUP_BOX, BADGE } from './selectionTokens';
+import { CollapsedPreviewCard, type CollapsedPreviewCell } from './CollapsedPreviewCard';
 
 interface Props { groupId: string; data: GroupNodeData; selected: boolean }
+
+// 展开态 cells 兜底恒等空数组（selector 稳定引用——zustand Object.is 比对不触发多余重渲）
+const EMPTY_CELLS: CollapsedPreviewCell[] = [];
 
 function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
   const [editing, setEditing] = useState(false);
@@ -18,6 +21,20 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     let count = 0;
     for (let i = 0; i < s.nodes.length; i++) if (s.nodes[i].parentId === groupId) count++;
     return count;
+  });
+  // 折叠卡 cells：子节点 → { nodeId, fileId }（fileId 取 data.fileId||referenceImage——GroupNode.tsx:55 先例）；
+  // 展开态恒返回 EMPTY_CELLS（不逐 store 变更造新数组）
+  const collapsed = data.collapsed === true;
+  const cells = useCanvasStore((s) => {
+    if (!collapsed) return EMPTY_CELLS;
+    const out: CollapsedPreviewCell[] = [];
+    for (let i = 0; i < s.nodes.length; i++) {
+      const n = s.nodes[i];
+      if (n.parentId !== groupId) continue;
+      const d = n.data as { fileId?: unknown; referenceImage?: unknown } | undefined;
+      out.push({ nodeId: n.id, fileId: (d?.fileId || d?.referenceImage) as string | undefined });
+    }
+    return out;
   });
   const name = data.name ?? '分组';
 
@@ -39,20 +56,15 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     setEditing(false);
   };
 
-  if (data.collapsed) {
+  // 2d-3：折叠分支=CollapsedPreviewCard（宫格预览卡；根 div 显式尺寸=COLLAPSED_SIZE 不变量载体随之入卡）
+  if (collapsed) {
     return (
-      <div
-        style={{
-          width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height, borderRadius: GROUP_BOX.borderRadius,
-          border: `${GROUP_BOX.borderWidth}px dashed ${selected ? GROUP_BOX.selectedBorder : GROUP_BOX.border}`,
-          background: 'rgba(26,26,26,0.9)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          color: '#cccccc', fontSize: 13,
-        }}
-      >
-        <span>{name}</span>
-        <span style={BADGE}>{childCount} 项</span>
-      </div>
+      <CollapsedPreviewCard
+        name={name}
+        color={data.color}
+        selected={selected}
+        cells={cells}
+      />
     );
   }
 

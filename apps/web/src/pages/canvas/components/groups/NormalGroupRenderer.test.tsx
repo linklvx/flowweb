@@ -9,6 +9,13 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: (sel: any) => sel({ nodes: mockStore.nodes, renameGroup }),
 }));
 
+// 2d-3：折叠分支内内容换成 CollapsedPreviewCard → tile 取图走 useMediaUrl（StoryboardGroupRenderer.test.tsx:7 同款 mock）
+vi.mock('@/hooks/useMediaUrl', () => ({
+  useMediaUrl: (fileId: string | null) => ({
+    url: fileId ? `/flowai/${fileId}` : null, loading: false, error: null, onError: () => {},
+  }),
+}));
+
 describe('NormalGroupRenderer 展开态', () => {
   beforeEach(() => {
     mockStore.nodes = [{ id: 'c1', parentId: 'g1' }, { id: 'c2', parentId: 'g1' }, { id: 'x', parentId: null }];
@@ -112,10 +119,30 @@ describe('NormalGroupRenderer 展开态', () => {
 });
 
 describe('NormalGroupRenderer 折叠态', () => {
-  it('小卡片：名称 + 徽标 + 虚线深色', () => {
-    mockStore.nodes = [{ id: 'c1', parentId: 'g1' }];
+  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 fileId 映射（data.fileId||referenceImage——GroupNode.tsx:55 先例）', () => {
+    mockStore.nodes = [
+      { id: 'c1', parentId: 'g1', data: { fileId: 'f1' } },
+      { id: 'c2', parentId: 'g1', data: { referenceImage: 'ref2' } },
+      { id: 'c3', parentId: 'g1' },
+      { id: 'x', parentId: null, data: { fileId: 'not-in-group' } },
+    ];
     render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '我的分组', collapsed: true } as any} selected={false} />);
-    expect(screen.getByText('我的分组')).toBeTruthy();
-    expect(screen.getByText('1 项')).toBeTruthy();
+    const card = screen.getByTestId('collapsed-preview-card');
+    expect(card.getAttribute('title')).toBe('我的分组');
+    expect(card.getAttribute('aria-label')).toBe('我的分组，3 个节点');
+    expect(screen.getByText('3 个节点')).toBeTruthy();
+    const imgs = screen.getAllByTestId('collapsed-tile-img') as HTMLImageElement[];
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0].src).toContain('/flowai/f1');
+    expect(imgs[1].src).toContain('/flowai/ref2');
+  });
+
+  it('折叠卡根 div 显式尺寸=COLLAPSED_SIZE（2d-1 不变量载体——尺寸写点随内容替换落卡片根）', () => {
+    mockStore.nodes = [];
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', collapsed: true } as any} selected={false} />);
+    const card = screen.getByTestId('collapsed-preview-card');
+    expect(card.style.width).toBe('220px');
+    expect(card.style.height).toBe('160px');
+    expect(screen.getByText('0 个节点')).toBeTruthy();
   });
 });
