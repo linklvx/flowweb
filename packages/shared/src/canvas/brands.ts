@@ -12,7 +12,7 @@ export type AbsPos = { x: AbsCoord; y: AbsCoord };
 /** 相对位置。 */
 export type RelPos = { x: RelCoord; y: RelCoord };
 
-/** 绝对空间记录数组品牌（元素 position 空间=abs；T 约束为含 position 字段的记录）。 */
+/** 绝对空间记录数组品牌。语义约定：元素 position 空间为 abs（本类型不校验元素空间——类型层强制由后续分片的签名约束承担）。 */
 export type AbsRecords<T extends { position: unknown }> = readonly T[] & { readonly __recordsSpace: 'abs' };
-/** 相对空间记录数组品牌（元素 position 空间=rel）。 */
+/** 相对空间记录数组品牌。语义约定：元素 position 空间为 rel（本类型不校验元素空间——类型层强制由后续分片的签名约束承担）。 */
 export type RelRecords<T extends { position: unknown }> = readonly T[] & { readonly __recordsSpace: 'rel' };

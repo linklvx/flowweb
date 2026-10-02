@@ -22,19 +22,19 @@ type _ExactKeysDiff<T, Expected extends readonly string[]> =
   | Exclude<Expected[number], keyof T>;
 
 // 键集冻结（plan v3.6-FROZEN 逐字面量——后续分片加键必须先改这里，防静默漂移）
-type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has']>>;
-type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap']>>;
-type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<DocNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;
-type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;
+type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has']>>;  // 勿删——删即静默失去键集防护
+type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap']>>;  // 勿删——删即静默失去键集防护
+type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<DocNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;  // 勿删——删即静默失去键集防护
+type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDragSessionKeys = _AssertNever<_ExactKeysDiff<DragSession, [
   'baseline', 'groupBaseline', 'delta', 'draggingIds', 'dragProtectedIds', 'draggedGroupIds',
   'frozenFrames', 'gestureKind', 'resizePending', 'lastActivityAt', 'activePointers',
   'gestureAbandoned', 'resizeTargetId',
-]>>;
-type _AnchorFrameModeInputKeys = _AssertNever<_ExactKeysDiff<Parameters<typeof frameMode>[0], ['data', 'storedFrame']>>;
+]>>;  // 勿删——删即静默失去键集防护
+type _AnchorFrameModeInputKeys = _AssertNever<_ExactKeysDiff<Parameters<typeof frameMode>[0], ['data', 'storedFrame']>>;  // 勿删——删即静默失去键集防护
 type _AnchorStoredFrameKeys = _AssertNever<_ExactKeysDiff<
-  NonNullable<Parameters<typeof frameMode>[0]['storedFrame']>, ['position', 'width', 'height']>>;
-type _AnchorIsValidFrameKeys = _AssertNever<_ExactKeysDiff<Parameters<typeof isValidStoredFrame>[0], ['position', 'width', 'height']>>;
+  NonNullable<Parameters<typeof frameMode>[0]['storedFrame']>, ['position', 'width', 'height']>>;  // 勿删——删即静默失去键集防护
+type _AnchorIsValidFrameKeys = _AssertNever<_ExactKeysDiff<Parameters<typeof isValidStoredFrame>[0], ['position', 'width', 'height']>>;  // 勿删——删即静默失去键集防护
 
 // 品牌锚：品牌打在坐标 number 上——品牌删除（退化裸 number）即红
 type _AnchorAbsCoordIsNumber = _AssertTrue<_IsExtends<AbsCoord, number>>;
