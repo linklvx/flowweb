@@ -650,7 +650,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.imageRotation).toBe(0);
     expect(imgData.flipH).toBe(false);
     expect(imgData.flipV).toBe(false);
-    expect(imgData.transformMode).toBe(false);
+    // transformMode 不入 defaults（Spec B editMode 分片：本地瞬态键随写点显式写，读面 ?? 兜底）
+    expect('transformMode' in imgData).toBe(false);
   });
 
   // 22c. updateConfig should persist imageRotation/flipH/flipV/transformMode updates
@@ -761,21 +762,42 @@ describe('nodeStore (AppNode nested structure)', () => {
     await expect(useNodeStore.getState().saveTransformNode('fail')).resolves.toBeUndefined();
   });
 
-  // ── editMode infrastructure ──
+  // ── editMode 本地瞬态（Spec B editMode 分片——doc 面剥键由 canvasIntents.spec 守卫承接）──
 
-  it('ImageNodeData should default editMode to null', () => {
+  it('mergeNodeData defaults 不含 ephemeral 键（editMode/transformMode 本地瞬态不注入 defaults）', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-default', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-default', {});
     const stored = useNodeStore.getState().nodes['edit-default'];
     const imgData = stored.data as ImageNodeData;
-    expect(imgData.editMode).toBeNull();
+    expect('editMode' in imgData).toBe(false);
+    expect('transformMode' in imgData).toBe(false);
   });
 
-  it('should persist editMode via updateConfig', () => {
+  it('updateConfig editMode 落 ns 本地瞬态面（组件读取面；不注入 defaults）', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-persist', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-persist', { style: '写实', editMode: 'crop' });
     const stored = useNodeStore.getState().nodes['edit-persist'];
     expect((stored.data as ImageNodeData).editMode).toBe('crop');
+  });
+
+  // ── selectIsLocked 单源（Spec B editMode 分片——CanvasView 订阅式/isLockedNow 命令式同源；
+  //    selector 本体在 stores/canvasLock.ts，此处经 nodeStore 行为装置验证三态）──
+
+  it('selectIsLocked：双 null=false', async () => {
+    const { selectIsLocked } = await import('@/stores/canvasLock');
+    expect(selectIsLocked(useNodeStore.getState())).toBe(false);
+  });
+
+  it('selectIsLocked：activeEditNodeId 置位=true（编辑锁五模式仅本地视图态）', async () => {
+    const { selectIsLocked } = await import('@/stores/canvasLock');
+    useNodeStore.getState().setActiveEditNodeId('n1');
+    expect(selectIsLocked(useNodeStore.getState())).toBe(true);
+  });
+
+  it('selectIsLocked：activeTransformNodeId 置位=true', async () => {
+    const { selectIsLocked } = await import('@/stores/canvasLock');
+    useNodeStore.getState().setActiveTransformNodeId('n1');
+    expect(selectIsLocked(useNodeStore.getState())).toBe(true);
   });
 
   // ── activeEditNodeId ──

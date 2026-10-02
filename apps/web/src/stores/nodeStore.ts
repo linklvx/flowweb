@@ -300,8 +300,8 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     imageRotation: 0 as 0 | 90 | 180 | 270,
     flipH: false,
     flipV: false,
-    transformMode: false,
-    editMode: null,
+    // editMode/transformMode 不入 defaults（Spec B editMode 口径 13）：本地瞬态键随写点显式
+    // 进 ns data（读面 ?? 兜底），defaults 注入会让全量对账把瞬态键常态化
     allImages: [] as ImageItem[],
   };
 

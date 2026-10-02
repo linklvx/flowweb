@@ -14,6 +14,7 @@ import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { RemoteCursors } from './RemoteCursors';
 import { useAuth } from '@/components/AuthProvider';
 import { useNodeStore, type ImageItem } from '@/stores/nodeStore';
+import { selectIsLocked } from '@/stores/canvasLock';
 import { useMenuStore } from '@/stores/menuStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
@@ -121,12 +122,11 @@ function CanvasViewComponent(_props: Props) {
     bridge.setCursor({ x: flow.x, y: flow.y });
   }, [screenToFlowPosition]);
   const projectId = useCanvasStore((s) => s.projectId);
-  const activeEditNodeId = useNodeStore((s) => s.activeEditNodeId);
-  const activeTransformNodeId = useNodeStore((s) => s.activeTransformNodeId);
-  // 锁定=编辑中或 transform 调整中（spec §3 根因修）——与 useGroupKeyboard「模式中」口径对齐
-  // （编辑与 transform 互斥，nodeStore.ts:383）。不修则 transform 期框选第一帧 resetSelectedElements
-  // 反选调整中节点 → TransformToolbar 中途消失。
-  const isLocked = activeEditNodeId !== null || activeTransformNodeId !== null;
+  // 锁定=编辑中或 transform 调整中（spec §3 根因修）——selectIsLocked 单源（Spec B editMode
+  // 分片：原订阅式/命令式双定义合并，同源 nodeStore.selectIsLocked；语义限定本地视图态，不进 doc）。
+  // 与 useGroupKeyboard「模式中」口径对齐（编辑与 transform 互斥，nodeStore.ts:383）。
+  // 不修则 transform 期框选第一帧 resetSelectedElements 反选调整中节点 → TransformToolbar 中途消失。
+  const isLocked = useNodeStore(selectIsLocked);
   const referenceSelect = useNodeStore((s) => s.referenceSelect);
   const inRefSelect = referenceSelect !== null;
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
@@ -322,10 +322,10 @@ function CanvasViewComponent(_props: Props) {
     const flowPoint = screenToFlowPosition(p);
     const nodes = useCanvasStore.getState().nodes;
     const node = nodes.find((n) => n.id === dragStart.nodeId);
-    // isLocked 双定义第二处（spec §3）：与订阅式同口径（编辑中或 transform 调整中），
-    // 喂 decideHandleMenu——只改订阅式漏此处会「画布锁了 handle 菜单没锁」。
-    const isLockedNow = useNodeStore.getState().activeEditNodeId !== null
-      || useNodeStore.getState().activeTransformNodeId !== null;
+    // isLocked 命令式消费点（原"双定义第二处"，spec §3）：selectIsLocked 单源取当前快照——
+    // 与订阅式同口径（编辑中或 transform 调整中），喂 decideHandleMenu——
+    // 只改订阅式漏此处会「画布锁了 handle 菜单没锁」。
+    const isLockedNow = selectIsLocked(useNodeStore.getState());
 
     const decision = decideHandleMenu({
       reconnecting: wasReconnecting,

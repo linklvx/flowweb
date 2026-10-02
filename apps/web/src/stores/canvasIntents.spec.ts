@@ -15,6 +15,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
 import { dispatchCanvasIntent, _setIntentDocForTest } from './canvasIntents';
+import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc } from '@/collab/ydocBuilder';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
@@ -631,5 +632,82 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
     useNodeStore.getState().updatePromptImages('img2', imgs as any);
     expect(dataOf('img2').get('allImages')).toEqual(imgs);
     expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+});
+
+// ════════ Spec B editMode 小分片：ephemeral 键集守卫 ════════
+// spec 口径 13（v3.16 终裁 53）：editMode/transformMode=本地瞬态+ephemeral——键集仅此两键；
+// expanded 是 doc 态（nodeStore toggleExpanded 落 doc+决定渲染尺寸）禁入 ephemeral；
+// 断言①"ephemeral 禁入 doc/cs 持久面"（漏斗入口剥键+投影出口剥键）+
+// 断言②"远端 apply 后 expanded 保持源值∧渲染尺寸 data 源≡doc 尺寸"。
+describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMode 禁入 doc/cs 持久面）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('① updateNodeData patch 含 ephemeral 键：doc data 剥键+ns data 本地瞬态保留+不变量不破', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
+    dispatchCanvasIntent(
+      { type: 'updateNodeData', id: 'n1', patch: { editMode: 'crop', transformMode: true, style: '写实' } },
+      Origin.LocalUser,
+    );
+    const docData = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(docData.get('editMode')).toBeUndefined();       // ephemeral 禁入 doc（漏斗入口剥键）
+    expect(docData.get('transformMode')).toBeUndefined();
+    expect(docData.get('style')).toBe('写实');              // 持久键照常落 doc
+    // ns=本地瞬态面：ephemeral 键保留（编辑态组件读 ns data）
+    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop', transformMode: true });
+    expect(checkProjectionInvariant(doc)).toBe(true);       // 投影出口剥键一致——ephemeral 键不破 doc≡store
+  });
+
+  it('① addNode data 含 ephemeral 键：doc 与 cs 双持久面剥键（投影回填同剥）', () => {
+    dispatchCanvasIntent(
+      { type: 'addNode', node: rec('n1', 10, { editMode: 'crop', transformMode: true, fileId: 'f1' }) },
+      Origin.LocalUser,
+    );
+    const docData = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(docData.get('editMode')).toBeUndefined();
+    expect(docData.get('transformMode')).toBeUndefined();
+    expect(docData.get('fileId')).toBe('f1');
+    const csData = useCanvasStore.getState().nodes.find((n: any) => n.id === 'n1')!.data;
+    expect('editMode' in csData).toBe(false);               // cs 持久面禁入 ephemeral
+    expect('transformMode' in csData).toBe(false);
+    expect(csData.fileId).toBe('f1');
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('② expanded 是 doc 态（防剥键扩大化）：同 patch 内 expanded 落 doc/cs、ephemeral 键剥', () => {
+    dispatchCanvasIntent(
+      {
+        type: 'addNode',
+        node: rec('m1', 10, { images: [], mainImageIndex: 0, expanded: true, nodeStatus: 'idle', editMode: 'crop' }),
+      },
+      Origin.LocalUser,
+    );
+    const docData = (doc.getMap('nodes').get('m1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(docData.get('expanded')).toBe(true);             // expanded=doc 键——剥键集不含它（终裁 53）
+    expect(docData.get('editMode')).toBeUndefined();
+    const csData = useCanvasStore.getState().nodes.find((n: any) => n.id === 'm1')!.data;
+    expect(csData.expanded).toBe(true);
+    expect('editMode' in csData).toBe(false);
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+
+  it('② 远端 apply（applyDocToStore 重建窗口）后 expanded 保持 doc 源值∧渲染尺寸 data 源≡doc', () => {
+    fillDoc(doc, [{
+      id: 'm1', type: 'multiImageGen', parentId: null, width: null, height: null,
+      position: { x: 0, y: 0 },
+      data: { images: [], mainImageIndex: 0, expanded: true, nodeStatus: 'done' },
+    } as any], []);
+    applyDocToStore(doc);
+    // expanded 在 doc——远端 apply 重建 ns/cs 后保持源值（渲染尺寸≡doc 尺寸的 data 前提）
+    expect((useNodeStore.getState().nodes['m1'].data as any).expanded).toBe(true);
+    expect(
+      useCanvasStore.getState().nodes.find((n: any) => n.id === 'm1')!.data.expanded,
+    ).toBe(true);
   });
 });

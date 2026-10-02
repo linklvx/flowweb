@@ -719,6 +719,9 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
             : {}),
         }}
       >
+        {/* videoGen 双 handle 不设 editMode 门=有意保留（Spec B editMode 分片行为变更登记——
+            imageGen 有 !editMode 双侧隐藏门，videoGen 现状无门直渲染；getAvailableHandles
+            统一谓词收敛是 B6-1 的事，本片不动消费面） */}
         <NodeHandle type="target" testId="target-handle" />
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-colors duration-300 relative group"

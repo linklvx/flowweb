@@ -14,7 +14,7 @@ import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
-import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
+import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
 import { canEdit } from './syncStatus';
@@ -59,7 +59,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       // 幂等守卫（批4b 评审 Minor）：doc 已有同 id 节点跳过重写——fillDoc 无条件 set 新
       // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
       if (d.getMap('nodes').has(intent.node.id)) break;
-      fillDoc(d, [intent.node], []);
+      fillDoc(d, [{ ...intent.node, data: stripEphemeralDataKeys(intent.node.data) }], []);
       break;
     case 'updateNodeData': {
       const m = d.getMap('nodes').get(intent.id);
@@ -67,6 +67,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       let data = m.get('data');
       if (!(data instanceof Y.Map)) { data = new Y.Map(); m.set('data', data); }
       for (const [k, v] of Object.entries(intent.patch)) {
+        if (EPHEMERAL_DATA_KEYS.has(k)) continue; // ephemeral 禁入 doc（Spec B editMode 口径 13）
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }
         if (!isEqual(data.get(k), v)) data.set(k, v);
       }
@@ -140,7 +141,7 @@ export function projectIntentToStore(intent: CanvasIntent): void {
             ...(n.parentId != null ? { parentId: n.parentId } : {}),
             ...(n.width != null ? { width: n.width } : {}),
             ...(n.height != null ? { height: n.height } : {}),
-            data: n.data,
+            data: stripEphemeralDataKeys(n.data ?? {}), // cs 持久面禁入 ephemeral（口径 13）
           } as any],
         }));
       }
