@@ -13,12 +13,19 @@
  *      的对象属性键/成员表达式双 AST 形态（F37：presigned URL 不持久化——写入面随 R2b-6、
  *      读路径随 R2b-7 收敛为零，读写皆拦，命中即回潮）。键名精确匹配——mediaUrlCache/getMediaUrl/
  *      invalidateMediaUrl 等 url 家族标识符不在拦截面；说明性注释不进 AST。
+ *   G. flowweb/no-test-geometry-setstate —— test/spec 面几何 setState 静态棘轮（C0-2 Spec B）：
+ *      方向与 A~F 相反——豁免生产文件拦 test/spec。allow-list（lint-gate-constants.mjs
+ *      GEOMETRY_SETSTATE_TEST_ALLOWLIST，存量冻结）内放行；非 allow-list 的 test/spec 文件
+ *      useCanvasStore.setState(...) 参数子树内任一对象字面量第一层含 position/width/height 键
+ *      即红（新测试几何写必须走夹具 src/test/fixtures/canvas.ts，或先改 spec 入 allow-list）。
  *
  * 共同形态（仿 no-theme-utility）：文件白名单外直判 exit 1（无 baseline，lint-gate.mjs 不建 baseline）；
- * 测试文件豁免（*.test.* / *.spec.*）——单写点/门是对生产代码的结构约束，测试的 mock 与断言不受限。
+ * 测试文件豁免（*.test.* / *.spec.*）——单写点/门是对生产代码的结构约束，测试的 mock 与断言不受限
+ * （规则 G 例外：其辖域恰为 test/spec，见上）。
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { GEOMETRY_SETSTATE_TEST_ALLOWLIST } from '../lint-gate-constants.mjs';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -71,6 +78,7 @@ const STORE_SETSTATE_FILES = [
   'src/hooks/useMarqueeSelectionGuard.ts',      // UI 交互态（框选 guard），非协作数据
   'src/pages/canvas/components/CanvasView.tsx', // UI 交互态（pendingFillCell/pendingMediaFile/marqueeSelecting）
   'src/pages/canvas/video-editor/components/VideoEditorShell.tsx', // editorDirty B4 镜像（批0d-2，beforeunload 消费）
+  'src/test/fixtures/canvas.ts',         // C0-2 夹具入口（测试几何写唯一通道——'fixture' 写者上下文内 setState）
 ];
 
 const MSG = {
@@ -242,6 +250,66 @@ export const noMediaUrlWrite = {
       MemberExpression(node) {
         if (!node.computed && node.property.type === 'Identifier' && node.property.name === 'mediaUrl') {
           context.report({ node, messageId: 'forbidden' });
+        }
+      },
+    };
+  },
+};
+
+// G. C0-2（Spec B）test/spec 面几何 setState 静态棘轮：辖域=非 allow-list 的 test/spec 文件。
+// 静态可判定面=useCanvasStore.setState(...) 参数子树内任一对象字面量第一层含 position/width/height
+// 键（含 updater 回调内 map/ spread 展开的字面量——写什么就扫什么）。放行面=夹具入口
+// src/test/fixtures/canvas.ts（'fixture' 写者上下文）与 allow-list 存量冻结文件。
+const GEOMETRY_FIELD_KEYS = new Set(['position', 'width', 'height']);
+
+const MSG_TEST_GEOMETRY_SETSTATE =
+  'test/spec 新文件禁手写几何 useCanvasStore.setState（C0-2 静态棘轮 G）：对象字面量第一层含 ' +
+  'position/width/height 键即违例——几何写一律走夹具入口 src/test/fixtures/canvas.ts' +
+  '（seedCanvas/makeGroup/makeChild，fixture 写者上下文）；确需直写先改 spec 再入 ' +
+  'lint-gate-constants.mjs GEOMETRY_SETSTATE_TEST_ALLOWLIST（Spec B C0）。';
+
+/** 子树内是否存在对象字面量第一层含几何键（跳过 parent/range/loc 环引用）。 */
+function subtreeHasGeometryKey(root) {
+  const visit = (n) => {
+    if (!n || typeof n.type !== 'string') return false;
+    if (n.type === 'ObjectExpression') {
+      for (const p of n.properties) {
+        if (p.type === 'Property' && !p.computed && p.key.type === 'Identifier'
+          && GEOMETRY_FIELD_KEYS.has(p.key.name)) return true;
+      }
+    }
+    for (const key of Object.keys(n)) {
+      if (key === 'parent' || key === 'range' || key === 'loc') continue;
+      const v = n[key];
+      if (Array.isArray(v)) {
+        for (const item of v) if (visit(item)) return true;
+      } else if (visit(v)) return true;
+    }
+    return false;
+  };
+  return visit(root);
+}
+
+export const noTestGeometrySetstate = {
+  meta: { type: 'problem', docs: { description: 'test/spec 面几何 setState 静态棘轮（C0-2 静态断言 G）' }, schema: [], messages: { forbidden: MSG_TEST_GEOMETRY_SETSTATE } },
+  create(context) {
+    const rel = toAppRelPosix(context.filename ?? context.getFilename());
+    if (!isTestFile(rel)) return {}; // 豁免生产文件（规则 G 只管 test/spec——与 A~F 方向相反）
+    if (GEOMETRY_SETSTATE_TEST_ALLOWLIST.includes(rel)) return {}; // 存量冻结
+    return {
+      CallExpression(node) {
+        const c = node.callee;
+        if (
+          c.type === 'MemberExpression' && !c.computed &&
+          c.object.type === 'Identifier' && c.object.name === 'useCanvasStore' &&
+          c.property.type === 'Identifier' && c.property.name === 'setState'
+        ) {
+          for (const arg of node.arguments) {
+            if (subtreeHasGeometryKey(arg)) {
+              context.report({ node, messageId: 'forbidden' });
+              break; // 每调用一报——报数=违例 setState 调用数
+            }
+          }
         }
       },
     };

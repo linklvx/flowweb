@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite } from '../eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate } from '../eslint-rules/collab-static-asserts.js';
 import { NEW_RULE_ID, THEME_RULE_ID, STATIC_ASSERT_RULE_IDS, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
@@ -181,6 +181,7 @@ const COLLAB_RULES = {
   'no-delete-scan': noDeleteScan,
   'no-shadow-literal': noShadowLiteral,
   'no-mediaurl-write': noMediaUrlWrite,
+  'no-test-geometry-setstate': noTestGeometrySetstate,
 };
 const lintCollabFixture = (ruleName, code, filename) =>
   linter.verify(
@@ -431,6 +432,72 @@ describe('flowweb/no-mediaurl-write 静态断言（fixture，R2b-8 F——mediaU
 
   it('lint-gate 接线锚：no-mediaurl-write 在 STATIC_ASSERT_RULE_IDS（防"规则在、门禁不数它"假绿）', () => {
     expect(STATIC_ASSERT_RULE_IDS.has('flowweb/no-mediaurl-write')).toBe(true);
+  });
+});
+
+describe('flowweb/no-test-geometry-setstate 静态断言（fixture，C0-2 G——test/spec 面几何 setState 静态棘轮）', () => {
+  it('非 allow-list 的 test/spec 新文件：直接对象字面量含几何键 → 1 报', () => {
+    const messages = lintCollabFixture(
+      'no-test-geometry-setstate',
+      "useCanvasStore.setState({ nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: {} }] });",
+      'src/stores/fakeNewProbe.test.ts',
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0].ruleId).toBe('flowweb/no-test-geometry-setstate');
+  });
+
+  it('updater 回调内嵌字面量同拦（spread/map 形态——写什么扫什么）', () => {
+    expect(
+      lintCollabFixture(
+        'no-test-geometry-setstate',
+        "useCanvasStore.setState((s) => ({ nodes: s.nodes.map((n) => (n.id === 'n1' ? { ...n, width: 300 } : n)) }));",
+        'src/stores/fakeNewProbe.test.ts',
+      ),
+    ).toHaveLength(1);
+    expect(
+      lintCollabFixture(
+        'no-test-geometry-setstate',
+        "useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'x', position: { x: 0, y: 0 }, data: {} }] }));",
+        'src/stores/fakeNewProbe.test.ts',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('非几何 setState 放行：selectedId/marqueeSelecting 等第一层无几何键不报', () => {
+    expect(
+      lintCollabFixture(
+        'no-test-geometry-setstate',
+        'useCanvasStore.setState({ selectedId: null, marqueeSelecting: false });',
+        'src/stores/fakeNewProbe.test.ts',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('allow-list 存量冻结文件放行（canvasStore.test.ts 在册）；geometryTrap.test.ts 造案夹具在册', () => {
+    for (const f of ['src/stores/canvasStore.test.ts', 'src/stores/geometryTrap.test.ts']) {
+      expect(
+        lintCollabFixture(
+          'no-test-geometry-setstate',
+          "useCanvasStore.setState({ nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: {} }] });",
+          f,
+        ),
+        f,
+      ).toHaveLength(0);
+    }
+  });
+
+  it('生产文件豁免（规则 G 辖域仅 test/spec——与 A~F 方向相反）', () => {
+    expect(
+      lintCollabFixture(
+        'no-test-geometry-setstate',
+        "useCanvasStore.setState({ nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: {} }] });",
+        'src/pages/canvas/components/CanvasView.tsx',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('lint-gate 接线锚：no-test-geometry-setstate 在 STATIC_ASSERT_RULE_IDS（防"规则在、门禁不数它"假绿）', () => {
+    expect(STATIC_ASSERT_RULE_IDS.has('flowweb/no-test-geometry-setstate')).toBe(true);
   });
 });
 

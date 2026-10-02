@@ -14,7 +14,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import { noColorHex } from './scripts/eslint-rules/no-color-hex.js';
 import { noThemeUtility } from './scripts/eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite } from './scripts/eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate } from './scripts/eslint-rules/collab-static-asserts.js';
 
 const TS_FILES = ['src/**/*.ts', 'src/**/*.tsx'];
 
@@ -52,6 +52,7 @@ export default tseslint.config(
           'no-delete-scan': noDeleteScan,
           'no-shadow-literal': noShadowLiteral,
           'no-mediaurl-write': noMediaUrlWrite,
+          'no-test-geometry-setstate': noTestGeometrySetstate,
         },
       },
     },
@@ -66,6 +67,8 @@ export default tseslint.config(
       'flowweb/no-delete-scan': 'error',
       'flowweb/no-shadow-literal': 'error',
       'flowweb/no-mediaurl-write': 'error',
+      // C0-2（Spec B）第七条：test/spec 面几何 setState 静态棘轮（方向与上六条相反——豁免生产拦 test/spec）
+      'flowweb/no-test-geometry-setstate': 'error',
       // 迁移自 .eslintrc.base.json 的既有覆写
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

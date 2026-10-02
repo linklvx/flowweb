@@ -15,6 +15,10 @@ const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const DEFINITIONS = new Set([
   'packages/shared/src/canvas/docShape.ts',
   'packages/shared/src/canvas/brands.ts',
+  // C0-2（Spec B）：assertions=法定类型面消费方（import type DocNodeRecord/RenderNode/Rect——
+  // 零 stub 运行时调用，stub 不得调用由 assertions 行为测试自证：谓词全绿即未触 stub throw）。
+  // O0a 出口接入时随本守卫整体拆除。
+  'packages/shared/src/canvas/assertions.ts',
 ]);
 
 function scanRoots(): string[] {

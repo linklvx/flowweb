@@ -19,13 +19,14 @@
  */
 import { ESLint } from 'eslint';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { GEOMETRY_SETSTATE_RATCHET_BASELINE } from './lint-gate-constants.mjs';
 
 export const NEW_RULE_ID = 'flowweb/no-color-hex';
 export const THEME_RULE_ID = 'flowweb/no-theme-utility';
-/** collab 静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条 + R2b-8 第六条）：白名单外直判，无 baseline */
+/** collab 静态断言（批0e-4 三条 + 批4b-2 第四条 + 批5 第五条 + R2b-8 第六条 + C0-2 第七条）：白名单外直判，无 baseline */
 export const STATIC_ASSERT_RULE_IDS = new Set([
   'flowweb/no-conn-status-write', // A. connStatus 单写点（唯一写点 recomputeConnStatus 批0a）
   'flowweb/no-ydoc-getmap',       // B. getMap 门（runtime/builder/undo/canvasIntents 批4b-1；新 doc 点落地时增补）
@@ -33,6 +34,7 @@ export const STATIC_ASSERT_RULE_IDS = new Set([
   'flowweb/no-delete-scan',       // D. 零删除扫描（批4b-2）：生产代码禁 Y.Map keys 迭代+同基座 delete 的全量对账删除形态
   'flowweb/no-shadow-literal',    // E. shadow- 前缀字面量零命中（批5 删信箱）：生成/过滤/短路判定三形态零回流
   'flowweb/no-mediaurl-write',    // F. mediaUrl 写入门（R2b-8）：node data.mediaUrl 双 AST 形态读写皆拦（F37 presigned URL 不持久化）
+  'flowweb/no-test-geometry-setstate', // G. test/spec 面几何 setState 静态棘轮（C0-2 Spec B）：allow-list 存量冻结+新文件直拦（方向与 A~F 相反——豁免生产拦 test/spec）
 ]);
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE_PATH = path.join(APP_ROOT, 'e2e', 'audit', 'eslint-hex-baseline.json');
@@ -82,6 +84,34 @@ function readLinesCache() {
     }
     return lines;
   };
+}
+
+/** C0-2 静态棘轮报数：test/spec 面 useCanvasStore.setState( 处数/文件数（词边界正则——与
+ *  锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。基线见 lint-gate-constants.mjs。 */
+function countTestSetstate() {
+  const walk = (dir) => {
+    const out = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        out.push(...walk(full));
+      } else if (entry.isFile() && /\.(test|spec)\.[jt]sx?$/u.test(entry.name)) {
+        out.push(full);
+      }
+    }
+    return out;
+  };
+  let count = 0;
+  let files = 0;
+  for (const f of walk(path.join(APP_ROOT, 'src'))) {
+    const hits = readFileSync(f, 'utf8').match(/\buseCanvasStore\.setState\(/gu);
+    if (hits) {
+      files += 1;
+      count += hits.length;
+    }
+  }
+  return { count, files };
 }
 
 async function runLint() {
@@ -138,7 +168,23 @@ async function main() {
       const rel = toRelPosix(v.filePath);
       console.error(`静态断言违例 ${rel}:${v.line}  [${v.ruleId}]  ${v.lineText.trim()}`);
     }
-    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
+    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // C0-2 静态棘轮报数（信息性——约束在规则 G 违例判定；报数只降不升，基线见 lint-gate-constants.mjs）
+  const ratchet = countTestSetstate();
+  const overBaseline = ratchet.count > GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.count
+    || ratchet.files > GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.files;
+  console.log(
+    `test/spec 面 useCanvasStore.setState 存量报数: ${ratchet.count} 处/${ratchet.files} 文件` +
+    `（棘轮有效基线 ${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.count}/${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.files}` +
+    `——起点 ${GEOMETRY_SETSTATE_RATCHET_BASELINE.stock.count}/${GEOMETRY_SETSTATE_RATCHET_BASELINE.stock.files}` +
+    ` @${GEOMETRY_SETSTATE_RATCHET_BASELINE.capturedAt}，只降不升）`,
+  );
+  if (overBaseline) {
+    console.error(`静态棘轮破线：报数超有效基线（${ratchet.count}/${ratchet.files} > ${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.count}/${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.files}）→ FAIL`);
     process.exitCode = 1;
     return;
   }
@@ -194,7 +240,7 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log(`${THEME_RULE_ID}: 0 违例（白名单外直判）→ PASS`);
-    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入）: 0 违例（白名单外直判）→ PASS`);
+    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮）: 0 违例（白名单外直判）→ PASS`);
     console.log(`flowweb/no-color-hex: ${matched} baselined, 0 new → PASS`);
     if (removed > 0) {
       console.log(`（迁移进度：baseline 已消除 ${removed} 键）`);

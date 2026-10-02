@@ -15,6 +15,9 @@ export * from './types/video-work';
 export * from './types/group';
 export * from './types/stitch';
 export * from './canvas/nodeEnvelope';
+// C0-2（Spec B）：geometryWriterRegistry=纯常量零依赖（写者类别+归类账本）——
+// geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
+export * from './canvas/geometryWriterRegistry';
 export * from './canvas/geometry';
 export * from './canvas/storyboardConfig';
 export * from './canvas/normalizeLoadedCanvas';
