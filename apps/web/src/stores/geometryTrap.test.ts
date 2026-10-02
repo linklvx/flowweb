@@ -157,14 +157,14 @@ describe('geometryTrap 生命周期（订阅不可重复装）', () => {
   });
 });
 
-// —— 锚③：静态棘轮（test/spec 面 useCanvasStore.setState( 报数单调下降）——
-describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（212 处/39 文件，只降不升）', () => {
+// —— 锚③：静态棘轮（test/spec 面 store 侧 setState 调用报数单调下降）——
+describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（210 处/39 文件，只降不升）', () => {
   // vitest cwd=包根 apps/web（canvasStore.groups.test.ts 源码扫描同口径）。
   // 基线口径（apps/web/scripts/lint-gate-constants.mjs 同源，改数须两处同步）：
-  // 存量起点 201/38（2026-10-02 grep）+ 本片造案夹具 geometryTrap.test.ts +11 处/1 文件
+  // 存量起点 201/38（2026-10-02 grep）+ 本片造案夹具 geometryTrap.test.ts +9 处/1 文件
   // （陷阱守卫测试手写 setState 是造案的存在目的——allow-list 第 39 条 sanctioned 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 212;
+  const BASELINE_COUNT = 210;
   const BASELINE_FILES = 39;
 
   function* walkTestFiles(dir: string): Generator<string> {
@@ -179,7 +179,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（212 处/39
     }
   }
 
-  it('test/spec 面 useCanvasStore.setState( 处数 ≤212 且文件数 ≤39（起点 201/38+造案夹具，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤210 且文件数 ≤39（起点 201/38+造案夹具，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

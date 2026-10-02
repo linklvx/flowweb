@@ -7,7 +7,7 @@
  * 基线口径（2026-10-02 当日 grep 实测）：
  *   - 存量面：201 处 / 38 文件（词边界 useCanvasStore.setState( 正则，apps/web/src 下 test/spec 后缀文件）；
  *   - C0-2 本片新增 geometryTrap.test.ts（陷阱守卫造案夹具——sanctioned 例外，allow-list 第 39 条）：
- *     该文件手写 setState 是陷阱测试的存在目的（造案），+11 处 → 有效基线 212 处 / 39 文件。
+ *     该文件手写 setState 是陷阱测试的存在目的（造案），+9 处 → 有效基线 210 处 / 39 文件。
  *     棘轮语义不变：自今日起单调下降、只降不升；新 test/spec 文件几何 setState 走规则 G 直拦。
  */
 export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
@@ -60,5 +60,5 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   /** 存量起点（当日 grep——38 文件面）。 */
   stock: { count: 201, files: 38 },
   /** 有效基线（含 C0-2 造案夹具 +11 处/1 文件）。 */
-  effective: { count: 212, files: 39 },
+  effective: { count: 210, files: 39 },
 };

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
 import type { AbsCoord, RelCoord } from './brands';
-import { COLLAPSED_SIZE, DEFAULT_CHILD_SIZE } from './geometry';
+import { calcGroupBounds, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE } from './geometry';
 import {
   assertNoAutoGroupFrameKeys,
   assertDocAbsMatchesCsRel,
@@ -363,7 +363,6 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
 });
 
 // —— 测试私有：期望帧计算（与实现同源 calcGroupBounds——只用于构造合法夹具）——
-import { calcGroupBounds } from './geometry';
 function calcExpected(members: DocNodeRecord[]) {
   return calcGroupBounds(members.map((m) => ({
     x: m.position!.x, y: m.position!.y,

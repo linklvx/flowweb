@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { GEOMETRY_SETSTATE_RATCHET_BASELINE } from './lint-gate-constants.mjs';
+import { GEOMETRY_SETSTATE_RATCHET_BASELINE, GEOMETRY_SETSTATE_TEST_ALLOWLIST } from './lint-gate-constants.mjs';
 
 export const NEW_RULE_ID = 'flowweb/no-color-hex';
 export const THEME_RULE_ID = 'flowweb/no-theme-utility';
@@ -103,15 +103,15 @@ function countTestSetstate() {
     return out;
   };
   let count = 0;
-  let files = 0;
+  const perFile = new Map();
   for (const f of walk(path.join(APP_ROOT, 'src'))) {
     const hits = readFileSync(f, 'utf8').match(/\buseCanvasStore\.setState\(/gu);
     if (hits) {
-      files += 1;
+      perFile.set(toRelPosix(f), hits.length);
       count += hits.length;
     }
   }
-  return { count, files };
+  return { count, files: perFile.size, perFile };
 }
 
 async function runLint() {
@@ -185,6 +185,18 @@ async function main() {
   );
   if (overBaseline) {
     console.error(`静态棘轮破线：报数超有效基线（${ratchet.count}/${ratchet.files} > ${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.count}/${GEOMETRY_SETSTATE_RATCHET_BASELINE.effective.files}）→ FAIL`);
+    // per-file 增量明细（破线定位）：非 allow-list 文件命中全算新增来源；存量文件上涨则列全量降序供 diff。
+    const allow = new Set(GEOMETRY_SETSTATE_TEST_ALLOWLIST);
+    const newSources = [...ratchet.perFile].filter(([f]) => !allow.has(f));
+    for (const [f, n] of newSources) {
+      console.error(`  棘轮新增来源（allow-list 外）: ${f} — ${n} 处`);
+    }
+    if (newSources.length === 0) {
+      console.error('  allow-list 外无新文件——存量文件报数上涨，per-file 明细（降序）:');
+      for (const [f, n] of [...ratchet.perFile].sort((a, b) => b[1] - a[1])) {
+        console.error(`    ${f}: ${n} 处`);
+      }
+    }
     process.exitCode = 1;
     return;
   }
