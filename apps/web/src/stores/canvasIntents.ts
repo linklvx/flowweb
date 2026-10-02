@@ -306,6 +306,18 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
     if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
     if (b.position.x !== a.position.x || b.position.y !== a.position.y) {
       intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+    } else {
+      // I-1 角点（O0a-1 质评）：既有子入分镜组（convertGroup）后 rel 恰 {0,0}=零位移——不补发
+      // 则 doc 旧 position 键无写者可剥（剥键唯一载体=applyIntentToDoc moveNode 分支），批尾
+      // stripDerivedKeys 误捕合法操作。补发 moveNode（after 位置=当前 cs 位置——doc 面剥键、
+      // store 面同值 no-op；父上下文取 afterNodes，同上方 addNode 分支口径）。
+      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
+      const isStoryboardChild =
+        parent?.type === 'group' &&
+        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+      if (isStoryboardChild) {
+        intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+      }
     }
     const dataPatch: Record<string, unknown> = {};
     const keys = new Set([...Object.keys(b.data ?? {}), ...Object.keys(a.data ?? {})]);
@@ -339,6 +351,9 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
   const intents = diffProjectionToIntents(before, captureStoreProjection());
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);
+  // M-1（O0a-1 质评）挂点覆盖面注：直发路径（dispatchCanvasIntent/dispatchSystemIntents）靠
+  // applyIntentToDoc 分支自剥、无批尾断言——挂点选 dispatchProjectionDiff 因单原子 dispatch
+  // 会误抓 convertGroup patchGroupData 中间态。
   if (import.meta.env.DEV) {
     const d = resolveDoc();
     if (d) assertDocKeySetInvariants(d);

@@ -773,23 +773,22 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('集成造案：doc 预埋分镜子带 position 违例 → dispatchProjectionDiff 批尾 DEV 断言真抛（删挂载即红——防线假绿防护）', () => {
+  it('集成造案：doc 预埋分镜子带 position 违例（doc-only）→ dispatchProjectionDiff 批尾 DEV 断言真抛（删挂载即红——防线假绿防护）', () => {
     // 生产不可能形态（diff 剥键=唯一合法写者）经 fillDoc 直埋 doc——fillDoc 只认记录键不做键集
-    // 校验，违例 doc 恰是三层防线②（批尾 DEV throw）要当场暴露而非被静默修好的场景
+    // 校验，违例 doc 恰是三层防线②（批尾 DEV throw）要当场暴露而非被静默修好的场景。
+    // I-1 后口径：store 可见（afterNodes）的分镜子零位移会被补发 moveNode 剥键（合法自愈）——
+    // 违例须落在 diff 触达面外（doc-only，不入 store 投影）才能存活到批尾断言
     fillDoc(doc, [
       { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
         data: { groupType: 'storyboard', cells: ['c1'] } },
       { id: 'c1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180,
         position: { x: 5, y: 5 }, data: { status: 'done' } },
     ] as any, []);
-    // store 镜像 doc（sb1/c1 before==after——diff 只产无关新节点 intent，不触碰违例节点）
+    // store 只镜像 sb1（违例 c1 留 doc-only——store 投影无此节点 ⇒ diff 零 intent 触达违例）
     useCanvasStore.setState({ nodes: [
       { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
         data: { groupType: 'storyboard', cells: ['c1'] } },
-      { id: 'c1', type: 'imageGen', parentId: 'sb1', position: { x: 5, y: 5 }, width: 320, height: 180,
-        data: { status: 'done' } },
     ] as any });
-    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done' } } } as any });
     const before = captureStoreProjection();
     // 无关变更：新节点 n9 入 store → diff=[addNode n9] 非空——才走得到批尾 DEV 断言（空 diff 提前 return）
     useCanvasStore.setState({ nodes: [
@@ -799,5 +798,40 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     expect(() => dispatchProjectionDiff(before, Origin.LocalUser)).toThrow(/键集校验/);
     // 防线只读不修：抛点在 dispatch 之后，违例 position 键仍在 doc（非 normalize pass）
     expect((doc.getMap('nodes').get('c1') as Y.Map<any>).has('position')).toBe(true);
+  });
+
+  it('I-1 角点：既有 normal 组子 rel 恰 {0,0} → convertGroup 归分镜组（零位移）→ 补发 moveNode 剥 doc position 键', () => {
+    // doc+store 同构：normal 组 g1 + 子 c1 rel {0,0}（normal 组子带 position=doc 合法键；
+    // 组在数组前列——convertGroup setWithParentOrder 后的 ensureParentOrder 保证形态）
+    const g1 = {
+      id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
+      data: { groupType: 'normal' },
+    };
+    const c1 = {
+      id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent',
+      position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' },
+    };
+    fillDoc(doc, [g1, c1] as any, []);
+    useCanvasStore.setState({ nodes: [g1, c1] as any });
+    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done' } } } as any });
+    const before = captureStoreProjection();
+    // convertGroup('storyboard') 面：组 data 迁 storyboard 配置（patchGroupData 差分半边），
+    // 子 cs 归零 {0,0}（原 rel 恰 {0,0} ⇒ 零 delta——无补发时 diff 对 c1 零 intent，doc 旧
+    // position 键无写者可剥，批尾 DEV 断言误抛 /键集校验/）
+    const g1sb = {
+      ...g1,
+      data: {
+        groupType: 'storyboard', cells: ['c1'],
+        storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' },
+      },
+    };
+    useCanvasStore.setState({ nodes: [g1sb, { ...c1, selected: false }] as any });
+    // 真走 dispatchProjectionDiff 漏斗（同上两案手法）：不抛=补发的零位移 moveNode 经
+    // applyIntentToDoc 剥 doc 键（组 updateNodeData 先于子 moveNode——cs 父前子后序）
+    dispatchProjectionDiff(before, Origin.LocalUser);
+    expect((doc.getMap('nodes').get('c1') as Y.Map<any>).has('position')).toBe(false);
+    // cs 面构造默认保留（store 侧同值 no-op——三层表第三层，渲染面不在剥键域）
+    expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1')!.position).toEqual({ x: 0, y: 0 });
+    expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });

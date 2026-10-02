@@ -11,7 +11,9 @@
  *   - O0a-1（Spec B）canvasIntents.spec 剥键锚用例 +2 处（diff 剥键锚需 cs 直写构造 before/after 差——
  *     同 sanctioned 例外）；
  *   - O0a-1 评审收口集成造案 +2 处（批尾 DEV throw 挂点守卫——镜像 store 构造 before/after 差，
- *     同 sanctioned 例外）→ 有效基线 214 处 / 39 文件。
+ *     同 sanctioned 例外）；
+ *   - O0a-1 质评 I-1 零位移角点造案 +2 处（补发 moveNode 剥键守卫——构造 normal 组子 rel {0,0}
+ *     入分镜组 before/after 差，setState 是造案存在目的，同 sanctioned 例外）→ 有效基线 216 处 / 39 文件。
  *     棘轮语义不变：自今日起单调下降、只降不升；新 test/spec 文件几何 setState 走规则 G 直拦。
  */
 export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
@@ -65,6 +67,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   stock: { count: 201, files: 38 },
   /** 有效基线（含 C0-2 造案夹具 +11 处/1 文件 + O0a-1 剥键用例造案 +2 处/canvasIntents.spec——
    *  diff 剥键锚需 cs 直写构造 before/after 差，setState 是用例的存在目的——同 sanctioned 例外；
-   *  O0a-1 评审收口集成造案再 +2 处——批尾 DEV throw 挂点守卫，镜像 store 构造 before/after）。 */
-  effective: { count: 214, files: 39 },
+   *  O0a-1 评审收口集成造案再 +2 处——批尾 DEV throw 挂点守卫，镜像 store 构造 before/after；
+   *  O0a-1 质评 I-1 零位移角点造案再 +2 处——补发 moveNode 剥键守卫，构造入分镜组零位移差）。 */
+  effective: { count: 216, files: 39 },
 };
