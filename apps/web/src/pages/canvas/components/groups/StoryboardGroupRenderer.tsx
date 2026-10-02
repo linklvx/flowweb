@@ -4,6 +4,7 @@ import type { GroupNodeData } from '@/types/group';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
+import { resolveGroupColor } from '@/utils/groupColor';
 
 interface Props { id: string; data: GroupNodeData; cellNodes: CellNodeInfo[] }
 
@@ -11,6 +12,9 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
   const cfg = resolveStoryboardConfig(data);
+  // 2d-7（F28/v10 裁决 4）：shell 背景/边框换分镜专属 token；组色描边吃组色，
+  // 未设色/bogus 回退 --canvas-group-border（NormalGroupRenderer 2c-5 同款单回退点）
+  const borderColor = resolveGroupColor(data.color) ?? 'var(--canvas-group-border)';
   const total = cfg.gridRows * cfg.gridCols;
   const byId = new Map(cellNodes.map((c) => [c.id, c]));
 
@@ -37,8 +41,8 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes }: Props) {
       // absolute inset:0 覆盖整个节点盒——RF .react-flow__node-group 自带 padding:10px，
       // 静态 100% 尺寸会相对 padding 后的内容盒布局导致格子溢出节点边界
       position: 'absolute', inset: 0,
-      border: '1px solid var(--canvas-controls-border)', borderRadius: 8,
-      background: 'var(--canvas-controls-bg)',
+      border: `1px solid ${borderColor}`, borderRadius: 8,
+      background: 'var(--canvas-storyboard-shell-bg)',
       display: 'grid',
       gridTemplateColumns: `repeat(${cfg.gridCols}, 1fr)`,
       gridTemplateRows: `repeat(${cfg.gridRows}, 1fr)`,

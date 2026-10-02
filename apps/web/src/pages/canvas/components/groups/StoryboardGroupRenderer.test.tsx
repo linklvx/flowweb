@@ -85,12 +85,25 @@ describe('StoryboardGroupRenderer', () => {
     expect(root.style.gap).toBe('3px');
   });
 
-  it('组框边框随主题双值（选中态无高亮边框，选中反馈仅有上方悬浮工具条）', () => {
+  it('shell 背景/边框 2d-7 token 化：--canvas-storyboard-shell-bg + 1px --canvas-group-border（原 controls token 迁移）', () => {
     const { container } = render(<StoryboardGroupRenderer {...(props() as any)} />);
     const root = container.firstElementChild as HTMLElement;
-    // C8 D3-board：组边框随 controls-border 双值（深 rgb(51,51,51)/浅 rgb(229,231,235)）——
+    expect(root.style.background).toBe('var(--canvas-storyboard-shell-bg)');
     // jsdom 对含 var() 的 shorthand 不展开 longhand（borderColor 读回空串），断言 verbatim shorthand 串
-    expect(root.style.border).toBe('1px solid var(--canvas-controls-border)');
+    expect(root.style.border).toBe('1px solid var(--canvas-group-border)');
+  });
+
+  it('组色描边吃组色（v10 裁决 4）：color=red → border 随 --canvas-group-color-red', () => {
+    const { container } = render(<StoryboardGroupRenderer {...(props({ color: 'red' }) as any)} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.border).toBe('1px solid var(--canvas-group-color-red)');
+  });
+
+  it('组色未设/bogus → 回退 --canvas-group-border（单回退点，NormalGroupRenderer 2c-5 同款；不抛错）', () => {
+    const unset = render(<StoryboardGroupRenderer {...(props() as any)} />);
+    expect((unset.container.firstElementChild as HTMLElement).style.border).toBe('1px solid var(--canvas-group-border)');
+    const bogus = render(<StoryboardGroupRenderer {...(props({ color: 'bogus' }) as any)} />);
+    expect((bogus.container.firstElementChild as HTMLElement).style.border).toBe('1px solid var(--canvas-group-border)');
   });
 
   it('格子选中态边框随前景双值 1px（浅档防选中框消失）', () => {

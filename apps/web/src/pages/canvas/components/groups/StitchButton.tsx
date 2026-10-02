@@ -20,7 +20,7 @@ const RESOLUTIONS: { label: string; value: StitchResolution }[] = [
 const btn = (disabled?: boolean): React.CSSProperties => ({
   background: 'none',
   border: 'none',
-  color: disabled ? '#666' : '#fff',
+  color: disabled ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
   padding: '6px 10px',
   borderRadius: 6,
   fontSize: 13,
@@ -175,7 +175,7 @@ function StitchButtonComponent({
                 padding: '8px 12px',
                 background: 'none',
                 border: 'none',
-                color: running ? '#666' : '#fff',
+                color: running ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
                 cursor: running ? 'not-allowed' : 'pointer',
               }}
             >

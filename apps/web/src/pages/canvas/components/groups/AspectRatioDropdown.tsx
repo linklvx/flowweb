@@ -17,7 +17,7 @@ const OPTIONS: { label: string; value: AspectRatio }[] = [
 ];
 
 const btn = (disabled?: boolean): React.CSSProperties => ({
-  background: 'none', border: 'none', color: disabled ? '#666' : '#fff',
+  background: 'none', border: 'none', color: disabled ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
   padding: '6px 10px', borderRadius: 6, fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer',
 });
 
@@ -49,7 +49,7 @@ function AspectRatioDropdownComponent({ value, onChange, executing }: Props) {
               style={{
                 display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
                 background: 'none', border: 'none',
-                color: executing ? '#666' : '#fff',
+                color: executing ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
                 cursor: executing ? 'not-allowed' : 'pointer',
               }}
             >

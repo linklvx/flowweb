@@ -15,13 +15,13 @@ const PRESETS: { label: string; rows: number; cols: number }[] = [
 ];
 
 const btn = (disabled?: boolean): React.CSSProperties => ({
-  background: 'none', border: 'none', color: disabled ? '#666' : '#fff',
+  background: 'none', border: 'none', color: disabled ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
   padding: '6px 10px', borderRadius: 6, fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer',
 });
 
 const inputStyle: React.CSSProperties = {
   width: 60, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--canvas-controls-border)',
-  background: 'var(--canvas-controls-bg)', color: '#fff', fontSize: 13, textAlign: 'center',
+  background: 'var(--canvas-controls-bg)', color: 'var(--canvas-controls-text)', fontSize: 13, textAlign: 'center',
 };
 
 function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
@@ -68,7 +68,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                   style={{
                     display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
                     background: 'none', border: 'none',
-                    color: executing ? '#666' : '#fff',
+                    color: executing ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
                     cursor: executing ? 'not-allowed' : 'pointer',
                   }}
                 >
@@ -81,7 +81,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                 style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
                   background: 'none', border: 'none',
-                  color: executing ? '#666' : '#aaa',
+                  color: 'var(--canvas-controls-icon)',
                   cursor: executing ? 'not-allowed' : 'pointer',
                 }}
               >
@@ -91,7 +91,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
           ) : (
             <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <label style={{ color: '#ccc', fontSize: 13 }}>行:</label>
+                <label style={{ color: 'var(--canvas-controls-icon)', fontSize: 13 }}>行:</label>
                 <input
                   type="number"
                   min={1}
@@ -101,7 +101,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                   onChange={(e) => setCustomRows(Number(e.target.value))}
                   style={inputStyle}
                 />
-                <label style={{ color: '#ccc', fontSize: 13 }}>列:</label>
+                <label style={{ color: 'var(--canvas-controls-icon)', fontSize: 13 }}>列:</label>
                 <input
                   type="number"
                   min={1}
@@ -130,7 +130,7 @@ function GridSizeDropdownComponent({ rows, cols, onChange, executing }: Props) {
                   onClick={handleToggleCustom}
                   style={{
                     padding: '6px 12px', borderRadius: 4, border: '1px solid var(--canvas-controls-border)',
-                    background: 'none', color: executing ? '#666' : '#fff',
+                    background: 'none', color: executing ? 'var(--canvas-controls-icon)' : 'var(--canvas-controls-text)',
                     cursor: executing ? 'not-allowed' : 'pointer',
                     fontSize: 13,
                   }}

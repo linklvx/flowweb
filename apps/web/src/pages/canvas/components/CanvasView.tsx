@@ -24,6 +24,9 @@ import { executeGroupNodes } from '@/api/executionApi';
 import { getMediaUrl } from '@/api/mediaApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
+import { collectDownloadables } from '@/utils/collectDownloadables';
+import { runBatchDownload } from '@/utils/batchDownload';
+import type { CanvasNodeRecord } from '@flowweb/shared';
 import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
 import { decideReferencePick } from './referenceSelect';
 import { TextInputNode } from './nodes/TextInputNode';
@@ -606,6 +609,25 @@ function CanvasViewComponent(_props: Props) {
               useCanvasStore.getState().resizeStoryboardGrid(selectedGroup.id, rows, cols);
             };
 
+            // 工具条行分隔（§4.3 与 GroupToolbar normal 分支 Sep 同规格）
+            const toolbarSep = <span style={{ color: 'var(--canvas-controls-icon)', padding: '0 4px' }}>│</span>;
+
+            // 批量下载（2d-7 需求 8：收集集=分镜组闭包即 cells 节点 fileId）——GroupToolbar normal 分支
+            // 同款双侧最小视图桥；点击时读 ns 非订阅（无 aria-disabled 反应式需求，空集静默不触发）
+            const handleStoryboardBatchDownload = () => {
+              const nsRecords: Record<string, CanvasNodeRecord> = {};
+              for (const [id, n] of Object.entries(useNodeStore.getState().nodes)) {
+                nsRecords[id] = { id: n.id, type: n.type, position: { x: 0, y: 0 }, data: n.data as unknown as Record<string, unknown> };
+              }
+              const items = collectDownloadables(
+                nodes.map((n) => ({ id: n.id, type: n.type!, parentId: n.parentId, position: n.position, data: n.data })),
+                [selectedGroup.id],
+                () => nsRecords,
+              );
+              if (items.length === 0) return;
+              void runBatchDownload(items);
+            };
+
             const indexBtn = (enabled: boolean): React.CSSProperties => ({
               background: enabled ? 'rgba(74,222,128,0.15)' : 'none',
               border: 'none',
@@ -642,6 +664,7 @@ function CanvasViewComponent(_props: Props) {
                   onChange={(r, c) => resizeStoryboardGrid(r, c)}
                   executing={groupExecuting}
                 />
+                {toolbarSep}
                 <StitchButton
                   groupId={selectedGroup.id}
                   resolution={cfg.stitchResolution}
@@ -656,6 +679,22 @@ function CanvasViewComponent(_props: Props) {
                 </button>
                 <button style={btn(false)} onClick={confirmClear}>
                   🗑 清空
+                </button>
+                <button
+                  style={btn(groupExecuting)} disabled={groupExecuting}
+                  onClick={() => !groupExecuting && handleConvert('normal')}
+                >
+                  转普通组
+                </button>
+                {toolbarSep}
+                <button style={btn(false)} onClick={handleStoryboardBatchDownload}>
+                  批量下载
+                </button>
+                <button
+                  style={btn(groupExecuting)} disabled={groupExecuting}
+                  onClick={() => !groupExecuting && handleUngroup()}
+                >
+                  ⧉ 解组
                 </button>
               </GroupToolbar>
             );

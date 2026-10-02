@@ -17,8 +17,25 @@ let mockLastPointerShiftKey = false;
 let mockMarqueeSelecting = false;
 let subscribeListener: ((state: any, prevState: any) => void) | null = null;
 
+// 2d-7：组操作与批量下载链 mock——注入行用例断言调用（state 字面量内联 vi.fn() 每次选择器新引用不可断言）
+const mockUngroup = vi.hoisted(() => vi.fn());
+const mockConvertGroup = vi.hoisted(() => vi.fn());
+const batchDl = vi.hoisted(() => ({ run: vi.fn() }));
+const dl = vi.hoisted(() => ({
+  collect: vi.fn((_cs: unknown, _ids: string[], _getNs: () => Record<string, unknown>) => [] as { fileId: string; filename: string; type: string }[]),
+}));
+
 vi.mock('./groups/GroupToolbar', () => ({
-  GroupToolbar: () => <div data-testid="group-toolbar" />,
+  // 2d-7：透传 children——storyboard 注入行用例在 stub 内渲染真实子组件（真 GroupToolbar 需 internalNode，jsdom 不可达）
+  GroupToolbar: ({ children }: any) => <div data-testid="group-toolbar">{children}</div>,
+}));
+
+vi.mock('@/utils/batchDownload', () => ({
+  runBatchDownload: batchDl.run,
+}));
+
+vi.mock('@/utils/collectDownloadables', () => ({
+  collectDownloadables: dl.collect,
 }));
 
 vi.mock('@xyflow/react', async () => {
@@ -43,8 +60,8 @@ vi.mock('@/stores/canvasStore', () => ({
         lastPointerShiftKey: mockLastPointerShiftKey,
         marqueeSelecting: mockMarqueeSelecting,
         toggleCollapse: vi.fn(),
-        ungroup: vi.fn(),
-        convertGroup: vi.fn(),
+        ungroup: mockUngroup,
+        convertGroup: mockConvertGroup,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         pendingMediaFile: mockPendingMediaFile,
@@ -541,5 +558,94 @@ describe('CanvasView', () => {
       </ReactFlowProvider>
     );
     expect(screen.getByTestId('group-toolbar')).toBeInTheDocument();
+  });
+
+  // ── 2d-7 storyboard 工具条注入行：[比例▾][宫格 r×c▾] │ [拼接(2K/4K)][№ 序号][🗑 清空][转普通组] │ [批量下载][解组] ──
+  // cells 引用不在 cs nodes 的 c1（cellNodes 恒空 → 占位格无 useMediaUrl 取数；groupExecuting 过滤亦空集短路）
+
+  const sbNode = {
+    id: 'g1', type: 'group', selected: true,
+    data: {
+      groupType: 'storyboard', cells: ['c1'],
+      storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
+    },
+    position: { x: 0, y: 0 }, width: 300, height: 200,
+  };
+
+  describe('storyboard 工具条注入行（2d-7）', () => {
+    beforeEach(() => {
+      mockUngroup.mockClear();
+      mockConvertGroup.mockClear();
+      batchDl.run.mockClear();
+      dl.collect.mockClear();
+      dl.collect.mockReturnValue([{ fileId: 'f1', filename: '封面.png', type: 'imageGen' }]);
+      useNodeStore.setState({ nodes: {} });
+    });
+
+    afterEach(() => {
+      useNodeStore.setState({ nodes: {} });
+    });
+
+    it('按钮行序与两条 │ 分隔（子组件文案 F23/F19 不变：宫格 r×c、2K/4K 大写）', () => {
+      mockNodes = [sbNode];
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+      const toolbar = screen.getByTestId('group-toolbar');
+      const labels = [...toolbar.querySelectorAll('button')].map(
+        (b) => b.getAttribute('aria-label') ?? b.textContent ?? '',
+      );
+      expect(labels).toEqual([
+        '比例 16:9 ▾', '宫格 2×2 ▾', '2K ▾', '拼接(2K)', '№ 序号', '🗑 清空', '转普通组', '批量下载', '⧉ 解组',
+      ]);
+      const seps = [...toolbar.querySelectorAll('span')].filter((s) => s.textContent === '│');
+      expect(seps).toHaveLength(2);
+    });
+
+    it('点击 转普通组 → convertGroup(g1, normal)；点击 解组 → ungroup(g1)', () => {
+      mockNodes = [sbNode];
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: '转普通组' }));
+      expect(mockConvertGroup).toHaveBeenCalledWith('g1', 'normal');
+      fireEvent.click(screen.getByRole('button', { name: '⧉ 解组' }));
+      expect(mockUngroup).toHaveBeenCalledWith('g1');
+    });
+
+    it('点击 批量下载 → collectDownloadables(cs, [g1], ns getter) 结果交 runBatchDownload（需求 8：收集集=组闭包即 cells fileId）', () => {
+      mockNodes = [sbNode];
+      useNodeStore.setState({ nodes: { i1: { id: 'i1', type: 'imageGen', data: { fileId: 'f1' } } } as any });
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: '批量下载' }));
+      // SelectionBoxOverlay 渲染期同 mock 也会 collect（首渲 ids=[]）——计数不可靠，取 ['g1'] 调用断言参数形态+run 链路
+      expect(dl.collect).toHaveBeenCalledWith(expect.anything(), ['g1'], expect.any(Function));
+      const [csArg, idsArg, getNs] = dl.collect.mock.calls.find((c) => c[1].join() === 'g1')!;
+      expect(idsArg).toEqual(['g1']);
+      // ns 最小视图桥（GroupToolbar normal 分支同款映射：ns 优先防 cs 陈旧 M8）
+      expect(getNs()).toEqual({ i1: { id: 'i1', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'f1' } } });
+      expect(csArg).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'g1', type: 'group' })]));
+      expect(batchDl.run).toHaveBeenCalledWith([{ fileId: 'f1', filename: '封面.png', type: 'imageGen' }]);
+    });
+
+    it('收集集为空 → runBatchDownload 不触发（对齐 normal 分支 aria-disabled 空守卫语义）', () => {
+      mockNodes = [sbNode];
+      dl.collect.mockReturnValue([]); // 恒空（覆盖 beforeEach 的默认返回——SelectionBoxOverlay 渲染期调用同源）
+      render(
+        <ReactFlowProvider>
+          <CanvasView projectId="p1" />
+        </ReactFlowProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: '批量下载' }));
+      expect(batchDl.run).not.toHaveBeenCalled();
+    });
   });
 });
