@@ -191,6 +191,9 @@ export interface CanvasState {
   addToGroup: (groupId: string, nodeId: string) => void;
   removeNodeFromGroup: (groupId: string, nodeId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
+  /** 2d-6 右键重命名请求（UI 瞬态信号，不入 doc）——见实现 JSDoc */
+  renameRequest: { groupId: string; nonce: number } | null;
+  requestGroupRename: (groupId: string) => void;
   markManuallyResized: (groupId: string) => void;
   /** R2c-3 组色写点：合法 palette key 落 data.color，undefined=清色；未知 key 拒写（守卫先于 runCommand——零 transact） */
   setGroupColor: (groupId: string, key?: GroupColorKey) => void;
@@ -1727,7 +1730,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group || (group.data as any).name === final) return;
-    get().patchGroupData(groupId, { name: final });
+    // 2d-6：runCommand 包装（spec:169 五命令之一）——fn 内走纯写层 patchGroupDataInner；
+    // nameCustom 恒 true（空名兜底『分组』同样是用户命名意图——2d-5 标题层据此切用户名）
+    get().runCommand(() => { get().patchGroupDataInner(groupId, { name: final, nameCustom: true }); });
+  },
+
+  /** 2d-6 右键重命名请求（UI 瞬态信号，不入 doc）：GroupContextMenu「重命名」→ CanvasView →
+   *  本字段；NormalGroupRenderer 消费进编辑态（编辑态本态在组件内——跨树经此触达，与双击共享；
+   *  nonce 递增防同组重放不触发）。 */
+  renameRequest: null,
+  requestGroupRename: (groupId) => {
+    set((st) => ({ renameRequest: { groupId, nonce: (st.renameRequest?.nonce ?? 0) + 1 } }));
   },
 
   markManuallyResized: (groupId) => {

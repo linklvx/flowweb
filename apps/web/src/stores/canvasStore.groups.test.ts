@@ -175,12 +175,15 @@ describe('renameGroup / markManuallyResized（F42 镜像退役——组 data 所
 
   it('renameGroup 写 cs（F42 镜像退役——ns 不再双写）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    // 2d-6：renameGroup 入 runCommand（spec:169 五命令之一）→ 受 canEdit 门——本套装置补 ready 态
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     useCanvasStore.getState().renameGroup(gId, '我的分组');
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('我的分组');
   });
 
   it('renameGroup 空串/同名 no-op', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     useCanvasStore.getState().renameGroup(gId, '');
     // '' 回退由渲染层做，store 层收到 '' 时存 '分组'
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
@@ -192,6 +195,75 @@ describe('renameGroup / markManuallyResized（F42 镜像退役——组 data 所
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     useCanvasStore.getState().markManuallyResized(gId);
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).manuallyResized).toBe(true);
+  });
+});
+
+// ════════ R2d-6：renameGroup 置 nameCustom——runCommand 包装 + 连点 undo ════════
+
+describe('renameGroup（2d-6）', () => {
+  // 真装置（照 setGroupColor 2c-3 骨架）：真 Y.Doc + fillDoc + _setIntentDocForTest + attachUndoManager。
+  // 禁止 vi.mock canvasIntents——mock 空投影会让 dispatchProjectionDiff 算 0 intents 后直接 return，
+  // doc 写路径零验证、断言恒绿。
+  const rigNodes = () => [
+    { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+  ];
+  const setupRig = () => {
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return { d, um };
+  };
+  const teardownRig = () => {
+    _setIntentDocForTest(null);
+    detachUndoManager();
+  };
+  const docDataOf = (d: Y.Doc, id: string) => ((d.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>);
+
+  it('置 nameCustom:true（普通/分镜同款）——经 runCommand 单 transact，fn 内 patchGroupDataInner 写 name+nameCustom', () => {
+    const { d } = setupRig();
+    try {
+      let transacts = 0;
+      d.on('afterTransaction', () => { transacts++; });   // 观察器在 fillDoc 后挂，初态不计
+      useCanvasStore.getState().renameGroup('g1', '我的组');
+      const gd = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any;
+      expect(gd.name).toBe('我的组');
+      expect(gd.nameCustom).toBe(true);   // 2d-5 标题层消费面：置位 → 显示用户名
+      expect(docDataOf(d, 'g1').get('name')).toBe('我的组');   // doc 同步（外层差分 dispatch）
+      expect(docDataOf(d, 'g1').get('nameCustom')).toBe(true);
+      expect(transacts).toBe(1);   // 单 transact——patchGroupDataInner 纯写，防 patchGroupData 正向 dispatch 双写回潮
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('空名兜底也置 nameCustom:true（重命名动作本身即用户命名意图——现有 trim||分组 语义维持不改）', () => {
+    const { d } = setupRig();
+    try {
+      useCanvasStore.getState().renameGroup('g1', '   ');
+      const gd = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any;
+      expect(gd.name).toBe('分组');   // 既有兜底语义不变
+      expect(gd.nameCustom).toBe(true);   // 兜底名同样是用户命名意图
+      expect(docDataOf(d, 'g1').get('nameCustom')).toBe(true);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('500ms 连点两次 = 2 undo 项（spec:169 五命令之一）', () => {
+    const { d, um } = setupRig();
+    try {
+      useCanvasStore.getState().renameGroup('g1', 'B');
+      useCanvasStore.getState().renameGroup('g1', 'C');
+      expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
+      um.undo();
+      expect(docDataOf(d, 'g1').get('name')).toBe('B');   // 第二命令独立成步——undo 回到中间态
+    } finally {
+      teardownRig();
+    }
   });
 });
 

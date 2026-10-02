@@ -273,6 +273,11 @@ function CanvasViewComponent(_props: Props) {
     setGroupContextMenu(null);
   }, []);
 
+  // 2d-6：右键「重命名」→ store 瞬态信号 → NormalGroupRenderer 消费进编辑态（与双击共享）
+  const handleGroupMenuRename = useCallback((groupId: string) => {
+    useCanvasStore.getState().requestGroupRename(groupId);
+  }, []);
+
   const onPaneClick = useCallback(() => {
     closeGroupContextMenu();
     const ns = useNodeStore.getState();
@@ -688,6 +693,7 @@ function CanvasViewComponent(_props: Props) {
           groupId={groupContextMenu.groupId}
           x={groupContextMenu.x}
           y={groupContextMenu.y}
+          onRename={handleGroupMenuRename}
           onClose={closeGroupContextMenu}
         />
       )}

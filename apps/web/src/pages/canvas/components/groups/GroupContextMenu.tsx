@@ -8,6 +8,9 @@ interface Props {
   groupId: string;
   x: number;
   y: number;
+  /** 2d-6 右键重命名入口：请求目标组进入编辑态（与 NormalGroupRenderer 双击共享编辑态——
+   *  跨树经 canvasStore.renameRequest 信号触达，本组件只回调） */
+  onRename: (groupId: string) => void;
   onClose: () => void;
 }
 
@@ -22,7 +25,7 @@ const menuItem = (disabled?: boolean): React.CSSProperties => ({
   width: '100%',
 });
 
-function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
+function GroupContextMenuComponent({ groupId, x, y, onRename, onClose }: Props) {
   const { screenToFlowPosition } = useReactFlow();
   const canPaste = useCanvasStore.getState().hasGroupClipboard();
   const duplicateGroup = useCanvasStore((s) => s.duplicateGroup);
@@ -94,6 +97,9 @@ function GroupContextMenuComponent({ groupId, x, y, onClose }: Props) {
       }}
       onClick={(e) => e.stopPropagation()}
     >
+      <button style={menuItem()} onClick={() => { onRename(groupId); onClose(); }}>
+        重命名
+      </button>
       <button style={menuItem()} onClick={handleDuplicate}>
         创建副本
       </button>

@@ -47,6 +47,17 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     }
   }, [editing]);
 
+  // 2d-6：右键菜单「重命名」请求消费——进入与双击相同的编辑态（nonce 防重放：已消费的请求
+  // 不因依赖重渲重开。折叠态渲染早退在 hooks 之后，折叠中消费=editing 置位待展开呈现——瞬态信号无超时语义）
+  const renameRequest = useCanvasStore((s) => s.renameRequest);
+  const consumedNonceRef = useRef(-1);
+  useEffect(() => {
+    if (!renameRequest || renameRequest.groupId !== groupId || renameRequest.nonce === consumedNonceRef.current) return;
+    consumedNonceRef.current = renameRequest.nonce;
+    setDraft(name);
+    setEditing(true);
+  }, [renameRequest, groupId, name]);
+
   const submit = () => {
     if (committedRef.current) return;
     committedRef.current = true;

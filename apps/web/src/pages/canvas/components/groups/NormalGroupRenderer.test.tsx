@@ -4,9 +4,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
 
 const renameGroup = vi.fn();
-const mockStore = { nodes: [] as any[] };
+const mockStore = { nodes: [] as any[], renameRequest: null as { groupId: string; nonce: number } | null };
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (sel: any) => sel({ nodes: mockStore.nodes, renameGroup }),
+  useCanvasStore: (sel: any) => sel({ nodes: mockStore.nodes, renameGroup, renameRequest: mockStore.renameRequest }),
 }));
 
 // 2d-3：折叠分支内内容换成 CollapsedPreviewCard → tile 取图走 useMediaUrl（StoryboardGroupRenderer.test.tsx:7 同款 mock）
@@ -150,5 +150,26 @@ describe('NormalGroupRenderer 折叠态', () => {
     expect(card.style.width).toBe('220px');
     expect(card.style.height).toBe('160px');
     expect(screen.getByText('0 个节点')).toBeTruthy();
+  });
+});
+
+describe('NormalGroupRenderer 右键重命名请求消费（2d-6）', () => {
+  beforeEach(() => {
+    mockStore.nodes = [{ id: 'c1', parentId: 'g1' }];
+    mockStore.renameRequest = null;
+    renameGroup.mockClear();
+  });
+
+  it('renameRequest 命中本组 → 进入与双击相同的编辑态（draft=当前名；跨组请求/已消费 nonce 不触发）', () => {
+    mockStore.renameRequest = { groupId: 'g1', nonce: 1 };
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.value).toBe('旧名');
+  });
+
+  it('跨组请求不触发编辑态', () => {
+    mockStore.renameRequest = { groupId: 'g2', nonce: 1 };
+    render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '旧名' } as any} selected={false} />);
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });
