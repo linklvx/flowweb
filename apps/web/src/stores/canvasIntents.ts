@@ -12,8 +12,8 @@
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
-import type { CanvasNodeRecord, DocNodeRecord } from '@flowweb/shared';
-import { stripDerivedKeys, readRecordsFromMaps } from '@flowweb/shared';
+import type { CanvasNodeRecord, DocMapLike, DocNodeRecord } from '@flowweb/shared';
+import { setDocPosition, stripDerivedKeys, readRecordsFromMaps } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -103,10 +103,8 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
           break;
         }
       }
-      let pos = m.get('position');
-      if (!(pos instanceof Y.Map)) { pos = new Y.Map(); m.set('position', pos); }
-      if (pos.get('x') !== intent.position.x) pos.set('x', intent.position.x);
-      if (pos.get('y') !== intent.position.y) pos.set('y', intent.position.y);
+      // position 写原语单源（O0a-3 setDocPosition——子 Map 缺失建/在则复用+逐键 diff no-op）
+      setDocPosition(m as unknown as DocMapLike, intent.position, () => new Y.Map() as unknown as DocMapLike);
       break;
     }
     case 'updateNodeEnvelope': {

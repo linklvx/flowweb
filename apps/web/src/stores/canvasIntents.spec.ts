@@ -17,6 +17,7 @@ import { useNodeStore } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
 import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _setIntentDocForTest } from './canvasIntents';
 import { applyDocToStore } from './canvasCollabRuntime';
+import { seedCanvas } from '@/test/fixtures/canvas';
 import { fillDoc } from '@/collab/ydocBuilder';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
@@ -730,6 +731,48 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
     expect(snapshot()).toEqual(before);                    // 全瞬态 patch：doc 零变更（逐键相等）
     // dispatch 实走漏斗（ns 瞬态面生效——防恒真）
     expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop' });
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+});
+
+// ════════ O0a-3：差分零几何意图（auto 组 data-only delta——差分 intent 不带几何）════════
+// 锚语义：auto 组只改 data ⇒ 恰 1 个 updateNodeData ∧ 零 envelope/moveNode（plan O0a-3 Step 1）。
+// 观察面=漏斗出口：data 落 doc 证明 updateNodeData 在场；cs 组对象身份不变证明零 envelope/moveNode
+// （两者的 store 投影会重建 cs 节点对象——同值也重建；updateNodeData 走 ns 面、'name' 非桥键
+// CANVAS_BRIDGE_KEYS 不触 cs）。identity 档下投影几何=换芯前逐位（toDocRecords 剥键在 cs 投影面
+// 经构造回填——剥键可见面=DocNodeRecord 出口非本漏斗），故本锚是跨换芯的行为等价守卫。
+describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('auto 组只改 data ⇒ 恰 1 个 updateNodeData（data 落 doc）∧ 零 envelope/moveNode（cs 组对象身份不变∧doc 几何逐位不变）', () => {
+    // auto 组：cs 无 width/height（record 键集判定非 manual——0 帧键形态）。
+    // cs 构造走 seedCanvas 夹具入口（C0-2 纪律——几何 setState 棘轮零增长）
+    const autoGroup = () => ({
+      id: 'g1', type: 'group', position: { x: 10, y: 20 }, parentId: null,
+      data: { groupType: 'normal', name: 'a' },
+    } as any);
+    seedCanvas([autoGroup()]);
+    fillDoc(doc, [{ id: 'g1', type: 'group', position: { x: 10, y: 20 }, data: { groupType: 'normal', name: 'a' } } as any], []);
+    const before = captureStoreProjection();
+    // 只改 data：cs 组 data name a→b（F42——组 data 真值在 cs）
+    seedCanvas([{ ...autoGroup(), data: { groupType: 'normal', name: 'b' } }]);
+    const gBefore = useCanvasStore.getState().nodes[0];
+    dispatchProjectionDiff(before, Origin.LocalUser);
+    // 恰 1 个 updateNodeData：data 增量落 doc（差分非空且被消费）
+    const m = doc.getMap('nodes').get('g1') as Y.Map<any>;
+    expect((m.get('data') as Y.Map<any>).get('name')).toBe('b');
+    // 零 envelope/moveNode：cs 组对象身份不变（同值 no-op 不适用——投影回填恒重建对象）
+    expect(useCanvasStore.getState().nodes[0]).toBe(gBefore);
+    // doc 几何逐位不变：position 原值∧无 wh 键写入
+    expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 10, y: 20 });
+    expect(m.has('width')).toBe(false);
+    expect(m.has('height')).toBe(false);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });

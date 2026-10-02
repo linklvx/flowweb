@@ -1,4 +1,4 @@
-import { normalizeCanvasRecord, type CanvasNodeRecord } from '@flowweb/shared';
+import { normalizeCanvasRecord, toDocRecords, type CanvasNodeRecord, type MinimalCSNode } from '@flowweb/shared';
 
 /** ephemeral 键集（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode=本地瞬态
  *  UI 键（编辑态只活在 ns data 本地面），禁入 doc/cs 持久面；expanded 是 doc 态
@@ -16,23 +16,23 @@ export function stripEphemeralDataKeys(data: Record<string, unknown>): Record<st
   return out;
 }
 
-/** store→doc 投影单源（canvasIntents 差分换芯与不变量校验共用）：几何真值在 canvasStore（width 缺即缺——
- *  投影不含 measured：渲染期 ResizeObserver 量，帧变渲染时序函数→跨客户端漂移源）；
- *  data 所有权分型（F42）：组节点取 cs（所有权单一——Task 11 删镜像后 ns 无组 data），
- *  普通节点取 ns（updateConfig 域）、ns 缺席回落 cs（恢复窗口）。输出经写侧归一（真删键）。 */
+/** store→doc 投影（O0a-3 换芯薄化——双源合并+键集表内剥键单源=shared toDocRecords，本函数只剩
+ *  cs 投影面适配）：DocNodeRecord 剥键出口回填 cs 构造几何（三层表第三层：cs 恒有 position——
+ *  剥键可见面=toDocRecords 出口非本函数；位置/宽高语义与换芯前逐位等价，diff/invariant 面
+ *  行为不变）+ ephemeral 键剥（口径 13——shared 不可见的 web 键集）+ normalizeCanvasRecord
+ *  写侧归一（真删键）。width 不含 measured——resize 经 applyNodeChanges 写 cs.width。 */
 export function projectCanvasNodes(
-  csNodes: { id: string; type?: string; position: { x: number; y: number }; parentId?: string | null; width?: number | null; height?: number | null; measured?: { width?: number; height?: number }; data?: Record<string, unknown> }[],
+  csNodes: MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
 ): CanvasNodeRecord[] {
-  return csNodes.map((nd) => normalizeCanvasRecord({
-    id: nd.id,
-    type: nd.type || 'videoGen',
-    parentId: nd.parentId ?? null,
-    position: nd.position,
-    width: nd.width ?? null,      // 不含 measured——resize 经 applyNodeChanges 写 cs.width
-    height: nd.height ?? null,
-    data: stripEphemeralDataKeys(
-      nd.type === 'group' ? (nd.data ?? {}) : (nsNodes[nd.id]?.data ?? nd.data ?? {}),
-    ),
+  const csById = new Map(csNodes.map((n) => [n.id, n] as const));
+  return toDocRecords(csNodes, nsNodes).map((r) => normalizeCanvasRecord({
+    id: r.id,
+    type: r.type,
+    parentId: r.parentId ?? null,
+    position: r.position ?? csById.get(r.id)!.position, // cs 投影面回填（剥键逆映射——identity 逐位）
+    width: r.width ?? csById.get(r.id)!.width ?? null,
+    height: r.height ?? csById.get(r.id)!.height ?? null,
+    data: stripEphemeralDataKeys(r.data),
   }));
 }

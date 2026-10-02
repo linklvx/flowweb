@@ -43,9 +43,8 @@ const ALLOW_FILES = new Set([
   // O0a-2（Spec B）：api node-doc.util 随读写收编 docShape 整删（writeNodeToYMap 符号消失）——
   // allow 行同批撤（符号删除 census 纪律）
   'apps/api/prisma/gate-seed.ts',
-  // 批4b-1（门 C 裁决·意图漏斗）：canvasIntents applyIntentToDoc 是新合法 doc 写者——
-  // moveNode intent 的 position 子 Map 构造（与 ydocBuilder 同级的 Y.Map 适配器）
-  'apps/web/src/stores/canvasIntents.ts',
+  // O0a-3（Spec B）：canvasIntents moveNode 的 position 子 Map 构造收编 docShape setDocPosition
+  // （写原语唯一单源）——allow 行同批撤（若复活本门禁即红）
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {
