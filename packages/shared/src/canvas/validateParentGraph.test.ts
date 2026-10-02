@@ -32,10 +32,14 @@ describe('validateParentGraph（F39 两档）', () => {
     expect(v.filter((x) => x.kind === 'cycle')).toHaveLength(1);
   });
 
-  it('clone 档：只报 cycle——悬空/嵌套不报（红线行为锁）；合法图零 violations', () => {
+  it('clone 档：报 cycle+nested-group（O0a-2 升格嵌套为 fatal）——悬空不报（容忍红线保留）；合法图零 violations', () => {
     expect(validateParentGraph([n('a', 'ghost')], 'clone').violations).toEqual([]);
     expect(validateParentGraph([n('g1', undefined, 'group'), n('c1', 'g1')], 'import').violations).toEqual([]);
     // 边检查被 mode 门禁：clone 档即使传悬空边也不报（防边循环被移出门禁的回潮锁）
     expect(validateParentGraph([n('a')], 'clone', [{ id: 'e1', source: 'a', target: 'ghost' } as any]).violations).toEqual([]);
+  });
+
+  it('clone 档 nested-group（O0a-2 升格=行为变更）：组嵌组 → violation（两档共用同一检查单源）', () => {
+    expect(validateParentGraph([n('g2', 'g1', 'group'), n('g1', undefined, 'group')], 'clone').violations.some((v) => v.kind === 'nested-group')).toBe(true);
   });
 });

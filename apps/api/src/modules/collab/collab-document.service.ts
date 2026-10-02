@@ -1,6 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
+import { readRecordsFromMaps } from '@flowweb/shared';
 import { CollabGateway } from './collab.gateway';
+import { toDocLike } from './doc-like.util';
 import { svSatisfied } from './sv.util';
 import { svWaitTimeoutTotal } from './sv-wait.metrics';
 
@@ -31,7 +33,9 @@ export class CollabDocumentService {
     }
   }
 
-  /** doc → plain nodes/edges（形状对齐原 CanvasNode/CanvasEdge include 结果）；sv 提供时等待 server doc 追上（超时降级不抛错，spec 3.1） */
+  /** doc → plain nodes/edges；sv 提供时等待 server doc 追上（超时降级不抛错，spec 3.1）。
+   *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
+   *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。 */
   async readCanvas(projectId: string, sv?: Uint8Array, timeoutMs = 3000): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withDoc(projectId, async (doc) => {
       if (sv && !svSatisfied(Y.encodeStateVector(doc), sv)) {
@@ -41,7 +45,7 @@ export class CollabDocumentService {
           svWaitTimeoutTotal.inc();
         }
       }
-      return this.readDocCanvas(doc);
+      return readRecordsFromMaps(toDocLike(doc));
     });
   }
 
@@ -54,30 +58,6 @@ export class CollabDocumentService {
       doc.on('update', onUpdate);
       if (check()) { cleanup(); resolve(true); } // 注册后立即检查——函数自洽，不依赖外层守卫时序
     });
-  }
-
-  /** 原 readCanvas 内的读取逻辑抽为纯函数（供复用）。
-   *  读侧契约（R1a null 语义分家）：parentId/width/height 恒 `?? null`；position/data 兜底
-   *  `?.toJSON()` 可 undefined——坏 doc 直读 c.position.x 会 TypeError，读侧兜底两端同形。
-   *  edges 单形状（R1a Task 7 收敛为 source/target——删双键名别名；无存量数据一次收成）。 */
-  private readDocCanvas(doc: Y.Doc): { nodes: any[]; edges: any[] } {
-    const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
-      const m = v as Y.Map<any>;
-      return {
-        id,
-        type: m.get('type'),
-        parentId: m.get('parentId') ?? null,
-        width: m.get('width') ?? null,
-        height: m.get('height') ?? null,
-        position: m.get('position')?.toJSON() ?? { x: 0, y: 0 },
-        data: m.get('data')?.toJSON() ?? {},
-      };
-    });
-    const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
-      const m = v as Y.Map<any>;
-      return { id, source: m.get('source'), target: m.get('target') };
-    });
-    return { nodes, edges };
   }
 
   /** 服务端写节点 data 字段（逐键写入，禁止整块替换） */

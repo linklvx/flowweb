@@ -1,10 +1,9 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
-import * as Y from 'yjs';
 import { CollabDocumentService } from '../collab/collab-document.service';
-import { writeNodeToYMap } from '../collab/node-doc.util';
-import { normalizeLoadedCanvas } from '@flowweb/shared';
+import { toDocLike } from '../collab/doc-like.util';
+import { fillDoc, normalizeLoadedCanvas, stripAuthorState } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -57,21 +56,13 @@ export class ProjectService {
 
     if (nodes && nodes.length > 0) {
       // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）；
-      // 节点经 writeNodeToYMap 共享入口（R1a 收敛——手抄本键集漂移是 F29 根因）
+      // 写侧经 shared fillDoc 单源（O0a-2 收编——api 本地手抄本整删，meta 戳/data 全量
+      // 写入/edges 单形状随函数同源）；记录经 stripAuthorState 剥键回作者态（spec ③记录契约：
+      // fillDoc 只接受其输出——分镜子 position/组帧键按组类型键集表）
       await this.collabDoc.withDoc(project.id, (doc) => {
-        const nodesMap = doc.getMap('nodes');
         // R1b Task 20：写 doc 前过 normalizeLoadedCanvas（幂等保险——与浏览器 applyDocToStore 同一函数，非补齐依赖）
         const seeded = normalizeLoadedCanvas(nodes as any);
-        for (const n of seeded) {
-          writeNodeToYMap(nodesMap, n);
-        }
-        const edgesMap = doc.getMap('edges');
-        for (const e of edges ?? []) {
-          const m = new Y.Map();
-          m.set('source', e.source); // edges 单形状（R1a 收敛——上游 template/clone 传 source/target）
-          m.set('target', e.target);
-          edgesMap.set(e.id, m);
-        }
+        fillDoc(toDocLike(doc), stripAuthorState(seeded), edges ?? []);
       });
     }
 

@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as Y from 'yjs';
 
 describe('ProjectService', () => {
   let service: ProjectService;
@@ -67,6 +68,56 @@ describe('ProjectService', () => {
       const collabDoc = (service as any).collabDoc;
       await service.create('导入', 'u1', nodes, edges);
       expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
+    });
+
+    it('种子写侧收编（O0a-2）：fillDoc 单源写真 doc——meta 戳+data 全量写入+edges 单形状', async () => {
+      const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      const doc = new Y.Doc();
+      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
+
+      const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
+      const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
+      await service.create('导入', 'u1', nodes, edges);
+
+      expect(doc.getMap('meta').get('schemaVersion')).toBe(1); // fillDoc 戳——web buildDocFromSnapshot 同构
+      const n1 = doc.getMap('nodes').get('n1') as Y.Map<any>;
+      expect(n1.get('type')).toBe('textInput');
+      expect(n1.get('position')).toBeInstanceOf(Y.Map);
+      expect((n1.get('position') as Y.Map<any>).get('x')).toBe(1);
+      expect((n1.get('data') as Y.Map<any>).get('text')).toBe('a'); // data 全量写入不回退（模板导入丢 data=F29 根因回归锁）
+      const e1 = doc.getMap('edges').get('e1') as Y.Map<any>;
+      expect(e1.get('source')).toBe('n1');
+      expect(e1.get('target')).toBe('n2');
+    });
+
+    it('种子剥键（O0a-2 stripAuthorState）：分镜子无 position+storyboard 组无 wh——manual 组帧三键保留（G1）', async () => {
+      const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      const doc = new Y.Doc();
+      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
+
+      const nodes = [
+        { id: 'grp', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal' } },
+        { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
+        { id: 'c1', type: 'imageGen', parentId: 'sb', position: { x: 1, y: 1 }, width: 320, height: 180, data: { fileId: 'f' } },
+      ];
+      await service.create('导入', 'u1', nodes, []);
+
+      const nodesMap = doc.getMap('nodes');
+      const grp = nodesMap.get('grp') as Y.Map<any>;
+      expect(grp.get('width')).toBe(300);          // manual 组（三键齐）帧保留
+      expect(grp.get('position')).toBeInstanceOf(Y.Map);
+      const sb = nodesMap.get('sb') as Y.Map<any>;
+      expect(sb.get('width')).toBeUndefined();     // storyboard 无 wh（尺寸=config 权威——normalize 补齐后 strip 剥回）
+      expect(sb.get('height')).toBeUndefined();
+      expect(sb.get('position')).toBeInstanceOf(Y.Map);
+      const c1 = nodesMap.get('c1') as Y.Map<any>;
+      expect(c1.get('position')).toBeUndefined();  // 分镜子无 position（键集表——旧实现恒写 {x,y}）
+      expect(c1.get('width')).toBe(320);           // 分镜子只剥 position
+      expect((c1.get('data') as Y.Map<any>).get('fileId')).toBe('f');
     });
 
     it('登录创建者写入 PROJECT_OWNER 成员记录', async () => {

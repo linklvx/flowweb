@@ -224,6 +224,18 @@ describe('VideoWorkCloneService.clone', () => {
     await expect(svc.clone('w1', 'u1')).rejects.toThrow('画布存在组引用环，无法克隆');
   });
 
+  it('组深≤1（O0a-2 升格=行为变更）：clone 档 nested-group → 400 拒绝克隆（原只检环）', async () => {
+    setup();
+    collabDoc.readCanvas.mockResolvedValue({
+      nodes: [
+        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' } },
+        { id: 'g2', type: 'group', parentId: 'g1', position: { x: 1, y: 1 }, data: { groupType: 'normal' } },
+      ],
+      edges: [],
+    });
+    await expect(svc.clone('w1', 'u1')).rejects.toThrow('画布存在嵌套组，无法克隆');
+  });
+
   it('悬空不报（红线行为锁）：clone 档只检环——parentId 指向被剥节点的画布正常完成克隆', async () => {
     setup(); // rawCanvas 的 child3 parentId 指向被剥 edit1——remap 折 null 后 clone 档零 violation
     const result = await svc.clone('w1', 'u1');

@@ -165,6 +165,52 @@ export function stripDerivedKeys(records: readonly DocNodeRecord[]): string[] {
   return violations;
 }
 
+/** 入口剥键回作者态（O0a-2——spec ③记录契约：api 种子入口唯一剥键写者，fillDoc 只接受其输出）。
+ *  键集表（spec ④字段×模式，与 O0a-1 剥键口径同源）：组 position⟺manual∨storyboard；组
+ *  width/height⟺manual only（storyboard 尺寸=config 权威故剥）；auto/collapsed 组=0 帧键；
+ *  分镜子（parentId 指向 storyboard 组）无 position；非组节点信封键自由原样。manual 判定=
+ *  storedFrame 内联三态（三键齐且有限且宽高>0——assertions.hasValidStoredFrame 同语义，
+ *  frameMode stub 接线归 O0b）。storyboard 组判定=全量预扫（stripDerivedKeys 同款——不依赖遍历序）。
+ *  纯剥不补：输入无键⇄输出无键（键集表跳过同构；补几何归 normalizeLoadedCanvas——种子链序
+ *  normalize→strip，storyboard 补齐 wh 随即剥回）。data 原样透传不碰内部（白名单/快照域归
+ *  O0c-1——snapshot-filter normalizeNodeRecord 是相邻物不收敛，本函数只服务 api 种子入口）。 */
+export function stripAuthorState(records: readonly DocNodeRecord[]): DocNodeRecord[] {
+  const storyboardIds = new Set(
+    records
+      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+      .map((n) => n.id),
+  );
+  const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const hasValidStoredFrame = (n: DocNodeRecord): boolean =>
+    isFiniteNum(n.position?.x) && isFiniteNum(n.position?.y)
+    && isFiniteNum(n.width) && isFiniteNum(n.height)
+    && (n.width as number) > 0 && (n.height as number) > 0;
+  return records.map((n) => {
+    const data = (n.data ?? {}) as Record<string, unknown>;
+    const out: DocNodeRecord = { id: n.id, type: n.type, data };
+    const isGroup = n.type === 'group';
+    const isStoryboard = isGroup && data.groupType === 'storyboard';
+    let keepPosition = n.position != null;
+    let keepFrame = true;
+    if (isGroup) {
+      if (isStoryboard) {
+        keepFrame = false; // 尺寸=config 权威故剥（position 留）
+      } else if (!hasValidStoredFrame(n)) {
+        keepPosition = false; // auto/collapsed 组=0 帧键
+        keepFrame = false;
+      } // manual（三键齐且有效）：全留——含折叠态（折叠恢复唯一密封源）
+    }
+    if (n.parentId != null && storyboardIds.has(n.parentId)) keepPosition = false; // 分镜子无 position
+    if (keepPosition) out.position = n.position;
+    if (n.parentId != null) out.parentId = n.parentId;
+    if (keepFrame) {
+      if (n.width != null) out.width = n.width;
+      if (n.height != null) out.height = n.height;
+    }
+    return out;
+  });
+}
+
 /** 冻结帧/快照 rect（DragSession 的 baseline/groupBaseline/frozenFrames 共用）。 */
 export type Rect = { x: number; y: number; width: number; height: number };
 

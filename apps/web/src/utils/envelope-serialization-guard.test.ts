@@ -40,7 +40,8 @@ const ALLOW_FILES = new Set([
   // O0a-1（Spec B）：fillDoc/applyRecordToYMap 收编 docShape 单源——position 子 Map 构造随函数迁移
   'packages/shared/src/canvas/docShape.ts',
   'apps/web/src/collab/ydocBuilder.ts',
-  'apps/api/src/modules/collab/node-doc.util.ts',
+  // O0a-2（Spec B）：api node-doc.util 随读写收编 docShape 整删（writeNodeToYMap 符号消失）——
+  // allow 行同批撤（符号删除 census 纪律）
   'apps/api/prisma/gate-seed.ts',
   // 批4b-1（门 C 裁决·意图漏斗）：canvasIntents applyIntentToDoc 是新合法 doc 写者——
   // moveNode intent 的 position 子 Map 构造（与 ydocBuilder 同级的 Y.Map 适配器）
@@ -52,7 +53,7 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
     const files = SCAN_DIRS.flatMap(listTsFiles);
     expect(files.length).toBeGreaterThan(200);
     expect(files.some((f) => f.includes('ydocBuilder'))).toBe(true);
-    expect(files.some((f) => f.includes('node-doc.util'))).toBe(true);
+    expect(files.some((f) => f.includes('doc-like.util'))).toBe(true);  // O0a-2 起 api 侧适配物（node-doc.util 整删）
     expect(files.some((f) => f.includes('gate-seed'))).toBe(true);   // prisma 脚本面自证（M0-2 起 scripts 目录已删）
     expect(files.some((f) => f.includes('canvasStore'))).toBe(true);
   });

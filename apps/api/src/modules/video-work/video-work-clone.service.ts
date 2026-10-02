@@ -41,10 +41,12 @@ export class VideoWorkCloneService {
         whitelist: CLONE_WHITELIST,
       });
       const { nodes, edges } = this.remapIds(filtered.nodes, filtered.edges, raw.nodes);
-      // R1b Task 21：clone 档只检环（挂 remap 后——remapIds 已把悬空折平，clone 档悬空不报是降级红线；
-      // 环挂死 RF 无降级 → 400）。导入档的过滤前全检在 template.service 侧，两档各守各的时机
+      // R1b Task 21 + O0a-2：clone 档检环+组深≤1（nested-group 两档共用单源升格 fatal——
+      // 挂 remap 后——remapIds 已把悬空折平，clone 档悬空不报是降级红线；环/嵌套挂死 RF 无降级 → 400）。
+      // 导入档的过滤前全检在 template.service 侧，两档各守各的时机
       const { violations } = validateParentGraph(nodes, 'clone');
       if (violations.some((v) => v.kind === 'cycle')) throw new BadRequestException('画布存在组引用环，无法克隆');
+      if (violations.some((v) => v.kind === 'nested-group')) throw new BadRequestException('画布存在嵌套组，无法克隆');
       // R1b Task 20：remap 后喂 doc 前过 normalizeLoadedCanvas（幂等保险——与浏览器 applyDocToStore
       // 同一函数，非补齐依赖；remap 只换 id 不动几何，此处对带几何克隆体零补缺）
       const seeded = normalizeLoadedCanvas(nodes as any);
