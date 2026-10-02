@@ -1046,7 +1046,12 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     _setIntentDocForTest(d);
     // cs 普通节点 data 刻意留陈旧值（保真②断言面：薄壳取数必须走 ns 全量而非 cs 镜像）
     const csStale = (nodes as any[]).map((n) => (n.id === 'a' ? { ...n, data: { ...n.data, prompt: 'cs-stale' } } : n));
-    fillDoc(d, csStale as any, edges as any);
+    // O0a-1 键集表：doc 面剥分镜子 position（cs 面保留 {0,0} 构造默认——三层表；seed 数组双面共用）
+    const docSeed = csStale.map((n) => {
+      const parent = (nodes as any[]).find((p) => p.id === n.parentId);
+      return parent?.data?.groupType === 'storyboard' ? { ...n, position: undefined } : n;
+    });
+    fillDoc(d, docSeed as any, edges as any);
     useCanvasStore.setState({ nodes: csStale as any, edges: edges as any, selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     const nsNodes: Record<string, any> = {};
     for (const n of nodes as any[]) {
@@ -1096,6 +1101,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
       { id: 'sg', type: 'group', position: { x: 0, y: 0 }, width: 642, height: 182,
         data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      // cs 面 position {0,0}=构造默认（三层表第三层）；doc 面剥键由 seed helper 统一处理（O0a-1）
       { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
     ]);
     try {

@@ -3,7 +3,7 @@
 // R2d-1（§4.9 改道 v2.2）：守卫收敛到 resolveExpandedFrame 单源——storyboard 脏键修复前置于几何早退、
 // collapsed 判定恒优先（信封恒等可见盒：折叠 normal 组信封≡COLLAPSED_SIZE）、
 // savedSize 存在⟺collapsed（展开组杂散键加载边界删——密封快照展开即删）。
-import type { CanvasNodeRecord } from './nodeEnvelope';
+import type { DocNodeRecord } from './docShape';
 import { resolveStoryboardConfig } from './storyboardConfig';
 import { calcDefaultGrid, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE } from './geometry';
 import { resolveExpandedFrame } from './expandedFrame';
@@ -14,9 +14,11 @@ import { resolveExpandedFrame } from './expandedFrame';
  *  守卫序列（R2d-1）：①storyboard（剥 collapsed/savedSize+配置型信封）→ ②collapsed（COLLAPSED_SIZE
  *  恒覆写）→ ③展开（杂散 savedSize 删键；缺几何经 resolveExpandedFrame 补齐）。
  *  调用方：服务端导入/clone（幂等保险，Task 20 登记）+ web applyDocToStore（加载补缺——refitExpandedGroups 的
- *  重算职责不变，本函数只处理缺几何组，两者经幂等不冲突）。 */
-export function normalizeLoadedCanvas(records: CanvasNodeRecord[]): CanvasNodeRecord[] {
-  const patch = new Map<string, Partial<CanvasNodeRecord>>();
+ *  重算职责不变，本函数只处理缺几何组，两者经幂等不冲突）。
+ *  O0a-1：入参/出口放宽为 DocNodeRecord（作者态可选键面——readRecordsFromMaps 直出）；③分支触达的
+ *  子恒带 position（分镜子父恒走①早退——键集表保证），! 断言为该键集事实的类型化。 */
+export function normalizeLoadedCanvas(records: DocNodeRecord[]): DocNodeRecord[] {
+  const patch = new Map<string, Partial<DocNodeRecord>>();
   for (const n of records) {
     if (n.type !== 'group') continue;
     const d = (n.data ?? {}) as Record<string, unknown>;
@@ -37,7 +39,7 @@ export function normalizeLoadedCanvas(records: CanvasNodeRecord[]): CanvasNodeRe
         ? resolveStoryboardConfig({ storyboard: data2.storyboard })
         : { ...resolveStoryboardConfig({ storyboard: undefined }), gridRows: grid.rows, gridCols: grid.cols };
       const ef = resolveExpandedFrame({ data: data2, childrenAbs: [], config: cfg });
-      const rec: Partial<CanvasNodeRecord> = { width: ef.width, height: ef.height };
+      const rec: Partial<DocNodeRecord> = { width: ef.width, height: ef.height };
       if (dirty) rec.data = data2;   // 信封修复随剥键同做（折叠过的信封是脏的一部分——恒等可见盒还原）
       patch.set(n.id, rec);
       continue;
@@ -58,13 +60,14 @@ export function normalizeLoadedCanvas(records: CanvasNodeRecord[]): CanvasNodeRe
     const children = records.filter((r) => r.parentId === n.id);
     const childrenAbs = children.map((c) => ({
       // 关键（v4）：doc 里子的 position 是相对组的 rel——喂绝对 rect 须加组原点（applyGroupFrame 同款）
-      x: c.position.x + (n.position?.x ?? 0),
-      y: c.position.y + (n.position?.y ?? 0),
+      // 分镜子父恒走①早退——本分支子恒带 position（键集表事实，! 类型化）
+      x: c.position!.x + (n.position?.x ?? 0),
+      y: c.position!.y + (n.position?.y ?? 0),
       width: c.width ?? DEFAULT_CHILD_SIZE.width,
       height: c.height ?? DEFAULT_CHILD_SIZE.height,
     }));
     const ef = resolveExpandedFrame({ data: d, childrenAbs, config: resolveStoryboardConfig(d) });
-    const rec: Partial<CanvasNodeRecord> = { width: ef.width, height: ef.height };
+    const rec: Partial<DocNodeRecord> = { width: ef.width, height: ef.height };
     if (stray) rec.data = stripSavedSize(d);
     if (ef.origin) {
       rec.position = { x: ef.origin.x, y: ef.origin.y };

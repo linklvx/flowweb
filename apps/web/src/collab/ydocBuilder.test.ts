@@ -67,7 +67,7 @@ describe('videoEdit 新类型往返（刷新还原保障）', () => {
 });
 
 describe('ydocBuilder 信封收敛（R1a）', () => {
-  it('fillDoc→readCanvasFromDoc：读侧出口缺键形态（批4a 读归一修订 R1a ??null 契约）、缺 position/data 兜底不炸', () => {
+  it('fillDoc→readCanvasFromDoc：读侧出口缺键形态（批4a 读归一修订 R1a ??null 契约）、缺 position 键集表跳过（O0a-1 兜底删除）', () => {
     const doc = new Y.Doc();
     fillDoc(doc, [
       { id: 'n1', type: 'textInput', parentId: null, width: null, height: null, position: { x: 1, y: 2 }, data: { content: 'a' } },
@@ -76,8 +76,12 @@ describe('ydocBuilder 信封收敛（R1a）', () => {
     const { nodes } = readCanvasFromDoc(doc);
     expect(nodes.find((n) => n.id === 'n1')?.parentId).toBeUndefined(); // 批4a：null/undefined 键统一消除
     expect(nodes.find((n) => n.id === 'n1')?.width).toBeUndefined();
-    expect(nodes.find((n) => n.id === 'n2')?.position).toEqual({ x: 0, y: 0 });
-    expect(nodes.find((n) => n.id === 'n2')?.data).toEqual({});
+    // O0a-1 形状变更（预期）：缺 position 节点 doc 无 position 键、读回同形无键——{0,0} 兜底写入已删
+    //（四兜底表第一项；键集表跳过而非造 {0,0}）
+    const n2 = nodes.find((n) => n.id === 'n2')!;
+    expect(n2.position).toBeUndefined();
+    expect('position' in n2).toBe(false);
+    expect(n2.data).toEqual({});
   });
 
   it('fillDoc 入口真删键：null 键不写 Y.Map（get 为 undefined）', () => {
@@ -172,5 +176,45 @@ describe('批4a：读路径归一（readCanvasFromDoc 出口过 normalizeCanvasR
     );
     expect(fromDoc).toEqual(fromStore);
     expect(Object.keys(fromDoc[0]).sort()).toEqual(Object.keys(fromStore[0]).sort());
+  });
+});
+
+describe('O0a-1：分镜子键集表（真 Y.Doc 双端比——shared docShape 收编后的 web 侧宿主环）', () => {
+  // 分镜组+一子：子 records 无 position（上游构造纪律的 intent.node 形态——diff 剥键产物）
+  const sbFixture = () => [
+    {
+      id: 'sb1', type: 'group',
+      data: { groupType: 'storyboard', cells: ['c1'] },
+    },
+    {
+      id: 'c1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180,
+      data: { status: 'done' },
+    },
+  ] as any[];
+
+  it('分镜子两侧无键恒等：doc 无 position 键⇄records 同形无键（三层表——doc⇄records 两层）', () => {
+    const doc = new Y.Doc();
+    const { records, edges } = { records: sbFixture(), edges: [] };
+    fillDoc(doc, records, []);
+    const childMap = doc.getMap('nodes').get('c1') as Y.Map<any>;
+    expect(childMap.has('position')).toBe(false);   // doc 层：键集表跳过（非写 {0,0}）
+    const r = readCanvasFromDoc(doc);
+    const child = r.nodes.find((n: any) => n.id === 'c1')!;
+    expect(child.position).toBeUndefined();          // records 层：同形无键
+    expect('position' in child).toBe(false);
+    // round-trip 恒等（除剥键——本夹具子本就无 position，恒等应逐位成立）
+    expect(r.nodes).toEqual(records);
+  });
+
+  it('协作传播恒等：真 Y.Doc 经 encodeStateAsUpdate → 新 doc 读回分镜子仍无 position 键（双端读逐位相等）', () => {
+    const a = new Y.Doc();
+    fillDoc(a, sbFixture(), []);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const rb = readCanvasFromDoc(b);
+    const child = rb.nodes.find((n: any) => n.id === 'c1')!;
+    expect(child.position).toBeUndefined();
+    expect(child.width).toBe(320);
+    expect((child.data as any).status).toBe('done');
   });
 });

@@ -246,19 +246,36 @@ function storeProjection() {
  *  设计内分叉——调用方负责门）。
  *  批4b-2：比较按 id 排序——doc 侧是 Y.Map 插入序、store 侧是 ensureParentOrder 父前子后渲染序，
  *  两域顺序契约不同（消费侧 hydrate/ensureParentOrder 各自归一），序敏感比较会把"子先建组后建"
- *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。 */
+ *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。
+ *  O0a-1：新增设计内分叉源=分镜子 position（doc 无键⇄cs {0,0} 构造默认——三层表）——比较前双侧
+ *  同变换（分镜子补 cs 构造默认 {0,0}）后方可深等。 */
 export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
   const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const fromDoc = {
-    nodes: byId(normalizeLoadedCanvas(nodes)),
+    nodes: byId(withStoryboardChildDefault(normalizeLoadedCanvas(nodes))),
     edges,
   };
   const sp = storeProjection();
   return isEqual(fromDoc, {
-    nodes: byId(normalizeLoadedCanvas(sp.nodes)),
+    nodes: byId(withStoryboardChildDefault(normalizeLoadedCanvas(sp.nodes as any))),
     edges: sp.edges,
   });
+}
+
+/** O0a-1 分叉源双侧同变换：分镜子（父=storyboard 组）无 position 键 → 补 cs 构造默认 {0,0}
+ *  （store 侧恒有 position——本函数对其幂等）。 */
+function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>['nodes']) {
+  const sbGroups = new Set(
+    nodes
+      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+      .map((n) => n.id),
+  );
+  return nodes.map((n) =>
+    n.parentId != null && sbGroups.has(n.parentId) && n.position == null
+      ? { ...n, position: { x: 0, y: 0 } }
+      : n,
+  );
 }
 
 // 批4b-2（组 2 收口）退役：全量同步函数（store 投影 diff+doc 扫描删除——结构性反模式，写路径
@@ -314,7 +331,10 @@ export function applyDocToStore(d: Y.Doc) {
   const seeded = normalizeLoadedCanvas(nodes);
   useCanvasStore.setState({
     nodes: hydrateNodes(seeded.map((n: any) => ({
-      ...n, width: n.width ?? undefined, height: n.height ?? undefined,
+      ...n,
+      // O0a-1 cs 构造默认 {0,0}（三层表第三层——doc 无键分镜子 hydrate 落 {0,0}；RF Node position 必需）
+      position: n.position ?? { x: 0, y: 0 },
+      width: n.width ?? undefined, height: n.height ?? undefined,
     }))) as any,
     edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   });

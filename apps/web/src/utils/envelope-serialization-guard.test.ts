@@ -37,6 +37,8 @@ function listTsFiles(dir: string): string[] {
  *  Playwright tsx 直跑路径引入 shared→dist 新鲜度耦合（e2e 无内联门禁），接受手写例外。 */
 const ALLOW_FILES = new Set([
   'packages/shared/src/canvas/nodeEnvelope.ts',
+  // O0a-1（Spec B）：fillDoc/applyRecordToYMap 收编 docShape 单源——position 子 Map 构造随函数迁移
+  'packages/shared/src/canvas/docShape.ts',
   'apps/web/src/collab/ydocBuilder.ts',
   'apps/api/src/modules/collab/node-doc.util.ts',
   'apps/api/prisma/gate-seed.ts',

@@ -1,9 +1,18 @@
-// Y.Doc 结构构造/反序列化纯函数（结构契约与后端 canvas 序列化一致）
+// Y.Doc 结构构造/反序列化——O0a-1 收编薄委托：实现单源 shared/canvas/docShape（fillDoc/
+// readRecordsFromMaps/applyRecordToYMap——DocLike 结构性入参），本文件仅承担 Y.Doc→DocLike
+// 类型适配（createMap 工厂注入，零行为）+ CanvasNodeRecord 快照面→DocNodeRecord 桥。
+// 调用点>10 处（生产 2+测试 6 文件）——plan 授权留 re-export 形态薄委托并注明 O0b 拆。
 import * as Y from 'yjs';
-import { normalizeCanvasRecord, type CanvasNodeRecord } from '@flowweb/shared';
+import {
+  fillDoc as fillDocShapes,
+  readRecordsFromMaps,
+  applyRecordToYMap as applyRecordToMap,
+  toDocRecord,
+  type DocLike, type DocMapLike, type DocNodeRecord, type DocEdgeRecord,
+  type CanvasNodeRecord,
+} from '@flowweb/shared';
 
-/** 批2-3（R1c 前置物）：doc meta schema 版本——结构迁移判据的持久锚点（随 update 传播/服务端持久） */
-export const CANVAS_DOC_SCHEMA_VERSION = 1;
+export { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 
 export interface PlainEdge {
   id: string;
@@ -11,84 +20,36 @@ export interface PlainEdge {
   target?: string;
 }
 
+/** Y.Doc→DocLike 结构性适配（零行为——getMap 直通/createMap 注入 Y.Map 工厂；Y.Map 结构兼容
+ *  DocMapLike 单 cast 断言，方法全在）。 */
+export function toDocLike(doc: Y.Doc): DocLike {
+  return {
+    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
+    createMap: () => new Y.Map() as unknown as DocMapLike,
+  };
+}
+
 export function buildDocFromSnapshot(nodes: CanvasNodeRecord[], edges: PlainEdge[]): Y.Doc {
   const doc = new Y.Doc();
-  fillDoc(doc, nodes, edges);
+  fillDoc(doc, nodes.map(toDocRecord), edges);
   return doc;
 }
 
-export function fillDoc(doc: Y.Doc, nodes: CanvasNodeRecord[], edges: PlainEdge[]): void {
-  // meta schemaVersion（批2-3）：同值 no-op 守卫——addNode intent 每新建节点也走 fillDoc，防 doc 膨胀
-  const meta = doc.getMap('meta');
-  if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
-    meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
-  }
-  const nodesMap = doc.getMap('nodes');
-  for (const n of nodes) {
-    // TODO(R1b/F35): 崩溃恢复快照的 AppNode 无 parentId——此路径恒不写组结构（组拍平），见 spec F35/R1b 契约 5
-    // normalizeCanvasRecord：null 可选键真删键（不写 Y.Map）；position/data undefined/null 兜底
-    const rec = normalizeCanvasRecord(n);
-    const m = new Y.Map();
-    m.set('type', rec.type);
-    if (rec.parentId !== undefined) m.set('parentId', rec.parentId);
-    if (rec.width !== undefined) m.set('width', rec.width);
-    if (rec.height !== undefined) m.set('height', rec.height);
-    const position = new Y.Map();
-    position.set('x', rec.position.x);
-    position.set('y', rec.position.y);
-    m.set('position', position);
-    const data = new Y.Map();
-    for (const [k, v] of Object.entries(rec.data)) data.set(k, v);
-    m.set('data', data);
-    nodesMap.set(rec.id, m);
-  }
-  const edgesMap = doc.getMap('edges');
-  for (const e of edges) {
-    const m = new Y.Map();
-    m.set('source', e.source ?? ''); // edges 单形状 source/target（R1a 收敛——崩溃快照 validate 已锁单形）
-    m.set('target', e.target ?? '');
-    edgesMap.set(e.id, m);
-  }
+export function fillDoc(
+  doc: Y.Doc,
+  records: readonly DocNodeRecord[],
+  edges: readonly PlainEdge[],
+): void {
+  fillDocShapes(toDocLike(doc), records, edges as readonly DocEdgeRecord[]);
 }
 
-export function readCanvasFromDoc(doc: Y.Doc): { nodes: CanvasNodeRecord[]; edges: PlainEdge[] } {
-  // 批5 删信箱：原 shadow- 前缀过滤随信箱消失——id 前缀零特判（doc 出现影子由 applyDocToStore DEV 巡检抛出）
-  const nodes = [...doc.getMap('nodes').entries()]
-    .map(([id, v]) => {
-    const m = v as Y.Map<any>;
-    // 批4a 读归一：出口过 normalizeCanvasRecord——与写侧 projectCanvasNodes→normalize 同形
-    //（消除"doc null 值键/缺键 → ?? null 出口"与写侧缺键形态的形状差；position/data 兜底
-    //  收敛至 normalize 单源 {x:0,y:0}/{}）
-    return normalizeCanvasRecord({
-      id,
-      type: m.get('type'),
-      parentId: m.get('parentId') ?? null,
-      width: m.get('width') ?? null,
-      height: m.get('height') ?? null,
-      position: m.get('position')?.toJSON(),
-      data: m.get('data')?.toJSON(),
-    });
-  });
-  const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
-    const m = v as Y.Map<any>;
-    return { id, source: m.get('source'), target: m.get('target') };
-  });
-  return { nodes, edges };
+/** doc 直读（O0a-1 出口=作者态 DocNodeRecord 可选键——doc 无键⇄records 同形无键，三层表；
+ *  分镜子 cs {0,0} 构造默认由消费面（applyDocToStore hydrate）补齐）。 */
+export function readCanvasFromDoc(doc: Y.Doc): { nodes: DocNodeRecord[]; edges: PlainEdge[] } {
+  return readRecordsFromMaps(toDocLike(doc));
 }
 
-/** 增量写：record 缺键 → Y.Map delete；值变才 set（同值 no-op——无守卫=doc 膨胀）。
- *  仅测试消费（生产写路径已收口 canvasIntents——批 4b：updateNodeEnvelope 内联逐键 diff）。 */
-export function applyRecordToYMap(m: Y.Map<any>, r: CanvasNodeRecord): void {
-  const n = normalizeCanvasRecord(r);
-  for (const key of ['parentId', 'width', 'height'] as const) {
-    const cur = m.get(key);
-    const want = (n as any)[key];
-    if (want === undefined) { if (cur !== undefined) m.delete(key); }
-    else if (cur !== want) m.set(key, want);
-  }
-  if (m.get('type') !== n.type) m.set('type', n.type);
-  let pos = m.get('position');
-  if (!(pos instanceof Y.Map)) { pos = new Y.Map(); m.set('position', pos); }
-  if (pos.get('x') !== n.position.x) pos.set('x', n.position.x);
-  if (pos.get('y') !== n.position.y) pos.set('y', n.position.y);
+/** 增量写（createMap 工厂注入——Y.Map 无自建方法）。仅测试消费（生产写路径已收口 canvasIntents）。 */
+export function applyRecordToYMap(m: Y.Map<any>, r: DocNodeRecord): void {
+  applyRecordToMap(m as unknown as DocMapLike, r, () => new Y.Map() as unknown as DocMapLike);
 }

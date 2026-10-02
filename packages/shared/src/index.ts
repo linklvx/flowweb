@@ -15,6 +15,9 @@ export * from './types/video-work';
 export * from './types/group';
 export * from './types/stitch';
 export * from './canvas/nodeEnvelope';
+// O0a-1（Spec B）：docShape 出口接入——doc 读写单源（fillDoc/readRecordsFromMaps/applyRecordToYMap/
+// stripDerivedKeys）+ C0-1 类型骨架出口随本分片落地（census 守卫使命完成拆除）。
+export * from './canvas/docShape';
 // C0-2（Spec B）：geometryWriterRegistry=纯常量零依赖（写者类别+归类账本）——
 // geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
 export * from './canvas/geometryWriterRegistry';

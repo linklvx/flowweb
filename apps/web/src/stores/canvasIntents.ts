@@ -12,8 +12,9 @@
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
-import type { CanvasNodeRecord } from '@flowweb/shared';
-import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
+import type { CanvasNodeRecord, DocNodeRecord } from '@flowweb/shared';
+import { stripDerivedKeys, readRecordsFromMaps } from '@flowweb/shared';
+import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
@@ -31,7 +32,7 @@ export interface NodeEnvelopePatch {
 }
 
 export type CanvasIntent =
-  | { type: 'addNode'; node: CanvasNodeRecord }
+  | { type: 'addNode'; node: DocNodeRecord }
   | { type: 'updateNodeData'; id: string; patch: Record<string, unknown> }
   | { type: 'deleteNode'; id: string }
   | { type: 'moveNode'; id: string; position: { x: number; y: number } }
@@ -89,6 +90,19 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
     case 'moveNode': {
       const m = d.getMap('nodes').get(intent.id);
       if (!(m instanceof Y.Map)) return;
+      // O0a-1 键集表：目标父=分镜组 ⇒ 分镜子坐标无意义（纯 DOM 宫格）——move 语义=剥 position 键
+      //（membership 变更点=剥键写者：convertGroup/addToGroup/dropImageIntoStoryboard 的 doc 面
+      // move intent 在此落"分镜子无 position"；cs 面归零 {0,0} 构造默认由 projectIntentToStore 保留）。
+      // doc 侧有父上下文（addNode 逐 intent 没有而 moveNode 有——目标节点已在 doc）。
+      const parentId = m.get('parentId');
+      if (parentId != null) {
+        const parent: unknown = d.getMap('nodes').get(parentId as string);
+        const parentData = parent instanceof Y.Map ? parent.get('data') : undefined;
+        if (parentData instanceof Y.Map && parentData.get('groupType') === 'storyboard') {
+          if (m.has('position')) m.delete('position');
+          break;
+        }
+      }
       let pos = m.get('position');
       if (!(pos instanceof Y.Map)) { pos = new Y.Map(); m.set('position', pos); }
       if (pos.get('x') !== intent.position.x) pos.set('x', intent.position.x);
@@ -137,7 +151,8 @@ export function projectIntentToStore(intent: CanvasIntent): void {
           nodes: [...s.nodes, {
             id: n.id,
             type: n.type,
-            position: { ...n.position },
+            // cs 层构造默认 {0,0}（三层表第三层——doc 无键分镜子 cs 落 {0,0}；非兜底，是构造语义）
+            position: n.position ? { ...n.position } : { x: 0, y: 0 },
             ...(n.parentId != null ? { parentId: n.parentId } : {}),
             ...(n.width != null ? { width: n.width } : {}),
             ...(n.height != null ? { height: n.height } : {}),
@@ -215,6 +230,22 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   for (const i of seq) projectIntentToStore(i);
 }
 
+/** O0a-1 键集表 DEV 校验（三层防线②挂载点=复合批尾 dispatchProjectionDiff——非每个原子
+ *  dispatch：convertGroup 等复合命令的中间 dispatch（patchGroupData 落组 data）与子 move
+ *  未同批时是合法中间态，批尾校验才语义完整）。stripDerivedKeys 只读断言——分镜子无
+ *  position（全量预扫对构造序免疫）。违例 DEV 抛（人为构造序当场暴露而非被静默修好）；prod
+ *  只读零动作（谓词本体纯只读可复用，组帧键校验留 O0b 扩）。
+ *  父先子后序检查不设（现状锚注明——2026-10-02 实测）：doc Y.Map 插入序=混合序（既有子 set
+ *  原位+新组 append，groupNodes 打组场景子恒先于组入 doc=合法形态），序断言会误报；漏斗层
+ *  不变量（新父组 addNode intent 先于其子 intent）由 dispatchProjectionDiff 遍历序结构保证。 */
+function assertDocKeySetInvariants(d: Y.Doc): void {
+  const { nodes } = readRecordsFromMaps(toDocLike(d));
+  const violations = stripDerivedKeys(nodes);
+  if (violations.length > 0) {
+    throw new Error(`[O0a-1 键集校验] ${violations.join('; ')}`);
+  }
+}
+
 // ════════ 批4b-2（组 2 收口）：复合写点差分翻译 + S1 系统写入口 ════════
 
 /** 投影快照（storeProjection 同形——写侧单源 projectCanvasNodes，data 分型 F42） */
@@ -244,7 +275,29 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
   }
   for (const a of after.nodes) {
     const b = beforeNodes.get(a.id);
-    if (!b) { intents.push({ type: 'addNode', node: a }); continue; }
+    if (!b) {
+      // O0a-1 键集表剥键（上游构造纪律=唯一剥键写者——v3.17 终裁 64②）：分镜子 intent.node 不带
+      // position（纯 DOM 宫格坐标无意义——copyPlan 分镜子 rel 归零 {0,0} 同源；cs 层 {0,0} 构造默认
+      // 保留=三层表第三层，doc 层剥=键集表"分镜子无 position"）。本处有 afterNodes 全员父上下文
+      //（applyIntentToDoc addNode 逐 intent 无父上下文——剥键只能在此漏斗总口）。
+      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
+      const isStoryboardChild =
+        parent?.type === 'group' &&
+        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+      intents.push({
+        type: 'addNode',
+        node: {
+          id: a.id,
+          type: a.type,
+          ...(a.parentId != null ? { parentId: a.parentId } : {}),
+          ...(!isStoryboardChild ? { position: a.position } : {}),
+          ...(a.width != null ? { width: a.width } : {}),
+          ...(a.height != null ? { height: a.height } : {}),
+          data: a.data,
+        },
+      });
+      continue;
+    }
     const patch: NodeEnvelopePatch = {};
     if (b.type !== a.type) patch.type = a.type;
     if (b.parentId !== a.parentId) patch.parentId = a.parentId ?? undefined;
@@ -286,6 +339,10 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
   const intents = diffProjectionToIntents(before, captureStoreProjection());
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);
+  if (import.meta.env.DEV) {
+    const d = resolveDoc();
+    if (d) assertDocKeySetInvariants(d);
+  }
 }
 
 /** 批4b-2：doc-only 意图写（S1 系统几何修复回写专用入口）——无 store 投影（store 已持值，

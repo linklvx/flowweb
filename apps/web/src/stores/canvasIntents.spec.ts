@@ -11,10 +11,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // checkProjectionInvariant 与 getDoc 通道，空 mock 即可（spike 同款）
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
+import type { DocNodeRecord } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
-import { dispatchCanvasIntent, _setIntentDocForTest } from './canvasIntents';
+import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _setIntentDocForTest } from './canvasIntents';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc } from '@/collab/ydocBuilder';
 import { Origin } from './canvasUndo';
@@ -22,8 +23,10 @@ import { deleteProjectByNode } from '@/api/videoProjectApi';
 
 vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
-const rec = (id: string, x: number, data: Record<string, unknown> = { content: 'hi' }) => ({
-  id, type: 'textInput', parentId: null, width: null, height: null,
+// O0a-1：可选键 null 夹具改缺键形态（运行时等价——fillDoc != null 判定 null≡缺键同跳过；
+// DocNodeRecord 类型域无 null——键集表精神：不带键而非带 null 键）
+const rec = (id: string, x: number, data: Record<string, unknown> = { content: 'hi' }): DocNodeRecord => ({
+  id, type: 'textInput',
   position: { x, y: 0 }, data,
 });
 
@@ -434,8 +437,9 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect((data.get('cells') as any[]).length).toBe(2);
     expect((data.get('storyboard') as any).gridCols).toBeGreaterThan(0);
     for (const cid of [id1, id2]) {
-      expect(((doc.getMap('nodes').get(cid) as Y.Map<any>).get('position') as Y.Map<any>).toJSON())
-        .toEqual({ x: 0, y: 0 }); // 分镜子坐标归零
+      // O0a-1 形状变更（预期）：分镜子 doc 无 position 键（键集表——membership 变更点剥键，
+      // convert 的 move intent 落"分镜子无 position"；cs 面归零 {0,0} 构造默认保留）
+      expect((doc.getMap('nodes').get(cid) as Y.Map<any>).has('position')).toBe(false);
     }
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
@@ -726,6 +730,46 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
     expect(snapshot()).toEqual(before);                    // 全瞬态 patch：doc 零变更（逐键相等）
     // dispatch 实走漏斗（ns 瞬态面生效——防恒真）
     expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop' });
+    expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+});
+
+// ════════ O0a-1 键集表：diff 剥键（上游构造纪律=唯一剥键写者——v3.17 终裁 64②）════════
+describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（doc 层剥键，cs {0,0} 构造默认保留）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('既有分镜组+新子落 cs {0,0}（构造默认）→ dispatchProjectionDiff → doc 子无 position 键', () => {
+    // 既有分镜组先入 doc（拖图入组形态——组早已存在）
+    const sbGroup = {
+      id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
+      data: { groupType: 'storyboard', cells: [] },
+    };
+    useCanvasStore.setState({ nodes: [sbGroup] as any });
+    fillDoc(doc, [{
+      id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
+      data: { groupType: 'storyboard', cells: [] },
+    } as any], []);
+    const before = captureStoreProjection();
+    // 新子落 cs：position {0,0}=构造默认（dropImageIntoStoryboard/mergeStoryboard 同款——纯 DOM 宫格坐标无意义）
+    const child = {
+      id: 'c1', type: 'imageGen', parentId: 'sb1', extent: 'parent',
+      position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' },
+    };
+    useCanvasStore.setState({ nodes: [sbGroup, child] as any });
+    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done' } } } as any });
+    dispatchProjectionDiff(before, Origin.LocalUser);
+    // doc 层：子无 position 键（剥键——键集表"分镜子无 position"）
+    const m = doc.getMap('nodes').get('c1') as Y.Map<any>;
+    expect(m).toBeTruthy();
+    expect(m.has('position')).toBe(false);
+    // cs 层：构造默认 {0,0} 保留（三层表第三层——渲染面不在剥键域）
+    expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1')!.position).toEqual({ x: 0, y: 0 });
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });

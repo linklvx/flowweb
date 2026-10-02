@@ -22,8 +22,10 @@ type _ExactKeysDiff<T, Expected extends readonly string[]> =
   | Exclude<Expected[number], keyof T>;
 
 // 键集冻结（plan v3.6-FROZEN 逐字面量——后续分片加键必须先改这里，防静默漂移）
-type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has']>>;  // 勿删——删即静默失去键集防护
-type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap']>>;  // 勿删——删即静默失去键集防护
+// O0a-1 按需扩键（保持零 yjs）：DocMapLike+delete/entries（增量删键+读遍历）；DocLike+createMap
+// （空 map 工厂——fillDoc 节点/position/data 子 Map 创建，宿主注入 new Y.Map/FakeMap）。
+type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has', 'delete', 'entries']>>;  // 勿删——删即静默失去键集防护
+type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap', 'createMap']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<DocNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;  // 勿删——删即静默失去键集防护
 type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDragSessionKeys = _AssertNever<_ExactKeysDiff<DragSession, [
@@ -67,8 +69,8 @@ describe('DocLike/DocMapLike（Y 结构性最小面——零 yjs import，防跨
 });
 
 describe('DocNodeRecord 分裂（作者态 doc 侧——键可选）vs CanvasNodeRecord（信封必填——一字不动）', () => {
-  it('DocNodeRecord：position?: AbsPos / width? / height? 可选键——键集表语义', () => {
-    expectTypeOf<DocNodeRecord['position']>().toEqualTypeOf<AbsPos | undefined>();
+  it('DocNodeRecord：position?: 裸 {x,y}（O0a-1 identity 档——AbsPos 品牌收紧归 O0b-0 翻转批）/ width? / height? 可选键——键集表语义', () => {
+    expectTypeOf<DocNodeRecord['position']>().toEqualTypeOf<{ x: number; y: number } | undefined>();
     expectTypeOf<DocNodeRecord['width']>().toEqualTypeOf<number | undefined>();
     expectTypeOf<DocNodeRecord['height']>().toEqualTypeOf<number | undefined>();
     expectTypeOf<DocNodeRecord['data']>().toEqualTypeOf<Record<string, unknown>>();

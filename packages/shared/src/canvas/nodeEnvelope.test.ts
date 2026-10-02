@@ -17,17 +17,17 @@ describe('normalizeCanvasRecord（写侧真删键——Object.entries 型写入�
     expect(JSON.parse(JSON.stringify(out)).parentId).toBeUndefined();
   });
 
-  it('position: null（非 undefined）也兜底 {x:0,y:0}（?? 双吃 null）', () => {
+  it('O0a-1 兜底删除：position null 透传不造 {0,0}（键集表——doc 层 != null 判定兜住，兜底写者是四兜底表第一项已删）', () => {
     const out = normalizeCanvasRecord({ id: 'n1', type: 'textInput', position: null, data: {} } as any);
-    expect(out.position).toEqual({ x: 0, y: 0 });
+    expect(out.position).toBeNull();
   });
 
-  it('有值全保留；position undefined → {x:0,y:0}；data undefined → {}', () => {
+  it('有值全保留；O0a-1 兜底删除：position undefined 透传（分镜子无键构造面）；data undefined → {}', () => {
     const out = normalizeCanvasRecord({ id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' }, parentId: 'p', width: 320, height: 180 });
     expect(out.parentId).toBe('p');
     expect(out.width).toBe(320);
     const out2 = normalizeCanvasRecord({ id: 'n1', type: 'textInput', position: undefined, data: undefined } as any);
-    expect(out2.position).toEqual({ x: 0, y: 0 });
+    expect(out2.position).toBeUndefined();
     expect(out2.data).toEqual({});
   });
 
