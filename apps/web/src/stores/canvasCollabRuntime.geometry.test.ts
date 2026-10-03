@@ -20,7 +20,9 @@ import {
   stampDocSchema, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
   type DocNodeRecord,
 } from '@flowweb/shared';
-import { _setIntentDocForTest, dispatchCanvasIntent } from './canvasIntents';
+import {
+  _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
+} from './canvasIntents';
 import { Origin, detachUndoManager, attachUndoManager } from './canvasUndo';
 import { seedCanvas } from '@/test/fixtures/canvas';
 import { existsSync, readFileSync, readdirSync } from 'fs';
@@ -329,6 +331,46 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     expect(csNode('g4').width).toBe(COLLAPSED_SIZE.width);             // COLLAPSED_SIZE 覆写
     expect(csNode('g4').height).toBe(COLLAPSED_SIZE.height);
   });
+
+  it('toggleCollapse 全流锚（质评 Suggestion）：折叠中间态（cs 直写 COLLAPSED_SIZE envelope、doc 未更新）×reconcile 双档正交兼容——防 O0b-5 重构折叠写法无声断裂', () => {
+    openRwWindow();
+    // 最小 manual 组夹具（无分镜子——I-1 角点补发会使 diff 恒非空、漏斗尾以 doc 展开 oracle
+    // 翻回 cs envelope，本锚钉的是零意图早退档）
+    const d = new Y.Doc();
+    const records: DocNodeRecord[] = [
+      { id: 'gm', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
+      { id: 'cm', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
+    ];
+    fillDoc(d, records, []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    // 现状中间态构造：doc 未注册（dispatchCanvasIntent 无 doc 早退=零写，会话外/readOnly 同构）⇒
+    // toggleCollapse 只落 cs（envelope=COLLAPSED_SIZE 直写+patchGroupDataInner collapsed/savedSize）。
+    // 夹具纪律：生产同构链（applyDocToStore 水合+store action），零裸几何 setState
+    useCanvasStore.getState().toggleCollapse('gm');
+    expect(csNode('gm').width).toBe(COLLAPSED_SIZE.width);
+    expect(csNode('gm').height).toBe(COLLAPSED_SIZE.height);
+    expect((csNode('gm').data as Record<string, unknown>).collapsed).toBe(true);
+    const g = d.getMap('nodes').get('gm') as Y.Map<any>;
+    expect(g.get('width')).toBe(400);    // 中间态前提：doc 三键=展开态密封值未更新
+    expect(g.get('height')).toBe(300);
+    // 全流：diff 首行 reconcile('cs')（data oracle=doc 未更新仍 manual——liveFrame 档吃 cs 活值三键齐
+    // 保折叠 envelope，零差异）+漏斗尾 reconcile('doc')（before/after 同态⇒零意图早退=doc 零写的结构
+    // 保证；reconcile('doc') 档折叠语义由既有'写域①折叠档（终裁 82）'用例钉住）
+    _setIntentDocForTest(d);
+    const geoOf = (s: { nodes: any[] }) => s.nodes.map((n) => `${n.id}:${n.position?.x},${n.position?.y},${n.width},${n.height}`).join('|');
+    const geoSnap = geoOf(useCanvasStore.getState());
+    dispatchProjectionDiff(captureStoreProjection(), Origin.LocalUser);
+    expect(csNode('gm').width).toBe(COLLAPSED_SIZE.width);     // 折叠保持
+    expect(csNode('gm').height).toBe(COLLAPSED_SIZE.height);
+    expect(csNode('gm').position).toEqual({ x: 100, y: 50 });  // 密封 origin 不动
+    expect(csNode('cm').position).toEqual({ x: 20, y: 30 });   // 子 rel 不受折叠档影响
+    expect(g.get('width')).toBe(400);                          // doc 三键仍=展开态密封值不动
+    expect(g.get('height')).toBe(300);
+    // 二次全流幂等：全节点几何逐位不变
+    dispatchProjectionDiff(captureStoreProjection(), Origin.LocalUser);
+    expect(geoOf(useCanvasStore.getState())).toBe(geoSnap);
+  });
 });
 
 describe('O0b-1 写域②③④+一写者通则', () => {
@@ -581,7 +623,7 @@ describe('O0b-1 census：挂点三元组过渡断言（B7-1 升四元组——en
   });
 
   it("source:'cs' 全仓恰 1 处（仅 dispatchProjectionDiff 首行——卡一源矩阵不变量）", () => {
-    const csCalls = reconcileCallLines().filter((c) => c.line.includes("'cs'"));
+    const csCalls = reconcileCallLines().filter((c) => /['"]cs['"]/.test(c.line));
     expect(csCalls.length, JSON.stringify(csCalls)).toBe(1);
     expect(csCalls[0].rel.endsWith('apps/web/src/stores/canvasIntents.ts')).toBe(true);
   });
@@ -604,7 +646,8 @@ describe('O0b-1 census：挂点三元组过渡断言（B7-1 升四元组——en
     }
     const block = body.join('\n');
     expect(block).toContain('readCanvasFromDoc(');   // docShape 单源读取
-    for (const banned of ['applyIntentToDoc(', 'setDocPosition(', 'fillDoc(', '.transact(']) {
+    for (const banned of ['applyIntentToDoc(', 'setDocPosition(', 'fillDoc(', '.transact(',
+      'dispatchCanvasIntent(', 'dispatchSystemIntents(']) {
       expect(block, `reconcile 内出现 doc 写原语 ${banned}（禁 doc 写——纯 cs 写）`).not.toContain(banned);
     }
   });

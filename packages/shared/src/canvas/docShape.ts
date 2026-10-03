@@ -2,7 +2,7 @@
 // C0-1 契约片（Spec B）：docShape 类型骨架 + stub 谓词——shared 类型与签名定稿（编译门）。
 // O0a-1 收编（Spec B）：ydocBuilder 的 fillDoc/readCanvasFromDoc/applyRecordToYMap 三写读函数落此
 // （DocLike/DocMapLike 结构性入参——零 yjs import，宿主注入 Y.Map/FakeMap 工厂）+ stripDerivedKeys
-// 键集表只读校验。三 stub 谓词（frameMode/isCollapsed/isValidStoredFrame）本分片不动（实现留 O0b）。
+// 键集表只读校验。frameMode/isCollapsed/isValidStoredFrame 三 stub 谓词已 O0b-1 转实。
 // O0a-3 收编（Spec B）：toDocRecords（web 投影差分出口——双源合并+键集表内剥键）+
 // setDocPosition（doc position 写原语唯一单源）+ 键集表谓词家族化（stripAuthorState/stripDerivedKeys
 // 共用 storyboardGroupIds/hasValidStoredFrameKeys——禁多份键集表）。

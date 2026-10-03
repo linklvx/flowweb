@@ -1,7 +1,7 @@
 // packages/shared/src/canvas/assertions.test.ts
 // C0-2 断言族行为测试（Spec B）：先红后绿——每断言用构造输入证 throw/不 throw。
 // 输入形状：DocNodeRecord[]（doc 作者态可选键）+ ② 的 cs 侧三方快照 {docRecords, csNodes, frames}。
-// 帧模式判定走被测模块内联实现（frameMode/isCollapsed 是 C0-1 stub——调不得），O0b 接线后换单源。
+// 帧模式判定走被测模块内联实现（frameMode/isCollapsed 已 O0b-1 转实），O0b 接线后换单源。
 import { describe, it, expect } from 'vitest';
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
 import { toDocRecords } from './docShape';

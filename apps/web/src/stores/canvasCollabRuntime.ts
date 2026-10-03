@@ -360,6 +360,9 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     const oldOrigin = source === 'cs' && nd.position ? nd.position : undefined;
     const childrenAbs = (childrenByParent.get(nd.id) ?? []).map((c) => {
       const crec = docById.get(c.id);
+      // 不可达防御路径：source='doc' 时 cs 有子而 doc 无记录=漏斗结构性不可达（dispatch 尾 doc⊇cs/
+      // applyDocToStore 尾 cs=doc 投影）；oldOrigin 在 'doc' 源恒 undefined ⇒ 此处 fallbackAbs=cs rel
+      // 被当 abs 仅防 throw，值不承担语义——O0b-2 尺寸链重写时按'缺键保留现值/排除该子'收口
       const fallbackAbs = oldOrigin
         ? { x: c.position.x + oldOrigin.x, y: c.position.y + oldOrigin.y }
         : c.position;

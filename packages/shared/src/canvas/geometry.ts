@@ -178,7 +178,8 @@ export function deriveGroupFrame(input: {
   const mode = frameMode({ data, storedFrame });
   if (isCollapsed(data)) {
     const sealedOrigin = mode === 'manual' ? (liveFrame?.position ?? storedFrame?.position) : undefined;
-    const b = childrenAbs.length > 0 ? calcGroupBounds([...childrenAbs]) : undefined;
+    // sealedOrigin 命中⇒bbox 惰性跳过（origin 消费面只认密封 origin——O0b-1 质评一行版）
+    const b = sealedOrigin ? undefined : (childrenAbs.length > 0 ? calcGroupBounds([...childrenAbs]) : undefined);
     const origin = sealedOrigin ?? (b ? { x: b.x, y: b.y } : undefined) ?? fallbackOrigin ?? { x: 0, y: 0 };
     return { x: origin.x, y: origin.y, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height };
   }

@@ -129,7 +129,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'onClose/失败路径', category: 'non-geometry', note: 'collabReadOnly fail-closed' },
     { fn: 'hydrate/viewport 恢复', category: 'non-geometry', note: 'viewport 相机恢复（本地偏好非协作数据）' },
     { fn: '登出/切用户复位', category: 'non-geometry', note: 'collabReadOnly 复位（G27）' },
-    { fn: 'reconcileGroupGeometry', category: 'reconcile', note: 'doc.abs→cs rel 直拷+组帧 origin 同 tick（O0b-0 最小版；O0b-1 扩展挂点）' },
+    { fn: 'reconcileGroupGeometry', category: 'reconcile', note: "写域四类+双源矩阵（'doc' 漏斗尾/applyDocToStore 尾、'cs' diff 首行全仓唯一）+单遍单 origin+零差异短路（O0b-1 内核化）；auto 展开档 wh 留现状链归 O0b-2" },
   ],
   'src/pages/canvas/components/CanvasView.tsx': [
     { fn: 'pendingFillCell 清理×2', category: 'non-geometry', note: 'UI 交互态（拖放完成/Escape 清理）' },
