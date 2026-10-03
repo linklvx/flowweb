@@ -214,12 +214,10 @@ export function stripDerivedKeys(records: readonly DocNodeRecord[]): string[] {
 // 两函数同表禁复制；stripDerivedKeys 预扫同源）──
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** storedFrame 有效性三态内联判定：三键齐且有限且宽高>0（assertions.ts 模块私有 isValidStoredFrame
- *  不可导入——同语义独立实现，frameMode 单源接线归 O0b）。 */
+/** storedFrame 有效性三态内联判定：三键齐且有限且宽高>0——O0b-1 起 isValidStoredFrame 单源实装，
+ *  本谓词降为记录形入参的薄委托（消同语义双实现——frameMode/键集表同源）。 */
 function hasValidStoredFrameKeys(n: DocNodeRecord): boolean {
-  return isFiniteNum(n.position?.x) && isFiniteNum(n.position?.y)
-    && isFiniteNum(n.width) && isFiniteNum(n.height)
-    && (n.width as number) > 0 && (n.height as number) > 0;
+  return isValidStoredFrame(n);
 }
 
 /** storyboard 组 id 全量预扫（不依赖遍历序——判定对构造序免疫）。 */
@@ -385,26 +383,32 @@ export interface DragSession {
  *  dirty-manual 档不存在（manuallyResized 已被终裁 50 删除）。 */
 export type FrameMode = 'auto' | 'manual' | 'storyboard';
 
-/** 帧模式判定（stub——C0 只定签名）：data.groupType==='storyboard'⇒'storyboard'；
+/** 帧模式判定（O0b-1 实装——写域①模式 oracle 单源）：data.groupType==='storyboard'⇒'storyboard'；
  *  storedFrame 三键齐且有效⇒'manual'；否则'auto'。
- *  oracle=doc 侧键：禁 cs 派生帧当 storedFrame——判定只依赖传入的 doc 侧记录键，不从 cs 派生。 */
+ *  oracle=doc 侧键：禁 cs 派生帧当 storedFrame——判定只依赖传入的 doc 侧记录键，不从 cs 派生
+ * （终裁 44——auto 组防 manual 死锁）。 */
 export function frameMode(input: {
   data: Record<string, unknown>;
   storedFrame?: { position?: { x: number; y: number }; width?: number; height?: number };
 }): FrameMode {
-  throw new Error('C0 stub');
+  if (input.data.groupType === 'storyboard') return 'storyboard';
+  if (input.storedFrame != null && isValidStoredFrame(input.storedFrame)) return 'manual';
+  return 'auto';
 }
 
-/** 折叠谓词（stub——C0 只定签名）：data.collapsed===true。与 frameMode 正交。 */
+/** 折叠谓词（O0b-1 实装）：data.collapsed===true。与 frameMode 正交。 */
 export function isCollapsed(data: Record<string, unknown>): boolean {
-  throw new Error('C0 stub');
+  return data.collapsed === true;
 }
 
-/** storedFrame 有效性三态（stub——C0 只定签名）：缺任一键/非有限/宽高≤0 ⇒ false；三态全过才 true。 */
+/** storedFrame 有效性三态（O0b-1 实装——frameMode 单源判定底座）：缺任一键/非有限/宽高≤0 ⇒ false；
+ *  三态全过才 true。 */
 export function isValidStoredFrame(frame: {
   position?: { x: number; y: number };
   width?: number;
   height?: number;
 }): boolean {
-  throw new Error('C0 stub');
+  return isFiniteNum(frame.position?.x) && isFiniteNum(frame.position?.y)
+    && isFiniteNum(frame.width) && isFiniteNum(frame.height)
+    && (frame.width as number) > 0 && (frame.height as number) > 0;
 }

@@ -144,14 +144,31 @@ describe('frameMode / isCollapsed / isValidStoredFrame 签名（行为留后续�
   });
 });
 
-describe('C0 stub 签名存在（不锚返回值——调用即抛 C0 stub，防本片提前实现）', () => {
-  it('三个谓词 body 全部 throw C0 stub', () => {
-    expect(() => frameMode({ data: {} })).toThrow('C0 stub');
-    expect(() => frameMode({
+// O0b-1（Spec B）：C0 stub 退役转实——三谓词行为测试（frameMode=写域①模式 oracle 单源）。
+describe('frameMode / isCollapsed / isValidStoredFrame 行为（O0b-1 实装——C0 stub 退役）', () => {
+  it('frameMode 三值：storyboard 键判 / 三键齐且有效判 manual / 其余 auto（oracle=传入 doc 侧键——不读 cs）', () => {
+    expect(frameMode({ data: { groupType: 'storyboard' } })).toBe('storyboard');
+    // storyboard 键优先于帧键形态（键集表：storyboard 组 position 留 wh 剥——mode 恒 storyboard）
+    expect(frameMode({
       data: { groupType: 'storyboard' },
       storedFrame: { position: { x: 0, y: 0 }, width: 10, height: 10 },
-    })).toThrow('C0 stub');
-    expect(() => isCollapsed({ collapsed: true })).toThrow('C0 stub');
-    expect(() => isValidStoredFrame({ position: { x: 1, y: 2 }, width: 3, height: 4 })).toThrow('C0 stub');
+    })).toBe('storyboard');
+    expect(frameMode({ data: {}, storedFrame: { position: { x: 1, y: 2 }, width: 3, height: 4 } })).toBe('manual');
+    expect(frameMode({ data: { groupType: 'normal' } })).toBe('auto');
+    // 无效 storedFrame 各三态→auto（缺 position / 宽高≤0 / 非有限）
+    expect(frameMode({ data: {}, storedFrame: { width: 3, height: 4 } })).toBe('auto');
+    expect(frameMode({ data: {}, storedFrame: { position: { x: 1, y: 2 }, width: 0, height: 4 } })).toBe('auto');
+    expect(frameMode({ data: {}, storedFrame: { position: { x: 1, y: 2 }, width: 3, height: 4 } })).toBe('manual');
+  });
+
+  it('isCollapsed 与 frameMode 正交（collapsed∧manual/auto 交叉装不下四值枚举）；isValidStoredFrame 三态门', () => {
+    expect(isCollapsed({ collapsed: true })).toBe(true);
+    expect(isCollapsed({})).toBe(false);
+    expect(isCollapsed({ collapsed: false })).toBe(false);
+    expect(isValidStoredFrame({ position: { x: 1, y: 2 }, width: 3, height: 4 })).toBe(true);
+    expect(isValidStoredFrame({})).toBe(false);
+    expect(isValidStoredFrame({ position: { x: 1, y: 2 }, width: -3, height: 4 })).toBe(false);
+    expect(isValidStoredFrame({ position: { x: Number.NaN, y: 2 }, width: 3, height: 4 })).toBe(false);
+    expect(isValidStoredFrame({ position: { x: 1, y: 2 }, width: 3 })).toBe(false);
   });
 });

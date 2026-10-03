@@ -4,6 +4,7 @@
 // 帧模式判定走被测模块内联实现（frameMode/isCollapsed 是 C0-1 stub——调不得），O0b 接线后换单源。
 import { describe, it, expect } from 'vitest';
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
+import { toDocRecords } from './docShape';
 import type { AbsCoord, RelCoord } from './brands';
 import { calcGroupBounds, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE } from './geometry';
 import {
@@ -354,12 +355,46 @@ describe('GeometryWriteLedger（字段级一写者框架：接口+计数器）',
 });
 
 // —— O0b 挂点（it.todo 先建后清：各分片 unskip 接线，B7-1 归零——it.todo 计数锚）——
+// O0b-1（2026-10-03）已转实：见下方『reconcile 尾挂①③先决契约』describe——
+// 生产热路径接线（reconcile DEV 尾跑①③）随 O0b-5 折叠分支 envelope 写删解锁（原 it.todo
+// 点名的"onNodesChange 尾挂"窗口本身归 O0b-6/B4'-2——本片先钉契约面与解锁条件）。
 describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', () => {
-  it.todo('O0b-1 接线：reconcile（onNodesChange）尾挂 doc/快照断言①③——assertNoAutoGroupFrameKeys + assertExpandedAutoFrameEqualsBounds');
   it.todo('O0b-2 接线：applyDocToStore 尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership，prod 转 id 去重 log）');
   it.todo('O0b-3 接线：dispatchProjectionDiff 尾挂 assertStoryboardChildNoPosition + assertNoCsDerivedKeysInData + assertNoDunderKeysInGroupData');
   it.todo('O0b-4 接线：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界');
   it.todo('O0b-5 接线：assertAllPositionsFinite 挂 assertInvariant 收口点');
+});
+
+// —— O0b-1 转实（Spec B，2026-10-03）：reconcile 尾挂①③的先决契约面 ——
+// 现实约束（热路径接线当前不可接的实证）：toggleCollapse 折叠分支对组直写 envelope{COLLAPSED_SIZE
+// wh}（updateNodeEnvelope 意图——canvasIntents.spec『toggleCollapse』用例即该形态），auto 组折叠后
+// doc 携带 w/h-only 键——①在热路径会于合法折叠流上抛。解锁条件=O0b-5『折叠分支 envelope 写删
+// （toggleCollapse 仅 updateNodeData{collapsed}）』落地。本片先钉两端：
+// ①③在 reconcile 的 doc oracle 输入契约（toDocRecords 出口——键集表内剥键）上零违例；
+// ①对 toggleCollapse 折叠产物形态的鉴别力（O0b-5 落地后热路径接线即零违例的先决）。
+describe('O0b-1 接线：reconcile 尾挂①③先决契约（toDocRecords 出口零违例+违例形态鉴别力）', () => {
+  it('toDocRecords 出口（reconcile doc oracle 输入）满足①③——manual 密封帧/auto 零键/分镜混合夹具不抛', () => {
+    // manual 组帧取 bbox+padding 合法形（③在 manuallyResized 旧标记语义下将无标记三键组按候选校验——
+    // 帧≡bbox 的夹具在新旧两代 manual 判定语义下同为合法，锚不随 O0b-5 标记删除漂移）
+    const bbox = calcGroupBounds([{ x: 120, y: 80, width: 100, height: 60 }]);
+    const csNodes = [
+      { id: 'gm', type: 'group', position: { x: bbox.x, y: bbox.y }, width: bbox.width, height: bbox.height, data: { groupType: 'normal', name: 'm' } },
+      { id: 'cm', type: 'imageGen', parentId: 'gm', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'ga', type: 'group', position: { x: 300, y: 400 }, data: { groupType: 'normal' } },
+      { id: 'ca', type: 'imageGen', parentId: 'ga', position: { x: 310, y: 410 }, width: 80, height: 50, data: {} },
+      { id: 'sb', type: 'group', position: { x: 0, y: 900 }, data: { groupType: 'storyboard', cells: ['sc'] } },
+      { id: 'sc', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: {} },
+    ];
+    const out = toDocRecords(csNodes as never, {});
+    expect(() => assertNoAutoGroupFrameKeys(out)).not.toThrow();
+    expect(() => assertExpandedAutoFrameEqualsBounds(out)).not.toThrow();
+  });
+
+  it('①鉴别力：auto 组折叠态带 w/h-only 键（当前 toggleCollapse 折叠分支产物形态）⇒ throw（热路径接线随 O0b-5 解锁）', () => {
+    expect(() => assertNoAutoGroupFrameKeys([
+      groupRec({ id: 'gc', data: { groupType: 'normal', collapsed: true, savedSize: { width: 530, height: 560 } }, width: 220, height: 160 }),
+    ])).toThrow(/gc/);
+  });
 });
 
 // —— 测试私有：期望帧计算（与实现同源 calcGroupBounds——只用于构造合法夹具）——

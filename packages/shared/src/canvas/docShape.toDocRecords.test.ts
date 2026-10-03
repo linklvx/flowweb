@@ -252,7 +252,9 @@ describe('O0a-3 签名（结构性最小入参——零 xyflow/yjs import）', (
   });
 });
 
-// —— O0b 挂点（it.todo 先建后清：O0b-1 unskip 接线——it.todo 计数锚，B7-1 归零）——
-describe('O0a-3 计划锚：连续两次 reconcile(cs) 幂等（reconcile 是 O0b-1 符号——现不存在，it.todo 挂起）', () => {
-  it.todo('O0b-1 接线：连续两次 reconcile(cs) 幂等——第二次零 setState（订阅计数=0）∧几何变更恰一次（本文件幂等等价锚=toDocRecords 纯函数两次逐位相等）');
-});
+// —— O0b-1（Spec B，2026-10-03）原 it.todo 转实登记 ——
+// "连续两次 reconcile(cs) 幂等——第二次零 setState（订阅计数=0）∧几何变更恰一次"：
+// reconcile 是 apps/web 符号（shared 不可 import）——真锚落
+// apps/web/src/stores/canvasCollabRuntime.geometry.test.ts『O0b-1 单遍单 origin+零差异短路』块
+// （'cs' 源与 'doc' 源各一条：第二次订阅计数不增）。shared 侧纯函数幂等等价锚=上文『纯函数幂等』
+// describe（reconcile 幂等的可测等价锚，两锚并存互注）。

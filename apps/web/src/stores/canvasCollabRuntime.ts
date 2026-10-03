@@ -1,8 +1,9 @@
 // apps/web/src/stores/canvasCollabRuntime.ts
 // 画布 Yjs 实时协作桥（spec T6 + 批4b-2 写路径收口）：
 //   读方向 doc→store = applyDocToStore（onRemote 50ms 去抖 + 水合窗口）+ 尾挂 reconcileGroupGeometry
-//   （O0b-0 最小版——写域②abs→rel 直拷+组帧 origin 同 tick）；
-//   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口）——S1 系统几何修复
+//   （O0b-1 单内核——写域四类+单遍单 origin+零差异短路，source:'doc'）；
+//   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口；漏斗尾挂 reconcile
+//   source:'doc'、dispatchProjectionDiff 首行挂 source:'cs'——全仓唯一）——S1 系统几何修复
 //   回写已随 O0b-0 格式批停写（structDiffToIntents/dispatchSystemIntents 调用点摘除；
 //   canvasHistory/canvasIntents 模块清理归 O0b-4）。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
@@ -15,7 +16,10 @@ import { useNodeStore, toAppNode } from './nodeStore';
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
-import { calcGroupBounds, ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit } from '@flowweb/shared';
+import {
+  ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit,
+  deriveGroupFrame, frameMode, isCollapsed, hasStoryboardConfig, type Rect,
+} from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
 // 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
@@ -283,58 +287,163 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 // dispatchSystemIntents 定义删除留 O0b-4）。
 // refitExpandedGroups（:650 定义——O0b-0 摘调用后零生产调用者，O0b-4 与 canvasHistory 同批删，连带 page.test.tsx:18 mock+shouldAutoRefit import）。
 
-/** O0b-0 reconcile 最小实现（读侧——写域②abs→rel 直拷+组帧 origin 同 tick；挂点=applyDocToStore
- *  尾。O0b-1 完整化源矩阵/写域四类/零差异短路/漏斗尾+diff 首行挂点）。doc 读取=readRecordsFromMaps
- *  （readCanvasFromDoc 薄委托——docShape 单源，禁从 nsNodes/csNodes 反推=直拷回灌）。
- *  组帧 origin：manual/storyboard 组=doc position 键（键集表"组 position⟺manual∨storyboard"）；
- *  auto 组=从成员 doc.abs 推 bbox（calcGroupBounds 单源——帧装配算术实现点=1）；分镜子={0,0}
- *  不动（doc 无 position 键，cs 构造默认保留）。
- *  写域②（本批唯一）：cs 顶层=doc.abs 直拷；cs 子=doc.abs−组帧 origin。纯 cs 写零 doc 写
- * （恢复链零回写锚的结构性保证——本函数不持有任何 doc 写原语）。 */
-export function reconcileGroupGeometry(d: Y.Doc): void {
-  const { nodes } = readCanvasFromDoc(d);
+/** O0b-1 reconcile 单内核（cs 几何唯一写者——写域四类+单遍单 origin+零差异短路；源矩阵见下）。
+ *  doc 读取=readRecordsFromMaps（readCanvasFromDoc 薄委托——docShape 单源，禁从 nsNodes/csNodes
+ *  反推=直拷回灌）；帧派生=deriveGroupFrame 单源（帧装配算术实现点=1 calcGroupBounds）。
+ *  源矩阵（卡一）：'doc'=doc 权威直拷（漏斗尾/applyDocToStore 尾）；'cs'=cs 活值反推 abs
+ * （dispatchProjectionDiff 首行——命令几何已落 cs、doc 未更新：manual/storyboard 组帧值取 cs 活值、
+ * auto 组帧从 cs 子 abs 重派生、写域②③④直拷跳过防吞命令写）。全仓 source:'cs' 恰 1 处（census）。
+ *  写域四类：①组帧三字段=deriveGroupFrame 派生（含折叠档——collapsed 非 storyboard⇒COLLAPSED_SIZE
+ *  覆写、优先级最高，doc 三键保持展开态值不动[终裁 82]）②非组非分镜子 position（顶层=doc.abs 直拷/
+ *  子=abs−本 tick 新 origin，rel 不量化）③非组 wh doc→cs 直拷（缺键保留 cs 现值禁 undefined）
+ *  ④分镜子 position=构造默认 {0,0} 停住。
+ *  ⚠️ 写域① wh 写入面分档（O0b-1 偏差登记，O0b-2 随投影层几何键全删收口）：manual/storyboard/
+ *  collapsed 档写全三字段（写侧键集表可往返：manual=doc 镜像同值零差异/storyboard wh 被键集表
+ *  无条件剥/collapsed=终裁 82 语义迁移）；**auto 展开档只写 origin（position）——wh 留现状链**
+ * （命令体 applyGroupFrame 暂维持）：cs auto 组若携派生 wh，写侧 applyKeySetTable 按 record 形态
+ *  误判 manual（hasValidStoredFrameKeys 恒真）→ 键泄漏进 doc=终裁 44 auto→manual 死锁经写侧复现
+ * （实证：web 几何测试二次打开不变量红+addToGroup doc 0 帧键红）。doc-oracle 进写侧键集判定=
+ *  O0b-2 结构动作，本批不提前（精准修改）。
+ *  一写者通则：doc 无该键⇒唯一写者=派生①，直拷②③跳过；写前 Number.isFinite 守卫；
+ *  零差异短路（EPS=1e-6——量化后应严格相等，EPS 只防浮点噪声）：同值 return 原 nd 保对象引用
+ * （RF 全量重渲染消解），全表零差异⇒零 setState。
+ *  单遍单 origin：帧集合 Pass 1 一步产出（子 abs 用旧 origin 反推），之后 Pass 2 才写子 rel
+ * （本 tick 新 origin）——组因成员移动整体位移时子 abs 逐位不变。
+ *  纯 cs 写零 doc 写（恢复链零回写锚的结构性保证——本函数不持有任何 doc 写原语，census 锚在
+ *  canvasCollabRuntime.geometry.test.ts）。 */
+export type ReconcileSource = 'cs' | 'doc';
+
+/** 零差异短路 EPS（量化契约表冻结值） */
+const RECONCILE_EPS = 1e-6;
+
+const near = (a: number | null | undefined, b: number | null | undefined): boolean =>
+  a == null && b == null ? true : a != null && b != null && Math.abs(a - b) <= RECONCILE_EPS;
+
+export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'): void {
+  const { nodes: docNodes } = readCanvasFromDoc(d);
+  const csNodes = useCanvasStore.getState().nodes as any[];
+  // M-5（O0b-0 质评）：预建 Map 消内层 find/filter（O(N²)→O(N)）
+  const docById = new Map(docNodes.map((r) => [r.id, r]));
+  const childrenByParent = new Map<string, any[]>();
+  for (const nd of csNodes) {
+    if (nd.parentId != null) {
+      const key = nd.parentId as string;
+      const list = childrenByParent.get(key);
+      if (list) list.push(nd); else childrenByParent.set(key, [nd]);
+    }
+  }
   const sbGroups = new Set(
-    nodes
-      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+    docNodes
+      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown>).groupType === 'storyboard')
       .map((n) => n.id),
   );
-  // 组帧 origin 表：doc position 键（manual/storyboard）优先；auto 组（键集表 0 帧键）从成员 abs 推
-  const origins = new Map<string, { x: number; y: number }>();
-  for (const n of nodes) {
-    if (n.type !== 'group') continue;
-    if (n.position != null) { origins.set(n.id, n.position); continue; }
-    const children = nodes.filter((c) => c.parentId === n.id);
-    if (children.length === 0) continue; // 空 auto 组：无成员可推——cs 保持现值（O0b-1 COLLAPSED_SIZE 档）
-    const bounds = calcGroupBounds(children.map((c) => ({
-      x: c.position?.x ?? 0,
-      y: c.position?.y ?? 0,
-      width: c.width ?? DEFAULT_CHILD_SIZE.width,
-      height: c.height ?? DEFAULT_CHILD_SIZE.height,
-    })));
-    origins.set(n.id, { x: bounds.x, y: bounds.y });
+
+  // —— Pass 1：单遍单 origin——帧集合一步产出（写域①；之后才写子 rel——本 tick 新 origin）——
+  const frames = new Map<string, Rect>();
+  const writeWH = new Map<string, boolean>();
+  const oldOrigins = new Map<string, { x: number; y: number }>();
+  for (const nd of csNodes) {
+    if (nd.type !== 'group') continue;
+    oldOrigins.set(nd.id, nd.position);
+    const rec = docById.get(nd.id);
+    const data = (rec?.data ?? nd.data ?? {}) as Record<string, unknown>;
+    // mode oracle 恒=doc 侧记录键（终裁 44——禁 cs 派生帧当 storedFrame，auto 组防 manual 死锁）
+    const storedFrame = { position: rec?.position, width: rec?.width, height: rec?.height };
+    const mode = frameMode({ data, storedFrame });
+    // 写域① wh 写入面分档（见函数头偏差登记）：auto 展开档只写 origin——wh 留现状链（O0b-2 收口）
+    writeWH.set(nd.id, mode !== 'auto' || isCollapsed(data));
+    if (import.meta.env.DEV && data.groupType === 'storyboard' && !hasStoryboardConfig(data)) {
+      throw new Error(`[O0b-1] 分镜组 ${nd.id} 缺 storyboard config（建组/转换命令体必写完整 config——gate-seed 一次到位）`);
+    }
+    // 子 abs：'doc' 源=doc.abs 直读；'cs' 源=cs.rel+旧 origin（cs 组 position 活值——命令几何已落 cs）。
+    // 尺寸链=doc wh 第一/measured(cs) 第二/常量最后（固化后 doc 尺寸——O0b-2 同批完善）。
+    const oldOrigin = source === 'cs' && nd.position ? nd.position : undefined;
+    const childrenAbs = (childrenByParent.get(nd.id) ?? []).map((c) => {
+      const crec = docById.get(c.id);
+      const fallbackAbs = oldOrigin
+        ? { x: c.position.x + oldOrigin.x, y: c.position.y + oldOrigin.y }
+        : c.position;
+      const abs = source === 'doc' ? (crec?.position ?? fallbackAbs) : fallbackAbs;
+      return {
+        x: abs.x,
+        y: abs.y,
+        width: crec?.width ?? c.width ?? DEFAULT_CHILD_SIZE.width,
+        height: crec?.height ?? c.height ?? DEFAULT_CHILD_SIZE.height,
+      };
+    });
+    // 'cs' 源：manual/storyboard 组帧值取 cs 活值（命令中间态——auto 恒派生，liveFrame 不参与模式判定）
+    const liveFrame = source === 'cs'
+      ? { position: nd.position, width: nd.width ?? undefined, height: nd.height ?? undefined }
+      : undefined;
+    frames.set(nd.id, deriveGroupFrame({ data, storedFrame, liveFrame, childrenAbs, fallbackOrigin: nd.position }));
   }
-  useCanvasStore.setState({
-    nodes: useCanvasStore.getState().nodes.map((nd: any) => {
-      const rec = nodes.find((r) => r.id === nd.id);
-      if (!rec) return nd;
-      let position = nd.position;
-      if (nd.parentId == null) {
-        if (nd.type === 'group') {
-          // 组：cs position=组帧 origin 同 tick（manual/storyboard=doc position 键值；auto=推导 bbox——
-          // doc 无键，origin 只在推导表里——hydrate 的 {0,0} 过渡态在此修正）
-          position = origins.get(nd.id) ?? nd.position;
-        } else {
-          position = rec.position ?? nd.position;               // 非组顶层：doc.abs 直拷
+
+  // —— Pass 2：写域①②③④——零差异短路（同值保对象引用）+isFinite 守卫；全表零差异⇒零 setState ——
+  let mutated = false;
+  const nextNodes = csNodes.map((nd: any) => {
+    if (nd.type === 'group') {
+      // 写域①：组帧=deriveGroupFrame 派生——组 position 唯一写者（wh 写入面分档见函数头）
+      const f = frames.get(nd.id);
+      if (!f || !Number.isFinite(f.x) || !Number.isFinite(f.y)) return nd;
+      const withWH = writeWH.get(nd.id) === true;
+      if (withWH && (!Number.isFinite(f.width) || !Number.isFinite(f.height))) return nd;
+      const posSame = near(nd.position?.x, f.x) && near(nd.position?.y, f.y);
+      const whSame = !withWH || (near(nd.width, f.width) && near(nd.height, f.height));
+      if (posSame && whSame) return nd;
+      mutated = true;
+      return withWH
+        ? { ...nd, position: { x: f.x, y: f.y }, width: f.width, height: f.height }
+        : { ...nd, position: { x: f.x, y: f.y } };
+    }
+    const rec = docById.get(nd.id);
+    let position = nd.position;
+    let width = nd.width;
+    let height = nd.height;
+    let changed = false;
+    if (nd.parentId == null) {
+      // 写域②顶层：doc.abs 直拷（缺键/非有限保留现值——禁 undefined）；'cs' 源跳过（doc 落后，防吞命令写）
+      const dp = source === 'doc' ? rec?.position : undefined;
+      if (dp != null && Number.isFinite(dp.x) && Number.isFinite(dp.y)
+        && !(near(position?.x, dp.x) && near(position?.y, dp.y))) {
+        position = { x: dp.x, y: dp.y };
+        changed = true;
+      }
+    } else if (sbGroups.has(nd.parentId)) {
+      // 写域④：分镜子 position=构造默认 {0,0} 停住（'cs' 源跳过——命令中间态为更新值）
+      if (source === 'doc' && !(near(position?.x, 0) && near(position?.y, 0))) {
+        position = { x: 0, y: 0 };
+        changed = true;
+      }
+    } else {
+      // 写域②组子：rel=abs−本 tick 新 origin（Pass 1 帧集合已产出）
+      //（'doc' 源 abs=doc.abs；'cs' 源 abs=cs.rel+旧 origin——保命令几何再按新 origin 重基）
+      const f = frames.get(nd.parentId);
+      if (f && Number.isFinite(f.x) && Number.isFinite(f.y)) {
+        const abs = source === 'doc'
+          ? rec?.position
+          : (() => {
+            const o = oldOrigins.get(nd.parentId);
+            return o ? { x: nd.position.x + o.x, y: nd.position.y + o.y } : undefined;
+          })();
+        if (abs != null && Number.isFinite(abs.x) && Number.isFinite(abs.y)) {
+          const rel = { x: abs.x - f.x, y: abs.y - f.y };
+          if (!(near(position?.x, rel.x) && near(position?.y, rel.y))) {
+            position = rel;
+            changed = true;
+          }
         }
-      } else if (!sbGroups.has(nd.parentId)) {
-        const origin = origins.get(nd.parentId);
-        if (origin && rec.position != null) {
-          position = { x: rec.position.x - origin.x, y: rec.position.y - origin.y }; // 子：abs→rel
-        }
-      } // 分镜子：cs {0,0} 构造默认不动（doc 无键）
-      return { ...nd, position };
-    }),
+      }
+    }
+    // 写域③：非组 wh doc→cs 直拷（缺键/非有限保留现值）；'cs' 源跳过（doc 落后）
+    if (source === 'doc') {
+      if (typeof rec?.width === 'number' && Number.isFinite(rec.width) && !near(width, rec.width)) { width = rec.width; changed = true; }
+      if (typeof rec?.height === 'number' && Number.isFinite(rec.height) && !near(height, rec.height)) { height = rec.height; changed = true; }
+    }
+    if (!changed) return nd;
+    mutated = true;
+    return { ...nd, position, width, height };
   });
+  if (mutated) useCanvasStore.setState({ nodes: nextNodes });
 }
 
 /** server doc → store——同款形参化（undo/乒乓断言的读回驱动）。
@@ -368,9 +477,9 @@ export function applyDocToStore(d: Y.Doc) {
   // C1（Task 17 审查沿革）：ns 刷新在投影读点之前——storeProjection→projectCanvasNodes 对普通节点
   // data 是 ns 优先，陈旧 ns 会把协作者刚提交的编辑投影丢（S1 停写后无回写通道，此处保序仍成立）
   useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });
-  // O0b-0 挂点=applyDocToStore 尾（漏斗尾/diff 首行随 O0b-1 补——abs 过渡态在函数出前修正为
-  // cs 语义：顶层 abs 直拷/子 rel/组帧 origin 同 tick）
-  reconcileGroupGeometry(d);
+  // O0b-1 挂点③=applyDocToStore 尾（source:'doc'——doc 权威直拷；漏斗尾/diff 首行随 O0b-1 同批落，
+  // abs 过渡态在函数出前修正为 cs 语义：顶层 abs 直拷/子 rel/组帧 origin+wh 同 tick）
+  reconcileGroupGeometry(d, 'doc');
 }
 
 // 批4b-2（组 2 收口）退役：store→doc 订阅翻译桥（写路径唯一入口已收口

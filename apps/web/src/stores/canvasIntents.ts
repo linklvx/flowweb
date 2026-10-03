@@ -19,8 +19,10 @@ import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from 
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
 import { canEdit } from './syncStatus';
-// doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）
-import { getDoc } from './canvasCollabRuntime';
+// doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
+// O0b-1 挂点：漏斗尾 reconcile（source:'doc'）+dispatchProjectionDiff 首行 reconcile（source:'cs'
+// ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
+import { getDoc, reconcileGroupGeometry } from './canvasCollabRuntime';
 
 /** 信封 patch（updateNodeEnvelope 专域）：type/parentId/width/height 任意子集；
  *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。 */
@@ -240,7 +242,9 @@ export function projectIntentToStore(intent: CanvasIntent): void {
  * 前移到 action 入口——canEdit 假（readOnly/terminal/非 ready）时 doc+store 双零写、
  * 无"先改后回弹"（单点同构；action 层 UX 面 toast 由各 action 自留）。
  * 复合=序列单 transact（对端一帧收齐+撤销栈单捕获窗）；origin 语义沿 Origin 枚举
- * （LocalUser 入撤销栈；拖拽高频路径 Geometry 不入——canvasUndo trackedOrigins 契约）。 */
+ * （LocalUser 入撤销栈；拖拽高频路径 Geometry 不入——canvasUndo trackedOrigins 契约）。
+ * O0b-1 挂点①（漏斗尾）：投影循环后 doc 已更新=权威，reconcile（source:'doc'）同 tick 收口 cs。
+ * 两早退分支（canEdit 拦截/无 doc）不挂——早退也跑 reconcile=语义错误；禁 finally 包裹。 */
 export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], origin: string): void {
   if (!canEdit(useCanvasStore.getState())) return;
   const d = resolveDoc();
@@ -250,6 +254,7 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
     for (const i of seq) applyIntentToDoc(d, i);
   }, origin);
   for (const i of seq) projectIntentToStore(i);
+  reconcileGroupGeometry(d, 'doc');
 }
 
 /** O0a-1 键集表 DEV 校验（三层防线②挂载点=复合批尾 dispatchProjectionDiff——非每个原子
@@ -371,8 +376,13 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
 /** 复合写点换芯（批4b-2）：action 起点捕获快照 → set 序列（含 ns 双写）完成后调本函数——
  *  before/after 差分翻译为 intent 序列经 dispatch 单 transact 落 doc（旧 bindBridge 全量同步
  *  的增量翻译形态）。canEdit 假（readOnly/回弹窗口）时 dispatch 门拦截=doc 零写（语义同旧）；
- *  嵌套 action 各自 dispatch 幂等（applyIntentToDoc 逐键同值 no-op）。 */
+ *  嵌套 action 各自 dispatch 幂等（applyIntentToDoc 逐键同值 no-op）。
+ *  O0b-1 挂点②（diff 首行——全仓唯一 source:'cs'）：命令几何已落 cs、doc 未更新——cs 活值反推
+ *  abs 归一（auto 组帧从 cs 子 abs 重派生/manual/storyboard 用 cs 活值帧；写域②③④直拷跳过防吞
+ *  命令写），此后差分快照才不丢命令几何。无 doc（会话外）跳过——oracle 缺席无从判定帧模式。 */
 export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: string): void {
+  const rd = resolveDoc();
+  if (rd) reconcileGroupGeometry(rd, 'cs');
   const intents = diffProjectionToIntents(before, captureStoreProjection());
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);

@@ -98,7 +98,9 @@ export function assertDocAbsMatchesCsRel(snapshot: {
 }
 
 /** manual 域标记内联判定（③/+条口径——shouldAutoRefit 同源：manuallyResized=true 的组帧
- *  不归 bbox/COLLAPSED_SIZE 公式管）。O0b 接线后换 frameMode 单源。 */
+ *  不归 bbox/COLLAPSED_SIZE 公式管）。O0b 接线后换 frameMode 单源——终裁 50 删标记后 manual 由
+ *  帧键形态定义，届时 ③ 的校验对象域随之重定义（随 O0b-5 manuallyResized 整删批改写，本片不动——
+ *  既有 ③ 用例编码旧语义，动谓词即红两用例）。 */
 const isManualDomain = (r: DocNodeRecord): boolean => r.data.manuallyResized === true;
 
 /**

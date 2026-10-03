@@ -1,7 +1,12 @@
 // packages/shared/src/canvas/geometry.ts
 // R1b Task 16：apps/web/src/utils/groupLayout.ts 整模块下沉（逐字迁入 + import type 改自 '../types/group'），
 // 新增 DEFAULT_CHILD_SIZE / COLLAPSED_SIZE / refitGroupGeometry / shouldAutoRefit / RATIO_MAP / clampChildIntoGroup。
+// O0b-1（Spec B）：deriveGroupFrame 写域①四模式单源落位（storyboard=calcStoryboardSize 无 padding/
+// collapsed=COLLAPSED_SIZE 档优先级最高[终裁 82]/manual=storedFrame 密封/auto=calcGroupBounds；
+// mode oracle=frameMode(doc storedFrame)——帧装配算术实现点=1 calcGroupBounds，禁自写 padding 公式）。
 import type { AspectRatio } from '../types/group';
+import { frameMode, isCollapsed, isValidStoredFrame, type Rect } from './docShape';
+import { resolveStoryboardConfig } from './storyboardConfig';
 
 export const CELL_WIDTH = 320;
 export const CELL_GAP = 2;
@@ -133,4 +138,63 @@ export function refitGroupGeometry(
 export function shouldAutoRefit(group: { type?: string; data?: Record<string, unknown> }): boolean {
   const d = (group.data ?? {}) as Record<string, unknown>;
   return group.type === 'group' && d.groupType !== 'storyboard' && !d.collapsed && !d.manuallyResized;
+}
+
+/** 帧值面（doc 侧帧三键/cs 活值帧共用形——deriveGroupFrame 入参）。 */
+export interface GroupStoredFrame {
+  position?: { x: number; y: number };
+  width?: number;
+  height?: number;
+}
+
+/** O0b-1 组帧派生四模式单源（reconcile 写域①——组 position 唯一写者的值来源，后续消费共用）：
+ *  - storyboard：尺寸=calcStoryboardSize（resolveStoryboardConfig 单源，无 padding）；
+ *    origin=帧 position 键（键集表：组 position⟺manual∨storyboard）；'cs' 源活值 wh 优先（命令中间态）。
+ *  - collapsed（非 storyboard）⇒COLLAPSED_SIZE 档、优先级最高（终裁 82——doc 三键保持展开态值不动）；
+ *    origin：manual=密封 origin（帧 position 键）/auto=照旧 bbox 派生/空组兜底 fallbackOrigin。
+ *  - manual：storedFrame 三键密封（'cs' 源=liveFrame 活值，活值三键缺任一回落密封源）。
+ *  - auto：calcGroupBounds(childrenAbs)（帧装配算术实现点=1——禁调用方自写 padding 公式）；
+ *    空 auto 组→COLLAPSED_SIZE@fallbackOrigin；liveFrame 不参与 auto（恒派生）。
+ *  mode oracle=frameMode(doc storedFrame)——禁 cs 派生帧当 storedFrame（终裁 44，auto 防死锁）：
+ *  liveFrame 只被 manual/storyboard 的值面消费，永不参与模式判定。 */
+export function deriveGroupFrame(input: {
+  data: Record<string, unknown>;
+  childrenAbs: readonly { x: number; y: number; width: number; height: number }[];
+  storedFrame?: GroupStoredFrame;
+  liveFrame?: GroupStoredFrame;
+  fallbackOrigin?: { x: number; y: number };
+}): Rect {
+  const { data, childrenAbs, storedFrame, liveFrame, fallbackOrigin } = input;
+  if (data.groupType === 'storyboard') {
+    const cfg = resolveStoryboardConfig(data);
+    const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+    const origin = liveFrame?.position ?? storedFrame?.position ?? fallbackOrigin ?? { x: 0, y: 0 };
+    return {
+      x: origin.x, y: origin.y,
+      width: liveFrame?.width ?? size.width,
+      height: liveFrame?.height ?? size.height,
+    };
+  }
+  const mode = frameMode({ data, storedFrame });
+  if (isCollapsed(data)) {
+    const sealedOrigin = mode === 'manual' ? (liveFrame?.position ?? storedFrame?.position) : undefined;
+    const b = childrenAbs.length > 0 ? calcGroupBounds([...childrenAbs]) : undefined;
+    const origin = sealedOrigin ?? (b ? { x: b.x, y: b.y } : undefined) ?? fallbackOrigin ?? { x: 0, y: 0 };
+    return { x: origin.x, y: origin.y, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height };
+  }
+  if (mode === 'manual') {
+    // mode=manual ⇒ storedFrame 三键齐且有效（isValidStoredFrame 已过）——非空断言安全
+    const f = liveFrame
+      && liveFrame.position
+      && isValidStoredFrame(liveFrame)
+      ? liveFrame
+      : storedFrame!;
+    return { x: f.position!.x, y: f.position!.y, width: f.width!, height: f.height! };
+  }
+  if (childrenAbs.length === 0) {
+    const origin = fallbackOrigin ?? { x: 0, y: 0 };
+    return { x: origin.x, y: origin.y, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height };
+  }
+  const b = calcGroupBounds([...childrenAbs]);
+  return { x: b.x, y: b.y, width: b.width, height: b.height };
 }

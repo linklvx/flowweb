@@ -3,7 +3,9 @@ import { describe, it, expect } from 'vitest';
 import {
   refitGroupGeometry, shouldAutoRefit, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
   GROUP_PADDING, GROUP_PADDING_TOP, clampChildIntoGroup, clampPositionToPadding,
+  deriveGroupFrame, calcGroupBounds, calcStoryboardSize,
 } from './geometry';
+import { resolveStoryboardConfig } from './storyboardConfig';
 
 const rect = (x: number, y: number, width = 100, height = 60) => ({ x, y, width, height });
 
@@ -102,5 +104,84 @@ describe('单源常量锚（新建——现状散布内联的契约面）', () =
   });
   it('COLLAPSED_SIZE = 220×160（R2d-2 改值；原 canvasStore:1264 与 NormalGroupRenderer:44 两处内联 200×64 的单源）', () => {
     expect(COLLAPSED_SIZE).toEqual({ width: 220, height: 160 });
+  });
+});
+
+// ════════ O0b-1（Spec B）：deriveGroupFrame 写域①四模式单源 ════════
+// 帧装配算术实现点=1（calcGroupBounds——禁本函数自写 padding 公式成第二实现）；
+// mode oracle=frameMode(doc storedFrame)——禁 cs 派生帧当 storedFrame（终裁 44，auto 防死锁）；
+// collapsed（非 storyboard）⇒COLLAPSED_SIZE 档、优先级最高（终裁 82——doc 三键保持展开态值不动）。
+describe('deriveGroupFrame（O0b-1 写域①四模式单源——reconcile 与后续消费共用）', () => {
+  it('storyboard 档：尺寸=calcStoryboardSize（resolveStoryboardConfig 单源，无 padding）；origin=帧 position 键', () => {
+    const cfg = resolveStoryboardConfig({ storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2 } });
+    const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+    const frame = deriveGroupFrame({
+      data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2 } },
+      childrenAbs: [],
+      storedFrame: { position: { x: 30, y: 40 } },
+    });
+    expect(frame).toEqual({ x: 30, y: 40, width: size.width, height: size.height });
+  });
+
+  it('collapsed（非 storyboard）优先级最高：manual 密封 origin+COLLAPSED_SIZE 覆写——storedFrame wh 不被消费（终裁 82）', () => {
+    const frame = deriveGroupFrame({
+      data: { groupType: 'normal', collapsed: true },
+      childrenAbs: [{ x: 120, y: 80, width: 100, height: 60 }],
+      storedFrame: { position: { x: 100, y: 50 }, width: 400, height: 300 },
+    });
+    expect(frame).toEqual({ x: 100, y: 50, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
+  });
+
+  it('collapsed auto（doc 0 帧键）：origin 照旧 bbox 派生（calcGroupBounds）+COLLAPSED_SIZE 覆写', () => {
+    const b = calcGroupBounds([{ x: 500, y: 300, width: 200, height: 100 }]);
+    const frame = deriveGroupFrame({
+      data: { groupType: 'normal', collapsed: true },
+      childrenAbs: [{ x: 500, y: 300, width: 200, height: 100 }],
+      storedFrame: {},
+    });
+    expect(frame).toEqual({ x: b.x, y: b.y, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
+  });
+
+  it('manual 档：storedFrame 三键密封输出；liveFrame（cs 活值——source:\'cs\' 命令中间态）优先', () => {
+    const docFrame = deriveGroupFrame({
+      data: { groupType: 'normal' },
+      childrenAbs: [],
+      storedFrame: { position: { x: 100, y: 50 }, width: 400, height: 300 },
+    });
+    expect(docFrame).toEqual({ x: 100, y: 50, width: 400, height: 300 });
+    const liveFrame = deriveGroupFrame({
+      data: { groupType: 'normal' },
+      childrenAbs: [],
+      storedFrame: { position: { x: 100, y: 50 }, width: 400, height: 300 },
+      liveFrame: { position: { x: 7, y: 8 }, width: 91, height: 82 },
+    });
+    expect(liveFrame).toEqual({ x: 7, y: 8, width: 91, height: 82 });
+  });
+
+  it('auto 档：帧=calcGroupBounds(childrenAbs)；liveFrame 不参与 auto（恒派生——liveFrame 只被 manual/storyboard 值面消费）', () => {
+    const b = calcGroupBounds([
+      { x: 300, y: 100, width: 200, height: 100 },
+      { x: 550, y: 100, width: 150, height: 80 },
+    ]);
+    const frame = deriveGroupFrame({
+      data: { groupType: 'normal' },
+      childrenAbs: [
+        { x: 300, y: 100, width: 200, height: 100 },
+        { x: 550, y: 100, width: 150, height: 80 },
+      ],
+      storedFrame: {},
+      liveFrame: { position: { x: 999, y: 999 }, width: 1, height: 1 },
+    });
+    expect(frame).toEqual({ x: b.x, y: b.y, width: b.width, height: b.height });
+  });
+
+  it('空 auto 组→COLLAPSED_SIZE@fallbackOrigin（assertEmptyAutoGroupCollapsedSize 同口径）', () => {
+    const frame = deriveGroupFrame({
+      data: { groupType: 'normal' },
+      childrenAbs: [],
+      storedFrame: {},
+      fallbackOrigin: { x: 12, y: 34 },
+    });
+    expect(frame).toEqual({ x: 12, y: 34, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
   });
 });

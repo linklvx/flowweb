@@ -793,10 +793,10 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
   afterEach(() => _setIntentDocForTest(null));
 
   it('既有分镜组+新子落 cs {0,0}（构造默认）→ dispatchProjectionDiff → doc 子无 position 键', () => {
-    // 既有分镜组先入 doc（拖图入组形态——组早已存在）
+    // 既有分镜组先入 doc（拖图入组形态——组早已存在；夹具带完整 config——O0b-1 reconcile DEV 门要求）
     const sbGroup = {
       id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
-      data: { groupType: 'storyboard', cells: [] },
+      data: { groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' } },
     };
     useCanvasStore.setState({ nodes: [sbGroup] as any });
     fillDoc(doc, toDocRecords([sbGroup] as any, {}) as any, []);   // O0b-0 同构链（storyboard 组剥 wh）
@@ -825,14 +825,14 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     // 违例须落在 diff 触达面外（doc-only，不入 store 投影）才能存活到批尾断言
     fillDoc(doc, [
       { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
-        data: { groupType: 'storyboard', cells: ['c1'] } },
+        data: { groupType: 'storyboard', cells: ['c1'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
       { id: 'c1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180,
         position: { x: 5, y: 5 }, data: { status: 'done' } },
     ] as any, []);
     // store 只镜像 sb1（违例 c1 留 doc-only——store 投影无此节点 ⇒ diff 零 intent 触达违例）
     useCanvasStore.setState({ nodes: [
       { id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
-        data: { groupType: 'storyboard', cells: ['c1'] } },
+        data: { groupType: 'storyboard', cells: ['c1'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
     ] as any });
     const before = captureStoreProjection();
     // 无关变更：新节点 n9 入 store → diff=[addNode n9] 非空——才走得到批尾 DEV 断言（空 diff 提前 return）
